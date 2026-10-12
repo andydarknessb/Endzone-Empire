@@ -40,6 +40,69 @@ test('gamesNeedingBoxScore: rows without an id are ignored', () => {
   assert.deepEqual(scoring.gamesNeedingBoxScore(null), []);
 });
 
+// --- Final box recheck (#2223) ----------------------------------------------
+
+const HOUR = 60 * 60 * 1000;
+const NOW = Date.parse('2026-10-11T22:00:00Z');
+const stampedAgo = (ms) => new Date(NOW - ms);
+
+test('gamesNeedingBoxScore: a stamped final is rechecked once its stamp is recheckMs old, not before (#2223)', () => {
+  const row = (agoMs) => ({
+    tank01_game_id: 'g1', game_status: 'final',
+    final_stats_synced_at: stampedAgo(agoMs), final_stats_rechecked_at: null,
+  });
+  const opts = { now: NOW, recheckMs: 2 * HOUR };
+  assert.deepEqual(scoring.gamesNeedingBoxScore([row(2 * HOUR - 1)], opts), [], 'one ms early');
+  assert.deepEqual(scoring.gamesNeedingBoxScore([row(2 * HOUR)], opts), [
+    { gameId: 'g1', status: 'final', isFinal: true, recheck: true },
+  ]);
+  assert.equal(scoring.gamesNeedingBoxScore([row(5 * HOUR)], opts).length, 1, 'long past the delay still rechecks');
+});
+
+test('gamesNeedingBoxScore: the recheck window is bounded above by maxAgeMs; a days-old stamp is never rechecked (#2223)', () => {
+  const row = (agoMs) => ({
+    tank01_game_id: 'g1', game_status: 'final',
+    final_stats_synced_at: stampedAgo(agoMs), final_stats_rechecked_at: null,
+  });
+  const opts = { now: NOW, recheckMs: 2 * HOUR, maxAgeMs: 6 * HOUR };
+  assert.equal(scoring.gamesNeedingBoxScore([row(6 * HOUR)], opts).length, 1, 'exactly max age is still due');
+  assert.deepEqual(scoring.gamesNeedingBoxScore([row(6 * HOUR + 1)], opts), [], '1ms past max age is not');
+  assert.deepEqual(scoring.gamesNeedingBoxScore([row(3 * HOUR)], { ...opts, maxAgeMs: 0 }), [], 'maxAgeMs 0 disables the recheck');
+  assert.deepEqual(scoring.gamesNeedingBoxScore([row(5 * 24 * HOUR)], opts), [], 'a days-old stamp is left to Tue/Wed');
+  assert.deepEqual(scoring.gamesNeedingBoxScore([row(5 * 24 * HOUR)]), [], 'and so under the 6h default');
+});
+
+test('gamesNeedingBoxScore: an already rechecked final needs nothing; an unstamped final is still a plain Final box (#2223)', () => {
+  const opts = { now: NOW, recheckMs: 2 * HOUR };
+  const rows = [
+    { tank01_game_id: 'done', game_status: 'final', final_stats_synced_at: stampedAgo(3 * HOUR), final_stats_rechecked_at: stampedAgo(HOUR) },
+    // The column absent (not selected) is not NULL: only a real NULL rechecks.
+    { tank01_game_id: 'no-column', game_status: 'final', final_stats_synced_at: stampedAgo(3 * HOUR) },
+    { tank01_game_id: 'fresh', game_status: 'final', final_stats_synced_at: null, final_stats_rechecked_at: null },
+    { tank01_game_id: 'live', game_status: 'in_progress', final_stats_synced_at: stampedAgo(9 * HOUR), final_stats_rechecked_at: null },
+  ];
+  assert.deepEqual(scoring.gamesNeedingBoxScore(rows, opts), [{ gameId: 'fresh', status: 'final', isFinal: true }]);
+});
+
+test('gamesNeedingBoxScore: recheckMs and maxAgeMs default from the env, then to 2h and 6h (#2223)', (t) => {
+  const row = { tank01_game_id: 'g1', game_status: 'final', final_stats_synced_at: stampedAgo(HOUR), final_stats_rechecked_at: null };
+  const saved = process.env.FINAL_BOX_RECHECK_MS;
+  const savedMax = process.env.FINAL_BOX_RECHECK_MAX_AGE_MS;
+  t.after(() => {
+    if (saved === undefined) delete process.env.FINAL_BOX_RECHECK_MS;
+    else process.env.FINAL_BOX_RECHECK_MS = saved;
+    if (savedMax === undefined) delete process.env.FINAL_BOX_RECHECK_MAX_AGE_MS;
+    else process.env.FINAL_BOX_RECHECK_MAX_AGE_MS = savedMax;
+  });
+  delete process.env.FINAL_BOX_RECHECK_MAX_AGE_MS;
+  delete process.env.FINAL_BOX_RECHECK_MS;
+  assert.equal(scoring.gamesNeedingBoxScore([row], { now: NOW }).length, 0, 'one hour old is inside the 2h default');
+  process.env.FINAL_BOX_RECHECK_MS = String(HOUR);
+  assert.equal(scoring.gamesNeedingBoxScore([row], { now: NOW }).length, 1, 'the env override applies');
+  process.env.FINAL_BOX_RECHECK_MAX_AGE_MS = String(HOUR - 1);
+  assert.equal(scoring.gamesNeedingBoxScore([row], { now: NOW }).length, 0, 'the max age env override applies');
+});
+
 // --- syncWeekStats -----------------------------------------------------------
 //
 // syncWeekStats is now a Sync run (#1202, ADR 0036): the box fetches run
@@ -83,17 +146,19 @@ const runDetail = (call) => JSON.parse(call.params[3]);
  * `boxByGameId[gameId]` overrides the box body Tank01 answers with for that
  * game; the string `'reject'` makes that game's fetch throw instead.
  */
-function stubWorld(t, { liveRows = LIVE_ROWS, players = DEFAULT_PLAYERS, boxByGameId = {}, onPlayerStatsInsert } = {}) {
+function stubWorld(t, { liveRows = LIVE_ROWS, players = DEFAULT_PLAYERS, boxByGameId = {}, onPlayerStatsInsert, defRows = [], priorStats = [] } = {}) {
   const stamped = [];
+  const stampColumns = [];
   const upserts = [];
   const fake = createFakePool([
     [/FROM "live_game_states"/, () => ({ rows: liveRows })],
     [/FROM "players" WHERE "external_id"/, () => ({ rows: players })],
-    [/"position" = 'DEF'/, () => ({ rows: [] })],
-    [select('player_stats'), () => ({ rows: [] })],
+    [/"position" = 'DEF'/, () => ({ rows: defRows })],
+    [select('player_stats'), () => ({ rows: priorStats })],
     [/FROM "nfl_games"/, () => ({ rows: [{ nfl_team: 'KC', opponent: 'BUF' }] })],
     [update('live_game_states'), (text, params) => {
       stamped.push(params[0]);
+      stampColumns.push(/"final_stats_rechecked_at" = now\(\)/.test(text) ? 'rechecked' : 'synced');
       return { rows: [] };
     }, 'client'],
     [insert('player_stats'), (text, params) => {
@@ -116,7 +181,7 @@ function stubWorld(t, { liveRows = LIVE_ROWS, players = DEFAULT_PLAYERS, boxByGa
       return { data: { body } };
     },
   };
-  return { fake, fetched, stamped, upserts, api };
+  return { fake, fetched, stamped, stampColumns, upserts, api };
 }
 
 test('syncWeekStats: skips scheduled games and finals already ingested', async (t) => {
@@ -168,6 +233,100 @@ test('syncWeekStats: a final inside its Final box grace is not fetched; one past
   assert.deepEqual(stamped, ['g-final-old']);
   assert.equal(result.gamesProcessed, 1);
   assert.equal(result.gamesSkipped, 1, 'the deferred final counts as skipped this pass');
+});
+
+// --- syncWeekStats: the Final box recheck (#2223) ----------------------------
+
+const RECHECK_ROW = {
+  tank01_game_id: 'g-recheck',
+  game_status: 'final',
+  final_stats_synced_at: new Date(Date.now() - 3 * HOUR),
+  final_stats_rechecked_at: null,
+};
+const FIRST_ROW = { tank01_game_id: 'g-first', game_status: 'final', final_stats_synced_at: null, final_stats_rechecked_at: null };
+const quotaIn = (mode) => async () => ({ mode });
+
+test('syncWeekStats: a recheck fetches at standard priority and stamps rechecked, not synced; plays stay suppressed (#2223)', async (t) => {
+  const { fake, fetched, stamped, stampColumns, api } = stubWorld(t, { liveRows: [RECHECK_ROW, FIRST_ROW] });
+  const result = await scoring.syncWeekStats({ season: 2026, week: 2, api, quotaState: quotaIn('ok') });
+
+  const priority = Object.fromEntries(fetched.map((f) => [f.gameId, f.priority]));
+  assert.deepEqual(priority, { 'g-recheck': 'standard', 'g-first': 'essential' }, 'only the first Final box is essential');
+  assert.deepEqual(stamped, ['g-recheck', 'g-first']);
+  assert.deepEqual(stampColumns, ['rechecked', 'synced'], 'the recheck never moves final_stats_synced_at');
+  assert.deepEqual(result.plays, [], 'a rushing TD in the box is not replayed as a Scoring play');
+  fake.assertClean();
+});
+
+test('syncWeekStats: a recheck is not deferred by a grace timer, and one not yet due is not fetched (#2223)', async (t) => {
+  finalBox.__resetFinalBoxState();
+  t.after(() => finalBox.__resetFinalBoxState());
+  finalBox.scheduleFinalBox('g-recheck', { now: Date.now(), setTimer: () => ({ unref() {} }), onDue: () => {} });
+  const early = { ...RECHECK_ROW, tank01_game_id: 'g-early', final_stats_synced_at: new Date(Date.now() - HOUR) };
+  const { fetched, api } = stubWorld(t, { liveRows: [RECHECK_ROW, early] });
+  await scoring.syncWeekStats({ season: 2026, week: 2, api, quotaState: quotaIn('ok') });
+  assert.deepEqual(fetched.map((f) => f.gameId), ['g-recheck'], 'g-early is not yet due');
+});
+
+test('syncWeekStats: essential-only and blocked quota shed the recheck before fetching, but keep the first Final box (#2223)', async (t) => {
+  for (const mode of ['essential-only', 'blocked']) {
+    const { fetched, stamped, api } = stubWorld(t, { liveRows: [RECHECK_ROW, FIRST_ROW] });
+    const result = await scoring.syncWeekStats({ season: 2026, week: 2, api, quotaState: quotaIn(mode) });
+    assert.deepEqual(fetched.map((f) => f.gameId), ['g-first'], mode + ': recheck dropped, first Final box fetched');
+    assert.deepEqual(stamped, ['g-first']);
+    assert.equal(result.gamesSkipped, 1, mode + ': the shed recheck counts as skipped');
+  }
+});
+
+test('syncWeekStats: a recheck-only tick under essential-only fetches nothing and records no failed run (#2223)', async (t) => {
+  const { fake, fetched, api } = stubWorld(t, { liveRows: [RECHECK_ROW] });
+  const result = await scoring.syncWeekStats({ season: 2026, week: 2, api, quotaState: quotaIn('essential-only') });
+  assert.deepEqual(fetched, []);
+  assert.equal(result.gamesProcessed, 0);
+  assert.equal(dataSyncRuns(fake.calls).length, 0, 'no fetch_failed run on a quiet tick');
+});
+
+test('syncWeekStats: degraded quota still allows the recheck (standard is allowed); an unreadable quota sheds it (#2223)', async (t) => {
+  const first = stubWorld(t, { liveRows: [RECHECK_ROW] });
+  await scoring.syncWeekStats({ season: 2026, week: 2, api: first.api, quotaState: quotaIn('degraded') });
+  assert.deepEqual(first.fetched.map((f) => f.gameId), ['g-recheck']);
+
+  const second = stubWorld(t, { liveRows: [RECHECK_ROW] });
+  await scoring.syncWeekStats({
+    season: 2026, week: 2, api: second.api, quotaState: async () => { throw new Error('db down'); },
+  });
+  assert.deepEqual(second.fetched, []);
+});
+
+test('syncWeekStats: with no recheck due the quota state is never read (#2223)', async (t) => {
+  const { api } = stubWorld(t);
+  let reads = 0;
+  await scoring.syncWeekStats({
+    season: 2026, week: 2, api, quotaState: async () => { reads += 1; return { mode: 'ok' }; },
+  });
+  assert.equal(reads, 0);
+});
+
+test('syncWeekStats: a recheck rewrites a changed DEF value (defensiveTD 2 -> 1) without touching the synced stamp (#2223, #2219)', async (t) => {
+  const defRows = [{ id: 90, name: 'San Francisco 49ers', nfl_team: 'SF' }];
+  const priorStats = [{ player_id: 90, stats: { defensiveTD: 2, pointsAllowed: 17 } }];
+  const boxByGameId = {
+    'g-recheck': {
+      gameID: 'g-recheck',
+      DST: { home: { teamAbv: 'SF', defTD: '1', sacks: '0' }, away: { teamAbv: 'LAR', defTD: '0' } },
+      teamStats: { home: {}, away: {} },
+      lineScore: { home: { totalPts: '30' }, away: { totalPts: '17' } },
+    },
+  };
+  const { fake, upserts, stampColumns, api } = stubWorld(t, { liveRows: [RECHECK_ROW], defRows, priorStats, boxByGameId });
+  const result = await scoring.syncWeekStats({ season: 2026, week: 2, api, quotaState: quotaIn('ok') });
+
+  const sfWrite = upserts.find((params) => params[0] === 90);
+  assert.ok(sfWrite, 'the SF DEF line is rewritten');
+  assert.equal(JSON.parse(sfWrite[3]).defensiveTD, 1, 'the transient 2 is replaced by the recheck value');
+  assert.deepEqual(stampColumns, ['rechecked']);
+  assert.deepEqual(result.plays, []);
+  fake.assertClean();
 });
 
 test('syncWeekStats: the game list comes from live_game_states, not a schedule call', async (t) => {
