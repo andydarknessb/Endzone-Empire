@@ -113,3 +113,13 @@ The #2050 amendment overstated what the cadence gate does; the code is this:
 - The `stat-corrections` Sync run row joins `SYNC_RUN_JOBS` through the tick
   job's `syncRun` list, so its typed outcome and `failedWeeks` reach the
   scheduler status.
+
+## Amendment (2026-10-12, architecture review): who passes `retryMs`
+
+The #2060 amendment's "only `adp` and `stat-corrections`" was already behind
+the code when written. Four jobs pass `retryMs` to `cadence.due`: `adp`
+(15 minutes), `stat-corrections` (1 hour), `players` (`PLAYER_SYNC_RETRY_MS`,
+1 hour, #2117) and `schedule` (`ESPN_SCHEDULE_RETRY_MS`, 15 minutes, #2116).
+The rule stands: a failed run is retried on the next tick unless its row says
+otherwise. The list of which rows say otherwise lives in the tick job table in
+`server/modules/scheduler.js`, not here.
