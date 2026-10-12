@@ -344,6 +344,4 @@ module.exports = {
   runRosterStatusSync,
   runOwnershipSync,
   sharedRosterSweep,
-  // exported for tests
-  loadPlayerIdsByExternalId,
 };

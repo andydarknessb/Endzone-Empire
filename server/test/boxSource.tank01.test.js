@@ -230,3 +230,21 @@ test('applyGameBoxScore: a raw Tank01 box is still accepted and routed through t
   assert.deepEqual(out.plays.map(wireShape), golden.expected.plays);
   assert.equal(upserts.length, golden.expected.upserts.length);
 });
+
+// #2219: in 2026 week 5 SF at SEA, Gracen Halton (SF) forced G.Holani's fumble
+// at the SEA goal line and recovered it himself in the end zone for the TD. The
+// live stats stored idpDefensiveTD 2 for Halton and defensiveTD 2 for SF DEF:
+// most likely the one-shot Tank01 Final box (applied ~15 minutes after final)
+// read a transient defTD 2; nothing in our parsing doubles it. The recorded box now
+// reads defTD 1 everywhere; this fixture pins that one-TD reading so a forced
+// and recovered end-zone fumble stays one idpDefensiveTD and one team defensiveTD.
+test('tank01BoxSource: a fumble forced and recovered in the end zone by the same player is one idpDefensiveTD and one team defensiveTD (#2219)', () => {
+  const liveBox = tank01BoxSource.fromBox(require('./fixtures/tank01-box-2026-w5-sf-sea-final.json'));
+  assert.equal(liveBox.gameId, '20261011_SF@SEA');
+  assert.equal(liveBox.isFinal, true);
+  const halton = liveBox.players.find((p) => p.externalId === '4685369');
+  assert.equal(halton.stats.forcedFumble, 1);
+  assert.equal(halton.stats.idpDefensiveTD, 1);
+  assert.equal(liveBox.teamDefense.SF.defensiveTD, 1);
+  assert.equal(liveBox.teamDefense.SEA.defensiveTD, 0);
+});

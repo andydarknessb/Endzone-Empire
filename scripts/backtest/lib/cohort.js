@@ -437,8 +437,14 @@ function synthesizeDefenseStats({ teamWeekRow, game, teamKey, normalizeTeamKey, 
     yardsAllowed: optionalNumber(row.opponentYards, { label: `${label}: yardsAllowed` }),
     defSacks: num(row.def_sacks, 'defSacks'),
     defInterceptions: num(row.def_interceptions, 'defInterceptions'),
-    defFumbleRecoveries: num(row.def_fumbles_forced, 'defFumbleRecoveries'),
-    defTouchdowns: num(row.def_tds, 'defTouchdowns'),
+    // Production parity (`nflverseSync.buildDstStatUpdates`, #2224): recoveries
+    // are `fumble_recovery_opp` (NOT `def_fumbles_forced`, which counts forces),
+    // and TDs are `def_tds` PLUS fumble-return TDs, which `def_tds` excludes.
+    // The latter live on PLAYER rows (the team-week `fumble_recovery_tds` also
+    // counts an offence recovering its own fumble), so the caller sums the
+    // opponent-recovery ones for this team-week into `defFumbleReturnTds`.
+    defFumbleRecoveries: num(row.fumble_recovery_opp, 'defFumbleRecoveries'),
+    defTouchdowns: num(row.def_tds, 'defTouchdowns') + num(row.defFumbleReturnTds, 'defFumbleReturnTds'),
     defSafeties: num(row.def_safeties, 'defSafeties'),
   };
 }

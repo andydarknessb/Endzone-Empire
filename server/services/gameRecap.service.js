@@ -282,8 +282,11 @@ async function generateForGame(tank01GameId, { api, client } = {}) {
   // Ingest this game's final stats from the SAME box score, before building the
   // recap. syncWeekStats used to fetch it separately (2x per game); now whoever
   // gets here first pays, and `final_stats_synced_at` tells the other path to
-  // skip. Never fatal: a recap with stale stats still beats no recap, and the
-  // Mon-Thu nflverse finalization pass is the authoritative backstop either way.
+  // skip. Never fatal: a recap with stale stats still beats no recap. The Final
+  // box is re-read once ~2h after this stamp (#2223, syncWeekStats), and the
+  // authoritative backstop for the box-owned keys (TDs, counts) is the Tue/Wed
+  // nflverse-correction replace. The Mon-Thu finalization patches only the
+  // nflverse-week yardage/share keys and snaps (current_week-1).
   if (!state.final_stats_synced_at) {
     try {
       const scoring = require('./boxScoreApply.service');

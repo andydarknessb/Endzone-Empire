@@ -12,7 +12,7 @@
  */
 const pool = require('../modules/pool');
 const { PLAYERS_BULK_WRITE_LOCK, NFL_GAMES_BULK_WRITE_LOCK } = require('../modules/advisoryLock');
-const { tank01Get } = require('../modules/tank01Client');
+const { tank01Get, getQuotaState } = require('../modules/tank01Client');
 const { fetchWeekGames } = require('../modules/espnScoreboard');
 const { runSyncJob } = require('../modules/syncRun');
 const cadence = require('../modules/cadence');
@@ -25,6 +25,7 @@ const {
 } = require('./tank01Feed');
 const {
   loadWeekMaps, applyGameBoxScore, gamesNeedingBoxScore, markFinalStatsSynced,
+  markFinalStatsRechecked,
 } = require('./boxScoreApply.service');
 const { aggregateSeasonStats } = require('./seasonSummary.service');
 const tank01BoxSource = require('./tank01BoxSource');
@@ -852,9 +853,9 @@ async function openKickoffTeams(client) {
  * writes are per-game `player_stats` rows, the same rows the Live box poll
  * upserts, and a slate-wide lock would stall it (ADR 0036).
  */
-async function syncWeekStats({ season, week, pauseMs = 0, api, espnTransport }) {
+async function syncWeekStats({ season, week, pauseMs = 0, api, espnTransport, quotaState = getQuotaState }) {
   const stateRes = await pool.query(
-    `SELECT "tank01_game_id", "game_status", "final_stats_synced_at"
+    `SELECT "tank01_game_id", "game_status", "final_stats_synced_at", "final_stats_rechecked_at"
        FROM "live_game_states" WHERE "season" = $1 AND "week" = $2`,
     [season, week]
   );
@@ -868,11 +869,30 @@ async function syncWeekStats({ season, week, pauseMs = 0, api, espnTransport }) 
     // Past the grace, or with no timer armed after a restart, this sync is
     // still the retry path for a Final box that failed (#1186 ruling).
     const finalBox = require('../modules/finalBox');
+    // The grace only applies to a first Final box; a recheck is already
+    // stamped, so it has no timer to defer to.
     targets = gamesNeedingBoxScore(stateRes.rows).filter((target) => {
-      if (!finalBox.isWithinGrace(target.gameId)) return true;
+      if (target.recheck || !finalBox.isWithinGrace(target.gameId)) return true;
       console.log('syncWeekStats: %s is inside its Final box grace; leaving it to the timer', target.gameId);
       return false;
     });
+    // A recheck (#2223) is standard priority: past the Tank01 budget it is shed
+    // HERE, before any fetch, so it never spends essential headroom and a quiet
+    // tick never turns into a fetch_failed run. The quota state is memoized
+    // (~60s) and only read when a recheck is actually due. If it cannot be read,
+    // shed: the recheck is a nicety, the Tue/Wed correction still settles it.
+    if (targets.some((target) => target.recheck)) {
+      let mode;
+      try {
+        mode = (await quotaState()).mode;
+      } catch (err) {
+        console.error('syncWeekStats: quota state unreadable, shedding rechecks:', err.message);
+      }
+      if (mode === 'essential-only' || mode === 'blocked' || mode === undefined) {
+        targets = targets.filter((target) => !target.recheck);
+        console.log('syncWeekStats: Tank01 quota mode %s; Final box rechecks shed', mode || 'unknown');
+      }
+    }
   } else {
     // No live rows for this week (a historical week, or live scoring has not
     // run yet; see modules/liveGameEngine.js): fall back to one free ESPN
@@ -902,7 +922,9 @@ async function syncWeekStats({ season, week, pauseMs = 0, api, espnTransport }) 
   // Notify the Live box source switch (ADR 0035) once each Final box's
   // transaction has actually COMMITted - never from inside applyWeekStatsUnit
   // itself (qa-reviewer #1202 risk review): a rolled-back unit must not leave
-  // the in-memory "Final box landed" memo out of step with the DB.
+  // the in-memory "Final box landed" memo out of step with the DB. A recheck
+  // fires it too, harmlessly: the game was stamped (and the memo set) when its
+  // first Final box landed; this only re-asserts the same 'tank01-final' value.
   const noteFinal = require('../modules/liveBox').noteFinalBoxApplied;
   for (const r of applied) {
     if (r && r.isFinal) noteFinal(r.gameId);
@@ -943,12 +965,13 @@ async function fetchWeekStatsUnits({ targets, pauseMs, api, failedFetches }) {
         await new Promise((resolve) => setTimeout(resolve, pauseMs));
       }
       // Every target here is Final box work (gamesNeedingBoxScore) or a
-      // historical week with no live rows. The Final box is the one Tank01
-      // call we never shed, so it runs at essential priority (#1186); the
-      // historical backfill keeps standard so it can be shed at budget.
+      // historical week with no live rows. The first Final box is the one
+      // Tank01 call we never shed, so it runs at essential priority (#1186);
+      // the recheck (#2223) and the historical backfill run at standard so
+      // they can be shed at budget.
       const boxResponse = await tank01Get('/getNFLBoxScore', {
         params: { gameID: target.gameId, playByPlay: 'true', fantasyPoints: 'false' },
-        priority: target.isFinal ? 'essential' : 'standard',
+        priority: target.isFinal && !target.recheck ? 'essential' : 'standard',
         transport: api,
       });
       const box = tank01Body(boxResponse.data) || {};
@@ -978,8 +1001,9 @@ async function fetchWeekStatsUnits({ targets, pauseMs, api, failedFetches }) {
  * wrapper, which runSyncJob merges into the recorded row regardless of how
  * many units applied (formal review, PR #1244 f1).
  *
- * Stamps `final_stats_synced_at` inside this unit's own transaction (so the
- * stamp commits or rolls back with that game's stats), but does NOT notify
+ * Stamps `final_stats_synced_at` (a Final box recheck, #2223, stamps
+ * `final_stats_rechecked_at` instead) inside this unit's own transaction (so
+ * the stamp commits or rolls back with that game's stats), but does NOT notify
  * the Live box source switch here - that's an in-memory memo, and firing it
  * before this unit's transaction actually COMMITs would leave it out of step
  * with the DB on a ROLLBACK (qa-reviewer #1202 risk review). The caller
@@ -990,8 +1014,12 @@ async function applyWeekStatsUnit(client, { target, liveBox }, { season, week, m
   // switch-pass rule, ADR 0035): its numbers may exceed the last Live box
   // and that difference is not a new play.
   const result = await applyGameBoxScore({ liveBox, season, week, maps, suppressPlays: target.isFinal, client });
-  // A final game's stats are now in: never fetch this box score again.
-  if (target.isFinal) {
+  // A final game's stats are now in: never fetch this box score again. A
+  // recheck (#2223) stamps its own column and leaves final_stats_synced_at as
+  // the "first Final box landed" time.
+  if (target.recheck) {
+    await markFinalStatsRechecked(target.gameId, client);
+  } else if (target.isFinal) {
     await markFinalStatsSynced(target.gameId, client);
   }
   return {

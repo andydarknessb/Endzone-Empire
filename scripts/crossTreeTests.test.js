@@ -33,7 +33,6 @@ const KNOWN_CROSS_TREE_TESTS = [
   'src/lib/monteCarloPlayoffProjection.test.js',
   'src/lib/multiSeasonRollover.integration.test.js',
   'src/lib/scoringMatrix.integration.test.js',
-  'src/lib/tank01ChaoticIngestion.integration.test.js',
   'src/lib/tradeFairnessApi.integration.test.js',
   'src/lib/weeklyRecapNarrative.integration.test.ts',
   'src/shared/lib/leaguePhase.test.js',
