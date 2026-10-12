@@ -17,8 +17,10 @@ const { normalizeNflTeam } = require('./nflTeam');
  * membership, connects `client`, calls this and maps the result: `null` is
  * a matchup that is not in the league (404). A live week BEGINs and COMMITs on
  * `client` (materializeLineup's copy-forward must not be observed
- * half-written); a settled week opens no transaction (#978). A thrown error
- * rolls back in the route's catch.
+ * half-written); a settled week opens no transaction (#978). A throw between
+ * the BEGIN and the COMMIT rolls back here and rethrows, so the client never
+ * leaves this module with an open transaction (#839); the route's ROLLBACK
+ * stays as a backstop.
  *
  * The dependencies the route suites stub with t.mock.method are called
  * through their module objects (`lineupService.materializeLineup`, never a
@@ -135,9 +137,16 @@ async function getMatchupDetail({
       benchRows: await asPlayedRows(lineupRows.rows),
     };
   };
-  const homeRaw = await teamLineup(matchup.home_team_id);
-  const awayRaw = await teamLineup(matchup.away_team_id);
-  if (!asPlayed) await client.query('COMMIT');
+  let homeRaw;
+  let awayRaw;
+  try {
+    homeRaw = await teamLineup(matchup.home_team_id);
+    awayRaw = await teamLineup(matchup.away_team_id);
+    if (!asPlayed) await client.query('COMMIT');
+  } catch (error) {
+    if (!asPlayed) await client.query('ROLLBACK').catch(() => {});
+    throw error;
+  }
 
   // The NFL games either roster plays in this week (#884). The view joins
   // through lineup_entries, which the transaction above just materialized
@@ -289,7 +298,7 @@ async function getMatchupDetail({
       const rows = [...raw.starterRows, ...raw.benchRows];
       // #1038: rows.id and rows.player_id are the same value on every row
       // that reaches this branch (lineupSql joins players.id to
-      // lineup_entries.player_id at equality, :915), so countedRoster's
+      // lineup_entries.player_id at equality), so countedRoster's
       // player_id-keyed optimalStarters can be matched back against these
       // rows' `id` without an adapter.
       const { optimalStarters } = countedRoster({
@@ -329,7 +338,7 @@ async function getMatchupDetail({
   delete matchup.away_owner_id;
   if (viewerTeamId) {
     try {
-            // The route already holds the settled fact on `matchup.final`; passing
+      // The route already holds the settled fact on `matchup.final`; passing
       // it as `weekIsFinal` buys liveWhatIf out of its own isWeekFinal COUNT
       // read on a settled request (#978, #1017).
       viewerWhatIf = await decisionService.liveWhatIf({

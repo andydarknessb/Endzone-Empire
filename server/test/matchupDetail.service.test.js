@@ -151,10 +151,15 @@ async function fetchDetail(t) {
   const fake = seed(t);
   const client = await fake.connect();
   try {
-    return await getMatchupDetail({ leagueId: LEAGUE_ID, matchupId: 7, viewerUserId: 42, client });
+    const detail = await getMatchupDetail({ leagueId: LEAGUE_ID, matchupId: 7, viewerUserId: 42, client });
+    // The live path opens exactly one transaction and closes it by COMMIT.
+    assert.equal(fake.matching(/^BEGIN$/).length, 1);
+    assert.equal(fake.matching(/^COMMIT$/).length, 1);
+    assert.equal(fake.matching(/^ROLLBACK$/).length, 0);
+    return detail;
   } finally {
     client.release();
-    fake.assertClean(); // the live path's BEGIN was COMMITted
+    fake.assertClean(); // no transaction left open on the released client
   }
 }
 
@@ -178,5 +183,23 @@ test('a matchup that is not in the league is null, which the route maps to 404',
     assert.equal(await getMatchupDetail({ leagueId: LEAGUE_ID, matchupId: 999, viewerUserId: 42, client }), null);
   } finally {
     client.release();
+  }
+});
+
+test('a throw inside the live path rolls the transaction back in the module and rethrows (#839)', async (t) => {
+  const fake = seed(t);
+  lineupService.materializeLineup.mock.mockImplementation(async () => { throw new Error('lineup read failed'); });
+  const client = await fake.connect();
+  try {
+    await assert.rejects(
+      getMatchupDetail({ leagueId: LEAGUE_ID, matchupId: 7, viewerUserId: 42, client }),
+      /lineup read failed/
+    );
+    assert.equal(fake.matching(/^BEGIN$/).length, 1);
+    assert.equal(fake.matching(/^COMMIT$/).length, 0);
+    assert.equal(fake.matching(/^ROLLBACK$/).length, 1, 'the module closed its own transaction');
+  } finally {
+    client.release();
+    fake.assertClean();
   }
 });
