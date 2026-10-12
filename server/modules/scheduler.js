@@ -56,9 +56,10 @@ let lastSyncAt = null;
 // cache from week+1 onward, and repeating THAT on every release of a
 // correction day is what put a cold cache under every list page.
 let lastCorrectionDay = null;
-// Each gated job sets its own retry interval: how long the cadence gate waits
-// after a failed run (fetch_failed, bad_response, write_failed) before the job
-// is due again. A refused run is not retried: it settles its UTC day.
+// A failed run (fetch_failed, bad_response, write_failed) is retried on the next
+// tick unless the job passes `retryMs` to cadence.due; adp, stat-corrections,
+// players and schedule do, below. A refused run is not retried: it settles the job's
+// cadence period (a UTC day for `utc-day` jobs, the interval for `{ ms }` jobs).
 const STAT_CORRECTIONS_RETRY_MS = 60 * 60 * 1000;
 const PLAYER_SYNC_RETRY_MS = 60 * 60 * 1000;
 // ESPN schedule sync (#2216): hourly, so a game-day move lands before the new
