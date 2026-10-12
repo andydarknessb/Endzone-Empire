@@ -125,6 +125,7 @@ const { PRIMARY_SEASON, SENSITIVITY_SEASON } = rosterGeneration;
 const outcomesLib = require('../../scripts/backtest/lib/outcomes');
 const { canonicalJson } = require('../../scripts/backtest/lib/snapshotStore');
 const { collectColumns } = require('../../scripts/backtest/lib/csv');
+const { countingNumber } = require('../../scripts/backtest/lib/numbers');
 const { makeSourceReader } = require('../../scripts/backtest/snapshot-checks');
 
 const { normalizeTeamKey } = require('../services/projectionFeatures');
@@ -206,7 +207,7 @@ const STATS_PLAYER_WEEK_COLUMNS = [
 
 /**
  * The columns `lib/cohort.synthesizeDefenseStats` reads (`def_sacks`,
- * `def_interceptions`, `def_fumbles_forced`, `def_tds`, `def_safeties`, per
+ * `def_interceptions`, `fumble_recovery_opp`, `def_tds`, `def_safeties`, per
  * its own docblock and `backtestCohort.test.js`), plus `passing_yards` /
  * `sack_yards_lost` / `rushing_yards` on the OPPONENT's row - the net-yards
  * identity `nflverseSync.buildDstStatUpdates` uses for `yardsAllowed`, applied
@@ -214,7 +215,7 @@ const STATS_PLAYER_WEEK_COLUMNS = [
  */
 const STATS_TEAM_WEEK_COLUMNS = [
   'season', 'week', 'season_type', 'team', 'opponent_team', 'game_id',
-  'def_sacks', 'def_interceptions', 'def_fumbles_forced', 'def_tds', 'def_safeties',
+  'def_sacks', 'def_interceptions', 'fumble_recovery_opp', 'def_tds', 'def_safeties',
   'passing_yards', 'sack_yards_lost', 'rushing_yards',
 ];
 
@@ -338,7 +339,7 @@ const DEFENSE_PRIOR_GAME_SEASONS = Object.freeze([SENSITIVITY_SEASON, PRIMARY_SE
  * a different week, so it is written once rather than duplicated.
  */
 function computeDefenseTeamPoints({
-  teamKey, teamWeekRowByTeamKey, gameByTeamKey, season, week,
+  teamKey, teamWeekRowByTeamKey, gameByTeamKey, season, week, playerRowsThisWeek = [],
 }) {
   const row = teamWeekRowByTeamKey.get(teamKey);
   const game = gameByTeamKey.get(teamKey);
@@ -351,8 +352,15 @@ function computeDefenseTeamPoints({
       + (Number(opponentRow.sack_yards_lost) || 0)
       + (Number(opponentRow.rushing_yards) || 0)
     : undefined;
+  // Fumble-return TDs on this team's opponent recoveries, from the same REG week's
+  // player rows (production's #2218 rule; `def_tds` excludes them). A team plays
+  // once a week, so (team, week) is the same game scope as production's.
+  const defFumbleReturnTds = playerRowsThisWeek
+    .filter((p) => normalizeTeamKey(p.team) === teamKey
+      && countingNumber(p.fumble_recovery_opp, { label: 'fumble_recovery_opp' }) > 0)
+    .reduce((sum, p) => sum + countingNumber(p.fumble_recovery_tds, { label: 'fumble_recovery_tds' }), 0);
   const stats = cohortLib.synthesizeDefenseStats({
-    teamWeekRow: { ...row, opponentYards },
+    teamWeekRow: { ...row, opponentYards, defFumbleReturnTds },
     game,
     teamKey,
     normalizeTeamKey,
@@ -393,6 +401,7 @@ function buildDefensePriorGamesIndex({
       for (const row of teamWeekRowsThisWeek) {
         teamWeekRowByTeamKey.set(normalizeTeamKey(row.team), row);
       }
+      const playerRowsThisWeek = filterRowsForWeek(outcomeSource.playerWeekRows, { season, week });
       const gamesRowsThisWeek = outcomeSource.gamesRows.filter((row) => Number(row.week) === week);
       const gameByTeamKey = new Map();
       for (const row of gamesRowsThisWeek) {
@@ -401,7 +410,7 @@ function buildDefensePriorGamesIndex({
       }
       for (const teamKey of teamWeekRowByTeamKey.keys()) {
         const points = computeDefenseTeamPoints({
-          teamKey, teamWeekRowByTeamKey, gameByTeamKey, season, week,
+          teamKey, teamWeekRowByTeamKey, gameByTeamKey, season, week, playerRowsThisWeek,
         });
         if (points === null) continue; // no matching game this week - a data gap, never a guessed 0
         if (!byTeamKey.has(teamKey)) byTeamKey.set(teamKey, []);
@@ -514,7 +523,7 @@ function buildOutcomeSignalsFor({
     // week - see that function's docblock for why it is shared rather than
     // duplicated.
     const points = computeDefenseTeamPoints({
-      teamKey, teamWeekRowByTeamKey, gameByTeamKey, season, week,
+      teamKey, teamWeekRowByTeamKey, gameByTeamKey, season, week, playerRowsThisWeek,
     });
     if (points === null) continue;
     const defensePlayerId = defensePlayerIdByTeamKey.get(teamKey);
