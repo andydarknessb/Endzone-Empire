@@ -2,7 +2,8 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createFakePool, select, insert } = require('./helpers/fakePool');
 const push = require('../services/push.service');
-const { alertScoreUpdates } = require('../modules/scheduler');
+const clockModule = require('../modules/clock');
+const { sendAlert } = require('../services/pushAlerts.service');
 const { banterFor } = require('../services/pushBanter');
 
 const HOME = { mine: 'Home FC', theirs: 'Away FC' };
@@ -14,6 +15,7 @@ function world(t, { optedOut = [] } = {}) {
   const ledger = [];
   const sent = [];
   const clock = { minutes: 0 }; // the fake database's now()
+  t.mock.method(clockModule, 'now', () => new Date(clock.minutes * 60 * 1000));
   const fake = createFakePool([
     [select('teams'), () => ({
       rows: [{ id: 3, name: 'Home FC', owner_id: 11 }, { id: 4, name: 'Away FC', owner_id: 22 }],
@@ -21,34 +23,38 @@ function world(t, { optedOut = [] } = {}) {
     [/^SELECT "user_id", "prefs" FROM "notification_prefs"/, () => ({
       rows: optedOut.map((user_id) => ({ user_id, prefs: { scoreUpdates: false } })),
     })],
-    // The per-owner cap: a non-silent score-lead row under five minutes old.
-    [/NOT LIKE/, (text, [userId]) => ({
-      rows: ledger.some((r) => r.user_id === userId && r.kind === 'score-lead' && !r.fingerprint.endsWith(':0') && clock.minutes - r.at < 5)
+    // The per-owner cap (userId, kind, cutoff, notLike): a non-silent row under five minutes old.
+    [/NOT LIKE/, (text, [userId, kind, cutoff, notLike]) => ({
+      rows: ledger.some((r) => r.user_id === userId && r.kind === kind && notLike === '%:0' && !r.fingerprint.endsWith(':0') && r.at * 60 * 1000 > cutoff.getTime())
         ? [{ '?column?': 1 }] : [],
     })],
     [select('push_events'), (text, [userId, subject]) => {
       const last = ledger.filter((r) => r.user_id === userId && r.kind === 'score-lead' && r.subject === subject).pop();
       return { rows: last ? [{ fingerprint: last.fingerprint }] : [] };
     }],
-    // sendPushOnce inserts (userIds, kind, subject, fingerprint); the silent
-    // record inserts (userId, subject, fingerprint) with a literal kind.
+    // The module's ledger insert (userId, kind, subject, fingerprint) returns the
+    // row it wrote; the silent record inserts (userId, subject, fingerprint) with
+    // a literal kind.
     [insert('push_events'), (text, params) => {
-      const [ids, kind, subject, fingerprint] = params.length === 4 ? params : [[params[0]], 'score-lead', params[1], params[2]];
-      return {
-        rows: ids
-          .filter((u) => !ledger.some((r) => r.user_id === u && r.kind === kind && r.subject === subject && r.fingerprint === fingerprint))
-          .map((user_id) => { ledger.push({ user_id, kind, subject, fingerprint, at: clock.minutes }); return { user_id }; }),
-      };
+      const [user_id, kind, subject, fingerprint] = params.length === 4 ? params : [params[0], 'score-lead', params[1], params[2]];
+      if (ledger.some((r) => r.user_id === user_id && r.kind === kind && r.subject === subject && r.fingerprint === fingerprint)) return { rows: [] };
+      ledger.push({ user_id, kind, subject, fingerprint, at: clock.minutes });
+      return { rows: [{ user_id }] };
     }],
   ]).install(t);
   t.mock.method(push, 'sendPushToUsers', async (userIds, payload) => {
     sent.push({ userIds, payload });
     return { sent: userIds.length };
   });
-  const call = (homeScore, awayScore, status = 'live') => alertScoreUpdates({
-    leagueId: 42, season: 2026, week: 7,
-    scored: [{ matchupId: 987, homeTeamId: 3, awayTeamId: 4, homeScore, awayScore, status }],
-  });
+  // The scheduler sends the lead alert, then the Final alert, for each scored league.
+  const call = async (homeScore, awayScore, status = 'live') => {
+    const facts = {
+      leagueId: 42, season: 2026, week: 7,
+      scored: [{ matchupId: 987, homeTeamId: 3, awayTeamId: 4, homeScore, awayScore, status }],
+    };
+    await sendAlert({ kind: 'score-lead', ...facts });
+    await sendAlert({ kind: 'score-played', ...facts });
+  };
   return { fake, sent, call, ledger, clock };
 }
 

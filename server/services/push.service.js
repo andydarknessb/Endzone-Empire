@@ -124,80 +124,9 @@ async function sendPushToUsers(userIds, payload) {
   return { sent };
 }
 
-/**
- * Send a push at most once per (user, kind, subject, fingerprint). Users with
- * `prefKey` off are dropped, then one ledger insert keeps only the users whose
- * row is new (ON CONFLICT DO NOTHING), and only those are sent. A changed
- * fingerprint is a new push. Returns { sent, skipped }: skipped counts the
- * users filtered by preference or already in the ledger. Only a ledger error
- * throws: once a row is in, the decision to alert is made and delivery is best
- * effort, so a send failure is logged and counted as sent: 0, and the row stays.
- */
-async function sendPushOnce({ userIds, prefKey, kind, subject, fingerprint, payload }) {
-  const ids = [...new Set(userIds)].filter((id) => id != null);
-  const wanting = await usersWanting(ids, prefKey);
-  let fresh = [];
-  if (wanting.length > 0) {
-    const inserted = await pool.query(
-      `INSERT INTO "push_events" ("user_id", "kind", "subject", "fingerprint")
-       SELECT unnest($1::int[]), $2, $3, $4
-       ON CONFLICT DO NOTHING
-       RETURNING "user_id"`,
-      [wanting, kind, subject, fingerprint]
-    );
-    fresh = inserted.rows.map((r) => r.user_id);
-  }
-  let sent = 0;
-  if (fresh.length > 0) {
-    try {
-      // Through module.exports so a test can stand in for the web-push send.
-      ({ sent } = await module.exports.sendPushToUsers(fresh, payload));
-    } catch (err) {
-      console.error('push send failed:', err.message);
-    }
-  }
-  return { sent, skipped: ids.length - fresh.length };
-}
-
-/**
- * Test alert (CONTEXT.md, Push alerts): one Push alert a Manager sends to
- * their own devices from Notification Settings, to see what an alert looks
- * like on the device in hand. The facts are sample facts, named as such. The
- * Banter line is drawn from one of the real situations with a fresh seed per
- * send, so a second tap reads differently; it joins the body at delivery only
- * for a Manager whose Banter preference is on, as every alert does. No ledger
- * and no preference gate: a test goes only where the Manager asked for it.
- * Returns { sent, situation, banter }.
- */
-async function sendTestPush({ userId, now = Date.now() }) {
-  const { SITUATIONS, banterFor } = require('./pushBanter');
-  const situation = SITUATIONS[now % SITUATIONS.length];
-  const banter = banterFor(situation, `push-test:${userId}:${now}`, {
-    mine: 'Your Squad',
-    theirs: 'The Other Guys',
-    player: 'Sample Player',
-    event: 'rushing touchdown',
-    points: 6.5,
-    count: 3,
-    margin: 2.5,
-    week: 1,
-    league: 'Your League',
-  });
-  // Through module.exports so a test can stand in for the web-push send.
-  const { sent } = await module.exports.sendPushToUsers([userId], {
-    title: 'Test alert',
-    body: 'Sent from your Notification Settings. A real alert puts its facts here.',
-    url: '/#/settings/notifications',
-    banter,
-  });
-  return { sent, situation, banter };
-}
-
 module.exports = {
   getPublicKey,
   saveSubscription,
   removeSubscription,
   sendPushToUsers,
-  sendPushOnce,
-  sendTestPush,
 };

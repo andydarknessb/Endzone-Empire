@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const { createFakePool, select, insert } = require('./helpers/fakePool');
 const push = require('../services/push.service');
 const clock = require('../modules/clock');
-const { alertBigPlays } = require('../modules/scheduler');
+const { sendAlert } = require('../services/pushAlerts.service');
 const { banterFor } = require('../services/pushBanter');
 const { calculateFantasyPoints, rulesForLeague, SCORING_RULES } = require('../services/scoringRules');
 
@@ -36,18 +36,18 @@ function world(t, scoringRules = null) {
     [select('teams'), () => ({ rows: [{ id: 1, owner_id: 11 }, { id: 2, owner_id: 22 }] })],
     [select('player_stats'), () => ({ rows: [] })],
     [/^SELECT "user_id", "prefs" FROM "notification_prefs"/, () => ({ rows: [] })],
-    [select('push_events'), (text, [userId, cutoff]) => ({
-      rows: state.ledger.filter((r) => r.user_id === userId && r.kind === 'big-play' && r.created_at > cutoff),
+    // The rate rule (userId, kind, cutoff): a row for this user and kind inside the window.
+    [/^SELECT 1 FROM "push_events"/, (text, [userId, kind, cutoff]) => ({
+      rows: state.ledger.some((r) => r.user_id === userId && r.kind === kind && r.created_at > cutoff)
+        ? [{ '?column?': 1 }] : [],
     })],
-    [insert('push_events'), (text, [userIds, kind, subject, fingerprint]) => ({
-      rows: userIds
-        .filter((id) => !state.ledger.some((r) => r.user_id === id && r.kind === kind
-          && r.subject === subject && r.fingerprint === fingerprint))
-        .map((user_id) => {
-          state.ledger.push({ user_id, kind, subject, fingerprint, created_at: state.now });
-          return { user_id };
-        }),
-    })],
+    // The ledger insert (userId, kind, subject, fingerprint); a repeat returns no row.
+    [insert('push_events'), (text, [user_id, kind, subject, fingerprint]) => {
+      if (state.ledger.some((r) => r.user_id === user_id && r.kind === kind
+        && r.subject === subject && r.fingerprint === fingerprint)) return { rows: [] };
+      state.ledger.push({ user_id, kind, subject, fingerprint, created_at: state.now });
+      return { rows: [{ user_id }] };
+    }],
   ]).install(t);
   t.mock.method(push, 'sendPushToUsers', async (userIds, payload) => {
     state.sent.push({ userIds, payload });
@@ -56,7 +56,7 @@ function world(t, scoringRules = null) {
   return state;
 }
 
-const run = (plays) => alertBigPlays({ leagueId: 42, season: 2026, week: 5, scored: SCORED, plays });
+const run = (plays) => sendAlert({ kind: 'big-play', leagueId: 42, season: 2026, week: 5, scored: SCORED, plays });
 
 test('a 6.0-point receiving TD by a home starter pushes the home owner "yours" and the away owner "opponent"', async (t) => {
   const state = world(t);
@@ -141,7 +141,7 @@ test('a qualifying play for a played or final matchup sends nothing', async (t) 
   const state = world(t);
 
   for (const status of ['played', 'final']) {
-    await alertBigPlays({ leagueId: 42, season: 2026, week: 5, scored: [{ ...SCORED[0], status }], plays: [play()] });
+    await sendAlert({ kind: 'big-play', leagueId: 42, season: 2026, week: 5, scored: [{ ...SCORED[0], status }], plays: [play()] });
   }
 
   assert.deepEqual(state.sent, []);

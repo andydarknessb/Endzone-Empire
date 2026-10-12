@@ -62,88 +62,23 @@ async function sendWeeklyRecapDigest({ leagueId, season, week }) {
   return { sent };
 }
 
-// Per-league watermark so staggered waiver clears within the same hour don't
-// re-email already-digested claims. In-process: a restart falls back to the
-// 1-hour lookback, worst case repeating one recent digest.
-//
-// The watermark is a JS Date, which is MILLISECOND precision; processed_at is
-// timestamptz, which is MICROSECOND precision. pg hands the row back already
-// truncated, so a plain `processed_at > $watermark` re-selects the very claim
-// the watermark was advanced to (03:09:53.450243 > 03:09:53.450) on every
-// scheduler tick, and the manager gets the same "WON" email every five
-// minutes until the worker restarts (66 copies, 2026-09-02). The query
-// truncates its side to milliseconds too so both sides compare at the same
-// precision; a claim sharing the newest claim's millisecond is in the same
-// batch, so nothing falls through the gap.
-const lastWaiverDigestAt = new Map();
-
 /**
  * Summarize just-resolved waiver claims per owner. Called right after a
- * league's waivers process; only claims resolved since the league's last
- * digest are included.
+ * league's waivers process; the push (pushAlerts.service, 'waiver-results')
+ * owns the claims query and the digest window, and each owner it pushed to
+ * gets the email.
  */
 async function sendWaiverResultsDigest({ leagueId }) {
-  const since =
-    lastWaiverDigestAt.get(leagueId) || new Date(Date.now() - 60 * 60 * 1000);
-  const claims = await pool.query(
-    `SELECT "waiver_claims"."status", "waiver_claims"."note", "waiver_claims"."bid",
-            "waiver_claims"."processed_at",
-            "players"."name" AS "player_name",
-            "teams"."owner_id", "users"."email", "leagues"."name" AS "league_name"
-     FROM "waiver_claims"
-     JOIN "teams" ON "teams"."id" = "waiver_claims"."team_id"
-     JOIN "users" ON "users"."id" = "teams"."owner_id"
-     JOIN "players" ON "players"."id" = "waiver_claims"."player_id"
-     JOIN "leagues" ON "leagues"."id" = "waiver_claims"."league_id"
-     WHERE "waiver_claims"."league_id" = $1
-       AND "waiver_claims"."status" IN ('won', 'lost')
-       AND date_trunc('milliseconds', "waiver_claims"."processed_at") > $2`,
-    [leagueId, since]
-  );
-  if (claims.rows.length === 0) return { sent: 0 };
-  // Advance to the newest digested claim (not now()) so nothing processed
-  // between this query and the watermark write can slip through the gap.
-  const newest = claims.rows.reduce(
-    (max, r) => (new Date(r.processed_at) > max ? new Date(r.processed_at) : max),
-    since
-  );
-  lastWaiverDigestAt.set(leagueId, newest);
-
-  const byOwner = new Map();
-  for (const row of claims.rows) {
-    if (!byOwner.has(row.owner_id)) {
-      byOwner.set(row.owner_id, { email: row.email, leagueName: row.league_name, lines: [] });
-    }
-    const bid = Number(row.bid) > 0 ? ` ($${row.bid})` : '';
-    byOwner.get(row.owner_id).lines.push(
-      row.status === 'won'
-        ? `WON: ${row.player_name}${bid}`
-        : `LOST: ${row.player_name}${bid}${row.note ? ` · ${row.note}` : ''}`
-    );
-  }
-  const wanted = new Set(await usersWanting([...byOwner.keys()], 'waiverResults'));
-
-  let sent = 0;
-  for (const [ownerId, { email, leagueName, lines }] of byOwner) {
-    if (!wanted.has(ownerId)) continue;
+  const { sendAlert } = require('./pushAlerts.service');
+  const { fresh } = await sendAlert({ kind: 'waiver-results', leagueId });
+  for (const { email, leagueName, lines } of fresh) {
     await deliverEmail({
       to: email,
       subject: `Waiver results: ${leagueName}`,
       text: `Your waiver claims cleared:\n\n${lines.join('\n')}\n\n${appOrigin()}/#/league/${leagueId}/waivers`,
     });
-    try {
-      const push = require('./push.service');
-      await push.sendPushToUsers([ownerId], {
-        title: `Waiver results: ${leagueName}`,
-        body: lines.join(' · '),
-        url: `/#/league/${leagueId}/waivers`,
-      });
-    } catch (err) {
-      console.error('waiver results push failed:', err.message);
-    }
-    sent += 1;
   }
-  return { sent };
+  return { sent: fresh.length };
 }
 
 /**
@@ -244,27 +179,14 @@ async function sendLineupReminders() {
       // One reminder per team-week, held by the push_events ledger (so a
       // restart or a second instance does not re-remind). A skipped push means
       // this team-week was already reminded, so the notification and email
-      // below are skipped with it. A ledger error fails closed: the tick is
-      // skipped and the next one retries, rather than re-sending the email on
-      // every tick of the 2-hour window.
+      // below are skipped with it. sendAlert never throws; a ledger error leaves
+      // fresh empty, so the tick is skipped and the next one retries, rather
+      // than re-sending the email on every tick of the 2-hour window.
       const message = `Lineup check for week ${week}: ${problems.join('; ')}`;
       try {
-        const push = require('./push.service');
-        const { banterFor } = require('./pushBanter');
-        const { skipped } = await push.sendPushOnce({
-          userIds: [team.owner_id],
-          prefKey: 'lineupReminder',
-          kind: 'lineup-reminder',
-          subject: `${team.id}:${season}:${week}`,
-          fingerprint: 'sent',
-          payload: {
-            title: 'Set your lineup before kickoff',
-            body: message,
-            url: `/#/league/${leagueId}/lineup`,
-            banter: banterFor('lineupProblem', `lineup-reminder:${team.id}:${season}:${week}:sent`, { week }),
-          },
-        });
-        if (skipped) continue;
+        const { sendAlert } = require('./pushAlerts.service');
+        const { fresh } = await sendAlert({ kind: 'lineup-reminder', leagueId, team, season, week, problems });
+        if (fresh.length === 0) continue;
       } catch (err) {
         console.error('lineup reminder push failed:', err.message);
         continue;
@@ -301,12 +223,6 @@ async function sendLineupReminders() {
   }
   return { remindersSent };
 }
-
-// One Pick'em reminder per (league, user, week), in process only: a restart may
-// re-remind, which beats persisting state for best-effort nudging. The lineup
-// reminder is held by the push_events ledger instead, so the two don't suppress
-// each other.
-const pickemRemindedUserWeeks = new Set();
 
 /**
  * Pre-kickoff Pick'em reminders: when a Pick'em-enabled league's current week
@@ -365,32 +281,21 @@ async function sendPickemReminders() {
       [league.id, league.season, league.week]
     );
     const madeByUser = picksMadeByUser(stored.rows);
-    const wanted = new Set(
-      await usersWanting(members.rows.map((m) => m.owner_id), 'pickemReminder')
-    );
 
     for (const member of members.rows) {
-      const key = `${league.id}:${member.owner_id}:${league.season}:${league.week}`;
-      if (pickemRemindedUserWeeks.has(key) || !wanted.has(member.owner_id)) continue;
-
       const { missing } = pickemStatus({ slate, made: madeByUser.get(member.owner_id), now });
-      pickemRemindedUserWeeks.add(key);
-      if (missing === 0) continue; // fully picked — don't re-check this week
+      if (missing === 0) continue; // fully picked
+
+      // One reminder per (league, user, week), held by the push_events ledger.
+      // A skipped push means this week was already reminded (or the user opted
+      // out), so the notification and email below are skipped with it.
+      const { fresh } = await require('./pushAlerts.service').sendAlert({ kind: 'pickem-reminder', league, member, missing });
+      if (fresh.length === 0) continue;
 
       remindersSent += 1;
       const message =
         `Week ${league.week} Pick'em: ${missing} game` +
         `${missing === 1 ? '' : 's'} still unpicked before kickoff.`;
-      try {
-        const push = require('./push.service');
-        await push.sendPushToUsers([member.owner_id], {
-          title: "Make your Pick'em picks before kickoff",
-          body: message,
-          url: `/#/league/${league.id}/pickem`,
-        });
-      } catch (err) {
-        console.error("pick'em reminder push failed:", err.message);
-      }
       // Notify-only, best-effort: the swallow sits here at the call site around
       // withTransaction (ADR 0033, #1072). The ROLLBACK was unguarded before, so
       // a rejecting rollback escaped this swallow and aborted the whole digest

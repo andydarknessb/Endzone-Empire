@@ -314,7 +314,7 @@ async function scoreMatchups({ leagueId, season, week, plays = [], settle = fals
   // `plays` (typed touchdown events) rides the same emit that carries fresh
   // scores. It's populated only on the live sync path — the stat-correction
   // path passes none — so a cutscene can never fire from a correction.
-  // Each play's statsBefore/statsAfter (the stat lines alertBigPlays prices
+  // Each play's statsBefore/statsAfter (the stat lines the big-play alert prices
   // against) stay server-side: stripped here, at the wire boundary.
   const { wirePlays } = require('./boxScoreApply.service');
   await getDraftRoomBroadcast().scoresUpdated(leagueId, { leagueId, season, week, scored, plays: wirePlays(plays) });

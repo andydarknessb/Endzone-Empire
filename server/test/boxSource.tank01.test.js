@@ -41,7 +41,7 @@ function stubUpserts(t) {
 }
 
 // The golden pins the wire shape of a play. statsBefore/statsAfter ride the
-// server-side play for alertBigPlays and are stripped before the socket emit
+// server-side play for the big-play alert and are stripped before the socket emit
 // (matchupScoring), so they are compared on their own, not baked into the golden.
 const wireShape = ({ statsBefore, statsAfter, ...rest }) => rest;
 const assertStatLines = (plays, upserts) => {

@@ -197,15 +197,16 @@ async function pollChangedGames({ season, week, games, finalSyncedGameIds, quota
   const due = gate.due(now);
   if (due.length > 0) {
     const matchupScoring = require('../services/matchupScoring.service');
-    const scheduler = require('./scheduler');
+    const { sendAlert } = require('../services/pushAlerts.service');
     for (const { leagueId, plays: leaguePlays } of due) {
       try {
         const { scored } = await matchupScoring.scoreMatchups({ leagueId, season, week, plays: leaguePlays });
         gate.markRan(leagueId, now);
         rescored.push(leagueId);
-        await scheduler.alertCloseMatchups({ leagueId, week, scored });
-        await scheduler.alertScoreUpdates({ leagueId, season, week, scored });
-        await scheduler.alertBigPlays({ leagueId, season, week, scored, plays: leaguePlays });
+        await sendAlert({ kind: 'close-matchup', leagueId, week, scored });
+        await sendAlert({ kind: 'score-lead', leagueId, season, week, scored });
+        await sendAlert({ kind: 'score-played', leagueId, season, week, scored });
+        await sendAlert({ kind: 'big-play', leagueId, season, week, scored, plays: leaguePlays });
       } catch (err) {
         // Left pending: the next tick retries and the plays are still owed.
         console.error('liveBoxPoll: re-score failed for league %s:', leagueId, err.message);
