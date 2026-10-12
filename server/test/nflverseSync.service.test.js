@@ -513,6 +513,25 @@ test('buildDstStatUpdates records game context on both sides of the game', () =>
   );
 });
 
+test('buildDstStatUpdates: defensiveTD counts a fumble-return TD that def_tds omits (issue #2218)', () => {
+  // Same rule as the player side (#1386 f1): def_tds excludes fumble-return
+  // TDs, which live only in fumble_recovery_tds.
+  const scoresByGameId = new Map([
+    ['2025_02_LA_SF', { homeTeam: 'SF', awayTeam: 'LA', homeScore: 20, awayScore: 17 }],
+  ]);
+  const build = (laDefTds, laFumbleTds) =>
+    buildDstStatUpdates({
+      teamRows: [
+        { game_id: '2025_02_LA_SF', team: 'LA', opponent_team: 'SF', def_tds: laDefTds, fumble_recovery_tds: laFumbleTds },
+        { game_id: '2025_02_LA_SF', team: 'SF', opponent_team: 'LA', def_tds: '0', fumble_recovery_tds: '0' },
+      ],
+      scoresByGameId,
+    }).find((u) => u.teamAbbr === 'LAR').stats.defensiveTD;
+  assert.equal(build('0', '1'), 1, 'fumble-return TD alone');
+  assert.equal(build('1', '1'), 2, 'interception-return TD plus fumble-return TD');
+  assert.equal(build('1', '0'), 1, 'interception-return TD alone');
+});
+
 test('optionalTeamAbbr is null-preserving where nflverseTeamToOurAbbr answers a blank', () => {
   assert.equal(nflverseTeamToOurAbbr(''), '', 'the raw mapper still answers a blank string');
   for (const value of [undefined, null, '', '  ', 'NA']) {

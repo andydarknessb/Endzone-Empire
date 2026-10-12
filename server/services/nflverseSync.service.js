@@ -1001,7 +1001,8 @@ function buildDstStatUpdates({ teamRows, scoresByGameId }) {
         sack: num(row.def_sacks),
         interceptionReturn: num(row.def_interceptions),
         fumbleRecovery: num(row.fumble_recovery_opp),
-        defensiveTD: num(row.def_tds),
+        // def_tds excludes fumble-return TDs; same sum as idpDefensiveTD (#1386 f1, #2218).
+        defensiveTD: num(row.def_tds) + num(row.fumble_recovery_tds),
         safety: num(row.def_safeties),
         blockedKick: num(opponent.fg_blocked) + num(opponent.pat_blocked) + num(opponent.pt_blocked),
         pointsAllowed,
