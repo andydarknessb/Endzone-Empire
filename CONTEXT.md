@@ -1239,9 +1239,10 @@ box.
 _Avoid_: box score (unqualified), live stats, in-game box
 
 **Final box**:
-The box score of a final NFL game, read once from Tank01 when the game goes
-final and never re-read; it replaces the Live box and is the game's stats from
-then on, apart from the per-defender yardage nflverse patches at week end.
+The box score of a final NFL game, read from Tank01 when the game goes final
+and re-read once ~2h later (a transient value in the first read, #2223); it
+replaces the Live box and is the game's stats from then on, apart from the
+per-defender yardage nflverse patches at week end and the Tue/Wed correction.
 Distinct from the Score of record, which is a week's settled total, not a
 game's stats.
 _Avoid_: score of record (for a game's stats), official box, box of record
