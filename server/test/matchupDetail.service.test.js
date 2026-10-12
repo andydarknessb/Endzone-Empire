@@ -1,0 +1,171 @@
+const { after, test } = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const express = require('express');
+const request = require('supertest');
+const { createFakePool, select } = require('./helpers/fakePool');
+const { signToken } = require('../modules/auth');
+const leagueRouter = require('../routes/league.router');
+const projectionService = require('../services/projection.service');
+const lineupService = require('../services/lineup.service');
+const decisionService = require('../services/decision.service');
+const lineupOverrideService = require('../services/lineupOverride.service');
+const clock = require('../modules/clock');
+
+/**
+ * #2231: the matchup detail body, pinned byte for byte by one golden fixture
+ * (fixtures/matchupDetail.golden.json). One seed drives a live (unsettled)
+ * week with every body key populated: a viewer who owns the home team (so
+ * viewerTeamId and viewerWhatIf), starters and bench, a game in progress (the
+ * game_clock key), an Out and a bye row, a row the producer did not price
+ * (the Weekly projection verdict), game ids, and a called shot on each side.
+ */
+
+const previousSecret = process.env.JWT_SECRET;
+process.env.JWT_SECRET = 'matchup-detail-service-test-secret';
+after(() => {
+  if (previousSecret === undefined) delete process.env.JWT_SECRET;
+  else process.env.JWT_SECRET = previousSecret;
+});
+
+const GOLDEN = path.join(__dirname, 'fixtures', 'matchupDetail.golden.json');
+const LEAGUE_ID = 1;
+const SEASON = 2026;
+const WEEK = 8;
+const HOME = 11;
+const AWAY = 12;
+const NOW = '2026-10-25T18:00:00.000Z'; // Sunday afternoon, after the 17:00Z kickoffs
+
+const OUT = { available: false, activeProbability: 0, reason: 'out', status: 'O' };
+const BYE = { available: false, activeProbability: 0, reason: 'bye', status: null };
+
+const MATCHUP_ROW = {
+  id: 7,
+  league_id: LEAGUE_ID,
+  season: SEASON,
+  week: WEEK,
+  home_team_id: HOME,
+  away_team_id: AWAY,
+  home_score: '0',
+  away_score: '0',
+  final: false,
+  home_team_name: 'Gridiron Ghosts',
+  away_team_name: 'Sunday Scaries',
+  home_owner_id: 42,
+  away_owner_id: 43,
+  home_team_avatar_url: null,
+  away_team_avatar_url: null,
+  home_team_avatar_static_url: null,
+  away_team_avatar_static_url: null,
+};
+
+const player = (id, name, position, nfl_team, injury_status, slot, stats, photo_url = null) => ({
+  id, player_id: id, name, position, nfl_team, injury_status, slot, stats, photo_url,
+});
+const HOME_STARTERS = [
+  player(101, 'Some Passer', 'QB', 'KC', null, 'QB', { passingYards: 250, passingTouchdowns: 2 }),
+  player(102, 'Some Wideout', 'WR', 'PHI', 'O', 'WR', null),
+];
+const HOME_BENCH = [
+  player(103, 'Some Runner', 'RB', 'DAL', null, 'BENCH', null, 'https://a.espncdn.com/i/headshots/nfl/players/full/103.png'),
+  player(105, 'Unpriced Reserve', 'TE', 'DAL', 'O', 'BENCH', null), // in no producer read: the verdict path
+];
+const AWAY_STARTERS = [
+  player(201, 'Resting Back', 'RB', 'Ghosts', null, 'RB', null),
+  player(202, 'Chiefs Defense', 'DEF', 'Kansas City Chiefs', null, 'DEF', { sacks: 3 }),
+];
+const PRODUCER_ROWS = [
+  ...[...HOME_STARTERS, ...HOME_BENCH.slice(0, 1)].map((p) => [HOME, p]),
+  ...AWAY_STARTERS.map((p) => [AWAY, p]),
+].map(([team_id, p]) => ({
+  team_id, player_id: p.id, slot: p.slot, nfl_team: p.nfl_team, injury_status: p.injury_status, stats: p.stats,
+}));
+
+const PROJECTIONS = new Map([
+  [101, { points: 19 }],
+  [102, { points: 11.3, availability: OUT }],
+  [103, { points: 7.7 }],
+  [105, { points: 5.5, availability: OUT }],
+  [201, { points: 9, availability: BYE }],
+  [202, { points: 8.25 }],
+]);
+const LIVE = [
+  { home_team: 'KC', away_team: 'LV', game_status: 'in_progress', quarter: 'Q3', time_remaining: '6:42', updated_at: '2026-10-25T17:58:00.000Z' },
+  { home_team: 'DAL', away_team: 'SF', game_status: 'final', quarter: 'Final', time_remaining: '0:00', updated_at: '2026-10-25T17:55:00.000Z' },
+];
+const SCHEDULE = [
+  { nfl_team: 'KC', opponent: 'LV', kickoff_at: '2026-10-25T17:00:00.000Z' },
+  { nfl_team: 'PHI', opponent: 'NYG', kickoff_at: '2026-10-25T20:25:00.000Z' },
+  { nfl_team: 'DAL', opponent: 'SF', kickoff_at: '2026-10-25T13:00:00.000Z' },
+];
+const BYE_ROWS = [];
+for (let w = 1; w <= 18; w++) {
+  for (const team of ['KC', 'PHI', 'DAL']) BYE_ROWS.push({ nfl_team: team, week: w });
+  if (w !== WEEK) BYE_ROWS.push({ nfl_team: 'Ghosts', week: w });
+}
+const WHAT_IF = { benchPlayerId: 103, delta: 1.5 };
+const SHOT = { starter: { playerId: 101, name: 'Some Passer', points: 11.4 }, benched: { playerId: 103, name: 'Some Runner', points: 6.2 }, outcome: null };
+
+function fakeWeeklyResult(projections) {
+  return {
+    modelVersion: 'test',
+    projections,
+    pointsFor(id) {
+      const entry = projections.get(id);
+      return entry == null ? null : Number(entry.points);
+    },
+    startVerdictFor(id) {
+      const entry = projections.get(id);
+      const availability = (entry && entry.availability) || {};
+      return projectionService
+        .toWeeklyProjectionResult({ projections: new Map([[id, { factors: { availability } }]]) })
+        .startVerdictFor(id);
+    },
+  };
+}
+
+// Installs every seam the detail read crosses and returns the fake pool.
+function seed(t) {
+  t.mock.method(clock, 'now', () => new Date(NOW));
+  t.mock.method(projectionService, 'getWeeklyProjections', async () => fakeWeeklyResult(PROJECTIONS));
+  t.mock.method(lineupService, 'materializeLineup', async () => {});
+  t.mock.method(decisionService, 'liveWhatIf', async () => WHAT_IF);
+  t.mock.method(lineupOverrideService, 'loadPublicCalledShot', async (db, args) => (args.teamId === HOME ? SHOT : null));
+  return createFakePool([
+    [/^SELECT 1 FROM "teams"/, () => ({ rows: [{ '?column?': 1 }] })],
+    [select('matchups'), () => ({ rows: [{ ...MATCHUP_ROW }] })],
+    [select('leagues'), () => ({ rows: [{ id: LEAGUE_ID, scoring_preset: 'half_ppr', best_ball: false }] })],
+    [/FROM "nfl_games" "ng"/, () => ({ rows: BYE_ROWS })],
+    [/FROM "nfl_games"/, () => ({ rows: SCHEDULE })],
+    [/FROM "live_game_states"/, () => ({ rows: LIVE })],
+    [/FROM "view_matchup_nfl_games"/, () => ({
+      rows: [{ tank01_game_id: '20261025_LV@KC' }, { tank01_game_id: '20261025_SF@DAL' }, { tank01_game_id: '20261025_LV@KC' }],
+    })],
+    [/"lineup_entries"\."slot" = \$4/, (text, params) => ({ rows: params[0] === HOME ? HOME_BENCH : [] })],
+    [/"players"\."id", "players"\."name"[\s\S]*"lineup_entries"\."slot" NOT IN/, (text, params) => ({
+      rows: params[0] === HOME ? HOME_STARTERS : AWAY_STARTERS,
+    })],
+    [/"lineup_entries"\."team_id", "lineup_entries"\."player_id"/, () => ({ rows: PRODUCER_ROWS })],
+  ]).install(t);
+}
+
+const app = express();
+app.use(express.json());
+app.use('/api/league', leagueRouter);
+
+async function fetchDetail(t) {
+  seed(t);
+  const res = await request(app)
+    .get(`/api/league/${LEAGUE_ID}/matchups/7`)
+    .set('Authorization', `Bearer ${signToken({ id: 42, username: 'u42' })}`);
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  return res.body;
+}
+
+test('the matchup detail body equals the golden fixture byte for byte', async (t) => {
+  const body = await fetchDetail(t);
+  const golden = JSON.parse(fs.readFileSync(GOLDEN, 'utf8'));
+  assert.deepEqual(body, golden);
+  assert.equal(JSON.stringify(body), JSON.stringify(golden));
+});
