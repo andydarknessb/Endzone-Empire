@@ -43,32 +43,75 @@ function dataSyncRunsHandler(byJob) {
   }];
 }
 
-// The due/not-due decision itself (a pass crossing UTC midnight, a durable
-// row surviving a restart) is now the cadence gate's own concern and lives as
-// cadence.test.js table rows (fleet#1508 f3): the "green for the wrong
-// reason" row there covers the midnight-crossing case this file used to fake
-// a pool read for, and the "ok today" row covers the restart/no-repeat case.
-// What is left here is the scheduler's OWN behavior around that decision,
-// with cadence.due stubbed directly - no fabricated `FROM "data_sync_runs"`
-// read decides due or not due in this file.
+// The rows are driven through the tick (tickUnlocked([row])) over a mocked Date,
+// so the row's `when`, its cadence gate and its body all see the tick's one
+// `now`. The due/not-due decision itself is the cadence gate's own concern,
+// covered generically as cadence.test.js table rows (fleet#1508 f3); what is
+// pinned here is each row's OWN behavior around that decision, with the gate
+// reading fake `data_sync_runs` rows - nothing stubs `cadence.due`.
+//
+// A row's gate keeps its same-day memo for the life of this process, so a test
+// that drives a stat-corrections row uses a UTC day no other test uses.
+
+const clocked = new WeakSet();
+async function tickRow(t, name, at) {
+  const ms = new Date(at).getTime();
+  if (clocked.has(t)) t.mock.timers.setTime(ms);
+  else { t.mock.timers.enable({ apis: ['Date'], now: ms }); clocked.add(t); }
+  const row = scheduler.TICK_JOBS.find((job) => job.name === name);
+  assert.ok(row, `TICK_JOBS has a ${name} row`);
+  const out = { ran: false, result: undefined, error: undefined };
+  await scheduler.tickUnlocked([{
+    ...row,
+    run: async (arg) => {
+      out.ran = true;
+      try {
+        out.result = await row.run(arg);
+        return out.result;
+      } catch (err) {
+        out.error = err;
+        throw err;
+      }
+    },
+  }]);
+  return out;
+}
+
+const NO_GAME_WINDOW = [/FROM "live_game_states"/, () => ({ rows: [] })];
+
+/** data_sync_runs as a table the fake pool reads and the runs' own INSERTs append to. */
+function runsTable() {
+  const runs = [];
+  const shape = (r) => (r ? { id: 1, finished_at: r.finished_at, ok: r.ok, detail: r.detail } : null);
+  return {
+    runs,
+    handlers: [
+      [/^INSERT INTO "data_sync_runs"/, (text, [job, , ok, detail]) => {
+        runs.push({ job, ok, detail: detail ? JSON.parse(detail) : null, finished_at: new Date() });
+        return { rows: [] };
+      }],
+      [/FROM "data_sync_runs"/, (text, [job]) => {
+        const mine = runs.filter((r) => r.job === job).reverse();
+        return { rows: [{ latest: shape(mine[0]), latestOk: shape(mine.find((r) => r.ok)) }] };
+      }],
+    ],
+  };
+}
 
 test('a successful pass records its own Sync run, with detail.day set to the UTC day it started', async (t) => {
-  const cadence = require('../modules/cadence');
-  t.mock.method(cadence, 'due', async () => ({ due: true, reason: 'stubbed due' }));
   let resyncCalls = 0;
   t.mock.method(correction, 'resyncPriorWeeks', async () => { resyncCalls += 1; return { corrected: [], invalidated: [] }; });
-  const fake = createFakePool([[/INSERT INTO "data_sync_runs"/, () => ({ rows: [] })]]).install(t);
+  const table = runsTable();
+  const fake = createFakePool(table.handlers).install(t);
 
-  const result = await scheduler.runDailyStatCorrections({ now: new Date('2026-09-23T00:06:00Z') });
-  assert.equal(resyncCalls, 1, 'due: true delegates straight to resyncPriorWeeks');
-  assert.ok(result);
+  const out = await tickRow(t, 'stat-corrections', '2026-09-23T00:06:00Z');
+  assert.equal(resyncCalls, 1, 'never run: due, delegates straight to resyncPriorWeeks');
+  assert.ok(out.result);
   const inserted = fake.calls.find((c) => c.text.startsWith('INSERT INTO "data_sync_runs"'));
   assert.equal(JSON.parse(inserted.params[3]).day, '2026-09-23', 'the new row records the UTC day the pass started');
 });
 
-test('a thrown pass records a failed Sync run for its day and does not move the in-memory short-circuit', async (t) => {
-  const cadence = require('../modules/cadence');
-  t.mock.method(cadence, 'due', async () => ({ due: true, reason: 'stubbed due' }));
+test('a thrown pass records a failed Sync run for its day, does not settle it, and is retried once the one hour retry wait has passed', async (t) => {
   let resyncCalls = 0;
   t.mock.method(correction, 'resyncPriorWeeks', async () => {
     resyncCalls += 1;
@@ -76,41 +119,36 @@ test('a thrown pass records a failed Sync run for its day and does not move the 
     err.invalidated = [{ season: 2026, fromWeek: 2, deletedRuns: 31 }];
     throw err;
   });
-  const fake = createFakePool([
-    [/INSERT INTO "data_sync_runs"/, () => ({ rows: [] })],
-  ]).install(t);
+  const table = runsTable();
+  const fake = createFakePool(table.handlers).install(t);
 
-  const now = new Date('2026-09-29T00:04:00Z');
-  await assert.rejects(() => scheduler.runDailyStatCorrections({ now }), /cache maintenance/);
+  const first = await tickRow(t, 'stat-corrections', '2026-09-29T00:04:00Z');
+  assert.match(first.error.message, /cache maintenance/);
   const inserted = fake.calls.find((c) => c.text.startsWith('INSERT INTO "data_sync_runs"'));
   assert.equal(inserted.params[0], 'stat-corrections');
   assert.equal(inserted.params[2], false);
   assert.equal(JSON.parse(inserted.params[3]).day, '2026-09-29');
-  // Same day, next tick: a failed run never sets the in-memory stamp (the
-  // gate is stubbed due: true throughout, so this is the scheduler's own
-  // "did not stamp" behavior, not a gate re-decision), so it retries.
-  await assert.rejects(() => scheduler.runDailyStatCorrections({ now: new Date('2026-09-29T00:09:00Z') }));
+  // Same day, next tick: the failed row holds the pass back for its retry
+  // interval (a wait, not a settled day), and past it the pass retries.
+  assert.equal((await tickRow(t, 'stat-corrections', '2026-09-29T00:09:00Z')).ran, false);
+  assert.equal(resyncCalls, 1);
+  assert.match((await tickRow(t, 'stat-corrections', '2026-09-29T01:05:00Z')).error.message, /cache maintenance/);
   assert.equal(resyncCalls, 2);
 });
 
-test('runDailyStatCorrections runs once on a correction day and records it as its own Sync run; a same-day retry short-circuits before the gate is asked again', async (t) => {
-  const cadence = require('../modules/cadence');
-  let dueCalls = 0;
-  t.mock.method(cadence, 'due', async () => { dueCalls += 1; return { due: true, reason: 'stubbed due' }; });
+test('the stat-corrections row runs once on a correction day and records it as its own Sync run; once settled, the rest of that UTC day reads nothing', async (t) => {
   let resyncCalls = 0;
   t.mock.method(correction, 'resyncPriorWeeks', async () => {
     resyncCalls += 1;
     return { corrected: [], invalidated: [{ season: 2026, fromWeek: 2, deletedRuns: 31 }] };
   });
-  const fake = createFakePool([
-    [/INSERT INTO "data_sync_runs"/, () => ({ rows: [] })],
-  ]).install(t);
+  const table = runsTable();
+  const fake = createFakePool(table.handlers).install(t);
+  const reads = () => fake.calls.filter((c) => /^SELECT .*FROM "data_sync_runs"/.test(c.text)).length;
 
-  const now = new Date('2026-09-16T00:04:00Z');
-  const result = await scheduler.runDailyStatCorrections({ now });
+  const out = await tickRow(t, 'stat-corrections', '2026-09-16T00:04:00Z');
   assert.equal(resyncCalls, 1);
-  assert.equal(dueCalls, 1);
-  assert.deepEqual(result.invalidated, [{ season: 2026, fromWeek: 2, deletedRuns: 31 }]);
+  assert.deepEqual(out.result.invalidated, [{ season: 2026, fromWeek: 2, deletedRuns: 31 }]);
 
   const inserted = fake.calls.find((c) => c.text.startsWith('INSERT INTO "data_sync_runs"'));
   assert.ok(inserted, 'the pass is recorded as a Sync run so a restarted worker can see it ran');
@@ -119,123 +157,110 @@ test('runDailyStatCorrections runs once on a correction day and records it as it
   const detail = JSON.parse(inserted.params[3]);
   assert.equal(detail.invalidated[0].deletedRuns, 31);
 
-  // Same process, same day: the in-memory stamp short-circuits BEFORE the
-  // gate is even asked again.
-  assert.equal(await scheduler.runDailyStatCorrections({ now: new Date('2026-09-16T00:09:00Z') }), null);
+  // Same process, same day: the next tick reads the row, finds the day settled
+  // and runs nothing; the tick after that does not even read.
+  assert.equal((await tickRow(t, 'stat-corrections', '2026-09-16T00:09:00Z')).ran, false);
   assert.equal(resyncCalls, 1);
-  assert.equal(dueCalls, 1, 'the cadence gate is never re-consulted the same UTC day once this process has already run the pass');
+  const readsAfterSecond = reads();
+  assert.equal((await tickRow(t, 'stat-corrections', '2026-09-16T00:14:00Z')).ran, false);
+  assert.equal(reads(), readsAfterSecond, 'the gate is never re-read the same UTC day once it answered settled');
 });
 
-test('runDailyStatCorrections never runs outside the UTC Tue/Wed window, restart or not', async (t) => {
+test('the stat-corrections row never runs outside the UTC Tue/Wed window, restart or not', async (t) => {
   let resyncCalls = 0;
   t.mock.method(correction, 'resyncPriorWeeks', async () => { resyncCalls += 1; return { corrected: [], invalidated: [] }; });
   const fake = createFakePool([dataSyncRunsHandler({})]).install(t);
-  assert.equal(await scheduler.runDailyStatCorrections({ now: new Date('2026-09-17T12:00:00Z') }), null); // Thursday
+  const out = await tickRow(t, 'stat-corrections', '2026-09-17T12:00:00Z'); // Thursday
+  assert.equal(out.ran, false);
   assert.equal(resyncCalls, 0);
   assert.equal(fake.calls.length, 0, 'no data_sync_runs read outside the window');
 });
 
 // ---------------------------------------------------------------------------
 // The cadence gate (server/modules/cadence.js, spec #1492 step two, #1508):
-// stat-corrections is the first job on it. These two stub the gate itself
-// (not data_sync_runs) and assert delegation only - every "is it actually
-// due" case is the cadence table suite's job (server/test/cadence.test.js).
+// stat-corrections is the first job on it. Every "is it actually due" case is
+// the cadence table suite's job (server/test/cadence.test.js); these two assert
+// the row's delegation: the job it reads, and that it runs only when due.
 // ---------------------------------------------------------------------------
 
-test('runDailyStatCorrections delegates the due/not-due decision to the cadence gate', async (t) => {
-  const cadence = require('../modules/cadence');
-  let dueArgs = null;
-  t.mock.method(cadence, 'due', async (args) => {
-    dueArgs = args;
-    return { due: true, reason: 'stubbed due' };
-  });
+test('the stat-corrections row runs the pass when the job has not succeeded today, reading its own job', async (t) => {
   let resyncCalls = 0;
   t.mock.method(correction, 'resyncPriorWeeks', async () => { resyncCalls += 1; return { corrected: [], invalidated: [] }; });
-  createFakePool([[/INSERT INTO "data_sync_runs"/, () => ({ rows: [] })]]).install(t);
+  const table = runsTable();
+  const fake = createFakePool(table.handlers).install(t);
 
-  const now = new Date('2030-06-04T12:00:00Z'); // a Tuesday, inside the correction window
-  const result = await scheduler.runDailyStatCorrections({ now });
-
-  assert.deepEqual(dueArgs, { job: 'stat-corrections', every: 'utc-day', retryMs: 60 * 60 * 1000, now }, 'the job sets its own retry interval');
+  const out = await tickRow(t, 'stat-corrections', '2030-06-04T12:00:00Z'); // a Tuesday, inside the correction window
+  assert.deepEqual(fake.calls.filter((c) => /^SELECT .*FROM "data_sync_runs"/.test(c.text)).map((c) => c.params[0]), ['stat-corrections']);
   assert.equal(resyncCalls, 1, 'due: true delegates straight to resyncPriorWeeks');
-  assert.deepEqual(result, { corrected: 0, invalidated: [] });
+  assert.deepEqual(out.result, { corrected: 0, invalidated: [] });
 });
 
-test('runDailyStatCorrections never runs the pass when the cadence gate says it is not due', async (t) => {
-  const cadence = require('../modules/cadence');
-  t.mock.method(cadence, 'due', async () => ({ due: false, reason: 'stubbed not due' }));
+test('the stat-corrections row never runs the pass when the job already succeeded today', async (t) => {
   let resyncCalls = 0;
   t.mock.method(correction, 'resyncPriorWeeks', async () => { resyncCalls += 1; return { corrected: [], invalidated: [] }; });
+  createFakePool([dataSyncRunsHandler({ 'stat-corrections': '2030-06-05T00:06:00Z' })]).install(t);
 
-  const now = new Date('2030-06-05T12:00:00Z'); // a Wednesday, inside the window, a different day from above
-  const result = await scheduler.runDailyStatCorrections({ now });
-
-  assert.equal(result, null);
+  const out = await tickRow(t, 'stat-corrections', '2030-06-05T12:00:00Z'); // a Wednesday, inside the window
+  assert.equal(out.ran, false);
   assert.equal(resyncCalls, 0, 'due: false never reaches resyncPriorWeeks');
 });
 
 // ---------------------------------------------------------------------------
 // The owed-check itself used to be a hand-rolled `data_sync_runs` comparison
 // (`projectionRefillOwed`); it is now the cadence gate's own concern
-// (server/modules/cadence.js, spec #1492 step two, #1511):
-// `cadence.due({ job: 'nightly-projection-run', every: 'utc-day', after:
-// 'stat-corrections' })`. Every "is it actually owed" case - the `after`
-// dependency's own arithmetic - is the cadence table suite's job
-// (cadence.test.js); these two stub the gate directly and assert only this
-// function's OWN delegation to it, mirroring `runHourlyOddsSync`'s and
-// `runDailyStatCorrections`' equivalent pair of tests (#1510, #1508).
+// (server/modules/cadence.js, spec #1492 step two, #1511): the fill row's
+// second `anyOf` member is a `nightly-projection-run` cadence with `after:
+// 'stat-corrections'`, on days with no game window open. Every "is it actually
+// owed" case - the `after` dependency's own arithmetic - is the cadence table
+// suite's job (cadence.test.js); these assert the row's delegation to it.
 // ---------------------------------------------------------------------------
 
-test('runNightlyProjectionFill delegates the due/not-due decision to the cadence gate', async (t) => {
-  const cadence = require('../modules/cadence');
-  let dueArgs = null;
-  t.mock.method(cadence, 'due', async (args) => { dueArgs = args; return { due: true, reason: 'stubbed due' }; });
+test('the nightly-projection-fill row refills outside the window when a correction pass is newer than the fill\'s last success', async (t) => {
   const generated = [];
   t.mock.method(projection, 'getWeeklyProjections', async ({ league, week, playerIds }) => {
     generated.push({ leagueId: league.id, week });
     return { projections: new Map(playerIds.map((id) => [id, { median: 5, cached: false }])) };
   });
   createFakePool([
+    dataSyncRunsHandler({
+      'stat-corrections': '2026-09-18T06:00:00Z',
+      'nightly-projection-run': '2026-09-17T09:10:00Z',
+    }),
     [/INSERT INTO "data_sync_runs"/, () => ({ rows: [] })],
-    [/FROM "leagues"/, () => ({
-      rows: [LIVE_LEAGUE_ROW],
-    })],
+    NO_GAME_WINDOW,
+    [/FROM "leagues"/, () => ({ rows: [LIVE_LEAGUE_ROW] })],
     [/FROM "players"/, () => ({ rows: [{ id: 101 }, { id: 202 }] })],
   ]).install(t);
 
-  // 17:10 UTC, hours outside NIGHTLY_PROJECTION_FILL_UTC_HOUR: due: true alone
-  // (no game window open) is what delegates straight to the fill.
-  const now = new Date('2026-09-18T17:10:00Z');
-  const result = await scheduler.runNightlyProjectionFill({ now });
-  assert.ok(result && result.weeksGenerated > 0, `a refill ran: ${JSON.stringify(result)}`);
+  // 17:10 UTC, hours outside NIGHTLY_PROJECTION_FILL_UTC_HOUR: due alone (no
+  // game window open) is what delegates straight to the fill.
+  const out = await tickRow(t, 'nightly-projection-fill', '2026-09-18T17:10:00Z');
+  assert.ok(out.result && out.result.weeksGenerated > 0, `a refill ran: ${JSON.stringify(out.result)}`);
   assert.deepEqual(generated.map((g) => g.week), [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
-  assert.deepEqual(dueArgs, { job: 'nightly-projection-run', every: 'utc-day', after: 'stat-corrections', now });
 });
 
-test('runNightlyProjectionFill never reads the leagues table when the cadence gate says it is not due', async (t) => {
-  const cadence = require('../modules/cadence');
-  t.mock.method(cadence, 'due', async () => ({ due: false, reason: 'stubbed not due' }));
+test('the nightly-projection-fill row never reads the leagues table when nothing is owed outside the window', async (t) => {
   const fake = createFakePool([
+    dataSyncRunsHandler({}),
+    NO_GAME_WINDOW,
     [/FROM "leagues"/, () => ({ rows: [LIVE_LEAGUE_ROW] })],
   ]).install(t);
 
-  const result = await scheduler.runNightlyProjectionFill({ now: new Date('2026-09-19T17:10:00Z') });
-  assert.equal(result, null);
-  assert.equal(fake.calls.filter((c) => /FROM "leagues"/.test(c.text)).length, 0, 'due: false never reaches the leagues read');
+  const out = await tickRow(t, 'nightly-projection-fill', '2026-09-19T17:10:00Z');
+  assert.equal(out.ran, false);
+  assert.equal(fake.calls.filter((c) => /FROM "leagues"/.test(c.text)).length, 0, 'not due, so the leagues read never happens');
 });
 
 // ---------------------------------------------------------------------------
-// #1511 AC4: the three pinned cases, driving the REAL cadence.due (no stub on
-// cadence itself) through fake `data_sync_runs` rows - same style as
-// `runHourlyOddsSync`'s real-gate cases (#1510). Both cases below are pinned
-// AT THE GATE: `cadence.due`'s own `after`-dependency arithmetic (covered
-// generically by cadence.test.js) is what decides due or not due here: this
-// function only acts on the verdict. The projection fill has no day-of-week
-// filter of its own (unlike `runDailyStatCorrections`'/`runNflverseFinalization`'s
-// Tue-Wed/Mon-Thu windows), so its "Thursday" case is not distinct from any
-// other non-correction day; that pinned case lives with nflverse finalization
-// in scheduler.test.js instead, where Mon-Thu is a real scheduler-level
-// filter beside the gate.
+// #1511 AC4: the three pinned cases, driving the REAL cadence.due through fake
+// `data_sync_runs` rows - same style as the odds row's real-gate cases (#1510).
+// Each is pinned AT THE GATE: `cadence.due`'s own `after`-dependency arithmetic
+// (covered generically by cadence.test.js) is what decides due or not due
+// here: the row only acts on the verdict. The projection fill has no
+// day-of-week filter of its own (unlike the stat-corrections and nflverse
+// finalization rows' Tue-Wed and Mon-Thu `when`s), so its "Thursday" case is
+// not distinct from any other non-correction day; that pinned case lives with
+// nflverse finalization in scheduler.test.js instead.
 // ---------------------------------------------------------------------------
 
 test('Tuesday with a failed corrections pass: an owed refill does not run (pinned at the gate)', async (t) => {
@@ -252,13 +277,14 @@ test('Tuesday with a failed corrections pass: an owed refill does not run (pinne
       'stat-corrections': '2026-09-15T00:06:00Z',
       'nightly-projection-run': '2026-09-21T09:10:00Z',
     }),
+    NO_GAME_WINDOW,
     [/FROM "leagues"/, () => ({ rows: [LIVE_LEAGUE_ROW] })],
     [/FROM "players"/, () => ({ rows: [{ id: 101 }] })],
   ]).install(t);
 
   // Tuesday 2026-09-22, outside the off-peak window.
-  const result = await scheduler.runNightlyProjectionFill({ now: new Date('2026-09-22T17:10:00Z') });
-  assert.equal(result, null);
+  const out = await tickRow(t, 'nightly-projection-fill', '2026-09-22T17:10:00Z');
+  assert.equal(out.ran, false);
   assert.equal(calls, 0);
   assert.equal(fake.calls.filter((c) => /FROM "leagues"/.test(c.text)).length, 0, 'not due, so the eligibility read never happens');
 });
@@ -278,13 +304,14 @@ test('Tuesday with a successful corrections pass: an owed refill runs (pinned at
       'nightly-projection-run': '2026-09-21T09:10:00Z',
     }),
     [/INSERT INTO "data_sync_runs"/, () => ({ rows: [] })],
+    NO_GAME_WINDOW,
     [/FROM "leagues"/, () => ({ rows: [LIVE_LEAGUE_ROW] })],
     [/FROM "players"/, () => ({ rows: [{ id: 101 }] })],
   ]).install(t);
 
   // 17:10 UTC Tuesday: outside the off-peak window, so this is the owed path.
-  const result = await scheduler.runNightlyProjectionFill({ now: new Date('2026-09-22T17:10:00Z') });
-  assert.ok(result && result.weeksGenerated > 0, `a refill ran: ${JSON.stringify(result)}`);
+  const out = await tickRow(t, 'nightly-projection-fill', '2026-09-22T17:10:00Z');
+  assert.ok(out.result && out.result.weeksGenerated > 0, `a refill ran: ${JSON.stringify(out.result)}`);
   assert.deepEqual(generated.map((g) => g.week), [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
 });
 
@@ -305,7 +332,8 @@ test('an owed refill waits out an open game window (the Tuesday 00:00 UTC pass l
     [/FROM "players"/, () => ({ rows: [{ id: 101 }] })],
   ]).install(t);
 
-  assert.equal(await scheduler.runNightlyProjectionFill({ now: new Date('2026-09-22T00:10:00Z') }), null);
+  const out = await tickRow(t, 'nightly-projection-fill', '2026-09-22T00:10:00Z');
+  assert.equal(out.ran, false);
   assert.equal(calls, 0, 'the fill must not hold the tick while live scoring is running');
   assert.equal(fake.calls.filter((c) => /FROM "leagues"/.test(c.text)).length, 0);
 });
@@ -334,16 +362,17 @@ test('an owed refill runs on the very next tick when a corrections pass succeeds
       'stat-corrections': '2026-09-15T17:02:00Z',
     }),
     [/INSERT INTO "data_sync_runs"/, () => ({ rows: [] })],
+    NO_GAME_WINDOW,
     [/FROM "leagues"/, () => ({ rows: [LIVE_LEAGUE_ROW] })],
     [/FROM "players"/, () => ({ rows: [{ id: 101 }] })],
   ]).install(t);
 
-  const result = await scheduler.runNightlyProjectionFill({ now: new Date('2026-09-15T17:10:00Z') });
-  assert.ok(result && result.weeksGenerated > 0, `the same-day wipe was refilled: ${JSON.stringify(result)}`);
+  const out = await tickRow(t, 'nightly-projection-fill', '2026-09-15T17:10:00Z');
+  assert.ok(out.result && out.result.weeksGenerated > 0, `the same-day wipe was refilled: ${JSON.stringify(out.result)}`);
   assert.deepEqual(generated.map((g) => g.week), [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
 });
 
-test('runNightlyProjectionFill runs its unit with no transaction (#1913)', async (t) => {
+test('the nightly-projection-fill row runs its unit with no transaction (#1913)', async (t) => {
   t.mock.method(projection, 'getWeeklyProjections', async ({ playerIds }) => ({
     projections: new Map(playerIds.map((id) => [id, { median: 5, cached: false }])),
   }));
@@ -354,9 +383,9 @@ test('runNightlyProjectionFill runs its unit with no transaction (#1913)', async
     [/FROM "players"/, () => ({ rows: [{ id: 101 }] })],
   ]).install(t);
 
-  const result = await scheduler.runNightlyProjectionFill({ now: new Date('2026-09-17T09:10:00Z') });
+  const out = await tickRow(t, 'nightly-projection-fill', '2026-09-17T09:10:00Z');
 
-  assert.ok(result && result.weeksGenerated > 0, 'the fill ran');
+  assert.ok(out.result && out.result.weeksGenerated > 0, 'the fill ran');
   assert.equal(fake.calls.filter((c) => c.text === 'BEGIN').length, 0);
 });
 
@@ -374,11 +403,13 @@ test('a successful same-day owed refill is not repeated on the following tick', 
       'nightly-projection-run': '2026-09-15T17:10:00Z',
       'stat-corrections': '2026-09-15T17:02:00Z',
     }),
+    NO_GAME_WINDOW,
     [/FROM "leagues"/, () => ({ rows: [LIVE_LEAGUE_ROW] })],
     [/FROM "players"/, () => ({ rows: [{ id: 101 }] })],
   ]).install(t);
 
-  assert.equal(await scheduler.runNightlyProjectionFill({ now: new Date('2026-09-15T17:15:00Z') }), null);
+  const out = await tickRow(t, 'nightly-projection-fill', '2026-09-15T17:15:00Z');
+  assert.equal(out.ran, false);
   assert.equal(calls, 0, 'no re-run on the very next tick');
   assert.equal(fake.calls.filter((c) => /FROM "leagues"/.test(c.text)).length, 0);
 });
@@ -404,16 +435,17 @@ test('an owed refill that failed earlier today is retried on the very next tick,
       'stat-corrections': '2026-09-16T00:06:00Z',
     }),
     [/INSERT INTO "data_sync_runs"/, () => ({ rows: [] })],
+    NO_GAME_WINDOW,
     [/FROM "leagues"/, () => ({ rows: [LIVE_LEAGUE_ROW] })],
     [/FROM "players"/, () => ({ rows: [{ id: 101 }] })],
   ]).install(t);
 
-  const result = await scheduler.runNightlyProjectionFill({ now: new Date('2026-09-16T05:05:00Z') });
-  assert.ok(result && result.weeksGenerated > 0, `retried despite the earlier failed attempt: ${JSON.stringify(result)}`);
+  const out = await tickRow(t, 'nightly-projection-fill', '2026-09-16T05:05:00Z');
+  assert.ok(out.result && out.result.weeksGenerated > 0, `retried despite the earlier failed attempt: ${JSON.stringify(out.result)}`);
   assert.ok(calls > 0);
 });
 
-test('runNightlyProjectionFill stays inside its window when the last successful fill post-dates the last correction pass', async (t) => {
+test('the nightly-projection-fill row stays idle when the last successful fill post-dates the last correction pass', async (t) => {
   let calls = 0;
   t.mock.method(projection, 'getWeeklyProjections', async ({ playerIds }) => {
     calls += 1;
@@ -425,11 +457,13 @@ test('runNightlyProjectionFill stays inside its window when the last successful 
       'nightly-projection-run': '2026-09-16T09:10:00Z',
     }),
     [/INSERT INTO "data_sync_runs"/, () => ({ rows: [] })],
+    NO_GAME_WINDOW,
     [/FROM "leagues"/, () => ({ rows: [LIVE_LEAGUE_ROW] })],
     [/FROM "players"/, () => ({ rows: [{ id: 101 }] })],
   ]).install(t);
 
-  assert.equal(await scheduler.runNightlyProjectionFill({ now: new Date('2026-09-16T17:10:00Z') }), null);
+  const out = await tickRow(t, 'nightly-projection-fill', '2026-09-16T17:10:00Z');
+  assert.equal(out.ran, false);
   assert.equal(calls, 0);
   assert.equal(fake.calls.filter((c) => /FROM "leagues"/.test(c.text)).length, 0, 'no eligibility read when nothing is owed outside the window');
 });
@@ -441,9 +475,13 @@ test('runNightlyProjectionFill stays inside its window when the last successful 
 // fill has no "who changed" set, only the players it just generated for.
 // ---------------------------------------------------------------------------
 
-test('runNightlyProjectionFill sweeps availability once after the fill, scoped to the lowest live current_week', async (t) => {
-  const cadence = require('../modules/cadence');
-  t.mock.method(cadence, 'due', async () => ({ due: true, reason: 'stubbed due' }));
+// A refill owed outside the window: stat-corrections succeeded after the fill's last success.
+const OWED_REFILL_RUNS = dataSyncRunsHandler({
+  'stat-corrections': '2026-09-18T06:00:00Z',
+  'nightly-projection-run': '2026-09-17T09:10:00Z',
+});
+
+test('the nightly-projection-fill row sweeps availability once after the fill, scoped to the lowest live current_week', async (t) => {
   t.mock.method(projection, 'getWeeklyProjections', async ({ playerIds }) => (
     { projections: new Map(playerIds.map((id) => [id, { median: 5, cached: false }])) }
   ));
@@ -456,25 +494,25 @@ test('runNightlyProjectionFill sweeps availability once after the fill, scoped t
     return { checked: 3702, updated: 12 };
   });
   createFakePool([
+    OWED_REFILL_RUNS,
     [/INSERT INTO "data_sync_runs"/, () => ({ rows: [] })],
+    NO_GAME_WINDOW,
     [/FROM "leagues"/, () => ({ rows: [LIVE_LEAGUE_ROW] })],
     [/FROM "players"/, () => ({ rows: [{ id: 101 }, { id: 202 }] })],
   ]).install(t);
 
   const now = new Date('2026-09-18T17:10:00Z');
-  const result = await scheduler.runNightlyProjectionFill({ now });
+  const out = await tickRow(t, 'nightly-projection-fill', now);
 
-  assert.ok(result && result.weeksGenerated > 0, 'the fill ran');
+  assert.ok(out.result && out.result.weeksGenerated > 0, 'the fill ran');
   assert.equal(reconcileCalls, 1, 'the sweep runs exactly once, not per league or per week');
   assert.equal(reconcileArgs.season, 2026);
   assert.equal(reconcileArgs.fromWeek, 2);
   assert.equal(reconcileArgs.playerIds, undefined, 'a full sweep - no id list');
-  assert.equal(reconcileArgs.now, now);
+  assert.equal(reconcileArgs.now.getTime(), now.getTime());
 });
 
-test('runNightlyProjectionFill never sweeps when the fill itself fails', async (t) => {
-  const cadence = require('../modules/cadence');
-  t.mock.method(cadence, 'due', async () => ({ due: true, reason: 'stubbed due' }));
+test('the nightly-projection-fill row never sweeps when the fill itself fails', async (t) => {
   let reconcileCalls = 0;
   // QA f2: `liveReconcileScope` is stubbed to resolve a REAL scope, same as
   // the positive sweep test above - the fake pool's OWN `FROM "leagues"`
@@ -486,39 +524,40 @@ test('runNightlyProjectionFill never sweeps when the fill itself fails', async (
   // this failure path is guaranteed to call `reconcileAvailability` below.
   t.mock.method(projection, 'liveReconcileScope', async () => ({ season: 2026, fromWeek: 3 }));
   t.mock.method(projection, 'reconcileAvailability', async () => { reconcileCalls += 1; return { checked: 0, updated: 0 }; });
+  t.mock.method(console, 'error', () => {});
   createFakePool([
+    OWED_REFILL_RUNS,
     [/INSERT INTO "data_sync_runs"/, () => ({ rows: [] })],
+    NO_GAME_WINDOW,
     [/FROM "leagues"/, () => { throw new Error('leagues read blew up'); }],
   ]).install(t);
 
-  const result = await scheduler.runNightlyProjectionFill({ now: new Date('2026-09-18T17:10:00Z') });
+  const out = await tickRow(t, 'nightly-projection-fill', '2026-09-18T17:10:00Z');
 
-  assert.equal(result, null, 'the fill records its own failure and returns null');
+  assert.equal(out.result, null, 'the fill records its own failure and returns null');
   assert.equal(reconcileCalls, 0, 'a failed fill never reaches the sweep');
 });
 
-test('runNightlyProjectionFill: a reconcile failure is logged and never fails the fill', async (t) => {
-  const cadence = require('../modules/cadence');
-  t.mock.method(cadence, 'due', async () => ({ due: true, reason: 'stubbed due' }));
+test('the nightly-projection-fill row: a reconcile failure is logged and never fails the fill', async (t) => {
   t.mock.method(projection, 'getWeeklyProjections', async ({ playerIds }) => (
     { projections: new Map(playerIds.map((id) => [id, { median: 5, cached: false }])) }
   ));
   t.mock.method(projection, 'liveReconcileScope', async () => { throw new Error('scope read blew up'); });
   createFakePool([
+    OWED_REFILL_RUNS,
     [/INSERT INTO "data_sync_runs"/, () => ({ rows: [] })],
+    NO_GAME_WINDOW,
     [/FROM "leagues"/, () => ({ rows: [LIVE_LEAGUE_ROW] })],
     [/FROM "players"/, () => ({ rows: [{ id: 101 }] })],
   ]).install(t);
 
-  const result = await scheduler.runNightlyProjectionFill({ now: new Date('2026-09-18T17:10:00Z') });
-  assert.ok(result && result.weeksGenerated > 0, 'the fill itself still succeeds');
+  const out = await tickRow(t, 'nightly-projection-fill', '2026-09-18T17:10:00Z');
+  assert.ok(out.result && out.result.weeksGenerated > 0, 'the fill itself still succeeds');
 });
 
 // ADR 0063: Projection explanations follow the fill, once, for the live week.
-test('runNightlyProjectionFill writes Projection explanations once after the fill, and a failure there never fails it', async (t) => {
-  const cadence = require('../modules/cadence');
+test('the nightly-projection-fill row writes Projection explanations once after the fill, and a failure there never fails it', async (t) => {
   const explanations = require('../services/projectionExplanation.service');
-  t.mock.method(cadence, 'due', async () => ({ due: true, reason: 'stubbed due' }));
   t.mock.method(projection, 'getWeeklyProjections', async ({ playerIds }) => (
     { projections: new Map(playerIds.map((id) => [id, { median: 5, cached: false }])) }
   ));
@@ -533,14 +572,18 @@ test('runNightlyProjectionFill writes Projection explanations once after the fil
   ]);
   const generate = t.mock.method(explanations, 'generateForWeek', async () => { throw new Error('model blew up'); });
   createFakePool([
+    OWED_REFILL_RUNS,
     [/INSERT INTO "data_sync_runs"/, () => ({ rows: [] })],
+    NO_GAME_WINDOW,
     [/FROM "leagues"/, () => ({ rows: [LIVE_LEAGUE_ROW] })],
     [/FROM "players"/, () => ({ rows: [{ id: 101 }] })],
   ]).install(t);
 
   const now = new Date('2026-09-18T17:10:00Z');
-  const result = await scheduler.runNightlyProjectionFill({ now });
-  assert.ok(result && result.weeksGenerated > 0, 'the fill itself still succeeds');
+  const out = await tickRow(t, 'nightly-projection-fill', now);
+  assert.ok(out.result && out.result.weeksGenerated > 0, 'the fill itself still succeeds');
   assert.equal(generate.mock.callCount(), 1);
-  assert.deepEqual(generate.mock.calls[0].arguments, [{ season: 2026, week: 4 }, { now }]);
+  const [scope, opts] = generate.mock.calls[0].arguments;
+  assert.deepEqual(scope, { season: 2026, week: 4 });
+  assert.equal(opts.now.getTime(), now.getTime());
 });

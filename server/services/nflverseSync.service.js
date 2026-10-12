@@ -1222,9 +1222,9 @@ async function correctWeekFromNflverse({
 }
 
 /** Pure: is `date` in nflverse's own "nightly after each game day, cleanest
- * by Thursday" window (Monday-Thursday)? */
+ * by Thursday" window (Monday-Thursday, UTC days like every other schedule here)? */
 function isNflverseFinalizationDay(date = new Date()) {
-  const day = date.getDay();
+  const day = date.getUTCDay();
   return day >= 1 && day <= 4;
 }
 

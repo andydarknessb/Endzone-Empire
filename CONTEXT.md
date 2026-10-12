@@ -433,7 +433,8 @@ dropped (a fantasy-roster word, ambiguous here)
 **Sync run**:
 One execution of a feed sync (injuries, ADP, schedule, players, week stats)
 or of a scheduled maintenance pass that must run once a day across worker
-restarts (the nightly projection fill, the Tue/Wed stat-correction pass) or
+restarts (the nightly projection fill, the Tue/Wed stat-correction pass, the
+daily retention pass) or
 on its own interval (the weather snapshots refresh, every 6 hours), recorded
 whether it succeeded, was refused, or failed, and with the reason when it did
 not succeed. A weather snapshots run that succeeds without fetching anything

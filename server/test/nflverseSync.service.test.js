@@ -623,18 +623,26 @@ test('buildDstStatUpdates maps the Rams to LAR and drops games with no score row
 
 // --- isNflverseFinalizationDay ---------------------------------------------
 
-test('isNflverseFinalizationDay is true Monday through Thursday', () => {
-  // 2026-07-20 is a Monday; 2026-07-21..23 are Tue/Wed/Thu.
+test('isNflverseFinalizationDay is true Monday through Thursday (UTC days)', () => {
+  // 2026-07-20 is a Monday; 2026-07-21..23 are Tue/Wed/Thu. Noon UTC is the same
+  // calendar day in every host zone, so the host's TZ cannot move the answer.
   for (const day of [20, 21, 22, 23]) {
-    assert.equal(isNflverseFinalizationDay(new Date(2026, 6, day)), true, `day ${day}`);
+    assert.equal(isNflverseFinalizationDay(new Date(Date.UTC(2026, 6, day, 12))), true, `day ${day}`);
   }
 });
 
-test('isNflverseFinalizationDay is false Friday through Sunday', () => {
+test('isNflverseFinalizationDay is false Friday through Sunday (UTC days)', () => {
   // 2026-07-24 is a Friday; 25 Sat; 26 Sun.
   for (const day of [24, 25, 26]) {
-    assert.equal(isNflverseFinalizationDay(new Date(2026, 6, day)), false, `day ${day}`);
+    assert.equal(isNflverseFinalizationDay(new Date(Date.UTC(2026, 6, day, 12))), false, `day ${day}`);
   }
+});
+
+test('isNflverseFinalizationDay reads the UTC day, not the host-local day', () => {
+  // Monday 00:30 UTC is still Sunday in every US zone; Friday 00:30 UTC is still Thursday there.
+  assert.equal(isNflverseFinalizationDay(new Date('2026-07-20T00:30:00Z')), true);
+  assert.equal(isNflverseFinalizationDay(new Date('2026-07-23T23:30:00Z')), true);
+  assert.equal(isNflverseFinalizationDay(new Date('2026-07-24T00:30:00Z')), false);
 });
 
 // ---- free stat corrections (no Tank01 quota) --------------------------------
