@@ -384,8 +384,9 @@ test('a recompute disagreement on a remind_24h tick pushes no reminder (#1071 di
 
 // --- Banter on the draft alerts (#2125) ------------------------------------
 
-// A pool for one league whose owners 5 and 6 are pushed to; notifyLeague's
-// own owner scan finds none, so the only owner query is the push's.
+// A pool for one league whose owners 5 and 6 are pushed to (one push each, new
+// ledger rows for both); notifyLeague's own owner scan finds none, so the only
+// owner query is the push's.
 function banterPool(t, { league, fresh }) {
   createFakePool([
     [/^SELECT "id", "name", "owner_id"/, () => ({ rows: [league] })],
@@ -394,6 +395,7 @@ function banterPool(t, { league, fresh }) {
     [/^UPDATE "leagues" SET "draft_reminder_stage"/, () => ({ rows: [], rowCount: 1 })],
     [/^SELECT DISTINCT "owner_id" FROM "teams"/, () => ({ rows: [] })],
     [/^SELECT "owner_id" FROM "teams" WHERE "league_id" = \$1/, () => ({ rows: [{ owner_id: 5 }, { owner_id: 6 }] })],
+    [/^INSERT INTO "push_events"/, (text, params) => ({ rows: [{ user_id: params[0] }] })],
   ]).install(t);
   const prefs = require('../services/prefs.service');
   const push = require('../services/push.service');
@@ -413,7 +415,7 @@ test('the Draft starting now push carries draftStarting banter; the draft remind
 
   await processScheduledDrafts({ now: NOW });
 
-  assert.equal(sent.length, 1);
+  assert.deepEqual(sent.map((s) => s.userIds), [[5], [6]], 'one push per owner');
   assert.equal(sent[0].payload.title, 'Draft starting now');
   assert.equal(sent[0].payload.banter, banterFor('draftStarting', `draft:${LEAGUE_ID}`, { league: 'Ballers' }));
   assert.equal(typeof sent[0].payload.banter, 'string');
@@ -429,7 +431,7 @@ test('a remind_1h push carries no banter (#2125)', async (t) => {
   const actions = await processScheduledDrafts({ now: NOW });
 
   assert.deepEqual(actions, [{ leagueId: LEAGUE_ID, action: 'remind_1h' }]);
-  assert.equal(sent.length, 1);
+  assert.deepEqual(sent.map((s) => s.userIds), [[5], [6]], 'one push per owner');
   assert.equal(sent[0].payload.title, 'Draft reminder');
   assert.equal(sent[0].payload.banter, undefined);
 });

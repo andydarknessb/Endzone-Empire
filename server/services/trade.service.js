@@ -192,16 +192,7 @@ async function proposeTradeWith(client, { leagueId, userId, receivingTeamId, pla
  */
 async function sendTradeOfferPush({ otherTeamOwnerId, myTeamName, leagueId }) {
   try {
-    const { usersWanting } = require('./prefs.service');
-    const wanting = await usersWanting([otherTeamOwnerId], 'tradeOffers');
-    if (wanting.length > 0) {
-      const push = require('./push.service');
-      await push.sendPushToUsers(wanting, {
-        title: 'New trade offer',
-        body: `${myTeamName} sent you a trade offer`,
-        url: `/#/league/${leagueId}/trades`,
-      });
-    }
+    await require('./pushAlerts.service').sendAlert({ kind: 'trade-offer', otherTeamOwnerId, myTeamName, leagueId });
   } catch (err) {
     console.error('trade offer push failed:', err.message);
   }

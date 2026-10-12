@@ -5,7 +5,6 @@ const { notifyCommissioners } = require('./leagueRole.service');
 const { fantasySideWhereSql } = require('./leagueType');
 const { MARKET_FLOOR } = require('./adp.service');
 const pickClock = require('./pickClock.service');
-const { banterFor } = require('./pushBanter');
 
 const HOUR_MS = 60 * 60 * 1000;
 
@@ -53,20 +52,6 @@ function scheduledDraftAction(league, teamCount, now, marketCount = Infinity) {
 async function getMarketAdpCount() {
   const res = await pool.query(`SELECT COUNT(*)::int AS n FROM "players" WHERE "adp" IS NOT NULL`);
   return res.rows[0].n;
-}
-
-/** Best-effort web push to a league's owners who still want draft reminders. */
-async function pushDraftAlert(leagueId, ownerIds, { title, body, banter }) {
-  try {
-    const push = require('./push.service');
-    const { usersWanting } = require('./prefs.service');
-    const wanting = await usersWanting(ownerIds, 'draftReminders');
-    if (wanting.length > 0) {
-      await push.sendPushToUsers(wanting, { title, body, url: `/#/league/${leagueId}/draft`, banter });
-    }
-  } catch (err) {
-    console.error('draft push failed for league %s:', leagueId, err.message);
-  }
 }
 
 /**
@@ -222,11 +207,7 @@ async function runAction(league, action, marketCount = Infinity, now = new Date(
   // write path: on a recompute-disagreement the old code returned before ever
   // reaching here, so `didWrite` gates it to preserve that.
   if (didWrite && (action === 'remind_24h' || action === 'remind_1h')) {
-    const owners = await pool.query(`SELECT "owner_id" FROM "teams" WHERE "league_id" = $1`, [league.id]);
-    await pushDraftAlert(league.id, owners.rows.map((r) => r.owner_id), {
-      title: 'Draft reminder',
-      body: `${league.name}'s draft starts ${action === 'remind_1h' ? 'in about an hour' : 'in about 24 hours'}.`,
-    });
+    await require('./pushAlerts.service').sendAlert({ kind: 'draft-reminder', league, action });
   }
 }
 
@@ -272,12 +253,7 @@ async function runStartAction(league) {
     message: `The draft for ${league.name} is starting now!`,
     data: { url: `/#/league/${league.id}/draft` },
   });
-  const owners = await pool.query(`SELECT "owner_id" FROM "teams" WHERE "league_id" = $1`, [league.id]);
-  await pushDraftAlert(league.id, owners.rows.map((r) => r.owner_id), {
-    title: 'Draft starting now',
-    body: `${league.name}'s draft is live. Join the room.`,
-    banter: banterFor('draftStarting', `draft:${league.id}`, { league: league.name }),
-  });
+  await require('./pushAlerts.service').sendAlert({ kind: 'draft-starting', league });
 }
 
 module.exports = { scheduledDraftAction, processScheduledDrafts, runStartAction };

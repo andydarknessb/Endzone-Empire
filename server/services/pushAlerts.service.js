@@ -1,6 +1,6 @@
 const pool = require('../modules/pool');
 const clock = require('../modules/clock');
-const { usersWanting } = require('./prefs.service');
+const prefs = require('./prefs.service');
 const { banterFor, SITUATIONS } = require('./pushBanter');
 
 /**
@@ -556,7 +556,7 @@ async function deliver(kind, row, facts) {
     recipients = (await row.recipients(facts, pool)).filter((r) => r.userId != null);
     const wanted = row.prefKey == null
       ? null
-      : new Set(await usersWanting(recipients.map((r) => r.userId), row.prefKey));
+      : new Set(await prefs.usersWanting(recipients.map((r) => r.userId), row.prefKey));
     for (const r of recipients) {
       if (wanted && !wanted.has(r.userId)) continue;
       try {

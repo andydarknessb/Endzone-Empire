@@ -95,7 +95,7 @@ test('sendLineupReminders carries forward an unresolved IR stash before checking
     }] })],
     [/^SELECT "user_id", "prefs" FROM "notification_prefs"/, () => ({ rows: [] })],
     // The push_events ledger: every user's row is new.
-    [/^INSERT INTO "push_events"/, (text, params) => ({ rows: params[0].map((user_id) => ({ user_id })) })],
+    [/^INSERT INTO "push_events"/, (text, params) => ({ rows: [{ user_id: params[0] }] })],
     [/^SELECT "team_players"\."player_id"/, () => ({
       rows: [{ player_id: 801, position: 'RB' }],
     })],
@@ -158,7 +158,7 @@ test('sendLineupReminders ignores a dropped player left in lineup history', asyn
     }] })],
     [/^SELECT "user_id", "prefs" FROM "notification_prefs"/, () => ({ rows: [] })],
     // The push_events ledger: every user's row is new.
-    [/^INSERT INTO "push_events"/, (text, params) => ({ rows: params[0].map((user_id) => ({ user_id })) })],
+    [/^INSERT INTO "push_events"/, (text, params) => ({ rows: [{ user_id: params[0] }] })],
     [/^SELECT "team_players"\."player_id"/, () => ({ rows: [] })],
     [/^SELECT "lineup_entries"\."slot"/, (text) => ({
       rows: text.includes('JOIN "team_players"') ? [] : [{
@@ -208,7 +208,7 @@ test('sendLineupReminders sends best-ball teams only the unresolved IR warning',
     }] })],
     [/^SELECT "user_id", "prefs" FROM "notification_prefs"/, () => ({ rows: [] })],
     // The push_events ledger: every user's row is new.
-    [/^INSERT INTO "push_events"/, (text, params) => ({ rows: params[0].map((user_id) => ({ user_id })) })],
+    [/^INSERT INTO "push_events"/, (text, params) => ({ rows: [{ user_id: params[0] }] })],
     [/^SELECT "team_players"\."player_id"/, () => ({
       rows: [{ player_id: 803, position: 'QB' }],
     })],
@@ -277,13 +277,10 @@ function lineupReminderWorld(t, { entries, kickoffRows, teamCount = 1, ledgerDow
     [/^SELECT "teams"\."id"/, () => ({ rows: teams })],
     [/^SELECT "user_id", "prefs" FROM "notification_prefs"/, () => ({ rows: [] })],
     // The push_events unique index: a (user, kind, subject, fingerprint) goes in once.
-    [/^INSERT INTO "push_events"/, (text, [userIds, ...key]) => {
+    [/^INSERT INTO "push_events"/, (text, [userId, ...key]) => {
       if (ledgerDown) throw new Error('ledger down');
-      return {
-        rows: userIds
-          .filter((id) => !ledger.has([id, ...key].join('|')) && ledger.add([id, ...key].join('|')))
-          .map((user_id) => ({ user_id })),
-      };
+      const row = [userId, ...key].join('|');
+      return { rows: ledger.has(row) ? [] : (ledger.add(row), [{ user_id: userId }]) };
     }],
     [/^SELECT "team_players"\."player_id"/, () => ({
       rows: entries.map((e, i) => ({ player_id: 900 + i, position: e.slot })),
@@ -476,6 +473,7 @@ test('sendPickemReminders reminds a member about the open games they missed, not
       { user_id: 722, team_pair: 'GB|MIN' },
     ] })],
     [/^SELECT "user_id", "prefs" FROM "notification_prefs"/, () => ({ rows: [] })],
+    [insert('push_events'), (text, params) => ({ rows: [{ user_id: params[0] }] })],
     [insert('notifications'), () => ({ rows: [] })],
   ]).install(t);
   const pushes = [];

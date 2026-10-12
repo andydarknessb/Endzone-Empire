@@ -276,7 +276,7 @@ describe('isolated Tank01 ingestion and database update', () => {
           tdDelta: 1,
           pointsDelta: 5,
           isTouchdown: false,
-          // The sync's stat lines ride the play to alertBigPlays (server-side
+          // The sync's stat lines ride the play to the big-play alert (server-side
           // only: the routes and the recorded run strip them).
           statsBefore: {},
           statsAfter: expect.objectContaining({ fieldGoal: 1, fieldGoalDistances: [53] }),

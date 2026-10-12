@@ -1,81 +1,9 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createFakePool, insert } = require('./helpers/fakePool');
+const { createFakePool } = require('./helpers/fakePool');
 const push = require('../services/push.service');
 
 const payload = { title: 'T', body: 'B', url: '/#/x' };
-const SENT_TO = [];
-
-// A fake pool whose push_events insert models the unique index, and whose
-// notification_prefs rows say which users have `lineupReminder` off.
-function world(t, { optedOut = [] } = {}) {
-  const ledger = new Set();
-  const fake = createFakePool([
-    [/^SELECT "user_id", "prefs" FROM "notification_prefs"/, () => ({
-      rows: optedOut.map((user_id) => ({ user_id, prefs: { lineupReminder: false } })),
-    })],
-    [insert('push_events'), (text, [userIds, ...key]) => ({
-      rows: userIds
-        .filter((id) => !ledger.has([id, ...key].join('|')) && ledger.add([id, ...key].join('|')))
-        .map((user_id) => ({ user_id })),
-    })],
-  ]).install(t);
-  SENT_TO.length = 0;
-  t.mock.method(push, 'sendPushToUsers', async (userIds) => {
-    SENT_TO.push(...userIds);
-    return { sent: userIds.length };
-  });
-  return fake;
-}
-
-const once = (fingerprint = 'sent', userIds = [1]) => push.sendPushOnce({
-  userIds, prefKey: 'lineupReminder', kind: 'lineup-reminder', subject: '7:2026:9', fingerprint, payload,
-});
-
-test('sendPushOnce sends exactly once for the same (user, kind, subject, fingerprint)', async (t) => {
-  world(t);
-
-  assert.deepEqual(await once(), { sent: 1, skipped: 0 });
-  assert.deepEqual(await once(), { sent: 0, skipped: 1 });
-
-  assert.deepEqual(SENT_TO, [1]);
-});
-
-test('sendPushOnce sends again when the fingerprint changes', async (t) => {
-  world(t);
-
-  await once('Q');
-  await once('O');
-
-  assert.deepEqual(SENT_TO, [1, 1]);
-});
-
-test('sendPushOnce does not send to a user with the pref off, and writes no ledger row for them', async (t) => {
-  const fake = world(t, { optedOut: [2] });
-
-  assert.deepEqual(await once('sent', [1, 2, 2]), { sent: 1, skipped: 1 });
-
-  assert.deepEqual(SENT_TO, [1]);
-  assert.deepEqual(fake.matching(insert('push_events'))[0].params[0], [1]);
-});
-
-test('sendPushOnce with nobody wanting it makes no ledger write and no send', async (t) => {
-  const fake = world(t, { optedOut: [2] });
-
-  assert.deepEqual(await once('sent', [2]), { sent: 0, skipped: 1 });
-
-  assert.equal(fake.matching(insert('push_events')).length, 0);
-  assert.deepEqual(SENT_TO, []);
-});
-
-test('sendPushOnce logs a delivery failure instead of throwing, and keeps the ledger row', async (t) => {
-  world(t);
-  t.mock.method(console, 'error', () => {});
-  push.sendPushToUsers.mock.mockImplementation(async () => { throw new Error('subscriptions down'); });
-
-  assert.deepEqual(await once(), { sent: 0, skipped: 0 });
-  assert.deepEqual(await once(), { sent: 0, skipped: 1 }); // the row stayed
-});
 
 // --- Banter on delivery (#2125) ---------------------------------------------
 
@@ -169,36 +97,4 @@ test('sendPushToUsers without banter makes no prefs query and sends the payload 
   assert.equal(fake.matching(/notification_prefs/).length, 0);
   assert.equal(delivered.length, 3);
   for (const d of delivered) assert.deepEqual(JSON.parse(d.json), payload);
-});
-
-test('sendTestPush sends one Test alert to the caller with a filled banter line from a real situation', async (t) => {
-  const { SITUATIONS } = require('../services/pushBanter');
-  const calls = [];
-  t.mock.method(push, 'sendPushToUsers', async (userIds, payload) => {
-    calls.push({ userIds, payload });
-    return { sent: userIds.length };
-  });
-
-  const result = await push.sendTestPush({ userId: 7, now: 1700000000003 });
-
-  assert.equal(calls.length, 1);
-  assert.deepEqual(calls[0].userIds, [7]);
-  assert.equal(calls[0].payload.title, 'Test alert');
-  assert.equal(calls[0].payload.url, '/#/settings/notifications');
-  assert.equal(calls[0].payload.banter, result.banter);
-  assert.ok(SITUATIONS.includes(result.situation));
-  assert.equal(typeof result.banter, 'string');
-  assert.ok(result.banter.length > 0);
-  assert.doesNotMatch(result.banter, /\{/, 'every placeholder is filled from the sample facts');
-  assert.equal(result.sent, 1);
-});
-
-test('sendTestPush rotates the situation with the send time and reports sent: 0 when no device is subscribed', async (t) => {
-  t.mock.method(push, 'sendPushToUsers', async () => ({ sent: 0 }));
-
-  const a = await push.sendTestPush({ userId: 7, now: 1700000000000 });
-  const b = await push.sendTestPush({ userId: 7, now: 1700000000001 });
-
-  assert.notEqual(a.situation, b.situation);
-  assert.equal(a.sent, 0);
 });
