@@ -120,7 +120,7 @@ function noPracticeAllWeek(observations, kickoffAt) {
  * read (`nflRosterStatus.js`'s column); `now` is injectable for tests.
  *
  * `practice` (`{ observations, kickoffAt }`, ADR 0056) is passed ONLY by the
- * Weekly projection read's `startVerdictFor` (the one producer of the Start
+ * Weekly projection read's own start-verdict method (the one producer of the Start
  * verdict, spec #2042; ADR 0061): a Questionable player with no practice all
  * week (`noPracticeAllWeek`, with `kickoffAt` his game for the coverage
  * deadline) reads `no_practice`, never auto-recommended, after Position-baseline
@@ -244,9 +244,4 @@ function startVerdictOf(availability) {
   return { outcome, reason: availability.reason, numberTrusted: !UNTRUSTED_NUMBER_REASONS.has(availability.reason) };
 }
 
-/** Pure: the Start verdict for `facts`, the options `unavailableFor` takes. */
-function startVerdictFor(facts = {}) {
-  return startVerdictOf(unavailableFor(facts));
-}
-
-module.exports = { unavailableFor, startVerdictFor, startVerdictOf, practiceCoverageDeadline, NFL_ROSTER_STATUS_FRESH_MS };
+module.exports = { unavailableFor, startVerdictOf, practiceCoverageDeadline, NFL_ROSTER_STATUS_FRESH_MS };
