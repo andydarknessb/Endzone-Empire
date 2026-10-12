@@ -67,6 +67,7 @@ test('gamesNeedingBoxScore: the recheck window is bounded above by maxAgeMs; a d
   const opts = { now: NOW, recheckMs: 2 * HOUR, maxAgeMs: 6 * HOUR };
   assert.equal(scoring.gamesNeedingBoxScore([row(6 * HOUR)], opts).length, 1, 'exactly max age is still due');
   assert.deepEqual(scoring.gamesNeedingBoxScore([row(6 * HOUR + 1)], opts), [], '1ms past max age is not');
+  assert.deepEqual(scoring.gamesNeedingBoxScore([row(3 * HOUR)], { ...opts, maxAgeMs: 0 }), [], 'maxAgeMs 0 disables the recheck');
   assert.deepEqual(scoring.gamesNeedingBoxScore([row(5 * 24 * HOUR)], opts), [], 'a days-old stamp is left to Tue/Wed');
   assert.deepEqual(scoring.gamesNeedingBoxScore([row(5 * 24 * HOUR)]), [], 'and so under the 6h default');
 });
@@ -74,7 +75,9 @@ test('gamesNeedingBoxScore: the recheck window is bounded above by maxAgeMs; a d
 test('gamesNeedingBoxScore: an already rechecked final needs nothing; an unstamped final is still a plain Final box (#2223)', () => {
   const opts = { now: NOW, recheckMs: 2 * HOUR };
   const rows = [
-    { tank01_game_id: 'done', game_status: 'final', final_stats_synced_at: stampedAgo(9 * HOUR), final_stats_rechecked_at: stampedAgo(HOUR) },
+    { tank01_game_id: 'done', game_status: 'final', final_stats_synced_at: stampedAgo(3 * HOUR), final_stats_rechecked_at: stampedAgo(HOUR) },
+    // The column absent (not selected) is not NULL: only a real NULL rechecks.
+    { tank01_game_id: 'no-column', game_status: 'final', final_stats_synced_at: stampedAgo(3 * HOUR) },
     { tank01_game_id: 'fresh', game_status: 'final', final_stats_synced_at: null, final_stats_rechecked_at: null },
     { tank01_game_id: 'live', game_status: 'in_progress', final_stats_synced_at: stampedAgo(9 * HOUR), final_stats_rechecked_at: null },
   ];
@@ -297,9 +300,11 @@ test('syncWeekStats: degraded quota still allows the recheck (standard is allowe
 
 test('syncWeekStats: with no recheck due the quota state is never read (#2223)', async (t) => {
   const { api } = stubWorld(t);
+  let reads = 0;
   await scoring.syncWeekStats({
-    season: 2026, week: 2, api, quotaState: async () => { throw new Error('should not be read'); },
+    season: 2026, week: 2, api, quotaState: async () => { reads += 1; return { mode: 'ok' }; },
   });
+  assert.equal(reads, 0);
 });
 
 test('syncWeekStats: a recheck rewrites a changed DEF value (defensiveTD 2 -> 1) without touching the synced stamp (#2223, #2219)', async (t) => {

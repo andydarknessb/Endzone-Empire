@@ -1042,8 +1042,9 @@ async function fetchWeekStatsUnits({ targets, pauseMs, api, failedFetches }) {
  * wrapper, which runSyncJob merges into the recorded row regardless of how
  * many units applied (formal review, PR #1244 f1).
  *
- * Stamps `final_stats_synced_at` inside this unit's own transaction (so the
- * stamp commits or rolls back with that game's stats), but does NOT notify
+ * Stamps `final_stats_synced_at` (a Final box recheck, #2223, stamps
+ * `final_stats_rechecked_at` instead) inside this unit's own transaction (so
+ * the stamp commits or rolls back with that game's stats), but does NOT notify
  * the Live box source switch here - that's an in-memory memo, and firing it
  * before this unit's transaction actually COMMITs would leave it out of step
  * with the DB on a ROLLBACK (qa-reviewer #1202 risk review). The caller

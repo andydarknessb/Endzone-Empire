@@ -285,8 +285,8 @@ async function generateForGame(tank01GameId, { api, client } = {}) {
   // skip. Never fatal: a recap with stale stats still beats no recap. The Final
   // box is re-read once ~2h after this stamp (#2223, syncWeekStats), and the
   // authoritative backstop for the box-owned keys (TDs, counts) is the Tue/Wed
-  // stat-corrections pass (nflverse-correction replace). The Mon-Thu
-  // finalization patches only the nflverse-week yardage/share keys.
+  // nflverse-correction replace. The Mon-Thu finalization patches only the
+  // nflverse-week yardage/share keys and snaps (current_week-1).
   if (!state.final_stats_synced_at) {
     try {
       const scoring = require('./boxScoreApply.service');
