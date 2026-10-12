@@ -21,7 +21,7 @@ const { banterFor, SITUATIONS } = require('./pushBanter');
  */
 
 const CLOSE_MARGIN = 10;
-const BIG_PLAY_CAP_MS = 5 * 60 * 1000;
+const LIVE_ALERT_CAP_MS = 5 * 60 * 1000; // big-play and score-lead: one push per Manager per window
 const BIG_PLAY_WORDS = {
   passing: 'passing touchdown', rushing: 'rushing touchdown', receiving: 'receiving touchdown',
   defensive: 'defensive touchdown', return: 'return touchdown', fieldGoal: 'field goal',
@@ -57,7 +57,7 @@ const scoreText = (a, b) => {
 const figures = (s) => scoreText(s.mineScore, s.theirScore);
 const scoreBody = (s) => { const [x, y] = figures(s); return `${s.mine.name} ${x} - ${s.theirs.name} ${y}`; };
 
-// The two owners of a scored matchup, each with their own side of the score.
+// The two Managers of a scored matchup, each with their own side of the score.
 async function matchupSides(db, m) {
   const teams = await db.query(
     `SELECT "id", "name", "owner_id" FROM "teams" WHERE "id" = ANY($1::int[])`,
@@ -74,7 +74,7 @@ const bigPlayWhat = (p) => `${p.name} ${BIG_PLAY_WORDS[p.type] || p.type}`;
 const bigPlayLines = (r) => r.qualifying.map((p) =>
   `${bigPlayWhat(p)} (${Math.round(p.points * 10) / 10} pts, ${r.side.own.includes(p) ? 'yours' : "your opponent's"})`);
 
-const ownersOfLeague = async (league, db) => (await db.query(
+const managersOfLeague = async (league, db) => (await db.query(
   `SELECT "owner_id" FROM "teams" WHERE "league_id" = $1`,
   [league.id]
 )).rows.map((r) => ({ userId: r.owner_id }));
@@ -211,8 +211,13 @@ async function scoreLeadRecipients({ scored }, db) {
     const subject = String(m.matchupId);
     const leader = leaderOf(m);
     const out = [];
-    for (const s of await matchupSides(db, m)) {
+    const sides = await matchupSides(db, m);
+    // The preference is read here, before the silent record, so a Manager who
+    // turns Score update on mid-game starts from a fresh record, not a push.
+    const wanting = new Set(await prefs.usersWanting(sides.map((s) => s.mine.owner_id), 'scoreUpdates'));
+    for (const s of sides) {
       const userId = s.mine.owner_id;
+      if (!wanting.has(userId)) continue;
       // Each owner compares against their own last row, so a capped owner
       // (below) still gets the change once the cap lapses.
       const prev = await db.query(
@@ -242,7 +247,7 @@ const KINDS = {
     prefKey: 'touchdownCelebrations',
     recipients: bigPlayRecipients,
     once: (facts, r) => ({ subject: String(r.matchupId), fingerprint: r.fingerprint }),
-    rate: { perUserMs: BIG_PLAY_CAP_MS },
+    rate: { perUserMs: LIVE_ALERT_CAP_MS },
     text: ({ leagueId }, r) => {
       const lines = bigPlayLines(r);
       return {
@@ -271,7 +276,7 @@ const KINDS = {
     // At most one lead push per owner per five minutes; a capped change
     // writes no row, so the next poll still sees the old leader and sends
     // once five minutes pass. The ':0' rows are silent records, not pushes.
-    rate: { perUserMs: BIG_PLAY_CAP_MS, excludeFingerprintLike: '%:0' },
+    rate: { perUserMs: LIVE_ALERT_CAP_MS, excludeFingerprintLike: '%:0' },
     text: ({ leagueId }, r) => ({
       title: r.leader === 'tied' ? 'Tied up' : r.leader === r.s.side ? 'You took the lead' : 'You lost the lead',
       body: scoreBody(r.s),
@@ -482,7 +487,7 @@ const KINDS = {
 
   'draft-reminder': {
     prefKey: 'draftReminders',
-    recipients: ({ league }, db) => ownersOfLeague(league, db),
+    recipients: ({ league }, db) => managersOfLeague(league, db),
     // A rescheduled draft is a new state, so it reminds again.
     once: ({ league, action }) => ({
       subject: String(league.id),
@@ -497,8 +502,10 @@ const KINDS = {
 
   'draft-starting': {
     prefKey: 'draftReminders',
-    recipients: ({ league }, db) => ownersOfLeague(league, db),
-    once: ({ league }) => ({ subject: String(league.id), fingerprint: 'start' }),
+    recipients: ({ league }, db) => managersOfLeague(league, db),
+    // A reset or rolled-over draft starts again under the same league id, so
+    // the draft date is part of the state.
+    once: ({ league }) => ({ subject: String(league.id), fingerprint: `start:${new Date(league.draft_date).toISOString()}` }),
     text: ({ league }) => ({
       title: 'Draft starting now',
       body: `${league.name}'s draft is live. Join the room.`,

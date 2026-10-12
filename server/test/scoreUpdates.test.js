@@ -163,10 +163,7 @@ test('an owner with scoreUpdates off gets nothing, the other still does', async 
   await call(10, 15, 'played');
 
   assert.deepEqual(titles(sent), [[11, 'You lost the lead'], [11, 'Final: you lost 10.0-15.0']]);
-  // The pref gate runs after the recipients (ADR 0064), so the opted-out owner
-  // still gets the silent ':0' leader record; but no pushed row.
-  assert.ok(ledger.filter((r) => r.user_id === 22).every((r) => r.fingerprint.endsWith(':0')));
-  assert.ok(ledger.some((r) => r.user_id === 11 && r.fingerprint === 'played'));
+  assert.ok(ledger.every((r) => r.user_id === 11));
 });
 
 test('once played, only the Final push goes out; a later correction sends nothing', async (t) => {

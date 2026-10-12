@@ -222,7 +222,7 @@ test('score-lead: a tie reads "Tied up" for both owners', async (t) => {
   assert.equal(state.sent[0].payload.banter, banterFor('tied', 'score-lead:987:tied:1', HOME));
 });
 
-test('score-lead: scoreUpdates off sends nothing to that owner and writes no push row; the silent record is still written', async (t) => {
+test('score-lead: scoreUpdates off sends nothing to that owner and writes no row, not even the silent record', async (t) => {
   const state = world(t, { handlers: SCORE_HANDLERS, prefs: { 22: off('scoreUpdates') } });
   const call = scored('score-lead');
 
@@ -230,9 +230,7 @@ test('score-lead: scoreUpdates off sends nothing to that owner and writes no pus
   await call(10, 15);
 
   assert.deepEqual(to(state), [11]);
-  // Known drift (ADR 0064 PR note): the pref gate runs after the recipients, so
-  // the silent ':0' record exists for the owner with the pref off.
-  assert.deepEqual(state.ledger.map((r) => [r.user_id, r.fingerprint]).sort(), [[11, 'home:0'], [11, 'away:1'], [22, 'home:0']].sort());
+  assert.deepEqual(state.ledger.map((r) => [r.user_id, r.fingerprint]).sort(), [[11, 'home:0'], [11, 'away:1']].sort());
 });
 
 test('score-lead: a final or played matchup sends nothing', async (t) => {
@@ -635,7 +633,7 @@ test('draft-reminder: a repeat sends once, a restart sends nothing, a reschedule
   assert.equal(second.sent.length, 2);
 });
 
-test('draft-starting: every owner, gated by draftReminders, ledgered by league and "start", with the draftStarting Banter', async (t) => {
+test('draft-starting: every owner, gated by draftReminders, ledgered by league and draft date, with the draftStarting Banter', async (t) => {
   const state = world(t, { handlers: DRAFT_HANDLERS, prefs: { 22: off('draftReminders') } });
 
   await sendAlert({ kind: 'draft-starting', league: LEAGUE });
@@ -650,7 +648,7 @@ test('draft-starting: every owner, gated by draftReminders, ledgered by league a
       banter: banterFor('draftStarting', 'draft:4', { league: 'Gridiron' }),
     },
   }]);
-  assert.deepEqual(state.inserts(), [[11, 'draft-starting', '4', 'start']]);
+  assert.deepEqual(state.inserts(), [[11, 'draft-starting', '4', 'start:2026-10-20T00:00:00.000Z']]);
 });
 
 // ------------------------------------------------------------- trade-offer

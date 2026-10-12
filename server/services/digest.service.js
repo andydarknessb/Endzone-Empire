@@ -179,9 +179,9 @@ async function sendLineupReminders() {
       // One reminder per team-week, held by the push_events ledger (so a
       // restart or a second instance does not re-remind). A skipped push means
       // this team-week was already reminded, so the notification and email
-      // below are skipped with it. A ledger error fails closed: the tick is
-      // skipped and the next one retries, rather than re-sending the email on
-      // every tick of the 2-hour window.
+      // below are skipped with it. sendAlert never throws; a ledger error leaves
+      // fresh empty, so the tick is skipped and the next one retries, rather
+      // than re-sending the email on every tick of the 2-hour window.
       const message = `Lineup check for week ${week}: ${problems.join('; ')}`;
       try {
         const { sendAlert } = require('./pushAlerts.service');
