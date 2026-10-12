@@ -65,3 +65,24 @@ kind is a new row, never a new sender.
 - Tests drive `sendAlert` with a fake pool and a fake web-push adapter, one
   file, every kind; the kind table is the test surface.
 - The **Push alert** glossary entry names the kinds and this rule.
+
+## Amendment (2026-10-12, #2227): the table as built
+
+- A row's `once(facts, recipient)` returns the ledger subject and fingerprint
+  for that recipient; `rate` is a literal `{ perUserMs, excludeFingerprintLike }`
+  checked before the ledger insert, so a capped recipient writes no row and the
+  next tick retries; `banter(facts, recipient)` returns the Banter line, since
+  the situation depends on which side the recipient is on. The pipeline is
+  recipients, preference gate, rate, ledger, text, Banter, send, one send per
+  recipient.
+- Score update is two rows, `score-lead` and `score-played`, because the lead
+  change and the Final have different ledger shapes; the glossary's twelve
+  kinds are thirteen rows.
+- Where the caller already holds the Manager for its in-app or email copy
+  (Lineup reminder, Pick'em reminder, trade offer, IR action, the Test alert),
+  the row reads that Manager from the facts instead of querying again; the row
+  still owns the preference gate, the ledger and the text.
+- `sendAlert` returns `{ sent, skipped, fresh }`; `fresh` is the recipients
+  that passed the gate and the ledger. The waiver-results email and the
+  Lineup and Pick'em in-app copies are sent to `fresh`, so the ledger gates
+  them too, as the process-memory Sets and watermark did before.

@@ -303,7 +303,7 @@ async function applyGameBoxScore({ liveBox, box, season, week, maps, suppressPla
           pointsDelta: deltas[i],
           isTouchdown: ev.isTouchdown,
           // The sync's stat line before and after, so a consumer can price
-          // the play's whole value under a league's rules (alertBigPlays).
+          // the play's whole value under a league's rules (the big-play alert).
           // Server-internal: matchupScoring strips both before the socket emit.
           statsBefore: { ...(prev || {}) },
           statsAfter: { ...stats },
@@ -345,7 +345,7 @@ async function applyGameBoxScore({ liveBox, box, season, week, maps, suppressPla
           pointsDelta: deltas[i],
           isTouchdown: ev.isTouchdown,
           // The sync's stat line before and after, so a consumer can price
-          // the play's whole value under a league's rules (alertBigPlays).
+          // the play's whole value under a league's rules (the big-play alert).
           // Server-internal: matchupScoring strips both before the socket emit.
           statsBefore: { ...(prev || {}) },
           statsAfter: { ...stats },
@@ -453,7 +453,7 @@ async function markFinalStatsRechecked(tank01GameId, client = pool) {
 }
 
 /**
- * A Scoring play's `statsBefore`/`statsAfter` (the stat lines alertBigPlays
+ * A Scoring play's `statsBefore`/`statsAfter` (the stat lines the big-play alert
  * prices against) are server-internal. Every boundary a play crosses (the
  * scores:updated emit, the recorded data_sync_runs row, the sync routes'
  * responses) sends it through here first.

@@ -10,7 +10,6 @@ const { withAdvisoryLock } = require('./advisoryLock');
 const { fantasySeasonLiveWhereSql } = require('../services/leaguePhase');
 const { lastRun, runSyncJob } = require('./syncRun');
 const cadence = require('./cadence');
-const clock = require('./clock');
 
 /**
  * In-process job runner for time-based league mechanics (waiver clearing,
@@ -631,6 +630,7 @@ async function syncAndScoreLiveWeeks() {
   if (!process.env.RAPID_API_KEY || !process.env.RAPID_API_HOST) return false;
   const feedSyncRuns = require('../services/feedSyncRuns.service');
   const matchupScoring = require('../services/matchupScoring.service');
+  const { sendAlert } = require('../services/pushAlerts.service');
   const leaguesResult = await pool.query(
     `SELECT "id", "current_season", "current_week" FROM "leagues"
      WHERE ${fantasySeasonLiveWhereSql()}`
@@ -672,9 +672,10 @@ async function syncAndScoreLiveWeeks() {
     try {
       for (const leagueId of leagueIds) {
         const { scored } = await matchupScoring.scoreMatchups({ leagueId, season, week, plays }); // emits scores:updated
-        await alertCloseMatchups({ leagueId, week, scored });
-        await alertScoreUpdates({ leagueId, season, week, scored });
-        await alertBigPlays({ leagueId, season, week, scored, plays });
+        await sendAlert({ kind: 'close-matchup', leagueId, week, scored });
+        await sendAlert({ kind: 'score-lead', leagueId, season, week, scored });
+        await sendAlert({ kind: 'score-played', leagueId, season, week, scored });
+        await sendAlert({ kind: 'big-play', leagueId, season, week, scored, plays });
       }
       console.log(`scheduler: live-scored ${leagueIds.length} league(s) for ${season} week ${week}`);
     } catch (err) {
@@ -1258,325 +1259,6 @@ async function runPickemSeasonCompletion({ now = new Date() } = {}) {
   return completed;
 }
 
-// "Your matchup is close" alerts: at most one per matchup per week (in-process
-// set — a restart may re-alert once, acceptable for best-effort nudges).
-const closeAlertedMatchups = new Set();
-const CLOSE_MARGIN = 10;
-
-/**
- * During live scoring windows, push-alert both owners of any matchup within
- * CLOSE_MARGIN points — but only late in the window (both teams have points
- * on the board), so week-opening 0-0 "ties" don't fire.
- */
-async function alertCloseMatchups({ leagueId, week, scored }) {
-  const push = require('../services/push.service');
-  const { banterFor } = require('../services/pushBanter');
-  for (const m of scored || []) {
-    const key = `${m.matchupId}:${week}`;
-    if (closeAlertedMatchups.has(key)) continue;
-    const margin = Math.abs(Number(m.homeScore) - Number(m.awayScore));
-    if (m.homeScore <= 0 || m.awayScore <= 0 || margin > CLOSE_MARGIN) continue;
-    closeAlertedMatchups.add(key);
-    try {
-      const owners = await pool.query(
-        `SELECT "owner_id" FROM "teams" WHERE "id" = ANY($1::int[])`,
-        [[m.homeTeamId, m.awayTeamId]]
-      );
-      const { usersWanting } = require('../services/prefs.service');
-      await push.sendPushToUsers(
-        await usersWanting(owners.rows.map((r) => r.owner_id), 'closeMatchups'),
-        {
-          title: 'Your matchup is close!',
-          body: `Week ${week}: separated by just ${Math.round(margin * 10) / 10} points. Keep watching.`,
-          url: `/#/league/${leagueId}/game-center`,
-          banter: banterFor('closeMatchup', `close:${m.matchupId}:${week}`, { margin: Math.round(margin * 10) / 10, week }),
-        }
-      );
-    } catch (err) {
-      console.error('close matchup alert failed:', err.message);
-    }
-  }
-}
-
-const BIG_PLAY_CAP_MS = 5 * 60 * 1000;
-const BIG_PLAY_WORDS = {
-  passing: 'passing touchdown', rushing: 'rushing touchdown', receiving: 'receiving touchdown',
-  defensive: 'defensive touchdown', return: 'return touchdown', fieldGoal: 'field goal',
-  extraPoint: 'extra point', sack: 'sack', interception: 'interception return',
-  fumble: 'fumble recovery', puntReturn: 'punt return',
-};
-
-/**
- * Big play alerts (#2108): after a live sync's league is scored, push both
- * managers of a matchup when one of this sync's Scoring plays by a starter is
- * worth BIG_PLAY_MIN_POINTS (default 6) under that league's rules. One push per
- * owner per sync, and none while a `big-play` ledger row for that owner is under
- * five minutes old (the capped plays are dropped, not queued). Runs after
- * scoreMatchups has committed, never inside its transaction.
- *
- * A play is priced at its whole fantasy value under that league's rules (R4):
- * the player's point change for the sync as `rulesForLeague` prices it, not the
- * touchdown's own price alone. The plays carry the sync's stat line before and
- * after (`statsBefore`/`statsAfter`); plays of one player from the same sync
- * (identical lines) share that whole change, split across them by
- * attributePlayPoints under the league's rules, so a sync's plays still sum to
- * the player's whole change. A DEF's pointsAllowed/yardsAllowed are game-state
- * tiers, not a play, so they are left out of both lines before pricing. The
- * same unrounded number decides eligibility and (rounded to a tenth) fills the
- * body and the Banter `{points}`. A play without the stat lines (an older
- * producer), or whose before-line is empty (a player's first sync of the game,
- * which would price every earlier stat as the play), falls back to the
- * touchdown's price under league rules, or `pointsDelta` for a field goal.
- */
-async function alertBigPlays({ leagueId, season, week, scored, plays }) {
-  const minPoints = Number(process.env.BIG_PLAY_MIN_POINTS) || 6;
-  if (!plays || plays.length === 0 || !scored || scored.length === 0) return;
-  try {
-    const { rulesForLeague, calculateFantasyPoints } = require('../services/scoringRules');
-    const { PLAY_STAT_EVENTS, attributePlayPoints } = require('../services/boxScoreApply.service');
-    const push = require('../services/push.service');
-    const { banterFor } = require('../services/pushBanter');
-    const league = (await pool.query(`SELECT * FROM "leagues" WHERE "id" = $1`, [leagueId])).rows[0];
-    const rules = rulesForLeague(league);
-    // A play carries its event `type` but not the stat key it was detected from.
-    const statKeyOf = (type) => Object.keys(PLAY_STAT_EVENTS).find((k) => PLAY_STAT_EVENTS[k].type === type);
-    const round2 = (n) => Math.round(n * 100) / 100;
-    // One sync's plays for a player share a stat line pair: group on it, price
-    // the group's whole change under league rules, split it across the group.
-    const groups = new Map();
-    for (const p of plays) {
-      if (!p.statsBefore || !p.statsAfter) continue;
-      // A first sync (no line before) would price the whole game so far as one
-      // play; such a play keeps the touchdown's own price instead.
-      if (Object.keys(p.statsBefore).length === 0) continue;
-      const key = `${p.playerId}|${JSON.stringify(p.statsBefore)}|${JSON.stringify(p.statsAfter)}`;
-      if (!groups.has(key)) groups.set(key, []);
-      groups.get(key).push(p);
-    }
-    const pointsOf = new Map();
-    for (const group of groups.values()) {
-      // pointsAllowed/yardsAllowed are a DEF's game-state tiers, not a play: left
-      // in, a DEF's first sync prices the whole tier (+20 at 0/0) onto a sack, and
-      // a tier drop in the same sync zeroes a pick-six. Price the play without them.
-      const playLine = ({ pointsAllowed, yardsAllowed, ...line }) => line;
-      const statsBefore = playLine(group[0].statsBefore);
-      const statsAfter = playLine(group[0].statsAfter);
-      const whole = round2(calculateFantasyPoints(statsAfter, rules) - calculateFantasyPoints(statsBefore, rules));
-      const events = group.map((p) => ({ statKey: statKeyOf(p.type) }));
-      attributePlayPoints(statsBefore, statsAfter, events, whole, rules)
-        .forEach((points, i) => pointsOf.set(group[i], points));
-    }
-    const big = plays
-      .map((p) => {
-        const statKey = statKeyOf(p.type);
-        // No stat lines (an older producer, or a first sync): the touchdown's price under league rules; a field goal keeps pointsDelta (default rules).
-        const points = pointsOf.has(p) ? pointsOf.get(p)
-          : statKey === 'fieldGoal' ? p.pointsDelta : calculateFantasyPoints({ [statKey]: p.tdDelta }, rules);
-        return { ...p, statKey, points };
-      })
-      .filter((p) => p.points >= minPoints);
-    if (big.length === 0) return;
-
-    const teamIds = scored.flatMap((m) => [m.homeTeamId, m.awayTeamId]);
-    const [starters, owners, stats] = await Promise.all([
-      pool.query(
-        `SELECT "team_id", "player_id" FROM "lineup_entries"
-         WHERE "team_id" = ANY($1::int[]) AND "season" = $2 AND "week" = $3
-           AND "slot" NOT IN ('BENCH', 'IR') AND "player_id" = ANY($4::int[])`,
-        [teamIds, season, week, big.map((p) => p.playerId)]
-      ),
-      pool.query(`SELECT "id", "owner_id" FROM "teams" WHERE "id" = ANY($1::int[])`, [teamIds]),
-      pool.query(
-        `SELECT "player_id", "stats" FROM "player_stats"
-         WHERE "player_id" = ANY($1::int[]) AND "season" = $2 AND "week" = $3`,
-        [big.map((p) => p.playerId), season, week]
-      ),
-    ]);
-    const ownerOf = new Map(owners.rows.map((r) => [r.id, r.owner_id]));
-    const statsOf = new Map(stats.rows.map((r) => [r.player_id, r.stats || {}]));
-    const cutoff = new Date(clock.now().getTime() - BIG_PLAY_CAP_MS);
-
-    for (const m of scored) {
-      // A stat correction on a finished game is not a live play.
-      if (m.status === 'played' || m.status === 'final') continue;
-      const playsFor = (teamId) => big.filter((p) =>
-        starters.rows.some((s) => s.team_id === teamId && s.player_id === p.playerId));
-      const sides = [
-        { teamId: m.homeTeamId, own: playsFor(m.homeTeamId) },
-        { teamId: m.awayTeamId, own: playsFor(m.awayTeamId) },
-      ];
-      const qualifying = [...sides[0].own, ...sides[1].own];
-      if (qualifying.length === 0) continue;
-      // The fingerprint's count is the player's running total of that stat, so a
-      // later touchdown by the same player is a new push, not a ledger repeat.
-      const fingerprint = qualifying
-        .map((p) => `${p.playerId}:${p.statKey}:${Number((statsOf.get(p.playerId) || {})[p.statKey]) || p.tdDelta}`)
-        .sort().join(',');
-      for (const side of sides) {
-        const userId = ownerOf.get(side.teamId);
-        if (userId == null) continue;
-        const capped = await pool.query(
-          `SELECT 1 FROM "push_events" WHERE "user_id" = $1 AND "kind" = 'big-play' AND "created_at" > $2 LIMIT 1`,
-          [userId, cutoff]
-        );
-        if (capped.rows.length > 0) continue;
-        const what = (p) => `${p.name} ${BIG_PLAY_WORDS[p.type] || p.type}`;
-        const lines = qualifying.map((p) =>
-          `${what(p)} (${Math.round(p.points * 10) / 10} pts, ${side.own.includes(p) ? 'yours' : "your opponent's"})`);
-        const first = qualifying[0];
-        const banter = lines.length > 1
-          ? banterFor('bigPlaySeveral', `big-play:${m.matchupId}:${fingerprint}`, { count: lines.length })
-          : banterFor(side.own.includes(first) ? 'bigPlayMine' : 'bigPlayTheirs', `big-play:${m.matchupId}:${fingerprint}`, {
-            player: first.name,
-            event: BIG_PLAY_WORDS[first.type] || first.type,
-            points: Math.round(first.points * 10) / 10,
-          });
-        await push.sendPushOnce({
-          userIds: [userId],
-          prefKey: 'touchdownCelebrations',
-          kind: 'big-play',
-          subject: String(m.matchupId),
-          fingerprint,
-          payload: {
-            title: lines.length === 1 ? `Big play: ${what(qualifying[0])}` : `${lines.length} big plays`,
-            body: lines.join('\n'),
-            url: `/#/league/${leagueId}/game-center`,
-            banter,
-          },
-        });
-      }
-    }
-  } catch (err) {
-    console.error('big play alert failed:', err.message);
-  }
-}
-
-const leaderOf = (m) => {
-  const home = Number(m.homeScore);
-  const away = Number(m.awayScore);
-  return home > away ? 'home' : away > home ? 'away' : 'tied';
-};
-// One decimal, unless that prints the two scores as the same figure: then two,
-// so the copy never shows equal figures beside a lead (matchupModel does the same).
-const scoreText = (a, b) => {
-  const places = Number(a).toFixed(1) === Number(b).toFixed(1) ? 2 : 1;
-  return [Number(a).toFixed(places), Number(b).toFixed(places)];
-};
-
-/**
- * Push each owner their own matchup's score news (#2107), after the scoring
- * pass has committed: a lead change (home | away | tied), and once the matchup
- * reaches `played` (every starter's game over, the status scoreMatchups
- * attaches per ADR 0030). The leader is remembered in the push_events ledger:
- * the owner's latest `score-lead` row for the matchup holds `<leader>:<n>`, and
- * a push goes out only when the leader differs from it, at most one per owner
- * per five minutes (the live poll can flip a close game every 30 seconds). The counter n keeps a return
- * to an earlier leader (home, away, home) from hitting the ledger's unique key.
- * The first scoring of a week records the leader without a push.
- */
-async function alertScoreUpdates({ leagueId, season, week, scored }) {
-  const push = require('../services/push.service');
-  const { usersWanting } = require('../services/prefs.service');
-  const { banterFor } = require('../services/pushBanter');
-  const url = `/#/league/${leagueId}/game-center`;
-  for (const m of scored || []) {
-    if (m.status === 'final') continue; // the result is written; nothing is news
-    try {
-      const subject = String(m.matchupId);
-      const teams = await pool.query(
-        `SELECT "id", "name", "owner_id" FROM "teams" WHERE "id" = ANY($1::int[])`,
-        [[m.homeTeamId, m.awayTeamId]]
-      );
-      const sides = [
-        { mine: teams.rows.find((r) => r.id === m.homeTeamId), theirs: teams.rows.find((r) => r.id === m.awayTeamId), mineScore: m.homeScore, theirScore: m.awayScore, side: 'home' },
-        { mine: teams.rows.find((r) => r.id === m.awayTeamId), theirs: teams.rows.find((r) => r.id === m.homeTeamId), mineScore: m.awayScore, theirScore: m.homeScore, side: 'away' },
-      ].filter((s) => s.mine && s.theirs && s.mine.owner_id != null);
-      const leader = leaderOf(m);
-      const figures = (s) => scoreText(s.mineScore, s.theirScore);
-      const body = (s) => { const [x, y] = figures(s); return `${s.mine.name} ${x} - ${s.theirs.name} ${y}`; };
-
-      // Once played, the Final push is the news; a later stat correction must not
-      // send a lead change to someone already told the result.
-      if (m.status !== 'played') {
-        for (const s of sides) {
-          const userId = s.mine.owner_id;
-          if ((await usersWanting([userId], 'scoreUpdates')).length === 0) continue;
-          // Each owner compares against their own last row, so a capped owner
-          // (below) still gets the change once the cap lapses.
-          const prev = await pool.query(
-            `SELECT "fingerprint" FROM "push_events"
-             WHERE "user_id" = $1 AND "kind" = 'score-lead' AND "subject" = $2
-             ORDER BY "created_at" DESC LIMIT 1`,
-            [userId, subject]
-          );
-          if (!prev.rows[0]) {
-            await pool.query(
-              `INSERT INTO "push_events" ("user_id", "kind", "subject", "fingerprint")
-               VALUES ($1, 'score-lead', $2, $3) ON CONFLICT DO NOTHING`,
-              [userId, subject, `${leader}:0`]
-            );
-            continue;
-          }
-          const [prevLeader, n] = prev.rows[0].fingerprint.split(':');
-          if (prevLeader === leader) continue;
-          // At most one lead push per owner per five minutes; a capped change
-          // writes no row, so the next poll still sees the old leader and sends
-          // once five minutes pass. The ':0' rows are silent records, not pushes.
-          const capped = await pool.query(
-            `SELECT 1 FROM "push_events"
-             WHERE "user_id" = $1 AND "kind" = 'score-lead' AND "fingerprint" NOT LIKE '%:0'
-               AND "created_at" > now() - interval '5 minutes' LIMIT 1`,
-            [userId]
-          );
-          if (capped.rows[0]) continue;
-          await push.sendPushOnce({
-            userIds: [userId],
-            prefKey: 'scoreUpdates',
-            kind: 'score-lead',
-            subject,
-            fingerprint: `${leader}:${Number(n) + 1}`,
-            payload: {
-              title: leader === 'tied' ? 'Tied up' : leader === s.side ? 'You took the lead' : 'You lost the lead',
-              body: body(s),
-              url,
-              banter: banterFor(
-                leader === 'tied' ? 'tied' : leader === s.side ? 'leadTaken' : 'leadLost',
-                `score-lead:${subject}:${leader}:${Number(n) + 1}`,
-                { mine: s.mine.name, theirs: s.theirs.name }
-              ),
-            },
-          });
-        }
-      }
-
-      if (m.status === 'played') {
-        for (const s of sides) {
-          const result = leader === 'tied' ? 'tied' : leader === s.side ? 'you won' : 'you lost';
-          const score = figures(s).join('-');
-          // Compared in hundredths so 63.1 vs 64.1 (0.9999999999999929 apart) is a full point.
-          const lostClose = Math.abs(Math.round(Number(s.mineScore) * 100) - Math.round(Number(s.theirScore) * 100)) < 100;
-          const situation = leader === 'tied' ? 'finalTied' : leader === s.side ? 'finalWon' : lostClose ? 'finalLostClose' : 'finalLost';
-          await push.sendPushOnce({
-            userIds: [s.mine.owner_id],
-            prefKey: 'scoreUpdates',
-            kind: 'score-played',
-            subject,
-            fingerprint: 'played',
-            payload: {
-              title: `Final: ${result} ${score}`,
-              body: `Unofficial until the commissioner advances the week. ${body(s)}`,
-              url,
-              banter: banterFor(situation, `score-played:${subject}:played`, { mine: s.mine.name, theirs: s.theirs.name }),
-            },
-          });
-        }
-      }
-    } catch (err) {
-      console.error('score update push failed:', err.message);
-    }
-  }
-}
-
 /** Fast loop: expired draft pick clocks -> server-side auto-pick. */
 async function draftTickUnlocked() {
   if (draftRunning) return;
@@ -1889,9 +1571,6 @@ module.exports = {
   tick,
   tickUnlocked,
   draftTick,
-  alertCloseMatchups,
-  alertScoreUpdates,
-  alertBigPlays,
   getSchedulerStatus,
   SYNC_RUN_JOBS,
   MANUAL_SYNC_RUN_JOBS,
