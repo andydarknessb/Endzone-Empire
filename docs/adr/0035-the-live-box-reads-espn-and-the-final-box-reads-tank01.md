@@ -128,3 +128,49 @@ recovery the officials reverse is still credited by the play-text pass and
 now stands until the correction too (#2003). The
 team DST `fumbleRecovery` is opponent-only in Tank01 and still comes from the
 Final box.
+
+## Amendment (2026-10-12, #2223)
+
+The Final box is no longer strictly one read. On 2026-10-11 the single read
+most likely carried a transient SF DEF `defTD 2` (true value 1; Halton's
+`idpDefensiveTD` likewise, #2219), and nothing on game day corrects a Final
+box: it held until the Tue/Wed nflverse correction. Each game now gets one
+recheck, ~2h (`FINAL_BOX_RECHECK_MS`, default 7200000) after
+`final_stats_synced_at`, recorded in `live_game_states.final_stats_rechecked_at`
+so it happens at most once.
+
+- It runs through the same `syncWeekStats` path and the same box write, at
+  `standard` priority. The first Final box stays `essential`.
+- The recheck is shed, before the fetch, when the quota mode is
+  `essential-only` or `blocked` or the quota state is unreadable, so a shed
+  recheck spends no essential headroom and records no run. A recheck that is fetched and fails (5xx/429, or the
+  mode flips between that check and `tank01Get`'s own gate) records a
+  `fetch_failed` run like any failed Final box, and is retried on later
+  in-window syncs until the cap below.
+- The recheck is bounded: a stamp older than `FINAL_BOX_RECHECK_MAX_AGE_MS`
+  (default 6h) is never rechecked. A late recheck (a deploy mid-week with old
+  stamps and a NULL `final_stats_rechecked_at`, a quota shed lasting hours, an
+  nflverse correction already run) would box-replace box-owned keys over a
+  correction and revert it, so past the bound the Tue/Wed correction settles
+  the game. `FINAL_BOX_RECHECK_MAX_AGE_MS=0` disables the recheck.
+- Plays stay suppressed, as for the first Final box, and the recheck stamps
+  `final_stats_rechecked_at`, not `final_stats_synced_at`.
+- The same in-window scheduler tick re-scores leagues through
+  `scoreMatchups`. It runs only on in-window ticks (any kickoff for the
+  leagues' current week in the last 8h). A normal slot, SNF and MNF included, has
+  1.25-1.75h to spare, but a long weather delay in the last game of a window,
+  a late first stamp, or every league advancing before +2h skips it; Tue/Wed
+  still settles the value.
+- Known edge: with leagues on different weeks, a late Tue correction for week
+  N followed by a recheck for a league still on week N can box-replace the
+  corrected box-owned keys; the Wed pass repairs it. The backfill script run
+  on game day has the same exposure.
+- A recheck that flips a matchup result after the one-time Final push is
+  silent (the same as the nflverse current-week patch); the recap is not
+  rebuilt.
+- Cost is about 16 Tank01 calls a week (about 70 a month) against the 950
+  budget.
+
+The Tue/Wed nflverse correction is still the authoritative backstop for the
+box-owned keys; the recheck only shortens how long a transient first read
+stands.
