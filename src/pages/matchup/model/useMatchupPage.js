@@ -95,7 +95,7 @@ const NO_DELTAS = new Map();
  * yields slot keys here too, instead of the empty list this used to fall back
  * to for anything but a literal array.
  */
-export function slotOrderFor(league) {
+function slotOrderFor(league) {
   return parseRosterSlots(league?.roster_slots)
     .map((s) => (s && s.key != null ? String(s.key) : null))
     .filter(Boolean);
@@ -112,7 +112,7 @@ export function slotOrderFor(league) {
  * the wire does not know (a void shot, a player dropped since) reads as a dash,
  * never 0.0.
  */
-export function calledShotView(shot, { starters, bench, deltas }) {
+function calledShotView(shot, { starters, bench, deltas }) {
   if (!shot?.starter || !shot?.benched) return null;
   const judged = shot.outcome === 'hit' || shot.outcome === 'miss';
   const pointsOf = (side) => {
