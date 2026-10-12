@@ -288,17 +288,18 @@ test('the injuries row propagates a thrown syncInjuries; the failed run does not
   assert.ok((await world.run(new Date(retryAt.getTime() + 5 * 60 * 1000))).ran, 'next tick retries off the last OK run');
 });
 
-test('the injuries row runs when the data_sync_runs read fails (fail open): the gate does not block the job, and the failure is logged', async (t) => {
+test('the injuries row fails closed when the data_sync_runs read fails: no sync, the error surfaces', async (t) => {
   const world = injuryWorld(t, { inWindow: false });
-  const warnings = [];
-  t.mock.method(console, 'warn', (...args) => { warnings.push(args.join(' ')); });
+  const errors = [];
+  t.mock.method(console, 'error', (...args) => { errors.push(args.join(' ')); });
   const original = pool.query;
   t.mock.method(pool, 'query', (sql, params) => (/FROM "data_sync_runs"/.test(sql)
     ? Promise.reject(new Error('db down'))
     : original.call(pool, sql, params)));
-  assert.ok((await world.run(new Date('2026-08-20T12:00:00-05:00'))).ran);
-  assert.equal(world.calls, 1);
-  assert.ok(warnings.some((line) => /injuries/.test(line) && /db down/.test(line)));
+  const out = await world.run(new Date('2026-08-20T12:00:00-05:00'));
+  assert.equal(out.ran, false);
+  assert.equal(world.calls, 0);
+  assert.ok(errors.some((line) => /injuries/.test(line) && /db down/.test(line)), 'the tick logs it as the row\'s failure');
 });
 
 test('the injuries row honors INJURY_SYNC_MS and falls back to 15 minutes on an unusable value (#2115)', async (t) => {

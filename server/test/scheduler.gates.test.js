@@ -135,16 +135,28 @@ test('cadence: a refused run settles the UTC day, the next UTC day is due again'
   assert.equal(calls.length, 2);
 });
 
-test('cadence: a failed data_sync_runs read counts as due (fail open), warns, and is not remembered', async (t) => {
+test('cadence: a failed data_sync_runs read skips the row for this tick and reports it as the row\'s failure', async (t) => {
   const w = world(t);
   const calls = adpWorld(t, w);
   w.failReads = true;
   await w.tick('adp', '2026-08-27T09:00:00Z');
-  assert.equal(calls.length, 1, 'the job must not sit blocked on an unreadable table');
-  assert.ok(w.warnings.some((line) => /adp/.test(line) && /data_sync_runs unavailable/.test(line)), 'the failed read is logged');
+  assert.equal(calls.length, 0, 'fail closed: the run was not called');
+  assert.ok(w.errors.some((line) => /scheduler: job %s failed/.test(line) && /adp/.test(line) && /data_sync_runs unavailable/.test(line)), 'logged as the row\'s failure, the same path a run throw takes');
   w.failReads = false;
   await w.tick('adp', '2026-08-27T09:05:00Z');
-  assert.equal(calls.length, 1, 'the run recorded a row, so the readable table now says settled');
+  assert.equal(calls.length, 1, 'the failure was not remembered: the next tick asks again and runs');
+});
+
+test('cadence: a failed read reaches lastTickError for a row with no syncRun and an invalid `every` fails the same way', async (t) => {
+  const w = world(t);
+  w.setTime('2026-08-28T09:00:00Z');
+  const cadence = require('../modules/cadence');
+  const failing = { name: 'bad-read', tier: 'deadline', gate: { due: (now) => cadence.due({ job: 'x', every: 'weekly', now }) }, run: async () => { throw new Error('must not run'); } };
+  await scheduler.tickUnlocked([failing]);
+  assert.match((await scheduler.getSchedulerStatus()).lastTickError, /bad-read: cadence\.due: invalid 'every' value/);
+  w.failReads = true;
+  await scheduler.tickUnlocked([{ ...failing, gate: { due: (now) => cadence.due({ job: 'x', every: 'utc-day', now }) } }]);
+  assert.match((await scheduler.getSchedulerStatus()).lastTickError, /bad-read: data_sync_runs unavailable/);
 });
 
 test('cadence: an interval job reads its table every tick and is due once the interval has passed', async (t) => {

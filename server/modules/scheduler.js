@@ -137,9 +137,10 @@ function syncRunJobs(jobs) {
  * changed" signal, so neither is remembered; nor is a run's result (the next
  * tick's read says whether it counted).
  *
- * A failed read counts as due (fail open): a job must not sit blocked behind an
- * unreadable table, and the stat-correction pass in particular is idempotent,
- * so running it is the safe side of skipping a correction day.
+ * A failed read (or an invalid `every`) fails closed: the throw leaves `due()`,
+ * the tick contains and logs it as this row's failure, and the row is skipped
+ * this tick and asked again next tick. A database blip must not turn every
+ * daily feed row into a run on every tick.
  */
 function cadenceGate({ job, every, retryMs, after }) {
   let settledDay = null;
@@ -147,14 +148,8 @@ function cadenceGate({ job, every, retryMs, after }) {
     async due(now) {
       const today = cadence.utcDateKey(now);
       if (settledDay === today) return { due: false, reason: 'already ran today' };
-      let verdict;
-      try {
-        const window = typeof every.ms === 'function' ? { ms: every.ms() } : every;
-        verdict = await cadence.due({ job, every: window, after, retryMs, now });
-      } catch (err) {
-        console.warn('scheduler: %s cadence read failed, treating as due:', job, err.message);
-        return { due: true, reason: 'cadence read failed' };
-      }
+      const window = typeof every.ms === 'function' ? { ms: every.ms() } : every;
+      const verdict = await cadence.due({ job, every: window, after, retryMs, now });
       if (!verdict.due && every === 'utc-day' && !after && !verdict.backoff) settledDay = today;
       return verdict;
     },
