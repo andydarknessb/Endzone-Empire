@@ -973,9 +973,10 @@ function buildFullStatUpdates({ rows, crosswalk, knownPlayersByExternalId }) {
  * net-total-yards identity. Points allowed come from the games file's final
  * scores (`scoresByGameId`); a game missing from it yields no DST rows —
  * better no row than one scored with pointsAllowed 0, which the tiers would
- * pay 10 points for.
+ * pay 10 points for. `playerRows` (the same game's player rows) feed
+ * defensiveTD's fumble-return TDs; omitted, only def_tds counts.
  */
-function buildDstStatUpdates({ teamRows, scoresByGameId }) {
+function buildDstStatUpdates({ teamRows, playerRows, scoresByGameId }) {
   const num = (v) => {
     const n = Number(v);
     return Number.isFinite(n) ? n : 0;
@@ -1001,7 +1002,15 @@ function buildDstStatUpdates({ teamRows, scoresByGameId }) {
         sack: num(row.def_sacks),
         interceptionReturn: num(row.def_interceptions),
         fumbleRecovery: num(row.fumble_recovery_opp),
-        defensiveTD: num(row.def_tds),
+        // def_tds excludes fumble-return TDs, but the team-week fumble_recovery_tds
+        // also counts offensive players recovering a teammate's fumble, so add only
+        // player-row TDs from opponent recoveries (the fumbleRecovery key above reads
+        // fumble_recovery_opp too) (#1386 f1, #2218).
+        // ponytail: a defender scoring on a teammate's fumbled return (own recovery by
+        // the defense) is not counted; upgrade path is play-by-play.
+        defensiveTD: num(row.def_tds) + (playerRows || [])
+          .filter((p) => p.team === row.team && num(p.fumble_recovery_opp) > 0)
+          .reduce((sum, p) => sum + num(p.fumble_recovery_tds), 0),
         safety: num(row.def_safeties),
         blockedKick: num(opponent.fg_blocked) + num(opponent.pat_blocked) + num(opponent.pt_blocked),
         pointsAllowed,
@@ -1059,7 +1068,7 @@ async function applyNflverseFullWeek(db, unit) {
       knownPlayersByExternalId: idByExternal,
     });
     const dstTargets = [];
-    for (const { teamAbbr, stats } of buildDstStatUpdates({ teamRows, scoresByGameId })) {
+    for (const { teamAbbr, stats } of buildDstStatUpdates({ teamRows, playerRows, scoresByGameId })) {
       // Fold the lookup side through the same resolver the shared builder keys on,
       // so the two stay in one vocabulary no matter what buildDstStatUpdates emits.
       const defRow = defByTeamCode.get(normalizeNflTeam(teamAbbr));

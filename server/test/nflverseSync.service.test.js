@@ -513,6 +513,33 @@ test('buildDstStatUpdates records game context on both sides of the game', () =>
   );
 });
 
+test('buildDstStatUpdates: defensiveTD adds opponent-fumble-recovery TDs from the own-team player rows (issue #2218)', () => {
+  // def_tds excludes fumble-return TDs (they live in fumble_recovery_tds), but the
+  // team-week fumble_recovery_tds also sums OFFENSIVE players recovering a
+  // teammate fumble, so only player rows with fumble_recovery_opp count.
+  const scoresByGameId = new Map([
+    ['2025_02_LA_SF', { homeTeam: 'SF', awayTeam: 'LA', homeScore: 20, awayScore: 17 }],
+  ]);
+  const build = (laDefTds, playerRows) =>
+    buildDstStatUpdates({
+      teamRows: [
+        { game_id: '2025_02_LA_SF', team: 'LA', opponent_team: 'SF', def_tds: laDefTds },
+        { game_id: '2025_02_LA_SF', team: 'SF', opponent_team: 'LA', def_tds: '0' },
+      ],
+      playerRows,
+      scoresByGameId,
+    }).find((u) => u.teamAbbr === 'LAR').stats.defensiveTD;
+  const defenderTd = { team: 'LA', fumble_recovery_opp: '1', fumble_recovery_own: '0', fumble_recovery_tds: '1' };
+  const mcBride = { team: 'LA', fumble_recovery_opp: '0', fumble_recovery_own: '1', fumble_recovery_tds: '1' };
+  const otherTeamTd = { team: 'SF', fumble_recovery_opp: '1', fumble_recovery_own: '0', fumble_recovery_tds: '1' };
+  assert.equal(build('0', [defenderTd]), 1, '(a) opponent-recovery TD, def_tds 0');
+  assert.equal(build('1', [defenderTd]), 2, '(b) def_tds 1 plus a separate opponent-recovery TD');
+  assert.equal(build('0', [mcBride]), 0, '(c) offensive own-recovery TD is not a DEF TD');
+  assert.equal(build('1', []), 1, '(d) def_tds alone');
+  assert.equal(build('1', undefined), 1, 'no playerRows passed: def_tds only');
+  assert.equal(build('0', [otherTeamTd]), 0, 'the other side player rows never count');
+});
+
 test('optionalTeamAbbr is null-preserving where nflverseTeamToOurAbbr answers a blank', () => {
   assert.equal(nflverseTeamToOurAbbr(''), '', 'the raw mapper still answers a blank string');
   for (const value of [undefined, null, '', '  ', 'NA']) {
