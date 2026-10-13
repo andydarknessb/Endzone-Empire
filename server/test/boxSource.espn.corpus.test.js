@@ -170,6 +170,84 @@ test('phase two: a Defensive PAT Conversion Score summary line credits the named
   assert.equal(box.players.filter((p) => p.stats.twoPointReturn > 0).length, 1);
 });
 
+// --- offensive two-point conversions (#2252) ---------------------------------
+// The touchdown's Score summary line carries the try in parentheses with full
+// display names. A player with no conversion carries no two-point key at all,
+// so the box write keeps a stored count (BOX_KEEP_IF_ABSENT).
+
+const TWO_PT_KEYS = ['passingTwoPt', 'rushingTwoPt', 'receivingTwoPt'];
+
+// Box players carry no name; resolve one through the line's own box roster.
+function applyNamed(line) {
+  const box = apply(line);
+  const ids = new Map();
+  for (const team of line.summary.boxscore.players) {
+    for (const st of team.statistics) for (const a of st.athletes) ids.set(a.athlete.displayName, a.athlete.id);
+  }
+  const nameOf = new Map([...ids].map(([n, id]) => [id, n]));
+  const p = (name) => box.players.find((x) => x.externalId === ids.get(name));
+  const withTwoPt = () => box.players.filter((x) => TWO_PT_KEYS.some((k) => k in x.stats)).map((x) => nameOf.get(x.externalId)).sort();
+  return { box, p, withTwoPt };
+}
+
+test('two-point: "A Pass to B for Two-Point Conversion" credits the passer and the receiver', () => {
+  const { p, withTwoPt } = applyNamed(byLabel('two-point pass conversion: Allen to Kincaid'));
+  assert.equal(p('Josh Allen').stats.passingTwoPt, 1);
+  assert.equal(p('Dalton Kincaid').stats.receivingTwoPt, 1);
+  assert.deepEqual(withTwoPt(), ['Dalton Kincaid', 'Josh Allen']);
+  assert.equal('rushingTwoPt' in p('Josh Allen').stats, false, 'the 1-yard TD run is not a two-point run');
+  assert.deepEqual(p('Josh Allen').stats.rushingTDLengths, [1], 'the TD length still reads');
+});
+
+test('two-point: a second game binds the pass pattern (Love to Golden)', () => {
+  const { p, withTwoPt } = applyNamed(byLabel('two-point pass conversion: Love to Golden'));
+  assert.equal(p('Jordan Love').stats.passingTwoPt, 1);
+  assert.equal(p('Matthew Golden').stats.receivingTwoPt, 1);
+  assert.equal(withTwoPt().length, 2);
+});
+
+test('two-point: "A Run for Two-Point Conversion" credits the rusher only', () => {
+  const { p, withTwoPt } = applyNamed(byLabel('two-point run conversion: Henry'));
+  assert.equal(p('Derrick Henry').stats.rushingTwoPt, 1);
+  assert.deepEqual(withTwoPt(), ['Derrick Henry']);
+  assert.deepEqual(p('Devontez Walker').stats.receivingTDLengths, [7], 'the TD length still reads');
+});
+
+test('two-point: a second game binds the run pattern, suffix included (Etienne Jr.)', () => {
+  const { p, withTwoPt } = applyNamed(byLabel('two-point run conversion: Etienne Jr.'));
+  assert.equal(p('Travis Etienne Jr.').stats.rushingTwoPt, 1);
+  assert.deepEqual(withTwoPt(), ['Travis Etienne Jr.']);
+});
+
+test('two-point: a same-name player on the other team is never credited', () => {
+  const line = structuredClone(byLabel('two-point pass conversion: Allen to Kincaid'));
+  // Put a LAR "Dalton Kincaid" FIRST, so a both-teams lookup would find him.
+  const teams = line.summary.boxscore.players;
+  teams.sort((a) => (a.team.abbreviation === 'LAR' ? -1 : 1));
+  line.summary.header.competitions[0].competitors.sort((c) => (c.team.abbreviation === 'LAR' ? -1 : 1));
+  teams[0].statistics[0].athletes.push({ athlete: { id: '999999', displayName: 'Dalton Kincaid' }, stats: [] });
+  const box = apply(line);
+  assert.equal('receivingTwoPt' in box.players.find((x) => x.externalId === '999999').stats, false);
+  const real = teams[1].statistics.flatMap((s) => s.athletes).find((a) => a.athlete.displayName === 'Dalton Kincaid');
+  assert.equal(box.players.find((x) => x.externalId === real.athlete.id).stats.receivingTwoPt, 1);
+});
+
+test('two-point: a "Conversion Failed" line credits nobody (the negative)', () => {
+  const { p, withTwoPt } = applyNamed(byLabel('two-point conversion Failed'));
+  assert.equal(withTwoPt().length, 0);
+  assert.deepEqual(p('Puka Nacua').stats.receivingTDLengths, [2]);
+});
+
+test('two-point: a name missing from the box credits nobody and does not throw', () => {
+  const line = structuredClone(byLabel('two-point pass conversion: Allen to Kincaid'));
+  for (const team of line.summary.boxscore.players) {
+    for (const st of team.statistics) st.athletes = st.athletes.filter((a) => a.athlete.displayName !== 'Dalton Kincaid');
+  }
+  const { p, withTwoPt } = applyNamed(line);
+  assert.equal(p('Josh Allen').stats.passingTwoPt, 1, 'the passer still counts');
+  assert.deepEqual(withTwoPt(), ['Josh Allen']);
+});
+
 // --- reviews and penalties (#2003) ---------------------------------------------
 // ESPN keeps the original description in front of the review sentence, so a
 // fumble that did not stand still reads FUMBLES and RECOVERED by.

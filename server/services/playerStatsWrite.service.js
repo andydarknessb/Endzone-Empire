@@ -42,10 +42,10 @@
 // two are return-yardage columns: kickReturnYards comes from both boxes (Tank01
 // reads Kicking.kickReturnYds since #2200), idpInterceptionReturnYards is
 // ESPN-only (the Tank01 box has no field for it) and is on BOX_KEEP_IF_ABSENT.
-// idpFumbleRecovery is ESPN-only too since #2002 and kept the same way. The
-// three two-point keys are Tank01-only (#2244): the Final box reads them off
-// each player's category object when Tank01 reports one (it omits the field
-// for a player with none), the ESPN Live box emits none.
+// idpFumbleRecovery is ESPN-only too since #2002 and kept the same way. Both
+// boxes emit the three two-point keys only for a player who made one: the
+// Final box reads them off Tank01's category objects (#2244), the ESPN Live
+// box off the touchdown's Score summary line (#2252).
 const BOX_PLAYER_KEYS = [
   'passingYards', 'passingTDs', 'interceptions', 'rushingYards', 'rushingTDs',
   'receivingYards', 'receivingTDs', 'receptions', 'fumbles', 'fieldGoal', 'fieldGoalMissed',
@@ -61,10 +61,10 @@ const BOX_PLAYER_KEYS = [
 // leaves the stored value alone instead of removing it. idpFumbleRecovery the
 // same way: the Tank01 box no longer emits it (its count mixes in own-team
 // recoveries, #2002), so the Final box keeps the Live box's figure. The
-// two-point keys the other way round (#2244): the ESPN Live box emits none and
-// a Tank01 box omits them for a player with none, so those writes leave a
-// stored count (an earlier Final box, or the nflverse correction) alone, while
-// a box line that carries one, even 0, wins.
+// two-point keys too (#2244, #2252): either box omits them for a player with
+// none, so those writes leave a stored count (an earlier box, or the nflverse
+// correction) alone, while a box line that carries one, even 0, wins. The
+// cost: a box never takes back a credit it gave; the nflverse correction does.
 const BOX_KEEP_IF_ABSENT = [
   'idpInterceptionReturnYards', 'idpFumbleRecovery', 'passingTwoPt', 'rushingTwoPt', 'receivingTwoPt',
 ];
