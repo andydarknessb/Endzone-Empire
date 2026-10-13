@@ -117,15 +117,15 @@
     "teamStats": {
       "home": {
         "teamAbv": "WSH",
-        "blockedFG": "1",
-        "blockedXP": "0",
-        "blockedPunt": "0"
-      },
-      "away": {
-        "teamAbv": "JAC",
         "blockedFG": "0",
         "blockedXP": "1",
         "blockedPunt": "1"
+      },
+      "away": {
+        "teamAbv": "JAC",
+        "blockedFG": "1",
+        "blockedXP": "0",
+        "blockedPunt": "0"
       }
     },
     "allPlayByPlay": [

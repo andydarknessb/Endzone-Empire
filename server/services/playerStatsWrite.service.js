@@ -42,7 +42,10 @@
 // two are return-yardage columns: kickReturnYards comes from both boxes (Tank01
 // reads Kicking.kickReturnYds since #2200), idpInterceptionReturnYards is
 // ESPN-only (the Tank01 box has no field for it) and is on BOX_KEEP_IF_ABSENT.
-// idpFumbleRecovery is ESPN-only too since #2002 and kept the same way.
+// idpFumbleRecovery is ESPN-only too since #2002 and kept the same way. The
+// three two-point keys are Tank01-only (#2244): the Final box reads them off
+// each player's category object when Tank01 reports one (it omits the field
+// for a player with none), the ESPN Live box emits none.
 const BOX_PLAYER_KEYS = [
   'passingYards', 'passingTDs', 'interceptions', 'rushingYards', 'rushingTDs',
   'receivingYards', 'receivingTDs', 'receptions', 'fumbles', 'fieldGoal', 'fieldGoalMissed',
@@ -51,13 +54,20 @@ const BOX_PLAYER_KEYS = [
   'passDeflection', 'qbHit', 'tacklesForLoss', 'idpDefensiveTD', 'twoPointReturn',
   'fieldGoalDistances', 'passingTDLengths', 'rushingTDLengths', 'receivingTDLengths',
   'kickReturnYards', 'idpInterceptionReturnYards',
+  'passingTwoPt', 'rushingTwoPt', 'receivingTwoPt',
 ];
 // Owned by the box (ESPN writes it) but also patched by nflverse's finalization
 // pass, and the old carry list kept it: a box line without it (any Tank01 box)
 // leaves the stored value alone instead of removing it. idpFumbleRecovery the
 // same way: the Tank01 box no longer emits it (its count mixes in own-team
-// recoveries, #2002), so the Final box keeps the Live box's figure.
-const BOX_KEEP_IF_ABSENT = ['idpInterceptionReturnYards', 'idpFumbleRecovery'];
+// recoveries, #2002), so the Final box keeps the Live box's figure. The
+// two-point keys the other way round (#2244): the ESPN Live box emits none and
+// a Tank01 box omits them for a player with none, so those writes leave a
+// stored count (an earlier Final box, or the nflverse correction) alone, while
+// a box line that carries one, even 0, wins.
+const BOX_KEEP_IF_ABSENT = [
+  'idpInterceptionReturnYards', 'idpFumbleRecovery', 'passingTwoPt', 'rushingTwoPt', 'receivingTwoPt',
+];
 const BOX_TEAM_DEFENSE_KEYS = [
   'sack', 'interceptionReturn', 'fumbleRecovery', 'defensiveTD', 'safety', 'blockedKick',
   'pointsAllowed', 'yardsAllowed',
