@@ -228,7 +228,9 @@ export default function LineupPage() {
     leagueUnsettled,
     hasEligibleTarget,
   });
-  const drop = useDropPlayer({ leagueId: selectedLeagueId, refresh: refetch });
+  // A landed drop or undo re-reads the advice too (#2267), since a suggestion
+  // may name the dropped player.
+  const drop = useDropPlayer({ leagueId: selectedLeagueId, refresh: refetch, onLanded: advice.reload });
 
   const decisionCardEntry = (lineup?.entries || []).find((e) => e.playerId === decisionCardEntryId) || null;
   // Called shots (#1856): the actions re-read the advice when they land, since
