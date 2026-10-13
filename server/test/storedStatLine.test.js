@@ -72,7 +72,7 @@ test('box keeps a stored idpInterceptionReturnYards a Tank01 box has no field fo
   assert.equal(fresh.idpInterceptionReturnYards, 31);
 });
 
-test('box keeps a stored passingTwoPt when the fresh line lacks it (an ESPN Live box emits none), and a fresh value overwrites it (#2244)', () => {
+test('box keeps a stored passingTwoPt when the fresh line lacks it (a player with no conversion in either box), and a fresh value overwrites it (#2244)', () => {
   const prior = { passingYards: 200, passingTwoPt: 1, rushingTwoPt: 1, receivingTwoPt: 1 };
   const kept = stats(storedStatLine({ source: 'box', fresh: { passingYards: 210 }, prior }));
   assert.equal(kept.passingTwoPt, 1);
