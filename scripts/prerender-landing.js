@@ -149,6 +149,7 @@ async function run(buildDir) {
   const out = injectPrerender(html, snapshots);
   // Every other path (the public pages) gets the plain shell via netlify.toml's
   // catch-all; only `/` (and so every hash route) carries the copy.
+  // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal -- buildDir is the build output dir from the CLI arg or default, not request input
   fs.writeFileSync(path.join(buildDir, 'shell.html'), html);
   fs.writeFileSync(indexPath, out);
   console.log(`Prerendered the landing page into index.html (${Buffer.byteLength(html)} -> ${Buffer.byteLength(out)} bytes)`);

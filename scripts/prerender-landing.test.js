@@ -107,6 +107,7 @@ test('without the gate (JS off, script blocked, HTML rewritten) no copied style 
 });
 
 test('the gate reads the same storage keys the app writes', () => {
+  // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal -- file is one of the two literals below
   const read = (file) => fs.readFileSync(path.join(__dirname, '..', 'src', file), 'utf8');
   const hintKey = /SESSION_HINT_KEY = '([^']+)'/.exec(read('lib/sessionHint.js'))[1];
   const themeKey = /THEME_KEY = '([^']+)'/.exec(read('theme/AppThemeProvider.jsx'))[1];
