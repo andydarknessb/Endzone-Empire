@@ -130,7 +130,8 @@ test('Compare renders when onCompare is passed, and calls only that callback', a
   const user = userEvent.setup();
   const onCompare = jest.fn();
   render(<StartSitPanel advice={{ suggestions: [suggestion()], movePlan: [] }} entries={entries} bestBall={false} onCompare={onCompare} />);
-  await user.click(screen.getByTestId('suggestion-compare'));
+  // #2263: the accessible name says which pair, so several suggestions do not repeat "Compare".
+  await user.click(screen.getByRole('button', { name: 'Compare Start Guy with Sit Guy' }));
   expect(onCompare).toHaveBeenCalledTimes(1);
 });
 

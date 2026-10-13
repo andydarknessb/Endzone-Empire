@@ -25,7 +25,8 @@ import { buildSuggestionView, calledRecordLine, calledShotLine, forecastRecordLi
  * feature) - Dismiss (session-only, local state) is the only interaction this
  * widget owns outright. `onApply` receives the lineup write's own moves
  * (`[{ playerId, slot }]`, see `movePlanWithout`), ready for `submit`.
- * Compare renders only when the page passes `onCompare`; no page wires it yet.
+ * Compare renders only when the page passes `onCompare`; the Lineup page
+ * wires it to the Decision card (#2263).
  *
  * Three more things ride in as plain props (#1852): each player carries the
  * shared injury tag from his designation; his name opens the Decision card
@@ -255,6 +256,7 @@ export default function StartSitPanel({
                   variant="ghost"
                   size="sm"
                   data-testid="suggestion-compare"
+                  aria-label={`Compare ${view.start.name} with ${view.sit.name}`}
                   onClick={() => onCompare(view)}
                 >
                   Compare
