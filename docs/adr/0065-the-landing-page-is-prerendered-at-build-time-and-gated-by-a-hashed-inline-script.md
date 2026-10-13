@@ -19,22 +19,27 @@ is the bundle's own first render, so the swap is pixel-identical: React's
 createRoot clears `#react-root` in the same commit that paints the live tree,
 and Chrome records the prerendered tagline as the LCP element.
 
-`index.html` answers every route, so a small inline script in `<head>` decides
-before `<body>` parses. It shows the copy only where App renders the landing
+`index.html` answers `/` and so every hash route; netlify.toml's catch-all
+sends every other path (the public BrowserRouter pages) to `shell.html`, the
+same page without the copy. A small inline script in `<head>` decides before
+`<body>` parses. It shows the copy only where App renders the landing
 page itself:
 
 - pathname `/` with hash `""`, `#/` or `#/home`;
-- no `endzone_session_hint` (with the hint, App shows a spinner and then
-  `/user`, #2097);
+- no `endzone_session_hint` (with the hint, App shows a spinner until the
+  session resolves, #2097);
 - the copy in the mode `AppThemeProvider.initialMode` would pick.
 
-Everywhere else it removes the copied styles, and the markup stays
-`display: none`. AppThemeProvider removes the copied styles and mode class
+The copied styles ship as `media="not all"` and the gate turns the chosen
+one on. Anywhere else, or when the gate never runs (JS off, the script
+blocked, the HTML rewritten in transit), nothing copied applies and the
+markup stays `display: none`. AppThemeProvider removes the copied styles and mode class
 once its own tokens are on `<html>`.
 
 The CSP keeps `script-src 'self'` and adds the gate's sha256 hash. No other
 inline script can run. The build fails when that hash is not in netlify.toml
-or the bundle does not reach the hero in either mode. A guard test
+or a copy is incomplete: no hero, no theme tokens, no emotion CSS, or a
+`css-*` class with no captured rule. A guard test
 (`test:prerender-landing`) also holds the hash equal to the script.
 
 Considered and rejected:
@@ -49,11 +54,19 @@ Considered and rejected:
 
 Consequences:
 
-- `index.html` grows from about 2 KiB to about 11 KiB brotli on every route.
+- `index.html` grows from about 2 KiB to about 11 KiB brotli for `/` and the
+  hash routes; public pages keep the plain shell.
 - Mobile LCP measured 2.84 s → 0.75 s (local Lighthouse 12.8, simulated,
   JS served 400 ms after the document; median of 3).
 - Under applied throttling, TBT counts main.js's evaluation that used to fall
   before first paint. The work is the same, only earlier in the window.
+- A returning user whose hint Safari purged (7 days without a visit) sees the
+  landing within about 0.3 s instead of a blank page, for as long as main.js
+  and the session check take, then `/user`. Same path as before, longer on
+  screen.
+- The copy is not interactive: its links work (they are plain anchors, and
+  the router reads the hash when it boots), the theme toggle and drawer
+  button do nothing until main.js runs.
 - `jsdom` is a direct devDependency.
 - A landing-page change that makes the first render depend on time or
   viewport in JS would make the copy differ from the live page; keep the

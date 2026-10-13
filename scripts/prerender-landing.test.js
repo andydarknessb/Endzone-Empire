@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
 const { JSDOM } = require('jsdom');
-const { GATE_SCRIPT, cspHash, injectPrerender } = require('./prerender-landing');
+const { GATE_SCRIPT, cspHash, injectPrerender, assertComplete } = require('./prerender-landing');
 
 const SHELL = '<html><head><style>body{margin:0}</style></head><body><div id="react-root"></div></body></html>';
 const SNAPSHOTS = [
@@ -25,7 +25,8 @@ function visit(url, { storage = {}, prefersDark = false } = {}) {
   return {
     classes: [...doc.documentElement.classList],
     theme: doc.documentElement.getAttribute('data-theme'),
-    styles: [...doc.querySelectorAll('style[data-ee-prerender]')].map((n) => n.getAttribute('data-ee-prerender')),
+    // A kept style still at media="not all" applies nothing; name it so a test sees it.
+    styles: [...doc.querySelectorAll('style[data-ee-prerender]')].map((n) => n.getAttribute('data-ee-prerender') + (n.media === 'all' ? '' : '(off)')),
   };
 }
 
@@ -73,11 +74,11 @@ test('puts both copies in #react-root, hidden unless their mode class is on <htm
   const out = injectPrerender(SHELL, SNAPSHOTS);
   assert.ok(out.includes('<div id="react-root"><div data-prerender="light">Welcome</div><div data-prerender="dark">Welcome</div></div>'));
   assert.match(out, /html:not\(\.ee-pr-light\) \[data-prerender=light\]/);
-  assert.ok(out.includes('<style data-ee-prerender="light">html.ee-pr-light{--accent: #1e5bb8;}.css-a{color:#111}</style>'));
+  assert.ok(out.includes('<style data-ee-prerender="light" media="not all">html.ee-pr-light{--accent: #1e5bb8;}.css-a{color:#111}</style>'));
   // The gate comes after the styles it removes and before <body> parses.
   // nosemgrep: javascript.lang.security.audit.unknown-value-with-script-tag.unknown-value-with-script-tag -- test fixture string compared as text, never rendered
   const gate = out.indexOf(`<script>${GATE_SCRIPT}</script>`);
-  assert.ok(gate > out.indexOf('<style data-ee-prerender="dark">'));
+  assert.ok(gate > out.indexOf('<style data-ee-prerender="dark"'));
   assert.ok(gate < out.indexOf('</head>'));
 });
 
@@ -96,4 +97,34 @@ test("netlify.toml's CSP allows the gate script by hash and nothing inline other
   const csp = /Content-Security-Policy\s*=\s*"([^"]+)"/.exec(toml)[1];
   const scriptSrc = csp.split(';').map((d) => d.trim()).find((d) => d.startsWith('script-src '));
   assert.equal(scriptSrc, `script-src 'self' ${cspHash(GATE_SCRIPT)}`);
+});
+
+test('without the gate (JS off, script blocked, HTML rewritten) no copied style applies and the markup stays hidden', () => {
+  const dom = new JSDOM(injectPrerender(SHELL, SNAPSHOTS), { url: 'https://endzoneempire.gg/' });
+  const doc = dom.window.document;
+  assert.deepEqual([...doc.querySelectorAll('style[data-ee-prerender]')].map((n) => n.media), ['not all', 'not all']);
+  assert.deepEqual([...doc.documentElement.classList], []);
+});
+
+test('the gate reads the same storage keys the app writes', () => {
+  const read = (file) => fs.readFileSync(path.join(__dirname, '..', 'src', file), 'utf8');
+  const hintKey = /SESSION_HINT_KEY = '([^']+)'/.exec(read('lib/sessionHint.js'))[1];
+  const themeKey = /THEME_KEY = '([^']+)'/.exec(read('theme/AppThemeProvider.jsx'))[1];
+  assert.ok(GATE_SCRIPT.includes(`localStorage.getItem("${hintKey}")==="1"`), hintKey);
+  assert.ok(GATE_SCRIPT.includes(`localStorage.getItem("${themeKey}")`), themeKey);
+});
+
+test('a snapshot without tokens, without CSS or with an unstyled class fails the build', () => {
+  const ok = { mode: 'light', markup: '<div class="MuiBox-root css-a css-0">x</div>', css: '.css-a{color:#111}', rootStyle: '--accent: #1e5bb8;' };
+  assert.doesNotThrow(() => assertComplete(ok));
+  assert.throws(() => assertComplete({ ...ok, rootStyle: '' }), /--accent/);
+  assert.throws(() => assertComplete({ ...ok, css: '' }), /no emotion CSS/);
+  assert.throws(() => assertComplete({ ...ok, markup: '<div class="css-a css-zz9">x</div>' }), /css-zz9/);
+});
+
+test('every path but / gets the plain shell, so public pages carry no hidden landing copy', () => {
+  const toml = fs.readFileSync(path.join(__dirname, '..', 'netlify.toml'), 'utf8');
+  const spa = toml.split('[[redirects]]').find((block) => /from\s*=\s*"\/\*"/.test(block));
+  assert.match(spa, /to\s*=\s*"\/shell\.html"/);
+  assert.match(toml, /for = "\/shell\.html"[\s\S]*?Cache-Control = "no-cache"/);
 });

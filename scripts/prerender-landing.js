@@ -10,7 +10,10 @@
 // index.html answers every route, so a small gate in <head> shows the copy only
 // where App would render the landing page itself: pathname "/", hash "", "#/"
 // or "#/home", no session hint, in the mode AppThemeProvider.initialMode picks.
-// Everywhere else it removes the copied styles and the markup stays hidden.
+// The copied styles ship as media="not all" and the gate turns one on; anywhere
+// else (or if the gate never runs) nothing copied applies and the markup stays
+// hidden. Only `/` serves this file: netlify.toml sends every other path to
+// shell.html, the same page without the copy.
 // The CSP allows the gate by its sha256 hash; AppThemeProvider removes the
 // copied styles and classes once its own are in place.
 //
@@ -25,7 +28,7 @@ const GATE_SCRIPT =
   'try{s=localStorage.getItem("endzone_session_hint")==="1";m=localStorage.getItem("endzone_theme")}catch(e){}' +
   'if(m!=="light"&&m!=="dark")m=window.matchMedia&&matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";' +
   'var show=!s&&location.pathname==="/"&&(h===""||h==="#/"||h==="#/home");' +
-  'document.querySelectorAll("style[data-ee-prerender]").forEach(function(n){if(!show||n.getAttribute("data-ee-prerender")!==m)n.remove()});' +
+  'document.querySelectorAll("style[data-ee-prerender]").forEach(function(n){if(show&&n.getAttribute("data-ee-prerender")===m)n.media="all";else n.remove()});' +
   'if(show){d.classList.add("ee-pr-"+m);d.setAttribute("data-theme",m)}})()';
 
 const MODES = ['light', 'dark'];
@@ -45,7 +48,8 @@ function injectPrerender(html, snapshots) {
     if (`${css}${rootStyle}`.includes('</')) throw new Error('prerender-landing: captured CSS contains "</"');
   }
   const styles = snapshots
-    .map(({ mode, css, rootStyle }) => `<style data-ee-prerender="${mode}">html.ee-pr-${mode}{${rootStyle}}${css}</style>`)
+    // Off until the gate turns one on: if it never runs, nothing copied applies.
+    .map(({ mode, css, rootStyle }) => `<style data-ee-prerender="${mode}" media="not all">html.ee-pr-${mode}{${rootStyle}}${css}</style>`)
     .join('');
   // nosemgrep: javascript.lang.security.audit.unknown-value-with-script-tag.unknown-value-with-script-tag -- GATE_SCRIPT is the constant above, pinned in the CSP by its hash
   const head = `<style>${HIDE_CSS}</style>${styles}<script>${GATE_SCRIPT}</script></head>`;
@@ -101,7 +105,11 @@ async function snapshot(buildDir, html, mode) {
     if (Date.now() > deadline) throw new Error(`prerender-landing: the ${mode} bundle never rendered the landing hero`);
     await new Promise((r) => setTimeout(r, 50));
   }
-  await new Promise((r) => setTimeout(r, 500)); // let mount effects (theme tokens on <html>) run
+  // AppThemeProvider writes the tokens onto <html> in a mount effect.
+  while (!doc.documentElement.style.getPropertyValue('--accent')) {
+    if (Date.now() > deadline) break; // assertComplete names what is missing
+    await new Promise((r) => setTimeout(r, 50));
+  }
 
   for (const el of root.children) el.setAttribute('data-prerender', mode);
   const css = [...doc.querySelectorAll('style[data-emotion]')]
@@ -110,6 +118,17 @@ async function snapshot(buildDir, html, mode) {
   const result = { mode, markup: root.innerHTML, css, rootStyle: doc.documentElement.getAttribute('style') || '' };
   window.close();
   return result;
+}
+
+// A copy missing its tokens or any emotion rule would paint wrong (the hero's
+// gradient text is transparent without --accent) and restyle on the swap.
+function assertComplete({ mode, markup, css, rootStyle }) {
+  if (!rootStyle.includes('--accent:')) throw new Error(`prerender-landing: ${mode} copy has no theme tokens (--accent) on <html>`);
+  if (!css) throw new Error(`prerender-landing: ${mode} copy captured no emotion CSS`);
+  const classes = new Set(markup.match(/\bcss-[a-z0-9]+\b/g) || []);
+  classes.delete('css-0'); // emotion's name for an empty style
+  const unstyled = [...classes].filter((cls) => !css.includes(`.${cls}`));
+  if (unstyled.length) throw new Error(`prerender-landing: ${mode} copy has classes with no captured rule: ${unstyled.join(' ')}`);
 }
 
 function assertCspAllowsGate(toml) {
@@ -126,12 +145,16 @@ async function run(buildDir) {
   const html = fs.readFileSync(indexPath, 'utf8');
   const snapshots = [];
   for (const mode of MODES) snapshots.push(await snapshot(buildDir, html, mode));
+  snapshots.forEach(assertComplete);
   const out = injectPrerender(html, snapshots);
+  // Every other path (the public pages) gets the plain shell via netlify.toml's
+  // catch-all; only `/` (and so every hash route) carries the copy.
+  fs.writeFileSync(path.join(buildDir, 'shell.html'), html);
   fs.writeFileSync(indexPath, out);
   console.log(`Prerendered the landing page into index.html (${Buffer.byteLength(html)} -> ${Buffer.byteLength(out)} bytes)`);
 }
 
-module.exports = { GATE_SCRIPT, cspHash, injectPrerender };
+module.exports = { GATE_SCRIPT, cspHash, injectPrerender, assertComplete };
 
 if (require.main === module) {
   run(process.argv[2] || path.join(__dirname, '..', 'build')).then(
