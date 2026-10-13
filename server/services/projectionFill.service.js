@@ -20,7 +20,7 @@ const { fantasySeasonLiveWhereSql } = require('./leaguePhase');
  * minutes per league and a warm one seconds.
  *
  * A Sync run per ADR 0036: `runSyncJob` owns the one `data_sync_runs` row for
- * the whole pass, exactly as every other feed sync in this module does.
+ * the whole pass, as every feed sync does.
  * `fetch()` reads the eligible leagues and the player pool once (no
  * transaction, no lock: nothing else bulk-writes these rows); `apply(client,
  * unit)` fills one league's remaining weeks, one per unit. One league
@@ -54,8 +54,9 @@ const { fantasySeasonLiveWhereSql } = require('./leaguePhase');
  * The gate (UTC hour window, cadence, game window) stays with the scheduler's
  * nightly-projection-fill TICK_JOBS row. This is the Sync run body plus the
  * reconcile and explanation passes. A failed run is recorded (ok=false, which
- * does not settle the day) and rethrown for the caller to log. Dependencies are reached
- * through their module objects, never destructured at load, so test stubs bite.
+ * does not settle the day) and rethrown for the caller to log. The projection,
+ * season, pickem and explanation services are reached through their module
+ * objects, never destructured at load, so test stubs bite.
  * Returns `{ weeksGenerated, weeksSkipped, leagues, elapsedMs }`.
  */
 async function runNightlyFill({ now = new Date() } = {}) {

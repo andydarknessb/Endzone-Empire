@@ -29,9 +29,10 @@ const NWS_UNCONFIGURED_REASON = 'NWS_USER_AGENT not configured';
  * because the worst case is two sequential 3.5 s NWS requests per outdoor game
  * and a slow run holds the tick (and its 5-minute live-scoring cadence) for
  * its whole duration. Waiting costs nothing: no row is written, so the gate is
- * still due on the first tick after the window closes. It never throws: a
- * failed run is already recorded by `runSyncJob` and is retried next tick (a
- * failed row never moves the gate). `getForecastsForGames` fails open per
+ * still due on the first tick after the window closes. A failed run is already
+ * recorded by `runSyncJob`; this function rethrows it, the scheduler logs it,
+ * and the next tick retries (a failed row never moves the gate).
+ * `getForecastsForGames` fails open per
  * game, so one dead NWS lookup does not fail the run on its own; `apply`
  * fails the unit when it asked NWS and got nothing (`requests > 0` and
  * `fetched === 0`) or fetched forecasts and saved none, so an outage records
