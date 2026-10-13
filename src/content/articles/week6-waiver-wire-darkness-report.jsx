@@ -4,17 +4,13 @@ import {
   Lead, P, H2, H3, UL, OL, LI, Quote,
   Table, THead, TBody, TR, TH, TD,
 } from '../../components/public/kit/Prose';
+import { positionColorVar } from '../../components/public/kit/positionColor';
 
 // Body only: the frontmatter lives in week6-waiver-wire-darkness-report.meta.js so listings can be
 // built without loading this prose; content/articles/index.js loads it on demand.
 //
 // Every color below the hero is a theme token, so the cards, charts and chips read in light and
 // dark. The hero is a dark illustration in both themes, like the Week 3 start/sit banner.
-
-const POS_COLOR = {
-  QB: 'var(--pos-qb)', RB: 'var(--pos-rb)', WR: 'var(--pos-wr)', TE: 'var(--pos-te)',
-  DEF: 'var(--pos-def)', LB: 'var(--pos-idp)', DL: 'var(--pos-idp)', DB: 'var(--pos-idp)',
-};
 
 function HeroBanner() {
   // Claim cards fanned across the field: taller card, bigger bid. The Big Three are green.
@@ -128,7 +124,7 @@ function PriorityCard({ p }) {
       sx={{
         my: 3, p: { xs: 2, sm: 3 }, borderRadius: 'var(--radius-md, 10px)',
         bgcolor: 'var(--surface-raised)', border: '1px solid var(--border-subtle)', boxShadow: 'var(--shadow-2, none)',
-        borderLeft: '5px solid', borderLeftColor: POS_COLOR[p.pos],
+        borderLeft: '5px solid', borderLeftColor: positionColorVar(p.pos),
       }}
     >
       <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1.5, flexWrap: 'wrap' }}>
@@ -139,7 +135,7 @@ function PriorityCard({ p }) {
           {p.name}
         </Box>
         <Box sx={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-muted)' }}>
-          <Pill color={POS_COLOR[p.pos]}>{p.pos}</Pill>{p.team} &middot; {p.matchup}
+          <Pill color={positionColorVar(p.pos)}>{p.pos}</Pill>{p.team} &middot; {p.matchup}
         </Box>
       </Box>
       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 1.5 }}>
@@ -210,7 +206,7 @@ function FaabLadder() {
       {LADDER.map(([name, pos, min, max, top]) => (
         <Box key={name} aria-hidden="true" sx={{ display: 'grid', gridTemplateColumns: { xs: '8.5em 1fr 3.6em', sm: '11em 1fr 4em' }, alignItems: 'center', gap: 1, fontSize: '0.85rem' }}>
           <Box component="span" sx={{ fontWeight: top ? 800 : 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-            <Box component="span" sx={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', bgcolor: POS_COLOR[pos], mr: 0.75 }} />
+            <Box component="span" sx={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', bgcolor: positionColorVar(pos), mr: 0.75 }} />
             {name}
           </Box>
           <BidTrack min={min} max={max} highlight={top} />
@@ -609,12 +605,12 @@ const Body = () => (
     </P>
     <H3>Where the market went</H3>
     <UL>
-      <LI><strong>Emanuel Wilson</strong>: 50.2% to 81.6% rostered.</LI>
-      <LI><strong>Will Shipley</strong>: 0.8% to 43.8%, and then he got hurt.</LI>
-      <LI><strong>Keon Coleman</strong>: 4.4% to 39.1%.</LI>
+      <LI><strong>Emanuel Wilson</strong>: 50.1% to 81.6% rostered.</LI>
+      <LI><strong>Will Shipley</strong>: 0.6% to 43.8%, and then he got hurt.</LI>
+      <LI><strong>Keon Coleman</strong>: 4.2% to 39.1%.</LI>
       <LI><strong>T.J. Hockenson</strong>: 54.7% to 70.6%.</LI>
-      <LI><strong>Kirk Cousins</strong>: 17.0% to 36.3%.</LI>
-      <LI><strong>Roman Wilson</strong>: 3.7% to 34.2%, on a zero.</LI>
+      <LI><strong>Kirk Cousins</strong>: 16.9% to 36.3%.</LI>
+      <LI><strong>Roman Wilson</strong>: 3.6% to 34.2%, on a zero.</LI>
       <LI><strong>Brian Robinson Jr.</strong>: 27.0% to 50.2%, on 1.6.</LI>
     </UL>
 
