@@ -12,7 +12,6 @@ const { computeByeWeeks } = require('../services/bye.service');
 const { requireMember } = require('../services/leagueMembership.service');
 const { getDraftRoomBroadcast } = require('../modules/draftRoomBroadcast');
 const projectionService = require('../services/projection.service');
-const { poolPointsFor } = require('../services/poolProjection');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -48,22 +47,30 @@ router.get('/roster', async (req, res) => {
                 "lineup_entries"."slot", "players"."position", "players"."name"`,
       [Number(leagueId), req.user.id]
     );
+    // The whole league row, not just its season and week: the Weekly projection
+    // prices under the league's scoring rules (ADR 0024), and a row without them
+    // would hash the default profile. No current week, nothing to price (null).
+    const leagueResult = await pool.query(
+      `SELECT * FROM "leagues" WHERE "id" = $1`,
+      [Number(leagueId)]
+    );
+    const league = leagueResult.rows[0];
+    const season = league?.current_season ?? null;
+    const week = league?.current_week ?? null;
+    const weekly = season != null && week != null
+      ? await projectionService.getWeeklyProjections({
+        season, week, league, playerIds: result.rows.map((row) => row.id),
+      })
+      : null;
     // Bye week is schedule-derived (not a stored players column), so annotate
     // each roster row with its NFL team's bye for the league's current season.
     // Batched: a full roster resolves in one nfl_games query, not one per slot.
-    const leagueRow = await pool.query(
-      `SELECT "current_season", "current_week" FROM "leagues" WHERE "id" = $1`,
-      [Number(leagueId)]
-    );
-    const season = leagueRow.rows[0]?.current_season ?? null;
-    const week = leagueRow.rows[0]?.current_week ?? null;
-    const weeklyByPlayer = await projectionService.getWeekProjections({ season, week });
     const byeByTeam = await computeByeWeeks(
       result.rows.map((row) => row.nfl_team),
       season
     );
     for (const row of result.rows) {
-      row.projected_weekly_points = poolPointsFor(weeklyByPlayer, row.id);
+      row.projected_weekly_points = weekly ? weekly.pointsFor(row.id) : null;
       row.bye_week = byeByTeam.get(row.nfl_team) ?? null;
     }
     res.json(result.rows);

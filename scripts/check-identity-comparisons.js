@@ -166,13 +166,13 @@ const ALLOWLIST = [
     rule: 'caller: a manager may toggle Autodraft for their own Team; commissioners may toggle any Team through the separate isLeagueCommissioner gate',
   },
   {
-    file: 'server/routes/league.router.js',
-    code: 'matchup.home_owner_id === req.user.id',
+    file: 'server/services/matchupDetail.service.js',
+    code: 'matchup.home_owner_id === viewerUserId',
     rule: 'caller: deriving the viewer\'s own team in a matchup, from a server-side query rather than a shared payload',
   },
   {
-    file: 'server/routes/league.router.js',
-    code: 'matchup.away_owner_id === req.user.id',
+    file: 'server/services/matchupDetail.service.js',
+    code: 'matchup.away_owner_id === viewerUserId',
     rule: 'caller: deriving the viewer\'s own team in a matchup, from a server-side query rather than a shared payload',
   },
   {

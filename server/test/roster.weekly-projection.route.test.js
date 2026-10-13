@@ -22,25 +22,24 @@ app.use('/api/league', leagueRouter);
 
 const token = () => signToken({ id: 7, username: 'member' });
 
-test('GET team roster maps weekly projections by player id, preserving zero and null', async (t) => {
+test('GET team roster prices projected_weekly_points with the Weekly projection under the league scoring, preserving zero and null', async (t) => {
   const rosterRows = [
     { id: 1, name: 'Mapped Number', position: 'RB', nfl_team: 'MIN', team_id: 10 },
     { id: 2, name: 'Mapped Zero', position: 'WR', nfl_team: 'BUF', team_id: 10 },
     { id: 3, name: 'Missing Projection', position: 'TE', nfl_team: 'KC', team_id: 10 },
   ];
+  const scoringRules = { passing: { yardsPerPoint: 20 } };
   const projectionCalls = [];
-  t.mock.method(projectionService, 'getWeekProjections', async (options) => {
+  t.mock.method(projectionService, 'getWeeklyProjections', async (options) => {
     projectionCalls.push(options);
-    return new Map([
-      [2, { points: 0, source: 'extrapolated' }],
-      [1, { points: '12.5', source: 'external' }],
-    ]);
+    const points = new Map([[1, 12.5], [2, 0]]);
+    return { pointsFor: (id) => (points.has(id) ? points.get(id) : null) };
   });
   t.mock.method(pool, 'query', async (sql) => {
     const text = String(sql);
     if (text.includes('FROM "team_players"')) return { rows: rosterRows };
     if (text.includes('FROM "leagues"')) {
-      return { rows: [{ current_season: 2026, current_week: 8 }] };
+      return { rows: [{ id: 3, current_season: 2026, current_week: 8, scoring_rules: scoringRules }] };
     }
     if (text.includes('FROM "nfl_games"')) return { rows: [] };
     throw new Error(`unexpected query: ${text}`);
@@ -51,7 +50,10 @@ test('GET team roster maps weekly projections by player id, preserving zero and 
     .set('Authorization', `Bearer ${token()}`);
 
   assert.equal(response.status, 200);
-  assert.deepEqual(projectionCalls, [{ season: 2026, week: 8 }]);
+  assert.equal(projectionCalls.length, 1);
+  const [call] = projectionCalls;
+  assert.deepEqual([call.season, call.week, call.playerIds], [2026, 8, [1, 2, 3]]);
+  assert.deepEqual(call.league.scoring_rules, scoringRules, 'the whole league row rides in, so the league scoring prices the number');
   assert.deepEqual(
     response.body.map(({ id, projected_weekly_points }) => ({ id, projected_weekly_points })),
     [
@@ -60,6 +62,29 @@ test('GET team roster maps weekly projections by player id, preserving zero and 
       { id: 3, projected_weekly_points: null },
     ]
   );
+});
+
+test('GET team roster skips the projection call and leaves the field null when the league has no current week', async (t) => {
+  const projectionCalls = [];
+  t.mock.method(projectionService, 'getWeeklyProjections', async (options) => {
+    projectionCalls.push(options);
+    return { pointsFor: () => 1 };
+  });
+  t.mock.method(pool, 'query', async (sql) => {
+    const text = String(sql);
+    if (text.includes('FROM "team_players"')) return { rows: [{ id: 1, name: 'P', position: 'RB', nfl_team: 'MIN', team_id: 10 }] };
+    if (text.includes('FROM "leagues"')) return { rows: [{ id: 3, current_season: 2026, current_week: null }] };
+    if (text.includes('FROM "nfl_games"')) return { rows: [] };
+    throw new Error(`unexpected query: ${text}`);
+  });
+
+  const response = await request(app)
+    .get('/api/team/roster?leagueId=3')
+    .set('Authorization', `Bearer ${token()}`);
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(projectionCalls, []);
+  assert.equal(response.body[0].projected_weekly_points, null);
 });
 
 test('GET league rosters maps weekly and rest-of-season projections by player id', async (t) => {
