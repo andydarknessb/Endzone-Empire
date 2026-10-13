@@ -123,7 +123,7 @@ All routes except `/api/auth/*` require `Authorization: Bearer <jwt>`.
 | GET | `/api/league/:id/matchups?week=N` | Head-to-head matchups |
 | GET | `/api/team/roster?leagueId=N` | My roster |
 | POST/DELETE | `/api/team/roster/:playerId` | Add / drop a player (transactional) |
-| POST | `/api/scoring/sync` | Pull weekly stats from RapidAPI |
+| POST | `/api/scoring/sync` | Platform admin: pull weekly stats from RapidAPI |
 | POST | `/api/scoring/league/:id/matchups` | Owner: generate weekly pairings |
 | POST | `/api/scoring/league/:id/score` | Owner: score the week from player stats |
 
