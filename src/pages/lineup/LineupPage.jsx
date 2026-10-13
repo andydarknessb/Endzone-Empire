@@ -210,8 +210,9 @@ export default function LineupPage() {
   // The one Lineup write (spec #2042): swap, the Start/sit card's Apply, the
   // Bench what-if and the Decision card all hand move plans to its `submit`.
   // It clears the week's cached Matchups list itself when a save lands (#1881), as drop-player does for a roster change.
-  // A landed save also re-reads the advice (#2262): the plan and the suggestions
-  // were made against the lineup the save just changed.
+  // A save that lands, or any queued write that replays, also re-reads the
+  // advice (#2262): the plan and the suggestions were made against the lineup
+  // the write changed.
   const { submit } = useLineupWrite({ leagueId: selectedLeagueId, raw, setRaw, onLanded: advice.reload });
   const swap = useSwapPlayers({
     submit,

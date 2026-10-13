@@ -141,6 +141,31 @@ describe('onLanded (#2262)', () => {
 
     expect(onLanded).not.toHaveBeenCalled();
   });
+
+  test('is not called when the save is queued offline', async () => {
+    apiClient.put.mockRejectedValue(offline());
+    const { result, onLanded } = setupLanded();
+
+    await act(async () => {
+      await result.current.submit(MOVES);
+    });
+
+    expect(readPendingLineupMutations()).toHaveLength(1);
+    expect(onLanded).not.toHaveBeenCalled();
+  });
+
+  test('is called once when the queued save replays', async () => {
+    apiClient.put.mockRejectedValue(offline());
+    const { result, onLanded } = setupLanded();
+
+    await act(async () => {
+      await result.current.submit(MOVES);
+    });
+    replayed(LINEUP_REPLAY);
+
+    expect(onLanded).toHaveBeenCalledTimes(1);
+    expect(onLanded).toHaveBeenCalledWith();
+  });
 });
 
 // One replay subscriber (spec #2042): the page mounts the write once, with swap

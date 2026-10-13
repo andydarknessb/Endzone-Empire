@@ -26,10 +26,10 @@ export function useAdvice({ leagueId, week, bestBall }) {
   // `reload()` re-asks the same endpoint after a called shot is declared or
   // withdrawn (#1856): the server pins or releases the pair, so the suggestions
   // and the plan change with it. A landed lineup write calls it too (#2262): the
-  // plan was made against the lineup the write changed. The counter rides on the URL so useEndpoint
-  // refetches; the first read keeps the plain URL. While a reload is in flight
-  // the previous advice stays on screen (same league and week) rather than the
-  // card flashing empty.
+  // plan was made against the lineup the write changed. The counter rides on
+  // the URL so useEndpoint refetches; the first read keeps the plain URL. While
+  // a reload is in flight the previous advice stays on screen (same league and
+  // week) rather than the card flashing empty.
   const [reloads, setReloads] = useState(0);
   const reload = useCallback(() => setReloads((n) => n + 1), []);
   const base =
