@@ -283,9 +283,12 @@ function normalizeDepthChart(payload, teamCode) {
  * ESPN's team-roster group -> NFL roster status (#1766). The roster document
  * files every athlete under one group: offense/defense/specialTeam are the
  * 53-man Active roster, injuredReserveOrOut is Reserve, suspended is Suspended
- * (#2150), practiceSquad is the Practice squad. A group not named here is skipped, not
- * guessed: an unknown group is ESPN adding a shape, never an Active player. Its
- * athletes get a null status (see normalizeTeamRoster), not a made-up one.
+ * (#2150), practiceSquad is the Practice squad. The group is not the only signal
+ * for Suspended: an athlete whose roster item says `Suspension` is suspended
+ * whatever group holds him (#2249, see normalizeTeamRoster). A group not named
+ * here is skipped, not guessed: an unknown group is ESPN adding a shape, never an
+ * Active player. Its athletes get a null status (see normalizeTeamRoster), not a
+ * made-up one.
  */
 const ROSTER_GROUP_STATUS = Object.freeze({
   offense: 'active',
@@ -306,6 +309,8 @@ const ROSTER_GROUP_STATUS = Object.freeze({
  * `injuries` entry (Questionable, Out, Injured Reserve ...), untouched; the
  * caller maps it. The league injuries document drops an athlete once ESPN stops
  * listing him, season-ending IR included, but his roster entry keeps the block.
+ * An `injuryStatus` of `Suspension` makes `rosterStatus` 'suspended' whatever
+ * group ESPN files the athlete under (#2249: Pearce sat in `defense`).
  */
 function normalizeTeamRoster(payload, teamCode) {
   const groups = payload && Array.isArray(payload.athletes) ? payload.athletes : [];
@@ -316,11 +321,14 @@ function normalizeTeamRoster(payload, teamCode) {
     // An unknown group's athletes are still on this team's roster (#2117): they
     // stay in the rows with a null status, so the daily player sync never reads
     // them as departed; the roster-status apply skips a null status.
-    const rosterStatus = ROSTER_GROUP_STATUS[group.position] ?? null;
+    const groupStatus = ROSTER_GROUP_STATUS[group.position] ?? null;
     const items = Array.isArray(group.items) ? group.items : [];
     for (const item of items) {
       if (!item || item.id == null || item.id === '') continue;
       const athleteId = String(item.id);
+      const injuryStatus = Array.isArray(item.injuries) && typeof item.injuries[0]?.status === 'string'
+        ? item.injuries[0].status : null;
+      const rosterStatus = injuryStatus === 'Suspension' ? 'suspended' : groupStatus;
       const earlier = seen.get(athleteId);
       if (earlier) {
         // First group wins, except that a mapped status beats an unmapped
@@ -339,8 +347,7 @@ function normalizeTeamRoster(payload, teamCode) {
         position: item.position && item.position.abbreviation ? String(item.position.abbreviation) : null,
         jerseyNumber: jersey,
         photoUrl: item.headshot && item.headshot.href ? String(item.headshot.href) : null,
-        injuryStatus: Array.isArray(item.injuries) && typeof item.injuries[0]?.status === 'string'
-          ? item.injuries[0].status : null,
+        injuryStatus,
       };
       seen.set(athleteId, row);
       rows.push(row);
