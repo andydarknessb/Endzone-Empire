@@ -42,11 +42,7 @@ test('GET matchup detail answers 400 for a non-integer matchup id without taking
 });
 
 test('GET matchup detail answers 403 to a non-member and releases the client', async (t) => {
-  let detailReads = 0;
-  t.mock.method(matchupDetailService, 'getMatchupDetail', async () => {
-    detailReads += 1;
-    return null;
-  });
+  const read = t.mock.method(matchupDetailService, 'getMatchupDetail', async () => null);
   const fake = createFakePool([
     [select('teams'), () => NON_MEMBER_ROW],
   ]).install(t);
@@ -57,7 +53,8 @@ test('GET matchup detail answers 403 to a non-member and releases the client', a
 
   assert.equal(res.status, 403);
   assert.deepEqual(res.body, { error: 'not a member of this league' });
-  assert.equal(detailReads, 0, 'the detail read never ran for a non-member');
+  assert.deepEqual(fake.matching(select('teams'))[0].params, [5, 9], 'membership asked about this league and this user');
+  assert.equal(read.mock.callCount(), 0, 'the detail read never ran for a non-member');
   fake.assertClean();
 });
 
