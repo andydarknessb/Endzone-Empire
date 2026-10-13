@@ -194,3 +194,24 @@ The same audit corrected the Tank01 blocked-kick reading. A team's own
 `teamStats` line counts the blocks that team made, so each defense reads its
 own line (4 of 4 real games). The earlier opposite reading moved every
 Final-box block to the wrong defense until the nflverse correction.
+
+## Amendment (2026-10-13, #2252)
+
+Offensive two-point conversions now score on the live poll. The ESPN Live box
+reads them from the touchdown's Score summary line, which names the try in
+parentheses with full display names (`(Josh Allen Pass to Dalton Kincaid for
+Two-Point Conversion)`, `(Derrick Henry Run for Two-Point Conversion)`). It
+resolves both names against the scoring team's box and, like the Tank01 box,
+emits a two-point key only for a player who made one, so a name it cannot
+resolve leaves the stored count alone. A player whose only snap was the try
+has no box row (a conversion is not a carry or a reception), so their points
+wait for the Final box. This supersedes the #2244 amendment's "the ESPN Live
+box still emits none". The Final box and the nflverse correction still write
+the same counts.
+
+Because neither box ever emits a 0 for a player without a conversion, a box
+cannot take back a credit it gave: if ESPN rewrites a line after a review, the
+first reading stands until the Tue/Wed nflverse correction, which is the only
+retraction. Emitting 0 for every box player would retract it sooner, but a
+name the Live box fails to resolve would then erase a Tank01 fallback credit
+mid-game.

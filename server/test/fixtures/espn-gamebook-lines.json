@@ -1,5 +1,5 @@
 {
-  "_comment": "Real ESPN summary excerpts (2025 season weeks 1-18), one Gamebook line each, with the header competitors and the defensive box rosters (names only) the play-text passes need. Corpus for the narrow play-text pass (#1184) and the phase-two parser (#1187). Fetched 2026-09-10 from site.api.espn.com; text is verbatim. The last four entries (a REVERSED fumble, a No Play fumble, an Upheld review, a reversal into a fumble; #2003) were fetched 2026-10-06.",
+  "_comment": "Real ESPN summary excerpts (2025 season weeks 1-18), one Gamebook line each, with the header competitors and the defensive box rosters (names only) the play-text passes need. Corpus for the narrow play-text pass (#1184) and the phase-two parser (#1187). Fetched 2026-09-10 from site.api.espn.com; text is verbatim. The last four entries (a REVERSED fumble, a No Play fumble, an Upheld review, a reversal into a fumble; #2003) were fetched 2026-10-06. The four two-point conversion Score summary lines (#2252) are 2026 week 5 (BUF at LAR, BAL at ATL, CHI at GB), fetched 2026-10-13, with the offensive box rosters (names only). The NO at BAL line (2026 week 2) is the second run conversion, fetched 2026-10-13.",
   "lines": [
     {
       "eventId": "401772719",
@@ -10600,6 +10600,1571 @@
               ]
             }
           ]
+        }
+      }
+    },
+    {
+      "eventId": "401872994",
+      "label": "two-point pass conversion: Allen to Kincaid in a rushing TD Score summary line (BUF)",
+      "shortName": "20261012_BUF@LAR",
+      "summary": {
+        "header": {
+          "id": "401872994",
+          "competitions": [
+            {
+              "id": "401872994",
+              "status": {
+                "type": {
+                  "id": "3",
+                  "name": "STATUS_FINAL",
+                  "state": "post",
+                  "completed": true,
+                  "description": "Final",
+                  "detail": "Final/OT",
+                  "shortDetail": "Final/OT",
+                  "altDetail": "OT"
+                }
+              },
+              "competitors": [
+                {
+                  "id": "14",
+                  "homeAway": "home",
+                  "score": "34",
+                  "team": {
+                    "id": "14",
+                    "abbreviation": "LAR"
+                  }
+                },
+                {
+                  "id": "2",
+                  "homeAway": "away",
+                  "score": "37",
+                  "team": {
+                    "id": "2",
+                    "abbreviation": "BUF"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "boxscore": {
+          "teams": [],
+          "players": [
+            {
+              "team": {
+                "abbreviation": "BUF"
+              },
+              "statistics": [
+                {
+                  "name": "passing",
+                  "keys": [],
+                  "athletes": [
+                    {
+                      "athlete": {
+                        "id": "3918298",
+                        "displayName": "Josh Allen"
+                      },
+                      "stats": []
+                    }
+                  ]
+                },
+                {
+                  "name": "rushing",
+                  "keys": [],
+                  "athletes": [
+                    {
+                      "athlete": {
+                        "id": "3918298",
+                        "displayName": "Josh Allen"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4379399",
+                        "displayName": "James Cook III"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4429501",
+                        "displayName": "Ray Davis"
+                      },
+                      "stats": []
+                    }
+                  ]
+                },
+                {
+                  "name": "receiving",
+                  "keys": [],
+                  "athletes": [
+                    {
+                      "athlete": {
+                        "id": "4373678",
+                        "displayName": "Khalil Shakir"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "3915411",
+                        "displayName": "Ty Johnson"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4429501",
+                        "displayName": "Ray Davis"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4635008",
+                        "displayName": "Keon Coleman"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4379399",
+                        "displayName": "James Cook III"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4385690",
+                        "displayName": "Dalton Kincaid"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "3930086",
+                        "displayName": "Dawson Knox"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4683153",
+                        "displayName": "Skyler Bell"
+                      },
+                      "stats": []
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "team": {
+                "abbreviation": "LAR"
+              },
+              "statistics": [
+                {
+                  "name": "passing",
+                  "keys": [],
+                  "athletes": [
+                    {
+                      "athlete": {
+                        "id": "12483",
+                        "displayName": "Matthew Stafford"
+                      },
+                      "stats": []
+                    }
+                  ]
+                },
+                {
+                  "name": "rushing",
+                  "keys": [],
+                  "athletes": [
+                    {
+                      "athlete": {
+                        "id": "4430737",
+                        "displayName": "Kyren Williams"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4429096",
+                        "displayName": "Blake Corum"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4426515",
+                        "displayName": "Puka Nacua"
+                      },
+                      "stats": []
+                    }
+                  ]
+                },
+                {
+                  "name": "receiving",
+                  "keys": [],
+                  "athletes": [
+                    {
+                      "athlete": {
+                        "id": "4426515",
+                        "displayName": "Puka Nacua"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "2573401",
+                        "displayName": "Tyler Higbee"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4429096",
+                        "displayName": "Blake Corum"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "16800",
+                        "displayName": "Davante Adams"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4430737",
+                        "displayName": "Kyren Williams"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4426553",
+                        "displayName": "Davis Allen"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4360797",
+                        "displayName": "Tutu Atwell"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4242557",
+                        "displayName": "Colby Parkinson"
+                      },
+                      "stats": []
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        "scoringPlays": [
+          {
+            "type": {
+              "id": "68",
+              "text": "Rushing Touchdown",
+              "abbreviation": "TD"
+            },
+            "text": "Josh Allen 1 Yd Rush (Josh Allen Pass to Dalton Kincaid for Two-Point Conversion)",
+            "period": {
+              "number": 4
+            },
+            "clock": {
+              "value": 688,
+              "displayValue": "11:28"
+            },
+            "team": {
+              "abbreviation": "BUF"
+            },
+            "scoringType": {
+              "name": "touchdown",
+              "displayName": "Touchdown",
+              "abbreviation": "TD"
+            }
+          }
+        ],
+        "drives": {
+          "previous": []
+        }
+      }
+    },
+    {
+      "eventId": "401872993",
+      "label": "two-point run conversion: Henry in a passing TD Score summary line (BAL)",
+      "shortName": "20261011_BAL@ATL",
+      "summary": {
+        "header": {
+          "id": "401872993",
+          "competitions": [
+            {
+              "id": "401872993",
+              "status": {
+                "type": {
+                  "id": "3",
+                  "name": "STATUS_FINAL",
+                  "state": "post",
+                  "completed": true,
+                  "description": "Final",
+                  "detail": "Final/OT",
+                  "shortDetail": "Final/OT",
+                  "altDetail": "OT"
+                }
+              },
+              "competitors": [
+                {
+                  "id": "1",
+                  "homeAway": "home",
+                  "score": "23",
+                  "team": {
+                    "id": "1",
+                    "abbreviation": "ATL"
+                  }
+                },
+                {
+                  "id": "33",
+                  "homeAway": "away",
+                  "score": "30",
+                  "team": {
+                    "id": "33",
+                    "abbreviation": "BAL"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "boxscore": {
+          "teams": [],
+          "players": [
+            {
+              "team": {
+                "abbreviation": "BAL"
+              },
+              "statistics": [
+                {
+                  "name": "passing",
+                  "keys": [],
+                  "athletes": [
+                    {
+                      "athlete": {
+                        "id": "4035671",
+                        "displayName": "Tyler Huntley"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4429615",
+                        "displayName": "Zay Flowers"
+                      },
+                      "stats": []
+                    }
+                  ]
+                },
+                {
+                  "name": "rushing",
+                  "keys": [],
+                  "athletes": [
+                    {
+                      "athlete": {
+                        "id": "3043078",
+                        "displayName": "Derrick Henry"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4038441",
+                        "displayName": "Justice Hill"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4035671",
+                        "displayName": "Tyler Huntley"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4429615",
+                        "displayName": "Zay Flowers"
+                      },
+                      "stats": []
+                    }
+                  ]
+                },
+                {
+                  "name": "receiving",
+                  "keys": [],
+                  "athletes": [
+                    {
+                      "athlete": {
+                        "id": "4360939",
+                        "displayName": "Rashod Bateman"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4429615",
+                        "displayName": "Zay Flowers"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "3116365",
+                        "displayName": "Mark Andrews"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4876132",
+                        "displayName": "Josh Cuevas"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "3043078",
+                        "displayName": "Derrick Henry"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4696882",
+                        "displayName": "Devontez Walker"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4038441",
+                        "displayName": "Justice Hill"
+                      },
+                      "stats": []
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "team": {
+                "abbreviation": "ATL"
+              },
+              "statistics": [
+                {
+                  "name": "passing",
+                  "keys": [],
+                  "athletes": [
+                    {
+                      "athlete": {
+                        "id": "4360423",
+                        "displayName": "Michael Penix Jr."
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4241479",
+                        "displayName": "Tua Tagovailoa"
+                      },
+                      "stats": []
+                    }
+                  ]
+                },
+                {
+                  "name": "rushing",
+                  "keys": [],
+                  "athletes": [
+                    {
+                      "athlete": {
+                        "id": "4430807",
+                        "displayName": "Bijan Robinson"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4241474",
+                        "displayName": "Brian Robinson Jr."
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4360423",
+                        "displayName": "Michael Penix Jr."
+                      },
+                      "stats": []
+                    }
+                  ]
+                },
+                {
+                  "name": "receiving",
+                  "keys": [],
+                  "athletes": [
+                    {
+                      "athlete": {
+                        "id": "4426502",
+                        "displayName": "Drake London"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4361409",
+                        "displayName": "Jahan Dotson"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4360248",
+                        "displayName": "Kyle Pitts Sr."
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4430807",
+                        "displayName": "Bijan Robinson"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4870612",
+                        "displayName": "Zachariah Branch"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4035020",
+                        "displayName": "Charlie Woerner"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "16713",
+                        "displayName": "Jake Matthews"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4241474",
+                        "displayName": "Brian Robinson Jr."
+                      },
+                      "stats": []
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        "scoringPlays": [
+          {
+            "type": {
+              "id": "67",
+              "text": "Passing Touchdown",
+              "abbreviation": "TD"
+            },
+            "text": "Devontez Walker 7 Yd pass from Tyler Huntley (Derrick Henry Run for Two-Point Conversion)",
+            "period": {
+              "number": 4
+            },
+            "clock": {
+              "value": 40,
+              "displayValue": "0:40"
+            },
+            "team": {
+              "abbreviation": "BAL"
+            },
+            "scoringType": {
+              "name": "touchdown",
+              "displayName": "Touchdown",
+              "abbreviation": "TD"
+            }
+          }
+        ],
+        "drives": {
+          "previous": []
+        }
+      }
+    },
+    {
+      "eventId": "401872990",
+      "label": "two-point pass conversion: Love to Golden in a rushing TD Score summary line (GB)",
+      "shortName": "20261011_CHI@GB",
+      "summary": {
+        "header": {
+          "id": "401872990",
+          "competitions": [
+            {
+              "id": "401872990",
+              "status": {
+                "type": {
+                  "id": "3",
+                  "name": "STATUS_FINAL",
+                  "state": "post",
+                  "completed": true,
+                  "description": "Final",
+                  "detail": "Final",
+                  "shortDetail": "Final"
+                }
+              },
+              "competitors": [
+                {
+                  "id": "9",
+                  "homeAway": "home",
+                  "score": "31",
+                  "team": {
+                    "id": "9",
+                    "abbreviation": "GB"
+                  }
+                },
+                {
+                  "id": "3",
+                  "homeAway": "away",
+                  "score": "7",
+                  "team": {
+                    "id": "3",
+                    "abbreviation": "CHI"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "boxscore": {
+          "teams": [],
+          "players": [
+            {
+              "team": {
+                "abbreviation": "CHI"
+              },
+              "statistics": [
+                {
+                  "name": "passing",
+                  "keys": [],
+                  "athletes": [
+                    {
+                      "athlete": {
+                        "id": "15168",
+                        "displayName": "Case Keenum"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4434153",
+                        "displayName": "Tyson Bagent"
+                      },
+                      "stats": []
+                    }
+                  ]
+                },
+                {
+                  "name": "rushing",
+                  "keys": [],
+                  "athletes": [
+                    {
+                      "athlete": {
+                        "id": "4259545",
+                        "displayName": "D'Andre Swift"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4434153",
+                        "displayName": "Tyson Bagent"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4869748",
+                        "displayName": "Zavion Thomas"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4426386",
+                        "displayName": "Roschon Johnson"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "15168",
+                        "displayName": "Case Keenum"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4685278",
+                        "displayName": "Luther Burden III"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "2973405",
+                        "displayName": "Kalif Raymond"
+                      },
+                      "stats": []
+                    }
+                  ]
+                },
+                {
+                  "name": "receiving",
+                  "keys": [],
+                  "athletes": [
+                    {
+                      "athlete": {
+                        "id": "4685278",
+                        "displayName": "Luther Burden III"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4431299",
+                        "displayName": "Rome Odunze"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4426386",
+                        "displayName": "Roschon Johnson"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4259545",
+                        "displayName": "D'Andre Swift"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4723086",
+                        "displayName": "Colston Loveland"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4869748",
+                        "displayName": "Zavion Thomas"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4258595",
+                        "displayName": "Cole Kmet"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "2973405",
+                        "displayName": "Kalif Raymond"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "5160110",
+                        "displayName": "Jahdae Walker"
+                      },
+                      "stats": []
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "team": {
+                "abbreviation": "GB"
+              },
+              "statistics": [
+                {
+                  "name": "passing",
+                  "keys": [],
+                  "athletes": [
+                    {
+                      "athlete": {
+                        "id": "4036378",
+                        "displayName": "Jordan Love"
+                      },
+                      "stats": []
+                    }
+                  ]
+                },
+                {
+                  "name": "rushing",
+                  "keys": [],
+                  "athletes": [
+                    {
+                      "athlete": {
+                        "id": "4429023",
+                        "displayName": "MarShawn Lloyd"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4819231",
+                        "displayName": "Kaleb Johnson"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4249836",
+                        "displayName": "Pierre Strong Jr."
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4036378",
+                        "displayName": "Jordan Love"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4572680",
+                        "displayName": "Tucker Kraft"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "14163",
+                        "displayName": "Tyrod Taylor"
+                      },
+                      "stats": []
+                    }
+                  ]
+                },
+                {
+                  "name": "receiving",
+                  "keys": [],
+                  "athletes": [
+                    {
+                      "athlete": {
+                        "id": "4248528",
+                        "displayName": "Christian Watson"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4701936",
+                        "displayName": "Matthew Golden"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4572680",
+                        "displayName": "Tucker Kraft"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4259305",
+                        "displayName": "Bo Melton"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4249836",
+                        "displayName": "Pierre Strong Jr."
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4429023",
+                        "displayName": "MarShawn Lloyd"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4430191",
+                        "displayName": "Skyy Moore"
+                      },
+                      "stats": []
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        "scoringPlays": [
+          {
+            "type": {
+              "id": "68",
+              "text": "Rushing Touchdown",
+              "abbreviation": "TD"
+            },
+            "text": "MarShawn Lloyd 4 Yd Rush (Jordan Love Pass to Matthew Golden for Two-Point Conversion)",
+            "period": {
+              "number": 4
+            },
+            "clock": {
+              "value": 895,
+              "displayValue": "14:55"
+            },
+            "team": {
+              "abbreviation": "GB"
+            },
+            "scoringType": {
+              "name": "touchdown",
+              "displayName": "Touchdown",
+              "abbreviation": "TD"
+            }
+          }
+        ],
+        "drives": {
+          "previous": []
+        }
+      }
+    },
+    {
+      "eventId": "401872994",
+      "label": "two-point conversion Failed: no credit (LAR)",
+      "shortName": "20261012_BUF@LAR",
+      "summary": {
+        "header": {
+          "id": "401872994",
+          "competitions": [
+            {
+              "id": "401872994",
+              "status": {
+                "type": {
+                  "id": "3",
+                  "name": "STATUS_FINAL",
+                  "state": "post",
+                  "completed": true,
+                  "description": "Final",
+                  "detail": "Final/OT",
+                  "shortDetail": "Final/OT",
+                  "altDetail": "OT"
+                }
+              },
+              "competitors": [
+                {
+                  "id": "14",
+                  "homeAway": "home",
+                  "score": "34",
+                  "team": {
+                    "id": "14",
+                    "abbreviation": "LAR"
+                  }
+                },
+                {
+                  "id": "2",
+                  "homeAway": "away",
+                  "score": "37",
+                  "team": {
+                    "id": "2",
+                    "abbreviation": "BUF"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "boxscore": {
+          "teams": [],
+          "players": [
+            {
+              "team": {
+                "abbreviation": "BUF"
+              },
+              "statistics": [
+                {
+                  "name": "passing",
+                  "keys": [],
+                  "athletes": [
+                    {
+                      "athlete": {
+                        "id": "3918298",
+                        "displayName": "Josh Allen"
+                      },
+                      "stats": []
+                    }
+                  ]
+                },
+                {
+                  "name": "rushing",
+                  "keys": [],
+                  "athletes": [
+                    {
+                      "athlete": {
+                        "id": "3918298",
+                        "displayName": "Josh Allen"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4379399",
+                        "displayName": "James Cook III"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4429501",
+                        "displayName": "Ray Davis"
+                      },
+                      "stats": []
+                    }
+                  ]
+                },
+                {
+                  "name": "receiving",
+                  "keys": [],
+                  "athletes": [
+                    {
+                      "athlete": {
+                        "id": "4373678",
+                        "displayName": "Khalil Shakir"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "3915411",
+                        "displayName": "Ty Johnson"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4429501",
+                        "displayName": "Ray Davis"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4635008",
+                        "displayName": "Keon Coleman"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4379399",
+                        "displayName": "James Cook III"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4385690",
+                        "displayName": "Dalton Kincaid"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "3930086",
+                        "displayName": "Dawson Knox"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4683153",
+                        "displayName": "Skyler Bell"
+                      },
+                      "stats": []
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "team": {
+                "abbreviation": "LAR"
+              },
+              "statistics": [
+                {
+                  "name": "passing",
+                  "keys": [],
+                  "athletes": [
+                    {
+                      "athlete": {
+                        "id": "12483",
+                        "displayName": "Matthew Stafford"
+                      },
+                      "stats": []
+                    }
+                  ]
+                },
+                {
+                  "name": "rushing",
+                  "keys": [],
+                  "athletes": [
+                    {
+                      "athlete": {
+                        "id": "4430737",
+                        "displayName": "Kyren Williams"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4429096",
+                        "displayName": "Blake Corum"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4426515",
+                        "displayName": "Puka Nacua"
+                      },
+                      "stats": []
+                    }
+                  ]
+                },
+                {
+                  "name": "receiving",
+                  "keys": [],
+                  "athletes": [
+                    {
+                      "athlete": {
+                        "id": "4426515",
+                        "displayName": "Puka Nacua"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "2573401",
+                        "displayName": "Tyler Higbee"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4429096",
+                        "displayName": "Blake Corum"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "16800",
+                        "displayName": "Davante Adams"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4430737",
+                        "displayName": "Kyren Williams"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4426553",
+                        "displayName": "Davis Allen"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4360797",
+                        "displayName": "Tutu Atwell"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4242557",
+                        "displayName": "Colby Parkinson"
+                      },
+                      "stats": []
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        "scoringPlays": [
+          {
+            "type": {
+              "id": "67",
+              "text": "Passing Touchdown",
+              "abbreviation": "TD"
+            },
+            "text": "Puka Nacua 2 Yd pass from Matthew Stafford (Two-Point Pass Conversion Failed)",
+            "period": {
+              "number": 4
+            },
+            "clock": {
+              "value": 856,
+              "displayValue": "14:16"
+            },
+            "team": {
+              "abbreviation": "LAR"
+            },
+            "scoringType": {
+              "name": "touchdown",
+              "displayName": "Touchdown",
+              "abbreviation": "TD"
+            }
+          }
+        ],
+        "drives": {
+          "previous": []
+        }
+      }
+    },
+    {
+      "eventId": "401872938",
+      "label": "two-point run conversion: Etienne Jr. in a passing TD Score summary line (NO)",
+      "shortName": "NOBAL",
+      "summary": {
+        "header": {
+          "id": "401872938",
+          "competitions": [
+            {
+              "id": "401872938",
+              "status": {
+                "type": {
+                  "id": "3",
+                  "name": "STATUS_FINAL",
+                  "state": "post",
+                  "completed": true,
+                  "description": "Final",
+                  "detail": "Final",
+                  "shortDetail": "Final"
+                }
+              },
+              "competitors": [
+                {
+                  "id": "33",
+                  "homeAway": "home",
+                  "score": "17",
+                  "team": {
+                    "id": "33",
+                    "abbreviation": "BAL"
+                  }
+                },
+                {
+                  "id": "18",
+                  "homeAway": "away",
+                  "score": "24",
+                  "team": {
+                    "id": "18",
+                    "abbreviation": "NO"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "boxscore": {
+          "teams": [],
+          "players": [
+            {
+              "team": {
+                "abbreviation": "NO"
+              },
+              "statistics": [
+                {
+                  "name": "passing",
+                  "keys": [],
+                  "athletes": [
+                    {
+                      "athlete": {
+                        "id": "4360689",
+                        "displayName": "Tyler Shough"
+                      },
+                      "stats": []
+                    }
+                  ]
+                },
+                {
+                  "name": "rushing",
+                  "keys": [],
+                  "athletes": [
+                    {
+                      "athlete": {
+                        "id": "4239996",
+                        "displayName": "Travis Etienne Jr."
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4360689",
+                        "displayName": "Tyler Shough"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "3054850",
+                        "displayName": "Alvin Kamara"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "5081999",
+                        "displayName": "CJ Donaldson"
+                      },
+                      "stats": []
+                    }
+                  ]
+                },
+                {
+                  "name": "receiving",
+                  "keys": [],
+                  "athletes": [
+                    {
+                      "athlete": {
+                        "id": "4361370",
+                        "displayName": "Chris Olave"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "3929645",
+                        "displayName": "Juwan Johnson"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4569559",
+                        "displayName": "Devaughn Vele"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4702559",
+                        "displayName": "Oscar Delp"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4879276",
+                        "displayName": "Bryce Lance"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4372758",
+                        "displayName": "Kevin Austin Jr."
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "3054850",
+                        "displayName": "Alvin Kamara"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4239996",
+                        "displayName": "Travis Etienne Jr."
+                      },
+                      "stats": []
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "team": {
+                "abbreviation": "BAL"
+              },
+              "statistics": [
+                {
+                  "name": "passing",
+                  "keys": [],
+                  "athletes": [
+                    {
+                      "athlete": {
+                        "id": "3916387",
+                        "displayName": "Lamar Jackson"
+                      },
+                      "stats": []
+                    }
+                  ]
+                },
+                {
+                  "name": "rushing",
+                  "keys": [],
+                  "athletes": [
+                    {
+                      "athlete": {
+                        "id": "3043078",
+                        "displayName": "Derrick Henry"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "3916387",
+                        "displayName": "Lamar Jackson"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4038441",
+                        "displayName": "Justice Hill"
+                      },
+                      "stats": []
+                    }
+                  ]
+                },
+                {
+                  "name": "receiving",
+                  "keys": [],
+                  "athletes": [
+                    {
+                      "athlete": {
+                        "id": "4360939",
+                        "displayName": "Rashod Bateman"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "3116365",
+                        "displayName": "Mark Andrews"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4696882",
+                        "displayName": "Devontez Walker"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "3043078",
+                        "displayName": "Derrick Henry"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4690143",
+                        "displayName": "LaJohntay Wester"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4038441",
+                        "displayName": "Justice Hill"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "2576581",
+                        "displayName": "Chris Moore"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "3052897",
+                        "displayName": "Durham Smythe"
+                      },
+                      "stats": []
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        "scoringPlays": [
+          {
+            "type": {
+              "id": "67",
+              "text": "Passing Touchdown",
+              "abbreviation": "TD"
+            },
+            "text": "Chris Olave 21 Yd pass from Tyler Shough (Travis Etienne Jr. Run for Two-Point Conversion)",
+            "period": {
+              "number": 4
+            },
+            "clock": {
+              "value": 582,
+              "displayValue": "9:42"
+            },
+            "team": {
+              "abbreviation": "NO"
+            },
+            "scoringType": {
+              "name": "touchdown",
+              "displayName": "Touchdown",
+              "abbreviation": "TD"
+            }
+          }
+        ],
+        "drives": {
+          "previous": []
         }
       }
     }

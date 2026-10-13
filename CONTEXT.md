@@ -1265,11 +1265,11 @@ what is stored)
 **Score summary line**:
 One entry in an NFL game's scoring summary as the feed states it: the kind of
 score, its period and clock, and the scorer and yardage in text. The live sync
-reads touchdown lengths, field-goal distances and defensive two-point returns
-from these lines. Offensive two-point conversions do not come from them: the
-Tank01 box carries those per player, and the nflverse correction writes them
-too (ADR 0035). A Scoring play is what the sync emits afterwards from a
-player's stat change, never the line itself.
+reads touchdown lengths, field-goal distances, defensive two-point returns and
+offensive two-point conversions from these lines; a touchdown line names its
+try in parentheses. The Tank01 box and the nflverse correction write the same
+conversion counts later (ADR 0035). A Scoring play is what the sync emits
+afterwards from a player's stat change, never the line itself.
 _Avoid_: scoring play (for a feed entry), scoringPlays (the feed's key, in
 prose)
 

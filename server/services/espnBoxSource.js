@@ -15,7 +15,8 @@
  *     fumbles, defensive incl. TFL, interceptions, kick and punt returns,
  *     kicking as made/att). `athlete.id` IS players.external_id.
  *  2. `scoringPlays[]`, the game's **Score summary lines**: touchdown lengths
- *     per scorer and kind, field-goal distances, safeties. A line is data the
+ *     per scorer and kind, field-goal distances, safeties, and the offensive
+ *     two-point conversion in a touchdown line's parentheses. A line is data the
  *     feed states; the Scoring play the sync emits afterwards comes from a
  *     player's stat change, never from the line (CONTEXT.md).
  *  3. `drives.previous[].plays[].text`, a NARROW play-text pass for exactly the
@@ -24,11 +25,12 @@
  *     test/fixtures/espn-gamebook-lines.json; a regex that has seen one game
  *     does not ship (spec ruling). Anything else is the phase-two parser.
  *
- * Two-point conversions are deliberately NOT emitted in phase one: the Final
- * box (Tank01) now writes them (#2244), but this Live box still does not, and
- * a key one box writes that the other drops would flip two points fifteen
- * minutes after the game. The box write keeps a stored count when a line lacks
- * the key (playerStatsWrite BOX_KEEP_IF_ABSENT), so the Live box leaves it alone.
+ * Offensive two-point conversions (#2252) come from the touchdown's Score
+ * summary line, so they score on the next live poll instead of when the Final
+ * box (Tank01, #2244) lands. Like Tank01, this box emits a two-point key only
+ * for a player who made one. The box write keeps a stored count when a line
+ * lacks the key (playerStatsWrite BOX_KEEP_IF_ABSENT), so a line naming a
+ * player missing from the box never zeroes what the other box wrote.
  *
  * Team codes: ESPN's box uses its own abbreviations (WAS, and in play text the
  * old Gamebook codes BLT, HST, LA, ARZ, CLV). They fold through
@@ -145,11 +147,15 @@ function createRoster(teams) {
     }
     return null;
   };
+  const findOnTeam = (teamCode, name) => {
+    const id = byDisplayName.get(`${teamCode}|${name}`);
+    return id ? players.get(id) : null;
+  };
   const findByGamebookName = (teamCode, name) => {
     const id = byGamebookName.get(`${teamCode}|${name}`);
     return id && id !== 'ambiguous' ? players.get(id) : null;
   };
-  return { players, ensure, findByDisplayName, findByGamebookName };
+  return { players, ensure, findByDisplayName, findOnTeam, findByGamebookName };
 }
 
 /**
@@ -251,10 +257,17 @@ const TD_PASS_RE = /^(.+?) (\d+) Yd pass from (.+?)(?: \(|$)/;
 const TD_RUSH_RE = /^(.+?) (\d+) Yd (?:Rush|Run)\b/;
 const FG_RE = /^(.+?) (\d+) Yd Field Goal/;
 const DEFENSIVE_PAT_RE = /^(.+?) Defensive PAT Conversion\b/;
+// The try rides in the touchdown line's parentheses with full display names:
+// `(Josh Allen Pass to Dalton Kincaid for Two-Point Conversion)`,
+// `(Derrick Henry Run for Two-Point Conversion)`. A miss reads
+// `(Two-Point Pass Conversion Failed)` and matches neither.
+const TWO_POINT_PASS_RE = /\((.+?) Pass to (.+?) for Two-Point Conversion\)/;
+const TWO_POINT_RUN_RE = /\((.+?) Run for Two-Point Conversion\)/;
 
 /**
  * Pass 2: `scoringPlays[]` -> Score summary lines, and the per-value bonus
- * arrays they alone can supply (TD lengths, FG distances) plus safeties.
+ * arrays they alone can supply (TD lengths, FG distances) plus safeties and
+ * offensive two-point conversions.
  */
 function readScoreSummaryLines(summary, roster, teamDefense) {
   const raw = summary && Array.isArray(summary.scoringPlays) ? summary.scoringPlays : [];
@@ -263,6 +276,9 @@ function readScoreSummaryLines(summary, roster, teamDefense) {
     if (!p) return;
     if (!Array.isArray(p.stats[key])) p.stats[key] = [];
     p.stats[key].push(value);
+  };
+  const count = (p, key) => {
+    if (p) p.stats[key] = (p.stats[key] || 0) + 1;
   };
   for (const sp of raw) {
     if (!sp || typeof sp !== 'object') continue;
@@ -293,6 +309,14 @@ function readScoreSummaryLines(summary, roster, teamDefense) {
       // DAL 2025 week 17) and appears nowhere in the play text with a type.
       scorer = roster.findByDisplayName(m[1].trim());
       if (scorer) scorer.stats.twoPointReturn += 1;
+    }
+    // The scoring team always runs the try, so a same-name player on the other
+    // side is never credited.
+    if ((m = TWO_POINT_PASS_RE.exec(text))) {
+      count(roster.findOnTeam(teamCode, m[1]), 'passingTwoPt');
+      count(roster.findOnTeam(teamCode, m[2]), 'receivingTwoPt');
+    } else if ((m = TWO_POINT_RUN_RE.exec(text))) {
+      count(roster.findOnTeam(teamCode, m[1]), 'rushingTwoPt');
     }
     lines.push({
       kind,
