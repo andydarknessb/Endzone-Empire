@@ -14,6 +14,7 @@ describe('redux store', () => {
     expect(store.getState()).toEqual({
       errors: { loginMessage: '', registrationMessage: '' },
       user: {},
+      session: { resolved: false },
     });
   });
 

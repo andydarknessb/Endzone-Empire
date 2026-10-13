@@ -11,6 +11,7 @@ import { ThemeProvider, useTheme } from '@mui/material/styles';
 import SportsFootballIcon from '@mui/icons-material/SportsFootball';
 import apiClient from '../../api/apiClient';
 import { readHttpFailure } from '../../lib/httpFailure';
+import useResource from '../../hooks/useResource';
 import LeagueStatusGrid from './LeagueStatusGrid';
 import ActionQueue from './ActionQueue';
 import AlertPrompt from './AlertPrompt';
@@ -108,9 +109,19 @@ function UserPage() {
   const [loadingNews, setLoadingNews] = useState(true);
   const [newsError, setNewsError] = useState(false);
 
-  const [activityItems, setActivityItems] = useState([]);
-  const [loadingActivity, setLoadingActivity] = useState(true);
-  const [activityError, setActivityError] = useState(false);
+  // Shared with the Nav bell (ADR 0004, ADR 0059's #2097 amendment): mounted
+  // together (a hard load) one request serves both, and the bell's poll reloads
+  // this card too. Like the leagues list above, skeletons and the error stand
+  // in only for a list we don't have; a poll that is loading or has failed
+  // keeps the good list on screen.
+  const {
+    data: notifications,
+    loading: loadingActivity,
+    error: activityFailure,
+  } = useResource(['notifications'], '/api/notifications');
+  const activityItems = (notifications?.notifications || []).slice(0, 5);
+  const awaitingActivity = loadingActivity && !notifications;
+  const activityError = Boolean(activityFailure) && !notifications;
   // Skeletons only stand in for a list we don't have yet. A refetch (Try
   // again, or the refresh after a create or join) keeps the good list up.
   const awaitingFirstLeagues = loadingLeagues && myLeagues.length === 0;
@@ -145,23 +156,9 @@ function UserPage() {
     }
   };
 
-  const fetchActivity = async () => {
-    try {
-      setLoadingActivity(true);
-      const response = await apiClient.get('/api/notifications');
-      setActivityItems((response.data.notifications || []).slice(0, 5));
-      setActivityError(false);
-    } catch (err) {
-      setActivityError(true);
-    } finally {
-      setLoadingActivity(false);
-    }
-  };
-
   useEffect(() => {
     fetchMyLeagues();
     fetchNews();
-    fetchActivity();
   }, []);
 
   // Functions to handle create dialog
@@ -194,11 +191,11 @@ function UserPage() {
       {/* flexGrow cooperates with the flex column shell App.jsx sets up
           around <Nav />/<Routes />/<Footer /> so short pages still pin the
           footer to the bottom of the viewport, while tall pages scroll
-          normally. The page's one main landmark, named by its h1; the shell's
-          skip link (App.jsx SKIP_LINK_TARGETS) focuses it by id, hence
+          normally. A region named by its h1 (the shell's <main> is the page's
+          one main landmark); the shell's skip link (App.jsx SKIP_LINK_TARGETS) focuses it by id, hence
           tabIndex -1. */}
       <Box
-        component="main"
+        component="section"
         id="user-main-content"
         tabIndex={-1}
         aria-labelledby="user-page-heading"
@@ -424,7 +421,7 @@ function UserPage() {
                     <Typography variant="h6" component="h2" sx={feedTitleSx}>
                       Global Activity
                     </Typography>
-                    {loadingActivity ? (
+                    {awaitingActivity ? (
                       <Stack spacing={1}>
                         {[0, 1, 2].map((i) => (
                           <Skeleton key={i} variant="text" width={`${85 - i * 10}%`} sx={skeletonSx} />

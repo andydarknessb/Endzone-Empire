@@ -69,3 +69,11 @@ mount reads it per typical navigation):
   and the `api-cache-v1` delete in `dropSessionCaches` (without it a login
   or logout leaves the previous account's viewer-scoped rows in the offline
   store).
+
+## Amendment (#2097): /api/notifications joins the read list
+
+`/api/notifications` is added to the list of read-only, viewer-safe GETs under
+Decision. It is viewer-scoped like `/api/team/roster`, and `dropSessionCaches`
+drops it on every session change. Two mounts read it in a typical navigation,
+the Nav bell and the Home activity card, so it meets the second half of
+ADR 0004's admission rule and is read through one `useResource` key.

@@ -1,6 +1,9 @@
-import React from 'react';
-import LoginPage from '../LoginPage/LoginPage';
+import React, { Suspense } from 'react';
 import { useSelector } from 'react-redux';
+import { lazyWithReload } from '../../shared/lib/lazyWithReload';
+
+// Only a logged-out visitor lands on the login screen.
+const LoginPage = lazyWithReload(() => import('../LoginPage/LoginPage'));
 
 // A Custom Wrapper Component -- This will keep our code DRY.
 // Responsible for watching redux state, and returning an appropriate component.
@@ -15,7 +18,11 @@ import { useSelector } from 'react-redux';
 function ProtectedRoute({ children }) {
   const user = useSelector((store) => store.user);
 
-  return user.id ? children : <LoginPage />;
+  return user.id ? children : (
+    <Suspense fallback={null}>
+      <LoginPage />
+    </Suspense>
+  );
 }
 
 export default ProtectedRoute;

@@ -1,7 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
-import { Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle } from '@mui/material';
 import { UNSAFE_NavigationContext as NavigationContext } from 'react-router-dom';
+import DiscardChangesDialog from './DiscardChangesDialog';
 
 const GuardContext = createContext({
   requestTransition: (transition) => transition(),
@@ -120,14 +120,12 @@ export default function NavigationGuard({ children }) {
     <GuardContext.Provider value={contextValue}>
       <NavigationContext.Provider value={{ ...navigation, navigator: guardedNavigator }}>
         {children}
-        <Dialog open={Boolean(pendingTransition)} onClose={() => setPendingTransition(null)}>
-          <DialogTitle>You have unsaved changes. Discard them?</DialogTitle>
-          <DialogContent><DialogContentText>Your edits on this tab will be lost.</DialogContentText></DialogContent>
-          <DialogActions>
-            <Button onClick={() => setPendingTransition(null)}>Keep editing</Button>
-            <Button color="error" variant="contained" disabled={restorationPending} onClick={discardAndContinue}>Discard changes</Button>
-          </DialogActions>
-        </Dialog>
+        <DiscardChangesDialog
+          open={Boolean(pendingTransition)}
+          onKeepEditing={() => setPendingTransition(null)}
+          onDiscard={discardAndContinue}
+          discardDisabled={restorationPending}
+        />
       </NavigationContext.Provider>
     </GuardContext.Provider>
   );

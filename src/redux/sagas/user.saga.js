@@ -1,15 +1,34 @@
 import { put, takeLatest } from 'redux-saga/effects';
-import apiClient, { clearToken } from '../../api/apiClient';
+import apiClient, {
+  clearToken,
+  getToken,
+  isSessionRefusal,
+  refreshTokens,
+} from '../../api/apiClient';
 import { dropSessionCaches } from '../../sessionCaches';
 
 // worker Saga: fired on "FETCH_USER" actions
 export function* fetchUser() {
-  // No stored token → nobody is logged in; skip the request entirely
   try {
+    // A hard load starts with no access token in memory. Restore the session
+    // from the refresh cookie first: a bare GET would take a 401 and be sent
+    // again after the interceptor's refresh, two /api/user requests per load.
+    // A refusal (a 401, or the 204 an anonymous visitor with no refresh cookie
+    // gets) lands in the 401 branch below with no /api/user request at all, so
+    // a logged-out load makes no failing request. Any other failure (endpoint
+    // down, network, an older server's 400 for no cookie) falls through to the
+    // GET, which is what a load did before this refresh existed.
+    if (!getToken()) {
+      try {
+        yield refreshTokens();
+      } catch (refreshError) {
+        if (isSessionRefusal(refreshError)) throw refreshError;
+      }
+    }
     const response = yield apiClient.get('/api/user');
     yield put({ type: 'SET_USER', payload: response.data });
   } catch (error) {
-    if (error.response && error.response.status === 401) {
+    if (isSessionRefusal(error)) {
       // Token expired or invalid — clear it so the app returns to logged-out
       // state, and drop the session caches with it (a session change).
       clearToken();
@@ -17,6 +36,9 @@ export function* fetchUser() {
       yield put({ type: 'UNSET_USER' });
     } else {
       console.log('User get request failed', error);
+      // SET_USER and UNSET_USER resolve the session; this is the third way out,
+      // so the /home gate does not wait forever on a network error.
+      yield put({ type: 'SESSION_RESOLVED' });
     }
   }
 }

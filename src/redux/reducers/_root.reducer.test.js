@@ -1,10 +1,11 @@
 import rootReducer from './_root.reducer';
 
-test('combines errors and user slices with the correct default shape', () => {
+test('combines errors, user and session slices with the correct default shape', () => {
   const state = rootReducer(undefined, { type: '@@INIT' });
   expect(state).toEqual({
     errors: { loginMessage: '', registrationMessage: '' },
     user: {},
+    session: { resolved: false },
   });
 });
 

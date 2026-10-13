@@ -97,6 +97,14 @@ async function openAuthedHost(page: Page) {
   await installDraftRestApi(page, { league: ACTIVE_STATE.league, picks: ACTIVE_PICKS });
   await gotoDraft(page);
   await expect(page.locator(TOOLBAR)).toBeVisible();
+  // The signed-in pieces of the nav (bell, account menu, search) are separate
+  // lazy chunks that mount after the toolbar itself. Wait for them so every
+  // measurement and keypress below runs against the settled nav, not a race
+  // with a chunk download (#2257). The search input is only attached, not
+  // visible, below `lg`, where it is CSS-hidden.
+  await expect(page.getByRole('button', { name: 'notifications' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'account menu' })).toBeVisible();
+  await expect(page.locator(CLUSTER).locator('input')).toBeAttached();
 }
 
 test.describe('Nav fits the viewport (#927)', () => {

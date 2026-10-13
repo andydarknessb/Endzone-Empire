@@ -14,7 +14,7 @@ test('renders the protected children when a user is logged in', () => {
   expect(screen.getByText('Secret Content')).toBeInTheDocument();
 });
 
-test('renders LoginPage instead of the children when no user is logged in', () => {
+test('renders LoginPage instead of the children when no user is logged in', async () => {
   renderWithProviders(
     <ProtectedRoute>
       <div>Secret Content</div>
@@ -24,5 +24,5 @@ test('renders LoginPage instead of the children when no user is logged in', () =
 
   expect(screen.queryByText('Secret Content')).not.toBeInTheDocument();
   // LoginPage renders LoginForm, which has a "Login" heading
-  expect(screen.getByRole('heading', { name: 'Login' })).toBeInTheDocument();
+  expect(await screen.findByRole('heading', { name: 'Login' })).toBeInTheDocument();
 });

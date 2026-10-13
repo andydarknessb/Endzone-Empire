@@ -8,6 +8,7 @@ import apiClient from '../../api/apiClient';
 import publicApiClient from '../../api/publicApiClient';
 import { createDraftSocket } from '../../api/socket';
 import { clearLeagueCache } from '../../hooks/useLeague';
+import { SESSION_HINT_KEY } from '../../lib/sessionHint';
 
 // App's routes mount real page components (LeagueManagement, UserPage,
 // DraftBoard, ...); every one of them fetches via apiClient (and DraftBoard
@@ -42,6 +43,7 @@ function renderApp(hash, state = {}, configureApi) {
   if (configureApi) configureApi(); // runs after the defaults, before mount
   const store = mockStore({
     user: {},
+    session: { resolved: true },
     errors: { loginMessage: '', registrationMessage: '' },
     ...state,
   });
@@ -59,6 +61,41 @@ const loggedIn = { id: 1, username: 'alice' };
 test('"/" redirects to "/home", showing the Landing page when logged out', async () => {
   renderApp('#/', { user: loggedOut });
   expect(await screen.findByRole('heading', { name: 'Welcome to Endzone Empire' })).toBeInTheDocument();
+});
+
+// A hard load by a logged-in user starts with `user: {}` until SET_USER lands.
+// Mounting the landing page in that window fires its two public GETs, and the
+// redirect to /user then fires them again from PublicHighlights (#2097). The
+// session hint says "someone was logged in here", so only then does /home wait.
+describe('"/home" before the session is resolved (#2097)', () => {
+  const landingHeading = { name: 'Welcome to Endzone Empire' };
+  const publicUrls = () => publicApiClient.get.mock.calls.map(([url]) => url);
+
+  afterEach(() => window.localStorage.removeItem(SESSION_HINT_KEY));
+
+  test('waits on the loading box, with no public requests, when the device has a session hint', () => {
+    window.localStorage.setItem(SESSION_HINT_KEY, '1');
+    renderApp('#/home', { user: {}, session: { resolved: false } });
+
+    expect(screen.getByRole('status', { name: 'Loading page' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', landingHeading)).not.toBeInTheDocument();
+    expect(publicUrls()).not.toContain('/api/public/rankings');
+    expect(publicUrls()).not.toContain('/api/public/recaps');
+  });
+
+  test('shows the landing page once the session is resolved as logged out', async () => {
+    window.localStorage.setItem(SESSION_HINT_KEY, '1');
+    renderApp('#/home', { user: {}, session: { resolved: true } });
+
+    expect(await screen.findByRole('heading', landingHeading)).toBeInTheDocument();
+    expect(publicUrls()).toEqual(expect.arrayContaining(['/api/public/rankings', '/api/public/recaps']));
+  });
+
+  test('a visitor with no session hint gets the landing page without waiting', async () => {
+    renderApp('#/home', { user: {}, session: { resolved: false } });
+
+    expect(await screen.findByRole('heading', landingHeading)).toBeInTheDocument();
+  });
 });
 
 test('"/home" redirects to "/user" when already logged in', async () => {
@@ -441,7 +478,7 @@ describe('desktop Draft route shell (issue #122)', () => {
 
 // --- Skip link (issue #121): first focusable element on the Draft route ---
 
-test('the Draft route renders a skip link, first in the DOM, targeting the Draft main landmark', async () => {
+test('the Draft route renders a skip link, first in the DOM, targeting the Draft content region', async () => {
   renderApp('#/league/1/draft', { user: loggedIn }, () => {
     apiClient.get.mockResolvedValue({ data: { players: [], totalPages: 1 } });
   });
@@ -449,9 +486,10 @@ test('the Draft route renders a skip link, first in the DOM, targeting the Draft
 
   const skipLink = screen.getByRole('link', { name: 'Skip to main content' });
   expect(skipLink).toHaveAttribute('href', '#draft-main-content');
-  const main = screen.getByRole('main');
-  expect(main.tagName).toBe('MAIN');
-  expect(main).toHaveAttribute('id', 'draft-main-content');
+  // The app shell's <main> is the page's one main landmark; the skip target
+  // is a plain region inside it.
+  expect(screen.getByRole('main')).toContainElement(screen.getByRole('region', { name: 'Draft Board' }));
+  expect(screen.getByRole('region', { name: 'Draft Board' })).toHaveAttribute('id', 'draft-main-content');
 
   // First focusable element: nothing focusable precedes it in DOM order, in
   // particular Nav's own hamburger/brand/link controls come after it. DOM
@@ -463,13 +501,13 @@ test('the Draft route renders a skip link, first in the DOM, targeting the Draft
   expect(focusable[0]).toBe(skipLink);
 });
 
-test('the /user route renders a skip link, first in the DOM, that moves focus to the page\'s main landmark', async () => {
+test('the /user route renders a skip link, first in the DOM, that moves focus to the page\'s content region', async () => {
   renderApp('#/user', { user: loggedIn });
   expect(await screen.findByText('Welcome back, alice')).toBeInTheDocument();
 
   const skipLink = screen.getByRole('link', { name: 'Skip to main content' });
   expect(skipLink).toHaveAttribute('href', '#user-main-content');
-  const main = screen.getByRole('main', { name: 'Welcome back, alice' });
+  const main = screen.getByRole('region', { name: 'Welcome back, alice' });
   expect(main).toHaveAttribute('id', 'user-main-content');
 
   // eslint-disable-next-line testing-library/no-node-access
@@ -515,8 +553,8 @@ test('a pick\'em-only league at the Draft route still gets a skip link with a re
 
   const skipLink = screen.getByRole('link', { name: 'Skip to main content' });
   expect(skipLink).toHaveAttribute('href', '#draft-main-content');
-  const target = screen.getByRole('main');
-  expect(target).toHaveAttribute('id', 'draft-main-content');
+  // eslint-disable-next-line testing-library/no-node-access
+  const target = document.getElementById('draft-main-content');
   expect(target).toHaveAttribute('tabIndex', '-1');
 
   unmount();

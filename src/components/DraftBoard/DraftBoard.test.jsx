@@ -282,7 +282,7 @@ test('ordinary Draft navigation does not claim focus or scroll the room', async 
   renderBoard(1);
   await screen.findByText('Patrick Mahomes');
 
-  expect(screen.getByRole('main', { name: 'Draft Board' })).not.toHaveFocus();
+  expect(screen.getByRole('region', { name: 'Draft Board' })).not.toHaveFocus();
   expect(scrollIntoView).not.toHaveBeenCalled();
 });
 
@@ -1602,7 +1602,7 @@ test('a failed queue write shows an inline error in the queue panel and never re
   );
   await screen.findByTestId('draft-clock');
 
-  const mainBefore = screen.getByRole('main');
+  const mainBefore = screen.getByRole('region', { name: 'Sunday Ballers' });
   const clockBefore = screen.getByTestId('draft-clock');
   const railBefore = screen.getByRole('region', { name: 'Draft rail' });
 
@@ -1625,7 +1625,7 @@ test('a failed queue write shows an inline error in the queue panel and never re
   // Identity, not presence, while the resync is still pending: a component
   // that unmounted and remounted into a look-alike node would still pass a
   // `toBeInTheDocument()`/`queryByText` check here.
-  expect(screen.getByRole('main')).toBe(mainBefore);
+  expect(screen.getByRole('region', { name: 'Sunday Ballers' })).toBe(mainBefore);
   expect(screen.getByTestId('draft-clock')).toBe(clockBefore);
   expect(screen.getByRole('region', { name: 'Draft rail' })).toBe(railBefore);
   expect(screen.queryByTestId('page-skeleton')).not.toBeInTheDocument();
@@ -1644,7 +1644,7 @@ test('a failed queue write shows an inline error in the queue panel and never re
       ],
     });
   });
-  expect(screen.getByRole('main')).toBe(mainBefore);
+  expect(screen.getByRole('region', { name: 'Sunday Ballers' })).toBe(mainBefore);
   expect(screen.getByTestId('draft-clock')).toBe(clockBefore);
   expect(screen.getByRole('region', { name: 'Draft rail' })).toBe(railBefore);
   expect(screen.queryByTestId('page-skeleton')).not.toBeInTheDocument();
@@ -2572,13 +2572,13 @@ describe('accessible structure', () => {
     await screen.findByText('Sunday Ballers');
   };
 
-  test('wraps the page content in a single <main>, named by the league heading', async () => {
+  test('wraps the page content in one region, named by the league heading', async () => {
     await showFullBoard();
 
-    const main = screen.getByRole('main');
+    const main = screen.getByRole('region', { name: 'Sunday Ballers' });
     const h1 = screen.getByRole('heading', { level: 1 });
     expect(h1).toHaveTextContent('Sunday Ballers');
-    // The main landmark's accessible name comes from that same H1 (via
+    // The region's accessible name comes from that same H1 (via
     // aria-labelledby), not a separately hardcoded string.
     expect(main).toHaveAccessibleName('Sunday Ballers');
     expect(main).toContainElement(h1);
@@ -2715,7 +2715,7 @@ describe('narrow container layout (#444)', () => {
     });
 
     await screen.findByRole('tab', { name: 'Players', selected: true });
-    const draftMain = screen.getByRole('main', { name: 'Draft Board' });
+    const draftMain = screen.getByRole('region', { name: 'Draft Board' });
     await waitFor(() => expect(draftMain).toHaveFocus());
     expect(scrollIntoView).toHaveBeenCalledTimes(1);
     expect(scrollIntoView).toHaveBeenCalledWith({ block: 'start' });
@@ -3240,9 +3240,9 @@ describe('layout flip hands focus somewhere deliberate, never to the body (#525)
 
     expect(screen.queryByLabelText('Filter available')).not.toBeInTheDocument();
     expect(document.body).not.toHaveFocus();
-    // The main content container is the room's single <main> (id
-    // draft-main-content), the skip-link target, reached here by its role.
-    expect(screen.getByRole('main')).toHaveFocus();
+    // The room's content container (id draft-main-content) is the skip-link
+    // target, reached here by its region role.
+    expect(screen.getByRole('region', { name: 'Sunday Ballers' })).toHaveFocus();
   });
 
   test('focus moved OUT of the region is not yanked back into it by a flip (AC3)', async () => {

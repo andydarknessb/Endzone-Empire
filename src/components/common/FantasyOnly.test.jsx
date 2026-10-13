@@ -81,13 +81,13 @@ test('mainContentId marks the pick\'em-only blocked page as a focusable skip-lin
   );
 
   const blocked = await screen.findByText("This is a pick'em league. Drafts, rosters, and matchups are not part of it.");
-  const target = screen.getByRole('main');
-  expect(target).toHaveAttribute('id', 'draft-main-content');
+  // eslint-disable-next-line testing-library/no-node-access
+  const target = document.getElementById('draft-main-content');
   expect(target).toContainElement(blocked);
   expect(target).toHaveAttribute('tabIndex', '-1');
 });
 
-test('mainContentId also marks the loading state as a <main> landmark, not just the blocked page', () => {
+test('mainContentId also marks the loading state as a skip-link target, not just the blocked page', () => {
   apiClient.get.mockReturnValue(new Promise(() => {}));
   renderWithProviders(
     <FantasyOnly mainContentId="draft-main-content">
@@ -96,22 +96,16 @@ test('mainContentId also marks the loading state as a <main> landmark, not just 
     { route: '/league/7/lineup', path: '/league/:leagueId/lineup' }
   );
 
-  // A bare role="status" would win over <main>'s implicit role, so this
-  // variant announces via aria-live instead - still gets read by a screen
-  // reader, without hiding the landmark the skip link needs.
-  const target = screen.getByRole('main', { name: 'Loading league' });
+  const target = screen.getByRole('status', { name: 'Loading league' });
   expect(target).toHaveAttribute('id', 'draft-main-content');
   expect(target).toHaveAttribute('tabIndex', '-1');
-  expect(target).toHaveAttribute('aria-live', 'polite');
   expect(within(target).getByRole('progressbar')).toBeInTheDocument();
 });
 
-test('without mainContentId, no main landmark is exposed (every other FantasyOnly caller is unaffected)', async () => {
+test('without mainContentId, no skip-link id is attached (every other FantasyOnly caller is unaffected)', async () => {
   renderGuarded({ id: 7, name: 'Office Pool', pickem_only: true });
 
   await screen.findByText("This is a pick'em league. Drafts, rosters, and matchups are not part of it.");
-  // The id never travels alone: `mainContentProps` is all-or-nothing, so the
-  // id and `component="main"` are attached together or not at all. Absence of
-  // the main landmark is the reader-visible half of the same fact.
-  expect(screen.queryByRole('main')).toBeNull();
+  // eslint-disable-next-line testing-library/no-node-access
+  expect(document.getElementById('draft-main-content')).toBeNull();
 });
