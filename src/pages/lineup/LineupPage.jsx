@@ -202,11 +202,23 @@ export default function LineupPage() {
     });
   };
 
+  // Start/sit advice (#1238, ADR 0037): one page-level read shared by the
+  // start-sit-panel widget, the team-summary-strip widget's advice tile and
+  // the apply-advice feature below - the same "value two widgets both need
+  // is passed down by the page" rule `useLineupData` already follows for the
+  // lineup itself. Best ball never calls the endpoint at all.
+  const advice = useAdvice({ leagueId: selectedLeagueId, week: lineup?.week, bestBall });
+
   // A lineup or roster write that lands (#1881) changes the viewer's Expected
   // final, which the week's cached Matchups list carries for 30 s. The features
   // may not import the Matchup entity (ADR 0029/0031, and swap-players is in the
-  // Draft room's import closure), so the page hands them this callback.
-  const onLanded = () => clearWeekMatchupsCache(selectedLeagueId);
+  // Draft room's import closure), so the page hands them this callback. It also
+  // re-reads the advice (#2262): the suggestions and the plan were made against
+  // the lineup the write changed.
+  const onLanded = () => {
+    clearWeekMatchupsCache(selectedLeagueId);
+    advice.reload();
+  };
   const swap = useSwapPlayers({
     leagueId: selectedLeagueId,
     raw,
@@ -219,12 +231,6 @@ export default function LineupPage() {
   });
   const drop = useDropPlayer({ leagueId: selectedLeagueId, refresh: refetch, onLanded });
 
-  // Start/sit advice (#1238, ADR 0037): one page-level read shared by the
-  // start-sit-panel widget, the team-summary-strip widget's advice tile and
-  // the apply-advice feature below - the same "value two widgets both need
-  // is passed down by the page" rule `useLineupData` already follows for the
-  // lineup itself. Best ball never calls the endpoint at all.
-  const advice = useAdvice({ leagueId: selectedLeagueId, week: lineup?.week, bestBall });
   const decisionCardEntry = (lineup?.entries || []).find((e) => e.playerId === decisionCardEntryId) || null;
   const applyAdvice = useApplyAdvice({ leagueId: selectedLeagueId, raw, setRaw, onLanded });
   // Called shots (#1856): the actions re-read the advice when they land, since

@@ -1195,6 +1195,55 @@ test('applying the advice sends exactly the moves it names, as one write', async
   );
 });
 
+// #2262: a lineup write that lands re-reads the advice, the same way a called
+// shot does (#1856): the card shows advice for the lineup as it now stands.
+test('applying the advice re-reads the advice once the write lands (#2262)', async () => {
+  const user = userEvent.setup();
+  apiClient.put.mockResolvedValue({ data: {} });
+  renderPage({
+    [ADVICE_URL]: {
+      data: adviceBody({ suggestions: [adviceSuggestion()], movePlan: [{ playerId: 10, fromSlot: 'BENCH', toSlot: 'RB' }] }),
+    },
+    [`${ADVICE_URL}&reload=1`]: { data: adviceBody({ suggestions: [], movePlan: [] }) },
+  });
+
+  await user.click(await screen.findByTestId('start-sit-apply'));
+
+  await waitFor(() => expect(apiClient.put).toHaveBeenCalled());
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith(`${ADVICE_URL}&reload=1`));
+  await waitFor(() => expect(screen.queryByTestId('suggestion-card')).not.toBeInTheDocument());
+});
+
+test('a swap whose PUT resolves re-reads the advice (#2262)', async () => {
+  const user = userEvent.setup();
+  apiClient.put.mockResolvedValue({ data: {} });
+  renderPage({
+    [`${ADVICE_URL}&reload=1`]: { data: adviceBody({ suggestions: [], movePlan: [] }) },
+  });
+
+  await user.click(await screen.findByTestId('slot-row-BENCH-10-select'));
+  await user.click(screen.getByTestId('slot-row-WR-0-select'));
+
+  await waitFor(() => expect(apiClient.put).toHaveBeenCalled());
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith(`${ADVICE_URL}&reload=1`));
+});
+
+test('a refused apply re-reads nothing (#2262)', async () => {
+  const user = userEvent.setup();
+  apiClient.put.mockRejectedValue({ response: { status: 409, data: { error: 'locked' } } });
+  renderPage({
+    [ADVICE_URL]: {
+      data: adviceBody({ suggestions: [adviceSuggestion()], movePlan: [{ playerId: 10, fromSlot: 'BENCH', toSlot: 'RB' }] }),
+    },
+  });
+
+  await user.click(await screen.findByTestId('start-sit-apply'));
+
+  await waitFor(() => expect(apiClient.put).toHaveBeenCalled());
+  await waitFor(() => expect(mockNotify).toHaveBeenCalledWith('locked', { severity: 'error' }));
+  expect(apiClient.get).not.toHaveBeenCalledWith(`${ADVICE_URL}&reload=1`);
+});
+
 test('a refused apply rolls the optimistic move back', async () => {
   const user = userEvent.setup();
   apiClient.put.mockRejectedValue({ response: { status: 409, data: { error: 'locked' } } });
