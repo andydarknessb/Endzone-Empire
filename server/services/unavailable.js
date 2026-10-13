@@ -144,8 +144,9 @@ function unavailableFor({
   if (rosterStatusIs('practice_squad', nflRosterStatus, now)) {
     return { available: false, activeProbability: 0, reason: 'practice_squad', status, locked, lockedSlot };
   }
-  // Suspended (#2150): ESPN's roster `suspended` group, a fact apart from the
-  // injury designation (which stays null). Same freshness as the Practice squad;
+  // Suspended (#2150): ESPN's roster `suspended` group or the roster item's
+  // `Suspension` injury string (#2249), a fact apart from the injury
+  // designation (which stays null). Same freshness as the Practice squad;
   // like No NFL team, the projected number itself is unchanged.
   if (rosterStatusIs('suspended', nflRosterStatus, now)) {
     return { available: false, activeProbability: 0, reason: 'suspended', status, locked, lockedSlot };
