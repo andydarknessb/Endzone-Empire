@@ -1852,7 +1852,9 @@ status, which describes one week. A Practice squad or Suspended player
 projects to zero, labelled as such, until the team elevates or reinstates
 them (the daily roster-status Sync run reads either change); Reserve
 is informational, because Game status already carries injured reserve and
-Out. A player whose status is unknown or stale counts as Active.
+Out. Suspended is read from ESPN's `suspended` roster group or from the
+roster item's `Suspension` injury string. A player whose status is unknown or
+stale counts as Active.
 _Avoid_: role, depth, active/inactive, roster state (say Availability for
 the league fact)
 

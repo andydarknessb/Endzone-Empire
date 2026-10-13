@@ -600,6 +600,22 @@ test('normalizeTeamRoster: suspended is its own roster status (#2150); an unknow
   assert.deepEqual(rows.map((r) => [r.athleteId, r.rosterStatus]), [['1', 'suspended'], ['2', null], ['3', 'active']]);
 });
 
+test("normalizeTeamRoster: an athlete filed under an active group whose roster injuries block says Suspension is suspended (James Pearce Jr., ATL, 2026-10-13: ESPN's suspended group was empty and he sat in defense with injuries[0].status 'Suspension')", () => {
+  const rows = normalizeTeamRoster({
+    athletes: [
+      { position: 'defense', items: [
+        { id: '5081394', fullName: 'James Pearce Jr.', injuries: [{ status: 'Suspension', date: '2026-08-19T12:07Z' }] },
+        { id: '2', injuries: [{ status: 'Out' }] },
+      ] },
+      { position: 'suspended', items: [] },
+    ],
+  }, 'ATL');
+  assert.deepEqual(rows.map((r) => [r.athleteId, r.rosterStatus, r.injuryStatus]), [
+    ['5081394', 'suspended', 'Suspension'],
+    ['2', 'active', 'Out'],
+  ]);
+});
+
 test('normalizeTeamRoster (#2117): each row carries the athlete name, position, jersey and headshot, pinned against the recorded NYG roster', () => {
   const rows = normalizeTeamRoster(teamRosterNygFixture, 'NYG');
   const obj = rows.find((r) => r.athleteId === '16733');

@@ -75,7 +75,8 @@ reads the 32 team rosters through the shared sweep. Each roster athlete's first
 `injuries` entry is the fallback designation for an athlete the document omits,
 mapped through the same five strings (an unknown string is logged once per run
 and treated as healthy; the roster's `Suspension` is healthy here, since it is
-not an injury). The document wins where both speak. A player the document
+not an injury, and since #2249 it also sets the NFL roster status to Suspended
+(ADR 0041)). The document wins where both speak. A player the document
 omits is healthy when a roster saw him and listed no injury; a player neither
 feed saw (his team did not answer the sweep) keeps what he has: a stored
 designation is only cleared by a feed that saw him. A failed or slow sweep (20

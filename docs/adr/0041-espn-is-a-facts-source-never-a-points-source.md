@@ -112,3 +112,13 @@ nothing on the card blocks on ESPN.
   availability yet") was superseded by #1767 for the Practice squad and is
   now also false for Suspended. `player_nfl_roster_status.roster_status` was
   widened to admit `suspended` by #2155.
+
+## Amendment (#2249)
+
+- 2026-10-13. ESPN's `suspended` roster group is not the only signal for
+  Suspended: the roster item's `injuries` block `Suspension` string (already
+  read as `injuryStatus` since #2148) now also maps the athlete to roster
+  status `suspended`, whatever group he sits in. The evidence is James Pearce
+  Jr. (ATL, 2026-10-13), filed under `defense` while the `suspended` group was
+  empty. The injury designation still stays null (ADR 0060 unchanged), and the
+  freshness and precedence rules of the #2150 amendment are unchanged.
