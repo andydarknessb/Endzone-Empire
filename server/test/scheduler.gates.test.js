@@ -391,6 +391,20 @@ test('anyOf: an owed refill waits for the game window to close, and nothing is o
   assert.equal(calls.length, 1, 'stat-corrections is older than the fill\'s last success: nothing owed');
 });
 
+test('anyOf: the owed-refill member is never remembered as settled, so a correction that lands later the same UTC day still refills', async (t) => {
+  const w = world(t);
+  const calls = fillWorld(t, w);
+  await w.tick('nightly-projection-fill', '2026-10-28T09:05:00Z');
+  assert.equal(calls.length, 1, 'the window run');
+  await w.tick('nightly-projection-fill', '2026-10-28T09:10:00Z');
+  assert.equal(calls.length, 1, 'the owed-refill member answers not due (no correction yet)');
+  w.record('stat-corrections', { at: new Date('2026-10-28T13:00:00Z'), detail: { day: '2026-10-28' } });
+  // Red tell: remembering the member's not-due answer as a settled UTC day (dropping `!after`
+  // from the memo condition) would skip this tick without reading.
+  await w.tick('nightly-projection-fill', '2026-10-28T13:05:00Z');
+  assert.equal(calls.length, 2, 'the correction succeeded after the fill: refilled the same UTC day');
+});
+
 test('anyOf: a failed fill is not stamped, so the next tick inside the window retries it and the throw is contained', async (t) => {
   const w = world(t);
   const projectionFill = require('../services/projectionFill.service');

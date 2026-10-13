@@ -117,9 +117,9 @@ async function getIntegrityStatus({ now = new Date() } = {}) {
  * The nightly scan as a Sync run per ADR 0036: one unit, no lock (nothing else
  * writes the anomalies table), so its data_sync_runs row is the freshness the
  * health route reads. The UTC day is computed once and carried as `detail.day`
- * on the recorded row. The caller (scheduler.runNightlyStatsIntegrityScan)
- * owns the gate and the day stamp; a thrown scan records a failed row and
- * rethrows, so the stamp is never written and the next tick retries.
+ * on the recorded row. The scheduler's nightly-stats-integrity TICK_JOBS
+ * row owns the gate; a thrown scan records a failed row and rethrows, so the
+ * UTC day is never settled and the next tick retries.
  * Reaches `scanPlayerStats` through `module.exports` so a test stub bites.
  */
 async function runIntegrityScan({ now = new Date() } = {}) {

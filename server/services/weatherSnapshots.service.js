@@ -46,8 +46,8 @@ const NWS_UNCONFIGURED_REASON = 'NWS_USER_AGENT not configured';
  * need: they log-and-continue on a failed query, which only holds in
  * autocommit.
  *
- * The cadence gate and the in-game-window wait stay with the caller
- * (scheduler.runWeatherSnapshotSync); this is the Sync run body, which throws
+ * The cadence gate and the in-game-window wait stay with the scheduler's
+ * weather-snapshots TICK_JOBS row; this is the Sync run body, which throws
  * on a failed run (already recorded) for the caller to log.
  */
 async function runWeatherSnapshots({ now = new Date() } = {}) {

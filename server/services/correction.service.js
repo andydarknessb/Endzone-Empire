@@ -391,8 +391,8 @@ async function resyncPriorWeeks({ source = 'nflverse' } = {}) {
  * records a failed row and rethrows. A pass that finishes with failed week
  * syncs records a failed row with them in its detail and returns the partial
  * result (`failedWeeks` set) without throwing. The caller
- * (scheduler.runDailyStatCorrections) owns the gate and the day stamp, and
- * stamps only when `failedWeeks` is empty. Reaches `resyncPriorWeeks` through
+ * (the scheduler's stat-corrections TICK_JOBS row) owns the gate: a pass with
+ * `failedWeeks` records a failed row, so it never settles the UTC day. Reaches `resyncPriorWeeks` through
  * `module.exports` so a test stub bites.
  */
 async function runStatCorrections({ now = new Date() } = {}) {

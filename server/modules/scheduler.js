@@ -302,9 +302,10 @@ async function runDailyInjurySync({ now }) {
  * the latest run's typed outcome: a thin-market/thin-match `refused` run
  * settles the UTC day (otherwise every five-minute tick would re-hit FFC for
  * the rest of the day while the market stays thin), a failed one retries
- * after `ADP_RETRY_MS`. No in-memory
- * once-a-day stamp remains: the gate's own read survives a worker restart,
- * where the old in-memory stamp reset on every one. The wipe guard still
+ * after `ADP_RETRY_MS`. The row's gate reads
+ * `data_sync_runs`, which survives a worker restart, where the old in-memory
+ * once-a-day stamp reset on every one (the gate's only memory is a same-process
+ * short-circuit for a settled UTC day, which a restart merely loses). The wipe guard still
  * lives inside `adp.syncAdp` and is unaffected by this gate.
  */
 async function runDailyAdpSync({ now }) {
@@ -319,9 +320,9 @@ async function runDailyAdpSync({ now }) {
  * own job's `data_sync_runs` rows - `espnFactsSync.runDepthChartSync`/
  * `runOwnershipSync` already record one through `runSyncJob`, so neither
  * function below adds a second, scheduler-level row, mirroring
- * `runHourlyOddsSync`'s `job: 'odds'` gate above. No in-memory once-a-day
- * stamp remains for either job: the gate's own read survives a worker
- * restart, where an in-memory stamp would not have (a deploy or a second
+ * `runHourlyOddsSync`'s `job: 'odds'` gate above. The only in-memory
+ * state is the gate's same-process short-circuit for a settled UTC day: the
+ * decision itself survives a worker restart, where an in-memory stamp would not have (a deploy or a second
  * worker mid-slate would otherwise repeat the whole 32-team sweep or the
  * ~4000-player Ownership pull - the exact hazard #1308's original
  * `lastEspnFactsSyncAt` was built to avoid, by reading `data_sync_runs`
@@ -567,8 +568,8 @@ const WEATHER_SNAPSHOT_INTERVAL_MS = 6 * 60 * 60 * 1000;
 /**
  * Weather snapshots Sync run (#1883, ADR 0036): the body is in
  * weatherSnapshots.service (see its docblock); its row gates it on its own
- * 6-hour cadence and waits out an open game window (`inGameWindow`). It never
- * throws: a failed run is already recorded by `runSyncJob` and is retried next
+ * 6-hour cadence and waits out an open game window (`inGameWindow`). Its run
+ * never throws (a gate read failure is the tick's to contain): a failed run is already recorded by `runSyncJob` and is retried next
  * tick (a failed row never moves the gate).
  */
 async function runWeatherSnapshotSync({ now }) {
@@ -723,11 +724,15 @@ async function runDailyStatCorrections({ now }) {
  * season/week context — a single line can be transient, REPEATED lines are
  * actionable (the DB cutoff will eventually fail the week closed).
  */
-async function runHoldoutSnapshots({ now }) {
+async function runHoldoutSnapshots() {
   // #2081: Render logs are the only place the engine's cost is observable, so the
   // success line carries the wall time of the whole span, ESPN sync included.
   const startedAt = process.hrtime.bigint();
   const holdout = require('../services/holdout.service');
+  // One fresh instant for both calls, taken here rather than the tick's start
+  // `now`: an earlier row can run for minutes, and a capture window that opens
+  // meanwhile must be seen by the roster refresh and the capture alike.
+  const now = new Date();
   // Roster status refreshed once as a capture window opens (#1766), contained
   // so an ESPN failure never skips the capture: the breaker in the sweep bounds
   // a dead host to three timeouts.
@@ -736,7 +741,7 @@ async function runHoldoutSnapshots({ now }) {
   } catch (err) {
     console.error('pre-holdout ESPN roster-status sync failed (capture continues):', err.message);
   }
-  const { captured, failures } = await holdout.captureDueSnapshots();
+  const { captured, failures } = await holdout.captureDueSnapshots({ now });
   const written = captured.filter((c) => !c.skipped);
   if (written.length > 0) {
     const elapsedMs = Math.round(Number(process.hrtime.bigint() - startedAt) / 1e6);
@@ -1078,7 +1083,7 @@ async function runWaiverClearing() {
  * `anyOf(...)` (due when any `{ gate, when? }` member is). A row's optional
  * `when(now)` is checked first and is a plain predicate (a weekday, a UTC
  * hour, no game window open): a false `when` skips the row without reading
- * anything. `run({ now })` is the body, with no gate of its own.
+ * its gate (a `when` may itself read, as weather-snapshots' game-window check does). `run({ now })` is the body, with no gate of its own.
  */
 const TICK_JOBS = [
   {
@@ -1139,7 +1144,7 @@ const TICK_JOBS = [
     gate: cadenceGate({ job: 'game-context', every: { ms: GAME_CONTEXT_SYNC_INTERVAL_MS } }),
     run: () => runHourlyGameContextSync(),
   },
-  { name: 'holdout-snapshots', tier: 'deadline', gate: none(), run: ({ now }) => runHoldoutSnapshots({ now }) },
+  { name: 'holdout-snapshots', tier: 'deadline', gate: none(), run: () => runHoldoutSnapshots() },
   // Kickoff hold (#1375, ADR 0043): before claim processing, so a claim submitted
   // this tick already sees a player his kicked-off team put on waivers this tick.
   { name: 'kickoff-waiver-hold', tier: 'deadline', gate: none(), run: () => holdKickedOffPlayers() },
@@ -1211,7 +1216,7 @@ const TICK_JOBS = [
     run: ({ now }) => runDailyPlayerSync({ now }),
   },
   // Weather snapshots (#1883): after live scoring and every deadline duty, ahead
-  // of the multi-minute nightly fill; it never throws.
+  // of the multi-minute nightly fill; its run never throws, though its gate read can (the tick contains that).
   {
     name: 'weather-snapshots',
     tier: 'housekeeping',

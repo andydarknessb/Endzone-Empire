@@ -2067,6 +2067,25 @@ test('the espn-roster-status-saturday row runs at and after the Saturday 4pm ET 
   assert.equal(await ranAtInstant('2026-12-06T01:00:00Z'), 1, '9pm ET Saturday is 01:00Z Sunday');
 });
 
+test('the espn-roster-status-saturday row compares the last success to the DST-correct 4pm ET deadline (EDT and EST, including Sunday 01:00Z)', async (t) => {
+  const cases = [
+    ['2026-10-03T23:30:00Z', '2026-10-03T20:00:00Z'], // Saturday 7:30pm EDT; deadline 20:00Z
+    ['2026-12-06T01:00:00Z', '2026-12-05T21:00:00Z'], // Saturday 8pm EST is Sunday 01:00Z; deadline Saturday 21:00Z
+  ];
+  for (const [now, deadline] of cases) {
+    const deadlineMs = new Date(deadline).getTime();
+    let calls = stubRosterRun(t, rosterOk(new Date(deadlineMs - 60 * 1000)));
+    await tickRow(t, 'espn-roster-status-saturday', now);
+    assert.equal(calls.length, 1, `a success one minute before the ${deadline} deadline does not cover it`);
+    t.mock.restoreAll();
+
+    calls = stubRosterRun(t, rosterOk(new Date(deadlineMs + 60 * 1000)));
+    await tickRow(t, 'espn-roster-status-saturday', now);
+    assert.equal(calls.length, 0, `a success one minute after the ${deadline} deadline already covers it`);
+    t.mock.restoreAll();
+  }
+});
+
 test('the espn-roster-status-saturday row runs once after the Saturday 4pm ET deadline: not before, not again once a run finished after it', async (t) => {
   // The daily run finished 9am ET, before the deadline.
   let calls = stubRosterRun(t, rosterOk(new Date('2026-10-03T13:00:00Z')));
