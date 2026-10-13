@@ -73,7 +73,7 @@ test('GET draft grades answers 404 when grading resolves null', async (t) => {
 
 test('GET draft grades answers 500 when grading throws', async (t) => {
   t.mock.method(console, 'error', () => {});
-  t.mock.method(draftgradeService, 'getOrComputeDraftGrades', async () => {
+  const grade = t.mock.method(draftgradeService, 'getOrComputeDraftGrades', async () => {
     throw new Error('boom');
   });
   createFakePool([
@@ -86,4 +86,5 @@ test('GET draft grades answers 500 when grading throws', async (t) => {
 
   assert.equal(res.status, 500);
   assert.deepEqual(res.body, { error: 'failed to fetch draft grades' });
+  assert.equal(grade.mock.callCount(), 1, 'the 500 came from the grading call, not from before it');
 });
