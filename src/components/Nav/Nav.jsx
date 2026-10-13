@@ -1,4 +1,4 @@
-import React, { Suspense, useRef, useState } from 'react';
+import React, { Suspense, useEffect, useRef, useState } from 'react';
 import { Link as RouterLink, useLocation } from 'react-router-dom';
 import { useSelector, useDispatch } from 'react-redux';
 import {
@@ -19,6 +19,7 @@ import SportsFootballIcon from '@mui/icons-material/SportsFootball';
 import { useThemeMode } from '../../theme/AppThemeProvider';
 import { MIN_TOUCH_TARGET_SX } from '../../shared/lib/a11y';
 import { lazyWithReload } from '../../shared/lib/lazyWithReload';
+import { isTypingTarget } from '../../shared/lib/isTypingTarget';
 import { hasSessionHint } from '../../lib/sessionHint';
 
 // Signed-in-only pieces: an anonymous visit never renders them, so they stay
@@ -83,6 +84,43 @@ function Nav() {
     setFocusDrawerSearch(true);
     setDrawerOpen(true);
   };
+
+  // The "/" shortcut lives here, in the eagerly loaded nav, not in the lazy
+  // search chunk: it is registered at nav mount (before any other window
+  // keydown listener a page adds later), consumes the key from the first
+  // keypress, and works whether or not the search chunk has arrived (#934).
+  // It focuses the inline app-bar search when that can take focus. When it
+  // cannot (CSS-hidden below `lg`), it opens the drawer and focuses the search
+  // inside it. Focus is read as the real outcome rather than a layout property,
+  // so it is right in a browser and in jsdom (which ignores media queries).
+  // A ref keeps the listener registered exactly once.
+  const inlineSearchRef = useRef(null);
+  const shortcutRef = useRef(null);
+  shortcutRef.current = { loggedIn, openDrawerForSearch };
+  useEffect(() => {
+    const onKey = (e) => {
+      const { loggedIn: signedIn, openDrawerForSearch: openForSearch } = shortcutRef.current;
+      if (e.key !== '/' || !signedIn || isTypingTarget(e.target)) return;
+      const box = inlineSearchRef.current;
+      if (!box) return;
+      const el = box.querySelector('input');
+      if (el) {
+        el.focus();
+        if (document.activeElement === el) {
+          e.preventDefault();
+          return;
+        }
+      } else if (box.getClientRects().length > 0) {
+        // The inline search is laid out but its chunk has not mounted yet:
+        // leave the key alone rather than open a drawer on a wide window.
+        return;
+      }
+      e.preventDefault();
+      openForSearch();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   const handleLogout = () => {
     closeDrawer();
@@ -221,12 +259,12 @@ function Nav() {
           )}
 
           {loggedIn && (
-            <Box sx={{ display: { xs: 'none', lg: 'block' }, mr: 1 }}>
+            <Box ref={inlineSearchRef} sx={{ display: { xs: 'none', lg: 'block' }, mr: 1 }}>
               {/* Below `lg` this instance is CSS-hidden, so "/" cannot focus it;
-                  onShortcutMiss then opens the drawer and focuses its search
-                  instead, so the shortcut works at every width (#934). */}
+                  the shortcut handler above then opens the drawer and focuses
+                  its search instead, so it works at every width (#934). */}
               <Suspense fallback={null}>
-                <GlobalPlayerSearch enableShortcut onShortcutMiss={openDrawerForSearch} />
+                <GlobalPlayerSearch />
               </Suspense>
             </Box>
           )}
