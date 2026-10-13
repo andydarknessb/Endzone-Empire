@@ -561,6 +561,9 @@ router.get('/:id/matchups', async (req, res) => {
     return res.status(400).json({ error: 'week must be a positive integer' });
   }
   try {
+    if (!(await isMember(pool, leagueId, req.user.id))) {
+      return res.status(403).json({ error: 'not a member of this league' });
+    }
     const params = [leagueId];
     let weekSql = '';
     if (week) {
