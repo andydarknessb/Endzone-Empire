@@ -119,3 +119,35 @@ describe('Matchups cache after a drop or undo (#1881)', () => {
     expect(clearWeekMatchupsCache).toHaveBeenCalledTimes(1);
   });
 });
+
+// #2267: a landed drop or undo tells the page, so it can re-read what the
+// roster change invalidates (the advice), never on a failure.
+describe('onLanded after a drop or undo (#2267)', () => {
+  test('a confirmed drop whose DELETE resolves calls it once; the Undo POST brings it to two', async () => {
+    apiClient.delete.mockResolvedValue({});
+    apiClient.post.mockResolvedValue({});
+    const onLanded = jest.fn();
+    const { result } = renderHook(() =>
+      useDropPlayer({ leagueId: 7, refresh: jest.fn().mockResolvedValue(), onLanded })
+    );
+    act(() => result.current.requestDrop(entry));
+    await act(async () => result.current.confirmDrop());
+    expect(onLanded).toHaveBeenCalledTimes(1);
+
+    const [, options] = mockNotify.mock.calls[0];
+    await act(async () => options.onAction());
+
+    expect(apiClient.post).toHaveBeenCalled();
+    expect(onLanded).toHaveBeenCalledTimes(2);
+  });
+
+  test('a drop whose DELETE is rejected never calls it', async () => {
+    apiClient.delete.mockRejectedValue({ response: { status: 500, data: { error: 'nope' } } });
+    const onLanded = jest.fn();
+    const { result } = renderHook(() => useDropPlayer({ leagueId: 7, refresh: jest.fn(), onLanded }));
+    act(() => result.current.requestDrop(entry));
+    await act(async () => result.current.confirmDrop());
+
+    expect(onLanded).not.toHaveBeenCalled();
+  });
+});

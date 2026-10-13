@@ -19,8 +19,12 @@ import { clearWeekMatchupsCache } from '../../../entities/matchup';
  * The DELETE, and the undo's POST, clear the week's Matchups cache once they
  * have resolved, before `refresh` (#1881): a roster change moves Expected
  * final. Never on a failed request.
+ *
+ * `onLanded` fires once a drop or undo has landed, for reads the roster change
+ * invalidates (the page hands it the advice re-read, #2267), mirroring
+ * useLineupWrite's `onLanded` (#2262).
  */
-export function useDropPlayer({ leagueId, refresh }) {
+export function useDropPlayer({ leagueId, refresh, onLanded }) {
   const notify = useSnackbar();
   const [dropCandidate, setDropCandidate] = useState(null);
 
@@ -28,6 +32,7 @@ export function useDropPlayer({ leagueId, refresh }) {
     try {
       await apiClient.post(`/api/team/roster/${entry.playerId}/undo-drop`, { leagueId: Number(leagueId) });
       clearWeekMatchupsCache(leagueId);
+      onLanded?.();
       await refresh?.();
     } catch (err) {
       notify(readHttpFailure(err).message || err.message, { severity: 'error' });
@@ -38,6 +43,7 @@ export function useDropPlayer({ leagueId, refresh }) {
     try {
       await apiClient.delete(`/api/team/roster/${entry.playerId}?leagueId=${leagueId}`);
       clearWeekMatchupsCache(leagueId);
+      onLanded?.();
       await refresh?.();
       notify(`Dropped ${entry.name}`, {
         severity: 'info',
