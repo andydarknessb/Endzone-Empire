@@ -8,8 +8,9 @@ const draftSweepLiveness = require('./draftSweepLiveness');
 const { processScheduledDrafts } = require('../services/draftSchedule.service');
 const { withAdvisoryLock } = require('./advisoryLock');
 const { fantasySeasonLiveWhereSql } = require('../services/leaguePhase');
-const { lastRun } = require('./syncRun');
+const { lastRun, runSyncJob } = require('./syncRun');
 const cadence = require('./cadence');
+const { JOB: STATS_INTEGRITY_JOB } = require('../services/playerStatsIntegrity.service');
 
 /**
  * In-process job runner for time-based league mechanics (waiver clearing,
@@ -39,22 +40,12 @@ let draftTimer = null;
 let bootTimer = null;
 let running = false;
 let draftRunning = false;
-let ticksSinceSync = SYNC_EVERY_TICKS; // sync on the first eligible tick
 
 // Minimal health-check state for /api/health — updated by tick() and
 // syncAndScoreLiveWeeks() below, read via getSchedulerStatus().
 let lastTickAt = null;
 let lastTickError = null;
 let lastSyncAt = null;
-// Stat-correction pass runs once per UTC calendar day on Tue/Wed (the NFL's
-// correction window). The durable gate is the pass's own `stat-corrections`
-// Sync run row (see runDailyStatCorrections); this in-memory stamp only
-// saves the read on later ticks of the same process. It used to be the ONLY
-// gate, and a restart repeating the pass was called safe because the
-// corrections are idempotent - but the pass also wipes the Weekly projection
-// cache from week+1 onward, and repeating THAT on every release of a
-// correction day is what put a cold cache under every list page.
-let lastCorrectionDay = null;
 // A failed run (fetch_failed, bad_response, write_failed) is retried on the next
 // tick unless the job passes `retryMs` to cadence.due; adp, stat-corrections,
 // players and schedule do, below. A refused run is not retried: it settles the job's
@@ -66,20 +57,6 @@ const PLAYER_SYNC_RETRY_MS = 60 * 60 * 1000;
 const ESPN_SCHEDULE_INTERVAL_MS = 60 * 60 * 1000;
 const ESPN_SCHEDULE_RETRY_MS = 15 * 60 * 1000;
 const ADP_RETRY_MS = 15 * 60 * 1000;
-let lastRetentionDay = null;
-// The ESPN injury refresh keeps its last-run stamp in data_sync_runs, not
-// here (#1188): see runDailyInjurySync.
-// ADP market refresh (#747): the once-a-day decision is now the cadence gate's
-// own concern (#1509) - see runDailyAdpSync below.
-// Nightly projection fill (#1305): same once-a-day stamp pattern as the ADP
-// and correction passes above.
-let lastProjectionFillDay = null;
-// Nightly player_stats integrity scan (week 1 2026 audit): the once-a-day
-// decision is the cadence gate's own concern now (#1509), with this stamp
-// kept as a same-process short-circuit ahead of that read - the same shape
-// runDailyStatCorrections keeps its own in-memory stamp in. A thrown scan
-// does not stamp, so the next tick retries.
-let lastIntegrityScanDay = null;
 
 /**
  * One tick: take the declared job list (`TICK_JOBS`, below) and run it. Every
@@ -107,18 +84,26 @@ async function tickUnlocked(jobs = TICK_JOBS) {
 }
 
 /**
- * The one runner: each job in list order, each in its own containment. A throw
- * is logged to the console and the next job runs, so one failing duty (or one
- * that retries every tick because its stamp never lands) cannot skip the duties
- * after it. The console stays the log; each contained throw is also returned
- * as `{ name, message }` (empty when nothing failed) so the tick can record the
+ * The one runner: each job in list order, each in its own containment, all
+ * handed one `now` taken at the start of the tick. A job runs when its `when`
+ * (if any) is truthy and its `gate` says it is due; the gate then gets the
+ * run's result to `settle` on. A throw from `when`, `due` or `run` is logged to
+ * the console and the next job runs, so one failing duty (or one that retries
+ * every tick because its stamp never lands) cannot skip the duties after it.
+ * The console stays the log; each contained throw is also returned as
+ * `{ name, message }` (empty when nothing failed) so the tick can record the
  * last one in `lastTickError` (#2058).
  */
 async function runJobs(jobs) {
   const failures = [];
+  const now = new Date();
   for (const job of jobs) {
     try {
-      await job.run();
+      if (job.when && !(await job.when(now))) continue;
+      const verdict = await job.gate.due(now);
+      if (!verdict.due) continue;
+      const result = await job.run({ now });
+      if (job.gate.settle) await job.gate.settle(result);
     } catch (err) {
       console.error('scheduler: job %s failed:', job.name, err.message);
       failures.push({ name: job.name, message: err.message });
@@ -132,35 +117,143 @@ function syncRunJobs(jobs) {
   return [...new Set(jobs.flatMap((job) => job.syncRun || []))];
 }
 
-async function runRetention() {
-  const today = new Date().toLocaleDateString('en-CA');
-  if (lastRetentionDay === today) return;
+/**
+ * Gate kinds (#2230). A gate is `{ due(now) -> { due, reason }, settle?(result) }`:
+ * the tick asks `due`, runs the row when it is due, then hands the run's result
+ * to `settle`. A row's gate is built once, at module load, so what it
+ * remembers (a day, a tick count, a stamp) lasts as long as the process.
+ */
+
+/**
+ * `cadenceGate({ job, every, retryMs, after })`: the Sync run cadence
+ * (server/modules/cadence.js), read off the job's own `data_sync_runs` rows, so
+ * a worker restart cannot repeat a run. `every` is `'utc-day'`, `{ ms }`, or
+ * `{ ms: () => number }` (read each tick, for an env-tunable interval).
+ *
+ * Same-process memo: when a `'utc-day'` job without `after` answers not due and
+ * that answer is not a retry `backoff`, the UTC day is settled (it succeeded or
+ * was refused) and the rest of that day answers not due without a read. A
+ * backoff is a wait, not a settled day, and `after` is a standing "something
+ * changed" signal, so neither is remembered; nor is a run's result (the next
+ * tick's read says whether it counted).
+ *
+ * A failed read (or an invalid `every`) fails closed: the throw leaves `due()`,
+ * the tick contains and logs it as this row's failure, and the row is skipped
+ * this tick and asked again next tick. A database blip must not turn every
+ * daily feed row into a run on every tick.
+ */
+function cadenceGate({ job, every, retryMs, after }) {
+  let settledDay = null;
+  return {
+    async due(now) {
+      const today = cadence.utcDateKey(now);
+      if (settledDay === today) return { due: false, reason: 'already ran today' };
+      const window = typeof every.ms === 'function' ? { ms: every.ms() } : every;
+      const verdict = await cadence.due({ job, every: window, after, retryMs, now });
+      if (!verdict.due && every === 'utc-day' && !after && !verdict.backoff) settledDay = today;
+      return verdict;
+    },
+  };
+}
+
+/**
+ * `everyTicks(n)`: due on every nth tick. `n` is a number or an async function
+ * (live-sync passes `syncEveryTicks`, which doubles under degraded quota). The
+ * count starts at the resolved `n` so the first tick is due, grows on every
+ * tick, and resets only when `settle` gets a truthy result: a run that did
+ * nothing (no game window, no credentials) does not push the next one out.
+ */
+function everyTicks(n) {
+  let count = null;
+  return {
+    async due() {
+      const every = typeof n === 'function' ? await n() : n;
+      count = (count === null ? every : count) + 1;
+      return { due: count >= every, reason: `${count} ticks, every ${every}` };
+    },
+    settle(result) {
+      if (result) count = 0;
+    },
+  };
+}
+
+/**
+ * `memory({ ms })`: an in-process interval, for a poll whose cheap check is the
+ * thing being rate-limited, so it writes no Sync run row. The stamp is taken
+ * BEFORE the run, so a failing host is retried every `ms`, not every tick. A
+ * clock that stepped backwards reads as due.
+ */
+function memory({ ms }) {
+  let stamp = null;
+  return {
+    due(now) {
+      const elapsed = stamp === null ? null : now.getTime() - stamp;
+      if (elapsed !== null && elapsed >= 0 && elapsed < ms) {
+        return { due: false, reason: `${elapsed}ms since the last check, every ${ms}ms` };
+      }
+      stamp = now.getTime();
+      return { due: true, reason: elapsed === null ? 'never checked' : `${elapsed}ms since the last check, every ${ms}ms` };
+    },
+  };
+}
+
+/** `none()`: always due, for a duty that limits itself (a window, a due-row query). Declared on the row so the table shows it. */
+function none() {
+  return { due: () => ({ due: true, reason: 'self-limiting' }) };
+}
+
+/**
+ * `anyOf(...members)`: due when any member is. A member is `{ gate, when? }`,
+ * and one whose `when` is falsy is not asked. `settle` reaches every member.
+ */
+function anyOf(...members) {
+  return {
+    async due(now) {
+      for (const { gate, when } of members) {
+        if (when && !(await when(now))) continue;
+        const verdict = await gate.due(now);
+        if (verdict.due) return verdict;
+      }
+      return { due: false, reason: 'no member is due' };
+    },
+    async settle(result) {
+      for (const { gate } of members) {
+        if (gate.settle) await gate.settle(result);
+      }
+    },
+  };
+}
+
+/**
+ * Daily retention pass: expired auth and refresh tokens, old notifications and
+ * chat. A Sync run (ADR 0036) with one unit and no lock, `transaction: false`:
+ * `enforceRetention` deletes through the module pool in autocommit batches, and
+ * a BEGIN'd client sitting idle beside them is the #839 shape. The row carries
+ * the UTC `day` and the deleted counts, and the row's cadence gate keeps it to
+ * once per UTC day across restarts. A throw records a failed run, leaves the day
+ * due, and is retried next tick.
+ */
+async function runRetention({ now }) {
   const { enforceRetention } = require('../services/retention.service');
-  const counts = await enforceRetention();
-  lastRetentionDay = today;
-  if (Object.values(counts).some((count) => count > 0)) {
-    console.log('scheduler: retention cleanup completed', counts);
-  }
+  return runSyncJob({
+    job: 'retention',
+    lock: null,
+    transaction: false,
+    fetch: async () => ({ units: [{}], detail: { day: cadence.utcDateKey(now) } }),
+    apply: async () => {
+      const counts = await enforceRetention();
+      if (Object.values(counts).some((count) => count > 0)) {
+        console.log('scheduler: retention cleanup completed', counts);
+      }
+      return counts;
+    },
+  });
 }
 
 /** Cadence of the injury sync (#2115, ADR 0060); env-tunable. ESPN is free, so no quota doubling and no game-window split. */
 function injurySyncMs() {
   const parsed = Number(process.env.INJURY_SYNC_MS);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 15 * 60 * 1000;
-}
-
-/**
- * The last successful injury sync, read via `lastRun('injuries')`
- * (server/modules/syncRun.js, ADR 0036, #1205) rather than a hand-rolled
- * query: the in-memory day stamp reset on every worker restart, so "daily"
- * ran 3.4 times a day (#1188). Null when no successful run exists. A failed
- * read throws: the gate fails closed, so a database outage spends no Tank01
- * call and the next tick retries the read. Deliberately reads `latestOk`, not
- * `latest`: a failed run must not move the gate, so the next tick retries it.
- */
-async function lastInjurySyncAt() {
-  const { latestOk } = await lastRun('injuries');
-  return latestOk ? latestOk.finishedAt : null;
 }
 
 /**
@@ -187,29 +280,15 @@ async function inGameWindow() {
 }
 
 /**
- * Pure: should the injury sync run right now? Due when it never ran, or when
- * `windowMs` (`injurySyncMs()`) has passed since the last successful run.
- *
- * @param {{ now: Date, lastRunAt: ?Date, windowMs: number }} args
- */
-function injurySyncDue({ now, lastRunAt, windowMs }) {
-  if (!lastRunAt) return true;
-  return now.getTime() - lastRunAt.getTime() >= windowMs;
-}
-
-/**
  * ESPN injury refresh (#2115, ADR 0060): every INJURY_SYNC_MS (15 min), inside
- * and outside game windows alike, off the last successful `injuries` run
- * (`lastInjurySyncAt`, data_sync_runs), so a worker restart cannot re-run it
- * (#1188), and a thrown run records ok=false and does not move the gate, so the
- * next tick retries. ESPN's document is free and keyless: no credential gate
- * and no quota mode.
+ * and outside game windows alike. The row's cadence gate reads the last
+ * successful `injuries` run from data_sync_runs, so a worker restart cannot
+ * re-run it (#1188), and a thrown run records ok=false and does not move the
+ * gate, so the next tick retries. ESPN's document is free and keyless: no
+ * credential gate and no quota mode.
  */
-async function runDailyInjurySync({ now = new Date() } = {}) {
-  const lastRunAt = await lastInjurySyncAt();
-  if (!injurySyncDue({ now, lastRunAt, windowMs: injurySyncMs() })) return null;
-  const scoring = require('../services/feedSyncRuns.service');
-  return scoring.syncInjuries({ now });
+async function runDailyInjurySync({ now }) {
+  return require('../services/feedSyncRuns.service').syncInjuries({ now });
 }
 
 /**
@@ -223,14 +302,13 @@ async function runDailyInjurySync({ now = new Date() } = {}) {
  * the latest run's typed outcome: a thin-market/thin-match `refused` run
  * settles the UTC day (otherwise every five-minute tick would re-hit FFC for
  * the rest of the day while the market stays thin), a failed one retries
- * after `ADP_RETRY_MS`. No in-memory
- * once-a-day stamp remains: the gate's own read survives a worker restart,
- * where the old in-memory stamp reset on every one. The wipe guard still
+ * after `ADP_RETRY_MS`. The row's gate reads
+ * `data_sync_runs`, which survives a worker restart, where the old in-memory
+ * once-a-day stamp reset on every one (the gate's only memory is a same-process
+ * short-circuit for a settled UTC day, which a restart merely loses). The wipe guard still
  * lives inside `adp.syncAdp` and is unaffected by this gate.
  */
-async function runDailyAdpSync({ now = new Date() } = {}) {
-  const gate = await cadence.due({ job: 'adp', every: 'utc-day', retryMs: ADP_RETRY_MS, now });
-  if (!gate.due) return null;
+async function runDailyAdpSync({ now }) {
   const adp = require('../services/adp.service');
   return adp.syncAdp({ now });
 }
@@ -242,23 +320,19 @@ async function runDailyAdpSync({ now = new Date() } = {}) {
  * own job's `data_sync_runs` rows - `espnFactsSync.runDepthChartSync`/
  * `runOwnershipSync` already record one through `runSyncJob`, so neither
  * function below adds a second, scheduler-level row, mirroring
- * `runHourlyOddsSync`'s `job: 'odds'` gate above. No in-memory once-a-day
- * stamp remains for either job: the gate's own read survives a worker
- * restart, where an in-memory stamp would not have (a deploy or a second
+ * `runHourlyOddsSync`'s `job: 'odds'` gate above. The only in-memory
+ * state is the gate's same-process short-circuit for a settled UTC day: the
+ * decision itself survives a worker restart, where an in-memory stamp would not have (a deploy or a second
  * worker mid-slate would otherwise repeat the whole 32-team sweep or the
  * ~4000-player Ownership pull - the exact hazard #1308's original
  * `lastEspnFactsSyncAt` was built to avoid, by reading `data_sync_runs`
  * directly rather than module state; #1509 only changes which calendar the
  * day comparison runs on, UTC instead of local).
  */
-async function runDailyEspnDepthChartSync({ now = new Date() } = {}) {
-  const gate = await cadence.due({ job: 'espn-depth-chart', every: 'utc-day', now });
-  if (!gate.due) return null;
+async function runDailyEspnDepthChartSync({ now }) {
   return require('./espnFactsSync').runDepthChartSync({ now });
 }
-async function runDailyEspnOwnershipSync({ now = new Date() } = {}) {
-  const gate = await cadence.due({ job: 'espn-ownership', every: 'utc-day', now });
-  if (!gate.due) return null;
+async function runDailyEspnOwnershipSync({ now }) {
   return require('./espnFactsSync').runOwnershipSync({ now });
 }
 
@@ -271,9 +345,7 @@ async function runDailyEspnOwnershipSync({ now = new Date() } = {}) {
  * A failed run retries after PLAYER_SYNC_RETRY_MS, like stat-corrections, so an
  * ESPN outage does not spend a 32-call sweep every tick.
  */
-async function runDailyPlayerSync({ now = new Date() } = {}) {
-  const gate = await cadence.due({ job: 'players', every: 'utc-day', retryMs: PLAYER_SYNC_RETRY_MS, now });
-  if (!gate.due) return null;
+async function runDailyPlayerSync({ now }) {
   return require('../services/feedSyncRuns.service').syncPlayers({ season: now.getUTCFullYear(), now });
 }
 
@@ -289,9 +361,7 @@ const ET_PARTS = new Intl.DateTimeFormat('en-US', {
  * one job (daily, Saturday, pre-capture, and the game-day run of #1995), all ordered before what reads or follows them. The daily run is the
  * plain cadence gate, exactly like the depth-chart run it precedes.
  */
-async function runDailyEspnRosterStatusSync({ now = new Date() } = {}) {
-  const gate = await cadence.due({ job: ROSTER_STATUS_JOB, every: 'utc-day', now });
-  if (!gate.due) return null;
+async function runDailyEspnRosterStatusSync({ now }) {
   return require('./espnFactsSync').runRosterStatusSync({ now });
 }
 
@@ -432,9 +502,7 @@ const ODDS_SYNC_INTERVAL_MS = 60 * 60 * 1000; // hourly (#1234, ADR 0036/0037)
  * leagues read, same as a read failure here (caught and logged by
  * `runJobs`) retrying next tick same as everywhere else in this module.
  */
-async function runHourlyOddsSync({ now = new Date() } = {}) {
-  const gate = await cadence.due({ job: 'odds', every: { ms: ODDS_SYNC_INTERVAL_MS }, now });
-  if (!gate.due) return null;
+async function runHourlyOddsSync() {
   const leaguesResult = await pool.query(
     `SELECT DISTINCT "current_season", "current_week" FROM "leagues"
      WHERE ${fantasySeasonLiveWhereSql()}`
@@ -458,8 +526,8 @@ const GAME_CONTEXT_SYNC_INTERVAL_MS = 60 * 60 * 1000; // hourly (#1262, ADR 0038
 /**
  * Hourly game-context Sync run (#1262, ADR 0038): Record, Venue and
  * Broadcast for every live fantasy league's current slate(s), same
- * cadence gate (`cadence.due({ job: 'game-context', every: { ms } })`, which
- * reads the run row `syncGameContext` already writes) and per-week isolation
+ * cadence gate (the `game-context` job, hourly, which reads the run row
+ * `syncGameContext` already writes) and per-week isolation
  * shape as `runHourlyOddsSync` above (and the same
  * `fantasySeasonLiveWhereSql()` predicate, so a league mid-transition to a
  * new week still gets both weeks' slates updated). No in-memory epoch: a
@@ -472,9 +540,7 @@ const GAME_CONTEXT_SYNC_INTERVAL_MS = 60 * 60 * 1000; // hourly (#1262, ADR 0038
  * deliberate, not an oversight — see services/gameContextSync.service.js's
  * own module doc for why the two are not folded together.
  */
-async function runHourlyGameContextSync({ now = new Date() } = {}) {
-  const gate = await cadence.due({ job: 'game-context', every: { ms: GAME_CONTEXT_SYNC_INTERVAL_MS }, now });
-  if (!gate.due) return null;
+async function runHourlyGameContextSync() {
   const leaguesResult = await pool.query(
     `SELECT DISTINCT "current_season", "current_week" FROM "leagues"
      WHERE ${fantasySeasonLiveWhereSql()}`
@@ -500,20 +566,14 @@ async function runHourlyGameContextSync({ now = new Date() } = {}) {
 const WEATHER_SNAPSHOT_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
 /**
- * Weather snapshots Sync run (#1883, ADR 0036): the gate lives here, the body
- * in weatherSnapshots.service (see its docblock). Gated by
- * `cadence.due({ job: 'weather-snapshots', every: { ms } })` on its own 6-hour
- * cadence, and it waits out an open game window (`inGameWindow`). It never
- * throws: a failed run is already recorded by `runSyncJob` and is retried next
+ * Weather snapshots Sync run (#1883, ADR 0036): the body is in
+ * weatherSnapshots.service (see its docblock); its row gates it on its own
+ * 6-hour cadence and waits out an open game window (`inGameWindow`). Its run
+ * never throws (a gate read failure is the tick's to contain): a failed run is already recorded by `runSyncJob` and is retried next
  * tick (a failed row never moves the gate).
  */
-async function runWeatherSnapshotSync({ now = new Date() } = {}) {
+async function runWeatherSnapshotSync({ now }) {
   try {
-    const gate = await cadence.due({
-      job: 'weather-snapshots', every: { ms: WEATHER_SNAPSHOT_INTERVAL_MS }, now,
-    });
-    if (!gate.due) return null;
-    if (await inGameWindow()) return null;
     return await require('../services/weatherSnapshots.service').runWeatherSnapshots({ now });
   } catch (err) {
     console.error('weather snapshot sync failed (will retry next tick):', err.message);
@@ -602,46 +662,30 @@ async function syncAndScoreLiveWeeks() {
  * Nightly player_stats integrity scan: records any row whose stored points
  * disagree with its stats (playerStatsIntegrity.service). A Sync run per ADR
  * 0036 with one unit and no lock (nothing else writes the anomalies table),
- * so its data_sync_runs row is the freshness the health route reads. Runs at
- * most once per UTC calendar day (#1509, spec #1493 "UTC day everywhere"),
- * gated by the cadence gate (server/modules/cadence.js, spec #1492 step two)
- * reading the scan's own Sync run row (job: `player-stats-integrity`) - with
- * the in-memory `lastIntegrityScanDay` stamp as a same-process short-circuit
- * ahead of that read, the same shape `runDailyStatCorrections` above keeps
- * its own in-memory stamp in - and only inside the same off-peak UTC hour as
- * the projection fill: it pages every player_stats row, and the tick lock it
- * holds while doing so must never sit inside a game window. The UTC day is
- * computed once at the start of the run and carried as `detail.day` on the
- * recorded row; both the in-memory stamp and that row are written only after
- * a scan that did not throw, so a transient database failure retries on the
- * next tick inside the window.
+ * so its data_sync_runs row is the freshness the health route reads. The row
+ * runs it at most once per UTC calendar day (#1509, spec #1493 "UTC day
+ * everywhere") through the cadence gate on the scan's own Sync run row, and
+ * only inside the same off-peak UTC hour as the projection fill: it pages
+ * every player_stats row, and the tick lock it holds while doing so must never
+ * sit inside a game window. The UTC day is computed once at the start of the
+ * run and carried as `detail.day` on the recorded row, which is written only
+ * after a scan that did not throw, so a transient database failure retries on
+ * the next tick inside the window.
  */
-async function runNightlyStatsIntegrityScan({ now = new Date() } = {}) {
-  if (now.getUTCHours() !== NIGHTLY_PROJECTION_FILL_UTC_HOUR) return null;
-  const integrity = require('../services/playerStatsIntegrity.service');
-  const today = cadence.utcDateKey(now);
-  if (lastIntegrityScanDay === today) return null;
-  const gate = await cadence.due({ job: integrity.JOB, every: 'utc-day', now });
-  if (!gate.due) {
-    lastIntegrityScanDay = today;
-    return null;
-  }
-  const result = await integrity.runIntegrityScan({ now });
-  lastIntegrityScanDay = today;
-  return result;
+async function runNightlyStatsIntegrityScan({ now }) {
+  return require('../services/playerStatsIntegrity.service').runIntegrityScan({ now });
 }
 
 /**
  * Tue/Wed stat-correction pass: re-pull last week's stats and re-score any
- * league whose scores moved (see correction.service). Runs at most once per
- * UTC calendar day - the window `isCorrectionDay` is defined on - gated by
- * the cadence gate (server/modules/cadence.js, spec #1492 step two) reading
- * the pass's own Sync run row (`stat-corrections`) so a worker restart cannot
- * repeat it, with the in-memory stamp as a same-process short-circuit ahead
- * of that read. Source is nflverse — free and, by Tuesday, more accurate than
- * Tank01 — so this pass costs no quota and needs no credentials. The first
- * job on the cadence gate; every other job in this file keeps its own
- * hand-rolled once-a-day check for now.
+ * league whose scores moved (see correction.service). The row runs it on a UTC
+ * Tue/Wed (`isCorrectionDay`, the NFL's correction window) at most once per
+ * UTC calendar day, through the cadence gate on the pass's own Sync run row
+ * (`stat-corrections`) so a worker restart cannot repeat it: the pass also
+ * wipes the Weekly projection cache from week+1 onward, and repeating THAT on
+ * every release of a correction day is what put a cold cache under every list
+ * page. Source is nflverse - free and, by Tuesday, more accurate than Tank01 -
+ * so this pass costs no quota and needs no credentials.
  *
  * A Sync run (ADR 0036) with one unit, `transaction: false`: a BEGIN'd client
  * sitting idle for the minutes this pass takes - while `correctLeagueWeek`
@@ -655,31 +699,12 @@ async function runNightlyStatsIntegrityScan({ now = new Date() } = {}) {
  * without throwing. Either way the day stays due and the gate (which reads the
  * latest run's typed outcome) holds the pass back until the failed row is
  * STAT_CORRECTIONS_RETRY_MS old, instead of silently skipping the rest of a
- * correction day. A gate read that fails reads as "never run": the pass is
- * idempotent, so running it is the safe side of skipping a correction day.
+ * correction day.
  */
-async function runDailyStatCorrections({ now = new Date() } = {}) {
-  const correction = require('../services/correction.service');
-  if (!correction.isCorrectionDay(now)) return null;
-  const today = cadence.utcDateKey(now);
-  if (lastCorrectionDay === today) return null;
-  let gate;
-  try {
-    gate = await cadence.due({ job: 'stat-corrections', every: 'utc-day', retryMs: STAT_CORRECTIONS_RETRY_MS, now });
-  } catch (err) {
-    console.warn('runDailyStatCorrections: data_sync_runs read failed, treating as never run:', err.message);
-    gate = { due: true };
-  }
-  if (!gate.due) {
-    // A retry wait is not a settled day: unstamped, the window reopens on its own.
-    if (!gate.backoff) lastCorrectionDay = today;
-    return null;
-  }
-  const result = await correction.runStatCorrections({ now });
+async function runDailyStatCorrections({ now }) {
+  const result = await require('../services/correction.service').runStatCorrections({ now });
   const failedWeeks = result.failedWeeks || [];
-  if (failedWeeks.length === 0) {
-    lastCorrectionDay = today;
-  } else {
+  if (failedWeeks.length > 0) {
     console.warn(
       `scheduler: stat corrections failed for ${failedWeeks
         .map((w) => `${w.season} week ${w.week}`)
@@ -704,15 +729,19 @@ async function runHoldoutSnapshots() {
   // success line carries the wall time of the whole span, ESPN sync included.
   const startedAt = process.hrtime.bigint();
   const holdout = require('../services/holdout.service');
+  // One fresh instant for both calls, taken here rather than the tick's start
+  // `now`: an earlier row can run for minutes, and a capture window that opens
+  // meanwhile must be seen by the roster refresh and the capture alike.
+  const now = new Date();
   // Roster status refreshed once as a capture window opens (#1766), contained
   // so an ESPN failure never skips the capture: the breaker in the sweep bounds
   // a dead host to three timeouts.
   try {
-    await runPreHoldoutEspnRosterStatusSync();
+    await runPreHoldoutEspnRosterStatusSync({ now });
   } catch (err) {
     console.error('pre-holdout ESPN roster-status sync failed (capture continues):', err.message);
   }
-  const { captured, failures } = await holdout.captureDueSnapshots();
+  const { captured, failures } = await holdout.captureDueSnapshots({ now });
   const written = captured.filter((c) => !c.skipped);
   if (written.length > 0) {
     const elapsedMs = Math.round(Number(process.hrtime.bigint() - startedAt) / 1e6);
@@ -739,55 +768,38 @@ async function runHoldoutSnapshots() {
 const NIGHTLY_PROJECTION_FILL_UTC_HOUR = 9;
 
 /**
- * Nightly projection run (#1305): the gate and the day stamp live here, the
- * Sync run body in projectionFill.service (see its docblock). A failed run
- * leaves the day UNSTAMPED, success-path stamp only, so a transient failure is
- * retried inside the same off-peak window.
- *
- * Runs at most once per UTC calendar day inside
- * `NIGHTLY_PROJECTION_FILL_UTC_HOUR` (unconditionally there, same as before:
- * a brand-new deployment or a mid-week draft must not sit blocked on a
+ * Nightly projection run (#1305): the body is in projectionFill.service (see
+ * its docblock) and the row's gate decides when it runs: at most once per UTC
+ * calendar day inside `NIGHTLY_PROJECTION_FILL_UTC_HOUR` (unconditionally
+ * there: a brand-new deployment or a mid-week draft must not sit blocked on a
  * stat-correction pass that has never run) - and, outside that window,
- * whenever a refill is owed. Owed-ness used to be its own hand-rolled
- * `data_sync_runs` comparison; it is now the cadence gate's own concern
- * (server/modules/cadence.js, spec #1492 step two, #1511):
- * `cadence.due({ job: 'nightly-projection-run', every: 'utc-day', after:
- * 'stat-corrections' })` is due whenever the stat-correction pass - which
- * wipes every Weekly projection run from week+1 onward, correction.service -
- * has succeeded more recently than this job's own last success, EVEN when
- * this job has already succeeded once today: `after`'s override (cadence.js,
- * fleet#1511 f2) is what makes a same-UTC-day correction (one that succeeds
- * after the 09:00 window has already run once) refill immediately rather
- * than sitting cold until tomorrow's window - the exact #1447 incident class
- * this gate exists to prevent. The off-peak hour window itself has no gate
- * equivalent (it is unique to this one job), so it stays a plain caller-side
- * check beside the gate call, same as the Mon-Thu/Tue-Wed day filters beside
- * `runNflverseFinalization`/`runDailyStatCorrections` below.
+ * whenever a refill is owed. Owed-ness is the cadence gate's own concern
+ * (server/modules/cadence.js, spec #1492 step two, #1511): `after:
+ * 'stat-corrections'` is due whenever the stat-correction pass - which wipes
+ * every Weekly projection run from week+1 onward, correction.service - has
+ * succeeded more recently than this job's own last success, EVEN when this job
+ * has already succeeded once today: `after`'s override (cadence.js, fleet#1511
+ * f2) is what makes a same-UTC-day correction (one that succeeds after the
+ * 09:00 window has already run once) refill immediately rather than sitting
+ * cold until tomorrow's window - the exact #1447 incident class this gate
+ * exists to prevent. An owed refill never starts while a game window is open:
+ * the Tuesday 00:00 UTC correction pass lands during Monday Night Football,
+ * and a multi-minute fill here would hold the tick (and live scoring behind
+ * it) for its whole duration. It runs on the first tick after the slate goes
+ * final, still hours ahead of the off-peak window.
+ *
+ * A failed run records ok=false, which does not settle the day, so a transient
+ * failure is retried inside the same off-peak window; the throw is contained
+ * here (logged, not rethrown) because the fill is no Sync-run row of the tick's
+ * and its failure must not reach `lastTickError`.
  */
-async function runNightlyProjectionFill({ now = new Date() } = {}) {
-  const today = cadence.utcDateKey(now);
-  const inWindow = now.getUTCHours() === NIGHTLY_PROJECTION_FILL_UTC_HOUR && lastProjectionFillDay !== today;
-  if (!inWindow) {
-    const gate = await cadence.due({ job: 'nightly-projection-run', every: 'utc-day', after: 'stat-corrections', now });
-    if (!gate.due) return null;
-    // An owed refill never starts while a game window is open: the Tuesday
-    // 00:00 UTC correction pass lands during Monday Night Football, and a
-    // multi-minute fill here would hold the tick (and live scoring behind it)
-    // for its whole duration. It runs on the first tick after the slate goes
-    // final, still hours ahead of the off-peak window.
-    if (await inGameWindow()) return null;
-  }
-
-  let summary;
+async function runNightlyProjectionFill({ now }) {
   try {
-    summary = await require('../services/projectionFill.service').runNightlyFill({ now });
+    return await require('../services/projectionFill.service').runNightlyFill({ now });
   } catch (err) {
-    // Unstamped on purpose (see the docblock): a same-day retry is owed.
     console.error('nightly projection fill failed (will retry within the window):', err.message);
     return null;
   }
-  lastProjectionFillDay = today;
-  return summary;
 }
 
 /**
@@ -796,19 +808,16 @@ async function runNightlyProjectionFill({ now = new Date() } = {}) {
  * yardage and individual safety for the prior week's defenders (see
  * nflverseSync.service) and re-score any league whose scores moved. The
  * second consumer of the cadence gate (server/modules/cadence.js, spec #1492
- * step two, #1511): `cadence.due({ job: 'nflverse-week', every: 'utc-day' })`
- * reads `nflverse-week`'s own `data_sync_runs` rows - `syncNflverseWeek`
+ * step two, #1511): the row's gate is `nflverse-week` once per UTC day,
+ * reading `nflverse-week`'s own `data_sync_runs` rows - `syncNflverseWeek`
  * (nflverseSync.service.js) already writes one through `runSyncJob` for
  * every (season, week) `finalizePriorWeeks` processes, on every run
  * regardless of outcome (ADR 0036), so this adds no second, scheduler-level
  * row, mirroring `runHourlyOddsSync`'s `job: 'odds'` gate above. The Mon-Thu
- * window is `isNflverseFinalizationDay`'s own day filter, not a cadence:
+ * window is `isNflverseFinalizationDay`, the row's `when`, not a cadence:
  * nothing in cadence.js expresses "these four weekdays only", so it stays a
- * plain check beside the gate rather than inside it - the same split
- * `runDailyStatCorrections` already uses for its Tue/Wed window. No
- * in-memory once-per-day stamp remains (#1510 removed the odds sync's
- * `lastOddsSyncAt` the same way): the gate's own `data_sync_runs` read
- * survives a worker restart, where an in-memory stamp reset on every one.
+ * plain check ahead of the gate - the same split `runDailyStatCorrections`
+ * uses for its Tue/Wed window.
  *
  * Deliberately no `after: 'stat-corrections'` (pl-endzone formal review f1,
  * #1511): this pass never depended on the correction pass before, runs on
@@ -820,12 +829,8 @@ async function runNightlyProjectionFill({ now = new Date() } = {}) {
  * answer "waiting on stat-corrections to succeed again" forever on exactly
  * the two days the Mon-Thu window exists to cover that Tue/Wed does not.
  */
-async function runNflverseFinalization({ now = new Date() } = {}) {
-  const nflverseSync = require('../services/nflverseSync.service');
-  if (!nflverseSync.isNflverseFinalizationDay(now)) return null;
-  const gate = await cadence.due({ job: 'nflverse-week', every: 'utc-day', now });
-  if (!gate.due) return null;
-  const result = await nflverseSync.finalizePriorWeeks();
+async function runNflverseFinalization() {
+  const result = await require('../services/nflverseSync.service').finalizePriorWeeks();
   if (result.finalized && result.finalized.length > 0) {
     console.log(`scheduler: nflverse finalization updated IDP stats for ${result.finalized.length} week(s)`);
   }
@@ -842,7 +847,7 @@ async function runNflverseFinalization({ now = new Date() } = {}) {
  * This schedules the one sync that exists, not a new path; the manual
  * `POST /scoring/sync-schedule { source: 'nflverse' }` stays as the fallback.
  *
- * Gated by `cadence.due({ job: 'schedule-nflverse', every: 'utc-day' })`, the
+ * Gated by the `schedule-nflverse` job's `utc-day` cadence, the
  * job `runSyncJob` already writes a run row for on every run, so a worker
  * restart cannot double-fetch and a manual run today also satisfies the gate.
  * The gate reads the job, not the season: a manual backfill of ANOTHER season
@@ -856,9 +861,7 @@ async function runNflverseFinalization({ now = new Date() } = {}) {
  * A throw propagates to `runJobs`, which logs it and carries on.
  * Current season only: 2024 and 2025 are not backfilled automatically.
  */
-async function runNflverseGameContextFill({ now = new Date() } = {}) {
-  const gate = await cadence.due({ job: 'schedule-nflverse', every: 'utc-day', now });
-  if (!gate.due) return null;
+async function runNflverseGameContextFill() {
   const nflSeason = require('../services/nflSeason.service');
   const season = await nflSeason.upcomingNflSeason();
   if (season == null) return null;
@@ -878,9 +881,7 @@ async function runNflverseGameContextFill({ now = new Date() } = {}) {
  * settles it for an hour), and a run with some failedWeeks is ok; both cost
  * at most one interval. A throw propagates to `runJobs`.
  */
-async function runEspnSchedule({ now = new Date() } = {}) {
-  const gate = await cadence.due({ job: 'schedule', every: { ms: ESPN_SCHEDULE_INTERVAL_MS }, retryMs: ESPN_SCHEDULE_RETRY_MS, now });
-  if (!gate.due) return null;
+async function runEspnSchedule() {
   const nflSeason = require('../services/nflSeason.service');
   const season = await nflSeason.upcomingNflSeason();
   if (season == null) return null;
@@ -895,7 +896,6 @@ async function runEspnSchedule({ now = new Date() } = {}) {
 // latest kickoff (about 08:15 UTC), so a 15-minute check lands the patch with
 // hours of window to spare.
 const NFLVERSE_CURRENT_WEEK_CHECK_MS = 15 * 60 * 1000;
-let lastNflverseCurrentWeekCheckAt = null; // epoch ms
 
 /**
  * nflverse current-week pass: every 15 minutes, any hour of any day, ask
@@ -907,17 +907,14 @@ let lastNflverseCurrentWeekCheckAt = null; // epoch ms
  * prior-week window unchanged.
  *
  * No cadence gate: the thing being rate-limited is the HEAD, not a Sync run
- * (a run row is only written when there is something to patch), so an
- * in-memory stamp is the whole throttle. It is stamped BEFORE the call, so a
+ * (a run row is only written when there is something to patch), so the row's
+ * `memory` gate is the whole throttle. It is stamped BEFORE the call, so a
  * failing nflverse is retried every 15 minutes, not every tick. A worker
  * restart just checks once early. No game-window deferral either: nflverse
  * publishes Sunday's afternoon games while the night game is still on, and a
  * patch that lands inside a live window is exactly what gets it re-scored.
  */
-async function runNflverseCurrentWeek({ now = new Date() } = {}) {
-  const elapsed = lastNflverseCurrentWeekCheckAt === null ? null : now.getTime() - lastNflverseCurrentWeekCheckAt;
-  if (elapsed !== null && elapsed >= 0 && elapsed < NFLVERSE_CURRENT_WEEK_CHECK_MS) return null;
-  lastNflverseCurrentWeekCheckAt = now.getTime();
+async function runNflverseCurrentWeek() {
   const nflverseSync = require('../services/nflverseSync.service');
   const result = await nflverseSync.patchCurrentWeeks();
   const updated = (result.patched || []).filter((p) => p.playersUpdated > 0);
@@ -932,7 +929,6 @@ async function runNflverseCurrentWeek({ now = new Date() } = {}) {
 // season). Practice reports land through the week and nflverse republishes
 // them within hours, so the same 15 minutes as the stats pass is plenty.
 const NFLVERSE_PRACTICE_CHECK_MS = 15 * 60 * 1000;
-let lastNflversePracticeCheckAt = null; // epoch ms
 
 /**
  * nflverse practice-participation poll (#1922): every 15 minutes, any hour of
@@ -941,15 +937,12 @@ let lastNflversePracticeCheckAt = null; // epoch ms
  * nfl_games kickoffs, never a league's current_week). It downloads only when
  * nflverse's timestamp.json changed since the last capture, so a check that
  * finds nothing new is one small request and writes no run row. Same throttle
- * shape as `runNflverseCurrentWeek` above: an in-memory stamp, taken BEFORE
+ * shape as `runNflverseCurrentWeek` above: a `memory` gate, stamped BEFORE
  * the call so a failing nflverse is retried every 15 minutes, not every tick.
  * The service logs a failed poll itself and loses only that poll. Ordered in
  * `TICK_JOBS` after every deadline duty.
  */
-async function runNflversePractice({ now = new Date() } = {}) {
-  const elapsed = lastNflversePracticeCheckAt === null ? null : now.getTime() - lastNflversePracticeCheckAt;
-  if (elapsed !== null && elapsed >= 0 && elapsed < NFLVERSE_PRACTICE_CHECK_MS) return null;
-  lastNflversePracticeCheckAt = now.getTime();
+async function runNflversePractice({ now }) {
   const practiceParticipation = require('../services/practiceParticipation.service');
   const result = await practiceParticipation.syncCurrentWeeks({ now });
   const written = (result.synced || []).filter((s) => s.inserted > 0);
@@ -965,7 +958,7 @@ async function runNflversePractice({ now = new Date() } = {}) {
  * the week it should be on; runs right BEFORE the pick'em reminders so the
  * reminders read the fresh week in the same tick.
  */
-async function runPickemWeekSync({ now = new Date() } = {}) {
+async function runPickemWeekSync({ now }) {
   const pickemSeason = require('../services/pickemSeason.service');
   const changes = await pickemSeason.syncPickemOnlyWeeks({ now });
   if (changes.length > 0) {
@@ -987,7 +980,7 @@ async function runPickemWeekSync({ now = new Date() } = {}) {
  * co-champion trophies, and tell the league. Idempotent: a completed league
  * is no longer a candidate, and the trophy write is ON CONFLICT DO NOTHING.
  */
-async function runPickemSeasonCompletion({ now = new Date() } = {}) {
+async function runPickemSeasonCompletion({ now }) {
   const pickemSeason = require('../services/pickemSeason.service');
   const completed = await pickemSeason.completePickemSeasons({ now });
   if (completed.length > 0) {
@@ -1071,63 +1064,103 @@ async function runWaiverClearing() {
   }
 }
 
-/** The tick-counted live sync: paced by `ticksSinceSync` while a game window is open. */
-async function runLiveSync() {
-  ticksSinceSync += 1;
-  if (ticksSinceSync >= (await syncEveryTicks())) {
-    const synced = await syncAndScoreLiveWeeks();
-    if (synced) ticksSinceSync = 0;
-  }
-}
-
 /**
- * The tick, as data: `{ name, tier, run, syncRun? }` in the order the duties
- * run. `tier` says why a job sits where it does: `deadline` duties have a hard
- * real-world deadline or feed one (corrections and finalization so the holdout
- * captures corrected inputs, then the capture, then kickoff hold, waivers,
- * reminders, trades, drafts, live scoring, Override capture); `housekeeping`
- * runs after every deadline duty and may run long; `trailing` is the slow
- * outside-host syncs that must never delay anything above them. Tiers never go
- * backwards down the list. `syncRun` names the Sync run rows (ADR 0036) a job
- * writes, and `SYNC_RUN_JOBS` is derived from them.
+ * The tick, as data: `{ name, tier, syncRun?, when?, gate, run }` in the order
+ * the duties run. `tier` says why a job sits where it does: `deadline` duties
+ * have a hard real-world deadline or feed one (corrections and finalization so
+ * the holdout captures corrected inputs, then the capture, then kickoff hold,
+ * waivers, reminders, trades, drafts, live scoring, Override capture);
+ * `housekeeping` runs after every deadline duty and may run long; `trailing` is
+ * the slow outside-host syncs that must never delay anything above them. Tiers
+ * never go backwards down the list. `syncRun` names the Sync run rows (ADR
+ * 0036) a job writes, and `SYNC_RUN_JOBS` is derived from them.
  *
- * Throttles differ by job and live in the jobs, not here: most Sync runs ask
- * `cadence.due`; the stat-correction pass keeps a day stamp beside it (a
- * same-process short-circuit ahead of the gate's read); the nflverse HEAD polls throttle in memory (a check
- * that finds nothing writes no run row); retention has a day stamp (no run row);
- * the live sync is tick-counted.
- *
- * The next job added declares its throttle in its row, not in its body: a
- * `gate: daily | everyTicks(n) | cadence(id)` field the tick reads before it
- * calls `run`, so the order and the pacing of every duty read off this one
- * table. No row carries `gate:` yet and the tick does not read one; the
- * existing jobs keep the throttles above until each is moved.
+ * Every row declares its throttle as `gate`, and the tick reads it (see
+ * `runJobs`): `cadenceGate` (the job's own `data_sync_runs` rows, via
+ * server/modules/cadence.js), `everyTicks(n)` (counted ticks, reset by a run
+ * that did something), `memory({ ms })` (an in-process interval for a poll
+ * that writes no run row), `none()` (a duty that limits itself) and
+ * `anyOf(...)` (due when any `{ gate, when? }` member is). A row's optional
+ * `when(now)` is checked first and is a plain predicate (a weekday, a UTC
+ * hour, no game window open): a false `when` skips the row without reading
+ * its gate (a `when` may itself read, as weather-snapshots' game-window check does). `run({ now })` is the body, with no gate of its own.
  */
 const TICK_JOBS = [
-  { name: 'stat-corrections', tier: 'deadline', syncRun: ['stat-corrections', 'nflverse-correction'], run: () => runDailyStatCorrections() },
-  { name: 'nflverse-finalization', tier: 'deadline', syncRun: ['nflverse-week', 'nflverse-snaps'], run: () => runNflverseFinalization() },
-  { name: 'nflverse-game-context-fill', tier: 'deadline', syncRun: ['schedule-nflverse'], run: () => runNflverseGameContextFill() },
-  { name: 'nflverse-current-week', tier: 'deadline', syncRun: ['nflverse-current-week'], run: () => runNflverseCurrentWeek() },
-  { name: 'injuries', tier: 'deadline', syncRun: ['injuries'], run: () => runDailyInjurySync() },
-  { name: 'adp', tier: 'deadline', syncRun: ['adp'], run: () => runDailyAdpSync() },
-  { name: 'odds', tier: 'deadline', syncRun: ['odds'], run: () => runHourlyOddsSync() },
-  { name: 'game-context', tier: 'deadline', syncRun: ['game-context'], run: () => runHourlyGameContextSync() },
-  { name: 'holdout-snapshots', tier: 'deadline', run: () => runHoldoutSnapshots() },
+  {
+    name: 'stat-corrections',
+    tier: 'deadline',
+    syncRun: ['stat-corrections', 'nflverse-correction'],
+    when: (now) => require('../services/correction.service').isCorrectionDay(now),
+    gate: cadenceGate({ job: 'stat-corrections', every: 'utc-day', retryMs: STAT_CORRECTIONS_RETRY_MS }),
+    run: ({ now }) => runDailyStatCorrections({ now }),
+  },
+  {
+    name: 'nflverse-finalization',
+    tier: 'deadline',
+    syncRun: ['nflverse-week', 'nflverse-snaps'],
+    when: (now) => require('../services/nflverseSync.service').isNflverseFinalizationDay(now),
+    gate: cadenceGate({ job: 'nflverse-week', every: 'utc-day' }),
+    run: () => runNflverseFinalization(),
+  },
+  {
+    name: 'nflverse-game-context-fill',
+    tier: 'deadline',
+    syncRun: ['schedule-nflverse'],
+    gate: cadenceGate({ job: 'schedule-nflverse', every: 'utc-day' }),
+    run: () => runNflverseGameContextFill(),
+  },
+  {
+    name: 'nflverse-current-week',
+    tier: 'deadline',
+    syncRun: ['nflverse-current-week'],
+    gate: memory({ ms: NFLVERSE_CURRENT_WEEK_CHECK_MS }),
+    run: () => runNflverseCurrentWeek(),
+  },
+  {
+    name: 'injuries',
+    tier: 'deadline',
+    syncRun: ['injuries'],
+    gate: cadenceGate({ job: 'injuries', every: { ms: injurySyncMs } }),
+    run: ({ now }) => runDailyInjurySync({ now }),
+  },
+  {
+    name: 'adp',
+    tier: 'deadline',
+    syncRun: ['adp'],
+    gate: cadenceGate({ job: 'adp', every: 'utc-day', retryMs: ADP_RETRY_MS }),
+    run: ({ now }) => runDailyAdpSync({ now }),
+  },
+  {
+    name: 'odds',
+    tier: 'deadline',
+    syncRun: ['odds'],
+    gate: cadenceGate({ job: 'odds', every: { ms: ODDS_SYNC_INTERVAL_MS } }),
+    run: () => runHourlyOddsSync(),
+  },
+  {
+    name: 'game-context',
+    tier: 'deadline',
+    syncRun: ['game-context'],
+    gate: cadenceGate({ job: 'game-context', every: { ms: GAME_CONTEXT_SYNC_INTERVAL_MS } }),
+    run: () => runHourlyGameContextSync(),
+  },
+  { name: 'holdout-snapshots', tier: 'deadline', gate: none(), run: () => runHoldoutSnapshots() },
   // Kickoff hold (#1375, ADR 0043): before claim processing, so a claim submitted
   // this tick already sees a player his kicked-off team put on waivers this tick.
-  { name: 'kickoff-waiver-hold', tier: 'deadline', run: () => holdKickedOffPlayers() },
-  { name: 'waivers', tier: 'deadline', run: () => runWaiverClearing() },
+  { name: 'kickoff-waiver-hold', tier: 'deadline', gate: none(), run: () => holdKickedOffPlayers() },
+  { name: 'waivers', tier: 'deadline', gate: none(), run: () => runWaiverClearing() },
   // Self-limits to the pre-kickoff window.
-  { name: 'lineup-reminders', tier: 'deadline', run: () => require('../services/digest.service').sendLineupReminders() },
+  { name: 'lineup-reminders', tier: 'deadline', gate: none(), run: () => require('../services/digest.service').sendLineupReminders() },
   // Pick'em-only leagues follow the NFL calendar: point them at the right week
   // BEFORE the reminders read current_week, and complete any whose week-18 slate
   // has finalized right after.
-  { name: 'pickem-week-sync', tier: 'deadline', run: () => runPickemWeekSync() },
-  { name: 'pickem-reminders', tier: 'deadline', run: () => require('../services/digest.service').sendPickemReminders() },
-  { name: 'pickem-season-completion', tier: 'deadline', run: () => runPickemSeasonCompletion() },
+  { name: 'pickem-week-sync', tier: 'deadline', gate: none(), run: ({ now }) => runPickemWeekSync({ now }) },
+  { name: 'pickem-reminders', tier: 'deadline', gate: none(), run: () => require('../services/digest.service').sendPickemReminders() },
+  { name: 'pickem-season-completion', tier: 'deadline', gate: none(), run: ({ now }) => runPickemSeasonCompletion({ now }) },
   {
     name: 'trades',
     tier: 'deadline',
+    gate: none(),
     run: async () => {
       const trades = await processDueTrades();
       if (trades.length > 0) console.log(`scheduler: settled ${trades.length} trade(s)`);
@@ -1136,49 +1169,117 @@ const TICK_JOBS = [
   {
     name: 'scheduled-drafts',
     tier: 'deadline',
+    gate: none(),
     run: async () => {
       const draftActions = await processScheduledDrafts();
       if (draftActions.length > 0) console.log(`scheduler: ran ${draftActions.length} scheduled-draft action(s)`);
     },
   },
-  { name: 'live-sync', tier: 'deadline', syncRun: ['week-stats'], run: () => runLiveSync() },
+  // Paced by tick count, not by a Sync run row: a count that resets only after a
+  // sync that happened, so the first tick of a new game window syncs at once.
+  { name: 'live-sync', tier: 'deadline', syncRun: ['week-stats'], gate: everyTicks(syncEveryTicks), run: () => syncAndScoreLiveWeeks() },
   // Override capture (#1862, ADR 0054): each kickoff once, the advice as of a
   // minute before it. After every time-sensitive duty above, since it asks for
   // advice per team and its run time must never delay them; it logs per league.
-  { name: 'override-capture', tier: 'deadline', run: () => captureOverrides({ loadAdvice: startSitAdvice }) },
+  { name: 'override-capture', tier: 'deadline', gate: none(), run: () => captureOverrides({ loadAdvice: startSitAdvice }) },
   // nflverse practice-participation poll (#1922): a poll that finds a new file is
   // up to a minute and a half of serial downloads that must never delay a
   // deadline duty. Nothing above reads what it writes within the same tick.
   // #2216: not deadline duties, so after override-capture and live-sync.
-  { name: 'espn-schedule', tier: 'housekeeping', syncRun: ['schedule'], run: () => runEspnSchedule() },
-  { name: 'stale-kickoff-alert', tier: 'housekeeping', run: () => require('./liveGameEngine').reportStaleKickoffs() },
-  { name: 'nflverse-practice', tier: 'housekeeping', syncRun: ['nflverse-practice'], run: () => runNflversePractice() },
-  // A throw leaves the retention day unstamped, so it retries every tick.
-  { name: 'retention', tier: 'housekeeping', run: () => runRetention() },
+  {
+    name: 'espn-schedule',
+    tier: 'housekeeping',
+    syncRun: ['schedule'],
+    gate: cadenceGate({ job: 'schedule', every: { ms: ESPN_SCHEDULE_INTERVAL_MS }, retryMs: ESPN_SCHEDULE_RETRY_MS }),
+    run: () => runEspnSchedule(),
+  },
+  { name: 'stale-kickoff-alert', tier: 'housekeeping', gate: none(), run: () => require('./liveGameEngine').reportStaleKickoffs() },
+  {
+    name: 'nflverse-practice',
+    tier: 'housekeeping',
+    syncRun: ['nflverse-practice'],
+    gate: memory({ ms: NFLVERSE_PRACTICE_CHECK_MS }),
+    run: ({ now }) => runNflversePractice({ now }),
+  },
+  // Daily retention (#2230): a Sync run, once per UTC day. A throw leaves the day
+  // due, so it retries every tick.
+  { name: 'retention', tier: 'housekeeping', syncRun: ['retention'], gate: cadenceGate({ job: 'retention', every: 'utc-day' }), run: ({ now }) => runRetention({ now }) },
   // Daily player sync (#2115, #2117, ADR 0060): the only writer of nfl_team and
   // of departures now that the injuries job reads ESPN. It reads the ESPN team
   // rosters (shared with the roster-status run's sweep), so it needs no Tank01
   // credentials. Still hand-runnable (admin dashboard, /api/scoring/sync-players).
-  { name: 'player-sync', tier: 'housekeeping', syncRun: ['players'], run: () => runDailyPlayerSync() },
+  {
+    name: 'player-sync',
+    tier: 'housekeeping',
+    syncRun: ['players'],
+    gate: cadenceGate({ job: 'players', every: 'utc-day', retryMs: PLAYER_SYNC_RETRY_MS }),
+    run: ({ now }) => runDailyPlayerSync({ now }),
+  },
   // Weather snapshots (#1883): after live scoring and every deadline duty, ahead
-  // of the multi-minute nightly fill; it never throws.
-  { name: 'weather-snapshots', tier: 'housekeeping', syncRun: ['weather-snapshots'], run: () => runWeatherSnapshotSync() },
+  // of the multi-minute nightly fill; its run never throws, though its gate read can (the tick contains that).
+  {
+    name: 'weather-snapshots',
+    tier: 'housekeeping',
+    syncRun: ['weather-snapshots'],
+    when: async () => !(await inGameWindow()),
+    gate: cadenceGate({ job: 'weather-snapshots', every: { ms: WEATHER_SNAPSHOT_INTERVAL_MS } }),
+    run: ({ now }) => runWeatherSnapshotSync({ now }),
+  },
   // Beside the other once-a-day housekeeping pass, never ahead of a time-sensitive
   // duty: this can run long (every in-season league's whole roster), so it only
-  // starts inside its own off-peak window (#1305 f2).
-  { name: 'nightly-projection-fill', tier: 'housekeeping', run: () => runNightlyProjectionFill() },
-  { name: 'nightly-stats-integrity', tier: 'housekeeping', run: () => runNightlyStatsIntegrityScan() },
+  // starts inside its own off-peak window (#1305 f2), or when a refill is owed
+  // (a stat-correction pass wiped the cache) and no game window is open.
+  {
+    name: 'nightly-projection-fill',
+    tier: 'housekeeping',
+    gate: anyOf(
+      {
+        when: (now) => now.getUTCHours() === NIGHTLY_PROJECTION_FILL_UTC_HOUR,
+        gate: cadenceGate({ job: 'nightly-projection-run', every: 'utc-day' }),
+      },
+      {
+        when: async () => !(await inGameWindow()),
+        gate: cadenceGate({ job: 'nightly-projection-run', every: 'utc-day', after: 'stat-corrections' }),
+      }
+    ),
+    run: ({ now }) => runNightlyProjectionFill({ now }),
+  },
+  {
+    name: 'nightly-stats-integrity',
+    tier: 'housekeeping',
+    when: (now) => now.getUTCHours() === NIGHTLY_PROJECTION_FILL_UTC_HOUR,
+    gate: cadenceGate({ job: STATS_INTEGRITY_JOB, every: 'utc-day' }),
+    run: ({ now }) => runNightlyStatsIntegrityScan({ now }),
+  },
   // ESPN syncs (#1308, risk review): up to 32 sequential ESPN calls each with its
   // own ESPN_TIMEOUT_MS, so a slow or hanging host must never delay anything
   // above. Free and keyless, so no off-peak hour of their own. Roster status
   // (#1766) BEFORE the depth chart: the daily run, then the Saturday run after
   // the 4pm ET elevation deadline, then the game-day run (#1995). The
   // pre-holdout-capture run lives in runHoldoutSnapshots, ahead of the capture.
-  { name: 'espn-roster-status-daily', tier: 'trailing', syncRun: [ROSTER_STATUS_JOB], run: () => runDailyEspnRosterStatusSync() },
-  { name: 'espn-roster-status-saturday', tier: 'trailing', syncRun: [ROSTER_STATUS_JOB], run: () => runSaturdayEspnRosterStatusSync() },
-  { name: 'espn-roster-status-game-day', tier: 'trailing', syncRun: [ROSTER_STATUS_JOB], run: () => runGameDayEspnRosterStatusSync() },
-  { name: 'espn-depth-chart', tier: 'trailing', syncRun: ['espn-depth-chart'], run: () => runDailyEspnDepthChartSync() },
-  { name: 'espn-ownership', tier: 'trailing', syncRun: ['espn-ownership'], run: () => runDailyEspnOwnershipSync() },
+  {
+    name: 'espn-roster-status-daily',
+    tier: 'trailing',
+    syncRun: [ROSTER_STATUS_JOB],
+    gate: cadenceGate({ job: ROSTER_STATUS_JOB, every: 'utc-day' }),
+    run: ({ now }) => runDailyEspnRosterStatusSync({ now }),
+  },
+  { name: 'espn-roster-status-saturday', tier: 'trailing', syncRun: [ROSTER_STATUS_JOB], gate: none(), run: ({ now }) => runSaturdayEspnRosterStatusSync({ now }) },
+  { name: 'espn-roster-status-game-day', tier: 'trailing', syncRun: [ROSTER_STATUS_JOB], gate: none(), run: ({ now }) => runGameDayEspnRosterStatusSync({ now }) },
+  {
+    name: 'espn-depth-chart',
+    tier: 'trailing',
+    syncRun: ['espn-depth-chart'],
+    gate: cadenceGate({ job: 'espn-depth-chart', every: 'utc-day' }),
+    run: ({ now }) => runDailyEspnDepthChartSync({ now }),
+  },
+  {
+    name: 'espn-ownership',
+    tier: 'trailing',
+    syncRun: ['espn-ownership'],
+    gate: cadenceGate({ job: 'espn-ownership', every: 'utc-day' }),
+    run: ({ now }) => runDailyEspnOwnershipSync({ now }),
+  },
 ];
 
 // Sync runs only a commissioner trigger writes (feedSyncRuns.service.js); no tick
@@ -1310,48 +1411,10 @@ async function getSchedulerStatus() {
 module.exports = {
   startScheduler,
   stopScheduler,
+  getSchedulerStatus,
   tick,
   tickUnlocked,
-  draftTick,
-  getSchedulerStatus,
+  TICK_JOBS,
   SYNC_RUN_JOBS,
   MANUAL_SYNC_RUN_JOBS,
-  TICK_JOBS,
-  runJobs,
-  syncRunJobs,
-  syncAndScoreLiveWeeks,
-  syncEveryTicks,
-  runDailyInjurySync,
-  injurySyncDue,
-  injurySyncMs,
-  runDailyAdpSync,
-  runDailyEspnDepthChartSync,
-  runDailyPlayerSync,
-  runDailyEspnOwnershipSync,
-  runDailyEspnRosterStatusSync,
-  runSaturdayEspnRosterStatusSync,
-  runGameDayEspnRosterStatusSync,
-  runPreHoldoutEspnRosterStatusSync,
-  saturdayElevationDeadline,
-  holdoutWindowOpenedAt,
-  runHourlyOddsSync,
-  runHourlyGameContextSync,
-  runWeatherSnapshotSync,
-  WEATHER_SNAPSHOT_INTERVAL_MS,
-  runHoldoutSnapshots,
-  runDailyStatCorrections,
-  runNightlyProjectionFill,
-  runNflverseFinalization,
-  runNflverseGameContextFill,
-  runEspnSchedule,
-  runNflverseCurrentWeek,
-  runNflversePractice,
-  runNightlyStatsIntegrityScan,
-  runPickemWeekSync,
-  runPickemSeasonCompletion,
-  INTERVAL_MS,
-  DRAFT_CLOCK_MS,
-  SYNC_EVERY_TICKS,
-  ODDS_SYNC_INTERVAL_MS,
-  GAME_CONTEXT_SYNC_INTERVAL_MS,
 };

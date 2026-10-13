@@ -51,12 +51,12 @@ const { fantasySeasonLiveWhereSql } = require('./leaguePhase');
  * lock and the weather provider's HTTP fetches never sit inside one (ADR
  * 0036, "a feed call never runs inside a transaction").
  *
- * The gate (UTC hour window, cadence, game window) and the day stamp stay with
- * the caller (scheduler.runNightlyProjectionFill). This is the Sync run body
- * plus the reconcile and explanation passes. A failed run is recorded and
- * rethrown for the caller to log and leave UNSTAMPED. The projection, season,
- * pickem and explanation services are reached through their module objects,
- * never destructured at load, so test stubs bite.
+ * The gate (UTC hour window, cadence, game window) stays with the scheduler's
+ * nightly-projection-fill TICK_JOBS row. This is the Sync run body plus the
+ * reconcile and explanation passes. A failed run is recorded (ok=false, which
+ * does not settle the day) and rethrown for the caller to log. The projection,
+ * season, pickem and explanation services are reached through their module
+ * objects, never destructured at load, so test stubs bite.
  * Returns `{ weeksGenerated, weeksSkipped, leagues, elapsedMs }`.
  */
 async function runNightlyFill({ now = new Date() } = {}) {
