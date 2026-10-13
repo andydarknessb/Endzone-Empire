@@ -27,15 +27,19 @@ const CORRECT_WEEK = /\/correct-week$/;
  * is not restored.
  *
  * A save that lands clears the week's Matchups cache (it changes Expected final,
- * which the cache carries for 30 s); so does a replayed one. A replayed
+ * which the cache carries for 30 s); so does a replayed one. `useLineupWrite`
+ * also calls the optional `onLanded()` at those same two points (never for a
+ * refused or rolled-back write), so the page can re-read what a landed save
+ * made stale, the Start/sit advice (#2262). A replayed
  * `/correct-week` intent shares the queue and says "Week corrected". A replayed
  * lineup save says what its answer disclosed, with no Undo.
  */
-export function useLineupWrite({ leagueId, raw, setRaw }) {
+export function useLineupWrite({ leagueId, raw, setRaw, onLanded }) {
   const notify = useSnackbar();
   const { saveLineup } = useResilientLineupMutation({
     onReplaySuccess: (detail) => {
       clearWeekMatchupsCache(leagueId);
+      onLanded?.();
       if (CORRECT_WEEK.test(detail?.intent?.endpoint ?? '')) {
         notify('Week corrected', { severity: 'success' });
         return;
@@ -68,7 +72,10 @@ export function useLineupWrite({ leagueId, raw, setRaw }) {
     setRaw(setSlots(moves));
     try {
       const result = await saveLineup({ leagueId: Number(leagueId), week: raw?.week, moves });
-      if (!result.queued) clearWeekMatchupsCache(leagueId);
+      if (!result.queued) {
+        clearWeekMatchupsCache(leagueId);
+        onLanded?.();
+      }
       const body = result.response?.data;
       const { message, severity, undo } = describeOutcome(body, {
         isUndo: Boolean(undoOf),

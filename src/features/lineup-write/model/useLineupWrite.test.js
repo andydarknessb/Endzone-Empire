@@ -112,6 +112,62 @@ describe('Matchups cache invalidation (#1881)', () => {
   });
 });
 
+describe('onLanded (#2262)', () => {
+  const setupLanded = () => {
+    const onLanded = jest.fn();
+    const { result } = renderHook(() => useLineupWrite({ leagueId: 7, raw: RAW, setRaw: jest.fn(), onLanded }));
+    return { result, onLanded };
+  };
+
+  test('is called once when the save resolves unqueued', async () => {
+    apiClient.put.mockResolvedValue({ data: {} });
+    const { result, onLanded } = setupLanded();
+
+    await act(async () => {
+      await result.current.submit(MOVES);
+    });
+
+    expect(onLanded).toHaveBeenCalledTimes(1);
+    expect(onLanded).toHaveBeenCalledWith();
+  });
+
+  test('is not called when the save is refused', async () => {
+    apiClient.put.mockRejectedValue(refused());
+    const { result, onLanded } = setupLanded();
+
+    await act(async () => {
+      await result.current.submit(MOVES);
+    });
+
+    expect(onLanded).not.toHaveBeenCalled();
+  });
+
+  test('is not called when the save is queued offline', async () => {
+    apiClient.put.mockRejectedValue(offline());
+    const { result, onLanded } = setupLanded();
+
+    await act(async () => {
+      await result.current.submit(MOVES);
+    });
+
+    expect(readPendingLineupMutations()).toHaveLength(1);
+    expect(onLanded).not.toHaveBeenCalled();
+  });
+
+  test('is called once when the queued save replays', async () => {
+    apiClient.put.mockRejectedValue(offline());
+    const { result, onLanded } = setupLanded();
+
+    await act(async () => {
+      await result.current.submit(MOVES);
+    });
+    replayed(LINEUP_REPLAY);
+
+    expect(onLanded).toHaveBeenCalledTimes(1);
+    expect(onLanded).toHaveBeenCalledWith();
+  });
+});
+
 // One replay subscriber (spec #2042): the page mounts the write once, with swap
 // feeding it, and a replayed save must toast once.
 describe('a replayed offline save', () => {
