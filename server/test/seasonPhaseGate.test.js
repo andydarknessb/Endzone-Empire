@@ -228,3 +228,20 @@ test('finalizeWeekAndAdvance: a complete season is still refused with its own me
   assert.equal(fake.matching(update('leagues')).length, 0, 'current_week / season_status unchanged');
   fake.assertClean();
 });
+
+test('finalizeWeekAndAdvance: a replay for a week already advanced is refused 409, writing nothing', async (t) => {
+  // Double click / retry: advanceWeek read week 1, but the first call already
+  // moved the league to week 2. The matchups row exists, so only the week
+  // check stands between this call and the UPDATE.
+  const fake = seasonPool(league({ current_week: 2 }), [
+    [select('matchups'), () => ({ rows: [{ id: 1, week: 2, final: false }] })],
+  ]).install(t);
+
+  await assert.rejects(
+    () => finalizeWeekAndAdvance({ leagueId: 1, week: 1 }),
+    (error) => error instanceof SeasonError && error.statusCode === 409 && /week 1 was already advanced/.test(error.message)
+  );
+  assert.equal(fake.matching(update('matchups')).length, 0, 'no matchup marked final');
+  assert.equal(fake.matching(update('leagues')).length, 0, 'current_week unchanged');
+  fake.assertClean();
+});

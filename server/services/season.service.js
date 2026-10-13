@@ -379,10 +379,12 @@ async function materializeNewWeekLineups({ leagueId, season, week, league }) {
  * final, then either schedule the next playoff round (regular season over),
  * advance the bracket, or crown a champion. Scores must already be computed
  * (scoring.service) before calling this. Transactional; commissioner- or
- * scheduler-driven. Once committed, the new week's lineups are seeded
+ * scheduler-driven. An optional `week` is the week the caller scored; if the
+ * league is no longer on it the call is refused 409 (idempotent per week).
+ * Once committed, the new week's lineups are seeded
  * (materializeNewWeekLineups), best-effort.
  */
-async function finalizeWeekAndAdvance({ leagueId }) {
+async function finalizeWeekAndAdvance({ leagueId, week: expectedWeek }) {
   // withTransaction owns connect/BEGIN/COMMIT-or-guarded-ROLLBACK and the
   // release rule (ADR 0033). Every refusal here throws a SeasonError inside
   // work, so the wrapper rolls back and rethrows it untouched - no catch-side
@@ -402,6 +404,10 @@ async function finalizeWeekAndAdvance({ leagueId }) {
     if (!seasonOperationsAvailable(league)) throw new SeasonError(409, SEASON_BEFORE_DRAFT_MESSAGE);
     if (league.season_status === 'complete') throw new SeasonError(409, 'season is complete');
     const { current_season: season, current_week: week } = league;
+    // The caller scored expectedWeek; a replay arrives after the league has moved on.
+    if (expectedWeek != null && Number(expectedWeek) !== Number(week)) {
+      throw new SeasonError(409, `week ${expectedWeek} was already advanced`);
+    }
 
     const weekMatchups = await client.query(
       `SELECT * FROM "matchups" WHERE "league_id" = $1 AND "season" = $2 AND "week" = $3`,

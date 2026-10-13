@@ -41,7 +41,8 @@ async function advanceWeek({ leagueId }) {
     week: current_week,
     settle: true,
   });
-  const advance = await season.finalizeWeekAndAdvance({ leagueId });
+  // week: a double click or retry must not finalize week N+1 with no games played.
+  const advance = await season.finalizeWeekAndAdvance({ leagueId, week: current_week });
   const followUp = settleFollowUpSvc.settleFollowUp({
     leagueId,
     season: current_season,

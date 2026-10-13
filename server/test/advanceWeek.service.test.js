@@ -35,7 +35,7 @@ test('advanceWeek: scores the week as settled, then finalizes, then starts the f
 
   assert.deepEqual(order.map((o) => o.step), ['score', 'finalize', 'followUp']);
   assert.deepEqual(order[0].arg, { leagueId: 7, season: 2026, week: 5, settle: true });
-  assert.deepEqual(order[1].arg, { leagueId: 7 });
+  assert.deepEqual(order[1].arg, { leagueId: 7, week: 5 }); // the week it scored, so a replay is refused
   assert.deepEqual(order[2].arg, { leagueId: 7, season: 2026, week: 5, mode: 'advance' });
   assert.equal(result.scored, 3);
   assert.deepEqual(result.advance, { advancedTo: 6, seasonStatus: 'regular' });

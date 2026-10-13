@@ -1,6 +1,9 @@
 const pool = require('../modules/pool');
 const { usersWanting } = require('./prefs.service');
 
+// web-push sets no request timeout; a hung endpoint would hold the scheduler tick (and its advisory lock) forever.
+const SEND_TIMEOUT_MS = 10_000;
+
 /**
  * Web push (VAPID). Depends on the optional `web-push` package plus
  * VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY env vars (VAPID_SUBJECT optional,
@@ -110,7 +113,8 @@ async function sendPushToUsers(userIds, payload) {
         : plain;
       await webPush.sendNotification(
         { endpoint: sub.endpoint, keys: sub.keys },
-        JSON.stringify(out)
+        JSON.stringify(out),
+        { timeout: SEND_TIMEOUT_MS }
       );
       sent += 1;
     } catch (err) {

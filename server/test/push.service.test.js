@@ -98,3 +98,13 @@ test('sendPushToUsers without banter makes no prefs query and sends the payload 
   assert.equal(delivered.length, 3);
   for (const d of delivered) assert.deepEqual(JSON.parse(d.json), payload);
 });
+
+test('sendPushToUsers gives every send a 10 s timeout so a hung endpoint cannot hold the tick', async (t) => {
+  const { delivered } = deliveryWorld(t);
+  const webPush = require('web-push');
+
+  await push.sendPushToUsers([1], payload);
+
+  assert.equal(delivered.length, 1);
+  assert.equal(webPush.sendNotification.mock.calls[0].arguments[2].timeout, 10000);
+});
