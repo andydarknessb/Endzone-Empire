@@ -75,11 +75,17 @@ reads the 32 team rosters through the shared sweep. Each roster athlete's first
 `injuries` entry is the fallback designation for an athlete the document omits,
 mapped through the same five strings (an unknown string is logged once per run
 and treated as healthy; the roster's `Suspension` is healthy here, since it is
-not an injury, and since #2249 it also sets the NFL roster status to Suspended
-(ADR 0041)). The document wins where both speak. A player the document
+not an injury). The document wins where both speak. A player the document
 omits is healthy when a roster saw him and listed no injury; a player neither
 feed saw (his team did not answer the sweep) keeps what he has: a stored
 designation is only cleared by a feed that saw him. A failed or slow sweep (20
 seconds, `INJURY_SWEEP_TIMEOUT_MS`) does not fail the run; it falls back to the
 document alone. This supersedes "written only by the ESPN injuries document"
 above.
+
+## Amendment (#2249)
+
+- 2026-10-13. The roster's `Suspension` string is still healthy as an injury
+  designation, and since #2249 it also sets the NFL roster status to Suspended
+  (ADR 0041 amendment #2249), so the player is Unavailable through the roster
+  status rather than through a designation.
