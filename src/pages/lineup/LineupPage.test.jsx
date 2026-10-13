@@ -1244,6 +1244,54 @@ test('a refused apply re-reads nothing (#2262)', async () => {
   expect(apiClient.get).not.toHaveBeenCalledWith(`${ADVICE_URL}&reload=1`);
 });
 
+
+// #2267: a landed drop, and its Undo, re-read the advice the same way a landed
+// lineup write does (#2262): the card must not keep naming a dropped player.
+test('a confirmed drop re-reads the advice once the DELETE resolves (#2267)', async () => {
+  const user = userEvent.setup();
+  apiClient.delete.mockResolvedValue({ data: {} });
+  renderPage({
+    [`${ADVICE_URL}&reload=1`]: { data: adviceBody({ suggestions: [], movePlan: [] }) },
+  });
+
+  await user.click(await screen.findByRole('button', { name: 'Drop Bench Guy' }));
+  await user.click(await screen.findByRole('button', { name: 'Drop' }));
+
+  await waitFor(() => expect(apiClient.delete).toHaveBeenCalledWith('/api/team/roster/10?leagueId=1'));
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith(`${ADVICE_URL}&reload=1`));
+});
+
+test("the drop toast's Undo re-reads the advice again once its POST resolves (#2267)", async () => {
+  const user = userEvent.setup();
+  apiClient.delete.mockResolvedValue({ data: {} });
+  apiClient.post.mockResolvedValue({ data: {} });
+  renderPage({
+    [`${ADVICE_URL}&reload=1`]: { data: adviceBody({ suggestions: [], movePlan: [] }) },
+    [`${ADVICE_URL}&reload=2`]: { data: adviceBody({ suggestions: [], movePlan: [] }) },
+  });
+
+  await user.click(await screen.findByRole('button', { name: 'Drop Bench Guy' }));
+  await user.click(await screen.findByRole('button', { name: 'Drop' }));
+  await waitFor(() => expect(mockNotify).toHaveBeenCalledWith('Dropped Bench Guy', expect.objectContaining({ actionLabel: 'Undo' })));
+
+  const { onAction } = mockNotify.mock.calls.find(([msg]) => msg === 'Dropped Bench Guy')[1];
+  await act(async () => { await onAction(); });
+
+  expect(apiClient.post).toHaveBeenCalledWith('/api/team/roster/10/undo-drop', { leagueId: 1 });
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith(`${ADVICE_URL}&reload=2`));
+});
+
+test('a refused drop re-reads nothing (#2267)', async () => {
+  const user = userEvent.setup();
+  apiClient.delete.mockRejectedValue({ response: { status: 409, data: { error: 'locked' } } });
+  renderPage();
+
+  await user.click(await screen.findByRole('button', { name: 'Drop Bench Guy' }));
+  await user.click(await screen.findByRole('button', { name: 'Drop' }));
+
+  await waitFor(() => expect(mockNotify).toHaveBeenCalledWith(expect.any(String), { severity: 'error' }));
+  expect(apiClient.get).not.toHaveBeenCalledWith(`${ADVICE_URL}&reload=1`);
+});
 test('a refused apply rolls the optimistic move back', async () => {
   const user = userEvent.setup();
   apiClient.put.mockRejectedValue({ response: { status: 409, data: { error: 'locked' } } });
