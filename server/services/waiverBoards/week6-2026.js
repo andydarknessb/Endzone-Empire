@@ -1,0 +1,191 @@
+/**
+ * Week 6 2026 editorial waiver board, seeded from the Week 6 Darkness Report's
+ * "The Full Board" table (src/content/articles/week6-waiver-wire-darkness-report.jsx),
+ * in the column's order. Bids are percent of a $100 FAAB budget; the `$1` rows
+ * are 1..1. All 25 are kept so the endpoint's cap still fills after the Ownership
+ * cutoff drops some. `playerId` values are the production `players.id` rows from
+ * the editorial rulings for issue #2255.
+ *
+ * @type {import('./index').WaiverBoard}
+ */
+module.exports = {
+  season: 2026,
+  week: 6,
+  entries: [
+    {
+      playerId: 1436,
+      name: 'Woody Marks',
+      bidMin: 12,
+      bidMax: 18,
+      reason: 'Montgomery week-to-week (groin). 15 carries for 62 and 4 catches.',
+    },
+    {
+      playerId: 899,
+      name: 'Germie Bernard',
+      bidMin: 8,
+      bidMax: 12,
+      reason: '6 for 80 on a 30% target share. Pittman on IR, Roman Wilson out.',
+    },
+    {
+      playerId: 546,
+      name: 'Jameis Winston',
+      bidMin: 6,
+      bidMax: 10,
+      reason: '326 yards and 3 TDs, no picks. Dart out for the season.',
+    },
+    {
+      playerId: 540,
+      name: 'Jordan Love',
+      bidMin: 5,
+      bidMax: 8,
+      reason: '367 yards and 2 TDs. Sunday night in a 52.5 total.',
+    },
+    {
+      playerId: 689,
+      name: 'Pat Freiermuth',
+      bidMin: 4,
+      bidMax: 7,
+      reason: '5 for 44 and two TDs, 23% target share. Pittman on IR.',
+    },
+    {
+      playerId: 1118,
+      name: 'Aaron Rodgers',
+      bidMin: 4,
+      bidMax: 7,
+      reason: 'Three TDs in each of the last three games.',
+    },
+    {
+      playerId: 303,
+      name: 'DeMario Douglas',
+      bidMin: 4,
+      bidMax: 7,
+      reason: '4 for 65 and two TDs. Hollins on IR.',
+    },
+    {
+      playerId: 237,
+      name: 'MarShawn Lloyd',
+      bidMin: 4,
+      bidMax: 7,
+      reason: 'Two rushing TDs. Jacobs out, Brooks on IR.',
+    },
+    {
+      playerId: 719,
+      name: 'Tyler Huntley',
+      bidMin: 3,
+      bidMax: 6,
+      reason: '24.0 points in his first start. Lamar Jackson (ankle) still out.',
+    },
+    {
+      playerId: 730,
+      name: 'Brandin Cooks',
+      bidMin: 3,
+      bidMax: 6,
+      reason: 'Deebo Samuel out for weeks (hamstring). Kirk, Pearsall, Robinson on IR.',
+    },
+    {
+      playerId: 765,
+      name: 'Tyler Higbee',
+      bidMin: 3,
+      bidMax: 5,
+      reason: '5 for 83. Rams implied for 33.0 against Arizona.',
+    },
+    {
+      playerId: 1258,
+      name: 'Dameon Pierce',
+      bidMin: 2,
+      bidMax: 5,
+      reason: 'Shipley out multiple weeks, Bigsby on IR. Barkley "hopeful".',
+    },
+    {
+      playerId: 936,
+      name: 'Kimani Vidal',
+      bidMin: 2,
+      bidMax: 5,
+      reason: '57 yards and a TD. Two straight double-digit weeks.',
+    },
+    {
+      playerId: 1048,
+      name: 'Darius Cooper',
+      bidMin: 2,
+      bidMax: 4,
+      reason: '2 for 71 and a TD, 17.8 and 14.1 the last two weeks.',
+    },
+    {
+      playerId: 563,
+      name: 'Keenan Allen',
+      bidMin: 2,
+      bidMax: 4,
+      reason: '5 for 45, 21% target share. Pierce on IR, Slayton out.',
+    },
+    {
+      playerId: 1268,
+      name: 'Brenton Strange',
+      bidMin: 2,
+      bidMax: 4,
+      reason: '7 for 68 on 8 targets, 21% target share.',
+    },
+    {
+      playerId: 891,
+      name: 'Kendrick Bourne',
+      bidMin: 1,
+      bidMax: 3,
+      reason: '5 for 70 on 8 targets. A 13.5-point dog throws all day.',
+    },
+    {
+      playerId: 1519,
+      name: 'Ryan Flournoy',
+      bidMin: 1,
+      bidMax: 3,
+      reason: '3 for 90. Lamb (quad bruise) expected to play.',
+    },
+    {
+      playerId: 1269,
+      name: 'Chig Okonkwo',
+      bidMin: 1,
+      bidMax: 3,
+      reason: '4 for 60, 26% target share with Daniels back.',
+    },
+    {
+      playerId: 835,
+      name: 'Raheim Sanders',
+      bidMin: 1,
+      bidMax: 3,
+      reason: 'Judkins day-to-day (ankle). Sanders is questionable himself (hip).',
+    },
+    {
+      playerId: 105,
+      name: 'Kendre Miller',
+      bidMin: 1,
+      bidMax: 2,
+      reason: '10 for 30 and a TD. Kamara limited (back).',
+    },
+    {
+      playerId: 1471,
+      name: 'Isaiah Bond',
+      bidMin: 1,
+      bidMax: 2,
+      reason: '3 for 74, 22% target share. Concepcion in concussion protocol.',
+    },
+    {
+      playerId: 660,
+      name: 'Kyle Williams',
+      bidMin: 1,
+      bidMax: 1,
+      reason: '3 for 91 and a TD.',
+    },
+    {
+      playerId: 638,
+      name: 'Efton Chism III',
+      bidMin: 1,
+      bidMax: 1,
+      reason: 'Team-high six targets, 5 for 57.',
+    },
+    {
+      playerId: 1041,
+      name: 'Corey Kiner',
+      bidMin: 1,
+      bidMax: 1,
+      reason: '52 rushing yards. Henderson (ankle) questionable.',
+    },
+  ],
+};
