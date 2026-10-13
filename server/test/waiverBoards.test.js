@@ -129,6 +129,75 @@ test('every Week 5 entry carries a non-empty reason', () => {
   }
 });
 
+// The article's "The Full Board" table order (Week 6 2026 Darkness Report).
+const WEEK6_NAMES = [
+  'Woody Marks',
+  'Germie Bernard',
+  'Jameis Winston',
+  'Jordan Love',
+  'Pat Freiermuth',
+  'Aaron Rodgers',
+  'DeMario Douglas',
+  'MarShawn Lloyd',
+  'Tyler Huntley',
+  'Brandin Cooks',
+  'Tyler Higbee',
+  'Dameon Pierce',
+  'Kimani Vidal',
+  'Darius Cooper',
+  'Keenan Allen',
+  'Brenton Strange',
+  'Kendrick Bourne',
+  'Ryan Flournoy',
+  'Chig Okonkwo',
+  'Raheim Sanders',
+  'Kendre Miller',
+  'Isaiah Bond',
+  'Kyle Williams',
+  'Efton Chism III',
+  'Corey Kiner',
+];
+
+test('getBoard(2026, 6) lists the 25 Darkness Report players in the column order', () => {
+  const board = waiverBoards.getBoard(2026, 6);
+  assert.ok(board, 'Week 6 2026 board is listed');
+  assert.equal(board.season, 2026);
+  assert.equal(board.week, 6);
+  assert.equal(board.entries.length, 25);
+  assert.deepEqual(
+    board.entries.map((e) => e.name),
+    WEEK6_NAMES
+  );
+  assert.equal(board.entries[0].name, 'Woody Marks');
+  assert.equal(board.entries[24].name, 'Corey Kiner');
+});
+
+test('every Week 6 entry has a distinct positive integer playerId', () => {
+  const { entries } = waiverBoards.getBoard(2026, 6);
+  for (const e of entries) {
+    assert.ok(Number.isInteger(e.playerId) && e.playerId > 0, `${e.name} playerId`);
+  }
+  assert.equal(new Set(entries.map((e) => e.playerId)).size, entries.length);
+});
+
+test('every Week 6 entry has an integer bid range 1..100 with bidMin <= bidMax', () => {
+  const { entries } = waiverBoards.getBoard(2026, 6);
+  for (const e of entries) {
+    for (const bid of [e.bidMin, e.bidMax]) {
+      assert.ok(Number.isInteger(bid) && bid >= 1 && bid <= 100, `${e.name} bid ${bid}`);
+    }
+    assert.ok(e.bidMin <= e.bidMax, `${e.name} bidMin <= bidMax`);
+  }
+});
+
+test('every Week 6 entry carries a non-empty reason', () => {
+  const { entries } = waiverBoards.getBoard(2026, 6);
+  for (const e of entries) {
+    assert.equal(typeof e.reason, 'string');
+    assert.ok(e.reason.trim().length > 0, `${e.name} reason`);
+  }
+});
+
 test('a week with no board returns null', () => {
   assert.equal(waiverBoards.getBoard(2026, 3), null);
 });
