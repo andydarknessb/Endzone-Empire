@@ -38,9 +38,29 @@ apiClient.interceptors.request.use((config) => {
 
 let refreshPromise = null;
 
+// The refresh endpoint answers 204 with no body when the browser sent no refresh
+// cookie: an anonymous visitor has no session to restore. That is a refusal
+// every caller must treat like a 401 (the cookie is httpOnly, so only the
+// server can say "none"), but it is not an HTTP error, so it carries a code of
+// its own instead of a fabricated response.
+const NO_SESSION = 'NO_SESSION';
+
+/** True when the server refused to restore a session: a 401 (invalid, expired
+ * or revoked cookie) or the 204 "no cookie". A network failure or a 5xx is not
+ * a refusal; the cookie may still be good. */
+export function isSessionRefusal(error) {
+  return error?.response?.status === 401 || error?.code === NO_SESSION;
+}
+
 function storeRotatedAccessToken(response) {
-  setToken(response.data.token);
-  return response.data.token;
+  const token = response.data?.token;
+  if (!token) {
+    const error = new Error('no session to restore');
+    error.code = NO_SESSION;
+    throw error;
+  }
+  setToken(token);
+  return token;
 }
 
 function requestRefresh() {

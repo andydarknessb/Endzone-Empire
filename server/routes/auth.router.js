@@ -134,6 +134,11 @@ router.post('/login', async (req, res) => {
 
 router.post('/refresh', requireTrustedOrigin, async (req, res) => {
   const refreshToken = getRefreshToken(req);
+  // No cookie is not an error: an anonymous visitor has no session to restore.
+  // 204 keeps the console clean on every cold load of the public tree. A cookie
+  // that is present but invalid, revoked, expired or reused still answers 401
+  // below. Nothing is set or cleared here: there is no cookie to rotate or drop.
+  if (!refreshToken) return res.status(204).end();
   try {
     const rotated = await tokens.rotateRefreshToken({ token: refreshToken });
     const result = await pool.query(

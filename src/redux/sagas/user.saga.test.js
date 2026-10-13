@@ -7,6 +7,7 @@ import { renderHook } from '@testing-library/react';
 import { useLeague } from '../../hooks/useLeague';
 import { setResource } from '../../lib/resourceCache';
 import apiClient, { setToken, getToken, clearToken } from '../../api/apiClient';
+import { hasSessionHint, setSessionHint } from '../../lib/sessionHint';
 
 // Warm the shared league entry the way a visited page would.
 const primeLeagueForTest = (leagueId, league) =>
@@ -88,6 +89,45 @@ describe('fetchUser (worker)', () => {
 
       expect(mock.history.get.filter((r) => r.url === '/api/user')).toHaveLength(1);
       expect(dispatched).toEqual([{ type: 'SET_USER', payload: { id: 4, username: 'carol' } }]);
+    });
+
+    // The landing page's anonymous load: no refresh cookie, so the server
+    // answers 204. No session means no /api/user request, and no console error.
+    test('a refresh answered 204 (anonymous visitor) unsets the user and never asks for /api/user', async () => {
+      authMock.onPost('/api/auth/refresh').reply(204);
+
+      const dispatched = await run();
+
+      expect(authMock.history.post).toHaveLength(1);
+      expect(mock.history.get).toHaveLength(0);
+      expect(dispatched).toEqual([{ type: 'UNSET_USER' }]);
+      expect(getToken()).toBeNull();
+    });
+
+    // An old server answers a missing cookie with 400. Today's behaviour stays:
+    // fall through to the GET, whose 401 then unsets the user.
+    test('a refresh answered 400 (older server) still falls through to the GET and its 401', async () => {
+      authMock.onPost('/api/auth/refresh').reply(400, { error: 'refreshToken is required' });
+      mock.onGet('/api/user').reply(401);
+
+      const dispatched = await run();
+
+      expect(mock.history.get.filter((r) => r.url === '/api/user')).toHaveLength(1);
+      expect(dispatched).toEqual([{ type: 'UNSET_USER' }]);
+    });
+
+    // A flaky network is not a refusal: the session hint must survive it, or a
+    // weekly user is shown logged out after one dropped request.
+    test('a refresh network error falls through to the GET and keeps the session hint', async () => {
+      setSessionHint('a-token');
+      authMock.onPost('/api/auth/refresh').networkError();
+      mock.onGet('/api/user').reply(200, { id: 4, username: 'carol' });
+
+      const dispatched = await run();
+
+      expect(mock.history.get.filter((r) => r.url === '/api/user')).toHaveLength(1);
+      expect(dispatched).toEqual([{ type: 'SET_USER', payload: { id: 4, username: 'carol' } }]);
+      expect(hasSessionHint()).toBe(true);
     });
 
     test('a refresh the server refuses unsets the user and never asks for /api/user', async () => {

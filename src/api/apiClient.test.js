@@ -1,6 +1,12 @@
 import MockAdapter from 'axios-mock-adapter';
 import axios from 'axios';
-import apiClient, { clearToken, getToken, refreshTokens, setToken } from './apiClient';
+import apiClient, {
+  clearToken,
+  getToken,
+  isSessionRefusal,
+  refreshTokens,
+  setToken,
+} from './apiClient';
 import { hasSessionHint } from '../lib/sessionHint';
 
 describe('in-memory access token', () => {
@@ -117,6 +123,47 @@ describe('cookie-backed refresh', () => {
     expect(expired).toHaveBeenCalled();
     expect(axiosMock.history.post).toHaveLength(2);
     window.removeEventListener('auth:session-expired', expired);
+  });
+
+  // An anonymous visitor has no refresh cookie, and the server answers that
+  // with 204 and no body. That is "no session", not a token to store.
+  describe('a refresh answered 204 (no refresh cookie, no session)', () => {
+    test('refreshTokens rejects with a session refusal and stores no token', async () => {
+      axiosMock.onPost('/api/auth/refresh').reply(204);
+
+      const error = await refreshTokens().catch((e) => e);
+
+      expect(isSessionRefusal(error)).toBe(true);
+      expect(getToken()).toBeNull();
+      expect(hasSessionHint()).toBe(false);
+      // Not the 401 rotation-race path: it is not retried.
+      expect(axiosMock.history.post).toHaveLength(1);
+    });
+
+    test('a 401 on a normal request expires the session and is never replayed', async () => {
+      const expired = jest.fn();
+      window.addEventListener('auth:session-expired', expired);
+      axiosMock.onPost('/api/auth/refresh').reply(204);
+      apiMock.onGet('/api/team').reply(401);
+
+      await expect(apiClient.get('/api/team')).rejects.toMatchObject({
+        response: { status: 401 },
+      });
+
+      expect(getToken()).toBeNull();
+      expect(expired).toHaveBeenCalledTimes(1);
+      expect(apiMock.history.get).toHaveLength(1);
+      expect(axiosMock.history.post).toHaveLength(1);
+      window.removeEventListener('auth:session-expired', expired);
+    });
+  });
+
+  test('isSessionRefusal is true for a 401 and false for a network or server failure', () => {
+    expect(isSessionRefusal({ response: { status: 401 } })).toBe(true);
+    expect(isSessionRefusal({ response: { status: 400 } })).toBe(false);
+    expect(isSessionRefusal({ response: { status: 500 } })).toBe(false);
+    expect(isSessionRefusal(new Error('Network Error'))).toBe(false);
+    expect(isSessionRefusal(undefined)).toBe(false);
   });
 
   test('does not refresh-loop on auth endpoints', async () => {
