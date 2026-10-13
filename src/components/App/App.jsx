@@ -22,18 +22,9 @@ import Footer from '../Footer/Footer';
 import ProtectedRoute from '../ProtectedRoute/ProtectedRoute';
 import FantasyOnly from '../common/FantasyOnly';
 
-import AboutPage from '../AboutPage/AboutPage';
-import UserPage from '../UserPage/UserPage';
-import InfoPage from '../InfoPage/InfoPage';
 import LandingPage from '../LandingPage/LandingPage';
-import LoginPage from '../LoginPage/LoginPage';
-import RegisterPage from '../RegisterPage/RegisterPage';
-import ForgotPassword from '../ForgotPassword/ForgotPassword';
-import ResetPassword from '../ResetPassword/ResetPassword';
-import VerifyEmail from '../VerifyEmail/VerifyEmail';
 import AppThemeProvider from '../../theme/AppThemeProvider';
 import OfflineBanner from '../OfflineBanner/OfflineBanner';
-import NotFound from '../NotFound/NotFound';
 import { SnackbarProvider } from '../Snackbar/SnackbarProvider';
 import NavigationGuard from '../NavigationGuard/NavigationGuard';
 import PushAlertToast from '../PushAlertToast/PushAlertToast';
@@ -43,6 +34,17 @@ import './App.css';
 import { lazyWithReload } from '../../shared/lib/lazyWithReload';
 import { hasSessionHint } from '../../lib/sessionHint';
 
+// The landing page is the only one an anonymous first visit needs; every other
+// route's code loads when it is opened.
+const AboutPage = lazyWithReload(() => import('../AboutPage/AboutPage'));
+const UserPage = lazyWithReload(() => import('../UserPage/UserPage'));
+const InfoPage = lazyWithReload(() => import('../InfoPage/InfoPage'));
+const LoginPage = lazyWithReload(() => import('../LoginPage/LoginPage'));
+const RegisterPage = lazyWithReload(() => import('../RegisterPage/RegisterPage'));
+const ForgotPassword = lazyWithReload(() => import('../ForgotPassword/ForgotPassword'));
+const ResetPassword = lazyWithReload(() => import('../ResetPassword/ResetPassword'));
+const VerifyEmail = lazyWithReload(() => import('../VerifyEmail/VerifyEmail'));
+const NotFound = lazyWithReload(() => import('../NotFound/NotFound'));
 const LeagueManagement = lazyWithReload(() => import('../LeagueManagement/LeagueManagement'));
 const LeagueDiscovery = lazyWithReload(() => import('../LeagueDiscovery/LeagueDiscovery'));
 const LineupPage = lazyWithReload(() => import('../../pages/lineup'));
@@ -156,7 +158,7 @@ function AppLayout({ children }) {
         </Link>
       )}
       {!isPresenter && <Nav />}
-      <Box sx={contentSx}>
+      <Box component="main" sx={contentSx}>
         {children}
       </Box>
       {!isPresenter && !isDesktopDraftShell && <Footer />}

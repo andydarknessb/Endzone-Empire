@@ -228,7 +228,7 @@ export default function WaiversPage() {
 
   return (
     <Box
-      component="main"
+      component="div"
       sx={{
         width: '100%',
         maxWidth: 1440,

@@ -20,6 +20,12 @@ window.addEventListener('auth:session-expired', () => {
   store.dispatch({ type: 'UNSET_USER' });
 });
 
+// A cold visit to `/` would otherwise paint one frame of <Navigate> (empty page,
+// Footer at the viewport bottom) before LandingPage mounts and the Footer jumps.
+if (window.location.pathname === '/' && ['', '#/'].includes(window.location.hash)) {
+  window.history.replaceState(null, '', `/${window.location.search}#/home`);
+}
+
 const root = ReactDOM.createRoot(document.getElementById('react-root'));
 root.render(
   <React.StrictMode>

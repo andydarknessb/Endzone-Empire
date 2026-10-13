@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { Suspense, useState } from 'react';
 import { Link as RouterLink, useLocation } from 'react-router-dom';
 import { useSelector, useDispatch } from 'react-redux';
 import {
@@ -8,29 +8,35 @@ import {
   Stack,
   Button,
   IconButton,
-  Menu,
-  MenuItem,
-  Drawer,
-  List,
-  ListItemButton,
-  ListItemIcon,
-  ListItemText,
-  Divider,
   Tooltip,
   Typography,
-  Avatar,
   Link,
 } from '@mui/material';
 import MenuIcon from '@mui/icons-material/Menu';
 import Brightness4Icon from '@mui/icons-material/Brightness4';
 import Brightness7Icon from '@mui/icons-material/Brightness7';
 import SportsFootballIcon from '@mui/icons-material/SportsFootball';
-import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
-import NotificationBell from '../NotificationBell/NotificationBell';
-import GlobalPlayerSearch from '../GlobalPlayerSearch/GlobalPlayerSearch';
-import ProfileSettingsModal from './ProfileSettingsModal';
 import { useThemeMode } from '../../theme/AppThemeProvider';
 import { MIN_TOUCH_TARGET_SX } from '../../shared/lib/a11y';
+import { lazyWithReload } from '../../shared/lib/lazyWithReload';
+import { hasSessionHint } from '../../lib/sessionHint';
+
+// Signed-in-only pieces: an anonymous visit never renders them, so they stay
+// out of the boot bundle.
+const loadNotificationBell = () => import('../NotificationBell/NotificationBell');
+const loadGlobalPlayerSearch = () => import('../GlobalPlayerSearch/GlobalPlayerSearch');
+const loadNavAccountMenu = () => import('./NavAccountMenu');
+const loadNavDrawer = () => import('./NavDrawer');
+const NotificationBell = lazyWithReload(loadNotificationBell);
+const GlobalPlayerSearch = lazyWithReload(loadGlobalPlayerSearch);
+const NavAccountMenu = lazyWithReload(loadNavAccountMenu);
+const NavDrawer = lazyWithReload(loadNavDrawer);
+
+// A returning user's session hint says these are about to render, so start their
+// chunks now rather than when the session resolves (no pop-in in the app bar).
+if (hasSessionHint()) {
+  [loadNotificationBell, loadGlobalPlayerSearch, loadNavAccountMenu, loadNavDrawer].forEach((load) => load().catch(() => {}));
+}
 
 // Primary destinations shown inline on desktop and in the drawer on mobile.
 // "Notification Settings" and "Log Out" intentionally live in the profile
@@ -50,8 +56,6 @@ function Nav() {
   const { mode, toggleMode } = useThemeMode();
   const location = useLocation();
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [profileAnchor, setProfileAnchor] = useState(null);
-  const [profileSettingsOpen, setProfileSettingsOpen] = useState(false);
   // Why the drawer opened. The "/" shortcut opens it to reach the search inside
   // it on windows too narrow for the inline app-bar search (#934); a hamburger
   // tap opens it to navigate and must NOT steal focus into the search. This
@@ -77,13 +81,8 @@ function Nav() {
     setDrawerOpen(true);
   };
 
-  const closeAll = () => {
-    setProfileAnchor(null);
-    closeDrawer();
-  };
-
   const handleLogout = () => {
-    closeAll();
+    closeDrawer();
     dispatch({ type: 'LOGOUT' });
   };
 
@@ -223,156 +222,42 @@ function Nav() {
               {/* Below `lg` this instance is CSS-hidden, so "/" cannot focus it;
                   onShortcutMiss then opens the drawer and focuses its search
                   instead, so the shortcut works at every width (#934). */}
-              <GlobalPlayerSearch enableShortcut onShortcutMiss={openDrawerForSearch} />
+              <Suspense fallback={null}>
+                <GlobalPlayerSearch enableShortcut onShortcutMiss={openDrawerForSearch} />
+              </Suspense>
             </Box>
           )}
-          {loggedIn && <NotificationBell />}
+          {loggedIn && (
+            <Suspense fallback={null}>
+              <NotificationBell />
+            </Suspense>
+          )}
           {themeToggle}
 
           {loggedIn && (
-            <>
-              <Tooltip title="Account">
-                <IconButton
-                  aria-label="account menu"
-                  onClick={(e) => setProfileAnchor(e.currentTarget)}
-                  size="small"
-                  sx={MIN_TOUCH_TARGET_SX}
-                >
-                  <Avatar sx={{ width: 32, height: 32, bgcolor: 'primary.main', fontSize: 16 }}>
-                    {(user.username || '?').charAt(0).toUpperCase()}
-                  </Avatar>
-                </IconButton>
-              </Tooltip>
-              <Menu
-                anchorEl={profileAnchor}
-                open={Boolean(profileAnchor)}
-                onClose={() => setProfileAnchor(null)}
-                anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
-                transformOrigin={{ vertical: 'top', horizontal: 'right' }}
-              >
-                <MenuItem disabled sx={{ opacity: '1 !important', fontWeight: 600 }}>
-                  {user.username || 'Signed in'}
-                </MenuItem>
-                <Divider />
-                <MenuItem
-                  onClick={() => {
-                    setProfileAnchor(null);
-                    setProfileSettingsOpen(true);
-                  }}
-                >
-                  Profile Settings
-                </MenuItem>
-                <MenuItem component={RouterLink} to="/settings/notifications" onClick={() => setProfileAnchor(null)}>
-                  Notification Settings
-                </MenuItem>
-                {isAdmin && (
-                  <MenuItem component={RouterLink} to="/admin" onClick={() => setProfileAnchor(null)}>
-                    <ListItemIcon>
-                      <AdminPanelSettingsIcon fontSize="small" />
-                    </ListItemIcon>
-                    Admin
-                  </MenuItem>
-                )}
-                <MenuItem onClick={handleLogout}>Log Out</MenuItem>
-              </Menu>
-              <ProfileSettingsModal
-                open={profileSettingsOpen}
-                onClose={() => setProfileSettingsOpen(false)}
-              />
-            </>
+            <Suspense fallback={null}>
+              <NavAccountMenu user={user} isAdmin={isAdmin} onLogout={handleLogout} />
+            </Suspense>
           )}
         </Box>
       </Toolbar>
 
-      {/* Mobile navigation drawer */}
-      <Drawer anchor="left" open={drawerOpen} onClose={closeDrawer}>
-        {/* role="presentation": this Box is layout only. Its "Navigation
-            menu" nav landmark below (#322) is distinctly named from the top
-            bar's, so tests reach it by that role+name now instead of a
-            testid seam. */}
-        <Box sx={{ width: 260 }} role="presentation">
-          <Typography variant="h6" component="div" sx={{ p: 2, color: 'var(--accent)', fontWeight: 700 }}>
-            Endzone Empire
-          </Typography>
-          <Divider />
-          {loggedIn && (
-            <Box sx={{ p: 2 }} onClick={(e) => e.stopPropagation()}>
-              {/* autoFocus only when the drawer was opened by "/" (#934); a
-                  hamburger open leaves focusDrawerSearch false so it does not
-                  steal focus. The drawer is a temporary MUI Drawer with no
-                  keepMounted, so this instance mounts fresh on each open and
-                  autoFocus fires against the current intent. onSelect closes
-                  the drawer (#1362): nothing else does once a search hit
-                  navigates - not even to the page already open, since the
-                  pathname staying put means a location effect would not fire. */}
-              <GlobalPlayerSearch inDrawer autoFocus={focusDrawerSearch} onSelect={closeDrawer} />
-            </Box>
-          )}
-          {loggedIn ? (
-            <>
-              {/* Named "Navigation menu" (not "Primary navigation") so the
-                  drawer's landmark agrees with the opener button above,
-                  labelled "open navigation menu" - the button a user
-                  activates and the landmark they land in speak the same
-                  words. Distinct from the top bar's "Primary navigation"
-                  landmark so a landmark listing shows two entries, not one
-                  name twice (#322). */}
-              <Box component="nav" aria-label="Navigation menu">
-                <List>
-                  {links.map((l) => (
-                    <ListItemButton
-                      key={l.to}
-                      component={RouterLink}
-                      to={l.to}
-                      selected={isActive(l.to)}
-                      onClick={closeDrawer}
-                      sx={MIN_TOUCH_TARGET_SX}
-                    >
-                      <ListItemText primary={l.label} />
-                    </ListItemButton>
-                  ))}
-                </List>
-              </Box>
-              <Divider />
-              <List>
-                <ListItemButton
-                  component={RouterLink}
-                  to="/settings/notifications"
-                  onClick={closeDrawer}
-                  sx={MIN_TOUCH_TARGET_SX}
-                >
-                  <ListItemText primary="Notification Settings" />
-                </ListItemButton>
-                {isAdmin && (
-                  <ListItemButton
-                    component={RouterLink}
-                    to="/admin"
-                    onClick={closeDrawer}
-                    sx={MIN_TOUCH_TARGET_SX}
-                  >
-                    <ListItemIcon>
-                      <AdminPanelSettingsIcon fontSize="small" />
-                    </ListItemIcon>
-                    <ListItemText primary="Admin" />
-                  </ListItemButton>
-                )}
-                <ListItemButton onClick={handleLogout} sx={MIN_TOUCH_TARGET_SX}>
-                  <ListItemText primary="Log Out" />
-                </ListItemButton>
-              </List>
-            </>
-          ) : (
-            <List>
-              <ListItemButton component={RouterLink} to="/login" onClick={closeDrawer}>
-                <ListItemText primary="Log In" />
-              </ListItemButton>
-              <ListItemButton component={RouterLink} to="/registration" onClick={closeDrawer}>
-                <ListItemText primary="Register" />
-              </ListItemButton>
-            </List>
-          )}
-        </Box>
-      </Drawer>
+      {/* Mobile navigation drawer. It stays mounted while signed in so its
+          close transition runs; an anonymous visit never opens it. */}
+      {(loggedIn || drawerOpen) && (
+        <Suspense fallback={null}>
+          <NavDrawer
+            open={drawerOpen}
+            onClose={closeDrawer}
+            loggedIn={loggedIn}
+            isAdmin={isAdmin}
+            links={links}
+            isActive={isActive}
+            onLogout={handleLogout}
+            focusSearch={focusDrawerSearch}
+          />
+        </Suspense>
+      )}
     </AppBar>
   );
 }

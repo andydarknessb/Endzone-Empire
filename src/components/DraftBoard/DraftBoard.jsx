@@ -56,9 +56,9 @@ import { MIN_TOUCH_TARGET_SX } from '../../shared/lib/a11y';
 import { teamNameLabel } from '../../shared/lib/teamIdentity';
 import { readDraftSoundOn, writeDraftSoundOn } from './draftSoundPreference';
 
-// The Draft page's one landmark structure: a single <main>, named by the
-// league-name H1 inside it, that the App-level skip link (see App.jsx)
-// targets directly. Shared by both the loading skeleton and the loaded view
+// The Draft page's content container, named by the league-name H1 inside it,
+// that the App-level skip link (see App.jsx) targets directly. The app shell's
+// <main> (App.jsx AppLayout) is the page's one main landmark. Shared by both the loading skeleton and the loaded view
 // so the skip link's destination exists throughout the page's lifecycle.
 const DRAFT_MAIN_ID = 'draft-main-content';
 const DRAFT_H1_ID = 'draft-league-name';
@@ -559,15 +559,12 @@ function DraftBoard() {
     );
   }, [loading, location.pathname, location.search, navigate]);
 
-  // #322 same-pass check: this component renders two Container
-  // component="main" elements (here, and again below the loading branch),
-  // but they are exclusive branches of the same `if (loading) return ...`
-  // conditional - never both mounted at once - so they are not the
-  // duplicate-landmark defect #322 fixed on Nav's two `nav` landmarks.
+  // The app shell's <main> (App.jsx AppLayout) is the page's one main
+  // landmark, so this container is a plain element that keeps the skip-link id.
   if (loading) {
     return (
       <Container
-        component="main"
+        component="div"
         id={DRAFT_MAIN_ID}
         tabIndex={-1}
         maxWidth="xl"
@@ -921,7 +918,7 @@ function DraftBoard() {
       currentPickNumber={(Number(league?.current_pick) || 0) + 1}
     >
     <Container
-      component="main"
+      component="section"
       id={DRAFT_MAIN_ID}
       ref={layoutRef}
       tabIndex={-1}

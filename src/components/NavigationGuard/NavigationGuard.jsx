@@ -1,7 +1,9 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import React, { Suspense, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
-import { Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle } from '@mui/material';
 import { UNSAFE_NavigationContext as NavigationContext } from 'react-router-dom';
+import { lazyWithReload } from '../../shared/lib/lazyWithReload';
+
+const DiscardChangesDialog = lazyWithReload(() => import('./DiscardChangesDialog'));
 
 const GuardContext = createContext({
   requestTransition: (transition) => transition(),
@@ -26,6 +28,7 @@ export default function NavigationGuard({ children }) {
   const historyIndexRef = useRef(typeof window === 'undefined' ? null : window.history.state?.idx);
   const restoringPopRef = useRef(false);
   const [pendingTransition, setPendingTransition] = useState(null);
+  const dialogMountedRef = useRef(false);
   // True from the moment we issue history.go(-delta) to restore a blocked POP
   // until the restoration POP actually lands. The replayed traversal must wait
   // for this, so "Discard changes" stays disabled while it is set.
@@ -114,20 +117,25 @@ export default function NavigationGuard({ children }) {
     transition?.();
   };
 
+  if (pendingTransition) dialogMountedRef.current = true;
+
   const contextValue = useMemo(() => ({ requestTransition, setUnsavedChanges }), [requestTransition, setUnsavedChanges]);
 
   return (
     <GuardContext.Provider value={contextValue}>
       <NavigationContext.Provider value={{ ...navigation, navigator: guardedNavigator }}>
         {children}
-        <Dialog open={Boolean(pendingTransition)} onClose={() => setPendingTransition(null)}>
-          <DialogTitle>You have unsaved changes. Discard them?</DialogTitle>
-          <DialogContent><DialogContentText>Your edits on this tab will be lost.</DialogContentText></DialogContent>
-          <DialogActions>
-            <Button onClick={() => setPendingTransition(null)}>Keep editing</Button>
-            <Button color="error" variant="contained" disabled={restorationPending} onClick={discardAndContinue}>Discard changes</Button>
-          </DialogActions>
-        </Dialog>
+        {/* Mounted from the first block onward, so the close transition still runs. */}
+        {dialogMountedRef.current && (
+          <Suspense fallback={null}>
+            <DiscardChangesDialog
+              open={Boolean(pendingTransition)}
+              onKeepEditing={() => setPendingTransition(null)}
+              onDiscard={discardAndContinue}
+              discardDisabled={restorationPending}
+            />
+          </Suspense>
+        )}
       </NavigationContext.Provider>
     </GuardContext.Provider>
   );

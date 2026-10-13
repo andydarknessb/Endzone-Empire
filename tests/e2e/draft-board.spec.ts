@@ -750,19 +750,19 @@ test.describe('accessible structure: skip link, landmarks, headings', () => {
     });
     expect(firstFocusableIsSkipLink).toBe(true);
 
-    // Activating it lands focus inside the main landmark's content.
+    // Activating it lands focus inside the page's content region.
     await page.keyboard.press('Enter');
-    const main = page.getByRole('main');
-    await expect(main).toHaveAttribute('id', 'draft-main-content');
+    await expect(page.locator('#draft-main-content')).toBeFocused();
   });
 
-  test('exposes primary navigation, a named main landmark, and named panel regions', async ({ page }) => {
+  test('exposes primary navigation, one main landmark, a named content region, and named panel regions', async ({ page }) => {
     await setupActiveDraft(page);
 
     await expect(page.getByRole('navigation', { name: 'Primary navigation' })).toBeVisible();
-    const main = page.getByRole('main');
-    await expect(main).toBeVisible();
-    expect(await main.getAttribute('aria-labelledby')).toBe('draft-league-name');
+    await expect(page.getByRole('main')).toHaveCount(1);
+    const content = page.locator('#draft-main-content');
+    await expect(content).toBeVisible();
+    expect(await content.getAttribute('aria-labelledby')).toBe('draft-league-name');
 
     // The three wide panes are each a named region, all present at once (#444):
     // Players on the left, the Chat/activity feed in the centre, the rail on

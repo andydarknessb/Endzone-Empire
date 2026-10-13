@@ -14,28 +14,28 @@ jest.mock('../public/PublicApp', () => () => <div>PUBLIC APP</div>);
  * public path, not "/") must mount the public shell — never the authed app.
  */
 describe('RootRouter dual-router shell', () => {
-  it('mounts the public shell on a hard refresh of a deep public path', () => {
+  it('mounts the public shell on a hard refresh of a deep public path', async () => {
     window.history.pushState({}, '', '/players/12345');
     render(<RootRouter />);
-    expect(screen.getByText('PUBLIC APP')).toBeInTheDocument();
+    expect(await screen.findByText('PUBLIC APP')).toBeInTheDocument();
     expect(screen.queryByText('AUTHED APP')).not.toBeInTheDocument();
   });
 
-  it('mounts the public shell for /recaps/:gameId and /strategy/:slug', () => {
+  it('mounts the public shell for /recaps/:gameId and /strategy/:slug', async () => {
     window.history.pushState({}, '', '/recaps/20260112_KC@BUF');
     const { unmount } = render(<RootRouter />);
-    expect(screen.getByText('PUBLIC APP')).toBeInTheDocument();
+    expect(await screen.findByText('PUBLIC APP')).toBeInTheDocument();
     unmount();
 
     window.history.pushState({}, '', '/strategy/draft-by-tiers');
     render(<RootRouter />);
-    expect(screen.getByText('PUBLIC APP')).toBeInTheDocument();
+    expect(await screen.findByText('PUBLIC APP')).toBeInTheDocument();
   });
 
-  it('mounts the public shell for the mock draft simulator', () => {
+  it('mounts the public shell for the mock draft simulator', async () => {
     window.history.pushState({}, '', '/draft-simulator');
     render(<RootRouter />);
-    expect(screen.getByText('PUBLIC APP')).toBeInTheDocument();
+    expect(await screen.findByText('PUBLIC APP')).toBeInTheDocument();
     expect(screen.queryByText('AUTHED APP')).not.toBeInTheDocument();
   });
 
