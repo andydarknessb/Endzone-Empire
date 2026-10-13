@@ -1244,7 +1244,6 @@ test('a refused apply re-reads nothing (#2262)', async () => {
   expect(apiClient.get).not.toHaveBeenCalledWith(`${ADVICE_URL}&reload=1`);
 });
 
-
 // #2267: a landed drop, and its Undo, re-read the advice the same way a landed
 // lineup write does (#2262): the card must not keep naming a dropped player.
 test('a confirmed drop re-reads the advice once the DELETE resolves (#2267)', async () => {
@@ -1292,6 +1291,7 @@ test('a refused drop re-reads nothing (#2267)', async () => {
   await waitFor(() => expect(mockNotify).toHaveBeenCalledWith(expect.any(String), { severity: 'error' }));
   expect(apiClient.get).not.toHaveBeenCalledWith(`${ADVICE_URL}&reload=1`);
 });
+
 test('a refused apply rolls the optimistic move back', async () => {
   const user = userEvent.setup();
   apiClient.put.mockRejectedValue({ response: { status: 409, data: { error: 'locked' } } });

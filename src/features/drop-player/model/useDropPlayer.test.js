@@ -150,4 +150,21 @@ describe('onLanded after a drop or undo (#2267)', () => {
 
     expect(onLanded).not.toHaveBeenCalled();
   });
+
+  test('an Undo whose POST is rejected never calls it again', async () => {
+    apiClient.delete.mockResolvedValue({});
+    apiClient.post.mockRejectedValue({ response: { status: 500, data: { error: 'nope' } } });
+    const onLanded = jest.fn();
+    const { result } = renderHook(() =>
+      useDropPlayer({ leagueId: 7, refresh: jest.fn().mockResolvedValue(), onLanded })
+    );
+    act(() => result.current.requestDrop(entry));
+    await act(async () => result.current.confirmDrop());
+    expect(onLanded).toHaveBeenCalledTimes(1);
+
+    const [, options] = mockNotify.mock.calls[0];
+    await act(async () => options.onAction());
+
+    expect(onLanded).toHaveBeenCalledTimes(1);
+  });
 });
