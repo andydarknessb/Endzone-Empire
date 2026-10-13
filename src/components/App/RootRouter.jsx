@@ -1,8 +1,12 @@
-import React from 'react';
+import React, { Suspense } from 'react';
 
 import App from './App';
 import { isPublicPath } from '../public/publicPaths';
-import PublicApp from '../public/PublicApp';
+import { lazyWithReload } from '../../shared/lib/lazyWithReload';
+
+// The public BrowserRouter tree is a different app from the hash one; each
+// visit needs only one of them.
+const PublicApp = lazyWithReload(() => import('../public/PublicApp'));
 
 /**
  * Dual-router shell. Decides ONCE, from the real pathname at load time, which
@@ -19,7 +23,11 @@ import PublicApp from '../public/PublicApp';
  */
 function RootRouter() {
   if (isPublicPath(window.location.pathname)) {
-    return <PublicApp />;
+    return (
+      <Suspense fallback={null}>
+        <PublicApp />
+      </Suspense>
+    );
   }
   return <App />;
 }

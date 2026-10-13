@@ -191,11 +191,11 @@ function UserPage() {
       {/* flexGrow cooperates with the flex column shell App.jsx sets up
           around <Nav />/<Routes />/<Footer /> so short pages still pin the
           footer to the bottom of the viewport, while tall pages scroll
-          normally. The page's one main landmark, named by its h1; the shell's
-          skip link (App.jsx SKIP_LINK_TARGETS) focuses it by id, hence
+          normally. A region named by its h1 (the shell's <main> is the page's
+          one main landmark); the shell's skip link (App.jsx SKIP_LINK_TARGETS) focuses it by id, hence
           tabIndex -1. */}
       <Box
-        component="main"
+        component="section"
         id="user-main-content"
         tabIndex={-1}
         aria-labelledby="user-page-heading"

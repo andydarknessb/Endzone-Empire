@@ -22,27 +22,34 @@ import Footer from '../Footer/Footer';
 import ProtectedRoute from '../ProtectedRoute/ProtectedRoute';
 import FantasyOnly from '../common/FantasyOnly';
 
-import AboutPage from '../AboutPage/AboutPage';
-import UserPage from '../UserPage/UserPage';
-import InfoPage from '../InfoPage/InfoPage';
 import LandingPage from '../LandingPage/LandingPage';
-import LoginPage from '../LoginPage/LoginPage';
-import RegisterPage from '../RegisterPage/RegisterPage';
-import ForgotPassword from '../ForgotPassword/ForgotPassword';
-import ResetPassword from '../ResetPassword/ResetPassword';
-import VerifyEmail from '../VerifyEmail/VerifyEmail';
 import AppThemeProvider from '../../theme/AppThemeProvider';
 import OfflineBanner from '../OfflineBanner/OfflineBanner';
-import NotFound from '../NotFound/NotFound';
 import { SnackbarProvider } from '../Snackbar/SnackbarProvider';
 import NavigationGuard from '../NavigationGuard/NavigationGuard';
 import PushAlertToast from '../PushAlertToast/PushAlertToast';
 import { MIN_TOUCH_TARGET_SX } from '../../shared/lib/a11y';
 
+// LoginForm.css and RegisterForm.css load in their lazy chunks, after App.css, and all three
+// define global .formPanel/.alert: import them first so App.css wins, as before the split.
+import '../LoginForm/LoginForm.css';
+import '../RegisterForm/RegisterForm.css';
 import './App.css';
 import { lazyWithReload } from '../../shared/lib/lazyWithReload';
 import { hasSessionHint } from '../../lib/sessionHint';
 
+// The landing page is the only one an anonymous first visit needs; every other
+// route's code loads when it is opened (Register and Login once the landing is idle,
+// UserPage at boot for a returning user, so those hops never show the spinner).
+const AboutPage = lazyWithReload(() => import('../AboutPage/AboutPage'));
+const UserPage = lazyWithReload(() => import('../UserPage/UserPage'));
+const InfoPage = lazyWithReload(() => import('../InfoPage/InfoPage'));
+const LoginPage = lazyWithReload(() => import('../LoginPage/LoginPage'));
+const RegisterPage = lazyWithReload(() => import('../RegisterPage/RegisterPage'));
+const ForgotPassword = lazyWithReload(() => import('../ForgotPassword/ForgotPassword'));
+const ResetPassword = lazyWithReload(() => import('../ResetPassword/ResetPassword'));
+const VerifyEmail = lazyWithReload(() => import('../VerifyEmail/VerifyEmail'));
+const NotFound = lazyWithReload(() => import('../NotFound/NotFound'));
 const LeagueManagement = lazyWithReload(() => import('../LeagueManagement/LeagueManagement'));
 const LeagueDiscovery = lazyWithReload(() => import('../LeagueDiscovery/LeagueDiscovery'));
 const LineupPage = lazyWithReload(() => import('../../pages/lineup'));
@@ -66,9 +73,26 @@ const AuthenticatedPlayerProfilePage = lazyWithReload(() => import('../PlayerDet
 const AdminDashboard = lazyWithReload(() => import('../AdminDashboard/AdminDashboard'));
 const DraftSimScreen = lazyWithReload(() => import('../DraftSim/DraftSimScreen'));
 
+if (hasSessionHint()) UserPage.preload().catch(() => {});
+
+// Mounted with the anonymous landing page: after it has painted and the browser is
+// idle, fetch the two pages its CTAs and the header link to.
+function PreloadAuthPages() {
+  useEffect(() => {
+    const run = () => [RegisterPage, LoginPage].forEach((page) => page.preload().catch(() => {}));
+    if (typeof window.requestIdleCallback !== 'function') {
+      const timer = setTimeout(run, 1000);
+      return () => clearTimeout(timer);
+    }
+    const handle = window.requestIdleCallback(run, { timeout: 3000 });
+    return () => window.cancelIdleCallback(handle);
+  }, []);
+  return null;
+}
+
 // The Draft route path this session's skip link targets (issue #121). Kept
 // as a narrow, route-scoped check rather than a site-wide skip link: the
-// #draft-main-content landmark it points at only exists on this one route
+// #draft-main-content region it points at only exists on this one route
 // today (see DraftBoard.jsx). Broader coverage is parent-spec #108 territory.
 // Trailing slash is optional to match how react-router itself matches this
 // route (matchPath ignores a trailing "/" when `end` is true, the default
@@ -76,8 +100,8 @@ const DraftSimScreen = lazyWithReload(() => import('../DraftSim/DraftSimScreen')
 // would mount DraftBoard while this regex silently failed to match it.
 const DRAFT_ROUTE_PATTERN = /^\/league\/[^/]+\/draft\/?$/;
 
-// Routes whose page renders its own <main> with a known id, so the skip link
-// has a real target. Still route-scoped (a site-wide skip link is parent-spec
+// Routes whose page renders a region with a known id (inside the shell's one
+// <main>), so the skip link has a real target. Still route-scoped (a site-wide skip link is parent-spec
 // #108): /user joined in the Home v2 quick fixes.
 const SKIP_LINK_TARGETS = [
   { pattern: DRAFT_ROUTE_PATTERN, targetId: 'draft-main-content' },
@@ -87,7 +111,7 @@ const SKIP_LINK_TARGETS = [
 // HashRouter reads the URL's #fragment as the app's OWN route, so a plain
 // `href="#draft-main-content"` skip link would make the browser's native
 // same-page anchor navigation look like a route change to `/draft-main-
-// content` instead of scrolling/focusing the landmark. Handle the click
+// content` instead of scrolling/focusing the target. Handle the click
 // ourselves - focus the target directly - and never let that hash reach
 // the router.
 function skipToMainContent(event, targetId) {
@@ -156,7 +180,7 @@ function AppLayout({ children }) {
         </Link>
       )}
       {!isPresenter && <Nav />}
-      <Box sx={contentSx}>
+      <Box component="main" sx={contentSx}>
         {children}
       </Box>
       {!isPresenter && !isDesktopDraftShell && <Footer />}
@@ -296,7 +320,7 @@ function App() {
                 pageLoading
                 :
                 // Otherwise, show the Landing page
-                <LandingPage />
+                <><LandingPage /><PreloadAuthPages /></>
             }
           />
 

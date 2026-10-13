@@ -4,6 +4,17 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
     <meta name="theme-color" content="#0f1419">
+    <!--
+      Warm the API connection before the bundle asks for it. Two tags because the
+      browser keeps credentialed and anonymous requests in separate connection
+      pools: apiClient.js sends cookies (withCredentials), publicApiClient.js (the
+      landing page's rankings and recaps reads) sends none. CRA substitutes the
+      origin at build time when REACT_APP_API_ORIGIN is set; when it is unset the
+      literal placeholder stays, which resolves to the page's own origin (a
+      harmless preconnect).
+    -->
+    <link rel="preconnect" href="%REACT_APP_API_ORIGIN%">
+    <link rel="preconnect" href="%REACT_APP_API_ORIGIN%" crossorigin>
     <link rel="icon" href="%PUBLIC_URL%/favicon.ico">
     <link rel="apple-touch-icon" href="%PUBLIC_URL%/logo180.png">
     <link rel="manifest" href="%PUBLIC_URL%/manifest.json">
