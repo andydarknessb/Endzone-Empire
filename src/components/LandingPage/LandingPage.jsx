@@ -196,6 +196,7 @@ function LandingPage() {
       <LandingPublicBand />
 
       <Box
+        className="landing-cta-section"
         sx={{
           bgcolor: 'background.paper',
           borderTop: '1px solid var(--border-subtle)',
@@ -215,13 +216,12 @@ function LandingPage() {
               to="/registration"
               variant="contained"
               size="large"
+              className="landing-cta-button"
               sx={{
                 px: 6,
                 py: 1.75,
                 fontSize: 18,
                 fontWeight: 700,
-                animation: 'landing-cta-pulse 2.4s ease-in-out infinite',
-                '@media (prefers-reduced-motion: reduce)': { animation: 'none' },
               }}
             >
               Create Your League Now

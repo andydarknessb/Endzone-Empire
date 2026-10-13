@@ -9,15 +9,52 @@ html[data-theme='dark'] .landing-page .landing-hero {
   background: linear-gradient(180deg, rgba(79, 140, 255, 0.14) 0%, rgba(79, 140, 255, 0) 100%);
 }
 
-/* Attention ring on the bottom CTA button. */
+/*
+ * Attention ring on the bottom CTA button. The ring is a pseudo-element that
+ * animates only transform and opacity, so it runs on the compositor; a
+ * box-shadow animation repaints every frame. It sits behind the button face
+ * (z-index -1), so the button itself hides the ring's start state and only the
+ * band beyond its edge shows, as the old box-shadow did. The section is its own
+ * stacking context so that -1 lands above the section background, not behind it.
+ *
+ * The end scale grows the ring about 14px past each edge of a button roughly
+ * 316 x 56 px (14px on 28 / 316 wide, 28 / 56 tall); scale cannot take lengths,
+ * so a much larger or smaller button needs these two numbers revisited.
+ */
+.landing-page .landing-cta-section {
+  isolation: isolate;
+}
+
+.landing-page .landing-cta-button::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: var(--accent-soft);
+  pointer-events: none;
+  will-change: transform, opacity;
+  animation: landing-cta-pulse 2.4s ease-in-out infinite;
+}
+
 @keyframes landing-cta-pulse {
   0% {
-    box-shadow: 0 0 0 0 var(--accent-soft);
+    transform: scale(1, 1);
+    opacity: 1;
   }
   70% {
-    box-shadow: 0 0 0 14px transparent;
+    transform: scale(1.09, 1.5);
+    opacity: 0;
   }
   100% {
-    box-shadow: 0 0 0 0 transparent;
+    transform: scale(1, 1);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-page .landing-cta-button::after {
+    animation: none;
+    opacity: 0;
   }
 }

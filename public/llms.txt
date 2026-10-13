@@ -1,0 +1,28 @@
+# Endzone Empire
+
+> Endzone Empire is a free web app for running private fantasy football and NFL pick'em leagues with friends, plus public rankings, strategy guides and NFL game recaps that need no account.
+
+A league commissioner creates a league and invites friends. Fantasy leagues run a live snake draft with a pick clock and auto-pick, weekly lineups, waivers (priority order or a FAAB budget), trades with league veto, live scoring, playoffs and standings, league chat and commissioner tools. NFL pick'em leagues skip the draft and rosters: managers pick NFL winners each week, straight up or with confidence points. Accounts are only needed to play in a league; the pages below are public.
+
+## Start here
+
+- [Home](https://endzoneempire.gg/): what the app does and how to get started
+- [Create an account](https://endzoneempire.gg/#/registration): register to create or join a league
+
+## Free tools and coverage (no account needed)
+
+- [Mock draft simulator](https://endzoneempire.gg/draft-simulator): run a mock draft against CPU managers and get a graded report on every pick
+- [Fantasy football rankings](https://endzoneempire.gg/rankings): weekly rankings with projections, season points, recent production and position filters; each ranked player links to a profile page
+- [Fantasy football strategy](https://endzoneempire.gg/strategy): evergreen guides on drafting, waivers, trades, lineup decisions and the playoff run
+- [Waiver wire guide](https://endzoneempire.gg/waiver-wire): waiver priority, FAAB bidding, streaming tactics and playoff stash strategy
+- [NFL game recaps](https://endzoneempire.gg/recaps): final scores, scoring timelines, game summaries and top fantasy performers by week
+
+## Legal
+
+- [Privacy policy](https://endzoneempire.gg/privacy)
+- [Terms of service](https://endzoneempire.gg/terms)
+- [Acceptable use policy](https://endzoneempire.gg/acceptable-use)
+
+## Optional
+
+- [Sitemap](https://endzoneempire.gg/sitemap.xml): every public URL, including player profiles, strategy articles and recaps
