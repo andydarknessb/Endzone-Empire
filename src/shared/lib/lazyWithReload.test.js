@@ -1,5 +1,5 @@
 import React, { Suspense } from 'react';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { loadWithReload, lazyWithReload } from './lazyWithReload';
 
 const chunkError = () => Object.assign(new Error('Loading chunk 8784 failed.'), { name: 'ChunkLoadError' });
@@ -30,15 +30,43 @@ test('a second chunk failure right after that reload is thrown, so a real outage
   expect(reload).toHaveBeenCalledTimes(1);
 });
 
-test('a successful load clears the guard, so the next deploy can reload again', async () => {
+test('a success after the reload does not clear the guard: a chunk that keeps failing never loops the page', async () => {
   const storage = memoryStorage();
+  const reload = jest.fn();
+  // Chunk A fails: the page reloads once and the key is set.
+  loadWithReload(() => Promise.reject(chunkError()), { storage, reload });
+  await new Promise((r) => setTimeout(r, 0));
+  expect(reload).toHaveBeenCalledTimes(1);
+  expect(storage.getItem('endzone.chunkReload')).not.toBeNull();
+  // After the reload (same storage): an unrelated chunk B loads from cache, then A fails again.
+  await loadWithReload(() => Promise.resolve({ default: 'B' }), { storage, reload });
+  await expect(loadWithReload(() => Promise.reject(chunkError()), { storage, reload })).rejects.toThrow('Loading chunk');
+  expect(reload).toHaveBeenCalledTimes(1);
+});
+
+test('a failure more than 60 seconds after the last reload reloads again (a long-lived tab, a later deploy)', async () => {
+  const storage = memoryStorage();
+  const reload = jest.fn();
+  let t = 1_000_000;
+  const now = () => t;
+  loadWithReload(() => Promise.reject(chunkError()), { storage, reload, now });
+  await new Promise((r) => setTimeout(r, 0));
+  t += 59_000;
+  await expect(loadWithReload(() => Promise.reject(chunkError()), { storage, reload, now })).rejects.toThrow('Loading chunk');
+  expect(reload).toHaveBeenCalledTimes(1);
+  t += 2_000; // 61 s after the reload
+  loadWithReload(() => Promise.reject(chunkError()), { storage, reload, now });
+  await new Promise((r) => setTimeout(r, 0));
+  expect(reload).toHaveBeenCalledTimes(2);
+});
+
+test('a missing or unparseable guard value allows the reload', async () => {
+  const storage = memoryStorage();
+  storage.setItem('endzone.chunkReload', '1x-garbage');
   const reload = jest.fn();
   loadWithReload(() => Promise.reject(chunkError()), { storage, reload });
   await new Promise((r) => setTimeout(r, 0));
-  await loadWithReload(() => Promise.resolve({ default: 'Page' }), { storage, reload });
-  loadWithReload(() => Promise.reject(chunkError()), { storage, reload });
-  await new Promise((r) => setTimeout(r, 0));
-  expect(reload).toHaveBeenCalledTimes(2);
+  expect(reload).toHaveBeenCalledTimes(1);
 });
 
 test('an error that is not a chunk load error is thrown as is, with no reload', async () => {
@@ -86,6 +114,33 @@ describe('lazyWithReload', () => {
     expect(Page.preload()).toBe(first);
     await first;
     render(<Suspense fallback={null}><Page /></Suspense>);
+    expect(screen.getByText('the page')).toBeInTheDocument();
+    expect(load).toHaveBeenCalledTimes(1);
+  });
+
+  test('a failed chunk preload never reloads or touches the guard, and the render path can still reload once', async () => {
+    const storage = memoryStorage();
+    const reload = jest.fn();
+    const load = jest.fn().mockRejectedValueOnce(chunkError()).mockRejectedValueOnce(chunkError());
+    const Page = lazyWithReload(load, { storage, reload });
+    await Page.preload().catch(() => {});
+    expect(reload).not.toHaveBeenCalled();
+    expect(storage.getItem('endzone.chunkReload')).toBeNull();
+    // A later render goes through the normal path: the second chunk failure reloads once.
+    render(<Suspense fallback={<p>loading</p>}><Page /></Suspense>);
+    await waitFor(() => expect(reload).toHaveBeenCalledTimes(1));
+    expect(storage.getItem('endzone.chunkReload')).not.toBeNull();
+    expect(load).toHaveBeenCalledTimes(2);
+  });
+
+  test('a successful preload does not touch the guard, and the render path does not load again', async () => {
+    const storage = memoryStorage();
+    storage.setItem('endzone.chunkReload', '123');
+    const load = jest.fn(loadPage);
+    const Page = lazyWithReload(load, { storage, reload: jest.fn() });
+    await Page.preload();
+    expect(storage.getItem('endzone.chunkReload')).toBe('123');
+    render(<Suspense fallback={<p>loading</p>}><Page /></Suspense>);
     expect(screen.getByText('the page')).toBeInTheDocument();
     expect(load).toHaveBeenCalledTimes(1);
   });

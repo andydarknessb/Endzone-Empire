@@ -10,6 +10,7 @@ const css = '@font-face{src:url(/static/media/a.woff2)}body{margin:0}';
 test('replaces the main stylesheet link with an inline style tag', () => {
   const html = `<head><script defer src="/static/js/main.1.js"></script>${MAIN}</head><body></body>`;
   const out = inlineMainCss(html, css);
+  // nosemgrep: javascript.lang.security.audit.unknown-value-with-script-tag.unknown-value-with-script-tag -- test fixture string compared as text, never rendered
   assert.equal(out, `<head><script defer src="/static/js/main.1.js"></script><style>${css}</style></head><body></body>`);
 });
 

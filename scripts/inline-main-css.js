@@ -39,12 +39,14 @@ function inlineMainCss(html, css) {
 }
 
 function run(buildDir) {
+  // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal -- buildDir is the build output dir from the CLI arg or default, not request input
   const indexPath = path.join(buildDir, 'index.html');
   const html = fs.readFileSync(indexPath, 'utf8');
   const links = mainCssLinks(html);
   // inlineMainCss throws the zero/many-match error; the read below needs exactly one.
   if (links.length !== 1) inlineMainCss(html, '');
   const { href } = links[0];
+  // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal -- href is matched by MAIN_CSS_HREF, so it is /static/css/main.<word chars or dashes>.css: no ".." or extra separators
   const css = fs.readFileSync(path.join(buildDir, href), 'utf8');
   fs.writeFileSync(indexPath, inlineMainCss(html, css));
   console.log(`Inlined ${href} (${Buffer.byteLength(css)} bytes) into index.html`);
