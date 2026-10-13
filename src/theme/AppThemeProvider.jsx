@@ -190,6 +190,10 @@ function AppThemeProvider({ children }) {
     document.documentElement.setAttribute('data-theme', mode);
     // ...and read the actual values through injected CSS custom properties.
     applyCssVariables(mode);
+    // The build's prerendered landing page (scripts/prerender-landing.js) carried
+    // this mode's emotion styles and tokens until now; ours are in place.
+    document.querySelectorAll('style[data-ee-prerender]').forEach((node) => node.remove());
+    document.documentElement.classList.remove('ee-pr-light', 'ee-pr-dark');
   }, [mode]);
 
   const value = useMemo(
