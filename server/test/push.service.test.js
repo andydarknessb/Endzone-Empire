@@ -108,3 +108,23 @@ test('sendPushToUsers gives every send a 10 s timeout so a hung endpoint cannot 
   assert.equal(delivered.length, 1);
   assert.equal(webPush.sendNotification.mock.calls[0].arguments[2].timeout, 10000);
 });
+
+test('sendPushToUsers abandons a send that never settles, logs it, and carries on to the next subscription', async (t) => {
+  const { delivered } = deliveryWorld(t);
+  const webPush = require('web-push');
+  const errors = [];
+  t.mock.method(console, 'error', (...args) => { errors.push(args.join(' ')); });
+  // The first send trickles forever (the socket idle timer never trips); the second is fine.
+  webPush.sendNotification.mock.mockImplementationOnce(() => new Promise(() => {}));
+  webPush.sendNotification.mock.mockImplementation(async (sub, json) => { delivered.push({ endpoint: sub.endpoint, json }); });
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+
+  const done = push.sendPushToUsers([1, 2], payload);
+  while (webPush.sendNotification.mock.calls.length < 1) await new Promise((r) => setImmediate(r));
+  t.mock.timers.tick(15_000);
+  const result = await done;
+
+  assert.deepEqual(result, { sent: 1 });
+  assert.equal(delivered.length, 1);
+  assert.match(errors.join('\n'), /push send failed: .*timed out/);
+});

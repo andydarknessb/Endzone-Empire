@@ -76,3 +76,20 @@ test('advanceWeek: a league before its draft is refused 409 before anything is s
   });
   assert.equal(order.length, 0);
 });
+
+test('advanceWeek: a week the commissioner saw that is no longer current is refused 409 before anything is scored', async (t) => {
+  const order = world(t); // the league is on week 5; the confirm was for week 4
+  await assert.rejects(advanceWeek({ leagueId: 7, expectedWeek: 4 }), (err) => {
+    assert.equal(err.statusCode, 409);
+    assert.equal(err.message, 'week 4 was already advanced');
+    return true;
+  });
+  assert.equal(order.length, 0, 'nothing scored, finalized or followed up');
+});
+
+test('advanceWeek: a matching expectedWeek runs as before and pins finalize to that week', async (t) => {
+  const order = world(t);
+  await (await advanceWeek({ leagueId: 7, expectedWeek: '5' })).followUp;
+  assert.deepEqual(order.map((o) => o.step), ['score', 'finalize', 'followUp']);
+  assert.deepEqual(order[1].arg, { leagueId: 7, week: '5' });
+});

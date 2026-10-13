@@ -14,12 +14,15 @@ const { seasonOperationsAvailable, SEASON_BEFORE_DRAFT_MESSAGE } = require('./le
  * further. There is no retry table: the next Advance re-judges pending Called
  * shots (`judgeCalledShots` selects `week <= N`).
  *
+ * `expectedWeek` is the week the commissioner saw when confirming; a league that
+ * has moved on since is refused 409 before scoring (absent: old bundles, no check).
+ *
  * Throws a SeasonError (409) for a league whose draft is not finished, BEFORE
  * the week is scored (#194): finalizeWeekAndAdvance refuses too, but it runs
  * second, so a gate only there would answer 409 with a full week of scores
  * already written.
  */
-async function advanceWeek({ leagueId }) {
+async function advanceWeek({ leagueId, expectedWeek }) {
   const leagueResult = await pool.query(
     `SELECT "current_season", "current_week", "pickem_only", "draft_status", "season_status"
      FROM "leagues" WHERE "id" = $1`,
@@ -29,6 +32,9 @@ async function advanceWeek({ leagueId }) {
     throw new season.SeasonError(409, SEASON_BEFORE_DRAFT_MESSAGE);
   }
   const { current_season, current_week } = leagueResult.rows[0];
+  if (expectedWeek != null && Number(expectedWeek) !== Number(current_week)) {
+    throw new season.SeasonError(409, `week ${expectedWeek} was already advanced`);
+  }
   // The score of record, so SETTLE semantics rather than the live path (#190):
   // the week as played, with no re-materialization and no join to whatever the
   // roster looks like now. Pinned to the (season, week) read above, never to
@@ -41,8 +47,8 @@ async function advanceWeek({ leagueId }) {
     week: current_week,
     settle: true,
   });
-  // week: a double click or retry must not finalize week N+1 with no games played.
-  const advance = await season.finalizeWeekAndAdvance({ leagueId, week: current_week });
+  // week: a double click, retry or stale confirm must not finalize week N+1 with no games played.
+  const advance = await season.finalizeWeekAndAdvance({ leagueId, week: expectedWeek ?? current_week });
   const followUp = settleFollowUpSvc.settleFollowUp({
     leagueId,
     season: current_season,

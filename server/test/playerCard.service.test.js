@@ -1614,3 +1614,22 @@ test('getPlayerCard (#2168): a candidate with no Upgrade (null) carries no swapN
   assert.equal(decision.upgrade, null);
   assert.equal('swapNet' in decision, false);
 });
+
+test('getPlayerCard: a player with a pending claim reads as on waivers, with no clear time, after his waiver row cleared', async (t) => {
+  const waiverQueries = [];
+  createFakePool([
+    // Only the claim is left: the union row carries a null available_at.
+    [/^SELECT "available_at" FROM "waiver_players"/, (text) => {
+      waiverQueries.push(text);
+      return { rows: [{ available_at: null }] };
+    }],
+    ...buildHandlers(),
+  ]).install(t);
+  mockServices(t);
+
+  const card = await getPlayerCard({ leagueId: 3, userId: 7, playerId: PLAYER.id });
+
+  assert.equal(card.availability.state, 'waivers');
+  assert.equal(card.availability.availableAt, null);
+  assert.match(waiverQueries[0], /FROM "waiver_claims"[\s\S]*"status" = 'pending'/);
+});

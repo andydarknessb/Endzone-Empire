@@ -150,16 +150,21 @@ async function attachLeagueAvailability(db, players, { leagueId, teamId, blanket
     ),
     db.query(
       `SELECT "player_id", "available_at" FROM "waiver_players"
-       WHERE "league_id" = $1 AND "player_id" = ANY($2) AND "available_at" > now()`,
+       WHERE "league_id" = $1 AND "player_id" = ANY($2) AND "available_at" > now()
+       UNION ALL
+       SELECT "player_id", NULL FROM "waiver_claims"
+       WHERE "league_id" = $1 AND "player_id" = ANY($2) AND "status" = 'pending'`,
       [leagueId, identityIds],
     ),
   ]);
   const rosterTeamByPlayerId = new Map(
     rosterResult.rows.map((row) => [row.player_id, row.team_id]),
   );
-  const waiverByPlayerId = new Map(
-    waiverResult.rows.map((row) => [row.player_id, row.available_at]),
-  );
+  // A pending claim row has a null clear time; a real clear time wins over it.
+  const waiverByPlayerId = new Map();
+  for (const row of waiverResult.rows) {
+    if (!waiverByPlayerId.get(row.player_id)) waiverByPlayerId.set(row.player_id, row.available_at);
+  }
 
   for (const player of players) {
     const identities = player.identity_ids || [player.id];
@@ -175,7 +180,7 @@ async function attachLeagueAvailability(db, players, { leagueId, teamId, blanket
     const availableAt = identities
       .map((id) => waiverByPlayerId.get(id))
       .find(Boolean);
-    player.availability = availableAt || blanketWaiversOpen
+    player.availability = identities.some((id) => waiverByPlayerId.has(id)) || blanketWaiversOpen
       ? { state: 'waivers', availableAt }
       : { state: 'free_agent' };
   }

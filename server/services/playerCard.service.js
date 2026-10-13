@@ -453,7 +453,10 @@ async function availabilityForMany({ league, team, players }) {
       ),
       pool.query(
         `SELECT "available_at" FROM "waiver_players"
-         WHERE "league_id" = $1 AND "player_id" = ANY($2) AND "available_at" > now()`,
+         WHERE "league_id" = $1 AND "player_id" = ANY($2) AND "available_at" > now()
+         UNION ALL
+         SELECT NULL FROM "waiver_claims"
+         WHERE "league_id" = $1 AND "player_id" = ANY($2) AND "status" = 'pending'`,
         [league.id, identityIds]
       ),
     ]);
@@ -466,9 +469,10 @@ async function availabilityForMany({ league, team, players }) {
         availableAt: null,
       }]]);
     }
-    const availableAt = waiverResult.rows[0] ? waiverResult.rows[0].available_at : null;
+    // A claim-only row has no clear time: waivers, with availableAt null.
+    const availableAt = waiverResult.rows.map((row) => row.available_at).find(Boolean) || null;
     return new Map([[player.id, {
-      state: availableAt || blanketWaiversOpen ? 'waivers' : 'free_agent',
+      state: waiverResult.rows.length > 0 || blanketWaiversOpen ? 'waivers' : 'free_agent',
       teamId: null,
       teamName: null,
       availableAt,
@@ -490,16 +494,21 @@ async function availabilityForMany({ league, team, players }) {
     ),
     pool.query(
       `SELECT "player_id", "available_at" FROM "waiver_players"
-       WHERE "league_id" = $1 AND "player_id" = ANY($2) AND "available_at" > now()`,
+       WHERE "league_id" = $1 AND "player_id" = ANY($2) AND "available_at" > now()
+       UNION ALL
+       SELECT "player_id", NULL FROM "waiver_claims"
+       WHERE "league_id" = $1 AND "player_id" = ANY($2) AND "status" = 'pending'`,
       [league.id, allIdentityIds]
     ),
   ]);
   const rosterByIdentityId = new Map(
     rosterResult.rows.map((row) => [row.player_id, { teamId: row.team_id, teamName: row.team_name }])
   );
-  const waiverByIdentityId = new Map(
-    waiverResult.rows.map((row) => [row.player_id, row.available_at])
-  );
+  // A pending claim row has a null clear time; a real clear time wins over it.
+  const waiverByIdentityId = new Map();
+  for (const row of waiverResult.rows) {
+    if (!waiverByIdentityId.get(row.player_id)) waiverByIdentityId.set(row.player_id, row.available_at);
+  }
 
   for (const player of players) {
     const identityIds = identityIdsById.get(player.id) || [player.id];
@@ -515,7 +524,7 @@ async function availabilityForMany({ league, team, players }) {
     }
     const availableAt = identityIds.map((id) => waiverByIdentityId.get(id)).find(Boolean) || null;
     result.set(player.id, {
-      state: availableAt || blanketWaiversOpen ? 'waivers' : 'free_agent',
+      state: identityIds.some((id) => waiverByIdentityId.has(id)) || blanketWaiversOpen ? 'waivers' : 'free_agent',
       teamId: null,
       teamName: null,
       availableAt,
