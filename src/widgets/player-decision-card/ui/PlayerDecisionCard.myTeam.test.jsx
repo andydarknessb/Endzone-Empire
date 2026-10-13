@@ -126,11 +126,12 @@ function renderCard(props = {}) {
     canDropEntry = () => true,
     playerIds,
     onNavigate,
+    compareWith,
     context,
   } = props;
   const builtContext = context !== undefined
     ? context
-    : myTeam({ managed: true, onSwap, onRequestDrop, canDropEntry, entries, bestBall, leagueUnsettled, playerIds, onNavigate });
+    : myTeam({ managed: true, onSwap, onRequestDrop, canDropEntry, entries, bestBall, leagueUnsettled, playerIds, onNavigate, compareWith });
   const merged = { open, onClose, entry: entryOverride, leagueId, week, context: builtContext };
   return { ...renderWithProviders(<PlayerDecisionCard {...merged} />), props: merged };
 }
@@ -868,6 +869,26 @@ test('Compare shows two cards side by side, each named by its own heading, with 
   expect(screen.queryByTestId('decision-card-compare')).not.toBeInTheDocument();
   // Focus returns to the Compare button rather than being dropped (review finding).
   expect(screen.getByTestId('decision-card-compare-action')).toHaveFocus();
+});
+
+// #2263: the Start/sit card's Compare opens the card with the pair already compared.
+test('compareWith seeds the compare panel, and Clear compare still clears it', async () => {
+  const starter = entry();
+  const other = entry({ playerId: 2, name: 'Compare Target' });
+  renderCard({ entry: starter, entries: [starter, other], compareWith: 2 });
+
+  const compare = await screen.findByTestId('decision-card-compare');
+  expect(within(compare).getByRole('heading', { name: 'Josh Allen', level: 3 })).toBeInTheDocument();
+  expect(within(compare).getByRole('heading', { name: 'Compare Target', level: 3 })).toBeInTheDocument();
+  expect(screen.getByTestId('decision-card-compare-panel-2')).toBeInTheDocument();
+
+  const user = userEvent.setup();
+  await user.click(screen.getByRole('button', { name: 'Clear compare' }));
+  expect(screen.queryByTestId('decision-card-compare')).not.toBeInTheDocument();
+  // The menu still picks a player after the seeded one is cleared.
+  await user.click(await screen.findByTestId('decision-card-compare-action'));
+  await user.click(await screen.findByRole('menuitem', { name: 'Compare Target' }));
+  expect(await screen.findByTestId('decision-card-compare-panel-2')).toBeInTheDocument();
 });
 
 // #1667: one card read per side, and no other read at all.

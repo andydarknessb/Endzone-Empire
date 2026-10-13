@@ -94,6 +94,13 @@ export default function LineupPage() {
   // issue thread) - `components/PlayerQuickView` itself is untouched and
   // still serves every other surface.
   const [decisionCardEntryId, setDecisionCardEntryId] = useState(null);
+  // #2263: the player the Start/sit card's Compare opens the Decision card
+  // beside; null for a plain name click.
+  const [decisionCardCompareId, setDecisionCardCompareId] = useState(null);
+  const compareSuggestion = (view) => {
+    setDecisionCardCompareId(view.sit.playerId);
+    setDecisionCardEntryId(view.start.playerId);
+  };
   // The phone view (AC5, #1238; #1965): which part of the page a narrow
   // viewport shows - the Ledger's Starters or Bench section, or the rail
   // (Outlook). Irrelevant at `sm` and up, where both columns already show
@@ -538,6 +545,7 @@ export default function LineupPage() {
                     onWithdrawShot={calledShot.withdrawShot}
                     shotBusy={calledShot.busy}
                     onOpenDecisionCard={setDecisionCardEntryId}
+                    onCompare={compareSuggestion}
                     expectedFinals={expectedFinals}
                   />
                   <ByeClusterGrid
@@ -695,7 +703,10 @@ export default function LineupPage() {
           context now - no loose prop stays beside it. */}
       <PlayerDecisionCard
         open={decisionCardEntryId != null}
-        onClose={() => setDecisionCardEntryId(null)}
+        onClose={() => {
+          setDecisionCardEntryId(null);
+          setDecisionCardCompareId(null);
+        }}
         entry={decisionCardEntry}
         leagueId={selectedLeagueId}
         week={lineup?.week}
@@ -707,6 +718,7 @@ export default function LineupPage() {
           entries: lineup?.entries || [],
           bestBall,
           leagueUnsettled,
+          compareWith: decisionCardCompareId,
         })}
       />
     </Box>

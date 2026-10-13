@@ -22,9 +22,9 @@ import { buildSuggestionView, calledRecordLine, calledShotLine, forecastRecordLi
  * by the page" rule the Ledger and the summary strip already follow. The
  * Apply action itself is the page's own apply-advice feature, reached only
  * through the `onApply` callback (ADR 0020: a widget never imports a
- * feature) - Dismiss (session-only, local state) and Compare (a no-op
- * affordance until ticket 8, AC3) are the only interactions this widget
- * owns outright.
+ * feature) - Dismiss (session-only, local state) and Compare are the only
+ * interactions this widget owns outright. Compare calls `onCompare(view)`;
+ * the Lineup page wires it to the Decision card (#2263).
  *
  * Three more things ride in as plain props (#1852): each player carries the
  * shared injury tag from his designation; his name opens the Decision card
@@ -248,6 +248,7 @@ export default function StartSitPanel({
                 variant="ghost"
                 size="sm"
                 data-testid="suggestion-compare"
+                aria-label={`Compare ${view.start.name} with ${view.sit.name}`}
                 onClick={() => onCompare?.(view)}
               >
                 Compare
