@@ -1,4 +1,4 @@
-import { lazy } from 'react';
+import React, { lazy, useState } from 'react';
 
 // After a deploy, a tab still running the old bundle asks for the old hashed
 // chunk of a route it has not opened yet, and that file is gone (404). One
@@ -41,7 +41,32 @@ export function loadWithReload(load, { storage = defaultStorage(), reload = () =
   );
 }
 
-/** React.lazy for a route chunk, reloading once when the chunk is from a previous deploy. */
+/**
+ * React.lazy for a route chunk, reloading once when the chunk is from a previous deploy.
+ *
+ * The load is memoized, and `.preload()` starts (or returns) that same load. A
+ * component that mounts after the chunk has loaded renders the page directly,
+ * with no Suspense round-trip, so a preloaded route never flashes its fallback.
+ * An instance that mounted before the load finished keeps the React.lazy
+ * component for its lifetime, so it never remounts mid-life.
+ */
 export function lazyWithReload(load) {
-  return lazy(() => loadWithReload(load));
+  let promise;
+  let loaded;
+  const start = () => {
+    if (!promise) {
+      promise = loadWithReload(load).then(
+        (module) => { loaded = module; return module; },
+        (err) => { promise = undefined; throw err; } // a failed load can be retried
+      );
+    }
+    return promise;
+  };
+  const Lazy = lazy(start);
+  function LazyRoute(props) {
+    const [Direct] = useState(() => (loaded ? loaded.default : null));
+    return Direct ? <Direct {...props} /> : <Lazy {...props} />;
+  }
+  LazyRoute.preload = start;
+  return LazyRoute;
 }

@@ -1,8 +1,7 @@
 import React from 'react';
 import { Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle } from '@mui/material';
 
-// The "unsaved changes" prompt. NavigationGuard loads it only once a transition
-// is first blocked, so pages that never block do not ship the Dialog.
+// The "unsaved changes" prompt NavigationGuard shows when a transition is blocked.
 export default function DiscardChangesDialog({ open, onKeepEditing, onDiscard, discardDisabled }) {
   return (
     <Dialog open={open} onClose={onKeepEditing}>

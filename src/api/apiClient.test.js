@@ -77,7 +77,7 @@ describe('cookie-backed refresh', () => {
   });
 
   test('refreshes with credentials, stores only the access token, and retries', async () => {
-    axiosMock.onPost('/api/auth/refresh').reply(200, {
+    axiosMock.onPost('/api/auth/refresh?optional=1').reply(200, {
       token: 'fresh-jwt',
       user: { id: 1 },
     });
@@ -99,9 +99,9 @@ describe('cookie-backed refresh', () => {
 
   test('retries a cookie rotation race once', async () => {
     axiosMock
-      .onPost('/api/auth/refresh')
+      .onPost('/api/auth/refresh?optional=1')
       .replyOnce(401)
-      .onPost('/api/auth/refresh')
+      .onPost('/api/auth/refresh?optional=1')
       .replyOnce(200, { token: 'winner-jwt', user: { id: 1 } });
 
     await expect(refreshTokens()).resolves.toBe('winner-jwt');
@@ -112,7 +112,7 @@ describe('cookie-backed refresh', () => {
     setToken('stale-jwt');
     const expired = jest.fn();
     window.addEventListener('auth:session-expired', expired);
-    axiosMock.onPost('/api/auth/refresh').reply(401);
+    axiosMock.onPost('/api/auth/refresh?optional=1').reply(401);
     apiMock.onGet('/api/team').reply(401);
 
     await expect(apiClient.get('/api/team')).rejects.toMatchObject({
@@ -126,14 +126,17 @@ describe('cookie-backed refresh', () => {
   });
 
   // An anonymous visitor has no refresh cookie, and the server answers that
-  // with 204 and no body. That is "no session", not a token to store.
+  // with 204 and no body (`.reply(204, '')` models the browser, where axios gives
+  // data === ''; a bare `.reply(204)` gives undefined and hides the old client's
+  // bug). That is "no session", not a token to store.
   describe('a refresh answered 204 (no refresh cookie, no session)', () => {
     test('refreshTokens rejects with a session refusal and stores no token', async () => {
-      axiosMock.onPost('/api/auth/refresh').reply(204);
+      axiosMock.onPost('/api/auth/refresh?optional=1').reply(204, '');
 
       const error = await refreshTokens().catch((e) => e);
 
       expect(isSessionRefusal(error)).toBe(true);
+      expect(axiosMock.history.post[0].url.endsWith('/api/auth/refresh?optional=1')).toBe(true);
       expect(getToken()).toBeNull();
       expect(hasSessionHint()).toBe(false);
       // Not the 401 rotation-race path: it is not retried.
@@ -143,7 +146,7 @@ describe('cookie-backed refresh', () => {
     test('a 401 on a normal request expires the session and is never replayed', async () => {
       const expired = jest.fn();
       window.addEventListener('auth:session-expired', expired);
-      axiosMock.onPost('/api/auth/refresh').reply(204);
+      axiosMock.onPost('/api/auth/refresh?optional=1').reply(204, '');
       apiMock.onGet('/api/team').reply(401);
 
       await expect(apiClient.get('/api/team')).rejects.toMatchObject({
@@ -175,7 +178,7 @@ describe('cookie-backed refresh', () => {
   });
 
   test('concurrent 401s share one refresh request', async () => {
-    axiosMock.onPost('/api/auth/refresh').reply(200, { token: 'fresh-jwt', user: { id: 1 } });
+    axiosMock.onPost('/api/auth/refresh?optional=1').reply(200, { token: 'fresh-jwt', user: { id: 1 } });
     apiMock.onGet('/api/a').replyOnce(401).onGet('/api/a').replyOnce(200, {});
     apiMock.onGet('/api/b').replyOnce(401).onGet('/api/b').replyOnce(200, {});
 

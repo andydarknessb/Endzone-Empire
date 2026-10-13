@@ -1,4 +1,4 @@
-import React, { Suspense, useState } from 'react';
+import React, { Suspense, useRef, useState } from 'react';
 import { Link as RouterLink, useLocation } from 'react-router-dom';
 import { useSelector, useDispatch } from 'react-redux';
 import {
@@ -64,6 +64,9 @@ function Nav() {
   const [focusDrawerSearch, setFocusDrawerSearch] = useState(false);
 
   const loggedIn = !!user.id;
+  // Once the drawer has mounted it stays, so logging out from it still plays the slide-out.
+  const drawerMountedRef = useRef(false);
+  if (loggedIn || drawerOpen) drawerMountedRef.current = true;
   const links = MAIN_LINKS;
   const isAdmin = user.isPlatformAdmin === true;
 
@@ -242,9 +245,9 @@ function Nav() {
         </Box>
       </Toolbar>
 
-      {/* Mobile navigation drawer. It stays mounted while signed in so its
-          close transition runs; an anonymous visit never opens it. */}
-      {(loggedIn || drawerOpen) && (
+      {/* Mobile navigation drawer. It stays mounted once mounted so its close
+          transition runs (also on logout); an anonymous visit never mounts it. */}
+      {drawerMountedRef.current && (
         <Suspense fallback={null}>
           <NavDrawer
             open={drawerOpen}

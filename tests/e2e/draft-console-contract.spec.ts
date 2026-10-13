@@ -153,7 +153,7 @@ base.describe('console-error contract: the pure reconciler (#541)', () => {
       url: 'http://127.0.0.1:4173/api/auth/refresh',
     };
     const refreshB: CapturedConsoleError = { ...refreshA };
-    const decl = resourceError({ status: 401, url: /\/api\/auth\/refresh$/, because: 'anonymous boot refresh' });
+    const decl = resourceError({ status: 401, url: /\/api\/auth\/refresh(\?|$)/, because: 'anonymous boot refresh' });
     const r = reconcileConsoleErrors([refreshA, refreshB], [decl]);
     expect(r.ok).toBe(true);
     expect(r.matched[0].hits).toHaveLength(2);

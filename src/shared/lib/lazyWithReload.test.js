@@ -1,4 +1,6 @@
-import { loadWithReload } from './lazyWithReload';
+import React, { Suspense } from 'react';
+import { render, screen } from '@testing-library/react';
+import { loadWithReload, lazyWithReload } from './lazyWithReload';
 
 const chunkError = () => Object.assign(new Error('Loading chunk 8784 failed.'), { name: 'ChunkLoadError' });
 
@@ -57,4 +59,42 @@ test('with storage blocked the guard cannot be kept, so it throws rather than ri
   const blocked = { getItem: () => { throw new Error('denied'); }, setItem: () => { throw new Error('denied'); }, removeItem: () => { throw new Error('denied'); } };
   await expect(loadWithReload(() => Promise.reject(chunkError()), { storage: blocked, reload })).rejects.toThrow('Loading chunk');
   expect(reload).not.toHaveBeenCalled();
+});
+
+describe('lazyWithReload', () => {
+  const loadPage = () => Promise.resolve({ default: () => <p>the page</p> });
+
+  test('a preloaded route renders at once, with no fallback', async () => {
+    const Page = lazyWithReload(loadPage);
+    await Page.preload();
+    render(<Suspense fallback={<p>loading</p>}><Page /></Suspense>);
+    expect(screen.getByText('the page')).toBeInTheDocument();
+    expect(screen.queryByText('loading')).not.toBeInTheDocument();
+  });
+
+  test('without a preload it suspends, then shows the page', async () => {
+    const Page = lazyWithReload(loadPage);
+    render(<Suspense fallback={<p>loading</p>}><Page /></Suspense>);
+    expect(screen.getByText('loading')).toBeInTheDocument();
+    expect(await screen.findByText('the page')).toBeInTheDocument();
+  });
+
+  test('preload and render share one load call', async () => {
+    const load = jest.fn(loadPage);
+    const Page = lazyWithReload(load);
+    const first = Page.preload();
+    expect(Page.preload()).toBe(first);
+    await first;
+    render(<Suspense fallback={null}><Page /></Suspense>);
+    expect(screen.getByText('the page')).toBeInTheDocument();
+    expect(load).toHaveBeenCalledTimes(1);
+  });
+
+  test('a failed preload can be retried', async () => {
+    const load = jest.fn().mockRejectedValueOnce(new TypeError('offline')).mockImplementation(loadPage);
+    const Page = lazyWithReload(load);
+    await expect(Page.preload()).rejects.toThrow('offline');
+    await Page.preload();
+    expect(load).toHaveBeenCalledTimes(2);
+  });
 });

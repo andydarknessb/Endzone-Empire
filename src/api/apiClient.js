@@ -63,8 +63,11 @@ function storeRotatedAccessToken(response) {
   return token;
 }
 
+// `optional=1` opts in to the 204 "no cookie" answer; the server still answers
+// 400 without it, for bundles built before the 204 existed. A query param, not
+// a header, so it adds no CORS preflight.
 function requestRefresh() {
-  return axios.post(apiUrl('/api/auth/refresh'), null, { withCredentials: true });
+  return axios.post(apiUrl('/api/auth/refresh?optional=1'), null, { withCredentials: true });
 }
 
 export async function refreshTokens() {

@@ -67,7 +67,7 @@ describe('fetchUser (worker)', () => {
     afterEach(() => authMock.restore());
 
     test('refreshes the session first, then makes the one /api/user request', async () => {
-      authMock.onPost('/api/auth/refresh').reply(200, { token: 'fresh-token' });
+      authMock.onPost('/api/auth/refresh?optional=1').reply(200, { token: 'fresh-token' });
       mock.onGet('/api/user').reply(200, { id: 4, username: 'carol' });
 
       const dispatched = await run();
@@ -82,7 +82,7 @@ describe('fetchUser (worker)', () => {
     // cookie may still authenticate the GET (the e2e harnesses answer
     // /api/user alone). Stopping here would log such a user out for good.
     test('a refresh that fails without a refusal still makes the /api/user request', async () => {
-      authMock.onPost('/api/auth/refresh').reply(500);
+      authMock.onPost('/api/auth/refresh?optional=1').reply(500);
       mock.onGet('/api/user').reply(200, { id: 4, username: 'carol' });
 
       const dispatched = await run();
@@ -94,7 +94,7 @@ describe('fetchUser (worker)', () => {
     // The landing page's anonymous load: no refresh cookie, so the server
     // answers 204. No session means no /api/user request, and no console error.
     test('a refresh answered 204 (anonymous visitor) unsets the user and never asks for /api/user', async () => {
-      authMock.onPost('/api/auth/refresh').reply(204);
+      authMock.onPost('/api/auth/refresh?optional=1').reply(204, '');
 
       const dispatched = await run();
 
@@ -107,7 +107,7 @@ describe('fetchUser (worker)', () => {
     // An old server answers a missing cookie with 400. Today's behaviour stays:
     // fall through to the GET, whose 401 then unsets the user.
     test('a refresh answered 400 (older server) still falls through to the GET and its 401', async () => {
-      authMock.onPost('/api/auth/refresh').reply(400, { error: 'refreshToken is required' });
+      authMock.onPost('/api/auth/refresh?optional=1').reply(400, { error: 'refreshToken is required' });
       mock.onGet('/api/user').reply(401);
 
       const dispatched = await run();
@@ -120,7 +120,7 @@ describe('fetchUser (worker)', () => {
     // weekly user is shown logged out after one dropped request.
     test('a refresh network error falls through to the GET and keeps the session hint', async () => {
       setSessionHint('a-token');
-      authMock.onPost('/api/auth/refresh').networkError();
+      authMock.onPost('/api/auth/refresh?optional=1').networkError();
       mock.onGet('/api/user').reply(200, { id: 4, username: 'carol' });
 
       const dispatched = await run();
@@ -131,7 +131,7 @@ describe('fetchUser (worker)', () => {
     });
 
     test('a refresh the server refuses unsets the user and never asks for /api/user', async () => {
-      authMock.onPost('/api/auth/refresh').reply(401);
+      authMock.onPost('/api/auth/refresh?optional=1').reply(401);
 
       const dispatched = await run();
 

@@ -135,10 +135,15 @@ router.post('/login', async (req, res) => {
 router.post('/refresh', requireTrustedOrigin, async (req, res) => {
   const refreshToken = getRefreshToken(req);
   // No cookie is not an error: an anonymous visitor has no session to restore.
-  // 204 keeps the console clean on every cold load of the public tree. A cookie
-  // that is present but invalid, revoked, expired or reused still answers 401
-  // below. Nothing is set or cleared here: there is no cookie to rotate or drop.
-  if (!refreshToken) return res.status(204).end();
+  // `?optional=1` opts in to a 204 there, which keeps the console clean on every
+  // cold load of the public tree. The flag exists so clients built before #2257
+  // keep getting the 400 they understand (their interceptor retries a 400 and
+  // treats a body-less 204 as a token); drop it once no pre-#2257 bundle can be
+  // running. Without the flag the request falls through to rotateRefreshToken,
+  // which answers 400 'refreshToken is required'. A cookie that is present but
+  // invalid, revoked, expired or reused still answers 401 below. With the flag
+  // nothing is set or cleared: there is no cookie to rotate or drop.
+  if (!refreshToken && req.query.optional === '1') return res.status(204).end();
   try {
     const rotated = await tokens.rotateRefreshToken({ token: refreshToken });
     const result = await pool.query(
