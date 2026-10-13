@@ -67,6 +67,11 @@ function requirePlainObject(value, label) {
  * on whether the CALLER wants a refresh after toggling it, so this field
  * is never gated by it the way the lineup-management handlers are.
  * LineupPage's managed open has never passed it and still doesn't need to.
+ *
+ * `compareWith` (#2263): a playerId (or null) the card opens with already in
+ * its compare panel. The Lineup page's only use: the Start/sit card's Compare
+ * opens the starter with the benched player compared. Read only on a managed
+ * open, where the card has the `entries` to find him in.
  */
 export function myTeam({
   managed,
@@ -79,6 +84,7 @@ export function myTeam({
   playerIds,
   onNavigate,
   onActionDone,
+  compareWith,
 } = {}) {
   if (typeof managed !== 'boolean') {
     throw new Error('myTeam(...): managed must be a boolean');
@@ -105,6 +111,7 @@ export function myTeam({
     playerIds,
     onNavigate,
     onActionDone,
+    compareWith: managed ? compareWith : undefined,
   };
 }
 

@@ -216,6 +216,15 @@ function isTypingTarget(el) {
  * prev/next needs rides inside it. `ALLOWED_PROPS` below throws in
  * development on anything else, so a caller that still passes one of the
  * eighteen fails loudly instead of the extra prop silently doing nothing.
+ *
+ * #2263: `context.compareWith` (a playerId or null; `myTeam`'s field). While
+ * the card is open and it names a player in the context's `entries`, the
+ * compare panel shows that player, exactly as if picked from the Compare
+ * menu - the Start/sit card's Compare button opens the starter with the
+ * benched player compared this way. It only seeds the card's own compare
+ * state (when the card opens or `compareWith` changes): the Compare menu
+ * and Clear compare keep working after it, and prev/next leaves the compared
+ * player alone.
  */
 const ALLOWED_PROPS = ['open', 'onClose', 'entry', 'leagueId', 'week', 'context'];
 
@@ -235,6 +244,7 @@ export default function PlayerDecisionCard(props) {
   // - read once here, under the SAME local names the rest of this component
   // already used, so nothing below this block changes shape.
   const entries = context?.entries;
+  const compareWith = context?.compareWith ?? null;
   const bestBall = context?.bestBall;
   const leagueUnsettled = context?.leagueUnsettled;
   const onSwap = context?.onSwap;
@@ -260,6 +270,11 @@ export default function PlayerDecisionCard(props) {
   const [startMenuAnchor, setStartMenuAnchor] = useState(null);
   const [compareMenuAnchor, setCompareMenuAnchor] = useState(null);
   const [compareId, setCompareId] = useState(null);
+  // #2263: seed the compare panel from the caller; keyed on `open` and
+  // `compareWith` only, so a manual pick or Clear compare is not re-seeded.
+  useEffect(() => {
+    if (open) setCompareId(compareWith);
+  }, [open, compareWith]);
   const compareButtonRef = useRef(null);
   const titleRef = useRef(null);
   const prevPlayerIdRef = useRef(entry?.playerId ?? null);

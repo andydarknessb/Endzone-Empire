@@ -1195,6 +1195,55 @@ test('applying the advice sends exactly the moves it names, as one write', async
   );
 });
 
+// #2262: a lineup write that lands re-reads the advice, the same way a called
+// shot does (#1856): the card shows advice for the lineup as it now stands.
+test('applying the advice re-reads the advice once the write lands (#2262)', async () => {
+  const user = userEvent.setup();
+  apiClient.put.mockResolvedValue({ data: {} });
+  renderPage({
+    [ADVICE_URL]: {
+      data: adviceBody({ suggestions: [adviceSuggestion()], movePlan: [{ playerId: 10, fromSlot: 'BENCH', toSlot: 'RB' }] }),
+    },
+    [`${ADVICE_URL}&reload=1`]: { data: adviceBody({ suggestions: [], movePlan: [] }) },
+  });
+
+  await user.click(await screen.findByTestId('start-sit-apply'));
+
+  await waitFor(() => expect(apiClient.put).toHaveBeenCalled());
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith(`${ADVICE_URL}&reload=1`));
+  await waitFor(() => expect(screen.queryByTestId('suggestion-card')).not.toBeInTheDocument());
+});
+
+test('a swap whose PUT resolves re-reads the advice (#2262)', async () => {
+  const user = userEvent.setup();
+  apiClient.put.mockResolvedValue({ data: {} });
+  renderPage({
+    [`${ADVICE_URL}&reload=1`]: { data: adviceBody({ suggestions: [], movePlan: [] }) },
+  });
+
+  await user.click(await screen.findByTestId('slot-row-BENCH-10-select'));
+  await user.click(screen.getByTestId('slot-row-WR-0-select'));
+
+  await waitFor(() => expect(apiClient.put).toHaveBeenCalled());
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith(`${ADVICE_URL}&reload=1`));
+});
+
+test('a refused apply re-reads nothing (#2262)', async () => {
+  const user = userEvent.setup();
+  apiClient.put.mockRejectedValue({ response: { status: 409, data: { error: 'locked' } } });
+  renderPage({
+    [ADVICE_URL]: {
+      data: adviceBody({ suggestions: [adviceSuggestion()], movePlan: [{ playerId: 10, fromSlot: 'BENCH', toSlot: 'RB' }] }),
+    },
+  });
+
+  await user.click(await screen.findByTestId('start-sit-apply'));
+
+  await waitFor(() => expect(apiClient.put).toHaveBeenCalled());
+  await waitFor(() => expect(mockNotify).toHaveBeenCalledWith('locked', { severity: 'error' }));
+  expect(apiClient.get).not.toHaveBeenCalledWith(`${ADVICE_URL}&reload=1`);
+});
+
 test('a refused apply rolls the optimistic move back', async () => {
   const user = userEvent.setup();
   apiClient.put.mockRejectedValue({ response: { status: 409, data: { error: 'locked' } } });
@@ -1394,6 +1443,41 @@ test('tapping a name in the start/sit card opens the Decision card, from the Out
 
   const card = await screen.findByTestId('decision-card');
   expect(within(card).getByRole('heading', { name: 'Bench Guy' })).toBeInTheDocument();
+});
+
+test('Compare on a suggestion opens the Decision card for the suggested starter with the benched player compared (#2263)', async () => {
+  const user = userEvent.setup();
+  renderPage({
+    [ADVICE_URL]: { data: adviceBody({ suggestions: [adviceSuggestion()] }) },
+    [decisionContextUrl(10)]: { data: { line: null, weather: null, usage: null } },
+    [decisionContextUrl(2)]: { data: { line: null, weather: null, usage: null } },
+  });
+  const panel = await screen.findByTestId('start-sit-panel');
+  await user.click(await within(panel).findByRole('button', { name: /compare/i }));
+
+  const card = await screen.findByTestId('decision-card');
+  expect(within(card).getByRole('heading', { level: 2, name: 'Bench Guy' })).toBeInTheDocument();
+  expect(await screen.findByTestId('decision-card-compare-panel-2')).toBeInTheDocument();
+  expect(screen.getByTestId('decision-card-compare-panel-10')).toBeInTheDocument();
+});
+
+test('a name click after Compare opens the card with no compare (#2263)', async () => {
+  const user = userEvent.setup();
+  renderPage({
+    [ADVICE_URL]: { data: adviceBody({ suggestions: [adviceSuggestion()] }) },
+    [decisionContextUrl(10)]: { data: { line: null, weather: null, usage: null } },
+    [decisionContextUrl(2)]: { data: { line: null, weather: null, usage: null } },
+  });
+  const panel = await screen.findByTestId('start-sit-panel');
+  await user.click(await within(panel).findByRole('button', { name: /compare/i }));
+  await screen.findByTestId('decision-card-compare-panel-2');
+  await user.click(screen.getByTestId('decision-card-close'));
+  await waitFor(() => expect(screen.queryByTestId('decision-card')).not.toBeInTheDocument());
+
+  await user.click(await screen.findByRole('button', { name: 'Josh Allen' }));
+  const card = await screen.findByTestId('decision-card');
+  expect(within(card).getByRole('heading', { name: 'Josh Allen' })).toBeInTheDocument();
+  expect(screen.queryByTestId('decision-card-compare')).not.toBeInTheDocument();
 });
 
 test('the lean line appears when the Expected finals are 10 or more apart, from the Matchup data the page loads', async () => {

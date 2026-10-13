@@ -92,11 +92,12 @@ test('dismissing the only remaining card moves focus to the panel itself, never 
   expect(screen.getByTestId('start-sit-panel-content')).toHaveAttribute('tabindex', '-1');
 });
 
-test('compare is a no-op affordance: it renders but calls only its own callback', async () => {
+test('compare renders and calls only its own callback', async () => {
   const user = userEvent.setup();
   const onCompare = jest.fn();
   render(<StartSitPanel advice={{ suggestions: [suggestion()], movePlan: [] }} entries={entries} bestBall={false} onCompare={onCompare} />);
-  await user.click(screen.getByTestId('suggestion-compare'));
+  // #2263: the accessible name says which pair, so several suggestions do not repeat "Compare".
+  await user.click(screen.getByRole('button', { name: 'Compare Start Guy with Sit Guy' }));
   expect(onCompare).toHaveBeenCalledTimes(1);
 });
 
