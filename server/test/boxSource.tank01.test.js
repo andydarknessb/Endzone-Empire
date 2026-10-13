@@ -126,9 +126,10 @@ test('tank01BoxSource: the neutral shape carries every key the live path scores 
   assert.deepEqual(Object.keys(liveBox.teamDefense.WAS).sort(), [
     'blockedKick', 'defensiveTD', 'fumbleRecovery', 'interceptionReturn', 'pointsAllowed', 'sack', 'safety', 'yardsAllowed',
   ]);
-  // Blocks are credited to the side whose OPPONENT had kicks blocked.
-  assert.equal(liveBox.teamDefense.WAS.blockedKick, 2, 'JAC had an XP and a punt blocked: WAS gets 2');
-  assert.equal(liveBox.teamDefense.JAX.blockedKick, 1, 'WSH had a FG blocked: JAX gets 1');
+  // Blocks are credited to the side whose OWN teamStats line carries them: that
+  // line counts the blocks the team made (#2244).
+  assert.equal(liveBox.teamDefense.WAS.blockedKick, 2, 'WSH made an XP and a punt block: WAS gets 2');
+  assert.equal(liveBox.teamDefense.JAX.blockedKick, 1, 'JAC made a FG block: JAX gets 1');
   // Players the pool does not know are still in the shape; the apply skips them.
   assert.ok(liveBox.players.some((p) => p.externalId === '999999'));
 });

@@ -24,10 +24,11 @@
  *     test/fixtures/espn-gamebook-lines.json; a regex that has seen one game
  *     does not ship (spec ruling). Anything else is the phase-two parser.
  *
- * Two-point conversions are deliberately NOT emitted in phase one: today's
- * Tank01 live path produces no two-point key, and a key the Live box writes
- * that the Final box then drops would flip two points fifteen minutes after
- * the game. They wait for the Tank01 side to be mapped too.
+ * Two-point conversions are deliberately NOT emitted in phase one: the Final
+ * box (Tank01) now writes them (#2244), but this Live box still does not, and
+ * a key one box writes that the other drops would flip two points fifteen
+ * minutes after the game. The box write keeps a stored count when a line lacks
+ * the key (playerStatsWrite BOX_KEEP_IF_ABSENT), so the Live box leaves it alone.
  *
  * Team codes: ESPN's box uses its own abbreviations (WAS, and in play text the
  * old Gamebook codes BLT, HST, LA, ARZ, CLV). They fold through

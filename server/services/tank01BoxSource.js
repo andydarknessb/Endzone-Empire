@@ -132,9 +132,10 @@ function fromBox(box) {
     });
   }
 
-  // One aggregate DST line per side. `blockedFG`/`blockedXP`/`blockedPunt` sit
-  // on a team's OWN teamStats line as kicks of THEIRS that got blocked, so the
-  // block credit belongs to the opponent's defense (normalizeTank01DstStats).
+  // One aggregate DST line per side. `blockedFG`/`blockedXP`/`blockedPunt` on a
+  // team's OWN teamStats line count the blocks that team MADE (4 of 4 real
+  // games, #2244), so each side's defense reads its own line and only the
+  // points allowed come from the opponent (normalizeTank01DstStats).
   const dst = b.DST || {};
   const teamStats = b.teamStats || {};
   const lineScore = b.lineScore || {};
@@ -147,7 +148,7 @@ function fromBox(box) {
     const opponentSide = side === 'home' ? 'away' : 'home';
     teamDefense[teamCode] = normalizeTank01DstStats(
       dstSide,
-      teamStats[opponentSide],
+      teamStats[side],
       sideScore(lineScore, opponentSide)
     );
   }

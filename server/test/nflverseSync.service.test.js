@@ -320,6 +320,15 @@ test('normalizeNflversePlayerStats maps IDP including the finalization-only yard
   assert.equal(stats.twoPointReturn, 0); // no nflverse weekly column
 });
 
+test('normalizeNflversePlayerStats: soloTackle adds def_tackles_with_assist, a tackle credited with an assist that is in neither def_tackles_solo nor def_tackle_assists (issue #2244)', () => {
+  // Tank01 and ESPN count that tackle as solo; 27 of 33 week 5 solo-tackle
+  // disagreements were exactly solo + with_assist == the box figure.
+  const stats = normalizeNflversePlayerStats({ def_tackles_solo: '4', def_tackles_with_assist: '2', def_tackle_assists: '3' });
+  assert.equal(stats.soloTackle, 6);
+  assert.equal(stats.assistedTackle, 3, 'def_tackle_assists stays the assisted count');
+  assert.equal(normalizeNflversePlayerStats({ def_tackles_solo: '4' }).soloTackle, 4, 'a file without the column adds 0');
+});
+
 test('normalizeNflversePlayerStats: idpDefensiveTD also reads fumble_recovery_tds alone, with no def_tds (issue #1386 f1)', () => {
   // def_tds is interception-return (and other non-fumble) defensive TDs only;
   // a fumble-return TD lives solely in fumble_recovery_tds (measured against

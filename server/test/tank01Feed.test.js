@@ -56,6 +56,22 @@ test('normalizeTank01Stats maps a full box-score entry', () => {
   });
 });
 
+test('normalizeTank01Stats emits a two-point count only when its category field is present (#2244)', () => {
+  // Real boxes: Allen Passing, Kincaid Receiving (BUF@LAR), Henry Rushing (BAL@ATL).
+  assert.equal(normalizeTank01Stats({ Passing: { passingTwoPointConversion: '1' } }).passingTwoPt, 1);
+  assert.equal(normalizeTank01Stats({ Rushing: { rushingTwoPointConversion: '1' } }).rushingTwoPt, 1);
+  assert.equal(normalizeTank01Stats({ Receiving: { receivingTwoPointConversion: '2' } }).receivingTwoPt, 2);
+  // A present 0 is a real zero and still emits.
+  assert.equal(normalizeTank01Stats({ Passing: { passingTwoPointConversion: '0' } }).passingTwoPt, 0);
+  // Real boxes omit the field for a player with none: the key is left out so
+  // the box write keeps a stored count (nflverse's) instead of zeroing it.
+  const none = normalizeTank01Stats({ Passing: { passYds: '10' }, Rushing: {}, Receiving: { receptions: '2' } });
+  for (const key of ['passingTwoPt', 'rushingTwoPt', 'receivingTwoPt']) {
+    assert.equal(key in none, false, `${key} is absent when Tank01 omits the field`);
+  }
+  assert.equal('passingTwoPt' in normalizeTank01Stats(null), false);
+});
+
 test('normalizeTank01Stats: missing categories mean zeros; top-level fumblesLost accepted', () => {
   const result = normalizeTank01Stats({ fumblesLost: '2' });
   assert.equal(result.fumbles, 2);
@@ -232,14 +248,21 @@ test('normalizeTank01DstStats omits pointsAllowed for a whitespace-only ptsAllow
   assert.equal('pointsAllowed' in result, false);
 });
 
-test('normalizeTank01DstStats attributes a blocked kick to the OPPONENT\'s teamStats line', () => {
-  // The blocked side's own kick got blocked (their teamStats), so the block
-  // credit belongs to the other side's defense — this call is for that side.
-  const result = normalizeTank01DstStats(
-    { sacks: '0', defensiveInterceptions: '0', fumblesRecovered: '0', defTD: '0' },
-    { blockedFG: '1', blockedXP: '0', blockedPunt: '1' }
-  );
-  assert.equal(result.blockedKick, 2);
+test('fromBox credits a blocked kick to the side whose OWN teamStats line carries it (#2244)', () => {
+  // Tank01's blockedFG/blockedXP/blockedPunt count the blocks that side MADE
+  // (4 of 4 real games checked). Only the home line carries a block here, so
+  // the home defense gets it and the away defense does not.
+  const { fromBox } = require('../services/tank01BoxSource');
+  const liveBox = fromBox({
+    gameID: '20261011_ATL@BAL',
+    DST: { home: { teamAbv: 'BAL' }, away: { teamAbv: 'ATL' } },
+    teamStats: {
+      home: { teamAbv: 'BAL', blockedFG: '1', blockedXP: '0', blockedPunt: '0' },
+      away: { teamAbv: 'ATL', blockedFG: '0', blockedXP: '0', blockedPunt: '0' },
+    },
+  });
+  assert.equal(liveBox.teamDefense.BAL.blockedKick, 1);
+  assert.equal(liveBox.teamDefense.ATL.blockedKick, 0);
 });
 
 test('normalizeTeamAbbr passes through an already-abbreviated nfl_team', () => {
