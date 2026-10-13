@@ -47,6 +47,11 @@ export function useLineupWrite({ leagueId, raw, setRaw, onLanded }) {
       const { message, severity } = describeOutcome(detail?.data);
       notify(message, { severity });
     },
+    // A queued save the server permanently refused: the "saved offline" toast is no longer true.
+    onReplayRejected: ({ status, data }) => {
+      const { message } = readHttpFailure({ response: { status, data } });
+      notify(message || 'A lineup change saved offline was refused', { severity: 'error' });
+    },
   });
 
   // `undoOf` is set only by an Undo's own run: the moves it reverses.

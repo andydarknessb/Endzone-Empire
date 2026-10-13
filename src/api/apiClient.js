@@ -103,8 +103,11 @@ apiClient.interceptors.response.use(
       config.headers = { ...config.headers, Authorization: `Bearer ${token}` };
       return apiClient(config);
     } catch (refreshError) {
-      clearToken();
-      window.dispatchEvent(new Event('auth:session-expired'));
+      // Only a refusal ends the session; a 503 mid-deploy or a dropped link leaves the cookie good.
+      if (isSessionRefusal(refreshError)) {
+        clearToken();
+        window.dispatchEvent(new Event('auth:session-expired'));
+      }
       return Promise.reject(error);
     }
   }

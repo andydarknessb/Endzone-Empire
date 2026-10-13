@@ -2,6 +2,7 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import apiClient from '../../../api/apiClient';
 import { clearWeekMatchupsCache } from '../../../entities/matchup';
 import {
+  LINEUP_MUTATION_REJECTED_EVENT,
   LINEUP_MUTATION_REPLAYED_EVENT,
   PENDING_LINEUP_MUTATIONS_KEY,
   readPendingLineupMutations,
@@ -219,6 +220,21 @@ describe('a replayed offline save', () => {
     expect(mockNotify).toHaveBeenCalledTimes(1);
     expect(mockNotify).toHaveBeenCalledWith('Week corrected', { severity: 'success' });
     expect(clearWeekMatchupsCache).toHaveBeenCalledTimes(1);
+  });
+
+  test('a queued save the server refuses on replay toasts the server message as an error', () => {
+    mountPage();
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(LINEUP_MUTATION_REJECTED_EVENT, {
+          detail: { intent: { endpoint: '/api/team/lineup' }, status: 409, data: { error: 'Lineup is locked' } },
+        })
+      );
+    });
+
+    expect(mockNotify).toHaveBeenCalledTimes(1);
+    expect(mockNotify).toHaveBeenCalledWith('Lineup is locked', { severity: 'error' });
   });
 });
 
