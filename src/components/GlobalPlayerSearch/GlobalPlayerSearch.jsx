@@ -3,13 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Autocomplete, TextField, Box, CircularProgress } from '@mui/material';
 import apiClient from '../../api/apiClient';
 import PositionChip from '../../shared/ui/PositionChip';
-
-// Don't hijack "/" while the user is typing somewhere.
-function isTypingTarget(el) {
-  if (!el) return false;
-  const tag = el.tagName;
-  return el.isContentEditable || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
-}
+import { isTypingTarget } from '../../shared/lib/isTypingTarget';
 
 /**
  * App-wide player search. Debounces against the players search API and, on

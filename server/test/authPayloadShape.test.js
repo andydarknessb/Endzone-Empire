@@ -258,7 +258,7 @@ test('POST /refresh refusals publish exactly an error', async (t) => {
     userId: 42, refreshToken: 'x', authenticatedAt: '2026-06-01T00:00:00.000Z',
   }));
 
-  const res = await request(app).post('/api/auth/refresh');
+  const res = await request(app).post('/api/auth/refresh').set('Cookie', 'endzone_refresh=old-raw-refresh-token');
   assert.equal(res.status, 401);
   assert.deepEqual(Object.keys(res.body), ['error']);
   // #274, and the seam here is the COOKIE, not SQL. The DB mutation on this

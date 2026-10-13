@@ -252,8 +252,8 @@ const PAIRINGS = [
   //     a card"), so this move needed no new measurement either - it is kept
   //     checked under its new home, not newly covered by it.
   //   - LandingPage.css's own `accent-soft` consumer, the `landing-cta-pulse`
-  //     keyframe, animates a `box-shadow` ring around a button; no text sits
-  //     on it.
+  //     keyframe, scales and fades an `::after` ring behind a button (transform and
+  //     opacity only); no text sits on it.
   //   - UserPage's banner (UserPage.css `.user-page:before`/`.container`,
   //     `--scrim` over the background photo) is exactly the `on-overlay` /
   //     `scrim` row below, already measured comfortably clear (#238) - and the

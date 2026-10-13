@@ -29,20 +29,15 @@ export default function FantasyOnly({ children, mainContentId }) {
   const { leagueId } = useParams();
   const { league, loading } = useLeague(leagueId);
   const mainContentProps = mainContentId
-    ? { id: mainContentId, tabIndex: -1, component: 'main' }
+    ? { id: mainContentId, tabIndex: -1 }
     : {};
-  // An explicit role="status" would win over the implicit role a native
-  // <main> carries, so on the Draft route (which needs this to expose as
-  // the main landmark for the skip link) announce loading via aria-live
-  // instead - every other caller keeps the plain role="status" it always had.
-  const loadingRegionProps = mainContentId ? { 'aria-live': 'polite' } : { role: 'status' };
 
   if (!league && loading) {
     return (
       <Box
         aria-label="Loading league"
         sx={{ py: 8, textAlign: 'center' }}
-        {...loadingRegionProps}
+        role="status"
         {...mainContentProps}
       >
         <CircularProgress />

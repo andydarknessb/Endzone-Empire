@@ -369,7 +369,7 @@ function PlayerManagement() {
       : myTeam({ managed: false, ...quickViewShared });
   return (
     <Box
-      component="main"
+      component="div"
       sx={{
         width: "100%",
         maxWidth: 1280,
