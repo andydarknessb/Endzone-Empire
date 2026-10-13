@@ -37,7 +37,7 @@ function normalizeTank01Stats(entry) {
   // but Tank01 OMITS the field for a player with none. They are emitted only
   // when present, so an absent field leaves the key out and the box write
   // keeps a stored count (playerStatsWrite BOX_KEEP_IF_ABSENT): the ESPN Live
-  // box emits none, and a historical --source tank01 backfill must not zero
+  // box's count stands, and a historical --source tank01 backfill must not zero
   // the nflverse counts. A present "0" is a real zero and still emits.
   const twoPt = {};
   for (const [key, value] of [
