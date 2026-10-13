@@ -35,6 +35,25 @@ test('defaults to light and toggles to dark, persisting the choice', async () =>
   expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
 });
 
+test("mounting drops the prerendered landing's styles and mode class once the tokens are on <html>", () => {
+  const prerender = document.createElement('style');
+  prerender.setAttribute('data-ee-prerender', 'light');
+  document.head.appendChild(prerender);
+  document.documentElement.classList.add('ee-pr-light');
+
+  render(
+    <AppThemeProvider>
+      <Probe />
+    </AppThemeProvider>
+  );
+
+  // The prerender's styles live in <head>, outside anything Testing Library queries.
+  // eslint-disable-next-line testing-library/no-node-access
+  expect(document.querySelector('style[data-ee-prerender]')).toBeNull();
+  expect(document.documentElement.classList.contains('ee-pr-light')).toBe(false);
+  expect(document.documentElement.style.getPropertyValue('--accent')).not.toBe('');
+});
+
 test('a stored preference wins over the system default', () => {
   window.localStorage.setItem('endzone_theme', 'dark');
   expect(initialMode()).toBe('dark');
