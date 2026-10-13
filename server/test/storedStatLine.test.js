@@ -72,6 +72,18 @@ test('box keeps a stored idpInterceptionReturnYards a Tank01 box has no field fo
   assert.equal(fresh.idpInterceptionReturnYards, 31);
 });
 
+test('box keeps a stored passingTwoPt when the fresh line lacks it (an ESPN Live box emits none), and a fresh value overwrites it (#2244)', () => {
+  const prior = { passingYards: 200, passingTwoPt: 1, rushingTwoPt: 1, receivingTwoPt: 1 };
+  const kept = stats(storedStatLine({ source: 'box', fresh: { passingYards: 210 }, prior }));
+  assert.equal(kept.passingTwoPt, 1);
+  assert.equal(kept.rushingTwoPt, 1);
+  assert.equal(kept.receivingTwoPt, 1);
+  const fresh = stats(storedStatLine({ source: 'box', fresh: { passingYards: 210, passingTwoPt: 0, rushingTwoPt: 2 }, prior }));
+  assert.equal(fresh.passingTwoPt, 0, 'a Tank01 box that carries the key, even 0, wins');
+  assert.equal(fresh.rushingTwoPt, 2);
+  assert.equal(fresh.receivingTwoPt, 1, 'a key the fresh line lacks is still kept');
+});
+
 test('a Tank01 Final box keeps the Live box idpFumbleRecovery instead of its own-team recoveries (#2002)', () => {
   const { normalizeTank01IdpStats } = require('../services/tank01Normalizers');
   const finalBox = normalizeTank01IdpStats({ Defense: { fumblesRecovered: '1' } });

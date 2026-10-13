@@ -842,13 +842,20 @@ async function applyScheduleFromNflverseUnit(client, { season, scheduleRows }) {
 /**
  * Pure: one combined-file player row -> our full flat stat line, mirroring
  * what normalizeTank01Stats + normalizeTank01IdpStats produce for a live
- * week, plus keys Tank01 can't supply at all (per-category two-point
- * conversions, exact FG distances without a play-by-play scan). Not
+ * week, plus keys Tank01 can't supply (exact FG distances without a
+ * play-by-play scan). Two-point conversions: the Tank01 box now carries them
+ * per category when Tank01 reports one (#2244), but omits the field otherwise,
+ * so this builder still owns the authoritative count. Not
  * idpFumbleRecovery's source: this file's fumble_recovery_opp is opponent-only,
  * Tank01's fumblesRecovered is not and no longer feeds the key (#2002).
  *
  * Semantics matched to the Tank01 normalizers where the sources differ:
  * - fumbles = fumbles_lost_total (all lost fumbles, any category).
+ * - soloTackle = def_tackles_solo + def_tackles_with_assist. nflverse files a
+ *   tackle credited with an assist under def_tackles_with_assist, which is in
+ *   neither def_tackles_solo nor def_tackle_assists; Tank01 and ESPN count it
+ *   as solo (27 of 33 week 5 solo-tackle disagreements, #2244), so the
+ *   correction pass must too or it erases them from every corrected week.
  * - returnTDs = special_teams_tds — one total, where the Tank01 normalizer
  *   adds Punting.puntReturnTD and Kicking.kickReturnTD (#2200).
  * - idpDefensiveTD = def_tds + fumble_recovery_tds. Measured against the
@@ -888,7 +895,7 @@ function normalizeNflversePlayerStats(row) {
     const n = Number(v);
     return Number.isFinite(n) ? n : null;
   };
-  const solo = num(row.def_tackles_solo);
+  const solo = num(row.def_tackles_solo) + num(row.def_tackles_with_assist);
   return {
     // Not scored by any rule (calculateFantasyPoints ignores unknown keys) —
     // carried purely as projection features. Same for gameTeam/gameOpponent:
