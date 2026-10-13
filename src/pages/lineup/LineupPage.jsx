@@ -201,10 +201,18 @@ export default function LineupPage() {
     });
   };
 
+  // Start/sit advice (#1238, ADR 0037): one page-level read shared by the
+  // start-sit-panel widget, the team-summary-strip widget's advice tile and
+  // the Start/sit card's Apply below - the same "value two widgets both need
+  // is passed down by the page" rule `useLineupData` already follows for the
+  // lineup itself. Best ball never calls the endpoint at all.
+  const advice = useAdvice({ leagueId: selectedLeagueId, week: lineup?.week, bestBall });
   // The one Lineup write (spec #2042): swap, the Start/sit card's Apply, the
   // Bench what-if and the Decision card all hand move plans to its `submit`.
   // It clears the week's cached Matchups list itself when a save lands (#1881), as drop-player does for a roster change.
-  const { submit } = useLineupWrite({ leagueId: selectedLeagueId, raw, setRaw });
+  // A landed save also re-reads the advice (#2262): the plan and the suggestions
+  // were made against the lineup the save just changed.
+  const { submit } = useLineupWrite({ leagueId: selectedLeagueId, raw, setRaw, onLanded: advice.reload });
   const swap = useSwapPlayers({
     submit,
     entries: lineup?.entries || [],
@@ -214,12 +222,6 @@ export default function LineupPage() {
   });
   const drop = useDropPlayer({ leagueId: selectedLeagueId, refresh: refetch });
 
-  // Start/sit advice (#1238, ADR 0037): one page-level read shared by the
-  // start-sit-panel widget, the team-summary-strip widget's advice tile and
-  // the Start/sit card's Apply below - the same "value two widgets both need
-  // is passed down by the page" rule `useLineupData` already follows for the
-  // lineup itself. Best ball never calls the endpoint at all.
-  const advice = useAdvice({ leagueId: selectedLeagueId, week: lineup?.week, bestBall });
   const decisionCardEntry = (lineup?.entries || []).find((e) => e.playerId === decisionCardEntryId) || null;
   // Called shots (#1856): the actions re-read the advice when they land, since
   // the server pins or releases the shot's pair.
