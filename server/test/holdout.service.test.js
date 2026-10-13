@@ -652,7 +652,7 @@ test('the Challenger SAVEPOINT loop receives the same nflRosterStatusById map as
 // so it fires the same whether or not fakeDb has weekly/season stats to
 // serve (it does not; every other table falls through to its `{ rows: [] }`
 // default). The real engine is therefore both a stronger and a simpler seam
-// here than a hand-written mock: it also exercises onPracticeSquad's own
+// here than a hand-written mock: it also exercises rosterStatusIs's own
 // 48-hour freshness rule (unavailable.js), which a mock would have to
 // reimplement to be worth anything - see the staleness case below.
 test('a captured fresh Practice squad row lands with active_probability 0 in the child row (#1792 f13)', async (t) => {

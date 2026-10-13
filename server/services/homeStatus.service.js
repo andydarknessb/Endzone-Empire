@@ -21,7 +21,7 @@ const { nflRosterStatusColumn } = require('./nflRosterStatus');
 
 /**
  * Pure: the `lineupProblems` phrase for a starter carrying `unavailableFor`'s
- * reason ('bye' | 'no_team' | 'practice_squad' | 'out' | 'ir'), or null for
+ * reason ('bye' | 'no_team' | 'practice_squad' | 'suspended' | 'out' | 'ir'), or null for
  * every other verdict (available, doubtful, questionable - none of those are
  * a problem here). The wording matches this module's existing tone (`is on
  * bye`, `is Out`, `is on IR`) and the client's own reason labels
@@ -33,6 +33,7 @@ function starterProblemPhrase(reason) {
     case 'out': return 'is Out';
     case 'ir': return 'is on IR';
     case 'practice_squad': return 'is on the practice squad';
+    case 'suspended': return 'is suspended';
     case 'no_team': return 'has no NFL team';
     default: return null;
   }
