@@ -1180,3 +1180,58 @@ test('resyncPriorWeeks reports no failed weeks on a clean pass (#1674)', async (
   const out = await correctionSvc.resyncPriorWeeks();
   assert.deepEqual(out.failed, []);
 });
+
+// runStatCorrections is the Sync run body the scheduler gates (see
+// scheduler.projectionRefill.test.js for the gate). Driven here against the
+// fake pool: the recorded data_sync_runs row carries the outcome and
+// detail.reason.
+const NOW = new Date('2026-09-22T14:00:00Z');
+
+function recordedRuns(t) {
+  const runs = [];
+  createFakePool([
+    [/^INSERT INTO "data_sync_runs"/, (text, params) => {
+      runs.push({ job: params[0], ok: params[2], detail: JSON.parse(params[3]) });
+      return { rows: [] };
+    }],
+  ]).install(t);
+  return runs;
+}
+
+test('runStatCorrections records an ok row with the UTC day and the summary', async (t) => {
+  t.mock.method(correctionSvc, 'resyncPriorWeeks', async () => ({ corrected: [{ leagueId: 1 }], invalidated: [] }));
+  const runs = recordedRuns(t);
+
+  const result = await correctionSvc.runStatCorrections({ now: NOW });
+
+  assert.deepEqual(result, { corrected: 1, invalidated: [] });
+  assert.equal(runs.length, 1);
+  assert.equal(runs[0].job, 'stat-corrections');
+  assert.equal(runs[0].ok, true);
+  assert.deepEqual(runs[0].detail, { day: '2026-09-22', corrected: 1, invalidated: [] });
+});
+
+test('runStatCorrections records write_failed and rethrows when the pass throws', async (t) => {
+  t.mock.method(correctionSvc, 'resyncPriorWeeks', async () => { throw new Error('cache maintenance failed'); });
+  const runs = recordedRuns(t);
+
+  await assert.rejects(correctionSvc.runStatCorrections({ now: NOW }), /cache maintenance failed/);
+
+  assert.equal(runs.length, 1);
+  assert.equal(runs[0].ok, false);
+  assert.equal(runs[0].detail.reason, 'write_failed');
+});
+
+test('runStatCorrections returns the partial result, with a write_failed row, when some weeks failed', async (t) => {
+  const failedWeeks = [{ season: 2026, week: 3 }];
+  t.mock.method(correctionSvc, 'resyncPriorWeeks', async () => ({ corrected: [], invalidated: [], failed: failedWeeks }));
+  const runs = recordedRuns(t);
+
+  const result = await correctionSvc.runStatCorrections({ now: NOW });
+
+  assert.deepEqual(result, { corrected: 0, invalidated: [], failedWeeks });
+  assert.equal(runs.length, 1);
+  assert.equal(runs[0].ok, false);
+  assert.equal(runs[0].detail.reason, 'write_failed');
+  assert.deepEqual(runs[0].detail.failedWeeks, failedWeeks);
+});

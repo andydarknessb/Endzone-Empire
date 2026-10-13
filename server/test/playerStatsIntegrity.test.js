@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const pool = require('../modules/pool');
 const integrity = require('../services/playerStatsIntegrity.service');
+const { createFakePool } = require('./helpers/fakePool');
 
 // 4 rec / 40 yds / 1 TD = 12.0 under default rules. Stored with 0.00, this is the
 // exact production row shape the 2026-09-15 audit found (player_stats ids 438-471).
@@ -146,4 +147,42 @@ test('getIntegrityStatus is not ok while any anomaly is open, however fresh the 
   assert.equal(status.ok, false);
   assert.equal(status.open, 23);
   assert.equal(status.stale, false);
+});
+
+// runIntegrityScan is the Sync run body the scheduler gates (scheduler.statsIntegrity.test.js
+// covers the gate). Driven here against the fake pool: the recorded
+// data_sync_runs row carries the outcome and detail.reason.
+function recordedRuns(t) {
+  const runs = [];
+  createFakePool([
+    [/^INSERT INTO "data_sync_runs"/, (text, params) => {
+      runs.push({ job: params[0], ok: params[2], detail: JSON.parse(params[3]) });
+      return { rows: [] };
+    }],
+  ]).install(t);
+  return runs;
+}
+
+test('runIntegrityScan records an ok row with the UTC day and the scan result', async (t) => {
+  t.mock.method(integrity, 'scanPlayerStats', async () => ({ scanned: 5, open: 1, resolved: 0 }));
+  const runs = recordedRuns(t);
+
+  const result = await integrity.runIntegrityScan({ now: new Date('2026-09-21T09:10:00Z') });
+
+  assert.deepEqual(result, { scanned: 5, open: 1, resolved: 0 });
+  assert.equal(runs.length, 1);
+  assert.equal(runs[0].job, integrity.JOB);
+  assert.equal(runs[0].ok, true);
+  assert.deepEqual(runs[0].detail, { day: '2026-09-21', scanned: 5, open: 1, resolved: 0 });
+});
+
+test('runIntegrityScan records write_failed when the scan throws, and rethrows', async (t) => {
+  t.mock.method(integrity, 'scanPlayerStats', async () => { throw new Error('relation does not exist'); });
+  const runs = recordedRuns(t);
+
+  await assert.rejects(integrity.runIntegrityScan({ now: new Date('2026-09-21T09:10:00Z') }), /relation does not exist/);
+
+  assert.equal(runs.length, 1);
+  assert.equal(runs[0].ok, false);
+  assert.equal(runs[0].detail.reason, 'write_failed');
 });

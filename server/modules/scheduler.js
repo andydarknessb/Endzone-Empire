@@ -8,7 +8,7 @@ const draftSweepLiveness = require('./draftSweepLiveness');
 const { processScheduledDrafts } = require('../services/draftSchedule.service');
 const { withAdvisoryLock } = require('./advisoryLock');
 const { fantasySeasonLiveWhereSql } = require('../services/leaguePhase');
-const { lastRun, runSyncJob } = require('./syncRun');
+const { lastRun } = require('./syncRun');
 const cadence = require('./cadence');
 
 /**
@@ -500,45 +500,12 @@ async function runHourlyGameContextSync({ now = new Date() } = {}) {
 const WEATHER_SNAPSHOT_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
 /**
- * Weather snapshots Sync run (#1883, ADR 0036): refreshes
- * `game_weather_snapshots` for every game kicking off in the future and at
- * most `MAX_HORIZON_HOURS` (168) away, on its own 6-hour cadence
- * (`cadence.due({ job: 'weather-snapshots', every: { ms } })`, which reads the
- * run row this job records).
- *
- * Why it exists: the only other writer of that table is a projection run being
- * GENERATED, and `getWeeklyProjections` returns a cached week without
- * generating, so once a week was cached nothing refreshed its forecast and the
- * Decision card showed whatever the last generation left behind. The
- * projection path still calls `getForecastsForGames`; with this job in place
- * it normally reads the bucket this job already filled.
- *
- * Games are read by kickoff window rather than by season literal: a game in
- * the next 168 hours is by definition the current slate (and is grouped by its
- * own `season`/`week` because the snapshot cache is keyed that way). An
- * `nfl_games` row exists per team, so the read is DISTINCT per `game_key`.
- *
- * Tick safety: it runs after live scoring in `TICK_JOBS`, and it waits out
- * an open game window (`inGameWindow`, as the owed nightly refill does)
- * because the worst case is two sequential 3.5 s NWS requests per outdoor game
- * and a slow run holds the tick (and its 5-minute live-scoring cadence) for
- * its whole duration. Waiting costs nothing: no row is written, so the gate is
- * still due on the first tick after the window closes. It never throws: a
- * failed run is already recorded by `runSyncJob` and is retried next tick (a
- * failed row never moves the gate). `getForecastsForGames` fails open per
- * game, so one dead NWS lookup does not fail the run on its own; `apply`
- * fails the unit when it asked NWS and got nothing (`requests > 0` and
- * `fetched === 0`) or fetched forecasts and saved none, so an outage records
- * ok: false and retries on the next tick instead of holding the gate for 6
- * hours. A partial result stays an ok run, and an unset `NWS_USER_AGENT` stays
- * an ok run whose row carries the `reason`.
- *
- * The job runs with `transaction: false` (#1913): `apply` gets no client and
- * the unit runs with no transaction and no lock, so the week's sequential NWS
- * requests never sit inside one (ADR 0036, "a feed call never runs inside a
- * transaction"). That is also what the weather lookup and its snapshot write
- * need: they log-and-continue on a failed query, which only holds in
- * autocommit.
+ * Weather snapshots Sync run (#1883, ADR 0036): the gate lives here, the body
+ * in weatherSnapshots.service (see its docblock). Gated by
+ * `cadence.due({ job: 'weather-snapshots', every: { ms } })` on its own 6-hour
+ * cadence, and it waits out an open game window (`inGameWindow`). It never
+ * throws: a failed run is already recorded by `runSyncJob` and is retried next
+ * tick (a failed row never moves the gate).
  */
 async function runWeatherSnapshotSync({ now = new Date() } = {}) {
   try {
@@ -547,65 +514,7 @@ async function runWeatherSnapshotSync({ now = new Date() } = {}) {
     });
     if (!gate.due) return null;
     if (await inGameWindow()) return null;
-    const { getForecastsForGames, MAX_HORIZON_HOURS } = require('../services/nwsWeather.service');
-    const horizonEnd = new Date(now.getTime() + MAX_HORIZON_HOURS * 3600000);
-    return await runSyncJob({
-      job: 'weather-snapshots',
-      transaction: false,
-      fetch: async () => {
-        const result = await pool.query(
-          `SELECT DISTINCT ON ("game_key") "game_key", "season", "week", "kickoff_at", "roof", "venue"
-             FROM "nfl_games"
-            WHERE "game_key" IS NOT NULL AND "kickoff_at" > $1 AND "kickoff_at" <= $2
-            ORDER BY "game_key", "kickoff_at"`,
-          [now, horizonEnd]
-        );
-        const byWeek = new Map();
-        for (const row of result.rows) {
-          const key = `${row.season}:${row.week}`;
-          if (!byWeek.has(key)) byWeek.set(key, { season: row.season, week: row.week, games: [] });
-          byWeek.get(key).games.push({
-            gameKey: row.game_key, kickoffAt: row.kickoff_at, roof: row.roof, venue: row.venue,
-          });
-        }
-        return [...byWeek.values()];
-      },
-      apply: async (_client, { season, week, games }) => {
-        const { coverage } = await getForecastsForGames({ season, week, games, now });
-        const requests = coverage.requests || 0;
-        const fetched = coverage.fetched || 0;
-        const saved = coverage.saved || 0;
-        // A unit that asked NWS and got nothing, or got forecasts and saved
-        // none, did not do its job: throw so `runSyncJob` records ok: false,
-        // the gate stays due and the next tick retries (a game already saved
-        // in its horizon bucket is read from the cache only while it is still
-        // in that bucket, so only the missing games are asked again). A
-        // partial result (one forecast fetched and saved) stays an ok run.
-        // The no-forecast throw is tagged `fetch_failed` so the unit's
-        // `detail.failed[].reason` says the feed failed; the run-level
-        // `detail.reason` stays `write_failed` (ADR 0036).
-        if (requests > 0 && fetched === 0) {
-          const error = new Error(`NWS returned no forecast for any of ${requests} request(s) for ${season} week ${week}`);
-          error.syncFailureReason = 'fetch_failed';
-          throw error;
-        }
-        if (fetched > 0 && saved === 0) {
-          throw new Error(`fetched ${fetched} NWS forecast(s) for ${season} week ${week} and saved none`);
-        }
-        return {
-          season,
-          week,
-          games: games.length,
-          requests,
-          fetched,
-          saved,
-          // An unset NWS_USER_AGENT is an unconfigured optional integration,
-          // an ok run: the row says why nothing was fetched.
-          ...(coverage.reason ? { reason: coverage.reason } : {}),
-          ...(coverage.reason === NWS_UNCONFIGURED_REASON ? { unconfigured: true } : {}),
-        };
-      },
-    });
+    return await require('../services/weatherSnapshots.service').runWeatherSnapshots({ now });
   } catch (err) {
     console.error('weather snapshot sync failed (will retry next tick):', err.message);
     return null;
@@ -717,15 +626,8 @@ async function runNightlyStatsIntegrityScan({ now = new Date() } = {}) {
     lastIntegrityScanDay = today;
     return null;
   }
-  const { results: [result] } = await runSyncJob({
-    job: integrity.JOB,
-    fetch: async () => ({ units: [{}], detail: { day: today } }),
-    apply: (client) => integrity.scanPlayerStats({ db: client }),
-  });
+  const result = await integrity.runIntegrityScan({ now });
   lastIntegrityScanDay = today;
-  if (result.open > 0) {
-    console.warn(`scheduler: player_stats integrity scan found ${result.open} open anomaly(ies) over ${result.scanned} rows`);
-  }
   return result;
 }
 
@@ -773,42 +675,8 @@ async function runDailyStatCorrections({ now = new Date() } = {}) {
     if (!gate.backoff) lastCorrectionDay = today;
     return null;
   }
-  let result;
-  let failedWeeks = [];
-  try {
-    ({ results: [result] } = await runSyncJob({
-      job: 'stat-corrections',
-      transaction: false,
-      fetch: async () => ({ units: [{}], detail: { day: today } }),
-      apply: async () => {
-        let run;
-        try {
-          run = await correction.resyncPriorWeeks();
-        } catch (err) {
-          if (err && typeof err === 'object') {
-            err.syncDetail = {
-              invalidated: err.invalidated || [],
-              ...(err.failed && err.failed.length > 0 ? { failedWeeks: err.failed } : {}),
-            };
-          }
-          throw err;
-        }
-        const summary = { corrected: (run.corrected || []).length, invalidated: run.invalidated || [] };
-        const failed = run.failed || [];
-        if (failed.length > 0) {
-          const error = new Error(`stat corrections failed for ${failed.length} week(s)`);
-          error.syncDetail = { ...summary, failedWeeks: failed };
-          error.partial = { ...summary, failedWeeks: failed };
-          throw error;
-        }
-        return summary;
-      },
-    }));
-  } catch (err) {
-    if (!err || !err.partial) throw err;
-    result = err.partial;
-    failedWeeks = err.partial.failedWeeks;
-  }
+  const result = await correction.runStatCorrections({ now });
+  const failedWeeks = result.failedWeeks || [];
   if (failedWeeks.length === 0) {
     lastCorrectionDay = today;
   } else {
@@ -816,16 +684,6 @@ async function runDailyStatCorrections({ now = new Date() } = {}) {
       `scheduler: stat corrections failed for ${failedWeeks
         .map((w) => `${w.season} week ${w.week}`)
         .join(', ')}; retrying after ${STAT_CORRECTIONS_RETRY_MS / 60000} minutes`
-    );
-  }
-  if (result.corrected > 0) {
-    console.log(`scheduler: stat corrections changed scores in ${result.corrected} league(s)`);
-  }
-  if (result.invalidated.length > 0) {
-    console.log(
-      `scheduler: stat corrections invalidated weekly projection runs (${result.invalidated
-        .map((w) => `${w.season} from week ${w.fromWeek}: ${w.deletedRuns} run(s)`)
-        .join('; ')}); refill runs at the end of this tick`
     );
   }
   return result;
@@ -881,53 +739,10 @@ async function runHoldoutSnapshots() {
 const NIGHTLY_PROJECTION_FILL_UTC_HOUR = 9;
 
 /**
- * Nightly projection run (#1305): for every fantasy league whose season is
- * live (`fantasySeasonLiveWhereSql` — draft complete, season not yet
- * complete, the same eligibility the hourly odds/game-context syncs above
- * use), generate `free_baseline_v2` Weekly projections for EVERY player in
- * `players` (#1403; it was every currently rostered player until then, which
- * left every unrostered row the Players list and Waivers page show - most of
- * the pool - to be generated on demand, page by page, 17 weeks at a time),
- * for every week from the league's current week through its last playoff
- * week (`season.service.lastPlayoffWeek`). `getWeeklyProjections`
- * (projection.service.js) owns the cache itself: a (season, week,
- * scoring_hash, model_version) run that already has every player's row is a
- * cache hit and is never regenerated here, which is what lets this run every
- * night at no cost once a season's weeks are filled. A full-pool week is
- * ~12 s to generate and ~0.5 s to confirm cached, so a cold season is a few
- * minutes per league and a warm one seconds.
- *
- * A Sync run per ADR 0036: `runSyncJob` owns the one `data_sync_runs` row for
- * the whole pass, exactly as every other feed sync in this module does.
- * `fetch()` reads the eligible leagues and the player pool once (no
- * transaction, no lock: nothing else bulk-writes these rows); `apply(client,
- * unit)` fills one league's remaining weeks, one per unit. One league
- * throwing does not stop another's: `runSyncJob` attempts every unit and only
- * rethrows the first failure after every unit has been tried, so a prior
- * unit's weeks are already committed regardless. That rethrow is caught here
- * and the day is deliberately left UNSTAMPED whenever it fires, success-path
- * stamp only: a transient failure gets retried inside the same off-peak
- * window rather than losing the whole night, and a league that keeps failing
- * just means the other, now-cached leagues are cheap no-ops on the retry.
- *
- * `apply` deliberately never passes its `client` argument into
- * `getWeeklyProjections` (#1305 f5): that function's cache writer
- * (`saveProjections`) and the weather lookup it calls both log-and-continue on
- * a failed query, a contract that only holds in autocommit. Hosted inside
- * `runSyncJob`'s per-unit transaction, a swallowed failure either aborts the
- * transaction so the NEXT week's query throws a misleading 25P02 (rolling
- * back every earlier week for that league too), or - worse, when the failure
- * lands on the unit's LAST query - leaves nothing left to run, so
- * `withTransaction`'s own COMMIT is answered with a silent ROLLBACK and no
- * error: `ok: true` gets recorded with real-looking `weeksGenerated` counts
- * for a league that persisted nothing. Calling it with no `client` runs it
- * against the pool instead, autocommitting per statement exactly as it does
- * on the live request path and as it did before this file routed through
- * `runSyncJob`; each week's cache row is already an idempotent upsert, so
- * nothing here needs the unit's transaction anyway. The job runs with
- * `transaction: false` (#1913), so the unit runs with no transaction and no
- * lock and the weather provider's HTTP fetches never sit inside one (ADR
- * 0036, "a feed call never runs inside a transaction").
+ * Nightly projection run (#1305): the gate and the day stamp live here, the
+ * Sync run body in projectionFill.service (see its docblock). A failed run
+ * leaves the day UNSTAMPED, success-path stamp only, so a transient failure is
+ * retried inside the same off-peak window.
  *
  * Runs at most once per UTC calendar day inside
  * `NIGHTLY_PROJECTION_FILL_UTC_HOUR` (unconditionally there, same as before:
@@ -950,8 +765,6 @@ const NIGHTLY_PROJECTION_FILL_UTC_HOUR = 9;
  * `runNflverseFinalization`/`runDailyStatCorrections` below.
  */
 async function runNightlyProjectionFill({ now = new Date() } = {}) {
-  // #2081: Render logs are the only place the engine's cost is observable.
-  const startedAt = process.hrtime.bigint();
   const today = cadence.utcDateKey(now);
   const inWindow = now.getUTCHours() === NIGHTLY_PROJECTION_FILL_UTC_HOUR && lastProjectionFillDay !== today;
   if (!inWindow) {
@@ -965,118 +778,16 @@ async function runNightlyProjectionFill({ now = new Date() } = {}) {
     if (await inGameWindow()) return null;
   }
 
-  let outcome;
+  let summary;
   try {
-    outcome = await runSyncJob({
-      job: 'nightly-projection-run',
-      transaction: false,
-      fetch: async () => {
-        // The WHOLE row, not an enumerated column list: getWeeklyProjections
-        // hashes `rulesForLeague(league)` to pick the run it fills, and a
-        // league row without `scoring_rules` hashes to the DEFAULT profile.
-        // With five named columns the fill wrote 3,702 rows a week under a
-        // hash no custom-scoring league ever looks up, and reported the
-        // second league's weeks "already cached" off the first league's
-        // default run - it had never warmed either (found verifying #1447).
-        const leaguesResult = await pool.query(
-          `SELECT * FROM "leagues" WHERE ${fantasySeasonLiveWhereSql()}`
-        );
-        const units = [];
-        if (leaguesResult.rows.length === 0) return units;
-        // Every player, once, shared by every league's unit (#1403).
-        const playersResult = await pool.query(`SELECT "id" FROM "players"`);
-        const playerIds = playersResult.rows.map((r) => r.id);
-        if (playerIds.length === 0) return units;
-        for (const league of leaguesResult.rows) units.push({ league, playerIds });
-        return units;
-      },
-      // `transaction: false` hands no client (#1305 f5, see docblock above):
-      // getWeeklyProjections must run against the pool, in autocommit.
-      apply: async (_client, { league, playerIds }) => {
-        const projection = require('../services/projection.service');
-        const { lastPlayoffWeek } = require('../services/season.service');
-        const throughWeek = lastPlayoffWeek(league);
-        let weeksGenerated = 0;
-        let weeksSkipped = 0;
-        for (let week = league.current_week; week <= throughWeek; week++) {
-          const run = await projection.getWeeklyProjections({
-            season: league.current_season, week, league, playerIds,
-          });
-          // A week is a cache HIT only when every player's row came
-          // back already cached (getWeeklyProjections's own hit/miss rule,
-          // mirrored here rather than re-decided); any generation at all,
-          // partial included, counts this week as generated.
-          const allCached = playerIds.every((id) => {
-            const p = run.projections.get(id);
-            return !!p && p.cached === true;
-          });
-          if (allCached) weeksSkipped += 1; else weeksGenerated += 1;
-        }
-        // Matchup previews (ADR 0063): the current week's projections are
-        // cached by now. Best-effort display text; never fails the fill.
-        try {
-          await require('../services/matchupNarrative.service').writePreviews({ league, now });
-        } catch (err) {
-          console.error('nightly projection fill: matchup previews failed for league %s:', league.id, err.message);
-        }
-        return { leagueId: league.id, weeksGenerated, weeksSkipped };
-      },
-    });
+    summary = await require('../services/projectionFill.service').runNightlyFill({ now });
   } catch (err) {
-    // Unstamped on purpose (see docblock): a same-day retry is owed.
+    // Unstamped on purpose (see the docblock): a same-day retry is owed.
     console.error('nightly projection fill failed (will retry within the window):', err.message);
     return null;
   }
-
   lastProjectionFillDay = today;
-  // #1789: belt and braces after the fill itself - a day both the injury
-  // sync and the roster-status sync fail still owes a fresh verdict for the
-  // 48h practice-squad expiry and a No NFL team clear, and this job runs
-  // regardless of either. A full sweep (no id list: the fill just touched
-  // every live league's players, not a "who changed" set) on the pool, after
-  // `runSyncJob` has already finished every unit above (none ran in a
-  // transaction, #1913) - same reasoning as the roster-status sync's sweep, no ambient transaction
-  // to protect with a SAVEPOINT. Logged and swallowed, never thrown: a
-  // reconcile failure must not turn a real fill into a failed run the
-  // cadence gate retries.
-  try {
-    const projection = require('../services/projection.service');
-    const scope = await projection.liveReconcileScope();
-    if (scope) await projection.reconcileAvailability({ ...scope, now });
-  } catch (err) {
-    console.error('nightly projection fill: availability reconcile failed, continuing:', err.message);
-  }
-  // ADR 0063: Projection explanations for the current week, template first.
-  // Logged and swallowed like the sweep above: prose never fails the fill.
-  try {
-    // The NFL calendar's week in play, not a league's current_week (a league
-    // that has not advanced would pin this to last week).
-    const season = await require('../services/nflSeason.service').upcomingNflSeason();
-    const week = season == null ? null : require('../services/practiceParticipation.service').weekInPlay(
-      await require('../services/pickemSeason.service').getSeasonWeekBounds({ season }), now
-    );
-    if (week != null) {
-      const explanationStart = Date.now();
-      const counts = await require('../services/projectionExplanation.service')
-        .generateForWeek({ season, week }, { now });
-      console.log('nightly projection fill: projection explanations', JSON.stringify(counts),
-        `in ${Date.now() - explanationStart} ms`);
-    }
-  } catch (err) {
-    console.error('nightly projection fill: projection explanations failed, continuing:', err.message);
-  }
-  // One result per league's unit (`fetch` above has no refusal path).
-  const perLeague = outcome.results;
-  const weeksGenerated = perLeague.reduce((sum, r) => sum + (r.weeksGenerated || 0), 0);
-  const weeksSkipped = perLeague.reduce((sum, r) => sum + (r.weeksSkipped || 0), 0);
-  const elapsedMs = Math.round(Number(process.hrtime.bigint() - startedAt) / 1e6);
-  if (weeksGenerated > 0 || weeksSkipped > 0) {
-    console.log(
-      `scheduler: nightly projection fill generated ${weeksGenerated} week(s), ` +
-      `skipped ${weeksSkipped} already-cached week(s) across ${perLeague.length} league(s) in ${elapsedMs} ms`
-    );
-  }
-  return { weeksGenerated, weeksSkipped, leagues: perLeague.length, elapsedMs };
+  return summary;
 }
 
 /**
@@ -1482,10 +1193,6 @@ const MANUAL_SYNC_RUN_JOBS = ['season-stats', 'team-defenses'];
  * ADR 0035).
  */
 const SYNC_RUN_JOBS = [...syncRunJobs(TICK_JOBS), ...MANUAL_SYNC_RUN_JOBS];
-
-// An ok run that wrote nothing because NWS_USER_AGENT is unset (#1930): it stays
-// ok (a failed row would not move the cadence gate), but the report names it.
-const NWS_UNCONFIGURED_REASON = 'NWS_USER_AGENT not configured';
 
 /**
  * `{ finishedAt, ok, outcome, failedWeeks }` for one `lastRun(job).latest`
