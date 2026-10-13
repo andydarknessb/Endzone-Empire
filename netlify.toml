@@ -21,7 +21,7 @@
     # Severs window.opener both ways: nothing in src/ reads or relies on it
     # (the only new-tab links carry rel="noopener noreferrer").
     Cross-Origin-Opener-Policy = "same-origin"
-    Content-Security-Policy = "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.endzoneempire.gg wss://api.endzoneempire.gg https://*.supabase.co wss://*.supabase.co; font-src 'self' data: https:; form-action 'self'; frame-ancestors 'none'; img-src 'self' data: blob: https:; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline' https:; upgrade-insecure-requests"
+    Content-Security-Policy = "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.endzoneempire.gg wss://api.endzoneempire.gg https://*.supabase.co wss://*.supabase.co; font-src 'self' data: https:; form-action 'self'; frame-ancestors 'none'; img-src 'self' data: blob: https:; object-src 'none'; script-src 'self' 'sha256-0fmcXixSq/SEBOURa8qPQPtfe9OcvUMIV8x2IwgaJRA='; style-src 'self' 'unsafe-inline' https:; upgrade-insecure-requests"
     Permissions-Policy = "camera=(), microphone=(), geolocation=(), payment=()"
     Referrer-Policy = "strict-origin-when-cross-origin"
     Strict-Transport-Security = "max-age=31536000; includeSubDomains; preload"
@@ -35,6 +35,11 @@
 
 [[headers]]
   for = "/index.html"
+  [headers.values]
+    Cache-Control = "no-cache"
+
+[[headers]]
+  for = "/shell.html"
   [headers.values]
     Cache-Control = "no-cache"
 
@@ -84,7 +89,10 @@
   to = "/404.html"
   status = 404
 
+# index.html carries the prerendered landing page (scripts/prerender-landing.js,
+# ADR 0065) and answers `/`, so every hash route. Every other path, the public
+# BrowserRouter pages, gets the same shell without the hidden copy.
 [[redirects]]
   from = "/*"
-  to = "/index.html"
+  to = "/shell.html"
   status = 200
