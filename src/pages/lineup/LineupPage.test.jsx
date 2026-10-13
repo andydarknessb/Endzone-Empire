@@ -1406,7 +1406,8 @@ test('Compare on a suggestion opens the Decision card for the suggested starter 
   const panel = await screen.findByTestId('start-sit-panel');
   await user.click(await within(panel).findByRole('button', { name: /compare/i }));
 
-  await screen.findByTestId('decision-card');
+  const card = await screen.findByTestId('decision-card');
+  expect(within(card).getByRole('heading', { level: 2, name: 'Bench Guy' })).toBeInTheDocument();
   expect(await screen.findByTestId('decision-card-compare-panel-2')).toBeInTheDocument();
   expect(screen.getByTestId('decision-card-compare-panel-10')).toBeInTheDocument();
 });

@@ -97,10 +97,6 @@ export default function LineupPage() {
   // #2263: the player the Start/sit card's Compare opens the Decision card
   // beside; null for a plain name click.
   const [decisionCardCompareId, setDecisionCardCompareId] = useState(null);
-  const openDecisionCard = (playerId) => {
-    setDecisionCardCompareId(null);
-    setDecisionCardEntryId(playerId);
-  };
   const compareSuggestion = (view) => {
     setDecisionCardCompareId(view.sit.playerId);
     setDecisionCardEntryId(view.start.playerId);
@@ -514,7 +510,7 @@ export default function LineupPage() {
                       onRowClick={swap.onRowClick}
                       canDropEntry={canDropEntry}
                       onRequestDrop={drop.requestDrop}
-                      onOpenDecisionCard={openDecisionCard}
+                      onOpenDecisionCard={setDecisionCardEntryId}
                       mobileTab={phoneView}
                       onMobileTabChange={onLedgerTabChange}
                     />
@@ -530,7 +526,7 @@ export default function LineupPage() {
                     onCallShot={lineup?.week != null && lineup.week === lineup.currentWeek ? calledShot.callShot : undefined}
                     onWithdrawShot={calledShot.withdrawShot}
                     shotBusy={calledShot.busy}
-                    onOpenDecisionCard={openDecisionCard}
+                    onOpenDecisionCard={setDecisionCardEntryId}
                     onCompare={compareSuggestion}
                     expectedFinals={expectedFinals}
                   />
@@ -693,7 +689,6 @@ export default function LineupPage() {
           setDecisionCardEntryId(null);
           setDecisionCardCompareId(null);
         }}
-        compareWith={decisionCardCompareId}
         entry={decisionCardEntry}
         leagueId={selectedLeagueId}
         week={lineup?.week}
@@ -705,6 +700,7 @@ export default function LineupPage() {
           entries: lineup?.entries || [],
           bestBall,
           leagueUnsettled,
+          compareWith: decisionCardCompareId,
         })}
       />
     </Box>

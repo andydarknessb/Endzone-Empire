@@ -256,6 +256,7 @@ export default function StartSitPanel({
                   variant="ghost"
                   size="sm"
                   data-testid="suggestion-compare"
+                  aria-label={`Compare ${view.start.name} with ${view.sit.name}`}
                   onClick={() => onCompare(view)}
                 >
                   Compare

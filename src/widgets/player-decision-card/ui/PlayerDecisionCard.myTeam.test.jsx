@@ -131,9 +131,8 @@ function renderCard(props = {}) {
   } = props;
   const builtContext = context !== undefined
     ? context
-    : myTeam({ managed: true, onSwap, onRequestDrop, canDropEntry, entries, bestBall, leagueUnsettled, playerIds, onNavigate });
+    : myTeam({ managed: true, onSwap, onRequestDrop, canDropEntry, entries, bestBall, leagueUnsettled, playerIds, onNavigate, compareWith });
   const merged = { open, onClose, entry: entryOverride, leagueId, week, context: builtContext };
-  if (compareWith !== undefined) merged.compareWith = compareWith;
   return { ...renderWithProviders(<PlayerDecisionCard {...merged} />), props: merged };
 }
 
