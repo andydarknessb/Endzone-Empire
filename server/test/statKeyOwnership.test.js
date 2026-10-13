@@ -31,9 +31,9 @@ function assertOwned(source, keys, what) {
 // A maximal Tank01 entry, so a key that only appears for some players is seen.
 const TANK01_ENTRY = {
   playerID: '1',
-  Passing: { passYds: '300', passTD: '2', int: '1' },
-  Rushing: { rushYds: '50', rushTD: '1' },
-  Receiving: { recYds: '80', recTD: '1', receptions: '6' },
+  Passing: { passYds: '300', passTD: '2', int: '1', passingTwoPointConversion: '1' },
+  Rushing: { rushYds: '50', rushTD: '1', rushingTwoPointConversion: '1' },
+  Receiving: { recYds: '80', recTD: '1', receptions: '6', receivingTwoPointConversion: '1' },
   Kicking: { fgMade: '2', fgAttempts: '3', xpMade: '3', xpAttempts: '3' },
   Punting: { puntReturns: '2', puntReturnYds: '20', puntReturnTD: '1' },
   Defense: {
@@ -61,7 +61,7 @@ test('box owns every key the Tank01 normalizers emit', () => {
   assertOwned('box', bonus, 'extractPlayByPlayBonusStats');
   const dst = tank01Normalizers.normalizeTank01DstStats(
     { sacks: '1', defensiveInterceptions: '1', fumblesRecovered: '1', defTD: '1', safeties: '1', ydsAllowed: '300', ptsAllowed: '10' },
-    { blockedFG: '1' },
+    { blockedFG: '1' }, // the side's OWN teamStats line (#2244)
     17
   );
   assertOwned('box', Object.keys(dst), 'normalizeTank01DstStats');
@@ -84,7 +84,7 @@ test('box owns no key only an nflverse feed writes (a box replace must never del
     'idpSackYards', 'idpTacklesForLossYards', 'idpFumbleReturnYards', 'idpSafety',
     'usageTargetShare', 'usageAirYardsShare', 'usageWopr', 'epaPassing', 'epaRushing', 'epaReceiving',
     'gameTeam', 'gameOpponent', 'usagePassAttempts', 'usageCompletions', 'usageCarries', 'usageTargets', 'usageAirYards',
-    'passingTwoPt', 'rushingTwoPt', 'receivingTwoPt', 'kickReturns',
+    'kickReturns',
   ];
   const stray = nflverseOnly.filter((key) => owned('box').has(key));
   assert.deepEqual(stray, []);

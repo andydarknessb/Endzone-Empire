@@ -23,7 +23,8 @@
  *
  * Do NOT follow this with the UNSCOPED backfill-seasons job for past seasons —
  * it would overwrite the richer Sleeper-sourced player_season_stats rollups
- * (Tank01 has no two-point-conversion keys). To roll up the DEF/IDP season
+ * (the Tank01 box carries two-point-conversion keys only when Tank01 reports
+ * a conversion, #2244). To roll up the DEF/IDP season
  * totals Sleeper never writes, run scripts/backfill-defense-season-stats.js
  * instead — it scopes the upsert to defensive positions.
  *

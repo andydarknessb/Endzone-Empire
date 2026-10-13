@@ -32,7 +32,23 @@ function normalizeTank01Stats(entry) {
   // "Kicking" (alongside a kicker's fgMade etc.). Read each by key, never by
   // the presence of the group.
   const punting = e.Punting || {};
+  // Two-point conversions ride each category object as string counts (#2244:
+  // Allen Passing and Kincaid Receiving in BUF@LAR, Henry Rushing in BAL@ATL),
+  // but Tank01 OMITS the field for a player with none. They are emitted only
+  // when present, so an absent field leaves the key out and the box write
+  // keeps a stored count (playerStatsWrite BOX_KEEP_IF_ABSENT): the ESPN Live
+  // box emits none, and a historical --source tank01 backfill must not zero
+  // the nflverse counts. A present "0" is a real zero and still emits.
+  const twoPt = {};
+  for (const [key, value] of [
+    ['passingTwoPt', passing.passingTwoPointConversion],
+    ['rushingTwoPt', rushing.rushingTwoPointConversion],
+    ['receivingTwoPt', receiving.receivingTwoPointConversion],
+  ]) {
+    if (String(value ?? '').trim() !== '') twoPt[key] = num(value);
+  }
   return {
+    ...twoPt,
     passingYards: num(passing.passYds),
     passingTDs: num(passing.passTD),
     interceptions: num(passing.int),
@@ -159,10 +175,10 @@ function extractPlayByPlayBonusStats(plays) {
  * individual "DEF" entries, so a rostered DEF unit's fantasy points come
  * entirely from this aggregate rather than from any single player's line.
  *
- * `opponentTeamStats` is the OPPOSING side's `box.teamStats[side]` entry —
- * confirmed live, `blockedFG`/`blockedXP`/`blockedPunt` are reported on a
- * team's OWN teamStats line as kicks of THEIRS that got blocked, so credit
- * for a block belongs to the opponent's defense.
+ * `ownTeamStats` is this side's OWN `box.teamStats[side]` entry, confirmed
+ * live on 4 real games (#2244), `blockedFG`/`blockedXP`/`blockedPunt` count
+ * the blocks that team MADE, not its kicks that got blocked, so credit for a
+ * block belongs to the defense whose line carries it.
  *
  * `opponentScore` is the OPPOSING side's points on the board (the caller
  * sums it from the box's `lineScore`, since Tank01's `/getNFLBoxScore` has
@@ -189,7 +205,7 @@ function extractPlayByPlayBonusStats(plays) {
  * normally; the key is omitted rather than nulled because `Number(null)`
  * is 0 and would score the best tier again.
  */
-function normalizeTank01DstStats(dstSide, opponentTeamStats, opponentScore) {
+function normalizeTank01DstStats(dstSide, ownTeamStats, opponentScore) {
   const num = (value) => {
     const parsed = Number(String(value ?? '').replace(/,/g, ''));
     return Number.isFinite(parsed) ? parsed : 0;
@@ -210,14 +226,14 @@ function normalizeTank01DstStats(dstSide, opponentTeamStats, opponentScore) {
     return Number.isFinite(parsed) ? parsed : undefined;
   };
   const d = dstSide || {};
-  const opp = opponentTeamStats || {};
+  const own = ownTeamStats || {};
   const stats = {
     sack: num(d.sacks),
     interceptionReturn: num(d.defensiveInterceptions),
     fumbleRecovery: num(d.fumblesRecovered),
     defensiveTD: num(d.defTD),
     safety: num(d.safeties),
-    blockedKick: num(opp.blockedFG) + num(opp.blockedXP) + num(opp.blockedPunt),
+    blockedKick: num(own.blockedFG) + num(own.blockedXP) + num(own.blockedPunt),
   };
   const pointsAllowed = opponentScore != null ? num(opponentScore) : numOrAbsent(d.ptsAllowed);
   if (pointsAllowed !== undefined) stats.pointsAllowed = pointsAllowed;

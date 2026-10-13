@@ -174,3 +174,23 @@ so it happens at most once.
 The Tue/Wed nflverse correction is still the authoritative backstop for the
 box-owned keys; the recheck only shortens how long a transient first read
 stands.
+
+## Amendment (2026-10-13, #2244)
+
+The parity bar no longer covers two-point conversions. The Tank01 box now
+carries them per player (`Passing.passingTwoPointConversion`,
+`Rushing.rushingTwoPointConversion`, `Receiving.receivingTwoPointConversion`,
+present only when the player made one), so the Final box writes
+`passingTwoPt`, `rushingTwoPt` and `receivingTwoPt`. The ESPN Live box
+still emits none, and nothing parses them from Score summary lines. The box
+write keeps a stored count when a line lacks the key, so a Live box never
+erases one. A conversion therefore shows when the Final box lands (or on a
+Tank01 fallback pass), not on the live poll. Before this change no box wrote
+them at all, and they waited for the Tue/Wed nflverse correction. Defensive
+two-point returns (`twoPointReturn`) are unchanged: ESPN reads them from
+play text and Defensive PAT Conversion summary lines.
+
+The same audit corrected the Tank01 blocked-kick reading. A team's own
+`teamStats` line counts the blocks that team made, so each defense reads its
+own line (4 of 4 real games). The earlier opposite reading moved every
+Final-box block to the wrong defense until the nflverse correction.
