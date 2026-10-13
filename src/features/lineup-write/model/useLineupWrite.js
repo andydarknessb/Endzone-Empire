@@ -32,9 +32,10 @@ const CORRECT_WEEK = /\/correct-week$/;
  * refused or rolled-back write), so the page can re-read what a landed save
  * made stale, the Start/sit advice (#2262). A replayed
  * `/correct-week` intent shares the queue and says "Week corrected". A replayed
- * lineup save says what its answer disclosed, with no Undo.
+ * lineup save says what its answer disclosed, with no Undo. A queued save the
+ * server refuses on replay calls `onRejected()` so the page can drop the optimistic lineup.
  */
-export function useLineupWrite({ leagueId, raw, setRaw, onLanded }) {
+export function useLineupWrite({ leagueId, raw, setRaw, onLanded, onRejected }) {
   const notify = useSnackbar();
   const { saveLineup } = useResilientLineupMutation({
     onReplaySuccess: (detail) => {
@@ -50,7 +51,10 @@ export function useLineupWrite({ leagueId, raw, setRaw, onLanded }) {
     // A queued save the server permanently refused: the "saved offline" toast is no longer true.
     onReplayRejected: ({ status, data }) => {
       const { message } = readHttpFailure({ response: { status, data } });
-      notify(message || 'A lineup change saved offline was refused', { severity: 'error' });
+      notify(message ? `Offline lineup change not saved: ${message}` : 'A lineup change saved offline was refused', {
+        severity: 'error',
+      });
+      onRejected?.();
     },
   });
 

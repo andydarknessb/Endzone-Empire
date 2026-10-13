@@ -172,10 +172,10 @@ describe('onLanded (#2262)', () => {
 // One replay subscriber (spec #2042): the page mounts the write once, with swap
 // feeding it, and a replayed save must toast once.
 describe('a replayed offline save', () => {
-  const mountPage = () => {
+  const mountPage = (onRejected) => {
     const raw = { ...RAW, rosterSlots: undefined };
     return renderHook(() => {
-      const { submit } = useLineupWrite({ leagueId: 7, raw, setRaw: jest.fn() });
+      const { submit } = useLineupWrite({ leagueId: 7, raw, setRaw: jest.fn(), onRejected });
       return {
         swap: useSwapPlayers({ submit, raw, entries: [] }),
       };
@@ -222,8 +222,9 @@ describe('a replayed offline save', () => {
     expect(clearWeekMatchupsCache).toHaveBeenCalledTimes(1);
   });
 
-  test('a queued save the server refuses on replay toasts the server message as an error', () => {
-    mountPage();
+  test('a queued save the server refuses on replay toasts the server message as an error and calls onRejected', () => {
+    const onRejected = jest.fn();
+    mountPage(onRejected);
 
     act(() => {
       window.dispatchEvent(
@@ -234,7 +235,8 @@ describe('a replayed offline save', () => {
     });
 
     expect(mockNotify).toHaveBeenCalledTimes(1);
-    expect(mockNotify).toHaveBeenCalledWith('Lineup is locked', { severity: 'error' });
+    expect(mockNotify).toHaveBeenCalledWith('Offline lineup change not saved: Lineup is locked', { severity: 'error' });
+    expect(onRejected).toHaveBeenCalledTimes(1);
   });
 });
 

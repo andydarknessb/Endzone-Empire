@@ -103,12 +103,15 @@ apiClient.interceptors.response.use(
       config.headers = { ...config.headers, Authorization: `Bearer ${token}` };
       return apiClient(config);
     } catch (refreshError) {
-      // Only a refusal ends the session; a 503 mid-deploy or a dropped link leaves the cookie good.
+      // Only a refusal ends the session; a 503 mid-deploy or a dropped link leaves the cookie good,
+      // and the caller sees that transient failure, not a 401 it would read as a refusal.
+      // Any other answer (an older server's 400 for no cookie) keeps the original 401.
       if (isSessionRefusal(refreshError)) {
         clearToken();
         window.dispatchEvent(new Event('auth:session-expired'));
       }
-      return Promise.reject(error);
+      const transient = !isSessionRefusal(refreshError) && (!refreshError.response || refreshError.response.status >= 500);
+      return Promise.reject(transient ? refreshError : error);
     }
   }
 );
