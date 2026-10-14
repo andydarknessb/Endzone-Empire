@@ -71,9 +71,14 @@ async function isGameDay({ now = new Date(), db } = {}) {
 const memory = { fresh: null, freshUntil: 0, lastGood: null };
 
 // Trim headlines down to what the dashboard widget needs, in case the
-// upstream shape grows extra fields later.
+// upstream shape grows extra fields later. `published` rides along only when
+// the source has it.
 function normalizeNewsItems(items) {
-  return (items || []).slice(0, MAX_ITEMS).map((item) => ({ title: item.title, link: item.link }));
+  return (items || []).slice(0, MAX_ITEMS).map((item) => ({
+    title: item.title,
+    link: item.link,
+    ...(item.published ? { published: item.published } : {}),
+  }));
 }
 
 async function redis() {
@@ -127,11 +132,11 @@ async function write(items, { ttlMs = cacheTtlMs() } = {}) {
   }
 }
 
-// ESPN's NFL news document → [{ title, link }]. Articles missing either are
-// dropped (normalizeNewsItems then caps the list).
+// ESPN's NFL news document → [{ title, link, published? }]. Articles missing a
+// title or link are dropped (normalizeNewsItems then caps the list).
 function espnArticles(body) {
   return (body?.articles || [])
-    .map((a) => ({ title: a.headline, link: a.links?.web?.href }))
+    .map((a) => ({ title: a.headline, link: a.links?.web?.href, published: a.published }))
     .filter((a) => a.title && a.link);
 }
 

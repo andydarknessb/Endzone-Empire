@@ -1,6 +1,7 @@
 import React from 'react';
 import { render, screen, within } from '@testing-library/react';
 import apiClient from '../../api/apiClient';
+import * as articlesModule from '../../content/articles';
 import { listArticles } from '../../content/articles';
 import PublicHighlights from './PublicHighlights';
 
@@ -35,6 +36,19 @@ const mockGets = ({ recaps = recapsResponse } = {}) => {
 
 afterEach(() => jest.clearAllMocks());
 
+// Every link on the section is a 44px target (spec #2308): row links and the
+// "All ..." links alike, not just the header's quick links.
+test('every recap, strategy and "All ..." link reaches a 44px box', async () => {
+  mockGets();
+  render(<PublicHighlights />);
+  await screen.findByRole('link', { name: 'KC 20 @ BUF 27' });
+
+  const section = screen.getByRole('region', { name: 'Around the League' });
+  const links = within(section).getAllByRole('link');
+  expect(links.length).toBeGreaterThan(8);
+  for (const link of links) expect(link).toHaveStyle({ minHeight: '44px' });
+});
+
 test('has no Top Players card and never fetches the rankings', async () => {
   mockGets();
   render(<PublicHighlights />);
@@ -65,6 +79,49 @@ test('lists the newest strategy articles straight from the content registry', as
     expect(link).toHaveAttribute('href', `/strategy/${article.slug}`);
   }
   expect(screen.getByRole('link', { name: 'All strategy articles' })).toHaveAttribute('href', '/strategy');
+});
+
+test('the newest Darkness Report leads the Strategy card with its excerpt, and the card still shows three rows', async () => {
+  const meta = (slug, title, date) => ({
+    slug, title, category: 'Strategy', excerpt: `Excerpt of ${slug}`, readMinutes: 5, date,
+  });
+  // Newest first, as the registry sorts: a non-report leads, the report is second.
+  const listed = [
+    meta('newest-guide', 'Newest Guide', '2026-10-13'),
+    meta('wk6-darkness', 'Week 6 Waiver Wire Darkness Report', '2026-10-12'),
+    meta('wk5-darkness', 'Week 5 Waiver Wire Darkness Report', '2026-10-05'),
+    meta('old-guide', 'Old Guide', '2026-09-01'),
+  ];
+  jest.spyOn(articlesModule, 'listArticles').mockReturnValue(listed);
+  mockGets();
+  render(<PublicHighlights />);
+  await screen.findByRole('link', { name: 'KC 20 @ BUF 27' });
+
+  // The recaps list is first, the Strategy list second.
+  const card = screen.getAllByRole('list')[1];
+  const rows = within(card).getAllByRole('listitem');
+  expect(rows.map((row) => within(row).getByRole('link').textContent)).toEqual([
+    'Week 6 Waiver Wire Darkness Report', 'Newest Guide', 'Week 5 Waiver Wire Darkness Report',
+  ]);
+  expect(within(rows[0]).getByText('Excerpt of wk6-darkness')).toBeInTheDocument();
+  expect(within(rows[1]).getByText('Strategy · 5 min read')).toBeInTheDocument();
+  articlesModule.listArticles.mockRestore();
+});
+
+test('with no Darkness Report the Strategy card shows the newest three as before', async () => {
+  const listed = ['a', 'b', 'c', 'd'].map((s, i) => ({
+    slug: s, title: `Guide ${s}`, category: 'Strategy', excerpt: 'x', readMinutes: 4, date: `2026-10-0${9 - i}`,
+  }));
+  jest.spyOn(articlesModule, 'listArticles').mockReturnValue(listed);
+  mockGets();
+  render(<PublicHighlights />);
+  await screen.findByRole('link', { name: 'KC 20 @ BUF 27' });
+
+  // The recaps list is first, the Strategy list second.
+  const card = screen.getAllByRole('list')[1];
+  expect(within(card).getAllByRole('listitem').map((row) => within(row).getByRole('link').textContent))
+    .toEqual(['Guide a', 'Guide b', 'Guide c']);
+  articlesModule.listArticles.mockRestore();
 });
 
 test('shows the quick-links row into every public section', async () => {
