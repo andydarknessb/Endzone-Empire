@@ -121,13 +121,13 @@ const HEADING = { scheduled: 'Next draft', live: 'Draft live', late: 'Draft star
 /**
  * Home v2 draft card. Scheduled: a countdown, seats filled and the way in.
  * Live (draft in progress) and late (start time passed, not started) keep the
- * card up. `queueHasDraft`: the to-do list already carries a Join draft row for
- * this league, so a live card steps down to the ghost button (one primary).
+ * card up. Scheduled and live keep the filled button, even when the to-do list
+ * carries a Join draft row for this league: that row goes quiet instead.
  */
-function NextDraftCard({ league, queueHasDraft = false, onExpire = undefined }) {
+function NextDraftCard({ league, onExpire = undefined }) {
   const state = draftState(league, Date.now()) || 'scheduled';
   const isScheduled = state === 'scheduled';
-  const primary = isScheduled || (state === 'live' && !queueHasDraft);
+  const primary = isScheduled || state === 'live';
   return (
     <Paper
       component="section"
@@ -201,7 +201,6 @@ NextDraftCard.propTypes = {
     team_count: PropTypes.oneOfType([PropTypes.number, PropTypes.string]),
     max_teams: PropTypes.oneOfType([PropTypes.number, PropTypes.string]),
   }).isRequired,
-  queueHasDraft: PropTypes.bool,
   // Called once when the scheduled countdown reaches zero.
   onExpire: PropTypes.func,
 };

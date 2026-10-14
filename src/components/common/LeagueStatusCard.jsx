@@ -169,13 +169,13 @@ function CardHeader({ league, headingId, subline, chip }) {
         aria-hidden="true"
         sx={{
           width: 40, height: 40, flexShrink: 0, borderRadius: 'var(--dash-radius-sm)', backgroundColor: 'var(--dash-surface3)',
-          display: 'grid', placeItems: 'center', fontFamily: DISPLAY_FONT, fontWeight: 700, fontSize: 20, color: 'var(--dash-ink)',
+          display: 'grid', placeItems: 'center', fontFamily: DISPLAY_FONT, fontWeight: 700, fontSize: '20px', color: 'var(--dash-ink)',
         }}
       >
         {(league.name || '?').trim().charAt(0).toUpperCase()}
       </Box>
       <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-        <Typography variant="subtitle1" component="h3" id={headingId} sx={{ fontSize: '17px', fontWeight: 600, m: 0 }}>
+        <Typography variant="subtitle1" component="h3" id={headingId} sx={{ fontSize: '16px', fontWeight: 600, m: 0 }}>
           <Link
             component={RouterLink}
             to={`/league/${league.id}`}

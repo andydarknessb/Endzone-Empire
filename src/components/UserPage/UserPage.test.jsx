@@ -113,12 +113,11 @@ test('a failed leagues fetch keeps "Welcome back" and the to-do list', async () 
   expect(await screen.findByRole('heading', { name: 'Needs your attention' })).toBeInTheDocument();
 });
 
-test('the header Create league is always the ghost; the empty state Create is the one filled primary on a first run', async () => {
+test('the header Create league is always the ghost; on a first run the header pair is hidden and the empty state Create is the one filled primary', async () => {
   apiClient.get.mockResolvedValue({ data: [] });
   const { unmount } = renderPage();
   const empty = await screen.findByTestId('leagues-empty-state');
-  expect(heroButton('Create league')).toHaveClass('MuiButton-outlined');
-  expect(heroButton('Create league')).not.toHaveClass('MuiButton-contained');
+  expect(within(screen.getByTestId('dashboard-hero')).queryByRole('button', { name: 'Create league' })).not.toBeInTheDocument();
   expect(within(empty).getByRole('button', { name: 'Create league' })).toHaveClass('MuiButton-contained');
   unmount();
 
@@ -446,7 +445,7 @@ test('the Alert prompt sits in its own row after My leagues, before the feeds', 
   mockAlertHome([league({ draft_date: draftDate, status: { phase: 'pre-draft' } })]);
   renderPage();
 
-  const prompt = await screen.findByRole('heading', { level: 2, name: 'Get alerts on this phone' });
+  const prompt = await screen.findByRole('heading', { level: 2, name: 'Get alerts on this device' });
   const myLeagues = screen.getByRole('heading', { level: 2, name: 'My leagues' });
   const news = screen.getByRole('heading', { level: 2, name: 'Latest NFL News' });
   const follows = (x, y) => x.compareDocumentPosition(y) & Node.DOCUMENT_POSITION_FOLLOWING;
@@ -461,13 +460,13 @@ test('no Alert prompt when no league row carries a team of the manager', async (
   await screen.findByText('Sunday Ballers');
   await flushEffects();
   expect(fetchPushPublicKey).not.toHaveBeenCalled();
-  expect(screen.queryByRole('heading', { name: 'Get alerts on this phone' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('heading', { name: 'Get alerts on this device' })).not.toBeInTheDocument();
 });
 
 test('an eligible league asks for the push public key', async () => {
   mockAlertHome([league({ status: { phase: 'in-season' } })]);
   renderPage();
 
-  await screen.findByRole('heading', { level: 2, name: 'Get alerts on this phone' });
+  await screen.findByRole('heading', { level: 2, name: 'Get alerts on this device' });
   expect(fetchPushPublicKey).toHaveBeenCalledTimes(1);
 });
