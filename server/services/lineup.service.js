@@ -314,7 +314,10 @@ async function materializeLineup(client, { leagueId, teamId, season, week, leagu
   // that slot overfills it, and every save refuses an overfilled starting slot.
   // He takes the copied seat only while one is free, else the bench.
   const seatsLeft = new Map();
-  const copiesAStarter = missing.some((row) => isStartingSlot(prevEntries.get(row.player_id)?.slot));
+  const copiesAStarter = missing.some((row) => {
+    const slot = prevEntries.get(row.player_id)?.slot;
+    return slot != null && slot !== BENCH && slot !== IR;
+  });
   if (league && existing.rows.length > 0 && copiesAStarter) {
     for (const slot of parseLineupSettings(league).rosterSlots) seatsLeft.set(slot.key, slot.count);
     const taken = await client.query(
