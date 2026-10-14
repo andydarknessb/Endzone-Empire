@@ -293,7 +293,7 @@ test('an item with progress shows a labelled progress bar and the count', async 
       item({ id: 'l', title: 'Fill your empty FLEX' }),
       item({
         id: 'p', type: 'picks_open', title: '6 Week 4 picks still open', leagueName: "Office Pick'em",
-        progress: { done: 9, total: 15 }, cta: { label: 'Finish picks', to: '/league/4/pickem' },
+        detail: null, progress: { done: 9, total: 15 }, cta: { label: 'Finish picks', to: '/league/4/pickem' },
       }),
     ]),
   });
@@ -307,6 +307,24 @@ test('an item with progress shows a labelled progress bar and the count', async 
   expect(within(queue).getByText('9 of 15 made')).toBeInTheDocument();
   // Only the item that carries progress gets a bar.
   expect(within(queue).getAllByRole('progressbar')).toHaveLength(1);
+});
+
+test('a picks row with a bar states its progress once, with the week in that one statement', async () => {
+  mockApi({
+    actionItems: actionItemsBody([
+      item({
+        id: 'p', type: 'picks_open', title: '14 picks still open', leagueName: "Office Pick'em",
+        detail: '0 of 14 made for week 6', progress: { done: 0, total: 14 },
+        cta: { label: 'Make picks', to: '/league/4/pickem' },
+      }),
+    ]),
+  });
+  renderPage();
+
+  const queue = await findQueue();
+  expect(await within(queue).findByRole('progressbar', { name: 'Picks made' })).toHaveAttribute('aria-valuetext', '0 of 14');
+  expect(within(queue).getAllByText(/of 14 made/)).toHaveLength(1);
+  expect(within(queue).getByText('0 of 14 made for week 6')).toBeInTheDocument();
 });
 
 test('a deadline under 24 hours reads relative, and under 2 hours it takes the warning color', async () => {

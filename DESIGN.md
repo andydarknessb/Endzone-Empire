@@ -53,6 +53,47 @@ typography:
     fontSize: "13px"
     fontWeight: 600
     lineHeight: 1.2
+  label-lg:
+    fontFamily: "\"Archivo\", \"Helvetica Neue\", Arial, sans-serif"
+    fontSize: "12px"
+    fontWeight: 600
+  body-sm:
+    fontFamily: "\"Archivo\", \"Helvetica Neue\", Arial, sans-serif"
+    fontSize: "14px"
+    fontWeight: 400
+    lineHeight: 1.5
+  body-lg:
+    fontFamily: "\"Archivo\", \"Helvetica Neue\", Arial, sans-serif"
+    fontSize: "16px"
+    fontWeight: 400
+    lineHeight: 1.5
+  title:
+    fontFamily: "\"Barlow Condensed\", Impact, sans-serif"
+    fontSize: "18px"
+    fontWeight: 600
+    lineHeight: 1.2
+    letterSpacing: "0.08em"
+  headline-sm:
+    fontFamily: "\"Barlow Condensed\", Impact, sans-serif"
+    fontSize: "22px"
+    fontWeight: 700
+    lineHeight: 1.1
+    fontFeature: "tnum"
+  headline-md:
+    fontFamily: "\"Barlow Condensed\", Impact, sans-serif"
+    fontSize: "26px"
+    fontWeight: 700
+    lineHeight: 1.1
+    letterSpacing: "0.02em"
+  display-sm:
+    fontFamily: "\"Barlow Condensed\", Impact, sans-serif"
+    fontSize: "28px"
+    fontWeight: 700
+    lineHeight: 1.1
+  code:
+    fontFamily: "ui-monospace, SFMono-Regular, Consolas, monospace"
+    fontWeight: 600
+    letterSpacing: "0.1em"
   app-headline:
     fontFamily: "\"Inter\", \"Roboto\", \"Helvetica\", \"Arial\", sans-serif"
     fontSize: "2.5rem"
@@ -182,6 +223,14 @@ Position colors (`pos-qb` red, `pos-rb` green, `pos-wr` blue, `pos-te` orange, `
 - **Body** (Archivo 400, 15px, line height 1.5): running text on island surfaces.
 - **Button** (Archivo 600, 13px, line height 1.2): island button labels, never uppercased.
 - **Label** (Archivo 600, 11px, 0.07em tracking, uppercase): stat-tile keys and small section labels, in Faint Ink.
+- **Label large** (Archivo 600, 12px): chip text, card counts and tails, captions, and the deadline sub-line in the to-do list.
+- **Body small** (Archivo 400, 14px): dim helper text, link and button labels inside cards, and filter chips. Grade chips are the one 14px use set in Barlow Condensed.
+- **Body large** (Archivo 400, 16px): a to-do row's title (weight 600) and the greeting summary line on desktop.
+- **Title** (Barlow Condensed 600, 18px, 0.08em tracking, uppercase): feed and highlight card titles, and the to-do deadline value on phones.
+- **Headline small** (Barlow Condensed 700, 22px, tabular numerals): the league-code input. The invite code on the created-league screen is also 22px but uses Code.
+- **Headline medium** (Barlow Condensed 700, 26px): section and dialog titles, the greeting heading on phones, and the stat-tile value.
+- **Display small** (Barlow Condensed 700, 28px): the league name on the Next draft card and the create-league stepper title on phones.
+- **Code** (ui-monospace, SFMono-Regular, Consolas, monospace, 600, 0.1em tracking): the invite-code input and the league-code display and input; the size follows the field.
 - **Legacy ramp** (Inter): h1 2.5rem/800 down to h6 1rem/600; buttons 600 with no text transform; the `stat` variant (tabular numerals, 600) for any score or points figure.
 
 ### Named Rules
