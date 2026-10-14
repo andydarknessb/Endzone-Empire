@@ -3,6 +3,7 @@ import apiClient from '../api/apiClient';
 export const PENDING_LINEUP_MUTATIONS_KEY = 'pending_lineup_mutations';
 export const LINEUP_QUEUE_CHANGED_EVENT = 'lineup:mutation-queue-changed';
 export const LINEUP_MUTATION_REPLAYED_EVENT = 'lineup:mutation-replayed';
+export const LINEUP_MUTATION_REJECTED_EVENT = 'lineup:mutation-rejected';
 const LINEUP_REPLAY_LOCK = 'pending-lineup-mutations-replay';
 
 const ALLOWED_METHODS = new Set(['POST', 'PUT', 'PATCH']);
@@ -119,6 +120,13 @@ async function runReplay() {
         headers: { 'Idempotency-Key': intent.id },
       });
     } catch (error) {
+      const status = error.response?.status;
+      // A permanent refusal (409 locked, 403) would stay first forever and block every later save.
+      if (status >= 400 && status < 500 && ![401, 408, 429].includes(status)) {
+        removeIntent(intent.id);
+        queueEvent(LINEUP_MUTATION_REJECTED_EVENT, { intent, status, data: error.response.data });
+        continue;
+      }
       return { replayed, remaining: readPendingLineupMutations().length, error };
     }
 

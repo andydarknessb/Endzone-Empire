@@ -2,6 +2,7 @@ import apiClient from '../api/apiClient';
 import {
   enqueuePendingLineupMutation,
   enqueueScoreCorrection,
+  LINEUP_MUTATION_REJECTED_EVENT,
   LINEUP_MUTATION_REPLAYED_EVENT,
   PENDING_LINEUP_MUTATIONS_KEY,
   readPendingLineupMutations,
@@ -119,4 +120,54 @@ test('does not replay while the browser reports offline', async () => {
 
   await expect(replayPendingLineupMutations()).resolves.toEqual({ replayed: 0, remaining: 1 });
   expect(apiClient.request).not.toHaveBeenCalled();
+});
+
+describe('a replay the server refuses', () => {
+  const refusal = (status, data = { error: 'locked' }) => Object.assign(new Error('refused'), { response: { status, data } });
+
+  test('a permanent 4xx is dropped and announced, and the queue moves on', async () => {
+    const a = enqueuePendingLineupMutation(mutation(11, 'WR'));
+    const b = enqueuePendingLineupMutation(mutation(12, 'FLEX'));
+    apiClient.request.mockRejectedValueOnce(refusal(409)).mockResolvedValueOnce({ status: 200, data: {} });
+    const rejected = [];
+    const replayed = [];
+    const onRejected = (event) => rejected.push(event.detail);
+    const onReplayed = (event) => replayed.push(event.detail);
+    window.addEventListener(LINEUP_MUTATION_REJECTED_EVENT, onRejected);
+    window.addEventListener(LINEUP_MUTATION_REPLAYED_EVENT, onReplayed);
+
+    await expect(replayPendingLineupMutations()).resolves.toEqual({ replayed: 1, remaining: 0 });
+    window.removeEventListener(LINEUP_MUTATION_REJECTED_EVENT, onRejected);
+    window.removeEventListener(LINEUP_MUTATION_REPLAYED_EVENT, onReplayed);
+
+    expect(rejected).toEqual([{ intent: a, status: 409, data: { error: 'locked' } }]);
+    expect(replayed).toEqual([{ intent: b, status: 200, data: {} }]);
+    expect(readPendingLineupMutations()).toEqual([]);
+  });
+
+  test('a 503 keeps the head intent and never reaches the next one', async () => {
+    const a = enqueuePendingLineupMutation(mutation(11, 'WR'));
+    enqueuePendingLineupMutation(mutation(12, 'FLEX'));
+    apiClient.request.mockRejectedValueOnce(refusal(503));
+
+    await expect(replayPendingLineupMutations()).resolves.toMatchObject({ replayed: 0, remaining: 2 });
+
+    expect(apiClient.request).toHaveBeenCalledTimes(1);
+    expect(readPendingLineupMutations()[0].id).toBe(a.id);
+  });
+
+  test.each([401, 408, 429])('a %i keeps the intent queued', async (status) => {
+    enqueuePendingLineupMutation(mutation(11, 'WR'));
+    apiClient.request.mockRejectedValueOnce(refusal(status));
+
+    await expect(replayPendingLineupMutations()).resolves.toMatchObject({ replayed: 0, remaining: 1 });
+  });
+
+  test('a network error (no response) keeps the intent queued', async () => {
+    const a = enqueuePendingLineupMutation(mutation(11, 'WR'));
+    apiClient.request.mockRejectedValueOnce(Object.assign(new Error('Network Error'), { code: 'ERR_NETWORK' }));
+
+    await expect(replayPendingLineupMutations()).resolves.toMatchObject({ replayed: 0, remaining: 1 });
+    expect(readPendingLineupMutations()[0].id).toBe(a.id);
+  });
 });

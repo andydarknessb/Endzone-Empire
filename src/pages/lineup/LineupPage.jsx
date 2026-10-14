@@ -220,7 +220,13 @@ export default function LineupPage() {
   // A save that lands, or any queued write that replays, also re-reads the
   // advice (#2262): the plan and the suggestions were made against the lineup
   // the write changed.
-  const { submit } = useLineupWrite({ leagueId: selectedLeagueId, raw, setRaw, onLanded: advice.reload });
+  const { submit } = useLineupWrite({
+    leagueId: selectedLeagueId,
+    raw,
+    setRaw,
+    onLanded: advice.reload,
+    onRejected: () => refetch({ silent: true }),
+  });
   const swap = useSwapPlayers({
     submit,
     entries: lineup?.entries || [],
