@@ -54,7 +54,7 @@ const TEAMS = [
  *  `SELECT 1 FROM "leagues"` answer the byCommissioner authority check reads. */
 function pickPool({
   league, picksMade, commissioner = false, playerAdp = 3.2, takenPickNumbers = [],
-  frozen = false, teamLocked = false, rosterCount = 1,
+  frozen = false, teamLocked = false, rosterCount = 1, teamRowLocked = false,
 } = {}) {
   // Stateful: the completing Pick's draft_status flip is visible to the
   // precondition read draftCompletion.completeDraft runs on this same client
@@ -77,7 +77,7 @@ function pickPool({
       rows: [{ id: params[0], locked: teamLocked }],
     })],
     [select('leagues'), () => ({ rows: [{ ...row }] })],
-    [select('teams'), () => ({ rows: TEAMS.map((t) => ({ ...t })) })],
+    [select('teams'), () => ({ rows: TEAMS.map((t) => ({ ...t, locked: t.id === 11 && teamRowLocked })) })],
     // #833: the player read now names `adp`, which rides on the draft:picked
     // outcome. The row carries adp ONLY when the real SELECT names it, so a test
     // asserting outcome.player.adp is a true red-tell against dropping the column.
@@ -560,6 +560,44 @@ test('landPick: a team the GATE reads as locked still picks, because TEAM_LOCK i
   const recorder = withRecorder(t);
 
   await landPick({ leagueId: LEAGUE_ID, userId: 7, playerId: 500 });
+
+  assert.equal(fake.matching(insert('team_players')).length, 1);
+  assert.deepEqual(recorder.calls.map((c) => c.method), ['pickLanded']);
+  fake.assertClean();
+});
+
+test('landPick: a manual Pick by a team the commissioner locked is refused', async (t) => {
+  const fake = pickPool({
+    league: { ...BASE_LEAGUE, current_pick: 0 },
+    picksMade: 1,
+    teamRowLocked: true,
+  }).install(t);
+  const recorder = withRecorder(t);
+
+  await assert.rejects(
+    () => landPick({ leagueId: LEAGUE_ID, userId: 7, playerId: 500 }),
+    (error) => {
+      assert.equal(error.statusCode, 409);
+      assert.equal(error.message, 'your team is locked by the commissioner');
+      return true;
+    }
+  );
+
+  assert.equal(fake.matching(insert('team_players')).length, 0, 'nothing was rostered');
+  assert.deepEqual(recorder.calls, []);
+});
+
+test('landPick: an autopick for a locked team on the clock still lands', async (t) => {
+  // The lock bars the manager, not the clock: refusing the autopick would 409
+  // every candidate and stall the draft on that team.
+  const fake = pickPool({
+    league: { ...BASE_LEAGUE, current_pick: 0 },
+    picksMade: 1,
+    teamRowLocked: true,
+  }).install(t);
+  const recorder = withRecorder(t);
+
+  await landPick({ leagueId: LEAGUE_ID, userId: 7, playerId: 500, auto: true });
 
   assert.equal(fake.matching(insert('team_players')).length, 1);
   assert.deepEqual(recorder.calls.map((c) => c.method), ['pickLanded']);

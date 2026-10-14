@@ -115,9 +115,9 @@ async function commitPick({ leagueId, userId, playerId, auto = false, byCommissi
         // and it authorizes through isLeagueCommissioner.
         myTeam = teams.find((t) => t.owner_id === userId);
         if (!myTeam) throw new DraftError(403, 'not a member of this league');
-        // A commissioner-locked team can't add players; the commissioner's own
-        // force-add tool bypasses this via a separate path.
-        if (myTeam.locked) throw new DraftError(409, 'your team is locked by the commissioner');
+        // The lock bars the manager, not the clock: an autopick must land or the
+        // draft stalls on this team. The commissioner's force-add bypasses it too.
+        if (myTeam.locked && !auto) throw new DraftError(409, 'your team is locked by the commissioner');
         if (league.draft_type === 'offline') {
           throw new DraftError(409, 'this is an offline draft; the commissioner enters every pick');
         }

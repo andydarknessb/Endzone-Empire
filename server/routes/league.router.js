@@ -180,6 +180,7 @@ router.post('/join', async (req, res) => {
       },
       { label: 'league-join' }
     );
+    delete league.draft_share_token; // not for a joining manager (#2274)
     res.status(201).json({ league, team });
   } catch (error) {
     if (error.statusCode) return res.status(error.statusCode).json(serviceErrorBody(error));
@@ -200,6 +201,7 @@ router.post('/:id/join-public', async (req, res) => {
       leagueId, userId: req.user.id, username: req.user.username, teamName,
     });
     if (result.pending) return res.status(202).json({ status: 'pending' });
+    delete result.league.draft_share_token; // not for a joining manager (#2274)
     res.status(201).json({ league: result.league, team: result.team });
   } catch (error) {
     if (error.statusCode) return res.status(error.statusCode).json(serviceErrorBody(error));

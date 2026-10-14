@@ -678,6 +678,8 @@ async function listMyLeagues(db, userId) {
      ORDER BY "leagues"."created_at" DESC`,
     [userId]
   );
+  // The presenter-board credential is not for a member's list (#2274).
+  for (const row of result.rows) delete row.draft_share_token;
   return result.rows;
 }
 

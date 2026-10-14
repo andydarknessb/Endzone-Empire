@@ -150,6 +150,26 @@ test('leagueDetail gives a commissioner the invite code and the ids grant and re
   assert.equal('owner_id' in detail.teams[0], false);
 });
 
+// #2274: draft_share_token is the anonymous presenter-board credential. The
+// commissioner mints and reads it through POST /api/draft/league/:id/share-token,
+// so league detail carries it to nobody, a commissioner included.
+test('leagueDetail never carries the draft share token, to a member or a commissioner', async (t) => {
+  const leagueRow = {
+    id: 1, owner_id: 7, name: 'Sunday Ballers', invite_code: 'invite', draft_share_token: 'secret-token',
+    ownerTeamId: 11, ownerTeamName: "Alice's Team",
+  };
+
+  mockLeagueDetail(t, { isCommissioner: true, leagueRow });
+  const asCommissioner = await leagueDetail({ leagueId: 1, viewer: 99 }, {});
+  assert.equal(asCommissioner.league.invite_code, 'invite');
+  assert.equal('draft_share_token' in asCommissioner.league, false);
+
+  mockLeagueDetail(t, { isCommissioner: false, leagueRow });
+  const asMember = await leagueDetail({ leagueId: 1, viewer: 55 }, {});
+  assert.equal('invite_code' in asMember.league, false);
+  assert.equal('draft_share_token' in asMember.league, false);
+});
+
 test('leagueDetail names commissioner power by Team, never by account, for a plain member', async (t) => {
   mockLeagueDetail(t, {
     isCommissioner: false,
