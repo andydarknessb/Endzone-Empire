@@ -30,6 +30,7 @@ import {
 } from '../common/homeIslandSx';
 import { lazyWithReload } from '../../shared/lib/lazyWithReload';
 import { MIN_TOUCH_TARGET_SX } from '../../shared/lib/a11y';
+import { formatInstant } from '../../shared/lib/instantFormat';
 
 // Lazy: PublicHighlights imports the strategy-article registry (full JSX
 // bodies), which must not ride in the initial main bundle. See the note in
@@ -62,6 +63,11 @@ const feedListSx = {
   '& .MuiListItemText-secondary': dimSx,
 };
 const feedStatusSx = { ...dimSx, fontSize: '14px' };
+// News is a quiet list: 44px links, a lighter weight than a heading would take.
+const newsLinkSx = {
+  ...MIN_TOUCH_TARGET_SX, display: 'inline-flex', alignItems: 'center', color: 'var(--dash-ink)', fontWeight: 500,
+};
+const ACTIVITY_MAX = 3;
 const heroButtonSx = { minHeight: 48, px: 2.5, fontSize: '15px' };
 const LATE_POLL_MS = 30 * 1000;
 // A draft the server could not auto-start waits on the commissioner, so it is
@@ -134,7 +140,14 @@ function UserPage() {
     loading: loadingActivity,
     error: activityFailure,
   } = useNotifications();
-  const activityItems = notifications.slice(0, 5);
+  // The feed is newest first, so the first of a repeated (message, league) pair is the newest.
+  const seenActivity = new Set();
+  const activityItems = notifications
+    .filter((item) => {
+      const key = JSON.stringify([item.message, item.league_name]);
+      return !seenActivity.has(key) && seenActivity.add(key);
+    })
+    .slice(0, ACTIVITY_MAX);
   const awaitingActivity = loadingActivity && !haveActivity;
   const activityError = Boolean(activityFailure) && !haveActivity;
   // Skeletons only stand in for a list we don't have yet. A refetch (Try
@@ -476,12 +489,13 @@ function UserPage() {
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   underline="hover"
-                                  sx={{ color: 'var(--dash-ink)', fontWeight: 600 }}
+                                  sx={newsLinkSx}
                                 >
                                   {item.title}
                                   <Box component="span" sx={visuallyHidden}> (opens in a new tab)</Box>
                                 </Link>
                               }
+                              secondary={formatInstant(item.published, 'day')}
                             />
                           </ListItem>
                         ))}
@@ -516,11 +530,7 @@ function UserPage() {
                           <ListItem key={item.id} disableGutters>
                             <ListItemText
                               primary={item.message}
-                              secondary={
-                                item.league_name
-                                  ? `${item.league_name} · ${new Date(item.created_at).toLocaleDateString()}`
-                                  : new Date(item.created_at).toLocaleDateString()
-                              }
+                              secondary={[item.league_name, formatInstant(item.created_at, 'day')].filter(Boolean).join(' · ')}
                             />
                           </ListItem>
                         ))}
