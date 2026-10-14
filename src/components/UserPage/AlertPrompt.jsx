@@ -54,7 +54,7 @@ export function alertPromptState({
 
 const COPY = {
   default: {
-    title: 'Get alerts on this phone',
+    title: 'Get alerts on this device',
     body: 'Score changes, big plays and lineup problems, delivered to this device even when the app is closed.',
   },
   install: {
@@ -143,7 +143,7 @@ function AlertPrompt({ leagues }) {
       variant="outlined"
       aria-labelledby={title ? 'alert-prompt-heading' : undefined}
       // The blocked variant has no visible heading to point at.
-      aria-label={title ? undefined : 'Alerts on this phone'}
+      aria-label={title ? undefined : 'Alerts on this device'}
       data-testid="alert-prompt"
       sx={{ ...panelSx, flexShrink: 0 }}
     >

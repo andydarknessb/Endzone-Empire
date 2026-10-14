@@ -76,10 +76,29 @@ const FAILED_POLL_MS = 2 * 60 * 1000;
 const START_GRACE_MS = 5 * 1000;
 // Join sits on the page, so the ghost paints its own `dash-surface` fill (the
 // board's Join league button): ink on a card surface, a registered pairing.
-// The empty state's two plain links: inline-flex so the 44px floor applies.
+// The empty state's plain link: inline-flex so the 44px floor applies.
 const emptyLinkSx = {
   ...textLinkSx, ...MIN_TOUCH_TARGET_SX, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
 };
+// The Draft Sim card: a compact outlined panel row, the whole card the link.
+const draftSimCardSx = {
+  ...panelSx,
+  ...MIN_TOUCH_TARGET_SX,
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'center',
+  gap: 0.25,
+  mt: 2,
+  px: 2.5,
+  py: 1.5,
+  width: '100%',
+  maxWidth: 420,
+  boxSizing: 'border-box',
+  textDecoration: 'none',
+  '&:hover': { backgroundColor: 'var(--dash-surface2)' },
+  '&:focus-visible': { outline: '2px solid var(--dash-accent)', outlineOffset: 2 },
+};
+const draftSimTitleSx = { fontSize: '16px', fontWeight: 600, color: 'var(--dash-ink)' };
 const heroGhostSx = {
   ...ghostButtonSx,
   ...heroButtonSx,
@@ -322,16 +341,19 @@ function UserPage() {
               {!firstRun && <GreetingSummary actionItems={actionItems} />}
               <GreetingStats leagues={myLeagues} />
             </Box>
-            <Stack direction="row" spacing={1.5} flexWrap="wrap" useFlexGap>
-              <Button variant="outlined" size="large" onClick={handleOpenJoinDialog} sx={heroGhostSx}>
-                Join league
-              </Button>
-              {/* Always a ghost beside Join: on a first run the empty state's
-                  Create is the page's one filled primary. */}
-              <Button variant="outlined" size="large" onClick={handleOpenCreateDialog} sx={heroGhostSx}>
-                Create league
-              </Button>
-            </Stack>
+            {/* Hidden on a first run: the empty state below carries the only
+                Create (filled) and Join (ghost) pair. Otherwise always a ghost
+                beside Join. */}
+            {!firstRun && (
+              <Stack direction="row" spacing={1.5} flexWrap="wrap" useFlexGap>
+                <Button variant="outlined" size="large" onClick={handleOpenJoinDialog} sx={heroGhostSx}>
+                  Join league
+                </Button>
+                <Button variant="outlined" size="large" onClick={handleOpenCreateDialog} sx={heroGhostSx}>
+                  Create league
+                </Button>
+              </Stack>
+            )}
           </Stack>
 
           {/* The to-do list replaces the old hero and "Next up" nudge. It owns
@@ -423,9 +445,10 @@ function UserPage() {
                 >
                   You aren&apos;t managing any teams yet.
                 </Typography>
-                <Typography sx={{ ...dimSx, mb: 3, maxWidth: 380 }}>
-                  Start a brand-new league with your friends, or jump into one
-                  you&apos;ve already been invited to.
+                <Typography sx={{ ...dimSx, mb: 3, maxWidth: 420 }}>
+                  Free to play. Start a fantasy league, an NFL pick&apos;em
+                  league, or both, with your friends, or join one you&apos;ve
+                  been invited to.
                 </Typography>
                 <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
                   <Button variant="contained" size="large" onClick={handleOpenCreateDialog} sx={{ ...primaryButtonSx, ...heroButtonSx }}>
@@ -435,10 +458,24 @@ function UserPage() {
                     Join league
                   </Button>
                 </Stack>
-                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={{ xs: 0, sm: 3 }} sx={{ mt: 1.5 }}>
-                  <Link component={RouterLink} to="/draft-sim" underline="hover" sx={emptyLinkSx}>Practice in Draft Sim</Link>
-                  <Link component={RouterLink} to="/discover" underline="hover" sx={emptyLinkSx}>Find a public league</Link>
-                </Stack>
+                <Link
+                  component={RouterLink}
+                  to="/draft-sim"
+                  underline="none"
+                  aria-labelledby="draft-sim-card-title"
+                  aria-describedby="draft-sim-card-desc"
+                  sx={draftSimCardSx}
+                >
+                  <Typography id="draft-sim-card-title" component="span" sx={draftSimTitleSx}>
+                    Practice in Draft Sim
+                  </Typography>
+                  <Typography id="draft-sim-card-desc" component="span" sx={{ ...dimSx, fontSize: '14px' }}>
+                    Run a mock draft against the clock, no league needed.
+                  </Typography>
+                </Link>
+                <Link component={RouterLink} to="/discover" underline="hover" sx={{ ...emptyLinkSx, mt: 1 }}>
+                  Find a public league
+                </Link>
               </Box>
             </Card>
           ) : (

@@ -5,9 +5,11 @@ import LeagueStatusCard, { leagueFilterKeys } from '../common/LeagueStatusCard';
 import { MIN_TOUCH_TARGET_SX } from '../../shared/lib/a11y';
 import { HAIRLINE, ghostButtonSx } from '../common/homeIslandSx';
 
-// The filter group (Main board): a card-surface track; the pressed filter is
-// the primary treatment (`dash-on-accent` on `dash-accent`), the others
-// `dash-dim` on the card, hover a step up to `dash-surface2` with ink.
+// The filter group (Main board): a card-surface track. Every filter is a MUI
+// text button; the pressed one reads as ink on `dash-surface2` (a registered
+// pairing), the others `dash-dim` on the card, hover a step up to
+// `dash-surface2` with ink. No solid accent fill: the first viewport keeps
+// one filled primary.
 const filterSx = (pressed) => ({
   ...MIN_TOUCH_TARGET_SX,
   px: 2,
@@ -16,12 +18,12 @@ const filterSx = (pressed) => ({
   textTransform: 'none',
   borderRadius: 'var(--dash-radius-sm)',
   boxShadow: 'none',
-  color: pressed ? 'var(--dash-on-accent)' : 'var(--dash-dim)',
-  backgroundColor: pressed ? 'var(--dash-accent)' : 'transparent',
+  color: pressed ? 'var(--dash-ink)' : 'var(--dash-dim)',
+  backgroundColor: pressed ? 'var(--dash-surface2)' : 'transparent',
   '&:hover': {
     boxShadow: 'none',
-    color: pressed ? 'var(--dash-on-accent)' : 'var(--dash-ink)',
-    backgroundColor: pressed ? 'var(--dash-accent)' : 'var(--dash-surface2)',
+    color: 'var(--dash-ink)',
+    backgroundColor: 'var(--dash-surface2)',
   },
 });
 
@@ -87,8 +89,8 @@ function LeagueStatusGrid({ leagues }) {
                 type="button"
                 aria-pressed={pressed}
                 onClick={() => choose(key)}
-                variant={pressed ? 'contained' : 'text'}
-                color={pressed ? 'primary' : 'inherit'}
+                variant="text"
+                color="inherit"
                 disableElevation
                 sx={filterSx(pressed)}
               >
