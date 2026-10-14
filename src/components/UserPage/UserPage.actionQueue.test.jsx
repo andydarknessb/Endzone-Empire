@@ -60,7 +60,7 @@ const actionItemsBody = (items, extra = {}) => ({
 
 // `actionItems` is a response body, an Error (the fetch rejects), a function
 // (called per request, for retry tests) or 'pending' (never settles).
-const mockApi = ({ leagues = [], actionItems = actionItemsBody([]), notifications = [] } = {}) => {
+const mockApi = ({ leagues = [league()], actionItems = actionItemsBody([]), notifications = [] } = {}) => {
   apiClient.get.mockImplementation((url) => {
     if (url === '/api/user/action-items') {
       const answer = typeof actionItems === 'function' ? actionItems() : actionItems;

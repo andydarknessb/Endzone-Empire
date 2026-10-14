@@ -71,7 +71,7 @@ test('shows skeleton cards (not the empty state) while leagues are loading', asy
 });
 
 test('renders a welcome message with the username', async () => {
-  apiClient.get.mockResolvedValue({ data: [] });
+  apiClient.get.mockResolvedValue({ data: [league()] });
   renderWithProviders(<UserPage />, { state: baseState });
   // UserPage unconditionally mounts the news/activity widgets and the lazy
   // PublicHighlights section, each firing its own fetch on mount regardless
@@ -81,6 +81,62 @@ test('renders a welcome message with the username', async () => {
   await waitFor(() => expect(apiClient.get).toHaveBeenCalled());
 
   expect(screen.getByText('Welcome back, alice')).toBeInTheDocument();
+});
+
+test('keeps "Welcome back" while the leagues load: no flash of the first-run state', async () => {
+  apiClient.get.mockReturnValue(new Promise(() => {}));
+  renderWithProviders(<UserPage />, { state: baseState });
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalled());
+
+  expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Welcome back, alice');
+});
+
+test('a user with no leagues gets the first-run Home: Welcome, no to-do list, no summary', async () => {
+  apiClient.get.mockResolvedValue({ data: [] });
+  renderPage();
+
+  await screen.findByTestId('leagues-empty-state');
+  await flushEffects();
+  expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Welcome, alice');
+  expect(screen.queryByRole('heading', { name: 'Needs your attention' })).not.toBeInTheDocument();
+  expect(screen.queryByText(/You're all caught up/)).not.toBeInTheDocument();
+  expect(screen.queryByTestId('greeting-summary')).not.toBeInTheDocument();
+});
+
+test('a failed leagues fetch keeps "Welcome back" and the to-do list', async () => {
+  apiClient.get.mockImplementation((url) => (url === '/api/league'
+    ? Promise.reject({ response: { data: { error: 'server exploded' } } })
+    : Promise.resolve({ data: [] })));
+  renderPage();
+
+  await screen.findByText('server exploded');
+  expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Welcome back, alice');
+  expect(await screen.findByRole('heading', { name: 'Needs your attention' })).toBeInTheDocument();
+});
+
+test('the header Create league is the filled primary only while the user has no leagues', async () => {
+  apiClient.get.mockResolvedValue({ data: [] });
+  const { unmount } = renderPage();
+  await screen.findByTestId('leagues-empty-state');
+  expect(heroButton('Create league')).toHaveClass('MuiButton-contained');
+  unmount();
+
+  apiClient.get.mockResolvedValue({ data: [league()] });
+  renderPage();
+  await screen.findByText('Sunday Ballers');
+  expect(heroButton('Create league')).toHaveClass('MuiButton-outlined');
+  expect(heroButton('Create league')).not.toHaveClass('MuiButton-contained');
+});
+
+test('a news link that opens a new tab says so in its accessible name', async () => {
+  apiClient.get.mockImplementation((url) => {
+    if (url === '/api/news') return Promise.resolve({ data: [{ title: 'Big trade', link: 'https://example.com/trade' }] });
+    return Promise.resolve({ data: [league()] });
+  });
+  renderPage();
+
+  const link = await screen.findByRole('link', { name: 'Big trade (opens in a new tab)' });
+  expect(link).toHaveAttribute('target', '_blank');
 });
 
 test("fetches and renders the user's leagues on mount", async () => {
@@ -129,6 +185,8 @@ test('renders a rich empty state with an icon and CTAs once loading finishes wit
   expect(within(emptyState).getByTestId('SportsFootballIcon')).toBeInTheDocument();
   expect(within(emptyState).getByRole('button', { name: 'Create league' })).toBeInTheDocument();
   expect(within(emptyState).getByRole('button', { name: 'Join league' })).toBeInTheDocument();
+  expect(within(emptyState).getByRole('link', { name: 'Try a mock draft' })).toHaveAttribute('href', '/draft-simulator');
+  expect(within(emptyState).getByRole('link', { name: 'Find a public league' })).toHaveAttribute('href', '/discover');
 });
 
 test('does not render the empty state once leagues are present', async () => {
@@ -160,7 +218,7 @@ test('renders NFL news headlines and cross-league activity from their own endpoi
   });
   renderWithProviders(<UserPage />, { state: baseState });
 
-  expect(await screen.findByRole('link', { name: 'Star RB questionable for Sunday' })).toHaveAttribute(
+  expect(await screen.findByRole('link', { name: 'Star RB questionable for Sunday (opens in a new tab)' })).toHaveAttribute(
     'href',
     'https://example.com/news/1'
   );
@@ -242,11 +300,6 @@ describe('the activity card while the bell polls', () => {
 
 test('surfaces the public-layer highlights section (lazy) for logged-in users', async () => {
   apiClient.get.mockImplementation((url) => {
-    if (url === '/api/public/rankings') {
-      return Promise.resolve({
-        data: { rankings: [{ rank: 1, playerId: 7, name: 'Top Back', position: 'RB', nflTeam: 'KC', seasonPoints: 300 }] },
-      });
-    }
     if (url === '/api/public/recaps') return Promise.resolve({ data: { recaps: [] } });
     if (url === '/api/notifications') return Promise.resolve({ data: { notifications: [] } });
     return Promise.resolve({ data: [] });
@@ -256,7 +309,6 @@ test('surfaces the public-layer highlights section (lazy) for logged-in users', 
   // The section is a lazy chunk (it carries the strategy-article registry),
   // so it arrives after the initial render.
   expect(await screen.findByText('Around the League')).toBeInTheDocument();
-  expect(await screen.findByRole('link', { name: '#1 Top Back' })).toBeInTheDocument();
   expect(screen.getByRole('link', { name: 'Waiver Wire' })).toHaveAttribute('href', '/waiver-wire');
   expect(screen.getByRole('link', { name: 'All strategy articles' })).toHaveAttribute('href', '/strategy');
 });
@@ -273,10 +325,10 @@ test('the page has one h1, an h2 per section and an h3 per league card', async (
   expect(screen.getByRole('heading', { level: 2, name: 'My leagues' })).toBeInTheDocument();
   expect(await screen.findByRole('heading', { level: 2, name: 'Needs your attention' })).toBeInTheDocument();
   expect(screen.getByRole('heading', { level: 2, name: 'Latest NFL News' })).toBeInTheDocument();
-  expect(screen.getByRole('heading', { level: 2, name: 'Global Activity' })).toBeInTheDocument();
+  expect(screen.getByRole('heading', { level: 2, name: 'Activity in your leagues' })).toBeInTheDocument();
   expect(screen.getByRole('heading', { level: 3, name: 'Sunday Ballers' })).toBeInTheDocument();
   expect(await screen.findByRole('heading', { level: 2, name: 'Around the League' })).toBeInTheDocument();
-  expect(screen.getByRole('heading', { level: 3, name: 'Top Players' })).toBeInTheDocument();
+  expect(screen.queryByRole('heading', { name: 'Top Players' })).not.toBeInTheDocument();
   expect(screen.queryAllByRole('heading', { level: 4 })).toHaveLength(0);
   expect(screen.queryAllByRole('heading', { level: 5 })).toHaveLength(0);
   expect(screen.queryAllByRole('heading', { level: 6 })).toHaveLength(0);
@@ -379,16 +431,17 @@ afterEach(() => {
   window.localStorage.clear();
 });
 
-test('the Alert prompt sits between the Action queue and Next draft for an eligible manager', async () => {
+test('the Alert prompt sits in its own row after My leagues, before the feeds', async () => {
   const draftDate = new Date(Date.now() + 6 * 24 * 60 * 60 * 1000).toISOString();
   mockAlertHome([league({ draft_date: draftDate, status: { phase: 'pre-draft' } })]);
   renderPage();
 
   const prompt = await screen.findByRole('heading', { level: 2, name: 'Get alerts on this phone' });
-  const queue = screen.getByRole('heading', { level: 2, name: 'Needs your attention' });
-  const nextDraft = await screen.findByRole('region', { name: 'Next draft' });
-  expect(queue.compareDocumentPosition(prompt) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  expect(prompt.compareDocumentPosition(nextDraft) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  const myLeagues = screen.getByRole('heading', { level: 2, name: 'My leagues' });
+  const news = screen.getByRole('heading', { level: 2, name: 'Latest NFL News' });
+  const follows = (x, y) => x.compareDocumentPosition(y) & Node.DOCUMENT_POSITION_FOLLOWING;
+  expect(follows(myLeagues, prompt)).toBeTruthy();
+  expect(follows(prompt, news)).toBeTruthy();
 });
 
 test('no Alert prompt when no league row carries a team of the manager', async () => {

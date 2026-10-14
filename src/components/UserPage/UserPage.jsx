@@ -8,6 +8,8 @@ import {
 } from '@mui/material';
 import Grid from '@mui/material/Unstable_Grid2';
 import { ThemeProvider, useTheme } from '@mui/material/styles';
+import { visuallyHidden } from '@mui/utils';
+import { Link as RouterLink } from 'react-router-dom';
 import SportsFootballIcon from '@mui/icons-material/SportsFootball';
 import apiClient from '../../api/apiClient';
 import { readHttpFailure } from '../../lib/httpFailure';
@@ -24,9 +26,10 @@ import { usePostgameCutscenes, PostgameCutscenes } from '../../features/postgame
 import homeTheme from './homeTheme';
 import {
   DISPLAY_FONT, alertActionSx, alertSx, dimSx, ghostButtonSx, homeRootSx, panelSx, panelTitleSx,
-  primaryButtonSx, sectionTitleSx, skeletonSx,
+  primaryButtonSx, sectionTitleSx, skeletonSx, textLinkSx,
 } from '../common/homeIslandSx';
 import { lazyWithReload } from '../../shared/lib/lazyWithReload';
+import { MIN_TOUCH_TARGET_SX } from '../../shared/lib/a11y';
 
 // Lazy: PublicHighlights imports the strategy-article registry (full JSX
 // bodies), which must not ride in the initial main bundle. See the note in
@@ -60,6 +63,10 @@ const feedStatusSx = { ...dimSx, fontSize: '14px' };
 const heroButtonSx = { minHeight: 48, px: 2.5, fontSize: '15px' };
 // Join sits on the page, so the ghost paints its own `dash-surface` fill (the
 // board's Join league button): ink on a card surface, a registered pairing.
+// The empty state's two plain links: inline-flex so the 44px floor applies.
+const emptyLinkSx = {
+  ...textLinkSx, ...MIN_TOUCH_TARGET_SX, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+};
 const heroGhostSx = {
   ...ghostButtonSx,
   ...heroButtonSx,
@@ -126,6 +133,9 @@ function UserPage() {
   // Skeletons only stand in for a list we don't have yet. A refetch (Try
   // again, or the refresh after a create or join) keeps the good list up.
   const awaitingFirstLeagues = loadingLeagues && myLeagues.length === 0;
+  // First run: the leagues read succeeded and found none. Not while loading (no
+  // flash of the first-run state) and not after a failed read.
+  const firstRun = !loadingLeagues && !leaguesError && myLeagues.length === 0;
   const nextDraft = featuredDraft(myLeagues)?.league ?? null;
   const currentWeek = sharedCurrentWeek(myLeagues);
   const liveMatchups = liveMatchupCount(myLeagues);
@@ -245,16 +255,23 @@ function UserPage() {
                   textTransform: 'uppercase',
                 }}
               >
-                Welcome back, {user.username}
+                {firstRun ? 'Welcome' : 'Welcome back'}, {user.username}
               </Typography>
-              <GreetingSummary actionItems={actionItems} />
+              {!firstRun && <GreetingSummary actionItems={actionItems} />}
               <GreetingStats leagues={myLeagues} />
             </Box>
             <Stack direction="row" spacing={1.5} flexWrap="wrap" useFlexGap>
               <Button variant="outlined" size="large" onClick={handleOpenJoinDialog} sx={heroGhostSx}>
                 Join league
               </Button>
-              <Button variant="contained" size="large" onClick={handleOpenCreateDialog} sx={{ ...primaryButtonSx, ...heroButtonSx }}>
+              {/* One filled primary on the page: Create is a ghost beside Join once a
+                  league exists. */}
+              <Button
+                variant={myLeagues.length > 0 ? 'outlined' : 'contained'}
+                size="large"
+                onClick={handleOpenCreateDialog}
+                sx={myLeagues.length > 0 ? heroGhostSx : { ...primaryButtonSx, ...heroButtonSx }}
+              >
                 Create league
               </Button>
             </Stack>
@@ -262,13 +279,11 @@ function UserPage() {
 
           {/* The to-do list replaces the old hero and "Next up" nudge. It owns
               its own fetch and states, so it never holds up My leagues. */}
-          <Grid container spacing={3} sx={{ mb: 5 }}>
+          <Grid container spacing={3} sx={{ mb: firstRun ? 0 : 5 }}>
             <Grid xs={12} lg={nextDraft ? 8 : 12}>
-              {/* The queue shrinks to leave room for the Alert prompt below it. */}
-              <Stack spacing={3} useFlexGap sx={{ height: '100%' }}>
-                <ActionQueue onLoaded={setActionItems} leagues={myLeagues} />
-                <AlertPrompt leagues={myLeagues} />
-              </Stack>
+              {/* No to-do list on a first run: "all caught up" would be untrue
+                  of a manager with nothing yet to catch up on. */}
+              {!firstRun && <ActionQueue onLoaded={setActionItems} leagues={myLeagues} />}
             </Grid>
             {nextDraft && (
               <Grid xs={12} lg={4}>
@@ -361,11 +376,24 @@ function UserPage() {
                     Join league
                   </Button>
                 </Stack>
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={{ xs: 0, sm: 3 }} sx={{ mt: 1.5 }}>
+                  {/* /draft-simulator lives in the public BrowserRouter tree, so a
+                      plain href; /discover is an app route. */}
+                  <Link href="/draft-simulator" underline="hover" sx={emptyLinkSx}>Try a mock draft</Link>
+                  <Link component={RouterLink} to="/discover" underline="hover" sx={emptyLinkSx}>Find a public league</Link>
+                </Stack>
               </Box>
             </Card>
           ) : (
             <LeagueStatusGrid leagues={myLeagues} />
           )}
+
+          {/* Its own full-width row under My leagues, so the header's Create and
+              Join stay the page's only competing actions above the fold. Renders
+              nothing when the prompt has nothing to ask. */}
+          <Box sx={{ '&:not(:empty)': { mt: 3 } }}>
+            <AlertPrompt leagues={myLeagues} />
+          </Box>
 
           {/* Below-the-fold dashboard real estate: real cross-app widgets. */}
           <Box sx={{ mt: 5 }}>
@@ -406,6 +434,7 @@ function UserPage() {
                                   sx={{ color: 'var(--dash-ink)', fontWeight: 600 }}
                                 >
                                   {item.title}
+                                  <Box component="span" sx={visuallyHidden}> (opens in a new tab)</Box>
                                 </Link>
                               }
                             />
@@ -420,7 +449,7 @@ function UserPage() {
                 <Card variant="outlined" sx={feedCardSx}>
                   <CardContent>
                     <Typography variant="h6" component="h2" sx={feedTitleSx}>
-                      Global Activity
+                      Activity in your leagues
                     </Typography>
                     {awaitingActivity ? (
                       <Stack spacing={1}>
