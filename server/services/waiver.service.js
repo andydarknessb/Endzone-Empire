@@ -524,6 +524,7 @@ async function processWaivers({ leagueId }) {
 
     // Due = the player's individual window expired, or he has no individual
     // window and the post-draft blanket window (if any) has expired.
+    // The row lock makes a cancelClaim that races this run wait, then see a non-pending claim.
     const dueResult = await client.query(
       `SELECT "waiver_claims".*
        FROM "waiver_claims"
@@ -533,7 +534,8 @@ async function processWaivers({ leagueId }) {
          AND COALESCE("waiver_players"."available_at",
                       (SELECT "waivers_clear_at" FROM "leagues" WHERE "id" = $1),
                       now()) <= now()
-       ORDER BY "waiver_claims"."player_id", "waiver_claims"."id"`,
+       ORDER BY "waiver_claims"."player_id", "waiver_claims"."id"
+       FOR UPDATE OF "waiver_claims"`,
       [leagueId]
     );
     if (dueResult.rows.length === 0) {

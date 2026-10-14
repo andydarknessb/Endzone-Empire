@@ -95,20 +95,28 @@ function positionCapGroup(position) {
   return Object.keys(POSITION_GROUPS).find((key) => POSITION_GROUPS[key].includes(position)) || position;
 }
 
-/** Enforce a team's per-position draft cap (if the league sets one for this player's cap group). Throws DraftError(409) when full. */
-async function assertPositionCapNotReached(client, { teamId, positionCaps, position }) {
-  const caps = typeof positionCaps === 'string' ? JSON.parse(positionCaps) : positionCaps || {};
-  const group = positionCapGroup(position);
-  const cap = caps[group];
-  if (!Number.isInteger(cap)) return;
-  const members = POSITION_GROUPS[group] || [position];
+/** A league's position_caps column as an object (it may arrive as a JSON string). */
+const parsePositionCaps = (positionCaps) => (
+  typeof positionCaps === 'string' ? JSON.parse(positionCaps) : positionCaps || {}
+);
+
+/** How many players a team rosters in one cap group (the group key is the position itself when it is not a group). */
+async function countAtPositionGroup(client, { teamId, group }) {
   const countResult = await client.query(
     `SELECT COUNT(*)::int AS n FROM "team_players"
      JOIN "players" ON "players"."id" = "team_players"."player_id"
      WHERE "team_players"."team_id" = $1 AND "players"."position" = ANY($2::text[])`,
-    [teamId, members]
+    [teamId, POSITION_GROUPS[group] || [group]]
   );
-  if (countResult.rows[0].n >= cap) {
+  return countResult.rows[0].n;
+}
+
+/** Enforce a team's per-position draft cap (if the league sets one for this player's cap group). Throws DraftError(409) when full. */
+async function assertPositionCapNotReached(client, { teamId, positionCaps, position }) {
+  const group = positionCapGroup(position);
+  const cap = parsePositionCaps(positionCaps)[group];
+  if (!Number.isInteger(cap)) return;
+  if (await countAtPositionGroup(client, { teamId, group }) >= cap) {
     throw new DraftError(409, `position cap reached: max ${cap} ${group}`);
   }
 }
@@ -290,6 +298,9 @@ module.exports = {
   assertRosterWriteAllowed,
   assertRosterAcquisitionAllowed,
   assertPositionCapNotReached,
+  positionCapGroup,
+  parsePositionCaps,
+  countAtPositionGroup,
   isLeagueFrozen,
   DIRECTION,
   ROSTER_GATE,

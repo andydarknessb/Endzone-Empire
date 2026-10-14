@@ -359,6 +359,20 @@ test('processWaivers clears an expired empty waiver window and refreshes league 
   fake.assertClean();
 });
 
+test('processWaivers locks the due claims it reads, so a cancel cannot be overwritten (#2274)', async (t) => {
+  const fake = createFakePool([
+    [/^SELECT \* FROM "leagues"/, () => ({ rows: [{ id: 1, waiver_type: 'priority' }] })],
+    [select('waiver_claims'), () => ({ rows: [] })],
+    [remove('waiver_players'), () => ({ rows: [], rowCount: 1 })],
+    [update('leagues'), () => ({ rows: [], rowCount: 1 })],
+  ]).install(t);
+
+  await processWaivers({ leagueId: 1 });
+
+  const [due] = fake.matching(select('waiver_claims'));
+  assert.match(due.text, /ORDER BY "waiver_claims"\."player_id", "waiver_claims"\."id" FOR UPDATE OF "waiver_claims"$/);
+});
+
 // --- the claim's own drop is NOT undoable (#222) ----------------------------
 // The manager drop and the forced drop share `placeOnWaiversUndoable`, which
 // records what the drop interrupted so an undo can replay it. This drop
