@@ -49,6 +49,10 @@ function tradeWorld({
   // The fake pool applies no writes, so a test that needs a later read to see
   // an earlier write advances its own state here.
   onRosterWrite = () => {},
+  waiversClearAt = null,
+  // The league-wide "is this player rostered?" read the on-waivers check makes
+  // (isOnWaivers): by default always yes, a test overrides it to track deletes.
+  rosteredNow = () => true,
 }) {
   return createFakePool([
     [/^SELECT "id", "transactions_locked",.* FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({
@@ -59,8 +63,11 @@ function tradeWorld({
         roster_limit: 16,
         ir_slots: 2,
         position_caps: positionCaps,
-        waivers_clear_at: null,
+        waivers_clear_at: waiversClearAt,
       }],
+    })],
+    [/^SELECT 1 FROM "team_players" WHERE "league_id" = \$1 AND "player_id" = \$2/, (text, params) => ({
+      rows: rosteredNow(params[1]) ? [{ 1: 1 }] : [],
     })],
     [/^SELECT "id", "locked" FROM "teams" WHERE "id" = \$1 FOR UPDATE/, (text, params) => ({
       rows: [{ id: params[0], locked: lockedTeams.includes(params[0]) }],
@@ -340,6 +347,36 @@ test('executeTrade: the gate runs per item, immediately around each write', asyn
     const at = fake.calls.indexOf(read);
     assert.match(fake.calls[at + 1].text, /^SELECT "id", "locked" FROM "teams"/);
   }
+
+  // Per item the order is release gate, acquire gate, DELETE, INSERT: the
+  // acquire gate runs before the give-side delete (#2274), so a rostered
+  // player is never judged as an unrostered one.
+  const steps = fake.calls
+    .map((c) => (/^SELECT "id", "transactions_locked"/.test(c.text) ? 'gate'
+      : /^DELETE FROM "team_players"/.test(c.text) ? 'delete'
+        : /^INSERT INTO "team_players"/.test(c.text) ? 'insert' : null))
+    .filter(Boolean);
+  assert.deepEqual(steps, ['gate', 'gate', 'delete', 'insert', 'gate', 'gate', 'delete', 'insert']);
+  fake.assertClean();
+});
+
+test('executeTrade: a rostered player trades during the post-draft blanket waiver window (#2274)', async (t) => {
+  const rostered = new Set([21]);
+  const fake = tradeWorld({
+    counts: new Map([[41, 5], [42, 5]]),
+    stashes: new Map([[41, 0], [42, 0]]),
+    waiversClearAt: new Date(Date.now() + 3600 * 1000).toISOString(),
+    rosteredNow: (playerId) => rostered.has(playerId),
+    onRosterWrite: (kind, params) => { if (kind === 'remove') rostered.delete(params[1]); },
+  });
+  clearBench(t);
+  const client = await fake.connect();
+
+  await executeTrade(client, { trade, league, items, teams });
+  client.release();
+
+  assert.equal(fake.matching(insert('team_players')).length, 1, 'the player moved');
+  assert.equal(fake.matching(update('trades')).length, 1, 'the trade executed');
   fake.assertClean();
 });
 
