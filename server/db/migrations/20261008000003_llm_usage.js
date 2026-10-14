@@ -7,9 +7,6 @@
  * Index on created_at: the guard sums the current billing cycle on every call.
  *
  * No grant to `anon` (ADR 0009).
- *
- * CARVE-OUT (server/db/migrations/**): applied by Cory as its own knex batch
- * after merge and before the release that needs it, never by an agent.
  */
 
 const TABLE = 'llm_usage';
