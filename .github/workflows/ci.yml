@@ -177,22 +177,6 @@ jobs:
 
   migration-smoke:
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        # Docker's official image via the ECR Public mirror: anonymous Docker
-        # Hub pulls are rate-limited on shared runners (toomanyrequests).
-        image: public.ecr.aws/docker/library/postgres:17
-        env:
-          POSTGRES_USER: endzone
-          POSTGRES_PASSWORD: endzone_test
-          POSTGRES_DB: endzone_empire_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U endzone -d endzone_empire_test"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
     env:
       PGHOST: 127.0.0.1
       PGPORT: 5432
@@ -202,6 +186,27 @@ jobs:
       NODE_ENV: test
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Postgres 17 from the PGDG apt repo, not a service container: Docker Hub
+      # and ECR Public both throttle anonymous image pulls on shared runners
+      # (#2196, #2292), and PGDG keeps prod's major version. The runner image
+      # preinstalls a stopped 16 cluster on 5432, so drop every cluster first
+      # and create 17 on 5432 ourselves rather than let the package pick 5433.
+      # Role, password and database come from the job env above.
+      - name: Install and start PostgreSQL 17
+        run: |
+          set -euo pipefail
+          cd /
+          pg_lsclusters -h | while read -r v n _; do sudo pg_dropcluster --stop "$v" "$n"; done
+          echo 'create_main_cluster = false' | sudo tee -a /etc/postgresql-common/createcluster.conf
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -q -y postgresql-17
+          sudo pg_createcluster 17 main --port 5432 --start
+          sudo -u postgres psql -v ON_ERROR_STOP=1 -v u="$PGUSER" -v pw="$PGPASSWORD" -v db="$PGDATABASE" <<'SQL'
+          CREATE ROLE :"u" SUPERUSER LOGIN PASSWORD :'pw';
+          CREATE DATABASE :"db" OWNER :"u";
+          SQL
+          pg_lsclusters
+          psql -c 'select version()'
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
