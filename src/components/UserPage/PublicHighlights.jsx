@@ -36,12 +36,16 @@ const cardSx = { ...panelSx, height: '100%' };
 const cardTitleSx = { ...panelTitleSx, fontSize: '18px', mb: 1.5 };
 const statusSx = { ...dimSx, fontSize: '14px' };
 const listSx = { '& .MuiListItemText-secondary': dimSx };
-const rowLinkSx = { color: 'var(--dash-ink)', fontWeight: 600, textDecorationColor: 'currentColor' };
-const moreLinkSx = { ...textLinkSx, fontSize: '14px' };
-// The header's quick links are the section's only way into those pages, so
-// each is a 44px target (inline-flex, since an inline box ignores min-height).
-const quickLinkSx = {
-  ...moreLinkSx, ...MIN_TOUCH_TARGET_SX, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+// Every link here is a 44px target (inline-flex, since an inline box ignores
+// min-height; minHeight, not height, so a multi-word title still wraps).
+const touchLinkSx = { ...MIN_TOUCH_TARGET_SX, display: 'inline-flex', alignItems: 'center' };
+const rowLinkSx = {
+  ...touchLinkSx, color: 'var(--dash-ink)', fontWeight: 600, textDecorationColor: 'currentColor',
+};
+const moreLinkSx = { ...textLinkSx, ...touchLinkSx, fontSize: '14px' };
+const quickLinkSx = { ...moreLinkSx, justifyContent: 'center' };
+const clampTwoSx = {
+  display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
 };
 
 function WidgetSkeleton() {
@@ -59,7 +63,12 @@ function PublicHighlights() {
   const [loadingRecaps, setLoadingRecaps] = useState(true);
   const [recapsError, setRecapsError] = useState(false);
 
-  const articles = listArticles().slice(0, STRATEGY_TEASER_COUNT);
+  // The newest Darkness Report leads (listArticles is newest first), then the
+  // newest others fill the card; with no report the card is just the newest.
+  const listed = listArticles();
+  const report = listed.find((article) => /Darkness Report/i.test(article.title));
+  const articles = (report ? [report, ...listed.filter((article) => article !== report)] : listed)
+    .slice(0, STRATEGY_TEASER_COUNT);
 
   useEffect(() => {
     apiClient
@@ -120,14 +129,7 @@ function PublicHighlights() {
                           </Link>
                         }
                         secondary={[`Week ${recap.week}`, recap.hook].filter(Boolean).join(' · ')}
-                        secondaryTypographyProps={{
-                          sx: {
-                            display: '-webkit-box',
-                            WebkitLineClamp: 2,
-                            WebkitBoxOrient: 'vertical',
-                            overflow: 'hidden',
-                          },
-                        }}
+                        secondaryTypographyProps={{ sx: clampTwoSx }}
                       />
                     </ListItem>
                   ))}
@@ -155,7 +157,8 @@ function PublicHighlights() {
                           {article.title}
                         </Link>
                       }
-                      secondary={`${article.category} · ${article.readMinutes} min read`}
+                      secondary={article === report ? article.excerpt : `${article.category} · ${article.readMinutes} min read`}
+                      secondaryTypographyProps={article === report ? { sx: clampTwoSx } : undefined}
                     />
                   </ListItem>
                 ))}

@@ -48,9 +48,13 @@ const deferred = () => {
   return { promise, resolve };
 };
 
-// The page's first Create league button (the header one). Matched loosely so
-// the header's own copy can change without touching these tests.
+// The page's first Create league button (the header one, or the empty state's
+// on a first run, when the header pair is hidden). Matched loosely so the
+// copy can change without touching these tests.
+// Wait out the leagues skeleton first: the header pair unmounts when the page
+// settles into the first run.
 const openCreate = async () => {
+  await waitFor(() => expect(screen.queryAllByTestId('league-skeleton')).toHaveLength(0));
   await userEvent.click(screen.getAllByRole('button', { name: /create league/i })[0]);
   return screen.findByRole('dialog');
 };
