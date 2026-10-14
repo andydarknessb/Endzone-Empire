@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { teamIndexForPick, addFreeAgent, undoDrop, dropPlayer } = require('../services/draft.service');
 const lineupService = require('../services/lineup.service');
+const { isOnWaivers } = require('../services/waiverStatus');
 const { createFakePool, select, insert, remove } = require('./helpers/fakePool');
 const { installRecordingBroadcast } = require('./helpers/recordingBroadcast');
 
@@ -434,8 +435,9 @@ const undoLeague = {
  * is what an undo replays now that the stale lineup row it used to read is deleted
  * by the drop (#197).
  */
-function undoWorld({ rostered = 2, stashed, interrupted = null, onStashQuery }) {
+function undoWorld({ rostered = 2, stashed, interrupted = null, onStashQuery, extra = [] }) {
   return createFakePool([
+    ...extra,
     [select('leagues'), () => ({ rows: [undoLeague] })],
     [select('teams'), () => ({ rows: [{ id: 11, owner_id: 7, locked: false }] })],
     [/^SELECT 1 FROM "waiver_players"/, () => ({ rows: [{ 1: 1 }] })],
@@ -539,5 +541,48 @@ test('undoDrop: a player who had no current-week row when he was dropped benches
 
   assert.deepEqual(restored, []);
   assert.deepEqual(benched, [{ league: undoLeague, teamId: 11, playerId: 500, afterRosterWrite: true }]);
+  fake.assertClean();
+});
+
+test('undoDrop: withdraws every pending claim on the player in this league, notifies each claimer once, and clears the waiver gate (#2296)', async (t) => {
+  // A stateful claims table: the UPDATE flips matching rows and RETURNs their
+  // owners, and the isOnWaivers read sees whatever is still pending.
+  const claims = [
+    { id: 1, league_id: 1, player_id: 500, owner_id: 21, status: 'pending' },
+    { id: 2, league_id: 1, player_id: 500, owner_id: 22, status: 'pending' },
+    { id: 3, league_id: 1, player_id: 600, owner_id: 23, status: 'pending' },
+    { id: 4, league_id: 2, player_id: 500, owner_id: 24, status: 'pending' },
+  ];
+  const pendingOn = (leagueId, playerId) => claims.filter(
+    (c) => c.league_id === leagueId && c.player_id === playerId && c.status === 'pending'
+  );
+  const fake = undoWorld({
+    rostered: 1,
+    stashed: 0,
+    extra: [
+      [/^UPDATE "waiver_claims" SET "status" = 'cancelled'/, (text, [leagueId, playerId]) => {
+        const hit = pendingOn(leagueId, playerId);
+        hit.forEach((c) => { c.status = 'cancelled'; });
+        return { rows: hit.map((c) => ({ id: c.id, owner_id: c.owner_id })) };
+      }],
+      [/^SELECT 1 FROM "waiver_players" WHERE .* UNION ALL SELECT 1 FROM "waiver_claims"/, (text, [leagueId, playerId]) => ({
+        rows: pendingOn(leagueId, playerId).slice(0, 1).map(() => ({ 1: 1 })),
+      })],
+      [insert('notifications'), () => ({ rows: [] })],
+    ],
+  }).install(t);
+  recordBenching(t, fake);
+  recordRestoring(t);
+
+  assert.equal(await isOnWaivers(fake, { league: { id: 1 }, playerId: 500 }), true, 'a pending claim holds the player before the undo');
+
+  await undoDrop({ leagueId: 1, userId: 7, playerId: 500 });
+
+  assert.deepEqual(claims.map((c) => c.status), ['cancelled', 'cancelled', 'pending', 'pending']);
+  const notes = fake.matching(insert('notifications'));
+  assert.deepEqual(notes.map((n) => n.params.slice(0, 3)), [[21, 1, 'waiver_result'], [22, 1, 'waiver_result']]);
+  assert.match(notes[0].params[3], /no longer available.*drop was undone/);
+  assert.deepEqual(JSON.parse(notes[0].params[4]), { claimId: 1, playerId: 500 });
+  assert.equal(await isOnWaivers(fake, { league: { id: 1 }, playerId: 500 }), false, 'the waiver gate is clear once the undo commits');
   fake.assertClean();
 });
