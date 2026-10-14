@@ -241,6 +241,18 @@ test('advance-week: a body week that is not a positive integer is refused 400 be
   fake.assertClean();
 });
 
+test('advance-week: a body week that only coerces to a positive integer is refused 400 before any read (#2297)', async (t) => {
+  const fake = routerPool(league({ draft_status: 'complete' })).install(t);
+  const scored = spy(t, scoring, 'scoreMatchups');
+  for (const week of [true, '3', '0x3', ' 3 ', [3], 2.5, 0, -1]) {
+    const res = await request(app).post('/api/scoring/league/1/advance-week').set('Authorization', authed).send({ week });
+    assert.equal(res.status, 400, `week ${JSON.stringify(week)}`);
+    assert.equal(res.body.error, 'week must be a positive integer', `week ${JSON.stringify(week)}`);
+  }
+  assert.equal(scored.length, 0);
+  fake.assertClean();
+});
+
 test('advance-week: a body week that is no longer the current week is refused 409 without scoring', async (t) => {
   const fake = routerPool(league({ draft_status: 'complete', current_week: 2 })).install(t);
   const scored = spy(t, scoring, 'scoreMatchups');
