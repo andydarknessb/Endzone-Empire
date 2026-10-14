@@ -745,19 +745,26 @@ test('processDueTrades: a throwing rosterChanged broadcast is contained, the tra
   assert.deepEqual(outcomes, [{ tradeId: 9, status: 'executed' }]);
   assert.ok(world.matching(/^UPDATE "trades" SET "status" = 'executed'/).length === 1,
     'the trade was executed inside the committed transaction');
+  // Only the two executed notifications (#2295): no cancel notice on this path.
+  const notices = world.matching(insert('notifications'));
+  assert.deepEqual(notices.map((n) => [n.params[0], n.params[3]]), [
+    [7, 'Your trade has been executed'],
+    [8, 'Your trade has been executed'],
+  ]);
   world.assertClean();
 });
 
 // A due trade that really executes one item (team 41 sends player 21 to team
 // 42), so executeTrade's per-item gate is what refuses it. The gate handlers
 // come from tradeWorld; only the due-trade loading around them is added here.
-function dueExecutingTradeWorld(opts) {
+function dueExecutingTradeWorld(opts, extraHandlers = []) {
   const gateHandlers = tradeWorldHandlers({
     counts: new Map([[41, 5], [42, 5]]),
     stashes: new Map([[41, 0], [42, 0]]),
     ...opts,
   });
   return createFakePool([
+    ...extraHandlers,
     [/FROM "trades" WHERE "status" = 'accepted' AND "review_ends_at"/, () => ({ rows: [{ id: 9 }] })],
     [/FROM "leagues" WHERE "id" = \(SELECT "league_id"/, () => ({
       rows: [{ id: 1, roster_limit: 16, ir_slots: 2, current_season: 2026, current_week: 6, position_caps: opts.positionCaps || {} }],
@@ -790,6 +797,51 @@ test('processDueTrades: an accepted trade that nets the receiving team over the 
   assert.equal(world.matching(remove('team_players')).length, 0, 'nothing was written');
 });
 
+// The cancel UPDATE hands back the trade's teams (RETURNING) so the notification
+// writes need no second read of a trade that is no longer accepted.
+const cancelHandlers = [
+  [/^UPDATE "trades" SET "status" = 'cancelled'/, () => ({
+    rows: [{ id: 9, league_id: 1, proposing_team_id: 41, receiving_team_id: 42 }],
+    rowCount: 1,
+  })],
+  [insert('notifications'), () => ({ rows: [] })],
+];
+
+test('processDueTrades: a TradeError cancel notifies both owners with the reason in the same transaction (#2295)', async (t) => {
+  const world = dueExecutingTradeWorld({
+    positionCaps: { RB: 1 },
+    positionCounts: () => 1,
+  }, cancelHandlers).install(t);
+  t.mock.method(console, 'error', () => {});
+
+  await processDueTrades();
+
+  const notices = world.matching(insert('notifications'));
+  assert.equal(notices.length, 2, 'one notification per owner');
+  assert.deepEqual(notices.map((n) => n.params[0]).sort(), [7, 8]);
+  for (const n of notices) {
+    assert.equal(n.params[1], 1, 'league id');
+    assert.equal(n.params[2], 'trade_result');
+    assert.match(n.params[3], /cancelled/);
+    assert.match(n.params[3], /position cap reached: max 1 RB/);
+    assert.equal(JSON.parse(n.params[4]).tradeId, 9);
+    assert.equal(n.via, 'client', 'written on the cancel transaction, not the pool');
+  }
+  world.assertClean();
+});
+
+test('processDueTrades: a trade already settled elsewhere is not cancelled and notifies no one (#2295)', async (t) => {
+  const world = dueExecutingTradeWorld({
+    positionCaps: { RB: 1 },
+    positionCounts: () => 1,
+  }, [[/^UPDATE "trades" SET "status" = 'cancelled'/, () => ({ rows: [], rowCount: 0 })]]).install(t);
+  t.mock.method(console, 'error', () => {});
+
+  await processDueTrades();
+
+  assert.equal(world.matching(insert('notifications')).length, 0);
+});
+
 test('processDueTrades: a freeze refusal stays accepted and keeps waiting (#2274)', async (t) => {
   const world = dueExecutingTradeWorld({ frozen: true }).install(t);
   const logged = [];
@@ -800,6 +852,7 @@ test('processDueTrades: a freeze refusal stays accepted and keeps waiting (#2274
   assert.deepEqual(outcomes, []);
   assert.equal(world.matching(/^UPDATE "trades" SET "status" = 'cancelled'/).length, 0);
   assert.equal(logged.length, 1, 'logged and left for the next tick');
+  assert.equal(world.matching(insert('notifications')).length, 0, 'a held trade notifies no one (#2295)');
 });
 
 // --- the week's NFL opponent on every trade item (#1585) --------------------
