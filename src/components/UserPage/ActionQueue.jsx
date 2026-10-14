@@ -329,7 +329,9 @@ function CaughtUp({ leagues }) {
 // `onLoaded(body)` hands the page the response body after each successful
 // fetch, and null after a failed one, so the greeting header can summarize
 // the list without a second request.
-function ActionQueue({ onLoaded, leagues = [] }) {
+// `quietDraftLeagueId`: the draft card is up for that league, so its Join draft
+// row renders outlined and the primary goes to the first other row.
+function ActionQueue({ onLoaded, leagues = [], quietDraftLeagueId = null }) {
   const onLoadedRef = useRef(onLoaded);
   onLoadedRef.current = onLoaded;
   const [data, setData] = useState(null);
@@ -383,6 +385,9 @@ function ActionQueue({ onLoaded, leagues = [] }) {
   const total = data?.counts?.total ?? items.length;
   const visible = expanded ? items : items.slice(0, MAX_VISIBLE);
   const hiddenCount = items.length - visible.length;
+  const isQuietDraft = (entry) => quietDraftLeagueId != null
+    && entry.type === 'draft_live' && String(entry.leagueId) === String(quietDraftLeagueId);
+  const primaryEntry = visible.find((entry) => !isQuietDraft(entry));
   // The skeleton only stands in for a list we don't have yet; a retry keeps
   // the good list up.
   const awaitingFirst = loading && !data;
@@ -427,7 +432,7 @@ function ActionQueue({ onLoaded, leagues = [] }) {
         )}
         {items.length > 0 && (
           <Typography variant="body2" sx={{ ...dimSx, fontSize: '13px', ml: 'auto', textAlign: 'right' }}>
-            {`Deadlines first · times in ${formatInstant(now, 'zone') || 'your time zone'}`}
+            {`Most urgent first · times in ${formatInstant(now, 'zone') || 'your time zone'}`}
           </Typography>
         )}
       </Stack>
@@ -459,7 +464,7 @@ function ActionQueue({ onLoaded, leagues = [] }) {
             ref={expanded && index === MAX_VISIBLE ? firstRevealedRef : undefined}
             item={entry}
             now={now}
-            primary={index === 0}
+            primary={entry === primaryEntry}
           />
         ))}
       </Box>

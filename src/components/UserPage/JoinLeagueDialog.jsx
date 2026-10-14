@@ -302,7 +302,7 @@ export default function JoinLeagueDialog({ open, onClose, onJoined }) {
                 border: `2px solid ${refusal ? 'var(--dash-warning)' : 'var(--dash-accent)'}`,
               }}
             >
-              <Typography variant="subtitle1" component="p" sx={{ fontSize: '17px', fontWeight: 600 }}>{preview.name}</Typography>
+              <Typography variant="subtitle1" component="p" sx={{ fontSize: '16px', fontWeight: 600 }}>{preview.name}</Typography>
               {/* One fact per element (#209), so a screen reader announces
                   each on its own. The commissioner is named by Team, never
                   by account (CONTEXT.md Team identity). */}

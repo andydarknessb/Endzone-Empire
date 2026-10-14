@@ -352,7 +352,7 @@ test('a deadline under 24 hours reads relative, and under 2 hours it takes the w
   const farRow = within(queue).getAllByRole('listitem').find((row) => within(row).queryByText('Far'));
   expect(within(farRow).queryByText(/^in /)).not.toBeInTheDocument();
   // One time zone for the whole list, and it says which.
-  expect(within(queue).getByText(/Deadlines first · times in /)).toBeInTheDocument();
+  expect(within(queue).getByText(/Most urgent first · times in /)).toBeInTheDocument();
 });
 
 // CONTEXT.md, Clear time: claims resolve at each player's Clear time, never in
@@ -452,27 +452,32 @@ test('a league 30 days past its draft date is not featured; the one drafting in 
   expect(screen.queryByRole('region', { name: 'Draft starting soon' })).not.toBeInTheDocument();
 });
 
-// One primary action per view: when the to-do list already has the Join draft
-// row, the live card steps down to the ghost button.
-test('the live card is primary unless the to-do list already has a Join draft row for that league', async () => {
+// Draft night: the live card always keeps the filled button; the to-do row for
+// the same league goes quiet and the primary moves to the first other row.
+test('the live card stays primary, its to-do row goes quiet, and the first other row is primary', async () => {
   const live = league({ id: 6, name: 'Night League', draft_status: 'active' });
   const draftRow = item({
     id: 'draft_live:6', type: 'draft_live', leagueId: 6, leagueName: 'Night League', title: 'Your draft is live',
-    cta: { label: 'Join draft', to: '/league/6/draft' },
+    severity: 'blocking', cta: { label: 'Join draft', to: '/league/6/draft' },
   });
-  mockApi({ leagues: [live], actionItems: actionItemsBody([draftRow]) });
+  const other = item({ id: 'x', title: 'Fill your empty FLEX', cta: { label: 'Fix lineup', to: '/league/71/lineup' } });
+  mockApi({ leagues: [live], actionItems: actionItemsBody([draftRow, other]) });
   const { unmount } = renderPage();
   const queue = await findQueue();
   await within(queue).findByText('Your draft is live');
-  const cardLink = () => within(screen.getByRole('region', { name: 'Draft live' })).getByRole('link', { name: 'Join draft' });
-  await waitFor(() => expect(cardLink()).toHaveClass('MuiButton-outlined'));
+  const card = within(screen.getByRole('region', { name: 'Draft live' })).getByRole('link', { name: 'Join draft' });
+  expect(card).toHaveClass('MuiButton-contained');
+  expect(within(queue).getByRole('link', { name: 'Join draft' })).toHaveClass('MuiButton-outlined');
+  expect(within(queue).getByRole('link', { name: 'Fix lineup' })).toHaveClass('MuiButton-contained');
   unmount();
 
-  mockApi({ leagues: [live], actionItems: actionItemsBody([item({ id: 'x', title: 'Fill your empty FLEX' })]) });
+  // Without the draft card (the only league is stale, so none is featured), row 0 stays primary.
+  mockApi({ leagues: [league({ id: 1, draft_date: inFromNow(-30 * 24 * HOUR) })], actionItems: actionItemsBody([draftRow, other]) });
   renderPage();
   const queue2 = await findQueue();
-  await within(queue2).findByText('Fill your empty FLEX');
-  expect(cardLink()).toHaveClass('MuiButton-contained');
+  await within(queue2).findByText('Your draft is live');
+  expect(within(queue2).getByRole('link', { name: 'Join draft' })).toHaveClass('MuiButton-contained');
+  expect(within(queue2).getByRole('link', { name: 'Fix lineup' })).toHaveClass('MuiButton-outlined');
 });
 
 // --- Draft-night freshness (fake timers) -------------------------------------

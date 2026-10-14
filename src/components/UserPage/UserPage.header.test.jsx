@@ -140,7 +140,7 @@ test('the summary line counts what needs the manager, what is due today and when
       [
         item({ id: 'a', type: 'draft_live', deadlineAt: new Date().toISOString(), severity: 'blocking' }),
         item({ id: 'b', deadlineAt: later }),
-        item({ id: 'c', type: 'picks_open', deadlineAt: first }),
+        item({ id: 'c', type: 'picks_open', title: 'Pick the week', deadlineAt: first }),
         item({ id: 'd', type: 'trade_offer', deadlineAt: null, severity: 'untimed' }),
         item({ id: 'e', type: 'join_requests', deadlineAt: null, severity: 'untimed' }),
       ],
@@ -149,7 +149,7 @@ test('the summary line counts what needs the manager, what is due today and when
   });
   renderPage();
 
-  expect(await screen.findByText(`5 things need you. 2 are due today, and the first locks at ${timeFormat.format(new Date(first))}.`))
+  expect(await screen.findByText(`5 things need you. 2 are due today. First up: Pick the week, at ${timeFormat.format(new Date(first))}.`))
     .toBeInTheDocument();
   // One request: the header reads the list ActionQueue fetched.
   expect(apiClient.get.mock.calls.filter(([url]) => url === '/api/user/action-items')).toHaveLength(1);
@@ -162,12 +162,30 @@ test('the summary line reads in the singular for one thing, and leaves the due-t
   expect(await screen.findByText('1 thing needs you.')).toBeInTheDocument();
 });
 
-test('one thing due today reads "it locks", not "the first locks"', async () => {
+test('one thing due today names the item and its lock time', async () => {
   const at = laterToday();
-  mockApi({ actionItems: actionItemsBody([item({ deadlineAt: at })], { total: 1, dueToday: 1 }) });
+  mockApi({ actionItems: actionItemsBody([item({ title: 'Fill your FLEX', deadlineAt: at })], { total: 1, dueToday: 1 }) });
   renderPage();
 
-  expect(await screen.findByText(`1 thing needs you. 1 is due today, and it locks at ${timeFormat.format(new Date(at))}.`))
+  expect(await screen.findByText(`1 thing needs you. 1 is due today: Fill your FLEX, at ${timeFormat.format(new Date(at))}.`))
+    .toBeInTheDocument();
+});
+
+test('the summary line names a blocking item over an earlier info item', async () => {
+  const first = laterToday();
+  const later = new Date(new Date(first).getTime() + 30 * 1000).toISOString();
+  mockApi({
+    actionItems: actionItemsBody(
+      [
+        item({ id: 'a', title: 'Fill your FLEX', deadlineAt: later, severity: 'blocking' }),
+        item({ id: 'b', type: 'waiver_claims', title: '1 waiver claim pending', deadlineAt: first, severity: 'info' }),
+      ],
+      { total: 2, dueToday: 2 },
+    ),
+  });
+  renderPage();
+
+  expect(await screen.findByText(`2 things need you. 2 are due today. First up: Fill your FLEX, at ${timeFormat.format(new Date(later))}.`))
     .toBeInTheDocument();
 });
 

@@ -83,13 +83,6 @@ describe('NextDraftCard states', () => {
     expect(within(card).queryByRole('link', { name: 'Practice in Draft Sim' })).not.toBeInTheDocument();
   });
 
-  test('live steps to the ghost button when the to-do list already has a Join draft row', () => {
-    renderCard(league({ id: 8, draft_status: 'active' }), { queueHasDraft: true });
-    const link = screen.getByRole('link', { name: 'Join draft' });
-    expect(link).toHaveClass('MuiButton-outlined');
-    expect(link).not.toHaveClass('MuiButton-contained');
-  });
-
   test('late shows Draft starting soon, a ghost link and the plain copy by default', () => {
     renderCard(league({ id: 9, name: 'Late League', draft_date: new Date(Date.now() - 2 * HOUR).toISOString() }));
     const card = screen.getByRole('region', { name: 'Draft starting soon' });

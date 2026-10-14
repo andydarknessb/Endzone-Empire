@@ -125,7 +125,7 @@ describe('AlertPrompt', () => {
 
   test('default state shows the exact copy and both buttons', async () => {
     render(<AlertPrompt leagues={leagues} />);
-    expect(await screen.findByRole('heading', { name: 'Get alerts on this phone' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Get alerts on this device' })).toBeInTheDocument();
     expect(screen.getByText(
       'Score changes, big plays and lineup problems, delivered to this device even when the app is closed.',
     )).toBeInTheDocument();
@@ -158,11 +158,11 @@ describe('AlertPrompt', () => {
   test('every variant names its card, including the blocked one with no heading', async () => {
     window.Notification = { permission: 'denied' };
     const { unmount } = render(<AlertPrompt leagues={leagues} />);
-    expect(await screen.findByRole('region', { name: 'Alerts on this phone' })).toBeInTheDocument();
+    expect(await screen.findByRole('region', { name: 'Alerts on this device' })).toBeInTheDocument();
     unmount();
     delete window.Notification;
     render(<AlertPrompt leagues={leagues} />);
-    expect(await screen.findByRole('region', { name: 'Get alerts on this phone' })).toBeInTheDocument();
+    expect(await screen.findByRole('region', { name: 'Get alerts on this device' })).toBeInTheDocument();
   });
 
   test('renders nothing and requests no public key when the browser already holds a subscription', async () => {

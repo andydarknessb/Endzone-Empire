@@ -2,13 +2,13 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { normalizeNewsItems, MAX_ITEMS } = require('../services/news.service');
 
-test('normalizeNewsItems keeps only title and link', () => {
+test('normalizeNewsItems keeps only title, link and (when present) published', () => {
   const out = normalizeNewsItems([
-    { title: 'Headline one', link: 'https://example.com/one', extra: 'ignored' },
+    { title: 'Headline one', link: 'https://example.com/one', published: '2026-10-08T12:00:00Z', extra: 'ignored' },
     { title: 'Headline two', link: 'https://example.com/two' },
   ]);
   assert.deepEqual(out, [
-    { title: 'Headline one', link: 'https://example.com/one' },
+    { title: 'Headline one', link: 'https://example.com/one', published: '2026-10-08T12:00:00Z' },
     { title: 'Headline two', link: 'https://example.com/two' },
   ]);
 });
@@ -70,11 +70,11 @@ const ARTICLES = [
   },
 ];
 const ITEMS = [
-  { title: 'Headline one', link: 'https://example.com/one' },
-  { title: 'Headline two', link: 'https://example.com/two' },
+  { title: 'Headline one', link: 'https://example.com/one', published: '2026-10-08T12:00:00Z' },
+  { title: 'Headline two', link: 'https://example.com/two', published: '2026-10-08T11:00:00Z' },
 ];
 
-test('headlines come from ESPN with zero Tank01 calls, in the existing {title, link} shape', async (t) => {
+test('headlines come from ESPN with zero Tank01 calls, as {title, link, published}', async (t) => {
   news.__resetNewsCache();
   const tank01 = t.mock.method(tank01Client, 'tank01Get', async () => {
     throw new Error('Tank01 must not be called');

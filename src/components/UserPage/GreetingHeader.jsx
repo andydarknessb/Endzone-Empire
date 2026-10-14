@@ -23,15 +23,17 @@ import {
 
 const sameLocalDay = (a, b) => new Date(a).toDateString() === new Date(b).toDateString();
 
-// The earliest deadline still ahead today. A live draft's deadline is "now",
-// not a lock, so it never names the time.
+// The item with the earliest deadline still ahead today, as { at, item }. A live
+// draft's deadline is "now", not a lock, so it never names the time. Info
+// items (a waiver claim clearing) rank last on the server, so the greeting
+// never names one over the row the queue puts first.
 function firstLockToday(items, now) {
   let first = null;
   items.forEach((item) => {
-    if (!item || item.type === 'draft_live' || !item.deadlineAt) return;
+    if (!item || item.type === 'draft_live' || item.severity === 'info' || !item.deadlineAt) return;
     const at = new Date(item.deadlineAt).getTime();
     if (Number.isNaN(at) || at <= now || !sameLocalDay(at, now)) return;
-    if (first === null || at < first) first = at;
+    if (first === null || at < first.at) first = { at, item };
   });
   return first;
 }
@@ -53,10 +55,13 @@ export function greetingSummary(body, now = Date.now()) {
   const dueToday = typeof body.counts?.dueToday === 'number' ? body.counts.dueToday : 0;
   if (dueToday <= 0) return head;
 
-  const due = dueToday === 1 ? '1 is due today' : `${dueToday} are due today`;
   const first = firstLockToday(items, now);
-  if (first === null) return `${head} ${due}.`;
-  return `${head} ${due}, and ${dueToday === 1 ? 'it' : 'the first'} locks at ${formatInstant(first, 'time')}.`;
+  if (first === null) return `${head} ${dueToday === 1 ? '1 is due today' : `${dueToday} are due today`}.`;
+  const { title } = first.item;
+  const time = formatInstant(first.at, 'time');
+  return dueToday === 1
+    ? `${head} 1 is due today: ${title}, at ${time}.`
+    : `${head} ${dueToday} are due today. First up: ${title}, at ${time}.`;
 }
 
 export function GreetingSummary({ actionItems }) {

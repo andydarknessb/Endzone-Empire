@@ -30,6 +30,7 @@ import {
 } from '../common/homeIslandSx';
 import { lazyWithReload } from '../../shared/lib/lazyWithReload';
 import { MIN_TOUCH_TARGET_SX } from '../../shared/lib/a11y';
+import { formatInstant } from '../../shared/lib/instantFormat';
 
 // Lazy: PublicHighlights imports the strategy-article registry (full JSX
 // bodies), which must not ride in the initial main bundle. See the note in
@@ -62,6 +63,11 @@ const feedListSx = {
   '& .MuiListItemText-secondary': dimSx,
 };
 const feedStatusSx = { ...dimSx, fontSize: '14px' };
+// News is a quiet list: 44px links, a lighter weight than a heading would take.
+const newsLinkSx = {
+  ...MIN_TOUCH_TARGET_SX, display: 'inline-flex', alignItems: 'center', color: 'var(--dash-ink)', fontWeight: 500,
+};
+const ACTIVITY_MAX = 3;
 const heroButtonSx = { minHeight: 48, px: 2.5, fontSize: '15px' };
 const LATE_POLL_MS = 30 * 1000;
 // A draft the server could not auto-start waits on the commissioner, so it is
@@ -70,10 +76,28 @@ const FAILED_POLL_MS = 2 * 60 * 1000;
 const START_GRACE_MS = 5 * 1000;
 // Join sits on the page, so the ghost paints its own `dash-surface` fill (the
 // board's Join league button): ink on a card surface, a registered pairing.
-// The empty state's two plain links: inline-flex so the 44px floor applies.
+// The empty state's plain link: inline-flex so the 44px floor applies.
 const emptyLinkSx = {
   ...textLinkSx, ...MIN_TOUCH_TARGET_SX, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
 };
+// The Draft Sim card: a compact outlined panel row, the whole card the link.
+const draftSimCardSx = {
+  ...panelSx,
+  ...MIN_TOUCH_TARGET_SX,
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'center',
+  gap: 0.25,
+  mt: 2,
+  px: 2.5,
+  py: 1.5,
+  width: '100%',
+  maxWidth: 420,
+  boxSizing: 'border-box',
+  textDecoration: 'none',
+  '&:hover': { backgroundColor: 'var(--dash-surface2)' },
+};
+const draftSimTitleSx = { fontSize: '16px', fontWeight: 600, color: 'var(--dash-ink)' };
 const heroGhostSx = {
   ...ghostButtonSx,
   ...heroButtonSx,
@@ -134,7 +158,14 @@ function UserPage() {
     loading: loadingActivity,
     error: activityFailure,
   } = useNotifications();
-  const activityItems = notifications.slice(0, 5);
+  // The feed is newest first, so the first of a repeated (message, league) pair is the newest.
+  const seenActivity = new Set();
+  const activityItems = notifications
+    .filter((item) => {
+      const key = JSON.stringify([item.message, item.league_name]);
+      return !seenActivity.has(key) && seenActivity.add(key);
+    })
+    .slice(0, ACTIVITY_MAX);
   const awaitingActivity = loadingActivity && !haveActivity;
   const activityError = Boolean(activityFailure) && !haveActivity;
   // Skeletons only stand in for a list we don't have yet. A refetch (Try
@@ -146,10 +177,9 @@ function UserPage() {
   const featured = featuredDraft(myLeagues);
   const nextDraft = featured?.league ?? null;
   const featuredState = featured?.state ?? null;
-  // The to-do list already offers Join draft for the featured league: the live
-  // card then steps down to the ghost button (one primary per view).
-  const queueHasDraft = Boolean(nextDraft && Array.isArray(actionItems?.items)
-    && actionItems.items.some((entry) => entry.type === 'draft_live' && String(entry.leagueId) === String(nextDraft.id)));
+  // While the draft card is live for a league, its to-do row goes quiet: the
+  // card keeps the one filled Join draft button.
+  const quietDraftLeagueId = nextDraft && featuredState === 'live' ? nextDraft.id : null;
   const currentWeek = sharedCurrentWeek(myLeagues);
   const liveMatchups = liveMatchupCount(myLeagues);
 
@@ -310,16 +340,19 @@ function UserPage() {
               {!firstRun && <GreetingSummary actionItems={actionItems} />}
               <GreetingStats leagues={myLeagues} />
             </Box>
-            <Stack direction="row" spacing={1.5} flexWrap="wrap" useFlexGap>
-              <Button variant="outlined" size="large" onClick={handleOpenJoinDialog} sx={heroGhostSx}>
-                Join league
-              </Button>
-              {/* Always a ghost beside Join: on a first run the empty state's
-                  Create is the page's one filled primary. */}
-              <Button variant="outlined" size="large" onClick={handleOpenCreateDialog} sx={heroGhostSx}>
-                Create league
-              </Button>
-            </Stack>
+            {/* Hidden on a first run: the empty state below carries the only
+                Create (filled) and Join (ghost) pair. Otherwise always a ghost
+                beside Join. */}
+            {!firstRun && (
+              <Stack direction="row" spacing={1.5} flexWrap="wrap" useFlexGap>
+                <Button variant="outlined" size="large" onClick={handleOpenJoinDialog} sx={heroGhostSx}>
+                  Join league
+                </Button>
+                <Button variant="outlined" size="large" onClick={handleOpenCreateDialog} sx={heroGhostSx}>
+                  Create league
+                </Button>
+              </Stack>
+            )}
           </Stack>
 
           {/* The to-do list replaces the old hero and "Next up" nudge. It owns
@@ -329,11 +362,11 @@ function UserPage() {
           {!firstRun && (
             <Grid container spacing={3} sx={{ mb: 5 }}>
               <Grid xs={12} lg={nextDraft ? 8 : 12}>
-                <ActionQueue onLoaded={setActionItems} leagues={myLeagues} />
+                <ActionQueue onLoaded={setActionItems} leagues={myLeagues} quietDraftLeagueId={quietDraftLeagueId} />
               </Grid>
               {nextDraft && (
                 <Grid xs={12} lg={4}>
-                  <NextDraftCard league={nextDraft} queueHasDraft={queueHasDraft} onExpire={handleDraftExpire} />
+                  <NextDraftCard league={nextDraft} onExpire={handleDraftExpire} />
                 </Grid>
               )}
             </Grid>
@@ -411,9 +444,10 @@ function UserPage() {
                 >
                   You aren&apos;t managing any teams yet.
                 </Typography>
-                <Typography sx={{ ...dimSx, mb: 3, maxWidth: 380 }}>
-                  Start a brand-new league with your friends, or jump into one
-                  you&apos;ve already been invited to.
+                <Typography sx={{ ...dimSx, mb: 3, maxWidth: 420 }}>
+                  Free to play. Start a fantasy league, an NFL pick&apos;em
+                  league, or both, with your friends, or join one you&apos;ve
+                  been invited to.
                 </Typography>
                 <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
                   <Button variant="contained" size="large" onClick={handleOpenCreateDialog} sx={{ ...primaryButtonSx, ...heroButtonSx }}>
@@ -423,10 +457,24 @@ function UserPage() {
                     Join league
                   </Button>
                 </Stack>
-                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={{ xs: 0, sm: 3 }} sx={{ mt: 1.5 }}>
-                  <Link component={RouterLink} to="/draft-sim" underline="hover" sx={emptyLinkSx}>Practice in Draft Sim</Link>
-                  <Link component={RouterLink} to="/discover" underline="hover" sx={emptyLinkSx}>Find a public league</Link>
-                </Stack>
+                <Link
+                  component={RouterLink}
+                  to="/draft-sim"
+                  underline="none"
+                  aria-labelledby="draft-sim-card-title"
+                  aria-describedby="draft-sim-card-desc"
+                  sx={draftSimCardSx}
+                >
+                  <Typography id="draft-sim-card-title" component="span" sx={draftSimTitleSx}>
+                    Practice in Draft Sim
+                  </Typography>
+                  <Typography id="draft-sim-card-desc" component="span" sx={{ ...dimSx, fontSize: '14px' }}>
+                    Run a mock draft against the clock, no league needed.
+                  </Typography>
+                </Link>
+                <Link component={RouterLink} to="/discover" underline="hover" sx={{ ...emptyLinkSx, mt: 1 }}>
+                  Find a public league
+                </Link>
               </Box>
             </Card>
           ) : (
@@ -476,12 +524,13 @@ function UserPage() {
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   underline="hover"
-                                  sx={{ color: 'var(--dash-ink)', fontWeight: 600 }}
+                                  sx={newsLinkSx}
                                 >
                                   {item.title}
                                   <Box component="span" sx={visuallyHidden}> (opens in a new tab)</Box>
                                 </Link>
                               }
+                              secondary={formatInstant(item.published, 'day')}
                             />
                           </ListItem>
                         ))}
@@ -516,11 +565,7 @@ function UserPage() {
                           <ListItem key={item.id} disableGutters>
                             <ListItemText
                               primary={item.message}
-                              secondary={
-                                item.league_name
-                                  ? `${item.league_name} · ${new Date(item.created_at).toLocaleDateString()}`
-                                  : new Date(item.created_at).toLocaleDateString()
-                              }
+                              secondary={[item.league_name, formatInstant(item.created_at, 'day')].filter(Boolean).join(' · ')}
                             />
                           </ListItem>
                         ))}
