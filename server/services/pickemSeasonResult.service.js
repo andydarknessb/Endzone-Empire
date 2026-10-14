@@ -491,7 +491,9 @@ async function declare({ db, leagueId, season, standings, mode }) {
     );
   }
   for (const row of standings || []) scoringSnapshot(row);
-  const champions = pickemChampions(standings).map((row) => snapshotChampion(row, mode));
+  // A former picker (teamId null) keeps its scoring snapshot above but is never champion (#2274).
+  const champions = pickemChampions((standings || []).filter((row) => row.teamId != null))
+    .map((row) => snapshotChampion(row, mode));
   const outcome = champions.length > 0 ? OUTCOME.CHAMPIONS : OUTCOME.NO_CHAMPION;
   const inserted = await db.query(
     `INSERT INTO "pickem_season_results"

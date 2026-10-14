@@ -82,6 +82,9 @@ async function requireCommissioner(client, { leagueId, userId, forUpdate = false
  * reason). Between the two per-team rules the self rule answers first, because
  * the caller is being told about themselves.
  *
+ * - A co-commissioner cannot remove a PEER co-commissioner's team (#2274):
+ *   revoking a grant is creator-only, and removing the team would revoke it.
+ *
  * Every other removal proceeds, including revoking the removed manager's
  * co-commissioner grant.
  */
@@ -105,6 +108,15 @@ async function removeTeam({ leagueId, userId, teamId }) {
       }
       if (team.owner_id === league.owner_id) {
         throw new CommissionerError(409, "the league creator's team can't be removed");
+      }
+      if (userId !== league.owner_id) {
+        const peerGrant = await client.query(
+          `SELECT 1 FROM "league_commissioners" WHERE "league_id" = $1 AND "user_id" = $2`,
+          [leagueId, team.owner_id]
+        );
+        if (peerGrant.rows.length > 0) {
+          throw new CommissionerError(409, "only the league creator can remove a co-commissioner's team");
+        }
       }
       await client.query(`DELETE FROM "teams" WHERE "id" = $1`, [teamId]);
       // Leaving the league gives up commissioner powers with it.
