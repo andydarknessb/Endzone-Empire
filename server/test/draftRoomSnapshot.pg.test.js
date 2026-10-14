@@ -73,7 +73,7 @@ if (!ENABLED) {
   // *.pg.test.js runs SERIALLY against ONE shared migration-smoke database
   // (run-pg-tests.js), so a leaked draft_activity row is an AUTHORITATIVE live
   // event that makes a LATER file's rollback down() correctly refuse (ADR 0012) -
-  // exactly what a leak here did to legacyFeedBackfill.pg.test.js. Leagues cascade
+  // exactly what a leak here once did to a later pg file. Leagues cascade
   // (draft_activity/picks/teams go with them via ON DELETE CASCADE on league_id),
   // but the global users and players rows carry no league_id, so the cascade
   // cannot reach them and they are deleted by id here (the #992 leak this week).
@@ -194,7 +194,7 @@ if (!ENABLED) {
     // Delete in dependency order: leagues first so their ON DELETE CASCADE takes
     // the draft_activity / picks / teams with them, then the now-unreferenced
     // global players and users. Leaving the DB exactly as this file found it is
-    // what keeps the serial pg run's later files (legacyFeedBackfill) green.
+    // what keeps the serial pg run's later files green.
     for (const id of createdLeagues) await pool.query('DELETE FROM "leagues" WHERE "id" = $1', [id]);
     for (const id of createdPlayers) await pool.query('DELETE FROM "players" WHERE "id" = $1', [id]);
     for (const id of createdUsers) await pool.query('DELETE FROM "users" WHERE "id" = $1', [id]);
