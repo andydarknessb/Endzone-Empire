@@ -8,10 +8,14 @@ const nflverseSync = require('../services/nflverseSync.service');
 const scoringRouter = require('../routes/scoring.router');
 
 const previousSecret = process.env.JWT_SECRET;
+const previousAdmins = process.env.PLATFORM_ADMIN_IDS;
 process.env.JWT_SECRET = 'schedule-sync-route-test-secret';
+process.env.PLATFORM_ADMIN_IDS = '7';
 after(() => {
   if (previousSecret === undefined) delete process.env.JWT_SECRET;
   else process.env.JWT_SECRET = previousSecret;
+  if (previousAdmins === undefined) delete process.env.PLATFORM_ADMIN_IDS;
+  else process.env.PLATFORM_ADMIN_IDS = previousAdmins;
 });
 
 const app = express();

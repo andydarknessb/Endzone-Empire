@@ -1,6 +1,6 @@
 const express = require('express');
 const pool = require('../modules/pool');
-const { requireAuth } = require('../modules/auth');
+const { requireAuth, requirePlatformAdmin } = require('../modules/auth');
 const { isTransientDatabaseError, withDatabaseRetry } = require('../modules/dbRetry');
 const { SCORING_RULES, SCORING_PRESETS } = require('../services/scoringRules');
 const feedSyncRuns = require('../services/feedSyncRuns.service');
@@ -54,7 +54,7 @@ function validSeasonWeek(req, res) {
 }
 
 // POST /api/scoring/sync — pull weekly stats from RapidAPI into player_stats
-router.post('/sync', async (req, res) => {
+router.post('/sync', requirePlatformAdmin, async (req, res) => {
   const sw = validSeasonWeek(req, res);
   if (!sw) return;
   try {
@@ -192,7 +192,7 @@ router.get('/rules', (req, res) => {
 // kickoff time is still TBD; source 'nflverse' is free, insert-only, and
 // covers TBD-time games (week 18) with placeholder kickoffs — use it to
 // complete a season Tank01 left with schedule gaps (unfillable byes).
-router.post('/sync-schedule', async (req, res) => {
+router.post('/sync-schedule', requirePlatformAdmin, async (req, res) => {
   const seasonYear = Number(req.body && req.body.season);
   if (!Number.isInteger(seasonYear) || seasonYear < 2000 || seasonYear > 2100) {
     return res.status(400).json({ error: 'season (integer year) is required' });
@@ -214,7 +214,7 @@ router.post('/sync-schedule', async (req, res) => {
 });
 
 // POST /api/scoring/sync-players — discover/refresh the NFL player pool
-router.post('/sync-players', async (req, res) => {
+router.post('/sync-players', requirePlatformAdmin, async (req, res) => {
   const seasonYear = Number(req.body && req.body.season);
   if (!Number.isInteger(seasonYear) || seasonYear < 2000 || seasonYear > 2100) {
     return res.status(400).json({ error: 'season (integer year) is required' });
@@ -231,7 +231,7 @@ router.post('/sync-players', async (req, res) => {
 
 // POST /api/scoring/sync-photos — enrich the player pool with headshots and
 // jersey numbers from TheSportsDB (matched by name). Safe to re-run.
-router.post('/sync-photos', async (req, res) => {
+router.post('/sync-photos', requirePlatformAdmin, async (req, res) => {
   try {
     const result = await sportsdb.syncPlayerPhotos();
     res.json(result);
@@ -244,7 +244,7 @@ router.post('/sync-photos', async (req, res) => {
 
 // POST /api/scoring/sync-season-stats — fill player_season_stats with real
 // full-season lines from Sleeper. Optional body: { seasons: [2025, 2024] }.
-router.post('/sync-season-stats', async (req, res) => {
+router.post('/sync-season-stats', requirePlatformAdmin, async (req, res) => {
   const body = req.body || {};
   const opts = {};
   if (Array.isArray(body.seasons) && body.seasons.length) {
@@ -262,7 +262,7 @@ router.post('/sync-season-stats', async (req, res) => {
 
 // POST /api/scoring/sync-adp — refresh players.adp from the free FFC ADP feed.
 // Optional body: { format: 'half-ppr'|'ppr'|'standard'|..., teams, year }.
-router.post('/sync-adp', async (req, res) => {
+router.post('/sync-adp', requirePlatformAdmin, async (req, res) => {
   const body = req.body || {};
   const opts = {};
   if (body.format) opts.format = String(body.format);
@@ -282,7 +282,7 @@ router.post('/sync-adp', async (req, res) => {
 // weekly stats into player_season_stats (powers the quick-view dialog's
 // "Previous Seasons" tab). One-time / on-demand; optional `currentSeason`
 // body sets the cutoff (defaults to the newest league's current season).
-router.post('/backfill-seasons', async (req, res) => {
+router.post('/backfill-seasons', requirePlatformAdmin, async (req, res) => {
   const raw = req.body && req.body.currentSeason;
   let currentSeason;
   if (raw !== undefined) {
@@ -302,7 +302,7 @@ router.post('/backfill-seasons', async (req, res) => {
 });
 
 // POST /api/scoring/sync-injuries — refresh player injury designations
-router.post('/sync-injuries', async (req, res) => {
+router.post('/sync-injuries', requirePlatformAdmin, async (req, res) => {
   try {
     const result = await feedSyncRuns.syncInjuries();
     res.json(result);
