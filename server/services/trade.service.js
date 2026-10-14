@@ -642,16 +642,41 @@ async function processDueTrades() {
       );
     } catch (err) {
       // A dead trade (roster changed under it) shouldn't be retried forever. The
-      // cancel stays on the POOL, never on the client: by the time this catch
-      // runs the wrapper has already rolled back and returned (or, on a rejecting
-      // rollback, destroyed) the connection, so there is no open transaction of
-      // ours to write into. The original error survives the wrapper unchanged
+      // cancel runs in a FRESH transaction, never on the failed one: by the time
+      // this catch runs the wrapper has already rolled back and returned (or, on
+      // a rejecting rollback, destroyed) the connection, so there is no open
+      // transaction of ours to write into. The cancel and the owners' notices
+      // commit together (#2295). The original error survives the wrapper unchanged
       // (any rollback failure rides along as err.rollbackError), so a TradeError
       // is still recognisable here. Freeze, Team lock and kickoff-hold refusals stay transient and keep waiting, by design.
       if (err instanceof TradeError) {
-        await pool.query(
-          `UPDATE "trades" SET "status" = 'cancelled', "updated_at" = now() WHERE "id" = $1 AND "status" = 'accepted'`,
-          [row.id]
+        await withTransaction(
+          pool,
+          async (client) => {
+            const cancelled = await client.query(
+              `UPDATE "trades" SET "status" = 'cancelled', "updated_at" = now() WHERE "id" = $1 AND "status" = 'accepted'
+               RETURNING "league_id", "proposing_team_id", "receiving_team_id"`,
+              [row.id]
+            );
+            // A trade settled elsewhere since the failed attempt is not ours to announce.
+            const settled = cancelled.rows[0];
+            if (!settled) return;
+            const { league_id: leagueId, proposing_team_id: proposingId, receiving_team_id: receivingId } = settled;
+            const owners = await client.query(
+              `SELECT "id", "owner_id" FROM "teams" WHERE "id" IN ($1, $2)`,
+              [proposingId, receivingId]
+            );
+            for (const team of owners.rows) {
+              await notify(client, {
+                userId: team.owner_id,
+                leagueId,
+                type: 'trade_result',
+                message: `Your trade was cancelled: ${err.message}`,
+                data: { tradeId: row.id },
+              });
+            }
+          },
+          { label: 'processDueTrades cancel' }
         );
         outcomes.push({ tradeId: row.id, status: 'cancelled', reason: err.message });
       } else {

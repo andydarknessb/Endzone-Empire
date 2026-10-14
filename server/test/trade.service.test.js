@@ -682,11 +682,12 @@ test('processDueTrades: a rejecting ROLLBACK destroys the connection, the origin
   assert.ok(world.releaseArgs()[0] instanceof Error, 'a rejecting ROLLBACK destroys the connection');
   world.assertClean();
 
-  // The cancel is issued on the pool, never on the wrapper's client: by the time
-  // the catch runs the connection has already been destroyed.
+  // The cancel is issued on a fresh connection, never the wrapper's destroyed
+  // one (#2295 moved it from the pool into its own transaction).
   const cancel = world.calls.find((c) => /^UPDATE "trades" SET "status" = 'cancelled'/.test(c.text));
   assert.ok(cancel, 'the dead trade is cancelled');
-  assert.equal(cancel.via, 'pool', 'the cancel runs on the pool, not the client');
+  assert.equal(world.releaseArgs().length, 2, 'the cancel took a second connection');
+  assert.equal(world.releaseArgs()[1], undefined, 'and returned it healthy');
 });
 
 test('processDueTrades: a clean ROLLBACK returns the healthy connection to the pool (control)', async (t) => {
@@ -793,7 +794,7 @@ test('processDueTrades: an accepted trade that nets the receiving team over the 
   const cancels = world.matching(/^UPDATE "trades" SET "status" = 'cancelled'/);
   assert.equal(cancels.length, 1);
   // A trade vetoed concurrently (no longer accepted) is not overwritten to cancelled.
-  assert.match(cancels[0].text, /AND "status" = 'accepted'$/);
+  assert.match(cancels[0].text, /AND "status" = 'accepted' RETURNING/);
   assert.equal(world.matching(remove('team_players')).length, 0, 'nothing was written');
 });
 
