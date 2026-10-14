@@ -155,6 +155,16 @@ describe('AlertPrompt', () => {
     expect(screen.queryByRole('heading')).not.toBeInTheDocument();
   });
 
+  test('every variant names its card, including the blocked one with no heading', async () => {
+    window.Notification = { permission: 'denied' };
+    const { unmount } = render(<AlertPrompt leagues={leagues} />);
+    expect(await screen.findByRole('region', { name: 'Alerts on this phone' })).toBeInTheDocument();
+    unmount();
+    delete window.Notification;
+    render(<AlertPrompt leagues={leagues} />);
+    expect(await screen.findByRole('region', { name: 'Get alerts on this phone' })).toBeInTheDocument();
+  });
+
   test('renders nothing and requests no public key when the browser already holds a subscription', async () => {
     getCurrentSubscription.mockResolvedValue({ endpoint: 'e' });
     const { container } = render(<AlertPrompt leagues={leagues} />);

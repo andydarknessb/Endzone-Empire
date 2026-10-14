@@ -353,3 +353,45 @@ test('Join cannot be sent twice while the first request is in flight', async () 
   pending.resolve({});
   expect(await screen.findByText('Joined league!')).toBeInTheDocument();
 });
+
+// ActionQueue unmounts on the first-run state. An answer that lands after that
+// must not reach the page: after a join, the greeting would open with a stale
+// "You're all caught up." until the new to-do fetch resolves.
+test('a to-do answer that lands after the queue unmounted never paints a stale caught-up greeting after a join', async () => {
+  let leagueCalls = 0;
+  let itemCalls = 0;
+  let resolveFirstItems;
+  const firstItems = new Promise((resolve) => { resolveFirstItems = resolve; });
+  apiClient.get.mockImplementation((url) => {
+    if (url === '/api/league') {
+      leagueCalls += 1;
+      const joined = { id: 1, name: 'Sunday Ballers', my_team_id: 10, draft_status: 'pending', owner_id: 1 };
+      return Promise.resolve({ data: leagueCalls === 1 ? [] : [joined] });
+    }
+    if (url === '/api/user/action-items') {
+      itemCalls += 1;
+      return itemCalls === 1 ? firstItems : new Promise(() => {});
+    }
+    if (url.startsWith(PREVIEW_PREFIX)) return Promise.resolve({ data: previewBody() });
+    return Promise.resolve({ data: [] });
+  });
+  apiClient.post.mockResolvedValue({});
+  renderPage();
+
+  await screen.findByTestId('leagues-empty-state');
+  await act(async () => {
+    resolveFirstItems({ data: { generatedAt: new Date().toISOString(), counts: { total: 0, dueToday: 0 }, partial: [], items: [] } });
+  });
+
+  await userEvent.click(heroButton('Join league'));
+  const dialog = await screen.findByRole('dialog');
+  await userEvent.type(codeField(), 'abcd1234');
+  await userEvent.type(teamField(), 'Joiner FC');
+  await within(dialog).findByTestId('join-preview');
+  await userEvent.click(within(dialog).getByRole('button', { name: 'Join Lakeshore Dynasty' }));
+
+  expect(await screen.findByText('Sunday Ballers')).toBeInTheDocument();
+  await waitFor(() => expect(itemCalls).toBe(2));
+  expect(screen.queryByTestId('greeting-summary')).not.toBeInTheDocument();
+  expect(screen.queryByText("You're all caught up.")).not.toBeInTheDocument();
+});
