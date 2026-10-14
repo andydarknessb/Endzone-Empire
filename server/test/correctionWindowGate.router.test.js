@@ -10,7 +10,7 @@
  *  - `POST /league/:id/correct-week` (scoring.router.js) calls the guard once,
  *    BEFORE it reads whether the request is a manual score override or a
  *    re-sync. A rejection there must stop both branches: the re-sync branch
- *    (nflverseSync.correctWeekFromNflverse + correction.correctLeagueWeek) and the manual
+ *    (correction.correctLeagueWeek, no stat re-pull) and the manual
  *    branch (commissioner.adjustMatchupScore).
  *  - `commissioner.service.js`'s `adjustMatchupScore` calls the guard AGAIN,
  *    against the actual matchup row it fetched (`FOR UPDATE`) rather than the
@@ -99,6 +99,7 @@ test('correct-week: refuses a re-sync outside the window and never re-syncs or r
   // control.
   const fake = routerPool({ currentSeason: 2026, currentWeek: 5 }).install(t);
   const synced = spy(t, nflverseSync, 'correctWeekFromNflverse');
+  const tankSynced = spy(t, scoring, 'syncWeekStats');
   const corrected = spy(t, correction, 'correctLeagueWeek');
 
   const res = await request(app)
@@ -110,6 +111,7 @@ test('correct-week: refuses a re-sync outside the window and never re-syncs or r
   assert.equal(res.body.code, CORRECTION_WINDOW_ERROR.code);
   assert.equal(res.body.message, CORRECTION_WINDOW_ERROR.message);
   assert.equal(synced.length, 0, 'stats were never re-synced');
+  assert.equal(tankSynced.length, 0, 'stats were never re-synced from the feed');
   assert.equal(corrected.length, 0, 'the league week was never re-scored');
   fake.assertClean();
 });
@@ -137,7 +139,7 @@ test('correct-week: refuses a manual score override outside the window and never
   fake.assertClean();
 });
 
-test('correct-week: baseline — inside the window, a re-sync request actually re-syncs and re-scores', async (t) => {
+test('correct-week: baseline, inside the window, a re-score request re-scores from stored stats and pulls none', async (t) => {
   // Baseline for the two refusal tests above: the same counters this suite
   // relies on for "zero" can also report a real call. 2026-10-06 is a
   // Tuesday (see correction.service.test.js), and current_week 9 makes week
@@ -154,12 +156,11 @@ test('correct-week: baseline — inside the window, a re-sync request actually r
     .send({ season: 2026, week: 8 });
 
   assert.equal(res.status, 200);
-  assert.equal(synced.length, 1, 'the counter can see a real call, not just zero');
-  // The feed re-sync skips finals already ingested (#2274), so the re-pull is
-  // nflverse's; the league re-score stays correctLeagueWeek's.
-  assert.deepEqual(synced[0], [{ season: 2026, week: 8, rescoreLeagues: false }]);
-  assert.equal(tankSynced.length, 0, 'the feed re-sync is not the re-pull');
-  assert.equal(corrected.length, 1);
+  // The route pulls no stats (#2274): the scheduled Tue/Wed nflverse pass owns
+  // that, and the feed re-sync skips finals already ingested.
+  assert.equal(synced.length, 0, 'no nflverse re-pull');
+  assert.equal(tankSynced.length, 0, 'no feed re-sync');
+  assert.equal(corrected.length, 1, 'the counter can see a real call, not just zero');
   fake.assertClean();
 });
 
