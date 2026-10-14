@@ -631,8 +631,8 @@ async function processDueTrades() {
       // rollback, destroyed) the connection, so there is no open transaction of
       // ours to write into. The original error survives the wrapper unchanged
       // (any rollback failure rides along as err.rollbackError), so a TradeError
-      // is still recognisable here.
-      if (err instanceof TradeError) {
+      // is still recognisable here. Freeze, Team lock and kickoff-hold refusals stay transient and keep waiting, by design.
+      if (err instanceof TradeError || err.code === 'POSITION_CAP_REACHED') {
         await pool.query(
           `UPDATE "trades" SET "status" = 'cancelled', "updated_at" = now() WHERE "id" = $1`,
           [row.id]

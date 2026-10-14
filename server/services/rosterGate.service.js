@@ -109,7 +109,7 @@ async function assertPositionCapNotReached(client, { teamId, positionCaps, posit
     [teamId, members]
   );
   if (countResult.rows[0].n >= cap) {
-    throw new DraftError(409, `position cap reached: max ${cap} ${group}`);
+    throw new DraftError(409, `position cap reached: max ${cap} ${group}`, 'POSITION_CAP_REACHED');
   }
 }
 
