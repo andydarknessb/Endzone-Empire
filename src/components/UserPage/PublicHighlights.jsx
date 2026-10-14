@@ -12,9 +12,9 @@ import {
 } from '../common/homeIslandSx';
 
 /**
- * Public-layer content surfaced on the authed dashboard: rankings, game
- * recaps, and the strategy library, with quick links into the rest of the
- * public site (waiver wire included).
+ * Public-layer content surfaced on the authed dashboard: game recaps and the
+ * strategy library, with quick links into the rest of the public site
+ * (rankings and waiver wire included).
  *
  * Two deliberate mechanics:
  * - Links are plain hrefs, not RouterLinks. The authed app lives in the hash
@@ -55,10 +55,6 @@ function WidgetSkeleton() {
 }
 
 function PublicHighlights() {
-  const [rankings, setRankings] = useState([]);
-  const [loadingRankings, setLoadingRankings] = useState(true);
-  const [rankingsError, setRankingsError] = useState(false);
-
   const [recaps, setRecaps] = useState([]);
   const [loadingRecaps, setLoadingRecaps] = useState(true);
   const [recapsError, setRecapsError] = useState(false);
@@ -66,17 +62,6 @@ function PublicHighlights() {
   const articles = listArticles().slice(0, STRATEGY_TEASER_COUNT);
 
   useEffect(() => {
-    // Each widget fetches independently (mirroring the news/activity cards)
-    // so a slow or failed one never blanks the others.
-    apiClient
-      .get('/api/public/rankings', { params: { limit: 5 } })
-      .then((res) => {
-        setRankings(Array.isArray(res.data && res.data.rankings) ? res.data.rankings : []);
-        setRankingsError(false);
-      })
-      .catch(() => setRankingsError(true))
-      .finally(() => setLoadingRankings(false));
-
     apiClient
       .get('/api/public/recaps', { params: { limit: 3 } })
       .then((res) => {
@@ -108,49 +93,7 @@ function PublicHighlights() {
       </Stack>
 
       <Grid container spacing={2}>
-        <Grid xs={12} md={4}>
-          <Card variant="outlined" sx={cardSx}>
-            <CardContent>
-              <Typography variant="h6" component="h3" sx={cardTitleSx}>
-                Top Players
-              </Typography>
-              {loadingRankings ? (
-                <WidgetSkeleton />
-              ) : rankingsError ? (
-                <Typography variant="body2" sx={statusSx}>
-                  Couldn&apos;t load the rankings right now.
-                </Typography>
-              ) : rankings.length === 0 ? (
-                <Typography variant="body2" sx={statusSx}>
-                  Rankings aren&apos;t available yet.
-                </Typography>
-              ) : (
-                <List dense disablePadding sx={listSx}>
-                  {rankings.map((row) => (
-                    <ListItem key={row.playerId} disableGutters>
-                      <ListItemText
-                        primary={
-                          <Link href={`/players/${row.playerId}`} underline="hover" sx={rowLinkSx}>
-                            {`#${row.rank} ${row.name}`}
-                          </Link>
-                        }
-                        secondary={[
-                          [row.position, row.nflTeam].filter(Boolean).join(' '),
-                          row.seasonPoints != null ? `${row.seasonPoints} pts` : null,
-                        ].filter(Boolean).join(' · ')}
-                      />
-                    </ListItem>
-                  ))}
-                </List>
-              )}
-              <Link href="/rankings" underline="hover" variant="body2" sx={moreLinkSx}>
-                Full rankings
-              </Link>
-            </CardContent>
-          </Card>
-        </Grid>
-
-        <Grid xs={12} md={4}>
+        <Grid xs={12} md={6}>
           <Card variant="outlined" sx={cardSx}>
             <CardContent>
               <Typography variant="h6" component="h3" sx={cardTitleSx}>
@@ -197,7 +140,7 @@ function PublicHighlights() {
           </Card>
         </Grid>
 
-        <Grid xs={12} md={4}>
+        <Grid xs={12} md={6}>
           <Card variant="outlined" sx={cardSx}>
             <CardContent>
               <Typography variant="h6" component="h3" sx={cardTitleSx}>

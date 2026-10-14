@@ -1,5 +1,5 @@
 import React from 'react';
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
@@ -59,8 +59,9 @@ const actionItemsBody = (items, extra = {}) => ({
 });
 
 // `actionItems` is a response body, an Error (the fetch rejects), a function
-// (called per request, for retry tests) or 'pending' (never settles).
-const mockApi = ({ leagues = [], actionItems = actionItemsBody([]), notifications = [] } = {}) => {
+// (called per request, for retry tests) or 'pending' (never settles). `leagues`
+// is a list, or a function returning a list, an Error (the fetch rejects) or 'pending'.
+const mockApi = ({ leagues = [league()], actionItems = actionItemsBody([]), notifications = [] } = {}) => {
   apiClient.get.mockImplementation((url) => {
     if (url === '/api/user/action-items') {
       const answer = typeof actionItems === 'function' ? actionItems() : actionItems;
@@ -68,7 +69,11 @@ const mockApi = ({ leagues = [], actionItems = actionItemsBody([]), notification
       if (answer instanceof Error) return Promise.reject(answer);
       return Promise.resolve({ data: answer });
     }
-    if (url === '/api/league') return Promise.resolve({ data: leagues });
+    if (url === '/api/league') {
+      const rows = typeof leagues === 'function' ? leagues() : leagues;
+      if (rows instanceof Error) return Promise.reject(rows);
+      return rows === 'pending' ? new Promise(() => {}) : Promise.resolve({ data: rows });
+    }
     if (url === '/api/notifications') return Promise.resolve({ data: { notifications, unread: 0 } });
     return Promise.resolve({ data: [] });
   });
@@ -109,7 +114,7 @@ test('fetches the to-do list with the viewer time zone and shows the items in th
 
 test('the old "Next up" nudge is gone: a trade notification no longer becomes a hero call to action', async () => {
   mockApi({
-    leagues: [league({ id: 9, draft_status: 'active' })],
+    leagues: [league({ id: 9, draft_status: 'complete' })],
     notifications: [{ id: 1, message: 'Bob proposed a trade', league_id: 9, created_at: '2026-01-01T00:00:00.000Z' }],
   });
   renderPage();
@@ -293,7 +298,7 @@ test('an item with progress shows a labelled progress bar and the count', async 
       item({ id: 'l', title: 'Fill your empty FLEX' }),
       item({
         id: 'p', type: 'picks_open', title: '6 Week 4 picks still open', leagueName: "Office Pick'em",
-        progress: { done: 9, total: 15 }, cta: { label: 'Finish picks', to: '/league/4/pickem' },
+        detail: null, progress: { done: 9, total: 15 }, cta: { label: 'Finish picks', to: '/league/4/pickem' },
       }),
     ]),
   });
@@ -307,6 +312,24 @@ test('an item with progress shows a labelled progress bar and the count', async 
   expect(within(queue).getByText('9 of 15 made')).toBeInTheDocument();
   // Only the item that carries progress gets a bar.
   expect(within(queue).getAllByRole('progressbar')).toHaveLength(1);
+});
+
+test('a picks row with a bar states its progress once, with the week in that one statement', async () => {
+  mockApi({
+    actionItems: actionItemsBody([
+      item({
+        id: 'p', type: 'picks_open', title: '14 picks still open', leagueName: "Office Pick'em",
+        detail: '0 of 14 made for week 6', progress: { done: 0, total: 14 },
+        cta: { label: 'Make picks', to: '/league/4/pickem' },
+      }),
+    ]),
+  });
+  renderPage();
+
+  const queue = await findQueue();
+  expect(await within(queue).findByRole('progressbar', { name: 'Picks made' })).toHaveAttribute('aria-valuetext', '0 of 14');
+  expect(within(queue).getAllByText(/of 14 made/)).toHaveLength(1);
+  expect(within(queue).getByText('0 of 14 made for week 6')).toBeInTheDocument();
 });
 
 test('a deadline under 24 hours reads relative, and under 2 hours it takes the warning color', async () => {
@@ -365,7 +388,6 @@ test('the Next draft card counts down to the earliest scheduled draft among pre-
       league({ id: 3, name: 'Later League', draft_date: inFromNow(10 * 24 * HOUR), team_count: 4, max_teams: 10 }),
       league({ id: 2, name: 'Dynasty Startup', draft_date: inFromNow(6 * 24 * HOUR), team_count: 9, max_teams: 12 }),
       league({ id: 4, name: 'Unscheduled League', draft_date: null }),
-      league({ id: 5, name: 'Drafting League', draft_status: 'active', draft_date: inFromNow(-HOUR) }),
     ],
   });
   renderPage();
@@ -382,11 +404,10 @@ test('the Next draft card counts down to the earliest scheduled draft among pre-
   expect(screen.getAllByRole('heading', { level: 2, name: 'Next draft' })).toHaveLength(1);
 });
 
-test('there is no Next draft card when no pre-draft league has a future draft date', async () => {
+test('there is no draft card when no league is drafting, late or scheduled ahead', async () => {
   mockApi({
     leagues: [
       league({ id: 4, name: 'Unscheduled League', draft_date: null }),
-      league({ id: 6, name: 'Missed Date League', draft_date: inFromNow(-2 * HOUR) }),
       league({ id: 5, name: 'Done League', draft_status: 'complete', draft_date: inFromNow(2 * HOUR) }),
     ],
   });
@@ -394,7 +415,238 @@ test('there is no Next draft card when no pre-draft league has a future draft da
 
   await screen.findByText('Unscheduled League');
   await findQueue();
-  expect(screen.queryByRole('region', { name: 'Next draft' })).not.toBeInTheDocument();
+  expect(screen.queryAllByRole('heading', { level: 2, name: /Next draft|Draft live|Draft starting soon/ })).toHaveLength(0);
+});
+
+test('a league whose draft is in progress shows the Draft live card with a Join draft link', async () => {
+  mockApi({ leagues: [league({ id: 6, name: 'Night League', draft_status: 'active', draft_date: inFromNow(-HOUR) })] });
+  renderPage();
+
+  const card = await screen.findByRole('region', { name: 'Draft live' });
+  expect(within(card).getByRole('heading', { level: 2, name: 'Draft live' })).toBeInTheDocument();
+  expect(within(card).getByText('Night League')).toBeInTheDocument();
+  expect(within(card).getByRole('link', { name: 'Join draft' })).toHaveAttribute('href', '/league/6/draft');
+  expect(screen.queryByRole('heading', { level: 2, name: 'Next draft' })).not.toBeInTheDocument();
+});
+
+test('a pre-draft league 2 hours past its draft date shows Draft starting soon', async () => {
+  mockApi({ leagues: [league({ id: 5, name: 'Late League', draft_date: inFromNow(-2 * HOUR) })] });
+  renderPage();
+
+  const card = await screen.findByRole('region', { name: 'Draft starting soon' });
+  expect(within(card).getByText('Late League')).toBeInTheDocument();
+  expect(within(card).getByRole('link', { name: 'Open Draft Room' })).toHaveAttribute('href', '/league/5/draft');
+});
+
+test('a league 30 days past its draft date is not featured; the one drafting in 2 hours is', async () => {
+  mockApi({
+    leagues: [
+      league({ id: 1, name: 'Stale League', draft_date: inFromNow(-30 * 24 * HOUR) }),
+      league({ id: 2, name: 'Soon League', draft_date: inFromNow(2 * HOUR) }),
+    ],
+  });
+  renderPage();
+
+  const card = await screen.findByRole('region', { name: 'Next draft' });
+  expect(within(card).getByText('Soon League')).toBeInTheDocument();
+  expect(screen.queryByRole('region', { name: 'Draft starting soon' })).not.toBeInTheDocument();
+});
+
+// One primary action per view: when the to-do list already has the Join draft
+// row, the live card steps down to the ghost button.
+test('the live card is primary unless the to-do list already has a Join draft row for that league', async () => {
+  const live = league({ id: 6, name: 'Night League', draft_status: 'active' });
+  const draftRow = item({
+    id: 'draft_live:6', type: 'draft_live', leagueId: 6, leagueName: 'Night League', title: 'Your draft is live',
+    cta: { label: 'Join draft', to: '/league/6/draft' },
+  });
+  mockApi({ leagues: [live], actionItems: actionItemsBody([draftRow]) });
+  const { unmount } = renderPage();
+  const queue = await findQueue();
+  await within(queue).findByText('Your draft is live');
+  const cardLink = () => within(screen.getByRole('region', { name: 'Draft live' })).getByRole('link', { name: 'Join draft' });
+  await waitFor(() => expect(cardLink()).toHaveClass('MuiButton-outlined'));
+  unmount();
+
+  mockApi({ leagues: [live], actionItems: actionItemsBody([item({ id: 'x', title: 'Fill your empty FLEX' })]) });
+  renderPage();
+  const queue2 = await findQueue();
+  await within(queue2).findByText('Fill your empty FLEX');
+  expect(cardLink()).toHaveClass('MuiButton-contained');
+});
+
+// --- Draft-night freshness (fake timers) -------------------------------------
+
+describe('draft-night refetch', () => {
+  const { setImmediate: realSetImmediate } = jest.requireActual('timers');
+  const leagueCalls = () => apiClient.get.mock.calls.filter(([url]) => url === '/api/league').length;
+  const advance = (ms) => act(async () => {
+    jest.advanceTimersByTime(ms);
+    // A real macrotask lets the refetch's whole promise chain settle inside the act scope.
+    await new Promise((resolve) => { realSetImmediate(resolve); });
+  });
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+  });
+
+  afterEach(() => {
+    delete document.hidden;
+    jest.useRealTimers();
+  });
+
+  const setHidden = (hidden) => Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden });
+  const lateDate = () => new Date(Date.now() - 2 * HOUR).toISOString();
+
+  test('a scheduled draft whose time passes goes late on the refetch, then polls every 30 seconds', async () => {
+    const draftDate = new Date(Date.now() + 60 * 1000).toISOString();
+    mockApi({
+      // A fresh array per call (a new reference, so React renders), still pending: the draft is late.
+      leagues: () => [league({ id: 2, draft_date: draftDate, draft_status: 'pending' })],
+    });
+    renderPage();
+    await screen.findByRole('region', { name: 'Next draft' });
+    expect(leagueCalls()).toBe(1);
+
+    // The countdown expires at 60s; the refetch follows 5s later.
+    await advance(59 * 1000);
+    expect(leagueCalls()).toBe(1);
+    await advance(7 * 1000);
+    expect(leagueCalls()).toBe(2);
+    expect(await screen.findByRole('region', { name: 'Draft starting soon' })).toBeInTheDocument();
+
+    await advance(29 * 1000);
+    expect(leagueCalls()).toBe(2);
+    await advance(1000);
+    expect(leagueCalls()).toBe(3);
+  });
+
+  test('a scheduled draft whose time passes triggers exactly one leagues refetch', async () => {
+    const draftDate = new Date(Date.now() + 60 * 1000).toISOString();
+    mockApi({
+      // The server auto-starts the draft at its time: the refetch finds it live.
+      leagues: () => [league({ id: 2, draft_date: draftDate, draft_status: leagueCalls() > 1 ? 'active' : 'pending' })],
+    });
+    renderPage();
+    await screen.findByRole('region', { name: 'Next draft' });
+    expect(leagueCalls()).toBe(1);
+
+    await advance(59 * 1000);
+    expect(leagueCalls()).toBe(1);
+    await advance(7 * 1000);
+    expect(leagueCalls()).toBe(2);
+    expect(await screen.findByRole('region', { name: 'Draft live' })).toBeInTheDocument();
+    // A live draft needs no further refetch.
+    await advance(5 * 60 * 1000);
+    expect(leagueCalls()).toBe(2);
+  });
+
+  test('a late draft refetches leagues every 30 seconds, keeps the list up and stops on unmount', async () => {
+    let calls = 0;
+    mockApi({
+      leagues: () => {
+        calls += 1;
+        return calls === 2 ? 'pending' : [league({ id: 5, name: 'Late League', draft_date: new Date(Date.now() - 2 * HOUR).toISOString() })];
+      },
+    });
+    const { unmount } = renderPage();
+    await screen.findByRole('region', { name: 'Draft starting soon' });
+    expect(leagueCalls()).toBe(1);
+
+    await advance(29 * 1000);
+    expect(leagueCalls()).toBe(1);
+    await advance(1000);
+    expect(leagueCalls()).toBe(2);
+    // The refetch is in flight: the cards stay and no skeleton stands in.
+    expect(screen.queryAllByTestId('league-skeleton')).toHaveLength(0);
+    expect(screen.getByRole('region', { name: 'Draft starting soon' })).toBeInTheDocument();
+    expect(screen.getAllByText('Late League').length).toBeGreaterThan(0);
+
+    await advance(30 * 1000);
+    expect(leagueCalls()).toBe(3);
+
+    unmount();
+    await advance(120 * 1000);
+    expect(leagueCalls()).toBe(3);
+  });
+
+  test('a failing poll tick shows no alert, keeps the list, and the next tick retries', async () => {
+    let calls = 0;
+    mockApi({
+      leagues: () => {
+        calls += 1;
+        return calls === 2 ? new Error('boom') : [league({ id: 5, name: 'Late League', draft_date: lateDate() })];
+      },
+    });
+    renderPage();
+    await screen.findByRole('region', { name: 'Draft starting soon' });
+
+    await advance(30 * 1000);
+    expect(leagueCalls()).toBe(2);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument();
+    expect(screen.getAllByText('Late League').length).toBeGreaterThan(0);
+
+    await advance(30 * 1000);
+    expect(leagueCalls()).toBe(3);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  test('a hidden tab skips the late poll and refetches once when shown again', async () => {
+    mockApi({ leagues: () => [league({ id: 5, draft_date: lateDate() })] });
+    renderPage();
+    await screen.findByRole('region', { name: 'Draft starting soon' });
+
+    setHidden(true);
+    await advance(2 * 60 * 1000);
+    expect(leagueCalls()).toBe(1);
+    // Hiding itself fires visibilitychange too: still no request.
+    await act(async () => { document.dispatchEvent(new Event('visibilitychange')); });
+    expect(leagueCalls()).toBe(1);
+
+    setHidden(false);
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'));
+      await new Promise((resolve) => { realSetImmediate(resolve); });
+    });
+    expect(leagueCalls()).toBe(2);
+  });
+
+  test('a late draft whose auto-start failed polls every 2 minutes, not 30 seconds', async () => {
+    mockApi({ leagues: () => [league({ id: 5, draft_date: lateDate(), draft_autostart_failed: true })] });
+    renderPage();
+    await screen.findByRole('region', { name: 'Draft starting soon' });
+
+    await advance(119 * 1000);
+    expect(leagueCalls()).toBe(1);
+    await advance(1000);
+    expect(leagueCalls()).toBe(2);
+    await advance(2 * 60 * 1000);
+    expect(leagueCalls()).toBe(3);
+  });
+
+  test('a live draft sets no refetch timer', async () => {
+    mockApi({ leagues: [league({ id: 6, draft_status: 'active' })] });
+    renderPage();
+    await screen.findByRole('region', { name: 'Draft live' });
+    await advance(5 * 60 * 1000);
+    expect(leagueCalls()).toBe(1);
+  });
+
+  test('the late card says the draft did not start on its own only when auto-start failed', async () => {
+    const lateDate = () => new Date(Date.now() - 2 * HOUR).toISOString();
+    mockApi({ leagues: [league({ id: 5, draft_date: lateDate(), draft_autostart_failed: true })] });
+    const { unmount } = renderPage();
+    const card = await screen.findByRole('region', { name: 'Draft starting soon' });
+    expect(within(card).getByText("The draft didn't start on its own. It starts when the commissioner begins it.")).toBeInTheDocument();
+    unmount();
+
+    mockApi({ leagues: [league({ id: 5, draft_date: lateDate(), draft_autostart_failed: false })] });
+    renderPage();
+    const plain = await screen.findByRole('region', { name: 'Draft starting soon' });
+    expect(within(plain).getByText('Your draft is about to start.')).toBeInTheDocument();
+    expect(within(plain).queryByText(/didn't start on its own/)).not.toBeInTheDocument();
+  });
 });
 
 // --- Greeting context line -------------------------------------------------

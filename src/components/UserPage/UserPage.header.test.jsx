@@ -78,7 +78,9 @@ const fantasyLeague = (id, name, statusOverrides = {}, rowOverrides = {}) => ({
 });
 
 // `actionItems` is a body, an Error (rejects) or 'pending' (never settles).
-const mockApi = ({ leagues = [], actionItems = actionItemsBody([]) } = {}) => {
+// A manager with at least one league by default: with none, Home is the first-run
+// state and shows no to-do list or summary line (#2305).
+const mockApi = ({ leagues = [fantasyLeague(1, 'Default League')], actionItems = actionItemsBody([]) } = {}) => {
   apiClient.get.mockImplementation((url) => {
     if (url === '/api/user/action-items') {
       if (actionItems === 'pending') return new Promise(() => {});
