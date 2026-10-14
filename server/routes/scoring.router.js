@@ -486,14 +486,14 @@ router.post('/league/:id/advance-week', async (req, res) => {
   const leagueId = Number(req.params.id);
   // The week the commissioner saw; absent from older bundles, which keep the unguarded read.
   const bodyWeek = req.body && req.body.week;
-  if (bodyWeek !== undefined && !(Number.isInteger(Number(bodyWeek)) && Number(bodyWeek) >= 1)) {
+  if (!(bodyWeek === undefined || (Number.isInteger(bodyWeek) && bodyWeek >= 1))) {
     return res.status(400).json({ error: 'week must be a positive integer' });
   }
   try {
     if (!(await requireLeagueCommissioner(req, res, leagueId))) return;
     const { scored, advance } = await advanceWeekSvc.advanceWeek({
       leagueId,
-      expectedWeek: bodyWeek === undefined ? undefined : Number(bodyWeek),
+      expectedWeek: bodyWeek,
     });
     res.json({ scored, ...advance });
   } catch (error) {
