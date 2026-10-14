@@ -14,6 +14,7 @@ const {
   getLineup,
   setLineup,
   benchAcquiredPlayer,
+  materializeLineup,
   removeLineupEntries,
   currentWeekEntry,
   restoreInterruptedStash,
@@ -1701,6 +1702,9 @@ function acquisitionWorld({ roster, currentSlots, previousSlots }) {
     [/^SELECT "player_id" FROM "lineup_entries"/, () => ({
       rows: [...slots.keys()].map((player_id) => ({ player_id })),
     })],
+    [/^SELECT "slot" FROM "lineup_entries"/, () => ({
+      rows: [...slots.values()].map((slot) => ({ slot })),
+    })],
     [/^SELECT "player_id", "slot"/, () => ({
       rows: [...previousSlots].map(([player_id, slot]) => ({ player_id, slot })),
     })],
@@ -1806,6 +1810,24 @@ test('benchAcquiredPlayer benches a re-acquired player instead of reviving his o
   client.release();
 
   assert.deepEqual([...slots], [[1, 'QB'], [21, 'BENCH']]);
+  fake.assertClean();
+});
+
+test('materializeLineup never copies a player into a starting seat the partly materialized week already filled', async () => {
+  // Week 9 was materialized early (K 2 at K) before players 3 and 4 joined;
+  // week 8 then started them at DEF and K. Copying both forward seated K 2/1,
+  // a lineup every save refuses, so the manager could move no one. A seat
+  // that is still free is copied as before: player 3 keeps DEF.
+  const { fake, slots } = acquisitionWorld({
+    roster: [{ player_id: 2, position: 'K' }, { player_id: 3, position: 'DEF' }, { player_id: 4, position: 'K' }],
+    currentSlots: [[2, 'K']],
+    previousSlots: [[2, 'BENCH'], [3, 'DEF'], [4, 'K']],
+  });
+  const client = await fake.connect();
+  await materializeLineup(client, { leagueId: 5, teamId: 10, season: 2026, week: 9, league: { id: 5 } });
+  client.release();
+
+  assert.deepEqual([...slots], [[2, 'K'], [3, 'DEF'], [4, 'BENCH']]);
   fake.assertClean();
 });
 
