@@ -171,3 +171,86 @@ describe('a replay the server refuses', () => {
     expect(readPendingLineupMutations()[0].id).toBe(a.id);
   });
 });
+
+// #2298: only the tab holding the replay lock sees the refusal, so it is announced on a BroadcastChannel.
+describe('a refused replay announced across tabs (#2298)', () => {
+  const channels = [];
+  class FakeBroadcastChannel {
+    constructor(name) {
+      this.name = name;
+      this.onmessage = null;
+      channels.push(this);
+    }
+    // Like the real thing, never delivers to the posting instance.
+    postMessage(data) {
+      channels.filter((c) => c !== this && c.name === this.name).forEach((c) => c.onmessage?.({ data }));
+    }
+    close() {}
+  }
+  const refusal = Object.assign(new Error('refused'), { response: { status: 409, data: { error: 'locked' } } });
+  const original = global.BroadcastChannel;
+
+  const loadTab = () => {
+    let tab;
+    jest.isolateModules(() => {
+      tab = require('./pendingLineupMutations');
+      tab.api = require('../api/apiClient').default;
+    });
+    return tab;
+  };
+  const collectRejected = () => {
+    const seen = [];
+    const listener = (event) => seen.push(event.detail);
+    window.addEventListener(LINEUP_MUTATION_REJECTED_EVENT, listener);
+    return { seen, stop: () => window.removeEventListener(LINEUP_MUTATION_REJECTED_EVENT, listener) };
+  };
+
+  afterEach(() => {
+    channels.length = 0;
+    global.BroadcastChannel = original;
+  });
+
+  test('the replaying tab broadcasts the refusal and toasts from its own event only once', async () => {
+    global.BroadcastChannel = FakeBroadcastChannel;
+    const tab = loadTab();
+    const intent = tab.enqueuePendingLineupMutation(mutation(11, 'WR'));
+    tab.api.request.mockRejectedValueOnce(refusal);
+    const heard = [];
+    const otherTab = new FakeBroadcastChannel(tab.LINEUP_REJECTED_CHANNEL);
+    otherTab.onmessage = (event) => heard.push(event.data);
+    const local = collectRejected();
+
+    await tab.replayPendingLineupMutations();
+    local.stop();
+
+    const detail = { intent, status: 409, data: { error: 'locked' } };
+    expect(heard).toEqual([detail]);
+    expect(local.seen).toEqual([detail]);
+  });
+
+  test('a tab that did not replay re-dispatches a received refusal as the window event, once', () => {
+    global.BroadcastChannel = FakeBroadcastChannel;
+    const tab = loadTab();
+    const replayingTab = new FakeBroadcastChannel(tab.LINEUP_REJECTED_CHANNEL);
+    const local = collectRejected();
+    const detail = { intent: { id: 'x' }, status: 409, data: { error: 'locked' } };
+
+    replayingTab.postMessage(detail);
+    local.stop();
+
+    expect(local.seen).toEqual([detail]);
+  });
+
+  test('without BroadcastChannel a refusal still fires the window event once and nothing throws', async () => {
+    delete global.BroadcastChannel;
+    const tab = loadTab();
+    const intent = tab.enqueuePendingLineupMutation(mutation(11, 'WR'));
+    tab.api.request.mockRejectedValueOnce(refusal);
+    const local = collectRejected();
+
+    await expect(tab.replayPendingLineupMutations()).resolves.toEqual({ replayed: 0, remaining: 0 });
+    local.stop();
+
+    expect(local.seen).toEqual([{ intent, status: 409, data: { error: 'locked' } }]);
+  });
+});
