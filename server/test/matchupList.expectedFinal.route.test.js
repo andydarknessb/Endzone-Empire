@@ -103,6 +103,7 @@ async function listMatchups(t, { matchups, starters = STARTERS, projections = PR
     };
   });
   const fake = createFakePool([
+    [/^SELECT 1 FROM "teams"/, () => ({ rows: [{ '?column?': 1 }] })],
     [/FROM "matchups" JOIN "teams" home/, () => ({ rows: matchups.map((m) => ({ ...m })) })],
     [select('leagues'), () => ({ rows: [{ ...LEAGUE }] })],
     [/FROM "lineup_entries"/, () => ({ rows: starters })],
@@ -219,6 +220,7 @@ test('each list row carries its status: scheduled, live, played and final at a f
   for (let w = 1; w <= 18; w++) for (const team of ['KC', 'BUF', 'DAL', 'LAC', 'NYG', 'PHI']) byes.push({ nfl_team: team, week: w });
 
   const fake = createFakePool([
+    [/^SELECT 1 FROM "teams"/, () => ({ rows: [{ '?column?': 1 }] })],
     [/FROM "matchups" JOIN "teams" home/, () => ({ rows: matchups.map((m) => ({ ...m })) })],
     [select('leagues'), () => ({ rows: [{ ...LEAGUE }] })],
     [/FROM "lineup_entries"/, () => ({ rows: starters })],
@@ -264,4 +266,16 @@ test('synced_at is the newest live row update for the week, null with no live ro
   assert.equal(quiet[0].synced_at, null);
   // No live row: the schedule still names the first kickoff.
   assert.equal(quiet[0].first_kickoff_at, '2026-09-10T00:20:00.000Z');
+});
+
+test('a non-member gets 403 and the matchups are never read', async (t) => {
+  const fake = createFakePool([
+    [/^SELECT 1 FROM "teams"/, () => ({ rows: [] })],
+  ]);
+  fake.install(t);
+
+  const res = await request(app).get(`/api/league/${LEAGUE_ID}/matchups`).set('Authorization', authed(99));
+  assert.equal(res.status, 403);
+  assert.deepEqual(res.body, { error: 'not a member of this league' });
+  assert.equal(fake.matching(/FROM "matchups"/).length, 0);
 });
