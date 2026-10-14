@@ -60,7 +60,7 @@ const actionItemsBody = (items, extra = {}) => ({
 
 // `actionItems` is a response body, an Error (the fetch rejects), a function
 // (called per request, for retry tests) or 'pending' (never settles). `leagues`
-// is a list, or a function returning a list or 'pending'.
+// is a list, or a function returning a list, an Error (the fetch rejects) or 'pending'.
 const mockApi = ({ leagues = [league()], actionItems = actionItemsBody([]), notifications = [] } = {}) => {
   apiClient.get.mockImplementation((url) => {
     if (url === '/api/user/action-items') {
@@ -71,6 +71,7 @@ const mockApi = ({ leagues = [league()], actionItems = actionItemsBody([]), noti
     }
     if (url === '/api/league') {
       const rows = typeof leagues === 'function' ? leagues() : leagues;
+      if (rows instanceof Error) return Promise.reject(rows);
       return rows === 'pending' ? new Promise(() => {}) : Promise.resolve({ data: rows });
     }
     if (url === '/api/notifications') return Promise.resolve({ data: { notifications, unread: 0 } });
@@ -490,7 +491,34 @@ describe('draft-night refetch', () => {
   });
 
   afterEach(() => {
+    delete document.hidden;
     jest.useRealTimers();
+  });
+
+  const setHidden = (hidden) => Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden });
+  const lateDate = () => new Date(Date.now() - 2 * HOUR).toISOString();
+
+  test('a scheduled draft whose time passes goes late on the refetch, then polls every 30 seconds', async () => {
+    const draftDate = new Date(Date.now() + 60 * 1000).toISOString();
+    mockApi({
+      // A fresh array per call (a new reference, so React renders), still pending: the draft is late.
+      leagues: () => [league({ id: 2, draft_date: draftDate, draft_status: 'pending' })],
+    });
+    renderPage();
+    await screen.findByRole('region', { name: 'Next draft' });
+    expect(leagueCalls()).toBe(1);
+
+    // The countdown expires at 60s; the refetch follows 5s later.
+    await advance(59 * 1000);
+    expect(leagueCalls()).toBe(1);
+    await advance(7 * 1000);
+    expect(leagueCalls()).toBe(2);
+    expect(await screen.findByRole('region', { name: 'Draft starting soon' })).toBeInTheDocument();
+
+    await advance(29 * 1000);
+    expect(leagueCalls()).toBe(2);
+    await advance(1000);
+    expect(leagueCalls()).toBe(3);
   });
 
   test('a scheduled draft whose time passes triggers exactly one leagues refetch', async () => {
@@ -539,6 +567,61 @@ describe('draft-night refetch', () => {
 
     unmount();
     await advance(120 * 1000);
+    expect(leagueCalls()).toBe(3);
+  });
+
+  test('a failing poll tick shows no alert, keeps the list, and the next tick retries', async () => {
+    let calls = 0;
+    mockApi({
+      leagues: () => {
+        calls += 1;
+        return calls === 2 ? new Error('boom') : [league({ id: 5, name: 'Late League', draft_date: lateDate() })];
+      },
+    });
+    renderPage();
+    await screen.findByRole('region', { name: 'Draft starting soon' });
+
+    await advance(30 * 1000);
+    expect(leagueCalls()).toBe(2);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument();
+    expect(screen.getAllByText('Late League').length).toBeGreaterThan(0);
+
+    await advance(30 * 1000);
+    expect(leagueCalls()).toBe(3);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  test('a hidden tab skips the late poll and refetches once when shown again', async () => {
+    mockApi({ leagues: () => [league({ id: 5, draft_date: lateDate() })] });
+    renderPage();
+    await screen.findByRole('region', { name: 'Draft starting soon' });
+
+    setHidden(true);
+    await advance(2 * 60 * 1000);
+    expect(leagueCalls()).toBe(1);
+    // Hiding itself fires visibilitychange too: still no request.
+    await act(async () => { document.dispatchEvent(new Event('visibilitychange')); });
+    expect(leagueCalls()).toBe(1);
+
+    setHidden(false);
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'));
+      await new Promise((resolve) => { realSetImmediate(resolve); });
+    });
+    expect(leagueCalls()).toBe(2);
+  });
+
+  test('a late draft whose auto-start failed polls every 2 minutes, not 30 seconds', async () => {
+    mockApi({ leagues: () => [league({ id: 5, draft_date: lateDate(), draft_autostart_failed: true })] });
+    renderPage();
+    await screen.findByRole('region', { name: 'Draft starting soon' });
+
+    await advance(119 * 1000);
+    expect(leagueCalls()).toBe(1);
+    await advance(1000);
+    expect(leagueCalls()).toBe(2);
+    await advance(2 * 60 * 1000);
     expect(leagueCalls()).toBe(3);
   });
 

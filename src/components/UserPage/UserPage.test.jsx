@@ -114,11 +114,13 @@ test('a failed leagues fetch keeps "Welcome back" and the to-do list', async () 
   expect(await screen.findByRole('heading', { name: 'Needs your attention' })).toBeInTheDocument();
 });
 
-test('the header Create league is the filled primary only while the user has no leagues', async () => {
+test('the header Create league is always the ghost; the empty state Create is the one filled primary on a first run', async () => {
   apiClient.get.mockResolvedValue({ data: [] });
   const { unmount } = renderPage();
-  await screen.findByTestId('leagues-empty-state');
-  expect(heroButton('Create league')).toHaveClass('MuiButton-contained');
+  const empty = await screen.findByTestId('leagues-empty-state');
+  expect(heroButton('Create league')).toHaveClass('MuiButton-outlined');
+  expect(heroButton('Create league')).not.toHaveClass('MuiButton-contained');
+  expect(within(empty).getByRole('button', { name: 'Create league' })).toHaveClass('MuiButton-contained');
   unmount();
 
   apiClient.get.mockResolvedValue({ data: [league()] });

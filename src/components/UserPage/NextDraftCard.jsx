@@ -124,7 +124,7 @@ const HEADING = { scheduled: 'Next draft', live: 'Draft live', late: 'Draft star
  * card up. `queueHasDraft`: the to-do list already carries a Join draft row for
  * this league, so a live card steps down to the ghost button (one primary).
  */
-function NextDraftCard({ league, queueHasDraft = false }) {
+function NextDraftCard({ league, queueHasDraft = false, onExpire = undefined }) {
   const state = draftState(league, Date.now()) || 'scheduled';
   const isScheduled = state === 'scheduled';
   const primary = isScheduled || (state === 'live' && !queueHasDraft);
@@ -156,6 +156,7 @@ function NextDraftCard({ league, queueHasDraft = false }) {
                 timeZone={league.draft_timezone || null}
                 leagueName={league.name}
                 leagueId={league.id}
+                onExpire={onExpire}
               />
             </Box>
             <SeatsFilled filled={Number(league.team_count)} max={Number(league.max_teams)} />
@@ -201,6 +202,8 @@ NextDraftCard.propTypes = {
     max_teams: PropTypes.oneOfType([PropTypes.number, PropTypes.string]),
   }).isRequired,
   queueHasDraft: PropTypes.bool,
+  // Called once when the scheduled countdown reaches zero.
+  onExpire: PropTypes.func,
 };
 
 export default NextDraftCard;
