@@ -10,7 +10,7 @@
  *  - `POST /league/:id/correct-week` (scoring.router.js) calls the guard once,
  *    BEFORE it reads whether the request is a manual score override or a
  *    re-sync. A rejection there must stop both branches: the re-sync branch
- *    (scoring.syncWeekStats + correction.correctLeagueWeek) and the manual
+ *    (nflverseSync.correctWeekFromNflverse + correction.correctLeagueWeek) and the manual
  *    branch (commissioner.adjustMatchupScore).
  *  - `commissioner.service.js`'s `adjustMatchupScore` calls the guard AGAIN,
  *    against the actual matchup row it fetched (`FOR UPDATE`) rather than the
@@ -30,6 +30,7 @@ const request = require('supertest');
 const { createFakePool, insert, update } = require('./helpers/fakePool');
 const { signToken } = require('../modules/auth');
 const scoring = require('../services/feedSyncRuns.service');
+const nflverseSync = require('../services/nflverseSync.service');
 const correction = require('../services/correction.service');
 const commissioner = require('../services/commissioner.service');
 const { CORRECTION_WINDOW_ERROR } = correction;
@@ -97,7 +98,7 @@ test('correct-week: refuses a re-sync outside the window and never re-syncs or r
   // the window check regardless of what day it is, so this needs no clock
   // control.
   const fake = routerPool({ currentSeason: 2026, currentWeek: 5 }).install(t);
-  const synced = spy(t, scoring, 'syncWeekStats');
+  const synced = spy(t, nflverseSync, 'correctWeekFromNflverse');
   const corrected = spy(t, correction, 'correctLeagueWeek');
 
   const res = await request(app)
@@ -143,7 +144,8 @@ test('correct-week: baseline — inside the window, a re-sync request actually r
   // 8 the only correctable week.
   t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-10-06T12:00:00.000Z') });
   const fake = routerPool({ currentSeason: 2026, currentWeek: 9 }).install(t);
-  const synced = spy(t, scoring, 'syncWeekStats', async () => ({ plays: [] }));
+  const synced = spy(t, nflverseSync, 'correctWeekFromNflverse', async () => ({}));
+  const tankSynced = spy(t, scoring, 'syncWeekStats', async () => ({ plays: [] }));
   const corrected = spy(t, correction, 'correctLeagueWeek', async () => ({ leagueId: 1, changes: [] }));
 
   const res = await request(app)
@@ -153,6 +155,10 @@ test('correct-week: baseline — inside the window, a re-sync request actually r
 
   assert.equal(res.status, 200);
   assert.equal(synced.length, 1, 'the counter can see a real call, not just zero');
+  // The feed re-sync skips finals already ingested (#2274), so the re-pull is
+  // nflverse's; the league re-score stays correctLeagueWeek's.
+  assert.deepEqual(synced[0], [{ season: 2026, week: 8, rescoreLeagues: false }]);
+  assert.equal(tankSynced.length, 0, 'the feed re-sync is not the re-pull');
   assert.equal(corrected.length, 1);
   fake.assertClean();
 });
@@ -246,6 +252,8 @@ test('correct-week: baseline — adjustMatchupScore updates the score when the f
 
   assert.equal(res.status, 200);
   assert.equal(fake.matching(update('matchups')).length, 1);
+  // The re-score must leave an override alone (#2274), so the write marks it.
+  assert.match(fake.matching(update('matchups'))[0].text, /"score_overridden" = true/);
   assert.equal(fake.matching(insert('transactions')).length, 1);
   fake.assertClean();
 });
