@@ -817,3 +817,32 @@ test('the roster read leaves out a player in an IR slot this week (#1912)', asyn
   assert.match(read.text, /"lineup_entries"\."slot" = 'IR'/);
   assert.match(read.text, /NOT EXISTS/);
 });
+
+test('readPlayersPage shows a player with a pending claim as on waivers (no clear time) once his waiver row has cleared', async () => {
+  const waiverQueries = [];
+  const fake = createFakePool([
+    [select('teams'), () => ({ rows: [{ id: 17, league_id: 1, owner_id: 7, faab_remaining: 82, waiver_priority: 3 }] })],
+    [select('leagues'), () => ({ rows: [{ id: 1, name: 'Sunday Ballers', roster_limit: 14, waiver_type: 'faab', current_season: 2026 }] })],
+    [/FROM "players" AS "source"/, () => ({
+      rows: [
+        { id: 1, name: 'Free Agent', position: 'RB', nfl_team: 'ATL', total_count: '2', identity_ids: [1] },
+        { id: 3, name: 'Claimed Player', position: 'TE', nfl_team: 'KC', total_count: '2', identity_ids: [3] },
+      ],
+    })],
+    [/FROM "nfl_games"|FROM "player_season_stats"/, () => ({ rows: [] })],
+    [/COUNT\(\*\)::int AS "roster_count"/, () => ({ rows: [{ roster_count: 1 }] })],
+    [/FROM "team_players"/, () => ({ rows: [] })],
+    // The waiver_players row is gone (cleared); only the pending claim is left.
+    [/FROM "waiver_players"/, (text) => {
+      waiverQueries.push(text);
+      return { rows: [{ player_id: 3, available_at: null }] };
+    }],
+  ]);
+
+  const result = await readPlayersPage(baseQuery({ leagueId: '1' }), { db: fake });
+
+  assert.deepEqual(result.players.map((p) => [p.id, p.availability.state]), [[1, 'free_agent'], [3, 'waivers']]);
+  assert.equal(result.players[1].availability.availableAt, undefined);
+  assert.equal(waiverQueries.length, 1, 'one batched read, never one per player');
+  assert.match(waiverQueries[0], /FROM "waiver_claims"[\s\S]*"status" = 'pending'/);
+});

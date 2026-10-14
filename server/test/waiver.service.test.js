@@ -12,6 +12,7 @@ const {
 const { createFakePool, select, insert, update, remove } = require('./helpers/fakePool');
 const lineupService = require('../services/lineup.service');
 const pool = require('../modules/pool');
+const { isOnWaivers } = require('../services/waiverStatus');
 
 const claim = (id, teamId, bid = 0, createdAt = '2026-07-11T00:00:00Z') => ({
   id,
@@ -1199,4 +1200,27 @@ test('processWaivers: an invalid claim keeps its reason and names no winner (#16
   assert.deepEqual(byId.get(2), { id: 2, status: 'won', winner: 32, bid: 12 });
   const invalidUpdate = fake.matching(update('waiver_claims')).find((c) => c.params.includes(1) && c.params.includes('invalid'));
   assert.match(invalidUpdate.params[1], /bid exceeds remaining FAAB budget/);
+});
+
+// A player whose waiver window has cleared still has claims waiting for the next
+// processing tick; anyone adding him as a free agent in that gap would sink them.
+// The fake answers per the SQL asked: it only counts a pending claim when the
+// query looks at "waiver_claims".
+function isOnWaiversWorld(t, { pendingClaim }) {
+  return createFakePool([
+    [/^SELECT 1 FROM "waiver_players"/, (text) => ({
+      rows: pendingClaim && /"waiver_claims"[^]*'pending'/.test(text) ? [{ '?column?': 1 }] : [],
+    })],
+  ]).install(t);
+}
+const clearedLeague = { id: 1, waivers_clear_at: null };
+
+test('isOnWaivers: a cleared window with a pending claim is still on waivers', async (t) => {
+  isOnWaiversWorld(t, { pendingClaim: true });
+  assert.equal(await isOnWaivers(pool, { league: clearedLeague, playerId: 9 }), true);
+});
+
+test('isOnWaivers: a cleared window with no pending claim is a free agent', async (t) => {
+  isOnWaiversWorld(t, { pendingClaim: false });
+  assert.equal(await isOnWaivers(pool, { league: clearedLeague, playerId: 9 }), false);
 });

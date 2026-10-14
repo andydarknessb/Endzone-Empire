@@ -1,6 +1,20 @@
 const pool = require('../modules/pool');
 const { usersWanting } = require('./prefs.service');
 
+// web-push sets no request timeout; a hung endpoint would hold the scheduler tick (and its advisory lock) forever.
+const SEND_TIMEOUT_MS = 10_000;
+// `timeout` is a socket idle timer: an endpoint trickling a byte at a time never trips it. This is the wall clock.
+const SEND_DEADLINE_MS = 15_000;
+
+function withDeadline(promise, ms) {
+  let timer;
+  const deadline = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`push send timed out after ${ms} ms`)), ms);
+    timer.unref();
+  });
+  return Promise.race([promise, deadline]).finally(() => clearTimeout(timer));
+}
+
 /**
  * Web push (VAPID). Depends on the optional `web-push` package plus
  * VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY env vars (VAPID_SUBJECT optional,
@@ -108,9 +122,13 @@ async function sendPushToUsers(userIds, payload) {
       const out = hasBanter && bantering.has(sub.user_id)
         ? { ...plain, body: `${plain.body}\n${banter}` }
         : plain;
-      await webPush.sendNotification(
-        { endpoint: sub.endpoint, keys: sub.keys },
-        JSON.stringify(out)
+      await withDeadline(
+        webPush.sendNotification(
+          { endpoint: sub.endpoint, keys: sub.keys },
+          JSON.stringify(out),
+          { timeout: SEND_TIMEOUT_MS }
+        ),
+        SEND_DEADLINE_MS
       );
       sent += 1;
     } catch (err) {

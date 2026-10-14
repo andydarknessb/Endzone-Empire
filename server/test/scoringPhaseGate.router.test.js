@@ -229,3 +229,28 @@ for (const route of ['advance-week', 'schedule', 'matchups']) {
     fake.assertClean();
   });
 }
+
+test('advance-week: a body week that is not a positive integer is refused 400 before any read', async (t) => {
+  const fake = routerPool(league({ draft_status: 'complete' })).install(t);
+  const scored = spy(t, scoring, 'scoreMatchups');
+  for (const week of ['x', 1.5, 0, -2, null]) {
+    const res = await request(app).post('/api/scoring/league/1/advance-week').set('Authorization', authed).send({ week });
+    assert.equal(res.status, 400, `week ${JSON.stringify(week)}`);
+  }
+  assert.equal(scored.length, 0);
+  fake.assertClean();
+});
+
+test('advance-week: a body week that is no longer the current week is refused 409 without scoring', async (t) => {
+  const fake = routerPool(league({ draft_status: 'complete', current_week: 2 })).install(t);
+  const scored = spy(t, scoring, 'scoreMatchups');
+  const finalized = spy(t, season, 'finalizeWeekAndAdvance');
+
+  const res = await request(app).post('/api/scoring/league/1/advance-week').set('Authorization', authed).send({ week: 1 });
+
+  assert.equal(res.status, 409);
+  assert.equal(res.body.error, 'week 1 was already advanced');
+  assert.equal(scored.length, 0);
+  assert.equal(finalized.length, 0);
+  fake.assertClean();
+});
