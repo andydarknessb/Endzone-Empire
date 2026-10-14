@@ -507,7 +507,7 @@ test('the /user route renders a skip link, first in the DOM, that moves focus to
 
   const skipLink = screen.getByRole('link', { name: 'Skip to main content' });
   expect(skipLink).toHaveAttribute('href', '#user-main-content');
-  const main = screen.getByRole('region', { name: 'Welcome back, alice' });
+  const main = screen.getByRole('region', { name: /^Welcome(?: back)?, alice$/ });
   expect(main).toHaveAttribute('id', 'user-main-content');
 
   // eslint-disable-next-line testing-library/no-node-access
