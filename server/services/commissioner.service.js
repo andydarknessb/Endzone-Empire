@@ -282,7 +282,7 @@ async function adjustMatchupScore({ leagueId, userId, matchupId, homeScore, away
         timestamp: new Date(),
       });
       const result = await client.query(
-        `UPDATE "matchups" SET "home_score" = $1, "away_score" = $2
+        `UPDATE "matchups" SET "home_score" = $1, "away_score" = $2, "score_overridden" = true
          WHERE "id" = $3 AND "league_id" = $4 RETURNING *`,
         [homeScore, awayScore, matchupId, leagueId]
       );
