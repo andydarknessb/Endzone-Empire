@@ -37,7 +37,7 @@ const items = [{ from_team_id: 41, to_team_id: 42, player_id: 21 }];
  * position against a cap of one" a real per-item question: the second call
  * sees the first player's row.
  */
-function tradeWorld({
+function tradeWorldHandlers({
   counts,
   stashes,
   stashQueries,
@@ -49,8 +49,12 @@ function tradeWorld({
   // The fake pool applies no writes, so a test that needs a later read to see
   // an earlier write advances its own state here.
   onRosterWrite = () => {},
+  waiversClearAt = null,
+  // The league-wide "is this player rostered?" read the on-waivers check makes
+  // (isOnWaivers): by default always yes, a test overrides it to track deletes.
+  rosteredNow = () => true,
 }) {
-  return createFakePool([
+  return [
     [/^SELECT "id", "transactions_locked",.* FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({
       rows: [{
         id: 1,
@@ -59,8 +63,11 @@ function tradeWorld({
         roster_limit: 16,
         ir_slots: 2,
         position_caps: positionCaps,
-        waivers_clear_at: null,
+        waivers_clear_at: waiversClearAt,
       }],
+    })],
+    [/^SELECT 1 FROM "team_players" WHERE "league_id" = \$1 AND "player_id" = \$2/, (text, params) => ({
+      rows: rosteredNow(params[1]) ? [{ 1: 1 }] : [],
     })],
     [/^SELECT "id", "locked" FROM "teams" WHERE "id" = \$1 FOR UPDATE/, (text, params) => ({
       rows: [{ id: params[0], locked: lockedTeams.includes(params[0]) }],
@@ -97,8 +104,10 @@ function tradeWorld({
     [select('players'), () => ({ rows: players })],
     [insert('transactions'), () => ({ rows: [] })],
     [insert('notifications'), () => ({ rows: [] })],
-  ]);
+  ];
 }
+
+const tradeWorld = (opts) => createFakePool(tradeWorldHandlers(opts));
 
 test('executeTrade: a full receiving team with no stash rejects at the draft roster size', async () => {
   const stashQueries = [];
@@ -236,10 +245,9 @@ test('executeTrade: a locked GIVING team refuses the trade too, at the release g
 });
 
 test('executeTrade: two incoming players at the same position are refused against a cap of one', async (t) => {
-  // Team 41 sends two WRs to team 42, which holds none. A cap of one WR must
-  // let the first land and refuse the second. Gating ONCE before the loop
-  // instead of per item turns this from red to green: both items would be
-  // checked against the same count of zero.
+  // Team 41 sends two WRs to team 42, which holds none. A cap of one WR is
+  // refused by the NET position-cap question, up front (#2274), as a
+  // TradeError so a due trade is cancelled rather than retried forever.
   const twoIn = [
     { from_team_id: 41, to_team_id: 42, player_id: 21 },
     { from_team_id: 41, to_team_id: 42, player_id: 22 },
@@ -249,36 +257,60 @@ test('executeTrade: two incoming players at the same position are refused agains
     counts: new Map([[41, 5], [42, 5]]),
     stashes: new Map([[41, 0], [42, 0]]),
     positionCaps: { WR: 1 },
-    // The count grows as inserts land, the way a real roster does.
     positionCounts: (teamId) => rosteredWrs.get(teamId),
     players: [
       { id: 21, name: 'First WR', position: 'WR' },
       { id: 22, name: 'Second WR', position: 'WR' },
     ],
-    // The fake pool never applies a write, so the roster the position-cap
-    // count reads is advanced here instead: each landed insert is one more WR
-    // on the receiving team and one fewer on the giving team.
-    onRosterWrite: (verb, params) => {
-      if (verb !== 'insert') return;
-      rosteredWrs.set(params[1], rosteredWrs.get(params[1]) + 1);
-      rosteredWrs.set(41, rosteredWrs.get(41) - 1);
-    },
   });
   clearBench(t);
   const client = await fake.connect();
 
   await assert.rejects(
-    executeTrade(client, { trade, league, items: twoIn, teams }),
-    { statusCode: 409, message: 'position cap reached: max 1 WR' }
+    executeTrade(client, { trade, league: { ...league, position_caps: { WR: 1 } }, items: twoIn, teams }),
+    (error) => {
+      assert.ok(error instanceof TradeError);
+      assert.equal(error.statusCode, 409);
+      assert.equal(error.message, 'position cap reached: max 1 WR');
+      return true;
+    }
   );
   client.release();
 
-  // The first player landed before the second was refused: that is the shape
-  // only a per-item gate produces. The whole transaction rolls back at the
-  // caller, so nothing half-applies in production.
-  assert.equal(fake.matching(insert('team_players')).length, 1, 'exactly one insert landed before the refusal');
+  assert.equal(fake.matching(insert('team_players')).length, 0, 'refused before any write');
   assert.equal(fake.matching(update('trades')).length, 0, 'the trade was not marked executed');
   fake.assertClean();
+});
+
+test('executeTrade: a like-for-like swap at the position cap executes in either item order (#2274)', async (t) => {
+  // Both teams hold two WRs against a cap of two and trade one WR each. Net
+  // change is zero for both, so the swap is legal; a per-item cap check would
+  // refuse whichever item's insert runs before the other's delete.
+  const forward = [
+    { from_team_id: 41, to_team_id: 42, player_id: 21 },
+    { from_team_id: 42, to_team_id: 41, player_id: 22 },
+  ];
+  for (const swap of [forward, [...forward].reverse()]) {
+    const fake = tradeWorld({
+      counts: new Map([[41, 5], [42, 5]]),
+      stashes: new Map([[41, 0], [42, 0]]),
+      positionCaps: { WR: 2 },
+      positionCounts: () => 2,
+      players: [
+        { id: 21, name: 'First WR', position: 'WR' },
+        { id: 22, name: 'Second WR', position: 'WR' },
+      ],
+    });
+    clearBench(t);
+    const client = await fake.connect();
+
+    await executeTrade(client, { trade, league: { ...league, position_caps: { WR: 2 } }, items: swap, teams });
+    client.release();
+
+    assert.equal(fake.matching(insert('team_players')).length, 2, 'both players moved');
+    assert.equal(fake.matching(update('trades')).length, 1, 'the trade executed');
+    fake.assertClean();
+  }
 });
 
 test('executeTrade: the net capacity question still governs a swap that transiently exceeds', async (t) => {
@@ -340,6 +372,36 @@ test('executeTrade: the gate runs per item, immediately around each write', asyn
     const at = fake.calls.indexOf(read);
     assert.match(fake.calls[at + 1].text, /^SELECT "id", "locked" FROM "teams"/);
   }
+
+  // Per item the order is release gate, acquire gate, DELETE, INSERT: the
+  // acquire gate runs before the give-side delete (#2274), so a rostered
+  // player is never judged as an unrostered one.
+  const steps = fake.calls
+    .map((c) => (/^SELECT "id", "transactions_locked"/.test(c.text) ? 'gate'
+      : /^DELETE FROM "team_players"/.test(c.text) ? 'delete'
+        : /^INSERT INTO "team_players"/.test(c.text) ? 'insert' : null))
+    .filter(Boolean);
+  assert.deepEqual(steps, ['gate', 'gate', 'delete', 'insert', 'gate', 'gate', 'delete', 'insert']);
+  fake.assertClean();
+});
+
+test('executeTrade: a rostered player trades during the post-draft blanket waiver window (#2274)', async (t) => {
+  const rostered = new Set([21]);
+  const fake = tradeWorld({
+    counts: new Map([[41, 5], [42, 5]]),
+    stashes: new Map([[41, 0], [42, 0]]),
+    waiversClearAt: new Date(Date.now() + 3600 * 1000).toISOString(),
+    rosteredNow: (playerId) => rostered.has(playerId),
+    onRosterWrite: (kind, params) => { if (kind === 'remove') rostered.delete(params[1]); },
+  });
+  clearBench(t);
+  const client = await fake.connect();
+
+  await executeTrade(client, { trade, league, items, teams });
+  client.release();
+
+  assert.equal(fake.matching(insert('team_players')).length, 1, 'the player moved');
+  assert.equal(fake.matching(update('trades')).length, 1, 'the trade executed');
   fake.assertClean();
 });
 
@@ -684,6 +746,60 @@ test('processDueTrades: a throwing rosterChanged broadcast is contained, the tra
   assert.ok(world.matching(/^UPDATE "trades" SET "status" = 'executed'/).length === 1,
     'the trade was executed inside the committed transaction');
   world.assertClean();
+});
+
+// A due trade that really executes one item (team 41 sends player 21 to team
+// 42), so executeTrade's per-item gate is what refuses it. The gate handlers
+// come from tradeWorld; only the due-trade loading around them is added here.
+function dueExecutingTradeWorld(opts) {
+  const gateHandlers = tradeWorldHandlers({
+    counts: new Map([[41, 5], [42, 5]]),
+    stashes: new Map([[41, 0], [42, 0]]),
+    ...opts,
+  });
+  return createFakePool([
+    [/FROM "trades" WHERE "status" = 'accepted' AND "review_ends_at"/, () => ({ rows: [{ id: 9 }] })],
+    [/FROM "leagues" WHERE "id" = \(SELECT "league_id"/, () => ({
+      rows: [{ id: 1, roster_limit: 16, ir_slots: 2, current_season: 2026, current_week: 6, position_caps: opts.positionCaps || {} }],
+    })],
+    [/^SELECT \* FROM "trades" WHERE "id" = \$1/, () => ({
+      rows: [{ id: 9, status: 'accepted', proposing_team_id: 41, receiving_team_id: 42, league_id: 1 }],
+    })],
+    [select('trade_items'), () => ({ rows: [{ trade_id: 9, from_team_id: 41, to_team_id: 42, player_id: 21 }] })],
+    [/FROM "teams" WHERE "id" IN \(\$1, \$2\)/, () => ({
+      rows: [{ id: 41, name: 'Sunday Ballers', owner_id: 7 }, { id: 42, name: 'Bob Squad', owner_id: 8 }],
+    })],
+    ...gateHandlers,
+  ]);
+}
+
+test('processDueTrades: an accepted trade that nets the receiving team over the position cap is cancelled (#2274)', async (t) => {
+  const world = dueExecutingTradeWorld({
+    positionCaps: { RB: 1 },
+    positionCounts: () => 1,
+  }).install(t);
+  t.mock.method(console, 'error', () => {});
+
+  const outcomes = await processDueTrades();
+
+  assert.deepEqual(outcomes, [{ tradeId: 9, status: 'cancelled', reason: 'position cap reached: max 1 RB' }]);
+  const cancels = world.matching(/^UPDATE "trades" SET "status" = 'cancelled'/);
+  assert.equal(cancels.length, 1);
+  // A trade vetoed concurrently (no longer accepted) is not overwritten to cancelled.
+  assert.match(cancels[0].text, /AND "status" = 'accepted'$/);
+  assert.equal(world.matching(remove('team_players')).length, 0, 'nothing was written');
+});
+
+test('processDueTrades: a freeze refusal stays accepted and keeps waiting (#2274)', async (t) => {
+  const world = dueExecutingTradeWorld({ frozen: true }).install(t);
+  const logged = [];
+  t.mock.method(console, 'error', (...args) => { logged.push(args); });
+
+  const outcomes = await processDueTrades();
+
+  assert.deepEqual(outcomes, []);
+  assert.equal(world.matching(/^UPDATE "trades" SET "status" = 'cancelled'/).length, 0);
+  assert.equal(logged.length, 1, 'logged and left for the next tick');
 });
 
 // --- the week's NFL opponent on every trade item (#1585) --------------------

@@ -53,11 +53,16 @@ async function sendWeeklyRecapDigest({ leagueId, season, week }) {
   let sent = 0;
   for (const member of members.rows) {
     if (!wanted.has(member.id)) continue;
-    await deliverEmail({
-      to: member.email,
-      subject: `Week ${week} recap: ${member.league_name}`,
-      text: `${recap.narrative}\n\nFull standings and matchups: ${appOrigin()}/#/league/${leagueId}`,
-    });
+    try {
+      await deliverEmail({
+        to: member.email,
+        subject: `Week ${week} recap: ${member.league_name}`,
+        text: `${recap.narrative}\n\nFull standings and matchups: ${appOrigin()}/#/league/${leagueId}`,
+      });
+    } catch (error) {
+      console.error('weekly recap email failed for user %s:', member.id, error.message);
+      continue;
+    }
     sent += 1;
   }
   return { sent };
@@ -72,14 +77,22 @@ async function sendWeeklyRecapDigest({ leagueId, season, week }) {
 async function sendWaiverResultsDigest({ leagueId }) {
   const { sendAlert } = require('./pushAlerts.service');
   const { fresh } = await sendAlert({ kind: 'waiver-results', leagueId });
-  for (const { email, leagueName, lines } of fresh) {
-    await deliverEmail({
-      to: email,
-      subject: `Waiver results: ${leagueName}`,
-      text: `Your waiver claims cleared:\n\n${lines.join('\n')}\n\n${appOrigin()}/#/league/${leagueId}/waivers`,
-    });
+  let sent = 0;
+  for (const { userId, email, leagueName, lines } of fresh) {
+    // The push ledger row is already written, so a failed email is never retried: log and move on.
+    try {
+      await deliverEmail({
+        to: email,
+        subject: `Waiver results: ${leagueName}`,
+        text: `Your waiver claims cleared:\n\n${lines.join('\n')}\n\n${appOrigin()}/#/league/${leagueId}/waivers`,
+      });
+    } catch (error) {
+      console.error('waiver results email failed for user %s:', userId, error.message);
+      continue;
+    }
+    sent += 1;
   }
-  return { sent: fresh.length };
+  return { sent };
 }
 
 /**
@@ -224,11 +237,15 @@ async function sendLineupReminders() {
       } catch (error) {
         console.error('lineup reminder notification failed:', error.message);
       }
-      await deliverEmail({
-        to: team.email,
-        subject: `Set your lineup before kickoff (${team.name})`,
-        text: `${message}\n\nFix it here: ${appOrigin()}/#/league/${leagueId}/lineup`,
-      });
+      try {
+        await deliverEmail({
+          to: team.email,
+          subject: `Set your lineup before kickoff (${team.name})`,
+          text: `${message}\n\nFix it here: ${appOrigin()}/#/league/${leagueId}/lineup`,
+        });
+      } catch (error) {
+        console.error('lineup reminder email failed for team %s:', team.id, error.message);
+      }
     }
   }
   return { remindersSent };
@@ -328,11 +345,15 @@ async function sendPickemReminders() {
       } catch (error) {
         console.error("pick'em reminder notification failed:", error.message);
       }
-      await deliverEmail({
-        to: member.email,
-        subject: `Pick'em picks due: ${league.name}`,
-        text: `${message}\n\nMake them here: ${appOrigin()}/#/league/${league.id}/pickem`,
-      });
+      try {
+        await deliverEmail({
+          to: member.email,
+          subject: `Pick'em picks due: ${league.name}`,
+          text: `${message}\n\nMake them here: ${appOrigin()}/#/league/${league.id}/pickem`,
+        });
+      } catch (error) {
+        console.error("pick'em reminder email failed for user %s:", member.owner_id, error.message);
+      }
     }
   }
   return { remindersSent };
