@@ -15,7 +15,7 @@ import { useNotifications } from '../../hooks/useNotifications';
 import LeagueStatusGrid from './LeagueStatusGrid';
 import ActionQueue from './ActionQueue';
 import AlertPrompt from './AlertPrompt';
-import NextDraftCard, { nextScheduledDraft } from './NextDraftCard';
+import NextDraftCard, { featuredDraft } from './NextDraftCard';
 import {
   GreetingStats, GreetingSummary, LiveMatchupsChip, liveMatchupCount,
 } from './GreetingHeader';
@@ -126,7 +126,7 @@ function UserPage() {
   // Skeletons only stand in for a list we don't have yet. A refetch (Try
   // again, or the refresh after a create or join) keeps the good list up.
   const awaitingFirstLeagues = loadingLeagues && myLeagues.length === 0;
-  const nextDraft = nextScheduledDraft(myLeagues);
+  const nextDraft = featuredDraft(myLeagues)?.league ?? null;
   const currentWeek = sharedCurrentWeek(myLeagues);
   const liveMatchups = liveMatchupCount(myLeagues);
 

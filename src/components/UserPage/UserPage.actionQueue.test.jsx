@@ -109,7 +109,7 @@ test('fetches the to-do list with the viewer time zone and shows the items in th
 
 test('the old "Next up" nudge is gone: a trade notification no longer becomes a hero call to action', async () => {
   mockApi({
-    leagues: [league({ id: 9, draft_status: 'active' })],
+    leagues: [league({ id: 9, draft_status: 'complete' })],
     notifications: [{ id: 1, message: 'Bob proposed a trade', league_id: 9, created_at: '2026-01-01T00:00:00.000Z' }],
   });
   renderPage();
@@ -365,7 +365,6 @@ test('the Next draft card counts down to the earliest scheduled draft among pre-
       league({ id: 3, name: 'Later League', draft_date: inFromNow(10 * 24 * HOUR), team_count: 4, max_teams: 10 }),
       league({ id: 2, name: 'Dynasty Startup', draft_date: inFromNow(6 * 24 * HOUR), team_count: 9, max_teams: 12 }),
       league({ id: 4, name: 'Unscheduled League', draft_date: null }),
-      league({ id: 5, name: 'Drafting League', draft_status: 'active', draft_date: inFromNow(-HOUR) }),
     ],
   });
   renderPage();
@@ -382,11 +381,10 @@ test('the Next draft card counts down to the earliest scheduled draft among pre-
   expect(screen.getAllByRole('heading', { level: 2, name: 'Next draft' })).toHaveLength(1);
 });
 
-test('there is no Next draft card when no pre-draft league has a future draft date', async () => {
+test('there is no draft card when no league is drafting, late or scheduled ahead', async () => {
   mockApi({
     leagues: [
       league({ id: 4, name: 'Unscheduled League', draft_date: null }),
-      league({ id: 6, name: 'Missed Date League', draft_date: inFromNow(-2 * HOUR) }),
       league({ id: 5, name: 'Done League', draft_status: 'complete', draft_date: inFromNow(2 * HOUR) }),
     ],
   });
