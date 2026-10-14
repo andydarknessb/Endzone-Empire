@@ -1,0 +1,608 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-14T17:07:29.324Z",
+  "title": "Design System: Endzone Empire",
+  "extensions": {
+    "colorMeta": {
+      "endzone-green": {
+        "role": "primary",
+        "displayName": "Endzone Green",
+        "canonical": "#2fd97b",
+        "oklch": "oklch(78.1% 0.188 153.0)",
+        "tonalRamp": [
+          "oklch(15.0% 0.188 153.0)",
+          "oklch(26.4% 0.188 153.0)",
+          "oklch(37.9% 0.188 153.0)",
+          "oklch(49.3% 0.188 153.0)",
+          "oklch(60.7% 0.188 153.0)",
+          "oklch(72.1% 0.188 153.0)",
+          "oklch(83.6% 0.188 153.0)",
+          "oklch(95.0% 0.188 153.0)"
+        ]
+      },
+      "endzone-green-light": {
+        "role": "primary",
+        "displayName": "Endzone Green (light)",
+        "canonical": "#0f6a41",
+        "oklch": "oklch(46.4% 0.104 157.3)",
+        "tonalRamp": [
+          "oklch(15.0% 0.104 157.3)",
+          "oklch(26.4% 0.104 157.3)",
+          "oklch(37.9% 0.104 157.3)",
+          "oklch(49.3% 0.104 157.3)",
+          "oklch(60.7% 0.104 157.3)",
+          "oklch(72.1% 0.104 157.3)",
+          "oklch(83.6% 0.104 157.3)",
+          "oklch(95.0% 0.104 157.3)"
+        ]
+      },
+      "fourth-quarter-amber": {
+        "role": "tertiary",
+        "displayName": "Fourth Quarter Amber",
+        "canonical": "#ffb547",
+        "oklch": "oklch(82.4% 0.149 73.3)",
+        "tonalRamp": [
+          "oklch(15.0% 0.149 73.3)",
+          "oklch(26.4% 0.149 73.3)",
+          "oklch(37.9% 0.149 73.3)",
+          "oklch(49.3% 0.149 73.3)",
+          "oklch(60.7% 0.149 73.3)",
+          "oklch(72.1% 0.149 73.3)",
+          "oklch(83.6% 0.149 73.3)",
+          "oklch(95.0% 0.149 73.3)"
+        ]
+      },
+      "scoreboard-black": {
+        "role": "tertiary",
+        "displayName": "Scoreboard Black",
+        "canonical": "#07090c",
+        "oklch": "oklch(13.9% 0.008 255.5)",
+        "tonalRamp": [
+          "oklch(15.0% 0.008 255.5)",
+          "oklch(26.4% 0.008 255.5)",
+          "oklch(37.9% 0.008 255.5)",
+          "oklch(49.3% 0.008 255.5)",
+          "oklch(60.7% 0.008 255.5)",
+          "oklch(72.1% 0.008 255.5)",
+          "oklch(83.6% 0.008 255.5)",
+          "oklch(95.0% 0.008 255.5)"
+        ]
+      },
+      "signal-blue": {
+        "role": "secondary",
+        "displayName": "Signal Blue",
+        "canonical": "#7eaaff",
+        "oklch": "oklch(74.2% 0.133 262.7)",
+        "tonalRamp": [
+          "oklch(15.0% 0.133 262.7)",
+          "oklch(26.4% 0.133 262.7)",
+          "oklch(37.9% 0.133 262.7)",
+          "oklch(49.3% 0.133 262.7)",
+          "oklch(60.7% 0.133 262.7)",
+          "oklch(72.1% 0.133 262.7)",
+          "oklch(83.6% 0.133 262.7)",
+          "oklch(95.0% 0.133 262.7)"
+        ]
+      },
+      "signal-blue-light": {
+        "role": "secondary",
+        "displayName": "Signal Blue (light)",
+        "canonical": "#1e5bb8",
+        "oklch": "oklch(48.7% 0.160 259.2)",
+        "tonalRamp": [
+          "oklch(15.0% 0.160 259.2)",
+          "oklch(26.4% 0.160 259.2)",
+          "oklch(37.9% 0.160 259.2)",
+          "oklch(49.3% 0.160 259.2)",
+          "oklch(60.7% 0.160 259.2)",
+          "oklch(72.1% 0.160 259.2)",
+          "oklch(83.6% 0.160 259.2)",
+          "oklch(95.0% 0.160 259.2)"
+        ]
+      },
+      "sideline-green": {
+        "role": "secondary",
+        "displayName": "Sideline Green",
+        "canonical": "#7ee2a8",
+        "oklch": "oklch(83.6% 0.126 156.8)",
+        "tonalRamp": [
+          "oklch(15.0% 0.126 156.8)",
+          "oklch(26.4% 0.126 156.8)",
+          "oklch(37.9% 0.126 156.8)",
+          "oklch(49.3% 0.126 156.8)",
+          "oklch(60.7% 0.126 156.8)",
+          "oklch(72.1% 0.126 156.8)",
+          "oklch(83.6% 0.126 156.8)",
+          "oklch(95.0% 0.126 156.8)"
+        ]
+      },
+      "sideline-green-light": {
+        "role": "secondary",
+        "displayName": "Sideline Green (light)",
+        "canonical": "#1b7d4f",
+        "oklch": "oklch(52.3% 0.114 157.4)",
+        "tonalRamp": [
+          "oklch(15.0% 0.114 157.4)",
+          "oklch(26.4% 0.114 157.4)",
+          "oklch(37.9% 0.114 157.4)",
+          "oklch(49.3% 0.114 157.4)",
+          "oklch(60.7% 0.114 157.4)",
+          "oklch(72.1% 0.114 157.4)",
+          "oklch(83.6% 0.114 157.4)",
+          "oklch(95.0% 0.114 157.4)"
+        ]
+      },
+      "flag-red": {
+        "role": "tertiary",
+        "displayName": "Flag Red",
+        "canonical": "#ff6b6b",
+        "oklch": "oklch(71.2% 0.181 22.8)",
+        "tonalRamp": [
+          "oklch(15.0% 0.181 22.8)",
+          "oklch(26.4% 0.181 22.8)",
+          "oklch(37.9% 0.181 22.8)",
+          "oklch(49.3% 0.181 22.8)",
+          "oklch(60.7% 0.181 22.8)",
+          "oklch(72.1% 0.181 22.8)",
+          "oklch(83.6% 0.181 22.8)",
+          "oklch(95.0% 0.181 22.8)"
+        ]
+      },
+      "flag-red-light": {
+        "role": "tertiary",
+        "displayName": "Flag Red (light)",
+        "canonical": "#c62828",
+        "oklch": "oklch(53.9% 0.194 26.7)",
+        "tonalRamp": [
+          "oklch(15.0% 0.194 26.7)",
+          "oklch(26.4% 0.194 26.7)",
+          "oklch(37.9% 0.194 26.7)",
+          "oklch(49.3% 0.194 26.7)",
+          "oklch(60.7% 0.194 26.7)",
+          "oklch(72.1% 0.194 26.7)",
+          "oklch(83.6% 0.194 26.7)",
+          "oklch(95.0% 0.194 26.7)"
+        ]
+      },
+      "caution-gold": {
+        "role": "tertiary",
+        "displayName": "Caution Gold",
+        "canonical": "#f0b34e",
+        "oklch": "oklch(80.5% 0.136 77.1)",
+        "tonalRamp": [
+          "oklch(15.0% 0.136 77.1)",
+          "oklch(26.4% 0.136 77.1)",
+          "oklch(37.9% 0.136 77.1)",
+          "oklch(49.3% 0.136 77.1)",
+          "oklch(60.7% 0.136 77.1)",
+          "oklch(72.1% 0.136 77.1)",
+          "oklch(83.6% 0.136 77.1)",
+          "oklch(95.0% 0.136 77.1)"
+        ]
+      },
+      "caution-gold-light": {
+        "role": "tertiary",
+        "displayName": "Caution Gold (light)",
+        "canonical": "#8a5a00",
+        "oklch": "oklch(50.8% 0.108 73.3)",
+        "tonalRamp": [
+          "oklch(15.0% 0.108 73.3)",
+          "oklch(26.4% 0.108 73.3)",
+          "oklch(37.9% 0.108 73.3)",
+          "oklch(49.3% 0.108 73.3)",
+          "oklch(60.7% 0.108 73.3)",
+          "oklch(72.1% 0.108 73.3)",
+          "oklch(83.6% 0.108 73.3)",
+          "oklch(95.0% 0.108 73.3)"
+        ]
+      },
+      "night-field": {
+        "role": "neutral",
+        "displayName": "Night Field",
+        "canonical": "#0b1015",
+        "oklch": "oklch(17.0% 0.013 248.6)",
+        "tonalRamp": [
+          "oklch(15.0% 0.013 248.6)",
+          "oklch(26.4% 0.013 248.6)",
+          "oklch(37.9% 0.013 248.6)",
+          "oklch(49.3% 0.013 248.6)",
+          "oklch(60.7% 0.013 248.6)",
+          "oklch(72.1% 0.013 248.6)",
+          "oklch(83.6% 0.013 248.6)",
+          "oklch(95.0% 0.013 248.6)"
+        ]
+      },
+      "desk-surface": {
+        "role": "neutral",
+        "displayName": "Desk Surface",
+        "canonical": "#141b23",
+        "oklch": "oklch(21.9% 0.019 252.1)",
+        "tonalRamp": [
+          "oklch(15.0% 0.019 252.1)",
+          "oklch(26.4% 0.019 252.1)",
+          "oklch(37.9% 0.019 252.1)",
+          "oklch(49.3% 0.019 252.1)",
+          "oklch(60.7% 0.019 252.1)",
+          "oklch(72.1% 0.019 252.1)",
+          "oklch(83.6% 0.019 252.1)",
+          "oklch(95.0% 0.019 252.1)"
+        ]
+      },
+      "desk-tile": {
+        "role": "neutral",
+        "displayName": "Desk Tile",
+        "canonical": "#1b242f",
+        "oklch": "oklch(25.7% 0.025 253.7)",
+        "tonalRamp": [
+          "oklch(15.0% 0.025 253.7)",
+          "oklch(26.4% 0.025 253.7)",
+          "oklch(37.9% 0.025 253.7)",
+          "oklch(49.3% 0.025 253.7)",
+          "oklch(60.7% 0.025 253.7)",
+          "oklch(72.1% 0.025 253.7)",
+          "oklch(83.6% 0.025 253.7)",
+          "oklch(95.0% 0.025 253.7)"
+        ]
+      },
+      "desk-raised": {
+        "role": "neutral",
+        "displayName": "Desk Raised",
+        "canonical": "#222e3b",
+        "oklch": "oklch(29.6% 0.029 250.8)",
+        "tonalRamp": [
+          "oklch(15.0% 0.029 250.8)",
+          "oklch(26.4% 0.029 250.8)",
+          "oklch(37.9% 0.029 250.8)",
+          "oklch(49.3% 0.029 250.8)",
+          "oklch(60.7% 0.029 250.8)",
+          "oklch(72.1% 0.029 250.8)",
+          "oklch(83.6% 0.029 250.8)",
+          "oklch(95.0% 0.029 250.8)"
+        ]
+      },
+      "chalk-ink": {
+        "role": "neutral",
+        "displayName": "Chalk Ink",
+        "canonical": "#e8eef4",
+        "oklch": "oklch(94.6% 0.010 247.9)",
+        "tonalRamp": [
+          "oklch(15.0% 0.010 247.9)",
+          "oklch(26.4% 0.010 247.9)",
+          "oklch(37.9% 0.010 247.9)",
+          "oklch(49.3% 0.010 247.9)",
+          "oklch(60.7% 0.010 247.9)",
+          "oklch(72.1% 0.010 247.9)",
+          "oklch(83.6% 0.010 247.9)",
+          "oklch(95.0% 0.010 247.9)"
+        ]
+      },
+      "dim-ink": {
+        "role": "neutral",
+        "displayName": "Dim Ink",
+        "canonical": "#93a4b5",
+        "oklch": "oklch(71.1% 0.031 248.3)",
+        "tonalRamp": [
+          "oklch(15.0% 0.031 248.3)",
+          "oklch(26.4% 0.031 248.3)",
+          "oklch(37.9% 0.031 248.3)",
+          "oklch(49.3% 0.031 248.3)",
+          "oklch(60.7% 0.031 248.3)",
+          "oklch(72.1% 0.031 248.3)",
+          "oklch(83.6% 0.031 248.3)",
+          "oklch(95.0% 0.031 248.3)"
+        ]
+      },
+      "faint-ink": {
+        "role": "neutral",
+        "displayName": "Faint Ink",
+        "canonical": "#8a9bad",
+        "oklch": "oklch(68.2% 0.033 249.8)",
+        "tonalRamp": [
+          "oklch(15.0% 0.033 249.8)",
+          "oklch(26.4% 0.033 249.8)",
+          "oklch(37.9% 0.033 249.8)",
+          "oklch(49.3% 0.033 249.8)",
+          "oklch(60.7% 0.033 249.8)",
+          "oklch(72.1% 0.033 249.8)",
+          "oklch(83.6% 0.033 249.8)",
+          "oklch(95.0% 0.033 249.8)"
+        ]
+      },
+      "field-edge": {
+        "role": "neutral",
+        "displayName": "Field Edge",
+        "canonical": "#6b7c8c",
+        "oklch": "oklch(57.8% 0.032 246.8)",
+        "tonalRamp": [
+          "oklch(15.0% 0.032 246.8)",
+          "oklch(26.4% 0.032 246.8)",
+          "oklch(37.9% 0.032 246.8)",
+          "oklch(49.3% 0.032 246.8)",
+          "oklch(60.7% 0.032 246.8)",
+          "oklch(72.1% 0.032 246.8)",
+          "oklch(83.6% 0.032 246.8)",
+          "oklch(95.0% 0.032 246.8)"
+        ]
+      },
+      "morning-field": {
+        "role": "neutral",
+        "displayName": "Morning Field",
+        "canonical": "#eef2f6",
+        "oklch": "oklch(95.9% 0.007 247.9)",
+        "tonalRamp": [
+          "oklch(15.0% 0.007 247.9)",
+          "oklch(26.4% 0.007 247.9)",
+          "oklch(37.9% 0.007 247.9)",
+          "oklch(49.3% 0.007 247.9)",
+          "oklch(60.7% 0.007 247.9)",
+          "oklch(72.1% 0.007 247.9)",
+          "oklch(83.6% 0.007 247.9)",
+          "oklch(95.0% 0.007 247.9)"
+        ]
+      },
+      "paper-surface": {
+        "role": "neutral",
+        "displayName": "Paper Surface",
+        "canonical": "#ffffff",
+        "oklch": "oklch(100.0% 0.000 0.0)",
+        "tonalRamp": [
+          "oklch(15.0% 0.000 0.0)",
+          "oklch(26.4% 0.000 0.0)",
+          "oklch(37.9% 0.000 0.0)",
+          "oklch(49.3% 0.000 0.0)",
+          "oklch(60.7% 0.000 0.0)",
+          "oklch(72.1% 0.000 0.0)",
+          "oklch(83.6% 0.000 0.0)",
+          "oklch(95.0% 0.000 0.0)"
+        ]
+      },
+      "paper-tile": {
+        "role": "neutral",
+        "displayName": "Paper Tile",
+        "canonical": "#f4f7fa",
+        "oklch": "oklch(97.5% 0.005 247.9)",
+        "tonalRamp": [
+          "oklch(15.0% 0.005 247.9)",
+          "oklch(26.4% 0.005 247.9)",
+          "oklch(37.9% 0.005 247.9)",
+          "oklch(49.3% 0.005 247.9)",
+          "oklch(60.7% 0.005 247.9)",
+          "oklch(72.1% 0.005 247.9)",
+          "oklch(83.6% 0.005 247.9)",
+          "oklch(95.0% 0.005 247.9)"
+        ]
+      },
+      "slate-ink": {
+        "role": "neutral",
+        "displayName": "Slate Ink",
+        "canonical": "#141b23",
+        "oklch": "oklch(21.9% 0.019 252.1)",
+        "tonalRamp": [
+          "oklch(15.0% 0.019 252.1)",
+          "oklch(26.4% 0.019 252.1)",
+          "oklch(37.9% 0.019 252.1)",
+          "oklch(49.3% 0.019 252.1)",
+          "oklch(60.7% 0.019 252.1)",
+          "oklch(72.1% 0.019 252.1)",
+          "oklch(83.6% 0.019 252.1)",
+          "oklch(95.0% 0.019 252.1)"
+        ]
+      },
+      "slate-dim": {
+        "role": "neutral",
+        "displayName": "Slate Dim",
+        "canonical": "#55636f",
+        "oklch": "oklch(49.2% 0.026 244.2)",
+        "tonalRamp": [
+          "oklch(15.0% 0.026 244.2)",
+          "oklch(26.4% 0.026 244.2)",
+          "oklch(37.9% 0.026 244.2)",
+          "oklch(49.3% 0.026 244.2)",
+          "oklch(60.7% 0.026 244.2)",
+          "oklch(72.1% 0.026 244.2)",
+          "oklch(83.6% 0.026 244.2)",
+          "oklch(95.0% 0.026 244.2)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "Projected and live scores on a matchup side."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Team names and stat-tile values."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Running text on island surfaces."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Uppercase stat-tile keys and small section labels."
+      },
+      "button": {
+        "displayName": "Button",
+        "purpose": "Island button labels."
+      },
+      "app-headline": {
+        "displayName": "Legacy h1",
+        "purpose": "Top heading on legacy MUI pages only."
+      }
+    },
+    "shadows": [
+      {
+        "name": "shadow-1",
+        "value": "0 1px 2px rgba(16, 24, 32, 0.08)",
+        "dark": "0 1px 2px rgba(0, 0, 0, 0.45)",
+        "purpose": "Legacy cards at rest."
+      },
+      {
+        "name": "shadow-2",
+        "value": "0 4px 12px rgba(16, 24, 32, 0.10)",
+        "dark": "0 6px 16px rgba(0, 0, 0, 0.5)",
+        "purpose": "Menus and raised Paper."
+      },
+      {
+        "name": "shadow-3",
+        "value": "0 12px 28px rgba(16, 24, 32, 0.16)",
+        "dark": "0 14px 32px rgba(0, 0, 0, 0.6)",
+        "purpose": "Dialogs and the highest Paper."
+      }
+    ],
+    "motion": [
+      {
+        "name": "transition-fast",
+        "value": "150ms",
+        "purpose": "Hover and state changes on buttons, rows, and chips."
+      },
+      {
+        "name": "transition-base",
+        "value": "200ms",
+        "purpose": "Theme switch on body background and color."
+      },
+      {
+        "name": "reduced-motion",
+        "value": "transition-duration: 0s",
+        "purpose": "Global prefers-reduced-motion policy in src/theme/base.css."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "sm",
+        "value": "600px"
+      },
+      {
+        "name": "md",
+        "value": "900px"
+      },
+      {
+        "name": "lg",
+        "value": "1200px"
+      },
+      {
+        "name": "xl",
+        "value": "1536px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Island primary action (DashButton primary).",
+      "html": "<button class=\"ds-btn-primary\">Set lineup</button>",
+      "css": ".ds-btn-primary { font: 600 13px/1.2 var(--dash-font-body); color: var(--dash-on-accent); background: var(--dash-accent); border: 1px solid var(--dash-accent); border-radius: 9px; padding: 0 16px; min-height: 38px; white-space: nowrap; cursor: pointer; transition: filter var(--transition-fast); } .ds-btn-primary:hover { filter: brightness(1.08); } .ds-btn-primary:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; } .ds-btn-primary:disabled { color: var(--dash-dim); background: var(--dash-surface3); border-color: var(--dash-line-strong); }"
+    },
+    {
+      "name": "Ghost Button",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "Island secondary action (DashButton ghost).",
+      "html": "<button class=\"ds-btn-ghost\">View matchup</button>",
+      "css": ".ds-btn-ghost { font: 600 13px/1.2 var(--dash-font-body); color: var(--dash-dim); background: transparent; border: 1px solid var(--dash-line-strong); border-radius: 9px; padding: 0 16px; min-height: 38px; white-space: nowrap; cursor: pointer; } .ds-btn-ghost:hover { color: var(--dash-ink); border-color: var(--dash-accent-line); } .ds-btn-ghost:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }"
+    },
+    {
+      "name": "Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "Flat island card with a hairline header row.",
+      "html": "<section class=\"ds-card\"><div class=\"ds-card-h\"><h2>Around the league</h2><span class=\"ds-card-count\">6 matchups</span></div><div class=\"ds-card-b\">Card body</div></section>",
+      "css": ".ds-card { background: var(--dash-surface); color: var(--dash-ink); border: 1px solid var(--dash-line); border-radius: var(--dash-radius); font: 15px/1.5 var(--dash-font-body); } .ds-card-h { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 14px 18px; border-bottom: 1px solid var(--dash-line); } .ds-card-h h2 { margin: 0; font: 700 16px/1.2 var(--dash-font-display); letter-spacing: .02em; } .ds-card-count { font-size: 12px; font-weight: 600; color: var(--dash-faint); } .ds-card-b { padding: 16px 18px; }"
+    },
+    {
+      "name": "Stat Tile",
+      "kind": "custom",
+      "refersTo": "stat-tile",
+      "description": "Uppercase key over a tabular condensed value.",
+      "html": "<div class=\"ds-stat\"><div class=\"ds-stat-k\">Draft grade</div><div class=\"ds-stat-v\">A- <small>2nd</small></div></div>",
+      "css": ".ds-stat { background: var(--dash-surface2); border-radius: var(--dash-radius); padding: 12px 16px; } .ds-stat-k { font: 600 11px var(--dash-font-body); letter-spacing: .07em; text-transform: uppercase; color: var(--dash-faint); } .ds-stat-v { font: 700 24px/1.2 var(--dash-font-display); font-variant-numeric: tabular-nums; color: var(--dash-grade-a-text); } .ds-stat-v small { font: 500 13px var(--dash-font-body); color: var(--dash-dim); }"
+    },
+    {
+      "name": "Live Chip",
+      "kind": "chip",
+      "refersTo": "chip-live",
+      "description": "Live state pill: accent text on the accent tint.",
+      "html": "<span class=\"ds-chip-live\">Live</span>",
+      "css": ".ds-chip-live { display: inline-flex; align-items: center; padding: 2px 10px; border-radius: 999px; font: 600 12px var(--dash-font-body); color: var(--dash-accent); background: var(--dash-accent-soft); border: 1px solid var(--dash-accent-line); }"
+    },
+    {
+      "name": "Scoreboard",
+      "kind": "custom",
+      "refersTo": "scoreboard",
+      "description": "Amber LED digits on a board that stays dark in both themes.",
+      "html": "<div class=\"ds-board\"><span>24</span><span class=\"ds-board-sep\">-</span><span>17</span></div>",
+      "css": ".ds-board { display: inline-flex; gap: 12px; align-items: baseline; padding: 12px 20px; border-radius: var(--dash-radius-sm); background: var(--dash-board); color: var(--dash-led); font: 700 30px/1 var(--dash-font-display); font-variant-numeric: tabular-nums; } .ds-board-sep { color: var(--dash-led-dim); }"
+    },
+    {
+      "name": "Text Field",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Island input with the 3:1 Field Edge boundary.",
+      "html": "<input class=\"ds-input\" placeholder=\"League code\">",
+      "css": ".ds-input { font: 15px/1.5 var(--dash-font-body); color: var(--dash-ink); background: var(--dash-surface); border: 1px solid var(--dash-field); border-radius: var(--dash-radius-sm); padding: 8px 12px; } .ds-input:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Commissioner's Desk",
+    "overview": "Endzone Empire is where a league gets run, week after week. The everyday surfaces are a working desk: dense, orderly, and quiet enough to make a lineup or waiver decision in seconds. Hairline cards, tabular numbers, and condensed display type keep a lot of data readable at once. Color on the desk is mostly a data encoding (positions, grades, home and away), not decoration.\n\nThe noise lives in the moments. Live games, a final score, a draft grade, a win, a trade landing: these are where the system gets loud and playful, with Endzone Green, Fourth-Quarter Amber on a scoreboard that stays black in both themes, big condensed figures, and the Tecmo-style sprite. A screen earns its loudness from what is happening in the league, never from ornament.\n\nTwo visual generations coexist. The **island** (League Dashboard, Game Center, Matchup Detail, Lineup, Pick'em, Waivers, and Home at `/user`) uses the `dash-*` tokens, Barlow Condensed and Archivo, and is where new league surfaces are drawn. **Legacy** pages under `src/components/` use the app tokens and MUI's Inter ramp. Each generation keeps its own tokens; never mix them on one surface.\n\nThe system rejects the sportsbook look (odds boards, neon promos, betting urgency) and the cluttered legacy-portal look (ad-shaped boxes, tiny type, every widget competing).",
+    "keyCharacteristics": [
+      "Dark-first and light-complete: every screen ships in both themes from the same token names.",
+      "Condensed display type for names, scores, and stat values; tabular numerals on every figure.",
+      "Flat island cards with a hairline edge; depth comes from tonal surface steps.",
+      "Color encodes data first; the accent is reserved for primary action and live state.",
+      "Contrast is asserted in tests, not eyeballed."
+    ],
+    "rules": [
+      {
+        "name": "The One Truth Rule",
+        "body": "No component hard-codes a color literal. A missing color becomes a new semantic token in `tokens.js`, with its contrast pairing registered in `tokens.contrast.test.js`.",
+        "section": "colors"
+      },
+      {
+        "name": "The Island Boundary Rule",
+        "body": "Island surfaces use only `dash-*` tokens, and legacy pages and the app shell (Nav, Footer) use only app tokens.",
+        "section": "colors"
+      },
+      {
+        "name": "The Tint Placement Rule",
+        "body": "A tinted pill or chip sits only on the surfaces its pairing is registered for. The light danger pill never sits on Desk Raised's light counterpart, and the warning chip sits only on a card or a stat tile.",
+        "section": "colors"
+      },
+      {
+        "name": "The Tabular Figures Rule",
+        "body": "Every score, point total, projection, and stat is set in tabular numerals so columns line up.",
+        "section": "typography"
+      },
+      {
+        "name": "The Copy House Style Rule",
+        "body": "No em dashes in user-visible copy; use middot separators, hyphen scores, and en-dash ranges (ADR 0016, enforced by `npm run guards`).",
+        "section": "typography"
+      },
+      {
+        "name": "The Flat Island Rule",
+        "body": "Island cards never take a shadow. To lift something, step it to the next surface tone.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do take every value from `src/theme/tokens.js`, and add a semantic token (and its contrast pairing) when one is missing.",
+      "Do ship both themes for every screen, using each theme's own values and never a mix.",
+      "Do set every figure in tabular numerals, with Barlow Condensed for scores and stat values on island surfaces.",
+      "Do save loudness for live state and big moments: live pills, finals, grades, wins, the scoreboard.",
+      "Do keep a visible 2px focus ring and honor the global reduced-motion policy, which makes transitions instant.",
+      "Do use inline stroke SVG icons on a 20 or 24px grid."
+    ],
+    "donts": [
+      "Don't hard-code a color literal in CSS, `sx`, or inline styles.",
+      "Don't mix `dash-*` and app tokens on one surface.",
+      "Don't put a shadow on an island card.",
+      "Don't borrow sportsbook visuals: odds boards, neon promos, countdown urgency.",
+      "Don't add legacy-portal clutter: ad-shaped boxes, tiny type, widgets competing for attention.",
+      "Don't use emoji in the product, or em dashes in its copy.",
+      "Don't use a position or grade color as decoration."
+    ]
+  }
+}
