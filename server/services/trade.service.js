@@ -11,7 +11,9 @@ const { rosterCapacity } = require('./irPolicy.service');
 // a freeze refusal shaped like one would destroy every accepted trade whose
 // review window ended during a freeze. As a DraftError it falls to the "log and
 // retry next tick" branch, and the trade stays accepted.
-const { assertRosterWriteAllowed, isLeagueFrozen, ROSTER_GATE } = require('./rosterGate.service');
+const {
+  assertRosterWriteAllowed, isLeagueFrozen, ROSTER_GATE, positionCapGroup, parsePositionCaps, countAtPositionGroup,
+} = require('./rosterGate.service');
 const { getDraftRoomBroadcast } = require('../modules/draftRoomBroadcast');
 // Module object, not destructured: the seam tests mock benchAcquiredPlayer.
 const lineupService = require('./lineup.service');
@@ -437,16 +439,17 @@ async function commissionerDecide({ tradeId, userId, approve }) {
  * that every player is still on the expected roster and that both teams stay
  * within the roster limit after the swap.
  *
- * The write gate runs ONCE PER PLAYER, immediately before that player's own
- * write (#963), never once up front: a single check before the loop would let
- * two incoming players at the same position both pass a cap of one, because
- * neither row has landed yet when the check runs. The release gate precedes
- * each DELETE and the acquire gate precedes each INSERT, so both teams in a
+ * The write gate runs ONCE PER PLAYER, before that player's own write (#963),
+ * never once up front. The release gate and then the acquire gate precede each
+ * DELETE and INSERT, so both teams in a
  * trade answer for the freeze and for their own Team lock - and the Team lock
  * is new here, since this path checked neither manager's before.
  *
- * Capacity is the exception, and it is bypassed on the per-item call rather
- * than dropped. Every add asks a per-player question; a trade asks a NET
+ * Capacity and the position cap are the exceptions, and are bypassed on the
+ * per-item call rather than dropped; the position cap is checked NET, after
+ * capacity (#2274).
+ *
+ * On capacity: every add asks a per-player question; a trade asks a NET
  * question over a swap that may transiently exceed - a team at capacity that
  * sends one player and receives one is legal, but its incoming insert happens
  * while the count is still full. So the net question stays exactly where it is,
@@ -486,15 +489,33 @@ async function executeTrade(client, { trade, league, items, teams, byCommissione
       throw new TradeError(409, `trade would put ${teams.get(teamId).name} over its roster capacity of ${capacity}`);
     }
   }
-  // Positions for the per-item acquire gate's position-cap check, and the names
-  // the transaction detail bakes in below, read in one statement before the
-  // loop. Reading the FACTS up front is not the same as gating up front: the
-  // gate itself still runs per player, immediately before that player's write.
+  // Positions for the net position-cap question below, and the names the
+  // transaction detail bakes in later, read in one statement before the loop.
   const tradedPlayersResult = await client.query(
     `SELECT "id", "name", "position" FROM "players" WHERE "id" = ANY($1::int[])`,
     [items.map((i) => i.player_id)]
   );
   const tradedPlayerById = new Map(tradedPlayersResult.rows.map((p) => [p.id, p]));
+  // The position cap is a NET question too, like capacity (#2274): a per-item
+  // check refuses a like-for-like swap at the cap whenever the incoming insert
+  // runs before the outgoing delete. A TradeError, so a due trade that can
+  // never fit is cancelled. Only a team that GAINS players in a group is
+  // checked; one that swaps like for like or sheds players is never refused.
+  const caps = parsePositionCaps(league.position_caps);
+  for (const teamId of delta.keys()) {
+    const change = new Map();
+    for (const item of items) {
+      const group = positionCapGroup((tradedPlayerById.get(item.player_id) || {}).position);
+      if (!Number.isInteger(caps[group])) continue;
+      if (item.to_team_id === teamId) change.set(group, (change.get(group) || 0) + 1);
+      if (item.from_team_id === teamId) change.set(group, (change.get(group) || 0) - 1);
+    }
+    for (const [group, net] of change) {
+      if (net > 0 && (await countAtPositionGroup(client, { teamId, group })) + net > caps[group]) {
+        throw new TradeError(409, `position cap reached: max ${caps[group]} ${group}`);
+      }
+    }
+  }
 
   for (const item of items) {
     // Delete-and-insert rather than UPDATE ... SET team_id (#197). Moving the
@@ -515,27 +536,22 @@ async function executeTrade(client, { trade, league, items, teams, byCommissione
       bypass: [],
     });
     // The receiving side's acquire gate, before this player's own delete and
-    // insert: the freeze, the receiving Team's lock, the per-position cap and
-    // the waiver hold. It runs BEFORE the give-side delete because the waiver
+    // insert: the freeze, the receiving Team's lock and the waiver hold. It runs BEFORE the give-side delete because the waiver
     // hold reads an unrostered player as on waivers while the post-draft
     // blanket window is open (isOnWaivers), and once the delete has run every
     // traded player looks unrostered, so every trade in that window was
-    // refused (#2274). Only capacity and the kickoff hold are bypassed - the
-    // net question above owns capacity, and KICKOFF_HOLD is bypassed because a
+    // refused (#2274). Capacity and the position cap are bypassed - the trade
+    // enforces both NET, above - and KICKOFF_HOLD is bypassed because a
     // trade moves an already-rostered player, never a Free agent (ADR 0043;
     // lead ruling on issue #1376). The existing waiver-row check (WAIVER_HOLD)
-    // is untouched and still runs. The position cap counts the receiving
-    // team's rows only, so the give-side row does not matter to it; and
-    // because this runs after the previous item's insert has landed, two
-    // incoming players at the same position are counted one after the other
-    // and the second is refused against a cap of one.
+    // is untouched and still runs.
     await assertRosterWriteAllowed(client, {
       leagueId: league.id,
       teamId: item.to_team_id,
       direction: 'acquire',
       playerId: item.player_id,
       position: (tradedPlayerById.get(item.player_id) || {}).position,
-      bypass: [ROSTER_GATE.CAPACITY, ROSTER_GATE.KICKOFF_HOLD],
+      bypass: [ROSTER_GATE.CAPACITY, ROSTER_GATE.POSITION_CAP, ROSTER_GATE.KICKOFF_HOLD],
     });
     await client.query(
       `DELETE FROM "team_players" WHERE "team_id" = $1 AND "player_id" = $2`,
@@ -632,9 +648,9 @@ async function processDueTrades() {
       // ours to write into. The original error survives the wrapper unchanged
       // (any rollback failure rides along as err.rollbackError), so a TradeError
       // is still recognisable here. Freeze, Team lock and kickoff-hold refusals stay transient and keep waiting, by design.
-      if (err instanceof TradeError || err.code === 'POSITION_CAP_REACHED') {
+      if (err instanceof TradeError) {
         await pool.query(
-          `UPDATE "trades" SET "status" = 'cancelled', "updated_at" = now() WHERE "id" = $1`,
+          `UPDATE "trades" SET "status" = 'cancelled', "updated_at" = now() WHERE "id" = $1 AND "status" = 'accepted'`,
           [row.id]
         );
         outcomes.push({ tradeId: row.id, status: 'cancelled', reason: err.message });
