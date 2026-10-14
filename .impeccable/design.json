@@ -450,6 +450,14 @@
         "displayName": "Headline medium",
         "purpose": "Section and dialog titles, stat-tile values."
       },
+      "panel-title": {
+        "displayName": "Panel title",
+        "purpose": "The h2 of a Home panel, such as Needs your attention and Next draft."
+      },
+      "greeting": {
+        "displayName": "Greeting",
+        "purpose": "The Home page h1: 48px from md up, 36px on phones."
+      },
       "display-sm": {
         "displayName": "Display small",
         "purpose": "The Next draft card league name, the create-league stepper title on phones."

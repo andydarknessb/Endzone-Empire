@@ -5,13 +5,16 @@ import {
   Box, Button, Chip, LinearProgress, Paper, Stack, Typography,
 } from '@mui/material';
 import Countdown from '../Countdown/Countdown';
-import DashButton from '../../shared/ui/DashButton';
 import { MIN_TOUCH_TARGET_SX } from '../../shared/lib/a11y';
 import { deriveLeaguePhase, LEAGUE_PHASE } from '../../shared/lib/leaguePhase';
 import {
   chipSx, DISPLAY_FONT, dimSx, ghostButtonSx, panelHeaderSx, panelSx, panelTitleSx, primaryButtonSx, progressSx,
   quietButtonSx,
 } from '../common/homeIslandSx';
+
+// A pre-draft league past its draft_date is "late" only for this long; an older
+// one is stale (its league card still shows it), not a draft about to start.
+const LATE_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 // The shared Countdown paints app tokens (it serves legacy pages too), so the
 // card repaints it from outside: the ticker in the display face, the schedule
@@ -30,31 +33,13 @@ const countdownSx = {
   '& .MuiButton-root': quietButtonSx,
 };
 
-/**
- * The manager's next Draft: the pre-draft league (from the /api/league rows)
- * with the earliest draft_date still ahead, or null when there is none. A date
- * already behind us is skipped: that draft is late to start, not upcoming, and
- * a countdown to it would render nothing.
- */
-export function nextScheduledDraft(leagues, now = Date.now()) {
-  let next = null;
-  let nextAt = Infinity;
-  (leagues || []).forEach((league) => {
-    if (deriveLeaguePhase(league) !== LEAGUE_PHASE.PRE_DRAFT || !league.draft_date) return;
-    const at = new Date(league.draft_date).getTime();
-    if (Number.isNaN(at) || at <= now || at >= nextAt) return;
-    next = league;
-    nextAt = at;
-  });
-  return next;
-}
-
 const STATE_RANK = { live: 0, late: 1, scheduled: 2 };
 
 /**
  * Where a league's draft sits for the Home card: 'live' (draft in progress),
- * 'late' (pre-draft, the scheduled time has passed and nobody has started it),
- * 'scheduled' (pre-draft, time still ahead) or null (no card). Phase decides
+ * 'late' (pre-draft, the scheduled time passed within the last 24 hours and
+ * nobody has started it), 'scheduled' (pre-draft, time still ahead) or null (no
+ * card, including a pre-draft league long past its date). Phase decides
  * live; draft_date only splits the pre-draft leagues.
  */
 function draftState(league, now) {
@@ -63,7 +48,8 @@ function draftState(league, now) {
   if (phase !== LEAGUE_PHASE.PRE_DRAFT || !league.draft_date) return null;
   const at = new Date(league.draft_date).getTime();
   if (Number.isNaN(at)) return null;
-  return at <= now ? 'late' : 'scheduled';
+  if (at > now) return 'scheduled';
+  return now - at <= LATE_WINDOW_MS ? 'late' : null;
 }
 
 /**
@@ -127,16 +113,21 @@ const leagueNameSx = {
   whiteSpace: 'nowrap',
 };
 
+const primarySx = { ...primaryButtonSx, ...MIN_TOUCH_TARGET_SX, minHeight: 48, fontSize: '15px' };
+const ghostSx = { ...ghostButtonSx, ...MIN_TOUCH_TARGET_SX, minHeight: 48, fontSize: '15px' };
+
 const HEADING = { scheduled: 'Next draft', live: 'Draft live', late: 'Draft starting soon' };
 
 /**
  * Home v2 draft card. Scheduled: a countdown, seats filled and the way in.
  * Live (draft in progress) and late (start time passed, not started) keep the
- * card up with Open Draft Room as the way in.
+ * card up. `queueHasDraft`: the to-do list already carries a Join draft row for
+ * this league, so a live card steps down to the ghost button (one primary).
  */
-function NextDraftCard({ league }) {
+function NextDraftCard({ league, queueHasDraft = false }) {
   const state = draftState(league, Date.now()) || 'scheduled';
   const isScheduled = state === 'scheduled';
+  const primary = isScheduled || (state === 'live' && !queueHasDraft);
   return (
     <Paper
       component="section"
@@ -172,37 +163,23 @@ function NextDraftCard({ league }) {
         )}
         {state === 'late' && (
           <Typography variant="body2" sx={{ ...dimSx, fontSize: '14px' }}>
-            The draft time has passed. It starts when the commissioner begins it.
+            {league.draft_autostart_failed
+              ? "The draft didn't start on its own. It starts when the commissioner begins it."
+              : 'Your draft is about to start.'}
           </Typography>
         )}
         <Stack spacing={1.25} sx={{ mt: 'auto' }}>
-          {isScheduled ? (
-            <Button
-              component={RouterLink}
-              to={`/league/${league.id}/draft`}
-              variant="contained"
-              size="large"
-              sx={{ ...primaryButtonSx, ...MIN_TOUCH_TARGET_SX, minHeight: 48, fontSize: '15px' }}
-            >
-              Open Draft Room
-            </Button>
-          ) : (
-            <DashButton
-              component={RouterLink}
-              to={`/league/${league.id}/draft`}
-              variant={state === 'live' ? 'primary' : 'ghost'}
-            >
-              Open Draft Room
-            </DashButton>
-          )}
+          <Button
+            component={RouterLink}
+            to={`/league/${league.id}/draft`}
+            variant={primary ? 'contained' : 'outlined'}
+            size="large"
+            sx={primary ? primarySx : ghostSx}
+          >
+            {state === 'live' ? 'Join draft' : 'Open Draft Room'}
+          </Button>
           {isScheduled && (
-            <Button
-              component={RouterLink}
-              to="/draft-sim"
-              variant="outlined"
-              size="large"
-              sx={{ ...ghostButtonSx, ...MIN_TOUCH_TARGET_SX, minHeight: 48, fontSize: '15px' }}
-            >
+            <Button component={RouterLink} to="/draft-sim" variant="outlined" size="large" sx={ghostSx}>
               Practice in Draft Sim
             </Button>
           )}
@@ -219,9 +196,11 @@ NextDraftCard.propTypes = {
     draft_date: PropTypes.string,
     draft_status: PropTypes.string,
     draft_timezone: PropTypes.string,
+    draft_autostart_failed: PropTypes.bool,
     team_count: PropTypes.oneOfType([PropTypes.number, PropTypes.string]),
     max_teams: PropTypes.oneOfType([PropTypes.number, PropTypes.string]),
   }).isRequired,
+  queueHasDraft: PropTypes.bool,
 };
 
 export default NextDraftCard;

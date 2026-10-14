@@ -85,6 +85,18 @@ typography:
     fontWeight: 700
     lineHeight: 1.1
     letterSpacing: "0.02em"
+  panel-title:
+    fontFamily: "\"Barlow Condensed\", Impact, sans-serif"
+    fontSize: "20px"
+    fontWeight: 600
+    lineHeight: 1.2
+    letterSpacing: "0.08em"
+  greeting:
+    fontFamily: "\"Barlow Condensed\", Impact, sans-serif"
+    fontSize: "48px"
+    fontWeight: 700
+    lineHeight: 1
+    letterSpacing: "0.01em"
   display-sm:
     fontFamily: "\"Barlow Condensed\", Impact, sans-serif"
     fontSize: "28px"
@@ -228,7 +240,9 @@ Position colors (`pos-qb` red, `pos-rb` green, `pos-wr` blue, `pos-te` orange, `
 - **Body large** (Archivo 400, 16px): a to-do row's title (weight 600) and the greeting summary line on desktop.
 - **Title** (Barlow Condensed 600, 18px, 0.08em tracking, uppercase): feed and highlight card titles, and the to-do deadline value on phones.
 - **Headline small** (Barlow Condensed 700, 22px, tabular numerals): the league-code input. The invite code on the created-league screen is also 22px but uses Code.
-- **Headline medium** (Barlow Condensed 700, 26px): section and dialog titles, the greeting heading on phones, and the stat-tile value.
+- **Headline medium** (Barlow Condensed 700, 26px): section and dialog titles, the empty-state and caught-up titles on phones, and the stat-tile value.
+- **Panel title** (Barlow Condensed 600, 20px, line height 1.2, 0.08em tracking, uppercase): the h2 of a Home panel such as Needs your attention or Next draft (`panelTitleSx`).
+- **Greeting** (Barlow Condensed 700, 48px from md up and 36px on phones, line height 1, 0.01em tracking, uppercase): the Home page's one h1, "Welcome back, name".
 - **Display small** (Barlow Condensed 700, 28px): the league name on the Next draft card and the create-league stepper title on phones.
 - **Code** (ui-monospace, SFMono-Regular, Consolas, monospace, 600, 0.1em tracking): the invite-code input and the league-code display and input; the size follows the field.
 - **Legacy ramp** (Inter): h1 2.5rem/800 down to h6 1rem/600; buttons 600 with no text transform; the `stat` variant (tabular numerals, 600) for any score or points figure.

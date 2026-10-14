@@ -347,20 +347,31 @@ function ActionQueue({ onLoaded, leagues = [] }) {
     if (expanded) firstRevealedRef.current?.focus();
   }, [expanded]);
 
+  // Only the newest fetch may report: an answer that lands after unmount (the
+  // page drops the queue on the first-run state) or after a newer fetch began
+  // is dropped, so it never reaches onLoaded or state.
+  const latestFetch = useRef(0);
+  useEffect(() => () => { latestFetch.current += 1; }, []);
+
   const fetchItems = useCallback(async () => {
+    latestFetch.current += 1;
+    const mine = latestFetch.current;
+    const stale = () => mine !== latestFetch.current;
     try {
       setLoading(true);
       const response = await apiClient.get('/api/user/action-items', { params: { tz: viewerTimeZone() } });
+      if (stale()) return;
       setData(response.data);
       setFailed(false);
       onLoadedRef.current?.(response.data);
     } catch (err) {
+      if (stale()) return;
       // Keep the last good list (if any) under the error. The page's summary
       // line is told there is nothing to summarize, so it steps back.
       setFailed(true);
       onLoadedRef.current?.(null);
     } finally {
-      setLoading(false);
+      if (!stale()) setLoading(false);
     }
   }, []);
 

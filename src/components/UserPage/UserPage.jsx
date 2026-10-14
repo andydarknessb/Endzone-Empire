@@ -61,6 +61,9 @@ const feedListSx = {
 };
 const feedStatusSx = { ...dimSx, fontSize: '14px' };
 const heroButtonSx = { minHeight: 48, px: 2.5, fontSize: '15px' };
+const LATE_POLL_MS = 30 * 1000;
+const START_GRACE_MS = 5 * 1000;
+const MAX_TIMEOUT_MS = 2 ** 31 - 1;
 // Join sits on the page, so the ghost paints its own `dash-surface` fill (the
 // board's Join league button): ink on a card surface, a registered pairing.
 // The empty state's two plain links: inline-flex so the 44px floor applies.
@@ -136,7 +139,13 @@ function UserPage() {
   // First run: the leagues read succeeded and found none. Not while loading (no
   // flash of the first-run state) and not after a failed read.
   const firstRun = !loadingLeagues && !leaguesError && myLeagues.length === 0;
-  const nextDraft = featuredDraft(myLeagues)?.league ?? null;
+  const featured = featuredDraft(myLeagues);
+  const nextDraft = featured?.league ?? null;
+  const featuredState = featured?.state ?? null;
+  // The to-do list already offers Join draft for the featured league: the live
+  // card then steps down to the ghost button (one primary per view).
+  const queueHasDraft = Boolean(nextDraft && Array.isArray(actionItems?.items)
+    && actionItems.items.some((entry) => entry.type === 'draft_live' && String(entry.leagueId) === String(nextDraft.id)));
   const currentWeek = sharedCurrentWeek(myLeagues);
   const liveMatchups = liveMatchupCount(myLeagues);
 
@@ -171,6 +180,29 @@ function UserPage() {
     fetchMyLeagues();
     fetchNews();
   }, []);
+
+  // Draft night: the card is only as fresh as the leagues list. A scheduled
+  // draft refetches once just after its start time (the server has auto-started
+  // it, or it is now late); a late one refetches every 30 seconds until it goes
+  // live. A live draft needs no timer. These are background refetches through
+  // fetchMyLeagues, which keeps the good list up (no skeletons).
+  const featuredId = nextDraft?.id;
+  const featuredDate = nextDraft?.draft_date;
+  useEffect(() => {
+    if (featuredState === 'late') {
+      const poll = setInterval(fetchMyLeagues, LATE_POLL_MS);
+      return () => clearInterval(poll);
+    }
+    if (featuredState === 'scheduled') {
+      const delay = new Date(featuredDate).getTime() - Date.now() + START_GRACE_MS;
+      // shortcut: setTimeout overflows past ~24.8 days, so a draft that far out
+      // sets no timer; upgrade by re-arming on a long tick if that matters.
+      if (delay > MAX_TIMEOUT_MS) return undefined;
+      const wake = setTimeout(fetchMyLeagues, Math.max(delay, 0));
+      return () => clearTimeout(wake);
+    }
+    return undefined;
+  }, [featuredState, featuredId, featuredDate]);
 
   // Functions to handle create dialog
   const handleOpenCreateDialog = () => {
@@ -264,13 +296,13 @@ function UserPage() {
               <Button variant="outlined" size="large" onClick={handleOpenJoinDialog} sx={heroGhostSx}>
                 Join league
               </Button>
-              {/* One filled primary on the page: Create is a ghost beside Join once a
-                  league exists. */}
+              {/* One filled primary on the page: Create is filled only on a first
+                  run, a ghost beside Join otherwise (and while leagues load). */}
               <Button
-                variant={myLeagues.length > 0 ? 'outlined' : 'contained'}
+                variant={firstRun ? 'contained' : 'outlined'}
                 size="large"
                 onClick={handleOpenCreateDialog}
-                sx={myLeagues.length > 0 ? heroGhostSx : { ...primaryButtonSx, ...heroButtonSx }}
+                sx={firstRun ? { ...primaryButtonSx, ...heroButtonSx } : heroGhostSx}
               >
                 Create league
               </Button>
@@ -279,18 +311,20 @@ function UserPage() {
 
           {/* The to-do list replaces the old hero and "Next up" nudge. It owns
               its own fetch and states, so it never holds up My leagues. */}
-          <Grid container spacing={3} sx={{ mb: firstRun ? 0 : 5 }}>
-            <Grid xs={12} lg={nextDraft ? 8 : 12}>
-              {/* No to-do list on a first run: "all caught up" would be untrue
-                  of a manager with nothing yet to catch up on. */}
-              {!firstRun && <ActionQueue onLoaded={setActionItems} leagues={myLeagues} />}
-            </Grid>
-            {nextDraft && (
-              <Grid xs={12} lg={4}>
-                <NextDraftCard league={nextDraft} />
+          {/* No to-do list on a first run ("all caught up" would be untrue of a
+              manager with nothing yet to catch up on), and no empty grid row. */}
+          {!(firstRun && !nextDraft) && (
+            <Grid container spacing={3} sx={{ mb: firstRun ? 0 : 5 }}>
+              <Grid xs={12} lg={nextDraft ? 8 : 12}>
+                {!firstRun && <ActionQueue onLoaded={setActionItems} leagues={myLeagues} />}
               </Grid>
-            )}
-          </Grid>
+              {nextDraft && (
+                <Grid xs={12} lg={4}>
+                  <NextDraftCard league={nextDraft} queueHasDraft={queueHasDraft} />
+                </Grid>
+              )}
+            </Grid>
+          )}
 
 
           <Typography variant="h5" component="h2" sx={{ ...sectionTitleSx, mb: 2 }}>
@@ -377,9 +411,7 @@ function UserPage() {
                   </Button>
                 </Stack>
                 <Stack direction={{ xs: 'column', sm: 'row' }} spacing={{ xs: 0, sm: 3 }} sx={{ mt: 1.5 }}>
-                  {/* /draft-simulator lives in the public BrowserRouter tree, so a
-                      plain href; /discover is an app route. */}
-                  <Link href="/draft-simulator" underline="hover" sx={emptyLinkSx}>Try a mock draft</Link>
+                  <Link component={RouterLink} to="/draft-sim" underline="hover" sx={emptyLinkSx}>Practice in Draft Sim</Link>
                   <Link component={RouterLink} to="/discover" underline="hover" sx={emptyLinkSx}>Find a public league</Link>
                 </Stack>
               </Box>
@@ -487,7 +519,7 @@ function UserPage() {
             </Grid>
           </Box>
 
-          {/* Public-layer content (rankings, recaps, strategy) surfaced for
+          {/* Public-layer content (recaps, strategy) surfaced for
               logged-in users; links cross into the public site. */}
           <Suspense fallback={<Skeleton variant="rounded" height={220} sx={{ ...skeletonSx, mt: 5, borderRadius: 'var(--dash-radius)' }} />}>
             <PublicHighlights />

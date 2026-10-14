@@ -100,7 +100,7 @@ describe('"/home" before the session is resolved (#2097)', () => {
 
 test('"/home" redirects to "/user" when already logged in', async () => {
   renderApp('#/home', { user: loggedIn });
-  expect(await screen.findByText('Welcome back, alice')).toBeInTheDocument();
+  expect(await screen.findByText(/^Welcome(?: back)?, alice$/)).toBeInTheDocument();
 });
 
 test('"/login" shows the login form when logged out', async () => {
@@ -110,7 +110,7 @@ test('"/login" shows the login form when logged out', async () => {
 
 test('"/login" redirects to "/user" when already logged in', async () => {
   renderApp('#/login', { user: loggedIn });
-  expect(await screen.findByText('Welcome back, alice')).toBeInTheDocument();
+  expect(await screen.findByText(/^Welcome(?: back)?, alice$/)).toBeInTheDocument();
   expect(screen.queryByRole('heading', { name: 'Login' })).not.toBeInTheDocument();
 });
 
@@ -121,7 +121,7 @@ test('"/registration" shows the registration form when logged out', async () => 
 
 test('"/registration" redirects to "/user" when already logged in', async () => {
   renderApp('#/registration', { user: loggedIn });
-  expect(await screen.findByText('Welcome back, alice')).toBeInTheDocument();
+  expect(await screen.findByText(/^Welcome(?: back)?, alice$/)).toBeInTheDocument();
 });
 
 test('"/about" is visible whether logged out or in', async () => {
@@ -136,7 +136,7 @@ test('"/user" shows LoginPage (via ProtectedRoute) when logged out', async () =>
 
 test('"/user" shows UserPage when logged in', async () => {
   renderApp('#/user', { user: loggedIn });
-  expect(await screen.findByText('Welcome back, alice')).toBeInTheDocument();
+  expect(await screen.findByText(/^Welcome(?: back)?, alice$/)).toBeInTheDocument();
 });
 
 test('"/info" is protected: LoginPage when logged out, InfoPage when logged in', async () => {
@@ -503,7 +503,7 @@ test('the Draft route renders a skip link, first in the DOM, targeting the Draft
 
 test('the /user route renders a skip link, first in the DOM, that moves focus to the page\'s content region', async () => {
   renderApp('#/user', { user: loggedIn });
-  expect(await screen.findByText('Welcome back, alice')).toBeInTheDocument();
+  expect(await screen.findByText(/^Welcome(?: back)?, alice$/)).toBeInTheDocument();
 
   const skipLink = screen.getByRole('link', { name: 'Skip to main content' });
   expect(skipLink).toHaveAttribute('href', '#user-main-content');

@@ -128,6 +128,15 @@ test('the header Create league is the filled primary only while the user has no 
   expect(heroButton('Create league')).not.toHaveClass('MuiButton-contained');
 });
 
+test('the header Create league is not the filled primary while the leagues read is pending', async () => {
+  apiClient.get.mockReturnValue(new Promise(() => {}));
+  renderPage();
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalled());
+
+  expect(heroButton('Create league')).not.toHaveClass('MuiButton-contained');
+  expect(heroButton('Create league')).toHaveClass('MuiButton-outlined');
+});
+
 test('a news link that opens a new tab says so in its accessible name', async () => {
   apiClient.get.mockImplementation((url) => {
     if (url === '/api/news') return Promise.resolve({ data: [{ title: 'Big trade', link: 'https://example.com/trade' }] });
@@ -185,7 +194,7 @@ test('renders a rich empty state with an icon and CTAs once loading finishes wit
   expect(within(emptyState).getByTestId('SportsFootballIcon')).toBeInTheDocument();
   expect(within(emptyState).getByRole('button', { name: 'Create league' })).toBeInTheDocument();
   expect(within(emptyState).getByRole('button', { name: 'Join league' })).toBeInTheDocument();
-  expect(within(emptyState).getByRole('link', { name: 'Try a mock draft' })).toHaveAttribute('href', '/draft-simulator');
+  expect(within(emptyState).getByRole('link', { name: 'Practice in Draft Sim' })).toHaveAttribute('href', '/draft-sim');
   expect(within(emptyState).getByRole('link', { name: 'Find a public league' })).toHaveAttribute('href', '/discover');
 });
 

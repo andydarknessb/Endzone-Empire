@@ -1,5 +1,5 @@
 import React from 'react';
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
@@ -59,7 +59,8 @@ const actionItemsBody = (items, extra = {}) => ({
 });
 
 // `actionItems` is a response body, an Error (the fetch rejects), a function
-// (called per request, for retry tests) or 'pending' (never settles).
+// (called per request, for retry tests) or 'pending' (never settles). `leagues`
+// is a list, or a function returning a list or 'pending'.
 const mockApi = ({ leagues = [league()], actionItems = actionItemsBody([]), notifications = [] } = {}) => {
   apiClient.get.mockImplementation((url) => {
     if (url === '/api/user/action-items') {
@@ -68,7 +69,10 @@ const mockApi = ({ leagues = [league()], actionItems = actionItemsBody([]), noti
       if (answer instanceof Error) return Promise.reject(answer);
       return Promise.resolve({ data: answer });
     }
-    if (url === '/api/league') return Promise.resolve({ data: leagues });
+    if (url === '/api/league') {
+      const rows = typeof leagues === 'function' ? leagues() : leagues;
+      return rows === 'pending' ? new Promise(() => {}) : Promise.resolve({ data: rows });
+    }
     if (url === '/api/notifications') return Promise.resolve({ data: { notifications, unread: 0 } });
     return Promise.resolve({ data: [] });
   });
@@ -410,7 +414,156 @@ test('there is no draft card when no league is drafting, late or scheduled ahead
 
   await screen.findByText('Unscheduled League');
   await findQueue();
-  expect(screen.queryByRole('region', { name: 'Next draft' })).not.toBeInTheDocument();
+  expect(screen.queryAllByRole('heading', { level: 2, name: /Next draft|Draft live|Draft starting soon/ })).toHaveLength(0);
+});
+
+test('a league whose draft is in progress shows the Draft live card with a Join draft link', async () => {
+  mockApi({ leagues: [league({ id: 6, name: 'Night League', draft_status: 'active', draft_date: inFromNow(-HOUR) })] });
+  renderPage();
+
+  const card = await screen.findByRole('region', { name: 'Draft live' });
+  expect(within(card).getByRole('heading', { level: 2, name: 'Draft live' })).toBeInTheDocument();
+  expect(within(card).getByText('Night League')).toBeInTheDocument();
+  expect(within(card).getByRole('link', { name: 'Join draft' })).toHaveAttribute('href', '/league/6/draft');
+  expect(screen.queryByRole('heading', { level: 2, name: 'Next draft' })).not.toBeInTheDocument();
+});
+
+test('a pre-draft league 2 hours past its draft date shows Draft starting soon', async () => {
+  mockApi({ leagues: [league({ id: 5, name: 'Late League', draft_date: inFromNow(-2 * HOUR) })] });
+  renderPage();
+
+  const card = await screen.findByRole('region', { name: 'Draft starting soon' });
+  expect(within(card).getByText('Late League')).toBeInTheDocument();
+  expect(within(card).getByRole('link', { name: 'Open Draft Room' })).toHaveAttribute('href', '/league/5/draft');
+});
+
+test('a league 30 days past its draft date is not featured; the one drafting in 2 hours is', async () => {
+  mockApi({
+    leagues: [
+      league({ id: 1, name: 'Stale League', draft_date: inFromNow(-30 * 24 * HOUR) }),
+      league({ id: 2, name: 'Soon League', draft_date: inFromNow(2 * HOUR) }),
+    ],
+  });
+  renderPage();
+
+  const card = await screen.findByRole('region', { name: 'Next draft' });
+  expect(within(card).getByText('Soon League')).toBeInTheDocument();
+  expect(screen.queryByRole('region', { name: 'Draft starting soon' })).not.toBeInTheDocument();
+});
+
+// One primary action per view: when the to-do list already has the Join draft
+// row, the live card steps down to the ghost button.
+test('the live card is primary unless the to-do list already has a Join draft row for that league', async () => {
+  const live = league({ id: 6, name: 'Night League', draft_status: 'active' });
+  const draftRow = item({
+    id: 'draft_live:6', type: 'draft_live', leagueId: 6, leagueName: 'Night League', title: 'Your draft is live',
+    cta: { label: 'Join draft', to: '/league/6/draft' },
+  });
+  mockApi({ leagues: [live], actionItems: actionItemsBody([draftRow]) });
+  const { unmount } = renderPage();
+  const queue = await findQueue();
+  await within(queue).findByText('Your draft is live');
+  const cardLink = () => within(screen.getByRole('region', { name: 'Draft live' })).getByRole('link', { name: 'Join draft' });
+  await waitFor(() => expect(cardLink()).toHaveClass('MuiButton-outlined'));
+  unmount();
+
+  mockApi({ leagues: [live], actionItems: actionItemsBody([item({ id: 'x', title: 'Fill your empty FLEX' })]) });
+  renderPage();
+  const queue2 = await findQueue();
+  await within(queue2).findByText('Fill your empty FLEX');
+  expect(cardLink()).toHaveClass('MuiButton-contained');
+});
+
+// --- Draft-night freshness (fake timers) -------------------------------------
+
+describe('draft-night refetch', () => {
+  const { setImmediate: realSetImmediate } = jest.requireActual('timers');
+  const leagueCalls = () => apiClient.get.mock.calls.filter(([url]) => url === '/api/league').length;
+  const advance = (ms) => act(async () => {
+    jest.advanceTimersByTime(ms);
+    // A real macrotask lets the refetch's whole promise chain settle inside the act scope.
+    await new Promise((resolve) => { realSetImmediate(resolve); });
+  });
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  test('a scheduled draft whose time passes triggers exactly one leagues refetch', async () => {
+    const draftDate = new Date(Date.now() + 60 * 1000).toISOString();
+    mockApi({
+      // The server auto-starts the draft at its time: the refetch finds it live.
+      leagues: () => [league({ id: 2, draft_date: draftDate, draft_status: leagueCalls() > 1 ? 'active' : 'pending' })],
+    });
+    renderPage();
+    await screen.findByRole('region', { name: 'Next draft' });
+    expect(leagueCalls()).toBe(1);
+
+    await advance(59 * 1000);
+    expect(leagueCalls()).toBe(1);
+    await advance(7 * 1000);
+    expect(leagueCalls()).toBe(2);
+    expect(await screen.findByRole('region', { name: 'Draft live' })).toBeInTheDocument();
+    // A live draft needs no further refetch.
+    await advance(5 * 60 * 1000);
+    expect(leagueCalls()).toBe(2);
+  });
+
+  test('a late draft refetches leagues every 30 seconds, keeps the list up and stops on unmount', async () => {
+    let calls = 0;
+    mockApi({
+      leagues: () => {
+        calls += 1;
+        return calls === 2 ? 'pending' : [league({ id: 5, name: 'Late League', draft_date: new Date(Date.now() - 2 * HOUR).toISOString() })];
+      },
+    });
+    const { unmount } = renderPage();
+    await screen.findByRole('region', { name: 'Draft starting soon' });
+    expect(leagueCalls()).toBe(1);
+
+    await advance(29 * 1000);
+    expect(leagueCalls()).toBe(1);
+    await advance(1000);
+    expect(leagueCalls()).toBe(2);
+    // The refetch is in flight: the cards stay and no skeleton stands in.
+    expect(screen.queryAllByTestId('league-skeleton')).toHaveLength(0);
+    expect(screen.getByRole('region', { name: 'Draft starting soon' })).toBeInTheDocument();
+    expect(screen.getAllByText('Late League').length).toBeGreaterThan(0);
+
+    await advance(30 * 1000);
+    expect(leagueCalls()).toBe(3);
+
+    unmount();
+    await advance(120 * 1000);
+    expect(leagueCalls()).toBe(3);
+  });
+
+  test('a live draft sets no refetch timer', async () => {
+    mockApi({ leagues: [league({ id: 6, draft_status: 'active' })] });
+    renderPage();
+    await screen.findByRole('region', { name: 'Draft live' });
+    await advance(5 * 60 * 1000);
+    expect(leagueCalls()).toBe(1);
+  });
+
+  test('the late card says the draft did not start on its own only when auto-start failed', async () => {
+    const lateDate = () => new Date(Date.now() - 2 * HOUR).toISOString();
+    mockApi({ leagues: [league({ id: 5, draft_date: lateDate(), draft_autostart_failed: true })] });
+    const { unmount } = renderPage();
+    const card = await screen.findByRole('region', { name: 'Draft starting soon' });
+    expect(within(card).getByText("The draft didn't start on its own. It starts when the commissioner begins it.")).toBeInTheDocument();
+    unmount();
+
+    mockApi({ leagues: [league({ id: 5, draft_date: lateDate(), draft_autostart_failed: false })] });
+    renderPage();
+    const plain = await screen.findByRole('region', { name: 'Draft starting soon' });
+    expect(within(plain).getByText('Your draft is about to start.')).toBeInTheDocument();
+    expect(within(plain).queryByText(/didn't start on its own/)).not.toBeInTheDocument();
+  });
 });
 
 // --- Greeting context line -------------------------------------------------
