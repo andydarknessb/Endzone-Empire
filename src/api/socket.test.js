@@ -1,6 +1,8 @@
+import { waitFor } from '@testing-library/react';
+import axios from 'axios';
 import { io } from 'socket.io-client';
 import { createDraftSocket, onReconnect } from './socket';
-import { setToken, clearToken } from './apiClient';
+import { setToken, getToken, clearToken } from './apiClient';
 
 jest.mock('socket.io-client', () => ({
   io: jest.fn(),
@@ -86,6 +88,61 @@ describe('createDraftSocket', () => {
     // A non-auth connect error (e.g. server briefly down) must not throw
     const [, handler] = registered;
     expect(() => handler(new Error('xhr poll error'))).not.toThrow();
+  });
+
+  describe('when the handshake is rejected as unauthorized', () => {
+    let expired;
+    const onExpired = () => { expired += 1; };
+
+    beforeEach(() => {
+      expired = 0;
+      window.addEventListener('auth:session-expired', onExpired);
+    });
+
+    afterEach(() => {
+      window.removeEventListener('auth:session-expired', onExpired);
+      jest.restoreAllMocks();
+    });
+
+    function failHandshake() {
+      const socket = createDraftSocket();
+      const [, handler] = socket.on.mock.calls.find(([event]) => event === 'connect_error');
+      handler(new Error('unauthorized'));
+    }
+
+    test('a refused refresh (401) clears the token and ends the session', async () => {
+      setToken('revoked-jwt');
+      jest.spyOn(axios, 'post').mockRejectedValue({ response: { status: 401 } });
+
+      failHandshake();
+
+      await waitFor(() => expect(expired).toBe(1));
+      expect(getToken()).toBeNull();
+    });
+
+    test('a 5xx refresh failure leaves the session alone', async () => {
+      setToken('still-good-jwt');
+      const post = jest.spyOn(axios, 'post').mockRejectedValue({ response: { status: 503 } });
+
+      failHandshake();
+
+      await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(expired).toBe(0);
+      expect(getToken()).toBe('still-good-jwt');
+    });
+
+    test('a dropped link (no response) leaves the session alone', async () => {
+      setToken('still-good-jwt');
+      const post = jest.spyOn(axios, 'post').mockRejectedValue(new Error('Network Error'));
+
+      failHandshake();
+
+      await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(expired).toBe(0);
+      expect(getToken()).toBe('still-good-jwt');
+    });
   });
 });
 
