@@ -63,10 +63,12 @@ const mockApi = ({ preview } = {}) => {
 const previewCalls = () => apiClient.get.mock.calls.filter(([url]) => typeof url === 'string' && url.startsWith(PREVIEW_PREFIX));
 const getCallsTo = (url) => apiClient.get.mock.calls.filter(([calledUrl]) => calledUrl === url).length;
 // The header pair is hidden on a first run (no leagues), so the button is the
-// header's once leagues exist and the empty state's before that.
+// header's once leagues exist and the empty state's before that (where Join is
+// "I have an invite code").
 const heroButton = async (name) => {
   const hero = within(screen.getByTestId('dashboard-hero')).queryByRole('button', { name });
-  return hero || within(await screen.findByTestId('leagues-empty-state')).getByRole('button', { name });
+  return hero || within(await screen.findByTestId('leagues-empty-state'))
+    .getByRole('button', { name: name === 'Join league' ? 'I have an invite code' : name });
 };
 const alertsWithText = (text) => screen.queryAllByRole('alert').filter((el) => el.textContent.includes(text));
 

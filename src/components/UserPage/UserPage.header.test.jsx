@@ -90,7 +90,6 @@ const mockApi = ({ leagues = [fantasyLeague(1, 'Default League')], actionItems =
     if (url === '/api/league') return Promise.resolve({ data: leagues });
     if (url === '/api/notifications') return Promise.resolve({ data: { notifications: [], unread: 0 } });
     if (url === '/api/public/rankings') return Promise.resolve({ data: { rankings: [] } });
-    if (url === '/api/public/recaps') return Promise.resolve({ data: { recaps: [] } });
     return Promise.resolve({ data: [] });
   });
 };
@@ -106,15 +105,6 @@ const statTiles = () => {
   const terms = within(strip).getAllByRole('term').map((el) => el.textContent);
   const values = within(strip).getAllByRole('definition').map((el) => el.textContent);
   return terms.map((term, i) => [term, values[i]]);
-};
-
-const declaredStyle = (element) => {
-  const classes = Array.from(element.classList).filter((c) => c.startsWith('css-'));
-  return Array.from(document.styleSheets)
-    .flatMap((sheet) => Array.from(sheet.cssRules))
-    .filter((rule) => classes.some((cls) => rule.selectorText === `.${cls}`))
-    .map((rule) => rule.style.cssText)
-    .join(';');
 };
 
 const timeFormat = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit' });
@@ -328,14 +318,4 @@ test('the header buttons and the leagues heading are in sentence case', async ()
   expect(header().getByRole('button', { name: 'Create league' })).toBeInTheDocument();
   expect(header().getByRole('button', { name: 'Join league' })).toBeInTheDocument();
   expect(screen.getByRole('heading', { level: 2, name: 'My leagues' })).toBeInTheDocument();
-});
-
-test('the Around the League quick links clear the 44px touch target floor', async () => {
-  mockApi();
-  renderPage();
-
-  const section = await screen.findByRole('region', { name: 'Around the League' });
-  ['Rankings', 'Waiver Wire', 'Strategy', 'Recaps'].forEach((name) => {
-    expect(declaredStyle(within(section).getByRole('link', { name }))).toMatch(/min-height: 44px/);
-  });
 });

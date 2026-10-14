@@ -512,6 +512,51 @@ test('a league whose draft is in progress shows the Draft live card with a Join 
   expect(screen.queryByRole('heading', { level: 2, name: 'Next draft' })).not.toBeInTheDocument();
 });
 
+// The Grid item around a region, and the `order` its emotion class declares at
+// xs (jsdom does not evaluate media queries, so read the declared CSS).
+// eslint-disable-next-line testing-library/no-node-access
+const gridItem = (region) => region.closest('.MuiGrid2-root');
+const declaredStyle = (element) => {
+  const classes = Array.from(element.classList).filter((c) => c.startsWith('css-'));
+  return Array.from(document.styleSheets)
+    .flatMap((sheet) => Array.from(sheet.cssRules))
+    .flatMap((rule) => (rule.cssRules ? Array.from(rule.cssRules) : [rule]))
+    .filter((rule) => classes.some((cls) => rule.selectorText === `.${cls}`))
+    .map((rule) => rule.style.cssText)
+    .join(';');
+};
+
+test('on draft night (live or late) the draft card leads the to-do list on a phone and sits right of it at lg', async () => {
+  mockApi({ leagues: [league({ id: 6, name: 'Night League', draft_status: 'active', draft_date: inFromNow(-HOUR) })] });
+  renderPage();
+
+  const card = gridItem(await screen.findByRole('region', { name: 'Draft live' }));
+  const queue = gridItem(await findQueue());
+  expect(card.compareDocumentPosition(queue) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(declaredStyle(card)).toMatch(/order: 0/);
+  expect(declaredStyle(card)).toMatch(/order: 2/);
+  expect(declaredStyle(queue)).toMatch(/order: 1/);
+});
+
+test('a late draft leads on a phone too', async () => {
+  mockApi({ leagues: [league({ id: 5, name: 'Late League', draft_date: inFromNow(-2 * HOUR) })] });
+  renderPage();
+
+  const card = gridItem(await screen.findByRole('region', { name: 'Draft starting soon' }));
+  expect(card.compareDocumentPosition(gridItem(await findQueue())) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+});
+
+test('a scheduled draft keeps the to-do list first and sets no order', async () => {
+  mockApi({ leagues: [league({ id: 2, name: 'Dynasty Startup', draft_date: inFromNow(6 * 24 * HOUR) })] });
+  renderPage();
+
+  const card = gridItem(await screen.findByRole('region', { name: 'Next draft' }));
+  const queue = gridItem(await findQueue());
+  expect(queue.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(declaredStyle(card)).not.toMatch(/order:/);
+  expect(declaredStyle(queue)).not.toMatch(/order:/);
+});
+
 test('a pre-draft league 2 hours past its draft date shows Draft starting soon', async () => {
   mockApi({ leagues: [league({ id: 5, name: 'Late League', draft_date: inFromNow(-2 * HOUR) })] });
   renderPage();
