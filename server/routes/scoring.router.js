@@ -157,9 +157,10 @@ router.post('/league/:id/correct-week', async (req, res) => {
       });
       return res.json(result);
     }
-    await withDatabaseRetry(() => feedSyncRuns.syncWeekStats({
+    await withDatabaseRetry(() => nflverseSync.correctWeekFromNflverse({
       season: correctionRequest.season,
       week: correctionRequest.week,
+      rescoreLeagues: false,
     }));
     const result = await withDatabaseRetry(() => correction.correctLeagueWeek(correctionRequest));
     res.json(result);
