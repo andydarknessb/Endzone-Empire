@@ -138,7 +138,9 @@ const PROGRESS_COPY = {
   seats_open: { label: 'Seats filled', suffix: ' filled' },
 };
 
-function ItemProgress({ type, progress }) {
+// `showCount` is false when the row's detail line already states the count
+// ("0 of 14 made for week 6"), so the bar is not followed by a second one.
+function ItemProgress({ type, progress, showCount }) {
   const total = Number(progress?.total);
   const done = Number(progress?.done);
   if (!Number.isFinite(total) || total <= 0 || !Number.isFinite(done)) return null;
@@ -157,9 +159,11 @@ function ItemProgress({ type, progress }) {
         aria-valuetext={`${clamped} of ${total}`}
         sx={{ ...progressSx, width: { xs: 80, sm: 140 }, height: 6, borderRadius: 999 }}
       />
-      <Typography variant="body2" aria-hidden="true" sx={{ ...dimSx, fontSize: '13px' }}>
-        {`${clamped} of ${total}${copy.suffix}`}
-      </Typography>
+      {showCount && (
+        <Typography variant="body2" aria-hidden="true" sx={{ ...dimSx, fontSize: '13px' }}>
+          {`${clamped} of ${total}${copy.suffix}`}
+        </Typography>
+      )}
     </Stack>
   );
 }
@@ -199,7 +203,7 @@ const ActionItemRow = React.forwardRef(function ActionItemRow({ item, primary, n
             </Box>
           )}
           {item.detail && <Typography variant="body2" sx={{ ...dimSx, fontSize: '13px' }}>{item.detail}</Typography>}
-          {item.progress && <ItemProgress type={item.type} progress={item.progress} />}
+          {item.progress && <ItemProgress type={item.type} progress={item.progress} showCount={!item.detail} />}
         </Stack>
       </Stack>
       {item.cta?.to && (
@@ -343,20 +347,31 @@ function ActionQueue({ onLoaded, leagues = [] }) {
     if (expanded) firstRevealedRef.current?.focus();
   }, [expanded]);
 
+  // Only the newest fetch may report: an answer that lands after unmount (the
+  // page drops the queue on the first-run state) or after a newer fetch began
+  // is dropped, so it never reaches onLoaded or state.
+  const latestFetch = useRef(0);
+  useEffect(() => () => { latestFetch.current += 1; }, []);
+
   const fetchItems = useCallback(async () => {
+    latestFetch.current += 1;
+    const mine = latestFetch.current;
+    const stale = () => mine !== latestFetch.current;
     try {
       setLoading(true);
       const response = await apiClient.get('/api/user/action-items', { params: { tz: viewerTimeZone() } });
+      if (stale()) return;
       setData(response.data);
       setFailed(false);
       onLoadedRef.current?.(response.data);
     } catch (err) {
+      if (stale()) return;
       // Keep the last good list (if any) under the error. The page's summary
       // line is told there is nothing to summarize, so it steps back.
       setFailed(true);
       onLoadedRef.current?.(null);
     } finally {
-      setLoading(false);
+      if (!stale()) setLoading(false);
     }
   }, []);
 

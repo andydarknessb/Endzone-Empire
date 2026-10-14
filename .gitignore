@@ -93,3 +93,8 @@ backtest-data/sources/*
 # bar (round-2 disclosure). It stays local, like the hand-delivered review
 # documents. docs/agents/* remains tracked - reference-only, never auto-loaded.
 CLAUDE.md
+
+# impeccable: per-session critique snapshots and the live-mode server state stay local.
+.impeccable/critique/
+.impeccable/live/
+.impeccable/config.local.json

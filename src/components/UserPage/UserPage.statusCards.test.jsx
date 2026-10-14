@@ -389,7 +389,8 @@ test('filter chips are aria-pressed toggle buttons with counts that narrow the g
 
   const group = within(screen.getByRole('group', { name: 'Filter leagues' }));
   const all = group.getByRole('button', { name: 'All 3' });
-  const live = group.getByRole('button', { name: 'Live 1' });
+  const live = group.getByRole('button', { name: 'In season 1' });
+  expect(group.queryByRole('button', { name: /^Live/ })).not.toBeInTheDocument();
   const pickem = group.getByRole('button', { name: "Pick'em 1" });
   const drafting = group.getByRole('button', { name: 'Drafting 1' });
   expect(all).toHaveAttribute('aria-pressed', 'true');

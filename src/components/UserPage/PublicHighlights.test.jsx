@@ -12,17 +12,6 @@ jest.mock('../../api/apiClient', () => ({
 // PublicHighlights uses no router or redux — plain render is enough. Its
 // links are intentionally full-page hrefs into the public BrowserRouter tree.
 
-const rankingsResponse = {
-  data: {
-    season: 2025,
-    week: 18,
-    rankings: [
-      { rank: 1, playerId: 777, name: 'Christian McCaffrey', position: 'RB', nflTeam: 'SF', seasonPoints: 369.1 },
-      { rank: 2, playerId: 1144, name: 'Josh Allen', position: 'QB', nflTeam: 'BUF', seasonPoints: 364.6 },
-    ],
-  },
-};
-
 const recapsResponse = {
   data: {
     recaps: [
@@ -35,11 +24,8 @@ const recapsResponse = {
   },
 };
 
-const mockGets = ({ rankings = rankingsResponse, recaps = recapsResponse } = {}) => {
+const mockGets = ({ recaps = recapsResponse } = {}) => {
   apiClient.get.mockImplementation((url) => {
-    if (url === '/api/public/rankings') {
-      return rankings instanceof Error ? Promise.reject(rankings) : Promise.resolve(rankings);
-    }
     if (url === '/api/public/recaps') {
       return recaps instanceof Error ? Promise.reject(recaps) : Promise.resolve(recaps);
     }
@@ -49,15 +35,14 @@ const mockGets = ({ rankings = rankingsResponse, recaps = recapsResponse } = {})
 
 afterEach(() => jest.clearAllMocks());
 
-test('renders the rankings preview with public player-profile links', async () => {
+test('has no Top Players card and never fetches the rankings', async () => {
   mockGets();
   render(<PublicHighlights />);
 
-  const mccaffrey = await screen.findByRole('link', { name: '#1 Christian McCaffrey' });
-  expect(mccaffrey).toHaveAttribute('href', '/players/777');
-  expect(screen.getByText('RB SF · 369.1 pts')).toBeInTheDocument();
-  expect(screen.getByRole('link', { name: 'Full rankings' })).toHaveAttribute('href', '/rankings');
-  expect(apiClient.get).toHaveBeenCalledWith('/api/public/rankings', { params: { limit: 5 } });
+  await screen.findByRole('link', { name: 'KC 20 @ BUF 27' });
+  expect(screen.queryByRole('heading', { name: 'Top Players' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('link', { name: 'Full rankings' })).not.toBeInTheDocument();
+  expect(apiClient.get).not.toHaveBeenCalledWith('/api/public/rankings', expect.anything());
 });
 
 test('renders the latest recaps with links to each recap page', async () => {
@@ -73,7 +58,7 @@ test('renders the latest recaps with links to each recap page', async () => {
 test('lists the newest strategy articles straight from the content registry', async () => {
   mockGets();
   render(<PublicHighlights />);
-  await screen.findByRole('link', { name: 'Full rankings' });
+  await screen.findByRole('link', { name: 'KC 20 @ BUF 27' });
 
   for (const article of listArticles().slice(0, 3)) {
     const link = screen.getByRole('link', { name: article.title });
@@ -93,13 +78,12 @@ test('shows the quick-links row into every public section', async () => {
   expect(within(section).getByRole('link', { name: 'Recaps' })).toHaveAttribute('href', '/recaps');
 });
 
-test('a failed fetch degrades that card only, never the section', async () => {
-  mockGets({ rankings: new Error('boom') });
+test('a failed recaps fetch degrades that card only, never the section', async () => {
+  mockGets({ recaps: new Error('boom') });
   render(<PublicHighlights />);
 
-  expect(await screen.findByText("Couldn't load the rankings right now.")).toBeInTheDocument();
-  // The other two cards still render their content.
-  expect(await screen.findByRole('link', { name: 'KC 20 @ BUF 27' })).toBeInTheDocument();
+  expect(await screen.findByText("Couldn't load recaps right now.")).toBeInTheDocument();
+  // The strategy card still renders its content.
   expect(screen.getByRole('link', { name: 'All strategy articles' })).toBeInTheDocument();
 });
 

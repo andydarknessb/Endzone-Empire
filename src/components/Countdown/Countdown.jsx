@@ -181,6 +181,7 @@ function Countdown({
   announce = true,
   eventLabel = 'Draft start',
   showScheduleDetail = true,
+  onExpire = undefined,
 }) {
   const targetTime = date ? new Date(date).getTime() : NaN;
   const isValidDate = Boolean(date) && !Number.isNaN(targetTime);
@@ -192,7 +193,10 @@ function Countdown({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- re-evaluate only when the date prop itself changes
   }, [date]);
 
-  const handleExpire = useCallback(() => setExpired(true), []);
+  const handleExpire = useCallback(() => {
+    setExpired(true);
+    onExpire?.();
+  }, [onExpire]);
 
   // Memoized: these two rebuild an Intl.DateTimeFormat apiece, and the shell
   // otherwise re-renders whenever its parent does for reasons that have
@@ -289,6 +293,8 @@ Countdown.propTypes = {
   // clock in DraftPresenter): no viewer/league-timezone line, no calendar
   // export - both would be about the wrong instant entirely.
   showScheduleDetail: PropTypes.bool,
+  // Called once when the countdown reaches zero while mounted.
+  onExpire: PropTypes.func,
 };
 
 export default Countdown;
