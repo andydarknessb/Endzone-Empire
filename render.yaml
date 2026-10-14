@@ -45,6 +45,16 @@ services:
         sync: false
       - key: VAPID_SUBJECT
         value: https://endzoneempire.gg
+      # Claude narratives (ADR 0063): the feature is on exactly when
+      # ANTHROPIC_API_KEY is set (server/services/claude.js); leave it unset to ship
+      # dark. ANTHROPIC_MONTHLY_BUDGET defaults to 20 (USD per billing cycle) and
+      # ANTHROPIC_BILLING_ANCHOR_DAY to 1. Set the same values on both services.
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: ANTHROPIC_MONTHLY_BUDGET
+        sync: false
+      - key: ANTHROPIC_BILLING_ANCHOR_DAY
+        sync: false
       - key: DATABASE_URL_MIGRATIONS
         sync: false
       # preDeployCommand above runs `knex migrate:latest` through
@@ -149,6 +159,16 @@ services:
         sync: false
       - key: VAPID_SUBJECT
         value: https://endzoneempire.gg
+      # Claude narratives (ADR 0063): the feature is on exactly when
+      # ANTHROPIC_API_KEY is set (server/services/claude.js); leave it unset to ship
+      # dark. ANTHROPIC_MONTHLY_BUDGET defaults to 20 (USD per billing cycle) and
+      # ANTHROPIC_BILLING_ANCHOR_DAY to 1. Set the same values on both services.
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: ANTHROPIC_MONTHLY_BUDGET
+        sync: false
+      - key: ANTHROPIC_BILLING_ANCHOR_DAY
+        sync: false
       - key: DB_SSL_CA
         sync: false
       - key: REDIS_URL

@@ -9,9 +9,6 @@
  * ('llm'); the template is always stored first.
  *
  * No grant to `anon` (ADR 0009).
- *
- * CARVE-OUT (server/db/migrations/**): applied by Cory as its own knex batch
- * after merge and before the release that needs it, never by an agent.
  */
 
 const TABLE = 'projection_explanations';
