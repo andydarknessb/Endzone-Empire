@@ -60,6 +60,8 @@ test('the pressed league filter is not a filled contained button', () => {
   const leagues = [
     { id: 1, name: 'A', my_team_id: 1, draft_status: 'pending' },
     { id: 2, name: 'B', my_team_id: 2, draft_status: 'pending' },
+    { id: 3, name: 'C', my_team_id: 3, draft_status: 'pending', pickem_only: true },
+    { id: 4, name: 'D', my_team_id: 4, draft_status: 'pending', pickem_only: true },
   ];
   renderWithProviders(<LeagueStatusGrid leagues={leagues} />, { state: baseState });
   const group = screen.getByRole('group', { name: 'Filter leagues' });

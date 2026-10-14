@@ -56,6 +56,10 @@ function LeagueStatusGrid({ leagues }) {
   const filtered = active === 'all' ? keyed : keyed.filter(({ keys }) => keys.includes(active));
   const visible = showAll ? filtered : filtered.slice(0, VISIBLE_LIMIT);
 
+  // Filters earn their place by narrowing: 4+ leagues, and some filter that
+  // drops at least one of them.
+  const showFilters = leagues.length >= 4 && offered.some(({ key }) => key !== 'all' && counts[key] < counts.all);
+
   const choose = (key) => {
     setFilter(key);
     setShowAll(false);
@@ -63,7 +67,7 @@ function LeagueStatusGrid({ leagues }) {
 
   return (
     <>
-      {leagues.length > 1 && offered.length > 1 && (
+      {showFilters && (
         <Stack
           direction="row"
           role="group"
