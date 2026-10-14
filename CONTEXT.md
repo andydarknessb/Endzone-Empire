@@ -1083,7 +1083,8 @@ _Avoid_: nfl_team null (that is No NFL team, above — a different fact)
 
 **Waiver claim**:
 A request for an unrostered player, resolved in a batch rather than
-first-come-first-served.
+first-come-first-served. Undoing a drop withdraws every pending claim on that
+player.
 
 **FAAB**:
 Free agent acquisition budget: a fixed season-long budget teams bid from to win
@@ -1348,7 +1349,8 @@ _Avoid_: preset
 **Score of record**:
 The score a week is settled with: written once when the commissioner advances
 the week, never recomputed from a later roster, and returned unchanged by every
-later re-score of that week.
+later re-score of that week. A commissioner's manual correction replaces it for
+one matchup, and no later re-score of that week changes the corrected score.
 _Avoid_: final score (a matchup's NFL-style total), official score
 
 **Settle pass**:
@@ -1523,9 +1525,11 @@ cutscene's word), Tuesday recap (finality is Advance week, not a weekday)
 **Season archive**:
 A League's completed seasons as they finished: each season's final standings,
 its champions (none, one, or several, for a fantasy and a pick'em League
-alike) and its outcome, written once when the season completes and never
-recomputed from later Matchups. League history and every all-time figure read
-the archive, never the live season.
+alike) and its outcome. The final standings are captured when the commissioner
+rolls the season over, so a Team removed before then is not in them; a pick'em
+League's champions and outcome are fixed earlier, when its season completes.
+None of it is ever recomputed from later Matchups. League history and every
+all-time figure read the archive, never the live season.
 _Avoid_: league history (the page and the table, not the concept), past
 seasons, archive (unqualified)
 
