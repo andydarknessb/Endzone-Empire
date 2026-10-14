@@ -99,5 +99,5 @@ test('news links are 44px targets in a quieter weight than the old 600', async (
   renderWithProviders(<UserPage />, { state: baseState });
 
   const link = await screen.findByRole('link', { name: /Star RB questionable/ });
-  expect(link).toHaveStyle({ minHeight: '44px', fontWeight: '500' });
+  expect(link).toHaveStyle({ minHeight: '44px', display: 'inline-flex', fontWeight: '500' });
 });

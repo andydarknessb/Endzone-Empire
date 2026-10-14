@@ -34,7 +34,10 @@ const mockGets = ({ recaps = recapsResponse } = {}) => {
   });
 };
 
-afterEach(() => jest.clearAllMocks());
+afterEach(() => {
+  jest.clearAllMocks();
+  jest.restoreAllMocks();
+});
 
 // Every link on the section is a 44px target (spec #2308): row links and the
 // "All ..." links alike, not just the header's quick links.
@@ -46,7 +49,7 @@ test('every recap, strategy and "All ..." link reaches a 44px box', async () => 
   const section = screen.getByRole('region', { name: 'Around the League' });
   const links = within(section).getAllByRole('link');
   expect(links.length).toBeGreaterThan(8);
-  for (const link of links) expect(link).toHaveStyle({ minHeight: '44px' });
+  for (const link of links) expect(link).toHaveStyle({ minHeight: '44px', display: 'inline-flex' });
 });
 
 test('has no Top Players card and never fetches the rankings', async () => {
@@ -105,7 +108,6 @@ test('the newest Darkness Report leads the Strategy card with its excerpt, and t
   ]);
   expect(within(rows[0]).getByText('Excerpt of wk6-darkness')).toBeInTheDocument();
   expect(within(rows[1]).getByText('Strategy · 5 min read')).toBeInTheDocument();
-  articlesModule.listArticles.mockRestore();
 });
 
 test('with no Darkness Report the Strategy card shows the newest three as before', async () => {
@@ -121,7 +123,6 @@ test('with no Darkness Report the Strategy card shows the newest three as before
   const card = screen.getAllByRole('list')[1];
   expect(within(card).getAllByRole('listitem').map((row) => within(row).getByRole('link').textContent))
     .toEqual(['Guide a', 'Guide b', 'Guide c']);
-  articlesModule.listArticles.mockRestore();
 });
 
 test('shows the quick-links row into every public section', async () => {

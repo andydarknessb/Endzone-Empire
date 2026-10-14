@@ -24,11 +24,13 @@ import {
 const sameLocalDay = (a, b) => new Date(a).toDateString() === new Date(b).toDateString();
 
 // The item with the earliest deadline still ahead today, as { at, item }. A live
-// draft's deadline is "now", not a lock, so it never names the time.
+// draft's deadline is "now", not a lock, so it never names the time. Info
+// items (a waiver claim clearing) rank last on the server, so the greeting
+// never names one over the row the queue puts first.
 function firstLockToday(items, now) {
   let first = null;
   items.forEach((item) => {
-    if (!item || item.type === 'draft_live' || !item.deadlineAt) return;
+    if (!item || item.type === 'draft_live' || item.severity === 'info' || !item.deadlineAt) return;
     const at = new Date(item.deadlineAt).getTime();
     if (Number.isNaN(at) || at <= now || !sameLocalDay(at, now)) return;
     if (first === null || at < first.at) first = { at, item };

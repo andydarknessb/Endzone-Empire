@@ -171,6 +171,24 @@ test('one thing due today names the item and its lock time', async () => {
     .toBeInTheDocument();
 });
 
+test('the summary line names a blocking item over an earlier info item', async () => {
+  const first = laterToday();
+  const later = new Date(new Date(first).getTime() + 30 * 1000).toISOString();
+  mockApi({
+    actionItems: actionItemsBody(
+      [
+        item({ id: 'a', title: 'Fill your FLEX', deadlineAt: later, severity: 'blocking' }),
+        item({ id: 'b', type: 'waiver_claims', title: '1 waiver claim pending', deadlineAt: first, severity: 'info' }),
+      ],
+      { total: 2, dueToday: 2 },
+    ),
+  });
+  renderPage();
+
+  expect(await screen.findByText(`2 things need you. 2 are due today. First up: Fill your FLEX, at ${timeFormat.format(new Date(later))}.`))
+    .toBeInTheDocument();
+});
+
 test('an empty to-do list makes the summary line "You\'re all caught up."', async () => {
   mockApi({ actionItems: actionItemsBody([]) });
   renderPage();

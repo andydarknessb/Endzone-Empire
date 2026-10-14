@@ -96,7 +96,6 @@ const draftSimCardSx = {
   boxSizing: 'border-box',
   textDecoration: 'none',
   '&:hover': { backgroundColor: 'var(--dash-surface2)' },
-  '&:focus-visible': { outline: '2px solid var(--dash-accent)', outlineOffset: 2 },
 };
 const draftSimTitleSx = { fontSize: '16px', fontWeight: 600, color: 'var(--dash-ink)' };
 const heroGhostSx = {
