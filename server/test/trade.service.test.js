@@ -650,16 +650,32 @@ test('proposeTrade: a valid offer still commits through the wrapper and returns 
 // not the rollback failure) and the cancel runs on the POOL, never on the
 // wrapper's client (which is already gone by the time the catch runs).
 
+// Honours the ids it is given, so a lookup with the wrong ids finds no owner.
+const ownerLookup = (text, params) => ({
+  rows: [{ id: 41, name: 'Sunday Ballers', owner_id: 7 }, { id: 42, name: 'Bob Squad', owner_id: 8 }]
+    .filter((team) => params.includes(team.id)),
+});
+
 const dueTradeWorldHandlers = () => [
   [/FROM "trades" WHERE "status" = 'accepted'/, () => ({ rows: [{ id: 5 }] })],
   [/FROM "leagues" WHERE "id" = \(SELECT "league_id"/, () => ({ rows: [{ id: 1 }] })],
-  // Empty: the due row is gone by the time loadTrade locks it (the race a dead
-  // trade takes), so loadTrade throws TradeError(404, 'trade not found').
-  [/^SELECT \* FROM "trades" WHERE "id" = \$1/, () => ({ rows: [] })],
-  [update('trades'), () => ({ rows: [], rowCount: 0 })],
+  // Empty on the first read: the due row is gone by the time loadTrade locks it
+  // (the race a dead trade takes), so loadTrade throws TradeError(404, 'trade
+  // not found'). The cancel then reloads the trade in its own transaction (#2295),
+  // where it is back and still accepted.
+  [/^SELECT \* FROM "trades" WHERE "id" = \$1/, (() => {
+    let reads = 0;
+    return () => ({
+      rows: reads++ === 0 ? [] : [{ id: 5, status: 'accepted', proposing_team_id: 41, receiving_team_id: 42, league_id: 1 }],
+    });
+  })()],
+  [select('trade_items'), () => ({ rows: [] })],
+  [/FROM "teams" WHERE "id" IN \(\$1, \$2\)/, ownerLookup],
+  [update('trades'), () => ({ rows: [], rowCount: 1 })],
+  [insert('notifications'), () => ({ rows: [] })],
 ];
 
-test('processDueTrades: a rejecting ROLLBACK destroys the connection, the original error survives, and the cancel runs on the pool (#1072)', async (t) => {
+test('processDueTrades: a rejecting ROLLBACK destroys the connection, the original error survives, and the cancel takes a fresh connection (#1072)', async (t) => {
   const world = createFakePool([
     ...dueTradeWorldHandlers(),
     [/^ROLLBACK$/, () => { throw new Error('rollback rejected'); }, 'client'],
@@ -774,9 +790,7 @@ function dueExecutingTradeWorld(opts, extraHandlers = []) {
       rows: [{ id: 9, status: 'accepted', proposing_team_id: 41, receiving_team_id: 42, league_id: 1 }],
     })],
     [select('trade_items'), () => ({ rows: [{ trade_id: 9, from_team_id: 41, to_team_id: 42, player_id: 21 }] })],
-    [/FROM "teams" WHERE "id" IN \(\$1, \$2\)/, () => ({
-      rows: [{ id: 41, name: 'Sunday Ballers', owner_id: 7 }, { id: 42, name: 'Bob Squad', owner_id: 8 }],
-    })],
+    [/FROM "teams" WHERE "id" IN \(\$1, \$2\)/, ownerLookup],
     ...gateHandlers,
   ]);
 }
@@ -794,7 +808,7 @@ test('processDueTrades: an accepted trade that nets the receiving team over the 
   const cancels = world.matching(/^UPDATE "trades" SET "status" = 'cancelled'/);
   assert.equal(cancels.length, 1);
   // A trade vetoed concurrently (no longer accepted) is not overwritten to cancelled.
-  assert.match(cancels[0].text, /AND "status" = 'accepted' RETURNING/);
+  assert.match(cancels[0].text, /AND "status" = 'accepted'$/);
   assert.equal(world.matching(remove('team_players')).length, 0, 'nothing was written');
 });
 
@@ -835,12 +849,60 @@ test('processDueTrades: a trade already settled elsewhere is not cancelled and n
   const world = dueExecutingTradeWorld({
     positionCaps: { RB: 1 },
     positionCounts: () => 1,
-  }, [[/^UPDATE "trades" SET "status" = 'cancelled'/, () => ({ rows: [], rowCount: 0 })]]).install(t);
+  }, [[/^SELECT \* FROM "trades" WHERE "id" = \$1/, (() => {
+    // Accepted for the execute attempt, vetoed by the time the cancel reloads it.
+    let reads = 0;
+    return () => ({
+      rows: [{ id: 9, status: reads++ === 0 ? 'accepted' : 'vetoed', proposing_team_id: 41, receiving_team_id: 42, league_id: 1 }],
+    });
+  })()]]).install(t);
   t.mock.method(console, 'error', () => {});
 
   await processDueTrades();
 
   assert.equal(world.matching(insert('notifications')).length, 0);
+  assert.equal(world.matching(/^UPDATE "trades" SET "status" = 'cancelled'/).length, 0);
+});
+
+test('processDueTrades: a cancel whose transaction throws is contained and a later due trade still executes (#2295)', async (t) => {
+  const world = createFakePool([
+    [/FROM "trades" WHERE "status" = 'accepted' AND "review_ends_at"/, () => ({ rows: [{ id: 5 }, { id: 6 }] })],
+    [/FROM "leagues" WHERE "id" = \(SELECT "league_id"/, () => ({
+      rows: [{ id: 1, roster_limit: 16, ir_slots: 0, current_season: 2026, current_week: 6 }],
+    })],
+    // Trade 5 is missing on its execute read (a TradeError) and back for the cancel's reload.
+    [/^SELECT \* FROM "trades" WHERE "id" = \$1/, (() => {
+      let reads5 = 0;
+      return (text, params) => ({
+        rows: params[0] === 5 && reads5++ === 0
+          ? []
+          : [{ id: params[0], status: 'accepted', proposing_team_id: 41, receiving_team_id: 42, league_id: 1 }],
+      });
+    })()],
+    [select('trade_items'), () => ({ rows: [] })],
+    [/FROM "teams" WHERE "id" IN \(\$1, \$2\)/, ownerLookup],
+    [/^SELECT COUNT\(\*\)::int AS n FROM "team_players" WHERE "team_id" = \$1/, () => ({ rows: [{ n: 0 }] })],
+    [select('players'), () => ({ rows: [] })],
+    [update('trades'), () => ({ rows: [], rowCount: 1 })],
+    [insert('transactions'), () => ({ rows: [] })],
+    [insert('notifications'), (text, params) => {
+      if (/cancelled/.test(params[3])) throw new Error('notifications write failed');
+      return { rows: [] };
+    }],
+  ]).install(t);
+  const logged = [];
+  t.mock.method(console, 'error', (...args) => { logged.push(args); });
+  const prior = peekDraftRoomBroadcast();
+  setDraftRoomBroadcast(null);
+  t.after(() => setDraftRoomBroadcast(prior));
+
+  const outcomes = await processDueTrades();
+
+  // No cancelled outcome for trade 5 (its cancel rolled back); trade 6 still settled.
+  assert.deepEqual(outcomes, [{ tradeId: 6, status: 'executed' }]);
+  assert.ok(logged.some((args) => /trade cancel failed for trade %s/.test(args[0]) && args[1] === 5));
+  assert.equal(world.matching(/^UPDATE "trades" SET "status" = 'executed'/).length, 1);
+  world.assertClean();
 });
 
 test('processDueTrades: a freeze refusal stays accepted and keeps waiting (#2274)', async (t) => {
