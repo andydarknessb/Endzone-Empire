@@ -145,7 +145,7 @@
     "@testing-library/user-event": "^14.6.7",
     "axios-mock-adapter": "^2.1.0",
     "jest-util": "^30.5.1",
-    "jsdom": "^16.7.0",
+    "jsdom": "^30.1.2",
     "nodemon": "^3.1.9",
     "postcss": "8.5.28",
     "react-scripts": "^5.0.1",
