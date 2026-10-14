@@ -1,5 +1,5 @@
 import { io } from 'socket.io-client';
-import { getToken, refreshTokens } from './apiClient';
+import { clearToken, getToken, isSessionRefusal, refreshTokens } from './apiClient';
 import { getSocketOrigin } from './origins';
 
 // Deterministic browser-test seam: when a harness has installed a socket
@@ -38,7 +38,13 @@ export function createDraftSocket() {
   // reconnection attempt then reads the fresh token through the auth callback.
   socket.on('connect_error', (err) => {
     if (String(err && err.message).includes('unauthorized')) {
-      refreshTokens().catch(() => {});
+      refreshTokens().catch((error) => {
+        // As in apiClient: only a refusal ends the session; a 5xx or dropped link leaves the cookie good.
+        if (isSessionRefusal(error)) {
+          clearToken();
+          window.dispatchEvent(new Event('auth:session-expired'));
+        }
+      });
     }
   });
 
