@@ -186,7 +186,7 @@ function CardHeader({ league, headingId, subline, chip }) {
           </Link>
         </Typography>
         {subline && (
-          <Typography variant="body2" noWrap title={subline} sx={{ ...dimSx, fontSize: '13px' }}>{subline}</Typography>
+          <Typography variant="body2" noWrap title={subline} sx={{ ...dimSx, fontSize: '12px' }}>{subline}</Typography>
         )}
       </Box>
       {chip}
@@ -213,7 +213,7 @@ function FooterActions({ children }) {
   return <Stack direction="row" spacing={0.5} sx={{ ml: 'auto' }}>{children}</Stack>;
 }
 
-const footerTextSx = { ...dimSx, fontSize: '13px' };
+const footerTextSx = { ...dimSx, fontSize: '12px' };
 
 function Standing({ standing, extra }) {
   if (!standing) return extra ? <Typography variant="body2" sx={footerTextSx}>{extra}</Typography> : null;
@@ -232,7 +232,7 @@ function WinProbabilityBar({ mine, opponentName }) {
   return (
     <Stack spacing={0.75}>
       <Stack direction="row" justifyContent="space-between" sx={{ fontSize: '12px', fontWeight: 600 }}>
-        <Box component="span" sx={{ color: 'var(--dash-accent)' }}>{`You ${you}% to win`}</Box>
+        <Box component="span" sx={{ color: 'var(--dash-accent)' }}>{`Endzone Forecast gives you a ${you}% chance to win.`}</Box>
         <Box component="span" sx={dimSx}>{`Them ${them}%`}</Box>
       </Stack>
       {/* Accent fill on the `dash-surface3` track: a graphical object,
@@ -253,7 +253,7 @@ function LineupHealth({ lineup }) {
   const problems = Array.isArray(lineup.problems) ? lineup.problems : [];
   if (problems.length === 0) {
     return (
-      <Stack direction="row" alignItems="center" spacing={0.75} sx={{ color: 'var(--dash-accent)', fontSize: '13px', fontWeight: 600 }}>
+      <Stack direction="row" alignItems="center" spacing={0.75} sx={{ color: 'var(--dash-accent)', fontSize: '12px', fontWeight: 600 }}>
         <CheckCircleOutlineIcon fontSize="small" aria-hidden="true" />
         <span>Lineup set</span>
       </Stack>
@@ -261,15 +261,19 @@ function LineupHealth({ lineup }) {
   }
   const text = problems.length === 1 ? problems[0] : `${problems[0]} · ${problems.length - 1} more`;
   return (
-    <Stack direction="row" alignItems="center" spacing={0.75} sx={{ color: 'var(--dash-warning)', fontSize: '13px', fontWeight: 600, minWidth: 0 }}>
+    <Stack direction="row" alignItems="center" spacing={0.75} sx={{ color: 'var(--dash-warning)', fontSize: '12px', fontWeight: 600, minWidth: 0 }}>
       <WarningAmberIcon fontSize="small" aria-hidden="true" />
       <span>{text}</span>
     </Stack>
   );
 }
 
-function ScoreSide({ eyebrow, name, score, expectedFinal, playersRemaining, align = 'left', mine = false }) {
-  const proj = expectedFinal != null ? `Proj ${formatScore(expectedFinal)}` : null;
+// `projected` draws the Expected final as the big figure (a scheduled matchup,
+// before kickoff, where the score would only read 0.0).
+function ScoreSide({
+  eyebrow, name, score, expectedFinal, playersRemaining, align = 'left', mine = false, projected = false,
+}) {
+  const proj = expectedFinal != null && !projected ? `Proj ${formatScore(expectedFinal)}` : null;
   const left = playersRemaining != null ? `${playersRemaining} yet to play` : null;
   const detail = [proj, left].filter(Boolean).join(' · ');
   return (
@@ -284,7 +288,13 @@ function ScoreSide({ eyebrow, name, score, expectedFinal, playersRemaining, alig
       )}
       <Typography variant="body2" sx={{ fontSize: '14px', fontWeight: 600, maxWidth: '100%' }} noWrap title={name}>{name}</Typography>
       {/* The opponent's score steps back to `dash-dim`, as the boards draw it. */}
-      <Typography sx={{ ...scoreSx, fontSize: { xs: 40, sm: 48 }, color: mine ? 'var(--dash-ink)' : 'var(--dash-dim)' }}>{formatScore(score)}</Typography>
+      <Typography
+        sx={projected
+          ? { ...scoreSx, fontSize: 40, fontWeight: 600, color: 'var(--dash-dim)' }
+          : { ...scoreSx, fontSize: { xs: 40, sm: 48 }, color: mine ? 'var(--dash-ink)' : 'var(--dash-dim)' }}
+      >
+        {formatScore(projected ? expectedFinal : score)}
+      </Typography>
       {detail && <Typography variant="caption" sx={{ ...dimSx, fontSize: '12px' }}>{detail}</Typography>}
     </Stack>
   );
@@ -306,14 +316,6 @@ function resultText(matchup) {
   return 'Tied';
 }
 
-function PickemLine({ pickem }) {
-  return (
-    <Typography variant="body2" sx={{ ...dimSx, fontSize: '13px' }}>
-      {`Picks · ${pickem.made} of ${pickem.total} made`}
-    </Typography>
-  );
-}
-
 function FantasyBody({ league, status }) {
   const { matchup } = status;
   if (!matchup) {
@@ -321,7 +323,6 @@ function FantasyBody({ league, status }) {
       <Box sx={{ px: 2.5, py: 2.5 }}>
         <Typography variant="h6" component="p" sx={{ fontFamily: DISPLAY_FONT, fontSize: '24px', fontWeight: 700, textTransform: 'uppercase' }}>Bye week</Typography>
         <Typography variant="body2" sx={dimSx}>No matchup this week.</Typography>
-        {status.pickem && <PickemLine pickem={status.pickem} />}
       </Box>
     );
   }
@@ -329,6 +330,8 @@ function FantasyBody({ league, status }) {
   // A settled week states no Expected final (#2048); the board nulls it.
   const board = matchupBoard({ status: matchup.status, home: matchup.my, away: matchup.opp });
   const showOdds = board.chip != null && !board.isFinal;
+  const projected = matchup.status === 'scheduled'
+    && board.home.expectedFinal != null && board.away.expectedFinal != null;
   const opponentName = matchup.opponent?.name || 'Opponent';
   return (
     <>
@@ -344,6 +347,7 @@ function FantasyBody({ league, status }) {
           name={league.my_team_name || 'Your team'}
           score={matchup.my?.score}
           expectedFinal={board.home.expectedFinal}
+          projected={projected}
           playersRemaining={matchup.my?.playersRemaining}
         />
         <Typography
@@ -353,13 +357,14 @@ function FantasyBody({ league, status }) {
             border: '1px solid var(--dash-line-strong)', borderRadius: 999, px: 1.25, py: 0.5,
           }}
         >
-          VS
+          {projected ? 'Proj' : 'VS'}
         </Typography>
         <ScoreSide
           align="right"
           name={opponentName}
           score={matchup.opp?.score}
           expectedFinal={board.away.expectedFinal}
+          projected={projected}
           playersRemaining={matchup.opp?.playersRemaining}
         />
       </Box>
@@ -368,7 +373,6 @@ function FantasyBody({ league, status }) {
         {board.isFinal && resultText(matchup) && (
           <Typography variant="body2" sx={{ fontSize: '14px', fontWeight: 700 }}>{resultText(matchup)}</Typography>
         )}
-        {status.pickem && <Box sx={{ mt: 1 }}><PickemLine pickem={status.pickem} /></Box>}
       </Box>
     </>
   );
@@ -406,6 +410,18 @@ function PicksStrip({ made, total, week }) {
 
 function PickemBody({ status }) {
   const { made, total } = status.pickem;
+  const { standing } = status;
+  if (standing) {
+    const record = recordText(status.record);
+    return (
+      <Stack direction="row" alignItems="baseline" spacing={1.25} sx={{ p: 2.5 }}>
+        <Typography component="span" sx={{ ...scoreSx, fontSize: { xs: 40, sm: 48 } }}>{ordinal(standing.rank)}</Typography>
+        <Typography component="span" variant="body2" sx={{ ...dimSx, fontSize: '14px' }}>
+          {`of ${standing.of}${record ? ` · ${record} this season` : ''}`}
+        </Typography>
+      </Stack>
+    );
+  }
   return (
     <Stack spacing={1.75} sx={{ p: 2.5 }}>
       <Stack direction="row" alignItems="baseline" spacing={1.25}>
@@ -439,7 +455,7 @@ function SeatGrid({ filled, max }) {
           data-testid="seat-filled"
           sx={{
             height: 40, boxSizing: 'border-box', borderRadius: 'var(--dash-radius-sm)', display: 'grid', placeItems: 'center',
-            fontSize: '13px', fontWeight: 700, color: 'var(--dash-ink)',
+            fontSize: '12px', fontWeight: 700, color: 'var(--dash-ink)',
             // The viewer's own seat on the raised tile; the others as stat tiles.
             backgroundColor: i === 0 ? 'var(--dash-surface3)' : 'var(--dash-surface2)',
             border: i === 0 ? 0 : HAIRLINE,
@@ -515,7 +531,7 @@ function DraftBody({ league, status }) {
     <Stack spacing={1.75} sx={{ p: 2.5 }}>
       <Stack direction="row" justifyContent="space-between" alignItems="baseline">
         <Typography variant="body2" sx={{ fontSize: '14px', fontWeight: 600 }}>Seats</Typography>
-        <Typography variant="body2" sx={{ ...dimSx, fontSize: '13px' }}>{`${seatsFilled} of ${maxTeams} seats filled`}</Typography>
+        <Typography variant="body2" sx={{ ...dimSx, fontSize: '12px' }}>{`${seatsFilled} of ${maxTeams} seats filled`}</Typography>
       </Stack>
       <SeatGrid filled={seatsFilled} max={maxTeams} />
       {!drafting && draft.date && (
@@ -537,11 +553,11 @@ function DraftBody({ league, status }) {
           }}
         >
           <Countdown variant="chip" date={draft.date} timeZone={draft.timezone} />
-          <Typography variant="body2" sx={{ ...dimSx, fontSize: '13px' }}>{formatViewerLocalSchedule(draft.date)}</Typography>
+          <Typography variant="body2" sx={{ ...dimSx, fontSize: '12px' }}>{formatViewerLocalSchedule(draft.date)}</Typography>
         </Stack>
       )}
       {!drafting && !draft.date && (
-        <Typography variant="body2" sx={{ ...dimSx, fontSize: '13px' }}>Draft not scheduled yet</Typography>
+        <Typography variant="body2" sx={{ ...dimSx, fontSize: '12px' }}>Draft not scheduled yet</Typography>
       )}
       {showInvite && <InviteCode code={league.invite_code} />}
     </Stack>
@@ -554,7 +570,7 @@ function BasicBody({ league, status }) {
   return (
     <Stack spacing={0.5} sx={{ p: 2.5 }}>
       <Typography variant="body2" sx={{ fontSize: '14px', fontWeight: 600 }}>{meta?.label || 'League'}</Typography>
-      {record && <Typography variant="body2" sx={{ ...dimSx, fontSize: '13px' }}>{`Record ${record}`}</Typography>}
+      {record && <Typography variant="body2" sx={{ ...dimSx, fontSize: '12px' }}>{`Record ${record}`}</Typography>}
     </Stack>
   );
 }
@@ -608,7 +624,8 @@ function LeagueStatusCard({ league }) {
     body = <PickemBody status={status} />;
     footer = (
       <>
-        <Standing standing={status.standing} extra={recordText(status.record) ? `${recordText(status.record)} season` : null} />
+        {/* The body leads with the standing; the footer keeps the record only when there is none. */}
+        {!status.standing && <Standing extra={recordText(status.record) ? `${recordText(status.record)} season` : null} />}
         {lock && !done && <Typography variant="body2" sx={footerTextSx}>{`Next lock ${lock}`}</Typography>}
         <FooterActions>
           <ActionLink primary={!done} to={`${base}/pickem`}>{done ? 'View picks' : 'Finish picks'}</ActionLink>
