@@ -1534,25 +1534,25 @@ test('co-champions are declared completely and each gets a Co-Champion trophy', 
   assert.equal(leagueWide[0].message, "The pick'em season is over. Bob Squad and Sunday Ballers share the title with 2 points.");
 });
 
-test('a champion missing required historical identity aborts completion', async (t) => {
+test('a former picker leading the standings does not block completion, the top current Team is champion', async (t) => {
   const world = pickemSeasonWorld(t, {
     league: { id: 1, name: 'Broken Pool', current_season: 2026, current_week: 18, season_status: 'regular', created_at: '2026-08-01T00:00:00.000Z' },
-    teams: [],
+    teams: [{ id: 10, owner_id: 100, username: 'alice', name: 'Sunday Ballers' }],
     picks: [
+      // user 101's Team was removed mid-season: 2-0 and leading, with no Team row.
+      { user_id: 101, week: 18, team_pair: 'BUF|MIA', picked_team: 'BUF', confidence: null },
+      { user_id: 101, week: 18, team_pair: 'DAL|WAS', picked_team: 'WAS', confidence: null },
       { user_id: 100, week: 18, team_pair: 'BUF|MIA', picked_team: 'BUF', confidence: null },
-      { user_id: 100, week: 18, team_pair: 'DAL|WAS', picked_team: 'WAS', confidence: null },
+      { user_id: 100, week: 18, team_pair: 'DAL|WAS', picked_team: 'DAL', confidence: null },
     ],
     live: FINALS,
   });
   const completed = await runRow(t, 'pickem-season-completion', '2027-01-11T06:00:00Z');
 
-  assert.deepEqual(completed, []);
-  assert.equal(world.league.season_status, 'regular');
-  assert.equal(world.result, null);
-  assert.deepEqual(world.trophies, []);
-  assert.deepEqual(world.notifications, []);
-  assert.ok(world.calls.some((call) => call.text === 'ROLLBACK'));
-  assert.ok(!world.calls.some((call) => call.text === 'COMMIT'));
+  assert.deepEqual(completed[0].champions.map((champion) => champion.teamId), [10]);
+  assert.equal(world.league.season_status, 'complete');
+  assert.deepEqual(world.result.champions.map((champion) => champion.teamId), [10]);
+  assert.ok(world.calls.some((call) => call.text === 'COMMIT'));
 });
 
 test('a former picker missing Team identity does not block a current Team champion', async (t) => {

@@ -159,39 +159,57 @@ test('resultOf distinguishes a declared no-champion season from a missing result
   assert.deepEqual(declaredWorld.trophies, []);
 });
 
-test('declare refuses a champion whose historical Team identity is incomplete', async () => {
-  const complete = {
-    rank: 1,
-    userId: 300,
-    username: 'devon',
-    teamId: 30,
-    teamName: 'Devon Defense',
+test('declare refuses a current Team champion whose name is incomplete', async () => {
+  const world = resultWorld();
+  await assert.rejects(
+    declare({
+      db: world.db,
+      leagueId: 3,
+      season: 2026,
+      mode: 'straight',
+      standings: [{
+        rank: 1,
+        userId: 300,
+        username: 'devon',
+        teamId: 30,
+        teamName: '   ',
+        avatarUrl: null,
+        avatarStaticUrl: null,
+        points: 4,
+        correct: 4,
+      }],
+    }),
+    (error) => error.code === 'PICKEM_SEASON_RESULT_IDENTITY_REQUIRED'
+  );
+  assert.equal(world.stored(), null, 'invalid declaration must not be inserted');
+  assert.deepEqual(world.trophies, [], 'invalid declaration must not project a trophy');
+});
+
+test('declare skips a leading former picker and crowns the top current Team', async () => {
+  const world = resultWorld();
+  const standing = (rank, userId, teamId, points) => ({
+    rank,
+    userId,
+    username: `user${userId}`,
+    teamId,
+    teamName: teamId == null ? null : `Team ${teamId}`,
     avatarUrl: null,
     avatarStaticUrl: null,
-    points: 4,
-    correct: 4,
-  };
-  const incomplete = [
-    ['Team id', { teamId: null }],
-    ['Team name', { teamName: '   ' }],
-  ];
+    points,
+    correct: points,
+  });
 
-  for (const [label, missing] of incomplete) {
-    const world = resultWorld();
-    await assert.rejects(
-      declare({
-        db: world.db,
-        leagueId: 3,
-        season: 2026,
-        mode: 'straight',
-        standings: [{ ...complete, ...missing }],
-      }),
-      (error) => error.code === 'PICKEM_SEASON_RESULT_IDENTITY_REQUIRED',
-      label
-    );
-    assert.equal(world.stored(), null, `${label}: invalid declaration must not be inserted`);
-    assert.deepEqual(world.trophies, [], `${label}: invalid declaration must not project a trophy`);
-  }
+  const declaration = await declare({
+    db: world.db,
+    leagueId: 3,
+    season: 2026,
+    mode: 'straight',
+    // The removed Team leads; it stays in the standings but can never be champion.
+    standings: [standing(1, 301, null, 6), standing(2, 300, 30, 4), standing(3, 302, 32, 2)],
+  });
+
+  assert.equal(declaration.outcome, 'champions');
+  assert.deepEqual(declaration.champions.map((champion) => champion.teamId), [30]);
 });
 
 test('declare is idempotent for an identical result and rejects a conflict', async () => {
