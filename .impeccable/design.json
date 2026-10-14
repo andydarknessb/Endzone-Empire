@@ -426,6 +426,38 @@
         "displayName": "Button",
         "purpose": "Island button labels."
       },
+      "label-lg": {
+        "displayName": "Label large",
+        "purpose": "Chip text, card counts and tails, captions."
+      },
+      "body-sm": {
+        "displayName": "Body small",
+        "purpose": "Dim helper text, in-card links and buttons, filter chips."
+      },
+      "body-lg": {
+        "displayName": "Body large",
+        "purpose": "A to-do row title and the greeting summary on desktop."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Feed and highlight card titles."
+      },
+      "headline-sm": {
+        "displayName": "Headline small",
+        "purpose": "The league-code input."
+      },
+      "headline-md": {
+        "displayName": "Headline medium",
+        "purpose": "Section and dialog titles, stat-tile values."
+      },
+      "display-sm": {
+        "displayName": "Display small",
+        "purpose": "The Next draft card league name, the create-league stepper title on phones."
+      },
+      "code": {
+        "displayName": "Code",
+        "purpose": "Invite-code and league-code fields."
+      },
       "app-headline": {
         "displayName": "Legacy h1",
         "purpose": "Top heading on legacy MUI pages only."

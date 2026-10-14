@@ -142,6 +142,8 @@ function AlertPrompt({ leagues }) {
       component="section"
       variant="outlined"
       aria-labelledby={title ? 'alert-prompt-heading' : undefined}
+      // The blocked variant has no visible heading to point at.
+      aria-label={title ? undefined : 'Alerts on this phone'}
       data-testid="alert-prompt"
       sx={{ ...panelSx, flexShrink: 0 }}
     >

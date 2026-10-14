@@ -14,7 +14,7 @@ const filterSx = (pressed) => ({
   fontSize: '14px',
   fontWeight: 600,
   textTransform: 'none',
-  borderRadius: '8px',
+  borderRadius: 'var(--dash-radius-sm)',
   boxShadow: 'none',
   color: pressed ? 'var(--dash-on-accent)' : 'var(--dash-dim)',
   backgroundColor: pressed ? 'var(--dash-accent)' : 'transparent',
@@ -29,7 +29,7 @@ const filterSx = (pressed) => ({
 // toggle buttons (aria-pressed), not tabs: they narrow one list in place.
 const FILTERS = [
   { key: 'all', label: 'All' },
-  { key: 'live', label: 'Live' },
+  { key: 'live', label: 'In season' },
   { key: 'pickem', label: "Pick'em" },
   { key: 'drafting', label: 'Drafting' },
 ];
@@ -72,7 +72,7 @@ function LeagueStatusGrid({ leagues }) {
           sx={{
             mb: 2,
             p: 0.5,
-            borderRadius: '12px',
+            borderRadius: 'var(--dash-radius-sm)',
             border: HAIRLINE,
             backgroundColor: 'var(--dash-surface)',
             width: 'fit-content',

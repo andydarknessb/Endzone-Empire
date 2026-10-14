@@ -138,7 +138,9 @@ const PROGRESS_COPY = {
   seats_open: { label: 'Seats filled', suffix: ' filled' },
 };
 
-function ItemProgress({ type, progress }) {
+// `showCount` is false when the row's detail line already states the count
+// ("0 of 14 made for week 6"), so the bar is not followed by a second one.
+function ItemProgress({ type, progress, showCount }) {
   const total = Number(progress?.total);
   const done = Number(progress?.done);
   if (!Number.isFinite(total) || total <= 0 || !Number.isFinite(done)) return null;
@@ -157,9 +159,11 @@ function ItemProgress({ type, progress }) {
         aria-valuetext={`${clamped} of ${total}`}
         sx={{ ...progressSx, width: { xs: 80, sm: 140 }, height: 6, borderRadius: 999 }}
       />
-      <Typography variant="body2" aria-hidden="true" sx={{ ...dimSx, fontSize: '13px' }}>
-        {`${clamped} of ${total}${copy.suffix}`}
-      </Typography>
+      {showCount && (
+        <Typography variant="body2" aria-hidden="true" sx={{ ...dimSx, fontSize: '13px' }}>
+          {`${clamped} of ${total}${copy.suffix}`}
+        </Typography>
+      )}
     </Stack>
   );
 }
@@ -199,7 +203,7 @@ const ActionItemRow = React.forwardRef(function ActionItemRow({ item, primary, n
             </Box>
           )}
           {item.detail && <Typography variant="body2" sx={{ ...dimSx, fontSize: '13px' }}>{item.detail}</Typography>}
-          {item.progress && <ItemProgress type={item.type} progress={item.progress} />}
+          {item.progress && <ItemProgress type={item.type} progress={item.progress} showCount={!item.detail} />}
         </Stack>
       </Stack>
       {item.cta?.to && (
