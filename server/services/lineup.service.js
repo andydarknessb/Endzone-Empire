@@ -308,9 +308,31 @@ async function materializeLineup(client, { leagueId, teamId, season, week, leagu
     for (const starter of starters) initialStarterSlots.set(starter.playerId, starter.slot);
   }
 
+  // A week materialized early already holds starters, and a player who joined
+  // since may have been started into the same seat in the source week: copying
+  // that slot overfills it, and every save refuses an overfilled starting slot.
+  // He takes the copied seat only while one is free, else the bench.
+  const seatsLeft = new Map();
+  const copiesAStarter = missing.some((row) => isStartingSlot(prevEntries.get(row.player_id)?.slot));
+  if (league && existing.rows.length > 0 && copiesAStarter) {
+    for (const slot of parseLineupSettings(league).rosterSlots) seatsLeft.set(slot.key, slot.count);
+    const taken = await client.query(
+      `SELECT "slot" FROM "lineup_entries"
+       WHERE "team_id" = $1 AND "season" = $2 AND "week" = $3`,
+      [teamId, season, week]
+    );
+    for (const { slot } of taken.rows) {
+      if (seatsLeft.has(slot)) seatsLeft.set(slot, seatsLeft.get(slot) - 1);
+    }
+  }
+
   for (const row of missing) {
     const acquired = row.player_id === acquiredPlayerId;
-    const prev = acquired ? undefined : prevEntries.get(row.player_id);
+    let prev = acquired ? undefined : prevEntries.get(row.player_id);
+    if (prev && seatsLeft.has(prev.slot)) {
+      if (seatsLeft.get(prev.slot) > 0) seatsLeft.set(prev.slot, seatsLeft.get(prev.slot) - 1);
+      else prev = undefined;
+    }
     await client.query(
       `INSERT INTO "lineup_entries" ("league_id", "team_id", "player_id", "season", "week", "slot", "ir_attested")
        VALUES ($1, $2, $3, $4, $5, $6, $7)
