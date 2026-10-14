@@ -146,10 +146,9 @@ function UserPage() {
   const featured = featuredDraft(myLeagues);
   const nextDraft = featured?.league ?? null;
   const featuredState = featured?.state ?? null;
-  // The to-do list already offers Join draft for the featured league: the live
-  // card then steps down to the ghost button (one primary per view).
-  const queueHasDraft = Boolean(nextDraft && Array.isArray(actionItems?.items)
-    && actionItems.items.some((entry) => entry.type === 'draft_live' && String(entry.leagueId) === String(nextDraft.id)));
+  // While the draft card is live for a league, its to-do row goes quiet: the
+  // card keeps the one filled Join draft button.
+  const quietDraftLeagueId = nextDraft && featuredState === 'live' ? nextDraft.id : null;
   const currentWeek = sharedCurrentWeek(myLeagues);
   const liveMatchups = liveMatchupCount(myLeagues);
 
@@ -329,11 +328,11 @@ function UserPage() {
           {!firstRun && (
             <Grid container spacing={3} sx={{ mb: 5 }}>
               <Grid xs={12} lg={nextDraft ? 8 : 12}>
-                <ActionQueue onLoaded={setActionItems} leagues={myLeagues} />
+                <ActionQueue onLoaded={setActionItems} leagues={myLeagues} quietDraftLeagueId={quietDraftLeagueId} />
               </Grid>
               {nextDraft && (
                 <Grid xs={12} lg={4}>
-                  <NextDraftCard league={nextDraft} queueHasDraft={queueHasDraft} onExpire={handleDraftExpire} />
+                  <NextDraftCard league={nextDraft} onExpire={handleDraftExpire} />
                 </Grid>
               )}
             </Grid>
