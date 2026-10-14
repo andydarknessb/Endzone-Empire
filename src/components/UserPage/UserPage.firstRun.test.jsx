@@ -10,8 +10,9 @@ jest.mock('../../api/apiClient', () => ({
   default: { get: jest.fn(), post: jest.fn(), put: jest.fn() },
 }));
 
-// Home critique 2 (#2308), first run: one Create and one Join, a Draft Sim
-// card, and copy that says the app is free and names fantasy and pick'em.
+// Home critique 2 and 3 (#2308, #2311), first run: one Create and one way to
+// Join, and copy that says the app is free and names fantasy and pick'em. The
+// promise itself (heading, steps, mock-draft line) is in UserPage.test.jsx.
 
 const baseState = {
   user: { id: 1, username: 'alice' },
@@ -32,10 +33,11 @@ afterEach(() => {
   jest.clearAllMocks();
 });
 
-test('a first run shows exactly one Create league and one Join league button', async () => {
+test('a first run shows exactly one Create league button and one invite-code button', async () => {
   await mountFirstRun();
   expect(screen.getAllByRole('button', { name: 'Create league' })).toHaveLength(1);
-  expect(screen.getAllByRole('button', { name: 'Join league' })).toHaveLength(1);
+  expect(screen.getAllByRole('button', { name: 'I have an invite code' })).toHaveLength(1);
+  expect(screen.queryByRole('button', { name: 'Join league' })).not.toBeInTheDocument();
   expect(within(screen.getByTestId('dashboard-hero')).queryByRole('button', { name: /league$/ })).not.toBeInTheDocument();
 });
 
@@ -46,14 +48,6 @@ test('the empty-state copy says the app is free and names fantasy and pick\'em',
   expect(text).toMatch(/fantasy/i);
   expect(text).toMatch(/pick'em/i);
   expect(text).not.toContain('—');
-});
-
-test('Draft Sim is a card that links to /draft-sim, with a description', async () => {
-  const empty = await mountFirstRun();
-  const card = within(empty).getByRole('link', { name: 'Practice in Draft Sim' });
-  expect(card).toHaveAttribute('href', '/draft-sim');
-  expect(card).toHaveTextContent('Run a mock draft against the clock, no league needed.');
-  expect(within(empty).getByRole('link', { name: 'Find a public league' })).toHaveAttribute('href', '/discover');
 });
 
 test('the pressed league filter is not a filled contained button', () => {
