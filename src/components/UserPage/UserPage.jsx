@@ -328,7 +328,8 @@ function UserPage() {
             <Grid container spacing={3} sx={{ mb: 5 }}>
               {/* On draft night the card comes first in the DOM, so a phone's
                   focus order follows the page; `order` puts the list back on
-                  the left at lg. */}
+                  the left at lg. Tab order then reaches the card first at lg too: tonight it is the
+                  urgent thing. */}
               {draftFirst && (
                 <Grid xs={12} lg={4} sx={{ order: { xs: 0, lg: 2 } }}>
                   <NextDraftCard league={nextDraft} onExpire={handleDraftExpire} />
@@ -470,7 +471,7 @@ function UserPage() {
               Darkness Report, which renders nothing when there is none. */}
           <Box
             sx={{
-              mt: 5,
+              '&:not(:empty)': { mt: 5 },
               display: 'grid',
               gap: 2,
               gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' },

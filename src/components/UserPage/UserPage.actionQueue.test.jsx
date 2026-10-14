@@ -371,15 +371,17 @@ test('an info row is never warning-colored, however close its deadline is', asyn
 });
 
 describe("grouped pick'em rows", () => {
-  const picks = (id, leagueName, { done, total, deadlineAt }) => item({
+  const picks = (id, leagueName, {
+    done, total, open = total - done, deadlineAt,
+  }) => item({
     id: `picks_open:${id}:2026-4`,
     type: 'picks_open',
     leagueId: id,
     leagueName,
-    title: `${total - done} picks still open`,
+    title: `${open} picks still open`,
     detail: null,
     deadlineAt,
-    progress: { done, total },
+    progress: { done, total, open },
     cta: { label: 'Make picks', to: `/league/${id}/pickem` },
   });
 
@@ -387,7 +389,10 @@ describe("grouped pick'em rows", () => {
     mockApi({
       actionItems: actionItemsBody([
         item({ id: 'l', title: 'Fix lineup', deadlineAt: inFromNow(HOUR) }),
-        picks(4, "Office Pick'em", { done: 9, total: 15, deadlineAt: inFromNow(5 * HOUR) }),
+        // One of Office's 16 games locked unpicked: 10 made, 5 still open, not 6.
+        picks(4, "Office Pick'em", {
+          done: 10, total: 16, open: 5, deadlineAt: inFromNow(5 * HOUR),
+        }),
         picks(5, "Family Pick'em", { done: 0, total: 14, deadlineAt: inFromNow(3 * HOUR) }),
       ]),
     });
@@ -397,9 +402,8 @@ describe("grouped pick'em rows", () => {
     await within(queue).findByText('Make picks in 2 leagues');
     expect(rowTitles(queue)).toEqual(['Fix lineup', 'Make picks in 2 leagues']);
     const row = within(queue).getAllByRole('listitem')[1];
-    const office = within(row).getByRole('link', { name: /Office Pick'em/ });
+    const office = within(row).getByRole('link', { name: "Office Pick'em · 5 open" });
     expect(office).toHaveAttribute('href', '/league/4/pickem');
-    expect(office).toHaveTextContent('6 open');
     expect(within(row).getByRole('link', { name: /Family Pick'em/ })).toHaveAttribute('href', '/league/5/pickem');
     expect(office).toHaveStyle({ minHeight: '44px' });
     // The deadline is the earliest, and the action goes to that league.

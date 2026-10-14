@@ -154,7 +154,8 @@ function groupPicksOpen(items) {
       id: entry.id,
       leagueName: entry.leagueName,
       to: entry.cta?.to,
-      open: entry.progress ? entry.progress.total - entry.progress.done : null,
+      // The server's open count: a game that locked unpicked is not open.
+      open: entry.progress?.open ?? null,
     })),
   };
   return items.flatMap((entry) => {
@@ -257,7 +258,7 @@ const ActionItemRow = React.forwardRef(function ActionItemRow({ item, primary, n
             {item.chips.map((chip) => (
               <Link key={chip.id} component={RouterLink} to={chip.to} underline="none" sx={chipSx}>
                 {chip.leagueName}
-                {chip.open != null && <Box component="span" sx={{ ...dimSx, fontSize: '12px' }}>{`${chip.open} open`}</Box>}
+                {chip.open != null && <Box component="span" sx={{ ...dimSx, fontSize: '12px' }}>{` · ${chip.open} open`}</Box>}
               </Link>
             ))}
           </Stack>

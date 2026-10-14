@@ -261,7 +261,7 @@ function LineupHealth({ lineup }) {
   }
   const text = problems.length === 1 ? problems[0] : `${problems[0]} · ${problems.length - 1} more`;
   return (
-    <Stack direction="row" alignItems="center" spacing={0.75} sx={{ color: 'var(--dash-warning)', fontSize: '12px', fontWeight: 600, minWidth: 0 }}>
+    <Stack direction="row" alignItems="center" spacing={0.75} sx={{ color: 'var(--dash-warning)', fontSize: '14px', fontWeight: 600, minWidth: 0 }}>
       <WarningAmberIcon fontSize="small" aria-hidden="true" />
       <span>{text}</span>
     </Stack>

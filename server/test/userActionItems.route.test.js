@@ -146,7 +146,7 @@ test('each item carries its league, copy, deadline, call to action and progress'
     cta: { label: 'Fix lineup', to: '/league/71/lineup' },
     progress: null,
   });
-  assert.deepEqual(byType.get('picks_open').progress, { done: 1, total: 2 });
+  assert.deepEqual(byType.get('picks_open').progress, { done: 1, total: 2, open: 1 });
   assert.equal(byType.get('picks_open').deadlineAt, '2026-10-05T00:20:00.000Z');
   assert.equal(byType.get('picks_open').cta.to, '/league/72/pickem');
   assert.equal(byType.get('draft_live').deadlineAt, NOW);

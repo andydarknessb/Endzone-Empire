@@ -791,7 +791,7 @@ function picksOpenItem(league, status) {
     severity: 'timed',
     deadlineAt: status.nextLockAt,
     cta: { label: 'Make picks', to: `/league/${league.id}/pickem` },
-    progress: { done: status.made, total: status.total },
+    progress: { done: status.made, total: status.total, open: status.missing },
   });
 }
 
