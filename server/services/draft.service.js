@@ -1,7 +1,7 @@
 const pool = require('../modules/pool');
 const { withTransaction } = require('../modules/withTransaction');
 const { placeOnWaiversUndoable } = require('./waiver.service');
-const { logTransaction } = require('./activity.service');
+const { logTransaction, notify } = require('./activity.service');
 // Module object, not destructured: the seam tests mock benchAcquiredPlayer.
 const lineupService = require('./lineup.service');
 const { isLeagueCommissioner } = require('./leagueRole.service');
@@ -391,6 +391,26 @@ async function undoDrop({ leagueId, userId, playerId }) {
         `DELETE FROM "waiver_players" WHERE "league_id" = $1 AND "player_id" = $2`,
         [leagueId, playerId]
       );
+      // He is back on a roster, so every pending claim on him is now unwinnable
+      // and would hold him on waivers (isOnWaivers) until a later tick (#2296).
+      const withdrawn = await client.query(
+        `UPDATE "waiver_claims" SET "status" = 'cancelled', "updated_at" = now()
+         FROM "teams"
+         WHERE "teams"."id" = "waiver_claims"."team_id"
+           AND "waiver_claims"."league_id" = $1 AND "waiver_claims"."player_id" = $2
+           AND "waiver_claims"."status" = 'pending'
+         RETURNING "waiver_claims"."id", "teams"."owner_id"`,
+        [leagueId, playerId]
+      );
+      for (const claim of withdrawn.rows) {
+        await notify(client, {
+          userId: claim.owner_id,
+          leagueId,
+          type: 'waiver_result',
+          message: 'Your waiver claim was withdrawn: the player is no longer available because the drop was undone.',
+          data: { claimId: claim.id, playerId },
+        });
+      }
       await client.query(
         `INSERT INTO "team_players" ("league_id", "team_id", "player_id") VALUES ($1, $2, $3)`,
         [leagueId, team.id, playerId]

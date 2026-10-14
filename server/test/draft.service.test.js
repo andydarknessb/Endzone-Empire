@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const { teamIndexForPick, addFreeAgent, undoDrop, dropPlayer } = require('../services/draft.service');
 const lineupService = require('../services/lineup.service');
 const { isOnWaivers } = require('../services/waiverStatus');
-const { createFakePool, select, insert, remove } = require('./helpers/fakePool');
+const { createFakePool, select, insert, update, remove } = require('./helpers/fakePool');
 const { installRecordingBroadcast } = require('./helpers/recordingBroadcast');
 
 /**
@@ -451,6 +451,7 @@ function undoWorld({ rostered = 2, stashed, interrupted = null, onStashQuery, ex
     }],
     [select('players'), () => ({ rows: [{ id: 500, name: 'Stash Returner', position: 'RB' }] })],
     [/^DELETE FROM "waiver_players"/, () => ({ rows: [] })],
+    [update('waiver_claims'), () => ({ rows: [] })],
     [insert('team_players'), () => ({ rows: [], rowCount: 1 })],
     [insert('transactions'), () => ({ rows: [] })],
   ]);
