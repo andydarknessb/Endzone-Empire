@@ -642,18 +642,46 @@ async function processDueTrades() {
       );
     } catch (err) {
       // A dead trade (roster changed under it) shouldn't be retried forever. The
-      // cancel stays on the POOL, never on the client: by the time this catch
-      // runs the wrapper has already rolled back and returned (or, on a rejecting
-      // rollback, destroyed) the connection, so there is no open transaction of
-      // ours to write into. The original error survives the wrapper unchanged
+      // cancel runs in a FRESH transaction, never on the failed one: by the time
+      // this catch runs the wrapper has already rolled back and returned (or, on
+      // a rejecting rollback, destroyed) the connection, so there is no open
+      // transaction of ours to write into. The cancel and the owners' notices
+      // commit together (#2295). The original error survives the wrapper unchanged
       // (any rollback failure rides along as err.rollbackError), so a TradeError
       // is still recognisable here. Freeze, Team lock and kickoff-hold refusals stay transient and keep waiting, by design.
       if (err instanceof TradeError) {
-        await pool.query(
-          `UPDATE "trades" SET "status" = 'cancelled', "updated_at" = now() WHERE "id" = $1 AND "status" = 'accepted'`,
-          [row.id]
-        );
-        outcomes.push({ tradeId: row.id, status: 'cancelled', reason: err.message });
+        try {
+          await withTransaction(
+            pool,
+            async (client) => {
+              // League lock first via loadTrade, the house order (#946): the
+              // notifications FK takes a share lock on the League row, so locking
+              // trades first would invert it against a vote or commissioner decide.
+              const { trade, league, teams } = await loadTrade(client, row.id);
+              // A trade settled elsewhere since the failed attempt is not ours to cancel or announce.
+              if (trade.status !== 'accepted') return;
+              await client.query(
+                `UPDATE "trades" SET "status" = 'cancelled', "updated_at" = now() WHERE "id" = $1 AND "status" = 'accepted'`,
+                [row.id]
+              );
+              for (const teamId of [trade.proposing_team_id, trade.receiving_team_id]) {
+                await notify(client, {
+                  userId: teams.get(teamId).owner_id,
+                  leagueId: league.id,
+                  type: 'trade_result',
+                  message: `Your trade was cancelled: ${err.message}`,
+                  data: { tradeId: row.id },
+                });
+              }
+            },
+            { label: 'processDueTrades cancel' }
+          );
+          outcomes.push({ tradeId: row.id, status: 'cancelled', reason: err.message });
+        } catch (cancelErr) {
+          // Contained like the executed branch's broadcast: letting it escape would
+          // abort the rest of the tick. The trade stays accepted and retries next tick.
+          console.error('trade cancel failed for trade %s:', row.id, cancelErr.message);
+        }
       } else {
         console.error('trade execution failed for trade %s:', row.id, err.message);
       }
