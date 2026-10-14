@@ -265,6 +265,17 @@ async function scoreMatchups({ leagueId, season, week, plays = [], settle = fals
     };
     const scored = [];
     for (const matchup of matchupsResult.rows) {
+      if (matchup.score_overridden) {
+        // A commissioner's override is the score of record; report it, never recompute it (#2274).
+        scored.push({
+          matchupId: matchup.id,
+          homeTeamId: matchup.home_team_id,
+          awayTeamId: matchup.away_team_id,
+          homeScore: Number(matchup.home_score),
+          awayScore: Number(matchup.away_score),
+        });
+        continue;
+      }
       // The ONE place the population is chosen. A settled week and a final
       // week are the same population - the week as played - so `settle` and
       // finality select it together rather than through two branches that

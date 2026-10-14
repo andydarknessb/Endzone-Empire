@@ -1094,8 +1094,8 @@ async function getStandings({ leagueId, season, db = pool, games = null, current
 }
 
 /**
- * Retain every season picker long enough to determine whether a removed Team
- * would have won. Null Team identity is rejected only in the champion set.
+ * Retain every season picker, removed Teams included, for the scoring snapshot.
+ * A former picker (null Team identity) is kept there but never becomes champion.
  */
 async function getCompletionStandings({ leagueId, season, db = pool, games = null }) {
   return loadStandings({ leagueId, season, db, games, includeFormerPickers: true });

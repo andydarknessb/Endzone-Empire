@@ -1,6 +1,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createFakePool, select } = require('./helpers/fakePool');
+const { createFakePool, select, update } = require('./helpers/fakePool');
+const { installRecordingBroadcast } = require('./helpers/recordingBroadcast');
+const expectedFinalService = require('../services/expectedFinal.service');
 const { generateMatchups, scoreMatchups } = require('../services/matchupScoring.service');
 
 // The following moved from scoring.service.test.js (#1506, spec #1492): all
@@ -144,5 +146,38 @@ test('scoreMatchups: an ordinary error keeps its healthy connection', async (t) 
   );
 
   assert.equal(fake.releaseArgs()[0], undefined, 'an ordinary error keeps its healthy connection');
+  fake.assertClean();
+});
+
+// #2274: a commissioner's score override (matchups.score_overridden) survives
+// every re-score. The row is skipped, not recomputed, but its stored scores
+// still ride the returned `scored` so the emit and advance-week stay whole.
+test('scoreMatchups: an overridden matchup is not re-scored, a normal one in the same week is (#2274)', async (t) => {
+  t.mock.method(expectedFinalService, 'expectedFinalsForWeek', async () => new Map());
+  installRecordingBroadcast(t);
+  const base = { league_id: 1, season: 2026, week: 8, final: true };
+  const matchups = [
+    { ...base, id: 70, home_team_id: 10, away_team_id: 20, home_score: '101.50', away_score: '99.00', score_overridden: true },
+    { ...base, id: 71, home_team_id: 30, away_team_id: 40, home_score: '5.00', away_score: '6.00', score_overridden: false },
+  ];
+  const fake = createFakePool([
+    [select('leagues'), () => ({ rows: [{ id: 1, scoring_preset: 'half_ppr', best_ball: false, roster_positions: null }] })],
+    [select('matchups'), () => ({ rows: matchups.map((m) => ({ ...m })) })],
+    // Every team computes to 0 this pass: no starter rows with stats.
+    [/FROM "lineup_entries"/, () => ({ rows: [] })],
+    [/FROM "roster_tenures"/, () => ({ rows: [] })],
+    [update('matchups'), () => ({ rows: [], rowCount: 1 })],
+  ]).install(t);
+
+  const { scored } = await scoreMatchups({ leagueId: 1, season: 2026, week: 8 });
+
+  const writes = fake.matching(update('matchups'));
+  assert.equal(writes.length, 1, 'only the non-overridden matchup is rewritten');
+  assert.equal(writes[0].params[2], 71);
+  const kept = scored.find((s) => s.matchupId === 70);
+  assert.equal(kept.homeScore, 101.5, 'the stored override is reported, as a number');
+  assert.equal(kept.awayScore, 99);
+  assert.equal(kept.homeTeamId, 10);
+  assert.equal(scored.find((s) => s.matchupId === 71).homeScore, 0, 'the normal matchup was re-scored');
   fake.assertClean();
 });

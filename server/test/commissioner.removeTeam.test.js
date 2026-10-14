@@ -21,9 +21,11 @@ const { removeTeam } = require('../services/commissioner.service');
 const CREATOR = 1; // the league's owner_id
 const CO_COMMISSIONER = 2; // a league_commissioners row, not the owner
 const MEMBER = 3; // a plain member
+const PEER = 4; // a second co-commissioner, added by the tests that need one
 
 const SELF_MESSAGE = "you can't remove your own team";
 const CREATOR_MESSAGE = "the league creator's team can't be removed";
+const PEER_MESSAGE = "only the league creator can remove a co-commissioner's team";
 const DRAFT_STARTED_MESSAGE = "teams can't be removed once the draft has started";
 
 // The league columns default to a pre-draft fantasy league (removal succeeds
@@ -58,6 +60,9 @@ function removeTeamWorld(t, leagueOverrides = {}) {
     })],
     [select('teams'), (text, params) => ({
       rows: state.teams.filter((team) => team.id === params[0] && team.league_id === params[1]),
+    })],
+    [select('league_commissioners'), (text, params) => ({
+      rows: state.grants.includes(params[1]) ? [{ '?column?': 1 }] : [],
     })],
     [remove('teams'), (text, params) => {
       state.teams = state.teams.filter((team) => team.id !== params[0]);
@@ -156,6 +161,28 @@ test("a co-commissioner removes a plain member's team", async (t) => {
   // The remover's own grant is untouched; only the removed manager loses one.
   assert.deepEqual(state.grants, [CO_COMMISSIONER]);
   assert.deepEqual(state.notified, [MEMBER]);
+  fake.assertClean();
+});
+
+test("a co-commissioner cannot remove a peer co-commissioner's team, and the peer keeps the team and the grant", async (t) => {
+  const { fake, state } = removeTeamWorld(t);
+  state.teams.push({ id: 40, league_id: 5, owner_id: PEER, name: 'Peer Pack' });
+  state.grants.push(PEER);
+
+  await assert.rejects(
+    () => removeTeam({ leagueId: 5, userId: CO_COMMISSIONER, teamId: 40 }),
+    (error) => {
+      assert.equal(error.statusCode, 409);
+      assert.equal(error.message, PEER_MESSAGE);
+      return true;
+    }
+  );
+
+  assert.deepEqual(teamIds(state), [10, 20, 30, 40]);
+  assert.deepEqual(state.grants, [CO_COMMISSIONER, PEER]);
+  assert.equal(fake.matching(remove('teams')).length, 0, 'no team was deleted');
+  assert.equal(fake.matching(remove('league_commissioners')).length, 0, 'no grant was revoked');
+  assert.deepEqual(state.notified, []);
   fake.assertClean();
 });
 

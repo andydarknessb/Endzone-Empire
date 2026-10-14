@@ -251,8 +251,9 @@ async function correctLeagueWeek({ leagueId, season, week }) {
  * The source is nflverse, not Tank01 — free, and by Tuesday it's the better
  * data (nflverse publishes nightly, "cleanest by Thursday", and the NFL's own
  * stat corrections land there). The Tank01-based re-sync stays reachable
- * through the manual admin/commissioner correction route for anyone who wants
- * to spend quota on demand; scheduled corrections no longer do.
+ * through the `tank01` source for anyone who wants to spend quota on demand;
+ * scheduled corrections no longer do. The manual commissioner correction route
+ * pulls no stats: it re-scores from what this pass stored.
  *
  * @param {{source?: 'nflverse'|'tank01'}} [opts]
  */

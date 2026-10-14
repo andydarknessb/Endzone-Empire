@@ -116,6 +116,9 @@ async function leagueDetail({ leagueId, viewer }, { db = pool } = {}) {
   });
   // Only a commissioner should see the invite code
   if (!league.is_commissioner) delete league.invite_code;
+  // The anonymous presenter-board credential reaches nobody here (#2274): the
+  // commissioner reads it from POST /api/draft/league/:id/share-token.
+  delete league.draft_share_token;
   // The player market's observable state (#748): how many players carry an
   // ADP, the floor, the last successful sync, and staleness. Not gated on
   // is_commissioner the way invite_code is above - the control that reads it

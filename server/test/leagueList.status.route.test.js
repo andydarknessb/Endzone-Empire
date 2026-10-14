@@ -150,6 +150,20 @@ test('without include=status the list is today\'s response byte for byte, from i
   assert.deepEqual(fake.calls[0].params, [USER_ID]);
 });
 
+// #2274: the anonymous presenter-board credential rides on the leagues row but
+// belongs to no member-facing list, on either path.
+test('the list never carries the draft share token, with or without include=status', async (t) => {
+  const leagues = Object.values(LEAGUES).map((l) => ({ ...l, draft_share_token: 'secret-token' }));
+  world(t, { leagues });
+  for (const path of ['/api/league', '/api/league?include=status']) {
+    const res = await request(app).get(path).set('Authorization', authed());
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    assert.ok(res.body.length > 0);
+    assert.equal(res.text.includes('secret-token'), false, path);
+    assert.ok(res.body.every((l) => !('draft_share_token' in l)), path);
+  }
+});
+
 test('a fantasy league in season carries phase, week, record, standing, matchup and lineup, and nothing else', async (t) => {
   world(t);
   const res = await request(app).get('/api/league?include=status').set('Authorization', authed());
