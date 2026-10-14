@@ -155,6 +155,11 @@ const ALLOWLIST = [
     code: 'team.owner_id === league.owner_id',
     rule: 'sanctioned-owner: the creator\'s Team cannot be removed, by anyone',
   },
+  {
+    file: 'server/services/commissioner.service.js',
+    code: 'userId !== league.owner_id',
+    rule: 'sanctioned-owner: removing a co-commissioner\'s Team revokes their grant, and revoking a grant is creator-only (#2274)',
+  },
   // CommissionerTools.jsx's `team.owner_id !== league.owner_id` is gone (#343):
   // the promote list is Team identity now (`team.teamId !== league.ownerTeamId`),
   // so there is no client-side owner_id comparison left to sanction here.

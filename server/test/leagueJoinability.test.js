@@ -314,6 +314,43 @@ test('POST /join (invite code): an in-season (rolled-over) pick\'em-only league 
   assert.equal(committed(calls), true);
 });
 
+// #2274: the joined league row is `SELECT *`, and the anonymous presenter-board
+// credential on it is not for a joining manager. invite_code stays: the joiner
+// just used it, and LeagueStatusCard shows it to members.
+test('POST /join (invite code): the response league never carries the draft share token', async (t) => {
+  const app = makeApp();
+  const row = { ...ROLLED_OVER_PICKEM, invite_code: 'e402e816', draft_share_token: 'secret-token' };
+  mockClient(t, [
+    ...TXN,
+    [/FROM "leagues" WHERE "invite_code" = \$1 FOR UPDATE/, () => ({ rows: [row] })],
+    [/FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: [row] })],
+    [/SELECT 1 FROM "teams"/, () => ({ rows: [] })],
+    [/SELECT COUNT\(\*\)::int AS n FROM "teams"/, () => ({ rows: [{ n: 3 }] })],
+    [/INSERT INTO "teams"/, (_text, params) => ({ rows: [{ id: 99, league_id: 7, owner_id: params[1], name: params[2] }] })],
+  ]);
+  const res = await request(app).post('/api/league/join').set('Authorization', authed())
+    .send({ inviteCode: 'e402e816', teamName: 'Rolled Over FC' });
+  assert.equal(res.status, 201, JSON.stringify(res.body));
+  assert.equal(res.body.league.invite_code, 'e402e816');
+  assert.equal('draft_share_token' in res.body.league, false);
+});
+
+test('POST /:id/join-public: the response league never carries the draft share token', async (t) => {
+  const app = makeApp();
+  mockClient(t, [
+    ...TXN,
+    [/FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: [{ ...ROLLED_OVER_PICKEM, draft_share_token: 'secret-token' }] })],
+    [/SELECT 1 FROM "teams"/, () => ({ rows: [] })],
+    [/SELECT COUNT\(\*\)::int AS n FROM "teams"/, () => ({ rows: [{ n: 3 }] })],
+    [/INSERT INTO "teams"/, (_text, params) => ({ rows: [{ id: 99, league_id: 7, owner_id: params[1], name: params[2] }] })],
+  ]);
+  const res = await request(app).post('/api/league/7/join-public').set('Authorization', authed())
+    .send({ teamName: 'Public FC' });
+  assert.equal(res.status, 201, JSON.stringify(res.body));
+  assert.equal(res.body.league.id, 7);
+  assert.equal('draft_share_token' in res.body.league, false);
+});
+
 test('POST /:id/join-public: the 409 body carries the reason', async (t) => {
   const app = makeApp();
   const calls = mockClient(t, [
