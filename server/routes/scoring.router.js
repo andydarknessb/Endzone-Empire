@@ -157,11 +157,7 @@ router.post('/league/:id/correct-week', async (req, res) => {
       });
       return res.json(result);
     }
-    await withDatabaseRetry(() => nflverseSync.correctWeekFromNflverse({
-      season: correctionRequest.season,
-      week: correctionRequest.week,
-      rescoreLeagues: false,
-    }));
+    // No stat re-pull: the scheduled Tue/Wed nflverse pass (correction.service resyncPriorWeeks) keeps stats fresh; this re-scores the league from them (#2274).
     const result = await withDatabaseRetry(() => correction.correctLeagueWeek(correctionRequest));
     res.json(result);
   } catch (error) {
