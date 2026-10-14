@@ -514,6 +514,29 @@ async function executeTrade(client, { trade, league, items, teams, byCommissione
       playerId: item.player_id,
       bypass: [],
     });
+    // The receiving side's acquire gate, before this player's own delete and
+    // insert: the freeze, the receiving Team's lock, the per-position cap and
+    // the waiver hold. It runs BEFORE the give-side delete because the waiver
+    // hold reads an unrostered player as on waivers while the post-draft
+    // blanket window is open (isOnWaivers), and once the delete has run every
+    // traded player looks unrostered, so every trade in that window was
+    // refused (#2274). Only capacity and the kickoff hold are bypassed - the
+    // net question above owns capacity, and KICKOFF_HOLD is bypassed because a
+    // trade moves an already-rostered player, never a Free agent (ADR 0043;
+    // lead ruling on issue #1376). The existing waiver-row check (WAIVER_HOLD)
+    // is untouched and still runs. The position cap counts the receiving
+    // team's rows only, so the give-side row does not matter to it; and
+    // because this runs after the previous item's insert has landed, two
+    // incoming players at the same position are counted one after the other
+    // and the second is refused against a cap of one.
+    await assertRosterWriteAllowed(client, {
+      leagueId: league.id,
+      teamId: item.to_team_id,
+      direction: 'acquire',
+      playerId: item.player_id,
+      position: (tradedPlayerById.get(item.player_id) || {}).position,
+      bypass: [ROSTER_GATE.CAPACITY, ROSTER_GATE.KICKOFF_HOLD],
+    });
     await client.query(
       `DELETE FROM "team_players" WHERE "team_id" = $1 AND "player_id" = $2`,
       [item.from_team_id, item.player_id]
@@ -523,27 +546,6 @@ async function executeTrade(client, { trade, league, items, teams, byCommissione
     // receiving team's week, and these two must not interleave.
     await lineupService.removeLineupEntries(client, {
       league, teamId: item.from_team_id, playerId: item.player_id,
-    });
-    // The receiving side's acquire gate, immediately before this player's own
-    // insert: the freeze, the receiving Team's lock, the per-position cap and
-    // the waiver hold. Only capacity and the kickoff hold are bypassed - the
-    // net question above owns capacity, and KICKOFF_HOLD is bypassed because a
-    // trade moves an already-rostered player, never a Free agent (ADR 0043;
-    // lead ruling on issue #1376): the giving side's release has already run
-    // above, so at this point in the transaction he reads as unrostered, and
-    // without this bypass a player whose game has already kicked off could
-    // never be traded, which nobody asked for. The existing waiver-row check
-    // (WAIVER_HOLD) is untouched and still runs. Because this runs after the
-    // previous item's insert has landed, two incoming players at the same
-    // position are counted one after the other and the second is refused
-    // against a cap of one.
-    await assertRosterWriteAllowed(client, {
-      leagueId: league.id,
-      teamId: item.to_team_id,
-      direction: 'acquire',
-      playerId: item.player_id,
-      position: (tradedPlayerById.get(item.player_id) || {}).position,
-      bypass: [ROSTER_GATE.CAPACITY, ROSTER_GATE.KICKOFF_HOLD],
     });
     await client.query(
       `INSERT INTO "team_players" ("league_id", "team_id", "player_id") VALUES ($1, $2, $3)`,
