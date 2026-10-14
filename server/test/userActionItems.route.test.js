@@ -126,7 +126,8 @@ test('every item type, in severity order and by deadline within a tier', async (
   assert.deepEqual(res.body.items.map((i) => i.severity), [
     'blocking', 'timed', 'timed', 'timed', 'timed', 'untimed', 'untimed', 'info',
   ]);
-  assert.equal(res.body.counts.total, 8);
+  // The info row (waiver claims) is listed but not counted.
+  assert.equal(res.body.counts.total, 7);
 });
 
 test('each item carries its league, copy, deadline, call to action and progress', async (t) => {
@@ -177,6 +178,18 @@ test('dueToday counts deadlines on today\'s date in the caller\'s zone', async (
   assert.equal((await get('UTC')).body.counts.dueToday, 2);
 });
 
+test('an info item due today is listed but leaves out of total and dueToday', async (t) => {
+  world(t, {
+    overrides: [[/FROM "waiver_claims"/, () => ({ rows: [{ ...WAIVER_ROWS[0], next_clear_at: '2026-10-04T18:00:00.000Z' }] })]],
+  });
+  const { body } = await get('America/Chicago');
+  const waiver = body.items.find((i) => i.type === 'waiver_claims');
+  assert.equal(waiver.severity, 'info');
+  assert.ok(waiver.deadlineAt.startsWith('2026-10-04'));
+  assert.equal(body.counts.total, 7);
+  assert.equal(body.counts.dueToday, 3);
+});
+
 test('not shown: best ball starters, a league without pick\'em, seats for a non-commissioner', async (t) => {
   world(t, {
     leagues: [
@@ -200,7 +213,7 @@ test('the list is capped at 20 items; counts.total is the true number', async (t
   world(t, { trades: offers });
   const { body } = await get();
   assert.equal(body.items.length, 20);
-  assert.equal(body.counts.total, 31);
+  assert.equal(body.counts.total, 30);
   // Untimed offers sort newest first among themselves.
   const offerIds = body.items.filter((i) => i.type === 'trade_offer').map((i) => i.id);
   assert.equal(offerIds[0], 'trade_offer:71:600');

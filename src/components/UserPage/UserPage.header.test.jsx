@@ -189,6 +189,22 @@ test('the summary line names a blocking item over an earlier info item', async (
     .toBeInTheDocument();
 });
 
+test('without server counts the summary line leaves info items out of the total', async () => {
+  mockApi({
+    actionItems: {
+      generatedAt: new Date().toISOString(),
+      partial: [],
+      items: [
+        item({ id: 'a', type: 'trade_offer', severity: 'untimed' }),
+        item({ id: 'b', type: 'waiver_claims', severity: 'info' }),
+      ],
+    },
+  });
+  renderPage();
+
+  expect(await screen.findByText('1 thing needs you.')).toBeInTheDocument();
+});
+
 test('an empty to-do list makes the summary line "You\'re all caught up."', async () => {
   mockApi({ actionItems: actionItemsBody([]) });
   renderPage();
@@ -231,7 +247,7 @@ test('the summary line does not claim all caught up when some item types could n
 
 // --- Stat strip ------------------------------------------------------------
 
-test('the stat strip is a description list: league count, summed fantasy record and best standing', async () => {
+test('the stat strip is a description list: league count and best standing, no summed record', async () => {
   mockApi({
     leagues: [
       fantasyLeague(71, 'Winsconsota', { record: { wins: 3, losses: 1, ties: 0 }, standing: { rank: 4, of: 10 } }),
@@ -244,22 +260,8 @@ test('the stat strip is a description list: league count, summed fantasy record 
   expect(screen.getByTestId('greeting-stats').tagName).toBe('DL');
   expect(statTiles()).toEqual([
     ['Leagues', '2'],
-    ['Fantasy record', '5-1-1'],
     ['Best standing', '2nd of 12'],
   ]);
-});
-
-test('a fantasy record with no ties reads wins-losses with a hyphen', async () => {
-  mockApi({
-    leagues: [
-      fantasyLeague(71, 'Winsconsota', { record: { wins: 3, losses: 1, ties: 0 } }),
-      fantasyLeague(72, 'MinneApple', { record: { wins: 2, losses: 0, ties: 0 } }),
-    ],
-  });
-  renderPage();
-
-  await screen.findByRole('article', { name: 'Winsconsota' });
-  expect(statTiles()).toContainEqual(['Fantasy record', '5-1']);
 });
 
 test('the stat strip leaves out a tile it has no data for', async () => {

@@ -355,6 +355,89 @@ test('a deadline under 24 hours reads relative, and under 2 hours it takes the w
   expect(within(queue).getByText(/Most urgent first · times in /)).toBeInTheDocument();
 });
 
+test('an info row is never warning-colored, however close its deadline is', async () => {
+  mockApi({
+    actionItems: actionItemsBody([
+      item({ id: 'w', type: 'waiver_claims', title: '2 waiver claims pending', severity: 'info', deadlineAt: inFromNow(30 * MINUTE) }),
+      item({ id: 'l', title: 'Fix lineup', deadlineAt: inFromNow(72 * MINUTE) }),
+    ]),
+  });
+  renderPage();
+
+  const queue = await findQueue();
+  const { palette } = createTheme();
+  expect(await within(queue).findByText('in 30m')).not.toHaveStyle({ color: palette.warning.main });
+  expect(within(queue).getByText('in 1h 12m')).toHaveStyle({ color: palette.warning.main });
+});
+
+describe("grouped pick'em rows", () => {
+  const picks = (id, leagueName, { done, total, deadlineAt }) => item({
+    id: `picks_open:${id}:2026-4`,
+    type: 'picks_open',
+    leagueId: id,
+    leagueName,
+    title: `${total - done} picks still open`,
+    detail: null,
+    deadlineAt,
+    progress: { done, total },
+    cta: { label: 'Make picks', to: `/league/${id}/pickem` },
+  });
+
+  test('two or more become one row with a chip per league and an action to the earliest', async () => {
+    mockApi({
+      actionItems: actionItemsBody([
+        item({ id: 'l', title: 'Fix lineup', deadlineAt: inFromNow(HOUR) }),
+        picks(4, "Office Pick'em", { done: 9, total: 15, deadlineAt: inFromNow(5 * HOUR) }),
+        picks(5, "Family Pick'em", { done: 0, total: 14, deadlineAt: inFromNow(3 * HOUR) }),
+      ]),
+    });
+    renderPage();
+
+    const queue = await findQueue();
+    await within(queue).findByText('Make picks in 2 leagues');
+    expect(rowTitles(queue)).toEqual(['Fix lineup', 'Make picks in 2 leagues']);
+    const row = within(queue).getAllByRole('listitem')[1];
+    const office = within(row).getByRole('link', { name: /Office Pick'em/ });
+    expect(office).toHaveAttribute('href', '/league/4/pickem');
+    expect(office).toHaveTextContent('6 open');
+    expect(within(row).getByRole('link', { name: /Family Pick'em/ })).toHaveAttribute('href', '/league/5/pickem');
+    expect(office).toHaveStyle({ minHeight: '44px' });
+    // The deadline is the earliest, and the action goes to that league.
+    expect(within(row).getByText('in 3h 00m')).toBeInTheDocument();
+    expect(within(row).getByRole('link', { name: 'Make picks' })).toHaveAttribute('href', '/league/5/pickem');
+  });
+
+  test('a single picks row renders as before, with no chips', async () => {
+    mockApi({
+      actionItems: actionItemsBody([picks(4, "Office Pick'em", { done: 9, total: 15, deadlineAt: null })]),
+    });
+    renderPage();
+
+    const queue = await findQueue();
+    await within(queue).findByText('6 picks still open');
+    expect(within(queue).queryByText(/Make picks in/)).not.toBeInTheDocument();
+    expect(within(queue).queryByRole('link', { name: /Office Pick'em .*open/ })).not.toBeInTheDocument();
+  });
+
+  test('Show all counts rendered rows, not items', async () => {
+    mockApi({
+      actionItems: actionItemsBody([
+        picks(4, 'A', { done: 0, total: 2, deadlineAt: null }),
+        picks(5, 'B', { done: 0, total: 2, deadlineAt: null }),
+        picks(6, 'C', { done: 0, total: 2, deadlineAt: null }),
+        ...Array.from({ length: 4 }, (_, i) => item({ id: `i${i}`, title: `Item ${i + 1}` })),
+      ]),
+    });
+    renderPage();
+
+    const queue = await findQueue();
+    await within(queue).findByText('Make picks in 3 leagues');
+    expect(rowTitles(queue)).toHaveLength(4);
+    expect(within(queue).getByText('1 more')).toBeInTheDocument();
+    expect(within(queue).getByRole('button', { name: 'Show all 5' })).toBeInTheDocument();
+  });
+});
+
 // CONTEXT.md, Clear time: claims resolve at each player's Clear time, never in
 // a "waiver run", so the deadline column says when the claims clear.
 test('a waiver claims deadline is labelled by its Clear time, not a waiver run', async () => {

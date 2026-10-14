@@ -717,8 +717,8 @@ function calendarDate(value, tz) {
  * timed, untimed, info; within a tier deadlineAt ascending (no deadline
  * last), then newest first (each builder's internal `createdAt`, stripped
  * here so it never reaches the wire). `counts.total` and `counts.dueToday`
- * (a deadline on today's date in `tz`) are over every item; `items` is
- * capped.
+ * (a deadline on today's date in `tz`) are over every item except info ones
+ * (FYI, nothing to do); `items` is capped and still carries the info rows.
  */
 function assembleActionItems({ items, partial, now, tz, cap = ACTION_ITEM_CAP }) {
   const deadline = (i) => (i.deadlineAt == null ? Infinity : timeOf(i.deadlineAt));
@@ -729,11 +729,12 @@ function assembleActionItems({ items, partial, now, tz, cap = ACTION_ITEM_CAP })
     || recency(b) - recency(a)
     || String(a.id).localeCompare(String(b.id)));
   const today = calendarDate(now, tz);
+  const counted = ordered.filter((i) => i.severity !== 'info');
   return {
     generatedAt: iso(now),
     counts: {
-      total: ordered.length,
-      dueToday: ordered.filter((i) => i.deadlineAt != null && calendarDate(i.deadlineAt, tz) === today).length,
+      total: counted.length,
+      dueToday: counted.filter((i) => i.deadlineAt != null && calendarDate(i.deadlineAt, tz) === today).length,
     },
     partial,
     items: ordered.slice(0, cap).map(({ createdAt, ...wire }) => wire),

@@ -1,8 +1,6 @@
 import React from 'react';
 import { Box, Typography } from '@mui/material';
-import { teamStandingFromRow } from '../../entities/standings';
 import { ordinal } from '../../shared/lib/ordinal';
-import { isPickemOnly } from '../../shared/lib/leagueType';
 import { formatInstant } from '../../shared/lib/instantFormat';
 import { hasStatus } from '../common/LeagueStatusCard';
 import {
@@ -48,7 +46,9 @@ export function greetingSummary(body, now = Date.now()) {
   if (!body || typeof body !== 'object') return null;
   const items = Array.isArray(body.items) ? body.items : [];
   const incomplete = Array.isArray(body.partial) && body.partial.length > 0;
-  const total = typeof body.counts?.total === 'number' ? body.counts.total : items.length;
+  const total = typeof body.counts?.total === 'number'
+    ? body.counts.total
+    : items.filter((item) => item && item.severity !== 'info').length;
   if (total <= 0) return incomplete ? null : "You're all caught up.";
 
   const head = total === 1 ? '1 thing needs you.' : `${total} things need you.`;
@@ -78,25 +78,15 @@ const count = (value) => Number(value) || 0;
 
 /**
  * The stat strip's tiles for the leagues list, each left out when no league
- * carries its data: the league count, the fantasy record summed across
- * fantasy leagues (spelled by the standings entity, the Record's one home),
- * and the best standing (the lowest rank; a tie goes to the bigger league).
+ * carries its data: the league count and the best standing (the lowest rank;
+ * a tie goes to the bigger league). No summed record: wins across leagues
+ * mean nothing to the manager.
  */
 export function greetingStats(leagues) {
   const list = Array.isArray(leagues) ? leagues : [];
   if (list.length === 0) return [];
   const tiles = [{ key: 'leagues', label: 'Leagues', value: String(list.length) }];
   const withStatus = list.filter(hasStatus);
-
-  const records = withStatus.filter((league) => !isPickemOnly(league) && league.status.record);
-  if (records.length > 0) {
-    const sum = records.reduce((acc, { status: { record } }) => ({
-      wins: acc.wins + count(record.wins),
-      losses: acc.losses + count(record.losses),
-      ties: acc.ties + count(record.ties),
-    }), { wins: 0, losses: 0, ties: 0 });
-    tiles.push({ key: 'record', label: 'Fantasy record', value: teamStandingFromRow(sum).record });
-  }
 
   const standings = withStatus
     .map((league) => league.status.standing)
@@ -152,7 +142,7 @@ export function GreetingStats({ leagues }) {
           <Box component="dd" sx={valueSx}>
             {tile.value}
             {tile.of != null && (
-              <Box component="span" sx={{ ...dimSx, fontFamily: 'var(--dash-font-body)', fontSize: '13px', fontWeight: 500 }}>
+              <Box component="span" sx={{ ...dimSx, fontFamily: 'var(--dash-font-body)', fontSize: '14px', fontWeight: 500 }}>
                 {` of ${tile.of}`}
               </Box>
             )}
