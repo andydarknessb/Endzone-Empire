@@ -12,45 +12,38 @@ import { LiveChip, PixelHeading } from './home';
 
 const sameLocalDay = (a, b) => new Date(a).toDateString() === new Date(b).toDateString();
 
-// The item with the earliest deadline still ahead today, as { at, item }. A live
-// draft's deadline is "now", not a lock, so it never names the time. Info
-// items (a waiver claim clearing) rank last on the server, so the greeting
-// never names one over the row the queue puts first.
-function firstLockToday(items, now) {
+// The play with the earliest lock still ahead today. A draft has no lock (its
+// `at` is null), so it never names the time.
+function firstLockToday(plays, now) {
   let first = null;
-  items.forEach((item) => {
-    if (!item || item.type === 'draft_live' || item.severity === 'info' || !item.deadlineAt) return;
-    const at = new Date(item.deadlineAt).getTime();
-    if (Number.isNaN(at) || at <= now || !sameLocalDay(at, now)) return;
-    if (first === null || at < first.at) first = { at, item };
+  plays.forEach((play) => {
+    if (play.at === null || play.at <= now || !sameLocalDay(play.at, now)) return;
+    if (first === null || play.at < first.at) first = play;
   });
   return first;
 }
 
 /**
- * The summary line for a GET /api/user/action-items body, or null when there
- * is nothing honest to say (no body yet, or an empty list with item types the
- * server could not check, where "all caught up" would be a claim it can't
- * back). `count` is the number of plays the cards show (ActionQueue's
- * buildPlays), so the greeting and the badge give one number; without it the
- * server's own total stands.
+ * The summary line, or null when there is nothing honest to say (no body or no
+ * plays yet, or an empty list with item types the server could not check, where
+ * "all caught up" would be a claim it can't back). `plays` is what the cards
+ * show (ActionQueue's buildPlays, read at `now`), so the greeting's count, its
+ * due-today count and the badge all come from one list: due today is the plays
+ * whose lock falls on today's date in the viewer's zone.
  */
-export function greetingSummary(body, now = Date.now(), count = undefined) {
-  if (!body || typeof body !== 'object') return null;
-  const items = Array.isArray(body.items) ? body.items : [];
+export function greetingSummary(body, plays, now = Date.now()) {
+  if (!body || typeof body !== 'object' || !Array.isArray(plays)) return null;
   const incomplete = Array.isArray(body.partial) && body.partial.length > 0;
-  let total = items.filter((item) => item && item.severity !== 'info').length;
-  if (typeof body.counts?.total === 'number') total = body.counts.total;
-  if (typeof count === 'number') total = count;
+  const total = plays.length;
   if (total <= 0) return incomplete ? null : "You're all caught up.";
 
   const head = total === 1 ? '1 thing needs you.' : `${total} things need you.`;
-  const dueToday = typeof body.counts?.dueToday === 'number' ? Math.min(body.counts.dueToday, total) : 0;
+  const dueToday = plays.filter((play) => play.at !== null && sameLocalDay(play.at, now)).length;
   if (dueToday <= 0) return head;
 
-  const first = firstLockToday(items, now);
+  const first = firstLockToday(plays, now);
   if (first === null) return `${head} ${dueToday === 1 ? '1 is due today' : `${dueToday} are due today`}.`;
-  const { title } = first.item;
+  const { title } = first;
   const time = formatInstant(first.at, 'time');
   return dueToday === 1
     ? `${head} 1 is due today: ${title}, at ${time}.`

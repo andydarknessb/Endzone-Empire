@@ -173,6 +173,52 @@ test('the greeting and the badge give the same number: picks in two leagues are 
   expect(await screen.findByTestId('greeting-summary')).toHaveTextContent(/^2 things need you\./);
 });
 
+test('"due today" counts the plays whose lock falls on today: two picks sharing today\'s lock and a lineup problem tomorrow', async () => {
+  jest.useFakeTimers();
+  jest.setSystemTime(new Date(2026, 9, 15, 15, 0, 0));
+  const lock = new Date(2026, 9, 15, 18, 0, 0).toISOString();
+  mockApi({
+    leagues: [fantasyLeague(71, 'Thursday Night Regulars', scheduledMatchup), pickemLeague(5, "Sunday Pick'em")],
+    items: [
+      picks(5, "Sunday Pick'em", lock),
+      picks(71, 'Thursday Night Regulars', lock),
+      item({ deadlineAt: new Date(2026, 9, 16, 18, 0, 0).toISOString() }),
+    ],
+  });
+  renderPage();
+
+  expect(await screen.findByTestId('greeting-summary')).toHaveTextContent(/^2 things need you\. 1 is due today: 14 picks still open, at 6:00 PM\.$/);
+});
+
+test('the greeting follows the same clock as the badge: when a seats_open lock passes, both drop to the same number', async () => {
+  jest.useFakeTimers();
+  const draftLeague = {
+    id: 4, name: 'Late League', my_team_id: 40, draft_status: 'pending', is_owner: true, draft_date: new Date(Date.now() + 2 * HOUR).toISOString(),
+  };
+  mockApi({
+    leagues: [fantasyLeague(71, 'Thursday Night Regulars', scheduledMatchup), draftLeague],
+    items: [
+      item({
+        id: 'seats_open:4', type: 'seats_open', leagueId: 4, leagueName: 'Late League', title: 'Fill the empty seats', deadlineAt: new Date(Date.now() + 10 * MINUTE).toISOString(),
+      }),
+      item({ deadlineAt: new Date(Date.now() + 5 * HOUR).toISOString() }),
+    ],
+  });
+  renderPage();
+
+  const region = await screen.findByRole('region', { name: 'Call your plays' });
+  expect(await within(region).findByText('3 things need you')).toBeInTheDocument();
+  expect(await screen.findByTestId('greeting-summary')).toHaveTextContent(/^3 things need you\./);
+
+  // The queue's clock re-arms after each render, so it is stepped, not jumped.
+  for (let i = 0; i < 12; i += 1) {
+    // eslint-disable-next-line no-await-in-loop
+    await act(async () => { jest.advanceTimersByTime(MINUTE); });
+  }
+  expect(within(region).getByText('2 things need you')).toBeInTheDocument();
+  expect(screen.getByTestId('greeting-summary')).toHaveTextContent(/^2 things need you\./);
+});
+
 describe('game day', () => {
   const gameDay = () => mockApi({
     leagues: [fantasyLeague(71, 'Thursday Night Regulars', liveMatchup), fantasyLeague(72, 'Office League', liveMatchup)],

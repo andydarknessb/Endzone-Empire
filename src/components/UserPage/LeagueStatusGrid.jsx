@@ -104,9 +104,10 @@ function LeagueStatusGrid({
   });
   useEffect(() => () => timers.current.forEach(clearTimeout), []);
 
-  // The stamp ages on the minute even when no refetch lands.
+  // The stamp ages on the minute even when no refetch lands. It only shows on
+  // game day, so off game day no timer runs.
   const updatedMs = updatedAt ? new Date(updatedAt).getTime() : NaN;
-  const now = useNow((at) => (Number.isNaN(updatedMs) ? null : updatedMs + (Math.floor((at - updatedMs) / MINUTE_MS) + 1) * MINUTE_MS), updatedAt);
+  const now = useNow(live ? (at) => (Number.isNaN(updatedMs) ? null : updatedMs + (Math.floor((at - updatedMs) / MINUTE_MS) + 1) * MINUTE_MS) : null, updatedAt);
 
   const showSkeletons = loading && leagues.length === 0 && !error;
   if (!leagues.length && !error && !showSkeletons) return null;

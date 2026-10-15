@@ -278,9 +278,10 @@ function FantasyBody({ league }) {
   const board = boardOf(matchup);
   if (board.isFinal) return <FinalBody league={league} />;
   const opponent = matchup.opponent?.name || 'Opponent';
-  const lockAt = status.lineup?.nextLockAt;
-  const kickoff = matchup.status === 'scheduled' && lockAt && Date.parse(lockAt) > Date.now()
-    ? formatInstant(lockAt, 'weekdayTime')
+  // The matchup's own first kickoff when the server sent it, else the lineup's next lock.
+  const kickoffAt = matchup.kickoffAt || status.lineup?.nextLockAt;
+  const kickoff = matchup.status === 'scheduled' && kickoffAt && Date.parse(kickoffAt) > Date.now()
+    ? formatInstant(kickoffAt, 'weekdayTime')
     : null;
   const sub = [`vs ${opponent}`, kickoff && `kicks off ${kickoff}`].filter(Boolean).join(' · ');
   if (board.settled) {

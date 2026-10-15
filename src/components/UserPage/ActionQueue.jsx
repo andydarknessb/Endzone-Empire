@@ -107,6 +107,7 @@ function picksSpec(group) {
   return {
     key: `picks_open:${lockAt}`,
     at: lockAt,
+    title: first.title,
     render: (now2, lead, state) => {
       const words = lockAt !== null ? timeUntilWords(lockAt, now2) : null;
       const lock = lockParts(lockAt, now2);
@@ -145,6 +146,7 @@ function itemSpec(item) {
   return {
     key: item.id,
     at,
+    title: item.title,
     render: (now, lead, state) => {
       const lock = lockParts(at, now);
       return (
@@ -296,14 +298,19 @@ function ActionQueueSkeleton() {
 
 // `onLoaded(body)` hands the page the response body after each successful
 // fetch, and null after a failed one, so the greeting header can summarize
-// the list without a second request. `refreshKey` changing refetches quietly
+// the list without a second request. `onPlaysChange(plays, now)` hands it the
+// plays the cards show, with the clock they were built at, whenever that list
+// changes (a play added or dropped, a lock passing, the date turning), so the
+// greeting and the badge never count on different clocks. `refreshKey` changing refetches quietly
 // (no skeleton; a failed refetch keeps the plays on screen). `onDraftExpire`
 // fires when a scheduled draft's time arrives.
 function ActionQueue({
-  onLoaded, leagues = [], refreshKey = 0, onDraftExpire = undefined,
+  onLoaded, onPlaysChange = undefined, leagues = [], refreshKey = 0, onDraftExpire = undefined,
 }) {
   const onLoadedRef = useRef(onLoaded);
   onLoadedRef.current = onLoaded;
+  const onPlaysChangeRef = useRef(onPlaysChange);
+  onPlaysChangeRef.current = onPlaysChange;
   const [data, setData] = useState(null);
   const dataRef = useRef(null);
   dataRef.current = data;
@@ -355,6 +362,17 @@ function ActionQueue({
     fetchItems();
   }, [fetchItems]);
 
+  const specs = data ? buildPlays(data, leagues, now, onDraftExpire) : [];
+  // What the greeting reads off the list: which plays, which locks have passed, and today's date.
+  const playsSignature = data
+    ? `${new Date(now).toDateString()}|${specs.map((spec) => `${spec.key}@${spec.at}@${spec.title}${spec.at !== null && spec.at <= now ? 'p' : ''}`).join('|')}`
+    : null;
+  const latestPlays = useRef(null);
+  latestPlays.current = { specs, now };
+  useEffect(() => {
+    if (playsSignature !== null) onPlaysChangeRef.current?.(latestPlays.current.specs, latestPlays.current.now);
+  }, [playsSignature]);
+
   const firstKey = useRef(true);
   useEffect(() => {
     if (firstKey.current) {
@@ -369,7 +387,6 @@ function ActionQueue({
   // Item types whose builder failed on the server: the rest still arrived, but
   // an empty list is then not proof that nothing needs the manager.
   const incomplete = Array.isArray(data?.partial) && data.partial.length > 0;
-  const specs = data ? buildPlays(data, leagues, now, onDraftExpire) : [];
   if (failed || !data || (incomplete && specs.length === 0)) {
     return (
       <ErrorPanel

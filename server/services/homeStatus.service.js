@@ -253,6 +253,8 @@ function matchupSummary({ matchup, decoration, myTeamId, teamNameById }) {
   return {
     id: matchup.id,
     status: decoration.status,
+    // First starter kickoff, ISO from the decoration; the Home client schedules its pre-kickoff refresh on it.
+    kickoffAt: decoration.firstKickoffAt ?? null,
     opponent: { teamId: opponentId, name: teamNameById.get(opponentId) ?? null },
     my: side(home),
     opp: side(!home),

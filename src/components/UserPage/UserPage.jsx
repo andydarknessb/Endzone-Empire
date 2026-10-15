@@ -1,5 +1,5 @@
 import React, {
-  useState, useEffect, useMemo, useRef, Suspense,
+  useState, useEffect, useMemo, useRef, useCallback, Suspense,
 } from 'react';
 import { useSelector } from 'react-redux';
 import { Box, useMediaQuery } from '@mui/material';
@@ -8,7 +8,7 @@ import apiClient from '../../api/apiClient';
 import { readHttpFailure } from '../../lib/httpFailure';
 import { useNotifications } from '../../hooks/useNotifications';
 import LeagueStatusGrid from './LeagueStatusGrid';
-import ActionQueue, { buildPlays } from './ActionQueue';
+import ActionQueue from './ActionQueue';
 import AlertPrompt from './AlertPrompt';
 import LeagueNews from './LeagueNews';
 import { featuredDraft } from './NextDraftCard';
@@ -57,6 +57,10 @@ const START_GRACE_MS = 5 * 1000;
 // STALE_AFTER_MS.
 const MIN_KICKOFF_WAIT_MS = 30 * 1000;
 const STALE_AFTER_MS = 60 * 1000;
+// The server keeps a matchup `scheduled` for a while after kickoff (live only
+// once a starter's game is in progress), so for this long after a lock the page
+// polls like game day until a matchup goes live.
+const KICKOFF_WINDOW_MS = 30 * 60 * 1000;
 // Home's field reaches the Nav and the Footer: the app shell leaves the Nav's
 // 30px bottom margin and the Footer's 80px top margin in page colour, and the
 // root cancels both (the inner padding keeps the content where it was).
@@ -194,6 +198,8 @@ function UserPage() {
   const [updatedAt, setUpdatedAt] = useState(null);
   // Bumped on every silent leagues refresh so ActionQueue reloads with the leagues.
   const [refreshKey, setRefreshKey] = useState(0);
+  // The latest scheduled lock that has fired, remembered because the status stops naming a lock once it passes.
+  const [firedLock, setFiredLock] = useState(null);
   // When the last leagues read succeeded, for the tab-shown staleness check.
   const loadedAt = useRef(0);
 
@@ -207,6 +213,10 @@ function UserPage() {
   // The to-do list body ActionQueue fetched, lifted for the greeting's
   // summary line (one request, not two). Null until it loads and on error.
   const [actionItems, setActionItems] = useState(null);
+  // The plays the cards show, and the clock ActionQueue built them at: the
+  // greeting counts these, so it and the badge cannot drift apart.
+  const [playsAt, setPlaysAt] = useState(null);
+  const handlePlaysChange = useCallback((plays, now) => setPlaysAt({ plays, now }), []);
 
   // Join League dialog — leagues are private, so joining is always by invite
   // code. The dialog owns its answers, preview and in-flight state.
@@ -239,10 +249,13 @@ function UserPage() {
   const featuredState = featured?.state ?? null;
   const currentWeek = sharedCurrentWeek(myLeagues);
   const liveMatchups = liveMatchupCount(myLeagues);
-  // One count for the badge and the greeting: the plays the cards show.
-  const playCount = actionItems ? buildPlays(actionItems, myLeagues, Date.now()).length : undefined;
   // Game day: the play frame and live scores only; League news and Columns wait.
   const gameDay = liveMatchups > 0;
+  // Recomputed on every render: each load, and each scheduled lock tick, re-renders.
+  const nowMs = Date.now();
+  const kickoffWindowOpen = [...upcomingLocks(myLeagues), firedLock]
+    .some((at) => at !== null && at <= nowMs && nowMs - at <= KICKOFF_WINDOW_MS);
+  const polling = gameDay || kickoffWindowOpen;
 
   const fetchMyLeagues = async () => {
     try {
@@ -280,8 +293,9 @@ function UserPage() {
   }, []);
 
   // Game day (spec #2315, ruling 5): the leagues list and the to-do list reload
-  // every minute while a matchup is live and the tab is visible.
-  useLiveRefresh({ active: gameDay, onTick: refreshLeagues });
+  // every minute while a matchup is live (or in the kickoff window after a
+  // lock, before the server calls it live) and the tab is visible.
+  useLiveRefresh({ active: polling, onTick: refreshLeagues });
 
   // Before kickoff (spec #2315): the leagues list is read once, so a page opened
   // before a matchup starts would never learn it is live. One silent refresh is
@@ -293,21 +307,25 @@ function UserPage() {
     const since = loadedAt.current;
     const next = Math.min(Infinity, ...upcomingLocks(myLeagues).filter((at) => at > since));
     if (!Number.isFinite(next)) return undefined;
-    const id = setTimeout(refreshLeagues, Math.min(Math.max(next - Date.now(), MIN_KICKOFF_WAIT_MS), 2 ** 31 - 1));
+    const id = setTimeout(() => {
+      // A timer clamped for a far-off lock fires early: only a lock that is due starts the window.
+      if (next <= Date.now() + 1000) setFiredLock(Math.min(next, Date.now()));
+      refreshLeagues();
+    }, Math.min(Math.max(next - Date.now(), MIN_KICKOFF_WAIT_MS), 2 ** 31 - 1));
     return () => clearTimeout(id);
   }, [gameDay, myLeagues, updatedAt, refreshKey]);
 
-  // One visibility handler for the page off game day (on game day useLiveRefresh
-  // owns the event, so one event never refetches twice): a tab shown again
-  // refreshes when the last successful load is over a minute old.
+  // One visibility handler for the page while it is not polling (useLiveRefresh
+  // owns the event otherwise, so one event never refetches twice): a tab shown
+  // again refreshes when the last successful load is over a minute old.
   useEffect(() => {
-    if (gameDay) return undefined;
+    if (polling) return undefined;
     const onVisible = () => {
       if (!document.hidden && Date.now() - loadedAt.current > STALE_AFTER_MS) refreshLeagues();
     };
     document.addEventListener('visibilitychange', onVisible);
     return () => document.removeEventListener('visibilitychange', onVisible);
-  }, [gameDay]);
+  }, [polling]);
 
   // Draft night: the card is only as fresh as the leagues list. When a
   // scheduled draft's countdown runs out the card refetches once, just after
@@ -410,12 +428,13 @@ function UserPage() {
               <GreetingHeader
                 username={user.username}
                 week={currentWeek}
-                summary={greetingSummary(actionItems, Date.now(), playCount)}
+                summary={actionItems && playsAt ? greetingSummary(actionItems, playsAt.plays, playsAt.now) : null}
                 liveCount={liveMatchups}
                 actions={isDesktop ? joinCreate : null}
               />
               <ActionQueue
                 onLoaded={setActionItems}
+                onPlaysChange={handlePlaysChange}
                 leagues={myLeagues}
                 refreshKey={refreshKey}
                 onDraftExpire={handleDraftExpire}

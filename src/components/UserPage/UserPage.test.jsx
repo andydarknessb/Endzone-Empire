@@ -18,11 +18,10 @@ jest.mock('../../api/apiClient', () => ({
 
 // ActionQueue and LeagueStatusGrid are tested in their own files; here they
 // render the props UserPage hands them.
-// buildPlays is the real one: the page counts the plays with it, so the greeting and the badge agree.
+// The stub reports the plays through onPlaysChange (real buildPlays), as ActionQueue does.
 jest.mock('./ActionQueue', () => ({
   __esModule: true,
   default: require('./homeTestStubs').ActionQueueStub,
-  buildPlays: jest.requireActual('./ActionQueue').buildPlays,
 }));
 jest.mock('./LeagueStatusGrid', () => ({ __esModule: true, default: require('./homeTestStubs').LeagueStatusGridStub }));
 
@@ -425,6 +424,63 @@ describe('before kickoff', () => {
     expect(screen.getByTestId('action-queue')).toHaveAttribute('data-refresh-key', '2');
   });
 
+  // Kickoff window (batch 2): the server still says `scheduled` for a while after
+  // the lock, so the page keeps asking every 60 s until a matchup is live or 30
+  // minutes have passed since the lock.
+  describe.each([
+    ['the status keeps naming the passed lock', (lockAt) => scheduled(lockAt - Date.now())],
+    ['the status has moved on past the lock', () => scheduled(0, { status: { phase: 'in-season', week: 4, matchup: { id: 9, status: 'scheduled' } } })],
+  ])('after the lock, while the server still says scheduled (%s)', (_name, stale) => {
+    test('asks again every 60 s, then stops once the lock is 30 minutes behind', async () => {
+      const lockAt = Date.now() + 10 * 60 * 1000;
+      leaguesAnswers(() => [scheduled(10 * 60 * 1000)], () => [stale(lockAt)]);
+      renderPage();
+      await screen.findByText('Sunday Ballers');
+
+      await act(async () => { jest.advanceTimersByTime(10 * 60 * 1000); });
+      expect(leagueReads()).toBe(2);
+      await act(async () => { jest.advanceTimersByTime(60 * 1000); });
+      expect(leagueReads()).toBe(3);
+      await act(async () => { jest.advanceTimersByTime(60 * 1000); });
+      expect(leagueReads()).toBe(4);
+
+      await act(async () => { jest.advanceTimersByTime(30 * 60 * 1000); });
+      const settled = leagueReads();
+      await act(async () => { jest.advanceTimersByTime(10 * 60 * 1000); });
+      expect(leagueReads()).toBe(settled);
+    });
+
+    test('goes live on a later poll and the page then follows the game-day poll alone', async () => {
+      const lockAt = Date.now() + 10 * 60 * 1000;
+      leaguesAnswers(() => [scheduled(10 * 60 * 1000)], () => [stale(lockAt)], () => [stale(lockAt)], () => [liveLeague()]);
+      renderPage();
+      await screen.findByText('Sunday Ballers');
+      await act(async () => { jest.advanceTimersByTime(10 * 60 * 1000); });
+      await act(async () => { jest.advanceTimersByTime(60 * 1000); });
+      await act(async () => { jest.advanceTimersByTime(60 * 1000); });
+      expect(await screen.findByText('1 matchup live')).toBeInTheDocument();
+      const reads = leagueReads();
+      await act(async () => { jest.advanceTimersByTime(60 * 1000); });
+      expect(leagueReads()).toBe(reads + 1);
+    });
+  });
+
+  test("the matchup's own kickoff, earlier than the lineup lock, is where the refresh lands", async () => {
+    const withKickoff = (kickoffInMs) => {
+      const row = scheduled(60 * 60 * 1000);
+      row.status.matchup.kickoffAt = new Date(Date.now() + kickoffInMs).toISOString();
+      return row;
+    };
+    leaguesAnswers(() => [withKickoff(10 * 60 * 1000)], () => [scheduled(6 * 60 * 60 * 1000)]);
+    renderPage();
+    await screen.findByText('Sunday Ballers');
+
+    await act(async () => { jest.advanceTimersByTime(9 * 60 * 1000); });
+    expect(leagueReads()).toBe(1);
+    await act(async () => { jest.advanceTimersByTime(60 * 1000); });
+    expect(leagueReads()).toBe(2);
+  });
+
   test("reads the lock from the pick'em side too, the earliest wins, and a lock under 30 s away waits 30 s", async () => {
     const pickem = scheduled(20 * 60 * 1000, { id: 2, name: 'Pickem Side', status: { phase: 'in-season', week: 4, pickem: { nextLockAt: new Date(Date.now() + 5 * 1000).toISOString() } } });
     leaguesAnswers(() => [scheduled(10 * 60 * 1000), pickem], () => [scheduled(60 * 60 * 1000)]);
@@ -435,9 +491,26 @@ describe('before kickoff', () => {
     expect(leagueReads()).toBe(1);
     await act(async () => { jest.advanceTimersByTime(1000); });
     expect(leagueReads()).toBe(2);
-    // Re-armed after that load, now for the next lock (an hour out): nothing in 5 minutes.
-    await act(async () => { jest.advanceTimersByTime(5 * 60 * 1000); });
-    expect(leagueReads()).toBe(2);
+  });
+
+  test('after the kickoff window the one scheduled refresh waits for the next lock', async () => {
+    const laterLock = Date.now() + 3 * 60 * 60 * 1000;
+    const stale = () => scheduled(laterLock - Date.now(), { status: { phase: 'in-season', week: 4, matchup: { id: 9, status: 'scheduled' }, lineup: { nextLockAt: new Date(laterLock).toISOString() } } });
+    leaguesAnswers(() => [scheduled(10 * 60 * 1000)], () => [stale()]);
+    renderPage();
+    await screen.findByText('Sunday Ballers');
+    await act(async () => { jest.advanceTimersByTime(10 * 60 * 1000); });
+    // 31 minutes of one-a-minute asking, then quiet.
+    await act(async () => { jest.advanceTimersByTime(60 * 1000); });
+    for (let i = 0; i < 31; i += 1) {
+      // eslint-disable-next-line no-await-in-loop
+      await act(async () => { jest.advanceTimersByTime(60 * 1000); });
+    }
+    const settled = leagueReads();
+    await act(async () => { jest.advanceTimersByTime(60 * 60 * 1000); });
+    expect(leagueReads()).toBe(settled);
+    await act(async () => { jest.advanceTimersByTime(90 * 60 * 1000); });
+    expect(leagueReads()).toBe(settled + 1);
   });
 
   test('a scheduled refresh that fails is retried in 30 s, silently', async () => {

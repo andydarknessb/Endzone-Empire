@@ -6,6 +6,7 @@ import {
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import LeagueStatusGrid from './LeagueStatusGrid';
+import { formatInstant } from '../../shared/lib/instantFormat';
 
 // The My leagues / Live scores section of Home (#2315 S3), at the component
 // seam: LeagueStatusGrid rendered alone with the rows GET /api/league?include=status
@@ -141,6 +142,16 @@ describe('before kickoff', () => {
     expect(within(panel).getByText('Lineup set')).toBeInTheDocument();
     expect(linkNames(within(panel).getByRole('navigation', { name: 'Thursday Night Regulars' }))).toEqual(['Matchup', 'Lineup', 'Waivers']);
     expect(within(panel).getByRole('link', { name: 'Thursday Night Regulars matchup' })).toHaveAttribute('href', '/league/71/matchups/912');
+  });
+
+  test("the kick-off line names the matchup's own kickoff over the lineup lock, and falls back to the lock", () => {
+    const kickoffAt = future(DAY_MS / 2);
+    const lockAt = future(2 * DAY_MS);
+    const { rerender } = renderGrid({ leagues: [fantasyLeague({ matchup: matchup({ kickoffAt }), lineup: { emptySlots: [], problems: [], nextLockAt: lockAt } })] });
+    expect(screen.getByText(`vs Gridiron Ghosts · kicks off ${formatInstant(kickoffAt, 'weekdayTime')}`)).toBeInTheDocument();
+
+    rerender(<LeagueStatusGrid leagues={[fantasyLeague({ matchup: matchup({ kickoffAt: null }), lineup: { emptySlots: [], problems: [], nextLockAt: lockAt } })]} />);
+    expect(screen.getByText(`vs Gridiron Ghosts · kicks off ${formatInstant(lockAt, 'weekdayTime')}`)).toBeInTheDocument();
   });
 
   test('the odds bar is 20 blocks in Frame colour, never the live green', () => {
@@ -380,6 +391,13 @@ describe('score flash', () => {
       act(() => { jest.advanceTimersByTime(60 * 1000); });
       act(() => { jest.advanceTimersByTime(60 * 1000); });
       expect(screen.getByText('updated 3 min ago · refreshes every minute')).toBeInTheDocument();
+    });
+
+    test('off game day nothing ticks: the stamp is not shown, so no minute timer runs', () => {
+      renderGrid({ leagues: [fantasyLeague()], updatedAt: new Date(Date.now()).toISOString() });
+      expect(jest.getTimerCount()).toBe(0);
+      act(() => { jest.advanceTimersByTime(5 * 60 * 1000); });
+      expect(jest.getTimerCount()).toBe(0);
     });
   });
 });
