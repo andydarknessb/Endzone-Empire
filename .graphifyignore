@@ -1,0 +1,19 @@
+# Code-only graph: graphify extracts code by AST (free). Docs and images
+# would need LLM extraction, so they stay out; read CONTEXT.md and docs/adr directly.
+backtest-artifacts/
+backtest-data/
+public/
+docs/
+.impeccable/
+.claude/
+*.md
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.webp
+*.svg
+*.pdf
+*.yml
+*.yaml
+*.txt

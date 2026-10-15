@@ -22,7 +22,7 @@ const sentry = require('../modules/sentry');
 // DraftError is the app-wide draft refusal (ADR 0008) and the roster-acquisition
 // checks are shared with draft.service.addFreeAgent (#782 ruling 2). draft.service
 // never requires this module back, so this top-level require closes no cycle.
-const { DraftError } = require('./draft.service');
+const { DraftError } = require('./draftError');
 // The one write-time roster gate (#940). A Pick is a roster acquisition like
 // any other, so it asks the same module (#965) rather than calling the acquire
 // bundle directly.
