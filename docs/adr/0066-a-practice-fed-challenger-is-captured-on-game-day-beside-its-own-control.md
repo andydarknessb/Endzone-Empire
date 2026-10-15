@@ -17,7 +17,7 @@ scheduled capture lands on Wednesday evening (Eastern; week 6 of 2026 at
 the arm would see last week's facts and nothing else.
 
 We measured when the reports reach us (2026 weeks 5 and 6,
-`player_practice_observations`). nflverse publishes once a day at about
+`player_practice_observations`). nflverse publishes at least daily, first at about
 02:01 ET with the previous day's report, and our poll reads it within 16
 minutes. So a game's final report is in hand by about 02:30 ET on the day
 after it is issued: Saturday for a Sunday game, Thursday for a Thursday
