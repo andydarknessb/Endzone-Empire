@@ -48,7 +48,7 @@ C36: Rome Odunze (WR, CHI, #708) - SIT - 18% target share, 8.7 a game, third in 
 C37: Chris Olave (WR, NO, #538) - START if active - Did not practice Wednesday with an illness, not an injury; 28% target share
 C37: Devaughn Vele (WR, NO, #1113) - FLEX - The WR1 if Olave sits, a flex either way at 20% target share
 C38: Cam Skattebo (RB, NYG, #492) - START - New Orleans allows the most RB points in the league
-C39: Malik Nabers (WR, NYG, #1444) - START - 19 targets last week, 52.3 points over the last two with Winston
+C39: Malik Nabers (WR, NYG, #1444) - START - 20 targets last week, 52.3 points over the last two with Winston
 C40: Isaiah Likely (TE, NYG, #432) - START - 30% target share, full practice on the foot
 C41: Juwan Johnson (TE, NO, #309) - START - 17% target share, more if Olave is limited
 C42: Jameis Winston (QB, NYG, #546) - SIT - 25.7 last week but a streamer at best; QB16
@@ -57,7 +57,7 @@ C44: Alvin Kamara (RB, NO, #266) - SIT - Limited with a back injury, 32% of snap
 C45: Breece Hall (RB, NYJ, #381) - OUT - Has not practiced since Week 3, week-to-week quad
 C45: Braelon Allen (RB, NYJ, #1485) - FLEX - 18.6 as the lead back last week; New England favored by 7.5 caps the script
 C46: Garrett Wilson (WR, NYJ, #96) - START - 30% target share, 11 targets last week
-C47: Drake Maye (QB, NE, #174) - START - 65.7 points over the last two weeks, the Jets allow the 6th-fewest QB points; QB12
+C47: Drake Maye (QB, NE, #174) - START - 65.6 points over the last two weeks, the Jets allow the 6th-fewest QB points; QB12
 C48: Rhamondre Stevenson (RB, NE, #1243) - START - Henderson limited with a high ankle sprain; 35.9 over the last two weeks
 C49: New England Patriots (DEF, NE, #6733) - START - 7.5-point favorites, the Jets implied for 18
 C50: Geno Smith (QB, NYJ, #324) - SIT - New England allows the 10th-fewest QB points
@@ -69,8 +69,8 @@ C54: Pittsburgh Steelers (DEF, PIT, #6738) - START - Against Daniels in the wind
 C55: Pat Freiermuth (TE, PIT, #689) - START - 21.5 last week, Pittman on IR and two receivers out
 C56: Bucky Irving (RB, TB, #47) - START - 31.5 last week, the safest piece of a backup-QB offense
 C57: Emeka Egbuka (WR, TB, #426) - FLEX - 23% target share, but a backup QB in the wind; WR29
-C58: DK Metcalf (WR, PIT, #1340) - SIT - 9.7 a game, 17 mph wind, Tampa allows the 5th-fewest WR points
-C59: Jonathan Taylor (RB, IND, #395) - START - Rest day only, Tennessee allows the 5th-most RB points
+C58: DK Metcalf (WR, PIT, #1340) - SIT - 9.7 a game, 17 mph wind, Tampa allows the 10th-fewest WR points
+C59: Jonathan Taylor (RB, IND, #395) - START - Rest day only; Tennessee is 21st in RB points allowed, so this is a volume start
 C60: Tyler Warren (TE, IND, #825) - START - 21% target share, 21.4 last week
 C61: Tony Pollard (RB, TEN, #996) - FLEX - Rest day only; 13.6 carries a game in a 7-point dog script
 C62: Cam Ward (QB, TEN, #1515) - SIT - 12.3 a game, 5.0 last week
@@ -95,7 +95,7 @@ C78: Kirk Cousins (QB, LV, #714) - START - 53.5 total, Buffalo allows the 4th-mo
 C79: Dalton Kincaid (TE, BUF, #157) - START - Las Vegas allows the 5th-most TE points; 9.2 over the last three is the risk
 C80: Patrick Mahomes (QB, KC, #1495) - START - Full practice on the knee, Chiefs implied for 25.5
 C81: Kenneth Walker III (RB, KC, #34) - START - 27.5 a game, 21.8 carries
-C82: Travis Kelce (TE, KC, #1079) - START - The Chargers allow the 2nd-most TE points
+C82: Travis Kelce (TE, KC, #1079) - START - TE4 on role, not matchup: the Chargers are 25th in TE points allowed
 C83: Kansas City Chiefs (DEF, KC, #6727) - START - Chargers implied for 17, Herbert 11.0 a game
 C84: Rashee Rice (WR, KC, #108) - SIT - Did not practice on the hamstring and knee; Reid would not commit
 C85: Justin Herbert (QB, LAC, #115) - SIT - 11.0 a game, Kansas City allows the 3rd-fewest QB points
