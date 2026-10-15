@@ -6,6 +6,8 @@ import {
   CountBadge, ErrorPanel, HomeButton, LeagueLinks, OddsBar, PickemTile, PlayCard, ScoreTile, pixelSx,
 } from './index';
 
+// The cursor frame, filled foot, slot and odds blocks are CSS classes and data attributes with no role.
+/* eslint-disable testing-library/no-node-access, testing-library/no-container */
 const filled = (container) => container.querySelectorAll('[data-filled="true"]');
 
 const card = {
@@ -86,11 +88,11 @@ describe('PlayCard', () => {
   });
 
   test('the lead urgent cursor is danger, the plain lead is cursor yellow', () => {
-    const urgent = renderWithProviders(<PlayCard {...card} state="urgent" lead countdown="in 5 min" />);
-    expect(getComputedStyle(urgent.container.querySelector('.slot')).getPropertyValue('--cur')).toBe('var(--home-danger)');
-    urgent.unmount();
-    const next = renderWithProviders(<PlayCard {...card} state="next" lead />);
-    expect(getComputedStyle(next.container.querySelector('.slot')).getPropertyValue('--cur')).toBe('var(--home-cursor)');
+    const { container: urgentFrame, unmount } = renderWithProviders(<PlayCard {...card} state="urgent" lead countdown="in 5 min" />);
+    expect(getComputedStyle(urgentFrame.querySelector('.slot')).getPropertyValue('--cur')).toBe('var(--home-danger)');
+    unmount();
+    const { container: nextFrame } = renderWithProviders(<PlayCard {...card} state="next" lead />);
+    expect(getComputedStyle(nextFrame.querySelector('.slot')).getPropertyValue('--cur')).toBe('var(--home-cursor)');
   });
 });
 
@@ -107,6 +109,8 @@ describe('OddsBar', () => {
     expect(container.querySelectorAll('[data-on="true"]')).toHaveLength(20);
   });
 });
+
+/* eslint-enable testing-library/no-node-access, testing-library/no-container */
 
 describe('LeagueLinks', () => {
   test('runs Matchup, Lineup, Picks, Waivers whatever order it is given, and drops the rest', () => {
@@ -128,8 +132,8 @@ describe('LeagueLinks', () => {
   });
 
   test('renders nothing when the league has none of the four', () => {
-    const { container } = renderWithProviders(<LeagueLinks league="X" links={[]} />);
-    expect(container.querySelector('nav')).toBeNull();
+    renderWithProviders(<LeagueLinks league="X" links={[]} />);
+    expect(screen.queryByRole('navigation')).toBeNull();
   });
 });
 
@@ -183,12 +187,12 @@ describe('PickemTile', () => {
 
 describe('CountBadge', () => {
   test('speaks a sentence, singular and plural, and a custom noun', () => {
-    const one = renderWithProviders(<CountBadge n={1} />);
-    expect(one.getByText('1 thing needs you')).toBeInTheDocument();
-    one.unmount();
-    const many = renderWithProviders(<CountBadge n={3} />);
-    expect(many.getByText('3 things need you')).toBeInTheDocument();
-    many.unmount();
+    const { unmount: unmountOne } = renderWithProviders(<CountBadge n={1} />);
+    expect(screen.getByText('1 thing needs you')).toBeInTheDocument();
+    unmountOne();
+    const { unmount: unmountMany } = renderWithProviders(<CountBadge n={3} />);
+    expect(screen.getByText('3 things need you')).toBeInTheDocument();
+    unmountMany();
     renderWithProviders(<CountBadge n={2} noun="leagues" />);
     expect(screen.getByText('2 leagues')).toBeInTheDocument();
   });

@@ -91,6 +91,8 @@ test('the root carries the home class and is named by the h1', async () => {
   renderPage();
   await screen.findByTestId('league-grid');
 
+  // the page root is located by id; its role is asserted through the accessible name below
+  // eslint-disable-next-line testing-library/no-node-access
   const root = document.getElementById('user-main-content');
   expect(root).toHaveClass('home-root');
   expect(root).toHaveAccessibleName('Welcome back, alice');
@@ -179,6 +181,8 @@ describe('Join and Create', () => {
       expect(screen.getAllByRole('button', { name })).toHaveLength(1);
       expect(header.getByRole('button', { name })).toBeInTheDocument();
     });
+    // the filled foot is a data attribute with no role
+    // eslint-disable-next-line testing-library/no-node-access
     expect(document.querySelectorAll('[data-filled="true"]')).toHaveLength(0);
   });
 
@@ -232,6 +236,8 @@ test('first run: the h1, the promise, one filled Create, Join with a code, three
   );
   expect(within(start).getByRole('heading', { level: 2, name: 'Start here' })).toBeInTheDocument();
 
+  // the filled foot is a data attribute with no role
+  // eslint-disable-next-line testing-library/no-node-access
   const filled = document.querySelectorAll('[data-filled="true"]');
   expect(filled).toHaveLength(1);
   expect(filled[0]).toHaveTextContent('Create a league');

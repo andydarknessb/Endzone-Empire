@@ -75,6 +75,8 @@ describe('NextDraftCard states', () => {
     expect(within(link).getByText('Open draft room')).toBeInTheDocument();
   });
 
+  // The cursor frame and filled foot are a CSS class and a data attribute with no role.
+  /* eslint-disable testing-library/no-node-access, testing-library/no-container */
   test('live reads Live now with the autopick note; the lead carries the filled foot', () => {
     const { container } = renderCard(league({
       id: 8, name: 'Night League', draft_status: 'active', draft_date: at(-HOUR),
@@ -99,6 +101,7 @@ describe('NextDraftCard states', () => {
     expect(container.querySelectorAll('[data-filled="true"]')).toHaveLength(0);
   });
 
+  /* eslint-enable testing-library/no-node-access, testing-library/no-container */
   test('late reads Not started with the about-to-start note', () => {
     renderCard(league({ id: 9, name: 'Late League', draft_date: at(-2 * HOUR) }));
     const link = screen.getByRole('link', { name: /Late League draft room/ });

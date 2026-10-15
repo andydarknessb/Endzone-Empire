@@ -43,10 +43,14 @@ test('a first run shows exactly one Create a league and one Join with a code, an
 
 test('Create is the page\'s one filled action; Join is outlined', async () => {
   const start = await mountFirstRun();
+  // the filled foot is a data attribute with no role
+  /* eslint-disable testing-library/no-node-access */
   const filled = start.querySelectorAll('[data-filled="true"]');
   expect(filled).toHaveLength(1);
   expect(filled[0]).toHaveTextContent('Create a league');
-  expect(within(start).getByRole('button', { name: /Join with a code/ }).querySelector('[data-filled]')).toBeNull();
+  const join = within(start).getByRole('button', { name: /Join with a code/ });
+  expect(join.querySelector('[data-filled]')).toBeNull();
+  /* eslint-enable testing-library/no-node-access */
 });
 
 test('the intro copy says the app is free and names fantasy and pick\'em', async () => {

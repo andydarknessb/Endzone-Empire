@@ -77,7 +77,10 @@ const mockItems = (answer) => {
   });
 };
 
+// The cursor frame and filled foot are a CSS class and a data attribute with no role.
+// eslint-disable-next-line testing-library/no-node-access, testing-library/no-container
 const cursors = (container) => container.querySelectorAll('.cursor');
+// eslint-disable-next-line testing-library/no-node-access, testing-library/no-container
 const filled = (container) => container.querySelectorAll('[data-filled="true"]');
 const frame = () => screen.findByRole('region', { name: 'Call your plays' });
 
@@ -128,9 +131,13 @@ describe('the play cards', () => {
     const lead = await screen.findByRole('link', { name: /^Next up: Fill your empty FLEX slot\./ });
     expect(lead).toHaveAttribute('href', '/league/71/lineup');
     expect(lead).toHaveTextContent('40 min left');
+    // the slot wrapper is a CSS class with no role
+    // eslint-disable-next-line testing-library/no-node-access
     expect(lead.closest('.slot')).toHaveStyle({ '--cur': 'var(--home-danger)' });
     expect(cursors(container)).toHaveLength(1);
     expect(filled(container)).toHaveLength(1);
+    // the filled foot is a data attribute with no role
+    // eslint-disable-next-line testing-library/no-node-access
     expect(within(lead).getByText('Fix lineup').closest('[data-filled]')).toHaveAttribute('data-filled', 'true');
     // The earlier lock is first in the grid.
     const names = screen.getAllByRole('link').map((l) => l.getAttribute('aria-label')).filter(Boolean);
@@ -165,8 +172,11 @@ describe('the play cards', () => {
     // The league's draft_live item and the featured draft are one card, not two.
     const draft = screen.getByRole('link', { name: /^Draft room open\./ });
     expect(screen.getAllByRole('link', { name: /Draft room open/ })).toHaveLength(1);
+    // the slot wrapper and filled foot are a CSS class and a data attribute with no role
+    /* eslint-disable testing-library/no-node-access */
     expect(draft.closest('.slot')).not.toHaveClass('cursor');
     expect(draft.querySelector('[data-filled]')).toBeNull();
+    /* eslint-enable testing-library/no-node-access */
     expect(cursors(container)).toHaveLength(1);
     expect(filled(container)).toHaveLength(1);
   });

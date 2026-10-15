@@ -140,6 +140,8 @@ test('the status line carries the week, the date and the summary, each only when
   await findHeader();
   expect(await screen.findByText("You're all caught up.")).toBeInTheDocument();
   expect(header().getByText(`Week 4 · ${dateFormat.format(new Date())}`)).toBeInTheDocument();
+  // the summary's wrapping paragraph has no role or name of its own
+  // eslint-disable-next-line testing-library/no-node-access
   expect(screen.getByTestId('greeting-summary').closest('p')).toHaveTextContent(
     `Week 4 · ${dateFormat.format(new Date())} · You're all caught up.`
   );
@@ -166,7 +168,10 @@ test('no status line at all when there is no week and no summary', async () => {
 
   await findHeader();
   expect(summaryLine()).not.toBeInTheDocument();
-  expect(screen.getByTestId('dashboard-hero').querySelector('p')).toBeNull();
+  // the hero's paragraphs have no role or name of their own
+  const hero = screen.getByTestId('dashboard-hero');
+  // eslint-disable-next-line testing-library/no-node-access
+  expect(hero.querySelector('p')).toBeNull();
 });
 
 // --- Summary line ----------------------------------------------------------
@@ -289,6 +294,8 @@ test('the live chip counts live matchups, with its dot hidden from assistive tec
   await findHeader();
   const chip = header().getByTestId('live-matchups-chip');
   expect(chip).toHaveTextContent('2 matchups live');
+  // aria-hidden content is hidden from every role query
+  // eslint-disable-next-line testing-library/no-node-access
   expect(chip.querySelector('[aria-hidden="true"]')).not.toBeNull();
 });
 
