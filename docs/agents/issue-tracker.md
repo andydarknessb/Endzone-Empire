@@ -58,9 +58,20 @@ Write `_No response_` under the last heading, as the form does, when you do not 
 
 ## Triage proposals and approval
 
-The fleet's Principal (fleet ADR 0011) reads every open issue that is unrouted or carries `needs-triage` or `question` and posts one `## Triage proposal (advisory)` comment on it, applying the `triage-proposed` label. The proposal is not a ruling and no agent acts on it. It becomes one only when the repository owner replies on the issue with a comment that begins `Approved` (adopt as written) or `Approved with: <edits>` (adopt with the edits folded in). On that comment the Principal posts `## Ruling`, applies `ready-for-agent`, `ready-for-human` or `needs-info` as ruled, and removes `triage-proposed`. Closing an issue and the `wontfix` and `duplicate` labels remain the owner's hands in every case.
+The fleet's Principal (fleet ADR 0011) reads every open issue that is unrouted or carries `needs-triage` or `question` and posts one `## Triage proposal (advisory)` comment on it, applying the `triage-proposed` label. The proposal is not a ruling and no agent acts on it until the fleet's Arbiter (session `ar-<tenant>`, fleet ADR 0017) or the owner rules. A proposal's `Open:` field is a question the Principal could not answer; the Arbiter answers it or escalates.
 
-Because the fleet's sessions act under the owner's own GitHub login, no fleet session in any role may post a comment whose body begins with `Approved`; a fleet hook refuses it. Agents that agree with a proposal say so in other words and leave the decision to the owner. Any other reply from the owner is a conversation, not a re-proposal; a proposal is re-issued only when the issue body changes afterwards or the owner asks for one in a comment.
+The Arbiter reads each proposal and posts one `## Verdict` comment, opening with one of:
+
+- `Endorsed`: adopt as written.
+- `Endorsed with: <edits or answer>`: adopt with the edits folded in, or the `Open:` question answered.
+- `Returned`: numbered reasons; the Principal re-proposes once.
+- `Escalated: <class> - <question>`: the one shape that reaches the owner. Classes: product-intent, money, user-promise, rule-change, disagreement.
+
+An Endorsement is a Ruling the moment it is posted: the fleet then posts `## Ruling`, applies `ready-for-agent`, `ready-for-human` or `needs-info` as ruled, and removes `triage-proposed`.
+
+The owner can still rule first, and wins when first, with a comment that begins `Approved` (adopt as written), `Approved with: <edits>`, `Re-propose` or `Veto`. Those four stay the owner's alone. Closing an issue and the `wontfix` and `duplicate` labels also remain the owner's hands in every case.
+
+Because the fleet's sessions act under the owner's own GitHub login, a fleet hook enforces both halves: no fleet session in any role may post a comment whose body begins with `Approved`, and no session but the Arbiter may post one beginning `Endorsed`, `Returned`, `Escalated:` or `## Verdict`. Agents that agree with a proposal say so in other words. Any other reply from the owner is a conversation, not a re-proposal; a proposal is re-issued only when the issue body changes afterwards or the owner asks for one in a comment.
 
 ## Closing issues from pull requests
 

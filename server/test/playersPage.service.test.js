@@ -445,7 +445,7 @@ test('projection sort ASC: Position-baseline rows still come last (#1778)', asyn
   assert.deepEqual(result.players.map((p) => p.id), [5, 1, 2, 3, 4]);
 });
 
-test('payload carries verdictReason no_history on Position-baseline rows only (#1778)', async (t) => {
+test('payload carries a startVerdict on every row, no_history on Position-baseline rows only (#1778, spec #2042)', async (t) => {
   const { fake } = positionBaselineWorld(t);
 
   const result = await readPlayersPage(
@@ -454,12 +454,13 @@ test('payload carries verdictReason no_history on Position-baseline rows only (#
   );
 
   const byId = new Map(result.players.map((p) => [p.id, p]));
-  assert.equal(byId.get(3).verdictReason, 'no_history');
-  assert.equal(byId.get(4).verdictReason, 'no_history');
-  for (const id of [1, 2, 5]) assert.equal('verdictReason' in byId.get(id), false, `player ${id} is evidenced`);
+  assert.deepEqual(byId.get(3).startVerdict, { outcome: 'not_recommended', reason: 'no_history', numberTrusted: false });
+  assert.deepEqual(byId.get(4).startVerdict, { outcome: 'not_recommended', reason: 'no_history', numberTrusted: false });
+  for (const id of [1, 2, 5]) assert.notEqual(byId.get(id).startVerdict.reason, 'no_history', `player ${id} is evidenced`);
+  for (const player of result.players) assert.equal('verdictReason' in player, false);
 });
 
-test('a Backup quarterback carries verdictReason backup and keeps his place in a projection sort (ADR 0057)', async (t) => {
+test('a Backup quarterback carries the backup Start verdict and keeps his place in a projection sort (ADR 0057)', async (t) => {
   const { fake } = positionBaselineWorld(t, { backupIds: new Set([2, 3]) });
 
   const result = await readPlayersPage(
@@ -469,12 +470,12 @@ test('a Backup quarterback carries verdictReason backup and keeps his place in a
 
   const byId = new Map(result.players.map((p) => [p.id, p]));
   assert.deepEqual(result.players.map((p) => p.id), [2, 1, 5, 3, 4], 'the sort is the same as without the verdict');
-  assert.equal(byId.get(2).verdictReason, 'backup');
-  assert.equal(byId.get(3).verdictReason, 'no_history', 'Position-baseline wins over backup');
-  assert.equal('verdictReason' in byId.get(1), false);
+  assert.deepEqual(byId.get(2).startVerdict, { outcome: 'not_recommended', reason: 'backup', numberTrusted: false });
+  assert.deepEqual(byId.get(3).startVerdict, { outcome: 'not_recommended', reason: 'backup', numberTrusted: false }, 'backup wins over Position-baseline (ADR 0057, amended 2026-10-07)');
+  assert.notEqual(byId.get(1).startVerdict.reason, 'backup');
 });
 
-test('an Unavailable Position-baseline row keeps its own place and carries no no_history (#1778)', async (t) => {
+test('an Unavailable Position-baseline row keeps its own place and reads Unavailable, not no_history (#1778)', async (t) => {
   const { fake } = positionBaselineWorld(t);
   projectionService.getWeeklyProjections.mock.mockImplementation(async (options) => projectionService.toWeeklyProjectionResult({
     week: options.week,
@@ -493,9 +494,37 @@ test('an Unavailable Position-baseline row keeps its own place and carries no no
   );
 
   const byId = new Map(result.players.map((p) => [p.id, p]));
-  assert.equal('verdictReason' in byId.get(3), false, 'Out wins over no history');
-  assert.equal(byId.get(4).verdictReason, 'no_history');
+  assert.deepEqual(byId.get(3).startVerdict, { outcome: 'unavailable', reason: 'out', numberTrusted: true }, 'Out wins over no history');
+  assert.equal(byId.get(4).startVerdict.reason, 'no_history');
   assert.equal(result.players[result.players.length - 1].id, 4);
+});
+
+// #2044: the sort-last set is Position-baseline AND not Unavailable. A stored-IR
+// row that is also Backup keeps its own place in the sort (its hidden number
+// leads a DESC sort) and carries no tag; dropping the outcome gate sorts it last.
+test('a stored-Unavailable Position-baseline Backup row keeps its own place and carries no tag (#2044)', async (t) => {
+  const { fake } = positionBaselineWorld(t, { backupIds: new Set([3]) });
+  projectionService.getWeeklyProjections.mock.mockImplementation(async (options) => projectionService.toWeeklyProjectionResult({
+    week: options.week,
+    backupIds: new Set([3]),
+    projections: new Map([
+      [1, { median: 5, factors: { availability: { available: true }, dataQuality: { reasons: [] } } }],
+      [2, { median: 5, factors: { availability: { available: true }, dataQuality: { reasons: [] } } }],
+      [3, { median: 15.37, factors: { availability: { available: false, reason: 'ir' }, dataQuality: { reasons: ['position baseline'] } } }],
+      [4, { median: 15.37, factors: { availability: { available: true }, dataQuality: { reasons: ['position baseline'] } } }],
+      [5, { median: 5, factors: { availability: { available: true }, dataQuality: { reasons: [] } } }],
+    ]),
+  }));
+
+  const result = await readPlayersPage(
+    baseQuery({ leagueId: '1', sortField: 'projected_points', dir: 'DESC' }),
+    { db: fake },
+  );
+
+  const byId = new Map(result.players.map((p) => [p.id, p]));
+  assert.equal('verdictReason' in byId.get(3), false, 'IR wins over backup and no history');
+  assert.equal(result.players[result.players.length - 1].id, 4, 'only the available Position-baseline row sorts last');
+  assert.equal(result.players[0].id, 3, 'his own number leads a DESC sort');
 });
 
 test('other sorts do not take the Weekly projection read (#1778)', async (t) => {
@@ -535,7 +564,7 @@ test('sort=upgrade: a Position-baseline candidate sorts after an evidenced one w
     [/^SELECT "id", "position", "nfl_team" FROM "players" WHERE "id" = ANY/, () => ({
       rows: players.map(({ id, position, nfl_team }) => ({ id, position, nfl_team })),
     })],
-    [/^SELECT "lineup_entries"\."player_id"/, () => ({ rows: [{ player_id: 999, slot: 'QB', name: 'Weak Starter' }] })],
+    [/^SELECT "lineup_entries"\."player_id"/, () => ({ rows: [{ player_id: 999, slot: 'QB', name: 'Weak Starter', position: 'QB', nfl_team: null }] })],
     [/^WITH "target" AS \(/, () => ({ rows: players.map(({ id }) => ({ id })) })],
     [/FROM "nfl_games"|FROM "player_season_stats"/, () => ({ rows: [] })],
     [/COUNT\(\*\)::int AS "roster_count"/, () => ({ rows: [{ roster_count: 0 }] })],
@@ -578,4 +607,242 @@ test('sort=upgrade: a Position-baseline candidate sorts after an evidenced one w
   assert.equal(byId.get(1).upgrade, null);
   assert.equal(byId.get(2).upgrade.points, 4);
   assert.equal(byId.get(3).upgrade.points, 7);
+});
+
+// #1911 (#1800 Ruling item 2): equal Upgrades tie-break on the candidate's own
+// Weekly projection descending (the number `loadUpgradeContext` hands
+// `upgradeFor`), then id; a null Upgrade stays last whatever it projects.
+test('sort=upgrade: equal Upgrades order by the candidate\'s Weekly projection, a null Upgrade stays last (#1911)', async (t) => {
+  const lineupService = require('../services/lineup.service');
+  const playerCardService = require('../services/playerCard.service');
+  const league = {
+    id: 1, name: 'Tie League', roster_limit: 14, waiver_type: 'faab', current_season: 2026, current_week: 5,
+    best_ball: false,
+  };
+  const players = [
+    { id: 1, name: 'Projects Four', position: 'QB', nfl_team: 'ARI', total_count: '3', identity_ids: [1] },
+    { id: 2, name: 'Projects Nine', position: 'QB', nfl_team: 'KC', total_count: '3', identity_ids: [2] },
+    { id: 3, name: 'Baseline Twenty', position: 'QB', nfl_team: 'DAL', total_count: '3', identity_ids: [3] },
+  ];
+  const fake = createFakePool([
+    [select('teams'), () => ({
+      rows: [{ id: 17, league_id: 1, owner_id: 7, faab_remaining: 82, waiver_priority: 3 }],
+    })],
+    [select('leagues'), () => ({ rows: [league] })],
+    [/FROM "players" AS "source"/, () => ({ rows: players })],
+    [/^SELECT "id", "position", "nfl_team" FROM "players" WHERE "id" = ANY/, () => ({
+      rows: players.map(({ id, position, nfl_team }) => ({ id, position, nfl_team })),
+    })],
+    [/^SELECT "lineup_entries"\."player_id"/, () => ({ rows: [{ player_id: 999, slot: 'QB', name: 'Strong Starter', position: 'QB', nfl_team: null }] })],
+    [/^WITH "target" AS \(/, () => ({ rows: players.map(({ id }) => ({ id })) })],
+    [/FROM "nfl_games"|FROM "player_season_stats"/, () => ({ rows: [] })],
+    [/COUNT\(\*\)::int AS "roster_count"/, () => ({ rows: [{ roster_count: 0 }] })],
+    [/FROM "team_players"/, () => ({ rows: [] })],
+    [/FROM "waiver_players"/, () => ({ rows: [] })],
+    [/FROM "player_watchlist"/, () => ({ rows: [] })],
+    [/FROM "player_ownership"/, () => ({ rows: [] })],
+  ]);
+  fake.install(t);
+
+  t.mock.method(lineupService, 'materializeLineup', async () => {});
+  const entry = (median, reasons) => ({
+    mean: median, median, factors: { availability: { available: true }, dataQuality: { reasons } },
+  });
+  const weeklyResult = (week) => projectionService.toWeeklyProjectionResult({
+    week,
+    projections: new Map([
+      [999, entry(15, [])],
+      [1, entry(4, [])],
+      [2, entry(9, [])],
+      [3, entry(20, ['position baseline'])],
+    ]),
+  });
+  t.mock.method(projectionService, 'getWeeklyProjections', async (options) => weeklyResult(options.week));
+  t.mock.method(projectionService, 'getWeeklyProjectionsForWeeks', async ({ weeks }) => new Map(
+    weeks.map((week) => [week, weeklyResult(week)]),
+  ));
+  t.mock.method(projectionService, 'getRestOfSeason', async () => new Map());
+  t.mock.method(playerCardService, 'availabilityForMany', async () => new Map());
+  t.mock.method(playerCardService, 'buildWeeksForPage', async () => new Map());
+
+  const result = await readPlayersPage(
+    baseQuery({ leagueId: '1', view: 'cards', sortField: 'upgrade', dir: 'DESC' }),
+    { db: fake },
+  );
+
+  // 2 (Upgrade 0, projects 9) before 1 (Upgrade 0, projects 4) although 1 has the lower id;
+  // 3 has a null Upgrade (Position baseline) and projects 20, yet comes last.
+  assert.deepEqual(result.players.map((p) => p.id), [2, 1, 3]);
+  const byId = new Map(result.players.map((p) => [p.id, p]));
+  assert.equal(byId.get(1).upgrade.points, 0);
+  assert.equal(byId.get(2).upgrade.points, 0);
+  assert.equal(byId.get(3).upgrade, null);
+});
+
+// #2166 (ADR 0062): rows mix first playable weeks and still order by Upgrade
+// points descending, each read from the run of his own week. A wrong-week read
+// would flip the order: id 3 projects 30 in week 5 and id 1 only 3.
+test('sort=upgrade: rows mixing first playable weeks order by points descending and carry their week (#2166)', async (t) => {
+  const lineupService = require('../services/lineup.service');
+  const playerCardService = require('../services/playerCard.service');
+  const league = {
+    id: 1, name: 'Mixed League', roster_limit: 14, waiver_type: 'faab', current_season: 2026, current_week: 5,
+    regular_season_weeks: 14, playoff_teams: 4, best_ball: false,
+  };
+  const players = [
+    { id: 1, name: 'Kicked Off Twenty', position: 'QB', nfl_team: 'ARI', total_count: '3', identity_ids: [1] },
+    { id: 2, name: 'Yet To Play Twelve', position: 'QB', nfl_team: 'KC', total_count: '3', identity_ids: [2] },
+    { id: 3, name: 'Kicked Off Nine', position: 'QB', nfl_team: 'DAL', total_count: '3', identity_ids: [3] },
+  ];
+  const hourAgo = new Date(Date.now() - 3600e3);
+  const inAnHour = new Date(Date.now() + 3600e3);
+  const nextWeek = new Date(Date.now() + 7 * 24 * 3600e3);
+  const schedule = [
+    { nfl_team: 'ARI', week: 5, kickoff_at: hourAgo }, { nfl_team: 'ARI', week: 6, kickoff_at: nextWeek },
+    { nfl_team: 'KC', week: 5, kickoff_at: inAnHour }, { nfl_team: 'KC', week: 6, kickoff_at: nextWeek },
+    { nfl_team: 'DAL', week: 5, kickoff_at: hourAgo }, { nfl_team: 'DAL', week: 6, kickoff_at: nextWeek },
+  ];
+  const fake = createFakePool([
+    [select('teams'), () => ({
+      rows: [{ id: 17, league_id: 1, owner_id: 7, faab_remaining: 82, waiver_priority: 3 }],
+    })],
+    [select('leagues'), () => ({ rows: [league] })],
+    [/FROM "players" AS "source"/, () => ({ rows: players })],
+    [/^SELECT "id", "position", "nfl_team" FROM "players" WHERE "id" = ANY/, () => ({
+      rows: players.map(({ id, position, nfl_team }) => ({ id, position, nfl_team })),
+    })],
+    [/^SELECT "lineup_entries"\."player_id"/, () => ({ rows: [{ player_id: 999, slot: 'QB', name: 'Weak Starter', position: 'QB', nfl_team: null }] })],
+    [/^WITH "target" AS \(/, () => ({ rows: players.map(({ id }) => ({ id })) })],
+    [/^SELECT "nfl_team", "week", "kickoff_at" FROM "nfl_games"/, () => ({ rows: schedule })],
+    [/FROM "nfl_games"|FROM "player_season_stats"/, () => ({ rows: [] })],
+    [/COUNT\(\*\)::int AS "roster_count"/, () => ({ rows: [{ roster_count: 0 }] })],
+    [/FROM "team_players"/, () => ({ rows: [] })],
+    [/FROM "waiver_players"/, () => ({ rows: [] })],
+    [/FROM "player_watchlist"/, () => ({ rows: [] })],
+    [/FROM "player_ownership"/, () => ({ rows: [] })],
+  ]);
+  fake.install(t);
+
+  t.mock.method(lineupService, 'materializeLineup', async () => {});
+  const entry = (median) => ({
+    mean: median, median, factors: { availability: { available: true }, dataQuality: { reasons: [] } },
+  });
+  const pointsByWeek = { 5: { 999: 5, 1: 3, 2: 12, 3: 30 }, 6: { 999: 5, 1: 20, 2: 11, 3: 9 } };
+  const weeklyResult = (week) => projectionService.toWeeklyProjectionResult({
+    week,
+    projections: new Map(Object.entries(pointsByWeek[week] || pointsByWeek[5]).map(([id, median]) => [Number(id), entry(median)])),
+  });
+  t.mock.method(projectionService, 'getWeeklyProjections', async (options) => weeklyResult(options.week));
+  t.mock.method(projectionService, 'getWeeklyProjectionsForWeeks', async ({ weeks }) => new Map(
+    weeks.map((week) => [week, weeklyResult(week)]),
+  ));
+  t.mock.method(projectionService, 'getRestOfSeason', async () => new Map());
+  t.mock.method(playerCardService, 'availabilityForMany', async () => new Map());
+  t.mock.method(playerCardService, 'buildWeeksForPage', async () => new Map());
+
+  const result = await readPlayersPage(
+    baseQuery({ leagueId: '1', view: 'cards', sortField: 'upgrade', dir: 'DESC' }),
+    { db: fake },
+  );
+
+  // 1 (week 6: 20 - 5 = 15) > 2 (week 5: 12 - 5 = 7) > 3 (week 6: 9 - 5 = 4).
+  assert.deepEqual(result.players.map((p) => p.id), [1, 2, 3]);
+  const byId = new Map(result.players.map((p) => [p.id, p]));
+  assert.deepEqual([1, 2, 3].map((id) => byId.get(id).upgrade.points), [15, 7, 4]);
+  assert.deepEqual([1, 2, 3].map((id) => byId.get(id).upgrade.week), [6, 5, 6]);
+});
+
+// #1912 (#1800 Ruling items 4-5): `context.dropSuggestion` is the roster player
+// with the lowest Rest of season total (ties by lower id) when the roster is
+// at capacity, null when a spot is free, and never a player in an IR slot.
+async function readDropSuggestionContext(t, { rosterCount, rosterRows, ros }) {
+  const playerCardService = require('../services/playerCard.service');
+  const league = {
+    id: 1, name: 'Drop League', roster_limit: 3, waiver_type: 'faab', current_season: 2026, current_week: 5,
+    best_ball: false,
+  };
+  const players = [{ id: 1, name: 'Candidate', position: 'QB', nfl_team: 'ARI', total_count: '1', identity_ids: [1] }];
+  const fake = createFakePool([
+    [select('teams'), () => ({
+      rows: [{ id: 17, league_id: 1, owner_id: 7, faab_remaining: 82, waiver_priority: 3 }],
+    })],
+    [select('leagues'), () => ({ rows: [league] })],
+    [/FROM "players" AS "source"/, () => ({ rows: players })],
+    [/^SELECT "players"\."id", "players"\."name" FROM "team_players"/, () => ({ rows: rosterRows })],
+    [/FROM "nfl_games"|FROM "player_season_stats"/, () => ({ rows: [] })],
+    [/COUNT\(\*\)::int AS "roster_count"/, () => ({ rows: [{ roster_count: rosterCount }] })],
+    [/FROM "team_players"/, () => ({ rows: [] })],
+    [/FROM "waiver_players"/, () => ({ rows: [] })],
+    [/FROM "player_watchlist"/, () => ({ rows: [] })],
+    [/FROM "player_ownership"/, () => ({ rows: [] })],
+  ]);
+  t.mock.method(projectionService, 'getWeeklyProjectionsForWeeks', async () => new Map());
+  t.mock.method(projectionService, 'getRestOfSeason', ros);
+  t.mock.method(playerCardService, 'availabilityForMany', async () => new Map());
+  t.mock.method(playerCardService, 'buildWeeksForPage', async () => new Map());
+  t.mock.method(playerCardService, 'upgradesFor', async () => new Map());
+  const result = await readPlayersPage(baseQuery({ leagueId: '1', view: 'cards' }), { db: fake });
+  return { context: result.context, fake };
+}
+
+const rosterOf = [{ id: 5, name: 'Star' }, { id: 9, name: 'Backup Nine' }, { id: 8, name: 'Backup Eight' }];
+const rosTotals = async () => new Map([[5, { total: 40 }], [9, { total: 12 }], [8, { total: 12 }]]);
+
+test('context.dropSuggestion is the roster player with the lowest Rest of season total, ties by lower id (#1912)', async (t) => {
+  const { context, fake } = await readDropSuggestionContext(t, { rosterCount: 3, rosterRows: rosterOf, ros: rosTotals });
+  assert.deepEqual(context.dropSuggestion, { id: 8, name: 'Backup Eight' });
+  // Its own read over the roster's ids: positionRank ranks within the ids passed,
+  // and the page's runs hold only the page's players, so none is reused.
+  const call = projectionService.getRestOfSeason.mock.calls.find((c) => c.arguments[0].includes(5));
+  assert.equal(call.arguments[2], undefined);
+  assert.equal(fake.matching(/^SELECT "players"\."id", "players"\."name" FROM "team_players"/).length, 1);
+});
+
+test('context.dropSuggestion is null when the roster has a free spot, and no roster read is made (#1912)', async (t) => {
+  const { context, fake } = await readDropSuggestionContext(t, { rosterCount: 2, rosterRows: rosterOf, ros: rosTotals });
+  assert.equal(context.dropSuggestion, null);
+  assert.equal(fake.matching(/^SELECT "players"\."id", "players"\."name" FROM "team_players"/).length, 0);
+});
+
+test('a failed Rest of season read leaves dropSuggestion null and never fails the players read (#1912)', async (t) => {
+  const { context } = await readDropSuggestionContext(t, {
+    rosterCount: 3, rosterRows: rosterOf, ros: async (ids) => { if (ids.includes(5)) throw new Error('projection down'); return new Map(); },
+  });
+  assert.equal(context.dropSuggestion, null);
+});
+
+test('the roster read leaves out a player in an IR slot this week (#1912)', async (t) => {
+  const { fake } = await readDropSuggestionContext(t, { rosterCount: 3, rosterRows: rosterOf, ros: rosTotals });
+  const [read] = fake.matching(/^SELECT "players"\."id", "players"\."name" FROM "team_players"/);
+  assert.match(read.text, /"lineup_entries"\."slot" = 'IR'/);
+  assert.match(read.text, /NOT EXISTS/);
+});
+
+test('readPlayersPage shows a player with a pending claim as on waivers (no clear time) once his waiver row has cleared', async () => {
+  const waiverQueries = [];
+  const fake = createFakePool([
+    [select('teams'), () => ({ rows: [{ id: 17, league_id: 1, owner_id: 7, faab_remaining: 82, waiver_priority: 3 }] })],
+    [select('leagues'), () => ({ rows: [{ id: 1, name: 'Sunday Ballers', roster_limit: 14, waiver_type: 'faab', current_season: 2026 }] })],
+    [/FROM "players" AS "source"/, () => ({
+      rows: [
+        { id: 1, name: 'Free Agent', position: 'RB', nfl_team: 'ATL', total_count: '2', identity_ids: [1] },
+        { id: 3, name: 'Claimed Player', position: 'TE', nfl_team: 'KC', total_count: '2', identity_ids: [3] },
+      ],
+    })],
+    [/FROM "nfl_games"|FROM "player_season_stats"/, () => ({ rows: [] })],
+    [/COUNT\(\*\)::int AS "roster_count"/, () => ({ rows: [{ roster_count: 1 }] })],
+    [/FROM "team_players"/, () => ({ rows: [] })],
+    // The waiver_players row is gone (cleared); only the pending claim is left.
+    [/FROM "waiver_players"/, (text) => {
+      waiverQueries.push(text);
+      return { rows: [{ player_id: 3, available_at: null }] };
+    }],
+  ]);
+
+  const result = await readPlayersPage(baseQuery({ leagueId: '1' }), { db: fake });
+
+  assert.deepEqual(result.players.map((p) => [p.id, p.availability.state]), [[1, 'free_agent'], [3, 'waivers']]);
+  assert.equal(result.players[1].availability.availableAt, undefined);
+  assert.equal(waiverQueries.length, 1, 'one batched read, never one per player');
+  assert.match(waiverQueries[0], /FROM "waiver_claims"[\s\S]*"status" = 'pending'/);
 });

@@ -4,7 +4,7 @@ const { logTransaction } = require('./activity.service');
 const { RECAPS_TABLE_SQL, isMissingRecapStorage } = require('../modules/recapStorage');
 const { isPickemOnly } = require('./leagueType');
 const { teamIdentityColumns, teamIdentityJoin } = require('./teamIdentity');
-const { isIndoorGame } = require('./nwsWeather.service');
+const { isIndoorGame, isWeatherFresh } = require('./nwsWeather.service');
 
 /**
  * League Pick'em — pick the winner of every NFL game, every week.
@@ -286,11 +286,12 @@ function buildLine(snapshotRow) {
  * either signal that says so: the schedule's own `roof` column, or the live
  * overlay's `is_indoor` (`live_game_states.is_indoor`, the same column
  * `buildVenue` reads). A dome game with no `roof` value synced yet still
- * reports no weather once the live overlay knows it is indoor.
+ * reports no weather once the live overlay knows it is indoor. A snapshot
+ * fetched more than 24h before `now` reads as no snapshot (#1941).
  */
-function buildWeather(roof, snapshotRow, isIndoor) {
+function buildWeather(roof, snapshotRow, isIndoor, now = Date.now()) {
   if (isIndoorGame({ roof }) || isIndoor === true) return null;
-  if (!snapshotRow) return null;
+  if (!isWeatherFresh(snapshotRow, now)) return null;
   return {
     shortForecast: snapshotRow.short_forecast || null,
     temperatureF: snapshotRow.temperature_f == null ? null : Number(snapshotRow.temperature_f),
@@ -697,10 +698,11 @@ const WEEK_LINES_SQL = `
    ORDER BY "game_key", "observed_at" DESC`;
 
 // The forecast nearest kickoff per game — smallest horizon_hours wins, same
-// convention as decisionCardContext.service.js's loadWeather.
+// convention as decisionCardContext.service.js's loadWeather. `fetched_at` is
+// selected so `buildWeather` can withhold a stale one (#1941).
 const WEEK_WEATHER_SQL = `
   SELECT DISTINCT ON ("game_key") "game_key", "short_forecast", "temperature_f",
-         "wind_speed_mph", "precipitation_probability"
+         "wind_speed_mph", "precipitation_probability", "fetched_at"
     FROM "game_weather_snapshots"
    WHERE "game_key" = ANY($1::text[])
    ORDER BY "game_key", "horizon_hours" ASC`;
@@ -897,7 +899,7 @@ async function getWeekView({ leagueId, userId, season, week, mode, now = new Dat
       isTie,
       pickedCount: pickedCountByKey.get(game.gameKey) || 0,
       line: buildLine(lineRow),
-      weather: buildWeather(game.roof, weatherRow, game.isIndoor),
+      weather: buildWeather(game.roof, weatherRow, game.isIndoor, now),
       venue: buildVenue(game),
       broadcast: game.broadcast,
       records: buildRecords(game),

@@ -39,7 +39,7 @@ import {
   BACKUP_LABEL,
   VOLATILITY_LABELS,
 } from '../../../shared/lib';
-import { locked } from '../../../entities/roster';
+import { locked, spent } from '../../../entities/roster';
 import {
   usePlayerCard,
   lineContextFromResponse,
@@ -51,7 +51,7 @@ import {
   NewsList,
   Bio,
 } from '../../../entities/player';
-import { isEligibleMove } from '../../../features/swap-players';
+import { isEligibleMove } from '../../../features/lineup-write';
 import { AddPlayerAction } from '../../../features/add-player';
 import { ClaimPlayerAction } from '../../../features/claim-player';
 import { WatchPlayerAction } from '../../../features/watch-player';
@@ -115,7 +115,7 @@ function isTypingTarget(el) {
  *
  * A pure presenter over the page's own interaction state, exactly like
  * `lineup-ledger` beside it: `onSwap` performs a slot move (the page's
- * `useSwapPlayers().performMove`), `onRequestDrop`/`canDropEntry` mirror the
+ * `useLineupWrite().submit`), `onRequestDrop`/`canDropEntry` mirror the
  * props `LineupLedger` already forwards to `LedgerRow` for the SAME
  * `useDropPlayer` feature instance, so Drop's confirmation dialog and its
  * Undo toast (AC5) are the one the page already owns, never a second copy.
@@ -464,10 +464,10 @@ export default function PlayerDecisionCard(props) {
 
   const isStarting = entry ? entry.slot !== 'BENCH' && entry.slot !== 'IR' : false;
   const isLocked = entry ? locked(entry) : false;
-  const isSpent = Boolean(entry?.spent);
+  const isSpent = spent(entry);
   // f1/r1/r2/r3 (formal review, round 2): Bench and Start now ask the SAME
   // eligibility rule the row path uses (`isEligibleMove`, exported from
-  // `swap-players`) rather than a hand-enumerated set of conditions - the
+  // `lineup-write`) rather than a hand-enumerated set of conditions - the
   // enumeration had already missed a spent starter's Bench button, a spent
   // Start target, and the whole rule while the league is unsettled, three
   // of `onRowClick`'s own refusals a second, independent copy could not
@@ -488,7 +488,7 @@ export default function PlayerDecisionCard(props) {
     : [];
   // Formal review round 3 finding s2: `movesToStart` returns `[]` as its own
   // refusal for the rare case `startTargets` goes stale (the menu stayed
-  // open across a refetch or another move), but `onSwap` is `performMove`,
+  // open across a refetch or another move), but `onSwap` is the page's `submit`,
   // which PUTs an empty `moves` array and reports "Lineup saved" just as
   // readily as a real move - an empty array is a refusal only if the CALLER
   // treats it as one. This is that treatment, used by both call sites below
@@ -602,7 +602,7 @@ export default function PlayerDecisionCard(props) {
                       Locked
                     </Typography>
                   )}
-                  {entry.spent && (
+                  {spent(entry) && (
                     <Typography
                       component="span"
                       data-testid="decision-card-spent"
@@ -975,9 +975,9 @@ export default function PlayerDecisionCard(props) {
             >
               <Box data-testid={`decision-card-compare-panel-${entry.playerId}`}>
                 <Typography component="h3" sx={{ fontWeight: 700, px: 2, pt: 1.5 }}>{entry.name}</Typography>
-                <InjurySection entry={entry} level="h4" />
+                <InjurySection entry={entry} level="h4" practice={card?.player?.practice} practiceTestId="decision-card-practice" />
                 <GameSection entry={entry} line={line} weather={weather} level="h4" />
-                <ProjectionSection entry={entry} level="h4" volatility={card?.decision?.volatility} />
+                <ProjectionSection entry={entry} level="h4" volatility={card?.decision?.volatility} explanation={card?.explanation} />
                 <UsageSection usage={usage} opponents={opponents} position={entry.position} level="h4" />
                 <BenchOptionsSection
                   entry={entry}
@@ -1003,17 +1003,17 @@ export default function PlayerDecisionCard(props) {
                     <CloseIcon fontSize="small" />
                   </IconButton>
                 </Box>
-                <InjurySection entry={compareEntry} level="h4" />
+                <InjurySection entry={compareEntry} level="h4" practice={compareCard?.player?.practice} practiceTestId="decision-card-compare-practice" />
                 <GameSection entry={compareEntry} line={compareLine} weather={compareWeather} level="h4" />
-                <ProjectionSection entry={compareEntry} level="h4" volatility={compareCard?.decision?.volatility} />
+                <ProjectionSection entry={compareEntry} level="h4" volatility={compareCard?.decision?.volatility} explanation={compareCard?.explanation} />
                 <UsageSection usage={compareUsage} opponents={compareOpponents} position={compareEntry.position} level="h4" />
               </Box>
             </Box>
           ) : (
             <>
-              <InjurySection entry={displayEntry} />
+              <InjurySection entry={displayEntry} practice={card?.player?.practice} practiceTestId="decision-card-practice" />
               {lineupManaged && <GameSection entry={entry} line={line} weather={weather} />}
-              {lineupManaged && <ProjectionSection entry={entry} volatility={card?.decision?.volatility} />}
+              {lineupManaged && <ProjectionSection entry={entry} volatility={card?.decision?.volatility} explanation={card?.explanation} />}
               <UsageSection usage={usage} opponents={opponents} position={entry?.position} showTable={lineupManaged} />
               {/* #1307, ADR 0040: "Every context adds the decision strip ...
                   and the eighteen-week bars" - additive to my_team's own
@@ -1159,8 +1159,6 @@ function Section({ title, testId, level = 'h3', children }) {
   );
 }
 
-// AC2/AC3: the injury designation and the feed's detail, hidden entirely for
-// a healthy player (null source).
 /**
  * ADR 0056: "No practice this week" beside a Questionable tag, on the opened
  * player and on a compared one alike. Read off the card payload's own Start
@@ -1181,14 +1179,23 @@ function BackupNote({ verdict, testId }) {
   return <Badge variant="neutral" data-testid={testId}>{BACKUP_LABEL}</Badge>;
 }
 
-function InjurySection({ entry, level }) {
+// AC2/AC3: the injury designation and the feed's detail, hidden only when the
+// designation and the Practice participation line (#1923, `practice`: the
+// card's `player.practice` entries, context only) are both absent.
+function InjurySection({ entry, level, practice, practiceTestId }) {
   const view = injuryTileView(entry);
-  if (!view) return null;
+  const entries = Array.isArray(practice) ? practice : [];
+  if (!view && entries.length === 0) return null;
   return (
     <Section title="Injury" testId="decision-card-injury" level={level}>
-      <Typography sx={{ fontSize: 14 }}>{view.name}</Typography>
-      {view.detail && (
+      {view && <Typography sx={{ fontSize: 14 }}>{view.name}</Typography>}
+      {view && view.detail && (
         <Typography sx={{ fontSize: 13, color: 'var(--dash-faint)', mt: 0.5 }}>{view.detail}</Typography>
+      )}
+      {entries.length > 0 && (
+        <Typography data-testid={practiceTestId} sx={{ fontSize: 13, color: 'var(--dash-faint)', mt: view ? 0.5 : 0 }}>
+          {`Practice: ${entries.map((e) => `${e.status} (${e.day})`).join(', ')}`}
+        </Typography>
       )}
     </Section>
   );
@@ -1265,7 +1272,7 @@ function GameSection({ entry, line, weather, level }) {
 // from the card payload's `decision.volatility` (`steady` | `boom_or_bust`);
 // anything else (null, absent, a tag this build does not know) renders nothing,
 // never an "unavailable" (ADR 0040).
-function ProjectionSection({ entry, level, volatility }) {
+function ProjectionSection({ entry, level, volatility, explanation }) {
   const factorText = entry.factorExplanation || null;
   const volatilityLabel = VOLATILITY_LABELS[volatility] ?? null;
   return (
@@ -1290,6 +1297,11 @@ function ProjectionSection({ entry, level, volatility }) {
       {factorText && (
         <Typography data-testid="decision-card-factor" sx={{ mt: 1, fontSize: 13 }}>
           {factorText}
+        </Typography>
+      )}
+      {explanation && (
+        <Typography variant="body2" data-testid="decision-card-explanation" sx={{ mt: 1, fontSize: 13 }}>
+          {explanation}
         </Typography>
       )}
     </Section>
@@ -1366,7 +1378,7 @@ function DecisionStripSection({ decision, usage, ownership, depth, rosterStatus,
   const hasContent =
     (decision?.projWeek && decision.projWeek.points != null) ||
     (decision?.ros && decision.ros.points != null) ||
-    (decision?.upgrade != null && decision.upgrade.points != null) ||
+    decision?.upgrade?.points > 0 ||
     (usage?.seasonAverage && usage.seasonAverage.fantasyPoints != null) ||
     (ownership && ownership.percentOwned != null) ||
     (depth && depth.positionGroup && depth.rank != null) ||

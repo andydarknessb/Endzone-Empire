@@ -1,0 +1,238 @@
+{
+ "gameID": "20261011_SF@SEA",
+ "gameStatus": "Completed",
+ "gameStatusCode": "2",
+ "home": "SEA",
+ "away": "SF",
+ "lineScore": {
+  "period": "Final",
+  "gameClock": "",
+  "away": {
+   "Q1": "7",
+   "Q2": "14",
+   "Q3": "0",
+   "Q4": "11",
+   "teamID": "28",
+   "currentlyInPossession": "False",
+   "totalPts": "32",
+   "teamAbv": "SF"
+  },
+  "home": {
+   "Q1": "7",
+   "Q2": "6",
+   "Q3": "13",
+   "Q4": "3",
+   "teamID": "29",
+   "currentlyInPossession": "False",
+   "totalPts": "29",
+   "teamAbv": "SEA"
+  }
+ },
+ "DST": {
+  "away": {
+   "teamAbv": "SF",
+   "teamID": "28",
+   "defTD": "1",
+   "defensiveInterceptions": "2",
+   "sacks": "5",
+   "ydsAllowed": "251",
+   "fumblesRecovered": "2",
+   "ptsAllowed": "29",
+   "safeties": "0"
+  },
+  "home": {
+   "teamAbv": "SEA",
+   "teamID": "29",
+   "defTD": "0",
+   "defensiveInterceptions": "1",
+   "sacks": "3",
+   "ydsAllowed": "269",
+   "fumblesRecovered": "2",
+   "ptsAllowed": "26",
+   "safeties": "0"
+  }
+ },
+ "teamStats": {
+  "away": {
+   "totalYards": "269",
+   "rushingAttempts": "24",
+   "rushingYards": "94",
+   "fumblesLost": "2",
+   "penalties": "8-70",
+   "totalPlays": "56",
+   "possession": "29:02",
+   "safeties": "0",
+   "passCompletionsAndAttempts": "19-29",
+   "passingFirstDowns": "9",
+   "interceptionsThrown": "1",
+   "sacksAndYardsLost": "3-14",
+   "thirdDownEfficiency": "4-12",
+   "blockedPunt": "0",
+   "yardsPerPlay": "4.8",
+   "redZoneScoredAndAttempted": "3-3",
+   "teamID": "28",
+   "defensiveInterceptions": "2",
+   "defensiveOrSpecialTeamsTds": "1",
+   "totalDrives": "13",
+   "rushingFirstDowns": "5",
+   "blockedFG": "0",
+   "rushTD": "1",
+   "twoPointConversions": "1",
+   "firstDowns": "14",
+   "passTD": "2",
+   "team": "SF",
+   "blockedXP": "0",
+   "teamAbv": "SF",
+   "firstDownsFromPenalties": "0",
+   "fourthDownEfficiency": "0-0",
+   "defensiveTwoPointConversionReturns": "0",
+   "passingYards": "175",
+   "yardsPerRush": "3.9",
+   "turnovers": "3",
+   "yardsPerPass": "5.5"
+  },
+  "home": {
+   "totalYards": "251",
+   "rushingAttempts": "26",
+   "rushingYards": "89",
+   "fumblesLost": "2",
+   "penalties": "5-46",
+   "totalPlays": "60",
+   "possession": "30:58",
+   "safeties": "0",
+   "passCompletionsAndAttempts": "18-29",
+   "passingFirstDowns": "9",
+   "interceptionsThrown": "2",
+   "sacksAndYardsLost": "5-33",
+   "thirdDownEfficiency": "3-12",
+   "blockedPunt": "0",
+   "yardsPerPlay": "4.2",
+   "redZoneScoredAndAttempted": "2-3",
+   "teamID": "29",
+   "defensiveInterceptions": "1",
+   "defensiveOrSpecialTeamsTds": "0",
+   "totalDrives": "15",
+   "rushingFirstDowns": "4",
+   "blockedFG": "0",
+   "rushTD": "1",
+   "twoPointConversions": "0",
+   "firstDowns": "14",
+   "passTD": "1",
+   "team": "SEA",
+   "blockedXP": "0",
+   "teamAbv": "SEA",
+   "firstDownsFromPenalties": "1",
+   "fourthDownEfficiency": "0-1",
+   "defensiveTwoPointConversionReturns": "0",
+   "passingYards": "162",
+   "yardsPerRush": "3.4",
+   "turnovers": "4",
+   "yardsPerPass": "4.8"
+  }
+ },
+ "playerStats": {
+  "4429835": {
+   "gameID": "20261011_SF@SEA",
+   "Rushing": {
+    "rushAvg": "1.8",
+    "rushYds": "7",
+    "carries": "4",
+    "longRush": "9",
+    "rushTD": "0"
+   },
+   "Receiving": {
+    "receptions": "4",
+    "recTD": "0",
+    "longRec": "9",
+    "targets": "4",
+    "recYds": "24",
+    "recAvg": "6.0"
+   },
+   "teamID": "29",
+   "team": "SEA",
+   "teamAbv": "SEA",
+   "Defense": {
+    "fumblesLost": "1",
+    "defensiveInterceptions": "0",
+    "forcedFumbles": "0",
+    "fumbles": "2",
+    "fumblesRecovered": "1"
+   },
+   "playerID": "4429835",
+   "longName": "George Holani"
+  },
+  "4685369": {
+   "gameID": "20261011_SF@SEA",
+   "scoringPlays": [
+    {
+     "score": "Gracen Halton Fumble Recovery in End Zone (Eddy Pineiro Kick)",
+     "scorePeriod": "Q2",
+     "homeScore": "13",
+     "awayScore": "21",
+     "teamID": "28",
+     "scoreDetails": "1 play, -4 yards, 0:05",
+     "scoreType": "TD",
+     "scoreTime": "0:13",
+     "team": "SF",
+     "playerIDs": [
+      "4685369",
+      "4034949"
+     ]
+    }
+   ],
+   "teamID": "28",
+   "team": "SF",
+   "teamAbv": "SF",
+   "Defense": {
+    "totalTackles": "3",
+    "fumblesLost": "0",
+    "defTD": "1",
+    "forcedFumbles": "1",
+    "fumbles": "0",
+    "fumblesRecovered": "1",
+    "soloTackles": "3",
+    "tfl": "2",
+    "qbHits": "1",
+    "defensiveInterceptions": "0",
+    "sacks": "1",
+    "passDeflections": "0"
+   },
+   "playerID": "4685369",
+   "longName": "Gracen Halton"
+  }
+ },
+ "scoringPlays": [
+  {
+   "score": "Gracen Halton Fumble Recovery in End Zone (Eddy Pineiro Kick)",
+   "scorePeriod": "Q2",
+   "homeScore": "13",
+   "awayScore": "21",
+   "teamID": "28",
+   "scoreDetails": "1 play, -4 yards, 0:05",
+   "scoreType": "TD",
+   "scoreTime": "0:13",
+   "team": "SF",
+   "playerIDs": [
+    "4685369",
+    "4034949"
+   ]
+  }
+ ],
+ "allPlayByPlay": [
+  {
+   "play": "G.Holani left guard to SEA 0 for -4 yards (G.Halton). FUMBLES (G.Halton), touched at SEA 0, RECOVERED by SF-G.Halton at SEA -4. TOUCHDOWN. E.Pineiro extra point is GOOD, Center-J.Weeks, Holder-C.Waitman.",
+   "playPeriod": "Q2",
+   "playClock": "0:13",
+   "playerStats": {
+    "4429835": {
+     "Rushing": {
+      "rushYds": "-4",
+      "carries": "1"
+     }
+    }
+   },
+   "downAndDistance": "1st & 10 at SEA 4",
+   "teamID": "29"
+  }
+ ]
+}

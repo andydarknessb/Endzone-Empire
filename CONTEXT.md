@@ -330,6 +330,11 @@ _Avoid_: stadium (fine in copy, not as the term), location
 
 **Weather**:
 A game's forecast, read from `game_weather_snapshots` at the nearest horizon.
+A snapshot fetched more than 24 hours ago (or with no usable `fetched_at`)
+reads as no forecast on every surface: the Decision card and the My Team Ledger
+row carry their fields-null outdoor object and Pick'em carries `null`, exactly
+as before a first forecast exists. The test is one pure helper,
+`isWeatherFresh` in `nwsWeather.service.js` (#1930, #1941).
 That table is refreshed by the weather snapshots Sync run (every 6 hours; each
 run writes one bucket per game). A horizon bucket is a game's hours to
 kickoff floored to a 6-hour step, and a snapshot is kept per game and bucket.
@@ -428,7 +433,8 @@ dropped (a fantasy-roster word, ambiguous here)
 **Sync run**:
 One execution of a feed sync (injuries, ADP, schedule, players, week stats)
 or of a scheduled maintenance pass that must run once a day across worker
-restarts (the nightly projection fill, the Tue/Wed stat-correction pass) or
+restarts (the nightly projection fill, the Tue/Wed stat-correction pass, the
+daily retention pass) or
 on its own interval (the weather snapshots refresh, every 6 hours), recorded
 whether it succeeded, was refused, or failed, and with the reason when it did
 not succeed. A weather snapshots run that succeeds without fetching anything
@@ -824,7 +830,9 @@ Questionable player with no practice all week). Every surface that shows or
 acts on it reads the same verdict and none re-decides it; a surface may
 ignore an outcome it has no use for, as a Lineup problem ignores Not
 recommended, and only the Start/sit advice acts on no practice all week (ADR
-0056).
+0056). It is a fact about the player, never about his Lineup entry: whether
+that entry is locked is a Lineup lock fact read beside the verdict, not part
+of it.
 _Avoid_: availability verdict (Availability is the league state), verdict
 reason
 
@@ -835,7 +843,10 @@ with injury designation and lock, position and Team code, the Game cell,
 the Edge line, projection and points. Tapping a player's name opens the
 Decision card; the one tap on the row itself is swap-select, on every form
 factor (#1240 ruling). Trade, Drop and acquisition detail live on the
-Decision card, and Undo stays a toast after a drop. It
+Decision card, and Undo stays a toast after a drop. The points figure is
+blank until the player's game kicks off and 0.0 from then until he scores: a
+player who has not taken the field has no points yet, unlike a Team, whose
+Matchup score is 0.0 from the moment the Matchup exists. It
 names a row shape, not a screen: it is distinct from Roster (everything a
 team holds) and Lineup (the surface that presents rows in this shape). It
 supersedes the Roster Management presentation, which descended from the
@@ -1072,7 +1083,8 @@ _Avoid_: nfl_team null (that is No NFL team, above — a different fact)
 
 **Waiver claim**:
 A request for an unrostered player, resolved in a batch rather than
-first-come-first-served.
+first-come-first-served. Undoing a drop withdraws every pending claim on that
+player.
 
 **FAAB**:
 Free agent acquisition budget: a fixed season-long budget teams bid from to win
@@ -1156,9 +1168,10 @@ Ownership is under half of public ESPN leagues, so a weekly starter is never
 one. Defined by Ownership, never by Availability or Rostered. A week with no
 editorial board still gets Waiver Targets, computed: QB, RB, WR and TE under
 the Ownership cutoff, ranked by this week's projection (never season totals),
-at most two per position and eight in all, excluding Position-baseline
-projections, players with no stats in the last two completed weeks, No NFL team,
-Unavailable, and Out, IR or Doubtful players. When the newest Ownership
+at most two per position and eight in all, excluding players with no stats in
+the last two completed weeks, No NFL team, and any player whose Start verdict is
+not Recommendable (Unavailable, Position-baseline, Backup quarterback,
+Doubtful, or a Questionable player with no practice all week). When the newest Ownership
 snapshot is more than three days old the feed is stale: the editorial board is
 served without the Ownership cutoff and with no Ownership shown, and the
 computed list is not attempted, so a week with no board has none.
@@ -1173,19 +1186,41 @@ league's context; the profile itself offers no action.
 _Avoid_: owner line, who has him, league status
 
 **Upgrade**:
-The Weekly projection a player would add this week over the weakest starter
-at a slot he is eligible for. An Unavailable starter counts as zero in that
-comparison, so the Upgrade is measured over him and reads the candidate's
-full projection; the bench is not consulted, so a healthy bench player who
-could fill that slot is not netted out. The starter the Upgrade is measured
-over is the swap preview's other side; he is the claim sheet's suggested
-drop only when he is available this week. Undefined in a best ball league,
-where the column and tile are hidden, and for a player who is Unavailable
-this week (bye, Out, IR or No NFL team), whose pill and tile are hidden and
-who sorts last under the Upgrade sort. The same number for a free agent, a
+How many Weekly projection points a player would add to the manager's best
+possible lineup in his first playable week: the optimal lineup total with him
+on the roster minus the optimal total without him, over the starters and the
+bench (the IR slot excluded), never below zero. His first playable week is the
+week of the first game he can still play after he could join the roster: now
+for a Free agent, his Clear time for a player on waivers. It is what acquiring
+him can actually deliver, so it is often next week, and a pill for any week
+but this one names its week. For another team's player he could join when a
+trade could first complete: now, or once the league's review window ends. A
+bye week has no game, so it is skipped rather than refused. The baseline is the best lineup the current
+roster could field that week, not the lineup the manager happens to have set,
+so a healthy bench player who would fill an Unavailable starter's slot is
+netted out. An Unavailable roster player counts as zero; a player whose game
+has kicked off is held, as the Start/sit advice holds him (a starter keeps his
+slot, a bench player is not a candidate). The drop a claim makes is not part
+of the Upgrade (the claim nets it out: see Swap net), nor are the players a
+trade sends away, which belong to the trade. A candidate who adds nothing has an Upgrade of zero, which shows no pill or tile. The
+roster player the candidate displaces is the swap preview's other side.
+Undefined in a best ball league, where the column and tile are hidden, and for
+a player who is Out, on IR or has No NFL team, or whose first playable week
+falls after the league's last playoff week, whose pill and tile are hidden
+and who sorts last under the Upgrade sort. The same number for a free agent, a
 waiver candidate or another team's player, so it doubles as a trade-target
 score.
 _Avoid_: delta, gain (that is the Start/sit advice's word), improvement
+
+**Swap net**:
+What claiming a candidate nets once the player the manager picks to drop
+leaves the roster: the optimal lineup total with the candidate on and the
+drop off, minus the optimal total the roster fields now, in the candidate's
+first playable week. Signed, so it goes negative when the drop is worth more
+than the claim. The claim sheet's swap preview shows it in place of the
+Upgrade once a drop is picked; with no drop picked there is no Swap net and
+the preview shows the Upgrade.
+_Avoid_: net upgrade, drop-adjusted upgrade
 
 **News**:
 A dated headline about a player, with an optional blurb (a short plain-text
@@ -1206,7 +1241,11 @@ _Avoid_: alert, update, headline (a Pick'em term)
 One week's head-to-head pairing of two teams in a league. Once a matchup is
 final its lineups are a record of the week as played, never a working lineup:
 nothing is added to them after the fact, so re-scoring a final week counts
-only the players who were there when the games were played.
+only the players who were there when the games were played. A side's score
+reads 0.0 from the moment the Matchup exists, before kickoff included: a
+team that has scored nothing has a score of zero, not a missing one. Only a
+Team with no Matchup this week (a bye, nothing scheduled) has no score to
+show.
 _Avoid_: game (a game is an NFL game), fixture
 
 **NFL opponent**:
@@ -1310,7 +1349,8 @@ _Avoid_: preset
 **Score of record**:
 The score a week is settled with: written once when the commissioner advances
 the week, never recomputed from a later roster, and returned unchanged by every
-later re-score of that week.
+later re-score of that week. A commissioner's manual correction replaces it for
+one matchup, and no later re-score of that week changes the corrected score.
 _Avoid_: final score (a matchup's NFL-style total), official score
 
 **Settle pass**:
@@ -1405,9 +1445,16 @@ tied that one move from the week as played would have won, the move being one
 bench player into a starting slot he was eligible for, replacing that starter
 or filling an empty slot; and the season's fewest points left on the bench
 (spec #1846).
-_Avoid_: what-if (the live, in-progress counterpart), regret (the holdout
-study's measure of the same gap), optimal lineup (the thing hindsight
-compares against, not the comparison)
+_Avoid_: what-if (the Bench what-if is the live, in-progress counterpart),
+regret (the holdout study's measure of the same gap), optimal lineup (the thing
+hindsight compares against, not the comparison)
+
+**Bench what-if**:
+The live, in-progress counterpart of Hindsight: a team's points so far against
+the best legal lineup achievable from here, priced under the league's own
+scoring rules, with every player whose game has kicked off held. A live
+Matchup shows it with the swaps that close the gap. In best ball it is always
+zero.
 
 **Trophy**:
 An automatic award written when a week or a season finalizes, such as weekly
@@ -1433,10 +1480,30 @@ a candidate. A stat correction never awards, revokes or changes either.
 _Avoid_: achievement, award (fine in copy, not as the term), XP, badge (the
 UI chip that shows a tag, not a trophy)
 
+**Narrative**:
+Generated prose over facts the server already holds. A template always
+produces one and it is always stored; Claude may rewrite it, and the surface
+reads the same whether or not that rewrite ever ran. A Narrative carries no
+number of its own and is never a Projection: it names what the facts say and
+never computes. Nothing a manager types is ever part of its input. Recap,
+Matchup narrative and Projection explanation are its kinds.
+_Avoid_: AI summary, generated text, LLM output, commentary
+
 **Recap**:
-A generated narrative summary of one league week.
+A Narrative about one league week.
 _Avoid_: weekly recap animation, postgame cutscene (one Team's result, not the
 league's week)
+
+**Matchup narrative**:
+A Narrative about one Matchup, in two moments: a preview written once the
+week's Weekly projections exist and before the first Kickoff (rewritten if
+what it says changes before then, such as a starter ruled Out), and a postgame
+written once the Matchup is final. Both Teams read the same text, which
+carries Team identity and nothing else about either manager. The Postgame
+cutscene and the League Dashboard matchup card show it; the Recap does not
+repeat it.
+_Avoid_: matchup recap (the postgame moment is one half of this), trash talk,
+preview article
 
 **Postgame cutscene**:
 A full-screen Tecmo cutscene that reveals one Team's final Matchup result, win,
@@ -1458,9 +1525,11 @@ cutscene's word), Tuesday recap (finality is Advance week, not a weekday)
 **Season archive**:
 A League's completed seasons as they finished: each season's final standings,
 its champions (none, one, or several, for a fantasy and a pick'em League
-alike) and its outcome, written once when the season completes and never
-recomputed from later Matchups. League history and every all-time figure read
-the archive, never the live season.
+alike) and its outcome. The final standings are captured when the commissioner
+rolls the season over, so a Team removed before then is not in them; a pick'em
+League's champions and outcome are fixed earlier, when its season completes.
+None of it is ever recomputed from later Matchups. League history and every
+all-time figure read the archive, never the live season.
 _Avoid_: league history (the page and the table, not the concept), past
 seasons, archive (unqualified)
 
@@ -1605,8 +1674,8 @@ _Avoid_: prediction, forecast
 
 **Pool projection**:
 The older, league-agnostic estimate computed for the whole player pool at once
-under default scoring. It backs trades, waivers, public rankings and the Monte
-Carlo simulator.
+under default scoring. It backs trades, public rankings and the Monte Carlo
+simulator.
 _Avoid_: projection, unqualified
 
 **Weekly projection**:
@@ -1619,6 +1688,18 @@ _Avoid_: projection, unqualified
 **Rest of season**:
 A third projection horizon covering a player's remaining schedule rather than
 one week. Deliberately kept separate from both of the above.
+
+**Availability input**:
+The availability facts the engine itself reads before it prices a player
+(bye, No NFL team, Practice squad, Out, IR) and stores beside the number as
+part of the Weekly projection, where the holdout ledger captures them with
+it. It feeds the Appearance probability inside the number and is kept
+current as the NFL facts change. It is not the Start verdict: it never
+carries Doubtful, no practice, Position-baseline or Backup, and no surface
+reads it as an answer to whether a player may be started. The Start verdict
+is derived on read from the live facts and the engine's flags (ADR 0061).
+_Avoid_: stored verdict, availability (unqualified; Availability is the
+league state), factors.availability (the field, fine in code)
 
 **Position-baseline projection**:
 A Weekly projection with no player evidence behind it: the player has no
@@ -1724,6 +1805,15 @@ labels the NFL opponent line "context only" when the Factor did not apply
 (ADR 0047).
 _Avoid_: last year's defense, carry-over
 
+**Projection explanation**:
+A Narrative about one player's Weekly projection for one week, naming the
+Factors that moved it and never a value, a rank or a verdict. It is written
+per player per week under the pool-wide default scoring rules, so it reads
+true in every league, and rewritten only when what it says would change (a
+new injury tag, a Factor that flipped). The Decision card shows it beside the
+number it explains. It is not Start/sit advice and never recommends a lineup.
+_Avoid_: AI insight, projection note, analysis, why-card
+
 **Start/sit advice**:
 The engine's recommendation about which rostered players to start, including an
 explicit "too close to call" answer when two players' distributions overlap
@@ -1732,8 +1822,8 @@ moves the advice names, one manager action for all of them; it never
 re-assigns the whole lineup. A manager can dismiss a suggestion on the Start/sit
 card; Apply then leaves that suggestion's moves out. The dismissal is not
 saved: it lasts until the manager leaves or reloads the page. While a Called
-shot is open, its starter is
-pinned in his slot and its benched player is not a candidate, as locked
+shot is open, its starter
+keeps his slot and its benched player is not a candidate, as locked
 players are, so the advice never names that pair and Apply cannot undo it.
 The Start/sit card shows fact chips for each player's game only when notable:
 "High total" (a Line total of 48 or more), "Favored by" (7 points or more),
@@ -1805,9 +1895,32 @@ private "You vs the Forecast" record and never shown to another manager.
 Distinct from a commissioner overriding a Roster lock.
 _Avoid_: disagreement, fade, ignored advice
 
+**Held**:
+What the Optimizer may not move in a lineup valuation. Start/sit advice, the
+Bench what-if and the Upgrade hold; the counted roster, Expected final, Monte
+Carlo and the Lineup seed do not. A starter whose game has kicked off keeps
+his slot, and a bench player whose game has kicked off is not a candidate. An
+open Called shot's pair is held the same way (its starter keeps his slot, its
+benched player is not a candidate) for as long as the lineup still matches the
+shot, but only Start/sit advice holds it. A player on IR is never a candidate.
+_Avoid_: frozen, pinned (the code's name for a held starter's slot)
+
 **Optimizer**:
-The assignment routine that fills every starting slot to maximize projected
-points. It will leave a slot empty rather than start a negative projection.
+The assignment routine that places players in starting slots to maximize
+projected points, solved exactly around what is Held. It has two modes. By
+default it leaves a slot empty rather than start a negative projection:
+Start/sit advice, the Upgrade and the Lineup seed (a materialized lineup, a
+save's repair, a drafted team's first lineup) use it. With `fillEverySlot` it
+first fills every slot that has an eligible player, then maximizes points: the
+counted roster (the best-ball score of record and Hindsight),
+the Bench what-if, Expected final (in best ball only), Monte Carlo and Draft
+grade use it.
+
+**Lineup seed**:
+The first lineup the Optimizer places for a roster with no points yet: a
+materialized lineup, a save's repair, a drafted team's first lineup. Every
+player is worth a little and an earlier listed player more, so as many seat as
+legally fit and ties go to the first listed. It holds nothing.
 
 **Game status**:
 The designation a player carries into a week: none, Questionable, Doubtful,
@@ -1842,7 +1955,7 @@ we record the new report with the time we saw it, for the NFL week in play
 (read off the schedule's kickoffs, never a league's current week). The
 practice day is therefore approximate (a Wednesday report first published
 Thursday is observed Thursday), and a week's observations, not a single
-value, are what the Start/sit advice reads.
+value, are what the Start/sit advice reads and what the Decision card lists.
 _Avoid_: practice status, injury status, DNP (in prose, say "did not
 participate")
 
@@ -1984,6 +2097,17 @@ never served, judged against the Champion only at the preregistered
 checkpoints. Unlike a Candidate, it is a whole Model version rather than one
 constant flip, and its mean is expected to differ.
 _Avoid_: candidate (a Candidate is a sealed study's constant flip), variant
+
+**Editorial call**:
+The author's verdict on one player for one week, published in a Darkness
+Report before Kickoff and scored against actual points after the games:
+start, flex, sit, or treat as out, sometimes conditional on the player being
+active. It is a judgment, never a Projection, and the engine never serves
+it. It differs from Start/sit advice, which is the engine's recommendation
+to a manager, and from a Called shot, which is a manager's declaration
+about their own lineup; and it is not a Challenger, which is always a Model
+version.
+_Avoid_: pick, ruling (outside the article), expert projection
 
 **Shadow arm**:
 The captured, unserved series of one Challenger: written pre-kickoff in the

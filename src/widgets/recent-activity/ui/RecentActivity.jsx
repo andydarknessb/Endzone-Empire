@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import { Box, Typography, useMediaQuery, useTheme } from '@mui/material';
 import { Badge, Card, Skeleton } from '../../../shared/ui';
@@ -27,14 +27,19 @@ import { activityBadge, formatActivityTime } from '../model/recentActivityModel'
  * most the rail ever shows; below the `md` breakpoint only the first 5 of those
  * render, matching the mockup's mobile artboard. At and above it the cap is the
  * optional `rowLimit` (never more than the 17 fetched): the dashboard passes
- * `ceil(team count * 5 / 6)` because this card rides the rail beside the
- * standings, and a standings row measures 49px against 58.8px for an activity
- * row (6:5), so that many rows end the rail about where the standings table
- * does instead of leaving bare page under it (#1993). 17 is that count for a
+ * `ceil(team count * 5 / 6)` because, while the feed fills the rail, this card
+ * rides the rail beside the standings (a feed with fewer rows stacks it under
+ * them, see `onFeedShort` below), and a standings row measures 49px against
+ * 58.8px for an activity row (6:5), so that many rows end the rail about where
+ * the standings table does instead of leaving bare page under it (#1993). 17 is that count for a
  * 20-team league, the largest. The loading skeleton follows the SAME cap (5
  * rows below `md`, `rowLimit` or 17 at and above it) rather than always
  * holding 17, so loading never overshoots the row count the breakpoint is
  * about to show.
+ *
+ * `onFeedShort(boolean)` reports whether the resolved feed has fewer rows than
+ * the md+ cap (#1998); the dashboard stacks the card under the standings when
+ * it does, since a short card leaves the rail column bare beside them.
  *
  * The card is the region that owns its one read, so it carries `aria-busy`
  * while `status` is 'loading' (Skeleton.jsx: the loading state is announced
@@ -120,7 +125,7 @@ function ActivityRow({ row, first, now }) {
  * `now` (epoch ms or a Date) is the clock the row times are measured
  * against; it defaults to the render time and exists so a test can pin it.
  */
-export default function RecentActivity({ leagueId, now, headingLevel = 2, rowLimit, sx, ...rest }) {
+export default function RecentActivity({ leagueId, now, headingLevel = 2, rowLimit, onFeedShort, sx, ...rest }) {
   const { status, rows } = useLeagueTransactions(leagueId, { limit: FETCH_LIMIT });
   const theme = useTheme();
   const mobile = useMediaQuery(theme.breakpoints.down('md'));
@@ -132,6 +137,17 @@ export default function RecentActivity({ leagueId, now, headingLevel = 2, rowLim
   const list = Array.isArray(rows) ? rows.filter(Boolean) : [];
   const shown = list.slice(0, limit);
   const busy = status === 'loading';
+
+  // Reports up whether the resolved feed is too short to fill the md+ rail
+  // (zero rows and a failed read included), judged on `wideLimit` and not on
+  // the phone cap, so the answer does not change with the viewport. The page
+  // stacks the card under the standings on it (#1998). The widget stays the
+  // feed's only reader: a second `useLeagueTransactions` caller is a second
+  // request.
+  const feedShort = !busy && list.length < wideLimit;
+  useEffect(() => {
+    if (onFeedShort) onFeedShort(feedShort);
+  }, [onFeedShort, feedShort]);
 
   return (
     <Card

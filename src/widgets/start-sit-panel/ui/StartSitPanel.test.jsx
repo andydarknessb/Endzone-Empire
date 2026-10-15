@@ -47,6 +47,34 @@ test('a tossup verdict shows the too-close-to-call chip, never a lean', () => {
   expect(chip).toHaveAttribute('data-verdict', 'tossup');
 });
 
+test.each([
+  ['strong', 'Strong start', 'strong'],
+  ['start', 'Lean start', 'lean'],
+  ['tossup', 'Too close to call', 'tossup'],
+])('the %s band reads "%s" (#1909)', (verdict, text, attr) => {
+  render(<StartSitPanel advice={{ suggestions: [suggestion({ verdict })], movePlan: [] }} entries={entries} bestBall={false} />);
+  const chip = screen.getByTestId('suggestion-verdict');
+  expect(chip).toHaveTextContent(text);
+  expect(chip).toHaveAttribute('data-verdict', attr);
+});
+
+test('"about N%" sits beside the badge, capped at 90%, and is absent when the probability is null (#1909)', () => {
+  const { rerender } = render(
+    <StartSitPanel advice={{ suggestions: [suggestion({ verdict: 'start', probabilityBetter: 0.72 })], movePlan: [] }} entries={entries} bestBall={false} />
+  );
+  expect(screen.getByTestId('suggestion-probability')).toHaveTextContent('about 70%');
+
+  rerender(
+    <StartSitPanel advice={{ suggestions: [suggestion({ verdict: 'strong', probabilityBetter: 0.97 })], movePlan: [] }} entries={entries} bestBall={false} />
+  );
+  expect(screen.getByTestId('suggestion-probability')).toHaveTextContent('about 90%');
+
+  rerender(
+    <StartSitPanel advice={{ suggestions: [suggestion({ verdict: 'start', probabilityBetter: null })], movePlan: [] }} entries={entries} bestBall={false} />
+  );
+  expect(screen.queryByTestId('suggestion-probability')).not.toBeInTheDocument();
+});
+
 test('dismiss hides the suggestion without touching any other', async () => {
   const user = userEvent.setup();
   const second = suggestion({
@@ -92,7 +120,13 @@ test('dismissing the only remaining card moves focus to the panel itself, never 
   expect(screen.getByTestId('start-sit-panel-content')).toHaveAttribute('tabindex', '-1');
 });
 
-test('compare renders and calls only its own callback', async () => {
+test('no Compare button renders when onCompare is not passed', () => {
+  render(<StartSitPanel advice={{ suggestions: [suggestion()], movePlan: [] }} entries={entries} bestBall={false} />);
+  expect(screen.getByTestId('suggestion-dismiss')).toBeInTheDocument();
+  expect(screen.queryByTestId('suggestion-compare')).toBeNull();
+});
+
+test('Compare renders when onCompare is passed, and calls only that callback', async () => {
   const user = userEvent.setup();
   const onCompare = jest.fn();
   render(<StartSitPanel advice={{ suggestions: [suggestion()], movePlan: [] }} entries={entries} bestBall={false} onCompare={onCompare} />);
@@ -101,13 +135,13 @@ test('compare renders and calls only its own callback', async () => {
   expect(onCompare).toHaveBeenCalledTimes(1);
 });
 
-test('Apply sends the advice move plan through onApply', async () => {
+test('Apply sends the advice move plan through onApply as { playerId, slot } moves', async () => {
   const user = userEvent.setup();
   const onApply = jest.fn();
   const movePlan = [{ playerId: 1, fromSlot: 'RB', toSlot: 'BENCH' }, { playerId: 2, fromSlot: 'BENCH', toSlot: 'RB' }];
   render(<StartSitPanel advice={{ suggestions: [suggestion()], movePlan }} entries={entries} bestBall={false} onApply={onApply} />);
   await user.click(screen.getByTestId('start-sit-apply'));
-  expect(onApply).toHaveBeenCalledWith(movePlan);
+  expect(onApply).toHaveBeenCalledWith([{ playerId: 1, slot: 'BENCH' }, { playerId: 2, slot: 'RB' }]);
 });
 
 test('Apply after dismissing a suggestion sends only the remaining suggestions\' moves and open-slot fills', async () => {
@@ -131,9 +165,9 @@ test('Apply after dismissing a suggestion sends only the remaining suggestions\'
   await user.click(screen.getByTestId('start-sit-apply'));
 
   expect(onApply).toHaveBeenCalledWith([
-    { playerId: 4, fromSlot: 'BENCH', toSlot: 'WR' },
-    { playerId: 3, fromSlot: 'WR', toSlot: 'BENCH' },
-    { playerId: 9, fromSlot: 'BENCH', toSlot: 'FLEX' },
+    { playerId: 4, slot: 'WR' },
+    { playerId: 3, slot: 'BENCH' },
+    { playerId: 9, slot: 'FLEX' },
   ]);
 });
 
@@ -181,8 +215,10 @@ test.each([['Q', 'Questionable'], ['D', 'Doubtful'], ['O', 'Out']])(
 
 test('a Questionable player with no practice all week shows "No practice this week" beside the tag, and only he does (ADR 0056)', () => {
   const s = suggestion();
-  s.current.availability = { available: true, status: 'Q', reason: 'no_practice' };
-  s.suggested.availability = { available: true, status: 'Q', reason: 'questionable' };
+  s.current.availability = { available: true, status: 'Q' };
+  s.current.startVerdict = { outcome: 'not_recommended', reason: 'no_practice', numberTrusted: true };
+  s.suggested.availability = { available: true, status: 'Q' };
+  s.suggested.startVerdict = { outcome: 'recommendable', reason: 'questionable', numberTrusted: true };
   render(<StartSitPanel advice={{ suggestions: [s], movePlan: [] }} entries={entries} bestBall={false} />);
   const [sitColumn, startColumn] = screen.getAllByTestId('suggestion-player');
   expect(within(sitColumn).getByTestId('suggestion-no-practice')).toHaveTextContent('No practice this week');
@@ -192,8 +228,10 @@ test('a Questionable player with no practice all week shows "No practice this we
 
 test('a Backup quarterback shows "Backup" beside his name, and only he does (ADR 0057)', () => {
   const s = suggestion();
-  s.current.availability = { available: true, status: null, reason: 'backup' };
-  s.suggested.availability = { available: true, status: null, reason: null };
+  s.current.availability = { available: true, status: null };
+  s.current.startVerdict = { outcome: 'not_recommended', reason: 'backup', numberTrusted: false };
+  s.suggested.availability = { available: true, status: null };
+  s.suggested.startVerdict = { outcome: 'recommendable', reason: null, numberTrusted: true };
   render(<StartSitPanel advice={{ suggestions: [s], movePlan: [] }} entries={entries} bestBall={false} />);
   const [sitColumn, startColumn] = screen.getAllByTestId('suggestion-player');
   expect(within(sitColumn).getByTestId('suggestion-backup')).toHaveTextContent('Backup');
@@ -515,7 +553,7 @@ test('the shot adds no client filter: Apply still passes the payload plan minus 
     />
   );
   await user.click(screen.getByTestId('start-sit-apply'));
-  expect(onApply).toHaveBeenCalledWith(plan);
+  expect(onApply).toHaveBeenCalledWith([{ playerId: 5, slot: 'WR' }]);
 });
 
 test('while a shot request is in flight the actions stay mounted, aria-disabled, and ignore clicks (#1856)', async () => {

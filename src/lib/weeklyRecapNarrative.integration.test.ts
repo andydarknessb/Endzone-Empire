@@ -65,12 +65,15 @@ describe('weekly recap AI prompt chain', () => {
     const client = {
       messages: {
         create: jest.fn().mockResolvedValue({
+          stop_reason: 'end_turn',
           content: [{ type: 'text', text: generatedNarrative }],
         }),
       },
     };
 
-    const narrative = await llmNarrative(facts, { client });
+    // A budget with nothing spent, and a ledger insert that succeeds.
+    const pool = { query: jest.fn().mockResolvedValue({ rows: [{ spent: 0 }] }) };
+    const narrative = await llmNarrative(facts, { client, pool });
     const prompt = client.messages.create.mock.calls[0][0].messages[0].content;
 
     expect(facts.highestScorer).toEqual({ team: 'Night Owls', points: 142.5 });

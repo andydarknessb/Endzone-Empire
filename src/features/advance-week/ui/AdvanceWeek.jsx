@@ -56,7 +56,7 @@ export default function AdvanceWeek({ leagueId, currentWeek, onAdvanced }) {
     setBusy(true);
     setError(null);
     try {
-      await apiClient.post(`/api/scoring/league/${leagueId}/advance-week`);
+      await apiClient.post(`/api/scoring/league/${leagueId}/advance-week`, { week: Number(currentWeek) });
       setOpen(false);
       if (typeof onAdvanced === 'function') onAdvanced();
     } catch (err) {

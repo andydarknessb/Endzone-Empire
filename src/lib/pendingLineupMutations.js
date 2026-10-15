@@ -3,6 +3,8 @@ import apiClient from '../api/apiClient';
 export const PENDING_LINEUP_MUTATIONS_KEY = 'pending_lineup_mutations';
 export const LINEUP_QUEUE_CHANGED_EVENT = 'lineup:mutation-queue-changed';
 export const LINEUP_MUTATION_REPLAYED_EVENT = 'lineup:mutation-replayed';
+export const LINEUP_MUTATION_REJECTED_EVENT = 'lineup:mutation-rejected';
+export const LINEUP_REJECTED_CHANNEL = 'lineup:mutation-rejected';
 const LINEUP_REPLAY_LOCK = 'pending-lineup-mutations-replay';
 
 const ALLOWED_METHODS = new Set(['POST', 'PUT', 'PATCH']);
@@ -20,6 +22,13 @@ function queueEvent(name, detail) {
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent(name, { detail }));
   }
+}
+
+// One channel per tab, used to post and to listen: a channel never hears its own posts, so the
+// replaying tab keeps its local event and every other tab re-dispatches what it receives.
+const rejectedChannel = typeof BroadcastChannel === 'undefined' ? null : new BroadcastChannel(LINEUP_REJECTED_CHANNEL);
+if (rejectedChannel) {
+  rejectedChannel.onmessage = (message) => queueEvent(LINEUP_MUTATION_REJECTED_EVENT, message.data);
 }
 
 function validIntent(value) {
@@ -119,6 +128,15 @@ async function runReplay() {
         headers: { 'Idempotency-Key': intent.id },
       });
     } catch (error) {
+      const status = error.response?.status;
+      // A permanent refusal (409 locked, 403) would stay first forever and block every later save.
+      if (status >= 400 && status < 500 && ![401, 408, 429].includes(status)) {
+        removeIntent(intent.id);
+        const detail = { intent, status, data: error.response.data };
+        queueEvent(LINEUP_MUTATION_REJECTED_EVENT, detail);
+        rejectedChannel?.postMessage(detail);
+        continue;
+      }
       return { replayed, remaining: readPendingLineupMutations().length, error };
     }
 
@@ -132,7 +150,7 @@ async function runReplay() {
 
     removeIntent(intent.id);
     replayed += 1;
-    queueEvent(LINEUP_MUTATION_REPLAYED_EVENT, { intent, status: response.status });
+    queueEvent(LINEUP_MUTATION_REPLAYED_EVENT, { intent, status: response.status, data: response.data });
   }
   return { replayed, remaining: readPendingLineupMutations().length };
 }

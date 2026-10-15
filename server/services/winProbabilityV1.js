@@ -1,10 +1,10 @@
 /**
  * Matchup win probability v1, the server's copy, pure. The one v1 the product
- * shows is the client's (src/shared/lib/winProbability.js, an ES module the
+ * shows is the client's (src/entities/matchup/model/winProbability.js, an ES module the
  * server cannot require); this port exists only so win probability v2's
  * evaluation (winProbabilityEvaluation.js) can recompute v1 from a shadow
  * row's scores and Expected finals and grade the number the browser actually
- * showed. src/shared/lib/winProbability.parity.test.js pins the two to the
+ * showed. src/entities/matchup/model/winProbability.parity.test.js pins the two to the
  * same result bit for bit, so edit both or neither.
  *
  * v1 is a logistic of the Expected final margin at a fixed scale of 24:

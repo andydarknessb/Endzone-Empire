@@ -445,7 +445,7 @@ test('the week board shapes line/weather/venue/broadcast/records/linescores/head
       return { rows: [{ game_key: '2026_01_DAL_WAS', total: '47.50', spread: '-3.50', observed_at: '2026-09-11T00:00:00.000Z' }] };
     }],
     [/FROM "game_weather_snapshots"/, () => ({
-      rows: [{ game_key: '2026_01_DAL_WAS', short_forecast: 'Clear', temperature_f: 72, wind_speed_mph: 5, precipitation_probability: 0 }],
+      rows: [{ game_key: '2026_01_DAL_WAS', short_forecast: 'Clear', temperature_f: 72, wind_speed_mph: 5, precipitation_probability: 0, fetched_at: new Date() }],
     })],
   ]);
 
@@ -515,7 +515,7 @@ test('a dome game with no roof value synced yet still reports no weather, once t
       }],
     })],
     [/FROM "game_weather_snapshots"/, () => ({
-      rows: [{ game_key: '2026_01_DAL_WAS', short_forecast: 'Clear', temperature_f: 72, wind_speed_mph: 5, precipitation_probability: 0 }],
+      rows: [{ game_key: '2026_01_DAL_WAS', short_forecast: 'Clear', temperature_f: 72, wind_speed_mph: 5, precipitation_probability: 0, fetched_at: new Date() }],
     })],
   ]);
 

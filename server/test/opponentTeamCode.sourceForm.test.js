@@ -86,8 +86,8 @@ function parenBody(source, declaration) {
   return source.slice(start, i + 1);
 }
 
-test('league.router.js: the starter-row opponent map folds both the team key and the opponent value', () => {
-  const source = read('routes/league.router.js');
+test('matchupDetail.service.js: the starter-row opponent map folds both the team key and the opponent value', () => {
+  const source = read('services/matchupDetail.service.js');
   const body = parenBody(source, 'const opponentByTeam = new Map(');
   assert.equal(
     foldCount(body),

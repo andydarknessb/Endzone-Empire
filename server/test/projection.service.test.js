@@ -147,6 +147,29 @@ test('a No NFL team player projects a number but reads hard-unavailable (no_team
   assert.ok(projected.median > 0, 'the pace still reads');
 });
 
+// #2144: a projection is priced under a league's rules, so a read with no
+// league refuses; a reader with none by design says PUBLIC.
+test('#2144 getWeeklyProjections without a league rejects instead of pricing under standard rules', async (t) => {
+  const calls = mockPool(t, { players: [player(1, 'RB')] });
+
+  await assert.rejects(run({ season: SEASON, week: 5, playerIds: [1] }), /requires a league/);
+  await assert.rejects(run({ season: SEASON, week: 5, league: null, playerIds: [1] }), /requires a league/);
+  assert.equal(calls.length, 0, 'the refusal comes before any read');
+});
+
+test('#2144 league: PUBLIC prices under standard rules, the scoring hash of no league scope', async (t) => {
+  mockPool(t, {
+    players: [player(1, 'RB')],
+    weeklyStats: Array.from({ length: 4 }, (_, i) => weeklyRow(1, i + 1, { rushingYards: 70, rushingTDs: 1 })),
+  });
+
+  const result = await run({ season: SEASON, week: 5, league: projection.PUBLIC, playerIds: [1] });
+
+  assert.equal(result.scoringHash, model.scoringHash(SCORING_RULES));
+  assert.notEqual(result.scoringHash, model.scoringHash(SCORING_PRESETS.ppr), 'a PPR league is a different run');
+  assert.ok(result.projections.get(1).median > 0);
+});
+
 // #1767: the live cache path reads the NFL roster status and a fresh Practice
 // squad row makes the player hard-unavailable without moving any projected
 // number (the #1589 precedent).
@@ -2294,7 +2317,7 @@ test('toWeeklyProjectionResult: positionBaselineFor is true only when the stored
 
 // #1775: the read attaches the Position-baseline verdict to a marked row; any
 // stored Unavailable verdict (bye, No NFL team, Practice squad, Out, IR) wins.
-test('toWeeklyProjectionResult: availabilityFor returns the no_history verdict for a marked row, over its own stored facts', () => {
+test('toWeeklyProjectionResult: startVerdictFor returns the no_history verdict for a marked row, over its own stored facts', () => {
   const marked = (availability) => ({
     playerId: 0, mean: 15, median: 15,
     factors: { availability, dataQuality: { level: 'low', reasons: ['small sample', 'position baseline'] } },
@@ -2315,20 +2338,18 @@ test('toWeeklyProjectionResult: availabilityFor returns the no_history verdict f
       [8, { playerId: 8, mean: 9, median: 9, sampleSize: 0, factors: { availability: { available: true, status: null, reason: null }, dataQuality: { level: 'low', reasons: ['small sample', 'prior season'] } } }],
     ]),
   });
+  // no_history wins over a stored Doubtful (2) and Questionable (3).
   for (const id of [1, 2, 3]) {
-    const verdict = result.availabilityFor(id);
-    assert.equal(verdict.reason, 'no_history', `player ${id}`);
-    assert.equal(verdict.available, true);
-    assert.equal(verdict.autoRecommend, false);
+    assert.deepEqual(result.startVerdictFor(id), { outcome: 'not_recommended', reason: 'no_history', numberTrusted: false }, `player ${id}`);
   }
-  assert.equal(result.availabilityFor(2).status, 'D', 'the stored designation rides along');
-  assert.deepEqual([4, 5, 6, 7].map((id) => result.availabilityFor(id).reason), ['bye', 'no_team', 'out', 'ir']);
-  assert.deepEqual([4, 5, 6, 7].map((id) => result.availabilityFor(id).available), [false, false, false, false]);
-  assert.deepEqual([9, 10].map((id) => result.availabilityFor(id).reason), ['practice_squad', 'practice_squad'],
+  assert.deepEqual([4, 5, 6, 7].map((id) => result.startVerdictFor(id).reason), ['bye', 'no_team', 'out', 'ir']);
+  assert.deepEqual([4, 5, 6, 7].map((id) => result.startVerdictFor(id).outcome), Array(4).fill('unavailable'));
+  assert.deepEqual([9, 10].map((id) => result.startVerdictFor(id).reason), ['practice_squad', 'practice_squad'],
     'a stored Practice squad verdict wins over no_history (and over a stored Out)');
-  assert.deepEqual([9, 10].map((id) => result.availabilityFor(id).available), [false, false]);
-  assert.equal(result.availabilityFor(8), null, 'a prior-season-only row with sample size 0 gets no verdict');
-  assert.equal(result.availabilityFor(999), null, 'no entry for the player at all');
+  assert.deepEqual([9, 10].map((id) => result.startVerdictFor(id).outcome), ['unavailable', 'unavailable']);
+  const unmarked = { outcome: 'recommendable', reason: null, numberTrusted: true };
+  assert.deepEqual(result.startVerdictFor(8), unmarked, 'a prior-season-only row with sample size 0 is not marked');
+  assert.deepEqual(result.startVerdictFor(999), unmarked, 'no entry for the player at all');
   assert.equal(result.projections.get(1).factors.availability.reason, null, 'derived on read, never written back to the row');
 });
 
@@ -2760,6 +2781,40 @@ const leagueAt = (currentWeek) => ({
   current_season: SEASON, current_week: currentWeek, regular_season_weeks: 14, playoff_teams: 4,
 });
 const readsOf = (calls, fragment) => calls.filter((c) => c.text.includes(fragment)).length;
+
+// #2185: the multi-week reader holds the same league contract as #2144's
+// single-week one: no league rejects, before any read and before the empty-weeks return.
+test('#2185 getWeeklyProjectionsForWeeks without a league rejects instead of pricing under standard rules', async (t) => {
+  const calls = mockPool(t, { players: [player(1, 'RB')] });
+
+  await assert.rejects(
+    projection.getWeeklyProjectionsForWeeks({ season: SEASON, weeks: [5], playerIds: [1] }),
+    /requires a league/,
+  );
+  await assert.rejects(
+    projection.getWeeklyProjectionsForWeeks({ season: SEASON, weeks: [5], league: null, playerIds: [1] }),
+    /requires a league/,
+  );
+  assert.equal(calls.length, 0, 'the refusal comes before any read');
+});
+
+test('#2190 getWeeklyProjectionsForWeeks league: PUBLIC prices under standard rules, the scoring hash of no league scope', async (t) => {
+  mockPool(t, {
+    players: [player(1, 'RB')],
+    weeklyStats: Array.from({ length: 4 }, (_, i) => weeklyRow(1, i + 1, { rushingYards: 70, rushingTDs: 1 })),
+  });
+
+  const runs = await projection.getWeeklyProjectionsForWeeks({
+    season: SEASON, weeks: [5, 6], league: projection.PUBLIC, playerIds: [1],
+  });
+
+  assert.deepEqual([...runs.keys()], [5, 6]);
+  for (const run of runs.values()) {
+    assert.equal(run.scoringHash, model.scoringHash(SCORING_RULES));
+    assert.notEqual(run.scoringHash, model.scoringHash(SCORING_PRESETS.ppr), 'a PPR league is a different run');
+    assert.ok(run.projections.get(1).median > 0);
+  }
+});
 
 test('getWeeklyProjectionsForWeeks: five fully cached weeks cost ONE runs read and ONE rows read, never one per week', async (t) => {
   const calls = mockPool(t, {
@@ -3530,17 +3585,17 @@ test('backupQuarterbackIds: a missing chart, a player absent from it, an unranke
   assert.deepEqual(backups([chartRow(1, 1), chartRow(2, 1)]), []);
 });
 
-test('toWeeklyProjectionResult: backupFor reads run.backupIds, and is false without it', () => {
+test('toWeeklyProjectionResult: startVerdictFor reads run.backupIds, and has no backup verdict without it', () => {
   const entry = { mean: 20, median: 20, factors: { availability: { available: true, status: null, reason: null } } };
   const projections = new Map([[1, entry], [2, entry]]);
   const result = projection.toWeeklyProjectionResult({ projections, backupIds: new Set([2]) });
-  assert.equal(result.backupFor(1), false);
-  assert.equal(result.backupFor(2), true);
-  assert.equal(result.backupFor(999), false);
-  assert.equal(projection.toWeeklyProjectionResult({ projections }).backupFor(2), false);
+  assert.equal(result.startVerdictFor(1).reason, null);
+  assert.equal(result.startVerdictFor(2).reason, 'backup');
+  assert.equal(result.startVerdictFor(999).reason, null);
+  assert.equal(projection.toWeeklyProjectionResult({ projections }).startVerdictFor(2).reason, null);
 });
 
-test('toWeeklyProjectionResult: availabilityFor returns the backup verdict after the Position-baseline check, keeping the number', () => {
+test('toWeeklyProjectionResult: startVerdictFor returns the backup verdict, over Position-baseline, keeping the number', () => {
   const evidenced = (availability) => ({ mean: 20.25, median: 20.25, factors: { availability, dataQuality: { reasons: ['small sample'] } } });
   const baseline = { mean: 15, median: 15, factors: { availability: { available: true, status: null, reason: null }, dataQuality: { reasons: ['position baseline'] } } };
   const result = projection.toWeeklyProjectionResult({
@@ -3553,14 +3608,12 @@ test('toWeeklyProjectionResult: availabilityFor returns the backup verdict after
     ]),
     backupIds: new Set([1, 2, 3, 4]),
   });
-  assert.equal(result.availabilityFor(1).reason, 'backup');
-  assert.equal(result.availabilityFor(1).available, true);
-  assert.equal(result.availabilityFor(1).autoRecommend, false);
-  assert.equal(result.availabilityFor(2).reason, 'backup', 'backup wins over a stored Doubtful');
-  assert.equal(result.availabilityFor(2).status, 'D');
-  assert.equal(result.availabilityFor(3).reason, 'out', 'a stored Unavailable verdict wins over backup');
-  assert.equal(result.availabilityFor(4).reason, 'no_history', 'Position-baseline wins over backup');
-  assert.equal(result.availabilityFor(5), null, 'not in backupIds: no verdict from the read');
+  assert.deepEqual(result.startVerdictFor(1), { outcome: 'not_recommended', reason: 'backup', numberTrusted: false });
+  assert.equal(result.startVerdictFor(2).reason, 'backup', 'backup wins over a stored Doubtful');
+  assert.equal(result.startVerdictFor(3).reason, 'out', 'a stored Unavailable verdict wins over backup');
+  assert.equal(result.startVerdictFor(3).outcome, 'unavailable');
+  assert.equal(result.startVerdictFor(4).reason, 'backup', 'backup wins over Position-baseline (ADR 0057, amended 2026-10-07)');
+  assert.equal(result.startVerdictFor(5).reason, null, 'not in backupIds: no backup verdict from the read');
   assert.equal(result.pointsFor(1), 20.25, 'his number stays');
 });
 
@@ -3576,9 +3629,8 @@ test('getWeeklyProjections attaches backupIds from ONE QB depth chart query, on 
   const result = await run({ season: SEASON, week: 5, league: league(), playerIds: [1, 2], now: CHART_NOW });
   assert.equal(reads.length, 1);
   assert.deepEqual(reads[0].params, [[1, 2], '2026-10-03']);
-  assert.equal(result.backupFor(1), false);
-  assert.equal(result.backupFor(2), true);
-  assert.equal(result.availabilityFor(2).reason, 'backup');
+  assert.notEqual(result.startVerdictFor(1).reason, 'backup');
+  assert.equal(result.startVerdictFor(2).reason, 'backup');
 
   // Every requested player cached: the same one read, the same verdict.
   reads.length = 0;
@@ -3589,8 +3641,8 @@ test('getWeeklyProjections attaches backupIds from ONE QB depth chart query, on 
   });
   const cached = await run({ season: SEASON, week: 5, league: league(), playerIds: [1, 2], now: CHART_NOW });
   assert.equal(reads.length, 1);
-  assert.equal(cached.backupFor(2), true);
-  assert.equal(cached.backupFor(1), false);
+  assert.equal(cached.startVerdictFor(2).reason, 'backup');
+  assert.notEqual(cached.startVerdictFor(1).reason, 'backup');
 });
 
 test('getWeeklyProjectionsForWeeks loads the QB depth chart once for every week, and attaches it to each', async (t) => {
@@ -3606,8 +3658,8 @@ test('getWeeklyProjectionsForWeeks loads the QB depth chart once for every week,
   });
   assert.equal(reads.length, 1);
   for (const week of [5, 6]) {
-    assert.equal(runs.get(week).backupFor(2), true, `week ${week}`);
-    assert.equal(runs.get(week).backupFor(1), false, `week ${week}`);
+    assert.equal(runs.get(week).startVerdictFor(2).reason, 'backup', `week ${week}`);
+    assert.notEqual(runs.get(week).startVerdictFor(1).reason, 'backup', `week ${week}`);
   }
 });
 
@@ -3618,7 +3670,7 @@ test('no stored projection row changes: a Backup quarterback\'s generated row ca
     depthChartRows: [chartRow(1, 1), chartRow(2, 2)],
   });
   const result = await run({ season: SEASON, week: 5, league: league(), playerIds: [2], now: CHART_NOW });
-  assert.equal(result.backupFor(2), true);
+  assert.equal(result.startVerdictFor(2).reason, 'backup');
   assert.notEqual(result.projections.get(2).factors.availability.reason, 'backup');
   assert.equal(JSON.stringify(result.projections.get(2)).includes('backup'), false);
 });
@@ -3672,7 +3724,7 @@ test('a failed QB depth chart read degrades to nobody being a Backup, logging it
     },
   });
   const result = await run({ season: SEASON, week: 5, league: league(), playerIds: [1], now: CHART_NOW });
-  assert.equal(result.backupFor(1), false);
+  assert.notEqual(result.startVerdictFor(1).reason, 'backup');
   assert.equal(result.projections.get(1).factors.availability.available, true, 'the projection still serves');
   assert.ok(logged.mock.calls.some((c) => require('node:util').format(...c.arguments).includes('QB depth chart read failed')));
   assert.equal(calls.some((call) => call.text.includes('SAVEPOINT')), false);
@@ -3689,7 +3741,7 @@ test('a failed QB depth chart read on a transaction client rolls back to its sav
     },
   });
   const result = await run({ season: SEASON, week: 5, league: league(), playerIds: [1], now: CHART_NOW, client });
-  assert.equal(result.backupFor(1), false);
+  assert.notEqual(result.startVerdictFor(1).reason, 'backup');
   assert.ok(client.statements.includes('SAVEPOINT backup_chart'));
   assert.ok(client.statements.includes('ROLLBACK TO SAVEPOINT backup_chart'));
   assert.equal(result.projections.has(1), true, 'the run completed on the same client');
@@ -3752,7 +3804,7 @@ test('getWeeklyProjections: a failed Practice participation read degrades to pla
   assert.ok(logged.mock.calls.some((c) => require('node:util').format(...c.arguments).includes('Practice participation read failed')));
 });
 
-test('toWeeklyProjectionResult: startVerdictFor takes a stored Unavailable verdict as stored, then Position-baseline over Backup', () => {
+test('toWeeklyProjectionResult: startVerdictFor takes a stored Unavailable verdict as stored, then Backup over Position-baseline', () => {
   const stored = (availability, reasons = []) => ({ mean: 12, median: 12, factors: { availability, dataQuality: { reasons } } });
   const result = projection.toWeeklyProjectionResult({
     projections: new Map([
@@ -3763,7 +3815,7 @@ test('toWeeklyProjectionResult: startVerdictFor takes a stored Unavailable verdi
     backupIds: new Set([1, 2, 3]),
   });
   assert.deepEqual(result.startVerdictFor(1), { outcome: 'unavailable', reason: 'out', numberTrusted: true });
-  assert.deepEqual(result.startVerdictFor(2), { outcome: 'not_recommended', reason: 'no_history', numberTrusted: false });
+  assert.deepEqual(result.startVerdictFor(2), { outcome: 'not_recommended', reason: 'backup', numberTrusted: false });
   assert.deepEqual(result.startVerdictFor(3), { outcome: 'not_recommended', reason: 'backup', numberTrusted: false });
   assert.deepEqual(result.startVerdictFor(999), { outcome: 'recommendable', reason: null, numberTrusted: true }, 'no entry: basic facts only');
 });

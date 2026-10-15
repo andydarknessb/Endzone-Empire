@@ -1830,7 +1830,7 @@ test('the scheduler duty logs failures with season/week/profile context', async 
     failures: [{ season: FIXTURE_SEASON, week: 3, profileName: 'ppr', message: 'boom' }],
   }));
 
-  await scheduler.runHoldoutSnapshots();
+  await scheduler.tickUnlocked([scheduler.TICK_JOBS.find((job) => job.name === 'holdout-snapshots')]);
 
   const line = logs.find((l) => String(l[0]).includes('holdout snapshot failed'));
   assert.ok(line, 'a failure line is emitted (repeats of this line are the actionable signal)');

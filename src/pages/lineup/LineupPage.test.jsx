@@ -14,7 +14,7 @@ import LineupPage from './index';
  * states, every Edge line kind, Unavailable reasons, the strip numbers, a
  * swap and a refused swap, best ball, the narrow layout." Every branch has
  * its own dedicated unit coverage already (LedgerRow.test.jsx for the Game
- * cell/Edge line/Unavailable rendering, buildLedgerSections.test.js for
+ * cell/Edge line/Unavailable rendering, entities/roster's buildLedgerSections.test.js for
  * bench sorting, useSwapPlayers.test.js and useDropPlayer.test.js for the
  * interaction rules, TeamSummaryStrip.test.jsx for the strip numbers); what
  * this suite proves is that the composed page wires them together
@@ -181,7 +181,7 @@ const lineupBody = (overrides = {}) => ({
     // Bench player, Unavailable (out), Edge line kind "injury".
     entryRow({
       id: 10, name: 'Bench Guy', position: 'WR', slot: 'BENCH', nfl_team: 'MIA',
-      injury_status: 'O', unavailable: 'out', projected_points: null, projection: null,
+      injury_status: 'O', startVerdict: { outcome: 'unavailable', reason: 'out', numberTrusted: true }, projected_points: null, projection: null,
       edge: { kind: 'injury', text: 'Out' },
     }),
     // IR player, attested stash.
@@ -593,9 +593,9 @@ test('a swap: selecting the eligible bench player then the empty WR slot saves a
   );
 });
 
-// #1881: the page hands the swap, apply-advice and drop features an `onLanded`
-// that clears the week's cached Matchups list, so a save that lands re-reads it
-// (the list carries the Expected final the lean line and the strip show).
+// #1881: a save that lands (the lineup-write feature) clears the week's cached
+// Matchups list, so the page re-reads it (the list carries the Expected final
+// the lean line and the strip show).
 test("a swap whose PUT resolves re-reads the week's matchups list (#1881)", async () => {
   const user = userEvent.setup();
   apiClient.put.mockResolvedValue({ data: {} });
@@ -1240,7 +1240,55 @@ test('a refused apply re-reads nothing (#2262)', async () => {
   await user.click(await screen.findByTestId('start-sit-apply'));
 
   await waitFor(() => expect(apiClient.put).toHaveBeenCalled());
-  await waitFor(() => expect(mockNotify).toHaveBeenCalledWith('locked', { severity: 'error' }));
+  await waitFor(() => expect(mockNotify).toHaveBeenCalledWith(expect.any(String), { severity: 'error' }));
+  expect(apiClient.get).not.toHaveBeenCalledWith(`${ADVICE_URL}&reload=1`);
+});
+
+// #2267: a landed drop, and its Undo, re-read the advice the same way a landed
+// lineup write does (#2262): the card must not keep naming a dropped player.
+test('a confirmed drop re-reads the advice once the DELETE resolves (#2267)', async () => {
+  const user = userEvent.setup();
+  apiClient.delete.mockResolvedValue({ data: {} });
+  renderPage({
+    [`${ADVICE_URL}&reload=1`]: { data: adviceBody({ suggestions: [], movePlan: [] }) },
+  });
+
+  await user.click(await screen.findByRole('button', { name: 'Drop Bench Guy' }));
+  await user.click(await screen.findByRole('button', { name: 'Drop' }));
+
+  await waitFor(() => expect(apiClient.delete).toHaveBeenCalledWith('/api/team/roster/10?leagueId=1'));
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith(`${ADVICE_URL}&reload=1`));
+});
+
+test("the drop toast's Undo re-reads the advice again once its POST resolves (#2267)", async () => {
+  const user = userEvent.setup();
+  apiClient.delete.mockResolvedValue({ data: {} });
+  apiClient.post.mockResolvedValue({ data: {} });
+  renderPage({
+    [`${ADVICE_URL}&reload=1`]: { data: adviceBody({ suggestions: [], movePlan: [] }) },
+    [`${ADVICE_URL}&reload=2`]: { data: adviceBody({ suggestions: [], movePlan: [] }) },
+  });
+
+  await user.click(await screen.findByRole('button', { name: 'Drop Bench Guy' }));
+  await user.click(await screen.findByRole('button', { name: 'Drop' }));
+  await waitFor(() => expect(mockNotify).toHaveBeenCalledWith('Dropped Bench Guy', expect.objectContaining({ actionLabel: 'Undo' })));
+
+  const { onAction } = mockNotify.mock.calls.find(([msg]) => msg === 'Dropped Bench Guy')[1];
+  await act(async () => { await onAction(); });
+
+  expect(apiClient.post).toHaveBeenCalledWith('/api/team/roster/10/undo-drop', { leagueId: 1 });
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith(`${ADVICE_URL}&reload=2`));
+});
+
+test('a refused drop re-reads nothing (#2267)', async () => {
+  const user = userEvent.setup();
+  apiClient.delete.mockRejectedValue({ response: { status: 409, data: { error: 'locked' } } });
+  renderPage();
+
+  await user.click(await screen.findByRole('button', { name: 'Drop Bench Guy' }));
+  await user.click(await screen.findByRole('button', { name: 'Drop' }));
+
+  await waitFor(() => expect(mockNotify).toHaveBeenCalledWith(expect.any(String), { severity: 'error' }));
   expect(apiClient.get).not.toHaveBeenCalledWith(`${ADVICE_URL}&reload=1`);
 });
 
@@ -1488,6 +1536,15 @@ test('the lean line appears when the Expected finals are 10 or more apart, from 
   const line = await screen.findByTestId('start-sit-lean-line');
   expect(line).toHaveTextContent('Projected to trail by 12: lean toward Ceiling');
   expect(line.textContent).not.toMatch(/range|—/i);
+});
+
+test.each(['played', 'final'])('a %s week shows no Expected final line, though the server still sends one (#2048)', async (status) => {
+  renderPage({
+    [MATCHUPS_URL]: { data: [matchupRow({ status, final: status === 'final', home_expected_final: '88.0', away_expected_final: '100.4' })] },
+    [ADVICE_URL]: { data: adviceBody({ suggestions: [adviceSuggestion()] }) },
+  });
+  await screen.findByText('Bench Guy');
+  expect(screen.queryByTestId('start-sit-lean-line')).not.toBeInTheDocument();
 });
 
 test('the lean line favors Floor when the viewer leads by 10 or more, whichever side he is on', async () => {

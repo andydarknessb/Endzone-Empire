@@ -1,5 +1,5 @@
-import { matchupStatusView } from '../../../entities/matchup';
-import { matchupWinProbability, finite, formatKickoff } from '../../../shared/lib';
+import { matchupBoard } from '../../../entities/matchup';
+import { formatKickoff } from '../../../shared/lib';
 // ordinal itself is shared/lib's contract now (#1272 Addendum); MatchupHero
 // imports it directly rather than through this view model.
 
@@ -12,14 +12,15 @@ import { matchupWinProbability, finite, formatKickoff } from '../../../shared/li
  *   - which side is the viewer's (`viewerSide`), matched on Team id and never
  *     on home/away (#112: the You pill follows the viewer's Team, the layout
  *     stays home-left / away-right the way SplitBar encodes it);
- *   - the status chip and `hasStarted`, straight from the entity predicate
+ *   - the status chip and `hasStarted`, straight from the entity's `matchupBoard`
  *     (ADR 0030: status is a server fact, never inferred here), with the
  *     chip's Badge variant (danger / success / warning / neutral for live /
  *     final / played / scheduled) and whether it carries the live dot;
  *   - the per-side win probability percentages, rounded the same way SplitBar
  *     rounds its segments so the numbers beside the bar equal the bar's own
  *     accessible name (`homePct` rounded, `awayPct` its complement);
- *   - the one plain sentence under the bar ("Ahead now, projected to trail by
+ *   - the one plain sentence under the bar, the board's `resultLine` once
+ *     settled and its `liveLine` while live ("Ahead now, projected to trail by
  *     13.4 with 6 of theirs still to play"), written from the viewer's side;
  *   - the kickoff line for a Matchup that has not started, formatted from
  *     `firstKickoffAt` (#892) with Intl, weekday short plus time.
@@ -30,76 +31,9 @@ import { matchupWinProbability, finite, formatKickoff } from '../../../shared/li
  * value the entity does not know) has none, so the card asserts neither state
  * (the entity's `hasStarted === null` contract).
  *
- * The arithmetic and the kickoff/finite-value contracts come from
- * `shared/lib` (ADR 0031, #1120), the island's shared bottom layer.
+ * The win probability, the viewer side and both sentences are the board's
+ * (#2142); the kickoff format comes from `shared/lib` (ADR 0031, #1120).
  */
-
-// The status chip's Badge variant per server status, the canvas's statusChip():
-// `.chip.live` is the danger red with the dot, `.chip.final` the success
-// green, `.chip.warn` for Awaiting final, the plain chip for Scheduled. The
-// label is the entity predicate's; an unknown status has no chip at all.
-const CHIP_VARIANTS = { live: 'danger', final: 'success', played: 'warning', scheduled: 'neutral' };
-
-/** A difference rounded to a tenth, so "by 0.0" never reads as a lead. */
-function tenth(value) {
-  return Math.round(value * 10) / 10;
-}
-
-/**
- * The one plain sentence under the win probability bar, from `me`'s side
- * (`me` and `them` are the entity's per-side objects). Three shapes by status:
- *
- *   - live: "<Ahead|Behind|Tied> now, projected to <lead|trail> by N with K of
- *     <theirs|yours> still to play". The projection clause needs both sides'
- *     Expected final and is dropped when either is unknown; the remaining
- *     clause names the opponent's Players remaining when they still have
- *     starters to play (the threat to the lead), else the viewer's own, and is
- *     dropped when neither side has anyone left.
- *   - played (awaiting the score of record): "<Ahead|Behind> by N, awaiting
- *     the final" or "Tied, awaiting the final".
- *   - final: "Won by N", "Lost by N" or "Tied".
- *
- * Every "by N" is the margin to a tenth; a margin that rounds to zero reads
- * as tied/even rather than "by 0.0".
- */
-export function heroSentence({ me, them, status }) {
-  const mine = me || {};
-  const theirs = them || {};
-  const lead = tenth((finite(mine.score) ?? 0) - (finite(theirs.score) ?? 0));
-  const by = Math.abs(lead).toFixed(1);
-
-  if (status === 'final') {
-    if (lead > 0) return `Won by ${by}`;
-    if (lead < 0) return `Lost by ${by}`;
-    return 'Tied';
-  }
-  if (status === 'played') {
-    if (lead > 0) return `Ahead by ${by}, awaiting the final`;
-    if (lead < 0) return `Behind by ${by}, awaiting the final`;
-    return 'Tied, awaiting the final';
-  }
-
-  const now = lead > 0 ? 'Ahead now' : lead < 0 ? 'Behind now' : 'Tied now';
-
-  const myFinal = finite(mine.expectedFinal);
-  const theirFinal = finite(theirs.expectedFinal);
-  let projection = null;
-  if (myFinal != null && theirFinal != null) {
-    const gap = tenth(myFinal - theirFinal);
-    const gapBy = Math.abs(gap).toFixed(1);
-    if (gap > 0) projection = `projected to lead by ${gapBy}`;
-    else if (gap < 0) projection = `projected to trail by ${gapBy}`;
-    else projection = 'projected to finish even';
-  }
-
-  const theirLeft = finite(theirs.playersRemaining) ?? 0;
-  const myLeft = finite(mine.playersRemaining) ?? 0;
-  let remaining = '';
-  if (theirLeft > 0) remaining = ` with ${theirLeft} of theirs still to play`;
-  else if (myLeft > 0) remaining = ` with ${myLeft} of yours still to play`;
-
-  return projection ? `${now}, ${projection}${remaining}` : `${now}${remaining}`;
-}
 
 /**
  * The whole view for one hero card. `viewerSide` is 'home' or 'away' when the
@@ -110,46 +44,30 @@ export function heroSentence({ me, them, status }) {
  */
 export function matchupHeroView(matchup, viewerTeamId) {
   const m = matchup || {};
-  const home = m.home || {};
-  const away = m.away || {};
-  const viewerSide =
-    viewerTeamId != null && home.teamId === viewerTeamId
-      ? 'home'
-      : viewerTeamId != null && away.teamId === viewerTeamId
-        ? 'away'
-        : null;
+  const board = matchupBoard(m, viewerTeamId);
+  const { chip, hasStarted, viewerSide } = board;
 
-  const status = matchupStatusView(m.status);
-  const { hasStarted } = status;
-
+  // The hero keeps its bar once settled (the result sentence sits under it).
   let winProbability = null;
   let sentence = null;
   if (hasStarted === true) {
-    const { home: homeShare } = matchupWinProbability({
-      homeScore: finite(home.score) ?? 0,
-      awayScore: finite(away.score) ?? 0,
-      homeExpectedFinal: home.expectedFinal,
-      awayExpectedFinal: away.expectedFinal,
-      status: m.status,
-    });
     // Rounded exactly as SplitBar rounds its segments, so the two visible
     // percentages equal the ones the bar announces.
-    const clamped = Math.max(0, Math.min(1, Number(homeShare) || 0));
+    const clamped = Math.max(0, Math.min(1, Number(board.winProbability.home) || 0));
     const homePct = Math.round(clamped * 100);
     winProbability = { homeShare: clamped, homePct, awayPct: 100 - homePct };
-    const me = viewerSide === 'away' ? away : home;
-    const them = viewerSide === 'away' ? home : away;
-    sentence = heroSentence({ me, them, status: m.status });
+    sentence = board.resultLine ?? board.liveLine;
   }
 
   const kickoff = hasStarted === false ? formatKickoff(m.firstKickoffAt) : null;
 
   return {
     viewerSide,
+    scoreLabels: { home: board.home.scoreLabel, away: board.away.scoreLabel },
     hasStarted,
-    chipLabel: status.chipLabel,
-    chipVariant: CHIP_VARIANTS[m.status] ?? 'neutral',
-    chipDot: m.status === 'live',
+    chipLabel: chip?.label ?? null,
+    chipVariant: chip?.variant ?? 'neutral',
+    chipDot: chip?.dot ?? false,
     winProbability,
     sentence,
     kickoff,

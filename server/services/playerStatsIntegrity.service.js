@@ -1,5 +1,6 @@
 const pool = require('../modules/pool');
-const { lastRun } = require('../modules/syncRun');
+const { lastRun, runSyncJob } = require('../modules/syncRun');
+const cadence = require('../modules/cadence');
 
 /**
  * Nightly integrity scan of `player_stats` (2026-09-15 week 1 audit): every
@@ -112,4 +113,26 @@ async function getIntegrityStatus({ now = new Date() } = {}) {
   };
 }
 
-module.exports = { scanPlayerStats, getIntegrityStatus, JOB, KIND_POINTS_MISMATCH, STALE_MS };
+/**
+ * The nightly scan as a Sync run per ADR 0036: one unit, no lock (nothing else
+ * writes the anomalies table), so its data_sync_runs row is the freshness the
+ * health route reads. The UTC day is computed once and carried as `detail.day`
+ * on the recorded row. The scheduler's nightly-stats-integrity TICK_JOBS
+ * row owns the gate; a thrown scan records a failed row and rethrows, so the
+ * UTC day is never settled and the next tick retries.
+ * Reaches `scanPlayerStats` through `module.exports` so a test stub bites.
+ */
+async function runIntegrityScan({ now = new Date() } = {}) {
+  const today = cadence.utcDateKey(now);
+  const { results: [result] } = await runSyncJob({
+    job: JOB,
+    fetch: async () => ({ units: [{}], detail: { day: today } }),
+    apply: (client) => module.exports.scanPlayerStats({ db: client }),
+  });
+  if (result.open > 0) {
+    console.warn(`scheduler: player_stats integrity scan found ${result.open} open anomaly(ies) over ${result.scanned} rows`);
+  }
+  return result;
+}
+
+module.exports = { scanPlayerStats, runIntegrityScan, getIntegrityStatus, JOB, KIND_POINTS_MISMATCH, STALE_MS };

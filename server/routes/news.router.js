@@ -6,7 +6,7 @@ const router = express.Router();
 router.use(requireAuth);
 
 // GET /api/news — latest fantasy-relevant NFL headlines, server-side so the
-// RapidAPI key never reaches the browser.
+// upstream call stays server-side.
 router.get('/', async (req, res) => {
   try {
     const news = await getLatestNews();

@@ -99,6 +99,7 @@ function TieScene({ cutscene, sfx, onDone }) {
           {beat === 'marquee' && (
             <>
               {line && <div className="tie-record" data-testid="tie-record">{line}</div>}
+              {cutscene.narrative && <p className="postgame-narrative" data-testid="postgame-narrative">{cutscene.narrative}</p>}
               <Marquee
                 text={`${(me.name || 'TEAM').toUpperCase()} TIES ${(opponent.name || 'TEAM').toUpperCase()}`}
                 name={me.name || ''}

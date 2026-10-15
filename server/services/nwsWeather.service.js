@@ -56,6 +56,20 @@ function isIndoorGame(game) {
   return CLOSED_ROOF_VALUES.has(roof);
 }
 
+// A healthy Sunday leaves a snapshot ~18h old (the job waits out an open game
+// window), so 24h: older is a feed that stopped, and is withheld (#1930, #1941).
+const WEATHER_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Pure: is this snapshot row fresh enough to show a manager? True only when
+ * `fetched_at` is a usable date no more than 24h before `now`; a stale or
+ * dateless row reads as no forecast on every surface (#1941).
+ */
+function isWeatherFresh(row, now = Date.now()) {
+  // A NaN age (no or unusable `fetched_at`) fails the comparison, so it is withheld.
+  return !!row && +now - new Date(row.fetched_at) <= WEATHER_MAX_AGE_MS;
+}
+
 /** Pure: the cache bucket for a kickoff `hoursAway` in the future. */
 function horizonBucket(hoursAway) {
   const hours = Number(hoursAway);
@@ -343,7 +357,9 @@ module.exports = {
   HORIZON_BUCKET_HOURS,
   MAX_HORIZON_HOURS,
   REQUEST_TIMEOUT_MS,
+  WEATHER_MAX_AGE_MS,
   isIndoorGame,
+  isWeatherFresh,
   horizonBucket,
   userAgent,
   selectPeriodNearestKickoff,

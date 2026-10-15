@@ -89,12 +89,20 @@ const STARTERS = [
   { team_id: 20, player_id: 4, position: 'RB', nfl_team: 'Ghosts', injury_status: null, stats: null }, // no game this week
   { team_id: 20, player_id: 5, position: 'K', nfl_team: 'DAL', injury_status: 'O', stats: null },
 ];
+// ADR 0061: availability is the Weekly projection result's Start verdict, never
+// a fact of the lineup row. A fixture entry carries the run's stored
+// Availability input (`availability`), and the stand-in result derives the
+// verdict from it the way the real read does.
+const BYE = { available: false, activeProbability: 0, reason: 'bye', status: null };
+const OUT = { available: false, activeProbability: 0, reason: 'out', status: 'O' };
+const NO_TEAM = { available: false, activeProbability: 0, reason: 'no_team', status: null };
+const PRACTICE_SQUAD = { available: false, activeProbability: 0, reason: 'practice_squad', status: null };
 const PROJECTIONS = new Map([
   [1, { points: 19.0 }],
   [2, { points: 14.0 }],
   [3, { points: 11.3 }],
-  [4, { points: 9.0 }],
-  [5, { points: 8.0 }],
+  [4, { points: 9.0, availability: BYE }],
+  [5, { points: 8.0, availability: OUT }],
 ]);
 const LIVE = [
   { home_team: 'KC', away_team: 'LV', game_status: 'final' },
@@ -143,6 +151,15 @@ function weekPool(t, { starters = STARTERS, live = LIVE, schedule = SCHEDULE, pr
         if (entry == null || typeof entry !== 'object' || entry.p10 == null) return null;
         return { mean: entry.points, median: entry.points, p10: entry.p10, p90: entry.p90 };
       },
+      // The Start verdict, derived from the fixture's stored Availability input
+      // by the real read's own accessor.
+      startVerdictFor(id) {
+        const entry = projections.get(id);
+        const availability = (entry && typeof entry === 'object' && entry.availability) || {};
+        return projectionService
+          .toWeeklyProjectionResult({ projections: new Map([[id, { factors: { availability } }]]) })
+          .startVerdictFor(id);
+      },
       // #1775: the read-path marker for a Position-baseline row (fixture flag).
       positionBaselineFor(id) {
         const entry = projections.get(id);
@@ -171,7 +188,7 @@ function weekPool(t, { starters = STARTERS, live = LIVE, schedule = SCHEDULE, pr
 // his game left. Final, bye and unavailable starters add none.
 test('a team carries its remaining variance: band sigma squared times game time left, starter by starter', async (t) => {
   const band = (points) => ({ points, p10: points - 9, p90: points + 9 }); // 18-point band
-  const projections = new Map([[1, band(19)], [2, band(14)], [3, band(11.3)], [4, band(9)], [5, band(8)]]);
+  const projections = new Map([[1, band(19)], [2, band(14)], [3, band(11.3)], [4, { ...band(9), availability: BYE }], [5, { ...band(8), availability: OUT }]]);
   const live = [
     { home_team: 'KC', away_team: 'LV', game_status: 'final', quarter: 'Final', time_remaining: null },
     { home_team: 'BUF', away_team: 'MIA', game_status: 'in_progress', quarter: 'Q3', time_remaining: '7:30' },
@@ -212,7 +229,7 @@ test('an available starter with game time left but no projection interval is cou
   // Player 3 (WR, not kicked off) has a point estimate but no p10/p90; the
   // final QB without one is not counted (nothing left to play), nor are the
   // bye RB and the Out kicker on team 20.
-  const projections = new Map([[1, { points: 19 }], [2, { points: 14, p10: 5, p90: 23 }], [3, { points: 11.3 }], [4, { points: 9 }], [5, { points: 8 }]]);
+  const projections = new Map([[1, { points: 19 }], [2, { points: 14, p10: 5, p90: 23 }], [3, { points: 11.3 }], [4, { points: 9, availability: BYE }], [5, { points: 8, availability: OUT }]]);
   const fake = weekPool(t, { projections });
   const byTeam = await expectedFinalsForWeek({
     league: LEAGUE, season: SEASON, week: WEEK, teamIds: [10, 20], db: fake, now: NOW,
@@ -283,7 +300,7 @@ test('bench rows are priced alongside the starters, with the availability rule, 
     // A bench WR ruled Out: priced zero, and the row says why.
     { team_id: 10, player_id: 7, slot: 'BENCH', position: 'WR', nfl_team: 'DAL', injury_status: 'O', stats: null },
   ];
-  const projections = new Map([...PROJECTIONS, [6, { points: 10.0 }], [7, { points: 12.0 }]]);
+  const projections = new Map([...PROJECTIONS, [6, { points: 10.0 }], [7, { points: 12.0, availability: OUT }]]);
   const fake = weekPool(t, { starters: [...STARTERS, ...bench], projections });
   const byTeam = await expectedFinalsForWeek({
     league: LEAGUE, season: SEASON, week: WEEK, teamIds: [10, 20], db: fake, now: NOW,
@@ -461,6 +478,22 @@ test('a week nobody has kicked off in reads scheduled even when a starter is on 
   // of the status changed, not the Expected final rule.
   assert.equal(row.home_expected_final, 11.3);
   assert.equal(row.home_players_remaining, 1);
+});
+
+// ADR 0030 with ADR 0061: with the projection read down there is no verdict, but
+// a bye is a schedule fact this module holds, so the status still does not count
+// him as a game that finished. Red-tell: a null availability for him reads 'live'.
+test('on a projection outage a bye starter still reads scheduled, never live, before any kickoff', async (t) => {
+  const starters = [
+    { team_id: 10, player_id: 3, slot: 'WR', position: 'WR', nfl_team: 'Philadelphia Eagles', stats: null },
+    { team_id: 10, player_id: 4, slot: 'RB', position: 'RB', nfl_team: 'Ghosts', stats: null },
+  ];
+  const fake = weekPool(t, { starters, live: [], projections: new Error('run store down') });
+  const [row] = await attachExpectedFinals(
+    [{ id: 7, season: SEASON, week: WEEK, home_team_id: 10, away_team_id: 20, final: false }],
+    { league: LEAGUE, db: fake, now: NOW }
+  );
+  assert.equal(row.status, 'scheduled');
 });
 
 // ---------------------------------------------------------------------------
@@ -655,7 +688,7 @@ test('a released starter counts 0, is not remaining, and the status reads played
     { team_id: 10, player_id: 1, position: 'QB', nfl_team: 'KC', injury_status: null, stats: { passingYards: 562.5 } },
     { team_id: 10, player_id: 6, position: 'WR', nfl_team: null, injury_status: null, stats: null },
   ];
-  const projections = new Map([[1, { points: 19.0 }], [6, { points: 12.0 }]]);
+  const projections = new Map([[1, { points: 19.0 }], [6, { points: 12.0, availability: NO_TEAM }]]);
   const fake = weekPool(t, { starters, projections });
   const byTeam = await expectedFinalsForWeek({
     league: LEAGUE, season: SEASON, week: WEEK, teamIds: [10], db: fake, now: NOW,
@@ -672,18 +705,14 @@ test('a released starter counts 0, is not remaining, and the status reads played
 });
 
 // #1767: a starter whose fresh NFL roster status is Practice squad is
-// Unavailable, counted as zero, the same as a released one. The status rides
-// on the Expected final's own candidate read.
+// Unavailable, counted as zero, the same as a released one. The verdict is the
+// Weekly projection read's: this module reads no roster status of its own.
 test('a Practice squad starter counts 0 and reads Unavailable practice_squad (#1767)', async (t) => {
-  const capturedAt = new Date(new Date(NOW).getTime() - 3600 * 1000).toISOString();
   const starters = [
-    { team_id: 10, player_id: 1, position: 'QB', nfl_team: 'KC', injury_status: null, stats: { passingYards: 562.5 } },
-    {
-      team_id: 10, player_id: 6, position: 'WR', nfl_team: 'KC', injury_status: null, stats: null,
-      nfl_roster_status: { status: 'practice_squad', capturedAt },
-    },
+    { team_id: 10, player_id: 1, position: 'QB', nfl_team: 'KC', stats: { passingYards: 562.5 } },
+    { team_id: 10, player_id: 6, position: 'WR', nfl_team: 'KC', stats: null },
   ];
-  const projections = new Map([[1, { points: 19.0 }], [6, { points: 12.0 }]]);
+  const projections = new Map([[1, { points: 19.0 }], [6, { points: 12.0, availability: PRACTICE_SQUAD }]]);
   const fake = weekPool(t, { starters, projections });
   const byTeam = await expectedFinalsForWeek({
     league: LEAGUE, season: SEASON, week: WEEK, teamIds: [10], db: fake, now: NOW,
@@ -691,6 +720,4 @@ test('a Practice squad starter counts 0 and reads Unavailable practice_squad (#1
   const wr = byTeam.get(10).starters.find((s) => s.playerId === 6);
   assert.deepEqual(wr.availability, { available: false, reason: 'practice_squad' });
   assert.equal(wr.expectedFinal, 0);
-  const candidateRead = fake.calls.find((c) => String(c.text).includes('"lineup_entries"."team_id", "lineup_entries"."player_id"'));
-  assert.ok(candidateRead && String(candidateRead.text).includes('AS "nfl_roster_status"'));
 });

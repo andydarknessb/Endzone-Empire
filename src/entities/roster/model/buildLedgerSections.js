@@ -1,0 +1,109 @@
+import { sortBench, spent } from './lineupModel';
+
+/**
+ * Groups the Roster entity's normalized lineup entries (`entities/roster`'s
+ * `lineupEntries`) into the three Ledger sections (CONTEXT.md's Ledger row:
+ * "the single row presentation every occupied Lineup row uses, whether
+ * Starter, Bench, or IR"), each a row spec `{ key, slotLabel, slotType,
+ * entry }` with `entry: null` for an empty slot - mirroring the legacy
+ * LineupScreen's own starter/IR/bench row-building (#1237, replacing it).
+ *
+ * Starters: one row per configured starting slot INSTANCE (`rosterSlots`'
+ * own order and per-slot `count`), filled from the occupied entries at that
+ * slot in the order the server returned them, empty rows after. IR: one row
+ * per `irSlots`, same fill rule. Bench: AC5, "Bench sorts by projection with
+ * Unavailable players last" - a NEW ordering rule the legacy page did not
+ * apply (it kept the server's own order). Available bench players sort by
+ * `projectedPoints` descending (the Point estimate, CONTEXT.md's The
+ * projection engine - the same number the Ledger row headlines, #1482; a
+ * null value sorts as if it were the lowest,
+ * never crashing the comparator); every Unavailable bench player (on bye,
+ * out, or on IR) follows, in the order the server returned them. Padded up
+ * to `benchSlots` (or the occupied count, whichever is larger: a roster can
+ * overflow its bench, and an overflowing player without a row is one a
+ * manager can neither see nor drop).
+ *
+ * One extra empty bench row when an invalid IR stash stands and the bench is
+ * full (#1480): the row the occupant is moved to. The legacy page had this
+ * for best ball only; a full bench wedges a standard league exactly the same
+ * way, so it is unconditional here.
+ *
+ * `testId` restores the legacy page's own `slot-row-<SLOT>-<index>` /
+ * `slot-row-<SLOT>-<entryId>` contract byte-for-byte (LineupScreen.jsx):
+ * `tests/e2e/auth-offline.spec.ts` asserts on it directly
+ * (`slot-row-BENCH-501`, `slot-row-WR-0`) as the browser-level proof of the
+ * offline queue, and that spec is out of this ticket's scope to edit.
+ */
+export function buildLedgerSections({ entries, rosterSlots, benchSlots, irSlots }) {
+  const list = Array.isArray(entries) ? entries : [];
+  const bySlot = new Map();
+  for (const entry of list) {
+    const key = entry.slot;
+    if (!bySlot.has(key)) bySlot.set(key, []);
+    bySlot.get(key).push(entry);
+  }
+
+  const slots = Array.isArray(rosterSlots) ? rosterSlots : [];
+  const starters = slots.flatMap((slot) => {
+    const type = slot && slot.key;
+    if (type == null || type === 'BENCH' || type === 'IR') return [];
+    const count = Number(slot.count) || 0;
+    const filled = bySlot.get(type) || [];
+    return Array.from({ length: count }, (_, i) => ({
+      key: `${type}-${i}`,
+      testId: `slot-row-${type}-${i}`,
+      slotLabel: count > 1 ? `${type} ${i + 1}` : type,
+      slotType: type,
+      entry: filled[i] || null,
+    }));
+  });
+
+  const irCount = Number(irSlots) || 0;
+  const irEntries = bySlot.get('IR') || [];
+  const ir = Array.from({ length: irCount }, (_, i) => ({
+    key: `IR-${i}`,
+    testId: `slot-row-IR-${i}`,
+    slotLabel: 'IR',
+    slotType: 'IR',
+    entry: irEntries[i] || null,
+  }));
+
+  const benchEntries = bySlot.get('BENCH') || [];
+  const sortedBench = sortBench(benchEntries);
+  // An invalid stash on a full bench gets one extra empty bench row (#1480):
+  // the server forgives that occupant one seat when he moves to BENCH, but
+  // with the bench padded only to its occupied count there was no row to
+  // move him to, and every other save is refused until he leaves IR.
+  const staleStashOnFullBench = irEntries.some((entry) => entry && entry.validStash === false)
+    && sortedBench.length >= (Number(benchSlots) || 0);
+  const benchRowCount = Math.max(Number(benchSlots) || 0, sortedBench.length) + (staleStashOnFullBench ? 1 : 0);
+  const bench = Array.from({ length: benchRowCount }, (_, i) => {
+    const entry = sortedBench[i] || null;
+    return {
+      key: entry ? `BENCH-${entry.playerId}` : `BENCH-empty-${i}`,
+      testId: entry ? `slot-row-BENCH-${entry.playerId}` : `slot-row-BENCH-empty-${i}`,
+      slotLabel: 'BENCH',
+      slotType: 'BENCH',
+      entry,
+    };
+  });
+
+  return { starters, ir, bench };
+}
+
+/**
+ * The phone bar's counts (#1957 L6, #1965): Starters counts filled seats (a
+ * spent row starts nobody, so it is not one) of the configured total; Bench
+ * counts occupied Bench and IR rows, the group the Bench view shows. One rule,
+ * exported through the entity's index so the page that owns the bar computes
+ * its labels from the sections `useTeamLineup`/`useLedgerSections` return
+ * without copying it.
+ */
+export function ledgerTabCounts({ starters, bench, ir }) {
+  return {
+    startersFilled: starters.filter((row) => row.entry && !spent(row.entry)).length,
+    startersTotal: starters.length,
+    benchCount: [...ir, ...bench].filter((row) => row.entry).length,
+  };
+}
+export default buildLedgerSections;

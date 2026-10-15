@@ -17,12 +17,18 @@
 /**
  * Is this player currently on waivers in the league (not yet a free agent)?
  * True when he has an unexpired waiver_players row, or the league's post-draft
- * blanket window is still open and he is unrostered.
+ * blanket window is still open and he is unrostered. Also true while a pending
+ * claim waits on him: claims process on the tick after the clear time, and a
+ * free-agent add in that gap would sink them.
  */
 async function isOnWaivers(client, { league, playerId }) {
   const row = await client.query(
     `SELECT 1 FROM "waiver_players"
-     WHERE "league_id" = $1 AND "player_id" = $2 AND "available_at" > now()`,
+     WHERE "league_id" = $1 AND "player_id" = $2 AND "available_at" > now()
+     UNION ALL
+     SELECT 1 FROM "waiver_claims"
+     WHERE "league_id" = $1 AND "player_id" = $2 AND "status" = 'pending'
+     LIMIT 1`,
     [league.id, playerId]
   );
   if (row.rows[0]) return true;

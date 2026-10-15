@@ -8,18 +8,15 @@ const {
   getTradeProjectionMetrics,
 } = require('./projection.service');
 const {
-  optimalLineup,
+  heldLineup,
   parseLineupSettings,
   slotEligible,
-  eligibleSlotsFor,
-  materializeLineup,
   lockedPlayerIds,
   DEFAULT_ROSTER_SLOTS,
 } = require('./lineup.service');
-const { optimalAssignment, buildSwapSuggestions } = require('./lineupOptimizer');
+const { optimalLineup, buildSwapSuggestions } = require('./lineupOptimizer');
 const projectionModel = require('./projectionModel');
-const { unavailableFor } = require('./unavailable');
-const practiceParticipation = require('./practiceParticipation.service');
+const { verdictBand } = require('./intervalReading');
 const { normalizeNflTeam } = require('./nflTeam');
 // The schedule read start/sit advice pairs with getPositionDefense below;
 // shared with the Players page rather than copied (#1574, #1136).
@@ -28,7 +25,7 @@ const { getWeekOpponents } = require('./nflWeekOpponents');
 // start/sit card's fact chips (#1853) and tags (#1858) rather than read a second way.
 const decisionCardContext = require('./decisionCardContext.service');
 // The ONE pricer the settle pass uses (scoring.service). Hindsight and the
-// live what-if price a player-week the identical way the score of record does
+// Bench what-if price a player-week the identical way the score of record does
 // - `calculateFantasyPoints(stats, rulesForLeague(league))` - so a
 // custom-scoring league's advisors never contradict its settled score (#739,
 // ADR 0024). They read `player_stats.stats`, never the stored
@@ -50,12 +47,17 @@ class DecisionError extends Error {
 const BENCH = 'BENCH';
 const IR = 'IR';
 
-// Above this the suggested player is a real edge; at or below it the two
-// distributions overlap enough that the honest answer is "watch it".
-const TOSSUP_PROBABILITY = 0.6;
-
 function round2(x) {
   return Math.round(Number(x) * 100) / 100;
+}
+
+// The advice wire's per-player verdict fields (spec #2042): the availability
+// facts (probability, status, lock) without `reason`, and the one
+// `startVerdict` that carries the reason. Both null when the player has none.
+function wireVerdict(availability, startVerdict) {
+  if (!availability) return { availability: null, startVerdict: null };
+  const { reason, ...facts } = availability;
+  return { availability: facts, startVerdict };
 }
 
 function finiteNumber(value) {
@@ -90,18 +92,16 @@ function finiteNumber(value) {
  * is the position's average, not his own evidence) or a Backup quarterback
  * (ADR 0057), is never auto-promoted
  * over a healthy starter, because there is no reliable data to make that
- * trade against (see unavailableFor).
+ * trade against (see the Start verdict).
  *
- * lineupEntries: [{ playerId, name, position, slot, locked?, injuryStatus?,
- * onBye? }] (slot includes BENCH/IR).
+ * lineupEntries: [{ playerId, name, position, slot, locked? }] (slot includes
+ * BENCH/IR). Every availability fact comes from `projections`' Start verdict
+ * (ADR 0061); the lock is the entry's own, composed beside it.
  * projections: the Weekly projection result object (`getWeeklyProjections`'s
- * return, #1703) - its `pointsFor`/`factorsFor`/`detailFor`/`positionBaselineFor`/`backupFor`
+ * return, #1703) - its `pointsFor`/`factorsFor`/`detailFor`/`startVerdictFor`
  * accessors and its own `projections` map (the raw run entries, for the full distribution and
  * for telling a present-but-no-estimate entry from an absent one) are the
  * only things read here.
- * Each entry may carry `practiceObservations` (this week's Practice
- * participation, `loadWeekObservations`) and `kickoff` (his game, the
- * coverage deadline's anchor); see unavailableFor's `practice`.
  * options.calledShot (#1856): `{ starterId, benchedId }` of the team's open
  * called shot, pinned as described above.
  * defenseByPlayer: Map playerId -> { opponent, opponentPointsAllowed,
@@ -120,24 +120,14 @@ function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(
     || (projectionModel.MODEL_CONSTANTS.decision || {}).lineupRanking
     || 'median';
   const isStarter = (e) => e.slot !== BENCH && e.slot !== IR;
-  // An open called shot (#1856) is treated exactly as a locked pair: its starter
-  // keeps his slot and its benched player is never a candidate, so neither
-  // player reaches a suggestion or the movePlan. It holds only while the
-  // lineup still matches the shot (starter starting, benched player benched).
-  const heldByShot = new Set();
-  const shot = options && options.calledShot;
-  if (shot) {
-    const starterEntry = (lineupEntries || []).find((e) => e.playerId === shot.starterId);
-    const benchedEntry = (lineupEntries || []).find((e) => e.playerId === shot.benchedId);
-    if (starterEntry && benchedEntry && isStarter(starterEntry) && benchedEntry.slot === BENCH) {
-      heldByShot.add(shot.starterId);
-      heldByShot.add(shot.benchedId);
-    }
-  }
-  const entries = (lineupEntries || []).map((e) => ({
-    ...e,
-    locked: Boolean(e.locked) || heldByShot.has(e.playerId),
-  }));
+  // Held (lineup.service's `heldLineup`): a locked starter keeps his slot, a
+  // locked bench player is no candidate, and an open called shot (#1856) is
+  // treated exactly as a locked pair, so neither of its players reaches a
+  // suggestion or the movePlan.
+  const { entries, pinned, candidates: movable } = heldLineup(lineupEntries, {
+    calledShot: options && options.calledShot,
+  });
+  const movableIds = new Set(movable.map((c) => c.playerId));
   const startingSlots = new Set(entries.filter(isStarter).map((e) => e.slot));
 
   const contextFor = (playerId) =>
@@ -145,37 +135,35 @@ function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(
     || { opponent: null, opponentPointsAllowed: null, line: null, weather: null, volatility: null };
 
   const availabilityById = new Map();
-  const pinned = new Map();
+  const verdictById = new Map(); // the Start verdict, for ADR 0057's Backup zero
   const candidates = [];
   for (const entry of entries) {
-    const availability = unavailableFor({
-      injuryStatus: entry.injuryStatus ?? entry.injury_status ?? null,
-      onBye: Boolean(entry.onBye),
-      // null is a released player; undefined is a caller that did not say.
-      noTeam: entry.nflTeam === null,
-      nflRosterStatus: entry.nflRosterStatus ?? null,
+    // The Start verdict (spec #2042; ADR 0061) from the read, the one producer:
+    // bye, No NFL team, Practice squad, Out, IR, Backup, Position-baseline,
+    // Doubtful, no-practice and Questionable. The lock is a Lineup fact, so it
+    // is composed beside the verdict here and is no part of it.
+    const verdict = projections.startVerdictFor(entry.playerId);
+    const available = verdict.outcome !== 'unavailable';
+    const detail = projections.detailFor(entry.playerId);
+    const stored = (projections.factorsFor(entry.playerId) || {}).availability || {};
+    const availability = {
+      available,
+      ...(available && { autoRecommend: verdict.outcome === 'recommendable' }),
+      activeProbability: available ? (detail && detail.activeProbability) ?? null : 0,
+      reason: verdict.reason,
+      status: stored.status || null,
       locked: entry.locked,
       lockedSlot: entry.slot,
-      // A Position-baseline projection is never auto-recommended (#1775),
-      // through the same branch Doubtful uses below.
-      positionBaseline: projections.positionBaselineFor(entry.playerId),
-      // A Backup quarterback (ADR 0057) likewise: his number is his own, but
-      // he is behind an available teammate and will not play.
-      backup: projections.backupFor(entry.playerId),
-      // This week's Practice participation (ADR 0056): a Questionable player
-      // with no practice all week is never auto-recommended, as Doubtful is.
-      // Only this reader passes it; no observations is the status quo.
-      practice: { observations: entry.practiceObservations || [], kickoffAt: entry.kickoff ?? null },
-    });
+    };
     availabilityById.set(entry.playerId, availability);
-    if (entry.slot === IR) continue; // IR is never a lineup candidate
-    if (entry.locked) {
-      // Locked starters keep their slot; locked bench players cannot be started.
-      if (isStarter(entry)) pinned.set(entry.playerId, entry.slot);
-      continue;
-    }
+    verdictById.set(entry.playerId, verdict);
+    // IR, a held starter and a locked bench player are no candidates.
+    if (!movableIds.has(entry.playerId)) continue;
     if (!availability.available) continue; // bye / Out / IR designation
-    if (availability.autoRecommend === false && !isStarter(entry)) continue; // Doubtful, Position-baseline, Backup or no-practice on the bench
+    // Doubtful, Position-baseline, Backup or no-practice on the bench. The
+    // verdict gates too: a run that stored him Unavailable (a stale IR) is never
+    // recommended whatever his live entry says.
+    if (!isStarter(entry) && verdict.outcome !== 'recommendable') continue;
     candidates.push({ playerId: entry.playerId, position: entry.position });
   }
 
@@ -195,7 +183,7 @@ function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(
     // A Backup quarterback (ADR 0057) is available but will not play: valued
     // at 0 here exactly like an Unavailable player, so a started Backup is
     // advised to the bench. His displayed number (`players[].projection`) stays.
-    if (availability && (!availability.available || availability.reason === 'backup')) {
+    if (availability && (!availability.available || verdictById.get(playerId)?.reason === 'backup')) {
       // The DISTRIBUTION goes too, not just the mean. A player who cannot play
       // has no distribution of outcomes, and keeping one produced the nonsense
       // "0 (6.82-7.62)" — a zero next to a range that excludes zero. Dropping
@@ -258,7 +246,7 @@ function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(
   }
   projectedTotal = round2(projectedTotal);
 
-  const optimal = optimalAssignment({
+  const optimal = optimalLineup({
     rosterSlots: slots,
     candidates,
     pointsFor: rankingValues,
@@ -302,7 +290,7 @@ function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(
         distribution: swap.currentProjection.projection || null,
         confidence: swap.currentProjection.confidence || null,
         factors: swap.currentProjection.factors || null,
-        availability: availabilityById.get(swap.out.playerId) || null,
+        ...wireVerdict(availabilityById.get(swap.out.playerId), verdictById.get(swap.out.playerId)),
       },
       suggested: {
         playerId: swap.in.playerId,
@@ -312,16 +300,18 @@ function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(
         distribution: swap.suggestedProjection.projection || null,
         confidence: swap.suggestedProjection.confidence || null,
         factors: swap.suggestedProjection.factors || null,
-        availability: availabilityById.get(swap.in.playerId) || null,
+        ...wireVerdict(availabilityById.get(swap.in.playerId), verdictById.get(swap.in.playerId)),
       },
       gain: round2(suggestedPoints - currentPoints),
       probabilityBetter: probability,
       // A comparison the intervals say is close to a coin flip is a watch
-      // item, not an instruction to change the lineup. The threshold is 0.6
-      // rather than something tighter because probabilityBetter is computed
-      // from five summary quantiles per side, so it resolves in steps of 0.04
-      // around 0.5 — anything at or below 0.6 is inside that grid's noise.
-      verdict: probability != null && probability <= TOSSUP_PROBABILITY ? 'tossup' : 'start',
+      // item, not an instruction to change the lineup. The bands (tossup at or
+      // below 0.6, strong at or above 0.8) live in Interval reading's
+      // verdictBand. The tossup line is 0.6 rather than something tighter
+      // because probabilityBetter is computed from five summary quantiles per
+      // side, so it resolves in steps of 0.04 around 0.5 — anything at or
+      // below 0.6 is inside that grid's noise.
+      verdict: verdictBand(probability),
       confidence: swap.suggestedProjection.confidence || null,
     };
   });
@@ -377,6 +367,7 @@ function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(
     // Every entry's verdict (the same object the suggestion sides carry), so
     // the wire's players[] rows read the reason off it.
     availabilityById,
+    verdictById,
   };
 }
 
@@ -389,9 +380,17 @@ function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(
  * an input to the projection rather than decoration hung off it, but the
  * legacy `opponent` / `opponentPointsAllowed` display fields are still
  * populated from getPositionDefense so no client field changes type.
+ *
+ * `db` and `projections` default to the production pool and projection
+ * service; the route is one adapter and a service test's fake pool and
+ * argument-recording projection stub are the other. The league is read ONCE
+ * and handed to the lineup read and the projection read alike. `now` rides in
+ * either place: the second argument wins, then `args.now`.
  */
-async function startSitAdvice({ leagueId, userId, week, ignoreCalledShot = false, now = new Date() }) {
-  const leagueResult = await pool.query(`SELECT * FROM "leagues" WHERE "id" = $1`, [leagueId]);
+async function startSitAdvice(args, deps = {}) {
+  const { leagueId, userId, week, ignoreCalledShot = false } = args;
+  const { db = pool, projections = projectionService, now = args.now || new Date() } = deps;
+  const leagueResult = await db.query(`SELECT * FROM "leagues" WHERE "id" = $1`, [leagueId]);
   const league = leagueResult.rows[0];
   if (!league) throw new DecisionError(404, 'league not found');
   if (league.best_ball) {
@@ -399,21 +398,21 @@ async function startSitAdvice({ leagueId, userId, week, ignoreCalledShot = false
   }
   // `now` is the time the lineup's locks are read at: the override capture asks
   // for the advice as of a minute before a kickoff (#1862).
-  const lineup = await lineupService.getLineup({ leagueId, userId, week, now });
+  const lineup = await lineupService.getLineup({ leagueId, userId, week, now, league });
   // The lineup's own season is authoritative — a caller-supplied season that
   // disagreed with it would pair this lineup with another year's projections.
   const effectiveSeason = lineup.season;
   const effectiveWeek = lineup.week;
   const playerIds = lineup.entries.map((e) => e.id);
 
-  const [run, defense, opponents, gameChips, practiceByPlayer] = await Promise.all([
-    projectionService.getWeeklyProjections({
+  const [run, defense, opponents, gameChips] = await Promise.all([
+    projections.getWeeklyProjections({
       season: effectiveSeason,
       week: effectiveWeek,
       league,
       playerIds,
     }),
-    projectionService.getPositionDefense({ season: effectiveSeason, uptoWeek: effectiveWeek }),
+    projections.getPositionDefense({ season: effectiveSeason, uptoWeek: effectiveWeek }),
     getWeekOpponents({ season: effectiveSeason, week: effectiveWeek }),
     // The Line and weather for the start/sit card's fact chips (#1853): the
     // Decision card's own loaders, one read per game. Optional context, so a
@@ -424,17 +423,6 @@ async function startSitAdvice({ leagueId, userId, week, ignoreCalledShot = false
       nflTeams: lineup.entries.map((e) => e.nfl_team),
     }).catch((err) => {
       console.error('start/sit advice: game context lookup failed, continuing without chips:', err.message);
-      return new Map();
-    }),
-    // This week's Practice participation (ADR 0056), one batched read for the
-    // roster. Optional context: a failed read degrades to no observations,
-    // which is the status quo (no player reads no_practice), not no advice.
-    practiceParticipation.loadWeekObservations(pool, {
-      season: effectiveSeason,
-      week: effectiveWeek,
-      playerIds,
-    }).catch((err) => {
-      console.error('start/sit advice: practice participation lookup failed, continuing without it:', err.message);
       return new Map();
     }),
   ]);
@@ -490,15 +478,6 @@ async function startSitAdvice({ leagueId, userId, week, ignoreCalledShot = false
     position: e.position,
     slot: e.slot,
     locked: Boolean(e.locked),
-    injuryStatus: e.injury_status || null,
-    onBye: Boolean(e.onBye),
-    nflTeam: e.nfl_team ?? null,
-    // getLineup's own player read carries it (#1767).
-    nflRosterStatus: e.nfl_roster_status ?? null,
-    // getLineup's schedule fields (#1235): his kickoff anchors the Practice
-    // participation coverage deadline (ADR 0056).
-    kickoff: e.kickoff ?? null,
-    practiceObservations: practiceByPlayer.get(e.id) || [],
   }));
 
   // The ranking statistic comes from the RUN's constants (#1483), read back
@@ -513,7 +492,7 @@ async function startSitAdvice({ leagueId, userId, week, ignoreCalledShot = false
   let calledShot = null;
   if (!ignoreCalledShot && lineup.teamId != null) {
     try {
-      calledShot = await lineupOverrideService.loadCalledShot(pool, {
+      calledShot = await lineupOverrideService.loadCalledShot(db, {
         league, teamId: lineup.teamId, season: effectiveSeason, week: effectiveWeek,
       });
     } catch (err) {
@@ -525,7 +504,7 @@ async function startSitAdvice({ leagueId, userId, week, ignoreCalledShot = false
   let pointsLeft = null;
   if (lineup.teamId != null) {
     try {
-      pointsLeft = await pointsLeftStanding(pool, {
+      pointsLeft = await pointsLeftStanding(db, {
         leagueId, season: effectiveSeason, teamId: lineup.teamId, throughWeek: league.regular_season_weeks,
       });
     } catch (err) {
@@ -538,7 +517,7 @@ async function startSitAdvice({ leagueId, userId, week, ignoreCalledShot = false
   let seasonRecord = { overrides: null, calledShots: null };
   if (lineup.teamId != null) {
     try {
-      seasonRecord = await lineupOverrideService.loadSeasonRecord(pool, {
+      seasonRecord = await lineupOverrideService.loadSeasonRecord(db, {
         leagueId, teamId: lineup.teamId, season: effectiveSeason,
       });
     } catch (err) {
@@ -579,11 +558,11 @@ async function startSitAdvice({ leagueId, userId, week, ignoreCalledShot = false
       confidence: (detail && detail.confidence) || null,
       activeProbability: (detail && detail.activeProbability) ?? null,
       factors: run.factorsFor(entry.playerId),
-      // The verdict the plan gave him (unavailableFor's object, the same one
-      // a suggestion side carries): the client reads `reason` off it, for
-      // "No practice this week" beside a Questionable tag (ADR 0056) among
+      // The verdict the plan gave him, as a suggestion side carries it: the
+      // availability facts plus the one `startVerdict`, which the client reads
+      // for "No practice this week" beside a Questionable tag (ADR 0056) among
       // others.
-      availability: plan.availabilityById.get(entry.playerId) ?? null,
+      ...wireVerdict(plan.availabilityById.get(entry.playerId), plan.verdictById.get(entry.playerId)),
       ...defenseByPlayer.get(entry.playerId),
     };
   });
@@ -818,8 +797,8 @@ async function liveWhatIf({ leagueId, teamId, season, week, weekIsFinal }) {
   // A settled week has no actionable move left in it: every game has kicked
   // off, so every player is locked, the candidate pool is empty and the answer
   // is fixed at `delta: 0, swaps: []` (#977). Nothing below the population read
-  // can change that, so a settled week pays for none of it: no materialisation,
-  // no lock read, and no schedule or bye read behind the lock. The population
+  // can change that, so a settled week pays for none of it: no lock read, and
+  // no schedule or bye read behind the lock. The population
   // read stays - `actualPoints` is summed from those rows.
   //
   // `isWeekFinal` is a query of its own, so a caller that already holds the
@@ -827,9 +806,10 @@ async function liveWhatIf({ leagueId, teamId, season, week, weekIsFinal }) {
   const isFinal = weekIsFinal === undefined || weekIsFinal === null
     ? await isWeekFinal({ leagueId, season, week })
     : weekIsFinal === true;
-  if (!isFinal) {
-    await materializeLineup(pool, { leagueId, teamId, season, week, league });
-  }
+  // This reader never materializes: `materializeLineup` must run inside the
+  // caller's transaction, and the bare pool is not one (#2144). The week's rows
+  // are the ones the caller's own lineup read just materialized and committed
+  // (the matchup route does, for both teams, before it calls this).
 
   const rows = await pool.query(
     `SELECT "lineup_entries"."player_id", "players"."name", "players"."position",
@@ -882,7 +862,9 @@ async function liveWhatIf({ leagueId, teamId, season, week, weekIsFinal }) {
   // (#977). The optimizer is a pure function over rows already in hand, so
   // this costs no query - and it needs no lock, because nothing is movable.
   if (league.best_ball) {
-    const bestBallTotal = optimalLineup(wholePool, settings.rosterSlots, pointsFor).total;
+    const bestBallTotal = optimalLineup({
+      rosterSlots: settings.rosterSlots, candidates: wholePool, pointsFor, fillEverySlot: true,
+    }).total;
     return {
       teamId, week, actualPoints: bestBallTotal, optimalPoints: bestBallTotal, delta: 0, swaps: [],
     };
@@ -904,23 +886,24 @@ async function liveWhatIf({ leagueId, teamId, season, week, weekIsFinal }) {
 
   const actualPoints = round2(startedPoints);
   const lockedById = new Map();
-  // Only unlocked players are candidates for the "what you could still do" pool;
-  // locked players stay wherever they are.
-  const candidatePool = [];
   for (const row of rows.rows) {
-    if (row.slot === IR) continue;
-    lockedById.set(row.player_id, row.locked === true);
-    if (row.locked !== true) {
-      candidatePool.push({ playerId: row.player_id, position: row.position });
-    }
+    if (row.slot !== IR) lockedById.set(row.player_id, row.locked === true);
   }
 
-  // Optimal over the actionable pool. Locked starters are pinned by adding them
-  // back as forced candidates so the optimizer keeps their slots realistic.
-  const forced = rows.rows
-    .filter((r) => r.locked === true && currentStarterIds.has(r.player_id))
-    .map((r) => ({ playerId: r.player_id, position: r.position }));
-  const optimal = optimalLineup([...candidatePool, ...forced], settings.rosterSlots, pointsFor);
+  // Optimal over the actionable pool. Held (lineup.service's `heldLineup`):
+  // only unlocked players are candidates for the "what you could still do"
+  // pool, and a locked starter keeps his exact slot, so the answer never
+  // needs him to move.
+  const held = heldLineup(rows.rows.map((row) => ({
+    playerId: row.player_id, position: row.position, slot: row.slot, locked: row.locked === true,
+  })));
+  const optimal = optimalLineup({
+    rosterSlots: settings.rosterSlots,
+    candidates: held.candidates,
+    pointsFor,
+    pinned: held.pinned,
+    fillEverySlot: true,
+  });
   const optimalIds = new Set(optimal.starters.map((s) => s.playerId));
 
   // Actionable swaps: an unlocked bench player the optimizer promotes, replacing
@@ -1185,60 +1168,73 @@ async function analyzeTrade({ leagueId, proposingTeamId, receivingTeamId, offere
 // 4. Upgrade (player card)
 // ---------------------------------------------------------------------------
 
+const UPGRADE_CANDIDATE = Symbol('upgrade-candidate');
+
 /**
- * Pure: the caller's weakest starter among `currentStarters` sitting at a slot
- * in `eligibleSlots`, or null when none does. Ties broken by `rosterSlots`
- * order (the slot named earliest wins), then by player id.
+ * The optimal assignment over `roster` (sorted by `playerId`), with
+ * `candidate` (`{ position, projection }`) added when given. A kicked-off
+ * starter is pinned to his slot and a kicked-off bench player is no candidate.
  */
-function weakestEligibleStarter(eligibleSlots, currentStarters, rosterSlots) {
-  const relevant = currentStarters.filter((s) => eligibleSlots.includes(s.slot));
-  if (relevant.length === 0) return null;
-  const slotOrder = new Map(rosterSlots.map((s, i) => [s.key, i]));
-  return relevant.reduce((weakest, s) => {
-    const weakestPoints = Number(weakest.projection) || 0;
-    const sPoints = Number(s.projection) || 0;
-    if (sPoints < weakestPoints) return s;
-    if (sPoints > weakestPoints) return weakest;
-    const weakestOrder = slotOrder.get(weakest.slot) ?? 0;
-    const sOrder = slotOrder.get(s.slot) ?? 0;
-    if (sOrder < weakestOrder) return s;
-    if (sOrder === weakestOrder && (s.playerId ?? 0) < (weakest.playerId ?? 0)) return s;
-    return weakest;
-  });
+function bestLineup(roster, rosterSlots, candidate = null) {
+  const pointsFor = new Map(roster.map((r) => [r.playerId, Number(r.projection) || 0]));
+  const { pinned, candidates: pool } = heldLineup(roster.map((r) => ({ ...r, locked: r.kickedOff })));
+  if (candidate) {
+    pointsFor.set(UPGRADE_CANDIDATE, Number(candidate.projection) || 0);
+    pool.push({ playerId: UPGRADE_CANDIDATE, position: candidate.position });
+  }
+  return optimalLineup({ rosterSlots, candidates: pool, pointsFor, pinned });
 }
 
 /**
- * Pure: how much `candidate` (`{ position, projection }`) upgrades the
- * caller's weakest current starter at a slot he is eligible for (FLEX
- * included). When no starter sits at an eligible slot the weakest is
- * treated as 0 and `overPlayer`/`slot` are both null (issue #1306 Ruling
- * item 1).
+ * Pure: the Upgrade (ADR 0055) - how much `candidate` (`{ position, projection }`)
+ * adds to the caller's optimal lineup for the week: the optimal total with him
+ * on the roster minus the optimal total without him, never below 0.
  *
- * `overPlayer.points` (Ruling on #1793, option B) is the SAME effective
- * projection `weakestEligibleStarter` compared against - his zeroed value
- * when `currentStarters` marked him Unavailable, never his raw estimate - so
- * a client reading it alongside the candidate's own Weekly projection gets
- * two numbers that add up to `points`. `overPlayer.unavailable` carries the
- * reason (or null), straight from `currentStarters` (`playerCard.service.js`'s
- * `loadUpgradeContext` populates it).
+ * `roster` is the team's starters and bench, IR excluded:
+ * `[{ playerId, name, position, slot, projection, unavailable, kickedOff }]`
+ * (`playerCard.service.js`'s `loadUpgradeContext` builds it). An Unavailable
+ * player arrives with `projection` 0 and his reason in `unavailable`. A
+ * kicked-off starter is pinned to his slot and a kicked-off bench player is no
+ * lineup candidate, as in `buildSuggestions`.
+ *
+ * `overPlayer` is the roster player in the optimal lineup without the
+ * candidate who is not in the one with him (`points` is his own effective
+ * projection), null when the candidate fills an empty slot or gains nothing;
+ * `slot` is the slot the candidate takes (null when he takes none).
+ *
+ * Order-invariant: the optimizer is deterministic only for a fixed input
+ * order, and the roster read has no ORDER BY, so `roster` is sorted by
+ * `playerId` here. Without it, which of two tied players `overPlayer` names
+ * would change between page loads.
  */
-function upgradeFor(candidate, currentStarters, rosterSlots) {
-  const eligibleSlots = eligibleSlotsFor(candidate.position, rosterSlots);
-  const weakest = weakestEligibleStarter(eligibleSlots, currentStarters, rosterSlots);
-  const weakestProjection = weakest ? (Number(weakest.projection) || 0) : 0;
-  const points = round2((Number(candidate.projection) || 0) - weakestProjection);
+function upgradeFor(candidate, unsortedRoster, rosterSlots) {
+  const roster = [...unsortedRoster].sort((a, b) => a.playerId - b.playerId);
+  const without = bestLineup(roster, rosterSlots);
+  const withHim = bestLineup(roster, rosterSlots, candidate);
+  const points = Math.max(0, round2(withHim.total - without.total));
+  const out = points > 0
+    ? roster.find((r) => without.byPlayer.has(r.playerId) && !withHim.byPlayer.has(r.playerId))
+    : null;
   return {
     points,
-    overPlayer: weakest
-      ? {
-        id: weakest.playerId,
-        name: weakest.name ?? null,
-        points: round2(weakestProjection),
-        unavailable: weakest.unavailable ?? null,
-      }
+    overPlayer: out
+      ? { id: out.playerId, name: out.name ?? null, points: round2(Number(out.projection) || 0), unavailable: out.unavailable ?? null }
       : null,
-    slot: weakest ? weakest.slot : null,
+    slot: withHim.byPlayer.get(UPGRADE_CANDIDATE) ?? null,
   };
+}
+
+/**
+ * Pure: what claiming `candidate` nets once the manager's pick `dropPlayerId`
+ * leaves the roster (ADR 0062): the optimal lineup with him in and the drop
+ * out, minus the optimal lineup `roster` fields now. Signed, so it goes
+ * negative when the drop is worth more than the candidate. `roster` and
+ * `candidate` are `upgradeFor`'s; the Upgrade itself never takes the drop.
+ */
+function swapNetFor(candidate, unsortedRoster, rosterSlots, dropPlayerId) {
+  const roster = [...unsortedRoster].sort((a, b) => a.playerId - b.playerId);
+  const kept = roster.filter((r) => r.playerId !== Number(dropPlayerId));
+  return round2(bestLineup(kept, rosterSlots, candidate).total - bestLineup(roster, rosterSlots).total);
 }
 
 module.exports = {
@@ -1258,4 +1254,5 @@ module.exports = {
   tradeFairnessSummary,
   analyzeTrade,
   upgradeFor,
+  swapNetFor,
 };

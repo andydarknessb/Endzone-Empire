@@ -457,3 +457,22 @@ test('the quarantine throws on 2026 anywhere, including a persisted evaluation r
   assert.throws(() => cohort.assertEvaluationRows([{}]), /is not a number/);
   assert.throws(() => cohort.assertEvaluationRows('nope'), /expected an array of rows/);
 });
+
+test('DEF fumble recoveries read fumble_recovery_opp, not def_fumbles_forced (production parity, #2224)', () => {
+  const stats = cohort.synthesizeDefenseStats({
+    teamWeekRow: { def_fumbles_forced: 4, fumble_recovery_opp: 2 }, game: GAME, teamKey: 'KC', normalizeTeamKey,
+  });
+  assert.equal(stats.defFumbleRecoveries, 2);
+  assert.equal(cohort.synthesizeDefenseStats({
+    teamWeekRow: { def_fumbles_forced: 4 }, game: GAME, teamKey: 'KC', normalizeTeamKey,
+  }).defFumbleRecoveries, 0, 'forced fumbles alone are not recoveries');
+});
+
+test('DEF touchdowns are def_tds plus the caller-supplied fumble-return TDs (#2224)', () => {
+  const td = (teamWeekRow) => cohort.synthesizeDefenseStats({
+    teamWeekRow, game: GAME, teamKey: 'KC', normalizeTeamKey,
+  }).defTouchdowns;
+  assert.equal(td({ def_tds: 1, defFumbleReturnTds: 1 }), 2);
+  assert.equal(td({ defFumbleReturnTds: 1 }), 1);
+  assert.equal(td({ def_tds: 1 }), 1);
+});

@@ -17,6 +17,7 @@ const { rulesForLeague, SCORING_RULES } = require('../services/scoringRules');
 
 test('the nightly fill hands getWeeklyProjections the league row WITH its scoring_rules, so the run it fills is the one requests look up', async (t) => {
   const seen = [];
+  t.mock.method(require('../services/projectionExplanation.service'), 'generateForWeek', async () => ({}));
   t.mock.method(projection, 'getWeeklyProjections', async ({ league, playerIds }) => {
     seen.push(league);
     return { projections: new Map(playerIds.map((id) => [id, { median: 5, cached: false }])) };
@@ -36,7 +37,11 @@ test('the nightly fill hands getWeeklyProjections the league row WITH its scorin
     [/INSERT INTO "data_sync_runs"/, () => ({ rows: [] })],
   ]).install(t);
 
-  const result = await scheduler.runNightlyProjectionFill({ now: new Date('2026-09-19T09:00:00Z') });
+  // The nightly-projection-fill row, driven through the tick over a mocked Date.
+  t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-09-19T09:00:00Z') });
+  const row = scheduler.TICK_JOBS.find((job) => job.name === 'nightly-projection-fill');
+  let result;
+  await scheduler.tickUnlocked([{ ...row, run: async (arg) => { result = await row.run(arg); return result; } }]);
   assert.ok(result && result.weeksGenerated > 0, `the fill ran: ${JSON.stringify(result)}`);
   assert.ok(seen.length > 0);
   for (const league of seen) {

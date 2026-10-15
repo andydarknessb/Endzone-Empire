@@ -3,17 +3,17 @@ import { Link as RouterLink, useSearchParams } from 'react-router-dom';
 import { Box, Button, FormControl, GlobalStyles, InputLabel, MenuItem, Select, Typography, useMediaQuery, useTheme } from '@mui/material';
 import { Badge, Card, Skeleton, TeamAvatar } from '../../shared/ui';
 import { useLeague } from '../../hooks/useLeague';
-import { useLiveGameStates, useWeekMatchups, viewerMatchupOf, clearWeekMatchupsCache } from '../../entities/matchup';
+import { useLiveGameStates, useWeekMatchups, viewerMatchupOf, matchupBoard } from '../../entities/matchup';
 import { deriveLeaguePhase, LEAGUE_PHASE, computeByeClusters, worstByeCluster, MIN_TOUCH_TARGET_SX } from '../../shared/lib';
 import PickWeek from '../../features/pick-week';
-import LineupLedger, { buildLedgerSections, ledgerTabCounts, gameStatusKind } from '../../widgets/lineup-ledger';
+import LineupLedger, { gameStatusKind } from '../../widgets/lineup-ledger';
 import TeamSummaryStrip from '../../widgets/team-summary-strip';
 import MatchupPreview from '../../widgets/matchup-preview';
 import StartSitPanel from '../../widgets/start-sit-panel';
 import ByeClusterGrid from '../../widgets/bye-cluster';
-import { useSwapPlayers, isEligibleMove, QuickPickMenu } from '../../features/swap-players';
+import { useLineupWrite, useSwapPlayers, isEligibleMove, QuickPickMenu } from '../../features/lineup-write';
+import { useLedgerSections, ledgerTabCounts } from '../../entities/roster';
 import { useDropPlayer, DropConfirmationDialog } from '../../features/drop-player';
-import { useApplyAdvice } from '../../features/apply-advice';
 import PlayerDecisionCard, { myTeam } from '../../widgets/player-decision-card';
 import { useLineupLeagues } from './model/useLineupLeagues';
 import { useLineupData } from './model/useLineupData';
@@ -38,7 +38,7 @@ const WEEKS = Array.from({ length: MAX_WEEK }, (_, i) => i + 1);
  * both the Ledger and the summary strip rather than each fetching it again.
  *
  * Ticket 6 (#1238) lands the advice tile and the phone Outlook view: the
- * start-sit-panel widget and the apply-advice feature, both composed here.
+ * start-sit-panel widget, composed here, whose Apply goes to the one `submit`.
  * Below `sm` one page-owned bottom bar (#1965), "Starters | Bench | Outlook",
  * picks `phoneView`: Starters and Bench show the Ledger's matching section,
  * Outlook shows the rail (start-sit-panel and matchup-preview, otherwise
@@ -180,23 +180,22 @@ export default function LineupPage() {
   // widget's own model).
   const { scoreEvent } = useLiveScores({ leagueId: selectedLeagueId, setRaw, refetch });
 
+  // The Ledger's rows, built once by the Roster entity off this page's own
+  // (optimistic) lineup and shared by the Ledger, the eligibility check and the
+  // phone bar's counts (#2146).
+  const sections = useLedgerSections(lineup);
+
   // AC4 (#1425 ruling): "no eligible target anywhere" is a whole-lineup
   // question - every Starter, Bench and IR row, filled or empty, not just
-  // the occupied `entries` the swap rules read. Built from the Ledger
-  // widget's own row enumeration (`buildLedgerSections`, its public
-  // surface) so this reuses exactly the rows the widget renders and
+  // the occupied `entries` the swap rules read. Read off the entity's
+  // `sections` so this reuses exactly the rows the widget renders and
   // highlights rather than a second copy of the slot-count math, and from
   // `isEligibleMove` (the same exported pure rule `onRowClick` and the
   // Decision card already share) rather than a new copy of the eligibility
   // rule itself.
   const hasEligibleTarget = (candidate) => {
-    if (!lineup) return false;
-    const { starters, bench, ir } = buildLedgerSections({
-      entries: lineup.entries,
-      rosterSlots: lineup.rosterSlots,
-      benchSlots: lineup.benchSlots,
-      irSlots: lineup.irSlots,
-    });
+    if (!sections) return false;
+    const { starters, bench, ir } = sections;
     return [...starters, ...bench, ...ir].some((row) => {
       if (row.entry && row.entry.playerId === candidate.playerId) return false;
       return isEligibleMove({
@@ -211,35 +210,35 @@ export default function LineupPage() {
 
   // Start/sit advice (#1238, ADR 0037): one page-level read shared by the
   // start-sit-panel widget, the team-summary-strip widget's advice tile and
-  // the apply-advice feature below - the same "value two widgets both need
+  // the Start/sit card's Apply below - the same "value two widgets both need
   // is passed down by the page" rule `useLineupData` already follows for the
   // lineup itself. Best ball never calls the endpoint at all.
   const advice = useAdvice({ leagueId: selectedLeagueId, week: lineup?.week, bestBall });
-
-  // A lineup or roster write that lands (#1881) changes the viewer's Expected
-  // final, which the week's cached Matchups list carries for 30 s. The features
-  // may not import the Matchup entity (ADR 0029/0031, and swap-players is in the
-  // Draft room's import closure), so the page hands them this callback. It also
-  // re-reads the advice (#2262): the suggestions and the plan were made against
-  // the lineup the write changed.
-  const onLanded = () => {
-    clearWeekMatchupsCache(selectedLeagueId);
-    advice.reload();
-  };
-  const swap = useSwapPlayers({
+  // The one Lineup write (spec #2042): swap, the Start/sit card's Apply, the
+  // Bench what-if and the Decision card all hand move plans to its `submit`.
+  // It clears the week's cached Matchups list itself when a save lands (#1881), as drop-player does for a roster change.
+  // A save that lands, or any queued write that replays, also re-reads the
+  // advice (#2262): the plan and the suggestions were made against the lineup
+  // the write changed.
+  const { submit } = useLineupWrite({
     leagueId: selectedLeagueId,
     raw,
     setRaw,
+    onLanded: advice.reload,
+    onRejected: () => refetch({ silent: true }),
+  });
+  const swap = useSwapPlayers({
+    submit,
     entries: lineup?.entries || [],
     bestBall,
     leagueUnsettled,
     hasEligibleTarget,
-    onLanded,
   });
-  const drop = useDropPlayer({ leagueId: selectedLeagueId, refresh: refetch, onLanded });
+  // A landed drop or undo re-reads the advice too (#2267), since a suggestion
+  // may name the dropped player.
+  const drop = useDropPlayer({ leagueId: selectedLeagueId, refresh: refetch, onLanded: advice.reload });
 
   const decisionCardEntry = (lineup?.entries || []).find((e) => e.playerId === decisionCardEntryId) || null;
-  const applyAdvice = useApplyAdvice({ leagueId: selectedLeagueId, raw, setRaw, onLanded });
   // Called shots (#1856): the actions re-read the advice when they land, since
   // the server pins or releases the shot's pair.
   const calledShot = useCalledShot({ leagueId: selectedLeagueId, week: lineup?.week, onChanged: advice.reload });
@@ -250,15 +249,18 @@ export default function LineupPage() {
   // widget read the same list, deduped when the weeks coincide), the viewer's
   // row picked by Team id (#112). Best ball shows no card, so it reads nothing.
   // A list that has not loaded, has no row for the viewer, or carries no
-  // Expected final (only a settled, final Matchup has none; an in-progress
-  // starter's is actual plus the rest of its projection) leaves `null` here,
-  // which is no line.
+  // Expected final (the board states none once the week is settled, played or
+  // final; an in-progress starter's is actual plus the rest of its projection)
+  // leaves `null` here, which is no line.
   const { matchups } = useWeekMatchups(selectedLeagueId, lineup?.week ?? null, { enabled: !bestBall });
   const viewerMatchup = viewerMatchupOf(matchups, viewerTeamId);
+  // The board nulls a settled week's Expected final (#2048), so a played week
+  // draws no line even though the server still prices one.
+  const board = matchupBoard(viewerMatchup, viewerTeamId);
   const expectedFinals = viewerMatchup
-    ? viewerMatchup.home.teamId === viewerTeamId
-      ? { mine: viewerMatchup.home.expectedFinal, theirs: viewerMatchup.away.expectedFinal }
-      : { mine: viewerMatchup.away.expectedFinal, theirs: viewerMatchup.home.expectedFinal }
+    ? board.viewerSide === 'home'
+      ? { mine: board.home.expectedFinal, theirs: board.away.expectedFinal }
+      : { mine: board.away.expectedFinal, theirs: board.home.expectedFinal }
     : null;
 
   // The Bench what-if swap (#910), read once and resolved against whichever
@@ -281,7 +283,7 @@ export default function LineupPage() {
     if (!swapOffer) return;
     const { outEntry, inEntry } = swapOffer;
     consumeRequestedSwap();
-    swap.performMove([
+    submit([
       { playerId: outEntry.playerId, slot: inEntry.slot },
       { playerId: inEntry.playerId, slot: outEntry.slot },
     ]);
@@ -317,16 +319,7 @@ export default function LineupPage() {
   // own rule, off the same rows it renders. Before the lineup has loaded there
   // is nothing to count, so the labels go without counts rather than read
   // `Starters 0/0`.
-  const tabCounts = lineup
-    ? ledgerTabCounts(
-        buildLedgerSections({
-          entries: lineup.entries,
-          rosterSlots: lineup.rosterSlots,
-          benchSlots: lineup.benchSlots,
-          irSlots: lineup.irSlots,
-        })
-      )
-    : null;
+  const tabCounts = sections ? ledgerTabCounts(sections) : null;
   const phoneTabs = [
     {
       key: 'starters',
@@ -516,7 +509,7 @@ export default function LineupPage() {
                     <LineupLedger
                       leagueId={selectedLeagueId}
                       lineup={lineup}
-                      league={league}
+                      sections={sections}
                       liveGamesByKey={liveGamesByKey}
                       disabled={leagueUnsettled}
                       showEligibility={Boolean(swap.selectedEntry)}
@@ -540,7 +533,7 @@ export default function LineupPage() {
                     advice={advice}
                     entries={lineup?.entries}
                     bestBall={bestBall}
-                    onApply={applyAdvice.apply}
+                    onApply={submit}
                     onCallShot={lineup?.week != null && lineup.week === lineup.currentWeek ? calledShot.callShot : undefined}
                     onWithdrawShot={calledShot.withdrawShot}
                     shotBusy={calledShot.busy}
@@ -712,7 +705,7 @@ export default function LineupPage() {
         week={lineup?.week}
         context={myTeam({
           managed: true,
-          onSwap: swap.performMove,
+          onSwap: submit,
           onRequestDrop: drop.requestDrop,
           canDropEntry,
           entries: lineup?.entries || [],

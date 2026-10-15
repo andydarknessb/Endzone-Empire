@@ -6,15 +6,12 @@ const { createRateLimiter } = require('../modules/rateLimit');
 const { addFreeAgent, dropPlayer, undoDrop } = require('../services/draft.service');
 const { getLineup, setLineup } = require('../services/lineup.service');
 const { startSitAdvice, weekHindsight, seasonHindsight } = require('../services/decision.service');
-const {
-  declareCalledShot, withdrawCalledShot, voidShotContradictedBySave,
-} = require('../services/lineupOverride.service');
+const { declareCalledShot, withdrawCalledShot } = require('../services/lineupOverride.service');
 const { uploadTeamAvatar, removeTeamAvatar, MAX_UPLOAD_BYTES } = require('../services/avatar.service');
 const { computeByeWeeks } = require('../services/bye.service');
 const { requireMember } = require('../services/leagueMembership.service');
 const { getDraftRoomBroadcast } = require('../modules/draftRoomBroadcast');
 const projectionService = require('../services/projection.service');
-const { poolPointsFor } = require('../services/poolProjection');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -50,22 +47,30 @@ router.get('/roster', async (req, res) => {
                 "lineup_entries"."slot", "players"."position", "players"."name"`,
       [Number(leagueId), req.user.id]
     );
+    // The whole league row, not just its season and week: the Weekly projection
+    // prices under the league's scoring rules (ADR 0024), and a row without them
+    // would hash the default profile. No current week, nothing to price (null).
+    const leagueResult = await pool.query(
+      `SELECT * FROM "leagues" WHERE "id" = $1`,
+      [Number(leagueId)]
+    );
+    const league = leagueResult.rows[0];
+    const season = league?.current_season ?? null;
+    const week = league?.current_week ?? null;
+    const weekly = season != null && week != null
+      ? await projectionService.getWeeklyProjections({
+        season, week, league, playerIds: result.rows.map((row) => row.id),
+      })
+      : null;
     // Bye week is schedule-derived (not a stored players column), so annotate
     // each roster row with its NFL team's bye for the league's current season.
     // Batched: a full roster resolves in one nfl_games query, not one per slot.
-    const leagueRow = await pool.query(
-      `SELECT "current_season", "current_week" FROM "leagues" WHERE "id" = $1`,
-      [Number(leagueId)]
-    );
-    const season = leagueRow.rows[0]?.current_season ?? null;
-    const week = leagueRow.rows[0]?.current_week ?? null;
-    const weeklyByPlayer = await projectionService.getWeekProjections({ season, week });
     const byeByTeam = await computeByeWeeks(
       result.rows.map((row) => row.nfl_team),
       season
     );
     for (const row of result.rows) {
-      row.projected_weekly_points = poolPointsFor(weeklyByPlayer, row.id);
+      row.projected_weekly_points = weekly ? weekly.pointsFor(row.id) : null;
       row.bye_week = byeByTeam.get(row.nfl_team) ?? null;
     }
     res.json(result.rows);
@@ -187,18 +192,9 @@ async function updateLineup(req, res) {
     return res.status(400).json({ error: 'week must be a positive integer' });
   }
   try {
-    const outcome = await setLineup({ leagueId, userId: req.user.id, week, moves });
-    // A saved lineup that no longer matches the team's open called shot voids
-    // it (#1856). The save has already committed, and the shot path never
-    // blocks it: any failure here is logged and the save still answers 200.
-    try {
-      await voidShotContradictedBySave(pool, {
-        teamId: outcome.teamId, season: outcome.season, week: outcome.week,
-      });
-    } catch (shotError) {
-      console.error('called shot: reconciling after a lineup save failed, the save stands:', shotError.message);
-    }
-    res.json(outcome);
+    // A save that contradicts the team's open called shot voids it in the same
+    // transaction (ADR 0058); the answer says whether it did (#1969).
+    res.json(await setLineup({ leagueId, userId: req.user.id, week, moves }));
   } catch (error) {
     if (error.statusCode) {
       return res.status(error.statusCode).json(

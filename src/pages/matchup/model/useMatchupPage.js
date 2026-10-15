@@ -3,8 +3,10 @@ import { useSelector } from 'react-redux';
 import apiClient from '../../../api/apiClient';
 import { useLeague } from '../../../hooks/useLeague';
 import { useStandings } from '../../../hooks/useStandings';
-import { formatPoints, matchupWinProbability, parseRosterSlots } from '../../../shared/lib';
-import { useMatchup, matchupStatusView, deltasFor } from '../../../entities/matchup';
+import { formatPoints, parseRosterSlots } from '../../../shared/lib';
+import {
+  useMatchup, matchupBoard, matchupFromDetailBody, playerFromDetailRow, deltasFor,
+} from '../../../entities/matchup';
 import { pairStartersBySlot } from '../../../entities/roster';
 import { recordsByTeamId } from '../../../entities/standings';
 import { useCelebrateTouchdown } from '../../../features/celebrate-touchdown';
@@ -30,10 +32,13 @@ import { useMatchupView } from '../../../features/toggle-matchup-view';
  *     starters by slot is a Roster/Lineup fact, ADR 0029, so it lives in
  *     `entities/roster`'s `pairStartersBySlot`, never inside the Matchup
  *     entity) with the `slotOrder` below, into `starterRows`, the ONE paired
- *     row list both views render. A `scores:updated` event moves the model
- *     with no refetch; a reconnect refetches silently.
+ *     row list both views render, and derives `scoreboardRows` from it: the
+ *     same pairs with each player through the Matchup entity's
+ *     `playerFromDetailRow` (#2147), the rows the Scoreboard view's widget
+ *     reads. A `scores:updated` event moves the model with no refetch; a
+ *     reconnect refetches silently.
  *   - The status chip and the started state are the server's status fact
- *     (ADR 0030) read through the entity's one predicate, never a timer.
+ *     (ADR 0030) read through the entity's `matchupBoard`, never a timer.
  *     `isLive` is the exact live status (not the started state) and gates
  *     the live-only surfaces: the NFL game strip, the last-plays ticker and
  *     the bench what-if.
@@ -90,15 +95,11 @@ const NO_DELTAS = new Map();
  * yields slot keys here too, instead of the empty list this used to fall back
  * to for anything but a literal array.
  */
-export function slotOrderFor(league) {
+function slotOrderFor(league) {
   return parseRosterSlots(league?.roster_slots)
     .map((s) => (s && s.key != null ? String(s.key) : null))
     .filter(Boolean);
 }
-
-// The status chip's Badge variant per server status, the canvas's statusChip()
-// (the hero's, the matchup cards' and the scoreboard strip's map).
-const CHIP_VARIANTS = { live: 'danger', final: 'success', played: 'warning', scheduled: 'neutral' };
 
 /**
  * One team's called shot line for the bench card (#1857), or null: "Called
@@ -111,7 +112,7 @@ const CHIP_VARIANTS = { live: 'danger', final: 'success', played: 'warning', sch
  * the wire does not know (a void shot, a player dropped since) reads as a dash,
  * never 0.0.
  */
-export function calledShotView(shot, { starters, bench, deltas }) {
+function calledShotView(shot, { starters, bench, deltas }) {
   if (!shot?.starter || !shot?.benched) return null;
   const judged = shot.outcome === 'hit' || shot.outcome === 'miss';
   const pointsOf = (side) => {
@@ -126,17 +127,6 @@ export function calledShotView(shot, { starters, bench, deltas }) {
     text: `Called shot: ${shot.starter.name} over ${shot.benched.name} · ${formatPoints(pointsOf(shot.starter))} to ${formatPoints(pointsOf(shot.benched))}`,
     outcome: judged ? (shot.outcome === 'hit' ? 'Hit' : 'Miss') : null,
   };
-}
-
-/**
- * The header's status chip: the entity predicate's label (ADR 0030), the
- * canvas's variant per status and the dot on LIVE alone; null when the server
- * could not compute a status (no chip, never a guessed one).
- */
-export function statusChipFor(status) {
-  const label = matchupStatusView(status).chipLabel;
-  if (label == null) return null;
-  return { label, variant: CHIP_VARIANTS[status] || 'neutral', dot: status === 'live' };
 }
 
 export function useMatchupPage(leagueId, matchupId) {
@@ -181,7 +171,7 @@ export function useMatchupPage(leagueId, matchupId) {
     const viewerTeamId = detailNow?.viewerTeamId ?? null;
     const homeIds = new Set((detailNow?.home?.starters || []).map((p) => p.id));
     const awayIds = new Set((detailNow?.away?.starters || []).map((p) => p.id));
-    const iAmHome = viewerTeamId != null && detailNow?.home?.teamId === viewerTeamId;
+    const iAmHome = matchupBoard(matchupFromDetailBody(detailNow), viewerTeamId).viewerSide === 'home';
     const myStarterIds = viewerTeamId != null ? (iAmHome ? homeIds : awayIds) : new Set();
     const oppStarterIds = viewerTeamId != null ? (iAmHome ? awayIds : homeIds) : new Set();
 
@@ -230,6 +220,19 @@ export function useMatchupPage(leagueId, matchupId) {
     [homeStarters, awayStarters, slotOrder]
   );
 
+  // The retro scoreboard's rows: the same pairs with each player normalised by
+  // the Matchup entity (#2147), so the widget names no wire column. A side
+  // nobody filled stays null. `starterRows` itself stays on the wire shape the
+  // Slot comparison, the Decision card lookup and the live deltas read.
+  const scoreboardRows = useMemo(
+    () => starterRows.map((row) => ({
+      ...row,
+      home: playerFromDetailRow(row.home),
+      away: playerFromDetailRow(row.away),
+    })),
+    [starterRows]
+  );
+
   useEffect(() => {
     detailRef.current = detail;
   }, [detail]);
@@ -243,15 +246,17 @@ export function useMatchupPage(leagueId, matchupId) {
     }
   }, []);
 
+  const viewerTeamId = detail?.viewerTeamId ?? leagueViewerTeamId ?? null;
+  const board = matchupBoard(matchup, viewerTeamId);
+
   // Final is the MODEL's status, never the fetched body's `final` flag (#912):
   // the score feed moves the status through applyScoreEvent (ADR 0030, status
   // is a server fact, and the server states `final` for exactly a settled
   // week), so a Matchup that settles while the page is open is final here with
-  // no refetch, and one that a correction pass re-opens stops being final. A
-  // status the server did not state (null, ADR 0030's unknown) is the one case
-  // that falls back to the `final` flag, the only finality fact such a body
-  // carries.
-  const isFinal = matchup?.status === 'final' || (matchup?.status == null && !!matchup?.final);
+  // no refetch, and one that a correction pass re-opens stops being final. The
+  // board states it (a status the server did not state falls back to the
+  // `final` flag inside `matchupBoard`).
+  const { isFinal, isLive } = board;
 
   // Points left on the bench: only once final, and only for a league that
   // sets a lineup (ADR 0023). Both gates are read here, so a best-ball league
@@ -298,29 +303,14 @@ export function useMatchupPage(leagueId, matchupId) {
     return rows.length ? Object.fromEntries(recordsByTeamId(rows)) : null;
   }, [standings.data]);
 
-  const viewerTeamId = detail?.viewerTeamId ?? leagueViewerTeamId ?? null;
   // Keyed by the user alone (never the Team id): one key, known at first paint.
   const [view, setView] = useMatchupView(userId);
 
-  const status = matchupStatusView(matchup?.status);
-  const isLive = matchup?.status === 'live';
-
-  const homeProb = useMemo(() => {
-    if (!matchup) return null;
-    return matchupWinProbability({
-      homeScore: matchup.home.score,
-      awayScore: matchup.away.score,
-      homeExpectedFinal: matchup.home.expectedFinal,
-      awayExpectedFinal: matchup.away.expectedFinal,
-      status: matchup.status,
-    }).home;
-  }, [matchup]);
-
-  const viewerSide = viewerTeamId != null && detail
-    ? (detail.home?.teamId === viewerTeamId ? detail.home : detail.away?.teamId === viewerTeamId ? detail.away : null)
-    : null;
-  const viewerHasRoster = !!viewerSide
-    && ((viewerSide.starters || []).length > 0 || (viewerSide.bench || []).length > 0);
+  // The viewer's roster side of the detail body, picked by the board's viewer
+  // side (Team id), the one place that pick lives.
+  const viewerRoster = board.viewerSide && detail ? detail[board.viewerSide] : null;
+  const viewerHasRoster = !!viewerRoster
+    && ((viewerRoster.starters || []).length > 0 || (viewerRoster.bench || []).length > 0);
 
   const liveDeltas = live.read === detail ? live.deltas : NO_DELTAS;
 
@@ -331,16 +321,20 @@ export function useMatchupPage(leagueId, matchupId) {
     matchup,
     detail,
     starterRows,
+    scoreboardRows,
     loading,
     error,
     refetch,
     records,
-    status,
-    statusChip: statusChipFor(matchup?.status),
+    statusChip: board.chip,
+    // The empty slot's "Set lineup" link only makes sense while a lineup can
+    // still be set: a scheduled or live Matchup, in a league that is not best
+    // ball (best ball sets no lineup, ADR 0023). Held until the league is known.
+    canSetLineup: !!league && !league.best_ball && board.hasStarted !== null && !board.settled,
     isLive,
     isFinal,
     isPlayoff: !!detail?.matchup?.is_playoff,
-    homeProb,
+    board,
     games: matchup?.games || [],
     benches: {
       home: detail?.home?.bench || [],

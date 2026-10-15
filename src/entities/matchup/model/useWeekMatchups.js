@@ -12,9 +12,8 @@ const TTL_MS = 30000;
  * recomputes from the live lineup rows on every request, so a write that
  * changes the lineup or the roster (a saved move, an applied advice plan, a
  * drop or an undo) leaves the cached figure stale for the rest of the 30 s TTL
- * until this runs. The Lineup page calls it from the `onLanded` callback it
- * hands those features, since a feature may not import this entity (ADR 0029,
- * ADR 0031). The reload is stale-while-revalidate: a mounted Lineup page keeps
+ * until this runs. The lineup-write and drop-player features call it when such
+ * a write lands (ADR 0031). The reload is stale-while-revalidate: a mounted Lineup page keeps
  * its current figure on screen until the new response arrives.
  */
 export function clearWeekMatchupsCache(leagueId) {

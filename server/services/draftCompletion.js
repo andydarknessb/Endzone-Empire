@@ -7,7 +7,7 @@ const seasonService = require('./season.service');
 const waiverService = require('./waiver.service');
 const lineupService = require('./lineup.service');
 const { appendLifecycleActivity, COMPLETE } = require('./draftActivity');
-const { DraftError } = require('./draft.service');
+const { DraftError } = require('./draftError');
 
 /**
  * Draft completion: the one write that hands a finished Draft over to Season

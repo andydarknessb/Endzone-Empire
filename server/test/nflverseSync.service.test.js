@@ -6,6 +6,7 @@ const {
   parseCsv,
   filterRowsForWeek,
   buildStatUpdates,
+  buildIdCrosswalks,
   buildSnapUpdates,
   parseFgMadeList,
   nflverseTeamToOurAbbr,
@@ -73,6 +74,88 @@ test('filterRowsForWeek keeps only the matching season/week/REG rows', () => {
 test('filterRowsForWeek on missing/empty input is empty', () => {
   assert.deepEqual(filterRowsForWeek(null, { season: 2025, week: 3 }), []);
   assert.deepEqual(filterRowsForWeek([], { season: 2025, week: 3 }), []);
+});
+
+// --- buildIdCrosswalks ------------------------------------------------------
+
+const OVERRIDES = [{ gsisId: '00-0041363', espnId: '4693371' }];
+const BLANK_ROOKIE = { gsis_id: '00-0041363', pfr_id: 'ThomJa06', espn_id: '' };
+
+function captureWarns(fn) {
+  const warns = [];
+  const orig = console.warn;
+  console.warn = (...args) => warns.push(args.join(' '));
+  try {
+    return { result: fn(), warns };
+  } finally {
+    console.warn = orig;
+  }
+}
+
+test('buildIdCrosswalks: a blank-espn_id row with an override maps its gsis and pfr id to the override', () => {
+  const { gsisToEspn, pfrToEspn } = buildIdCrosswalks([BLANK_ROOKIE], OVERRIDES);
+  assert.equal(gsisToEspn.get('00-0041363'), '4693371');
+  assert.equal(pfrToEspn.get('ThomJa06'), '4693371');
+});
+
+test('buildIdCrosswalks: a blank-espn_id row with no override is still skipped', () => {
+  const row = { gsis_id: '00-0000001', pfr_id: 'NoneAa00', espn_id: '' };
+  const { gsisToEspn, pfrToEspn } = buildIdCrosswalks([row], OVERRIDES);
+  assert.equal(gsisToEspn.size, 0);
+  assert.equal(pfrToEspn.size, 0);
+});
+
+test('buildIdCrosswalks: a non-blank espn_id wins over the override and warns once when they differ', () => {
+  const rows = [{ ...BLANK_ROOKIE, espn_id: '999' }, { ...BLANK_ROOKIE, espn_id: '999' }];
+  const { result, warns } = captureWarns(() => buildIdCrosswalks(rows, OVERRIDES));
+  assert.equal(result.gsisToEspn.get('00-0041363'), '999');
+  assert.equal(warns.length, 1);
+  assert.match(warns[0], /^nflverse id overrides:/);
+  assert.match(warns[0], /00-0041363/);
+  assert.match(warns[0], /999/);
+  assert.match(warns[0], /4693371/);
+});
+
+test('buildIdCrosswalks: a non-blank espn_id equal to the override is silent', () => {
+  const { result, warns } = captureWarns(() =>
+    buildIdCrosswalks([{ ...BLANK_ROOKIE, espn_id: '4693371' }], OVERRIDES)
+  );
+  assert.equal(result.gsisToEspn.get('00-0041363'), '4693371');
+  assert.equal(warns.length, 0);
+});
+
+test('buildIdCrosswalks: the legacy row carrying the same espn id keeps its own gsis and pfr ids', () => {
+  const legacy = { gsis_id: 'THO581952', pfr_id: 'ThomJa00', espn_id: '4693371' };
+  const { result, warns } = captureWarns(() => buildIdCrosswalks([legacy, BLANK_ROOKIE], OVERRIDES));
+  assert.equal(result.gsisToEspn.get('THO581952'), '4693371');
+  assert.equal(result.pfrToEspn.get('ThomJa00'), '4693371');
+  assert.equal(result.gsisToEspn.get('00-0041363'), '4693371');
+  assert.equal(warns.length, 0);
+});
+
+test('buildIdCrosswalks feeds buildStatUpdates: the overridden rookie yields one update', () => {
+  const { gsisToEspn } = buildIdCrosswalks([BLANK_ROOKIE], OVERRIDES);
+  const updates = buildStatUpdates({
+    defRows: [{ player_id: '00-0041363', def_sack_yards: '5' }],
+    crosswalk: gsisToEspn,
+    knownPlayersByExternalId: new Map([['4693371', 42]]),
+  });
+  assert.equal(updates.length, 1);
+  assert.equal(updates[0].playerId, 42);
+});
+
+test('shipped nflverse-espn-overrides.json is pinned to the three verified rows', () => {
+  const shipped = require('../data/nflverse-espn-overrides.json');
+  assert.deepEqual(
+    shipped.map((o) => [o.gsisId, o.espnId]),
+    [['00-0041363', '4693371'], ['00-0041320', '4685970'], ['00-0041439', '5081450']]
+  );
+  assert.equal(new Set(shipped.map((o) => o.gsisId)).size, shipped.length);
+  for (const o of shipped) {
+    assert.match(o.gsisId, /^00-\d{7}$/);
+    assert.match(o.espnId, /^\d+$/);
+    assert.equal(o.verified, '2026-10-03 ESPN athlete API');
+  }
 });
 
 // --- buildStatUpdates -------------------------------------------------------
@@ -549,18 +632,26 @@ test('buildDstStatUpdates maps the Rams to LAR and drops games with no score row
 
 // --- isNflverseFinalizationDay ---------------------------------------------
 
-test('isNflverseFinalizationDay is true Monday through Thursday', () => {
-  // 2026-07-20 is a Monday; 2026-07-21..23 are Tue/Wed/Thu.
+test('isNflverseFinalizationDay is true Monday through Thursday (UTC days)', () => {
+  // 2026-07-20 is a Monday; 2026-07-21..23 are Tue/Wed/Thu. Noon UTC is the same
+  // calendar day in every host zone, so the host's TZ cannot move the answer.
   for (const day of [20, 21, 22, 23]) {
-    assert.equal(isNflverseFinalizationDay(new Date(2026, 6, day)), true, `day ${day}`);
+    assert.equal(isNflverseFinalizationDay(new Date(Date.UTC(2026, 6, day, 12))), true, `day ${day}`);
   }
 });
 
-test('isNflverseFinalizationDay is false Friday through Sunday', () => {
+test('isNflverseFinalizationDay is false Friday through Sunday (UTC days)', () => {
   // 2026-07-24 is a Friday; 25 Sat; 26 Sun.
   for (const day of [24, 25, 26]) {
-    assert.equal(isNflverseFinalizationDay(new Date(2026, 6, day)), false, `day ${day}`);
+    assert.equal(isNflverseFinalizationDay(new Date(Date.UTC(2026, 6, day, 12))), false, `day ${day}`);
   }
+});
+
+test('isNflverseFinalizationDay reads the UTC day, not the host-local day', () => {
+  // Monday 00:30 UTC is still Sunday in every US zone; Friday 00:30 UTC is still Thursday there.
+  assert.equal(isNflverseFinalizationDay(new Date('2026-07-20T00:30:00Z')), true);
+  assert.equal(isNflverseFinalizationDay(new Date('2026-07-23T23:30:00Z')), true);
+  assert.equal(isNflverseFinalizationDay(new Date('2026-07-24T00:30:00Z')), false);
 });
 
 // ---- free stat corrections (no Tank01 quota) --------------------------------

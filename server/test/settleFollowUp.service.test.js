@@ -5,6 +5,7 @@ const montecarlo = require('../services/montecarlo.service');
 const recap = require('../services/recap.service');
 const trophies = require('../services/trophy.service');
 const digest = require('../services/digest.service');
+const matchupNarrative = require('../services/matchupNarrative.service');
 const { settleFollowUp } = require('../services/settleFollowUp.service');
 const { createFakePool } = require('./helpers/fakePool');
 
@@ -26,36 +27,36 @@ function stubAll(t, { failing } = {}) {
   step('awardWeeklyTrophies', trophies, 'awardWeeklyTrophies');
   step('reconcileWeeklyHighScoreTrophy', trophies, 'reconcileWeeklyHighScoreTrophy');
   step('sendWeeklyRecapDigest', digest, 'sendWeeklyRecapDigest');
+  step('writePostgames', matchupNarrative, 'writePostgames');
   return order;
 }
 
 // #1854: the Recap narrates the week's trophies, so it reads the trophy rows
 // the trophy step just wrote: trophies come before the Recap in both modes.
-test('advance: odds, then every trophy, then the announced recap, then the digest', async (t) => {
+test('advance: odds, then every trophy, then the Matchup postgames, then the announced recap, then the digest', async (t) => {
   const order = stubAll(t);
   await settleFollowUp({ ...ARGS, mode: 'advance' });
   assert.deepEqual(
     order.map((o) => o.label),
-    ['odds', 'awardWeeklyTrophies', 'generateWeeklyRecap', 'sendWeeklyRecapDigest']
+    ['odds', 'awardWeeklyTrophies', 'writePostgames', 'generateWeeklyRecap', 'sendWeeklyRecapDigest']
   );
   assert.deepEqual(order[0].arg, { leagueId: 7 });
   for (const call of order.slice(1)) assert.deepEqual(call.arg, ARGS);
 });
 
-test('correction: odds, then the weekly high score reconcile, then the silent recap, no digest', async (t) => {
+test('correction: odds, then the weekly high score reconcile, then the Matchup postgames, then the silent recap, no digest', async (t) => {
   const order = stubAll(t);
   await settleFollowUp({ ...ARGS, mode: 'correction' });
   assert.deepEqual(
     order.map((o) => o.label),
-    ['odds', 'reconcileWeeklyHighScoreTrophy', 'computeAndStoreWeeklyRecap']
+    ['odds', 'reconcileWeeklyHighScoreTrophy', 'writePostgames', 'computeAndStoreWeeklyRecap']
   );
-  assert.deepEqual(order[1].arg, ARGS);
-  assert.deepEqual(order[2].arg, ARGS);
+  for (const call of order.slice(1)) assert.deepEqual(call.arg, ARGS);
 });
 
 for (const [mode, labels] of [
-  ['advance', ['odds', 'awardWeeklyTrophies', 'generateWeeklyRecap', 'sendWeeklyRecapDigest']],
-  ['correction', ['odds', 'reconcileWeeklyHighScoreTrophy', 'computeAndStoreWeeklyRecap']],
+  ['advance', ['odds', 'awardWeeklyTrophies', 'writePostgames', 'generateWeeklyRecap', 'sendWeeklyRecapDigest']],
+  ['correction', ['odds', 'reconcileWeeklyHighScoreTrophy', 'writePostgames', 'computeAndStoreWeeklyRecap']],
 ]) {
   for (const failing of labels) {
     test(`${mode}: ${failing} throwing is logged and the next step still runs`, async (t) => {

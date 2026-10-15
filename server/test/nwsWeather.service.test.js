@@ -371,3 +371,14 @@ test('no games means no work and no request', async (t) => {
   assert.equal(result.byGame.size, 0);
   assert.equal(result.coverage.status, 'unavailable');
 });
+
+test('isWeatherFresh: true only for a usable fetched_at no more than 24h before now (#1941)', () => {
+  const now = new Date('2026-10-02T12:00:00Z');
+  const ago = (h) => new Date(+now - h * 3600 * 1000);
+  assert.equal(weather.isWeatherFresh({ fetched_at: ago(18) }, now), true);
+  assert.equal(weather.isWeatherFresh({ fetched_at: ago(24) }, now), true, '24h exactly is the limit, kept');
+  assert.equal(weather.isWeatherFresh({ fetched_at: ago(24.01) }, now), false);
+  assert.equal(weather.isWeatherFresh({}, now), false, 'no fetched_at');
+  assert.equal(weather.isWeatherFresh({ fetched_at: 'garbage' }, now), false, 'unusable fetched_at');
+  assert.equal(weather.isWeatherFresh(null, now), false, 'no row');
+});

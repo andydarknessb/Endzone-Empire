@@ -507,6 +507,15 @@ describe('static result card', () => {
     expect(within(card).queryByRole('link')).not.toBeInTheDocument();
   });
 
+  test('the stored postgame Narrative is one line of body text; nothing without it', async () => {
+    setReducedMotion(true);
+    const { unmount } = await show([item(1, { narrative: 'Mine 1 outlasted Theirs 1.' })]);
+    expect(screen.getByTestId('postgame-narrative')).toHaveTextContent('Mine 1 outlasted Theirs 1.');
+    unmount();
+    await show([item(2, { narrative: null })]);
+    expect(screen.queryByTestId('postgame-narrative')).not.toBeInTheDocument();
+  });
+
   test('a loss, under reduced motion, reads GAME OVER. and links to the league Waiver wire', async () => {
     setReducedMotion(true);
     await show([item(1, {
@@ -559,6 +568,27 @@ describe('static result card', () => {
     withAvatar.me.avatarStaticUrl = 'https://img.example/still.png';
     setReducedMotion(true);
     await show([withAvatar]);
+    expect(within(screen.getByTestId('postgame-side-me')).getByRole('img', { hidden: true }))
+      .toHaveAttribute('src', 'https://img.example/still.png');
+  });
+
+  test('a Team with only a still logo (no static frame) shows the logo, not initials (#1914)', async () => {
+    const stillLogo = item(1);
+    stillLogo.me.avatarUrl = 'https://img.example/logo.png';
+    stillLogo.me.avatarStaticUrl = null;
+    setReducedMotion(true);
+    await show([stillLogo]);
+    const side = within(screen.getByTestId('postgame-side-me'));
+    expect(side.getByRole('img', { hidden: true })).toHaveAttribute('src', 'https://img.example/logo.png');
+    expect(side.queryByText('M1')).not.toBeInTheDocument();
+  });
+
+  test('an animated logo shows its still frame on the card (#1914)', async () => {
+    const animated = item(1);
+    animated.me.avatarUrl = 'https://img.example/animated.gif';
+    animated.me.avatarStaticUrl = 'https://img.example/still.png';
+    setReducedMotion(true);
+    await show([animated]);
     expect(within(screen.getByTestId('postgame-side-me')).getByRole('img', { hidden: true }))
       .toHaveAttribute('src', 'https://img.example/still.png');
   });

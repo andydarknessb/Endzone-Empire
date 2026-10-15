@@ -10,8 +10,11 @@
  *     server/services/draftgrade.service.js (lines ~34, ~55, ~71), including the
  *     [1.0, 0.33, -0.33, -1.0] z-score thresholds, the stddev-0 => 'B' rule, the
  *     id tie-break, and the `rosterValue = optimal + 0.25 * bench` weighting.
- *   - `optimalLineup` mirrors server/services/lineup.service.js (~line 363):
- *     most-restrictive-slot-first greedy fill.
+ *   - `optimalLineup` mirrors server/services/lineupOptimizer.js `optimalLineup`
+ *     with `fillEverySlot` (the Draft grade's call). It is a most-restrictive-
+ *     slot-first greedy, exact only because every LEAGUE_TEMPLATES shape has
+ *     nested or disjoint slots; analysis.test.js guards that. A template with
+ *     crossing flexes needs the exact solver ported here.
  * If any of those change on the server, change them here.
  */
 import { templateFor } from './templates';
@@ -101,7 +104,7 @@ export function gradeDraftValues(teamValues) {
   });
 }
 
-/** Mirror of lineup.service.js optimalLineup (greedy, most-restrictive slot first). */
+/** Mirror of lineupOptimizer.js optimalLineup with `fillEverySlot` (most-restrictive slot first; exact for nested-or-disjoint slots, see the file docblock). */
 export function optimalLineup(players, rosterSlots, pointsFor = new Map()) {
   const slots = rosterSlots
     .filter((s) => s.count > 0)

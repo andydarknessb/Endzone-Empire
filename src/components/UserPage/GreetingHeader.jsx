@@ -1,191 +1,120 @@
 import React from 'react';
-import { Box, Typography } from '@mui/material';
-import { ordinal } from '../../shared/lib/ordinal';
+import { Box } from '@mui/material';
 import { formatInstant } from '../../shared/lib/instantFormat';
-import { hasStatus } from '../common/LeagueStatusCard';
-import {
-  DISPLAY_FONT, HAIRLINE, dimSx, microLabelSx,
-} from '../common/homeIslandSx';
+import { LiveChip, PixelHeading } from './home';
 
 /**
- * The greeting header's three read-outs under and beside the h1 (Main.dc.html
- * and Mobile.dc.html): the summary line from the to-do list, the stat strip
- * and the live chip from the leagues list's status blocks (Contract B). None
- * of them fetches: the page hands down what it and ActionQueue already hold.
- *
- * Painted on the page (`dash-bg`, ADR 0051): the summary line is `dash-dim`
- * on the page; each stat tile is a `dash-surface` card with `dash-dim` terms
- * and `dash-ink` values; the live chip is `dash-danger` on the danger tint
- * over the page (4.57 light at the ruled 6% tint), its border decoration.
+ * The greeting header (DESIGN.md "Home surface: Play-select"): the page's h1,
+ * one status line in Archivo, the live chip beside it, and (on a desktop) the
+ * Join and Create buttons at the top right. None of it fetches: the page hands
+ * down what it and ActionQueue already hold.
  */
 
 const sameLocalDay = (a, b) => new Date(a).toDateString() === new Date(b).toDateString();
 
-// The item with the earliest deadline still ahead today, as { at, item }. A live
-// draft's deadline is "now", not a lock, so it never names the time. Info
-// items (a waiver claim clearing) rank last on the server, so the greeting
-// never names one over the row the queue puts first.
-function firstLockToday(items, now) {
+// The play with the earliest lock still ahead today. A draft has no lock (its
+// `at` is null), so it never names the time.
+function firstLockToday(plays, now) {
   let first = null;
-  items.forEach((item) => {
-    if (!item || item.type === 'draft_live' || item.severity === 'info' || !item.deadlineAt) return;
-    const at = new Date(item.deadlineAt).getTime();
-    if (Number.isNaN(at) || at <= now || !sameLocalDay(at, now)) return;
-    if (first === null || at < first.at) first = { at, item };
+  plays.forEach((play) => {
+    if (play.at === null || play.at <= now || !sameLocalDay(play.at, now)) return;
+    if (first === null || play.at < first.at) first = play;
   });
   return first;
 }
 
 /**
- * The summary line for a GET /api/user/action-items body, or null when there
- * is nothing honest to say (no body yet, or an empty list with item types the
- * server could not check, where "all caught up" would be a claim it can't
- * back). The total is the server's uncapped count, not the rows served.
+ * The summary line, or null when there is nothing honest to say (no body or no
+ * plays yet, or an empty list with item types the server could not check, where
+ * "all caught up" would be a claim it can't back). `plays` is what the cards
+ * show (ActionQueue's buildPlays, read at `now`), so the greeting's count, its
+ * due-today count and the badge all come from one list: due today is the plays
+ * whose lock falls on today's date in the viewer's zone.
  */
-export function greetingSummary(body, now = Date.now()) {
-  if (!body || typeof body !== 'object') return null;
-  const items = Array.isArray(body.items) ? body.items : [];
+export function greetingSummary(body, plays, now = Date.now()) {
+  if (!body || typeof body !== 'object' || !Array.isArray(plays)) return null;
   const incomplete = Array.isArray(body.partial) && body.partial.length > 0;
-  const total = typeof body.counts?.total === 'number'
-    ? body.counts.total
-    : items.filter((item) => item && item.severity !== 'info').length;
+  const total = plays.length;
   if (total <= 0) return incomplete ? null : "You're all caught up.";
 
   const head = total === 1 ? '1 thing needs you.' : `${total} things need you.`;
-  const dueToday = typeof body.counts?.dueToday === 'number' ? body.counts.dueToday : 0;
+  const dueToday = plays.filter((play) => play.at !== null && sameLocalDay(play.at, now)).length;
   if (dueToday <= 0) return head;
 
-  const first = firstLockToday(items, now);
+  const first = firstLockToday(plays, now);
   if (first === null) return `${head} ${dueToday === 1 ? '1 is due today' : `${dueToday} are due today`}.`;
-  const { title } = first.item;
+  const { title } = first;
   const time = formatInstant(first.at, 'time');
   return dueToday === 1
     ? `${head} 1 is due today: ${title}, at ${time}.`
     : `${head} ${dueToday} are due today. First up: ${title}, at ${time}.`;
 }
 
-export function GreetingSummary({ actionItems }) {
-  const text = greetingSummary(actionItems);
-  if (!text) return null;
-  return (
-    <Typography data-testid="greeting-summary" sx={{ ...dimSx, fontSize: { xs: '15px', md: '16px' }, mt: 1.25 }}>
-      {text}
-    </Typography>
-  );
+/** How many of the manager's matchups are live right now (ADR 0030 status). */
+export function liveMatchupCount(leagues) {
+  return (Array.isArray(leagues) ? leagues : [])
+    .filter((league) => league?.status && league.statusError !== true && league.status.matchup?.status === 'live')
+    .length;
 }
 
-const count = (value) => Number(value) || 0;
+
+const greetingDateFormat = new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
+
+const introSx = { m: 0, fontSize: { xs: '15px', md: '17px' }, color: 'var(--home-dim)' };
 
 /**
- * The stat strip's tiles for the leagues list, each left out when no league
- * carries its data: the league count and the best standing (the lowest rank;
- * a tie goes to the bigger league). No summed record: wins across leagues
- * mean nothing to the manager.
+ * h1, then "Week N · Weekday, Mon D · <summary>" and the live chip. The week
+ * part is left out when `week` is null, the summary when it is, and the whole
+ * line when neither is known. `actions` is the Join / Create pair, shown here
+ * on a desktop.
  */
-export function greetingStats(leagues) {
-  const list = Array.isArray(leagues) ? leagues : [];
-  if (list.length === 0) return [];
-  const tiles = [{ key: 'leagues', label: 'Leagues', value: String(list.length) }];
-  const withStatus = list.filter(hasStatus);
-
-  const standings = withStatus
-    .map((league) => league.status.standing)
-    .filter((standing) => standing && ordinal(Number(standing.rank)));
-  if (standings.length > 0) {
-    const best = standings.reduce((a, b) => {
-      const ra = Number(a.rank);
-      const rb = Number(b.rank);
-      if (rb !== ra) return rb < ra ? b : a;
-      return count(b.of) > count(a.of) ? b : a;
-    });
-    tiles.push({
-      key: 'standing', label: 'Best standing', value: ordinal(Number(best.rank)), of: count(best.of) > 0 ? best.of : null,
-    });
-  }
-  return tiles;
-}
-
-const tileSx = {
-  display: 'flex',
-  flexDirection: 'column-reverse',
-  px: 2,
-  py: 1.25,
-  borderRadius: 'var(--dash-radius-sm)',
-  backgroundColor: 'var(--dash-surface)',
-  border: HAIRLINE,
-};
-
-const valueSx = {
-  m: 0,
-  fontFamily: DISPLAY_FONT,
-  fontSize: '26px',
-  fontWeight: 700,
-  lineHeight: 1.1,
-  fontVariantNumeric: 'tabular-nums',
-  color: 'var(--dash-ink)',
-};
-
-export function GreetingStats({ leagues }) {
-  const tiles = greetingStats(leagues);
-  if (tiles.length === 0) return null;
+export function GreetingHeader({
+  username, week, summary, liveCount, actions,
+}) {
+  const weekText = week ? `Week ${week} · ${greetingDateFormat.format(new Date())}` : null;
   return (
     <Box
-      component="dl"
-      data-testid="greeting-stats"
-      sx={{ m: 0, mt: 2, display: 'flex', flexWrap: 'wrap', gap: 1.5 }}
+      component="header"
+      data-testid="dashboard-hero"
+      sx={{
+        display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', justifyContent: 'space-between', gap: '16px 24px',
+      }}
     >
-      {/* The term comes first in the DOM (a dt before its dd); the tile shows
-          the value on top, as the board draws it. */}
-      {tiles.map((tile) => (
-        <Box key={tile.key} sx={tileSx}>
-          <Box component="dt" sx={microLabelSx}>{tile.label}</Box>
-          <Box component="dd" sx={valueSx}>
-            {tile.value}
-            {tile.of != null && (
-              <Box component="span" sx={{ ...dimSx, fontFamily: 'var(--dash-font-body)', fontSize: '14px', fontWeight: 500 }}>
-                {` of ${tile.of}`}
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: '12px', minWidth: 0 }}>
+        <PixelHeading level={1} id="user-page-heading">{`Welcome back, ${username}`}</PixelHeading>
+        {(weekText || summary || liveCount > 0) && (
+          <Box sx={{
+            display: 'flex', flexDirection: { xs: 'column', md: 'row' }, flexWrap: 'wrap', alignItems: { xs: 'flex-start', md: 'center' }, gap: '8px 16px',
+          }}
+          >
+            {(weekText || summary) && (
+              <Box component="p" sx={introSx}>
+                {weekText && <span>{weekText}</span>}
+                {weekText && summary && ' · '}
+                {summary && <span data-testid="greeting-summary">{summary}</span>}
               </Box>
             )}
+            {liveCount > 0 && (
+              <span data-testid="live-matchups-chip">
+                <LiveChip>{liveCount === 1 ? '1 matchup live' : `${liveCount} matchups live`}</LiveChip>
+              </span>
+            )}
           </Box>
-        </Box>
-      ))}
+        )}
+      </Box>
+      {actions}
     </Box>
   );
 }
 
-/** How many of the manager's matchups are live right now (ADR 0030 status). */
-export function liveMatchupCount(leagues) {
-  return (Array.isArray(leagues) ? leagues : [])
-    .filter((league) => hasStatus(league) && league.status.matchup?.status === 'live')
-    .length;
-}
-
-export function LiveMatchupsChip({ leagues }) {
-  const live = liveMatchupCount(leagues);
-  if (live === 0) return null;
+/** First run's h1 and promise paragraph (build-firstrun.js). */
+export function FirstRunIntro({ username }) {
   return (
-    <Box
-      component="span"
-      data-testid="live-matchups-chip"
-      sx={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 0.75,
-        px: 1.25,
-        py: '3px',
-        borderRadius: 999,
-        backgroundColor: 'var(--dash-danger-soft)',
-        color: 'var(--dash-danger)',
-        border: '1px solid var(--dash-danger)',
-      }}
-    >
-      <Box
-        component="span"
-        aria-hidden="true"
-        data-testid="live-dot"
-        sx={{ width: 7, height: 7, borderRadius: 999, backgroundColor: 'var(--dash-danger)', flexShrink: 0 }}
-      />
-      {live === 1 ? '1 matchup live' : `${live} matchups live`}
+    <Box component="header" data-testid="dashboard-hero" sx={{ display: 'flex', flexDirection: 'column', gap: '12px', maxWidth: '720px' }}>
+      <PixelHeading level={1} id="user-page-heading">Start a league tonight</PixelHeading>
+      <Box component="p" sx={introSx}>
+        {`Welcome, ${username}. Free to play: pick fantasy, NFL pick'em, or both, send your friends the invite code, and draft as soon as they're in.`}
+      </Box>
     </Box>
   );
 }

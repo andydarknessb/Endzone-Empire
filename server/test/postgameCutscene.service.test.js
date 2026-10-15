@@ -67,6 +67,7 @@ function fakeFor(world) {
     [/FROM "postgame_cutscene_views"/, () => ({ rows: world.seen })],
     [/FROM "nfl_games"/, () => ({ rows: world.nflGames })],
     [/FROM "trophies"/, () => ({ rows: world.trophies || [] })],
+    [/FROM "league_analytics"/, () => ({ rows: world.narratives || [] })],
     [/FROM "lineup_overrides"/, () => ({ rows: world.calledShots || [] })],
     [/^INSERT INTO "postgame_cutscene_views"/, () => ({ rows: [], rowCount: 1 })],
   ]);
@@ -92,7 +93,19 @@ test('a final, unseen Matchup is due, shaped exactly as the wire contract', asyn
     record: { wins: 3, losses: 1, ties: 0 },
     standing: { rank: 1, of: 3 },
     awards: [],
+    narrative: null,
   }]);
+});
+
+test('the stored postgame Narrative of the Matchup rides the payload', async () => {
+  const world = baseWorld();
+  const postgame = { narrative: 'The Crunchers got there.', source: 'claude' };
+  world.narratives = [
+    { league_id: 71, season: 2026, week: 4, data: { matchups: { 904: { preview: { narrative: 'Before.' }, postgame } } } },
+    { league_id: 71, season: 2026, week: 3, data: { matchups: { 904: { postgame: { narrative: 'Another week.' } } } } },
+  ];
+  const { cutscenes } = await listDue(world);
+  assert.equal(cutscenes[0].narrative, postgame.narrative);
 });
 
 // ADR 0052 amendment (#1863): the awards ride the payload, read from the frozen

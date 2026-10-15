@@ -125,8 +125,6 @@ function partitionCandidates({
     const availability = availabilityFor({
       injuryStatus: entry.injuryStatus ?? null,
       onBye: Boolean(entry.onBye),
-      locked: Boolean(entry.locked),
-      lockedSlot: entry.slot,
       positionBaseline: positionBaselineFor(projectionEntry ?? null),
     });
     availabilityById.set(entry.playerId, availability);

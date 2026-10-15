@@ -7,7 +7,7 @@ import { kitForTeam } from '../model/teamKit';
 function Side({ side, kit, testId }) {
   return (
     <div className="postgame-side" data-testid={testId}>
-      <TeamAvatar name={side.name || ''} avatarUrl={side.avatarStaticUrl} avatarStaticUrl={side.avatarStaticUrl} size={48} />
+      <TeamAvatar name={side.name || ''} avatarUrl={side.avatarStaticUrl || side.avatarUrl} avatarStaticUrl={side.avatarStaticUrl} size={48} />
       <Sprite kit={kit} frame={0} className="postgame-sprite" />
       <span className="postgame-team">{side.name || 'TEAM'}</span>
       <span className="postgame-score">{side.score}</span>
@@ -18,6 +18,7 @@ function Side({ side, kit, testId }) {
 Side.propTypes = {
   side: PropTypes.shape({
     name: PropTypes.string,
+    avatarUrl: PropTypes.string,
     avatarStaticUrl: PropTypes.string,
     score: PropTypes.number,
   }).isRequired,
@@ -45,6 +46,7 @@ function ResultCard({ item, onLeave }) {
         <Side side={item.opponent} kit={oppKit} testId="postgame-side-opponent" />
       </div>
       {line && <div className="postgame-record">{line}</div>}
+      {item.narrative && <p className="postgame-narrative" data-testid="postgame-narrative">{item.narrative}</p>}
       {item.outcome === 'loss' && (
         <a
           className="postgame-link"
@@ -68,6 +70,7 @@ ResultCard.propTypes = {
     opponent: PropTypes.object,
     record: PropTypes.object,
     standing: PropTypes.object,
+    narrative: PropTypes.string,
   }).isRequired,
   onLeave: PropTypes.func,
 };

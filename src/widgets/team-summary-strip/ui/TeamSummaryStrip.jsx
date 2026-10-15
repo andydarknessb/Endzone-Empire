@@ -1,7 +1,7 @@
 import React from 'react';
 import { Box, Typography } from '@mui/material';
 import { Badge, Card, Skeleton, StatTile } from '../../../shared/ui';
-import { formatPoints } from '../../../shared/lib';
+import { formatPoints, startVerdictReason } from '../../../shared/lib';
 import { isQuestionable } from '../../../entities/roster';
 import { useTeamSummaryStrip } from '../model/useTeamSummaryStrip';
 
@@ -31,7 +31,7 @@ import { useTeamSummaryStrip } from '../model/useTeamSummaryStrip';
  * entity's public surface) - one per starter (a non-BENCH, non-IR slot,
  * never spent, mirroring `useTeamSummaryStrip`'s own `starters`) whose
  * designation is questionable-class, and one per starter whose game this
- * week is a bye (`onBye` or `availability.reason === 'bye'`). Best ball
+ * week is a bye (`onBye` or a `bye` Start verdict). Best ball
  * (`bestBall` prop, the page's `league.best_ball`) suppresses the on-bye
  * chip only - the lineup sets itself, so "on bye" tells a best-ball manager
  * nothing actionable, but an injury still might. The row (and both new
@@ -107,7 +107,7 @@ export default function TeamSummaryStrip({ leagueId, week, viewerTeamId, lineup,
   const byeChips = bestBall
     ? []
     : starters
-        .filter((e) => e.onBye || e.availability?.reason === 'bye')
+        .filter((e) => e.onBye || startVerdictReason(e) === 'bye')
         .map((e) => ({
           key: `bye-${e.playerId}`,
           testId: `attention-chip-bye-${e.playerId}`,

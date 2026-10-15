@@ -136,6 +136,11 @@ test('GET /api/team/lineup reaches every Edge line kind (#1235)', async (t) => {
     [6, { points: 9, projection: { mean: 9, p10: 5, p90: 13, factors: {} } }],
     [7, { points: 14, projection: { mean: 14, p10: 9, p90: 19, factors: {} } }],
     [9, { points: 20, projection: { mean: 20, p10: 14, p90: 26, factors: {} } }],
+    // The run stores Out Guy Unavailable (ADR 0061: the Start verdict is the
+    // read's, not the entry's designation).
+    [8, { points: 0, projection: { mean: 0, p10: 0, p90: 0, factors: {
+      availability: { available: false, activeProbability: 0, reason: 'out', status: 'O' },
+    } } }],
     // f2: a spent row (id 50 below) joins this SAME call and gets priced too.
     [50, { points: 14, projection: { mean: 14, p10: 9, p90: 19, factors: {} } }],
   ]);
@@ -218,8 +223,9 @@ test('GET /api/team/lineup reaches every Edge line kind (#1235)', async (t) => {
   // Priority 1 (injury) wins over every live-game kind, and the Unavailable
   // reason is its own field, independent of the Edge line.
   assert.deepEqual(byId.get(8).edge, { kind: 'injury', text: 'out' });
-  assert.equal(byId.get(8).unavailable, 'out');
-  assert.equal(byId.get(2).unavailable, null, 'Questionable is not Unavailable');
+  assert.deepEqual(byId.get(8).startVerdict, { outcome: 'unavailable', reason: 'out', numberTrusted: true });
+  assert.notEqual(byId.get(2).startVerdict.outcome, 'unavailable', 'Questionable is not Unavailable');
+  assert.equal('unavailable' in byId.get(8), false, 'the wire carries the verdict alone');
   // f4: the 'result' kind's other branch - scoring UNDER projection.
   assert.deepEqual(byId.get(9).edge, { kind: 'result', text: 'Fell short of projection by 10 pts (10 of 20)' });
 
@@ -436,7 +442,7 @@ test('GET /api/team/lineup carries Line and weather per entry: both, neither, an
     [/^SELECT "home_team", "away_team", "game_status" FROM "live_game_states"/, () => ({ rows: [] })],
     [/^SELECT DISTINCT ON \("game_key"\).*FROM "game_weather_snapshots"/, () => ({
       rows: [
-        { game_key: 'KC-DEN', temperature_f: 58, wind_speed_mph: 12, wind_gust_mph: 20, precipitation_probability: 60, short_forecast: 'Light Rain' },
+        { game_key: 'KC-DEN', temperature_f: 58, wind_speed_mph: 12, wind_gust_mph: 20, precipitation_probability: 60, short_forecast: 'Light Rain', fetched_at: new Date() },
       ],
     })],
   ]).install(t);
@@ -464,5 +470,46 @@ test('GET /api/team/lineup carries Line and weather per entry: both, neither, an
     indoor: true, temperatureF: null, windSpeedMph: null, windGustMph: null, precipitationProbability: null, shortForecast: null,
   });
 
+  fake.assertClean();
+});
+
+test('GET /api/team/lineup hides a weather snapshot fetched 72h ago: fields-null outdoor weather (#1941)', async (t) => {
+  const entry = { id: 1, name: 'Stale Guy', position: 'QB', nfl_team: 'KC', injury_status: null, injury_detail: null, slot: 'QB', ir_attested: false };
+  t.mock.method(projectionService, 'getWeeklyProjections', async () => projectionService.toWeeklyProjectionResult({
+    projections: new Map(),
+  }));
+  setVegasOddsProvider({ name: 'test-book', available: true, async getWeeklyOdds() { return new Map(); } });
+  t.after(() => setVegasOddsProvider());
+
+  const fake = createFakePool([
+    [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
+    [/^SELECT \* FROM "leagues"/, () => ({ rows: [{ id: 5, current_season: 2026, current_week: 8 }] })],
+    [/^SELECT \* FROM "teams"/, () => ({ rows: [{ id: 10 }] })],
+    [/^SELECT "team_players"\."player_id"/, () => ({ rows: [{ player_id: 1, position: 'QB' }] })],
+    [/^SELECT "player_id" FROM "lineup_entries"/, () => ({ rows: [{ player_id: 1 }] })],
+    [/^SELECT "players"\."id"/, () => ({ rows: [entry] })],
+    [/^SELECT "players"\."position"/, () => ({ rows: [] })],
+    [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({ rows: [] })],
+    [/FROM "nfl_games" "ng"/, () => ({ rows: [] })],
+    [/^SELECT "nfl_team", "opponent", "kickoff_at", "game_key", "roof", "home_away" FROM "nfl_games"/, () => ({
+      rows: [{ nfl_team: 'KC', opponent: 'DEN', kickoff_at: '2026-11-01T18:00:00Z', game_key: 'KC-DEN', roof: 'outdoor', home_away: 'home' }],
+    })],
+    [/^SELECT "home_team", "away_team", "game_status" FROM "live_game_states"/, () => ({ rows: [] })],
+    [/^SELECT DISTINCT ON \("game_key"\).*FROM "game_weather_snapshots"/, () => ({
+      rows: [
+        { game_key: 'KC-DEN', temperature_f: 58, wind_speed_mph: 12, wind_gust_mph: 20, precipitation_probability: 60, short_forecast: 'Light Rain', fetched_at: new Date(Date.now() - 72 * 3600 * 1000) },
+      ],
+    })],
+  ]).install(t);
+
+  const token = signToken({ id: 7, username: 'member' });
+  const response = await request(app)
+    .get('/api/team/lineup?leagueId=5')
+    .set('Authorization', `Bearer ${token}`);
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(response.body.entries[0].weather, {
+    indoor: false, temperatureF: null, windSpeedMph: null, windGustMph: null, precipitationProbability: null, shortForecast: null,
+  });
   fake.assertClean();
 });

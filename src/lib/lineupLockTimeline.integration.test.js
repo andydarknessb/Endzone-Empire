@@ -100,6 +100,10 @@ function createDatabaseFixture() {
         // scoring.service and season.service).
         return { rows: [] };
       }
+      if (sql.includes('FROM "lineup_overrides"')) {
+        // ADR 0058: the save reads the team's open Called shot; this fixture has none.
+        return { rows: [] };
+      }
       if (sql.includes('SELECT "team_players"."player_id"') && sql.includes('FROM "team_players"')) {
         return { rows: playerRows.filter((row) => state.rostered.has(row.player_id)) };
       }

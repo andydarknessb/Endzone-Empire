@@ -7,7 +7,8 @@ import { createSimDraft, applyPick, teamOnClock } from './engine';
 import { cpuPick } from './cpuBrain';
 import { mulberry32 } from './rng';
 import { buildPool, tinyPool } from './simFixtures';
-import { templateFor } from './templates';
+import { templateFor, LEAGUE_TEMPLATES } from './templates';
+import { expandEligibility } from '../../entities/roster/model/rosterTemplateModel';
 
 const NOW = 1_800_000_000_000;
 
@@ -114,8 +115,28 @@ describe('gradeDraftValues (parity with draftgrade.service.js)', () => {
   });
 });
 
-describe('optimalLineup (parity with lineup.service.js)', () => {
+describe('optimalLineup (parity with lineupOptimizer.js)', () => {
   const slots = templateFor('standard').slots;
+
+  // The greedy below is exact (equals server/services/lineupOptimizer.js
+  // `optimalLineup` with `fillEverySlot`, the Draft grade's call) only while
+  // every pair of slots in a template is nested or disjoint (#2179).
+  it('every LEAGUE_TEMPLATES shape has only nested or disjoint slot pairs', () => {
+    const crossing = [];
+    for (const { id, slots: templateSlots } of LEAGUE_TEMPLATES) {
+      const sets = templateSlots.map((s) => ({ key: s.key, set: expandEligibility(s.eligiblePositions) }));
+      for (let i = 0; i < sets.length; i++) {
+        for (let j = i + 1; j < sets.length; j++) {
+          const shared = [...sets[i].set].filter((p) => sets[j].set.has(p)).length;
+          const nested = shared === sets[i].set.size || shared === sets[j].set.size;
+          if (shared > 0 && !nested) crossing.push(`${id}: ${sets[i].key} x ${sets[j].key}`);
+        }
+      }
+    }
+    // A crossing template needs the exact solver ported to the client.
+    expect({ crossing, hint: 'a crossing template needs the exact solver (lineupOptimizer.js) ported' })
+      .toEqual({ crossing: [], hint: 'a crossing template needs the exact solver (lineupOptimizer.js) ported' });
+  });
 
   it('fills the most-restrictive slot first, so FLEX gets the leftover', () => {
     const players = [

@@ -18,8 +18,9 @@ concurrency:
 jobs:
   scan:
     runs-on: ubuntu-latest
-    container:
-      image: semgrep/semgrep:1.153.0
+    # Installed from PyPI rather than run as the semgrep/semgrep container:
+    # anonymous Docker Hub pulls are rate-limited on shared runners and the
+    # scan failed without running (toomanyrequests). Same pinned version.
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - run: semgrep scan --config auto --error --strict
+      - run: pipx run --spec semgrep==1.153.0 semgrep scan --config auto --error --strict

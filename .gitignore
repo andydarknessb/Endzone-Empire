@@ -98,3 +98,6 @@ CLAUDE.md
 .impeccable/critique/
 .impeccable/live/
 .impeccable/config.local.json
+
+# graphify output (rebuilt locally with `graphify update .`)
+graphify-out/

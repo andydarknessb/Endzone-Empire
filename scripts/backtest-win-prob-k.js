@@ -130,7 +130,7 @@ function kickoffFigures({ rows, league, week, projections, byeByTeam, services }
   if (league.best_ball) {
     const { rosterSlots } = parseLineupSettings(league);
     const pointsFor = new Map(candidates.map((c) => [c.playerId, c.projection]));
-    const chosen = new Set(optimalLineup(candidates, rosterSlots, pointsFor).starters.map((s) => s.playerId));
+    const chosen = new Set(optimalLineup({ rosterSlots, candidates, pointsFor }).starters.map((s) => s.playerId));
     starters = candidates.filter((c) => chosen.has(c.playerId));
   } else {
     starters = candidates.filter((c) => c.slot !== 'BENCH');
@@ -259,7 +259,8 @@ async function main(argv = process.argv.slice(2)) {
   const { withTransaction } = require('../server/modules/withTransaction');
   const { getWeeklyProjections } = require('../server/services/projection.service');
   const { computeByeWeeks } = require('../server/services/bye.service');
-  const { optimalLineup, parseLineupSettings } = require('../server/services/lineup.service');
+  const { parseLineupSettings } = require('../server/services/lineup.service');
+  const { optimalLineup } = require('../server/services/lineupOptimizer');
   const { varianceRemaining } = require('../server/services/winProbability');
   const { fitK, kGrid } = require('../server/services/winProbabilityEvaluation');
   const services = {

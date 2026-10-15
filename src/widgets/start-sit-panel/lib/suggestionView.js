@@ -7,7 +7,7 @@
  * unit-tested directly.
  */
 
-import { finite, ordinal, VOLATILITY_LABELS } from '../../../shared/lib';
+import { finite, ordinal, startVerdictReason, VOLATILITY_LABELS } from '../../../shared/lib';
 
 /**
  * vs {opponent}, plus the defense's points allowed to this position when
@@ -111,10 +111,10 @@ function sideView(side, entriesById) {
     // the Ledger row's tag reads off the lineup entry.
     injuryStatus: side.availability?.status ?? entry?.injuryStatus ?? null,
     // "No practice this week" beside a Questionable tag (ADR 0056): the server's
-    // verdict reason, carried as-is.
-    noPractice: side.availability?.reason === 'no_practice',
+    // Start verdict reason, carried as-is.
+    noPractice: startVerdictReason(side) === 'no_practice',
     // The "Backup" tag (ADR 0057): a quarterback behind an available teammate.
-    backup: side.availability?.reason === 'backup',
+    backup: startVerdictReason(side) === 'backup',
     volatility: VOLATILITY_LABELS[side.volatility] ?? null,
     floor: distribution?.p10 ?? null,
     ceiling: distribution?.p90 ?? null,
@@ -133,13 +133,20 @@ function sideView(side, entriesById) {
   };
 }
 
-// A comparison the intervals say is close to a coin flip (decision.service's
-// own TOSSUP_PROBABILITY threshold, restated on the wire as `verdict`) reads
+// A comparison the intervals say is close to a coin flip (Interval reading's
+// tossup line, restated on the wire as `verdict`) reads
 // as "too close to call" rather than a lean (CONTEXT.md's Start/sit advice:
 // "an explicit too close to call answer when two players' distributions
 // overlap enough that no honest edge exists").
 export function isTooCloseToCall(suggestion) {
   return suggestion?.verdict === 'tossup';
+}
+
+// "about N%" to the nearest 10%, never above 90% (the 90-100% bin observed
+// 92.6%, so a higher figure would overclaim). Null when there is no probability.
+export function probabilityLabel(probability) {
+  const p = finite(probability);
+  return p == null ? null : `about ${Math.min(90, Math.round(p * 10) * 10)}%`;
 }
 
 /**
@@ -158,7 +165,9 @@ export function buildSuggestionView(suggestion, entriesById) {
     sit,
     start,
     gain: suggestion.gain ?? null,
+    verdict: suggestion.verdict,
     tooCloseToCall: isTooCloseToCall(suggestion),
+    probabilityLabel: probabilityLabel(suggestion.probabilityBetter),
     // The start/sit probability the Forecast quoted (#1856); a called shot is
     // offered only where there is an edge to call it against.
     probability: finite(suggestion.probabilityBetter),
@@ -177,16 +186,21 @@ export function buildSuggestionView(suggestion, entriesById) {
  * and one start (bench player -> that slot), so a dismissed pair removes the
  * moves of those two players and nothing else: open-slot fills and reshuffles
  * name other players and pass through untouched.
+ *
+ * The one place the server's plan entries (a player, where from, where to)
+ * become the lineup write's `{ playerId, slot }` (#2143): the result goes to `submit`
+ * unchanged. An entry with no player or no destination is dropped.
  */
 export function movePlanWithout(movePlan, dismissedViews) {
   const plan = Array.isArray(movePlan) ? movePlan : [];
-  if (!dismissedViews || dismissedViews.length === 0) return plan;
   const held = new Set();
-  for (const view of dismissedViews) {
+  for (const view of dismissedViews || []) {
     held.add(view.sit.playerId);
     held.add(view.start.playerId);
   }
-  return plan.filter((move) => !held.has(move.playerId));
+  return plan
+    .filter((m) => m && m.playerId != null && m.toSlot != null && !held.has(m.playerId))
+    .map((m) => ({ playerId: m.playerId, slot: m.toSlot }));
 }
 
 /**

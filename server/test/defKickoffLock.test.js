@@ -72,6 +72,8 @@ function lineupWorld({ entries, kickedOff }) {
   const rows = entries.map((entry) => ({ injury_status: null, ir_attested: false, ...entry }));
   return createFakePool([
     [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
+    // ADR 0058: the save reads the team's open Called shot; none in this world.
+    [/^SELECT .*FROM "lineup_overrides"/, () => ({ rows: [] })],
     [/^SELECT \* FROM "leagues"/, () => ({
       rows: [{
         id: LEAGUE_ID,
@@ -251,6 +253,8 @@ test('#227 a player list with no id is refused, not answered with an empty set',
 function removalWorld({ nflTeam, games, tenures = [] }) {
   return createFakePool([
     [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
+    // ADR 0058: the save reads the team's open Called shot; none in this world.
+    [/^SELECT .*FROM "lineup_overrides"/, () => ({ rows: [] })],
     [/^SELECT "nfl_team" FROM "players"/, () => ({ rows: [{ nfl_team: nflTeam }] })],
     [/^SELECT "nfl_team" FROM "nfl_games"/, (text, [, , at]) => ({
       rows: games

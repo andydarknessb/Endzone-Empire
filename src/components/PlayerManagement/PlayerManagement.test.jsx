@@ -1179,7 +1179,7 @@ describe("position chips derived from the roster template (#1419)", () => {
 test("a Position-baseline row reads \"no history\" in Proj Wk, no number; an evidenced row keeps its number (#1778)", async () => {
   mockBrowser({
     players: [
-      player({ id: 1, name: "Carson Beck", verdictReason: "no_history", projWeek: { week: 4, points: 15.37 }, weeks: [] }),
+      player({ id: 1, name: "Carson Beck", startVerdict: { outcome: 'not_recommended', reason: 'no_history', numberTrusted: false }, projWeek: { week: 4, points: 15.37 }, weeks: [] }),
       player({ id: 2, name: "Real Starter", projWeek: { week: 4, points: 17.2 }, weeks: [] }),
     ],
   });
