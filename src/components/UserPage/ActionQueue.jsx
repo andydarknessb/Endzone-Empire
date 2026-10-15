@@ -10,7 +10,7 @@ import {
   CountBadge, ErrorPanel, Frame, FrameHead, HomeButton, HomeLink, PixelHeading, PlayCard, Skel, SR_ONLY_SX, pixelSx,
 } from './home';
 
-// "Call your plays" (Home Play-select, DESIGN.md "Home surface"): every open
+// "Call your plays" (Home Play-select, DESIGN.md "Play-select"): every open
 // item across the manager's leagues from GET /api/user/action-items (Contract
 // A) plus the featured draft, as play cards, then "On the sideline" for what
 // is only pending. It owns its own fetch and states so a slow or failed list

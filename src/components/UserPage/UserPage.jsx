@@ -382,7 +382,7 @@ function UserPage() {
   );
 
   return (
-    // Home is on Play-select (DESIGN.md "Home surface: Play-select"): homeTheme
+    // Home is on Play-select (DESIGN.md "Play-select: Home and league pages"): homeTheme
     // sets every Typography, button and input in Archivo, and the root paints
     // the home token context. Nav and Footer stay on the app tokens.
     <ThemeProvider theme={theme}>

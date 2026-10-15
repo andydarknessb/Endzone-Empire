@@ -1,0 +1,188 @@
+{
+  "v": 3,
+  "createdOnFiles": {
+    "v": 1,
+    "at": "2026-10-15T20:00:00Z"
+  },
+  "title": "League Play-select",
+  "launch": {
+    "view": "canvas"
+  },
+  "pages": [],
+  "boards": {
+    "Main.dc.html": {
+      "x": 0,
+      "y": 0,
+      "w": 1440,
+      "h": 3211,
+      "expand": "fill",
+      "title": "Dashboard, in season (desktop)"
+    },
+    "GameDay.dc.html": {
+      "x": 1520,
+      "y": 0,
+      "w": 1440,
+      "h": 3785,
+      "expand": "fill",
+      "title": "Dashboard, game day live, commissioner (desktop)"
+    },
+    "MainPhone.dc.html": {
+      "x": 3040,
+      "y": 0,
+      "w": 390,
+      "h": 4624,
+      "title": "Dashboard, in season (phone)"
+    },
+    "GameDayPhone.dc.html": {
+      "x": 3510,
+      "y": 0,
+      "w": 390,
+      "h": 5147,
+      "title": "Dashboard, game day with chat open (phone)"
+    },
+    "PreDraft.dc.html": {
+      "x": 0,
+      "y": 5560,
+      "w": 1440,
+      "h": 3352,
+      "expand": "fill",
+      "title": "Dashboard, pre-draft, commissioner (desktop)"
+    },
+    "Drafting.dc.html": {
+      "x": 1520,
+      "y": 5560,
+      "w": 1440,
+      "h": 2600,
+      "expand": "fill",
+      "title": "Dashboard, draft live (desktop)"
+    },
+    "Complete.dc.html": {
+      "x": 3040,
+      "y": 5560,
+      "w": 1440,
+      "h": 2637,
+      "expand": "fill",
+      "title": "Dashboard, season complete (desktop)"
+    },
+    "PickemOnly.dc.html": {
+      "x": 4560,
+      "y": 5560,
+      "w": 1440,
+      "h": 2011,
+      "expand": "fill",
+      "title": "Dashboard, pick'em-only league (desktop)"
+    },
+    "States.dc.html": {
+      "x": 0,
+      "y": 9312,
+      "w": 1300,
+      "h": 2524,
+      "title": "States: loading, errors, empty, member vs commissioner"
+    },
+    "Kit.dc.html": {
+      "x": 1380,
+      "y": 9312,
+      "w": 1440,
+      "h": 9046,
+      "title": "League kit: tables, forms, dialog, menu, chips, chat"
+    },
+    "Matchup.dc.html": {
+      "x": 2900,
+      "y": 9312,
+      "w": 1440,
+      "h": 2539,
+      "expand": "fill",
+      "title": "Wave 2 sample: Matchup, live (desktop)"
+    },
+    "Lineup.dc.html": {
+      "x": 4420,
+      "y": 9312,
+      "w": 1440,
+      "h": 1931,
+      "expand": "fill",
+      "title": "Wave 3 sample: Lineup (desktop)"
+    },
+    "LineupPhone.dc.html": {
+      "x": 5940,
+      "y": 9312,
+      "w": 390,
+      "h": 2308,
+      "title": "Wave 3 sample: Lineup, moving a player (phone)"
+    },
+    "DraftRoom.dc.html": {
+      "x": 6410,
+      "y": 9312,
+      "w": 1440,
+      "h": 2065,
+      "expand": "fill",
+      "title": "Wave 4 sample: Draft room, your pick (desktop)"
+    },
+    "Commissioner.dc.html": {
+      "x": 9034,
+      "y": 9312,
+      "w": 1440,
+      "h": 1410,
+      "expand": "fill",
+      "title": "Wave 5 sample: Commissioner console (desktop)"
+    },
+    "DraftRoomNarrow.dc.html": {
+      "x": 7930,
+      "y": 9312,
+      "w": 1024,
+      "h": 1660,
+      "expand": "fill",
+      "title": "Wave 4 sample: Draft room, narrow, commissioner, Board tab"
+    },
+    "GameDaySet.dc.html": {
+      "x": 3980,
+      "y": 0,
+      "w": 1440,
+      "h": 3462,
+      "expand": "fill",
+      "title": "Dashboard, game day, lineup set and picks in (desktop)"
+    }
+  },
+  "order": [
+    "Main.dc.html",
+    "GameDay.dc.html",
+    "MainPhone.dc.html",
+    "GameDayPhone.dc.html",
+    "GameDaySet.dc.html",
+    "PreDraft.dc.html",
+    "Drafting.dc.html",
+    "Complete.dc.html",
+    "PickemOnly.dc.html",
+    "States.dc.html",
+    "Kit.dc.html",
+    "Matchup.dc.html",
+    "Lineup.dc.html",
+    "LineupPhone.dc.html",
+    "DraftRoom.dc.html",
+    "DraftRoomNarrow.dc.html",
+    "Commissioner.dc.html"
+  ],
+  "notes": {
+    "row1": {
+      "x": 0,
+      "y": -300,
+      "text": "Dashboard: in season and game day",
+      "kind": "title1",
+      "maxW": 5420
+    },
+    "row2": {
+      "x": 0,
+      "y": 5260,
+      "text": "Dashboard: every phase and league type",
+      "kind": "title1",
+      "maxW": 6000
+    },
+    "row3": {
+      "x": 0,
+      "y": 9012,
+      "text": "States, the league kit, and one sample per wave",
+      "kind": "title1",
+      "maxW": 10474
+    }
+  },
+  "designSystems": []
+}

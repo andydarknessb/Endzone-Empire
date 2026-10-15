@@ -170,7 +170,7 @@ export const colorTokens = {
     // `dash-bg`, `dash-surface` and `dash-surface2`, never `dash-surface3`,
     // which no input sits on.
     'dash-field': '#7a8793',
-    // ---- Home, `/user` Play-select (DESIGN.md "Home surface: Play-select"). Home
+    // ---- Home, `/user` Play-select (DESIGN.md "Play-select: Home and league pages"). Home
     // paints only from `home-*`, never `dash-*`, and no other surface borrows
     // them. play*, board* and home-focus/-halo are the same in both themes.
     // Pairings: tokens.contrast.test.js.
@@ -334,7 +334,7 @@ export const colorTokens = {
     'dash-warning-soft': 'rgba(240, 179, 78, 0.14)',
     // Input and choice-card edge (see the light note).
     'dash-field': '#6b7c8c',
-    // ---- Home, `/user` Play-select (DESIGN.md "Home surface: Play-select"). Home
+    // ---- Home, `/user` Play-select (DESIGN.md "Play-select: Home and league pages"). Home
     // paints only from `home-*`, never `dash-*`, and no other surface borrows
     // them. play*, board* and home-focus/-halo are the same in both themes.
     // Pairings: tokens.contrast.test.js.

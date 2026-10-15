@@ -1,4 +1,4 @@
-// Home Play-select primitives (DESIGN.md "Home surface: Play-select"). They
+// Home Play-select primitives (DESIGN.md "Play-select: Home and league pages"). They
 // read only `var(--home-*)` tokens; the page root carries `className="home-root"`
 // (see homeRootSx) so home.css applies.
 import './home.css';
