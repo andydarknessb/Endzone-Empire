@@ -7,6 +7,7 @@ import UserPage from './UserPage';
 import NotificationBell from '../NotificationBell/NotificationBell';
 import { invalidate } from '../../lib/resourceCache';
 import { SnackbarProvider } from '../Snackbar/SnackbarProvider';
+import { listArticles } from '../../content/articles';
 import { isPushSupported, fetchPushPublicKey, getCurrentSubscription } from '../../utils/push';
 
 jest.mock('../../api/apiClient', () => ({
@@ -37,9 +38,9 @@ const league = (overrides = {}) => ({
   ...overrides,
 });
 
-// The hero's Create/Join league buttons are always on screen; the rich empty
-// state repeats the same two CTAs when there are no leagues yet. Scope to the
-// hero so these tests keep working regardless of which state is showing.
+// The hero's Create/Join league buttons are on screen once there are leagues
+// (or a failed read); the first-run empty state carries its own pair. Scope to
+// the hero so these tests are not about the first-run pair.
 const heroButton = (name) => within(screen.getByTestId('dashboard-hero')).getByRole('button', { name });
 
 // The app mounts UserPage inside SnackbarProvider; tests that assert what a
@@ -137,17 +138,6 @@ test('the header Create league is not the filled primary while the leagues read 
   expect(heroButton('Create league')).toHaveClass('MuiButton-outlined');
 });
 
-test('a news link that opens a new tab says so in its accessible name', async () => {
-  apiClient.get.mockImplementation((url) => {
-    if (url === '/api/news') return Promise.resolve({ data: [{ title: 'Big trade', link: 'https://example.com/trade' }] });
-    return Promise.resolve({ data: [league()] });
-  });
-  renderPage();
-
-  const link = await screen.findByRole('link', { name: 'Big trade (opens in a new tab)' });
-  expect(link).toHaveAttribute('target', '_blank');
-});
-
 test("fetches and renders the user's leagues on mount", async () => {
   apiClient.get.mockResolvedValue({ data: [league()] });
   renderWithProviders(<UserPage />, { state: baseState });
@@ -185,17 +175,45 @@ test('a failed leagues fetch offers Try again and never claims the user has no l
   expect(screen.queryByText('server exploded')).not.toBeInTheDocument();
 });
 
-test('renders a rich empty state with an icon and CTAs once loading finishes with no leagues', async () => {
+test('renders the first-run promise: heading, copy, both CTAs, three steps and a mock-draft line', async () => {
   apiClient.get.mockResolvedValue({ data: [] });
   renderWithProviders(<UserPage />, { state: baseState });
 
   const emptyState = await screen.findByTestId('leagues-empty-state');
-  expect(within(emptyState).getByText("You aren't managing any teams yet.")).toBeInTheDocument();
-  expect(within(emptyState).getByTestId('SportsFootballIcon')).toBeInTheDocument();
-  expect(within(emptyState).getByRole('button', { name: 'Create league' })).toBeInTheDocument();
-  expect(within(emptyState).getByRole('button', { name: 'Join league' })).toBeInTheDocument();
-  expect(within(emptyState).getByRole('link', { name: 'Practice in Draft Sim' })).toHaveAttribute('href', '/draft-sim');
-  expect(within(emptyState).getByRole('link', { name: 'Find a public league' })).toHaveAttribute('href', '/discover');
+  expect(within(emptyState).getByRole('heading', { level: 3, name: 'Start a league tonight' })).toBeInTheDocument();
+  expect(emptyState).toHaveTextContent(
+    "Free to play. Pick fantasy, NFL pick'em, or both, send your friends the invite code, and draft as soon as they're in."
+  );
+  expect(within(emptyState).getByRole('button', { name: 'Create league' })).toHaveClass('MuiButton-contained');
+  expect(within(emptyState).getByRole('button', { name: 'I have an invite code' })).toHaveClass('MuiButton-outlined');
+  const steps = within(within(emptyState).getByRole('list')).getAllByRole('listitem');
+  expect(steps.map((step) => step.textContent)).toEqual([
+    "Create the leagueName it, pick fantasy or pick'em, and set the size.",
+    'Send the invite codeFriends join with the code you share.',
+    'Draft tonightLive draft with a pick clock, or let autopick handle it.',
+  ]);
+  const mock = within(emptyState).getByRole('link', { name: 'Not ready yet? Practice a mock draft' });
+  expect(mock).toHaveAttribute('href', '/draft-sim');
+  expect(mock).toHaveStyle({ minHeight: '44px', display: 'inline-flex' });
+});
+
+test('the first run drops the Draft Sim card, the football icon, the public-league link and Activity', async () => {
+  apiClient.get.mockResolvedValue({ data: [] });
+  renderWithProviders(<UserPage />, { state: baseState });
+
+  const emptyState = await screen.findByTestId('leagues-empty-state');
+  expect(within(emptyState).queryByTestId('SportsFootballIcon')).not.toBeInTheDocument();
+  expect(screen.queryByRole('link', { name: 'Practice in Draft Sim' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('link', { name: 'Find a public league' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('heading', { name: 'In your leagues' })).not.toBeInTheDocument();
+});
+
+test('I have an invite code opens the Join dialog', async () => {
+  apiClient.get.mockResolvedValue({ data: [] });
+  renderPage();
+
+  await userEvent.click(await screen.findByRole('button', { name: 'I have an invite code' }));
+  expect(await screen.findByRole('dialog')).toBeInTheDocument();
 });
 
 test('does not render the empty state once leagues are present', async () => {
@@ -206,13 +224,8 @@ test('does not render the empty state once leagues are present', async () => {
   expect(screen.queryByTestId('leagues-empty-state')).not.toBeInTheDocument();
 });
 
-test('renders NFL news headlines and cross-league activity from their own endpoints', async () => {
+test('renders cross-league activity from its own endpoint, once, under "In your leagues"', async () => {
   apiClient.get.mockImplementation((url) => {
-    if (url === '/api/news') {
-      return Promise.resolve({
-        data: [{ title: 'Star RB questionable for Sunday', link: 'https://example.com/news/1' }],
-      });
-    }
     if (url === '/api/notifications') {
       return Promise.resolve({
         data: {
@@ -223,37 +236,51 @@ test('renders NFL news headlines and cross-league activity from their own endpoi
         },
       });
     }
-    return Promise.resolve({ data: [] }); // /api/league
+    return Promise.resolve({ data: [league()] }); // /api/league
   });
   renderWithProviders(<UserPage />, { state: baseState });
 
-  expect(await screen.findByRole('link', { name: 'Star RB questionable for Sunday (opens in a new tab)' })).toHaveAttribute(
-    'href',
-    'https://example.com/news/1'
-  );
+  expect(await screen.findByRole('heading', { level: 2, name: 'In your leagues' })).toBeInTheDocument();
   // Once only: the activity feed. The old "Next up" hero no longer repeats it.
-  expect(screen.getAllByText('Sunday Ballers completed a trade')).toHaveLength(1);
+  expect(await screen.findAllByText('Sunday Ballers completed a trade')).toHaveLength(1);
 });
 
-test('shows a friendly message when the news or activity widgets fail to load', async () => {
-  apiClient.get.mockImplementation((url) => {
-    if (url === '/api/news' || url === '/api/notifications') {
-      return Promise.reject(new Error('network error'));
-    }
-    return Promise.resolve({ data: [] }); // /api/league
-  });
-  renderWithProviders(<UserPage />, { state: baseState });
+test('Home has no Latest NFL News card and never reads /api/news', async () => {
+  apiClient.get.mockResolvedValue({ data: [league()] });
+  renderPage();
 
-  expect(await screen.findByText("Couldn't load the latest news right now.")).toBeInTheDocument();
-  expect(screen.getByText("Couldn't load recent activity right now.")).toBeInTheDocument();
+  await screen.findByText('Sunday Ballers');
+  await flushEffects();
+  expect(screen.queryByRole('heading', { name: 'Latest NFL News' })).not.toBeInTheDocument();
+  expect(apiClient.get).not.toHaveBeenCalledWith('/api/news');
+  expect(apiClient.get).not.toHaveBeenCalledWith('/api/public/recaps', expect.anything());
+});
+
+test('a failed activity read says so and Try again reads it again', async () => {
+  let reads = 0;
+  apiClient.get.mockImplementation((url) => {
+    if (url !== '/api/notifications') return Promise.resolve({ data: [league()] });
+    reads += 1;
+    return reads === 1
+      ? Promise.reject(new Error('network error'))
+      : Promise.resolve({ data: { notifications: [{ id: 1, message: 'Back again', created_at: '2026-01-01T00:00:00.000Z' }], unread: 0 } });
+  });
+  renderPage();
+
+  expect(await screen.findByText("We couldn't load recent activity.")).toBeInTheDocument();
+  const retry = screen.getByRole('button', { name: 'Try again' });
+  expect(retry).toHaveStyle({ minHeight: '44px' });
+  await userEvent.click(retry);
+
+  expect(await screen.findByText('Back again')).toBeInTheDocument();
+  expect(reads).toBe(2);
 });
 
 // The "Next up" hero (nextUpFor) and its tests are gone: the to-do list
 // replaced it (Home v2 slice 2, UserPage.actionQueue.test.jsx).
-const mockDashboard = ({ leagues = [], notifications = [] }) => {
+const mockDashboard = ({ leagues = [league()], notifications = [] }) => {
   apiClient.get.mockImplementation((url) => {
     if (url === '/api/notifications') return Promise.resolve({ data: { notifications, unread: 0 } });
-    if (url === '/api/news') return Promise.resolve({ data: [] });
     return Promise.resolve({ data: leagues }); // /api/league
   });
 };
@@ -277,7 +304,7 @@ describe('the activity card while the bell polls', () => {
   const mockPoll = (secondRead) => {
     let reads = 0;
     apiClient.get.mockImplementation((url) => {
-      if (url !== '/api/notifications') return Promise.resolve({ data: [] });
+      if (url !== '/api/notifications') return Promise.resolve({ data: [league()] });
       reads += 1;
       return reads === 1 ? Promise.resolve({ data: { notifications: [note], unread: 0 } }) : secondRead();
     });
@@ -303,23 +330,20 @@ describe('the activity card while the bell polls', () => {
     await waitFor(() => expect(apiClient.get.mock.calls.filter(([u]) => u === '/api/notifications')).toHaveLength(2));
 
     expect(screen.getByText('Poll survivor')).toBeInTheDocument();
-    expect(screen.queryByText("Couldn't load recent activity right now.")).not.toBeInTheDocument();
+    expect(screen.queryByText("We couldn't load recent activity.")).not.toBeInTheDocument();
   });
 });
 
-test('surfaces the public-layer highlights section (lazy) for logged-in users', async () => {
-  apiClient.get.mockImplementation((url) => {
-    if (url === '/api/public/recaps') return Promise.resolve({ data: { recaps: [] } });
-    if (url === '/api/notifications') return Promise.resolve({ data: { notifications: [] } });
-    return Promise.resolve({ data: [] });
-  });
+test('surfaces the newest Darkness Report (lazy) for logged-in users', async () => {
+  apiClient.get.mockResolvedValue({ data: [league()] });
   renderWithProviders(<UserPage />, { state: baseState });
 
-  // The section is a lazy chunk (it carries the strategy-article registry),
-  // so it arrives after the initial render.
-  expect(await screen.findByText('Around the League')).toBeInTheDocument();
-  expect(screen.getByRole('link', { name: 'Waiver Wire' })).toHaveAttribute('href', '/waiver-wire');
-  expect(screen.getByRole('link', { name: 'All strategy articles' })).toHaveAttribute('href', '/strategy');
+  // The card is a lazy chunk (it carries the strategy-article registry), so it
+  // arrives after the initial render.
+  expect(await screen.findByRole('heading', { level: 2, name: 'The Darkness Report' })).toBeInTheDocument();
+  const report = listArticles().find((article) => /Darkness Report/i.test(article.title));
+  expect(screen.getByRole('link', { name: 'Read the report' })).toHaveAttribute('href', `/strategy/${report.slug}`);
+  expect(screen.queryByText('Around the League')).not.toBeInTheDocument();
 });
 
 // --- Heading outline (ADR 0021: levels are explicit) ---
@@ -333,10 +357,13 @@ test('the page has one h1, an h2 per section and an h3 per league card', async (
   expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Welcome back, alice');
   expect(screen.getByRole('heading', { level: 2, name: 'My leagues' })).toBeInTheDocument();
   expect(await screen.findByRole('heading', { level: 2, name: 'Needs your attention' })).toBeInTheDocument();
-  expect(screen.getByRole('heading', { level: 2, name: 'Latest NFL News' })).toBeInTheDocument();
-  expect(screen.getByRole('heading', { level: 2, name: 'Activity in your leagues' })).toBeInTheDocument();
+  expect(screen.getByRole('heading', { level: 2, name: 'In your leagues' })).toBeInTheDocument();
   expect(screen.getByRole('heading', { level: 3, name: 'Sunday Ballers' })).toBeInTheDocument();
-  expect(await screen.findByRole('heading', { level: 2, name: 'Around the League' })).toBeInTheDocument();
+  expect(await screen.findByRole('heading', { level: 2, name: 'The Darkness Report' })).toBeInTheDocument();
+  // One heading size: every Home h2 here is the 20px panel title.
+  screen.getAllByRole('heading', { level: 2 })
+    .filter((heading) => ['My leagues', 'In your leagues', 'The Darkness Report'].includes(heading.textContent))
+    .forEach((heading) => expect(heading).toHaveStyle({ fontSize: '20px' }));
   expect(screen.queryByRole('heading', { name: 'Top Players' })).not.toBeInTheDocument();
   expect(screen.queryAllByRole('heading', { level: 4 })).toHaveLength(0);
   expect(screen.queryAllByRole('heading', { level: 5 })).toHaveLength(0);
@@ -348,7 +375,7 @@ test('the empty state heading sits under My leagues', async () => {
   renderPage();
 
   const emptyState = await screen.findByTestId('leagues-empty-state');
-  expect(within(emptyState).getByRole('heading', { level: 3 })).toHaveTextContent("You aren't managing any teams yet.");
+  expect(within(emptyState).getByRole('heading', { level: 3 })).toHaveTextContent('Start a league tonight');
 });
 
 // --- A leagues fetch error survives the dialogs ---
@@ -447,10 +474,10 @@ test('the Alert prompt sits in its own row after My leagues, before the feeds', 
 
   const prompt = await screen.findByRole('heading', { level: 2, name: 'Get alerts on this device' });
   const myLeagues = screen.getByRole('heading', { level: 2, name: 'My leagues' });
-  const news = screen.getByRole('heading', { level: 2, name: 'Latest NFL News' });
+  const feed = screen.getByRole('heading', { level: 2, name: 'In your leagues' });
   const follows = (x, y) => x.compareDocumentPosition(y) & Node.DOCUMENT_POSITION_FOLLOWING;
   expect(follows(myLeagues, prompt)).toBeTruthy();
-  expect(follows(prompt, news)).toBeTruthy();
+  expect(follows(prompt, feed)).toBeTruthy();
 });
 
 test('no Alert prompt when no league row carries a team of the manager', async () => {

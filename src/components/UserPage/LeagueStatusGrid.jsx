@@ -52,7 +52,10 @@ function LeagueStatusGrid({ leagues }) {
   // A chip with nothing behind it is not offered; a filter that a refetch
   // emptied falls back to All rather than showing an empty grid.
   const offered = FILTERS.filter(({ key }) => key === 'all' || counts[key] > 0);
-  const active = counts[filter] > 0 ? filter : 'all';
+  // Filters earn their place by narrowing: 4+ leagues, and some filter that
+  // drops at least one of them. A hidden group leaves no filter applied.
+  const showFilters = leagues.length >= 4 && offered.some(({ key }) => key !== 'all' && counts[key] < counts.all);
+  const active = showFilters && counts[filter] > 0 ? filter : 'all';
   const filtered = active === 'all' ? keyed : keyed.filter(({ keys }) => keys.includes(active));
   const visible = showAll ? filtered : filtered.slice(0, VISIBLE_LIMIT);
 
@@ -63,7 +66,7 @@ function LeagueStatusGrid({ leagues }) {
 
   return (
     <>
-      {leagues.length > 1 && offered.length > 1 && (
+      {showFilters && (
         <Stack
           direction="row"
           role="group"
