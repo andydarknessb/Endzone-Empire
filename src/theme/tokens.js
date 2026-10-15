@@ -170,6 +170,40 @@ export const colorTokens = {
     // `dash-bg`, `dash-surface` and `dash-surface2`, never `dash-surface3`,
     // which no input sits on.
     'dash-field': '#7a8793',
+    // ---- Home, `/user` Play-select (DESIGN.md "Home surface: Play-select"). Home
+    // paints only from `home-*`, never `dash-*`, and no other surface borrows
+    // them. play*, board* and home-focus/-halo are the same in both themes.
+    // Pairings: tokens.contrast.test.js.
+    'home-field': '#eceef8',
+    'home-panel': '#ffffff',
+    'home-frame': '#1830b8',
+    'home-rule': '#b4bce0',
+    'home-ink': '#0c0e1c',
+    'home-dim': '#4a5070',
+    'home-play': '#1830b8',
+    'home-play-field': '#0f2190',
+    'home-play-ink': '#ffffff',
+    'home-play-dim': '#c8d0ff',
+    // The one filled foot and the Live lock line sit on the Play blue, which is the
+    // same in both themes, so their green and its label are fixed too (the kit's
+    // playAccent / onPlayAccent); the page-level accent flips with the theme.
+    'home-play-accent': '#2fd97b',
+    'home-on-play-accent': '#07080f',
+    'home-accent': '#0f6a41',
+    'home-on-accent': '#ffffff',
+    'home-cursor': '#a86e00',
+    'home-danger': '#c62828',
+    'home-on-danger': '#ffffff',
+    'home-board': '#000000',
+    'home-board-ink': '#ffffff',
+    'home-board-dim': '#a8adc8',
+    'home-board-rule': '#3a4170',
+    // The scoreboard's live odds fill (a bright green on Board black).
+    'home-board-live': '#2fd97b',
+    'home-skel': '#dde1f0',
+    // Focus ring and press frame, and the dark halo behind the ring.
+    'home-focus': '#ffffff',
+    'home-halo': '#07080f',
   },
   dark: {
     'bg-page': '#0f1419',
@@ -297,6 +331,40 @@ export const colorTokens = {
     'dash-warning-soft': 'rgba(240, 179, 78, 0.14)',
     // Input and choice-card edge (see the light note).
     'dash-field': '#6b7c8c',
+    // ---- Home, `/user` Play-select (DESIGN.md "Home surface: Play-select"). Home
+    // paints only from `home-*`, never `dash-*`, and no other surface borrows
+    // them. play*, board* and home-focus/-halo are the same in both themes.
+    // Pairings: tokens.contrast.test.js.
+    'home-field': '#07080f',
+    'home-panel': '#10131f',
+    'home-frame': '#c8d0ff',
+    'home-rule': '#3a4170',
+    'home-ink': '#f4f4f8',
+    'home-dim': '#a8adc8',
+    'home-play': '#1830b8',
+    'home-play-field': '#0f2190',
+    'home-play-ink': '#ffffff',
+    'home-play-dim': '#c8d0ff',
+    // The one filled foot and the Live lock line sit on the Play blue, which is the
+    // same in both themes, so their green and its label are fixed too (the kit's
+    // playAccent / onPlayAccent); the page-level accent flips with the theme.
+    'home-play-accent': '#2fd97b',
+    'home-on-play-accent': '#07080f',
+    'home-accent': '#2fd97b',
+    'home-on-accent': '#07080f',
+    'home-cursor': '#f8d030',
+    'home-danger': '#ff5a4a',
+    'home-on-danger': '#07080f',
+    'home-board': '#000000',
+    'home-board-ink': '#ffffff',
+    'home-board-dim': '#a8adc8',
+    'home-board-rule': '#3a4170',
+    // The scoreboard's live odds fill (a bright green on Board black).
+    'home-board-live': '#2fd97b',
+    'home-skel': '#2a3052',
+    // Focus ring and press frame, and the dark halo behind the ring.
+    'home-focus': '#ffffff',
+    'home-halo': '#07080f',
   },
 };
 
