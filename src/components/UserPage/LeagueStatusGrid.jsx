@@ -1,138 +1,137 @@
-import React, { useState } from 'react';
-import { Box, Button, Stack } from '@mui/material';
-import Grid from '@mui/material/Unstable_Grid2';
-import LeagueStatusCard, { leagueFilterKeys } from '../common/LeagueStatusCard';
-import { MIN_TOUCH_TARGET_SX } from '../../shared/lib/a11y';
-import { HAIRLINE, ghostButtonSx } from '../common/homeIslandSx';
+import React, { useEffect, useRef } from 'react';
+import { Box } from '@mui/material';
+import LeagueStatusCard, { scoreSignature, tileKind } from '../common/LeagueStatusCard';
+import {
+  ErrorPanel, Frame, NumbersHelp, PixelHeading, Skel,
+} from './home';
 
-// The filter group (Main board): a card-surface track. Every filter is a MUI
-// text button; the pressed one is accent text on the accent tint (a
-// registered pairing, and a hue the hover never copies), the others
-// `dash-dim` on the card, hover a step up to `dash-surface2` with ink. No
-// solid accent fill: the first viewport keeps one filled primary.
-const filterSx = (pressed) => ({
-  ...MIN_TOUCH_TARGET_SX,
-  px: 2,
-  fontSize: '14px',
-  fontWeight: 600,
-  textTransform: 'none',
-  borderRadius: 'var(--dash-radius-sm)',
-  boxShadow: 'none',
-  color: pressed ? 'var(--dash-accent)' : 'var(--dash-dim)',
-  backgroundColor: pressed ? 'var(--dash-accent-soft)' : 'transparent',
-  '&:hover': {
-    boxShadow: 'none',
-    color: pressed ? 'var(--dash-accent)' : 'var(--dash-ink)',
-    backgroundColor: pressed ? 'var(--dash-accent-soft)' : 'var(--dash-surface2)',
-  },
-});
+// The My leagues section of Home (DESIGN.md "Home surface: Play-select"): the
+// whole section, heading to grid. Before kickoff each league is a panel; on
+// game day (`live`) the live ones are scoreboard tiles, first, and the rest
+// still panels after them. The old filter chips and the six-league "Show all"
+// are gone: the boards draw every league, and the grid is one tile per league.
 
-// Home v2 slice 3: the My leagues grid with its filter chips. The filters are
-// toggle buttons (aria-pressed), not tabs: they narrow one list in place.
-const FILTERS = [
-  { key: 'all', label: 'All' },
-  { key: 'live', label: 'In season' },
-  { key: 'pickem', label: "Pick'em" },
-  { key: 'drafting', label: 'Drafting' },
-];
+const HEADING_ID = 'leagues-h';
 
-// More than this many leagues shows the first ones and a Show all button
-// (Handoff edge cases: "More than 6 leagues: show 6, then Show all 14").
-const VISIBLE_LIMIT = 6;
+const GRID_SX = {
+  display: 'grid',
+  gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(3, minmax(0, 1fr))' },
+  gap: '20px',
+  // Panels and tiles stretch to the row's height; their links sit at the bottom (margin-top: auto).
+  alignItems: 'stretch',
+};
 
-function LeagueStatusGrid({ leagues }) {
-  const [filter, setFilter] = useState('all');
-  const [showAll, setShowAll] = useState(false);
+/** "updated just now" under a minute, else "updated N min ago", then the refresh cadence. */
+function stampText(updatedAt) {
+  const t = new Date(updatedAt).getTime();
+  if (Number.isNaN(t)) return null;
+  const minutes = Math.max(0, Math.floor((Date.now() - t) / 60000));
+  return `${minutes < 1 ? 'updated just now' : `updated ${minutes} min ago`} · refreshes every minute`;
+}
 
-  const keyed = leagues.map((league) => ({ league, keys: leagueFilterKeys(league) }));
-  const counts = FILTERS.reduce((acc, { key }) => ({
-    ...acc,
-    [key]: key === 'all' ? keyed.length : keyed.filter(({ keys }) => keys.includes(key)).length,
-  }), {});
-  // A chip with nothing behind it is not offered; a filter that a refetch
-  // emptied falls back to All rather than showing an empty grid.
-  const offered = FILTERS.filter(({ key }) => key === 'all' || counts[key] > 0);
-  // Filters earn their place by narrowing: 4+ leagues, and some filter that
-  // drops at least one of them. A hidden group leaves no filter applied.
-  const showFilters = leagues.length >= 4 && offered.some(({ key }) => key !== 'all' && counts[key] < counts.all);
-  const active = showFilters && counts[filter] > 0 ? filter : 'all';
-  const filtered = active === 'all' ? keyed : keyed.filter(({ keys }) => keys.includes(active));
-  const visible = showAll ? filtered : filtered.slice(0, VISIBLE_LIMIT);
-
-  const choose = (key) => {
-    setFilter(key);
-    setShowAll(false);
-  };
-
+// A loading league in the real panel's shape (build-states.js), so nothing jumps when it fills.
+function SkeletonPanel() {
   return (
-    <>
-      {showFilters && (
-        <Stack
-          direction="row"
-          role="group"
-          aria-label="Filter leagues"
-          spacing={0.5}
-          useFlexGap
-          flexWrap="wrap"
+    <Box component="article" aria-label="Loading a league" aria-busy="true" sx={{ display: 'flex' }}>
+      <Frame component="div" sx={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
+        <Box aria-hidden="true" sx={{ padding: '12px 16px', borderBottom: '2px solid var(--home-rule)' }}>
+          <Skel width="55%" height={18} />
+        </Box>
+        <Box aria-hidden="true" sx={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <Skel width="45%" height={16} />
+            <Skel width="75%" height={14} />
+          </Box>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+            <Skel width="72px" height={32} />
+            <Skel width="72px" height={32} />
+          </Box>
+          <Skel width="100%" height={12} />
+          <Skel width="50%" height={16} />
+        </Box>
+        <Box
+          aria-hidden="true"
           sx={{
-            mb: 2,
-            p: 0.5,
-            borderRadius: 'var(--dash-radius-sm)',
-            border: HAIRLINE,
-            backgroundColor: 'var(--dash-surface)',
-            width: 'fit-content',
-            maxWidth: '100%',
+            marginTop: 'auto', borderTop: '2px solid var(--home-rule)', padding: '12px 16px', display: 'flex', gap: '16px',
           }}
         >
-          {offered.map(({ key, label }) => {
-            const pressed = active === key;
-            return (
-              <Button
-                key={key}
-                type="button"
-                aria-pressed={pressed}
-                onClick={() => choose(key)}
-                variant="text"
-                color="inherit"
-                disableElevation
-                sx={filterSx(pressed)}
-              >
-                {label}
-                {' '}
-                <Box component="span" sx={{ ml: 0.75, fontVariantNumeric: 'tabular-nums' }}>{counts[key]}</Box>
-              </Button>
-            );
-          })}
-        </Stack>
+          <Skel width="64px" height={20} />
+          <Skel width="48px" height={20} />
+          <Skel width="48px" height={20} />
+        </Box>
+      </Frame>
+    </Box>
+  );
+}
+
+function LeagueStatusGrid({
+  leagues = [], loading = false, error = null, onRetry, live = false, updatedAt = null,
+}) {
+  // Live tiles on game day lead; every other league keeps its order after them.
+  const tiles = leagues.filter((league) => tileKind(league, live));
+  const ordered = live ? [...tiles, ...leagues.filter((league) => !tiles.includes(league))] : leagues;
+
+  // The last rendered score per league. A refresh that changed a live tile's
+  // score flashes it for that render; the first render of a league never does.
+  const seen = useRef(new Map());
+  const signatures = new Map(
+    ordered.filter((league) => tileKind(league, live) === 'score').map((league) => [league.id, scoreSignature(league)])
+  );
+  const scoredIds = new Set(
+    [...signatures].filter(([id, sig]) => seen.current.has(id) && seen.current.get(id) !== sig).map(([id]) => id)
+  );
+  useEffect(() => {
+    seen.current = signatures;
+  });
+
+  const showSkeletons = loading && leagues.length === 0 && !error;
+  if (!leagues.length && !error && !showSkeletons) return null;
+
+  const stamp = live && updatedAt ? stampText(updatedAt) : null;
+  return (
+    <Box component="section" aria-labelledby={HEADING_ID} sx={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      <Box sx={{
+        display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '8px 24px',
+      }}
+      >
+        <PixelHeading id={HEADING_ID}>{live ? 'Live scores' : 'My leagues'}</PixelHeading>
+        {leagues.length > 0 && <NumbersHelp />}
+        {stamp && (
+          // Plain text, not a live region: it is a stamp, not news.
+          <Box sx={{
+            fontSize: '13px', color: 'var(--home-dim)', ml: { xs: 0, md: 'auto' }, flexBasis: { xs: '100%', md: 'auto' },
+          }}
+          >
+            {stamp}
+          </Box>
+        )}
+      </Box>
+
+      {error && (
+        <ErrorPanel
+          title="Couldn't load your leagues"
+          body="Check your connection, then try again."
+          onRetry={onRetry}
+          retryAriaLabel="Try loading your leagues again"
+        />
       )}
 
-      <Grid container spacing={2}>
-        {visible.map(({ league }) => (
-          <Grid xs={12} sm={6} key={league.id}>
-            <LeagueStatusCard league={league} />
-          </Grid>
-        ))}
-      </Grid>
-
-      {!showAll && filtered.length > VISIBLE_LIMIT && (
-        <Box sx={{ mt: 2, display: 'flex', justifyContent: 'center' }}>
-          {/* On the page, so the ghost carries its own card-surface fill. */}
-          <Button
-            variant="outlined"
-            onClick={() => setShowAll(true)}
-            sx={{
-              ...ghostButtonSx,
-              ...MIN_TOUCH_TARGET_SX,
-              px: 2.5,
-              backgroundColor: 'var(--dash-surface)',
-              '&:hover': { ...ghostButtonSx['&:hover'], backgroundColor: 'var(--dash-surface)' },
-            }}
-          >
-            {`Show all ${filtered.length} leagues`}
-          </Button>
+      {showSkeletons && (
+        <Box sx={GRID_SX}>
+          <SkeletonPanel />
+          <SkeletonPanel />
+          <SkeletonPanel />
         </Box>
       )}
-    </>
+
+      {ordered.length > 0 && (
+        <Box sx={GRID_SX}>
+          {ordered.map((league) => (
+            <LeagueStatusCard key={league.id} league={league} live={live} scored={scoredIds.has(league.id)} />
+          ))}
+        </Box>
+      )}
+    </Box>
   );
 }
 
