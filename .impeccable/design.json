@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-10-14T17:07:29.324Z",
+  "generatedAt": "2026-10-15T13:42:44.143Z",
   "title": "Design System: Endzone Empire",
   "extensions": {
     "colorMeta": {
@@ -525,7 +525,153 @@
         "name": "xl",
         "value": "1536px"
       }
-    ]
+    ],
+    "home": {
+      "scope": "Home (/user) only. The canvas is the spec (published v24, kit tecmo/kit.js); production needs these as tokens in src/theme/tokens.js with contrast pairs in tokens.contrast.test.js.",
+      "colors": {
+        "dark": {
+          "field": "#07080f",
+          "panel": "#10131f",
+          "frame": "#c8d0ff",
+          "rule": "#3a4170",
+          "ink": "#f4f4f8",
+          "dim": "#a8adc8",
+          "play": "#1830b8",
+          "play-field": "#0f2190",
+          "play-ink": "#ffffff",
+          "play-dim": "#c8d0ff",
+          "accent": "#2fd97b",
+          "on-accent": "#07080f",
+          "cursor": "#f8d030",
+          "danger": "#ff5a4a",
+          "on-danger": "#07080f",
+          "board": "#000000",
+          "board-ink": "#ffffff",
+          "board-dim": "#a8adc8",
+          "board-rule": "#3a4170",
+          "skel": "#2a3052"
+        },
+        "light": {
+          "field": "#eceef8",
+          "panel": "#ffffff",
+          "frame": "#1830b8",
+          "rule": "#b4bce0",
+          "ink": "#0c0e1c",
+          "dim": "#4a5070",
+          "play": "#1830b8",
+          "play-field": "#0f2190",
+          "play-ink": "#ffffff",
+          "play-dim": "#c8d0ff",
+          "accent": "#0f6a41",
+          "on-accent": "#ffffff",
+          "cursor": "#a86e00",
+          "danger": "#c62828",
+          "on-danger": "#ffffff",
+          "board": "#000000",
+          "board-ink": "#ffffff",
+          "board-dim": "#a8adc8",
+          "board-rule": "#3a4170",
+          "skel": "#dde1f0"
+        }
+      },
+      "sharedBothThemes": [
+        "play",
+        "play-field",
+        "play-ink",
+        "play-dim",
+        "board",
+        "board-ink",
+        "board-dim",
+        "board-rule"
+      ],
+      "typography": {
+        "display": {
+          "fontFamily": "'Press Start 2P', ui-monospace, monospace",
+          "sizes": [
+            "16px",
+            "24px",
+            "32px"
+          ],
+          "lineHeight": "1.5 (1.3 on the 32px h1)",
+          "textTransform": "uppercase"
+        },
+        "body": {
+          "fontFamily": "Archivo, 'Helvetica Neue', Arial, sans-serif",
+          "sizes": {
+            "body": "16px",
+            "button": "15px/600",
+            "caption": "14px",
+            "note": "13px"
+          }
+        }
+      },
+      "frame": {
+        "border": "6px double home-frame",
+        "radius": "0",
+        "shadow": "none",
+        "divider": "2px solid home-rule"
+      },
+      "playCard": {
+        "fieldBand": "play-field fill, 2px dashed play-dim top and bottom, 96x48 pixel pictogram on a 2px grid",
+        "foot": "44px, 2px play-ink border; lead foot filled with accent",
+        "urgentStrip": "danger band under 1 hour",
+        "cursorFrame": "4px border with 8px padding; cursor color, danger when urgent"
+      },
+      "oddsBar": {
+        "blocks": 20,
+        "height": "12px",
+        "gap": "2px",
+        "fill": "accent when live, frame before kickoff",
+        "empty": "2px dim outline"
+      },
+      "focusRing": {
+        "value": "outline: 3px solid #ffffff; outline-offset: 0; box-shadow: 0 0 0 7px #07080f",
+        "note": "same in both themes"
+      },
+      "motion": [
+        {
+          "name": "cursor-blink",
+          "value": "blink .5s steps(1) 3",
+          "purpose": "Cursor frame border flashes three times then rests lit."
+        },
+        {
+          "name": "reduced-motion",
+          "value": "animation: none",
+          "purpose": "Cursor blink off under prefers-reduced-motion."
+        },
+        {
+          "name": "hover",
+          "value": "filter: brightness(1.12)",
+          "purpose": "Button and link hover."
+        }
+      ],
+      "rules": [
+        {
+          "name": "The One Cursor Rule",
+          "body": "Exactly one play wears the cursor frame: the earliest lock, or a live draft."
+        },
+        {
+          "name": "The One Filled Action Rule",
+          "body": "One filled green button per page, on the lead play foot."
+        },
+        {
+          "name": "The Green Means Go Rule",
+          "body": "Green only for the one filled action and live state."
+        },
+        {
+          "name": "The Red Is Rare Rule",
+          "body": "Red only under one hour to lock and for errors."
+        },
+        {
+          "name": "The Shared Lock Rule",
+          "body": "Picks that share a lock are one card."
+        },
+        {
+          "name": "The Square Rule",
+          "body": "No corner radius and no drop shadow on Home."
+        }
+      ]
+    }
   },
   "components": [
     {
