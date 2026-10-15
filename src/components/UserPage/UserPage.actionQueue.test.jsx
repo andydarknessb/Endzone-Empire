@@ -184,6 +184,16 @@ describe('the play cards', () => {
     expect(filled(container)).toHaveLength(1);
   });
 
+  test('a member waiting on a draft that did not auto-start: cursor on it, no filled action on the page', async () => {
+    mockItems(body([]));
+    const waiting = { id: 4, name: 'Late League', draft_status: 'pending', draft_autostart_failed: true, draft_date: new Date(Date.now() - 2 * HOUR).toISOString() };
+    const { container } = renderWithProviders(<ActionQueue leagues={[waiting]} />);
+
+    await screen.findByRole('link', { name: /^Next up: Draft waiting./ });
+    expect(cursors(container)).toHaveLength(1);
+    expect(filled(container)).toHaveLength(0);
+  });
+
   test('a draft_live item still makes the card when the leagues have not loaded', async () => {
     mockItems(body([
       item({
@@ -226,7 +236,7 @@ describe('the play cards', () => {
 });
 
 describe('on the sideline', () => {
-  test('waiver claims sit under the cards with a link, and a one-line promise when nothing else is due', async () => {
+  test('waiver claims sit under the cards with a link, followed by the one-line promise', async () => {
     mockItems(body([picks(1, "Sunday Pick'em"), waiver({ leagueName: 'Winsconsota' })]));
     renderWithProviders(<ActionQueue leagues={[]} />);
 
@@ -235,11 +245,12 @@ describe('on the sideline', () => {
     expect(within(region).getByText('1 waiver claim pending')).toBeInTheDocument();
     expect(within(region).getByText(/^Winsconsota · clears /)).toBeInTheDocument();
     expect(within(region).getByRole('link', { name: 'View claims in Winsconsota' })).toHaveAttribute('href', '/league/71/waivers');
+    expect(within(region).getByText(/^Nothing else is due before \w+day's kickoff\.$/)).toBeInTheDocument();
     // The waiver claim is not a play: one card, one badge.
     expect(within(region).getByText('1 thing needs you')).toBeInTheDocument();
   });
 
-  test('says nothing else is due before the next lock weekday when the sideline is empty', async () => {
+  test('says nothing else is due before the next lock weekday with no sideline items', async () => {
     mockItems(body([picks(1, "Sunday Pick'em")]));
     renderWithProviders(<ActionQueue leagues={[]} />);
 

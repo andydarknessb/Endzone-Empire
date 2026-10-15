@@ -435,11 +435,9 @@ function ActionQueue({
         >
           <Box component="h3" sx={sidelineHeadSx}>On the sideline</Box>
           {sideline.map((item) => <SidelineRow key={item.id} item={item} />)}
-          {sideline.length === 0 && (
-            <Box component="p" sx={{ margin: 0, fontSize: '14px', color: 'var(--home-dim)' }}>
-              {nextLock ? `Nothing else is due before ${weekday(nextLock, 'long')}'s kickoff.` : 'Nothing else needs you today.'}
-            </Box>
-          )}
+          <Box component="p" sx={{ margin: 0, fontSize: '14px', color: 'var(--home-dim)' }}>
+            {nextLock ? `Nothing else is due before ${weekday(nextLock, 'long')}'s kickoff.` : 'Nothing else needs you today.'}
+          </Box>
         </Box>
       </Box>
       {hiddenCount > 0 && (

@@ -139,6 +139,7 @@ function NextDraftCard({
       ariaLabel={words.ariaLabel}
       state={lead ? 'next' : 'open'}
       lead={lead}
+      filledFoot={!(state === 'late' && league.draft_autostart_failed === true && !commissioner)}
     />
   );
 }

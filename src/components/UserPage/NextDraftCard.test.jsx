@@ -93,6 +93,12 @@ describe('NextDraftCard states', () => {
     expect(container.querySelector('.cursor')).toBeNull();
   });
 
+  test('a member waiting on the commissioner keeps the cursor but has no filled foot, even as the lead', () => {
+    const { container } = renderCard(league({ id: 9, draft_autostart_failed: true, draft_date: at(-2 * HOUR) }), { lead: true });
+    expect(container.querySelectorAll('.cursor')).toHaveLength(1);
+    expect(container.querySelectorAll('[data-filled="true"]')).toHaveLength(0);
+  });
+
   test('late reads Not started with the about-to-start note', () => {
     renderCard(league({ id: 9, name: 'Late League', draft_date: at(-2 * HOUR) }));
     const link = screen.getByRole('link', { name: /Late League draft room/ });
