@@ -10,9 +10,20 @@ The Weekly Darkness Report (start/sit) is written from facts in the database and
 2. **Rulings file**, written by Cory: `docs/editorial/week<N>-rulings.md` (contract below).
 3. **Writer** turns the dump and the rulings into the article and a calls file.
 4. **Calls file is committed before the first kickoff** of the week, so the calls are on record before any result. It lives beside the article: `src/content/articles/week<N>-start-sit-darkness-report.calls.json`.
-5. **Tuesday scorer**: `node scripts/editorial/score-calls.js --calls src/content/articles/week<N>-start-sit-darkness-report.calls.json` scores the calls against actual points and the engine's own pre-kickoff PPR read.
+5. **Tuesday scorer**: `node scripts/editorial/score-calls.js --calls src/content/articles/week<N>-start-sit-darkness-report.calls.json` scores the calls against actual points, the frozen capture's PPR read and the served Start verdict (rebuilt, see below). `node scripts/editorial/score-calls.js --all` scores every `week<N>-start-sit-darkness-report.calls.json` and prints the season ledger: one line per week, season totals (editorial / capture / served, method and injury calls) and the n-weighted per-position rank correlation. A week with no scheduled capture or no `player_stats` rows yet is skipped. `--json` works with both modes.
 
 No article or calls file is produced without the rulings file.
+
+## Served (rebuilt) column
+
+Nothing persists the Start verdict the app served at kickoff (`lineup_overrides` stores a swap band per pair, `projection_snapshot_players` has no practice input), so `score-calls.js` rebuilds it read-only, in the same `BEGIN READ ONLY` transaction, for every row of the capture (the ranking needs the whole pool). It mirrors `startVerdictFor`:
+
+- As of = the earlier of the row's frozen `game_kickoff_at` minus 60 seconds (`ADVICE_LEAD_MS`, lineupOverride.service.js) and now.
+- A capture row whose stored availability is not available passes straight through (`startVerdictOf` of the stored verdict). Every other row gets `startVerdictOf(unavailableFor(...))` with the capture's `injury_status`, the Position-baseline marker from `factors.dataQuality.reasons`, the Backup quarterback fact (`backupQuarterbackIds` over QB depth chart rows captured within the 3 days up to the as-of date) and that player's `player_practice_observations` rows seen by the as-of instant.
+- The latest observation's `report_status` replaces the capture's status only when that status is null or a game designation (Questionable, Doubtful, Out): a report replaces it, a null report means no designation. Roster statuses (IR, suspended, PUP) always stand.
+- Served call per player: unavailable or not recommended is SIT; recommendable is START when the capture's point estimate (the number stands, ADR 0056) ranks inside the position cutoff among the capture rows not served unavailable, else SIT.
+
+Known gaps: `report_status` is nflverse's game designation, while the live served read uses the ESPN-fed `players.injury_status`, so mid-week (before nflverse publishes designations) a Questionable player reads as no designation and never reads `no_practice`; practice observations start 2026-10-02, so earlier weeks show no `no_practice`; the Backup quarterback check reads each QB's current `players` team and injury status, not the as-of values.
 
 ## Rulings file contract
 

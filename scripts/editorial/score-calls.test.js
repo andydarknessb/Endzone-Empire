@@ -1,6 +1,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { finishOf, judge, rankingRho, scoreCalls, spearman } = require('./score-calls');
+const {
+  finishOf, judge, rankingRho, scoreCalls, spearman, servedInjuryStatus, servedAsOf, servedVerdictFor, seasonLedger,
+} = require('./score-calls');
 
 test('spearman: perfect, reversed, ties, undefined', () => {
   assert.equal(spearman([1, 2, 3], [10, 20, 30]), 1);
@@ -104,4 +106,101 @@ test('scoreCalls: an engine-unavailable row neither ranks nor pushes an availabl
   assert.deepEqual(summary.pairedInjury, { n: 1, editorialHits: 1, engineHits: 1 });
   // Engine order scores the IR row 0 (20, 15, 10, 0 vs actual 25, 4, 18, 0): rho 0.8; at its raw 50 it would go negative
   assert.ok(Math.abs(rankings.WR.engineRho - 0.8) < 1e-9);
+});
+
+// Served (rebuilt) Start verdict
+const obs = (observedAt, reportStatus, practiceStatus = 'Limited Participation in Practice') => ({
+  observedAt, reportStatus, practiceStatus, practicePrimaryInjury: null, reportPrimaryInjury: null,
+});
+
+test('servedInjuryStatus: the latest report overrides a game designation only', () => {
+  assert.equal(servedInjuryStatus('Q', []), 'Q');
+  assert.equal(servedInjuryStatus(null, [obs('2026-10-16T20:00Z', 'Questionable')]), 'Q');
+  assert.equal(servedInjuryStatus('Q', [obs('2026-10-16T20:00Z', 'Out')]), 'O');
+  assert.equal(servedInjuryStatus('d', [obs('2026-10-16T20:00Z', 'Doubtful')]), 'D');
+  assert.equal(servedInjuryStatus('Questionable', [obs('2026-10-16T20:00Z', null)]), null); // cleared
+  assert.equal(servedInjuryStatus('O', [obs('2026-10-16T20:00Z', null)]), null);
+  // roster statuses always stand
+  assert.equal(servedInjuryStatus('IR', [obs('2026-10-16T20:00Z', 'Questionable')]), 'IR');
+  assert.equal(servedInjuryStatus('SUSPENDED', [obs('2026-10-16T20:00Z', null)]), 'SUSPENDED');
+  // the latest observation wins whatever the list order
+  const unordered = [obs('2026-10-17T20:00Z', 'Out'), obs('2026-10-15T20:00Z', 'Questionable')];
+  assert.equal(servedInjuryStatus(null, unordered), 'O');
+});
+
+test('servedAsOf: a minute before kickoff, never after now', () => {
+  const now = new Date('2026-10-15T12:00:00Z');
+  assert.equal(servedAsOf('2026-10-11T17:00:00Z', now).toISOString(), '2026-10-11T16:59:00.000Z');
+  assert.equal(servedAsOf('2026-10-18T17:00:00Z', now).toISOString(), now.toISOString());
+  assert.equal(servedAsOf(null, now).toISOString(), now.toISOString());
+});
+
+test('servedVerdictFor: stored unavailable wins, practice facts move a Questionable', () => {
+  const asOf = new Date('2026-10-18T16:59:00Z');
+  const kickoffAt = '2026-10-18T17:00:00Z';
+  const base = { factors: { availability: { available: true } }, injuryStatus: 'Q', kickoffAt, observations: [], backup: false, asOf };
+  const stored = servedVerdictFor({ ...base, factors: { availability: { available: false, reason: 'ir', status: 'IR' } }, observations: [obs('2026-10-14T20:00Z', null, 'Full Participation in Practice')] });
+  assert.deepEqual(stored, { outcome: 'unavailable', reason: 'ir', numberTrusted: true });
+  assert.equal(servedVerdictFor(base).outcome, 'recommendable');
+  const dnp = [obs('2026-10-14T20:00Z', 'Questionable', 'Did Not Participate In Practice')];
+  assert.deepEqual(servedVerdictFor({ ...base, observations: dnp }), { outcome: 'not_recommended', reason: 'no_practice', numberTrusted: true });
+  assert.equal(servedVerdictFor({ ...base, injuryStatus: null, observations: [obs('2026-10-17T20:00Z', 'Out')] }).outcome, 'unavailable');
+  assert.equal(servedVerdictFor({ ...base, backup: true }).reason, 'backup');
+  const baseline = servedVerdictFor({ ...base, injuryStatus: null, factors: { availability: {}, dataQuality: { reasons: ['position baseline'] } } });
+  assert.equal(baseline.reason, 'no_history');
+});
+
+test('scoreCalls: served call, unavailable passthrough, not_recommended -> SIT, rank among non-unavailable rows', () => {
+  const served = (outcome) => ({ outcome, reason: null });
+  const withServed = new Map([
+    [1, { ...ledger.get(1), served: served('unavailable') }],
+    [2, { ...ledger.get(2), served: served('not_recommended') }],
+    [3, { ...ledger.get(3), served: served('recommendable') }],
+    [4, { ...ledger.get(4), served: served('recommendable') }],
+  ]);
+  const file = {
+    cutoffs: { WR: 2 },
+    rankings: { WR: [1, 2, 3, 4].map((id, i) => ({ rank: i + 1, name: `p${id}`, playerId: id })) },
+    calls: [1, 2, 3, 4].map((id) => ({ id: `c${id}`, name: `P${id}`, position: 'WR', playerId: id, verdict: 'START', condition: null })),
+  };
+  const { calls, rankings, summary } = scoreCalls(file, withServed, actuals);
+  const by = Object.fromEntries(calls.map((c) => [c.id, c]));
+  assert.deepEqual([by.c1.servedCall, by.c1.servedRank, by.c1.servedOutcome], ['SIT', null, 'unavailable']);
+  assert.deepEqual([by.c2.servedCall, by.c2.servedRank], ['SIT', null]); // not_recommended never starts (but stays in the ranked pool)
+  assert.deepEqual([by.c3.servedCall, by.c3.servedRank], ['START', 2]); // the unavailable 20 does not push him down
+  assert.deepEqual([by.c4.servedCall, by.c4.servedRank], ['SIT', 3]);
+  assert.deepEqual([by.c1.servedHit, by.c2.servedHit, by.c3.servedHit, by.c4.servedHit], [false, true, false, true]);
+  assert.deepEqual(summary.paired, { n: 4, editorialHits: 1, engineHits: 3, servedHits: 2 });
+  assert.equal(summary.pairedMethod.servedHits, 2);
+  assert.equal(summary.pairedInjury.servedHits, 0);
+  assert.equal(typeof rankings.WR.servedRho, 'number');
+});
+
+test('scoreCalls: a void editorial call has no served hit', () => {
+  const withServed = new Map([[4, { ...ledger.get(4), served: { outcome: 'recommendable', reason: null } }]]);
+  const file = { cutoffs: { WR: 2 }, rankings: {}, calls: [{ id: 'd', name: 'D', position: 'WR', playerId: 4, verdict: 'START', condition: 'if active' }] };
+  const { calls } = scoreCalls(file, withServed, actuals);
+  assert.equal(calls[0].servedHit, null);
+});
+
+test('seasonLedger: sums hits over weeks and n-weights the position rhos', () => {
+  const split = (n, e, c, s) => ({ n, editorialHits: e, engineHits: c, servedHits: s });
+  const week = (w, m, i, qb) => ({
+    week: w,
+    summary: { paired: split(m[0] + i[0], m[1] + i[1], m[2] + i[2], m[3] + i[3]), pairedMethod: split(...m), pairedInjury: split(...i) },
+    rankings: { QB: qb },
+  });
+  const out = seasonLedger([
+    week(4, [26, 18, 17, 16], [4, 3, 2, 3], { n: 10, editorialRho: 0.5, engineRho: 0.1, servedRho: 0.2 }),
+    week(5, [19, 11, 9, 10], [2, 1, 1, 2], { n: 30, editorialRho: 0.1, engineRho: null, servedRho: 0.6 }),
+  ]);
+  assert.deepEqual(out.weeks.map((w) => w.week), [4, 5]);
+  assert.deepEqual(out.totals.pairedMethod, split(45, 29, 26, 26));
+  assert.deepEqual(out.totals.pairedInjury, split(6, 4, 3, 5));
+  assert.deepEqual(out.totals.paired, split(51, 33, 29, 31));
+  const qb = out.rankings.QB;
+  assert.equal(qb.n, 40);
+  assert.ok(Math.abs(qb.editorialRho - 0.2) < 1e-9); // (10*.5 + 30*.1) / 40
+  assert.ok(Math.abs(qb.engineRho - 0.1) < 1e-9); // null week left out of the mean
+  assert.ok(Math.abs(qb.servedRho - 0.5) < 1e-9); // (10*.2 + 30*.6) / 40
 });
