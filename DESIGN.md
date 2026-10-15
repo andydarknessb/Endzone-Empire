@@ -400,7 +400,7 @@ An uppercase Label key in Faint Ink above a Headline-size value in tabular Barlo
 
 Home (`/user`) is a play-call screen: a near-black field, NES-blue play cards with white X-and-O diagrams, double-ruled frames, and Press Start 2P for display. Scope is Home only. Every other island surface keeps the Commissioner's Desk above and never borrows these tokens, and Home never uses `dash-*` or app tokens. The `home-*` frontmatter colors list dark under the plain name and light under a `-light` suffix. Colors with no `-light` entry (play, play-field, play-ink, play-dim, and the four board colors) are the same in both themes.
 
-**Spec status.** The design canvas (10 boards, published version 27 at https://claude.ai/artifact/MU9fvovmpKB5cSD5eExJWe) is the spec. Production does not have these yet: they need to become tokens in `src/theme/tokens.js`, with their contrast pairs registered in `tokens.contrast.test.js`, before Home is built, under The One Truth Rule. Until then this section describes the canvas, not shipped code.
+**Spec status.** The design canvas (10 boards, published version 27 at https://claude.ai/artifact/MU9fvovmpKB5cSD5eExJWe) is the spec; its working files are in `docs/design/home/`. Shipped in #2315: the colors are the `home-*` tokens in `src/theme/tokens.js` (plus `home-selection` and `home-flash` for text selection and the score flash), with their contrast pairs in `tokens.contrast.test.js`, and the pieces live in `src/components/UserPage/home/`. The Create and Join dialogs still use the desk tokens.
 
 ### Palette (both themes)
 - **Field** (home-field): the page ground, near-black in dark and pale lavender-white in light. **Panel** (home-panel): the fill inside frames.
