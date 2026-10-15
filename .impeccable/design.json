@@ -526,8 +526,8 @@
         "value": "1536px"
       }
     ],
-    "home": {
-      "scope": "Home (/user) only. The canvas is the spec (published v24, kit tecmo/kit.js); production needs these as tokens in src/theme/tokens.js with contrast pairs in tokens.contrast.test.js.",
+    "ps": {
+      "scope": "Play-select: Home (/user) and league pages (ADR 0067). Production tokens are the ps-* keys in src/theme/tokens.js, with contrast pairs in tokens.contrast.test.js.",
       "colors": {
         "dark": {
           "field": "#07080f",
