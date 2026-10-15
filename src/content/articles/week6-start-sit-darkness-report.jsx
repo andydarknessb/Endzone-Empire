@@ -477,9 +477,6 @@ function WindowChecklist({ title, time, rows }) {
 }
 
 
-// Items are [name, position, why, rank, flag]. flag is 'smash' or a Darkness Ruling id (C4).
-// Usage lines read wk1/wk2/wk3/wk4; snap lines print week 1 as "--" because week-1 snap share is
-
 // Items are [name, position, why, rank, flag]. flag is a Darkness Ruling id (C4). Usage lines read
 // wk1/wk2/wk3/wk4/wk5 and "--" means the player did not play that week. Games are in kickoff order.
 
@@ -647,7 +644,7 @@ const GAMES = [
       ['Kyle Monangai', 'RB', 'Did not practice on the toe and thumb. Wk1-5: c10/10/10/30/--, t2/2/0/1/--, pts 20.4/7.8/3.1/28.0/--, snaps --/34/31/54/--%, proj 11.7 (n=21, low).', null, 'C31'],
       ['Michael Penix Jr.', 'QB', 'Full practice on the ribs but 13.7 a game on 26 attempts. Wk1-5: pa--/--/25/20/32, pts --/--/14.0/12.7/14.4, proj 13.8 (n=17, low).', null, 'C34'],
       ['Kyle Pitts Sr.', 'TE', 'Chicago allows the 2nd-fewest TE points; 5.5 a game. Wk1-5: t1/3/2/3/6, pts 0.0/3.0/1.5/7.7/15.2, snaps --/38/59/51/67%, proj 7.5 (n=39, medium).', null, 'C35'],
-      ['Rome Odunze', 'WR', '18% target share, 8.7 a game, third in line behind Burden and Raymond. Wk1-5: t3/4/6/7/9, pts 7.2/8.3/7.4/15.4/5.0, snaps --/84/85/89/99%, proj 10.1 (n=34, medium).', null, 'C36'],
+      ['Rome Odunze', 'WR', '18% target share and 8.7 a game, 5.0 last week; Burden is the Chicago receiver to start. Wk1-5: t3/4/6/7/9, pts 7.2/8.3/7.4/15.4/5.0, snaps --/84/85/89/99%, proj 10.1 (n=34, medium).', null, 'C36'],
     ],
     also: 'Ranked in the tiers without a call: Kalif Raymond (WR28).',
   },
@@ -747,7 +744,7 @@ const GAMES = [
     watch: [],
     sit: [
       ['Baker Mayfield', 'QB', 'OUT. Did not practice on the thumb, Doubtful; Jalon Daniels expected to start. Wk1-5: pa28/34/34/--/--, pts 11.6/12.2/11.3/--/--, proj 12.3 (n=37, low).', 'OUT', 'C53'],
-      ['Jalon Daniels', 'QB', '13.9 last week on 18 attempts; 17 mph wind. Wk1-5: pa--/--/3/27/25, pts --/--/-1.1/12.4/13.9.', null, 'C53'],
+      ['Jalon Daniels', 'QB', '13.9 last week on 25 attempts; 17 mph wind. Wk1-5: pa--/--/3/27/25, pts --/--/-1.1/12.4/13.9.', null, 'C53'],
       ['DK Metcalf', 'WR', '9.7 a game, 17 mph wind, Tampa allows the 10th-fewest WR points. Wk1-5: t10/9/5/9/4, pts 8.0/6.7/12.1/16.5/5.3, snaps --/97/95/97/92%, proj 10.3 (n=35, medium).', null, 'C58'],
     ],
     also: '',
@@ -766,10 +763,10 @@ const GAMES = [
     total: 44.5,
     weather: '57F outside, wind 6, sunny, roof status unknown',
     rain: false,
-    read: 'Indianapolis is a 7-point favorite implied for 25.75 and Tennessee is implied for 18.75. Jonathan Taylor and Keenan Allen sat Wednesday for rest only, not injury. Tyler Warren is the tight end to start. Pollard is a flex in a 7-point dog script, and Cam Ward is a sit.',
+    read: 'Indianapolis is a 7-point favorite implied for 25.75 and Tennessee is implied for 18.75. Jonathan Taylor was limited and Keenan Allen sat Wednesday, both rest days and not injuries. Tyler Warren is the tight end to start. Pollard is a flex in a 7-point dog script, and Cam Ward is a sit.',
     fpa: 'TEN offense vs IND D: QB 7, RB 5, WR 16, TE 12 · IND offense vs TEN D: QB 21, RB 21, WR 11, TE 21',
     start: [
-      ['Jonathan Taylor', 'RB', 'Rest day only, Tennessee is 21st in RB points allowed, so this is a volume start. Wk1-5: c19/24/23/20/15, t4/4/3/4/4, pts 25.1/29.2/9.2/22.7/11.2, snaps --/94/85/71/73%, proj 17.8 (n=36, medium).', 'RB6', 'C59'],
+      ['Jonathan Taylor', 'RB', 'Rest day only; Tennessee is 21st in RB points allowed, so this is a volume start. Wk1-5: c19/24/23/20/15, t4/4/3/4/4, pts 25.1/29.2/9.2/22.7/11.2, snaps --/94/85/71/73%, proj 17.8 (n=36, medium).', 'RB6', 'C59'],
       ['Tyler Warren', 'TE', '21% target share, 21.4 last week. Wk1-5: t5/7/10/5/9, pts 10.3/14.4/14.7/9.1/21.4, snaps --/89/94/85/94%, proj 11.0 (n=22, high).', 'TE6', 'C60'],
     ],
     flex: [
@@ -898,7 +895,7 @@ const GAMES = [
     total: 53.5,
     weather: '57F, wind 10, clear',
     rain: false,
-    read: 'Sunday night at Lambeau: a 53.5 total with Green Bay by 1.5, implied 27.5 to 26. Dallas allows the 5th-most QB points and Green Bay the 2nd-most RB points, so Jordan Love and Javonte Williams start, and Green Bay allows the 4th-fewest QB points, so Prescott sits. CeeDee Lamb took a full practice and his 2.9 last week was the outlier. Josh Jacobs is on the Exempt list, which leaves MarShawn Lloyd as the Packers back. Inactives about 6:50p ET.',
+    read: 'Sunday night at Lambeau: a 53.5 total with Green Bay by 1.5, implied 27.5 to 26. Dallas allows the 5th-most QB points and Green Bay the 2nd-most RB points, so Jordan Love and Javonte Williams start, and Green Bay allows the 4th-fewest QB points, so Prescott sits. CeeDee Lamb took a full practice and his 2.9 last week was the outlier. Josh Jacobs is out with no timeline, which leaves MarShawn Lloyd as the Packers back. Inactives about 6:50p ET.',
     fpa: 'DAL offense vs GB D: QB 29, RB 2, WR 18, TE 22 · GB offense vs DAL D: QB 5, RB 8, WR 12, TE 16',
     start: [
       ['CeeDee Lamb', 'WR', 'Full practice, 27% target share; 2.9 last week was the outlier. Wk1-5: t8/9/8/21/5, pts 15.4/35.3/20.2/41.3/2.9, snaps --/75/82/86/57%, proj 18.3 (n=34, medium).', 'WR3', 'C88'],
@@ -910,7 +907,7 @@ const GAMES = [
       ['Tucker Kraft', 'TE', '86% of snaps, the TE10. Wk1-5: t6/3/8/7/5, pts 9.5/3.5/6.6/17.5/11.6, snaps --/98/76/92/77%, proj 10.8 (n=30, low).', 'TE10', 'C94'],
     ],
     flex: [
-      ['MarShawn Lloyd', 'RB', 'Jacobs on the Exempt list, Lloyd 16.7 last week; Dallas allows the 8th-most RB points. Wk1-5: c13/6/4/7/10, t1/2/3/5/2, pts 3.7/8.6/3.8/9.9/16.7, snaps --/27/23/55/44%.', 'RB20', 'C95'],
+      ['MarShawn Lloyd', 'RB', 'Jacobs out with no timeline, Lloyd 16.7 last week; Dallas allows the 8th-most RB points. Wk1-5: c13/6/4/7/10, t1/2/3/5/2, pts 3.7/8.6/3.8/9.9/16.7, snaps --/27/23/55/44%.', 'RB20', 'C95'],
     ],
     watch: [],
     sit: [
@@ -1005,7 +1002,7 @@ const INJ_NIGHT = [
   ['Stefon Diggs', 'WR', 'WSH', 'Hamstring, no Washington practice report before Thursday.', 'None: Monday night leaves no pivot. Sit.', 'sit', 'C103'],
 ];
 
-const ALREADY_OUT = ['Talanoa Hufanga (DEN S, ankle, multiple weeks)', 'Will Shipley (PHI RB, out multiple weeks)', 'Tank Bigsby (PHI RB, IR)', 'Xavier Legette (CAR WR, IR)', 'Michael Pittman Jr. (PIT WR, IR)', 'Roman Wilson (PIT WR, out)', 'Alec Pierce (IND WR, IR)', 'Deebo Samuel (SF WR, out)', 'Josh Jacobs (GB RB, Exempt list)', 'Jayden Reed (GB WR, IR)', 'Chris Brooks (GB RB, IR)', 'Tyquan Thornton (KC WR, IR)', 'Jaxson Dart (NYG QB, IR)', 'Dillon Gabriel (CLE QB, IR)', 'Marcus Mariota (WSH QB, MCL)', 'Tre\' Harris (LAC WR, Doubtful, hamstring)'];
+const ALREADY_OUT = ['Talanoa Hufanga (DEN S, ankle, multiple weeks)', 'Will Shipley (PHI RB, out multiple weeks)', 'Tank Bigsby (PHI RB, IR)', 'Xavier Legette (CAR WR, IR)', 'Michael Pittman Jr. (PIT WR, IR)', 'Roman Wilson (PIT WR, out)', 'Alec Pierce (IND WR, IR)', 'Deebo Samuel (SF WR, out)', 'Josh Jacobs (GB RB, out with no timeline)', 'Jayden Reed (GB WR, IR)', 'Chris Brooks (GB RB, IR)', 'Tyquan Thornton (KC WR, IR)', 'Jaxson Dart (NYG QB, IR)', 'Dillon Gabriel (CLE QB, IR)', 'Marcus Mariota (WSH QB, MCL)', 'Tre\' Harris (LAC WR, Doubtful, hamstring)'];
 
 // Tier rows are [rank, name, team, proj, note, band]. Bands follow the written verdicts.
 
@@ -1026,7 +1023,7 @@ const QB_ROWS = [
   [14, 'Jalen Hurts', 'PHI', '17.4', '16.0 a game, PHI implied 19.5', 'sit'],
 ];
 
-const QB_NEXT = 'Sits and unranked: Tyler Huntley (a 2QB pivot behind Lamar), Jameis Winston (QB16, a streamer at best), Bo Nix, Sam Darnold, Justin Herbert, Geno Smith, Tyler Shough, Michael Penix Jr., C.J. Stroud, Cam Ward and Jalon Daniels. Baker Mayfield is out. Jacoby Brissett is a 2QB sleeper. The engine projects the n=0 backup quarterbacks at 14.7; ignore them.';
+const QB_NEXT = 'Sits and unranked: Tyler Huntley (a 2QB pivot behind Lamar), Jameis Winston (QB16, a streamer at best), Bo Nix, Sam Darnold, Justin Herbert, Geno Smith, Tyler Shough, Michael Penix Jr., C.J. Stroud, Cam Ward and Jalon Daniels. Baker Mayfield is out. Jacoby Brissett is a 2QB sleeper. The engine projects the n=0 backup quarterbacks projected between 13 and 16.5; ignore them.';
 
 const RB_ROWS = [
   [1, 'Bijan Robinson', 'ATL', '20.7', '20.4 carries a game, ATL implied 25.0', 'start'],
@@ -1130,11 +1127,11 @@ const HANDCUFFS = [
   ['NYJ', 'Breece Hall: quad, week-to-week.', 'Braelon Allen', 'FLEX, RB18. 18.6 as the lead back last week; New England favored by 7.5 caps the script.'],
   ['ARI', 'Jeremiyah Love: ankle, did not practice.', 'Tyler Allgeier', 'SIT. A 12.5-point dog\'s carries.'],
   ['BAL', 'Lamar Jackson: ankle, did not practice Wednesday.', 'Tyler Huntley', 'SIT in 1QB. A 2QB pivot only: 24.0 in relief last week.'],
-  ['TB', 'Baker Mayfield: thumb, Doubtful.', 'Jalon Daniels', 'SIT. 13.9 last week on 18 attempts, 17 mph wind.'],
+  ['TB', 'Baker Mayfield: thumb, Doubtful.', 'Jalon Daniels', 'SIT. 13.9 last week on 25 attempts, 17 mph wind.'],
   ['NO', 'Chris Olave: illness, did not practice Wednesday.', 'Devaughn Vele', 'FLEX, WR22. The WR1 if Olave sits, a flex either way at 20% target share.'],
   ['BUF', 'DJ Moore: shoulder, did not practice.', 'Khalil Shakir', 'FLEX, WR23. 20% target share, more with Moore out, 53.5 total.'],
   ['PHI', 'Saquon Barkley: hamstring, did not practice. Shipley out multiple weeks, Bigsby on IR.', 'Dameon Pierce', 'Stash only, no call. Barkley is a sit and Pierce is not ranked.'],
-  ['GB', 'Josh Jacobs: Exempt list.', 'MarShawn Lloyd', 'FLEX, RB20. 16.7 last week; Dallas allows the 8th-most RB points.'],
+  ['GB', 'Josh Jacobs: out with no timeline.', 'MarShawn Lloyd', 'FLEX, RB20. 16.7 last week; Dallas allows the 8th-most RB points.'],
   ['CHI', 'Kyle Monangai: toe and thumb, did not practice.', 'D\'Andre Swift', 'START, RB12. Swift gets the work.'],
   ['DEN', 'J.K. Dobbins: the early-down half of a split, 1.2 targets a game.', 'RJ Harvey', 'FLEX, RB22. 17% target share, the passing-down back; Dobbins is a sit.'],
 ];
@@ -1423,7 +1420,7 @@ const RULINGS = [
   [
     'C36',
     [
-      ['Rome Odunze', 'WR', 'CHI', 'SIT', '18% target share, 8.7 a game, third in line behind Burden and Raymond'],
+      ['Rome Odunze', 'WR', 'CHI', 'SIT', '18% target share and 8.7 a game, 5.0 last week; Burden is the Chicago receiver to start'],
     ],
   ],
   [
@@ -1528,7 +1525,7 @@ const RULINGS = [
     'C53',
     [
       ['Baker Mayfield', 'QB', 'TB', 'OUT', 'Did not practice on the thumb, Doubtful; Jalon Daniels expected to start'],
-      ['Jalon Daniels', 'QB', 'TB', 'SIT', '13.9 last week on 18 attempts; 17 mph wind'],
+      ['Jalon Daniels', 'QB', 'TB', 'SIT', '13.9 last week on 25 attempts; 17 mph wind'],
     ],
   ],
   [
@@ -1564,7 +1561,7 @@ const RULINGS = [
   [
     'C59',
     [
-      ['Jonathan Taylor', 'RB', 'IND', 'START', 'Rest day only, Tennessee is 21st in RB points allowed, so this is a volume start'],
+      ['Jonathan Taylor', 'RB', 'IND', 'START', 'Rest day only; Tennessee is 21st in RB points allowed, so this is a volume start'],
     ],
   ],
   [
@@ -1782,7 +1779,7 @@ const RULINGS = [
   [
     'C95',
     [
-      ['MarShawn Lloyd', 'RB', 'GB', 'FLEX', 'Jacobs on the Exempt list, Lloyd 16.7 last week; Dallas allows the 8th-most RB points'],
+      ['MarShawn Lloyd', 'RB', 'GB', 'FLEX', 'Jacobs out with no timeline, Lloyd 16.7 last week; Dallas allows the 8th-most RB points'],
     ],
   ],
   [
@@ -1873,7 +1870,7 @@ const CHECK_LATE = [
 
 const CHECK_SNF = [
   ['CeeDee Lamb (DAL WR), about 6:50p ET.', 'Full practice. Start him.'],
-  ['Josh Jacobs (GB RB).', 'On the Exempt list. Lloyd is the FLEX.'],
+  ['Josh Jacobs (GB RB).', 'Out with no timeline. Lloyd is the FLEX.'],
 ];
 
 const CHECK_MNF = [
@@ -1894,7 +1891,7 @@ const Body = () => (
     </Lead>
 
     <Note title="Read this first">
-      <strong>Lines and weather are our database as of Oct 15, 14:02Z. Injury notes are the
+      <strong>Lines are our database as of Oct 15, 14:02Z and weather as of 10:37Z. Injury notes are the
       Wednesday practice reports, and no Thursday report existed for the Sunday teams when I wrote
       this.</strong>{' '}
       Friday&apos;s reports can change any of it. The lines can differ from the Tuesday numbers in
@@ -1949,7 +1946,7 @@ const Body = () => (
     <RailList
       color="var(--warning)"
       items={[
-        ['Rest days', 'Collins, Taylor, Keenan Allen and Pollard sat for rest only. They get no downgrade.'],
+        ['Rest days', 'Collins and Taylor were limited and Keenan Allen and Pollard sat, all for rest only. They get no downgrade.'],
         ['"If active" calls', 'are void if the player does not appear. Every call that turns on a practice report, his or his teammate\'s, carries the injury on its card.'],
         ['Engine placeholders', 'never rank anyone. Charbonnet projects 12.4 and is out. Barkley\'s 10.8 mean is 5.8 a game in reality.'],
         ['A swap only works', 'if your bench player kicks off at or after the player he replaces. Thursday and London players have no cover at all.'],

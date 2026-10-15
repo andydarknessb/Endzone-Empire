@@ -1,6 +1,6 @@
 # Week 6 rulings
 
-Season 2026, Week 6, PPR. Dump: scheduled capture `projection_snapshots` id 52 (captured 2026-10-15 00:19Z), lines and weather as of 2026-10-15 14:02Z, usage weeks 1-5. Practice data is the Wednesday 10-14 report (no Thursday report was published for the Sunday teams at writing). Byes: CIN, DET, MIA, MIN; nobody from those teams is ranked or called. HOU at JAX is in London, 9:30am ET.
+Season 2026, Week 6, PPR. Dump: scheduled capture `projection_snapshots` id 52 (captured 2026-10-15 00:19Z), lines as of 2026-10-15 14:02Z, weather as of 10:37Z, usage weeks 1-5. Practice data is the Wednesday 10-14 report (no Thursday report was published for the Sunday teams at writing). Byes: CIN, DET, MIA, MIN; nobody from those teams is ranked or called. HOU at JAX is in London, 9:30am ET.
 
 ## Rulings
 
@@ -44,7 +44,7 @@ C32: Drake London (WR, ATL, #868) - START - 29% target share with Penix full in 
 C33: Luther Burden III (WR, CHI, #819) - FLEX - 22% target share, Atlanta allows the 6th-most WR points
 C34: Michael Penix Jr. (QB, ATL, #679) - SIT - Full practice on the ribs but 13.7 a game on 26 attempts
 C35: Kyle Pitts Sr. (TE, ATL, #161) - SIT - Chicago allows the 2nd-fewest TE points; 5.5 a game
-C36: Rome Odunze (WR, CHI, #708) - SIT - 18% target share, 8.7 a game, third in line behind Burden and Raymond
+C36: Rome Odunze (WR, CHI, #708) - SIT - 18% target share and 8.7 a game, 5.0 last week; Burden is the Chicago receiver to start
 C37: Chris Olave (WR, NO, #538) - START if active - Did not practice Wednesday with an illness, not an injury; 28% target share
 C37: Devaughn Vele (WR, NO, #1113) - FLEX - The WR1 if Olave sits, a flex either way at 20% target share
 C38: Cam Skattebo (RB, NYG, #492) - START - New Orleans allows the most RB points in the league
@@ -64,7 +64,7 @@ C50: Geno Smith (QB, NYJ, #324) - SIT - New England allows the 10th-fewest QB po
 C51: A.J. Brown (WR, NE, #103) - SIT - Limited on the high ankle sprain coming off IR; wait a week
 C52: Jaylen Warren (RB, PIT, #793) - START - 86% of snaps, 36.8 last week; Dowdle's return trims him, it does not bench him
 C53: Baker Mayfield (QB, TB, #297) - OUT - Did not practice on the thumb, Doubtful; Jalon Daniels expected to start
-C53: Jalon Daniels (QB, TB, #221) - SIT - 13.9 last week on 18 attempts; 17 mph wind
+C53: Jalon Daniels (QB, TB, #221) - SIT - 13.9 last week on 25 attempts; 17 mph wind
 C54: Pittsburgh Steelers (DEF, PIT, #6738) - START - Against Daniels in the wind, Tampa implied for 18.5
 C55: Pat Freiermuth (TE, PIT, #689) - START - 21.5 last week, Pittman on IR and two receivers out
 C56: Bucky Irving (RB, TB, #47) - START - 31.5 last week, the safest piece of a backup-QB offense
@@ -108,7 +108,7 @@ C91: Christian Watson (WR, GB, #213) - START - 21.9 a game, 32.3 last week
 C92: Matthew Golden (WR, GB, #573) - START - 24% target share, 20.3 last week
 C93: George Pickens (WR, DAL, #404) - START - 22% target share, 53.5 total
 C94: Tucker Kraft (TE, GB, #1332) - START - 86% of snaps, the TE10
-C95: MarShawn Lloyd (RB, GB, #237) - FLEX - Jacobs on the Exempt list, Lloyd 16.7 last week; Dallas allows the 8th-most RB points
+C95: MarShawn Lloyd (RB, GB, #237) - FLEX - Jacobs out with no timeline, Lloyd 16.7 last week; Dallas allows the 8th-most RB points
 C96: Dak Prescott (QB, DAL, #1142) - SIT - Green Bay allows the 4th-fewest QB points; QB13
 C97: Brock Purdy (QB, SF, #861) - START - Washington allows the 2nd-most QB points
 C98: Christian McCaffrey (RB, SF, #777) - START - 18.3 a game; Washington's run defense is stout but the catches hold
@@ -234,7 +234,7 @@ C1, C2, C9, C15, C18, C19, C25, C26, C29, C31, C37, C44, C45, C48, C51, C53, C61
 
 Article-only material for the writer. Nothing here becomes a call.
 
-- **Engine placeholders not to rank:** Zach Charbonnet (ruled out, projected 12.4), every bye-week player (Minnesota D/ST projects 13.1 on a bye), Saquon Barkley's 10.8 mean (5.8 a game in reality), the n=0 backup QBs at 14.7.
+- **Engine placeholders not to rank:** Zach Charbonnet (ruled out, projected 12.4), every bye-week player (Minnesota D/ST projects 13.1 on a bye), Saquon Barkley's 10.8 mean (5.8 a game in reality), the n=0 backup QBs projected between 13 and 16.5.
 - **Handcuffs:** Woody Marks (Montgomery), Braelon Allen (Hall), Tyler Allgeier (Love), Tyler Huntley (Lamar), Jalon Daniels (Mayfield), Devaughn Vele (Olave), Khalil Shakir (DJ Moore), Dameon Pierce (Barkley; Shipley out multiple weeks, Bigsby on IR).
 - **IDP streamers:** Devin Lloyd (CAR LB, 18.0 a game, 21.5 over the last two) at PHI; Will Anderson Jr. (HOU DE, 13.1) vs JAX in London; Ernest Jones IV (SEA LB, 16.0 over the last two) at DEN tonight; Arvell Reese (NYG LB, 14.5 over the last two) vs NO; David Bailey (NYJ LB, three sacks in Week 5) at NE; Elijah Ponder (NE LB, 13.3 over the last two) vs NYJ. Avoid Talanoa Hufanga (Out) and Mason Graham (Doubtful, did not practice).
 - **D/ST streamers beyond the top eight:** Houston and Jacksonville (8.7 each in London), Chicago at Atlanta (9.0) only in deep leagues. Avoid Dallas (1.2 a game), Arizona and Indianapolis.
