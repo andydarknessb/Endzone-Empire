@@ -113,6 +113,35 @@ test('a positive Upgrade renders as a pill outside best ball', () => {
   expect(screen.getByTestId('player-row-upgrade')).toHaveTextContent('+4.1');
 });
 
+test('an Upgrade read in a later week names it in the pill, on the table row and the mobile card; an equal or absent week names none (#2166)', () => {
+  const action = { kind: 'button', label: 'Add', onClick: jest.fn() };
+  const upgrade = (week) => ({ points: 4.1, overPlayer: { id: 9, name: 'Bench' }, slot: 'RB', ...(week === undefined ? {} : { week }) });
+  // The fixture's projWeek is week 3.
+  const { unmount: unmountLater } = renderRow({ player: player({ upgrade: upgrade(4) }), action });
+  expect(screen.getByTestId('player-row-upgrade')).toHaveTextContent('+4.1 Wk 4');
+  unmountLater();
+  const { unmount: unmountCard } = renderWithProviders(<PlayerRow player={player({ upgrade: upgrade(4) })} action={action} variant="card" />);
+  expect(screen.getByTestId('player-row-upgrade')).toHaveTextContent('+4.1 Wk 4');
+  unmountCard();
+
+  const { unmount: unmountEqual } = renderRow({ player: player({ upgrade: upgrade(3) }), action });
+  expect(screen.getByTestId('player-row-upgrade')).not.toHaveTextContent('Wk');
+  unmountEqual();
+  renderRow({ player: player({ upgrade: upgrade() }), action });
+  expect(screen.getByTestId('player-row-upgrade')).not.toHaveTextContent('Wk');
+});
+
+test('an Upgrade of 0 renders no pill, on the table row and the mobile card (#1910)', () => {
+  const zero = { points: 0, overPlayer: null, slot: 'RB' };
+  const action = { kind: 'button', label: 'Add', onClick: jest.fn() };
+  const { unmount } = renderRow({ player: player({ upgrade: zero }), action });
+  expect(screen.queryByTestId('player-row-upgrade')).not.toBeInTheDocument();
+  unmount();
+  renderWithProviders(<PlayerRow player={player({ upgrade: zero })} action={action} variant="card" />);
+  expect(screen.queryByTestId('player-row-upgrade')).not.toBeInTheDocument();
+  expect(screen.queryByText('Upgrade')).not.toBeInTheDocument();
+});
+
 // Risk-review finding (accessibility): the mobile card's only route into the
 // Decision card used to be the ~24px-tall name link - under the 44px minimum
 // every other action on this card carries, and easy to miss entirely. The
@@ -269,7 +298,7 @@ test('hideOwnership renders one cell fewer than the default row', () => {
 
 // #1778 (spec #1774): the Proj Wk cell reads the server's verdict, never a number.
 test('a Position-baseline row reads "no history" in Proj Wk and shows no number', () => {
-  renderRow({ player: player({ verdictReason: 'no_history', projWeek: { week: 3, points: 15.37 } }) });
+  renderRow({ player: player({ startVerdict: { outcome: 'not_recommended', reason: 'no_history', numberTrusted: false }, projWeek: { week: 3, points: 15.37 } }) });
 
   const row = screen.getByTestId('player-row');
   expect(within(row).getByText('no history')).toBeInTheDocument();
@@ -277,7 +306,7 @@ test('a Position-baseline row reads "no history" in Proj Wk and shows no number'
 });
 
 test('the card variant reads "no history" too', () => {
-  renderRow({ player: player({ verdictReason: 'no_history', projWeek: { week: 3, points: 15.37 } }), variant: 'card' });
+  renderRow({ player: player({ startVerdict: { outcome: 'not_recommended', reason: 'no_history', numberTrusted: false }, projWeek: { week: 3, points: 15.37 } }), variant: 'card' });
 
   const card = screen.getByTestId('player-row-card');
   expect(within(card).getByText('no history')).toBeInTheDocument();
@@ -292,7 +321,7 @@ test('an evidenced row keeps its Proj Wk number', () => {
 });
 
 test('an Unavailable projection week keeps its reason, not "no history"', () => {
-  renderRow({ player: player({ verdictReason: 'no_history', weeks: [], projWeek: { week: 3, reason: 'bye' } }) });
+  renderRow({ player: player({ startVerdict: { outcome: 'not_recommended', reason: 'no_history', numberTrusted: false }, weeks: [], projWeek: { week: 3, reason: 'bye' } }) });
 
   expect(screen.getByText('on bye')).toBeInTheDocument();
   expect(screen.queryByText('no history')).not.toBeInTheDocument();

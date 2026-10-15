@@ -290,7 +290,8 @@ router.get('/:id', requireAuth, async (req, res) => {
 // this-league caller would both skip the 403 and leak one manager's FAAB
 // budget and roster context to another. The cache key is scoped by the
 // caller's own team id and by week for the same reason - a key of player+
-// league alone is a cross-team leak even AFTER the membership check.
+// league alone is a cross-team leak even AFTER the membership check. An
+// optional `dropPlayerId` (#2168) adds `decision.swapNet` and rides the key.
 router.get('/:id/card', requireAuth, async (req, res) => {
   if (!/^\d+$/.test(req.params.id)) {
     return res
@@ -315,9 +316,26 @@ router.get('/:id/card', requireAuth, async (req, res) => {
   }
   const week = rawWeek !== undefined ? Number(rawWeek) : undefined;
 
+  // #2168 (ADR 0062): the roster player the claim sheet's swap preview nets
+  // out. Optional; absent means no `decision.swapNet`.
+  const rawDrop = req.query.dropPlayerId;
+  if (rawDrop !== undefined && !/^\d+$/.test(String(rawDrop))) {
+    return res.status(400).json({ error: 'dropPlayerId must be a positive integer' });
+  }
+  const dropPlayerId = rawDrop !== undefined ? Number(rawDrop) : null;
+
   try {
     const team = await requireMember(pool, { leagueId: Number(leagueId), userId: req.user.id });
-    const cacheKey = `card:${playerId}|${leagueId}|${team.id}|${week ?? 'cur'}`;
+    if (dropPlayerId !== null) {
+      const onRoster = await pool.query(
+        `SELECT "player_id" FROM "team_players" WHERE "team_id" = $1 AND "player_id" = $2`,
+        [team.id, dropPlayerId]
+      );
+      if (onRoster.rows.length === 0) {
+        return res.status(400).json({ error: 'dropPlayerId is not on your roster' });
+      }
+    }
+    const cacheKey = `card:${playerId}|${leagueId}|${team.id}|${week ?? 'cur'}|drop:${dropPlayerId ?? ''}`;
     const cached = summaryCacheGet(cacheKey);
     if (cached) {
       // #1312 risk review: `watching` is deliberately read fresh here rather
@@ -335,6 +353,7 @@ router.get('/:id/card', requireAuth, async (req, res) => {
       userId: req.user.id,
       playerId,
       week,
+      dropPlayerId,
     });
     summaryCacheSet(cacheKey, payload);
 

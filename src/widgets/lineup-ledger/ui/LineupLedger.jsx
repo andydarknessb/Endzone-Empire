@@ -1,17 +1,19 @@
 import React, { useEffect } from 'react';
 import { Box, Typography, useMediaQuery, useTheme } from '@mui/material';
 import { Card } from '../../../shared/ui';
-import { buildLedgerSections } from '../model/buildLedgerSections';
 import { useBenchPointsLeft } from '../model/useBenchPointsLeft';
+import { spent } from '../../../entities/roster';
 import LedgerRow from './LedgerRow';
+
+const EMPTY_SECTIONS = { starters: [], bench: [], ir: [] };
 
 /**
  * The Ledger widget (CONTEXT.md's Ledger row; ADR 0037; #1237 AC1): Starters,
  * Bench and IR as Ledger rows, composed from `entities/roster`'s normalized
  * lineup entries plus the interaction state the page assembles from the
  * swap-players and drop-player features. Reads only `entities` and `shared`
- * (ADR 0020/0029): row grouping is this widget's own pure model
- * (`./model/buildLedgerSections.js`); every interaction decision (which row
+ * (ADR 0020/0029): row grouping is the Roster entity's (`useTeamLineup`'s
+ * `sections`, #2146), handed in as the `sections` prop; every interaction decision (which row
  * is selected, which target is eligible, whether a row may be dropped) is
  * computed by the page from the features it composes and handed down as
  * plain props, so this widget never imports a feature.
@@ -40,14 +42,14 @@ import LedgerRow from './LedgerRow';
  * bug report was a manager stuck on Starters after selecting a starter whose
  * only legal targets sat on the hidden Bench view). This widget owns that
  * rule (it already receives `selectedEntryId` and `isEligibleTarget`, and its
- * own `buildLedgerSections` rows are what "eligible target" is asked about),
+ * `sections` rows are what "eligible target" is asked about),
  * not the page - see the effect below for the exact rule. Moving focus to the
  * bar button the switch lands on is the page's job, since the bar is its own.
  */
 export default function LineupLedger({
   leagueId,
   lineup,
-  league,
+  sections,
   liveGamesByKey,
   disabled,
   showEligibility,
@@ -70,13 +72,7 @@ export default function LineupLedger({
   // `useMediaQuery(theme.breakpoints.down('sm'))` read `LineupPage.jsx`'s own
   // `compact` already uses.
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'), { noSsr: true });
-  const entries = Array.isArray(lineup?.entries) ? lineup.entries : [];
-  const { starters, bench, ir } = buildLedgerSections({
-    entries,
-    rosterSlots: lineup?.rosterSlots || [],
-    benchSlots: lineup?.benchSlots,
-    irSlots: lineup?.irSlots,
-  });
+  const { starters, bench, ir } = sections || EMPTY_SECTIONS;
 
   // #1425 ruling: selecting a row can hide its own eligible targets behind
   // the inactive mobile section (the bug report). Ask the page to flip to
@@ -115,7 +111,7 @@ export default function LineupLedger({
 
   // Reserve the Drop track on every row when any row can drop (a spent row
   // has no Drop but must keep the same numbers edge).
-  const reserveDropTrack = [...starters, ...ir, ...bench].some((row) => row.entry && !row.entry.spent && canDropEntry?.(row.entry));
+  const reserveDropTrack = [...starters, ...ir, ...bench].some((row) => row.entry && !spent(row.entry) && canDropEntry?.(row.entry));
 
   const rowProps = (row) => {
     const entry = row.entry;
@@ -137,8 +133,8 @@ export default function LineupLedger({
       // LineupScreen.jsx's own `disabled` computation used - only the
       // selected row itself (excluded from `rowShowsEligibility` above) and
       // a genuinely eligible target stay clickable during a swap.
-      disabled: Boolean(disabled) || Boolean(entry?.spent) || (rowShowsEligibility && !eligible),
-      canDrop: Boolean(entry && !entry.spent && canDropEntry?.(entry)),
+      disabled: Boolean(disabled) || spent(entry) || (rowShowsEligibility && !eligible),
+      canDrop: Boolean(entry && !spent(entry) && canDropEntry?.(entry)),
       reserveDropTrack,
       onClick: (event) => onRowClick?.(entry, row.slotType, event),
       onRequestDrop,

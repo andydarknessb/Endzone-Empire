@@ -23,6 +23,10 @@ jest.mock('../../api/apiClient', () => ({
   default: { get: jest.fn(), post: jest.fn(), put: jest.fn() },
 }));
 
+// The leagues section is LeagueStatusGrid's (tested in its own file); the stub
+// renders the grid props this file asserts on (the list, the error, the retry).
+jest.mock('./LeagueStatusGrid', () => ({ __esModule: true, default: require('./homeTestStubs').LeagueStatusGridStub }));
+
 const baseState = {
   user: { id: 1, username: 'alice' },
   errors: { loginMessage: '', registrationMessage: '' },
@@ -48,14 +52,13 @@ const deferred = () => {
   return { promise, resolve };
 };
 
-// The page's first Create league button (the header one, or the empty state's
-// on a first run, when the header pair is hidden). Matched loosely so the
-// copy can change without touching these tests.
-// Wait out the leagues skeleton first: the header pair unmounts when the page
-// settles into the first run.
+// The page's Create a league button (the header pair's, or first run's Create
+// card, which has no header pair). Matched loosely so the copy can change
+// without touching these tests. Wait out the leagues skeleton first: the pair
+// unmounts when the page settles into the first run.
 const openCreate = async () => {
   await waitFor(() => expect(screen.queryAllByTestId('league-skeleton')).toHaveLength(0));
-  await userEvent.click(screen.getAllByRole('button', { name: /create league/i })[0]);
+  await userEvent.click(screen.getAllByRole('button', { name: /create a league/i })[0]);
   return screen.findByRole('dialog');
 };
 const next = () => userEvent.click(screen.getByRole('button', { name: 'Continue' }));

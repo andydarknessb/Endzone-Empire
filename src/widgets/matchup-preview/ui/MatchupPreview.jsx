@@ -14,7 +14,7 @@ import useMatchupPreview from '../model/useMatchupPreview';
  * the My Team card and Quick Actions both carry Set Lineup.
  *
  * The card has two faces, and which one it wears is the server's `status`, read
- * through the entity predicate in the model (ADR 0030), never inferred here:
+ * through the entity's `matchupBoard` in the model (ADR 0030), never inferred here:
  *
  *   - BEFORE kickoff (and on an unknown status, which asserts neither state):
  *     the display slot holds each side's projected total under a "Projected"
@@ -28,8 +28,8 @@ import useMatchupPreview from '../model/useMatchupPreview';
  *     demoted to an "Expected final" stat tile beside a Players remaining tile,
  *     the header carries the status Badge exactly as before #1102, and a
  *     SplitBar under the pairing shows the win probability. That bar is fed by
- *     `matchupWinProbability`, the same helper Game Center's hero reads, so
- *     the two surfaces cannot disagree; it is never given a points ratio,
+ *     the entity board's `winProbability`, the same figure Game Center's hero
+ *     reads, so the two surfaces cannot disagree; it is never given a points ratio,
  *     whose accessible name ("Win probability", #872) would then be a false
  *     claim.
  *
@@ -53,7 +53,7 @@ import useMatchupPreview from '../model/useMatchupPreview';
  * read degrades just that number to a placeholder without erroring the card.
  */
 export default function MatchupPreview({ leagueId }) {
-  const { week, status, busy, matchupId, viewer, opponent, game } = useMatchupPreview(leagueId);
+  const { week, status, busy, matchupId, viewer, opponent, game, narrative } = useMatchupPreview(leagueId);
   const title = week != null ? `Week ${week} Matchup` : 'Matchup';
   const started = game.hasStarted === true;
 
@@ -139,6 +139,16 @@ export default function MatchupPreview({ leagueId }) {
                 sx={{ m: 0, fontSize: '12px', textAlign: 'center', color: 'var(--dash-faint)' }}
               >
                 {game.projectedMargin}
+              </Typography>
+            )}
+
+            {narrative && (
+              <Typography
+                variant="body2"
+                data-testid="matchup-preview-narrative"
+                sx={{ m: 0, color: 'var(--dash-dim)' }}
+              >
+                {narrative}
               </Typography>
             )}
           </Box>

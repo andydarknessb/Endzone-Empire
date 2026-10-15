@@ -198,3 +198,67 @@ across the arms it compares. Recorded as an input correction of the purely
 mechanical class, as entry 1 was (#1760 ruling); it voids nothing. Captures
 made before the release retain the priors they read; no ledger row, snapshot
 or release_sha is rewritten.
+
+## 6. 2026-10-02: input data correction, 156 snap-only player_stats rows removed (#1762)
+
+**What changed.** One hundred fifty-six `player_stats` rows for season 2026
+week 2 (ids within 466842 to 467995; sha256 of the ascending comma-joined
+ids `de2fd86faa2607cf834c29143434b11d1df2f0c603b845348ed606d0a9a7e428`) were
+deleted from the production database in one transaction on 2026-10-02 at
+16:32Z: every 2026 row with `fantasy_points` 0 whose `stats` object holds
+only keys from a list of 17 unscored keys (the predicate is on #1762 and in
+`docs/agents/production-data-state.md`). Each held exactly the four snap
+keys (`usageOffenseSnaps`, `usageOffenseSnapPct`, `usageDefenseSnaps`,
+`usageDefenseSnapPct`) and nothing else. The nflverse snap pass wrote them
+on its first production run, 2026-09-28T00:03Z, for Players who had no
+stored line that week. Since the Stat line write of entry 5 (#1760, released
+2026-09-29 in b1ac61b0) the snap source creates no row
+(`STAT_KEY_OWNERSHIP`, `'nflverse-snaps'`, `creates: 'never'`,
+`server/services/playerStatsWrite.service.js`); its week 3 runs on 09-30 and
+10-01 created none, so the rows cannot return. A backup of the deleted rows
+is held outside the repository. Cached `projection_runs` were left alone:
+after a hand wipe no scheduled job refills that cache before the 09:00Z
+nightly fill, so pages would rebuild it on demand, cold. Runs cached while
+the rows existed still count the removed games until the next Tue/Wed
+stat-correction pass invalidates and refills them from each live league's
+current week onward (week 4 onward while the live leagues sit on week 4).
+The capture reads no cache (`snapshotWeek` computes through
+`generateProjections`), so that choice does not reach this study.
+`MODEL_VERSION`, `MODEL_CONSTANTS` and the pinned hash are untouched and no
+code changed.
+
+**Why.** Spec #1758 holds that no feed creates a Stat line from unscored
+keys (story 19, the #1706 f1 ruling carried to every feed) and has these
+rows removed once the snap pass can no longer create them. Each was a
+zero-point game to the served engine: `buildPriorGames` and
+`buildLeagueContext` (`server/services/projectionFeatures.js`) count every
+stored prior row as a game, so each row pulled its Player's per-game mean
+down and added a zero game to his position's baseline.
+
+**Which claims it touches.** None of the gates. Section 5 outcome truth is
+the pinned nflverse bytes re-scored by `calculateFantasyPoints`, so no
+outcome moves, and the evaluator stays pure over ledger rows and those
+actuals. The effect is on capture input only. Weeks 1 to 3 were captured
+before the rows existed (the week 3 capture is 2026-09-24T00:15Z). The week
+4 capture (2026-10-01T00:18Z) read priors that held them. The cohort is QB,
+RB, WR, TE, K and DEF, so 52 of the 156 rows belong to cohort Players by
+current position (TE 35, WR 12, RB 5) and the other 104 are defenders
+outside it. Each of those 52 Players carried one extra zero-point week 2
+game, and the same games sat in the TE, WR and RB position baselines, and in
+those positions' residual pools for each such Player with another 2026 Stat
+line before week 4, identically in every arm. Captures from week 5 onward
+read the corrected priors. No section 9 void condition fires:
+`model_version` and `constants_hash` stay their season majority and the arms
+still share one feature snapshot. The successor evaluation
+(`server/scripts/run-successor-eval.js`, the #1438 gate for v3.2 under ADR
+0044, not a claim of this study) takes `player_stats` as it stands (#1439
+ruling, point 2). Its actuals do not move: each row priced at 0, and an
+absent actual already scores 0 (`metricsForArm` in
+`scripts/holdout/lib/successorEval.js`, and `coverage.js`). Its rebuilt
+columns read week 2 priors without the rows, as the week 3 capture did and
+the week 4 capture did not, so on this account only week 4 differs from its
+rebuild, a difference the v3.1 calibration column measures and the gate
+reads as rebuild error (#1439 ruling, points 3 and 4). Recorded as an input
+correction touching no gate (ADR 0044), of the purely mechanical class as
+entry 1 was; it voids nothing. No ledger row, snapshot or release_sha is
+rewritten.

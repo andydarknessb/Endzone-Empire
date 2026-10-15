@@ -1,3 +1,5 @@
+import { locked, spent } from '../../../entities/roster';
+
 /**
  * The Bench what-if swap named in the query (#910, restated from
  * LineupScreen.jsx's `readRequestedSwap`): `?swapOut=<id>&swapIn=<id>`, built
@@ -30,6 +32,6 @@ export function resolveRequestedSwap(requestedSwap, entries) {
   const outEntry = entries.find((e) => e.playerId === requestedSwap.outId);
   const inEntry = entries.find((e) => e.playerId === requestedSwap.inId);
   if (!outEntry || !inEntry) return null;
-  if (outEntry.locked || inEntry.locked || outEntry.spent || inEntry.spent) return null;
+  if (locked(outEntry) || locked(inEntry) || spent(outEntry) || spent(inEntry)) return null;
   return { outEntry, inEntry };
 }

@@ -4,9 +4,9 @@ import { useEndpoint } from '../../../shared/lib';
 /**
  * The Lineup page's own Start/sit advice read (#1238, ADR 0037): a plain
  * fetch of `GET /api/team/lineup/advice`, kept at the page level because
- * three slices all need the SAME response - the start-sit-panel widget
- * (per-suggestion display), the apply-advice feature (the move plan to
- * write) and the team-summary-strip widget (the advice tile's gain/swap
+ * two slices need the SAME response - the start-sit-panel widget
+ * (per-suggestion display and the move plan to write) and the
+ * team-summary-strip widget (the advice tile's gain/swap
  * count) - the same "value two widgets both need is passed down by the
  * page" rule `useLineupData.js` already follows for the lineup itself.
  *

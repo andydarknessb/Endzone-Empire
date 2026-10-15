@@ -20,6 +20,7 @@
  * rho, pairwise accuracy and 80%/50% interval coverage against
  * `player_stats`, per scoring profile, for ONE preregistered candidate
  * (`--max-effect`, optionally `--shrink`) against the `market-off` control.
+ * Only the weeks DECISION_RULE.md section 3 keeps (`loadSurvivors`) are read.
  *
  * One candidate, not a sweep: ADR 0044 refuses a successor tuned on its own
  * test set, so the cap (and any shrinkage) is named on #1438 BEFORE this
@@ -136,10 +137,14 @@ async function main(argv) {
   const out = resolveOutputPaths(args.outDir);
   const arms = marketFactorReplay.buildArms({ caps: [args.maxEffect], shrinks: [args.shrink] });
 
+  // Rule section 2, step 2: the market screen sees only the surviving weeks.
+  const survivors = await runSuccessorEval.loadSurvivors({ season: args.season, client: pool });
   const profiles = [];
   for (const profileName of Object.keys(SCORING_PRESETS)) {
     // eslint-disable-next-line no-await-in-loop -- three profiles, sequential reads against a shared pool
-    profiles.push(await runSuccessorEval.loadProfile({ season: args.season, profileName, client: pool }));
+    profiles.push(await runSuccessorEval.loadProfile({
+      season: args.season, profileName, client: pool, weekNumbers: survivors.weeks,
+    }));
   }
 
   const result = marketFactorReplay.evaluateMarketFactor({ profiles, arms });

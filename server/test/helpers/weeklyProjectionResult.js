@@ -15,7 +15,7 @@ const projectionService = require('../../services/projection.service');
  * directly rather than a legacy map, so every one of its tests builds its
  * fixture through this helper instead of a bare `Map`.
  */
-function resultFromLegacyMap(legacyMap, { backupIds } = {}) {
+function resultFromLegacyMap(legacyMap, { backupIds, practiceById } = {}) {
   const projections = new Map();
   for (const [id, value] of legacyMap) {
     if (value == null) continue; // no entry at all - stays absent, same as production
@@ -39,7 +39,7 @@ function resultFromLegacyMap(legacyMap, { backupIds } = {}) {
       factors: value.factors || dist.factors || {},
     });
   }
-  return projectionService.toWeeklyProjectionResult({ projections, backupIds });
+  return projectionService.toWeeklyProjectionResult({ projections, backupIds, practiceById });
 }
 
 module.exports = { resultFromLegacyMap };

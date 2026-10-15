@@ -17,11 +17,6 @@ const { LEAGUE_SCOPED_SORT_FIELDS } = require('./playerSort');
 const playerCardService = require('./playerCard.service');
 const playerWatchlistService = require('./playerWatchlist');
 
-// The verdict reason `unavailableFor` returns for a Position-baseline
-// projection (#1775); the Weekly projection read's `availabilityFor` carries it.
-const NO_HISTORY_REASON = 'no_history';
-const BACKUP_REASON = 'backup';
-
 /**
  * The Players page's one read (CONTEXT.md's Players page; parent spec #1490):
  * for one manager, in one league or none, the paginated, sorted, filtered
@@ -155,16 +150,21 @@ async function attachLeagueAvailability(db, players, { leagueId, teamId, blanket
     ),
     db.query(
       `SELECT "player_id", "available_at" FROM "waiver_players"
-       WHERE "league_id" = $1 AND "player_id" = ANY($2) AND "available_at" > now()`,
+       WHERE "league_id" = $1 AND "player_id" = ANY($2) AND "available_at" > now()
+       UNION ALL
+       SELECT "player_id", NULL FROM "waiver_claims"
+       WHERE "league_id" = $1 AND "player_id" = ANY($2) AND "status" = 'pending'`,
       [leagueId, identityIds],
     ),
   ]);
   const rosterTeamByPlayerId = new Map(
     rosterResult.rows.map((row) => [row.player_id, row.team_id]),
   );
-  const waiverByPlayerId = new Map(
-    waiverResult.rows.map((row) => [row.player_id, row.available_at]),
-  );
+  // A pending claim row has a null clear time; a real clear time wins over it.
+  const waiverByPlayerId = new Map();
+  for (const row of waiverResult.rows) {
+    if (!waiverByPlayerId.get(row.player_id)) waiverByPlayerId.set(row.player_id, row.available_at);
+  }
 
   for (const player of players) {
     const identities = player.identity_ids || [player.id];
@@ -180,7 +180,7 @@ async function attachLeagueAvailability(db, players, { leagueId, teamId, blanket
     const availableAt = identities
       .map((id) => waiverByPlayerId.get(id))
       .find(Boolean);
-    player.availability = availableAt || blanketWaiversOpen
+    player.availability = identities.some((id) => waiverByPlayerId.has(id)) || blanketWaiversOpen
       ? { state: 'waivers', availableAt }
       : { state: 'free_agent' };
   }
@@ -224,26 +224,70 @@ async function attachProjectedPoints(
 // itself (not a post-hoc `.reverse()`, which would also flip the nulls to
 // the front on a descending sort). Shared by every computed-field sort below
 // (mirrors the harness's own simulation in draftHarness.ts).
-const nullsLastComparator = (getValue, direction) => (a, b) => {
+// `tieBreak` orders two rows that both have an equal value; it never applies
+// to two missing values, which stay in id order.
+const nullsLastComparator = (getValue, direction, tieBreak) => (a, b) => {
   const av = getValue(a);
   const bv = getValue(b);
   const aMissing = av == null || !Number.isFinite(av);
   const bMissing = bv == null || !Number.isFinite(bv);
   if (aMissing !== bMissing) return aMissing ? 1 : -1;
   if (!aMissing && av !== bv) return direction * (av - bv);
+  if (!aMissing && tieBreak) return tieBreak(a, b);
   return a.id - b.id;
 };
 
-// Adds to `into` the id of every player in `list` whose Weekly projection is a
-// Position-baseline projection with no Unavailable verdict over it: the read's
-// own verdict (`availabilityFor`, #1775) has reason `no_history`. The one
-// place the page asks; it holds no copy of the marker. `reason` BACKUP_REASON
-// collects the Backup quarterbacks (ADR 0057) the same way, for their tag only:
-// they keep their number and their place in a projection sort.
-function collectNoHistory(weekly, list, into, reason = NO_HISTORY_REASON) {
+// One pass over `list` for the Start verdict (spec #2042), the page's single
+// ask. `sortLast` gets every player whose Weekly projection is a
+// Position-baseline projection with no Unavailable verdict over it (#1775): his
+// number is the position's average, so he sorts after every evidenced row,
+// whether the verdict reads `no_history` or `backup` (Backup outranks
+// Position-baseline, ADR 0057 as amended 2026-10-07, so a QB who is both reads
+// `backup` and would otherwise sort by his number). `verdictById` gets every
+// player's verdict, the row's one `startVerdict` field on the wire.
+function collectVerdicts(weekly, list, sortLast, verdictById) {
   for (const p of list) {
-    const verdict = weekly.availabilityFor(p.id);
-    if (verdict && verdict.reason === reason) into.add(p.id);
+    const verdict = weekly.startVerdictFor(p.id);
+    if (weekly.positionBaselineFor(p.id) && verdict.outcome !== 'unavailable') sortLast.add(p.id);
+    verdictById.set(p.id, verdict);
+  }
+}
+
+/**
+ * The claim sheet's suggested drop (#1912, #1800 Ruling items 4-5): the team's
+ * roster player with the lowest Rest of season total, ties by lower id. A
+ * player in an IR slot this week is not considered: capacity is earned by the
+ * stash, so dropping him frees no spot. Its own `getRestOfSeason` call over
+ * the roster's ids: `positionRank` ranks within the ids passed, and the
+ * page's `runsByWeek` hold only the page's players, so none is reused here.
+ * A failed read is `null`, never a failed players read.
+ */
+async function dropSuggestionFor(db, { league, teamId }) {
+  try {
+    const { rows } = await db.query(
+      `SELECT "players"."id", "players"."name" FROM "team_players"
+         JOIN "players" ON "players"."id" = "team_players"."player_id"
+        WHERE "team_players"."team_id" = $1
+          AND NOT EXISTS (
+            SELECT 1 FROM "lineup_entries"
+             WHERE "lineup_entries"."team_id" = "team_players"."team_id"
+               AND "lineup_entries"."player_id" = "team_players"."player_id"
+               AND "lineup_entries"."season" = $2
+               AND "lineup_entries"."week" = (
+                 SELECT MAX("latest"."week") FROM "lineup_entries" AS "latest"
+                  WHERE "latest"."team_id" = "team_players"."team_id"
+                    AND "latest"."season" = $2
+                    AND "latest"."week" <= $3)
+               AND "lineup_entries"."slot" = 'IR')`,
+      [teamId, league.current_season, league.current_week],
+    );
+    if (rows.length === 0) return null;
+    const ros = await projectionService.getRestOfSeason(rows.map((r) => r.id), league.id);
+    const total = (r) => ros.get(r.id)?.total ?? 0;
+    const [lowest] = [...rows].sort((a, b) => total(a) - total(b) || a.id - b.id);
+    return { id: lowest.id, name: lowest.name };
+  } catch {
+    return null;
   }
 }
 
@@ -600,12 +644,12 @@ async function readPlayersPage(query, { db = pool } = {}) {
   // #1778 (spec #1774): a Position-baseline projection is the position's
   // average, not this player's own evidence, so it sorts after EVERY evidenced
   // row whatever its hidden number and whichever way the evidenced rows run.
-  // The verdict is the Weekly projection read's (`availabilityFor`, reason
-  // `no_history`), taken once for the whole matching pool; a player whose
-  // Unavailable verdict applies (bye, Out, IR, ...) never carries it and sorts
-  // as before. The baseline rows keep a stable id order.
-  const noHistoryIds = new Set();
-  const backupIds = new Set();
+  // The fact is the Weekly projection read's (`positionBaselineFor`) and the
+  // Start verdict's outcome, taken once for the whole matching pool; a player
+  // whose Unavailable verdict applies (bye, Out, IR, ...) never sorts last and
+  // sorts as before. The baseline rows keep a stable id order.
+  const sortLastIds = new Set();
+  const verdictById = new Map();
   if (projectionSort) {
     await attachProjectedPoints(db, settled, { projectionRules, currentSeasonYear });
     if (league && league.current_week != null) {
@@ -615,16 +659,15 @@ async function readPlayersPage(query, { db = pool } = {}) {
         league,
         playerIds: settled.map((p) => p.id),
       });
-      collectNoHistory(weekly, settled, noHistoryIds);
-      collectNoHistory(weekly, settled, backupIds, BACKUP_REASON);
+      collectVerdicts(weekly, settled, sortLastIds, verdictById);
     }
     const evidencedFirst = nullsLastComparator(
       (p) => Number(p.projected_points),
       dir === 'DESC' ? -1 : 1,
     );
     settled.sort((a, b) => {
-      const aBaseline = noHistoryIds.has(a.id);
-      const bBaseline = noHistoryIds.has(b.id);
+      const aBaseline = sortLastIds.has(a.id);
+      const bBaseline = sortLastIds.has(b.id);
       if (aBaseline !== bBaseline) return aBaseline ? 1 : -1;
       return aBaseline ? a.id - b.id : evidencedFirst(a, b);
     });
@@ -634,14 +677,17 @@ async function readPlayersPage(query, { db = pool } = {}) {
   // (ADR 0040), so it falls back to the projected_points ordering above,
   // still computed for ordering only and never returned (item 7). Outside
   // best ball, the full eligible pool's ids go to `upgradesFor` in ONE
-  // call; rows sort by upgrade.points descending, nulls last, then id -
-  // never toggled by `dir`.
+  // call; rows sort by upgrade.points descending, nulls last, then the
+  // candidate's own Weekly projection descending (the number `upgradeFor`
+  // got as `candidate.projection`, read from that same call, in his first
+  // playable week, and used for ordering only), then id - never toggled by
+  // `dir`. Rows may mix weeks (#2166): points are points whatever the week.
   const upgradeBestBallFallback = upgradeSort && Boolean(league && league.best_ball);
   if (upgradeBestBallFallback) {
     await attachProjectedPoints(db, settled, { projectionRules, currentSeasonYear });
     settled.sort(nullsLastComparator((p) => Number(p.projected_points), -1));
   } else if (upgradeSort) {
-    const upgrades = await playerCardService.upgradesFor({
+    const { upgrades, pointsFor } = await playerCardService.loadUpgradeContext({
       league,
       team: memberTeam,
       season: currentSeasonYear,
@@ -649,7 +695,11 @@ async function readPlayersPage(query, { db = pool } = {}) {
       playerIds: settled.map((p) => p.id),
     });
     for (const p of settled) p.upgrade = upgrades.get(p.id) ?? null;
-    settled.sort(nullsLastComparator((p) => p.upgrade?.points, -1));
+    settled.sort(nullsLastComparator(
+      (p) => p.upgrade?.points,
+      -1,
+      nullsLastComparator((p) => pointsFor(p.id), -1),
+    ));
   }
 
   const pagePlayers = needsFullPool
@@ -717,8 +767,7 @@ async function readPlayersPage(query, { db = pool } = {}) {
     if (!projectionSort) {
       const currentRun = runsByWeek.get(league.current_week);
       if (currentRun) {
-        collectNoHistory(currentRun, pagePlayers, noHistoryIds);
-        collectNoHistory(currentRun, pagePlayers, backupIds, BACKUP_REASON);
+        collectVerdicts(currentRun, pagePlayers, sortLastIds, verdictById);
       }
     }
 
@@ -754,10 +803,11 @@ async function readPlayersPage(query, { db = pool } = {}) {
   }
 
   const responsePlayers = pagePlayers.map(({ identity_ids, ...player }) => {
-    // #1778: the verdict reason rides only the Position-baseline rows; the
-    // client maps it to "no history" and never re-derives it.
-    if (noHistoryIds.has(player.id)) player.verdictReason = NO_HISTORY_REASON;
-    else if (backupIds.has(player.id)) player.verdictReason = BACKUP_REASON; // ADR 0057: the "Backup" tag; his number stays
+    // The Start verdict (spec #2042) rides every row; the client maps its reason
+    // to "no history" or "Backup" and never re-derives it. A Backup keeps his
+    // number, and so his place in a projection sort unless he is also
+    // Position-baseline (ADR 0057).
+    if (verdictById.has(player.id)) player.startVerdict = verdictById.get(player.id);
     // Pool projection never appears under view=cards (item 7, ADR 0040) -
     // even when computed above for the best-ball upgrade-sort fallback.
     // Outside view=cards, `upgrade` is a sort-computation side effect, not
@@ -786,11 +836,13 @@ async function readPlayersPage(query, { db = pool } = {}) {
       league,
       teamId: memberTeam.id,
     });
+    const rosterCount = Number(rosterCountResult.rows[0]?.roster_count || 0);
     context = {
       leagueId: leagueIdNum,
       leagueName: league.name,
-      rosterCount: Number(rosterCountResult.rows[0]?.roster_count || 0),
+      rosterCount,
       rosterCapacity,
+      dropSuggestion: rosterCount < rosterCapacity ? null : await dropSuggestionFor(db, { league, teamId: memberTeam.id }),
       waiverType: league.waiver_type || null,
       faabRemaining:
         league.waiver_type === 'faab' ? memberTeam.faab_remaining : null,

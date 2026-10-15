@@ -1,17 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import PropTypes from 'prop-types';
-import {
-  Alert, Button, Card, CardContent, Stack, Typography,
-} from '@mui/material';
+import { Box } from '@mui/material';
 import { readHttpFailure } from '../../lib/httpFailure';
-import { MIN_TOUCH_TARGET_SX } from '../../shared/lib/a11y';
 import { deriveLeaguePhase, LEAGUE_PHASE } from '../../shared/lib/leaguePhase';
 import {
   fetchPushPublicKey, getCurrentSubscription, isPushSupported, needsHomeScreenInstall, subscribeToPush,
 } from '../../utils/push';
-import {
-  alertSx, dimSx, ghostButtonSx, panelSx, panelTitleSx, primaryButtonSx,
-} from '../common/homeIslandSx';
+import { Frame, HomeButton, PixelHeading } from './home';
 import { readAlertPromptDismissal, writeAlertPromptDismissal } from './alertPromptDismissal';
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
@@ -117,6 +112,7 @@ function AlertPrompt({ leagues }) {
   if (state === 'hidden') return null;
 
   const enable = async () => {
+    if (busy) return;
     setError(null);
     setBusy(true);
     try {
@@ -138,49 +134,38 @@ function AlertPrompt({ leagues }) {
 
   const { title, body } = COPY[state];
   return (
-    <Card
-      component="section"
-      variant="outlined"
-      aria-labelledby={title ? 'alert-prompt-heading' : undefined}
+    <Frame
+      labelledBy={title ? 'alert-prompt-heading' : undefined}
       // The blocked variant has no visible heading to point at.
       aria-label={title ? undefined : 'Alerts on this device'}
       data-testid="alert-prompt"
-      sx={{ ...panelSx, flexShrink: 0 }}
+      sx={{
+        flexShrink: 0,
+        display: 'flex',
+        flexDirection: { xs: 'column', md: 'row' },
+        flexWrap: 'wrap',
+        alignItems: { xs: 'stretch', md: 'center' },
+        justifyContent: 'space-between',
+        gap: { xs: '12px', md: '16px' },
+        padding: { xs: '14px', md: '16px 20px' },
+      }}
     >
-      <CardContent>
-        <Stack spacing={1.5}>
-          {title && (
-            <Typography id="alert-prompt-heading" variant="h6" component="h2" sx={panelTitleSx}>
-              {title}
-            </Typography>
+      <Box sx={{ maxWidth: '640px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+        {title && <PixelHeading id="alert-prompt-heading" size={16}>{title}</PixelHeading>}
+        <Box component="p" sx={{ m: 0, fontSize: '15px', color: 'var(--home-dim)' }}>{body}</Box>
+        {error && state !== 'blocked' && (
+          <Box role="alert" sx={{ border: '2px solid var(--home-danger)', padding: '8px 12px', fontSize: '15px' }}>{error}</Box>
+        )}
+      </Box>
+      {state !== 'blocked' && (
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+          {state === 'default' && (
+            <HomeButton variant="ghost" onClick={enable} disabled={busy}>Turn on alerts</HomeButton>
           )}
-          <Typography variant="body2" sx={{ ...dimSx, fontSize: '14px' }}>{body}</Typography>
-          {state !== 'blocked' && (
-            <Stack direction="row" spacing={1.5} useFlexGap flexWrap="wrap">
-              {state === 'default' && (
-                <Button
-                  variant="contained"
-                  onClick={enable}
-                  disabled={busy}
-                  sx={{ ...primaryButtonSx, ...MIN_TOUCH_TARGET_SX }}
-                >
-                  Enable alerts
-                </Button>
-              )}
-              <Button
-                variant="outlined"
-                onClick={notNow}
-                disabled={busy}
-                sx={{ ...ghostButtonSx, ...MIN_TOUCH_TARGET_SX }}
-              >
-                Not now
-              </Button>
-            </Stack>
-          )}
-          {error && state !== 'blocked' && <Alert severity="error" sx={alertSx('danger')}>{error}</Alert>}
-        </Stack>
-      </CardContent>
-    </Card>
+          <HomeButton variant="quiet" onClick={notNow} ariaLabel="Not now, hide the alerts offer">Not now</HomeButton>
+        </Box>
+      )}
+    </Frame>
   );
 }
 

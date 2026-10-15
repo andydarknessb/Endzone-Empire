@@ -123,14 +123,15 @@ describe('AlertPrompt', () => {
     window.Notification = originalNotification;
   });
 
-  test('default state shows the exact copy and both buttons', async () => {
+  test('default state shows the exact copy and both buttons under a pixel h2', async () => {
     render(<AlertPrompt leagues={leagues} />);
-    expect(await screen.findByRole('heading', { name: 'Get alerts on this device' })).toBeInTheDocument();
+    const heading = await screen.findByRole('heading', { level: 2, name: 'Get alerts on this device' });
+    expect(heading).toHaveStyle({ textTransform: 'uppercase', fontSize: '16px' });
     expect(screen.getByText(
       'Score changes, big plays and lineup problems, delivered to this device even when the app is closed.',
     )).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Enable alerts' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Not now' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Turn on alerts' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Not now/ })).toBeInTheDocument();
   });
 
   test('install state shows the exact copy and only Not now', async () => {
@@ -141,8 +142,8 @@ describe('AlertPrompt', () => {
     expect(screen.getByText(
       'Tap Share, then Add to Home Screen. Open Endzone Empire from there and this card will offer the switch.',
     )).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Not now' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Enable alerts' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Not now/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Turn on alerts' })).not.toBeInTheDocument();
   });
 
   test('blocked state is one line with no buttons', async () => {
@@ -174,10 +175,22 @@ describe('AlertPrompt', () => {
     expect(fetchPushPublicKey).not.toHaveBeenCalled();
   });
 
-  test('Enable alerts subscribes with the public key and hides the card on success', async () => {
+  test('Turn on alerts subscribes with the public key and hides the card on success', async () => {
     render(<AlertPrompt leagues={leagues} />);
-    await userEvent.click(await screen.findByRole('button', { name: 'Enable alerts' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Turn on alerts' }));
     expect(subscribeToPush).toHaveBeenCalledWith('key');
+    expect(screen.queryByTestId('alert-prompt')).not.toBeInTheDocument();
+  });
+
+  test('Turn on alerts is disabled while the subscription is in flight, so a second click cannot start another', async () => {
+    let finish;
+    subscribeToPush.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    render(<AlertPrompt leagues={leagues} />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Turn on alerts' }));
+    expect(screen.getByRole('button', { name: 'Turn on alerts' })).toBeDisabled();
+    await userEvent.click(screen.getByRole('button', { name: 'Turn on alerts' }));
+    expect(subscribeToPush).toHaveBeenCalledTimes(1);
+    await act(async () => { finish(); });
     expect(screen.queryByTestId('alert-prompt')).not.toBeInTheDocument();
   });
 
@@ -192,7 +205,7 @@ describe('AlertPrompt', () => {
       throw new Error('Notification permission was not granted');
     });
     render(<AlertPrompt leagues={leagues} />);
-    await userEvent.click(await screen.findByRole('button', { name: 'Enable alerts' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Turn on alerts' }));
     expect(await screen.findByText(
       'Notifications are blocked for this site. Allow them in your browser settings to get alerts.',
     )).toBeInTheDocument();
@@ -201,17 +214,17 @@ describe('AlertPrompt', () => {
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
   });
 
-  test('Enable alerts shows the error text and keeps the card on rejection', async () => {
+  test('Turn on alerts shows the error text and keeps the card on rejection', async () => {
     subscribeToPush.mockRejectedValue(new Error('Notification permission was not granted'));
     render(<AlertPrompt leagues={leagues} />);
-    await userEvent.click(await screen.findByRole('button', { name: 'Enable alerts' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Turn on alerts' }));
     expect(await screen.findByText('Notification permission was not granted')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Enable alerts' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Turn on alerts' })).toBeInTheDocument();
   });
 
   test('Not now writes the dismissal and hides the card', async () => {
     render(<AlertPrompt leagues={leagues} />);
-    await userEvent.click(await screen.findByRole('button', { name: 'Not now' }));
+    await userEvent.click(await screen.findByRole('button', { name: /^Not now/ }));
     expect(screen.queryByTestId('alert-prompt')).not.toBeInTheDocument();
     expect(readAlertPromptDismissal().count).toBe(1);
     expect(readAlertPromptDismissal().at).toBeGreaterThan(0);

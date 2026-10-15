@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { countedRoster } = require('../services/countedRoster.service');
+const { DEFAULT_ROSTER_SLOTS } = require('../services/rosterSlots');
 
 /*
  * #954: the FORMAT and SUMMING RULE for a week's counted roster, tested by
@@ -149,4 +150,38 @@ test('#954 a statless starter priced at 0 stays counted and contributes 0', () =
   });
   assert.equal(result.counted.length, 2, 'the statless row is kept, not dropped');
   assert.equal(result.teamScore, 10, 'it contributes 0 to the started total');
+});
+
+/* ------------------------------------------------------------------ *
+ * #2141 (Ruling B): no production number moves. The Optimizer leaves a  *
+ * slot empty rather than start a negative value, but the counted roster *
+ * scores the way the greedy it replaced did: every slot with an eligible *
+ * player is filled, so a K or DEF below zero still counts.              *
+ * ------------------------------------------------------------------ */
+
+const DEFAULT_TEMPLATE = { roster_slots: DEFAULT_ROSTER_SLOTS };
+const NEGATIVE_ROWS = [
+  row(1, 'QB', 'BENCH', 20),
+  row(2, 'K', 'BENCH', -1),
+  row(3, 'DEF', 'BENCH', -2),
+];
+
+test('#2141 a best-ball score of record fills every slot: QB 20, K -1, DEF -2 is 17', () => {
+  const result = countedRoster({
+    league: { best_ball: true, ...DEFAULT_TEMPLATE }, price, rows: NEGATIVE_ROWS,
+  });
+  assert.equal(result.teamScore, 17);
+  assert.equal(result.optimalPoints, 17);
+  assert.deepEqual(result.optimalStarters.map((s) => s.slot), ['QB', 'K', 'DEF']);
+});
+
+test('#2141 Hindsight in a standard league does not call a started negative a missed move', () => {
+  const result = countedRoster({
+    league: { best_ball: false, ...DEFAULT_TEMPLATE },
+    price,
+    rows: [row(1, 'QB', 'QB', 20), row(2, 'K', 'K', -1), row(3, 'DEF', 'DEF', -2)],
+  });
+  assert.equal(result.startedPoints, 17);
+  assert.equal(result.optimalPoints, 17);
+  assert.equal(result.pointsLeftOnBench, 0);
 });

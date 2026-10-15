@@ -1,0 +1,102 @@
+{
+  "v": 3,
+  "attachments": {},
+  "boards": {
+    "DraftNightPhone.dc.html": {
+      "h": 1520,
+      "title": "Draft night, phone",
+      "w": 390,
+      "x": 1520,
+      "y": 2520
+    },
+    "FirstRun.dc.html": {
+      "expand": "fill",
+      "h": 1260,
+      "title": "Home, first run (desktop)",
+      "w": 1440,
+      "x": 1520,
+      "y": 0
+    },
+    "GameDay.dc.html": {
+      "expand": "fill",
+      "h": 1540,
+      "title": "Game day, live (desktop)",
+      "w": 1440,
+      "x": 0,
+      "y": 2520
+    },
+    "GameDayPhone.dc.html": {
+      "h": 2400,
+      "title": "Game day, live (phone)",
+      "w": 390,
+      "x": 1990,
+      "y": 2520
+    },
+    "Main.dc.html": {
+      "expand": "fill",
+      "h": 2260,
+      "title": "Home, game week (desktop)",
+      "w": 1440,
+      "x": 0,
+      "y": 0
+    },
+    "MatchupCard.dc.html": {
+      "h": 1140,
+      "title": "League card: before, during and after kickoff",
+      "w": 1300,
+      "x": 1520,
+      "y": 1280
+    },
+    "States.dc.html": {
+      "h": 2180,
+      "title": "States: saved, offline, errors, loading, join check",
+      "w": 1105,
+      "x": 0,
+      "y": 5000
+    },
+    "States2.dc.html": {
+      "h": 2980,
+      "title": "Draft night, FYI only, leagues error",
+      "w": 1300,
+      "x": 1185,
+      "y": 5000
+    },
+    "MainPhone.dc.html": {
+      "title": "Home, game week (phone)",
+      "x": 3040,
+      "y": 0,
+      "w": 390,
+      "h": 3360
+    },
+    "FirstRunPhone.dc.html": {
+      "title": "Home, first run (phone)",
+      "x": 3510,
+      "y": 0,
+      "w": 390,
+      "h": 1860
+    }
+  },
+  "createdOnFiles": {
+    "at": "2026-10-14T23:05:00Z",
+    "v": 1
+  },
+  "designSystems": [],
+  "launch": {
+    "view": "canvas"
+  },
+  "notes": {},
+  "order": [
+    "Main.dc.html",
+    "FirstRun.dc.html",
+    "MainPhone.dc.html",
+    "FirstRunPhone.dc.html",
+    "DraftNightPhone.dc.html",
+    "MatchupCard.dc.html",
+    "States.dc.html",
+    "GameDay.dc.html",
+    "GameDayPhone.dc.html",
+    "States2.dc.html"
+  ],
+  "pages": [],
+  "title": "Home Critique 3 Redesign"
+}

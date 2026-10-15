@@ -172,7 +172,7 @@ test('an unknown status keeps firing the detail fallback', async () => {
 
 // Red-tell: dropping the `hasStarted === false` gate on `kickoffLabel`
 // (useMatchupPreview.js) turns this case red and no other - an unknown
-// status asserts neither "not started" nor "started" (matchupStatusView's
+// status asserts neither "not started" nor "started" (the board's
 // `hasStarted === null` contract), so it must fall back to the caption even
 // when the row happens to carry a kickoff, and must not wear the started
 // row's status chip either.
@@ -231,11 +231,11 @@ test('a live matchup demotes each projection to an Expected final tile beside Pl
 });
 
 // Red-tell (T6): feeding SplitBar a points ratio (82.2 / 159.2 = 52%) instead of
-// `matchupWinProbability` turns this case red. The bar's accessible name is the
+// the board's `winProbability` turns this case red. The bar's accessible name is the
 // hard-coded "Win probability" (#872), so a ratio there announces a probability
 // the model never computed - and `projected.value` is a string, so the ratio
 // arithmetic is NaN anyway.
-test('the win probability bar is named from matchupWinProbability, never a points ratio', async () => {
+test('the win probability bar is named from the board win probability, never a points ratio', async () => {
   renderCard(LIVE_ROW);
 
   await screen.findByTestId('matchup-side-viewer');
@@ -325,6 +325,21 @@ test('a started row renders the status chip and no kickoff text', async () => {
   expect(badge).toHaveTextContent('LIVE');
   expect(badge).not.toHaveTextContent(/Kicks off/);
   expect(screen.queryByText('Projections update daily')).not.toBeInTheDocument();
+});
+
+test('the stored preview Narrative sits under the pairing; nothing without it', async () => {
+  const { unmount } = renderCard(
+    row({ status: 'scheduled', narrative: 'MyBallsHurts holds a slim projected edge.' })
+  );
+  expect(await screen.findByTestId('matchup-preview-narrative')).toHaveTextContent(
+    'MyBallsHurts holds a slim projected edge.'
+  );
+  unmount();
+  invalidate(undefined, { reload: false });
+
+  renderCard(row({ status: 'scheduled', narrative: null }));
+  await screen.findByTestId('matchup-side-viewer');
+  expect(screen.queryByTestId('matchup-preview-narrative')).not.toBeInTheDocument();
 });
 
 test('a level projection reads as even rather than "by 0.0"', async () => {

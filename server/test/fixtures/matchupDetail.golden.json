@@ -1,0 +1,183 @@
+{
+  "viewerTeamId": 11,
+  "viewerWhatIf": {
+    "benchPlayerId": 103,
+    "delta": 1.5
+  },
+  "matchup": {
+    "id": 7,
+    "league_id": 1,
+    "season": 2026,
+    "week": 8,
+    "home_team_id": 11,
+    "away_team_id": 12,
+    "home_score": "0",
+    "away_score": "0",
+    "final": false,
+    "home_team_name": "Gridiron Ghosts",
+    "away_team_name": "Sunday Scaries",
+    "home_team_avatar_url": null,
+    "away_team_avatar_url": null,
+    "home_team_avatar_static_url": null,
+    "away_team_avatar_static_url": null,
+    "status": "live",
+    "first_kickoff_at": "2026-10-25T17:00:00.000Z",
+    "synced_at": "2026-10-25T17:58:00.000Z"
+  },
+  "nflGameIds": [
+    "20261025_LV@KC",
+    "20261025_SF@DAL"
+  ],
+  "home": {
+    "teamId": 11,
+    "name": "Gridiron Ghosts",
+    "starters": [
+      {
+        "id": 101,
+        "name": "Some Passer",
+        "position": "QB",
+        "nfl_team": "KC",
+        "injury_status": null,
+        "slot": "QB",
+        "stats": {
+          "passingYards": 250,
+          "passingTouchdowns": 2
+        },
+        "points": 10,
+        "projected": 19,
+        "availability": {
+          "available": true,
+          "reason": null
+        },
+        "opponent": "LV",
+        "game_state": "in_progress",
+        "game_clock": "Q3 6:42",
+        "photo_url": null
+      },
+      {
+        "id": 102,
+        "name": "Some Wideout",
+        "position": "WR",
+        "nfl_team": "PHI",
+        "injury_status": "O",
+        "slot": "WR",
+        "stats": null,
+        "points": 0,
+        "projected": 0,
+        "availability": {
+          "available": false,
+          "reason": "out"
+        },
+        "opponent": "NYG",
+        "game_state": "scheduled",
+        "game_clock": null,
+        "photo_url": null
+      }
+    ],
+    "bench": [
+      {
+        "id": 103,
+        "name": "Some Runner",
+        "position": "RB",
+        "nfl_team": "DAL",
+        "injury_status": null,
+        "slot": "BENCH",
+        "stats": null,
+        "points": 0,
+        "projected": 7.7,
+        "availability": {
+          "available": true,
+          "reason": null
+        },
+        "opponent": "SF",
+        "game_state": "final",
+        "game_clock": null,
+        "photo_url": "https://a.espncdn.com/i/headshots/nfl/players/full/103.png"
+      },
+      {
+        "id": 105,
+        "name": "Unpriced Reserve",
+        "position": "TE",
+        "nfl_team": "DAL",
+        "injury_status": "O",
+        "slot": "BENCH",
+        "stats": null,
+        "points": 0,
+        "projected": null,
+        "availability": {
+          "available": false,
+          "reason": "out"
+        },
+        "opponent": "SF",
+        "game_state": null,
+        "game_clock": null,
+        "photo_url": null
+      }
+    ],
+    "expectedFinal": 16.87,
+    "playersRemaining": 2,
+    "calledShot": {
+      "starter": {
+        "playerId": 101,
+        "name": "Some Passer",
+        "points": 11.4
+      },
+      "benched": {
+        "playerId": 103,
+        "name": "Some Runner",
+        "points": 6.2
+      },
+      "outcome": null
+    }
+  },
+  "away": {
+    "teamId": 12,
+    "name": "Sunday Scaries",
+    "starters": [
+      {
+        "id": 201,
+        "name": "Resting Back",
+        "position": "RB",
+        "nfl_team": "Ghosts",
+        "injury_status": null,
+        "slot": "RB",
+        "stats": null,
+        "points": 0,
+        "projected": 0,
+        "availability": {
+          "available": false,
+          "reason": "bye"
+        },
+        "opponent": null,
+        "game_state": "final",
+        "game_clock": null,
+        "photo_url": null
+      },
+      {
+        "id": 202,
+        "name": "Chiefs Defense",
+        "position": "DEF",
+        "nfl_team": "Kansas City Chiefs",
+        "injury_status": null,
+        "slot": "DEF",
+        "stats": {
+          "sacks": 3
+        },
+        "points": 0,
+        "projected": 8.25,
+        "availability": {
+          "available": true,
+          "reason": null
+        },
+        "opponent": "LV",
+        "game_state": "in_progress",
+        "game_clock": "Q3 6:42",
+        "photo_url": null
+      }
+    ],
+    "bench": [],
+    "expectedFinal": 2.98,
+    "playersRemaining": 1,
+    "calledShot": null
+  }
+}

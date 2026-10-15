@@ -114,6 +114,12 @@ function mockCardServices(t, {
     upgradesForCalls.push(options);
     return upgrades;
   });
+  // #1911: the sort=upgrade page read takes the context (upgrades plus the
+  // Weekly projection tie-break) rather than `upgradesFor`; same map, no tie-break values.
+  t.mock.method(playerCardService, 'loadUpgradeContext', async (options) => {
+    upgradesForCalls.push(options);
+    return { upgrades, projections: { pointsFor: () => null } };
+  });
   // #1403: the page's Weekly projections arrive through ONE multi-week read.
   // #1703: `getWeeklyProjectionsForWeeks` itself now returns the result
   // object, so the mock wraps each week's Map the same way the real
@@ -431,7 +437,8 @@ function realProducerHandlers({ league, players }) {
     [/^SELECT COUNT\(\*\)::int AS "roster_count" FROM "team_players" WHERE "team_id" = \$1$/, () => ({ rows: [{ roster_count: 0 }] })],
     // upgradesFor's lineup transaction: no current starters.
     [/^SELECT "lineup_entries"\."player_id"/, () => ({ rows: [] })],
-    // upgradesFor's own-roster check: nobody on the caller's roster.
+    // upgradesFor's own-roster check: nobody on the caller's roster, nor on another team's.
+    [/^SELECT "player_id" FROM "team_players" WHERE "league_id" = \$1 AND "player_id" = ANY/, () => ({ rows: [] })],
     [/^SELECT "player_id" FROM "team_players" WHERE "team_id" = \$1$/, () => ({ rows: [] })],
     [/^SELECT "id", "position", "nfl_team" FROM "players" WHERE "id" = ANY/, (text, params) => ({
       rows: params[0].map((id) => ({ id, position: positionById.get(id) ?? null, nfl_team: 'SF' })),
@@ -551,6 +558,10 @@ function duplicateIdentityHandlers() {
     })],
     [/FROM "waiver_players"/, () => ({ rows: [] })],
     [/^SELECT "lineup_entries"\."player_id"/, () => ({ rows: [] })],
+    [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({ rows: [] })],
+    // #2166: the first-playable-week read; no schedule rows means the current week.
+    [/^SELECT "nfl_team", "week", "kickoff_at" FROM "nfl_games"/, () => ({ rows: [] })],
+    [/^SELECT "player_id" FROM "team_players" WHERE "league_id" = \$1 AND "player_id" = ANY/, () => ({ rows: [] })],
     [/^SELECT "player_id" FROM "team_players" WHERE "team_id" = \$1$/, () => ({ rows: [] })],
     [/^SELECT "id", "position", "nfl_team" FROM "players" WHERE "id" = ANY/, (text, params) => ({
       rows: params[0].map((id) => ({ id, position: 'RB', nfl_team: 'SF' })),
@@ -594,7 +605,7 @@ test('upgradesFor nulls a player with No NFL team (nfl_team null) and keeps a re
   });
 
   assert.equal(upgrades.get(2), null, 'a player with No NFL team has no Upgrade: he cannot improve any lineup');
-  assert.deepEqual(upgrades.get(3), { points: 9, overPlayer: { id: 5, name: 'Starter' }, slot: 'RB' });
+  assert.deepEqual(upgrades.get(3), { points: 9, overPlayer: { id: 5, name: 'Starter' }, slot: 'RB', week: 2 });
 });
 
 test('formal-1309-f2: upgradesFor nulls a player whose duplicate identity row is on the caller\'s own roster, in the batch form', async (t) => {
@@ -625,7 +636,7 @@ test('formal-1309-f2: upgradesFor nulls a player whose duplicate identity row is
 
 // #1778 (spec #1774): the Proj Wk column's "no history" is the server's verdict,
 // read off the current-week run the page already took.
-test('view=cards: a Position-baseline row carries verdictReason no_history, an evidenced or Unavailable row does not', async (t) => {
+test('view=cards: a Position-baseline row carries a no_history startVerdict, an evidenced or Unavailable row does not', async (t) => {
   const league = makeLeague({ currentWeek: 3 });
   const players = makePlayers(3);
   mockBasePool(t, { league, players });
@@ -645,7 +656,8 @@ test('view=cards: a Position-baseline row carries verdictReason no_history, an e
 
   assert.equal(res.status, 200, JSON.stringify(res.body));
   const [evidenced, baseline, out] = res.body.players;
-  assert.equal('verdictReason' in evidenced, false);
-  assert.equal(baseline.verdictReason, 'no_history');
-  assert.equal('verdictReason' in out, false, 'Out wins over no history');
+  assert.notEqual(evidenced.startVerdict.reason, 'no_history');
+  assert.equal(baseline.startVerdict.reason, 'no_history');
+  assert.equal(out.startVerdict.reason, 'out', 'Out wins over no history');
+  assert.equal('verdictReason' in baseline, false);
 });

@@ -379,3 +379,27 @@ test('#1861 a week with no stored row still reads Hindsight live', async (t) => 
 
   assert.deepEqual(data.facts.benchBlunder, { team: 'Team A', pointsLeftOnBench: 9 });
 });
+
+test('ADR 0063: the prompt carries [[team:N]] tokens, never a team name; the LLM text is stored after the template', async (t) => {
+  const fake = recapWorld();
+  fake.install(t);
+  const claude = require('../services/claude');
+  let sent;
+  t.mock.method(claude, 'narrative', async (req) => {
+    sent = req;
+    return req.user.includes('[[team:1]]') ? 'Team A won.' : null;
+  });
+  const { computeAndStoreWeeklyRecap } = require('../services/recap.service');
+
+  const data = await computeAndStoreWeeklyRecap({ leagueId: 7, season: 2026, week: 5 });
+
+  assert.doesNotMatch(sent.user, /Team A|Team B/);
+  assert.match(sent.user, /\[\[team:1\]\]/);
+  assert.match(sent.system, /\[\[team:N\]\]/);
+  assert.deepEqual(sent.placeholders, { '[[team:1]]': 'Team A', '[[team:2]]': 'Team B' });
+  assert.equal(data.facts.highestScorer.team, 'Team A', 'stored facts keep the real names');
+  const inserts = fake.matching(/INSERT INTO "league_analytics"/);
+  assert.equal(inserts.length, 2, 'template row first, then the LLM text');
+  assert.match(JSON.parse(inserts[0].params[3]).narrative, /Team A lit up the scoreboard/);
+  assert.equal(JSON.parse(inserts[1].params[3]).narrative, 'Team A won.');
+});

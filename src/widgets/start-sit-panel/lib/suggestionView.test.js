@@ -127,6 +127,8 @@ describe('buildSuggestionView', () => {
 });
 
 describe('movePlanWithout', () => {
+  // The server wire is { playerId, fromSlot, toSlot }; this function is the one
+  // place it becomes the lineup write's { playerId, slot } (#2143).
   const movePlan = [
     { playerId: 2, fromSlot: 'BENCH', toSlot: 'RB' },
     { playerId: 1, fromSlot: 'RB', toSlot: 'BENCH' },
@@ -134,22 +136,43 @@ describe('movePlanWithout', () => {
     { playerId: 3, fromSlot: 'WR', toSlot: 'BENCH' },
     { playerId: 9, fromSlot: 'BENCH', toSlot: 'FLEX' },
   ];
+  const writeMoves = [
+    { playerId: 2, slot: 'RB' },
+    { playerId: 1, slot: 'BENCH' },
+    { playerId: 4, slot: 'WR' },
+    { playerId: 3, slot: 'BENCH' },
+    { playerId: 9, slot: 'FLEX' },
+  ];
   const view = (sitId, startId) => ({ sit: { playerId: sitId }, start: { playerId: startId } });
 
   test('drops both moves of a dismissed pair and keeps every other move', () => {
     expect(movePlanWithout(movePlan, [view(1, 2)])).toEqual([
-      { playerId: 4, fromSlot: 'BENCH', toSlot: 'WR' },
-      { playerId: 3, fromSlot: 'WR', toSlot: 'BENCH' },
-      { playerId: 9, fromSlot: 'BENCH', toSlot: 'FLEX' },
+      { playerId: 4, slot: 'WR' },
+      { playerId: 3, slot: 'BENCH' },
+      { playerId: 9, slot: 'FLEX' },
     ]);
   });
 
-  test('nothing dismissed returns the plan unchanged', () => {
-    expect(movePlanWithout(movePlan, [])).toEqual(movePlan);
+  test('entries carry slot, not toSlot or fromSlot', () => {
+    for (const dismissed of [[], [view(77, 78)], [view(1, 2)]]) {
+      for (const move of movePlanWithout(movePlan, dismissed)) {
+        expect(Object.keys(move).sort()).toEqual(['playerId', 'slot']);
+      }
+    }
   });
 
-  test('a pair whose players are not in the plan leaves it unchanged', () => {
-    expect(movePlanWithout(movePlan, [view(77, 78)])).toEqual(movePlan);
+  test('nothing dismissed returns every move in the write shape', () => {
+    expect(movePlanWithout(movePlan, [])).toEqual(writeMoves);
+  });
+
+  test('a pair whose players are not in the plan leaves every move in place', () => {
+    expect(movePlanWithout(movePlan, [view(77, 78)])).toEqual(writeMoves);
+  });
+
+  test('drops entries with a null playerId or null toSlot, and tolerates a missing plan', () => {
+    const plan = [null, { playerId: null, toSlot: 'WR' }, { playerId: 3, fromSlot: 'WR' }, { playerId: 1, toSlot: 'BENCH' }];
+    expect(movePlanWithout(plan, [])).toEqual([{ playerId: 1, slot: 'BENCH' }]);
+    expect(movePlanWithout(undefined, [])).toEqual([]);
   });
 });
 
@@ -197,20 +220,20 @@ describe('buildSuggestionView injury designation (#1852)', () => {
     expect(view.start.injuryStatus).toBe('O');
   });
 
-  test('a side whose availability reason is no_practice is flagged, any other reason is not (ADR 0056)', () => {
+  test('a side whose Start verdict reason is no_practice is flagged, any other reason is not (ADR 0056)', () => {
     const view = build(
-      side({ availability: { available: true, status: 'Q', reason: 'no_practice' } }),
-      side({ playerId: 2, availability: { available: true, status: 'Q', reason: 'questionable' } }),
+      side({ availability: { available: true, status: 'Q' }, startVerdict: { outcome: 'not_recommended', reason: 'no_practice', numberTrusted: true } }),
+      side({ playerId: 2, availability: { available: true, status: 'Q' }, startVerdict: { outcome: 'recommendable', reason: 'questionable', numberTrusted: true } }),
     );
     expect(view.sit.noPractice).toBe(true);
     expect(view.start.noPractice).toBe(false);
     expect(build(side(), side({ playerId: 2 })).sit.noPractice).toBe(false);
   });
 
-  test('a side whose availability reason is backup is flagged, any other reason is not (ADR 0057)', () => {
+  test('a side whose Start verdict reason is backup is flagged, any other reason is not (ADR 0057)', () => {
     const view = build(
-      side({ availability: { available: true, status: null, reason: 'backup' } }),
-      side({ playerId: 2, availability: { available: true, status: 'Q', reason: 'questionable' } }),
+      side({ availability: { available: true, status: null }, startVerdict: { outcome: 'not_recommended', reason: 'backup', numberTrusted: false } }),
+      side({ playerId: 2, availability: { available: true, status: 'Q' }, startVerdict: { outcome: 'recommendable', reason: 'questionable', numberTrusted: true } }),
     );
     expect(view.sit.backup).toBe(true);
     expect(view.start.backup).toBe(false);
@@ -340,10 +363,38 @@ describe('canCallShot (#1856)', () => {
     expect(view.probability).toBe(0.9);
   });
 
+  test('a strong start can be called too (#1909)', () => {
+    expect(build({ verdict: 'strong', probabilityBetter: 0.85 }).canCallShot).toBe(true);
+  });
+
   test('a tossup or a missing probability cannot', () => {
     expect(build({ verdict: 'tossup', probabilityBetter: 0.55 }).canCallShot).toBe(false);
     expect(build({ probabilityBetter: null }).canCallShot).toBe(false);
     expect(build({ probabilityBetter: undefined }).canCallShot).toBe(false);
+  });
+});
+
+describe('verdict and probabilityLabel (#1909)', () => {
+  const side = (playerId) => ({ playerId, name: `p${playerId}`, projection: 10 });
+  const build = (over) => buildSuggestionView(
+    { slot: 'RB', current: side(1), suggested: side(2), verdict: 'start', probabilityBetter: 0.7, ...over },
+    new Map()
+  );
+
+  test('the verdict passes through, and only a tossup is too close to call', () => {
+    expect(build({ verdict: 'strong' })).toMatchObject({ verdict: 'strong', tooCloseToCall: false });
+    expect(build({ verdict: 'start' })).toMatchObject({ verdict: 'start', tooCloseToCall: false });
+    expect(build({ verdict: 'tossup' })).toMatchObject({ verdict: 'tossup', tooCloseToCall: true });
+  });
+
+  test('the label is "about N%" to the nearest 10%, never above 90%, none when null', () => {
+    expect(build({ probabilityBetter: 0.64 }).probabilityLabel).toBe('about 60%');
+    expect(build({ probabilityBetter: 0.66 }).probabilityLabel).toBe('about 70%');
+    expect(build({ probabilityBetter: 0.85 }).probabilityLabel).toBe('about 90%');
+    expect(build({ probabilityBetter: 0.926 }).probabilityLabel).toBe('about 90%');
+    expect(build({ probabilityBetter: 1 }).probabilityLabel).toBe('about 90%');
+    expect(build({ probabilityBetter: null }).probabilityLabel).toBeNull();
+    expect(build({ probabilityBetter: undefined }).probabilityLabel).toBeNull();
   });
 });
 

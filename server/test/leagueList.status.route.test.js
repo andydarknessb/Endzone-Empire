@@ -181,6 +181,7 @@ test('a fantasy league in season carries phase, week, record, standing, matchup 
     matchup: {
       id: 912,
       status: 'live',
+      kickoffAt: '2026-10-04T17:00:00.000Z',
       opponent: { teamId: 12, name: 'Frozen Tundra FC' },
       my: { score: 87.4, expectedFinal: 118.6, playersRemaining: 4 },
       opp: { score: 71.2, expectedFinal: 104.1, playersRemaining: 3 },

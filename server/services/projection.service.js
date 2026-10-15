@@ -2,7 +2,7 @@ const pool = require('../modules/pool');
 const model = require('./projectionModel');
 // The Pool projection accessor (#1705) lives in its own pure module; re-exported below.
 const { poolPointsFor, poolPointsMap } = require('./poolProjection');
-const { unavailableFor, startVerdictOf } = require('./unavailable');
+const { unavailableFor: verdictFor, startVerdictOf } = require('./unavailable');
 const { loadNflRosterStatusById, nflRosterStatusColumn } = require('./nflRosterStatus');
 const { computeByeWeeks } = require('./bye.service');
 const { normalizeNflTeam } = require('./nflTeam');
@@ -20,12 +20,31 @@ const {
   slateAverageImplied: computeSlateAverageImplied,
 } = require('./vegasOdds.provider');
 
+/**
+ * The stored Availability input (`factors.availability`; ADR 0061) and the
+ * verdict behind the Start verdict, from one set of facts. Lineup lock left the
+ * verdict, but the stored field keeps the `locked: false, lockedSlot: null` keys
+ * it has always carried: the holdout ledger captures the whole `factors` JSON
+ * (ADR 0044) and the reconcilers compare stored against fresh, so the shape
+ * does not move. Besides the engine's model default, only this module calls `unavailable.js`.
+ */
+function unavailableFor(facts) {
+  return { ...verdictFor(facts), locked: false, lockedSlot: null };
+}
+
 class ProjectionError extends Error {
   constructor(statusCode, message) {
     super(message);
     this.statusCode = statusCode;
   }
 }
+
+/**
+ * The `league` a public reader hands `getWeeklyProjections` when it has none
+ * by design: standard scoring, no league scope. Passed explicitly so an
+ * omitted league stays a refusal rather than a silent standard-rules price.
+ */
+const PUBLIC = Symbol('PUBLIC');
 
 /**
  * Weekly point projections, the substrate for start/sit advice, the trade
@@ -1287,19 +1306,28 @@ async function liveReconcileScope(client = pool) {
  *    players are generated and inserted into the same run) rather than
  *    returned partial or thrown away wholesale;
  *  - `refresh: true` regenerates the requested players unconditionally.
+ *
+ * `league` is required: the league row, or `PUBLIC` (standard scoring, no
+ * league scope) for a reader that has no league by design.
  */
 async function getWeeklyProjections({
   season,
   week,
-  league = null,
+  league,
   playerIds = [],
   refresh = false,
   client = pool,
   now = new Date(),
   weatherService = null,
 }) {
+  // A projection is priced under a league's rules (ADR 0024), so an omitted
+  // league is a caller bug, never a quiet fall back to standard scoring. The
+  // public readers say so out loud with `league: PUBLIC`.
+  if (!league) {
+    throw new ProjectionError(500, 'getWeeklyProjections requires a league: pass the league row, or PUBLIC for standard scoring');
+  }
   const ids = [...new Set((playerIds || []).map(Number).filter(Number.isInteger))];
-  const rules = league ? rulesForLeague(league) : SCORING_RULES;
+  const rules = league === PUBLIC ? SCORING_RULES : rulesForLeague(league);
   const hashValue = model.scoringHash(rules);
   const empty = {
     season, week, modelVersion: model.MODEL_VERSION, scoringHash: hashValue,
@@ -1458,19 +1486,27 @@ async function completeRun({
  * remaining week of the season for every row on a page; before this they
  * did so one week at a time, each, and a page of 25 cost ~70 cache reads
  * warm and ~350 queries cold (#1403).
+ *
+ * `league` is required: the league row, or `PUBLIC` (standard scoring, no
+ * league scope) for a reader that has no league by design.
  */
 async function getWeeklyProjectionsForWeeks({
   season,
   weeks = [],
-  league = null,
+  league,
   playerIds = [],
   client = pool,
   now = new Date(),
   weatherService = null,
 }) {
+  // Same contract as getWeeklyProjections (#2144): no league is a caller bug,
+  // refused before any read and before the empty-weeks return.
+  if (!league) {
+    throw new ProjectionError(500, 'getWeeklyProjectionsForWeeks requires a league: pass the league row, or PUBLIC for standard scoring');
+  }
   const ids = [...new Set((playerIds || []).map(Number).filter(Number.isInteger))];
   const wks = [...new Set((weeks || []).map(Number).filter(Number.isInteger))].sort((a, b) => a - b);
-  const rules = league ? rulesForLeague(league) : SCORING_RULES;
+  const rules = league === PUBLIC ? SCORING_RULES : rulesForLeague(league);
   const hashValue = model.scoringHash(rules);
   const out = new Map();
   if (wks.length === 0) return out;
@@ -1722,7 +1758,7 @@ function backupQuarterbackIds(rows, now = new Date()) {
  * The QB depth charts of every team a requested player is charted on (the last
  * 3 days, a coarse bound: `backupQuarterbackIds` applies the 48 hour rule), in
  * one query, reduced to the Set the Weekly projection result answers
- * `backupFor` from. Read path only (ADR 0057): nothing is stored.
+ * `startVerdictFor`'s Backup fact from. Read path only (ADR 0057): nothing is stored.
  */
 async function loadBackupQuarterbackIds({ client, playerIds, now }) {
   // A failed read degrades to "nobody is a Backup", as the NFL roster status
@@ -1781,8 +1817,8 @@ async function loadPracticeFacts({ client, season, week, playerIds }) {
 /**
  * The Weekly projection result (#1702, unparked #1495): wraps a
  * `getWeeklyProjections` / `getWeeklyProjectionsForWeeks` run with the
- * accessors (six at #1702, plus `positionBaselineFor` and `availabilityFor`
- * from #1775) the Decision card module and the decision service each used to
+ * accessors (six at #1702, plus `positionBaselineFor` from #1775 and
+ * `startVerdictFor` from #2042) the Decision card module and the decision service each used to
  * hand-roll for themselves - three private helpers in
  * `playerCard.service.js` and one in `decision.service.js`, all retired by
  * the migrate ticket (#1703) in favor of these - so a caller reads the SAME
@@ -1885,51 +1921,18 @@ function toWeeklyProjectionResult(run) {
     },
 
     /**
-     * True when the player is a Backup quarterback (ADR 0057): behind an
-     * available teammate on his team's fresh QB Depth chart. Read-path only,
-     * like `positionBaselineFor`; his number is his own evidence and stays.
-     */
-    backupFor(playerId) {
-      return isBackup(playerId);
-    },
-
-    /**
-     * The post-projection verdict the read attaches to a Position-baseline row
-     * (#1775), else `null` (the read has no verdict of its own for any other
-     * row; the engine's stored `factors.availability` stays the row's
-     * availability). A stored Unavailable verdict (bye, No NFL team, Practice
-     * squad, Out, IR: the engine took it from `unavailableFor` before
-     * projecting) always wins and is returned as stored, so the precedence
-     * reads bye, No NFL team, Practice squad, Out, IR, then Position-baseline,
-     * then a Backup quarterback (ADR 0057: `unavailableFor({ backup: true })`,
-     * reason `backup`).
-     * Otherwise the one verdict function, `unavailableFor`, is taken with
-     * `positionBaseline: true` over the row's stored designation: available,
-     * not auto-recommended, reason `no_history`. Derived on read, never stored:
-     * the engine, the stored rows and every holdout capture are unchanged.
-     */
-    availabilityFor(playerId) {
-      const baseline = isPositionBaseline(playerId);
-      if (!baseline && !isBackup(playerId)) return null;
-      const entry = entryFor(playerId);
-      const stored = ((entry && entry.factors) || {}).availability || {};
-      if (stored.available === false) return { ...stored };
-      return unavailableFor({
-        injuryStatus: stored.status || null,
-        positionBaseline: baseline,
-        backup: !baseline,
-      });
-    },
-
-    /**
      * The Start verdict (CONTEXT.md; spec #2042): `{ outcome, reason,
      * numberTrusted }`, the one verdict per player for this run's week, with
      * every fact the read holds: the stored designation, Position-baseline, the
-     * Backup chart and this week's Practice participation (`run.practiceById`,
-     * `{ observations, kickoffAt }` per player; only the single-week reader
-     * loads it, so a multi-week run never reads `no_practice`). A stored
-     * Unavailable verdict (bye, No NFL team, Practice squad, Out, IR) is taken
-     * as stored; every other precedence step is `unavailableFor`'s.
+     * Backup chart (ADR 0057: a Backup quarterback is behind an available
+     * teammate on his team's fresh QB Depth chart; his number is his own
+     * evidence and stays) and this week's Practice participation
+     * (`run.practiceById`, `{ observations, kickoffAt }` per player; only the
+     * single-week reader loads it, so a multi-week run never reads
+     * `no_practice`). A stored Unavailable verdict (bye, No NFL team, Practice
+     * squad, Out, IR) is taken as stored; every other precedence step is
+     * `unavailableFor`'s. Derived on read, never stored: the engine, the stored
+     * rows and every holdout capture are unchanged.
      */
     startVerdictFor(playerId) {
       const entry = entryFor(playerId);
@@ -1955,6 +1958,7 @@ function toWeeklyProjectionResult(run) {
 
 module.exports = {
   ProjectionError,
+  PUBLIC,
   MODEL_VERSION: model.MODEL_VERSION,
   extrapolateWeekly,
   getWeekProjections,

@@ -1,7 +1,7 @@
 const pool = require('../modules/pool');
 const { withTransaction } = require('../modules/withTransaction');
 const { meetsMinimum } = require('./leagueSize');
-const { DraftError } = require('./draft.service');
+const { DraftError } = require('./draftError');
 const { startPlan } = require('./draftValidation.service');
 const { isLeagueCommissioner } = require('./leagueRole.service');
 const { assertFantasyLeagueRow } = require('./leagueType');

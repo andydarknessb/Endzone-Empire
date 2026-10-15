@@ -1,6 +1,6 @@
 /**
  * Matchup win probability v2 (Home v2 spec, "Win probability v2" board),
- * pure. v1 (src/shared/lib/winProbability.js) is a logistic of the expected
+ * pure. v1 (src/entities/matchup/model/winProbability.js) is a logistic of the expected
  * final margin with a fixed scale of 24, so a live matchup is never certain: one
  * ahead by 2 points reads 52% (v1 settles to 1 or 0 only once the matchup is
  * played or final, from the scores). v2 keeps v1's input, the Expected

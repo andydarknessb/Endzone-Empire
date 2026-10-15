@@ -108,6 +108,25 @@ describe('cookie-backed refresh', () => {
     expect(axiosMock.history.post).toHaveLength(2);
   });
 
+  // A deploy 503 or a dropped connection says nothing about the refresh cookie,
+  // so the user stays signed in and the caller sees the refresh failure itself.
+  test.each([
+    ['answers 503', (mock) => mock.onPost('/api/auth/refresh?optional=1').reply(503), { response: { status: 503 } }],
+    ['has a network error', (mock) => mock.onPost('/api/auth/refresh?optional=1').networkError(), { message: 'Network Error' }],
+  ])('keeps the session when refresh %s', async (_name, arrange, rejection) => {
+    setToken('live-jwt');
+    const expired = jest.fn();
+    window.addEventListener('auth:session-expired', expired);
+    arrange(axiosMock);
+    apiMock.onGet('/api/team').reply(401);
+
+    await expect(apiClient.get('/api/team')).rejects.toMatchObject(rejection);
+
+    expect(getToken()).toBe('live-jwt');
+    expect(expired).not.toHaveBeenCalled();
+    window.removeEventListener('auth:session-expired', expired);
+  });
+
   test('clears the access token and expires the session when refresh fails', async () => {
     setToken('stale-jwt');
     const expired = jest.fn();

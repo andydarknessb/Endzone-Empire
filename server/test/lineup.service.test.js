@@ -18,6 +18,7 @@ const {
   removeLineupEntries,
   currentWeekEntry,
   restoreInterruptedStash,
+  heldLineup,
   DEFAULT_ROSTER_SLOTS,
 } = require('../services/lineup.service');
 
@@ -68,13 +69,15 @@ test('annotateLineupEntries does not treat an incomplete schedule gap as a bye',
   assert.equal(entry.onBye, false);
 });
 
-test('annotateLineupEntries: Unavailable reason and the schedule fields (#1235)', () => {
+// ADR 0061: annotateLineupEntries sets no `unavailable`; getLineup reads it off
+// the Weekly projection read's Start verdict (covered through getLineup below).
+test('annotateLineupEntries: the schedule fields (#1235), and no verdict of its own', () => {
   const entries = annotateLineupEntries(
     [
       { id: 1, nfl_team: 'CHI', injury_status: null, slot: 'BENCH' }, // on bye
-      { id: 2, nfl_team: 'DAL', injury_status: 'O', slot: 'RB' }, // out
-      { id: 3, nfl_team: 'GB', injury_status: 'IR', slot: 'IR' }, // on IR
-      { id: 4, nfl_team: 'KC', injury_status: 'Q', slot: 'QB' }, // Questionable is not Unavailable
+      { id: 2, nfl_team: 'DAL', injury_status: 'O', slot: 'RB' },
+      { id: 3, nfl_team: 'GB', injury_status: 'IR', slot: 'IR' },
+      { id: 4, nfl_team: 'KC', injury_status: 'Q', slot: 'QB' },
     ],
     {
       locked: new Set(),
@@ -86,17 +89,48 @@ test('annotateLineupEntries: Unavailable reason and the schedule fields (#1235)'
     }
   );
   const byId = new Map(entries.map((e) => [e.id, e]));
-  assert.equal(byId.get(1).unavailable, 'bye');
+  assert.equal(byId.get(1).onBye, true);
   // A bye week carries no opponent or kickoff either (issue #1235's own rule).
   assert.equal(byId.get(1).opponent, null);
   assert.equal(byId.get(1).kickoff, null);
   assert.equal(byId.get(1).game_key, null);
-  assert.equal(byId.get(2).unavailable, 'out');
-  assert.equal(byId.get(3).unavailable, 'ir');
-  assert.equal(byId.get(4).unavailable, null);
+  for (const entry of entries) assert.equal('unavailable' in entry, false, 'the Start verdict is not this function\'s');
   assert.equal(byId.get(4).opponent, 'DEN');
   assert.equal(byId.get(4).kickoff, '2026-11-01T18:00:00Z');
   assert.equal(byId.get(4).game_key, 'KC-DEN');
+});
+
+test('#2144 getLineup handed the league row reads no league of its own and prices under the row it was handed', async (t) => {
+  const entries = [
+    { id: 1, name: 'Projected Player', position: 'RB', nfl_team: null, injury_status: null, slot: 'RB', ir_attested: false },
+  ];
+  const held = { id: 5, current_season: 2026, current_week: 8 };
+  const projectionCalls = [];
+  t.mock.method(projectionService, 'getWeeklyProjections', async (options) => {
+    projectionCalls.push(options);
+    return projectionService.toWeeklyProjectionResult({
+      projections: new Map([[1, { mean: 10, median: 10, factors: {} }]]),
+    });
+  });
+  const fake = createFakePool([
+    [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
+    [/^SELECT .*FROM "lineup_overrides"/, () => ({ rows: [] })],
+    [/^SELECT \* FROM "teams"/, () => ({ rows: [{ id: 10 }] })],
+    [/^SELECT "team_players"\."player_id"/, () => ({
+      rows: entries.map(({ id, position }) => ({ player_id: id, position })),
+    })],
+    [/^SELECT "player_id" FROM "lineup_entries"/, () => ({ rows: entries.map(({ id }) => ({ player_id: id })) })],
+    [/^SELECT "players"\."id"/, () => ({ rows: entries })],
+    [/^SELECT "players"\."position"/, () => ({ rows: [] })],
+    [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({ rows: [] })],
+    [/^SELECT "nfl_team", "opponent", "kickoff_at", "game_key", "roof", "home_away" FROM "nfl_games"/, () => ({ rows: [] })],
+    [/^SELECT "home_team", "away_team", "game_status" FROM "live_game_states"/, () => ({ rows: [] })],
+  ]).install(t);
+
+  await getLineup({ leagueId: 5, userId: 7, week: 8, league: held });
+
+  assert.equal(fake.matching(/FROM "leagues"/).length, 0, 'no second league read');
+  assert.equal(projectionCalls[0].league, held);
 });
 
 test('getLineup returns league-scored current-week projections and preserves unavailable values', async (t) => {
@@ -134,6 +168,8 @@ test('getLineup returns league-scored current-week projections and preserves una
   const fake = createFakePool([
     // #106: every world here is a LIVE week, so nothing is frozen.
     [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
+    // ADR 0058: the save reads the team's open Called shot; none in this world.
+    [/^SELECT .*FROM "lineup_overrides"/, () => ({ rows: [] })],
     [/^SELECT \* FROM "leagues"/, () => ({ rows: [{ id: 5, current_season: 2026, current_week: 8 }] })],
     [/^SELECT \* FROM "teams"/, () => ({ rows: [{ id: 10 }] })],
     [/^SELECT "team_players"\."player_id"/, () => ({
@@ -185,10 +221,9 @@ test('getLineup returns league-scored current-week projections and preserves una
     opponent: null,
     kickoff: null,
     game_key: null,
-    unavailable: null,
-    // #1776: no Position-baseline marker in his stored projection.
-    positionBaseline: false,
-    backup: false,
+    // The Start verdict (spec #2042): nothing in his stored projection
+    // holds him back, so he reads recommendable. `unavailable` is not on the wire.
+    startVerdict: { outcome: 'recommendable', reason: null, numberTrusted: true },
     // #1329: no game this week (weekOpponents carries no row for him here),
     // so both are null - never a bare undefined.
     line: null,
@@ -238,6 +273,8 @@ test('getLineup: a bench-above-starter Edge line follows the Point estimate even
   }));
   const fake = createFakePool([
     [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
+    // ADR 0058: the save reads the team's open Called shot; none in this world.
+    [/^SELECT .*FROM "lineup_overrides"/, () => ({ rows: [] })],
     [/^SELECT \* FROM "leagues"/, () => ({ rows: [{ id: 5, current_season: 2026, current_week: 8 }] })],
     [/^SELECT \* FROM "teams"/, () => ({ rows: [{ id: 10 }] })],
     [/^SELECT "team_players"\."player_id"/, () => ({
@@ -274,12 +311,22 @@ test('getLineup: a bench-above-starter Edge line follows the Point estimate even
 // so the client can read "no history" without holding a copy of the verdict.
 const POSITION_BASELINE_FACTORS = { dataQuality: { reasons: ['position baseline'] } };
 
+// ADR 0061: availability facts are the run's stored Availability input
+// (`factors.availability`), never the lineup row's own.
+const OUT = { available: false, activeProbability: 0, reason: 'out', status: 'O' };
+const BYE = { available: false, activeProbability: 0, reason: 'bye', status: null };
+const NO_TEAM = { available: false, activeProbability: 0, reason: 'no_team', status: null };
+const PRACTICE_SQUAD = { available: false, activeProbability: 0, reason: 'practice_squad', status: null };
+const stored = (status) => ({ available: true, activeProbability: null, reason: null, status });
+
 function installPositionBaselineWorld(t, { entries, projections, backupIds, byeRows = [] }) {
   t.mock.method(projectionService, 'getWeeklyProjections', async () => projectionService.toWeeklyProjectionResult({
     projections, backupIds,
   }));
   return createFakePool([
     [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
+    // ADR 0058: the save reads the team's open Called shot; none in this world.
+    [/^SELECT .*FROM "lineup_overrides"/, () => ({ rows: [] })],
     [/^SELECT \* FROM "leagues"/, () => ({ rows: [{ id: 5, current_season: 2026, current_week: 8 }] })],
     [/^SELECT \* FROM "teams"/, () => ({ rows: [{ id: 10 }] })],
     [/^SELECT "team_players"\."player_id"/, () => ({
@@ -297,7 +344,7 @@ function installPositionBaselineWorld(t, { entries, projections, backupIds, byeR
   ]).install(t);
 }
 
-test('getLineup: each entry carries positionBaseline, false when an Unavailable reason wins (#1776)', async (t) => {
+test('getLineup: each entry carries a startVerdict, Unavailable winning over Position-baseline (#1776, spec #2042)', async (t) => {
   const entries = [
     { id: 1, name: 'Evidenced', position: 'QB', nfl_team: 'KC', injury_status: null, injury_detail: null, slot: 'QB', ir_attested: false },
     { id: 2, name: 'Backup QB', position: 'QB', nfl_team: 'ARI', injury_status: null, injury_detail: null, slot: 'BENCH', ir_attested: false },
@@ -310,23 +357,25 @@ test('getLineup: each entry carries positionBaseline, false when an Unavailable 
     projections: new Map([
       [1, { mean: 20, median: 20, factors: {} }],
       [2, { mean: 15.37, median: 15.37, factors: POSITION_BASELINE_FACTORS }],
-      [3, { mean: 15.37, median: 15.37, factors: POSITION_BASELINE_FACTORS }],
-      [4, { mean: 15.37, median: 15.37, factors: POSITION_BASELINE_FACTORS }],
-      [5, { mean: 15.37, median: 15.37, factors: POSITION_BASELINE_FACTORS }],
+      [3, { mean: 15.37, median: 15.37, factors: { ...POSITION_BASELINE_FACTORS, availability: stored('D') } }],
+      [4, { mean: 15.37, median: 15.37, factors: { ...POSITION_BASELINE_FACTORS, availability: OUT } }],
+      [5, { mean: 15.37, median: 15.37, factors: { ...POSITION_BASELINE_FACTORS, availability: NO_TEAM } }],
     ]),
   });
 
   const lineup = await getLineup({ leagueId: 5, userId: 7, week: 8 });
   const byId = new Map(lineup.entries.map((entry) => [entry.id, entry]));
 
-  assert.equal(byId.get(1).positionBaseline, false, 'an evidenced player is not Position-baseline');
-  assert.equal(byId.get(2).positionBaseline, true);
-  assert.equal(byId.get(2).unavailable, null, 'Position-baseline is not an Unavailable reason');
-  assert.equal(byId.get(3).positionBaseline, true, 'a Doubtful Position-baseline player is still flagged');
-  assert.equal(byId.get(4).unavailable, 'out');
-  assert.equal(byId.get(4).positionBaseline, false, 'Out wins over Position-baseline');
-  assert.equal(byId.get(5).unavailable, 'no_team');
-  assert.equal(byId.get(5).positionBaseline, false, 'No NFL team wins over Position-baseline');
+  assert.deepEqual(byId.get(1).startVerdict, { outcome: 'recommendable', reason: null, numberTrusted: true }, 'an evidenced player is not Position-baseline');
+  assert.deepEqual(byId.get(2).startVerdict, { outcome: 'not_recommended', reason: 'no_history', numberTrusted: false }, 'Position-baseline is not an Unavailable reason');
+  assert.equal(byId.get(3).startVerdict.reason, 'no_history', 'a Doubtful Position-baseline player is still flagged');
+  assert.deepEqual(byId.get(4).startVerdict, { outcome: 'unavailable', reason: 'out', numberTrusted: true }, 'Out wins over Position-baseline');
+  assert.deepEqual(byId.get(5).startVerdict, { outcome: 'unavailable', reason: 'no_team', numberTrusted: true }, 'No NFL team wins over Position-baseline');
+  for (const entry of lineup.entries) {
+    assert.equal('unavailable' in entry, false, 'the wire states the verdict as startVerdict alone');
+    assert.equal('positionBaseline' in entry, false);
+    assert.equal('backup' in entry, false);
+  }
   fake.assertClean();
 });
 
@@ -371,18 +420,15 @@ test('getLineup: a bench player on a bye this week never Outprojects a starter, 
     { id: 3, name: 'Bye Starter', position: 'WR', nfl_team: 'CAR', injury_status: null, injury_detail: null, slot: 'WR', ir_attested: false },
     { id: 4, name: 'Healthy Bench', position: 'WR', nfl_team: 'LAC', injury_status: null, injury_detail: null, slot: 'BENCH', ir_attested: false },
   ];
-  // CAR plays every regular-season week except the selected one: a schedule-derived bye.
-  const byeRows = Array.from({ length: REG_SEASON_WEEKS }, (_, i) => i + 1)
-    .filter((w) => w !== week)
-    .map((w) => ({ nfl_team: 'CAR', week: w }));
+  // The run stores CAR's players on bye this week (ADR 0061: the Start verdict
+  // is the read's, not a fact of the lineup row).
   const fake = installPositionBaselineWorld(t, {
     entries,
-    byeRows,
     projections: new Map([
       [1, { mean: 11, median: 11, factors: {} }],
       // The engine's own number for a bye player is higher than the starter's.
-      [2, { mean: 14, median: 14, factors: {} }],
-      [3, { mean: 9, median: 9, factors: {} }],
+      [2, { mean: 14, median: 14, factors: { availability: BYE } }],
+      [3, { mean: 9, median: 9, factors: { availability: BYE } }],
       [4, { mean: 12, median: 12, factors: {} }],
     ]),
   });
@@ -390,9 +436,9 @@ test('getLineup: a bench player on a bye this week never Outprojects a starter, 
   const lineup = await getLineup({ leagueId: 5, userId: 7, week });
   const byId = new Map(lineup.entries.map((entry) => [entry.id, entry]));
 
-  assert.equal(byId.get(2).unavailable, "bye");
+  assert.equal(byId.get(2).startVerdict.reason, 'bye');
   assert.equal(byId.get(2).edge.kind, 'none', 'a bench player on a bye outprojects nobody');
-  assert.equal(byId.get(3).unavailable, 'bye');
+  assert.equal(byId.get(3).startVerdict.reason, 'bye');
   assert.equal(byId.get(4).edge.kind, 'none', 'nobody is outprojected off a starter on a bye');
   fake.assertClean();
 });
@@ -418,13 +464,46 @@ test('getLineup: a Backup quarterback keeps his number and no bench-above-starte
   const lineup = await getLineup({ leagueId: 5, userId: 7, week: 8 });
   const byId = new Map(lineup.entries.map((entry) => [entry.id, entry]));
 
-  assert.equal(byId.get(2).backup, true);
-  assert.equal(byId.get(2).positionBaseline, false, 'his number is evidence: not a no-history row');
+  assert.deepEqual(byId.get(2).startVerdict, { outcome: 'not_recommended', reason: 'backup', numberTrusted: false }, 'Backup is not an Unavailable reason');
   assert.equal(byId.get(2).projected_points, 20.25, 'his number stays');
-  assert.equal(byId.get(2).unavailable, null, 'Backup is not an Unavailable reason');
-  assert.equal(byId.get(1).backup, false);
+  assert.equal(byId.get(1).startVerdict.reason, null);
   assert.equal(byId.get(2).edge.kind, 'none', 'a Backup quarterback outprojects nobody');
   assert.deepEqual(byId.get(4).edge, { kind: 'bench-above-starter', text: 'Outprojects Real Starter Two at WR' });
+  fake.assertClean();
+});
+
+// Start verdict (spec #2042, #2044): the Edge line gates on the verdict. A run
+// that stored a Position-baseline rookie IR (cached before he was activated)
+// reads Unavailable, and the Edge line never compares him. A QB who is both
+// Position-baseline and Backup reads `backup` (ADR 0057, amended 2026-10-07).
+test('getLineup: a stale-IR Position-baseline bench rookie is never bench-above-starter, and a QB who is both rides as backup (#2044)', async (t) => {
+  const entries = [
+    { id: 1, name: 'Starter QB', position: 'QB', nfl_team: 'KC', injury_status: null, injury_detail: null, slot: 'QB', ir_attested: false },
+    { id: 2, name: 'Stale IR Rookie', position: 'QB', nfl_team: 'ARI', injury_status: null, injury_detail: null, slot: 'BENCH', ir_attested: false },
+    { id: 3, name: 'Both QB', position: 'QB', nfl_team: 'CHI', injury_status: null, injury_detail: null, slot: 'BENCH', ir_attested: false },
+  ];
+  const fake = installPositionBaselineWorld(t, {
+    entries,
+    projections: new Map([
+      [1, { mean: 12, median: 12, factors: {} }],
+      [2, {
+        mean: 15.37,
+        median: 15.37,
+        factors: { availability: { available: false, status: 'IR', reason: 'ir' }, dataQuality: { reasons: ['position baseline'] } },
+      }],
+      [3, { mean: 15.37, median: 15.37, factors: POSITION_BASELINE_FACTORS }],
+    ]),
+    backupIds: new Set([3]),
+  });
+
+  const lineup = await getLineup({ leagueId: 5, userId: 7, week: 8 });
+  const byId = new Map(lineup.entries.map((entry) => [entry.id, entry]));
+
+  assert.notEqual(byId.get(2).edge.kind, 'bench-above-starter', 'a stored-Unavailable rookie outprojects nobody');
+  // The run is the one producer (ADR 0061): its Unavailable verdict is the row's.
+  assert.deepEqual(byId.get(2).startVerdict, { outcome: 'unavailable', reason: 'ir', numberTrusted: true });
+  assert.equal(byId.get(3).startVerdict.reason, 'backup');
+  assert.equal(byId.get(3).edge.kind, 'none', 'the QB who is both outprojects nobody');
   fake.assertClean();
 });
 
@@ -445,6 +524,8 @@ test("an injured player still carries the largest Factor's explanation, independ
   }));
   const fake = createFakePool([
     [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
+    // ADR 0058: the save reads the team's open Called shot; none in this world.
+    [/^SELECT .*FROM "lineup_overrides"/, () => ({ rows: [] })],
     [/^SELECT \* FROM "leagues"/, () => ({ rows: [{ id: 5, current_season: 2026, current_week: 8 }] })],
     [/^SELECT \* FROM "teams"/, () => ({ rows: [{ id: 10 }] })],
     [/^SELECT "team_players"\."player_id"/, () => ({
@@ -494,6 +575,8 @@ test("getLineup carries each entry's week opponent, DEF units included, absent f
   }));
   const fake = createFakePool([
     [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
+    // ADR 0058: the save reads the team's open Called shot; none in this world.
+    [/^SELECT .*FROM "lineup_overrides"/, () => ({ rows: [] })],
     [/^SELECT \* FROM "leagues"/, () => ({ rows: [{ id: 5, current_season: 2026, current_week: 8 }] })],
     [/^SELECT \* FROM "teams"/, () => ({ rows: [{ id: 10 }] })],
     [/^SELECT "team_players"\."player_id"/, () => ({
@@ -558,6 +641,8 @@ function installSetLineupWorld(t, injuryDesignation, {
   return createFakePool([
     // #106: every world here is a LIVE week, so nothing is frozen.
     [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
+    // ADR 0058: the save reads the team's open Called shot; none in this world.
+    [/^SELECT .*FROM "lineup_overrides"/, () => ({ rows: [] })],
     [/^SELECT \* FROM "leagues"/, () => ({
       rows: [{
         id: 5,
@@ -612,6 +697,8 @@ async function firstWeekLineupSwap(t, { preexistingBench = false, lockedTeams = 
     : []);
   const fake = createFakePool([
     [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
+    // ADR 0058: the save reads the team's open Called shot; none in this world.
+    [/^SELECT .*FROM "lineup_overrides"/, () => ({ rows: [] })],
     [/^SELECT \* FROM "leagues"/, () => ({ rows: [{
       id: 5,
       current_season: 2026,
@@ -710,6 +797,8 @@ function installOverBenchedWorld(t, { positions, slotsByIndex = null }) {
   }));
   const fake = createFakePool([
     [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
+    // ADR 0058: the save reads the team's open Called shot; none in this world.
+    [/^SELECT .*FROM "lineup_overrides"/, () => ({ rows: [] })],
     [/^SELECT \* FROM "leagues"/, () => ({ rows: [{
       id: 137,
       current_season: 2026,
@@ -893,18 +982,6 @@ const assertNoSlotWrite = (fake) => assert.equal(
   'the refused save moved no slot'
 );
 
-test('setLineup rejects placing a healthy player in IR and names the designation', async (t) => {
-  const fake = installSetLineupWorld(t, null);
-
-  await assert.rejects(
-    setLineup({ leagueId: 5, userId: 7, week: 8, moves: [{ playerId: 1, slot: 'IR' }] }),
-    (error) => error.statusCode === 400 && /current injury designation: healthy/.test(error.message)
-  );
-
-  assertNoSlotWrite(fake);
-  fake.assertClean();
-});
-
 test('setLineup accepts placing an IR-eligible player in an available IR slot', async (t) => {
   const fake = installSetLineupWorld(t, 'IR');
 
@@ -916,36 +993,6 @@ test('setLineup accepts placing an IR-eligible player in an available IR slot', 
   });
 
   assert.equal(result.updated, 1);
-  fake.assertClean();
-});
-
-test('setLineup lets a best-ball manager move an IR-eligible bench player to IR', async (t) => {
-  const fake = installSetLineupWorld(t, 'O', {
-    leagueOverrides: { best_ball: true },
-  });
-
-  const result = await setLineup({
-    leagueId: 5,
-    userId: 7,
-    week: 8,
-    moves: [{ playerId: 1, slot: 'IR' }],
-  });
-
-  assert.equal(result.updated, 1);
-  fake.assertClean();
-});
-
-test('setLineup keeps starting slots automatic in best-ball leagues', async (t) => {
-  const fake = installSetLineupWorld(t, null, {
-    leagueOverrides: { best_ball: true },
-  });
-
-  await assert.rejects(
-    setLineup({ leagueId: 5, userId: 7, week: 8, moves: [{ playerId: 1, slot: 'RB' }] }),
-    (error) => error.statusCode === 409 && /only between BENCH and IR/.test(error.message)
-  );
-
-  assertNoSlotWrite(fake);
   fake.assertClean();
 });
 
@@ -1014,20 +1061,6 @@ test('setLineup rejects a save that leaves a non-IR-eligible player stashed', as
   fake.assertClean();
 });
 
-test('setLineup lets a locked player resolve a stale stash by moving from IR to the bench', async (t) => {
-  const fake = installSetLineupWorld(t, 'Q', { slot: 'IR', lockedTeams: ['MIN'] });
-
-  const result = await setLineup({
-    leagueId: 5,
-    userId: 7,
-    week: 8,
-    moves: [{ playerId: 1, slot: 'BENCH' }],
-  });
-
-  assert.equal(result.updated, 1);
-  fake.assertClean();
-});
-
 test('setLineup lets a locked stale stash leave IR when the league has no bench slots', async (t) => {
   const fake = installSetLineupWorld(t, 'Q', {
     slot: 'IR',
@@ -1053,69 +1086,6 @@ test('setLineup lets a locked stale stash leave IR when the league has no bench 
 // named. The resolving move is now forgiven one bench seat for the occupant
 // himself: an inherited overflow of one, which validateLineup's own rule
 // already tolerates on every later save.
-test('setLineup lets a stale stash leave IR for a bench that is already full', async (t) => {
-  const fake = installSetLineupWorld(t, 'Q', {
-    slot: 'IR',
-    leagueOverrides: { bench_slots: 1 },
-    extraEntries: [{
-      player_id: 2,
-      name: 'Bench Warmer',
-      position: 'RB',
-      nfl_team: 'KC',
-      injury_status: null,
-      slot: 'BENCH',
-      ir_attested: false,
-    }],
-  });
-
-  const result = await setLineup({
-    leagueId: 5,
-    userId: 7,
-    week: 8,
-    moves: [{ playerId: 1, slot: 'BENCH' }],
-  });
-
-  assert.equal(result.updated, 1);
-  fake.assertClean();
-});
-
-test('setLineup forgives the full bench only for the stash occupant, not a second bench arrival', async (t) => {
-  const fake = installSetLineupWorld(t, 'Q', {
-    slot: 'IR',
-    leagueOverrides: { bench_slots: 1 },
-    extraEntries: [{
-      player_id: 2,
-      name: 'Bench Warmer',
-      position: 'RB',
-      nfl_team: 'KC',
-      injury_status: null,
-      slot: 'BENCH',
-      ir_attested: false,
-    }, {
-      player_id: 3,
-      name: 'Starting Runner',
-      position: 'RB',
-      nfl_team: 'KC',
-      injury_status: null,
-      slot: 'RB',
-      ir_attested: false,
-    }],
-  });
-
-  await assert.rejects(
-    setLineup({
-      leagueId: 5,
-      userId: 7,
-      week: 8,
-      moves: [{ playerId: 1, slot: 'BENCH' }, { playerId: 3, slot: 'BENCH' }],
-    }),
-    (error) => error.statusCode === 400 && /too many players at BENCH \(3\/2\)/.test(error.message)
-  );
-
-  assertNoSlotWrite(fake);
-  fake.assertClean();
-});
-
 test('setLineup cannot launder zero-bench recovery into an ordinary bench slot', async (t) => {
   const fake = installSetLineupWorld(t, 'Q', {
     slot: 'IR',
@@ -1149,18 +1119,6 @@ test('setLineup cannot launder zero-bench recovery into an ordinary bench slot',
   fake.assertClean();
 });
 
-test('setLineup keeps the lock for an IR-eligible player stashed in IR', async (t) => {
-  const fake = installSetLineupWorld(t, 'O', { slot: 'IR', lockedTeams: ['MIN'] });
-
-  await assert.rejects(
-    setLineup({ leagueId: 5, userId: 7, week: 8, moves: [{ playerId: 1, slot: 'BENCH' }] }),
-    { statusCode: 409, code: 'LINEUP_LOCKED' }
-  );
-
-  assertNoSlotWrite(fake);
-  fake.assertClean();
-});
-
 test('setLineup keeps the lock for an attested stash after kickoff', async (t) => {
   const fake = installSetLineupWorld(t, 'Q', {
     slot: 'IR',
@@ -1173,29 +1131,6 @@ test('setLineup keeps the lock for an attested stash after kickoff', async (t) =
     { statusCode: 409, code: 'LINEUP_LOCKED' }
   );
 
-  assertNoSlotWrite(fake);
-  fake.assertClean();
-});
-
-test('setLineup keeps the lineup lock for a player outside IR', async (t) => {
-  const fake = installSetLineupWorld(t, null, { lockedTeams: ['MIN'] });
-
-  await assert.rejects(
-    setLineup({ leagueId: 5, userId: 7, week: 8, moves: [{ playerId: 1, slot: 'RB' }] }),
-    { statusCode: 409, code: 'LINEUP_LOCKED' }
-  );
-
-  assertNoSlotWrite(fake);
-  fake.assertClean();
-});
-
-test('setLineup keeps the lock when a recovered stash targets a starting slot', async (t) => {
-  const fake = installSetLineupWorld(t, 'Q', { slot: 'IR', lockedTeams: ['MIN'] });
-
-  await assert.rejects(
-    setLineup({ leagueId: 5, userId: 7, week: 8, moves: [{ playerId: 1, slot: 'RB' }] }),
-    { statusCode: 409, code: 'LINEUP_LOCKED' }
-  );
   assertNoSlotWrite(fake);
   fake.assertClean();
 });
@@ -1223,6 +1158,8 @@ test('setLineup derives a stale stash after weekly slot carry-forward', async (t
   const fake = createFakePool([
     // #106: every world here is a LIVE week, so nothing is frozen.
     [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
+    // ADR 0058: the save reads the team's open Called shot; none in this world.
+    [/^SELECT .*FROM "lineup_overrides"/, () => ({ rows: [] })],
     [/^SELECT \* FROM "leagues"/, () => ({
       rows: [{
         id: 5,
@@ -1291,6 +1228,8 @@ test('a full roster resolves by dropping a bench player before activating the st
   const fake = createFakePool([
     // #106: every world here is a LIVE week, so nothing is frozen.
     [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
+    // ADR 0058: the save reads the team's open Called shot; none in this world.
+    [/^SELECT .*FROM "lineup_overrides"/, () => ({ rows: [] })],
     // The #962 write gate on the drop, League then Team, with its own explicit
     // column lists. Neither shape matcher below is blind enough to answer them
     // correctly - the gate refuses a League row that cannot answer the freeze.
@@ -1575,6 +1514,8 @@ test('setLineup clears the attestation on any manager-initiated slot move', asyn
   fake.assertClean();
 });
 
+// #1969: the save reports whose attestation it ended, so the client can tell the
+// manager an Undo cannot bring it back.
 test('weekly materialization carries the attestation forward with the slot', async (t) => {
   // Week 9 has no entries yet; week 8 stashed player 1 with an attestation.
   // The copy-forward must write slot IR AND ir_attested true, and the save
@@ -1603,6 +1544,8 @@ test('weekly materialization carries the attestation forward with the slot', asy
   const fake = createFakePool([
     // #106: every world here is a LIVE week, so nothing is frozen.
     [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
+    // ADR 0058: the save reads the team's open Called shot; none in this world.
+    [/^SELECT .*FROM "lineup_overrides"/, () => ({ rows: [] })],
     [/^SELECT \* FROM "leagues"/, () => ({
       rows: [{
         id: 5,
@@ -1698,6 +1641,8 @@ function acquisitionWorld({ roster, currentSlots, previousSlots }) {
   const fake = createFakePool([
     // #106: every world here is a LIVE week, so nothing is frozen.
     [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
+    // ADR 0058: the save reads the team's open Called shot; none in this world.
+    [/^SELECT .*FROM "lineup_overrides"/, () => ({ rows: [] })],
     [/^SELECT "team_players"\."player_id"/, () => ({ rows: roster })],
     [/^SELECT "player_id" FROM "lineup_entries"/, () => ({
       rows: [...slots.keys()].map((player_id) => ({ player_id })),
@@ -1845,6 +1790,8 @@ function installSpentSlotWorld(t, { roster, spentRows, currentWeek = 9 }) {
   return createFakePool([
     // #106: a LIVE week, nothing is frozen.
     [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
+    // ADR 0058: the save reads the team's open Called shot; none in this world.
+    [/^SELECT .*FROM "lineup_overrides"/, () => ({ rows: [] })],
     [/^SELECT \* FROM "leagues"/, () => ({
       rows: [{
         id: 5,
@@ -1870,49 +1817,6 @@ function installSpentSlotWorld(t, { roster, spentRows, currentWeek = 9 }) {
     [/^UPDATE "lineup_entries"/, () => ({ rows: [] })],
   ]).install(t);
 }
-
-test('setLineup refuses to fill a starting slot spent by a surviving as-played row (#627)', async (t) => {
-  // Player 21 started at QB, his game kicked off, and he was dropped: his QB
-  // row survives off-roster. Seating player 1 in the "vacated" QB slot must
-  // refuse - the slot's score for the week already belongs to the record.
-  const fake = installSpentSlotWorld(t, {
-    roster: [{
-      player_id: 1, name: 'Backup Passer', position: 'QB', nfl_team: 'MIN',
-      injury_status: null, slot: 'BENCH', ir_attested: false,
-    }],
-    spentRows: [{ position: 'QB', slot: 'QB' }],
-  });
-
-  await assert.rejects(
-    setLineup({ leagueId: 5, userId: 7, week: 9, moves: [{ playerId: 1, slot: 'QB' }] }),
-    (error) => error.statusCode === 400 && /too many players at QB \(2\/1\)/.test(error.message)
-  );
-
-  assertNoSlotWrite(fake);
-  // The load-bearing predicates of the spent-slot read: only rows the roster
-  // no longer covers, and only rows that score.
-  const [spent] = fake.matching(/^SELECT "players"\."position"/);
-  assert.match(spent.text, /"team_players"\."player_id" IS NULL/);
-  assert.match(spent.text, /NOT IN \('BENCH', 'IR'\)/);
-  assert.deepEqual(spent.params, [10, 2026, 9]);
-  fake.assertClean();
-});
-
-test('a spent slot with seats remaining still accepts another starter (#627)', async (t) => {
-  // RB seats two; the surviving row spends one. The other seat stays usable.
-  const fake = installSpentSlotWorld(t, {
-    roster: [{
-      player_id: 1, name: 'Second Back', position: 'RB', nfl_team: 'MIN',
-      injury_status: null, slot: 'BENCH', ir_attested: false,
-    }],
-    spentRows: [{ position: 'RB', slot: 'RB' }],
-  });
-
-  const result = await setLineup({ leagueId: 5, userId: 7, week: 9, moves: [{ playerId: 1, slot: 'RB' }] });
-
-  assert.equal(result.updated, 1);
-  fake.assertClean();
-});
 
 test('a spent row is a count, not a placement: no eligibility check, unknown slots ignored (#627)', async (t) => {
   // The surviving row is a record. Its player's position may have been
@@ -1972,6 +1876,8 @@ test('the all-bench repair seats starters only into the seats a spent slot leave
   ].map((entry) => ({ ...entry, nfl_team: 'MIN', injury_status: null, ir_attested: false }));
   const fake = createFakePool([
     [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
+    // ADR 0058: the save reads the team's open Called shot; none in this world.
+    [/^SELECT .*FROM "lineup_overrides"/, () => ({ rows: [] })],
     [/^SELECT \* FROM "leagues"/, () => ({
       rows: [{
         id: 5, current_season: 2026, current_week: 9,
@@ -2255,6 +2161,8 @@ test('removeLineupEntries: a final week keeps its rows even for a player with no
 test('removeLineupEntries: a player with no players row is simply not locked', async () => {
   const fake = createFakePool([
     [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
+    // ADR 0058: the save reads the team's open Called shot; none in this world.
+    [/^SELECT .*FROM "lineup_overrides"/, () => ({ rows: [] })],
     [/^SELECT "nfl_team" FROM "players"/, () => ({ rows: [] })],
     [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({ rows: [{ nfl_team: 'MIN' }] })],
     [/^DELETE FROM "lineup_entries"/, () => ({ rows: [], rowCount: 0 })],
@@ -2305,6 +2213,8 @@ test('restoreInterruptedStash materializes the week, then puts him back in the r
   const inserts = [];
   const fake = createFakePool([
     [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
+    // ADR 0058: the save reads the team's open Called shot; none in this world.
+    [/^SELECT .*FROM "lineup_overrides"/, () => ({ rows: [] })],
     [/^SELECT "team_players"\."player_id"/, () => ({ rows: [{ player_id: 21, position: 'RB' }] })],
     [/^SELECT "player_id" FROM "lineup_entries"/, () => ({ rows: [] })],
     [/^SELECT "player_id", "slot"/, () => ({ rows: [] })],
@@ -2552,27 +2462,30 @@ test('getLineup leaves the CURRENT week unchanged: a departed starter still arri
   assert.equal(fake.matching(/FROM "roster_tenures"/).length, 0);
 });
 
-test('annotateLineupEntries: a released player (no NFL team) reads Unavailable no_team (#1668)', () => {
-  const [entry] = annotateLineupEntries(
-    [{ id: 1, nfl_team: null, injury_status: null, slot: 'BENCH' }],
-    { locked: new Set(), byeByTeam: new Map(), selectedWeek: 8 }
-  );
-  assert.equal(entry.unavailable, 'no_team');
-});
+// #1668, #1767: a released player and a fresh Practice squad row are Unavailable in
+// the run, and getLineup states them as the Start verdict (ADR 0061).
+test('getLineup: a released player and a Practice squad row read Unavailable from the run (#1668, #1767)', async (t) => {
+  const entries = [
+    { id: 1, name: 'Starter', position: 'RB', nfl_team: 'KC', injury_status: null, injury_detail: null, slot: 'RB', ir_attested: false },
+    { id: 2, name: 'Released', position: 'RB', nfl_team: null, injury_status: null, injury_detail: null, slot: 'BENCH', ir_attested: false },
+    { id: 3, name: 'Practice Squad', position: 'RB', nfl_team: 'HOU', injury_status: null, injury_detail: null, slot: 'BENCH', ir_attested: false },
+  ];
+  const fake = installPositionBaselineWorld(t, {
+    entries,
+    projections: new Map([
+      [1, { mean: 11, median: 11, factors: {} }],
+      [2, { mean: 5, median: 5, factors: { availability: NO_TEAM } }],
+      [3, { mean: 5, median: 5, factors: { availability: PRACTICE_SQUAD } }],
+    ]),
+  });
 
-// #1767: the Lineup reads the NFL roster status off its own player read and
-// passes it to the one verdict.
-test('annotateLineupEntries: a fresh Practice squad row reads Unavailable practice_squad; a stale one reads Active (#1767)', () => {
-  const hoursAgo = (h) => new Date(Date.now() - h * 3600 * 1000).toISOString();
-  const [fresh, stale] = annotateLineupEntries(
-    [
-      { id: 1, nfl_team: 'HOU', injury_status: null, slot: 'RB', nfl_roster_status: { status: 'practice_squad', capturedAt: hoursAgo(2) } },
-      { id: 2, nfl_team: 'HOU', injury_status: null, slot: 'RB', nfl_roster_status: { status: 'practice_squad', capturedAt: hoursAgo(72) } },
-    ],
-    { locked: new Set(), byeByTeam: new Map(), selectedWeek: 8 }
-  );
-  assert.equal(fresh.unavailable, 'practice_squad');
-  assert.equal(stale.unavailable, null);
+  const lineup = await getLineup({ leagueId: 5, userId: 7, week: 8 });
+  const byId = new Map(lineup.entries.map((entry) => [entry.id, entry]));
+
+  assert.equal(byId.get(1).startVerdict.outcome, 'recommendable');
+  assert.equal(byId.get(2).startVerdict.reason, 'no_team');
+  assert.equal(byId.get(3).startVerdict.reason, 'practice_squad');
+  fake.assertClean();
 });
 
 test('getLineup: the entries read and the spent read both select the NFL roster status column (#1767)', async (t) => {
@@ -2600,6 +2513,8 @@ test('getLineup reads the kickoff lock at the time it is given, so the advice ca
   const asOf = new Date('2026-10-11T16:59:00.000Z');
   const fake = createFakePool([
     [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
+    // ADR 0058: the save reads the team's open Called shot; none in this world.
+    [/^SELECT .*FROM "lineup_overrides"/, () => ({ rows: [] })],
     [/^SELECT \* FROM "leagues"/, () => ({ rows: [{ id: 5, current_season: 2026, current_week: 6 }] })],
     [/^SELECT \* FROM "teams"/, () => ({ rows: [{ id: 10 }] })],
     [/^SELECT "team_players"\."player_id"/, () => ({ rows: [{ player_id: 1, position: 'RB' }] })],
@@ -2621,4 +2536,31 @@ test('getLineup reads the kickoff lock at the time it is given, so the advice ca
   const later = await getLineup({ leagueId: 5, userId: 7, week: 6, now: new Date('2026-10-11T17:03:00.000Z') });
   assert.equal(later.entries[0].locked, true);
   fake.assertClean();
+});
+
+// #2141: Held is one rule in one helper, whoever asks.
+const heldEntries = () => [
+  { playerId: 1, position: 'RB', slot: 'RB', locked: true }, // kicked off, starting
+  { playerId: 2, position: 'RB', slot: 'BENCH', locked: true }, // kicked off, benched
+  { playerId: 3, position: 'WR', slot: 'WR' }, // the Called shot's starter
+  { playerId: 4, position: 'WR', slot: 'BENCH' }, // the Called shot's benched player
+  { playerId: 5, position: 'TE', slot: 'IR' },
+  { playerId: 6, position: 'TE', slot: 'BENCH' },
+  { playerId: 7, position: 'RB', slot: 'FLEX' },
+];
+
+test('heldLineup pins a kicked-off starter, drops a kicked-off bench player and holds a Called shot pair', () => {
+  const held = heldLineup(heldEntries(), { calledShot: { starterId: 3, benchedId: 4 } });
+  assert.deepEqual([...held.pinned], [[1, 'RB'], [3, 'WR']]);
+  assert.deepEqual(held.candidates.map((c) => c.playerId), [6, 7],
+    'no kicked-off bench player, no held starter, no IR occupant, no benched half of the shot');
+  assert.deepEqual(held.candidates[0], { playerId: 6, position: 'TE' });
+  assert.equal(held.entries.find((e) => e.playerId === 4).locked, true);
+});
+
+test('heldLineup holds nobody for a Called shot the lineup no longer matches', () => {
+  const entries = heldEntries().map((e) => (e.playerId === 3 ? { ...e, slot: 'BENCH' } : e));
+  const held = heldLineup(entries, { calledShot: { starterId: 3, benchedId: 4 } });
+  assert.deepEqual([...held.pinned], [[1, 'RB']]);
+  assert.deepEqual(held.candidates.map((c) => c.playerId), [3, 4, 6, 7]);
 });

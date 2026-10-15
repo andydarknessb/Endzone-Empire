@@ -1,14 +1,14 @@
-import { hasNoHistory } from '../../../shared/lib';
-import { locked } from '../../../entities/roster';
-import { isEligibleMove } from '../../../features/swap-players';
+import { locked, sortBench, spent } from '../../../entities/roster';
+import { isEligibleMove } from '../../../features/lineup-write';
 
 /**
  * The Decision card's own two derived move sets (#1240, ADR 0037 AC2/AC4).
  *
  * Both are built on `isEligibleMove` (formal review round 2, findings
- * r1/r2/r3/r4/r5): the SAME pure legality rule `useSwapPlayers`' own
- * `onRowClick`/`isEligibleTarget` enforce, exported from `swap-players` so
- * this card never keeps its own copy of that rule to fall out of sync with.
+ * r1/r2/r3/r4/r5): the boolean face of `moveLegality` (`entities/roster`,
+ * #2052), the SAME rule `useSwapPlayers`' own `onRowClick`/`isEligibleTarget`
+ * ask, exported from `lineup-write` so this card never keeps its own copy of
+ * that rule to fall out of sync with.
  * That is exactly what happened in round 1 - hand-enumerated
  * locked/spent/bestBall conditions here had already missed a spent
  * starter's Bench button, a spent Start target, and the whole rule while
@@ -17,12 +17,10 @@ import { isEligibleMove } from '../../../features/swap-players';
  * `benchOptionsForSlot(entries, slot, { entry, bestBall, leagueUnsettled })`:
  * the bench players who could fill `slot` (AC4, "the bench options for the
  * player's slot"), sorted by `projectedPoints` (CONTEXT.md's Point estimate,
- * #1482 - never `projection`, the distribution's bare mean) descending - a
- * null value sorts last (a Position-baseline candidate after all of them,
- * #1777), the same rule `widgets/lineup-ledger/model/
- * buildLedgerSections.js`'s own bench sort applies, restated here rather
- * than imported since that module's export is a full section builder, not
- * this narrower filter. Only a real starting slot has bench options: a card
+ * #1482 - never `projection`, the distribution's bare mean) descending, a
+ * Position-baseline candidate after the evidenced ones (#1777), Unavailable
+ * players last: `sortBench` from `entities/roster`, the one Bench order the
+ * Ledger uses too. Only a real starting slot has bench options: a card
  * opened on a BENCH or IR row (no starting slot of its own to fill) gets an
  * empty list, which is that section's own null-source hide rule. Each
  * candidate carries its own `swapEligible` (via `isEligibleMove`, covering
@@ -60,22 +58,9 @@ export function benchOptionsForSlot(entries, slot, { entry, bestBall, leagueUnse
   if (slot == null || slot === 'BENCH' || slot === 'IR') return [];
   const list = Array.isArray(entries) ? entries : [];
   const eligible = list.filter(
-    (e) => e && e.slot === 'BENCH' && !e.spent && Array.isArray(e.eligibleSlots) && e.eligibleSlots.includes(slot)
+    (e) => e && e.slot === 'BENCH' && !spent(e) && Array.isArray(e.eligibleSlots) && e.eligibleSlots.includes(slot)
   );
-  // #1777: a Position-baseline candidate (`hasNoHistory`, the one helper the
-  // Ledger row also reads) sits after every evidenced option - his number is
-  // the position's average, not evidence, and the card hides it - kept in the
-  // order given since his hidden numbers tie.
-  const evidenced = eligible.filter((e) => !hasNoHistory(e));
-  const noHistory = eligible.filter((e) => hasNoHistory(e));
-  return [
-    ...evidenced.sort((a, b) => {
-      const ap = Number.isFinite(a.projectedPoints) ? a.projectedPoints : -Infinity;
-      const bp = Number.isFinite(b.projectedPoints) ? b.projectedPoints : -Infinity;
-      return bp - ap;
-    }),
-    ...noHistory,
-  ]
+  return sortBench(eligible)
     .map((candidate) => {
       const candidateLocked = locked(candidate);
       return {
@@ -90,8 +75,8 @@ export function benchOptionsForSlot(entries, slot, { entry, bestBall, leagueUnse
         // lock check, `locked(targetEntry)`, is unconditional and always
         // refuses a locked candidate regardless of what else is omitted.)
         // The candidate's own lock is the floor when `entry` itself is
-        // absent; `isEligibleMove` would refuse outright there (its own
-        // `!selectedEntry` guard), so this fallback is deliberately more
+        // absent; `isEligibleMove` would refuse outright there (`moveLegality`'s
+        // own no-entry guard), so this fallback is deliberately more
         // permissive than a call would be, not equivalent to one.
         swapEligible: entry
           ? isEligibleMove({ selectedEntry: entry, targetEntry: candidate, targetSlot: slot, bestBall, leagueUnsettled })
@@ -133,7 +118,7 @@ export function movesToStart(entry, targetSlot, entries, { bestBall, leagueUnset
   // one; an empty array is the refusal for the rare case that invariant is
   // stale (e.g. the menu stayed open across a refetch). Formal review round
   // 3 finding s2: an empty array is a refusal ONLY if the caller treats it
-  // as one - `onSwap` is `performMove`, which PUTs `moves: []` and reports
+  // as one - `onSwap` is the page's `submit`, which PUTs `moves: []` and reports
   // success on an empty array just as readily as a real move. Every caller
   // MUST check `.length` before calling `onSwap` with this return value.
   if (!occupant) return [];

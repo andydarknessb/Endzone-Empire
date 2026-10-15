@@ -16,6 +16,9 @@ import { injuryView } from '../../../shared/ui';
  * `detail` is null whenever the Edge line happens to be showing a different
  * kind (a bench player outprojecting the starter, a Factor, pace, a result)
  * - this never fabricates detail text the feed didn't supply.
+ *
+ * `InjurySection` also renders for Practice participation entries (#1923), so a
+ * healthy player with entries shows the section though this returns null.
  */
 export function injuryTileView(entry) {
   const view = entry ? injuryView(entry.injuryStatus) : null;

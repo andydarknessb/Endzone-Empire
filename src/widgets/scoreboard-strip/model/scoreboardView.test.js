@@ -1,9 +1,7 @@
 import { matchupFromDetailBody } from '../../../entities/matchup';
 import {
   scoreboardView,
-  formatScore,
   formatExpectedFinal,
-  formatPlayersRemaining,
 } from './scoreboardView';
 
 // One live Sunday afternoon, the canvas's sample (HERO in build.mjs): the
@@ -17,14 +15,26 @@ const detail = (overrides = {}) => matchupFromDetailBody({
   away: { teamId: 34, name: 'Fargo Frostbite', expectedFinal: 123.9, playersRemaining: 6, ...overrides.away },
 });
 
-test('formats a score to one decimal and a missing score as 0.0', () => {
-  expect(formatScore(82.2)).toBe('82.2');
-  expect(formatScore('77')).toBe('77.0');
-  expect(formatScore(null)).toBe('0.0');
-  expect(formatScore(undefined)).toBe('0.0');
+test('prints the board\'s score text: one decimal, and 0.0 for a Matchup with no score rows yet', () => {
+  const view = scoreboardView(detail({ matchup: { status: 'scheduled', home_score: null, away_score: undefined } }));
+  expect(view.home.score).toBe('0.0');
+  expect(view.away.score).toBe('0.0');
+  expect(scoreboardView(detail()).home.score).toBe('82.2');
 });
 
-test('formats Expected final to one decimal and Players remaining as an integer, null when unknown', () => {
+test('prints the board\'s Players remaining text, null when unknown', () => {
+  const view = scoreboardView(detail({ home: { playersRemaining: 0 }, away: { playersRemaining: null } }));
+  expect(view.home.playersRemaining).toBe('0');
+  expect(view.away.playersRemaining).toBeNull();
+});
+
+test('marks the viewer side by Team id, not by name', () => {
+  const view = scoreboardView(detail({ away: { name: 'Duluth Dockworkers' } }), { viewerTeamId: 34 });
+  expect(view.away.isViewer).toBe(true);
+  expect(view.home.isViewer).toBe(false);
+});
+
+test('formats Expected final to one decimal, null when unknown', () => {
   expect(formatExpectedFinal(110.5)).toBe('110.5');
   expect(formatExpectedFinal('123.9')).toBe('123.9');
   expect(formatExpectedFinal(null)).toBeNull();
@@ -32,13 +42,6 @@ test('formats Expected final to one decimal and Players remaining as an integer,
   // Empty string and undefined should render as null (unknown), not "0.0"
   expect(formatExpectedFinal('')).toBeNull();
   expect(formatExpectedFinal(undefined)).toBeNull();
-  expect(formatPlayersRemaining(4)).toBe('4');
-  expect(formatPlayersRemaining('6')).toBe('6');
-  expect(formatPlayersRemaining(0)).toBe('0');
-  expect(formatPlayersRemaining(null)).toBeNull();
-  // Empty string and undefined should render as null (unknown), not zero
-  expect(formatPlayersRemaining('')).toBeNull();
-  expect(formatPlayersRemaining(undefined)).toBeNull();
 });
 
 test('derives both sides from the entity model: names, scores, figures and complementary percentages', () => {

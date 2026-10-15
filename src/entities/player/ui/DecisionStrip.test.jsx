@@ -54,6 +54,31 @@ test('a positive Upgrade renders as a pill naming its slot', () => {
   expect(screen.getByTestId('decision-strip-upgrade')).toHaveTextContent('at FLEX');
 });
 
+test('an Upgrade read in a later week names it in the pill; an equal or absent week names none (#2166)', () => {
+  const strip = (upgrade) => (
+    <DecisionStrip decision={{ projWeek: { week: 4, points: 18.2 }, ros: { points: 140 }, upgrade }} usage={null} />
+  );
+  const { rerender } = render(strip({ points: 4.1, slot: 'FLEX', week: 5 }));
+  expect(screen.getByTestId('decision-strip-upgrade-pill')).toHaveTextContent('+4.1 Wk 5');
+
+  rerender(strip({ points: 4.1, slot: 'FLEX', week: 4 }));
+  expect(screen.getByTestId('decision-strip-upgrade-pill')).not.toHaveTextContent('Wk');
+
+  rerender(strip({ points: 4.1, slot: 'FLEX' }));
+  expect(screen.getByTestId('decision-strip-upgrade-pill')).not.toHaveTextContent('Wk');
+});
+
+test('an Upgrade of 0 renders no Upgrade tile (#1910)', () => {
+  render(
+    <DecisionStrip
+      decision={{ projWeek: { week: 4, points: 18.2 }, ros: { points: 140 }, upgrade: { points: 0, overPlayer: null, slot: 'RB' } }}
+      usage={null}
+    />
+  );
+  expect(screen.queryByTestId('decision-strip-upgrade')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('decision-strip-upgrade-pill')).not.toBeInTheDocument();
+});
+
 test('Usage hides when seasonAverage is absent, and shows the season average FPTS otherwise', () => {
   const { rerender } = render(<DecisionStrip decision={null} usage={{ weeks: [], seasonAverage: null }} />);
   expect(screen.queryByTestId('decision-strip-usage')).not.toBeInTheDocument();

@@ -10,7 +10,6 @@ const {
   powerRankings,
   withRankChange,
 } = require('../services/montecarlo.service');
-const { optimalLineup, DEFAULT_ROSTER_SLOTS } = require('../services/lineup.service');
 
 test('mulberry32 is deterministic for a given seed and in [0, 1)', () => {
   const a = mulberry32(42);
@@ -208,48 +207,4 @@ test('withRankChange treats a missing previous week as all-new', () => {
   const rankings = [{ teamId: 1, rank: 1 }, { teamId: 2, rank: 2 }];
   assert.deepEqual(withRankChange(rankings, null).map((r) => r.change), [null, null]);
   assert.deepEqual(withRankChange(rankings, []).map((r) => r.change), [null, null]);
-});
-
-test('optimalLineup fills dedicated slots then FLEX with the best leftover', () => {
-  const players = [
-    { playerId: 1, position: 'QB' },
-    { playerId: 2, position: 'RB' }, { playerId: 3, position: 'RB' },
-    { playerId: 4, position: 'RB' }, // best flex candidate
-    { playerId: 5, position: 'WR' }, { playerId: 6, position: 'WR' },
-    { playerId: 7, position: 'WR' },
-    { playerId: 8, position: 'TE' },
-    { playerId: 9, position: 'K' }, { playerId: 10, position: 'DEF' },
-  ];
-  const points = new Map([
-    [1, 20], [2, 15], [3, 12], [4, 11], [5, 14], [6, 13], [7, 9], [8, 8], [9, 7], [10, 6],
-  ]);
-  const { starters, total } = optimalLineup(players, DEFAULT_ROSTER_SLOTS, points);
-  const flex = starters.find((s) => s.slot === 'FLEX');
-  assert.equal(flex.playerId, 4); // RB3 (11) beats WR3 (9) and TE bench (none left)
-  assert.equal(starters.length, 9); // 1QB 2RB 2WR 1TE 1FLEX 1K 1DEF
-  assert.equal(total, 20 + 15 + 12 + 14 + 13 + 8 + 11 + 7 + 6);
-});
-
-test('optimalLineup tolerates unfillable slots and empty rosters', () => {
-  const { starters, total } = optimalLineup([], DEFAULT_ROSTER_SLOTS, new Map());
-  assert.deepEqual(starters, []);
-  assert.equal(total, 0);
-  const qbOnly = optimalLineup(
-    [{ playerId: 1, position: 'QB' }],
-    DEFAULT_ROSTER_SLOTS,
-    new Map([[1, 22]])
-  );
-  assert.equal(qbOnly.starters.length, 1);
-  assert.equal(qbOnly.total, 22);
-});
-
-test('optimalLineup never starts a player in an ineligible slot', () => {
-  const players = [
-    { playerId: 1, position: 'QB' }, { playerId: 2, position: 'QB' },
-  ];
-  const points = new Map([[1, 30], [2, 28]]);
-  const { starters } = optimalLineup(players, DEFAULT_ROSTER_SLOTS, points);
-  // Second QB has nowhere legal to go (FLEX excludes QB)
-  assert.equal(starters.length, 1);
-  assert.equal(starters[0].slot, 'QB');
 });

@@ -76,6 +76,24 @@ test('a ready matchup shows the score/projected figures, players remaining, and 
   expect(screen.getByTestId('strip-starters-locked')).toHaveTextContent('1 of 2');
 });
 
+test.each(['played', 'final'])('a %s week shows the score alone, though the server still sends an Expected final (#2048)', async (status) => {
+  mockGetByUrl({
+    [LIST_URL]: {
+      data: [row({
+        status, final: status === 'final', home_score: '102.5', away_score: '98.0',
+        home_expected_final: '95.4', away_expected_final: '88.1',
+      })],
+    },
+  });
+  renderStrip({ lineup: lineup([starter()]) });
+
+  const score = await screen.findByTestId('strip-score');
+  expect(score).toHaveTextContent('102.5');
+  expect(score).not.toHaveTextContent('95.4');
+  expect(screen.getByTestId('strip-opponent-score')).toHaveTextContent('98.0');
+  expect(screen.getByTestId('strip-opponent-score')).not.toHaveTextContent('88.1');
+});
+
 test('a bench/IR/spent entry never counts toward locked starters', async () => {
   mockGetByUrl({ [LIST_URL]: { data: [row()] } });
   renderStrip({

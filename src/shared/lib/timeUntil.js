@@ -75,6 +75,23 @@ export function timeUntil(at, now, { precision = 'minute' } = {}) {
   return { text, passed: false, imminent, changesAt: shown === 0 ? atMs : atMs - shown + 1 };
 }
 
+/**
+ * The same span in words, for a sentence on a card ("locks in 26 hours"):
+ * under an hour "N min", under 48 hours "N hours", else "N days", each rounded
+ * down. Null once `at` has arrived or when it is unreadable. It changes no
+ * more often than `timeUntil`'s text does, so that `changesAt` still bounds it.
+ */
+export function timeUntilWords(at, now) {
+  const until = timeUntil(at, now);
+  if (!until || until.passed) return null;
+  const remaining = toMs(at) - toMs(now);
+  if (remaining < MINUTE_MS) return 'under 1 min';
+  if (remaining < HOUR_MS) return `${Math.floor(remaining / MINUTE_MS)} min`;
+  const hours = Math.floor(remaining / HOUR_MS);
+  if (hours < 48) return hours === 1 ? '1 hour' : `${hours} hours`;
+  return `${Math.floor(remaining / DAY_MS)} days`;
+}
+
 // setTimeout fires almost at once past a 32-bit delay (~24.8 days), so a
 // longer wait repaints once at the cap and schedules the rest.
 const MAX_TIMEOUT_MS = 2_147_483_647;

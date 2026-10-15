@@ -59,13 +59,14 @@ function standings(teams: Team[]) {
   };
 }
 
-// Twenty raw transaction rows, newest first (`GET /api/league/:id/transactions`,
-// entities/activity's `activityFromRow` input shape): a feed with at least as
-// many rows as the largest rail needs (ceil(20 * 5 / 6) = 17), which a league
-// past its first weeks has. The guard's own feed holds only 8.
-function transactions(teams: Team[]) {
+// `count` raw transaction rows, newest first (`GET /api/league/:id/transactions`,
+// entities/activity's `activityFromRow` input shape). The default twenty is a
+// feed with at least as many rows as the largest rail needs (ceil(20 * 5 / 6) =
+// 17), which a league past its first weeks has; a smaller `count` is a league
+// early in its life (#1998). The guard's own feed holds only 8.
+function transactions(teams: Team[], count: number) {
   const types = ['add', 'drop'];
-  return Array.from({ length: 20 }, (_, i) => ({
+  return Array.from({ length: count }, (_, i) => ({
     id: 9001 - i,
     type: types[i % 2],
     team_name: teams[i % teams.length].teamName,
@@ -113,9 +114,10 @@ function matchups(teams: Team[]) {
 /**
  * Re-routes the four team-count-following reads at `teamCount` Teams (an even
  * number, 4 to 20). Call after `setupLayoutGuard` and before the first
- * `page.goto`.
+ * `page.goto`. `feedRows` sizes the activity feed (default 20, a full rail at
+ * any team count).
  */
-export async function routeLeagueOfSize(page: Page, teamCount: number) {
+export async function routeLeagueOfSize(page: Page, teamCount: number, feedRows = 20) {
   const teams = TWENTY_TEAMS.slice(0, teamCount);
   const get = (pathname: string, body: () => unknown) =>
     page.route(
@@ -129,6 +131,6 @@ export async function routeLeagueOfSize(page: Page, teamCount: number) {
     viewerTeamId: VIEWER_TEAM_ID,
   }));
   await get(`/api/scoring/league/${LEAGUE_ID}/standings`, () => standings(teams));
-  await get(`/api/league/${LEAGUE_ID}/transactions`, () => transactions(teams));
+  await get(`/api/league/${LEAGUE_ID}/transactions`, () => transactions(teams, feedRows));
   await get(`/api/league/${LEAGUE_ID}/matchups`, () => matchups(teams));
 }

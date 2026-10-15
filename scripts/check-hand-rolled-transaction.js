@@ -149,10 +149,19 @@ const ALLOWLIST = [
     file: 'server/routes/league.router.js',
     function: 'GET /:id/matchups/:matchupId',
     rule:
+      'The handler owns the pooled client it hands to getMatchupDetail: it connects, '
+      + 'releases, and rolls back on a throw, because the live path\'s transaction '
+      + 'opens and closes inside the read module on that client (#2231, #1067 ruling 2).',
+  },
+  {
+    file: 'server/services/matchupDetail.service.js',
+    function: 'getMatchupDetail',
+    rule:
       'The live path needs a transaction around materializeLineup\'s copy-forward loop '
       + 'and the settled path buys none (#978), so BEGIN and COMMIT are conditional '
-      + '(`if (!asPlayed)`) inside one read handler; extracting the live half is a #978 '
-      + 're-ruling, refused here (#1067 ruling 2).',
+      + '(`if (!asPlayed)`) inside one read; the read moved here from the route handler '
+      + 'unchanged and takes the route\'s connected client, so extracting the live half '
+      + 'is still a #978 re-ruling, refused (#1067 ruling 2, #2231).',
   },
 ];
 

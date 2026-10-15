@@ -7,9 +7,12 @@ const {
   tradeFairnessSummary,
   upgradeFor,
   madeAppearance,
+  liveWhatIf,
 } = require('../services/decision.service');
-const { DEFAULT_ROSTER_SLOTS, slotEligible } = require('../services/lineup.service');
+const { DEFAULT_ROSTER_SLOTS } = require('../services/lineup.service');
+const { createFakePool } = require('./helpers/fakePool');
 const { resultFromLegacyMap } = require('./helpers/weeklyProjectionResult');
+const projectionModel = require('../services/projectionModel');
 
 // ---------------------------------------------------------------------------
 // buildSuggestions
@@ -28,6 +31,18 @@ const { resultFromLegacyMap } = require('./helpers/weeklyProjectionResult');
 // ---------------------------------------------------------------------------
 
 const entry = (playerId, position, slot, name = `p${playerId}`) => ({ playerId, name, position, slot });
+
+// ADR 0061: every availability fact is the Weekly projection result's, never
+// the lineup entry's. A fixture player carries the run's stored Availability
+// input (`factors.availability`) the way the engine writes it; the Start verdict
+// is derived from it on read.
+const stored = (availability, points, extra = {}) => ({ points, factors: { availability, ...extra } });
+const OUT = { available: false, activeProbability: 0, reason: 'out', status: 'O' };
+const IR_STATUS = { available: false, activeProbability: 0, reason: 'ir', status: 'IR' };
+const BYE = { available: false, activeProbability: 0, reason: 'bye', status: null };
+const NO_TEAM = { available: false, activeProbability: 0, reason: 'no_team', status: null };
+const PS = { available: false, activeProbability: 0, reason: 'practice_squad', status: null };
+const withStatus = (status) => ({ available: true, activeProbability: null, reason: null, status });
 
 const RB1 = [{ key: 'RB', label: 'RB', count: 1, eligiblePositions: ['RB'] }];
 const RB2 = [{ key: 'RB', label: 'RB', count: 2, eligiblePositions: ['RB'] }];
@@ -237,10 +252,10 @@ test('buildSuggestions: an EMPTY starting slot is reported as a fill, not a swap
 
 test('buildSuggestions: a starter on a bye is worth zero and gets replaced', () => {
   const lineup = [
-    { ...entry(1, 'RB', 'RB'), onBye: true },
+    entry(1, 'RB', 'RB'),
     entry(2, 'RB', 'BENCH'),
   ];
-  const projections = resultFromLegacyMap(new Map([[1, { points: 20 }], [2, { points: 8 }]]));
+  const projections = resultFromLegacyMap(new Map([[1, stored(BYE, 20)], [2, { points: 8 }]]));
   const result = buildSuggestions(lineup, projections, new Map(), RB1);
   assert.equal(result.projectedTotal, 0, 'a player on a bye scores 0, not his projection');
   assert.equal(result.optimalTotal, 8);
@@ -250,12 +265,12 @@ test('buildSuggestions: a starter on a bye is worth zero and gets replaced', () 
 });
 
 test('buildSuggestions: Out and IR designations make a player unavailable', () => {
-  for (const [status, reason] of [['O', 'out'], ['IR', 'ir']]) {
+  for (const [status, reason, availability] of [['O', 'out', OUT], ['IR', 'ir', IR_STATUS]]) {
     const lineup = [
-      { ...entry(1, 'RB', 'RB'), injuryStatus: status },
+      entry(1, 'RB', 'RB'),
       entry(2, 'RB', 'BENCH'),
     ];
-    const projections = resultFromLegacyMap(new Map([[1, { points: 25 }], [2, { points: 4 }]]));
+    const projections = resultFromLegacyMap(new Map([[1, stored(availability, 25)], [2, { points: 4 }]]));
     const result = buildSuggestions(lineup, projections, new Map(), RB1);
     assert.equal(result.suggestions.length, 1, status);
     assert.equal(result.suggestions[0].suggested.playerId, 2, status);
@@ -265,14 +280,12 @@ test('buildSuggestions: Out and IR designations make a player unavailable', () =
 
 // #1767: a fresh Practice squad row is Unavailable - worth 0 as a starter
 // (and replaced), never proposed from the bench.
-const PRACTICE_SQUAD = () => ({ status: 'practice_squad', capturedAt: new Date(Date.now() - 3600 * 1000).toISOString() });
-
 test('buildSuggestions: a Practice squad starter is worth zero, reads practice_squad and gets replaced', () => {
   const lineup = [
-    { ...entry(1, 'RB', 'RB'), nflRosterStatus: PRACTICE_SQUAD() },
+    entry(1, 'RB', 'RB'),
     entry(2, 'RB', 'BENCH'),
   ];
-  const projections = resultFromLegacyMap(new Map([[1, { points: 20 }], [2, { points: 8 }]]));
+  const projections = resultFromLegacyMap(new Map([[1, stored(PS, 20)], [2, { points: 8 }]]));
   const result = buildSuggestions(lineup, projections, new Map(), RB1);
   assert.equal(result.projectedTotal, 0);
   assert.equal(result.optimalTotal, 8);
@@ -283,9 +296,9 @@ test('buildSuggestions: a Practice squad starter is worth zero, reads practice_s
 test('buildSuggestions: a Practice squad bench player with the highest projection is never proposed as a start', () => {
   const lineup = [
     entry(1, 'RB', 'RB'),
-    { ...entry(2, 'RB', 'BENCH'), nflRosterStatus: PRACTICE_SQUAD() },
+    entry(2, 'RB', 'BENCH'),
   ];
-  const projections = resultFromLegacyMap(new Map([[1, { points: 10 }], [2, { points: 30 }]]));
+  const projections = resultFromLegacyMap(new Map([[1, { points: 10 }], [2, stored(PS, 30)]]));
   const result = buildSuggestions(lineup, projections, new Map(), RB1);
   assert.equal(result.suggestions.length, 0);
   assert.equal(result.optimalTotal, 10);
@@ -294,9 +307,9 @@ test('buildSuggestions: a Practice squad bench player with the highest projectio
 test('buildSuggestions: a Doubtful bench player is never auto-promoted', () => {
   const lineup = [
     entry(1, 'RB', 'RB'),
-    { ...entry(2, 'RB', 'BENCH'), injuryStatus: 'D' },
+    entry(2, 'RB', 'BENCH'),
   ];
-  const projections = resultFromLegacyMap(new Map([[1, { points: 8 }], [2, { points: 25 }]]));
+  const projections = resultFromLegacyMap(new Map([[1, { points: 8 }], [2, stored(withStatus('D'), 25)]]));
   const result = buildSuggestions(lineup, projections, new Map(), RB1);
   assert.equal(result.suggestions.length, 0, 'no active-probability data means no automatic swap');
   assert.equal(result.optimalTotal, 8);
@@ -308,28 +321,31 @@ test('buildSuggestions: a Doubtful bench player is never auto-promoted', () => {
 const SUNDAY_1PM = '2026-10-11T17:00:00Z';
 const DNP_WEEK = [{ practiceStatus: 'Did Not Participate In Practice', practicePrimaryInjury: 'Hamstring', reportPrimaryInjury: 'Hamstring', observedAt: '2026-10-07T22:00:00Z' }];
 
+// The read loads this week's Practice participation itself (`practiceById`).
 test('buildSuggestions: a no-practice Questionable bench player is not suggested, a plain Questionable one still is', () => {
-  const projections = resultFromLegacyMap(new Map([[1, { points: 8 }], [2, { points: 25 }]]));
-  const lineup = (practiceObservations, kickoff = SUNDAY_1PM) => [
-    entry(1, 'RB', 'RB'),
-    { ...entry(2, 'RB', 'BENCH'), injuryStatus: 'Q', kickoff, practiceObservations },
-  ];
-  const held = buildSuggestions(lineup(DNP_WEEK), projections, new Map(), RB1);
+  const lineup = [entry(1, 'RB', 'RB'), entry(2, 'RB', 'BENCH')];
+  const projections = (observations, kickoffAt = SUNDAY_1PM) => resultFromLegacyMap(
+    new Map([[1, { points: 8 }], [2, stored(withStatus('Q'), 25)]]),
+    { practiceById: new Map([[2, { observations, kickoffAt }]]) }
+  );
+  const held = buildSuggestions(lineup, projections(DNP_WEEK), new Map(), RB1);
   assert.equal(held.suggestions.length, 0, 'no practice all week means no automatic promotion');
   assert.equal(held.optimalTotal, 8);
-  const promoted = buildSuggestions(lineup([]), projections, new Map(), RB1);
+  const promoted = buildSuggestions(lineup, projections([]), new Map(), RB1);
   assert.equal(promoted.suggestions.length, 1, 'no observations is the status quo');
-  assert.equal(promoted.suggestions[0].suggested.availability.reason, 'questionable');
-  const noKickoff = buildSuggestions(lineup(DNP_WEEK, null), projections, new Map(), RB1);
+  assert.equal(promoted.suggestions[0].suggested.startVerdict.reason, 'questionable');
+  const noKickoff = buildSuggestions(lineup, projections(DNP_WEEK, null), new Map(), RB1);
   assert.equal(noKickoff.suggestions.length, 1, 'no kickoff on file: the coverage deadline cannot be met, so the status quo');
 });
 
 test('buildSuggestions: a no-practice Questionable starter keeps his slot, and every entry carries its verdict', () => {
   const lineup = [
-    { ...entry(1, 'RB', 'RB'), injuryStatus: 'Q', kickoff: SUNDAY_1PM, practiceObservations: DNP_WEEK },
+    entry(1, 'RB', 'RB'),
     entry(2, 'RB', 'BENCH'),
   ];
-  const projections = resultFromLegacyMap(new Map([[1, { points: 15 }], [2, { points: 4 }]]));
+  const projections = resultFromLegacyMap(new Map([[1, stored(withStatus('Q'), 15)], [2, { points: 4 }]]), {
+    practiceById: new Map([[1, { observations: DNP_WEEK, kickoffAt: SUNDAY_1PM }]]),
+  });
   const result = buildSuggestions(lineup, projections, new Map(), RB1);
   assert.equal(result.suggestions.length, 0);
   assert.equal(result.projectedTotal, 15, 'his projection still counts');
@@ -385,12 +401,12 @@ test('buildSuggestions: a bench player with a NON-baseline reason is still promo
 
 test('buildSuggestions: an Out starter is still replaced by a healthy bench player when the other bench player is a Position-baseline one', () => {
   const lineup = [
-    { ...entry(1, 'RB', 'RB'), injuryStatus: 'O' },
+    entry(1, 'RB', 'RB'),
     entry(2, 'RB', 'BENCH'),
     entry(3, 'RB', 'BENCH'),
   ];
   const projections = resultFromLegacyMap(new Map([
-    [1, { points: 20 }],
+    [1, stored(OUT, 20)],
     [2, { points: 25, factors: POSITION_BASELINE }],
     [3, { points: 6 }],
   ]));
@@ -402,9 +418,9 @@ test('buildSuggestions: an Out starter is still replaced by a healthy bench play
 test('buildSuggestions: a Questionable bench player CAN be promoted, flagged as such', () => {
   const lineup = [
     entry(1, 'RB', 'RB'),
-    { ...entry(2, 'RB', 'BENCH'), injuryStatus: 'Q' },
+    entry(2, 'RB', 'BENCH'),
   ];
-  const projections = resultFromLegacyMap(new Map([[1, { points: 8 }], [2, { points: 25 }]]));
+  const projections = resultFromLegacyMap(new Map([[1, { points: 8 }], [2, stored(withStatus('Q'), 25)]]));
   const result = buildSuggestions(lineup, projections, new Map(), RB1);
   assert.equal(result.suggestions.length, 1);
   assert.equal(result.suggestions[0].suggested.availability.status, 'Q');
@@ -443,8 +459,25 @@ test('buildSuggestions: a clear edge is a start recommendation with a probabilit
     [2, { points: 18, projection: { p10: 14, p25: 16, median: 18, p75: 21, p90: 25 } }],
   ]));
   const result = buildSuggestions(lineup, projections, new Map(), RB1);
-  assert.equal(result.suggestions[0].verdict, 'start');
+  assert.equal(result.suggestions[0].verdict, 'strong');
   assert.equal(result.suggestions[0].probabilityBetter, 1);
+});
+
+// The verdict bands live in Interval reading's verdictBand; these pin the
+// builder reading them at each boundary (#1909).
+test('buildSuggestions: the verdict is tossup at 0.6, start just above it, strong at 0.8, start when null', () => {
+  const lineup = [entry(1, 'RB', 'RB'), entry(2, 'RB', 'BENCH')];
+  const projections = resultFromLegacyMap(new Map([[1, { points: 4 }], [2, { points: 18 }]]));
+  const original = projectionModel.probabilityBetter;
+  try {
+    for (const [probability, verdict] of [[0.6, 'tossup'], [0.61, 'start'], [0.79, 'start'], [0.8, 'strong'], [null, 'start']]) {
+      projectionModel.probabilityBetter = () => probability;
+      const [suggestion] = buildSuggestions(lineup, projections, new Map(), RB1).suggestions;
+      assert.equal(suggestion.verdict, verdict, `probability ${probability}`);
+    }
+  } finally {
+    projectionModel.probabilityBetter = original;
+  }
 });
 
 test('buildSuggestions: a missing projection never becomes a recommendation', () => {
@@ -649,89 +682,112 @@ test('tradeFairnessSummary: safely defaults missing and non-finite totals to zer
 });
 
 // ---------------------------------------------------------------------------
-// upgradeFor: eligible-slot-only comparison, no-starter = 0 (issue #1306
-// Ruling item 1). The legacy batch-ranking wrapper and its dedicated parity
-// test are gone with the retired waiver suggestions route (#1794);
-// upgradeFor is the one Upgrade producer now, so these cases exercise it
-// directly.
+// upgradeFor (#1910, ADR 0055): the gain to this week's OPTIMAL lineup, over
+// the whole roster (starters and bench). `roster` rows are
+// { playerId, name, position, slot, projection, unavailable?, kickedOff? },
+// an Unavailable player already zeroed by the caller.
 // ---------------------------------------------------------------------------
 
-test('upgradeFor: points is the candidate projection minus the weakest starter projection, per candidate', () => {
-  const currentStarters = [{ playerId: 99, slot: 'RB', name: 'Starter RB', projection: 10 }];
-  const points = [12, 20, 8].map(
-    (projection) => upgradeFor({ position: 'RB', projection }, currentStarters, DEFAULT_ROSTER_SLOTS).points
-  );
-  assert.deepEqual(points, [2, 10, -2]);
+const rosterRow = (playerId, position, slot, projection, extra = {}) => ({
+  playerId, name: `p${playerId}`, position, slot, projection, unavailable: null, kickedOff: false, ...extra,
 });
 
-test('upgradeFor: a starter in a non-eligible slot is ignored, even one weaker than the eligible starters', () => {
-  const currentStarters = [
-    { playerId: 10, slot: 'RB', name: 'Starter RB', projection: 1 }, // not TE-eligible, ignored despite being weakest overall
-    { playerId: 11, slot: 'TE', name: 'Starter TE', projection: 6 },
-    { playerId: 12, slot: 'FLEX', name: 'Starter FLEX', projection: 4 }, // TE-eligible via FLEX, weaker
+test('upgradeFor: a bench player who would fill an Unavailable starter\'s slot is netted out (#1910 red-tell)', () => {
+  const roster = [
+    rosterRow(1, 'RB', 'RB', 0, { unavailable: 'out' }),
+    rosterRow(2, 'RB', 'BENCH', 12),
   ];
-  const candidate = { position: 'TE', projection: 10 };
-  const upgrade = upgradeFor(candidate, currentStarters, DEFAULT_ROSTER_SLOTS);
-  assert.equal(upgrade.points, 6);
-  assert.deepEqual(upgrade.overPlayer, { id: 12, name: 'Starter FLEX', points: 4, unavailable: null });
-  assert.equal(slotEligible(upgrade.slot, candidate.position, DEFAULT_ROSTER_SLOTS), true);
+  assert.deepEqual(upgradeFor({ position: 'RB', projection: 10 }, roster, RB1), { points: 0, overPlayer: null, slot: null });
+  assert.deepEqual(upgradeFor({ position: 'RB', projection: 15 }, roster, RB1), {
+    points: 3,
+    overPlayer: { id: 2, name: 'p2', points: 12, unavailable: null },
+    slot: 'RB',
+  });
 });
 
-test('upgradeFor: no starter at an eligible slot -> weakest is 0, overPlayer and slot are null', () => {
-  const candidate = { position: 'QB', projection: 18 };
-  const currentStarters = [{ playerId: 10, slot: 'RB', name: 'Starter RB', projection: 25 }];
-  const upgrade = upgradeFor(candidate, currentStarters, DEFAULT_ROSTER_SLOTS);
+test('upgradeFor: points is the candidate projection over the starter he beats, never below 0', () => {
+  const roster = [rosterRow(99, 'RB', 'RB', 10)];
+  const points = [12, 20, 8].map((projection) => upgradeFor({ position: 'RB', projection }, roster, RB1).points);
+  assert.deepEqual(points, [2, 10, 0]);
+});
+
+test('upgradeFor: a starter in a non-eligible slot is ignored', () => {
+  const roster = [
+    rosterRow(10, 'RB', 'RB', 1),
+    rosterRow(11, 'TE', 'TE', 6),
+    rosterRow(12, 'WR', 'FLEX', 4),
+  ];
+  const slots = [
+    { key: 'RB', label: 'RB', count: 1, eligiblePositions: ['RB'] },
+    { key: 'TE', label: 'TE', count: 1, eligiblePositions: ['TE'] },
+    { key: 'FLEX', label: 'FLEX', count: 1, eligiblePositions: ['RB', 'WR', 'TE'] },
+  ];
+  const upgrade = upgradeFor({ position: 'TE', projection: 10 }, roster, slots);
+  assert.equal(upgrade.points, 6);
+  assert.deepEqual(upgrade.overPlayer, { id: 12, name: 'p12', points: 4, unavailable: null });
+  assert.equal(upgrade.slot, 'TE');
+});
+
+test('upgradeFor: a candidate who fills an empty slot has no overPlayer', () => {
+  const upgrade = upgradeFor({ position: 'QB', projection: 18 }, [rosterRow(10, 'RB', 'RB', 25)], DEFAULT_ROSTER_SLOTS);
   assert.equal(upgrade.points, 18);
   assert.equal(upgrade.overPlayer, null);
-  assert.equal(upgrade.slot, null);
+  assert.equal(upgrade.slot, 'QB');
 });
 
-test('upgradeFor: names the weakest eligible starter as overPlayer', () => {
-  const candidate = { position: 'TE', projection: 10 };
-  const currentStarters = [
-    { playerId: 11, slot: 'TE', name: 'Starter TE', projection: 6 },
-    { playerId: 12, slot: 'FLEX', name: 'Starter FLEX', projection: 4 },
-  ];
-  const upgrade = upgradeFor(candidate, currentStarters, DEFAULT_ROSTER_SLOTS);
-  assert.equal(upgrade.points, 6);
-  assert.deepEqual(upgrade.overPlayer, { id: 12, name: 'Starter FLEX', points: 4, unavailable: null });
-  assert.equal(upgrade.slot, 'FLEX');
-});
-
-// Ruling on #1793 (option B): overPlayer carries his own effective points
-// (the same zeroed-if-Unavailable value `weakestEligibleStarter` compared
-// against) and the Unavailable reason or null, so a client can tell "zero
-// because Unavailable" from "zero because he genuinely projects 0" without
-// re-deriving it.
-test('upgradeFor: overPlayer.points is the starter\'s own effective projection, not the candidate\'s', () => {
-  const candidate = { position: 'WR', projection: 10 };
-  const currentStarters = [{ playerId: 20, slot: 'WR', name: 'Starter WR', projection: 6 }];
-  const upgrade = upgradeFor(candidate, currentStarters, DEFAULT_ROSTER_SLOTS);
-  assert.deepEqual(upgrade.overPlayer, { id: 20, name: 'Starter WR', points: 6, unavailable: null });
-});
-
-test('upgradeFor: overPlayer.unavailable carries the reason straight from currentStarters (already zeroed there)', () => {
-  const candidate = { position: 'WR', projection: 10 };
-  const currentStarters = [{ playerId: 21, slot: 'WR', name: 'Bye Starter', projection: 0, unavailable: 'bye' }];
-  const upgrade = upgradeFor(candidate, currentStarters, DEFAULT_ROSTER_SLOTS);
+test('upgradeFor: overPlayer carries the Unavailable reason and his zeroed points', () => {
+  const roster = [rosterRow(21, 'WR', 'WR', 0, { unavailable: 'bye' })];
+  const upgrade = upgradeFor({ position: 'WR', projection: 10 }, roster, [{ key: 'WR', label: 'WR', count: 1, eligiblePositions: ['WR'] }]);
   assert.equal(upgrade.points, 10);
-  assert.deepEqual(upgrade.overPlayer, { id: 21, name: 'Bye Starter', points: 0, unavailable: 'bye' });
+  assert.deepEqual(upgrade.overPlayer, { id: 21, name: 'p21', points: 0, unavailable: 'bye' });
 });
 
-test('upgradeFor: a currentStarters row with no unavailable field reads overPlayer.unavailable as null', () => {
-  const candidate = { position: 'WR', projection: 10 };
-  const currentStarters = [{ playerId: 22, slot: 'WR', name: 'Plain Starter', projection: 3 }];
-  const upgrade = upgradeFor(candidate, currentStarters, DEFAULT_ROSTER_SLOTS);
-  assert.equal(upgrade.overPlayer.unavailable, null);
+test('upgradeFor: a kicked-off starter is pinned and a kicked-off bench player is not a lineup candidate', () => {
+  const pinnedRoster = [rosterRow(1, 'RB', 'RB', 5, { kickedOff: true })];
+  assert.deepEqual(upgradeFor({ position: 'RB', projection: 20 }, pinnedRoster, RB1), { points: 0, overPlayer: null, slot: null });
+  const lockedBench = [rosterRow(1, 'RB', 'RB', 5), rosterRow(2, 'RB', 'BENCH', 30, { kickedOff: true })];
+  assert.equal(upgradeFor({ position: 'RB', projection: 20 }, lockedBench, RB1).points, 15);
+});
+
+test('upgradeFor: overPlayer on a tie does not depend on the input order of the roster', () => {
+  const wr2 = [{ key: 'WR', label: 'WR', count: 2, eligiblePositions: ['WR'] }];
+  const starters = [
+    rosterRow(3, 'WR', 'WR', 0, { unavailable: 'bye' }),
+    rosterRow(4, 'WR', 'WR', 0, { unavailable: 'bye' }),
+  ];
+  const candidate = { position: 'WR', projection: 9 };
+  const forward = upgradeFor(candidate, starters, wr2);
+  const reversed = upgradeFor(candidate, [...starters].reverse(), wr2);
+  assert.equal(forward.points, 9);
+  assert.deepEqual(reversed, forward);
+  assert.ok([3, 4].includes(forward.overPlayer.id));
+  // A healthy tie: an RB starter at 8 and a bench RB at 8.
+  const rbs = [rosterRow(1, 'RB', 'RB', 8), rosterRow(2, 'RB', 'BENCH', 8)];
+  assert.deepEqual(
+    upgradeFor({ position: 'RB', projection: 12 }, [...rbs].reverse(), RB1),
+    upgradeFor({ position: 'RB', projection: 12 }, rbs, RB1),
+  );
+});
+
+test('upgradeFor: a gain that arrives through a FLEX chain is found', () => {
+  // RB 9 starts at RB, WR 8 at FLEX. A candidate RB 20 takes RB, the RB 9 moves to FLEX, WR 8 leaves.
+  const roster = [rosterRow(1, 'RB', 'RB', 9), rosterRow(2, 'WR', 'FLEX', 8)];
+  const slots = [
+    { key: 'RB', label: 'RB', count: 1, eligiblePositions: ['RB'] },
+    { key: 'FLEX', label: 'FLEX', count: 1, eligiblePositions: ['RB', 'WR'] },
+  ];
+  const upgrade = upgradeFor({ position: 'RB', projection: 20 }, roster, slots);
+  assert.equal(upgrade.points, 12);
+  assert.equal(upgrade.overPlayer.id, 2);
 });
 
 // #1668: a released player (nfl_team null) is Unavailable and never proposed.
 test('buildSuggestions: a released bench player with the highest projection is never proposed as a start', () => {
   const lineup = [
     entry(1, 'RB', 'RB'),
-    { ...entry(2, 'RB', 'BENCH'), nflTeam: null },
+    entry(2, 'RB', 'BENCH'),
   ];
-  const projections = resultFromLegacyMap(new Map([[1, { points: 10 }], [2, { points: 30 }]]));
+  const projections = resultFromLegacyMap(new Map([[1, { points: 10 }], [2, stored(NO_TEAM, 30)]]));
   const result = buildSuggestions(lineup, projections, new Map(), RB1);
   assert.equal(result.suggestions.length, 0);
 });
@@ -884,8 +940,49 @@ test('#1862 startSitAdvice reads the lineup at the as-of time and carries the ma
   assert.deepEqual(advice.calledShotRecord, { hits: 1, resolved: 1, streak: 1 });
 });
 
+// #2144: the advice's dependencies are arguments. The ambient pool (what the
+// schedule reads still use) refuses a league read, so a league read that
+// bypassed `db` fails rather than passes; the projection fake records what it
+// was handed.
+test('#2144 startSitAdvice reads the league once and hands that row to the lineup read and the projection read', async (t) => {
+  const lineupService = require('../services/lineup.service');
+  const decisionCardContext = require('../services/decisionCardContext.service');
+  const { startSitAdvice } = require('../services/decision.service');
+  const leagueRow = { id: 3, best_ball: false, scoring_rules: null, regular_season_weeks: 14 };
+  const db = createFakePool([
+    [/FROM "leagues"/, () => ({ rows: [leagueRow] })],
+    [/./, () => ({ rows: [] })],
+  ]);
+  createFakePool([
+    [/FROM "leagues"/, () => { throw new Error('the league was read off the ambient pool, not db'); }],
+    [/./, () => ({ rows: [] })],
+  ]).install(t);
+  const lineupReads = [];
+  t.mock.method(lineupService, 'getLineup', async (args) => {
+    lineupReads.push(args);
+    return { teamId: 10, season: 2026, week: 6, rosterSlots: [], entries: [] };
+  });
+  t.mock.method(decisionCardContext, 'loadGameChipContext', async () => new Map());
+  t.mock.method(decisionCardContext, 'loadVolatilityTags', async () => new Map());
+  const projectionReads = [];
+  const projections = {
+    getWeeklyProjections: async (args) => {
+      projectionReads.push(args);
+      return resultFromLegacyMap(new Map());
+    },
+    getPositionDefense: async () => new Map(),
+  };
+
+  await startSitAdvice({ leagueId: 3, userId: 7 }, { db, projections });
+
+  assert.equal(projectionReads.length, 1);
+  assert.equal(projectionReads[0].league, leagueRow, 'the projection read is priced under the league read');
+  assert.equal(lineupReads[0].league, leagueRow, 'the lineup read is handed the league, not left to read it again');
+  assert.equal(db.matching(/FROM "leagues"/).length, 1, 'the league is read exactly once, through db');
+});
+
 // ADR 0057: a Backup quarterback (his chart verdict rides the Weekly projection
-// result's `backupFor`) is never auto-recommended, like a Position-baseline one,
+// result's `startVerdictFor`) is never auto-recommended, like a Position-baseline one,
 // but his own number is untouched.
 const QB1 = [{ key: 'QB', label: 'QB', count: 1, eligiblePositions: ['QB'] }];
 
@@ -894,4 +991,125 @@ test('buildSuggestions: a Backup quarterback on the bench is never suggested, ev
   const projections = resultFromLegacyMap(new Map([[1, { points: 12 }], [2, { points: 20.25 }]]), { backupIds: new Set([2]) });
   const result = buildSuggestions(lineup, projections, new Map(), QB1);
   assert.equal(result.suggestions.length, 0);
+});
+
+// Start verdict (spec #2042, #2044): a run that stored the bench rookie
+// Unavailable (IR) and marked him Position-baseline is never a candidate.
+// The verdict's outcome gates, not the flags rebuilt from its reason (#1775).
+test('buildSuggestions: a stale-IR Position-baseline bench rookie is never a candidate, whatever else the run holds', () => {
+  const lineup = [entry(1, 'RB', 'RB'), entry(2, 'RB', 'BENCH')];
+  const staleIr = {
+    points: 20,
+    factors: { availability: { available: false, status: 'IR', reason: 'ir' }, dataQuality: { reasons: ['position baseline'] } },
+  };
+  const projections = resultFromLegacyMap(new Map([[1, { points: 12 }], [2, staleIr]]));
+  assert.equal(projections.startVerdictFor(2).outcome, 'unavailable', 'the fixture: the run says Unavailable');
+  const result = buildSuggestions(lineup, projections, new Map(), RB1);
+  assert.equal(result.suggestions.length, 0);
+});
+
+// ---------------------------------------------------------------------------
+// liveWhatIf and Held (#2141): the live advisor asks lineup.service's
+// `heldLineup` who may move, then the one Optimizer for the best lineup. A
+// kicked-off bench player is no candidate however high he projects, and a
+// kicked-off starter keeps his slot instead of being re-seated.
+// ---------------------------------------------------------------------------
+
+const WHATIF_LEAGUE_ID = 5;
+const WHATIF_TEAM_ID = 10;
+
+function whatIfWorld(t, { entries, kickedOff, rosterSlots, bestBall = false }) {
+  return createFakePool([
+    [/^SELECT \* FROM "leagues"/, () => ({
+      rows: [{
+        id: WHATIF_LEAGUE_ID, current_season: 2026, current_week: 8,
+        roster_slots: rosterSlots, bench_slots: 5, ir_slots: 1, scoring_rules: null,
+        best_ball: bestBall,
+      }],
+    })],
+    [/^SELECT 1 FROM "teams"/, () => ({ rows: [{ ok: 1 }] })],
+    [/^SELECT COUNT\(\*\)::int AS "n"/, () => ({ rows: [{ n: 2, all_final: false }] })],
+    [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
+    [/^SELECT "team_players"\."player_id"/, () => ({
+      rows: entries.map(({ player_id, position }) => ({ player_id, position })),
+    })],
+    [/^SELECT "player_id" FROM "lineup_entries"/, () => ({
+      rows: entries.map(({ player_id }) => ({ player_id })),
+    })],
+    [/^SELECT "lineup_entries"\."player_id"/, () => ({ rows: entries.map((e) => ({ ...e })) })],
+    [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({
+      rows: kickedOff.map((nfl_team) => ({ nfl_team })),
+    })],
+  ]).install(t);
+}
+
+const whatIfRow = (player_id, position, slot, nfl_team, stats) => ({
+  player_id, name: `p${player_id}`, position, slot, nfl_team, stats,
+});
+const runLiveWhatIf = () => liveWhatIf({
+  leagueId: WHATIF_LEAGUE_ID, teamId: WHATIF_TEAM_ID, season: 2026, week: 8,
+});
+
+test('liveWhatIf: a kicked-off bench player with the highest projection is not started', async (t) => {
+  // p2 is worth 30 and has kicked off (KC); p3 is worth 15 and has not. The
+  // only thing that keeps p2 out of the swap is Held's bench exclusion.
+  const fake = whatIfWorld(t, {
+    rosterSlots: RB1,
+    kickedOff: ['KC'],
+    entries: [
+      whatIfRow(1, 'RB', 'RB', 'BUF', { rushingYards: 100 }), // 10
+      whatIfRow(2, 'RB', 'BENCH', 'KC', { rushingYards: 300 }), // 30, kicked off
+      whatIfRow(3, 'RB', 'BENCH', 'BUF', { rushingYards: 150 }), // 15
+    ],
+  });
+
+  const result = await runLiveWhatIf();
+
+  assert.deepEqual(result.swaps.map((s) => [s.out.playerId, s.in.playerId]), [[1, 3]]);
+  assert.equal(result.delta, 5);
+  assert.equal(result.optimalPoints, 15);
+  fake.assertClean();
+});
+
+test('liveWhatIf: a kicked-off starter keeps his slot, so no swap needs him to move', async (t) => {
+  // p1 started at FLEX and has kicked off. Re-seating him at RB would let p3
+  // take FLEX, but setLineup would refuse that move: advice must hold him in
+  // FLEX, where the open RB slot can only take p2.
+  const fake = whatIfWorld(t, {
+    rosterSlots: [...RB1, ...FLEX1],
+    kickedOff: ['KC'],
+    entries: [
+      whatIfRow(1, 'RB', 'FLEX', 'KC', { rushingYards: 120 }), // 12, kicked off
+      whatIfRow(2, 'RB', 'RB', 'BUF', { rushingYards: 40 }), // 4
+      whatIfRow(3, 'WR', 'BENCH', 'BUF', { receivingYards: 90 }), // 9
+    ],
+  });
+
+  const result = await runLiveWhatIf();
+
+  assert.deepEqual(result.swaps, []);
+  assert.equal(result.delta, 0);
+  fake.assertClean();
+});
+
+test('liveWhatIf: best ball fills every slot that has a player, so a negative K and DEF still count', async (t) => {
+  // QB 20, K -2, DEF -2 are the whole pool: the best-ball optimal is 16, the
+  // greedy it replaced said 16, and an Optimizer that left empty slots for
+  // negative values would say 20 (#2141, Ruling B).
+  const fake = whatIfWorld(t, {
+    rosterSlots: DEFAULT_ROSTER_SLOTS,
+    kickedOff: [],
+    bestBall: true,
+    entries: [
+      whatIfRow(1, 'QB', 'BENCH', 'BUF', { passingYards: 500 }), // 20
+      whatIfRow(2, 'K', 'BENCH', 'BUF', { interceptions: 1 }), // -2
+      whatIfRow(3, 'DEF', 'BENCH', 'BUF', { interceptions: 1 }), // -2
+    ],
+  });
+
+  const result = await runLiveWhatIf();
+
+  assert.equal(result.optimalPoints, 16);
+  assert.equal(result.actualPoints, 16);
+  fake.assertClean();
 });

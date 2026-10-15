@@ -65,7 +65,7 @@
  *     league's own `roster_slots`.
  */
 
-import { parseRosterSlots } from '../../../shared/lib';
+import { parseRosterSlots, isStartVerdictUnavailable, reasonLabel, hasNoHistory } from '../../../shared/lib';
 import { slotsFor } from './rosterTemplateModel';
 
 const BENCH = 'BENCH';
@@ -74,8 +74,8 @@ const IR = 'IR';
 // injury_status codes that are "questionable-class" rather than Unavailable
 // (#1330 ruling): the injury sync
 // (server/services/feedSyncRuns.service.js, ESPN_INJURY_STATUS) writes exactly four non-null codes -
-// 'IR', 'Q', 'D', 'O' - and O/IR are already Unavailable (the wire's
-// `unavailable` code), so the remaining two, Q and D, are the whole set. This is the one
+// 'IR', 'Q', 'D', 'O' - and O/IR are already Unavailable (the Start verdict's
+// `unavailable` outcome), so the remaining two, Q and D, are the whole set. This is the one
 // spelling of "questionable"; a widget reads it through `isQuestionable`
 // below rather than inventing its own designation list.
 const QUESTIONABLE_DESIGNATIONS = new Set(['Q', 'D']);
@@ -225,14 +225,79 @@ export function pairStartersBySlot(homeStarters, awayStarters, slotOrder) {
  * Lineup lock), read as a plain fact off the wire's own `locked` boolean -
  * never recomputed here. Mirrors LineupScreen.jsx's `entry.locked` /
  * `targetEntry.locked` reads (:188-202) minus the drag-and-drop swap intent:
- * `canResolveLockedIrStash`'s exception (a locked, no-longer-eligible IR
- * occupant may still move to BENCH) is a client interaction rule about
- * WHERE a locked player may go, not a fact about whether he is locked, so it
- * stays out of this fact and out of `slotsFor` (the Roster template entity's
- * own slot-eligibility fact, `lineupEntries` below).
+ * the stale-stash exception (a locked, no-longer-eligible IR occupant may
+ * still move to BENCH) is a rule about WHERE a locked player may go, not a
+ * fact about whether he is locked, so it lives in `moveLegality`
+ * (`moveLegality.js`), not in this fact or in `slotsFor` (the Roster template
+ * entity's own slot-eligibility fact, `lineupEntries` below).
  */
 export function locked(entry) {
   return Boolean(entry && entry.locked);
+}
+
+/**
+ * Whether a lineup entry is a spent row: a departed starter's record holding a
+ * slot for a settled week (CONTEXT.md's Lineup entry). NOT `locked` - a played
+ * out starter is locked and not spent; a departed one is spent and not locked.
+ */
+export function spent(entry) {
+  return Boolean(entry && entry.spent);
+}
+
+/**
+ * Whether a lineup entry (or any row carrying the same `availability`) is
+ * Unavailable (CONTEXT.md): `availability.available === false`, the one read of
+ * the server's Start verdict that surfaces render, so no widget keeps its own.
+ */
+export function unavailable(entry) {
+  return Boolean(entry && entry.availability && entry.availability.available === false);
+}
+
+/**
+ * The Bench order (#2140: one rule, the Ledger and the Decision card's bench
+ * options both read it). Stable partition: every available entry (sorted by
+ * projectedPoints, the Point estimate - the same number the Ledger row headlines, #1482 - high to
+ * low, an unknown value sorting last among them) before every Unavailable
+ * one (kept in the order the server returned them). Never `entry.projection`
+ * (the distribution's bare mean): sorting by a different statistic than the
+ * row prints could put the bench in an order its own headline numbers
+ * contradict.
+ *
+ * Position-baseline players (#1776, `hasNoHistory`) sit between the two: their
+ * number is the position's average, not evidence, so every evidenced player
+ * sorts before them (kept in the order the server returned them, since their
+ * hidden numbers tie), and Unavailable players still come last.
+ */
+export function sortBench(benchEntries) {
+  const available = [];
+  const noHistory = [];
+  const unavailableEntries = [];
+  for (const entry of benchEntries) {
+    if (unavailable(entry)) unavailableEntries.push(entry);
+    else if (hasNoHistory(entry)) noHistory.push(entry);
+    else available.push(entry);
+  }
+  available.sort((a, b) => {
+    const ap = Number.isFinite(a.projectedPoints) ? a.projectedPoints : -Infinity;
+    const bp = Number.isFinite(b.projectedPoints) ? b.projectedPoints : -Infinity;
+    return bp - ap;
+  });
+  return [...available, ...noHistory, ...unavailableEntries];
+}
+
+
+// The one word for an Unavailable player whose reason the label map does not
+// know or the wire left out (the Slot comparison used to say 'out').
+const UNAVAILABLE_FALLBACK = 'unavailable';
+
+/**
+ * The label an Unavailable entry shows ("on bye", "out", "on IR", ...), or
+ * `UNAVAILABLE_FALLBACK` for a missing or unknown reason; null when the entry
+ * is not Unavailable. One fallback for every surface.
+ */
+export function unavailableLabel(entry) {
+  if (!unavailable(entry)) return null;
+  return reasonLabel(entry.availability.reason) || UNAVAILABLE_FALLBACK;
 }
 
 /**
@@ -248,14 +313,16 @@ export function isQuestionable(entry) {
 }
 
 /**
- * A lineup entry's availability from the wire's own Unavailable code
- * (CONTEXT.md's Unavailable; #1668 made `unavailable` the verdict's reason
- * code: 'bye' | 'out' | 'ir' | 'no_team', null when the player can play).
- * `reason` is the code alone, no label; a caller renders it through
+ * A lineup entry's availability from the wire's own Start verdict (CONTEXT.md's
+ * Unavailable; spec #2042): an `unavailable` outcome's reason is the code
+ * ('bye' | 'out' | 'ir' | 'no_team' | 'practice_squad'), anything else can
+ * play. `reason` is the code alone, no label; a caller renders it through
  * `unavailableLabel`. The client holds no copy of the verdict (#1675).
  */
-function availabilityFor(code) {
-  return code ? { available: false, reason: code } : { available: true, reason: null };
+function availabilityFor(verdict) {
+  return isStartVerdictUnavailable({ startVerdict: verdict })
+    ? { available: false, reason: verdict.reason }
+    : { available: true, reason: null };
 }
 
 /**
@@ -271,7 +338,7 @@ function availabilityFor(code) {
  * calling this.
  *
  * The shape: `{ playerId, name, position, nflTeam, slot, slotIndex,
- * eligibleSlots, locked, availability: { available, reason }, unavailable,
+ * eligibleSlots, locked, availability: { available, reason }, startVerdict,
  * projectedPoints, projection, floor, ceiling, points, opponent, kickoff,
  * gameKey, edge: { kind, text }, irAttested, validStash, spent }`. `points`
  * (#1237) is the entry's actual/live fantasy points, null before kickoff or
@@ -284,7 +351,7 @@ function availabilityFor(code) {
  * in the league's order rather than sorting them itself.
  *
  * `projection` (the Weekly projection's mean), `floor` (its Interval's p10)
- * and `ceiling` (its p90), `kickoff`, `gameKey`, `unavailable` and `edge` all
+ * and `ceiling` (its p90), `kickoff`, `gameKey`, `startVerdict` and `edge` all
  * arrived with #1235 (ADR 0037: the lineup entry carries its decision
  * context) - each a straight pass-through of the wire field
  * `server/services/lineup.service.js`'s `getLineup` now returns, so ticket 5
@@ -392,19 +459,13 @@ export function lineupEntries(rosterWire, league) {
       ...entry,
       eligibleSlots: slotsFor(rosterSlots, entry),
       locked: locked(r),
-      availability: availabilityFor(r.unavailable ?? null),
-      // The server's own Unavailable reason (#1235), passed through
-      // unchanged; `availability` above is mapped from this same code.
-      unavailable: r.unavailable ?? null,
-      // A Position-baseline projection (CONTEXT.md; #1776): the server's own
-      // boolean, already false when an Unavailable reason wins, passed through
-      // unchanged. It is NOT an Unavailable reason, so `availability` above is
-      // untouched by it.
-      positionBaseline: r.positionBaseline === true,
-      // A Backup quarterback (ADR 0057): the server's own boolean, passed
-      // through. Like Position-baseline it is not an Unavailable reason, and
-      // unlike it his number is evidence and stays printed.
-      backup: r.backup === true,
+      // The Start verdict (CONTEXT.md; spec #2042), passed through unchanged:
+      // the one field that says Unavailable, Position-baseline
+      // (`no_history`) or Backup quarterback (`backup`, whose number is
+      // evidence and stays printed). `availability` is mapped from it, and
+      // only an `unavailable` outcome is an Unavailable reason.
+      startVerdict: r.startVerdict ?? null,
+      availability: availabilityFor(r.startVerdict),
       // The Edge line (CONTEXT.md, Edge line; ADR 0037; #1235): one typed
       // `{ kind, text }`, computed on the server (`lineup.service.js`'s
       // `computeEdgeLine`) and passed through verbatim - this entity draws no

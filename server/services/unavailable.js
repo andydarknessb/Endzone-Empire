@@ -2,9 +2,11 @@
 
 /**
  * Unavailable (CONTEXT.md): the one server verdict on whether a player can
- * play this week. Every server reader (the projection engine, Start/sit
- * advice, the Expected final, the Lineup wire, the League detail fallback)
- * calls this with the same facts, so they cannot disagree.
+ * play this week. It is an internal seam of the Weekly projection read
+ * (projection.service.js; ADR 0061): every other reader gets the Start verdict
+ * by player id from the read's result and passes no facts of its own. Lineup
+ * lock is not part of it; callers that need both compose the lock beside the
+ * verdict.
  */
 
 // An NFL roster status older than this reads as Active (#1767): the daily ESPN
@@ -109,53 +111,69 @@ function noPracticeAllWeek(observations, kickoffAt) {
  * from. Inventing 0.6 would look like a measurement.
  *
  * Precedence: bye, then No NFL team, then Practice squad, then Suspended, then Out and IR, then
- * Position-baseline (#1775, `positionBaseline`: available but never
- * auto-recommended; passed only by readers that already hold a projection),
- * then Backup quarterback (ADR 0057, `backup`: the same shape, reason
- * `backup`), then Doubtful, no-practice and Questionable.
- * `nflRosterStatus` is the fact every reader passes from its own player read
- * (`nflRosterStatus.js`'s column); `now` is injectable for tests.
+ * Backup quarterback (ADR 0057, `backup`: available but never auto-recommended,
+ * reason `backup`; above Position-baseline since the 2026-10-07 amendment, #2044),
+ * then Position-baseline (#1775, `positionBaseline`: the same shape, reason
+ * `no_history`; passed only by the read once it holds a projection), then
+ * Doubtful, no-practice and Questionable.
+ * `nflRosterStatus` is the fact the projection read passes from its own player
+ * read (`nflRosterStatus.js`'s column); `now` is injectable for tests.
  *
- * `practice` (`{ observations, kickoffAt }`, ADR 0056) is passed ONLY by
- * Start/sit advice and the Weekly projection read's `startVerdictFor` (the
- * Decision card's verdict, spec #2042): a Questionable player with no practice all week
- * (`noPracticeAllWeek`, with `kickoffAt` his game for the coverage deadline)
- * reads `no_practice`, never auto-recommended, after Position-baseline and
- * Doubtful and before plain Questionable. Every other reader omits it, so its
- * verdict and the stored active probability are unchanged. The active
- * probability stays null.
+ * `practice` (`{ observations, kickoffAt }`, ADR 0056) is passed ONLY by the
+ * Weekly projection read's own start-verdict method (the one producer of the Start
+ * verdict, spec #2042; ADR 0061): a Questionable player with no practice all
+ * week (`noPracticeAllWeek`, with `kickoffAt` his game for the coverage
+ * deadline) reads `no_practice`, never auto-recommended, after Position-baseline
+ * and Doubtful and before plain Questionable. The engine's own call omits it, so
+ * the stored verdict and the stored active probability are unchanged. The
+ * active probability stays null.
  */
 function unavailableFor({
   injuryStatus = null, onBye = false, noTeam = false, nflRosterStatus = null, now = new Date(),
-  locked = false, lockedSlot = null, positionBaseline = false, backup = false, practice = null,
+  positionBaseline = false, backup = false, practice = null,
 } = {}) {
   const status = injuryStatus ? String(injuryStatus).toUpperCase() : null;
   if (onBye) {
-    return { available: false, activeProbability: 0, reason: 'bye', status, locked, lockedSlot };
+    return { available: false, activeProbability: 0, reason: 'bye', status };
   }
   // No NFL team (players.nfl_team IS NULL): no game to play in, so hard
   // unavailable like a bye. The projected number itself is unchanged (#1589).
   if (noTeam) {
-    return { available: false, activeProbability: 0, reason: 'no_team', status, locked, lockedSlot };
+    return { available: false, activeProbability: 0, reason: 'no_team', status };
   }
   // Practice squad (#1767): not on the 53, so no game this week unless
   // elevated (#1768 checks that a Saturday elevation reads Active). Like No
   // NFL team, the projected number itself is unchanged.
   if (rosterStatusIs('practice_squad', nflRosterStatus, now)) {
-    return { available: false, activeProbability: 0, reason: 'practice_squad', status, locked, lockedSlot };
+    return { available: false, activeProbability: 0, reason: 'practice_squad', status };
   }
   // Suspended (#2150): ESPN's roster `suspended` group or the roster item's
   // `Suspension` injury string (#2249), a fact apart from the injury
   // designation (which stays null). Same freshness as the Practice squad;
   // like No NFL team, the projected number itself is unchanged.
   if (rosterStatusIs('suspended', nflRosterStatus, now)) {
-    return { available: false, activeProbability: 0, reason: 'suspended', status, locked, lockedSlot };
+    return { available: false, activeProbability: 0, reason: 'suspended', status };
   }
   if (status === 'O') {
-    return { available: false, activeProbability: 0, reason: 'out', status, locked, lockedSlot };
+    return { available: false, activeProbability: 0, reason: 'out', status };
   }
   if (status === 'IR') {
-    return { available: false, activeProbability: 0, reason: 'ir', status, locked, lockedSlot };
+    return { available: false, activeProbability: 0, reason: 'ir', status };
+  }
+  if (backup) {
+    // A Backup quarterback (ADR 0057): behind an available teammate on the
+    // Depth chart, so he will not play. His number is his own evidence and
+    // stays; like Position-baseline he is never AUTO-recommended. Above
+    // no_history (below): a QB who is both reads `backup`, so the Start
+    // verdict keeps the fact that decides his zero in a valued lineup (ADR 0057,
+    // amended 2026-10-07; #2044). Above Doubtful, no-practice and Questionable.
+    return {
+      available: true,
+      autoRecommend: false,
+      activeProbability: status === 'D' || status === 'Q' ? null : 1,
+      reason: 'backup',
+      status,
+    };
   }
   if (positionBaseline) {
     // A Position-baseline projection (#1775): the number is the position's
@@ -163,7 +181,7 @@ function unavailableFor({
     // never AUTO-recommended (Start/sit advice never moves him onto the
     // lineup). Reads only AFTER a Weekly projection exists, so the engine's
     // pre-projection call never passes it and no stored field changes. Bye,
-    // no team, Out and IR (above) still win; this wins over Doubtful,
+    // no team, Out, IR and Backup (above) still win; this wins over Doubtful,
     // Questionable and no designation.
     return {
       available: true,
@@ -171,23 +189,6 @@ function unavailableFor({
       activeProbability: status === 'D' || status === 'Q' ? null : 1,
       reason: 'no_history',
       status,
-      locked,
-      lockedSlot,
-    };
-  }
-  if (backup) {
-    // A Backup quarterback (ADR 0057): behind an available teammate on the
-    // Depth chart, so he will not play. His number is his own evidence and
-    // stays; like Position-baseline he is never AUTO-recommended. Below
-    // no_history (above), above Doubtful, no-practice and Questionable.
-    return {
-      available: true,
-      autoRecommend: false,
-      activeProbability: status === 'D' || status === 'Q' ? null : 1,
-      reason: 'backup',
-      status,
-      locked,
-      lockedSlot,
     };
   }
   if (status === 'D') {
@@ -200,8 +201,6 @@ function unavailableFor({
       activeProbability: null,
       reason: 'doubtful',
       status,
-      locked,
-      lockedSlot,
     };
   }
   if (status === 'Q') {
@@ -212,8 +211,6 @@ function unavailableFor({
         activeProbability: null,
         reason: 'no_practice',
         status,
-        locked,
-        lockedSlot,
       };
     }
     return {
@@ -222,11 +219,9 @@ function unavailableFor({
       activeProbability: null,
       reason: 'questionable',
       status,
-      locked,
-      lockedSlot,
     };
   }
-  return { available: true, autoRecommend: true, activeProbability: 1, reason: null, status, locked, lockedSlot };
+  return { available: true, autoRecommend: true, activeProbability: 1, reason: null, status };
 }
 
 // A Position-baseline or Backup quarterback's number is not trusted: it is the
@@ -250,9 +245,4 @@ function startVerdictOf(availability) {
   return { outcome, reason: availability.reason, numberTrusted: !UNTRUSTED_NUMBER_REASONS.has(availability.reason) };
 }
 
-/** Pure: the Start verdict for `facts`, the options `unavailableFor` takes. */
-function startVerdictFor(facts = {}) {
-  return startVerdictOf(unavailableFor(facts));
-}
-
-module.exports = { unavailableFor, startVerdictFor, startVerdictOf, practiceCoverageDeadline, NFL_ROSTER_STATUS_FRESH_MS };
+module.exports = { unavailableFor, startVerdictOf, practiceCoverageDeadline, NFL_ROSTER_STATUS_FRESH_MS };

@@ -106,6 +106,7 @@ export default function MatchupHero({
           <HeroSide
             sideKey="home"
             side={home}
+            scoreLabel={view.scoreLabels.home}
             name={homeName}
             isViewer={view.viewerSide === 'home'}
             records={records}
@@ -140,6 +141,7 @@ export default function MatchupHero({
           <HeroSide
             sideKey="away"
             side={away}
+            scoreLabel={view.scoreLabels.away}
             name={awayName}
             isViewer={view.viewerSide === 'away'}
             records={records}
@@ -221,7 +223,7 @@ export { MatchupHero };
  * (avatar outboard); the name row and the tiles keep the home side's reading
  * order, as the canvas's heroSide() draws them.
  */
-function HeroSide({ sideKey, side, name, isViewer, records, ranks }) {
+function HeroSide({ sideKey, side, scoreLabel, name, isViewer, records, ranks }) {
   const right = sideKey === 'away';
   const record = records ? records[side.teamId] : null;
   const rankText = ranks ? rankLabel(ranks[side.teamId]) : null;
@@ -344,7 +346,7 @@ function HeroSide({ sideKey, side, name, isViewer, records, ranks }) {
           color: 'var(--dash-ink)',
         }}
       >
-        {scoreLabel(side.score)}
+        {scoreLabel}
       </Typography>
 
       <Box
@@ -503,12 +505,6 @@ function Kickoff({ kickoff }) {
       </Typography>
     </Box>
   );
-}
-
-/** A score to a tenth; a missing score reads 0.0, as the old hero read it. */
-function scoreLabel(value) {
-  const n = Number(value);
-  return Number.isFinite(n) ? n.toFixed(1) : '0.0';
 }
 
 /**

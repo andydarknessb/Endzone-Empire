@@ -3,9 +3,9 @@ import {
   matchupFromDetailBody,
   applyScoreEvent,
   applyIdentityPatch,
-  matchupStatusView,
   matchupResultLine,
   viewerMatchupOf,
+  playerFromDetailRow,
 } from './matchupModel';
 
 // A list row exactly as GET /api/league/:id/matchups delivers it
@@ -52,6 +52,7 @@ describe('matchupFromListRow / matchupFromDetailBody: one shape from any wire', 
       nflGameIds: ['20250911_DAL@PHI', '20250914_SF@LAR'],
       firstKickoffAt: null,
       syncedAt: null,
+      narrative: null,
       home: {
         teamId: 10,
         name: 'Home Town',
@@ -207,44 +208,6 @@ describe('applyIdentityPatch: a Team identity update per side', () => {
   });
 });
 
-describe('matchupStatusView: the one status predicate', () => {
-  test.each([
-    ['scheduled', 'Scheduled', false, 'default', 'outlined'],
-    ['live', 'LIVE', true, 'error', 'filled'],
-    ['played', 'Awaiting final', true, 'default', 'outlined'],
-    ['final', 'Final', true, 'success', 'filled'],
-  ])('status %s -> chip %s, hasStarted %s', (status, chipLabel, hasStarted, color, variant) => {
-    expect(matchupStatusView(status)).toEqual({ chipLabel, color, variant, hasStarted });
-  });
-
-  // G7: the chip's colour and variant are the predicate's to own, so a fifth
-  // status is a one-line edit here rather than a ternary duplicated across every
-  // scoreboard. A caller spreads these straight onto its Chip.
-  test('carries the chip colour and variant so both scoreboards spread one presentation', () => {
-    expect(matchupStatusView('final')).toMatchObject({ color: 'success', variant: 'filled' });
-    expect(matchupStatusView('live')).toMatchObject({ color: 'error', variant: 'filled' });
-    expect(matchupStatusView('played')).toMatchObject({ color: 'default', variant: 'outlined' });
-    expect(matchupStatusView('scheduled')).toMatchObject({ color: 'default', variant: 'outlined' });
-  });
-
-  test('an unknown status (null) renders no chip and asserts neither started nor not-started', () => {
-    // ADR 0030: a status the server could not compute is stated as unknown, never
-    // guessed. No chip (not a false "Scheduled"), and hasStarted is null, never
-    // false, so a caller's not-started branch (hasStarted === false) stays shut.
-    // The colour/variant are inert on an unknown status (no chip is rendered), so
-    // they default to the outlined-default pair.
-    expect(matchupStatusView(null)).toEqual({ chipLabel: null, color: 'default', variant: 'outlined', hasStarted: null });
-    expect(matchupStatusView(undefined)).toEqual({ chipLabel: null, color: 'default', variant: 'outlined', hasStarted: null });
-  });
-
-  test('an unrecognised non-null status reads as unknown, never as started (F5)', () => {
-    // A value outside the four (a skewed server's 'postponed') is not a state the
-    // client knows: no chip, and hasStarted null - never true, which would render
-    // the win-probability bar for a state the client cannot vouch for.
-    expect(matchupStatusView('postponed')).toEqual({ chipLabel: null, color: 'default', variant: 'outlined', hasStarted: null });
-  });
-});
-
 // pairStartersBySlot's own tests moved to entities/roster/model/lineupModel.test.js
 // (#1210, R5 of #1198: tests replace, not layer - the function itself moved
 // there in #1207, this module's copies were a duplicate, and #1210 closed the
@@ -345,5 +308,71 @@ describe('matchupResultLine (#2007)', () => {
   test('a nameless winner reads Home or Away, as the scoreboards do', () => {
     const nameless = { status: 'final', home: { score: 1 }, away: { score: 2 } };
     expect(matchupResultLine(nameless, null)).toBe('Away won by 1.0');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #2147: one detail player row, normalised to the Roster entity's shape.
+// ---------------------------------------------------------------------------
+describe('playerFromDetailRow (#2147)', () => {
+  // A row exactly as league.router.js's `toPlayer` emits it.
+  const wireRow = {
+    id: 10,
+    name: 'J. Goff',
+    position: 'QB',
+    slot: 'QB',
+    nfl_team: 'DET',
+    injury_status: 'Q',
+    stats: { passing_yards: 250 },
+    points: 18.6,
+    projected: 19.2,
+    availability: { available: true, reason: null },
+    opponent: 'GB',
+    game_state: 'in_progress',
+    game_clock: 'Q3 7:22',
+    photo_url: 'https://cdn.example/goff.png',
+  };
+
+  test('renames the wire columns to the Roster entity\'s camelCase shape', () => {
+    expect(playerFromDetailRow(wireRow)).toEqual({
+      playerId: 10,
+      name: 'J. Goff',
+      position: 'QB',
+      slot: 'QB',
+      nflTeam: 'DET',
+      injuryStatus: 'Q',
+      photoUrl: 'https://cdn.example/goff.png',
+      gameState: 'in_progress',
+      gameClock: 'Q3 7:22',
+      opponent: 'GB',
+      projectedPoints: 19.2,
+      availability: { available: true, reason: null },
+      stats: { passing_yards: 250 },
+      points: 18.6,
+    });
+  });
+
+  test('points is null exactly while the producer calls the game scheduled', () => {
+    expect(playerFromDetailRow({ ...wireRow, game_state: 'scheduled', points: 0 }).points).toBeNull();
+    expect(playerFromDetailRow({ ...wireRow, game_state: 'final', points: 0 }).points).toBe(0);
+    expect(playerFromDetailRow({ ...wireRow, game_state: 'in_progress', points: 7.4 }).points).toBe(7.4);
+  });
+
+  test('a null game_state (nothing priced) keeps the wire number, nothing inferred (ADR 0030)', () => {
+    const row = playerFromDetailRow({ ...wireRow, game_state: null, game_clock: null, points: 0 });
+    expect(row.points).toBe(0);
+    expect(row.gameState).toBeNull();
+    expect(row.gameClock).toBeNull();
+  });
+
+  test('absent fields read null, and no row is no player', () => {
+    const bare = playerFromDetailRow({ id: 3 });
+    expect(bare).toMatchObject({
+      playerId: 3, name: null, nflTeam: null, injuryStatus: null, photoUrl: null,
+      gameState: null, gameClock: null, opponent: null, projectedPoints: null,
+      availability: null, stats: null,
+    });
+    expect(playerFromDetailRow(null)).toBeNull();
+    expect(playerFromDetailRow(undefined)).toBeNull();
   });
 });

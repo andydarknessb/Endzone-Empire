@@ -53,24 +53,24 @@ describe('benchOptionsForSlot', () => {
   });
 
   test('a Position-baseline candidate sorts after every evidenced option, even a lower or unknown one (#1777)', () => {
-    const baseline = entry({ playerId: 2, eligibleSlots: ['BENCH', 'RB'], projectedPoints: 30, positionBaseline: true });
+    const baseline = entry({ playerId: 2, eligibleSlots: ['BENCH', 'RB'], projectedPoints: 30, startVerdict: { outcome: 'not_recommended', reason: 'no_history', numberTrusted: false } });
     const low = entry({ playerId: 3, eligibleSlots: ['BENCH', 'RB'], projectedPoints: 4 });
     const unknown = entry({ playerId: 4, eligibleSlots: ['BENCH', 'RB'], projectedPoints: null });
-    const baselineToo = entry({ playerId: 5, eligibleSlots: ['BENCH', 'RB'], projectedPoints: 31, positionBaseline: true });
+    const baselineToo = entry({ playerId: 5, eligibleSlots: ['BENCH', 'RB'], projectedPoints: 31, startVerdict: { outcome: 'not_recommended', reason: 'no_history', numberTrusted: false } });
     const result = benchOptionsForSlot([baseline, low, unknown, baselineToo], 'RB');
     // Evidenced first (points descending, unknown last among them), then the
     // Position-baseline pair in the order given (their hidden numbers tie).
     expect(result.map((r) => r.entry.playerId)).toEqual([3, 4, 2, 5]);
   });
 
-  test('an Unavailable player is never treated as no history: the reason wins (#1777)', () => {
+  test('an Unavailable player is never treated as no history, and sorts last (#1777, #2140)', () => {
     const out = entry({
-      playerId: 2, eligibleSlots: ['BENCH', 'RB'], projectedPoints: 0, positionBaseline: true,
+      playerId: 2, eligibleSlots: ['BENCH', 'RB'], projectedPoints: 0, startVerdict: { outcome: 'unavailable', reason: 'out', numberTrusted: true },
       availability: { available: false, reason: 'out' },
     });
     const low = entry({ playerId: 3, eligibleSlots: ['BENCH', 'RB'], projectedPoints: -1 });
     const result = benchOptionsForSlot([out, low], 'RB');
-    expect(result.map((r) => r.entry.playerId)).toEqual([2, 3]);
+    expect(result.map((r) => r.entry.playerId)).toEqual([3, 2]);
   });
 
   test('marks a locked candidate', () => {

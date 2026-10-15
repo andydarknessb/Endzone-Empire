@@ -1,34 +1,23 @@
-import { matchupStatusView, matchupResultLine } from '../../../entities/matchup';
-import { matchupWinProbability, finite } from '../../../shared/lib';
+import { matchupBoard } from '../../../entities/matchup';
+import { finite } from '../../../shared/lib';
 
 /**
  * The scoreboard strip's view model (widget `scoreboard-strip`, ADR 0031,
  * #898): everything the strip paints, derived from the Matchup entity model
- * and the status view alone, with no render. The component below reads this
+ * and the `matchupBoard` reading alone, with no render. The component below reads this
  * object and nothing else, so the display rules (how a score, an Expected
  * final and a Players remaining count are written, which side is the viewer,
  * when the bar shows, which chip variant a status takes) are table-testable
  * here without a DOM.
  *
- * The win probability arithmetic comes from `shared/lib` (ADR 0031, #1120),
- * the island's shared bottom layer.
+ * The win probability, the viewer side and the score and Players remaining
+ * text are the board's (#2142); nothing here prices or picks.
  */
-
-/** A score as the strip prints it: one decimal, a missing score reading 0.0. */
-export function formatScore(value) {
-  return Number(value || 0).toFixed(1);
-}
 
 /** An Expected final as the strip prints it: one decimal, or null when unknown. */
 export function formatExpectedFinal(value) {
   const n = finite(value);
   return n != null ? n.toFixed(1) : null;
-}
-
-/** Players remaining as the model reports it: the integer count, or null when unknown. */
-export function formatPlayersRemaining(value) {
-  const n = finite(value);
-  return n != null ? String(n) : null;
 }
 
 // The record lookup the page passes down (ADR 0031: Team record does not join
@@ -39,12 +28,6 @@ function recordFor(records, teamId) {
   const value = typeof records === 'function' ? records(teamId) : records[teamId];
   return value == null || value === '' ? null : String(value);
 }
-
-// The status chip's Badge variant per server status, the canvas's statusChip()
-// (#903 review, the hero's and the matchup cards' map): `.chip.live` is the
-// danger red with the dot, `.chip.final` the success green, `.chip.warn` for
-// Awaiting final, the plain chip for Scheduled.
-const CHIP_VARIANTS = { live: 'danger', final: 'success', played: 'warning', scheduled: 'neutral' };
 
 /**
  * @param {object} matchup the Matchup entity model (`entities/matchup`)
@@ -57,56 +40,44 @@ export function scoreboardView(matchup, { viewerTeamId, records } = {}) {
   const home = m.home || {};
   const away = m.away || {};
 
-  // Status is the server's fact read through the entity's one predicate (ADR
+  // Status is the server's fact read through the entity's `matchupBoard` (ADR
   // 0030). The bar shows only for `hasStarted === true`: false (scheduled) and
   // null (the server could not say) both show no bar, so an unknown status
   // never paints a probability the page cannot stand behind. A settled
   // (played or final) Matchup states its result instead (#2007): the bar and
   // the Expected final and Players remaining figures give way to `result`.
-  const status = matchupStatusView(m.status);
-  const result = matchupResultLine(m, viewerTeamId);
-  const showBar = status.hasStarted === true && result == null;
+  const board = matchupBoard(m, viewerTeamId);
+  const result = board.resultLine;
+  const showBar = board.hasStarted === true && result == null;
 
-  const probability = matchupWinProbability({
-    homeScore: home.score,
-    awayScore: away.score,
-    homeExpectedFinal: home.expectedFinal,
-    awayExpectedFinal: away.expectedFinal,
-    status: m.status,
-  });
+  const probability = board.winProbability ?? board.projectedWinProbability ?? { home: 0.5 };
   const homeShare = Math.max(0, Math.min(1, Number(probability.home) || 0));
   // Rounded once, with the away side as the complement, so the two printed
   // percentages always sum to 100 and agree with the SplitBar's own rounding.
   const homePct = Math.round(homeShare * 100);
 
-  const side = (s, fallbackName, winPct) => ({
+  // Which side is the viewer's, the score text and the Players remaining text
+  // are the board's (#2142); this only lays them out.
+  const side = (s, key, fallbackName, winPct) => ({
     teamId: s.teamId ?? null,
     name: s.name || fallbackName,
     avatarUrl: s.avatarUrl ?? null,
     avatarStaticUrl: s.avatarStaticUrl ?? null,
-    // The same strict, null-guarded id comparison the dashboard widgets use for
-    // their viewer row (standings-table): the page passes the
-    // viewer's Team id in the model's own type.
-    isViewer: viewerTeamId != null && s.teamId != null && s.teamId === viewerTeamId,
+    isViewer: board.viewerSide === key,
     record: recordFor(records, s.teamId),
-    score: formatScore(s.score),
+    score: board[key].scoreLabel,
     expectedFinal: formatExpectedFinal(s.expectedFinal),
-    playersRemaining: formatPlayersRemaining(s.playersRemaining),
+    playersRemaining: board[key].playersRemainingLabel,
     winPct,
   });
 
   return {
-    home: side(home, 'Home', homePct),
-    away: side(away, 'Away', 100 - homePct),
+    home: side(home, 'home', 'Home', homePct),
+    away: side(away, 'away', 'Away', 100 - homePct),
     homeShare,
     showBar,
     result,
-    // The chip is the entity's own label; a null label (unknown status) is no
-    // chip at all, never a guessed one. The variant is the canvas's
-    // statusChip() per status (CHIP_VARIANTS), the same map the hero and the
-    // matchup cards use, with the dot on LIVE alone.
-    chip: status.chipLabel == null
-      ? null
-      : { label: status.chipLabel, variant: CHIP_VARIANTS[m.status] || 'neutral', dot: m.status === 'live' },
+    // The entity's chip: null for an unknown status, never a guessed one.
+    chip: board.chip,
   };
 }
