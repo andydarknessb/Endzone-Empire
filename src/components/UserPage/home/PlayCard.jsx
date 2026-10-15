@@ -31,7 +31,8 @@ const stripText = (countdown) => `${String(countdown).replace(/^in /, '')} left`
  * it is also the lead; 'open' is plain. `lead` carries the page's one filled
  * foot and the cursor (it defaults to the 'next' card). `actions` makes one
  * play across several leagues a group with one foot per league; the card is
- * then a group, not a link.
+ * then a group, not a link. A `cta.onClick` (no `to`) makes the card one
+ * button, for a play that opens a dialog (first run's Create and Join).
  */
 export function PlayCard({
   kind, name, league, detail, lockDay, lockTime, countdown, lockNote, cta, actions,
@@ -159,9 +160,13 @@ export function PlayCard({
     color: 'var(--home-play-ink)',
     textDecoration: 'none',
   };
-  const card = actions
-    ? <Box role="group" aria-label={label} sx={boxSx}>{inner}</Box>
-    : <Box component={RouterLink} to={cta ? cta.to : '#'} aria-label={label} sx={boxSx}>{inner}</Box>;
+  const buttonSx = {
+    ...boxSx, width: '100%', margin: 0, padding: 0, border: 0, font: 'inherit', textAlign: 'left', cursor: 'pointer',
+  };
+  let card;
+  if (actions) card = <Box role="group" aria-label={label} sx={boxSx}>{inner}</Box>;
+  else if (cta && cta.onClick) card = <Box component="button" type="button" onClick={cta.onClick} aria-label={label} sx={buttonSx}>{inner}</Box>;
+  else card = <Box component={RouterLink} to={cta ? cta.to : '#'} aria-label={label} sx={boxSx}>{inner}</Box>;
 
   return (
     <Box

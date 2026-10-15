@@ -62,14 +62,9 @@ const mockApi = ({ preview } = {}) => {
 
 const previewCalls = () => apiClient.get.mock.calls.filter(([url]) => typeof url === 'string' && url.startsWith(PREVIEW_PREFIX));
 const getCallsTo = (url) => apiClient.get.mock.calls.filter(([calledUrl]) => calledUrl === url).length;
-// The header pair is hidden on a first run (no leagues), so the button is the
-// header's once leagues exist and the empty state's before that (where Join is
-// "I have an invite code").
-const heroButton = async (name) => {
-  const hero = within(screen.getByTestId('dashboard-hero')).queryByRole('button', { name });
-  return hero || within(await screen.findByTestId('leagues-empty-state'))
-    .getByRole('button', { name: name === 'Join league' ? 'I have an invite code' : name });
-};
+// Join sits in the header pair once leagues exist and on first run's Join card
+// before that.
+const joinButton = () => screen.findByRole('button', { name: /^Join (a league|with a code)/ });
 const alertsWithText = (text) => screen.queryAllByRole('alert').filter((el) => el.textContent.includes(text));
 
 const renderPage = () => renderWithProviders(<SnackbarProvider><UserPage /></SnackbarProvider>, { state: baseState });
@@ -77,11 +72,11 @@ const renderPage = () => renderWithProviders(<SnackbarProvider><UserPage /></Sna
 const openJoin = async () => {
   renderPage();
   await waitFor(() => expect(getCallsTo('/api/league')).toBe(1));
-  await userEvent.click(await heroButton('Join league'));
+  await userEvent.click(await joinButton());
   return screen.findByRole('dialog');
 };
 
-const codeField = () => screen.getByLabelText(/invite code/i);
+const codeField = () => screen.getByLabelText(/invite code/i, { selector: 'input' });
 const teamField = () => screen.getByLabelText(/team name/i);
 
 afterEach(() => {
@@ -390,7 +385,7 @@ test('a to-do answer that lands after the queue unmounted never paints a stale c
     resolveFirstItems({ data: { generatedAt: new Date().toISOString(), counts: { total: 0, dueToday: 0 }, partial: [], items: [] } });
   });
 
-  await userEvent.click(await heroButton('Join league'));
+  await userEvent.click(await joinButton());
   const dialog = await screen.findByRole('dialog');
   await userEvent.type(codeField(), 'abcd1234');
   await userEvent.type(teamField(), 'Joiner FC');

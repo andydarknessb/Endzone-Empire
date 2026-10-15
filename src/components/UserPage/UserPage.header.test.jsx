@@ -3,17 +3,23 @@ import { screen, within } from '@testing-library/react';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
 import UserPage from './UserPage';
+import { queueStub } from './homeTestStubs';
 
 jest.mock('../../api/apiClient', () => ({
   __esModule: true,
   default: { get: jest.fn(), post: jest.fn(), put: jest.fn() },
 }));
 
-// Home v2 review fixes: the greeting header as Main.dc.html draws it. Under
-// the h1, a summary line built from the to-do list response ActionQueue
-// already fetches (no second request), a stat strip from the leagues list's
-// status blocks, and a live chip counting live matchups. The seam is the page:
-// UserPage rendered with apiClient mocked by URL.
+// ActionQueue is tested in its own file. Here it hands the page the to-do list
+// body (`queueStub.body`), as the real one does through onLoaded.
+jest.mock('./ActionQueue', () => ({ __esModule: true, default: require('./homeTestStubs').ActionQueueStub }));
+jest.mock('./LeagueStatusGrid', () => ({ __esModule: true, default: require('./homeTestStubs').LeagueStatusGridStub }));
+
+// The greeting header as build-main.js draws it: the h1, one status line
+// ("Week N · Weekday, Mon D · summary") built from the to-do list response
+// ActionQueue already fetched (no second request), and a live chip counting
+// live matchups. The seam is the page: UserPage rendered with apiClient mocked
+// by URL.
 
 const baseState = {
   user: { id: 1, username: 'alice' },
@@ -77,37 +83,25 @@ const fantasyLeague = (id, name, statusOverrides = {}, rowOverrides = {}) => ({
   ...rowOverrides,
 });
 
-// `actionItems` is a body, an Error (rejects) or 'pending' (never settles).
+// `actionItems` is the body ActionQueue would load (null: loading or failed).
 // A manager with at least one league by default: with none, Home is the first-run
-// state and shows no to-do list or summary line (#2305).
-const mockApi = ({ leagues = [fantasyLeague(1, 'Default League')], actionItems = actionItemsBody([]) } = {}) => {
+// state and shows no summary line (#2305).
+const mockApi = ({ leagues = [fantasyLeague(1, 'Default League', { matchup: null })], actionItems = actionItemsBody([]) } = {}) => {
+  queueStub.body = actionItems;
   apiClient.get.mockImplementation((url) => {
-    if (url === '/api/user/action-items') {
-      if (actionItems === 'pending') return new Promise(() => {});
-      if (actionItems instanceof Error) return Promise.reject(actionItems);
-      return Promise.resolve({ data: actionItems });
-    }
     if (url === '/api/league') return Promise.resolve({ data: leagues });
     if (url === '/api/notifications') return Promise.resolve({ data: { notifications: [], unread: 0 } });
-    if (url === '/api/public/rankings') return Promise.resolve({ data: { rankings: [] } });
     return Promise.resolve({ data: [] });
   });
 };
 
 const renderPage = () => renderWithProviders(<UserPage />, { state: baseState });
 const header = () => within(screen.getByTestId('dashboard-hero'));
-const findQueue = () => screen.findByRole('region', { name: /Needs your attention/ });
 const summaryLine = () => screen.queryByTestId('greeting-summary');
-
-// Each tile of the stat strip as [term, definition] text.
-const statTiles = () => {
-  const strip = screen.getByTestId('greeting-stats');
-  const terms = within(strip).getAllByRole('term').map((el) => el.textContent);
-  const values = within(strip).getAllByRole('definition').map((el) => el.textContent);
-  return terms.map((term, i) => [term, values[i]]);
-};
+const findHeader = () => screen.findByTestId('league-grid');
 
 const timeFormat = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit' });
+const dateFormat = new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
 
 // A deadline later today (a minute from now, but never past midnight).
 const laterToday = () => {
@@ -117,7 +111,57 @@ const laterToday = () => {
 };
 
 afterEach(() => {
+  queueStub.body = null;
   jest.clearAllMocks();
+});
+
+// --- h1 and status line ----------------------------------------------------
+
+test('the page has one h1, "Welcome back, <username>", in the pixel face', async () => {
+  mockApi();
+  renderPage();
+
+  await findHeader();
+  expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
+  const h1 = screen.getByRole('heading', { level: 1 });
+  expect(h1).toHaveTextContent('Welcome back, alice');
+  expect(h1).toHaveStyle({ textTransform: 'uppercase', lineHeight: '1.3' });
+});
+
+test('the status line carries the week, the date and the summary, each only when it has something to say', async () => {
+  mockApi({ leagues: [fantasyLeague(1, 'Winsconsota', { matchup: null })], actionItems: actionItemsBody([]) });
+  renderPage();
+
+  await findHeader();
+  expect(await screen.findByText("You're all caught up.")).toBeInTheDocument();
+  expect(header().getByText(`Week 4 · ${dateFormat.format(new Date())}`)).toBeInTheDocument();
+  expect(screen.getByTestId('greeting-summary').closest('p')).toHaveTextContent(
+    `Week 4 · ${dateFormat.format(new Date())} · You're all caught up.`
+  );
+});
+
+test('with leagues in different weeks the week part is left out and the summary stands alone', async () => {
+  mockApi({
+    leagues: [
+      fantasyLeague(1, 'Winsconsota', { matchup: null }),
+      fantasyLeague(2, 'MinneApple', { matchup: null }, { current_week: 5 }),
+    ],
+    actionItems: actionItemsBody([]),
+  });
+  renderPage();
+
+  await findHeader();
+  expect(await screen.findByText("You're all caught up.")).toBeInTheDocument();
+  expect(header().queryByText(/^Week /)).not.toBeInTheDocument();
+});
+
+test('no status line at all when there is no week and no summary', async () => {
+  mockApi({ leagues: [{ id: 3, name: 'Sunday Ballers', my_team_id: 30, draft_status: 'pending' }], actionItems: null });
+  renderPage();
+
+  await findHeader();
+  expect(summaryLine()).not.toBeInTheDocument();
+  expect(screen.getByTestId('dashboard-hero').querySelector('p')).toBeNull();
 });
 
 // --- Summary line ----------------------------------------------------------
@@ -141,8 +185,6 @@ test('the summary line counts what needs the manager, what is due today and when
 
   expect(await screen.findByText(`5 things need you. 2 are due today. First up: Pick the week, at ${timeFormat.format(new Date(first))}.`))
     .toBeInTheDocument();
-  // One request: the header reads the list ActionQueue fetched.
-  expect(apiClient.get.mock.calls.filter(([url]) => url === '/api/user/action-items')).toHaveLength(1);
 });
 
 test('the summary line reads in the singular for one thing, and leaves the due-today clause out when nothing is due today', async () => {
@@ -195,13 +237,6 @@ test('without server counts the summary line leaves info items out of the total'
   expect(await screen.findByText('1 thing needs you.')).toBeInTheDocument();
 });
 
-test('an empty to-do list makes the summary line "You\'re all caught up."', async () => {
-  mockApi({ actionItems: actionItemsBody([]) });
-  renderPage();
-
-  expect(await screen.findByText("You're all caught up.")).toBeInTheDocument();
-});
-
 test('the summary line counts the uncapped total, not the 20 rows served', async () => {
   mockApi({ actionItems: actionItemsBody([item()], { total: 23, dueToday: 0 }) });
   renderPage();
@@ -209,20 +244,11 @@ test('the summary line counts the uncapped total, not the 20 rows served', async
   expect(await screen.findByText('23 things need you.')).toBeInTheDocument();
 });
 
-test('the summary line is left out while the to-do list loads', async () => {
-  mockApi({ actionItems: 'pending' });
+test('the summary line is left out while the to-do list loads or when it fails', async () => {
+  mockApi({ actionItems: null });
   renderPage();
 
-  await findQueue();
-  expect(summaryLine()).not.toBeInTheDocument();
-});
-
-test('the summary line is left out when the to-do list fails', async () => {
-  mockApi({ actionItems: new Error('boom') });
-  renderPage();
-
-  const queue = await findQueue();
-  await within(queue).findByText("We couldn't load your to-do list.");
+  await findHeader();
   expect(summaryLine()).not.toBeInTheDocument();
 });
 
@@ -230,53 +256,22 @@ test('the summary line does not claim all caught up when some item types could n
   mockApi({ actionItems: actionItemsBody([], {}, { partial: ['trade_review'] }) });
   renderPage();
 
-  const queue = await findQueue();
-  await within(queue).findByText("Some of your to-do list couldn't be checked right now.");
+  await findHeader();
   expect(summaryLine()).not.toBeInTheDocument();
 });
 
-// --- Stat strip ------------------------------------------------------------
-
-test('the stat strip is a description list: league count and best standing, no summed record', async () => {
-  mockApi({
-    leagues: [
-      fantasyLeague(71, 'Winsconsota', { record: { wins: 3, losses: 1, ties: 0 }, standing: { rank: 4, of: 10 } }),
-      fantasyLeague(72, 'MinneApple', { record: { wins: 2, losses: 0, ties: 1 }, standing: { rank: 2, of: 12 } }),
-    ],
-  });
+test('the page has no stat strip', async () => {
+  mockApi();
   renderPage();
 
-  await screen.findByRole('article', { name: 'Winsconsota' });
-  expect(screen.getByTestId('greeting-stats').tagName).toBe('DL');
-  expect(statTiles()).toEqual([
-    ['Leagues', '2'],
-    ['Best standing', '2nd of 12'],
-  ]);
-});
-
-test('the stat strip leaves out a tile it has no data for', async () => {
-  mockApi({
-    leagues: [
-      { id: 3, name: 'Sunday Ballers', my_team_name: "alice's Team", draft_status: 'pending', owner_id: 1 },
-    ],
-  });
-  renderPage();
-
-  await screen.findByText('Sunday Ballers');
-  expect(statTiles()).toEqual([['Leagues', '1']]);
-});
-
-test('with no leagues there is no stat strip', async () => {
-  mockApi({ leagues: [] });
-  renderPage();
-
-  await screen.findByTestId('leagues-empty-state');
+  await findHeader();
   expect(screen.queryByTestId('greeting-stats')).not.toBeInTheDocument();
+  expect(screen.queryByText('Best standing')).not.toBeInTheDocument();
 });
 
 // --- Live chip -------------------------------------------------------------
 
-test('the live chip counts live matchups, with its dot hidden from assistive tech', async () => {
+test('the live chip counts live matchups, with its dot hidden from assistive tech, beside the status line', async () => {
   mockApi({
     leagues: [
       fantasyLeague(71, 'Winsconsota'),
@@ -286,17 +281,17 @@ test('the live chip counts live matchups, with its dot hidden from assistive tec
   });
   renderPage();
 
-  await screen.findByRole('article', { name: 'Winsconsota' });
+  await findHeader();
   const chip = header().getByTestId('live-matchups-chip');
   expect(chip).toHaveTextContent('2 matchups live');
-  expect(within(chip).getByTestId('live-dot')).toHaveAttribute('aria-hidden', 'true');
+  expect(chip.querySelector('[aria-hidden="true"]')).not.toBeNull();
 });
 
 test('one live matchup reads in the singular', async () => {
   mockApi({ leagues: [fantasyLeague(71, 'Winsconsota')] });
   renderPage();
 
-  await screen.findByRole('article', { name: 'Winsconsota' });
+  await findHeader();
   expect(header().getByTestId('live-matchups-chip')).toHaveTextContent('1 matchup live');
 });
 
@@ -304,18 +299,14 @@ test('there is no live chip when no matchup is live', async () => {
   mockApi({ leagues: [fantasyLeague(71, 'Winsconsota', { matchup: { ...fantasyStatus().matchup, status: 'scheduled' } })] });
   renderPage();
 
-  await screen.findByRole('article', { name: 'Winsconsota' });
+  await findHeader();
   expect(header().queryByTestId('live-matchups-chip')).not.toBeInTheDocument();
 });
 
-// --- Sentence case and touch targets ---------------------------------------
-
-test('the header buttons and the leagues heading are in sentence case', async () => {
-  mockApi({ leagues: [fantasyLeague(71, 'Winsconsota')] });
+test('a league row that failed its status read is not a live matchup', async () => {
+  mockApi({ leagues: [fantasyLeague(71, 'Winsconsota', {}, { statusError: true })] });
   renderPage();
 
-  await screen.findByRole('article', { name: 'Winsconsota' });
-  expect(header().getByRole('button', { name: 'Create league' })).toBeInTheDocument();
-  expect(header().getByRole('button', { name: 'Join league' })).toBeInTheDocument();
-  expect(screen.getByRole('heading', { level: 2, name: 'My leagues' })).toBeInTheDocument();
+  await findHeader();
+  expect(header().queryByTestId('live-matchups-chip')).not.toBeInTheDocument();
 });

@@ -16,7 +16,7 @@ afterEach(() => {
   jest.restoreAllMocks();
 });
 
-test('shows the newest Darkness Report: heading, title, byline and a 44px link to the article', () => {
+test('shows the newest Darkness Report under Columns: heading, title, series byline and a 44px link to the article', () => {
   // Newest first, as the registry sorts: a non-report leads, then two reports.
   jest.spyOn(articlesModule, 'listArticles').mockReturnValue([
     meta('newest-guide', 'Newest Guide', '2026-10-14'),
@@ -25,35 +25,38 @@ test('shows the newest Darkness Report: heading, title, byline and a 44px link t
   ]);
   render(<PublicHighlights />);
 
-  expect(screen.getByRole('heading', { level: 2, name: 'The Darkness Report' })).toHaveStyle({ fontSize: '20px' });
+  const heading = screen.getByRole('heading', { level: 2, name: 'Columns' });
+  expect(heading).toHaveStyle({ textTransform: 'uppercase' });
+  expect(screen.getByRole('region', { name: 'Columns' })).toBeInTheDocument();
   expect(screen.getByText('Week 6 Waiver Wire: The Darkness Report')).toBeInTheDocument();
   expect(screen.queryByText('Week 5 Waiver Wire: The Darkness Report')).not.toBeInTheDocument();
   expect(screen.queryByText('Newest Guide')).not.toBeInTheDocument();
-  expect(screen.getByText(`Andy Darkness · ${formatInstant('2026-10-13T00:00:00', 'day')} · 15 min read`)).toBeInTheDocument();
-  const link = screen.getByRole('link', { name: 'Read the report' });
+  expect(screen.getByText(`Waiver Wire · Andy Darkness · ${formatInstant('2026-10-13T00:00:00', 'day')} · 15 min read`)).toBeInTheDocument();
+  const link = screen.getByRole('link', { name: 'Read the Waiver Wire column' });
   expect(link).toHaveAttribute('href', '/strategy/wk6-darkness');
   expect(link).toHaveStyle({ minHeight: '44px', display: 'inline-flex' });
 });
 
-test('a report with no author reads date and length only', () => {
+test('a report with no author and no series in its title reads category, date and length', () => {
   jest.spyOn(articlesModule, 'listArticles').mockReturnValue([
     meta('wk6-darkness', 'Week 6 Darkness Report', '2026-10-13'),
   ]);
   render(<PublicHighlights />);
 
-  expect(screen.getByText(`${formatInstant('2026-10-13T00:00:00', 'day')} · 5 min read`)).toBeInTheDocument();
+  expect(screen.getByText(`Waivers · ${formatInstant('2026-10-13T00:00:00', 'day')} · 5 min read`)).toBeInTheDocument();
+  expect(screen.getByRole('link', { name: 'Read the Waivers column' })).toBeInTheDocument();
 });
 
-test('with no Darkness Report the card renders nothing', () => {
+test('with no Darkness Report the frame renders nothing', () => {
   jest.spyOn(articlesModule, 'listArticles').mockReturnValue([meta('a', 'Guide a', '2026-10-09')]);
   const { container } = render(<PublicHighlights />);
 
   expect(container).toBeEmptyDOMElement();
 });
 
-test('the real registry has a report for the card to lead with', () => {
+test('the real registry has a report for the frame to lead with', () => {
   render(<PublicHighlights />);
 
   const report = listArticles().find((article) => /Darkness Report/i.test(article.title));
-  expect(screen.getByRole('link', { name: 'Read the report' })).toHaveAttribute('href', `/strategy/${report.slug}`);
+  expect(screen.getByRole('link', { name: /^Read the .* column$/ })).toHaveAttribute('href', `/strategy/${report.slug}`);
 });
