@@ -549,7 +549,9 @@
           "board-ink": "#ffffff",
           "board-dim": "#a8adc8",
           "board-rule": "#3a4170",
-          "skel": "#2a3052"
+          "skel": "#2a3052",
+          "play-accent": "#2fd97b",
+          "on-play-accent": "#07080f"
         },
         "light": {
           "field": "#eceef8",
@@ -571,7 +573,9 @@
           "board-ink": "#ffffff",
           "board-dim": "#a8adc8",
           "board-rule": "#3a4170",
-          "skel": "#dde1f0"
+          "skel": "#dde1f0",
+          "play-accent": "#2fd97b",
+          "on-play-accent": "#07080f"
         }
       },
       "sharedBothThemes": [

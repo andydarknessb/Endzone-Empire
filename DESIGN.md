@@ -406,7 +406,7 @@ Home (`/user`) is a play-call screen: a near-black field, NES-blue play cards wi
 - **Field** (home-field): the page ground, near-black in dark and pale lavender-white in light. **Panel** (home-panel): the fill inside frames.
 - **Frame** (home-frame): the double rule, pale periwinkle in dark and the play blue in light. **Rule** (home-rule): the 2px inner dividers.
 - **Ink** and **Dim** (home-ink, home-dim): text tiers on the page and panels.
-- **Play, Play field, Play ink, Play dim**: the card's NES-blue fill, its darker field band, the white diagram and name, and the pale blue for league lines and hash marks. Fixed in both themes, like the scoreboard.
+- **Play, Play field, Play ink, Play dim**: the card's NES-blue fill, its darker field band, the white diagram and name, and the pale blue for league lines and hash marks. **Play accent** with **On play accent** is the field green of the filled foot and the Live lock line on the card. Fixed in both themes, like the scoreboard.
 - **Accent** (home-accent) with **On accent**: field green in dark and the deep green in light; the one filled action and live state.
 - **Cursor** (home-cursor): yellow in dark and a dark gold in light; the selected play's frame only.
 - **Danger** with **On danger**: red for the urgent strip, the urgent cursor, and error panels.
@@ -422,7 +422,7 @@ The one frame is a 6px double rule in Frame color with square corners and Panel 
 The signature: a column of an optional urgent strip, the field band, the body, and the foot.
 - **Field band:** Play field fill between two 2px dashed Play dim rules, holding a pixel pictogram (96 by 48 viewBox on a 2px grid, white, crisp edges) drawn from X and O sprites, stepped routes, and arrowheads. One pictogram per play kind: picks, lineup, draft, waivers, trade, trophy, create, join. 144px wide on desktop, 96px on phones.
 - **Body:** the play name in Pixel 16, the league and detail line in Play dim, then the lock day and time in Pixel 16 with a one-line lock note.
-- **Foot:** a 44px bar pinned to the card bottom with a 2px Play ink border. The lead card's foot is the one filled action (Accent fill, On accent label, weight 700). Every other foot is outlined in Play ink. A play across several leagues is a group with one foot per league, and only the first can be filled.
+- **Foot:** a 44px bar pinned to the card bottom with a 2px Play ink border. The lead card's foot is the one filled action (Play accent fill, On play accent label, weight 700). Every other foot is outlined in Play ink. A play across several leagues is a group with one foot per league, and only the first can be filled.
 - **Urgent strip:** under one hour, a Danger band across the card top with a pixel clock icon and "38 min left" in On danger.
 - **Cursor:** the lead card (see The One Cursor Rule) sits in a 4px Cursor-colored frame with 8px of padding around the card. Under one hour the frame turns Danger. Non-lead cards keep the same padding with a transparent border so nothing shifts.
 
