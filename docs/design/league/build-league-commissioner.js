@@ -51,7 +51,7 @@ ${panel}
 
 const notes = k.notes([
   'One cursor: the first pending join request. Its Approve is the page\'s one filled green action; Deny, the second request\'s buttons, Advance to Week 8 and Save Waiver Rules are all ghost. With no pending requests ("No pending join requests.") the cursor has no row and nothing on the page is filled.',
-  'Unsaved marker: a square on the Waivers & Trades tab (screen readers hear "Unsaved changes") and a repeat beside Save Waiver Rules. Trade Review is changed to League Vote and not yet saved. Leaving the tab asks "Discard unsaved changes?" with Keep editing and Discard.',
+  'Unsaved marker: a square on the Waivers &amp; Trades tab (screen readers hear "Unsaved changes") and a repeat beside Save Waiver Rules. Trade Review is changed to League Vote and not yet saved. Leaving the tab asks "Discard unsaved changes?" with Keep editing and Discard.',
   'Destructive actions (Remove a team, Start New Season) live under the General Settings tab, so they are not on this tab. Their confirm dialogs ("Remove {team}?") carry their own filled button because the modal blocks the page.',
   'The six tabs are the Commissioner Tools tabs as shipped; the other five panels use the same field, select, toggle, radio card and stepper pieces from the kit. A pick\'em-only league shows only General and Season.',
 ]);
