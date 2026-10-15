@@ -33,6 +33,8 @@ const item = (overrides = {}) => ({
   ...overrides,
 });
 
+// One slate shares one lock: computed once, so two leagues' items never differ by the millisecond between calls.
+const SLATE_LOCK = inFromNow(26 * HOUR);
 const picks = (id, leagueName, overrides = {}) => item({
   id: `picks_open:${id}:2026-6`,
   type: 'picks_open',
@@ -40,7 +42,7 @@ const picks = (id, leagueName, overrides = {}) => item({
   leagueName,
   title: '14 picks still open',
   detail: '0 of 14 made for week 6',
-  deadlineAt: inFromNow(26 * HOUR),
+  deadlineAt: SLATE_LOCK,
   cta: { label: 'Make picks', to: `/league/${id}/pickem` },
   progress: { done: 0, total: 14, open: 14 },
   ...overrides,
