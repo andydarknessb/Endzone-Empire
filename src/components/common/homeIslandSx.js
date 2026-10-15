@@ -12,26 +12,10 @@
  * the `UserPage` files.
  */
 
-import { BODY_FONT } from '../UserPage/home/homeType';
-
 export const DISPLAY_FONT = 'var(--dash-font-display)';
 
 /** A hairline in the island's `dash-line`: decoration, never a boundary. */
 export const HAIRLINE = '1px solid var(--dash-line)';
-
-/**
- * The page root's token context for the Play-select Home (DESIGN.md "Home
- * surface: Play-select"): `home-field`, `home-ink` and Archivo. The root
- * element also takes `className="home-root"`, which scopes the focus ring,
- * selection, hover and cursor rules in UserPage/home/home.css. The other
- * exports in this file are the legacy `dash-*` fragments, which the slices
- * that rebuild Home replace one by one.
- */
-export const homeRootSx = {
-  backgroundColor: 'var(--home-field)',
-  color: 'var(--home-ink)',
-  fontFamily: BODY_FONT,
-};
 
 /** A card or panel: `dash-surface`, the `dash-line` hairline, the island radius. */
 export const panelSx = {

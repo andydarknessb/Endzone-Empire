@@ -1,35 +1,35 @@
 /*
- * Home Play-select motion and state rules (DESIGN.md "Focus and motion"),
+ * Play-select motion and state rules (DESIGN.md "Focus and motion"),
  * ported from the HELMET block of docs/design/home/kit.js. Scoped under
- * `.home-root`, the class the Home page root carries (homeRootSx paints it),
+ * `.ps-root`, the class a Play-select page root carries (psRootSx paints it),
  * so nothing here touches another island surface. Steps only: no easing, no
  * fades, no slides.
  */
 
-.home-root a:hover,
-.home-root button:hover {
+.ps-root a:hover,
+.ps-root button:hover {
   filter: brightness(1.12);
 }
 
-.home-root button {
+.ps-root button {
   font-family: inherit;
   cursor: pointer;
 }
 
 /* Focus ring: 3px white, no offset, a 7px dark halo; same in both themes. */
-.home-root :focus-visible {
-  outline: 3px solid var(--home-focus);
+.ps-root :focus-visible {
+  outline: 3px solid var(--ps-focus);
   outline-offset: 0;
-  box-shadow: 0 0 0 7px var(--home-halo);
+  box-shadow: 0 0 0 7px var(--ps-halo);
 }
 
-.home-root ::selection {
-  background: var(--home-selection);
-  color: var(--home-halo);
+.ps-root ::selection {
+  background: var(--ps-selection);
+  color: var(--ps-halo);
 }
 
 /* Cursor blink: the lead's frame flashes off and on three times, then rests lit. */
-.home-root .cursor {
+.ps-root .cursor {
   animation: home-blink 0.5s steps(1) 3;
 }
 
@@ -42,63 +42,63 @@
 /* Cursor move: hover (pointer devices) or focus inside a card moves the frame
    to it in --cur and clears it from the lead; leaving puts it back. */
 @media (hover: hover) {
-  .home-root .slot:hover {
+  .ps-root .slot:hover {
     border-color: var(--cur) !important;
   }
 
-  .home-root section:has(.slot:hover) .cursor:not(:hover):not(:focus-within) {
+  .ps-root section:has(.slot:hover) .cursor:not(:hover):not(:focus-within) {
     border-color: transparent !important;
     animation: none;
   }
 }
 
-.home-root .slot:focus-within {
+.ps-root .slot:focus-within {
   border-color: var(--cur) !important;
 }
 
-.home-root section:has(.slot:focus-within) .cursor:not(:focus-within) {
+.ps-root section:has(.slot:focus-within) .cursor:not(:focus-within) {
   border-color: transparent !important;
   animation: none;
 }
 
 /* Press: the frame turns white and the content drops 2px. */
-.home-root .slot:active {
-  border-color: var(--home-focus) !important;
+.ps-root .slot:active {
+  border-color: var(--ps-focus) !important;
 }
 
-.home-root .slot:active > * {
+.ps-root .slot:active > * {
   transform: translate(2px, 2px);
 }
 
 /* Score flash: a 16% white wash three times, then it holds. */
-.home-root .scored {
+.ps-root .scored {
   animation: home-scored 0.3s steps(1) 3;
 }
 
 @keyframes home-scored {
   50% {
-    background: var(--home-flash);
-    outline: 6px solid var(--home-flash);
+    background: var(--ps-flash);
+    outline: 6px solid var(--ps-flash);
   }
 }
 
 @keyframes home-scored-hold {
   0% {
-    background: var(--home-flash);
-    outline: 6px solid var(--home-flash);
+    background: var(--ps-flash);
+    outline: 6px solid var(--ps-flash);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .home-root .cursor {
+  .ps-root .cursor {
     animation: none;
   }
 
-  .home-root .slot:active > * {
+  .ps-root .slot:active > * {
     transform: none;
   }
 
-  .home-root .scored {
+  .ps-root .scored {
     animation: home-scored-hold 1s steps(1) 1;
   }
 }

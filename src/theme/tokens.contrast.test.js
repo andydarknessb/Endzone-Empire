@@ -521,34 +521,34 @@ const PAIRINGS = [
   pairing('dash-field', 'dash-surface2', AA_LARGE, 'input edge on a filled field and the Teams stepper'),
 
   // ---- Home Play-select (DESIGN.md "Play-select: Home and league pages"). Home paints
-  // only from the `home-*` group; the pairings below are the ones it puts on
-  // screen, in both modes. Text tiers sit on the page (`home-field`) and in
-  // frames (`home-panel`); play-card text sits on the fixed Play blue and its
+  // only from the `ps-*` group; the pairings below are the ones it puts on
+  // screen, in both modes. Text tiers sit on the page (`ps-field`) and in
+  // frames (`ps-panel`); play-card text sits on the fixed Play blue and its
   // darker field band; the board is black in both themes.
-  pairing('home-ink', 'home-field', AA_TEXT, 'Home body text on the page'),
-  pairing('home-ink', 'home-panel', AA_TEXT, 'Home body text in a frame'),
-  pairing('home-dim', 'home-field', AA_TEXT, 'Home muted text on the page'),
-  pairing('home-dim', 'home-panel', AA_TEXT, 'Home muted text in a frame'),
-  pairing('home-play-ink', 'home-play', AA_TEXT, 'play card name and foot label on the Play blue'),
-  pairing('home-play-ink', 'home-play-field', AA_TEXT, 'play card pictogram on its field band'),
-  pairing('home-play-dim', 'home-play', AA_TEXT, 'play card league line and lock note on the Play blue'),
-  pairing('home-play-dim', 'home-play-field', AA_TEXT, 'play card hash marks on its field band'),
-  pairing('home-on-accent', 'home-accent', AA_TEXT, 'Home filled button label on accent'),
-  pairing('home-on-danger', 'home-danger', AA_TEXT, 'urgent strip text on danger'),
-  pairing('home-on-play-accent', 'home-play-accent', AA_TEXT, 'the lead foot label on the fixed play-card green'),
-  pairing('home-play-accent', 'home-play', AA_TEXT, 'the lead foot fill and the Live lock line on the Play blue'),
-  pairing('home-board-ink', 'home-board', AA_TEXT, 'scoreboard and pick-em tile text on Board'),
-  pairing('home-board-dim', 'home-board', AA_TEXT, 'scoreboard and pick-em tile muted text on Board'),
-  pairing('home-board-live', 'home-board', AA_LARGE, 'live odds fill on Board'),
+  pairing('ps-ink', 'ps-field', AA_TEXT, 'Home body text on the page'),
+  pairing('ps-ink', 'ps-panel', AA_TEXT, 'Home body text in a frame'),
+  pairing('ps-dim', 'ps-field', AA_TEXT, 'Home muted text on the page'),
+  pairing('ps-dim', 'ps-panel', AA_TEXT, 'Home muted text in a frame'),
+  pairing('ps-play-ink', 'ps-play', AA_TEXT, 'play card name and foot label on the Play blue'),
+  pairing('ps-play-ink', 'ps-play-field', AA_TEXT, 'play card pictogram on its field band'),
+  pairing('ps-play-dim', 'ps-play', AA_TEXT, 'play card league line and lock note on the Play blue'),
+  pairing('ps-play-dim', 'ps-play-field', AA_TEXT, 'play card hash marks on its field band'),
+  pairing('ps-on-accent', 'ps-accent', AA_TEXT, 'Home filled button label on accent'),
+  pairing('ps-on-danger', 'ps-danger', AA_TEXT, 'urgent strip text on danger'),
+  pairing('ps-on-play-accent', 'ps-play-accent', AA_TEXT, 'the lead foot label on the fixed play-card green'),
+  pairing('ps-play-accent', 'ps-play', AA_TEXT, 'the lead foot fill and the Live lock line on the Play blue'),
+  pairing('ps-board-ink', 'ps-board', AA_TEXT, 'scoreboard and pick-em tile text on Board'),
+  pairing('ps-board-dim', 'ps-board', AA_TEXT, 'scoreboard and pick-em tile muted text on Board'),
+  pairing('ps-board-live', 'ps-board', AA_LARGE, 'live odds fill on Board'),
   // Non-text edges on the page: the cursor frame, the double rule, the urgent
   // cursor and error panel, and the live odds fill and chip outline.
-  pairing('home-cursor', 'home-field', AA_LARGE, 'cursor frame on the page'),
-  pairing('home-frame', 'home-field', AA_LARGE, 'frame double rule on the page'),
-  pairing('home-danger', 'home-field', AA_LARGE, 'urgent cursor and error frame on the page'),
-  pairing('home-accent', 'home-field', AA_TEXT, 'live chip text and outline, live odds fill on the page (16px pixel text is not WCAG large)'),
-  pairing('home-accent', 'home-panel', AA_TEXT, 'live chip text and outline in a frame'),
-  pairing('home-focus', 'home-halo', AA_LARGE, 'focus ring on its dark halo'),
-  pairing('home-halo', 'home-selection', AA_TEXT, 'selected text on the cursor-yellow selection'),
+  pairing('ps-cursor', 'ps-field', AA_LARGE, 'cursor frame on the page'),
+  pairing('ps-frame', 'ps-field', AA_LARGE, 'frame double rule on the page'),
+  pairing('ps-danger', 'ps-field', AA_LARGE, 'urgent cursor and error frame on the page'),
+  pairing('ps-accent', 'ps-field', AA_TEXT, 'live chip text and outline, live odds fill on the page (16px pixel text is not WCAG large)'),
+  pairing('ps-accent', 'ps-panel', AA_TEXT, 'live chip text and outline in a frame'),
+  pairing('ps-focus', 'ps-halo', AA_LARGE, 'focus ring on its dark halo'),
+  pairing('ps-halo', 'ps-selection', AA_TEXT, 'selected text on the cursor-yellow selection'),
 ];
 
 // Kept out of PAIRINGS, with their own test title below, so a pass here can

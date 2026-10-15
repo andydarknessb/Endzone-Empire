@@ -1,6 +1,6 @@
 import React from 'react';
 import { Box } from '@mui/material';
-import { PIXEL_FONT, SR_ONLY_SX, pixelSx } from './homeType';
+import { PIXEL_FONT, SR_ONLY_SX, pixelSx } from './type';
 
 const asList = (sx) => (Array.isArray(sx) ? sx : [sx]);
 
@@ -16,9 +16,9 @@ export function Frame({
       {...rest}
       sx={[
         {
-          border: `6px double var(--home-${tone === 'danger' ? 'danger' : 'frame'})`,
-          backgroundColor: 'var(--home-panel)',
-          color: 'var(--home-ink)',
+          border: `6px double var(--ps-${tone === 'danger' ? 'danger' : 'frame'})`,
+          backgroundColor: 'var(--ps-panel)',
+          color: 'var(--ps-ink)',
           minWidth: 0,
         },
         ...asList(sx),
@@ -40,7 +40,7 @@ export function FrameHead({ children }) {
         alignItems: 'center',
         gap: '8px 12px',
         padding: { xs: '12px 14px', md: '14px 20px' },
-        borderBottom: '2px solid var(--home-rule)',
+        borderBottom: '2px solid var(--ps-rule)',
       }}
     >
       {children}
@@ -86,7 +86,7 @@ export function CountBadge({ n, noun = 'plays' }) {
         height: '28px',
         padding: '0 6px',
         boxSizing: 'border-box',
-        border: '2px solid var(--home-ink)',
+        border: '2px solid var(--ps-ink)',
         fontFamily: PIXEL_FONT,
         fontSize: '16px',
         lineHeight: 1,

@@ -1,5 +1,5 @@
 import { createTheme } from '@mui/material/styles';
-import { BODY_FONT } from './home/homeType';
+import { BODY_FONT } from '../../shared/ui/playselect/type';
 
 // Every typography variant MUI stamps a font family onto, plus the app's
 // custom `stat` variant (AppThemeProvider).

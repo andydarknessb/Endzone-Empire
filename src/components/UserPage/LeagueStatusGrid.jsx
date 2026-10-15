@@ -2,9 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Box } from '@mui/material';
 import LeagueStatusCard, { scoreSignature, tileKind } from '../common/LeagueStatusCard';
 import { useNow } from '../../shared/lib/timeUntil';
-import {
-  ErrorPanel, Frame, NumbersHelp, PixelHeading, Skel,
-} from './home';
+import { ErrorPanel, Frame, PixelHeading, Skel } from '../../shared/ui/playselect';
+import { NumbersHelp } from './home';
 
 // The My leagues section of Home (DESIGN.md "Play-select: Home and league pages"): the
 // whole section, heading to grid. Before kickoff each league is a panel; on
@@ -39,7 +38,7 @@ function SkeletonPanel() {
   return (
     <Box component="article" aria-label="Loading a league" aria-busy="true" sx={{ display: 'flex' }}>
       <Frame component="div" sx={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
-        <Box aria-hidden="true" sx={{ padding: '12px 16px', borderBottom: '2px solid var(--home-rule)' }}>
+        <Box aria-hidden="true" sx={{ padding: '12px 16px', borderBottom: '2px solid var(--ps-rule)' }}>
           <Skel width="55%" height={18} />
         </Box>
         <Box aria-hidden="true" sx={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -57,7 +56,7 @@ function SkeletonPanel() {
         <Box
           aria-hidden="true"
           sx={{
-            marginTop: 'auto', borderTop: '2px solid var(--home-rule)', padding: '12px 16px', display: 'flex', gap: '16px',
+            marginTop: 'auto', borderTop: '2px solid var(--ps-rule)', padding: '12px 16px', display: 'flex', gap: '16px',
           }}
         >
           <Skel width="64px" height={20} />
@@ -124,7 +123,7 @@ function LeagueStatusGrid({
         {stamp && (
           // Plain text, not a live region: it is a stamp, not news.
           <Box sx={{
-            fontSize: '13px', color: 'var(--home-dim)', ml: { xs: 0, md: 'auto' }, flexBasis: { xs: '100%', md: 'auto' },
+            fontSize: '13px', color: 'var(--ps-dim)', ml: { xs: 0, md: 'auto' }, flexBasis: { xs: '100%', md: 'auto' },
           }}
           >
             {stamp}

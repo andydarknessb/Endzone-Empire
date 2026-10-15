@@ -6,7 +6,7 @@ import { deriveLeaguePhase, LEAGUE_PHASE } from '../../shared/lib/leaguePhase';
 import {
   fetchPushPublicKey, getCurrentSubscription, isPushSupported, needsHomeScreenInstall, subscribeToPush,
 } from '../../utils/push';
-import { Frame, HomeButton, PixelHeading } from './home';
+import { Frame, PsButton, PixelHeading } from '../../shared/ui/playselect';
 import { readAlertPromptDismissal, writeAlertPromptDismissal } from './alertPromptDismissal';
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
@@ -152,17 +152,17 @@ function AlertPrompt({ leagues }) {
     >
       <Box sx={{ maxWidth: '640px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
         {title && <PixelHeading id="alert-prompt-heading" size={16}>{title}</PixelHeading>}
-        <Box component="p" sx={{ m: 0, fontSize: '15px', color: 'var(--home-dim)' }}>{body}</Box>
+        <Box component="p" sx={{ m: 0, fontSize: '15px', color: 'var(--ps-dim)' }}>{body}</Box>
         {error && state !== 'blocked' && (
-          <Box role="alert" sx={{ border: '2px solid var(--home-danger)', padding: '8px 12px', fontSize: '15px' }}>{error}</Box>
+          <Box role="alert" sx={{ border: '2px solid var(--ps-danger)', padding: '8px 12px', fontSize: '15px' }}>{error}</Box>
         )}
       </Box>
       {state !== 'blocked' && (
         <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
           {state === 'default' && (
-            <HomeButton variant="ghost" onClick={enable} disabled={busy}>Turn on alerts</HomeButton>
+            <PsButton variant="ghost" onClick={enable} disabled={busy}>Turn on alerts</PsButton>
           )}
-          <HomeButton variant="quiet" onClick={notNow} ariaLabel="Not now, hide the alerts offer">Not now</HomeButton>
+          <PsButton variant="quiet" onClick={notNow} ariaLabel="Not now, hide the alerts offer">Not now</PsButton>
         </Box>
       )}
     </Frame>

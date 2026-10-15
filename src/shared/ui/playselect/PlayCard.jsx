@@ -2,7 +2,7 @@ import React from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import { Box } from '@mui/material';
 import { PixelArrow, PixelClock, Pictogram } from './Icons';
-import { pixelSx } from './homeType';
+import { pixelSx } from './type';
 
 const footSx = (filled) => ({
   display: 'flex',
@@ -14,10 +14,10 @@ const footSx = (filled) => ({
   boxSizing: 'border-box',
   fontSize: '15px',
   textDecoration: 'none',
-  border: '2px solid var(--home-play-ink)',
+  border: '2px solid var(--ps-play-ink)',
   ...(filled
-    ? { backgroundColor: 'var(--home-play-accent)', color: 'var(--home-on-play-accent)', fontWeight: 700 }
-    : { color: 'var(--home-play-ink)', fontWeight: 600 }),
+    ? { backgroundColor: 'var(--ps-play-accent)', color: 'var(--ps-on-play-accent)', fontWeight: 700 }
+    : { color: 'var(--ps-play-ink)', fontWeight: 600 }),
 });
 
 const stripText = (countdown) => `${String(countdown).replace(/^in /, '')} left`;
@@ -40,7 +40,7 @@ export function PlayCard({
   state = 'open', lead = state === 'next', filledFoot = true, ariaLabel,
 }) {
   const urgent = state === 'urgent' && Boolean(countdown);
-  const ring = state === 'urgent' ? 'var(--home-danger)' : 'var(--home-cursor)';
+  const ring = state === 'urgent' ? 'var(--ps-danger)' : 'var(--ps-cursor)';
   const live = lockDay === 'Live';
   const filled = lead && filledFoot;
 
@@ -87,8 +87,8 @@ export function PlayCard({
             alignItems: 'center',
             gap: '8px',
             padding: { xs: '8px 12px', md: '8px 16px' },
-            backgroundColor: 'var(--home-danger)',
-            color: 'var(--home-on-danger)',
+            backgroundColor: 'var(--ps-danger)',
+            color: 'var(--ps-on-danger)',
             ...pixelSx(16),
             lineHeight: 1.2,
           }}
@@ -103,9 +103,9 @@ export function PlayCard({
           display: 'grid',
           placeItems: 'center',
           padding: { xs: '10px 0', md: '14px 0' },
-          backgroundColor: 'var(--home-play-field)',
-          borderTop: '2px dashed var(--home-play-dim)',
-          borderBottom: '2px dashed var(--home-play-dim)',
+          backgroundColor: 'var(--ps-play-field)',
+          borderTop: '2px dashed var(--ps-play-dim)',
+          borderBottom: '2px dashed var(--ps-play-dim)',
         }}
       >
         <Box component="span" sx={{ display: 'block', width: { xs: '96px', md: '144px' } }}>
@@ -123,8 +123,8 @@ export function PlayCard({
         }}
       >
         <Box component="span" sx={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-          <Box component="span" sx={{ ...pixelSx(16), color: 'var(--home-play-ink)', overflowWrap: 'anywhere' }}>{name}</Box>
-          <Box component="span" sx={{ fontSize: { xs: '14px', md: '15px' }, color: 'var(--home-play-dim)' }}>
+          <Box component="span" sx={{ ...pixelSx(16), color: 'var(--ps-play-ink)', overflowWrap: 'anywhere' }}>{name}</Box>
+          <Box component="span" sx={{ fontSize: { xs: '14px', md: '15px' }, color: 'var(--ps-play-dim)' }}>
             {league}
             {detail ? ` · ${detail}` : ''}
           </Box>
@@ -137,15 +137,15 @@ export function PlayCard({
               display: 'inline-flex',
               alignItems: 'center',
               gap: '8px',
-              color: live ? 'var(--home-play-accent)' : 'var(--home-play-ink)',
+              color: live ? 'var(--ps-play-accent)' : 'var(--ps-play-ink)',
             }}
           >
             {live && (
-              <Box component="span" aria-hidden="true" sx={{ width: '8px', height: '8px', backgroundColor: 'var(--home-play-accent)' }} />
+              <Box component="span" aria-hidden="true" sx={{ width: '8px', height: '8px', backgroundColor: 'var(--ps-play-accent)' }} />
             )}
             {[lockDay, lockTime].filter(Boolean).join(' ')}
           </Box>
-          {lockNote && <Box component="span" sx={{ fontSize: '14px', color: 'var(--home-play-dim)' }}>{lockNote}</Box>}
+          {lockNote && <Box component="span" sx={{ fontSize: '14px', color: 'var(--ps-play-dim)' }}>{lockNote}</Box>}
         </Box>
         {feet}
       </Box>
@@ -158,8 +158,8 @@ export function PlayCard({
     flexDirection: 'column',
     height: '100%',
     boxSizing: 'border-box',
-    backgroundColor: 'var(--home-play)',
-    color: 'var(--home-play-ink)',
+    backgroundColor: 'var(--ps-play)',
+    color: 'var(--ps-play-ink)',
     textDecoration: 'none',
   };
   const buttonSx = {
@@ -174,7 +174,7 @@ export function PlayCard({
     <Box
       className={lead ? 'slot cursor' : 'slot'}
       sx={{
-        '--cur': lead ? ring : 'var(--home-cursor)',
+        '--cur': lead ? ring : 'var(--ps-cursor)',
         padding: '8px',
         border: `4px solid ${lead ? ring : 'transparent'}`,
         height: '100%',

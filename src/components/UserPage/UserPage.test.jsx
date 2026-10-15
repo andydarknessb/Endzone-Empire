@@ -93,7 +93,7 @@ test('the root carries the home class and is named by the h1', async () => {
   // the page root is located by id; its role is asserted through the accessible name below
   // eslint-disable-next-line testing-library/no-node-access
   const root = document.getElementById('user-main-content');
-  expect(root).toHaveClass('home-root');
+  expect(root).toHaveClass('ps-root');
   expect(root).toHaveAccessibleName('Welcome back, alice');
 });
 

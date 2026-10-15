@@ -27,39 +27,39 @@ colors:
   paper-tile: "#f4f7fa"
   slate-ink: "#141b23"
   slate-dim: "#55636f"
-  # Home surface (play-select): dark under home-<name>, light overrides under home-<name>-light
-  home-field: "#07080f"
-  home-panel: "#10131f"
-  home-frame: "#c8d0ff"
-  home-rule: "#3a4170"
-  home-ink: "#f4f4f8"
-  home-dim: "#a8adc8"
-  home-play: "#1830b8"
-  home-play-field: "#0f2190"
-  home-play-ink: "#ffffff"
-  home-play-dim: "#c8d0ff"
-  home-accent: "#2fd97b"
-  home-on-accent: "#07080f"
-  home-cursor: "#f8d030"
-  home-danger: "#ff5a4a"
-  home-on-danger: "#07080f"
-  home-board: "#000000"
-  home-board-ink: "#ffffff"
-  home-board-dim: "#a8adc8"
-  home-board-rule: "#3a4170"
-  home-skel: "#2a3052"
-  home-field-light: "#eceef8"
-  home-panel-light: "#ffffff"
-  home-frame-light: "#1830b8"
-  home-rule-light: "#b4bce0"
-  home-ink-light: "#0c0e1c"
-  home-dim-light: "#4a5070"
-  home-accent-light: "#0f6a41"
-  home-on-accent-light: "#ffffff"
-  home-cursor-light: "#a86e00"
-  home-danger-light: "#c62828"
-  home-on-danger-light: "#ffffff"
-  home-skel-light: "#dde1f0"
+  # Home surface (play-select): dark under ps-<name>, light overrides under ps-<name>-light
+  ps-field: "#07080f"
+  ps-panel: "#10131f"
+  ps-frame: "#c8d0ff"
+  ps-rule: "#3a4170"
+  ps-ink: "#f4f4f8"
+  ps-dim: "#a8adc8"
+  ps-play: "#1830b8"
+  ps-play-field: "#0f2190"
+  ps-play-ink: "#ffffff"
+  ps-play-dim: "#c8d0ff"
+  ps-accent: "#2fd97b"
+  ps-on-accent: "#07080f"
+  ps-cursor: "#f8d030"
+  ps-danger: "#ff5a4a"
+  ps-on-danger: "#07080f"
+  ps-board: "#000000"
+  ps-board-ink: "#ffffff"
+  ps-board-dim: "#a8adc8"
+  ps-board-rule: "#3a4170"
+  ps-skel: "#2a3052"
+  ps-field-light: "#eceef8"
+  ps-panel-light: "#ffffff"
+  ps-frame-light: "#1830b8"
+  ps-rule-light: "#b4bce0"
+  ps-ink-light: "#0c0e1c"
+  ps-dim-light: "#4a5070"
+  ps-accent-light: "#0f6a41"
+  ps-on-accent-light: "#ffffff"
+  ps-cursor-light: "#a86e00"
+  ps-danger-light: "#c62828"
+  ps-on-danger-light: "#ffffff"
+  ps-skel-light: "#dde1f0"
 typography:
   display:
     fontFamily: "\"Barlow Condensed\", Impact, sans-serif"
@@ -144,30 +144,30 @@ typography:
     fontSize: "2.5rem"
     fontWeight: 800
     lineHeight: 1.15
-  home-pixel-sm:
+  ps-pixel-sm:
     fontFamily: "\"Press Start 2P\", ui-monospace, monospace"
     fontSize: "16px"
     fontWeight: 400
     lineHeight: 1.5
-  home-pixel-md:
+  ps-pixel-md:
     fontFamily: "\"Press Start 2P\", ui-monospace, monospace"
     fontSize: "24px"
     fontWeight: 400
     lineHeight: 1.5
-  home-pixel-lg:
+  ps-pixel-lg:
     fontFamily: "\"Press Start 2P\", ui-monospace, monospace"
     fontSize: "32px"
     fontWeight: 400
     lineHeight: 1.3
-  home-body:
+  ps-body:
     fontFamily: "\"Archivo\", \"Helvetica Neue\", Arial, sans-serif"
     fontSize: "16px"
     lineHeight: 1.5
-  home-button:
+  ps-button:
     fontFamily: "\"Archivo\", \"Helvetica Neue\", Arial, sans-serif"
     fontSize: "15px"
     fontWeight: 600
-  home-caption:
+  ps-caption:
     fontFamily: "\"Archivo\", \"Helvetica Neue\", Arial, sans-serif"
     fontSize: "14px"
     fontWeight: 400
@@ -179,7 +179,7 @@ rounded:
   dash: "14px"
   lg: "16px"
   pill: "999px"
-  home-square: "0px"
+  ps-square: "0px"
 spacing:
   space-1: "4px"
   space-2: "8px"
@@ -225,29 +225,29 @@ components:
   app-card:
     backgroundColor: "{colors.paper-surface}"
     rounded: "{rounded.lg}"
-  home-play-card:
-    backgroundColor: "{colors.home-play}"
-    textColor: "{colors.home-play-ink}"
-    rounded: "{rounded.home-square}"
+  ps-play-card:
+    backgroundColor: "{colors.ps-play}"
+    textColor: "{colors.ps-play-ink}"
+    rounded: "{rounded.ps-square}"
     padding: "16px"
-  home-button-fill:
-    backgroundColor: "{colors.home-accent}"
-    textColor: "{colors.home-on-accent}"
-    typography: "{typography.home-button}"
-    rounded: "{rounded.home-square}"
+  ps-button-fill:
+    backgroundColor: "{colors.ps-accent}"
+    textColor: "{colors.ps-on-accent}"
+    typography: "{typography.ps-button}"
+    rounded: "{rounded.ps-square}"
     padding: "0 16px"
     height: "44px"
-  home-button-ghost:
+  ps-button-ghost:
     backgroundColor: "transparent"
-    textColor: "{colors.home-ink}"
-    typography: "{typography.home-button}"
-    rounded: "{rounded.home-square}"
+    textColor: "{colors.ps-ink}"
+    typography: "{typography.ps-button}"
+    rounded: "{rounded.ps-square}"
     padding: "0 16px"
     height: "44px"
-  home-scoreboard-tile:
-    backgroundColor: "{colors.home-board}"
-    textColor: "{colors.home-board-ink}"
-    rounded: "{rounded.home-square}"
+  ps-scoreboard-tile:
+    backgroundColor: "{colors.ps-board}"
+    textColor: "{colors.ps-board-ink}"
+    rounded: "{rounded.ps-square}"
     padding: "16px"
 ---
 
@@ -303,7 +303,7 @@ Position colors (`pos-qb` red, `pos-rb` green, `pos-wr` blue, `pos-te` orange, `
 ### Named Rules
 **The One Truth Rule.** No component hard-codes a color literal. A missing color becomes a new semantic token in `tokens.js`, with its contrast pairing registered in `tokens.contrast.test.js`.
 
-**The Island Boundary Rule.** A surface uses one generation's tokens only: Play-select surfaces use only `ps-*` tokens (`home-*` until the wave 1 rename), island surfaces only `dash-*`, and legacy pages and the app shell (Nav, Footer) only app tokens.
+**The Island Boundary Rule.** A surface uses one generation's tokens only: Play-select surfaces use only `ps-*` tokens, island surfaces only `dash-*`, and legacy pages and the app shell (Nav, Footer) only app tokens.
 
 **The Tint Placement Rule.** A tinted pill or chip sits only on the surfaces its pairing is registered for. The light danger pill never sits on Desk Raised's light counterpart, and the warning chip sits only on a card or a stat tile.
 
@@ -398,17 +398,17 @@ An uppercase Label key in Faint Ink above a Headline-size value in tabular Barlo
 
 ## Play-select: Home and league pages
 
-Home (`/user`) is a play-call screen: a near-black field, NES-blue play cards with white X-and-O diagrams, double-ruled frames, and Press Start 2P for display. Scope is Home and every league page (ADR 0067); a page uses these tokens only once its wave has shipped, and never mixes them with `dash-*` or app tokens. The app shell keeps the app tokens, and Game Center's amber retro scoreboard stays amber. The `home-*` frontmatter colors list dark under the plain name and light under a `-light` suffix. Colors with no `-light` entry (play, play-field, play-ink, play-dim, and the four board colors) are the same in both themes.
+Home (`/user`) is a play-call screen: a near-black field, NES-blue play cards with white X-and-O diagrams, double-ruled frames, and Press Start 2P for display. Scope is Home and every league page (ADR 0067); a page uses these tokens only once its wave has shipped, and never mixes them with `dash-*` or app tokens. The app shell keeps the app tokens, and Game Center's amber retro scoreboard stays amber. The `ps-*` frontmatter colors list dark under the plain name and light under a `-light` suffix. Colors with no `-light` entry (play, play-field, play-ink, play-dim, and the four board colors) are the same in both themes.
 
-**Spec status.** The design canvas (10 boards, published version 27 at https://claude.ai/artifact/MU9fvovmpKB5cSD5eExJWe) is the spec; its working files are in `docs/design/home/`. Shipped in #2315: the colors are the `home-*` tokens in `src/theme/tokens.js` (plus `home-selection` and `home-flash` for text selection and the score flash), with their contrast pairs in `tokens.contrast.test.js`, and the pieces live in `src/components/UserPage/home/`. The Create and Join dialogs still use the desk tokens.
+**Spec status.** The design canvas (10 boards, published version 27 at https://claude.ai/artifact/MU9fvovmpKB5cSD5eExJWe) is the spec; its working files are in `docs/design/home/`. Shipped in #2315: the colors are the `ps-*` tokens (named `home-*` until ADR 0067 wave 1a) in `src/theme/tokens.js` (plus `ps-selection` and `ps-flash` for text selection and the score flash), with their contrast pairs in `tokens.contrast.test.js`, and the generic primitives live in `src/shared/ui/playselect/` while the Home-only pieces stay in `src/components/UserPage/home/`. The Create and Join dialogs still use the desk tokens.
 
 ### Palette (both themes)
-- **Field** (home-field): the page ground, near-black in dark and pale lavender-white in light. **Panel** (home-panel): the fill inside frames.
-- **Frame** (home-frame): the double rule, pale periwinkle in dark and the play blue in light. **Rule** (home-rule): the 2px inner dividers.
-- **Ink** and **Dim** (home-ink, home-dim): text tiers on the page and panels.
+- **Field** (ps-field): the page ground, near-black in dark and pale lavender-white in light. **Panel** (ps-panel): the fill inside frames.
+- **Frame** (ps-frame): the double rule, pale periwinkle in dark and the play blue in light. **Rule** (ps-rule): the 2px inner dividers.
+- **Ink** and **Dim** (ps-ink, ps-dim): text tiers on the page and panels.
 - **Play, Play field, Play ink, Play dim**: the card's NES-blue fill, its darker field band, the white diagram and name, and the pale blue for league lines and hash marks. **Play accent** with **On play accent** is the field green of the filled foot and the Live lock line on the card. Fixed in both themes, like the scoreboard.
-- **Accent** (home-accent) with **On accent**: field green in dark and the deep green in light; the one filled action and live state.
-- **Cursor** (home-cursor): yellow in dark and a dark gold in light; the selected play's frame only.
+- **Accent** (ps-accent) with **On accent**: field green in dark and the deep green in light; the one filled action and live state.
+- **Cursor** (ps-cursor): yellow in dark and a dark gold in light; the selected play's frame only.
 - **Danger** with **On danger**: red for the urgent strip, the urgent cursor, and error panels.
 - **Board** family: black, fixed in both themes, with white ink, a dim ink, and a rule, for the live scoreboard and pick'em tiles. **Skel** is the loading block.
 

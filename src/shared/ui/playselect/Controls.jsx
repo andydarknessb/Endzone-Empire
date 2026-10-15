@@ -3,7 +3,7 @@ import { Link as RouterLink } from 'react-router-dom';
 import { Box } from '@mui/material';
 import { PixelArrow, PixelWarn } from './Icons';
 import { Frame } from './Frame';
-import { pixelSx } from './homeType';
+import { pixelSx } from './type';
 
 const BTN = {
   minHeight: '44px',
@@ -22,9 +22,9 @@ const BTN = {
 };
 
 const VARIANT = {
-  fill: { backgroundColor: 'var(--home-accent)', border: '2px solid var(--home-accent)', color: 'var(--home-on-accent)' },
-  ghost: { backgroundColor: 'transparent', border: '2px solid var(--home-ink)', color: 'var(--home-ink)' },
-  quiet: { backgroundColor: 'transparent', border: '2px solid transparent', color: 'var(--home-dim)' },
+  fill: { backgroundColor: 'var(--ps-accent)', border: '2px solid var(--ps-accent)', color: 'var(--ps-on-accent)' },
+  ghost: { backgroundColor: 'transparent', border: '2px solid var(--ps-ink)', color: 'var(--ps-ink)' },
+  quiet: { backgroundColor: 'transparent', border: '2px solid transparent', color: 'var(--ps-dim)' },
 };
 
 const DISABLED_SX = { '&[disabled], &[aria-disabled="true"]': { opacity: 0.5, cursor: 'not-allowed' } };
@@ -34,7 +34,7 @@ const DISABLED_SX = { '&[disabled], &[aria-disabled="true"]': { opacity: 0.5, cu
  * `to` makes it a router link. `disabled` is the native attribute on a button;
  * a link gets aria-disabled and swallows the click, so it does not navigate.
  */
-export function HomeButton({
+export function PsButton({
   variant = 'ghost', to, onClick, ariaLabel, children, type = 'button', disabled = false,
 }) {
   const sx = { ...BTN, ...VARIANT[variant], ...DISABLED_SX };
@@ -64,7 +64,7 @@ export function HomeButton({
 }
 
 /** A 44px link target: Ink with a 2px Dim underline offset 5px; Board ink and dim on a scoreboard tile. */
-export function HomeLink({
+export function PsLink({
   to, href, ariaLabel, onBoard = false, children,
 }) {
   const sx = {
@@ -74,11 +74,11 @@ export function HomeLink({
     padding: '0 10px',
     fontSize: '15px',
     fontWeight: 600,
-    color: onBoard ? 'var(--home-board-ink)' : 'var(--home-ink)',
+    color: onBoard ? 'var(--ps-board-ink)' : 'var(--ps-ink)',
     textDecoration: 'underline',
     textDecorationThickness: '2px',
     textUnderlineOffset: '5px',
-    textDecorationColor: onBoard ? 'var(--home-board-dim)' : 'var(--home-dim)',
+    textDecorationColor: onBoard ? 'var(--ps-board-dim)' : 'var(--ps-dim)',
   };
   return to
     ? <Box component={RouterLink} to={to} aria-label={ariaLabel} sx={sx}>{children}</Box>
@@ -95,13 +95,13 @@ export function LiveChip({ children = 'Live' }) {
         alignItems: 'center',
         gap: '8px',
         padding: '8px 10px',
-        border: '2px solid var(--home-accent)',
-        color: 'var(--home-accent)',
+        border: '2px solid var(--ps-accent)',
+        color: 'var(--ps-accent)',
         ...pixelSx(16),
         lineHeight: 1,
       }}
     >
-      <Box component="span" aria-hidden="true" sx={{ width: '8px', height: '8px', backgroundColor: 'var(--home-accent)' }} />
+      <Box component="span" aria-hidden="true" sx={{ width: '8px', height: '8px', backgroundColor: 'var(--ps-accent)' }} />
       {children}
     </Box>
   );
@@ -126,13 +126,13 @@ export function ErrorPanel({
       }}
     >
       <Box sx={{ display: 'flex', gap: '12px', alignItems: 'flex-start', minWidth: 0 }}>
-        <PixelWarn color="var(--home-danger)" />
+        <PixelWarn color="var(--ps-danger)" />
         <Box>
           <Box sx={pixelSx(16)}>{title}</Box>
-          <Box sx={{ fontSize: '15px', color: 'var(--home-dim)', mt: '4px' }}>{body}</Box>
+          <Box sx={{ fontSize: '15px', color: 'var(--ps-dim)', mt: '4px' }}>{body}</Box>
         </Box>
       </Box>
-      <HomeButton variant="ghost" onClick={onRetry} ariaLabel={retryAriaLabel}>Try again</HomeButton>
+      <PsButton variant="ghost" onClick={onRetry} ariaLabel={retryAriaLabel}>Try again</PsButton>
     </Frame>
   );
 }
@@ -147,65 +147,8 @@ export function Skel({ width, height }) {
         display: 'block',
         width,
         height: typeof height === 'number' ? `${height}px` : height,
-        backgroundColor: 'var(--home-skel)',
+        backgroundColor: 'var(--ps-skel)',
       }}
     />
-  );
-}
-
-const DEFINITIONS = [
-  ['Projected', "Each lineup's points from Endzone Forecast, our projection engine."],
-  ['Win probability', "Your chance to win the matchup from both lineups' projected finals. It sharpens as games finish."],
-  ['Confidence', "In a Confidence pick'em, each pick carries a number from 1 up to that week's game count, each used once. A right pick earns that many points."],
-];
-
-/** The "What the numbers mean" disclosure. */
-export function NumbersHelp() {
-  return (
-    <Box
-      component="details"
-      sx={{
-        fontSize: '14px',
-        color: 'var(--home-dim)',
-        position: 'relative',
-        '& > summary': { listStyle: 'none' },
-        '& > summary::-webkit-details-marker': { display: 'none' },
-      }}
-    >
-      <Box
-        component="summary"
-        sx={{
-          cursor: 'pointer',
-          minHeight: '44px',
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: '10px',
-          fontWeight: 600,
-          color: 'var(--home-ink)',
-        }}
-      >
-        <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
-          <path d="M1 1h14v14H1zM3 3v10h10V3zM7 4h2v2H7zM7 7h2v5H7z" fill="currentColor" fillRule="evenodd" />
-        </svg>
-        What the numbers mean
-      </Box>
-      <Box
-        component="dl"
-        sx={{
-          m: '4px 0 0',
-          display: 'grid',
-          gridTemplateColumns: { xs: '1fr', md: 'max-content 1fr' },
-          gap: '6px 16px',
-          maxWidth: '760px',
-        }}
-      >
-        {DEFINITIONS.map(([term, text]) => (
-          <React.Fragment key={term}>
-            <Box component="dt" sx={{ fontWeight: 600, color: 'var(--home-ink)' }}>{term}</Box>
-            <Box component="dd" sx={{ m: 0 }}>{text}</Box>
-          </React.Fragment>
-        ))}
-      </Box>
-    </Box>
   );
 }
