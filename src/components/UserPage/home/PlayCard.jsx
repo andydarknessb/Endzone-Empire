@@ -29,17 +29,19 @@ const stripText = (countdown) => `${String(countdown).replace(/^in /, '')} left`
  * state 'next' is the cursor (earliest lock, or a live draft); 'urgent' is
  * under an hour: a red "<countdown> left" strip, and the red cursor only when
  * it is also the lead; 'open' is plain. `lead` carries the page's one filled
- * foot and the cursor (it defaults to the 'next' card). `actions` makes one
+ * foot and the cursor (it defaults to the 'next' card); `filledFoot={false}`
+ * keeps the cursor but outlines the foot, for a lead with nothing to do. `actions` makes one
  * play across several leagues a group with one foot per league; the card is
  * then a group, not a link.
  */
 export function PlayCard({
   kind, name, league, detail, lockDay, lockTime, countdown, lockNote, cta, actions,
-  state = 'open', lead = state === 'next', ariaLabel,
+  state = 'open', lead = state === 'next', filledFoot = true, ariaLabel,
 }) {
   const urgent = state === 'urgent' && Boolean(countdown);
   const ring = state === 'urgent' ? 'var(--home-danger)' : 'var(--home-cursor)';
   const live = lockDay === 'Live';
+  const filled = lead && filledFoot;
 
   const feet = actions ? (
     <Box component="span" sx={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -49,8 +51,8 @@ export function PlayCard({
           component={RouterLink}
           to={a.to}
           aria-label={a.ariaLabel}
-          data-filled={lead && i === 0 ? 'true' : undefined}
-          sx={{ ...footSx(lead && i === 0), padding: '8px 12px' }}
+          data-filled={filled && i === 0 ? 'true' : undefined}
+          sx={{ ...footSx(filled && i === 0), padding: '8px 12px' }}
         >
           <Box component="span" sx={{ display: 'flex', flexDirection: 'column', lineHeight: 1.3 }}>
             <span>{a.label}</span>
@@ -66,8 +68,8 @@ export function PlayCard({
   ) : cta && (
     <Box
       component="span"
-      data-filled={lead ? 'true' : undefined}
-      sx={{ marginTop: 'auto', ...footSx(lead) }}
+      data-filled={filled ? 'true' : undefined}
+      sx={{ marginTop: 'auto', ...footSx(filled) }}
     >
       {cta.label}
       <PixelArrow />

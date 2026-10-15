@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, within } from '@testing-library/react';
+import { act, render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import NextDraftCard, { featuredDraft } from './NextDraftCard';
 
@@ -60,43 +60,93 @@ describe('featuredDraft', () => {
 
 describe('NextDraftCard states', () => {
   const renderCard = (l, props = {}) => render(
-    <MemoryRouter><NextDraftCard league={l} {...props} /></MemoryRouter>,
+    <MemoryRouter><NextDraftCard league={l} now={NOW} {...props} /></MemoryRouter>,
   );
 
-  test('scheduled keeps the Next draft heading and a countdown', () => {
-    renderCard(league({ id: 7, draft_date: new Date(Date.now() + 6 * 24 * HOUR).toISOString() }));
-    expect(screen.getByRole('heading', { level: 2, name: 'Next draft' })).toBeInTheDocument();
-    const open = screen.getByRole('link', { name: 'Open Draft Room' });
-    expect(open).toHaveAttribute('href', '/league/7/draft');
-    expect(open).toHaveClass('MuiButton-contained');
-    expect(screen.getByRole('link', { name: 'Practice in Draft Sim' })).toBeInTheDocument();
+  test('scheduled shows the day, time, seats joined and the way into the draft room', () => {
+    renderCard(league({
+      id: 7, draft_date: at(6 * 24 * HOUR), team_count: 8, max_teams: 10,
+    }));
+    const link = screen.getByRole('link', { name: /^Draft scheduled. Open the Sunday Ballers draft room: the draft opens/ });
+    expect(link).toHaveAttribute('href', '/league/7/draft');
+    expect(within(link).getByText('Draft scheduled')).toBeInTheDocument();
+    expect(within(link).getByText('Sunday Ballers · 8 of 10 teams joined')).toBeInTheDocument();
+    expect(within(link).getByText('Opens in 6d 00h.')).toBeInTheDocument();
+    expect(within(link).getByText('Open draft room')).toBeInTheDocument();
   });
 
-  test('live shows Draft live with Join draft as the one primary action', () => {
-    renderCard(league({ id: 8, name: 'Night League', draft_status: 'active', draft_date: at(-HOUR) }));
-    const card = screen.getByRole('region', { name: 'Draft live' });
-    expect(within(card).getByRole('heading', { level: 2, name: 'Draft live' })).toBeInTheDocument();
-    expect(within(card).getByText('Night League')).toBeInTheDocument();
-    const link = within(card).getByRole('link', { name: 'Join draft' });
+  test('live reads Live now with the autopick note; the lead carries the filled foot', () => {
+    const { container } = renderCard(league({
+      id: 8, name: 'Night League', draft_status: 'active', draft_date: at(-HOUR),
+    }), { lead: true });
+    const link = screen.getByRole('link', { name: /^Next up: Draft room open\./ });
     expect(link).toHaveAttribute('href', '/league/8/draft');
-    expect(link).toHaveClass('MuiButton-contained');
-    expect(within(card).queryByRole('link', { name: 'Practice in Draft Sim' })).not.toBeInTheDocument();
+    expect(within(link).getByText('Live now')).toBeInTheDocument();
+    expect(within(link).getByText('If your clock runs out, autopick covers your turn.')).toBeInTheDocument();
+    expect(container.querySelectorAll('[data-filled="true"]')).toHaveLength(1);
+    expect(container.textContent).not.toMatch(/you pick/i);
   });
 
-  test('late shows Draft starting soon, a ghost link and the plain copy by default', () => {
-    renderCard(league({ id: 9, name: 'Late League', draft_date: new Date(Date.now() - 2 * HOUR).toISOString() }));
-    const card = screen.getByRole('region', { name: 'Draft starting soon' });
-    expect(within(card).getByText('Late League')).toBeInTheDocument();
-    expect(within(card).getByText('Your draft is about to start.')).toBeInTheDocument();
-    const link = within(card).getByRole('link', { name: 'Open Draft Room' });
-    expect(link).toHaveAttribute('href', '/league/9/draft');
-    expect(link).toHaveClass('MuiButton-outlined');
+  test('a card that is not the lead has an outlined foot', () => {
+    const { container } = renderCard(league({ draft_status: 'active', draft_date: at(-HOUR) }));
+    expect(container.querySelector('[data-filled]')).toBeNull();
+    expect(container.querySelector('.cursor')).toBeNull();
   });
 
-  test('late says the draft did not start on its own when auto-start failed', () => {
-    renderCard(league({ id: 9, draft_autostart_failed: true, draft_date: new Date(Date.now() - 2 * HOUR).toISOString() }));
-    const card = screen.getByRole('region', { name: 'Draft starting soon' });
-    expect(within(card).getByText("The draft didn't start on its own. It starts when the commissioner begins it.")).toBeInTheDocument();
-    expect(within(card).queryByText('Your draft is about to start.')).not.toBeInTheDocument();
+  test('a member waiting on the commissioner keeps the cursor but has no filled foot, even as the lead', () => {
+    const { container } = renderCard(league({ id: 9, draft_autostart_failed: true, draft_date: at(-2 * HOUR) }), { lead: true });
+    expect(container.querySelectorAll('.cursor')).toHaveLength(1);
+    expect(container.querySelectorAll('[data-filled="true"]')).toHaveLength(0);
+  });
+
+  test('late reads Not started with the about-to-start note', () => {
+    renderCard(league({ id: 9, name: 'Late League', draft_date: at(-2 * HOUR) }));
+    const link = screen.getByRole('link', { name: /Late League draft room/ });
+    expect(within(link).getByText('Draft starting soon')).toBeInTheDocument();
+    expect(within(link).getByText('Not started')).toBeInTheDocument();
+    expect(within(link).getByText('Your draft is about to start.')).toBeInTheDocument();
+  });
+
+  test('auto-start failed: a member waits, the commissioner is waited on', () => {
+    const failed = league({ id: 9, draft_autostart_failed: true, draft_date: at(-2 * HOUR) });
+    const { unmount } = renderCard(failed);
+    expect(screen.getByText('Draft waiting')).toBeInTheDocument();
+    expect(screen.getByText("The draft didn't start on its own. It starts when the commissioner begins it.")).toBeInTheDocument();
+    unmount();
+
+    renderCard(failed, { commissioner: true, lead: true });
+    expect(screen.getByText('Draft waiting on you')).toBeInTheDocument();
+    expect(screen.getByText("Your draft didn't start on its own.")).toBeInTheDocument();
+    expect(screen.getByText('Open draft room')).toBeInTheDocument();
+  });
+});
+
+describe('NextDraftCard expiry', () => {
+  beforeEach(() => jest.useFakeTimers());
+  afterEach(() => jest.useRealTimers());
+
+  test('a scheduled draft calls onExpire once when its time arrives', () => {
+    const onExpire = jest.fn();
+    const start = Date.now();
+    render(
+      <MemoryRouter>
+        <NextDraftCard league={league({ draft_date: new Date(start + 5000).toISOString() })} onExpire={onExpire} />
+      </MemoryRouter>,
+    );
+    act(() => { jest.advanceTimersByTime(4000); });
+    expect(onExpire).not.toHaveBeenCalled();
+    act(() => { jest.advanceTimersByTime(1500); });
+    expect(onExpire).toHaveBeenCalledTimes(1);
+  });
+
+  test('a live draft has nothing to expire', () => {
+    const onExpire = jest.fn();
+    render(
+      <MemoryRouter>
+        <NextDraftCard league={league({ draft_status: 'active', draft_date: at(-HOUR) })} onExpire={onExpire} />
+      </MemoryRouter>,
+    );
+    act(() => { jest.advanceTimersByTime(60 * 1000); });
+    expect(onExpire).not.toHaveBeenCalled();
   });
 });

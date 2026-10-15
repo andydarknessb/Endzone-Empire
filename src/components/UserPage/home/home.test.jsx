@@ -49,6 +49,12 @@ describe('PlayCard', () => {
     expect(within(group).getByRole('link', { name: 'Monday League picks' })).not.toHaveAttribute('data-filled');
   });
 
+  test('filledFoot false keeps the cursor on the lead but outlines the foot', () => {
+    const { container } = renderWithProviders(<PlayCard {...card} state="next" lead filledFoot={false} />);
+    expect(container.querySelectorAll('.cursor')).toHaveLength(1);
+    expect(filled(container)).toHaveLength(0);
+  });
+
   test('a grouped card that is not the lead has no filled foot', () => {
     const actions = [
       { label: 'A', to: '/a', ariaLabel: 'A picks' },
