@@ -4,15 +4,16 @@ import { PIXEL_FONT, SR_ONLY_SX, pixelSx } from './homeType';
 
 const asList = (sx) => (Array.isArray(sx) ? sx : [sx]);
 
-/** The one frame: a 6px double rule, square corners, panel fill. `tone="danger"` is the error frame. */
+/** The one frame: a 6px double rule, square corners, panel fill. `tone="danger"` is the error frame. Other props (`aria-label`, `data-testid`) pass through. */
 export function Frame({
-  component = 'section', labelledBy, tone = 'frame', role, head, children, sx,
+  component = 'section', labelledBy, tone = 'frame', role, head, children, sx, ...rest
 }) {
   return (
     <Box
       component={component}
       aria-labelledby={labelledBy}
       role={role}
+      {...rest}
       sx={[
         {
           border: `6px double var(--home-${tone === 'danger' ? 'danger' : 'frame'})`,

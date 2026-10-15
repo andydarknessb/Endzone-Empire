@@ -1,5 +1,6 @@
 import React from 'react';
 import { screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '../../../test-utils/renderWithProviders';
 import {
   CountBadge, ErrorPanel, LeagueLinks, OddsBar, PickemTile, PlayCard, ScoreTile, pixelSx,
@@ -25,6 +26,15 @@ describe('PlayCard', () => {
     expect(container.querySelector('.slot')).toHaveClass('cursor');
     expect(filled(container)).toHaveLength(1);
     expect(screen.getByRole('link', { name: /^Next up: Week 6 picks\./ })).toHaveAttribute('href', '/leagues/1/pickem');
+  });
+
+  test('a cta with onClick and no link is one button that fires it', async () => {
+    const onClick = jest.fn();
+    const { container } = renderWithProviders(<PlayCard {...card} cta={{ label: 'Create a league', onClick }} state="next" lead />);
+    expect(screen.queryByRole('link')).toBeNull();
+    expect(filled(container)).toHaveLength(1);
+    await userEvent.click(screen.getByRole('button', { name: /^Next up: Week 6 picks./ }));
+    expect(onClick).toHaveBeenCalledTimes(1);
   });
 
   test('a non-lead has no cursor and no filled foot, and keeps its slot', () => {
