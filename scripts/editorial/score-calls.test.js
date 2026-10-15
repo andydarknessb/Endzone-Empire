@@ -118,8 +118,9 @@ test('servedInjuryStatus: the latest report overrides a game designation only', 
   assert.equal(servedInjuryStatus(null, [obs('2026-10-16T20:00Z', 'Questionable')]), 'Q');
   assert.equal(servedInjuryStatus('Q', [obs('2026-10-16T20:00Z', 'Out')]), 'O');
   assert.equal(servedInjuryStatus('d', [obs('2026-10-16T20:00Z', 'Doubtful')]), 'D');
-  assert.equal(servedInjuryStatus('Questionable', [obs('2026-10-16T20:00Z', null)]), null); // cleared
-  assert.equal(servedInjuryStatus('O', [obs('2026-10-16T20:00Z', null)]), null);
+  assert.equal(servedInjuryStatus('Questionable', [obs('2026-10-16T20:00Z', null)]), 'Questionable'); // not designated yet: capture stands
+  assert.equal(servedInjuryStatus('Q', [obs('2026-10-15T20:00Z', 'Out'), obs('2026-10-16T20:00Z', null)]), 'Q'); // a null latest report never changes the status
+  assert.equal(servedInjuryStatus(null, [obs('2026-10-16T20:00Z', null)]), null);
   // roster statuses always stand
   assert.equal(servedInjuryStatus('IR', [obs('2026-10-16T20:00Z', 'Questionable')]), 'IR');
   assert.equal(servedInjuryStatus('SUSPENDED', [obs('2026-10-16T20:00Z', null)]), 'SUSPENDED');

@@ -176,14 +176,15 @@ const GAME_DESIGNATIONS = { Q: 'Q', QUESTIONABLE: 'Q', D: 'D', DOUBTFUL: 'D', O:
  * Pure: the injury status the app would hold at kickoff. `snapshotStatus` is the
  * capture's frozen status; the latest observation (`reportStatus`, nflverse's
  * game designation) replaces it only when the snapshot status is null or a game
- * designation, a null report meaning none. Roster statuses (IR, suspended, ...) stand.
+ * designation. A null report never changes it (nflverse fills `report_status` only on the
+ * week's final report, so null earlier means not designated yet). Roster statuses (IR, suspended, ...) stand.
  */
 function servedInjuryStatus(snapshotStatus, observationsAsOf) {
   const key = snapshotStatus == null ? null : String(snapshotStatus).toUpperCase();
   if (key !== null && !GAME_DESIGNATIONS[key]) return snapshotStatus;
   if (!observationsAsOf || observationsAsOf.length === 0) return snapshotStatus;
   const latest = observationsAsOf.reduce((a, b) => (new Date(b.observedAt) >= new Date(a.observedAt) ? b : a));
-  if (latest.reportStatus == null) return null;
+  if (latest.reportStatus == null) return snapshotStatus;
   return GAME_DESIGNATIONS[String(latest.reportStatus).toUpperCase()] || latest.reportStatus;
 }
 
