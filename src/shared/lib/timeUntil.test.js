@@ -1,5 +1,5 @@
 import { act, renderHook } from '@testing-library/react';
-import { timeUntil, useNow } from './timeUntil';
+import { timeUntil, timeUntilWords, useNow } from './timeUntil';
 
 const S = 1000;
 const M = 60 * S;
@@ -144,5 +144,26 @@ describe('useNow with a function and a refresh key', () => {
     expect(result.current).toBe(NOW);
     rerender({ key: 2 });
     expect(result.current).toBe(NOW + 5 * H);
+  });
+});
+
+// Lock notes on a play card read in words, not the compact "1d 01h".
+describe('timeUntilWords', () => {
+  test.each([
+    [37 * M, '37 min'],
+    [59 * M + 59 * S, '59 min'],
+    [H, '1 hour'],
+    [26 * H + 20 * S, '26 hours'],
+    [47 * H + 59 * M, '47 hours'],
+    [2 * D, '2 days'],
+    [3 * D + 5 * H, '3 days'],
+  ])('%d ms reads %s', (remaining, text) => {
+    expect(timeUntilWords(NOW + remaining, NOW)).toBe(text);
+  });
+
+  test('the last minute, and an instant that has passed', () => {
+    expect(timeUntilWords(NOW + 30 * S, NOW)).toBe('under 1 min');
+    expect(timeUntilWords(NOW, NOW)).toBeNull();
+    expect(timeUntilWords('not a date', NOW)).toBeNull();
   });
 });

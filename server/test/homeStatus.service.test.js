@@ -389,6 +389,7 @@ test('leagueStatuses reads the matchup from the home side, and a null score stay
   assert.deepEqual(status.matchup, {
     id: 921,
     status: 'live',
+    kickoffAt: '2026-10-04T17:00:00.000Z',
     opponent: { teamId: 12, name: 'Frozen Tundra FC' },
     my: { score: null, expectedFinal: 118.6, playersRemaining: 4 },
     opp: { score: 71.2, expectedFinal: 104.1, playersRemaining: 3 },

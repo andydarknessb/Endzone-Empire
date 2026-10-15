@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { isPublicPath } from '../public/publicPaths';
 import { Provider } from 'react-redux';
 import configureMockStore from 'redux-mock-store';
@@ -98,9 +98,16 @@ describe('"/home" before the session is resolved (#2097)', () => {
   });
 });
 
+// Home's h1: "Welcome back, alice" once the manager has a league, "Start a league
+// tonight" on first run (the default mock here has no leagues).
+const homeHeading = { level: 1, name: /^(?:Welcome back, alice|Start a league tonight)$/ };
+// waitFor, not findBy: the h1 swaps from the greeting to first run once the leagues
+// read lands, and a found element can be gone by the time it is asserted on.
+const expectHomeHeading = () => waitFor(() => expect(screen.getByRole('heading', homeHeading)).toBeInTheDocument());
+
 test('"/home" redirects to "/user" when already logged in', async () => {
   renderApp('#/home', { user: loggedIn });
-  expect(await screen.findByText(/^Welcome(?: back)?, alice$/)).toBeInTheDocument();
+  await expectHomeHeading();
 });
 
 test('"/login" shows the login form when logged out', async () => {
@@ -110,7 +117,7 @@ test('"/login" shows the login form when logged out', async () => {
 
 test('"/login" redirects to "/user" when already logged in', async () => {
   renderApp('#/login', { user: loggedIn });
-  expect(await screen.findByText(/^Welcome(?: back)?, alice$/)).toBeInTheDocument();
+  await expectHomeHeading();
   expect(screen.queryByRole('heading', { name: 'Login' })).not.toBeInTheDocument();
 });
 
@@ -121,7 +128,7 @@ test('"/registration" shows the registration form when logged out', async () => 
 
 test('"/registration" redirects to "/user" when already logged in', async () => {
   renderApp('#/registration', { user: loggedIn });
-  expect(await screen.findByText(/^Welcome(?: back)?, alice$/)).toBeInTheDocument();
+  await expectHomeHeading();
 });
 
 test('"/about" is visible whether logged out or in', async () => {
@@ -136,7 +143,7 @@ test('"/user" shows LoginPage (via ProtectedRoute) when logged out', async () =>
 
 test('"/user" shows UserPage when logged in', async () => {
   renderApp('#/user', { user: loggedIn });
-  expect(await screen.findByText(/^Welcome(?: back)?, alice$/)).toBeInTheDocument();
+  await expectHomeHeading();
 });
 
 test('"/info" is protected: LoginPage when logged out, InfoPage when logged in', async () => {
@@ -503,11 +510,11 @@ test('the Draft route renders a skip link, first in the DOM, targeting the Draft
 
 test('the /user route renders a skip link, first in the DOM, that moves focus to the page\'s content region', async () => {
   renderApp('#/user', { user: loggedIn });
-  expect(await screen.findByText(/^Welcome(?: back)?, alice$/)).toBeInTheDocument();
+  await expectHomeHeading();
 
   const skipLink = screen.getByRole('link', { name: 'Skip to main content' });
   expect(skipLink).toHaveAttribute('href', '#user-main-content');
-  const main = screen.getByRole('region', { name: /^Welcome(?: back)?, alice$/ });
+  const main = screen.getByRole('region', { name: homeHeading.name });
   expect(main).toHaveAttribute('id', 'user-main-content');
 
   // eslint-disable-next-line testing-library/no-node-access
@@ -599,24 +606,37 @@ test.each([
   clearLeagueCache();
 });
 
-// "Browse the waiver wire" on an all-clear Home goes to the Manager's own
-// league Waivers page, a route of this hash app. It once pointed at
-// /waiver-wire, a public page this app has no route for, and landed on the
-// 404; a page test in a MemoryRouter could not see that (a router link
-// renders a plain path there), only the real shell does.
-test('Browse the waiver wire on an all-clear Home opens the league Waivers page in the app', async () => {
+// A league panel's Waivers link on Home goes to the Manager's own league
+// Waivers page, a route of this hash app. A link once pointed at /waiver-wire, a
+// public page this app has no route for, and landed on the 404; a page test in
+// a MemoryRouter could not see that (a router link renders a plain path there),
+// only the real shell does.
+test("a league panel's Waivers link on Home opens the league Waivers page in the app", async () => {
   renderApp('#/user', { user: loggedIn }, () => {
     apiClient.get.mockImplementation((url) => {
       if (url === '/api/user/action-items') {
         return Promise.resolve({ data: { generatedAt: new Date().toISOString(), counts: { total: 0, dueToday: 0 }, partial: [], items: [] } });
       }
       if (url === '/api/league') {
-        return Promise.resolve({ data: [{ id: 7, name: 'Sunday Ballers', my_team_id: 10, my_team_name: "alice's Team", draft_status: 'complete', owner_id: 1 }] });
+        return Promise.resolve({
+          data: [{
+            id: 7,
+            name: 'Sunday Ballers',
+            my_team_id: 10,
+            my_team_name: "alice's Team",
+            draft_status: 'complete',
+            season_status: 'regular',
+            current_week: 4,
+            owner_id: 1,
+            status: { phase: 'in-season', week: 4, record: { wins: 3, losses: 1, ties: 0 }, matchup: null },
+            statusError: false,
+          }],
+        });
       }
       return Promise.resolve({ data: [] });
     });
   });
-  const link = await screen.findByRole('link', { name: 'Browse the waiver wire' });
+  const link = await screen.findByRole('link', { name: 'Sunday Ballers waivers' });
   const href = link.getAttribute('href');
   expect(href).toBe('#/league/7/waivers');
   expect(isPublicPath(href)).toBe(false);

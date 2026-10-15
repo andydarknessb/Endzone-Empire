@@ -27,6 +27,39 @@ colors:
   paper-tile: "#f4f7fa"
   slate-ink: "#141b23"
   slate-dim: "#55636f"
+  # Home surface (play-select): dark under home-<name>, light overrides under home-<name>-light
+  home-field: "#07080f"
+  home-panel: "#10131f"
+  home-frame: "#c8d0ff"
+  home-rule: "#3a4170"
+  home-ink: "#f4f4f8"
+  home-dim: "#a8adc8"
+  home-play: "#1830b8"
+  home-play-field: "#0f2190"
+  home-play-ink: "#ffffff"
+  home-play-dim: "#c8d0ff"
+  home-accent: "#2fd97b"
+  home-on-accent: "#07080f"
+  home-cursor: "#f8d030"
+  home-danger: "#ff5a4a"
+  home-on-danger: "#07080f"
+  home-board: "#000000"
+  home-board-ink: "#ffffff"
+  home-board-dim: "#a8adc8"
+  home-board-rule: "#3a4170"
+  home-skel: "#2a3052"
+  home-field-light: "#eceef8"
+  home-panel-light: "#ffffff"
+  home-frame-light: "#1830b8"
+  home-rule-light: "#b4bce0"
+  home-ink-light: "#0c0e1c"
+  home-dim-light: "#4a5070"
+  home-accent-light: "#0f6a41"
+  home-on-accent-light: "#ffffff"
+  home-cursor-light: "#a86e00"
+  home-danger-light: "#c62828"
+  home-on-danger-light: "#ffffff"
+  home-skel-light: "#dde1f0"
 typography:
   display:
     fontFamily: "\"Barlow Condensed\", Impact, sans-serif"
@@ -111,6 +144,34 @@ typography:
     fontSize: "2.5rem"
     fontWeight: 800
     lineHeight: 1.15
+  home-pixel-sm:
+    fontFamily: "\"Press Start 2P\", ui-monospace, monospace"
+    fontSize: "16px"
+    fontWeight: 400
+    lineHeight: 1.5
+  home-pixel-md:
+    fontFamily: "\"Press Start 2P\", ui-monospace, monospace"
+    fontSize: "24px"
+    fontWeight: 400
+    lineHeight: 1.5
+  home-pixel-lg:
+    fontFamily: "\"Press Start 2P\", ui-monospace, monospace"
+    fontSize: "32px"
+    fontWeight: 400
+    lineHeight: 1.3
+  home-body:
+    fontFamily: "\"Archivo\", \"Helvetica Neue\", Arial, sans-serif"
+    fontSize: "16px"
+    lineHeight: 1.5
+  home-button:
+    fontFamily: "\"Archivo\", \"Helvetica Neue\", Arial, sans-serif"
+    fontSize: "15px"
+    fontWeight: 600
+  home-caption:
+    fontFamily: "\"Archivo\", \"Helvetica Neue\", Arial, sans-serif"
+    fontSize: "14px"
+    fontWeight: 400
+    lineHeight: 1.5
 rounded:
   sm: "6px"
   button: "9px"
@@ -118,6 +179,7 @@ rounded:
   dash: "14px"
   lg: "16px"
   pill: "999px"
+  home-square: "0px"
 spacing:
   space-1: "4px"
   space-2: "8px"
@@ -163,6 +225,30 @@ components:
   app-card:
     backgroundColor: "{colors.paper-surface}"
     rounded: "{rounded.lg}"
+  home-play-card:
+    backgroundColor: "{colors.home-play}"
+    textColor: "{colors.home-play-ink}"
+    rounded: "{rounded.home-square}"
+    padding: "16px"
+  home-button-fill:
+    backgroundColor: "{colors.home-accent}"
+    textColor: "{colors.home-on-accent}"
+    typography: "{typography.home-button}"
+    rounded: "{rounded.home-square}"
+    padding: "0 16px"
+    height: "44px"
+  home-button-ghost:
+    backgroundColor: "transparent"
+    textColor: "{colors.home-ink}"
+    typography: "{typography.home-button}"
+    rounded: "{rounded.home-square}"
+    padding: "0 16px"
+    height: "44px"
+  home-scoreboard-tile:
+    backgroundColor: "{colors.home-board}"
+    textColor: "{colors.home-board-ink}"
+    rounded: "{rounded.home-square}"
+    padding: "16px"
 ---
 
 # Design System: Endzone Empire
@@ -177,7 +263,7 @@ Endzone Empire is where a league gets run, week after week. The everyday surface
 
 The noise lives in the moments. Live games, a final score, a draft grade, a win, a trade landing: these are where the system gets loud and playful, with Endzone Green, Fourth-Quarter Amber on a scoreboard that stays black in both themes, big condensed figures, and the Tecmo-style sprite. A screen earns its loudness from what is happening in the league, never from ornament.
 
-Two visual generations coexist. The **island** (League Dashboard, Game Center, Matchup Detail, Lineup, Pick'em, Waivers, and Home at `/user`) uses the `dash-*` tokens, Barlow Condensed and Archivo, and is where new league surfaces are drawn. **Legacy** pages under `src/components/` use the app tokens and MUI's Inter ramp. Each generation keeps its own tokens; never mix them on one surface.
+Home at `/user` is the third, deliberate exception to the two generations: the Tecmo play-select world in its own section below, Home only (owner decision, 2026-10-15). Elsewhere two visual generations coexist. The **island** (League Dashboard, Game Center, Matchup Detail, Lineup, Pick'em, Waivers, and the rest of the island) uses the `dash-*` tokens, Barlow Condensed and Archivo, and is where new league surfaces are drawn. **Legacy** pages under `src/components/` use the app tokens and MUI's Inter ramp. Each generation keeps its own tokens; never mix them on one surface.
 
 The system rejects the sportsbook look (odds boards, neon promos, betting urgency) and the cluttered legacy-portal look (ad-shaped boxes, tiny type, every widget competing).
 
@@ -309,6 +395,67 @@ The Game Center scoreboard view: Fourth-Quarter Amber LED digits in Barlow Conde
 
 ### Stat Tile
 An uppercase Label key in Faint Ink above a Headline-size value in tabular Barlow Condensed, with an optional small Archivo unit in Dim Ink.
+
+## Home surface: Play-select
+
+Home (`/user`) is a play-call screen: a near-black field, NES-blue play cards with white X-and-O diagrams, double-ruled frames, and Press Start 2P for display. Scope is Home only. Every other island surface keeps the Commissioner's Desk above and never borrows these tokens, and Home never uses `dash-*` or app tokens. The `home-*` frontmatter colors list dark under the plain name and light under a `-light` suffix. Colors with no `-light` entry (play, play-field, play-ink, play-dim, and the four board colors) are the same in both themes.
+
+**Spec status.** The design canvas (10 boards, published version 27 at https://claude.ai/artifact/MU9fvovmpKB5cSD5eExJWe) is the spec; its working files are in `docs/design/home/`. Shipped in #2315: the colors are the `home-*` tokens in `src/theme/tokens.js` (plus `home-selection` and `home-flash` for text selection and the score flash), with their contrast pairs in `tokens.contrast.test.js`, and the pieces live in `src/components/UserPage/home/`. The Create and Join dialogs still use the desk tokens.
+
+### Palette (both themes)
+- **Field** (home-field): the page ground, near-black in dark and pale lavender-white in light. **Panel** (home-panel): the fill inside frames.
+- **Frame** (home-frame): the double rule, pale periwinkle in dark and the play blue in light. **Rule** (home-rule): the 2px inner dividers.
+- **Ink** and **Dim** (home-ink, home-dim): text tiers on the page and panels.
+- **Play, Play field, Play ink, Play dim**: the card's NES-blue fill, its darker field band, the white diagram and name, and the pale blue for league lines and hash marks. **Play accent** with **On play accent** is the field green of the filled foot and the Live lock line on the card. Fixed in both themes, like the scoreboard.
+- **Accent** (home-accent) with **On accent**: field green in dark and the deep green in light; the one filled action and live state.
+- **Cursor** (home-cursor): yellow in dark and a dark gold in light; the selected play's frame only.
+- **Danger** with **On danger**: red for the urgent strip, the urgent cursor, and error panels.
+- **Board** family: black, fixed in both themes, with white ink, a dim ink, and a rule, for the live scoreboard and pick'em tiles. **Skel** is the loading block.
+
+### Type
+Press Start 2P (display) is set at 16, 24, and 32px only, on an 8px grid, uppercase, line height 1.5 (1.3 on the 32px h1). 32px is the desktop h1 and big scores, 24px is the phone h1, phone scores, and the desktop h2, and 16px is the phone h2, play-card names, tile titles, lock times, and chip and badge text. Anything the pixel face is asked to set smaller snaps up to 16px; there are no other sizes. Archivo is the body at 16px, with 15px (600) for button and link labels, 14px for league lines, lock notes, and captions, and 13px for design notes and small meta. Pixel type is for headings, scores, card names, and lock times; anything read as a sentence stays Archivo.
+
+### Frame
+The one frame is a 6px double rule in Frame color with square corners and Panel fill, with a 2px solid Rule divider under its header (header padding 14px by 20px, 12px by 14px on phones). The scoreboard tile and the error panel use the same 6px double rule, in Board dim and Danger. There are no radii and no shadows on Home.
+
+### Play card
+The signature: a column of an optional urgent strip, the field band, the body, and the foot.
+- **Field band:** Play field fill between two 2px dashed Play dim rules, holding a pixel pictogram (96 by 48 viewBox on a 2px grid, white, crisp edges) drawn from X and O sprites, stepped routes, and arrowheads. One pictogram per play kind: picks, lineup, draft, waivers, trade, trophy, create, join. 144px wide on desktop, 96px on phones.
+- **Body:** the play name in Pixel 16, the league and detail line in Play dim, then the lock day and time in Pixel 16 with a one-line lock note.
+- **Foot:** a 44px bar pinned to the card bottom with a 2px Play ink border. The lead card's foot is the one filled action (Play accent fill, On play accent label, weight 700). Every other foot is outlined in Play ink. A play across several leagues is a group with one foot per league, and only the first can be filled.
+- **Urgent strip:** under one hour, a Danger band across the card top with a pixel clock icon and "38 min left" in On danger.
+- **Cursor:** the lead card (see The One Cursor Rule) sits in a 4px Cursor-colored frame with 8px of padding around the card. Under one hour the frame turns Danger. Non-lead cards keep the same padding with a transparent border so nothing shifts.
+
+### Odds bar
+Win probability as 20 blocks, 12px tall and 2px apart, each block worth 5 points. Filled blocks are Accent only while the matchup is live and Frame color before kickoff. Empty blocks are a 2px Dim outline. On the scoreboard tile the bar sits on Board with a bright green fill. The bar is `role="img"` with the percent in its label, with a pixel percent and "win probability · Endzone Forecast" under it.
+
+### Scoreboard tile and pick'em tile
+A live matchup or pick'em league on Board black with the 6px double rule in Board dim. The title is Pixel 16, then a status line in Board dim, then the score block as one link: You and opponent figures in Pixel 32 (24 on phones) with the leader in white and the trailer in Board dim, the margin in Pixel 16, a "Matchup" cue with a pixel arrow, and the odds bar. The league's other links run underneath in the fixed order Matchup, Lineup, Picks, Waivers, keeping only those the league has, divided by a Board rule. The pick'em tile swaps the score block for one Pixel 32 figure (points, or a record in straight-up leagues) with its label and a "Picks" cue.
+
+### Buttons, links, chips
+Buttons are square, 44px tall, 2px bordered, Archivo 600 at 15px with a pixel arrow: Fill (Accent), Ghost (Ink border and label), and Quiet (transparent border, Dim label). Links are 44px targets in Ink with a 2px Dim underline offset 5px. The Live chip is a 2px Accent outline with Accent Pixel 16 text and a square 8px dot. Count badges are 28px squares with a 2px Ink border.
+
+### Focus and motion
+- **Focus ring:** a 3px solid white outline with no offset and a 7px halo in the dark Field color (`box-shadow: 0 0 0 7px`), on every focusable control in both themes. Text selection is cursor yellow on dark Field.
+- **Cursor blink:** the cursor frame's border blinks off and on three times (0.5s, stepped), then rests lit. Under `prefers-reduced-motion: reduce` the blink is off. Hover brightens a button or link by 12% (`filter: brightness(1.12)`).
+- **Cursor move:** hover (on pointer devices) or keyboard focus inside a play card moves the cursor frame to that card at once, in the lead's colour if it is the lead and in Cursor yellow otherwise, and clears the frame from the lead. When the pointer or focus leaves, the cursor goes back to the lead.
+- **Press:** while a play card is pressed its frame turns white and its content drops 2px. Under reduced motion the frame still turns white but the content does not move.
+- **Score flash:** when a refresh changes a live score, the score block flashes a 16% white wash three times (0.3s, stepped), then holds. Under reduced motion it holds the wash steadily for 1s instead. Nothing else on Home animates.
+
+### Named Rules
+**The One Cursor Rule.** Exactly one play on Home wears the cursor frame: the earliest lock leads, and a live draft never outranks a pick that locks during it. Hover or focus moves that one cursor and never adds a second. A second cursor means neither is selected.
+
+**The Steps Not Slides Rule.** Home motion jumps in stepped frames, as an 8-bit screen does. It never eases, fades or slides.
+
+**The One Filled Action Rule.** One filled green button per page, on the lead play's foot. Every other control is ghost, quiet, or an underlined link.
+
+**The Green Means Go Rule.** Accent green appears only on the one filled action and on live state (the live chip and the live odds bar). It never decorates, and an odds bar before kickoff is Frame color.
+
+**The Red Is Rare Rule.** Danger red appears only when a lock is under one hour (the urgent strip and the cursor turned red) and for errors. A page with nothing urgent and no error has no red.
+
+**The Shared Lock Rule.** Picks that share a lock are one card, not several. One play across several leagues is a single card with one foot link per league.
+
+**The Square Rule.** Home has no corner radius and no drop shadow. Depth is the double rule and the Play-blue fill against the Field.
 
 ## Do's and Don'ts
 
