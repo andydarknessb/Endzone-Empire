@@ -8,7 +8,7 @@ import apiClient from '../../api/apiClient';
 import { readHttpFailure } from '../../lib/httpFailure';
 import { useNotifications } from '../../hooks/useNotifications';
 import LeagueStatusGrid from './LeagueStatusGrid';
-import ActionQueue from './ActionQueue';
+import ActionQueue, { buildPlays } from './ActionQueue';
 import AlertPrompt from './AlertPrompt';
 import LeagueNews from './LeagueNews';
 import { featuredDraft } from './NextDraftCard';
@@ -51,6 +51,29 @@ const LATE_POLL_MS = 30 * 1000;
 // checked less often.
 const FAILED_POLL_MS = 2 * 60 * 1000;
 const START_GRACE_MS = 5 * 1000;
+// Before kickoff nothing polls: one refresh is scheduled at the earliest
+// upcoming lock, never sooner than this from now, so the page catches the
+// matchup going live. A tab shown again refreshes if the last load is older than
+// STALE_AFTER_MS.
+const MIN_KICKOFF_WAIT_MS = 30 * 1000;
+const STALE_AFTER_MS = 60 * 1000;
+// Home's field reaches the Nav and the Footer: the app shell leaves the Nav's
+// 30px bottom margin and the Footer's 80px top margin in page colour, and the
+// root cancels both (the inner padding keeps the content where it was).
+const NAV_GAP = '30px';
+const FOOTER_GAP = '80px';
+
+// Every instant on the leagues that a matchup could go live at: the lineup and
+// pick'em locks the status carries, and the matchup's own kickoff when it has one.
+function upcomingLocks(leagues) {
+  return leagues.flatMap((league) => {
+    const status = league?.status;
+    if (!status || league.statusError === true) return [];
+    return [status.lineup?.nextLockAt, status.pickem?.nextLockAt, status.matchup?.kickoffAt]
+      .map((value) => (value ? new Date(value).getTime() : NaN))
+      .filter((at) => Number.isFinite(at));
+  });
+}
 // The sentence under a failed leagues read when the server sent none.
 const LEAGUES_FAILED_BODY = 'Check your connection, then try again.';
 const FIRST_RUN_STEPS = [
@@ -169,8 +192,10 @@ function UserPage() {
   const [leaguesError, setLeaguesError] = useState(null);
   // When the leagues list last loaded, for the "updated" stamp on game day.
   const [updatedAt, setUpdatedAt] = useState(null);
-  // Bumped on every game-day tick so ActionQueue reloads with the leagues.
+  // Bumped on every silent leagues refresh so ActionQueue reloads with the leagues.
   const [refreshKey, setRefreshKey] = useState(0);
+  // When the last leagues read succeeded, for the tab-shown staleness check.
+  const loadedAt = useRef(0);
 
   // Create League stepper: its answers and request live in CreateLeagueStepper.
   const [openCreateDialog, setOpenCreateDialog] = useState(false);
@@ -214,6 +239,8 @@ function UserPage() {
   const featuredState = featured?.state ?? null;
   const currentWeek = sharedCurrentWeek(myLeagues);
   const liveMatchups = liveMatchupCount(myLeagues);
+  // One count for the badge and the greeting: the plays the cards show.
+  const playCount = actionItems ? buildPlays(actionItems, myLeagues, Date.now()).length : undefined;
   // Game day: the play frame and live scores only; League news and Columns wait.
   const gameDay = liveMatchups > 0;
 
@@ -222,6 +249,7 @@ function UserPage() {
       setLoadingLeagues(true);
       setMyLeagues(await requestLeagues());
       setLeaguesError(null);
+      loadedAt.current = Date.now();
       setUpdatedAt(new Date());
     } catch (err) {
       // Keep the last good list (if any) on screen under the error. Only a
@@ -236,9 +264,11 @@ function UserPage() {
   // loading or error state, so a failed tick leaves the page as it was and the
   // next tick retries.
   const refreshLeagues = async () => {
+    setRefreshKey((n) => n + 1);
     try {
       setMyLeagues(await requestLeagues());
       setLeaguesError(null);
+      loadedAt.current = Date.now();
       setUpdatedAt(new Date());
     } catch (err) {
       // Intentionally silent.
@@ -251,13 +281,33 @@ function UserPage() {
 
   // Game day (spec #2315, ruling 5): the leagues list and the to-do list reload
   // every minute while a matchup is live and the tab is visible.
-  useLiveRefresh({
-    active: gameDay,
-    onTick: () => {
-      refreshLeagues();
-      setRefreshKey((n) => n + 1);
-    },
-  });
+  useLiveRefresh({ active: gameDay, onTick: refreshLeagues });
+
+  // Before kickoff (spec #2315): the leagues list is read once, so a page opened
+  // before a matchup starts would never learn it is live. One silent refresh is
+  // scheduled at the earliest lock the leagues carry that is newer than the last
+  // load (so a refresh that failed is retried), at least 30 s out; each load or
+  // attempt re-arms it. Once a matchup is live the 60 s poll takes over.
+  useEffect(() => {
+    if (gameDay || !updatedAt) return undefined;
+    const since = loadedAt.current;
+    const next = Math.min(Infinity, ...upcomingLocks(myLeagues).filter((at) => at > since));
+    if (!Number.isFinite(next)) return undefined;
+    const id = setTimeout(refreshLeagues, Math.min(Math.max(next - Date.now(), MIN_KICKOFF_WAIT_MS), 2 ** 31 - 1));
+    return () => clearTimeout(id);
+  }, [gameDay, myLeagues, updatedAt, refreshKey]);
+
+  // One visibility handler for the page off game day (on game day useLiveRefresh
+  // owns the event, so one event never refetches twice): a tab shown again
+  // refreshes when the last successful load is over a minute old.
+  useEffect(() => {
+    if (gameDay) return undefined;
+    const onVisible = () => {
+      if (!document.hidden && Date.now() - loadedAt.current > STALE_AFTER_MS) refreshLeagues();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [gameDay]);
 
   // Draft night: the card is only as fresh as the leagues list. When a
   // scheduled draft's countdown runs out the card refetches once, just after
@@ -276,13 +326,8 @@ function UserPage() {
   };
   useEffect(() => {
     if (featuredState !== 'late') return undefined;
-    const refreshIfVisible = () => { if (!document.hidden) refreshLeagues(); };
-    const poll = setInterval(refreshIfVisible, featuredFailed ? FAILED_POLL_MS : LATE_POLL_MS);
-    document.addEventListener('visibilitychange', refreshIfVisible);
-    return () => {
-      clearInterval(poll);
-      document.removeEventListener('visibilitychange', refreshIfVisible);
-    };
+    const poll = setInterval(() => { if (!document.hidden) refreshLeagues(); }, featuredFailed ? FAILED_POLL_MS : LATE_POLL_MS);
+    return () => clearInterval(poll);
   }, [featuredState, featuredId, featuredFailed]);
 
   // Functions to handle create dialog
@@ -337,7 +382,7 @@ function UserPage() {
         tabIndex={-1}
         aria-labelledby="user-page-heading"
         sx={{
-          ...homeRootSx, display: 'flex', flexDirection: 'column', flexGrow: 1,
+          ...homeRootSx, display: 'flex', flexDirection: 'column', flexGrow: 1, mt: `-${NAV_GAP}`, mb: `-${FOOTER_GAP}`,
         }}
       >
         <Box
@@ -346,7 +391,7 @@ function UserPage() {
             maxWidth: '1240px',
             mx: 'auto',
             boxSizing: 'border-box',
-            p: { xs: '24px 16px 48px', md: '40px 32px 64px' },
+            p: { xs: `calc(24px + ${NAV_GAP}) 16px 48px`, md: `calc(40px + ${NAV_GAP}) 32px 64px` },
             display: 'flex',
             flexDirection: 'column',
             gap: { xs: '28px', md: '40px' },
@@ -365,7 +410,7 @@ function UserPage() {
               <GreetingHeader
                 username={user.username}
                 week={currentWeek}
-                summary={greetingSummary(actionItems)}
+                summary={greetingSummary(actionItems, Date.now(), playCount)}
                 liveCount={liveMatchups}
                 actions={isDesktop ? joinCreate : null}
               />

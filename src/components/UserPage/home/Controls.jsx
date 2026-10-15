@@ -27,22 +27,36 @@ const VARIANT = {
   quiet: { backgroundColor: 'transparent', border: '2px solid transparent', color: 'var(--home-dim)' },
 };
 
-/** Square 44px button: fill (the page's one filled action), ghost, or quiet. A `to` makes it a router link. */
+const DISABLED_SX = { '&[disabled], &[aria-disabled="true"]': { opacity: 0.5, cursor: 'not-allowed' } };
+
+/**
+ * Square 44px button: fill (the page's one filled action), ghost, or quiet. A
+ * `to` makes it a router link. `disabled` is the native attribute on a button;
+ * a link gets aria-disabled and swallows the click, so it does not navigate.
+ */
 export function HomeButton({
-  variant = 'ghost', to, onClick, ariaLabel, children, type = 'button',
+  variant = 'ghost', to, onClick, ariaLabel, children, type = 'button', disabled = false,
 }) {
-  const sx = { ...BTN, ...VARIANT[variant] };
+  const sx = { ...BTN, ...VARIANT[variant], ...DISABLED_SX };
   const arrow = variant === 'fill' ? <PixelArrow /> : null;
   if (to) {
     return (
-      <Box component={RouterLink} to={to} onClick={onClick} aria-label={ariaLabel} sx={sx}>
+      <Box
+        component={RouterLink}
+        to={to}
+        onClick={disabled ? (event) => event.preventDefault() : onClick}
+        aria-label={ariaLabel}
+        aria-disabled={disabled ? 'true' : undefined}
+        tabIndex={disabled ? -1 : undefined}
+        sx={sx}
+      >
         {children}
         {arrow}
       </Box>
     );
   }
   return (
-    <Box component="button" type={type} onClick={onClick} aria-label={ariaLabel} sx={sx}>
+    <Box component="button" type={type} onClick={onClick} aria-label={ariaLabel} disabled={disabled} sx={sx}>
       {children}
       {arrow}
     </Box>

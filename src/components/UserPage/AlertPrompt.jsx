@@ -160,7 +160,7 @@ function AlertPrompt({ leagues }) {
       {state !== 'blocked' && (
         <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
           {state === 'default' && (
-            <HomeButton variant="ghost" onClick={enable}>Turn on alerts</HomeButton>
+            <HomeButton variant="ghost" onClick={enable} disabled={busy}>Turn on alerts</HomeButton>
           )}
           <HomeButton variant="quiet" onClick={notNow} ariaLabel="Not now, hide the alerts offer">Not now</HomeButton>
         </Box>

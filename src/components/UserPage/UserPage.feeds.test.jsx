@@ -16,7 +16,12 @@ jest.mock('../../api/apiClient', () => ({
   default: { get: jest.fn(), post: jest.fn(), put: jest.fn() },
 }));
 
-jest.mock('./ActionQueue', () => ({ __esModule: true, default: require('./homeTestStubs').ActionQueueStub }));
+// buildPlays is the real one: the page counts the plays with it, so the greeting and the badge agree.
+jest.mock('./ActionQueue', () => ({
+  __esModule: true,
+  default: require('./homeTestStubs').ActionQueueStub,
+  buildPlays: jest.requireActual('./ActionQueue').buildPlays,
+}));
 jest.mock('./LeagueStatusGrid', () => ({ __esModule: true, default: require('./homeTestStubs').LeagueStatusGridStub }));
 
 jest.mock('../../utils/push', () => ({

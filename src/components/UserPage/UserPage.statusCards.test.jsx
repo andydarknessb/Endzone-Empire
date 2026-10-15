@@ -1,6 +1,8 @@
 /* eslint-disable testing-library/no-node-access, testing-library/no-container -- the odds-bar blocks, a tile's unnamed article and the stamp's ancestry have no role to query */
 import React from 'react';
-import { render, screen, within } from '@testing-library/react';
+import {
+  act, render, screen, within,
+} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import LeagueStatusGrid from './LeagueStatusGrid';
@@ -326,16 +328,59 @@ describe('score flash', () => {
     scoreLinks().forEach((a) => expect(a).not.toHaveClass('scored'));
   });
 
-  test('a refresh that changes one score flashes that tile only, and the next quiet refresh clears it', () => {
-    const { rerender } = renderGrid({ leagues: tileLeagues(87.4), live: true });
-    rerender(<LeagueStatusGrid leagues={tileLeagues(93.1)} live />);
-    const [first, second] = scoreLinks();
-    expect(first).toHaveAccessibleName(/87\.4|93\.1/);
-    expect(first).toHaveClass('scored');
-    expect(first).toHaveAccessibleName(/93\.1/);
-    expect(second).not.toHaveClass('scored');
-    rerender(<LeagueStatusGrid leagues={tileLeagues(93.1)} live />);
-    scoreLinks().forEach((a) => expect(a).not.toHaveClass('scored'));
+  describe('with fake timers', () => {
+    beforeEach(() => { jest.useFakeTimers(); });
+    afterEach(() => { jest.useRealTimers(); });
+
+    test('a refresh that changes one score flashes that tile only; an unrelated re-render inside a second keeps it, and it is gone after one', () => {
+      const { rerender } = renderGrid({ leagues: tileLeagues(87.4), live: true });
+      rerender(<LeagueStatusGrid leagues={tileLeagues(93.1)} live />);
+      const [first, second] = scoreLinks();
+      expect(first).toHaveClass('scored');
+      expect(first).toHaveAccessibleName(/93.1/);
+      expect(second).not.toHaveClass('scored');
+
+      // The same scores again (a poll that changed nothing, the stamp ticking): the flash holds.
+      act(() => { jest.advanceTimersByTime(400); });
+      rerender(<LeagueStatusGrid leagues={tileLeagues(93.1)} live updatedAt={Date.now()} />);
+      expect(scoreLinks()[0]).toHaveClass('scored');
+      act(() => { jest.advanceTimersByTime(500); });
+      expect(scoreLinks()[0]).toHaveClass('scored');
+      act(() => { jest.advanceTimersByTime(100); });
+      scoreLinks().forEach((a) => expect(a).not.toHaveClass('scored'));
+    });
+
+    test('a new change restarts the second', () => {
+      const { rerender } = renderGrid({ leagues: tileLeagues(87.4), live: true });
+      rerender(<LeagueStatusGrid leagues={tileLeagues(93.1)} live />);
+      act(() => { jest.advanceTimersByTime(800); });
+      rerender(<LeagueStatusGrid leagues={tileLeagues(99.9)} live />);
+      act(() => { jest.advanceTimersByTime(800); });
+      expect(scoreLinks()[0]).toHaveClass('scored');
+      act(() => { jest.advanceTimersByTime(200); });
+      expect(scoreLinks()[0]).not.toHaveClass('scored');
+    });
+
+    test('a score with no figure turning to 0 reads the same on screen, so it does not flash', () => {
+      const { rerender } = renderGrid({ leagues: tileLeagues(null), live: true });
+      rerender(<LeagueStatusGrid leagues={tileLeagues(0)} live />);
+      scoreLinks().forEach((a) => expect(a).not.toHaveClass('scored'));
+      // Under the displayed decimal: 87.41 to 87.44 is the same label.
+      rerender(<LeagueStatusGrid leagues={tileLeagues(87.41)} live />);
+      act(() => { jest.advanceTimersByTime(1100); });
+      rerender(<LeagueStatusGrid leagues={tileLeagues(87.44)} live />);
+      scoreLinks().forEach((a) => expect(a).not.toHaveClass('scored'));
+    });
+
+    test('the updated stamp ages on the minute with no new data', () => {
+      renderGrid({ leagues: [liveLeague()], live: true, updatedAt: new Date(Date.now()).toISOString() });
+      expect(screen.getByText('updated just now · refreshes every minute')).toBeInTheDocument();
+      act(() => { jest.advanceTimersByTime(61 * 1000); });
+      expect(screen.getByText('updated 1 min ago · refreshes every minute')).toBeInTheDocument();
+      act(() => { jest.advanceTimersByTime(60 * 1000); });
+      act(() => { jest.advanceTimersByTime(60 * 1000); });
+      expect(screen.getByText('updated 3 min ago · refreshes every minute')).toBeInTheDocument();
+    });
   });
 });
 

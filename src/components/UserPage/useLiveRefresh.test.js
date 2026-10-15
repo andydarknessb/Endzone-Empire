@@ -67,3 +67,31 @@ test('always calls the latest onTick', () => {
   expect(first).not.toHaveBeenCalled();
   expect(second).toHaveBeenCalledTimes(1);
 });
+
+test('a tab shown again within 30 s of the last refresh does not refresh again', () => {
+  const onTick = jest.fn();
+  renderHook(() => useLiveRefresh({ active: true, onTick }));
+
+  act(() => { jest.advanceTimersByTime(60 * 1000); });
+  expect(onTick).toHaveBeenCalledTimes(1);
+  act(() => { jest.advanceTimersByTime(29 * 1000); });
+  fireVisibility();
+  expect(onTick).toHaveBeenCalledTimes(1);
+  act(() => { jest.advanceTimersByTime(1000); });
+  fireVisibility();
+  expect(onTick).toHaveBeenCalledTimes(2);
+});
+
+test('a visibility refresh restarts the 60 s interval', () => {
+  const onTick = jest.fn();
+  renderHook(() => useLiveRefresh({ active: true, onTick }));
+
+  act(() => { jest.advanceTimersByTime(40 * 1000); });
+  fireVisibility();
+  expect(onTick).toHaveBeenCalledTimes(1);
+  // The old interval would fire at 60 s; the restarted one fires 60 s after the refresh.
+  act(() => { jest.advanceTimersByTime(59 * 1000); });
+  expect(onTick).toHaveBeenCalledTimes(1);
+  act(() => { jest.advanceTimersByTime(1000); });
+  expect(onTick).toHaveBeenCalledTimes(2);
+});

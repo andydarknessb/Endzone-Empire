@@ -31,19 +31,21 @@ function firstLockToday(items, now) {
  * The summary line for a GET /api/user/action-items body, or null when there
  * is nothing honest to say (no body yet, or an empty list with item types the
  * server could not check, where "all caught up" would be a claim it can't
- * back). The total is the server's uncapped count, not the rows served.
+ * back). `count` is the number of plays the cards show (ActionQueue's
+ * buildPlays), so the greeting and the badge give one number; without it the
+ * server's own total stands.
  */
-export function greetingSummary(body, now = Date.now()) {
+export function greetingSummary(body, now = Date.now(), count = undefined) {
   if (!body || typeof body !== 'object') return null;
   const items = Array.isArray(body.items) ? body.items : [];
   const incomplete = Array.isArray(body.partial) && body.partial.length > 0;
-  const total = typeof body.counts?.total === 'number'
-    ? body.counts.total
-    : items.filter((item) => item && item.severity !== 'info').length;
+  let total = items.filter((item) => item && item.severity !== 'info').length;
+  if (typeof body.counts?.total === 'number') total = body.counts.total;
+  if (typeof count === 'number') total = count;
   if (total <= 0) return incomplete ? null : "You're all caught up.";
 
   const head = total === 1 ? '1 thing needs you.' : `${total} things need you.`;
-  const dueToday = typeof body.counts?.dueToday === 'number' ? body.counts.dueToday : 0;
+  const dueToday = typeof body.counts?.dueToday === 'number' ? Math.min(body.counts.dueToday, total) : 0;
   if (dueToday <= 0) return head;
 
   const first = firstLockToday(items, now);
