@@ -78,6 +78,9 @@ for (const state of STATES) {
           clientWidth: document.documentElement.clientWidth,
           bodyScrollWidth: document.body.scrollWidth,
           background: getComputedStyle(document.querySelector('.home-root') as Element).backgroundColor,
+          // The seam: Home's field starts at the Nav's bottom edge and ends at the footer's top edge.
+          navGap: Math.round((document.querySelector('.home-root') as Element).getBoundingClientRect().top - (document.querySelector('header') as Element).getBoundingClientRect().bottom),
+          footerGap: Math.round((document.querySelector('footer') as Element).getBoundingClientRect().top - (document.querySelector('.home-root') as Element).getBoundingClientRect().bottom),
         }));
         // eslint-disable-next-line no-console
         console.log(`HOME_PLAYSELECT ${state}-${viewport}-${theme} ${JSON.stringify(probe)}`);
@@ -85,6 +88,8 @@ for (const state of STATES) {
         fs.mkdirSync(SHOTS, { recursive: true });
         await page.screenshot({ path: path.join(SHOTS, `${state}-${viewport}-${theme}.png`), fullPage: true, animations: 'disabled' });
 
+        expect(probe.navGap, 'no band of page colour between the Nav and Home').toBe(0);
+        expect(probe.footerGap, 'no band of page colour between Home and the footer').toBe(0);
         expect(probe.cursors, 'exactly one .cursor').toBe(1);
         expect(probe.filled, 'exactly one data-filled="true" foot').toBe(1);
         expect(probe.scrollWidth, `document scrollWidth ${probe.scrollWidth} vs clientWidth ${probe.clientWidth}`).toBeLessThanOrEqual(probe.clientWidth);
@@ -204,15 +209,26 @@ for (const motion of ['no-preference', 'reduce'] as const) {
   });
 }
 
-// BUG (found writing this spec, app code untouched): the flash is cut short. LeagueStatusGrid marks a tile `scored`
-// for the one render where its score signature changed; the action-items refetch the same tick triggers
-// (UserPage setActionItems -> re-render) renders the grid again with seen.current already updated, so the class
-// is gone ~12 ms later (MutationObserver log: [[60012, 1], [60024, 0]]) instead of holding for the 0.9 s animation.
-test.fixme('game day: the .scored class holds for the whole flash (>= 900 ms), not one render', async ({ page }) => {
+// The flash is held in state for 1000 ms (LeagueStatusGrid), so the unrelated re-render the same tick triggers
+// (the action-items refetch) cannot clear it after one render. The class's own add and remove are timed in the page.
+test('game day: the .scored class holds for the whole flash (>= 900 ms), not one render', async ({ page }) => {
   const { harness, now } = await openGameDay(page);
+  await page.evaluate(() => {
+    const w = window as unknown as { __flash: { on: number | null; off: number | null } };
+    w.__flash = { on: null, off: null };
+    new MutationObserver(() => {
+      const has = document.querySelectorAll('.home-root .scored').length > 0;
+      if (has && w.__flash.on === null) w.__flash.on = performance.now();
+      if (!has && w.__flash.on !== null && w.__flash.off === null) w.__flash.off = performance.now();
+    }).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['class'] });
+  });
   harness.setLeagues(homeBodies('gameday', now, { tnrScore: 94.6 }).leagues);
   await page.clock.runFor(60 * 1000);
   await expect(page.locator('.home-root .scored')).toHaveCount(1);
-  await page.waitForTimeout(900);
-  await expect(page.locator('.home-root .scored')).toHaveCount(1);
+  await expect.poll(
+    () => page.evaluate(() => (window as unknown as { __flash: { off: number | null } }).__flash.off),
+    { message: 'the flash ends', timeout: 5000 },
+  ).not.toBeNull();
+  const { on, off } = await page.evaluate(() => (window as unknown as { __flash: { on: number; off: number } }).__flash);
+  expect(off - on, 'ms the .scored class was on the tile').toBeGreaterThanOrEqual(900);
 });

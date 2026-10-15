@@ -18,7 +18,12 @@ jest.mock('../../api/apiClient', () => ({
 
 // ActionQueue and LeagueStatusGrid are tested in their own files; here they
 // render the props UserPage hands them.
-jest.mock('./ActionQueue', () => ({ __esModule: true, default: require('./homeTestStubs').ActionQueueStub }));
+// buildPlays is the real one: the page counts the plays with it, so the greeting and the badge agree.
+jest.mock('./ActionQueue', () => ({
+  __esModule: true,
+  default: require('./homeTestStubs').ActionQueueStub,
+  buildPlays: jest.requireActual('./ActionQueue').buildPlays,
+}));
 jest.mock('./LeagueStatusGrid', () => ({ __esModule: true, default: require('./homeTestStubs').LeagueStatusGridStub }));
 
 // Push support is a browser fact jsdom lacks; the Alert prompt tests below turn it on.
@@ -343,7 +348,7 @@ describe('game day', () => {
       expect(screen.getByTestId('action-queue')).toHaveAttribute('data-refresh-key', '1');
     });
 
-    test('a quiet week does not poll', async () => {
+    test('a quiet week with no lock ahead does not poll', async () => {
       apiClient.get.mockResolvedValue({ data: [league()] });
       renderPage();
       await screen.findByText('Sunday Ballers');
@@ -351,6 +356,145 @@ describe('game day', () => {
       await act(async () => { jest.advanceTimersByTime(180 * 1000); });
       expect(leagueReads()).toBe(1);
     });
+  });
+});
+
+// --- Before kickoff ---------------------------------------------------------------
+
+describe('before kickoff', () => {
+  beforeEach(() => { jest.useFakeTimers(); });
+  afterEach(() => {
+    jest.useRealTimers();
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
+  });
+
+  const leagueReads = () => apiClient.get.mock.calls.filter(([url]) => url === '/api/league').length;
+  const scheduled = (lockInMs, overrides = {}) => league({
+    draft_status: 'complete',
+    season_status: 'regular',
+    current_week: 4,
+    status: {
+      phase: 'in-season',
+      week: 4,
+      matchup: { id: 9, status: 'scheduled' },
+      lineup: { nextLockAt: new Date(Date.now() + lockInMs).toISOString() },
+    },
+    ...overrides,
+  });
+  // Each /api/league read answers the next list; the last one repeats.
+  const leaguesAnswers = (...answers) => {
+    let reads = 0;
+    apiClient.get.mockImplementation((url) => {
+      if (url === '/api/league') {
+        const answer = answers[Math.min(reads, answers.length - 1)];
+        reads += 1;
+        return Promise.resolve({ data: typeof answer === 'function' ? answer() : answer });
+      }
+      if (url === '/api/notifications') return Promise.resolve({ data: { notifications: [], unread: 0 } });
+      return Promise.resolve({ data: [] });
+    });
+  };
+  const hide = (hidden) => Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden });
+  const show = () => act(async () => { document.dispatchEvent(new Event('visibilitychange')); });
+
+  test('refreshes once at the earliest lock, so a page opened before kickoff goes live; then the 60 s poll takes over', async () => {
+    leaguesAnswers(
+      () => [scheduled(10 * 60 * 1000)],
+      () => [liveLeague()],
+    );
+    renderPage();
+    await screen.findByText('Sunday Ballers');
+    expect(leagueReads()).toBe(1);
+    expect(screen.queryByText('1 matchup live')).not.toBeInTheDocument();
+
+    await act(async () => { jest.advanceTimersByTime(9 * 60 * 1000); });
+    expect(leagueReads()).toBe(1);
+    await act(async () => { jest.advanceTimersByTime(60 * 1000); });
+    expect(leagueReads()).toBe(2);
+    expect(await screen.findByText('1 matchup live')).toBeInTheDocument();
+    expect(screen.getByTestId('action-queue')).toHaveAttribute('data-refresh-key', '1');
+
+    await act(async () => { jest.advanceTimersByTime(60 * 1000); });
+    expect(leagueReads()).toBe(3);
+    expect(screen.getByTestId('action-queue')).toHaveAttribute('data-refresh-key', '2');
+  });
+
+  test("reads the lock from the pick'em side too, the earliest wins, and a lock under 30 s away waits 30 s", async () => {
+    const pickem = scheduled(20 * 60 * 1000, { id: 2, name: 'Pickem Side', status: { phase: 'in-season', week: 4, pickem: { nextLockAt: new Date(Date.now() + 5 * 1000).toISOString() } } });
+    leaguesAnswers(() => [scheduled(10 * 60 * 1000), pickem], () => [scheduled(60 * 60 * 1000)]);
+    renderPage();
+    await screen.findByText('Sunday Ballers');
+
+    await act(async () => { jest.advanceTimersByTime(29 * 1000); });
+    expect(leagueReads()).toBe(1);
+    await act(async () => { jest.advanceTimersByTime(1000); });
+    expect(leagueReads()).toBe(2);
+    // Re-armed after that load, now for the next lock (an hour out): nothing in 5 minutes.
+    await act(async () => { jest.advanceTimersByTime(5 * 60 * 1000); });
+    expect(leagueReads()).toBe(2);
+  });
+
+  test('a scheduled refresh that fails is retried in 30 s, silently', async () => {
+    let reads = 0;
+    apiClient.get.mockImplementation((url) => {
+      if (url !== '/api/league') return Promise.resolve({ data: url === '/api/notifications' ? { notifications: [], unread: 0 } : [] });
+      reads += 1;
+      if (reads === 2) return Promise.reject(new Error('down'));
+      return Promise.resolve({ data: [scheduled(reads === 1 ? 2 * 60 * 1000 : 40 * 60 * 1000)] });
+    });
+    renderPage();
+    await screen.findByText('Sunday Ballers');
+
+    await act(async () => { jest.advanceTimersByTime(2 * 60 * 1000); });
+    expect(reads).toBe(2);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    await act(async () => { jest.advanceTimersByTime(30 * 1000); });
+    expect(reads).toBe(3);
+  });
+
+  test('showing the tab refreshes only when the last load is over 60 s old', async () => {
+    leaguesAnswers(() => [scheduled(6 * 60 * 60 * 1000)]);
+    renderPage();
+    await screen.findByText('Sunday Ballers');
+
+    hide(true);
+    await act(async () => { jest.advanceTimersByTime(50 * 1000); });
+    hide(false);
+    await show();
+    expect(leagueReads()).toBe(1);
+
+    hide(true);
+    await act(async () => { jest.advanceTimersByTime(20 * 1000); });
+    hide(false);
+    await show();
+    expect(leagueReads()).toBe(2);
+    expect(screen.getByTestId('action-queue')).toHaveAttribute('data-refresh-key', '1');
+  });
+
+  test('every silent leagues refresh bumps the queue key: the draft expiry and the late-draft poll', async () => {
+    leaguesAnswers(() => [league({ draft_status: 'pending', draft_date: new Date(Date.now() - 60 * 60 * 1000).toISOString() })]);
+    renderPage();
+    await screen.findByText('Sunday Ballers');
+    expect(screen.getByTestId('action-queue')).toHaveAttribute('data-refresh-key', '0');
+
+    await act(async () => { jest.advanceTimersByTime(30 * 1000); });
+    expect(leagueReads()).toBe(2);
+    expect(screen.getByTestId('action-queue')).toHaveAttribute('data-refresh-key', '1');
+  });
+
+  test('on game day one visibility event refreshes once, not once for the live path and again for a late draft', async () => {
+    leaguesAnswers(() => [
+      liveLeague(),
+      league({ id: 2, name: 'Late One', draft_status: 'pending', draft_date: new Date(Date.now() - 60 * 60 * 1000).toISOString() }),
+    ]);
+    renderPage();
+    await screen.findByText('1 matchup live');
+    hide(true);
+    await act(async () => { jest.advanceTimersByTime(40 * 1000); });
+    hide(false);
+    const before = leagueReads();
+    await show();
+    expect(leagueReads()).toBe(before + 1);
   });
 });
 

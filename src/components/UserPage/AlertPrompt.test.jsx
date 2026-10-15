@@ -182,6 +182,18 @@ describe('AlertPrompt', () => {
     expect(screen.queryByTestId('alert-prompt')).not.toBeInTheDocument();
   });
 
+  test('Turn on alerts is disabled while the subscription is in flight, so a second click cannot start another', async () => {
+    let finish;
+    subscribeToPush.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    render(<AlertPrompt leagues={leagues} />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Turn on alerts' }));
+    expect(screen.getByRole('button', { name: 'Turn on alerts' })).toBeDisabled();
+    await userEvent.click(screen.getByRole('button', { name: 'Turn on alerts' }));
+    expect(subscribeToPush).toHaveBeenCalledTimes(1);
+    await act(async () => { finish(); });
+    expect(screen.queryByTestId('alert-prompt')).not.toBeInTheDocument();
+  });
+
   test('the card never shrinks below its content in the Home column', async () => {
     render(<AlertPrompt leagues={leagues} />);
     expect(getComputedStyle(await screen.findByTestId('alert-prompt')).flexShrink).toBe('0');

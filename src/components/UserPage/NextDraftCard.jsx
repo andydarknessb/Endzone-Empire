@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import PropTypes from 'prop-types';
 import { deriveLeaguePhase, LEAGUE_PHASE } from '../../shared/lib/leaguePhase';
 import { formatInstant } from '../../shared/lib/instantFormat';
-import { timeUntil } from '../../shared/lib/timeUntil';
+import { timeUntilWords } from '../../shared/lib/timeUntil';
 import { PlayCard } from './home';
 
 // The featured draft as a Play-select play card (DESIGN.md "Play card", kind
@@ -90,7 +90,7 @@ function copy(league, state, now, commissioner) {
     };
   }
   const at = new Date(league.draft_date).getTime();
-  const until = timeUntil(at, now);
+  const words = timeUntilWords(at, now);
   const joined = Number(league.team_count);
   const max = Number(league.max_teams);
   const seats = Number.isFinite(joined) && Number.isFinite(max) && max > 0 ? `${joined} of ${max} teams joined` : null;
@@ -99,7 +99,7 @@ function copy(league, state, now, commissioner) {
     detail: seats,
     lockDay: weekday(at),
     lockTime: formatInstant(at, 'time'),
-    lockNote: until && !until.passed ? `Opens in ${until.text}.` : 'Opens now.',
+    lockNote: words ? `Opens in ${words}.` : 'Opens now.',
     ariaLabel: `Open the ${league.name} draft room: the draft opens ${weekday(at)} ${formatInstant(at, 'time')}`,
     cta,
   };

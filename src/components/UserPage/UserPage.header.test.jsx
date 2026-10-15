@@ -12,7 +12,12 @@ jest.mock('../../api/apiClient', () => ({
 
 // ActionQueue is tested in its own file. Here it hands the page the to-do list
 // body (`queueStub.body`), as the real one does through onLoaded.
-jest.mock('./ActionQueue', () => ({ __esModule: true, default: require('./homeTestStubs').ActionQueueStub }));
+// buildPlays is the real one: the page counts the plays with it, so the greeting and the badge agree.
+jest.mock('./ActionQueue', () => ({
+  __esModule: true,
+  default: require('./homeTestStubs').ActionQueueStub,
+  buildPlays: jest.requireActual('./ActionQueue').buildPlays,
+}));
 jest.mock('./LeagueStatusGrid', () => ({ __esModule: true, default: require('./homeTestStubs').LeagueStatusGridStub }));
 
 // The greeting header as build-main.js draws it: the h1, one status line
@@ -178,12 +183,12 @@ test('the summary line counts what needs the manager, what is due today and when
         item({ id: 'd', type: 'trade_offer', deadlineAt: null, severity: 'untimed' }),
         item({ id: 'e', type: 'join_requests', deadlineAt: null, severity: 'untimed' }),
       ],
-      { total: 5, dueToday: 2 },
+      { total: 5, dueToday: 2 }, // the server counts a join request; it is not a play
     ),
   });
   renderPage();
 
-  expect(await screen.findByText(`5 things need you. 2 are due today. First up: Pick the week, at ${timeFormat.format(new Date(first))}.`))
+  expect(await screen.findByText(`4 things need you. 2 are due today. First up: Pick the week, at ${timeFormat.format(new Date(first))}.`))
     .toBeInTheDocument();
 });
 
@@ -203,7 +208,7 @@ test('one thing due today names the item and its lock time', async () => {
     .toBeInTheDocument();
 });
 
-test('the summary line names a blocking item over an earlier info item', async () => {
+test('the summary line names a blocking item over an earlier info item (the info row is not a play)', async () => {
   const first = laterToday();
   const later = new Date(new Date(first).getTime() + 30 * 1000).toISOString();
   mockApi({
@@ -217,7 +222,7 @@ test('the summary line names a blocking item over an earlier info item', async (
   });
   renderPage();
 
-  expect(await screen.findByText(`2 things need you. 2 are due today. First up: Fill your FLEX, at ${timeFormat.format(new Date(later))}.`))
+  expect(await screen.findByText(`1 thing needs you. 1 is due today: Fill your FLEX, at ${timeFormat.format(new Date(later))}.`))
     .toBeInTheDocument();
 });
 
@@ -237,11 +242,11 @@ test('without server counts the summary line leaves info items out of the total'
   expect(await screen.findByText('1 thing needs you.')).toBeInTheDocument();
 });
 
-test('the summary line counts the uncapped total, not the 20 rows served', async () => {
+test('the summary line counts the plays on the cards, the same number as the badge, not the server total', async () => {
   mockApi({ actionItems: actionItemsBody([item()], { total: 23, dueToday: 0 }) });
   renderPage();
 
-  expect(await screen.findByText('23 things need you.')).toBeInTheDocument();
+  expect(await screen.findByText('1 thing needs you.')).toBeInTheDocument();
 });
 
 test('the summary line is left out while the to-do list loads or when it fails', async () => {

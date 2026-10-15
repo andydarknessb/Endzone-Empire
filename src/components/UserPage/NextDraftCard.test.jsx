@@ -71,7 +71,7 @@ describe('NextDraftCard states', () => {
     expect(link).toHaveAttribute('href', '/league/7/draft');
     expect(within(link).getByText('Draft scheduled')).toBeInTheDocument();
     expect(within(link).getByText('Sunday Ballers · 8 of 10 teams joined')).toBeInTheDocument();
-    expect(within(link).getByText('Opens in 6d 00h.')).toBeInTheDocument();
+    expect(within(link).getByText('Opens in 6 days.')).toBeInTheDocument();
     expect(within(link).getByText('Open draft room')).toBeInTheDocument();
   });
 

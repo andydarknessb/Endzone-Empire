@@ -4,7 +4,7 @@ import React, {
 import { Box } from '@mui/material';
 import apiClient from '../../api/apiClient';
 import { formatInstant } from '../../shared/lib/instantFormat';
-import { timeUntil, useNow } from '../../shared/lib/timeUntil';
+import { timeUntil, timeUntilWords, useNow } from '../../shared/lib/timeUntil';
 import NextDraftCard, { featuredDraft } from './NextDraftCard';
 import {
   CountBadge, ErrorPanel, Frame, FrameHead, HomeButton, HomeLink, PixelHeading, PlayCard, Skel, SR_ONLY_SX, pixelSx,
@@ -91,8 +91,9 @@ const spoken = ({ lockDay, lockTime }) => [lockDay, lockTime].filter(Boolean).jo
 // The week number rides in the id's key ("picks_open:4:2026-6"); the item has no field for it.
 const weekOf = (item) => /-(\d+)$/.exec(String(item.id))?.[1] ?? null;
 
-// Shared Lock Rule: every picks_open item is one card, with one foot per league
-// (earliest lock first, then alphabetical) when there are several.
+// Shared Lock Rule: the picks_open items that share one lock are one card, with
+// one foot per league (alphabetical) when there are several; a different lock
+// is a different card.
 function picksSpec(group) {
   const at = (entry) => timeMs(entry.deadlineAt);
   const sorted = [...group].sort((a, b) => (at(a) ?? Infinity) - (at(b) ?? Infinity)
@@ -104,10 +105,10 @@ function picksSpec(group) {
   const multi = group.length > 1;
   const cta = { label: first.cta?.label || 'Make picks', to: first.cta?.to };
   return {
-    key: 'picks_open',
+    key: `picks_open:${lockAt}`,
     at: lockAt,
     render: (now2, lead, state) => {
-      const until = lockAt !== null ? timeUntil(lockAt, now2) : null;
+      const words = lockAt !== null ? timeUntilWords(lockAt, now2) : null;
       const lock = lockParts(lockAt, now2);
       return (
         <PlayCard
@@ -117,8 +118,8 @@ function picksSpec(group) {
           detail={games ? `${games} games` : null}
           {...lock}
           countdown={state === 'urgent' ? `${Math.max(1, Math.floor((lockAt - now2) / MINUTE_MS))} min` : undefined}
-          lockNote={until && !until.passed
-            ? `First game locks in ${until.text}. Each game locks at its own kickoff.`
+          lockNote={words
+            ? `First game locks in ${words}. Each game locks at its own kickoff.`
             : 'Games are locking. Each game locks at its own kickoff.'}
           cta={cta}
           actions={multi ? sorted.map((entry) => {
@@ -169,6 +170,7 @@ function itemSpec(item) {
 function draftSpec(league, onDraftExpire) {
   return {
     key: `draft:${league.id}`,
+    leagueId: league.id,
     at: null,
     render: (now, lead) => (
       <NextDraftCard
@@ -182,9 +184,15 @@ function draftSpec(league, onDraftExpire) {
   };
 }
 
-// The lead is the earliest lock; the plays with no lock (drafts, untimed
-// offers) follow in the server's order. A live draft never outranks a timed play.
-function buildSpecs(items, leagues, now, onDraftExpire) {
+// The plays on the page, in order, from a GET /api/user/action-items body, the
+// leagues and the clock: the one list the cards, the count badge and the
+// greeting's number all come from. The lead is the earliest lock still ahead;
+// the plays with no lock (drafts, untimed offers) follow in the server's order.
+// A live draft never outranks a timed play, but a play whose lock has already
+// passed never outranks the draft card either, and a past-deadline seats_open
+// is dropped when a draft card for its league is shown.
+export function buildPlays(body, leagues, now, onDraftExpire) {
+  const items = Array.isArray(body?.items) ? body.items : [];
   const featured = featuredDraft(leagues, now);
   const drafts = [];
   if (featured) drafts.push(draftSpec(featured.league, onDraftExpire));
@@ -193,12 +201,21 @@ function buildSpecs(items, leagues, now, onDraftExpire) {
     if (featured?.state === 'live' && String(featured.league.id) === String(item.leagueId)) return;
     drafts.push(draftSpec({ id: item.leagueId, name: item.leagueName, draft_status: 'active' }, onDraftExpire));
   });
+  const draftLeagues = new Set(drafts.map((spec) => String(spec.leagueId)));
+  const stale = (item) => item.type === 'seats_open' && timeMs(item.deadlineAt) !== null && timeMs(item.deadlineAt) <= now
+    && draftLeagues.has(String(item.leagueId));
   const picks = actionable.filter((item) => item.type === 'picks_open');
-  const others = actionable.filter((item) => item.type !== 'picks_open' && item.type !== 'draft_live');
-  const specs = [...(picks.length ? [picksSpec(picks)] : []), ...others.map(itemSpec)];
+  const others = actionable.filter((item) => item.type !== 'picks_open' && item.type !== 'draft_live' && !stale(item));
+  const picksByLock = new Map();
+  picks.forEach((item) => {
+    const key = timeMs(item.deadlineAt);
+    picksByLock.set(key, [...(picksByLock.get(key) || []), item]);
+  });
+  const specs = [...[...picksByLock.values()].map(picksSpec), ...others.map(itemSpec)];
   const timed = specs.filter((spec) => spec.at !== null).sort((a, b) => a.at - b.at);
-  const untimed = [...drafts, ...specs.filter((spec) => spec.at === null)];
-  return [...timed, ...untimed];
+  const untimed = specs.filter((spec) => spec.at === null);
+  const passed = drafts.length > 0 ? timed.filter((spec) => spec.at <= now) : [];
+  return [...timed.filter((spec) => !passed.includes(spec)), ...drafts, ...passed, ...untimed];
 }
 
 const metaSx = {
@@ -352,7 +369,7 @@ function ActionQueue({
   // Item types whose builder failed on the server: the rest still arrived, but
   // an empty list is then not proof that nothing needs the manager.
   const incomplete = Array.isArray(data?.partial) && data.partial.length > 0;
-  const specs = data ? buildSpecs(items, leagues, now, onDraftExpire) : [];
+  const specs = data ? buildPlays(data, leagues, now, onDraftExpire) : [];
   if (failed || !data || (incomplete && specs.length === 0)) {
     return (
       <ErrorPanel
@@ -373,7 +390,7 @@ function ActionQueue({
   const zone = formatInstant(now, 'zone') || 'your time zone';
   const minutes = Math.floor((now - updatedAt) / MINUTE_MS);
   const stamp = minutes < 1 ? 'updated just now' : `updated ${minutes} min ago`;
-  const nextLock = specs.find((spec) => spec.at !== null && spec.at > now)?.at;
+  const nextLock = specs.map((spec) => spec.at).filter((at) => at !== null && at > now).sort((x, y) => x - y)[0];
 
   const head = (
     <FrameHead>
@@ -436,7 +453,9 @@ function ActionQueue({
           <Box component="h3" sx={sidelineHeadSx}>On the sideline</Box>
           {sideline.map((item) => <SidelineRow key={item.id} item={item} />)}
           <Box component="p" sx={{ margin: 0, fontSize: '14px', color: 'var(--home-dim)' }}>
-            {nextLock ? `Nothing else is due before ${weekday(nextLock, 'long')}'s kickoff.` : 'Nothing else needs you today.'}
+            {nextLock && new Date(nextLock).toDateString() === new Date(now).toDateString() && 'Nothing else is due today.'}
+            {nextLock && new Date(nextLock).toDateString() !== new Date(now).toDateString() && `Nothing else is due before ${weekday(nextLock, 'long')}'s kickoff.`}
+            {!nextLock && 'Nothing else needs you today.'}
           </Box>
         </Box>
       </Box>

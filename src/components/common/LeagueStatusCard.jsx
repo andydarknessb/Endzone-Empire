@@ -122,10 +122,14 @@ export function tileKind(league, live = false) {
   return live && variant === 'pickem' && LIVE_PHASES.includes(leaguePhaseOf(league)) ? 'pickem' : null;
 }
 
-/** The live score as a string, so a refresh that changes it can be told from one that does not. */
+/**
+ * The live score as the tile shows it ("87.4|71.2", no figure reads as 0.0), so
+ * a refresh that changes what is on screen can be told from one that does not.
+ */
 export function scoreSignature(league) {
   const { my, opp } = league.status.matchup;
-  return `${my?.score}|${opp?.score}`;
+  const shown = (score) => (finiteOrNull(score) ?? 0).toFixed(1);
+  return `${shown(my?.score)}|${shown(opp?.score)}`;
 }
 
 const lineSx = { fontSize: '15px', fontWeight: 600 };

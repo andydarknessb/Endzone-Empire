@@ -237,6 +237,85 @@ describe('the play cards', () => {
   });
 });
 
+describe('lead order and the Shared Lock Rule', () => {
+  const seatsOpen = (overrides = {}) => item({
+    id: 'seats_open:4',
+    type: 'seats_open',
+    leagueId: 4,
+    leagueName: 'Late League',
+    title: 'Fill the empty seats',
+    severity: 'blocking',
+    deadlineAt: new Date(Date.now() - HOUR).toISOString(),
+    cta: { label: 'Invite managers', to: '/league/4' },
+    ...overrides,
+  });
+  const failedDraft = (overrides = {}) => ({
+    id: 4, name: 'Late League', draft_status: 'pending', draft_autostart_failed: true, is_owner: true, draft_date: new Date(Date.now() - 2 * HOUR).toISOString(), ...overrides,
+  });
+
+  test('a stale seats_open never outranks the late draft: it is dropped and the draft leads with the filled foot', async () => {
+    mockItems(body([seatsOpen()]));
+    const { container } = renderWithProviders(<ActionQueue leagues={[failedDraft()]} />);
+
+    const lead = await screen.findByRole('link', { name: /^Next up: Draft waiting on you./ });
+    expect(lead).toHaveTextContent('Draft waiting on you');
+    expect(screen.queryByText('Fill the empty seats')).not.toBeInTheDocument();
+    expect(cursors(container)).toHaveLength(1);
+    expect(filled(container)).toHaveLength(1);
+    expect(lead).toContainElement(filled(container)[0]);
+    expect(screen.getByText('1 thing needs you')).toBeInTheDocument();
+  });
+
+  test('any other play whose lock has passed ranks after the draft card; a lock still ahead leads', async () => {
+    mockItems(body([
+      item({ id: 'old', title: 'Past lock play', deadlineAt: new Date(Date.now() - 10 * MINUTE).toISOString() }),
+      item({ id: 'new', title: 'Future lock play', deadlineAt: inFromNow(3 * HOUR) }),
+    ]));
+    renderWithProviders(<ActionQueue leagues={[failedDraft()]} />);
+
+    await screen.findByRole('link', { name: /^Next up: Future lock play./ });
+    const names = screen.getAllByRole('link').map((l) => l.getAttribute('aria-label')).filter(Boolean);
+    expect(names.map((n) => n.replace('Next up: ', '').split('.')[0])).toEqual([
+      'Future lock play', 'Draft waiting on you', 'Past lock play',
+    ]);
+  });
+
+  test('picks that share a lock are one card; picks with different locks are separate cards', async () => {
+    mockItems(body([
+      picks(1, "Sunday Pick'em"),
+      picks(2, 'Thursday Night Regulars'),
+      picks(3, 'Monday League', { deadlineAt: inFromNow(50 * HOUR) }),
+    ]));
+    const { container } = renderWithProviders(<ActionQueue leagues={[]} />);
+
+    const group = await screen.findByRole('group', { name: /^Next up: Week 6 picks\./ });
+    expect(within(group).getByText('2 leagues · 14 games')).toBeInTheDocument();
+    expect(within(group).getAllByRole('link')).toHaveLength(2);
+    const lone = screen.getByRole('link', { name: /^Week 6 picks. Make picks in Monday League/ });
+    expect(within(lone).getByText('Monday League · 14 games')).toBeInTheDocument();
+    expect(screen.getByText('2 things need you')).toBeInTheDocument();
+    expect(cursors(container)).toHaveLength(1);
+    expect(filled(container)).toHaveLength(1);
+  });
+});
+
+describe('lock notes in words', () => {
+  test('the picks note reads in hours, not "1d 01h"', async () => {
+    mockItems(body([picks(1, "Sunday Pick'em")]));
+    renderWithProviders(<ActionQueue leagues={[]} />);
+
+    expect(await screen.findByText('First game locks in 26 hours. Each game locks at its own kickoff.')).toBeInTheDocument();
+  });
+
+  test('inside the last hour the note reads in minutes and the urgent strip keeps "N min left"', async () => {
+    mockItems(body([picks(1, "Sunday Pick'em", { deadlineAt: inFromNow(37 * MINUTE) })]));
+    renderWithProviders(<ActionQueue leagues={[]} />);
+
+    expect(await screen.findByText('First game locks in 37 min. Each game locks at its own kickoff.')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /^Next up: Week 6 picks./ })).toHaveTextContent('37 min left');
+  });
+});
+
 describe('on the sideline', () => {
   test('waiver claims sit under the cards with a link, followed by the one-line promise', async () => {
     mockItems(body([picks(1, "Sunday Pick'em"), waiver({ leagueName: 'Winsconsota' })]));
@@ -258,6 +337,18 @@ describe('on the sideline', () => {
 
     const region = await frame();
     expect(within(region).getByText(/^Nothing else is due before \w+day's kickoff\.$/)).toBeInTheDocument();
+  });
+
+  test('says nothing else is due today when the next lock is later today', async () => {
+    const endOfDay = new Date();
+    endOfDay.setHours(23, 59, 59, 0);
+    const laterToday = new Date(Date.now() + (endOfDay.getTime() - Date.now()) / 2).toISOString();
+    mockItems(body([picks(1, "Sunday Pick'em", { deadlineAt: laterToday })]));
+    renderWithProviders(<ActionQueue leagues={[]} />);
+
+    const region = await frame();
+    expect(within(region).getByText('Nothing else is due today.')).toBeInTheDocument();
+    expect(within(region).queryByText(/before \w+day's kickoff/)).not.toBeInTheDocument();
   });
 
   test('says nothing else needs you today when no play has a lock', async () => {

@@ -1,6 +1,7 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Box } from '@mui/material';
 import LeagueStatusCard, { scoreSignature, tileKind } from '../common/LeagueStatusCard';
+import { useNow } from '../../shared/lib/timeUntil';
 import {
   ErrorPanel, Frame, NumbersHelp, PixelHeading, Skel,
 } from './home';
@@ -21,11 +22,15 @@ const GRID_SX = {
   alignItems: 'stretch',
 };
 
+const MINUTE_MS = 60 * 1000;
+// How long a changed score's tile holds the flash.
+const FLASH_MS = 1000;
+
 /** "updated just now" under a minute, else "updated N min ago", then the refresh cadence. */
-function stampText(updatedAt) {
+function stampText(updatedAt, now) {
   const t = new Date(updatedAt).getTime();
   if (Number.isNaN(t)) return null;
-  const minutes = Math.max(0, Math.floor((Date.now() - t) / 60000));
+  const minutes = Math.max(0, Math.floor((now - t) / MINUTE_MS));
   return `${minutes < 1 ? 'updated just now' : `updated ${minutes} min ago`} · refreshes every minute`;
 }
 
@@ -71,23 +76,42 @@ function LeagueStatusGrid({
   const tiles = leagues.filter((league) => tileKind(league, live));
   const ordered = live ? [...tiles, ...leagues.filter((league) => !tiles.includes(league))] : leagues;
 
-  // The last rendered score per league. A refresh that changed a live tile's
-  // score flashes it for that render; the first render of a league never does.
+  // The last displayed score per league. A refresh that changed what a live
+  // tile shows flashes it for FLASH_MS, held in state so an unrelated re-render
+  // cannot cut it short; a new change restarts the second. The first render of
+  // a league never flashes.
   const seen = useRef(new Map());
+  const timers = useRef(new Map());
+  const [scoredIds, setScoredIds] = useState(() => new Set());
   const signatures = new Map(
     ordered.filter((league) => tileKind(league, live) === 'score').map((league) => [league.id, scoreSignature(league)])
   );
-  const scoredIds = new Set(
-    [...signatures].filter(([id, sig]) => seen.current.has(id) && seen.current.get(id) !== sig).map(([id]) => id)
-  );
   useEffect(() => {
+    signatures.forEach((sig, id) => {
+      if (!seen.current.has(id) || seen.current.get(id) === sig) return;
+      setScoredIds((ids) => new Set(ids).add(id));
+      clearTimeout(timers.current.get(id));
+      timers.current.set(id, setTimeout(() => {
+        timers.current.delete(id);
+        setScoredIds((ids) => {
+          const next = new Set(ids);
+          next.delete(id);
+          return next;
+        });
+      }, FLASH_MS));
+    });
     seen.current = signatures;
   });
+  useEffect(() => () => timers.current.forEach(clearTimeout), []);
+
+  // The stamp ages on the minute even when no refetch lands.
+  const updatedMs = updatedAt ? new Date(updatedAt).getTime() : NaN;
+  const now = useNow((at) => (Number.isNaN(updatedMs) ? null : updatedMs + (Math.floor((at - updatedMs) / MINUTE_MS) + 1) * MINUTE_MS), updatedAt);
 
   const showSkeletons = loading && leagues.length === 0 && !error;
   if (!leagues.length && !error && !showSkeletons) return null;
 
-  const stamp = live && updatedAt ? stampText(updatedAt) : null;
+  const stamp = live && updatedAt ? stampText(updatedAt, now) : null;
   return (
     <Box component="section" aria-labelledby={HEADING_ID} sx={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       <Box sx={{

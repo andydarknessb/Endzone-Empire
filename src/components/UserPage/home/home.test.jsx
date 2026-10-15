@@ -1,9 +1,9 @@
 import React from 'react';
-import { screen, within } from '@testing-library/react';
+import { fireEvent, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '../../../test-utils/renderWithProviders';
 import {
-  CountBadge, ErrorPanel, LeagueLinks, OddsBar, PickemTile, PlayCard, ScoreTile, pixelSx,
+  CountBadge, ErrorPanel, HomeButton, LeagueLinks, OddsBar, PickemTile, PlayCard, ScoreTile, pixelSx,
 } from './index';
 
 const filled = (container) => container.querySelectorAll('[data-filled="true"]');
@@ -201,6 +201,33 @@ describe('ErrorPanel', () => {
     const alert = screen.getByRole('alert');
     within(alert).getByRole('button', { name: 'Retry loading plays' }).click();
     expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('HomeButton disabled', () => {
+  test('a button is natively disabled and does not click', async () => {
+    const onClick = jest.fn();
+    renderWithProviders(<HomeButton disabled onClick={onClick}>Turn on alerts</HomeButton>);
+    const button = screen.getByRole('button', { name: 'Turn on alerts' });
+    expect(button).toBeDisabled();
+    await userEvent.click(button);
+    expect(onClick).not.toHaveBeenCalled();
+  });
+
+  test('a link says aria-disabled and does not navigate or fire onClick', async () => {
+    const onClick = jest.fn();
+    renderWithProviders(<HomeButton disabled to="/league/1" onClick={onClick}>Open</HomeButton>);
+    const link = screen.getByRole('link', { name: 'Open' });
+    expect(link).toHaveAttribute('aria-disabled', 'true');
+    const notPrevented = fireEvent.click(link);
+    expect(notPrevented).toBe(false);
+    expect(onClick).not.toHaveBeenCalled();
+  });
+
+  test('enabled, neither carries a disabled state', () => {
+    renderWithProviders(<><HomeButton>One</HomeButton><HomeButton to="/x">Two</HomeButton></>);
+    expect(screen.getByRole('button', { name: 'One' })).toBeEnabled();
+    expect(screen.getByRole('link', { name: 'Two' })).not.toHaveAttribute('aria-disabled');
   });
 });
 
