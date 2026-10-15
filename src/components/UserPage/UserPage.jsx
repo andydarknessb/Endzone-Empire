@@ -8,9 +8,7 @@ import {
 } from '@mui/material';
 import Grid from '@mui/material/Unstable_Grid2';
 import { ThemeProvider, useTheme } from '@mui/material/styles';
-import { visuallyHidden } from '@mui/utils';
 import { Link as RouterLink } from 'react-router-dom';
-import SportsFootballIcon from '@mui/icons-material/SportsFootball';
 import apiClient from '../../api/apiClient';
 import { readHttpFailure } from '../../lib/httpFailure';
 import { useNotifications } from '../../hooks/useNotifications';
@@ -26,15 +24,15 @@ import { usePostgameCutscenes, PostgameCutscenes } from '../../features/postgame
 import homeTheme from './homeTheme';
 import {
   DISPLAY_FONT, alertActionSx, alertSx, dimSx, ghostButtonSx, homeRootSx, panelSx, panelTitleSx,
-  primaryButtonSx, sectionTitleSx, skeletonSx, textLinkSx,
+  primaryButtonSx, skeletonSx, textLinkSx,
 } from '../common/homeIslandSx';
 import { lazyWithReload } from '../../shared/lib/lazyWithReload';
 import { MIN_TOUCH_TARGET_SX } from '../../shared/lib/a11y';
 import { formatInstant } from '../../shared/lib/instantFormat';
 
-// Lazy: PublicHighlights imports the strategy-article registry (full JSX
-// bodies), which must not ride in the initial main bundle. See the note in
-// PublicHighlights.jsx.
+// Lazy: PublicHighlights (the Darkness Report card) imports the
+// strategy-article registry, which must not ride in the initial main bundle.
+// See the note in PublicHighlights.jsx.
 const PublicHighlights = lazyWithReload(() => import('./PublicHighlights'));
 
 // The greeting's "Week 4 · Sunday, Oct 4" line: the NFL week the manager's
@@ -54,19 +52,15 @@ const requestLeagues = async () => (await apiClient.get('/api/league', { params:
 
 const greetingDateFormat = new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
 
-// The feed cards below the fold (News, Activity) on the island: a panel, a
-// display-face title, ink rows with dim secondary lines, all on a card.
+// The Activity card below the fold on the island: a panel, a display-face
+// title, ink rows with dim secondary lines, all on a card.
 const feedCardSx = { ...panelSx, height: '100%' };
-const feedTitleSx = { ...panelTitleSx, fontSize: '18px', mb: 1.5 };
+const feedTitleSx = { ...panelTitleSx, mb: 1.5 };
 const feedListSx = {
   '& .MuiListItemText-primary': { color: 'var(--dash-ink)' },
   '& .MuiListItemText-secondary': dimSx,
 };
 const feedStatusSx = { ...dimSx, fontSize: '14px' };
-// News is a quiet list: 44px links, a lighter weight than a heading would take.
-const newsLinkSx = {
-  ...MIN_TOUCH_TARGET_SX, display: 'inline-flex', alignItems: 'center', color: 'var(--dash-ink)', fontWeight: 500,
-};
 const ACTIVITY_MAX = 3;
 const heroButtonSx = { minHeight: 48, px: 2.5, fontSize: '15px' };
 const LATE_POLL_MS = 30 * 1000;
@@ -74,30 +68,17 @@ const LATE_POLL_MS = 30 * 1000;
 // checked less often.
 const FAILED_POLL_MS = 2 * 60 * 1000;
 const START_GRACE_MS = 5 * 1000;
+// The first-run mock-draft line: dim, and inline-flex so the 44px floor applies.
+const mockDraftLinkSx = {
+  ...dimSx, ...MIN_TOUCH_TARGET_SX, display: 'inline-flex', alignItems: 'center', alignSelf: 'flex-start',
+};
+const FIRST_RUN_STEPS = [
+  ['Create the league', "Name it, pick fantasy or pick'em, and set the size."],
+  ['Send the invite code', 'Friends join with the code you share.'],
+  ['Draft tonight', 'Live draft with a pick clock, or let autopick handle it.'],
+];
 // Join sits on the page, so the ghost paints its own `dash-surface` fill (the
 // board's Join league button): ink on a card surface, a registered pairing.
-// The empty state's plain link: inline-flex so the 44px floor applies.
-const emptyLinkSx = {
-  ...textLinkSx, ...MIN_TOUCH_TARGET_SX, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-};
-// The Draft Sim card: a compact outlined panel row, the whole card the link.
-const draftSimCardSx = {
-  ...panelSx,
-  ...MIN_TOUCH_TARGET_SX,
-  display: 'flex',
-  flexDirection: 'column',
-  alignItems: 'center',
-  gap: 0.25,
-  mt: 2,
-  px: 2.5,
-  py: 1.5,
-  width: '100%',
-  maxWidth: 420,
-  boxSizing: 'border-box',
-  textDecoration: 'none',
-  '&:hover': { backgroundColor: 'var(--dash-surface2)' },
-};
-const draftSimTitleSx = { fontSize: '16px', fontWeight: 600, color: 'var(--dash-ink)' };
 const heroGhostSx = {
   ...ghostButtonSx,
   ...heroButtonSx,
@@ -141,12 +122,6 @@ function UserPage() {
   // code. The dialog owns its answers, preview and in-flight state.
   const [openJoinDialog, setOpenJoinDialog] = useState(false);
 
-  // Below-the-fold dashboard widgets — each fetches independently so a slow
-  // or failed one never blocks the leagues list (or each other).
-  const [newsItems, setNewsItems] = useState([]);
-  const [loadingNews, setLoadingNews] = useState(true);
-  const [newsError, setNewsError] = useState(false);
-
   // Shared with the Nav bell (ADR 0004, ADR 0059's #2097 amendment): mounted
   // together (a hard load) one request serves both, and the bell's poll reloads
   // this card too. Like the leagues list above, skeletons and the error stand
@@ -157,6 +132,7 @@ function UserPage() {
     loaded: haveActivity,
     loading: loadingActivity,
     error: activityFailure,
+    refetch: refetchActivity,
   } = useNotifications();
   // The feed is newest first, so the first of a repeated (message, league) pair is the newest.
   const seenActivity = new Set();
@@ -180,6 +156,9 @@ function UserPage() {
   // While the draft card is live for a league, its to-do row goes quiet: the
   // card keeps the one filled Join draft button.
   const quietDraftLeagueId = nextDraft && featuredState === 'live' ? nextDraft.id : null;
+  // On draft night the card leads the to-do list on a phone; at lg they sit
+  // side by side as ever.
+  const draftFirst = Boolean(nextDraft) && (featuredState === 'live' || featuredState === 'late');
   const currentWeek = sharedCurrentWeek(myLeagues);
   const liveMatchups = liveMatchupCount(myLeagues);
 
@@ -208,22 +187,8 @@ function UserPage() {
     }
   };
 
-  const fetchNews = async () => {
-    try {
-      setLoadingNews(true);
-      const response = await apiClient.get('/api/news');
-      setNewsItems(response.data);
-      setNewsError(false);
-    } catch (err) {
-      setNewsError(true);
-    } finally {
-      setLoadingNews(false);
-    }
-  };
-
   useEffect(() => {
     fetchMyLeagues();
-    fetchNews();
   }, []);
 
   // Draft night: the card is only as fresh as the leagues list. When a
@@ -361,10 +326,19 @@ function UserPage() {
               manager with nothing yet to catch up on), and no empty grid row. */}
           {!firstRun && (
             <Grid container spacing={3} sx={{ mb: 5 }}>
-              <Grid xs={12} lg={nextDraft ? 8 : 12}>
+              {/* On draft night the card comes first in the DOM, so a phone's
+                  focus order follows the page; `order` puts the list back on
+                  the left at lg. Tab order then reaches the card first at lg too: tonight it is the
+                  urgent thing. */}
+              {draftFirst && (
+                <Grid xs={12} lg={4} sx={{ order: { xs: 0, lg: 2 } }}>
+                  <NextDraftCard league={nextDraft} onExpire={handleDraftExpire} />
+                </Grid>
+              )}
+              <Grid xs={12} lg={nextDraft ? 8 : 12} sx={draftFirst ? { order: 1 } : undefined}>
                 <ActionQueue onLoaded={setActionItems} leagues={myLeagues} quietDraftLeagueId={quietDraftLeagueId} />
               </Grid>
-              {nextDraft && (
+              {nextDraft && !draftFirst && (
                 <Grid xs={12} lg={4}>
                   <NextDraftCard league={nextDraft} onExpire={handleDraftExpire} />
                 </Grid>
@@ -373,7 +347,7 @@ function UserPage() {
           )}
 
 
-          <Typography variant="h5" component="h2" sx={{ ...sectionTitleSx, mb: 2 }}>
+          <Typography variant="h5" component="h2" sx={{ ...panelTitleSx, mb: 2 }}>
             My leagues
           </Typography>
 
@@ -412,70 +386,75 @@ function UserPage() {
             <Card
               data-testid="leagues-empty-state"
               variant="outlined"
-              sx={{ ...panelSx, py: 6, px: 3 }}
+              sx={{ ...panelSx, py: { xs: 3, md: 5 }, px: { xs: 2.5, md: 4 } }}
             >
-              <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' }}>
-                <Box
-                  aria-hidden="true"
-                  sx={{
-                    width: 72,
-                    height: 72,
-                    mb: 2,
-                    borderRadius: '50%',
-                    display: 'grid',
-                    placeItems: 'center',
-                    backgroundColor: 'var(--dash-accent-soft)',
-                    color: 'var(--dash-accent)',
-                  }}
-                >
-                  <SportsFootballIcon sx={{ fontSize: 40 }} />
-                </Box>
-                <Typography
-                  variant="h6"
-                  component="h3"
-                  gutterBottom
-                  sx={{
-                    fontFamily: DISPLAY_FONT,
-                    fontSize: { xs: '26px', md: '32px' },
-                    fontWeight: 700,
-                    lineHeight: 1.05,
-                    textTransform: 'uppercase',
-                  }}
-                >
-                  You aren&apos;t managing any teams yet.
-                </Typography>
-                <Typography sx={{ ...dimSx, mb: 3, maxWidth: 420 }}>
-                  Free to play. Start a fantasy league, an NFL pick&apos;em
-                  league, or both, with your friends, or join one you&apos;ve
-                  been invited to.
-                </Typography>
-                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
-                  <Button variant="contained" size="large" onClick={handleOpenCreateDialog} sx={{ ...primaryButtonSx, ...heroButtonSx }}>
-                    Create league
-                  </Button>
-                  <Button variant="outlined" size="large" onClick={handleOpenJoinDialog} sx={{ ...ghostButtonSx, ...heroButtonSx }}>
-                    Join league
-                  </Button>
-                </Stack>
-                <Link
-                  component={RouterLink}
-                  to="/draft-sim"
-                  underline="none"
-                  aria-labelledby="draft-sim-card-title"
-                  aria-describedby="draft-sim-card-desc"
-                  sx={draftSimCardSx}
-                >
-                  <Typography id="draft-sim-card-title" component="span" sx={draftSimTitleSx}>
-                    Practice in Draft Sim
-                  </Typography>
-                  <Typography id="draft-sim-card-desc" component="span" sx={{ ...dimSx, fontSize: '14px' }}>
-                    Run a mock draft against the clock, no league needed.
-                  </Typography>
-                </Link>
-                <Link component={RouterLink} to="/discover" underline="hover" sx={{ ...emptyLinkSx, mt: 1 }}>
-                  Find a public league
-                </Link>
-              </Box>
+              <Grid container spacing={{ xs: 3, md: 5 }}>
+                <Grid xs={12} md={6}>
+                  <Stack alignItems="flex-start">
+                    <Typography
+                      variant="h6"
+                      component="h3"
+                      gutterBottom
+                      sx={{
+                        fontFamily: DISPLAY_FONT,
+                        fontSize: { xs: '26px', md: '32px' },
+                        fontWeight: 700,
+                        lineHeight: 1.05,
+                        textTransform: 'uppercase',
+                      }}
+                    >
+                      Start a league tonight
+                    </Typography>
+                    <Typography sx={{ ...dimSx, mb: 3, maxWidth: 420 }}>
+                      Free to play. Pick fantasy, NFL pick&apos;em, or both, send
+                      your friends the invite code, and draft as soon as they&apos;re in.
+                    </Typography>
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ mb: 1.5 }}>
+                      <Button variant="contained" size="large" onClick={handleOpenCreateDialog} sx={{ ...primaryButtonSx, ...heroButtonSx }}>
+                        Create league
+                      </Button>
+                      <Button variant="outlined" size="large" onClick={handleOpenJoinDialog} sx={{ ...ghostButtonSx, ...heroButtonSx }}>
+                        I have an invite code
+                      </Button>
+                    </Stack>
+                    <Link component={RouterLink} to="/draft-sim" underline="always" sx={mockDraftLinkSx}>
+                      Not ready yet? Practice a mock draft
+                    </Link>
+                  </Stack>
+                </Grid>
+                <Grid xs={12} md={6}>
+                  <Stack component="ol" spacing={2} sx={{ m: 0, p: 0, listStyle: 'none', counterReset: 'step' }}>
+                    {FIRST_RUN_STEPS.map(([title, body]) => (
+                      <Box
+                        component="li"
+                        key={title}
+                        sx={{
+                          counterIncrement: 'step',
+                          display: 'flex',
+                          gap: 2,
+                          '&::before': {
+                            content: 'counter(step)',
+                            flex: 'none',
+                            width: 32,
+                            height: 32,
+                            borderRadius: '50%',
+                            display: 'grid',
+                            placeItems: 'center',
+                            fontWeight: 700,
+                            backgroundColor: 'var(--dash-accent-soft)',
+                            color: 'var(--dash-accent)',
+                          },
+                        }}
+                      >
+                        <Box>
+                          <Typography sx={{ fontWeight: 600 }}>{title}</Typography>
+                          <Typography variant="body2" sx={{ ...dimSx, fontSize: '14px' }}>{body}</Typography>
+                        </Box>
+                      </Box>
+                    ))}
+                  </Stack>
+                </Grid>
+              </Grid>
             </Card>
           ) : (
             <LeagueStatusGrid leagues={myLeagues} />
@@ -488,100 +467,60 @@ function UserPage() {
             <AlertPrompt leagues={myLeagues} />
           </Box>
 
-          {/* Below-the-fold dashboard real estate: real cross-app widgets. */}
-          <Box sx={{ mt: 5 }}>
-            <Grid container spacing={2}>
-              <Grid xs={12} md={6}>
-                <Card variant="outlined" sx={feedCardSx}>
-                  <CardContent>
-                    <Typography variant="h6" component="h2" sx={feedTitleSx}>
-                      Latest NFL News
+          {/* Below the fold: recent activity (not on a first run) beside the
+              Darkness Report, which renders nothing when there is none. */}
+          <Box
+            sx={{
+              '&:not(:empty)': { mt: 5 },
+              display: 'grid',
+              gap: 2,
+              gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' },
+            }}
+          >
+            {!firstRun && (
+              <Card variant="outlined" sx={feedCardSx}>
+                <CardContent>
+                  <Typography variant="h6" component="h2" sx={feedTitleSx}>
+                    In your leagues
+                  </Typography>
+                  {awaitingActivity ? (
+                    <Stack spacing={1}>
+                      {[0, 1, 2].map((i) => (
+                        <Skeleton key={i} variant="text" width={`${85 - i * 10}%`} sx={skeletonSx} />
+                      ))}
+                    </Stack>
+                  ) : activityError ? (
+                    <Stack alignItems="flex-start">
+                      <Typography variant="body2" sx={feedStatusSx}>
+                        We couldn&apos;t load recent activity.
+                      </Typography>
+                      <Button onClick={refetchActivity} sx={{ ...textLinkSx, minHeight: 44 }}>
+                        Try again
+                      </Button>
+                    </Stack>
+                  ) : activityItems.length === 0 ? (
+                    <Typography variant="body2" sx={feedStatusSx}>
+                      No recent activity across your leagues yet.
                     </Typography>
-                    {loadingNews ? (
-                      <Stack spacing={1}>
-                        {[0, 1, 2].map((i) => (
-                          <Skeleton key={i} variant="text" width={`${85 - i * 10}%`} sx={skeletonSx} />
-                        ))}
-                      </Stack>
-                    ) : newsError ? (
-                      <Typography variant="body2" sx={feedStatusSx}>
-                        Couldn&apos;t load the latest news right now.
-                      </Typography>
-                    ) : newsItems.length === 0 ? (
-                      <Typography variant="body2" sx={feedStatusSx}>
-                        No news to show right now.
-                      </Typography>
-                    ) : (
-                      <List dense disablePadding sx={feedListSx}>
-                        {/* The feed can carry two headlines pointing at the same
-                            URL, so the link alone isn't a unique key. */}
-                        {newsItems.map((item, index) => (
-                          <ListItem key={`${item.link}-${index}`} disableGutters>
-                            <ListItemText
-                              primary={
-                                <Link
-                                  href={item.link}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  underline="hover"
-                                  sx={newsLinkSx}
-                                >
-                                  {item.title}
-                                  <Box component="span" sx={visuallyHidden}> (opens in a new tab)</Box>
-                                </Link>
-                              }
-                              secondary={formatInstant(item.published, 'day')}
-                            />
-                          </ListItem>
-                        ))}
-                      </List>
-                    )}
-                  </CardContent>
-                </Card>
-              </Grid>
-              <Grid xs={12} md={6}>
-                <Card variant="outlined" sx={feedCardSx}>
-                  <CardContent>
-                    <Typography variant="h6" component="h2" sx={feedTitleSx}>
-                      Activity in your leagues
-                    </Typography>
-                    {awaitingActivity ? (
-                      <Stack spacing={1}>
-                        {[0, 1, 2].map((i) => (
-                          <Skeleton key={i} variant="text" width={`${85 - i * 10}%`} sx={skeletonSx} />
-                        ))}
-                      </Stack>
-                    ) : activityError ? (
-                      <Typography variant="body2" sx={feedStatusSx}>
-                        Couldn&apos;t load recent activity right now.
-                      </Typography>
-                    ) : activityItems.length === 0 ? (
-                      <Typography variant="body2" sx={feedStatusSx}>
-                        No recent activity across your leagues yet.
-                      </Typography>
-                    ) : (
-                      <List dense disablePadding sx={feedListSx}>
-                        {activityItems.map((item) => (
-                          <ListItem key={item.id} disableGutters>
-                            <ListItemText
-                              primary={item.message}
-                              secondary={[item.league_name, formatInstant(item.created_at, 'day')].filter(Boolean).join(' · ')}
-                            />
-                          </ListItem>
-                        ))}
-                      </List>
-                    )}
-                  </CardContent>
-                </Card>
-              </Grid>
-            </Grid>
+                  ) : (
+                    <List dense disablePadding sx={feedListSx}>
+                      {activityItems.map((item) => (
+                        <ListItem key={item.id} disableGutters>
+                          <ListItemText
+                            primary={item.message}
+                            secondary={[item.league_name, formatInstant(item.created_at, 'day')].filter(Boolean).join(' · ')}
+                          />
+                        </ListItem>
+                      ))}
+                    </List>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+            <Suspense fallback={null}>
+              <PublicHighlights />
+            </Suspense>
           </Box>
-
-          {/* Public-layer content (recaps, strategy) surfaced for
-              logged-in users; links cross into the public site. */}
-          <Suspense fallback={<Skeleton variant="rounded" height={220} sx={{ ...skeletonSx, mt: 5, borderRadius: 'var(--dash-radius)' }} />}>
-            <PublicHighlights />
-          </Suspense>
 
           <Suspense fallback={null}>
             {createOpened && (

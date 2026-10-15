@@ -188,8 +188,33 @@ test('the win-probability bar is one image whose label carries both sides, compu
 
   const card = within(await cardFor('Winsconsota'));
   expect(card.getByRole('img', { name: 'Win probability: you 65 percent, Frozen Tundra FC 35 percent' })).toBeInTheDocument();
-  expect(card.getByText('You 65% to win')).toBeInTheDocument();
+  expect(card.getByText('Endzone Forecast gives you a 65% chance to win.')).toBeInTheDocument();
   expect(card.getByText('Them 35%')).toBeInTheDocument();
+});
+
+test('a scheduled matchup shows the projection instead of 0.0, and keeps the score without one', async () => {
+  const scheduled = (my, opp) => ({
+    ...liveStatus().matchup,
+    status: 'scheduled',
+    my: { score: 0, ...my },
+    opp: { score: 0, ...opp },
+  });
+  mockLeagues([
+    fantasyLeague({ matchup: scheduled({ expectedFinal: 118.6 }, { expectedFinal: 104.1 }) }),
+    fantasyLeague({ matchup: scheduled({}, {}) }, { id: 72, name: 'MinneApple' }),
+  ]);
+  renderPage();
+
+  const proj = within(await cardFor('Winsconsota'));
+  expect(proj.getByText('118.6')).toBeInTheDocument();
+  expect(proj.getByText('104.1')).toBeInTheDocument();
+  expect(proj.getByText('Proj')).toBeInTheDocument();
+  expect(proj.queryByText('VS')).not.toBeInTheDocument();
+  expect(proj.queryByText('0.0')).not.toBeInTheDocument();
+
+  const bare = within(await cardFor('MinneApple'));
+  expect(bare.getAllByText('0.0')).toHaveLength(2);
+  expect(bare.getByText('VS')).toBeInTheDocument();
 });
 
 test('a server win probability, once present, is preferred over the v1 estimate', async () => {
@@ -258,6 +283,45 @@ test('a final matchup swaps the LIVE chip for Final and the bar for the result',
 });
 
 // --- Pick'em -------------------------------------------------------------
+
+test("a pick'em card with a standing leads with rank and record, with no strip or made count", async () => {
+  mockLeagues([pickemLeague({}, {
+    status: {
+      ...pickemLeague().status,
+      standing: { rank: 4, of: 12 },
+      record: { wins: 41, losses: 29, ties: 0 },
+    },
+  })]);
+  renderPage();
+
+  const card = within(await cardFor("Office Pick'em"));
+  expect(card.getByText('4th')).toBeInTheDocument();
+  expect(card.getByText('of 12 · 41-29 this season')).toBeInTheDocument();
+  expect(card.queryByRole('img', { name: /picks/i })).not.toBeInTheDocument();
+  expect(card.queryByTestId('pick-cell-made')).not.toBeInTheDocument();
+  expect(card.queryByText('Week 4 picks made')).not.toBeInTheDocument();
+  expect(card.getByText('Picks open')).toBeInTheDocument();
+  expect(card.getByText(/Next lock/)).toBeInTheDocument();
+  expect(card.getByRole('link', { name: 'Finish picks' })).toBeInTheDocument();
+});
+
+test("a fantasy card no longer carries a pick'em progress line", async () => {
+  mockLeagues([fantasyLeague({ pickem: { made: 9, total: 15, missing: 6 } })]);
+  renderPage();
+
+  const card = within(await cardFor('Winsconsota'));
+  expect(card.queryByText(/Picks · /)).not.toBeInTheDocument();
+  expect(card.getByRole('link', { name: 'Picks' })).toHaveAttribute('href', '/league/71/pickem');
+});
+
+test("a pick'em card without a standing falls back to made of total and the strip", async () => {
+  mockLeagues([pickemLeague()]);
+  renderPage();
+
+  const card = within(await cardFor("Office Pick'em"));
+  expect(card.getByText('Week 4 picks made')).toBeInTheDocument();
+  expect(card.getAllByTestId('pick-cell-made')).toHaveLength(9);
+});
 
 test("a pick'em card shows progress, a strip whose cells differ by more than color, and a Finish picks action", async () => {
   mockLeagues([pickemLeague()]);
@@ -383,13 +447,13 @@ test('a row with no status, or a failed status, falls back to the compact league
 // --- Filters -------------------------------------------------------------
 
 test('filter chips are aria-pressed toggle buttons with counts that narrow the grid', async () => {
-  mockLeagues([fantasyLeague(), pickemLeague(), preDraftLeague()]);
+  mockLeagues([fantasyLeague(), pickemLeague(), preDraftLeague(), fantasyLeague({}, { id: 72, name: 'MinneApple' })]);
   renderPage();
   await cardFor('Winsconsota');
 
   const group = within(screen.getByRole('group', { name: 'Filter leagues' }));
-  const all = group.getByRole('button', { name: 'All 3' });
-  const live = group.getByRole('button', { name: 'In season 1' });
+  const all = group.getByRole('button', { name: 'All 4' });
+  const live = group.getByRole('button', { name: 'In season 2' });
   expect(group.queryByRole('button', { name: /^Live/ })).not.toBeInTheDocument();
   const pickem = group.getByRole('button', { name: "Pick'em 1" });
   const drafting = group.getByRole('button', { name: 'Drafting 1' });
@@ -401,6 +465,7 @@ test('filter chips are aria-pressed toggle buttons with counts that narrow the g
   expect(live).toHaveAttribute('aria-pressed', 'true');
   expect(all).toHaveAttribute('aria-pressed', 'false');
   expect(screen.getByRole('heading', { level: 3, name: 'Winsconsota' })).toBeInTheDocument();
+  expect(screen.getByRole('heading', { level: 3, name: 'MinneApple' })).toBeInTheDocument();
   expect(screen.queryByRole('heading', { level: 3, name: "Office Pick'em" })).not.toBeInTheDocument();
   expect(screen.queryByRole('heading', { level: 3, name: 'Dynasty Startup' })).not.toBeInTheDocument();
 
@@ -409,7 +474,31 @@ test('filter chips are aria-pressed toggle buttons with counts that narrow the g
   expect(screen.queryByRole('heading', { level: 3, name: 'Winsconsota' })).not.toBeInTheDocument();
 
   await userEvent.click(all);
-  expect(screen.getAllByTestId('league-status-card')).toHaveLength(3);
+  expect(screen.getAllByTestId('league-status-card')).toHaveLength(4);
+});
+
+test('filters only appear with four or more leagues, and only when one of them narrows the list', async () => {
+  const group = () => screen.queryByRole('group', { name: 'Filter leagues' });
+
+  // Three leagues, however mixed: no group.
+  mockLeagues([fantasyLeague(), pickemLeague(), preDraftLeague()]);
+  const { unmount } = renderPage();
+  await cardFor('Winsconsota');
+  expect(group()).not.toBeInTheDocument();
+  unmount();
+
+  // Four, every filter equal to the total: nothing to narrow.
+  mockLeagues(Array.from({ length: 4 }, (_, i) => fantasyLeague({}, { id: 100 + i, name: `League ${i + 1}` })));
+  const view = renderPage();
+  await cardFor('League 1');
+  expect(group()).not.toBeInTheDocument();
+  view.unmount();
+
+  // Four, one of them different: the group narrows.
+  mockLeagues([...Array.from({ length: 3 }, (_, i) => fantasyLeague({}, { id: 100 + i, name: `League ${i + 1}` })), pickemLeague()]);
+  renderPage();
+  await cardFor('League 1');
+  expect(group()).toBeInTheDocument();
 });
 
 test('more than six leagues shows six, then a Show all button for the rest', async () => {

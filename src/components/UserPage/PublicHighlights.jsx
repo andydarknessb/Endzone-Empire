@@ -1,176 +1,69 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import {
-  Box, Card, CardContent, Link, List, ListItem, ListItemText,
-  Skeleton, Stack, Typography,
+  Card, CardContent, Link, Typography,
 } from '@mui/material';
-import Grid from '@mui/material/Unstable_Grid2';
-import apiClient from '../../api/apiClient';
 import { listArticles } from '../../content/articles';
 import { MIN_TOUCH_TARGET_SX } from '../../shared/lib/a11y';
+import { formatInstant } from '../../shared/lib/instantFormat';
 import {
-  dimSx, panelSx, panelTitleSx, sectionTitleSx, skeletonSx, textLinkSx,
+  DISPLAY_FONT, dimSx, panelSx, panelTitleSx, textLinkSx,
 } from '../common/homeIslandSx';
 
 /**
- * Public-layer content surfaced on the authed dashboard: game recaps and the
- * strategy library, with quick links into the rest of the public site
- * (rankings and waiver wire included).
+ * The Darkness Report card on the authed dashboard: the newest Darkness Report
+ * from the strategy library, as a headline, a byline and one link. With no
+ * report in the registry the card is not rendered.
  *
  * Two deliberate mechanics:
- * - Links are plain hrefs, not RouterLinks. The authed app lives in the hash
- *   router, so a public path is a full page load that RootRouter hands to the
- *   public BrowserRouter tree — exactly how the dual-router shell is meant to
- *   be crossed.
+ * - The link is a plain href, not a RouterLink. The authed app lives in the
+ *   hash router, so a public path is a full page load that RootRouter hands to
+ *   the public BrowserRouter tree — exactly how the dual-router shell is meant
+ *   to be crossed.
  * - This module is React.lazy'd from UserPage. It imports the strategy-article
- *   registry (whose bodies are real JSX), and an eager import would push all
- *   of that prose into the initial main bundle; as a lazy chunk it stays
- *   outside the 250 KiB initial-JS budget.
+ *   registry, and an eager import would push all of it into the initial main
+ *   bundle; as a lazy chunk it stays outside the 250 KiB initial-JS budget.
  */
 
-const STRATEGY_TEASER_COUNT = 3;
-
-// On the island (ADR 0051): panel cards, display-face titles, ink rows with
-// dim secondary lines, and accent links on a card. The header's quick links
-// sit on the page (`dash-accent` on `dash-bg`, registered).
-const cardSx = { ...panelSx, height: '100%' };
-const cardTitleSx = { ...panelTitleSx, fontSize: '18px', mb: 1.5 };
-const statusSx = { ...dimSx, fontSize: '14px' };
-const listSx = { '& .MuiListItemText-secondary': dimSx };
-// Every link here is a 44px target (inline-flex, since an inline box ignores
-// min-height; minHeight, not height, so a multi-word title still wraps).
-const touchLinkSx = { ...MIN_TOUCH_TARGET_SX, display: 'inline-flex', alignItems: 'center' };
-const rowLinkSx = {
-  ...touchLinkSx, color: 'var(--dash-ink)', fontWeight: 600, textDecorationColor: 'currentColor',
+// inline-flex so the 44px floor applies to the link.
+const readLinkSx = {
+  ...textLinkSx, ...MIN_TOUCH_TARGET_SX, display: 'inline-flex', alignItems: 'center',
 };
-const moreLinkSx = { ...textLinkSx, ...touchLinkSx, fontSize: '14px' };
-const quickLinkSx = { ...moreLinkSx, justifyContent: 'center' };
-const clampTwoSx = {
-  display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
-};
-
-function WidgetSkeleton() {
-  return (
-    <Stack spacing={1}>
-      {[0, 1, 2].map((i) => (
-        <Skeleton key={i} variant="text" width={`${85 - i * 10}%`} sx={skeletonSx} />
-      ))}
-    </Stack>
-  );
-}
 
 function PublicHighlights() {
-  const [recaps, setRecaps] = useState([]);
-  const [loadingRecaps, setLoadingRecaps] = useState(true);
-  const [recapsError, setRecapsError] = useState(false);
+  // listArticles is newest first.
+  const report = listArticles().find((article) => /Darkness Report/i.test(article.title));
+  if (!report) return null;
 
-  // The newest Darkness Report leads (listArticles is newest first), then the
-  // newest others fill the card; with no report the card is just the newest.
-  const listed = listArticles();
-  const report = listed.find((article) => /Darkness Report/i.test(article.title));
-  const articles = (report ? [report, ...listed.filter((article) => article !== report)] : listed)
-    .slice(0, STRATEGY_TEASER_COUNT);
-
-  useEffect(() => {
-    apiClient
-      .get('/api/public/recaps', { params: { limit: 3 } })
-      .then((res) => {
-        setRecaps(Array.isArray(res.data && res.data.recaps) ? res.data.recaps : []);
-        setRecapsError(false);
-      })
-      .catch(() => setRecapsError(true))
-      .finally(() => setLoadingRecaps(false));
-  }, []);
+  // Frontmatter dates are date-only strings, which Date reads as UTC midnight
+  // (a day early west of UTC); pin them to local midnight.
+  const byline = [
+    report.author,
+    formatInstant(`${report.date}T00:00:00`, 'day'),
+    report.readMinutes != null && `${report.readMinutes} min read`,
+  ].filter(Boolean).join(' · ');
 
   return (
-    <Box component="section" aria-labelledby="public-highlights-heading" sx={{ mt: 5 }}>
-      <Stack
-        direction={{ xs: 'column', sm: 'row' }}
-        justifyContent="space-between"
-        alignItems={{ xs: 'flex-start', sm: 'baseline' }}
-        spacing={1}
-        sx={{ mb: 2 }}
-      >
-        <Typography id="public-highlights-heading" variant="h5" component="h2" sx={sectionTitleSx}>
-          Around the League
+    <Card variant="outlined" sx={{ ...panelSx, height: '100%' }}>
+      <CardContent>
+        <Typography variant="h6" component="h2" sx={{ ...panelTitleSx, mb: 1.5 }}>
+          The Darkness Report
         </Typography>
-        <Stack direction="row" spacing={2} flexWrap="wrap">
-          <Link href="/rankings" underline="hover" sx={quickLinkSx}>Rankings</Link>
-          <Link href="/waiver-wire" underline="hover" sx={quickLinkSx}>Waiver Wire</Link>
-          <Link href="/strategy" underline="hover" sx={quickLinkSx}>Strategy</Link>
-          <Link href="/recaps" underline="hover" sx={quickLinkSx}>Recaps</Link>
-        </Stack>
-      </Stack>
-
-      <Grid container spacing={2}>
-        <Grid xs={12} md={6}>
-          <Card variant="outlined" sx={cardSx}>
-            <CardContent>
-              <Typography variant="h6" component="h3" sx={cardTitleSx}>
-                Latest Game Recaps
-              </Typography>
-              {loadingRecaps ? (
-                <WidgetSkeleton />
-              ) : recapsError ? (
-                <Typography variant="body2" sx={statusSx}>
-                  Couldn&apos;t load recaps right now.
-                </Typography>
-              ) : recaps.length === 0 ? (
-                <Typography variant="body2" sx={statusSx}>
-                  No recaps published yet.
-                </Typography>
-              ) : (
-                <List dense disablePadding sx={listSx}>
-                  {recaps.map((recap) => (
-                    <ListItem key={recap.gameId} disableGutters>
-                      <ListItemText
-                        primary={
-                          <Link href={`/recaps/${recap.gameId}`} underline="hover" sx={rowLinkSx}>
-                            {`${recap.awayTeam} ${recap.awayScore} @ ${recap.homeTeam} ${recap.homeScore}`}
-                          </Link>
-                        }
-                        secondary={[`Week ${recap.week}`, recap.hook].filter(Boolean).join(' · ')}
-                        secondaryTypographyProps={{ sx: clampTwoSx }}
-                      />
-                    </ListItem>
-                  ))}
-                </List>
-              )}
-              <Link href="/recaps" underline="hover" variant="body2" sx={moreLinkSx}>
-                All recaps
-              </Link>
-            </CardContent>
-          </Card>
-        </Grid>
-
-        <Grid xs={12} md={6}>
-          <Card variant="outlined" sx={cardSx}>
-            <CardContent>
-              <Typography variant="h6" component="h3" sx={cardTitleSx}>
-                Strategy Library
-              </Typography>
-              <List dense disablePadding sx={listSx}>
-                {articles.map((article) => (
-                  <ListItem key={article.slug} disableGutters>
-                    <ListItemText
-                      primary={
-                        <Link href={`/strategy/${article.slug}`} underline="hover" sx={rowLinkSx}>
-                          {article.title}
-                        </Link>
-                      }
-                      secondary={article === report ? article.excerpt : `${article.category} · ${article.readMinutes} min read`}
-                      secondaryTypographyProps={article === report ? { sx: clampTwoSx } : undefined}
-                    />
-                  </ListItem>
-                ))}
-              </List>
-              <Link href="/strategy" underline="hover" variant="body2" sx={moreLinkSx}>
-                All strategy articles
-              </Link>
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
-    </Box>
+        <Typography
+          component="p"
+          sx={{
+            fontFamily: DISPLAY_FONT, fontSize: '24px', fontWeight: 600, lineHeight: 1.2, color: 'var(--dash-ink)',
+          }}
+        >
+          {report.title}
+        </Typography>
+        <Typography variant="body2" sx={{ ...dimSx, fontSize: '14px', mt: 0.5, mb: 1 }}>
+          {byline}
+        </Typography>
+        <Link href={`/strategy/${report.slug}`} underline="hover" sx={readLinkSx}>
+          Read the report
+        </Link>
+      </CardContent>
+    </Card>
   );
 }
 
