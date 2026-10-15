@@ -548,6 +548,7 @@ const PAIRINGS = [
   pairing('home-accent', 'home-field', AA_TEXT, 'live chip text and outline, live odds fill on the page (16px pixel text is not WCAG large)'),
   pairing('home-accent', 'home-panel', AA_TEXT, 'live chip text and outline in a frame'),
   pairing('home-focus', 'home-halo', AA_LARGE, 'focus ring on its dark halo'),
+  pairing('home-halo', 'home-selection', AA_TEXT, 'selected text on the cursor-yellow selection'),
 ];
 
 // Kept out of PAIRINGS, with their own test title below, so a pass here can

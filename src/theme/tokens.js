@@ -204,6 +204,9 @@ export const colorTokens = {
     // Focus ring and press frame, and the dark halo behind the ring.
     'home-focus': '#ffffff',
     'home-halo': '#07080f',
+    // Selection is cursor yellow in both themes; the score flash is a 16% white wash on the board.
+    'home-selection': '#f8d030',
+    'home-flash': 'rgba(255, 255, 255, 0.16)',
   },
   dark: {
     'bg-page': '#0f1419',
@@ -365,6 +368,9 @@ export const colorTokens = {
     // Focus ring and press frame, and the dark halo behind the ring.
     'home-focus': '#ffffff',
     'home-halo': '#07080f',
+    // Selection is cursor yellow in both themes; the score flash is a 16% white wash on the board.
+    'home-selection': '#f8d030',
+    'home-flash': 'rgba(255, 255, 255, 0.16)',
   },
 };
 

@@ -24,7 +24,7 @@
 }
 
 .home-root ::selection {
-  background: #f8d030;
+  background: var(--home-selection);
   color: var(--home-halo);
 }
 
@@ -77,15 +77,15 @@
 
 @keyframes home-scored {
   50% {
-    background: #ffffff29;
-    outline: 6px solid #ffffff29;
+    background: var(--home-flash);
+    outline: 6px solid var(--home-flash);
   }
 }
 
 @keyframes home-scored-hold {
   0% {
-    background: #ffffff29;
-    outline: 6px solid #ffffff29;
+    background: var(--home-flash);
+    outline: 6px solid var(--home-flash);
   }
 }
 
