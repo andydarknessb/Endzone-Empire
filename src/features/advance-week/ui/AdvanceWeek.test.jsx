@@ -23,3 +23,20 @@ test('Confirm posts the week the commissioner saw, so a stale confirm is refused
   await waitFor(() => expect(apiClient.post).toHaveBeenCalledTimes(1));
   expect(apiClient.post).toHaveBeenCalledWith('/api/scoring/league/42/advance-week', { week: 5 });
 });
+
+test('a disabledReason disables the button and shows the reason, linked by aria-describedby', () => {
+  render(<AdvanceWeek leagueId={42} currentWeek={5} disabledReason="Opens when every Week 5 game is final" />);
+
+  const button = screen.getByRole('button', { name: 'Advance to Week 6' });
+  expect(button).toBeDisabled();
+  const reason = screen.getByText('Opens when every Week 5 game is final');
+  expect(button).toHaveAttribute('aria-describedby', reason.id);
+});
+
+test('without a disabledReason the button is enabled and nothing is described', () => {
+  render(<AdvanceWeek leagueId={42} currentWeek={5} />);
+
+  const button = screen.getByRole('button', { name: 'Advance to Week 6' });
+  expect(button).toBeEnabled();
+  expect(button).not.toHaveAttribute('aria-describedby');
+});

@@ -39,6 +39,7 @@ export {
   viewerMatchupOf,
 } from './model/matchupModel';
 export { matchupBoard, matchupPhase } from './model/matchupBoard';
+export { allWeekFinal } from './model/allWeekFinal';
 export {
   playsFromScoreEvent, deltasFor, matchupPlaySide, playLabel, formatSignedPoints,
 } from './model/play';
@@ -46,3 +47,4 @@ export { useLeagueMatchups } from './model/useLeagueMatchups';
 export { useWeekMatchups, clearWeekMatchupsCache } from './model/useWeekMatchups';
 export { useMatchup } from './model/useMatchup';
 export { useLiveGameStates } from './model/useLiveGameStates';
+export { useLiveScores } from './model/useLiveScores';
