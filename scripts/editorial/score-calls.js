@@ -215,6 +215,35 @@ function servedVerdictFor({ factors, injuryStatus, kickoffAt, observations, back
   }));
 }
 
+/** Pure: the observations seen by `asOf` (one observed exactly at asOf counts). */
+function observationsAsOf(observations, asOf) {
+  return observations.filter((o) => new Date(o.observedAt) <= asOf);
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+const dayOf = (ms) => new Date(ms).toISOString().slice(0, 10);
+
+/**
+ * Pure: the QB depth chart rows (`captured_date` as 'YYYY-MM-DD') a game's Backup check may
+ * see as of `asOf`: charted on a UTC day strictly before the asOf day (the kickoff-day chart can
+ * land after a 00:15Z kickoff) and within 3 days of it.
+ */
+function chartsBefore(chartRows, asOf) {
+  const lo = dayOf(asOf.getTime() - 3 * DAY_MS);
+  const hi = dayOf(asOf.getTime());
+  return chartRows.filter((c) => c.captured_date >= lo && c.captured_date < hi);
+}
+
+/**
+ * Pure: depth chart rows shaped for `backupQuarterbackIds`, with the team and injury status the
+ * capture froze (`captured`: Map playerId -> { position, nfl_team, injury_status }), never
+ * today's `players` row. A chart player with no QB capture row is left out.
+ */
+function captureChartRows(chartRows, captured) {
+  return chartRows.filter((c) => (captured.get(c.player_id) || {}).position === 'QB')
+    .map((c) => ({ ...c, nfl_team: captured.get(c.player_id).nfl_team, injury_status: captured.get(c.player_id).injury_status }));
+}
+
 const SUMMARY_LINES = ['paired', 'pairedMethod', 'pairedInjury'];
 
 /**
@@ -247,7 +276,8 @@ function seasonLedger(weekResults) {
 
 /**
  * Thin DB loader: the on-time scheduled PPR capture, the served verdict rebuilt per ledger row
- * and the re-priced actuals for one week. The caller owns `pool` (opened once, ended once).
+ * and the re-priced actuals for one week, plus whether any of the week's games are still to be
+ * played (`gamesPending`: a kickoff later than 4 hours ago). The caller owns `pool` (opened once, ended once).
  */
 async function load({ season, week }, pool) {
   const model = require('../../server/services/projectionModel');
@@ -269,16 +299,26 @@ async function load({ season, week }, pool) {
     if (head.rows.length === 0) return { capture: null };
     const [h] = head.rows;
     const rows = await client.query(
-      `SELECT "player_id", "position", "mean", "median", "factors", "injury_status", "game_kickoff_at"
+      `SELECT "player_id", "position", "mean", "median", "factors", "nfl_team", "injury_status", "game_kickoff_at"
        FROM "projection_snapshot_players" WHERE "snapshot_id" = $1`,
       [h.id]
     );
     // numeric columns arrive as strings: coerce, or the rank comparisons go lexicographic
     const num = (v) => (v == null ? null : Number(v));
     const now = new Date();
-    const asOfs = rows.rows.map((r) => servedAsOf(r.game_kickoff_at, now));
-    const day = (ms) => new Date(ms).toISOString().slice(0, 10);
-    const lo = Math.min(now, ...asOfs) - 3 * 24 * 60 * 60 * 1000;
+    // his game's kickoff as loadPracticeFacts reads it (team-week MIN), on the capture's frozen team
+    const kicks = await client.query(
+      `SELECT "sp"."player_id", MIN("g"."kickoff_at") AS "kickoff_at"
+       FROM "projection_snapshot_players" "sp" JOIN "nfl_games" "g"
+         ON "g"."season" = $1 AND "g"."week" = $2
+        AND fn_normalize_nfl_team("g"."nfl_team") = fn_normalize_nfl_team("sp"."nfl_team")
+       WHERE "sp"."snapshot_id" = $3 GROUP BY "sp"."player_id"`,
+      [season, week, h.id]
+    );
+    const kickoffById = new Map(kicks.rows.map((k) => [k.player_id, k.kickoff_at]));
+    const kickoffs = rows.rows.map((r) => kickoffById.get(r.player_id) ?? r.game_kickoff_at);
+    const asOfs = kickoffs.map((k) => servedAsOf(k, now));
+    const lo = Math.min(now, ...asOfs) - 3 * DAY_MS;
     const hi = Math.max(now, ...asOfs);
     // the observations as practiceParticipation.loadWeekObservations maps them, plus report_status
     const observed = await client.query(
@@ -294,30 +334,28 @@ async function load({ season, week }, pool) {
         reportStatus: o.report_status, reportPrimaryInjury: o.report_primary_injury, observedAt: o.observed_at,
       });
     }
-    // the QB depth charts backupQuarterbackIds reads, narrowed per game to the 3 days before its asOf
+    // the QB depth charts backupQuarterbackIds reads; team and status come from the capture, not players
     const charts = await client.query(
-      `SELECT "dc"."player_id", "dc"."rank", "dc"."team_code", "dc"."captured_date"::text AS "captured_date", "p"."nfl_team", "p"."injury_status"
-       FROM "player_depth_chart" "dc" JOIN "players" "p" ON "p"."id" = "dc"."player_id"
-       WHERE "dc"."position_group" = 'QB' AND "p"."position" = 'QB' AND "dc"."captured_date" BETWEEN $1::date AND $2::date`,
-      [day(lo), day(hi)]
+      `SELECT "player_id", "rank", "team_code", "captured_date"::text AS "captured_date"
+       FROM "player_depth_chart"
+       WHERE "position_group" = 'QB' AND "captured_date" BETWEEN $1::date AND $2::date`,
+      [dayOf(lo), dayOf(hi)]
     );
+    const chartRows = captureChartRows(charts.rows, new Map(rows.rows.map((r) => [r.player_id, r])));
     const backupsBy = new Map();
     const backupsAt = (asOf) => {
-      if (!backupsBy.has(asOf.getTime())) {
-        const recent = charts.rows.filter((c) => c.captured_date >= day(asOf - 3 * 24 * 60 * 60 * 1000) && c.captured_date <= day(asOf));
-        backupsBy.set(asOf.getTime(), backupQuarterbackIds(recent, asOf));
-      }
+      if (!backupsBy.has(asOf.getTime())) backupsBy.set(asOf.getTime(), backupQuarterbackIds(chartsBefore(chartRows, asOf), asOf));
       return backupsBy.get(asOf.getTime());
     };
     const ledger = new Map(rows.rows.map((r, i) => {
       const asOf = asOfs[i];
-      const seen = (obsById.get(r.player_id) || []).filter((o) => new Date(o.observedAt) <= asOf);
       return [r.player_id, {
         position: r.position,
         estimate: num(pointEstimateFor({ mean: num(r.mean), median: num(r.median), modelVersion: h.model_version })),
         unavailable: !!(r.factors && r.factors.availability && r.factors.availability.available === false),
         served: servedVerdictFor({
-          factors: r.factors, injuryStatus: r.injury_status, kickoffAt: r.game_kickoff_at, observations: seen,
+          factors: r.factors, injuryStatus: r.injury_status, kickoffAt: kickoffs[i],
+          observations: observationsAsOf(obsById.get(r.player_id) || [], asOf),
           backup: r.position === 'QB' && backupsAt(asOf).has(r.player_id), asOf,
         }),
       }];
@@ -333,7 +371,11 @@ async function load({ season, week }, pool) {
       points: calculateFantasyPoints(r.stats, rules),
       appeared: madeAppearance(r.stats),
     }]));
-    return { capture: h, ledger, actuals };
+    const pending = await client.query(
+      `SELECT COUNT(*)::int AS "n" FROM "nfl_games" WHERE "season" = $1 AND "week" = $2 AND "kickoff_at" > $3::timestamptz`,
+      [season, week, new Date(now.getTime() - 4 * 60 * 60 * 1000)]
+    );
+    return { capture: h, ledger, actuals, gamesPending: pending.rows[0].n > 0 };
   } finally {
     await client.query('ROLLBACK').catch(() => {});
     client.release();
@@ -426,8 +468,9 @@ async function main(argv) {
     const skipped = [];
     for (const { week, path: callsPath } of allCallsFiles()) {
       const file = readCalls(callsPath);
-      const { capture, ledger, actuals } = await load(file, pool);
-      const reason = !capture ? 'no on-time scheduled PPR capture' : actuals.size === 0 ? 'no player_stats rows yet' : null;
+      const { capture, ledger, actuals, gamesPending } = await load(file, pool);
+      const reason = !capture ? 'no on-time scheduled PPR capture'
+        : gamesPending ? 'games still to play' : actuals.size === 0 ? 'no player_stats rows yet' : null;
       if (reason) skipped.push({ week, reason });
       else scored.push({ week, article: file.article, capture, ...scoreCalls(file, ledger, actuals) });
     }
@@ -449,4 +492,5 @@ if (require.main === module) {
 
 module.exports = {
   finishOf, judge, rankingRho, scoreCalls, spearman, servedInjuryStatus, servedAsOf, servedVerdictFor, seasonLedger,
+  observationsAsOf, chartsBefore, captureChartRows,
 };

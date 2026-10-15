@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
   finishOf, judge, rankingRho, scoreCalls, spearman, servedInjuryStatus, servedAsOf, servedVerdictFor, seasonLedger,
+  observationsAsOf, chartsBefore, captureChartRows,
 } = require('./score-calls');
 
 test('spearman: perfect, reversed, ties, undefined', () => {
@@ -204,4 +205,38 @@ test('seasonLedger: sums hits over weeks and n-weights the position rhos', () =>
   assert.ok(Math.abs(qb.editorialRho - 0.2) < 1e-9); // (10*.5 + 30*.1) / 40
   assert.ok(Math.abs(qb.engineRho - 0.1) < 1e-9); // null week left out of the mean
   assert.ok(Math.abs(qb.servedRho - 0.5) < 1e-9); // (10*.2 + 30*.6) / 40
+});
+
+test('observationsAsOf: an observation exactly at asOf counts, one millisecond later does not', () => {
+  const asOf = new Date('2026-10-18T16:59:00.000Z');
+  const list = [obs('2026-10-18T16:59:00.000Z', 'Questionable'), obs('2026-10-18T16:59:00.001Z', 'Out'), obs('2026-10-14T20:00Z', null)];
+  assert.deepEqual(observationsAsOf(list, asOf).map((o) => o.observedAt), ['2026-10-18T16:59:00.000Z', '2026-10-14T20:00Z']);
+  assert.deepEqual(observationsAsOf([], asOf), []);
+});
+
+test('chartsBefore: only days strictly before the asOf day, within the 3-day lookback', () => {
+  const asOf = new Date('2026-10-18T16:59:00Z');
+  const chart = ['2026-10-14', '2026-10-15', '2026-10-17', '2026-10-18', '2026-10-19'].map((d) => ({ player_id: 1, captured_date: d }));
+  assert.deepEqual(chartsBefore(chart, asOf).map((c) => c.captured_date), ['2026-10-15', '2026-10-17']);
+  // a 00:15Z kickoff: its own UTC day's chart may not exist yet, so it is never admitted
+  const late = new Date('2026-10-19T00:14:00Z');
+  assert.deepEqual(chartsBefore(chart, late).map((c) => c.captured_date), ['2026-10-17', '2026-10-18']);
+});
+
+test('captureChartRows: team and status come from the capture, a chart player with no capture row is dropped', () => {
+  const chart = [
+    { player_id: 1, rank: 1, team_code: 'KC', captured_date: '2026-10-17' },
+    { player_id: 2, rank: 2, team_code: 'KC', captured_date: '2026-10-17' },
+    { player_id: 3, rank: 3, team_code: 'KC', captured_date: '2026-10-17' },
+    { player_id: 4, rank: 4, team_code: 'KC', captured_date: '2026-10-17' },
+  ];
+  const captured = new Map([
+    [1, { position: 'QB', nfl_team: 'DEN', injury_status: 'IR' }],
+    [2, { position: 'QB', nfl_team: 'KC', injury_status: null }],
+    [4, { position: 'RB', nfl_team: 'KC', injury_status: null }], // not a QB in the capture
+  ]);
+  assert.deepEqual(captureChartRows(chart, captured), [
+    { player_id: 1, rank: 1, team_code: 'KC', captured_date: '2026-10-17', nfl_team: 'DEN', injury_status: 'IR' },
+    { player_id: 2, rank: 2, team_code: 'KC', captured_date: '2026-10-17', nfl_team: 'KC', injury_status: null },
+  ]);
 });
