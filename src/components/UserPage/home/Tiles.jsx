@@ -62,6 +62,8 @@ export function ScoreTile({
       <Box component="h3" sx={{ m: 0, ...pixelSx(16), color: 'var(--home-board-ink)' }}>{league}</Box>
       {status && <Box sx={{ fontSize: '14px', color: 'var(--home-board-dim)', mt: '-6px' }}>{status}</Box>}
       <Box
+        // The label states the whole score, so a changed score remounts the block and restarts the flash.
+        key={ariaLabel}
         component={RouterLink}
         to={to}
         className={scored ? 'scored' : undefined}
