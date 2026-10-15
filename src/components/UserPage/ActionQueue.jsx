@@ -1,433 +1,332 @@
-import React, { useCallback, useEffect, useId, useRef, useState } from 'react';
-import { Link as RouterLink } from 'react-router-dom';
-import {
-  Alert, Box, Button, LinearProgress, Link, Menu, MenuItem, Paper, Skeleton, Stack, Typography,
-} from '@mui/material';
-import CheckIcon from '@mui/icons-material/Check';
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
-import { visuallyHidden } from '@mui/utils';
+import React, {
+  useCallback, useEffect, useRef, useState,
+} from 'react';
+import { Box } from '@mui/material';
 import apiClient from '../../api/apiClient';
-import { MIN_TOUCH_TARGET_SX } from '../../shared/lib/a11y';
-import { isPickemOnly } from '../../shared/lib/leagueType';
 import { formatInstant } from '../../shared/lib/instantFormat';
 import { timeUntil, useNow } from '../../shared/lib/timeUntil';
+import NextDraftCard, { featuredDraft } from './NextDraftCard';
 import {
-  DISPLAY_FONT, HAIRLINE, alertActionSx, alertSx, dimSx, ghostButtonSx, microLabelSx, panelHeaderSx, panelSx,
-  panelTitleSx, primaryButtonSx, progressSx, quietButtonSx, skeletonSx, textLinkSx,
-} from '../common/homeIslandSx';
+  CountBadge, ErrorPanel, Frame, FrameHead, HomeButton, HomeLink, PixelHeading, PlayCard, Skel, SR_ONLY_SX, pixelSx,
+} from './home';
 
-// The manager's to-do list (Home v2 slice 2): every open item across their
-// leagues from GET /api/user/action-items (Contract A), in the order the
-// server ranks them (blocking, timed by deadline, untimed, info). An item
-// leaves when its state resolves, so this list is never "read"; it is only
-// refetched. It owns its own fetch and states so a slow or failed to-do list
-// never holds up the leagues list beside it.
+// "Call your plays" (Home Play-select, DESIGN.md "Home surface"): every open
+// item across the manager's leagues from GET /api/user/action-items (Contract
+// A) plus the featured draft, as play cards, then "On the sideline" for what
+// is only pending. It owns its own fetch and states so a slow or failed list
+// never holds up the leagues beside it.
 
-// Rows shown before "Show all" (Handoff: ActionQueue maxVisible=4).
+// Cards shown before "Show all" (Handoff: ActionQueue maxVisible=4).
 const MAX_VISIBLE = 4;
 
 const MINUTE_MS = 60 * 1000;
 const HOUR_MS = 60 * MINUTE_MS;
-// Handoff (ActionItemRow): relative time under 24 hours, warning color under 2.
-const RELATIVE_WINDOW_MS = 24 * HOUR_MS;
-const URGENT_WINDOW_MS = 2 * HOUR_MS;
+const DAY_MS = 24 * HOUR_MS;
+const RULE = '2px solid var(--home-rule)';
 
 function viewerTimeZone() {
   return Intl.DateTimeFormat().resolvedOptions().timeZone;
 }
 
-// "in 1h 12m", "in 5h 07m", "in 45m", in the shared house style.
-function relativeText(at, now) {
-  const until = timeUntil(at, now);
-  return until.imminent ? 'in under a minute' : `in ${until.text}`;
-}
+const timeMs = (value) => {
+  const at = value ? new Date(value).getTime() : NaN;
+  return Number.isNaN(at) ? null : at;
+};
+const weekday = (at, style = 'short') => new Intl.DateTimeFormat(undefined, { weekday: style }).format(at);
 
-// The earliest instant any row's deadline column reads differently: its
-// relative text ticking over, or a row crossing into the 24-hour relative
-// window or the 2-hour warning (the Handoff's rules, which stay here).
-function nextChange(items, now) {
+// Item type -> play kind (the pictogram). A draft_live and a seats_open both
+// belong to the draft; an unknown actionable type reads as a generic to-do,
+// which the lineup diagram is the closest to.
+const KIND = {
+  picks_open: 'picks',
+  lineup_problem: 'lineup',
+  draft_live: 'draft',
+  seats_open: 'draft',
+  trade_review: 'trade',
+  trade_offer: 'trade',
+};
+const FALLBACK_KIND = 'lineup';
+
+// Info rows (FYI, nothing to do) and join requests sit on the sideline, not in the cards.
+const isSideline = (item) => item.severity === 'info' || item.type === 'join_requests';
+
+// The earliest instant anything on the card list reads differently: a lock's
+// relative text ticking over, a card crossing into its last hour (the urgent
+// strip) or past its lock, a draft's start, or the "updated" stamp's minute.
+function nextChange(items, leagues, updatedAt, now) {
   let next = null;
   const consider = (instant) => {
     if (instant > now && (next === null || instant < next)) next = instant;
   };
   items.forEach((item) => {
-    const at = item && item.deadlineAt ? new Date(item.deadlineAt).getTime() : NaN;
-    if (Number.isNaN(at) || at <= now) return;
-    consider(at - RELATIVE_WINDOW_MS + 1);
-    consider(at - URGENT_WINDOW_MS + 1);
-    if (at - now < RELATIVE_WINDOW_MS) consider(timeUntil(at, now).changesAt);
+    if (item.type === 'draft_live' || isSideline(item)) return;
+    const at = timeMs(item.deadlineAt);
+    if (at === null || at <= now) return;
+    consider(at);
+    consider(at - HOUR_MS + 1);
+    consider(timeUntil(at, now).changesAt);
   });
+  leagues.forEach((league) => {
+    const at = timeMs(league?.draft_date);
+    if (at === null || at <= now) return;
+    consider(at);
+    consider(timeUntil(at, now).changesAt);
+  });
+  if (updatedAt) consider(updatedAt + (Math.floor((now - updatedAt) / MINUTE_MS) + 1) * MINUTE_MS);
   return next;
 }
 
-// What the deadline column calls each item type's deadline (Contract A).
-const DEADLINE_LABEL = {
-  lineup_problem: 'Locks',
-  picks_open: 'Picks lock',
-  trade_review: 'Review ends',
-  seats_open: 'Before',
-  waiver_claims: 'Claims clear',
-};
-
-// The deadline column for one item: a micro label, the main value and a
-// secondary line. `urgent` paints it in the warning color; an info item
-// (FYI, nothing to do) is never urgent, however close its deadline is.
-function deadlineParts(item, now) {
-  if (item.type === 'draft_live') return { label: 'Draft', value: 'Live now', sub: null, urgent: true };
-  const at = item.deadlineAt ? new Date(item.deadlineAt).getTime() : NaN;
-  if (Number.isNaN(at)) return { label: 'No deadline', value: null, sub: null, urgent: false };
-  const label = DEADLINE_LABEL[item.type] || 'Due';
-  const remaining = at - now;
-  if (remaining <= 0) return { label, value: 'Now', sub: null, urgent: item.severity !== 'info' };
-  if (remaining < RELATIVE_WINDOW_MS) {
-    return {
-      label, value: formatInstant(at, 'time'), sub: relativeText(at, now), urgent: item.severity !== 'info' && remaining < URGENT_WINDOW_MS,
-    };
-  }
-  return { label, value: formatInstant(at, 'day'), sub: formatInstant(at, 'weekdayTime'), urgent: false };
+// The lock line: "THU 7:15 PM", the date past a week out, "NOW" once passed.
+function lockParts(at, now) {
+  if (at === null) return { lockDay: 'No deadline', lockTime: '' };
+  if (at <= now) return { lockDay: 'Now', lockTime: '' };
+  return {
+    lockDay: at - now >= 6 * DAY_MS ? formatInstant(at, 'day') : weekday(at),
+    lockTime: formatInstant(at, 'time'),
+  };
 }
 
-// The urgent tone is `warning.main`, the app palette's warning. It is the
-// same hex as `dash-warning` in both modes (tokens.js), so it paints the
-// island's color, and the render tests pin the deadline to the palette path.
-// On a card it is the registered "to-do row deadline under two hours" row.
-function DeadlineColumn({ item, now }) {
-  const { label, value, sub, urgent } = deadlineParts(item, now);
-  const tone = urgent ? 'warning.main' : 'var(--dash-dim)';
+const spoken = ({ lockDay, lockTime }) => [lockDay, lockTime].filter(Boolean).join(' ');
+
+// The week number rides in the id's key ("picks_open:4:2026-6"); the item has no field for it.
+const weekOf = (item) => /-(\d+)$/.exec(String(item.id))?.[1] ?? null;
+
+// Shared Lock Rule: every picks_open item is one card, with one foot per league
+// (earliest lock first, then alphabetical) when there are several.
+function picksSpec(group) {
+  const at = (entry) => timeMs(entry.deadlineAt);
+  const sorted = [...group].sort((a, b) => (at(a) ?? Infinity) - (at(b) ?? Infinity)
+    || String(a.leagueName).localeCompare(String(b.leagueName)));
+  const first = sorted[0];
+  const lockAt = at(first);
+  const week = weekOf(first);
+  const games = Math.max(0, ...group.map((entry) => Number(entry.progress?.total) || 0));
+  const multi = group.length > 1;
+  const cta = { label: first.cta?.label || 'Make picks', to: first.cta?.to };
+  return {
+    key: 'picks_open',
+    at: lockAt,
+    render: (now2, lead, state) => {
+      const until = lockAt !== null ? timeUntil(lockAt, now2) : null;
+      const lock = lockParts(lockAt, now2);
+      return (
+        <PlayCard
+          kind="picks"
+          name={week ? `Week ${week} picks` : 'Your picks'}
+          league={multi ? `${group.length} leagues` : first.leagueName}
+          detail={games ? `${games} games` : null}
+          {...lock}
+          countdown={state === 'urgent' ? `${Math.max(1, Math.floor((lockAt - now2) / MINUTE_MS))} min` : undefined}
+          lockNote={until && !until.passed
+            ? `First game locks in ${until.text}. Each game locks at its own kickoff.`
+            : 'Games are locking. Each game locks at its own kickoff.'}
+          cta={cta}
+          actions={multi ? sorted.map((entry) => {
+            const note = entry.progress ? `${entry.progress.done} of ${entry.progress.total} made` : null;
+            return {
+              label: entry.leagueName,
+              note,
+              to: entry.cta?.to,
+              ariaLabel: `${cta.label} in ${entry.leagueName}${note ? `, ${note}` : ''}`,
+            };
+          }) : undefined}
+          ariaLabel={`${cta.label} in ${multi ? `${group.length} leagues` : first.leagueName}${lockAt !== null ? `, ${spoken(lock)}` : ''}`}
+          state={state}
+          lead={lead}
+        />
+      );
+    },
+  };
+}
+
+function itemSpec(item) {
+  const at = timeMs(item.deadlineAt);
+  return {
+    key: item.id,
+    at,
+    render: (now, lead, state) => {
+      const lock = lockParts(at, now);
+      return (
+        <PlayCard
+          kind={KIND[item.type] || FALLBACK_KIND}
+          name={item.title}
+          league={item.leagueName}
+          {...lock}
+          countdown={state === 'urgent' ? `${Math.max(1, Math.floor((at - now) / MINUTE_MS))} min` : undefined}
+          lockNote={item.detail}
+          cta={item.cta}
+          ariaLabel={`${item.cta?.label || item.title} in ${item.leagueName}${at !== null ? `, ${spoken(lock)}` : ''}`}
+          state={state}
+          lead={lead}
+        />
+      );
+    },
+  };
+}
+
+// The featured draft, or a live draft the list names while the leagues have not
+// loaded (or name another league), as a draft card. A draft has no lock: `at` is null.
+function draftSpec(league, onDraftExpire) {
+  return {
+    key: `draft:${league.id}`,
+    at: null,
+    render: (now, lead) => (
+      <NextDraftCard
+        league={league}
+        now={now}
+        lead={lead}
+        commissioner={league.is_owner === true || league.is_commissioner === true}
+        onExpire={onDraftExpire}
+      />
+    ),
+  };
+}
+
+// The lead is the earliest lock; the plays with no lock (drafts, untimed
+// offers) follow in the server's order. A live draft never outranks a timed play.
+function buildSpecs(items, leagues, now, onDraftExpire) {
+  const featured = featuredDraft(leagues, now);
+  const drafts = [];
+  if (featured) drafts.push(draftSpec(featured.league, onDraftExpire));
+  const actionable = items.filter((item) => !isSideline(item));
+  actionable.filter((item) => item.type === 'draft_live').forEach((item) => {
+    if (featured?.state === 'live' && String(featured.league.id) === String(item.leagueId)) return;
+    drafts.push(draftSpec({ id: item.leagueId, name: item.leagueName, draft_status: 'active' }, onDraftExpire));
+  });
+  const picks = actionable.filter((item) => item.type === 'picks_open');
+  const others = actionable.filter((item) => item.type !== 'picks_open' && item.type !== 'draft_live');
+  const specs = [...(picks.length ? [picksSpec(picks)] : []), ...others.map(itemSpec)];
+  const timed = specs.filter((spec) => spec.at !== null).sort((a, b) => a.at - b.at);
+  const untimed = [...drafts, ...specs.filter((spec) => spec.at === null)];
+  return [...timed, ...untimed];
+}
+
+const metaSx = {
+  fontSize: '13px',
+  color: 'var(--home-dim)',
+  marginLeft: { md: 'auto' },
+  flexBasis: { xs: '100%', md: 'auto' },
+};
+
+const sidelineHeadSx = { margin: 0, ...pixelSx(16), color: 'var(--home-dim)' };
+
+function SidelineRow({ item }) {
+  const at = timeMs(item.deadlineAt);
+  const tail = item.type === 'waiver_claims' && at !== null
+    ? `clears ${formatInstant(at, 'weekdayTime')}`
+    : item.detail;
   return (
     <Box
       sx={{
         display: 'flex',
-        flexDirection: { xs: 'row', sm: 'column' },
-        alignItems: { xs: 'baseline', sm: 'flex-start' },
         flexWrap: 'wrap',
-        columnGap: 1,
-      }}
-    >
-      <Typography
-        component="span"
-        sx={microLabelSx}
-      >
-        {label}
-      </Typography>
-      {value && (
-        <Typography
-          component="span"
-          sx={{
-            fontFamily: DISPLAY_FONT,
-            fontSize: { xs: 18, sm: 24 },
-            fontWeight: 700,
-            lineHeight: 1.1,
-            fontVariantNumeric: 'tabular-nums',
-            color: urgent ? 'warning.main' : 'var(--dash-ink)',
-          }}
-        >
-          {value}
-        </Typography>
-      )}
-      {sub && (
-        <Typography component="span" variant="caption" sx={{ color: tone, fontSize: '12px', fontWeight: urgent ? 600 : 400 }}>
-          {sub}
-        </Typography>
-      )}
-    </Box>
-  );
-}
-
-// Two or more picks_open items (one per Pick'em league) read as one row: a
-// chip per league to its picks page, the earliest deadline and an action to
-// the earliest league. The row sits where the first of them did, which is
-// where the server ranks the earliest. A single picks_open item stays as is.
-function groupPicksOpen(items) {
-  const picks = items.filter((entry) => entry.type === 'picks_open');
-  if (picks.length < 2) return items;
-  const at = (entry) => (entry.deadlineAt ? new Date(entry.deadlineAt).getTime() : Infinity);
-  const earliest = picks.reduce((a, b) => (at(b) < at(a) ? b : a));
-  const grouped = {
-    id: 'picks_open:group',
-    type: 'picks_open',
-    severity: earliest.severity,
-    title: `Make picks in ${picks.length} leagues`,
-    deadlineAt: earliest.deadlineAt,
-    cta: earliest.cta,
-    chips: picks.map((entry) => ({
-      id: entry.id,
-      leagueName: entry.leagueName,
-      to: entry.cta?.to,
-      // The server's open count: a game that locked unpicked is not open.
-      open: entry.progress?.open ?? null,
-    })),
-  };
-  return items.flatMap((entry) => {
-    if (entry.type !== 'picks_open') return [entry];
-    return entry === picks[0] ? [grouped] : [];
-  });
-}
-
-const chipSx = {
-  ...MIN_TOUCH_TARGET_SX,
-  display: 'inline-flex',
-  alignItems: 'center',
-  gap: 0.75,
-  px: 1.5,
-  borderRadius: 'var(--dash-radius-sm)',
-  border: HAIRLINE,
-  backgroundColor: 'var(--dash-surface2)',
-  color: 'var(--dash-ink)',
-  fontSize: '14px',
-  fontWeight: 500,
-  '&:hover': { borderColor: 'var(--dash-accent-line)' },
-};
-
-// How each item type names its progress (Contract A: picks_open carries
-// picks made, seats_open seats filled). Anything else reads as plain progress.
-const PROGRESS_COPY = {
-  picks_open: { label: 'Picks made', suffix: ' made' },
-  seats_open: { label: 'Seats filled', suffix: ' filled' },
-};
-
-// `showCount` is false when the row's detail line already states the count
-// ("0 of 14 made for week 6"), so the bar is not followed by a second one.
-function ItemProgress({ type, progress, showCount }) {
-  const total = Number(progress?.total);
-  const done = Number(progress?.done);
-  if (!Number.isFinite(total) || total <= 0 || !Number.isFinite(done)) return null;
-  const copy = PROGRESS_COPY[type] || { label: 'Progress', suffix: '' };
-  const clamped = Math.min(Math.max(done, 0), total);
-  return (
-    <Stack direction="row" spacing={1} alignItems="center">
-      {/* The ARIA values are the real counts, not MUI's 0-100 percentage. */}
-      <LinearProgress
-        variant="determinate"
-        value={(clamped / total) * 100}
-        aria-label={copy.label}
-        aria-valuemin={0}
-        aria-valuemax={total}
-        aria-valuenow={clamped}
-        aria-valuetext={`${clamped} of ${total}`}
-        sx={{ ...progressSx, width: { xs: 80, sm: 140 }, height: 6, borderRadius: 999 }}
-      />
-      {showCount && (
-        <Typography variant="body2" aria-hidden="true" sx={{ ...dimSx, fontSize: '12px' }}>
-          {`${clamped} of ${total}${copy.suffix}`}
-        </Typography>
-      )}
-    </Stack>
-  );
-}
-
-const ActionItemRow = React.forwardRef(function ActionItemRow({ item, primary, now }, ref) {
-  return (
-    <Box
-      component="li"
-      ref={ref}
-      // Focusable only so Show all can move focus here; not a tab stop.
-      tabIndex={ref ? -1 : undefined}
-      sx={{
-        display: 'grid',
-        gridTemplateColumns: { xs: '1fr', sm: '112px minmax(0, 1fr) auto' },
-        gap: { xs: 1.5, sm: 2.5 },
         alignItems: 'center',
-        px: { xs: 2, sm: 2.5 },
-        py: 2,
-        borderBottom: HAIRLINE,
-        '&:last-of-type': { borderBottom: 0 },
+        justifyContent: 'space-between',
+        gap: '8px 16px',
+        padding: '12px 0',
+        borderTop: RULE,
       }}
     >
-      <DeadlineColumn item={item} now={now} />
-      <Stack spacing={0.75} sx={{ minWidth: 0 }}>
-        <Typography data-testid="action-item-title" sx={{ fontSize: '16px', fontWeight: 600, color: 'var(--dash-ink)' }}>{item.title}</Typography>
-        <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
-          {/* The league tag: ink on a stat tile inside the card. */}
-          {item.leagueName && (
-            <Box
-              component="span"
-              sx={{
-                px: 1, py: 0.25, borderRadius: '6px', border: HAIRLINE,
-                backgroundColor: 'var(--dash-surface2)', color: 'var(--dash-ink)', fontSize: '12px', fontWeight: 500,
-              }}
-            >
-              {item.leagueName}
-            </Box>
-          )}
-          {item.detail && <Typography variant="body2" sx={{ ...dimSx, fontSize: '14px' }}>{item.detail}</Typography>}
-          {item.progress && <ItemProgress type={item.type} progress={item.progress} showCount={!item.detail} />}
-        </Stack>
-        {item.chips && (
-          <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-            {item.chips.map((chip) => (
-              <Link key={chip.id} component={RouterLink} to={chip.to} underline="none" sx={chipSx}>
-                {chip.leagueName}
-                {chip.open != null && <Box component="span" sx={{ ...dimSx, fontSize: '12px' }}>{` · ${chip.open} open`}</Box>}
-              </Link>
-            ))}
-          </Stack>
-        )}
-      </Stack>
+      <Box>
+        <Box sx={{ fontWeight: 600 }}>{item.title}</Box>
+        <Box sx={{ fontSize: '14px', color: 'var(--home-dim)' }}>{[item.leagueName, tail].filter(Boolean).join(' · ')}</Box>
+      </Box>
       {item.cta?.to && (
-        <Button
-          component={RouterLink}
-          to={item.cta.to}
-          variant={primary ? 'contained' : 'outlined'}
-          sx={{ ...(primary ? primaryButtonSx : ghostButtonSx), ...MIN_TOUCH_TARGET_SX, px: 2.25, fontSize: '14px', whiteSpace: 'nowrap' }}
-        >
-          {item.cta.label}
-        </Button>
+        <HomeLink to={item.cta.to} ariaLabel={`${item.cta.label} in ${item.leagueName}`}>{item.cta.label}</HomeLink>
       )}
     </Box>
   );
-});
+}
 
 function ActionQueueSkeleton() {
   return (
-    <Box data-testid="action-queue-skeleton" aria-busy="true">
-      <Box component="span" role="status" sx={visuallyHidden}>Loading your to-do list</Box>
-      {[70, 60].map((width) => (
+    <Frame labelledBy="action-queue-loading">
+      <Box data-testid="action-queue-skeleton" aria-busy="true">
+        <Box component="span" id="action-queue-loading" role="status" sx={SR_ONLY_SX}>Loading your plays</Box>
+        <FrameHead>
+          <Skel width="200px" height={20} />
+          <Skel width="28px" height={28} />
+          <Box component="span" sx={{ ...metaSx, width: { xs: '100%', md: '240px' } }}><Skel width="100%" height={14} /></Box>
+        </FrameHead>
         <Box
-          key={width}
-          sx={{
-            height: 76, boxSizing: 'border-box', px: 2.5, py: 2, display: 'grid', gap: 2.5, alignItems: 'center',
-            gridTemplateColumns: { xs: 'minmax(0, 1fr) 96px', sm: '90px minmax(0, 1fr) 110px' },
-            borderBottom: HAIRLINE, '&:last-of-type': { borderBottom: 0 },
-          }}
+          aria-hidden="true"
+          sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(4, minmax(0, 1fr))' }, gap: '8px', padding: '12px' }}
         >
-          <Skeleton variant="rounded" height={36} sx={{ ...skeletonSx, display: { xs: 'none', sm: 'block' } }} />
-          <Box>
-            <Skeleton variant="text" width={`${width}%`} sx={skeletonSx} />
-            <Skeleton variant="text" width={`${width - 30}%`} sx={skeletonSx} />
+          <Box sx={{ gridColumn: { md: 'span 2' }, padding: '8px', border: '4px solid transparent' }}>
+            <Box sx={{
+              display: 'flex', flexDirection: 'column', gap: '14px', padding: '16px', backgroundColor: 'var(--home-panel)', border: RULE,
+            }}
+            >
+              <Skel width="96px" height={48} />
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: '8px' }}><Skel width="70%" height={20} /><Skel width="50%" height={14} /></Box>
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: '8px' }}><Skel width="40%" height={14} /><Skel width="80%" height={14} /></Box>
+              <Skel width="100%" height={40} />
+            </Box>
           </Box>
-          <Skeleton variant="rounded" height={44} sx={{ ...skeletonSx, borderRadius: 'var(--dash-radius-sm)' }} />
+          <Box sx={{
+            gridColumn: { md: 'span 2' }, padding: '12px 12px 12px 20px', display: 'flex', flexDirection: 'column', gap: '12px',
+          }}
+          >
+            <Skel width="40%" height={16} />
+            <Skel width="90%" height={14} />
+            <Skel width="70%" height={14} />
+          </Box>
         </Box>
-      ))}
-    </Box>
-  );
-}
-
-const waiverLinkSx = { ...textLinkSx, ...MIN_TOUCH_TARGET_SX, display: 'flex', alignItems: 'center', fontSize: '14px' };
-const waiversPath = (league) => `/league/${league.id}/waivers`;
-
-// Waivers belong to one league (its Waivers page), and Home spans all of the
-// Manager's leagues: one fantasy league links straight to its Waivers page,
-// several open a menu of them, and pick'em-only leagues have no waivers.
-function WaiverWireLink({ leagues }) {
-  const menuId = useId();
-  const buttonId = useId();
-  const [anchor, setAnchor] = useState(null);
-  const fantasy = (leagues || []).filter((league) => league && league.id != null && !isPickemOnly(league));
-  if (fantasy.length === 0) return null;
-  if (fantasy.length === 1) {
-    return (
-      <Link component={RouterLink} to={waiversPath(fantasy[0])} sx={waiverLinkSx}>
-        Browse the waiver wire
-      </Link>
-    );
-  }
-  const open = Boolean(anchor);
-  const close = () => setAnchor(null);
-  return (
-    <>
-      <Link
-        component="button"
-        type="button"
-        id={buttonId}
-        aria-haspopup="menu"
-        aria-expanded={open ? 'true' : 'false'}
-        aria-controls={open ? menuId : undefined}
-        onClick={(event) => setAnchor(event.currentTarget)}
-        sx={{ ...waiverLinkSx, gap: 0.5, border: 0, background: 'none', cursor: 'pointer', fontFamily: 'inherit' }}
-      >
-        Browse the waiver wire
-        <ExpandMoreIcon fontSize="small" aria-hidden="true" />
-      </Link>
-      <Menu
-        id={menuId}
-        anchorEl={anchor}
-        open={open}
-        onClose={close}
-        MenuListProps={{ 'aria-labelledby': buttonId }}
-        PaperProps={{ sx: { backgroundColor: 'var(--dash-surface)', color: 'var(--dash-ink)', border: `1px solid ${HAIRLINE}` } }}
-      >
-        {fantasy.map((league) => (
-          <MenuItem key={league.id} component={RouterLink} to={waiversPath(league)} onClick={close} sx={{ minHeight: 44 }}>
-            {league.name}
-          </MenuItem>
-        ))}
-      </Menu>
-    </>
-  );
-}
-
-function CaughtUp({ leagues }) {
-  return (
-    <Stack alignItems="center" spacing={1.25} sx={{ flexGrow: 1, p: 4, textAlign: 'center' }}>
-      <Box
-        aria-hidden="true"
-        sx={{
-          width: 64, height: 64, borderRadius: '50%', display: 'grid', placeItems: 'center',
-          color: 'var(--dash-accent)', backgroundColor: 'var(--dash-accent-soft)',
-        }}
-      >
-        <CheckIcon sx={{ fontSize: 32 }} />
       </Box>
-      <Typography
-        variant="h5"
-        component="h3"
-        sx={{ fontFamily: DISPLAY_FONT, fontSize: { xs: '26px', sm: '30px' }, fontWeight: 700, lineHeight: 1.1, textTransform: 'uppercase' }}
-      >
-        You&apos;re all caught up
-      </Typography>
-      <Typography sx={{ ...dimSx, maxWidth: 380 }}>
-        Every lineup is set and every pick is in.
-      </Typography>
-      <WaiverWireLink leagues={leagues} />
-    </Stack>
+    </Frame>
   );
 }
 
 // `onLoaded(body)` hands the page the response body after each successful
 // fetch, and null after a failed one, so the greeting header can summarize
-// the list without a second request.
-// `quietDraftLeagueId`: the draft card is up for that league, so its Join draft
-// row renders outlined and the primary goes to the first other row.
-function ActionQueue({ onLoaded, leagues = [], quietDraftLeagueId = null }) {
+// the list without a second request. `refreshKey` changing refetches quietly
+// (no skeleton; a failed refetch keeps the plays on screen). `onDraftExpire`
+// fires when a scheduled draft's time arrives.
+function ActionQueue({
+  onLoaded, leagues = [], refreshKey = 0, onDraftExpire = undefined,
+}) {
   const onLoadedRef = useRef(onLoaded);
   onLoadedRef.current = onLoaded;
   const [data, setData] = useState(null);
+  const dataRef = useRef(null);
+  dataRef.current = data;
+  const [updatedAt, setUpdatedAt] = useState(null);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
   const [expanded, setExpanded] = useState(false);
-  // The first row Show all reveals: the control disappears on click, so focus
+  // The first card Show all reveals: the button disappears on click, so focus
   // moves here instead of dropping to the top of the page.
   const firstRevealedRef = useRef(null);
-  // Relative deadlines ("in 1h 12m") repaint exactly when one of them would
-  // read differently, and a refetch re-reads the clock for the new rows.
-  const now = useNow((at) => nextChange(Array.isArray(data?.items) ? data.items : [], at), data);
+  const items = Array.isArray(data?.items) ? data.items : [];
+  // Lock text ("in 1h 12m"), the urgent strip and the stamp repaint exactly
+  // when one of them would read differently; a refetch re-reads the clock.
+  const now = useNow((at) => nextChange(items, leagues, updatedAt, at), data);
 
   useEffect(() => {
     if (expanded) firstRevealedRef.current?.focus();
   }, [expanded]);
 
-  // Only the newest fetch may report: an answer that lands after unmount (the
-  // page drops the queue on the first-run state) or after a newer fetch began
-  // is dropped, so it never reaches onLoaded or state.
+  // Only the newest fetch may report: an answer that lands after unmount or
+  // after a newer fetch began is dropped, so it never reaches onLoaded or state.
   const latestFetch = useRef(0);
   useEffect(() => () => { latestFetch.current += 1; }, []);
 
-  const fetchItems = useCallback(async () => {
+  const fetchItems = useCallback(async ({ silent = false } = {}) => {
     latestFetch.current += 1;
     const mine = latestFetch.current;
     const stale = () => mine !== latestFetch.current;
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       const response = await apiClient.get('/api/user/action-items', { params: { tz: viewerTimeZone() } });
       if (stale()) return;
       setData(response.data);
+      setUpdatedAt(Date.now());
       setFailed(false);
       onLoadedRef.current?.(response.data);
     } catch (err) {
       if (stale()) return;
-      // Keep the last good list (if any) under the error. The page's summary
-      // line is told there is nothing to summarize, so it steps back.
+      // A quiet refetch that fails leaves the plays we have.
+      if (silent && dataRef.current) return;
       setFailed(true);
       onLoadedRef.current?.(null);
     } finally {
@@ -439,118 +338,116 @@ function ActionQueue({ onLoaded, leagues = [], quietDraftLeagueId = null }) {
     fetchItems();
   }, [fetchItems]);
 
-  const items = Array.isArray(data?.items) ? data.items : [];
-  // The fallback leaves out info items, as the server's counts do.
-  const total = data?.counts?.total ?? items.filter((entry) => entry.severity !== 'info').length;
-  // Rows, not items: the grouped pick'em row stands for several.
-  const rows = groupPicksOpen(items);
-  const visible = expanded ? rows : rows.slice(0, MAX_VISIBLE);
-  const hiddenCount = rows.length - visible.length;
-  const isQuietDraft = (entry) => quietDraftLeagueId != null
-    && entry.type === 'draft_live' && String(entry.leagueId) === String(quietDraftLeagueId);
-  const primaryEntry = visible.find((entry) => !isQuietDraft(entry));
-  // The skeleton only stands in for a list we don't have yet; a retry keeps
-  // the good list up.
-  const awaitingFirst = loading && !data;
-  // Item types whose builder failed on the server: the rest still arrived,
-  // but an empty list is then not proof that nothing needs the manager.
-  const incomplete = Array.isArray(data?.partial) && data.partial.length > 0;
+  const firstKey = useRef(true);
+  useEffect(() => {
+    if (firstKey.current) {
+      firstKey.current = false;
+      return;
+    }
+    fetchItems({ silent: true });
+  }, [refreshKey, fetchItems]);
 
-  return (
-    <Paper
-      component="section"
-      variant="outlined"
-      aria-labelledby="action-queue-heading"
-      sx={{ ...panelSx, overflow: 'hidden', display: 'flex', flexDirection: 'column', height: '100%' }}
-    >
-      <Stack
-        direction="row"
-        alignItems="center"
-        spacing={1.25}
-        useFlexGap
-        flexWrap="wrap"
-        sx={{ ...panelHeaderSx, px: { xs: 2, sm: 2.5 }, py: 2 }}
-      >
-        <Typography id="action-queue-heading" variant="h6" component="h2" sx={panelTitleSx}>
-          Needs your attention
-        </Typography>
-        {data && (
-          <Box
-            component="span"
-            data-testid="action-queue-count"
-            // Warning on the warning tint, or accent on the accent tint when
-            // clear: both registered over a card.
-            sx={{
-              minWidth: 24, height: 24, px: 1, boxSizing: 'border-box', borderRadius: 999, display: 'grid', placeItems: 'center',
-              fontSize: '12px', fontWeight: 700, fontVariantNumeric: 'tabular-nums',
-              color: total > 0 ? 'var(--dash-warning)' : 'var(--dash-accent)',
-              backgroundColor: total > 0 ? 'var(--dash-warning-soft)' : 'var(--dash-accent-soft)',
-            }}
-          >
-            {total}
-            <Box component="span" sx={visuallyHidden}>{total === 1 ? ' item' : ' items'}</Box>
+  if (loading && !data) return <ActionQueueSkeleton />;
+
+  // Item types whose builder failed on the server: the rest still arrived, but
+  // an empty list is then not proof that nothing needs the manager.
+  const incomplete = Array.isArray(data?.partial) && data.partial.length > 0;
+  const specs = data ? buildSpecs(items, leagues, now, onDraftExpire) : [];
+  if (failed || !data || (incomplete && specs.length === 0)) {
+    return (
+      <ErrorPanel
+        title="Couldn't check what needs you"
+        body="Your leagues are below. Open each one, or try again."
+        onRetry={() => fetchItems()}
+        retryAriaLabel="Try checking your plays again"
+      />
+    );
+  }
+
+  const sideline = items.filter(isSideline);
+  const lead = specs[0];
+  const urgent = lead?.at != null && lead.at > now && lead.at - now < HOUR_MS;
+  const visible = expanded ? specs : specs.slice(0, MAX_VISIBLE);
+  const hiddenCount = specs.length - visible.length;
+  const wide = specs.length <= 2;
+  const zone = formatInstant(now, 'zone') || 'your time zone';
+  const minutes = Math.floor((now - updatedAt) / MINUTE_MS);
+  const stamp = minutes < 1 ? 'updated just now' : `updated ${minutes} min ago`;
+  const nextLock = specs.find((spec) => spec.at !== null && spec.at > now)?.at;
+
+  const head = (
+    <FrameHead>
+      <PixelHeading id="action-queue-heading">Call your plays</PixelHeading>
+      {specs.length > 0 && <CountBadge n={specs.length} />}
+      {specs.length > 0 && (
+        <Box component="span" sx={metaSx}>{`Earliest lock first · times in ${zone} · ${stamp}`}</Box>
+      )}
+    </FrameHead>
+  );
+
+  if (specs.length === 0) {
+    return (
+      <Frame labelledBy="action-queue-heading" head={head}>
+        <Box sx={{ padding: '20px', ...pixelSx(16) }}>Nothing needs you right now.</Box>
+        {sideline.length > 0 && (
+          <Box sx={{ padding: '0 20px 4px', borderTop: RULE }}>
+            <Box component="h3" sx={{ ...sidelineHeadSx, margin: '12px 0 0' }}>On the sideline</Box>
+            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' }, gap: '0 32px', paddingBottom: '12px' }}>
+              {sideline.map((item) => <SidelineRow key={item.id} item={item} />)}
+            </Box>
           </Box>
         )}
-        {items.length > 0 && (
-          <Typography variant="body2" sx={{ ...dimSx, fontSize: '12px', ml: 'auto', textAlign: 'right' }}>
-            {`Most urgent first · times in ${formatInstant(now, 'zone') || 'your time zone'}`}
-          </Typography>
-        )}
-      </Stack>
-      {failed && !loading && (
-        <Alert
-          severity="error"
-          sx={{ ...alertSx('danger'), m: 2 }}
-          action={<Button color="inherit" onClick={fetchItems} sx={{ ...alertActionSx('danger'), ...MIN_TOUCH_TARGET_SX }}>Try again</Button>}
-        >
-          We couldn&apos;t load your to-do list.
-        </Alert>
-      )}
-      {awaitingFirst && <ActionQueueSkeleton />}
-      {incomplete && !failed && (
-        <Alert
-          severity="warning"
-          sx={{ ...alertSx('warning'), m: 2 }}
-          action={<Button color="inherit" onClick={fetchItems} disabled={loading} sx={{ ...alertActionSx('warning'), ...MIN_TOUCH_TARGET_SX }}>Try again</Button>}
-        >
-          Some of your to-do list couldn&apos;t be checked right now.
-        </Alert>
-      )}
-      {data && items.length === 0 && !incomplete && <CaughtUp leagues={leagues} />}
-      {items.length > 0 && (
-      <Box component="ol" id="action-queue-list" sx={{ listStyle: 'none', m: 0, p: 0 }}>
-        {visible.map((entry, index) => (
-          <ActionItemRow
-            key={entry.id}
+      </Frame>
+    );
+  }
+
+  return (
+    <Frame labelledBy="action-queue-heading" head={head}>
+      <Box
+        id="action-queue-list"
+        sx={{
+          display: 'grid',
+          gridTemplateColumns: { xs: '1fr', md: 'repeat(4, minmax(0, 1fr))' },
+          gap: '8px',
+          padding: '12px',
+        }}
+      >
+        {visible.map((spec, index) => (
+          <Box
+            key={spec.key}
             ref={expanded && index === MAX_VISIBLE ? firstRevealedRef : undefined}
-            item={entry}
-            now={now}
-            primary={entry === primaryEntry}
-          />
-        ))}
-      </Box>
-      )}
-      {hiddenCount > 0 && (
-        <Stack
-          direction="row"
-          alignItems="center"
-          justifyContent="space-between"
-          spacing={2}
-          // The footer well (`dash-surface2`): dim text, an accent action
-          // and the focus ring, all registered over a stat tile.
-          sx={{ mt: 'auto', px: { xs: 2, sm: 2.5 }, borderTop: HAIRLINE, backgroundColor: 'var(--dash-surface2)' }}
-        >
-          <Typography variant="body2" sx={{ ...dimSx, fontSize: '14px' }}>{`${hiddenCount} more`}</Typography>
-          <Button
-            aria-controls="action-queue-list"
-            onClick={() => setExpanded(true)}
-            sx={{ ...quietButtonSx, ...MIN_TOUCH_TARGET_SX, '&:hover': { ...quietButtonSx['&:hover'], backgroundColor: 'var(--dash-surface3)' } }}
+            tabIndex={expanded && index === MAX_VISIBLE ? -1 : undefined}
+            sx={{ gridColumn: { md: specs.length === 1 ? 'span 2' : 'span 1' }, minWidth: 0 }}
           >
-            {`Show all ${rows.length}`}
-          </Button>
-        </Stack>
+            {spec.render(now, index === 0, index === 0 && urgent ? 'urgent' : index === 0 ? 'next' : 'open')}
+          </Box>
+        ))}
+        <Box
+          sx={{
+            gridColumn: { xs: '1 / -1', md: wide ? 'span 2' : '1 / -1' },
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '12px',
+            padding: { xs: '12px 4px 4px', md: wide ? '12px 12px 12px 20px' : '12px 4px 4px' },
+            borderTop: { xs: RULE, md: wide ? 'none' : RULE },
+            borderLeft: { xs: 'none', md: wide ? RULE : 'none' },
+          }}
+        >
+          <Box component="h3" sx={sidelineHeadSx}>On the sideline</Box>
+          {sideline.map((item) => <SidelineRow key={item.id} item={item} />)}
+          {sideline.length === 0 && (
+            <Box component="p" sx={{ margin: 0, fontSize: '14px', color: 'var(--home-dim)' }}>
+              {nextLock ? `Nothing else is due before ${weekday(nextLock, 'long')}'s kickoff.` : 'Nothing else needs you today.'}
+            </Box>
+          )}
+        </Box>
+      </Box>
+      {hiddenCount > 0 && (
+        <Box sx={{ padding: '0 12px 12px' }}>
+          <HomeButton variant="quiet" onClick={() => setExpanded(true)}>{`Show all ${specs.length}`}</HomeButton>
+        </Box>
       )}
-    </Paper>
+    </Frame>
   );
 }
 
