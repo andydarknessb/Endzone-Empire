@@ -415,6 +415,7 @@ const CALLS_FILE = /^week(\d+)-start-sit-darkness-report\.calls\.json$/;
 /** Every week's calls file under src/content/articles, sorted by week. */
 function allCallsFiles() {
   return fs.readdirSync(ARTICLES_DIR).map((f) => CALLS_FILE.exec(f)).filter(Boolean)
+    // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal -- readdir names matched by CALLS_FILE cannot contain separators
     .map((m) => ({ week: Number(m[1]), path: path.join(ARTICLES_DIR, m[0]) })).sort((a, b) => a.week - b.week);
 }
 
