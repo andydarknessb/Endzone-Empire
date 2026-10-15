@@ -1891,21 +1891,21 @@ const Body = () => (
     </Lead>
 
     <Note title="Read this first">
-      <strong>Lines are our database as of Oct 15, 14:02Z and weather as of 10:37Z. Injury notes are the
-      Wednesday practice reports, and no Thursday report existed for the Sunday teams when I wrote
-      this.</strong>{' '}
+      <strong>Lines are our database as of Oct 15, 10:02am ET (9:02am CT) and weather as of 6:37am ET
+      (5:37am CT). Injury notes are the Wednesday practice reports, and no Thursday report existed
+      for the Sunday teams when I wrote this.</strong>{' '}
       Friday&apos;s reports can change any of it. The lines can differ from the Tuesday numbers in
       the waiver report. Fox and bet365 agree with the database except Baltimore (-4.5 there, -5.5
       here) and Chicago (-3 at a 49.5 total there, -1.5 at 51.5 here); I use the database. Re-check
       the Friday reports and the inactives before you lock anything. Every window below says when
-      the inactives drop, and every time on this page is Eastern.
+      the inactives drop, and every time on this page is Eastern unless it says CT.
     </Note>
 
     <P>
       Scoring is PPR. &quot;Proj&quot; is our Week 6 PPR projection from the scheduled capture on
-      Oct 15 at 00:19Z. Where the projection is a placeholder or a number that cannot be trusted, I
-      say so and lean on usage. Cincinnati, Detroit, Miami and Minnesota are on bye, so 28 teams
-      play, and nobody from those four is ranked or called.
+      Oct 14 at 8:19pm ET (7:19pm CT). Where the projection is a placeholder or a number that
+      cannot be trusted, I say so and lean on usage. Cincinnati, Detroit, Miami and Minnesota are on
+      bye, so 28 teams play, and nobody from those four is ranked or called.
     </P>
     <RailList
       items={[
