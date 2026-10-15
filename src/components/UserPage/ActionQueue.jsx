@@ -70,16 +70,19 @@ const DEADLINE_LABEL = {
 };
 
 // The deadline column for one item: a micro label, the main value and a
-// secondary line. `urgent` paints it in the warning color.
+// secondary line. `urgent` paints it in the warning color; an info item
+// (FYI, nothing to do) is never urgent, however close its deadline is.
 function deadlineParts(item, now) {
   if (item.type === 'draft_live') return { label: 'Draft', value: 'Live now', sub: null, urgent: true };
   const at = item.deadlineAt ? new Date(item.deadlineAt).getTime() : NaN;
   if (Number.isNaN(at)) return { label: 'No deadline', value: null, sub: null, urgent: false };
   const label = DEADLINE_LABEL[item.type] || 'Due';
   const remaining = at - now;
-  if (remaining <= 0) return { label, value: 'Now', sub: null, urgent: true };
+  if (remaining <= 0) return { label, value: 'Now', sub: null, urgent: item.severity !== 'info' };
   if (remaining < RELATIVE_WINDOW_MS) {
-    return { label, value: formatInstant(at, 'time'), sub: relativeText(at, now), urgent: remaining < URGENT_WINDOW_MS };
+    return {
+      label, value: formatInstant(at, 'time'), sub: relativeText(at, now), urgent: item.severity !== 'info' && remaining < URGENT_WINDOW_MS,
+    };
   }
   return { label, value: formatInstant(at, 'day'), sub: formatInstant(at, 'weekdayTime'), urgent: false };
 }
@@ -131,6 +134,51 @@ function DeadlineColumn({ item, now }) {
   );
 }
 
+// Two or more picks_open items (one per Pick'em league) read as one row: a
+// chip per league to its picks page, the earliest deadline and an action to
+// the earliest league. The row sits where the first of them did, which is
+// where the server ranks the earliest. A single picks_open item stays as is.
+function groupPicksOpen(items) {
+  const picks = items.filter((entry) => entry.type === 'picks_open');
+  if (picks.length < 2) return items;
+  const at = (entry) => (entry.deadlineAt ? new Date(entry.deadlineAt).getTime() : Infinity);
+  const earliest = picks.reduce((a, b) => (at(b) < at(a) ? b : a));
+  const grouped = {
+    id: 'picks_open:group',
+    type: 'picks_open',
+    severity: earliest.severity,
+    title: `Make picks in ${picks.length} leagues`,
+    deadlineAt: earliest.deadlineAt,
+    cta: earliest.cta,
+    chips: picks.map((entry) => ({
+      id: entry.id,
+      leagueName: entry.leagueName,
+      to: entry.cta?.to,
+      // The server's open count: a game that locked unpicked is not open.
+      open: entry.progress?.open ?? null,
+    })),
+  };
+  return items.flatMap((entry) => {
+    if (entry.type !== 'picks_open') return [entry];
+    return entry === picks[0] ? [grouped] : [];
+  });
+}
+
+const chipSx = {
+  ...MIN_TOUCH_TARGET_SX,
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 0.75,
+  px: 1.5,
+  borderRadius: 'var(--dash-radius-sm)',
+  border: HAIRLINE,
+  backgroundColor: 'var(--dash-surface2)',
+  color: 'var(--dash-ink)',
+  fontSize: '14px',
+  fontWeight: 500,
+  '&:hover': { borderColor: 'var(--dash-accent-line)' },
+};
+
 // How each item type names its progress (Contract A: picks_open carries
 // picks made, seats_open seats filled). Anything else reads as plain progress.
 const PROGRESS_COPY = {
@@ -160,7 +208,7 @@ function ItemProgress({ type, progress, showCount }) {
         sx={{ ...progressSx, width: { xs: 80, sm: 140 }, height: 6, borderRadius: 999 }}
       />
       {showCount && (
-        <Typography variant="body2" aria-hidden="true" sx={{ ...dimSx, fontSize: '13px' }}>
+        <Typography variant="body2" aria-hidden="true" sx={{ ...dimSx, fontSize: '12px' }}>
           {`${clamped} of ${total}${copy.suffix}`}
         </Typography>
       )}
@@ -196,15 +244,25 @@ const ActionItemRow = React.forwardRef(function ActionItemRow({ item, primary, n
               component="span"
               sx={{
                 px: 1, py: 0.25, borderRadius: '6px', border: HAIRLINE,
-                backgroundColor: 'var(--dash-surface2)', color: 'var(--dash-ink)', fontSize: '13px', fontWeight: 500,
+                backgroundColor: 'var(--dash-surface2)', color: 'var(--dash-ink)', fontSize: '12px', fontWeight: 500,
               }}
             >
               {item.leagueName}
             </Box>
           )}
-          {item.detail && <Typography variant="body2" sx={{ ...dimSx, fontSize: '13px' }}>{item.detail}</Typography>}
+          {item.detail && <Typography variant="body2" sx={{ ...dimSx, fontSize: '14px' }}>{item.detail}</Typography>}
           {item.progress && <ItemProgress type={item.type} progress={item.progress} showCount={!item.detail} />}
         </Stack>
+        {item.chips && (
+          <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+            {item.chips.map((chip) => (
+              <Link key={chip.id} component={RouterLink} to={chip.to} underline="none" sx={chipSx}>
+                {chip.leagueName}
+                {chip.open != null && <Box component="span" sx={{ ...dimSx, fontSize: '12px' }}>{` · ${chip.open} open`}</Box>}
+              </Link>
+            ))}
+          </Stack>
+        )}
       </Stack>
       {item.cta?.to && (
         <Button
@@ -382,9 +440,12 @@ function ActionQueue({ onLoaded, leagues = [], quietDraftLeagueId = null }) {
   }, [fetchItems]);
 
   const items = Array.isArray(data?.items) ? data.items : [];
-  const total = data?.counts?.total ?? items.length;
-  const visible = expanded ? items : items.slice(0, MAX_VISIBLE);
-  const hiddenCount = items.length - visible.length;
+  // The fallback leaves out info items, as the server's counts do.
+  const total = data?.counts?.total ?? items.filter((entry) => entry.severity !== 'info').length;
+  // Rows, not items: the grouped pick'em row stands for several.
+  const rows = groupPicksOpen(items);
+  const visible = expanded ? rows : rows.slice(0, MAX_VISIBLE);
+  const hiddenCount = rows.length - visible.length;
   const isQuietDraft = (entry) => quietDraftLeagueId != null
     && entry.type === 'draft_live' && String(entry.leagueId) === String(quietDraftLeagueId);
   const primaryEntry = visible.find((entry) => !isQuietDraft(entry));
@@ -421,7 +482,7 @@ function ActionQueue({ onLoaded, leagues = [], quietDraftLeagueId = null }) {
             // clear: both registered over a card.
             sx={{
               minWidth: 24, height: 24, px: 1, boxSizing: 'border-box', borderRadius: 999, display: 'grid', placeItems: 'center',
-              fontSize: '13px', fontWeight: 700, fontVariantNumeric: 'tabular-nums',
+              fontSize: '12px', fontWeight: 700, fontVariantNumeric: 'tabular-nums',
               color: total > 0 ? 'var(--dash-warning)' : 'var(--dash-accent)',
               backgroundColor: total > 0 ? 'var(--dash-warning-soft)' : 'var(--dash-accent-soft)',
             }}
@@ -431,7 +492,7 @@ function ActionQueue({ onLoaded, leagues = [], quietDraftLeagueId = null }) {
           </Box>
         )}
         {items.length > 0 && (
-          <Typography variant="body2" sx={{ ...dimSx, fontSize: '13px', ml: 'auto', textAlign: 'right' }}>
+          <Typography variant="body2" sx={{ ...dimSx, fontSize: '12px', ml: 'auto', textAlign: 'right' }}>
             {`Most urgent first · times in ${formatInstant(now, 'zone') || 'your time zone'}`}
           </Typography>
         )}
@@ -479,13 +540,13 @@ function ActionQueue({ onLoaded, leagues = [], quietDraftLeagueId = null }) {
           // and the focus ring, all registered over a stat tile.
           sx={{ mt: 'auto', px: { xs: 2, sm: 2.5 }, borderTop: HAIRLINE, backgroundColor: 'var(--dash-surface2)' }}
         >
-          <Typography variant="body2" sx={{ ...dimSx, fontSize: '13px' }}>{`${hiddenCount} more`}</Typography>
+          <Typography variant="body2" sx={{ ...dimSx, fontSize: '14px' }}>{`${hiddenCount} more`}</Typography>
           <Button
             aria-controls="action-queue-list"
             onClick={() => setExpanded(true)}
             sx={{ ...quietButtonSx, ...MIN_TOUCH_TARGET_SX, '&:hover': { ...quietButtonSx['&:hover'], backgroundColor: 'var(--dash-surface3)' } }}
           >
-            {`Show all ${items.length}`}
+            {`Show all ${rows.length}`}
           </Button>
         </Stack>
       )}

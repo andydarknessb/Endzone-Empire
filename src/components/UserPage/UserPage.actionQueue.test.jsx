@@ -355,6 +355,93 @@ test('a deadline under 24 hours reads relative, and under 2 hours it takes the w
   expect(within(queue).getByText(/Most urgent first · times in /)).toBeInTheDocument();
 });
 
+test('an info row is never warning-colored, however close its deadline is', async () => {
+  mockApi({
+    actionItems: actionItemsBody([
+      item({ id: 'w', type: 'waiver_claims', title: '2 waiver claims pending', severity: 'info', deadlineAt: inFromNow(30 * MINUTE) }),
+      item({ id: 'l', title: 'Fix lineup', deadlineAt: inFromNow(72 * MINUTE) }),
+    ]),
+  });
+  renderPage();
+
+  const queue = await findQueue();
+  const { palette } = createTheme();
+  expect(await within(queue).findByText('in 30m')).not.toHaveStyle({ color: palette.warning.main });
+  expect(within(queue).getByText('in 1h 12m')).toHaveStyle({ color: palette.warning.main });
+});
+
+describe("grouped pick'em rows", () => {
+  const picks = (id, leagueName, {
+    done, total, open = total - done, deadlineAt,
+  }) => item({
+    id: `picks_open:${id}:2026-4`,
+    type: 'picks_open',
+    leagueId: id,
+    leagueName,
+    title: `${open} picks still open`,
+    detail: null,
+    deadlineAt,
+    progress: { done, total, open },
+    cta: { label: 'Make picks', to: `/league/${id}/pickem` },
+  });
+
+  test('two or more become one row with a chip per league and an action to the earliest', async () => {
+    mockApi({
+      actionItems: actionItemsBody([
+        item({ id: 'l', title: 'Fix lineup', deadlineAt: inFromNow(HOUR) }),
+        // One of Office's 16 games locked unpicked: 10 made, 5 still open, not 6.
+        picks(4, "Office Pick'em", {
+          done: 10, total: 16, open: 5, deadlineAt: inFromNow(5 * HOUR),
+        }),
+        picks(5, "Family Pick'em", { done: 0, total: 14, deadlineAt: inFromNow(3 * HOUR) }),
+      ]),
+    });
+    renderPage();
+
+    const queue = await findQueue();
+    await within(queue).findByText('Make picks in 2 leagues');
+    expect(rowTitles(queue)).toEqual(['Fix lineup', 'Make picks in 2 leagues']);
+    const row = within(queue).getAllByRole('listitem')[1];
+    const office = within(row).getByRole('link', { name: "Office Pick'em · 5 open" });
+    expect(office).toHaveAttribute('href', '/league/4/pickem');
+    expect(within(row).getByRole('link', { name: /Family Pick'em/ })).toHaveAttribute('href', '/league/5/pickem');
+    expect(office).toHaveStyle({ minHeight: '44px' });
+    // The deadline is the earliest, and the action goes to that league.
+    expect(within(row).getByText('in 3h 00m')).toBeInTheDocument();
+    expect(within(row).getByRole('link', { name: 'Make picks' })).toHaveAttribute('href', '/league/5/pickem');
+  });
+
+  test('a single picks row renders as before, with no chips', async () => {
+    mockApi({
+      actionItems: actionItemsBody([picks(4, "Office Pick'em", { done: 9, total: 15, deadlineAt: null })]),
+    });
+    renderPage();
+
+    const queue = await findQueue();
+    await within(queue).findByText('6 picks still open');
+    expect(within(queue).queryByText(/Make picks in/)).not.toBeInTheDocument();
+    expect(within(queue).queryByRole('link', { name: /Office Pick'em .*open/ })).not.toBeInTheDocument();
+  });
+
+  test('Show all counts rendered rows, not items', async () => {
+    mockApi({
+      actionItems: actionItemsBody([
+        picks(4, 'A', { done: 0, total: 2, deadlineAt: null }),
+        picks(5, 'B', { done: 0, total: 2, deadlineAt: null }),
+        picks(6, 'C', { done: 0, total: 2, deadlineAt: null }),
+        ...Array.from({ length: 4 }, (_, i) => item({ id: `i${i}`, title: `Item ${i + 1}` })),
+      ]),
+    });
+    renderPage();
+
+    const queue = await findQueue();
+    await within(queue).findByText('Make picks in 3 leagues');
+    expect(rowTitles(queue)).toHaveLength(4);
+    expect(within(queue).getByText('1 more')).toBeInTheDocument();
+    expect(within(queue).getByRole('button', { name: 'Show all 5' })).toBeInTheDocument();
+  });
+});
+
 // CONTEXT.md, Clear time: claims resolve at each player's Clear time, never in
 // a "waiver run", so the deadline column says when the claims clear.
 test('a waiver claims deadline is labelled by its Clear time, not a waiver run', async () => {
@@ -427,6 +514,51 @@ test('a league whose draft is in progress shows the Draft live card with a Join 
   expect(within(card).getByText('Night League')).toBeInTheDocument();
   expect(within(card).getByRole('link', { name: 'Join draft' })).toHaveAttribute('href', '/league/6/draft');
   expect(screen.queryByRole('heading', { level: 2, name: 'Next draft' })).not.toBeInTheDocument();
+});
+
+// The Grid item around a region, and the `order` its emotion class declares at
+// xs (jsdom does not evaluate media queries, so read the declared CSS).
+// eslint-disable-next-line testing-library/no-node-access
+const gridItem = (region) => region.closest('.MuiGrid2-root');
+const declaredStyle = (element) => {
+  const classes = Array.from(element.classList).filter((c) => c.startsWith('css-'));
+  return Array.from(document.styleSheets)
+    .flatMap((sheet) => Array.from(sheet.cssRules))
+    .flatMap((rule) => (rule.cssRules ? Array.from(rule.cssRules) : [rule]))
+    .filter((rule) => classes.some((cls) => rule.selectorText === `.${cls}`))
+    .map((rule) => rule.style.cssText)
+    .join(';');
+};
+
+test('on draft night (live or late) the draft card leads the to-do list on a phone and sits right of it at lg', async () => {
+  mockApi({ leagues: [league({ id: 6, name: 'Night League', draft_status: 'active', draft_date: inFromNow(-HOUR) })] });
+  renderPage();
+
+  const card = gridItem(await screen.findByRole('region', { name: 'Draft live' }));
+  const queue = gridItem(await findQueue());
+  expect(card.compareDocumentPosition(queue) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(declaredStyle(card)).toMatch(/order: 0/);
+  expect(declaredStyle(card)).toMatch(/order: 2/);
+  expect(declaredStyle(queue)).toMatch(/order: 1/);
+});
+
+test('a late draft leads on a phone too', async () => {
+  mockApi({ leagues: [league({ id: 5, name: 'Late League', draft_date: inFromNow(-2 * HOUR) })] });
+  renderPage();
+
+  const card = gridItem(await screen.findByRole('region', { name: 'Draft starting soon' }));
+  expect(card.compareDocumentPosition(gridItem(await findQueue())) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+});
+
+test('a scheduled draft keeps the to-do list first and sets no order', async () => {
+  mockApi({ leagues: [league({ id: 2, name: 'Dynasty Startup', draft_date: inFromNow(6 * 24 * HOUR) })] });
+  renderPage();
+
+  const card = gridItem(await screen.findByRole('region', { name: 'Next draft' }));
+  const queue = gridItem(await findQueue());
+  expect(queue.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(declaredStyle(card)).not.toMatch(/order:/);
+  expect(declaredStyle(queue)).not.toMatch(/order:/);
 });
 
 test('a pre-draft league 2 hours past its draft date shows Draft starting soon', async () => {

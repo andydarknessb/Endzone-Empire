@@ -57,18 +57,6 @@ export const panelTitleSx = {
   color: 'var(--dash-ink)',
 };
 
-/** The page's section headings (My leagues, Around the League). */
-export const sectionTitleSx = {
-  m: 0,
-  fontFamily: DISPLAY_FONT,
-  fontSize: { xs: '26px', md: '30px' },
-  fontWeight: 700,
-  lineHeight: 1.1,
-  letterSpacing: '0.02em',
-  textTransform: 'uppercase',
-  color: 'var(--dash-ink)',
-};
-
 /** Scores and big counts: the display face with tabular numerals. */
 export const scoreSx = {
   fontFamily: DISPLAY_FONT,

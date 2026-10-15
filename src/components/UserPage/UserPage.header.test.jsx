@@ -90,7 +90,6 @@ const mockApi = ({ leagues = [fantasyLeague(1, 'Default League')], actionItems =
     if (url === '/api/league') return Promise.resolve({ data: leagues });
     if (url === '/api/notifications') return Promise.resolve({ data: { notifications: [], unread: 0 } });
     if (url === '/api/public/rankings') return Promise.resolve({ data: { rankings: [] } });
-    if (url === '/api/public/recaps') return Promise.resolve({ data: { recaps: [] } });
     return Promise.resolve({ data: [] });
   });
 };
@@ -106,15 +105,6 @@ const statTiles = () => {
   const terms = within(strip).getAllByRole('term').map((el) => el.textContent);
   const values = within(strip).getAllByRole('definition').map((el) => el.textContent);
   return terms.map((term, i) => [term, values[i]]);
-};
-
-const declaredStyle = (element) => {
-  const classes = Array.from(element.classList).filter((c) => c.startsWith('css-'));
-  return Array.from(document.styleSheets)
-    .flatMap((sheet) => Array.from(sheet.cssRules))
-    .filter((rule) => classes.some((cls) => rule.selectorText === `.${cls}`))
-    .map((rule) => rule.style.cssText)
-    .join(';');
 };
 
 const timeFormat = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit' });
@@ -189,6 +179,22 @@ test('the summary line names a blocking item over an earlier info item', async (
     .toBeInTheDocument();
 });
 
+test('without server counts the summary line leaves info items out of the total', async () => {
+  mockApi({
+    actionItems: {
+      generatedAt: new Date().toISOString(),
+      partial: [],
+      items: [
+        item({ id: 'a', type: 'trade_offer', severity: 'untimed' }),
+        item({ id: 'b', type: 'waiver_claims', severity: 'info' }),
+      ],
+    },
+  });
+  renderPage();
+
+  expect(await screen.findByText('1 thing needs you.')).toBeInTheDocument();
+});
+
 test('an empty to-do list makes the summary line "You\'re all caught up."', async () => {
   mockApi({ actionItems: actionItemsBody([]) });
   renderPage();
@@ -231,7 +237,7 @@ test('the summary line does not claim all caught up when some item types could n
 
 // --- Stat strip ------------------------------------------------------------
 
-test('the stat strip is a description list: league count, summed fantasy record and best standing', async () => {
+test('the stat strip is a description list: league count and best standing, no summed record', async () => {
   mockApi({
     leagues: [
       fantasyLeague(71, 'Winsconsota', { record: { wins: 3, losses: 1, ties: 0 }, standing: { rank: 4, of: 10 } }),
@@ -244,22 +250,8 @@ test('the stat strip is a description list: league count, summed fantasy record 
   expect(screen.getByTestId('greeting-stats').tagName).toBe('DL');
   expect(statTiles()).toEqual([
     ['Leagues', '2'],
-    ['Fantasy record', '5-1-1'],
     ['Best standing', '2nd of 12'],
   ]);
-});
-
-test('a fantasy record with no ties reads wins-losses with a hyphen', async () => {
-  mockApi({
-    leagues: [
-      fantasyLeague(71, 'Winsconsota', { record: { wins: 3, losses: 1, ties: 0 } }),
-      fantasyLeague(72, 'MinneApple', { record: { wins: 2, losses: 0, ties: 0 } }),
-    ],
-  });
-  renderPage();
-
-  await screen.findByRole('article', { name: 'Winsconsota' });
-  expect(statTiles()).toContainEqual(['Fantasy record', '5-1']);
 });
 
 test('the stat strip leaves out a tile it has no data for', async () => {
@@ -326,14 +318,4 @@ test('the header buttons and the leagues heading are in sentence case', async ()
   expect(header().getByRole('button', { name: 'Create league' })).toBeInTheDocument();
   expect(header().getByRole('button', { name: 'Join league' })).toBeInTheDocument();
   expect(screen.getByRole('heading', { level: 2, name: 'My leagues' })).toBeInTheDocument();
-});
-
-test('the Around the League quick links clear the 44px touch target floor', async () => {
-  mockApi();
-  renderPage();
-
-  const section = await screen.findByRole('region', { name: 'Around the League' });
-  ['Rankings', 'Waiver Wire', 'Strategy', 'Recaps'].forEach((name) => {
-    expect(declaredStyle(within(section).getByRole('link', { name }))).toMatch(/min-height: 44px/);
-  });
 });
