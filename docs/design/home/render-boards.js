@@ -32,6 +32,8 @@ function tokens(src, light) {
       await page.waitForTimeout(600);
       const overflow = await page.evaluate(() => ({ sw: document.documentElement.scrollWidth, sh: document.documentElement.scrollHeight }));
       await page.screenshot({ path: path.join(outDir, name + '.png'), fullPage: true });
+      // Local canvas tooling: the board name comes from canvas.json in this folder.
+      // nosemgrep: javascript.lang.security.audit.unsafe-formatstring.unsafe-formatstring
       console.log(name, `board ${b.w}x${b.h}`, `content ${overflow.sw}x${overflow.sh}`, overflow.sw > b.w ? 'H-OVERFLOW' : '', overflow.sh > b.h ? 'TALLER-THAN-BOARD' : '');
       await page.close();
     }

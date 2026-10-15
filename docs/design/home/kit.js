@@ -245,6 +245,8 @@ class Component extends DCLogic {
 // Design notes for engineers: small, last, outside the product content.
 const notes = lines => `<aside aria-label="Design notes" style="display: flex; flex-direction: column; gap: 4px; padding-top: 16px; border-top: 2px dashed {{t.rule}}; font-size: 13px; color: {{t.dim}}">${lines.map(l => `<span>${l}</span>`).join('')}</aside>`;
 
+// Local canvas tooling: dir and file come from the board scripts, never from user input.
+// nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal
 const write = (dir, file, html) => fs.writeFileSync(path.join(dir, file), html);
 
 module.exports = { picto, pickemTile, boardLinks, scoreTile, PX, BODY, TOKENS, SR, px, h1, h2, meta, arrow, clock, warn, picto, FRAME, frameHead, badge, btnFill, btnGhost, btnQuiet, link, leagueLinks, liveChip, playCard, oddsBar, sides, leaguePanel, leagueRow, errorPanel, emptyPlays, skel, help, page, notes, write, esc };
