@@ -14,7 +14,7 @@ import {
 
 /**
  * One league on /user, told through its status block (GET /api/league?include=status,
- * Contract B), in the Home Play-select face (DESIGN.md "Home surface"). Five
+ * Contract B), in the Home Play-select face (DESIGN.md "Play-select"). Five
  * faces, chosen by which keys the server put on `status` (absent means not
  * applicable, never zero):
  *

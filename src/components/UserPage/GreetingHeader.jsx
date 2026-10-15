@@ -4,7 +4,7 @@ import { formatInstant } from '../../shared/lib/instantFormat';
 import { LiveChip, PixelHeading } from './home';
 
 /**
- * The greeting header (DESIGN.md "Home surface: Play-select"): the page's h1,
+ * The greeting header (DESIGN.md "Play-select: Home and league pages"): the page's h1,
  * one status line in Archivo, the live chip beside it, and (on a desktop) the
  * Join and Create buttons at the top right. None of it fetches: the page hands
  * down what it and ActionQueue already hold.

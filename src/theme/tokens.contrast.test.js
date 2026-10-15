@@ -520,7 +520,7 @@ const PAIRINGS = [
   pairing('dash-field', 'dash-surface', AA_LARGE, 'input edge in the Create and Join dialogs'),
   pairing('dash-field', 'dash-surface2', AA_LARGE, 'input edge on a filled field and the Teams stepper'),
 
-  // ---- Home Play-select (DESIGN.md "Home surface: Play-select"). Home paints
+  // ---- Home Play-select (DESIGN.md "Play-select: Home and league pages"). Home paints
   // only from the `home-*` group; the pairings below are the ones it puts on
   // screen, in both modes. Text tiers sit on the page (`home-field`) and in
   // frames (`home-panel`); play-card text sits on the fixed Play blue and its

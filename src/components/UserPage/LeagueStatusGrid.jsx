@@ -6,7 +6,7 @@ import {
   ErrorPanel, Frame, NumbersHelp, PixelHeading, Skel,
 } from './home';
 
-// The My leagues section of Home (DESIGN.md "Home surface: Play-select"): the
+// The My leagues section of Home (DESIGN.md "Play-select: Home and league pages"): the
 // whole section, heading to grid. Before kickoff each league is a panel; on
 // game day (`live`) the live ones are scoreboard tiles, first, and the rest
 // still panels after them. The old filter chips and the six-league "Show all"

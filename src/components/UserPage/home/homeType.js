@@ -1,4 +1,4 @@
-// Home's two faces (DESIGN.md "Home surface: Play-select"): Press Start 2P for
+// Home's two faces (DESIGN.md "Play-select: Home and league pages"): Press Start 2P for
 // headings, scores, card names and lock times; Archivo for everything read as a
 // sentence. Press Start 2P is self-hosted in src/theme/base.css.
 export const PIXEL_FONT = "'Press Start 2P', ui-monospace, monospace";
