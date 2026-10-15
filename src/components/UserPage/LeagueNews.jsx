@@ -2,9 +2,7 @@ import React from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import { Box } from '@mui/material';
 import { formatInstant } from '../../shared/lib/instantFormat';
-import {
-  ErrorPanel, Frame, FrameHead, PixelHeading, Skel,
-} from './home';
+import { ErrorPanel, Frame, FrameHead, PixelHeading, Skel } from '../../shared/ui/playselect';
 
 const rowSx = {
   display: 'block', padding: '12px 0', color: 'inherit', textDecoration: 'none',
@@ -35,7 +33,7 @@ export default function LeagueNews({
           const inner = (
             <>
               <Box sx={{ fontWeight: 600 }}>{item.message}</Box>
-              <Box sx={{ fontSize: '14px', color: 'var(--home-dim)' }}>
+              <Box sx={{ fontSize: '14px', color: 'var(--ps-dim)' }}>
                 {[item.league_name, formatInstant(item.created_at, 'day')].filter(Boolean).join(' · ')}
               </Box>
             </>
@@ -44,7 +42,7 @@ export default function LeagueNews({
             <Box
               component="li"
               key={item.id}
-              sx={{ borderBottom: i === items.length - 1 ? 0 : '2px solid var(--home-rule)' }}
+              sx={{ borderBottom: i === items.length - 1 ? 0 : '2px solid var(--ps-rule)' }}
             >
               {item.league_id
                 ? <Box component={RouterLink} to={`/league/${item.league_id}`} sx={rowSx}>{inner}</Box>

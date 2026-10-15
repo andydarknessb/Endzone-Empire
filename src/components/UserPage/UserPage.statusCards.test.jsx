@@ -160,7 +160,7 @@ describe('before kickoff', () => {
     expect(bar.children).toHaveLength(20);
     const filled = container.querySelectorAll('[data-on="true"]');
     expect(filled.length).toBeGreaterThan(0);
-    expect(declaredStyle(filled[0])).toContain('var(--home-frame)');
+    expect(declaredStyle(filled[0])).toContain('var(--ps-frame)');
     expect(declaredStyle(filled[0])).not.toContain('accent');
     expect(declaredStyle(filled[0])).not.toContain('live');
   });
@@ -248,8 +248,8 @@ describe('final', () => {
     expect(within(panel).getByText('Final · You won')).toBeInTheDocument();
     expect(within(panel).getByTestId('trophy')).toBeInTheDocument();
     expect(within(panel).getByText('Final: you 112.6, Gridiron Ghosts 97.0. You won. Now 5-1, 2nd of 10.')).toBeInTheDocument();
-    expect(declaredStyle(within(panel).getByText('112.6'))).toContain('var(--home-ink)');
-    expect(declaredStyle(within(panel).getByText('97.0'))).toContain('var(--home-dim)');
+    expect(declaredStyle(within(panel).getByText('112.6'))).toContain('var(--ps-ink)');
+    expect(declaredStyle(within(panel).getByText('97.0'))).toContain('var(--ps-dim)');
     expect(screen.queryByRole('img', { name: /win probability/ })).toBeNull();
     expect(linkNames(within(panel).getByRole('navigation'))).toEqual(['Matchup', 'Lineup', 'Waivers']);
   });
@@ -259,8 +259,8 @@ describe('final', () => {
     const panel = panelFor('Thursday Night Regulars');
     expect(within(panel).getByText('Final · You lost')).toBeInTheDocument();
     expect(within(panel).queryByTestId('trophy')).toBeNull();
-    expect(declaredStyle(within(panel).getByText('88.3'))).toContain('var(--home-dim)');
-    expect(declaredStyle(within(panel).getByText('104.6'))).toContain('var(--home-ink)');
+    expect(declaredStyle(within(panel).getByText('88.3'))).toContain('var(--ps-dim)');
+    expect(declaredStyle(within(panel).getByText('104.6'))).toContain('var(--ps-ink)');
   });
 });
 

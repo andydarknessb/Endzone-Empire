@@ -8,9 +8,8 @@ import { deriveLeaguePhase, LEAGUE_PHASE, LEAGUE_PHASE_META } from '../../shared
 // and the index drags the hooks, the supabase client and their lazy routes in.
 import { matchupBoard } from '../../entities/matchup/model/matchupBoard';
 import { teamStandingFromRow } from '../../entities/standings';
-import {
-  HomeButton, HomeLink, LeagueLinks, LeaguePanel, OddsBar, PickemTile, Pictogram, ScoreTile, SR_ONLY_SX, pixelSx,
-} from '../UserPage/home';
+import { PsButton, PsLink, OddsBar, Pictogram, SR_ONLY_SX, pixelSx } from '../../shared/ui/playselect';
+import { LeagueLinks, LeaguePanel, PickemTile, ScoreTile } from '../UserPage/home';
 
 /**
  * One league on /user, told through its status block (GET /api/league?include=status,
@@ -133,7 +132,7 @@ export function scoreSignature(league) {
 }
 
 const lineSx = { fontSize: '15px', fontWeight: 600 };
-const dimLineSx = { fontSize: '14px', color: 'var(--home-dim)' };
+const dimLineSx = { fontSize: '14px', color: 'var(--ps-dim)' };
 
 function StatusLine({ league, sub }) {
   const { status } = league;
@@ -148,7 +147,7 @@ function StatusLine({ league, sub }) {
 }
 
 function PanelSides({
-  you, opp, mid, youColor = 'var(--home-ink)', oppColor = 'var(--home-ink)',
+  you, opp, mid, youColor = 'var(--ps-ink)', oppColor = 'var(--ps-ink)',
 }) {
   const fig = (value, color) => (
     <Box sx={{
@@ -167,7 +166,7 @@ function PanelSides({
         <Box sx={dimLineSx}>You</Box>
         {fig(you, youColor)}
       </Box>
-      <Box sx={{ fontSize: '13px', color: 'var(--home-dim)', pb: '4px' }}>{mid}</Box>
+      <Box sx={{ fontSize: '13px', color: 'var(--ps-dim)', pb: '4px' }}>{mid}</Box>
       <Box sx={{ minWidth: 0, textAlign: 'right' }}>
         <Box sx={{ ...dimLineSx, overflowWrap: 'anywhere' }}>{opp.name}</Box>
         {fig(opp.score, oppColor)}
@@ -188,11 +187,11 @@ function PanelNav({ league, links }) {
       component="nav"
       aria-label={league.name}
       sx={{
-        marginTop: 'auto', display: 'flex', flexWrap: 'wrap', padding: '4px 6px', borderTop: '2px solid var(--home-rule)',
+        marginTop: 'auto', display: 'flex', flexWrap: 'wrap', padding: '4px 6px', borderTop: '2px solid var(--ps-rule)',
       }}
     >
       {links.map((l) => (
-        <HomeLink key={l.label} to={l.to} ariaLabel={`${league.name} ${l.label.toLowerCase()}`}>{l.label}</HomeLink>
+        <PsLink key={l.label} to={l.to} ariaLabel={`${league.name} ${l.label.toLowerCase()}`}>{l.label}</PsLink>
       ))}
     </Box>
   );
@@ -222,7 +221,7 @@ function FinalBody({ league }) {
     `Final: you ${you}, ${opp.name} ${opp.score}.`, result && `${RESULT_WORDS[result]}.`, now,
   ].filter(Boolean).join(' ');
   // Ink for a win or a loss: green is the one filled action and live state, and a loss is not an error.
-  const ink = 'var(--home-ink)';
+  const ink = 'var(--ps-ink)';
   return (
     <>
       <Box sx={{
@@ -249,8 +248,8 @@ function FinalBody({ league }) {
           you={you}
           opp={opp}
           mid="Final"
-          youColor={result === 'lost' ? 'var(--home-dim)' : ink}
-          oppColor={result === 'won' ? 'var(--home-dim)' : ink}
+          youColor={result === 'lost' ? 'var(--ps-dim)' : ink}
+          oppColor={result === 'won' ? 'var(--ps-dim)' : ink}
         />
       </Box>
       {now && <Box sx={{ fontSize: '15px' }}>{now}</Box>}
@@ -331,7 +330,7 @@ function PickemBody({ league }) {
         }}
         >
           <Box component="span" sx={{ ...pixelSx(24), lineHeight: 1.2 }}>{ordinal(status.standing.rank)}</Box>
-          <Box component="span" sx={{ fontSize: '15px', color: 'var(--home-dim)' }}>{`of ${status.standing.of}`}</Box>
+          <Box component="span" sx={{ fontSize: '15px', color: 'var(--ps-dim)' }}>{`of ${status.standing.of}`}</Box>
         </Box>
       )}
       <PicksLine pickem={status.pickem} week={status.week} />
@@ -356,7 +355,7 @@ function InviteCode({ code }) {
     >
       <Box component="span" sx={dimLineSx}>Invite code</Box>
       <Box component="code" sx={{ fontFamily: 'monospace', fontSize: '15px', fontWeight: 600, letterSpacing: '0.06em' }}>{code}</Box>
-      <HomeButton variant="quiet" onClick={copy} ariaLabel={`Copy invite code ${code}`}>Copy</HomeButton>
+      <PsButton variant="quiet" onClick={copy} ariaLabel={`Copy invite code ${code}`}>Copy</PsButton>
     </Box>
   );
 }
@@ -433,7 +432,7 @@ function ScoreTileFor({ league, scored }) {
       to={`/league/${league.id}/matchups/${matchup.id}`}
       ariaLabel={`${league.name} matchup: ${verb} ${opponent} ${board.home.scoreLabel} to ${board.away.scoreLabel}, ${margin.toLowerCase()}, ${pct}% win probability.${left}`}
       links={leagueLinks(league).filter((l) => l.label !== 'Matchup')}
-      extra={pickem && <Box sx={{ fontSize: '14px', color: 'var(--home-board-dim)' }}>{pickem}</Box>}
+      extra={pickem && <Box sx={{ fontSize: '14px', color: 'var(--ps-board-dim)' }}>{pickem}</Box>}
       scored={scored}
     />
   );

@@ -72,7 +72,7 @@ export const PICTO = {
   join: O(12, 24) + H(20, 54, 23) + headR(54, 24) + H(66, 92, 8) + H(66, 92, 38) + V(66, 8, 40) + V(90, 8, 40),
 };
 
-/** One pictogram per play kind, white (`home-play-ink`) on whatever band it sits in. `width` is px or a CSS length. */
+/** One pictogram per play kind, white (`ps-play-ink`) on whatever band it sits in. `width` is px or a CSS length. */
 export function Pictogram({ kind, width = 96 }) {
   const d = PICTO[kind];
   if (!d) return null;
@@ -83,7 +83,7 @@ export function Pictogram({ kind, width = 96 }) {
       viewBox="0 0 96 48"
       aria-hidden="true"
       shapeRendering="crispEdges"
-      style={{ display: 'block', color: 'var(--home-play-ink)' }}
+      style={{ display: 'block', color: 'var(--ps-play-ink)' }}
     >
       <path d={d} fill="currentColor" />
     </svg>

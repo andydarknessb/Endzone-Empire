@@ -3,7 +3,7 @@ import PropTypes from 'prop-types';
 import { deriveLeaguePhase, LEAGUE_PHASE } from '../../shared/lib/leaguePhase';
 import { formatInstant } from '../../shared/lib/instantFormat';
 import { timeUntilWords } from '../../shared/lib/timeUntil';
-import { PlayCard } from './home';
+import { PlayCard } from '../../shared/ui/playselect';
 
 // The featured draft as a Play-select play card (DESIGN.md "Play card", kind
 // draft). A draft has no lock, so it leads the page only when no timed play

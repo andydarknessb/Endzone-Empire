@@ -610,10 +610,10 @@
         }
       },
       "frame": {
-        "border": "6px double home-frame",
+        "border": "6px double ps-frame",
         "radius": "0",
         "shadow": "none",
-        "divider": "2px solid home-rule"
+        "divider": "2px solid ps-rule"
       },
       "playCard": {
         "fieldBand": "play-field fill, 2px dashed play-dim top and bottom, 96x48 pixel pictogram on a 2px grid",
