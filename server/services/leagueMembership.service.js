@@ -55,6 +55,58 @@ class MembershipError extends Error {
 const NOT_A_MEMBER = 'not a member of this league';
 const ALREADY_A_MEMBER = 'already has a team in this league';
 const LEAGUE_FULL = 'league is full';
+const BANNED = 'you have been banned from this league';
+
+const crypto = require('crypto');
+
+const GMAIL_DOMAINS = new Set(['gmail.com', 'googlemail.com']);
+
+/**
+ * Pure: the form of an email a ban is matched on, so one inbox cannot rejoin
+ * under a trivial variant. Lowercased and trimmed; a `+tag` is dropped from the
+ * local part on every provider; for Gmail the dots are dropped too and
+ * googlemail.com folds into gmail.com. Null for anything without an `@`.
+ */
+function emailBanKey(email) {
+  const value = String(email || '').trim().toLowerCase();
+  const at = value.lastIndexOf('@');
+  if (at <= 0 || at === value.length - 1) return null;
+  let local = value.slice(0, at).split('+')[0];
+  let domain = value.slice(at + 1);
+  if (GMAIL_DOMAINS.has(domain)) {
+    local = local.replace(/\./g, '');
+    domain = 'gmail.com';
+  }
+  return local ? `${local}@${domain}` : null;
+}
+
+/**
+ * Pure: what a ban stores and matches, the SHA-256 of emailBanKey. A ban keeps
+ * a hash, never the address, so it can outlive an account's deletion without
+ * retaining the email. Null when the email has no key.
+ */
+function emailBanHash(email) {
+  const key = emailBanKey(email);
+  return key ? crypto.createHash('sha256').update(key).digest('hex') : null;
+}
+
+/**
+ * Accepts a pool or a checked-out client. True when the commissioner banned
+ * this account from the league, or banned an account whose email has the same
+ * ban key (a re-signup after deletion, or a +tag / Gmail-dot alias).
+ */
+async function isBanned(db, leagueId, userId) {
+  if (!leagueId || !userId) return false;
+  const result = await db.query(
+    `SELECT "league_bans"."user_id", "league_bans"."email_hash", "users"."email" AS "joiner_email"
+     FROM "league_bans" JOIN "users" ON "users"."id" = $2
+     WHERE "league_bans"."league_id" = $1`,
+    [leagueId, userId]
+  );
+  if (result.rows.length === 0) return false;
+  const joinerHash = emailBanHash(result.rows[0].joiner_email);
+  return result.rows.some((ban) => ban.user_id === userId || (ban.email_hash != null && ban.email_hash === joinerHash));
+}
 
 /** Accepts a pool or a checked-out client. True when the user holds a Team in the league. */
 async function isMember(db, leagueId, userId) {
@@ -84,7 +136,8 @@ async function requireMember(db, { leagueId, userId, forUpdate = false }) {
 /**
  * Admission: may `userId` join `league` right now? Admission presupposes a
  * joinable league, so that is asked first (League phase owns the answer; a
- * refusal carries its `reason`), then already-a-member, then full. Throws
+ * refusal carries its `reason`), then banned (a 403: a commissioner's Remove &
+ * ban, league_bans), then already-a-member, then full. Throws
  * the 409 refusal, or returns `{ teamCount }` so the caller need not count
  * again. `league` is the row the caller already holds FOR UPDATE; `client`
  * is the same transaction, so the reads see what the lock protects.
@@ -94,6 +147,7 @@ async function assertAdmissible(client, league, userId) {
   if (!answer.joinable) {
     throw new MembershipError(409, joinRefusalMessage(answer.reason), { reason: answer.reason });
   }
+  if (await isBanned(client, league.id, userId)) throw new MembershipError(403, BANNED);
   if (await isMember(client, league.id, userId)) throw new MembershipError(409, ALREADY_A_MEMBER);
   const countResult = await client.query(
     `SELECT COUNT(*)::int AS n FROM "teams" WHERE "league_id" = $1`,
@@ -142,6 +196,9 @@ async function joinLeague(client, { leagueId, userId, teamName }) {
 module.exports = {
   MembershipError,
   isMember,
+  isBanned,
+  emailBanKey,
+  emailBanHash,
   requireMember,
   assertAdmissible,
   joinLeague,

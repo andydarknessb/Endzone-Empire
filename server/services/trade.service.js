@@ -141,6 +141,10 @@ async function proposeTradeWith(client, { leagueId, userId, receivingTeamId, pla
   );
   if (!otherResult.rows[0]) throw new TradeError(404, 'receiving team not found in this league');
   const otherTeam = otherResult.rows[0];
+  // A CPU-managed team (its manager was banned) has nobody to answer an offer.
+  if (otherTeam.owner_id == null) {
+    throw new TradeError(409, "that team is managed by the CPU and doesn't trade");
+  }
 
   const rosterResult = await client.query(
     `SELECT "player_id", "team_id" FROM "team_players"

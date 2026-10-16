@@ -3,6 +3,7 @@ const { processAllDueWaivers, holdKickedOffPlayers } = require('../services/waiv
 const { processDueTrades } = require('../services/trade.service');
 const { startSitAdvice } = require('../services/decision.service');
 const { captureOverrides } = require('../services/lineupOverride.service');
+const { setCpuLineups } = require('../services/cpuLineup.service');
 const { processExpiredPickClocks, cancelAllExpiryTimers } = require('../services/pickClock.service');
 const draftSweepLiveness = require('./draftSweepLiveness');
 const { processScheduledDrafts } = require('../services/draftSchedule.service');
@@ -1178,6 +1179,11 @@ const TICK_JOBS = [
   // Paced by tick count, not by a Sync run row: a count that resets only after a
   // sync that happened, so the first tick of a new game window syncs at once.
   { name: 'live-sync', tier: 'deadline', syncRun: ['week-stats'], gate: everyTicks(syncEveryTicks), run: () => syncAndScoreLiveWeeks() },
+  // CPU manager: sets the lineup of every CPU-managed team (a banned manager's
+  // team after the draft). Before live-sync's neighbour override-capture so a
+  // lineup is in place ahead of the kickoff it is captured at; cheap when no
+  // CPU team exists (one query), and it logs per team.
+  { name: 'cpu-lineups', tier: 'deadline', gate: none(), run: () => setCpuLineups() },
   // Override capture (#1862, ADR 0054): each kickoff once, the advice as of a
   // minute before it. After every time-sensitive duty above, since it asks for
   // advice per team and its run time must never delay them; it logs per league.

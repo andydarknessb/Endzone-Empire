@@ -2296,6 +2296,7 @@ test('the real tick list is the pre-#2049 tickUnlocked order, deadline then hous
     'trades',
     'scheduled-drafts',
     'live-sync',
+    'cpu-lineups',
     'override-capture',
     'espn-schedule',
     'stale-kickoff-alert',
