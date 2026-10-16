@@ -43,6 +43,7 @@ import { wireSortName } from "../../../components/DraftBoard/sortFields";
 import { SegmentedControl } from "../../../shared/ui";
 import { parseRosterSlots, chipsForRosterSlots } from "../../../shared/lib";
 import { SORT_OPTIONS, DEFAULT_SORT_KEY, sortKeyFromParam } from "../model/sortKeys";
+import PlayerPoolPlayselect from "./PlayerPoolPlayselect";
 
 // Order matches the segmented control's own left-to-right order (#1310,
 // Players.dc.html): All, Free agents, On waivers, Rostered, My team.
@@ -114,6 +115,9 @@ const actionSx = {
  *
  * `availabilityLock`: when set, every read sends that Availability and no
  * Availability control renders; the `availability` URL param is ignored.
+ *
+ * `look`: `"dash"` (default: the Players page) or `"playselect"` (ADR 0067 wave 3, the Waivers
+ * page): the same reads, params and callbacks drawn on `ps-*` tokens by `PlayerPoolPlayselect`.
  */
 const PlayerPool = forwardRef(function PlayerPool(
   {
@@ -132,6 +136,7 @@ const PlayerPool = forwardRef(function PlayerPool(
     stickyHead = false,
     cardsBelow = "md",
     emptyCopy: emptyCopyOverride,
+    look = "dash",
   },
   ref,
 ) {
@@ -296,6 +301,50 @@ const PlayerPool = forwardRef(function PlayerPool(
     : search
     ? `No players matching “${search}”`
     : "No players found";
+
+  if (look === "playselect") {
+    return (
+      <PlayerPoolPlayselect
+        isMobile={isMobile}
+        cardLayout={cardLayout}
+        filtersOpen={filtersOpen}
+        setFiltersOpen={setFiltersOpen}
+        searchInput={searchInput}
+        setSearchInput={setSearchInput}
+        chips={chips}
+        positionKey={selectedChip.key}
+        onPosition={(value) => updateParams({ pos: value === "All" ? "" : value, page: 1 })}
+        byeWeekFilter={byeWeekFilter}
+        byeWeek={byeWeek}
+        onBye={(value) => updateParams({ bye: value, page: 1 })}
+        sort={sort}
+        sortOptions={sortOptions}
+        onSort={(value) => updateParams({ sort: value === contextualDefaultSort ? "" : value, page: 1 })}
+        dir={dir}
+        onDir={() => updateParams({ dir: dir === "asc" ? "desc" : "", page: 1 })}
+        watchingOnly={watchingOnly}
+        onWatching={(checked) => updateParams({ watching: checked || "" })}
+        availabilityLock={availabilityLock}
+        availabilityFilter={availabilityFilter}
+        availabilityOptions={AVAILABILITY_FILTERS}
+        onAvailability={(value) => updateParams({ availability: value, page: 1 })}
+        leadingControl={leadingControl}
+        afterAvailabilityControl={afterAvailabilityControl}
+        visiblePlayers={visiblePlayers}
+        renderRow={renderRow}
+        renderTableHead={renderTableHead}
+        columnCount={columnCount}
+        bestBall={bestBall}
+        currentWeek={currentWeek}
+        emptyCopy={emptyCopy}
+        totalPages={totalPages}
+        pageNumber={pageNumber}
+        onPage={(value) => updateParams({ page: value })}
+        totalPlayers={totalPlayers}
+        search={search}
+      />
+    );
+  }
 
   // The search field: its own line above the Filters button on a phone, the
   // first (growing, capped) item of filter row 1 from `md`.
