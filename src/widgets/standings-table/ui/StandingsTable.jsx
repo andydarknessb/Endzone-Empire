@@ -1,7 +1,7 @@
 import React from 'react';
 import { Box, Typography } from '@mui/material';
 import { visuallyHidden } from '@mui/utils';
-import { Card, Badge, Skeleton, TeamAvatar } from '../../../shared/ui';
+import { Card, Badge, CpuBadge, Skeleton, TeamAvatar } from '../../../shared/ui';
 import useStandingsTable from '../model/useStandingsTable';
 
 // The three columns that do not fit a 390px card. PF and PA come back at xs as
@@ -245,6 +245,7 @@ function StandingsRow({ row, preseason, cutLine = false }) {
                   and the hidden text below names it for assistive tech. At sm
                   and up the pill is the marker and the hidden text steps aside,
                   so a screen reader never hears both. */}
+              {row.isCpu && <CpuBadge />}
               {row.isViewer && (
                 <Badge variant="you" sx={{ flex: 'none', display: { xs: 'none', sm: 'inline-flex' } }}>
                   You

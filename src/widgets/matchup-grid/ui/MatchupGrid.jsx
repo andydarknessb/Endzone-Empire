@@ -1,7 +1,8 @@
 import React from 'react';
 import { Box, Typography, useMediaQuery, useTheme } from '@mui/material';
 import { Link as RouterLink } from 'react-router-dom';
-import { Badge, Card, SplitBar, TeamAvatar } from '../../../shared/ui';
+import { Badge, Card, CpuBadge, SplitBar, TeamAvatar } from '../../../shared/ui';
+import { useCpuTeamIds } from '../../../hooks/useCpuTeamIds';
 import { matchupCardView } from '../model/matchupCardView';
 
 /**
@@ -47,6 +48,7 @@ export default function MatchupGrid({
 }) {
   const theme = useTheme();
   const compact = useMediaQuery(theme.breakpoints.down('sm'), { noSsr: true });
+  const cpuTeamIds = useCpuTeamIds(leagueId);
   const list = Array.isArray(matchups) ? matchups : [];
   if (list.length === 0) return null;
 
@@ -66,7 +68,7 @@ export default function MatchupGrid({
       }}
     >
       {list.map((matchup, index) => {
-        const view = matchupCardView(matchup, { records });
+        const view = withCpu(matchupCardView(matchup, { records }), cpuTeamIds);
         const key = view.id != null ? view.id : `index-${index}`;
         return (
           <Box component="li" key={key} sx={{ minWidth: 0 }}>
@@ -80,6 +82,16 @@ export default function MatchupGrid({
       })}
     </Box>
   );
+}
+
+// Marks each side the CPU manages (ADR 0067); the view model stays pure.
+function withCpu(view, cpuTeamIds) {
+  if (cpuTeamIds.size === 0) return view;
+  return {
+    ...view,
+    home: { ...view.home, isCpu: cpuTeamIds.has(view.home.teamId) },
+    away: { ...view.away, isCpu: cpuTeamIds.has(view.away.teamId) },
+  };
 }
 
 const CHECK_PATH = 'M4 10.5 8 14.5 16 6';
@@ -209,19 +221,22 @@ function TeamRow({ side, testId, avatarSize, figureSize, figure, note, py }) {
         size={avatarSize}
       />
       <Box sx={{ display: 'flex', flexDirection: 'column', flex: '1 1 0', minWidth: 0 }}>
-        <Typography
-          component="span"
-          sx={{
-            fontSize: '14px',
-            fontWeight: side.leads ? 700 : 500,
-            color: 'var(--dash-ink)',
-            whiteSpace: 'nowrap',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-          }}
-        >
-          {side.name}
-        </Typography>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
+          <Typography
+            component="span"
+            sx={{
+              fontSize: '14px',
+              fontWeight: side.leads ? 700 : 500,
+              color: 'var(--dash-ink)',
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+            }}
+          >
+            {side.name}
+          </Typography>
+          {side.isCpu && <CpuBadge />}
+        </Box>
         {note !== '' && (
           <Typography component="span" data-testid="matchup-side-note" sx={NOTE_SX}>
             {note}
