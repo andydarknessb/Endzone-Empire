@@ -2,9 +2,7 @@ import React from 'react';
 import { Box } from '@mui/material';
 import { listArticles } from '../../content/articles';
 import { formatInstant } from '../../shared/lib/instantFormat';
-import {
-  Frame, FrameHead, HomeLink, PixelHeading,
-} from './home';
+import { Frame, FrameHead, PsLink, PixelHeading } from '../../shared/ui/playselect';
 
 /**
  * The Columns frame on the authed dashboard: the newest Darkness Report from
@@ -45,9 +43,9 @@ function PublicHighlights() {
         <Box component="p" sx={{ m: 0, fontSize: { xs: '18px', md: '19px' }, fontWeight: 600, lineHeight: 1.35 }}>
           {report.title}
         </Box>
-        <Box sx={{ fontSize: '14px', color: 'var(--home-dim)' }}>{byline}</Box>
+        <Box sx={{ fontSize: '14px', color: 'var(--ps-dim)' }}>{byline}</Box>
         <Box sx={{ ml: '-10px' }}>
-          <HomeLink href={`/strategy/${report.slug}`}>{`Read the ${series} column`}</HomeLink>
+          <PsLink href={`/strategy/${report.slug}`}>{`Read the ${series} column`}</PsLink>
         </Box>
       </Box>
     </Frame>

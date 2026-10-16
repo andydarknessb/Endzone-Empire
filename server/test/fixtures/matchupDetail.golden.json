@@ -52,6 +52,7 @@
         "opponent": "LV",
         "game_state": "in_progress",
         "game_clock": "Q3 6:42",
+        "expected_final": 16.87,
         "photo_url": null
       },
       {
@@ -71,6 +72,7 @@
         "opponent": "NYG",
         "game_state": "scheduled",
         "game_clock": null,
+        "expected_final": 0,
         "photo_url": null
       }
     ],
@@ -92,6 +94,7 @@
         "opponent": "SF",
         "game_state": "final",
         "game_clock": null,
+        "expected_final": 0,
         "photo_url": "https://a.espncdn.com/i/headshots/nfl/players/full/103.png"
       },
       {
@@ -111,11 +114,13 @@
         "opponent": "SF",
         "game_state": null,
         "game_clock": null,
+        "expected_final": null,
         "photo_url": null
       }
     ],
     "expectedFinal": 16.87,
-    "playersRemaining": 2,
+    "playersRemaining": 1,
+    "yetToPlay": 0,
     "calledShot": {
       "starter": {
         "playerId": 101,
@@ -151,6 +156,7 @@
         "opponent": null,
         "game_state": "final",
         "game_clock": null,
+        "expected_final": 0,
         "photo_url": null
       },
       {
@@ -172,12 +178,14 @@
         "opponent": "LV",
         "game_state": "in_progress",
         "game_clock": "Q3 6:42",
+        "expected_final": 2.98,
         "photo_url": null
       }
     ],
     "bench": [],
     "expectedFinal": 2.98,
     "playersRemaining": 1,
+    "yetToPlay": 0,
     "calledShot": null
   }
 }

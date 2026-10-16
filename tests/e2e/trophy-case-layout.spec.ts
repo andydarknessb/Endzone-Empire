@@ -8,34 +8,37 @@
  * stays within a phone's two screens, and expanding everything (the negative
  * control) is what makes the predicate go red.
  *
- * Ruling: BOTH lists are capped when collapsed. The awards show their first 6
- * rows and the per-team tally collapses to its top 5 teams by total, so the
- * card does not grow with the league; one toggle opens both. The 12-team
- * variant (a larger league, six Teams only the trophies know about) holds the
- * same bounds as the 6-team league, including the extra row that keeps the
- * viewer's own Team on screen when it ranks below the top 5.
+ * Ruling (#2330, ADR 0067): the dashboard's trophy room is the completed season's frame. Collapsed it
+ * lists the first rows of the season's awards (COLLAPSED_ROWS) and "Show all N awards" opens the rest, so
+ * the frame does not grow with the season. Mid-season the room is one link row to the history page, which
+ * is not measured here. The per-team tally the old card carried (top five by total, the viewer's row kept)
+ * is not part of the trophy room on the boards, so its bound is gone. The 12-team variant (six Teams only
+ * the trophies know about) holds the same bounds as the 6-team league.
  *
- * Fixture: `layoutGuardFixtures`' `setupLayoutGuard` plus a routed
- * `/api/league/4200/trophies` (trophyCaseFixtures.ts) registered after it so
- * it wins over the guard's catch-all.
+ * Fixture: `leagueDashboardPlayselectFixtures`' `setupDashboard(page, 'complete')` (the completed-season
+ * league row, so the room is a frame) plus a routed `/api/league/4200/trophies` (trophyCaseFixtures.ts)
+ * registered after it so it wins.
  *
  * What this does NOT cover: the card's colors in either theme (the tokens
  * contrast test owns pairings) and the other dashboard cards' geometry
  * (league-dashboard-layout.spec.ts).
  */
 import { expect, test, type Page } from '@playwright/test';
-import { setupLayoutGuard, DASHBOARD_URL } from './fixtures/layoutGuardFixtures';
+import { setupDashboard, DASH_URL } from './fixtures/leagueDashboardPlayselectFixtures';
 import { routeWeek17Trophies } from './fixtures/trophyCaseFixtures';
 
-const PHONE_SMALL = { width: 360, height: 800, maxCardHeight: 820 };
-const PHONE = { width: 390, height: 844, maxCardHeight: 820 };
+// The phone bound is 940 (was 820): the Play-select frame lists six awards one to a row, each a pixel
+// cup or star beside two lines, which measures 912 at 360 and 888 at 390. A frame of every award is more
+// than three times that, so the bound still goes red (the negative control below).
+const PHONE_SMALL = { width: 360, height: 800, maxCardHeight: 940 };
+const PHONE = { width: 390, height: 844, maxCardHeight: 940 };
 const DESKTOP = { width: 1440, height: 900, maxCardHeight: 640 };
 
 async function gotoTrophyCase(page: Page, width: number, height: number, teamCount = 6) {
-  await setupLayoutGuard(page);
+  await setupDashboard(page, 'complete');
   await routeWeek17Trophies(page, teamCount);
   await page.setViewportSize({ width, height });
-  await page.goto(DASHBOARD_URL);
+  await page.goto(DASH_URL);
   await page.getByTestId('trophy-case').waitFor();
   await page.evaluate(() => document.fonts.ready.then(() => true));
 }
@@ -61,16 +64,6 @@ for (const teamCount of [6, 12]) {
     });
   }
 }
-
-// The collapsed 12-team bounds above hold WITH the viewer's row: the layout-guard
-// viewer (team 101) ranks below the top 5 here, so it is kept as a 6th tally row.
-test('Trophy Case, 12 teams: the viewer ranks below the top 5 and is kept as a 6th row', async ({ page }) => {
-  await gotoTrophyCase(page, PHONE.width, PHONE.height, 12);
-  const rows = page.getByTestId('trophy-tally').getByRole('listitem');
-  await expect(rows).toHaveCount(6);
-  await expect(rows.last()).toHaveAttribute('data-testid', 'tally-team-101');
-  await expect(rows.last()).toContainText('your team');
-});
 
 for (const width of [320, 360, 390]) {
   test(`Trophy Case @ ${width}: the document has no horizontal scroll`, async ({ page }) => {

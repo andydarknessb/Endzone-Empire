@@ -7,10 +7,10 @@ import { formatInstant } from '../../shared/lib/instantFormat';
 import { timeUntil, timeUntilWords, useNow } from '../../shared/lib/timeUntil';
 import NextDraftCard, { featuredDraft } from './NextDraftCard';
 import {
-  CountBadge, ErrorPanel, Frame, FrameHead, HomeButton, HomeLink, PixelHeading, PlayCard, Skel, SR_ONLY_SX, pixelSx,
-} from './home';
+  CountBadge, ErrorPanel, Frame, FrameHead, PsButton, PsLink, PixelHeading, PlayCard, Skel, SR_ONLY_SX, pixelSx,
+} from '../../shared/ui/playselect';
 
-// "Call your plays" (Home Play-select, DESIGN.md "Home surface"): every open
+// "Call your plays" (Home Play-select, DESIGN.md "Play-select"): every open
 // item across the manager's leagues from GET /api/user/action-items (Contract
 // A) plus the featured draft, as play cards, then "On the sideline" for what
 // is only pending. It owns its own fetch and states so a slow or failed list
@@ -22,7 +22,7 @@ const MAX_VISIBLE = 4;
 const MINUTE_MS = 60 * 1000;
 const HOUR_MS = 60 * MINUTE_MS;
 const DAY_MS = 24 * HOUR_MS;
-const RULE = '2px solid var(--home-rule)';
+const RULE = '2px solid var(--ps-rule)';
 
 function viewerTimeZone() {
   return Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -222,12 +222,12 @@ export function buildPlays(body, leagues, now, onDraftExpire) {
 
 const metaSx = {
   fontSize: '13px',
-  color: 'var(--home-dim)',
+  color: 'var(--ps-dim)',
   marginLeft: { md: 'auto' },
   flexBasis: { xs: '100%', md: 'auto' },
 };
 
-const sidelineHeadSx = { margin: 0, ...pixelSx(16), color: 'var(--home-dim)' };
+const sidelineHeadSx = { margin: 0, ...pixelSx(16), color: 'var(--ps-dim)' };
 
 function SidelineRow({ item }) {
   const at = timeMs(item.deadlineAt);
@@ -248,10 +248,10 @@ function SidelineRow({ item }) {
     >
       <Box>
         <Box sx={{ fontWeight: 600 }}>{item.title}</Box>
-        <Box sx={{ fontSize: '14px', color: 'var(--home-dim)' }}>{[item.leagueName, tail].filter(Boolean).join(' · ')}</Box>
+        <Box sx={{ fontSize: '14px', color: 'var(--ps-dim)' }}>{[item.leagueName, tail].filter(Boolean).join(' · ')}</Box>
       </Box>
       {item.cta?.to && (
-        <HomeLink to={item.cta.to} ariaLabel={`${item.cta.label} in ${item.leagueName}`}>{item.cta.label}</HomeLink>
+        <PsLink to={item.cta.to} ariaLabel={`${item.cta.label} in ${item.leagueName}`}>{item.cta.label}</PsLink>
       )}
     </Box>
   );
@@ -273,7 +273,7 @@ function ActionQueueSkeleton() {
         >
           <Box sx={{ gridColumn: { md: 'span 2' }, padding: '8px', border: '4px solid transparent' }}>
             <Box sx={{
-              display: 'flex', flexDirection: 'column', gap: '14px', padding: '16px', backgroundColor: 'var(--home-panel)', border: RULE,
+              display: 'flex', flexDirection: 'column', gap: '14px', padding: '16px', backgroundColor: 'var(--ps-panel)', border: RULE,
             }}
             >
               <Skel width="96px" height={48} />
@@ -469,7 +469,7 @@ function ActionQueue({
         >
           <Box component="h3" sx={sidelineHeadSx}>On the sideline</Box>
           {sideline.map((item) => <SidelineRow key={item.id} item={item} />)}
-          <Box component="p" sx={{ margin: 0, fontSize: '14px', color: 'var(--home-dim)' }}>
+          <Box component="p" sx={{ margin: 0, fontSize: '14px', color: 'var(--ps-dim)' }}>
             {nextLock && new Date(nextLock).toDateString() === new Date(now).toDateString() && 'Nothing else is due today.'}
             {nextLock && new Date(nextLock).toDateString() !== new Date(now).toDateString() && `Nothing else is due before ${weekday(nextLock, 'long')}'s kickoff.`}
             {!nextLock && 'Nothing else needs you today.'}
@@ -478,7 +478,7 @@ function ActionQueue({
       </Box>
       {hiddenCount > 0 && (
         <Box sx={{ padding: '0 12px 12px' }}>
-          <HomeButton variant="quiet" onClick={() => setExpanded(true)}>{`Show all ${specs.length}`}</HomeButton>
+          <PsButton variant="quiet" onClick={() => setExpanded(true)}>{`Show all ${specs.length}`}</PsButton>
         </Box>
       )}
     </Frame>

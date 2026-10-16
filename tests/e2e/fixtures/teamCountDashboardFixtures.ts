@@ -61,8 +61,8 @@ function standings(teams: Team[]) {
 
 // `count` raw transaction rows, newest first (`GET /api/league/:id/transactions`,
 // entities/activity's `activityFromRow` input shape). The default twenty is a
-// feed with at least as many rows as the largest rail needs (ceil(20 * 5 / 6) =
-// 17), which a league past its first weeks has; a smaller `count` is a league
+// feed with at least as many rows as the largest rail needs (ceil(20 * 3 / 4) =
+// 15), which a league past its first weeks has; a smaller `count` is a league
 // early in its life (#1998). The guard's own feed holds only 8.
 function transactions(teams: Team[], count: number) {
   const types = ['add', 'drop'];

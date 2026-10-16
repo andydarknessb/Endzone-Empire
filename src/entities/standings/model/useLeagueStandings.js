@@ -25,7 +25,7 @@ export function useLeagueStandings(leagueId, week) {
   const standings = useStandings(leagueId, week);
   const status = standings.loading ? 'loading' : standings.error ? 'error' : 'ready';
   const { rows, playoffTeams } = standingsFromResponse(standings.data);
-  return { status, rows, playoffTeams };
+  return { status, rows, playoffTeams, refetch: standings.refetch };
 }
 
 export default useLeagueStandings;

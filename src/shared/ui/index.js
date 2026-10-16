@@ -6,7 +6,7 @@
  */
 export { default as Card } from './Card';
 export { default as Badge } from './Badge';
-// The CPU-managed team marker (ADR 0067), on standings and matchups.
+// The CPU-managed team marker (ADR 0068), on standings and matchups.
 export { default as CpuBadge } from './CpuBadge';
 export { default as GradeChip } from './GradeChip';
 export { default as Skeleton } from './Skeleton';

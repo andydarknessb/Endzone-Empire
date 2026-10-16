@@ -163,18 +163,13 @@ test('a commissioner sees five fact tiles, both console links and the advance co
   expect(screen.queryByTestId('commissioner-fact-roster')).not.toBeInTheDocument();
   expect(screen.queryByTestId('commissioner-fact-scoring')).not.toBeInTheDocument();
 
+  // The pending queue is a link with a 28px count badge, never a button, straight to the console.
   const badge = await within(card).findByTestId('commissioner-strip-join-requests');
-  expect(badge).toHaveTextContent('Join requests · 1');
+  expect(badge).toHaveTextContent('Join requests');
+  expect(within(badge).getByText('1 pending')).toBeInTheDocument();
   expect(badge).toHaveAttribute('href', '/league/42/commissioner');
-  // `clickable` routes the Chip through ButtonBase (not the bare `component`
-  // it would otherwise render as), which is what carries the theme's
-  // MuiButtonBase keyboard focus-visible ring, hover state and cursor to
-  // this link. Without it the class below is absent and the link's focus
-  // becomes visually silent.
-  expect(badge.className).toMatch(/MuiChip-clickable/);
-  // Still a real anchor (implicit `link` role from `href`), reachable the
-  // same way as a moment ago, `clickable` only changes what carries it.
   expect(within(card).getByRole('link', { name: /join requests/i })).toBe(badge);
+  expect(within(card).getByText('1 manager is waiting to join this public league.')).toBeInTheDocument();
 
   expect(
     within(card).getByRole('link', { name: /league administration/i })
@@ -182,6 +177,9 @@ test('a commissioner sees five fact tiles, both console links and the advance co
 
   expect(within(card).getByTestId('advance-week')).toBeInTheDocument();
   expect(within(card).getByRole('button', { name: /advance to week 7/i })).toBeInTheDocument();
+  // Never filled and never the cursor: the one filled action belongs to the lead play in Your move.
+  // eslint-disable-next-line testing-library/no-node-access
+  expect(card.querySelector('[data-filled="true"], .cursor')).toBeNull();
 });
 
 test('the strip mounts no legacy administration tree at any width', async () => {
@@ -199,7 +197,7 @@ test('the strip mounts no legacy administration tree at any width', async () => 
 
 // --- the join-requests badge -------------------------------------------------
 
-test('a pending count of 0 renders no Badge', async () => {
+test('a pending count of 0 renders no join requests row', async () => {
   mockGetByUrl({
     '/api/league/42': leagueResponse({ league: { is_public: true, join_approval: true } }),
     '/api/league/42/join-requests': { data: [] },
@@ -284,12 +282,12 @@ test.each([
   expect(within(card).getByRole('button', { name: /advance to week 7/i })).toBeInTheDocument();
 });
 
-// --- the subtitle ------------------------------------------------------------
+// --- the title block ---------------------------------------------------------
 
-// Red-tell (#1979 L14): restoring the count (`Commissioners only · N`) turns
-// this case red. The count was the only number in the title block and told a
-// commissioner nothing they act on.
-test('the title block states who can see the strip, with no count', async () => {
+// Red-tell (#1979 L14): restoring a count (`Commissioners only · N`) turns this case red. The title
+// block is the heading alone now: the board drops "Visible to commissioners only" (the head line of the
+// page carries who sees what), and the frame is the tertiary tier, a Pixel 16 heading on a 2px edge.
+test('the title block is the Commissioner heading alone, with no count and no audience line', async () => {
   mockGetByUrl({
     '/api/league/42': leagueResponse({
       league: { co_commissioners: [{ teamId: 4 }, { teamId: 7 }] },
@@ -298,8 +296,30 @@ test('the title block states who can see the strip, with no count', async () => 
   renderStrip();
 
   const card = await screen.findByTestId('commissioner-strip');
-  expect(within(card).getByText('Visible to commissioners only')).toBeInTheDocument();
+  expect(within(card).getByRole('heading', { level: 2, name: 'Commissioner' })).toBeInTheDocument();
+  expect(within(card).queryByText(/Visible to commissioners only/)).not.toBeInTheDocument();
   expect(within(card).queryByText(/Commissioners only/)).not.toBeInTheDocument();
+});
+
+// --- the invite row ----------------------------------------------------------
+
+test('an invite control passed by the page is the first row, with its note', async () => {
+  mockGetByUrl({ '/api/league/42': leagueResponse() });
+  renderWithProviders(<CommissionerStrip leagueId={42} invite={<button type="button">Invite TNR-7K4Q</button>} />);
+
+  const card = await screen.findByTestId('commissioner-strip');
+  expect(within(card).getByText('Copy the invite link for new teams')).toBeInTheDocument();
+  expect(within(card).getByRole('button', { name: 'Invite TNR-7K4Q' })).toBeInTheDocument();
+  // eslint-disable-next-line testing-library/no-node-access
+  expect(within(card).getAllByRole('listitem')[0]).toHaveTextContent('Invite code');
+});
+
+test('without an invite control there is no invite row', async () => {
+  mockGetByUrl({ '/api/league/42': leagueResponse() });
+  renderStrip();
+
+  const card = await screen.findByTestId('commissioner-strip');
+  expect(within(card).queryByText('Invite code')).not.toBeInTheDocument();
 });
 
 // --- the phone strip ---------------------------------------------------------

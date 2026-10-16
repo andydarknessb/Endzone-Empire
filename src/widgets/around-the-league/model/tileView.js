@@ -60,6 +60,8 @@ export function aroundLeagueTileView(matchup, { viewerTeamId } = {}) {
     avatarUrl: s.avatarUrl ?? null,
     avatarStaticUrl: s.avatarStaticUrl ?? null,
     figure: scheduled ? formatPoints(s.expectedFinal) : formatPoints(s.score),
+    // The score as a number (null while unknown), for the "won by" margin on a settled tile.
+    points: s.score == null || s.score === '' || !Number.isFinite(Number(s.score)) ? null : Number(s.score),
     isViewer: key === board.viewerSide,
   });
 
@@ -71,6 +73,11 @@ export function aroundLeagueTileView(matchup, { viewerTeamId } = {}) {
     week: m.week ?? null,
     status: m.status ?? null,
     started,
+    // The server's status facts through the entity board (ADR 0030): live shows the green Live label,
+    // settled ('played' or 'final') shows a result, and final alone reads "Final".
+    live: board.isLive,
+    settled: board.settled,
+    final: board.isFinal,
     // Exposed alongside `started` so a caller can name what the figure IS
     // (its accessible label) using the same three-way ADR 0030 `matchupBoard` reading the
     // figure's own VALUE already uses, rather than `!started` - which

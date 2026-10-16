@@ -140,18 +140,18 @@ function typeName(trophy) {
 // Rows shown before "Show all": a phone gets the season's headline awards and
 // latest weeks and the top of the leaderboard, not 40-odd award rows and a row
 // for every team in the league.
-const COLLAPSED_ROWS = 6;
+export const COLLAPSED_ROWS = 6;
 const TALLY_ROWS = 5;
 
 // A season award (champion, best draft, win streak) carries week 0 or none; a
 // weekly award carries the week it was won.
-const isSeasonAward = (trophy) => !trophy.week;
+export const isSeasonAward = (trophy) => !trophy.week;
 
 /**
  * The award rows' order: season awards first, then weekly awards newest week
  * first. A stable sort, so awards of the same week keep the server's order.
  */
-function orderAwards(seasonTrophies) {
+export function orderAwards(seasonTrophies) {
   const rank = (t) => (isSeasonAward(t) ? Infinity : t.week);
   return [...seasonTrophies].sort((a, b) => rank(b) - rank(a));
 }
@@ -407,19 +407,14 @@ function ShowAllToggle({ expanded, onToggle, label, controls }) {
 }
 
 /**
- * `viewerTeamId` (optional) marks the viewer's own tally row, and keeps it on
- * screen while the tally is collapsed. The dashboard passes nothing for a
- * viewer with no Team of their own (a commissioner who never joined); League
- * History does not mount this component at all (it imports TrophyIcon only).
+ * The league's trophies and the season they are read for (the newest by default), shared by the
+ * Trophy Case card and the League Dashboard's Play-select view (src/pages/league-dashboard).
  */
-function TrophyCase({ leagueId, teams, viewerTeamId }) {
+export function useTrophies(leagueId) {
   const [trophies, setTrophies] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [season, setSeason] = useState('');
-  const [expanded, setExpanded] = useState(false);
-  const tallyId = useId();
-  const awardsId = useId();
 
   useEffect(() => {
     let cancelled = false;
@@ -451,9 +446,6 @@ function TrophyCase({ leagueId, teams, viewerTeamId }) {
     };
   }, [leagueId]);
 
-  // A different season is a different pair of lists: start it collapsed.
-  useEffect(() => setExpanded(false), [season]);
-
   const seasonOptions = useMemo(
     () => Array.from(new Set(trophies.map((t) => t.season))).sort((a, b) => b - a),
     [trophies]
@@ -463,6 +455,28 @@ function TrophyCase({ leagueId, teams, viewerTeamId }) {
     () => (season === '' ? trophies : trophies.filter((t) => t.season === season)),
     [trophies, season]
   );
+
+  return {
+    trophies, loading, error, season, setSeason, seasonOptions, visibleTrophies,
+  };
+}
+
+/**
+ * `viewerTeamId` (optional) marks the viewer's own tally row, and keeps it on
+ * screen while the tally is collapsed. The dashboard passes nothing for a
+ * viewer with no Team of their own (a commissioner who never joined); League
+ * History does not mount this component at all (it imports TrophyIcon only).
+ */
+function TrophyCase({ leagueId, teams, viewerTeamId }) {
+  const {
+    trophies, loading, error, season, setSeason, seasonOptions, visibleTrophies,
+  } = useTrophies(leagueId);
+  const [expanded, setExpanded] = useState(false);
+  const tallyId = useId();
+  const awardsId = useId();
+
+  // A different season is a different pair of lists: start it collapsed.
+  useEffect(() => setExpanded(false), [season]);
 
   const tallyRows = useMemo(() => buildTally(visibleTrophies, teams), [visibleTrophies, teams]);
   const awards = useMemo(() => orderAwards(visibleTrophies), [visibleTrophies]);

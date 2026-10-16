@@ -1,0 +1,104 @@
+/*
+ * Play-select motion and state rules (DESIGN.md "Focus and motion"),
+ * ported from the HELMET block of docs/design/home/kit.js. Scoped under
+ * `.ps-root`, the class a Play-select page root carries (psRootSx paints it),
+ * so nothing here touches another island surface. Steps only: no easing, no
+ * fades, no slides.
+ */
+
+.ps-root a:hover,
+.ps-root button:hover {
+  filter: brightness(1.12);
+}
+
+.ps-root button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+/* Focus ring: 3px white, no offset, a 7px dark halo; same in both themes. */
+.ps-root :focus-visible {
+  outline: 3px solid var(--ps-focus);
+  outline-offset: 0;
+  box-shadow: 0 0 0 7px var(--ps-halo);
+}
+
+.ps-root ::selection {
+  background: var(--ps-selection);
+  color: var(--ps-halo);
+}
+
+/* Cursor blink: the lead's frame flashes off and on three times, then rests lit. */
+.ps-root .cursor {
+  animation: home-blink 0.5s steps(1) 3;
+}
+
+@keyframes home-blink {
+  50% {
+    border-color: transparent;
+  }
+}
+
+/* Cursor move: hover (pointer devices) or focus inside a card moves the frame
+   to it in --cur and clears it from the lead; leaving puts it back. */
+@media (hover: hover) {
+  .ps-root .slot:hover {
+    border-color: var(--cur) !important;
+  }
+
+  .ps-root section:has(.slot:hover) .cursor:not(:hover):not(:focus-within) {
+    border-color: transparent !important;
+    animation: none;
+  }
+}
+
+.ps-root .slot:focus-within {
+  border-color: var(--cur) !important;
+}
+
+.ps-root section:has(.slot:focus-within) .cursor:not(:focus-within) {
+  border-color: transparent !important;
+  animation: none;
+}
+
+/* Press: the frame turns white and the content drops 2px. */
+.ps-root .slot:active {
+  border-color: var(--ps-focus) !important;
+}
+
+.ps-root .slot:active > * {
+  transform: translate(2px, 2px);
+}
+
+/* Score flash: a 16% white wash three times, then it holds. */
+.ps-root .scored {
+  animation: home-scored 0.3s steps(1) 3;
+}
+
+@keyframes home-scored {
+  50% {
+    background: var(--ps-flash);
+    outline: 6px solid var(--ps-flash);
+  }
+}
+
+@keyframes home-scored-hold {
+  0% {
+    background: var(--ps-flash);
+    outline: 6px solid var(--ps-flash);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ps-root .cursor {
+    animation: none;
+  }
+
+  .ps-root .slot:active > * {
+    transform: none;
+  }
+
+  .ps-root .scored {
+    animation: home-scored-hold 1s steps(1) 1;
+  }
+}

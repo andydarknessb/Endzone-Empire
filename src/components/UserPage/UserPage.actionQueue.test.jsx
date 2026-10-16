@@ -133,7 +133,7 @@ describe('the play cards', () => {
     expect(lead).toHaveTextContent('40 min left');
     // the slot wrapper is a CSS class with no role
     // eslint-disable-next-line testing-library/no-node-access
-    expect(lead.closest('.slot')).toHaveStyle({ '--cur': 'var(--home-danger)' });
+    expect(lead.closest('.slot')).toHaveStyle({ '--cur': 'var(--ps-danger)' });
     expect(cursors(container)).toHaveLength(1);
     expect(filled(container)).toHaveLength(1);
     // the filled foot is a data attribute with no role

@@ -95,6 +95,7 @@ const STARTERS = [
 // verdict from it the way the real read does.
 const BYE = { available: false, activeProbability: 0, reason: 'bye', status: null };
 const OUT = { available: false, activeProbability: 0, reason: 'out', status: 'O' };
+const SUSPENDED = { available: false, activeProbability: 0, reason: 'suspended', status: null };
 const NO_TEAM = { available: false, activeProbability: 0, reason: 'no_team', status: null };
 const PRACTICE_SQUAD = { available: false, activeProbability: 0, reason: 'practice_squad', status: null };
 const PROJECTIONS = new Map([
@@ -183,6 +184,41 @@ function weekPool(t, { starters = STARTERS, live = LIVE, schedule = SCHEDULE, pr
   ]);
 }
 
+// One definition of players remaining (RULINGS Critique 9, spec #2334 AC 6l, ADR 0061): a starter whose NFL game is not
+// final and whose availability verdict is not unavailable (Out, IR, suspension, practice squad). Yet to play is the
+// narrower count whose game has not started. The client helpers in entities/matchup read the same rule.
+test('players remaining and yet to play skip every unavailable starter, whatever the reason, and count the rest', async (t) => {
+  const starters = [
+    { team_id: 10, player_id: 1, position: 'QB', nfl_team: 'KC', injury_status: null, stats: { passingYards: 562.5 } }, // final
+    { team_id: 10, player_id: 2, position: 'RB', nfl_team: 'BUF', injury_status: null, stats: null }, // live
+    { team_id: 10, player_id: 3, position: 'WR', nfl_team: 'DAL', injury_status: 'O', stats: null }, // live, Out
+    { team_id: 10, player_id: 8, position: 'TE', nfl_team: 'PHI', injury_status: null, stats: null }, // not started, suspended
+    { team_id: 10, player_id: 9, position: 'WR', nfl_team: 'PHI', injury_status: 'Q', stats: null }, // not started, Questionable
+    { team_id: 10, player_id: 10, position: 'WR', nfl_team: 'DAL', injury_status: null, stats: null }, // live, Out by the verdict alone
+  ];
+  const projections = new Map([
+    [1, { points: 19 }], [2, { points: 14 }], [3, { points: 11.3, availability: OUT }],
+    [8, { points: 6, availability: SUSPENDED }], [9, { points: 7 }], [10, { points: 5, availability: OUT }],
+  ]);
+  const fake = weekPool(t, { starters, projections });
+  const byTeam = await expectedFinalsForWeek({
+    league: LEAGUE, season: SEASON, week: WEEK, teamIds: [10], db: fake, now: NOW,
+  });
+  const home = byTeam.get(10);
+  assert.equal(home.playersRemaining, 2); // BUF live, PHI Questionable not started
+  assert.equal(home.yetToPlay, 1); // only the Questionable PHI starter has not kicked off
+  assert.equal(home.starters.every((s) => !('rawOut' in s)), true);
+});
+
+test('with no projection run both counts are null, never a guessed number', async (t) => {
+  const fake = weekPool(t, { projections: new Error('projection store down') });
+  const byTeam = await expectedFinalsForWeek({
+    league: LEAGUE, season: SEASON, week: WEEK, teamIds: [10, 20], db: fake, now: NOW,
+  });
+  assert.equal(byTeam.get(10).playersRemaining, null);
+  assert.equal(byTeam.get(10).yetToPlay, null);
+});
+
 // Win probability v2 (shadow): each team carries the variance its starters
 // still have to play, sigma_i^2 (from the p10..p90 band) times the fraction of
 // his game left. Final, bye and unavailable starters add none.
@@ -261,9 +297,9 @@ test('a team is the sum of its starters across all three phases, with players re
     [3, 'scheduled', 11.3],
   ]);
   const away = byTeam.get(20);
-  // Bye counts 0 and is final; Out counts 0 in progress, nothing to add.
+  // Bye counts 0 and is final; Out counts 0 in progress, nothing to add, and is not remaining.
   assert.equal(away.expectedFinal, 0);
-  assert.equal(away.playersRemaining, 1);
+  assert.equal(away.playersRemaining, 0);
   assert.deepEqual(away.starters.map((s) => [s.playerId, s.gameState, s.projection]), [
     [4, 'final', 0],
     [5, 'in_progress', 0],
@@ -442,7 +478,10 @@ test('attachExpectedFinals decorates open rows and leaves final rows and untouch
   assert.equal(open.home_expected_final, 44.8);
   assert.equal(open.away_expected_final, 0);
   assert.equal(open.home_players_remaining, 2);
-  assert.equal(open.away_players_remaining, 1);
+  assert.equal(open.away_players_remaining, 0); // the bye starter is final and the Out kicker does not count
+  // Yet to play: home has the final QB, the live RB and one not started WR (player 3, PHI).
+  assert.equal(open.home_yet_to_play, 1);
+  assert.equal(open.away_yet_to_play, 0);
   for (const id of [6, 8]) {
     const m = out.find((r) => r.id === id);
     assert.equal(m.home_expected_final, null);

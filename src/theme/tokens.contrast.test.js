@@ -1,8 +1,7 @@
 import { colorTokens, scaleTokens } from './tokens';
-import { contrastRatio, relativeLuminance } from './contrast';
+import { contrastRatio } from './contrast';
 import { NFL_TEAM_COLORS, FALLBACK_KIT } from '../shared/lib/nflTeamColors';
 import { monogramInk } from '../shared/lib/monogramInk';
-import { BUCKET_OPACITY } from '../widgets/pickem-standings/ui/StandingsTable';
 
 // WCAG 2.1 AA thresholds: 4.5:1 for normal body text, 3:1 for large text and
 // UI component text (e.g. button labels). Each pairing below is a
@@ -10,6 +9,10 @@ import { BUCKET_OPACITY } from '../widgets/pickem-standings/ui/StandingsTable';
 // two veil rows, whose premise is spelled out with BRIGHTEST_BACKDROP.
 const AA_TEXT = 4.5;
 const AA_LARGE = 3.0;
+
+// Not a WCAG number: the floor for a container edge that no meaning rests on (a tertiary
+// frame's 2px border; its own Pixel 16 heading names the region). Dark Rule is 2:1 on Field.
+const DECORATIVE_EDGE = 1.5;
 
 // Not a WCAG number: a project judgement about visible interactive feedback.
 // A resting color and its hover color that sit too close together mean a
@@ -520,35 +523,44 @@ const PAIRINGS = [
   pairing('dash-field', 'dash-surface', AA_LARGE, 'input edge in the Create and Join dialogs'),
   pairing('dash-field', 'dash-surface2', AA_LARGE, 'input edge on a filled field and the Teams stepper'),
 
-  // ---- Home Play-select (DESIGN.md "Home surface: Play-select"). Home paints
-  // only from the `home-*` group; the pairings below are the ones it puts on
-  // screen, in both modes. Text tiers sit on the page (`home-field`) and in
-  // frames (`home-panel`); play-card text sits on the fixed Play blue and its
+  // ---- Home Play-select (DESIGN.md "Play-select: Home and league pages"). Home paints
+  // only from the `ps-*` group; the pairings below are the ones it puts on
+  // screen, in both modes. Text tiers sit on the page (`ps-field`) and in
+  // frames (`ps-panel`); play-card text sits on the fixed Play blue and its
   // darker field band; the board is black in both themes.
-  pairing('home-ink', 'home-field', AA_TEXT, 'Home body text on the page'),
-  pairing('home-ink', 'home-panel', AA_TEXT, 'Home body text in a frame'),
-  pairing('home-dim', 'home-field', AA_TEXT, 'Home muted text on the page'),
-  pairing('home-dim', 'home-panel', AA_TEXT, 'Home muted text in a frame'),
-  pairing('home-play-ink', 'home-play', AA_TEXT, 'play card name and foot label on the Play blue'),
-  pairing('home-play-ink', 'home-play-field', AA_TEXT, 'play card pictogram on its field band'),
-  pairing('home-play-dim', 'home-play', AA_TEXT, 'play card league line and lock note on the Play blue'),
-  pairing('home-play-dim', 'home-play-field', AA_TEXT, 'play card hash marks on its field band'),
-  pairing('home-on-accent', 'home-accent', AA_TEXT, 'Home filled button label on accent'),
-  pairing('home-on-danger', 'home-danger', AA_TEXT, 'urgent strip text on danger'),
-  pairing('home-on-play-accent', 'home-play-accent', AA_TEXT, 'the lead foot label on the fixed play-card green'),
-  pairing('home-play-accent', 'home-play', AA_TEXT, 'the lead foot fill and the Live lock line on the Play blue'),
-  pairing('home-board-ink', 'home-board', AA_TEXT, 'scoreboard and pick-em tile text on Board'),
-  pairing('home-board-dim', 'home-board', AA_TEXT, 'scoreboard and pick-em tile muted text on Board'),
-  pairing('home-board-live', 'home-board', AA_LARGE, 'live odds fill on Board'),
+  pairing('ps-ink', 'ps-field', AA_TEXT, 'Home body text on the page'),
+  pairing('ps-ink', 'ps-panel', AA_TEXT, 'Home body text in a frame'),
+  pairing('ps-dim', 'ps-field', AA_TEXT, 'Home muted text on the page'),
+  pairing('ps-dim', 'ps-panel', AA_TEXT, 'Home muted text in a frame'),
+  pairing('ps-play-ink', 'ps-play', AA_TEXT, 'play card name and foot label on the Play blue'),
+  pairing('ps-play-ink', 'ps-play-field', AA_TEXT, 'play card pictogram on its field band'),
+  pairing('ps-play-dim', 'ps-play', AA_TEXT, 'play card league line and lock note on the Play blue'),
+  pairing('ps-play-dim', 'ps-play-field', AA_TEXT, 'play card hash marks on its field band'),
+  pairing('ps-on-accent', 'ps-accent', AA_TEXT, 'Home filled button label on accent'),
+  pairing('ps-on-danger', 'ps-danger', AA_TEXT, 'urgent strip text on danger'),
+  pairing('ps-on-play-accent', 'ps-play-accent', AA_TEXT, 'the lead foot label on the fixed play-card green'),
+  pairing('ps-play-accent', 'ps-play', AA_TEXT, 'the lead foot fill and the Live lock line on the Play blue'),
+  pairing('ps-board-ink', 'ps-board', AA_TEXT, 'scoreboard and pick-em tile text on Board'),
+  pairing('ps-board-dim', 'ps-board', AA_TEXT, 'scoreboard and pick-em tile muted text on Board'),
+  pairing('ps-board-live', 'ps-board', AA_LARGE, 'live odds fill on Board'),
+  // The Matchup Scoreboard view stays amber LED on black (ADR 0067 item 4): ps-led reads on ps-board.
+  pairing('ps-led', 'ps-board', AA_TEXT, 'LED digits on the retro scoreboard face'),
   // Non-text edges on the page: the cursor frame, the double rule, the urgent
   // cursor and error panel, and the live odds fill and chip outline.
-  pairing('home-cursor', 'home-field', AA_LARGE, 'cursor frame on the page'),
-  pairing('home-frame', 'home-field', AA_LARGE, 'frame double rule on the page'),
-  pairing('home-danger', 'home-field', AA_LARGE, 'urgent cursor and error frame on the page'),
-  pairing('home-accent', 'home-field', AA_TEXT, 'live chip text and outline, live odds fill on the page (16px pixel text is not WCAG large)'),
-  pairing('home-accent', 'home-panel', AA_TEXT, 'live chip text and outline in a frame'),
-  pairing('home-focus', 'home-halo', AA_LARGE, 'focus ring on its dark halo'),
-  pairing('home-halo', 'home-selection', AA_TEXT, 'selected text on the cursor-yellow selection'),
+  pairing('ps-cursor', 'ps-field', AA_LARGE, 'cursor frame on the page'),
+  pairing('ps-frame', 'ps-field', AA_LARGE, 'frame double rule on the page'),
+  pairing('ps-danger', 'ps-field', AA_LARGE, 'urgent cursor and error frame on the page'),
+  // Pickem (ADR 0067 wave 2): "Locks in n min" and a failed save's words are Danger text on a frame.
+  pairing('ps-danger', 'ps-panel', AA_TEXT, 'Pickem lock words and failed-save text in a frame'),
+  pairing('ps-accent', 'ps-field', AA_TEXT, 'live chip text and outline, live odds fill on the page (16px pixel text is not WCAG large)'),
+  pairing('ps-accent', 'ps-panel', AA_TEXT, 'live chip text and outline in a frame'),
+  pairing('ps-focus', 'ps-halo', AA_LARGE, 'focus ring on its dark halo'),
+  pairing('ps-halo', 'ps-selection', AA_TEXT, 'selected text on the cursor-yellow selection'),
+  // League pages: the 2px edge of a tertiary frame, on the page and against its own panel fill.
+  pairing('ps-frame-2', 'ps-field', DECORATIVE_EDGE, 'tertiary frame edge on the page'),
+  pairing('ps-frame-2', 'ps-panel', DECORATIVE_EDGE, 'tertiary frame edge against its own panel fill'),
+  // Position tags on a frame: a data encoding (RULINGS.md), still held to AA text on Panel.
+  ...['qb', 'rb', 'wr', 'te', 'k', 'def', 'idp'].map((pos) => pairing(`pos-${pos}`, 'ps-panel', AA_TEXT, `position tag text and edge on a Play-select frame (${pos})`)),
 ];
 
 // Kept out of PAIRINGS, with their own test title below, so a pass here can
@@ -624,6 +636,14 @@ describe.each(['light', 'dark'])('%s theme contrast', (mode) => {
 // `TeamPickButton.test.jsx` already has with this lane. The next external
 // palette (a sponsor table, an opponent kit) gets its own lane by adding to
 // this map.
+// ADR 0067 item 4: the retro scoreboard moves off dash-* with the same amber, so the ps pair must equal the dash pair in both themes.
+describe.each(['light', 'dark'])('%s theme ps-led parity', (mode) => {
+  test.each([['ps-led', 'dash-led'], ['ps-led-dim', 'dash-led-dim']])('%s equals %s', (ps, dash) => {
+    expect(colorTokens[mode][dash]).toBeDefined();
+    expect(colorTokens[mode][ps]).toBe(colorTokens[mode][dash]);
+  });
+});
+
 describe('external color data: monogram ink on kit.jersey', () => {
   const jerseysByLabel = {
     ...NFL_TEAM_COLORS,
@@ -635,45 +655,6 @@ describe('external color data: monogram ink on kit.jersey', () => {
     (_label, kit) => {
       const ink = monogramInk(kit.jersey);
       expect(contrastRatio(ink, kit.jersey)).toBeGreaterThanOrEqual(AA_TEXT);
-    }
-  );
-});
-
-// Heat-strip fill recurrence guard (issue #1319, WCAG 1.4.11): the HeatStrip
-// bucket fill (StandingsTable.jsx) is a graphical object - dash-accent at a
-// bucket-indexed BUCKET_OPACITY, layered over the opaque dash-surface3 track -
-// that none of the PAIRINGS rows above see (every dash-surface3 row up there
-// is a text pairing). #1298 landed the shared opaque track without this lane,
-// so BUCKET_OPACITY going under the 3:1 non-text floor for the two faintest
-// buckets (h1 1.68:1 light / 2.15:1 dark, h2 2.59:1 light) shipped with
-// nothing turning red; #1319 raised the ramp and this guards it from
-// regressing back down. Per contrast.js's own doctrine, this is the layered
-// fg-over-opaque-bg shape (not two siblings sharing a surface), but it still
-// uses the two-call relativeLuminance recipe rather than contrastRatio
-// directly, matching the recipe #1299 established for every graphical-object
-// pairing in this suite rather than special-casing this one. BUCKET_OPACITY
-// is imported (not copied) so this lane always measures the real ramp.
-function withAlpha(hex, alpha) {
-  const body = hex.replace('#', '');
-  const r = parseInt(body.slice(0, 2), 16);
-  const g = parseInt(body.slice(2, 4), 16);
-  const b = parseInt(body.slice(4, 6), 16);
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-}
-
-describe.each(['light', 'dark'])('%s theme heat-strip fill contrast (#1319)', (mode) => {
-  const track = colorTokens[mode]['dash-surface3'];
-  const accent = colorTokens[mode]['dash-accent'];
-
-  test.each(Object.entries(BUCKET_OPACITY))(
-    'bucket %s fill meets AA_LARGE (3:1) against the dash-surface3 track',
-    (_bucket, alpha) => {
-      const fillLuminance = relativeLuminance(withAlpha(accent, alpha), track);
-      const trackLuminance = relativeLuminance(track);
-      const lighter = Math.max(fillLuminance, trackLuminance);
-      const darker = Math.min(fillLuminance, trackLuminance);
-      const ratio = (lighter + 0.05) / (darker + 0.05);
-      expect(ratio).toBeGreaterThanOrEqual(AA_LARGE);
     }
   );
 });

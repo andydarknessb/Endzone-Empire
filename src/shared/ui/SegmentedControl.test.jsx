@@ -226,3 +226,98 @@ test('with an option checked the one tab stop is the checked option', async () =
   await userEvent.tab();
   expect(screen.getByRole('button', { name: 'After' })).toHaveFocus();
 });
+
+// --- look="playselect" (spec #2334 ruling 3) ---------------------------------
+
+// The Play-select look is paint only: same radiogroup, same radios and names, same roving focus. The default
+// look is what every dash page renders, so a missing `look` must keep painting dash tokens.
+// Red-tell: painting the default with ps tokens, or the playselect look with dash tokens, turns the pair red.
+describe('look', () => {
+  const rules = (el) => ruleFor(el);
+
+  test('the default look paints dash tokens and no ps token', () => {
+    render(<SegmentedControl aria-label="Week" options={WEEKS} value={2} onChange={() => {}} />);
+    const group = rules(screen.getByRole('radiogroup', { name: 'Week' }));
+    expect(group).toMatch(/--dash-surface2/);
+    expect(group).not.toMatch(/--ps-/);
+    expect(rules(screen.getByRole('radio', { name: 'Wk 2' }))).toMatch(/--dash-surface/);
+  });
+
+  test('look="playselect" paints ps tokens, square, 44px, with no dash token', () => {
+    render(<SegmentedControl aria-label="Week" options={WEEKS} value={2} onChange={() => {}} look="playselect" />);
+    const group = rules(screen.getByRole('radiogroup', { name: 'Week' }));
+    expect(group).not.toMatch(/--dash-/);
+    const checked = rules(screen.getByRole('radio', { name: 'Wk 2' }));
+    expect(checked).toMatch(/--ps-play/);
+    expect(checked).toMatch(/min-height: 44px/);
+    expect(checked).toMatch(/border-radius: 0/);
+    expect(checked).not.toMatch(/--dash-/);
+    expect(rules(screen.getByRole('radio', { name: 'Wk 3' }))).toMatch(/--ps-ink/);
+  });
+
+  test('the checked segment sits above its neighbours so its edge is not covered by their -2px overlap', () => {
+    render(<SegmentedControl aria-label="Week" options={WEEKS} value={2} onChange={() => {}} look="playselect" />);
+    const checked = rules(screen.getByRole('radio', { name: 'Wk 2' }));
+    expect(checked).toMatch(/position: relative/);
+    expect(checked).toMatch(/z-index: 1/);
+    expect(rules(screen.getByRole('radio', { name: 'Wk 3' }))).not.toMatch(/z-index/);
+  });
+
+  test('a scrollable playselect strip pads itself so the focus ring and its halo are not clipped', () => {
+    const { rerender } = render(<SegmentedControl aria-label="Week" options={SEASON} value={9} onChange={() => {}} scrollable look="playselect" />);
+    expect(rules(screen.getByRole('radiogroup', { name: 'Week' }))).toMatch(/padding: 8px/);
+    rerender(<SegmentedControl aria-label="Week" options={SEASON} value={9} onChange={() => {}} look="playselect" />);
+    expect(rules(screen.getByRole('radiogroup', { name: 'Week' }))).not.toMatch(/padding: 8px/);
+  });
+
+  test('the checked option shows an arrow as well as the fill, and its name stays its label', () => {
+    const { container } = render(<SegmentedControl aria-label="Week" options={WEEKS} value={2} onChange={() => {}} look="playselect" />);
+    /* eslint-disable-next-line testing-library/no-container, testing-library/no-node-access */
+    expect(container.querySelectorAll('svg[aria-hidden="true"]')).toHaveLength(1);
+    expect(within(screen.getByRole('radio', { name: 'Wk 2' })).getByText('Wk 2')).toBeInTheDocument();
+    expect(screen.getAllByRole('radio').map((r) => r.getAttribute('aria-checked'))).toEqual(['false', 'true', 'false']);
+  });
+
+  test('roles, tab stop and arrow-key roving are the default look\'s', async () => {
+    const onChange = jest.fn();
+    render(
+      <div>
+        <button type="button">Before</button>
+        <SegmentedControl aria-label="Week" options={WEEKS} value={3} onChange={onChange} look="playselect" />
+      </div>
+    );
+    expect(screen.getByRole('radiogroup', { name: 'Week' })).toBeInTheDocument();
+    screen.getByRole('button', { name: 'Before' }).focus();
+    await userEvent.tab();
+    expect(screen.getByRole('radio', { name: 'Wk 3' })).toHaveFocus();
+    await userEvent.keyboard('{ArrowRight}');
+    expect(onChange).toHaveBeenLastCalledWith(1);
+    expect(screen.getByRole('radio', { name: 'Wk 1' })).toHaveFocus();
+  });
+
+  test('Home and End jump to the first and last option in the playselect look', async () => {
+    const onChange = jest.fn();
+    render(<SegmentedControl aria-label="Week" options={WEEKS} value={2} onChange={onChange} look="playselect" />);
+    screen.getByRole('radio', { name: 'Wk 2' }).focus();
+    await userEvent.keyboard('{End}');
+    expect(onChange).toHaveBeenLastCalledWith(3);
+    expect(screen.getByRole('radio', { name: 'Wk 3' })).toHaveFocus();
+    await userEvent.keyboard('{Home}');
+    expect(onChange).toHaveBeenLastCalledWith(1);
+    expect(screen.getByRole('radio', { name: 'Wk 1' })).toHaveFocus();
+  });
+
+  test('Home and End do nothing in the default look', async () => {
+    const onChange = jest.fn();
+    render(<SegmentedControl aria-label="Week" options={WEEKS} value={2} onChange={onChange} />);
+    screen.getByRole('radio', { name: 'Wk 2' }).focus();
+    await userEvent.keyboard('{End}{Home}');
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  test('fill and scrollable keep their layout in the playselect look', () => {
+    render(<SegmentedControl aria-label="Week" options={SEASON} value={9} onChange={() => {}} scrollable look="playselect" />);
+    expect(rules(screen.getByRole('radiogroup', { name: 'Week' }))).toMatch(/overflow-x: auto/);
+    expect(rules(screen.getByRole('radio', { name: 'Wk 9' }))).toMatch(/[^-]flex: 0 0 auto/);
+  });
+});

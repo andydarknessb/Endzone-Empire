@@ -4,3 +4,6 @@
  * this folder is the widget's own internal slice.
  */
 export { default } from './ui/MatchupPreview';
+// The model alone, for the League Dashboard's Play-select view of the same read (the page renders
+// it; this widget keeps its own look for the Lineup page until its wave).
+export { useMatchupPreview } from './model/useMatchupPreview';

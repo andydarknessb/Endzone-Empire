@@ -1,6 +1,7 @@
 import React from 'react';
 import { Box, Button, IconButton } from '@mui/material';
 import { SegmentedControl } from '../../../shared/ui';
+import { PixelArrow } from '../../../shared/ui/playselect';
 import { MIN_TOUCH_TARGET_SX } from '../../../shared/lib';
 
 /**
@@ -14,6 +15,13 @@ import { MIN_TOUCH_TARGET_SX } from '../../../shared/lib';
  *   - `weeks`: the weeks on offer, ascending (number[]).
  *   - `value`: the selected week, or the string "All" for every week.
  *   - `onChange`: called with the picked week (a number) or "All".
+ *   - `allWeeks`: whether to offer the "All weeks" action (default true). A page whose
+ *     week setter cannot take "All" (Pick'em) passes `false`; Game Center and Lineup keep it.
+ *   - `look`: `'dash'` (default, every current caller) or `'playselect'` (ADR 0067, spec #2334
+ *     ruling 3): the same picker on `ps-*` tokens, square 44px controls, no opacity, and ONE tab
+ *     stop for the weeks: the selected week carries it (the strip's roving tabindex; Left/Right/Home/End
+ *     move it), while Previous and Next stay pointer targets at tabindex -1. "All weeks" is a different
+ *     action and keeps its own stop.
  *   - `fill`: the mobile layout (below the `sm` breakpoint): the stepper row
  *     stretches to the container and carries every control on one line, the
  *     weeks scroll sideways inside the room left between the chevrons and
@@ -52,7 +60,10 @@ import { MIN_TOUCH_TARGET_SX } from '../../../shared/lib';
  * it (SegmentedControl.jsx's own contract), so a rejected value otherwise
  * leaves focus on an unchecked segment.
  */
-const PickWeek = React.forwardRef(function PickWeek({ weeks, value, onChange, fill = false }, ref) {
+const PickWeek = React.forwardRef(function PickWeek({
+  weeks, value, onChange, fill = false, allWeeks: offerAll = true, look = 'dash',
+}, ref) {
+  const ps = look === 'playselect';
   const list = Array.isArray(weeks) ? weeks : [];
   const isAll = value === 'All';
   const index = isAll || value == null ? -1 : list.indexOf(Number(value));
@@ -63,16 +74,33 @@ const PickWeek = React.forwardRef(function PickWeek({ weeks, value, onChange, fi
 
   // Below sm this rides in the stepper row beside the strip, so the picker
   // costs one row of a phone and not two (#916).
-  const allWeeks = (
-    <Button
+  let allWeeks = null;
+  if (offerAll) {
+    allWeeks = (
+      <Button
+        type="button"
+        disableElevation
+        aria-pressed={isAll}
+        onClick={() => onChange?.('All')}
+        sx={ps ? psAllWeeksSx(isAll) : allWeeksSx(fill, isAll)}
+      >
+        {ps && isAll ? <PixelArrow /> : null}
+        All weeks
+      </Button>
+    );
+  }
+
+  const stepper = (direction, label, disabled, to) => (
+    <IconButton
       type="button"
-      disableElevation
-      aria-pressed={isAll}
-      onClick={() => onChange?.('All')}
-      sx={allWeeksSx(fill, isAll)}
+      aria-label={label}
+      disabled={disabled}
+      tabIndex={ps ? -1 : undefined}
+      onClick={() => onChange?.(list[to])}
+      sx={ps ? psIconButtonSx : iconButtonSx(fill)}
     >
-      All weeks
-    </Button>
+      <Chevron direction={direction} pixel={ps} />
+    </IconButton>
   );
 
   return (
@@ -98,21 +126,14 @@ const PickWeek = React.forwardRef(function PickWeek({ weeks, value, onChange, fi
           minWidth: 0,
         }}
       >
-        <IconButton
-          type="button"
-          aria-label="Previous week"
-          disabled={prevDisabled}
-          onClick={() => onChange?.(list[index - 1])}
-          sx={iconButtonSx(fill)}
-        >
-          <Chevron direction="left" />
-        </IconButton>
+        {stepper('left', 'Previous week', prevDisabled, index - 1)}
 
         <SegmentedControl
           ref={ref}
           aria-label="Week"
           data-testid="pick-week-weeks"
           options={options}
+          look={look}
           value={isAll ? undefined : value}
           onChange={(week) => onChange?.(week)}
           // The strip scrolls at EVERY width (#921). That is what makes the
@@ -127,15 +148,7 @@ const PickWeek = React.forwardRef(function PickWeek({ weeks, value, onChange, fi
           sx={fill ? { flex: '1 1 0', minWidth: 0, '& [role="radio"]': { minHeight: 44 } } : undefined}
         />
 
-        <IconButton
-          type="button"
-          aria-label="Next week"
-          disabled={nextDisabled}
-          onClick={() => onChange?.(list[index + 1])}
-          sx={iconButtonSx(fill)}
-        >
-          <Chevron direction="right" />
-        </IconButton>
+        {stepper('right', 'Next week', nextDisabled, index + 1)}
 
         {fill ? allWeeks : null}
       </Box>
@@ -205,9 +218,58 @@ function allWeeksSx(fill, pressed) {
   };
 }
 
+// The Play-select look (docs/design/league, `weekPicker`): a 44px square 2px Ink edge, Ink pixel chevron;
+// disabled is a Rule edge and Dim glyph, never opacity.
+const psIconButtonSx = {
+  minWidth: 44,
+  minHeight: 44,
+  width: 44,
+  height: 44,
+  flex: 'none',
+  p: 0,
+  borderRadius: 0,
+  border: '2px solid var(--ps-ink)',
+  color: 'var(--ps-ink)',
+  backgroundColor: 'transparent',
+  '&:hover': { backgroundColor: 'transparent' },
+  '&.Mui-disabled': { color: 'var(--ps-dim)', borderColor: 'var(--ps-rule)' },
+};
+
+// All weeks in the Play-select look: a 44px square ghost button; pressed is Play blue with a pixel arrow.
+function psAllWeeksSx(pressed) {
+  return {
+    minWidth: 44,
+    minHeight: 44,
+    flex: 'none',
+    px: '16px',
+    py: 0,
+    gap: '8px',
+    borderRadius: 0,
+    border: `2px solid ${pressed ? 'var(--ps-play)' : 'var(--ps-ink)'}`,
+    color: pressed ? 'var(--ps-play-ink)' : 'var(--ps-ink)',
+    backgroundColor: pressed ? 'var(--ps-play)' : 'transparent',
+    fontFamily: 'inherit',
+    fontSize: '15px',
+    fontWeight: 600,
+    lineHeight: 1.2,
+    textTransform: 'none',
+    whiteSpace: 'nowrap',
+    '&:hover': { backgroundColor: pressed ? 'var(--ps-play)' : 'transparent' },
+  };
+}
+
 // The canvas's chevron icons (`icon('chevL')` / `icon('chevR')`): inline
-// stroke SVG on a 20px grid at 18px, currentColor, decorative.
-function Chevron({ direction }) {
+// stroke SVG on a 20px grid at 18px, currentColor, decorative. `pixel` draws the
+// Play-select 12px stepped chevron instead.
+function Chevron({ direction, pixel = false }) {
+  if (pixel) {
+    const px = direction === 'left' ? 'M7 1h2v10H7zM5 3h2v6H5zM3 5h2v2H3z' : 'M3 1h2v10H3zM5 3h2v6H5zM7 5h2v2H7z';
+    return (
+      <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true" data-testid={`pick-week-chevron-${direction}`} style={{ display: 'block' }}>
+        <path d={px} fill="currentColor" />
+      </svg>
+    );
+  }
   const d = direction === 'left' ? 'M12.5 4.5 7 10l5.5 5.5' : 'M7.5 4.5 13 10l-5.5 5.5';
   return (
     <svg

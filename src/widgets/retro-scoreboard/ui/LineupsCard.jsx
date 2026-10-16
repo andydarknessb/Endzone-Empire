@@ -2,7 +2,8 @@ import React from 'react';
 import { Box } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import useMediaQuery from '@mui/material/useMediaQuery';
-import { Card, InjuryTag, PosChip, PlayerAvatar, StateMark } from '../../../shared/ui';
+import { InjuryTag, PosChip, PlayerAvatar, StateMark } from '../../../shared/ui';
+import RetroCard from './RetroCard';
 import { starterStateView } from '../../../shared/lib';
 import { ledFigure, lineupNoteParts, positionRingKey } from '../model/scoreboardModel';
 import Icon from './icons';
@@ -44,7 +45,7 @@ import Icon from './icons';
  * comparison" action the page wires to its view toggle, meets the 44px target
  * on mobile.
  */
-const NOTE = { fontSize: '12px', fontVariantNumeric: 'tabular-nums', color: 'var(--dash-faint)', whiteSpace: 'nowrap' };
+const NOTE = { fontSize: '12px', fontVariantNumeric: 'tabular-nums', color: 'var(--ps-dim)', whiteSpace: 'nowrap' };
 // The Totals row's "Exp final" note wraps (#2010 QA): nowrap held it at its
 // full width and pushed the document past the viewport at 320px.
 const TOTAL_NOTE = { ...NOTE, whiteSpace: 'normal' };
@@ -143,7 +144,7 @@ function Side({ player, side }) {
                 : { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }),
               fontSize: '13px',
               fontWeight: 600,
-              color: 'var(--dash-ink)',
+              color: 'var(--ps-ink)',
             }}
           >
             {player.name}
@@ -186,18 +187,18 @@ function Total({ team, side, settled }) {
 }
 
 const DISPLAY_NUM = {
-  fontFamily: 'var(--dash-font-display)',
+  fontFamily: 'inherit',
   fontVariantNumeric: 'tabular-nums',
   fontWeight: 700,
   lineHeight: 1,
-  color: 'var(--dash-ink)',
+  color: 'var(--ps-ink)',
 };
 
 export default function LineupsCard({ rows, board, headingLevel = 2, onFullComparison, mobile }) {
   const list = rows || [];
   const { settled } = board;
   return (
-    <Card
+    <RetroCard
       data-testid="lineups-card"
       title="Lineups"
       count="Slot by slot"
@@ -219,9 +220,9 @@ export default function LineupsCard({ rows, board, headingLevel = 2, onFullCompa
               cursor: 'pointer',
               font: 'inherit',
               fontSize: '13px',
-              color: 'var(--dash-dim)',
+              color: 'var(--ps-dim)',
               borderRadius: 'var(--radius-sm)',
-              '&:hover': { color: 'var(--dash-ink)' },
+              '&:hover': { color: 'var(--ps-ink)' },
               '&:focus-visible': { outline: '2px solid var(--focus-ring)', outlineOffset: 2 },
             }}
           >
@@ -232,7 +233,7 @@ export default function LineupsCard({ rows, board, headingLevel = 2, onFullCompa
       }
     >
       {list.length === 0 ? (
-        <Box sx={{ p: mobile ? '12px' : '14px 18px', fontSize: '13px', color: 'var(--dash-dim)' }}>
+        <Box sx={{ p: mobile ? '12px' : '14px 18px', fontSize: '13px', color: 'var(--ps-dim)' }}>
           No starters to show yet.
         </Box>
       ) : (
@@ -246,7 +247,7 @@ export default function LineupsCard({ rows, board, headingLevel = 2, onFullCompa
               alignItems: 'center',
               gap: '8px',
               p: mobile ? '6px 12px' : '6px 18px',
-              borderTop: i ? '1px solid var(--dash-line)' : 0,
+              borderTop: i ? '1px solid var(--ps-rule)' : 0,
             }}
           >
             <Side player={row.home} side="home" />
@@ -262,19 +263,19 @@ export default function LineupsCard({ rows, board, headingLevel = 2, onFullCompa
               justifyContent: 'space-between',
               gap: '8px',
               p: mobile ? '10px 12px' : '12px 18px',
-              borderTop: '1px solid var(--dash-line)',
-              backgroundColor: 'var(--dash-surface2)',
-              borderRadius: '0 0 var(--dash-radius) var(--dash-radius)',
+              borderTop: '1px solid var(--ps-rule)',
+              backgroundColor: 'var(--ps-field)',
+              borderRadius: 0,
             }}
           >
             <Total team={board.home} side="home" settled={settled} />
-            <Box component="span" sx={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--dash-faint)' }}>
+            <Box component="span" sx={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--ps-dim)' }}>
               Totals
             </Box>
             <Total team={board.away} side="away" settled={settled} />
           </Box>
         </>
       )}
-    </Card>
+    </RetroCard>
   );
 }

@@ -234,3 +234,78 @@ test("a save reload for a left week does not wipe the current week's error", asy
   expect(result.current.error).toBe('week 4 failed');
   expect(result.current.loading).toBe(false);
 });
+
+// Save on tap (ADR 0067 wave 2): a saved pick lands in myPicks at once, the board
+// never reopens its loading state, and the background refresh cannot roll a pick back.
+describe('save on tap', () => {
+  const weekData = (myPicks = []) => ({ data: { week: 3, games: [], myPicks } });
+
+  test('a saved pick patches myPicks in place and refreshes without a loading flash', async () => {
+    const router = makeGetRouter();
+    apiClient.put.mockResolvedValue({ data: { saved: 1, cleared: [], myPicks: [] } });
+    const { result } = renderHook(() => usePickemWeek(7, 3));
+    await act(async () => { router.nth(3, 1).resolve(weekData([{ gameKey: 'A|B', pickedTeam: 'A', confidence: null }])); });
+
+    let outcome;
+    await act(async () => {
+      outcome = await result.current.savePicks([{ gameKey: 'C|D', pickedTeam: 'D', confidence: null }]);
+    });
+    expect(outcome).toEqual({ ok: true });
+    expect(apiClient.put).toHaveBeenCalledWith('/api/pickem/league/7/week/3/picks', {
+      picks: [{ gameKey: 'C|D', pickedTeam: 'D', confidence: null }],
+    });
+    expect(result.current.data.myPicks).toEqual([
+      { gameKey: 'A|B', pickedTeam: 'A', confidence: null },
+      { gameKey: 'C|D', pickedTeam: 'D', confidence: null },
+    ]);
+    // The background refresh is in flight and the board is not loading.
+    expect(router.nth(3, 2)).toBeDefined();
+    expect(result.current.loading).toBe(false);
+  });
+
+  test('pickedTeam null removes that game from myPicks', async () => {
+    const router = makeGetRouter();
+    apiClient.put.mockResolvedValue({ data: {} });
+    const { result } = renderHook(() => usePickemWeek(7, 3));
+    await act(async () => { router.nth(3, 1).resolve(weekData([{ gameKey: 'A|B', pickedTeam: 'A', confidence: null }])); });
+    await act(async () => { await result.current.savePicks([{ gameKey: 'A|B', pickedTeam: null, confidence: null }]); });
+    expect(result.current.data.myPicks).toEqual([]);
+  });
+
+  test('a refresh that lands while another save is in flight is dropped, not applied', async () => {
+    const router = makeGetRouter();
+    const secondPut = deferred();
+    apiClient.put.mockResolvedValueOnce({ data: {} }).mockImplementationOnce(() => secondPut.promise);
+    const { result } = renderHook(() => usePickemWeek(7, 3));
+    await act(async () => { router.nth(3, 1).resolve(weekData()); });
+
+    await act(async () => { await result.current.savePicks([{ gameKey: 'A|B', pickedTeam: 'A', confidence: null }]); });
+    let second;
+    act(() => { second = result.current.savePicks([{ gameKey: 'C|D', pickedTeam: 'D', confidence: null }]); });
+    // The first save's refresh resolves with data that predates the second pick.
+    await act(async () => { router.nth(3, 2).resolve(weekData([{ gameKey: 'A|B', pickedTeam: 'A', confidence: null }])); });
+    await act(async () => { secondPut.resolve({ data: {} }); await second; });
+
+    expect(result.current.data.myPicks.map((pick) => pick.gameKey)).toEqual(['A|B', 'C|D']);
+  });
+
+  test('a failed save reports the refused games and leaves myPicks alone', async () => {
+    const router = makeGetRouter();
+    apiClient.put.mockRejectedValue({
+      response: { status: 409, data: { code: 'PICKEM_LOCKED', error: 'locked', gameKeys: ['A|B'] } },
+    });
+    const { result } = renderHook(() => usePickemWeek(7, 3));
+    await act(async () => { router.nth(3, 1).resolve(weekData()); });
+    let outcome;
+    await act(async () => {
+      const pending = result.current.savePicks([{ gameKey: 'A|B', pickedTeam: 'A', confidence: null }]);
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      router.nth(3, 2).resolve(weekData());
+      outcome = await pending;
+    });
+    expect(outcome).toMatchObject({ ok: false, status: 409, code: 'PICKEM_LOCKED', gameKeys: ['A|B'] });
+    expect(result.current.data.myPicks).toEqual([]);
+  });
+});

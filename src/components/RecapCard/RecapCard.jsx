@@ -72,7 +72,7 @@ function FactIcon({ name }) {
 // non-breaking space so a wrapped value never strands the number alone.
 const MIDDOT = ' · ';
 
-function buildFactRows(facts) {
+export function buildFactRows(facts) {
   if (!facts) return [];
   const rows = [];
   if (facts.highestScorer) {
@@ -130,6 +130,9 @@ const GENERATED_FORMAT = new Intl.DateTimeFormat(undefined, {
   hour: 'numeric',
   minute: '2-digit',
 });
+
+/** "Dec 29, 3:00 AM" for a recap's `generatedAt`, or null without one. */
+export const formatGenerated = (generatedAt) => (generatedAt ? GENERATED_FORMAT.format(new Date(generatedAt)) : null);
 
 /** The facts as a compact list, ruled with 1px `dash-line` hairlines, 13px. */
 function FactRows({ rows }) {
@@ -277,7 +280,12 @@ function RecapNarrative({ text, generatedAt }) {
   );
 }
 
-function RecapCard({ leagueId }) {
+/**
+ * The recap read and the commissioner's rebuild, shared by this card and the League Dashboard's
+ * Play-select view (src/pages/league-dashboard). It returns `recap` null until a recap exists (a 404
+ * leaves it null, so a caller renders nothing).
+ */
+export function useRecap(leagueId) {
   const [recap, setRecap] = useState(null);
   const [hidden, setHidden] = useState(true);
   const [rebuilding, setRebuilding] = useState(false);
@@ -345,7 +353,22 @@ function RecapCard({ leagueId }) {
     }
   };
 
-  if (hidden || !recap || !recap.data) {
+  return {
+    recap: hidden ? null : recap,
+    isCommissioner,
+    isCurrentSeasonRecap,
+    rebuilding,
+    rebuildError,
+    handleRebuild,
+  };
+}
+
+function RecapCard({ leagueId }) {
+  const {
+    recap, isCommissioner, isCurrentSeasonRecap, rebuilding, rebuildError, handleRebuild,
+  } = useRecap(leagueId);
+
+  if (!recap || !recap.data) {
     return null;
   }
 
@@ -354,7 +377,7 @@ function RecapCard({ leagueId }) {
   // When the displayed recap was last generated, so a manager can tell
   // whether it predates a correction (#1412). Visible to every member, not
   // just the commissioner who can act on it.
-  const generatedAt = data.generatedAt ? GENERATED_FORMAT.format(new Date(data.generatedAt)) : null;
+  const generatedAt = formatGenerated(data.generatedAt);
 
   // The shared Card names its own region from its title (a labelled landmark),
   // so this card needs no heading id of its own to thread through.

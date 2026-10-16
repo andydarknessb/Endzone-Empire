@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useId, useRef } from 'react';
 import { Box } from '@mui/material';
+import { PixelArrow } from './playselect/Icons';
 
 /**
  * A segmented control: one selected option among a few, as a radio group on
@@ -7,7 +8,7 @@ import { Box } from '@mui/material';
  * week picker and the Standard / Scoreboard view toggle compose this (ADR
  * 0031, #891).
  *
- * Part of `shared/ui` (ADR 0020): paints only `dash-*` tokens. Each option is
+ * Part of `shared/ui` (ADR 0020): paints `dash-*` tokens, or `ps-*` tokens with `look="playselect"` (below). Each option is
  * a real `role="radio"` button, checked when its value equals `value`, so a
  * screen reader hears the group and its selection.
  *
@@ -35,6 +36,11 @@ import { Box } from '@mui/material';
  * checked segment also takes focus whenever the group already holds it but has
  * drifted off it, so a change of the checked segment never leaves the focus
  * ring scrolled out of the row.
+ *
+ * `look="playselect"` (ADR 0067, spec #2334 ruling 3) repaints the same group on `ps-*` tokens: square
+ * 44px segments, the checked one in Play blue with an arrow so the state is not colour alone, and Home /
+ * End jump to the first / last option. Roles, names, the one tab stop and the arrow keys are unchanged.
+ * The default `dash` look is what every dash page renders.
  */
 const SegmentedControl = React.forwardRef(function SegmentedControl({
   options,
@@ -43,10 +49,12 @@ const SegmentedControl = React.forwardRef(function SegmentedControl({
   'aria-label': ariaLabel,
   fill = false,
   scrollable = false,
+  look = 'dash',
   sx,
   'data-testid': testId = 'segmented-control',
   ...rest
 }, ref) {
+  const ps = look === 'playselect';
   const groupId = useId();
   const groupRef = useRef(null);
   const items = options || [];
@@ -117,6 +125,13 @@ const SegmentedControl = React.forwardRef(function SegmentedControl({
     onChange?.(items[next].value);
   };
 
+  // Home / End (playselect look): focus the end option, then report it as the pick, as an arrow move does.
+  const jump = (index) => {
+    const target = groupRef.current?.querySelectorAll('[role="radio"]')[index];
+    if (target) target.focus({ preventScroll: true });
+    onChange?.(items[index].value);
+  };
+
   return (
     <Box
       ref={setGroupRef}
@@ -137,11 +152,14 @@ const SegmentedControl = React.forwardRef(function SegmentedControl({
         overscrollBehaviorX: scrollable ? 'contain' : undefined,
         scrollbarWidth: scrollable ? 'none' : undefined,
         ...(scrollable ? { '&::-webkit-scrollbar': { display: 'none' } } : null),
-        gap: '2px',
-        p: '3px',
-        backgroundColor: 'var(--dash-surface2)',
-        border: '1px solid var(--dash-line)',
-        borderRadius: '9px',
+        // A scrolling strip clips its own overflow, so it pads by the 7px focus halo plus a pixel.
+        ...(ps ? { gap: 0, p: scrollable ? '8px' : '2px' } : {
+          gap: '2px',
+          p: '3px',
+          backgroundColor: 'var(--dash-surface2)',
+          border: '1px solid var(--dash-line)',
+          borderRadius: '9px',
+        }),
         ...sx,
       }}
       {...rest}
@@ -161,8 +179,32 @@ const SegmentedControl = React.forwardRef(function SegmentedControl({
             onKeyDown={(e) => {
               if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); move(index, 1); }
               if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); move(index, -1); }
+              if (ps && e.key === 'Home') { e.preventDefault(); jump(0); }
+              if (ps && e.key === 'End') { e.preventDefault(); jump(items.length - 1); }
             }}
-            sx={{
+            sx={ps ? {
+              flex: scrollable ? '0 0 auto' : (fill ? '1 1 0' : 'none'),
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '8px',
+              minHeight: 44,
+              px: fill && !scrollable ? '12px' : '14px',
+              ml: index ? '-2px' : 0,
+              boxSizing: 'border-box',
+              border: `2px solid ${checked ? 'var(--ps-play)' : 'var(--ps-ink)'}`,
+              borderRadius: 0,
+              cursor: 'pointer',
+              font: 'inherit',
+              fontSize: '15px',
+              fontWeight: 600,
+              lineHeight: 1,
+              whiteSpace: 'nowrap',
+              color: checked ? 'var(--ps-play-ink)' : 'var(--ps-ink)',
+              backgroundColor: checked ? 'var(--ps-play)' : 'transparent',
+              // The segments overlap by 2px; the checked one sits on top so its edge is whole.
+              ...(checked ? { position: 'relative', zIndex: 1 } : null),
+            } : {
               flex: scrollable ? '0 0 auto' : (fill ? '1 1 0' : 'none'),
               display: 'inline-flex',
               alignItems: 'center',
@@ -184,7 +226,8 @@ const SegmentedControl = React.forwardRef(function SegmentedControl({
               '&:focus-visible': { outline: '2px solid var(--focus-ring)', outlineOffset: 2 },
             }}
           >
-            {option.icon ? <Box component="span" aria-hidden="true" sx={{ display: 'flex' }}>{option.icon}</Box> : null}
+            {ps && checked ? <PixelArrow /> : null}
+            {option.icon && !ps ? <Box component="span" aria-hidden="true" sx={{ display: 'flex' }}>{option.icon}</Box> : null}
             <span>{option.label}</span>
           </Box>
         );

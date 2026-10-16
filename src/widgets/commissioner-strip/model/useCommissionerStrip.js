@@ -1,5 +1,6 @@
 import { useLeague } from '../../../hooks/useLeague';
 import { commissionerFacts, useEndpoint, isPickemOnly, isSeasonLive } from '../../../shared/lib';
+import { allWeekSettled, applyScoreEvent, useWeekMatchups } from '../../../entities/matchup';
 
 /**
  * Data model for the commissioner-strip widget (League Dashboard, #1108). It
@@ -34,7 +35,9 @@ import { commissionerFacts, useEndpoint, isPickemOnly, isSeasonLive } from '../.
 
 const STRIP_FACT_KEYS = ['transactions', 'teams-locked', 'trade-deadline', 'waivers', 'trade-review'];
 
-export function useCommissionerStrip(leagueId) {
+// `scoreEvent` (optional) is the page's last live score event: a game that finishes while the page is
+// open opens the Advance control without a reload.
+export function useCommissionerStrip(leagueId, { scoreEvent } = {}) {
   const { league, teams, refetch } = useLeague(leagueId);
 
   // The pending join queue's count only, gated the same way the retired panel
@@ -58,7 +61,30 @@ export function useCommissionerStrip(leagueId) {
       ? joinRequests.data.length
       : null;
 
+  // Advance week opens when every game of the current week is final (ADR 0067 ruling 7). The week's
+  // matchups are the shared cached read, so the strip adds no request the dashboard does not make.
+  const currentWeek = league?.current_week ?? null;
+  const advanceApplies =
+    !!league?.is_commissioner && !isPickemOnly(league) && isSeasonLive(league) && currentWeek != null;
+  const weekMatchups = useWeekMatchups(advanceApplies ? leagueId : null, currentWeek);
+  const entries = Array.isArray(scoreEvent?.scored) ? scoreEvent.scored : [];
+  const settled = weekMatchups.matchups.map((m) => {
+    const entry = entries.find((e) => e.matchupId === m.id);
+    return entry ? applyScoreEvent(m, entry) : m;
+  });
+  // A failed read is its own reason with a retry, never a permanent "opens when final".
+  const checkFailed = advanceApplies && !weekMatchups.loading && !!weekMatchups.error && settled.length === 0;
+  const advanceDisabledReason = !advanceApplies
+    ? null
+    : checkFailed
+      ? `Couldn't check Week ${currentWeek} games`
+      : weekMatchups.loading || !allWeekSettled(settled, currentWeek)
+        ? `Opens when every Week ${currentWeek} game is final`
+        : null;
+
   return {
+    advanceDisabledReason,
+    advanceRetry: checkFailed ? weekMatchups.refetch : undefined,
     isCommissioner: !!league?.is_commissioner,
     pickemOnly: isPickemOnly(league),
     seasonLive: isSeasonLive(league),

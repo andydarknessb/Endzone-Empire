@@ -41,82 +41,90 @@ describe('figures', () => {
 });
 
 describe('matchupCardView', () => {
-  test('live: scores as figures, the two percentages and the week', () => {
+  test('live: scores as figures, the two percentages, Exp final and players remaining on their own lines', () => {
     const v = matchupCardView(model());
+    expect(v.state).toBe('live');
     expect(v.started).toBe(true);
     expect(v.scheduled).toBe(false);
-    expect(v.chipLabel).toBe('LIVE');
-    expect(v.chipVariant).toBe('danger');
-    expect(v.chipDot).toBe(true);
-    expect(v.headerNote).toBe('Week 3');
     expect(v.homePct).toBe(49);
     expect(v.awayPct).toBe(51);
-    expect(v.footer).toBe('Win probability 49% · 51%');
+    expect(v.favourite).toBe('away');
     expect(v.home.figure).toBe('92.1');
-    expect(v.home.figureTier).toBe('ink');
-    expect(v.home.note).toBe('EF 118.0 · PMR 2');
+    expect(v.home.expectedLine).toBe('Exp final 118.0');
+    expect(v.home.remainingLine).toBe('2 players remaining');
+    expect(v.away.remainingLine).toBe('3 players remaining');
     expect(v.home.leads).toBe(true);
-    expect(v.home.check).toBe(false);
     expect(v.away.leads).toBe(false);
+    expect(v.home.winner).toBe(false);
   });
 
-  test('scheduled: projected totals in the faint tier, the kickoff line, no share', () => {
+  test('scheduled: Proj figures from the Expected final, starters set to play, the projections-only share, the kickoff', () => {
     const v = matchupCardView(
-      model({ status: 'scheduled', home_score: '0', away_score: '0', first_kickoff_at: '2026-09-14T00:20:00Z' }),
+      model({ status: 'scheduled', home_score: '0', away_score: '0', first_kickoff_at: '2026-09-14T00:20:00Z', home_players_remaining: 1 }),
       { timeZone: 'America/Chicago', locale: 'en-US' }
     );
+    expect(v.state).toBe('scheduled');
     expect(v.scheduled).toBe(true);
-    expect(v.chipVariant).toBe('neutral');
-    expect(v.chipDot).toBe(false);
-    expect(v.homeShare).toBeNull();
-    expect(v.headerNote).toBe('Kicks off Sun 7:20 PM');
-    expect(v.footer).toBe('Projected totals shown until kickoff');
+    expect(v.kickoff).toBe('Sun 7:20 PM');
     expect(v.home.figure).toBe('118.0');
-    expect(v.home.figureTier).toBe('faint');
-    expect(v.home.rowFigure).toBe('');
-    expect(v.home.rowNote).toBe('Proj 118.0');
+    expect(v.home.expectedLine).toBe('');
+    expect(v.home.remainingLine).toBe('1 starter set to play');
+    expect(v.away.remainingLine).toBe('3 starters set to play');
+    expect(v.homePct).not.toBeNull();
     expect(v.home.leads).toBe(false);
   });
 
-  test('played and final: the leader is checked and the note keeps only the record', () => {
-    const played = matchupCardView(
+  test.each([
+    ['both null', { home_expected_final: null, away_expected_final: null }],
+    ['home null', { home_expected_final: null }],
+    ['away null', { away_expected_final: null }],
+  ])('live with %s Expected final: no probability, so no bar', (_name, overrides) => {
+    const v = matchupCardView(model(overrides));
+    expect(v.state).toBe('live');
+    expect(v.homeShare).toBeNull();
+    expect(v.homePct).toBeNull();
+    expect(v.favourite).toBeNull();
+  });
+
+  test('scheduled with one Expected final null: no probability, and the figure shows the dash', () => {
+    const v = matchupCardView(model({ status: 'scheduled', away_expected_final: null }));
+    expect(v.homePct).toBeNull();
+    expect(v.away.figure).toBe('-');
+  });
+
+  test('played: awaiting final with no probability and no forecast lines', () => {
+    const v = matchupCardView(
       model({ status: 'played', home_expected_final: null, away_expected_final: null }),
       { records: { 1: '2-0', 2: '1-1' } }
     );
-    expect(played.footer).toBe('Waiting on the score of record');
-    expect(played.home.check).toBe(true);
-    expect(played.away.check).toBe(false);
-    expect(played.home.note).toBe('2-0');
-    expect(played.home.rowNote).toBe('2-0');
-    expect(played.chipLabel).toBe('Awaiting final');
-    // Red-tell (#897): collapsing the variant map back to live-or-neutral
-    // turns these two chip assertions red (played and final read a third and
-    // a fourth variant).
-    expect(played.chipVariant).toBe('warning');
-    expect(played.chipDot).toBe(false);
-
-    const final = matchupCardView(model({ status: 'final', home_score: '80', away_score: '90' }));
-    expect(final.chipLabel).toBe('Final');
-    expect(final.chipVariant).toBe('success');
-    expect(final.chipDot).toBe(false);
-    expect(final.footer).toBe('Score of record');
-    expect(final.away.check).toBe(true);
-    expect(final.home.check).toBe(false);
-    expect(final.home.note).toBe('');
+    expect(v.state).toBe('played');
+    expect(v.homeShare).toBeNull();
+    expect(v.home.record).toBe('2-0');
+    expect(v.home.expectedLine).toBe('');
+    expect(v.home.remainingLine).toBe('');
+    expect(v.chipLabel).toBe('Awaiting final');
+    expect(v.home.winner).toBe(false);
   });
 
-  test('an unknown status asserts neither started nor scheduled', () => {
+  test('final: the winner in ink, no bar', () => {
+    const v = matchupCardView(model({ status: 'final', home_score: '80', away_score: '90' }));
+    expect(v.state).toBe('final');
+    expect(v.chipLabel).toBe('Final');
+    expect(v.homePct).toBeNull();
+    expect(v.away.winner).toBe(true);
+    expect(v.home.winner).toBe(false);
+  });
+
+  test('an unknown status asserts neither started nor scheduled and draws no bar', () => {
     const v = matchupCardView(model({ status: null }));
+    expect(v.state).toBe('unknown');
     expect(v.started).toBe(false);
     expect(v.scheduled).toBe(false);
     expect(v.chipLabel).toBeNull();
-    expect(v.chipVariant).toBe('neutral');
-    expect(v.chipDot).toBe(false);
     expect(v.homeShare).toBeNull();
-    expect(v.footer).toBe('');
-    expect(v.headerNote).toBe('Week 3');
     expect(v.home.figure).toBe('92.1');
     expect(v.home.leads).toBe(false);
+    expect(v.home.remainingLine).toBe('');
   });
 });
 

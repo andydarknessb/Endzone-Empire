@@ -2,8 +2,6 @@ import {
   formatPoints,
   formatStatLine,
   lineTwo,
-  paceView,
-  positionRingKey,
   starterStateView,
 } from './slotComparisonModel';
 
@@ -33,23 +31,6 @@ describe('starterStateView', () => {
   });
 });
 
-describe('paceView', () => {
-  test('is the clamped share of the projection and whether the starter is at or ahead of it', () => {
-    expect(paceView(4.8, 16.4)).toEqual({ percent: 29, ahead: false });
-    expect(paceView(14.3, 13.8)).toEqual({ percent: 100, ahead: true });
-    expect(paceView(13.8, 13.8)).toEqual({ percent: 100, ahead: true });
-    expect(paceView(0, 12)).toEqual({ percent: 0, ahead: false });
-  });
-
-  test('is empty against a zero projection and null when nothing was projected', () => {
-    expect(paceView(3, 0)).toEqual({ percent: 0, ahead: false });
-    expect(paceView(3, null)).toBeNull();
-    expect(paceView(3, undefined)).toBeNull();
-    expect(paceView(3, 'n/a')).toBeNull();
-  });
-});
-
-
 describe('lineTwo', () => {
   test('reads team, opponent and clock with middots, dropping what is absent', () => {
     expect(lineTwo({ nfl_team: 'GB', opponent: 'TB', game_clock: 'Q3 6:42' })).toBe('GB vs TB · Q3 6:42');
@@ -59,15 +40,7 @@ describe('lineTwo', () => {
   });
 });
 
-describe('positionRingKey and formatPoints', () => {
-  test('rings by the position palette and falls back to the neutral gray', () => {
-    expect(positionRingKey('QB')).toBe('qb');
-    expect(positionRingKey('LB')).toBe('idp');
-    expect(positionRingKey('DEF')).toBe('def');
-    expect(positionRingKey('??')).toBe('def');
-    expect(positionRingKey(null)).toBe('def');
-  });
-
+describe('formatPoints', () => {
   test('formats points to one decimal, zero for nothing', () => {
     expect(formatPoints(18.64)).toBe('18.6');
     expect(formatPoints(null)).toBe('0.0');

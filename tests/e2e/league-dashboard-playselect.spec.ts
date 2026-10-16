@@ -1,0 +1,119 @@
+/**
+ * League Dashboard "Play-select" guard (#2330, ADR 0067 wave 1b). jsdom has no layout engine, so this
+ * mirrors tests/e2e/home-playselect.spec.ts: `page.route` API stubs
+ * (fixtures/leagueDashboardPlayselectFixtures.ts, layered on the layout-guard harness), headless
+ * Chromium, DOM probes.
+ *
+ * Every state x viewport x colour scheme:
+ *  - the page's cursors: exactly the count the state carries (one while a play needs the viewer,
+ *    none when nothing does) and never more than one;
+ *  - no sideways scroll on the document or the body;
+ *  - a full-page screenshot under test-results/league-dashboard-shots/ (review artefacts, not
+ *    snapshot assertions).
+ * Plus the phone standings: the viewer's row with two teams either side and a "Full standings" link,
+ * all twelve rows at desktop.
+ *
+ * What this does NOT cover: colours (src/theme/tokens.contrast.test.js), the widgets' row-level
+ * geometry (league-dashboard-layout.spec.ts), the recap and trophy bounds (recap-layout.spec.ts,
+ * trophy-case-layout.spec.ts).
+ */
+import fs from 'fs';
+import path from 'path';
+import { expect, test } from '@playwright/test';
+import type { Page } from '@playwright/test';
+import {
+  DASH_URL, EXPECTED_CURSORS, setupDashboard,
+} from './fixtures/leagueDashboardPlayselectFixtures';
+import type { DashState, DashTheme } from './fixtures/leagueDashboardPlayselectFixtures';
+
+const VIEWPORTS = {
+  desktop: { width: 1440, height: 900 },
+  phone: { width: 390, height: 844 },
+} as const;
+type ViewportName = keyof typeof VIEWPORTS;
+const STATES: DashState[] = ['inseason', 'gamedayUrgent', 'gamedaySet', 'predraft', 'complete', 'pickemonly'];
+const THEMES: DashTheme[] = ['dark', 'light'];
+const SHOTS = path.join('test-results', 'league-dashboard-shots');
+// The states that carry a standings table (a pre-draft or pick'em-only league has no fantasy standings).
+const HAS_STANDINGS: DashState[] = ['inseason', 'gamedayUrgent', 'gamedaySet', 'complete'];
+let unanswered: string[] = [];
+
+test.afterEach(() => {
+  expect(unanswered, 'every request the dashboard makes is answered by the fixture').toEqual([]);
+});
+
+async function openDashboard(page: Page, state: DashState, viewport: ViewportName, theme?: DashTheme) {
+  // A request the fixture does not answer comes back 500 `unexpected mocked request`; a state that read one would
+  // paint an error panel and pass the probes below for the wrong reason, so every state must read only answered routes.
+  unanswered = [];
+  page.on('response', (res) => {
+    const { pathname } = new URL(res.url());
+    // The boot-time token refresh is outside every harness's table (the guard's catch-all 500s it too).
+    if (res.status() === 500 && pathname.startsWith('/api/') && pathname !== '/api/auth/refresh') unanswered.push(pathname);
+  });
+  await setupDashboard(page, state, { theme });
+  await page.setViewportSize(VIEWPORTS[viewport]);
+  await page.goto(DASH_URL);
+  await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+  if (HAS_STANDINGS.includes(state)) await expect(page.getByTestId('standings-table-you-row')).toBeVisible();
+  // Your move reads its own request; the card (or its empty line) is part of the state's cursor count.
+  if (EXPECTED_CURSORS[state] > 0) await expect(page.locator('.cursor')).toHaveCount(EXPECTED_CURSORS[state]);
+  await page.evaluate(() => document.fonts.ready.then(() => true));
+  // The load blink runs a second and a half in steps; the count above is stable through it.
+  await page.waitForTimeout(150);
+}
+
+for (const state of STATES) {
+  for (const viewport of Object.keys(VIEWPORTS) as ViewportName[]) {
+    for (const theme of THEMES) {
+      test(`${state} ${viewport} ${theme}: the state's cursors, at most one, no sideways scroll`, async ({ page }) => {
+        await openDashboard(page, state, viewport, theme);
+
+        const probe = await page.evaluate(() => ({
+          cursors: document.querySelectorAll('.cursor').length,
+          scrollWidth: document.documentElement.scrollWidth,
+          clientWidth: document.documentElement.clientWidth,
+          bodyScrollWidth: document.body.scrollWidth,
+          innerWidth: window.innerWidth,
+        }));
+        // eslint-disable-next-line no-console
+        console.log(`LEAGUE_DASHBOARD_PLAYSELECT ${state}-${viewport}-${theme} ${JSON.stringify(probe)}`);
+
+        fs.mkdirSync(SHOTS, { recursive: true });
+        await page.screenshot({ path: path.join(SHOTS, `${state}-${viewport}-${theme}.png`), fullPage: true, animations: 'disabled' });
+
+        expect(probe.cursors, 'never more than one .cursor').toBeLessThanOrEqual(1);
+        expect(probe.cursors, `${state} carries ${EXPECTED_CURSORS[state]} cursor(s)`).toBe(EXPECTED_CURSORS[state]);
+        expect(probe.scrollWidth, `document scrollWidth ${probe.scrollWidth} vs innerWidth ${probe.innerWidth}`).toBeLessThanOrEqual(probe.innerWidth);
+        expect(probe.bodyScrollWidth, `body scrollWidth ${probe.bodyScrollWidth} vs innerWidth ${probe.innerWidth}`).toBeLessThanOrEqual(probe.innerWidth);
+      });
+    }
+  }
+}
+
+// The standings table: all twelve teams at desktop; at 390 the viewer (sixth) with two teams either
+// side and a "Full standings" control that opens the rest.
+test('phone standings: the viewer row with two teams either side and a Full standings link', async ({ page }) => {
+  await openDashboard(page, 'inseason', 'phone');
+  const table = page.getByTestId('standings-table');
+  const rows = table.locator('tbody tr');
+  await expect(rows).toHaveCount(5);
+  const you = table.getByTestId('standings-table-you-row');
+  await expect(you).toHaveCount(1);
+  const ranks = await rows.evaluateAll((trs) => trs.map((tr) => (tr.querySelector('td') as HTMLElement).textContent?.trim()));
+  expect(ranks).toEqual(['4', '5', '6', '7', '8']);
+  await expect(you.locator('td').first()).toHaveText('6');
+
+  const full = table.getByTestId('standings-table-full');
+  await expect(full).toBeVisible();
+  await expect(full).toHaveText('Full standings');
+  await full.click();
+  await expect(rows).toHaveCount(12);
+});
+
+test('desktop standings: all twelve teams, no fold control', async ({ page }) => {
+  await openDashboard(page, 'inseason', 'desktop');
+  const table = page.getByTestId('standings-table');
+  await expect(table.locator('tbody tr')).toHaveCount(12);
+  await expect(table.getByTestId('standings-table-full')).toHaveCount(0);
+});
