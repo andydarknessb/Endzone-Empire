@@ -43,16 +43,18 @@ const EXTRA_TEAMS = [
 ];
 export const DASH_TEAMS = [...TEAMS, ...EXTRA_TEAMS];
 
+type DashTeam = { teamId: number; teamName: string };
+
 /** Rank order with the viewer sixth. */
-const RANKED = [
-  ...DASH_TEAMS.filter((t) => t.teamId !== VIEWER_TEAM_ID).slice(0, 5),
-  DASH_TEAMS.find((t) => t.teamId === VIEWER_TEAM_ID)!,
-  ...DASH_TEAMS.filter((t) => t.teamId !== VIEWER_TEAM_ID).slice(5),
+const rankedOf = (teams: DashTeam[]) => [
+  ...teams.filter((t) => t.teamId !== VIEWER_TEAM_ID).slice(0, 5),
+  teams.find((t) => t.teamId === VIEWER_TEAM_ID)!,
+  ...teams.filter((t) => t.teamId !== VIEWER_TEAM_ID).slice(5),
 ];
 
-function standingsBody(pregame: boolean) {
+function standingsBody(pregame: boolean, ranked: DashTeam[]) {
   return {
-    standings: RANKED.map((t, i) => ({
+    standings: ranked.map((t, i) => ({
       teamId: t.teamId,
       teamName: t.teamName,
       rank: i + 1,
@@ -67,10 +69,10 @@ function standingsBody(pregame: boolean) {
 
 // The pick'em standings read (GET /api/pickem/league/:id/standings): rows in points order, the viewer's
 // team id beside them. Two weeks played so the heat strip and the trend have something to draw.
-function pickemStandingsBody() {
+function pickemStandingsBody(ranked: DashTeam[]) {
   return {
     viewerTeamId: VIEWER_TEAM_ID,
-    standings: RANKED.map((t, i) => ({
+    standings: ranked.map((t, i) => ({
       teamId: t.teamId,
       teamName: t.teamName,
       rank: i + 1,
@@ -84,21 +86,22 @@ function pickemStandingsBody() {
 }
 
 // The league recap (GET /api/scoring/league/:id/recap): one generated narrative and four fact rows.
-function recapBody(now: number) {
+function recapBody(now: number, teams: DashTeam[]) {
+  const nameOf = (id: number) => teams.find((t) => t.teamId === id)!.teamName;
   return {
     season: 2026,
     week: WEEK - 1,
     data: {
       generatedAt: at(now, -20 * HOUR),
       narrative: [
-        'Chattahoochee Valley Riverhogs rode a 41 point Sunday from the flex spot to take the week by 16, and Sasquatch of the Cascade Range',
-        'left a starting lineup of questionable players in a bad spot all afternoon. Kilimanjaro Ridge Wildebeests won the week 142 to 139.',
+        `${nameOf(VIEWER_TEAM_ID)} rode a 41 point Sunday from the flex spot to take the week by 16, and ${nameOf(102)}`,
+        `left a starting lineup of questionable players in a bad spot all afternoon. ${nameOf(105)} won the week 142 to 139.`,
       ].join(' '),
       facts: {
-        highestScorer: { team: 'Patagonia Frostbite Penguins', points: 142.6 },
-        benchBlunder: { team: 'Sasquatch of the Cascade Range', pointsLeftOnBench: 31.4 },
-        waiverSteal: { player: 'Jordan Addison', team: 'Chattahoochee Valley Riverhogs', points: 24.1 },
-        closestMatchup: { home: 'Windy City Gridiron Goblins', away: 'Emerald Coast Storm Chasers', margin: 0.8 },
+        highestScorer: { team: nameOf(106), points: 142.6 },
+        benchBlunder: { team: nameOf(102), pointsLeftOnBench: 31.4 },
+        waiverSteal: { player: 'Jordan Addison', team: nameOf(VIEWER_TEAM_ID), points: 24.1 },
+        closestMatchup: { home: nameOf(103), away: nameOf(104), margin: 0.8 },
       },
     },
   };
@@ -230,6 +233,7 @@ export async function setupDashboard(
   const now = opts.now ?? Date.now();
   // A per-call copy: DASH_TEAMS is shared by every test in the worker.
   const teams = DASH_TEAMS.map((t) => ({ ...t, teamName: opts.teamNames?.[t.teamId] ?? t.teamName }));
+  const ranked = rankedOf(teams);
   if (opts.theme) {
     await page.addInitScript((theme) => {
       try { window.localStorage.setItem('endzone_theme', theme); } catch { /* storage blocked: the app falls back to its default */ }
@@ -249,16 +253,16 @@ export async function setupDashboard(
       return json(route, 200, { league: leagueRow(state), teams, viewerTeamId: VIEWER_TEAM_ID });
     }
     if (pathname === `/api/league/${LEAGUE_ID}/matchups`) return json(route, 200, matchupsBody(state, teams));
-    if (pathname === `/api/scoring/league/${LEAGUE_ID}/standings`) return json(route, 200, standingsBody(pregame));
+    if (pathname === `/api/scoring/league/${LEAGUE_ID}/standings`) return json(route, 200, standingsBody(pregame, ranked));
     if (pathname === '/api/user/action-items') {
       const counted = items.filter((i) => i.severity !== 'info');
       return json(route, 200, { generatedAt: at(now, 0), counts: { total: counted.length, dueToday: 0 }, partial: [], items });
     }
     if (pathname === `/api/scoring/league/${LEAGUE_ID}/recap`) {
-      return state === 'predraft' || state === 'pickemonly' ? json(route, 404, { error: 'no recap yet' }) : json(route, 200, recapBody(now));
+      return state === 'predraft' || state === 'pickemonly' ? json(route, 404, { error: 'no recap yet' }) : json(route, 200, recapBody(now, teams));
     }
     if (pathname === `/api/scoring/league/${LEAGUE_ID}/power-rankings`) {
-      const rankings = RANKED.map((t, i) => ({ teamId: t.teamId, name: t.teamName, rank: i + 1 }));
+      const rankings = ranked.map((t, i) => ({ teamId: t.teamId, name: t.teamName, rank: i + 1 }));
       return json(route, 200, { season: 2026, week: WEEK, viewerTeamId: VIEWER_TEAM_ID, data: { computedAt: at(now, -HOUR), rankings } });
     }
     if (pathname === '/api/team/lineup/advice') {
@@ -271,7 +275,7 @@ export async function setupDashboard(
     }
     if (pathname === `/api/league/${LEAGUE_ID}/chat`) return json(route, 200, []);
     if (pathname === `/api/league/${LEAGUE_ID}/chat/unread`) return json(route, 200, { unread: 0 });
-    if (pathname === `/api/pickem/league/${LEAGUE_ID}/standings`) return json(route, 200, pickemStandingsBody());
+    if (pathname === `/api/pickem/league/${LEAGUE_ID}/standings`) return json(route, 200, pickemStandingsBody(ranked));
     if (pathname === `/api/pickem/league/${LEAGUE_ID}/settings`) {
       return json(route, 200, pickemOn ? { enabled: true, mode: 'straight' } : { enabled: false });
     }

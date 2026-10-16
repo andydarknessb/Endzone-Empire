@@ -65,12 +65,16 @@ test.afterEach(() => {
   expect(unanswered, 'every request Game Center makes is answered by the fixture').toEqual([]);
 });
 
-async function openGameCenter(page: Page, state: State, viewport: ViewportName, theme: DashTheme) {
+function watchUnanswered(page: Page) {
   unanswered = [];
   page.on('response', (res) => {
     const { pathname } = new URL(res.url(), 'http://x');
     if (res.status() === 500 && pathname.startsWith('/api/') && pathname !== '/api/auth/refresh') unanswered.push(pathname);
   });
+}
+
+async function openGameCenter(page: Page, state: State, viewport: ViewportName, theme: DashTheme) {
+  watchUnanswered(page);
   await setupDashboard(page, STATES[state], { theme });
   await page.route(`**/api/league/${LEAGUE_ID}/matchups/918`, (route: Route) => json(route, 200, lineupDetail()));
   await page.setViewportSize(VIEWPORTS[viewport]);
@@ -151,7 +155,7 @@ test('phone: scrolled past the hero, a compact scoreboard no taller than 56px pi
 // The league matchups tile (sm and up) sets the name beside the figure; an unbreakable name must wrap inside its box.
 for (const viewport of ['desktop', 'tablet'] as const) {
   test(`Game Center ${viewport}: a long one-word team name never runs under the tile's score`, async ({ page }) => {
-    unanswered = [];
+    watchUnanswered(page);
     await setupDashboard(page, 'gamedayUrgent', { theme: 'light', teamNames: { 103: 'DoDaPerpsHave@QB?WithNoSpaces', 106: 'CaShMeOuTsIdEeRiGhTnOwPlEaSe' } });
     await page.route(`**/api/league/${LEAGUE_ID}/matchups/918`, (route: Route) => json(route, 200, lineupDetail()));
     await page.setViewportSize(viewport === 'tablet' ? { width: 768, height: 900 } : VIEWPORTS.desktop);

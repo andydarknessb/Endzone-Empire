@@ -42,15 +42,19 @@ test.afterEach(() => {
   expect(unanswered, 'every request the dashboard makes is answered by the fixture').toEqual([]);
 });
 
-async function openDashboard(page: Page, state: DashState, viewport: ViewportName, theme?: DashTheme) {
-  // A request the fixture does not answer comes back 500 `unexpected mocked request`; a state that read one would
-  // paint an error panel and pass the probes below for the wrong reason, so every state must read only answered routes.
+// A request the fixture does not answer comes back 500 `unexpected mocked request`; a state that read one would
+// paint an error panel and pass the probes below for the wrong reason, so every state must read only answered routes.
+function watchUnanswered(page: Page) {
   unanswered = [];
   page.on('response', (res) => {
     const { pathname } = new URL(res.url());
     // The boot-time token refresh is outside every harness's table (the guard's catch-all 500s it too).
     if (res.status() === 500 && pathname.startsWith('/api/') && pathname !== '/api/auth/refresh') unanswered.push(pathname);
   });
+}
+
+async function openDashboard(page: Page, state: DashState, viewport: ViewportName, theme?: DashTheme) {
+  watchUnanswered(page);
   await setupDashboard(page, state, { theme });
   await page.setViewportSize(VIEWPORTS[viewport]);
   await page.goto(DASH_URL);
@@ -114,7 +118,7 @@ test('phone standings: the viewer row with two teams either side and a Full stan
 // An unbreakable team name (a real league has one) in a flex:1 / minWidth:0 span overflows its box into the
 // score unless the span breaks anywhere; names with spaces wrap, which is why the stock fixtures never caught it.
 test('phone around the league: a long one-word team name never runs under the score', async ({ page }) => {
-  unanswered = [];
+  watchUnanswered(page);
   await setupDashboard(page, 'gamedaySet', { theme: 'light', teamNames: { 103: 'DoDaPerpsHave@QB?WithNoSpaces', 106: 'CaShMeOuTsIdEeRiGhTnOwPlEaSe' } });
   await page.setViewportSize(VIEWPORTS.phone);
   await page.goto(DASH_URL);
