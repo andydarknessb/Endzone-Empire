@@ -282,8 +282,9 @@ test("page shell: pick'em standings do not widen the document", async () => {
   expect(cssFor(shellEl)).toMatch(/gap:\s*32px/);
   // The fixed chat button (56px tall, at bottom: 24) was landing on the last
   // card because the empty rows below it were the only thing keeping it clear.
-  // This is the clearance that replaces them (96px under the phone's content).
-  expect(cssFor(shellEl)).toMatch(/padding:\s*24px 16px 96px/);
+  // This is the clearance that replaces them (96px under the content at every width;
+  // the geometry is guarded in tests/e2e/league-dashboard-playselect.spec.ts).
+  expect(cssFor(shellEl)).toMatch(/padding-bottom:\s*96px/);
   // The page paints the Play-select ground on a `.ps-root` element, which also
   // scopes the focus ring, the cursor blink and the hover rules.
   // eslint-disable-next-line testing-library/no-node-access
