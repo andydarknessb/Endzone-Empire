@@ -55,6 +55,17 @@ class MembershipError extends Error {
 const NOT_A_MEMBER = 'not a member of this league';
 const ALREADY_A_MEMBER = 'already has a team in this league';
 const LEAGUE_FULL = 'league is full';
+const BANNED = 'you have been banned from this league';
+
+/** Accepts a pool or a checked-out client. True when the commissioner banned this user from the league. */
+async function isBanned(db, leagueId, userId) {
+  if (!leagueId || !userId) return false;
+  const result = await db.query(
+    `SELECT 1 FROM "league_bans" WHERE "league_id" = $1 AND "user_id" = $2`,
+    [leagueId, userId]
+  );
+  return !!result.rows[0];
+}
 
 /** Accepts a pool or a checked-out client. True when the user holds a Team in the league. */
 async function isMember(db, leagueId, userId) {
@@ -84,7 +95,8 @@ async function requireMember(db, { leagueId, userId, forUpdate = false }) {
 /**
  * Admission: may `userId` join `league` right now? Admission presupposes a
  * joinable league, so that is asked first (League phase owns the answer; a
- * refusal carries its `reason`), then already-a-member, then full. Throws
+ * refusal carries its `reason`), then banned (a 403: a commissioner's Remove &
+ * ban, league_bans), then already-a-member, then full. Throws
  * the 409 refusal, or returns `{ teamCount }` so the caller need not count
  * again. `league` is the row the caller already holds FOR UPDATE; `client`
  * is the same transaction, so the reads see what the lock protects.
@@ -94,6 +106,7 @@ async function assertAdmissible(client, league, userId) {
   if (!answer.joinable) {
     throw new MembershipError(409, joinRefusalMessage(answer.reason), { reason: answer.reason });
   }
+  if (await isBanned(client, league.id, userId)) throw new MembershipError(403, BANNED);
   if (await isMember(client, league.id, userId)) throw new MembershipError(409, ALREADY_A_MEMBER);
   const countResult = await client.query(
     `SELECT COUNT(*)::int AS n FROM "teams" WHERE "league_id" = $1`,
@@ -142,6 +155,7 @@ async function joinLeague(client, { leagueId, userId, teamName }) {
 module.exports = {
   MembershipError,
   isMember,
+  isBanned,
   requireMember,
   assertAdmissible,
   joinLeague,
