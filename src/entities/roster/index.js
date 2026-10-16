@@ -110,6 +110,7 @@ export { moveLegality, isBestBallManagedSlot } from './model/moveLegality';
 export { ledgerTabCounts } from './model/buildLedgerSections';
 export { useTeamLineup, useLedgerSections } from './model/useTeamLineup';
 export { useAdvice } from './model/useAdvice';
+export { adviceNote, adviceGain } from './model/adviceNote';
 export {
   parseRosterTemplate,
   accepts,

@@ -4,7 +4,6 @@ import userEvent from '@testing-library/user-event';
 import { Route, useLocation } from 'react-router-dom';
 import renderWithProviders from '../../../test-utils/renderWithProviders';
 import apiClient from '../../../api/apiClient';
-import { colorTokens } from '../../../theme/tokens';
 import BenchWhatIf, { swapLineupHref } from '../index';
 
 // The card never talks to the server (ADR 0019: the action is a link to the
@@ -154,20 +153,23 @@ test('a points figure that is not a number is left off the row rather than print
   expect(row).not.toHaveTextContent('NaN');
 });
 
-test('titles the card with a heading that labels it as a region', () => {
+test('is a note row: a labelled region whose bold lead is "Bench what-if.", with no heading of its own', () => {
   renderCard();
 
-  const heading = screen.getByRole('heading', { name: 'Bench what-if' });
-  expect(heading.tagName).toBe('H2');
-  expect(screen.getByRole('region', { name: 'Bench what-if' })).toBe(
-    screen.getByTestId('bench-what-if')
-  );
+  expect(screen.queryByRole('heading')).not.toBeInTheDocument();
+  expect(screen.getByRole('region', { name: 'Bench what-if.' })).toBe(screen.getByTestId('bench-what-if'));
+  expect(screen.getByText('Bench what-if.').tagName).toBe('B');
 });
 
-test('honours an explicit heading level so the page can sit it below its own title', () => {
-  renderCard({ headingLevel: 3 });
+test('Swap in lineup is a ghost button: a 2px Ink edge, never filled', () => {
+  renderCard();
+  const link = screen.getByRole('link', { name: 'Swap in lineup' });
+  const rules = Array.from(document.styleSheets).flatMap((s) => Array.from(s.cssRules))
+    .filter((r) => r.cssText && r.cssText.includes('.' + Array.from(link.classList).find((c) => c.startsWith('css-'))))
+    .map((r) => r.cssText).join('');
 
-  expect(screen.getByRole('heading', { name: 'Bench what-if' }).tagName).toBe('H3');
+  expect(rules).toMatch(/border: 2px solid var\(--ps-ink\)/);
+  expect(rules).not.toMatch(/var\(--ps-accent\)/);
 });
 
 test('swapLineupHref names the swap in the query and encodes the ids', () => {
@@ -176,20 +178,3 @@ test('swapLineupHref names the swap in the query and encodes the ids', () => {
     '/league/12/lineup?swapOut=a+b&swapIn=c%26d'
   );
 });
-
-// The card paints only `dash-*` tokens (tokens.js: island slices use the
-// `dash-*` group, never an app token), and the warning pair it names is
-// registered in tokens.contrast.test.js, where its legibility is measured in
-// both themes. jsdom cannot read a token back off a rendered element (MUI
-// compiles `var()` to an emotion class and the CSSOM drops it, on inline
-// style too; see the note in GradeChip.test.jsx), so what this pins is that
-// the pair the card paints exists in both token groups: removing or renaming
-// it in tokens.js would leave the border and chip on `currentColor`, and this
-// suite goes red for it alongside the contrast guard.
-test.each(['light', 'dark'])(
-  'the warning pair the card paints exists in the %s token group',
-  (mode) => {
-    expect(colorTokens[mode]['dash-warning']).toEqual(expect.any(String));
-    expect(colorTokens[mode]['dash-warning-soft']).toEqual(expect.any(String));
-  }
-);

@@ -1,108 +1,102 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, {
+  useCallback, useEffect, useMemo, useRef, useState,
+} from 'react';
 import { Link as RouterLink, useParams } from 'react-router-dom';
-import { Alert, Box, Container, Link, Typography, useMediaQuery } from '@mui/material';
+import { Box, useMediaQuery } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
-import { Badge, DashButton, Skeleton } from '../../shared/ui';
+import {
+  Frame, LiveChip, NumbersHelp, PixelArrow, PixelWarn, PsButton, PsLink, Skel, StatusChip, pixelSx, psRootSx,
+} from '../../shared/ui/playselect';
+import { formatInstant, useNow } from '../../shared/lib';
 import ScoreboardStrip from '../../widgets/scoreboard-strip';
 import SlotComparison from '../../widgets/slot-comparison';
 import NflGameStrip from '../../widgets/nfl-game-strip';
 import RetroScoreboard from '../../widgets/retro-scoreboard';
-import BenchWhatIf from '../../features/bench-what-if';
+import BenchWhatIf, { LineupNote, lineupIssues, lineupNoteView } from '../../features/bench-what-if';
 import ToggleMatchupView, { VIEW_SCOREBOARD, VIEW_STANDARD } from '../../features/toggle-matchup-view';
 import CelebrateTouchdown, { CelebrationsCaption } from '../../features/celebrate-touchdown';
 import PlayerDecisionCard, { myTeam, rostered } from '../../widgets/player-decision-card';
 import { toDecisionCardEntry } from '../../entities/player';
+import { useActionItems } from '../../entities/action-item';
+import { adviceGain, adviceNote, useAdvice } from '../../entities/roster';
 import { useMatchupPage } from './model/useMatchupPage';
 import BenchCard from './ui/BenchCard';
 import LastPlays from './ui/LastPlays';
 
 /**
- * Matchup page slice (ADR 0031, #903), on the
- * `/league/:leagueId/matchups/:matchupId` route in place of the legacy Matchup
- * Detail page under the components tree, which is deleted with its tests.
- * Transcribed from the canvas's `matchupStandardDesktop()`,
- * `matchupStandardMobile()`, `matchupScoreboardDesktop()` and
- * `matchupScoreboardMobile()` (docs/design/game-center-matchups/build.mjs):
+ * Matchup page slice (ADR 0031, #903; Play-select since ADR 0067 wave 2, spec #2334), on the
+ * `/league/:leagueId/matchups/:matchupId` route. Restyled from the approved boards (Matchup,
+ * MatchupPre, MatchupPhone in docs/design/league); the sections, their order and the data reads are
+ * the product's, and only the behaviour the critique rounds approved changed.
  *
- *   - the header (`detailHeader()`): the "<league name> · Game Center ·
- *     Matchup" breadcrumb line (the current page last, `aria-current`, as
- *     the Game Center breadcrumb ends on its own page), the h1 "Week N
- *     Matchup" in the display face with the Playoff chip and the status chip
- *     beside it (the canvas's statusChip(): LIVE on the danger tint with the
- *     dot, Final success, Awaiting final warning, Scheduled neutral), and on
- *     the right the Standard / Scoreboard toggle (features/toggle-matchup-
- *     view) with the "Set lineup" action linking to the Lineup page (ADR
- *     0019: the sole management surface). On a phone the toggle fills its
- *     row with 44px segments and Set lineup sits at the bottom of the page,
- *     44px tall;
- *   - the Standard view: the sticky scoreboard strip (widgets/scoreboard-
- *     strip), the NFL game strip while the Matchup is live and games exist
- *     (widgets/nfl-game-strip), the bench what-if while live
- *     (features/bench-what-if), the Starters table (widgets/slot-comparison)
- *     and the collapsed Bench card (./ui/BenchCard) with the bench-left line
- *     for a final Matchup;
- *   - the Scoreboard view: the retro scoreboard (widgets/retro-scoreboard),
- *     its ticker slot holding the last-plays ticker (./ui/LastPlays) full
- *     width under the field while live (the canvas's liveTicker() row), its
- *     aside slot the bench what-if while live (the right column on desktop,
- *     after the Lineups card stacked), its field's caption tail the
- *     celebrate-touchdown feature's read-only "Celebrations on / off" line
- *     (the canvas's affordance beside the field), and its "Full comparison"
- *     action switching back to Standard and moving keyboard focus onto the
- *     toggle's checked Standard option: the action's own button unmounts
- *     with the view, so focus would otherwise drop to the body. The canvas
- *     draws no bench section in this view: the legacy Scoreboard mode's
- *     "Show Benches" is retired, and the Standard view's Bench card carries
- *     the benches.
+ *   - the head: the "<league name> · Game Center · Matchup" breadcrumb (the current page last,
+ *     `aria-current`; below sm it drops the current page, the h1 says it), the pixel h1 "Week N
+ *     Matchup" with the Playoff and status chips on its row (LiveChip while live, a Pixel 16 word chip
+ *     otherwise), the dim "Times in {zone}" line and the closed "What the numbers mean" disclosure, and
+ *     at the right the Standard / Scoreboard toggle (features/toggle-matchup-view) with the "Set
+ *     lineup" link to the Lineup page (ADR 0019: the sole management surface), a ghost button, never
+ *     filled. On a phone the toggle fills its row and Set lineup sits at the bottom of the page;
+ *   - the Standard view: the scoreboard strip (widgets/scoreboard-strip: the Board-black versus screen
+ *     once started, the framed panel before kickoff; the full panel stays in flow and a 56px compact
+ *     bar pins when it scrolls out), the NFL game strip while the Matchup is live and games exist
+ *     (widgets/nfl-game-strip), the note row (the lineup note while the viewer has an empty or Out
+ *     starting slot they can still fix, else the Bench what-if while live; features/bench-what-if),
+ *     the Starters frame (widgets/slot-comparison) and the collapsed Bench frame (./ui/BenchCard) with
+ *     the bench-left line for a final Matchup. There is no Last plays in this view;
+ *   - the Scoreboard view: the retro scoreboard (widgets/retro-scoreboard, amber LED on black), its
+ *     ticker slot holding the last-plays ticker (./ui/LastPlays) full width under the field while
+ *     live, its aside slot the same note row, its field's caption tail the celebrate-touchdown
+ *     feature's read-only "Celebrations on / off" line, and its "Full comparison" action switching
+ *     back to Standard and moving keyboard focus onto the toggle's checked Standard option: the
+ *     action's own button unmounts with the view, so focus would otherwise drop to the body.
  *
- * Both views render the SAME `starterRows` the page model pairs (#1210:
- * pairing is a Roster/Lineup fact, ADR 0029, paired here via
- * `entities/roster`'s `pairStartersBySlot`, never inside the Matchup entity),
- * so the two agree slot for slot under any league slot order. The Scoreboard
- * view's widget gets the same pairs as `scoreboardRows`, each player through
- * the Matchup entity's `playerFromDetailRow` (#2147); the Slot comparison and
- * the Decision card lookup below stay on the wire rows. The status chip
- * is the server's status fact (ADR 0030) read through the entity's one
- * predicate: the header chip and the strip's chip carry the same label and
- * the same variant (the page model's `statusChip` and the strip's view model
- * transcribe the one canvas map), and a status the server could not compute
- * (null) shows no chip anywhere. The Scoreboard view's board and field follow
- * the same started state as the strip's bar: no WIN digits and sprites at
- * midfield before kickoff. A
- * player's name opens the Decision card (`widgets/player-decision-card`,
- * #1311, ADR 0040) from either the Starters table or the Bench card - in
- * `'my_team'` context for the viewer's own starter/bench player, `'rostered'`
- * otherwise, derived here from the paired row/bench data the page model
- * already holds (SlotComparison and BenchCard hand back only the clicked
- * player's id, same as their old PlayerQuickView contract). The touchdown
- * cutscenes and toasts are the celebrate-touchdown feature's, fed from the
- * score feed through the page model.
+ * Matchup is a watching page (RULINGS "QA round 1"): no cursor and no filled action. Both views
+ * render the SAME `starterRows` the page model pairs (#1210), so they agree slot for slot under any
+ * league slot order. The status chip is the server's status fact (ADR 0030) read through the entity's
+ * one predicate; a status the server could not compute (null) shows no chip. A player's name opens
+ * the Decision card (`widgets/player-decision-card`, ADR 0040) from either the Starters frame or the
+ * Bench frame, in `'my_team'` context for the viewer's own player, `'rostered'` otherwise. The
+ * touchdown cutscenes and toasts are the celebrate-touchdown feature's, fed from the score feed
+ * through the page model.
  *
- * Every value two slices need is read once in the page model
- * (./model/useMatchupPage) and passed down, the way ADR 0020's page passes
- * shared values. Widgets, features, the entity and the kit are imported
- * through their index files only; the page reaches below the island only for
- * the league cache hook, the helper ADR 0031 names as sanctioned.
+ * Every value two slices need is read once in the page model (./model/useMatchupPage) and passed
+ * down. Widgets, features and the entities are imported through their index files only.
  *
- * Loading: the first load renders a skeleton region carrying `aria-busy`
- * (the shapes stay aria-hidden, the region announces); a background refetch
- * (a reconnect) never blanks the page. A failed read renders an Alert with Retry
- * (the entity's refetch) and a link back to Game Center (#2009).
- *
- * Paints the island's own token context (`dash-bg` / `dash-ink`, the display
- * and body faces) and only `dash-*` tokens plus the app's radius, transition
- * and focus-ring tokens. Every pairing here is registered in
- * tokens.contrast.test.js: ink, dim and faint on the page background, the
- * kit's chip pairings, the primary button label on the accent, and the focus
- * ring on the page. Headings are explicit (ADR 0021): one h1, then the h2
- * Card titles the widgets and the page's own cards render.
+ * Loading: the first load renders a skeleton region carrying `aria-busy` (the shapes stay
+ * aria-hidden, the region announces); a background refetch (a reconnect) never blanks the page. A
+ * failed read renders an alert with Retry (the entity's refetch) and a link back to Game Center
+ * (#2009). Headings are explicit (ADR 0021): one h1, then the h2s the widgets and the page render.
  */
+const MINUTE_MS = 60 * 1000;
+
+// The next lock: the viewer's lineup problem's own deadline (the dashboard's figure for the same
+// moment), else the first kickoff still to come among this Matchup's NFL games.
+function nextLockAt(actionItems, games, leagueId) {
+  const item = actionItems.find((i) => String(i.leagueId) === String(leagueId) && String(i.id).split(':')[0] === 'lineup_problem');
+  const fromItem = item?.deadlineAt ? new Date(item.deadlineAt).getTime() : NaN;
+  if (Number.isFinite(fromItem)) return fromItem;
+  const kicks = (games || [])
+    .filter((g) => g && g.game_status !== 'in_progress' && g.game_status !== 'final')
+    .map((g) => new Date(g.kickoff_at ?? g.start_time ?? NaN).getTime())
+    .filter(Number.isFinite);
+  return kicks.length ? Math.min(...kicks) : null;
+}
+
+const NUMBERS_TERMS = [
+  ['Proj', "A lineup's points before its games are played, from Endzone Forecast, our projection engine."],
+  ['Expected final', "Points so far plus the projected points still to come: a starter's projection times the share of his game left, or all of it before his game starts."],
+  ['Players remaining', 'Starters whose NFL game isn\'t final. Out starters and empty slots don\'t count. Before kickoff it reads "starters set to play".'],
+  ['Yet to play', "The players remaining whose NFL game hasn't started."],
+  ['Win probability', "Your chance to win the matchup from both lineups' projected finals (Endzone Forecast). It sharpens as games finish."],
+  ['Projected margin', 'How far one lineup is projected to finish ahead of the other: the gap between the two Proj totals before kickoff, between the two Expected finals once games are live.'],
+];
+
 export default function MatchupPage() {
   const { leagueId, matchupId } = useParams();
   const theme = useTheme();
   const compact = useMediaQuery(theme.breakpoints.down('sm'), { noSsr: true });
   const {
-    matchup, starterRows, scoreboardRows, loading, error, refetch, leagueName, viewerTeamId, records,
+    matchup, league, starterRows, scoreboardRows, loading, error, refetch, leagueName, viewerTeamId, records,
     statusChip, isLive, canSetLineup, isPlayoff, board, games, benches, benchLeft, showBenchLeft, calledShots,
     whatIf, viewerHasRoster, ticker, retroActivePlay, celebration, view, setView,
   } = useMatchupPage(leagueId, matchupId);
@@ -127,6 +121,30 @@ export default function MatchupPage() {
     if (!error) titleRef.current?.focus();
   }, [retried, error]);
 
+  // The compact scoreboard bar pins to the top once the versus panel scrolls out; the page reserves it
+  // (56px + 16px) so a focused control is never under it.
+  useEffect(() => {
+    const root = document.documentElement;
+    const previous = root.style.scrollPaddingTop;
+    root.style.scrollPaddingTop = '72px';
+    return () => { root.style.scrollPaddingTop = previous; };
+  }, []);
+
+  // The lineup note's figures: the lock, the advice and the clock. Every hook sits above the loading
+  // return; the advice is read only before kickoff, and only when there is a problem to name.
+  const { viewerSide } = board;
+  const actionItems = useActionItems();
+  const issues = useMemo(() => lineupIssues(starterRows, viewerSide), [starterRows, viewerSide]);
+  const started = board.hasStarted === true;
+  const noteOpen = canSetLineup && viewerHasRoster && issues.length > 0;
+  const advice = useAdvice({
+    leagueId: noteOpen && !started ? leagueId : null,
+    week: matchup?.week,
+    bestBall: Boolean(league?.best_ball),
+  });
+  const lockAt = useMemo(() => nextLockAt(actionItems.items, games, leagueId), [actionItems.items, games, leagueId]);
+  const now = useNow((at) => (lockAt != null && lockAt > at ? Math.min(lockAt, at + MINUTE_MS) : null), lockAt);
+
   const toggleRow = useCallback((id) => {
     setExpandedId((current) => (current === id ? null : id));
   }, []);
@@ -146,7 +164,7 @@ export default function MatchupPage() {
 
   if (loading) {
     return (
-      <Shell compact={compact}>
+      <Shell>
         <LoadingRegion />
       </Shell>
     );
@@ -155,14 +173,10 @@ export default function MatchupPage() {
   const homeName = matchup?.home?.name;
   const awayName = matchup?.away?.name;
   const lineupHref = `/league/${leagueId}/lineup`;
-  // Which side of the table is the viewer's, for the empty slot's "Set lineup"
-  // link (#2008): null for a non-participant.
-  const { viewerSide } = board;
 
   // The Decision card's entry for whichever player a name link opened
   // (#1311, ADR 0040): SlotComparison and BenchCard hand back only the
-  // clicked player's raw wire id (their old PlayerQuickView contract,
-  // unchanged), so the page looks the player up itself across the paired
+  // clicked player's raw wire id, so the page looks the player up itself across the paired
   // starter rows and both benches - the SAME raw shape (id, name, position,
   // nfl_team, injury_status, ...) `useMatchup` hands both, unpaired only by
   // slot - and converts it through `entities/player`'s `toDecisionCardEntry`,
@@ -193,40 +207,64 @@ export default function MatchupPage() {
   // read-only (no lineup wiring here, PlayerManagement's own-player case) or
   // rostered by the other side, named when the other side's team name is
   // known (homeName/awayName, the same names the header already renders).
-  // #1515 (T19): the card now reads "Rostered by" off `context.availability`
-  // - `rostered(...)` already carries this same value, so the loose
-  // `availability` prop is gone.
   const decisionCardOwnerName = decisionCardSide === 'home' ? homeName : decisionCardSide === 'away' ? awayName : null;
   const decisionCardAvailability = decisionCardOwnerName ? { teamName: decisionCardOwnerName } : {};
   const decisionCardBuiltContext = viewerTeamId != null && decisionCardTeamId === viewerTeamId
     ? myTeam({ managed: false })
     : rostered({ availability: decisionCardAvailability });
-  const whatIfCard = isLive ? (
-    <BenchWhatIf whatIf={whatIf} hasRoster={viewerHasRoster} leagueId={leagueId} headingLevel={2} />
-  ) : null;
+
+  // The note row: the lineup note while there is something to fix, else the Bench what-if while live.
+  const otherSide = viewerSide === 'home' ? 'away' : 'home';
+  const noteView = noteOpen
+    ? lineupNoteView({
+      rows: starterRows,
+      viewerSide,
+      bench: benches[viewerSide],
+      started,
+      lockAt,
+      now,
+      advice: advice.status === 'ready' || advice.suggestions.length > 0 ? adviceNote(advice) : null,
+      gain: adviceGain(advice),
+      proj: { you: matchup?.[viewerSide]?.expectedFinal, them: matchup?.[otherSide]?.expectedFinal },
+    })
+    : null;
+  let noteCard = null;
+  if (noteView) noteCard = <LineupNote view={noteView} leagueId={leagueId} />;
+  else if (isLive) noteCard = <BenchWhatIf whatIf={whatIf} hasRoster={viewerHasRoster} leagueId={leagueId} />;
+  // "Fill by {lock}" on an empty row, while the lock is still to come.
+  const fillBy = lockAt != null && (!started || lockAt > now) ? formatInstant(lockAt, 'weekdayTime') : undefined;
 
   return (
-    <Shell compact={compact}>
+    <Shell>
       {error && (
-        <Alert severity="error" sx={{ mb: compact ? '12px' : '16px' }}>
-          {error}
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: '8px', mt: '8px' }}>
-            <DashButton size="sm" onClick={retry}>Retry</DashButton>
-            <DashButton size="sm" variant="ghost" component={RouterLink} to={`/league/${leagueId}/game-center`}>
-              Back to Game Center
-            </DashButton>
+        <Frame
+          component="div"
+          tone="danger"
+          role="alert"
+          sx={{
+            display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '12px 20px', padding: '16px 20px',
+          }}
+        >
+          <Box sx={{ display: 'flex', gap: '12px', alignItems: 'flex-start', minWidth: 0 }}>
+            <PixelWarn color="var(--ps-danger)" />
+            <Box sx={{ fontSize: '15px' }}>{error}</Box>
           </Box>
-        </Alert>
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+            <PsButton variant="ghost" onClick={retry}>Retry</PsButton>
+            <PsButton variant="ghost" to={`/league/${leagueId}/game-center`}>Back to Game Center</PsButton>
+          </Box>
+        </Frame>
       )}
 
       {matchup && (
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: compact ? '12px' : '16px' }}>
-          <Header
+        <>
+          <Head
             leagueId={leagueId}
             leagueName={leagueName}
             week={matchup.week}
             isPlayoff={isPlayoff}
             statusChip={statusChip}
+            isLive={isLive}
             view={view}
             onViewChange={setView}
             toggleRef={toggleRef}
@@ -246,14 +284,14 @@ export default function MatchupPage() {
               headingLevel={2}
               onFullComparison={showStandard}
               ticker={isLive ? <LastPlays items={ticker} mobile={compact} /> : null}
-              aside={whatIfCard}
+              aside={noteCard}
               fieldTail={<CelebrationsCaption enabled={celebration.celebrationsEnabled} />}
             />
           ) : (
             <>
               <ScoreboardStrip matchup={matchup} viewerTeamId={viewerTeamId} records={records} sticky />
               {isLive && games.length > 0 && <NflGameStrip games={games} />}
-              {whatIfCard}
+              {noteCard}
               <SlotComparison
                 rows={starterRows}
                 homeName={homeName}
@@ -265,8 +303,7 @@ export default function MatchupPage() {
                 expandedId={expandedId}
                 onToggle={toggleRow}
                 viewerSide={viewerSide}
-                canSetLineup={canSetLineup}
-                leagueId={leagueId}
+                fillBy={fillBy}
               />
               <BenchCard
                 homeName={homeName}
@@ -279,13 +316,12 @@ export default function MatchupPage() {
                 benchLeft={benchLeft}
                 showBenchLeft={showBenchLeft}
                 calledShots={calledShots}
-                mobile={compact}
               />
             </>
           )}
 
           {compact && <SetLineupLink href={lineupHref} placement="bottom" />}
-        </Box>
+        </>
       )}
 
       <CelebrateTouchdown celebration={celebration} />
@@ -304,90 +340,77 @@ export default function MatchupPage() {
 }
 
 /**
- * The island's page frame: the `dash-*` token context plus the canvas's
- * 1120px column (the Matchup artboards' `max-width`, narrower than the Game
- * Center's 1200px; 24px sides on desktop, 14px on a phone). Every state
- * renders inside it so the island background is constant.
+ * The page frame: the Play-select token context (Field ground, Ink text, Archivo) on a `.ps-root`
+ * element, and a 1280px column that is a flex column (not a grid, so a wide child never widens the
+ * page) with the stacking gap the compact scoreboard's sticky anchor cancels (`--ps-stack-gap`).
+ * Every state renders inside it so the ground is constant.
  */
-function Shell({ compact, children }) {
+function Shell({ children }) {
   return (
-    <Box
-      sx={{
-        backgroundColor: 'var(--dash-bg)',
-        color: 'var(--dash-ink)',
-        fontFamily: 'var(--dash-font-body)',
-        minHeight: '100%',
-      }}
-    >
-      <Container
-        maxWidth={false}
+    <Box className="ps-root" sx={{ ...psRootSx, minHeight: '100%' }}>
+      <Box
         data-testid="matchup-column"
         sx={{
-          maxWidth: '1120px',
-          px: compact ? '14px' : '24px',
-          pt: compact ? '14px' : '24px',
-          pb: compact ? '32px' : '40px',
+          '--ps-stack-gap': { xs: '16px', sm: '24px' },
+          maxWidth: '1280px',
+          marginX: 'auto',
+          boxSizing: 'border-box',
+          padding: { xs: '14px 16px 48px', sm: '24px 32px 64px' },
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 'var(--ps-stack-gap)',
         }}
       >
         {children}
-      </Container>
+      </Box>
     </Box>
   );
 }
 
 /**
- * The canvas's `detailHeader()`: the breadcrumb line, the h1 with its chips
- * (the status chip in the page model's variant, with the dot on LIVE), the
- * view toggle (its group element on `toggleRef`, for the Full comparison
- * focus move) and (desktop) the Set lineup action.
+ * The page head (the boards' head, the model for every wave 2 page): the breadcrumb, the pixel h1
+ * with its chips on one row, the dim "Times in {zone}" line, the closed "What the numbers mean"
+ * disclosure, and at the right the view toggle (its group element on `toggleRef`, for the Full
+ * comparison focus move) with the Set lineup ghost button on desktop. A plain layout row, not a
+ * header element: a top-level header maps to the banner landmark the app bar owns.
  */
-function Header({ leagueId, leagueName, week, isPlayoff, statusChip, view, onViewChange, toggleRef, titleRef, lineupHref, compact }) {
+function Head({
+  leagueId, leagueName, week, isPlayoff, statusChip, isLive, view, onViewChange, toggleRef, titleRef, lineupHref, compact,
+}) {
+  const zone = formatInstant(new Date(), 'zone') || 'your time zone';
   return (
     <Box
       data-testid="matchup-header"
       sx={{
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        flexWrap: 'wrap',
-        gap: '12px',
+        display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', justifyContent: 'space-between', gap: '16px 24px',
       }}
     >
-      <Box sx={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: 0 }}>
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: 0, flex: { xs: '1 1 100%', sm: '1 1 auto' } }}>
         <Breadcrumb leagueId={leagueId} leagueName={leagueName} />
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-          <Typography
-            component="h1"
-            ref={titleRef}
-            tabIndex={-1}
-            sx={{
-              m: 0,
-              fontFamily: 'var(--dash-font-display)',
-              fontSize: compact ? '28px' : '34px',
-              fontWeight: 700,
-              lineHeight: 1.05,
-              textTransform: 'uppercase',
-              color: 'var(--dash-ink)',
-            }}
-          >
-            {`Week ${week} Matchup`}
-          </Typography>
-          {isPlayoff && <Badge data-testid="matchup-playoff-chip">Playoff</Badge>}
-          {statusChip && (
-            <Badge data-testid="matchup-status-chip" variant={statusChip.variant} dot={statusChip.dot}>
-              {statusChip.label}
-            </Badge>
-          )}
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: '12px', minWidth: 0 }}>
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: { xs: '8px 16px', sm: '12px 20px' } }}>
+            <Box
+              component="h1"
+              ref={titleRef}
+              tabIndex={-1}
+              sx={{
+                m: 0, ...pixelSx(16), fontSize: { xs: '24px', md: '32px' }, lineHeight: 1.3, overflowWrap: 'break-word',
+              }}
+            >
+              {`Week ${week} Matchup`}
+            </Box>
+            {isPlayoff && <Box component="span" data-testid="matchup-playoff-chip"><StatusChip>Playoff</StatusChip></Box>}
+            {statusChip && (
+              <Box component="span" data-testid="matchup-status-chip" data-variant={statusChip.variant}>
+                {isLive ? <LiveChip>Live</LiveChip> : <StatusChip>{statusChip.label}</StatusChip>}
+              </Box>
+            )}
+          </Box>
+          <Box component="p" sx={{ m: 0, fontSize: '17px', color: 'var(--ps-dim)' }}>{`Times in ${zone}`}</Box>
+          <NumbersHelp terms={NUMBERS_TERMS} />
         </Box>
       </Box>
-      <Box
-        sx={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '10px',
-          width: compact ? '100%' : undefined,
-        }}
-      >
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: '12px', width: compact ? '100%' : undefined }}>
         <ToggleMatchupView ref={toggleRef} value={view} onChange={onViewChange} fill={compact} />
         {!compact && <SetLineupLink href={lineupHref} placement="header" />}
       </Box>
@@ -395,59 +418,44 @@ function Header({ leagueId, leagueName, week, isPlayoff, statusChip, view, onVie
   );
 }
 
-const CRUMB_LINK_SX = {
-  color: 'var(--dash-faint)',
-  textDecoration: 'none',
-  '&:hover': { color: 'var(--dash-ink)', textDecoration: 'underline' },
-  '&:focus-visible': { outline: '2px solid var(--focus-ring)', outlineOffset: 2 },
-};
-
 /**
- * The canvas's league line ("Northwoods League · Game Center") as a
- * breadcrumb: the league name linking to its dashboard, a middot, Game
- * Center linking to the week's page, and last the current page ("Matchup",
- * `aria-current="page"`, in the dim tier as the Game Center breadcrumb ends
- * on its own page; the h1 beneath carries the week). A `nav` landmark
- * holding a list, the WAI-ARIA breadcrumb shape; the league crumb waits for
- * the row.
+ * The league crumb ("Northwoods League"), Game Center, then the current page ("Matchup",
+ * `aria-current="page"`): a `nav` landmark holding a list, the WAI-ARIA breadcrumb shape, with the
+ * pixel arrow as the separator. The league crumb waits for the row. Below sm the current page drops
+ * (the h1 says it), so no trailing separator wraps.
  */
 function Breadcrumb({ leagueId, leagueName }) {
+  const sep = (hideOnPhone) => (
+    <Box component="span" aria-hidden="true" sx={{ color: 'var(--ps-dim)', display: { xs: hideOnPhone ? 'none' : 'inline-flex', sm: 'inline-flex' } }}>
+      <PixelArrow />
+    </Box>
+  );
   return (
     <Box component="nav" aria-label="Breadcrumb" data-testid="matchup-breadcrumb">
       <Box
         component="ol"
         role="list"
         sx={{
-          listStyle: 'none',
-          m: 0,
-          p: 0,
-          display: 'flex',
-          alignItems: 'center',
-          flexWrap: 'wrap',
-          gap: '6px',
-          fontSize: '12px',
-          color: 'var(--dash-faint)',
+          listStyle: 'none', m: '0 0 0 -10px', p: 0, display: 'flex', alignItems: 'center', flexWrap: 'wrap',
         }}
       >
         {leagueName && (
-          <Box component="li" sx={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
-            <Link
-              component={RouterLink}
-              to={`/league/${leagueId}`}
-              sx={{ ...CRUMB_LINK_SX, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-            >
-              {leagueName}
-            </Link>
-            <Box component="span" aria-hidden="true">·</Box>
+          <Box component="li" sx={{ display: 'flex', alignItems: 'center', minWidth: 0 }}>
+            <PsLink to={`/league/${leagueId}`}>{leagueName}</PsLink>
+            {sep(false)}
           </Box>
         )}
-        <Box component="li" sx={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <Link component={RouterLink} to={`/league/${leagueId}/game-center`} sx={CRUMB_LINK_SX}>
-            Game Center
-          </Link>
-          <Box component="span" aria-hidden="true">·</Box>
+        <Box component="li" sx={{ display: 'flex', alignItems: 'center' }}>
+          <PsLink to={`/league/${leagueId}/game-center`}>Game Center</PsLink>
+          {sep(true)}
         </Box>
-        <Box component="li" aria-current="page" sx={{ color: 'var(--dash-dim)' }}>
+        <Box
+          component="li"
+          aria-current="page"
+          sx={{
+            display: { xs: 'none', sm: 'inline-flex' }, alignItems: 'center', minHeight: '44px', padding: '0 10px', fontSize: '15px', fontWeight: 600, color: 'var(--ps-dim)',
+          }}
+        >
           Matchup
         </Box>
       </Box>
@@ -456,44 +464,51 @@ function Breadcrumb({ leagueId, leagueName }) {
 }
 
 /**
- * The canvas's `.btn.primary` "Set lineup" (shared/ui's DashButton, #1166):
- * the `dash-on-accent` label on the `dash-accent` fill, the default `md` size
- * (38px at `md` and up, 44px below it). The bottom (phone) placement stretches
- * full width, which is row layout and stays here at the call site rather than
- * in the shared treatment. A react-router link to the Lineup page: nothing is
- * managed here (ADR 0019). The explicit `focus-visible` outline this used to
- * carry is dropped: it duplicated the global keyboard-focus ring every
- * button-like control already gets from `MuiButtonBase` (AppThemeProvider)
- * and `:focus-visible` (base.css).
+ * "Set lineup": a ghost button (a 2px Ink edge, never filled) that is a react-router link to the Lineup
+ * page; nothing is managed here (ADR 0019). The bottom (phone) placement stretches full width.
  */
 function SetLineupLink({ href, placement }) {
   const bottom = placement === 'bottom';
   return (
-    <DashButton
+    <Box
       component={RouterLink}
       to={href}
       data-testid="set-lineup"
       data-placement={placement}
-      sx={bottom ? { width: '100%' } : undefined}
+      sx={{
+        minHeight: '44px',
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '0 16px',
+        boxSizing: 'border-box',
+        border: '2px solid var(--ps-ink)',
+        borderRadius: 0,
+        color: 'var(--ps-ink)',
+        fontSize: '15px',
+        fontWeight: 600,
+        textDecoration: 'none',
+        width: bottom ? '100%' : undefined,
+        whiteSpace: 'nowrap',
+      }}
     >
       Set lineup
-    </DashButton>
+    </Box>
   );
 }
 
 /**
- * The first-load skeleton: one region carrying aria-busy so the page
- * announces it (Skeleton.jsx: the shapes stay aria-hidden). A literal "true"
- * is correct: this branch unmounts the moment the read settles, so there is
- * no in-DOM transition to "false" for a screen reader to observe.
+ * The first-load skeleton: one region carrying aria-busy so the page announces it (the shapes stay
+ * aria-hidden). A literal "true" is correct: this branch unmounts the moment the read settles, so
+ * there is no in-DOM transition to "false" for a screen reader to observe.
  */
 function LoadingRegion() {
   return (
     <Box data-testid="matchup-loading" aria-busy="true" sx={{ display: 'grid', gap: '16px' }}>
-      <Skeleton variant="text" width={260} height={40} />
-      <Skeleton height={140} />
-      <Skeleton height={40} />
-      <Skeleton height={320} />
+      <Skel data-testid="skeleton" width="min(520px, 100%)" height={40} />
+      <Skel data-testid="skeleton" width="100%" height={240} />
+      <Skel data-testid="skeleton" width="100%" height={56} />
+      <Skel data-testid="skeleton" width="100%" height={320} />
     </Box>
   );
 }
