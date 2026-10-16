@@ -105,6 +105,14 @@ describe('VersusPanel before kickoff', () => {
     expect(screen.getByTestId('matchup-figure-viewer').textContent).not.toMatch(/\d/);
   });
 
+  test('a CPU-managed opponent carries the CPU label in its own side and the viewer does not', () => {
+    renderPanel({ model: model({ opponent: side({ name: 'Sunday Scaries', isCpu: true }) }) });
+
+    expect(screen.getAllByTestId('cpu-badge')).toHaveLength(1);
+    expect(within(screen.getByTestId('matchup-side-opponent')).getByTestId('cpu-badge')).toHaveTextContent('CPU');
+    expect(within(screen.getByTestId('matchup-side-viewer')).queryByTestId('cpu-badge')).not.toBeInTheDocument();
+  });
+
   test('wears neither the cursor nor a filled action', () => {
     renderPanel({ model: model() });
     const card = screen.getByTestId('matchup-preview');

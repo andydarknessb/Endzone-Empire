@@ -3,6 +3,7 @@ import React from 'react';
 import { render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import MatchupHero, { MatchupHero as NamedMatchupHero } from '../index';
+import { invalidate, setResource } from '../../../lib/resourceCache';
 
 // The canvas's live Sunday (docs/design/game-center-matchups/build.mjs, HERO):
 // Dockworkers (home) ahead 82.2-77.0 with four starters left, Frostbite (away)
@@ -182,6 +183,23 @@ test('puts the viewer first: an away viewer is the left side, the bar and the sc
 test('the Matchup link is named viewer first too', () => {
   renderHero({ viewerTeamId: 20 });
   expect(screen.getByRole('link', { name: 'Matchup, Fargo Frostbite against Duluth Dockworkers' })).toHaveAttribute('href', '/league/5/matchups/7');
+});
+
+test('a CPU-managed home side keeps its CPU label when the away viewer is drawn first', () => {
+  setResource(['league', 5], {
+    league: { id: 5 },
+    teams: [{ teamId: 10, teamName: 'Duluth Dockworkers', is_cpu: true }, { teamId: 20, teamName: 'Fargo Frostbite' }],
+    viewerTeamId: 20,
+  });
+  try {
+    renderHero({ viewerTeamId: 20 });
+    expect(screen.getAllByTestId('cpu-badge')).toHaveLength(1);
+    expect(within(homeSide()).getByTestId('cpu-badge')).toHaveTextContent('CPU');
+    expect(within(homeSide()).getByTestId('matchup-hero-name')).toHaveTextContent('Duluth Dockworkers');
+    expect(within(awaySide()).queryByTestId('cpu-badge')).not.toBeInTheDocument();
+  } finally {
+    invalidate(['league', 5]);
+  }
 });
 
 test('countsPending holds the count lines and the sentence clause', () => {
