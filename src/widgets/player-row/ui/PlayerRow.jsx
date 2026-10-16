@@ -19,9 +19,11 @@ import StarBorderIcon from '@mui/icons-material/StarBorder';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { playerRowColumnCount } from './PlayerRowTableHead';
 import { PositionChip, PlayerAvatar } from '../../../shared/ui';
-import { MIN_TOUCH_TARGET_SX, NO_HISTORY_LABEL, formatPoints, hasNoHistory, timeUntil, reasonLabel } from '../../../shared/lib';
+import { MIN_TOUCH_TARGET_SX, formatPoints, hasNoHistory } from '../../../shared/lib';
 import { WeeklyPointsBars, PlayerNameLink } from '../../../entities/player';
 import { weeksForSparkline } from '../model/weeksAdapter';
+import { clearsText, availabilityOf, ProjWeekCell, OwnershipCell } from './rowParts';
+import PlayerRowPlayselect from './PlayerRowPlayselect';
 
 // Availability state -> Status column color + label (#1310, Players.dc.html /
 // Row.dc.html canvases). One map read by both the state dot and the label,
@@ -33,17 +35,6 @@ const STATE_VIEW = {
   rostered: { label: 'Rostered', color: 'var(--text-muted)' },
   my_team: { label: 'Your team', color: 'var(--accent)' },
 };
-
-// A player's Clear time in the shared house style ("Clears in 14h 40m").
-function clearsText(availableAt) {
-  const until = timeUntil(availableAt, Date.now());
-  if (!until || until.passed) return 'Clearing now';
-  return until.imminent ? 'Clears in under a minute' : `Clears in ${until.text}`;
-}
-
-function availabilityOf(player) {
-  return player.availability?.state || 'free_agent';
-}
 
 /** Status column: the state dot + label, and the one fact the state itself
  * carries (#1310, ADR 0040 Lead correction item 2) - the owning team for a
@@ -102,20 +93,6 @@ function StatusCell({ player }) {
   );
 }
 
-/** Proj Wk / ROS: a points figure, or - for a week the player can't play -
- * the reason itself, never a fabricated number (ADR 0040: "Unavailable
- * players show the reason, never a number, in the list and on the bars"). */
-function ProjWeekCell({ projWeek, noHistory = false }) {
-  if (!projWeek) return <span>-</span>;
-  if (projWeek.reason) return <span>{reasonLabel(projWeek.reason) || projWeek.reason}</span>;
-  // #1778 (spec #1774): a Position-baseline projection is the position's
-  // average, so the column reads "no history" in place of its number. The
-  // verdict is the server's (`startVerdict`); an Unavailable reason above
-  // already won.
-  if (noHistory) return <span>{NO_HISTORY_LABEL}</span>;
-  return <span>{formatPoints(projWeek.points)}</span>;
-}
-
 /** Upgrade pill: hidden outright rather than an empty label when there is
  * nothing to show (best ball, a row the server never scores an Upgrade for -
  * the caller's own roster - or a candidate who does not crack the lineup,
@@ -146,16 +123,6 @@ function UpgradeCell({ upgrade, currentWeek }) {
       +{formatPoints(upgrade.points)}{weekLabel}
     </Box>
   );
-}
-
-/** Ownership: the row's latest ESPN share (`{ share, change }` from the
- * view=cards read, ADR 0041). null when ESPN has no snapshot for the player -
- * renders nothing then, not an "unavailable" label or a dash glyph (ADR 0040
- * Lead correction item 4). */
-function OwnershipCell({ ownership }) {
-  const value = typeof ownership === 'number' ? ownership : ownership?.share;
-  if (value == null) return null;
-  return <span>{`${value}%`}</span>;
 }
 
 // `nameAsLink` is false for the card variant: its whole identity block sits
@@ -315,6 +282,11 @@ function ExpandToggle({ expansion, playerName }) {
 }
 
 /**
+ * `look`: `'dash'` (default: PlayerManagement and every current caller) or `'playselect'` (ADR 0067
+ * wave 3, the Waivers page): the same row on `ps-*` tokens (`PlayerRowPlayselect`). In that look
+ * `cursor` is `'cursor'` or `'urgent'` (the page's one next move, framed; Danger when its Clear is
+ * under an hour) and `action.fill` makes the row's Claim the page's one filled action.
+ *
  * One Players list row (#1310, ADR 0040): every availability state renders
  * through the SAME row, columns Player / Proj Wk / ROS / Ownership / Upgrade
  * / Weeks / Status / Action - `variant="row"` (default) for the desktop
@@ -331,7 +303,10 @@ function ExpandToggle({ expansion, playerName }) {
  * onClick, pending? }` - and renders nothing when the caller omits it, so a
  * consumer with no watch state wired in (or no league selected) is unchanged.
  */
-export default function PlayerRow({ player, action, watchAction, expansion, bestBall = false, variant = 'row', onOpenPlayer, hideOwnership = false }) {
+export default function PlayerRow({ player, action, watchAction, expansion, bestBall = false, variant = 'row', onOpenPlayer, hideOwnership = false, look = 'dash', cursor }) {
+  if (look === 'playselect') {
+    return <PlayerRowPlayselect {...{ player, action, expansion, bestBall, variant, onOpenPlayer, hideOwnership, cursor }} />;
+  }
   const weeks = weeksForSparkline(player.weeks);
   const showWeeks = weeks.length > 0;
   const showUpgrade = !bestBall;

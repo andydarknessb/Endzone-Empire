@@ -1,5 +1,5 @@
 import React from 'react';
-import { TableCell, TableRow, TableSortLabel } from '@mui/material';
+import { Box, TableCell, TableRow, TableSortLabel } from '@mui/material';
 
 // The base column count every consumer's desktop table shares: Player, Proj
 // Wk, ROS, Ownership, Weeks, Status, Action - Upgrade adds one more, hidden
@@ -25,7 +25,10 @@ export function playerRowColumnCount(bestBall, hideOwnership = false) {
  */
 // `hideOwnership` drops the Ownership column while no row carries a share yet
 // (#1308): the Waivers page passes it, the Players page keeps the column.
-export default function PlayerRowTableHead({ bestBall = false, currentWeek, sx, upgradeSort, hideOwnership = false }) {
+export default function PlayerRowTableHead({ bestBall = false, currentWeek, sx, upgradeSort, hideOwnership = false, look = 'dash' }) {
+  if (look === 'playselect') {
+    return <PlayselectHead {...{ bestBall, currentWeek, hideOwnership }} />;
+  }
   return (
     <TableRow>
       <TableCell sx={sx}>Player</TableCell>
@@ -61,5 +64,50 @@ export default function PlayerRowTableHead({ bestBall = false, currentWeek, sx, 
         Action
       </TableCell>
     </TableRow>
+  );
+}
+
+// The Play-select head (`look="playselect"`, the Waivers table): fixed column widths (the table is
+// `table-layout: fixed`), the Player column sticky, labels in 13px Dim caps. A column the row omits
+// (Ownership, Upgrade) is omitted here too, so the two cannot drift.
+function PlayselectHead({ bestBall, currentWeek, hideOwnership }) {
+  const columns = [
+    ['Player', 'left', 198],
+    [currentWeek != null ? `Proj Wk ${currentWeek}` : 'Proj Wk', 'right', 88],
+    ['ROS', 'right', 58],
+    ...(hideOwnership ? [] : [['Ownership', 'right', 96]]),
+    ...(bestBall ? [] : [['Upgrade', 'right', 96]]),
+    [currentWeek != null ? `Weeks ${currentWeek} to 18` : 'Weeks', 'left', 118],
+    ['Status', 'left', 122],
+    ['Action', 'right', 172],
+  ];
+  return (
+    <tr>
+      {columns.map(([label, align, width], i) => (
+        <Box
+          key={label}
+          component="th"
+          scope="col"
+          sx={{
+            ...(i === 0 ? { position: 'sticky', left: 0, zIndex: 1 } : null),
+            boxSizing: 'border-box',
+            width: `${width}px`,
+            height: '40px',
+            padding: '0 8px',
+            textAlign: align,
+            backgroundColor: 'var(--ps-panel)',
+            borderBottom: '2px solid var(--ps-rule)',
+            fontSize: '13px',
+            fontWeight: 600,
+            letterSpacing: '.02em',
+            textTransform: 'uppercase',
+            color: 'var(--ps-dim)',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {label}
+        </Box>
+      ))}
+    </tr>
   );
 }
