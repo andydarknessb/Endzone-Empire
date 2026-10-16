@@ -19,7 +19,7 @@ import PlayerDecisionCard, { myTeam, rostered } from '../../widgets/player-decis
 import { toDecisionCardEntry } from '../../entities/player';
 import { useActionItems } from '../../entities/action-item';
 import {
-  adviceGain, adviceNote, lineupIssues, lineupNote, lineupSlots, nextKickoff, useAdvice,
+  adviceGain, adviceNote, lineupIssues, lineupNote, lineupSlots, nextKickoff, parseRosterTemplate, useAdvice,
 } from '../../entities/roster';
 import { useMatchupPage } from './model/useMatchupPage';
 import BenchCard from './ui/BenchCard';
@@ -72,9 +72,13 @@ import LastPlays from './ui/LastPlays';
 const MINUTE_MS = 60 * 1000;
 
 // The next lock: the viewer's lineup problem's own deadline (the dashboard's figure for the same
-// moment), else the first kickoff still to come among this Matchup's NFL games.
-function nextLockAt(actionItems, games, leagueId) {
-  const item = actionItems.find((i) => String(i.leagueId) === String(leagueId) && String(i.id).split(':')[0] === 'lineup_problem');
+// moment), else the first kickoff still to come among this Matchup's NFL games. The item is one week's
+// (its id ends in "{season}-{week}"); a problem for another week says nothing about this Matchup's lock.
+function nextLockAt(actionItems, games, leagueId, season, week) {
+  const item = actionItems.find((i) => {
+    const [type, , key] = String(i.id).split(':');
+    return String(i.leagueId) === String(leagueId) && type === 'lineup_problem' && key === `${season}-${week}`;
+  });
   const fromItem = item?.deadlineAt ? new Date(item.deadlineAt).getTime() : NaN;
   return Number.isFinite(fromItem) ? fromItem : nextKickoff(games);
 }
@@ -140,7 +144,11 @@ export default function MatchupPage() {
     week: matchup?.week,
     bestBall: Boolean(league?.best_ball),
   });
-  const lockAt = useMemo(() => nextLockAt(actionItems.items, games, leagueId), [actionItems.items, games, leagueId]);
+  const lockAt = useMemo(
+    () => nextLockAt(actionItems.items, games, leagueId, matchup?.season, matchup?.week),
+    [actionItems.items, games, leagueId, matchup?.season, matchup?.week]
+  );
+  const template = useMemo(() => parseRosterTemplate(league?.roster_slots), [league?.roster_slots]);
   const now = useNow((at) => (lockAt != null && lockAt > at ? Math.min(lockAt, at + MINUTE_MS) : null), lockAt);
 
   const toggleRow = useCallback((id) => {
@@ -217,6 +225,7 @@ export default function MatchupPage() {
     ? lineupNote({
       slots,
       bench: benches[viewerSide],
+      template,
       gameStates: games,
       started,
       lockAt,
@@ -229,8 +238,8 @@ export default function MatchupPage() {
   let noteCard = null;
   if (noteView) noteCard = <LineupNote view={noteView} leagueId={leagueId} />;
   else if (isLive) noteCard = <BenchWhatIf whatIf={whatIf} hasRoster={viewerHasRoster} leagueId={leagueId} />;
-  // "Fill by {lock}" on an empty row, while the lock is still to come.
-  const fillBy = lockAt != null && (!started || lockAt > now) ? formatInstant(lockAt, 'weekdayTime') : undefined;
+  // The lock an empty row names, on the viewer's side only and only while the lineup note is showing.
+  const fillBy = noteView && lockAt != null ? formatInstant(lockAt, 'weekdayTime') : undefined;
 
   return (
     <Shell>
@@ -245,7 +254,7 @@ export default function MatchupPage() {
         >
           <Box sx={{ display: 'flex', gap: '12px', alignItems: 'flex-start', minWidth: 0 }}>
             <PixelWarn color="var(--ps-danger)" />
-            <Box sx={{ fontSize: '15px' }}>{error}</Box>
+            <Box sx={{ fontSize: '15px' }}>We could not load this matchup right now.</Box>
           </Box>
           <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
             <PsButton variant="ghost" onClick={retry}>Retry</PsButton>

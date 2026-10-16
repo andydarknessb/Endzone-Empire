@@ -11,7 +11,11 @@ import { scoreboardView } from '../model/scoreboardView';
  * The scoreboard strip (widget `scoreboard-strip`, ADR 0031, #898), drawn as the Play-select versus
  * screen of the Matchup boards (ADR 0067 wave 2, spec #2334 ruling 4).
  *
- * Once the matchup has started it is the Board-black screen: two equal columns (the away side
+ * The viewer's side comes first (Critique 4 item 1): a participant sees their own team on the left and the
+ * opponent right-aligned on the right, whichever of home and away they are; a non-participant sees home on the
+ * left. The accessible names (the live sentence, the odds image, the compact bar) follow that visual order.
+ *
+ * Once the matchup has started it is the Board-black screen: two equal columns (the second
  * right-aligned), team names in Pixel 16 on one baseline, the score in Pixel 32 (24 on a phone) with
  * the leader's in Board ink and the trailer's in Board dim, the record under each name, "Expected
  * final {x}" then "{n} players remaining" under the score, the margin in words ("{Leader} by {x}"),
@@ -91,13 +95,17 @@ export default function ScoreboardStrip({
   const colors = started
     ? { ink: 'var(--ps-board-ink)', dim: 'var(--ps-board-dim)' }
     : { ink: 'var(--ps-ink)', dim: 'var(--ps-dim)' };
+  // Viewer first: the left side is the viewer's team when they play in this matchup, else home.
+  const [leftKey, rightKey] = view.viewerSide === 'away' ? ['away', 'home'] : ['home', 'away'];
+  const left = view[leftKey];
+  const right = view[rightKey];
   const sentence = useMemo(
-    () => `${view.home.name} ${view.home.score}, ${view.away.name} ${view.away.score}`,
-    [view.home.name, view.home.score, view.away.name, view.away.score]
+    () => `${left.name} ${left.score}, ${right.name} ${right.score}`,
+    [left.name, left.score, right.name, right.score]
   );
 
   const sideNode = (side, key) => {
-    const right = key === 'away';
+    const isRight = key === rightKey;
     const leads = view.leader == null || view.leader === key;
     const label = !started ? 'Proj' : settled ? 'Final score' : 'Live score';
     const you = <YouTag color={colors.ink} />;
@@ -105,9 +113,9 @@ export default function ScoreboardStrip({
       <Box
         data-testid={`scoreboard-side-${key}`}
         data-viewer-team={side.isViewer || undefined}
-        sx={{ gridArea: right ? 'sr' : 'sl', minWidth: 0, textAlign: right ? 'right' : 'left' }}
+        sx={{ gridArea: isRight ? 'sr' : 'sl', minWidth: 0, textAlign: isRight ? 'right' : 'left' }}
       >
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: '10px', flexDirection: right ? 'row-reverse' : 'row', color: colors.ink }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: '10px', flexDirection: isRight ? 'row-reverse' : 'row', color: colors.ink }}>
           <TeamMark name={side.name} avatarUrl={side.avatarUrl} avatarStaticUrl={side.avatarStaticUrl} />
           <Box
             component="h3"
@@ -120,7 +128,7 @@ export default function ScoreboardStrip({
         </Box>
         <Box
           sx={{
-            display: 'flex', alignItems: 'center', gap: '8px', mt: '4px', minHeight: '22px', flexDirection: right ? 'row-reverse' : 'row', fontSize: '13px', color: colors.dim, fontVariantNumeric: 'tabular-nums',
+            display: 'flex', alignItems: 'center', gap: '8px', mt: '4px', minHeight: '22px', flexDirection: isRight ? 'row-reverse' : 'row', fontSize: '13px', color: colors.dim, fontVariantNumeric: 'tabular-nums',
           }}
         >
           {side.record && <span>{side.record}</span>}
@@ -152,7 +160,7 @@ export default function ScoreboardStrip({
     <Box
       data-testid="scoreboard-figures-phone"
       sx={{
-        gridArea: key === 'away' ? 'fr' : 'fl', minWidth: 0, textAlign: key === 'away' ? 'right' : 'left', fontSize: '14px', color: colors.dim, fontVariantNumeric: 'tabular-nums',
+        gridArea: key === rightKey ? 'fr' : 'fl', minWidth: 0, textAlign: key === rightKey ? 'right' : 'left', fontSize: '14px', color: colors.dim, fontVariantNumeric: 'tabular-nums',
       }}
     >
       <Figures side={side} started={started} colors={colors} />
@@ -189,18 +197,18 @@ export default function ScoreboardStrip({
           alignItems: 'start',
         }}
       >
-        {sideNode(view.home, 'home')}
-        {sideNode(view.away, 'away')}
+        {sideNode(left, leftKey)}
+        {sideNode(right, rightKey)}
         <Box sx={{ gridArea: 'mg', minWidth: 0 }}>{margin}</Box>
-        {figuresBelow(view.home, 'home')}
-        {figuresBelow(view.away, 'away')}
+        {figuresBelow(left, leftKey)}
+        {figuresBelow(right, rightKey)}
       </Box>
       {view.showBar && (
         <Box data-testid="scoreboard-odds" sx={{ width: '100%' }}>
           <TwoSidedOdds
-            a={view.home.name}
-            b={view.away.name}
-            pct={view.home.winPct}
+            a={left.name}
+            b={right.name}
+            pct={left.winPct}
             live={live}
             onBoard={started}
             caption={(
@@ -250,9 +258,9 @@ export default function ScoreboardStrip({
           {scrolledPast && view.marginText && (
             <Box sx={{ position: 'absolute', top: 0, left: 0, right: 0 }}>
               <CompactScoreboard
-                a={{ abbr: initialsFor(view.home.name), name: view.home.name, score: view.home.figure ?? '-' }}
-                b={{ abbr: initialsFor(view.away.name), name: view.away.name, score: view.away.figure ?? '-' }}
-                lead={view.leader === 'home' ? 'a' : view.leader === 'away' ? 'b' : undefined}
+                a={{ abbr: initialsFor(left.name), name: left.name, score: left.figure ?? '-' }}
+                b={{ abbr: initialsFor(right.name), name: right.name, score: right.figure ?? '-' }}
+                lead={view.leader === leftKey ? 'a' : view.leader === rightKey ? 'b' : undefined}
                 marginText={view.marginText}
                 live={live}
               />

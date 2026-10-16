@@ -369,6 +369,10 @@ test('an in-progress starter carries the live clock as one string', async (t) =>
   const [homeQb] = body.home.starters;
   assert.equal(homeQb.game_state, 'in_progress');
   assert.equal(homeQb.game_clock, 'Q3 6:42');
+  // The producer's per-starter Expected final rides the row, rounded to a hundredth: points so far plus the share of his game left.
+  assert.equal(typeof homeQb.expected_final, 'number');
+  assert.ok(homeQb.expected_final >= homeQb.points, 'an Expected final never sits below the points already scored');
+  assert.equal(homeQb.expected_final, Math.round(homeQb.expected_final * 100) / 100);
   const [awayRb] = body.away.starters;
   assert.equal(awayRb.game_state, 'scheduled');
   assert.equal(awayRb.game_clock, null);
@@ -830,19 +834,19 @@ const SETTLED_EXPECTED_BODY = {
       {
         id: 801, name: 'Kept Starter', position: 'QB', nfl_team: 'KC', injury_status: null, slot: 'QB',
         stats: { passingYards: 250 }, points: 10, projected: null,
-        availability: { available: true, reason: null }, opponent: 'OPP', game_state: null, game_clock: null, photo_url: null,
+        availability: { available: true, reason: null }, opponent: 'OPP', game_state: null, game_clock: null, expected_final: null, photo_url: null,
       },
       {
         id: 802, name: 'Dropped Starter', position: 'RB', nfl_team: 'DAL', injury_status: null, slot: 'RB',
         stats: { rushingYards: 200 }, points: 20, projected: null,
-        availability: { available: true, reason: null }, opponent: 'OPP', game_state: null, game_clock: null, photo_url: null,
+        availability: { available: true, reason: null }, opponent: 'OPP', game_state: null, game_clock: null, expected_final: null, photo_url: null,
       },
     ],
     bench: [
       {
         id: 804, name: 'Settled Bench TE', position: 'TE', nfl_team: 'KC', injury_status: null, slot: 'BENCH',
         stats: null, points: 0, projected: null,
-        availability: { available: true, reason: null }, opponent: 'OPP', game_state: null, game_clock: null, photo_url: null,
+        availability: { available: true, reason: null }, opponent: 'OPP', game_state: null, game_clock: null, expected_final: null, photo_url: null,
       },
     ],
     expectedFinal: null,
@@ -857,7 +861,7 @@ const SETTLED_EXPECTED_BODY = {
       {
         id: 811, name: 'Away Starter', position: 'RB', nfl_team: 'SF', injury_status: null, slot: 'RB',
         stats: { rushingYards: 50 }, points: 5, projected: null,
-        availability: { available: true, reason: null }, opponent: 'OPP', game_state: null, game_clock: null, photo_url: null,
+        availability: { available: true, reason: null }, opponent: 'OPP', game_state: null, game_clock: null, expected_final: null, photo_url: null,
       },
     ],
     bench: [],

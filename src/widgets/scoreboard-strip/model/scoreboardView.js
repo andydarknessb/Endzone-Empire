@@ -86,6 +86,8 @@ export function scoreboardView(matchup, { viewerTeamId, records } = {}) {
     result,
     started,
     isLive: board.isLive,
+    // 'home', 'away' or null: the side the viewer manages (a participant sees their side first).
+    viewerSide: board.viewerSide,
     leader,
     // "{Leader} by {x}", "Tied" on an even figure, null when a side has no figure.
     marginText: gap == null ? null : leader ? `${leaderSide.name} by ${Math.abs(gap).toFixed(1)}` : 'Tied',

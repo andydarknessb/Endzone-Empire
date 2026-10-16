@@ -30,6 +30,18 @@ describe('adviceNote', () => {
       .toBe('Start Jordan Addison for Puka Nacua');
   });
 
+  test('a fill worth nothing drops the +x pts part, and a surname skips a generational suffix', () => {
+    expect(adviceNote({ openSlotFills: [{ slot: 'FLEX', name: 'Tyjae Spears', projection: 0 }] })).toBe('Start Tyjae Spears at FLEX');
+    expect(adviceNote({
+      suggestions: [swap('Marvin Harrison Jr.', 'Puka Nacua', 10, true)],
+      openSlotFills: [{ slot: 'FLEX', name: 'Kenneth Walker III', projection: 0 }],
+    })).toBe('Two moves · +10.0 pts: Harrison in for Puka Nacua (Out) · Walker into the empty FLEX');
+    expect(adviceNote({
+      suggestions: [swap('Jordan Addison', 'Puka Nacua', null)],
+      openSlotFills: [{ slot: 'FLEX', name: 'Tyjae Spears', projection: -1 }],
+    })).toBe('Two moves: Addison in for Puka Nacua · Spears into the empty FLEX');
+  });
+
   test('no move, no note', () => {
     expect(adviceNote({ suggestions: [], openSlotFills: [] })).toBeNull();
     expect(adviceNote()).toBeNull();

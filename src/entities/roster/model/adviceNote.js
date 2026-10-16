@@ -1,7 +1,13 @@
 import { formatPoints, isStartVerdictUnavailable, startVerdictReason } from '../../../shared/lib';
 
 const COUNT_WORDS = ['No', 'One', 'Two', 'Three', 'Four', 'Five', 'Six'];
-const lastName = (name) => String(name).trim().split(/\s+/).pop();
+// A name's surname for the short form: a generational suffix is not one ("Marvin Harrison Jr." is Harrison).
+const SUFFIX = /^(jr|sr|ii|iii|iv|v)\.?$/i;
+const lastName = (name) => {
+  const words = String(name).trim().split(/\s+/);
+  while (words.length > 1 && SUFFIX.test(words[words.length - 1])) words.pop();
+  return words.pop();
+};
 
 // A benched-for starter the feed rules Out reads "(Out)" beside his name: the reason behind the move.
 const outMark = (side) => (isStartVerdictUnavailable(side) && startVerdictReason(side) === 'out' ? ' (Out)' : '');
@@ -31,8 +37,9 @@ export function adviceNote({ suggestions, openSlotFills } = {}) {
   const count = swaps.length + fills.length;
   if (count === 0) return null;
   const figures = [...swaps.map((s) => gainOf(s.gain)), ...fills.map((f) => gainOf(f.projection))];
-  const known = figures.filter((g) => g != null);
-  const total = known.length ? ` · +${formatPoints(known.reduce((sum, g) => sum + g, 0))} pts` : '';
+  // A total that is not a gain (no figure, or a fill worth nothing) drops the "+x pts" part.
+  const sum = figures.filter((g) => g != null).reduce((acc, g) => acc + g, 0);
+  const total = sum > 0 ? ` · +${formatPoints(sum)} pts` : '';
   if (count === 1) {
     return swaps.length
       ? `Start ${swaps[0].suggested.name} for ${swaps[0].current.name}${outMark(swaps[0].current)}${total}`

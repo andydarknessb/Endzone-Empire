@@ -16,23 +16,33 @@ import { unavailableLabel } from '../../../entities/roster';
 /**
  * The Starters frame of Matchup Detail (ADR 0031, #899), drawn as the board's primary frame (ADR
  * 0067 wave 2, spec #2334 ruling 4): both sides on one row with the slot and its position tag in the
- * centre column, a header row naming both Teams, the "Pts / proj" column label, and a Totals row.
+ * centre column, a header row naming both Teams, the "Pts / proj" and "Exp final" column labels, and a
+ * Totals row. The viewer's side comes first (Critique 4 item 1): a participant's own team is the left
+ * column and the opponent's the right one, right-aligned, whichever of home and away they are; a
+ * non-participant sees home on the left.
+ *
  * Each filled side is a starter cell: the name (a button that opens the player) with his injury tag,
  * "NFL vs OPP · clock" on line two (the product's text; the product has no per-starter kickoff, so
  * none is drawn), the state marker with its words while the matchup has started (In progress a filled
  * square, Final an outline square, Yet to play an outline square with a dot, always beside the
- * words), and the figure: his points, or "proj 17.9" while his game has not started (the reason
- * ("out", "on bye") in place of the projection for an Unavailable starter). Before kickoff no row
- * repeats "Yet to play": the head says "Every starter yet to play" once and every figure is a Proj.
+ * words), the figure: his points, or "proj 17.9" while his game has not started (the reason ("out",
+ * "on bye") in place of the projection for an Unavailable starter), and, on a wide screen while the
+ * matchup is live, his Exp final (the producer's `expected_final`, a dash when it priced none). Before
+ * kickoff no row repeats "Yet to play": the head says "Every starter yet to play" once and every figure
+ * is a Proj, with no Exp final column (it would equal Proj).
  *
  * On a phone a cell is two lines (#2008): the name and injury tag, then the state marker, the figure
  * and the game, wrapping rather than overflowing the half-width cell; each half keeps its side of a
- * 48px slot column so team names stay inside their halves.
+ * 48px slot column so team names stay inside their halves. There is no Exp final column; the Totals
+ * carry each Team's.
  *
- * An unfilled slot reads "Empty" before kickoff and "No starter" once started, with "Fill by {lock}"
- * on line two when the page passes `fillBy` (the lock text). The Totals row prints each Team's Matchup
- * score (the board's `scoreLabel`, handed down as `scoreLabels`; the widget sums nothing) with "Exp
- * final {x}" under it, or the Proj total before kickoff.
+ * An unfilled slot reads "Empty" before kickoff and "No starter" once started. `fillBy` is the lock
+ * ("Sun 3:25 PM") and the page passes it only while its lineup note is showing; it is said on the
+ * viewer's own side only, as "Fill by {lock}" before kickoff and "Empty · next kickoff {lock}" live.
+ * The opponent's empty slot, a non-participant's and a best ball league's say nothing about a lock.
+ *
+ * The Totals row prints each Team's Matchup score (the board's `scoreLabel`, handed down as
+ * `scoreLabels`; the widget sums nothing) with its Exp final, or the Proj total before kickoff.
  *
  * The rows arrive already paired and ordered by the Matchup page model (`pairStartersBySlot`); this
  * widget renders them as given. Two callbacks: `onOpenPlayer(id)` from a starter's name, and
@@ -61,11 +71,15 @@ export default function SlotComparison({
   const list = rows || [];
   const phase = matchupPhase(status);
   const pre = phase.hasStarted === false;
-  // A settled Matchup (played or final) has no Expected final to show: the strip and the LED board
-  // hide it, and the server still prices one (#2008 QA).
+  // The Exp final column: wide screens, once started, until the matchup settles (the strip and the LED
+  // board hide it then, and the server still prices one, #2008 QA).
+  const showExp = phase.hasStarted === true && !phase.settled && !compact;
   const ef = phase.settled ? {} : expectedFinal || {};
   const count = `${list.length} ${list.length === 1 ? 'slot' : 'slots'}`;
   const headingId = `${baseId}-h`;
+  // Viewer first: the left column is the viewer's team when they play in this matchup, else home.
+  const [leftKey, rightKey] = viewerSide === 'away' ? ['away', 'home'] : ['home', 'away'];
+  const names = { home: homeName, away: awayName };
 
   return (
     <Frame
@@ -80,15 +94,15 @@ export default function SlotComparison({
       )}
     >
       <Box sx={{ ...COLUMNS, alignItems: 'center', padding: { xs: '12px 14px 8px', md: '14px 20px 8px' }, borderBottom: '2px solid var(--ps-rule)' }}>
-        <TeamHead name={homeName} you={viewerSide === 'home'} />
+        <TeamHead name={names[leftKey]} you={viewerSide === leftKey} />
         <Box component="span" sx={{ ...LABEL, textAlign: 'center' }}>Slot</Box>
-        <TeamHead name={awayName} you={viewerSide === 'away'} right />
+        <TeamHead name={names[rightKey]} you={viewerSide === rightKey} right />
       </Box>
       {!compact && (
         <Box aria-hidden="true" sx={{ ...COLUMNS, padding: '6px 20px', borderBottom: '2px solid var(--ps-rule)', ...LABEL }}>
-          <ColumnLabel pre={pre} />
+          <ColumnLabel pre={pre} showExp={showExp} />
           <span />
-          <ColumnLabel pre={pre} right />
+          <ColumnLabel pre={pre} showExp={showExp} right />
         </Box>
       )}
 
@@ -98,10 +112,24 @@ export default function SlotComparison({
         <>
           <Box component="ul" role="list" sx={{ listStyle: 'none', m: 0, p: 0 }}>
             {list.map((row, i) => {
-              const homeOpen = !!(row.home && expandedId != null && expandedId === row.home.id);
-              const awayOpen = !!(row.away && expandedId != null && expandedId === row.away.id);
-              const openPlayer = homeOpen ? row.home : awayOpen ? row.away : null;
+              const open = (key) => !!(row[key] && expandedId != null && expandedId === row[key].id);
+              const openPlayer = open('home') ? row.home : open('away') ? row.away : null;
               const panelId = `${baseId}-row-${i}-panel`;
+              const cellFor = (key, right) => (
+                <SideCell
+                  player={row[key]}
+                  side={key}
+                  right={right}
+                  pre={pre}
+                  showExp={showExp}
+                  expanded={open(key)}
+                  panelId={panelId}
+                  compact={compact}
+                  fillBy={viewerSide === key ? fillBy : undefined}
+                  onToggle={onToggle}
+                  onOpenPlayer={onOpenPlayer}
+                />
+              );
               return (
                 <Box
                   component="li"
@@ -110,32 +138,12 @@ export default function SlotComparison({
                   sx={{ borderBottom: '2px solid var(--ps-rule)' }}
                 >
                   <Box sx={{ ...COLUMNS, alignItems: 'center', minHeight: '56px', padding: { xs: '6px 14px', md: '6px 20px' } }}>
-                    <SideCell
-                      player={row.home}
-                      side="home"
-                      pre={pre}
-                      expanded={homeOpen}
-                      panelId={panelId}
-                      compact={compact}
-                      fillBy={fillBy}
-                      onToggle={onToggle}
-                      onOpenPlayer={onOpenPlayer}
-                    />
+                    {cellFor(leftKey, false)}
                     <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
                       <PosTag position={row.slot} />
                       <Box component="span" sx={{ fontSize: '13px', fontWeight: 700, letterSpacing: '.04em', color: 'var(--ps-dim)', whiteSpace: 'nowrap' }}>{row.slot}</Box>
                     </Box>
-                    <SideCell
-                      player={row.away}
-                      side="away"
-                      pre={pre}
-                      expanded={awayOpen}
-                      panelId={panelId}
-                      compact={compact}
-                      fillBy={fillBy}
-                      onToggle={onToggle}
-                      onOpenPlayer={onOpenPlayer}
-                    />
+                    {cellFor(rightKey, true)}
                   </Box>
                   {openPlayer && <ExpandedStrip id={panelId} player={openPlayer} />}
                 </Box>
@@ -149,9 +157,9 @@ export default function SlotComparison({
               ...COLUMNS, alignItems: 'center', padding: { xs: '12px 14px', md: '12px 20px' }, borderTop: '2px solid var(--ps-frame)', backgroundColor: 'var(--ps-field)',
             }}
           >
-            <Total side="home" now={scoreLabels?.home} ef={ef.home} pre={pre} />
+            <Total side={leftKey} now={scoreLabels?.[leftKey]} ef={ef[leftKey]} pre={pre} showExp={showExp} />
             <Box component="span" sx={{ ...LABEL, textAlign: 'center', fontWeight: 700, color: 'var(--ps-ink)' }}>Totals</Box>
-            <Total side="away" now={scoreLabels?.away} ef={ef.away} pre={pre} />
+            <Total side={rightKey} now={scoreLabels?.[rightKey]} ef={ef[rightKey]} pre={pre} showExp={showExp} right />
           </Box>
         </>
       )}
@@ -177,12 +185,16 @@ const LABEL = {
 };
 
 const FIG_WIDTH = 84;
+const EXP_WIDTH = 64;
+const STATE_WIDTH = 112;
 
-function ColumnLabel({ pre, right }) {
+function ColumnLabel({ pre, showExp, right }) {
   return (
     <Box sx={{ display: 'flex', alignItems: 'center', flexDirection: right ? 'row-reverse' : 'row', gap: '12px' }}>
       <span style={{ flex: 1 }} />
+      {!pre && <span style={{ width: STATE_WIDTH, flex: 'none' }} />}
       <Box component="span" sx={{ width: FIG_WIDTH, flex: 'none', textAlign: 'right', whiteSpace: 'nowrap' }}>{pre ? 'Proj' : 'Pts / proj'}</Box>
+      {showExp && <Box component="span" sx={{ width: EXP_WIDTH, flex: 'none', textAlign: 'right', whiteSpace: 'nowrap' }}>Exp final</Box>}
     </Box>
   );
 }
@@ -229,9 +241,45 @@ function Legend() {
   );
 }
 
-function Total({ side, now, ef, pre }) {
-  const right = side === 'away';
+// An Exp final figure: a hundredth-rounded number to one decimal, a dash when nothing priced it.
+const expText = (value) => (value == null || !Number.isFinite(Number(value)) ? '–' : formatPoints(value));
+
+// The Exp final cell of a row or the Totals: "Exp final" for a screen reader beside the figure (the column label is aria-hidden).
+function ExpCell({ value, testId }) {
+  return (
+    <Box
+      component="span"
+      data-testid={testId}
+      sx={{ width: EXP_WIDTH, flex: 'none', textAlign: 'right', fontSize: '15px', color: 'var(--ps-dim)', fontVariantNumeric: 'tabular-nums' }}
+    >
+      <Box component="span" sx={SR_ONLY_SX}>Exp final </Box>
+      {expText(value)}
+    </Box>
+  );
+}
+
+function Total({
+  side, now, ef, pre, showExp, right,
+}) {
   const ink = { fontSize: '18px', fontWeight: 700 };
+  if (showExp) {
+    // A wide live screen: the score under "Pts / proj" and the Exp final under "Exp final", in the rows' columns.
+    return (
+      <Box
+        data-testid={`slot-total-${side}`}
+        sx={{ display: 'flex', alignItems: 'center', gap: '12px', flexDirection: right ? 'row-reverse' : 'row', fontVariantNumeric: 'tabular-nums' }}
+      >
+        <span style={{ flex: 1 }} />
+        <span style={{ width: STATE_WIDTH, flex: 'none' }} />
+        <Box component="span" sx={{ width: FIG_WIDTH, flex: 'none', textAlign: 'right' }}>
+          <Box component="b" sx={ink}>{now}</Box>
+          {' '}
+          <Box component="span" sx={{ fontSize: '13px', color: 'var(--ps-dim)' }}>pts</Box>
+        </Box>
+        {ef != null && <ExpCell value={ef} testId="slot-exp-final" />}
+      </Box>
+    );
+  }
   return (
     <Box data-testid={`slot-total-${side}`} sx={{ minWidth: 0, textAlign: right ? 'right' : 'left', fontVariantNumeric: 'tabular-nums' }}>
       {pre ? (
@@ -251,13 +299,32 @@ function Total({ side, now, ef, pre }) {
   );
 }
 
-/** An unfilled slot: "Empty" before kickoff, "No starter" once started, and when the viewer can still fill it the lock. */
-function EmptyCell({ side, pre, fillBy }) {
-  const away = side === 'away';
+/**
+ * An unfilled slot: "Empty" before kickoff, "No starter" once started. On the viewer's own side with
+ * a lock to name (`fillBy`): "Fill by {lock}" before kickoff, "Empty · next kickoff {lock}" live. A
+ * wide started row also prints the 0.0 an empty slot scores, in the figure column (and the Exp final one while live).
+ */
+function EmptyCell({
+  side, right, pre, compact, showExp, fillBy,
+}) {
+  const second = fillBy ? (pre ? `Fill by ${fillBy}` : `Empty · next kickoff ${fillBy}`) : null;
   return (
-    <Box data-testid={`slot-cell-${side}`} sx={{ minWidth: 0, textAlign: away ? 'right' : 'left', py: '6px' }}>
-      <Box sx={{ fontSize: '15px', color: 'var(--ps-dim)' }}>{pre ? 'Empty' : 'No starter'}</Box>
-      {fillBy && <Box sx={{ fontSize: '13px', color: 'var(--ps-dim)' }}>{`Fill by ${fillBy}`}</Box>}
+    <Box data-testid={`slot-cell-${side}`} sx={{ display: 'flex', alignItems: 'center', gap: '12px', flexDirection: right ? 'row-reverse' : 'row', minWidth: 0, textAlign: right ? 'right' : 'left', py: '6px' }}>
+      <Box sx={{ flex: 1, minWidth: 0 }}>
+        <Box sx={{ fontSize: '15px', color: 'var(--ps-dim)' }}>{pre ? 'Empty' : 'No starter'}</Box>
+        {second && <Box sx={{ fontSize: '13px', color: 'var(--ps-dim)' }}>{second}</Box>}
+      </Box>
+      {!compact && !pre && (
+        <>
+          <span style={{ width: STATE_WIDTH, flex: 'none' }} />
+          <Box component="span" sx={{ width: FIG_WIDTH, flex: 'none', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+            <Box component="b" sx={{ fontSize: '16px', fontWeight: 700 }}>0.0</Box>
+            {' '}
+            <Box component="span" sx={{ fontSize: '13px', color: 'var(--ps-dim)' }}>pts</Box>
+          </Box>
+          {showExp && <ExpCell value={0} />}
+        </>
+      )}
     </Box>
   );
 }
@@ -269,11 +336,13 @@ const FOCUS_RING = { outline: '3px solid var(--ps-focus)', outlineOffset: 0, box
  * full-cell expand button underneath and the name button on top, the content laid over the expand
  * button with pointer events off so a click anywhere but the name reaches the expand control. The
  * expand button names its panel through `aria-controls` only while the panel is mounted, so the
- * IDREF always resolves.
+ * IDREF always resolves. `right` is the visual position (the right column mirrors the left); `side` is
+ * the data key ('home' or 'away').
  */
-function SideCell({ player, side, pre, expanded, panelId, compact, fillBy, onToggle, onOpenPlayer }) {
-  if (!player) return <EmptyCell side={side} pre={pre} fillBy={fillBy} />;
-  const away = side === 'away';
+function SideCell({
+  player, side, right, pre, showExp, expanded, panelId, compact, fillBy, onToggle, onOpenPlayer,
+}) {
+  if (!player) return <EmptyCell side={side} right={right} pre={pre} compact={compact} showExp={showExp} fillBy={fillBy} />;
   const state = starterStateView(player.game_state);
   const reason = unavailableLabel(player);
   const notStarted = pre || player.game_state === 'scheduled';
@@ -294,7 +363,7 @@ function SideCell({ player, side, pre, expanded, panelId, compact, fillBy, onTog
     </>
   );
   const marker = !pre && state ? (
-    <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--ps-dim)', flexDirection: away ? 'row-reverse' : 'row' }}>
+    <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--ps-dim)', flexDirection: right ? 'row-reverse' : 'row' }}>
       <StateShape kind={state.kind} />
       {state.label}
     </Box>
@@ -316,11 +385,11 @@ function SideCell({ player, side, pre, expanded, panelId, compact, fillBy, onTog
       </Box>
       <Box
         sx={{
-          position: 'relative', pointerEvents: 'none', display: 'flex', alignItems: 'center', gap: '12px', flexDirection: away ? 'row-reverse' : 'row', textAlign: away ? 'right' : 'left',
+          position: 'relative', pointerEvents: 'none', display: 'flex', alignItems: 'center', gap: '12px', flexDirection: right ? 'row-reverse' : 'row', textAlign: right ? 'right' : 'left',
         }}
       >
         <Box sx={{ flex: 1, minWidth: 0 }}>
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '4px 8px', justifyContent: away ? 'flex-end' : 'flex-start' }}>
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '4px 8px', justifyContent: right ? 'flex-end' : 'flex-start' }}>
             <Box
               component="button"
               type="button"
@@ -360,11 +429,11 @@ function SideCell({ player, side, pre, expanded, panelId, compact, fillBy, onTog
             <Box
               data-testid="slot-line2"
               sx={{
-                display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '2px 8px', fontSize: '14px', justifyContent: away ? 'flex-end' : 'flex-start', flexDirection: 'row', fontVariantNumeric: 'tabular-nums',
+                display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '2px 8px', fontSize: '14px', justifyContent: right ? 'flex-end' : 'flex-start', flexDirection: 'row', fontVariantNumeric: 'tabular-nums',
               }}
             >
               {!pre && state && (
-                <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: '6px', color: 'var(--ps-dim)', flexDirection: away ? 'row-reverse' : 'row' }}>
+                <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: '6px', color: 'var(--ps-dim)', flexDirection: right ? 'row-reverse' : 'row' }}>
                   <StateShape kind={state.kind} />
                   <Box component="span" sx={SR_ONLY_SX}>{state.label}</Box>
                 </Box>
@@ -376,10 +445,11 @@ function SideCell({ player, side, pre, expanded, panelId, compact, fillBy, onTog
             <Box data-testid="slot-line2" sx={{ fontSize: '13px', color: 'var(--ps-dim)' }}>{lineTwo(player)}</Box>
           )}
         </Box>
-        {!compact && marker && <Box sx={{ width: '112px', flex: 'none' }}>{marker}</Box>}
+        {!compact && !pre && <Box sx={{ width: STATE_WIDTH, flex: 'none' }}>{marker}</Box>}
         {!compact && (
           <Box data-testid="slot-points" sx={{ width: FIG_WIDTH, flex: 'none', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{figure}</Box>
         )}
+        {showExp && <ExpCell value={player.expected_final} testId="slot-row-exp-final" />}
       </Box>
     </Box>
   );

@@ -195,7 +195,7 @@ test('live NFL game updates move the Game Center game strip without reload', asy
   renderPage();
 
   const strip = await screen.findByTestId('game-center-nfl-games');
-  expect(strip).toHaveTextContent('GB 10-CHI 7');
+  expect(strip).toHaveTextContent('GB 10 - CHI 7');
   expect(strip).toHaveTextContent('Q2 8:12');
 
   liveGamePush({
@@ -212,7 +212,7 @@ test('live NFL game updates move the Game Center game strip without reload', asy
     },
   });
 
-  expect(strip).toHaveTextContent('GB 17-CHI 7');
+  expect(strip).toHaveTextContent('GB 17 - CHI 7');
   expect(strip).toHaveTextContent('Q2 3:04');
 });
 

@@ -186,3 +186,40 @@ describe('the compact bar', () => {
     expect(screen.getByRole('group')).toHaveTextContent('DD 110.5 · FF 123.9');
   });
 });
+
+describe('the viewer\'s side comes first', () => {
+  const sideOrder = () => screen.getAllByTestId(/^scoreboard-side-/).map((el) => el.getAttribute('data-testid'));
+
+  test('as the away team he is the left column, and the names follow that order', () => {
+    render(<ScoreboardStrip matchup={detail()} viewerTeamId={34} />);
+
+    expect(sideOrder()).toEqual(['scoreboard-side-away', 'scoreboard-side-home']);
+    expect(screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent)).toEqual(['Fargo Frostbite', 'Duluth Dockworkers']);
+    expect(screen.getAllByTestId('scoreboard-score').map((el) => el.textContent)).toEqual(['77.0', '82.2']);
+    expect(screen.getByTestId('scoreboard-live-region')).toHaveTextContent('Fargo Frostbite 77.0, Duluth Dockworkers 82.2');
+    // His own win probability leads the image: Fargo 64%.
+    expect(screen.getByRole('img', { name: 'Fargo Frostbite 64%, Duluth Dockworkers 36% win probability' })).toBeInTheDocument();
+    // The margin names the leader whichever column he is in.
+    expect(screen.getByTestId('scoreboard-margin')).toHaveTextContent('Duluth Dockworkers by 5.2');
+  });
+
+  test('the compact bar reads in the same order', () => {
+    window.IntersectionObserver = jest.fn((callback) => {
+      window.__strip = callback;
+      return { observe: jest.fn(), disconnect: jest.fn() };
+    });
+    render(<ScoreboardStrip matchup={detail()} viewerTeamId={34} />);
+    act(() => { window.__strip([{ isIntersecting: false, boundingClientRect: { bottom: -10 } }]); });
+
+    expect(screen.getByRole('group', { name: 'Fargo Frostbite 77.0, Duluth Dockworkers 82.2, Duluth Dockworkers by 5.2' })).toHaveTextContent('FF 77.0 · DD 82.2');
+    delete window.IntersectionObserver;
+    delete window.__strip;
+  });
+
+  test('a participant as home, and a non-participant, see home on the left', () => {
+    const { rerender } = render(<ScoreboardStrip matchup={detail()} viewerTeamId={12} />);
+    expect(sideOrder()).toEqual(['scoreboard-side-home', 'scoreboard-side-away']);
+    rerender(<ScoreboardStrip matchup={detail()} />);
+    expect(sideOrder()).toEqual(['scoreboard-side-home', 'scoreboard-side-away']);
+  });
+});

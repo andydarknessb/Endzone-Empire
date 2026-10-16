@@ -141,9 +141,10 @@ const MATCHUP_URL = '/api/league/1/matchups/9';
 // as any other unlisted URL - PlayerDecisionCard's own suite covers its
 // payload handling; this page's tests only need the request to resolve.
 function mockApi({
-  matchup = matchupResponse(), prefs = { touchdownCelebrations: true }, standings = [], hindsight, advice = {},
+  matchup = matchupResponse(), prefs = { touchdownCelebrations: true }, standings = [], hindsight, advice = {}, actionItems = [],
 } = {}) {
   apiClient.get.mockImplementation((url) => {
+    if (url.startsWith('/api/user/action-items')) return Promise.resolve({ data: { items: actionItems } });
     if (url.startsWith('/api/team/lineup/advice')) return Promise.resolve({ data: advice });
     if (url.startsWith('/api/league/') && url.includes('/matchups/')) return Promise.resolve(matchup);
     if (url === '/api/notifications/prefs') return Promise.resolve({ data: prefs });
@@ -277,7 +278,7 @@ test('shows an aria-busy loading region before data arrives', () => {
 test('shows an error alert when the fetch fails', async () => {
   apiClient.get.mockRejectedValue({ response: { data: { error: 'matchup not found' } } });
   renderPage();
-  expect(await screen.findByRole('alert')).toHaveTextContent('matchup not found');
+  expect(await screen.findByRole('alert')).toHaveTextContent('We could not load this matchup right now.');
 });
 
 // #2009: the error state is no dead end - Retry re-runs the detail read through
@@ -294,7 +295,7 @@ test('a 500 on the detail read offers Retry, and Retry with a good read renders 
   });
   renderPage();
 
-  expect(await screen.findByRole('alert')).toHaveTextContent('boom');
+  expect(await screen.findByRole('alert')).toHaveTextContent('We could not load this matchup right now.');
   expect(screen.queryByRole('heading', { level: 2, name: 'Starters' })).not.toBeInTheDocument();
   await userEvent.click(screen.getByRole('button', { name: 'Retry' }));
   expect(await screen.findByRole('heading', { level: 2, name: 'Starters' })).toBeInTheDocument();
@@ -337,15 +338,18 @@ test('Retry on a failed resync keeps the box score on screen and focuses the h1 
   expect(screen.queryByRole('alert')).not.toBeInTheDocument();
 });
 
-// A code+message envelope with no `error` key (the shape the global express
-// error handler and the rate limiter emit). The old hand-rolled read of
-// `err.response.data.error` found no `error` key here and fell through to
-// `err.message`, absent on the rejected object, so the page showed NO alert;
-// reading through readHttpFailure surfaces the server's own sentence.
-test('shows the server sentence when a matchup failure is a code+message envelope (no error key)', async () => {
+// A code+message envelope with no `error` key (the shape the global express error handler and the rate
+// limiter emit) still shows the alert, in the page's own words ("We could not load ...", never a raw server
+// sentence), with a ghost Retry.
+test('a code+message envelope failure shows the same alert, in the page\'s own words, with a ghost Retry', async () => {
   apiClient.get.mockRejectedValue({ response: { data: { code: 'MATCHUP_DOWN', message: 'the box score is briefly unavailable' } } });
   renderPage();
-  expect(await screen.findByRole('alert')).toHaveTextContent('the box score is briefly unavailable');
+  const alert = await screen.findByRole('alert');
+  expect(alert).toHaveTextContent('We could not load this matchup right now.');
+  expect(alert).not.toHaveTextContent('briefly unavailable');
+  const retryButton = within(alert).getByRole('button', { name: 'Retry' });
+  expect(rulesUnder(retryButton)['']).toMatch(/border:\s*2px solid/);
+  expect(filledActions()).toBe(0);
 });
 
 test('renders the header, both teams\' starters with points, and the strip\'s scores', async () => {
@@ -1509,8 +1513,8 @@ test.each([
   renderPage();
   const table = await screen.findByTestId('slot-comparison');
 
-  const note = within(within(table).getByTestId('slot-totals')).queryByText('Exp final 118.9');
-  expect(Boolean(note)).toBe(shown);
+  const note = within(within(table).getByTestId('slot-totals')).queryAllByTestId('slot-exp-final').map((el) => el.textContent);
+  expect(note.includes('Exp final 118.9')).toBe(shown);
 });
 
 
@@ -1541,6 +1545,7 @@ const benchPlayer = (over = {}) => ({
   id: 20, name: 'Bench Runner', position: 'RB', nfl_team: 'SF', points: 0, projected: 9, game_state: 'scheduled', availability: { available: true, reason: null }, ...over,
 });
 const noteCard = () => screen.getByTestId('lineup-note');
+const asNonParticipant = () => useLeague.mockReturnValue({ league: LEAGUE, viewerTeamId: null, loading: false, error: null });
 // Counts for AC 3: a cursor is `.cursor`; a filled action paints the Accent fill.
 const cursors = () => document.querySelectorAll('.cursor').length;
 const filledActions = () => Array.from(document.querySelectorAll('a, button'))
@@ -1592,28 +1597,28 @@ describe('cursor and filled-action counts are 0 on every Matchup fixture (AC 3)'
 });
 
 describe('the lineup note (AC 6j)', () => {
-  test('an empty unlocked FLEX reads "FLEX is empty · fill it by {lock}" with a ghost Set lineup, and no best-legal-lineup sentence', async () => {
+  test('an empty unlocked FLEX a bench player can fill reads "FLEX is empty · next kickoff {lock}" with a ghost Set lineup, and no best-legal-lineup sentence', async () => {
     const kickoff = inMinutes(120);
     liveGameRows = [nflGame({ start_time: kickoff })];
     mockApi({ matchup: emptyFlex({ homeBench: [benchPlayer()], viewerWhatIf: { delta: 0, swaps: [] } }) });
     renderPage();
 
     const note = await screen.findByTestId('lineup-note');
-    expect(note).toHaveTextContent(`FLEX is empty · fill it by ${weekdayTime(kickoff)}`);
+    expect(note).toHaveTextContent(`FLEX is empty · next kickoff ${weekdayTime(kickoff)}`);
     expect(within(note).getByRole('link', { name: 'Set lineup' })).toHaveAttribute('href', '/league/1/lineup');
     expect(screen.queryByText(/best legal lineup/i)).not.toBeInTheDocument();
     expect(screen.queryByTestId('bench-what-if')).not.toBeInTheDocument();
-    // The empty row's second line is the lock too.
-    expect(within(screen.getByTestId('slot-comparison')).getByText(`Fill by ${weekdayTime(kickoff)}`)).toBeInTheDocument();
+    // The viewer's empty row says the same thing on its second line.
+    expect(within(screen.getByTestId('slot-comparison')).getByText(`Empty · next kickoff ${weekdayTime(kickoff)}`)).toBeInTheDocument();
   });
 
-  test('under an hour from the lock the text is "{SLOT} is empty · locks in {n} min"', async () => {
+  test('under an hour from the lock the text is "{SLOT} is empty · next kickoff in {n} min"', async () => {
     liveGameRows = [nflGame({ start_time: inMinutes(45) })];
     mockApi({ matchup: emptyFlex({ homeBench: [benchPlayer()] }) });
     renderPage();
 
-    expect(await screen.findByTestId('lineup-note')).toHaveTextContent('FLEX is empty · locks in 45 min');
-    expect(noteCard()).toHaveAccessibleName('Lineup note: FLEX is empty · locks in 45 min');
+    expect(await screen.findByTestId('lineup-note')).toHaveTextContent('FLEX is empty · next kickoff in 45 min');
+    expect(noteCard()).toHaveAccessibleName('Lineup note: FLEX is empty · next kickoff in 45 min');
   });
 
   test('when no bench player can fill the slot the note says so and links Free agents instead', async () => {
@@ -1664,6 +1669,7 @@ describe('the lineup note (AC 6j)', () => {
   });
 
   test('a non-participant sees no lineup note', async () => {
+    asNonParticipant();
     liveGameRows = [nflGame({ start_time: inMinutes(120) })];
     mockApi({ matchup: emptyFlex({ viewerTeamId: null, homeBench: [benchPlayer()] }) });
     renderPage();
@@ -1697,10 +1703,18 @@ describe('the scoreboard live region (AC 5)', () => {
     expect(stripScores()).toEqual(['110.0', '90.0']);
     expect(region()).toHaveTextContent('Team A 110.0, Team B 90.0');
 
-    const node = region().firstChild;
+    // Over time: watch every text the region takes. An identical payload adds nothing; only a moved score does.
+    const seen = [];
+    const watcher = new MutationObserver(() => seen.push(region().textContent));
+    watcher.observe(region(), { childList: true, characterData: true, subtree: true });
     emitScores({ scored: [{ matchupId: 9, homeScore: 110, awayScore: 90 }] });
-    expect(region().firstChild).toBe(node);
-    expect(region()).toHaveTextContent('Team A 110.0, Team B 90.0');
+    emitScores({ scored: [{ matchupId: 9, homeScore: 110, awayScore: 90 }] });
+    await act(async () => { await Promise.resolve(); });
+    expect(seen).toEqual([]);
+    emitScores({ scored: [{ matchupId: 9, homeScore: 112, awayScore: 90 }] });
+    await act(async () => { await Promise.resolve(); });
+    watcher.disconnect();
+    expect(seen).toEqual(['Team A 112.0, Team B 90.0']);
   });
 });
 
@@ -1841,4 +1855,216 @@ test('a starter row shows the product line two and the state words while started
   expect(within(pre).getByText('Every starter yet to play')).toBeInTheDocument();
   expect(within(pre).queryByText('Yet to play')).not.toBeInTheDocument();
   expect(within(pre).queryByTestId('slot-legend')).not.toBeInTheDocument();
+});
+
+// --- QA rulings (spec #2334 Matchup QA): the lock, who may say "Fill by", viewer first, Exp final ---
+
+describe('the lock the note uses (the lineup_problem action item is one week\'s)', () => {
+  const lineupItem = (key, deadline) => ({
+    id: `lineup_problem:1:${key}`, leagueId: 1, type: 'lineup_problem', deadlineAt: deadline,
+  });
+
+  test('the item for this season and week sets the lock', async () => {
+    const itemLock = inMinutes(180);
+    liveGameRows = [nflGame({ start_time: inMinutes(600) })];
+    mockApi({ matchup: emptyFlex({ homeBench: [benchPlayer()] }), actionItems: [lineupItem('2026-3', itemLock)] });
+    renderPage();
+    expect(await screen.findByTestId('lineup-note')).toHaveTextContent(`next kickoff ${weekdayTime(itemLock)}`);
+  });
+
+  test('an item for another week is ignored, and the next kickoff among the games stands', async () => {
+    const gameLock = inMinutes(600);
+    liveGameRows = [nflGame({ start_time: gameLock })];
+    mockApi({ matchup: emptyFlex({ homeBench: [benchPlayer()] }), actionItems: [lineupItem('2026-9', inMinutes(30))] });
+    renderPage();
+    const note = await screen.findByTestId('lineup-note');
+    expect(note).toHaveTextContent(`next kickoff ${weekdayTime(gameLock)}`);
+    expect(note).not.toHaveTextContent('next kickoff in');
+  });
+});
+
+describe('"Fill by" is said on the viewer\'s side only, and only while the lineup note shows', () => {
+  const cellText = (side) => within(screen.getByTestId('slot-comparison')).getAllByTestId(`slot-cell-${side}`).map((el) => el.textContent).join(' | ');
+
+  test('the viewer\'s empty row names the lock; the opponent\'s empty row says nothing about one', async () => {
+    liveGameRows = [nflGame({ start_time: inMinutes(120) })];
+    // Home (the viewer) has no WR; away has no RB: each side has one empty slot.
+    mockApi({
+      matchup: matchupResponse({
+        homeStarters: [starter({ slot: 'QB', game_state: 'in_progress' }), starter({ id: 8, name: 'H. Back', slot: 'RB', position: 'RB', game_state: 'in_progress' })],
+        awayStarters: [starter({ id: 6, name: 'D. Adams', slot: 'QB', game_state: 'in_progress' }), starter({ id: 9, name: 'A. Wideout', slot: 'WR', position: 'WR', game_state: 'in_progress' })],
+        homeBench: [benchPlayer({ position: 'WR' })],
+        nflGameIds: ['G-LATE'],
+      }),
+    });
+    renderPage();
+    await screen.findByTestId('lineup-note');
+    expect(cellText('home')).toMatch(/Empty · next kickoff /);
+    expect(cellText('away')).toContain('No starter');
+    expect(cellText('away')).not.toMatch(/Fill by|next kickoff/);
+  });
+
+  test('the opponent\'s empty slot carries no lock when the viewer has nothing to fix', async () => {
+    liveGameRows = [nflGame({ start_time: inMinutes(120) })];
+    // The viewer is home with a full lineup; the away side has the empty FLEX.
+    mockApi({
+      matchup: matchupResponse({
+        homeStarters: [starter({ slot: 'QB', game_state: 'in_progress' }), starter({ id: 8, name: 'H. Flex', slot: 'FLEX', position: 'WR', game_state: 'in_progress' })],
+        awayStarters: [starter({ id: 6, name: 'D. Adams', slot: 'QB', game_state: 'in_progress' })],
+        nflGameIds: ['G-LATE'],
+      }),
+    });
+    renderPage();
+    await screen.findByTestId('slot-comparison');
+    expect(screen.queryByTestId('lineup-note')).not.toBeInTheDocument();
+    expect(cellText('away')).toContain('No starter');
+    expect(cellText('away')).not.toMatch(/Fill by|next kickoff/);
+  });
+
+  test('a non-participant sees no lock on either side, and the viewer\'s own empty row names it', async () => {
+    liveGameRows = [nflGame({ start_time: inMinutes(120) })];
+    asNonParticipant();
+    mockApi({ matchup: emptyFlex({ viewerTeamId: null, homeBench: [benchPlayer()] }) });
+    const { unmount } = renderPage();
+    await screen.findByTestId('slot-comparison');
+    expect(cellText('home')).not.toMatch(/Fill by|next kickoff/);
+    unmount();
+
+    useLeague.mockReturnValue({ league: LEAGUE, viewerTeamId: 1, loading: false, error: null });
+    mockApi({ matchup: emptyFlex({ homeBench: [benchPlayer()] }) });
+    renderPage();
+    await screen.findByTestId('lineup-note');
+    expect(cellText('home')).toMatch(/Empty · next kickoff /);
+  });
+
+  test('before kickoff the viewer\'s empty row keeps "Fill by {lock}"', async () => {
+    const lock = inMinutes(600);
+    liveGameRows = [nflGame({ start_time: lock })];
+    mockApi({
+      matchup: matchupResponse({
+        matchup: { status: 'scheduled', home_score: '0', away_score: '0' },
+        homeStarters: [starter({ slot: 'QB', game_state: 'scheduled' })],
+        awayStarters: [starter({ id: 6, name: 'D. Adams', slot: 'QB', game_state: 'scheduled' }), starter({ id: 7, name: 'T. Hill', slot: 'FLEX', position: 'WR', game_state: 'scheduled' })],
+        nflGameIds: ['G-LATE'],
+      }),
+    });
+    renderPage();
+    await screen.findByTestId('lineup-note');
+    // The games read lands after the note first paints, so wait for the lock.
+    await waitFor(() => expect(cellText('home')).toContain(`Fill by ${weekdayTime(lock)}`));
+    expect(cellText('home')).not.toContain('next kickoff');
+  });
+
+  test('a best ball league names no lock either', async () => {
+    useLeague.mockReturnValue({ league: { ...LEAGUE, best_ball: true }, viewerTeamId: 1, loading: false, error: null });
+    liveGameRows = [nflGame({ start_time: inMinutes(120) })];
+    mockApi({ matchup: emptyFlex({ homeBench: [benchPlayer()] }) });
+    renderPage();
+    await screen.findByTestId('slot-comparison');
+    expect(cellText('home')).not.toMatch(/Fill by|next kickoff/);
+  });
+});
+
+describe('the viewer\'s side comes first (Critique 4 item 1)', () => {
+  const awayViewer = () => mockApi({ matchup: matchupResponse({ viewerTeamId: 2 }) });
+  const order = (nodes) => nodes.map((n) => n.getAttribute('data-testid'));
+
+  test('as the away team the viewer is the left column of the strip, the live sentence, the odds and the compact bar', async () => {
+    window.IntersectionObserver = jest.fn((callback) => {
+      window.__observed = callback;
+      return { observe: jest.fn(), disconnect: jest.fn() };
+    });
+    awayViewer();
+    renderPage();
+    await screen.findByTestId('scoreboard-strip');
+
+    const sides = within(strip()).getAllByTestId(/^scoreboard-side-/);
+    expect(order(sides)).toEqual(['scoreboard-side-away', 'scoreboard-side-home']);
+    expect(stripScores()).toEqual(['88.0', '101.5']);
+    expect(screen.getByTestId('scoreboard-live-region')).toHaveTextContent('Team B 88.0, Team A 101.5');
+    expect(screen.getByRole('img', { name: /^Team B \d+%, Team A \d+% win probability$/ })).toBeInTheDocument();
+    expect(within(strip()).getByTestId('scoreboard-margin')).toHaveTextContent('Team A by 13.5');
+
+    act(() => { window.__observed([{ isIntersecting: false, boundingClientRect: { bottom: -20 } }]); });
+    expect(screen.getByRole('group', { name: 'Team B 88.0, Team A 101.5, Team A by 13.5' })).toHaveTextContent('TB 88.0 · TA 101.5');
+    delete window.IntersectionObserver;
+    delete window.__observed;
+  });
+
+  test('as the away team the Starters frame puts his side on the left, with the You tag and the totals in that order', async () => {
+    awayViewer();
+    renderPage();
+    const table = await screen.findByTestId('slot-comparison');
+
+    const row = within(table).getAllByTestId('slot-row')[0];
+    expect(order(Array.from(row.querySelectorAll('[data-testid^="slot-cell-"]')))).toEqual(['slot-cell-away', 'slot-cell-home']);
+    expect(order(Array.from(within(table).getByTestId('slot-totals').querySelectorAll('[data-testid^="slot-total-"]')))).toEqual(['slot-total-away', 'slot-total-home']);
+    const heads = within(table).getAllByText(/^Team [AB]$/).map((el) => el.textContent);
+    expect(heads).toEqual(['Team B', 'Team A']);
+    expect(within(table).getByText('You').parentElement).toHaveTextContent('Team B');
+  });
+
+  test('a participant as home, and a non-participant, see home on the left', async () => {
+    renderPage();
+    await screen.findByTestId('scoreboard-strip');
+    expect(order(within(strip()).getAllByTestId(/^scoreboard-side-/))).toEqual(['scoreboard-side-home', 'scoreboard-side-away']);
+  });
+
+  test('a non-participant sees home first in the strip and the table', async () => {
+    asNonParticipant();
+    mockApi({ matchup: matchupResponse({ viewerTeamId: null }) });
+    renderPage();
+    const table = await screen.findByTestId('slot-comparison');
+    expect(order(within(strip()).getAllByTestId(/^scoreboard-side-/))).toEqual(['scoreboard-side-home', 'scoreboard-side-away']);
+    const row = within(table).getAllByTestId('slot-row')[0];
+    expect(order(Array.from(row.querySelectorAll('[data-testid^="slot-cell-"]')))).toEqual(['slot-cell-home', 'slot-cell-away']);
+    expect(within(table).queryByText('You')).not.toBeInTheDocument();
+  });
+});
+
+describe('the per-starter Exp final column', () => {
+  const live = (home, away) => matchupResponse({
+    homeStarters: [starter({ projected: 21.4, expected_final: home, game_state: 'in_progress' })],
+    awayStarters: [starter({
+      id: 6, name: 'D. Adams', slot: 'WR', position: 'WR', projected: 12.2, expected_final: away, game_state: 'in_progress',
+    })],
+  });
+
+  test('prints the producer\'s figure per row, a dash when it priced none, under an Exp final label', async () => {
+    mockApi({ matchup: live(27.35, null) });
+    renderPage();
+    const table = await screen.findByTestId('slot-comparison');
+
+    expect(within(table).getAllByTestId('slot-row-exp-final').map((el) => el.textContent)).toEqual(['Exp final 27.4', 'Exp final –']);
+    expect(within(table).getAllByText('Exp final').length).toBeGreaterThan(0);
+  });
+
+  test('is not drawn before kickoff or on a phone', async () => {
+    mockApi({ matchup: matchupResponse({ matchup: { status: 'scheduled', home_score: '0', away_score: '0' }, homeStarters: [starter({ expected_final: 20 })] }) });
+    const { unmount } = renderPage();
+    await screen.findByTestId('slot-comparison');
+    expect(screen.queryByTestId('slot-row-exp-final')).not.toBeInTheDocument();
+    unmount();
+
+    mobile = true;
+    mockApi({ matchup: live(27.35, 10) });
+    renderPage();
+    await screen.findByTestId('slot-comparison');
+    expect(screen.queryByTestId('slot-row-exp-final')).not.toBeInTheDocument();
+  });
+});
+
+test('leaving the page restores scroll-padding-top and disconnects the scoreboard observer', async () => {
+  const disconnect = jest.fn();
+  window.IntersectionObserver = jest.fn(() => ({ observe: jest.fn(), disconnect }));
+  document.documentElement.style.scrollPaddingTop = '10px';
+  const { unmount } = renderPage();
+  await screen.findByTestId('scoreboard-strip');
+  expect(document.documentElement.style.scrollPaddingTop).toBe('72px');
+
+  unmount();
+  expect(document.documentElement.style.scrollPaddingTop).toBe('10px');
+  expect(disconnect).toHaveBeenCalled();
+  document.documentElement.style.scrollPaddingTop = '';
+  delete window.IntersectionObserver;
 });

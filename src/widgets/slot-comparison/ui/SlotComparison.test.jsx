@@ -175,25 +175,36 @@ test('a starter with an unknown game state shows no state marker', () => {
 });
 
 describe('an empty slot', () => {
-  test('reads "No starter" once started, with "Fill by {lock}" when the page passes one, and offers no link of its own', () => {
-    render(<SlotComparison {...baseProps} fillBy="Sun 3:25 PM" />);
+  test('reads "No starter" once started; on the viewer\'s side with a lock the second line is "Empty · next kickoff {lock}", and it offers no link of its own', () => {
+    render(<SlotComparison {...baseProps} viewerSide="away" fillBy="Sun 3:25 PM" />);
     const empty = cell(3, 'away');
 
     expect(empty).toHaveTextContent('No starter');
-    expect(empty).toHaveTextContent('Fill by Sun 3:25 PM');
+    expect(empty).toHaveTextContent('Empty · next kickoff Sun 3:25 PM');
     expect(within(empty).queryByRole('link')).not.toBeInTheDocument();
     expect(within(empty).queryByRole('button')).not.toBeInTheDocument();
   });
 
-  test('says nothing about a lock the page does not know', () => {
-    render(<SlotComparison {...baseProps} />);
-    expect(cell(3, 'away')).not.toHaveTextContent('Fill by');
+  test('names a lock on the viewer\'s side only: the opponent\'s empty slot, and a viewer with none, say nothing', () => {
+    const { rerender } = render(<SlotComparison {...baseProps} viewerSide="home" fillBy="Sun 3:25 PM" />);
+    expect(cell(3, 'away')).not.toHaveTextContent(/Fill by|next kickoff/);
+    rerender(<SlotComparison {...baseProps} fillBy="Sun 3:25 PM" />);
+    expect(cell(3, 'away')).not.toHaveTextContent(/Fill by|next kickoff/);
+    rerender(<SlotComparison {...baseProps} viewerSide="away" />);
+    expect(cell(3, 'away')).not.toHaveTextContent(/Fill by|next kickoff/);
   });
 
-  test('reads "Empty" before kickoff', () => {
-    render(<SlotComparison {...baseProps} status="scheduled" fillBy="Sun 12:00 PM" />);
+  test('reads "Empty" over "Fill by {lock}" before kickoff', () => {
+    render(<SlotComparison {...baseProps} status="scheduled" viewerSide="away" fillBy="Sun 12:00 PM" />);
     expect(cell(3, 'away')).toHaveTextContent('Empty');
     expect(cell(3, 'away')).toHaveTextContent('Fill by Sun 12:00 PM');
+    expect(cell(3, 'away')).not.toHaveTextContent('next kickoff');
+  });
+
+  test('a wide started row prints the 0.0 an empty slot scores, and its Exp final', () => {
+    render(<SlotComparison {...baseProps} />);
+    expect(cell(3, 'away')).toHaveTextContent('0.0 pts');
+    expect(within(cell(3, 'away')).getByText('0.0', { selector: 'span' })).toBeInTheDocument();
   });
 });
 
@@ -306,5 +317,62 @@ describe('on a phone', () => {
     expect(within(cell(0, 'home')).getAllByTestId('slot-points')).toHaveLength(1);
     expect(screen.queryByText('Pts / proj')).not.toBeInTheDocument();
     expect(screen.getByTestId('slot-total-home')).toHaveTextContent('99.9 pts');
+  });
+});
+
+describe('the viewer\'s side comes first', () => {
+  const sides = (el) => Array.from(el.querySelectorAll('[data-testid^="slot-cell-"]')).map((n) => n.getAttribute('data-testid'));
+
+  test('as the away team he is the left column and the opponent the right one, in the header, the rows and the Totals', () => {
+    render(<SlotComparison {...baseProps} viewerSide="away" />);
+
+    expect(sides(rowAt(0))).toEqual(['slot-cell-away', 'slot-cell-home']);
+    const totals = screen.getByTestId('slot-totals');
+    expect(Array.from(totals.querySelectorAll('[data-testid^="slot-total-"]')).map((n) => n.getAttribute('data-testid'))).toEqual(['slot-total-away', 'slot-total-home']);
+    const names = screen.getAllByText(/^(Duluth Dockworkers|Fargo Frostbite)$/).map((n) => n.textContent);
+    expect(names).toEqual(['Fargo Frostbite', 'Duluth Dockworkers']);
+    expect(screen.getByText('You').parentElement).toHaveTextContent('Fargo Frostbite');
+    // Each side still carries its own figures: the away QB's points are the left cell's.
+    expect(within(rowAt(0)).getAllByTestId('slot-points')[0]).toHaveTextContent('24.1 pts');
+  });
+
+  test('as the home team, and as a non-participant, home is on the left', () => {
+    const { rerender } = render(<SlotComparison {...baseProps} viewerSide="home" />);
+    expect(sides(rowAt(0))).toEqual(['slot-cell-home', 'slot-cell-away']);
+    rerender(<SlotComparison {...baseProps} />);
+    expect(sides(rowAt(0))).toEqual(['slot-cell-home', 'slot-cell-away']);
+  });
+});
+
+describe('the Exp final column', () => {
+  const withExp = rows.map((row) => ({
+    ...row,
+    home: row.home && { ...row.home, expected_final: 21.456 },
+    away: row.away && { ...row.away, expected_final: null },
+  }));
+
+  test('a wide live row prints the producer\'s figure rounded to one decimal, a dash when it priced none, under an Exp final label', () => {
+    render(<SlotComparison {...baseProps} rows={withExp} />);
+
+    expect(within(cell(1, 'home')).getByTestId('slot-row-exp-final')).toHaveTextContent('Exp final 21.5');
+    expect(within(cell(1, 'away')).getByTestId('slot-row-exp-final')).toHaveTextContent('Exp final –');
+    expect(screen.getAllByText('Exp final').length).toBeGreaterThanOrEqual(2);
+    // The Totals use the same columns.
+    expect(screen.getAllByTestId('slot-exp-final').map((el) => el.textContent)).toEqual(['Exp final 110.5', 'Exp final 123.9']);
+  });
+
+  test('is not drawn before kickoff or once settled', () => {
+    const { rerender } = render(<SlotComparison {...baseProps} rows={withExp} status="scheduled" />);
+    expect(screen.queryByTestId('slot-row-exp-final')).not.toBeInTheDocument();
+    rerender(<SlotComparison {...baseProps} rows={withExp} status="final" />);
+    expect(screen.queryByTestId('slot-row-exp-final')).not.toBeInTheDocument();
+    expect(screen.queryByText('Exp final')).not.toBeInTheDocument();
+  });
+
+  test('is not drawn on a phone, where the Totals carry each Exp final', () => {
+    phone = true;
+    render(<SlotComparison {...baseProps} rows={withExp} />);
+    expect(screen.queryByTestId('slot-row-exp-final')).not.toBeInTheDocument();
+    expect(screen.getAllByTestId('slot-exp-final')).toHaveLength(2);
   });
 });

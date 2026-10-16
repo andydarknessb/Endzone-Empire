@@ -67,20 +67,21 @@ describe('lineupNote', () => {
     expect(lineupNote({ ...base, slots: slotsOf([player(), player({ id: 2 })]), started: true, lockAt: NOW + 3 * HOUR })).toBeNull();
   });
 
-  test('live: "{SLOT} is empty · fill it by {lock}" with the Set lineup link', () => {
+  test('live, a bench player can fill it: "{SLOT} is empty · next kickoff {lock}" with the Set lineup link', () => {
     const note = lineupNote({ ...base, started: true, lockAt: NOW + 2 * HOUR });
     expect(note.kind).toBe('live');
-    expect(note.plain).toMatch(/^FLEX is empty · fill it by /);
+    expect(note.plain).toMatch(/^FLEX is empty · next kickoff \w{3} /);
+    expect(note.plain).not.toMatch(/fill it by/);
     expect(note.link).toBe('lineup');
     expect(note.danger).toBe(false);
     expect(note.segments[0]).toEqual({ text: 'FLEX is empty', strong: true });
   });
 
-  test('live, under an hour: "locks in {n} min" in Danger, the minutes rounded up', () => {
+  test('live, under an hour: "next kickoff in {n} min" in Danger, the minutes rounded up', () => {
     const note = lineupNote({ ...base, started: true, lockAt: NOW + 44 * 60 * 1000 + 30 * 1000 });
-    expect(note.plain).toBe('FLEX is empty · locks in 45 min');
+    expect(note.plain).toBe('FLEX is empty · next kickoff in 45 min');
     expect(note.danger).toBe(true);
-    expect(note.segments.find((s) => s.danger).text).toBe('locks in 45 min');
+    expect(note.segments.find((s) => s.danger).text).toBe('next kickoff in 45 min');
   });
 
   test('live, no bench player can fill it: says so and points at free agents, with the timing in Danger under an hour', () => {
@@ -108,10 +109,46 @@ describe('lineupNote', () => {
     expect(lineupNote({ ...live, bench: [player()], gameStates: [{ away_team: 'LAR', home_team: 'JAX', game_status: 'in_progress' }] }).link).toBe('free-agents');
   });
 
+  describe('who can fill the slot (the roster template decides)', () => {
+    const FLEX = [{ key: 'FLEX', eligiblePositions: ['RB', 'WR', 'TE'] }];
+    const SUPERFLEX = [{ key: 'FLEX', eligiblePositions: ['QB', 'RB', 'WR', 'TE'] }];
+    const live = { ...base, started: true, lockAt: NOW + 2 * HOUR };
+
+    test('a bench of only a K and a DEF cannot fill a FLEX: no bench player can fill it, Free agents', () => {
+      const note = lineupNote({ ...live, template: FLEX, bench: [player({ id: 6, position: 'K' }), player({ id: 7, position: 'DEF' })] });
+      expect(note.plain).toMatch(/^FLEX is empty · no bench player can fill it/);
+      expect(note.link).toBe('free-agents');
+    });
+
+    test('a superflex takes a bench QB; a plain FLEX does not', () => {
+      const bench = [player({ id: 6, position: 'QB' })];
+      expect(lineupNote({ ...live, template: SUPERFLEX, bench }).link).toBe('lineup');
+      expect(lineupNote({ ...live, template: FLEX, bench }).link).toBe('free-agents');
+    });
+
+    test('a bench RB fills the FLEX, and a template that lists no eligibility cannot rule him out', () => {
+      const bench = [player({ id: 6, position: 'RB' })];
+      expect(lineupNote({ ...live, template: FLEX, bench }).link).toBe('lineup');
+      expect(lineupNote({ ...live, template: [{ key: 'FLEX' }], bench: [player({ id: 6, position: 'K' })] }).link).toBe('lineup');
+      expect(lineupNote({ ...live, bench: [player({ id: 6, position: 'K' })] }).link).toBe('lineup');
+    });
+
+    test('a bench player with no known game state is not started, so he does not force the Free agents branch', () => {
+      const bench = [player({ id: 6, position: 'RB', game_state: null })];
+      expect(lineupNote({ ...live, template: FLEX, bench }).link).toBe('lineup');
+    });
+
+    test('a game row that says his game has started rules him out, whatever his own state says', () => {
+      const bench = [player({ id: 6, position: 'RB', nfl_team: 'SF', game_state: 'scheduled' })];
+      const gameStates = [{ away_team: 'ARI', home_team: 'SF', game_status: 'in_progress' }];
+      expect(lineupNote({ ...live, template: FLEX, bench, gameStates }).link).toBe('free-agents');
+    });
+  });
+
   test('the lock defaults to the next kickoff among the game states', () => {
     const kick = new Date(NOW + 2 * HOUR).toISOString();
     const note = lineupNote({ ...base, started: true, gameStates: [{ game_status: 'scheduled', home_team: 'SF', away_team: 'ARI', start_time: kick }] });
-    expect(note.plain).toMatch(/^FLEX is empty · fill it by /);
+    expect(note.plain).toMatch(/^FLEX is empty · next kickoff /);
     expect(lineupNote({ ...base, started: true, gameStates: [] })).toBeNull();
   });
 
@@ -122,7 +159,7 @@ describe('lineupNote', () => {
 
   test('live, an Out starter in a later game is named by his slot', () => {
     const note = lineupNote({ ...base, slots: slotsOf([player({ injury_status: 'O' }), player({ id: 2 })]), started: true, lockAt: NOW + 2 * HOUR });
-    expect(note.plain).toMatch(/^WR holds P\. Nacua \(Out\) · fill it by /);
+    expect(note.plain).toMatch(/^WR holds P\. Nacua \(Out\) · next kickoff /);
   });
 
   test('before kickoff: the advice sentence, the outlook from the Proj figures and the gain, and the lock on its own line', () => {

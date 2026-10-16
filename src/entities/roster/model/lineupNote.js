@@ -1,4 +1,5 @@
 import { formatInstant, formatPoints } from '../../../shared/lib';
+import { accepts } from './rosterTemplateModel';
 
 const MINUTE_MS = 60 * 1000;
 const HOUR_MS = 60 * MINUTE_MS;
@@ -18,6 +19,13 @@ function gameStateOf(player, gameStates) {
 // A game that has not started is the one lock a player's row can say; null (unknown) counts as not started.
 const unlocked = (player, gameStates) => !['in_progress', 'final'].includes(gameStateOf(player, gameStates));
 const isOut = (player) => (player.injury_status ?? player.injuryStatus) === 'O' || player.availability?.reason === 'out';
+
+// May this bench player start in `slotKey`? The league's roster template answers (a K or DEF cannot fill a FLEX, a
+// superflex takes a QB); a template with nothing to say about the slot (no eligibility listed) cannot rule him out.
+function fitsSlot(template, slotKey, position) {
+  const listed = (Array.isArray(template) ? template : []).find((s) => s && s.key === slotKey)?.eligiblePositions;
+  return Array.isArray(listed) ? accepts(template, slotKey, position) : true;
+}
 
 /**
  * The viewer's starting slots as the note reads them: `[{ slot, player }]`, `player` null for an empty
@@ -62,15 +70,17 @@ export function lineupIssues(slots, gameStates = []) {
  * Before kickoff it carries the dashboard's figures for the same moment: the advice sentence naming every
  * move behind its gain (`adviceNote`) or, with no advice, the problems themselves; "you'd project {x} to
  * {y}" when both Proj figures and the gain are known; and the lock on its own line (`sub`). Live it names
- * the first open slot: "{SLOT} is empty · fill it by {lock}", and under an hour from the lock "{SLOT} is
- * empty · locks in {n} min" (`danger`). When no bench player can fill it (every bench game has started, is
- * final, is a bye or the player is Out) it says so and points at free agents instead: "{SLOT} is empty ·
+ * the first open slot while a bench player can still fill it: "{SLOT} is empty · next kickoff {lock}", and
+ * under an hour from it "{SLOT} is empty · next kickoff in {n} min" (`danger`). A bench player fills it when his
+ * game has not started (an unknown game state is not started), he is not Out or unavailable, and the roster
+ * template lets him start in that slot. When none can, it says so and points at free agents instead: "{SLOT} is empty ·
  * no bench player can fill it · add a free agent playing at {time} · next kickoff in {n} min" (the last
  * part under an hour only, in Danger). Live with no lock still to come leaves nothing to fix: null.
  *
  * @param {object} input
  * @param {Array<{ slot: string, player: object|null }>} input.slots the viewer's starting slots (`lineupSlots`)
  * @param {Array} [input.bench] the viewer's bench players
+ * @param {Array} [input.template] the league's roster template (`parseRosterTemplate(league.roster_slots)`): a bench player counts only if he is eligible for the open slot
  * @param {Array} [input.gameStates] `live_game_states` rows; a player's game is the row carrying his NFL team
  * @param {boolean} input.started whether the matchup has started (live, played or final)
  * @param {number} input.now epoch ms
@@ -87,7 +97,7 @@ export function lineupIssues(slots, gameStates = []) {
  *   live, `link` the ghost link: Set lineup (`'lineup'`) or Free agents (`'free-agents'`).
  */
 export function lineupNote({
-  slots, bench, gameStates, started, now, lockAt: givenLock, advice, gain, proj,
+  slots, bench, template, gameStates, started, now, lockAt: givenLock, advice, gain, proj,
 }) {
   const rows = Array.isArray(gameStates) ? gameStates : [];
   const issues = lineupIssues(slots, rows);
@@ -118,11 +128,12 @@ export function lineupNote({
   const lead = issue.kind === 'empty' ? `${issue.slot} is empty` : `${issue.slot} holds ${issue.name} (Out)`;
   const minutes = Math.max(1, Math.ceil((lockAt - now) / MINUTE_MS));
   const danger = lockAt - now < HOUR_MS;
-  const canFill = (bench || []).some((p) => gameStateOf(p, rows) === 'scheduled' && !isOut(p) && p.availability?.available !== false);
+  const canFill = (bench || []).some((p) => unlocked(p, rows) && !isOut(p) && p.availability?.available !== false && fitsSlot(template, issue.slot, p.position));
   const segments = [{ text: lead, strong: true }];
   let plain = lead;
   if (canFill) {
-    const tail = danger ? `locks in ${minutes} min` : `fill it by ${lockWord}`;
+    // Critique 10 item 11: the slot stays open until the next kickoff, so the note says that.
+    const tail = danger ? `next kickoff in ${minutes} min` : `next kickoff ${lockWord}`;
     segments.push({ text: ' · ' }, danger ? { text: tail, danger: true } : { text: tail });
     plain += ` · ${tail}`;
   } else {
