@@ -178,9 +178,9 @@ async function getDetail(t, { gameRows = [], throwGames = false } = {}) {
 
 test('each side carries its expected final and players remaining, and projectedTotal is gone', async (t) => {
   const { body } = await getDetail(t);
-  // Home: 22.5 (final) + 0 (Out, not started) = 22.5; one starter still to play.
+  // Home: 22.5 (final) + 0 (Out, not started) = 22.5; the Out starter is not remaining, so none is.
   assert.equal(body.home.expectedFinal, 22.5);
-  assert.equal(body.home.playersRemaining, 1);
+  assert.equal(body.home.playersRemaining, 0);
   // Away: a bye counts 0 and is final.
   assert.equal(body.away.expectedFinal, 0);
   assert.equal(body.away.playersRemaining, 0);

@@ -117,7 +117,7 @@ async function expectedFinalsForWeek({ league, season, week, teamIds, db = pool,
 
   const candidateRows = await db.query(
     `SELECT "lineup_entries"."team_id", "lineup_entries"."player_id", "lineup_entries"."slot",
-            "players"."position", "players"."nfl_team", "player_stats"."stats"
+            "players"."position", "players"."nfl_team", "players"."injury_status", "player_stats"."stats"
      FROM "lineup_entries"
      JOIN "team_players" ON "team_players"."team_id" = "lineup_entries"."team_id"
        AND "team_players"."player_id" = "lineup_entries"."player_id"
@@ -260,6 +260,9 @@ async function expectedFinalsForWeek({ league, season, week, teamIds, db = pool,
         ? projections.result.detailFor(row.player_id)
         : null,
       rawGameFraction: gameFraction,
+      // Injury designation Out ('O', or spelled out), the one fact players remaining excludes on; the client
+      // helper entities/matchup playersRemaining reads the same rule off the same column.
+      rawOut: ['O', 'OUT'].includes(String(row.injury_status || '').toUpperCase()),
     };
     // A BENCH row is priced like any other but never summed. In a redraft
     // league it is only a bench row. In best ball there is no set lineup (ADR
@@ -277,7 +280,9 @@ async function expectedFinalsForWeek({ league, season, week, teamIds, db = pool,
 
   // The raw* fields are inputs for this module's own sums (and win
   // probability v2's shadow figures), never part of a priced row on any wire.
-  const stripRaw = ({ rawExpectedFinal, rawInterval, rawGameFraction, ...priced }) => priced;
+  const stripRaw = ({
+    rawExpectedFinal, rawInterval, rawGameFraction, rawOut, ...priced
+  }) => priced;
   const hasInterval = (s) => !!(s.rawInterval && s.rawInterval.p10 != null && s.rawInterval.p90 != null);
   // A team with bench rows and no starter rows still gets an entry (its bench
   // is priced); its figures are null, as they were when the team was absent.
@@ -308,7 +313,9 @@ async function expectedFinalsForWeek({ league, season, week, teamIds, db = pool,
     const figures = priced && starters.length > 0;
     result.set(Number(teamId), {
       expectedFinal: figures ? round2(starters.reduce((sum, s) => sum + s.rawExpectedFinal, 0)) : null,
-      playersRemaining: figures ? starters.filter((s) => s.gameState !== 'final').length : null,
+      // The one definition (RULINGS Critique 9, spec #2334 AC 6l): starters whose game is not final.
+      // An Out starter does not count; an empty slot has no lineup row, so it is never a starter here.
+      playersRemaining: figures ? starters.filter((s) => s.gameState !== 'final' && !s.rawOut).length : null,
       // Win probability v2 (shadow): the variance the starters still have to
       // play, sigma_i^2 from each band times the fraction of his game left.
       varianceRemaining: figures

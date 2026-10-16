@@ -115,7 +115,7 @@
       }
     ],
     "expectedFinal": 16.87,
-    "playersRemaining": 2,
+    "playersRemaining": 1,
     "calledShot": {
       "starter": {
         "playerId": 101,

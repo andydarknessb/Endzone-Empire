@@ -13,6 +13,8 @@
  * shortcut: teams match on trimmed upper-case code with no alias table (the server normalises WSH/WAS),
  * upgrade if a feed ever disagrees with the roster on a code.
  */
+// The wire carries the designation code ('O'); a spelled-out 'Out' reads the same.
+const isOut = (s) => ['O', 'OUT'].includes(String(s.injuryStatus ?? s.injury_status ?? '').toUpperCase());
 const code = (team) => (team == null ? '' : String(team).trim().toUpperCase());
 
 function stateOf(starter, rows) {
@@ -25,7 +27,7 @@ function countedStates(starters, gameStates) {
   const rows = Array.isArray(gameStates) ? gameStates : [];
   return (Array.isArray(starters) ? starters : [])
     .filter((s) => s
-      && String(s.injuryStatus ?? s.injury_status ?? '').toLowerCase() !== 'out'
+      && !isOut(s)
       && !['bye', 'no_team'].includes(s.availability?.reason))
     .map((s) => stateOf(s, rows))
     .filter((state) => state !== 'final');

@@ -25,6 +25,10 @@ describe('playersRemaining', () => {
     expect(playersRemaining([p('SF', { injuryStatus: 'OUT' }), p('ARI', { injuryStatus: 'out' })], games)).toBe(0);
   });
 
+  test('the wire designation code O is Out too', () => {
+    expect(playersRemaining([p('SF', { injuryStatus: 'O' }), { id: 9, nfl_team: 'ARI', injury_status: 'O' }, p('JAX')], games)).toBe(1);
+  });
+
   test('other injury designations (Questionable, Doubtful) still count', () => {
     expect(playersRemaining([p('SF', { injuryStatus: 'Questionable' }), p('ARI', { injuryStatus: 'Doubtful' })], games)).toBe(2);
   });
