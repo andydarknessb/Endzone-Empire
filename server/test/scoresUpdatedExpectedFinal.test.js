@@ -55,8 +55,8 @@ test('scores:updated carries each open side\'s expected final and players remain
     // starters carry the per-game classification the status is read from: a
     // game in progress on the home side makes this matchup live.
     return new Map([
-      [10, { expectedFinal: 112.6, playersRemaining: 3, starters: [{ gameState: 'in_progress' }, { gameState: 'final' }, { gameState: 'scheduled' }] }],
-      [20, { expectedFinal: 88.05, playersRemaining: 1, starters: [{ gameState: 'final' }] }],
+      [10, { expectedFinal: 112.6, playersRemaining: 3, yetToPlay: 1, starters: [{ gameState: 'in_progress' }, { gameState: 'final' }, { gameState: 'scheduled' }] }],
+      [20, { expectedFinal: 88.05, playersRemaining: 1, yetToPlay: 0, starters: [{ gameState: 'final' }] }],
     ]);
   });
   const emitted = captureEmits(t);
@@ -68,12 +68,16 @@ test('scores:updated carries each open side\'s expected final and players remain
   assert.equal(open.awayExpectedFinal, 88.05);
   assert.equal(open.homePlayersRemaining, 3);
   assert.equal(open.awayPlayersRemaining, 1);
+  assert.equal(open.homeYetToPlay, 1);
+  assert.equal(open.awayYetToPlay, 0);
   assert.equal(open.status, 'live');
   const done = scored.find((s) => s.matchupId === 71);
   assert.equal(done.homeExpectedFinal, null);
   assert.equal(done.awayExpectedFinal, null);
   assert.equal(done.homePlayersRemaining, null);
   assert.equal(done.awayPlayersRemaining, null);
+  assert.equal(done.homeYetToPlay, null);
+  assert.equal(done.awayYetToPlay, null);
   // A final matchup is settled: its status is final, not a phase of open play.
   assert.equal(done.status, 'final');
   // The producer was asked once, for the open matchup's teams only, under the league row.

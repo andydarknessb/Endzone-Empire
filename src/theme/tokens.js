@@ -203,6 +203,9 @@ export const colorTokens = {
     'ps-board-rule': '#3a4170',
     // The scoreboard's live odds fill (a bright green on Board black).
     'ps-board-live': '#2fd97b',
+    // Retro scoreboard amber (ADR 0067 item 4): the same values as dash-led and dash-led-dim.
+    'ps-led': '#ffb547',
+    'ps-led-dim': 'rgba(255, 181, 71, 0.28)',
     'ps-skel': '#dde1f0',
     // Focus ring and press frame, and the dark halo behind the ring.
     'ps-focus': '#ffffff',
@@ -368,6 +371,9 @@ export const colorTokens = {
     'ps-board-rule': '#3a4170',
     // The scoreboard's live odds fill (a bright green on Board black).
     'ps-board-live': '#2fd97b',
+    // Retro scoreboard amber (ADR 0067 item 4): the same values as dash-led and dash-led-dim.
+    'ps-led': '#ffb547',
+    'ps-led-dim': 'rgba(255, 181, 71, 0.28)',
     'ps-skel': '#2a3052',
     // Focus ring and press frame, and the dark halo behind the ring.
     'ps-focus': '#ffffff',

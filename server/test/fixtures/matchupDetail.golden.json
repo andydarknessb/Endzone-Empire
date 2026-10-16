@@ -115,7 +115,8 @@
       }
     ],
     "expectedFinal": 16.87,
-    "playersRemaining": 2,
+    "playersRemaining": 1,
+    "yetToPlay": 0,
     "calledShot": {
       "starter": {
         "playerId": 101,
@@ -178,6 +179,7 @@
     "bench": [],
     "expectedFinal": 2.98,
     "playersRemaining": 1,
+    "yetToPlay": 0,
     "calledShot": null
   }
 }

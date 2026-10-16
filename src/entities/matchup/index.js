@@ -40,6 +40,7 @@ export {
 } from './model/matchupModel';
 export { matchupBoard, matchupPhase } from './model/matchupBoard';
 export { allWeekSettled } from './model/allWeekSettled';
+export { playersRemaining, yetToPlay } from './model/playersRemaining';
 export {
   playsFromScoreEvent, deltasFor, matchupPlaySide, playLabel, formatSignedPoints,
 } from './model/play';

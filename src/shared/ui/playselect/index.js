@@ -18,6 +18,9 @@ export {
 } from './Marks';
 export { PlayCard } from './PlayCard';
 export { OddsBar } from './OddsBar';
+export { TwoSidedOdds } from './TwoSidedOdds';
+export { NumbersHelp } from './NumbersHelp';
+export { CompactScoreboard } from './CompactScoreboard';
 export {
   PsButton, PsLink, PsLinkButton, LiveChip, ErrorPanel, Skel,
 } from './Controls';

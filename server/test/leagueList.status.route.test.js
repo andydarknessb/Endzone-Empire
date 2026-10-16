@@ -109,9 +109,10 @@ const SLATE_ROWS = [
   { week: 4, nfl_team: 'MIN', opponent: 'GB', kickoff_at: '2026-10-05T00:20:00.000Z', game_key: 'g2', roof: null, home_away: 'away' },
 ];
 
-const figures = (expectedFinal, playersRemaining) => ({
+const figures = (expectedFinal, playersRemaining, yetToPlay) => ({
   expectedFinal,
   playersRemaining,
+  yetToPlay,
   statusReliable: true,
   firstKickoffAt: '2026-10-04T17:00:00.000Z',
   syncedAt: null,
@@ -122,8 +123,8 @@ const figures = (expectedFinal, playersRemaining) => ({
 function world(t, { leagues = Object.values(LEAGUES), overrides = [], matchups = MATCHUPS, now = NOW } = {}) {
   t.mock.method(clock, 'now', () => new Date(now));
   t.mock.method(expectedFinalService, 'expectedFinalsForWeek', async () => new Map([
-    [11, figures(118.6, 4)],
-    [12, figures(104.1, 3)],
+    [11, figures(118.6, 4, 2)],
+    [12, figures(104.1, 3, 1)],
   ]));
   const fake = createFakePool([
     ...overrides,
@@ -183,8 +184,8 @@ test('a fantasy league in season carries phase, week, record, standing, matchup 
       status: 'live',
       kickoffAt: '2026-10-04T17:00:00.000Z',
       opponent: { teamId: 12, name: 'Frozen Tundra FC' },
-      my: { score: 87.4, expectedFinal: 118.6, playersRemaining: 4 },
-      opp: { score: 71.2, expectedFinal: 104.1, playersRemaining: 3 },
+      my: { score: 87.4, expectedFinal: 118.6, playersRemaining: 4, yetToPlay: 2 },
+      opp: { score: 71.2, expectedFinal: 104.1, playersRemaining: 3, yetToPlay: 1 },
       winProbability: null,
     },
     lineup: {
