@@ -386,7 +386,7 @@ function PlayerColumn({ label, player, domainMin, domainMax, onOpenDecisionCard 
         {player.backup && <WordTag data-testid="suggestion-backup">{BACKUP_LABEL}</WordTag>}
         {player.volatility && <WordTag data-testid="suggestion-volatility">{player.volatility}</WordTag>}
       </Box>
-      <Box sx={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+      <Box sx={{ pt: '4px' }}>
         <RangeBand
           label={player.name}
           floor={player.floor}
@@ -396,16 +396,14 @@ function PlayerColumn({ label, player, domainMin, domainMax, onOpenDecisionCard 
           max={domainMax}
           data-testid="suggestion-range-bar"
         />
-        <Box aria-hidden="true" sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', ...FIGURE_LABEL_SX }}>
-          <Figure label="Floor" value={player.floor} align="left" />
-          <Figure label="Proj" value={player.projection} align="center" />
-          <Figure label="Ceiling" value={player.ceiling} align="right" />
-        </Box>
       </Box>
-      {player.kickoff ? (
-        <Box sx={FIGURE_LABEL_SX}>{formatKickoff(player.kickoff)}</Box>
-      ) : <span />}
-      {player.factChips.length > 0 ? (
+      <Box aria-hidden="true" sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', ...FIGURE_LABEL_SX }}>
+        <Figure label="Floor" value={player.floor} align="left" />
+        <Figure label="Proj" value={player.projection} align="center" />
+        <Figure label="Ceiling" value={player.ceiling} align="right" />
+      </Box>
+      {player.kickoff && <Box sx={FIGURE_LABEL_SX}>{formatKickoff(player.kickoff)}</Box>}
+      {player.factChips.length > 0 && (
         <Box sx={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
           {player.factChips.map((chip) => (
             <Box
@@ -420,7 +418,7 @@ function PlayerColumn({ label, player, domainMin, domainMax, onOpenDecisionCard 
             </Box>
           ))}
         </Box>
-      ) : <span />}
+      )}
     </Box>
   );
 }

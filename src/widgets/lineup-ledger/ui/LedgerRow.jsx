@@ -18,6 +18,9 @@ import EdgeLineIcon from '../lib/EdgeLineIcon';
 import { edgeLineColor, displayEdgeKind } from '../lib/edgeLine';
 import { gameCellView } from '../lib/gameCell';
 
+// The viewport width below which the row stacks its Game cell under the name.
+const STACKED_BELOW = 1100;
+
 const LOCKED_TEXT = "Locked: this player's game has kicked off";
 
 // A closed padlock: "locked rows show a lock, not a chip" (AC3): a small pictogram beside the name.
@@ -139,6 +142,7 @@ function PlayerAvatar({ name, photoUrl, size, color }) {
     <Box
       component="span"
       aria-hidden="true"
+      data-testid="ledger-avatar"
       sx={{
         display: 'inline-grid',
         placeItems: 'center',
@@ -251,10 +255,12 @@ export default function LedgerRow({
         projectionShown && `projected ${projectionText}`,
       ].filter(Boolean).join(', ');
 
-  // Below `sm` the Game cell sits on its own line under the name (L2); from `sm` it takes its own grid
-  // column before the numbers. One DOM copy either way, so `ledger-game-cell` stays unique per row.
+  // Below `STACKED_BELOW`px the Game cell sits on its own line under the name (L2); from there up it takes its own
+  // grid column before the numbers. The six-column row needs about 1050px of viewport to leave the info
+  // column its 128px (the Ledger column is two thirds of the page from `md`), so a tablet reads the stacked
+  // row too. One DOM copy either way, so `ledger-game-cell` stays unique per row.
   const theme = useTheme();
-  const phone = useMediaQuery(theme.breakpoints.down('sm'), { noSsr: true });
+  const phone = useMediaQuery(theme.breakpoints.down(STACKED_BELOW), { noSsr: true });
 
   const label = (
     <Box
