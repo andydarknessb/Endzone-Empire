@@ -27,16 +27,24 @@ const VARIANT = {
   quiet: { backgroundColor: 'transparent', border: '2px solid transparent', color: 'var(--ps-dim)' },
 };
 
-const DISABLED_SX = { '&[disabled], &[aria-disabled="true"]': { opacity: 0.5, cursor: 'not-allowed' } };
+// Disabled is a solid Rule edge with Dim text on the page: no dash and no opacity (RULINGS Critique 7),
+// whatever the variant.
+const DISABLED_SX = {
+  '&[disabled], &[aria-disabled="true"]': {
+    backgroundColor: 'transparent', borderColor: 'var(--ps-rule)', color: 'var(--ps-dim)', cursor: 'not-allowed',
+  },
+  '&[disabled]:hover': { filter: 'none' },
+};
 
 /**
  * Square 44px button: fill (the page's one filled action), ghost, or quiet. A
  * `to` makes it a router link. `disabled` is the native attribute on a button;
- * a link gets aria-disabled and swallows the click, so it does not navigate. The root carries
- * `data-variant`, so a test can count the page's filled actions (`[data-variant="fill"]`).
+ * a link gets aria-disabled and swallows the click, so it does not navigate. `ariaExpanded` and
+ * `ariaControls` make it a disclosure (Show games, Edit): the button reports the state of what it opens.
+ * The root carries `data-variant`, so a test can count the page's filled actions (`[data-variant="fill"]`).
  */
 export function PsButton({
-  variant = 'ghost', to, onClick, ariaLabel, describedBy, children, type = 'button', disabled = false,
+  variant = 'ghost', to, onClick, ariaLabel, describedBy, ariaExpanded, ariaControls, children, type = 'button', disabled = false,
 }) {
   const sx = { ...BTN, ...VARIANT[variant], ...DISABLED_SX };
   const arrow = variant === 'fill' ? <PixelArrow /> : null;
@@ -49,6 +57,8 @@ export function PsButton({
         aria-label={ariaLabel}
         aria-describedby={describedBy}
         data-variant={variant}
+        aria-expanded={ariaExpanded}
+        aria-controls={ariaControls}
         aria-disabled={disabled ? 'true' : undefined}
         tabIndex={disabled ? -1 : undefined}
         sx={sx}
@@ -59,7 +69,18 @@ export function PsButton({
     );
   }
   return (
-    <Box component="button" type={type} onClick={onClick} aria-label={ariaLabel} aria-describedby={describedBy} data-variant={variant} disabled={disabled} sx={sx}>
+    <Box
+      component="button"
+      type={type}
+      onClick={onClick}
+      aria-label={ariaLabel}
+      aria-describedby={describedBy}
+      aria-expanded={ariaExpanded}
+      aria-controls={ariaControls}
+      data-variant={variant}
+      disabled={disabled}
+      sx={sx}
+    >
       {children}
       {arrow}
     </Box>

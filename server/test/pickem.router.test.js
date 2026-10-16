@@ -103,6 +103,7 @@ function mockClient(t, overrides = []) {
       ({ rows: [{ id: 3, name: 'Ballers', current_season: 2026, current_week: 1 }] })],
     [/FROM "nfl_games"/, () => ({ rows: WEEK_ONE_SCHEDULE })],
     [/FROM "live_game_states"/, () => ({ rows: [] })],
+    [/pg_advisory_xact_lock/, () => ({ rows: [] })],
     [/SELECT "team_pair", "confidence" FROM "pickem_picks"/, () => ({ rows: [] })],
     [/SELECT 1 FROM "pickem_picks"/, () => ({ rows: [] })],
     [/INSERT INTO "pickem_picks"/, () => ({ rows: [] })],
@@ -611,6 +612,7 @@ test('a happy-path save writes the batch and echoes it back', async (t) => {
   assert.equal(res.status, 200);
   assert.deepEqual(res.body, {
     saved: 1,
+    cleared: [],
     myPicks: [{ gameKey: 'BUF|MIA', pickedTeam: 'MIA', confidence: null }],
   });
   const upsert = calls.find((call) => /INSERT INTO "pickem_picks"/.test(call.text));

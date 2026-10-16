@@ -162,6 +162,32 @@ describe('PsButton disabled', () => {
   });
 });
 
+describe('PsButton disclosure', () => {
+  test('ariaExpanded and ariaControls reach the button, and a button with neither carries neither', () => {
+    renderWithProviders(<><PsButton ariaExpanded={false} ariaControls="list-1">Show games</PsButton><PsButton>Plain</PsButton></>);
+    const open = screen.getByRole('button', { name: 'Show games' });
+    expect(open).toHaveAttribute('aria-expanded', 'false');
+    expect(open).toHaveAttribute('aria-controls', 'list-1');
+    expect(screen.getByRole('button', { name: 'Plain' })).not.toHaveAttribute('aria-expanded');
+  });
+
+  test('disabled is a Rule edge with Dim text and no opacity, for ghost and fill alike', () => {
+    renderWithProviders(<><PsButton disabled>Ghost</PsButton><PsButton variant="fill" disabled>Fill</PsButton></>);
+    for (const name of ['Ghost', 'Fill']) {
+      const button = screen.getByRole('button', { name });
+      // jsdom resolves neither the winning rule nor var(), so the emotion rules are read directly.
+      const cls = Array.from(button.classList).find((c) => c.startsWith('css-'));
+      let rules = '';
+      Array.from(document.styleSheets).forEach((sheet) => Array.from(sheet.cssRules).forEach((rule) => {
+        if (rule.selectorText && rule.selectorText.startsWith(`.${cls}[disabled]`) && !rule.selectorText.includes(':hover')) rules += rule.style.cssText;
+      }));
+      expect(rules).toContain('border-color: var(--ps-rule)');
+      expect(rules).toContain('; color: var(--ps-dim)');
+      expect(rules).not.toMatch(/opacity/);
+    }
+  });
+});
+
 describe('pixelSx', () => {
   test('snaps up to 16 and caps at 32 on the 8px grid', () => {
     expect([12, 16, 20, 24, 32, 40].map((n) => pixelSx(n).fontSize)).toEqual(['16px', '16px', '24px', '24px', '32px', '32px']);
