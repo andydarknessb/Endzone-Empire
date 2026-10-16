@@ -36,7 +36,7 @@ const baseView = (overrides = {}) => ({
   lockMinutes: null,
   ...overrides,
 });
-const button = (team) => screen.getByRole('button', { name: new RegExp(`^${team},`) });
+const button = (team) => screen.getByRole('button', { name: (n) => n.startsWith(`${team},`) });
 
 test('state 1: open, no pick - the pre-lock count, the odds badge, and no direction anywhere (the red-tell)', () => {
   render(

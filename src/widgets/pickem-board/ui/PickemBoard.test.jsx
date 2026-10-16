@@ -135,8 +135,8 @@ const renderBoard = async (props = {}) => {
   await screen.findAllByTestId('game-card');
   return view;
 };
-const cardFor = (matchup) => screen.getByRole('article', { name: new RegExp(`^${matchup}`) });
-const teamButton = (team) => screen.getByRole('button', { name: new RegExp(`^${team},`) });
+const cardFor = (matchup) => screen.getByRole('article', { name: (n) => n.startsWith(matchup) });
+const teamButton = (team) => screen.getByRole('button', { name: (n) => n.startsWith(`${team},`) });
 
 test('renders the week picker, no "All weeks", and the windows as frames with their own h3', async () => {
   serve();
