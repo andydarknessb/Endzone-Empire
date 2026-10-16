@@ -1,21 +1,7 @@
-// Home Play-select primitives (DESIGN.md "Home surface: Play-select"). They
-// read only `var(--home-*)` tokens; the page root carries `className="home-root"`
-// (see homeRootSx) so home.css applies.
-import './home.css';
-
-export {
-  PIXEL_FONT, BODY_FONT, pixelSx, SR_ONLY_SX,
-} from './homeType';
-export {
-  Frame, FrameHead, PixelHeading, CountBadge,
-} from './Frame';
-export {
-  Pictogram, PixelArrow, PixelClock, PixelWarn,
-} from './Icons';
-export { PlayCard } from './PlayCard';
-export { OddsBar } from './OddsBar';
+// Home-only Play-select pieces: the score and pick'em tiles, the league panel and links,
+// and the numbers help. The generic primitives live in src/shared/ui/playselect
+// (DESIGN.md "Play-select: Home and league pages") and read only `var(--ps-*)` tokens;
+// the Home page root carries `className="ps-root"` so playselect.css applies.
 export { ScoreTile, PickemTile } from './Tiles';
 export { LeaguePanel, LeagueLinks } from './League';
-export {
-  HomeButton, HomeLink, LiveChip, ErrorPanel, Skel, NumbersHelp,
-} from './Controls';
+export { NumbersHelp } from './NumbersHelp';

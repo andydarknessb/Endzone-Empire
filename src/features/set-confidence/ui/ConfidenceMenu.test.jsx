@@ -1,52 +1,76 @@
 import React from 'react';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import ConfidenceMenu from './ConfidenceMenu';
 
-test('the trigger reads "Confidence --" before a number is picked', () => {
-  render(<ConfidenceMenu value={null} max={4} />);
-  expect(screen.getByRole('combobox')).toHaveTextContent('Confidence --');
+const option = (name) => screen.getByRole('option', { name });
+
+test('the empty value reads "Confidence: none", a pick reads "Confidence N"', () => {
+  const { rerender } = render(<ConfidenceMenu value={null} max={4} />);
+  expect(screen.getByRole('combobox')).toHaveDisplayValue('Confidence: none');
+  rerender(<ConfidenceMenu value={3} max={4} />);
+  expect(screen.getByRole('combobox')).toHaveDisplayValue('Confidence 3');
 });
 
-test('the trigger reads "Confidence N" once a number is picked', () => {
-  render(<ConfidenceMenu value={3} max={4} />);
-  expect(screen.getByRole('combobox')).toHaveTextContent('Confidence 3');
-});
-
-test('opens a menu of 1..max and reports a pick', async () => {
+test('offers 1..max and reports a pick as a number, and none as null', async () => {
   const user = userEvent.setup();
   const onChange = jest.fn();
   render(<ConfidenceMenu value={null} max={4} onChange={onChange} />);
-  await user.click(screen.getByRole('combobox'));
-  const listbox = screen.getByRole('listbox');
-  expect(within(listbox).getByText('1')).toBeInTheDocument();
-  expect(within(listbox).getByText('4')).toBeInTheDocument();
-  expect(within(listbox).queryByText('5')).not.toBeInTheDocument();
-  await user.click(within(listbox).getByText('2'));
+  expect(screen.getAllByRole('option')).toHaveLength(5);
+  await user.selectOptions(screen.getByRole('combobox'), 'Confidence 2');
   expect(onChange).toHaveBeenCalledWith(2);
+  await user.selectOptions(screen.getByRole('combobox'), 'Confidence: none');
+  expect(onChange).toHaveBeenLastCalledWith(null);
 });
 
-test('a number already used by another game is disabled, except this menu\'s own value', async () => {
-  const user = userEvent.setup();
-  render(<ConfidenceMenu value={2} max={4} disabledValues={[2, 3]} />);
-  await user.click(screen.getByRole('combobox'));
-  const listbox = screen.getByRole('listbox');
-  expect(within(listbox).getByRole('option', { name: '3' })).toHaveAttribute('aria-disabled', 'true');
-  expect(within(listbox).getByRole('option', { name: '2' })).not.toHaveAttribute('aria-disabled', 'true');
+test('a rank held by an open game stays choosable and names the game it swaps with', () => {
+  render(<ConfidenceMenu value={2} max={4} usedBy={{ 3: { label: 'DAL @ DEN', locked: false } }} />);
+  expect(option('Confidence 3 · used by DAL @ DEN')).not.toBeDisabled();
 });
 
-test('never says "rank"', () => {
+test('a rank held by a kicked-off game is aria-disabled and says locked', () => {
+  render(<ConfidenceMenu value={2} max={4} usedBy={{ 3: { label: 'PHI @ MIN', locked: true } }} />);
+  const locked = option('Confidence 3 · locked, PHI @ MIN');
+  expect(locked).toBeDisabled();
+  expect(locked).toHaveAttribute('aria-disabled', 'true');
+});
+
+test('a game with no rank of its own cannot take a rank another game holds', () => {
+  render(<ConfidenceMenu value={null} max={4} swappable={false} usedBy={{ 3: { label: 'DAL @ DEN', locked: false } }} />);
+  expect(option('Confidence 3 · used by DAL @ DEN')).toBeDisabled();
+});
+
+test('its own value is never marked used or locked', () => {
+  render(<ConfidenceMenu value={3} max={4} usedBy={{ 3: { label: 'X @ Y', locked: true } }} />);
+  expect(option('Confidence 3')).not.toBeDisabled();
+});
+
+test('canClear={false} drops "Confidence: none" once there is a rank, but never while there is none', () => {
+  const { rerender } = render(<ConfidenceMenu value={3} max={4} canClear={false} />);
+  expect(screen.queryByRole('option', { name: 'Confidence: none' })).not.toBeInTheDocument();
+  expect(screen.getAllByRole('option')).toHaveLength(4);
+  rerender(<ConfidenceMenu value={null} max={4} canClear={false} />);
+  expect(screen.getByRole('option', { name: 'Confidence: none' })).toBeInTheDocument();
+  rerender(<ConfidenceMenu value={3} max={4} />);
+  expect(screen.getByRole('option', { name: 'Confidence: none' })).toBeInTheDocument();
+});
+
+test('never reads "rank" in the control itself', () => {
   render(<ConfidenceMenu value={3} max={4} />);
   expect(screen.getByRole('combobox')).not.toHaveTextContent(/rank/i);
 });
 
-test('locked disables the whole control', () => {
-  render(<ConfidenceMenu value={3} max={4} disabled />);
-  expect(screen.getByRole('combobox')).toHaveAttribute('aria-disabled', 'true');
+test('disabled is a solid Rule edge, no opacity, and carries its hint', () => {
+  render(<ConfidenceMenu value={null} max={4} disabled aria-describedby="hint" />);
+  const select = screen.getByRole('combobox');
+  expect(select).toBeDisabled();
+  expect(select).toHaveAttribute('aria-describedby', 'hint');
+  expect(select).toHaveStyle({ opacity: '1' });
+  expect(getComputedStyle(select).borderStyle).toBe('solid');
 });
 
-test('a flagged conflict paints the bad state without disabling the control', () => {
+test('a refused save paints the bad state without disabling the control', () => {
   render(<ConfidenceMenu value={3} max={4} bad />);
   expect(screen.getByTestId('confidence-menu')).toHaveAttribute('data-bad', 'true');
-  expect(screen.getByRole('combobox')).not.toHaveAttribute('aria-disabled');
+  expect(screen.getByRole('combobox')).not.toBeDisabled();
 });

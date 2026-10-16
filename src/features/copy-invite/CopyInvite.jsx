@@ -1,9 +1,15 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Box, Button } from '@mui/material';
+import { Box } from '@mui/material';
+import { PixelCheck, PsButton, SR_ONLY_SX } from '../../shared/ui/playselect';
 
 /**
  * Copy-invite feature (ADR 0020). Renders the commissioner's share control: a
  * button that writes the full join link to the clipboard and confirms.
+ *
+ * Play-select look (ADR 0067 wave 1b; the League Dashboard is its only composer): a ghost button,
+ * square and 44px, "Invite" with the code in Archivo 600 letter-spaced tabular figures, then
+ * "Copied" with a pixel check for two seconds (a word and a shape, never a colour change). Paints
+ * only ps-* tokens, so it belongs inside a Play-select page root.
  *
  * The presence rule lives above this component, in the page: the server strips
  * `invite_code` from the league payload for non-commissioners, so the page
@@ -17,20 +23,6 @@ import { Box, Button } from '@mui/material';
  * URL-special character survives the round trip.
  */
 const REVERT_MS = 2000;
-
-// Standard visually-hidden pattern: off-screen for sighted users, still in the
-// accessibility tree so a screen reader announces the copy result.
-const visuallyHidden = {
-  position: 'absolute',
-  width: '1px',
-  height: '1px',
-  padding: 0,
-  margin: '-1px',
-  overflow: 'hidden',
-  clip: 'rect(0 0 0 0)',
-  whiteSpace: 'nowrap',
-  border: 0,
-};
 
 export function joinLink(code) {
   return `${window.location.origin}/#/league/join?code=${encodeURIComponent(code)}`;
@@ -73,59 +65,24 @@ export default function CopyInvite({ code }) {
 
   return (
     <>
-      <Button
-        type="button"
-        variant="outlined"
-        size="small"
-        onClick={handleCopy}
-        // The dashboard island's own tokens (ADR 0020): dim label + ink code
-        // over the page background (`dash-bg`), both registered pairings in
-        // tokens.contrast.test.js. Hover lifts the label to ink and the border
-        // to the accent line, matching the mockup's `.invite-btn`.
-        sx={{
-          textTransform: 'none',
-          gap: 0.75,
-          // The 44px touch floor, phone widths only. Breakpoint-scoped rather
-          // than the flat MIN_TOUCH_TARGET_SX because this is a size="small"
-          // outlined control the artboard draws short: an unconditional 44
-          // would grow it by 14px on desktop, where a pointer needs no floor.
-          // It measured 29.88px at every width before this.
-          minHeight: { xs: 44, md: 'auto' },
-          color: 'var(--dash-dim)',
-          borderColor: 'var(--dash-line-strong)',
-          borderRadius: 'var(--dash-radius-sm)',
-          fontFamily: 'var(--dash-font-body)',
-          fontWeight: 600,
-          fontSize: '12.5px',
-          letterSpacing: '0.02em',
-          '&:hover': {
-            color: 'var(--dash-ink)',
-            borderColor: 'var(--dash-accent-line)',
-            backgroundColor: 'transparent',
-          },
-        }}
-      >
+      <PsButton variant="ghost" onClick={handleCopy}>
         {copied ? (
-          'Copied'
+          <>
+            <PixelCheck />
+            Copied
+          </>
         ) : (
           <>
-            Invite{' '}
-            <Box
-              component="code"
-              sx={{
-                fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-                fontSize: '12px',
-                color: 'var(--dash-ink)',
-              }}
-            >
+            Invite
+            <Box component="span" sx={{ fontWeight: 600, letterSpacing: '.08em', fontVariantNumeric: 'tabular-nums' }}>
               {code}
             </Box>
           </>
         )}
-      </Button>
+      </PsButton>
       {/* Polite so it never interrupts; empty until the first copy, so it does
           not announce on mount. */}
-      <Box component="span" role="status" aria-live="polite" sx={visuallyHidden}>
+      <Box component="span" role="status" aria-live="polite" sx={SR_ONLY_SX}>
         {announcement}
       </Box>
     </>

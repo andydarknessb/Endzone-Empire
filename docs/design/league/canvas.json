@@ -1,0 +1,287 @@
+{
+  "v": 3,
+  "attachments": {},
+  "boards": {
+    "Commissioner.dc.html": {
+      "expand": "fill",
+      "h": 1410,
+      "title": "Wave 5 sample: Commissioner console (desktop)",
+      "w": 1440,
+      "x": 9034,
+      "y": 9312
+    },
+    "Complete.dc.html": {
+      "expand": "fill",
+      "h": 2637,
+      "title": "Dashboard, season complete (desktop)",
+      "w": 1440,
+      "x": 3040,
+      "y": 5560
+    },
+    "DraftRoom.dc.html": {
+      "expand": "fill",
+      "h": 2065,
+      "title": "Wave 4 sample: Draft room, your pick (desktop)",
+      "w": 1440,
+      "x": 6410,
+      "y": 9312
+    },
+    "DraftRoomNarrow.dc.html": {
+      "expand": "fill",
+      "h": 1660,
+      "title": "Wave 4 sample: Draft room, narrow, commissioner, Board tab",
+      "w": 1024,
+      "x": 7930,
+      "y": 9312
+    },
+    "Drafting.dc.html": {
+      "expand": "fill",
+      "h": 2600,
+      "title": "Dashboard, draft live (desktop)",
+      "w": 1440,
+      "x": 1520,
+      "y": 5560
+    },
+    "GameCenter.dc.html": {
+      "expand": "fill",
+      "h": 2714,
+      "title": "Wave 2: Game Center, live (desktop)",
+      "w": 1440,
+      "x": 4890,
+      "y": 12700
+    },
+    "GameCenterPhone.dc.html": {
+      "h": 3313,
+      "title": "Wave 2: Game Center, live (phone)",
+      "w": 390,
+      "x": 7930,
+      "y": 12700
+    },
+    "GameCenterPre.dc.html": {
+      "expand": "fill",
+      "h": 2418,
+      "title": "Wave 2: Game Center, before kickoff (desktop)",
+      "w": 1440,
+      "x": 6410,
+      "y": 12700
+    },
+    "GameDay.dc.html": {
+      "expand": "fill",
+      "h": 3785,
+      "title": "Dashboard, game day live, commissioner (desktop)",
+      "w": 1440,
+      "x": 1520,
+      "y": 0
+    },
+    "GameDayPhone.dc.html": {
+      "h": 5145,
+      "title": "Dashboard, game day with chat open (phone)",
+      "w": 390,
+      "x": 3510,
+      "y": 0
+    },
+    "GameDaySet.dc.html": {
+      "expand": "fill",
+      "h": 3461,
+      "title": "Dashboard, game day, lineup set and picks in (desktop)",
+      "w": 1440,
+      "x": 3980,
+      "y": 0
+    },
+    "Kit.dc.html": {
+      "h": 8000,
+      "title": "League kit: tables, forms, dialog, menu, chips, chat",
+      "w": 1440,
+      "x": 1380,
+      "y": 9312
+    },
+    "Lineup.dc.html": {
+      "expand": "fill",
+      "h": 1911,
+      "title": "Wave 3 sample: Lineup (desktop)",
+      "w": 1440,
+      "x": 4420,
+      "y": 9312
+    },
+    "LineupPhone.dc.html": {
+      "h": 2799,
+      "title": "Wave 3 sample: Lineup, moving a player (phone)",
+      "w": 330,
+      "x": 6000,
+      "y": 9312
+    },
+    "Main.dc.html": {
+      "expand": "fill",
+      "h": 3211,
+      "title": "Dashboard, in season (desktop)",
+      "w": 1440,
+      "x": 0,
+      "y": 0
+    },
+    "MainPhone.dc.html": {
+      "h": 4604,
+      "title": "Dashboard, in season (phone)",
+      "w": 390,
+      "x": 3040,
+      "y": 0
+    },
+    "Matchup.dc.html": {
+      "expand": "fill",
+      "h": 2892,
+      "title": "Wave 2 sample: Matchup, live (desktop)",
+      "w": 1440,
+      "x": 2900,
+      "y": 9312
+    },
+    "MatchupPhone.dc.html": {
+      "h": 4418,
+      "title": "Wave 2: Matchup, live (phone)",
+      "w": 390,
+      "x": 4420,
+      "y": 12700
+    },
+    "MatchupPre.dc.html": {
+      "expand": "fill",
+      "h": 2366,
+      "title": "Wave 2: Matchup, before kickoff (desktop)",
+      "w": 1440,
+      "x": 2900,
+      "y": 12700
+    },
+    "Pickem.dc.html": {
+      "expand": "fill",
+      "h": 2561,
+      "title": "Wave 2: Pick'em picks, game day, lock under an hour (desktop)",
+      "w": 1440,
+      "x": 2900,
+      "y": 17400
+    },
+    "PickemConfidence.dc.html": {
+      "expand": "fill",
+      "h": 4622,
+      "title": "Wave 2: Pick'em, confidence league, commissioner (desktop)",
+      "w": 1440,
+      "x": 4890,
+      "y": 17400
+    },
+    "PickemOnly.dc.html": {
+      "expand": "fill",
+      "h": 2011,
+      "title": "Dashboard, pick'em-only league (desktop)",
+      "w": 1440,
+      "x": 4560,
+      "y": 5560
+    },
+    "PickemPhone.dc.html": {
+      "h": 3589,
+      "title": "Wave 2: Pick'em picks, one unsaved pick (phone)",
+      "w": 390,
+      "x": 4420,
+      "y": 17400
+    },
+    "PickemStandings.dc.html": {
+      "expand": "fill",
+      "h": 1550,
+      "title": "Wave 2: Pick'em standings (desktop)",
+      "w": 1440,
+      "x": 6410,
+      "y": 17400
+    },
+    "PickemStates.dc.html": {
+      "expand": "fill",
+      "h": 6571,
+      "title": "Wave 2: Pick'em and Game Center states",
+      "w": 1300,
+      "x": 7930,
+      "y": 17400
+    },
+    "PreDraft.dc.html": {
+      "expand": "fill",
+      "h": 3352,
+      "title": "Dashboard, pre-draft, commissioner (desktop)",
+      "w": 1440,
+      "x": 0,
+      "y": 5560
+    },
+    "States.dc.html": {
+      "h": 2524,
+      "title": "States: loading, errors, empty, member vs commissioner",
+      "w": 1300,
+      "x": 0,
+      "y": 9312
+    }
+  },
+  "createdOnFiles": {
+    "at": "2026-10-15T20:00:00Z",
+    "v": 1
+  },
+  "designSystems": [],
+  "launch": {
+    "view": "canvas"
+  },
+  "notes": {
+    "row1": {
+      "kind": "title1",
+      "maxW": 5420,
+      "text": "Dashboard: in season and game day",
+      "w": 240,
+      "x": 0,
+      "y": -300
+    },
+    "row2": {
+      "kind": "title1",
+      "maxW": 6000,
+      "text": "Dashboard: every phase and league type",
+      "w": 240,
+      "x": 0,
+      "y": 5260
+    },
+    "row3": {
+      "kind": "title1",
+      "maxW": 8000,
+      "text": "States, the league kit, and one sample per wave",
+      "w": 240,
+      "x": 0,
+      "y": 9012
+    },
+    "row4": {
+      "kind": "title1",
+      "maxW": 8000,
+      "text": "Wave 2: Matchup, Game Center, Pick'em",
+      "w": 240,
+      "x": 2900,
+      "y": 12400
+    }
+  },
+  "order": [
+    "Main.dc.html",
+    "GameDay.dc.html",
+    "MainPhone.dc.html",
+    "GameDayPhone.dc.html",
+    "GameDaySet.dc.html",
+    "PreDraft.dc.html",
+    "Drafting.dc.html",
+    "Complete.dc.html",
+    "PickemOnly.dc.html",
+    "States.dc.html",
+    "Kit.dc.html",
+    "Matchup.dc.html",
+    "Lineup.dc.html",
+    "LineupPhone.dc.html",
+    "DraftRoom.dc.html",
+    "DraftRoomNarrow.dc.html",
+    "Commissioner.dc.html",
+    "MatchupPre.dc.html",
+    "MatchupPhone.dc.html",
+    "GameCenter.dc.html",
+    "GameCenterPre.dc.html",
+    "GameCenterPhone.dc.html",
+    "Pickem.dc.html",
+    "PickemPhone.dc.html",
+    "PickemConfidence.dc.html",
+    "PickemStandings.dc.html",
+    "PickemStates.dc.html"
+  ],
+  "pages": [],
+  "title": "League Play-select"
+}

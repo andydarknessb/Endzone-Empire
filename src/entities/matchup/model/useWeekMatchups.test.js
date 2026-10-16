@@ -115,3 +115,20 @@ describe('clearWeekMatchupsCache', () => {
     await waitFor(() => expect(apiClient.get).toHaveBeenCalledTimes(2));
   });
 });
+
+test('readAt is when the read completed, and a cached remount keeps that time', async () => {
+  const clock = jest.spyOn(Date, 'now');
+  clock.mockReturnValue(1000);
+  apiClient.get.mockResolvedValue({ data: [row()] });
+  const view = renderHook(() => useWeekMatchups(1, 4));
+  expect(view.result.current.readAt).toBeNull();
+  await waitFor(() => expect(view.result.current.loading).toBe(false));
+  expect(view.result.current.readAt).toBe(1000);
+  view.unmount();
+
+  clock.mockReturnValue(9000);
+  const utils = renderHook(() => useWeekMatchups(1, 4));
+  expect(apiClient.get).toHaveBeenCalledTimes(1);
+  expect(utils.result.current.readAt).toBe(1000);
+  clock.mockRestore();
+});

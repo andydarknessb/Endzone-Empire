@@ -37,4 +37,5 @@ export {
 } from './model/gameDetailModel';
 export { KICKOFF_WINDOWS, groupByKickoffWindow, kickoffWindowFor } from './model/kickoffWindow';
 export { default as usePickemWeek } from './model/usePickemWeek';
+export { nextPickGame } from './model/nextPickGame';
 export { clearPickemSettingsCache, setPickemSettings, usePickemSettings } from './model/usePickemSettings';

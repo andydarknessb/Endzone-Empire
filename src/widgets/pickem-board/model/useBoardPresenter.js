@@ -1,41 +1,58 @@
-import { useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useLeague } from '../../../hooks/useLeague';
-import { groupByKickoffWindow, usePickemWeek } from '../../../entities/pickem-game';
+import { groupByKickoffWindow, nextPickGame, usePickemWeek } from '../../../entities/pickem-game';
 import { useSavePicks } from '../../../features/save-picks';
+import { useNow } from '../../../shared/lib';
 import gameCardView from './gameCardView';
 
 // The NFL regular season's week count. `entities/pickem-game` has no
 // season-length concept of its own (its `usePickemWeek` reads one week at a
-// time), and this ticket's write set has no `pages/pickem` yet to own the
-// season's week range either, so the week picker's own domain (which weeks
-// exist to pick) is this widget's until a page composes it. A plain
-// plumbing constant, the same shape as `kickoffWindow.js`'s own
-// `SCHEDULE_ZONE`.
+// time), so the week picker's own domain (which weeks exist to pick) is this
+// widget's. A plain plumbing constant, the same shape as `kickoffWindow.js`'s
+// own `SCHEDULE_ZONE`.
 const REG_SEASON_WEEKS = 18;
 const WEEKS = Array.from({ length: REG_SEASON_WEEKS }, (unused, index) => index + 1);
 
+const HOUR_MS = 60 * 60 * 1000;
+const MINUTE_MS = 60 * 1000;
+
+// The next instant a "Locks in n min" word on the board changes, so one timer repaints the board
+// exactly when it must: an hour before the first kickoff, then at every whole minute.
+function nextLockWordChange(games, now) {
+  let next = null;
+  for (const game of games) {
+    if (game.locked) continue;
+    const remaining = new Date(game.kickoffAt).getTime() - now;
+    if (!(remaining > 0)) continue;
+    const at = remaining >= HOUR_MS ? now + remaining - HOUR_MS + 1 : now + (remaining % MINUTE_MS) + 1;
+    if (next == null || at < next) next = at;
+  }
+  return next;
+}
+
 /**
- * pickem-board widget's own model (#1265, ADR 0038's SliceMap:
- * "model/useBoardPresenter.js - groups by kickoff window"). Composes:
+ * pickem-board widget's own model (ADR 0038 SliceMap: "model/useBoardPresenter.js - groups by
+ * kickoff window"), on save-on-tap since ADR 0067 wave 2. Composes:
  *
- *   - `useLeague` (the shared league resource every island widget already
- *     reads directly, matchup-preview's precedent) for the league's own
- *     team count - CONTEXT.md: "Teams rows ARE league membership", so its
- *     length is the "M" in "N of M managers have picked".
- *   - `entities/pickem-game`'s `usePickemWeek` for the week's own slate,
- *     picks and reveal, and `groupByKickoffWindow` for the board's five
- *     sections (never reimplemented here, ADR 0038).
- *   - `save-picks`'s `useSavePicks` for the manager's own in-progress draft,
- *     dirty tracking and the save itself.
- *   - `model/gameCardView` to turn each raw wire game into what GameCard
- *     renders, folding the draft and this game's reveal in per game.
+ *   - `useLeague` (the shared league resource every island widget already reads directly) for the
+ *     league's own team count: the "M" in "N of M managers have picked".
+ *   - `entities/pickem-game`'s `usePickemWeek` for the week's slate, picks and reveal,
+ *     `groupByKickoffWindow` for the five windows and `nextPickGame` for the cursor.
+ *   - `save-picks`'s `useSavePicks` for the per-tap save, its words (Saving, Pick saved and Undo,
+ *     Retry) and the confidence swap.
+ *   - `model/gameCardView` to turn each wire game into what GameCard renders, with the clock that
+ *     turns an open game under an hour out into "Locks in n min".
  *
- * The week itself is state THIS hook owns (`pick-week`'s own docblock: "the
- * page keeps owning the week state" - here, until `pages/pickem` exists,
- * this widget is that page for the one thing it needs from it), seeded from
- * the league's `current_week` the first time it is known.
+ * The week itself is state THIS hook owns, seeded from the league's `current_week` the first time it
+ * is known. `onSaved(result)` fires after every save that landed, so the page, which composes this
+ * and `entities/pickem-standings`, can clear the standings cache a save made stale (sibling entities
+ * do not import each other, ADR 0029).
+ *
+ * `status` is the one place the board says where the manager stands, in the Picks h2 row: how many
+ * are picked, how many open games still lack a pick, and the kickoff of the cursor game ("next
+ * lock"), the one the cursor and the next-lock link point at.
  */
-export function useBoardPresenter(leagueId) {
+export function useBoardPresenter(leagueId, { onSaved } = {}) {
   const { league, teams, loading: leagueLoading } = useLeague(leagueId);
   const totalManagers = leagueLoading ? null : teams.length;
 
@@ -44,60 +61,70 @@ export function useBoardPresenter(leagueId) {
 
   const weekState = usePickemWeek(leagueId, effectiveWeek, { enabled: effectiveWeek != null });
   const data = weekState.data;
-  const games = data?.games || [];
+  const games = useMemo(() => data?.games || [], [data]);
   const mode = data?.mode || 'straight';
+  const confidenceMode = mode === 'confidence';
 
-  // usePickemWeek reads `loading: false` the instant it is disabled (no week
-  // known yet), which is correct for THAT hook but would flash this board's
-  // empty state before the league's own `current_week` has even arrived:
-  // while the week is still unknown, this board is waiting on the league
-  // read, not on a week fetch that was never issued.
+  // usePickemWeek reads `loading: false` the instant it is disabled (no week known yet), which would
+  // flash this board's empty state before the league's own `current_week` has arrived.
   const loading = effectiveWeek == null ? leagueLoading : weekState.loading;
 
-  const savePicksApi = useSavePicks({
-    myPicks: data?.myPicks,
-    savePicks: weekState.savePicks,
-    saving: weekState.saving,
-    saveError: weekState.saveError,
-    resetKey: effectiveWeek,
-  });
-
-  // Every game's own confidence, draft-aware, so ConfidenceMenu can refuse a
-  // number already spent elsewhere on the SAME slate - the server's own rule
-  // (CONTEXT.md, Confidence: "each number used at most once across the
-  // week").
-  const confidenceByGameKey = new Map();
-  for (const game of games) {
-    const draft = savePicksApi.draftFor(game.gameKey);
-    if (draft?.confidence != null) confidenceByGameKey.set(game.gameKey, draft.confidence);
-  }
-  const confidenceUsedByFor = (gameKey) => {
-    const used = [];
-    for (const [key, value] of confidenceByGameKey) {
-      if (key !== gameKey) used.push(value);
-    }
-    return used;
-  };
+  const now = useNow((current) => nextLockWordChange(games, current), data);
 
   const views = games.map((game) =>
     gameCardView({
       game,
       myPicks: data?.myPicks,
-      draftFor: savePicksApi.draftFor,
       othersPicksForWeek: data?.othersPicks,
       totalManagers,
-      flagged: savePicksApi.flaggedGameKeys.has(game.gameKey),
+      now,
     })
   );
-
   const windows = groupByKickoffWindow(views);
+  const boardOrder = windows.flatMap((group) => group.games);
+  const cursor = nextPickGame(boardOrder);
 
-  const flaggedMessages = {};
-  if (savePicksApi.saveError && Array.isArray(savePicksApi.saveError.gameKeys)) {
-    for (const gameKey of savePicksApi.saveError.gameKeys) {
-      flaggedMessages[gameKey] = savePicksApi.saveError.message;
+  const saveWeekPicks = weekState.savePicks;
+  const savePicks = useCallback(
+    async (picks) => {
+      const result = await saveWeekPicks(picks);
+      if (result?.ok && onSaved) onSaved(result);
+      return result;
+    },
+    [saveWeekPicks, onSaved]
+  );
+  const saving = useSavePicks({
+    mode,
+    myPicks: data?.myPicks,
+    views,
+    savePicks,
+    resetKey: effectiveWeek,
+  });
+
+  // Who holds each rank, so ConfidenceMenu can mark a rank "used by DAL @ DEN" (choosing it swaps) or
+  // "locked" (the holder kicked off, so it cannot move), never this game's own rank.
+  const holders = {};
+  for (const view of views) {
+    if (view.confidence != null) {
+      holders[view.confidence] = {
+        gameKey: view.gameKey,
+        label: `${view.teams[0]} @ ${view.teams[1]}`,
+        locked: view.lock,
+      };
     }
   }
+  const usedByFor = (gameKey) => {
+    const used = {};
+    for (const [rank, holder] of Object.entries(holders)) {
+      if (holder.gameKey !== gameKey) used[rank] = { label: holder.label, locked: holder.locked };
+    }
+    return used;
+  };
+  const usedRanks = Object.keys(holders).map(Number).sort((a, b) => a - b);
+  const lockedRanks = usedRanks.filter((rank) => holders[rank].locked);
+
+  const pickedCount = views.filter((view) => view.myPick != null).length;
+  const openCount = views.filter((view) => !view.lock && view.myPick == null).length;
 
   return {
     week: effectiveWeek,
@@ -106,20 +133,25 @@ export function useBoardPresenter(leagueId) {
     mode,
     loading,
     error: weekState.error,
+    reload: weekState.reload,
     totalManagers,
     slateSize: views.length,
-    pickedCount: views.filter((view) => view.myPick != null).length,
-    // Every game on the slate is locked, so no pick on it can change.
-    weekLocked: views.length > 0 && views.every((view) => view.lock),
     windows,
-    saving: savePicksApi.saving,
-    isDirty: savePicksApi.isDirty,
-    saveError: savePicksApi.saveError,
-    flaggedMessages,
-    confidenceUsedByFor,
-    onPickWinner: savePicksApi.pickWinner,
-    onSetConfidence: savePicksApi.setConfidence,
-    onSave: savePicksApi.save,
+    cursorKey: cursor ? cursor.gameKey : null,
+    cursorLockMinutes: cursor ? cursor.lockMinutes : null,
+    status: {
+      picked: pickedCount,
+      total: views.length,
+      open: openCount,
+      nextLock: cursor ? cursor.kickoff : null,
+    },
+    confidence: confidenceMode ? { usedRanks, lockedRanks, left: views.length - usedRanks.length } : null,
+    usedByFor,
+    stateFor: saving.stateFor,
+    onPickWinner: saving.pickWinner,
+    onSetConfidence: saving.setConfidence,
+    onUndo: saving.undo,
+    onRetry: saving.retry,
   };
 }
 

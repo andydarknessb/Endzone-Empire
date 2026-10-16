@@ -134,7 +134,10 @@ test('an open matchup carries both sides; a final one carries null; the projecti
   assert.equal(open.away_expected_final, 5);
   assert.equal(open.home_players_remaining, 2);
   assert.equal(open.away_players_remaining, 0);
-  for (const key of ['home_expected_final', 'away_expected_final', 'home_players_remaining', 'away_players_remaining']) {
+  // Before kickoff nothing has started, so every remaining starter is yet to play.
+  assert.equal(open.home_yet_to_play, 2);
+  assert.equal(open.away_yet_to_play, 0);
+  for (const key of ['home_expected_final', 'away_expected_final', 'home_players_remaining', 'away_players_remaining', 'home_yet_to_play', 'away_yet_to_play']) {
     assert.equal(done[key], null);
   }
   // The shipped contract carries no projected-total field any more.

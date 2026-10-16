@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import { Box } from '@mui/material';
 import { playLabel, formatSignedPoints } from '../../../entities/matchup';
+import { PixelClose } from '../../../shared/ui/playselect';
 
 /**
  * The bottom toast stack of the celebrate-touchdown feature (ADR 0031, #903),
@@ -12,48 +13,18 @@ import { playLabel, formatSignedPoints } from '../../../entities/matchup';
  * points always to one decimal ("+6.0", the ticker's format too).
  *
  * The toast BODY is plain content and the dismiss control is a real button
- * named "Dismiss" (#911). It used to be the other way round: the whole toast
- * carried the `onClick`, which made a pointer the only way to get rid of one,
- * put a click target in the accessibility tree with no name, role or keyboard
- * behaviour of its own, and left anyone reading the line with a screen reader
- * no way to act on it. The auto-dismiss timer is unchanged, so a toast nobody
- * touches still leaves on its own; the button only gives the same exit a name
- * and a key.
+ * named "Dismiss" (#911), a 44px target. The auto-dismiss timer is unchanged,
+ * so a toast nobody touches still leaves on its own; the button only gives the
+ * same exit a name and a key.
  *
- * Paints only `dash-*` tokens plus the app's radius, shadow and focus-ring
- * tokens (the focus ring on the dismiss button alone): ink on the card surface
- * (a registered pairing), with the tone carried by the left rule alone
- * (`dash-accent` for the viewer's own, `dash-danger` for the opponent's),
- * never by a text colour, so no new ink-on-surface pairing is composed. The
- * button's glyph is `dash-dim` on that same surface, which is registered too.
- * The tone is exposed as `data-tone` for a test to read.
+ * Restyled for Play-select (ADR 0067 wave 2): ink on the panel, a 2px rule
+ * edge and square corners, with the tone carried by the 6px left edge (Accent
+ * for the viewer's own, Dim for the opponent's) and never by a text colour, so
+ * no ink-on-surface pairing beyond ink and dim on the panel is composed. The
+ * tone is exposed as `data-tone` for a test to read. The global keyboard focus
+ * ring (`.ps-root :focus-visible`) rings the dismiss button.
  */
 export const TOAST_MS = 2400;
-
-/**
- * The dismiss button's glyph: a plain cross on the canvas's 20px grid, drawn
- * the same way the feature's other inline icons are (stroke, currentColor,
- * `aria-hidden`). The button's name comes from its `aria-label`, never from
- * this, so the toast's text content stays the play line alone.
- */
-function CloseGlyph() {
-  return (
-    <svg
-      width="12"
-      height="12"
-      viewBox="0 0 20 20"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      aria-hidden="true"
-      focusable="false"
-      style={{ display: 'block' }}
-    >
-      <path d="M5 5l10 10M15 5L5 15" />
-    </svg>
-  );
-}
 
 function Toast({ toast, onDismiss }) {
   useEffect(() => {
@@ -73,18 +44,16 @@ function Toast({ toast, onDismiss }) {
         alignItems: 'center',
         gap: '10px',
         pl: '14px',
-        pr: '6px',
-        py: '10px',
-        fontSize: '13px',
+        pr: '2px',
+        py: '2px',
+        fontSize: '15px',
         fontWeight: 600,
         lineHeight: 1.45,
-        fontFamily: 'var(--dash-font-body)',
-        color: 'var(--dash-ink)',
-        backgroundColor: 'var(--dash-surface)',
-        border: '1px solid var(--dash-line)',
-        borderLeft: `4px solid ${positive ? 'var(--dash-accent)' : 'var(--dash-danger)'}`,
-        borderRadius: 'var(--dash-radius-sm)',
-        boxShadow: 'var(--shadow-2)',
+        color: 'var(--ps-ink)',
+        backgroundColor: 'var(--ps-panel)',
+        border: '2px solid var(--ps-rule)',
+        borderLeft: `6px solid ${positive ? 'var(--ps-accent)' : 'var(--ps-dim)'}`,
+        borderRadius: 0,
       }}
     >
       <Box component="span">{message}</Box>
@@ -98,19 +67,18 @@ function Toast({ toast, onDismiss }) {
           alignItems: 'center',
           justifyContent: 'center',
           flex: 'none',
-          width: 28,
-          height: 28,
+          width: 44,
+          height: 44,
           p: 0,
           border: 0,
           background: 'transparent',
           cursor: 'pointer',
-          color: 'var(--dash-dim)',
-          borderRadius: 'var(--radius-sm)',
-          '&:hover': { color: 'var(--dash-ink)' },
-          '&:focus-visible': { outline: '2px solid var(--focus-ring)', outlineOffset: 2 },
+          color: 'var(--ps-dim)',
+          borderRadius: 0,
+          '&:hover': { color: 'var(--ps-ink)' },
         }}
       >
-        <CloseGlyph />
+        <PixelClose />
       </Box>
     </Box>
   );

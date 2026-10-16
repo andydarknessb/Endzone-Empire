@@ -1,445 +1,155 @@
-import React from 'react';
-import { Box, Typography } from '@mui/material';
-import { visuallyHidden } from '@mui/utils';
-import { Badge, Card, SegmentedControl, Skeleton, StatTile, TeamAvatar } from '../../../shared/ui';
+import React, { useId } from 'react';
+import { Box } from '@mui/material';
+import {
+  Frame, FrameHead, PixelArrow, PixelHeading, PixelWarn, PsButton, Skel, SR_ONLY_SX, TeamMark, YouTag, pixelSx,
+} from '../../../shared/ui/playselect';
+import { SegmentedControl } from '../../../shared/ui';
 import usePickemStandingsTable from '../model/usePickemStandingsTable';
 import { HEAT_WEEKS } from '../lib/heatBuckets';
 import { ordinal } from '../../../shared/lib';
 
-const TREND_LABEL = { up: 'Trend: improved', down: 'Trend: declined', flat: 'Trend: unchanged' };
-const MEDAL_COLOR = { 1: 'var(--dash-warning)', 2: 'var(--medal-silver)', 3: 'var(--medal-bronze)' };
+// Fill height by bucket: the weekly cell is data (how a week compares with the team's own best).
+const HEAT_HEIGHT = { h1: 25, h2: 50, h3: 75, h4: 100 };
 
-/**
- * Pick'em standings widget (#1266, ADR 0038): season leaderboard for a
- * pick'em league, with rank (medal fills for 1-3), Team identity, points,
- * this week's points, correct/missed/pending, an accuracy bar, an
- * eighteen-week heat strip with the best week outlined, a trend arrow and a
- * season switch, matching docs/design/pickem/Standings.dc.html.
- *
- * Composes `shared/ui` (ADR 0020) and paints only `dash-*` tokens - the same
- * kit and token set src/widgets/standings-table already uses for its own
- * league table, including the viewer-row treatment (accent tint + inset
- * accent bar + "You" pill), whose ink-on-tint pairings are already
- * registered in tokens.contrast.test.js ("the me-row team name on the
- * accent tint over a card", "the You pill on the viewer row tint over a
- * card"). The medal marks (LeagueHistoryPage's own pattern) are decorative
- * SVG glyphs beside the plain rank number, not colour-filled text, so they
- * introduce no new text/background pairing either. The weekly heat cells and
- * the accuracy bar are plain coloured boxes with no text of their own (the
- * same "no visible text -> no new pairing" shape as shared/ui's RangeBar),
- * so nothing here registers a new row in tokens.contrast.test.js.
- *
- * The Card heading is `title` (default `Standings`, so PickemPage mounts it
- * bare and reads as before); the League Dashboard passes `Pick'em Standings`
- * and mounts the widget with no Card of its own, so one heading names it
- * (#1979 L26). The Card's team `count` shows only once the read is ready: a
- * loading or failed read has no count to state, and used to read `0 teams`.
- *
- * Renders from the standings entity only (`usePickemStandingsTable`); the
- * widget never calls a fetch client itself.
- *
- * Accessibility (risk review, #1266): the scroll container carries its own
- * `tabIndex={0}` + label + focus ring (the same pattern
- * src/widgets/nfl-game-strip uses), since none of the table's cell content is
- * itself focusable and a keyboard-only user at a narrow width would
- * otherwise never be able to scroll it. The heat strip's `aria-label`
- * distinguishes a week that has not happened yet from one the team simply
- * made no picks in. #1298 (WCAG 1.4.1 Use of Color, ruled - not 1.4.11
- * non-text contrast, which is unsatisfiable here in principle: four adjacent
- * steps at 3:1 each need roughly 3^4 ~= 81:1 end to end, and no two colours
- * anywhere exceed 21:1): bucket identity used to reach a sighted viewer
- * through fill lightness alone. Each heat cell now carries a second,
- * non-colour channel - a bucket-indexed fill height inside the 14px square -
- * so bucket reads by shape as well as tint; see `HeatStrip` below. Every
- * cell still carries a hairline border so individual weeks stay locatable
- * regardless of fill, and the underlying values are always available to
- * assistive tech via `aria-label`.
- */
-export default function StandingsTable({ leagueId, seasons, title = 'Standings' }) {
-  const {
-    status,
-    rows,
-    teamCount,
-    season,
-    seasons: seasonOptions,
-    onSeasonChange,
-    viewer,
-    behindLeader,
-    currentWeek,
-  } = usePickemStandingsTable(leagueId, { seasons });
+// 16px pixel arrows, 12 to 14px wide: a direction, never a number the entity does not provide.
+const TREND = {
+  up: ['M7 4h2v2H7zM5 6h6v2H5zM3 8h10v2H3zM1 10h14v2H1z', 'Trend: improved'],
+  down: ['M1 4h14v2H1zM3 6h10v2H3zM5 8h6v2H5zM7 10h2v2H7z', 'Trend: declined'],
+  flat: ['M2 6h12v4H2z', 'Trend: unchanged'],
+};
 
-  const busy = status === 'loading';
+const rankLabel = (row) => (row.tied ? `T-${row.rank}` : String(row.rank));
+const listOf = (items) => (items.length < 2
+  ? String(items[0])
+  : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`);
 
+// Every tied best week is ringed and named: the entity's bestWeek names one week, but the strip
+// belongs to the data it draws, so ties come from the played points themselves.
+function bestWeeksOf(heat) {
+  const played = (heat || []).filter((cell) => cell.points != null);
+  if (played.length === 0) return [];
+  const best = Math.max(...played.map((cell) => cell.points));
+  return played.filter((cell) => cell.points === best).map((cell) => cell.week);
+}
+
+const cellSx = (align = 'left', extra = null) => ({
+  boxSizing: 'border-box',
+  height: '44px',
+  padding: '0 12px',
+  textAlign: align,
+  whiteSpace: 'nowrap',
+  fontSize: '15px',
+  fontVariantNumeric: 'tabular-nums',
+  ...extra,
+});
+
+const headSx = (align = 'left', extra = null) => ({
+  boxSizing: 'border-box',
+  height: '40px',
+  padding: '0 12px',
+  textAlign: align,
+  backgroundColor: 'var(--ps-panel)',
+  borderBottom: '2px solid var(--ps-rule)',
+  fontSize: '13px',
+  fontWeight: 600,
+  letterSpacing: '.04em',
+  textTransform: 'uppercase',
+  color: 'var(--ps-dim)',
+  whiteSpace: 'nowrap',
+  ...extra,
+});
+
+function Tile({ label, testid, children }) {
   return (
-    <Card
-      title={title}
-      count={
-        status === 'ready' ? (
-          <Box component="span" data-testid="pickem-standings-count">
-            {`${teamCount} team${teamCount === 1 ? '' : 's'}`}
-          </Box>
-        ) : undefined
-      }
-      data-testid="pickem-standings"
-      aria-busy={busy}
+    <Box
+      data-testid={testid}
+      sx={{
+        display: 'flex', flexDirection: 'column', gap: '6px', minWidth: '150px', padding: '10px 16px', boxSizing: 'border-box', border: '2px solid var(--ps-rule)',
+      }}
     >
-      <Box sx={{ px: 2.25, py: 1.75, display: 'flex', flexWrap: 'wrap', gap: 1.5, alignItems: 'center', borderBottom: '1px solid var(--dash-line)' }}>
-        {status === 'ready' && viewer && (
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-            <StatTile
-              label="Your rank"
-              value={viewer.tied ? `T-${viewer.rank}` : ordinal(viewer.rank) || viewer.rank}
-              data-testid="pickem-standings-your-rank"
-            />
-            <StatTile
-              label="Behind leader"
-              value={behindLeader == null ? '-' : behindLeader === 0 ? 'Leader' : `${behindLeader} pts`}
-              data-testid="pickem-standings-behind-leader"
-            />
-            <StatTile
-              label="Your accuracy"
-              value={viewer.accuracy == null ? '-' : `${Math.round(viewer.accuracy * 100)}%`}
-              data-testid="pickem-standings-your-accuracy"
-            />
-            <StatTile
-              label="Best week"
-              value={viewer.bestWeek ? `Wk ${viewer.bestWeek.week}` : '-'}
-              data-testid="pickem-standings-best-week"
-            />
-          </Box>
-        )}
-        {seasonOptions.length > 1 && (
-          <SegmentedControl
-            aria-label="Season"
-            data-testid="pickem-standings-season-switch"
-            options={seasonOptions.map((value) => ({ value, label: String(value) }))}
-            value={season}
-            onChange={onSeasonChange}
-            sx={{ ml: 'auto' }}
-          />
-        )}
-      </Box>
+      <Box component="span" sx={{ fontSize: '13px', color: 'var(--ps-dim)' }}>{label}</Box>
+      <Box component="span" sx={{ ...pixelSx(24), lineHeight: 1.3 }}>{children}</Box>
+    </Box>
+  );
+}
 
-      {status === 'error' ? (
-        <Box sx={{ px: 2.25, py: 2 }}>
-          <Typography role="alert" data-testid="pickem-standings-error" sx={{ fontSize: '13px', color: 'var(--dash-ink)' }}>
-            We could not load the standings right now.
-          </Typography>
-        </Box>
-      ) : (
+// Confidence leagues draw the ten-cell accuracy bar beside the percent; straight up draws the percent
+// alone (the bar said it a second time).
+function Accuracy({ accuracy, me, bar }) {
+  const pct = accuracy == null ? null : Math.max(0, Math.min(100, Math.round(accuracy * 100)));
+  const on = pct == null ? 0 : Math.round(pct / 10);
+  const fill = me ? 'var(--ps-play-ink)' : 'var(--ps-frame)';
+  const line = me ? 'var(--ps-play-dim)' : 'var(--ps-dim)';
+  return (
+    <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: '10px' }}>
+      {bar && (
         <Box
-          data-testid="pickem-standings-scroll"
-          tabIndex={0}
-          role="group"
-          aria-label="Standings table, scrollable"
-          sx={{
-            overflowX: 'auto',
-            // The scroll box must be the containing block for the table's
-            // absolutely positioned descendants (the `visuallyHidden` "Trend:"
-            // and "not available" spans): a scroll container only clips an
-            // abs-pos descendant whose containing block it is. Unpositioned,
-            // those 1px spans sat at their static position ~1200px in and
-            // widened the whole document, which on a phone shrank the entire
-            // page to half width (measured in Chromium at 320-900px:
-            // documentElement.scrollWidth 1211 -> 390 with this one rule).
-            position: 'relative',
-            '&:focus-visible': { outline: '2px solid var(--focus-ring)', outlineOffset: 2 },
-          }}
+          data-testid="pickem-standings-accuracy-bar"
+          {...(pct == null ? { role: 'img', 'aria-label': 'No decided picks yet' } : { 'aria-hidden': 'true' })}
+          sx={{ display: 'grid', gridTemplateColumns: 'repeat(10, 8px)', gap: '2px' }}
         >
-          <Box component="table" sx={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--dash-font-body)' }}>
-            <Box component="thead">
-              <Box component="tr">
-                <HeadCell align="right">Rank</HeadCell>
-                <HeadCell>Team</HeadCell>
-                <HeadCell align="right">Points</HeadCell>
-                <HeadCell align="right">{currentWeek != null ? `Wk ${currentWeek}` : 'This week'}</HeadCell>
-                <HeadCell align="right">Correct</HeadCell>
-                <HeadCell align="right">Missed</HeadCell>
-                <HeadCell align="right">Pending</HeadCell>
-                <HeadCell>Accuracy</HeadCell>
-                <HeadCell>{`Weekly points · Wk 1 to ${HEAT_WEEKS}`}</HeadCell>
-                <HeadCell align="right">Trend</HeadCell>
-              </Box>
-            </Box>
-            <Box component="tbody">
-              {status === 'loading'
-                ? Array.from({ length: Math.max(teamCount, 1) }, (_, i) => <SkeletonRow key={`skeleton-${i}`} />)
-                : rows.map((row) => <StandingsRow key={row.teamId ?? row.teamName} row={row} currentWeek={currentWeek} />)}
-            </Box>
-          </Box>
+          {Array.from({ length: 10 }, (unused, i) => (
+            <Box
+              key={i}
+              component="span"
+              sx={{ height: '12px', boxSizing: 'border-box', ...(i < on ? { backgroundColor: fill } : { border: `2px solid ${line}` }) }}
+            />
+          ))}
         </Box>
       )}
-    </Card>
-  );
-}
-
-function StandingsRow({ row, currentWeek }) {
-  const thisWeekPoints = currentWeek != null && row.weekly ? row.weekly[currentWeek] : undefined;
-  return (
-    <Box
-      component="tr"
-      data-testid={row.isViewer ? 'pickem-standings-you-row' : `pickem-standings-row-${row.teamId ?? row.teamName}`}
-      data-viewer-team={row.isViewer || undefined}
-      sx={{
-        ...(row.isViewer
-          ? { backgroundColor: 'var(--dash-accent-soft)', boxShadow: 'inset 3px 0 0 var(--dash-accent)' }
-          : {}),
-        '& > td, & > th': { borderTop: '1px solid var(--dash-line)' },
-      }}
-    >
-      <BodyCell align="right">
-        <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
-          <MedalIcon rank={row.rank} />
-          <Box component="span" data-testid="pickem-standings-rank" sx={{ fontFamily: 'var(--dash-font-display)', fontWeight: 700 }}>
-            {row.tied ? `T-${row.rank}` : row.rank}
-          </Box>
-        </Box>
-      </BodyCell>
-      <BodyCell asRowHeader>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, minWidth: 0 }}>
-          <Box sx={{ flex: 'none', display: 'flex' }}>
-            <TeamAvatar name={row.teamName} avatarUrl={row.avatarUrl} avatarStaticUrl={row.avatarStaticUrl} size={28} />
-          </Box>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
-            <Box
-              component="span"
-              sx={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '13.5px', fontWeight: 600, color: 'var(--dash-ink)' }}
-            >
-              {row.teamName}
-            </Box>
-            {row.isViewer && <Badge variant="you" sx={{ flex: 'none' }}>You</Badge>}
-          </Box>
-        </Box>
-      </BodyCell>
-      <BodyCell align="right">
-        <Box component="span" sx={{ fontFamily: 'var(--dash-font-display)', fontWeight: 700, fontSize: '15px' }}>
-          {row.points}
-        </Box>
-      </BodyCell>
-      <BodyCell align="right">{thisWeekPoints == null ? '-' : thisWeekPoints}</BodyCell>
-      <BodyCell align="right">{row.correct}</BodyCell>
-      <BodyCell align="right">{row.incorrect}</BodyCell>
-      <BodyCell align="right">{row.pending}</BodyCell>
-      <BodyCell>
-        <AccuracyBar accuracy={row.accuracy} />
-      </BodyCell>
-      <BodyCell>
-        <HeatStrip heat={row.heat} currentWeek={currentWeek} />
-      </BodyCell>
-      <BodyCell align="right">
-        <TrendMark trend={row.trend} />
-      </BodyCell>
+      <Box component="span" data-testid="pickem-standings-accuracy" sx={{ minWidth: '40px' }}>{pct == null ? '-' : `${pct}%`}</Box>
     </Box>
   );
 }
 
-function HeadCell({ children, align = 'left' }) {
-  return (
-    <Box
-      component="th"
-      scope="col"
-      sx={{
-        textAlign: align,
-        px: 1.5,
-        py: 1.25,
-        borderBottom: '1px solid var(--dash-line)',
-        backgroundColor: 'var(--dash-surface2)',
-        fontSize: '11px',
-        fontWeight: 600,
-        letterSpacing: '0.06em',
-        textTransform: 'uppercase',
-        color: 'var(--dash-faint)',
-        whiteSpace: 'nowrap',
-      }}
-    >
-      {children}
-    </Box>
-  );
+function heatLabel(heat) {
+  const played = (heat || []).filter((cell) => cell.points != null);
+  if (played.length === 0) return 'Weekly points: none yet';
+  const last = Math.max(...played.map((cell) => cell.week));
+  const points = heat
+    .filter((cell) => cell.week <= last)
+    .map((cell) => (cell.points == null ? 'none' : cell.points));
+  const bests = bestWeeksOf(heat);
+  return `Weekly points, weeks 1 to ${last}: ${points.join(', ')}; best week${bests.length > 1 ? 's' : ''} ${listOf(bests)}`;
 }
 
-function BodyCell({ children, align = 'left', asRowHeader = false }) {
+// One labelled image per row: the eighteen cells are decoration (aria-hidden), the sentence is the
+// name, so a screen reader hears one sentence per team instead of eighteen cells.
+function HeatStrip({ heat, me }) {
+  const fill = me ? 'var(--ps-play-ink)' : 'var(--ps-frame)';
+  const track = me ? 'var(--ps-play-field)' : 'var(--ps-field)';
+  const line = me ? 'var(--ps-play-dim)' : 'var(--ps-dim)';
+  const bests = bestWeeksOf(heat);
   return (
-    <Box
-      component={asRowHeader ? 'th' : 'td'}
-      {...(asRowHeader ? { scope: 'row' } : {})}
-      sx={{
-        textAlign: align,
-        px: 1.5,
-        py: 1.25,
-        fontSize: '13.5px',
-        fontWeight: 400,
-        fontVariantNumeric: 'tabular-nums',
-        color: 'var(--dash-ink)',
-        whiteSpace: 'nowrap',
-      }}
-    >
-      {children}
-    </Box>
-  );
-}
-
-// Decorative medal marks (LeagueHistoryPage.jsx's own pattern): the rank
-// number beside them carries the meaning, so these are aria-hidden and
-// introduce no text-on-colour pairing for tokens.contrast.test.js.
-function MedalIcon({ rank }) {
-  const color = MEDAL_COLOR[rank];
-  if (!color) return null;
-  return (
-    <Box
-      component="svg"
-      width={14}
-      height={14}
-      viewBox="0 0 20 20"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.6"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      focusable="false"
-      data-medal={rank}
-      sx={{ color, flex: 'none' }}
-    >
-      <circle cx="10" cy="12.5" r="4.5" />
-      <path d="M7 8.4 5 3.5h10l-2 4.9" />
-    </Box>
-  );
-}
-
-// A plain fill-percentage bar, local to this widget (shared/ui is read-only
-// and RangeBar's floor/ceiling/tick shape does not fit a single percentage).
-// No text sits on the fill, so - like RangeBar - it introduces no new
-// foreground/background pairing.
-function AccuracyBar({ accuracy }) {
-  const pct = accuracy == null ? null : Math.max(0, Math.min(100, Math.round(accuracy * 100)));
-  // The bar is decorative reinforcement of the visible percentage text
-  // beside it once there is one: `role="img"` + `aria-label` only carries
-  // real information when there is NO other text on the row saying so - the
-  // "no decided picks yet" state, where the visible text is a bare "-".
-  // Labelling the bar in the pct != null case as well would announce the
-  // same "Accuracy 65%" fact three times (column header, this label, the
-  // visible "65%" text).
-  return (
-    <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 1 }}>
-      <Box
-        {...(pct == null ? { role: 'img', 'aria-label': 'No decided picks yet' } : { 'aria-hidden': 'true' })}
-        data-testid="pickem-standings-accuracy-bar"
-        sx={{ width: 64, height: 6, borderRadius: 'var(--radius-pill)', backgroundColor: 'var(--dash-surface3)', overflow: 'hidden' }}
-      >
-        {pct != null && (
-          <Box style={{ width: `${pct}%` }} sx={{ height: '100%', backgroundColor: 'var(--dash-home)' }} />
-        )}
-      </Box>
-      <Box component="span" sx={{ fontSize: '12.5px', color: 'var(--dash-dim)' }}>
-        {pct == null ? '-' : `${pct}%`}
-      </Box>
-    </Box>
-  );
-}
-
-// A week's accessible label. `points == null` covers two different facts a
-// sighted user reads apart at a glance (an unfilled cell vs. a future one)
-// but which the aria-label must say in words: a week strictly after
-// `currentWeek` (the widget's own "how far the season has gotten" reading,
-// model/usePickemStandingsTable.js) has not happened yet, while a week at or
-// before it that still carries no points means the team made no picks that
-// week (pickem.service.js's `scorePickemWeek` never writes a `weekly` entry
-// for a week nobody on that team picked). `currentWeek == null` (nobody in
-// the league has picked anything yet) treats every week as not-yet-played.
-function heatCellLabel(cell, currentWeek) {
-  if (cell.points != null) {
-    return `Week ${cell.week}: ${cell.points} points${cell.isBest ? ', best week' : ''}`;
-  }
-  if (currentWeek == null || cell.week > currentWeek) {
-    return `Week ${cell.week}: not played yet`;
-  }
-  return `Week ${cell.week}: no picks made`;
-}
-
-// The eighteen-week heat strip: coloured, text-free cells (heatBuckets.js
-// owns which bucket each week falls into), the best week outlined. Each cell
-// carries its meaning in an aria-label rather than visible text, and a thin
-// hairline border on every cell (not just the best-week outline) keeps
-// individual weeks locatable for a sighted low-vision viewer even where two
-// adjacent buckets' fills sit close together.
-//
-// #1298 (WCAG 1.4.1): bucket identity used to reach a sighted viewer through
-// fill lightness alone. Each cell now carries a second, non-colour channel:
-// an inner fill that rises to a bucket-indexed HEIGHT of the 14px square (h1
-// a quarter, h2 half, h3 three-quarters, h4 full), so bucket reads by shape
-// as well as tint. The tint and its per-bucket opacity move onto that inner
-// fill so the outer cell's hairline border and the best-week outline are
-// never themselves faded. Every cell (bucketed or not) shares the same
-// dash-surface3 track as its base: an earlier version left a bucketed
-// cell's own background transparent, which put the h1/h2 fill directly on
-// the row's own backdrop - and that backdrop varied by row, worst case the
-// viewer row's accent-soft tint, the same hue as the fill (h1 measured
-// 1.46:1 light / 1.80:1 dark there). A shared opaque track fixes that: the
-// backdrop is now constant and never the fill's own hue, so the worst case
-// no longer depends on which row a cell is in, and (verified by rendering
-// both at 14px) it reads as perceptibly more distinct than the transparent
-// version did. As a side effect it also keeps a "0 points" h1 cell visibly
-// distinct from a not-played cell: the latter is the bare track, the former
-// is the same track with a small fill on it. A not-played cell renders no
-// inner fill.
-//
-// #1319 (WCAG 1.4.11): the #1298 track fixed the backdrop but the fill's own
-// opacity ramp - BUCKET_OPACITY = { h1: 0.35, h2: 0.6, h3: 0.85, h4: 1 },
-// carried over unchanged from before the height channel existed - still fell
-// short of the 3:1 non-text floor against dash-surface3 for the faintest two
-// buckets (h1 1.68:1 light / 2.15:1 dark, h2 2.59:1 light; h2 dark and h3/h4
-// both themes already cleared it). The dash-line hairline cannot stand in as
-// the bar's edge (1.24:1 light / 1.26:1 dark against the track). Raising the
-// floor was preferred over a new or darker track token (dash-surface3 is
-// shared under five text pairings, tokens.contrast.test.js) or an
-// opaque-fill-only ramp (which would erase the tint reinforcement height
-// already carries): BUCKET_OPACITY is now { h1: 0.75, h2: 0.85, h3: 0.95,
-// h4: 1 }, measuring 3.43:1 / 4.86:1 (h1), 4.17:1 / 5.80:1 (h2), 5.07:1 /
-// 6.87:1 (h3), 5.59:1 / 7.45:1 (h4) against the track - every bucket clears
-// 3:1 in both themes. The tint ramp between neighbouring buckets compresses
-// to about 1.2:1; that is accepted because height, not tint, has carried the
-// bucket channel since #1298. The recurrence guard lives in
-// tokens.contrast.test.js, which composites dash-accent at each bucket's
-// alpha over dash-surface3 directly (never via contrastRatio on sibling
-// fills, which silently misreads the opaque-sibling case - see contrast.js)
-// and asserts 3:1; BUCKET_OPACITY is exported here so that lane always
-// measures the real ramp rather than a copy of it.
-function HeatStrip({ heat, currentWeek }) {
-  return (
-    <Box data-testid="pickem-standings-heat" sx={{ display: 'flex', gap: '3px' }}>
+    <Box data-testid="pickem-standings-heat" role="img" aria-label={heatLabel(heat)} sx={{ display: 'flex', gap: '3px', padding: '2px 0' }}>
       {(heat || []).map((cell) => (
         <Box
           key={cell.week}
-          data-testid="pickem-standings-heat-cell"
+          component="span"
+          aria-hidden="true"
           data-week={cell.week}
           data-bucket={cell.bucket || 'not-played'}
-          data-best={cell.isBest || undefined}
-          role="img"
-          aria-label={heatCellLabel(cell, currentWeek)}
+          data-best={bests.includes(cell.week) || undefined}
+          data-testid="pickem-standings-heat-cell"
           sx={{
             position: 'relative',
-            width: 14,
-            height: 14,
-            borderRadius: '4px',
-            border: '1px solid var(--dash-line)',
+            display: 'block',
+            width: '12px',
+            height: '12px',
             boxSizing: 'border-box',
+            border: `1px solid ${line}`,
+            backgroundColor: track,
             overflow: 'hidden',
-            backgroundColor: 'var(--dash-surface3)',
-            opacity: 1,
-            outline: cell.isBest ? '2px solid var(--dash-warning)' : 'none',
+            outline: bests.includes(cell.week) ? `2px solid ${fill}` : 0,
             outlineOffset: '1px',
           }}
         >
           {cell.bucket && (
             <Box
+              component="span"
               data-testid="pickem-standings-heat-cell-fill"
-              style={{ height: `${BUCKET_HEIGHT[cell.bucket]}%`, opacity: BUCKET_OPACITY[cell.bucket] }}
               sx={{
-                position: 'absolute',
-                left: 0,
-                right: 0,
-                bottom: 0,
-                backgroundColor: 'var(--dash-accent)',
+                position: 'absolute', left: 0, right: 0, bottom: 0, height: `${HEAT_HEIGHT[cell.bucket]}%`, backgroundColor: fill,
               }}
             />
           )}
@@ -449,43 +159,207 @@ function HeatStrip({ heat, currentWeek }) {
   );
 }
 
-export const BUCKET_OPACITY = { h1: 0.75, h2: 0.85, h3: 0.95, h4: 1 };
-const BUCKET_HEIGHT = { h1: 25, h2: 50, h3: 75, h4: 100 };
-
-// Categorical only: the entity's `trend` is 'up' | 'down' | 'flat' | null
-// (no rank-delta magnitude), so this renders a direction, never a number the
-// entity does not provide.
-function TrendMark({ trend }) {
-  if (trend == null) {
-    // No previous rank to compare against (the first week a team has one,
-    // entities/pickem-standings's `trend`) - visually blank rather than the
-    // same faint dash `flat` uses, so a sighted viewer does not read "held
-    // its rank" for a team with no prior week to hold it against; a screen
-    // reader still gets the distinct "not available" label.
-    return (
-      <Box component="span" data-testid="pickem-standings-trend">
-        <span style={visuallyHidden}>Trend: not available</span>
-      </Box>
-    );
-  }
-  const glyph = trend === 'up' ? '▲' : trend === 'down' ? '▼' : '–';
-  const color = trend === 'up' ? 'var(--dash-away)' : trend === 'down' ? 'var(--dash-danger)' : 'var(--dash-faint)';
+function Row({ row, currentWeek, straight }) {
+  const me = row.isViewer;
+  const base = {
+    backgroundColor: me ? 'var(--ps-play)' : 'var(--ps-panel)',
+    color: me ? 'var(--ps-play-ink)' : 'var(--ps-ink)',
+    borderBottom: `2px solid ${me ? 'var(--ps-play-field)' : 'var(--ps-rule)'}`,
+  };
+  const thisWeek = currentWeek != null && row.weekly ? row.weekly[currentWeek] : undefined;
+  const trend = row.trend ? TREND[row.trend] : null;
   return (
-    <Box component="span" data-testid="pickem-standings-trend" data-trend={trend} sx={{ color, fontWeight: 600 }}>
-      <span aria-hidden="true">{glyph}</span>
-      <span style={visuallyHidden}>{TREND_LABEL[trend]}</span>
+    <Box
+      component="tr"
+      data-testid={me ? 'pickem-standings-you-row' : `pickem-standings-row-${row.teamId ?? row.teamName}`}
+      data-viewer-team={me || undefined}
+      aria-current={me ? 'true' : undefined}
+    >
+      <Box
+        component="td"
+        sx={cellSx('left', {
+          ...base, position: 'sticky', left: 0, zIndex: 1, width: 64, minWidth: 64, fontWeight: 600,
+        })}
+      >
+        <span data-testid="pickem-standings-rank">{rankLabel(row)}</span>
+      </Box>
+      <Box component="th" scope="row" sx={cellSx('left', { ...base, fontWeight: 600 })}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <Box component="span" aria-hidden="true" sx={{ width: '12px', flex: 'none', display: 'inline-flex' }}>{me && <PixelArrow />}</Box>
+          <TeamMark name={row.teamName} avatarUrl={row.avatarUrl} avatarStaticUrl={row.avatarStaticUrl} />
+          <span>{row.teamName}</span>
+          {me && <YouTag />}
+        </Box>
+      </Box>
+      <Box component="td" sx={cellSx('right', base)}><b>{row.points}</b></Box>
+      <Box component="td" sx={cellSx('right', base)}>{thisWeek == null ? '-' : thisWeek}</Box>
+      {!straight && <Box component="td" sx={cellSx('right', base)}>{row.correct}</Box>}
+      <Box component="td" sx={cellSx('right', base)}>{row.incorrect}</Box>
+      <Box component="td" sx={cellSx('right', base)}>{row.pending}</Box>
+      <Box component="td" sx={cellSx('left', base)}><Accuracy accuracy={row.accuracy} me={me} bar={!straight} /></Box>
+      <Box component="td" sx={cellSx('left', base)}><HeatStrip heat={row.heat} me={me} /></Box>
+      <Box component="td" data-testid="pickem-standings-trend" data-trend={row.trend || undefined} sx={cellSx('right', base)}>
+        {trend ? (
+          <>
+            <svg width="16" height="16" viewBox="0 0 16 16" shapeRendering="crispEdges" aria-hidden="true" style={{ verticalAlign: 'middle' }}>
+              <path d={trend[0]} fill="currentColor" />
+            </svg>
+            <Box component="span" sx={SR_ONLY_SX}>{trend[1]}</Box>
+          </>
+        ) : <Box component="span" sx={SR_ONLY_SX}>Trend: not available</Box>}
+      </Box>
     </Box>
   );
 }
 
-function SkeletonRow() {
+/**
+ * Pick'em standings widget (ADR 0038, Play-select in ADR 0067 wave 2): the Standings section, a
+ * primary frame over the season leaderboard (docs/design/league/PickemStandings.dc.html). A viewer
+ * strip (your rank, behind the leader, your accuracy, your best week) over a one-line legend for the
+ * heat strip, then the table: rank, team, points, this week, Correct (confidence only), missed,
+ * pending, accuracy, an eighteen-week heat strip and the trend, in tabular figures. The viewer's row
+ * is Play blue with a pixel arrow (not a cursor). Straight up drops the Correct column (it equals
+ * Points) and the ten-cell accuracy bars: the percent alone stays.
+ *
+ * Renders from the standings entity only (`usePickemStandingsTable`); the widget never calls a fetch
+ * client itself. The table scrolls inside its own box (a keyboard-reachable, labelled scrollport,
+ * first column sticky), so no width of table widens the page. The scroll box is positioned so the
+ * visually hidden spans inside the table cannot widen the document either (measured on a phone:
+ * `documentElement.scrollWidth` 1211 -> 390 with that one rule).
+ *
+ * The heat strip is one labelled image per row ("Weekly points, weeks 1 to 7: 9, 10, 7, 10, 7, 8, 1;
+ * best weeks 2 and 4"), its cells aria-hidden, every tied best week ringed and named. Each cell's
+ * fill height is its bucket (`lib/heatBuckets.js`), so a bucket reads by shape as well as tint
+ * (WCAG 1.4.1, #1298).
+ */
+export default function StandingsTable({ leagueId, seasons, title = 'Standings' }) {
+  const {
+    status,
+    rows,
+    teamCount,
+    season,
+    seasons: seasonOptions,
+    onSeasonChange,
+    mode,
+    viewer,
+    behindLeader,
+    currentWeek,
+    refetch,
+  } = usePickemStandingsTable(leagueId, { seasons });
+  const headingId = useId();
+  const straight = mode !== 'confidence';
+  const noun = teamCount === 1 ? 'team' : 'teams';
+  const viewerBests = viewer ? bestWeeksOf(viewer.heat) : [];
+  const columns = straight ? 9 : 10;
+
+  if (status === 'error') {
+    return (
+      <Frame
+        component="div"
+        tone="danger"
+        role="alert"
+        data-testid="pickem-standings-error"
+        sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '12px 20px', padding: '16px 20px' }}
+      >
+        <Box sx={{ display: 'flex', gap: '12px', alignItems: 'center', minWidth: 0 }}>
+          <PixelWarn color="var(--ps-danger)" />
+          <Box component="span" sx={{ fontSize: '16px' }}>We could not load the standings right now.</Box>
+        </Box>
+        <PsButton variant="ghost" onClick={refetch}>Retry</PsButton>
+      </Frame>
+    );
+  }
+
   return (
-    <Box component="tr" sx={{ '& > td': { borderTop: '1px solid var(--dash-line)' } }}>
-      {Array.from({ length: 10 }, (_, i) => (
-        <BodyCell key={i}>
-          <Skeleton data-testid="pickem-standings-skeleton" variant="text" width={i === 1 ? 120 : 32} height={14} />
-        </BodyCell>
-      ))}
-    </Box>
+    <Frame
+      labelledBy={headingId}
+      data-testid="pickem-standings"
+      aria-busy={status === 'loading'}
+      head={(
+        <FrameHead>
+          <PixelHeading id={headingId}>{title}</PixelHeading>
+          {status === 'ready' && (
+            <Box component="span" data-testid="pickem-standings-count" sx={{ marginLeft: 'auto', fontSize: '13px', color: 'var(--ps-dim)' }}>
+              {`${teamCount} ${noun}`}
+            </Box>
+          )}
+        </FrameHead>
+      )}
+    >
+      <Box component="p" sx={{ m: 0, padding: { xs: '10px 14px', md: '10px 20px' }, borderBottom: '2px solid var(--ps-rule)', fontSize: '14px', color: 'var(--ps-dim)' }}>
+        <Box component="b" sx={{ fontWeight: 600, color: 'var(--ps-ink)' }}>Weekly points</Box>
+        {` · one square per week, Wk 1 to ${HEAT_WEEKS}. Fill height: that week against the team's own best week. Ring: best week (every tied best week is ringed). Empty: not played.`}
+      </Box>
+
+      {(status === 'ready' && viewer) || seasonOptions.length > 1 ? (
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '12px', padding: { xs: '12px 14px', md: '14px 20px' }, borderBottom: '2px solid var(--ps-rule)' }}>
+          {status === 'ready' && viewer && (
+            <>
+              <Tile label="Your rank" testid="pickem-standings-your-rank">{viewer.tied ? `T-${viewer.rank}` : ordinal(viewer.rank) || viewer.rank}</Tile>
+              <Tile label="Behind leader" testid="pickem-standings-behind-leader">
+                {behindLeader == null ? '-' : behindLeader === 0 ? 'Leader' : `${Math.abs(behindLeader)} pts`}
+              </Tile>
+              <Tile label="Your accuracy" testid="pickem-standings-your-accuracy">
+                {viewer.accuracy == null ? '-' : `${Math.round(viewer.accuracy * 100)}%`}
+              </Tile>
+              <Tile label={`Best week${viewerBests.length > 1 ? 's' : ''}`} testid="pickem-standings-best-week">
+                {viewerBests.length ? `Wk ${listOf(viewerBests)}` : '-'}
+              </Tile>
+            </>
+          )}
+          {seasonOptions.length > 1 && (
+            <SegmentedControl
+              aria-label="Season"
+              data-testid="pickem-standings-season-switch"
+              look="playselect"
+              options={seasonOptions.map((value) => ({ value, label: String(value) }))}
+              value={season}
+              onChange={onSeasonChange}
+              sx={{ marginLeft: 'auto' }}
+            />
+          )}
+        </Box>
+      ) : null}
+
+      <Box
+        role="region"
+        aria-label="Standings table, scrollable"
+        tabIndex={0}
+        data-testid="pickem-standings-scroll"
+        sx={{
+          overflowX: 'auto',
+          // The containing block for the table's visually hidden spans (see the docblock).
+          position: 'relative',
+        }}
+      >
+        <Box component="table" sx={{ width: '100%', minWidth: straight ? '1016px' : '1146px', borderCollapse: 'separate', borderSpacing: 0 }}>
+          <Box component="thead">
+            <Box component="tr">
+              <Box component="th" scope="col" sx={headSx('left', { position: 'sticky', left: 0, zIndex: 1, width: 64, minWidth: 64 })}>Rank</Box>
+              <Box component="th" scope="col" sx={headSx('left', { minWidth: '216px' })}>Team</Box>
+              <Box component="th" scope="col" sx={headSx('right')}>Points</Box>
+              <Box component="th" scope="col" sx={headSx('right')}>{currentWeek != null ? `Wk ${currentWeek}` : 'This week'}</Box>
+              {!straight && <Box component="th" scope="col" sx={headSx('right')}>Correct</Box>}
+              <Box component="th" scope="col" sx={headSx('right')}>Missed</Box>
+              <Box component="th" scope="col" sx={headSx('right')}>Pending</Box>
+              <Box component="th" scope="col" sx={headSx('left')}>Accuracy</Box>
+              <Box component="th" scope="col" sx={headSx('left')}>{`Weekly points · Wk 1 to ${HEAT_WEEKS}`}</Box>
+              <Box component="th" scope="col" sx={headSx('right')}>Trend</Box>
+            </Box>
+          </Box>
+          <Box component="tbody">
+            {status === 'loading'
+              ? Array.from({ length: Math.max(teamCount, 1) }, (unused, i) => (
+                <Box component="tr" key={`skeleton-${i}`} data-testid="pickem-standings-skeleton-row">
+                  <Box component="td" colSpan={columns} sx={cellSx('left', { borderBottom: '2px solid var(--ps-rule)' })}>
+                    <Skel width="100%" height={16} data-testid="pickem-standings-skeleton" />
+                  </Box>
+                </Box>
+              ))
+              : rows.map((row) => <Row key={row.teamId ?? row.teamName} row={row} currentWeek={currentWeek} straight={straight} />)}
+          </Box>
+        </Box>
+      </Box>
+    </Frame>
   );
 }

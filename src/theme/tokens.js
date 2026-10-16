@@ -170,43 +170,49 @@ export const colorTokens = {
     // `dash-bg`, `dash-surface` and `dash-surface2`, never `dash-surface3`,
     // which no input sits on.
     'dash-field': '#7a8793',
-    // ---- Home, `/user` Play-select (DESIGN.md "Home surface: Play-select"). Home
-    // paints only from `home-*`, never `dash-*`, and no other surface borrows
-    // them. play*, board* and home-focus/-halo are the same in both themes.
+    // ---- Play-select, Home `/user` and league pages (DESIGN.md "Play-select: Home and league pages").
+    // Play-select surfaces paint only from `ps-*`, never `dash-*`, and no other surface borrows
+    // them. play*, board* and ps-focus/-halo are the same in both themes.
     // Pairings: tokens.contrast.test.js.
-    'home-field': '#eceef8',
-    'home-panel': '#ffffff',
-    'home-frame': '#1830b8',
-    'home-rule': '#b4bce0',
-    'home-ink': '#0c0e1c',
-    'home-dim': '#4a5070',
-    'home-play': '#1830b8',
-    'home-play-field': '#0f2190',
-    'home-play-ink': '#ffffff',
-    'home-play-dim': '#c8d0ff',
+    'ps-field': '#eceef8',
+    'ps-panel': '#ffffff',
+    'ps-frame': '#1830b8',
+    'ps-rule': '#b4bce0',
+    // The 2px edge of a tertiary frame (Recap, Around the league, Recent activity, Pick'em,
+    // Commissioner): the Rule colour on the dark Field, the Frame colour on the lavender one.
+    'ps-frame-2': '#1830b8',
+    'ps-ink': '#0c0e1c',
+    'ps-dim': '#4a5070',
+    'ps-play': '#1830b8',
+    'ps-play-field': '#0f2190',
+    'ps-play-ink': '#ffffff',
+    'ps-play-dim': '#c8d0ff',
     // The one filled foot and the Live lock line sit on the Play blue, which is the
     // same in both themes, so their green and its label are fixed too (the kit's
     // playAccent / onPlayAccent); the page-level accent flips with the theme.
-    'home-play-accent': '#2fd97b',
-    'home-on-play-accent': '#07080f',
-    'home-accent': '#0f6a41',
-    'home-on-accent': '#ffffff',
-    'home-cursor': '#a86e00',
-    'home-danger': '#c62828',
-    'home-on-danger': '#ffffff',
-    'home-board': '#000000',
-    'home-board-ink': '#ffffff',
-    'home-board-dim': '#a8adc8',
-    'home-board-rule': '#3a4170',
+    'ps-play-accent': '#2fd97b',
+    'ps-on-play-accent': '#07080f',
+    'ps-accent': '#0f6a41',
+    'ps-on-accent': '#ffffff',
+    'ps-cursor': '#a86e00',
+    'ps-danger': '#c62828',
+    'ps-on-danger': '#ffffff',
+    'ps-board': '#000000',
+    'ps-board-ink': '#ffffff',
+    'ps-board-dim': '#a8adc8',
+    'ps-board-rule': '#3a4170',
     // The scoreboard's live odds fill (a bright green on Board black).
-    'home-board-live': '#2fd97b',
-    'home-skel': '#dde1f0',
+    'ps-board-live': '#2fd97b',
+    // Retro scoreboard amber (ADR 0067 item 4): the same values as dash-led and dash-led-dim.
+    'ps-led': '#ffb547',
+    'ps-led-dim': 'rgba(255, 181, 71, 0.28)',
+    'ps-skel': '#dde1f0',
     // Focus ring and press frame, and the dark halo behind the ring.
-    'home-focus': '#ffffff',
-    'home-halo': '#07080f',
+    'ps-focus': '#ffffff',
+    'ps-halo': '#07080f',
     // Selection is cursor yellow in both themes; the score flash is a 16% white wash on the board.
-    'home-selection': '#f8d030',
-    'home-flash': 'rgba(255, 255, 255, 0.16)',
+    'ps-selection': '#f8d030',
+    'ps-flash': 'rgba(255, 255, 255, 0.16)',
   },
   dark: {
     'bg-page': '#0f1419',
@@ -334,43 +340,47 @@ export const colorTokens = {
     'dash-warning-soft': 'rgba(240, 179, 78, 0.14)',
     // Input and choice-card edge (see the light note).
     'dash-field': '#6b7c8c',
-    // ---- Home, `/user` Play-select (DESIGN.md "Home surface: Play-select"). Home
-    // paints only from `home-*`, never `dash-*`, and no other surface borrows
-    // them. play*, board* and home-focus/-halo are the same in both themes.
+    // ---- Play-select, Home `/user` and league pages (DESIGN.md "Play-select: Home and league pages").
+    // Play-select surfaces paint only from `ps-*`, never `dash-*`, and no other surface borrows
+    // them. play*, board* and ps-focus/-halo are the same in both themes.
     // Pairings: tokens.contrast.test.js.
-    'home-field': '#07080f',
-    'home-panel': '#10131f',
-    'home-frame': '#c8d0ff',
-    'home-rule': '#3a4170',
-    'home-ink': '#f4f4f8',
-    'home-dim': '#a8adc8',
-    'home-play': '#1830b8',
-    'home-play-field': '#0f2190',
-    'home-play-ink': '#ffffff',
-    'home-play-dim': '#c8d0ff',
+    'ps-field': '#07080f',
+    'ps-panel': '#10131f',
+    'ps-frame': '#c8d0ff',
+    'ps-rule': '#3a4170',
+    'ps-frame-2': '#3a4170',
+    'ps-ink': '#f4f4f8',
+    'ps-dim': '#a8adc8',
+    'ps-play': '#1830b8',
+    'ps-play-field': '#0f2190',
+    'ps-play-ink': '#ffffff',
+    'ps-play-dim': '#c8d0ff',
     // The one filled foot and the Live lock line sit on the Play blue, which is the
     // same in both themes, so their green and its label are fixed too (the kit's
     // playAccent / onPlayAccent); the page-level accent flips with the theme.
-    'home-play-accent': '#2fd97b',
-    'home-on-play-accent': '#07080f',
-    'home-accent': '#2fd97b',
-    'home-on-accent': '#07080f',
-    'home-cursor': '#f8d030',
-    'home-danger': '#ff5a4a',
-    'home-on-danger': '#07080f',
-    'home-board': '#000000',
-    'home-board-ink': '#ffffff',
-    'home-board-dim': '#a8adc8',
-    'home-board-rule': '#3a4170',
+    'ps-play-accent': '#2fd97b',
+    'ps-on-play-accent': '#07080f',
+    'ps-accent': '#2fd97b',
+    'ps-on-accent': '#07080f',
+    'ps-cursor': '#f8d030',
+    'ps-danger': '#ff5a4a',
+    'ps-on-danger': '#07080f',
+    'ps-board': '#000000',
+    'ps-board-ink': '#ffffff',
+    'ps-board-dim': '#a8adc8',
+    'ps-board-rule': '#3a4170',
     // The scoreboard's live odds fill (a bright green on Board black).
-    'home-board-live': '#2fd97b',
-    'home-skel': '#2a3052',
+    'ps-board-live': '#2fd97b',
+    // Retro scoreboard amber (ADR 0067 item 4): the same values as dash-led and dash-led-dim.
+    'ps-led': '#ffb547',
+    'ps-led-dim': 'rgba(255, 181, 71, 0.28)',
+    'ps-skel': '#2a3052',
     // Focus ring and press frame, and the dark halo behind the ring.
-    'home-focus': '#ffffff',
-    'home-halo': '#07080f',
+    'ps-focus': '#ffffff',
+    'ps-halo': '#07080f',
     // Selection is cursor yellow in both themes; the score flash is a 16% white wash on the board.
-    'home-selection': '#f8d030',
-    'home-flash': 'rgba(255, 255, 255, 0.16)',
+    'ps-selection': '#f8d030',
+    'ps-flash': 'rgba(255, 255, 255, 0.16)',
   },
 };
 

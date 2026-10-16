@@ -1,58 +1,31 @@
 import React, { useId } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
-import { Box, Button, Typography } from '@mui/material';
-import { Card, Badge, StatTile } from '../../../shared/ui';
-import { MIN_TOUCH_TARGET_SX } from '../../../shared/lib';
+import { Box } from '@mui/material';
+import {
+  CountBadge, Frame, FrameHead, PixelHeading, PsLink,
+} from '../../../shared/ui/playselect';
 import AdvanceWeek from '../../../features/advance-week';
 import useCommissionerStrip from '../model/useCommissionerStrip';
 
 /**
- * League Dashboard commissioner-strip widget (ticket #1108): the
- * commissioner-only band that REPLACES the commissioner-panel rail card
- * (a 377px card whose opened tree measured 690px wide). It reads the same
- * model the panel read (`is_commissioner`, `commissionerFacts`, the
- * join-requests count) and states it as one row
- * instead of a tall rail card: a title block, five fact tiles (md and up), the pending
- * join count, the advance-week control, and a link to the commissioner
- * console for everything else. A member renders nothing.
+ * League Dashboard commissioner strip (ADR 0067 wave 1b, ticket #1108's strip): a tertiary frame
+ * (2px edge, Pixel 16 heading) for the league's commissioner, directly under the head at every width.
+ * It renders nothing for a member; the page's wrapper collapses with it.
  *
- * This widget mounts NO legacy administration tree at any width: the
- * disclosure, the `commissioner-panel-administration` region and the
- * co-commissioner explainer all leave the dashboard with the retired panel.
- * "League administration" is a plain link to `/league/:id/commissioner` (the
- * commissioner-console page, #1101), which is where those controls live now.
+ *   - The settled state of the league (the console's five facts: Transactions, Teams locked, Trade
+ *     deadline, Waivers, Trade review) in one row, from `md` up. A phone keeps the controls only.
+ *   - Rows with an item and an action, never filled (the one filled action is the lead play in Your
+ *     move) and never red unless a lock is under an hour: the pending join requests as a link with a
+ *     count badge straight to the console, the Advance week control while the season is live, and a
+ *     "League administration" link. `invite` is an optional extra row (the page passes the Invite
+ *     control here on a phone, where the head has no room for it).
  *
- * Layout: one flex row at `md` and up (title block, the five-tile fact grid,
- * the join Badge, the advance-week feature, the administration link), each
- * item's `order` swapping per breakpoint rather than two duplicated DOM
- * trees. Below `md` the row wraps to a stack: a title row (title block plus
- * the join Badge), then the advance-week feature and the administration link,
- * each full width (`flexBasis: '100%'` forces every item after the title row
- * onto its own line). The fact grid does not display below `md` (#1979 L1): a
- * compact strip keeps the matchup near the top of a phone, and the same facts
- * are on the console. The advance-week feature mounts only while the season
- * is live (`isSeasonLive`: in season or playoffs, #1979 L24), never pre-draft,
- * mid-draft or after the season, and is
- * composed as-is (ADR 0020 barrel rule: a feature's index is its whole
- * public surface, so this widget cannot reach into it to force its inner
- * button to `width: 100%`); only this widget's OWN administration link is
- * stretched to match the mockup's two full-width controls.
- *
- * Composes `shared/ui` (ADR 0020) and paints only `dash-*` tokens, the same
- * pairings the retired panel and matchup-hero already register in
- * tokens.contrast.test.js (ink/faint on a card, ink/faint on a stat tile,
- * warning on its tint over a card, dim on a card for the outlined link).
- *
- * This widget has NO aria-busy, for the same reason the retired panel had
- * none: the page shell gates its whole body on the league read, and the
- * join-requests count holds no layout (absent until it lands, never a
- * skeleton) - so there is no in-flight state for aria-busy to report over.
- *
- * Tested at this slice's own seam only (CommissionerStrip.test.jsx): the
- * page composes it in the page-composition ticket, which is where this
- * widget's presence and placement on the dashboard are asserted.
+ * Paints only ps-* tokens. The Advance control is the advance-week feature in its `playselect` look
+ * (the commissioner console composes the same feature on its own look), a ghost button, never filled.
+ * It is disabled with its reason as text ("Opens when every Week 7 game is final") until every game of
+ * the current week is final.
  */
-export default function CommissionerStrip({ leagueId }) {
+export default function CommissionerStrip({ leagueId, invite, scoreEvent, onAdvanced }) {
   const {
     isCommissioner,
     pickemOnly,
@@ -60,151 +33,138 @@ export default function CommissionerStrip({ leagueId }) {
     currentWeek,
     facts,
     pendingJoinRequests,
+    advanceDisabledReason,
+    advanceRetry,
     refetch,
-  } = useCommissionerStrip(leagueId);
-  // Called unconditionally, ABOVE the presence gate below: a member's first
-  // render and a commissioner's later one (once the league read resolves)
-  // must call the same hooks in the same order, so this cannot sit after an
-  // early return (Rules of Hooks).
+  } = useCommissionerStrip(leagueId, { scoreEvent });
   const headingId = useId();
 
-  // Commissioner-only, and ABSENT (not merely hidden) from a member's DOM,
-  // exactly as the retired panel was: a non-commissioner gets no card, no
-  // facts and no advance control to find. Read from `is_commissioner`, never
-  // `invite_code` (see useCommissionerStrip's model comment).
   if (!isCommissioner) return null;
 
-  // A fantasy-league, in-season control: a pick'em-only league advances on
-  // the NFL calendar (the scheduler's job), a league with no current week has
-  // no week to advance from, and before the draft finishes (or after the
-  // season) the server refuses the advance with a 409, so the control is not
-  // offered (#1979 L24). Administration and join requests are unaffected.
   const showAdvance = !pickemOnly && seasonLive && currentWeek != null;
   const consoleHref = `/league/${leagueId}/commissioner`;
+  const rows = [];
+
+  if (invite) {
+    rows.push(
+      <Row key="invite" note="Copy the invite link for new teams" action={invite}>Invite code</Row>
+    );
+  }
+  if (pendingJoinRequests > 0) {
+    rows.push(
+      <Row
+        key="join"
+        note={`${pendingJoinRequests} ${pendingJoinRequests === 1 ? 'manager is' : 'managers are'} waiting to join this public league.`}
+        action={null}
+      >
+        <Box
+          component={RouterLink}
+          to={consoleHref}
+          data-testid="commissioner-strip-join-requests"
+          sx={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '10px',
+            minHeight: '44px',
+            fontSize: '15px',
+            fontWeight: 600,
+            color: 'var(--ps-ink)',
+            textDecoration: 'underline',
+            textDecorationThickness: '2px',
+            textUnderlineOffset: '5px',
+            textDecorationColor: 'var(--ps-dim)',
+          }}
+        >
+          Join requests
+          <CountBadge n={pendingJoinRequests} noun="pending" />
+        </Box>
+      </Row>
+    );
+  }
+  if (showAdvance) {
+    rows.push(
+      <Box key="advance" component="li" sx={rowSx}>
+        <AdvanceWeek
+          look="playselect"
+          leagueId={leagueId}
+          currentWeek={currentWeek}
+          onAdvanced={() => {
+            refetch();
+            if (onAdvanced) onAdvanced();
+          }}
+          disabledReason={advanceDisabledReason || undefined}
+          onRetry={advanceRetry}
+        />
+      </Box>
+    );
+  }
+  rows.push(
+    <Box key="admin" component="li" sx={{ ...rowSx, padding: 0, marginLeft: '-10px' }}>
+      <PsLink to={consoleHref}>League administration</PsLink>
+    </Box>
+  );
 
   return (
-    <Card data-testid="commissioner-strip" aria-labelledby={headingId}>
-      <Box
-        sx={{
-          display: 'flex',
-          flexWrap: 'wrap',
-          alignItems: { xs: 'stretch', md: 'center' },
-          gap: { xs: 1.5, md: 2.25 },
-          px: 2.25,
-          py: 2.25,
-        }}
-      >
-        <Box sx={{ order: 1, display: 'grid', gap: '2px', flex: 'none' }}>
-          <Typography
-            id={headingId}
-            component="h2"
-            sx={{
-              m: 0,
-              fontFamily: 'var(--dash-font-display)',
-              fontSize: '17px',
-              fontWeight: 600,
-              letterSpacing: '0.08em',
-              textTransform: 'uppercase',
-              color: 'var(--dash-ink)',
-            }}
-          >
-            Commissioner
-          </Typography>
-          <Typography
-            component="span"
-            sx={{ fontSize: '12px', color: 'var(--dash-faint)' }}
-          >
-            Visible to commissioners only
-          </Typography>
+    <Frame
+      tier="rule"
+      labelledBy={headingId}
+      data-testid="commissioner-strip"
+      head={(
+        <FrameHead>
+          <PixelHeading id={headingId} size={16}>Commissioner</PixelHeading>
+        </FrameHead>
+      )}
+    >
+      {/* The settled state of the league, from fields the payload already carries. Five facts at md
+          and up; hidden below it, where they pushed the matchup well down a phone. The same facts
+          live on the commissioner console one tap away. */}
+      {facts.length > 0 && (
+        <Box
+          component="dl"
+          data-testid="commissioner-strip-facts"
+          sx={{
+            m: 0,
+            display: { xs: 'none', md: 'grid' },
+            gridTemplateColumns: 'repeat(5, minmax(0, 1fr))',
+            gap: '12px 24px',
+            padding: '14px 20px',
+            borderBottom: '2px solid var(--ps-rule)',
+          }}
+        >
+          {facts.map((fact) => (
+            <Box key={fact.key} data-testid={`commissioner-fact-${fact.key}`}>
+              <Box component="dt" sx={{ fontSize: '13px', color: 'var(--ps-dim)' }}>{fact.label}</Box>
+              <Box component="dd" sx={{ m: 0, fontSize: '15px', fontWeight: 600 }}>{fact.value}</Box>
+            </Box>
+          ))}
         </Box>
-
-        {/* The settled state of the league, from fields the payload already
-            carries. Five tiles at `md` and up; the whole grid is hidden
-            below it (#1979 L1), where four tiles in a 2x2 block pushed the
-            matchup well down the phone viewport. The same facts live on the
-            commissioner console one tap away. */}
-        {facts.length > 0 && (
-          <Box
-            data-testid="commissioner-strip-facts"
-            sx={{
-              order: 2,
-              flex: '1 1 auto',
-              display: { xs: 'none', md: 'grid' },
-              gridTemplateColumns: 'repeat(5, minmax(0, 1fr))',
-              gap: 1,
-            }}
-          >
-            {facts.map((fact) => (
-              <StatTile
-                key={fact.key}
-                data-testid={`commissioner-fact-${fact.key}`}
-                label={fact.label}
-                value={fact.value}
-              />
-            ))}
-          </Box>
-        )}
-
-        {/* The queue's count only, linking straight to the console rather
-            than opening a local disclosure: the strip mounts no legacy
-            administration tree, so there is nowhere here for Approve/Deny to
-            live. A settled queue renders nothing at all rather than a zero. */}
-        {pendingJoinRequests > 0 && (
-          <Box sx={{ order: { xs: 2, md: 3 }, flex: 'none' }}>
-            {/* `clickable` is required alongside `component` for an anchor
-                Chip (MUI's own guidance): without it Chip renders `component`
-                directly and skips ButtonBase entirely, which is also what
-                carries the theme's MuiButtonBase focus-visible ring
-                (AppThemeProvider.jsx - "every button-like control ...
-                chips") and its hover/cursor treatment. Passing it here is
-                what makes this link's keyboard focus visible, not decoration. */}
-            <Badge
-              component={RouterLink}
-              to={consoleHref}
-              clickable
-              variant="warning"
-              data-testid="commissioner-strip-join-requests"
-              sx={{ ...MIN_TOUCH_TARGET_SX, textDecoration: 'none' }}
-            >
-              {`Join requests · ${pendingJoinRequests}`}
-            </Badge>
-          </Box>
-        )}
-
-        {showAdvance && (
-          <Box sx={{ order: { xs: 4, md: 4 }, flexBasis: { xs: '100%', md: 'auto' }, flex: 'none' }}>
-            <AdvanceWeek leagueId={leagueId} currentWeek={currentWeek} onAdvanced={refetch} />
-          </Box>
-        )}
-
-        <Box sx={{ order: { xs: 5, md: 5 }, flexBasis: { xs: '100%', md: 'auto' }, flex: 'none' }}>
-          <Button
-            component={RouterLink}
-            to={consoleHref}
-            variant="outlined"
-            disableElevation
-            sx={{
-              width: { xs: '100%', md: 'auto' },
-              minHeight: { xs: 44, md: 38 },
-              textTransform: 'none',
-              color: 'var(--dash-dim)',
-              borderColor: 'var(--dash-line-strong)',
-              borderRadius: 'var(--dash-radius-sm)',
-              fontFamily: 'var(--dash-font-body)',
-              fontWeight: 600,
-              fontSize: '13px',
-              whiteSpace: 'nowrap',
-              '&:hover': {
-                color: 'var(--dash-ink)',
-                borderColor: 'var(--dash-accent-line)',
-                backgroundColor: 'transparent',
-              },
-            }}
-          >
-            League administration
-          </Button>
-        </Box>
+      )}
+      <Box component="ul" sx={{ listStyle: 'none', m: 0, padding: { xs: '0 14px', md: '0 20px' } }}>
+        {rows}
       </Box>
-    </Card>
+    </Frame>
+  );
+}
+
+const rowSx = {
+  display: 'flex',
+  flexWrap: 'wrap',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  gap: '8px 16px',
+  padding: '12px 0',
+  '& + &': { borderTop: '2px solid var(--ps-rule)' },
+};
+
+// One strip row: an item (and its note) on the left, its action on the right.
+function Row({ children, note, action }) {
+  return (
+    <Box component="li" sx={rowSx}>
+      <Box sx={{ minWidth: 0 }}>
+        <Box sx={{ fontSize: '15px', fontWeight: 600 }}>{children}</Box>
+        {note && <Box sx={{ fontSize: '14px', color: 'var(--ps-dim)', maxWidth: '60ch' }}>{note}</Box>}
+      </Box>
+      {action}
+    </Box>
   );
 }

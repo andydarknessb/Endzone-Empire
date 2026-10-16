@@ -1,10 +1,10 @@
 import React from 'react';
 import { Box } from '@mui/material';
 import { formatInstant } from '../../shared/lib/instantFormat';
-import { LiveChip, PixelHeading } from './home';
+import { LiveChip, PixelHeading } from '../../shared/ui/playselect';
 
 /**
- * The greeting header (DESIGN.md "Home surface: Play-select"): the page's h1,
+ * The greeting header (DESIGN.md "Play-select: Home and league pages"): the page's h1,
  * one status line in Archivo, the live chip beside it, and (on a desktop) the
  * Join and Create buttons at the top right. None of it fetches: the page hands
  * down what it and ActionQueue already hold.
@@ -60,7 +60,7 @@ export function liveMatchupCount(leagues) {
 
 const greetingDateFormat = new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
 
-const introSx = { m: 0, fontSize: { xs: '15px', md: '17px' }, color: 'var(--home-dim)' };
+const introSx = { m: 0, fontSize: { xs: '15px', md: '17px' }, color: 'var(--ps-dim)' };
 
 /**
  * h1, then "Week N · Weekday, Mon D · <summary>" and the live chip. The week

@@ -1,4 +1,4 @@
-import { matchupHeroView } from './matchupHeroView';
+import { matchupHeroView, compactScoreboardView } from './matchupHeroView';
 import { formatKickoff } from '../../../shared/lib';
 
 // The canvas's live Sunday (docs/design/game-center-matchups/build.mjs, HERO):
@@ -39,14 +39,39 @@ describe('matchupHeroView', () => {
     expect(view.chipVariant).toBe('danger');
     expect(view.chipDot).toBe(true);
     expect(view.winProbability).toMatchObject({ homePct: 36, awayPct: 64 });
-    expect(view.sentence).toBe('Ahead now, projected to trail by 13.4 with 6 of theirs still to play');
+    expect(view.sentence).toBe('Ahead now, projected to trail by 13.4 · they have 6 players remaining');
     expect(view.kickoff).toBeNull();
   });
 
   test('the sentence is written from the viewer side', () => {
     expect(matchupHeroView(live, 20).sentence).toBe(
-      'Behind now, projected to lead by 13.4 with 4 of theirs still to play'
+      'Behind now, projected to lead by 13.4 · they have 4 players remaining'
     );
+  });
+
+  // Critique 11 item 9 (spec #2334): "they have {n} players remaining, {k} yet to play", from the server's
+  // yetToPlay on each side; "yet to play" means not started, and the count never mixes sources.
+  test('the sentence reads the server yetToPlay, and singular for one', () => {
+    const served = {
+      ...live,
+      home: { ...dock, yetToPlay: 1 },
+      away: { ...frost, playersRemaining: 1, yetToPlay: 1 },
+    };
+    expect(matchupHeroView(served, 10).sentence)
+      .toBe('Ahead now, projected to trail by 13.4 · they have 1 player remaining, 1 yet to play');
+    expect(matchupHeroView({ ...served, away: { ...served.away, playersRemaining: 6, yetToPlay: 3 } }, 10).sentence)
+      .toBe('Ahead now, projected to trail by 13.4 · they have 6 players remaining, 3 yet to play');
+  });
+
+  test('a page that computed its own counts hands them over and the sentence reads only those', () => {
+    const counts = { home: { remaining: 2, yet: 0 }, away: { remaining: 5, yet: 2 } };
+    expect(matchupHeroView({ ...live, away: { ...frost, yetToPlay: 9 } }, 10, { counts }).sentence)
+      .toBe('Ahead now, projected to trail by 13.4 · they have 5 players remaining, 2 yet to play');
+  });
+
+  test('with none of theirs left it names the viewer own players', () => {
+    const view = matchupHeroView({ ...live, away: { ...frost, playersRemaining: 0 }, home: { ...dock, yetToPlay: 1 } }, 10);
+    expect(view.sentence).toBe('Ahead now, projected to trail by 13.4 · you have 4 players remaining, 1 yet to play');
   });
 
   test('the two percentages always sum to 100, the way SplitBar rounds', () => {
@@ -68,6 +93,27 @@ describe('matchupHeroView', () => {
     expect(view.sentence).toBeNull();
   });
 
+  // QA ruling (spec #2334): the bar is the Endzone Forecast's, so without an Expected final on both sides
+  // there is no bar and no credit line, live or before kickoff.
+  test.each([
+    ['both null', null, null],
+    ['home null', null, '123.9'],
+    ['away null', '110.5', null],
+  ])('a live matchup with %s Expected final has no win probability', (_name, homeFinal, awayFinal) => {
+    const view = matchupHeroView({ ...live, home: { ...dock, expectedFinal: homeFinal }, away: { ...frost, expectedFinal: awayFinal } }, 10);
+    expect(view.winProbability).toBeNull();
+    expect(view.sentence).toMatch(/^Ahead now/);
+  });
+
+  test.each([
+    ['both null', null, null],
+    ['one null', '108.3', null],
+  ])('a scheduled matchup with %s Expected final has no projected win probability', (_name, homeFinal, awayFinal) => {
+    const view = matchupHeroView({ ...live, status: 'scheduled', home: { ...dock, expectedFinal: homeFinal }, away: { ...frost, expectedFinal: awayFinal } }, 10);
+    expect(view.projectedWinProbability).toBeNull();
+    expect(view.projectedMargin).toBeNull();
+  });
+
   test('a scheduled matchup without a kickoff time reads null, not Invalid Date', () => {
     expect(matchupHeroView({ ...live, status: 'scheduled', firstKickoffAt: null }, 10).kickoff).toBeNull();
     expect(matchupHeroView({ ...live, status: 'scheduled', firstKickoffAt: 'soon' }, 10).kickoff).toBeNull();
@@ -84,7 +130,7 @@ describe('matchupHeroView', () => {
     }
   });
 
-  test('a final matchup with no Expected final still has a bar from the scores alone', () => {
+  test('a final matchup with no Expected final has no bar (nothing to price it from) and still states the result', () => {
     const view = matchupHeroView(
       {
         ...live,
@@ -95,7 +141,7 @@ describe('matchupHeroView', () => {
       },
       10
     );
-    expect(view.winProbability.homePct).toBeGreaterThan(50);
+    expect(view.winProbability).toBeNull();
     expect(view.sentence).toBe('You won by 5.2');
     // The canvas's `.chip.final`: the success chip, no live dot.
     expect(view.chipLabel).toBe('Final');
@@ -115,6 +161,26 @@ describe('matchupHeroView', () => {
     expect(view.chipLabel).toBe('Awaiting final');
     expect(view.chipVariant).toBe('warning');
     expect(view.chipDot).toBe(false);
+  });
+});
+
+describe('compactScoreboardView', () => {
+  test('puts the viewer first: home viewer left, away viewer left, a spectator keeps home left', () => {
+    const home = compactScoreboardView(live, 10);
+    expect([home.a.abbr, home.b.abbr]).toEqual(['DD', 'FF']);
+    expect([home.a.score, home.b.score]).toEqual(['82.2', '77.0']);
+    expect(home.lead).toBe('a');
+    expect(home.marginText).toBe('Duluth Dockworkers by 5.2');
+    const away = compactScoreboardView(live, 20);
+    expect([away.a.abbr, away.b.abbr]).toEqual(['FF', 'DD']);
+    expect([away.a.score, away.b.score]).toEqual(['77.0', '82.2']);
+    expect(away.lead).toBe('b');
+    expect(away.marginText).toBe('Duluth Dockworkers by 5.2');
+    expect(compactScoreboardView(live, 99).a.abbr).toBe('DD');
+  });
+
+  test('is null before kickoff', () => {
+    expect(compactScoreboardView({ ...live, status: 'scheduled' }, 10)).toBeNull();
   });
 });
 

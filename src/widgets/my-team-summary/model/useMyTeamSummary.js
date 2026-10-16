@@ -1,4 +1,6 @@
-import { useEndpoint, parseRosterSlots, isPickemOnly, lineupAttention, ordinal } from '../../../shared/lib';
+import {
+  useEndpoint, parseRosterSlots, isPickemOnly, lineupAttention, ordinal, deriveLeaguePhase, LEAGUE_PHASE,
+} from '../../../shared/lib';
 import { useLeague } from '../../../hooks/useLeague';
 import { useLeagueStandings, findTeamStanding } from '../../../entities/standings';
 // `DEFAULT_ROSTER_SLOTS` (#1502) reads from the Roster template entity
@@ -159,7 +161,7 @@ export function useMyTeamSummary(leagueId) {
   // request between them (ADR 0004). The week is the caller's to supply (#942
   // ruling R4: no League entity slice), and `status` is the same three spine
   // states the card reads.
-  const { status: standingsStatus, rows: standingRows } = useLeagueStandings(
+  const { status: standingsStatus, rows: standingRows, refetch } = useLeagueStandings(
     leagueId,
     league?.current_week,
   );
@@ -188,6 +190,8 @@ export function useMyTeamSummary(leagueId) {
   // the line entirely). Reads from the standings spine, so it is null until the
   // spine is ready.
   let record = null;
+  // The season's points for and against, from the same standing; absent before a game is played.
+  let points = null;
   if (standingsStatus === 'ready') {
     // The Record arrives FORMATTED from the entity and the rank is the server's
     // own, both off one Team standing; nothing here re-derives either.
@@ -195,6 +199,7 @@ export function useMyTeamSummary(leagueId) {
     if (standing && standing.gamesPlayed > 0) {
       const rank = ordinal(standing.rank);
       record = { text: standing.record, rankText: rank ? rank.toString() : null };
+      points = { pf: standing.pointsFor.toFixed(1), pa: standing.pointsAgainst.toFixed(1) };
     }
   }
 
@@ -262,14 +267,20 @@ export function useMyTeamSummary(leagueId) {
   // that is the tested red-tell (a re-derived filter is how the spent-slot
   // rule gets lost).
   const pickemOnly = isPickemOnly(league);
+  // Lineups open once the draft is done: before it the roster is empty and every slot would read
+  // empty, so no lineup is read and the card says so instead.
+  const phase = league ? deriveLeaguePhase(league) : null;
+  const lineupsOpen = phase !== LEAGUE_PHASE.PRE_DRAFT && phase !== LEAGUE_PHASE.DRAFTING;
   const { lineup, loading: lineupLoading } = useTeamLineup(
-    !pickemOnly && leagueId != null ? leagueId : null,
+    !pickemOnly && lineupsOpen && leagueId != null ? leagueId : null,
     league?.current_week ?? null,
   );
 
   let starters = null;
   if (!pickemOnly) {
-    if (lineupLoading) {
+    if (!lineupsOpen) {
+      starters = { status: 'closed', week: null };
+    } else if (lineupLoading) {
       // The week is often already known (the league row landed before the
       // lineup read settles), so the loading header can still read "Starters
       // · Week N" instead of a bare "Starters".
@@ -323,6 +334,9 @@ export function useMyTeamSummary(leagueId) {
     // The card's spine: 'loading' -> skeletons, 'error' -> compact error.
     spine: standingsStatus,
     record,
+    points,
+    teamCount: Array.isArray(teams) ? teams.length : 0,
+    refetch,
     draftGrade,
     rosterValue,
     proj,

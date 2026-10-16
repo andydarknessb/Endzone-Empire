@@ -1,716 +1,512 @@
-import React, { useEffect, useState } from 'react';
-import { Link as RouterLink, useParams } from 'react-router-dom';
-import {
-  Badge as MuiBadge,
-  Box,
-  Button,
-  Container,
-  Drawer,
-  Fab,
-  IconButton,
-  Typography,
-  useMediaQuery,
-  useTheme,
-} from '@mui/material';
-import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutline';
-import CloseIcon from '@mui/icons-material/Close';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useParams } from 'react-router-dom';
+import { Box, useMediaQuery, useTheme } from '@mui/material';
 import { useLeague } from '../../hooks/useLeague';
-import { Badge, Card, Skeleton } from '../../shared/ui';
+import { ErrorPanel, psRootSx } from '../../shared/ui/playselect';
 import CopyInvite from '../../features/copy-invite';
 import MyTeamSummary from '../../widgets/my-team-summary';
-import MatchupPreview from '../../widgets/matchup-preview';
 import StandingsTable from '../../widgets/standings-table';
 import CommissionerStrip from '../../widgets/commissioner-strip';
 import AroundTheLeague from '../../widgets/around-the-league';
 import RecentActivity from '../../widgets/recent-activity';
 import QuickActions from '../../widgets/quick-actions';
-import ChatPanel from '../../components/ChatPanel/ChatPanel';
-import RecapCard from '../../components/RecapCard/RecapCard';
-import TrophyCase from '../../components/TrophyCase/TrophyCase';
-import PickemStandings from '../../widgets/pickem-standings';
-import Countdown from '../../components/Countdown/Countdown';
+import { useMatchupPreview } from '../../widgets/matchup-preview';
+import { applyScoreEvent, useLiveScores, useWeekMatchups } from '../../entities/matchup';
+import { useActionItems, yourMoveModel } from '../../entities/action-item';
+import { adviceNote, useAdvice } from '../../entities/roster';
+import { usePickemSettings } from '../../entities/pickem-game';
+import { useTrophies } from '../../components/TrophyCase/TrophyCase';
 import {
   applyTeamProfileUpdate,
   subscribeToTeamProfileUpdates,
 } from '../../lib/teamProfileEvents';
 import {
   deriveLeaguePhase,
+  useNow,
   isSeasonLive,
   LEAGUE_PHASE,
   LEAGUE_PHASE_META,
   isPickemOnly,
-  MIN_TOUCH_TARGET_SX,
 } from '../../shared/lib';
+import ChatLauncher from './ui/ChatLauncher';
+import DraftDay from './ui/DraftDay';
+import PageHead from './ui/PageHead';
+import { DashboardLoading, DashboardUnavailable } from './ui/PageStates';
+import PickemPanel from './ui/PickemPanel';
+import PickemStandings from './ui/PickemStandings';
+import RecapPanel from './ui/RecapPanel';
+import TrophyRoom, { TrophyLink } from './ui/TrophyRoom';
+import VersusPanel from './ui/VersusPanel';
+import YourMove from './ui/YourMove';
 
-// The page h1, shared by the league name and the failed-read heading so both
-// states put the same type in the same place.
-const H1_SX = {
-  m: 0,
-  fontFamily: 'var(--dash-font-display)',
-  fontSize: { xs: '28px', sm: '34px' },
-  fontWeight: 700,
-  letterSpacing: '0.02em',
-  textTransform: 'uppercase',
-  color: 'var(--dash-ink)',
-};
-
-// Several widgets on this page render null (a member's commissioner strip, a
-// league with no recap, an empty trophy case), and a wrapper that outlives its
-// content still takes a turn in the shell's 22px stack: four blank bands at
-// phone width came from exactly that. `:empty` matches a wrapper whose child
-// rendered nothing, so the gap it would have bought collapses with it.
+// Several widgets on this page render null (a member's commissioner strip, a league with no recap, a
+// pick'em panel with no row yet), and a wrapper that outlives its content still takes a turn in the
+// shell's stack: blank bands came from exactly that. `:empty` matches a wrapper whose child rendered
+// nothing, so the gap it would have bought collapses with it.
 const EMPTY_HIDDEN_SX = { '&:empty': { display: 'none' } };
 
 /**
- * League Dashboard page slice (ADR 0020), on the `/league/:leagueId` route since
- * the cutover ticket (#645). The header (name + phase/team/draft chips and, for
- * a commissioner, the copy-invite control) sits above the widget slices; the
- * legacy monolith it replaces is deleted.
+ * League Dashboard page slice (ADR 0020), on the `/league/:leagueId` route since the cutover ticket
+ * (#645), on the Play-select look since ADR 0067 wave 1b (#2330). Every state of the approved canvas
+ * (docs/design/league/: Main, GameDay, GameDaySet, MainPhone, GameDayPhone, PreDraft, Drafting,
+ * Complete, PickemOnly, States) is composed here from the widgets, the features and the page's own
+ * Play-select views, and nothing here reads an island token.
  *
- * v2 composition (ADR 0034, #1110): the commissioner strip sits directly under
- * the header at every width (`slot-commissioner-strip`) and replaces the old
- * three-branch commissioner rail card; the retired administration-panel
- * widget is deleted in this same PR. A fantasy league fills the hero (matchup
- * first, then my-team: the game-day order of #1979 L1, so the matchup is what
- * a phone shows first; `align-items: stretch` so the two cards share the row
- * height), then the weekly recap directly under the hero (`slot-recap`, #1988
- * L20: the story under the final, and never between the manager and the live
- * score), a full-width Around the League strip, and the main grid (standings
- * + a rail) followed by a full-width Quick Actions card, and shows the
- * pre-draft countdown. The rail holds Recent activity in every phase, capped at
- * `ceil(team count * 5 / 6)` rows so it ends about where the standings do
- * (ADR 0034's comparable-height rule); Quick Actions is alone in its
- * row, so it spans the content width with one column per group (#1993). Draft
- * Grades is no longer on the dashboard (ADR 0034's 2026-10-04 amendment: League
- * History and the My Team grade tile still carry it).
- * The header's team-count and Draft Complete chips show only outside the live
- * season (#1979 L12): in season the phase chip is the news. A pick'em-only league
- * has no fantasy team, matchups or draft, so none of those slices mount
- * (each would fire a fantasy
- * read that returns an empty or zeroed table): its body is the pick'em
- * standings, and Quick Actions renders in the same full-width row as a fantasy
- * league's (the widget trims itself to the pick'em surfaces, two groups
- * instead of three; Recent activity does not mount at all, since the activity
- * log is a fantasy surface). The trophy case and league chat are
- * common to both. The recap and the pre-draft countdown are fantasy-only
- * (gated on isPickemOnly, matching the legacy page); the trophy case is NOT,
- * because trophy.service awards a pickem_champion type with no type filter on
- * the league read and TrophyCase renders it, so a completed pick'em season has
- * a populated case (the legacy page mounted it unconditionally too).
+ * The head (the league name in Pixel 32, the chip row, "Times in CDT", and for a commissioner the
+ * Invite control) leads every state. Then the page's product order, which the canvas rulings fix:
  *
- * The page reads the league through the shared cache (useLeague / ADR 0004), so
- * a subpage reached from here reuses the same payload. Everything phase-shaped
- * in the header derives from the client League-phase helper
- * (src/shared/lib/leaguePhase.js), never from a stored status field: that keeps a
- * single source of phase truth across the widget slices.
+ *   - Your move, between the head and the commissioner strip: this league's open plays, the one cursor
+ *     and the one filled action (`ui/YourMove`). With nothing due it is a calm "You're set" card.
+ *   - The commissioner strip (its own row; it renders nothing for a member), the pre-draft countdown
+ *     (Draft Day) once the draft has a date, and the hero: the Matchup (a framed versus panel before
+ *     kickoff, the Board-black scoreboard once started) beside My team, with the Pick'em panel under
+ *     the matchup on a fantasy plus pick'em league in season.
+ *   - The weekly recap (when one exists), Around the league, standings beside Recent activity, and the
+ *     Playbook. In season the Playbook and the trophy case fold into one link row; a completed league
+ *     opens on its trophy room instead and keeps the Playbook frame.
+ *   - Game day (the viewer's matchup is live) reorders the top: the scoreboard, then My team at full
+ *     width, then the Pick'em panel, the commissioner strip and the rest. Around the league and Recent
+ *     activity fold to the three rival games and three rows.
+ *   - A pick'em-only league has no fantasy team, matchups or draft, so none of those slices mount (each
+ *     would fire a fantasy read that returns an empty or zeroed table): its body is the pick'em
+ *     standings, the Playbook trimmed to the pick'em surfaces and the trophy case link.
  *
- * Team identity is live: a team-profile update (a rename or new avatar
- * published by another manager's session) is written through into the cached
- * league's teams[], so the standings rows and my-team card
- * re-render without a second league GET. teamName is the canonical display
- * field the widgets read (teamIdentity.js), not the raw `name` column the route
- * leaks beside it, so the write-through targets teamName; the avatar rides the
- * snake_case columns the league-detail route serializes.
+ * Three pieces of the dashboard are shared with later-wave pages, so the dashboard renders its own
+ * Play-select view over their model and they keep their look elsewhere until their wave: the matchup
+ * (`useMatchupPreview`, Lineup page), the pick'em standings (`usePickemStandingsTable`, Pick'em page)
+ * and the recap, trophy case and draft countdown (`useRecap`, `useTrophies`, the Countdown `blocks`
+ * variant).
  *
- * The page paints the dashboard island's own token context (`dash-bg` /
- * `dash-ink`, the display/body faces): every ink-on-surface pairing it puts on
- * screen (h1 and neutral chips over `dash-bg`, the live chip's accent-on-tint
- * over `dash-bg`) is a registered pairing in tokens.contrast.test.js. Painting
- * a different backdrop under the tinted live chip would compose an unmeasured
- * pairing, so the island background is deliberate, not decorative.
+ * The page reads the league through the shared cache (useLeague / ADR 0004), so a subpage reached from
+ * here reuses the same payload. Everything phase-shaped derives from the client League-phase helper
+ * (src/shared/lib/leaguePhase.js), never from a stored status field: that keeps a single source of
+ * phase truth across the widget slices.
+ *
+ * Team identity is live: a team-profile update (a rename or new avatar published by another manager's
+ * session) is written through into the cached league's teams[], so the standings rows and my-team card
+ * re-render without a second league GET. teamName is the canonical display field the widgets read
+ * (teamIdentity.js), not the raw `name` column the route leaks beside it, so the write-through targets
+ * teamName; the avatar rides the snake_case columns the league-detail route serializes.
+ *
+ * The page paints the Play-select token context (ps-field / ps-ink, the Archivo body face) on a
+ * `.ps-root` element, which also scopes the focus ring, the cursor blink and the hover rules.
  */
 export default function LeagueDashboardPage() {
   const { leagueId } = useParams();
-  const { league, teams, viewerTeamId, loading, refetch, updateTeams } = useLeague(leagueId);
-  // Set by Recent activity once its feed resolves short of the rail (#1998);
-  // false while loading, so the row starts two columns.
-  const [feedShort, setFeedShort] = useState(false);
+  const {
+    league, teams, viewerTeamId, loading, refetch, updateTeams,
+  } = useLeague(leagueId);
 
-  // Live team identity: patch a rename or new avatar into the shared league
-  // membership so every consumer reading teams[] reflects it with no request.
-  // Deleting this subscription pins a renamed or re-avatared Team to its stale
-  // name/picture until the 60s league-cache TTL lapses and a navigation
-  // refetches. Matched on teamId. BOTH name columns are patched: the widget
-  // slices read the canonical `teamName`, but CommissionerTools composes as-is
-  // off the same teams[] and renders the raw `name` column (menu items, the
-  // removable-teams list, the remove dialog), so patching only teamName would
-  // leave a rename stale in the commissioner panel where the legacy page kept
-  // it live. The avatar rides the snake_case columns the widgets read.
+  // Live team identity: patch a rename or new avatar into the shared league membership so every
+  // consumer reading teams[] reflects it with no request. Deleting this subscription pins a renamed or
+  // re-avatared Team to its stale name/picture until the 60s league-cache TTL lapses and a navigation
+  // refetches. Matched on teamId. BOTH name columns are patched: the widget slices read the canonical
+  // `teamName`, but CommissionerTools composes as-is off the same teams[] and renders the raw `name`
+  // column (menu items, the removable-teams list, the remove dialog), so patching only teamName would
+  // leave a rename stale in the commissioner panel where the legacy page kept it live. The avatar rides
+  // the snake_case columns the widgets read.
   useEffect(
-    () =>
-      subscribeToTeamProfileUpdates((update) => {
-        if (Number(update.leagueId) !== Number(leagueId)) return;
-        updateTeams((prev) =>
-          prev.map((team) => {
-            const withRawName = applyTeamProfileUpdate(team, update, {
-              id: 'teamId',
-              avatarUrl: 'avatar_url',
-              avatarStaticUrl: 'avatar_static_url',
-            });
-            return applyTeamProfileUpdate(withRawName, update, {
-              id: 'teamId',
-              name: 'teamName',
-              avatarUrl: 'avatar_url',
-              avatarStaticUrl: 'avatar_static_url',
-            });
-          })
-        );
-      }),
+    () => subscribeToTeamProfileUpdates((update) => {
+      if (Number(update.leagueId) !== Number(leagueId)) return;
+      updateTeams((prev) => prev.map((team) => {
+        const withRawName = applyTeamProfileUpdate(team, update, {
+          id: 'teamId',
+          avatarUrl: 'avatar_url',
+          avatarStaticUrl: 'avatar_static_url',
+        });
+        return applyTeamProfileUpdate(withRawName, update, {
+          id: 'teamId',
+          name: 'teamName',
+          avatarUrl: 'avatar_url',
+          avatarStaticUrl: 'avatar_static_url',
+        });
+      }));
+    }),
     [leagueId, updateTeams]
   );
 
-  // First load blanks the page; once the league is on screen a background
-  // reload keeps it mounted (the shared cache serves the row it already has).
+  // First load blanks the page; once the league is on screen a background reload keeps it mounted
+  // (the shared cache serves the row it already has).
   if (!league && loading) {
     return (
-      <DashboardShell>
-        {/* This region owns the league read (Skeleton.jsx: the shapes stay
-            aria-hidden, the owning region announces the loading state), so it
-            carries aria-busy while that read is in flight. A literal "true" is
-            correct here, not a computed value that toggles to "false": this
-            whole branch is gated on `!league && loading` and unmounts the
-            moment the league resolves, so there is no in-DOM transition to
-            "false" for a screen reader to ever observe. */}
-        <Box
-          data-testid="dashboard-loading"
-          aria-busy="true"
-          sx={{ display: 'grid', gap: '16px' }}
-        >
-          <Skeleton variant="text" width={260} height={44} />
-          <Box sx={{ display: 'flex', gap: 1 }}>
-            <Skeleton variant="rounded" width={150} height={26} />
-            <Skeleton variant="rounded" width={90} height={26} />
-            <Skeleton variant="rounded" width={120} height={26} />
-          </Box>
-        </Box>
-      </DashboardShell>
+      <Shell>
+        <DashboardLoading />
+      </Shell>
     );
   }
 
-  // A failed league read is a dead end for the whole route, so it gets the same
-  // h1 the loaded page has, one alerted sentence and a way out, rather than a
-  // bare line of error text with nothing to do next. The sentence is fixed and
-  // the server's string is deliberately not on screen: useResource collapses
-  // the server's `error` field and the transport's own `err.message` into one
-  // value (useResource.js:62), so keeping "the server's message" would also put
-  // an axios internal ("Network Error") in front of a manager. `refetch`
-  // invalidates the shared league key, so every mount on this league reloads
-  // from the one request it starts.
+  // A failed league read is a dead end for the whole route, so it gets the same h1 the loaded page
+  // has, one alerted sentence and a way out, rather than a bare line of error text with nothing to do
+  // next. The sentence is fixed and the server's string is deliberately not on screen: useResource
+  // collapses the server's `error` field and the transport's own `err.message` into one value
+  // (useResource.js:62), so keeping "the server's message" would also put an axios internal ("Network
+  // Error") in front of a manager. `refetch` invalidates the shared league key, so every mount on this
+  // league reloads from the one request it starts.
   if (!league) {
     return (
-      <DashboardShell>
-        <Box sx={{ display: 'grid', gap: 1.75, justifyItems: 'start' }}>
-          <Typography component="h1" sx={H1_SX}>
-            League unavailable
-          </Typography>
-          <Typography role="alert" sx={{ fontSize: '14px', color: 'var(--dash-ink)' }}>
-            We could not load this league right now.
-          </Typography>
-          <Button
-            type="button"
-            variant="outlined"
-            onClick={() => refetch()}
-            sx={{
-              ...MIN_TOUCH_TARGET_SX,
-              textTransform: 'none',
-              color: 'var(--dash-ink)',
-              borderColor: 'var(--dash-line-strong)',
-              borderRadius: 'var(--dash-radius-sm)',
-              fontFamily: 'var(--dash-font-body)',
-              fontWeight: 600,
-              fontSize: '13px',
-              '&:hover': {
-                borderColor: 'var(--dash-accent-line)',
-                backgroundColor: 'transparent',
-              },
-            }}
-          >
-            Try again
-          </Button>
-        </Box>
-      </DashboardShell>
+      <Shell>
+        <DashboardUnavailable onRetry={() => refetch()} />
+      </Shell>
     );
   }
 
-  const phase = deriveLeaguePhase(league);
-  const phaseLabel = LEAGUE_PHASE_META[phase]?.label ?? '';
-  const pickemOnly = isPickemOnly(league);
-  const preDraft = phase === LEAGUE_PHASE.PRE_DRAFT;
-  const seasonLive = isSeasonLive(league);
-  const week = league.current_week;
-  // "Week N · <phase label>" while the season is being played (the live/accent
-  // chip); the bare phase label otherwise (pre-draft, drafting, complete).
-  const phaseChipLabel =
-    seasonLive && week != null ? `Week ${week} · ${phaseLabel}` : phaseLabel;
-  // The draft is done for a fantasy league in every phase past drafting. Read
-  // from the helper's phase, not the raw draft_status column, so the page keeps
-  // no second source of phase truth. A pick'em-only league has no draft.
-  const draftComplete =
-    !pickemOnly && phase !== LEAGUE_PHASE.PRE_DRAFT && phase !== LEAGUE_PHASE.DRAFTING;
   return (
-    <DashboardShell>
-      {/* A plain layout row, not a <header>: a top-level <header> maps to the
-          `banner` landmark, and the app shell's global app bar (Nav) already
-          owns that role, so this must not add a second banner at cutover. The
-          h1 below carries the heading structure. */}
-      <Box
-        sx={{
-          display: 'flex',
-          alignItems: 'baseline',
-          gap: 1.75,
-          flexWrap: 'wrap',
-        }}
-      >
-        <Typography component="h1" sx={H1_SX}>
-          {league.name}
-        </Typography>
-
-        <Box component="span" sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-          {phaseChipLabel && (
-            <Badge variant={seasonLive ? 'live' : 'neutral'}>{phaseChipLabel}</Badge>
-          )}
-          {/* In season the phase chip says what matters; the team count and
-              the finished draft are background then (#1979 L12). */}
-          {!seasonLive && <Badge variant="neutral">{`${teams.length} Teams`}</Badge>}
-          {!seasonLive && draftComplete && <Badge variant="neutral">Draft Complete</Badge>}
-        </Box>
-
-        {/* Commissioner-only, gated purely on the invite code the server sends
-            only to commissioners. It lives in the page header, not the global
-            app bar. */}
-        {league.invite_code && (
-          <Box sx={{ ml: { sm: 'auto' } }}>
-            <CopyInvite code={league.invite_code} />
-          </Box>
-        )}
-      </Box>
-
-      {/* COMMISSIONER STRIP, directly under the header at every width (ADR
-          0034 / #1108, #1110). Replaces the retired three-branch
-          administration rail card: one mount, one place, no width-crossing
-          remount and no disclosure to leave out of sync. Renders nothing for a
-          member (CommissionerStrip's own gate); the wrapper collapses. */}
-      <Box component="section" data-testid="slot-commissioner-strip" sx={EMPTY_HIDDEN_SX}>
-        <CommissionerStrip leagueId={leagueId} />
-      </Box>
-
-      {pickemOnly ? (
-        /* PICK'EM-ONLY body. A pick'em league has no fantasy team, matchups or
-           draft, so the hero and main-grid slices never mount: each of them
-           (my-team, matchup, standings table, draft grades) fires a fantasy
-           read that would come back an empty or zeroed table. The pool
-           standings stand in their place. The widget is its own titled Card
-           (`title` renames it), so this is a plain Box and not a second Card:
-           it is the primary content of a pick'em league, and as a bare section
-           it was a nameless region with no heading between the h1 and the
-           quick-actions h2. */
-        <Box data-testid="dashboard-pickem-standings">
-          <PickemStandings leagueId={leagueId} title="Pick'em Standings" />
-        </Box>
-      ) : (
-        <>
-          {/* Pre-draft countdown to the scheduled draft, composed as-is from the
-              legacy page: fantasy-only, only before the draft, and only once a
-              draft_date is set. Carries the timezone, leagueId and leagueName so
-              it can render the viewer-local schedule and the add-to-calendar
-              control. The Card is what names it: on a pre-draft league this is
-              the first block under the h1, and unwrapped it was an unlabelled
-              section whose only text was a ticker. */}
-          {preDraft && league.draft_date && (
-            <Card
-              data-testid="slot-draft-countdown"
-              title="Draft Day"
-              tail={
-                <Button
-                  component={RouterLink}
-                  to={`/league/${leagueId}/draft`}
-                  variant="outlined"
-                  disableElevation
-                  sx={{
-                    ...MIN_TOUCH_TARGET_SX,
-                    textTransform: 'none',
-                    color: 'var(--dash-dim)',
-                    borderColor: 'var(--dash-line-strong)',
-                    borderRadius: 'var(--dash-radius-sm)',
-                    fontFamily: 'var(--dash-font-body)',
-                    fontWeight: 600,
-                    fontSize: '13px',
-                    whiteSpace: 'nowrap',
-                    '&:hover': {
-                      color: 'var(--dash-ink)',
-                      borderColor: 'var(--dash-accent-line)',
-                      backgroundColor: 'transparent',
-                    },
-                  }}
-                >
-                  Draft Room
-                </Button>
-              }
-            >
-              <Box sx={{ px: 2.25, py: 2.25 }}>
-                <Countdown
-                  variant="full"
-                  date={league.draft_date}
-                  timeZone={league.draft_timezone}
-                  leagueId={league.id}
-                  leagueName={league.name}
-                />
-              </Box>
-            </Card>
-          )}
-
-          {/* HERO: matchup preview beside my-team, matchup first in the DOM and
-              on the left (#1979 L1: game day opens on the matchup, and on a
-              phone the one column puts it at the top). Nameless <section> layout
-              containers, deliberately NOT labelled landmarks: an empty labelled
-              region is announced with nothing in it (noise). The real landmarks
-              are the titled Cards the widgets render, each a labelled region via
-              shared/ui Card. Collapses to one column at tablet width.
-
-              A viewer with no Team of their own (a commissioner who never
-              joined) gets neither the left slot nor the track it sat in:
-              MyTeamSummary already returns null for them, and leaving its
-              5fr track in place bought 5/12 of the hero as bare `dash-bg`
-              beside a lone matchup card. With the matchup on the left, the
-              track that goes is the right-hand My Team one and the matchup
-              takes the whole row. viewerTeamId is the per-viewer field that
-              answers it (#112), not a scan of teams[].
-
-              `alignItems: 'stretch'` (#1110) makes My Team and the matchup
-              card share the row height, matching the canvas. Each slot Box is
-              ALSO its own single-item grid (`display: 'grid'`, no template of
-              its own): a stretched CSS Grid item's used height is definite,
-              but that does not cascade to a plain block descendant with
-              `height: auto`, which is exactly my-team-summary's and
-              matchup-preview's own root Card - so each slot re-stretches its
-              one child through a second grid, rather than leaving a card that
-              stretches its wrapper but not itself. my-team-summary's own Card
-              additionally sets `height: '100%'` to consume this (see its own
-              docblock); matchup-preview's does not need to, since an
-              unset/auto height IS the height a grid item stretches by
-              default - this slot Box is the only change either widget needed. */}
-          <Box
-            component="section"
-            data-testid="dashboard-hero"
-            sx={{
-              display: 'grid',
-              gap: '22px',
-              alignItems: 'stretch',
-              gridTemplateColumns: {
-                xs: '1fr',
-                md: viewerTeamId == null ? '1fr' : '7fr 5fr',
-              },
-            }}
-          >
-            <Box data-testid="slot-matchup-preview" sx={{ display: 'grid' }}>
-              <MatchupPreview leagueId={leagueId} />
-            </Box>
-            {viewerTeamId != null && (
-              <Box data-testid="slot-my-team" sx={{ display: 'grid', ...EMPTY_HIDDEN_SX }}>
-                <MyTeamSummary leagueId={leagueId} />
-              </Box>
-            )}
-          </Box>
-
-          {/* WEEKLY RECAP: directly after the hero, before Around the League, at
-              every width (#1988 L20). On a Tuesday the hero shows the final and
-              the recap right under it tells the story; on game day it no longer
-              sits between the manager and the live score (above the hero it
-              pushed the matchup card down a full phone screen). Matchup-derived,
-              so fantasy-only: it sits inside the `!pickemOnly` branch, so a
-              pick'em league never mounts it or requests it. Self-hides on a 404
-              (no recap generated yet); the wrapper then collapses. */}
-          <Box component="section" data-testid="slot-recap" sx={EMPTY_HIDDEN_SX}>
-            <RecapCard leagueId={leagueId} />
-          </Box>
-
-          {/* AROUND THE LEAGUE: full-width strip of the week's matchup tiles,
-              between the hero and the main grid (#1103, #1110). Fantasy only,
-              which this placement already guarantees (it sits inside the
-              `!pickemOnly` branch); the widget also self-hides for a
-              pick'em-only league and on an empty current week, so the wrapper
-              collapses either way.
-
-              `minWidth: 0` and `contain: 'paint'` (measured in Chromium at
-              320px, #1110: `minWidth: 0` is the same #916/#917/#919/#921 rule
-              `slot-standings` below already carries, for the same reason -
-              without it this box itself floors at its content's min-content
-              width instead of the column's). Below `md` the widget's own
-              scroller (`around-the-league-body`) holds six tiles at a fixed
-              `flex: 0 0 200px` and scrolls internally (`overflowX: 'auto'`),
-              which already clips what a REAL viewer sees and can reach - but
-              a scrolled-past tile's own `getBoundingClientRect()` still
-              reports its full, un-clipped layout position, and measured in
-              Chromium that position alone was enough to widen
-              `document.documentElement.scrollWidth` to 609px at a 320px
-              viewport, even though `document.body`'s OWN scrollWidth measured
-              a clean 320px and nothing was visually broken - a `<html>`
-              vs `<body>` scrollWidth disagreement specific to a `display:
-              flex` scroll container's ink overflow, which plain `overflow:
-              hidden`/`clip` on this box did NOT close (tried and measured;
-              still 609). `contain: 'paint'` does (measured 320): per the CSS
-              Containment spec it guarantees nothing paints outside this box's
-              border box, which is exactly the guarantee `document.
-              documentElement.scrollWidth`'s own computation needs here. The
-              same property also makes this box the containing block for any
-              absolutely or fixed positioned descendant (there is none inside
-              AroundTheLeague today - checked - but a future tooltip, popover
-              or menu inside it would position against THIS box rather than
-              the page, which is worth knowing before adding one). */}
-          <Box
-            component="section"
-            data-testid="slot-around-the-league"
-            sx={{ minWidth: 0, contain: 'paint', ...EMPTY_HIDDEN_SX }}
-          >
-            <AroundTheLeague leagueId={leagueId} />
-          </Box>
-
-          {/* MAIN: standings beside a rail holding Recent activity (same
-              nameless-container reasoning as the hero). Collapses to one
-              column at tablet width.
-
-              The zero minimum is on the standings track only. A bare `1fr` or
-              `8fr` track still floors at its item's min-content width, which is
-              how a wide table dragged the whole document past the viewport. The
-              rail track keeps its automatic minimum, so the card shrinks with it
-              rather than clipping anything (the #916/#917/#919/#921 rule).
-              Recent activity's rows are flex rows with a zero-minimum text
-              column that ellipsises, so they have no min-content floor to
-              protect. */}
-          <Box
-            component="section"
-            data-testid="dashboard-main"
-            sx={{
-              display: 'grid',
-              gap: '22px',
-              gridTemplateColumns: {
-                xs: 'minmax(0, 1fr)',
-                md: feedShort ? 'minmax(0, 1fr)' : 'minmax(0, 8fr) 4fr',
-              },
-              alignItems: 'start',
-            }}
-          >
-            {/* The zero minimum is paired with a clip on this same box (the
-                #916/#917/#919/#921 rule): the only thing inside wide enough to
-                reach it is the standings table, which lives in its own
-                horizontal scroller, so the clip is a backstop and never the
-                mechanism. `clip` rather than `hidden` or `auto` because those
-                make this box a scroll container, which would capture the
-                table's sticky header away from the viewport. */}
-            <Box data-testid="slot-standings" sx={{ minWidth: 0, overflowX: 'clip' }}>
-              <StandingsTable leagueId={leagueId} />
-            </Box>
-            {/* Recent activity shows ceil(teams * 5 / 6) rows (a standings row is
-                49px, an activity row 58.8px), which measures within about 40px
-                of the standings for 4 to 20 teams once the feed has that many
-                rows. When the resolved feed has fewer (a league early in its
-                life, an empty or failed read), the card would leave the rail
-                column bare beside the standings, so the row goes to one column
-                and the card sits under them at full width (#1998, ADR 0034);
-                while the feed loads the row stays two columns. The layout spec
-                bounds the card at 60px and the main row at 120px for a filled
-                rail.
-
-                The rail is sticky above md, which matters only in the two-column
-                layout: it rides down with the scroll instead of leaving bare page
-                beside the last standings row. Stacked, it is inert. `top: 22px`
-                and not an app-bar offset: Nav.jsx:95 is position="static", so
-                nothing is pinned above it.
-                One card (#1110): the commissioner panel that used to compose
-                below it here moved to the strip under the header. */}
-            <Box
-              data-testid="dashboard-rail"
-              sx={{
-                display: 'grid',
-                gridTemplateColumns: 'minmax(0, 1fr)',
-                gap: '22px',
-                position: { md: 'sticky' },
-                top: { md: '22px' },
-              }}
-            >
-              <Box data-testid="slot-recent-activity">
-                <RecentActivity
-                  leagueId={leagueId}
-                  rowLimit={Math.ceil((teams.length * 5) / 6)}
-                  onFeedShort={setFeedShort}
-                />
-              </Box>
-            </Box>
-          </Box>
-        </>
-      )}
-
-      {/* QUICK ACTIONS: one section for every league kind, alone in its row and
-          so the full content width (#1993): one column per group at md and up
-          (three for a fantasy league, two for a pick'em-only one, which the
-          widget trims itself to). It follows the main grid in a fantasy league
-          and the pick'em standings otherwise. */}
-      <Box
-        component="section"
-        data-testid="dashboard-quick-actions"
-        sx={EMPTY_HIDDEN_SX}
-      >
-        <QuickActions leagueId={leagueId} />
-      </Box>
-
-      {/* Trophy case: common to both league kinds, as the legacy page mounted
-          it (outside its !pickemOnly guard). A pick'em-only league earns a
-          pickem_champion trophy on a completed season (trophy.service.js), and
-          the league trophy read applies no type filter, so its case is
-          populated; gating it on fantasy would drop that. It self-hides on an
-          empty list, so a league with no trophies renders nothing regardless. */}
-      <Box component="section" data-testid="slot-trophy-case" sx={EMPTY_HIDDEN_SX}>
-        <TrophyCase leagueId={leagueId} teams={teams} viewerTeamId={viewerTeamId} />
-      </Box>
-
-      {/* League chat: every member, in a drawer opened by a floating button that
-          carries the unread badge. */}
-      <LeagueChatDrawer leagueId={leagueId} />
-    </DashboardShell>
+    <Shell>
+      <DashboardBody leagueId={leagueId} league={league} teams={teams} viewerTeamId={viewerTeamId} />
+    </Shell>
   );
 }
 
 /**
- * The floating chat launcher and its drawer, composed as-is from the legacy
- * ChatPanel. The panel stays mounted inside the drawer even while it is closed
- * (docked above sm, keepMounted below it), so it owns the unread count and
- * reports it up through onUnreadChange; the button's accessible name carries
- * that count so a screen-reader user hears it without opening the drawer. Every
- * league member has chat, fantasy or pick'em alike.
+ * The loaded dashboard. A component of its own so the reads the layout depends on (the viewer's
+ * matchup, the week's matchups, the pick'em settings and the trophies) are hooks called once the
+ * league is known, and a pick'em-only league can be kept off the fantasy reads by passing them null.
  */
-function LeagueChatDrawer({ leagueId }) {
-  const [chatOpen, setChatOpen] = useState(false);
-  const [chatUnread, setChatUnread] = useState(0);
+function DashboardBody({
+  leagueId, league, teams, viewerTeamId,
+}) {
   const theme = useTheme();
-  // Below sm the drawer paper is the whole viewport, so it has to behave like
-  // one: `temporary` is the only variant that renders a Modal, and the Modal is
-  // what supplies the backdrop, the focus trap, Escape and focus restore that a
-  // full-screen panel needs. Above sm it stays the docked panel beside the
-  // page. `noSsr` because there is no server render to match.
-  const compact = useMediaQuery(theme.breakpoints.down('sm'), { noSsr: true });
-  const variant = compact ? 'temporary' : 'persistent';
-  // The dialog semantics ride with the modality, never ahead of it: announcing
-  // aria-modal on the docked panel would claim a trap that is not there and
-  // tell a screen reader the rest of the page is inert while it is not.
-  const modal = variant === 'temporary';
+  const phone = useMediaQuery(theme.breakpoints.down('sm'), { noSsr: true });
+  // Set by Recent activity once its feed resolves short of the standings (#1998); false while loading,
+  // so the row starts two columns.
+  const [feedShort, setFeedShort] = useState(false);
+
+  const phase = deriveLeaguePhase(league);
+  const phaseLabel = LEAGUE_PHASE_META[phase]?.label ?? '';
+  const pickemOnly = isPickemOnly(league);
+  const fantasy = !pickemOnly;
+  const preDraft = phase === LEAGUE_PHASE.PRE_DRAFT;
+  const complete = phase === LEAGUE_PHASE.COMPLETE;
+  const seasonLive = isSeasonLive(league);
+  const week = league.current_week;
+  const hasTeam = viewerTeamId != null;
+  // "Week N · <phase label>" while the season is being played (the neutral chip); the bare phase label
+  // otherwise (pre-draft, drafting, complete). The draft is done for a fantasy league in every phase
+  // past drafting, read from the helper's phase, never the raw draft_status column.
+  const phaseChipLabel = seasonLive && week != null ? `Week ${week} · ${phaseLabel}` : phaseLabel;
+  const draftComplete = fantasy && phase !== LEAGUE_PHASE.PRE_DRAFT && phase !== LEAGUE_PHASE.DRAFTING;
+
+  // The matchup the page leads with, read once: the pre-kickoff panel, the scoreboard and the game-day
+  // order all come from it. A pick'em-only league has no fantasy matchups, so it never reads them.
+  // The League's live score feed, subscribed to once here: it moves the scoreboard, the head's live count
+  // and the Advance control's readiness with no polling. A reconnect re-reads the week's matchups (the
+  // cache key the scoreboard, the strip and the live count share), since events missed while away never
+  // arrive.
+  const weekMatchups = useWeekMatchups(fantasy ? leagueId : null, week);
+  const { scoreEvent } = useLiveScores({ leagueId: fantasy ? leagueId : null, refetch: () => weekMatchups.refetch() });
+  const matchup = useMatchupPreview(fantasy ? leagueId : null, { scoreEvent });
+  const scored = Array.isArray(scoreEvent?.scored) ? scoreEvent.scored : [];
+  const liveCount = weekMatchups.matchups
+    .map((m) => {
+      const entry = scored.find((e) => e.matchupId === m.id);
+      return entry ? applyScoreEvent(m, entry) : m;
+    })
+    .filter((m) => m.status === 'live').length;
+  const gameDay = fantasy && matchup.status === 'ready' && matchup.game.isLive === true;
+  // "As of": the later of when the week's matchups were last read (the data's own completion time, so a
+  // cached remount is not stamped as current) and the last event for this week that touched the viewer's
+  // matchup. It is settled in the render the event arrives in (not an effect after it), so the scoreboard's
+  // announcement and its stamp land together; the time is kept per league, so changing leagues starts clean.
+  const stamp = useRef({ leagueId, event: null, at: null });
+  if (stamp.current.leagueId !== leagueId) stamp.current = { leagueId, event: null, at: null };
+  if (stamp.current.event !== scoreEvent) {
+    const touchesViewer = scoreEvent
+      && Number(scoreEvent.week) === Number(week)
+      && scored.some((entry) => entry.matchupId === matchup.matchupId);
+    stamp.current = { leagueId, event: scoreEvent, at: touchesViewer ? Date.now() : stamp.current.at };
+  }
+  const eventAt = stamp.current.at;
+  const asOf = matchup.status === 'ready' ? Math.max(weekMatchups.readAt ?? 0, eventAt ?? 0) || null : null;
+
+  const pickemSettings = usePickemSettings(fantasy ? leagueId : null);
+  const showPickem = fantasy && seasonLive && pickemSettings.settings?.enabled === true;
+
+  const trophy = useTrophies(leagueId);
+  const trophyCount = !trophy.loading && !trophy.error ? trophy.visibleTrophies.length : 0;
+
+  // Your move: this league's open plays from the user's action items (GET /api/user/action-items), the
+  // page's one cursor and one filled action. The entity groups them (one card per shared lock, earliest
+  // first); this maps each card to ui/YourMove's plain data. Nothing is drawn while the read is in flight
+  // (a "You're set" that then turns into a card would lie), and a completed league with nothing due draws
+  // no card at all: the board has none.
+  const actions = useActionItems();
+  const clock = useNow((at) => at + 30 * 1000);
+  const move = useMemo(
+    () => yourMoveModel(actions.items, { leagueId, now: clock }),
+    [actions.items, leagueId, clock]
+  );
+  const isLineup = (item) => String(item.id).split(':')[0] === 'lineup_problem';
+  const carriesLineup = move.cards.some((card) => card.items.some(isLineup));
+  const leadCarriesLineup = Boolean(move.lead && move.lead.items.some(isLineup));
+  // The lead lineup card names every move the Forecast would make behind its gain ("Two moves · +23.0 pts:
+  // Addison in for Puka Nacua (Out) · Spears into the empty FLEX"). No move, no note (the item's own detail reads).
+  const advice = useAdvice({
+    leagueId: leadCarriesLineup ? leagueId : null,
+    week,
+    bestBall: Boolean(league.best_ball),
+  });
+  const swapNote = leadCarriesLineup ? adviceNote(advice) ?? undefined : undefined;
+  const toCard = (card, note) => ({ feet: card.items, ...(note ? { note } : null) });
+  let yourMove = null;
+  // Cached items stay on screen while they re-read, so the card does not vanish and jump on a revisit.
+  const itemsPending = actions.loading && actions.items.length === 0;
+  if (!itemsPending && !actions.error) {
+    if (!move.empty) {
+      yourMove = {
+        lead: toCard(move.lead, swapNote),
+        rest: move.rest.map((card) => toCard(card)),
+        badge: move.badge,
+        urgent: move.urgent,
+      };
+    } else if (!complete) {
+      yourMove = { empty: true, urgent: false };
+    }
+  }
+  // It sits right under the head; on game day with nothing locking inside the hour the live scoreboard
+  // leads and it follows the scoreboard instead.
+  const yourMoveOnTop = yourMove != null && (!gameDay || yourMove.urgent === true);
+  const yourMoveNode = yourMove && (
+    <Box component="section" data-testid="slot-your-move" sx={{ minWidth: 0 }}>
+      <YourMove {...yourMove} />
+    </Box>
+  );
+  const yourMoveFailed = !itemsPending && actions.error && !complete && (
+    <Box data-testid="slot-your-move">
+      <ErrorPanel
+        title="Couldn't check what needs you"
+        body="Your league is below. Open each page, or try again."
+        onRetry={actions.reload}
+        retryAriaLabel="Try checking your plays again"
+      />
+    </Box>
+  );
+
+  const showHero = fantasy && !complete;
+  const showDraftDay = fantasy && preDraft && Boolean(league.draft_date);
+  // On a phone the head has no room for the Invite control on game day: it moves into the strip.
+  const inviteInStrip = gameDay && phone;
+  const invite = league.invite_code ? <CopyInvite code={league.invite_code} /> : null;
+
+  const chips = [];
+  if (phaseChipLabel) chips.push(phaseChipLabel);
+  if (!seasonLive && !pickemOnly) chips.push(`${teams.length} Teams`);
+  if (!seasonLive && draftComplete) chips.push('Draft Complete');
+
+  // The Playbook says each destination once: what another frame on this page already links is dropped.
+  const omit = [];
+  if (fantasy) {
+    if (seasonLive || showDraftDay) omit.push('draft');
+    if (hasTeam && showHero) omit.push('lineup', 'waivers', 'trades');
+    if (seasonLive) omit.push('game-center');
+    omit.push('activity');
+    if (showPickem) omit.push('pickem');
+  }
+  const foldPlaybook = fantasy && seasonLive;
+  const trailing = foldPlaybook && trophyCount > 0
+    ? [{ key: 'trophies', label: `Trophy case (${trophyCount})`, to: `/league/${leagueId}/history` }]
+    : undefined;
+
+  const commissionerStrip = (
+    <Box component="section" data-testid="slot-commissioner-strip" sx={EMPTY_HIDDEN_SX}>
+      <CommissionerStrip leagueId={leagueId} invite={inviteInStrip ? invite : undefined} scoreEvent={scoreEvent} onAdvanced={actions.reload} />
+    </Box>
+  );
+
+  const matchupSlot = (
+    <Box data-testid="slot-matchup-preview" sx={{ display: 'grid', gridArea: gameDay ? undefined : 'v' }}>
+      <VersusPanel leagueId={leagueId} model={matchup} asOf={asOf} />
+    </Box>
+  );
+  const myTeamSlot = hasTeam && (
+    <Box data-testid="slot-my-team" sx={{ display: 'grid', gridArea: gameDay ? undefined : 'm', ...EMPTY_HIDDEN_SX }}>
+      <MyTeamSummary leagueId={leagueId} wide={gameDay} fixLineup={!carriesLineup} />
+    </Box>
+  );
+  const pickemSlot = showPickem && (
+    <Box data-testid="slot-pickem-panel" sx={{ gridArea: gameDay ? undefined : 'p', ...EMPTY_HIDDEN_SX }}>
+      <PickemPanel leagueId={leagueId} week={week} />
+    </Box>
+  );
+
+  // The hero: the matchup beside My team, the Pick'em panel under the matchup so both columns end
+  // level; one column when the viewer has no Team of their own. On game day the same three pieces run
+  // full width, one under the other.
+  const hero = showHero && (
+    <Box
+      component="section"
+      data-testid="dashboard-hero"
+      sx={gameDay
+        ? { display: 'flex', flexDirection: 'column', gap: { xs: '24px', sm: '32px' } }
+        : {
+          display: 'grid',
+          gap: '24px',
+          alignItems: 'stretch',
+          gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: hasTeam ? 'minmax(0, 1.2fr) minmax(0, 1fr)' : 'minmax(0, 1fr)' },
+          // Only the areas that render get a row, so no empty track adds a gap or soaks up the stretch.
+          gridTemplateAreas: {
+            xs: ['"v"', hasTeam && '"m"', showPickem && '"p"'].filter(Boolean).join(' '),
+            md: hasTeam
+              ? (showPickem ? '"v m" "p m"' : '"v m"')
+              : ['"v"', showPickem && '"p"'].filter(Boolean).join(' '),
+          },
+          gridTemplateRows: { md: hasTeam && showPickem ? '1fr auto' : undefined },
+        }}
+    >
+      {matchupSlot}
+      {gameDay && !yourMoveOnTop && yourMoveNode}
+      {myTeamSlot}
+      {pickemSlot}
+    </Box>
+  );
+
+  const recap = fantasy && (
+    <Box component="section" data-testid="slot-recap" sx={EMPTY_HIDDEN_SX}>
+      <RecapPanel leagueId={leagueId} />
+    </Box>
+  );
+
+  const around = fantasy && !complete && (
+    // `contain: paint` closes the ink overflow of the scroller inside (measured in Chromium at 390: the
+    // document went 684 wide with nothing visibly broken; plain overflow clip did not close it).
+    <Box component="section" data-testid="slot-around-the-league" sx={{ minWidth: 0, contain: 'paint', ...EMPTY_HIDDEN_SX }}>
+      <AroundTheLeague leagueId={leagueId} />
+    </Box>
+  );
+
+  // Standings beside Recent activity; a feed too short to fill its column stacks under the standings.
+  const main = fantasy && (
+    <Box
+      component="section"
+      data-testid="dashboard-main"
+      sx={{
+        display: 'grid',
+        gap: '24px',
+        gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: feedShort ? 'minmax(0, 1fr)' : 'minmax(0, 1.55fr) minmax(0, 1fr)' },
+        alignItems: gameDay ? 'start' : 'stretch',
+      }}
+    >
+      <Box data-testid="slot-standings" sx={{ minWidth: 0, display: 'grid', contain: 'paint' }}>
+        <StandingsTable leagueId={leagueId} />
+      </Box>
+      <Box data-testid="dashboard-rail" sx={{ minWidth: 0, display: 'grid' }}>
+        <Box data-testid="slot-recent-activity" sx={{ display: 'grid' }}>
+          <RecentActivity
+            leagueId={leagueId}
+            rowLimit={gameDay ? 3 : Math.ceil((teams.length * 3) / 4)}
+            compact={!feedShort}
+            onFeedShort={setFeedShort}
+          />
+        </Box>
+      </Box>
+    </Box>
+  );
+
+  // The Playbook: one frame of play tiles, or in season one line of links that ends in the trophy case.
+  const playbook = (
+    <Box component="section" data-testid="dashboard-quick-actions" sx={EMPTY_HIDDEN_SX}>
+      <QuickActions leagueId={leagueId} omit={pickemOnly ? [] : omit} variant={foldPlaybook ? 'row' : 'frame'} trailing={trailing} />
+    </Box>
+  );
+
+  // The trophy case: the completed season's trophy room, or one link row (merged into the Playbook line
+  // in season). It self-hides on an empty list, so a league with no trophies renders nothing.
+  const trophies = (
+    <Box component="section" data-testid="slot-trophy-case" sx={EMPTY_HIDDEN_SX}>
+      {complete
+        ? <TrophyRoom trophy={trophy} teams={teams} />
+        : !foldPlaybook && <TrophyLink leagueId={leagueId} count={trophyCount} />}
+    </Box>
+  );
+
+  // The page's sections in order. They are keyed, so the layout can reorder them (game day puts the
+  // scoreboard first) without remounting a widget and re-reading what it reads.
+  let sections;
+  if (pickemOnly) {
+    // PICK'EM-ONLY BODY. A pick'em league has no fantasy team, matchups or draft, so the hero and
+    // main-grid slices never mount: each of them (my-team, matchup, standings table, activity) fires a
+    // fantasy read that would come back an empty or zeroed table. The pool standings stand in their place.
+    sections = [
+      ['your-move', yourMoveOnTop ? yourMoveNode : yourMoveFailed],
+      ['strip', commissionerStrip],
+      ['pickem-standings', (
+        <Box data-testid="dashboard-pickem-standings" sx={{ minWidth: 0, contain: 'paint' }}>
+          <PickemStandings leagueId={leagueId} />
+        </Box>
+      )],
+      ['playbook', playbook],
+      ['trophies', trophies],
+    ];
+  } else if (gameDay) {
+    sections = [
+      ['your-move', yourMoveOnTop ? yourMoveNode : yourMoveFailed],
+      ['hero', hero],
+      ['strip', commissionerStrip],
+      ['recap', recap],
+      ['around', around],
+      ['main', main],
+      ['playbook', playbook],
+      ['trophies', trophies],
+    ];
+  } else {
+    sections = [
+      ['your-move', yourMoveOnTop ? yourMoveNode : yourMoveFailed],
+      ['strip', commissionerStrip],
+      ['draft-day', showDraftDay && <DraftDay league={league} leagueId={leagueId} />],
+      ...(complete ? [['trophies', trophies]] : []),
+      ['hero', hero],
+      ['recap', recap],
+      ['around', around],
+      ['main', main],
+      ['playbook', playbook],
+      ...(complete ? [] : [['trophies', trophies]]),
+    ];
+  }
 
   return (
     <>
-      <Fab
-        onClick={() => setChatOpen(true)}
-        aria-expanded={chatOpen}
-        aria-controls="league-chat-drawer"
-        // Repainted off the island rather than the app palette: `color="primary"`
-        // put an app-blue button on a green dashboard. `dash-on-accent` on
-        // `dash-accent` is a registered pairing (tokens.contrast.test.js), and
-        // hover is a brightness step so no second fill token is composed.
-        sx={{
-          position: 'fixed',
-          bottom: 24,
-          right: 24,
-          backgroundColor: 'var(--dash-accent)',
-          color: 'var(--dash-on-accent)',
-          boxShadow: 'var(--shadow-2)',
-          transition: 'filter var(--transition-fast) ease',
-          '&:hover': {
-            backgroundColor: 'var(--dash-accent)',
-            filter: 'brightness(1.08)',
-          },
-        }}
-        aria-label={
-          chatUnread > 0
-            ? `Open league chat, ${chatUnread} unread message${chatUnread === 1 ? '' : 's'}`
-            : 'Open league chat'
-        }
-      >
-        <MuiBadge badgeContent={chatUnread} color="error" max={99} overlap="circular">
-          <ChatBubbleOutlineIcon />
-        </MuiBadge>
-      </Fab>
-      <Drawer
-        anchor="right"
-        variant={variant}
-        open={chatOpen}
-        onClose={() => setChatOpen(false)}
-        // ChatPanel owns the socket and the unread count this launcher shows, so
-        // the paper stays mounted across open/close: without keepMounted the
-        // temporary variant would tear the panel down on every close and the
-        // badge would restart from zero.
-        ModalProps={{ keepMounted: true }}
-        // MUI's Modal brings the backdrop, trap, Escape and focus restore but no
-        // role, so the paper declares what it is.
-        PaperProps={{
-          id: 'league-chat-drawer',
-          ...(modal ? { role: 'dialog', 'aria-modal': true, 'aria-label': 'League chat' } : {}),
-        }}
-        sx={{
-          // The docked variant emits a real in-flow div beside the page, which
-          // in the shell's column stack was a permanent empty row (and its own
-          // 22px gap) on every dashboard. `contents` keeps the fixed paper and
-          // drops the box that generated the row.
-          '&.MuiDrawer-docked': { display: 'contents' },
-          '& .MuiDrawer-paper': {
-            width: { xs: '100vw', sm: 380 },
-            boxSizing: 'border-box',
-          },
-        }}
-      >
-        <Box sx={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}>
-          <Box sx={{ display: 'flex', justifyContent: 'flex-end', p: 1 }}>
-            <IconButton
-              onClick={() => setChatOpen(false)}
-              aria-label="Close chat"
-              sx={MIN_TOUCH_TARGET_SX}
-            >
-              <CloseIcon />
-            </IconButton>
-          </Box>
-          <Box sx={{ flex: 1, overflowY: 'auto', px: 1 }}>
-            <ChatPanel leagueId={leagueId} open={chatOpen} onUnreadChange={setChatUnread} />
-          </Box>
-        </Box>
-      </Drawer>
+      <PageHead
+        title={league.name}
+        chips={chips}
+        live={liveCount > 0 ? `${liveCount} ${liveCount === 1 ? 'matchup' : 'matchups'} live` : undefined}
+        right={inviteInStrip ? null : invite}
+      />
+
+      {sections.map(([key, node]) => (node ? <React.Fragment key={key}>{node}</React.Fragment> : null))}
+
+      <ChatLauncher leagueId={leagueId} />
     </>
   );
 }
 
 /**
- * The dashboard island's page frame: the `dash-*` token context (background,
- * ink, body face) plus the stacking gap between the header and the two grid
- * regions. Every state (loading, error, loaded) renders inside it so the island
- * background is constant.
+ * The page frame: the Play-select token context (Field ground, Ink text, the Archivo body face) on a
+ * `.ps-root` element, plus the stacking gap between the head and the frames. Every state (loading,
+ * error, loaded) renders inside it so the ground is constant.
  */
-function DashboardShell({ children }) {
+function Shell({ children }) {
   return (
-    <Box
-      sx={{
-        backgroundColor: 'var(--dash-bg)',
-        color: 'var(--dash-ink)',
-        fontFamily: 'var(--dash-font-body)',
-        minHeight: '100%',
-      }}
-    >
-      {/* A column flex container, NOT a grid. The grid this replaced had one
-          implicit `auto` track, so the widest min-content anywhere inside set
-          the document's width and a 560px table inside a 328px viewport pushed
-          every card sideways. In a column flex container the automatic minimum
-          applies to the block axis, so every child resolves to a zero inline
-          minimum with no per-child `minWidth: 0` and no `minmax` to maintain.
-          The extra bottom padding at xs is the fixed chat Fab's clearance
-          (56px tall at bottom: 24), which was landing on the last card. */}
-      <Container
-        maxWidth="lg"
+    <Box className="ps-root" sx={{ ...psRootSx, minHeight: '100%' }}>
+      {/* A column flex container, NOT a grid. A grid has one implicit `auto` track, so the widest
+          min-content anywhere inside sets the document's width and a wide table inside a narrow
+          viewport pushes every frame sideways. In a column flex container the automatic minimum
+          applies to the block axis, so every child resolves to a zero inline minimum with no
+          per-child `minWidth: 0` and no `minmax` to maintain. The extra bottom padding at xs is the
+          fixed chat button's clearance (56px tall at bottom: 24), which was landing on the last
+          frame. */}
+      <Box
         data-testid="dashboard-shell"
         sx={{
-          py: { xs: 2.5, sm: 3.5 },
-          pb: { xs: '96px', sm: '40px' },
+          maxWidth: '1280px',
+          marginX: 'auto',
+          boxSizing: 'border-box',
+          padding: { xs: '24px 16px 96px', sm: '40px 32px 64px' },
           display: 'flex',
           flexDirection: 'column',
-          gap: '22px',
+          gap: { xs: '24px', sm: '32px' },
         }}
       >
         {children}
-      </Container>
+      </Box>
     </Box>
   );
 }

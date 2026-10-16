@@ -1,7 +1,7 @@
 import React from 'react';
 import { Box } from '@mui/material';
 import { visuallyHidden } from '@mui/utils';
-import { Card } from '../../../shared/ui';
+import RetroCard from './RetroCard';
 import { gameState, gameLine, gameClock, liveCount } from '../model/scoreboardModel';
 import Icon from './icons';
 
@@ -16,7 +16,7 @@ import Icon from './icons';
  *
  * The live dot is `--danger`, as the canvas paints it (build.mjs, the Games
  * card's `.dot`) and as the slot-comparison widget on the same page paints
- * its own live marker: the dashboard group has no dash-danger, and `danger`
+ * its own live marker: the Play-select group has no danger-on-board token, and `danger`
  * is an app token defined in both themes (tokens.js), reached the way
  * `--radius-pill` is here. `data-tone` declares that paint where a test can
  * read it (jsdom drops a var() color from computed style). The state never
@@ -41,7 +41,7 @@ function Glyph({ state }) {
     );
   }
   return (
-    <Box data-testid="clock-glyph" sx={{ display: 'flex', color: 'var(--dash-faint)', flex: 'none' }}>
+    <Box data-testid="clock-glyph" sx={{ display: 'flex', color: 'var(--ps-dim)', flex: 'none' }}>
       <Icon name="clock" size={12} />
     </Box>
   );
@@ -51,7 +51,7 @@ export default function GamesTile({ games, headingLevel = 2, mobile }) {
   const rows = games || [];
   const live = liveCount(rows);
   return (
-    <Card
+    <RetroCard
       data-testid="games-tile"
       title="Games"
       count={`${live} live`}
@@ -59,7 +59,7 @@ export default function GamesTile({ games, headingLevel = 2, mobile }) {
     >
       <Box sx={{ p: mobile ? '10px 12px' : '10px 18px 14px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
         {rows.length === 0 && (
-          <Box sx={{ fontSize: '13px', color: 'var(--dash-dim)' }}>No games listed.</Box>
+          <Box sx={{ fontSize: '13px', color: 'var(--ps-dim)' }}>No games listed.</Box>
         )}
         {rows.map((game, i) => {
           const state = gameState(game);
@@ -68,7 +68,7 @@ export default function GamesTile({ games, headingLevel = 2, mobile }) {
               key={game.tank01_game_id ?? i}
               data-testid="game-row"
               data-state={state}
-              sx={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--dash-ink)' }}
+              sx={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--ps-ink)' }}
             >
               <Glyph state={state} />
               <Box
@@ -79,7 +79,7 @@ export default function GamesTile({ games, headingLevel = 2, mobile }) {
               </Box>
               <Box
                 component="span"
-                sx={{ fontSize: '12px', fontVariantNumeric: 'tabular-nums', color: 'var(--dash-faint)', whiteSpace: 'nowrap' }}
+                sx={{ fontSize: '12px', fontVariantNumeric: 'tabular-nums', color: 'var(--ps-dim)', whiteSpace: 'nowrap' }}
               >
                 {gameClock(game)}
               </Box>
@@ -87,6 +87,6 @@ export default function GamesTile({ games, headingLevel = 2, mobile }) {
           );
         })}
       </Box>
-    </Card>
+    </RetroCard>
   );
 }

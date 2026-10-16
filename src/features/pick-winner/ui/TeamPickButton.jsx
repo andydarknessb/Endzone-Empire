@@ -1,238 +1,203 @@
 import React from 'react';
-import { Box, Typography } from '@mui/material';
+import { Box } from '@mui/material';
 import { getTeamName } from '../lib/teamNames';
-import { getTeamKit, MIN_TOUCH_TARGET_SX, monogramInk } from '../../../shared/lib';
+import { PixelCheck, pixelSx } from '../../../shared/ui/playselect';
 
 /**
- * pick-winner feature (#1265, ADR 0038 "What to build"): one team's row on a
- * Pick'em GameCard - the monogram, abbreviation, full name, the venue-cut
- * Record (CONTEXT.md: entities/pickem-game's `recordsDisplayModel` already
- * picked the one number that informs this pick), the FAV tag, and the
- * team's own trailing figure, which the caller supplies rather than this
- * component inferring: a radio dot before kickoff, a live/final score once
- * one exists (`score`). `won` borders a settled winner even when it was not
- * the manager's pick; `dim` fades a settled loser regardless of whether it
- * was picked - both are the caller's own settled-game facts, never derived
- * here from `score` or `picked`.
+ * pick-winner feature (ADR 0038, Play-select in ADR 0067 wave 2): one team's button on a Pick'em
+ * GameCard, a 44px-plus square button: the abbreviation in Pixel 16 with the FAV tag and a
+ * possession dot, the full name, the venue-cut Record, the team's own score once one exists and
+ * the pick mark at the right.
  *
- * A real `<button>` for every state, per the acceptance criteria: its
- * accessible name NAMES the team (the full name, falling back to the Team
- * code when no full name is known), never the bare two-or-three letter code
- * alone, and it never drops below the 44px touch target at `xs`, matching
- * the canvas's 64px-tall team row at every width.
+ * The pick mark says the state in words, never colour alone. `picked` is a SAVED pick: the Play-blue
+ * fill, a pixel check and the word "Pick". `attempt` is a pick that is not saved yet (`state`
+ * "saving", "failed", or "draft" while a confidence pick waits for its rank): outlined in Play blue,
+ * an empty square and "Pick", no fill and no check, so an unsaved pick never looks saved. A locked
+ * game's button is disabled with its name unchanged and no opacity; `won` borders a settled winner
+ * in Ink and `lost` dims a settled loser's score, both the caller's facts.
  *
- * `aria-label` makes this button's whole subtree presentational to
- * assistive tech (ARIA's name computation short-circuits on an explicit
- * label), so the record and the live/final score - text that exists
- * NOWHERE else on the card once a game is live or final (accessibility
- * risk review, #1265) - would otherwise be lost to a screen reader
- * entirely. The accessible name is composed instead of a bare team name:
- * the team always leads it (satisfying "an aria-label naming the team"),
- * with the record and the score appended only when each is actually
- * present, so a pre-lock card without either still reads as plain as
- * "Detroit Lions".
- *
- * The monogram fill is this repo's own NFL team color table
- * (`src/shared/lib/nflTeamColors.js`, the color-literals guard's one allowlisted
- * source of real team hex values) rather than a wire field: the week
- * endpoint carries no per-team color (ADR 0038's "Team marks are
- * team-colour monograms, not hotlinked logos" names the mark, not its
- * source), and this table is already the below-island edge three other
- * island widgets (lineup-ledger, player-decision-card, retro-scoreboard)
- * compose directly for the same reason.
+ * The accessible name starts with the visible abbreviation (label in name) and carries every fact
+ * the visible subtree does not: "{ABBR}, {Team} over {Opponent}, {day time}{, locks in n min}
+ * {, N points}{, has the ball}{, winner}{, saved | saving | not saved, retry}", with `aria-pressed`
+ * for a saved pick.
  */
 export default function TeamPickButton({
   team,
+  opponent = null,
   fullName = null,
+  kickoff = null,
+  locksIn = null,
   record = null,
   favorite = false,
   picked = false,
+  attempt = false,
+  state = null,
   won = false,
-  dim = false,
+  lost = false,
   disabled = false,
   score = null,
-  scoreLost = false,
   possession = false,
   onSelect,
   'data-testid': testId,
 }) {
-  const resolvedFullName = fullName || getTeamName(team);
+  const name = fullName || getTeamName(team);
+  const opponentName = opponent ? getTeamName(opponent) : null;
   const hasScore = score != null;
-  const kit = getTeamKit(team);
 
-  // The team always leads (an aria-label naming the team), with the record
-  // and the score - each otherwise invisible to assistive tech once this
-  // button's own aria-label takes over its subtree - appended only when
-  // present.
-  const labelParts = [resolvedFullName || team];
-  if (record) labelParts.push(record);
-  if (hasScore) labelParts.push(`${score} points`);
-  const label = labelParts.join(', ');
+  const parts = [`${team}, ${name}${opponentName ? ` over ${opponentName}` : ''}`];
+  if (kickoff) parts.push(kickoff);
+  if (locksIn) parts.push(locksIn);
+  if (hasScore) parts.push(`${score} points`);
+  if (possession) parts.push('has the ball');
+  if (won) parts.push('winner');
+  if (picked && state === 'saved') parts.push('saved');
+  else if (attempt && state === 'saving') parts.push('saving');
+  else if (attempt && state === 'failed') parts.push('not saved, retry');
+  const label = parts.join(', ');
+
+  const filled = picked && !attempt;
+  const ink = filled ? 'var(--ps-play-ink)' : 'var(--ps-ink)';
+  const dim = filled ? 'var(--ps-play-dim)' : 'var(--ps-dim)';
+  let edge = 'var(--ps-dim)';
+  if (won) edge = 'var(--ps-ink)';
+  else if (filled || attempt) edge = 'var(--ps-play)';
+  else if (disabled) edge = 'var(--ps-rule)';
+
+  let mark = null;
+  if (attempt) {
+    mark = (
+      <>
+        <Box component="span" aria-hidden="true" sx={{ width: '16px', height: '16px', boxSizing: 'border-box', border: '2px solid var(--ps-play)', flex: 'none' }} />
+        Pick
+      </>
+    );
+  } else if (filled) {
+    mark = (
+      <>
+        <PixelCheck size={16} />
+        Pick
+      </>
+    );
+  }
 
   return (
     <Box
       component="button"
       type="button"
       aria-label={label}
-      aria-pressed={picked}
+      aria-pressed={filled}
       disabled={disabled}
       data-testid={testId || `team-pick-${team}`}
-      data-picked={picked || undefined}
+      data-picked={filled || undefined}
+      data-attempt={attempt || undefined}
       data-won={won || undefined}
       onClick={() => onSelect?.(team)}
       sx={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: '10px',
-        ...MIN_TOUCH_TARGET_SX,
-        minHeight: 64,
+        boxSizing: 'border-box',
         width: '100%',
-        p: '8px 10px',
-        border: '1px solid',
-        borderColor: picked ? 'var(--dash-accent)' : won ? 'var(--dash-away)' : 'var(--dash-line-strong)',
-        borderRadius: '10px',
-        backgroundColor: picked ? 'var(--dash-accent-soft)' : 'var(--dash-surface)',
-        boxShadow: picked ? 'inset 0 0 0 1px var(--dash-accent)' : 'none',
-        opacity: dim ? 0.7 : 1,
-        font: 'inherit',
+        minWidth: 0,
+        minHeight: { xs: '112px', sm: '76px' },
+        display: 'flex',
+        flexDirection: { xs: 'column', sm: 'row' },
+        alignItems: { xs: 'stretch', sm: 'center' },
+        gap: { xs: '4px', sm: '16px' },
+        padding: { xs: '10px 12px', sm: '10px 14px' },
+        borderRadius: 0,
         textAlign: 'left',
+        fontFamily: 'inherit',
+        fontSize: '16px',
+        lineHeight: 1.3,
+        backgroundColor: filled ? 'var(--ps-play)' : 'var(--ps-panel)',
+        color: ink,
+        border: `2px solid ${edge}`,
+        boxShadow: attempt ? 'inset 0 0 0 2px var(--ps-play)' : 'none',
         cursor: disabled ? 'default' : 'pointer',
-        '&:focus-visible': { outline: '2px solid var(--focus-ring)', outlineOffset: 2 },
+        // A disabled button keeps full contrast (no opacity, no UA grey) and no hover lift.
+        '&:disabled': { color: ink },
+        '&:disabled:hover': { filter: 'none' },
       }}
     >
-      <Box
-        aria-hidden="true"
-        sx={{
-          flex: 'none',
-          width: 36,
-          height: 36,
-          borderRadius: '999px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          fontFamily: 'var(--dash-font-display)',
-          fontWeight: 700,
-          fontSize: '14px',
-          letterSpacing: '0.04em',
-          // A fixed white or black, never a themed color: `kit.jersey` is a
-          // real external NFL brand color, not a themed one, so the ink
-          // painted on it has to stay fixed alongside it regardless of
-          // light/dark mode. `monogramInk` (#1301) derives which of the two
-          // clears WCAG 1.4.3's 4.5:1 against this specific jersey - a fixed
-          // white failed CIN, MIA, CAR and LAC, and the neutral fallback kit,
-          // by measurement.
-          color: monogramInk(kit.jersey),
-          border: '1px solid var(--dash-line-strong)',
-          backgroundColor: kit.jersey,
-        }}
-      >
-        {team}
-      </Box>
-
-      <Box sx={{ minWidth: 0, flex: 1, display: 'flex', flexDirection: 'column' }}>
-        <Typography
-          component="span"
-          sx={{
-            fontFamily: 'var(--dash-font-display)',
-            fontWeight: 700,
-            fontSize: '18px',
-            letterSpacing: '0.06em',
-            lineHeight: 1,
-            color: 'var(--dash-ink)',
-          }}
-        >
+      <Box component="span" sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '2px' }}>
+        <Box component="span" sx={{ ...pixelSx(16), lineHeight: 1.2, display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
           {team}
           {favorite && (
             <Box
               component="span"
               data-testid="fav-tag"
               sx={{
-                fontSize: '10px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                boxSizing: 'border-box',
+                height: '22px',
+                padding: '0 6px',
+                border: '2px solid currentColor',
+                fontFamily: 'Archivo, sans-serif',
+                fontSize: '13px',
                 fontWeight: 700,
-                letterSpacing: '0.08em',
-                color: 'var(--dash-home)',
-                backgroundColor: 'var(--dash-home-soft)',
-                borderRadius: '4px',
-                padding: '2px 4px',
-                ml: '6px',
-                verticalAlign: 'middle',
+                letterSpacing: '.04em',
+                lineHeight: 1,
+                flex: 'none',
               }}
             >
               FAV
             </Box>
           )}
           {possession && (
-            <Box
-              component="span"
-              aria-hidden="true"
-              data-testid="possession-dot"
-              sx={{
-                width: 8,
-                height: 8,
-                borderRadius: '999px',
-                backgroundColor: 'var(--dash-warning)',
-                display: 'inline-block',
-                ml: '6px',
-                verticalAlign: 'middle',
-              }}
-            />
+            <Box component="span" aria-hidden="true" data-testid="possession-dot" sx={{ width: '8px', height: '8px', backgroundColor: 'currentColor', flex: 'none' }} />
           )}
-        </Typography>
-        {resolvedFullName && (
-          <Typography
-            component="span"
-            sx={{
-              fontSize: '12px',
-              color: 'var(--dash-dim)',
-              whiteSpace: 'nowrap',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-            }}
-          >
-            {resolvedFullName}
-          </Typography>
-        )}
+        </Box>
+        <Box component="span" sx={{ fontSize: '14px', fontWeight: 600, overflowWrap: 'anywhere' }}>{name}</Box>
         {record && (
-          <Typography
-            component="span"
-            sx={{ fontSize: '11px', color: 'var(--dash-faint)', fontVariantNumeric: 'tabular-nums' }}
-          >
-            {record}
-          </Typography>
+          <Box component="span" sx={{ fontSize: '13px', color: dim, fontVariantNumeric: 'tabular-nums' }}>{record}</Box>
         )}
       </Box>
 
-      {hasScore ? (
-        <Typography
+      <Box
+        component="span"
+        sx={{
+          display: 'flex',
+          flexDirection: { xs: 'row', sm: 'row-reverse' },
+          alignItems: 'center',
+          justifyContent: { xs: 'space-between', sm: 'flex-start' },
+          gap: { xs: '8px', sm: '16px' },
+          minHeight: { xs: '32px', sm: 0 },
+          marginTop: { xs: 'auto', sm: 0 },
+          flex: 'none',
+        }}
+      >
+        <Box
           component="span"
-          data-testid="team-score"
+          data-testid="team-mark"
           sx={{
-            fontFamily: 'var(--dash-font-display)',
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: { xs: 'flex-start', sm: 'flex-end' },
+            gap: '8px',
+            minWidth: { sm: '76px' },
+            fontSize: '15px',
             fontWeight: 700,
-            fontSize: '26px',
-            lineHeight: 1,
-            fontVariantNumeric: 'tabular-nums',
-            color: scoreLost ? 'var(--dash-faint)' : 'var(--dash-ink)',
           }}
         >
-          {score}
-        </Typography>
-      ) : (
-        <Box
-          aria-hidden="true"
-          data-testid="team-radio"
-          sx={{
-            flex: 'none',
-            width: 18,
-            height: 18,
-            borderRadius: '999px',
-            border: '2px solid',
-            borderColor: picked ? 'var(--dash-accent)' : 'var(--dash-line-strong)',
-            backgroundColor: picked ? 'var(--dash-accent)' : 'transparent',
-            boxShadow: picked ? 'inset 0 0 0 3px var(--dash-surface)' : 'none',
-          }}
-        />
-      )}
+          {mark}
+          {!mark && !disabled && (
+            <Box component="span" aria-hidden="true" sx={{ width: '16px', height: '16px', boxSizing: 'border-box', border: '2px solid var(--ps-dim)', flex: 'none' }} />
+          )}
+        </Box>
+        {hasScore && (
+          <Box
+            component="span"
+            data-testid="team-score"
+            sx={{
+              ...pixelSx(24),
+              lineHeight: 1.2,
+              fontVariantNumeric: 'tabular-nums',
+              color: lost ? dim : ink,
+            }}
+          >
+            {score}
+          </Box>
+        )}
+      </Box>
     </Box>
   );
 }

@@ -19,10 +19,9 @@ import { deriveLeaguePhase, LEAGUE_PHASE } from '../../shared/lib/leaguePhase';
 import { usePostgameCutscenes, PostgameCutscenes } from '../../features/postgame-cutscene';
 import homeTheme from './homeTheme';
 import {
-  Frame, FrameHead, HomeButton, HomeLink, PixelHeading, PlayCard, pixelSx,
-} from './home';
+  Frame, FrameHead, PsButton, PsLink, PixelHeading, PlayCard, pixelSx, psRootSx,
+} from '../../shared/ui/playselect';
 import { useLiveRefresh } from './useLiveRefresh';
-import { homeRootSx } from '../common/homeIslandSx';
 import { lazyWithReload } from '../../shared/lib/lazyWithReload';
 
 // Lazy: PublicHighlights (the Columns frame) imports the strategy-article
@@ -128,11 +127,11 @@ function StartHere({ onCreate, onJoin }) {
           sx={{
             gridColumn: { md: 'span 2' },
             p: { xs: '12px 4px 0', md: '12px 12px 12px 20px' },
-            borderTop: { xs: '2px solid var(--home-rule)', md: 0 },
-            borderLeft: { md: '2px solid var(--home-rule)' },
+            borderTop: { xs: '2px solid var(--ps-rule)', md: 0 },
+            borderLeft: { md: '2px solid var(--ps-rule)' },
           }}
         >
-          <Box component="h3" sx={{ m: '0 0 4px', ...pixelSx(16), color: 'var(--home-dim)' }}>How it works</Box>
+          <Box component="h3" sx={{ m: '0 0 4px', ...pixelSx(16), color: 'var(--ps-dim)' }}>How it works</Box>
           <Box component="ol" sx={{ listStyle: 'none', m: 0, p: 0 }}>
             {FIRST_RUN_STEPS.map(([title, body], i) => (
               <Box
@@ -143,13 +142,13 @@ function StartHere({ onCreate, onJoin }) {
                   gridTemplateColumns: { xs: '28px 1fr', md: '32px 1fr' },
                   gap: '12px',
                   p: '12px 0',
-                  borderBottom: i === FIRST_RUN_STEPS.length - 1 ? 0 : '2px solid var(--home-rule)',
+                  borderBottom: i === FIRST_RUN_STEPS.length - 1 ? 0 : '2px solid var(--ps-rule)',
                 }}
               >
                 <Box component="span" sx={pixelSx(16)}>{i + 1}</Box>
                 <Box>
                   <Box sx={{ fontWeight: 600 }}>{title}</Box>
-                  <Box sx={{ fontSize: '14px', color: 'var(--home-dim)' }}>{body}</Box>
+                  <Box sx={{ fontSize: '14px', color: 'var(--ps-dim)' }}>{body}</Box>
                 </Box>
               </Box>
             ))}
@@ -163,13 +162,13 @@ function StartHere({ onCreate, onJoin }) {
           alignItems: 'center',
           gap: '4px 12px',
           p: { xs: '4px 14px', md: '4px 16px' },
-          borderTop: '2px solid var(--home-rule)',
+          borderTop: '2px solid var(--ps-rule)',
           fontSize: '14px',
-          color: 'var(--home-dim)',
+          color: 'var(--ps-dim)',
         }}
       >
         Not ready yet?
-        <HomeLink to="/draft-sim">Practice a mock draft</HomeLink>
+        <PsLink to="/draft-sim">Practice a mock draft</PsLink>
       </Box>
     </Frame>
   );
@@ -376,13 +375,13 @@ function UserPage() {
           display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '8px', '& > *': { width: '100%' },
         }}
     >
-      <HomeButton variant="ghost" onClick={handleOpenJoinDialog}>Join a league</HomeButton>
-      <HomeButton variant="ghost" onClick={handleOpenCreateDialog}>Create a league</HomeButton>
+      <PsButton variant="ghost" onClick={handleOpenJoinDialog}>Join a league</PsButton>
+      <PsButton variant="ghost" onClick={handleOpenCreateDialog}>Create a league</PsButton>
     </Box>
   );
 
   return (
-    // Home is on Play-select (DESIGN.md "Home surface: Play-select"): homeTheme
+    // Home is on Play-select (DESIGN.md "Play-select: Home and league pages"): homeTheme
     // sets every Typography, button and input in Archivo, and the root paints
     // the home token context. Nav and Footer stay on the app tokens.
     <ThemeProvider theme={theme}>
@@ -396,11 +395,11 @@ function UserPage() {
       <Box
         component="section"
         id="user-main-content"
-        className="home-root"
+        className="ps-root"
         tabIndex={-1}
         aria-labelledby="user-page-heading"
         sx={{
-          ...homeRootSx, display: 'flex', flexDirection: 'column', flexGrow: 1, mt: `-${NAV_GAP}`, mb: `-${FOOTER_GAP}`,
+          ...psRootSx, display: 'flex', flexDirection: 'column', flexGrow: 1, mt: `-${NAV_GAP}`, mb: `-${FOOTER_GAP}`,
         }}
       >
         <Box

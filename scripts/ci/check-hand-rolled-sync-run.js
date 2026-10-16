@@ -43,6 +43,12 @@
  *   - `server/services/holdout.service.js` - takes
  *     `pg_advisory_xact_lock(hashtext($1))` inside its own transaction; not
  *     a Sync run.
+ *   - `server/services/pickem.service.js` - `upsertPicks` takes
+ *     `pg_advisory_xact_lock(hashtext($1))` on `pickem:{league}:{user}:{season}:{week}` as the
+ *     statement before it reads the member's held confidence ranks, inside its own
+ *     `withTransaction`, so two overlapping saves of one member's week cannot both claim a rank
+ *     (ADR 0067 wave 2, #2334). Not a Sync run, and a hashed key like holdout's, so it never
+ *     collides with the fixed ids in server/modules/advisoryLock.js.
  *   - `server/services/sleeper.service.js` - ruled on #1251 criterion 7:
  *     `upsertSeasonStats` takes a direct blocking
  *     `pg_advisory_xact_lock(23004)` inside its own transaction (#1251 landed
@@ -92,6 +98,7 @@ const LOCK_ALLOWED_FILES = Object.freeze(new Set([
   'server/modules/syncRun.js',
   'server/modules/advisoryLock.js',
   'server/services/holdout.service.js',
+  'server/services/pickem.service.js',
   'server/services/sleeper.service.js',
 ]));
 

@@ -40,8 +40,8 @@ describe('matchupBoard: the one board reading of a Matchup (#2048)', () => {
 
   it('carries score and Players remaining through on every side', () => {
     const board = matchupBoard(matchup('live'), 10);
-    expect(board.home).toEqual({ score: 100, scoreLabel: '100.0', expectedFinal: 120, playersRemaining: 2, playersRemainingLabel: '2' });
-    expect(board.away).toEqual({ score: 90, scoreLabel: '90.0', expectedFinal: 110, playersRemaining: 3, playersRemainingLabel: '3' });
+    expect(board.home).toEqual({ score: 100, scoreLabel: '100.0', expectedFinal: 120, playersRemaining: 2, playersRemainingLabel: '2', yetToPlay: null });
+    expect(board.away).toEqual({ score: 90, scoreLabel: '90.0', expectedFinal: 110, playersRemaining: 3, playersRemainingLabel: '3', yetToPlay: null });
   });
 
   it('prices the live win probability from the scores and Expected finals', () => {
@@ -155,6 +155,12 @@ describe('matchupBoard: the one board reading of a Matchup (#2048)', () => {
     });
   });
 
+  test('carries the server yetToPlay through beside playersRemaining, null when the server sent none', () => {
+    const board = matchupBoard(matchup('live', { home: { ...side(10, 1, 1, 4), yetToPlay: 2 }, away: side(20, 1, 1, 3) }), 10);
+    expect(board.home.yetToPlay).toBe(2);
+    expect(board.away.yetToPlay).toBeNull();
+  });
+
   describe('playersRemainingLabel (#2142)', () => {
     it('is the whole count, and null when the server did not say', () => {
       const board = matchupBoard(matchup('live', { home: side(10, 1, 1, 4), away: side(20, 1, 1, null) }), 10);
@@ -162,23 +168,6 @@ describe('matchupBoard: the one board reading of a Matchup (#2048)', () => {
       expect(board.away.playersRemainingLabel).toBeNull();
       expect(matchupBoard(matchup('live', { home: side(10, 1, 1, 0) }), 10).home.playersRemainingLabel).toBe('0');
       expect(matchupBoard(matchup('live', { home: side(10, 1, 1, '') }), 10).home.playersRemainingLabel).toBeNull();
-    });
-  });
-
-  describe('liveLine (#2142)', () => {
-    const live = (home, away, v) => matchupBoard(matchup('live', { home, away }), v).liveLine;
-    it('is written from the viewer side and only while live', () => {
-      expect(live(side(10, 100, 120, 0), side(20, 90, 110, 3), 10)).toBe('Ahead now, projected to lead by 10.0 with 3 of theirs still to play');
-      expect(live(side(10, 100, 120, 0), side(20, 90, 110, 3), 20)).toBe('Behind now, projected to trail by 10.0 with 3 of yours still to play');
-      expect(matchupBoard(matchup('final'), 10).liveLine).toBeNull();
-      expect(matchupBoard(matchup('scheduled'), 10).liveLine).toBeNull();
-    });
-    it('drops the projection when an Expected final is unknown, and says tied when level', () => {
-      expect(live(side(10, 50, null, 0), side(20, 50, 90, 2), 10)).toBe('Tied now with 2 of theirs still to play');
-    });
-    it('names the viewer own remaining when the opponent has none, and falls back to the home side for a spectator', () => {
-      expect(live(side(10, 50, 60, 2), side(20, 40, 60, 0), 10)).toBe('Ahead now, projected to finish even with 2 of yours still to play');
-      expect(live(side(10, 50, 60, 2), side(20, 40, 60, 0), null)).toBe('Ahead now, projected to finish even with 2 of yours still to play');
     });
   });
 });

@@ -71,7 +71,9 @@ export function useStandingsTable(leagueId) {
   // The week is the entity's caller's to supply (#942 ruling R4: no League
   // entity slice), and the card's three spine states come back on `status`,
   // the same mapping my-team-summary reads.
-  const { status, rows: standingRows, playoffTeams: bracketSize } = useLeagueStandings(
+  const {
+    status, rows: standingRows, playoffTeams: bracketSize, refetch,
+  } = useLeagueStandings(
     leagueId,
     league?.current_week,
   );
@@ -93,7 +95,7 @@ export function useStandingsTable(leagueId) {
       avatarUrl: team?.avatar_url ?? null,
       avatarStaticUrl: team?.avatar_static_url ?? null,
       isViewer: row.teamId != null && row.teamId === viewerTeamId,
-      // A CPU-managed team (ADR 0067) is labelled beside its name.
+      // A CPU-managed team (ADR 0068) is labelled beside its name.
       isCpu: Boolean(team?.is_cpu),
       // The Record arrives FORMATTED from the entity, which owns the tie rule
       // (CONTEXT.md, Record); nothing here re-derives it. Points are the
@@ -131,7 +133,7 @@ export function useStandingsTable(leagueId) {
   const bracketSplits = !preseason && bracketSize > 0 && bracketSize < rows.length;
   const cutIndex = bracketSplits ? rows.findIndex((row) => row.playoffSeed == null) : -1;
 
-  return { status, rows, preseason, teamCount, cutIndex };
+  return { status, rows, preseason, teamCount, cutIndex, refetch };
 }
 
 export default useStandingsTable;

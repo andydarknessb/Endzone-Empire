@@ -5,7 +5,7 @@ import { useLeague } from '../../../hooks/useLeague';
 import { useStandings } from '../../../hooks/useStandings';
 import { formatPoints, parseRosterSlots } from '../../../shared/lib';
 import {
-  useMatchup, matchupBoard, matchupFromDetailBody, playerFromDetailRow, deltasFor,
+  useMatchup, matchupBoard, matchupFromDetailBody, playerFromDetailRow, deltasFor, playersRemaining,
 } from '../../../entities/matchup';
 import { pairStartersBySlot } from '../../../entities/roster';
 import { recordsByTeamId } from '../../../entities/standings';
@@ -205,10 +205,26 @@ export function useMatchupPage(leagueId, matchupId) {
     }
   }, [handlePlays]);
 
-  const { matchup, detail, homeStarters, awayStarters, loading, error, refetch } = useMatchup(leagueId, matchupId, {
+  const {
+    matchup: readMatchup, detail, homeStarters, awayStarters, loading, error, refetch,
+  } = useMatchup(leagueId, matchupId, {
     onScores: handleScores,
     slotOrder,
   });
+
+  // Players remaining is the server's number (the one definition: not final, not Out, not unavailable).
+  // Only when the server left either side's count out do both come from the client helper over the
+  // starters and the live game rows, so the two sides never mix sources.
+  const matchup = useMemo(() => {
+    if (!readMatchup) return readMatchup;
+    const missing = readMatchup.home?.playersRemaining == null || readMatchup.away?.playersRemaining == null;
+    if (!missing || !homeStarters?.length || !awayStarters?.length) return readMatchup;
+    return {
+      ...readMatchup,
+      home: { ...readMatchup.home, playersRemaining: playersRemaining(homeStarters, readMatchup.games) },
+      away: { ...readMatchup.away, playersRemaining: playersRemaining(awayStarters, readMatchup.games) },
+    };
+  }, [readMatchup, homeStarters, awayStarters]);
 
   // Starters arrive from the entity unpaired (#1210); the page model pairs
   // them by slot (entities/roster's fact, ADR 0029) and refuses without the
@@ -322,6 +338,8 @@ export function useMatchupPage(leagueId, matchupId) {
     detail,
     starterRows,
     scoreboardRows,
+    homeStarters,
+    awayStarters,
     loading,
     error,
     refetch,

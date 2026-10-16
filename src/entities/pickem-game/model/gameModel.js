@@ -29,9 +29,16 @@ function pickFor(gameKey, myPicks) {
  * `game` is one entry of the week endpoint's `games` array; `myPicks` is that
  * response's sibling array of the viewer's own picks (never on the game row
  * itself, since the same game row is shared by every viewer of the league).
+ *
+ * `now` (epoch ms), when given, applies the server's own rule on the client: a game locks
+ * INCLUSIVELY at kickoff (`kickoff_at <= now()`, pickem.service.js `isGameLocked`), so a board left
+ * open past a kickoff shows the game locked at the next repaint with no refetch. The wire's `locked`
+ * flag still wins when it is set (a fetched row can be locked before the local clock says so).
  */
-export function gameModel(game, myPicks) {
+export function gameModel(game, myPicks, now = null) {
   const pick = pickFor(game.gameKey, myPicks);
+  const kickedOff = now != null && new Date(game.kickoffAt).getTime() <= now;
+  const lock = Boolean(game.locked) || kickedOff;
   return {
     gameKey: game.gameKey,
     // Away@home order (the broadcast convention, "visitor at home"), the
@@ -43,8 +50,8 @@ export function gameModel(game, myPicks) {
       ? [game.awayTeam, game.homeTeam]
       : (Array.isArray(game.teams) ? game.teams.slice(0, 2) : [game.awayTeam ?? null, game.homeTeam ?? null]),
     kickoff: game.kickoffAt,
-    lock: Boolean(game.locked),
-    phase: gamePhase(game),
+    lock,
+    phase: gamePhase({ ...game, locked: lock }),
     myPick: pick ? pick.pickedTeam : null,
     confidence: pick && pick.confidence != null ? pick.confidence : null,
   };

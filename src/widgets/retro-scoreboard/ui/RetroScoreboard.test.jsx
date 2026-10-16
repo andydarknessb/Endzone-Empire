@@ -338,8 +338,8 @@ test('no callout renders without an active play, and a touchdown dashes the spri
   // side's token through currentColor, under its Team's initials.
   expect(screen.getByTestId('sprite-home')).toHaveAttribute('data-kit', 'rest');
   expect(screen.getByTestId('sprite-away')).toHaveAttribute('data-kit', 'rest');
-  expect(screen.getByTestId('sprite-home')).toHaveStyle({ color: 'var(--dash-home)' });
-  expect(screen.getByTestId('sprite-away')).toHaveStyle({ color: 'var(--dash-away)' });
+  expect(screen.getByTestId('sprite-home')).toHaveStyle({ color: 'var(--ps-play)' });
+  expect(screen.getByTestId('sprite-away')).toHaveStyle({ color: 'var(--ps-board-dim)' });
   expect(within(screen.getByTestId('sprite-home')).getByText('DD')).toBeInTheDocument();
   expect(within(screen.getByTestId('sprite-away')).getByText('FF')).toBeInTheDocument();
 

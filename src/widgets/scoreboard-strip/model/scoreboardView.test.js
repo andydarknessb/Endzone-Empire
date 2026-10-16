@@ -56,14 +56,14 @@ test('derives both sides from the entity model: names, scores, figures and compl
   expect(Math.round(view.homeShare * 100)).toBe(view.home.winPct);
 });
 
-// The bar is gated on `hasStarted === true` and nothing looser. Red-tell:
-// gating on `hasStarted !== false` turns the null-status case red and no other.
+// The bar prices the scores once started and the projections before kickoff; a status the server
+// could not state prices nothing (null, bogus), and a settled matchup states its result instead
+// (#2007). Red-tell: defaulting the unknown status to 50/50 turns the null rows red.
 test.each([
   ['live', true],
-  // Played and final state the result instead of a bar (#2007).
   ['played', false],
   ['final', false],
-  ['scheduled', false],
+  ['scheduled', true],
   [null, false],
   ['bogus', false],
 ])('showBar for status %p is %p', (status, expected) => {
@@ -126,4 +126,31 @@ test('falls back to Home / Away for a side with no name and survives an empty mo
   expect(empty.home.score).toBe('0.0');
   expect(empty.showBar).toBe(false);
   expect(empty.chip).toBeNull();
+});
+
+test('once started the big figure is the score, and the margin is the leader by the gap in words', () => {
+  const view = scoreboardView(detail());
+  expect(view.started).toBe(true);
+  expect(view.home.figure).toBe('82.2');
+  expect(view.away.figure).toBe('77.0');
+  expect(view.leader).toBe('home');
+  expect(view.marginText).toBe('Duluth Dockworkers by 5.2');
+  expect(scoreboardView(detail({ matchup: { home_score: 70, away_score: 77 } })).marginText).toBe('Fargo Frostbite by 7.0');
+  expect(scoreboardView(detail({ matchup: { home_score: 77, away_score: 77 } })).marginText).toBe('Tied');
+});
+
+test('before kickoff the big figure is the Proj (the Expected final), not a 0.0 score, and the margin follows it', () => {
+  const view = scoreboardView(detail({ matchup: { status: 'scheduled', home_score: 0, away_score: 0 } }));
+  expect(view.started).toBe(false);
+  expect(view.home.figure).toBe('110.5');
+  expect(view.away.figure).toBe('123.9');
+  expect(view.leader).toBe('away');
+  expect(view.marginText).toBe('Fargo Frostbite by 13.4');
+});
+
+test('with no Proj there is no margin to state', () => {
+  const view = scoreboardView(detail({ matchup: { status: 'scheduled' }, home: { expectedFinal: null } }));
+  expect(view.home.figure).toBeNull();
+  expect(view.marginText).toBeNull();
+  expect(view.leader).toBeNull();
 });

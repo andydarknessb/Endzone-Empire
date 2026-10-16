@@ -1,89 +1,110 @@
-import React, { useId } from 'react';
-import { FormControl, MenuItem, Select } from '@mui/material';
-import { visuallyHidden } from '@mui/utils';
+import React from 'react';
+import { Box } from '@mui/material';
 
 /**
- * set-confidence feature (#1265, ADR 0038 "What to build"): the per-card
- * Confidence chip, a menu of 1 to the slate size with numbers already spent
- * on another game disabled, matching the server's own validation
- * (CONTEXT.md, Confidence: "each number used at most once across the
- * week"). The trigger always reads "Confidence N" (or "Confidence --"
- * before a number is picked), the canvas's `.conf` chip; the word is never
- * "rank" (house style, CONTEXT.md's Confidence entry: "_Avoid_: rank").
+ * set-confidence feature (ADR 0038, restyled for Play-select in ADR 0067 wave 2): the per-card
+ * Confidence control, the kit select: a native 44px select whose empty value reads
+ * "Confidence: none" and whose options read "Confidence {n}". Choosing a rank saves it (the
+ * board owns the save).
  *
- * `disabledValues` names the numbers another game on this week's slate has
- * already claimed - never this menu's own current `value`, which stays
- * selectable so re-opening the menu does not lock a manager out of the
- * number they are already on.
+ * `usedBy` maps a rank to the game that holds it, `{ [rank]: { label: 'DAL @ DEN', locked } }`
+ * (never this menu's own `value`). A rank held by an open game reads "· used by {label}" and
+ * stays choosable, because choosing it swaps the two games' ranks. A rank held by a game that
+ * has kicked off reads "· locked, {label}", is `disabled` and `aria-disabled`, and cannot be
+ * chosen: the server would refuse to move it. `swappable={false}` (a game with no rank of its
+ * own yet has nothing to give the holder in a swap) disables the open-game ranks as well.
  *
- * `bad` paints the canvas's `.conf.bad` state (a PICKEM_BAD_CONFIDENCE
- * flag: two games saved under the same number); it never disables the
- * control, since the manager's next move is to change ONE of the two, not
- * to be locked out of doing so.
+ * `canClear={false}` drops "Confidence: none" once the game has a rank: a confidence pick cannot exist
+ * without one, so the menu does not offer the way back (the empty value shows only while there is none).
+ *
+ * `disabled` is the solid Rule edge with Dim text: no dash and no opacity. `bad` paints the
+ * Danger edge for a refused save without disabling the control. `aria-describedby` points at the
+ * window head's hint ("Pick a team to set its confidence") while the control is disabled.
  */
 export default function ConfidenceMenu({
   value = null,
   max,
-  disabledValues = [],
+  usedBy = {},
+  swappable = true,
+  canClear = true,
   disabled = false,
   bad = false,
   onChange,
   'aria-label': ariaLabel = 'Confidence',
+  'aria-describedby': describedBy,
   'data-testid': testId = 'confidence-menu',
 }) {
-  const labelId = useId();
-  const disabledSet = disabledValues instanceof Set ? disabledValues : new Set(disabledValues);
-  const options = Array.from({ length: Math.max(0, max || 0) }, (unused, index) => index + 1);
-  const selectValue = value == null ? '' : value;
+  const ranks = Array.from({ length: Math.max(0, max || 0) }, (unused, index) => index + 1);
+  const edge = bad ? 'var(--ps-danger)' : disabled ? 'var(--ps-rule)' : 'var(--ps-dim)';
+  const ink = disabled ? 'var(--ps-dim)' : 'var(--ps-ink)';
 
   return (
-    <FormControl
-      size="small"
-      disabled={disabled}
+    <Box
       data-testid={testId}
       data-bad={bad || undefined}
-      data-empty={value == null || undefined}
-      sx={{
-        minWidth: 0,
-        '& .MuiOutlinedInput-root': {
-          height: 28,
-          borderRadius: '8px',
-          fontSize: '12px',
-          fontWeight: 600,
-          color: bad ? 'var(--dash-danger)' : value == null ? 'var(--dash-faint)' : 'var(--dash-ink)',
-          backgroundColor: 'var(--dash-surface)',
-          '& fieldset': {
-            borderColor: bad ? 'var(--dash-danger)' : 'var(--dash-line-strong)',
-            borderStyle: value == null && !bad ? 'dashed' : 'solid',
-          },
-        },
-      }}
+      sx={{ position: 'relative', width: '208px', maxWidth: '100%', flex: 'none' }}
     >
-      <span id={labelId} style={{ ...visuallyHidden }}>{ariaLabel}</span>
-      <Select
-        labelId={labelId}
-        value={selectValue}
-        displayEmpty
-        onChange={(event) => {
-          const raw = event.target.value;
-          onChange?.(raw === '' ? null : Number(raw));
+      <Box
+        component="select"
+        aria-label={ariaLabel}
+        aria-describedby={describedBy}
+        disabled={disabled}
+        value={value == null ? '' : String(value)}
+        data-testid={`${testId}-input`}
+        onChange={(event) => onChange?.(event.target.value === '' ? null : Number(event.target.value))}
+        sx={{
+          boxSizing: 'border-box',
+          height: '44px',
+          width: '100%',
+          appearance: 'none',
+          opacity: 1,
+          borderRadius: 0,
+          backgroundColor: 'var(--ps-field)',
+          color: ink,
+          border: `2px solid ${edge}`,
+          fontFamily: 'inherit',
+          fontSize: '15px',
+          fontWeight: 600,
+          padding: '0 56px 0 12px',
+          cursor: disabled ? 'not-allowed' : 'pointer',
         }}
-        renderValue={(raw) => `Confidence ${raw === '' ? '--' : raw}`}
-        inputProps={{ 'data-testid': `${testId}-input` }}
       >
-        <MenuItem value="">
-          <em>None</em>
-        </MenuItem>
-        {options.map((number) => (
-          <MenuItem
-            key={number}
-            value={number}
-            disabled={number !== value && disabledSet.has(number)}
-          >
-            {number}
-          </MenuItem>
-        ))}
-      </Select>
-    </FormControl>
+        {(value == null || canClear) && <option value="">Confidence: none</option>}
+        {ranks.map((rank) => {
+          const held = rank === value ? null : usedBy[rank];
+          const locked = Boolean(held && held.locked);
+          const blocked = locked || Boolean(held && !swappable);
+          let suffix = '';
+          if (locked) suffix = ` · locked, ${held.label}`;
+          else if (held) suffix = ` · used by ${held.label}`;
+          return (
+            <option key={rank} value={rank} disabled={blocked} aria-disabled={blocked || undefined}>
+              {`Confidence ${rank}${suffix}`}
+            </option>
+          );
+        })}
+      </Box>
+      <Box
+        component="span"
+        aria-hidden="true"
+        sx={{
+          position: 'absolute',
+          right: 0,
+          top: 0,
+          width: '44px',
+          height: '44px',
+          display: 'grid',
+          placeItems: 'center',
+          pointerEvents: 'none',
+          borderLeft: `2px solid ${edge}`,
+          boxSizing: 'border-box',
+          color: ink,
+        }}
+      >
+        <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
+          <path d="M1 2h10v2H9v2H7v2H5V6H3V4H1z" fill="currentColor" />
+        </svg>
+      </Box>
+    </Box>
   );
 }

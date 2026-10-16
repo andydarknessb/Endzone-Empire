@@ -1,9 +1,7 @@
 import React from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import { Box } from '@mui/material';
-import { Frame } from './Frame';
-import { HomeLink } from './Controls';
-import { pixelSx } from './homeType';
+import { Frame, PsLink, pixelSx } from '../../../shared/ui/playselect';
 
 // League links always run in this order and keep only the ones the league has.
 const LINK_ORDER = ['Matchup', 'Lineup', 'Picks', 'Waivers'];
@@ -24,16 +22,16 @@ export function LeagueLinks({
       aria-label={league}
       sx={onBoard
         ? {
-          display: 'flex', flexWrap: 'wrap', margin: 'auto -10px -6px', paddingTop: '4px', borderTop: '2px solid var(--home-board-rule)',
+          display: 'flex', flexWrap: 'wrap', margin: 'auto -10px -6px', paddingTop: '4px', borderTop: '2px solid var(--ps-board-rule)',
         }
         : {
-          marginTop: 'auto', display: 'flex', flexWrap: 'wrap', padding: '4px 6px', borderTop: '2px solid var(--home-rule)',
+          marginTop: 'auto', display: 'flex', flexWrap: 'wrap', padding: '4px 6px', borderTop: '2px solid var(--ps-rule)',
         }}
     >
       {ordered.map((l) => (
-        <HomeLink key={l.label} to={l.to} onBoard={onBoard} ariaLabel={`${league} ${l.label.toLowerCase()}`}>
+        <PsLink key={l.label} to={l.to} onBoard={onBoard} ariaLabel={`${league} ${l.label.toLowerCase()}`}>
           {l.label}
-        </HomeLink>
+        </PsLink>
       ))}
     </Box>
   );
@@ -60,11 +58,11 @@ export function LeaguePanel({
           justifyContent: 'space-between',
           gap: '4px 12px',
           padding: { xs: '12px 14px', md: '12px 16px' },
-          borderBottom: '2px solid var(--home-rule)',
+          borderBottom: '2px solid var(--ps-rule)',
         }}
       >
-        <Box component="h3" id={id} sx={{ m: 0, ...pixelSx(16), color: 'var(--home-ink)' }}>{title}</Box>
-        {right && <Box component="span" sx={{ fontSize: '14px', color: 'var(--home-dim)' }}>{right}</Box>}
+        <Box component="h3" id={id} sx={{ m: 0, ...pixelSx(16), color: 'var(--ps-ink)' }}>{title}</Box>
+        {right && <Box component="span" sx={{ fontSize: '14px', color: 'var(--ps-dim)' }}>{right}</Box>}
       </Box>
       <Box sx={{ padding: { xs: '14px', md: '16px' }, display: 'flex', flexDirection: 'column', gap: '16px' }}>
         {children}

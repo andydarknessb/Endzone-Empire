@@ -136,7 +136,7 @@ router.get('/league/:leagueId/week/:week', async (req, res) => {
   }
 });
 
-// PUT /api/pickem/league/:leagueId/week/:week/picks — bulk, all-or-nothing save
+// PUT /api/pickem/league/:leagueId/week/:week/picks — all-or-nothing save of one or more picks (pickedTeam null clears a pick)
 router.put('/league/:leagueId/week/:week/picks', async (req, res) => {
   const leagueId = intParam(req.params.leagueId);
   if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });

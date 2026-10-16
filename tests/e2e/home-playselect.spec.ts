@@ -77,10 +77,10 @@ for (const state of STATES) {
           scrollWidth: document.documentElement.scrollWidth,
           clientWidth: document.documentElement.clientWidth,
           bodyScrollWidth: document.body.scrollWidth,
-          background: getComputedStyle(document.querySelector('.home-root') as Element).backgroundColor,
+          background: getComputedStyle(document.querySelector('.ps-root') as Element).backgroundColor,
           // The seam: Home's field starts at the Nav's bottom edge and ends at the footer's top edge.
-          navGap: Math.round((document.querySelector('.home-root') as Element).getBoundingClientRect().top - (document.querySelector('header') as Element).getBoundingClientRect().bottom),
-          footerGap: Math.round((document.querySelector('footer') as Element).getBoundingClientRect().top - (document.querySelector('.home-root') as Element).getBoundingClientRect().bottom),
+          navGap: Math.round((document.querySelector('.ps-root') as Element).getBoundingClientRect().top - (document.querySelector('header') as Element).getBoundingClientRect().bottom),
+          footerGap: Math.round((document.querySelector('footer') as Element).getBoundingClientRect().top - (document.querySelector('.ps-root') as Element).getBoundingClientRect().bottom),
         }));
         // eslint-disable-next-line no-console
         console.log(`HOME_PLAYSELECT ${state}-${viewport}-${theme} ${JSON.stringify(probe)}`);
@@ -105,7 +105,7 @@ test('the stored endzone_theme picks the scheme: dark and light paint different 
     // A fresh context each time: localStorage is per context and a second goto to the same hash URL would not reload.
     const page = await (await browser.newContext()).newPage();
     await openHome(page, 'firstrun', 'desktop', { theme });
-    return page.evaluate(() => getComputedStyle(document.querySelector('.home-root') as Element).backgroundColor);
+    return page.evaluate(() => getComputedStyle(document.querySelector('.ps-root') as Element).backgroundColor);
   };
   const dark = await paint('dark');
   const light = await paint('light');
@@ -184,14 +184,14 @@ for (const motion of ['no-preference', 'reduce'] as const) {
     const { harness, now } = await openGameDay(page, motion);
     const tnrLink = page.getByRole('link', { name: /^Thursday Night Regulars matchup/ });
     await expect(tnrLink).toBeVisible();
-    await expect(page.locator('.home-root .scored'), 'the first render of a league never flashes').toHaveCount(0);
+    await expect(page.locator('.ps-root .scored'), 'the first render of a league never flashes').toHaveCount(0);
 
     // Record every .scored class add so the flash is caught even if it is short-lived.
     await page.evaluate(() => {
       const w = window as unknown as { __scored: Array<{ at: number; name: string; count: string }> };
       w.__scored = [];
       new MutationObserver(() => {
-        document.querySelectorAll('.home-root .scored').forEach((el) => {
+        document.querySelectorAll('.ps-root .scored').forEach((el) => {
           const cs = getComputedStyle(el);
           w.__scored.push({ at: performance.now(), name: cs.animationName, count: cs.animationIterationCount });
         });
@@ -217,14 +217,14 @@ test('game day: the .scored class holds for the whole flash (>= 900 ms), not one
     const w = window as unknown as { __flash: { on: number | null; off: number | null } };
     w.__flash = { on: null, off: null };
     new MutationObserver(() => {
-      const has = document.querySelectorAll('.home-root .scored').length > 0;
+      const has = document.querySelectorAll('.ps-root .scored').length > 0;
       if (has && w.__flash.on === null) w.__flash.on = performance.now();
       if (!has && w.__flash.on !== null && w.__flash.off === null) w.__flash.off = performance.now();
     }).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['class'] });
   });
   harness.setLeagues(homeBodies('gameday', now, { tnrScore: 94.6 }).leagues);
   await page.clock.runFor(60 * 1000);
-  await expect(page.locator('.home-root .scored')).toHaveCount(1);
+  await expect(page.locator('.ps-root .scored')).toHaveCount(1);
   await expect.poll(
     () => page.evaluate(() => (window as unknown as { __flash: { off: number | null } }).__flash.off),
     { message: 'the flash ends', timeout: 5000 },

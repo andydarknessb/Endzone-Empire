@@ -97,14 +97,14 @@ league. It is checked on every join path at admission and is shown to
 commissioners by the Team name it was made against, never by account or email. Made
 with Remove & ban: while the league is Removable the team is deleted;
 afterwards the team stays and becomes a CPU-managed team. Lifting a ban lets
-the account join again and never hands a team back (ADR 0067).
+the account join again and never hands a team back (ADR 0068).
 _Avoid_: block (a manager's own mute of another's chat), kick
 
 **CPU-managed team**:
 A team with no manager (owner_id NULL), left behind when its manager was
 banned after the draft. It stays in standings, matchups and the schedule; the
 CPU starts its best available lineup each week and it makes no trades or
-waiver claims. It is not a member of anything: it has no account (ADR 0067).
+waiver claims. It is not a member of anything: it has no account (ADR 0068).
 _Avoid_: bot, ghost team, orphan, abandoned team
 
 **Commissioner**:
@@ -1420,9 +1420,18 @@ final. A team's is the sum over its starters.
 _Avoid_: live projection, pace, projected total (once games have started)
 
 **Players remaining**:
-The count of a team's starters whose NFL games have not finished this week. A
-starter whose game has not kicked off counts.
-_Avoid_: PMR (in prose), players left, yet to play
+The count of a team's starters whose NFL game is not final this week and whose
+availability verdict is not unavailable (ADR 0061). A starter whose game has not
+kicked off counts. An unavailable starter (Out, IR, suspended, practice squad, on
+bye or released) and an empty slot do not. The server computes it once and every
+matchup payload carries it; a client count is only a fallback where the payload
+has none, and a surface never mixes the two.
+_Avoid_: PMR (in prose), players left
+
+**Yet to play**:
+The count of a team's Players remaining whose NFL game has not started. It is
+never more than Players remaining. Before kickoff the two are equal.
+_Avoid_: still to play, not started (as a count)
 
 **Win probability**:
 A Team's chance of winning its Matchup as best known now, from both sides'
