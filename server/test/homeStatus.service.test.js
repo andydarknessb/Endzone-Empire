@@ -350,8 +350,8 @@ function homeWorld(t, { matchups = [], kickoffs = [], trades = [], verdict = HEA
     return { startVerdictFor: () => verdict };
   });
   t.mock.method(expectedFinalService, 'expectedFinalsForWeek', async () => new Map([
-    [11, { expectedFinal: 118.6, playersRemaining: 4, statusReliable: true, firstKickoffAt: '2026-10-04T17:00:00.000Z', syncedAt: null, starters: [{ gameState: 'in_progress', availability: { available: true, reason: null } }], bench: [] }],
-    [12, { expectedFinal: 104.1, playersRemaining: 3, statusReliable: true, firstKickoffAt: '2026-10-04T17:00:00.000Z', syncedAt: null, starters: [{ gameState: 'in_progress', availability: { available: true, reason: null } }], bench: [] }],
+    [11, { expectedFinal: 118.6, playersRemaining: 4, yetToPlay: 2, statusReliable: true, firstKickoffAt: '2026-10-04T17:00:00.000Z', syncedAt: null, starters: [{ gameState: 'in_progress', availability: { available: true, reason: null } }], bench: [] }],
+    [12, { expectedFinal: 104.1, playersRemaining: 3, yetToPlay: 1, statusReliable: true, firstKickoffAt: '2026-10-04T17:00:00.000Z', syncedAt: null, starters: [{ gameState: 'in_progress', availability: { available: true, reason: null } }], bench: [] }],
   ]));
   return createFakePool([
     [/AS "is_commissioner" FROM "leagues"/, () => ({ rows: [{ ...HOME_LEAGUE }] })],
@@ -391,8 +391,8 @@ test('leagueStatuses reads the matchup from the home side, and a null score stay
     status: 'live',
     kickoffAt: '2026-10-04T17:00:00.000Z',
     opponent: { teamId: 12, name: 'Frozen Tundra FC' },
-    my: { score: null, expectedFinal: 118.6, playersRemaining: 4 },
-    opp: { score: 71.2, expectedFinal: 104.1, playersRemaining: 3 },
+    my: { score: null, expectedFinal: 118.6, playersRemaining: 4, yetToPlay: 2 },
+    opp: { score: 71.2, expectedFinal: 104.1, playersRemaining: 3, yetToPlay: 1 },
     winProbability: null,
   });
 });

@@ -255,6 +255,21 @@ describe('look', () => {
     expect(rules(screen.getByRole('radio', { name: 'Wk 3' }))).toMatch(/--ps-ink/);
   });
 
+  test('the checked segment sits above its neighbours so its edge is not covered by their -2px overlap', () => {
+    render(<SegmentedControl aria-label="Week" options={WEEKS} value={2} onChange={() => {}} look="playselect" />);
+    const checked = rules(screen.getByRole('radio', { name: 'Wk 2' }));
+    expect(checked).toMatch(/position: relative/);
+    expect(checked).toMatch(/z-index: 1/);
+    expect(rules(screen.getByRole('radio', { name: 'Wk 3' }))).not.toMatch(/z-index/);
+  });
+
+  test('a scrollable playselect strip pads itself so the focus ring and its halo are not clipped', () => {
+    const { rerender } = render(<SegmentedControl aria-label="Week" options={SEASON} value={9} onChange={() => {}} scrollable look="playselect" />);
+    expect(rules(screen.getByRole('radiogroup', { name: 'Week' }))).toMatch(/padding: 8px/);
+    rerender(<SegmentedControl aria-label="Week" options={SEASON} value={9} onChange={() => {}} look="playselect" />);
+    expect(rules(screen.getByRole('radiogroup', { name: 'Week' }))).not.toMatch(/padding: 8px/);
+  });
+
   test('the checked option shows an arrow as well as the fill, and its name stays its label', () => {
     const { container } = render(<SegmentedControl aria-label="Week" options={WEEKS} value={2} onChange={() => {}} look="playselect" />);
     /* eslint-disable-next-line testing-library/no-container, testing-library/no-node-access */

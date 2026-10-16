@@ -8,7 +8,7 @@ import { PixelArrow } from './playselect/Icons';
  * week picker and the Standard / Scoreboard view toggle compose this (ADR
  * 0031, #891).
  *
- * Part of `shared/ui` (ADR 0020): paints only `dash-*` tokens. Each option is
+ * Part of `shared/ui` (ADR 0020): paints `dash-*` tokens, or `ps-*` tokens with `look="playselect"` (below). Each option is
  * a real `role="radio"` button, checked when its value equals `value`, so a
  * screen reader hears the group and its selection.
  *
@@ -152,7 +152,8 @@ const SegmentedControl = React.forwardRef(function SegmentedControl({
         overscrollBehaviorX: scrollable ? 'contain' : undefined,
         scrollbarWidth: scrollable ? 'none' : undefined,
         ...(scrollable ? { '&::-webkit-scrollbar': { display: 'none' } } : null),
-        ...(ps ? { gap: 0, p: '2px' } : {
+        // A scrolling strip clips its own overflow, so it pads by the 7px focus halo plus a pixel.
+        ...(ps ? { gap: 0, p: scrollable ? '8px' : '2px' } : {
           gap: '2px',
           p: '3px',
           backgroundColor: 'var(--dash-surface2)',
@@ -201,6 +202,8 @@ const SegmentedControl = React.forwardRef(function SegmentedControl({
               whiteSpace: 'nowrap',
               color: checked ? 'var(--ps-play-ink)' : 'var(--ps-ink)',
               backgroundColor: checked ? 'var(--ps-play)' : 'transparent',
+              // The segments overlap by 2px; the checked one sits on top so its edge is whole.
+              ...(checked ? { position: 'relative', zIndex: 1 } : null),
             } : {
               flex: scrollable ? '0 0 auto' : (fill ? '1 1 0' : 'none'),
               display: 'inline-flex',

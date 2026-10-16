@@ -11,11 +11,12 @@ const BLOCKS = 20;
  * before kickoff and Accent on the page when `live` (a live Pick'em card). Both names and
  * percents sit at the ends (`aShort`/`bShort` print instead of the names when given); one
  * image carries "{a} {x}%, {b} {y}% win probability". `caption` is optional (a Forecast
- * credit goes here on fantasy bars only, never on a Pick'em card).
+ * credit goes here on fantasy bars only, never on a Pick'em card). With no finite `pct` it draws nothing.
  */
 export function TwoSidedOdds({
   a, b, pct, aShort, bShort, live = false, onBoard = false, caption, size = 14,
 }) {
+  if (typeof pct !== 'number' || !Number.isFinite(pct)) return null;
   const pa = Math.max(0, Math.min(100, Math.round(pct)));
   const pb = 100 - pa;
   const aLeads = pa >= 50;

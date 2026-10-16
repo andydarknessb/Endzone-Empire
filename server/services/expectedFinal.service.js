@@ -53,6 +53,9 @@ const { gameFractionRemaining, varianceRemaining } = require('./winProbability')
 
 const round2 = (x) => Math.round(x * 100) / 100;
 
+// A starter the availability verdict has not ruled out. No verdict (availability null) rules nobody out.
+const stillInPlay = (starter) => !starter.availability || starter.availability.available !== false;
+
 /**
  * The per-starter rule, pure. `gameState` is 'scheduled' | 'in_progress' |
  * 'final'; `gameFraction` (0..1) is how much of an in-progress game is left,
@@ -91,7 +94,7 @@ function earliestKickoff(starters) {
 
 /**
  * Expected finals for the given teams in one (season, week) of one league.
- * Returns a Map<teamId, { expectedFinal, playersRemaining, starters, bench }>
+ * Returns a Map<teamId, { expectedFinal, playersRemaining, yetToPlay, starters, bench }>
  * with an entry only for teams that have at least one lineup row; `starters`
  * and `bench` are arrays of
  *   { playerId, position, projection, points, gameState, expectedFinal,
@@ -117,7 +120,7 @@ async function expectedFinalsForWeek({ league, season, week, teamIds, db = pool,
 
   const candidateRows = await db.query(
     `SELECT "lineup_entries"."team_id", "lineup_entries"."player_id", "lineup_entries"."slot",
-            "players"."position", "players"."nfl_team", "players"."injury_status", "player_stats"."stats"
+            "players"."position", "players"."nfl_team", "player_stats"."stats"
      FROM "lineup_entries"
      JOIN "team_players" ON "team_players"."team_id" = "lineup_entries"."team_id"
        AND "team_players"."player_id" = "lineup_entries"."player_id"
@@ -260,9 +263,6 @@ async function expectedFinalsForWeek({ league, season, week, teamIds, db = pool,
         ? projections.result.detailFor(row.player_id)
         : null,
       rawGameFraction: gameFraction,
-      // Injury designation Out ('O', or spelled out), the one fact players remaining excludes on; the client
-      // helper entities/matchup playersRemaining reads the same rule off the same column.
-      rawOut: ['O', 'OUT'].includes(String(row.injury_status || '').toUpperCase()),
     };
     // A BENCH row is priced like any other but never summed. In a redraft
     // league it is only a bench row. In best ball there is no set lineup (ADR
@@ -280,9 +280,7 @@ async function expectedFinalsForWeek({ league, season, week, teamIds, db = pool,
 
   // The raw* fields are inputs for this module's own sums (and win
   // probability v2's shadow figures), never part of a priced row on any wire.
-  const stripRaw = ({
-    rawExpectedFinal, rawInterval, rawGameFraction, rawOut, ...priced
-  }) => priced;
+  const stripRaw = ({ rawExpectedFinal, rawInterval, rawGameFraction, ...priced }) => priced;
   const hasInterval = (s) => !!(s.rawInterval && s.rawInterval.p10 != null && s.rawInterval.p90 != null);
   // A team with bench rows and no starter rows still gets an entry (its bench
   // is priced); its figures are null, as they were when the team was absent.
@@ -313,9 +311,12 @@ async function expectedFinalsForWeek({ league, season, week, teamIds, db = pool,
     const figures = priced && starters.length > 0;
     result.set(Number(teamId), {
       expectedFinal: figures ? round2(starters.reduce((sum, s) => sum + s.rawExpectedFinal, 0)) : null,
-      // The one definition (RULINGS Critique 9, spec #2334 AC 6l): starters whose game is not final.
-      // An Out starter does not count; an empty slot has no lineup row, so it is never a starter here.
-      playersRemaining: figures ? starters.filter((s) => s.gameState !== 'final' && !s.rawOut).length : null,
+      // The one definition (RULINGS Critique 9, spec #2334 AC 6l, ADR 0061): starters whose NFL game is not
+      // final and whose availability verdict is not unavailable (Out, IR, suspension, practice squad; a bye or
+      // a released starter is both final and unavailable). An empty slot has no lineup row, so it is never a
+      // starter here. Yet to play is the narrower count whose game has not started.
+      playersRemaining: figures ? starters.filter((s) => s.gameState !== 'final' && stillInPlay(s)).length : null,
+      yetToPlay: figures ? starters.filter((s) => s.gameState === 'scheduled' && stillInPlay(s)).length : null,
       // Win probability v2 (shadow): the variance the starters still have to
       // play, sigma_i^2 from each band times the fraction of his game left.
       varianceRemaining: figures
@@ -461,6 +462,8 @@ async function decorateMatchups(matchups, { league, db = pool, now = new Date() 
       awayExpectedFinal: away ? away.expectedFinal : null,
       homePlayersRemaining: home ? home.playersRemaining : null,
       awayPlayersRemaining: away ? away.playersRemaining : null,
+      homeYetToPlay: home ? home.yetToPlay : null,
+      awayYetToPlay: away ? away.yetToPlay : null,
       firstKickoffAt,
       syncedAt: (home && home.syncedAt) || (away && away.syncedAt) || null,
       home,
@@ -471,8 +474,8 @@ async function decorateMatchups(matchups, { league, db = pool, now = new Date() 
 
 /**
  * Decorate matchup list rows with `status`, `home_expected_final`,
- * `away_expected_final`, `home_players_remaining` and `away_players_remaining`
- * (the figures number or null). The list route's map of the one decorator
+ * `away_expected_final`, `home_players_remaining`, `away_players_remaining`, `home_yet_to_play`
+ * and `away_yet_to_play` (the figures number or null). The list route's map of the one decorator
  * onto its snake_case wire; input rows are not mutated.
  */
 async function attachExpectedFinals(rows, { league, db = pool, now = new Date() } = {}) {
@@ -484,6 +487,8 @@ async function attachExpectedFinals(rows, { league, db = pool, now = new Date() 
     away_expected_final: decorations[index].awayExpectedFinal,
     home_players_remaining: decorations[index].homePlayersRemaining,
     away_players_remaining: decorations[index].awayPlayersRemaining,
+    home_yet_to_play: decorations[index].homeYetToPlay,
+    away_yet_to_play: decorations[index].awayYetToPlay,
     // The earliest kickoff among either side's starters and when the live
     // score pass last touched the week (#892); both ISO or null.
     first_kickoff_at: decorations[index].firstKickoffAt,
@@ -493,8 +498,8 @@ async function attachExpectedFinals(rows, { league, db = pool, now = new Date() 
 
 /**
  * Decorate the live-score pass's `scored` entries in place with `status` and
- * camelCase `homeExpectedFinal`, `awayExpectedFinal`, `homePlayersRemaining`
- * and `awayPlayersRemaining` (the score emit's map of the one decorator onto
+ * camelCase `homeExpectedFinal`, `awayExpectedFinal`, `homePlayersRemaining`,
+ * `awayPlayersRemaining`, `homeYetToPlay` and `awayYetToPlay` (the score emit's map of the one decorator onto
  * its wire). Only `openMatchups` are decorated; a settled or final entry (not
  * among them) carries `status: 'final'` and null figures (its result is its
  * score). An open entry whose status the decorator could not compute carries
@@ -518,6 +523,8 @@ async function attachScoredExpectedFinals(scored, {
     entry.awayExpectedFinal = decoration ? decoration.awayExpectedFinal : null;
     entry.homePlayersRemaining = decoration ? decoration.homePlayersRemaining : null;
     entry.awayPlayersRemaining = decoration ? decoration.awayPlayersRemaining : null;
+    entry.homeYetToPlay = decoration ? decoration.homeYetToPlay : null;
+    entry.awayYetToPlay = decoration ? decoration.awayYetToPlay : null;
     entry.firstKickoffAt = decoration ? decoration.firstKickoffAt : null;
     entry.syncedAt = decoration ? decoration.syncedAt : null;
   }

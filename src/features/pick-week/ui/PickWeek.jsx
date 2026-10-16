@@ -19,8 +19,9 @@ import { MIN_TOUCH_TARGET_SX } from '../../../shared/lib';
  *     week setter cannot take "All" (Pick'em) passes `false`; Game Center and Lineup keep it.
  *   - `look`: `'dash'` (default, every current caller) or `'playselect'` (ADR 0067, spec #2334
  *     ruling 3): the same picker on `ps-*` tokens, square 44px controls, no opacity, and ONE tab
- *     stop: the selected week carries it (the strip's roving tabindex; Left/Right/Home/End move it),
- *     while the steppers and "All weeks" stay pointer targets at tabindex -1.
+ *     stop for the weeks: the selected week carries it (the strip's roving tabindex; Left/Right/Home/End
+ *     move it), while Previous and Next stay pointer targets at tabindex -1. "All weeks" is a different
+ *     action and keeps its own stop.
  *   - `fill`: the mobile layout (below the `sm` breakpoint): the stepper row
  *     stretches to the container and carries every control on one line, the
  *     weeks scroll sideways inside the room left between the chevrons and
@@ -80,7 +81,6 @@ const PickWeek = React.forwardRef(function PickWeek({
         type="button"
         disableElevation
         aria-pressed={isAll}
-        tabIndex={ps ? -1 : undefined}
         onClick={() => onChange?.('All')}
         sx={ps ? psAllWeeksSx(isAll) : allWeeksSx(fill, isAll)}
       >
