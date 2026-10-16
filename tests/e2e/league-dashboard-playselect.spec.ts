@@ -135,6 +135,30 @@ test('phone around the league: a long one-word team name never runs under the sc
   }
 });
 
+// The chat launcher is a fixed 56px button 24px off the corner (88px of the viewport at full scroll). The last frame
+// must end above it with 8px to spare, and the page must reserve that room itself: the app footer below the shell
+// gives clearance today, but the page does not own the footer.
+for (const state of ['inseason', 'gamedayUrgent', 'complete', 'predraft', 'pickemonly'] as const) {
+  for (const viewport of ['phone', 'desktop'] as const) {
+    test(`${state} ${viewport}: scrolled to the end, the chat launcher sits below the last frame`, async ({ page }) => {
+      await openDashboard(page, state, viewport, 'light');
+      await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+      const launcher = page.getByRole('button', { name: /^Open league chat/ });
+      await expect(launcher).toBeVisible();
+      const box = (await launcher.boundingBox())!;
+      const last = await page.evaluate(() => {
+        const blocks = Array.from(document.querySelectorAll('[data-testid="dashboard-shell"] > *'))
+          .filter((el) => getComputedStyle(el).position !== 'fixed' && el.getBoundingClientRect().height > 0);
+        const el = blocks[blocks.length - 1];
+        const shell = document.querySelector('[data-testid="dashboard-shell"]')!;
+        return { bottom: el.getBoundingClientRect().bottom, reserve: shell.getBoundingClientRect().bottom - el.getBoundingClientRect().bottom, text: (el.textContent ?? '').slice(0, 40) };
+      });
+      expect(last.bottom + 8, `the last frame ("${last.text}") ends at ${last.bottom}, the launcher starts at ${box.y}`).toBeLessThanOrEqual(box.y);
+      expect(last.reserve, `the shell reserves ${last.reserve}px below the last frame; the launcher needs 88`).toBeGreaterThanOrEqual(88);
+    });
+  }
+}
+
 test('desktop standings: all twelve teams, no fold control', async ({ page }) => {
   await openDashboard(page, 'inseason', 'desktop');
   const table = page.getByTestId('standings-table');
