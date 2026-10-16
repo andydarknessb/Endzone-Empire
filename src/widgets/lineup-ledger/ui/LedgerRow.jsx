@@ -449,6 +449,7 @@ export default function LedgerRow({
       <Box
         className={`${cursor ? 'cursor ' : ''}slot`}
         data-row-mode={eligibleRow ? 'eligible' : dimRow ? 'dim' : undefined}
+        data-urgent={cursor === 'urgent' ? 'true' : undefined}
         sx={{
           position: 'relative',
           '--cur': cursor === 'urgent' ? 'var(--ps-danger)' : 'var(--ps-cursor)',
