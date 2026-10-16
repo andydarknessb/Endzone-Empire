@@ -1,31 +1,40 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { Link as RouterLink, useSearchParams } from 'react-router-dom';
-import { Box, Button, FormControl, GlobalStyles, InputLabel, MenuItem, Select, Typography, useMediaQuery, useTheme } from '@mui/material';
-import { Badge, Card, Skeleton, TeamAvatar } from '../../shared/ui';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { Box, GlobalStyles, useMediaQuery, useTheme } from '@mui/material';
+import { Skel, psRootSx } from '../../shared/ui/playselect';
+import { PsAction } from '../../shared/ui/playselect/LineupParts';
 import { useLeague } from '../../hooks/useLeague';
 import { useLiveGameStates, useLiveScores, useWeekMatchups, viewerMatchupOf, matchupBoard } from '../../entities/matchup';
-import { deriveLeaguePhase, LEAGUE_PHASE, computeByeClusters, worstByeCluster, MIN_TOUCH_TARGET_SX } from '../../shared/lib';
-import PickWeek from '../../features/pick-week';
+import {
+  deriveLeaguePhase, LEAGUE_PHASE, computeByeClusters, worstByeCluster, formatInstant, useNow,
+} from '../../shared/lib';
 import LineupLedger, { gameStatusKind } from '../../widgets/lineup-ledger';
 import TeamSummaryStrip from '../../widgets/team-summary-strip';
 import MatchupPreview from '../../widgets/matchup-preview';
 import StartSitPanel from '../../widgets/start-sit-panel';
 import ByeClusterGrid from '../../widgets/bye-cluster';
 import { useLineupWrite, useSwapPlayers, isEligibleMove, QuickPickMenu } from '../../features/lineup-write';
-import { useLedgerSections, useAdvice, ledgerTabCounts } from '../../entities/roster';
+import {
+  useLedgerSections, useAdvice, ledgerTabCounts, lineupNote, nextKickoff, nextLineupSlot, parseRosterTemplate,
+} from '../../entities/roster';
 import { useDropPlayer, DropConfirmationDialog } from '../../features/drop-player';
 import PlayerDecisionCard, { myTeam } from '../../widgets/player-decision-card';
 import { useLineupLeagues } from './model/useLineupLeagues';
 import { useLineupData } from './model/useLineupData';
 import { useCalledShot } from './model/useCalledShot';
 import { readRequestedSwap, resolveRequestedSwap } from './model/requestedSwap';
+import {
+  BestBallNotice, CursorNote, ErrorRow, LineupHead, MessageCard, SectionToggles, SwapOffer,
+} from './ui/LineupParts';
 
 const MIN_WEEK = 1;
 const MAX_WEEK = 18;
 const WEEKS = Array.from({ length: MAX_WEEK }, (_, i) => i + 1);
+const MINUTE_MS = 60 * 1000;
+const HOUR_MS = 60 * MINUTE_MS;
 
 /**
- * The Lineup page slice (ADR 0037, #1237): replaces the legacy
+ * The Lineup page slice (ADR 0037, #1237; Play-select since ADR 0067 wave 3, spec #2347): replaces the legacy
  * `src/components/LineupScreen` (`LineupScreen`/`TeamLineup`), still mounted
  * at `/team` (App.jsx; the route itself does not change). Composes the
  * lineup-ledger and team-summary-strip widgets, the swap-players and
@@ -80,11 +89,24 @@ const WEEKS = Array.from({ length: MAX_WEEK }, (_, i) => i + 1);
  * own criteria do not ask for. The per-row Trade control stays dropped too -
  * Trade now lives on the Decision card (#1240 AC2/AC5), not as a second
  * per-row control this page would otherwise need to keep in sync with it.
+ *
+ * Play-select (ADR 0067 wave 3, spec #2347 ruling 4 and 8):
+ *   - One Cursor: on the starting slot that needs the viewer (`nextLineupSlot`: the Out starter, or the
+ *     empty slot, whose game locks first), Danger under one hour from the lock; while a move is under way
+ *     it is the pressed row instead. Live, that row carries the shared lineup note.
+ *   - One Filled Action: the Endzone Forecast's Apply, when a move plan exists. Nothing else on the page is
+ *     filled outside a state card whose only action it is.
+ *   - The page's game states are the live rows the Matchup entity reads, topped up from the lineup's own
+ *     entries (kickoff, and the server's `locked` flag when the realtime channel is quiet), so the cursor
+ *     and the note read the same whether or not a live row has landed.
  */
 export default function LineupPage() {
-  const { leagues, selectedLeagueId, setSelectedLeagueId, loading: leaguesLoading, error: leaguesError } =
-    useLineupLeagues();
-  const { league, teams, viewerTeamId, loading: leagueLoading, error: leagueError } = useLeague(selectedLeagueId);
+  const {
+    leagues, selectedLeagueId, setSelectedLeagueId, loading: leaguesLoading, error: leaguesError, refetch: refetchLeagues,
+  } = useLineupLeagues();
+  const {
+    league, teams, viewerTeamId, loading: leagueLoading, error: leagueError, refetch: refetchLeague,
+  } = useLeague(selectedLeagueId);
   const [searchParams, setSearchParams] = useSearchParams();
   const [week, setWeek] = useState(null);
   // The Decision card (#1240, ADR 0037): which rostered player's card is
@@ -136,8 +158,8 @@ export default function LineupPage() {
   const liveGamesByKey = new Map(liveGames.map((row) => [String(row.tank01_game_id), row]));
 
   // The finished-game refetch (#1546, ADR 0037 ticket 9): `displayEdgeKind`
-  // (widgets/lineup-ledger/lib/edgeLine.js) flips the Edge line's icon and
-  // colour from the Realtime row alone, instantly, but the sentence beside
+  // (widgets/lineup-ledger/lib/edgeLine.js) flips the Edge line's icon from
+  // the Realtime row alone, instantly, but the sentence beside
   // it is server text that only refreshes on `GET /api/team/lineup` - so a
   // game going final (or, in either direction, changing state at all) left
   // the old sentence under the new icon until the page next reloaded.
@@ -287,8 +309,9 @@ export default function LineupPage() {
     ]);
   };
 
+  // "All weeks" is not offered on a single-week Lineup (`allWeeks={false}` below), so a week is always a number.
   const changeWeek = (w) => {
-    if (typeof w !== 'number') return; // "All weeks" does not apply to a single-week Lineup
+    if (typeof w !== 'number') return;
     swap.cancelSelection();
     setWeek(Math.min(MAX_WEEK, Math.max(MIN_WEEK, w)));
   };
@@ -312,6 +335,62 @@ export default function LineupPage() {
   const isPastWeek = Boolean(lineup && lineup.week != null && lineup.currentWeek != null && lineup.week < lineup.currentWeek);
   const byeClusters = !isPastWeek && lineup ? computeByeClusters({ entries: lineup.entries, fromWeek: lineup.week }) : [];
   const worstCluster = worstByeCluster(byeClusters);
+
+  // The game states the cursor and the note read: one row per NFL game the lineup names. A live row (the
+  // Realtime channel) says where the game stands; without one the game stands where the lineup entry says
+  // (the server's own `locked` flag), and every row carries the entry's kickoff, which `live_game_states`
+  // does not. The teams come from the entry, so a row matches either side of its game.
+  const gameStates = useMemo(() => {
+    const byKey = new Map();
+    (lineup?.entries || []).forEach((e) => {
+      if (!e.gameKey || byKey.has(String(e.gameKey))) return;
+      const key = String(e.gameKey);
+      const live = liveGamesByKey.get(key);
+      byKey.set(key, {
+        tank01_game_id: key,
+        away_team: e.nflTeam,
+        home_team: e.opponent,
+        ...(live || { game_status: e.locked ? 'in_progress' : 'scheduled' }),
+        kickoff_at: live?.kickoff_at ?? live?.start_time ?? e.kickoff ?? null,
+      });
+    });
+    return Array.from(byKey.values());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lineup, liveGames]);
+  const started = gameStates.some((g) => g.game_status === 'in_progress' || g.game_status === 'final');
+  const anyLive = gameStates.some((g) => g.game_status === 'in_progress');
+
+  // The cursor: the starting slot that needs the viewer. None in best ball (the lineup sets itself), on a
+  // settled week, or while the league is unsettled. The clock ticks to the next lock, and each minute under
+  // an hour so the Danger frame and the note's "in {n} min" stay true.
+  const lockAt = nextKickoff(gameStates);
+  const now = useNow((at) => (lockAt != null && lockAt > at ? Math.min(lockAt, at + MINUTE_MS) : null), lockAt);
+  const cursorLive = Boolean(sections && !bestBall && !isPastWeek && !leagueUnsettled && !draftInProgress);
+  const starterRows = sections?.starters ?? [];
+  const nextSlot = cursorLive
+    ? nextLineupSlot(starterRows.map((row) => ({ slot: row.slotLabel, player: row.entry })), gameStates, now)
+    : null;
+  const nextSlotRow = nextSlot ? starterRows.find((row) => row.slotLabel === nextSlot.slot) : null;
+  // A move under way holds the one cursor instead: the pressed row.
+  const movingRow = swap.selectedEntry && sections
+    ? [...sections.starters, ...sections.ir, ...sections.bench].find((row) => row.entry && row.entry.playerId === swap.selectedEntry.playerId)
+    : null;
+  const cursorRow = movingRow || nextSlotRow;
+  const urgent = !movingRow && nextSlot?.lockAt != null && nextSlot.lockAt - now < HOUR_MS;
+  const template = useMemo(() => parseRosterTemplate(league?.roster_slots), [league?.roster_slots]);
+  // Live with an open slot the cursor row carries the shared lineup note (it says when no bench player can
+  // fill the slot and points at free agents). Before kickoff the Forecast's plan line says it instead.
+  const noteView = !movingRow && nextSlotRow && started
+    ? lineupNote({
+      slots: [{ slot: nextSlotRow.slotType, player: nextSlotRow.entry }],
+      bench: (sections?.bench ?? []).map((row) => row.entry).filter(Boolean),
+      template,
+      gameStates,
+      started: true,
+      now,
+    })
+    : null;
+  const openSlot = Boolean(nextSlot);
 
   // The phone bar's labels (#1957 L6, #1965): counts come from the Ledger's
   // own rule, off the same rows it renders. Before the lineup has loaded there
@@ -361,6 +440,10 @@ export default function LineupPage() {
     phoneBarButtonRefs.current[phoneView]?.focus();
   }, [phoneView]);
 
+  const zone = formatInstant(new Date(), 'zone') || 'your time zone';
+  const leagueName = league?.name || leagues.find((l) => l.id === selectedLeagueId)?.name || null;
+  const showBoard = leagues.length > 0 && !draftInProgress && !emptyRoster;
+
   // `width: 100%` on the root is load-bearing beside `mx: auto`: this page is
   // a flex item of the app shell's column flexbox (components/App/App.jsx),
   // and auto cross-axis margins switch a flex item from `stretch` to
@@ -368,319 +451,257 @@ export default function LineupPage() {
   // content's min-content width - which the scrollable week strip sets to the
   // full 18-week run (a scroll container still contributes its whole content
   // width to intrinsic sizing). On a phone that made the entire page ~1100px
-  // wide (measured on device, PR #1323).
+  // wide (measured on device, PR #1323). The column is a flex column, not a
+  // grid, so a wide child never widens the page.
   return (
-    <Box data-testid="lineup-page" sx={{ width: '100%', maxWidth: 1180, mx: 'auto', px: { xs: 2, sm: 3 }, py: { xs: 2, sm: 3 } }}>
-      {leaguesError && (
-        <Typography role="alert" sx={{ mb: 2, color: 'var(--dash-danger)' }} data-testid="leagues-error">
-          {leaguesError}
-        </Typography>
-      )}
-      {leagueMode === 'error' && (
-        <Typography role="alert" sx={{ mb: 2, color: 'var(--dash-danger)' }} data-testid="league-error">
-          {leagueError}
-        </Typography>
-      )}
-      {lineupError && (
-        <Typography role="alert" sx={{ mb: 2, color: 'var(--dash-danger)' }} data-testid="lineup-error">
-          {lineupError}
-        </Typography>
-      )}
+    <Box className="ps-root" sx={{ ...psRootSx, width: '100%', minHeight: '100%' }}>
+      <Box
+        data-testid="lineup-page"
+        sx={{
+          width: '100%',
+          maxWidth: '1280px',
+          mx: 'auto',
+          boxSizing: 'border-box',
+          padding: { xs: '14px 16px 48px', sm: '24px 32px 64px' },
+          display: 'flex',
+          flexDirection: 'column',
+          gap: { xs: '16px', sm: '24px' },
+        }}
+      >
+        {leaguesError && (
+          <ErrorRow testId="leagues-error" onRetry={refetchLeagues}>
+            We could not load your leagues. Check your connection and try again.
+          </ErrorRow>
+        )}
+        {leagueMode === 'error' && (
+          <ErrorRow testId="league-error" onRetry={refetchLeague}>
+            We could not load this league. Check your connection and try again.
+          </ErrorRow>
+        )}
+        {lineupError && (
+          <ErrorRow testId="lineup-error" onRetry={() => refetch()}>
+            We could not load your lineup. Check your connection and try again.
+          </ErrorRow>
+        )}
 
-      {!leaguesLoading && leagues.length === 0 && (
-        <Card data-testid="lineup-no-leagues">
-          <Box sx={{ p: 3, display: 'grid', gap: 1.5, justifyItems: 'start' }}>
-            <Typography>You&apos;re not in a fantasy league yet. Create or join one to start building your team.</Typography>
-            <Button component={RouterLink} to="/league" variant="contained">Go to Leagues</Button>
-          </Box>
-        </Card>
-      )}
+        {!leaguesLoading && leagues.length === 0 && (
+          <MessageCard
+            testId="lineup-no-leagues"
+            text="You're not in a fantasy league yet. Create or join one to start building your team."
+            actionLabel="Go to Leagues"
+            to="/league"
+          />
+        )}
 
-      {leagues.length > 0 && (
-        <>
-          {/* Team header: avatar, Team name, and (when the manager holds more
-              than one fantasy league) the league picker - the route carries
-              no leagueId of its own. */}
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap', mb: 2 }}>
-            <TeamAvatar
-              name={viewerTeam?.teamName || 'My Team'}
+        {leagues.length > 0 && (
+          <>
+            {/* Head: the dim league line, the team avatar and name, and (when the manager holds more than one
+                fantasy league) the league picker - the route carries no leagueId of its own - then the week
+                picker. */}
+            <LineupHead
+              leagueName={leagueName}
+              teamName={viewerTeam?.teamName}
               avatarUrl={viewerTeam?.avatar_url}
               avatarStaticUrl={viewerTeam?.avatar_static_url}
-              size={compact ? 40 : 56}
-              data-testid="lineup-team-avatar"
+              bestBall={bestBall}
+              live={anyLive}
+              zone={zone}
+              compact={compact}
+              leagues={leagues}
+              selectedLeagueId={selectedLeagueId}
+              onSelectLeague={setSelectedLeagueId}
+              weeks={WEEKS}
+              week={showBoard ? currentWeekValue ?? MIN_WEEK : null}
+              onWeek={changeWeek}
             />
-            <Box sx={{ minWidth: 0 }}>
-              <Typography component="h1" sx={{ m: 0, fontSize: compact ? '22px' : '26px', fontWeight: 700 }}>
-                {viewerTeam?.teamName || 'Lineup'}
-              </Typography>
-              {bestBall && <Badge variant="neutral">Best ball</Badge>}
-            </Box>
-            {leagues.length > 1 && (
-              <FormControl size="small" sx={{ ml: { sm: 'auto' }, minWidth: 200 }}>
-                <InputLabel id="lineup-league-select-label">League</InputLabel>
-                <Select
-                  labelId="lineup-league-select-label"
-                  label="League"
-                  value={selectedLeagueId ?? ''}
-                  onChange={(e) => setSelectedLeagueId(e.target.value)}
-                >
-                  {leagues.map((l) => (
-                    <MenuItem key={l.id} value={l.id}>{l.name}</MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            )}
-          </Box>
 
-          {draftInProgress && (
-            <Card data-testid="lineup-draft-in-progress">
-              <Box sx={{ p: 3, display: 'grid', gap: 1.5, justifyItems: 'start' }}>
-                <Typography>Your roster fills during the draft. Head to the Draft Room when it is time to pick.</Typography>
-                <Button component={RouterLink} to={`/league/${selectedLeagueId}/draft`} variant="contained">
-                  Draft Room
-                </Button>
-              </Box>
-            </Card>
-          )}
-
-          {/* Restored per formal review (finding
-              legacy-controls-dropped-without-a-criterion): TeamLineup.jsx's
-              own empty-roster action, "no players rostered yet, Browse
-              Players", distinct from the draft-in-progress card above. Only
-              once the lineup has actually loaded and named zero entries, so
-              a background reload never flashes this over real rows. */}
-          {!draftInProgress && emptyRoster && (
-            <Card data-testid="lineup-empty-roster">
-              <Box sx={{ p: 3, display: 'grid', gap: 1.5, justifyItems: 'start' }}>
-                <Typography>No players rostered yet. Head to the player pool to add players to your team.</Typography>
-                <Button component={RouterLink} to="/player" variant="contained">Browse Players</Button>
-              </Box>
-            </Card>
-          )}
-
-          {!draftInProgress && !emptyRoster && (
-            <>
-              {bestBall && (
-                <Badge variant="live" sx={{ mb: 2 }} data-testid="best-ball-notice">
-                  Best ball: your best legal lineup is set automatically each week.
-                </Badge>
-              )}
-
-              {swapOffer && (
-                <Box
-                  data-testid="lineup-swap-offer"
-                  role="group"
-                  aria-label="Bench what-if swap"
-                  sx={{ mb: 2, p: 1.5, border: '1px solid var(--dash-accent-line)', borderRadius: 'var(--dash-radius-sm)', display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}
-                >
-                  <Typography sx={{ flexGrow: 1, fontSize: '13px' }}>
-                    {`Bench what-if · Start ${swapOffer.inEntry.name} over ${swapOffer.outEntry.name}`}
-                  </Typography>
-                  <Button size="small" variant="outlined" onClick={applyRequestedSwap}>Swap</Button>
-                  <Button size="small" onClick={consumeRequestedSwap}>Dismiss</Button>
-                </Box>
-              )}
-
-              <Box sx={{ mb: 2 }}>
-                <PickWeek weeks={WEEKS} value={currentWeekValue ?? MIN_WEEK} onChange={changeWeek} fill={compact} />
-              </Box>
-
-              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '2fr 1fr' }, gap: '16px', alignItems: 'start' }}>
-                <Box data-testid="lineup-roster-column" sx={{ display: { xs: phoneView === 'outlook' ? 'none' : 'grid', sm: 'grid' }, gap: '16px' }}>
-                  <TeamSummaryStrip
-                    leagueId={selectedLeagueId}
-                    week={league?.current_week ?? null}
-                    viewerTeamId={viewerTeamId}
-                    lineup={lineup}
-                    advice={advice}
-                    worstByeCluster={worstCluster}
-                    scoreEvent={scoreEvent}
-                    bestBall={bestBall}
-                  />
-
-                  {(lineupLoading && !lineup) ? (
-                    <Box sx={{ display: 'grid', gap: 1 }} data-testid="lineup-skeleton">
-                      <Skeleton variant="rounded" height={220} />
-                      <Skeleton variant="rounded" height={220} />
-                    </Box>
-                  ) : (
-                    <LineupLedger
-                      leagueId={selectedLeagueId}
-                      lineup={lineup}
-                      sections={sections}
-                      liveGamesByKey={liveGamesByKey}
-                      disabled={leagueUnsettled}
-                      showEligibility={Boolean(swap.selectedEntry)}
-                      isEligibleTarget={swap.isEligibleTarget}
-                      isSwapHighlighted={(entry) =>
-                        Boolean(swapOffer && (entry.playerId === swapOffer.outEntry.playerId || entry.playerId === swapOffer.inEntry.playerId))
-                      }
-                      selectedEntryId={swap.selectedEntry?.playerId ?? null}
-                      onRowClick={swap.onRowClick}
-                      canDropEntry={canDropEntry}
-                      onRequestDrop={drop.requestDrop}
-                      onOpenDecisionCard={setDecisionCardEntryId}
-                      mobileTab={phoneView}
-                      onMobileTabChange={onLedgerTabChange}
-                    />
-                  )}
-                </Box>
-
-                <Box data-testid="lineup-outlook-column" sx={{ display: { xs: phoneView === 'outlook' ? 'grid' : 'none', sm: 'grid' }, gap: '16px' }}>
-                  <StartSitPanel
-                    advice={advice}
-                    entries={lineup?.entries}
-                    bestBall={bestBall}
-                    onApply={submit}
-                    onCallShot={lineup?.week != null && lineup.week === lineup.currentWeek ? calledShot.callShot : undefined}
-                    onWithdrawShot={calledShot.withdrawShot}
-                    shotBusy={calledShot.busy}
-                    onOpenDecisionCard={setDecisionCardEntryId}
-                    onCompare={compareSuggestion}
-                    expectedFinals={expectedFinals}
-                  />
-                  <ByeClusterGrid
-                    entries={lineup?.entries}
-                    fromWeek={lineup?.week}
-                    isPastWeek={isPastWeek}
-                    waiverPeriodHours={league?.waiver_period_hours}
-                  />
-                  <MatchupPreview leagueId={selectedLeagueId} />
-                </Box>
-              </Box>
-
-              {/* The phone bar below is fixed and out of flow, so below `sm`
-                  this page-scoped style keeps three things clear of it while
-                  the page is mounted: the app Footer's links (the bar's 54px -
-                  44px button, 2px border, 8px top padding - added to the
-                  Footer's own 20px bottom padding), the bottom-anchored
-                  Snackbar (lifted to the bar's height plus an 8px gap, since a
-                  save toast with Undo lingers 20s), and focused rows
-                  (`scroll-padding-bottom` of the bar plus the strip, 132: a
-                  70px strip and an 8px gap, so a Tab-focused row is not
-                  scrolled under either, WCAG 2.4.11). The selectors reach the
-                  shell's `footer` tag and MUI's Snackbar class, the same global
-                  hooks Footer.css and SnackbarProvider.jsx own. */}
-              <GlobalStyles
-                styles={(t) => ({
-                  [t.breakpoints.down('sm')]: {
-                    html: { scrollPaddingBottom: 132 },
-                    footer: { paddingBottom: 74 },
-                    '.MuiSnackbar-root.MuiSnackbar-anchorOriginBottomCenter': { bottom: 62 },
-                  },
-                })}
+            {draftInProgress && (
+              <MessageCard
+                testId="lineup-draft-in-progress"
+                text="Your roster fills during the draft. Head to the Draft Room when it is time to pick."
+                actionLabel="Draft Room"
+                to={`/league/${selectedLeagueId}/draft`}
               />
+            )}
 
-              {/* One bottom-pinned container (#1958, #1965), the last child of
-                  the content so it holds over either column: the move strip
-                  stacked directly above the phone bar, so the two never
-                  overlap and the strip stays on screen when the tapped row is
-                  low on the page. Below `sm` both show; from `sm` the bar is
-                  hidden and a strip floats alone 16px off the bottom (sticky).
-                  With no strip it holds just the bar and is hidden from `sm`.
-                  Below `sm` it is `position: fixed`, not sticky: `sticky;
-                  bottom: 0` only ever pushes an element UP from where it sits
-                  in flow, and in flow it sits above the Footer, so at the end
-                  of the scroll (and on a short page, always) a sticky bar rests
-                  well short of the viewport bottom (measured, #1965). Fixed
-                  holds the bottom edge for the whole scroll; being out of flow
-                  it reserves no room. That is safe only because of the app
-                  Footer: Footer.css gives it an 80px margin-top (plus the 20px
-                  padding and the 74px above), so at the end of the scroll the
-                  last row is always at least the bar plus a pending strip
-                  (132) clear of the bottom. Shrink that margin and this needs
-                  a spacer. */}
-              <Box
-                data-testid="lineup-sticky-footer"
-                sx={{
-                  display: swap.selectedEntry ? 'flex' : { xs: 'flex', sm: 'none' },
-                  flexDirection: 'column',
-                  gap: '8px',
-                  position: { xs: 'fixed', sm: 'sticky' },
-                  left: { xs: 0, sm: 'auto' },
-                  right: { xs: 0, sm: 'auto' },
-                  bottom: { xs: 0, sm: 16 },
-                  zIndex: 1,
-                  mt: { xs: 0, sm: '12px' },
-                  px: { xs: 2, sm: 0 },
-                  pt: { xs: '8px', sm: 0 },
-                  backgroundColor: { xs: 'var(--bg-page)', sm: 'transparent' },
-                }}
-              >
-                {swap.selectedEntry && (
-                  <Box
-                    data-testid="lineup-move-strip"
-                    sx={{
-                      p: 1.5,
-                      backgroundColor: 'var(--dash-surface)',
-                      boxShadow: 'var(--shadow-2)',
-                      border: '1px solid var(--dash-accent-line)',
-                      borderRadius: 'var(--dash-radius-sm)',
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                    }}
-                  >
-                    <Typography sx={{ fontSize: '13px' }}>{`Moving ${swap.selectedEntry.name}. Pick a highlighted player.`}</Typography>
-                    <Button size="small" sx={MIN_TOUCH_TARGET_SX} aria-keyshortcuts="Escape" onClick={swap.cancelSelection}>Cancel</Button>
-                  </Box>
+            {/* Restored per formal review (finding legacy-controls-dropped-without-a-criterion):
+                TeamLineup.jsx's own empty-roster action, "no players rostered yet, Browse Players", distinct
+                from the draft-in-progress card above. Only once the lineup has actually loaded and named zero
+                entries, so a background reload never flashes this over real rows. */}
+            {!draftInProgress && emptyRoster && (
+              <MessageCard
+                testId="lineup-empty-roster"
+                text="No players rostered yet. Head to the player pool to add players to your team."
+                actionLabel="Browse Players"
+                to="/player"
+              />
+            )}
+
+            {showBoard && (
+              <>
+                {bestBall && <BestBallNotice />}
+
+                {swapOffer && (
+                  <SwapOffer
+                    inName={swapOffer.inEntry.name}
+                    outName={swapOffer.outEntry.name}
+                    onSwap={applyRequestedSwap}
+                    onDismiss={consumeRequestedSwap}
+                  />
                 )}
-                {/* Plain toggle buttons with `aria-pressed`, NOT
-                    `role="tablist"`/`role="tab"`: the ARIA tabs pattern is a
-                    behavioural contract (arrow-key roving tabindex,
-                    `aria-controls` pointing at a real `role="tabpanel"`) this
-                    bar does not implement, and reviewed as a violation for
-                    exactly that reason - a screen reader trains a user to
-                    press Left/Right on a "tab" and nothing would happen.
-                    `aria-pressed` makes the same true claim ("this control is
-                    a toggle, and here is its state") without promising
-                    keyboard behaviour that isn't there, matching PickWeek's
-                    own "All weeks" toggle button
-                    (src/features/pick-week/ui/PickWeek.jsx). */}
+
+                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: 'minmax(0, 2fr) minmax(0, 1fr)' }, gap: { xs: '16px', sm: '24px' }, alignItems: 'start' }}>
+                  <Box data-testid="lineup-roster-column" sx={{ display: { xs: phoneView === 'outlook' ? 'none' : 'grid', sm: 'grid' }, gap: { xs: '16px', sm: '24px' }, minWidth: 0 }}>
+                    <TeamSummaryStrip
+                      leagueId={selectedLeagueId}
+                      week={league?.current_week ?? null}
+                      viewerTeamId={viewerTeamId}
+                      lineup={lineup}
+                      advice={advice}
+                      worstByeCluster={worstCluster}
+                      scoreEvent={scoreEvent}
+                      bestBall={bestBall}
+                      openSlot={openSlot}
+                    />
+
+                    {(lineupLoading && !lineup) ? (
+                      <Box sx={{ display: 'grid', gap: '16px' }} data-testid="lineup-skeleton">
+                        <Skel width="100%" height={220} />
+                        <Skel width="100%" height={220} />
+                      </Box>
+                    ) : (
+                      <LineupLedger
+                        lineup={lineup}
+                        sections={sections}
+                        liveGamesByKey={liveGamesByKey}
+                        disabled={leagueUnsettled}
+                        showEligibility={Boolean(swap.selectedEntry)}
+                        isEligibleTarget={swap.isEligibleTarget}
+                        isSwapHighlighted={(entry) =>
+                          Boolean(swapOffer && (entry.playerId === swapOffer.outEntry.playerId || entry.playerId === swapOffer.inEntry.playerId))
+                        }
+                        selectedEntryId={swap.selectedEntry?.playerId ?? null}
+                        onRowClick={swap.onRowClick}
+                        canDropEntry={canDropEntry}
+                        onRequestDrop={drop.requestDrop}
+                        onOpenDecisionCard={setDecisionCardEntryId}
+                        mobileTab={phoneView}
+                        onMobileTabChange={onLedgerTabChange}
+                        cursorKey={cursorRow?.key ?? null}
+                        cursorTone={urgent ? 'urgent' : true}
+                        cursorNote={noteView ? <CursorNote view={noteView} leagueId={selectedLeagueId} /> : null}
+                      />
+                    )}
+                  </Box>
+
+                  <Box data-testid="lineup-outlook-column" sx={{ display: { xs: phoneView === 'outlook' ? 'grid' : 'none', sm: 'grid' }, gap: { xs: '16px', sm: '24px' }, minWidth: 0 }}>
+                    <StartSitPanel
+                      advice={advice}
+                      entries={lineup?.entries}
+                      bestBall={bestBall}
+                      onApply={submit}
+                      onCallShot={lineup?.week != null && lineup.week === lineup.currentWeek ? calledShot.callShot : undefined}
+                      onWithdrawShot={calledShot.withdrawShot}
+                      shotBusy={calledShot.busy}
+                      onOpenDecisionCard={setDecisionCardEntryId}
+                      onCompare={compareSuggestion}
+                      expectedFinals={expectedFinals}
+                      openSlot={openSlot}
+                    />
+                    <ByeClusterGrid
+                      entries={lineup?.entries}
+                      fromWeek={lineup?.week}
+                      isPastWeek={isPastWeek}
+                      waiverPeriodHours={league?.waiver_period_hours}
+                      leagueId={selectedLeagueId}
+                    />
+                    <MatchupPreview leagueId={selectedLeagueId} />
+                  </Box>
+                </Box>
+
+                {/* The phone footer below is fixed and out of flow, so below `sm` this page-scoped style keeps
+                    three things clear of it while the page is mounted: the app Footer's links (the footer's
+                    72px - 6px double rule, 10px and 12px of padding, a 44px toggle row - added to the Footer's
+                    own 20px bottom padding), the bottom-anchored Snackbar (lifted to the footer's height plus
+                    an 8px gap, since a save toast with Undo lingers 20s), and focused rows
+                    (`scroll-padding-bottom` of the measured 126px footer with a move strip, plus 16px, so a
+                    Tab-focused row is not scrolled under either, WCAG 2.4.11). The selectors reach the
+                    shell's `footer` tag and MUI's Snackbar class, the same global hooks Footer.css and
+                    SnackbarProvider.jsx own. */}
+                <GlobalStyles
+                  styles={(t) => ({
+                    [t.breakpoints.down('sm')]: {
+                      html: { scrollPaddingBottom: 142 },
+                      footer: { paddingBottom: 92 },
+                      '.MuiSnackbar-root.MuiSnackbar-anchorOriginBottomCenter': { bottom: 80 },
+                    },
+                  })}
+                />
+
+                {/* One bottom-pinned container (#1958, #1965), the last child of the content so it holds over
+                    either column: the move strip stacked directly above the phone toggles, so the two never
+                    overlap and the strip stays on screen when the tapped row is low on the page. Below `sm`
+                    both show; from `sm` the toggles are hidden and a strip floats alone 16px off the bottom
+                    (sticky). With no strip it holds just the toggles and is hidden from `sm`. Below `sm` it is
+                    `position: fixed`, not sticky: `sticky; bottom: 0` only ever pushes an element UP from
+                    where it sits in flow, and in flow it sits above the Footer, so at the end of the scroll
+                    (and on a short page, always) a sticky bar rests well short of the viewport bottom
+                    (measured, #1965). Fixed holds the bottom edge for the whole scroll; being out of flow it
+                    reserves no room, which `scroll-padding-bottom` and the Footer's padding above make up. */}
                 <Box
-                  role="group"
-                  aria-label="Lineup section"
-                  data-testid="lineup-mobile-tabs"
+                  data-testid="lineup-sticky-footer"
                   sx={{
-                    display: { xs: 'flex', sm: 'none' },
-                    border: '1px solid var(--dash-line)',
-                    borderRadius: 'var(--dash-radius-sm)',
-                    overflow: 'hidden',
-                    backgroundColor: 'var(--dash-surface)',
+                    display: swap.selectedEntry ? 'flex' : { xs: 'flex', sm: 'none' },
+                    flexDirection: 'column',
+                    gap: '10px',
+                    position: { xs: 'fixed', sm: 'sticky' },
+                    left: { xs: 0, sm: 'auto' },
+                    right: { xs: 0, sm: 'auto' },
+                    bottom: { xs: 0, sm: 16 },
+                    zIndex: 5,
+                    boxSizing: 'border-box',
+                    px: { xs: '16px', sm: 0 },
+                    pt: { xs: '10px', sm: 0 },
+                    pb: { xs: '12px', sm: 0 },
+                    backgroundColor: { xs: 'var(--ps-panel)', sm: 'transparent' },
+                    borderTop: { xs: '6px double var(--ps-frame)', sm: 0 },
                   }}
                 >
-                  {phoneTabs.map((tab, i) => (
+                  {swap.selectedEntry && (
                     <Box
-                      key={tab.key}
-                      component="button"
-                      type="button"
-                      ref={(el) => {
-                        phoneBarButtonRefs.current[tab.key] = el;
-                      }}
-                      aria-label={tab.name}
-                      aria-pressed={phoneView === tab.key}
-                      onClick={() => pressPhoneTab(tab.key)}
+                      data-testid="lineup-move-strip"
                       sx={{
-                        ...MIN_TOUCH_TARGET_SX,
-                        flex: '1 1 0',
-                        border: 'none',
-                        borderRight: i < phoneTabs.length - 1 ? '1px solid var(--dash-line)' : 'none',
-                        backgroundColor: phoneView === tab.key ? 'var(--dash-accent-soft)' : 'transparent',
-                        color: phoneView === tab.key ? 'var(--dash-accent)' : 'var(--dash-dim)',
-                        fontWeight: 600,
-                        fontSize: '13px',
-                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: '12px',
+                        boxSizing: 'border-box',
+                        p: { xs: 0, sm: '8px 8px 8px 16px' },
+                        border: { xs: 0, sm: '2px solid var(--ps-ink)' },
+                        backgroundColor: { xs: 'transparent', sm: 'var(--ps-panel)' },
                       }}
                     >
-                      {tab.label}
+                      {/* Text only: the polite live region never holds Cancel. */}
+                      <Box component="span" role="status" sx={{ fontSize: '14px', fontWeight: 600 }}>
+                        {`Moving ${swap.selectedEntry.name}. Pick a highlighted player.`}
+                      </Box>
+                      <PsAction aria-keyshortcuts="Escape" onClick={swap.cancelSelection}>Cancel</PsAction>
                     </Box>
-                  ))}
+                  )}
+                  {/* Plain toggle buttons with `aria-pressed`, NOT `role="tablist"`/`role="tab"`: the ARIA
+                      tabs pattern is a behavioural contract (arrow-key roving tabindex, `aria-controls`
+                      pointing at a real `role="tabpanel"`) this bar does not implement, and reviewed as a
+                      violation for exactly that reason - a screen reader trains a user to press Left/Right on
+                      a "tab" and nothing would happen. `aria-pressed` makes the same true claim ("this
+                      control is a toggle, and here is its state") without promising keyboard behaviour that
+                      isn't there. */}
+                  <SectionToggles tabs={phoneTabs} pressed={phoneView} onPress={pressPhoneTab} buttonRefs={phoneBarButtonRefs} />
                 </Box>
-              </Box>
-            </>
-          )}
-        </>
-      )}
+              </>
+            )}
+          </>
+        )}
+      </Box>
 
       <QuickPickMenu
         quickPick={swap.quickPick}
@@ -688,7 +709,14 @@ export default function LineupPage() {
         onClose={swap.closeQuickPick}
         onSelect={swap.handleQuickPickSelect}
       />
-      <DropConfirmationDialog entry={drop.dropCandidate} onClose={drop.closeDropConfirmation} onConfirm={drop.confirmDrop} />
+      <DropConfirmationDialog
+        entry={drop.dropCandidate}
+        onClose={drop.closeDropConfirmation}
+        onConfirm={drop.confirmDrop}
+        look="playselect"
+      />
+      {/* The card PR (spec #2347 ruling 3) adds a `look` option; once `look` is in PlayerDecisionCard's ALLOWED_PROPS this
+          call passes look="playselect" (the card throws on a prop it does not list, so it cannot be passed before). */}
       {/* #1515 (T19): the managed set (entries/onSwap/onRequestDrop/
           canDropEntry/bestBall/leagueUnsettled) rides inside the built
           context now - no loose prop stays beside it. */}

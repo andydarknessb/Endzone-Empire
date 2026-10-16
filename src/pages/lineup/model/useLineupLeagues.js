@@ -64,7 +64,7 @@ export function useLineupLeagues() {
     setSearchParams({ leagueId: String(leagueId) }, { replace: true });
   };
 
-  return { leagues, selectedLeagueId, setSelectedLeagueId, loading, error };
+  return { leagues, selectedLeagueId, setSelectedLeagueId, loading, error, refetch: fetchLeagues };
 }
 
 export default useLineupLeagues;

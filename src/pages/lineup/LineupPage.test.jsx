@@ -830,20 +830,22 @@ describe('#1958: team header size', () => {
     }));
   };
 
-  test('below sm the avatar is 40px and the title 22px', async () => {
+  const avatarBox = () => screen.getByTestId('lineup-team-avatar').firstChild;
+
+  test('below sm the avatar is 40px and the title is the 24px pixel h1', async () => {
     setNarrow(true);
     renderPage();
     const heading = await screen.findByRole('heading', { level: 1, name: 'My Team' });
-    expect(screen.getByTestId('lineup-team-avatar')).toHaveStyle({ width: '40px', height: '40px' });
-    expect(heading).toHaveStyle({ fontSize: '22px' });
+    expect(avatarBox()).toHaveStyle({ width: '40px', height: '40px' });
+    expect(rulesUnder(heading, '(min-width:0px)')).toMatch(/font-size: 24px/);
   });
 
-  test('from sm up the avatar is 56px and the title 26px', async () => {
+  test('from sm up the avatar is 48px and the title is the 32px pixel h1', async () => {
     setNarrow(false);
     renderPage();
     const heading = await screen.findByRole('heading', { level: 1, name: 'My Team' });
-    expect(screen.getByTestId('lineup-team-avatar')).toHaveStyle({ width: '56px', height: '56px' });
-    expect(heading).toHaveStyle({ fontSize: '26px' });
+    expect(avatarBox()).toHaveStyle({ width: '48px', height: '48px' });
+    expect(rulesUnder(heading, '(min-width:900px)')).toMatch(/font-size: 32px/);
   });
 });
 
@@ -896,9 +898,15 @@ test('no "optimal" copy in the best-ball notice either', async () => {
 
 // AC5 (formal review finding ac5-hindsight-line-missing): the bench points
 // left on the table line reads the existing hindsight endpoint.
-test('the bench points left on the table line reads the hindsight endpoint', async () => {
+// Spec #2347 ruling 4 / AC5: the Bench card's "Bench points this season" line is gone (the Forecast's "Left on the
+// bench this season" is the same quantity and says it once), and the page no longer reads the hindsight endpoint
+// for it.
+test('the Bench card has no "Bench points this season" line and the page makes no hindsight read', async () => {
   renderPage();
-  expect(await screen.findByTestId('bench-points-left')).toHaveTextContent('Bench points this season: 12.5');
+  await screen.findByText('Josh Allen');
+  expect(screen.queryByText(/Bench points this season/)).toBeNull();
+  expect(screen.queryByTestId('bench-points-left')).toBeNull();
+  expect(apiClient.get.mock.calls.some(([url]) => /\/api\/team\/hindsight/.test(url))).toBe(false);
 });
 
 // Formal review finding legacy-controls-dropped-without-a-criterion:
@@ -1375,7 +1383,7 @@ test('the page root is pinned to 100% width so the week strip cannot widen it in
   await screen.findByText('Josh Allen');
   const own = rulesUnder(screen.getByTestId('lineup-page'));
   expect(own).toMatch(/(^|[^-])width: 100%/);
-  expect(own).toMatch(/max-width: 1180px/);
+  expect(own).toMatch(/max-width: 1280px/);
 });
 
 // #1239 AC1-AC7: the Bye cluster grid and its attention chip. The default
