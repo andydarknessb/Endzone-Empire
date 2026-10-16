@@ -437,15 +437,21 @@ function validatePicksPayload({
     };
   }
 
-  const normalized = picks.map((pick) => {
+  // `pickedTeam: null` clears that game's pick (Undo of a first pick). It is
+  // lock-checked like any other entry, then split off before team and
+  // confidence validation: a cleared game has neither.
+  const all = picks.map((pick) => {
     const gameKey = normalizeTeam(pick.gameKey);
     return {
       gameKey,
+      clear: pick.pickedTeam === null,
       pickedTeam: normalizeTeam(pick.pickedTeam),
       confidence: pick.confidence,
       game: byKey.get(gameKey),
     };
   });
+  const normalized = all.filter((pick) => !pick.clear);
+  const clears = all.filter((pick) => pick.clear).map((pick) => pick.gameKey);
 
   const badTeam = normalized
     .filter((pick) => !pick.game.teams.includes(pick.pickedTeam))
@@ -458,7 +464,7 @@ function validatePicksPayload({
     };
   }
 
-  const locked = normalized
+  const locked = all
     .filter((pick) => isGameLocked(pick.game, now))
     .map((pick) => pick.gameKey);
   if (locked.length > 0) {
@@ -472,6 +478,7 @@ function validatePicksPayload({
   if (mode !== 'confidence') {
     return {
       code: null,
+      clears,
       picks: normalized.map(({ gameKey, pickedTeam }) => ({ gameKey, pickedTeam, confidence: null })),
     };
   }
@@ -515,6 +522,7 @@ function validatePicksPayload({
 
   return {
     code: null,
+    clears,
     picks: normalized.map(({ gameKey, pickedTeam, confidence }) => ({
       gameKey,
       pickedTeam,
@@ -717,6 +725,12 @@ const UPSERT_PICKS_SQL = `
   DO UPDATE SET "picked_team" = EXCLUDED."picked_team",
                 "confidence" = EXCLUDED."confidence",
                 "updated_at" = now()`;
+
+const DELETE_PICKS_SQL = `
+  DELETE FROM "pickem_picks"
+   WHERE "league_id" = $1 AND "user_id" = $2 AND "season" = $3 AND "week" = $4
+     AND "team_pair" = ANY($5::text[])
+  RETURNING "team_pair"`;
 
 /** The league row Pick'em needs, or 404. Accepts a pool or a checked-out client. */
 async function loadLeague(db, leagueId) {
@@ -938,7 +952,9 @@ async function getWeekView({ leagueId, userId, season, week, mode, now = new Dat
 }
 
 /**
- * Save a batch of picks. Transactional, and the slate + lock check are
+ * Save a batch of picks (a tap saves a one-element batch; a confidence swap
+ * sends both games). An entry with `pickedTeam: null` deletes that game's
+ * row. Transactional, and the slate + lock check are
  * re-derived INSIDE the transaction: the client rendered its board some time
  * ago, and a game may have kicked off since. Any locked or invalid entry
  * rejects the whole batch and names the offending games.
@@ -959,6 +975,13 @@ async function upsertPicks({ leagueId, userId, season, week, picks, now = new Da
       throw new PickemError(409, 'PICKEM_NO_SLATE', 'no NFL games are scheduled for that week yet');
     }
 
+    // One member's saves for one week run one at a time. The rank uniqueness below reads the rows
+    // this member already holds, so two overlapping saves (a tap on each of two cards) would each
+    // read the other's rank as free and both write it. The lock is held to COMMIT or ROLLBACK and
+    // is taken before that read.
+    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [
+      `pickem:${leagueId}:${userId}:${season}:${week}`,
+    ]);
     const existing = await client.query(
       `SELECT "team_pair", "confidence" FROM "pickem_picks"
         WHERE "league_id" = $1 AND "user_id" = $2 AND "season" = $3 AND "week" = $4`,
@@ -987,16 +1010,23 @@ async function upsertPicks({ leagueId, userId, season, week, picks, now = new Da
       );
     }
 
-    await client.query(UPSERT_PICKS_SQL, [
-      leagueId,
-      userId,
-      season,
-      week,
-      validated.picks.map((pick) => pick.gameKey),
-      validated.picks.map((pick) => pick.pickedTeam),
-      validated.picks.map((pick) => pick.confidence),
-    ]);
-    return { saved: validated.picks.length, myPicks: validated.picks };
+    let cleared = [];
+    if (validated.clears.length > 0) {
+      const deleted = await client.query(DELETE_PICKS_SQL, [leagueId, userId, season, week, validated.clears]);
+      cleared = deleted.rows.map((row) => row.team_pair);
+    }
+    if (validated.picks.length > 0) {
+      await client.query(UPSERT_PICKS_SQL, [
+        leagueId,
+        userId,
+        season,
+        week,
+        validated.picks.map((pick) => pick.gameKey),
+        validated.picks.map((pick) => pick.pickedTeam),
+        validated.picks.map((pick) => pick.confidence),
+      ]);
+    }
+    return { saved: validated.picks.length, cleared, myPicks: validated.picks };
     },
     { label: 'pickem-picks' }
   );
