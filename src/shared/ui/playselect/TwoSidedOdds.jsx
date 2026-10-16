@@ -26,7 +26,7 @@ export function TwoSidedOdds({
   let lead = ink;
   if (live) lead = onBoard ? 'var(--ps-board-live)' : 'var(--ps-accent)';
   const end = (name, p, leads, right) => (
-    <Box component="span" sx={{ minWidth: 0, textAlign: right ? 'right' : undefined, ...(leads ? { fontWeight: 700, color: ink } : null) }}>
+    <Box component="span" sx={{ minWidth: 0, overflowWrap: 'anywhere', textAlign: right ? 'right' : undefined, ...(leads ? { fontWeight: 700, color: ink } : null) }}>
       {`${name} ${p}%`}
     </Box>
   );
