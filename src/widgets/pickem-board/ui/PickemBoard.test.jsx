@@ -1,8 +1,12 @@
+/* eslint-disable testing-library/no-node-access, testing-library/no-container -- the cursor frame, the pixel marks and the sticky strip are classes, svgs and styles with no role */
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import {
+  act, render, screen, waitFor, within,
+} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import apiClient from '../../../api/apiClient';
 import { invalidate } from '../../../lib/resourceCache';
+import { formatKickoff } from '../../../shared/lib';
 import PickemBoard from '../index';
 
 jest.mock('../../../api/apiClient', () => ({
@@ -11,13 +15,14 @@ jest.mock('../../../api/apiClient', () => ({
 }));
 
 let mobile = false;
+// Sunday Oct 18 2026, 2:40 PM CDT: the Sunday Early games are in progress, Thursday is final, and
+// the 3:25 PM games lock in 45 minutes.
+const NOW = Date.parse('2026-10-18T19:40:00Z');
 
 beforeEach(() => {
   invalidate(undefined, { reload: false });
   mobile = false;
-  // Every media query this widget (and pick-week beneath it) reads goes
-  // through useMediaQuery: the theme's `sm` breakpoint (a max-width) reads
-  // `mobile`, matching the same fixture GameCenterPage.test.jsx uses.
+  jest.spyOn(Date, 'now').mockReturnValue(NOW);
   window.matchMedia = jest.fn().mockImplementation((query) => ({
     matches: /max-width/.test(query) ? mobile : false,
     media: query,
@@ -31,177 +36,562 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  jest.restoreAllMocks();
   jest.clearAllMocks();
 });
 
 const LEAGUE_ID = 1;
+const TNF = '2026-10-16T00:15:00Z'; // Thu 8:15 PM ET
+const EARLY = '2026-10-18T17:00:00Z'; // Sun 1:00 PM ET
+const LATE = '2026-10-18T20:25:00Z'; // Sun 4:25 PM ET, 45 minutes after NOW
+const SNF = '2026-10-19T00:20:00Z';
+const MNF = '2026-10-20T00:15:00Z';
+
+const game = (key, kickoffAt, overrides = {}) => {
+  const [awayTeam, homeTeam] = key.split('|');
+  return {
+    gameKey: key,
+    teams: [awayTeam, homeTeam],
+    kickoffAt,
+    homeTeam,
+    awayTeam,
+    status: 'scheduled',
+    homeScore: null,
+    awayScore: null,
+    quarter: null,
+    timeRemaining: null,
+    locked: false,
+    winner: null,
+    isTie: false,
+    pickedCount: 1,
+    line: null,
+    weather: null,
+    venue: null,
+    broadcast: null,
+    records: null,
+    situation: null,
+    linescores: null,
+    headline: null,
+    ...overrides,
+  };
+};
+const live = (key, extra = {}) => game(key, EARLY, {
+  locked: true, status: 'in_progress', quarter: 'Q4', timeRemaining: '4:21', homeScore: 20, awayScore: 17, ...extra,
+});
+
+const EARLY_KEYS = ['JAX|LAR', 'CIN|NYJ', 'ATL|CAR', 'TEN|IND', 'BUF|MIA', 'DET|TB', 'HOU|SEA', 'MIN|PHI'];
+// The Week 7 slate at 2:40 PM: 14 games. Early is all live, Thursday is final, three windows are open.
+const slate = () => [
+  game('CLE|PIT', TNF, { locked: true, status: 'final', homeScore: 20, awayScore: 10, winner: 'PIT' }),
+  ...EARLY_KEYS.map((key) => live(key)),
+  game('ARI|SF', LATE),
+  game('DAL|DEN', LATE),
+  game('KC|LV', LATE),
+  game('CHI|GB', SNF),
+  game('NYG|WAS', MNF),
+];
+// 9 of 14 picked: Thursday, five Sunday Early, KC, GB and WAS. ARI|SF and DAL|DEN are open and unpicked.
+const NINE = [
+  ['CLE|PIT', 'PIT'], ['JAX|LAR', 'JAX'], ['CIN|NYJ', 'CIN'], ['ATL|CAR', 'ATL'], ['TEN|IND', 'TEN'], ['BUF|MIA', 'BUF'],
+  ['KC|LV', 'KC'], ['CHI|GB', 'GB'], ['NYG|WAS', 'WAS'],
+].map(([gameKey, pickedTeam]) => ({ gameKey, pickedTeam, confidence: null }));
 
 const leagueResponse = () => ({
   data: {
     viewerTeamId: 3,
-    league: { id: LEAGUE_ID, name: 'MinneApple', current_week: 3 },
-    teams: [{ teamId: 3, teamName: 'A' }, { teamId: 7, teamName: 'B' }],
+    league: { id: LEAGUE_ID, name: 'MinneApple', current_week: 7 },
+    teams: Array.from({ length: 12 }, (unused, index) => ({ teamId: index + 1, teamName: `T${index + 1}` })),
   },
 });
 
-const openGame = () => ({
-  gameKey: 'NYJ|TEN',
-  teams: ['NYJ', 'TEN'],
-  kickoffAt: '2026-09-20T17:00:00Z', // a Sunday early game (1pm ET)
-  homeTeam: 'TEN',
-  awayTeam: 'NYJ',
-  status: 'scheduled',
-  homeScore: null,
-  awayScore: null,
-  quarter: null,
-  timeRemaining: null,
-  locked: false,
-  winner: null,
-  isTie: false,
-  pickedCount: 1,
-  line: null,
-  weather: null,
-  venue: null,
-  broadcast: null,
-  records: null,
-  situation: null,
-  linescores: null,
-  headline: null,
-});
-
-const weekResponse = (overrides = {}) => ({
-  data: {
-    season: 2026,
-    week: 3,
-    mode: 'straight',
-    games: [openGame()],
-    myPicks: [],
-    othersPicks: {},
-    ...overrides,
-  },
-});
-
-const mockGetByUrl = (map) => {
-  apiClient.get.mockImplementation((url) =>
-    Object.prototype.hasOwnProperty.call(map, url)
-      ? Promise.resolve(map[url])
-      : Promise.reject(new Error(`unexpected GET ${url}`))
-  );
-};
-
-test('renders the week stepper and the slate\'s game cards, grouped by kickoff window', async () => {
-  mockGetByUrl({
-    '/api/league/1': leagueResponse(),
-    '/api/pickem/league/1/week/3': weekResponse(),
+// A fake server for the week: a PUT changes what the next GET returns, the way the real one does.
+function serve({
+  games = slate(), myPicks = [], mode = 'straight', putImpl,
+} = {}) {
+  const state = { myPicks: [...myPicks] };
+  apiClient.get.mockImplementation((url) => {
+    if (url === `/api/league/${LEAGUE_ID}`) return Promise.resolve(leagueResponse());
+    if (url === `/api/pickem/league/${LEAGUE_ID}/week/7`) {
+      return Promise.resolve({ data: { season: 2026, week: 7, mode, games, myPicks: state.myPicks, othersPicks: {} } });
+    }
+    return Promise.reject(new Error(`unexpected GET ${url}`));
   });
-  render(<PickemBoard leagueId={LEAGUE_ID} />);
+  apiClient.put.mockImplementation(async (url, body) => {
+    if (putImpl) {
+      const outcome = await putImpl(body);
+      if (outcome) return outcome;
+    }
+    for (const pick of body.picks) {
+      state.myPicks = state.myPicks.filter((entry) => entry.gameKey !== pick.gameKey);
+      if (pick.pickedTeam != null) state.myPicks.push({ gameKey: pick.gameKey, pickedTeam: pick.pickedTeam, confidence: pick.confidence ?? null });
+    }
+    return { data: { saved: body.picks.length } };
+  });
+  return state;
+}
 
-  expect(await screen.findByTestId('game-card')).toBeInTheDocument();
+const renderBoard = async (props = {}) => {
+  const view = render(<PickemBoard leagueId={LEAGUE_ID} {...props} />);
+  await screen.findAllByTestId('game-card');
+  return view;
+};
+const cardFor = (matchup) => screen.getByRole('article', { name: new RegExp(`^${matchup}`) });
+const teamButton = (team) => screen.getByRole('button', { name: new RegExp(`^${team},`) });
+
+test('renders the week picker, no "All weeks", and the windows as frames with their own h3', async () => {
+  serve();
+  await renderBoard();
   expect(screen.getByTestId('pick-week')).toBeInTheDocument();
-  expect(screen.getByTestId('kickoff-window-sunday-early')).toBeInTheDocument();
-  expect(screen.getByRole('button', { name: /Titans/i })).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: /All weeks/i })).not.toBeInTheDocument();
+  expect(screen.getByRole('heading', { level: 2, name: 'Picks' })).toBeInTheDocument();
+  expect(screen.getByRole('region', { name: 'Sunday Late' })).toBeInTheDocument();
+  expect(screen.getByRole('heading', { level: 3, name: 'Sunday Late' })).toBeInTheDocument();
 });
 
-test('an unreachable week shows a compact, self-contained error', async () => {
+test('AC 6a: the week picker never offers "All", and setWeek never receives it', async () => {
+  const user = userEvent.setup();
+  serve();
+  await renderBoard();
+  expect(screen.queryByText('All weeks')).not.toBeInTheDocument();
+  await user.click(screen.getByRole('button', { name: 'Previous week' }));
+  const weekGets = apiClient.get.mock.calls.map(([url]) => url).filter((url) => url.includes('/week/'));
+  expect(weekGets.every((url) => /\/week\/\d+$/.test(url))).toBe(true);
+  expect(weekGets.some((url) => /All/i.test(url))).toBe(false);
+});
+
+test('AC 6e: the Picks h2 row reads "9 of 14 picked · 2 open · next lock {day time}" and the cursor card says it locks in 45 min', async () => {
+  serve({ myPicks: NINE });
+  await renderBoard();
+  expect(screen.getByTestId('pickem-status')).toHaveTextContent(`9 of 14 picked · 2 open · next lock ${formatKickoff(LATE)}`);
+  expect(cardFor('ARI at SF, locks in 45 min')).toBeInTheDocument();
+  expect(cardFor('DAL at DEN, locks in 45 min')).toBeInTheDocument();
+  expect(teamButton('ARI')).toHaveAccessibleName(expect.stringMatching(/, locks in 45 min$/));
+  // The status is plain text: no live region in the h2 row.
+  expect(within(screen.getByTestId('pickem-status')).queryByRole('status')).toBeNull();
+});
+
+test('AC 6e: with every game picked it reads "14 of 14 picked · all saved"', async () => {
+  const picks = slate().map((entry) => ({ gameKey: entry.gameKey, pickedTeam: entry.awayTeam, confidence: null }));
+  serve({ myPicks: picks });
+  await renderBoard();
+  const status = screen.getByTestId('pickem-status');
+  expect(status).toHaveTextContent('14 of 14 picked · all saved');
+  expect(status).not.toHaveTextContent('open');
+  expect(status.querySelector('a')).toBeNull();
+});
+
+test('AC 3 / 4: the cursor sits on the earliest unlocked unpicked game, Danger within the hour, and the next-lock link focuses it', async () => {
+  const user = userEvent.setup();
+  serve({ myPicks: NINE });
+  const { container } = await renderBoard();
+  const cursors = container.querySelectorAll('.cursor');
+  expect(cursors).toHaveLength(1);
+  expect(cursors[0]).toContainElement(cardFor('ARI at SF'));
+  expect(cursors[0]).toHaveStyle({ borderColor: 'var(--ps-danger)' });
+  expect(cursors[0]).toHaveAttribute('id', 'pickem-cursor');
+
+  await user.click(screen.getByRole('link', { name: /next lock/ }));
+  expect(cursors[0]).toHaveFocus();
+});
+
+test('AC 4: the cursor frame is the yellow Cursor token when the kickoff is an hour or more away', async () => {
+  jest.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-10-18T18:00:00Z'));
+  serve({ games: slate().map((entry) => (entry.locked ? { ...entry, locked: false, status: 'scheduled' } : entry)), myPicks: [] });
+  const { container } = await renderBoard();
+  const cursors = container.querySelectorAll('.cursor');
+  expect(cursors).toHaveLength(1);
+  expect(cursors[0]).toHaveStyle({ borderColor: 'var(--ps-cursor)' });
+  expect(screen.queryByTestId('locks-in')).not.toBeInTheDocument();
+});
+
+test('AC 3: every game picked, or every game locked, draws no cursor', async () => {
+  serve({ myPicks: slate().map((entry) => ({ gameKey: entry.gameKey, pickedTeam: entry.awayTeam, confidence: null })) });
+  const { container, unmount } = await renderBoard();
+  expect(container.querySelectorAll('.cursor')).toHaveLength(0);
+  unmount();
+
+  invalidate(undefined, { reload: false });
+  serve({ games: slate().map((entry) => ({ ...entry, locked: true, status: 'in_progress', quarter: 'Q1' })) });
+  const { container: again } = render(<PickemBoard leagueId={LEAGUE_ID} />);
+  expect(await screen.findByTestId('pickem-status')).toBeInTheDocument();
+  expect(again.querySelectorAll('.cursor')).toHaveLength(0);
+});
+
+test('AC 6f: a settled window is one summary row with a Show games toggle, collapsed with no cards; pressing it renders them', async () => {
+  const user = userEvent.setup();
+  serve({ myPicks: NINE });
+  await renderBoard();
+  const early = screen.getByRole('region', { name: 'Sunday Early' });
+  expect(within(early).getByTestId('window-summary')).toHaveTextContent('8 live · 5 picked · 3 no pick');
+  const toggle = within(early).getByRole('button', { name: /Show games/ });
+  expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  expect(within(early).queryAllByTestId('game-card')).toHaveLength(0);
+
+  await user.click(toggle);
+  expect(within(early).getAllByTestId('game-card')).toHaveLength(8);
+  const hide = within(early).getByRole('button', { name: /Hide games/ });
+  expect(hide).toHaveAttribute('aria-expanded', 'true');
+  expect(hide).toHaveTextContent('Hide games');
+
+  // Thursday is all final: "Final · 1 of 1 correct", and a one-game window never earns Perfect.
+  const thursday = screen.getByRole('region', { name: 'Thursday Night' });
+  expect(within(thursday).getByTestId('window-summary')).toHaveTextContent('Final · 1 of 1 correct');
+  expect(within(thursday).queryByText('Perfect')).not.toBeInTheDocument();
+});
+
+test('AC 6f: a window with an open game renders its cards and no toggle; "League picks reveal at kickoff" is once per head', async () => {
+  serve({ myPicks: NINE });
+  await renderBoard();
+  const late = screen.getByRole('region', { name: 'Sunday Late' });
+  expect(within(late).getAllByTestId('game-card')).toHaveLength(3);
+  expect(within(late).queryByRole('button', { name: /(Show|Hide) games/ })).not.toBeInTheDocument();
+  expect(within(late).getAllByText('League picks reveal at kickoff')).toHaveLength(1);
+  expect(within(late).getAllByTestId('picked-count')).toHaveLength(3);
+});
+
+test('a final window with every pick right reads Perfect with a pixel star', async () => {
+  const eight = EARLY_KEYS.map((key) => game(key, EARLY, {
+    locked: true, status: 'final', homeScore: 24, awayScore: 17, winner: key.split('|')[1],
+  }));
+  serve({
+    games: [...eight, game('ARI|SF', LATE)],
+    myPicks: EARLY_KEYS.map((key) => ({ gameKey: key, pickedTeam: key.split('|')[1], confidence: null })),
+  });
+  await renderBoard();
+  const early = screen.getByRole('region', { name: 'Sunday Early' });
+  expect(within(early).getByTestId('window-summary')).toHaveTextContent('Final · 8 of 8 correct');
+  expect(within(early).getByText('Perfect')).toBeInTheDocument();
+});
+
+describe('save on tap', () => {
+  test('AC 6d: choosing a team sends ONE put with a one-element picks array, shows Saving then Pick saved with an Undo', async () => {
+    const user = userEvent.setup();
+    let release;
+    serve({ myPicks: NINE, putImpl: () => new Promise((resolve) => { release = resolve; }) });
+    await renderBoard();
+
+    await user.click(teamButton('ARI'));
+    expect(apiClient.put).toHaveBeenCalledTimes(1);
+    expect(apiClient.put).toHaveBeenCalledWith('/api/pickem/league/1/week/7/picks', {
+      picks: [{ gameKey: 'ARI|SF', pickedTeam: 'ARI', confidence: null }],
+    });
+    const card = cardFor('ARI at SF');
+    expect(within(card).getByRole('status')).toHaveTextContent('Saving…');
+    // Saving is not saved: the chosen team is outlined, not filled, and no check yet.
+    expect(teamButton('ARI')).toHaveAttribute('aria-pressed', 'false');
+    expect(teamButton('ARI')).toHaveAccessibleName(expect.stringMatching(/, saving$/));
+
+    await act(async () => { release(null); });
+    await waitFor(() => expect(within(card).getByRole('status')).toHaveTextContent('Pick saved'));
+    expect(within(card).getByRole('button', { name: /Undo pick, ARI at SF/ })).toBeInTheDocument();
+    expect(teamButton('ARI')).toHaveAttribute('aria-pressed', 'true');
+    expect(teamButton('ARI')).toHaveAccessibleName(expect.stringMatching(/, saved$/));
+    // Only the save line is live: Undo sits outside the region.
+    expect(within(card).getByRole('status')).not.toContainElement(within(card).getByRole('button', { name: /Undo/ }));
+    // The status moved on: 10 of 14, one open.
+    expect(screen.getByTestId('pickem-status')).toHaveTextContent('10 of 14 picked · 1 open');
+  });
+
+  test('AC 6d: Undo of a first pick sends pickedTeam null; Undo of a changed pick sends the previous pick', async () => {
+    const user = userEvent.setup();
+    serve({ myPicks: NINE });
+    await renderBoard();
+
+    await user.click(teamButton('ARI'));
+    await user.click(await screen.findByRole('button', { name: /Undo pick, ARI at SF/ }));
+    await waitFor(() => expect(apiClient.put).toHaveBeenCalledTimes(2));
+    expect(apiClient.put).toHaveBeenLastCalledWith('/api/pickem/league/1/week/7/picks', {
+      picks: [{ gameKey: 'ARI|SF', pickedTeam: null, confidence: null }],
+    });
+    await waitFor(() => expect(teamButton('ARI')).toHaveAttribute('aria-pressed', 'false'));
+
+    // KC|LV is picked KC; change to LV, then Undo restores KC.
+    await user.click(teamButton('LV'));
+    await user.click(await screen.findByRole('button', { name: /Undo pick, KC at LV/ }));
+    await waitFor(() => expect(apiClient.put).toHaveBeenCalledTimes(4));
+    expect(apiClient.put).toHaveBeenLastCalledWith('/api/pickem/league/1/week/7/picks', {
+      picks: [{ gameKey: 'KC|LV', pickedTeam: 'KC', confidence: null }],
+    });
+  });
+
+  test('a save never reopens the loading state: the board stays on screen and focus stays on the tapped button', async () => {
+    const user = userEvent.setup();
+    serve({ myPicks: NINE });
+    await renderBoard();
+    await user.click(teamButton('ARI'));
+    await screen.findByRole('button', { name: /Undo pick, ARI at SF/ });
+    expect(screen.queryByTestId('game-card-skeleton')).not.toBeInTheDocument();
+    expect(teamButton('ARI')).toHaveFocus();
+  });
+
+  test('AC 6d: a 409 PICKEM_LOCKED shows the kicked-off copy on that card only, drawn Locked', async () => {
+    const user = userEvent.setup();
+    const state = serve({
+      myPicks: NINE,
+      putImpl: () => Promise.reject({
+        response: { status: 409, data: { code: 'PICKEM_LOCKED', error: 'locked', gameKeys: ['DAL|DEN'] } },
+      }),
+    });
+    // The refresh after the 409 shows DAL @ DEN kicked off.
+    const refreshed = slate().map((entry) => (entry.gameKey === 'DAL|DEN' ? { ...entry, locked: true, status: 'in_progress', quarter: 'Q1', timeRemaining: '15:00', homeScore: 0, awayScore: 0 } : entry));
+    await renderBoard();
+    apiClient.get.mockImplementation((url) => {
+      if (url === '/api/league/1') return Promise.resolve(leagueResponse());
+      return Promise.resolve({ data: { season: 2026, week: 7, mode: 'straight', games: refreshed, myPicks: state.myPicks, othersPicks: {} } });
+    });
+
+    await user.click(teamButton('DEN'));
+    const note = await screen.findByTestId('refused-note');
+    expect(note).toHaveTextContent("This pick wasn't saved: DAL @ DEN had already kicked off. Your other picks are saved.");
+    const card = cardFor('DAL at DEN');
+    expect(card).toContainElement(note);
+    expect(within(card).getByTestId('locked-badge')).toBeInTheDocument();
+    // No other card carries the message.
+    expect(screen.getAllByTestId('refused-note')).toHaveLength(1);
+    expect(within(cardFor('ARI at SF')).queryByRole('alert')).toBeNull();
+  });
+
+  test('a failed save stays on its card with a Retry, the attempted team outlined and a 2px Danger edge, never the 4px frame', async () => {
+    const user = userEvent.setup();
+    let attempts = 0;
+    serve({
+      myPicks: NINE,
+      putImpl: () => {
+        attempts += 1;
+        return attempts === 1 ? Promise.reject(new Error('Network Error')) : null;
+      },
+    });
+    const { container } = await renderBoard();
+    await user.click(teamButton('ARI'));
+    const card = cardFor('ARI at SF');
+    await waitFor(() => expect(within(card).getByRole('status')).toHaveTextContent("Couldn't save this pick."));
+    expect(teamButton('ARI')).toHaveAttribute('aria-pressed', 'false');
+    expect(teamButton('ARI')).toHaveAccessibleName(expect.stringMatching(/, not saved, retry$/));
+    const wrapper = card.parentElement;
+    expect(wrapper).toHaveStyle({ border: '2px solid var(--ps-danger)' });
+    expect(wrapper).not.toHaveClass('cursor');
+    expect(container.querySelectorAll('.cursor')).toHaveLength(0);
+
+    await user.click(within(card).getByRole('button', { name: /Retry saving pick, ARI at SF/ }));
+    await waitFor(() => expect(within(card).getByRole('status')).toHaveTextContent('Pick saved'));
+    expect(apiClient.put).toHaveBeenCalledTimes(2);
+  });
+
+  test('AC 6i: no Save picks button, no discard dialog and nothing sticky at the bottom', async () => {
+    const user = userEvent.setup();
+    serve({ myPicks: NINE });
+    const { container } = await renderBoard();
+    await user.click(teamButton('ARI'));
+    await screen.findByRole('button', { name: /Undo pick/ });
+    expect(screen.queryByRole('button', { name: /Save picks/i })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('save-bar')).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    // The week picker is not guarded either: changing weeks opens no dialog.
+    await user.click(screen.getByRole('button', { name: 'Previous week' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    const stickyBottom = Array.from(container.querySelectorAll('*')).filter((el) => /bottom:\s*0/.test(el.getAttribute('style') || ''));
+    expect(stickyBottom).toHaveLength(0);
+  });
+
+  test('AC 6m: each open card carries a save line with role=status, empty at rest', async () => {
+    serve({ myPicks: NINE });
+    await renderBoard();
+    for (const matchup of ['ARI at SF', 'DAL at DEN', 'KC at LV', 'CHI at GB', 'NYG at WAS']) {
+      expect(within(cardFor(matchup)).getByRole('status')).toHaveTextContent('');
+    }
+  });
+
+  test('onSaved fires after a save that landed, so the page can clear the standings cache', async () => {
+    const user = userEvent.setup();
+    const onSaved = jest.fn();
+    serve({ myPicks: NINE });
+    await renderBoard({ onSaved });
+    await user.click(teamButton('ARI'));
+    await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
+    expect(onSaved).toHaveBeenCalledWith({ ok: true });
+  });
+});
+
+describe('confidence mode', () => {
+  const RANKED = [
+    { gameKey: 'CLE|PIT', pickedTeam: 'PIT', confidence: 14 },
+    { gameKey: 'JAX|LAR', pickedTeam: 'JAX', confidence: 13 },
+    { gameKey: 'MIN|PHI', pickedTeam: 'PHI', confidence: 9 },
+    { gameKey: 'KC|LV', pickedTeam: 'KC', confidence: 4 },
+    { gameKey: 'CHI|GB', pickedTeam: 'GB', confidence: 7 },
+  ];
+
+  test('AC 6g: with ranks 14, 13 and 9 used the strip says "11 ranks left" and the page shows the rule line', async () => {
+    serve({ mode: 'confidence', myPicks: RANKED.slice(0, 3) });
+    await renderBoard();
+    const strip = screen.getByTestId('rank-strip');
+    expect(strip).toHaveTextContent('11 ranks left');
+    expect(within(strip).getByRole('img')).toHaveAccessibleName(/^Ranks used: 9, 13, 14/);
+    expect(screen.getByTestId('confidence-rule')).toHaveTextContent(
+      'Confidence league: give each game a rank from 1 to 14, each used once. A correct pick earns its rank.'
+    );
+    expect(strip).toHaveStyle({ position: 'sticky', top: '0px' });
+  });
+
+  test('a locked rank is marked in the strip: 13 belongs to a kicked-off game', async () => {
+    serve({ mode: 'confidence', myPicks: RANKED.slice(0, 3) });
+    await renderBoard();
+    expect(within(screen.getByTestId('rank-strip')).getByRole('img')).toHaveAccessibleName(
+      'Ranks used: 9, 13, 14; locked to kicked-off games: 9, 13, 14'
+    );
+  });
+
+  test('AC 6n: ranks held by kicked-off games are aria-disabled and say locked in the menu', async () => {
+    serve({ mode: 'confidence', myPicks: RANKED });
+    await renderBoard();
+    const select = within(cardFor('ARI at SF')).getByRole('combobox', { name: 'Confidence for ARI at SF' });
+    const option = within(select).getByRole('option', { name: 'Confidence 13 · locked, JAX @ LAR' });
+    expect(option).toBeDisabled();
+    expect(option).toHaveAttribute('aria-disabled', 'true');
+    // KC|LV is open: its rank stays in the menu as "used by", choosable only for a ranked game.
+    expect(within(select).getByRole('option', { name: 'Confidence 4 · used by KC @ LV' })).toBeDisabled(); // ARI|SF has no rank yet
+  });
+
+  test('one hint per window head, and each disabled select points at it', async () => {
+    serve({ mode: 'confidence', myPicks: RANKED });
+    await renderBoard();
+    const late = screen.getByRole('region', { name: 'Sunday Late' });
+    const hints = within(late).getAllByText('Pick a team to set its confidence');
+    expect(hints).toHaveLength(1);
+    const select = within(cardFor('ARI at SF')).getByRole('combobox');
+    expect(select).toBeDisabled();
+    expect(select).toHaveAttribute('aria-describedby', hints[0].id);
+  });
+
+  test('a team tapped with no rank yet is a draft: nothing is sent until a rank is chosen, then it saves', async () => {
+    const user = userEvent.setup();
+    serve({ mode: 'confidence', myPicks: RANKED });
+    await renderBoard();
+    const card = cardFor('ARI at SF');
+    await user.click(teamButton('ARI'));
+    expect(apiClient.put).not.toHaveBeenCalled();
+    const select = within(card).getByRole('combobox');
+    expect(select).toBeEnabled();
+    expect(select).toHaveFocus();
+
+    await user.selectOptions(select, 'Confidence 1');
+    await waitFor(() => expect(apiClient.put).toHaveBeenCalledTimes(1));
+    expect(apiClient.put).toHaveBeenCalledWith('/api/pickem/league/1/week/7/picks', {
+      picks: [{ gameKey: 'ARI|SF', pickedTeam: 'ARI', confidence: 1 }],
+    });
+  });
+
+  test('AC 6i: choosing a used rank sends ONE put with both games and both cards say "Swapped with"', async () => {
+    const user = userEvent.setup();
+    const state = serve({
+      mode: 'confidence',
+      myPicks: [...RANKED, { gameKey: 'ARI|SF', pickedTeam: 'SF', confidence: 7 }].filter((pick) => pick.gameKey !== 'CHI|GB'),
+    });
+    await renderBoard();
+    // ARI|SF holds 7; KC|LV holds 4. Choose 4 for ARI|SF.
+    const select = within(cardFor('ARI at SF')).getByRole('combobox');
+    await user.selectOptions(select, 'Confidence 4 · used by KC @ LV');
+    await waitFor(() => expect(apiClient.put).toHaveBeenCalledTimes(1));
+    expect(apiClient.put).toHaveBeenCalledWith('/api/pickem/league/1/week/7/picks', {
+      picks: [
+        { gameKey: 'ARI|SF', pickedTeam: 'SF', confidence: 4 },
+        { gameKey: 'KC|LV', pickedTeam: 'KC', confidence: 7 },
+      ],
+    });
+    await waitFor(() => expect(within(cardFor('ARI at SF')).getByRole('status')).toHaveTextContent('Swapped with KC @ LV'));
+    expect(within(cardFor('KC at LV')).getByRole('status')).toHaveTextContent('Swapped with ARI @ SF');
+    expect(state.myPicks.find((pick) => pick.gameKey === 'ARI|SF').confidence).toBe(4);
+  });
+
+  test('confidence in the numbers help: the closed disclosure carries the Confidence entry only on confidence boards', async () => {
+    serve({ mode: 'confidence', myPicks: [] });
+    const { unmount } = await renderBoard();
+    expect(screen.getByText('What the numbers mean').closest('details')).not.toHaveAttribute('open');
+    expect(within(screen.getByText('What the numbers mean').closest('details')).getByText('Confidence')).toBeInTheDocument();
+    unmount();
+    invalidate(undefined, { reload: false });
+    serve({ mode: 'straight', myPicks: [] });
+    await renderBoard();
+    expect(within(screen.getByText('What the numbers mean').closest('details')).queryByText('Confidence')).not.toBeInTheDocument();
+  });
+});
+
+describe('live and final cards', () => {
+  const liveSlate = () => [
+    live('JAX|LAR', { situation: { possession: 'JAX', downDistance: '2nd & 10 at LAR 25', homeWinProbability: 0.62 }, reveal: undefined }),
+    game('ARI|SF', LATE),
+  ];
+
+  test('AC 6 / 6c: a live card has ONE two-sided win probability image naming both teams, summing to 100, and no Forecast credit', async () => {
+    const user = userEvent.setup();
+    serve({ games: liveSlate(), myPicks: [{ gameKey: 'JAX|LAR', pickedTeam: 'JAX', confidence: null }] });
+    await renderBoard();
+    await user.click(screen.getByRole('button', { name: /Show games/ }));
+    const card = cardFor('JAX at LAR');
+    const odds = within(card).getAllByRole('img').filter((el) => /win probability/.test(el.getAttribute('aria-label')));
+    expect(odds).toHaveLength(1);
+    expect(odds[0]).toHaveAccessibleName('Jacksonville Jaguars 38%, Los Angeles Rams 62% win probability');
+    expect(card).not.toHaveTextContent(/Endzone Forecast/);
+    expect(within(card).getByText('Win probability')).toBeInTheDocument();
+    expect(within(card).getByTestId('live-badge')).toHaveTextContent('Q4 · 4:21');
+  });
+
+  test('the missed outcome names the pick and is not red', async () => {
+    const user = userEvent.setup();
+    serve({
+      games: [game('JAX|LAR', EARLY, {
+        locked: true, status: 'final', homeScore: 27, awayScore: 20, winner: 'LAR', headline: 'Rams run out the clock.',
+      }), game('ARI|SF', LATE)],
+      myPicks: [{ gameKey: 'JAX|LAR', pickedTeam: 'JAX', confidence: null }],
+    });
+    await renderBoard();
+    await user.click(screen.getByRole('button', { name: /Show games/ }));
+    const chip = screen.getByTestId('outcome-badge');
+    expect(chip).toHaveTextContent('Missed · picked JAX');
+    expect(chip).toHaveStyle({ borderColor: 'var(--ps-ink)' });
+  });
+});
+
+test('an unreachable week shows the error with a Retry that reloads it', async () => {
+  const user = userEvent.setup();
+  let fail = true;
   apiClient.get.mockImplementation((url) => {
     if (url === '/api/league/1') return Promise.resolve(leagueResponse());
-    return Promise.reject(new Error('boom'));
+    if (fail) return Promise.reject(new Error('boom'));
+    return Promise.resolve({ data: { season: 2026, week: 7, mode: 'straight', games: slate(), myPicks: [], othersPicks: {} } });
   });
   render(<PickemBoard leagueId={LEAGUE_ID} />);
-  expect(await screen.findByTestId('pickem-board-error')).toBeInTheDocument();
+  expect(await screen.findByTestId('pickem-board-error')).toHaveTextContent("We could not load this week's picks right now.");
   expect(screen.queryByTestId('game-card')).not.toBeInTheDocument();
+  fail = false;
+  await user.click(screen.getByRole('button', { name: 'Retry' }));
+  expect((await screen.findAllByTestId('game-card')).length).toBeGreaterThan(0);
 });
 
 test('a week with no games renders the empty state, not a blank board', async () => {
-  mockGetByUrl({
-    '/api/league/1': leagueResponse(),
-    '/api/pickem/league/1/week/3': weekResponse({ games: [] }),
-  });
+  serve({ games: [] });
   render(<PickemBoard leagueId={LEAGUE_ID} />);
-  expect(await screen.findByTestId('pickem-board-empty')).toHaveTextContent('No games scheduled for week 3');
+  expect(await screen.findByTestId('pickem-board-empty')).toHaveTextContent('No games scheduled for week 7.');
+  expect(screen.queryByTestId('pickem-status')).not.toBeInTheDocument();
 });
 
-test('picking a winner then saving round-trips through the save bar', async () => {
-  const user = userEvent.setup();
-  mockGetByUrl({
-    '/api/league/1': leagueResponse(),
-    '/api/pickem/league/1/week/3': weekResponse(),
-  });
-  apiClient.put.mockResolvedValue({ data: { saved: 1 } });
-  render(<PickemBoard leagueId={LEAGUE_ID} />);
-
-  await screen.findByTestId('game-card');
-  expect(screen.getByTestId('save-bar-save')).toBeDisabled();
-
-  await user.click(screen.getByRole('button', { name: /Titans/i }));
-  expect(screen.getByTestId('save-bar-save')).not.toBeDisabled();
-
-  await user.click(screen.getByTestId('save-bar-save'));
-
-  expect(apiClient.put).toHaveBeenCalledWith(
-    '/api/pickem/league/1/week/3/picks',
-    { picks: [{ gameKey: 'NYJ|TEN', pickedTeam: 'TEN', confidence: null }] }
-  );
-
-  // The outbound leg alone proves nothing about what the manager sees: this
-  // is the one place the real useSavePicks (not a mocked resolve) clears its
-  // draft on success, which is also what disables the button the click still
-  // holds (formal review, #1265, formal-1265-f2) - so the round trip has to
-  // carry through to that user-visible result, not stop at the PUT call.
-  const confirmation = await screen.findByTestId('save-bar-success');
-  expect(confirmation).toHaveTextContent('Picks saved');
-  expect(confirmation).toHaveFocus();
-  expect(screen.getByTestId('save-bar-save')).toBeDisabled();
-});
-
-test('the week stepper grows to the 44px touch target on a phone, matching every other page that composes it', async () => {
+test('the week picker grows to the 44px touch target on a phone', async () => {
   mobile = true;
-  mockGetByUrl({
-    '/api/league/1': leagueResponse(),
-    '/api/pickem/league/1/week/3': weekResponse(),
-  });
-  render(<PickemBoard leagueId={LEAGUE_ID} />);
-  await screen.findByTestId('game-card');
-
-  expect(screen.getByRole('button', { name: 'Previous week' })).toHaveStyle({ minWidth: '44px', minHeight: '44px' });
+  serve({ myPicks: NINE });
+  await renderBoard();
+  expect(screen.getByRole('button', { name: 'Previous week' })).toBeInTheDocument();
+  expect(screen.getByTestId('pick-week-weeks')).toBeInTheDocument();
 });
 
-const finalGame = (overrides = {}) => ({
-  ...openGame(),
-  gameKey: 'HOU|IND',
-  teams: ['HOU', 'IND'],
-  homeTeam: 'IND',
-  awayTeam: 'HOU',
-  status: 'final',
-  homeScore: 19,
-  awayScore: 17,
-  locked: true,
-  winner: 'IND',
-  ...overrides,
-});
-
-// Red-tell (2026-09-28): with every game locked there is nothing left to
-// save, yet the board still pinned a save bar with a dead Save picks button
-// over the phone viewport ("0 of 16 picked" on a week of Finals). Mounting
-// the bar on `windows.length > 0` alone turns this red.
-test('a week with every game locked mounts no save bar', async () => {
-  mockGetByUrl({
-    '/api/league/1': leagueResponse(),
-    '/api/pickem/league/1/week/3': weekResponse({
-      games: [finalGame(), finalGame({ gameKey: 'NE|JAX', teams: ['NE', 'JAX'], homeTeam: 'JAX', awayTeam: 'NE', winner: 'JAX' })],
-    }),
+test('the board paints no dash token and no element carries an opacity below 1', async () => {
+  const user = userEvent.setup();
+  serve({ myPicks: NINE });
+  const { container } = await renderBoard();
+  await user.click(screen.getAllByRole('button', { name: /Show games/ })[0]);
+  expect(container.innerHTML).not.toMatch(/dash-/);
+  const faded = Array.from(container.querySelectorAll('*')).filter((el) => {
+    const { opacity } = getComputedStyle(el);
+    return opacity !== '' && Number(opacity) < 1;
   });
-  render(<PickemBoard leagueId={LEAGUE_ID} />);
-  expect(await screen.findAllByTestId('game-card')).toHaveLength(2);
-  expect(screen.queryByTestId('save-bar')).not.toBeInTheDocument();
-});
-
-test('a week with any game still open keeps its save bar', async () => {
-  mockGetByUrl({
-    '/api/league/1': leagueResponse(),
-    '/api/pickem/league/1/week/3': weekResponse({ games: [finalGame(), openGame()] }),
-  });
-  render(<PickemBoard leagueId={LEAGUE_ID} />);
-  expect(await screen.findAllByTestId('game-card')).toHaveLength(2);
-  expect(screen.getByTestId('save-bar')).toBeInTheDocument();
+  expect(faded).toHaveLength(0);
 });

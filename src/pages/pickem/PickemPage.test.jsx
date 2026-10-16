@@ -1,3 +1,4 @@
+/* eslint-disable testing-library/no-node-access, testing-library/no-container -- the cursor frame, the pixel marks and the sticky strip are classes, svgs and styles with no role */
 import React from 'react';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -14,25 +15,20 @@ jest.mock('../../api/apiClient', () => ({
 }));
 
 /**
- * Page-composition tests for `pages/pickem` (#1267, ADR 0038). Every branch
- * of the board and standings themselves already has dedicated coverage
- * (widgets/pickem-board and widgets/pickem-standings' own suites, moved and
- * expanded from the deleted legacy page's own by #1265/#1266); this suite
- * proves the page composes them correctly - the disabled/PICKEM_DISABLED state, the
- * commissioner settings widget, the section switch, and the unsaved-picks
- * guard on both a week change and a section switch (ADR 0038's page slice,
- * AC3) - a representative end-to-end check rather than a re-test of a unit
- * already covered elsewhere (`pages/lineup`'s own precedent).
+ * Page-composition tests for `pages/pickem` (#1267, ADR 0038; Play-select and save on tap, ADR 0067
+ * wave 2). Every branch of the board and standings themselves has dedicated coverage in
+ * widgets/pickem-board and widgets/pickem-standings; this suite proves the page composes them
+ * correctly: the head, the disabled state, the commissioner row, the section switch, the cursor and
+ * filled-action counts, and that no unsaved-picks guard remains.
  */
 const LEAGUE_ID = 7;
-// Fixed instant (#1351): a real-clock `hoursFromNow` made the fixture's
-// kickoff land outside Thu/Sun/Mon (kickoffWindowFor,
-// entities/pickem-game/model/kickoffWindow.js:31-39) on some calendar days,
-// dropping the game from every window and rendering `pickem-board-empty`.
-// NOW is a fixed Friday; +48h lands the fixture's game on a fixed Sunday
-// 12:00 EDT instant (the `sunday-early` window) on every run.
+// Fixed instant (#1351): NOW is a fixed Friday; +48h lands the fixture's games on a fixed Sunday
+// 12:00 EDT instant (the `sunday-early` window) on every run, and +2h is the Friday evening, well
+// outside the lock hour.
 const NOW = Date.parse('2026-09-11T16:00:00Z');
 const hoursFromNow = (hours) => new Date(NOW + hours * 3600 * 1000).toISOString();
+
+let mobile = false;
 
 const league = (overrides = {}) => ({
   id: LEAGUE_ID,
@@ -67,12 +63,15 @@ const openGame = (overrides = {}) => ({
   headline: null,
   ...overrides,
 });
+const secondGame = (overrides = {}) => openGame({
+  gameKey: 'DAL|WAS', teams: ['DAL', 'WAS'], homeTeam: 'WAS', awayTeam: 'DAL', kickoffAt: hoursFromNow(49), ...overrides,
+});
 
 const weekResponse = (week, overrides = {}) => ({
   season: 2026,
   week,
   mode: 'straight',
-  games: [openGame()],
+  games: [openGame(), secondGame()],
   myPicks: [],
   othersPicks: {},
   ...overrides,
@@ -85,11 +84,14 @@ const standingsResponse = (overrides = {}) => ({
   ...overrides,
 });
 
+// A fake server: a PUT of picks changes what the next week GET returns.
 const mockRequests = ({
   settings = { enabled: true, mode: 'straight', isCommissioner: false },
   leagueOverrides = {},
   weeks = { 3: weekResponse(3) },
+  standings = standingsResponse(),
 } = {}) => {
+  const picks = {};
   apiClient.get.mockImplementation((url) => {
     if (url.startsWith(`/api/pickem/league/${LEAGUE_ID}/settings`)) {
       return Promise.resolve({ data: settings });
@@ -97,31 +99,55 @@ const mockRequests = ({
     const weekMatch = url.match(new RegExp(`/api/pickem/league/${LEAGUE_ID}/week/(\\d+)$`));
     if (weekMatch) {
       const week = Number(weekMatch[1]);
-      return Object.prototype.hasOwnProperty.call(weeks, week)
-        ? Promise.resolve({ data: weeks[week] })
-        : Promise.reject(new Error(`unexpected week GET ${url}`));
+      if (!Object.prototype.hasOwnProperty.call(weeks, week)) return Promise.reject(new Error(`unexpected week GET ${url}`));
+      return Promise.resolve({ data: { ...weeks[week], myPicks: [...weeks[week].myPicks, ...Object.values(picks)] } });
     }
     if (url.startsWith(`/api/pickem/league/${LEAGUE_ID}/standings`)) {
-      return Promise.resolve({ data: standingsResponse() });
+      return Promise.resolve({ data: standings });
     }
     if (url === `/api/league/${LEAGUE_ID}`) {
       return Promise.resolve({ data: { league: league(leagueOverrides), teams: [] } });
     }
     return Promise.reject(new Error(`unexpected GET ${url}`));
   });
+  apiClient.put.mockImplementation(async (url, body) => {
+    if (url.endsWith('/picks')) {
+      for (const pick of body.picks) {
+        if (pick.pickedTeam == null) delete picks[pick.gameKey];
+        else picks[pick.gameKey] = { gameKey: pick.gameKey, pickedTeam: pick.pickedTeam, confidence: pick.confidence ?? null };
+      }
+    }
+    return { data: { saved: body.picks ? body.picks.length : 0 } };
+  });
 };
 
-const renderPage = () =>
-  renderWithProviders(<PickemPage />, {
-    route: `/league/${LEAGUE_ID}/pickem`,
-    path: '/league/:leagueId/pickem',
-  });
+const renderPage = (route = `/league/${LEAGUE_ID}/pickem`) =>
+  renderWithProviders(<PickemPage />, { route, path: '/league/:leagueId/pickem' });
+
+const standingsCalls = () => apiClient.get.mock.calls.filter(([u]) => u.includes('/standings')).length;
+const titans = () => screen.findByRole('button', { name: /^TEN,/ });
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mobile = false;
+  jest.spyOn(Date, 'now').mockReturnValue(NOW);
+  window.matchMedia = jest.fn().mockImplementation((query) => ({
+    matches: /max-width/.test(query) ? mobile : false,
+    media: query,
+    onchange: null,
+    addListener: jest.fn(),
+    removeListener: jest.fn(),
+    addEventListener: jest.fn(),
+    removeEventListener: jest.fn(),
+    dispatchEvent: jest.fn(),
+  }));
   clearLeagueCache();
   clearPickemSettingsCache();
   clearPickemStandingsCache();
+});
+
+afterEach(() => {
+  jest.restoreAllMocks();
 });
 
 test('the breadcrumb, h1 and no skipped heading level render for every state', async () => {
@@ -129,12 +155,13 @@ test('the breadcrumb, h1 and no skipped heading level render for every state', a
   renderPage();
 
   expect(screen.getByRole('heading', { level: 1, name: "Pick'em" })).toBeInTheDocument();
-  await screen.findByRole('button', { name: /Jets/i });
-  expect(screen.getByTestId('pickem-breadcrumb')).toHaveTextContent('Sunday Ballers');
+  await titans();
+  const crumb = screen.getByTestId('pickem-breadcrumb');
+  expect(crumb).toHaveTextContent('Sunday Ballers');
+  expect(within(crumb).getByText("Pick'em")).toHaveAttribute('aria-current', 'page');
 
-  // axe's heading-order rule: a heading's level never jumps past the
-  // highest level seen so far by more than one (h1 -> h2 -> h3 is fine;
-  // h1 -> h3 with no h2 between is not).
+  // axe's heading-order rule: a heading's level never jumps past the highest level seen so far by
+  // more than one (h1 -> h2 -> h3 is fine; h1 -> h3 with no h2 between is not).
   const levels = screen.getAllByRole('heading').map((el) => Number(el.tagName.slice(1)));
   expect(levels[0]).toBe(1);
   let highestSoFar = 1;
@@ -142,14 +169,30 @@ test('the breadcrumb, h1 and no skipped heading level render for every state', a
     expect(level).toBeLessThanOrEqual(highestSoFar + 1);
     highestSoFar = Math.max(highestSoFar, level);
   }
+  expect(screen.getByRole('heading', { level: 2, name: 'Picks' })).toBeInTheDocument();
+});
+
+test('below sm the breadcrumb drops the current page and leaves no trailing separator', async () => {
+  mobile = true;
+  mockRequests();
+  renderPage();
+  await titans();
+  const crumb = screen.getByTestId('pickem-breadcrumb');
+  expect(within(crumb).queryByText("Pick'em")).not.toBeInTheDocument();
+  const items = within(crumb).getAllByRole('listitem');
+  expect(items).toHaveLength(2);
+  // Only the separator between Leagues and the league remains.
+  expect(crumb.querySelectorAll('svg')).toHaveLength(1);
 });
 
 test('a member sees an explanation when the commissioner has not enabled Pick\'em, and no week is fetched', async () => {
   mockRequests({ settings: { enabled: false, mode: 'straight', isCommissioner: false } });
   renderPage();
 
-  expect(await screen.findByTestId('pickem-disabled')).toHaveTextContent(/hasn't enabled Pick'em/i);
-  expect(apiClient.get).not.toHaveBeenCalledWith(expect.stringContaining(`/week/`));
+  const notice = await screen.findByTestId('pickem-disabled');
+  expect(notice).toHaveTextContent(/hasn't enabled Pick'em/i);
+  expect(within(notice).getByRole('heading', { level: 2, name: "Pick'em is off" })).toBeInTheDocument();
+  expect(apiClient.get).not.toHaveBeenCalledWith(expect.stringContaining('/week/'));
 });
 
 test('a commissioner sees the settings widget instead of the disabled notice, and can turn it on', async () => {
@@ -158,7 +201,7 @@ test('a commissioner sees the settings widget instead of the disabled notice, an
   apiClient.put.mockResolvedValue({ data: { enabled: true, mode: 'straight', isCommissioner: true } });
   renderPage();
 
-  const toggle = await screen.findByRole('checkbox', { name: /Enable Pick'em for this league/i });
+  const toggle = await screen.findByRole('switch', { name: /Enable Pick'em for this league/i });
   expect(toggle).not.toBeChecked();
   await user.click(toggle);
 
@@ -166,11 +209,10 @@ test('a commissioner sees the settings widget instead of the disabled notice, an
     expect(apiClient.put).toHaveBeenCalledWith(`/api/pickem/league/${LEAGUE_ID}/settings`, { enabled: true })
   );
   // Write-through: the board mounts off the saved row with no follow-up GET.
-  expect(await screen.findByRole('button', { name: /Jets/i })).toBeInTheDocument();
-  // Accessibility risk review, #1267: the settings widget stays mounted at
-  // the same tree position whether Pick'em is on or off, so the switch the
-  // click is still focused on is never unmounted out from under it (a
-  // remount would drop focus to <body> with no warning, WCAG 4.1.2).
+  expect(await titans()).toBeInTheDocument();
+  // Accessibility risk review, #1267: the settings widget stays mounted at the same tree position
+  // whether Pick'em is on or off, so the switch the click is still focused on is never unmounted out
+  // from under it (a remount would drop focus to <body>, WCAG 4.1.2).
   expect(toggle).toHaveFocus();
   expect(toggle).toBeChecked();
 });
@@ -179,24 +221,54 @@ test('an enabled league renders the board for a member, with no settings widget'
   mockRequests();
   renderPage();
 
-  expect(await screen.findByRole('button', { name: /Jets/i })).toBeInTheDocument();
+  expect(await titans()).toBeInTheDocument();
   expect(screen.queryByTestId('pickem-settings')).not.toBeInTheDocument();
 });
 
-test('a commissioner of an enabled league sees the settings widget above the board', async () => {
+test('AC 6g: a commissioner sees the collapsed settings row above the sections control, with Edit collapsed and no radios until it is pressed', async () => {
+  const user = userEvent.setup();
   mockRequests({ settings: { enabled: true, mode: 'straight', isCommissioner: true } });
   renderPage();
 
-  expect(await screen.findByRole('heading', { name: 'Commissioner settings' })).toBeInTheDocument();
-  expect(await screen.findByRole('button', { name: /Jets/i })).toBeInTheDocument();
+  await titans();
+  const panel = screen.getByTestId('pickem-settings');
+  expect(within(panel).getByRole('heading', { name: 'Commissioner settings' })).toBeInTheDocument();
+  const edit = within(panel).getByRole('button', { name: /Edit/ });
+  expect(edit).toHaveAttribute('aria-expanded', 'false');
+  expect(screen.queryByRole('radio', { name: /Straight up/ })).not.toBeInTheDocument();
+  // Above the sections control in document order.
+  expect(panel.compareDocumentPosition(screen.getByTestId('pickem-sections')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+  await user.click(edit);
+  const straight = screen.getByRole('radio', { name: /Straight up/ });
+  expect(straight).toBeEnabled();
 });
 
-test('PICKEM_DISABLED: the settings widget still gates the board behind the switch', async () => {
-  mockRequests({ settings: { enabled: false, mode: 'straight', isCommissioner: true } });
+test('AC 6g: after the season\'s first pick the scoring radios are disabled and the row says locked for the season', async () => {
+  const user = userEvent.setup();
+  mockRequests({
+    settings: { enabled: true, mode: 'straight', isCommissioner: true },
+    standings: standingsResponse({ standings: [{ teamId: 1, teamName: 'A', rank: 1, points: 1, correct: 1, incorrect: 0, pushes: 0, pending: 0, made: 1, weekly: { 1: 1 } }] }),
+  });
   renderPage();
 
-  await screen.findByRole('checkbox', { name: /Enable Pick'em for this league/i });
-  expect(screen.queryByRole('button', { name: /Jets/i })).not.toBeInTheDocument();
+  await titans();
+  const panel = screen.getByTestId('pickem-settings');
+  await waitFor(() => expect(within(panel).getByTestId('pickem-settings-summary')).toHaveTextContent('locked for the season'));
+  await user.click(within(panel).getByRole('button', { name: /Edit/ }));
+  within(panel).getAllByRole('radio').forEach((radio) => expect(radio).toBeDisabled());
+  expect(screen.getByText("The mode can only change before the season's first pick.")).toBeInTheDocument();
+});
+
+test('a commissioner of a pick\'em-only league sees the row without "Pick\'em on"', async () => {
+  mockRequests({
+    settings: { enabled: true, mode: 'confidence', isCommissioner: true },
+    leagueOverrides: { pickem_only: true },
+    weeks: { 3: weekResponse(3, { mode: 'confidence' }) },
+  });
+  renderPage();
+  await titans();
+  expect(within(screen.getByTestId('pickem-settings')).getByTestId('pickem-settings-summary')).not.toHaveTextContent("Pick'em on");
 });
 
 test('the section switch moves between the board and the standings, keyed in the URL', async () => {
@@ -204,11 +276,11 @@ test('the section switch moves between the board and the standings, keyed in the
   mockRequests();
   renderPage();
 
-  await screen.findByRole('button', { name: /Jets/i });
+  await titans();
   await user.click(screen.getByRole('radio', { name: 'Standings' }));
 
   expect(await screen.findByTestId('pickem-standings')).toBeInTheDocument();
-  expect(screen.queryByRole('button', { name: /Jets/i })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: /^TEN,/ })).not.toBeInTheDocument();
 });
 
 test('the Standings section keeps the plain Standings heading on its widget', async () => {
@@ -216,149 +288,86 @@ test('the Standings section keeps the plain Standings heading on its widget', as
   mockRequests();
   renderPage();
 
-  await screen.findByRole('button', { name: /Jets/i });
+  await titans();
   await user.click(screen.getByRole('radio', { name: 'Standings' }));
 
   expect(await screen.findByRole('heading', { name: 'Standings' })).toBeInTheDocument();
   expect(screen.queryByRole('heading', { name: "Pick'em Standings" })).not.toBeInTheDocument();
 });
 
-test('switching weeks with unsaved picks asks before discarding them', async () => {
+test('the sections control is the playselect look: the selected section carries an arrow, one tab stop', async () => {
+  mockRequests();
+  renderPage();
+  await titans();
+  const picks = screen.getByRole('radio', { name: 'Picks' });
+  const standings = screen.getByRole('radio', { name: 'Standings' });
+  expect(picks).toHaveAttribute('aria-checked', 'true');
+  expect(picks.querySelector('svg')).not.toBeNull();
+  expect(picks).toHaveAttribute('tabindex', '0');
+  expect(standings).toHaveAttribute('tabindex', '-1');
+});
+
+test('AC 6i: no discard dialog guards a week change or a section switch, and nothing offers Save picks', async () => {
   const user = userEvent.setup();
   mockRequests({ weeks: { 3: weekResponse(3), 4: weekResponse(4) } });
   renderPage();
 
-  await user.click(await screen.findByRole('button', { name: /Jets/i }));
-  await user.click(screen.getByRole('button', { name: 'Next week' }));
-
-  const dialog = await screen.findByRole('dialog', { name: /Discard unsaved picks/i });
-  // Accessibility risk review, #1267: the consequence sentence is
-  // announced on open, not just the title (the same DropConfirmationDialog
-  // pairing this repo already treats as its standard for a destructive
-  // confirmation).
-  expect(dialog).toHaveAttribute('aria-describedby');
-  const describedById = dialog.getAttribute('aria-describedby');
-  const description = within(dialog).getByText(/throws them away/i);
-  expect(description).toHaveAttribute('id', describedById);
-  await user.click(within(dialog).getByRole('button', { name: 'Keep editing' }));
-  expect(await screen.findByRole('button', { name: /Jets/i })).toHaveAttribute('aria-pressed', 'true');
+  await user.click(await titans());
+  await screen.findByRole('button', { name: /Undo pick/ });
+  expect(screen.queryByRole('button', { name: /Save picks/i })).not.toBeInTheDocument();
 
   await user.click(screen.getByRole('button', { name: 'Next week' }));
-  const dialog2 = await screen.findByRole('dialog', { name: /Discard unsaved picks/i });
-  await user.click(within(dialog2).getByRole('button', { name: 'Discard picks' }));
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith(`/api/pickem/league/${LEAGUE_ID}/week/4`));
 
-  await waitFor(() =>
-    expect(apiClient.get).toHaveBeenCalledWith(`/api/pickem/league/${LEAGUE_ID}/week/4`)
-  );
-});
-
-// Accessibility risk review, #1267: `SegmentedControl`'s own composer
-// contract (shared/ui/SegmentedControl.jsx) - an arrow key carries DOM
-// focus onto the neighbour segment BEFORE reporting it, so a controlled
-// group that denies the reported value (this guard, while the board is
-// dirty) leaves focus on a segment that is not the one still checked
-// unless something moves it back. This is the keyboard path the mouse-only
-// "switching weeks"/"switching to Standings" tests above do not exercise.
-test('an arrow-key section switch denied by the unsaved-picks guard returns focus to the segment still checked', async () => {
-  const user = userEvent.setup();
-  mockRequests();
-  renderPage();
-
-  await user.click(await screen.findByRole('button', { name: /Jets/i }));
-
-  const picksRadio = screen.getByRole('radio', { name: 'Picks' });
-  const standingsRadio = screen.getByRole('radio', { name: 'Standings' });
-  picksRadio.focus();
-  await user.keyboard('{ArrowRight}');
-  // The arrow-key move carries DOM focus onto Standings before reporting it
-  // (SegmentedControl.jsx's own composer contract), and this guard denies
-  // the value - it is still unchecked even though it took focus.
-  expect(standingsRadio).toHaveAttribute('aria-checked', 'false');
-
-  // MUI's Dialog takes focus into itself on open (its own standard modal
-  // behaviour) and, by default, restores focus to whatever had it when the
-  // dialog opened - Standings, still unchecked - once it closes. Without
-  // this fix's `cancel` callback that leaves a screen-reader user's focus
-  // parked on a segment that does not match what is on screen; asserted
-  // here is the state that persists once the dialog is gone.
-  const dialog = await screen.findByRole('dialog', { name: /Discard unsaved picks/i });
-  await user.click(within(dialog).getByRole('button', { name: 'Keep editing' }));
-
-  await waitFor(() => expect(picksRadio).toHaveFocus());
-  expect(picksRadio).toHaveAttribute('aria-checked', 'true');
-});
-
-test('switching to Standings with unsaved picks asks before discarding them too', async () => {
-  const user = userEvent.setup();
-  mockRequests();
-  renderPage();
-
-  await user.click(await screen.findByRole('button', { name: /Jets/i }));
   await user.click(screen.getByRole('radio', { name: 'Standings' }));
-
-  const dialog = await screen.findByRole('dialog', { name: /Discard unsaved picks/i });
-  await user.click(within(dialog).getByRole('button', { name: 'Discard picks' }));
-
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   expect(await screen.findByTestId('pickem-standings')).toBeInTheDocument();
 });
 
-test('saving picks invalidates the cached standings so the Standings tab reflects them', async () => {
+test('saving a pick invalidates the cached standings so the Standings tab reflects it', async () => {
   const user = userEvent.setup();
   mockRequests();
-  apiClient.put.mockImplementation(async () => {
-    mockRequests({ weeks: { 3: weekResponse(3, { myPicks: [{ gameKey: 'NYJ|TEN', pickedTeam: 'TEN', confidence: null }] }) } });
-    return { data: { saved: 1, myPicks: [{ gameKey: 'NYJ|TEN', pickedTeam: 'TEN', confidence: null }] } };
-  });
   renderPage();
 
-  await screen.findByRole('button', { name: /Jets/i });
+  await titans();
   await user.click(screen.getByRole('radio', { name: 'Standings' }));
   await screen.findByTestId('pickem-standings');
-  const standingsCallsBefore = apiClient.get.mock.calls.filter(([u]) => u.includes('/standings')).length;
+  const before = standingsCalls();
 
   await user.click(screen.getByRole('radio', { name: 'Picks' }));
-  await user.click(await screen.findByRole('button', { name: /Titans/i }));
-  await user.click(screen.getByTestId('save-bar-save'));
+  await user.click(await titans());
   await waitFor(() => expect(apiClient.put).toHaveBeenCalled());
 
   await user.click(screen.getByRole('radio', { name: 'Standings' }));
   await screen.findByTestId('pickem-standings');
-  await waitFor(() => {
-    const standingsCallsAfter = apiClient.get.mock.calls.filter(([u]) => u.includes('/standings')).length;
-    expect(standingsCallsAfter).toBeGreaterThan(standingsCallsBefore);
-  });
+  await waitFor(() => expect(standingsCalls()).toBeGreaterThan(before));
 });
 
-// Formal review f3: the deleted legacy page's own test, title unedited. The
-// standings body names the mode in force, so a scoring-mode change must not
-// leave the cached table captioned with the old one - the resource cache
-// reaches a mount already on screen (src/lib/resourceCache.js's own
-// `listeners` map), so the Standings tab does not need to be left and
-// re-entered to see it.
-test("a scoring-mode change invalidates the cached standings (the caption names the mode)", async () => {
+// Formal review f3: the standings body names the mode in force, so a scoring-mode change must not
+// leave the cached table captioned with the old one.
+test('a scoring-mode change invalidates the cached standings (the caption names the mode)', async () => {
   const user = userEvent.setup();
   mockRequests({ settings: { enabled: true, mode: 'straight', isCommissioner: true } });
   apiClient.put.mockResolvedValue({ data: { enabled: true, mode: 'confidence', isCommissioner: true } });
   renderPage();
 
-  await screen.findByRole('button', { name: /Jets/i });
+  await titans();
   await user.click(screen.getByRole('radio', { name: 'Standings' }));
   await screen.findByTestId('pickem-standings');
-  const standingsCallsBefore = apiClient.get.mock.calls.filter(([u]) => u.includes('/standings')).length;
+  const before = standingsCalls();
 
+  await user.click(screen.getByRole('button', { name: /Edit commissioner settings/ }));
   await user.click(screen.getByRole('radio', { name: /Confidence/ }));
   await user.click(screen.getByRole('button', { name: /Save scoring mode/i }));
   await waitFor(() => expect(apiClient.put).toHaveBeenCalled());
 
-  await waitFor(() => {
-    const standingsCallsAfter = apiClient.get.mock.calls.filter(([u]) => u.includes('/standings')).length;
-    expect(standingsCallsAfter).toBeGreaterThan(standingsCallsBefore);
-  });
+  await waitFor(() => expect(standingsCalls()).toBeGreaterThan(before));
 });
 
-// The mirror of "saving picks invalidates the cached standings" above: a
-// PICKEM_LOCKED rejection saved nothing, so nothing should have gone stale.
-test('a rejected picks save does not invalidate the cached standings', async () => {
+// The mirror of "saving a pick invalidates the cached standings": a PICKEM_LOCKED rejection saved
+// nothing, so nothing went stale.
+test('a rejected pick save does not invalidate the cached standings', async () => {
   const user = userEvent.setup();
   mockRequests();
   apiClient.put.mockRejectedValue({
@@ -366,58 +375,116 @@ test('a rejected picks save does not invalidate the cached standings', async () 
   });
   renderPage();
 
-  await screen.findByRole('button', { name: /Jets/i });
+  await titans();
   await user.click(screen.getByRole('radio', { name: 'Standings' }));
   await screen.findByTestId('pickem-standings');
-  const standingsCallsBefore = apiClient.get.mock.calls.filter(([u]) => u.includes('/standings')).length;
+  const before = standingsCalls();
 
   await user.click(screen.getByRole('radio', { name: 'Picks' }));
-  await user.click(await screen.findByRole('button', { name: /Titans/i }));
-  await user.click(screen.getByTestId('save-bar-save'));
+  await user.click(await titans());
   await waitFor(() => expect(apiClient.put).toHaveBeenCalled());
+  await screen.findByText(/This pick wasn't saved: NYJ @ TEN had already kicked off/);
 
-  // A picked-but-unsaved board is dirty (the rejected save changed nothing)
-  // and normally parks the tab switch behind the discard dialog - orthogonal
-  // to what this test is checking, so clear it if it appears.
   await user.click(screen.getByRole('radio', { name: 'Standings' }));
-  const dialog = screen.queryByRole('dialog', { name: /Discard unsaved picks/i });
-  if (dialog) await user.click(within(dialog).getByRole('button', { name: 'Discard picks' }));
   await screen.findByTestId('pickem-standings');
-  const standingsCallsAfter = apiClient.get.mock.calls.filter(([u]) => u.includes('/standings')).length;
-  expect(standingsCallsAfter).toBe(standingsCallsBefore);
+  expect(standingsCalls()).toBe(before);
 });
 
 test('a deep link straight to the Standings tab renders it directly, with no Picks fetch', async () => {
   mockRequests();
-  renderWithProviders(<PickemPage />, {
-    route: `/league/${LEAGUE_ID}/pickem?tab=standings`,
-    path: '/league/:leagueId/pickem',
-  });
+  renderPage(`/league/${LEAGUE_ID}/pickem?tab=standings`);
 
   expect(await screen.findByTestId('pickem-standings')).toBeInTheDocument();
   expect(apiClient.get).not.toHaveBeenCalledWith(expect.stringContaining('/week/'));
 });
 
-// Formal review f5: the risk review's roving-focus fix (f1) covers both the
-// section switch (tested above) and the week stepper, which shares the same
-// SegmentedControl contract inside widgets/pickem-board - this exercises the
-// week half.
-test('an arrow-key week change denied by the unsaved-picks guard returns focus to the week still selected', async () => {
+test('a failed league read shows the page error with a Retry that reloads', async () => {
   const user = userEvent.setup();
-  mockRequests({ weeks: { 3: weekResponse(3), 4: weekResponse(4) } });
+  mockRequests();
+  const ok = apiClient.get.getMockImplementation();
+  let failing = true;
+  apiClient.get.mockImplementation((url) => (failing && url === `/api/league/${LEAGUE_ID}` ? Promise.reject(new Error('boom')) : ok(url)));
   renderPage();
 
-  await user.click(await screen.findByRole('button', { name: /Jets/i }));
+  const error = await screen.findByTestId('pickem-page-error');
+  expect(error).toHaveTextContent('We could not load this league. Check your connection and try again.');
+  expect(screen.getByRole('heading', { level: 1, name: "Pick'em" })).toBeInTheDocument();
+  failing = false;
+  await user.click(within(error).getByRole('button', { name: 'Retry' }));
+  expect(await titans()).toBeInTheDocument();
+});
 
-  const week3Radio = screen.getByRole('radio', { name: 'Wk 3' });
-  const week4Radio = screen.getByRole('radio', { name: 'Wk 4' });
-  week3Radio.focus();
-  await user.keyboard('{ArrowRight}');
-  expect(week4Radio).toHaveAttribute('aria-checked', 'false');
+describe('AC 3: cursor and filled-action counts', () => {
+  const cursors = () => document.querySelectorAll('.cursor').length;
+  // A filled action is the page's one Accent-filled button or link (PsButton fill, a play card foot).
+  const filled = () => Array.from(document.querySelectorAll('button, a')).filter((el) => {
+    const cls = Array.from(el.classList).find((c) => c.startsWith('css-'));
+    let text = '';
+    Array.from(document.styleSheets).forEach((sheet) => Array.from(sheet.cssRules || []).forEach((rule) => {
+      if (rule.selectorText && cls && rule.selectorText.startsWith(`.${cls}`)) text += rule.style.cssText;
+    }));
+    return el.getAttribute('data-filled') === 'true' || /background-color:\s*var\(--ps-accent\)/.test(text);
+  }).length;
 
-  const dialog = await screen.findByRole('dialog', { name: /Discard unsaved picks/i });
-  await user.click(within(dialog).getByRole('button', { name: 'Keep editing' }));
+  test('an open week with unpicked games: one cursor, no filled action', async () => {
+    mockRequests();
+    renderPage();
+    await titans();
+    expect(cursors()).toBe(1);
+    expect(filled()).toBe(0);
+  });
 
-  await waitFor(() => expect(week3Radio).toHaveFocus());
-  expect(week3Radio).toHaveAttribute('aria-checked', 'true');
+  test('a save in flight or just saved: still one cursor (the other game is unpicked), no filled action', async () => {
+    const user = userEvent.setup();
+    mockRequests();
+    renderPage();
+    await user.click(await titans());
+    await screen.findByRole('button', { name: /Undo pick/ });
+    expect(cursors()).toBe(1);
+    expect(filled()).toBe(0);
+  });
+
+  test('every game picked: no cursor and no filled action', async () => {
+    mockRequests({
+      weeks: {
+        3: weekResponse(3, {
+          myPicks: [
+            { gameKey: 'NYJ|TEN', pickedTeam: 'TEN', confidence: null },
+            { gameKey: 'DAL|WAS', pickedTeam: 'WAS', confidence: null },
+          ],
+        }),
+      },
+    });
+    renderPage();
+    await titans();
+    expect(cursors()).toBe(0);
+    expect(filled()).toBe(0);
+  });
+
+  test('every game locked: no cursor and no filled action', async () => {
+    mockRequests({
+      weeks: { 3: weekResponse(3, { games: [openGame({ locked: true, status: 'in_progress', quarter: 'Q1' }), secondGame({ locked: true, status: 'in_progress', quarter: 'Q1' })] }) },
+    });
+    renderPage();
+    await screen.findByTestId('pickem-status');
+    expect(cursors()).toBe(0);
+    expect(filled()).toBe(0);
+  });
+
+  test('the cursor sits on the earliest unpicked card, and its frame goes Danger 45 minutes from kickoff', async () => {
+    jest.spyOn(Date, 'now').mockReturnValue(Date.parse(hoursFromNow(48)) - 45 * 60 * 1000);
+    mockRequests();
+    renderPage();
+    await titans();
+    const frame = document.querySelector('.cursor');
+    expect(frame).toContainElement(screen.getByRole('article', { name: /^NYJ at TEN/ }));
+    expect(frame).toHaveStyle({ borderColor: 'var(--ps-danger)' });
+  });
+});
+
+test('paints no dash token anywhere on the page', async () => {
+  mockRequests({ settings: { enabled: true, mode: 'straight', isCommissioner: true } });
+  const { container } = renderPage();
+  await titans();
+  expect(container.innerHTML).not.toMatch(/dash-/);
 });

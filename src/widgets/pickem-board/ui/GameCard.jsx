@@ -1,304 +1,400 @@
 import React, { useEffect, useRef } from 'react';
-import { Box, Typography } from '@mui/material';
-import { Badge, Card, GameStateChip, Skeleton, SplitBar } from '../../../shared/ui';
+import { Box } from '@mui/material';
+import {
+  LiveChip, PixelCheck, PixelWarn, PsButton, Skel, StatusChip, TwoSidedOdds, pixelSx, SR_ONLY_SX,
+} from '../../../shared/ui/playselect';
 import { formatKickoff } from '../../../shared/lib';
-import TeamPickButton from '../../../features/pick-winner';
+import TeamPickButton, { getTeamName } from '../../../features/pick-winner';
 import ConfidenceMenu from '../../../features/set-confidence';
+import { LockIcon } from './parts';
 
 /**
- * pickem-board widget (#1265, ADR 0038): one game on the board, matching the
- * eleven states in docs/design/pickem/GameCard.dc.html - open (no pick),
- * picked (confidence and straight-up), live, final (correct/missed/no
- * pick/tie), flagged, loading and bare. Which of those a `view`
- * (model/gameCardView.js) plus `mode`/`loading` renders is decided entirely
- * here; the model carries no presentation branching of its own.
+ * pickem-board widget (ADR 0038, Play-select in ADR 0067 wave 2): one game on the board, a row
+ * inside its kickoff window's frame: open (no pick, picked), live, final (correct, missed, no pick,
+ * tie), loading. Which of those a `view` (model/gameCardView.js) plus `mode`/`loading` renders is
+ * decided entirely here; the model carries no presentation branching of its own.
  *
- * THE RED-TELL (#1265's acceptance criteria): `view.reveal` is null for an
- * unlocked game (gameCardView/revealTally's contract), and that null is
- * exactly what keeps the reveal row from rendering at all - the pre-lock
- * footer shows only the pickedCount-of-totalManagers line, never a team
- * name, a count by team, or a no-pick tally. Only once `view.reveal` is a
- * real tally (the game is locked) does any direction ever appear.
+ * THE RED-TELL (ADR 0038): `view.reveal` is null for an unlocked game, and that null keeps the reveal
+ * row from rendering at all. The pre-lock footer shows only how many managers have picked, never a
+ * team, a count by team or a no-pick tally.
+ *
+ * A pick saves on tap (ADR 0067 wave 2): `saveState` is the card's save in words (model/
+ * useSavePicks.js), shown in one polite status region under the teams, and only that region is live
+ * (Undo and Retry sit beside it, outside it), so a tap makes one announcement. An open card keeps
+ * the region in the DOM, empty at rest, so the first words are announced.
+ *
+ * The cursor (One Cursor Rule) is a 4px frame on the one card the page passes `cursor` to, Danger
+ * when its kickoff is under an hour away; it is a frame on a card, never a button. A failed or
+ * refused save draws a 2px Danger edge in its place. Every unlocked card under an hour from kickoff,
+ * picked or not, says "Locks in n min" in its kickoff line and in its accessible name.
  */
 export default function GameCard({
   view,
   mode = 'straight',
   totalManagers = null,
   slateSize = 0,
-  confidenceUsedBy = [],
-  flaggedMessage = null,
+  usedBy = {},
+  saveState = null,
+  hintId,
+  cursor = false,
+  cursorId,
+  scrollMarginTop = 80,
   loading = false,
   onPickWinner,
   onSetConfidence,
+  onUndo,
+  onRetry,
 }) {
-  // #1340: a keyboard regression the #1327 gate introduced. The confidence
-  // trigger carries no tabindex while `view.myPick` is null (a disabled MUI
-  // Select drops out of tab order, GameCard.test.jsx's own pin), so a
-  // manager who tabs to a team button and picks it never lands on the
-  // control that unlocks right there in the DOM - nothing moves focus to it
-  // and nothing announces it became reachable. `GameCard` owns that move:
-  // on the transition from no pick to a pick, with the card still holding
-  // focus (a pick landing from a refetch or another manager's save must
-  // never steal focus from elsewhere), it focuses the now-enabled trigger.
-  // The focus move is the announcement - the focused element's own
-  // accessible name is read, no live region on top (the #1265 SaveBar
-  // rule, SaveBar.jsx's own `justSaved` effect). `ConfidenceMenu` forwards
-  // no ref, so both wrappers below are transparent (`display: contents`)
-  // Boxes that exist only to hold a ref, never to affect layout.
+  // A keyboard step the confidence flow needs (#1340): a team tapped before its rank is a draft, and
+  // the rank select it enables is the next control, so when this card still holds focus it takes
+  // focus. The focus move is the announcement; a pick landing from elsewhere never steals focus.
   const cardRef = useRef(null);
-  const confidenceRef = useRef(null);
-  const previousMyPickRef = useRef(view?.myPick);
-
+  const drafting = saveState?.status === 'draft';
+  const wasDrafting = useRef(drafting);
   useEffect(() => {
-    const previousMyPick = previousMyPickRef.current;
-    previousMyPickRef.current = view?.myPick;
-    if (
-      previousMyPick == null &&
-      view?.myPick != null &&
-      mode === 'confidence' &&
-      !view?.lock &&
-      cardRef.current?.contains(document.activeElement)
-    ) {
-      confidenceRef.current?.querySelector('[role="combobox"]')?.focus();
+    const before = wasDrafting.current;
+    wasDrafting.current = drafting;
+    if (!before && drafting && !view?.lock && cardRef.current?.contains(document.activeElement)) {
+      cardRef.current.querySelector('select')?.focus();
     }
-  }, [view?.myPick, mode, view?.lock]);
+  }, [drafting, view?.lock]);
 
   if (loading) return <GameCardSkeleton />;
 
   const [awayTeam, homeTeam] = view.teams;
-  const flagged = Boolean(view.flagged);
+  const matchup = `${awayTeam} at ${homeTeam}`;
   const isFinal = view.phase === 'final';
   const isLive = view.phase === 'live';
   const isOpen = view.phase === 'open';
+  const status = saveState?.status || null;
+  const edgeDanger = status === 'failed' || status === 'refused';
+  const attemptedTeam = ['saving', 'failed', 'draft'].includes(status) ? saveState.attempted?.pickedTeam ?? null : null;
+  const kickoffLabel = formatKickoff(view.kickoff);
+  const locksWords = view.lockMinutes == null
+    ? null
+    : view.lockMinutes < 1 ? 'locks in under 1 min' : `locks in ${view.lockMinutes} min`;
+  const urgent = locksWords != null;
 
   const sideProps = (team, isHome) => {
     const score = isHome ? view.homeScore : view.awayScore;
     const record = view.records ? (isHome ? view.records.home : view.records.away) : null;
+    const attempt = attemptedTeam === team;
     const won = isFinal && !view.isTie && view.winner === team;
     const lost = isFinal && !view.isTie && view.winner != null && view.winner !== team;
     return {
       team,
+      opponent: isHome ? awayTeam : homeTeam,
+      kickoff: kickoffLabel,
+      locksIn: view.lock ? null : locksWords,
       record,
       favorite: view.favorite === team,
       picked: view.myPick === team,
+      attempt,
+      state: attempt ? status : view.myPick === team ? status : null,
       won,
-      dim: lost,
+      lost,
       disabled: view.lock,
       score: isLive || isFinal ? score : null,
-      scoreLost: lost,
       possession: isLive && view.situation?.possession === team,
       onSelect: (picked) => onPickWinner?.(view.gameKey, picked),
     };
   };
 
+  // The frame: the cursor's 4px (Danger under an hour) or a failed save's 2px Danger edge; an
+  // ordinary card keeps the 4px transparent edge so no card shifts when the cursor moves.
+  const frameColor = urgent ? 'var(--ps-danger)' : 'var(--ps-cursor)';
+  const showCursor = cursor && !edgeDanger;
+  let wrapperSx;
+  if (edgeDanger) wrapperSx = { padding: '10px', border: '2px solid var(--ps-danger)' };
+  else if (showCursor) wrapperSx = { '--cur': frameColor, padding: '8px', border: `4px solid ${frameColor}` };
+  else wrapperSx = { padding: '8px', border: '4px solid transparent' };
+
+  const rightOfHead = [];
+  if (isFinal) rightOfHead.push(<OutcomeChip key="outcome" outcome={view.outcome} myPick={view.myPick} confidence={view.confidence} />);
+  else {
+    if (isOpen && view.line) {
+      rightOfHead.push(
+        <Box
+          key="odds"
+          component="span"
+          data-testid="odds-badge"
+          sx={{
+            display: 'inline-flex', alignItems: 'center', boxSizing: 'border-box', height: '28px', padding: '0 8px', border: '2px solid var(--ps-rule)', fontSize: '14px', fontWeight: 600, lineHeight: 1, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums',
+          }}
+        >
+          {`${view.favorite ?? ''} ${(-Math.abs(view.line.spread)).toFixed(1)} · O/U ${view.line.total}`}
+        </Box>
+      );
+    }
+    if (mode === 'confidence') {
+      const needsTeam = !view.lock && view.myPick == null && !drafting;
+      rightOfHead.push(
+        <ConfidenceMenu
+          key="confidence"
+          value={view.confidence}
+          max={slateSize}
+          usedBy={usedBy}
+          swappable={view.confidence != null}
+          disabled={view.lock || needsTeam}
+          bad={status === 'refused' && !view.lock}
+          aria-label={`Confidence for ${matchup}`}
+          aria-describedby={needsTeam ? hintId : undefined}
+          onChange={(value) => onSetConfidence?.(view.gameKey, value)}
+        />
+      );
+    }
+  }
+
   return (
-    <Box ref={cardRef} sx={{ display: 'contents' }}>
-      <Card
+    <Box
+      ref={cardRef}
+      id={cursor ? cursorId : undefined}
+      tabIndex={cursor ? -1 : undefined}
+      className={showCursor ? 'cursor slot' : undefined}
+      sx={{ boxSizing: 'border-box', scrollMarginTop: `${scrollMarginTop}px`, ...wrapperSx }}
+    >
+      <Box
+        component="article"
         data-testid="game-card"
         data-phase={view.phase}
-        data-flagged={flagged || undefined}
-        sx={{
-          backgroundColor: isFinal ? 'var(--dash-surface2)' : 'var(--dash-surface)',
-          borderColor: flagged ? 'var(--dash-danger)' : undefined,
-          boxShadow: flagged ? '0 0 0 1px var(--dash-danger)' : undefined,
-        }}
+        data-cursor={cursor || undefined}
+        aria-label={`${matchup}${view.lock ? '' : urgent ? `, ${locksWords}` : ''}`}
+        sx={{ display: 'flex', flexDirection: 'column', gap: '10px' }}
       >
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', p: '10px 14px 0 14px', fontSize: '12px' }}>
-          <CardHeaderLead view={view} />
-          <Box sx={{ flex: 1 }} />
-          {isOpen && view.line && (
-            <Badge data-testid="odds-badge">
-              {`${view.favorite ?? ''} ${(-Math.abs(view.line.spread)).toFixed(1)} · O/U ${view.line.total}`}
-            </Badge>
-          )}
-          {isFinal && <OutcomeBadge outcome={view.outcome} confidence={view.confidence} myPick={view.myPick} />}
-          {mode === 'confidence' && !isFinal && (
-            <Box ref={confidenceRef} sx={{ display: 'contents' }}>
-              <ConfidenceMenu
-                value={view.confidence}
-                max={slateSize}
-                disabledValues={confidenceUsedBy}
-                disabled={view.lock || view.myPick == null}
-                bad={flagged}
-                onChange={(value) => onSetConfidence?.(view.gameKey, value)}
-                // A confidence slate is up to sixteen games; the shared "Confidence"
-                // default name (ConfidenceMenu.jsx) leaves every one of them
-                // indistinguishable to a screen reader, since this card is a
-                // title-less Card (deliberately not an announced landmark,
-                // shared/ui/Card.jsx) and the combobox precedes both team buttons
-                // in reading order (accessibility risk review, #1265).
-                //
-                // #1327 risk review: disabling this control before a team is
-                // picked (below) is otherwise silent - no lock badge explains it
-                // the way the live-phase "Locked" chip does - so the name says
-                // why while that's the reason.
-                aria-label={`Confidence for ${awayTeam} at ${homeTeam}${!view.lock && view.myPick == null ? ', pick a team first' : ''}`}
-              />
+        {cursor && <Box component="span" sx={SR_ONLY_SX}>Next pick</Box>}
+
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px 12px' }}>
+          <Box component="span" sx={{ display: 'inline-flex', flexWrap: 'wrap', alignItems: 'center', gap: '6px 12px' }}>
+            <HeaderLead view={view} kickoffLabel={kickoffLabel} locksWords={view.lock ? null : locksWords} />
+          </Box>
+          {rightOfHead.length > 0 && (
+            <Box component="span" sx={{ marginLeft: 'auto', display: 'inline-flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'flex-end', gap: '8px 12px' }}>
+              {rightOfHead}
             </Box>
           )}
         </Box>
 
-        <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '10px', p: '10px 14px 0 14px' }}>
+        <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: { xs: '8px', sm: '12px' } }}>
           <TeamPickButton {...sideProps(awayTeam, false)} />
           <TeamPickButton {...sideProps(homeTeam, true)} />
         </Box>
 
+        {!view.lock && (
+          <SaveLine saveState={saveState} matchup={matchup} onUndo={() => onUndo?.(view.gameKey)} onRetry={() => onRetry?.(view.gameKey)} />
+        )}
+
         <MetaRow view={view} isLive={isLive} />
 
-        {flagged ? (
-          <ErrorRow message={flaggedMessage} />
+        {view.lock && status === 'refused' ? (
+          <Box
+            role="status"
+            aria-live="polite"
+            data-testid="refused-note"
+            sx={{ display: 'flex', alignItems: 'center', gap: '10px', minHeight: '44px', padding: '4px 0', boxSizing: 'border-box', color: 'var(--ps-danger)', fontSize: '15px', fontWeight: 600 }}
+          >
+            <PixelWarn color="var(--ps-danger)" />
+            {saveState.message}
+          </Box>
         ) : isFinal ? (
           view.headline && <HeadlineRow headline={view.headline} />
         ) : isLive ? (
-          <LiveFooter view={view} awayTeam={awayTeam} homeTeam={homeTeam} totalManagers={totalManagers} />
+          <LiveFooter view={view} awayTeam={awayTeam} homeTeam={homeTeam} />
         ) : (
           <PreLockFooter pickedCount={view.pickedCount} totalManagers={totalManagers} />
         )}
-      </Card>
+      </Box>
     </Box>
   );
 }
 
-// The header's leading badge: a plain kickoff/broadcast line before lock, a
-// live status chip while in progress, or a neutral "Final" chip once
-// settled. Never more than one of the three, matching the canvas.
-function CardHeaderLead({ view }) {
+const SUB_SX = { fontSize: '14px', color: 'var(--ps-dim)' };
+
+function LockedTag() {
+  return (
+    <Box
+      component="span"
+      data-testid="locked-badge"
+      sx={{
+        display: 'inline-flex', alignItems: 'center', gap: '8px', boxSizing: 'border-box', minHeight: '32px', padding: '6px 10px', border: '2px solid var(--ps-rule)', ...pixelSx(16), lineHeight: 1, flex: 'none',
+      }}
+    >
+      <LockIcon />
+      Locked
+    </Box>
+  );
+}
+
+// The header's lead: the kickoff line with its lock words before lock, the live clock chip and
+// "Locked" while in progress, a neutral "Final" chip once settled. A locked game with no clock yet
+// (it kicked off a moment ago, or a save was refused) reads Locked, kickoff and broadcast.
+function HeaderLead({ view, kickoffLabel, locksWords }) {
   if (view.phase === 'final') {
-    return <Badge data-testid="final-badge">Final</Badge>;
+    return <Box component="span" data-testid="final-badge" sx={{ display: 'inline-flex' }}><StatusChip>Final</StatusChip></Box>;
   }
-  if (view.phase === 'live') {
-    const clock = view.quarter && view.timeRemaining ? `${view.quarter} · ${view.timeRemaining}` : (view.quarter || 'Live');
+  if (view.phase === 'live' && view.quarter) {
+    const clock = view.timeRemaining ? `${view.quarter} · ${view.timeRemaining}` : view.quarter;
     return (
       <>
-        <GameStateChip state="live" data-testid="live-badge">{clock}</GameStateChip>
-        <Badge data-testid="locked-badge">Locked</Badge>
+        <Box component="span" data-testid="live-badge" sx={{ display: 'inline-flex' }}><LiveChip>{clock}</LiveChip></Box>
+        <LockedTag />
       </>
     );
   }
-  const kickoffLabel = formatKickoff(view.kickoff);
   return (
     <>
-      {kickoffLabel && <Typography component="span" sx={{ fontWeight: 600, color: 'var(--dash-dim)' }}>{kickoffLabel}</Typography>}
-      {view.broadcast && <Typography component="span" sx={{ color: 'var(--dash-faint)' }}>{`· ${view.broadcast}`}</Typography>}
+      {view.lock && <LockedTag />}
+      {kickoffLabel && <Box component="span" sx={{ ...pixelSx(16), lineHeight: 1.2 }}>{kickoffLabel}</Box>}
+      {view.broadcast && <Box component="span" sx={SUB_SX}>{`· ${view.broadcast}`}</Box>}
+      {locksWords && (
+        <Box component="span" data-testid="locks-in" sx={{ fontSize: '14px', fontWeight: 700, color: 'var(--ps-danger)' }}>
+          {`${locksWords.charAt(0).toUpperCase()}${locksWords.slice(1)}`}
+        </Box>
+      )}
     </>
   );
 }
 
-// The settled-game outcome badge: correct (+points), missed (names the
-// wrong pick), tie (nobody credited, CONTEXT.md's Scoring mode) or no pick.
-// Points earned are the manager's own confidence in Confidence mode, or 1 in
-// Straight-up (CONTEXT.md's Scoring mode); a correct pick with no known
-// confidence (Straight-up) reads as a bare "Correct" rather than "+null".
-function OutcomeBadge({ outcome, confidence, myPick }) {
-  if (outcome === 'correct') {
-    return (
-      <Badge variant="success" data-testid="outcome-badge">
-        {confidence != null ? `Correct · +${confidence}` : 'Correct'}
-      </Badge>
-    );
-  }
-  if (outcome === 'missed') {
-    return (
-      <Badge variant="danger" data-testid="outcome-badge">
-        {`Missed · ${myPick}`}
-      </Badge>
-    );
-  }
-  if (outcome === 'tie') {
-    return (
-      <Badge variant="warning" data-testid="outcome-badge">
-        Tie · no credit
-      </Badge>
-    );
-  }
+// The settled-game outcome chip: outlined Ink, a result word. "Missed" names the pick and is not red.
+function OutcomeChip({ outcome, confidence, myPick }) {
+  let text = 'No pick';
+  if (outcome === 'correct') text = confidence != null ? `Correct · +${confidence}` : 'Correct';
+  else if (outcome === 'missed') text = `Missed · picked ${myPick}`;
+  else if (outcome === 'tie') text = 'Tie · no credit';
   return (
-    <Badge data-testid="outcome-badge">No pick</Badge>
+    <Box
+      component="span"
+      data-testid="outcome-badge"
+      sx={{
+        display: 'inline-flex', alignItems: 'center', boxSizing: 'border-box', height: '32px', padding: '0 10px', border: '2px solid var(--ps-ink)', fontSize: '14px', fontWeight: 700, lineHeight: 1, whiteSpace: 'nowrap', flex: 'none',
+      }}
+    >
+      {text}
+    </Box>
   );
 }
 
-// Venue/weather before kickoff, Situation while live; nothing at all once
-// final (the headline replaces it) or when the source has nothing for this
-// phase (ADR 0038: "the card renders nothing for an absent field").
+// The card's save line. The polite status region holds the words only; Undo and Retry sit beside it.
+function SaveLine({ saveState, matchup, onUndo, onRetry }) {
+  const status = saveState?.status || null;
+  const row = {
+    display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0 12px', minHeight: '44px', padding: '4px 0', boxSizing: 'border-box', fontSize: '15px',
+  };
+  const live = (children, color) => (
+    <Box
+      component="span"
+      role="status"
+      aria-live="polite"
+      data-testid="save-status"
+      sx={{ display: 'inline-flex', flexWrap: 'wrap', alignItems: 'center', gap: '0 12px', color }}
+    >
+      {children}
+    </Box>
+  );
+  if (!status) return <Box sx={SR_ONLY_SX}>{live('')}</Box>;
+  if (status === 'saving') return <Box sx={row}>{live('Saving…', 'var(--ps-dim)')}</Box>;
+  if (status === 'draft') return <Box sx={row}>{live('Choose a confidence to save this pick.', 'var(--ps-dim)')}</Box>;
+  if (status === 'undone') return <Box sx={row}>{live('Pick undone', 'var(--ps-dim)')}</Box>;
+  if (status === 'saved') {
+    return (
+      <Box sx={row}>
+        {live(
+          <>
+            <PixelCheck size={16} />
+            <Box component="span" sx={{ fontWeight: 600 }}>{saveState.swap ? `Swapped with ${saveState.swap}` : 'Pick saved'}</Box>
+            {saveState.swap && <Box component="span" sx={{ color: 'var(--ps-dim)' }}>Both ranks saved</Box>}
+          </>
+        )}
+        <Box component="span" aria-hidden="true" sx={{ color: 'var(--ps-dim)' }}>{'·'}</Box>
+        <PsButton variant="ghost" onClick={onUndo} ariaLabel={`Undo ${saveState.swap ? 'swap' : 'pick'}, ${matchup}`}>Undo</PsButton>
+      </Box>
+    );
+  }
+  // failed (Retry) or refused (no Retry): the alert pictogram and the words, Danger.
+  return (
+    <Box sx={row}>
+      {live(
+        <>
+          <PixelWarn color="var(--ps-danger)" />
+          <span>{saveState.message}</span>
+        </>,
+        'var(--ps-danger)'
+      )}
+      {status === 'failed' && (
+        <PsButton variant="ghost" onClick={onRetry} ariaLabel={`Retry saving pick, ${matchup}`}>Retry</PsButton>
+      )}
+    </Box>
+  );
+}
+
+// Venue/weather before kickoff, Situation while live; nothing once final (the headline replaces it) or
+// when the source has nothing for this phase (ADR 0038: "the card renders nothing for an absent field").
 function MetaRow({ view, isLive }) {
   if (isLive) {
     if (!view.situation) return null;
     return (
-      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: '6px 12px', p: '10px 14px 0 14px', fontSize: '12px', color: 'var(--dash-dim)' }}>
+      <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', gap: '4px 12px', ...SUB_SX }}>
         {view.situation.downDistance && (
-          <Typography component="span" sx={{ color: 'var(--dash-ink)', fontWeight: 600 }}>
-            {view.situation.downDistance}
-          </Typography>
+          <Box component="b" sx={{ fontWeight: 600, color: 'var(--ps-ink)' }}>{view.situation.downDistance}</Box>
         )}
-        {view.situation.possession && (
-          <Typography component="span">{`${view.situation.possession} ball`}</Typography>
-        )}
+        {view.situation.possession && <span>{`${view.situation.possession} ball`}</span>}
       </Box>
     );
   }
-  if (view.phase === 'final') return null;
+  if (view.phase === 'final' || view.lock) return null;
   const venueLabel = view.venue ? [view.venue.name, view.venue.city].filter(Boolean).join(' · ') : null;
   const weatherLabel = view.venue?.indoor
     ? 'Indoor'
     : view.weather
       ? [
-          view.weather.shortForecast,
-          view.weather.temperatureF != null ? `${view.weather.temperatureF}°` : null,
-          view.weather.windSpeedMph != null ? `wind ${view.weather.windSpeedMph} mph` : null,
-        ].filter(Boolean).join(' · ')
+        view.weather.shortForecast,
+        view.weather.temperatureF != null ? `${view.weather.temperatureF}°` : null,
+        view.weather.windSpeedMph != null ? `wind ${view.weather.windSpeedMph} mph` : null,
+      ].filter(Boolean).join(' · ')
       : null;
   if (!venueLabel && !weatherLabel) return null;
   return (
-    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: '6px 12px', p: '10px 14px 0 14px', fontSize: '12px', color: 'var(--dash-dim)' }}>
-      {venueLabel && <Typography component="span">{venueLabel}</Typography>}
-      {weatherLabel && <Typography component="span">{weatherLabel}</Typography>}
+    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: '2px 16px', ...SUB_SX }}>
+      {venueLabel && <span>{venueLabel}</span>}
+      {weatherLabel && <span>{weatherLabel}</span>}
     </Box>
   );
 }
 
-// Pre-lock footer: the pickedCount-of-totalManagers line and the reveal
-// promise, and NOTHING else - this is the whole of the red-tell surface.
+// Pre-lock footer: how many managers have picked, and NOTHING else (the reveal promise is once per
+// window head). This is the whole of the red-tell surface.
 function PreLockFooter({ pickedCount, totalManagers }) {
   return (
-    <Box sx={{ display: 'flex', justifyContent: 'space-between', p: '10px 14px 12px 14px', fontSize: '12px', color: 'var(--dash-dim)' }}>
-      <Typography component="span" data-testid="picked-count">
-        <Box component="b" sx={{ color: 'var(--dash-ink)' }}>{pickedCount}</Box>
+    <Box sx={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: '4px 16px', ...SUB_SX }}>
+      <span data-testid="picked-count">
+        <Box component="b" sx={{ fontWeight: 700, color: 'var(--ps-ink)' }}>{pickedCount}</Box>
         {totalManagers != null ? ` of ${totalManagers} managers have picked` : ' managers have picked'}
-      </Typography>
-      <Typography component="span">League picks reveal at kickoff</Typography>
+      </span>
     </Box>
   );
 }
 
-// Live footer: the win probability split (when the poll has one) and the
-// league's reveal tally - counts by team, plus how many have no pick.
-//
-// The visible percentages and SplitBar's own `role="img"` accessible name
-// (both team names and both percentages) say the same thing; without the
-// `aria-hidden` here a screen reader would hear it twice back to back. The
-// same split (visible figures hidden, the bar's own name is the one
-// announcement) matchup-preview's WinProbability already uses for the same
-// reason (accessibility risk review, #1265).
-function LiveFooter({ view, awayTeam, homeTeam, totalManagers }) {
+// Live footer: ESPN's win probability as one full-width two-sided bar (no Endzone Forecast credit,
+// it is not ours), then the league's reveal tally by team and how many have no pick.
+function LiveFooter({ view, awayTeam, homeTeam }) {
   const probability = view.situation?.homeWinProbability;
   return (
-    <Box sx={{ p: '10px 14px 12px 14px' }}>
+    <>
       {probability != null && (
-        <>
-          <Box aria-hidden="true" sx={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--dash-dim)', mb: '5px' }}>
-            <Typography component="span">
-              {`Win probability · `}
-              <Box component="b" sx={{ color: 'var(--dash-ink)' }}>{`${homeTeam} ${Math.round(probability * 100)}%`}</Box>
-            </Typography>
-            <Typography component="span">{`${awayTeam} ${100 - Math.round(probability * 100)}%`}</Typography>
-          </Box>
-          <SplitBar homeName={homeTeam} awayName={awayTeam} homeShare={probability} height={8} />
-        </>
+        <TwoSidedOdds
+          a={getTeamName(awayTeam)}
+          b={getTeamName(homeTeam)}
+          aShort={awayTeam}
+          bShort={homeTeam}
+          pct={(1 - probability) * 100}
+          live
+          caption="Win probability"
+        />
       )}
       {view.reveal && (
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--dash-dim)', mt: probability != null ? '8px' : 0 }}>
-          <Typography component="span" data-testid="reveal-counts">
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: '4px 12px', ...SUB_SX }}>
+          <span data-testid="reveal-counts">
             {'League picks · '}
-            <Box component="b" sx={{ color: 'var(--dash-ink)' }}>
+            <Box component="b" sx={{ fontWeight: 700, color: 'var(--ps-ink)' }}>
               {Object.entries(view.reveal.counts).map(([team, count], index) => (
                 <React.Fragment key={team}>
                   {index > 0 ? ', ' : ''}
@@ -306,72 +402,40 @@ function LiveFooter({ view, awayTeam, homeTeam, totalManagers }) {
                 </React.Fragment>
               ))}
             </Box>
-          </Typography>
-          {view.reveal.noPick > 0 && (
-            <Typography component="span">{`${view.reveal.noPick} no pick`}</Typography>
-          )}
+          </span>
+          {view.reveal.noPick > 0 && <span>{`${view.reveal.noPick} no pick`}</span>}
         </Box>
       )}
-    </Box>
+    </>
   );
 }
 
 function HeadlineRow({ headline }) {
   return (
-    <Typography
-      data-testid="headline"
-      sx={{ p: '10px 14px 12px 14px', fontSize: '12.5px', color: 'var(--dash-dim)', borderTop: '1px solid var(--dash-line)', mt: '10px' }}
-    >
+    <Box component="p" data-testid="headline" sx={{ m: 0, pt: '10px', borderTop: '2px solid var(--ps-rule)', textWrap: 'pretty', ...SUB_SX }}>
       {headline}
-    </Typography>
-  );
-}
-
-function ErrorRow({ message }) {
-  return (
-    <Box
-      role="alert"
-      data-testid="flagged-error"
-      sx={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 1,
-        p: '8px 14px',
-        m: '10px 14px 12px 14px',
-        borderRadius: '8px',
-        backgroundColor: 'var(--dash-danger-soft)',
-        color: 'var(--dash-danger)',
-        fontSize: '12px',
-        fontWeight: 600,
-      }}
-    >
-      {message}
     </Box>
   );
 }
 
 function GameCardSkeleton() {
   return (
-    <Card data-testid="game-card-skeleton">
-      <Box sx={{ display: 'flex', gap: 1, p: '10px 14px 0 14px' }}>
-        <Skeleton variant="text" width={90} height={12} />
-        <Box sx={{ flex: 1 }} />
-        <Skeleton variant="rounded" width={120} height={20} />
-      </Box>
-      <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '10px', p: '10px 14px 0 14px' }}>
-        {[0, 1].map((index) => (
-          <Box key={index} sx={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <Skeleton variant="circular" width={36} height={36} />
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              <Skeleton variant="text" width={48} height={14} />
-              <Skeleton variant="text" width={120} height={10} />
+    <Box sx={{ padding: '8px', border: '4px solid transparent' }}>
+      <Box data-testid="game-card-skeleton" sx={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+          <Skel width="120px" height={20} />
+          <Skel width="150px" height={28} />
+        </Box>
+        <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '12px' }}>
+          {[0, 1].map((index) => (
+            <Box key={index} sx={{ boxSizing: 'border-box', minHeight: '76px', border: '2px solid var(--ps-rule)', padding: '14px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <Skel width="64px" height={16} />
+              <Skel width="60%" height={14} />
             </Box>
-          </Box>
-        ))}
+          ))}
+        </Box>
+        <Skel width="100%" height={12} />
       </Box>
-      <Box sx={{ p: '10px 14px 12px 14px' }}>
-        <Skeleton variant="rounded" width="100%" height={8} />
-      </Box>
-    </Card>
+    </Box>
   );
 }

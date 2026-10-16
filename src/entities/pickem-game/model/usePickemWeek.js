@@ -7,10 +7,15 @@ import { readHttpFailure } from '../../../lib/httpFailure';
  * that have already been revealed by kickoff.
  *
  * `savePicks` never throws — a rejected save comes back as
- * `{ ok: false, code, gameKeys }` and is also parked in `saveError`, because
- * the board needs to highlight the exact rows the server refused (a game that
- * kicked off between render and save, or a duplicate confidence value). A
- * successful save leaves the standings cache (`entities/pickem-standings`)
+ * `{ ok: false, message, code, gameKeys }`, because the board needs to name the
+ * exact games the server refused (a game that kicked off between render and
+ * save, or a duplicate confidence value). A pick saves the moment it is made
+ * (ADR 0067 wave 2), so a successful save patches `myPicks` in place from what
+ * was sent (an entry with `pickedTeam: null` removes that game's pick) and
+ * refreshes the week in the background: the board never drops to its loading
+ * state under a tap, and a background result that lands while another save is
+ * in flight is dropped rather than rolling that save's pick back. A successful
+ * save leaves the standings cache (`entities/pickem-standings`)
  * stale, since saved picks change the standings' made/pending counts, but
  * clearing it is NOT this hook's job: sibling entities do not import each
  * other (ADR 0029), so the composer that reads both entities -
@@ -21,8 +26,6 @@ export default function usePickemWeek(leagueId, week, { enabled = true } = {}) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState(null);
   // `desiredKeyRef` is the (leagueId, week) the hook currently wants to
   // show. It is advanced only by the effect below, when those props
   // change — never by a load() call itself — because savePicks and the
@@ -39,8 +42,11 @@ export default function usePickemWeek(leagueId, week, { enabled = true } = {}) {
   const desiredKeyRef = useRef({ leagueId: null, week: null });
   const latestIdByKeyRef = useRef(new Map());
   const nextIdRef = useRef(0);
+  const pendingSavesRef = useRef(0);
 
-  const load = useCallback(() => {
+  // `silent` is the post-save refresh: no loading flag, no error, and no write
+  // while a save is in flight (its result would predate that save).
+  const load = useCallback(({ silent = false } = {}) => {
     if (!enabled || leagueId == null || week == null) {
       setLoading(false);
       return Promise.resolve();
@@ -64,22 +70,22 @@ export default function usePickemWeek(leagueId, week, { enabled = true } = {}) {
     // left could flip `loading` back on (or wipe a current-week `error`)
     // for a request whose result `applies()` above can never let through
     // anyway (formal-002-f1).
-    if (applies()) {
+    if (!silent && applies()) {
       setLoading(true);
       setError(null);
     }
     return apiClient
       .get(`/api/pickem/league/${leagueId}/week/${week}`)
       .then((res) => {
-        if (!applies()) return;
+        if (!applies() || (silent && pendingSavesRef.current > 0)) return;
         setData(res.data);
       })
       .catch((requestError) => {
-        if (!applies()) return;
+        if (silent || !applies()) return;
         setError(readHttpFailure(requestError).message || requestError.message || 'Request failed');
       })
       .finally(() => {
-        if (!applies()) return;
+        if (silent || !applies()) return;
         setLoading(false);
       });
   }, [leagueId, week, enabled]);
@@ -89,38 +95,56 @@ export default function usePickemWeek(leagueId, week, { enabled = true } = {}) {
     // The week changed — drop the old board rather than showing last week's
     // picks against this week's games while the request is in flight.
     setData(null);
-    setSaveError(null);
     load();
   }, [load, leagueId, week]);
 
   const savePicks = useCallback(
     async (picks) => {
-      setSaving(true);
-      setSaveError(null);
+      pendingSavesRef.current += 1;
+      let failure = null;
       try {
         await apiClient.put(`/api/pickem/league/${leagueId}/week/${week}/picks`, { picks });
-        await load();
-        return { ok: true };
+        const still =
+          desiredKeyRef.current.leagueId === leagueId && desiredKeyRef.current.week === week;
+        if (still) {
+          setData((prev) => (prev ? { ...prev, myPicks: applyPicks(prev.myPicks, picks) } : prev));
+        }
       } catch (requestError) {
         const body = requestError?.response?.data || {};
         const readFailure = readHttpFailure(requestError);
-        const failure = {
+        failure = {
           ok: false,
           message: readFailure.message || requestError.message || 'Request failed',
           code: readFailure.code || body.code || null,
           gameKeys: Array.isArray(body.gameKeys) ? body.gameKeys : [],
         };
-        setSaveError(failure);
-        // A lock rejection means the board is stale — pull the fresh slate so
-        // the newly locked game renders as locked instead of still editable.
-        if (failure.code === 'PICKEM_LOCKED') await load();
-        return failure;
-      } finally {
-        setSaving(false);
       }
+      pendingSavesRef.current -= 1;
+      if (!failure) {
+        // The counts ("n of M managers have picked") come back with the refresh.
+        load({ silent: true });
+        return { ok: true };
+      }
+      // A lock rejection means the board is stale — pull the fresh slate so
+      // the newly locked game renders as locked instead of still editable.
+      if (failure.code === 'PICKEM_LOCKED') await load({ silent: true });
+      return failure;
     },
     [leagueId, week, load]
   );
 
-  return { data, loading, error, reload: load, saving, saveError, savePicks };
+  const reload = useCallback(() => load(), [load]);
+
+  return { data, loading, error, reload, savePicks };
+}
+
+// What the server now holds for this week after a save of `sent`: each entry
+// replaces that game's pick, and `pickedTeam: null` removes it.
+function applyPicks(myPicks, sent) {
+  const byKey = new Map((myPicks || []).map((pick) => [pick.gameKey, pick]));
+  for (const pick of sent) {
+    if (pick.pickedTeam == null) byKey.delete(pick.gameKey);
+    else byKey.set(pick.gameKey, { gameKey: pick.gameKey, pickedTeam: pick.pickedTeam, confidence: pick.confidence ?? null });
+  }
+  return [...byKey.values()];
 }

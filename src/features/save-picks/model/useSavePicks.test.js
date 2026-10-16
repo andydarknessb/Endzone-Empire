@@ -1,93 +1,147 @@
 import { act, renderHook } from '@testing-library/react';
 import useSavePicks from './useSavePicks';
 
-const myPicks = [
-  { gameKey: 'DAL|WAS', pickedTeam: 'DAL', confidence: 10 },
+const views = [
+  { gameKey: 'DAL|DEN', teams: ['DAL', 'DEN'], lock: false },
+  { gameKey: 'ARI|SF', teams: ['ARI', 'SF'], lock: false },
+  { gameKey: 'PHI|MIN', teams: ['PHI', 'MIN'], lock: true },
 ];
 
-test('draftFor reads the server pick until a local edit exists', () => {
-  const { result } = renderHook(() => useSavePicks({ myPicks, savePicks: jest.fn() }));
-  expect(result.current.draftFor('DAL|WAS')).toEqual({ pickedTeam: 'DAL', confidence: 10 });
-  expect(result.current.draftFor('NO|DET')).toBeNull();
-});
-
-test('pickWinner overlays a local pick without touching the server copy', () => {
-  const { result } = renderHook(() => useSavePicks({ myPicks, savePicks: jest.fn() }));
-  act(() => result.current.pickWinner('NO|DET', 'DET'));
-  expect(result.current.draftFor('NO|DET')).toEqual({ pickedTeam: 'DET', confidence: null });
-  expect(result.current.isDirty).toBe(true);
-  expect(result.current.dirtyGameKeys.has('NO|DET')).toBe(true);
-});
-
-test('setConfidence keeps the picked team already on the draft', () => {
-  const { result } = renderHook(() => useSavePicks({ myPicks, savePicks: jest.fn() }));
-  act(() => result.current.pickWinner('NO|DET', 'DET'));
-  act(() => result.current.setConfidence('NO|DET', 5));
-  expect(result.current.draftFor('NO|DET')).toEqual({ pickedTeam: 'DET', confidence: 5 });
-});
-
-test('editing back to the server value is no longer dirty', () => {
-  const { result } = renderHook(() => useSavePicks({ myPicks, savePicks: jest.fn() }));
-  act(() => result.current.setConfidence('DAL|WAS', 3));
-  expect(result.current.isDirty).toBe(true);
-  act(() => result.current.setConfidence('DAL|WAS', 10));
-  expect(result.current.isDirty).toBe(false);
-});
-
-test('save sends only the local overrides, never the whole saved slate', async () => {
-  const savePicks = jest.fn().mockResolvedValue({ ok: true });
-  const { result } = renderHook(() => useSavePicks({ myPicks, savePicks }));
-  act(() => result.current.pickWinner('NO|DET', 'DET'));
-  await act(async () => {
-    await result.current.save();
+const setup = ({ mode = 'straight', myPicks = [], savePicks = jest.fn().mockResolvedValue({ ok: true }), ...rest } = {}) => {
+  const view = renderHook((props) => useSavePicks({ mode, views, savePicks, resetKey: 7, ...props }), {
+    initialProps: { myPicks, ...rest },
   });
-  expect(savePicks).toHaveBeenCalledWith([{ gameKey: 'NO|DET', pickedTeam: 'DET', confidence: null }]);
+  return { ...view, savePicks };
+};
+
+test('choosing a team sends a one-element picks array and lands as saved with an Undo', async () => {
+  const { result, savePicks } = setup();
+  await act(async () => { result.current.pickWinner('DAL|DEN', 'DEN'); });
+  expect(savePicks).toHaveBeenCalledTimes(1);
+  expect(savePicks).toHaveBeenCalledWith([{ gameKey: 'DAL|DEN', pickedTeam: 'DEN', confidence: null }]);
+  expect(result.current.stateFor('DAL|DEN')).toMatchObject({ status: 'saved' });
 });
 
-test('a successful save clears the local draft (the reload now carries it)', async () => {
-  const savePicks = jest.fn().mockResolvedValue({ ok: true });
-  const { result } = renderHook(() => useSavePicks({ myPicks, savePicks }));
-  act(() => result.current.pickWinner('NO|DET', 'DET'));
-  await act(async () => {
-    await result.current.save();
+test('the state is saving while the request is in flight, with the attempted pick', async () => {
+  let release;
+  const savePicks = jest.fn(() => new Promise((resolve) => { release = resolve; }));
+  const { result } = setup({ savePicks });
+  act(() => { result.current.pickWinner('DAL|DEN', 'DEN'); });
+  expect(result.current.stateFor('DAL|DEN')).toMatchObject({ status: 'saving', attempted: { pickedTeam: 'DEN' } });
+  await act(async () => { release({ ok: true }); });
+  expect(result.current.stateFor('DAL|DEN').status).toBe('saved');
+});
+
+test('Undo of a first pick sends pickedTeam null; Undo of a change restores the previous pick', async () => {
+  const first = setup();
+  await act(async () => { first.result.current.pickWinner('DAL|DEN', 'DEN'); });
+  await act(async () => { first.result.current.undo('DAL|DEN'); });
+  expect(first.savePicks).toHaveBeenLastCalledWith([{ gameKey: 'DAL|DEN', pickedTeam: null, confidence: null }]);
+  expect(first.result.current.stateFor('DAL|DEN').status).toBe('undone');
+
+  const change = setup({ myPicks: [{ gameKey: 'DAL|DEN', pickedTeam: 'DAL', confidence: null }] });
+  await act(async () => { change.result.current.pickWinner('DAL|DEN', 'DEN'); });
+  await act(async () => { change.result.current.undo('DAL|DEN'); });
+  expect(change.savePicks).toHaveBeenLastCalledWith([{ gameKey: 'DAL|DEN', pickedTeam: 'DAL', confidence: null }]);
+});
+
+test('tapping the saved team again, a locked game, or a card mid-save sends nothing', async () => {
+  const { result, savePicks } = setup({ myPicks: [{ gameKey: 'DAL|DEN', pickedTeam: 'DAL', confidence: null }] });
+  await act(async () => { result.current.pickWinner('DAL|DEN', 'DAL'); });
+  await act(async () => { result.current.pickWinner('PHI|MIN', 'PHI'); });
+  expect(savePicks).not.toHaveBeenCalled();
+});
+
+test('a failed save keeps the attempted pick and Retry sends it again', async () => {
+  const savePicks = jest.fn()
+    .mockResolvedValueOnce({ ok: false, code: null, gameKeys: [], message: 'boom' })
+    .mockResolvedValueOnce({ ok: true });
+  const { result } = setup({ savePicks });
+  await act(async () => { result.current.pickWinner('DAL|DEN', 'DEN'); });
+  expect(result.current.stateFor('DAL|DEN')).toMatchObject({
+    status: 'failed', attempted: { pickedTeam: 'DEN' }, message: "Couldn't save this pick.",
   });
-  expect(result.current.isDirty).toBe(false);
+  await act(async () => { result.current.retry('DAL|DEN'); });
+  expect(savePicks).toHaveBeenCalledTimes(2);
+  expect(savePicks).toHaveBeenLastCalledWith([{ gameKey: 'DAL|DEN', pickedTeam: 'DEN', confidence: null }]);
+  expect(result.current.stateFor('DAL|DEN').status).toBe('saved');
 });
 
-test('a rejected save keeps the draft and reports the flagged gameKeys', async () => {
-  const savePicks = jest
-    .fn()
-    .mockResolvedValue({ ok: false, code: 'PICKEM_LOCKED', gameKeys: ['NO|DET'], message: 'too late' });
-  const { result, rerender } = renderHook(
-    (props) => useSavePicks(props),
-    { initialProps: { myPicks, savePicks, saveError: null } }
-  );
-  act(() => result.current.pickWinner('NO|DET', 'DET'));
-  let outcome;
-  await act(async () => {
-    outcome = await result.current.save();
+test('PICKEM_LOCKED names the kicked-off game on that card and offers no retry', async () => {
+  const savePicks = jest.fn().mockResolvedValue({ ok: false, code: 'PICKEM_LOCKED', gameKeys: ['DAL|DEN'], message: 'locked' });
+  const { result } = setup({ savePicks });
+  await act(async () => { result.current.pickWinner('DAL|DEN', 'DEN'); });
+  expect(result.current.stateFor('DAL|DEN')).toEqual({
+    status: 'refused',
+    message: "This pick wasn't saved: DAL @ DEN had already kicked off. Your other picks are saved.",
   });
-  expect(outcome.ok).toBe(false);
-  rerender({ myPicks, savePicks, saveError: { code: 'PICKEM_LOCKED', gameKeys: ['NO|DET'] } });
-  expect(result.current.flaggedGameKeys.has('NO|DET')).toBe(true);
-  expect(result.current.draftFor('NO|DET')).toEqual({ pickedTeam: 'DET', confidence: null });
+  expect(result.current.stateFor('ARI|SF')).toBeNull();
 });
 
-test('resetKey changing discards the local draft', () => {
-  const { result, rerender } = renderHook(
-    ({ resetKey }) => useSavePicks({ myPicks, savePicks: jest.fn(), resetKey }),
-    { initialProps: { resetKey: 3 } }
-  );
-  act(() => result.current.pickWinner('NO|DET', 'DET'));
-  expect(result.current.isDirty).toBe(true);
-  rerender({ resetKey: 4 });
-  expect(result.current.isDirty).toBe(false);
-  expect(result.current.draftFor('NO|DET')).toBeNull();
+describe('confidence mode', () => {
+  const ranked = [
+    { gameKey: 'DAL|DEN', pickedTeam: 'DAL', confidence: 4 },
+    { gameKey: 'ARI|SF', pickedTeam: 'SF', confidence: 7 },
+    { gameKey: 'PHI|MIN', pickedTeam: 'PHI', confidence: 9 },
+  ];
+
+  test('a team with no rank yet is a draft: nothing is sent until the rank is chosen', async () => {
+    const { result, savePicks } = setup({ mode: 'confidence' });
+    await act(async () => { result.current.pickWinner('DAL|DEN', 'DEN'); });
+    expect(savePicks).not.toHaveBeenCalled();
+    expect(result.current.stateFor('DAL|DEN')).toMatchObject({ status: 'draft', attempted: { pickedTeam: 'DEN' } });
+
+    await act(async () => { result.current.setConfidence('DAL|DEN', 3); });
+    expect(savePicks).toHaveBeenCalledWith([{ gameKey: 'DAL|DEN', pickedTeam: 'DEN', confidence: 3 }]);
+  });
+
+  test('changing the team of a ranked pick keeps its rank', async () => {
+    const { result, savePicks } = setup({ mode: 'confidence', myPicks: ranked });
+    await act(async () => { result.current.pickWinner('DAL|DEN', 'DEN'); });
+    expect(savePicks).toHaveBeenCalledWith([{ gameKey: 'DAL|DEN', pickedTeam: 'DEN', confidence: 4 }]);
+  });
+
+  test('choosing a rank another open game holds swaps the two in ONE request', async () => {
+    const { result, savePicks } = setup({ mode: 'confidence', myPicks: ranked });
+    await act(async () => { result.current.setConfidence('ARI|SF', 4); });
+    expect(savePicks).toHaveBeenCalledTimes(1);
+    expect(savePicks).toHaveBeenCalledWith([
+      { gameKey: 'ARI|SF', pickedTeam: 'SF', confidence: 4 },
+      { gameKey: 'DAL|DEN', pickedTeam: 'DAL', confidence: 7 },
+    ]);
+    expect(result.current.stateFor('ARI|SF')).toMatchObject({ status: 'saved', swap: 'DAL @ DEN' });
+    expect(result.current.stateFor('DAL|DEN')).toMatchObject({ status: 'saved', swap: 'ARI @ SF' });
+
+    await act(async () => { result.current.undo('ARI|SF'); });
+    expect(savePicks).toHaveBeenLastCalledWith([
+      { gameKey: 'ARI|SF', pickedTeam: 'SF', confidence: 7 },
+      { gameKey: 'DAL|DEN', pickedTeam: 'DAL', confidence: 4 },
+    ]);
+  });
+
+  test('a rank held by a kicked-off game is refused on the card and never sent', async () => {
+    const { result, savePicks } = setup({ mode: 'confidence', myPicks: ranked });
+    await act(async () => { result.current.setConfidence('ARI|SF', 9); });
+    expect(savePicks).not.toHaveBeenCalled();
+    expect(result.current.stateFor('ARI|SF')).toMatchObject({
+      status: 'refused', message: 'Rank 9 is locked to PHI @ MIN. Choose another rank.',
+    });
+  });
+
+  test('"Confidence: none" is not a save', async () => {
+    const { result, savePicks } = setup({ mode: 'confidence', myPicks: ranked });
+    await act(async () => { result.current.setConfidence('DAL|DEN', null); });
+    expect(savePicks).not.toHaveBeenCalled();
+  });
 });
 
-test('discard clears every local edit', () => {
-  const { result } = renderHook(() => useSavePicks({ myPicks, savePicks: jest.fn() }));
-  act(() => result.current.pickWinner('NO|DET', 'DET'));
-  act(() => result.current.discard());
-  expect(result.current.isDirty).toBe(false);
+test('changing the week clears every card state and drops a result that lands late', async () => {
+  let release;
+  const savePicks = jest.fn(() => new Promise((resolve) => { release = resolve; }));
+  const { result, rerender } = setup({ savePicks });
+  act(() => { result.current.pickWinner('DAL|DEN', 'DEN'); });
+  rerender({ resetKey: 8, myPicks: [] });
+  expect(result.current.stateFor('DAL|DEN')).toBeNull();
+  await act(async () => { release({ ok: true }); });
+  expect(result.current.stateFor('DAL|DEN')).toBeNull();
 });

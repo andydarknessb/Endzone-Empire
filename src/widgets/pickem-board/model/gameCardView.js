@@ -11,10 +11,11 @@ import revealTally from './revealTally';
  * game, and the manager's own in-progress draft from the `save-picks`
  * feature - into what GameCard actually renders.
  *
- * `draftFor` is `save-picks`'s `useSavePicks().draftFor`: when it holds an
- * unsaved edit for this game, that edit is what the card shows as "my
- * pick", overriding the server's own `myPicks` row the entity's
- * `gameModel` already read. `othersPicksForWeek` is the week response's OWN
+ * A pick saves the moment it is made (ADR 0067 wave 2), so there is no draft:
+ * "my pick" is the saved `myPicks` row the entity's `gameModel` read.
+ * `now` (epoch ms) turns an open game's kickoff into `lockMinutes`, the
+ * whole minutes to lock while under an hour (null otherwise), which is the
+ * card's "Locks in n min" and its accessible name. `othersPicksForWeek` is the week response's OWN
  * `othersPicks` map (never a per-game value, CONTEXT.md/ADR 0038); this is
  * the one place that map is indexed by gameKey, which is what keeps every
  * caller off the standing trap (revealTally.js's docblock): a lookup that
@@ -24,17 +25,14 @@ import revealTally from './revealTally';
 export function gameCardView({
   game,
   myPicks,
-  draftFor,
   othersPicksForWeek,
   totalManagers = null,
-  flagged = false,
+  now = null,
 }) {
   const slate = gameModel(game, myPicks);
   const detail = gameDetailModel(game);
 
-  const draft = draftFor ? draftFor(slate.gameKey) : null;
-  const myPick = draft ? draft.pickedTeam : slate.myPick;
-  const confidence = draft ? draft.confidence : slate.confidence;
+  const { myPick, confidence } = slate;
 
   const revealedForGame = othersPicksForWeek ? othersPicksForWeek[slate.gameKey] : undefined;
   const reveal = revealTally({ othersPicks: revealedForGame, myPick, totalManagers });
@@ -65,8 +63,17 @@ export function gameCardView({
     pickedCount: game.pickedCount ?? 0,
     reveal,
     outcome,
-    flagged: Boolean(flagged),
+    lockMinutes: lockMinutesFor(slate, now),
   };
+}
+
+// Whole minutes to kickoff for an open game under an hour out (a lock is inclusive at kickoff, so a
+// kickoff at or before `now` is no countdown), else null.
+function lockMinutesFor(slate, now) {
+  if (now == null || slate.lock) return null;
+  const remaining = new Date(slate.kickoff).getTime() - now;
+  if (!(remaining > 0) || remaining >= 60 * 60 * 1000) return null;
+  return Math.floor(remaining / 60000);
 }
 
 export default gameCardView;
