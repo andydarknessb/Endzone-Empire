@@ -178,3 +178,45 @@ describe('ClaimSheet drop preselect', () => {
     expect(checked()).toBe(screen.getByRole('radio', { name: /Roster 7/ }));
   });
 });
+
+// ADR 0067 wave 3: `look` defaults to the dash sheet (PlayerManagement and the Decision card keep it).
+describe('ClaimSheet look', () => {
+  const roster = [7, 9].map((id) => ({ id, name: `Roster ${id}`, position: 'RB', projected_weekly_points: 5 }));
+  const player = { id: 1, name: 'Carson Beck', upgrade: { points: 3.2, overPlayer: { id: 7, name: 'Roster 7', points: 12 } } };
+  const sheet = (props) => render(
+    <ClaimSheet open player={player} leagueId={1} availability={{ rosterCount: 2, rosterCapacity: 3, faabRemaining: 62 }} roster={roster} onClose={() => {}} {...props} />,
+  );
+  beforeEach(() => usePlayerCard.mockReturnValue({ status: 'loading', card: null }));
+
+  it('renders the dash sheet when no look is passed', () => {
+    sheet({});
+    expect(document.querySelector('.MuiDialog-paper')).not.toBeNull();
+    expect(document.querySelector('.MuiDialogTitle-root')).toHaveTextContent('Claim Carson Beck');
+    expect(document.querySelector('.ps-root')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Submit claim' }).className).toMatch(/MuiButton-contained/);
+    expect(screen.getByTestId('claim-sheet-swap')).toHaveStyle({ border: '1px solid var(--dash-line)' });
+  });
+
+  it('look="playselect" is a Play-select frame with the player name in the title and a filled Submit claim', () => {
+    sheet({ look: 'playselect' });
+    const dialog = screen.getByRole('dialog', { name: /Claim Carson Beck/ });
+    expect(dialog.closest('.ps-root')).not.toBeNull();
+    expect(screen.getByRole('heading', { name: /Claim Carson Beck/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Submit claim' })).toHaveAttribute('data-variant', 'fill');
+    expect(screen.getByRole('button', { name: 'Cancel' })).toHaveAttribute('data-variant', 'ghost');
+    expect(screen.getByTestId('claim-sheet-swap')).toHaveStyle({ border: '2px solid var(--ps-rule)' });
+    expect(screen.getByText('$62 remaining')).toBeInTheDocument();
+  });
+
+  it('look="playselect" opens focus on the first control, the picked drop when there is one', () => {
+    sheet({ look: 'playselect', dropSuggestion: { id: 9, name: 'Roster 9' } });
+    expect(screen.getByRole('radio', { name: /Roster 9/ })).toHaveFocus();
+  });
+
+  it('look="playselect" keeps the bid rule: an out-of-range bid disables Submit and names the range', () => {
+    sheet({ look: 'playselect' });
+    fireEvent.change(screen.getByLabelText('Bid'), { target: { value: '70' } });
+    expect(screen.getByText('Enter a whole-dollar bid between $0 and $62')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Submit claim' })).toBeDisabled();
+  });
+});
