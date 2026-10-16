@@ -2,7 +2,7 @@ const express = require('express');
 const pool = require('../modules/pool');
 const { requireAuth } = require('../modules/auth');
 const trades = require('../services/trade.service');
-const { analyzeTrade } = require('../services/decision.service');
+const decision = require('../services/decision.service');
 const { requireMember } = require('../services/leagueMembership.service');
 
 const router = express.Router();
@@ -72,10 +72,39 @@ router.post('/', async (req, res) => {
   }
 });
 
-// POST /api/trades/analyze — evaluate a potential trade before proposing it
-// { leagueId, receivingTeamId, offeredPlayerIds, requestedPlayerIds }
+// POST /api/trades/analyze — evaluate a trade. For a potential one
+// { leagueId, receivingTeamId, offeredPlayerIds, requestedPlayerIds }, the
+// viewer proposes. For an existing one { leagueId, tradeId }: the trade's own
+// items are analyzed as its own proposing and receiving teams, for any league
+// member.
 router.post('/analyze', async (req, res) => {
-  const { leagueId, receivingTeamId, offeredPlayerIds, requestedPlayerIds } = req.body || {};
+  const { leagueId, receivingTeamId, offeredPlayerIds, requestedPlayerIds, tradeId } = req.body || {};
+  if (tradeId !== undefined) {
+    if (!Number.isInteger(leagueId) || !Number.isInteger(tradeId)) {
+      return res.status(400).json({ error: 'leagueId and tradeId (integers) are required' });
+    }
+    try {
+      await requireMember(pool, { leagueId, userId: req.user.id });
+      const trade = (await pool.query(
+        `SELECT * FROM "trades" WHERE "id" = $1 AND "league_id" = $2`,
+        [tradeId, leagueId]
+      )).rows[0];
+      if (!trade) return res.status(404).json({ error: 'trade not found' });
+      const items = (await pool.query(`SELECT * FROM "trade_items" WHERE "trade_id" = $1`, [tradeId])).rows;
+      const idsFrom = (teamId) => items.filter((i) => i.from_team_id === teamId).map((i) => i.player_id);
+      return res.json(await decision.analyzeTrade({
+        leagueId,
+        proposingTeamId: trade.proposing_team_id,
+        receivingTeamId: trade.receiving_team_id,
+        offeredPlayerIds: idsFrom(trade.proposing_team_id),
+        requestedPlayerIds: idsFrom(trade.receiving_team_id),
+      }));
+    } catch (error) {
+      if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
+      console.error('Error analyzing trade', error);
+      return res.status(500).json({ error: 'failed to analyze trade' });
+    }
+  }
   if (!Number.isInteger(leagueId) || !Number.isInteger(receivingTeamId)) {
     return res.status(400).json({ error: 'leagueId and receivingTeamId (integers) are required' });
   }
@@ -88,7 +117,7 @@ router.post('/analyze', async (req, res) => {
   try {
     const myTeam = await requireMember(pool, { leagueId, userId: req.user.id });
 
-    const analysis = await analyzeTrade({
+    const analysis = await decision.analyzeTrade({
       leagueId,
       proposingTeamId: myTeam.id,
       receivingTeamId,
