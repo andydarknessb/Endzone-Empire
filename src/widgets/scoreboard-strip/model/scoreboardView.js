@@ -41,23 +41,21 @@ export function scoreboardView(matchup, { viewerTeamId, records } = {}) {
   const away = m.away || {};
 
   // Status is the server's fact read through the entity's `matchupBoard` (ADR
-  // 0030). The bar shows only for `hasStarted === true`: false (scheduled) and
-  // null (the server could not say) both show no bar, so an unknown status
-  // never paints a probability the page cannot stand behind. A settled
-  // (played or final) Matchup states its result instead (#2007): the bar and
-  // the Expected final and Players remaining figures give way to `result`.
+  // 0030). A settled (played or final) Matchup states its result instead
+  // (#2007): the bar and the Expected final and Players remaining figures give
+  // way to `result`. Before kickoff the bar prices the projections; a status
+  // the server could not state prices nothing, so it never paints a bar.
   const board = matchupBoard(m, viewerTeamId);
   const result = board.resultLine;
-  const showBar = board.hasStarted === true && result == null;
-
-  const probability = board.winProbability ?? board.projectedWinProbability ?? { home: 0.5 };
-  const homeShare = Math.max(0, Math.min(1, Number(probability.home) || 0));
+  const probability = result == null ? board.winProbability ?? board.projectedWinProbability : null;
+  const showBar = probability != null;
+  const homeShare = Math.max(0, Math.min(1, Number(probability?.home) || 0));
   // Rounded once, with the away side as the complement, so the two printed
-  // percentages always sum to 100 and agree with the SplitBar's own rounding.
+  // percentages always sum to 100 and agree with the bar's own rounding.
   const homePct = Math.round(homeShare * 100);
 
-  // Which side is the viewer's, the score text and the Players remaining text
-  // are the board's (#2142); this only lays them out.
+  // The figure a side prints big: its score once the matchup has started, else its Proj (the Expected final).
+  const started = board.hasStarted === true;
   const side = (s, key, fallbackName, winPct) => ({
     teamId: s.teamId ?? null,
     name: s.name || fallbackName,
@@ -66,18 +64,35 @@ export function scoreboardView(matchup, { viewerTeamId, records } = {}) {
     isViewer: board.viewerSide === key,
     record: recordFor(records, s.teamId),
     score: board[key].scoreLabel,
+    figure: started ? board[key].scoreLabel : formatExpectedFinal(s.expectedFinal),
     expectedFinal: formatExpectedFinal(s.expectedFinal),
     playersRemaining: board[key].playersRemainingLabel,
     winPct,
   });
+  const homeSide = side(home, 'home', 'Home', homePct);
+  const awaySide = side(away, 'away', 'Away', 100 - homePct);
+
+  const gap = homeSide.figure != null && awaySide.figure != null
+    ? Math.round((Number(homeSide.figure) - Number(awaySide.figure)) * 10) / 10
+    : null;
+  const leader = gap == null || gap === 0 ? null : gap > 0 ? 'home' : 'away';
+  const leaderSide = leader === 'home' ? homeSide : awaySide;
 
   return {
-    home: side(home, 'home', 'Home', homePct),
-    away: side(away, 'away', 'Away', 100 - homePct),
+    home: homeSide,
+    away: awaySide,
     homeShare,
     showBar,
     result,
+    started,
+    isLive: board.isLive,
+    // 'home', 'away' or null: the side the viewer manages (a participant sees their side first).
+    viewerSide: board.viewerSide,
+    leader,
+    // "{Leader} by {x}", "Tied" on an even figure, null when a side has no figure.
+    marginText: gap == null ? null : leader ? `${leaderSide.name} by ${Math.abs(gap).toFixed(1)}` : 'Tied',
     // The entity's chip: null for an unknown status, never a guessed one.
     chip: board.chip,
   };
+
 }

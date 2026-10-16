@@ -1,43 +1,32 @@
 import React, { useId } from 'react';
 import { Box } from '@mui/material';
-import { visuallyHidden } from '@mui/utils';
-import { Card, InjuryTag, PosChip } from '../../../shared/ui';
+import {
+  Frame, FrameHead, InjuryTag, PixelHeading, PosTag, SR_ONLY_SX,
+} from '../../../shared/ui/playselect';
 import { unavailableLabel } from '../../../entities/roster';
 
 /**
- * The Bench card of the Matchup page (ADR 0031, #903), transcribed from the
- * canvas's `benchSection()` (docs/design/game-center-matchups/build.mjs): a
- * card header reading "Bench" with the two bench counts ("7 players each", or "6 · 7 players" when
- * they differ, #2009)
- * and a Show / Hide action with the chevron, collapsed by default. Open, it
- * lists both benches side by side, home on the left and away on the right:
- * each row is the player's position chip, his name (a button that opens the
- * player quick view) with his injury designation beside it when flagged (the
- * kit's InjuryTag, the same tag the Starters table shows), the points, and
- * beneath the name either his projection or, for an Unavailable player, the
- * reason in place of it ("on bye", "out", "on IR"), the one rule the
- * slot-comparison widget exports.
+ * The Bench frame of the Matchup page (ADR 0031, #903), drawn as the board's primary frame (ADR 0067
+ * wave 2, spec #2334 ruling 4): a pixel h2 "Bench" with the two bench counts ("7 players each", or
+ * "6 · 7 players" when they differ, #2009) and a Show / Hide ghost button (44px, never filled),
+ * collapsed by default. Open, it lists both benches, home on the left and away on the right (stacked
+ * below sm): each row is the player's position tag, his name (a button that opens the player) with
+ * his injury designation beside it when flagged and his NFL team, and his figure on the right.
  *
- * Once a Matchup is final in a league that sets a lineup, the points each
- * side left on its bench (the page's hindsight read) print under the header
- * whether the card is open or not: "Left 12.4 on the bench" per side, the
- * legacy page's exact line.
+ * The figure follows the starters (RULINGS Critique 8 and 11): a player whose game has started shows
+ * his points with "proj {x}" as line two ("13.4 pts" over "proj 12.9", "8.6 pts · final" over "proj
+ * 8.1" once his game is final); a player whose game has not started shows "proj {x}" alone; an
+ * Unavailable player shows the reason ("on bye", "out", "on IR") in place of the figure. A row whose
+ * game state the wire did not say reads like a started one.
  *
- * Under the benches, each team's called shot once the server shows it (#1857:
- * both players have locked): "Called shot: {starter} over {benched} · 11.4 to
- * 6.2", moving with the live points, and "Hit" or "Miss" once judged (a void
- * shows the line and no word). The page model builds the text; this card
- * only lays it out, open or collapsed.
+ * Once a Matchup is final in a league that sets a lineup, the points each side left on its bench (the
+ * page's hindsight read) print under the header whether the card is open or not: "Left 12.4 on the
+ * bench" per side. Under the benches, each team's called shot once the server shows it (#1857):
+ * "Called shot: {starter} over {benched} · 11.4 to 6.2", moving with the live points, and "Hit" or
+ * "Miss" once judged. The page model builds the text; this card only lays it out.
  *
- * Composes `shared/ui` (Card, PosChip) and paints only `dash-*` tokens plus
- * the app's radius and focus-ring tokens; ink, dim and faint on the card
- * surface are registered pairings. The count and the Show / Hide control sit
- * in the card header's `tail` slot, as the Lineups card's action does; its
- * visible label is the canvas's word and its accessible name says what it
- * shows ("Show benches" / "Hide benches", #903 review). Collapsed with
- * nothing beneath the header, the card clears the header's bottom hairline
- * (the Card's own) through `sx`, so the card's edge is one line and not a
- * doubled one; the hairline returns as soon as a body follows the header.
+ * The Show / Hide control's accessible name says what it shows ("Show benches" / "Hide benches", #903
+ * review). Paints only `ps-*` tokens.
  */
 const players = (n) => `${n} player${n === 1 ? '' : 's'}`;
 // Equal counts read once and two empty benches print nothing; unequal ones show
@@ -48,11 +37,14 @@ function benchCount(home, away, homeName, awayName) {
   return (
     <>
       <span aria-hidden="true">{`${home} · ${away} players`}</span>
-      <Box component="span" sx={visuallyHidden}>{`${homeName} ${players(home)}, ${awayName} ${players(away)}`}</Box>
+      <Box component="span" sx={SR_ONLY_SX}>{`${homeName} ${players(home)}, ${awayName} ${players(away)}`}</Box>
     </>
   );
 }
-const HEADER_ONLY_SX = { '& > :first-of-type': { borderBottom: 0 } };
+
+const META = { fontSize: '13px', color: 'var(--ps-dim)' };
+const ELLIPSIS = { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
+
 export default function BenchCard({
   homeName,
   awayName,
@@ -64,68 +56,59 @@ export default function BenchCard({
   benchLeft,
   showBenchLeft,
   calledShots,
-  mobile = false,
 }) {
   const panelId = useId();
+  const headingId = useId();
   const home = homeBench || [];
   const away = awayBench || [];
   const count = benchCount(home.length, away.length, homeName || 'Home', awayName || 'Away');
   const leftHome = showBenchLeft && benchLeft?.home != null ? benchLeft.home : null;
   const leftAway = showBenchLeft && benchLeft?.away != null ? benchLeft.away : null;
-  // Collapsed with no bench-left line: the header is the whole card.
   const shotHome = calledShots?.home || null;
   const shotAway = calledShots?.away || null;
-  const headerOnly = !open && leftHome == null && leftAway == null && !shotHome && !shotAway;
 
   return (
-    <Card
+    <Frame
+      labelledBy={headingId}
       data-testid="bench-card"
-      data-header-only={headerOnly || undefined}
-      title="Bench"
-      count={count}
-      sx={headerOnly ? HEADER_ONLY_SX : undefined}
-      tail={(
-        <Box
-          component="button"
-          type="button"
-          aria-label={open ? 'Hide benches' : 'Show benches'}
-          aria-expanded={open}
-          aria-controls={open ? panelId : undefined}
-          onClick={onToggle}
-          sx={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '6px',
-            minHeight: mobile ? 44 : 30,
-            px: '6px',
-            border: 0,
-            background: 'transparent',
-            cursor: 'pointer',
-            font: 'inherit',
-            fontSize: '13px',
-            color: 'var(--dash-dim)',
-            borderRadius: 'var(--radius-sm)',
-            '&:hover': { color: 'var(--dash-ink)' },
-            '&:focus-visible': { outline: '2px solid var(--focus-ring)', outlineOffset: 2 },
-          }}
-        >
-          {open ? 'Hide' : 'Show'}
-          <Chevron up={open} />
-        </Box>
+      head={(
+        <FrameHead>
+          <PixelHeading id={headingId}>Bench</PixelHeading>
+          {count != null && <Box component="span" sx={{ ...META, ml: 'auto' }}>{count}</Box>}
+          <Box
+            component="button"
+            type="button"
+            aria-label={open ? 'Hide benches' : 'Show benches'}
+            aria-expanded={open}
+            aria-controls={open ? panelId : undefined}
+            onClick={onToggle}
+            sx={{
+              ml: count == null ? 'auto' : 0,
+              minHeight: '44px',
+              display: 'inline-flex',
+              alignItems: 'center',
+              padding: '0 16px',
+              boxSizing: 'border-box',
+              border: '2px solid var(--ps-ink)',
+              borderRadius: 0,
+              backgroundColor: 'transparent',
+              color: 'var(--ps-ink)',
+              fontFamily: 'inherit',
+              fontSize: '15px',
+              fontWeight: 600,
+              cursor: 'pointer',
+            }}
+          >
+            {open ? 'Hide' : 'Show'}
+          </Box>
+        </FrameHead>
       )}
     >
       {(leftHome != null || leftAway != null) && (
         <Box
           data-testid="bench-left"
           sx={{
-            display: 'grid',
-            gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)',
-            gap: '10px',
-            px: mobile ? '14px' : '18px',
-            py: '10px',
-            fontSize: '12px',
-            color: 'var(--dash-dim)',
-            borderBottom: open ? '1px solid var(--dash-line)' : 0,
+            display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '10px', px: { xs: '14px', md: '20px' }, py: '10px', fontSize: '14px', color: 'var(--ps-dim)', borderBottom: open ? '2px solid var(--ps-rule)' : 0,
           }}
         >
           <BenchLeft name={homeName} value={leftHome} side="home" />
@@ -138,36 +121,25 @@ export default function BenchCard({
           id={panelId}
           data-testid="bench-panel"
           sx={{
-            display: 'grid',
-            gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)',
-            gap: mobile ? '10px' : '18px',
-            px: mobile ? '14px' : '18px',
-            py: '12px',
+            display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: 'repeat(2, minmax(0, 1fr))' }, gap: { xs: '20px', md: '24px 40px' }, padding: { xs: '14px 14px 16px', md: '16px 20px 20px' },
           }}
         >
-          <BenchColumn name={homeName} players={home} side="home" onOpenPlayer={onOpenPlayer} mobile={mobile} />
-          <BenchColumn name={awayName} players={away} side="away" onOpenPlayer={onOpenPlayer} mobile={mobile} />
+          <BenchColumn name={homeName} players={home} side="home" onOpenPlayer={onOpenPlayer} />
+          <BenchColumn name={awayName} players={away} side="away" onOpenPlayer={onOpenPlayer} />
         </Box>
       )}
 
       {(shotHome || shotAway) && (
         <Box
           sx={{
-            display: 'grid',
-            gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)',
-            gap: mobile ? '10px' : '18px',
-            px: mobile ? '14px' : '18px',
-            py: '10px',
-            fontSize: '12px',
-            color: 'var(--dash-dim)',
-            borderTop: open ? '1px solid var(--dash-line)' : 0,
+            display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '10px 20px', px: { xs: '14px', md: '20px' }, py: '10px', fontSize: '14px', color: 'var(--ps-dim)', borderTop: open ? '2px solid var(--ps-rule)' : 0,
           }}
         >
           <CalledShot shot={shotHome} side="home" />
           <CalledShot shot={shotAway} side="away" align="right" />
         </Box>
       )}
-    </Card>
+    </Frame>
   );
 }
 
@@ -179,8 +151,8 @@ function BenchLeft({ name, value, side, align = 'left' }) {
       data-testid={`bench-left-${side}`}
       sx={{ display: 'flex', flexDirection: 'column', gap: '2px', textAlign: align, minWidth: 0 }}
     >
-      <Box component="span" sx={{ ...ELLIPSIS, color: 'var(--dash-faint)' }}>{name}</Box>
-      <Box component="span" sx={{ fontVariantNumeric: 'tabular-nums' }}>
+      <Box component="span" sx={ELLIPSIS}>{name}</Box>
+      <Box component="span" sx={{ fontVariantNumeric: 'tabular-nums', color: 'var(--ps-ink)' }}>
         {`Left ${Number(value).toFixed(1)} on the bench`}
       </Box>
     </Box>
@@ -195,7 +167,7 @@ function CalledShot({ shot, side, align = 'left' }) {
         {shot.text}
       </Box>
       {shot.outcome && (
-        <Box component="span" data-testid={`called-shot-outcome-${side}`} sx={{ fontWeight: 700, color: 'var(--dash-ink)' }}>
+        <Box component="span" data-testid={`called-shot-outcome-${side}`} sx={{ fontWeight: 700, color: 'var(--ps-ink)' }}>
           {shot.outcome}
         </Box>
       )}
@@ -203,31 +175,23 @@ function CalledShot({ shot, side, align = 'left' }) {
   );
 }
 
-function BenchColumn({ name, players, side, onOpenPlayer, mobile }) {
-  const mirrored = side === 'away';
+function BenchColumn({ name, players: list, side, onOpenPlayer }) {
   return (
     <Box
       component="section"
       aria-label={`${name || side} bench`}
       data-testid={`bench-${side}`}
-      sx={{ minWidth: 0, textAlign: mirrored ? 'right' : 'left' }}
+      sx={{ minWidth: 0 }}
     >
-      <Box component="span" sx={{ ...LABEL, ...ELLIPSIS, display: 'block', pb: '6px' }}>
+      <Box component="h3" sx={{ m: '0 0 4px', ...META, fontWeight: 600, letterSpacing: '.04em', textTransform: 'uppercase' }}>
         {name}
       </Box>
-      {players.length === 0 ? (
-        <Box sx={{ fontSize: '13px', color: 'var(--dash-dim)' }}>No bench players.</Box>
+      {list.length === 0 ? (
+        <Box sx={{ fontSize: '15px', color: 'var(--ps-dim)' }}>No bench players.</Box>
       ) : (
         <Box component="ul" role="list" sx={{ listStyle: 'none', m: 0, p: 0 }}>
-          {players.map((player, i) => (
-            <BenchRow
-              key={player.id ?? i}
-              player={player}
-              mirrored={mirrored}
-              first={i === 0}
-              onOpenPlayer={onOpenPlayer}
-              mobile={mobile}
-            />
+          {list.map((player, i) => (
+            <BenchRow key={player.id ?? i} player={player} last={i === list.length - 1} onOpenPlayer={onOpenPlayer} />
           ))}
         </Box>
       )}
@@ -235,123 +199,61 @@ function BenchColumn({ name, players, side, onOpenPlayer, mobile }) {
   );
 }
 
-function BenchRow({ player, mirrored, first, onOpenPlayer, mobile }) {
+const fixed = (value) => (value != null && Number.isFinite(Number(value)) ? Number(value).toFixed(1) : null);
+
+// The figure on the right of a bench row (see the card's doc block).
+function Figure({ player }) {
   const reason = unavailableLabel(player);
-  const projected = player.projected != null && Number.isFinite(Number(player.projected))
-    ? Number(player.projected).toFixed(1)
-    : null;
+  const projected = fixed(player.projected);
+  if (reason) {
+    return <Box component="span" data-testid="unavailable-reason" sx={{ fontSize: '15px', color: 'var(--ps-dim)', flex: 'none' }}>{reason}</Box>;
+  }
+  if (player.game_state === 'scheduled') {
+    return projected != null
+      ? <Box component="span" data-testid="bench-proj" sx={{ fontSize: '15px', color: 'var(--ps-dim)', flex: 'none' }}>{`proj ${projected}`}</Box>
+      : null;
+  }
+  const final = player.game_state === 'final';
+  return (
+    <Box component="span" sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', flex: 'none', lineHeight: 1.3, textAlign: 'right' }}>
+      <span>
+        {player.game_state === 'in_progress' && <Box component="span" sx={SR_ONLY_SX}>In progress, </Box>}
+        <Box component="b" data-testid="bench-points" sx={{ fontSize: '16px', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
+          {(Number(player.points) || 0).toFixed(1)}
+        </Box>
+        {' '}
+        <Box component="span" sx={{ fontSize: '13px', color: 'var(--ps-dim)' }}>{final ? 'pts · final' : 'pts'}</Box>
+      </span>
+      {projected != null && <Box component="span" sx={{ fontSize: '13px', color: 'var(--ps-dim)' }}>{`proj ${projected}`}</Box>}
+    </Box>
+  );
+}
+
+function BenchRow({ player, last, onOpenPlayer }) {
   return (
     <Box
       component="li"
       data-testid="bench-row"
       sx={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: '8px',
-        flexDirection: mirrored ? 'row-reverse' : 'row',
-        py: '6px',
-        borderTop: first ? 0 : '1px solid var(--dash-line)',
+        display: 'flex', alignItems: 'center', gap: { xs: '10px', md: '12px' }, minHeight: '48px', py: { xs: '6px', md: 0 }, borderBottom: last ? 0 : '2px solid var(--ps-rule)',
       }}
     >
-      <PosChip position={player.position} sx={{ flex: 'none' }} />
-      <Box
-        sx={{
-          flex: '1 1 0',
-          minWidth: 0,
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: mirrored ? 'flex-end' : 'flex-start',
-        }}
-      >
+      <PosTag position={player.position} />
+      <Box sx={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '2px 8px' }}>
         <Box
+          component="button"
+          type="button"
+          onClick={() => onOpenPlayer?.(player.id)}
           sx={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '6px',
-            minWidth: 0,
-            maxWidth: '100%',
-            flexDirection: mirrored ? 'row-reverse' : 'row',
+            minWidth: 0, minHeight: '44px', border: 0, p: 0, m: 0, background: 'transparent', font: 'inherit', fontSize: '15px', fontWeight: 600, textAlign: 'left', color: 'var(--ps-ink)', cursor: 'pointer', overflowWrap: 'anywhere', '&:hover': { textDecoration: 'underline' },
           }}
         >
-          <Box
-            component="button"
-            type="button"
-            onClick={() => onOpenPlayer?.(player.id)}
-            sx={{
-              minWidth: 0,
-              minHeight: mobile ? 44 : undefined,
-              border: 0,
-              p: 0,
-              m: 0,
-              background: 'transparent',
-              font: 'inherit',
-              fontSize: '13px',
-              fontWeight: 600,
-              lineHeight: 1.45,
-              textAlign: 'inherit',
-              color: 'var(--dash-ink)',
-              cursor: 'pointer',
-              ...ELLIPSIS,
-              '&:hover': { textDecoration: 'underline' },
-              '&:focus-visible': { outline: '2px solid var(--focus-ring)', outlineOffset: 2, borderRadius: '4px' },
-            }}
-          >
-            {player.name}
-          </Box>
-          <InjuryTag status={player.injury_status} />
+          {player.name}
         </Box>
-        {reason ? (
-          <Box component="span" data-testid="unavailable-reason" sx={NOTE}>{reason}</Box>
-        ) : projected != null ? (
-          <Box component="span" sx={{ ...NOTE, fontVariantNumeric: 'tabular-nums' }}>{`proj ${projected}`}</Box>
-        ) : null}
+        <InjuryTag status={player.injury_status} data-testid="injury-tag" />
+        {player.nfl_team && <Box component="span" sx={META}>{player.nfl_team}</Box>}
       </Box>
-      <Box
-        component="span"
-        data-testid="bench-points"
-        sx={{
-          flex: 'none',
-          fontFamily: 'var(--dash-font-display)',
-          fontVariantNumeric: 'tabular-nums',
-          fontSize: '18px',
-          fontWeight: 700,
-          lineHeight: 1,
-          color: 'var(--dash-ink)',
-        }}
-      >
-        {(Number(player.points) || 0).toFixed(1)}
-      </Box>
+      <Figure player={player} />
     </Box>
   );
 }
-
-// The canvas's `chevD` on the 20px grid, flipped once the panel is open.
-function Chevron({ up }) {
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 20 20"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.6"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      focusable="false"
-      style={{ display: 'block', flex: 'none', transform: up ? 'rotate(180deg)' : undefined }}
-    >
-      <path d="M5 7.5 10 12.5 15 7.5" />
-    </svg>
-  );
-}
-
-const ELLIPSIS = { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
-const NOTE = { fontSize: '12px', color: 'var(--dash-faint)' };
-const LABEL = {
-  fontSize: '11px',
-  fontWeight: 600,
-  letterSpacing: '0.06em',
-  textTransform: 'uppercase',
-  color: 'var(--dash-faint)',
-};

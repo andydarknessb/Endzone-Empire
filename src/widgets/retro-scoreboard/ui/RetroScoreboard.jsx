@@ -90,7 +90,7 @@ export default function RetroScoreboard({
   return (
     <Box
       data-testid="retro-scoreboard"
-      sx={{ display: 'flex', flexDirection: 'column', gap, fontFamily: 'var(--dash-font-body)' }}
+      sx={{ display: 'flex', flexDirection: 'column', gap, fontFamily: 'inherit' }}
     >
       <LedBoard matchup={matchup} board={board} leagueName={leagueName} mobile={mobile} />
       <RetroField

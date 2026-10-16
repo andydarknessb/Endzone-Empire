@@ -9,7 +9,7 @@ import { ledFigure, ledPercents, ledStatus } from '../model/scoreboardModel';
  * one-decimal score, both win percentages in the middle, a hairline in the
  * LED's dim tint, and a second row of EXP FINAL and TO PLAY per side. The
  * board stays dark in both themes (tokens.js: a scoreboard is black); the one
- * ink-on-surface pairing it paints, `dash-led` on `dash-board`, is registered
+ * ink-on-surface pairing it paints, `ps-led` on `ps-board`, is registered
  * in tokens.contrast.test.js (ADR 0031).
  *
  * Every figure but the names, the week and the status chip is the entity
@@ -40,8 +40,8 @@ function Digit({ children, size, testId }) {
         fontSize: `${size}px`,
         lineHeight: 1.2,
         fontVariantNumeric: 'tabular-nums',
-        color: 'var(--dash-led)',
-        textShadow: '0 0 10px var(--dash-led-dim)',
+        color: 'var(--ps-led)',
+        textShadow: '0 0 10px var(--ps-led-dim)',
         whiteSpace: 'nowrap',
       }}
     >
@@ -59,7 +59,7 @@ function Small({ children, mobile, align, sx }) {
         fontSize: mobile ? '8px' : '10px',
         lineHeight: 1.4,
         letterSpacing: '0.04em',
-        color: 'var(--dash-led)',
+        color: 'var(--ps-led)',
         opacity: 0.85,
         minWidth: 0,
         overflow: 'hidden',
@@ -81,7 +81,7 @@ function Separator({ mobile }) {
     <Box
       component="span"
       aria-hidden="true"
-      sx={{ fontFamily: LED_FONT, fontSize: mobile ? '8px' : '10px', color: 'var(--dash-led)', opacity: 0.5 }}
+      sx={{ fontFamily: LED_FONT, fontSize: mobile ? '8px' : '10px', color: 'var(--ps-led)', opacity: 0.5 }}
     >
       -
     </Box>
@@ -121,12 +121,12 @@ export default function LedBoard({ matchup, board, leagueName, mobile }) {
     <Box
       data-testid="led-board"
       sx={{
-        backgroundColor: 'var(--dash-board)',
-        border: '1px solid var(--dash-line-strong)',
-        borderRadius: 'var(--dash-radius)',
+        backgroundColor: 'var(--ps-board)',
+        border: '1px solid var(--ps-rule)',
+        borderRadius: 0,
         p: mobile ? '14px' : '22px 28px',
         boxShadow: 'var(--shadow-2)',
-        color: 'var(--dash-led)',
+        color: 'var(--ps-led)',
       }}
     >
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', mb: vGap }}>
@@ -192,7 +192,7 @@ export default function LedBoard({ matchup, board, leagueName, mobile }) {
         </Box>
       ) : (
         <>
-          <Box aria-hidden="true" sx={{ height: '1px', backgroundColor: 'var(--dash-led-dim)', my: vGap }} />
+          <Box aria-hidden="true" sx={{ height: '1px', backgroundColor: 'var(--ps-led-dim)', my: vGap }} />
 
           <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: '8px' }}>
             {figures.map((f) => (

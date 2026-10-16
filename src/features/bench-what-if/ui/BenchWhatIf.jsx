@@ -1,42 +1,28 @@
 import React, { useId } from 'react';
-import { Box, Typography } from '@mui/material';
-import { Link as RouterLink } from 'react-router-dom';
-import { Card, DashButton } from '../../../shared/ui';
+import { Box } from '@mui/material';
+import { PsButton } from '../../../shared/ui/playselect';
+import NoteRow, { PixelLock } from './NoteRow';
 
 /**
- * bench-what-if feature (ADR 0031, #900): the Bench what-if card on Matchup
- * Detail, transcribed from the design canvas (`benchWhatIf` in
- * docs/design/game-center-matchups/build.mjs). A warning-bordered card with
- * the bolt icon, the headline delta, the first swap row (the benched player
- * struck through, a swap icon, the bench player, a warning chip with the gain)
- * and one action, "Swap in lineup".
+ * bench-what-if feature (ADR 0031, #900): the Bench what-if on Matchup Detail, drawn as the boards'
+ * note row (ADR 0067 wave 2, spec #2334 ruling 4): a lock icon, "Bench what-if." in bold, then the
+ * product's sentence for its branch, in a tertiary frame of its own between the NFL strip and
+ * Starters. When a swap is on the table, a second line shows it (the benched player struck through,
+ * the bench player, the gain as an outlined chip) with "Swap in lineup" as a ghost button, never a
+ * filled one. It is a quiet row, not a cursor: Matchup is a watching page.
  *
- * The action is a react-router Link to the Lineup page with the swap named in
- * the query (`/league/:leagueId/lineup?swapOut=<id>&swapIn=<id>`). Nothing is
- * swapped here and no request is made: Lineup is the sole team management
- * surface (ADR 0019), so this card only points at it. The link is a plain
- * anchor in the accessibility tree, never a button.
+ * The action is a react-router link to the Lineup page with the swap named in the query
+ * (`/league/:leagueId/lineup?swapOut=<id>&swapIn=<id>`). Nothing is swapped here and no request is
+ * made: Lineup is the sole team management surface (ADR 0019).
  *
  * Props:
- *   - `whatIf`: `{ delta, swaps: [{ out: { playerId, name, points },
- *     in: { playerId, name, points }, gain }] }`, or null. Only the first swap
- *     is shown, the way the canvas shows it.
+ *   - `whatIf`: `{ delta, swaps: [{ out: { playerId, name, points }, in: { playerId, name, points },
+ *     gain }] }`, or null. Only the first swap is shown.
  *   - `hasRoster`: whether the viewer has a roster in this league.
  *   - `leagueId`: the league the Lineup link points into.
- *   - `headingLevel`: the level of the "Bench what-if" heading (default 2,
- *     the same default the kit's Card uses; the page sets it to sit one level
- *     below its own title, ADR 0021).
  *
- * Renders nothing when there is no what-if or no roster. A delta of zero or
- * less renders the "best legal lineup" line alone: no swap row and no action.
- *
- * Colors: `dash-*` tokens only. `dash-warning` paints the border, the bolt and
- * the gain chip's text and border; `dash-warning-soft` is the chip's tint (the
- * canvas's `--warning`/`--warning-soft`, per mode). The pairings this composes
- * (warning on `dash-surface`, warning on `dash-surface2`, warning text on the
- * tint over `dash-surface2`) are registered in tokens.contrast.test.js in both
- * themes. The tinted chip clears AA only over a card or a stat tile, so it
- * lives on the swap row (`dash-surface2`) and nowhere else.
+ * Renders nothing when there is no what-if or no roster. A delta of zero or less prints "Your best
+ * legal lineup is already active." alone: no swap row and no action.
  */
 
 /** The Lineup page href with the swap named in the query (ADR 0019). */
@@ -72,7 +58,7 @@ function firstSwap(swaps) {
   return swap || null;
 }
 
-export default function BenchWhatIf({ whatIf, hasRoster, leagueId, headingLevel = 2, ...rest }) {
+export default function BenchWhatIf({ whatIf, hasRoster, leagueId, ...rest }) {
   const headingId = useId();
   if (!whatIf || !hasRoster) return null;
 
@@ -82,164 +68,52 @@ export default function BenchWhatIf({ whatIf, hasRoster, leagueId, headingLevel 
   const gain = swap ? points(swap.gain) : null;
 
   return (
-    <Card
+    <NoteRow
       data-testid="bench-what-if"
-      aria-labelledby={headingId}
-      sx={{
-        p: { xs: '12px 14px', sm: '14px 18px' },
-        borderColor: 'var(--dash-warning)',
-      }}
+      labelledBy={headingId}
+      icon={<PixelLock />}
       {...rest}
     >
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-        <Box
-          component="span"
-          aria-hidden="true"
-          sx={{ display: 'flex', flex: 'none', color: 'var(--dash-warning)' }}
-        >
-          <BoltIcon />
-        </Box>
-        <Box sx={{ display: 'flex', flexDirection: 'column', flex: '1 1 0', minWidth: 0 }}>
-          <Typography
-            id={headingId}
-            component={`h${headingLevel}`}
-            sx={{
-              m: 0,
-              fontSize: '14px',
-              fontWeight: 600,
-              lineHeight: 1.45,
-              color: 'var(--dash-ink)',
-            }}
-          >
-            Bench what-if
-          </Typography>
-          {/* The faint tier clears AA_TEXT on every dash surface (tokens.js). */}
-          <Typography
-            component="p"
-            sx={{ m: 0, fontSize: '12px', lineHeight: 1.45, color: 'var(--dash-faint)' }}
-          >
-            {optimal ? (
-              <span data-testid="bench-what-if-headline">
-                Your best legal lineup is already active.
-              </span>
-            ) : (
-              <>
-                <span data-testid="bench-what-if-headline">
-                  {`+${delta.toFixed(1)} still on your bench.`}
-                </span>{' '}
-                <span>Locked players cannot be swapped.</span>
-              </>
-            )}
-          </Typography>
-        </Box>
-      </Box>
-
+      <Box component="b" id={headingId} sx={{ fontWeight: 600, color: 'var(--ps-ink)' }}>Bench what-if.</Box>
+      {' '}
+      {optimal ? (
+        <span data-testid="bench-what-if-headline">Your best legal lineup is already active.</span>
+      ) : (
+        <>
+          <span data-testid="bench-what-if-headline">{`+${delta.toFixed(1)} still on your bench.`}</span>
+          {' '}
+          <span>Locked players cannot be swapped.</span>
+        </>
+      )}
       {swap && (
         <Box
           data-testid="bench-what-if-swap"
           sx={{
-            display: 'flex',
-            alignItems: 'center',
-            flexWrap: 'wrap',
-            gap: '10px',
-            mt: '12px',
-            px: '12px',
-            py: '10px',
-            borderRadius: 'var(--dash-radius-sm)',
-            backgroundColor: 'var(--dash-surface2)',
+            display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '8px 12px', mt: '8px',
           }}
         >
-          {/* The benched starter, struck through. `<s>` carries the "no longer
-              relevant" meaning; the inline style is what a test reads. */}
-          <Typography
-            component="s"
-            data-testid="bench-what-if-out"
-            style={{ textDecoration: 'line-through' }}
-            sx={{ fontSize: '14px', color: 'var(--dash-faint)' }}
-          >
+          {/* The benched starter, struck through: `<s>` carries the "no longer relevant" meaning. */}
+          <Box component="s" data-testid="bench-what-if-out" style={{ textDecoration: 'line-through' }} sx={{ fontSize: '15px' }}>
             {playerLabel(swap.out)}
-          </Typography>
-          <Box
-            component="span"
-            aria-hidden="true"
-            sx={{ display: 'flex', flex: 'none', color: 'var(--dash-faint)' }}
-          >
-            <SwapIcon />
           </Box>
-          <Typography
-            component="span"
-            data-testid="bench-what-if-in"
-            sx={{ fontSize: '14px', fontWeight: 600, color: 'var(--dash-ink)' }}
-          >
+          <Box component="span" aria-hidden="true">in for</Box>
+          <Box component="span" data-testid="bench-what-if-in" sx={{ fontSize: '15px', fontWeight: 600, color: 'var(--ps-ink)' }}>
             {playerLabel(swap.in)}
-          </Typography>
-          {gain != null && <GainChip>{`+${gain}`}</GainChip>}
-          <Box sx={{ flex: '1 1 0' }} />
-          <DashButton size="sm" component={RouterLink} to={swapLineupHref(leagueId, swap)}>
-            Swap in lineup
-          </DashButton>
+          </Box>
+          {gain != null && (
+            <Box
+              component="span"
+              data-testid="bench-what-if-gain"
+              sx={{
+                display: 'inline-flex', alignItems: 'center', height: '22px', padding: '0 6px', border: '2px solid var(--ps-ink)', color: 'var(--ps-ink)', fontSize: '13px', fontWeight: 700, whiteSpace: 'nowrap',
+              }}
+            >
+              {`+${gain}`}
+            </Box>
+          )}
+          <PsButton variant="ghost" to={swapLineupHref(leagueId, swap)}>Swap in lineup</PsButton>
         </Box>
       )}
-    </Card>
-  );
-}
-
-// The canvas's `.chip.warn`: warning text and border on the warning tint. The
-// kit's Badge carries the dashboard mockup's chip type (11.5px/600, no
-// uppercase), not this canvas's, so the chip is transcribed here until a
-// second warning-chip consumer earns Badge a `warn` variant.
-function GainChip({ children }) {
-  return (
-    <Box
-      component="span"
-      data-testid="bench-what-if-gain"
-      sx={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: '6px',
-        height: 22,
-        px: '9px',
-        borderRadius: 'var(--radius-pill)',
-        fontSize: '11px',
-        fontWeight: 700,
-        letterSpacing: '0.06em',
-        textTransform: 'uppercase',
-        whiteSpace: 'nowrap',
-        border: '1px solid var(--dash-warning)',
-        color: 'var(--dash-warning)',
-        backgroundColor: 'var(--dash-warning-soft)',
-      }}
-    >
-      {children}
-    </Box>
-  );
-}
-
-// Inline stroke icons on the canvas's 20px grid, one style, decorative.
-const ICON_PROPS = {
-  viewBox: '0 0 20 20',
-  fill: 'none',
-  stroke: 'currentColor',
-  strokeWidth: 1.6,
-  strokeLinecap: 'round',
-  strokeLinejoin: 'round',
-  'aria-hidden': 'true',
-  focusable: 'false',
-  style: { display: 'block' },
-};
-
-function BoltIcon() {
-  return (
-    <svg width={18} height={18} {...ICON_PROPS}>
-      <path d="M11 2 4 11h5l-1 7 7-9h-5z" />
-    </svg>
-  );
-}
-
-function SwapIcon() {
-  return (
-    <svg width={16} height={16} {...ICON_PROPS}>
-      <path d="M4 7h11m0 0-3-3m3 3-3 3M16 13H5m0 0 3-3m-3 3 3 3" />
-    </svg>
+    </NoteRow>
   );
 }

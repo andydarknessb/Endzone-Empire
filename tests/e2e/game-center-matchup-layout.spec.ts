@@ -686,8 +686,11 @@ for (const nc of [
       const heading = document.querySelector(`${headerSelector} :is(h1,h2,h3,h4,h5,h6)`) as HTMLElement | null;
       const other = document.querySelector(`${headerSelector} ${otherSelector}`);
       if (!heading || !other) return;
-      const shift = other.getBoundingClientRect().left - heading.getBoundingClientRect().left + 20;
-      heading.style.transform = `translateX(${shift}px)`;
+      // The Play-select head aligns the toggle with the bottom of the title column, so the slide is
+      // vertical as well as horizontal: the heading lands on the neighbouring region either way.
+      const shiftX = other.getBoundingClientRect().left - heading.getBoundingClientRect().left + 20;
+      const shiftY = other.getBoundingClientRect().top - heading.getBoundingClientRect().top;
+      heading.style.transform = `translate(${shiftX}px, ${shiftY}px)`;
     }, { headerSelector: nc.shape.headerSelector, otherSelector: nc.otherSelector });
     const shifted = await page.evaluate(probeRegionOverlap, probe);
     expect(

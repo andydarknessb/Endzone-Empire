@@ -1,3 +1,4 @@
+/* eslint-disable testing-library/no-node-access -- reads emotion rules, the position tag and the checked segment glyph, none of which has a role or a name */
 import React from 'react';
 import { render, screen, within } from '@testing-library/react';
 import NflGameStrip from './NflGameStrip';
@@ -87,16 +88,11 @@ test('an in-progress game shows the live dot, both scores and the clock', () => 
   const tile = screen.getByRole('listitem');
 
   expect(within(tile).getByTestId('nfl-game-live-dot')).toBeInTheDocument();
-  expect(within(tile).queryByTestId('nfl-game-clock-icon')).toBeNull();
-  // "AWAY score - HOME score": each code leads its own score (the canvas's
-  // nflStrip shape, not the legacy "20 TB"), a hyphen between them (house
-  // style, never an en dash), the away side first.
-  expect(within(tile).getByText('GB 17')).toBeInTheDocument();
-  expect(within(tile).getByText('-')).toBeInTheDocument();
-  expect(within(tile).getByText('TB 20')).toBeInTheDocument();
-  expect(within(tile).queryByText('20 TB')).toBeNull();
-  expect(within(tile).getAllByText(SCORE_LABEL).map((n) => n.textContent)).toEqual(['GB 17', 'TB 20']);
-  expect(within(tile).getByText('Q3 6:42')).toBeInTheDocument();
+  // One line, "AWAY score - HOME score": each code leads its own score (the boards' nflStrip shape,
+  // not the legacy "20 TB"), a hyphen between them (house style, never an en dash), the away side first.
+  expect(within(tile).getByText('GB 17 - TB 20')).toBeInTheDocument();
+  expect(within(tile).queryByText(/20 TB/)).toBeNull();
+  expect(within(tile).getByTestId('nfl-game-trailing')).toHaveTextContent('Q3 6:42');
   expect(within(tile).queryByText('FINAL')).toBeNull();
 });
 
@@ -138,26 +134,22 @@ test('an in-progress game with no clock yet reads LIVE', () => {
   render(<NflGameStrip games={[liveRow({ quarter: null, time_remaining: null })]} />);
   const tile = screen.getByRole('listitem');
   expect(within(tile).getByTestId('nfl-game-live-dot')).toBeInTheDocument();
-  expect(within(tile).getByText('GB 17')).toBeInTheDocument();
+  expect(within(tile).getByText('GB 17 - TB 20')).toBeInTheDocument();
   expect(within(tile).getByText('LIVE')).toBeInTheDocument();
 });
 
 // The ticket's red-tell: rendering scores on a scheduled tile turns THIS case
 // red (the exact-text lookups below would then see "CIN 0" and "0 NYJ", and
 // the score-label scan would find them) and no other case.
-test('a scheduled game shows the clock icon, the kickoff time and no scores', () => {
+test('a scheduled game shows "AWAY @ HOME", the kickoff time and no scores', () => {
   render(<NflGameStrip games={[scheduledRow()]} />);
   const tile = screen.getByRole('listitem');
 
-  expect(within(tile).getByTestId('nfl-game-clock-icon')).toBeInTheDocument();
   expect(within(tile).queryByTestId('nfl-game-live-dot')).toBeNull();
   expect(within(tile).getByText('Scheduled')).toBeInTheDocument();
-  // "AWAY @ HOME": the bare codes, an at sign between them, nothing numeric
-  // beside either code.
-  expect(within(tile).getByText('CIN')).toBeInTheDocument();
-  expect(within(tile).getByText('@')).toBeInTheDocument();
-  expect(within(tile).getByText('NYJ')).toBeInTheDocument();
-  expect(within(tile).queryByText('-')).toBeNull();
+  // "AWAY @ HOME": the bare codes, an at sign between them, nothing numeric beside either code.
+  expect(within(tile).getByText('CIN @ NYJ')).toBeInTheDocument();
+  expect(within(tile).queryByText(/ - /)).toBeNull();
   expect(within(tile).queryByText(SCORE_LABEL)).toBeNull();
   // The kickoff, as a clock time in the viewer's zone.
   const kickoff = within(tile).getByTestId('nfl-game-trailing');
@@ -170,7 +162,6 @@ test('a scheduled game shows the clock icon, the kickoff time and no scores', ()
 test('a scheduled game with no known kickoff shows no kickoff time', () => {
   render(<NflGameStrip games={[scheduledRow({ start_time: null })]} />);
   const tile = screen.getByRole('listitem');
-  expect(within(tile).getByTestId('nfl-game-clock-icon')).toBeInTheDocument();
   expect(within(tile).getByText(/CIN/)).toBeInTheDocument();
   expect(within(tile).getByText(/NYJ/)).toBeInTheDocument();
   expect(within(tile).queryByTestId('nfl-game-trailing')).toBeNull();
@@ -187,10 +178,7 @@ test('a final game shows FINAL and the final score, with no dot and no clock ico
   const tile = screen.getByRole('listitem');
 
   expect(within(tile).queryByTestId('nfl-game-live-dot')).toBeNull();
-  expect(within(tile).queryByTestId('nfl-game-clock-icon')).toBeNull();
-  expect(within(tile).getByText('DEN 20')).toBeInTheDocument();
-  expect(within(tile).getByText('-')).toBeInTheDocument();
-  expect(within(tile).getByText('KC 24')).toBeInTheDocument();
+  expect(within(tile).getByText('DEN 20 - KC 24')).toBeInTheDocument();
   expect(within(tile).getByText('FINAL')).toBeInTheDocument();
   expect(within(tile).queryByText('Live')).toBeNull();
 });
@@ -205,4 +193,40 @@ test('the rendered copy carries no em dash', () => {
   const { container } = render(<NflGameStrip games={[liveRow(), scheduledRow(), finalRow()]} />);
   // U+2014 as an escape, so this file never carries the character itself.
   expect(container).not.toHaveTextContent('\u2014');
+});
+
+// jsdom lays nothing out, but emotion inserts every rule into document.styleSheets under the element's
+// generated class (the page tests read breakpoint rules the same way).
+const rulesOf = (el) => {
+  const cls = Array.from(el.classList).find((c) => c.startsWith('css-'));
+  const found = [];
+  Array.from(document.styleSheets).forEach((sheet) => Array.from(sheet.cssRules).forEach((rule) => {
+    if (rule.cssText && cls && rule.cssText.includes(`.${cls}`)) found.push(rule.cssText);
+  }));
+  return found.join('\n');
+};
+
+test('is drawn on Board black with no visible heading, the list scrolling inside its own box', () => {
+  render(<NflGameStrip games={[liveRow(), scheduledRow()]} />);
+  const list = screen.getByRole('list', { name: 'NFL games' });
+
+  expect(screen.queryByRole('heading')).not.toBeInTheDocument();
+  expect(rulesOf(list)).toMatch(/overflow-x:\s*auto/);
+  expect(rulesOf(list.parentElement)).toMatch(/var\(--ps-board\)/);
+});
+
+test('a tile is 1/6.5 of the box on desktop and 1/1.5 on a phone, so the next game is always cut at the edge', () => {
+  render(<NflGameStrip games={[liveRow(), scheduledRow()]} />);
+  const rules = rulesOf(screen.getAllByRole('listitem')[0]);
+
+  expect(rules).toMatch(/calc\(100% \/ 6\.5\)/);
+  expect(rules).toMatch(/calc\(100% \/ 1\.5\)/);
+});
+
+test('the live clock is Board ink and the scheduled kickoff is Board dim', () => {
+  render(<NflGameStrip games={[liveRow(), scheduledRow()]} />);
+  const [live, scheduled] = screen.getAllByTestId('nfl-game-trailing');
+
+  expect(rulesOf(live)).toMatch(/var\(--ps-board-ink\)/);
+  expect(rulesOf(scheduled)).toMatch(/var\(--ps-board-dim\)/);
 });

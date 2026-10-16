@@ -13,7 +13,7 @@ import QuickActions from '../../widgets/quick-actions';
 import { useMatchupPreview } from '../../widgets/matchup-preview';
 import { applyScoreEvent, useLiveScores, useWeekMatchups } from '../../entities/matchup';
 import { useActionItems, yourMoveModel } from '../../entities/action-item';
-import { useAdvice } from '../../entities/roster';
+import { adviceNote, useAdvice } from '../../entities/roster';
 import { usePickemSettings } from '../../entities/pickem-game';
 import { useTrophies } from '../../components/TrophyCase/TrophyCase';
 import {
@@ -22,7 +22,6 @@ import {
 } from '../../lib/teamProfileEvents';
 import {
   deriveLeaguePhase,
-  formatPoints,
   useNow,
   isSeasonLive,
   LEAGUE_PHASE,
@@ -239,17 +238,14 @@ function DashboardBody({
   const isLineup = (item) => String(item.id).split(':')[0] === 'lineup_problem';
   const carriesLineup = move.cards.some((card) => card.items.some(isLineup));
   const leadCarriesLineup = Boolean(move.lead && move.lead.items.some(isLineup));
-  // The lead lineup card names the swap the Forecast would make: "Start {in} for {out} · +{gain} pts".
-  // No suggestion, no note (the item's own detail reads instead).
+  // The lead lineup card names every move the Forecast would make behind its gain ("Two moves · +23.0 pts:
+  // Addison in for Puka Nacua (Out) · Spears into the empty FLEX"). No move, no note (the item's own detail reads).
   const advice = useAdvice({
     leagueId: leadCarriesLineup ? leagueId : null,
     week,
     bestBall: Boolean(league.best_ball),
   });
-  const swap = leadCarriesLineup ? advice.suggestions[0] : null;
-  const swapNote = swap && swap.suggested?.name && swap.current?.name
-    ? `Start ${swap.suggested.name} for ${swap.current.name}${swap.gain != null ? ` · +${formatPoints(swap.gain)} pts` : ''}`
-    : undefined;
+  const swapNote = leadCarriesLineup ? adviceNote(advice) ?? undefined : undefined;
   const toCard = (card, note) => ({ feet: card.items, ...(note ? { note } : null) });
   let yourMove = null;
   // Cached items stay on screen while they re-read, so the card does not vanish and jump on a revisit.

@@ -46,39 +46,6 @@ export function formatStatLine(stats) {
   return parts.join(' · ');
 }
 
-// Position -> `pos-*` palette key for the headshot ring, the same map the
-// app's PositionChip uses for its fills (QB red, RB green, WR blue, TE orange,
-// K purple, DEF gray, individual defenders teal), so the ring and the avatar's
-// own initials fill always agree. Unknown reads as the neutral DEF gray,
-// exactly as PlayerAvatar's fallback fill does.
-const POSITION_KEYS = {
-  QB: 'qb', RB: 'rb', WR: 'wr', TE: 'te', K: 'k', DEF: 'def',
-  DL: 'idp', DE: 'idp', DT: 'idp', NT: 'idp',
-  LB: 'idp', ILB: 'idp', OLB: 'idp',
-  DB: 'idp', CB: 'idp', S: 'idp', FS: 'idp', SS: 'idp',
-};
-
-/** The `pos-*` palette key for a starter's headshot ring. */
-export function positionRingKey(position) {
-  return POSITION_KEYS[String(position || '').toUpperCase()] || 'def';
-}
-
-/**
- * The pace of a starter's points against his projection: the filled share of
- * the bar (0..100) and whether he is at or ahead of it. Null when nothing was
- * projected (a null or non-numeric projection), so a bar is never drawn
- * against a number that does not exist. A zero projection reads as an empty,
- * never-ahead bar, as the design's paceBar does.
- */
-export function paceView(points, projected) {
-  if (projected == null) return null;
-  const proj = Number(projected);
-  if (!Number.isFinite(proj)) return null;
-  const pts = Number(points) || 0;
-  const ratio = proj > 0 ? Math.max(0, Math.min(1, pts / proj)) : 0;
-  return { percent: Math.round(ratio * 100), ahead: proj > 0 && pts >= proj };
-}
-
 /** A points figure to one decimal, the way every score on the island reads. */
 export function formatPoints(value) {
   return (Number(value) || 0).toFixed(1);
