@@ -2,8 +2,9 @@ import React, { useId } from 'react';
 import { Box, useMediaQuery, useTheme } from '@mui/material';
 import { Link as RouterLink } from 'react-router-dom';
 import {
-  Frame, FrameHead, PixelArrow, PixelCheck, PixelHeading, StatusChip, TeamMark, TwoSidedOdds, pixelSx, SR_ONLY_SX,
+  CpuTag, Frame, FrameHead, PixelArrow, PixelCheck, PixelHeading, StatusChip, TeamMark, TwoSidedOdds, pixelSx, SR_ONLY_SX,
 } from '../../../shared/ui/playselect';
+import { useCpuTeamIds } from '../../../hooks/useCpuTeamIds';
 import { formatKickoff } from '../../../shared/lib';
 import { matchupCardView } from '../model/matchupCardView';
 
@@ -40,10 +41,11 @@ export default function MatchupGrid({
   const theme = useTheme();
   const compact = useMediaQuery(theme.breakpoints.down('sm'), { noSsr: true });
   const headingId = useId();
+  const cpuTeamIds = useCpuTeamIds(leagueId);
   const list = Array.isArray(matchups) ? matchups : [];
   if (list.length === 0 && !empty) return null;
 
-  const views = list.map((matchup) => matchupCardView(matchup, { records }));
+  const views = list.map((matchup) => withCpu(matchupCardView(matchup, { records }), cpuTeamIds));
   const scheduled = views.filter((view) => view.state === 'scheduled');
   const allScheduled = views.length > 0 && scheduled.length === views.length;
   // RULINGS Critique 10 item 13: before kickoff the head says so once, with the earliest kickoff.
@@ -110,6 +112,16 @@ export default function MatchupGrid({
   );
 }
 
+// Marks each side the CPU manages (ADR 0068); the view model stays pure.
+function withCpu(view, cpuTeamIds) {
+  if (cpuTeamIds.size === 0) return view;
+  return {
+    ...view,
+    home: { ...view.home, isCpu: cpuTeamIds.has(view.home.teamId) },
+    away: { ...view.away, isCpu: cpuTeamIds.has(view.away.teamId) },
+  };
+}
+
 const matchupPath = (leagueId, id) => `/league/${leagueId}/matchups/${id}`;
 
 const TILE_BASE = {
@@ -132,6 +144,7 @@ function TileSide({ side, colors, figureLabel, state }) {
       <Box sx={{ flex: 1, minWidth: 0 }}>
         <Box sx={{ fontSize: '15px', fontWeight: side.leads && state !== 'scheduled' ? 700 : 600 }}>
           {side.name}
+          {side.isCpu && <>{' '}<CpuTag /></>}
           {side.record && <Box component="span" sx={{ fontSize: '13px', fontWeight: 400, color: colors.dim, whiteSpace: 'nowrap' }}>{` ${side.record}`}</Box>}
         </Box>
         {(side.expectedLine || side.remainingLine) && (
@@ -240,6 +253,7 @@ function MatchupRow({ view, leagueId }) {
         >
           {side.name}
         </Box>
+        {side.isCpu && <CpuTag />}
         {side.leads && view.state !== 'scheduled' && (
           <Box component="span" sx={{ flex: 'none', fontSize: '13px', fontWeight: 600, color: colors.ink, whiteSpace: 'nowrap' }}>Leads</Box>
         )}

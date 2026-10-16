@@ -3,8 +3,9 @@ import { Box } from '@mui/material';
 import { Link as RouterLink } from 'react-router-dom';
 import {
   Frame, FrameHead, LiveChip, PixelClock, PixelHeading, PsButton, PsLink, SR_ONLY_SX, StatusChip, TeamMark,
-  TwoSidedOdds, YouTag, pixelSx,
+  CpuTag, TwoSidedOdds, YouTag, pixelSx,
 } from '../../../shared/ui/playselect';
+import { useCpuTeamIds } from '../../../hooks/useCpuTeamIds';
 import { formatKickoff, teamNameLabel, ordinal } from '../../../shared/lib';
 import { matchupHeroView } from '../model/matchupHeroView';
 
@@ -93,7 +94,7 @@ function BoardGhost({ to, children }) {
 }
 
 function Side({
-  side, name, right, viewer, board, lead, record, rankText, figureLabel, figure, stats,
+  side, name, right, viewer, cpu, board, lead, record, rankText, figureLabel, figure, stats,
 }) {
   const c = board ? BOARD : PAGE;
   const color = !board || lead ? c.ink : c.dim;
@@ -103,6 +104,7 @@ function Side({
       <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '6px 10px', flexDirection: { xs: 'row', sm: right ? 'row-reverse' : 'row' }, color }}>
         <Box component="span" sx={{ display: { xs: 'none', sm: 'inline-flex' } }}><TeamMark name={name} avatarUrl={side.avatarUrl} avatarStaticUrl={side.avatarStaticUrl} size={40} /></Box>
         <Box component="h3" data-testid="matchup-hero-name" sx={{ m: 0, minWidth: 0, flex: { xs: '1 1 100%', sm: '0 1 auto' }, ...pixelSx(16), color, overflowWrap: 'anywhere' }}>{name}</Box>
+        {cpu && <CpuTag color={c.ink} />}
         {viewer && <YouTag color={c.ink} />}
       </Box>
       {line && (
@@ -136,6 +138,7 @@ export default function MatchupHero({
   ...rest
 }) {
   const headingId = useId();
+  const cpuTeamIds = useCpuTeamIds(leagueId);
   const view = matchupHeroView(matchup, viewerTeamId, { counts, countsPending });
   const home = matchup?.home || {};
   const away = matchup?.away || {};
@@ -179,6 +182,7 @@ export default function MatchupHero({
       name,
       right: key === second,
       viewer: view.viewerSide === key,
+      cpu: cpuTeamIds.has(s.teamId),
       board,
       lead: view.leadSide === key,
       record: records ? records[s.teamId] : null,

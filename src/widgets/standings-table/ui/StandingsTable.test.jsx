@@ -494,3 +494,19 @@ test.each([4, 12])(
     expect(card.querySelectorAll('tbody tr')).toHaveLength(teamCount);
   }
 );
+
+test('standings-table: a CPU-managed team (teams[].is_cpu) carries the CPU label, and only it', async () => {
+  const data = leagueResponse({ teamCount: 4 }).data;
+  data.teams[2] = { ...data.teams[2], is_cpu: true };
+  setResource(['league', 1], data);
+  mockGetByUrl({
+    '/api/scoring/league/1/standings': standingsResponse({ rows: standingsRows({ count: 4 }) }),
+  });
+  renderTable();
+
+  const card = await screen.findByTestId('standings-table');
+  await within(card).findByText('Squad 3');
+  const badges = within(card).getAllByTestId('cpu-badge');
+  expect(badges).toHaveLength(1);
+  expect(within(screen.getByRole('rowheader', { name: /Squad 3/ })).getByText('CPU')).toBeInTheDocument();
+});

@@ -14,7 +14,7 @@ export {
   Pictogram, PixelArrow, PixelCheck, PixelClock, PixelClose, PixelSpeech, PixelWarn,
 } from './Icons';
 export {
-  InjuryTag, PosTag, StatusChip, Tag, TeamMark, YouTag,
+  CpuTag, InjuryTag, PosTag, StatusChip, Tag, TeamMark, YouTag,
 } from './Marks';
 export { PlayCard } from './PlayCard';
 export { OddsBar } from './OddsBar';

@@ -84,6 +84,22 @@ export function YouTag({ color = 'currentColor' }) {
   );
 }
 
+/** The "CPU" tag on a CPU-managed team (ADR 0068): the same in-row badge as YouTag; its title spells it out. */
+export function CpuTag({ color = 'currentColor' }) {
+  return (
+    <Box
+      component="span"
+      data-testid="cpu-badge"
+      title="Managed by the CPU"
+      sx={{
+        ...TAG_SX, height: '22px', padding: '0 6px', borderColor: color, color,
+      }}
+    >
+      CPU
+    </Box>
+  );
+}
+
 /** A position tag: a data encoding, so the border and label take the position's colour (exempt from the Red and Green rules). */
 export function PosTag({ position, ...rest }) {
   const key = positionKey(position);

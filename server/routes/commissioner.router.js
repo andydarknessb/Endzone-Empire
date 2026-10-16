@@ -54,6 +54,47 @@ router.delete('/league/:id/teams/:teamId', async (req, res) => {
   }
 });
 
+// POST /api/commissioner/league/:id/teams/:teamId/ban — Remove & ban. Deletes
+// the team while the league is Removable; after the draft the team stays,
+// CPU-managed. Either way the manager can never rejoin.
+router.post('/league/:id/teams/:teamId/ban', async (req, res) => {
+  const leagueId = intOrNull(req.params.id);
+  const teamId = intOrNull(req.params.teamId);
+  if (!leagueId || !teamId) {
+    return res.status(400).json({ error: 'league id and team id must be positive integers' });
+  }
+  try {
+    res.json(await commissioner.banTeam({ leagueId, userId: req.user.id, teamId }));
+  } catch (error) {
+    handle(res, error, 'failed to ban team');
+  }
+});
+
+// GET /api/commissioner/league/:id/bans — the league's bans, by Team name
+router.get('/league/:id/bans', async (req, res) => {
+  const leagueId = intOrNull(req.params.id);
+  if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
+  try {
+    res.json(await commissioner.listBans({ leagueId, userId: req.user.id }));
+  } catch (error) {
+    handle(res, error, 'failed to fetch bans');
+  }
+});
+
+// DELETE /api/commissioner/league/:id/bans/:banId — lift a ban
+router.delete('/league/:id/bans/:banId', async (req, res) => {
+  const leagueId = intOrNull(req.params.id);
+  const banId = intOrNull(req.params.banId);
+  if (!leagueId || !banId) {
+    return res.status(400).json({ error: 'league id and ban id must be positive integers' });
+  }
+  try {
+    res.json(await commissioner.unban({ leagueId, userId: req.user.id, banId }));
+  } catch (error) {
+    handle(res, error, 'failed to lift ban');
+  }
+});
+
 // PUT /api/commissioner/league/:id/teams/:teamId/lineup — force-set a lineup
 // { week?, moves: [{ playerId, slot }] }
 router.put('/league/:id/teams/:teamId/lineup', fantasyOnly, async (req, res) => {

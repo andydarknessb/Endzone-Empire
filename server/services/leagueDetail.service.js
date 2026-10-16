@@ -161,6 +161,9 @@ async function leagueDetail({ leagueId, viewer }, { db = pool } = {}) {
       ...team,
       roster_capacity: capacityByTeam.get(Number(team.id)) ?? null,
       is_co_commissioner: grantedTeamIds.has(team.teamId),
+      // A CPU-managed team (its manager was banned after the draft) has no
+      // owner. Whether a team has a manager discloses no account.
+      is_cpu: team.owner_id == null,
     };
     delete entry.owner_id;
     delete entry.owner;

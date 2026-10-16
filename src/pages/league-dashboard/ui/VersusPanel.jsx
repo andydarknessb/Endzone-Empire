@@ -4,7 +4,7 @@ import React, {
 import { Link as RouterLink } from 'react-router-dom';
 import { Box } from '@mui/material';
 import {
-  ErrorPanel, Frame, FrameHead, LiveChip, OddsBar, PixelArrow, PixelHeading, pixelSx, PsButton, Skel, SR_ONLY_SX, StatusChip, TeamMark, YouTag,
+  CpuTag, ErrorPanel, Frame, FrameHead, LiveChip, OddsBar, PixelArrow, PixelHeading, pixelSx, PsButton, Skel, SR_ONLY_SX, StatusChip, TeamMark, YouTag,
 } from '../../../shared/ui/playselect';
 import { formatInstant } from '../../../shared/lib';
 
@@ -39,7 +39,7 @@ function Side({
   side, you, right, lead, colors, label, under, note, expected, figure,
 }) {
   return (
-    <Box sx={{ minWidth: 0, textAlign: { xs: 'left', sm: right ? 'right' : 'left' } }}>
+    <Box data-testid={you ? 'matchup-side-viewer' : 'matchup-side-opponent'} sx={{ minWidth: 0, textAlign: { xs: 'left', sm: right ? 'right' : 'left' } }}>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: '10px', flexDirection: { xs: 'row', sm: right ? 'row-reverse' : 'row' } }}>
         <Box sx={{ color: colors.ink, display: 'inline-flex' }}>
           <TeamMark name={side.name} avatarUrl={side.avatarUrl} avatarStaticUrl={side.avatarStaticUrl} />
@@ -51,6 +51,7 @@ function Side({
           display: 'flex', alignItems: 'center', gap: '8px', marginTop: '12px', fontSize: '13px', color: colors.dim, justifyContent: { xs: 'flex-start', sm: right ? 'flex-end' : 'flex-start' },
         }}
       >
+        {side.isCpu && <CpuTag color={colors.ink} />}
         {you && <YouTag color={colors.ink} />}
         {label}
       </Box>

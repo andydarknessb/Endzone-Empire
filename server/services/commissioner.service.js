@@ -22,6 +22,7 @@ const { assertRosterWriteAllowed, COMMISSIONER_OVERRIDE } = require('./rosterGat
 const lineupService = require('./lineup.service');
 const { isPickemOnly } = require('./leagueType');
 const { removability, removeRefusalMessage } = require('./leaguePhase');
+const { emailBanHash } = require('./leagueMembership.service');
 const { getStandings: getPickemStandings, getSeasonSlate } = require('./pickem.service');
 const { OUTCOME: PICKEM_RESULT_OUTCOME, resultOf: pickemSeasonResultOf } = require('./pickemSeasonResult.service');
 
@@ -88,6 +89,37 @@ async function requireCommissioner(client, { leagueId, userId, forUpdate = false
  * Every other removal proceeds, including revoking the removed manager's
  * co-commissioner grant.
  */
+/**
+ * The team a commissioner is removing (or banning), after the three per-team
+ * rules removeTeam documents: not the caller's own, not the creator's, and a
+ * co-commissioner may not act on a peer co-commissioner's team. Shared so
+ * Remove and Remove & ban can never disagree about whose team is protected.
+ */
+async function loadTeamToRemove(client, { league, userId, teamId }) {
+  const teamResult = await client.query(
+    `SELECT * FROM "teams" WHERE "id" = $1 AND "league_id" = $2`,
+    [teamId, league.id]
+  );
+  const team = teamResult.rows[0];
+  if (!team) throw new CommissionerError(404, 'team not found in this league');
+  if (team.owner_id === userId) {
+    throw new CommissionerError(409, "you can't remove your own team");
+  }
+  if (team.owner_id === league.owner_id) {
+    throw new CommissionerError(409, "the league creator's team can't be removed");
+  }
+  if (userId !== league.owner_id) {
+    const peerGrant = await client.query(
+      `SELECT 1 FROM "league_commissioners" WHERE "league_id" = $1 AND "user_id" = $2`,
+      [league.id, team.owner_id]
+    );
+    if (peerGrant.rows.length > 0) {
+      throw new CommissionerError(409, "only the league creator can remove a co-commissioner's team");
+    }
+  }
+  return team;
+}
+
 async function removeTeam({ leagueId, userId, teamId }) {
   return withTransaction(
     pool,
@@ -97,27 +129,7 @@ async function removeTeam({ leagueId, userId, teamId }) {
       if (!removable) {
         throw new CommissionerError(409, removeRefusalMessage(reason));
       }
-      const teamResult = await client.query(
-        `SELECT * FROM "teams" WHERE "id" = $1 AND "league_id" = $2`,
-        [teamId, leagueId]
-      );
-      const team = teamResult.rows[0];
-      if (!team) throw new CommissionerError(404, 'team not found in this league');
-      if (team.owner_id === userId) {
-        throw new CommissionerError(409, "you can't remove your own team");
-      }
-      if (team.owner_id === league.owner_id) {
-        throw new CommissionerError(409, "the league creator's team can't be removed");
-      }
-      if (userId !== league.owner_id) {
-        const peerGrant = await client.query(
-          `SELECT 1 FROM "league_commissioners" WHERE "league_id" = $1 AND "user_id" = $2`,
-          [leagueId, team.owner_id]
-        );
-        if (peerGrant.rows.length > 0) {
-          throw new CommissionerError(409, "only the league creator can remove a co-commissioner's team");
-        }
-      }
+      const team = await loadTeamToRemove(client, { league, userId, teamId });
       await client.query(`DELETE FROM "teams" WHERE "id" = $1`, [teamId]);
       // Leaving the league gives up commissioner powers with it.
       await client.query(
@@ -834,9 +846,127 @@ async function removeTeamAvatar({ leagueId, userId, teamId }) {
   return { leagueId, teamId };
 }
 
+/**
+ * Remove & ban: the commissioner takes a manager out of the league for good.
+ * The same per-team rules as removeTeam apply (loadTeamToRemove). A
+ * `league_bans` row then refuses that account admission on every join path
+ * (leagueMembership.assertAdmissible), and what happens to the team depends on
+ * whether the league is Removable:
+ *
+ * - Removable (pre-draft, or pick'em-only): the team is deleted, exactly as
+ *   removeTeam deletes it.
+ * - Not removable (the draft has started): deleting would rewrite the draft,
+ *   rosters and schedule, so the team stays and becomes CPU-managed instead
+ *   (owner_id NULL). Its open trades and pending waiver claims are cancelled,
+ *   since nobody is left to answer or own them, and from then on the CPU sets
+ *   its lineup (cpuLineup.service, a scheduler job).
+ *
+ * The ban also records a hash of the manager's email (emailBanHash), so a new
+ * account on the same inbox is refused too, including a re-signup after the
+ * account is deleted. Either way the banned manager loses any co-commissioner grant
+ * and is told once. A team that is already CPU-managed has no manager to ban (409).
+ * Returns `{ leagueId, teamId, outcome: 'removed' | 'cpu' }`.
+ */
+async function banTeam({ leagueId, userId, teamId }) {
+  return withTransaction(
+    pool,
+    async (client) => {
+      const league = await requireCommissioner(client, { leagueId, userId, forUpdate: true });
+      const team = await loadTeamToRemove(client, { league, userId, teamId });
+      if (team.owner_id == null) {
+        throw new CommissionerError(409, 'that team is already managed by the CPU');
+      }
+      const managerId = team.owner_id;
+      const { removable } = removability(league);
+      const userResult = await client.query(`SELECT "email" FROM "users" WHERE "id" = $1`, [managerId]);
+      await client.query(
+        `INSERT INTO "league_bans" ("league_id", "user_id", "email_hash", "team_name", "banned_by")
+         VALUES ($1, $2, $3, $4, $5) ON CONFLICT ("league_id", "user_id") DO NOTHING`,
+        [leagueId, managerId, emailBanHash(userResult.rows[0] && userResult.rows[0].email), team.name, userId]
+      );
+      await client.query(
+        `DELETE FROM "league_commissioners" WHERE "league_id" = $1 AND "user_id" = $2`,
+        [leagueId, managerId]
+      );
+      if (removable) {
+        await client.query(`DELETE FROM "teams" WHERE "id" = $1`, [teamId]);
+      } else {
+        await client.query(
+          `UPDATE "teams" SET "owner_id" = NULL, "autodraft" = true, "updated_at" = now() WHERE "id" = $1`,
+          [teamId]
+        );
+        await client.query(
+          `UPDATE "trades" SET "status" = 'cancelled', "updated_at" = now()
+           WHERE "league_id" = $1 AND "status" IN ('pending', 'accepted')
+             AND ($2 IN ("proposing_team_id", "receiving_team_id"))`,
+          [leagueId, teamId]
+        );
+        await client.query(
+          `UPDATE "waiver_claims" SET "status" = 'cancelled', "updated_at" = now()
+           WHERE "team_id" = $1 AND "status" = 'pending'`,
+          [teamId]
+        );
+      }
+      const outcome = removable ? 'removed' : 'cpu';
+      await logTransaction(client, {
+        leagueId,
+        teamId: removable ? null : teamId,
+        type: 'commissioner',
+        detail: { action: 'ban_team', teamId, teamName: team.name, outcome },
+      });
+      await notify(client, {
+        userId: managerId,
+        leagueId,
+        type: 'league',
+        message: `You were removed from ${league.name} by the commissioner and can't rejoin`,
+      });
+      return { leagueId, teamId, outcome };
+    },
+    { label: 'banTeam' }
+  );
+}
+
+/**
+ * The league's bans, for a commissioner. Each is shown by the Team name it was
+ * made against (Team identity, CONTEXT.md); the account is never served.
+ */
+const BAN_FIELDS = ['id', 'team_name', 'created_at'];
+async function listBans({ leagueId, userId }) {
+  await requireCommissioner(pool, { leagueId, userId });
+  const result = await pool.query(
+    `SELECT "id", "team_name", "created_at" FROM "league_bans"
+     WHERE "league_id" = $1 ORDER BY "created_at" DESC, "id" DESC`,
+    [leagueId]
+  );
+  return result.rows.map((row) => Object.fromEntries(BAN_FIELDS.map((key) => [key, row[key]])));
+}
+
+/**
+ * Lift a ban: the account may join again by the ordinary paths. A CPU team the
+ * ban created stays CPU-managed; lifting a ban never hands a team back.
+ */
+async function unban({ leagueId, userId, banId }) {
+  await requireCommissioner(pool, { leagueId, userId });
+  const result = await pool.query(
+    `DELETE FROM "league_bans" WHERE "id" = $1 AND "league_id" = $2 RETURNING "team_name"`,
+    [banId, leagueId]
+  );
+  if (!result.rows[0]) throw new CommissionerError(404, 'ban not found in this league');
+  await logTransaction(pool, {
+    leagueId,
+    teamId: null,
+    type: 'commissioner',
+    detail: { action: 'unban', banId, teamName: result.rows[0].team_name },
+  });
+  return { leagueId, banId };
+}
+
 module.exports = {
   CommissionerError,
   removeTeam,
+  banTeam,
+  listBans,
+  unban,
   forceSetLineup,
   adjustMatchupScore,
   setTransactionsLocked,
