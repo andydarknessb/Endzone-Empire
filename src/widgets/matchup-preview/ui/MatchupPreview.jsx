@@ -1,438 +1,226 @@
 import React from 'react';
-import { Box, Typography } from '@mui/material';
-import { visuallyHidden } from '@mui/utils';
-import { Link as RouterLink } from 'react-router-dom';
-import { Badge, Card, CpuBadge, DashButton, Skeleton, SplitBar, StatTile, TeamAvatar } from '../../../shared/ui';
+import { Box } from '@mui/material';
+import {
+  CpuTag, Frame, FrameHead, LiveChip, PixelHeading, PsLink, Skel, StatusChip, TwoSidedOdds, pixelSx,
+} from '../../../shared/ui/playselect';
+import { PsAction, SrOnly } from '../../../shared/ui/playselect/LineupParts';
 import useMatchupPreview from '../model/useMatchupPreview';
 
 /**
- * League Dashboard hero-right widget (ticket #640): the viewer's own Team and
- * this week's opponent side by side, each with an avatar, Team name, a figure
- * in the display slot and a label, split by a "VS" divider, and one footer
- * action ("Compare rosters" to the matchup detail) rendered as a DashButton
- * that is a router link. The lineup page is not linked from here (#1979 L4):
- * the My Team card and Quick Actions both carry Set Lineup.
+ * The Lineup rail's matchup card (ticket #640; the League Dashboard now reads only this widget's model,
+ * `useMatchupPreview`, and draws its own Play-select view): the viewer's own Team and this week's opponent
+ * side by side, each with its name and a figure, and one footer link, "Matchup", to the matchup detail.
+ * The lineup page is not linked from here (#1979 L4): the My Team card and Quick Actions both carry Set
+ * Lineup.
  *
- * The card has two faces, and which one it wears is the server's `status`, read
- * through the entity's `matchupBoard` in the model (ADR 0030), never inferred here:
+ * The card has two faces, and which one it wears is the server's `status`, read through the entity's
+ * `matchupBoard` in the model (ADR 0030), never inferred here:
  *
- *   - BEFORE kickoff (and on an unknown status, which asserts neither state):
- *     the display slot holds each side's projected total under a "Projected"
- *     label, plus one caption naming which way the projections lean. The
- *     header's tail (#1102) is a neutral Badge reading "Kicks off" plus the
- *     row's own `first_kickoff_at`, weekday and time, formatted the same way
- *     the Game Center hero formats its kickoff line (restated in the model
- *     rather than imported, ADR 0020); a row that carries no kickoff falls
- *     back to the "Projections update daily" caption it always has.
- *   - ONCE STARTED: the display slot holds the live score, the projection is
- *     demoted to an "Expected final" stat tile beside a Players remaining tile,
- *     the header carries the status Badge exactly as before #1102, and a
- *     SplitBar under the pairing shows the win probability. That bar is fed by
- *     the entity board's `winProbability`, the same figure Game Center's hero
- *     reads, so the two surfaces cannot disagree; it is never given a points ratio,
- *     whose accessible name ("Win probability", #872) would then be a false
- *     claim.
+ *   - BEFORE kickoff (and on an unknown status, which asserts neither state): a tertiary frame; each side's
+ *     projected total under a "Proj" label, plus one caption naming which way the projections lean. The
+ *     header's tail (#1102) is the row's own `first_kickoff_at`, weekday and time ("Kicks off Sun
+ *     12:00 PM"); a row that carries no kickoff falls back to "Projections update daily".
+ *   - ONCE STARTED: Board black, like the dashboard's scoreboard tile. Each side's live score in Pixel 24
+ *     with "Expected final {x}" and "{n} players remaining" under it (spec #2347 ruling 4: never "PMR"), a
+ *     two-sided win-probability bar fed by the entity board's `winProbability`, the same figure Game
+ *     Center's hero reads, so the two surfaces cannot disagree. It is never given a points ratio, whose
+ *     accessible name ("Win probability", #872) would then be a false claim.
  *
- * Composes `shared/ui` (ADR 0020) and paints only `dash-*` tokens. Every
- * ink-on-surface pairing it renders is already registered in
- * tokens.contrast.test.js: ink / dim / faint on the card surface, the three
- * status Badge tints over a card (danger / warning / success), the stat tile's
- * faint-and-ink pair, and the primary button's `dash-on-accent` label on the
- * `dash-accent` fill (the "dashboard primary button label on accent" pairing).
- * No new pairing is composed here.
+ * The matchups-list read is the card's spine: while it is in flight the card holds its layout with
+ * skeletons, and if it fails the card shows one compact, self-contained error with a ghost Retry and nothing
+ * else, so a failed read never touches the rest of the page. Each side's projected total prefers the list
+ * row's own value and falls back to a chained detail read only when the list could not answer both sides
+ * (#670; see useMatchupPreview.js for the condition). While that fallback is in flight each number is
+ * skeletoned and the card stays aria-busy; when the list already answered, nothing is in flight and the card
+ * is never busy on the totals' account. Either way, a miss or a failed detail read degrades just that number
+ * to a placeholder without erroring the card.
  *
- * The matchups-list read is the card's spine: while it is in flight the card
- * holds its layout with skeletons, and if it fails the card shows one compact,
- * self-contained error and nothing else, so a failed read never touches the
- * rest of the page. Each side's projected total prefers the list row's own
- * value and falls back to a chained detail read only when the list could not
- * answer both sides (#670; see useMatchupPreview.js for the condition). While
- * that fallback is in flight each number is skeletoned and the card stays
- * aria-busy; when the list already answered, nothing is in flight and the card
- * is never busy on the totals' account. Either way, a miss or a failed detail
- * read degrades just that number to a placeholder without erroring the card.
+ * Paints `ps-*` tokens only (ADR 0067 wave 3); live text holds no button.
  */
 export default function MatchupPreview({ leagueId }) {
-  const { week, status, busy, matchupId, viewer, opponent, game, narrative } = useMatchupPreview(leagueId);
+  const {
+    week, status, busy, matchupId, viewer, opponent, game, narrative, refetch,
+  } = useMatchupPreview(leagueId);
   const title = week != null ? `Week ${week} Matchup` : 'Matchup';
   const started = game.hasStarted === true;
+  const onBoard = started;
+  const ink = onBoard ? 'var(--ps-board-ink)' : 'var(--ps-ink)';
+  const dim = onBoard ? 'var(--ps-board-dim)' : 'var(--ps-dim)';
 
-  // The card is the region that owns these fetches (Skeleton.jsx: the loading
-  // state is announced by the owning card, not by each aria-hidden shape), so
-  // it carries aria-busy while the reads that hold its layout with skeletons are
-  // still loading.
+  // The leader's name and score read in ink and the trailer's in dim, on the Board tile only.
+  const viewerScore = Number(viewer?.score);
+  const opponentScore = Number(opponent?.score);
+  const leader = started && Number.isFinite(viewerScore) && Number.isFinite(opponentScore) && viewerScore !== opponentScore
+    ? (viewerScore > opponentScore ? 'viewer' : 'opponent')
+    : null;
+
+  // The header's tail: the status chip once started, "Kicks off {weekday time}" before, else the caption. The
+  // status testid names the first two (the caption is no status).
+  let tail;
+  if (started && game.chipLabel != null) {
+    tail = (
+      <Box component="span" data-testid="matchup-preview-status" data-variant={game.chipVariant}>
+        {game.isLive
+          ? <LiveChip onBoard>{game.chipLabel}</LiveChip>
+          : <StatusChip onBoard>{game.chipLabel}</StatusChip>}
+      </Box>
+    );
+  } else if (!started && game.kickoffLabel != null) {
+    tail = <span data-testid="matchup-preview-status" data-variant="neutral">{`Kicks off ${game.kickoffLabel}`}</span>;
+  } else {
+    tail = 'Projections update daily';
+  }
+
+  // The card is the region that owns these fetches (the loading state is announced by the owning card,
+  // not by each aria-hidden shape), so it carries aria-busy while the reads that hold its layout with
+  // skeletons are still loading.
   return (
-    <Card
+    <Frame
+      tier="rule"
+      labelledBy="matchup-preview-h"
       data-testid="matchup-preview"
-      title={title}
-      // Once the week has started the status is the header's news; the
-      // projection note is not (the projections have stopped being the
-      // headline figure). Before kickoff (#1102) the tail is instead a
-      // neutral Badge naming the row's own kickoff time when one is known,
-      // so a manager sees when the game starts rather than a generic
-      // caption; a row with no kickoff falls back to that caption exactly as
-      // it always has. The Badge renders as a span so it nests legally
-      // inside the header's own inline tail slot.
-      tail={
-        started && game.chipLabel != null ? (
-          <Badge
-            component="span"
-            data-testid="matchup-preview-status"
-            variant={game.chipVariant}
-            dot={game.chipDot}
-          >
-            {game.chipLabel}
-          </Badge>
-        ) : !started && game.kickoffLabel != null ? (
-          <Badge component="span" data-testid="matchup-preview-status" variant="neutral">
-            {`Kicks off ${game.kickoffLabel}`}
-          </Badge>
-        ) : (
-          'Projections update daily'
-        )
-      }
       aria-busy={busy}
+      sx={onBoard ? { backgroundColor: 'var(--ps-board)', color: 'var(--ps-board-ink)', border: '2px solid var(--ps-board-dim)' } : undefined}
+      head={(
+        <FrameHead>
+          <PixelHeading id="matchup-preview-h" size={16}>{title}</PixelHeading>
+          <Box component="span" sx={{ ml: 'auto', fontSize: '13px', color: dim }}>{tail}</Box>
+        </FrameHead>
+      )}
     >
       {status === 'loading' && <VersusSkeleton />}
 
       {status === 'error' && (
-        <Box sx={{ p: 2.25 }}>
-          <Typography
-            role="alert"
-            data-testid="matchup-preview-error"
-            sx={{ fontSize: '13px', color: 'var(--dash-ink)' }}
-          >
+        <Box sx={{ p: '16px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px 12px' }}>
+          <Box role="alert" data-testid="matchup-preview-error" sx={{ flex: '1 1 220px', fontSize: '15px' }}>
             We could not load this week&apos;s matchup right now.
-          </Typography>
+          </Box>
+          {refetch && <PsAction onClick={refetch}>Retry</PsAction>}
         </Box>
       )}
 
       {status === 'empty' && (
-        <Box sx={{ p: 2.25 }}>
-          <Typography sx={{ fontSize: '14px', color: 'var(--dash-dim)' }}>
-            No matchup this week
-          </Typography>
-        </Box>
+        <Box sx={{ p: '16px', fontSize: '15px', color: 'var(--ps-dim)' }}>No matchup this week</Box>
       )}
 
       {status === 'ready' && (
-        <>
-          <Box sx={{ p: { xs: 1.5, sm: 2.25 }, display: 'grid', gap: 1.75 }}>
-            <Box data-testid="matchup-versus" sx={VERSUS_SX}>
-              <Side testid="matchup-side-viewer" side={viewer} started={started} />
-              <Box sx={VS_PILL_SX}>VS</Box>
-              <Side testid="matchup-side-opponent" side={opponent} started={started} />
-            </Box>
+        <Box sx={{ p: { xs: '14px', md: '16px' }, display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          <Box data-testid="matchup-versus" sx={VERSUS_SX}>
+            <Side testid="matchup-side-viewer" side={viewer} started={started} lead={leader === 'viewer'} trail={leader === 'opponent'} />
+            <Side testid="matchup-side-opponent" side={opponent} started={started} lead={leader === 'opponent'} trail={leader === 'viewer'} right />
+          </Box>
 
-            {game.winProbability && (
-              <WinProbability
-                winProbability={game.winProbability}
-                viewerName={viewer.name}
-                opponentName={opponent.name}
+          {game.winProbability && (
+            <Box data-testid="matchup-win-probability">
+              <TwoSidedOdds
+                a={viewer.name}
+                b={opponent.name}
+                pct={game.winProbability.viewerPct}
+                live={game.isLive === true}
+                onBoard={onBoard}
+                caption={<>Win probability · <Box component="span" sx={{ whiteSpace: 'nowrap' }}>Endzone Forecast</Box></>}
+                size={13}
               />
-            )}
+            </Box>
+          )}
 
-            {game.projectedMargin != null && (
-              <Typography
-                component="p"
-                data-testid="matchup-projected-margin"
-                sx={{ m: 0, fontSize: '12px', textAlign: 'center', color: 'var(--dash-faint)' }}
-              >
-                {game.projectedMargin}
-              </Typography>
-            )}
+          {game.projectedMargin != null && (
+            <Box component="p" data-testid="matchup-projected-margin" sx={{ m: 0, fontSize: '14px', color: dim }}>
+              {game.projectedMargin}
+            </Box>
+          )}
 
-            {narrative && (
-              <Typography
-                variant="body2"
-                data-testid="matchup-preview-narrative"
-                sx={{ m: 0, color: 'var(--dash-dim)' }}
-              >
-                {narrative}
-              </Typography>
-            )}
-          </Box>
+          {narrative && (
+            <Box component="p" data-testid="matchup-preview-narrative" sx={{ m: 0, fontSize: '15px', fontWeight: 600, color: ink }}>
+              {narrative}
+            </Box>
+          )}
 
-          <Box
-            sx={{
-              display: 'flex',
-              gap: '10px',
-              justifyContent: 'flex-end',
-              alignItems: 'center',
-              p: '14px 18px',
-              borderTop: '1px solid var(--dash-line)',
-            }}
-          >
-            <DashButton
-              variant="ghost"
-              component={RouterLink}
+          <Box sx={{ ml: '-10px' }}>
+            <PsLink
               to={`/league/${leagueId}/matchups/${matchupId}`}
-              sx={BUTTON_ROW_SX}
+              ariaLabel={`Matchup, ${viewer.name} against ${opponent.name}`}
+              onBoard={onBoard}
             >
-              Compare rosters
-            </DashButton>
+              Matchup
+            </PsLink>
           </Box>
-        </>
+        </Box>
       )}
-    </Card>
+    </Frame>
   );
 }
 
-// The versus block: three columns at every width (#1979 L2), so the two scores
-// sit side by side and the card stays above the fold on a phone, where the
-// earlier one-column stack pushed the opponent below it. The side tracks carry
-// a zero minimum so a long Team name or a wide tile shrinks its column instead
-// of widening the card; at 320px each side is about 90px, which is why the
-// Team name clamps to two lines (Side below) and the gap and pill tighten
-// below `sm`. The pill claims its own centre so it never stretches to a track.
+// The versus block: two columns at every width (#1979 L2), so the two scores sit side by side and the card
+// stays above the fold on a phone. The tracks carry a zero minimum so a long Team name shrinks its column
+// instead of widening the card.
 const VERSUS_SX = {
   display: 'grid',
-  gridTemplateColumns: 'minmax(0, 1fr) auto minmax(0, 1fr)',
-  alignItems: 'center',
-  gap: { xs: 0.75, sm: 1.5 },
+  gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)',
+  gap: '12px',
 };
 
-const VS_PILL_SX = {
-  justifySelf: 'center',
-  fontFamily: 'var(--dash-font-display)',
-  fontSize: '16px',
-  fontWeight: 600,
-  color: 'var(--dash-faint)',
-  border: '1px solid var(--dash-line)',
-  borderRadius: 'var(--radius-pill)',
-  px: { xs: 1, sm: 1.5 },
-  py: 0.75,
-};
-
-// Row layout, not the button's own paint (DashButton, shared/ui, #1166):
-// stretched to the row with a 44px hit target below `md`, which also splits
-// the two buttons across the row instead of leaving them 10px apart under the
-// same thumb.
-const BUTTON_ROW_SX = {
-  flex: { xs: '1 1 0', md: 'none' },
-};
-
-// One side of the versus block: avatar, Team name, the display figure and its
-// label, and once the game is on, the two stat tiles the score displaced.
-function Side({ testid, side, started }) {
+// One side of the versus block: the Team name (pixel 16, as every team name in a head), the display figure
+// and its label, and once the game is on, the two lines the score displaced.
+function Side({ testid, side, started, lead = false, trail = false, right = false }) {
+  const live = started;
+  const dim = live ? 'var(--ps-board-dim)' : 'var(--ps-dim)';
+  const ink = live ? 'var(--ps-board-ink)' : 'var(--ps-ink)';
+  const tone = trail ? dim : ink;
   return (
-    <Box
-      data-testid={testid}
-      sx={{ display: 'grid', gap: 0.75, justifyItems: 'center', textAlign: 'center', minWidth: 0 }}
-    >
-      {/* The avatar carries the Team name as its accessible name. TeamAvatar is
-          deliberately aria-hidden (#327), so the name rides on this wrapper's
-          role="img"; the visible name text sits below it. */}
-      <Box role="img" aria-label={side.name} sx={{ flex: 'none', display: 'flex' }}>
-        <TeamAvatar
-          name={side.name}
-          avatarUrl={side.avatarUrl}
-          avatarStaticUrl={side.avatarStaticUrl}
-          size={44}
-        />
-      </Box>
-      <Typography
-        component="div"
-        sx={{
-          maxWidth: '100%',
-          // Two lines then an ellipsis (#1979 L2): a ~90px phone column cannot
-          // hold a Team name on one line. `anywhere` breaks an unbroken name
-          // inside its column rather than past it.
-          display: '-webkit-box',
-          WebkitBoxOrient: 'vertical',
-          WebkitLineClamp: 2,
-          overflow: 'hidden',
-          overflowWrap: 'anywhere',
-          fontSize: '14px',
-          fontWeight: 600,
-          color: 'var(--dash-ink)',
-        }}
-      >
-        {side.name}
-      </Typography>
-      {side.isCpu && <CpuBadge />}
+    <Box data-testid={testid} data-leader={lead ? 'true' : undefined} sx={{ minWidth: 0, textAlign: right ? 'right' : 'left' }}>
+      <Box component="h3" sx={{ m: 0, ...pixelSx(16), color: tone, overflowWrap: 'anywhere' }}>{side.name}</Box>
+      {side.isCpu && <Box sx={{ mt: '4px' }}><CpuTag /></Box>}
       {started ? (
-        <Figure data-testid="matchup-side-score">
+        <Box data-testid="matchup-side-score" sx={{ ...pixelSx(24), lineHeight: 1.3, mt: '4px', color: tone }}>
           {side.score != null ? side.score : <Placeholder />}
-        </Figure>
+        </Box>
       ) : (
-        <ProjectedValue projected={side.projected} />
+        <>
+          <Box sx={{ fontSize: '13px', color: dim, mt: '8px' }}>Proj</Box>
+          <ProjectedValue projected={side.projected} />
+        </>
       )}
-      <Box sx={LABEL_SX}>{started ? 'Score' : 'Projected'}</Box>
-      {started && <SideTiles side={side} />}
-    </Box>
-  );
-}
-
-// The two tiles a started side carries under its score. Each is dropped when
-// its figure is absent rather than printing a dash: a final Matchup has no
-// projection and nobody left to play BY DESIGN (its score is the result), so a
-// tile there would mark a gap that is not one.
-//
-// They stack rather than sitting side by side: this card is about 310px wide at
-// the md breakpoint, where two tiles in one row would each be under 50px.
-// `overflow: hidden` is the clip that pairs with StatTile's own zero minimum,
-// and the wrapping label span overrides the tile label's nowrap so a narrow
-// tile breaks the words instead of pushing them onto the neighbouring side
-// (#916/#917/#919/#921).
-function SideTiles({ side }) {
-  return (
-    <Box sx={{ display: 'grid', gap: '6px', width: '100%', mt: 0.25 }}>
-      {side.projected.value != null && (
-        <StatTile
-          data-testid="matchup-expected-final"
-          align="center"
-          sx={{ overflow: 'hidden' }}
-          label={
-            <Box component="span" sx={{ whiteSpace: 'normal' }}>
-              Expected final
-            </Box>
-          }
-          value={side.projected.value}
-        />
+      {started && side.projected.value != null && (
+        <Box data-testid="matchup-expected-final" sx={{ fontSize: '13px', color: dim, mt: '4px' }}>
+          {`Expected final ${side.projected.value}`}
+        </Box>
       )}
-      {side.playersRemaining != null && (
-        <StatTile
-          data-testid="matchup-players-remaining"
-          align="center"
-          sx={{ overflow: 'hidden' }}
-          // "PMR" is the canvas's abbreviation and the Matchup page's (#897);
-          // the expansion carries the meaning to assistive tech, so a screen
-          // reader hears "Players remaining 4" and never the initialism.
-          label={
-            <>
-              <Box component="span" sx={visuallyHidden}>
-                Players remaining
-              </Box>
-              <Box component="span" aria-hidden="true">
-                PMR
-              </Box>
-            </>
-          }
-          value={side.playersRemaining}
-        />
+      {started && side.playersRemaining != null && (
+        <Box data-testid="matchup-players-remaining" sx={{ fontSize: '13px', color: dim }}>
+          {`${side.playersRemaining} players remaining`}
+        </Box>
       )}
     </Box>
-  );
-}
-
-// The two percentages, the caption and the bar. The bar's own accessible name
-// already carries both Team names and both percentages, so the caption and the
-// figures beside it are aria-hidden (#878: a screen reader hears the split
-// once, from the bar). The viewer is passed as SplitBar's HOME side because
-// this card lays the viewer out on the left, where the bar paints `homeShare`.
-function WinProbability({ winProbability, viewerName, opponentName }) {
-  const { viewerShare, viewerPct, opponentPct } = winProbability;
-  return (
-    <Box
-      data-testid="matchup-win-probability"
-      sx={{
-        display: 'grid',
-        gridTemplateColumns: 'auto minmax(0, 1fr) auto',
-        gridTemplateAreas: '"viewer label opponent" "bar bar bar"',
-        alignItems: 'baseline',
-        columnGap: '10px',
-        rowGap: '6px',
-      }}
-    >
-      <Box component="span" aria-hidden="true" sx={{ ...PCT_SX, gridArea: 'viewer' }}>
-        {`${viewerPct}%`}
-      </Box>
-      <Box
-        component="span"
-        aria-hidden="true"
-        sx={{ ...LABEL_SX, gridArea: 'label', justifySelf: 'center' }}
-      >
-        Win probability
-      </Box>
-      <Box component="span" aria-hidden="true" sx={{ ...PCT_SX, gridArea: 'opponent' }}>
-        {`${opponentPct}%`}
-      </Box>
-      <Box sx={{ gridArea: 'bar' }}>
-        <SplitBar homeName={viewerName} awayName={opponentName} homeShare={viewerShare} height={8} />
-      </Box>
-    </Box>
-  );
-}
-
-// The small uppercase caption under a figure, and beside the win probability.
-const LABEL_SX = {
-  fontSize: '11px',
-  fontWeight: 600,
-  letterSpacing: '0.06em',
-  textTransform: 'uppercase',
-  color: 'var(--dash-faint)',
-};
-
-// The two win percentages. Ink rather than the bar's own home/away hues: those
-// two tokens are the Matchup page's palette, and position (the viewer sits
-// left, as on the bar) is what ties each figure to its segment here.
-const PCT_SX = {
-  fontSize: '13px',
-  fontWeight: 700,
-  fontVariantNumeric: 'tabular-nums',
-  color: 'var(--dash-ink)',
-};
-
-// The card's 30px display slot: the live score once the Matchup has started,
-// the projected total before it.
-function Figure({ children, ...rest }) {
-  return (
-    <Typography
-      component="div"
-      sx={{
-        fontFamily: 'var(--dash-font-display)',
-        fontSize: '30px',
-        fontWeight: 700,
-        fontVariantNumeric: 'tabular-nums',
-        lineHeight: 1.1,
-        color: 'var(--dash-ink)',
-      }}
-      {...rest}
-    >
-      {children}
-    </Typography>
   );
 }
 
 function ProjectedValue({ projected }) {
-  if (projected.loading) {
-    return <Skeleton data-testid="matchup-skeleton" variant="text" width={64} height={30} />;
-  }
-  return <Figure>{projected.value != null ? projected.value : <Placeholder />}</Figure>;
+  if (projected.loading) return <Skel data-testid="matchup-skeleton" width="64px" height={32} />;
+  return (
+    <Box sx={{ ...pixelSx(24), lineHeight: 1.3 }}>
+      {projected.value != null ? projected.value : <Placeholder />}
+    </Box>
+  );
 }
 
-// The placeholder mark for a figure that is not available yet: a dash, no
-// digits. The dash is a visual mark only, so it is aria-hidden and a
-// visually-hidden "Not available" carries the same meaning to a screen reader,
-// which would otherwise hear the figure's label pointing at nothing.
+// The placeholder mark for a figure that is not available yet: a dash, no digits. The dash is a visual mark
+// only, so it is aria-hidden and a screen-reader-only "Not available" carries the same meaning.
 function Placeholder() {
   return (
     <>
-      <Box component="span" aria-hidden="true" sx={{ color: 'var(--dash-dim)' }}>
-        -
-      </Box>
-      <Box component="span" sx={visuallyHidden}>
-        Not available
-      </Box>
+      <Box component="span" aria-hidden="true">-</Box>
+      <SrOnly>Not available</SrOnly>
     </>
   );
 }
 
-// The loading shape carries the SAME track and centring rules as the real
-// versus block (and the same testid, since only one of the two is ever
-// mounted), or the card reflows the moment the read lands.
+// The loading shape carries the SAME tracks as the real versus block (and the same testid, since only one of
+// the two is ever mounted), or the card reflows the moment the read lands.
 function VersusSkeleton() {
   return (
-    <Box data-testid="matchup-versus" sx={{ ...VERSUS_SX, p: { xs: 1.5, sm: 2.25 } }}>
+    <Box data-testid="matchup-versus" sx={{ ...VERSUS_SX, p: { xs: '14px', md: '16px' } }}>
       <SideSkeleton />
-      <Skeleton
-        data-testid="matchup-skeleton"
-        variant="rounded"
-        width={44}
-        height={28}
-        sx={{ justifySelf: 'center' }}
-      />
       <SideSkeleton />
     </Box>
   );
@@ -440,10 +228,9 @@ function VersusSkeleton() {
 
 function SideSkeleton() {
   return (
-    <Box sx={{ display: 'grid', gap: 0.75, justifyItems: 'center' }}>
-      <Skeleton data-testid="matchup-skeleton" variant="circular" width={44} height={44} />
-      <Skeleton data-testid="matchup-skeleton" variant="text" width={90} height={16} />
-      <Skeleton data-testid="matchup-skeleton" variant="text" width={64} height={30} />
+    <Box sx={{ display: 'grid', gap: '8px' }}>
+      <Skel data-testid="matchup-skeleton" width="90px" height={16} />
+      <Skel data-testid="matchup-skeleton" width="64px" height={32} />
     </Box>
   );
 }

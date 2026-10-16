@@ -1,37 +1,20 @@
 import React from 'react';
-import { Box, Typography } from '@mui/material';
-import { Card, PosChip } from '../../../shared/ui';
+import { Box } from '@mui/material';
+import { Frame, FrameHead, PixelHeading } from '../../../shared/ui/playselect';
+import { SrOnly } from '../../../shared/ui/playselect/LineupParts';
+import { positionLabel } from '../../../shared/ui/PosChip';
 import { computeByeClusters, worstByeCluster } from '../../../shared/lib';
 import { worstClusterLine } from '../lib/byeClusterCopy';
+import { useWaiversClearAt } from '../model/useWaiversClearAt';
 
-// The tile's border/fill/text tokens per severity. Every color here is a
-// pairing tokens.contrast.test.js already guards: the border/fill use the
-// exact `dash-warning`/`dash-danger` on `-soft` pairs Badge's own
-// `warning`/`danger` variants use; `quiet` matches StatTile's own resting
-// look (the big value in `dash-ink`, its label in `dash-faint`, both over
-// `dash-surface2`). At `notable`/`warning`, BOTH the label and the count
-// switch to the severity's own solid color (`dash-warning`/`dash-danger`,
-// still on the matching `-soft` fill) rather than the label staying
-// `dash-faint` on a tint it was never guarded over - `dash-faint` is
-// registered only over bg/surface/surface2/surface3/accent-soft
-// (tokens.contrast.test.js; formal review finding f3: an earlier version
-// painted the label `dash-faint` on the warning/danger tints, a pairing no
-// component in this repo used anywhere else).
+// The tile per severity (RULINGS "Wave 3 boards"): a warning is the filled Ink tile, a notable cluster a 2px
+// Ink edge, a quiet week a Rule edge in Dim. Never red or amber.
 const SEVERITY_SX = {
-  quiet: { borderColor: 'var(--dash-line)', backgroundColor: 'var(--dash-surface2)' },
-  notable: { borderColor: 'var(--dash-warning)', backgroundColor: 'var(--dash-warning-soft)' },
-  warning: { borderColor: 'var(--dash-danger)', backgroundColor: 'var(--dash-danger-soft)' },
+  quiet: { border: '2px solid var(--ps-rule)', color: 'var(--ps-dim)' },
+  notable: { border: '2px solid var(--ps-ink)' },
+  warning: { border: '2px solid var(--ps-ink)', backgroundColor: 'var(--ps-ink)', color: 'var(--ps-panel)' },
 };
-const SEVERITY_LABEL_COLOR = {
-  quiet: 'var(--dash-faint)',
-  notable: 'var(--dash-warning)',
-  warning: 'var(--dash-danger)',
-};
-const SEVERITY_COUNT_COLOR = {
-  quiet: 'var(--dash-ink)',
-  notable: 'var(--dash-warning)',
-  warning: 'var(--dash-danger)',
-};
+const SEVERITY_WORD = { notable: 'notable', warning: 'warning' };
 
 /**
  * The Lineup rail's Bye cluster grid (#1239, ADR 0037, CONTEXT.md's Bye
@@ -39,8 +22,7 @@ const SEVERITY_COUNT_COLOR = {
  * selected week, each showing the count of rostered players (IR excluded)
  * on bye that week and their positions - two tiles styled notable, three or
  * more a warning - and a line under the grid naming the players in the
- * worst cluster and the league's waiver clear period, absent when no week
- * reaches two.
+ * worst cluster and when waivers clear, absent when no week reaches two.
  *
  * Reads only `entities`-shaped props and `shared/ui`/`shared/lib` (ADR
  * 0020/0029/0031 - no below-island edge to name): the page passes down
@@ -61,73 +43,89 @@ const SEVERITY_COUNT_COLOR = {
  * outlook") - `isPastWeek` is the page's own fact (`lineup.week` against
  * `lineup.currentWeek`), read the same way `StartSitPanel` decides its own
  * `bestBall` visibility rather than the page omitting the widget outright.
+ *
+ * Waivers clear time (spec #2347 ruling 4): given a `leagueId`, the naming line reads the league's
+ * `waivers_clear_at` from `GET /api/waivers` (the Waivers page's own read) and, when a blanket clear is
+ * still to come, says "Waivers clear {weekday time}." That read is made only while a naming line renders,
+ * so a week with no cluster of two, a past week and a caller that passes no `leagueId` (the Waivers page)
+ * make none.
  */
-export default function ByeClusterGrid({ entries, fromWeek, isPastWeek, waiverPeriodHours }) {
+export default function ByeClusterGrid({ entries, fromWeek, isPastWeek, waiverPeriodHours, leagueId = null }) {
   if (isPastWeek || fromWeek == null) return null;
 
   const clusters = computeByeClusters({ entries, fromWeek });
   const worst = worstByeCluster(clusters);
-  const line = worstClusterLine({ worst, waiverPeriodHours });
 
   return (
-    <Card
-      title="Bye clusters"
-      tail={`Wk ${clusters[0].week} to ${clusters[clusters.length - 1].week}`}
+    <Frame
+      tier="rule"
+      labelledBy="bye-cluster-h"
       data-testid="bye-cluster-grid"
+      head={(
+        <FrameHead>
+          <PixelHeading id="bye-cluster-h" size={16}>Bye clusters</PixelHeading>
+          <Box component="span" sx={{ ml: 'auto', fontSize: '13px', color: 'var(--ps-dim)' }}>
+            {`Wk ${clusters[0].week} to ${clusters[clusters.length - 1].week}`}
+          </Box>
+        </FrameHead>
+      )}
     >
       <Box
+        component="ul"
         sx={{
+          listStyle: 'none',
+          m: 0,
+          p: { xs: '12px 14px 8px', md: '14px 16px 8px' },
           display: 'grid',
           gridTemplateColumns: `repeat(${clusters.length}, minmax(0, 1fr))`,
-          gap: '6px',
-          p: '14px 18px 8px',
+          gap: '4px',
         }}
       >
         {clusters.map((cluster) => (
           <Box
+            component="li"
             key={cluster.week}
             data-testid="bye-cluster-tile"
             data-week={cluster.week}
             data-severity={cluster.severity}
             sx={{
-              display: 'grid',
-              justifyItems: 'center',
-              gap: '4px',
-              p: '8px 4px',
-              border: '1px solid',
-              borderRadius: 'var(--dash-radius-sm)',
-              minHeight: 64,
               ...SEVERITY_SX[cluster.severity],
+              boxSizing: 'border-box',
+              minHeight: '72px',
+              p: '8px 2px',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: '4px',
+              minWidth: 0,
             }}
           >
-            <Typography sx={{ fontSize: '10px', color: SEVERITY_LABEL_COLOR[cluster.severity], whiteSpace: 'nowrap' }}>
-              {`Wk ${cluster.week}`}
-            </Typography>
-            <Typography
-              sx={{ fontSize: '20px', fontWeight: 700, lineHeight: 1, color: SEVERITY_COUNT_COLOR[cluster.severity] }}
-            >
+            <Box component="span" sx={{ fontSize: '13px', fontWeight: 600, whiteSpace: 'nowrap' }}>{`Wk ${cluster.week}`}</Box>
+            <Box component="span" sx={{ fontSize: '18px', fontWeight: 700, lineHeight: 1 }}>
               {cluster.count}
-            </Typography>
+              <SrOnly>{` on bye${SEVERITY_WORD[cluster.severity] ? `, ${SEVERITY_WORD[cluster.severity]}` : ''}`}</SrOnly>
+            </Box>
             {cluster.players.length > 0 && (
-              <Box sx={{ display: 'flex', gap: '2px', flexWrap: 'wrap', justifyContent: 'center' }}>
-                {cluster.players.map((player) => (
-                  <PosChip
-                    key={player.playerId}
-                    position={player.position}
-                    sx={{ minWidth: 26, height: 16, fontSize: '9px', px: '3px' }}
-                  />
-                ))}
+              <Box component="span" aria-hidden="true" sx={{ fontSize: '13px', fontWeight: 700, textAlign: 'center', lineHeight: 1.2, wordBreak: 'break-word' }}>
+                {cluster.players.map((player) => positionLabel(player.position)).join(' ')}
               </Box>
             )}
           </Box>
         ))}
       </Box>
 
-      {line && (
-        <Typography data-testid="bye-cluster-line" sx={{ px: '18px', pb: '14px', pt: '4px', fontSize: '12px', color: 'var(--dash-faint)' }}>
-          {line}
-        </Typography>
-      )}
-    </Card>
+      {worst && <ClusterLine worst={worst} waiverPeriodHours={waiverPeriodHours} leagueId={leagueId} />}
+    </Frame>
+  );
+}
+
+// The naming line, its own component so the waivers read it needs mounts only when the line does.
+function ClusterLine({ worst, waiverPeriodHours, leagueId }) {
+  const waiversClearAt = useWaiversClearAt(leagueId);
+  const line = worstClusterLine({ worst, waiverPeriodHours, waiversClearAt });
+  return (
+    <Box component="p" data-testid="bye-cluster-line" sx={{ m: 0, p: { xs: '4px 14px 14px', md: '4px 16px 14px' }, fontSize: '14px', textWrap: 'pretty' }}>
+      {line}
+    </Box>
   );
 }
