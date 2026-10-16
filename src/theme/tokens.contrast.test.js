@@ -544,6 +544,8 @@ const PAIRINGS = [
   pairing('ps-board-ink', 'ps-board', AA_TEXT, 'scoreboard and pick-em tile text on Board'),
   pairing('ps-board-dim', 'ps-board', AA_TEXT, 'scoreboard and pick-em tile muted text on Board'),
   pairing('ps-board-live', 'ps-board', AA_LARGE, 'live odds fill on Board'),
+  // The Matchup Scoreboard view stays amber LED on black (ADR 0067 item 4): ps-led reads on ps-board.
+  pairing('ps-led', 'ps-board', AA_TEXT, 'LED digits on the retro scoreboard face'),
   // Non-text edges on the page: the cursor frame, the double rule, the urgent
   // cursor and error panel, and the live odds fill and chip outline.
   pairing('ps-cursor', 'ps-field', AA_LARGE, 'cursor frame on the page'),
@@ -633,6 +635,14 @@ describe.each(['light', 'dark'])('%s theme contrast', (mode) => {
 // `TeamPickButton.test.jsx` already has with this lane. The next external
 // palette (a sponsor table, an opponent kit) gets its own lane by adding to
 // this map.
+// ADR 0067 item 4: the retro scoreboard moves off dash-* with the same amber, so the ps pair must equal the dash pair in both themes.
+describe.each(['light', 'dark'])('%s theme ps-led parity', (mode) => {
+  test.each([['ps-led', 'dash-led'], ['ps-led-dim', 'dash-led-dim']])('%s equals %s', (ps, dash) => {
+    expect(colorTokens[mode][dash]).toBeDefined();
+    expect(colorTokens[mode][ps]).toBe(colorTokens[mode][dash]);
+  });
+});
+
 describe('external color data: monogram ink on kit.jersey', () => {
   const jerseysByLabel = {
     ...NFL_TEAM_COLORS,
