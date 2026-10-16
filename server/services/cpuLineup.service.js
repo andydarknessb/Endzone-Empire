@@ -51,6 +51,13 @@ function planCpuLineup({ entries, rosterSlots, pointsOf }) {
   return moves;
 }
 
+/** Pure: the league's starting slots less the seats `spent` rows occupy. */
+function openSlots(rosterSlots, spent) {
+  const used = new Map();
+  for (const row of spent || []) used.set(row.slot, (used.get(row.slot) || 0) + 1);
+  return rosterSlots.map((slot) => ({ ...slot, count: Math.max(0, slot.count - (used.get(slot.key) || 0)) }));
+}
+
 /** Set one CPU team's current-week lineup. Returns the number of rows moved. */
 async function setCpuTeamLineup(client, { league, teamId, now, projections }) {
   const season = league.current_season;
@@ -89,15 +96,17 @@ async function setCpuTeamLineup(client, { league, teamId, now, projections }) {
     playerIds: rows.map((r) => r.player_id),
   });
   const settings = lineupService.parseLineupSettings(league);
+  // A seat a departed player already played in this week is spent (#627):
+  // the validator counts it, so the optimizer must not offer it either.
+  const spent = await lineupService.spentStartingSlots(client, { teamId, season, week });
   const moves = planCpuLineup({
     entries,
-    rosterSlots: settings.rosterSlots,
+    rosterSlots: openSlots(settings.rosterSlots, spent),
     pointsOf: (playerId) => run.classify(playerId),
   });
   if (moves.length === 0) return 0;
 
   const slotOf = new Map(moves.map((m) => [m.playerId, m.slot]));
-  const spent = await lineupService.spentStartingSlots(client, { teamId, season, week });
   const errors = lineupService.validateLineup(
     entries.map((e) => ({ playerId: e.playerId, position: e.position, slot: slotOf.get(e.playerId) || e.slot })),
     { ...settings, baseline: rows.map((r) => ({ player_id: r.player_id, slot: r.slot })), spent }
@@ -144,4 +153,4 @@ async function setCpuLineups({ db = pool, now = new Date(), projections = requir
   return { teams: teams.rows.length, moved };
 }
 
-module.exports = { planCpuLineup, setCpuTeamLineup, setCpuLineups };
+module.exports = { planCpuLineup, openSlots, setCpuTeamLineup, setCpuLineups };

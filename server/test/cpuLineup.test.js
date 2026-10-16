@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { planCpuLineup } = require('../services/cpuLineup.service');
+const { planCpuLineup, openSlots } = require('../services/cpuLineup.service');
 const { notify } = require('../services/activity.service');
 
 // The CPU manager's planner is pure: entries plus projections in, slot moves
@@ -63,6 +63,20 @@ test('IR is never touched, and an optimal lineup yields no moves', () => {
     pointsOf: points({ 1: { points: 10 }, 2: { points: 10 }, 3: { points: 10 }, 4: { points: 99 } }),
   });
   assert.deepEqual(moves, []);
+});
+
+test('a seat a departed player already played in is not offered again', () => {
+  const slots = openSlots(SLOTS, [{ slot: 'RB' }, { slot: 'GONE' }]);
+  assert.deepEqual(slots.map((s) => [s.key, s.count]), [['QB', 1], ['RB', 0], ['FLEX', 1]]);
+  const moves = planCpuLineup({
+    entries: [
+      { playerId: 3, position: 'RB', slot: 'BENCH', locked: false },
+      { playerId: 4, position: 'RB', slot: 'BENCH', locked: false },
+    ],
+    rosterSlots: slots,
+    pointsOf: points({ 3: { points: 20 }, 4: { points: 10 } }),
+  });
+  assert.deepEqual(moves, [{ playerId: 3, slot: 'FLEX' }], 'only FLEX is open; the spent RB seat stays empty');
 });
 
 test('notify to a CPU team (null user) is a no-op, not a NOT NULL violation', async () => {
