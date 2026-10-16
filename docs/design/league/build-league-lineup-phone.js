@@ -46,5 +46,5 @@ ${notes}
 </main>
 ${k.stickyFooter({ name: 'Puka Nacua' })}`;
 
-k.write(out, 'LineupPhone.dc.html', k.page({ title: 'Lineup, phone', w: 390, h: 3200, body, phone: true }));
+k.write(out, 'LineupPhone.dc.html', k.page({ title: 'Lineup, phone', w: 390, h: 2288, body, phone: true }));
 console.log('ok');

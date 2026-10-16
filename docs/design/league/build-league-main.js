@@ -1,6 +1,7 @@
 // Dashboard, in season, Week 7, before Sunday's kickoffs. Viewer is a member of Thursday Night Regulars.
 const P = require('./league-dash-parts');
 const { k, LG } = P;
+const { AROUND_PRE } = require('./league-kit-gc'); // the 9:10 AM tile table Game Center Pre reads too
 const out = process.argv[2];
 
 const head = k.phHead({ title: LG, chips: ['Week 7 · In season'] });
@@ -25,23 +26,13 @@ const tile = (a, b, pct) => k.aroundTile({ a: { name: a[0], fig: a[1] }, b: { na
 const around = `<section aria-labelledby="ar-h" style="${k.FRAME2}">
 ${k.frameHead(`${k.h2s('ar-h', 'Around the league')}${k.meta('5 matchups · win probability · Endzone Forecast', 'margin-left: auto')}${k.link('Projected · Game Center', 'Projected scores, open Game Center')}`)}
 <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; padding: 20px">
-${tile(['Blitz Brigade', '118.2'], ['Bench Mob', '96.4'], 78)}
-${tile(['Waiver Wolves', '109.9'], ['Dynasty Dads', '101.3'], 63)}
-${tile(['Gridiron Ghosts', '107.1'], ['Hail Mary Club', '105.3'], 54)}
-${tile(['Pocket Aces', '103.1'], ['Fumble Rooskie', '99.8'], 59)}
-${tile(['Red Zone Rejects', '97.5'], ['Practice Squad', '88.2'], 68)}
+${AROUND_PRE.map(([a, b, pct]) => tile(a, b, pct)).join('\n')}
 ${k.aroundMore('All matchups in Game Center', 'Open Game Center, all Week 7 matchups')}
 </div>
 </section>`;
 
-const TEAMS = [
-  ['Blitz Brigade', 5, 1, 701.2, 598.4, 'W3'], ['Waiver Wolves', 5, 1, 688.7, 612.0, 'W2'], ['Darkness Falls', 4, 2, 664.5, 603.1, 'W1'],
-  ['Sunday Scaries', 4, 2, 651.0, 622.9, 'L1'], ['Gridiron Ghosts', 4, 2, 642.8, 630.4, 'W1'], ['Fumble Rooskie', 4, 2, 630.1, 617.5, 'W2'],
-  ['Hail Mary Club', 3, 3, 618.9, 624.0, 'L2'], ['Pocket Aces', 3, 3, 609.4, 615.2, 'W1'], ['Dynasty Dads', 2, 4, 598.3, 640.6, 'L3'],
-  ['Red Zone Rejects', 2, 4, 587.0, 633.9, 'L1'], ['Bench Mob', 1, 5, 561.2, 655.3, 'L4'], ['Practice Squad', 0, 6, 540.8, 671.7, 'L6'],
-];
 const standings = k.standings({
-  data: TEAMS.map(([team, w, l, pf, pa, strk], i) => ({ rank: i + 1, team, w, l, t: 0, pf: pf.toFixed(1), pa: pa.toFixed(1), strk })),
+  data: P.standingsData,
   viewer: 2, cutAfter: 6,
 });
 
@@ -57,7 +48,7 @@ const playbook = P.playbookLink(P.PLAYBOOK_MAIN, P.AWARDS.length);
 const chat = `<div style="display: flex; justify-content: flex-end; padding-top: 14px">${k.chatButton({ unread: 3 })}</div>`;
 
 const notes = k.notes([
-  'One cursor: Set lineup and Week 7 picks both lock Sun ' + P.D.FIRST_LOCK + ', so by the Shared Lock Rule they are one card: one cursor, one foot per action, only "Set lineup" filled. Its note names the swap and says the gain once ("Start ' + P.D.SWAP.in + ' for ' + P.D.SWAP.out + ' · +' + P.D.ADVICE.gain + ' pts"). The lead card sits left with its field band beside the text; Waivers is a compact card (name, lock, foot) stacked on the right, so no part of the frame is empty. The badge counts the cards (2). My team has no second lineup link because Your move already carries Set lineup, and its Out chip is a filled Ink chip.',
+  'One cursor: Set lineup and Week 7 picks both lock Sun ' + P.D.FIRST_LOCK + ', so by the Shared Lock Rule they are one card: one cursor, one foot per action, only "Set lineup" filled. Its note names both moves plainly and says the gain once ("' + P.D.SWAP.line + '", Critique 11 item 10: it was "Start Jordan Addison for Puka Nacua and Tyjae Spears at FLEX · +23.0 pts"); the figure and the unit are glued with non-breaking spaces so a narrow card never orphans "pts". The lead card sits left with its field band beside the text; Waivers is a compact card (name, lock, foot) stacked on the right, so no part of the frame is empty. The badge counts the cards (2). My team has no second lineup link because Your move already carries Set lineup, and its Out chip is a filled Ink chip.',
   'Container tiers: the Your move, Matchup, My team and Standings frames keep the 6px double rule; Recap, Around the league and Recent activity are a 2px Rule border with a Pixel 16 heading. The Playbook and the trophy case are one link row. The activity count is plain meta text; boxed badges are only for things that need you and chat unread. Board black is kept for live.',
   'Before kickoff the versus panel is framed, figures are labelled "Proj", and the odds bar uses Frame color. Fixture clock: Sun Oct 18, 9:10 AM CDT (activity ages derive from it; the Week 6 recap is 5d old). Pick&#39;em (2px tier) sits under the Matchup in the left hero column so the hero stays 2-up and both columns end level; the Matchup has no band over 40px. One win probability credit per frame. Green is reserved for the filled foot and live state, so nothing else on this board is green.',
   'The standings screen puts the viewer on Play-blue with an arrow, not a cursor. The dashed Frame rule after sixth is the playoff line. The Playbook row drops Game Center, Trades, Activity, the Draft Room tile and the lineup and picks tiles because the page already links them or the draft is over.',
@@ -75,5 +66,5 @@ ${chat}
 ${notes}
 </main>`;
 
-k.write(out, 'Main.dc.html', k.page({ title: 'League dashboard, in season', w: 1440, h: 3600, body }));
+k.write(out, 'Main.dc.html', k.page({ title: 'League dashboard, in season', w: 1440, h: 3191, body }));
 console.log('ok');

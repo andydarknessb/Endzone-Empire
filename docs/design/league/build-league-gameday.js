@@ -3,7 +3,7 @@ const P = require('./league-dash-parts');
 const { k, LG } = P;
 const out = process.argv[2];
 
-const head = k.phHead({ title: LG, chips: ['Week 7 · In season'], live: '4 matchups live', right: P.INVITE });
+const head = k.phHead({ title: LG, chips: ['Week 7 · In season'], live: '6 matchups live', right: P.INVITE });
 
 const cards = [P.SHARED_LIVE, P.WAIVERS];
 const move = P.yourMove(cards);
@@ -37,9 +37,9 @@ const playbook = P.playbookLink(P.PLAYBOOK_LIVE, P.AWARDS.length);
 const chat = `<div style="display: flex; justify-content: flex-end; padding-top: 14px">${k.chatButton({ unread: 3 })}</div>`;
 
 const notes = k.notes([
-  'One cursor: Set lineup and Week 7 picks share the ' + P.D.NEXT_LOCK + ' lock, 45 minutes from now, so they are one card under one red cursor with a foot per action; only "Set lineup" is filled. The note names the swap and says the gain once. The lead card is wide (field band left of the text) with Waivers as a compact card stacked right. A lock under one hour keeps Your move first; when nothing is due the live screen leads (see GameDaySet). The badge counts the cards (2).',
+  'One cursor: Set lineup and Week 7 picks share the ' + P.D.NEXT_LOCK + ' lock, 45 minutes from now, so they are one card under one red cursor with a foot per action; only "Set lineup" is filled. No swap note at 2:40 PM: every bench player is locked, so the Forecast has no suggestion and the card shows the lineup status ("1 empty starting slot") as the product does. The lead card is wide (field band left of the text) with Waivers as a compact card stacked right. A lock under one hour keeps Your move first; when nothing is due the live screen leads (see GameDaySet). The badge counts the cards (2).',
   'Order on game day: head, Your move, the live versus screen, My team, the Commissioner strip, then recap, around the league, standings and activity, playbook and the trophy link. The versus screen is Board black with "As of 2:40 PM" under the LIVE chip (the dashboard does not poll); the two sides sit close, both names on one baseline, and the margin sits directly under the viewer score. The score block is one link and is plain Board black at rest (the score flash is a Kit specimen only). A visually hidden polite live region carries the score sentence.',
-  'Fixture clock: Sun Oct 18, 2:40 PM CDT. The Pick&#39;em panel (2px tier) is a full-width row directly under My team, so the full-width rows keep their alignment. PMR reads "7 players remaining" (the expansion is in the link&#39;s accessible label). My team labels the starter figures "Pts" (live) and "Proj". The commissioner strip carries the five facts and "Advance to Week 8" disabled with its reason as text: it opens when every Week 7 game is final.',
+  'Fixture clock: Sun Oct 18, 2:40 PM CDT. The Pick&#39;em panel (2px tier) is a full-width row directly under My team, so the full-width rows keep their alignment. players remaining reads "' + P.D.plural(P.D.LIVE_TOTALS.meLeft, 'player') + ' remaining" (PMR is expanded in the link&#39;s accessible label). My team labels the starter figures "Pts" (live) and "Proj". The commissioner strip carries the five facts and "Advance to Week 8" disabled with its reason as text: it opens when every Week 7 game is final.',
   'Container tiers: Your move, My team and Standings keep the 6px double rule; Recap, Around the league, Commissioner and Recent activity are a 2px Rule border with a Pixel 16 heading; the Playbook and the trophy case are one link row. Around the league shows the three rival games (the teams above and below Darkness Falls) as small Board black tiles (2px) with a green Live label, then "All matchups in Game Center"; Recent activity shows 3 rows then "All activity". The lead card link "Set lineup" opens the Lineup page (there is no one-press swap).',
 ]);
 
@@ -58,5 +58,5 @@ ${chat}
 ${notes}
 </main>`;
 
-k.write(out, 'GameDay.dc.html', k.page({ title: 'League dashboard, game day live', w: 1440, h: 3600, body }));
+k.write(out, 'GameDay.dc.html', k.page({ title: 'League dashboard, game day live', w: 1440, h: 3785, body }));
 console.log('ok');
