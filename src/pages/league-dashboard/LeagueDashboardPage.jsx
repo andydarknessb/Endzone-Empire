@@ -151,7 +151,7 @@ export default function LeagueDashboardPage() {
   }
 
   return (
-    <Shell>
+    <Shell chatLauncher>
       <DashboardBody leagueId={leagueId} league={league} teams={teams} viewerTeamId={viewerTeamId} />
     </Shell>
   );
@@ -483,23 +483,25 @@ function DashboardBody({
  * `.ps-root` element, plus the stacking gap between the head and the frames. Every state (loading,
  * error, loaded) renders inside it so the ground is constant.
  */
-function Shell({ children }) {
+function Shell({ children, chatLauncher = false }) {
   return (
     <Box className="ps-root" sx={{ ...psRootSx, minHeight: '100%' }}>
       {/* A column flex container, NOT a grid. A grid has one implicit `auto` track, so the widest
           min-content anywhere inside sets the document's width and a wide table inside a narrow
           viewport pushes every frame sideways. In a column flex container the automatic minimum
           applies to the block axis, so every child resolves to a zero inline minimum with no
-          per-child `minWidth: 0` and no `minmax` to maintain. The extra bottom padding at xs is the
-          fixed chat button's clearance (56px tall at bottom: 24), which was landing on the last
-          frame. */}
+          per-child `minWidth: 0` and no `minmax` to maintain. Only the loaded page renders the fixed
+          chat launcher, so only it reserves the launcher's clearance at the bottom. */}
       <Box
         data-testid="dashboard-shell"
         sx={{
           maxWidth: '1280px',
           marginX: 'auto',
           boxSizing: 'border-box',
-          padding: { xs: '24px 16px 96px', sm: '40px 32px 64px' },
+          px: { xs: '16px', sm: '32px' },
+          pt: { xs: '24px', sm: '40px' },
+          // The launcher takes 80px of the viewport (56 + 24) and the page keeps 8px clear, so 88px minimum; 96 is the padding.
+          pb: chatLauncher ? '96px' : { xs: '24px', sm: '64px' },
           display: 'flex',
           flexDirection: 'column',
           gap: { xs: '24px', sm: '32px' },
