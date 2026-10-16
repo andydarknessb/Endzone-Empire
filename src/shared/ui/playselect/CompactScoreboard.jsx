@@ -50,7 +50,8 @@ export function CompactScoreboard({
           <Box component="span" sx={DOT_SX}> · </Box>
           {score(b, lead === 'b')}
         </span>
-        <Box component="span" sx={{ whiteSpace: 'nowrap' }}>
+        {/* Clipped, not wrapped: the bar is 56px and the Live chip sits beside it; the sentence above carries the full text. */}
+        <Box component="span" sx={{ display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
           <Box component="span" sx={{ ...DOT_SX, display: { xs: 'none', sm: 'inline' } }}> · </Box>
           <Box component="span" sx={{ fontWeight: 700, color: 'var(--ps-board-ink)' }}>{marginText}</Box>
         </Box>

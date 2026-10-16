@@ -16,6 +16,7 @@ import fs from 'fs';
 import path from 'path';
 import { expect, test } from '@playwright/test';
 import type { Page, Route } from '@playwright/test';
+import { probeCompactBar } from './fixtures/compactBarProbe';
 import { json } from './fixtures/jsonRoute';
 import { LEAGUE_ID, LEAGUE_ROW, MATCHUP_URL, setupLayoutGuard } from './fixtures/layoutGuardFixtures';
 
@@ -199,6 +200,24 @@ for (const shape of ['live', 'pre'] as const) {
 }
 
 test.describe('the compact scoreboard bar at 390x844', () => {
+  // The margin line is nowrap beside the Live chip: a long team name must clip with an ellipsis, not run under it.
+  for (const width of [360, 390]) {
+    test(`at ${width} the margin text clips before the Live chip`, async ({ page }) => {
+      await open(page, 'live', 'phone', 'light', { width });
+      await page.evaluate(() => {
+        const panelEl = document.querySelector('[data-testid="scoreboard-strip"]') as HTMLElement;
+        window.scrollTo(0, panelEl.getBoundingClientRect().bottom + window.scrollY + 300);
+      });
+      const bar = page.getByRole('group', { name: /Home|Chattahoochee/ }).filter({ hasText: ' by ' });
+      await expect(bar).toBeVisible();
+      expect((await bar.boundingBox())!.height, 'the pinned bar is at most 56px tall').toBeLessThanOrEqual(56);
+      const m = await probeCompactBar(bar);
+      expect(m.paintedRight, `"${m.text}" paints to ${m.paintedRight}, the Live chip starts at ${m.chipLeft}`).toBeLessThanOrEqual(m.chipLeft);
+      expect(m.overflow, 'the margin span clips').toBe('hidden');
+      expect(m.textOverflow, 'and ends in an ellipsis').toBe('ellipsis');
+    });
+  }
+
   test('pins no taller than 56px once the versus panel scrolls away, and a focused starter row is not under it', async ({ page }) => {
     await open(page, 'live', 'phone', 'light');
     const panel = page.getByTestId('scoreboard-strip');

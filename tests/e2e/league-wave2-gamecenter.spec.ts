@@ -24,6 +24,7 @@ import path from 'path';
 import { expect, test } from '@playwright/test';
 import type { Page, Route } from '@playwright/test';
 import { LEAGUE_ID } from './fixtures/layoutGuardFixtures';
+import { probeCompactBar } from './fixtures/compactBarProbe';
 import { json } from './fixtures/jsonRoute';
 import { setupDashboard } from './fixtures/leagueDashboardPlayselectFixtures';
 import type { DashTheme } from './fixtures/leagueDashboardPlayselectFixtures';
@@ -151,6 +152,23 @@ test('phone: scrolled past the hero, a compact scoreboard no taller than 56px pi
   const top = await target.evaluate((el) => el.getBoundingClientRect().top);
   expect(top, 'the focused tile is not under the pinned bar').toBeGreaterThanOrEqual(56);
 });
+
+// The margin line is nowrap beside the Live chip: a long team name must clip with an ellipsis, not run under it.
+for (const width of [360, 390]) {
+  test(`phone ${width}: the compact scoreboard's margin text clips before the Live chip`, async ({ page }) => {
+    await openGameCenter(page, 'live', 'phone', 'dark');
+    await page.setViewportSize({ width, height: 844 });
+    const bottom = await page.getByTestId('matchup-hero').evaluate((el) => el.getBoundingClientRect().bottom + window.scrollY);
+    await page.evaluate((y) => window.scrollTo(0, y + 40), bottom);
+    const bar = page.getByTestId('game-center-compact-scoreboard');
+    await expect(bar).toBeVisible();
+    expect((await bar.boundingBox())!.height, 'the pinned bar is at most 56px tall').toBeLessThanOrEqual(56);
+    const m = await probeCompactBar(bar);
+    expect(m.paintedRight, `"${m.text}" paints to ${m.paintedRight}, the Live chip starts at ${m.chipLeft}`).toBeLessThanOrEqual(m.chipLeft);
+    expect(m.overflow, 'the margin span clips').toBe('hidden');
+    expect(m.textOverflow, 'and ends in an ellipsis').toBe('ellipsis');
+  });
+}
 
 // The league matchups tile (sm and up) sets the name beside the figure; an unbreakable name must wrap inside its box.
 for (const viewport of ['desktop', 'tablet'] as const) {
