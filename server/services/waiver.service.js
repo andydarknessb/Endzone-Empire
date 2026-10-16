@@ -555,8 +555,10 @@ async function processWaivers({ leagueId }) {
     }
 
     const teamsResult = await client.query(
-      `SELECT "teams".*, "users"."id" AS "user_id" FROM "teams"
-       JOIN "users" ON "users"."id" = "teams"."owner_id"
+      // No users join: a CPU-managed team (owner_id NULL) still holds a
+      // waiver priority and counts toward teamCount; its user_id is null and
+      // notify() skips it.
+      `SELECT "teams".*, "teams"."owner_id" AS "user_id" FROM "teams"
        WHERE "teams"."league_id" = $1`,
       [leagueId]
     );

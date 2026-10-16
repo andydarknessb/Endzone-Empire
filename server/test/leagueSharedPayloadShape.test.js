@@ -159,8 +159,10 @@ test('league detail: the response root is { viewerTeamId, league, teams } and vi
 // --- teams[] entry -------------------------------------------------------
 const TEAM_ENTRY_CLEAN = [
   'avatar_static_url', 'avatar_url', 'draft_position', 'draft_ready', 'faab_remaining',
-  'id', 'is_co_commissioner', 'locked', 'name', 'roster_capacity', 'roster_count', 'teamId', 'teamName',
+  'id', 'is_co_commissioner', 'is_cpu', 'locked', 'name', 'roster_capacity', 'roster_count', 'teamId', 'teamName',
 ];
+// is_cpu is a team attribute: the team has no manager (a ban made it
+// CPU-managed). It is derived from owner_id == null and names no account.
 // roster_capacity (#1475) is a team attribute: the occupancy-based capacity the
 // Roster tile sizes by, published beside roster_count, never an account field.
 // owner_id stays in the SELECT (viewerTeamId reads it off the raw rows) and is

@@ -130,6 +130,7 @@ test('joinPublicLeague accepts a team into a rolled-over public pick\'em-only le
     ...TXN,
     [/FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: [ROLLED_OVER_PICKEM] })],
     [/SELECT 1 FROM "teams"/, () => ({ rows: [] })],
+    [/FROM "league_bans"/, () => ({ rows: [] })], // nobody is banned
     [/SELECT COUNT\(\*\)::int AS n FROM "teams"/, () => ({ rows: [{ n: 3 }] })],
     [/INSERT INTO "teams"/, (_text, params) => ({ rows: [{ id: 99, league_id: 7, owner_id: params[1], name: params[2] }] })],
   ]);
@@ -286,6 +287,7 @@ test('POST /join (invite code): a fantasy league past pre-draft is refused 409 d
     // count below is an observation and not this fake's unexpected-query throw
     // standing in for one.
     [/SELECT 1 FROM "teams"/, () => ({ rows: [] })],
+    [/FROM "league_bans"/, () => ({ rows: [] })], // nobody is banned
     [/SELECT COUNT\(\*\)::int AS n FROM "teams"/, () => ({ rows: [{ n: 3 }] })],
     [/INSERT INTO "teams"/, () => ({ rows: [{ id: 99 }] })],
   ]);
@@ -303,6 +305,7 @@ test('POST /join (invite code): an in-season (rolled-over) pick\'em-only league 
     [/FROM "leagues" WHERE "invite_code" = \$1 FOR UPDATE/, () => ({ rows: [{ ...ROLLED_OVER_PICKEM, invite_code: 'e402e816' }] })],
     [/FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: [ROLLED_OVER_PICKEM] })],
     [/SELECT 1 FROM "teams"/, () => ({ rows: [] })],
+    [/FROM "league_bans"/, () => ({ rows: [] })], // nobody is banned
     [/SELECT COUNT\(\*\)::int AS n FROM "teams"/, () => ({ rows: [{ n: 3 }] })],
     [/INSERT INTO "teams"/, (_text, params) => ({ rows: [{ id: 99, league_id: 7, owner_id: params[1], name: params[2] }] })],
   ]);
@@ -325,6 +328,7 @@ test('POST /join (invite code): the response league never carries the draft shar
     [/FROM "leagues" WHERE "invite_code" = \$1 FOR UPDATE/, () => ({ rows: [row] })],
     [/FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: [row] })],
     [/SELECT 1 FROM "teams"/, () => ({ rows: [] })],
+    [/FROM "league_bans"/, () => ({ rows: [] })], // nobody is banned
     [/SELECT COUNT\(\*\)::int AS n FROM "teams"/, () => ({ rows: [{ n: 3 }] })],
     [/INSERT INTO "teams"/, (_text, params) => ({ rows: [{ id: 99, league_id: 7, owner_id: params[1], name: params[2] }] })],
   ]);
@@ -341,6 +345,7 @@ test('POST /:id/join-public: the response league never carries the draft share t
     ...TXN,
     [/FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: [{ ...ROLLED_OVER_PICKEM, draft_share_token: 'secret-token' }] })],
     [/SELECT 1 FROM "teams"/, () => ({ rows: [] })],
+    [/FROM "league_bans"/, () => ({ rows: [] })], // nobody is banned
     [/SELECT COUNT\(\*\)::int AS n FROM "teams"/, () => ({ rows: [{ n: 3 }] })],
     [/INSERT INTO "teams"/, (_text, params) => ({ rows: [{ id: 99, league_id: 7, owner_id: params[1], name: params[2] }] })],
   ]);
@@ -358,6 +363,7 @@ test('POST /:id/join-public: the 409 body carries the reason', async (t) => {
     [/FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: [COMPLETED_PICKEM] })],
     // #274: as above, the write is answered so the absence is observed.
     [/SELECT 1 FROM "teams"/, () => ({ rows: [] })],
+    [/FROM "league_bans"/, () => ({ rows: [] })], // nobody is banned
     [/SELECT COUNT\(\*\)::int AS n FROM "teams"/, () => ({ rows: [{ n: 3 }] })],
     [/INSERT INTO "teams"/, () => ({ rows: [{ id: 99 }] })],
   ]);

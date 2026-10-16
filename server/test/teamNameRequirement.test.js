@@ -57,6 +57,7 @@ test('joinPublicLeague (join_approval): validates and trims the Team name, then 
     ...COMMISSIONER_ALERT,
     [/FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: [APPROVAL_LEAGUE] })],
     [/SELECT 1 FROM "teams"/, () => ({ rows: [] })],
+    [/FROM "league_bans"/, () => ({ rows: [] })], // nobody is banned
     [/SELECT COUNT\(\*\)::int AS n FROM "teams"/, () => ({ rows: [{ n: 3 }] })],
     [/INSERT INTO "join_requests"/, (_text, params) => ({
       rows: [{ id: 9, league_id: params[0], user_id: params[1], team_name: params[2], status: 'pending' }],
@@ -77,6 +78,7 @@ test('joinPublicLeague (join_approval): refuses a missing, blank or whitespace-o
       ...COMMISSIONER_ALERT,
       [/FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: [APPROVAL_LEAGUE] })],
       [/SELECT 1 FROM "teams"/, () => ({ rows: [] })],
+      [/FROM "league_bans"/, () => ({ rows: [] })], // nobody is banned
       [/SELECT COUNT\(\*\)::int AS n FROM "teams"/, () => ({ rows: [{ n: 3 }] })],
     ]);
     await assert.rejects(
@@ -98,6 +100,7 @@ test('joinPublicLeague (join_approval): refuses a Team name over 120 characters,
     ...COMMISSIONER_ALERT,
     [/FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: [APPROVAL_LEAGUE] })],
     [/SELECT 1 FROM "teams"/, () => ({ rows: [] })],
+    [/FROM "league_bans"/, () => ({ rows: [] })], // nobody is banned
     [/SELECT COUNT\(\*\)::int AS n FROM "teams"/, () => ({ rows: [{ n: 3 }] })],
   ]);
   await assert.rejects(
@@ -121,6 +124,7 @@ for (const priorStatus of ['denied', 'cancelled']) {
       ...COMMISSIONER_ALERT,
       [/FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: [APPROVAL_LEAGUE] })],
       [/SELECT 1 FROM "teams"/, () => ({ rows: [] })],
+      [/FROM "league_bans"/, () => ({ rows: [] })], // nobody is banned
       [/SELECT COUNT\(\*\)::int AS n FROM "teams"/, () => ({ rows: [{ n: 3 }] })],
       [/INSERT INTO "join_requests"/, (text, params) => {
         assert.match(text, /WHERE "join_requests"\."status" IN \('denied', 'cancelled'\)/);
@@ -143,6 +147,7 @@ test('joinPublicLeague (join_approval): a still-pending request is surfaced as-i
     ...COMMISSIONER_ALERT,
     [/FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: [APPROVAL_LEAGUE] })],
     [/SELECT 1 FROM "teams"/, () => ({ rows: [] })],
+    [/FROM "league_bans"/, () => ({ rows: [] })], // nobody is banned
     [/SELECT COUNT\(\*\)::int AS n FROM "teams"/, () => ({ rows: [{ n: 3 }] })],
     // No row returned from the upsert: the WHERE clause did not match
     // (status is already 'pending', not 'denied'/'cancelled').
@@ -165,6 +170,7 @@ test('decideJoinRequest (approve): a nameless join request cannot slip through -
       rows: [{ id: 3, user_id: 5, username: 'eve', team_name: null, status: 'pending' }],
     })],
     [/SELECT 1 FROM "teams"/, () => ({ rows: [] })],
+    [/FROM "league_bans"/, () => ({ rows: [] })], // nobody is banned
     [/SELECT COUNT\(\*\)::int AS n FROM "teams"/, () => ({ rows: [{ n: 3 }] })],
     // #274: both writes answered, so the counts below observe an absence
     // rather than inherit fakePool's "unexpected query" throw.

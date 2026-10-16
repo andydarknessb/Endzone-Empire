@@ -108,9 +108,10 @@ const TX = /^(BEGIN|COMMIT|ROLLBACK)$/;
  * The COUNT matcher sits before the generic teams SELECT because both are
  * "SELECT ... FROM teams" to the shape matcher.
  */
-async function world({ league, members = [], teamCount = members.length, onInsert } = {}) {
+async function world({ league, members = [], banned = [], teamCount = members.length, onInsert } = {}) {
   const fake = createFakePool([
     [select('leagues'), (_text, [id]) => ({ rows: league && league.id === id ? [league] : [] })],
+    [select('league_bans'), (_text, [, userId]) => ({ rows: banned.includes(userId) ? [{ '?column?': 1 }] : [] })],
     [COUNT_TEAMS, () => ({ rows: [{ n: teamCount }] })],
     [select('teams'), (_text, [, userId]) => ({ rows: members.includes(userId) ? [{ id: 1 }] : [] })],
     [insert('teams'), onInsert || ((_text, params) => ({
@@ -162,6 +163,20 @@ test("assertAdmissible: a pick'em-only league in season is admissible whatever d
     const { client } = await world({ league, teamCount: 3 });
     assert.deepEqual(await assertAdmissible(client, league, 5), { teamCount: 3 }, draftStatus);
   }
+});
+
+test('assertAdmissible: a banned manager refuses 403 before membership or count, even in an open league', async () => {
+  const { fake, client } = await world({ league: FANTASY_PRE_DRAFT, banned: [5] });
+  await assert.rejects(
+    assertAdmissible(client, FANTASY_PRE_DRAFT, 5),
+    refusal(403, 'you have been banned from this league')
+  );
+  assert.equal(fake.matching(COUNT_TEAMS).length, 0, 'no count once the ban refused');
+});
+
+test('assertAdmissible: another manager\'s ban does not refuse this one', async () => {
+  const { client } = await world({ league: FANTASY_PRE_DRAFT, banned: [6], teamCount: 2 });
+  assert.deepEqual(await assertAdmissible(client, FANTASY_PRE_DRAFT, 5), { teamCount: 2 });
 });
 
 test('assertAdmissible: already a member refuses 409 before counting', async () => {

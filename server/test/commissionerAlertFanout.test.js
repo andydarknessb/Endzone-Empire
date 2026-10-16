@@ -39,6 +39,7 @@ test('a join request alerts every commissioner, not the creator alone', async (t
       }],
     })],
     [/SELECT 1 FROM "teams"/, () => ({ rows: [] })],
+    [/FROM "league_bans"/, () => ({ rows: [] })], // nobody is banned
     [/SELECT COUNT\(\*\)::int AS n FROM "teams"/, () => ({ rows: [{ n: 3 }] })],
     [/INSERT INTO "join_requests"/, (_text, params) => ({
       rows: [{ id: 9, league_id: params[0], user_id: params[1], team_name: params[2], status: 'pending' }],

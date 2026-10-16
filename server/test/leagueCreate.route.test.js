@@ -52,6 +52,7 @@ function mockClient(t, overrides = []) {
       rows: created && created.id === params[0] ? [created] : [],
     })],
     [/^SELECT 1 FROM "teams"/, () => ({ rows: [] })],
+    [/FROM "league_bans"/, () => ({ rows: [] })], // nobody is banned
     [/^SELECT COUNT\(\*\)::int AS n FROM "teams"/, () => ({ rows: [{ n: 0 }] })],
     [/INSERT INTO "teams"/, (text, params) => ({
       rows: [{ id: 501, league_id: params[0], owner_id: params[1], name: params[2], draft_position: params[3] }],
