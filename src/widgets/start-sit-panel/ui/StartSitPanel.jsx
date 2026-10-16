@@ -1,16 +1,21 @@
 import React, { useRef, useState } from 'react';
-import { Box, Typography } from '@mui/material';
-import { visuallyHidden } from '@mui/utils';
-import { Badge, Card, DashButton, InjuryTag, RangeBar } from '../../../shared/ui';
+import { Box } from '@mui/material';
+import {
+  Frame, FrameHead, LiveChip, PixelClock, PixelHeading, StatusChip,
+} from '../../../shared/ui/playselect';
+import {
+  CAPTION_SX, Glyph, InjuryCode, PsAction, RangeBand, RuleStat, WordTag,
+} from '../../../shared/ui/playselect/LineupParts';
 import { PlayerNameLink } from '../../../entities/player';
+import { adviceNote } from '../../../entities/roster';
 import { formatKickoff, formatPoints, NO_PRACTICE_LABEL, BACKUP_LABEL } from '../../../shared/lib';
 import { buildSuggestionView, calledRecordLine, calledShotLine, forecastRecordLine, movePlanWithout, pointsLeftLine, projectedLeanLine } from '../lib/suggestionView';
 
 /**
  * The Start/sit panel widget (#1238, ADR 0037 AC1): the rail's advice panel,
  * showing the engine's per-slot sit/start suggestions with each side's
- * projection, Floor and Ceiling on a shared RangeBar, a lean or too-close-
- * to-call chip, the opponent context, and both kickoffs with the decide-by
+ * projection, Floor and Ceiling on a shared range band, a lean or too-close-
+ * to-call verdict, the opponent context, and both kickoffs with the decide-by
  * time. Hidden outright in best ball (AC1: "standard leagues only; hidden in
  * best ball") - a best-ball league never calls the advice endpoint at all
  * (`entities/roster`'s `useAdvice`), so this widget's own job is
@@ -46,9 +51,16 @@ import { buildSuggestionView, calledRecordLine, calledShotLine, forecastRecordLi
  * the product gives its projection engine ... what managers see on the
  * advice surfaces"); no copy here ever reads "optimal", "optimize" or
  * "range" (AC6).
+ *
+ * Play-select (ADR 0067 wave 3, spec #2347 ruling 4): a tertiary frame. The suggestion card has no title
+ * row of its own: its head is the slot, the verdict, "about {n}%" and "+{gain} pts". The two-move sentence
+ * (`adviceNote`, over the suggestions still showing and the advice's `openSlotFills`) appears once, as the
+ * plan line above Apply, and Apply is the page's one filled action. With no move to make, the empty state
+ * reads "No move from your bench" when a starting slot is open (`openSlot`, the page's `nextLineupSlot`) and
+ * "Lineup set" when nothing is.
  */
 export default function StartSitPanel({
-  advice, entries, bestBall, onApply, onCompare, onOpenDecisionCard, expectedFinals, onCallShot, onWithdrawShot, shotBusy,
+  advice, entries, bestBall, onApply, onCompare, onOpenDecisionCard, expectedFinals, onCallShot, onWithdrawShot, shotBusy, openSlot = false,
 }) {
   const [dismissed, setDismissed] = useState(() => new Set());
   const [announcement, setAnnouncement] = useState('');
@@ -74,6 +86,10 @@ export default function StartSitPanel({
   // so the dismissed pairs' moves are taken out of it here.
   const movePlan = movePlanWithout(advice?.movePlan, allViews.filter((v) => dismissed.has(v.key)));
   const canApply = movePlan.length > 0;
+  // The plan line names the moves Apply will make: the suggestions still showing, and the open-slot fills.
+  const planLine = canApply
+    ? adviceNote({ suggestions: suggestions.filter((s, i) => !dismissed.has(allViews[i].key)), openSlotFills: advice?.openSlotFills })
+    : null;
   const leanLine = projectedLeanLine(expectedFinals);
   // The standing "Your called shot" line reads the advice payload (#1856): the
   // server pins the shot's pair, so it never appears as a row above and the
@@ -83,6 +99,11 @@ export default function StartSitPanel({
   const benchLine = pointsLeftLine(advice?.pointsLeft);
   const forecastLine = forecastRecordLine(advice?.overrideRecord);
   const calledRecord = calledRecordLine(advice?.calledShotRecord);
+  const stats = [
+    ['points-left-line', benchLine],
+    ['forecast-record-line', forecastLine],
+    ['called-record-line', calledRecord],
+  ].filter(([, line]) => line);
 
   // Focus moves BEFORE the state update commits, while every sibling card
   // (and its Dismiss button) is still mounted in this same synchronous
@@ -121,37 +142,34 @@ export default function StartSitPanel({
   };
 
   return (
-    <Card title="Endzone Forecast" data-testid="start-sit-panel">
+    <Frame
+      tier="rule"
+      labelledBy="start-sit-h"
+      data-testid="start-sit-panel"
+      head={<FrameHead><PixelHeading id="start-sit-h" size={16}>Endzone Forecast</PixelHeading></FrameHead>}
+    >
       <Box
         ref={contentRef}
         tabIndex={-1}
         data-testid="start-sit-panel-content"
-        sx={{ p: '14px', display: 'grid', gap: '14px', outline: 'none' }}
+        sx={{ p: { xs: '14px', md: '12px' }, display: 'flex', flexDirection: 'column', gap: '14px', outline: 'none' }}
       >
-        <span role="status" aria-live="polite" style={visuallyHidden}>{announcement}</span>
+        {/* Text only: the polite live region never holds a button. */}
+        <Box component="span" role="status" aria-live="polite" sx={{ position: 'absolute', width: '1px', height: '1px', overflow: 'hidden', clipPath: 'inset(50%)', whiteSpace: 'nowrap' }}>{announcement}</Box>
 
         {leanLine && (
-          <Typography data-testid="start-sit-lean-line" sx={{ fontSize: '13px', fontWeight: 600, color: 'var(--dash-ink)' }}>
+          <Box component="p" data-testid="start-sit-lean-line" sx={{ m: 0, fontSize: '15px', fontWeight: 600 }}>
             {leanLine}
-          </Typography>
+          </Box>
         )}
 
-        {benchLine && (
-          <Typography data-testid="points-left-line" sx={{ fontSize: '12px', color: 'var(--dash-faint)' }}>
-            {benchLine}
-          </Typography>
-        )}
-
-        {forecastLine && (
-          <Typography data-testid="forecast-record-line" sx={{ fontSize: '12px', color: 'var(--dash-faint)' }}>
-            {forecastLine}
-          </Typography>
-        )}
-
-        {calledRecord && (
-          <Typography data-testid="called-record-line" sx={{ fontSize: '12px', color: 'var(--dash-faint)' }}>
-            {calledRecord}
-          </Typography>
+        {stats.length > 0 && (
+          <Box sx={{ display: 'flex', flexDirection: 'column' }}>
+            {stats.map(([testId, line]) => {
+              const cut = line.indexOf(': ');
+              return <RuleStat key={testId} data-testid={testId} label={line.slice(0, cut)} value={line.slice(cut + 2)} />;
+            })}
+          </Box>
         )}
 
         {shotLine && (
@@ -160,111 +178,98 @@ export default function StartSitPanel({
             data-state={shotLine.state}
             role="group"
             aria-label="Your called shot"
-            sx={{ p: '10px 12px', border: '1px solid var(--dash-line)', borderRadius: 'var(--dash-radius-sm)', display: 'grid', gap: '2px' }}
+            sx={{ border: '2px solid var(--ps-rule)', p: '10px 12px', display: 'flex', flexDirection: 'column', gap: '6px', boxSizing: 'border-box' }}
           >
-            <Typography sx={{ fontSize: '11px', fontWeight: 700, color: 'var(--dash-faint)', textTransform: 'uppercase' }}>
-              Your called shot
-            </Typography>
-            <Typography data-testid="called-shot-pair" sx={{ fontSize: '13px', fontWeight: 600, color: 'var(--dash-ink)' }}>
-              {shotLine.text}
-            </Typography>
-            <Typography data-testid="called-shot-numbers" sx={{ fontSize: '12px', color: 'var(--dash-faint)' }}>
-              {shotLine.numbers}
-            </Typography>
-            <Typography data-testid="called-shot-status" sx={{ fontSize: '12px', color: 'var(--dash-faint)' }}>
-              {shotLine.status}
-            </Typography>
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px' }}>
+              <Box component="span" sx={CAPTION_SX}>Your called shot</Box>
+              <Box component="span" sx={{ ml: 'auto' }}><ShotChip state={shotLine.state} status={shotLine.status} /></Box>
+            </Box>
+            <Box data-testid="called-shot-pair" sx={{ fontSize: '15px', fontWeight: 600 }}>{shotLine.text}</Box>
+            <Box data-testid="called-shot-numbers" sx={{ fontSize: '13px', color: 'var(--ps-dim)' }}>{shotLine.numbers}</Box>
+            <Box data-testid="called-shot-status" sx={{ fontSize: '14px' }}>{shotLine.status}</Box>
             {shotLine.canWithdraw && onWithdrawShot && (
               <Box>
-                <DashButton
-                  variant="ghost"
-                  size="sm"
+                <PsAction
                   data-testid="called-shot-withdraw"
                   aria-label={`Withdraw your called shot: ${shotLine.text}`}
                   aria-disabled={shotBusy || undefined}
                   onClick={withdrawShot}
                 >
                   Withdraw
-                </DashButton>
+                </PsAction>
               </Box>
             )}
           </Box>
         )}
 
         {views.length === 0 && (
-          <Typography sx={{ fontSize: '13px', color: 'var(--dash-faint)' }} data-testid="start-sit-panel-empty">
-            Lineup set
-          </Typography>
+          <Box component="p" sx={{ m: 0, fontSize: '15px', color: 'var(--ps-dim)' }} data-testid="start-sit-panel-empty">
+            {openSlot ? 'No move from your bench' : 'Lineup set'}
+          </Box>
         )}
 
         {views.map((view) => (
           <Box
             key={view.key}
             data-testid="suggestion-card"
-            sx={{ p: '12px', border: '1px solid var(--dash-line)', borderRadius: 'var(--dash-radius-sm)', display: 'grid', gap: '8px' }}
+            sx={{ border: '2px solid var(--ps-ink)', display: 'flex', flexDirection: 'column', boxSizing: 'border-box', minWidth: 0 }}
           >
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-              <Typography sx={{ fontSize: '11px', fontWeight: 700, color: 'var(--dash-faint)', textTransform: 'uppercase' }}>
-                {view.slot}
-              </Typography>
-              <Badge
-                variant={view.tooCloseToCall ? 'warning' : 'live'}
-                data-testid="suggestion-verdict"
-                data-verdict={VERDICT_BADGE[view.verdict]?.attr ?? 'lean'}
+            <Box sx={{ display: 'flex', flexWrap: { xs: 'wrap', md: 'nowrap' }, alignItems: 'center', gap: '6px 8px', p: '10px 12px', borderBottom: '2px solid var(--ps-rule)' }}>
+              <Box
+                component="span"
+                sx={{
+                  display: 'inline-flex', alignItems: 'center', height: '24px', p: '0 6px', boxSizing: 'border-box', border: '2px solid var(--ps-rule)', fontSize: '13px', fontWeight: 700, letterSpacing: '.04em', lineHeight: 1, flex: 'none',
+                }}
               >
-                {VERDICT_BADGE[view.verdict]?.text ?? 'Lean start'}
-              </Badge>
-              {view.probabilityLabel && (
-                <Typography data-testid="suggestion-probability" sx={{ fontSize: '12px', color: 'var(--dash-faint)' }}>
-                  {view.probabilityLabel}
-                </Typography>
-              )}
-              {view.gain != null && (
-                <Typography sx={{ ml: 'auto', fontSize: '12px', color: 'var(--dash-faint)' }}>
-                  {`+${formatPoints(view.gain)} pts`}
-                </Typography>
-              )}
+                {view.slot}
+              </Box>
+              <Box
+                component="span"
+                data-testid="suggestion-verdict"
+                data-verdict={VERDICT[view.verdict]?.attr ?? 'lean'}
+                sx={{ fontFamily: "'Press Start 2P', ui-monospace, monospace", fontSize: '16px', lineHeight: 1.5, textTransform: 'uppercase', whiteSpace: 'nowrap' }}
+              >
+                {VERDICT[view.verdict]?.text ?? 'Lean start'}
+              </Box>
+              <Box component="span" sx={{ ml: 'auto', fontSize: '13px', color: 'var(--ps-dim)', whiteSpace: 'nowrap' }}>
+                {view.probabilityLabel && <span data-testid="suggestion-probability">{view.probabilityLabel}</span>}
+                {view.probabilityLabel && view.gain != null && ' · '}
+                {view.gain != null && `+${formatPoints(view.gain)} pts`}
+              </Box>
             </Box>
 
-            {/* Column gap only: the subgrid rows carry their own 4px rowGap, and a
-                parent row gap would leave blank tracks (no chips, no kickoff) 10px tall. */}
-            <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 10px' }}>
+            {/* Column gap only: the subgrid rows carry their own 4px rowGap, and a parent row gap would leave
+                blank tracks (no chips, no kickoff) 10px tall. */}
+            <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '0 24px', p: '12px' }}>
               <PlayerColumn label="Sit" player={view.sit} domainMin={view.domainMin} domainMax={view.domainMax} onOpenDecisionCard={onOpenDecisionCard} />
               <PlayerColumn label="Start" player={view.start} domainMin={view.domainMin} domainMax={view.domainMax} onOpenDecisionCard={onOpenDecisionCard} />
             </Box>
 
-            {/* One joined text node, not two sibling spans (formal risk
-                review finding: two adjacent spans with only a flex `gap`
-                between them concatenate with no separator in the
-                accessible text, "...RB)vs NYJ..."). */}
-            <Typography
-              data-testid="suggestion-opponent-context"
-              sx={{ fontSize: '12px', color: 'var(--dash-faint)' }}
-            >
+            {/* One joined text node, not two sibling spans (formal risk review finding: two adjacent spans
+                with only a flex `gap` between them concatenate with no separator in the accessible text,
+                "...RB)vs NYJ..."). */}
+            <Box data-testid="suggestion-opponent-context" sx={{ fontSize: '13px', color: 'var(--ps-dim)', px: '12px', pb: '10px' }}>
               {[view.sit.opponentContext, view.start.opponentContext].filter(Boolean).join(' · ')}
-            </Typography>
+            </Box>
 
             {view.decideBy && (
-              <Typography data-testid="suggestion-decide-by" sx={{ fontSize: '12px', color: 'var(--dash-faint)' }}>
+              <Box data-testid="suggestion-decide-by" sx={{ display: 'flex', alignItems: 'center', gap: '8px', p: '10px 12px', borderTop: '2px solid var(--ps-rule)', fontSize: '14px', fontWeight: 600 }}>
+                <PixelClock />
                 {`Decide by ${formatKickoff(view.decideBy)}`}
-              </Typography>
+              </Box>
             )}
 
-            <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: '8px', p: '0 12px 12px' }}>
               {onCompare && (
-                <DashButton
-                  variant="ghost"
-                  size="sm"
+                <PsAction
                   data-testid="suggestion-compare"
                   aria-label={`Compare ${view.start.name} with ${view.sit.name}`}
                   onClick={() => onCompare(view)}
                 >
                   Compare
-                </DashButton>
+                </PsAction>
               )}
-              <DashButton
-                variant="ghost"
-                size="sm"
+              <PsAction
                 data-testid="suggestion-dismiss"
                 ref={(node) => {
                   if (node) dismissButtonRefs.current.set(view.key, node);
@@ -273,96 +278,160 @@ export default function StartSitPanel({
                 onClick={() => dismiss(view)}
               >
                 Dismiss
-              </DashButton>
+              </PsAction>
               {view.canCallShot && onCallShot && (
-                <DashButton
-                  variant="ghost"
-                  size="sm"
+                <PsAction
                   data-testid="suggestion-call-shot"
                   aria-label={`Call your shot: keep ${view.sit.name} over ${view.start.name}`}
                   aria-disabled={shotBusy || undefined}
                   onClick={() => callShot(view)}
                 >
                   Call your shot
-                </DashButton>
+                </PsAction>
               )}
             </Box>
           </Box>
         ))}
 
         {canApply && (
-          <DashButton variant="primary" size="sm" data-testid="start-sit-apply" onClick={() => onApply?.(movePlan)}>
-            Apply
-          </DashButton>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: '10px', alignItems: 'flex-start' }}>
+            {planLine && (
+              <Box component="p" data-testid="start-sit-plan-line" sx={{ m: 0, fontSize: '15px', fontWeight: 600, textWrap: 'pretty' }}>
+                {glueDots(planLine)}
+              </Box>
+            )}
+            <PsAction variant="fill" data-testid="start-sit-apply" onClick={() => onApply?.(movePlan)}>
+              Apply
+            </PsAction>
+          </Box>
         )}
       </Box>
-    </Card>
+    </Frame>
   );
 }
 
-const VERDICT_BADGE = {
+// A separator stays with the word before it, so a line may end with the dot and never start with one.
+function glueDots(text) {
+  const parts = String(text).split(' · ');
+  return parts.map((part, i) => (
+    // eslint-disable-next-line react/no-array-index-key
+    <React.Fragment key={i}>
+      {i < parts.length - 1 ? <span style={{ whiteSpace: 'nowrap' }}>{`${part} ·`}</span> : part}
+      {i < parts.length - 1 ? ' ' : null}
+    </React.Fragment>
+  ));
+}
+
+const VERDICT = {
   strong: { text: 'Strong start', attr: 'strong' },
   start: { text: 'Lean start', attr: 'lean' },
   tossup: { text: 'Too close to call', attr: 'tossup' },
 };
 
-const NAME_SX ={ fontSize: '13px', fontWeight: 600, color: 'var(--dash-ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
+// The called shot's state as a chip: Live is the one green, Locked carries the lock, Hit, Miss and Void are
+// outlined chips (RULINGS "Wave 3 boards"); an open shot has none.
+function ShotChip({ state, status }) {
+  // Both games on: the payload says Live in the status sentence while the state stays locked.
+  if (state === 'locked' && /^Live/.test(status)) return <LiveChip>Live</LiveChip>;
+  if (state === 'locked') {
+    return <StatusChip><Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}><Glyph kind="lock" />Locked</Box></StatusChip>;
+  }
+  if (state === 'resolved-hit') return <StatusChip>Hit</StatusChip>;
+  if (state === 'resolved-miss') return <StatusChip>Miss</StatusChip>;
+  if (state === 'resolved-void') return <StatusChip>Void</StatusChip>;
+  return null;
+}
+
+const NAME_SX = {
+  fontSize: '15px', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+};
+
+const FIGURE_LABEL_SX = { fontSize: '13px', color: 'var(--ps-dim)', lineHeight: 1.3 };
 
 function PlayerColumn({ label, player, domainMin, domainMax, onOpenDecisionCard }) {
   return (
-    // The two columns share the parent grid's row tracks via subgrid, so the
-    // Sit and Start rows line up (#2099). Without it the shorter column
-    // stretched to the taller one and spread the slack across its own rows;
-    // `alignContent: 'start'` is the fallback where subgrid is unsupported.
-    // span 6 = label, name row, bar, Floor line, kickoff, fact chips.
+    // The two columns share the parent grid's row tracks via subgrid, so the Sit and Start rows line up
+    // (#2099). Without it the shorter column stretched to the taller one and spread the slack across its own
+    // rows; `alignContent: 'start'` is the fallback where subgrid is unsupported. span 6 = label, name row,
+    // band, figures, kickoff, fact chips.
     <Box data-testid="suggestion-player" sx={{ display: 'grid', gridTemplateRows: 'subgrid', gridRow: 'span 6', rowGap: '4px', alignContent: 'start', minWidth: 0 }}>
-      <Typography sx={{ fontSize: '11px', fontWeight: 600, color: 'var(--dash-faint)', textTransform: 'uppercase' }}>
-        {label}
-      </Typography>
-      {/* alignSelf start: when the other side's name row wraps, the shared track grows;
-          centring would drop this side's single line down inside it. */}
-      <Box sx={{ display: 'flex', alignItems: 'center', alignSelf: 'start', gap: '6px', minWidth: 0, flexWrap: 'wrap' }}>
+      <Box component="span" sx={CAPTION_SX}>{label}</Box>
+      {/* alignSelf start: when the other side's name row wraps, the shared track grows; centring would drop
+          this side's single line down inside it. */}
+      <Box sx={{ display: 'flex', alignItems: 'center', alignSelf: 'start', gap: '4px 8px', minWidth: 0, flexWrap: 'wrap' }}>
         {onOpenDecisionCard ? (
-          <PlayerNameLink name={player.name} playerId={player.playerId} onOpen={onOpenDecisionCard} sx={{ ...NAME_SX, minWidth: 0, display: 'block', lineHeight: 'inherit' }} />
+          <PlayerNameLink
+            name={player.name}
+            playerId={player.playerId}
+            onOpen={onOpenDecisionCard}
+            sx={{
+              ...NAME_SX,
+              minWidth: 0,
+              minHeight: '44px',
+              m: '-8px 0',
+              p: 0,
+              color: 'var(--ps-ink)',
+              display: 'block',
+              lineHeight: '44px',
+              '&:focus-visible, &.MuiLink-focusVisible': {
+                outline: '3px solid var(--ps-focus)', outlineOffset: 0, boxShadow: '0 0 0 7px var(--ps-halo)', borderRadius: 0,
+              },
+            }}
+          />
         ) : (
-          <Typography sx={NAME_SX}>{player.name}</Typography>
+          <Box component="span" sx={NAME_SX}>{player.name}</Box>
         )}
-        <InjuryTag status={player.injuryStatus} />
-        {player.noPractice && (
-          <Badge variant="neutral" data-testid="suggestion-no-practice">{NO_PRACTICE_LABEL}</Badge>
-        )}
-        {player.backup && (
-          <Badge variant="neutral" data-testid="suggestion-backup">{BACKUP_LABEL}</Badge>
-        )}
-        {player.volatility && (
-          <Badge variant="neutral" data-testid="suggestion-volatility">{player.volatility}</Badge>
-        )}
+        <InjuryCode status={player.injuryStatus} data-testid="injury-tag" />
+        {player.noPractice && <WordTag data-testid="suggestion-no-practice">{NO_PRACTICE_LABEL}</WordTag>}
+        {player.backup && <WordTag data-testid="suggestion-backup">{BACKUP_LABEL}</WordTag>}
+        {player.volatility && <WordTag data-testid="suggestion-volatility">{player.volatility}</WordTag>}
       </Box>
-      <RangeBar
-        label={player.name}
-        floor={player.floor}
-        projection={player.projection}
-        ceiling={player.ceiling}
-        min={domainMin}
-        max={domainMax}
-        data-testid="suggestion-range-bar"
-      />
-      <Typography sx={{ fontSize: '11px', color: 'var(--dash-faint)' }}>
-        {`Floor ${formatPoints(player.floor)} · Proj ${formatPoints(player.projection)} · Ceiling ${formatPoints(player.ceiling)}`}
-      </Typography>
-      {player.kickoff && (
-        <Typography sx={{ fontSize: '11px', color: 'var(--dash-faint)' }}>{formatKickoff(player.kickoff)}</Typography>
-      )}
-      {player.factChips.length > 0 && (
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+        <RangeBand
+          label={player.name}
+          floor={player.floor}
+          projection={player.projection}
+          ceiling={player.ceiling}
+          min={domainMin}
+          max={domainMax}
+          data-testid="suggestion-range-bar"
+        />
+        <Box aria-hidden="true" sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', ...FIGURE_LABEL_SX }}>
+          <Figure label="Floor" value={player.floor} align="left" />
+          <Figure label="Proj" value={player.projection} align="center" />
+          <Figure label="Ceiling" value={player.ceiling} align="right" />
+        </Box>
+      </Box>
+      {player.kickoff ? (
+        <Box sx={FIGURE_LABEL_SX}>{formatKickoff(player.kickoff)}</Box>
+      ) : <span />}
+      {player.factChips.length > 0 ? (
         <Box sx={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
           {player.factChips.map((chip) => (
-            <Badge key={chip.key} variant="neutral" data-testid="suggestion-fact-chip" data-chip={chip.key}>
+            <Box
+              key={chip.key}
+              component="span"
+              data-testid="suggestion-fact-chip"
+              data-chip={chip.key}
+              sx={{ display: 'inline-flex', alignItems: 'center', gap: '4px', minHeight: '24px', boxSizing: 'border-box', p: '0 6px', border: '2px solid var(--ps-rule)', fontSize: '13px', fontWeight: 700 }}
+            >
               {chip.text}
-              {chip.contextOnly && <>{' '}<Box component="span" sx={{ fontWeight: 400 }}>context only</Box></>}
-            </Badge>
+              {chip.contextOnly && <>{' '}<Box component="span" sx={{ fontWeight: 400, color: 'var(--ps-dim)' }}>context only</Box></>}
+            </Box>
           ))}
         </Box>
-      )}
+      ) : <span />}
+    </Box>
+  );
+}
+
+// One figure under the band: its Dim label over a 14px 600 value.
+function Figure({ label, value, align }) {
+  return (
+    <Box component="span" sx={{ textAlign: align }}>
+      {label}
+      <br />
+      <Box component="b" sx={{ fontSize: '14px', fontWeight: 600, color: 'var(--ps-ink)' }}>{formatPoints(value)}</Box>
     </Box>
   );
 }

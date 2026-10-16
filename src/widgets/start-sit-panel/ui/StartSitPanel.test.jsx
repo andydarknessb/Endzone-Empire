@@ -683,3 +683,52 @@ test('no season record lines without a resolved record in the payload', () => {
   expect(screen.queryByTestId('forecast-record-line')).not.toBeInTheDocument();
   expect(screen.queryByTestId('called-record-line')).not.toBeInTheDocument();
 });
+
+// Spec #2347 ruling 4 (live with an empty slot): an empty move plan beside an open starting slot says the bench
+// cannot help, not that the lineup is set.
+describe('Play-select copy (wave 3)', () => {
+  test('an empty move plan with a starting slot open reads "No move from your bench", never "Lineup set"', () => {
+    render(<StartSitPanel advice={{ suggestions: [], movePlan: [] }} entries={entries} bestBall={false} openSlot />);
+    const empty = screen.getByTestId('start-sit-panel-empty');
+    expect(empty).toHaveTextContent('No move from your bench');
+    expect(screen.queryByText('Lineup set')).toBeNull();
+  });
+
+  test('the two-move sentence appears once, as the plan line above Apply, and the card has no title row of its own', () => {
+    const advice = {
+      suggestions: [suggestion({ current: { ...suggestion().current, name: 'Puka Nacua', injuryStatus: 'O', availability: { status: 'O' } } })],
+      openSlotFills: [{ playerId: 3, name: 'Tyjae Spears', slot: 'FLEX', projection: 12.9 }],
+      movePlan: [{ playerId: 1, toSlot: 'BENCH' }, { playerId: 2, toSlot: 'RB' }, { playerId: 3, toSlot: 'FLEX' }],
+    };
+    const { container } = render(<StartSitPanel advice={advice} entries={entries} bestBall={false} onApply={jest.fn()} />);
+    expect(container.textContent.match(/Two moves/g)).toHaveLength(1);
+    const line = screen.getByTestId('start-sit-plan-line');
+    expect(line).toHaveTextContent('Two moves · +19.4 pts');
+    expect(line).toHaveTextContent('Spears into the empty FLEX');
+    const apply = screen.getByTestId('start-sit-apply');
+    expect(line.compareDocumentPosition(apply) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const card = screen.getByTestId('suggestion-card');
+    expect(within(card).queryByRole('heading')).toBeNull();
+  });
+
+  test('Apply is the one filled action in the panel and every other action is a ghost', () => {
+    const movePlan = [{ playerId: 1, toSlot: 'BENCH' }, { playerId: 2, toSlot: 'RB' }];
+    render(<StartSitPanel advice={{ suggestions: [suggestion()], movePlan }} entries={entries} bestBall={false} onApply={jest.fn()} onCompare={jest.fn()} onCallShot={jest.fn()} />);
+    const panel = screen.getByTestId('start-sit-panel');
+    expect(panel.querySelectorAll('[data-variant="fill"]')).toHaveLength(1);
+    expect(screen.getByTestId('start-sit-apply')).toHaveAttribute('data-variant', 'fill');
+    expect(screen.getByTestId('suggestion-dismiss')).toHaveAttribute('data-variant', 'ghost');
+  });
+
+  test('the plan line names only the suggestions still showing after a Dismiss', async () => {
+    const user = userEvent.setup();
+    const advice = {
+      suggestions: [suggestion(), suggestion({ slot: 'WR', current: { ...suggestion().current, playerId: 5, name: 'Other Sit' }, suggested: { ...suggestion().suggested, playerId: 6, name: 'Other Start' }, gain: 2 })],
+      movePlan: [{ playerId: 1, toSlot: 'BENCH' }, { playerId: 2, toSlot: 'RB' }, { playerId: 5, toSlot: 'BENCH' }, { playerId: 6, toSlot: 'WR' }],
+    };
+    render(<StartSitPanel advice={advice} entries={[...entries, { playerId: 5, position: 'WR' }, { playerId: 6, position: 'WR' }]} bestBall={false} onApply={jest.fn()} />);
+    expect(screen.getByTestId('start-sit-plan-line')).toHaveTextContent('Two moves');
+    await user.click(screen.getAllByTestId('suggestion-dismiss')[0]);
+    expect(screen.getByTestId('start-sit-plan-line')).toHaveTextContent('Start Other Start for Other Sit');
+  });
+});

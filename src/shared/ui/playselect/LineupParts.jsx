@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import { Box } from '@mui/material';
+import { PixelArrow } from './Icons';
 import { SR_ONLY_SX } from './type';
 
 // Pieces the wave 3 Lineup slices share (ADR 0067, spec #2347): a 44px action that passes its props through
@@ -62,6 +63,7 @@ export const PsAction = React.forwardRef(function PsAction({
       sx={[ACTION, VARIANT[variant], danger ? DANGER_TEXT : null, DISABLED, ...(Array.isArray(sx) ? sx : [sx])]}
     >
       {children}
+      {variant === 'fill' ? <PixelArrow /> : null}
     </Box>
   );
 });
@@ -117,6 +119,7 @@ export function RuleStat({ label, value, ...rest }) {
       }}
     >
       <Box component="span" sx={{ color: 'var(--ps-dim)' }}>{label}</Box>
+      <SrOnly>: </SrOnly>
       <Box component="b" sx={{ fontWeight: 600, textAlign: 'right' }}>{value}</Box>
     </Box>
   );
