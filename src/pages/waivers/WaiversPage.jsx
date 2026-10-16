@@ -1,12 +1,21 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  useCallback, useEffect, useMemo, useRef, useState,
+} from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
-import { Alert, Box, Button, Typography } from '@mui/material';
+import { Box } from '@mui/material';
 import { readHttpFailure } from '../../lib/httpFailure';
 import { useLeague } from '../../hooks/useLeague';
 import LeagueBreadcrumb from '../../components/LeagueBreadcrumb/LeagueBreadcrumb';
-import { Card, SegmentedControl } from '../../shared/ui';
-import { useEndpoint, isRosterAtCapacity } from '../../shared/lib';
-import { useWaiverClaims, readClaimTarget } from '../../entities/waiver-claim';
+import { SegmentedControl } from '../../shared/ui';
+import {
+  Frame, FrameHead, PixelHeading, PixelWarn, PsButton, SR_ONLY_SX, Skel, psRootSx,
+} from '../../shared/ui/playselect';
+import {
+  useEndpoint, isRosterAtCapacity, formatPoints,
+} from '../../shared/lib';
+import {
+  useWaiverClaims, readClaimTarget, nextClaimRow, clearsUnderHour,
+} from '../../entities/waiver-claim';
 import { lineupModel } from '../../entities/roster';
 import { toDecisionCardEntry } from '../../entities/player';
 import { PlayerPool } from '../../widgets/player-pool';
@@ -26,14 +35,68 @@ const TABS = [
 ];
 
 /**
+ * A failed load: a 2px Danger edge, the warning pictogram and the sentence. The alert holds the text
+ * only; the one Retry sits beside it, outside the role element.
+ */
+function ErrorEdge({ children, onRetry, testId }) {
+  return (
+    <Box
+      data-testid={testId}
+      sx={{
+        border: '2px solid var(--ps-danger)',
+        backgroundColor: 'var(--ps-panel)',
+        padding: '16px 20px',
+        display: 'flex',
+        flexWrap: 'wrap',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: '12px 20px',
+      }}
+    >
+      <Box role="alert" sx={{
+        display: 'flex', gap: '12px', alignItems: 'center', minWidth: 0, fontSize: '16px',
+      }}
+      >
+        <PixelWarn color="var(--ps-danger)" />
+        <span>{children}</span>
+      </Box>
+      {onRetry && <PsButton onClick={onRetry}>Retry</PsButton>}
+    </Box>
+  );
+}
+
+function PoolSkeleton() {
+  return (
+    <Frame aria-busy="true" head={<FrameHead><Skel width="140px" height={24} /></FrameHead>}>
+      {[0, 1, 2, 3].map((i) => (
+        <Box key={i} sx={{
+          display: 'flex', gap: '20px', alignItems: 'center', padding: '12px 20px', borderTop: i ? '2px solid var(--ps-rule)' : 'none',
+        }}
+        >
+          <Skel width="160px" height={20} />
+          <Skel width="40px" height={20} />
+          <Skel width="40px" height={20} />
+          <Skel width="90px" height={20} />
+        </Box>
+      ))}
+    </Frame>
+  );
+}
+
+/**
  * The Waivers page slice (ADR 0049, #1613), on the existing
- * `/league/:leagueId/waivers` route. It holds no player list of its own: the
+ * `/league/:leagueId/waivers` route, in the Play-select look since ADR 0067 wave 3 (spec #2347;
+ * boards docs/design/league/Waivers*.dc.html). It holds no player list of its own: the
  * list is the `player-pool` widget locked to on waivers, so search, position,
  * Bye week, the server-side sort and the pager are the Players page's own,
  * in the URL. The summary strip reads the `waiver-claim` entity and the cards
- * read's roster context; the side panel carries the `bye-cluster` widget,
- * unchanged. From `md` the list and the side panel sit side by side; below it
- * two tabs, On waivers and My claims, are held in `?tab=`.
+ * read's roster context; the side panel carries the `bye-cluster` widget. From `md` the list and the
+ * side panel sit side by side; below it two tabs, On waivers and My claims, are held in `?tab=`.
+ *
+ * The cursor is the row `nextClaimRow` picks from the page's own rows (the largest positive Upgrade
+ * the manager has not claimed; none in best ball), and that row's Claim is the page's one filled
+ * action; every other Claim, and each "Claim #n", is a ghost. The cursor frame turns Danger when
+ * that row clears in under an hour.
  *
  * The Claim action opens the claim sheet (#1615, `claim-player`), which the
  * `?playerId=` deep link opens too; the Decision card's claim bar files
@@ -53,11 +116,15 @@ export default function WaiversPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const tab = searchParams.get('tab') === 'claims' ? 'claims' : 'waivers';
 
-  const { league, loading: leagueLoading, error: leagueError } = useLeague(leagueId);
+  const {
+    league, loading: leagueLoading, error: leagueError, refetch: refetchLeague,
+  } = useLeague(leagueId);
   const bestBall = !!league?.best_ball;
 
   const [refreshKey, setRefreshKey] = useState(0);
-  const { status: claimsStatus, claims, moveClaim, orderError, orderAnnouncement, orderSettled } =useWaiverClaims({ leagueId, refreshKey });
+  const {
+    status: claimsStatus, claims, moveClaim, orderError, orderAnnouncement, orderSettled,
+  } = useWaiverClaims({ leagueId, refreshKey });
   const { data: rosterData } = useEndpoint(`/api/team/roster?leagueId=${leagueId}`);
   const { data: lineupData } = useEndpoint(`/api/team/lineup?leagueId=${leagueId}`);
   const lineup = useMemo(() => (lineupData ? lineupModel(lineupData) : null), [lineupData]);
@@ -114,16 +181,27 @@ export default function WaiversPage() {
     };
   }, [targetId, leagueId, setSearchParams]);
 
-  const setTab = (value) =>
-    setSearchParams(
-      (current) => {
-        const next = new URLSearchParams(current);
-        if (value === 'claims') next.set('tab', 'claims');
-        else next.delete('tab');
-        return next;
-      },
-      { replace: true },
-    );
+  const setTab = (value) => setSearchParams(
+    (current) => {
+      const next = new URLSearchParams(current);
+      if (value === 'claims') next.set('tab', 'claims');
+      else next.delete('tab');
+      return next;
+    },
+    { replace: true },
+  );
+
+  // The phone's "My claims" radio carries its count as a description, not in its name. The shared
+  // segmented control has no per-option description, so the attribute is set on the rendered radio.
+  const tabsRef = useRef(null);
+  const pendingCount = claims.pending.length;
+  useEffect(() => {
+    const radios = tabsRef.current?.querySelectorAll('[role="radio"]');
+    const claimsRadio = radios && radios[1];
+    if (!claimsRadio) return;
+    if (pendingCount > 0) claimsRadio.setAttribute('aria-describedby', 'waivers-claims-count');
+    else claimsRadio.removeAttribute('aria-describedby');
+  }, [pendingCount, tab]);
 
   // A read that fails keeps the error up until a read succeeds: the pool
   // reports `null` when a read STARTS, which must not flash the (empty) list.
@@ -168,19 +246,47 @@ export default function WaiversPage() {
     return value != null;
   });
 
-  const roster =
-    context?.rosterCount != null
-      ? {
-          count: context.rosterCount,
-          capacity: context.rosterCapacity ?? null,
-          atCapacity: isRosterAtCapacity(context),
-        }
-      : null;
+  const roster = context?.rosterCount != null
+    ? {
+      count: context.rosterCount,
+      capacity: context.rosterCapacity ?? null,
+      atCapacity: isRosterAtCapacity(context),
+    }
+    : null;
+
+  // The cursor: of the rows shown on this page, the unclaimed one with the largest positive Upgrade
+  // (none in best ball). Under the Watching filter only watched rows are shown.
+  const watchingOnly = searchParams.get('watching') === 'true';
+  const shownPlayers = useMemo(
+    () => (watchingOnly ? players.filter((player) => player.watching) : players),
+    [players, watchingOnly],
+  );
+  const cursorRow = useMemo(
+    () => (bestBall ? null : nextClaimRow(shownPlayers, claimOrderByPlayer.keys())),
+    [bestBall, shownPlayers, claimOrderByPlayer],
+  );
+  const cursorUrgent = cursorRow ? clearsUnderHour(cursorRow.availability?.availableAt) : false;
+
+  // After a claim lands the cursor moves to the next unclaimed row; say so once, politely.
+  const [nextNote, setNextNote] = useState('');
+  const seenPending = useRef(null);
+  useEffect(() => {
+    if (claimsStatus === 'loading') return;
+    const previous = seenPending.current;
+    seenPending.current = pendingCount;
+    if (previous == null || pendingCount <= previous) return;
+    if (!cursorRow) {
+      setNextNote('');
+      return;
+    }
+    const { points, week } = cursorRow.upgrade;
+    const later = week != null && cursorRow.projWeek?.week != null && week !== cursorRow.projWeek.week;
+    setNextNote(`Next: ${cursorRow.name}, +${formatPoints(points)}${later ? ` Wk ${week}` : ''}`);
+  }, [pendingCount, claimsStatus, cursorRow]);
 
   const isFaab = league?.waiver_type === 'faab' || claims.faab != null;
   const quickViewPlayer = players.find((player) => player.id === quickViewId) || null;
-  const claimPlayer =
-    players.find((player) => player.id === claimId) || (targetPlayer && targetPlayer.id === claimId ? targetPlayer : null);
+  const claimPlayer = players.find((player) => player.id === claimId) || (targetPlayer && targetPlayer.id === claimId ? targetPlayer : null);
   const availability = {
     rosterCount: context?.rosterCount,
     rosterCapacity: context?.rosterCapacity,
@@ -190,12 +296,17 @@ export default function WaiversPage() {
 
   const rowFor = (player, variant) => {
     const order = claimOrderByPlayer.get(player.id);
+    const label = order != null ? `Claim #${order}` : 'Claim';
+    const isCursor = cursorRow?.id === player.id;
+    const inCard = variant === 'card';
     return (
       <PlayerRow
+        look="playselect"
         player={player}
         bestBall={bestBall}
         hideOwnership={!ownershipKnown}
-        variant={variant === 'card' ? 'card' : undefined}
+        variant={inCard ? 'card' : undefined}
+        cursor={isCursor ? (cursorUrgent ? 'urgent' : 'cursor') : undefined}
         onOpenPlayer={setQuickViewId}
         expansion={{
           expanded: expandedId === player.id,
@@ -208,14 +319,15 @@ export default function WaiversPage() {
               isFaab={isFaab}
               reads={cardReads}
               onOpen={setQuickViewId}
+              inTable={!inCard}
             />
           ),
         }}
         action={{
           kind: 'button',
-          label: order != null ? `Claim #${order}` : 'Claim',
-          variant: order != null ? 'outlined' : 'contained',
-          ariaLabel: `${order != null ? `Claim #${order}` : 'Claim'} ${player.name}`,
+          label,
+          fill: isCursor && order == null,
+          ariaLabel: `${label} ${player.name}`,
           onClick: () => setClaimId(player.id),
           helper: order != null ? 'You already have a pending claim on this player.' : undefined,
         }}
@@ -223,158 +335,191 @@ export default function WaiversPage() {
     );
   };
 
-  const error = (leagueError ? 'Could not load the league.' : null) || poolError || targetError;
-  const pendingCount = claims.pending.length;
+  const pageUnavailable = leagueError && !league;
+  const pageBody = !pageUnavailable;
 
   return (
-    <Box
-      component="div"
-      sx={{
-        width: '100%',
-        maxWidth: 1440,
-        mx: 'auto',
-        px: { xs: 2, sm: 3, md: 5 },
-        py: { xs: 2, md: 3.5 },
-        color: 'var(--dash-ink)',
-      }}
-    >
-      <LeagueBreadcrumb />
-      <Box sx={{ mb: 2 }}>
-        <Typography
-          component="h1"
-          sx={{
-            fontFamily: 'var(--dash-font-display)',
-            fontWeight: 800,
-            fontSize: { xs: 40, md: 56 },
-            lineHeight: 0.95,
-            letterSpacing: '0.5px',
-            textTransform: 'uppercase',
-          }}
-        >
-          Waivers
-        </Typography>
-        {total != null && !poolError && (
-          <Typography sx={{ fontSize: 14, color: 'var(--dash-dim)', mt: 0.75 }}>
-            {`${total.toLocaleString()} player${total === 1 ? '' : 's'} on waivers${isFaab ? ' · FAAB league' : ''}`}
-          </Typography>
-        )}
-      </Box>
-
-      <Box sx={{ mb: 2.5 }}>
-        <WaiverSummary
-          nextClear={claims.nextClear}
-          pendingCount={pendingCount}
-          faab={claims.faab}
-          waiverPriority={claims.waiverPriority}
-          roster={roster}
-        />
-      </Box>
-
-      {error && (
-        <Alert
-          severity="error"
-          sx={{ mb: 2 }}
-          action={
-            poolError ? (
-              <Button color="inherit" size="small" onClick={() => poolRef.current?.refresh()} sx={{ minHeight: 44 }}>
-                Try again
-              </Button>
-            ) : null
-          }
-        >
-          {error}
-        </Alert>
-      )}
-
-      {!poolError && !leagueError && !poolSettled && (
-        <Typography role="status" sx={{ fontSize: 14, color: 'var(--dash-dim)', mb: 2 }}>
-          Loading players
-        </Typography>
-      )}
-
-      <Box sx={{ display: { xs: 'block', md: 'none' }, mb: 2 }}>
-        <SegmentedControl
-          aria-label="Waivers view"
-          options={TABS}
-          value={tab}
-          onChange={setTab}
-          fill
-          sx={{ "& [role='radio']": { minHeight: 44 } }}
-        />
-      </Box>
-
+    <Box className="ps-root" sx={{ ...psRootSx, minHeight: '100%' }}>
       <Box
         sx={{
-          display: 'grid',
-          gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: 'minmax(0, 1fr) 320px', lg: 'minmax(0, 1fr) 384px' },
-          gap: 3,
-          alignItems: 'start',
+          width: '100%',
+          maxWidth: '1440px',
+          marginX: 'auto',
+          boxSizing: 'border-box',
+          padding: { xs: '24px 16px 48px', sm: '24px 32px 64px' },
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '24px',
         }}
       >
-        <Box
-          sx={{
-            display: poolError || leagueError || !poolSettled ? 'none' : { xs: tab === 'waivers' ? 'block' : 'none', md: 'block' },
-            minWidth: 0,
-          }}
+        <Box component="section" aria-labelledby="waivers-h1" sx={{
+          display: 'flex', flexDirection: 'column', gap: '4px', minWidth: 0,
+        }}
         >
-          <PlayerPool
-            ref={poolRef}
-            leagueId={leagueId}
-            bestBall={bestBall}
-            ready={!leagueLoading && !!league}
-            availabilityLock="waivers"
-            byeWeekFilter
-            cardsBelow="sm"
-            emptyCopy="No players are on waivers"
-            columnCount={playerRowColumnCount(bestBall, !ownershipKnown)}
-            renderTableHead={(headProps) => <PlayerRowTableHead {...headProps} hideOwnership={!ownershipKnown} />}
-            renderRow={rowFor}
-            onLoaded={handleLoaded}
-            onError={handleError}
-          />
+          <LeagueBreadcrumb look="playselect" />
+          <Box sx={{
+            display: 'flex', flexDirection: 'column', gap: '12px', minWidth: 0,
+          }}
+          >
+            <PixelHeading id="waivers-h1" level={1}>Waivers</PixelHeading>
+            {total != null && !poolError && (
+              <Box component="p" sx={{
+                m: 0, fontSize: { xs: '16px', sm: '17px' }, color: 'var(--ps-dim)',
+              }}
+              >
+                {`${total.toLocaleString()} player${total === 1 ? '' : 's'} on waivers${isFaab ? ' · FAAB league' : ''}`}
+              </Box>
+            )}
+          </Box>
         </Box>
 
-        <Box
-          component="aside"
-          aria-label="Waivers side panel"
-          sx={{
-            display: { xs: tab === 'claims' ? 'flex' : 'none', md: 'flex' },
-            flexDirection: 'column',
-            gap: 2,
-            minWidth: 0,
-          }}
-        >
-          <Card title="My claims" data-testid="waivers-claims-card">
-            {claimsStatus === 'error' ? (
-              <Typography sx={{ p: 2, fontSize: 14, color: 'var(--dash-dim)' }}>
-                Your claims could not be loaded.
-              </Typography>
-            ) : (
-              <WaiverClaims
-                claims={claims}
-                onMove={moveClaim}
-                onEdit={(claim) => setEditClaimId(claim.id)}
-                onCancel={cancelClaim}
-                busy={manageBusy}
-                orderError={orderError}
-                orderAnnouncement={orderAnnouncement}
-                orderSettled={orderSettled}
-                showBid={isFaab}
-              />
-            )}
-          </Card>
-          {lineup && (lineup.currentWeek ?? lineup.week) != null && (
-            <ByeClusterGrid
-              entries={lineup.entries}
-              fromWeek={lineup.currentWeek ?? lineup.week}
-              isPastWeek={false}
-              waiverPeriodHours={league?.waiver_period_hours}
+        {pageUnavailable && (
+          <ErrorEdge testId="waivers-league-error" onRetry={refetchLeague}>
+            We could not load this league. Check your connection and try again.
+          </ErrorEdge>
+        )}
+
+        {pageBody && (
+          <WaiverSummary
+            nextClear={claims.nextClear}
+            pendingCount={pendingCount}
+            faab={claims.faab}
+            waiverPriority={claims.waiverPriority}
+            roster={roster}
+          />
+        )}
+
+        {pageBody && poolError && (
+          <ErrorEdge testId="waivers-players-error" onRetry={() => poolRef.current?.refresh()}>
+            We could not load the players. Check your connection and try again.
+          </ErrorEdge>
+        )}
+        {pageBody && targetError && <ErrorEdge testId="waivers-target-error">{targetError}</ErrorEdge>}
+
+        {pageBody && !poolError && !poolSettled && (
+          <Box>
+            <Box role="status" sx={{
+              fontSize: '14px', color: 'var(--ps-dim)', mb: '12px',
+            }}
+            >
+              Loading players
+            </Box>
+            <PoolSkeleton />
+          </Box>
+        )}
+
+        {pageBody && (
+          <Box sx={{ display: { xs: 'block', md: 'none' } }}>
+            <SegmentedControl
+              ref={tabsRef}
+              aria-label="Waivers view"
+              look="playselect"
+              options={[
+                TABS[0],
+                {
+                  ...TABS[1],
+                  label: (
+                    <>
+                      My claims
+                      {pendingCount > 0 && <span aria-hidden="true" style={{ fontWeight: 400 }}>{pendingCount}</span>}
+                    </>
+                  ),
+                },
+              ]}
+              value={tab}
+              onChange={setTab}
+              fill
             />
-          )}
-        </Box>
+            <Box id="waivers-claims-count" sx={SR_ONLY_SX}>{`${pendingCount} pending claim${pendingCount === 1 ? '' : 's'}`}</Box>
+          </Box>
+        )}
+
+        {pageBody && (
+          <Box
+            sx={{
+              display: 'grid',
+              gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: 'minmax(0, 1fr) 320px', lg: 'minmax(0, 1fr) 384px' },
+              gap: '24px',
+              alignItems: 'start',
+            }}
+          >
+            <Box
+              sx={{
+                display: poolError || leagueError || !poolSettled ? 'none' : { xs: tab === 'waivers' ? 'block' : 'none', md: 'block' },
+                minWidth: 0,
+              }}
+            >
+              <PlayerPool
+                ref={poolRef}
+                look="playselect"
+                leagueId={leagueId}
+                bestBall={bestBall}
+                ready={!leagueLoading && !!league}
+                availabilityLock="waivers"
+                byeWeekFilter
+                cardsBelow="sm"
+                emptyCopy="No players are on waivers"
+                columnCount={playerRowColumnCount(bestBall, !ownershipKnown)}
+                renderTableHead={(headProps) => <PlayerRowTableHead {...headProps} hideOwnership={!ownershipKnown} look="playselect" />}
+                renderRow={rowFor}
+                onLoaded={handleLoaded}
+                onError={handleError}
+              />
+            </Box>
+
+            <Box
+              component="aside"
+              aria-label="Waivers side panel"
+              sx={{
+                display: { xs: tab === 'claims' ? 'flex' : 'none', md: 'flex' },
+                flexDirection: 'column',
+                gap: '16px',
+                minWidth: 0,
+              }}
+            >
+              <Frame
+                tier="rule"
+                labelledBy="waivers-claims-heading"
+                data-testid="waivers-claims-card"
+                head={<FrameHead><PixelHeading id="waivers-claims-heading">My claims</PixelHeading></FrameHead>}
+              >
+                {claimsStatus === 'error' ? (
+                  <Box component="p" sx={{
+                    m: 0, padding: '16px 20px', fontSize: '15px', color: 'var(--ps-dim)',
+                  }}
+                  >
+                    Your claims could not be loaded.
+                  </Box>
+                ) : (
+                  <WaiverClaims
+                    claims={claims}
+                    onMove={moveClaim}
+                    onEdit={(claim) => setEditClaimId(claim.id)}
+                    onCancel={cancelClaim}
+                    busy={manageBusy}
+                    orderError={orderError}
+                    orderAnnouncement={orderAnnouncement}
+                    orderSettled={orderSettled}
+                    showBid={isFaab}
+                  />
+                )}
+              </Frame>
+              {lineup && (lineup.currentWeek ?? lineup.week) != null && (
+                <ByeClusterGrid
+                  entries={lineup.entries}
+                  fromWeek={lineup.currentWeek ?? lineup.week}
+                  isPastWeek={false}
+                  waiverPeriodHours={league?.waiver_period_hours}
+                />
+              )}
+            </Box>
+          </Box>
+        )}
+        <Box role="status" aria-live="polite" sx={SR_ONLY_SX}>{nextNote}</Box>
       </Box>
 
       <PlayerDecisionCard
+        look="playselect"
         open={quickViewId != null}
         onClose={() => setQuickViewId(null)}
         entry={toDecisionCardEntry(quickViewPlayer)}
@@ -388,6 +533,7 @@ export default function WaiversPage() {
         })}
       />
       <ClaimSheet
+        look="playselect"
         open={claimId != null}
         player={claimPlayer}
         leagueId={leagueId}
@@ -398,6 +544,7 @@ export default function WaiversPage() {
         onClaimed={refreshAfterAction}
       />
       <ClaimSheet
+        look="playselect"
         open={editingClaim != null}
         player={editingClaim ? { id: editingClaim.playerId, name: editingClaim.playerName } : null}
         claim={editingClaim}
