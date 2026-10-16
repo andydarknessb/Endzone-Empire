@@ -1,3 +1,4 @@
+/* eslint-disable testing-library/no-node-access -- the Play-select look is asserted by its class and markup (.cursor, MUI roots), which have no role */
 import React from 'react';
 import { screen, within } from '@testing-library/react';
 import { Table, TableBody } from '@mui/material';
@@ -58,9 +59,9 @@ test('look="playselect": the cursor is one .cursor row, Danger when urgent, and 
   expect(document.querySelectorAll('.cursor')).toHaveLength(1);
   expect(screen.getByTestId('player-row')).toHaveStyle({ borderColor: 'var(--ps-cursor)' });
   unmount();
-  const urgent = renderRow({ look: 'playselect', player: player(), cursor: 'urgent' });
+  const view = renderRow({ look: 'playselect', player: player(), cursor: 'urgent' });
   expect(screen.getByTestId('player-row')).toHaveStyle({ borderColor: 'var(--ps-danger)' });
-  urgent.unmount();
+  view.unmount();
   renderRow({ look: 'playselect', player: player() });
   expect(document.querySelector('.cursor')).toBeNull();
 });

@@ -318,9 +318,12 @@ export default function PlayerRowPlayselect({
   const ruleBelow = open ? 'none' : '2px solid var(--ps-rule)';
   const frame = (i) => (cursor
     ? {
-      borderTop: '4px solid', borderBottom: '4px solid', borderColor: 'inherit',
+      borderTop: '4px solid',
+      borderBottom: '4px solid',
       ...(i === 0 ? { borderLeft: '4px solid' } : null),
       ...(i === cells.length - 1 ? { borderRight: '4px solid' } : null),
+      // After the side shorthands, which would reset their colour.
+      borderColor: 'inherit',
     }
     : { borderBottom: ruleBelow });
 

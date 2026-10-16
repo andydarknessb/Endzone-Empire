@@ -179,6 +179,7 @@ describe('ClaimSheet drop preselect', () => {
   });
 });
 
+/* eslint-disable testing-library/no-node-access -- the sheet look is asserted by its MUI and ps-root classes, which have no role */
 // ADR 0067 wave 3: `look` defaults to the dash sheet (PlayerManagement and the Decision card keep it).
 describe('ClaimSheet look', () => {
   const roster = [7, 9].map((id) => ({ id, name: `Roster ${id}`, position: 'RB', projected_weekly_points: 5 }));

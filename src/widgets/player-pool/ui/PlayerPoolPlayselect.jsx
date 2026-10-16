@@ -161,7 +161,7 @@ export default function PlayerPoolPlayselect({
       {drawer}
       <Frame labelledBy="player-pool-heading" head={<FrameHead><PixelHeading id="player-pool-heading">Players</PixelHeading></FrameHead>}>
         {!isMobile && filterRow}
-        <Box role="region" aria-label="Players, scrollable" tabIndex={0} sx={{ overflowX: 'auto' }}>
+        <Box role="region" aria-label="Players, scrollable" tabIndex={0} sx={{ overflowX: 'auto', position: 'relative', containerType: 'inline-size' }}>
           <Box
             component="table"
             aria-label="Players"

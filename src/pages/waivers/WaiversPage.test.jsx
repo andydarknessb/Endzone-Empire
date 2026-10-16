@@ -1139,6 +1139,7 @@ test('a Position-baseline row reads "no history" in the Proj Wk column, no numbe
   expect(within(starter).getByText('17.2')).toBeInTheDocument();
 });
 
+/* eslint-disable testing-library/no-node-access -- the cursor is counted by its .cursor class and the filled action by data-variant, which have no role */
 // ADR 0067 wave 3 (spec #2347 ruling 5 and 8): the cursor and the one filled action.
 const upRow = (id, points, over = {}) => cardsPlayer({
   id,

@@ -421,7 +421,7 @@ export default function WaiversPage() {
                   label: (
                     <>
                       My claims
-                      {pendingCount > 0 && <span aria-hidden="true" style={{ fontWeight: 400 }}>{pendingCount}</span>}
+                      {pendingCount > 0 && <span aria-hidden="true" style={{ fontWeight: 400, marginLeft: 8 }}>{pendingCount}</span>}
                     </>
                   ),
                 },
@@ -519,7 +519,6 @@ export default function WaiversPage() {
       </Box>
 
       <PlayerDecisionCard
-        look="playselect"
         open={quickViewId != null}
         onClose={() => setQuickViewId(null)}
         entry={toDecisionCardEntry(quickViewPlayer)}

@@ -1,3 +1,4 @@
+/* eslint-disable testing-library/no-node-access -- the Play-select look is asserted by its class and markup (.cursor, MUI roots), which have no role */
 import React from 'react';
 import { screen } from '@testing-library/react';
 import renderWithProviders from '../../test-utils/renderWithProviders';
