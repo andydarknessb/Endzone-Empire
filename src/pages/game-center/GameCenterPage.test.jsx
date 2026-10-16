@@ -988,6 +988,14 @@ describe('Play-select', () => {
     expect(within(hero).getByTestId('matchup-hero-sentence')).toHaveTextContent(/they have 4 players remaining/);
   });
 
+  test('the server yetToPlay prints in the hero sentence, with no lineup read', async () => {
+    mockApi({ matchups: [viewerRow({ home_yet_to_play: 2, away_yet_to_play: 3 }), otherRow()], viewerTeamId: 10 });
+    renderPage();
+    const hero = await screen.findByTestId('matchup-hero');
+    expect(within(hero).getByTestId('matchup-hero-sentence')).toHaveTextContent(/they have 4 players remaining, 3 yet to play/);
+    expect(apiClient.get).not.toHaveBeenCalledWith('/api/league/1/matchups/1');
+  });
+
   test('the week picker is the playselect look: one tab stop, the selected week', async () => {
     mockApi({ matchups: [viewerRow(), otherRow({ week: 2, id: 9, home_team_id: 70, away_team_id: 80 })], viewerTeamId: 10 });
     renderPage();
