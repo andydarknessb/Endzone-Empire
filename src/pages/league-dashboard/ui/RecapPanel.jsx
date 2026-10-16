@@ -121,7 +121,7 @@ export default function RecapPanel({ leagueId }) {
         </FrameHead>
       )}
     >
-      <Box sx={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: { xs: '14px', md: '20px' } }}>
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: '12px', padding: { xs: '14px', md: '16px 20px' } }}>
         {rebuildError && <Box role="alert" sx={{ fontSize: '14px' }}>{rebuildError}</Box>}
         {recap.data.narrative && <Narrative text={recap.data.narrative} />}
         {rows.length > 0 && (
@@ -130,8 +130,9 @@ export default function RecapPanel({ leagueId }) {
             sx={{
               m: 0,
               display: 'grid',
-              gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: 'repeat(auto-fit, minmax(240px, 1fr))' },
-              gap: { md: '0 24px' },
+              // Two facts to a row on a phone (the recap stays under half a screen and a half collapsed).
+              gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', md: 'repeat(auto-fit, minmax(240px, 1fr))' },
+              gap: { xs: '0 16px', md: '0 24px' },
               borderTop: '2px solid var(--ps-rule)',
             }}
           >
@@ -139,11 +140,11 @@ export default function RecapPanel({ leagueId }) {
               <Box
                 key={row.key}
                 sx={{
-                  display: 'flex', flexDirection: 'column', gap: '2px', padding: '10px 0', borderBottom: { xs: '2px solid var(--ps-rule)', md: 0 },
+                  display: 'flex', flexDirection: 'column', gap: '2px', padding: '10px 0', minWidth: 0, borderBottom: { xs: '2px solid var(--ps-rule)', md: 0 },
                 }}
               >
                 <Box component="dt" sx={{ fontSize: '13px', fontWeight: 600, letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--ps-dim)' }}>{row.label}</Box>
-                <Box component="dd" sx={{ m: 0, fontSize: '15px', fontWeight: 600 }}>{row.value}</Box>
+                <Box component="dd" sx={{ m: 0, fontSize: '15px', fontWeight: 600, overflowWrap: 'anywhere' }}>{row.value}</Box>
               </Box>
             ))}
           </Box>

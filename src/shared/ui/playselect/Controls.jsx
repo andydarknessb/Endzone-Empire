@@ -35,7 +35,7 @@ const DISABLED_SX = { '&[disabled], &[aria-disabled="true"]': { opacity: 0.5, cu
  * a link gets aria-disabled and swallows the click, so it does not navigate.
  */
 export function PsButton({
-  variant = 'ghost', to, onClick, ariaLabel, children, type = 'button', disabled = false,
+  variant = 'ghost', to, onClick, ariaLabel, describedBy, children, type = 'button', disabled = false,
 }) {
   const sx = { ...BTN, ...VARIANT[variant], ...DISABLED_SX };
   const arrow = variant === 'fill' ? <PixelArrow /> : null;
@@ -46,6 +46,7 @@ export function PsButton({
         to={to}
         onClick={disabled ? (event) => event.preventDefault() : onClick}
         aria-label={ariaLabel}
+        aria-describedby={describedBy}
         aria-disabled={disabled ? 'true' : undefined}
         tabIndex={disabled ? -1 : undefined}
         sx={sx}
@@ -56,7 +57,7 @@ export function PsButton({
     );
   }
   return (
-    <Box component="button" type={type} onClick={onClick} aria-label={ariaLabel} disabled={disabled} sx={sx}>
+    <Box component="button" type={type} onClick={onClick} aria-label={ariaLabel} aria-describedby={describedBy} disabled={disabled} sx={sx}>
       {children}
       {arrow}
     </Box>

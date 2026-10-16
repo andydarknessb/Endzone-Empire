@@ -19,8 +19,10 @@ import { activityBadge, formatActivityTime } from '../model/recentActivityModel'
  * The frame fetches exactly 17 rows (`useLeagueTransactions`'s own `limit`), the most it ever shows;
  * below `sm` only the first 3 of those render, with the "All activity" link carrying the rest. At and
  * above it the cap is the optional `rowLimit` (never more than the 17 fetched): the dashboard passes
- * `ceil(team count * 5 / 6)` so that, beside the standings, the two end about level, and 3 on game
- * day. The loading skeleton follows the SAME cap rather than always holding 17.
+ * `ceil(team count * 3 / 4)` so that, beside the standings (a 44px row against a two-line activity row),
+ * the two end about level, and 3 on game day. `compact` is that side-by-side placement: the narrow rail
+ * gives the kind tag a 72px column instead of the 160px a full-width frame has, so the sentence keeps
+ * its room. The loading skeleton follows the SAME cap rather than always holding 17.
  *
  * `onFeedShort(boolean)` reports whether the resolved feed has fewer rows than the wide cap (#1998);
  * the dashboard stacks the frame under the standings when it does, since a short frame leaves the
@@ -30,7 +32,7 @@ import { activityBadge, formatActivityTime } from '../model/recentActivityModel'
  * 'loading'. A failed read is one danger panel; Try again remounts the read.
  */
 
-// ceil(20 * 5 / 6): the rows for the largest league (20 teams).
+// More than ceil(20 * 3 / 4): the rows for the largest league (20 teams), with room to spare.
 const FETCH_LIMIT = 17;
 const PHONE_LIMIT = 3;
 
@@ -60,7 +62,7 @@ function ActivitySkeletonRow({ last }) {
  * `commissioner` row, blank for every other teamless row (`recap`, `stat_correction`, ...). This
  * widget makes no transaction-type decision of its own.
  */
-function ActivityRow({ row, last, now }) {
+function ActivityRow({ row, last, now, compact }) {
   const badge = activityBadge(row.type);
   const sentence = (
     <>
@@ -82,7 +84,11 @@ function ActivityRow({ row, last, now }) {
       sx={{
         display: 'grid',
         gridTemplateAreas: { xs: '"tag time" "text text"', sm: '"tag text time"' },
-        gridTemplateColumns: { xs: 'auto 1fr', sm: '160px minmax(0, 1fr) auto' },
+        gridTemplateColumns: {
+          xs: 'auto 1fr',
+          sm: '160px minmax(0, 1fr) auto',
+          md: `${compact ? '72px' : '160px'} minmax(0, 1fr) auto`,
+        },
         alignItems: 'start',
         gap: { xs: '6px 12px', sm: '12px' },
         minHeight: '44px',
@@ -111,7 +117,7 @@ export default function RecentActivity(props) {
 }
 
 function RecentActivityBody({
-  leagueId, now, headingLevel = 2, rowLimit, onFeedShort, onRetry, sx, ...rest
+  leagueId, now, headingLevel = 2, rowLimit, onFeedShort, onRetry, compact = false, sx, ...rest
 }) {
   const { status, rows } = useLeagueTransactions(leagueId, { limit: FETCH_LIMIT });
   const theme = useTheme();
@@ -187,7 +193,7 @@ function RecentActivityBody({
       {status === 'ready' && shown.length > 0 && (
         <Box component="ul" role="list" sx={{ listStyle: 'none', m: 0, padding: '4px 16px 8px' }}>
           {shown.map((row, i) => (
-            <ActivityRow key={row.id ?? i} row={row} last={i === shown.length - 1} now={now} />
+            <ActivityRow key={row.id ?? i} row={row} last={i === shown.length - 1} now={now} compact={compact} />
           ))}
         </Box>
       )}

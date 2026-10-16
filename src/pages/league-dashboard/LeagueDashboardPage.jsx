@@ -1,8 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { Box, useMediaQuery, useTheme } from '@mui/material';
 import { useLeague } from '../../hooks/useLeague';
-import { psRootSx } from '../../shared/ui/playselect';
+import { ErrorPanel, psRootSx } from '../../shared/ui/playselect';
 import CopyInvite from '../../features/copy-invite';
 import MyTeamSummary from '../../widgets/my-team-summary';
 import StandingsTable from '../../widgets/standings-table';
@@ -11,7 +11,9 @@ import AroundTheLeague from '../../widgets/around-the-league';
 import RecentActivity from '../../widgets/recent-activity';
 import QuickActions from '../../widgets/quick-actions';
 import { useMatchupPreview } from '../../widgets/matchup-preview';
-import { useWeekMatchups } from '../../entities/matchup';
+import { applyScoreEvent, useLiveScores, useWeekMatchups } from '../../entities/matchup';
+import { useActionItems, yourMoveModel } from '../../entities/action-item';
+import { useAdvice } from '../../entities/roster';
 import { usePickemSettings } from '../../entities/pickem-game';
 import { useTrophies } from '../../components/TrophyCase/TrophyCase';
 import {
@@ -20,6 +22,8 @@ import {
 } from '../../lib/teamProfileEvents';
 import {
   deriveLeaguePhase,
+  formatPoints,
+  useNow,
   isSeasonLive,
   LEAGUE_PHASE,
   LEAGUE_PHASE_META,
@@ -185,10 +189,27 @@ function DashboardBody({
 
   // The matchup the page leads with, read once: the pre-kickoff panel, the scoreboard and the game-day
   // order all come from it. A pick'em-only league has no fantasy matchups, so it never reads them.
-  const matchup = useMatchupPreview(fantasy ? leagueId : null);
+  // The League's live score feed, subscribed to once here: it moves the scoreboard, the head's live count
+  // and the Advance control's readiness with no polling. "As of" is the time of the last read or event.
+  const { scoreEvent } = useLiveScores({ leagueId: fantasy ? leagueId : null });
+  const matchup = useMatchupPreview(fantasy ? leagueId : null, { scoreEvent });
   const weekMatchups = useWeekMatchups(fantasy ? leagueId : null, week);
-  const liveCount = weekMatchups.matchups.filter((m) => m.status === 'live').length;
+  const scored = Array.isArray(scoreEvent?.scored) ? scoreEvent.scored : [];
+  const liveCount = weekMatchups.matchups
+    .map((m) => {
+      const entry = scored.find((e) => e.matchupId === m.id);
+      return entry ? applyScoreEvent(m, entry) : m;
+    })
+    .filter((m) => m.status === 'live').length;
   const gameDay = fantasy && matchup.status === 'ready' && matchup.game.isLive === true;
+  const matchupReady = matchup.status === 'ready';
+  const [asOf, setAsOf] = useState(null);
+  useEffect(() => {
+    if (matchupReady) setAsOf((prev) => prev ?? Date.now());
+  }, [matchupReady]);
+  useEffect(() => {
+    if (scoreEvent) setAsOf(Date.now());
+  }, [scoreEvent]);
 
   const pickemSettings = usePickemSettings(fantasy ? leagueId : null);
   const showPickem = fantasy && seasonLive && pickemSettings.settings?.enabled === true;
@@ -196,16 +217,61 @@ function DashboardBody({
   const trophy = useTrophies(leagueId);
   const trophyCount = !trophy.loading && !trophy.error ? trophy.visibleTrophies.length : 0;
 
-  // Your move: this league's open plays, the page's one cursor and one filled action. It is built from
-  // the league's action items (GET /api/user/action-items) and handed to ui/YourMove as plain data;
-  // with nothing built yet the section does not render.
-  const yourMove = null;
+  // Your move: this league's open plays from the user's action items (GET /api/user/action-items), the
+  // page's one cursor and one filled action. The entity groups them (one card per shared lock, earliest
+  // first); this maps each card to ui/YourMove's plain data. Nothing is drawn while the read is in flight
+  // (a "You're set" that then turns into a card would lie), and a completed league with nothing due draws
+  // no card at all: the board has none.
+  const actions = useActionItems();
+  const clock = useNow((at) => at + 30 * 1000);
+  const move = useMemo(
+    () => yourMoveModel(actions.items, { leagueId, now: clock }),
+    [actions.items, leagueId, clock]
+  );
+  const isLineup = (item) => String(item.id).split(':')[0] === 'lineup_problem';
+  const carriesLineup = move.cards.some((card) => card.items.some(isLineup));
+  const leadCarriesLineup = Boolean(move.lead && move.lead.items.some(isLineup));
+  // The lead lineup card names the swap the Forecast would make: "Start {in} for {out} · +{gain} pts".
+  // No suggestion, no note (the item's own detail reads instead).
+  const advice = useAdvice({
+    leagueId: leadCarriesLineup ? leagueId : null,
+    week,
+    bestBall: Boolean(league.best_ball),
+  });
+  const swap = leadCarriesLineup ? advice.suggestions[0] : null;
+  const swapNote = swap && swap.suggested?.name && swap.current?.name
+    ? `Start ${swap.suggested.name} for ${swap.current.name}${swap.gain != null ? ` · +${formatPoints(swap.gain)} pts` : ''}`
+    : undefined;
+  const toCard = (card, note) => ({ feet: card.items, ...(note ? { note } : null) });
+  let yourMove = null;
+  if (!actions.loading && !actions.error) {
+    if (!move.empty) {
+      yourMove = {
+        lead: toCard(move.lead, swapNote),
+        rest: move.rest.map((card) => toCard(card)),
+        badge: move.badge,
+        urgent: move.urgent,
+      };
+    } else if (!complete) {
+      yourMove = { empty: true, urgent: false };
+    }
+  }
   // It sits right under the head; on game day with nothing locking inside the hour the live scoreboard
   // leads and it follows the scoreboard instead.
   const yourMoveOnTop = yourMove != null && (!gameDay || yourMove.urgent === true);
   const yourMoveNode = yourMove && (
     <Box component="section" data-testid="slot-your-move" sx={{ minWidth: 0 }}>
       <YourMove {...yourMove} />
+    </Box>
+  );
+  const yourMoveFailed = !actions.loading && actions.error && !complete && (
+    <Box data-testid="slot-your-move">
+      <ErrorPanel
+        title="Couldn't check what needs you"
+        body="Your league is below. Open each page, or try again."
+        onRetry={actions.reload}
+        retryAriaLabel="Try checking your plays again"
+      />
     </Box>
   );
 
@@ -236,18 +302,18 @@ function DashboardBody({
 
   const commissionerStrip = (
     <Box component="section" data-testid="slot-commissioner-strip" sx={EMPTY_HIDDEN_SX}>
-      <CommissionerStrip leagueId={leagueId} invite={inviteInStrip ? invite : undefined} />
+      <CommissionerStrip leagueId={leagueId} invite={inviteInStrip ? invite : undefined} scoreEvent={scoreEvent} />
     </Box>
   );
 
   const matchupSlot = (
     <Box data-testid="slot-matchup-preview" sx={{ display: 'grid', gridArea: gameDay ? undefined : 'v' }}>
-      <VersusPanel leagueId={leagueId} model={matchup} />
+      <VersusPanel leagueId={leagueId} model={matchup} asOf={asOf} />
     </Box>
   );
   const myTeamSlot = hasTeam && (
     <Box data-testid="slot-my-team" sx={{ display: 'grid', gridArea: gameDay ? undefined : 'm', ...EMPTY_HIDDEN_SX }}>
-      <MyTeamSummary leagueId={leagueId} wide={gameDay} />
+      <MyTeamSummary leagueId={leagueId} wide={gameDay} fixLineup={!carriesLineup} />
     </Box>
   );
   const pickemSlot = showPickem && (
@@ -270,9 +336,12 @@ function DashboardBody({
           gap: '24px',
           alignItems: 'stretch',
           gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: hasTeam ? 'minmax(0, 1.2fr) minmax(0, 1fr)' : 'minmax(0, 1fr)' },
+          // Only the areas that render get a row, so no empty track adds a gap or soaks up the stretch.
           gridTemplateAreas: {
-            xs: hasTeam ? '"v" "m" "p"' : '"v" "p"',
-            md: hasTeam ? '"v m" "p m"' : '"v" "p"',
+            xs: ['"v"', hasTeam && '"m"', showPickem && '"p"'].filter(Boolean).join(' '),
+            md: hasTeam
+              ? (showPickem ? '"v m" "p m"' : '"v m"')
+              : ['"v"', showPickem && '"p"'].filter(Boolean).join(' '),
           },
           gridTemplateRows: { md: hasTeam && showPickem ? '1fr auto' : undefined },
         }}
@@ -317,7 +386,8 @@ function DashboardBody({
         <Box data-testid="slot-recent-activity" sx={{ display: 'grid' }}>
           <RecentActivity
             leagueId={leagueId}
-            rowLimit={gameDay ? 3 : Math.ceil((teams.length * 5) / 6)}
+            rowLimit={gameDay ? 3 : Math.ceil((teams.length * 3) / 4)}
+            compact={!feedShort}
             onFeedShort={setFeedShort}
           />
         </Box>
@@ -350,10 +420,10 @@ function DashboardBody({
     // main-grid slices never mount: each of them (my-team, matchup, standings table, activity) fires a
     // fantasy read that would come back an empty or zeroed table. The pool standings stand in their place.
     sections = [
-      ['your-move', yourMoveOnTop && yourMoveNode],
+      ['your-move', yourMoveOnTop ? yourMoveNode : yourMoveFailed],
       ['strip', commissionerStrip],
       ['pickem-standings', (
-        <Box data-testid="dashboard-pickem-standings">
+        <Box data-testid="dashboard-pickem-standings" sx={{ minWidth: 0, contain: 'paint' }}>
           <PickemStandings leagueId={leagueId} />
         </Box>
       )],
@@ -362,7 +432,7 @@ function DashboardBody({
     ];
   } else if (gameDay) {
     sections = [
-      ['your-move', yourMoveOnTop && yourMoveNode],
+      ['your-move', yourMoveOnTop ? yourMoveNode : yourMoveFailed],
       ['hero', hero],
       ['strip', commissionerStrip],
       ['recap', recap],
@@ -373,7 +443,7 @@ function DashboardBody({
     ];
   } else {
     sections = [
-      ['your-move', yourMoveOnTop && yourMoveNode],
+      ['your-move', yourMoveOnTop ? yourMoveNode : yourMoveFailed],
       ['strip', commissionerStrip],
       ['draft-day', showDraftDay && <DraftDay league={league} leagueId={leagueId} />],
       ...(complete ? [['trophies', trophies]] : []),

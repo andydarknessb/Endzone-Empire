@@ -67,7 +67,9 @@ export default function AroundTheLeague({ leagueId }) {
   }
 
   const ready = status === 'ready';
-  const columns = gameDay ? 4 : 3;
+  // Three columns (four on game day), but never more than there are cells (the tiles and the All
+  // cell), so a week with two rival matchups fills the row instead of leaving a bare column.
+  const columns = ready ? Math.max(1, Math.min(gameDay ? 4 : 3, tiles.length + 1)) : gameDay ? 4 : 3;
 
   return (
     <Frame

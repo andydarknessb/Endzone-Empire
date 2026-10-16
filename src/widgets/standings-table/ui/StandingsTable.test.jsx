@@ -329,6 +329,8 @@ test('standings-table: the viewer row is Play blue with an arrow and a You tag, 
   const otherRow = within(card).getByText('Squad 2').closest('tr');
   expect(otherRow).not.toHaveAttribute('aria-current');
   expect(within(otherRow).queryByText('You')).not.toBeInTheDocument();
+  // A phone's Team column is fixed, so a long name ellipsizes: the full name is the name's title.
+  expect(within(otherRow).getByTitle('Squad 2')).toHaveTextContent('Squad 2');
   expect(allRules(within(otherRow).getAllByRole('cell')[0])).toMatch(/border-bottom:\s*2px solid var\(--ps-rule\)/);
 });
 

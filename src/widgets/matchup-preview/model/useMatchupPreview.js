@@ -5,6 +5,7 @@ import {
   viewerMatchupOf,
   matchupFromDetailBody,
   matchupBoard,
+  applyScoreEvent,
 } from '../../../entities/matchup';
 
 /**
@@ -124,7 +125,9 @@ import {
 // BEFORE reading `detail.status`), so the "idles at 'loading'" notes throughout
 // this hook refer to that shared contract. See src/shared/lib/useEndpoint.js.
 
-export function useMatchupPreview(leagueId) {
+// `scoreEvent` (optional) is the League's last `scores:updated` event, read once by the page: it moves the
+// viewer's matchup (scores, Expected finals, players remaining, status) without a re-read.
+export function useMatchupPreview(leagueId, { scoreEvent } = {}) {
   const { teams, viewerTeamId, league } = useLeague(leagueId);
   const week = league?.current_week ?? null;
 
@@ -138,7 +141,11 @@ export function useMatchupPreview(leagueId) {
   // Pick the viewer's matchup by Team id (#112). The rows are already the one
   // Matchup shape (entities/matchup), so this widget never names a database
   // column again (#864).
-  const myMatchup = viewerMatchupOf(list.matchups, viewerTeamId);
+  const listMatchup = viewerMatchupOf(list.matchups, viewerTeamId);
+  const liveEntry = Array.isArray(scoreEvent?.scored)
+    ? scoreEvent.scored.find((entry) => listMatchup && entry.matchupId === listMatchup.id)
+    : null;
+  const myMatchup = liveEntry ? applyScoreEvent(listMatchup, liveEntry) : listMatchup;
   const matchupId = myMatchup ? myMatchup.id : null;
   const opponentId = myMatchup
     ? myMatchup.home.teamId === viewerTeamId

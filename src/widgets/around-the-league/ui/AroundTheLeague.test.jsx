@@ -352,6 +352,17 @@ describe('AroundTheLeague', () => {
     expect(rulesUnder(body)['']).toContain('grid-template-columns: repeat(4, minmax(0, 1fr))');
   });
 
+  it('never lays out more columns than it has cells: two rival tiles and the link tile fill three', async () => {
+    mockGetByUrl({
+      [`/api/league/${LEAGUE_ID}`]: leagueResponse(),
+      [`/api/league/${LEAGUE_ID}/matchups`]: { data: SIX_MATCHUPS.slice(0, 3) },
+    });
+    renderWidget();
+    await waitFor(() => expect(tiles()).toHaveLength(2));
+    const body = screen.getByTestId('around-the-league-body');
+    expect(rulesUnder(body)['']).toContain('grid-template-columns: repeat(3, minmax(0, 1fr))');
+  });
+
   it('holds skeleton tiles while its reads are in flight', () => {
     apiClient.get.mockImplementation((url) => {
       if (url === `/api/league/${LEAGUE_ID}` || url === `/api/league/${LEAGUE_ID}/matchups`) {

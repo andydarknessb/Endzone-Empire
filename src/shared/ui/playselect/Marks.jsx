@@ -151,7 +151,10 @@ export function StatusChip({ children, onBoard = false }) {
         color: onBoard ? 'var(--ps-board-dim)' : 'var(--ps-ink)',
         ...pixelSx(16),
         lineHeight: 1,
-        whiteSpace: 'nowrap',
+        // One line at every width that holds it; a phone too narrow for "WEEK 18 · IN SEASON" (320) wraps
+        // the chip inside its row instead of pushing the page sideways.
+        maxWidth: '100%',
+        whiteSpace: 'normal',
       }}
     >
       {children}

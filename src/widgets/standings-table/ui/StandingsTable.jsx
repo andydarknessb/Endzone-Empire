@@ -252,12 +252,23 @@ function StandingsRow({ row, preseason, lastBeforeBreak }) {
           ...base, position: 'sticky', left: RANK_W, zIndex: 1, fontWeight: 600,
         })}
       >
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: { xs: '6px', md: '10px' } }}>
+        {/* On a phone the Team column is the 214px the header holds, so a long name ellipsizes (the full
+            name is its title) and the arrow, mark and You tag always stay in view; from sm up it is as wide
+            as its content. */}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: { xs: '6px', md: '10px' }, maxWidth: { xs: '198px', sm: 'none' } }}>
           <Box component="span" aria-hidden="true" sx={{ width: '12px', flex: 'none', display: 'inline-flex' }}>
             {row.isViewer && <PixelArrow />}
           </Box>
           <TeamMark name={row.teamName} avatarUrl={row.avatarUrl} avatarStaticUrl={row.avatarStaticUrl} />
-          <Box component="span" sx={{ minWidth: 0, fontSize: '15px', fontWeight: 600 }}>{row.teamName}</Box>
+          <Box
+            component="span"
+            title={row.teamName}
+            sx={{
+              minWidth: 0, fontSize: '15px', fontWeight: 600, overflow: { xs: 'hidden', sm: 'visible' }, textOverflow: 'ellipsis',
+            }}
+          >
+            {row.teamName}
+          </Box>
           {row.isViewer && <YouTag />}
         </Box>
       </Box>

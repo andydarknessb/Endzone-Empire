@@ -464,6 +464,29 @@ async function fulfilApi(route: Route, { liveStarters = false }: { liveStarters?
   if (method === 'GET' && pathname === '/api/team/roster') {
     return json(route, 200, rosterRows());
   }
+  // The Play-select dashboard's own reads (#2330): nothing needs the viewer, no recap or ranking yet, no
+  // pick'em, no chat history. A 404 is each read's own "nothing yet" answer, never the harness 500.
+  if (method === 'GET' && pathname === '/api/user/action-items') {
+    return json(route, 200, { generatedAt: new Date().toISOString(), counts: { total: 0, dueToday: 0 }, partial: [], items: [] });
+  }
+  if (method === 'GET' && pathname === `/api/pickem/league/${LEAGUE_ID}/settings`) {
+    return json(route, 200, { enabled: false });
+  }
+  if (method === 'GET' && pathname === '/api/team/lineup/advice') {
+    return json(route, 200, { suggestions: [], movePlan: [] });
+  }
+  if (method === 'GET' && pathname === `/api/league/${LEAGUE_ID}/chat`) {
+    return json(route, 200, []);
+  }
+  if (method === 'GET' && pathname === `/api/league/${LEAGUE_ID}/chat/unread`) {
+    return json(route, 200, { unread: 0 });
+  }
+  if (
+    method === 'GET'
+    && (pathname === `/api/scoring/league/${LEAGUE_ID}/recap` || pathname === `/api/scoring/league/${LEAGUE_ID}/power-rankings`)
+  ) {
+    return json(route, 404, { error: 'nothing yet' });
+  }
 
   return json(route, 500, { error: `unexpected mocked request: ${method} ${pathname}` });
 }

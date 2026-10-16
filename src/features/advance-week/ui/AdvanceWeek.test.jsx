@@ -40,3 +40,36 @@ test('without a disabledReason the button is enabled and nothing is described', 
   expect(button).toBeEnabled();
   expect(button).not.toHaveAttribute('aria-describedby');
 });
+
+describe('the playselect look', () => {
+  test('is a ghost button, never filled, with the sentence beside it', () => {
+    const { container } = render(<AdvanceWeek look="playselect" leagueId={42} currentWeek={5} />);
+
+    const button = screen.getByRole('button', { name: 'Advance to Week 6' });
+    expect(button).toBeEnabled();
+    expect(screen.getByText(/^Advancing closes Week 5 matchups and opens Week 6/)).toBeInTheDocument();
+    // eslint-disable-next-line testing-library/no-container, testing-library/no-node-access
+    expect(container.querySelector('[data-filled="true"]')).toBeNull();
+  });
+
+  test('a disabledReason replaces the sentence, disables the button and is its description', () => {
+    render(<AdvanceWeek look="playselect" leagueId={42} currentWeek={5} disabledReason="Opens when every Week 5 game is final" />);
+
+    const button = screen.getByRole('button', { name: 'Advance to Week 6' });
+    expect(button).toBeDisabled();
+    const reason = screen.getByText('Opens when every Week 5 game is final');
+    expect(button).toHaveAttribute('aria-describedby', reason.id);
+    expect(screen.queryByText(/^Advancing closes/)).not.toBeInTheDocument();
+  });
+
+  test('Confirm posts the week, and a refusal shows the server sentence', async () => {
+    apiClient.post.mockRejectedValue({ response: { status: 409, data: { error: 'week 5 was already advanced' } } });
+    render(<AdvanceWeek look="playselect" leagueId={42} currentWeek={5} />);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Advance to Week 6' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Confirm' }));
+
+    expect(apiClient.post).toHaveBeenCalledWith('/api/scoring/league/42/advance-week', { week: 5 });
+    expect(await screen.findByRole('alert')).toHaveTextContent('week 5 was already advanced');
+  });
+});

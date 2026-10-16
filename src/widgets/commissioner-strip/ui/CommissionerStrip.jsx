@@ -20,10 +20,12 @@ import useCommissionerStrip from '../model/useCommissionerStrip';
  *     "League administration" link. `invite` is an optional extra row (the page passes the Invite
  *     control here on a phone, where the head has no room for it).
  *
- * Paints only ps-* tokens. The Advance control is the advance-week feature, which the commissioner
- * console composes too and which paints its own look until that feature is restyled.
+ * Paints only ps-* tokens. The Advance control is the advance-week feature in its `playselect` look
+ * (the commissioner console composes the same feature on its own look), a ghost button, never filled.
+ * It is disabled with its reason as text ("Opens when every Week 7 game is final") until every game of
+ * the current week is final.
  */
-export default function CommissionerStrip({ leagueId, invite }) {
+export default function CommissionerStrip({ leagueId, invite, scoreEvent }) {
   const {
     isCommissioner,
     pickemOnly,
@@ -31,8 +33,9 @@ export default function CommissionerStrip({ leagueId, invite }) {
     currentWeek,
     facts,
     pendingJoinRequests,
+    advanceDisabledReason,
     refetch,
-  } = useCommissionerStrip(leagueId);
+  } = useCommissionerStrip(leagueId, { scoreEvent });
   const headingId = useId();
 
   if (!isCommissioner) return null;
@@ -80,7 +83,13 @@ export default function CommissionerStrip({ leagueId, invite }) {
   if (showAdvance) {
     rows.push(
       <Box key="advance" component="li" sx={rowSx}>
-        <AdvanceWeek leagueId={leagueId} currentWeek={currentWeek} onAdvanced={refetch} />
+        <AdvanceWeek
+          look="playselect"
+          leagueId={leagueId}
+          currentWeek={currentWeek}
+          onAdvanced={refetch}
+          disabledReason={advanceDisabledReason || undefined}
+        />
       </Box>
     );
   }
