@@ -32,7 +32,8 @@ const DISABLED_SX = { '&[disabled], &[aria-disabled="true"]': { opacity: 0.5, cu
 /**
  * Square 44px button: fill (the page's one filled action), ghost, or quiet. A
  * `to` makes it a router link. `disabled` is the native attribute on a button;
- * a link gets aria-disabled and swallows the click, so it does not navigate.
+ * a link gets aria-disabled and swallows the click, so it does not navigate. The root carries
+ * `data-variant`, so a test can count the page's filled actions (`[data-variant="fill"]`).
  */
 export function PsButton({
   variant = 'ghost', to, onClick, ariaLabel, describedBy, children, type = 'button', disabled = false,
@@ -47,6 +48,7 @@ export function PsButton({
         onClick={disabled ? (event) => event.preventDefault() : onClick}
         aria-label={ariaLabel}
         aria-describedby={describedBy}
+        data-variant={variant}
         aria-disabled={disabled ? 'true' : undefined}
         tabIndex={disabled ? -1 : undefined}
         sx={sx}
@@ -57,7 +59,7 @@ export function PsButton({
     );
   }
   return (
-    <Box component="button" type={type} onClick={onClick} aria-label={ariaLabel} aria-describedby={describedBy} disabled={disabled} sx={sx}>
+    <Box component="button" type={type} onClick={onClick} aria-label={ariaLabel} aria-describedby={describedBy} data-variant={variant} disabled={disabled} sx={sx}>
       {children}
       {arrow}
     </Box>

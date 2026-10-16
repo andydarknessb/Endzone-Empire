@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { Box } from '@mui/material';
 import { PixelWarn, PsButton } from '../../../shared/ui/playselect';
 import { formatInstant } from '../../../shared/lib';
@@ -14,7 +14,9 @@ const MINUTE_MS = 60 * 1000;
  * `GET /api/user/action-items`), so the figures are the dashboard's for the same moment. A single empty slot
  * reads "{SLOT} is empty · fill it by Sun 3:25 PM", and under an hour from the lock "{SLOT} is empty · locks
  * in {n} min" in the Danger text (also in the accessible name). Any other problem keeps the server's own
- * title and detail, then "Locks Sun 3:25 PM". Renders nothing without such an item.
+ * title and detail, then "Locks Sun 3:25 PM". Renders nothing without such an item, and nothing once its lock
+ * has passed: the note then asks for the action items once more (`onExpired`, the shared cache's refetch), since
+ * the next lock, or a clean lineup, is the server's to say.
  *
  * shortcut: the live "no bench player can fill it · Free agents" variant and the advice copy that names each
  * move (+23.0 pts) need the lineup's bench and advice, which Game Center does not read; upgrade when the
@@ -25,6 +27,7 @@ export function lineupNoteView(item, now) {
   const lockAt = item.deadlineAt ? new Date(item.deadlineAt).getTime() : null;
   const lock = lockAt != null && !Number.isNaN(lockAt) ? lockAt : null;
   const empty = /^Fill your empty (.+) slot$/.exec(item.title || '');
+  if (lock != null && lock <= now) return { expired: true };
   const minutes = lock != null && lock > now ? Math.ceil((lock - now) / MINUTE_MS) : null;
   const urgent = minutes != null && minutes < 60;
   const lockText = lock != null
@@ -42,9 +45,19 @@ export function lineupNoteView(item, now) {
   return { lead, tail: tail || null, urgent, plain: [lead, tail].filter(Boolean).join(' · ') };
 }
 
-export default function LineupNote({ item, now, to }) {
+export default function LineupNote({
+  item, now, to, onExpired,
+}) {
   const note = lineupNoteView(item, now);
-  if (!note) return null;
+  const asked = useRef(null);
+  const key = note?.expired ? `${item.id}:${item.deadlineAt}` : null;
+  useEffect(() => {
+    if (key && asked.current !== key) {
+      asked.current = key;
+      onExpired?.();
+    }
+  }, [key, onExpired]);
+  if (!note || note.expired) return null;
   return (
     <Box
       component="section"

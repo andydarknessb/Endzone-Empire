@@ -128,7 +128,7 @@ export function syncLineText(syncedAt, now = Date.now()) {
  *     Matchup tied).
  *   - Players remaining sums the server's count across every side of the week
  *     (the one definition: starters whose game is not final, Out starters and
- *     empty slots excluded), and is not derivable when no side reports a
+ *     empty slots excluded), and is not derivable unless every side reports a
  *     count. Before any Matchup starts it reads "Starters set to play".
  */
 export function weekGlanceFacts(matchups) {
@@ -160,11 +160,13 @@ export function weekGlanceFacts(matchups) {
     }
   }
 
-  let remaining = null;
+  // The server's counts only, and only as a whole: a side without one makes the sum a part of the truth, so
+  // the row is left out rather than printing a total that mixes a count with nothing.
+  let remaining = list.length > 0 ? 0 : null;
   for (const m of list) {
     for (const side of [m.home, m.away]) {
       const n = finite(side?.playersRemaining);
-      if (n != null) remaining = (remaining ?? 0) + n;
+      remaining = n == null || remaining == null ? null : remaining + n;
     }
   }
 
@@ -192,7 +194,9 @@ function inWeek(week, value) {
 }
 
 export function useGameCenter(leagueId) {
-  const { league, viewerTeamId, loading: leagueLoading, error: leagueError } = useLeague(leagueId);
+  const {
+    league, viewerTeamId, loading: leagueLoading, error: leagueError, refetch: refetchLeague,
+  } = useLeague(leagueId);
   const [rosters, setRosters] = useState([]);
   const [week, setWeek] = useState(null);
   const [plays, setPlays] = useState([]);
@@ -211,7 +215,14 @@ export function useGameCenter(leagueId) {
     if (adds.length) setPlays((prev) => [...adds, ...prev].slice(0, PLAYS_LIMIT));
   }, []);
 
-  const { matchups, liveGames, loading, error } = useLeagueMatchups(leagueId, { onScores: handleScores });
+  const {
+    matchups, liveGames, loading, error, refetch: refetchMatchups,
+  } = useLeagueMatchups(leagueId, { onScores: handleScores });
+  // Retry asks again for whichever read failed: both are cheap, and each one that is fine just refreshes.
+  const retry = useCallback(() => {
+    refetchMatchups();
+    refetchLeague?.();
+  }, [refetchMatchups, refetchLeague]);
 
   // Best-effort roster load: only needed to attribute a play to a Team, so a
   // failure here never takes down the rest of the screen.
@@ -383,6 +394,7 @@ export function useGameCenter(leagueId) {
     items,
     glance,
     anyLive,
+    retry,
   };
 }
 

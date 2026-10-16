@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { matchupFromListRow } from '../../../entities/matchup';
 import { MatchupGrid } from '../index';
 import MatchupHero from '../../matchup-hero';
+import { formatKickoff } from '../../../shared/lib';
 import { recordsByTeamId } from '../../../entities/standings';
 
 // Fixtures are built through the entity's own list-row builder, so a test
@@ -146,12 +147,24 @@ test('a live card is Board black: both scores, Exp final and players remaining o
   expect(within(c).queryByTestId('leader-check')).toBeNull();
 });
 
-test('the tile link is named by both sides, the figures and both win probabilities', () => {
+// Label in name: the tile carries no aria-label, so its accessible name is its visible content plus the one
+// label of the two-sided bar. What a screen reader hears is what the eye reads.
+test('the tile link is named by its content: both sides, Exp final, players remaining and the bar', () => {
   renderGrid({ matchups: [LIVE, SCHEDULED] });
-  expect(screen.getByRole('link', {
-    name: 'Bemidji Blizzard against Mankato Mavericks, live, 92.1 to 88.7, Bemidji Blizzard 49%, Mankato Mavericks 51% win probability',
-  })).toBe(card(1));
-  expect(card(2)).toHaveAccessibleName(/^Hibbing Hawks against Brainerd Bruisers, projected 108\.3 to 111\.9, Hibbing Hawks \d+%, Brainerd Bruisers \d+% win probability$/);
+  expect(card(1)).not.toHaveAttribute('aria-label');
+  const name = (el) => el.textContent;
+  expect(card(1)).toHaveAccessibleName(/Bemidji Blizzard/);
+  expect(card(1)).toHaveAccessibleName(/Score 92.1/);
+  expect(card(1)).toHaveAccessibleName(/Exp final 118.0/);
+  expect(card(1)).toHaveAccessibleName(/2 players remaining/);
+  expect(card(1)).toHaveAccessibleName(/Mankato Mavericks/);
+  expect(card(1)).toHaveAccessibleName(/Exp final 119.4/);
+  expect(card(1)).toHaveAccessibleName(/3 players remaining/);
+  expect(card(1)).toHaveAccessibleName(/Bemidji Blizzard 49%, Mankato Mavericks 51% win probability/);
+  expect(card(1)).toHaveAccessibleName(/Details/);
+  // Every visible word of the tile is in its name (the percentages at the bar's ends are the bar's own label).
+  expect(name(card(1))).toContain('Exp final 118.0');
+  expect(screen.getByRole('link', { name: /Hibbing Hawks 9 starters set to play Projected 108.3 Brainerd Bruisers 9 starters set to play Projected 111.9/ })).toBe(card(2));
 });
 
 // Red-tell: rendering the score on a scheduled card turns THIS case red and no other.
@@ -170,10 +183,28 @@ test('a scheduled card is framed with Proj figures, starters set to play, no chi
   // No per-tile chip and no "Kicks off" line.
   expect(within(c).queryByTestId('matchup-status')).toBeNull();
   expect(c).not.toHaveTextContent(/Scheduled|Kicks off/);
-  expect(screen.getAllByText(/Projected totals shown until kickoff/)).toHaveLength(1);
-  expect(frame()).toHaveTextContent('Projected totals shown until kickoff');
+  // RULINGS Critique 10 item 13: the head says it once, with the earliest kickoff.
+  expect(screen.getAllByText(/projected totals/)).toHaveLength(1);
+  expect(frame()).toHaveTextContent(`All games kick off ${formatKickoff(KICKOFF)} · projected totals`);
   // The bar is the projections-only split.
   expect(within(c).getByRole('img', { name: /^Hibbing Hawks \d+%, Brainerd Bruisers \d+% win probability$/ })).toBeInTheDocument();
+});
+
+test('the head names the earliest kickoff of the scheduled games, and reads differently once some have started', () => {
+  const earlier = row({
+    id: 20, status: 'scheduled', first_kickoff_at: '2026-09-13T17:00:00Z', home_team_id: 21, home_team_name: 'Early A', away_team_id: 22, away_team_name: 'Early B', home_score: '0', away_score: '0', home_expected_final: 100, away_expected_final: 100,
+  });
+  const { unmount } = renderGrid({ matchups: [SCHEDULED, earlier] });
+  expect(frame()).toHaveTextContent(`All games kick off ${formatKickoff('2026-09-13T17:00:00Z')} · projected totals`);
+  unmount();
+  renderGrid({ matchups: [LIVE, SCHEDULED] });
+  expect(frame()).toHaveTextContent('Projected totals shown until kickoff');
+  expect(frame()).not.toHaveTextContent('All games kick off');
+});
+
+test('a live card with a null Expected final draws no bar', () => {
+  renderGrid({ matchups: [row({ home_expected_final: null })] });
+  expect(within(card(1)).queryByRole('img', { name: /win probability/ })).toBeNull();
 });
 
 test('a played card says Awaiting final and waits on the score of record, with no forecast lines', () => {
@@ -287,7 +318,10 @@ describe('below the sm breakpoint', () => {
     expect(within(within(live).getByTestId('matchup-side-away')).getByTestId('matchup-figure')).toHaveTextContent('88.7');
     // The win probability names its team; the whole row's name carries who leads.
     expect(live).toHaveTextContent('51% Mankato Mavericks');
-    expect(live).toHaveAccessibleName('Bemidji Blizzard against Mankato Mavericks, 92.1 to 88.7, Bemidji Blizzard leads, 51% win probability for Mankato Mavericks');
+    expect(live).not.toHaveAttribute('aria-label');
+    expect(live).toHaveAccessibleName(/Bemidji Blizzard Leads 92[.]1/);
+    expect(live).toHaveAccessibleName(/Mankato Mavericks 88[.]7/);
+    expect(live).toHaveAccessibleName(/51% Mankato Mavericks/);
     expect(live).toHaveTextContent('Details');
 
     // Scheduled: the Proj figures, no "Leads".

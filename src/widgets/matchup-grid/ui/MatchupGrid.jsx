@@ -4,6 +4,7 @@ import { Link as RouterLink } from 'react-router-dom';
 import {
   Frame, FrameHead, PixelArrow, PixelCheck, PixelHeading, StatusChip, TeamMark, TwoSidedOdds, pixelSx, SR_ONLY_SX,
 } from '../../../shared/ui/playselect';
+import { formatKickoff } from '../../../shared/lib';
 import { matchupCardView } from '../model/matchupCardView';
 
 /**
@@ -15,10 +16,14 @@ import { matchupCardView } from '../model/matchupCardView';
  * chip stays on the h1 row and the hero); "Awaiting final" and "Waiting on the score of record" once
  * played; on a final the winner in ink with no bar. Win probability names both sides on the two-sided
  * bar. Below `sm` the grid is a list of ~56px rows: both short team names, both scores, the leader
- * marked with the word "Leads", the win probability naming its team, and a "Details" cue.
+ * marked with the word "Leads", the win probability naming its team, and a "Details" cue, all read as the row's name.
  *
- * "Projected totals shown until kickoff" appears once, in the frame head, while any tile is framed. Every
- * tile is one link to its matchup, named by a sentence with both sides, the figures and the probability.
+ * The frame head says it once while tiles are framed: before kickoff "All games kick off {earliest kickoff} ·
+ * projected totals" (RULINGS Critique 10 item 13, binding over the spec line), and with some games started
+ * "Projected totals shown until kickoff". Every
+ * tile is one link to its matchup. It carries no aria-label of its own: its name is its content (both team
+ * names, the figures, Exp final and players remaining, the two-sided bar's one label naming both teams and both
+ * percentages, Details), so what is read is what is drawn (label in name) and nothing is stated twice.
  *
  * Props: `matchups` (entity models), `leagueId`, `records` (a Team id lookup), `more` (the head's
  * "{n} more" count, when the hero already shows the viewer's own), `empty` (the line to show when there
@@ -39,7 +44,11 @@ export default function MatchupGrid({
   if (list.length === 0 && !empty) return null;
 
   const views = list.map((matchup) => matchupCardView(matchup, { records }));
-  const anyScheduled = views.some((view) => view.state === 'scheduled');
+  const scheduled = views.filter((view) => view.state === 'scheduled');
+  const allScheduled = views.length > 0 && scheduled.length === views.length;
+  // RULINGS Critique 10 item 13: before kickoff the head says so once, with the earliest kickoff.
+  const kickoffs = scheduled.map((view) => new Date(view.kickoffAt).getTime()).filter(Number.isFinite);
+  const earliest = kickoffs.length ? formatKickoff(new Date(Math.min(...kickoffs))) : null;
   const credit = (
     <>
       win probability ·
@@ -60,7 +69,9 @@ export default function MatchupGrid({
           )}
           {views.length > 0 && (
             <Box component="span" sx={{ fontSize: '13px', color: 'var(--ps-dim)', marginLeft: { sm: 'auto' }, width: { xs: '100%', sm: 'auto' } }}>
-              {anyScheduled ? <>Projected totals shown until kickoff · {credit}</> : credit}
+              {allScheduled && <>{earliest ? `All games kick off ${earliest} ` : 'All games kick off '}· projected totals · {credit}</>}
+              {!allScheduled && scheduled.length > 0 && <>Projected totals shown until kickoff · {credit}</>}
+              {scheduled.length === 0 && credit}
             </Box>
           )}
         </FrameHead>
@@ -100,19 +111,6 @@ export default function MatchupGrid({
 }
 
 const matchupPath = (leagueId, id) => `/league/${leagueId}/matchups/${id}`;
-
-/** The tile's accessible name: both sides, the state, the figures and both win probabilities. */
-function tileLabel(view) {
-  const { home, away } = view;
-  const sides = `${home.name} against ${away.name}`;
-  const prob = view.homePct == null ? '' : `, ${home.name} ${view.homePct}%, ${away.name} ${view.awayPct}% win probability`;
-  const figures = `${home.figure} to ${away.figure}`;
-  if (view.state === 'final') return `${sides}, final, ${figures}`;
-  if (view.state === 'played') return `${sides}, awaiting final, ${figures}`;
-  if (view.state === 'live') return `${sides}, live, ${figures}${prob}`;
-  if (view.state === 'scheduled') return `${sides}, projected ${figures}${prob}`;
-  return `${sides}, ${figures}`;
-}
 
 const TILE_BASE = {
   display: 'flex',
@@ -187,7 +185,6 @@ function MatchupTile({ view, leagueId }) {
     <Box
       component={RouterLink}
       to={matchupPath(leagueId, view.id)}
-      aria-label={tileLabel(view)}
       data-testid="matchup-card"
       data-matchup-id={view.id}
       data-layout="card"
@@ -229,14 +226,6 @@ function MatchupRow({ view, leagueId }) {
     : { ink: 'var(--ps-ink)', dim: 'var(--ps-dim)' };
   const fav = view.favourite ? view[view.favourite] : null;
   const favPct = view.favourite === 'home' ? view.homePct : view.awayPct;
-  const leader = view.home.leads ? view.home : view.away.leads ? view.away : null;
-  const sentence = [
-    `${view.home.name} against ${view.away.name}`,
-    view.state === 'scheduled' ? `projected ${view.home.figure} to ${view.away.figure}` : `${view.home.figure} to ${view.away.figure}`,
-    leader && view.state !== 'scheduled' ? `${leader.name} leads` : null,
-    view.state === 'final' ? 'final' : view.state === 'played' ? 'awaiting final' : null,
-    fav ? `${favPct}% win probability for ${fav.name}` : null,
-  ].filter(Boolean).join(', ');
   const stateWord = view.state === 'final' ? 'Final' : view.state === 'played' ? 'Awaiting final' : view.scheduled ? 'Proj' : null;
 
   const line = (side, testId) => {
@@ -252,7 +241,7 @@ function MatchupRow({ view, leagueId }) {
           {side.name}
         </Box>
         {side.leads && view.state !== 'scheduled' && (
-          <Box component="span" aria-hidden="true" sx={{ flex: 'none', fontSize: '13px', fontWeight: 600, color: colors.ink, whiteSpace: 'nowrap' }}>Leads</Box>
+          <Box component="span" sx={{ flex: 'none', fontSize: '13px', fontWeight: 600, color: colors.ink, whiteSpace: 'nowrap' }}>Leads</Box>
         )}
         <Box sx={{ flex: 1 }} />
         <Box component="span" data-testid="matchup-figure" sx={{ ...pixelSx(16), flex: 'none', fontVariantNumeric: 'tabular-nums' }}>
@@ -266,7 +255,6 @@ function MatchupRow({ view, leagueId }) {
     <Box
       component={RouterLink}
       to={matchupPath(leagueId, view.id)}
-      aria-label={sentence}
       data-testid="matchup-card"
       data-matchup-id={view.id}
       data-layout="row"
@@ -288,7 +276,7 @@ function MatchupRow({ view, leagueId }) {
         {line(view.home, 'matchup-side-home')}
         {line(view.away, 'matchup-side-away')}
       </Box>
-      <Box aria-hidden="true" sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', minWidth: 0, fontSize: '13px', color: colors.dim }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', minWidth: 0, fontSize: '13px', color: colors.dim }}>
         <Box component="span" sx={{ minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
           {fav ? (
             <>

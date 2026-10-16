@@ -71,7 +71,7 @@ for (const state of Object.keys(STATES) as State[]) {
 
         const probe = await page.evaluate(() => ({
           cursors: document.querySelectorAll('.cursor').length,
-          filled: document.querySelectorAll('[data-filled="true"]').length,
+          filled: document.querySelectorAll('[data-filled="true"], [data-variant="fill"]').length,
           scrollWidth: document.documentElement.scrollWidth,
           bodyScrollWidth: document.body.scrollWidth,
           innerWidth: window.innerWidth,

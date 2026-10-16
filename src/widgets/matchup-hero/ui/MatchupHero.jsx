@@ -72,6 +72,7 @@ function BoardGhost({ to, children }) {
     <Box
       component={RouterLink}
       to={to}
+      data-variant="ghost"
       sx={{
         minHeight: '44px',
         display: 'inline-flex',
@@ -142,6 +143,7 @@ export default function MatchupHero({
   const week = matchup?.week;
   const started = view.hasStarted === true;
   const board = started;
+  const settled = started && !view.isLive;
   const c = board ? BOARD : PAGE;
   const gamesLine = view.hasStarted === false ? 'No games in progress' : gamesInProgressLabel(gamesInProgress);
 
@@ -149,11 +151,12 @@ export default function MatchupHero({
     const s = key === 'home' ? home : away;
     const name = key === 'home' ? homeName : awayName;
     // One source per surface: the server pair, or the page's helper counts when the payload lacks yetToPlay.
-    const left = counts ? count(counts[key].remaining) : count(s.playersRemaining);
+    // A settled hero (played or final) has a score, not a forecast or anyone left to play: no lines.
+    const left = settled ? null : counts ? count(counts[key].remaining) : count(s.playersRemaining);
     const expected = s.expectedFinal;
     const stats = (
       <>
-        {started && (
+        {started && !settled && (
           <Box data-testid="matchup-hero-expected-final">
             <Box component="span" sx={{ color: c.dim }}>Expected final</Box>
             {' '}

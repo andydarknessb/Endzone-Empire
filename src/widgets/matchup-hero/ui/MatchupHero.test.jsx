@@ -285,23 +285,34 @@ test('renders the games-in-progress and next-kickoff footer lines only when supp
   expect(screen.getByRole('link', { name: /^Matchup, / })).toBeInTheDocument();
 });
 
-test('a final matchup degrades a missing Expected final to a named placeholder', () => {
-  renderHero({
-    matchup: {
-      ...live,
-      status: 'final',
-      final: true,
-      home: { ...dock, expectedFinal: null, playersRemaining: 0 },
-      away: { ...frost, expectedFinal: null, playersRemaining: 0 },
-    },
-  });
+// QA ruling (spec #2334): a settled hero has a score, not a forecast or anyone left to play, so it prints
+// neither "Expected final" nor "players remaining", with or without an Expected final on the wire.
+test('a settled hero hides Expected final and players remaining, and keeps the score, the result and the chip', () => {
+  for (const status of ['final', 'played']) {
+    const { unmount } = renderHero({
+      matchup: {
+        ...live, status, final: status === 'final', home: { ...dock, playersRemaining: 0 }, away: { ...frost, playersRemaining: 0 },
+      },
+    });
+    expect(screen.queryByTestId('matchup-hero-expected-final')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('matchup-hero-remaining')).not.toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent(/Expected final|players remaining/);
+    expect(within(homeSide()).getByTestId('matchup-hero-score')).toHaveTextContent('82.2');
+    expect(screen.getByTestId('matchup-hero-sentence')).toHaveTextContent(/won by 5.2/);
+    unmount();
+  }
+});
 
-  const tile = within(homeSide()).getByTestId('matchup-hero-expected-final');
-  expect(within(tile).getByText('Not available')).toBeInTheDocument();
-  expect(within(tile).getByText('-')).toHaveAttribute('aria-hidden', 'true');
-  expect(within(homeSide()).getByTestId('matchup-hero-remaining')).toHaveTextContent('0 players remaining');
-  expect(screen.getByTestId('matchup-hero-sentence')).toHaveTextContent('You won by 5.2');
-  expect(screen.getByTestId('matchup-hero-status')).toHaveTextContent('Final');
+// QA ruling (spec #2334): the bar and its Endzone Forecast credit need an Expected final on both sides.
+test.each([
+  ['both null', null, null],
+  ['home null', null, '123.9'],
+  ['away null', '110.5', null],
+])('with %s Expected final there is no win probability bar and no Forecast credit', (_name, homeFinal, awayFinal) => {
+  renderHero({ matchup: { ...live, home: { ...dock, expectedFinal: homeFinal }, away: { ...frost, expectedFinal: awayFinal } } });
+  expect(screen.queryByRole('img', { name: /win probability/ })).not.toBeInTheDocument();
+  expect(document.body).not.toHaveTextContent('Endzone Forecast');
+  expect(screen.getByTestId('matchup-hero-sentence')).toHaveTextContent(/^Ahead now/);
 });
 
 test('is a labelled region whose title is a heading, level 2 by default', () => {

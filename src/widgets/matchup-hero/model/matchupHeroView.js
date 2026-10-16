@@ -83,13 +83,16 @@ export function matchupHeroView(matchup, viewerTeamId, { counts = null } = {}) {
   const board = matchupBoard(m, viewerTeamId);
   const { chip, hasStarted, viewerSide } = board;
 
+  // The bar is the Endzone Forecast's: with an Expected final missing on either side there is nothing
+  // to price it from, so no bar and no credit line rather than a 50/50 the forecast never made.
+  const priced = finite(m.home?.expectedFinal) != null && finite(m.away?.expectedFinal) != null;
   let winProbability = null;
   let sentence = null;
   if (hasStarted === true) {
-    winProbability = percents(board.winProbability.home);
+    winProbability = priced ? percents(board.winProbability.home) : null;
     sentence = board.resultLine ?? liveSentence(m, viewerSide, counts);
   }
-  const projected = hasStarted === false && board.projectedWinProbability
+  const projected = hasStarted === false && priced && board.projectedWinProbability
     ? percents(board.projectedWinProbability.home)
     : null;
 

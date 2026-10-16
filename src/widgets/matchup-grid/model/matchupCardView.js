@@ -49,7 +49,9 @@ export function matchupCardView(matchup, { records, timeZone, locale } = {}) {
   const homeLeads = started && homeScore > awayScore;
   const awayLeads = started && awayScore > homeScore;
 
-  const probability = state === 'final' || state === 'played' || state === 'unknown'
+  // No bar without both Expected finals: the forecast has nothing to price from (QA ruling, spec #2334).
+  const priced = finite(home.expectedFinal) != null && finite(away.expectedFinal) != null;
+  const probability = !priced || state === 'final' || state === 'played' || state === 'unknown'
     ? null
     : (board.winProbability ?? board.projectedWinProbability);
   const homePct = probability ? Math.round(probability.home * 100) : null;
@@ -88,6 +90,7 @@ export function matchupCardView(matchup, { records, timeZone, locale } = {}) {
     started,
     scheduled,
     kickoff,
+    kickoffAt: scheduled ? (m.firstKickoffAt ?? null) : null,
     homeShare: probability ? probability.home : null,
     homePct,
     awayPct,

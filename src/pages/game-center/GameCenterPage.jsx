@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom';
 import { Box, Container, GlobalStyles, useMediaQuery } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import {
-  CompactScoreboard, ErrorPanel, Skel, psRootSx,
+  CompactScoreboard, Skel, psRootSx,
 } from '../../shared/ui/playselect';
 import { compactScoreboardView } from '../../widgets/matchup-hero';
 import MatchupGrid from '../../widgets/matchup-grid';
@@ -14,6 +14,7 @@ import { useActionItems } from '../../entities/action-item';
 import { useGameCenter, syncLineText } from './model/useGameCenter';
 import GameCenterHead from './ui/GameCenterHead';
 import HeroSection from './ui/HeroSection';
+import LoadError from './ui/LoadError';
 import LineupNote from './ui/LineupNote';
 import WeekGlance from './ui/WeekGlance';
 
@@ -89,8 +90,9 @@ export default function GameCenterPage() {
     items,
     glance,
     anyLive,
+    retry,
   } = useGameCenter(leagueId);
-  const { items: actionItems } = useActionItems();
+  const { items: actionItems, reload: reloadActionItems } = useActionItems();
   const heroRef = useRef(null);
 
   const syncLine = pending ? null : syncLineText(syncedAt, now);
@@ -99,10 +101,11 @@ export default function GameCenterPage() {
   const pinned = useScrolledPast(heroRef, heroStarted);
   const compactBar = useMemo(() => (hero ? compactScoreboardView(hero) : null), [hero]);
   const lineupItem = useMemo(
-    () => (hero && !matchupBoard(hero).settled
+    // Only the league's current week has a lineup still to set; a week on screen that is not it has no note.
+    () => (hero && !matchupBoard(hero).settled && Number(hero.week) === Number(league?.current_week)
       ? actionItems.find((i) => i.type === 'lineup_problem' && String(i.leagueId) === String(leagueId)) || null
       : null),
-    [actionItems, hero, leagueId]
+    [actionItems, hero, league, leagueId]
   );
 
   return (
@@ -143,7 +146,7 @@ export default function GameCenterPage() {
         />
 
         {error && (
-          <ErrorPanel title="Game Center" body={String(error)} />
+          <LoadError body={String(error)} onRetry={retry} />
         )}
 
         {pending ? (
@@ -176,7 +179,7 @@ export default function GameCenterPage() {
                         nextKickoffAt={nextKickoffAt}
                       />
                     </Box>
-                    <LineupNote item={lineupItem} now={now} to={`/league/${leagueId}/lineup`} />
+                    <LineupNote item={lineupItem} now={now} to={`/league/${leagueId}/lineup`} onExpired={reloadActionItems} />
                   </>
                 )}
                 <MatchupGrid

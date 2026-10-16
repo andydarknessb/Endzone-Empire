@@ -74,6 +74,24 @@ describe('matchupCardView', () => {
     expect(v.home.leads).toBe(false);
   });
 
+  test.each([
+    ['both null', { home_expected_final: null, away_expected_final: null }],
+    ['home null', { home_expected_final: null }],
+    ['away null', { away_expected_final: null }],
+  ])('live with %s Expected final: no probability, so no bar', (_name, overrides) => {
+    const v = matchupCardView(model(overrides));
+    expect(v.state).toBe('live');
+    expect(v.homeShare).toBeNull();
+    expect(v.homePct).toBeNull();
+    expect(v.favourite).toBeNull();
+  });
+
+  test('scheduled with one Expected final null: no probability, and the figure shows the dash', () => {
+    const v = matchupCardView(model({ status: 'scheduled', away_expected_final: null }));
+    expect(v.homePct).toBeNull();
+    expect(v.away.figure).toBe('-');
+  });
+
   test('played: awaiting final with no probability and no forecast lines', () => {
     const v = matchupCardView(
       model({ status: 'played', home_expected_final: null, away_expected_final: null }),

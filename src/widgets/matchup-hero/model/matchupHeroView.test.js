@@ -93,6 +93,27 @@ describe('matchupHeroView', () => {
     expect(view.sentence).toBeNull();
   });
 
+  // QA ruling (spec #2334): the bar is the Endzone Forecast's, so without an Expected final on both sides
+  // there is no bar and no credit line, live or before kickoff.
+  test.each([
+    ['both null', null, null],
+    ['home null', null, '123.9'],
+    ['away null', '110.5', null],
+  ])('a live matchup with %s Expected final has no win probability', (_name, homeFinal, awayFinal) => {
+    const view = matchupHeroView({ ...live, home: { ...dock, expectedFinal: homeFinal }, away: { ...frost, expectedFinal: awayFinal } }, 10);
+    expect(view.winProbability).toBeNull();
+    expect(view.sentence).toMatch(/^Ahead now/);
+  });
+
+  test.each([
+    ['both null', null, null],
+    ['one null', '108.3', null],
+  ])('a scheduled matchup with %s Expected final has no projected win probability', (_name, homeFinal, awayFinal) => {
+    const view = matchupHeroView({ ...live, status: 'scheduled', home: { ...dock, expectedFinal: homeFinal }, away: { ...frost, expectedFinal: awayFinal } }, 10);
+    expect(view.projectedWinProbability).toBeNull();
+    expect(view.projectedMargin).toBeNull();
+  });
+
   test('a scheduled matchup without a kickoff time reads null, not Invalid Date', () => {
     expect(matchupHeroView({ ...live, status: 'scheduled', firstKickoffAt: null }, 10).kickoff).toBeNull();
     expect(matchupHeroView({ ...live, status: 'scheduled', firstKickoffAt: 'soon' }, 10).kickoff).toBeNull();
@@ -109,7 +130,7 @@ describe('matchupHeroView', () => {
     }
   });
 
-  test('a final matchup with no Expected final still has a bar from the scores alone', () => {
+  test('a final matchup with no Expected final has no bar (nothing to price it from) and still states the result', () => {
     const view = matchupHeroView(
       {
         ...live,
@@ -120,7 +141,7 @@ describe('matchupHeroView', () => {
       },
       10
     );
-    expect(view.winProbability.homePct).toBeGreaterThan(50);
+    expect(view.winProbability).toBeNull();
     expect(view.sentence).toBe('You won by 5.2');
     // The canvas's `.chip.final`: the success chip, no live dot.
     expect(view.chipLabel).toBe('Final');
