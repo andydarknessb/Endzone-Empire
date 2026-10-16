@@ -97,18 +97,18 @@
     },
     "Lineup.dc.html": {
       "expand": "fill",
-      "h": 1911,
-      "title": "Wave 3 sample: Lineup (desktop)",
+      "h": 2278,
+      "title": "Wave 3: Lineup, before kickoff (desktop)",
       "w": 1440,
-      "x": 4420,
-      "y": 9312
+      "x": 2900,
+      "y": 24600
     },
     "LineupPhone.dc.html": {
-      "h": 2799,
-      "title": "Wave 3 sample: Lineup, moving a player (phone)",
-      "w": 330,
-      "x": 6000,
-      "y": 9312
+      "h": 2214,
+      "title": "Wave 3: Lineup, moving a player (phone)",
+      "w": 390,
+      "x": 4420,
+      "y": 24600
     },
     "Main.dc.html": {
       "expand": "fill",
@@ -209,6 +209,84 @@
       "w": 1300,
       "x": 0,
       "y": 9312
+    },
+    "LineupLive.dc.html": {
+      "expand": "fill",
+      "h": 2424,
+      "title": "Wave 3: Lineup, live (desktop)",
+      "w": 1440,
+      "x": 4890,
+      "y": 24600
+    },
+    "LineupStates.dc.html": {
+      "expand": "fill",
+      "h": 6051,
+      "title": "Wave 3: Lineup states",
+      "w": 1300,
+      "x": 6410,
+      "y": 24600
+    },
+    "PlayerCard.dc.html": {
+      "expand": "fill",
+      "h": 2773,
+      "title": "Wave 3: Player card (drawer and phone sheet)",
+      "w": 1300,
+      "x": 7790,
+      "y": 24600
+    },
+    "Waivers.dc.html": {
+      "expand": "fill",
+      "h": 2043,
+      "title": "Wave 3: Waivers, FAAB (desktop)",
+      "w": 1440,
+      "x": 2900,
+      "y": 30951
+    },
+    "WaiversPhone.dc.html": {
+      "h": 2654,
+      "title": "Wave 3: Waivers (phone)",
+      "w": 390,
+      "x": 4420,
+      "y": 30951
+    },
+    "WaiversStates.dc.html": {
+      "expand": "fill",
+      "h": 8217,
+      "title": "Wave 3: Waivers states and claim sheet",
+      "w": 1300,
+      "x": 4890,
+      "y": 30951
+    },
+    "Trades.dc.html": {
+      "expand": "fill",
+      "h": 2128,
+      "title": "Wave 3: Trade Center, pending (desktop)",
+      "w": 1440,
+      "x": 6270,
+      "y": 30951
+    },
+    "TradesPhone.dc.html": {
+      "h": 2485,
+      "title": "Wave 3: Trade Center (phone)",
+      "w": 390,
+      "x": 7790,
+      "y": 30951
+    },
+    "TradePropose.dc.html": {
+      "expand": "fill",
+      "h": 6587,
+      "title": "Wave 3: Propose and counter a trade",
+      "w": 1300,
+      "x": 8260,
+      "y": 30951
+    },
+    "TradesStates.dc.html": {
+      "expand": "fill",
+      "h": 4524,
+      "title": "Wave 3: Trade Center states",
+      "w": 1300,
+      "x": 9640,
+      "y": 30951
     }
   },
   "createdOnFiles": {
@@ -251,6 +329,14 @@
       "w": 240,
       "x": 2900,
       "y": 12400
+    },
+    "row5": {
+      "kind": "title1",
+      "maxW": 8000,
+      "text": "Wave 3: Lineup, Waivers, Trades",
+      "w": 240,
+      "x": 2900,
+      "y": 24300
     }
   },
   "order": [
@@ -266,8 +352,6 @@
     "States.dc.html",
     "Kit.dc.html",
     "Matchup.dc.html",
-    "Lineup.dc.html",
-    "LineupPhone.dc.html",
     "DraftRoom.dc.html",
     "DraftRoomNarrow.dc.html",
     "Commissioner.dc.html",
@@ -280,7 +364,19 @@
     "PickemPhone.dc.html",
     "PickemConfidence.dc.html",
     "PickemStandings.dc.html",
-    "PickemStates.dc.html"
+    "PickemStates.dc.html",
+    "Lineup.dc.html",
+    "LineupPhone.dc.html",
+    "LineupLive.dc.html",
+    "LineupStates.dc.html",
+    "PlayerCard.dc.html",
+    "Waivers.dc.html",
+    "WaiversPhone.dc.html",
+    "WaiversStates.dc.html",
+    "Trades.dc.html",
+    "TradesPhone.dc.html",
+    "TradePropose.dc.html",
+    "TradesStates.dc.html"
   ],
   "pages": [],
   "title": "League Play-select"
