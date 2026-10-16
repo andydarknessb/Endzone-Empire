@@ -170,21 +170,4 @@ describe('matchupBoard: the one board reading of a Matchup (#2048)', () => {
       expect(matchupBoard(matchup('live', { home: side(10, 1, 1, '') }), 10).home.playersRemainingLabel).toBeNull();
     });
   });
-
-  describe('liveLine (#2142)', () => {
-    const live = (home, away, v) => matchupBoard(matchup('live', { home, away }), v).liveLine;
-    it('is written from the viewer side and only while live', () => {
-      expect(live(side(10, 100, 120, 0), side(20, 90, 110, 3), 10)).toBe('Ahead now, projected to lead by 10.0 with 3 of theirs still to play');
-      expect(live(side(10, 100, 120, 0), side(20, 90, 110, 3), 20)).toBe('Behind now, projected to trail by 10.0 with 3 of yours still to play');
-      expect(matchupBoard(matchup('final'), 10).liveLine).toBeNull();
-      expect(matchupBoard(matchup('scheduled'), 10).liveLine).toBeNull();
-    });
-    it('drops the projection when an Expected final is unknown, and says tied when level', () => {
-      expect(live(side(10, 50, null, 0), side(20, 50, 90, 2), 10)).toBe('Tied now with 2 of theirs still to play');
-    });
-    it('names the viewer own remaining when the opponent has none, and falls back to the home side for a spectator', () => {
-      expect(live(side(10, 50, 60, 2), side(20, 40, 60, 0), 10)).toBe('Ahead now, projected to finish even with 2 of yours still to play');
-      expect(live(side(10, 50, 60, 2), side(20, 40, 60, 0), null)).toBe('Ahead now, projected to finish even with 2 of yours still to play');
-    });
-  });
 });

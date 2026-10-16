@@ -15,7 +15,6 @@ import { useGameCenter, syncLineText } from './model/useGameCenter';
 import GameCenterHead from './ui/GameCenterHead';
 import HeroSection from './ui/HeroSection';
 import LoadError from './ui/LoadError';
-import LineupNote from './ui/LineupNote';
 import WeekGlance from './ui/WeekGlance';
 
 /**
@@ -26,6 +25,8 @@ import WeekGlance from './ui/WeekGlance';
  *   - the head (ui/GameCenterHead): the breadcrumb, the pixel h1 with the Live chip on its row while a
  *     matchup of the week is live, the sync line, the week picker (one tab stop) and the closed "What the
  *     numbers mean" disclosure;
+ *   - the lineup note under the hero (the shared decision in entities/roster, laid out by features/bench-what-if)
+ *     while the viewer has an empty or Out starting slot to fix in the league's current week;
  *   - on phones and tablets (below `md`) the latest-plays strip, the one newest play below `sm`; desktop
  *     does not draw it, the rail's Scoring feed shows the same plays (Critique 11 item 12);
  *   - the real NFL game strip (widgets/nfl-game-strip);
@@ -99,14 +100,9 @@ export default function GameCenterPage() {
   const weekNumber = week === 'All' || week == null ? undefined : Number(week);
   const heroStarted = !!hero && matchupBoard(hero).hasStarted === true;
   const pinned = useScrolledPast(heroRef, heroStarted);
-  const compactBar = useMemo(() => (hero ? compactScoreboardView(hero) : null), [hero]);
-  const lineupItem = useMemo(
-    // Only the league's current week has a lineup still to set; a week on screen that is not it has no note.
-    () => (hero && !matchupBoard(hero).settled && Number(hero.week) === Number(league?.current_week)
-      ? actionItems.find((i) => i.type === 'lineup_problem' && String(i.leagueId) === String(leagueId)) || null
-      : null),
-    [actionItems, hero, league, leagueId]
-  );
+  const compactBar = useMemo(() => (hero ? compactScoreboardView(hero, viewerTeamId) : null), [hero, viewerTeamId]);
+  // Only the league's current week has a lineup still to set; a week on screen that is not it has no note.
+  const noteEligible = !!hero && !matchupBoard(hero).settled && Number(hero.week) === Number(league?.current_week);
 
   return (
     <Box className="ps-root" sx={{ ...psRootSx, minHeight: '100%' }}>
@@ -167,20 +163,18 @@ export default function GameCenterPage() {
             >
               <Box data-testid="game-center-main" sx={{ display: 'flex', flexDirection: 'column', gap: { xs: '16px', md: '24px' }, minWidth: 0 }}>
                 {hero && (
-                  <>
-                    <Box ref={heroRef}>
-                      <HeroSection
-                        hero={hero}
-                        viewerTeamId={viewerTeamId}
-                        records={records}
-                        ranks={ranks}
-                        leagueId={leagueId}
-                        gamesInProgress={gamesInProgress}
-                        nextKickoffAt={nextKickoffAt}
-                      />
-                    </Box>
-                    <LineupNote item={lineupItem} now={now} to={`/league/${leagueId}/lineup`} onExpired={reloadActionItems} />
-                  </>
+                  <HeroSection
+                    hero={hero}
+                    heroProps={{
+                      viewerTeamId, records, ranks, leagueId, gamesInProgress, nextKickoffAt,
+                    }}
+                    heroRef={heroRef}
+                    noteEligible={noteEligible}
+                    league={league}
+                    now={now}
+                    actionItems={actionItems}
+                    onLockPassed={reloadActionItems}
+                  />
                 )}
                 <MatchupGrid
                   matchups={rest}

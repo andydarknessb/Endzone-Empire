@@ -131,18 +131,21 @@ export default matchupHeroView;
  * for a started Matchup: home on the left, scores to a tenth, the leader and the margin in words
  * ("Darkness Falls by 2.1", "Tied" level). Null before kickoff, when there is no score to pin.
  */
-export function compactScoreboardView(matchup) {
-  const view = matchupHeroView(matchup, null);
+export function compactScoreboardView(matchup, viewerTeamId = null) {
+  const view = matchupHeroView(matchup, viewerTeamId);
   if (view.hasStarted !== true) return null;
-  const home = matchup.home || {};
-  const away = matchup.away || {};
+  // Viewer first, as the hero: the viewer's side is `a` (the left one).
+  const awayFirst = view.viewerSide === 'away';
+  const home = (awayFirst ? matchup.away : matchup.home) || {};
+  const away = (awayFirst ? matchup.home : matchup.away) || {};
+  const [homeKey, awayKey] = awayFirst ? ['away', 'home'] : ['home', 'away'];
   const side = (s, label) => ({ abbr: initialsFor(s.name), name: teamNameLabel(s.name), score: label });
   const diff = Math.abs(tenth((finite(home.score) ?? 0) - (finite(away.score) ?? 0)));
-  const leader = view.leadSide === 'home' ? home : away;
+  const leader = view.leadSide === homeKey ? home : away;
   return {
-    a: side(home, view.scoreLabels.home),
-    b: side(away, view.scoreLabels.away),
-    lead: view.leadSide === 'home' ? 'a' : view.leadSide === 'away' ? 'b' : undefined,
+    a: side(home, view.scoreLabels[homeKey]),
+    b: side(away, view.scoreLabels[awayKey]),
+    lead: view.leadSide === homeKey ? 'a' : view.leadSide === awayKey ? 'b' : undefined,
     marginText: view.leadSide ? `${teamNameLabel(leader.name)} by ${diff.toFixed(1)}` : 'Tied',
     live: view.isLive,
   };

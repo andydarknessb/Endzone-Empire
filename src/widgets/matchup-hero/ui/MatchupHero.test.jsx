@@ -170,6 +170,23 @@ test('the live sentence reads the server yetToPlay, or the page counts when it l
   expect(screen.getByTestId('matchup-hero-sentence')).toHaveTextContent('they have 5 players remaining, 4 yet to play');
 });
 
+// RULINGS Critique 4 item 1: the viewer's own side is the left one, home or away.
+test('puts the viewer first: an away viewer is the left side, the bar and the score sentence lead with them', () => {
+  renderHero({ viewerTeamId: 20 });
+  const sides = screen.getAllByTestId(/^matchup-hero-side-/);
+  expect(sides.map((el) => el.getAttribute('data-testid'))).toEqual(['matchup-hero-side-away', 'matchup-hero-side-home']);
+  expect(screen.getByRole('img', { name: 'Fargo Frostbite 64%, Duluth Dockworkers 36% win probability' })).toBeInTheDocument();
+  expect(screen.getByTestId('matchup-hero-live-region')).toHaveTextContent('Fargo Frostbite 77.0, Duluth Dockworkers 82.2');
+});
+
+test('a home viewer, and a spectator, keep home on the left', () => {
+  const { unmount } = renderHero({ viewerTeamId: 10 });
+  expect(screen.getAllByTestId(/^matchup-hero-side-/).map((el) => el.getAttribute('data-testid'))).toEqual(['matchup-hero-side-home', 'matchup-hero-side-away']);
+  unmount();
+  renderHero({ viewerTeamId: 99 });
+  expect(screen.getAllByTestId(/^matchup-hero-side-/).map((el) => el.getAttribute('data-testid'))).toEqual(['matchup-hero-side-home', 'matchup-hero-side-away']);
+});
+
 test('the sentence is written from the viewer side when the viewer is away', () => {
   renderHero({ viewerTeamId: 20 });
   expect(screen.getByTestId('matchup-hero-sentence')).toHaveTextContent(

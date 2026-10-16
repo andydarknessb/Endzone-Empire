@@ -141,6 +141,11 @@ export default function MatchupHero({
   const homeName = teamNameLabel(home.name);
   const awayName = teamNameLabel(away.name);
   const week = matchup?.week;
+  // Viewer first (RULINGS Critique 4 item 1, as Matchup): the viewer's own side is the left one, whichever of
+  // home or away it is. The test ids stay the real side's, so a reader finds a team by what it is.
+  const order = view.viewerSide === 'away' ? ['away', 'home'] : ['home', 'away'];
+  const [first, second] = order;
+  const names = { home: homeName, away: awayName };
   const started = view.hasStarted === true;
   const board = started;
   const settled = started && !view.isLive;
@@ -171,7 +176,7 @@ export default function MatchupHero({
     return {
       side: s,
       name,
-      right: key === 'away',
+      right: key === second,
       viewer: view.viewerSide === key,
       board,
       lead: view.leadSide === key,
@@ -234,8 +239,9 @@ export default function MatchupHero({
       >
         <Box sx={{ padding: { xs: '14px', md: '24px' }, display: 'flex', flexDirection: 'column', gap: '20px' }}>
           <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: { xs: '12px', md: '24px' }, alignItems: 'start' }}>
-            <Box data-testid="matchup-hero-side-home" data-viewer-team={view.viewerSide === 'home' || undefined} sx={{ minWidth: 0 }}><Side {...sideProps('home')} /></Box>
-            <Box data-testid="matchup-hero-side-away" data-viewer-team={view.viewerSide === 'away' || undefined} sx={{ minWidth: 0 }}><Side {...sideProps('away')} /></Box>
+            {order.map((key) => (
+              <Box key={key} data-testid={`matchup-hero-side-${key}`} data-viewer-team={view.viewerSide === key || undefined} sx={{ minWidth: 0 }}><Side {...sideProps(key)} /></Box>
+            ))}
           </Box>
           {probability && (
             <Box data-testid="matchup-hero-win-probability" sx={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
@@ -246,9 +252,9 @@ export default function MatchupHero({
                 </Box>
               )}
               <TwoSidedOdds
-                a={homeName}
-                b={awayName}
-                pct={probability.homePct}
+                a={names[first]}
+                b={names[second]}
+                pct={first === 'home' ? probability.homePct : probability.awayPct}
                 caption={<>Win probability · <Box component="span" sx={{ whiteSpace: 'nowrap' }}>Endzone Forecast</Box></>}
               />
             </Box>
@@ -271,7 +277,7 @@ export default function MatchupHero({
   }
 
   const probability = view.winProbability;
-  const sentence = `${homeName} ${view.scoreLabels.home}, ${awayName} ${view.scoreLabels.away}`;
+  const sentence = `${names[first]} ${view.scoreLabels[first]}, ${names[second]} ${view.scoreLabels[second]}`;
   return (
     <Box
       component="section"
@@ -299,15 +305,16 @@ export default function MatchupHero({
       </Box>
       <Box component="p" aria-live="polite" data-testid="matchup-hero-live-region" sx={{ m: 0, ...SR_ONLY_SX }}>{sentence}</Box>
       <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: { xs: '12px', md: '24px' }, alignItems: 'start' }}>
-        <Box data-testid="matchup-hero-side-home" data-viewer-team={view.viewerSide === 'home' || undefined} sx={{ minWidth: 0 }}><Side {...sideProps('home')} /></Box>
-        <Box data-testid="matchup-hero-side-away" data-viewer-team={view.viewerSide === 'away' || undefined} sx={{ minWidth: 0 }}><Side {...sideProps('away')} /></Box>
+        {order.map((key) => (
+          <Box key={key} data-testid={`matchup-hero-side-${key}`} data-viewer-team={view.viewerSide === key || undefined} sx={{ minWidth: 0 }}><Side {...sideProps(key)} /></Box>
+        ))}
       </Box>
       <Box data-testid="matchup-hero-win-probability" sx={{ display: 'flex', flexDirection: 'column', gap: { xs: '6px', md: '10px' } }}>
         {probability && (
           <TwoSidedOdds
-            a={homeName}
-            b={awayName}
-            pct={probability.homePct}
+            a={names[first]}
+            b={names[second]}
+            pct={first === 'home' ? probability.homePct : probability.awayPct}
             live={view.isLive}
             onBoard
             caption={<>Win probability · <Box component="span" sx={{ whiteSpace: 'nowrap' }}>Endzone Forecast</Box></>}

@@ -22,8 +22,9 @@
 import fs from 'fs';
 import path from 'path';
 import { expect, test } from '@playwright/test';
-import type { Page } from '@playwright/test';
+import type { Page, Route } from '@playwright/test';
 import { LEAGUE_ID } from './fixtures/layoutGuardFixtures';
+import { json } from './fixtures/jsonRoute';
 import { setupDashboard } from './fixtures/leagueDashboardPlayselectFixtures';
 import type { DashTheme } from './fixtures/leagueDashboardPlayselectFixtures';
 
@@ -40,6 +41,26 @@ const SHOTS = path.join('test-results', 'league-wave2-gamecenter-shots');
 const LIVE_CHIPS: Record<State, number> = { live: 2, pre: 0 };
 let unanswered: string[] = [];
 
+// The viewer's lineup (the hero's matchup detail): every starting slot filled but FLEX, with an empty bench, so the
+// lineup note has something to say. The layout guard's own detail fills every slot.
+const NOTE_SLOTS = ['QB', 'RB', 'RB', 'WR', 'WR', 'TE', 'K', 'DEF'];
+function lineupDetail() {
+  return {
+    matchup: { id: 918, season: 2026, week: 6, final: false, status: 'live', home_score: 87.4, away_score: 71.2 },
+    home: {
+      teamId: 101,
+      name: 'Chattahoochee Valley Riverhogs',
+      starters: NOTE_SLOTS.map((slot, i) => ({
+        id: 1000 + i, slot, name: `Starter ${i + 1}`, position: slot, nfl_team: null, game_state: 'in_progress', points: 10, projected: 11,
+      })),
+      bench: [],
+    },
+    away: { teamId: 102, name: 'Sasquatch of the Cascade Range', starters: [], bench: [] },
+    viewerTeamId: 101,
+    nflGameIds: [],
+  };
+}
+
 test.afterEach(() => {
   expect(unanswered, 'every request Game Center makes is answered by the fixture').toEqual([]);
 });
@@ -51,6 +72,7 @@ async function openGameCenter(page: Page, state: State, viewport: ViewportName, 
     if (res.status() === 500 && pathname.startsWith('/api/') && pathname !== '/api/auth/refresh') unanswered.push(pathname);
   });
   await setupDashboard(page, STATES[state], { theme });
+  await page.route(`**/api/league/${LEAGUE_ID}/matchups/918`, (route: Route) => json(route, 200, lineupDetail()));
   await page.setViewportSize(VIEWPORTS[viewport]);
   await page.goto(GC_URL);
   await expect(page.getByRole('heading', { level: 1, name: 'Game Center' })).toBeVisible();
@@ -94,12 +116,13 @@ for (const state of Object.keys(STATES) as State[]) {
   }
 }
 
-test('the lineup note names the lock in the Danger sentence and carries a ghost Set lineup', async ({ page }) => {
+test('the live lineup note names the empty FLEX, points at free agents and its next kickoff is in Danger', async ({ page }) => {
   await openGameCenter(page, 'live', 'desktop', 'dark');
-  const note = page.getByTestId('game-center-lineup-note');
+  const note = page.getByTestId('lineup-note');
   await expect(note).toBeVisible();
-  await expect(note).toContainText(/locks in 4\d min/);
-  await expect(note.getByRole('link', { name: 'Set lineup' })).toHaveAttribute('href', `#/league/${LEAGUE_ID}/lineup`);
+  await expect(note).toContainText('FLEX is empty');
+  await expect(note).toContainText(/next kickoff in 4\d min/);
+  await expect(note.getByRole('link', { name: 'Free agents' })).toHaveAttribute('href', `#/league/${LEAGUE_ID}/waivers`);
 });
 
 test('phone: scrolled past the hero, a compact scoreboard no taller than 56px pins and a focused row is not under it', async ({ page }) => {

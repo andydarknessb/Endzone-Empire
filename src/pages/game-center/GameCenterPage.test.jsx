@@ -105,9 +105,11 @@ function mockApi({
   standings = [],
   actionItems = [],
   detail = null,
+  advice = null,
 } = {}) {
   apiClient.get.mockImplementation((url) => {
     if (url.startsWith('/api/user/action-items')) return Promise.resolve({ data: { items: actionItems } });
+    if (advice && url.startsWith('/api/team/lineup/advice')) return Promise.resolve({ data: advice });
     if (detail && url.includes('/matchups/')) return Promise.resolve({ data: detail });
     if (url.endsWith('/matchups')) return Promise.resolve({ data: matchups });
     if (url.endsWith('/rosters')) return Promise.resolve({ data: rosters });
@@ -1010,12 +1012,37 @@ describe('Play-select', () => {
     expect(within(hero).getByTestId('matchup-hero-sentence')).toHaveTextContent(/they have 4 players remaining/);
   });
 
-  test('the server yetToPlay prints in the hero sentence, with no lineup read', async () => {
-    mockApi({ matchups: [viewerRow({ home_yet_to_play: 2, away_yet_to_play: 3 }), otherRow()], viewerTeamId: 10 });
+  // The lineups the note reads (the viewer is home): one QB, the FLEX slot empty.
+  const SLOTS = [{ key: 'QB', count: 1 }, { key: 'FLEX', count: 1 }];
+  const noteLeague = { id: 1, name: 'Sunday Ballers', current_week: 1, roster_slots: SLOTS };
+  const lineupDetail = ({ week = 1, bench = [], awayStarters = [] } = {}) => ({
+    matchup: {
+      id: 1, season: 2026, week, status: 'live', home_score: '30.0', away_score: '20.0',
+    },
+    home: {
+      teamId: 10, name: 'My Team', starters: [{ id: 1, slot: 'QB', name: 'Quarterback', game_state: 'in_progress' }], bench,
+    },
+    away: {
+      teamId: 20, name: 'Rival', starters: awayStarters, bench: [],
+    },
+    viewerTeamId: 10,
+    nflGameIds: [],
+  });
+
+  test('the server yetToPlay prints in the hero sentence, never the helpers\' numbers from the lineups', async () => {
+    // The lineups the note reads would say 2 remaining and 2 yet to play for them; the sentence prints the server's pair.
+    mockApi({
+      matchups: [viewerRow({ home_yet_to_play: 2, away_yet_to_play: 3 }), otherRow()],
+      viewerTeamId: 10,
+      league: noteLeague,
+      detail: lineupDetail({ awayStarters: [{ id: 5, slot: 'QB', game_state: 'scheduled' }, { id: 6, slot: 'FLEX', game_state: 'scheduled' }] }),
+      actionItems: [lineupItemFor(new Date(Date.now() + 45 * 60000).toISOString())],
+    });
     renderPage();
     const hero = await screen.findByTestId('matchup-hero');
+    await screen.findByTestId('lineup-note');
     expect(within(hero).getByTestId('matchup-hero-sentence')).toHaveTextContent(/they have 4 players remaining, 3 yet to play/);
-    expect(apiClient.get).not.toHaveBeenCalledWith('/api/league/1/matchups/1');
+    expect(within(hero).getByTestId('matchup-hero-side-away')).toHaveTextContent('4 players remaining');
   });
 
   const lineupItemFor = (lock, extra = {}) => ({
@@ -1026,31 +1053,34 @@ describe('Play-select', () => {
     mockApi({
       matchups: [viewerRow({ week: 7 }), viewerRow({ id: 8, week: 8, status: 'scheduled' })],
       viewerTeamId: 10,
-      league: { id: 1, name: 'Sunday Ballers', current_week: 7 },
-      actionItems: [lineupItemFor(new Date(Date.now() + 45 * 60000).toISOString())],
+      league: { ...noteLeague, current_week: 7 },
+      detail: lineupDetail({ week: 7 }),
+      actionItems: [lineupItemFor(new Date(Date.now() + 45 * 60000).toISOString(), { id: 'lineup_problem:1:2026-7' })],
     });
     renderPage();
-    expect(await screen.findByTestId('game-center-lineup-note')).toBeInTheDocument();
+    expect(await screen.findByTestId('lineup-note')).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole('radio', { name: 'Wk 8' }));
-    expect(screen.queryByTestId('game-center-lineup-note')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('lineup-note')).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole('radio', { name: 'Wk 7' }));
-    expect(screen.getByTestId('game-center-lineup-note')).toBeInTheDocument();
+    expect(await screen.findByTestId('lineup-note')).toBeInTheDocument();
   });
 
   test('once the lock passes the note goes away and the action items are asked for again, once', async () => {
     jest.useFakeTimers();
     try {
       const lock = new Date(Date.now() + 45 * 60000).toISOString();
-      mockApi({ matchups: [viewerRow()], viewerTeamId: 10, actionItems: [lineupItemFor(lock)] });
+      mockApi({
+        matchups: [viewerRow()], viewerTeamId: 10, league: noteLeague, detail: lineupDetail(), actionItems: [lineupItemFor(lock)],
+      });
       renderPage();
-      expect(await screen.findByTestId('game-center-lineup-note')).toBeInTheDocument();
+      expect(await screen.findByTestId('lineup-note')).toBeInTheDocument();
       const asks = () => apiClient.get.mock.calls.filter(([url]) => url.startsWith('/api/user/action-items')).length;
       expect(asks()).toBe(1);
 
       // The page's minute clock walks past the lock; the shared cache's refetch runs once.
       await act(async () => { jest.advanceTimersByTime(46 * 60000); });
-      expect(screen.queryByTestId('game-center-lineup-note')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('lineup-note')).not.toBeInTheDocument();
       expect(asks()).toBe(2);
       await act(async () => { jest.advanceTimersByTime(10 * 60000); });
       expect(asks()).toBe(2);
@@ -1108,15 +1138,27 @@ describe('Play-select', () => {
 
   // One source per matchup id: a count flickering between null and present never remounts the hero or asks for
   // the lineups again.
-  test('the count source is chosen once per matchup: a null that arrives later does not fetch the lineups', async () => {
-    mockApi({ matchups: [viewerRow({ home_yet_to_play: 2, away_yet_to_play: 3 }), otherRow()], viewerTeamId: 10 });
+  test('the count source is chosen once per matchup: a null that arrives later keeps the node and prints no helper numbers', async () => {
+    mockApi({
+      matchups: [viewerRow({ home_yet_to_play: 2, away_yet_to_play: 3 }), otherRow()],
+      viewerTeamId: 10,
+      league: noteLeague,
+      detail: lineupDetail({ awayStarters: [{ id: 5, slot: 'QB', game_state: 'scheduled' }] }),
+      actionItems: [lineupItemFor(new Date(Date.now() + 45 * 60000).toISOString())],
+    });
     renderPage();
     const hero = await screen.findByTestId('matchup-hero');
+    await screen.findByTestId('lineup-note');
     expect(within(hero).getByTestId('matchup-hero-sentence')).toHaveTextContent('3 yet to play');
+    const reads = () => apiClient.get.mock.calls.filter(([url]) => url.includes('/matchups/')).length;
+    expect(reads()).toBe(1);
 
     emitScores({ leagueId: 1, week: 1, scored: [{ matchupId: 1, homeScore: 31, awayScore: 20, status: 'live', homeYetToPlay: null, awayYetToPlay: null }], plays: [] });
     expect(screen.getByTestId('matchup-hero')).toBe(hero);
-    expect(apiClient.get.mock.calls.filter(([url]) => url.includes('/matchups/'))).toHaveLength(0);
+    // The server pair is still the source: its yet-to-play is gone, and the lineups' 1 remaining is not printed in its place.
+    expect(within(hero).getByTestId('matchup-hero-sentence')).toHaveTextContent('they have 4 players remaining');
+    expect(within(hero).getByTestId('matchup-hero-sentence')).not.toHaveTextContent('yet to play');
+    expect(reads()).toBe(1);
   });
 
   test('the fallback is kept when the server pair arrives later: one lineup read, the same hero node', async () => {
@@ -1180,32 +1222,75 @@ describe('Play-select', () => {
     expect(within(picker).getByRole('button', { name: 'Next week' })).toHaveAttribute('tabindex', '-1');
   });
 
-  test('the lineup note names an empty slot and its lock in the Danger sentence, with a ghost Set lineup', async () => {
-    const lock = new Date(Date.now() + 45 * 60000).toISOString();
+  const noteLock = () => new Date(Date.now() + 45 * 60000).toISOString();
+
+  test('the live lineup note names the empty slot and points at free agents when no bench player can fill it', async () => {
     mockApi({
-      matchups: [viewerRow()],
-      viewerTeamId: 10,
-      actionItems: [{
-        id: 'lineup_problem:1:2026-1', type: 'lineup_problem', leagueId: 1, title: 'Fill your empty FLEX slot', detail: 'FLEX is empty', deadlineAt: lock, cta: { label: 'Fix lineup', to: '/league/1/lineup' },
-      }],
+      matchups: [viewerRow()], viewerTeamId: 10, league: noteLeague, detail: lineupDetail(), actionItems: [lineupItemFor(noteLock())],
     });
     renderPage();
-    const note = await screen.findByTestId('game-center-lineup-note');
-    expect(note).toHaveAccessibleName(/FLEX is empty · locks in 4[45] min/);
-    expect(within(note).getByRole('link', { name: 'Set lineup' })).toHaveAttribute('href', '/league/1/lineup');
-    expect(document.querySelectorAll('[data-filled="true"]')).toHaveLength(0);
+    const note = await screen.findByTestId('lineup-note');
+    expect(note).toHaveAccessibleName(/FLEX is empty · no bench player can fill it · add a free agent playing at .+ · next kickoff in 4[45] min/);
+    expect(within(note).getByRole('link', { name: 'Free agents' })).toHaveAttribute('href', '/league/1/waivers');
+    expect(document.querySelectorAll('[data-filled="true"], [data-variant="fill"]')).toHaveLength(0);
   });
 
-  test('a lineup problem from another league draws no note', async () => {
+  test('with a bench player whose game has not started the note names the next kickoff, with a ghost Set lineup', async () => {
     mockApi({
       matchups: [viewerRow()],
       viewerTeamId: 10,
-      actionItems: [{ id: 'lineup_problem:2:x', type: 'lineup_problem', leagueId: 2, title: 'Fill your empty FLEX slot', deadlineAt: null }],
+      league: noteLeague,
+      detail: lineupDetail({ bench: [{ id: 9, slot: 'BENCH', name: 'Bench Guy', game_state: 'scheduled' }] }),
+      actionItems: [lineupItemFor(noteLock())],
+    });
+    renderPage();
+    const note = await screen.findByTestId('lineup-note');
+    expect(note).toHaveAccessibleName(/FLEX is empty · next kickoff in 4[45] min/);
+    expect(note).not.toHaveAccessibleName(/no bench player/);
+    expect(within(note).getByRole('link', { name: 'Set lineup' })).toHaveAttribute('href', '/league/1/lineup');
+  });
+
+  test('before kickoff the note names the move the advice gives and its lock, read once for the own team', async () => {
+    mockApi({
+      matchups: [viewerRow({ status: 'scheduled', home_score: '0', away_score: '0' })],
+      viewerTeamId: 10,
+      league: noteLeague,
+      detail: lineupDetail(),
+      actionItems: [lineupItemFor(new Date(Date.now() + 26 * 3600000).toISOString())],
+      advice: { suggestions: [], openSlotFills: [{ name: 'Jordan Addison', slot: 'FLEX', projection: 12.9 }] },
+    });
+    renderPage();
+    const note = await screen.findByTestId('lineup-note');
+    await waitFor(() => expect(note).toHaveAccessibleName(/Start Jordan Addison at FLEX · [+]12[.]9 pts/));
+    expect(note).toHaveAttribute('data-kind', 'pre');
+    expect(within(note).getByTestId('lineup-note-lock')).toHaveTextContent(/^Locks /);
+    expect(apiClient.get.mock.calls.filter(([url]) => url.startsWith('/api/team/lineup/advice'))).toHaveLength(1);
+  });
+
+  test('a full lineup draws no note, and neither does a lock the page cannot name', async () => {
+    mockApi({
+      matchups: [viewerRow()],
+      viewerTeamId: 10,
+      league: { ...noteLeague, roster_slots: [{ key: 'QB', count: 1 }] },
+      detail: lineupDetail(),
+      actionItems: [lineupItemFor(noteLock())],
+    });
+    const { unmount } = renderPage();
+    await screen.findByTestId('matchup-hero');
+    await waitFor(() => expect(apiClient.get.mock.calls.some(([url]) => url.includes('/matchups/'))).toBe(true));
+    expect(screen.queryByTestId('lineup-note')).not.toBeInTheDocument();
+    unmount();
+
+    // Another league's deadline is not this league's lock: live with no kickoff to come leaves nothing to fix.
+    mockApi({
+      matchups: [viewerRow()], viewerTeamId: 10, league: noteLeague, detail: lineupDetail(), actionItems: [lineupItemFor(noteLock(), { leagueId: 2, id: 'lineup_problem:2:x' })],
     });
     renderPage();
     await screen.findByTestId('matchup-hero');
-    expect(screen.queryByTestId('game-center-lineup-note')).not.toBeInTheDocument();
+    await waitFor(() => expect(apiClient.get.mock.calls.filter(([url]) => url.includes('/matchups/')).length).toBeGreaterThan(1));
+    expect(screen.queryByTestId('lineup-note')).not.toBeInTheDocument();
   });
+
 
   afterEach(() => { delete window.IntersectionObserver; });
 

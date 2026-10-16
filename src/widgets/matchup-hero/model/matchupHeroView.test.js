@@ -1,4 +1,4 @@
-import { matchupHeroView } from './matchupHeroView';
+import { matchupHeroView, compactScoreboardView } from './matchupHeroView';
 import { formatKickoff } from '../../../shared/lib';
 
 // The canvas's live Sunday (docs/design/game-center-matchups/build.mjs, HERO):
@@ -161,6 +161,26 @@ describe('matchupHeroView', () => {
     expect(view.chipLabel).toBe('Awaiting final');
     expect(view.chipVariant).toBe('warning');
     expect(view.chipDot).toBe(false);
+  });
+});
+
+describe('compactScoreboardView', () => {
+  test('puts the viewer first: home viewer left, away viewer left, a spectator keeps home left', () => {
+    const home = compactScoreboardView(live, 10);
+    expect([home.a.abbr, home.b.abbr]).toEqual(['DD', 'FF']);
+    expect([home.a.score, home.b.score]).toEqual(['82.2', '77.0']);
+    expect(home.lead).toBe('a');
+    expect(home.marginText).toBe('Duluth Dockworkers by 5.2');
+    const away = compactScoreboardView(live, 20);
+    expect([away.a.abbr, away.b.abbr]).toEqual(['FF', 'DD']);
+    expect([away.a.score, away.b.score]).toEqual(['77.0', '82.2']);
+    expect(away.lead).toBe('b');
+    expect(away.marginText).toBe('Duluth Dockworkers by 5.2');
+    expect(compactScoreboardView(live, 99).a.abbr).toBe('DD');
+  });
+
+  test('is null before kickoff', () => {
+    expect(compactScoreboardView({ ...live, status: 'scheduled' }, 10)).toBeNull();
   });
 });
 
