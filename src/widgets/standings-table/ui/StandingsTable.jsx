@@ -1,7 +1,7 @@
 import React, { useId, useState } from 'react';
 import { Box, useMediaQuery, useTheme } from '@mui/material';
 import {
-  ErrorPanel, Frame, FrameHead, PixelArrow, PixelHeading, Skel, SR_ONLY_SX, TeamMark, YouTag,
+  CpuTag, ErrorPanel, Frame, FrameHead, PixelArrow, PixelHeading, Skel, SR_ONLY_SX, TeamMark, YouTag,
 } from '../../../shared/ui/playselect';
 import useStandingsTable from '../model/useStandingsTable';
 
@@ -269,6 +269,7 @@ function StandingsRow({ row, preseason, lastBeforeBreak }) {
           >
             {row.teamName}
           </Box>
+          {row.isCpu && <CpuTag />}
           {row.isViewer && <YouTag />}
         </Box>
       </Box>
