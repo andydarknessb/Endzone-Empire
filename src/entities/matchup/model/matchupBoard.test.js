@@ -40,8 +40,8 @@ describe('matchupBoard: the one board reading of a Matchup (#2048)', () => {
 
   it('carries score and Players remaining through on every side', () => {
     const board = matchupBoard(matchup('live'), 10);
-    expect(board.home).toEqual({ score: 100, scoreLabel: '100.0', expectedFinal: 120, playersRemaining: 2, playersRemainingLabel: '2' });
-    expect(board.away).toEqual({ score: 90, scoreLabel: '90.0', expectedFinal: 110, playersRemaining: 3, playersRemainingLabel: '3' });
+    expect(board.home).toEqual({ score: 100, scoreLabel: '100.0', expectedFinal: 120, playersRemaining: 2, playersRemainingLabel: '2', yetToPlay: null });
+    expect(board.away).toEqual({ score: 90, scoreLabel: '90.0', expectedFinal: 110, playersRemaining: 3, playersRemainingLabel: '3', yetToPlay: null });
   });
 
   it('prices the live win probability from the scores and Expected finals', () => {
@@ -153,6 +153,12 @@ describe('matchupBoard: the one board reading of a Matchup (#2048)', () => {
       expect(board.home.score).toBeNull();
       expect(board.resultLine).toBeNull();
     });
+  });
+
+  test('carries the server yetToPlay through beside playersRemaining, null when the server sent none', () => {
+    const board = matchupBoard(matchup('live', { home: { ...side(10, 1, 1, 4), yetToPlay: 2 }, away: side(20, 1, 1, 3) }), 10);
+    expect(board.home.yetToPlay).toBe(2);
+    expect(board.away.yetToPlay).toBeNull();
   });
 
   describe('playersRemainingLabel (#2142)', () => {

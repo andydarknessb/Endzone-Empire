@@ -54,6 +54,14 @@ describe('TwoSidedOdds', () => {
     expect(declared(screen.getByText('HME 70%'))).toMatch(/font-weight: 700/);
   });
 
+  test('draws nothing when there is no usable percent, rather than a bar for NaN', () => {
+    [undefined, null, NaN, 'abc'].forEach((pct) => {
+      const { container, unmount } = renderWithProviders(<TwoSidedOdds a="A" b="B" pct={pct} />);
+      expect(container).toBeEmptyDOMElement();
+      unmount();
+    });
+  });
+
   test('clamps an out-of-range percent', () => {
     renderWithProviders(<TwoSidedOdds a="A" b="B" pct={140} />);
     expect(screen.getByRole('img', { name: 'A 100%, B 0% win probability' })).toBeInTheDocument();
@@ -126,6 +134,12 @@ describe('CompactScoreboard', () => {
     const bar = screen.getByRole('group', { name: 'Darkness Falls 61.0, Sunday Scaries 58.9, Darkness Falls by 2.1' });
     expect(declared(bar)).toMatch(/height: 56px/);
     expect(declared(bar)).toMatch(/background-color: var\(--ps-board\)/);
+  });
+
+  test('the group is never empty: its text carries the sentence for a reader that walks the content', () => {
+    renderWithProviders(<CompactScoreboard {...props} />);
+    const bar = screen.getByRole('group');
+    expect(bar).toHaveTextContent('Darkness Falls 61.0, Sunday Scaries 58.9, Darkness Falls by 2.1');
   });
 
   test('prints the compact line with the leader in Board ink and the trailer in Board dim', () => {

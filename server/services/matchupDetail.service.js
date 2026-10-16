@@ -275,6 +275,7 @@ async function getMatchupDetail({
         bench: rows.filter((row) => !chosen.has(row.id)).map((row) => toPlayer(row, pricedById.get(row.id) || null)),
         expectedFinal: team.expectedFinal,
         playersRemaining: team.playersRemaining,
+        yetToPlay: team.yetToPlay,
       };
     }
     // A SETTLED best-ball matchup (#1006): `team` is null (decorateMatchups
@@ -312,6 +313,7 @@ async function getMatchupDetail({
         bench: rows.filter((row) => !chosen.has(row.id)).map((row) => toPlayer(row, pricedById.get(row.id) || null)),
         expectedFinal: team ? team.expectedFinal : null,
         playersRemaining: team ? team.playersRemaining : null,
+        yetToPlay: team ? team.yetToPlay : null,
       };
     }
     return {
@@ -319,6 +321,7 @@ async function getMatchupDetail({
       bench: raw.benchRows.map((row) => toPlayer(row, pricedById.get(row.id) || null)),
       expectedFinal: team ? team.expectedFinal : null,
       playersRemaining: team ? team.playersRemaining : null,
+      yetToPlay: team ? team.yetToPlay : null,
     };
   };
   const homeTeam = buildTeam(homeRaw, decoration.home);
@@ -379,6 +382,7 @@ async function getMatchupDetail({
       bench: homeTeam.bench,
       expectedFinal: homeTeam.expectedFinal,
       playersRemaining: homeTeam.playersRemaining,
+      yetToPlay: homeTeam.yetToPlay,
       calledShot: homeCalledShot,
     },
     away: {
@@ -388,6 +392,7 @@ async function getMatchupDetail({
       bench: awayTeam.bench,
       expectedFinal: awayTeam.expectedFinal,
       playersRemaining: awayTeam.playersRemaining,
+      yetToPlay: awayTeam.yetToPlay,
       calledShot: awayCalledShot,
     },
   };

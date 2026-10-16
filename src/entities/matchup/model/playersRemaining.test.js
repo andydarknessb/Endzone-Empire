@@ -8,43 +8,48 @@ const games = [
 ];
 const p = (nflTeam, over = {}) => ({ playerId: nflTeam, nflTeam, injuryStatus: null, ...over });
 
-// Spec #2334 AC 6l: one definition of "players remaining", everywhere it prints.
+const OUT = { available: false, reason: 'out' };
+const OK = { available: true, reason: null };
+
+// Spec #2334 AC 6l, ADR 0061: one definition of "players remaining". A starter counts when his NFL game is not final
+// and his availability verdict (which the wire carries) is not unavailable: Out, IR, suspension and practice squad
+// all drop out, and so does an empty slot.
 describe('playersRemaining', () => {
-  test('counts the live and not-started starters, not the final one, the Out one or the empty slot', () => {
+  test('counts the live and not-started starters, not the final one, the unavailable one or the empty slot', () => {
     const starters = [
       p('PIT'), // game final
       p('JAX'), // game live
       p('SF'), // not started
-      p('LAR', { injuryStatus: 'Out' }), // live game, but Out
+      p('LAR', { availability: OUT }), // live game, but unavailable
       null, // empty slot
     ];
     expect(playersRemaining(starters, games)).toBe(2);
   });
 
-  test('an Out starter in a game not yet started still does not count, whatever the case of his status', () => {
-    expect(playersRemaining([p('SF', { injuryStatus: 'OUT' }), p('ARI', { injuryStatus: 'out' })], games)).toBe(0);
+  test.each(['out', 'ir', 'suspended', 'practice_squad', 'bye', 'no_team'])('an unavailable starter (%s) does not count, even with no injury status', (reason) => {
+    expect(playersRemaining([p('SF', { injuryStatus: null, availability: { available: false, reason } })], games)).toBe(0);
   });
 
-  test('the wire designation code O is Out too', () => {
-    expect(playersRemaining([p('SF', { injuryStatus: 'O' }), { id: 9, nfl_team: 'ARI', injury_status: 'O' }, p('JAX')], games)).toBe(1);
-  });
-
-  test('other injury designations (Questionable, Doubtful) still count', () => {
-    expect(playersRemaining([p('SF', { injuryStatus: 'Questionable' }), p('ARI', { injuryStatus: 'Doubtful' })], games)).toBe(2);
-  });
-
-  test('a starter on bye or without a team does not count', () => {
-    const starters = [p('BAL', { availability: { available: false, reason: 'bye' } }), p('FA', { availability: { available: false, reason: 'no_team' } })];
-    expect(playersRemaining(starters, games)).toBe(0);
+  test('an available starter counts whatever his injury designation says', () => {
+    const starters = [
+      p('SF', { injuryStatus: 'Questionable', availability: OK }),
+      p('ARI', { injuryStatus: 'Doubtful', availability: OK }),
+      p('JAX', { injuryStatus: 'O', availability: OK }), // the verdict, not the raw status, decides
+    ];
+    expect(playersRemaining(starters, games)).toBe(3);
   });
 
   test('reads the wire shape the detail starters arrive in as well as the normalised one', () => {
     const starters = [
-      { id: 1, nfl_team: 'JAX', injury_status: null },
-      { id: 2, nfl_team: 'LAR', injury_status: 'Out' },
-      { id: 3, nfl_team: 'PIT', injury_status: null },
+      { id: 1, nfl_team: 'JAX', injury_status: null, availability: OK },
+      { id: 2, nfl_team: 'LAR', injury_status: 'O', availability: { available: false, reason: 'out' } },
+      { id: 3, nfl_team: 'PIT', injury_status: null, availability: OK },
     ];
     expect(playersRemaining(starters, games)).toBe(1);
+  });
+
+  test('a starter the wire gave no verdict for is not ruled out', () => {
+    expect(playersRemaining([p('SF', { availability: null }), p('JAX')], games)).toBe(2);
   });
 
   test('with no live row for his team a starter falls back to his own game state', () => {
@@ -75,9 +80,15 @@ describe('playersRemaining', () => {
 
 describe('yetToPlay', () => {
   test('counts only the remaining starters whose game has not started', () => {
-    const starters = [p('PIT'), p('JAX'), p('SF'), p('ARI'), p('SF', { injuryStatus: 'Out' }), null];
+    const starters = [p('PIT'), p('JAX'), p('SF'), p('ARI'), p('SF', { availability: OUT }), null];
     expect(playersRemaining(starters, games)).toBe(3);
     expect(yetToPlay(starters, games)).toBe(2);
+  });
+
+  test('a suspended starter in a game not started is neither remaining nor yet to play', () => {
+    const starters = [p('SF', { injuryStatus: null, availability: { available: false, reason: 'suspended' } })];
+    expect(playersRemaining(starters, games)).toBe(0);
+    expect(yetToPlay(starters, games)).toBe(0);
   });
 
   test('a starter with no row falls back to his own state, and an unknown one is not claimed as not started', () => {

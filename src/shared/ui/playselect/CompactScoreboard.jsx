@@ -1,6 +1,7 @@
 import React from 'react';
 import { Box } from '@mui/material';
 import { LiveChip } from './Controls';
+import { SR_ONLY_SX } from './type';
 
 const DOT_SX = { color: 'var(--ps-board-dim)' };
 
@@ -20,11 +21,13 @@ export function CompactScoreboard({
       {`${side.abbr} ${side.score}`}
     </Box>
   );
+  const sentence = `${a.name} ${a.score}, ${b.name} ${b.score}, ${marginText}`;
   return (
     <Box
       role="group"
-      aria-label={`${a.name} ${a.score}, ${b.name} ${b.score}, ${marginText}`}
+      aria-label={sentence}
       sx={{
+        position: 'relative',
         height: '56px',
         boxSizing: 'border-box',
         display: 'flex',
@@ -40,6 +43,7 @@ export function CompactScoreboard({
         lineHeight: 1.3,
       }}
     >
+      <Box component="span" sx={SR_ONLY_SX}>{sentence}</Box>
       <Box aria-hidden="true" sx={{ minWidth: 0, display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, gap: '2px' }}>
         <span>
           {score(a, lead === 'a')}

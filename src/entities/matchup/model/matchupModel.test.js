@@ -24,6 +24,7 @@ const listRow = {
   home_score: 41.2,
   home_expected_final: 104.6,
   home_players_remaining: 5,
+  home_yet_to_play: 3,
   away_team_id: 20,
   away_team_name: 'Away Days',
   away_team_avatar_url: 'away.png',
@@ -31,14 +32,15 @@ const listRow = {
   away_score: 55.9,
   away_expected_final: 131.3,
   away_players_remaining: 4,
+  away_yet_to_play: 1,
 };
 
 // The detail body: { matchup, home, away }, score on the matchup, identity and
 // figures on the per-side objects.
 const detailBody = {
   matchup: { id: 5, season: 2025, week: 3, final: false, status: 'played', home_score: 88, away_score: 77 },
-  home: { teamId: 10, name: 'Home Town', expectedFinal: 88, playersRemaining: 0 },
-  away: { teamId: 20, name: 'Away Days', expectedFinal: 77, playersRemaining: 0 },
+  home: { teamId: 10, name: 'Home Town', expectedFinal: 88, playersRemaining: 0, yetToPlay: 0 },
+  away: { teamId: 20, name: 'Away Days', expectedFinal: 77, playersRemaining: 0, yetToPlay: 0 },
 };
 
 describe('matchupFromListRow / matchupFromDetailBody: one shape from any wire', () => {
@@ -61,6 +63,7 @@ describe('matchupFromListRow / matchupFromDetailBody: one shape from any wire', 
         score: 41.2,
         expectedFinal: 104.6,
         playersRemaining: 5,
+        yetToPlay: 3,
       },
       away: {
         teamId: 20,
@@ -70,6 +73,7 @@ describe('matchupFromListRow / matchupFromDetailBody: one shape from any wire', 
         score: 55.9,
         expectedFinal: 131.3,
         playersRemaining: 4,
+        yetToPlay: 1,
       },
     });
   });
@@ -91,6 +95,7 @@ describe('matchupFromListRow / matchupFromDetailBody: one shape from any wire', 
         score: 88,
         expectedFinal: 88,
         playersRemaining: 0,
+        yetToPlay: 0,
       },
       away: {
         teamId: 20,
@@ -100,6 +105,7 @@ describe('matchupFromListRow / matchupFromDetailBody: one shape from any wire', 
         score: 77,
         expectedFinal: 77,
         playersRemaining: 0,
+        yetToPlay: 0,
       },
     });
   });
@@ -117,11 +123,13 @@ describe('applyScoreEvent: a live entry applied to a model', () => {
     home_score: 0,
     home_expected_final: 100,
     home_players_remaining: 9,
+    home_yet_to_play: 7,
     away_team_id: 20,
     away_team_name: 'Away Days',
     away_score: 0,
     away_expected_final: 140,
     away_players_remaining: 9,
+    away_yet_to_play: 8,
   });
 
   test('a full entry moves the scores, figures and status, keeping each side its own identity', () => {
@@ -134,6 +142,8 @@ describe('applyScoreEvent: a live entry applied to a model', () => {
       awayExpectedFinal: 131.3,
       homePlayersRemaining: 5,
       awayPlayersRemaining: 4,
+      homeYetToPlay: 2,
+      awayYetToPlay: 0,
     });
 
     expect(next.status).toBe('live');
@@ -147,7 +157,9 @@ describe('applyScoreEvent: a live entry applied to a model', () => {
       score: 41.2,
       expectedFinal: 104.6,
       playersRemaining: 5,
+      yetToPlay: 2,
     });
+    expect(next.away.yetToPlay).toBe(0);
     expect(next.away.name).toBe('Away Days');
     expect(next.away.score).toBe(55.9);
     expect(next.away.playersRemaining).toBe(4);
@@ -166,6 +178,8 @@ describe('applyScoreEvent: a live entry applied to a model', () => {
     expect(next.away.expectedFinal).toBe(140);
     expect(next.home.playersRemaining).toBe(9);
     expect(next.away.playersRemaining).toBe(9);
+    expect(next.home.yetToPlay).toBe(7);
+    expect(next.away.yetToPlay).toBe(8);
     // No status on the entry means the model's status stands.
     expect(next.status).toBe('scheduled');
   });
