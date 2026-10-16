@@ -41,6 +41,7 @@ const DISABLED_SX = {
  * `to` makes it a router link. `disabled` is the native attribute on a button;
  * a link gets aria-disabled and swallows the click, so it does not navigate. `ariaExpanded` and
  * `ariaControls` make it a disclosure (Show games, Edit): the button reports the state of what it opens.
+ * The root carries `data-variant`, so a test can count the page's filled actions (`[data-variant="fill"]`).
  */
 export function PsButton({
   variant = 'ghost', to, onClick, ariaLabel, describedBy, ariaExpanded, ariaControls, children, type = 'button', disabled = false,
@@ -55,6 +56,7 @@ export function PsButton({
         onClick={disabled ? (event) => event.preventDefault() : onClick}
         aria-label={ariaLabel}
         aria-describedby={describedBy}
+        data-variant={variant}
         aria-expanded={ariaExpanded}
         aria-controls={ariaControls}
         aria-disabled={disabled ? 'true' : undefined}
@@ -75,6 +77,7 @@ export function PsButton({
       aria-describedby={describedBy}
       aria-expanded={ariaExpanded}
       aria-controls={ariaControls}
+      data-variant={variant}
       disabled={disabled}
       sx={sx}
     >

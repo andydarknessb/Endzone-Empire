@@ -1,5 +1,8 @@
+/* eslint-disable testing-library/no-node-access -- these cases read emotion rules, data attributes and the Live chip's dot, which have no role or text */
 import React from 'react';
-import { act, screen, within } from '@testing-library/react';
+import {
+  act, screen, waitFor, within,
+} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
@@ -9,6 +12,7 @@ import { computeDefaultWeek } from '../../lib/matchupWeek';
 import { publishTeamProfileUpdate } from '../../lib/teamProfileEvents';
 import { matchupFromListRow } from '../../entities/matchup';
 import GameCenterPage from './index';
+import { viewerSlots } from './ui/HeroSection';
 import { SYNC_CADENCE_MS, syncLineText, weekGlanceFacts } from './model/useGameCenter';
 
 // The page reads everything through the shared apiClient (the league cache,
@@ -100,8 +104,14 @@ function mockApi({
   viewerTeamId = null,
   rosters = [],
   standings = [],
+  actionItems = [],
+  detail = null,
+  advice = null,
 } = {}) {
   apiClient.get.mockImplementation((url) => {
+    if (url.startsWith('/api/user/action-items')) return Promise.resolve({ data: { items: actionItems } });
+    if (advice && url.startsWith('/api/team/lineup/advice')) return Promise.resolve({ data: advice });
+    if (detail && url.includes('/matchups/')) return Promise.resolve({ data: detail });
     if (url.endsWith('/matchups')) return Promise.resolve({ data: matchups });
     if (url.endsWith('/rosters')) return Promise.resolve({ data: rosters });
     if (url.endsWith('/standings')) return Promise.resolve({ data: { standings } });
@@ -131,6 +141,7 @@ function makeFakeSocket() {
 }
 
 let socket;
+let sockets;
 let liveGamePush;
 let mobile;
 
@@ -147,16 +158,21 @@ function installLiveGames(rows) {
   supabase.channel.mockReturnValue(channelObj);
 }
 
-const emitScores = (payload) => act(() => { socket.fire('scores:updated', payload); });
+// The page opens one feed socket for the list, and a second for the live hero's lineups while the payload
+// lacks yetToPlay; a score event reaches every one of them, as the server's room broadcast does.
+const emitScores = (payload) => act(() => { sockets.forEach((s) => s.fire('scores:updated', payload)); });
 
 beforeEach(() => {
   // Clear every shared resource cache (ADR 0004): the league and the
   // week-keyed standings are module state and outlive a test.
   invalidate(undefined, { reload: false });
   mobile = false;
+  sockets = [];
   window.__ENDZONE_TEST_SOCKET_FACTORY__ = () => {
-    socket = makeFakeSocket();
-    return socket;
+    const made = makeFakeSocket();
+    sockets.push(made);
+    [socket] = sockets;
+    return made;
   };
   // Every media query the page and its widgets read goes through
   // useMediaQuery: the theme's `sm` breakpoint (a max-width) reads `mobile`;
@@ -221,7 +237,6 @@ const card = (id) => cards().find((el) => el.getAttribute('data-matchup-id') ===
 const glanceRow = (fact) =>
   screen.getAllByTestId('week-glance-row').find((el) => el.getAttribute('data-fact') === fact);
 const feedRows = () => screen.queryAllByTestId('scoring-feed-row');
-const strip = () => screen.getByTestId('scoring-strip');
 
 // An sx rule is neither laid out nor computed by jsdom, but emotion inserts
 // every rule into `document.styleSheets` under the element's generated class
@@ -342,11 +357,11 @@ test('the hero renders the viewer Matchup and the grid the rest', async () => {
   expect(card(2)).toHaveTextContent('Other A');
   expect(card(3)).toHaveTextContent('Other C');
   expect(screen.getByTestId('game-center-grid-count')).toHaveTextContent('2 more');
-  // Every card is itself the link to its box score; so is the hero's Compare
-  // rosters action.
+  // Every card is itself the link to its box score; so is the hero's Matchup link
+  // (renamed from Compare rosters).
   expect(card(2).tagName).toBe('A');
   expect(card(2)).toHaveAttribute('href', '/league/1/matchups/2');
-  expect(within(heroCard).getByRole('link', { name: 'Compare rosters' })).toHaveAttribute('href', '/league/1/matchups/1');
+  expect(within(heroCard).getByRole('link', { name: /^Matchup, My Team against Rival/ })).toHaveAttribute('href', '/league/1/matchups/1');
 });
 
 test('a viewer with no Team on this league gets no hero and every Matchup in the grid', async () => {
@@ -377,8 +392,11 @@ test('records and ranks come from the standings read and reach the hero and the 
   expect(homeRecord).toHaveTextContent('3-1 · 2nd in league');
   expect(within(within(heroCard).getByTestId('matchup-hero-side-away')).getByTestId('matchup-hero-record')).toHaveTextContent('2-2 · 3rd in league');
   const other = card(2);
-  expect(within(within(other).getByTestId('matchup-side-home')).getByTestId('matchup-side-note')).toHaveTextContent('4-0 · EF 90.0 · PMR 3');
-  expect(within(within(other).getByTestId('matchup-side-away')).getByTestId('matchup-side-note')).toHaveTextContent('1-2-1 · EF 95.0 · PMR 3');
+  expect(within(other).getByTestId('matchup-side-home')).toHaveTextContent('Other A 4-0');
+  expect(within(other).getByTestId('matchup-side-home')).toHaveTextContent('Exp final 90.0');
+  expect(within(other).getByTestId('matchup-side-home')).toHaveTextContent('3 players remaining');
+  expect(within(other).getByTestId('matchup-side-away')).toHaveTextContent('Other B 1-2-1');
+  expect(within(other).getByTestId('matchup-side-away')).toHaveTextContent('Exp final 95.0');
   // The standings read is one request, keyed by the league's current week.
   expect(apiClient.get.mock.calls.filter(([url]) => url.endsWith('/standings'))).toHaveLength(1);
 });
@@ -481,9 +499,10 @@ test('the glance tile\'s top score is the highest score in the week, never an Ex
   expect(within(glanceRow('closest')).getByTestId('week-glance-value')).toHaveTextContent('3.4');
   expect(within(glanceRow('biggest-lead')).getByTestId('week-glance-text')).toHaveTextContent('Gamma over Delta');
   expect(within(glanceRow('biggest-lead')).getByTestId('week-glance-value')).toHaveTextContent('15.8');
-  // Still to play sums every side of the week, the scheduled Matchup included.
-  expect(within(glanceRow('still-to-play')).getByTestId('week-glance-text')).toHaveTextContent('Starters league-wide');
-  expect(within(glanceRow('still-to-play')).getByTestId('week-glance-value')).toHaveTextContent('32');
+  // Players remaining sums every side of the week (the server's one definition), the scheduled Matchup included.
+  expect(glanceRow('players-remaining')).toHaveTextContent('Players remaining');
+  expect(within(glanceRow('players-remaining')).getByTestId('week-glance-text')).toHaveTextContent('Starters league-wide');
+  expect(within(glanceRow('players-remaining')).getByTestId('week-glance-value')).toHaveTextContent('32');
 });
 
 test('weekGlanceFacts: a row whose fact is not derivable is left out, and a week with none has no tile', async () => {
@@ -491,9 +510,9 @@ test('weekGlanceFacts: a row whose fact is not derivable is left out, and a week
     matchupFromListRow(row({ id: 3, status: 'scheduled', home_players_remaining: 9, away_players_remaining: 9, home_expected_final: 140 })),
   ];
   // Nothing has started: no top score, no closest, no lead; the starters
-  // still to play are known.
-  expect(weekGlanceFacts(scheduledOnly).map((r) => r.key)).toEqual(['still-to-play']);
-  expect(weekGlanceFacts(scheduledOnly)[0].value).toBe('18');
+  // set to play are known, and the row says so (nothing is live to be "remaining").
+  expect(weekGlanceFacts(scheduledOnly).map((r) => r.key)).toEqual(['players-remaining']);
+  expect(weekGlanceFacts(scheduledOnly)[0]).toMatchObject({ label: 'Starters set to play', value: '18' });
   // Every started Matchup tied: closest is derivable, a lead is not. (The
   // Expected finals are here only so the top-score row's presence does not
   // depend on which figure derives it; the red-tell case above binds that.)
@@ -545,7 +564,7 @@ test('a scores:updated event moves a card\'s score and chip with no refetch', as
 
   await screen.findByRole('heading', { level: 2, name: 'League matchups' });
   const before = card(5);
-  expect(within(before).getByTestId('matchup-status')).toHaveTextContent('Scheduled');
+  expect(before).toHaveAttribute('data-state', 'scheduled');
   // Before kickoff the card's big number is the projected total.
   expect(within(within(before).getByTestId('matchup-side-home')).getByTestId('matchup-figure')).toHaveTextContent('100.0');
 
@@ -559,9 +578,10 @@ test('a scores:updated event moves a card\'s score and chip with no refetch', as
   const after = card(5);
   expect(within(within(after).getByTestId('matchup-side-home')).getByTestId('matchup-figure')).toHaveTextContent('21.0');
   expect(within(within(after).getByTestId('matchup-side-away')).getByTestId('matchup-figure')).toHaveTextContent('14.0');
-  expect(within(after).getByTestId('matchup-status')).toHaveTextContent('LIVE');
-  expect(within(after).getByTestId('matchup-status')).toHaveAttribute('data-variant', 'danger');
-  expect(within(within(after).getByTestId('matchup-side-home')).getByTestId('matchup-side-note')).toHaveTextContent('EF 104.6');
+  // Board black says live: the tile carries no chip (the Live chip is the h1 row's and the hero's).
+  expect(after).toHaveAttribute('data-state', 'live');
+  expect(within(after).queryByTestId('matchup-status')).not.toBeInTheDocument();
+  expect(within(after).getByTestId('matchup-side-home')).toHaveTextContent('Exp final 104.6');
   // No refetch of the list and no per-card fetch rode the event.
   expect(apiClient.get.mock.calls.filter(([url]) => url.endsWith('/matchups'))).toHaveLength(1);
   expect(apiClient.get).not.toHaveBeenCalledWith('/api/league/1/matchups/5');
@@ -701,8 +721,9 @@ test('the ticker names the fantasy Team from the rosters read and filters plays 
   renderPage();
 
   await screen.findByRole('radio', { name: 'Wk 1' });
-  // Idle before the first play of the week lands.
-  expect(strip()).toHaveTextContent('Live scoring plays will appear here once games kick off.');
+  // Idle before the first play of the week lands: the feed says so and the strip is not drawn.
+  expect(screen.getByTestId('scoring-feed')).toHaveTextContent('Live scoring plays will appear here once games kick off.');
+  expect(screen.queryByTestId('scoring-strip')).not.toBeInTheDocument();
 
   emitScores({
     leagueId: 1,
@@ -711,12 +732,8 @@ test('the ticker names the fantasy Team from the rosters read and filters plays 
     plays: [{ playerId: 99, name: 'Speedy Runner', nflTeam: 'MIN', type: 'rushing', pointsDelta: 6, isTouchdown: true }],
   });
 
-  const region = screen.getByRole('region', { name: 'Recent league scoring plays' });
-  expect(within(region).getAllByTestId('scoring-strip-play')).toHaveLength(1);
-  expect(region).toHaveTextContent('Speedy Runner');
-  expect(region).toHaveTextContent('rushing TD');
-  expect(region).toHaveTextContent('+6.0');
-  expect(region).toHaveTextContent('to Home Team');
+  // Desktop draws no strip (the rail's feed shows the plays); the feed row carries the play.
+  expect(screen.queryByTestId('scoring-strip')).not.toBeInTheDocument();
   expect(feedRows()).toHaveLength(1);
   expect(feedRows()[0]).toHaveTextContent('Speedy Runner');
   expect(feedRows()[0]).toHaveTextContent('Home Team');
@@ -729,7 +746,7 @@ test('the ticker names the fantasy Team from the rosters read and filters plays 
     plays: [{ playerId: 77, name: 'Late Bloomer', nflTeam: 'GB', type: 'receiving', pointsDelta: 7.5, isTouchdown: true }],
   });
   expect(feedRows()).toHaveLength(1);
-  expect(region).not.toHaveTextContent('Late Bloomer');
+  expect(screen.getByTestId('scoring-feed')).not.toHaveTextContent('Late Bloomer');
 
   // A play by a player no Team rosters is not a league play.
   emitScores({
@@ -772,7 +789,8 @@ test('a play by a side of the viewer\'s Matchup carries that side to the feed', 
   });
 
   const sides = screen.getAllByTestId('scoring-feed-side').map((el) => el.getAttribute('data-side'));
-  expect(sides).toEqual(['home', 'away', 'neutral']);
+  // A neutral play (another matchup) carries no side text at all.
+  expect(sides).toEqual(['home', 'away']);
 });
 
 // --- mobile ---------------------------------------------------------------
@@ -883,4 +901,527 @@ test('below the sm breakpoint the Week at a glance tile is not rendered', async 
   expect(screen.getByTestId('matchup-grid')).toHaveAttribute('data-layout', 'rows');
   expect(screen.queryByTestId('week-glance')).not.toBeInTheDocument();
   expect(screen.queryByRole('heading', { level: 2, name: 'Week at a glance' })).not.toBeInTheDocument();
+});
+
+// --- Play-select wave 2 (ADR 0067, spec #2334) -----------------------------
+
+// The Live chip is a span whose first child is its aria-hidden square dot; the screen-reader "Live" text a
+// game tile carries is not one.
+const liveChips = () => Array.from(document.querySelectorAll('span'))
+  .filter((el) => el.textContent === 'Live' && el.firstElementChild?.getAttribute('aria-hidden') === 'true');
+
+const playsFor = (ids) => ids.map((id) => ({
+  playerId: id, name: `Player ${id}`, type: 'rushing', pointsDelta: 6, isTouchdown: true,
+}));
+const rosterFor = (ids) => [{ teamId: 10, teamName: 'My Team', players: ids.map((id) => ({ id, name: `Player ${id}` })) }];
+
+describe('Play-select', () => {
+  test('a live week wears no cursor and no filled action (AC 3)', async () => {
+    mockApi({ matchups: [viewerRow(), otherRow()], viewerTeamId: 10 });
+    renderPage();
+
+    await screen.findByTestId('matchup-hero');
+    expect(document.querySelectorAll('.cursor')).toHaveLength(0);
+    expect(document.querySelectorAll('[data-filled="true"]')).toHaveLength(0);
+    // PsButton's own marker: a filled action is data-variant="fill"; the page's Set lineup is a ghost.
+    expect(document.querySelectorAll('[data-variant="fill"]')).toHaveLength(0);
+    expect(document.querySelectorAll('[data-variant="ghost"]').length).toBeGreaterThan(0);
+  });
+
+  test('exactly two Live chips while live: the h1 row and the hero, none on the tiles or the NFL strip (AC 6j)', async () => {
+    installLiveGames([
+      {
+        tank01_game_id: 'g1', week: 1, game_status: 'in_progress', away_team: 'GB', home_team: 'CHI', current_score_away: 10, current_score_home: 7, quarter: 'Q2', time_remaining: '8:12',
+      },
+      {
+        tank01_game_id: 'g2', week: 1, game_status: 'in_progress', away_team: 'MIN', home_team: 'DET', current_score_away: 3, current_score_home: 0, quarter: 'Q1', time_remaining: '2:00',
+      },
+    ]);
+    mockApi({
+      matchups: [viewerRow({ nfl_game_ids: ['g1', 'g2'] }), otherRow(), otherRow({ id: 3, home_team_id: 50, away_team_id: 60 })],
+      viewerTeamId: 10,
+    });
+    renderPage();
+
+    await screen.findByTestId('matchup-hero');
+    const nflStrip = await screen.findByTestId('game-center-nfl-games');
+    // The strip's own hidden "Live" text is exercised (live tiles carry it) and is not a chip.
+    expect(within(nflStrip).getAllByText('Live').length).toBeGreaterThan(0);
+    expect(liveChips()).toHaveLength(2);
+    expect(within(screen.getByTestId('game-center-title')).getAllByText('Live')).toHaveLength(1);
+    expect(within(screen.getByTestId('matchup-hero')).getAllByText('Live')).toHaveLength(1);
+    expect(within(screen.getByTestId('matchup-grid')).queryByText('Live')).not.toBeInTheDocument();
+  });
+
+  test('a week with nothing live has no Live chip, and the hero is the framed panel with Kickoff and no 0.0', async () => {
+    mockApi({
+      matchups: [
+        viewerRow({ status: 'scheduled', home_score: '0', away_score: '0', first_kickoff_at: '2026-09-13T17:00:00.000Z' }),
+        otherRow({ status: 'scheduled', home_score: '0', away_score: '0' }),
+      ],
+      viewerTeamId: 10,
+    });
+    renderPage();
+
+    const hero = await screen.findByTestId('matchup-hero');
+    expect(liveChips()).toHaveLength(0);
+    expect(within(hero).getByTestId('matchup-hero-kickoff')).toHaveTextContent('Kickoff');
+    expect(hero).not.toHaveTextContent(/(^|[^0-9])0[.]0([^0-9]|$)/);
+    expect(hero).not.toHaveTextContent('Next kickoff');
+    expect(within(hero).getByTestId('matchup-hero-side-home')).toHaveTextContent('Proj');
+    expect(within(hero).getByTestId('matchup-hero-side-home')).toHaveTextContent('5 starters set to play');
+    // RULINGS Critique 10 item 13: the League matchups head says it once, with the earliest kickoff.
+    expect(screen.getAllByText(/projected totals/)).toHaveLength(1);
+    expect(screen.getByRole('region', { name: 'League matchups' })).toHaveTextContent(/All games kick off .+ · projected totals/);
+  });
+
+  test('desktop draws no latest-plays strip, and the rail feed carries the plays (AC 6b)', async () => {
+    mockApi({ matchups: [viewerRow()], viewerTeamId: 10, rosters: rosterFor([1, 2]) });
+    renderPage();
+    await screen.findByTestId('matchup-hero');
+    emitScores({ leagueId: 1, week: 1, scored: [], plays: playsFor([1, 2]) });
+    expect(screen.queryByTestId('scoring-strip')).not.toBeInTheDocument();
+    expect(feedRows()).toHaveLength(2);
+  });
+
+  test('on a phone the strip is back with the newest play only', async () => {
+    mobile = true;
+    mockApi({ matchups: [viewerRow()], viewerTeamId: 10, rosters: rosterFor([1, 2]) });
+    renderPage();
+    await screen.findByTestId('matchup-hero');
+    emitScores({ leagueId: 1, week: 1, scored: [], plays: playsFor([1, 2]) });
+    const stripRegion = screen.getByRole('region', { name: 'Recent league scoring plays' });
+    expect(within(stripRegion).getAllByTestId('scoring-strip-play')).toHaveLength(1);
+    expect(stripRegion).toHaveTextContent('Latest plays');
+    expect(within(stripRegion).queryByText('Live')).not.toBeInTheDocument();
+  });
+
+  test('the hero and the tile print players remaining from the one count, and the glance row sums them (AC 6l)', async () => {
+    mockApi({ matchups: [viewerRow({ home_yet_to_play: 2, away_yet_to_play: 3 }), otherRow()], viewerTeamId: 10 });
+    renderPage();
+    const hero = await screen.findByTestId('matchup-hero');
+    expect(within(hero).getByTestId('matchup-hero-side-home')).toHaveTextContent('5 players remaining');
+    expect(within(card(2)).getByTestId('matchup-side-home')).toHaveTextContent('3 players remaining');
+    // 5 + 4 + 3 + 3.
+    expect(within(glanceRow('players-remaining')).getByTestId('week-glance-value')).toHaveTextContent('15');
+  });
+
+  test('the live hero sentence names their players remaining', async () => {
+    mockApi({ matchups: [viewerRow({ home_yet_to_play: 2, away_yet_to_play: 3 }), otherRow()], viewerTeamId: 10 });
+    renderPage();
+    const hero = await screen.findByTestId('matchup-hero');
+    expect(within(hero).getByTestId('matchup-hero-sentence')).toHaveTextContent(/they have 4 players remaining/);
+  });
+
+  // The lineups the note reads (the viewer is home): one QB, the FLEX slot empty.
+  const SLOTS = [{ key: 'QB', count: 1 }, { key: 'FLEX', count: 1 }];
+  const noteLeague = { id: 1, name: 'Sunday Ballers', current_week: 1, roster_slots: SLOTS };
+  const lineupDetail = ({ week = 1, bench = [], awayStarters = [] } = {}) => ({
+    matchup: {
+      id: 1, season: 2026, week, status: 'live', home_score: '30.0', away_score: '20.0',
+    },
+    home: {
+      teamId: 10, name: 'My Team', starters: [{ id: 1, slot: 'QB', name: 'Quarterback', game_state: 'in_progress' }], bench,
+    },
+    away: {
+      teamId: 20, name: 'Rival', starters: awayStarters, bench: [],
+    },
+    viewerTeamId: 10,
+    nflGameIds: [],
+  });
+
+  test('the server yetToPlay prints in the hero sentence, never the helpers\' numbers from the lineups', async () => {
+    // The lineups the note reads would say 2 remaining and 2 yet to play for them; the sentence prints the server's pair.
+    mockApi({
+      matchups: [viewerRow({ home_yet_to_play: 2, away_yet_to_play: 3 }), otherRow()],
+      viewerTeamId: 10,
+      league: noteLeague,
+      detail: lineupDetail({ awayStarters: [{ id: 5, slot: 'QB', game_state: 'scheduled' }, { id: 6, slot: 'FLEX', game_state: 'scheduled' }] }),
+      actionItems: [lineupItemFor(new Date(Date.now() + 45 * 60000).toISOString())],
+    });
+    renderPage();
+    const hero = await screen.findByTestId('matchup-hero');
+    await screen.findByTestId('lineup-note');
+    expect(within(hero).getByTestId('matchup-hero-sentence')).toHaveTextContent(/they have 4 players remaining, 3 yet to play/);
+    expect(within(hero).getByTestId('matchup-hero-side-away')).toHaveTextContent('4 players remaining');
+  });
+
+  const lineupItemFor = (lock, extra = {}) => ({
+    id: 'lineup_problem:1:2026-1', type: 'lineup_problem', leagueId: 1, title: 'Fill your empty FLEX slot', detail: 'FLEX is empty', deadlineAt: lock, cta: { label: 'Fix lineup', to: '/league/1/lineup' }, ...extra,
+  });
+
+  test('the lineup note shows only for the league\'s current week: Wk 8 while the current week is 7 has none', async () => {
+    mockApi({
+      matchups: [viewerRow({ week: 7 }), viewerRow({ id: 8, week: 8, status: 'scheduled' })],
+      viewerTeamId: 10,
+      league: { ...noteLeague, current_week: 7 },
+      detail: lineupDetail({ week: 7 }),
+      actionItems: [lineupItemFor(new Date(Date.now() + 45 * 60000).toISOString(), { id: 'lineup_problem:1:2026-7' })],
+    });
+    renderPage();
+    expect(await screen.findByTestId('lineup-note')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('radio', { name: 'Wk 8' }));
+    expect(screen.queryByTestId('lineup-note')).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('radio', { name: 'Wk 7' }));
+    expect(await screen.findByTestId('lineup-note')).toBeInTheDocument();
+  });
+
+  test('once the lock passes the note goes away and the action items are asked for again, once', async () => {
+    jest.useFakeTimers();
+    try {
+      const lock = new Date(Date.now() + 45 * 60000).toISOString();
+      mockApi({
+        matchups: [viewerRow()], viewerTeamId: 10, league: noteLeague, detail: lineupDetail(), actionItems: [lineupItemFor(lock)],
+      });
+      renderPage();
+      expect(await screen.findByTestId('lineup-note')).toBeInTheDocument();
+      const asks = () => apiClient.get.mock.calls.filter(([url]) => url.startsWith('/api/user/action-items')).length;
+      expect(asks()).toBe(1);
+
+      // The page's minute clock walks past the lock; the shared cache's refetch runs once.
+      await act(async () => { jest.advanceTimersByTime(46 * 60000); });
+      expect(screen.queryByTestId('lineup-note')).not.toBeInTheDocument();
+      expect(asks()).toBe(2);
+      await act(async () => { jest.advanceTimersByTime(10 * 60000); });
+      expect(asks()).toBe(2);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  // The fallback path (a payload without yetToPlay, or any server count): the hero's side lines and sentence
+  // print the one set of helper numbers from the lineups, and Week at a glance does not add up a total from the
+  // other source: with the hero's server counts null it is left out, never a sum of the other tiles alone.
+  test('with null server counts the hero reads the helper numbers throughout, and the glance prints no mixed sum', async () => {
+    const starter = (id, state, extra = {}) => ({
+      id, slot: 'WR', name: `Starter ${id}`, position: 'WR', nfl_team: null, game_state: state, ...extra,
+    });
+    const detail = {
+      matchup: { id: 1, season: 2026, week: 1, final: false, status: 'live', home_score: '30.0', away_score: '20.0' },
+      home: {
+        teamId: 10, name: 'My Team', expectedFinal: 100, starters: [starter(1, 'final'), starter(2, 'in_progress'), starter(3, 'scheduled')], bench: [],
+      },
+      away: {
+        teamId: 20,
+        name: 'Rival',
+        expectedFinal: 140,
+        starters: [
+          starter(11, 'in_progress'), starter(12, 'in_progress'), starter(13, 'scheduled'), starter(14, 'scheduled'),
+          starter(15, 'in_progress', { injury_status: 'O', availability: { available: false, reason: 'out' } }),
+          starter(16, 'scheduled', { availability: { available: false, reason: 'suspended' } }),
+        ],
+        bench: [],
+      },
+      viewerTeamId: 10,
+      nflGameIds: [],
+    };
+    mockApi({
+      matchups: [viewerRow({ home_players_remaining: null, away_players_remaining: null }), otherRow()],
+      viewerTeamId: 10,
+      detail,
+    });
+    renderPage();
+
+    const hero = await screen.findByTestId('matchup-hero');
+    const sentence = within(hero).getByTestId('matchup-hero-sentence');
+    await waitFor(() => expect(sentence).toHaveTextContent('they have 4 players remaining, 2 yet to play'));
+    // Home: one final, one live, one not started: 2 remaining. Away: the Out and the unavailable starter do not count.
+    expect(within(hero).getByTestId('matchup-hero-side-home')).toHaveTextContent('2 players remaining');
+    expect(within(hero).getByTestId('matchup-hero-side-away')).toHaveTextContent('4 players remaining');
+    // The tile for the other matchup keeps the server's 3 and 3, and the glance, whose hero sides have no server
+    // count, prints no players-remaining sum (6 would be the other source's half of a mixed total).
+    expect(within(card(2)).getByTestId('matchup-side-home')).toHaveTextContent('3 players remaining');
+    expect(screen.getByTestId('week-glance')).toBeInTheDocument();
+    expect(screen.queryByText('Players remaining', { selector: 'span' })).not.toBeInTheDocument();
+    expect(document.querySelector('[data-fact="players-remaining"]')).toBeNull();
+  });
+
+  // One source per matchup id: a count flickering between null and present never remounts the hero or asks for
+  // the lineups again.
+  test('the count source is chosen once per matchup: a null that arrives later keeps the node and prints no helper numbers', async () => {
+    mockApi({
+      matchups: [viewerRow({ home_yet_to_play: 2, away_yet_to_play: 3 }), otherRow()],
+      viewerTeamId: 10,
+      league: noteLeague,
+      detail: lineupDetail({ awayStarters: [{ id: 5, slot: 'QB', game_state: 'scheduled' }] }),
+      actionItems: [lineupItemFor(new Date(Date.now() + 45 * 60000).toISOString())],
+    });
+    renderPage();
+    const hero = await screen.findByTestId('matchup-hero');
+    await screen.findByTestId('lineup-note');
+    expect(within(hero).getByTestId('matchup-hero-sentence')).toHaveTextContent('3 yet to play');
+    const reads = () => apiClient.get.mock.calls.filter(([url]) => url.includes('/matchups/')).length;
+    expect(reads()).toBe(1);
+
+    emitScores({ leagueId: 1, week: 1, scored: [{ matchupId: 1, homeScore: 31, awayScore: 20, status: 'live', homeYetToPlay: null, awayYetToPlay: null }], plays: [] });
+    expect(screen.getByTestId('matchup-hero')).toBe(hero);
+    // The server pair is still the source: its yet-to-play is gone, and the lineups' 1 remaining is not printed in its place.
+    expect(within(hero).getByTestId('matchup-hero-sentence')).toHaveTextContent('they have 4 players remaining');
+    expect(within(hero).getByTestId('matchup-hero-sentence')).not.toHaveTextContent('yet to play');
+    expect(reads()).toBe(1);
+  });
+
+  test('the fallback is kept when the server pair arrives later: one lineup read, the same hero node', async () => {
+    mockApi({
+      matchups: [viewerRow({ home_players_remaining: null, away_players_remaining: null }), otherRow()],
+      viewerTeamId: 10,
+      detail: {
+        matchup: { id: 1, season: 2026, week: 1, status: 'live', home_score: '30.0', away_score: '20.0' },
+        home: { teamId: 10, name: 'My Team', starters: [{ id: 1, game_state: 'in_progress' }], bench: [] },
+        away: { teamId: 20, name: 'Rival', starters: [{ id: 2, game_state: 'scheduled' }], bench: [] },
+        viewerTeamId: 10,
+        nflGameIds: [],
+      },
+    });
+    renderPage();
+    const hero = await screen.findByTestId('matchup-hero');
+    await waitFor(() => expect(within(hero).getByTestId('matchup-hero-sentence')).toHaveTextContent('1 yet to play'));
+
+    emitScores({ leagueId: 1, week: 1, scored: [{ matchupId: 1, homeScore: 31, awayScore: 20, status: 'live', homeYetToPlay: 0, awayYetToPlay: 5, homePlayersRemaining: 1, awayPlayersRemaining: 5 }], plays: [] });
+    expect(screen.getByTestId('matchup-hero')).toBe(hero);
+    expect(within(hero).getByTestId('matchup-hero-sentence')).toHaveTextContent('1 yet to play');
+    expect(apiClient.get.mock.calls.filter(([url]) => url.includes('/matchups/'))).toHaveLength(1);
+  });
+
+  test('a failed read is the danger panel: the title, the server sentence and a ghost Retry that asks again', async () => {
+    let failing = true;
+    apiClient.get.mockImplementation((url) => {
+      if (url.startsWith('/api/user/action-items')) return Promise.resolve({ data: { items: [] } });
+      if (url.endsWith('/matchups')) {
+        return failing
+          ? Promise.reject({ response: { data: { error: 'matchups unavailable' } } })
+          : Promise.resolve({ data: [viewerRow()] });
+      }
+      if (url.endsWith('/rosters')) return Promise.resolve({ data: [] });
+      if (url.endsWith('/standings')) return Promise.resolve({ data: { standings: [] } });
+      return Promise.resolve({ data: { league: { id: 1, name: 'Sunday Ballers', current_week: 1 }, teams: [], viewerTeamId: 10 } });
+    });
+    renderPage();
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('We could not load Game Center right now.');
+    expect(alert).toHaveTextContent('matchups unavailable');
+    const retry = within(alert).getByRole('button', { name: 'Retry' });
+    expect(retry).toHaveAttribute('data-variant', 'ghost');
+    const asks = () => apiClient.get.mock.calls.filter(([url]) => url.endsWith('/matchups')).length;
+    expect(asks()).toBe(1);
+
+    failing = false;
+    await userEvent.click(retry);
+    expect(await screen.findByTestId('matchup-hero')).toBeInTheDocument();
+    expect(asks()).toBe(2);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  test('the week picker is the playselect look: one tab stop, the selected week', async () => {
+    mockApi({ matchups: [viewerRow(), otherRow({ week: 2, id: 9, home_team_id: 70, away_team_id: 80 })], viewerTeamId: 10 });
+    renderPage();
+    const picker = await screen.findByTestId('pick-week');
+    expect(within(picker).getByRole('radio', { name: 'Wk 1' })).toHaveAttribute('tabindex', '0');
+    expect(within(picker).getByRole('radio', { name: 'Wk 2' })).toHaveAttribute('tabindex', '-1');
+    expect(within(picker).getByRole('button', { name: 'Next week' })).toHaveAttribute('tabindex', '-1');
+  });
+
+  const noteLock = () => new Date(Date.now() + 45 * 60000).toISOString();
+
+  test('the live lineup note names the empty slot and points at free agents when no bench player can fill it', async () => {
+    mockApi({
+      matchups: [viewerRow()], viewerTeamId: 10, league: noteLeague, detail: lineupDetail(), actionItems: [lineupItemFor(noteLock())],
+    });
+    renderPage();
+    const note = await screen.findByTestId('lineup-note');
+    expect(note).toHaveAccessibleName(/FLEX is empty · no bench player can fill it · add a free agent playing at .+ · next kickoff in 4[45] min/);
+    expect(within(note).getByRole('link', { name: 'Free agents' })).toHaveAttribute('href', '/league/1/waivers');
+    expect(document.querySelectorAll('[data-filled="true"], [data-variant="fill"]')).toHaveLength(0);
+  });
+
+  test('with a bench player whose game has not started the note names the next kickoff, with a ghost Set lineup', async () => {
+    mockApi({
+      matchups: [viewerRow()],
+      viewerTeamId: 10,
+      league: noteLeague,
+      detail: lineupDetail({ bench: [{ id: 9, slot: 'BENCH', name: 'Bench Guy', game_state: 'scheduled' }] }),
+      actionItems: [lineupItemFor(noteLock())],
+    });
+    renderPage();
+    const note = await screen.findByTestId('lineup-note');
+    expect(note).toHaveAccessibleName(/FLEX is empty · next kickoff in 4[45] min/);
+    expect(note).not.toHaveAccessibleName(/no bench player/);
+    expect(within(note).getByRole('link', { name: 'Set lineup' })).toHaveAttribute('href', '/league/1/lineup');
+  });
+
+  test('before kickoff the note names the move the advice gives and its lock, read once for the own team', async () => {
+    mockApi({
+      matchups: [viewerRow({ status: 'scheduled', home_score: '0', away_score: '0' })],
+      viewerTeamId: 10,
+      league: noteLeague,
+      detail: lineupDetail(),
+      actionItems: [lineupItemFor(new Date(Date.now() + 26 * 3600000).toISOString())],
+      advice: { suggestions: [], openSlotFills: [{ name: 'Jordan Addison', slot: 'FLEX', projection: 12.9 }] },
+    });
+    renderPage();
+    const note = await screen.findByTestId('lineup-note');
+    await waitFor(() => expect(note).toHaveAccessibleName(/Start Jordan Addison at FLEX · [+]12[.]9 pts/));
+    expect(note).toHaveAttribute('data-kind', 'pre');
+    expect(within(note).getByTestId('lineup-note-lock')).toHaveTextContent(/^Locks /);
+    expect(apiClient.get.mock.calls.filter(([url]) => url.startsWith('/api/team/lineup/advice'))).toHaveLength(1);
+  });
+
+  // Re-QA: a count of 0 is a count. A league that lists a K slot with 0 seats has no K slot to fill.
+  test('a roster slot with a count of 0 is not an empty slot', async () => {
+    mockApi({
+      matchups: [viewerRow()],
+      viewerTeamId: 10,
+      league: { ...noteLeague, roster_slots: [{ key: 'QB', count: 1 }, { key: 'K', count: 0 }] },
+      detail: lineupDetail(),
+      actionItems: [lineupItemFor(noteLock())],
+    });
+    renderPage();
+    await screen.findByTestId('matchup-hero');
+    await waitFor(() => expect(apiClient.get.mock.calls.some(([url]) => url.includes('/matchups/'))).toBe(true));
+    expect(screen.queryByTestId('lineup-note')).not.toBeInTheDocument();
+  });
+
+  test('viewerSlots honours a count of 0 and fills a stray slot', () => {
+    expect(viewerSlots({ roster_slots: [{ key: 'QB', count: 1 }, { key: 'K', count: 0 }, { key: 'FLEX' }] }, [{ id: 1, slot: 'QB' }, { id: 2, slot: 'IDP' }]))
+      .toEqual([{ slot: 'QB', player: { id: 1, slot: 'QB' } }, { slot: 'FLEX', player: null }, { slot: 'IDP', player: { id: 2, slot: 'IDP' } }]);
+  });
+
+  test('best ball has no lineup to set: no lineup read for the note and no advice read', async () => {
+    mockApi({
+      matchups: [viewerRow({ status: 'scheduled', home_score: '0', away_score: '0' })],
+      viewerTeamId: 10,
+      league: { ...noteLeague, best_ball: true },
+      detail: lineupDetail(),
+      actionItems: [lineupItemFor(noteLock())],
+    });
+    renderPage();
+    await screen.findByTestId('matchup-hero');
+    await waitFor(() => expect(apiClient.get.mock.calls.some(([url]) => url.startsWith('/api/user/action-items'))).toBe(true));
+    expect(screen.queryByTestId('lineup-note')).not.toBeInTheDocument();
+    expect(apiClient.get.mock.calls.filter(([url]) => url.includes('/matchups/'))).toHaveLength(0);
+    expect(apiClient.get.mock.calls.filter(([url]) => url.startsWith('/api/team/lineup/advice'))).toHaveLength(0);
+  });
+
+  // Re-QA: while the helper path reads the lineups, no count shows, so the server's numbers never flash first.
+  test('on the helper path no count line and no count clause show until the lineups have read', async () => {
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    mockApi({
+      matchups: [viewerRow({ home_players_remaining: 5, away_players_remaining: 4 }), otherRow()],
+      viewerTeamId: 10,
+      league: noteLeague,
+      detail: lineupDetail({ awayStarters: [{ id: 5, slot: 'QB', game_state: 'in_progress' }] }),
+    });
+    const answer = apiClient.get.getMockImplementation();
+    apiClient.get.mockImplementation((url) => (url.includes('/matchups/') ? gate.then(() => answer(url)) : answer(url)));
+    renderPage();
+
+    const hero = await screen.findByTestId('matchup-hero');
+    expect(within(hero).queryByTestId('matchup-hero-remaining')).not.toBeInTheDocument();
+    expect(hero).not.toHaveTextContent(/players remaining/);
+    expect(within(hero).getByTestId('matchup-hero-sentence')).toHaveTextContent(/^Ahead now, projected to trail by 40[.]0$/);
+
+    release();
+    await waitFor(() => expect(within(hero).getByTestId('matchup-hero-side-away')).toHaveTextContent('1 player remaining'));
+    expect(within(hero).getByTestId('matchup-hero-sentence')).toHaveTextContent('they have 1 player remaining');
+  });
+
+  test('a full lineup draws no note, and neither does a lock the page cannot name', async () => {
+    mockApi({
+      matchups: [viewerRow()],
+      viewerTeamId: 10,
+      league: { ...noteLeague, roster_slots: [{ key: 'QB', count: 1 }] },
+      detail: lineupDetail(),
+      actionItems: [lineupItemFor(noteLock())],
+    });
+    const { unmount } = renderPage();
+    await screen.findByTestId('matchup-hero');
+    await waitFor(() => expect(apiClient.get.mock.calls.some(([url]) => url.includes('/matchups/'))).toBe(true));
+    expect(screen.queryByTestId('lineup-note')).not.toBeInTheDocument();
+    unmount();
+
+    // Another league's deadline is not this league's lock: live with no kickoff to come leaves nothing to fix.
+    mockApi({
+      matchups: [viewerRow()], viewerTeamId: 10, league: noteLeague, detail: lineupDetail(), actionItems: [lineupItemFor(noteLock(), { leagueId: 2, id: 'lineup_problem:2:x' })],
+    });
+    renderPage();
+    await screen.findByTestId('matchup-hero');
+    await waitFor(() => expect(apiClient.get.mock.calls.filter(([url]) => url.includes('/matchups/')).length).toBeGreaterThan(1));
+    expect(screen.queryByTestId('lineup-note')).not.toBeInTheDocument();
+  });
+
+
+  afterEach(() => { delete window.IntersectionObserver; });
+
+  // Re-QA: the compact bar watches the hero element that is on screen. A week switch changes which branch draws the
+  // hero, so an observer left on the old node would never pin again.
+  test('the compact scoreboard still pins after switching from the live week to a past final and back', async () => {
+    const observed = [];
+    window.IntersectionObserver = jest.fn((cb) => {
+      const record = { cb, el: null };
+      observed.push(record);
+      return { observe: jest.fn((el) => { record.el = el; }), disconnect: jest.fn() };
+    });
+    mockApi({
+      matchups: [
+        viewerRow({ week: 7 }),
+        viewerRow({
+          id: 6, week: 6, status: 'final', final: true, home_players_remaining: 0, away_players_remaining: 0,
+        }),
+        otherRow({ week: 7 }),
+      ],
+      viewerTeamId: 10,
+      league: { id: 1, name: 'Sunday Ballers', current_week: 7 },
+    });
+    renderPage();
+    await screen.findByTestId('matchup-hero');
+
+    await userEvent.click(screen.getByRole('radio', { name: 'Wk 6' }));
+    await waitFor(() => expect(screen.getByTestId('matchup-hero')).toHaveTextContent('Final'));
+    await userEvent.click(screen.getByRole('radio', { name: 'Wk 7' }));
+    await waitFor(() => expect(screen.getByTestId('matchup-hero')).toHaveTextContent('Live'));
+
+    // The observer that is watching the page is on the hero that is in the document now.
+    const live = observed.filter((o) => o.el && o.el.isConnected);
+    expect(live).toHaveLength(1);
+    expect(live[0].el).toContainElement(screen.getByTestId('matchup-hero'));
+    act(() => live[0].cb([{ isIntersecting: false, boundingClientRect: { bottom: -10 } }]));
+    expect(screen.getByTestId('game-center-compact-scoreboard')).toBeInTheDocument();
+  });
+
+  test('once the hero scrolls out of view the compact scoreboard pins, and scroll-padding-top reserves it', async () => {
+    let notify;
+    window.IntersectionObserver = jest.fn((cb) => { notify = cb; return { observe: jest.fn(), disconnect: jest.fn() }; });
+    mockApi({ matchups: [viewerRow(), otherRow()], viewerTeamId: 10 });
+    renderPage();
+    await screen.findByTestId('matchup-hero');
+    expect(screen.queryByTestId('game-center-compact-scoreboard')).not.toBeInTheDocument();
+
+    act(() => notify([{ isIntersecting: false, boundingClientRect: { bottom: -10 } }]));
+    const bar = screen.getByTestId('game-center-compact-scoreboard');
+    expect(within(bar).getByRole('group')).toHaveAccessibleName('My Team 30.0, Rival 20.0, My Team by 10.0');
+    expect(within(bar).getByText('Live')).toBeInTheDocument();
+    const rules = Array.from(document.styleSheets).flatMap((sheet) => Array.from(sheet.cssRules).map((rule) => rule.cssText)).join('');
+    expect(rules).toMatch(/scroll-padding-top: ?72px/);
+
+    act(() => notify([{ isIntersecting: true, boundingClientRect: { bottom: 100 } }]));
+    expect(screen.queryByTestId('game-center-compact-scoreboard')).not.toBeInTheDocument();
+  });
+
+  test('the live hero announces only the score sentence, and only when a score changes', async () => {
+    mockApi({ matchups: [viewerRow(), otherRow()], viewerTeamId: 10 });
+    renderPage();
+    const region = await screen.findByTestId('matchup-hero-live-region');
+    expect(region).toHaveAttribute('aria-live', 'polite');
+    expect(region).toHaveTextContent('My Team 30.0, Rival 20.0');
+    expect(region).not.toHaveTextContent(/remaining|as of/i);
+    const payload = { leagueId: 1, week: 1, scored: [{ matchupId: 1, homeScore: 36, awayScore: 20, status: 'live' }], plays: [] };
+    emitScores(payload);
+    expect(region).toHaveTextContent('My Team 36.0, Rival 20.0');
+    const before = region.textContent;
+    emitScores(payload);
+    expect(region.textContent).toBe(before);
+  });
 });

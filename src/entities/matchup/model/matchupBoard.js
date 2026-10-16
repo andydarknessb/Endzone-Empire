@@ -8,7 +8,7 @@ import { matchupResultLine } from './matchupModel';
  * lays it out instead of branching on `status` itself.
  *
  *   { chip: { label, variant, dot } | null,
- *     hasStarted, settled, isLive, isFinal, viewerSide, resultLine, liveLine,
+ *     hasStarted, settled, isLive, isFinal, viewerSide, resultLine,
  *     winProbability: { home, away } | null,
  *     projectedWinProbability: { home, away } | null,
  *     home: { score, scoreLabel, expectedFinal, playersRemaining, playersRemainingLabel, yetToPlay },
@@ -37,8 +37,9 @@ import { matchupResultLine } from './matchupModel';
  *   The raw `score` stays null when missing, and `resultLine` stays null with
  *   it: a result is never invented from a score the server did not state.
  * - `playersRemainingLabel` is the whole count, null when the server did not
- *   say. `liveLine` is the sentence under the win bar while live, null
- *   otherwise (a settled week states `resultLine`).
+ *   say. The live sentence under the win bar is the hero's own (widgets/matchup-hero's
+ *   `matchupHeroView`: "Ahead now, projected to trail by 7.9 \u00b7 they have 9 players
+ *   remaining, 3 yet to play"), built from the server's counts; a settled week states `resultLine`.
  * - `matchupPhase(status)` is the status-only part (`chip`, `hasStarted`,
  *   `settled`, `isLive`, `isFinal`) for a caller that holds a status and no
  *   Matchup.
@@ -69,37 +70,6 @@ function finite(value) {
   if (value == null || value === '') return null;
   const n = Number(value);
   return Number.isFinite(n) ? n : null;
-}
-
-// A difference rounded to a tenth, so "by 0.0" never reads as a lead.
-const tenth = (value) => Math.round(value * 10) / 10;
-
-/**
- * The live sentence, from `me`'s side: "<Ahead|Behind|Tied> now, projected to
- * <lead|trail> by N with K of <theirs|yours> still to play". The projection
- * clause needs both Expected finals; the remaining clause names the opponent's
- * Players remaining when they have any (the threat to the lead), else the
- * viewer's own, and is dropped when neither side has anyone left.
- */
-function liveLineOf(me, them) {
-  const lead = tenth((finite(me.score) ?? 0) - (finite(them.score) ?? 0));
-  const now = lead > 0 ? 'Ahead now' : lead < 0 ? 'Behind now' : 'Tied now';
-  const myFinal = finite(me.expectedFinal);
-  const theirFinal = finite(them.expectedFinal);
-  let projection = null;
-  if (myFinal != null && theirFinal != null) {
-    const gap = tenth(myFinal - theirFinal);
-    const by = Math.abs(gap).toFixed(1);
-    if (gap > 0) projection = `projected to lead by ${by}`;
-    else if (gap < 0) projection = `projected to trail by ${by}`;
-    else projection = 'projected to finish even';
-  }
-  const theirLeft = finite(them.playersRemaining) ?? 0;
-  const myLeft = finite(me.playersRemaining) ?? 0;
-  let remaining = '';
-  if (theirLeft > 0) remaining = ` with ${theirLeft} of theirs still to play`;
-  else if (myLeft > 0) remaining = ` with ${myLeft} of yours still to play`;
-  return projection ? `${now}, ${projection}${remaining}` : `${now}${remaining}`;
 }
 
 export function matchupBoard(matchup, viewerTeamId) {
@@ -135,11 +105,6 @@ export function matchupBoard(matchup, viewerTeamId) {
     isFinal: phase.isFinal || (m.status == null && !!m.final),
     viewerSide,
     resultLine: matchupResultLine(m, viewerTeamId),
-    liveLine: phase.isLive
-      ? viewerSide === 'away'
-        ? liveLineOf(m.away || {}, m.home || {})
-        : liveLineOf(m.home || {}, m.away || {})
-      : null,
     winProbability: phase.hasStarted === true ? price() : null,
     projectedWinProbability: phase.hasStarted === false ? price() : null,
     home,

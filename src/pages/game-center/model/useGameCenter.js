@@ -114,7 +114,7 @@ export function syncLineText(syncedAt, now = Date.now()) {
 /**
  * The week-at-a-glance rows from the week's Matchups alone, in the canvas's
  * order: the top score, the closest Matchup, the biggest lead, and the
- * starters still to play league-wide. Each row is `{ key, label, text,
+ * players remaining league-wide. Each row is `{ key, label, text,
  * value }` with `value` already formatted; a row whose fact is not derivable
  * is left out rather than printed as a zero.
  *
@@ -126,9 +126,10 @@ export function syncLineText(syncedAt, now = Date.now()) {
  *     names middot-separated; biggest lead is the largest margin, "<leader>
  *     over <trailer>", and is not derivable when no one leads (every started
  *     Matchup tied).
- *   - Still to play sums Players remaining across every side of the week,
- *     scheduled Matchups included (their starters are still to play), and is
- *     not derivable when no side reports a count.
+ *   - Players remaining sums the server's count across every side of the week
+ *     (the one definition: starters whose game is not final, Out starters and
+ *     empty slots excluded), and is not derivable unless every side reports a
+ *     count. Before any Matchup starts it reads "Starters set to play".
  */
 export function weekGlanceFacts(matchups) {
   const list = Array.isArray(matchups) ? matchups.filter(Boolean) : [];
@@ -159,11 +160,13 @@ export function weekGlanceFacts(matchups) {
     }
   }
 
-  let remaining = null;
+  // The server's counts only, and only as a whole: a side without one makes the sum a part of the truth, so
+  // the row is left out rather than printing a total that mixes a count with nothing.
+  let remaining = list.length > 0 ? 0 : null;
   for (const m of list) {
     for (const side of [m.home, m.away]) {
       const n = finite(side?.playersRemaining);
-      if (n != null) remaining = (remaining ?? 0) + n;
+      remaining = n == null || remaining == null ? null : remaining + n;
     }
   }
 
@@ -172,7 +175,15 @@ export function weekGlanceFacts(matchups) {
   if (closest) rows.push({ key: 'closest', label: 'Closest', text: closest.text, value: closest.margin.toFixed(1) });
   if (lead) rows.push({ key: 'biggest-lead', label: 'Biggest lead', text: lead.text, value: lead.margin.toFixed(1) });
   if (remaining != null) {
-    rows.push({ key: 'still-to-play', label: 'Still to play', text: 'Starters league-wide', value: String(remaining) });
+    // Critique 11 item 9 and Critique 10 item 12: live it is the one players-remaining definition; before
+    // kickoff nothing is live, so the same figure reads as starters set to play.
+    const pre = started.length === 0;
+    rows.push({
+      key: 'players-remaining',
+      label: pre ? 'Starters set to play' : 'Players remaining',
+      text: pre ? 'League-wide' : 'Starters league-wide',
+      value: String(remaining),
+    });
   }
   return rows;
 }
@@ -183,7 +194,9 @@ function inWeek(week, value) {
 }
 
 export function useGameCenter(leagueId) {
-  const { league, viewerTeamId, loading: leagueLoading, error: leagueError } = useLeague(leagueId);
+  const {
+    league, viewerTeamId, loading: leagueLoading, error: leagueError, refetch: refetchLeague,
+  } = useLeague(leagueId);
   const [rosters, setRosters] = useState([]);
   const [week, setWeek] = useState(null);
   const [plays, setPlays] = useState([]);
@@ -202,7 +215,14 @@ export function useGameCenter(leagueId) {
     if (adds.length) setPlays((prev) => [...adds, ...prev].slice(0, PLAYS_LIMIT));
   }, []);
 
-  const { matchups, liveGames, loading, error } = useLeagueMatchups(leagueId, { onScores: handleScores });
+  const {
+    matchups, liveGames, loading, error, refetch: refetchMatchups,
+  } = useLeagueMatchups(leagueId, { onScores: handleScores });
+  // Retry asks again for whichever read failed: both are cheap, and each one that is fine just refreshes.
+  const retry = useCallback(() => {
+    refetchMatchups();
+    refetchLeague?.();
+  }, [refetchMatchups, refetchLeague]);
 
   // Best-effort roster load: only needed to attribute a play to a Team, so a
   // failure here never takes down the rest of the screen.
@@ -303,6 +323,9 @@ export function useGameCenter(leagueId) {
     return best ? best.iso : null;
   }, [weekMatchups]);
 
+  // The h1 row's Live chip: some Matchup of the week on screen is live (the server's status fact).
+  const anyLive = useMemo(() => weekMatchups.some((m) => matchupBoard(m).isLive), [weekMatchups]);
+
   const games = useMemo(
     () => liveGames.filter((game) => inWeek(week, game.week)),
     [liveGames, week]
@@ -370,6 +393,8 @@ export function useGameCenter(leagueId) {
     gamesInProgress,
     items,
     glance,
+    anyLive,
+    retry,
   };
 }
 
