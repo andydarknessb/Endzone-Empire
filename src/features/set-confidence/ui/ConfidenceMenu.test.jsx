@@ -45,6 +45,16 @@ test('its own value is never marked used or locked', () => {
   expect(option('Confidence 3')).not.toBeDisabled();
 });
 
+test('canClear={false} drops "Confidence: none" once there is a rank, but never while there is none', () => {
+  const { rerender } = render(<ConfidenceMenu value={3} max={4} canClear={false} />);
+  expect(screen.queryByRole('option', { name: 'Confidence: none' })).not.toBeInTheDocument();
+  expect(screen.getAllByRole('option')).toHaveLength(4);
+  rerender(<ConfidenceMenu value={null} max={4} canClear={false} />);
+  expect(screen.getByRole('option', { name: 'Confidence: none' })).toBeInTheDocument();
+  rerender(<ConfidenceMenu value={3} max={4} />);
+  expect(screen.getByRole('option', { name: 'Confidence: none' })).toBeInTheDocument();
+});
+
 test('never reads "rank" in the control itself', () => {
   render(<ConfidenceMenu value={3} max={4} />);
   expect(screen.getByRole('combobox')).not.toHaveTextContent(/rank/i);

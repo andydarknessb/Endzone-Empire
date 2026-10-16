@@ -340,15 +340,17 @@ describe('save on tap', () => {
       return Promise.resolve({ data: { season: 2026, week: 7, mode: 'straight', games: refreshed, myPicks: state.myPicks, othersPicks: {} } });
     });
 
-    await user.click(teamButton('DEN'));
-    const note = await screen.findByTestId('refused-note');
-    expect(note).toHaveTextContent("This pick wasn't saved: DAL @ DEN had already kicked off. Your other picks are saved.");
     const card = cardFor('DAL at DEN');
-    expect(card).toContainElement(note);
-    expect(within(card).getByTestId('locked-badge')).toBeInTheDocument();
+    const node = within(card).getByRole('status');
+    await user.click(teamButton('DEN'));
+    await waitFor(() => expect(within(card).getByTestId('locked-badge')).toBeInTheDocument());
+    // One status node per card in every phase: the refused text went into the node that was there.
+    expect(within(card).getAllByRole('status')).toHaveLength(1);
+    expect(within(card).getByRole('status')).toBe(node);
+    expect(node).toHaveTextContent("This pick wasn't saved: DAL @ DEN had already kicked off. Your other picks are saved.");
     // No other card carries the message.
-    expect(screen.getAllByTestId('refused-note')).toHaveLength(1);
-    expect(within(cardFor('ARI at SF')).queryByRole('alert')).toBeNull();
+    expect(screen.getAllByText(/had already kicked off/)).toHaveLength(1);
+    expect(teamButton('DEN')).toBeDisabled();
   });
 
   test('a failed save stays on its card with a Retry, the attempted team outlined and a 2px Danger edge, never the 4px frame', async () => {
@@ -375,6 +377,63 @@ describe('save on tap', () => {
     await user.click(within(card).getByRole('button', { name: /Retry saving pick, ARI at SF/ }));
     await waitFor(() => expect(within(card).getByRole('status')).toHaveTextContent('Pick saved'));
     expect(apiClient.put).toHaveBeenCalledTimes(2);
+  });
+
+  test('after Undo, focus goes back to a team button of that card, not the page', async () => {
+    const user = userEvent.setup();
+    serve({ myPicks: NINE });
+    await renderBoard();
+    await user.click(teamButton('ARI'));
+    await user.click(await screen.findByRole('button', { name: /Undo pick, ARI at SF/ }));
+    await waitFor(() => expect(within(cardFor('ARI at SF')).getByRole('status')).toHaveTextContent('Pick undone'));
+    expect(teamButton('ARI')).toHaveFocus();
+  });
+
+  test('after Retry lands, focus goes to the attempted team of that card', async () => {
+    const user = userEvent.setup();
+    let attempts = 0;
+    serve({ myPicks: NINE, putImpl: () => { attempts += 1; return attempts === 1 ? Promise.reject(new Error('Network Error')) : null; } });
+    await renderBoard();
+    await user.click(teamButton('DEN'));
+    await user.click(await screen.findByRole('button', { name: /Retry saving pick, DAL at DEN/ }));
+    await waitFor(() => expect(within(cardFor('DAL at DEN')).getByRole('status')).toHaveTextContent('Pick saved'));
+    expect(teamButton('DEN')).toHaveFocus();
+  });
+
+  test('a 500 is retryable but a 400 is refused: no Retry, its own words', async () => {
+    const user = userEvent.setup();
+    serve({
+      myPicks: NINE,
+      putImpl: () => Promise.reject({ response: { status: 400, data: { code: 'PICKEM_BAD_GAME', error: 'bad' } } }),
+    });
+    await renderBoard();
+    await user.click(teamButton('ARI'));
+    const card = cardFor('ARI at SF');
+    await waitFor(() => expect(within(card).getByRole('status')).toHaveTextContent("This pick wasn't saved. Reload the page and try again."));
+    expect(within(card).queryByRole('button', { name: /Retry/ })).not.toBeInTheDocument();
+    expect(card.parentElement).toHaveStyle({ border: '2px solid var(--ps-danger)' });
+  });
+
+  test('Undo refused after kickoff says the pick stands, in the same status node', async () => {
+    const user = userEvent.setup();
+    let puts = 0;
+    serve({
+      myPicks: NINE,
+      putImpl: () => {
+        puts += 1;
+        return puts === 2
+          ? Promise.reject({ response: { status: 409, data: { code: 'PICKEM_LOCKED', error: 'locked', gameKeys: ['ARI|SF'] } } })
+          : null;
+      },
+    });
+    await renderBoard();
+    await user.click(teamButton('ARI'));
+    const card = cardFor('ARI at SF');
+    const node = within(card).getByRole('status');
+    await user.click(await screen.findByRole('button', { name: /Undo pick, ARI at SF/ }));
+    await waitFor(() => expect(node).toHaveTextContent("Undo didn't go through: ARI @ SF kicked off. Your pick ARI stands."));
+    expect(within(card).getByRole('status')).toBe(node);
+    expect(within(card).queryByRole('button', { name: /Retry|Undo/ })).not.toBeInTheDocument();
   });
 
   test('AC 6i: no Save picks button, no discard dialog and nothing sticky at the bottom', async () => {
@@ -503,6 +562,34 @@ describe('confidence mode', () => {
     expect(state.myPicks.find((pick) => pick.gameKey === 'ARI|SF').confidence).toBe(4);
   });
 
+  test('choosing a rank while another rank save is in flight is held with a plain line; no second request goes out', async () => {
+    const user = userEvent.setup();
+    let release;
+    serve({
+      mode: 'confidence',
+      myPicks: [...RANKED.slice(0, 3), { gameKey: 'KC|LV', pickedTeam: 'KC', confidence: 4 }, { gameKey: 'ARI|SF', pickedTeam: 'SF', confidence: 7 }],
+      putImpl: () => new Promise((resolve) => { release = resolve; }),
+    });
+    await renderBoard();
+    await user.selectOptions(within(cardFor('ARI at SF')).getByRole('combobox'), 'Confidence 1');
+    await waitFor(() => expect(apiClient.put).toHaveBeenCalledTimes(1));
+    await user.selectOptions(within(cardFor('KC at LV')).getByRole('combobox'), 'Confidence 2');
+    expect(apiClient.put).toHaveBeenCalledTimes(1);
+    expect(within(cardFor('KC at LV')).getByRole('status')).toHaveTextContent('Another rank is still saving. Choose this rank again in a moment.');
+    await act(async () => { release(null); });
+    await waitFor(() => expect(within(cardFor('KC at LV')).getByRole('status')).toHaveTextContent(''));
+    expect(within(cardFor('ARI at SF')).getByRole('status')).toHaveTextContent('Pick saved');
+  });
+
+  test('a ranked pick has no "Confidence: none" to choose', async () => {
+    serve({ mode: 'confidence', myPicks: RANKED });
+    await renderBoard();
+    const ranked = within(cardFor('KC at LV')).getByRole('combobox');
+    expect(within(ranked).queryByRole('option', { name: 'Confidence: none' })).not.toBeInTheDocument();
+    const unranked = within(cardFor('ARI at SF')).getByRole('combobox');
+    expect(within(unranked).getByRole('option', { name: 'Confidence: none' })).toBeInTheDocument();
+  });
+
   test('confidence in the numbers help: the closed disclosure carries the Confidence entry only on confidence boards', async () => {
     serve({ mode: 'confidence', myPicks: [] });
     const { unmount } = await renderBoard();
@@ -594,4 +681,42 @@ test('the board paints no dash token and no element carries an opacity below 1',
     return opacity !== '' && Number(opacity) < 1;
   });
   expect(faded).toHaveLength(0);
+});
+
+describe('lock at kickoff, with no refetch', () => {
+  const KICKOFF = Date.parse(LATE);
+  let clock;
+
+  beforeEach(() => {
+    // Real timers drive the board's repaint; only the clock is the test's own, set 1.5 seconds before
+    // the 3:25 PM kickoff (and jumped past it below). The app fires no request at the lock itself.
+    clock = KICKOFF - 1500;
+    Date.now.mockImplementation(() => clock);
+  });
+
+  test('the Danger cursor card turns Locked at kickoff + 1 ms on the repaint, with no new request', async () => {
+    serve({ myPicks: NINE });
+    const { container } = await renderBoard();
+    const card = cardFor('ARI at SF, locks in under 1 min');
+    expect(container.querySelector('.cursor')).toContainElement(card);
+    expect(container.querySelector('.cursor')).toHaveStyle({ borderColor: 'var(--ps-danger)' });
+    expect(teamButton('ARI')).toBeEnabled();
+    const requests = apiClient.get.mock.calls.length;
+
+    // The clock passes kickoff; the board's own timer (set for kickoff + 1 ms) repaints.
+    clock = KICKOFF + 1;
+    // All three 3:25 PM games lock at the same instant, so the window settles into its summary row.
+    const late = screen.getByRole('region', { name: 'Sunday Late' });
+    await waitFor(() => expect(within(late).getByTestId('window-summary')).toBeInTheDocument(), { timeout: 5000 });
+    expect(within(late).getByTestId('window-summary')).toHaveTextContent('3 live · 1 picked · 2 no pick');
+    expect(container.querySelectorAll('.cursor')).toHaveLength(0);
+    expect(screen.getByTestId('pickem-status')).toHaveTextContent('9 of 14 picked');
+    expect(screen.getByTestId('pickem-status')).not.toHaveTextContent('open');
+    expect(screen.getByTestId('pickem-status')).not.toHaveTextContent('next lock');
+    await userEvent.setup().click(within(late).getByRole('button', { name: /Show games/ }));
+    expect(within(cardFor('ARI at SF')).getByTestId('locked-badge')).toBeInTheDocument();
+    expect(teamButton('ARI')).toBeDisabled();
+    // No refetch drove any of it.
+    expect(apiClient.get.mock.calls.length).toBe(requests);
+  });
 });

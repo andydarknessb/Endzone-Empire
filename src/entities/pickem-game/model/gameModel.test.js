@@ -64,6 +64,22 @@ describe('gameModel', () => {
     expect(model.confidence).toBe(7);
   });
 
+  test('locks inclusively at kickoff by the local clock when a clock is given (the server rule)', () => {
+    const kickoff = Date.parse('2026-09-13T17:00:00.000Z');
+    expect(gameModel(game(), [], kickoff - 1).lock).toBe(false);
+    expect(gameModel(game(), [], kickoff).lock).toBe(true);
+    expect(gameModel(game(), [], kickoff + 1).lock).toBe(true);
+    // No clock, no local rule: the wire's flag alone.
+    expect(gameModel(game(), []).lock).toBe(false);
+    // The wire's flag wins when it is set early.
+    expect(gameModel(game({ locked: true }), [], kickoff - 60000).lock).toBe(true);
+  });
+
+  test('a game the clock locked is live, not open, before any score arrives', () => {
+    const model = gameModel(game(), [], Date.parse('2026-09-13T17:00:01.000Z'));
+    expect(model.phase).toBe('live');
+  });
+
   test('no pick yet reads as null for both fields', () => {
     const model = gameModel(game(), []);
     expect(model.myPick).toBeNull();

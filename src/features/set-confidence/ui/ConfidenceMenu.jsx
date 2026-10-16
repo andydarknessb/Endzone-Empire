@@ -14,6 +14,9 @@ import { Box } from '@mui/material';
  * chosen: the server would refuse to move it. `swappable={false}` (a game with no rank of its
  * own yet has nothing to give the holder in a swap) disables the open-game ranks as well.
  *
+ * `canClear={false}` drops "Confidence: none" once the game has a rank: a confidence pick cannot exist
+ * without one, so the menu does not offer the way back (the empty value shows only while there is none).
+ *
  * `disabled` is the solid Rule edge with Dim text: no dash and no opacity. `bad` paints the
  * Danger edge for a refused save without disabling the control. `aria-describedby` points at the
  * window head's hint ("Pick a team to set its confidence") while the control is disabled.
@@ -23,6 +26,7 @@ export default function ConfidenceMenu({
   max,
   usedBy = {},
   swappable = true,
+  canClear = true,
   disabled = false,
   bad = false,
   onChange,
@@ -65,7 +69,7 @@ export default function ConfidenceMenu({
           cursor: disabled ? 'not-allowed' : 'pointer',
         }}
       >
-        <option value="">Confidence: none</option>
+        {(value == null || canClear) && <option value="">Confidence: none</option>}
         {ranks.map((rank) => {
           const held = rank === value ? null : usedBy[rank];
           const locked = Boolean(held && held.locked);

@@ -305,7 +305,7 @@ describe('save on tap', () => {
       router.nth(3, 2).resolve(weekData());
       outcome = await pending;
     });
-    expect(outcome).toMatchObject({ ok: false, code: 'PICKEM_LOCKED', gameKeys: ['A|B'] });
+    expect(outcome).toMatchObject({ ok: false, status: 409, code: 'PICKEM_LOCKED', gameKeys: ['A|B'] });
     expect(result.current.data.myPicks).toEqual([]);
   });
 });

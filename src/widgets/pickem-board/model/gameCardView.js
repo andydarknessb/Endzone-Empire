@@ -29,7 +29,7 @@ export function gameCardView({
   totalManagers = null,
   now = null,
 }) {
-  const slate = gameModel(game, myPicks);
+  const slate = gameModel(game, myPicks, now);
   const detail = gameDetailModel(game);
 
   const { myPick, confidence } = slate;

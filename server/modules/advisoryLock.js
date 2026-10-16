@@ -61,8 +61,9 @@ const sentry = require('./sentry');
  * transaction.
  *
  * SHARED KEYSPACE. The single-key form is one flat bigint namespace, so any
- * OTHER single-key advisory lock shares it with the ids above. The one other
- * single-key call site is holdout.service.js (pg_advisory_xact_lock(hashtext(id))),
+ * OTHER single-key advisory lock shares it with the ids above. The other single-key
+ * call sites are pickem.service.js's upsertPicks (hashtext of a per-member-week key, #2334) and
+ * holdout.service.js (pg_advisory_xact_lock(hashtext(id))),
  * whose key is a hash of the capture identity, not a small fixed integer - it
  * will not collide with 23001-23005 in practice, but a new FIXED id must still be
  * chosen from this block. The weekly-trophy-engine SQL

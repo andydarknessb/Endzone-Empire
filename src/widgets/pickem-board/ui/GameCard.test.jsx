@@ -151,16 +151,88 @@ describe('the save line', () => {
         saveState={{ status: 'refused', message: "This pick wasn't saved: NYJ @ TEN had already kicked off. Your other picks are saved." }}
       />
     );
-    expect(screen.getByTestId('refused-note')).toHaveTextContent("This pick wasn't saved: NYJ @ TEN had already kicked off. Your other picks are saved.");
+    expect(screen.getByRole('status')).toHaveTextContent("This pick wasn't saved: NYJ @ TEN had already kicked off. Your other picks are saved.");
     expect(screen.getByTestId('locked-badge')).toHaveTextContent('Locked');
     expect(button('NYJ')).toBeDisabled();
     expect(screen.getByTestId('game-card').parentElement).toHaveStyle({ border: '2px solid var(--ps-danger)' });
   });
 
-  test('a locked card has no save line at all', () => {
+  test('a locked card carries the same one status node, empty at rest', () => {
     render(<GameCard view={baseView({ lock: true, phase: 'live', status: 'in_progress' })} />);
-    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(screen.getAllByRole('status')).toHaveLength(1);
+    expect(screen.getByRole('status')).toHaveTextContent('');
   });
+
+  test('ONE status node in every phase: the same element persists from open to locked and into the refused words', () => {
+    const { rerender } = render(<GameCard view={baseView()} />);
+    const node = screen.getByRole('status');
+    rerender(<GameCard view={baseView()} saveState={{ status: 'saving', attempted: { pickedTeam: 'TEN' } }} />);
+    expect(screen.getByRole('status')).toBe(node);
+    // The 409 refetch: the card is locked now, and the refused text goes into the existing node.
+    rerender(
+      <GameCard
+        view={baseView({ lock: true, phase: 'live', status: 'in_progress' })}
+        saveState={{ status: 'refused', message: "This pick wasn't saved: NYJ @ TEN had already kicked off. Your other picks are saved." }}
+      />
+    );
+    expect(screen.getByRole('status')).toBe(node);
+    expect(node).toHaveTextContent("had already kicked off");
+    expect(screen.getAllByRole('status')).toHaveLength(1);
+    rerender(<GameCard view={baseView({ lock: true, phase: 'final', winner: 'TEN', outcome: 'no-pick' })} />);
+    expect(screen.getByRole('status')).toBe(node);
+    expect(screen.getAllByRole('status')).toHaveLength(1);
+  });
+
+  test('a busy rank change is a plain Dim line: no alert, no buttons', () => {
+    render(<GameCard view={baseView({ myPick: 'TEN', confidence: 4 })} mode="confidence" slateSize={14} saveState={{ status: 'busy', message: 'Another rank is still saving. Choose this rank again in a moment.' }} />);
+    expect(screen.getByRole('status')).toHaveTextContent('Another rank is still saving. Choose this rank again in a moment.');
+    expect(screen.queryByRole('button', { name: /Retry|Undo/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByTestId('game-card').parentElement).toHaveStyle({ border: '4px solid transparent' });
+  });
+
+  describe('focus after Undo or Retry', () => {
+    test('Undo: focus returns to the team button that now holds the pick once the save settles', async () => {
+      const user = userEvent.setup();
+      const onUndo = jest.fn();
+      const { rerender } = render(<GameCard view={baseView({ myPick: 'TEN' })} saveState={{ status: 'saved', focusTeam: 'NYJ' }} onUndo={onUndo} />);
+      await user.click(screen.getByRole('button', { name: /^Undo pick/ }));
+      // Undo unmounts while the request is in flight: focus drops to the page.
+      rerender(<GameCard view={baseView({ myPick: 'TEN' })} saveState={{ status: 'saving', attempted: { pickedTeam: null }, focusTeam: 'NYJ' }} />);
+      expect(document.body).toHaveFocus();
+      rerender(<GameCard view={baseView({ myPick: 'NYJ' })} saveState={{ status: 'undone', focusTeam: 'NYJ' }} />);
+      expect(button('NYJ')).toHaveFocus();
+    });
+
+    test('Retry: focus goes to the attempted team, whether the second try lands or fails again', async () => {
+      const user = userEvent.setup();
+      const failed = { status: 'failed', attempted: { pickedTeam: 'TEN' }, message: "Couldn't save this pick.", focusTeam: 'TEN' };
+      const { rerender } = render(<GameCard view={baseView()} saveState={failed} onRetry={() => {}} />);
+      await user.click(screen.getByRole('button', { name: /^Retry saving pick/ }));
+      rerender(<GameCard view={baseView()} saveState={{ status: 'saving', attempted: { pickedTeam: 'TEN' }, focusTeam: 'TEN' }} />);
+      rerender(<GameCard view={baseView()} saveState={failed} />);
+      expect(button('TEN')).toHaveFocus();
+    });
+
+    test('a refused Undo on a card that locked: the buttons are disabled, so the card itself takes focus', async () => {
+      const user = userEvent.setup();
+      const { rerender } = render(<GameCard view={baseView({ myPick: 'TEN' })} saveState={{ status: 'saved', focusTeam: 'TEN' }} onUndo={() => {}} />);
+      await user.click(screen.getByRole('button', { name: /^Undo pick/ }));
+      rerender(<GameCard view={baseView({ lock: true, phase: 'live', status: 'in_progress', myPick: 'TEN' })} saveState={{ status: 'refused', message: "Undo didn't go through: NYJ @ TEN kicked off. Your pick TEN stands.", focusTeam: 'TEN' }} />);
+      expect(screen.getByTestId('game-card')).toHaveFocus();
+    });
+
+    test('a settled state that arrives with no Undo or Retry pressed never takes focus', () => {
+      const outside = document.createElement('button');
+      document.body.appendChild(outside);
+      outside.focus();
+      const { rerender } = render(<GameCard view={baseView()} />);
+      rerender(<GameCard view={baseView({ myPick: 'TEN' })} saveState={{ status: 'saved', focusTeam: 'TEN' }} />);
+      expect(outside).toHaveFocus();
+      outside.remove();
+    });
+  });
+
 });
 
 describe('confidence', () => {
@@ -208,6 +280,14 @@ describe('confidence', () => {
     rerender(<GameCard view={baseView()} mode="confidence" slateSize={16} saveState={{ status: 'draft', attempted: { pickedTeam: 'NYJ' } }} />);
     expect(outside).toHaveFocus();
     outside.remove();
+  });
+
+  test('a ranked pick does not offer "Confidence: none", an unranked one does', () => {
+    const { rerender } = render(<GameCard view={baseView({ myPick: 'TEN', confidence: 4 })} mode="confidence" slateSize={14} />);
+    expect(screen.queryByRole('option', { name: 'Confidence: none' })).not.toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Confidence for NYJ at TEN' })).toHaveDisplayValue('Confidence 4');
+    rerender(<GameCard view={baseView({ myPick: 'TEN', confidence: null })} mode="confidence" slateSize={14} />);
+    expect(screen.getByRole('option', { name: 'Confidence: none' })).toBeInTheDocument();
   });
 
   test('straight-up mode draws no confidence select', () => {

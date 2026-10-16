@@ -59,6 +59,20 @@ export default function GameCard({
     }
   }, [drafting, view?.lock]);
 
+  // Undo and Retry unmount while their save is in flight, which would drop focus to the page. When one
+  // of them was pressed, focus goes back to the team button that now holds the pick (or was attempted)
+  // once the save settles; a locked card's buttons are disabled, so the card itself takes it.
+  const restoreFocus = useRef(false);
+  const settledStatus = saveState?.status || null;
+  const focusTeam = saveState?.focusTeam ?? null;
+  useEffect(() => {
+    if (!restoreFocus.current || !['saved', 'undone', 'failed', 'refused'].includes(settledStatus)) return;
+    restoreFocus.current = false;
+    const card = cardRef.current;
+    const target = focusTeam && card?.querySelector(`[data-testid="team-pick-${focusTeam}"]:not(:disabled)`);
+    (target || card?.querySelector('article'))?.focus();
+  }, [settledStatus, focusTeam]);
+
   if (loading) return <GameCardSkeleton />;
 
   const [awayTeam, homeTeam] = view.teams;
@@ -135,6 +149,7 @@ export default function GameCard({
           max={slateSize}
           usedBy={usedBy}
           swappable={view.confidence != null}
+          canClear={false}
           disabled={view.lock || needsTeam}
           bad={status === 'refused' && !view.lock}
           aria-label={`Confidence for ${matchup}`}
@@ -158,6 +173,7 @@ export default function GameCard({
         data-testid="game-card"
         data-phase={view.phase}
         data-cursor={cursor || undefined}
+        tabIndex={-1}
         aria-label={`${matchup}${view.lock ? '' : urgent ? `, ${locksWords}` : ''}`}
         sx={{ display: 'flex', flexDirection: 'column', gap: '10px' }}
       >
@@ -179,23 +195,16 @@ export default function GameCard({
           <TeamPickButton {...sideProps(homeTeam, true)} />
         </Box>
 
-        {!view.lock && (
-          <SaveLine saveState={saveState} matchup={matchup} onUndo={() => onUndo?.(view.gameKey)} onRetry={() => onRetry?.(view.gameKey)} />
-        )}
+        <SaveLine
+          saveState={saveState}
+          matchup={matchup}
+          onUndo={() => { restoreFocus.current = true; onUndo?.(view.gameKey); }}
+          onRetry={() => { restoreFocus.current = true; onRetry?.(view.gameKey); }}
+        />
 
         <MetaRow view={view} isLive={isLive} />
 
-        {view.lock && status === 'refused' ? (
-          <Box
-            role="status"
-            aria-live="polite"
-            data-testid="refused-note"
-            sx={{ display: 'flex', alignItems: 'center', gap: '10px', minHeight: '44px', padding: '4px 0', boxSizing: 'border-box', color: 'var(--ps-danger)', fontSize: '15px', fontWeight: 600 }}
-          >
-            <PixelWarn color="var(--ps-danger)" />
-            {saveState.message}
-          </Box>
-        ) : isFinal ? (
+        {isFinal ? (
           view.headline && <HeadlineRow headline={view.headline} />
         ) : isLive ? (
           <LiveFooter view={view} awayTeam={awayTeam} homeTeam={homeTeam} />
@@ -273,51 +282,65 @@ function OutcomeChip({ outcome, confidence, myPick }) {
   );
 }
 
-// The card's save line. The polite status region holds the words only; Undo and Retry sit beside it.
+// The card's save line: ONE node in every phase (open, live, final, locked after a refused save), so a
+// screen reader's live region is never swapped out from under a message. The polite status region holds
+// the words only; Undo and Retry sit beside it, outside it. At rest the row is visually hidden and the
+// region empty. The words are the card's save state (model/useSavePicks.js).
+const SAVE_WORDS = {
+  saving: ['Saving…', 'var(--ps-dim)'],
+  draft: ['Choose a confidence to save this pick.', 'var(--ps-dim)'],
+  undone: ['Pick undone', 'var(--ps-dim)'],
+};
+
 function SaveLine({ saveState, matchup, onUndo, onRetry }) {
   const status = saveState?.status || null;
-  const row = {
-    display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0 12px', minHeight: '44px', padding: '4px 0', boxSizing: 'border-box', fontSize: '15px',
-  };
-  const live = (children, color) => (
-    <Box
-      component="span"
-      role="status"
-      aria-live="polite"
-      data-testid="save-status"
-      sx={{ display: 'inline-flex', flexWrap: 'wrap', alignItems: 'center', gap: '0 12px', color }}
-    >
-      {children}
-    </Box>
-  );
-  if (!status) return <Box sx={SR_ONLY_SX}>{live('')}</Box>;
-  if (status === 'saving') return <Box sx={row}>{live('Saving…', 'var(--ps-dim)')}</Box>;
-  if (status === 'draft') return <Box sx={row}>{live('Choose a confidence to save this pick.', 'var(--ps-dim)')}</Box>;
-  if (status === 'undone') return <Box sx={row}>{live('Pick undone', 'var(--ps-dim)')}</Box>;
-  if (status === 'saved') {
-    return (
-      <Box sx={row}>
-        {live(
-          <>
-            <PixelCheck size={16} />
-            <Box component="span" sx={{ fontWeight: 600 }}>{saveState.swap ? `Swapped with ${saveState.swap}` : 'Pick saved'}</Box>
-            {saveState.swap && <Box component="span" sx={{ color: 'var(--ps-dim)' }}>Both ranks saved</Box>}
-          </>
-        )}
-        <Box component="span" aria-hidden="true" sx={{ color: 'var(--ps-dim)' }}>{'·'}</Box>
-        <PsButton variant="ghost" onClick={onUndo} ariaLabel={`Undo ${saveState.swap ? 'swap' : 'pick'}, ${matchup}`}>Undo</PsButton>
-      </Box>
+  const alert = status === 'failed' || status === 'refused';
+  let words = null;
+  let color;
+  if (SAVE_WORDS[status]) [words, color] = SAVE_WORDS[status];
+  else if (status === 'busy') {
+    words = saveState.message;
+    color = 'var(--ps-dim)';
+  } else if (status === 'saved') {
+    words = (
+      <>
+        <PixelCheck size={16} />
+        <Box component="span" sx={{ fontWeight: 600 }}>{saveState.swap ? `Swapped with ${saveState.swap}` : 'Pick saved'}</Box>
+        {saveState.swap && <Box component="span" sx={{ color: 'var(--ps-dim)' }}>Both ranks saved</Box>}
+      </>
     );
+  } else if (alert) {
+    words = (
+      <>
+        <PixelWarn color="var(--ps-danger)" />
+        <span>{saveState.message}</span>
+      </>
+    );
+    color = 'var(--ps-danger)';
   }
-  // failed (Retry) or refused (no Retry): the alert pictogram and the words, Danger.
   return (
-    <Box sx={row}>
-      {live(
+    <Box
+      data-testid="save-row"
+      sx={status
+        ? {
+          display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0 12px', minHeight: '44px', padding: '4px 0', boxSizing: 'border-box', fontSize: '15px',
+        }
+        : SR_ONLY_SX}
+    >
+      <Box
+        component="span"
+        role="status"
+        aria-live="polite"
+        data-testid="save-status"
+        sx={{ display: 'inline-flex', flexWrap: 'wrap', alignItems: 'center', gap: '0 12px', color, fontWeight: alert ? 600 : undefined }}
+      >
+        {words}
+      </Box>
+      {status === 'saved' && (
         <>
-          <PixelWarn color="var(--ps-danger)" />
-          <span>{saveState.message}</span>
-        </>,
-        'var(--ps-danger)'
+          <Box component="span" aria-hidden="true" sx={{ color: 'var(--ps-dim)' }}>{'·'}</Box>
+          <PsButton variant="ghost" onClick={onUndo} ariaLabel={`Undo ${saveState.swap ? 'swap' : 'pick'}, ${matchup}`}>Undo</PsButton>
+        </>
       )}
       {status === 'failed' && (
         <PsButton variant="ghost" onClick={onRetry} ariaLabel={`Retry saving pick, ${matchup}`}>Retry</PsButton>

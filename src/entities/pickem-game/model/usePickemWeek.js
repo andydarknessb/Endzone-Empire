@@ -115,6 +115,9 @@ export default function usePickemWeek(leagueId, week, { enabled = true } = {}) {
         failure = {
           ok: false,
           message: readFailure.message || requestError.message || 'Request failed',
+          // The HTTP status, or null when the request got no answer (a network error): the board
+          // retries only those and 5xx.
+          status: requestError?.response?.status ?? null,
           code: readFailure.code || body.code || null,
           gameKeys: Array.isArray(body.gameKeys) ? body.gameKeys : [],
         };

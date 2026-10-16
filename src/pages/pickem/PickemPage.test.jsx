@@ -371,7 +371,7 @@ test('a rejected pick save does not invalidate the cached standings', async () =
   const user = userEvent.setup();
   mockRequests();
   apiClient.put.mockRejectedValue({
-    response: { data: { error: 'that game already kicked off', code: 'PICKEM_LOCKED', gameKeys: ['NYJ|TEN'] } },
+    response: { status: 409, data: { error: 'that game already kicked off', code: 'PICKEM_LOCKED', gameKeys: ['NYJ|TEN'] } },
   });
   renderPage();
 
