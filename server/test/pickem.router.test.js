@@ -103,6 +103,7 @@ function mockClient(t, overrides = []) {
       ({ rows: [{ id: 3, name: 'Ballers', current_season: 2026, current_week: 1 }] })],
     [/FROM "nfl_games"/, () => ({ rows: WEEK_ONE_SCHEDULE })],
     [/FROM "live_game_states"/, () => ({ rows: [] })],
+    [/pg_advisory_xact_lock/, () => ({ rows: [] })],
     [/SELECT "team_pair", "confidence" FROM "pickem_picks"/, () => ({ rows: [] })],
     [/SELECT 1 FROM "pickem_picks"/, () => ({ rows: [] })],
     [/INSERT INTO "pickem_picks"/, () => ({ rows: [] })],

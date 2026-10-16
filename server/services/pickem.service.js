@@ -729,7 +729,8 @@ const UPSERT_PICKS_SQL = `
 const DELETE_PICKS_SQL = `
   DELETE FROM "pickem_picks"
    WHERE "league_id" = $1 AND "user_id" = $2 AND "season" = $3 AND "week" = $4
-     AND "team_pair" = ANY($5::text[])`;
+     AND "team_pair" = ANY($5::text[])
+  RETURNING "team_pair"`;
 
 /** The league row Pick'em needs, or 404. Accepts a pool or a checked-out client. */
 async function loadLeague(db, leagueId) {
@@ -974,6 +975,13 @@ async function upsertPicks({ leagueId, userId, season, week, picks, now = new Da
       throw new PickemError(409, 'PICKEM_NO_SLATE', 'no NFL games are scheduled for that week yet');
     }
 
+    // One member's saves for one week run one at a time. The rank uniqueness below reads the rows
+    // this member already holds, so two overlapping saves (a tap on each of two cards) would each
+    // read the other's rank as free and both write it. The lock is held to COMMIT or ROLLBACK and
+    // is taken before that read.
+    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [
+      `pickem:${leagueId}:${userId}:${season}:${week}`,
+    ]);
     const existing = await client.query(
       `SELECT "team_pair", "confidence" FROM "pickem_picks"
         WHERE "league_id" = $1 AND "user_id" = $2 AND "season" = $3 AND "week" = $4`,
@@ -1002,8 +1010,10 @@ async function upsertPicks({ leagueId, userId, season, week, picks, now = new Da
       );
     }
 
+    let cleared = [];
     if (validated.clears.length > 0) {
-      await client.query(DELETE_PICKS_SQL, [leagueId, userId, season, week, validated.clears]);
+      const deleted = await client.query(DELETE_PICKS_SQL, [leagueId, userId, season, week, validated.clears]);
+      cleared = deleted.rows.map((row) => row.team_pair);
     }
     if (validated.picks.length > 0) {
       await client.query(UPSERT_PICKS_SQL, [
@@ -1016,7 +1026,7 @@ async function upsertPicks({ leagueId, userId, season, week, picks, now = new Da
         validated.picks.map((pick) => pick.confidence),
       ]);
     }
-    return { saved: validated.picks.length, cleared: validated.clears, myPicks: validated.picks };
+    return { saved: validated.picks.length, cleared, myPicks: validated.picks };
     },
     { label: 'pickem-picks' }
   );

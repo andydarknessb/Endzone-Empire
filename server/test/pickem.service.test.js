@@ -770,6 +770,7 @@ function mockClient(t, handlers) {
 }
 
 const TXN = [
+  [/pg_advisory_xact_lock/, () => ({ rows: [] })],
   [/^BEGIN$/, () => ({ rows: [] })],
   [/^COMMIT$/, () => ({ rows: [] })],
   [/^ROLLBACK$/, () => ({ rows: [] })],
@@ -1032,7 +1033,7 @@ test('upsertPicks with pickedTeam null deletes that game\'s row and writes nothi
     ]) })],
     [/FROM "live_game_states"/, () => ({ rows: [] })],
     [/SELECT "team_pair", "confidence" FROM "pickem_picks"/, () => ({ rows: [] })],
-    [/DELETE FROM "pickem_picks"/, () => ({ rows: [] })],
+    [/DELETE FROM "pickem_picks"/, () => ({ rows: [{ team_pair: 'DAL|WAS' }] })],
     [/INSERT INTO "pickem_picks"/, () => ({ rows: [] })],
   ]);
 
@@ -1119,4 +1120,56 @@ test('a two-game confidence swap passes uniqueness in ONE statement, where two s
     heldConfidences: [{ gameKey: 'DAL|WAS', confidence: 2 }],
   });
   assert.equal(single.code, 'PICKEM_BAD_CONFIDENCE');
+});
+
+test('upsertPicks takes the per-member-week advisory lock BEFORE reading the held ranks', async (t) => {
+  const calls = mockClient(t, [
+    ...TXN,
+    [/FROM "pickem_settings"/, () => ({ rows: [{ enabled: true, mode: 'confidence' }] })],
+    [/FROM "nfl_games"/, () => ({ rows: nflGameRows(1, [['DAL', 'WAS', '2026-09-13T17:00:00.000Z']]) })],
+    [/FROM "live_game_states"/, () => ({ rows: [] })],
+    [/SELECT "team_pair", "confidence" FROM "pickem_picks"/, () => ({ rows: [] })],
+    [/INSERT INTO "pickem_picks"/, () => ({ rows: [] })],
+  ]);
+  await pickem.upsertPicks({
+    leagueId: 3, userId: 9, season: 2026, week: 1,
+    picks: [{ gameKey: 'DAL|WAS', pickedTeam: 'WAS', confidence: 1 }],
+    now: new Date('2026-09-10T01:00:00.000Z'),
+  });
+  const at = (pattern) => calls.findIndex((call) => pattern.test(call.text));
+  const lock = at(/pg_advisory_xact_lock/);
+  assert.ok(lock > at(/^BEGIN$/), 'the lock is inside the transaction');
+  assert.ok(lock >= 0 && lock < at(/SELECT "team_pair", "confidence" FROM "pickem_picks"/), 'the lock comes before the held-rank read');
+  assert.ok(lock < at(/^INSERT INTO "pickem_picks"/), 'and before the write');
+  assert.equal(calls[lock].text, 'SELECT pg_advisory_xact_lock(hashtext($1))');
+  assert.deepEqual(calls[lock].params, ['pickem:3:9:2026:1']);
+});
+
+test('a refusal before the held-rank read takes no lock (Pick\'em off)', async (t) => {
+  const calls = mockClient(t, [
+    ...TXN,
+    [/FROM "pickem_settings"/, () => ({ rows: [] })],
+  ]);
+  await assert.rejects(() => pickem.upsertPicks({
+    leagueId: 3, userId: 9, season: 2026, week: 1, picks: [{ gameKey: 'DAL|WAS', pickedTeam: 'WAS' }],
+  }));
+  assert.equal(calls.filter((call) => /pg_advisory_xact_lock/.test(call.text)).length, 0);
+});
+
+test('cleared echoes only the rows the DELETE actually removed (RETURNING)', async (t) => {
+  mockClient(t, [
+    ...TXN,
+    [/FROM "pickem_settings"/, () => ({ rows: [{ enabled: true, mode: 'straight' }] })],
+    [/FROM "nfl_games"/, () => ({ rows: nflGameRows(1, [['DAL', 'WAS', '2026-09-13T17:00:00.000Z'], ['KC', 'DEN', '2026-09-13T17:00:00.000Z']]) })],
+    [/FROM "live_game_states"/, () => ({ rows: [] })],
+    [/SELECT "team_pair", "confidence" FROM "pickem_picks"/, () => ({ rows: [] })],
+    // Only DAL|WAS held a pick; KC|DEN had none, so the DELETE returns one row.
+    [/DELETE FROM "pickem_picks" .*RETURNING "team_pair"/, () => ({ rows: [{ team_pair: 'DAL|WAS' }] })],
+  ]);
+  const result = await pickem.upsertPicks({
+    leagueId: 3, userId: 9, season: 2026, week: 1,
+    picks: [{ gameKey: 'DAL|WAS', pickedTeam: null }, { gameKey: 'DEN|KC', pickedTeam: null }],
+    now: new Date('2026-09-10T01:00:00.000Z'),
+  });
+  assert.deepEqual(result.cleared, ['DAL|WAS']);
 });
