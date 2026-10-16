@@ -560,8 +560,20 @@ function GeneralSettingsPanel({
 }) {
   const { sizeMin, sizeMax } = draft;
   const [removeTarget, setRemoveTarget] = useState(null);
+  const [banTarget, setBanTarget] = useState(null);
+  const [bans, setBans] = useState([]);
   const [joinRequests, setJoinRequests] = useState([]);
   const report = fail(notify);
+
+  // The league's bans, by the Team name each was made against; the server
+  // never serves the account (Team identity).
+  const loadBans = useCallback(() => {
+    apiClient
+      .get(`/api/commissioner/league/${leagueId}/bans`)
+      .then((res) => setBans(Array.isArray(res.data) ? res.data : []))
+      .catch(() => setBans([]));
+  }, [leagueId]);
+  useEffect(loadBans, [loadBans]);
 
   const showJoinQueue = league.is_public && league.join_approval;
 
@@ -612,6 +624,31 @@ function GeneralSettingsPanel({
     }
   };
 
+  const handleBanTeam = async () => {
+    const team = banTarget;
+    setBanTarget(null);
+    try {
+      const res = await apiClient.post(`/api/commissioner/league/${leagueId}/teams/${team.id}/ban`);
+      notify(res.data?.outcome === 'cpu'
+        ? `${team.name}'s manager is banned; the CPU now manages the team`
+        : `${team.name} removed and its manager banned`);
+      loadBans();
+      onRefresh();
+    } catch (err) {
+      report(err);
+    }
+  };
+
+  const handleUnban = async (ban) => {
+    try {
+      await apiClient.delete(`/api/commissioner/league/${leagueId}/bans/${ban.id}`);
+      notify(`Ban lifted for ${ban.team_name}'s manager`);
+      setBans((prev) => prev.filter((b) => b.id !== ban.id));
+    } catch (err) {
+      report(err);
+    }
+  };
+
   const handleDecideJoinRequest = async (requestId, approve) => {
     try {
       await apiClient.post(`/api/league/${leagueId}/join-requests/${requestId}/decide`, { approve });
@@ -646,6 +683,9 @@ function GeneralSettingsPanel({
     (team) => team.teamId !== viewerTeamId
       && !(league.ownerTeamId != null && team.teamId === league.ownerTeamId)
   );
+  // Remove & ban is offered for the same teams in every phase, except a team
+  // the CPU already manages: it has no manager left to ban.
+  const bannableTeams = removableTeams.filter((team) => !team.is_cpu);
   // A pick'em-only league has no adds, drops, waivers or trades to lock, no
   // draft to freeze team limits behind, and its rollover lives on its own
   // Season tab. Phase comes from the league row alone: the same row every
@@ -772,7 +812,69 @@ function GeneralSettingsPanel({
             </Typography>
           </Box>
         )}
+
+        <Typography variant="subtitle2" component="h4" sx={{ mt: 2, mb: 1 }}>Remove &amp; ban a manager</Typography>
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+          {teamsRemovable
+            ? 'The team is removed and its manager can never rejoin this league.'
+            : 'The manager is removed and can never rejoin. Their team stays and the CPU sets its lineup for the rest of the season.'}
+        </Typography>
+        <List dense sx={{ bgcolor: 'var(--dash-surface2)', borderRadius: 1 }}>
+          {bannableTeams.map((team) => (
+            <ListItem key={team.teamId} sx={{ gap: 1, flexWrap: 'wrap' }}>
+              <ListItemText primary={team.name} sx={{ my: 0 }} />
+              <Button
+                size="small"
+                variant="outlined"
+                color="error"
+                aria-label={`Remove and ban ${team.name}`}
+                onClick={() => setBanTarget(team)}
+                sx={{ flex: 'none' }}
+              >
+                Remove &amp; ban
+              </Button>
+            </ListItem>
+          ))}
+        </List>
+        {bans.length > 0 && (
+          <Box data-testid="league-bans" sx={{ mt: 1 }}>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+              Banned (shown by the team name they had):
+            </Typography>
+            <List dense>
+              {bans.map((ban) => (
+                <ListItem key={ban.id} sx={{ gap: 1, flexWrap: 'wrap' }}>
+                  <ListItemText primary={ban.team_name} sx={{ my: 0 }} />
+                  <Button
+                    size="small"
+                    aria-label={`Lift the ban on ${ban.team_name}'s manager`}
+                    onClick={() => handleUnban(ban)}
+                    sx={{ flex: 'none' }}
+                  >
+                    Lift ban
+                  </Button>
+                </ListItem>
+              ))}
+            </List>
+          </Box>
+        )}
       </Paper>
+
+      <Dialog open={!!banTarget} onClose={() => setBanTarget(null)}>
+        <DialogTitle>Remove &amp; ban {banTarget?.name}&apos;s manager?</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            {teamsRemovable
+              ? 'This permanently removes the team from the league. '
+              : 'The team stays in the standings with its roster and schedule, managed by the CPU: it starts the best available lineup each week and makes no trades or waiver claims. Its open trades and claims are cancelled. '}
+            The manager will be notified and can&apos;t rejoin unless you lift the ban.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setBanTarget(null)}>Cancel</Button>
+          <Button color="error" variant="contained" onClick={handleBanTeam}>Remove &amp; ban</Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog open={!!removeTarget} onClose={() => setRemoveTarget(null)}>
         <DialogTitle>Remove {removeTarget?.name}?</DialogTitle>

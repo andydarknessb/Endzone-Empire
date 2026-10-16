@@ -40,7 +40,13 @@ async function logTransaction(client, { leagueId, teamId = null, type, detail = 
   );
 }
 
+/**
+ * A CPU-managed team (owner_id NULL, a banned manager's team after the draft)
+ * has nobody to tell, so a null recipient is a no-op rather than a NOT NULL
+ * violation that would roll back the caller's transaction.
+ */
 async function notify(client, { userId, leagueId = null, type, message, data = {} }) {
+  if (userId == null) return;
   await client.query(
     `INSERT INTO "notifications" ("user_id", "league_id", "type", "message", "data")
      VALUES ($1, $2, $3, $4, $5)`,
@@ -51,7 +57,7 @@ async function notify(client, { userId, leagueId = null, type, message, data = {
 /** Notify every team owner in a league (optionally excluding some user ids). */
 async function notifyLeague(client, { leagueId, type, message, data = {}, excludeUserIds = [] }) {
   const owners = await client.query(
-    `SELECT DISTINCT "owner_id" FROM "teams" WHERE "league_id" = $1`,
+    `SELECT DISTINCT "owner_id" FROM "teams" WHERE "league_id" = $1 AND "owner_id" IS NOT NULL`,
     [leagueId]
   );
   for (const row of owners.rows) {

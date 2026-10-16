@@ -958,3 +958,21 @@ test('readTradeItems with no trades reads nothing', async () => {
   assert.deepEqual(await readTradeItems({ leagueId: 1, tradeIds: [] }, { client: fake }), []);
   assert.equal(fake.calls.length, 0);
 });
+
+test('proposeTrade: an offer to a CPU-managed team (owner_id NULL) is refused 409 and inserts nothing', async (t) => {
+  const roster = [{ player_id: 55, team_id: 42 }, { player_id: 66, team_id: 41 }];
+  const world = createFakePool([
+    [/FROM "teams" WHERE "id" = \$1 AND "league_id" = \$2/, () => ({
+      rows: [{ id: 41, name: 'Sunday Ballers', owner_id: null, locked: false, league_id: 1 }],
+    })],
+    ...counterWorld({ roster }),
+  ]).install(t);
+
+  await assert.rejects(
+    proposeTrade({ leagueId: 1, userId: 8, receivingTeamId: 41, playerIds: [55, 66] }),
+    { statusCode: 409, message: "that team is managed by the CPU and doesn't trade" }
+  );
+  assert.equal(world.matching(insert('trades')).length, 0, 'no trade row');
+  assert.equal(world.matching(insert('notifications')).length, 0, 'nobody notified');
+  world.assertClean();
+});

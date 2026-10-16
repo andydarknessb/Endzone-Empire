@@ -90,6 +90,23 @@ the league's creator always has it.
 _Avoid_: access, participation, "having a roster" (a member of a pick'em-only
 league holds none)
 
+**Ban**:
+A commissioner's ruling that one account, and any account on the same email
+(ignoring case, a `+tag`, and Gmail dots), may never again hold a team in a
+league. It is checked on every join path at admission and is shown to
+commissioners by the Team name it was made against, never by account or email. Made
+with Remove & ban: while the league is Removable the team is deleted;
+afterwards the team stays and becomes a CPU-managed team. Lifting a ban lets
+the account join again and never hands a team back (ADR 0067).
+_Avoid_: block (a manager's own mute of another's chat), kick
+
+**CPU-managed team**:
+A team with no manager (owner_id NULL), left behind when its manager was
+banned after the draft. It stays in standings, matchups and the schedule; the
+CPU starts its best available lineup each week and it makes no trades or
+waiver claims. It is not a member of anything: it has no account (ADR 0067).
+_Avoid_: bot, ghost team, orphan, abandoned team
+
 **Commissioner**:
 A manager authorized to administer a league, either its creator or someone the
 creator has granted the role, a co-commissioner. Two powers stay with the

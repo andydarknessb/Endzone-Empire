@@ -105,7 +105,10 @@ async function commitPick({ leagueId, userId, playerId, auto = false, byCommissi
       const rotationOpts = { rotation: league.draft_rotation, overrides: league.draft_order_overrides };
 
       let myTeam;
-      if (byCommissioner) {
+      // A CPU-managed team (owner_id NULL) only ever drafts by autopick, and
+      // there may be more than one, so its pick is found by the clock, the way
+      // a commissioner's is, never by a null owner id.
+      if (byCommissioner || (auto && userId == null)) {
         myTeam = teamForPick(league.current_pick, teams, rotationOpts);
         if (!myTeam) throw new DraftError(409, 'no team is currently on the clock');
       } else {

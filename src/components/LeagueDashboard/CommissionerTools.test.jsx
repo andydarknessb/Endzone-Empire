@@ -404,8 +404,43 @@ test('states the rule alongside a non-empty removal list too', () => {
 test('the remove-a-team list identifies each team by its Team name', () => {
   renderTools({ viewerTeamId: 99, teams: usernameDistinctTeams });
 
-  expect(screen.getByText('Gridiron Gurus')).toBeInTheDocument();
-  expect(screen.getByText('End Zone Elites')).toBeInTheDocument();
+  // Each team is listed twice, once to remove and once to remove & ban, and
+  // both controls name it by its Team name.
+  for (const name of ['Gridiron Gurus', 'End Zone Elites']) {
+    expect(screen.getByRole('button', { name: `Remove ${name}` })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: `Remove and ban ${name}` })).toBeInTheDocument();
+  }
+});
+
+test('Remove & ban is offered after the draft, skips CPU teams, and posts to the ban route', async () => {
+  apiClient.post.mockResolvedValueOnce({ data: { outcome: 'cpu' } });
+  renderTools({
+    viewerTeamId: 99,
+    league: league({ draft_status: 'complete', season_status: 'regular' }),
+    teams: [
+      ...usernameDistinctTeams,
+      { id: 77, teamId: 77, name: 'Robo Ballers', is_cpu: true },
+    ],
+  });
+
+  expect(screen.queryByRole('button', { name: 'Remove and ban Robo Ballers' })).not.toBeInTheDocument();
+  await userEvent.click(screen.getByRole('button', { name: 'Remove and ban Gridiron Gurus' }));
+  expect(screen.getByText(/managed by the CPU/)).toBeInTheDocument();
+  await userEvent.click(screen.getByRole('button', { name: 'Remove & ban' }));
+
+  const team = usernameDistinctTeams.find((t) => t.name === 'Gridiron Gurus');
+  expect(apiClient.post).toHaveBeenCalledWith(`/api/commissioner/league/1/teams/${team.id}/ban`);
+});
+
+test('the bans list names each ban by Team name, and Lift ban deletes it', async () => {
+  mockGetByUrl({ '/api/commissioner/league/1/bans': { data: [{ id: 7, team_name: 'Banned Bandits', created_at: '2026-10-01' }] } });
+  apiClient.delete.mockResolvedValueOnce({ data: { leagueId: 1, banId: 7 } });
+  renderTools({ viewerTeamId: 99, teams: usernameDistinctTeams });
+
+  await userEvent.click(await screen.findByRole('button', { name: "Lift the ban on Banned Bandits's manager" }));
+
+  expect(apiClient.delete).toHaveBeenCalledWith('/api/commissioner/league/1/bans/7');
+  expect(screen.queryByText('Banned Bandits')).not.toBeInTheDocument();
 });
 
 // The list row's React key moved to `teamId` with the filter above it, or
