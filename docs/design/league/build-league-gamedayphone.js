@@ -4,7 +4,7 @@ const { k, LG } = P;
 const out = process.argv[2];
 const ph = { phone: true };
 
-const head = k.phHead({ title: LG, chips: ['Week 7 · In season'], live: '4 matchups live', phone: true });
+const head = k.phHead({ title: LG, chips: ['Week 7 · In season'], live: '6 matchups live', phone: true });
 
 const cards = [P.SHARED_LIVE, P.WAIVERS];
 const move = P.yourMove(cards, { phone: true });
@@ -35,7 +35,7 @@ ${k.chatDrawer({ phone: true, messages: [
 
 const notes = k.notes([
   'The chat drawer is a full-width modal on a phone: a 6px double Frame on a Field scrim, League Chat in Pixel 16, messages in Archivo, a "Message" composer with Send, and "Close chat" as a 44px square. The scrim here covers the bottom 844px of the page, the area the drawer would fill in a phone viewport.',
-  'Your own message wears a Play-blue bar. Under the drawer the page is the game-day dashboard: Lineup and picks (both lock ' + P.D.NEXT_LOCK + ') holds the one red cursor and the one filled button, "Set lineup"; "Make picks" is its second, outlined foot. The matchup is the Board-black versus screen with "As of 2:40 PM" under the LIVE chip. The Pick&#39;em panel and the commissioner strip follow My team; the Invite control lives in that strip, not the head. Standings, activity and Playbook use the same phone folds as Main. Advance week is disabled with its reason, and the facts are desktop only.',
+  'Your own message wears a Play-blue bar. Under the drawer the page is the game-day dashboard: Lineup and picks (both lock ' + P.D.NEXT_LOCK + ') holds the one red cursor and the one filled button, "Set lineup"; "Make picks" is its second, outlined foot. The card carries no swap note: every bench player is locked at 2:40 PM, so the Forecast has no suggestion and it shows the lineup status instead. The matchup is the Board-black versus screen with "As of 2:40 PM" under the LIVE chip. The Pick&#39;em panel and the commissioner strip follow My team; the Invite control lives in that strip, not the head. Standings, activity and Playbook use the same phone folds as Main. Advance week is disabled with its reason, and the facts are desktop only.',
 ]);
 
 const product = `<div style="position: relative">
@@ -57,5 +57,5 @@ ${drawer}
 </div>
 <div style="width: 390px; box-sizing: border-box; padding: 0 16px 48px">${notes}</div>`;
 
-k.write(out, 'GameDayPhone.dc.html', k.page({ title: 'League dashboard, game day, phone, chat open', w: 390, h: 4000, body: product, phone: true }));
+k.write(out, 'GameDayPhone.dc.html', k.page({ title: 'League dashboard, game day, phone, chat open', w: 390, h: 5145, body: product, phone: true }));
 console.log('ok');

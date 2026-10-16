@@ -33,7 +33,7 @@ body{font-variant-numeric:tabular-nums}
 .sw:checked+.tg-track{background:var(--on);border-color:var(--onInk)}
 .sw:checked+.tg-track .tg-knob{left:22px;background:var(--onInk)}
 .sw:focus-visible+.tg-track{outline:3px solid #ffffff;box-shadow:0 0 0 7px #07080f}
-.sw:disabled+.tg-track{opacity:.45}
+.sw:disabled+.tg-track{cursor:not-allowed}
 .tg-state::before{content:'Off'}.sw:checked~.tg-state::before{content:'On'}
 .rc .sw{width:100%;height:100%}
 .rc-card{display:flex;gap:12px;align-items:flex-start;box-sizing:border-box;height:100%;min-height:44px;padding:12px 14px;border:2px solid var(--off)}
@@ -41,7 +41,8 @@ body{font-variant-numeric:tabular-nums}
 .sw:checked+.rc-card{background:var(--on);color:var(--onInk);border-color:var(--onInk)}
 .sw:checked+.rc-card .rc-dot::after{content:'';width:6px;height:6px;background:currentColor}
 .sw:focus-visible+.rc-card{outline:3px solid #ffffff;box-shadow:0 0 0 7px #07080f}
-.sw:disabled+.rc-card{opacity:.45;cursor:not-allowed}
+.sw:disabled+.rc-card{cursor:not-allowed}
+.sw:disabled:not(:checked)+.rc-card{color:var(--off)}
 .pb:hover,.pb:focus-visible{background:var(--on)!important;color:var(--onInk)!important}
 </style>
 </helmet>
