@@ -107,9 +107,10 @@ describe('look', () => {
   });
 });
 
-// One tab stop (Critique 9 item 8, AC 6m): in the playselect look the selected week is the only stop. The
-// steppers and All weeks stay reachable by pointer, and the arrow keys do what they do, so they leave the Tab sequence.
-// Red-tell: leaving the steppers or All weeks at their default tab index turns the first cases red.
+// One tab stop for the weeks (Critique 9 item 8, AC 6m): in the playselect look the selected week is the strip's only
+// stop and the arrow keys move it, so Previous and Next leave the Tab sequence. "All weeks" is a different action and
+// keeps its own stop (QA ruling), so a keyboard user can still reach it.
+// Red-tell: leaving the steppers at their default tab index, or giving All weeks tabindex -1, turns the cases red.
 describe('playselect look: roving tabindex', () => {
   const page = (props) => (
     <div>
@@ -119,8 +120,19 @@ describe('playselect look: roving tabindex', () => {
     </div>
   );
 
-  test('Tab visits exactly one week control, the selected week, then leaves', async () => {
+  test('Tab visits one week control, the selected week, then All weeks, then leaves', async () => {
     render(page({ value: 9 }));
+    screen.getByRole('button', { name: 'Before' }).focus();
+    await userEvent.tab();
+    expect(screen.getByRole('radio', { name: 'Wk 9' })).toHaveFocus();
+    await userEvent.tab();
+    expect(screen.getByRole('button', { name: 'All weeks' })).toHaveFocus();
+    await userEvent.tab();
+    expect(screen.getByRole('button', { name: 'After' })).toHaveFocus();
+  });
+
+  test('without All weeks the selected week is the picker\'s only stop', async () => {
+    render(page({ value: 9, allWeeks: false }));
     screen.getByRole('button', { name: 'Before' }).focus();
     await userEvent.tab();
     expect(screen.getByRole('radio', { name: 'Wk 9' })).toHaveFocus();
@@ -128,20 +140,21 @@ describe('playselect look: roving tabindex', () => {
     expect(screen.getByRole('button', { name: 'After' })).toHaveFocus();
   });
 
-  test('the other weeks, the steppers and All weeks are tabindex -1', () => {
+  test('the other weeks and the steppers are tabindex -1; the selected week and All weeks are not', () => {
     render(page({ value: 9 }));
     ['Wk 1', 'Wk 10'].forEach((name) => expect(screen.getByRole('radio', { name })).toHaveAttribute('tabindex', '-1'));
-    ['Previous week', 'Next week', 'All weeks'].forEach((name) => expect(screen.getByRole('button', { name })).toHaveAttribute('tabindex', '-1'));
+    ['Previous week', 'Next week'].forEach((name) => expect(screen.getByRole('button', { name })).toHaveAttribute('tabindex', '-1'));
     expect(screen.getByRole('radio', { name: 'Wk 9' })).toHaveAttribute('tabindex', '0');
+    expect(screen.getByRole('button', { name: 'All weeks' })).not.toHaveAttribute('tabindex', '-1');
   });
 
-  test('with All selected the strip is still one stop, on Wk 1', async () => {
+  test('with All selected the strip is still one stop, on Wk 1, and All weeks follows it', async () => {
     render(page({ value: 'All' }));
     screen.getByRole('button', { name: 'Before' }).focus();
     await userEvent.tab();
     expect(screen.getByRole('radio', { name: 'Wk 1' })).toHaveFocus();
     await userEvent.tab();
-    expect(screen.getByRole('button', { name: 'After' })).toHaveFocus();
+    expect(screen.getByRole('button', { name: 'All weeks' })).toHaveFocus();
   });
 
   test('Left and Right move to the neighbouring week and carry focus', async () => {

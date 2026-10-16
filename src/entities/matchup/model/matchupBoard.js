@@ -11,7 +11,7 @@ import { matchupResultLine } from './matchupModel';
  *     hasStarted, settled, isLive, isFinal, viewerSide, resultLine, liveLine,
  *     winProbability: { home, away } | null,
  *     projectedWinProbability: { home, away } | null,
- *     home: { score, scoreLabel, expectedFinal, playersRemaining, playersRemainingLabel },
+ *     home: { score, scoreLabel, expectedFinal, playersRemaining, playersRemainingLabel, yetToPlay },
  *     away: { ...same } }
  *
  * - `chip` is null for an unknown status (null, absent, unrecognised): "the
@@ -112,6 +112,7 @@ export function matchupBoard(matchup, viewerTeamId) {
       scoreLabel: matchup ? (finite(s.score) ?? 0).toFixed(1) : null,
       expectedFinal: phase.settled ? null : s.expectedFinal ?? null,
       playersRemaining: s.playersRemaining ?? null,
+      yetToPlay: s.yetToPlay ?? null,
       playersRemainingLabel: remaining == null ? null : String(remaining),
     };
   };

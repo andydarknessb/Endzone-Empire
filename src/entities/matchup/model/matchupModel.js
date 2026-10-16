@@ -12,7 +12,7 @@ import { applyTeamProfileUpdate } from '../../../lib/teamProfileEvents';
  *
  *   { id, season, week, final, status,
  *     home: { teamId, name, avatarUrl, avatarStaticUrl,
- *             score, expectedFinal, playersRemaining },
+ *             score, expectedFinal, playersRemaining, yetToPlay },
  *     away: { ...same } }
  *
  * `status` is the server's fact (ADR 0030): one of 'scheduled', 'live',
@@ -58,6 +58,7 @@ export function matchupFromListRow(row) {
       score: r.home_score ?? null,
       expectedFinal: r.home_expected_final ?? null,
       playersRemaining: r.home_players_remaining ?? null,
+      yetToPlay: r.home_yet_to_play ?? null,
     },
     away: {
       teamId: r.away_team_id ?? null,
@@ -67,6 +68,7 @@ export function matchupFromListRow(row) {
       score: r.away_score ?? null,
       expectedFinal: r.away_expected_final ?? null,
       playersRemaining: r.away_players_remaining ?? null,
+      yetToPlay: r.away_yet_to_play ?? null,
     },
   };
 }
@@ -114,6 +116,7 @@ export function matchupFromDetailBody(body) {
       score: m.home_score ?? null,
       expectedFinal: h.expectedFinal ?? null,
       playersRemaining: h.playersRemaining ?? null,
+      yetToPlay: h.yetToPlay ?? null,
     },
     away: {
       teamId: a.teamId ?? null,
@@ -123,6 +126,7 @@ export function matchupFromDetailBody(body) {
       score: m.away_score ?? null,
       expectedFinal: a.expectedFinal ?? null,
       playersRemaining: a.playersRemaining ?? null,
+      yetToPlay: a.yetToPlay ?? null,
     },
   };
 }
@@ -187,6 +191,7 @@ export function applyScoreEvent(model, entry) {
     if (has(entry, `${prefix}Score`)) next.score = entry[`${prefix}Score`];
     if (has(entry, `${prefix}ExpectedFinal`)) next.expectedFinal = entry[`${prefix}ExpectedFinal`];
     if (has(entry, `${prefix}PlayersRemaining`)) next.playersRemaining = entry[`${prefix}PlayersRemaining`];
+    if (has(entry, `${prefix}YetToPlay`)) next.yetToPlay = entry[`${prefix}YetToPlay`];
     return next;
   };
   return {

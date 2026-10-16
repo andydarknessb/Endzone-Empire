@@ -181,9 +181,11 @@ test('each side carries its expected final and players remaining, and projectedT
   // Home: 22.5 (final) + 0 (Out, not started) = 22.5; the Out starter is not remaining, so none is.
   assert.equal(body.home.expectedFinal, 22.5);
   assert.equal(body.home.playersRemaining, 0);
+  assert.equal(body.home.yetToPlay, 0);
   // Away: a bye counts 0 and is final.
   assert.equal(body.away.expectedFinal, 0);
   assert.equal(body.away.playersRemaining, 0);
+  assert.equal(body.away.yetToPlay, 0);
   assert.equal('projectedTotal' in body.home, false);
   assert.equal('projectedTotal' in body.away, false);
 });
@@ -845,6 +847,7 @@ const SETTLED_EXPECTED_BODY = {
     ],
     expectedFinal: null,
     playersRemaining: null,
+    yetToPlay: null,
     calledShot: null,
   },
   away: {
@@ -860,6 +863,7 @@ const SETTLED_EXPECTED_BODY = {
     bench: [],
     expectedFinal: null,
     playersRemaining: null,
+    yetToPlay: null,
     calledShot: null,
   },
 };

@@ -248,6 +248,7 @@ function matchupSummary({ matchup, decoration, myTeamId, teamNameById }) {
     score: score(isHome ? matchup.home_score : matchup.away_score),
     expectedFinal: isHome ? decoration.homeExpectedFinal : decoration.awayExpectedFinal,
     playersRemaining: isHome ? decoration.homePlayersRemaining : decoration.awayPlayersRemaining,
+    yetToPlay: isHome ? decoration.homeYetToPlay : decoration.awayYetToPlay,
   });
   const opponentId = Number(home ? matchup.away_team_id : matchup.home_team_id);
   return {
