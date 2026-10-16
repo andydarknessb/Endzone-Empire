@@ -22,6 +22,7 @@ const { assertRosterWriteAllowed, COMMISSIONER_OVERRIDE } = require('./rosterGat
 const lineupService = require('./lineup.service');
 const { isPickemOnly } = require('./leagueType');
 const { removability, removeRefusalMessage } = require('./leaguePhase');
+const { emailBanHash } = require('./leagueMembership.service');
 const { getStandings: getPickemStandings, getSeasonSlate } = require('./pickem.service');
 const { OUTCOME: PICKEM_RESULT_OUTCOME, resultOf: pickemSeasonResultOf } = require('./pickemSeasonResult.service');
 
@@ -860,8 +861,10 @@ async function removeTeamAvatar({ leagueId, userId, teamId }) {
  *   since nobody is left to answer or own them, and from then on the CPU sets
  *   its lineup (cpuLineup.service, a scheduler job).
  *
- * Either way the banned manager loses any co-commissioner grant and is told
- * once. A team that is already CPU-managed has no manager to ban (409).
+ * The ban also records a hash of the manager's email (emailBanHash), so a new
+ * account on the same inbox is refused too, including a re-signup after the
+ * account is deleted. Either way the banned manager loses any co-commissioner grant
+ * and is told once. A team that is already CPU-managed has no manager to ban (409).
  * Returns `{ leagueId, teamId, outcome: 'removed' | 'cpu' }`.
  */
 async function banTeam({ leagueId, userId, teamId }) {
@@ -875,10 +878,11 @@ async function banTeam({ leagueId, userId, teamId }) {
       }
       const managerId = team.owner_id;
       const { removable } = removability(league);
+      const userResult = await client.query(`SELECT "email" FROM "users" WHERE "id" = $1`, [managerId]);
       await client.query(
-        `INSERT INTO "league_bans" ("league_id", "user_id", "team_name", "banned_by")
-         VALUES ($1, $2, $3, $4) ON CONFLICT ("league_id", "user_id") DO NOTHING`,
-        [leagueId, managerId, team.name, userId]
+        `INSERT INTO "league_bans" ("league_id", "user_id", "email_hash", "team_name", "banned_by")
+         VALUES ($1, $2, $3, $4, $5) ON CONFLICT ("league_id", "user_id") DO NOTHING`,
+        [leagueId, managerId, emailBanHash(userResult.rows[0] && userResult.rows[0].email), team.name, userId]
       );
       await client.query(
         `DELETE FROM "league_commissioners" WHERE "league_id" = $1 AND "user_id" = $2`,

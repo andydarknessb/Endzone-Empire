@@ -6,6 +6,8 @@ const {
   isMember,
   requireMember,
   assertAdmissible,
+  emailBanKey,
+  emailBanHash,
   joinLeague,
 } = require('../services/leagueMembership.service');
 
@@ -108,10 +110,17 @@ const TX = /^(BEGIN|COMMIT|ROLLBACK)$/;
  * The COUNT matcher sits before the generic teams SELECT because both are
  * "SELECT ... FROM teams" to the shape matcher.
  */
-async function world({ league, members = [], banned = [], teamCount = members.length, onInsert } = {}) {
+async function world({ league, members = [], banned = [], bannedEmails = [], joinerEmail = 'joiner@example.com', teamCount = members.length, onInsert } = {}) {
   const fake = createFakePool([
     [select('leagues'), (_text, [id]) => ({ rows: league && league.id === id ? [league] : [] })],
-    [select('league_bans'), (_text, [, userId]) => ({ rows: banned.includes(userId) ? [{ '?column?': 1 }] : [] })],
+    // isBanned reads every ban in the league beside the joiner's own email;
+    // `banned` holds account ids, `bannedEmails` the addresses those bans hashed.
+    [select('league_bans'), (_text, [, userId]) => ({
+      rows: [
+        ...banned.map((id) => ({ user_id: id, email_hash: null, joiner_email: joinerEmail })),
+        ...bannedEmails.map((email) => ({ user_id: null, email_hash: emailBanHash(email), joiner_email: joinerEmail })),
+      ].filter(() => userId != null),
+    })],
     [COUNT_TEAMS, () => ({ rows: [{ n: teamCount }] })],
     [select('teams'), (_text, [, userId]) => ({ rows: members.includes(userId) ? [{ id: 1 }] : [] })],
     [insert('teams'), onInsert || ((_text, params) => ({
@@ -177,6 +186,35 @@ test('assertAdmissible: a banned manager refuses 403 before membership or count,
 test('assertAdmissible: another manager\'s ban does not refuse this one', async () => {
   const { client } = await world({ league: FANTASY_PRE_DRAFT, banned: [6], teamCount: 2 });
   assert.deepEqual(await assertAdmissible(client, FANTASY_PRE_DRAFT, 5), { teamCount: 2 });
+});
+
+test('assertAdmissible: a new account on a banned email (re-signup, +tag or Gmail dots) is refused 403', async () => {
+  for (const joinerEmail of ['bad.guy@gmail.com', 'BadGuy+again@gmail.com', 'badguy@googlemail.com']) {
+    const { client } = await world({ league: FANTASY_PRE_DRAFT, bannedEmails: ['badguy@gmail.com'], joinerEmail });
+    await assert.rejects(
+      assertAdmissible(client, FANTASY_PRE_DRAFT, 5),
+      refusal(403, 'you have been banned from this league'),
+      joinerEmail
+    );
+  }
+});
+
+test('assertAdmissible: a different inbox is not caught by an email ban', async () => {
+  const { client } = await world({
+    league: FANTASY_PRE_DRAFT, bannedEmails: ['badguy@gmail.com'], joinerEmail: 'goodguy@gmail.com', teamCount: 2,
+  });
+  assert.deepEqual(await assertAdmissible(client, FANTASY_PRE_DRAFT, 5), { teamCount: 2 });
+});
+
+test('emailBanKey: case, +tag on any provider, Gmail dots and googlemail fold; other dots kept', () => {
+  assert.equal(emailBanKey('  Bad.Guy+x@GMAIL.com '), 'badguy@gmail.com');
+  assert.equal(emailBanKey('bad.guy@googlemail.com'), 'badguy@gmail.com');
+  assert.equal(emailBanKey('bad.guy+tag@example.com'), 'bad.guy@example.com');
+  assert.equal(emailBanKey('not-an-email'), null);
+  assert.equal(emailBanKey('+only@example.com'), null);
+  assert.equal(emailBanHash('Bad.Guy@gmail.com'), emailBanHash('badguy+1@googlemail.com'));
+  assert.match(emailBanHash('a@b.co'), /^[0-9a-f]{64}$/);
+  assert.equal(emailBanHash(null), null);
 });
 
 test('assertAdmissible: already a member refuses 409 before counting', async () => {

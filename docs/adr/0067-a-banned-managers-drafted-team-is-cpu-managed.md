@@ -10,10 +10,15 @@ leave the team in place.
 
 ## Decision
 
-- **Ban.** A `league_bans` row (league_id, user_id) is checked by
+- **Ban.** A `league_bans` row (league_id, user_id, email_hash) is checked by
   `leagueMembership.assertAdmissible`, which every join path runs (create,
-  invite code, public join, filing and approving a join request). A banned
-  account gets a 403. A commissioner sees and lifts a ban by the Team name it
+  invite code, public join, filing and approving a join request). An account
+  is refused with a 403 when it is the banned account, or when its email has
+  the same ban key: lowercased, any `+tag` dropped, and for Gmail the dots
+  dropped. That catches a re-signup after deletion (deletion is a soft
+  delete that frees the address) and simple aliases. The row stores a
+  SHA-256 of the key, never the address, so deletion's anonymization promise
+  holds. A commissioner sees and lifts a ban by the Team name it
   was made against. The account is never served (Team identity).
 - **Team fate.** While the league is Removable, the team is deleted exactly
   as `removeTeam` deletes it. After that, the team keeps its row and
@@ -46,5 +51,5 @@ no new join path.
   priority and counts toward `teamCount`.
 - League detail's `teams[]` carries `is_cpu`. It is a team attribute and names
   no account.
-- Account deletion still cascades through `teams.owner_id` (ON DELETE CASCADE)
-  and deletes that user's teams, as before. Changing that is out of scope.
+- A ban cannot catch a different inbox. Matching on anything else (device,
+  IP address) is out of scope.

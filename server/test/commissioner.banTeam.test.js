@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createFakePool, select, insert, update, remove } = require('./helpers/fakePool');
 const { banTeam, listBans, unban } = require('../services/commissioner.service');
+const { emailBanHash } = require('../services/leagueMembership.service');
 
 // --- Remove & ban ------------------------------------------------------------
 // The same per-team rules as removeTeam (shared loadTeamToRemove), then a ban
@@ -47,8 +48,11 @@ function banWorld(t, leagueOverrides = {}) {
     [select('league_commissioners'), (text, params) => ({
       rows: state.grants.includes(params[1]) ? [{ '?column?': 1 }] : [],
     })],
+    [select('users'), (text, [id]) => ({ rows: [{ email: `Manager.${id}+fantasy@gmail.com` }] })],
     [insert('league_bans'), (text, params) => {
-      state.bans.push({ id: state.bans.length + 1, user_id: params[1], team_name: params[2], banned_by: params[3] });
+      state.bans.push({
+        id: state.bans.length + 1, user_id: params[1], email_hash: params[2], team_name: params[3], banned_by: params[4],
+      });
       return { rows: [] };
     }],
     [remove('league_commissioners'), (text, params) => {
@@ -94,7 +98,9 @@ test('pre-draft: Remove & ban deletes the team, bans the account by Team name, a
 
   assert.deepEqual(result, { leagueId: 5, teamId: 30, outcome: 'removed' });
   assert.deepEqual(state.teams.map((team) => team.id), [10, 20, 40]);
-  assert.deepEqual(state.bans, [{ id: 1, user_id: MEMBER, team_name: 'Rank and File', banned_by: CREATOR }]);
+  assert.deepEqual(state.bans, [{
+    id: 1, user_id: MEMBER, email_hash: emailBanHash('manager3@gmail.com'), team_name: 'Rank and File', banned_by: CREATOR,
+  }]);
   assert.deepEqual(state.notified, [MEMBER]);
   assert.equal(state.transactions[0].action, 'ban_team');
   assert.equal(state.transactions[0].outcome, 'removed');
@@ -157,11 +163,11 @@ for (const [name, userId, teamId, statusCode, message] of [
   });
 }
 
-test('listBans serves id, Team name and date only, never the account', async (t) => {
+test('listBans serves id, Team name and date only, never the account or email hash', async (t) => {
   const fake = createFakePool([
     [/FROM "leagues" WHERE "id" = \$1/, () => ({ rows: [{ id: 5, owner_id: CREATOR, is_commissioner: true }] })],
     [select('league_bans'), () => ({
-      rows: [{ id: 7, team_name: 'Rank and File', created_at: 'then', user_id: MEMBER, banned_by: CREATOR }],
+      rows: [{ id: 7, team_name: 'Rank and File', created_at: 'then', user_id: MEMBER, email_hash: 'f'.repeat(64), banned_by: CREATOR }],
     })],
   ]).install(t);
 

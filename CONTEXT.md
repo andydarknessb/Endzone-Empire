@@ -91,9 +91,10 @@ _Avoid_: access, participation, "having a roster" (a member of a pick'em-only
 league holds none)
 
 **Ban**:
-A commissioner's ruling that one account may never again hold a team in a
+A commissioner's ruling that one account, and any account on the same email
+(ignoring case, a `+tag`, and Gmail dots), may never again hold a team in a
 league. It is checked on every join path at admission and is shown to
-commissioners by the Team name it was made against, never by account. Made
+commissioners by the Team name it was made against, never by account or email. Made
 with Remove & ban: while the league is Removable the team is deleted;
 afterwards the team stays and becomes a CPU-managed team. Lifting a ban lets
 the account join again and never hands a team back (ADR 0067).
