@@ -167,6 +167,22 @@ test('the advice tile reads "Lineup set" when there is no suggestion', async () 
   expect(await screen.findByTestId('strip-advice')).toHaveTextContent('Lineup set');
 });
 
+// Spec #2347 ruling 4: with no move to make and an open starting slot, "Lineup set" would call the open slot
+// fine, so the tile says there is no bench move instead.
+test('the advice tile reads "No bench move" when there is no suggestion and a starting slot is open', async () => {
+  mockGetByUrl({ [LIST_URL]: { data: [] } });
+  renderStrip({ advice: { suggestions: [] }, openSlot: true });
+  const tile = await screen.findByTestId('strip-advice');
+  expect(tile).toHaveTextContent('No bench move');
+  expect(tile).not.toHaveTextContent('Lineup set');
+});
+
+test('a move plan still reads the gain and the swap count, open slot or not', async () => {
+  mockGetByUrl({ [LIST_URL]: { data: [] } });
+  renderStrip({ advice: { suggestions: [{}, {}], optimalTotal: 143, projectedTotal: 120 }, openSlot: true });
+  expect(await screen.findByTestId('strip-advice')).toHaveTextContent('+23.0 pts · 2 swaps');
+});
+
 test('the advice tile also reads "Lineup set" with no advice prop at all (best ball)', async () => {
   mockGetByUrl({ [LIST_URL]: { data: [] } });
   renderStrip({ lineup: lineup([]) });
@@ -231,7 +247,6 @@ describe('the questionable-starter and starter-on-bye attention chips (#1330)', 
     renderStrip({ lineup: lineup([lamb()]) });
     const chip = await screen.findByTestId('attention-chip-questionable-1');
     expect(chip).toHaveTextContent('Lamb Q · ankle');
-    expect(chip).toHaveAttribute('data-variant', 'warning');
   });
 
   test('a Questionable starter without a detail renders "<Last name> Q" alone', async () => {
@@ -266,7 +281,6 @@ describe('the questionable-starter and starter-on-bye attention chips (#1330)', 
     renderStrip({ lineup: lineup([hubbard()]) });
     const chip = await screen.findByTestId('attention-chip-bye-2');
     expect(chip).toHaveTextContent('Hubbard on bye');
-    expect(chip).toHaveAttribute('data-variant', 'warning');
   });
 
   // Red-tell: all three kinds together, in order questionable, on bye, Bye
@@ -284,8 +298,6 @@ describe('the questionable-starter and starter-on-bye attention chips (#1330)', 
       'Hubbard on bye',
       'Wk 5 · 3 byes',
     ]);
-    expect(badges[0]).toHaveAttribute('data-variant', 'warning');
-    expect(badges[1]).toHaveAttribute('data-variant', 'warning');
   });
 
   test('a past week hides the whole attention row, including questionable and bye chips', async () => {

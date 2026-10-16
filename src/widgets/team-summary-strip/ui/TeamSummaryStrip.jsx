@@ -1,6 +1,9 @@
 import React from 'react';
-import { Box, Typography } from '@mui/material';
-import { Badge, Card, Skeleton, StatTile } from '../../../shared/ui';
+import { Box } from '@mui/material';
+import {
+  Frame, FrameHead, PixelHeading, PixelWarn, Skel,
+} from '../../../shared/ui/playselect';
+import { CAPTION_SX } from '../../../shared/ui/playselect/LineupParts';
 import { formatPoints, startVerdictReason } from '../../../shared/lib';
 import { isQuestionable } from '../../../entities/roster';
 import { useTeamSummaryStrip } from '../model/useTeamSummaryStrip';
@@ -17,11 +20,15 @@ import { useTeamSummaryStrip } from '../model/useTeamSummaryStrip';
  * endpoint at all, so `advice` degrades to the empty shape
  * (`{ suggestions: [], movePlan: [] }`) there and the tile reads "Lineup
  * set" the same as a standard league with no suggestion, which is the
- * correct answer for a league that sets its own lineup automatically. The
- * tile's "swap count" is `suggestions.length` - the number of sit/start
- * pairs the panel itself shows, matching what a manager actually perceives
- * as "the swaps the advice wants" rather than the movePlan's own internal
- * move count (which also counts a solo bench demotion with no replacement).
+ * correct answer for a league that sets its own lineup automatically. With
+ * no move to make and a starting slot still open (`openSlot`, the page's own
+ * `nextLineupSlot`: empty or holding an Out starter whose game has not
+ * started) it reads "No bench move" instead: "Lineup set" would say the open
+ * slot was fine (spec #2347 ruling 4). The tile's "swap count" is
+ * `suggestions.length` - the number of sit/start pairs the panel itself
+ * shows, matching what a manager actually perceives as "the swaps the advice
+ * wants" rather than the movePlan's own internal move count (which also
+ * counts a solo bench demotion with no replacement).
  *
  * The attention chips (#1239 shipped the Bye cluster chip; #1330 adds the
  * other two the parent spec #1232 user story 19 names: "attention chips for
@@ -52,11 +59,12 @@ import { useTeamSummaryStrip } from '../model/useTeamSummaryStrip';
  * passed straight through to `useTeamSummaryStrip` so the strip's live
  * totals move with the same scores socket the Ledger's points cell does.
  *
- * Composes `shared/ui` (ADR 0020) and paints only `dash-*` tokens already
- * registered in tokens.contrast.test.js (the stat-tile faint/ink pair, the
- * card surface, the Badge `danger` variant's tint pair).
+ * Play-select (ADR 0067 wave 3): a tertiary frame of figures on `ps-*` tokens. The attention chips are
+ * outlined Ink tags (the Bye cluster one carries the warning pictogram), never red or amber.
  */
-export default function TeamSummaryStrip({ leagueId, week, viewerTeamId, lineup, advice, worstByeCluster, scoreEvent, bestBall }) {
+export default function TeamSummaryStrip({
+  leagueId, week, viewerTeamId, lineup, advice, worstByeCluster, scoreEvent, bestBall, openSlot = false,
+}) {
   const { status, viewer, opponent, winProbability, lockedStarters, totalStarters } = useTeamSummaryStrip({
     leagueId,
     week,
@@ -71,7 +79,9 @@ export default function TeamSummaryStrip({ leagueId, week, viewerTeamId, lineup,
       ? advice.optimalTotal - advice.projectedTotal
       : null;
   const adviceValue =
-    suggestionCount > 0 ? `+${formatPoints(gain)} pts · ${suggestionCount} swap${suggestionCount === 1 ? '' : 's'}` : 'Lineup set';
+    suggestionCount > 0
+      ? `+${formatPoints(gain)} pts · ${suggestionCount} swap${suggestionCount === 1 ? '' : 's'}`
+      : openSlot ? 'No bench move' : 'Lineup set';
 
   // AC4: the worst bye cluster earns its own attention chip only at the
   // warning threshold (three or more) - a notable cluster of two stays the
@@ -122,96 +132,107 @@ export default function TeamSummaryStrip({ leagueId, week, viewerTeamId, lineup,
   const hasAttentionRow = !isPastWeek && (questionableChips.length > 0 || byeChips.length > 0 || byeClusterAttention != null);
 
   return (
-    <Card title="This week" data-testid="team-summary-strip" aria-busy={status === 'loading'}>
-      <Box sx={{ p: '14px 18px', display: 'grid', gap: '10px' }}>
+    <Frame
+      tier="rule"
+      labelledBy="team-summary-h"
+      data-testid="team-summary-strip"
+      aria-busy={status === 'loading'}
+      head={<FrameHead><PixelHeading id="team-summary-h" size={16}>This week</PixelHeading></FrameHead>}
+    >
+      <Box sx={{ p: { xs: '12px 14px', md: '14px 20px' }, display: 'flex', flexDirection: 'column', gap: '12px' }}>
         {status === 'loading' && (
-          <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: '10px' }}>
-            {Array.from({ length: 4 }, (_, i) => (
-              <Skeleton key={i} variant="rounded" height={54} />
-            ))}
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', sm: 'repeat(4, minmax(0, 1fr))' }, gap: '12px 16px' }}>
+            {Array.from({ length: 4 }, (_, i) => <Skel key={i} width="100%" height={40} />)}
           </Box>
         )}
 
         {status === 'error' && (
-          <Typography role="alert" sx={{ fontSize: '13px', color: 'var(--dash-ink)' }}>
+          <Box role="alert" sx={{ fontSize: '15px' }}>
             We could not load this week&apos;s matchup right now.
-          </Typography>
+          </Box>
         )}
 
         {status === 'empty' && (
-          <Typography sx={{ fontSize: '13px', color: 'var(--dash-faint)' }}>No matchup this week</Typography>
+          <Box sx={{ fontSize: '15px', color: 'var(--ps-dim)' }}>No matchup this week</Box>
         )}
 
         {status === 'ready' && (
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', sm: 'repeat(4, minmax(0, 1fr))' }, gap: '10px' }}>
-            <StatTile
-              data-testid="strip-score"
-              label="Score vs proj."
-              value={figureLabel(viewer?.score, viewer?.projected)}
-            />
-            <StatTile
-              data-testid="strip-opponent-score"
-              label="Opponent vs proj."
-              value={figureLabel(opponent?.score, opponent?.projected)}
-            />
-            <StatTile
-              data-testid="strip-starters-remaining"
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', sm: 'repeat(4, minmax(0, 1fr))' }, gap: '12px 16px' }}>
+            <Tile testId="strip-score" label="Score vs proj." value={figureLabel(viewer?.score, viewer?.projected)} />
+            <Tile testId="strip-opponent-score" label="Opponent vs proj." value={figureLabel(opponent?.score, opponent?.projected)} />
+            <Tile
+              testId="strip-starters-remaining"
               label="Starters"
-              value={
-                viewer?.playersRemaining != null
-                  ? `${viewer.playersRemaining} to play`
-                  : '-'
-              }
+              value={viewer?.playersRemaining != null ? `${viewer.playersRemaining} to play` : '-'}
             />
-            <StatTile
-              data-testid="strip-starters-locked"
-              label="Locked"
-              value={`${lockedStarters} of ${totalStarters}`}
-            />
+            <Tile testId="strip-starters-locked" label="Locked" value={`${lockedStarters} of ${totalStarters}`} />
           </Box>
         )}
 
         {winProbability != null && (
-          <Typography component="p" data-testid="strip-win-probability" sx={{ m: 0, fontSize: '12px', color: 'var(--dash-faint)' }}>
-            {`Win probability ${winProbability}%`}
-          </Typography>
+          <Box component="p" data-testid="strip-win-probability" sx={{ m: 0, fontSize: '14px', color: 'var(--ps-dim)' }}>
+            <Box component="b" sx={{ fontWeight: 700, color: 'var(--ps-ink)' }}>{`Win probability ${winProbability}%`}</Box>
+            {' · '}
+            <Box component="span" sx={{ whiteSpace: 'nowrap' }}>Endzone Forecast</Box>
+          </Box>
         )}
 
         {hasAttentionRow && (
-          <Box data-testid="strip-attention" sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-            <Typography sx={{ fontSize: '11px', fontWeight: 700, color: 'var(--dash-faint)', textTransform: 'uppercase' }}>
-              Needs attention
-            </Typography>
-            {questionableChips.map((chip) => (
-              <Badge key={chip.key} variant="warning" data-testid={chip.testId}>
-                {chip.label}
-              </Badge>
-            ))}
-            {byeChips.map((chip) => (
-              <Badge key={chip.key} variant="warning" data-testid={chip.testId}>
-                {chip.label}
-              </Badge>
-            ))}
+          <Box data-testid="strip-attention" sx={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+            <Box component="span" sx={CAPTION_SX}>Needs attention</Box>
+            {questionableChips.map((chip) => <AttentionChip key={chip.key} testId={chip.testId}>{chip.label}</AttentionChip>)}
+            {byeChips.map((chip) => <AttentionChip key={chip.key} testId={chip.testId}>{chip.label}</AttentionChip>)}
             {byeClusterAttention && (
-              <Badge variant="danger" data-testid="attention-chip-bye-cluster">
-                {byeClusterAttention}
-              </Badge>
+              <AttentionChip testId="attention-chip-bye-cluster" warn>{byeClusterAttention}</AttentionChip>
             )}
           </Box>
         )}
 
-        {/* The advice tile stands apart from the ready/empty/error grid above
-            (#1238 AC4): it reads its own `advice` prop, not the matchup read
-            this widget's `status` tracks, so a bye week or a failed matchup
-            read never hides "how many swaps the advice wants". */}
-        <StatTile
-          data-testid="strip-advice"
-          label="Advice"
-          value={adviceValue}
-          sx={{ width: 'fit-content' }}
-        />
+        {/* The advice tile stands apart from the ready/empty/error grid above (#1238 AC4): it reads its own
+            `advice` prop, not the matchup read this widget's `status` tracks, so a bye week or a failed
+            matchup read never hides "how many swaps the advice wants". */}
+        <Box data-testid="strip-advice" sx={{ display: 'flex', flexDirection: 'column', gap: '2px', borderTop: '2px solid var(--ps-rule)', pt: '10px' }}>
+          <Box component="span" sx={{ fontSize: '13px', color: 'var(--ps-dim)' }}>Advice</Box>
+          <Box component="span" sx={{ fontSize: { xs: '15px', sm: '16px' }, fontWeight: 700, textWrap: 'pretty' }}>{adviceValue}</Box>
+        </Box>
       </Box>
-    </Card>
+    </Frame>
+  );
+}
+
+// A labelled figure: the Dim label over a tabular 18px value (16px on a phone).
+function Tile({ testId, label, value }) {
+  return (
+    <Box data-testid={testId} sx={{ display: 'flex', flexDirection: 'column', gap: '2px', minWidth: 0 }}>
+      <Box component="span" sx={{ fontSize: '13px', color: 'var(--ps-dim)' }}>{label}</Box>
+      <Box component="span" sx={{ fontSize: { xs: '16px', sm: '18px' }, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{value}</Box>
+    </Box>
+  );
+}
+
+// An outlined Ink attention tag (13px 700 uppercase, 28px high); the Bye cluster one carries the warning mark.
+function AttentionChip({ testId, warn = false, children }) {
+  return (
+    <Box
+      component="span"
+      data-testid={testId}
+      sx={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: '6px',
+        minHeight: '28px',
+        boxSizing: 'border-box',
+        padding: '0 8px',
+        border: '2px solid var(--ps-ink)',
+        fontSize: '13px',
+        fontWeight: 700,
+        letterSpacing: '.04em',
+        textTransform: 'uppercase',
+      }}
+    >
+      {warn && <PixelWarn />}
+      {children}
+    </Box>
   );
 }
 
