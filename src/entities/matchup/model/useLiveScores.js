@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { subscribeToScoreFeed } from '../../../shared/lib';
-import { deltasFor } from '../../../entities/matchup';
+import { deltasFor } from './play';
 
 /**
  * Live points via the existing scores socket (#1241, ADR 0037 ticket 9): the
@@ -36,6 +36,7 @@ import { deltasFor } from '../../../entities/matchup';
  * an event carrying no `week` at all (the server always stamps one, but a
  * defensive read never assumes it) reads as a mismatch, same as a wrong one.
  */
+// `setRaw` and `refetch` are optional: a caller that only wants `scoreEvent` omits both.
 export function useLiveScores({ leagueId, setRaw, refetch }) {
   const [scoreEvent, setScoreEvent] = useState(null);
   const refetchRef = useRef(refetch);
@@ -46,7 +47,7 @@ export function useLiveScores({ leagueId, setRaw, refetch }) {
     const unsubscribe = subscribeToScoreFeed(leagueId, {
       onScores: (event) => {
         setScoreEvent(event);
-        setRaw((prev) => {
+        setRaw?.((prev) => {
           if (!prev || !Array.isArray(prev.entries)) return prev;
           // The week guard lives in `deltasFor`: an event stamped for a week
           // other than the one on screen (or with no week at all) is empty.

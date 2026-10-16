@@ -178,6 +178,9 @@ export const colorTokens = {
     'ps-panel': '#ffffff',
     'ps-frame': '#1830b8',
     'ps-rule': '#b4bce0',
+    // The 2px edge of a tertiary frame (Recap, Around the league, Recent activity, Pick'em,
+    // Commissioner): the Rule colour on the dark Field, the Frame colour on the lavender one.
+    'ps-frame-2': '#1830b8',
     'ps-ink': '#0c0e1c',
     'ps-dim': '#4a5070',
     'ps-play': '#1830b8',
@@ -342,6 +345,7 @@ export const colorTokens = {
     'ps-panel': '#10131f',
     'ps-frame': '#c8d0ff',
     'ps-rule': '#3a4170',
+    'ps-frame-2': '#3a4170',
     'ps-ink': '#f4f4f8',
     'ps-dim': '#a8adc8',
     'ps-play': '#1830b8',

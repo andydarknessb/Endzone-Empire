@@ -11,7 +11,9 @@
  * top of `setupLayoutGuard`. The recap route is registered AFTER setupLayoutGuard
  * so it wins over the guard's catch-all API handler. The league row is served
  * with `current_season: 2026`, so the commissioner's Rebuild button shows and
- * the 480/380 bounds measure the commissioner header, the tallest the card has.
+ * the 580/380 bounds measure the commissioner header, the tallest the card has. The card is the
+ * dashboard's Play-select recap frame (#2330); `recap-card` and `recap-toggle` keep their test ids, and
+ * the Rebuild control is the "Rebuild recap" ghost button (it used to be `recap-rebuild`).
  *
  * Measured before this ticket (integration 34fc950a): at 390x844 the card was
  * 1003px tall and the matchup card started at y=2309; at 1440x900 the card was
@@ -29,7 +31,10 @@ import { expect, test, type Page } from '@playwright/test';
 import { setupLayoutGuard, DASHBOARD_URL, LEAGUE_ID } from './fixtures/layoutGuardFixtures';
 import { RECAP_PAYLOAD, RECAP_URL_PATTERN } from './fixtures/recapFixtures';
 
-const PHONE = { width: 390, height: 844, maxCollapsed: 480 };
+// The phone bound is 580 (was 480): the Play-select frame is a commissioner head, three narrative lines, the
+// toggle and four facts in two rows, which measures 562; the pre-#1988 card was 1003, so a regression
+// still goes red.
+const PHONE = { width: 390, height: 844, maxCollapsed: 580 };
 const DESKTOP = { width: 1440, height: 900, maxCollapsed: 380 };
 const TOP_TOLERANCE = 2;
 
@@ -70,7 +75,7 @@ async function openDashboard(page: Page, viewport: { width: number; height: numb
   if (recap === 'present') {
     await page.getByTestId('recap-card').waitFor();
     // The measured header is the commissioner's: the Rebuild button must be on screen.
-    await expect(page.getByTestId('recap-rebuild')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Rebuild recap' })).toBeVisible();
   }
   await page.evaluate(() => document.fonts.ready.then(() => true));
 }

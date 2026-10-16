@@ -1,5 +1,6 @@
 import React from 'react';
 import { act, render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import apiClient from '../../../api/apiClient';
 import { invalidate } from '../../../lib/resourceCache';
@@ -123,7 +124,9 @@ function leagueResponse(league = {}) {
   };
 }
 
-function mockGetByUrl(map) {
+// The standings read (the rival pick on game day) answers a default table unless a test overrides it.
+function mockGetByUrl(overrides) {
+  const map = { [STANDINGS_URL]: standingsOf(), ...overrides };
   apiClient.get.mockImplementation((url) => {
     if (Object.prototype.hasOwnProperty.call(map, url)) {
       const value = map[url];
@@ -159,81 +162,156 @@ const rulesUnder = (el) => {
 
 const tiles = () => screen.queryAllByTestId('around-the-league-tile');
 
+// Six Week-3 pairings, none started: the pre-kickoff strip. Team 4 (away in its pairing) is the
+// viewer, deliberately NOT the home side: a home/away shortcut for dropping the viewer's own matchup
+// would keep the wrong tile.
+const SCHEDULED_SIX = SIX_MATCHUPS.map((m) => ({ ...m, status: 'scheduled', home_score: '0', away_score: '0' }));
+
+// The standings the rival pick reads: Team n is in position n.
+const standingsOf = (count = 12) => ({
+  data: {
+    league: { current_week: 3 },
+    standings: Array.from({ length: count }, (_, i) => ({
+      teamId: i + 1, name: `RAW ${i + 1}`, wins: count - i, losses: i, ties: 0, pf: 1000 - i, pa: 900 + i, rank: i + 1, streak: 'W1', winPct: 0.5,
+    })),
+  },
+});
+
+const STANDINGS_URL = `/api/scoring/league/${LEAGUE_ID}/standings`;
+
 describe('AroundTheLeague', () => {
-  it('renders six tiles with both Team names and totals, from a six-matchup fixture', async () => {
+  it('renders the other five matchups, not the viewer\'s own, with both Team names and projections', async () => {
     mockGetByUrl({
       [`/api/league/${LEAGUE_ID}`]: leagueResponse(),
-      [`/api/league/${LEAGUE_ID}/matchups`]: { data: SIX_MATCHUPS },
+      [`/api/league/${LEAGUE_ID}/matchups`]: { data: SCHEDULED_SIX },
     });
 
     renderWidget();
 
     const rendered = await screen.findAllByTestId('around-the-league-tile');
-    expect(rendered).toHaveLength(6);
+    expect(rendered).toHaveLength(5);
+    // Matchup 3 holds the viewer (Team 4, away): by Team id, never by home/away seat, it is the page's
+    // Matchup panel and not repeated here.
+    expect(rendered.find((el) => el.getAttribute('data-matchup-id') === '3')).toBeUndefined();
 
-    for (const matchup of SIX_MATCHUPS) {
-      const tile = rendered.find(
-        (el) => el.getAttribute('data-matchup-id') === String(matchup.id)
-      );
+    for (const matchup of SCHEDULED_SIX.filter((m) => m.id !== 3)) {
+      const tile = rendered.find((el) => el.getAttribute('data-matchup-id') === String(matchup.id));
       expect(tile).toBeDefined();
-      expect(within(tile).getByText(`Team ${matchup.home_team_id}`)).toBeInTheDocument();
-      expect(within(tile).getByText(`Team ${matchup.away_team_id}`)).toBeInTheDocument();
+      expect(within(within(tile).getByTestId('around-the-league-tile-home'))
+        .getByText(`Team ${matchup.home_team_id}`)).toBeInTheDocument();
+      expect(within(within(tile).getByTestId('around-the-league-tile-away'))
+        .getByText(`Team ${matchup.away_team_id}`)).toBeInTheDocument();
     }
 
-    expect(screen.getByText('6 matchups')).toBeInTheDocument();
+    expect(screen.getByText(/5 matchups · win probability/)).toBeInTheDocument();
+    // Before kickoff the figures are projections, framed rather than Board black.
+    const first = rendered.find((el) => el.getAttribute('data-matchup-id') === '1');
+    expect(first).toHaveAttribute('data-state', 'scheduled');
+    expect(within(first).getByText('101.0')).toBeInTheDocument();
+    expect(within(first).getByText('92.0')).toBeInTheDocument();
+    expect(within(first).getByText('Proj')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Projected · Game Center' })).toBeInTheDocument();
   });
 
-  it('rings exactly one tile, the viewer\'s own, by Team id and never by home/away seat', async () => {
+  it('shows every matchup to a viewer with no Team of their own', async () => {
+    mockGetByUrl({
+      [`/api/league/${LEAGUE_ID}`]: { ...leagueResponse(), data: { ...leagueResponse().data, viewerTeamId: null } },
+      [`/api/league/${LEAGUE_ID}/matchups`]: { data: SCHEDULED_SIX },
+    });
+
+    renderWidget();
+
+    expect(await screen.findAllByTestId('around-the-league-tile')).toHaveLength(6);
+  });
+
+  it('names each tile in one sentence with both sides, the figures and the win probability for the first', async () => {
     mockGetByUrl({
       [`/api/league/${LEAGUE_ID}`]: leagueResponse(),
-      [`/api/league/${LEAGUE_ID}/matchups`]: { data: SIX_MATCHUPS },
+      [`/api/league/${LEAGUE_ID}/matchups`]: { data: SCHEDULED_SIX },
+    });
+
+    renderWidget();
+    const [tile] = await screen.findAllByTestId('around-the-league-tile');
+
+    expect(tile.getAttribute('aria-label')).toMatch(
+      /^Team 1 against Team 2, projected 101\.0 to 92\.0, \d+% win probability for Team 1$/
+    );
+    // The odds bar names its team too, and uses the Frame colour before kickoff.
+    expect(within(tile).getByRole('img', { name: /^Team 1 win probability \d+%$/ })).toBeInTheDocument();
+  });
+
+  it('on game day shows the three rival games, live and final on Board black, and flips the tail to "Live"', async () => {
+    // Viewer Team 4 is third... in position 4. Games: 1v2 (positions 1, 2), 5v6 (5, 6), 7v8, 9v10, 11v12.
+    // Nearest to position 4: 5v6 (1), 1v2 (2), 7v8 (3).
+    const rows = [
+      matchupRow(1, 1, 2, { status: 'live', home_score: '92.6', away_score: '71.3' }),
+      matchupRow(2, 5, 6, { status: 'live', home_score: '60.0', away_score: '66.5' }),
+      matchupRow(3, 3, 4, { status: 'live', home_score: '52.1', away_score: '48.7' }),
+      matchupRow(4, 7, 8, { status: 'final', final: true, home_score: '118.7', away_score: '104.2' }),
+      matchupRow(5, 9, 10),
+      matchupRow(6, 11, 12),
+    ];
+    mockGetByUrl({
+      [`/api/league/${LEAGUE_ID}`]: leagueResponse(),
+      [`/api/league/${LEAGUE_ID}/matchups`]: { data: rows },
+      [STANDINGS_URL]: standingsOf(),
+    });
+
+    renderWidget();
+
+    await waitFor(() => expect(tiles().map((el) => el.getAttribute('data-matchup-id')).sort()).toEqual(['1', '2', '4']));
+    expect(screen.getByText(/3 rival matchups/)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Live · Game Center' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'All matchups in Game Center' })).toHaveAttribute(
+      'href', `/league/${LEAGUE_ID}/game-center`
+    );
+
+    const live = tiles().find((el) => el.getAttribute('data-matchup-id') === '2');
+    expect(live).toHaveAttribute('data-state', 'live');
+    expect(within(live).getByText('Live')).toBeInTheDocument();
+    expect(within(live).getByText('60.0')).toBeInTheDocument();
+    expect(within(live).getByText('66.5')).toBeInTheDocument();
+
+    const done = tiles().find((el) => el.getAttribute('data-matchup-id') === '4');
+    expect(done).toHaveAttribute('data-state', 'final');
+    expect(within(done).getByText('Final')).toBeInTheDocument();
+    expect(done).toHaveTextContent('Team 7 won by 14.5');
+    expect(done.getAttribute('aria-label')).toBe('Team 7 against Team 8, final, 118.7 to 104.2');
+    // The final tile has no odds bar: nothing is left to forecast.
+    expect(within(done).queryByRole('img')).not.toBeInTheDocument();
+  });
+
+  it('keeps matchups in their own order on game day while the standings are unavailable', async () => {
+    const rows = [
+      matchupRow(1, 1, 2, { status: 'live', home_score: '10.0', away_score: '12.0' }),
+      matchupRow(2, 5, 6),
+      matchupRow(3, 3, 4),
+      matchupRow(4, 7, 8),
+      matchupRow(5, 9, 10),
+      matchupRow(6, 11, 12),
+    ];
+    mockGetByUrl({
+      [`/api/league/${LEAGUE_ID}`]: leagueResponse(),
+      [`/api/league/${LEAGUE_ID}/matchups`]: { data: rows },
+      [STANDINGS_URL]: { reject: new Error('standings down') },
+    });
+
+    renderWidget();
+
+    await waitFor(() => expect(tiles().map((el) => el.getAttribute('data-matchup-id'))).toEqual(['1', '2', '4']));
+  });
+
+  it('links the tail and the last tile to this league\'s Game Center', async () => {
+    mockGetByUrl({
+      [`/api/league/${LEAGUE_ID}`]: leagueResponse(),
+      [`/api/league/${LEAGUE_ID}/matchups`]: { data: SCHEDULED_SIX },
     });
 
     renderWidget();
     await screen.findAllByTestId('around-the-league-tile');
 
-    const rung = tiles().filter((el) => el.hasAttribute('data-viewer-tile'));
-    expect(rung).toHaveLength(1);
-    expect(rung[0]).toHaveAttribute('data-matchup-id', '3');
-
-    // The ring is a border/box-shadow (colour and shape alone), so the
-    // viewer's own row also carries a visible "You" pill: identifiable in
-    // the accessibility tree, not by colour only (WCAG 1.4.1), matching
-    // StandingsTable's viewer rows.
-    expect(within(rung[0]).getByText('You')).toBeInTheDocument();
-  });
-
-  it('shows scores and flips the tail to "Live" once a matchup has started', async () => {
-    mockGetByUrl({
-      [`/api/league/${LEAGUE_ID}`]: leagueResponse(),
-      [`/api/league/${LEAGUE_ID}/matchups`]: { data: SIX_MATCHUPS },
-    });
-
-    renderWidget();
-    const rendered = await screen.findAllByTestId('around-the-league-tile');
-    const started = rendered.find((el) => el.getAttribute('data-matchup-id') === '3');
-
-    expect(within(started).getByText('52.1')).toBeInTheDocument();
-    expect(within(started).getByText('48.7')).toBeInTheDocument();
-    expect(screen.getByText(/Live/)).toBeInTheDocument();
-
-    // An untouched Matchup still shows its projected total, not a score.
-    const scheduled = rendered.find((el) => el.getAttribute('data-matchup-id') === '1');
-    expect(within(scheduled).getByText('101.0')).toBeInTheDocument();
-    expect(within(scheduled).getByText('92.0')).toBeInTheDocument();
-  });
-
-  it('links the tail to this league\'s Game Center', async () => {
-    mockGetByUrl({
-      [`/api/league/${LEAGUE_ID}`]: leagueResponse(),
-      [`/api/league/${LEAGUE_ID}/matchups`]: { data: SIX_MATCHUPS },
-    });
-
-    renderWidget();
-    await screen.findAllByTestId('around-the-league-tile');
-
-    const link = screen.getByRole('link', { name: 'Game Center' });
-    expect(link).toHaveAttribute('href', `/league/${LEAGUE_ID}/game-center`);
+    expect(screen.getByRole('link', { name: 'Projected · Game Center' })).toHaveAttribute('href', `/league/${LEAGUE_ID}/game-center`);
+    expect(screen.getByTestId('around-the-league-all')).toHaveAttribute('href', `/league/${LEAGUE_ID}/game-center`);
   });
 
   it('links each tile to its own matchup detail, and keeps the Game Center link for a tile with no id (#1981 L6)', async () => {
@@ -248,34 +326,44 @@ describe('AroundTheLeague', () => {
     const rendered = await screen.findAllByTestId('around-the-league-tile');
     expect(rendered[0]).toHaveAttribute('href', `/league/${LEAGUE_ID}/matchups/1`);
     expect(rendered[1]).toHaveAttribute('href', `/league/${LEAGUE_ID}/game-center`);
-    // The tail's own Game Center link is unchanged.
-    expect(screen.getByRole('link', { name: 'Game Center' })).toHaveAttribute(
-      'href',
-      `/league/${LEAGUE_ID}/game-center`
-    );
   });
 
-  it.each([
-    [3, 3],
-    [6, 6],
-    [7, 6],
-  ])('lays %i tiles out on %i equal columns at md and up, so a short week fills the strip and six share one row (#1981 L6)', async (matchupCount, columns) => {
-    const rows = Array.from({ length: matchupCount }, (_, i) => matchupRow(i + 1, 2 * i + 1, 2 * i + 2));
+  it('lays the strip on three equal columns before kickoff and four on game day, at md and up', async () => {
     mockGetByUrl({
       [`/api/league/${LEAGUE_ID}`]: leagueResponse(),
-      [`/api/league/${LEAGUE_ID}/matchups`]: { data: rows },
+      [`/api/league/${LEAGUE_ID}/matchups`]: { data: SCHEDULED_SIX },
     });
-
-    renderWidget();
+    const { unmount } = renderWidget();
     await screen.findAllByTestId('around-the-league-tile');
-
-    const body = screen.getByTestId('around-the-league-body');
+    let body = screen.getByTestId('around-the-league-body');
     expect(body).toHaveAttribute('data-layout', 'grid');
-    expect(tiles()).toHaveLength(matchupCount);
-    expect(rulesUnder(body)['']).toContain(`grid-template-columns: repeat(${columns}, minmax(0, 1fr))`);
+    expect(rulesUnder(body)['']).toContain('grid-template-columns: repeat(3, minmax(0, 1fr))');
+    unmount();
+
+    // Game day: three rival tiles plus the link tile make four cells.
+    invalidate(undefined, { reload: false });
+    mockGetByUrl({
+      [`/api/league/${LEAGUE_ID}`]: leagueResponse(),
+      [`/api/league/${LEAGUE_ID}/matchups`]: { data: SIX_MATCHUPS },
+    });
+    renderWidget();
+    await waitFor(() => expect(tiles()).toHaveLength(3));
+    body = screen.getByTestId('around-the-league-body');
+    expect(rulesUnder(body)['']).toContain('grid-template-columns: repeat(4, minmax(0, 1fr))');
   });
 
-  it('holds six skeleton tiles while its reads are in flight', () => {
+  it('never lays out more columns than it has cells: two rival tiles and the link tile fill three', async () => {
+    mockGetByUrl({
+      [`/api/league/${LEAGUE_ID}`]: leagueResponse(),
+      [`/api/league/${LEAGUE_ID}/matchups`]: { data: SIX_MATCHUPS.slice(0, 3) },
+    });
+    renderWidget();
+    await waitFor(() => expect(tiles()).toHaveLength(2));
+    const body = screen.getByTestId('around-the-league-body');
+    expect(rulesUnder(body)['']).toContain('grid-template-columns: repeat(3, minmax(0, 1fr))');
+  });
+
+  it('holds skeleton tiles while its reads are in flight', () => {
     apiClient.get.mockImplementation((url) => {
       if (url === `/api/league/${LEAGUE_ID}` || url === `/api/league/${LEAGUE_ID}/matchups`) {
         return new Promise(() => {});
@@ -285,14 +373,17 @@ describe('AroundTheLeague', () => {
 
     renderWidget();
 
-    expect(screen.getAllByTestId('skeleton').length).toBeGreaterThan(0);
+    expect(screen.getByTestId('around-the-league')).toHaveAttribute('aria-busy', 'true');
     expect(screen.queryAllByTestId('around-the-league-tile')).toHaveLength(0);
   });
 
-  it('renders one compact alert sentence on a failed read', async () => {
+  it('renders one danger panel on a failed read, and Try again reads again', async () => {
+    let failing = true;
     apiClient.get.mockImplementation((url) => {
       if (url === `/api/league/${LEAGUE_ID}`) return Promise.resolve(leagueResponse());
-      if (url === `/api/league/${LEAGUE_ID}/matchups`) return Promise.reject(new Error('boom'));
+      if (url === `/api/league/${LEAGUE_ID}/matchups`) {
+        return failing ? Promise.reject(new Error('boom')) : Promise.resolve({ data: SCHEDULED_SIX });
+      }
       return Promise.reject(new Error(`unexpected GET ${url}`));
     });
 
@@ -301,6 +392,10 @@ describe('AroundTheLeague', () => {
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent("We could not load this week's matchups right now.");
     expect(screen.queryAllByTestId('around-the-league-tile')).toHaveLength(0);
+
+    failing = false;
+    await userEvent.click(screen.getByRole('button', { name: 'Try loading the matchups again' }));
+    expect(await screen.findAllByTestId('around-the-league-tile')).toHaveLength(5);
   });
 
   it('reports aria-busy true while its reads are in flight and false once they settle', async () => {
@@ -320,7 +415,7 @@ describe('AroundTheLeague', () => {
     expect(card).toHaveAttribute('aria-busy', 'true');
 
     await act(async () => {
-      resolveMatchups({ data: SIX_MATCHUPS });
+      resolveMatchups({ data: SCHEDULED_SIX });
       await matchupsPromise;
     });
 
@@ -329,14 +424,15 @@ describe('AroundTheLeague', () => {
   });
 
   it('labels each figure with what it is, for assistive tech reading a bare number', async () => {
+    const rows = [matchupRow(1, 1, 2), matchupRow(2, 5, 6, { status: 'live', home_score: '30.0', away_score: '20.0' })];
     mockGetByUrl({
       [`/api/league/${LEAGUE_ID}`]: leagueResponse(),
-      [`/api/league/${LEAGUE_ID}/matchups`]: { data: SIX_MATCHUPS },
+      [`/api/league/${LEAGUE_ID}/matchups`]: { data: rows },
     });
 
     renderWidget();
     const rendered = await screen.findAllByTestId('around-the-league-tile');
-    const started = rendered.find((el) => el.getAttribute('data-matchup-id') === '3');
+    const started = rendered.find((el) => el.getAttribute('data-matchup-id') === '2');
     const scheduled = rendered.find((el) => el.getAttribute('data-matchup-id') === '1');
 
     expect(within(started).getAllByText('Score').length).toBeGreaterThan(0);
@@ -344,12 +440,8 @@ describe('AroundTheLeague', () => {
   });
 
   it('labels the figure "Score", never "Projected", on an unknown status', async () => {
-    // ADR 0030: an unknown status asserts neither state. `tileView`'s figure
-    // is already the score there (a stored fact, matchup-grid's own
-    // convention), so the accessible label has to agree - keying it off
-    // `!started` would read this as scheduled and print a false "Projected"
-    // over a live number (the same class of defect #872 forbade for
-    // SplitBar's accessible name).
+    // ADR 0030: an unknown status asserts neither state. `tileView`'s figure is already the score
+    // there (a stored fact, matchup-grid's own convention), so the accessible label has to agree.
     const unknownStatusMatchup = matchupRow(7, 1, 2, {
       status: 'not-a-real-status',
       home_score: '75.0',
@@ -385,39 +477,11 @@ describe('AroundTheLeague', () => {
     expect(within(tile).getAllByText('Not available')).toHaveLength(2);
   });
 
-  it('renders Team avatars at 20px in both home and away rows of each tile', async () => {
-    mockGetByUrl({
-      [`/api/league/${LEAGUE_ID}`]: leagueResponse(),
-      [`/api/league/${LEAGUE_ID}/matchups`]: { data: SIX_MATCHUPS },
-    });
-
-    renderWidget();
-    const rendered = await screen.findAllByTestId('around-the-league-tile');
-
-    // Check each tile has two rows (home and away) with avatars sized at 20px
-    for (const tile of rendered) {
-      const homeAvatar = within(tile).getByTestId('around-the-league-tile-home-avatar');
-      const awayAvatar = within(tile).getByTestId('around-the-league-tile-away-avatar');
-
-      // The size prop compiles to width/height rules in an emotion class (via sx),
-      // which insertRule injects into the stylesheet. getComputedStyle cascades those
-      // class rules; the element's style attribute remains empty. Use getComputedStyle
-      // to read the actual rendered dimensions, not el.style.width.
-      const homeStyles = window.getComputedStyle(homeAvatar);
-      const awayStyles = window.getComputedStyle(awayAvatar);
-
-      expect(homeStyles.width).toBe('20px');
-      expect(homeStyles.height).toBe('20px');
-      expect(awayStyles.width).toBe('20px');
-      expect(awayStyles.height).toBe('20px');
-    }
-  });
-
   it('is reachable by keyboard below md, where the tiles scroll sideways', async () => {
     mobile = true;
     mockGetByUrl({
       [`/api/league/${LEAGUE_ID}`]: leagueResponse(),
-      [`/api/league/${LEAGUE_ID}/matchups`]: { data: SIX_MATCHUPS },
+      [`/api/league/${LEAGUE_ID}/matchups`]: { data: SCHEDULED_SIX },
     });
 
     renderWidget();
@@ -427,6 +491,20 @@ describe('AroundTheLeague', () => {
     expect(body).toHaveAttribute('data-layout', 'scroll');
     expect(body).toHaveAttribute('tabIndex', '0');
     expect(body).toHaveAccessibleName();
+  });
+
+  it('never wears the cursor: the one cursor belongs to Your move', async () => {
+    mockGetByUrl({
+      [`/api/league/${LEAGUE_ID}`]: leagueResponse(),
+      [`/api/league/${LEAGUE_ID}/matchups`]: { data: SCHEDULED_SIX },
+    });
+
+    renderWidget();
+    await screen.findAllByTestId('around-the-league-tile');
+
+    const frame = screen.getByTestId('around-the-league');
+    // eslint-disable-next-line testing-library/no-node-access -- the cursor is a class, not a role
+    expect(frame.querySelector('.cursor')).toBeNull();
   });
 
   it('never mounts for a pick\'em-only league', async () => {

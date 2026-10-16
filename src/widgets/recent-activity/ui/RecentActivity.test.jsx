@@ -1,5 +1,6 @@
 import React from 'react';
 import { screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../../test-utils/renderWithProviders';
 import apiClient from '../../../api/apiClient';
 import RecentActivity from '../index';
@@ -17,7 +18,7 @@ jest.mock('../../../api/apiClient', () => ({
 }));
 
 // useMediaQuery needs window.matchMedia, which jsdom does not implement.
-// `mobile` flips the one 'max-width' query the widget's `down('md')` check
+// `mobile` flips the one 'max-width' query the widget's `down('sm')` check
 // resolves to; every other query (e.g. prefers-reduced-motion, read by MUI
 // internals) answers false. Mirrors ScoringFeed.test.jsx's own mock.
 let mobile;
@@ -120,7 +121,7 @@ test('the loading state holds seventeen skeleton rows and marks the card busy', 
   expect(await screen.findAllByTestId('recent-activity-skeleton-row')).toHaveLength(17);
 });
 
-test('an eight-row fixture renders eight rows with the correct Badge variant per type, Team names and sentences', async () => {
+test('an eight-row fixture renders eight rows with the product kind tag per type, Team names and sentences', async () => {
   mockGet({ data: EIGHT_ROWS });
   renderWidget();
 
@@ -130,18 +131,18 @@ test('an eight-row fixture renders eight rows with the correct Badge variant per
 
   const rows = screen.getAllByTestId('recent-activity-row');
   expect(rows).toHaveLength(8);
-  expect(screen.getByText('8')).toBeInTheDocument(); // the card's count
+  expect(screen.getByText('8 moves')).toBeInTheDocument(); // the plain meta count
 
-  const byVariant = {
-    add: 'success',
-    drop: 'danger',
-    trade: 'live',
-    waiver: 'neutral',
+  const byKind = {
+    add: 'Add',
+    drop: 'Drop',
+    trade: 'Trade',
+    waiver: 'Waiver',
   };
 
-  Object.entries(byVariant).forEach(([type, variant]) => {
+  Object.entries(byKind).forEach(([type, kind]) => {
     const typeRow = rows.find((r) => r.getAttribute('data-type') === type);
-    expect(within(typeRow).getByTestId('badge')).toHaveAttribute('data-variant', variant);
+    expect(within(typeRow).getByTestId('recent-activity-kind')).toHaveTextContent(kind);
   });
 
   // Team names and sentences render verbatim from the entity's read model.
@@ -150,7 +151,7 @@ test('an eight-row fixture renders eight rows with the correct Badge variant per
   expect(within(rows[1]).getByTestId('recent-activity-sentence')).toHaveTextContent('dropped Kenny Pickett');
 });
 
-test('a commissioner row reads "Commissioner" and the warning variant', async () => {
+test('a commissioner row reads "Commissioner" and the Settings tag', async () => {
   mockGet({ data: EIGHT_ROWS });
   renderWidget();
 
@@ -158,9 +159,7 @@ test('a commissioner row reads "Commissioner" and the warning variant', async ()
   const commissionerRow = rows.find((r) => r.getAttribute('data-type') === 'commissioner');
 
   expect(within(commissionerRow).getByTestId('recent-activity-team')).toHaveTextContent('Commissioner');
-  const badge = within(commissionerRow).getByTestId('badge');
-  expect(badge).toHaveAttribute('data-variant', 'warning');
-  expect(badge).toHaveTextContent('Settings');
+  expect(within(commissionerRow).getByTestId('recent-activity-kind')).toHaveTextContent('Settings');
 });
 
 test('a row\'s relative time follows the widget\'s own helper (2h ago / Yesterday)', async () => {
@@ -191,17 +190,18 @@ test('the tail links to /league/42/activity', async () => {
   expect(screen.getByRole('link', { name: 'All activity' })).toHaveAttribute('href', '/league/42/activity');
 });
 
-test('below the md breakpoint the card shows five rows, not seventeen', async () => {
+test('below the sm breakpoint the card shows three rows, not seventeen', async () => {
   mobile = true;
   mockGet({ data: SEVENTEEN_ROWS });
   renderWidget();
 
   await screen.findAllByTestId('recent-activity-row');
-  expect(screen.getAllByTestId('recent-activity-row')).toHaveLength(5);
-  expect(screen.getByText('5')).toBeInTheDocument(); // the card's count follows what's shown
+  expect(screen.getAllByTestId('recent-activity-row')).toHaveLength(3);
+  expect(screen.getByText('3 moves')).toBeInTheDocument(); // the count follows what's shown
+  expect(screen.getByRole('link', { name: 'All activity' })).toBeInTheDocument();
 });
 
-test('below the md breakpoint the loading skeleton also caps at five rows, not seventeen', async () => {
+test('below the sm breakpoint the loading skeleton also caps at three rows, not seventeen', async () => {
   // The skeleton follows the same breakpoint cap as the loaded rows (should-
   // fix from the formal review on PR #1121): 8 placeholders collapsing to 5
   // real rows the instant a mobile read lands would itself be the re-flow
@@ -210,7 +210,7 @@ test('below the md breakpoint the loading skeleton also caps at five rows, not s
   mockGet({ pending: true });
   renderWidget();
 
-  expect(await screen.findAllByTestId('recent-activity-skeleton-row')).toHaveLength(5);
+  expect(await screen.findAllByTestId('recent-activity-skeleton-row')).toHaveLength(3);
 });
 
 // Red-tell (#1993): a fetch limit still at 12 turns the first case red (the
@@ -223,7 +223,7 @@ test('at and above md the card shows all seventeen rows it fetches, and counts t
 
   await screen.findAllByTestId('recent-activity-row');
   expect(screen.getAllByTestId('recent-activity-row')).toHaveLength(17);
-  expect(screen.getByText('17')).toBeInTheDocument();
+  expect(screen.getByText('17 moves')).toBeInTheDocument();
 });
 
 test('rowLimit caps the rows and the count at and above md', async () => {
@@ -232,7 +232,7 @@ test('rowLimit caps the rows and the count at and above md', async () => {
 
   await screen.findAllByTestId('recent-activity-row');
   expect(screen.getAllByTestId('recent-activity-row')).toHaveLength(6);
-  expect(screen.getByText('6')).toBeInTheDocument();
+  expect(screen.getByText('6 moves')).toBeInTheDocument();
 });
 
 test('rowLimit caps the loading skeleton too', async () => {
@@ -250,13 +250,13 @@ test('rowLimit never raises the cap above the seventeen rows the card fetches', 
   expect(screen.getAllByTestId('recent-activity-row')).toHaveLength(17);
 });
 
-test('rowLimit does not raise the phone cap of five', async () => {
+test('rowLimit does not raise the phone cap of three', async () => {
   mobile = true;
   mockGet({ data: SEVENTEEN_ROWS });
   renderWidget({ rowLimit: 7 });
 
   await screen.findAllByTestId('recent-activity-row');
-  expect(screen.getAllByTestId('recent-activity-row')).toHaveLength(5);
+  expect(screen.getAllByTestId('recent-activity-row')).toHaveLength(3);
 });
 
 // #1998: the dashboard stacks the card under the standings when the feed cannot
@@ -297,7 +297,7 @@ describe('onFeedShort', () => {
     const failed = jest.fn();
     mockGet({ reject: { response: { status: 500 } } });
     renderWidget({ rowLimit: 10, onFeedShort: failed });
-    await screen.findByTestId('recent-activity-error');
+    await screen.findByRole('alert');
     expect(lastReport(failed)).toBe(true);
   });
 
@@ -310,7 +310,7 @@ describe('onFeedShort', () => {
     expect(onFeedShort).not.toHaveBeenCalledWith(true);
   });
 
-  test('on a phone the md+ rowLimit still decides, not the phone cap of five', async () => {
+  test('on a phone the wide rowLimit still decides, not the phone cap of three', async () => {
     mobile = true;
     const onFeedShort = jest.fn();
     mockGet({ data: EIGHT_ROWS });
@@ -340,7 +340,7 @@ test('an empty response renders the empty-state sentence', async () => {
 
 // #1134: `recap` is a league-wide row, teamless like commissioner, but must
 // not read as "Commissioner" - its Team column stays empty.
-test('a recap row renders the recap sentence, the Recap chip, and an empty Team column', async () => {
+test('a recap row renders the recap sentence, the Recap tag, and an empty Team column', async () => {
   mockGet({
     data: [row({ id: 9, type: 'recap', team: null, detail: { season: 2026, week: 4 }, agoMs: 60 * 60 * 1000 })],
   });
@@ -354,9 +354,7 @@ test('a recap row renders the recap sentence, the Recap chip, and an empty Team 
     'Week 4 recap published'
   );
   expect(within(recapRow).getByTestId('recent-activity-team')).toHaveTextContent('');
-  const badge = within(recapRow).getByTestId('badge');
-  expect(badge).toHaveAttribute('data-variant', 'neutral');
-  expect(badge).toHaveTextContent('Recap');
+  expect(within(recapRow).getByTestId('recent-activity-kind')).toHaveTextContent('Recap');
 });
 
 // #1144: a stat_correction row is a teamless NFL data correction, not a
@@ -382,19 +380,22 @@ test('a teamless stat_correction row renders a blank Team column, not "Commissio
   const statCorrectionRow = rows[0];
 
   expect(within(statCorrectionRow).getByTestId('recent-activity-team')).toHaveTextContent('');
-  const badge = within(statCorrectionRow).getByTestId('badge');
-  expect(badge).toHaveAttribute('data-variant', 'neutral');
-  expect(badge).toHaveTextContent('Stat correction');
+  expect(within(statCorrectionRow).getByTestId('recent-activity-kind')).toHaveTextContent('Stat correction');
 });
 
-test('a failed read renders one compact alert sentence and no rows', async () => {
+test('a failed read renders one danger panel and no rows, and Try again reads again', async () => {
   mockGet({ reject: { response: { status: 500 } } });
   renderWidget();
 
-  const alert = await screen.findByTestId('recent-activity-error');
-  expect(alert).toHaveAttribute('role', 'alert');
+  const alert = await screen.findByRole('alert');
   expect(alert).toHaveTextContent('We could not load recent activity right now.');
   expect(screen.queryByTestId('recent-activity-row')).not.toBeInTheDocument();
+
+  const reads = apiClient.get.mock.calls.length;
+  mockGet({ data: EIGHT_ROWS });
+  await userEvent.click(screen.getByRole('button', { name: 'Try loading recent activity again' }));
+  expect(await screen.findAllByTestId('recent-activity-row')).toHaveLength(8);
+  expect(apiClient.get.mock.calls.length).toBeGreaterThan(reads);
 });
 
 test('a row with at: null has an empty time slot and contains neither "1969" nor "Invalid Date"', async () => {

@@ -35,7 +35,7 @@ const DISABLED_SX = { '&[disabled], &[aria-disabled="true"]': { opacity: 0.5, cu
  * a link gets aria-disabled and swallows the click, so it does not navigate.
  */
 export function PsButton({
-  variant = 'ghost', to, onClick, ariaLabel, children, type = 'button', disabled = false,
+  variant = 'ghost', to, onClick, ariaLabel, describedBy, children, type = 'button', disabled = false,
 }) {
   const sx = { ...BTN, ...VARIANT[variant], ...DISABLED_SX };
   const arrow = variant === 'fill' ? <PixelArrow /> : null;
@@ -46,6 +46,7 @@ export function PsButton({
         to={to}
         onClick={disabled ? (event) => event.preventDefault() : onClick}
         aria-label={ariaLabel}
+        aria-describedby={describedBy}
         aria-disabled={disabled ? 'true' : undefined}
         tabIndex={disabled ? -1 : undefined}
         sx={sx}
@@ -56,7 +57,7 @@ export function PsButton({
     );
   }
   return (
-    <Box component="button" type={type} onClick={onClick} aria-label={ariaLabel} disabled={disabled} sx={sx}>
+    <Box component="button" type={type} onClick={onClick} aria-label={ariaLabel} aria-describedby={describedBy} disabled={disabled} sx={sx}>
       {children}
       {arrow}
     </Box>
@@ -85,8 +86,41 @@ export function PsLink({
     : <Box component="a" href={href} aria-label={ariaLabel} sx={sx}>{children}</Box>;
 }
 
-/** The live state: a 2px Accent outline, Accent pixel text, a square 8px dot. */
-export function LiveChip({ children = 'Live' }) {
+/** A button that looks like a link (a 44px target in Ink with a 2px Dim underline): for a control that opens or closes something in place. Other props (`aria-expanded`, `data-testid`) pass through. */
+export const PsLinkButton = React.forwardRef(({
+  onClick, ariaLabel, children, ...rest
+}, ref) => (
+    <Box
+      ref={ref}
+      component="button"
+      type="button"
+      onClick={onClick}
+      aria-label={ariaLabel}
+      {...rest}
+      sx={{
+        minHeight: '44px',
+        display: 'inline-flex',
+        alignItems: 'center',
+        padding: '0 10px',
+        border: 0,
+        background: 'none',
+        color: 'var(--ps-ink)',
+        fontFamily: 'inherit',
+        fontSize: '15px',
+        fontWeight: 600,
+        textDecoration: 'underline',
+        textDecorationThickness: '2px',
+        textUnderlineOffset: '5px',
+        textDecorationColor: 'var(--ps-dim)',
+      }}
+    >
+      {children}
+    </Box>
+));
+
+/** The live state: a 2px Accent outline, Accent pixel text, a square 8px dot. `onBoard` is the Board-black version, in the board's own live green. */
+export function LiveChip({ children = 'Live', onBoard = false }) {
+  const color = onBoard ? 'var(--ps-board-live)' : 'var(--ps-accent)';
   return (
     <Box
       component="span"
@@ -95,19 +129,19 @@ export function LiveChip({ children = 'Live' }) {
         alignItems: 'center',
         gap: '8px',
         padding: '8px 10px',
-        border: '2px solid var(--ps-accent)',
-        color: 'var(--ps-accent)',
+        border: `2px solid ${color}`,
+        color,
         ...pixelSx(16),
         lineHeight: 1,
       }}
     >
-      <Box component="span" aria-hidden="true" sx={{ width: '8px', height: '8px', backgroundColor: 'var(--ps-accent)' }} />
+      <Box component="span" aria-hidden="true" sx={{ width: '8px', height: '8px', backgroundColor: color }} />
       {children}
     </Box>
   );
 }
 
-/** A failed load: the danger double frame, a warn icon, and a way to retry. */
+/** A failed load: the danger double frame, a warn icon, and a way to retry (the button shows only when there is something to retry). */
 export function ErrorPanel({
   title, body, onRetry, retryAriaLabel,
 }) {
@@ -132,17 +166,18 @@ export function ErrorPanel({
           <Box sx={{ fontSize: '15px', color: 'var(--ps-dim)', mt: '4px' }}>{body}</Box>
         </Box>
       </Box>
-      <PsButton variant="ghost" onClick={onRetry} ariaLabel={retryAriaLabel}>Try again</PsButton>
+      {onRetry && <PsButton variant="ghost" onClick={onRetry} ariaLabel={retryAriaLabel}>Try again</PsButton>}
     </Frame>
   );
 }
 
 /** A loading block in Skel; hidden from assistive tech. */
-export function Skel({ width, height }) {
+export function Skel({ width, height, ...rest }) {
   return (
     <Box
       component="span"
       aria-hidden="true"
+      {...rest}
       sx={{
         display: 'block',
         width,

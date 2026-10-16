@@ -88,22 +88,6 @@ const cssFor = (el) => {
   return css;
 };
 
-// The base-breakpoint form: declarations keyed by the selector's tail ('' for
-// the element's own, ':hover' for its hover rule), as GameCenterPage.test.jsx
-// reads its layout rules.
-const rulesUnder = (el) => {
-  const cls = Array.from(el.classList).find((c) => c.startsWith('css-'));
-  const found = {};
-  Array.from(document.styleSheets).forEach((sheet) => {
-    Array.from(sheet.cssRules).forEach((rule) => {
-      if (!rule.selectorText || !rule.selectorText.startsWith(`.${cls}`)) return;
-      const tail = rule.selectorText.slice(`.${cls}`.length).replace(/\s+/g, '');
-      found[tail] = `${found[tail] || ''}${rule.style.cssText};`;
-    });
-  });
-  return found;
-};
-
 const tile = (key) => screen.getByTestId(`quick-action-${key}`);
 
 // --- rows -------------------------------------------------------------
@@ -175,58 +159,68 @@ test('the Recommended Badge sits on the recommended row only', async () => {
   );
 });
 
-test('a row is 40px tall at md and up and 48px tall below md, and its icon sits on a raised plate', async () => {
+test('a tile is a Play-blue link with a pixel pictogram, the destination and its status, and no filled foot', async () => {
   renderWidget();
   await screen.findByTestId('quick-actions');
 
-  // Flattened across breakpoints (cssFor loses which one a declaration came
-  // from, per its own docblock): both heights the responsive sx value emits
-  // must be present.
-  const css = cssFor(tile('waivers'));
-  expect(css).toMatch(/min-height:\s*40px/);
-  expect(css).toMatch(/min-height:\s*48px/);
-
-  // The plate is the one thing that stays on `dash-surface2`; the row itself
-  // sits flush on the Card's `dash-surface`, so it carries no background of
-  // its own.
-  expect(rulesUnder(screen.getByTestId('quick-action-plate-waivers'))['']).toMatch(
-    /background-color:\s*var\(--dash-surface2\)/
-  );
-  expect(within(tile('waivers')).getByTestId('quick-action-chevron-waivers')).toBeInTheDocument();
+  const waivers = tile('waivers');
+  expect(waivers.tagName).toBe('A');
+  const css = cssFor(waivers);
+  expect(css).toMatch(/background-color:\s*var\(--ps-play\)/);
+  expect(css).toMatch(/border:\s*2px solid var\(--ps-play-ink\)/);
+  expect(css).toMatch(/min-height:\s*44px/);
+  // The pictogram sits in its own plate, a decorative svg.
+  // eslint-disable-next-line testing-library/no-node-access
+  expect(within(screen.getByTestId('quick-action-plate-waivers')).queryByRole('img')).toBeNull();
+  // eslint-disable-next-line testing-library/no-node-access
+  expect(screen.getByTestId('quick-action-plate-waivers').querySelector('svg')).not.toBeNull();
+  // Only the lead play in Your move is filled, and nothing here wears the cursor.
+  // eslint-disable-next-line testing-library/no-node-access
+  const root = screen.getByTestId('quick-actions');
+  // eslint-disable-next-line testing-library/no-node-access
+  expect(root.querySelector('[data-filled="true"]')).toBeNull();
+  // eslint-disable-next-line testing-library/no-node-access
+  expect(root.querySelector('.cursor')).toBeNull();
+  // The frame is the tertiary tier: a Pixel 16 heading on a 2px edge.
+  expect(screen.getByRole('heading', { level: 2, name: 'Playbook' })).toBeInTheDocument();
+  expect(cssFor(root)).toMatch(/border:\s*2px solid var\(--ps-frame-2\)/);
 });
 
-// Red-tell (#1993 F2): with one column per group the status line has about a
-// third of the card between md (900) and lg (1200), and real copy ("2 empty
-// starting slots · 2 starters on bye") does not fit on one line there. It wraps
-// at md and only truncates (nowrap + ellipsis) from lg up, and below md, where
-// the single column is wide. Leaving it `nowrap` at md turns the first
-// assertion red; an ellipsis at md turns the second red.
-// cssFor flattens breakpoints, so this reads the declarations per media query.
-const declarationsAt = (el, minWidth) => {
-  const cls = Array.from(el.classList).find((c) => c.startsWith('css-'));
-  let css = '';
-  Array.from(document.styleSheets).forEach((sheet) => {
-    Array.from(sheet.cssRules).forEach((media) => {
-      if (!media.media || !media.media.mediaText.replace(/\s/g, '').includes(`min-width:${minWidth}px`)) return;
-      Array.from(media.cssRules).forEach((rule) => {
-        if (rule.selectorText && rule.selectorText.startsWith(`.${cls}`)) css += `${rule.style.cssText};`;
-      });
-    });
-  });
-  return css;
-};
-
-test('the status line wraps between md and lg and truncates only from lg', async () => {
-  renderWidget();
+test('omit drops the tiles the page already shows elsewhere, and a group that empties goes with them', async () => {
+  mockGetByUrl({ '/api/league/1': leagueResponse(), [ROSTER_URL]: { data: [] } });
+  renderWithProviders(<QuickActions leagueId={1} omit={['lineup', 'waivers', 'trades', 'game-center', 'activity']} />);
   await screen.findByTestId('quick-actions');
 
-  const status = within(tile('waivers')).getByText('Claim free agents and place bids');
-  expect(declarationsAt(status, 900)).toMatch(/white-space:\s*normal/);
-  expect(declarationsAt(status, 900)).not.toMatch(/text-overflow:\s*ellipsis/);
-  expect(declarationsAt(status, 1200)).toMatch(/white-space:\s*nowrap/);
-  expect(declarationsAt(status, 1200)).toMatch(/text-overflow:\s*ellipsis/);
-  // xs is emitted as `min-width: 0px`: below md the line still truncates.
-  expect(declarationsAt(status, 0)).toMatch(/white-space:\s*nowrap/);
+  ['lineup', 'waivers', 'trades', 'game-center', 'activity'].forEach((key) => {
+    expect(screen.queryByTestId(`quick-action-${key}`)).not.toBeInTheDocument();
+  });
+  // Moves held only Waivers and Trades.
+  expect(screen.queryByTestId('quick-actions-group-moves')).not.toBeInTheDocument();
+  expect(screen.getByRole('heading', { level: 3, name: 'Play · 2' })).toBeInTheDocument();
+  expect(screen.getByRole('heading', { level: 3, name: 'League · 3' })).toBeInTheDocument();
+  expect(cssFor(screen.getByTestId('quick-actions-body'))).toMatch(/grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/);
+});
+
+test('the row variant is one line of links, then the page\'s own trailing links', async () => {
+  mockGetByUrl({ '/api/league/1': leagueResponse(), [ROSTER_URL]: { data: [] } });
+  renderWithProviders(
+    <QuickActions
+      leagueId={1}
+      variant="row"
+      omit={['draft', 'lineup', 'game-center', 'pickem', 'waivers', 'trades', 'activity']}
+      trailing={[{ key: 'trophies', label: 'Trophy case (6)', to: '/league/1/history' }]}
+    />
+  );
+
+  const nav = await screen.findByRole('navigation', { name: 'Playbook' });
+  expect(nav).toHaveTextContent('Playbook');
+  expect(within(nav).getAllByRole('link').map((link) => link.textContent)).toEqual([
+    'Power Rankings', 'History', 'League Rules', 'Trophy case (6)',
+  ]);
+  expect(within(nav).getByRole('link', { name: 'Trophy case (6)' })).toHaveAttribute('href', '/league/1/history');
+  expect(within(nav).getByRole('link', { name: 'Power Rankings' })).toHaveAttribute('href', '/league/1/power-rankings');
+  // No tiles, no group headings.
+  expect(screen.queryByRole('heading')).not.toBeInTheDocument();
 });
 
 // --- columns ----------------------------------------------------------

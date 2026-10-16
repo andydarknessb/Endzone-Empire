@@ -192,6 +192,17 @@ test('a reconnect resync clears scoreEvent and refetches the lineup silently', (
   expect(result.current.scoreEvent).toBeNull();
 });
 
+test('setRaw is optional: an event still records scoreEvent', () => {
+  const { result } = renderHook(() => useLiveScores({ leagueId: 1 }));
+  const event = { week: 4, scored: [{ matchupId: 55, homeScore: 7, awayScore: 0 }], plays: [{ playerId: 2, pointsDelta: 6 }] };
+
+  act(() => socket.fire('scores:updated', event));
+  expect(result.current.scoreEvent).toEqual(event);
+
+  act(() => socket.reconnect());
+  expect(result.current.scoreEvent).toBeNull();
+});
+
 test('no leagueId subscribes to nothing', () => {
   renderHook(() => useHarness({ leagueId: null, initialRaw: rawLineup([]), refetch: jest.fn() }));
   expect(socket).toBeUndefined();

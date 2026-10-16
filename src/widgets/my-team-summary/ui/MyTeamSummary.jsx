@@ -1,627 +1,342 @@
 import React, { useId } from 'react';
-import { Box, Typography } from '@mui/material';
-import { visuallyHidden } from '@mui/utils';
-import { Link as RouterLink } from 'react-router-dom';
-import { Card, Badge, DashButton, PosChip, Skeleton, TeamAvatar, injuryView } from '../../../shared/ui';
+import { Box } from '@mui/material';
+import {
+  ErrorPanel, Frame, FrameHead, InjuryTag, PixelCheck, PixelHeading, PosTag, PsLink, Skel, SR_ONLY_SX, YouTag, pixelSx,
+} from '../../../shared/ui/playselect';
 import useMyTeamSummary from '../model/useMyTeamSummary';
 
 /**
- * League Dashboard hero-left widget (ticket #639): the viewer's own Team at a
- * glance. Avatar + Team name + a "You" pill, a secondary record/rank line once
- * games have been played, and a row of stat tiles (draft grade, projected
- * finish with its movement, playoff odds, roster value, and either FAAB left or
- * roster fullness).
+ * League Dashboard My team widget (ADR 0067 wave 1b): the viewer's own Team at a glance, in a
+ * primary frame (6px double rule). Header: the Team name (Pixel 24 on desktop, 16 on a phone), a
+ * "You" tag and, once games have been played, the standing line ("3rd of 12"). Body: Record in
+ * Pixel 24 with points for and against, then the facts the card has always stated when they have a
+ * value (draft grade, projected finish with its movement, playoff odds, roster value, and either
+ * FAAB left or roster fullness), then the first five starters (position tag, name, injury tag,
+ * opponent line, projection under a "Proj" label), an "and N more" note and the lineup status with a
+ * "Fix lineup" link while it is incomplete. The frame's foot links Lineup, Waivers and Trades.
  *
- * Composes `shared/ui` (ADR 0020) and paints only `dash-*` tokens. Every
- * ink-on-surface pairing it renders is already registered in
- * tokens.contrast.test.js: ink/faint/dim on the card and on the `dash-surface2`
- * stat tiles, the accent "You" pill on the accent tint over a card, and the
- * draft grade as `dash-grade-*-text` on a stat tile (NOT the raised tile, and
- * NOT a chip fill: the mockup paints the grade as colored text, and the text
- * tokens are the legible-as-text set). No new pairing is composed here.
+ * Before the draft lineups are not open, so no lineup is read: the card keeps the tiles that have a
+ * value (FAAB left) and says "Lineups open after the draft".
  *
- * The tile row is a wrapping flex row of equal-growing tiles with an 86px
- * basis, 104px at `lg` (statTileFlex below), NOT a fixed track count: how many tiles render
- * depends on which reads have landed and on the league's waiver type, and a
- * fixed count leaves a dead track for every tile that is absent (a league with
- * no power-rankings run yet showed 89px of nothing in a 286px card). The
- * row therefore re-flows as the set of tiles changes: the power-rankings
- * tiles join when that read lands, and the draft grade and roster value tiles
- * drop out once their read settles with nothing to state (a 404 or a null,
- * #1979 L13), the remaining tiles growing to fill the line. It wraps (rather than the earlier
- * `grid-auto-flow: column` over `minmax(0, 1fr)`, which forced every tile
- * onto one line) because five tiles in a 322px phone card came out 55px wide
- * each: "149.05" spilled 36px past its tile onto the neighbour and every
- * label broke into two lines, and even the 1440px desktop hero (78px tiles)
- * spilled the roster value by 13px. A row that does not fit wraps to 3+2 on
- * a phone and on the desktop hero, the last tiles growing to fill the line; the values stay bottom-aligned across a
- * line (`mt: auto`) so a two-line label never pushes its value out of line
- * with its neighbours.
+ * `wide` seats the numbers and status on the left and the starters on the right from md, for the
+ * game-day full-width row. `fixLineup` (default true) is the page's say-it-once switch: it passes
+ * false when Your move already carries a Set lineup play.
  *
- * The standings read is the card's spine: while it is in flight the card holds
- * its layout with skeletons, and if it fails the card shows one compact,
- * self-contained error and nothing else in the data region, so a failed read
- * never touches the rest of the page. The grade/value and power-rankings reads
- * degrade on their own (an absent tile for a missing grade or roster value, and
- * for an uncomputed projection) without erroring the card. A tile whose value
- * would be a dash does not render at all (#1979 L13): a "Draft grade -" tile
- * before grades exist is a label pointing at nothing. While the grades read is
- * in flight the tile stays, as a skeleton; a read that lands with a value keeps
- * the slot, and one that settles empty (a 404 or null) drops it, so the row
- * reflows only in that case.
- *
- * Below the tiles, a "Starters · Week N" section (#1101): the entities/roster
- * lineup's first five starters, a "N more starters · M questionable" note and
- * a lineup-completeness footer beside a Set Lineup button. It is independent
- * of the tiles' spine - its own read loads/fails on its own - and never mounts
- * at all for a pick'em-only viewer (`useMyTeamSummary` never fetches the
- * lineup for one). It stretches to fill any extra height the page's grid gives
- * the card (`flex: 1 1 auto` on the card's now-flex root).
+ * Paints only ps-* tokens. The standings read is the card's spine: while it is in flight the frame
+ * holds its layout with skeletons, and if it fails the widget is one danger panel with a retry, so a
+ * failed read never touches the rest of the page. The grade/value and power-rankings reads degrade on
+ * their own (an absent fact for a missing grade or roster value, and for an uncomputed projection)
+ * without erroring the card. A fact whose value would be a dash does not render at all (#1979 L13).
+ * The starters section has its own read and never mounts for a pick'em-only viewer.
  */
-export default function MyTeamSummary({ leagueId }) {
-  const { identity, spine, record, draftGrade, rosterValue, proj, playoffOdds, capacity, starters } =
-    useMyTeamSummary(leagueId);
-  // The Team name is the card's accessible name (see the Card below); the id
-  // has to be minted before the early return so the hook order is stable.
+export default function MyTeamSummary({ leagueId, wide = false, fixLineup = true }) {
+  const {
+    identity, spine, record, points, teamCount, refetch, draftGrade, rosterValue, proj, playoffOdds, capacity, starters,
+  } = useMyTeamSummary(leagueId);
   const nameId = useId();
 
-  // No Team for this viewer (e.g. a commissioner who owns no team): the hero
-  // slot stays empty rather than inventing an identity.
   if (!identity) return null;
 
-  // The card is the region that owns these fetches (Skeleton.jsx: the loading
-  // state is announced by the owning card, not by each aria-hidden shape), so
-  // it carries aria-busy while the reads that hold the card's layout with
-  // skeletons are still loading: the standings spine and the draft-grades tiles
-  // (draftGrade and rosterValue are the one draft-grades read). The
-  // power-rankings read is deliberately NOT folded in - its projected-finish
-  // tile is absent until ready rather than skeletoned (AC ties skeletons to the
-  // standings spine), so it holds no layout for aria-busy to report over.
+  if (spine === 'error') {
+    return (
+      <Box data-testid="my-team-summary">
+        <ErrorPanel
+          title="My team"
+          body="We could not load your team summary right now."
+          onRetry={refetch}
+          retryAriaLabel="Try loading your team summary again"
+        />
+      </Box>
+    );
+  }
+
   const busy = spine === 'loading' || draftGrade.loading || rosterValue.loading;
-  // A tile with nothing to state is dropped, not dashed (#1979 L13). Loading
-  // keeps the tile (as a skeleton); only a settled read with no value hides it.
   const showGrade = draftGrade.loading || (!draftGrade.unavailable && !!draftGrade.letter);
-  const showValue =
-    rosterValue.loading || (!rosterValue.unavailable && rosterValue.text != null);
-  // The row itself is dropped when no tile shows: an empty flex row would still
-  // buy a gap in the card's column. The loading skeletons are tiles too.
-  const showTiles =
-    spine === 'loading' || showGrade || !!proj || !!playoffOdds || showValue || !!capacity;
+  const showValue = rosterValue.loading || (!rosterValue.unavailable && rosterValue.text != null);
+  const showTiles = spine === 'loading' || showGrade || !!proj || !!playoffOdds || showValue || !!capacity;
+  const lineupHref = `/league/${leagueId}/lineup`;
+
+  const numbers = (
+    <>
+      {spine === 'loading' && (
+        <Box data-testid="my-team-numbers" sx={{ display: 'flex', flexWrap: 'wrap', gap: '12px 28px' }}>
+          <Skel width="72px" height={40} />
+          <Skel width="64px" height={40} />
+          <Skel width="64px" height={40} />
+        </Box>
+      )}
+      {spine === 'ready' && record && (
+        <Box
+          data-testid="my-team-numbers"
+          sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', gap: '12px 28px' }}
+        >
+          <Box>
+            <Box sx={{ fontSize: '13px', color: 'var(--ps-dim)' }}>Record</Box>
+            <Box data-testid="my-team-record" sx={{ ...pixelSx(24), lineHeight: 1.3 }}>{record.text}</Box>
+          </Box>
+          <Stat label="Points for" testid="my-team-points-for">{points?.pf}</Stat>
+          <Stat label="Points against" testid="my-team-points-against">{points?.pa}</Stat>
+        </Box>
+      )}
+    </>
+  );
+
+  const tiles = showTiles && (
+    <Box data-testid="my-team-tiles" sx={{ display: 'flex', flexWrap: 'wrap', gap: '12px 28px' }}>
+      {spine === 'loading' ? (
+        <>
+          <StatSkeleton />
+          <StatSkeleton />
+        </>
+      ) : (
+        <>
+          {showGrade && (
+            <Stat label="Draft grade" testid="stat-draft-grade">
+              {draftGrade.loading ? <StatValueSkeleton /> : draftGrade.letter}
+            </Stat>
+          )}
+          {proj && (
+            <Stat label="Proj. finish" testid="stat-proj-finish">
+              {proj.ordinal.value}
+              <Box component="small" sx={{ fontSize: '13px', fontWeight: 500, color: 'var(--ps-dim)' }}>{proj.ordinal.suffix}</Box>
+              {proj.change != null && <RankMovement change={proj.change} />}
+            </Stat>
+          )}
+          {playoffOdds && (
+            <Stat label="Playoff odds" testid="stat-playoff-odds">{`${playoffOdds.percent}%`}</Stat>
+          )}
+          {showValue && (
+            <Stat label="Roster value" testid="stat-roster-value">
+              {rosterValue.loading ? <StatValueSkeleton /> : rosterValue.text}
+            </Stat>
+          )}
+          {capacity && <Stat label={capacity.label} testid="stat-capacity">{capacity.text}</Stat>}
+        </>
+      )}
+    </Box>
+  );
+
+  const startersView = starters && (
+    <StartersSection starters={starters} lineupHref={lineupHref} fixLineup={fixLineup} />
+  );
+
+  const hasFacts = (spine === 'loading') || !!record || showTiles;
 
   return (
-    // Named by the Team name rather than by a Card `title`: Card spreads
-    // ...rest after its own conditional aria-labelledby, so this value wins and
-    // no header box renders, which is why the card gains a name and a heading at
-    // zero visual cost. The name is therefore announced three times (the region,
-    // the role="img" avatar label kept from #327, and the heading). That is the
-    // accepted cost of the card being both navigable by heading and named as a
-    // region; the fix is not to drop one of them.
-    <Card
+    <Frame
+      labelledBy={nameId}
       data-testid="my-team-summary"
       aria-busy={busy}
-      aria-labelledby={nameId}
-      sx={{ p: 2.5, height: '100%' }}
+      sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}
+      head={(
+        <FrameHead>
+          <PixelHeading id={nameId}>
+            <Box component="span" sx={{ overflowWrap: 'anywhere' }}>{identity.name}</Box>
+          </PixelHeading>
+          <YouTag />
+          {spine === 'ready' && record?.rankText && (
+            <Box component="span" data-testid="my-team-rank" sx={{ marginLeft: 'auto', fontSize: '13px', color: 'var(--ps-dim)' }}>
+              {teamCount > 0 ? `${record.rankText} of ${teamCount}` : record.rankText}
+            </Box>
+          )}
+        </FrameHead>
+      )}
     >
-      {/* flex column, not grid: the starters section below needs `flex: 1 1
-          auto` to grow into whatever height the page's grid stretches this
-          card to (the page sets align-items: stretch in its own ticket, #1101). */}
-      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, height: '100%' }}>
-        {/* Identity: avatar, Team name + You pill, and the secondary line. */}
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.75 }}>
-          {/* The avatar carries the Team name as its accessible name. TeamAvatar
-              is deliberately aria-hidden (#327), so the name rides on this
-              wrapper's role="img"; the visible name text sits beside it. */}
-          <Box
-            role="img"
-            aria-label={identity.name}
-            sx={{ flex: 'none', display: 'flex' }}
-          >
-            <TeamAvatar
-              name={identity.name}
-              avatarUrl={identity.avatarUrl}
-              avatarStaticUrl={identity.avatarStaticUrl}
-              size={48}
-            />
-          </Box>
-
-          <Box sx={{ minWidth: 0, display: 'grid', gap: 0.5 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-              <Typography
-                component="h2"
-                id={nameId}
+      <Box
+        sx={{
+          flex: 1,
+          display: 'grid',
+          gap: { xs: '16px', md: '20px' },
+          padding: { xs: '14px', md: '20px' },
+          alignContent: 'start',
+          ...(wide ? { gridTemplateColumns: { md: 'minmax(0, 1fr) minmax(0, 1.4fr)' }, gap: { md: '32px' } } : null),
+        }}
+      >
+        {wide ? (
+          <>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: '20px', minWidth: 0 }}>
+              {numbers}
+              {tiles}
+              {startersView && <StartersStatus starters={starters} lineupHref={lineupHref} fixLineup={fixLineup} />}
+            </Box>
+            {startersView && starters.status !== 'closed' && <StartersList starters={starters} />}
+          </>
+        ) : (
+          <>
+            {hasFacts && (
+              <Box
                 sx={{
-                  m: 0,
-                  fontFamily: 'var(--dash-font-display)',
-                  fontSize: '24px',
-                  fontWeight: 700,
-                  letterSpacing: '0.02em',
-                  lineHeight: 1.1,
-                  color: 'var(--dash-ink)',
-                  // Paired with the zero minimum on the parent: a box of words
-                  // given min-width:0 does not clip, it overflows onto its
-                  // neighbour (#916/#917/#919/#921). A long unbroken Team name
-                  // breaks inside itself instead.
-                  overflowWrap: 'anywhere',
+                  display: 'flex', flexDirection: 'column', gap: '16px', paddingBottom: startersView ? '16px' : 0, borderBottom: startersView ? '2px solid var(--ps-rule)' : 0,
                 }}
               >
-                {identity.name}
-              </Typography>
-              <Badge variant="you">You</Badge>
-            </Box>
-
-            {spine === 'loading' && (
-              <Skeleton data-testid="my-team-skeleton" variant="text" width={150} height={15} />
+                {numbers}
+                {tiles}
+              </Box>
             )}
-            {spine === 'ready' && record && (
-              <Typography
-                component="div"
-                data-testid="my-team-record"
-                sx={{ fontSize: '12.5px', color: 'var(--dash-faint)' }}
-              >
-                {record.rankText ? `${record.text} · ${record.rankText}` : record.text}
-              </Typography>
-            )}
-          </Box>
-        </Box>
-
-        {/* Data region: one compact error, skeleton tiles, or the real tiles. */}
-        {spine === 'error' && (
-          <Typography
-            role="alert"
-            data-testid="my-team-error"
-            sx={{ fontSize: '13px', color: 'var(--dash-ink)' }}
-          >
-            We could not load your team summary right now.
-          </Typography>
+            {startersView}
+          </>
         )}
-
-        {spine !== 'error' && showTiles && (
-          <Box
-            data-testid="my-team-tiles"
-            sx={{
-              display: 'flex',
-              flexWrap: 'wrap',
-              gap: '10px',
-            }}
-          >
-            {spine === 'loading' ? (
-              <>
-                <StatTileSkeleton />
-                <StatTileSkeleton />
-                <StatTileSkeleton />
-              </>
-            ) : (
-              <>
-                {showGrade && (
-                  <StatTile label="Draft grade" testid="stat-draft-grade">
-                    {draftGrade.loading ? (
-                      <StatValueSkeleton />
-                    ) : (
-                      <Box
-                        component="span"
-                        sx={{ color: gradeTextColor(draftGrade.gradeKey) }}
-                      >
-                        {draftGrade.letter}
-                      </Box>
-                    )}
-                  </StatTile>
-                )}
-
-                {proj && (
-                  <StatTile label="Proj. finish" testid="stat-proj-finish">
-                    {proj.ordinal.value}
-                    <Box
-                      component="small"
-                      sx={{
-                        fontSize: '13px',
-                        fontWeight: 500,
-                        fontFamily: 'var(--dash-font-body)',
-                        color: 'var(--dash-dim)',
-                      }}
-                    >
-                      {proj.ordinal.suffix}
-                    </Box>
-                    {proj.change != null && <RankMovement change={proj.change} />}
-                  </StatTile>
-                )}
-
-                {playoffOdds && (
-                  <StatTile label="Playoff odds" testid="stat-playoff-odds">
-                    {`${playoffOdds.percent}%`}
-                  </StatTile>
-                )}
-
-                {showValue && (
-                  <StatTile label="Roster value" testid="stat-roster-value">
-                    {rosterValue.loading ? <StatValueSkeleton /> : rosterValue.text}
-                  </StatTile>
-                )}
-
-                {capacity && (
-                  <StatTile label={capacity.label} testid="stat-capacity">
-                    {capacity.text}
-                  </StatTile>
-                )}
-              </>
-            )}
-          </Box>
-        )}
-
-        {starters && <StartersSection starters={starters} />}
       </Box>
-    </Card>
+      <Box
+        component="nav"
+        aria-label={identity.name}
+        sx={{ display: 'flex', flexWrap: 'wrap', padding: '4px 6px', borderTop: '2px solid var(--ps-rule)' }}
+      >
+        <PsLink to={lineupHref} ariaLabel={`${identity.name} lineup`}>Lineup</PsLink>
+        <PsLink to={`/league/${leagueId}/waivers`} ariaLabel={`${identity.name} waivers`}>Waivers</PsLink>
+        <PsLink to={`/league/${leagueId}/trades`} ariaLabel={`${identity.name} trades`}>Trades</PsLink>
+      </Box>
+    </Frame>
   );
 }
 
-/**
- * Movement in the projected finish since the previous stored power-rankings
- * run, rendered beside the ordinal. The visible mark is a signed integer with a
- * plain hyphen for a fall (ADR 0016: hyphens, never a dash character), which on
- * its own is an unlabelled number, so the direction rides in visually hidden
- * words rather than in a glyph or a colour.
- *
- * `dash-dim` on the `dash-surface2` tile is a registered pairing; a green/red
- * pair would be a new one and would also be the only colour-coded direction on
- * the card, so the words carry the meaning instead.
- *
- * The caller renders this only when `change` is a real number. A null change
- * (the first stored run of a season) must render NOTHING: 0 is a real value
- * here, so a coerced null would announce that every Team held its place.
- */
-function RankMovement({ change }) {
-  const places = Math.abs(change) === 1 ? 'place' : 'places';
-  const spoken =
-    change === 0
-      ? 'held its place'
-      : `${change > 0 ? 'up' : 'down'} ${Math.abs(change)} ${places}`;
+function Stat({ label, testid, children }) {
   return (
-    <Box
-      component="span"
-      data-testid="stat-proj-movement"
-      sx={{
-        ml: 0.75,
-        fontSize: '13px',
-        fontWeight: 600,
-        fontFamily: 'var(--dash-font-body)',
-        color: 'var(--dash-dim)',
-      }}
-    >
-      <Box component="span" aria-hidden="true">
-        {change > 0 ? `+${change}` : String(change)}
-      </Box>
-      <Box component="span" sx={visuallyHidden}>
-        {spoken}
-      </Box>
+    <Box data-testid={testid} sx={{ display: 'flex', flexDirection: 'column', gap: '2px', minWidth: 0 }}>
+      <Box component="span" sx={{ fontSize: '13px', color: 'var(--ps-dim)' }}>{label}</Box>
+      <Box component="span" sx={{ fontSize: '16px', fontWeight: 600, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{children}</Box>
     </Box>
   );
 }
 
-// A-F -> the legible grade-as-text token (registered on the stat-tile surface);
-// anything else falls back to ink so a surprise value is never invisible.
-function gradeTextColor(gradeKey) {
-  return gradeKey ? `var(--dash-grade-${gradeKey.toLowerCase()}-text)` : 'var(--dash-ink)';
-}
-
-// A tile's `flex` basis is the row's wrap point (see the widget docblock):
-// the skeleton tile below shares it so the loading row wraps where the real
-// one will. The basis only decides where the row breaks (the tiles then grow
-// to share the line): 86px puts three tiles across a 360-430px phone card
-// (290-362px inside; 90px missed 360 by a sub-pixel), and each of those three
-// grows to the ~89px the widest value needs ("149.05" at the 24px display
-// face is 67px, plus 10px padding a side and the border). At `lg` the
-// hero-left card is 430px inside: 86px there packs four on the first line and
-// strands the fifth full width, so the basis steps up to 104px, which packs
-// three and two. Both measured in Chromium (320-1440px).
-// Written as a base rule plus one `up('lg')` override (not a breakpoint
-// object, which would put even the base into a media rule) so the base basis
-// is pinnable off the tile's own class in jsdom.
-const statTileFlex = (theme) => ({
-  flex: '1 1 86px',
-  [theme.breakpoints.up('lg')]: { flex: '1 1 104px' },
-});
-
-function StatTile({ label, testid, children }) {
+function StatSkeleton() {
   return (
-    <Box
-      data-testid={testid}
-      sx={(theme) => ({
-        ...statTileFlex(theme),
-        minWidth: 0,
-        display: 'flex',
-        flexDirection: 'column',
-        backgroundColor: 'var(--dash-surface2)',
-        border: '1px solid var(--dash-line)',
-        borderRadius: 'var(--dash-radius-sm)',
-        padding: '10px',
-      })}
-    >
-      <Box
-        sx={{
-          fontSize: '11px',
-          fontWeight: 600,
-          // 0.04em, not the island's usual 0.07em: at 360px a tile is narrow
-          // enough that the wider tracking wraps "ROSTER VALUE" onto a second
-          // line. A label that still wraps at 96px is allowed to (the value
-          // below is pinned to the tile's bottom edge, so it stays level with
-          // the row's other values either way).
-          letterSpacing: '0.04em',
-          textTransform: 'uppercase',
-          color: 'var(--dash-faint)',
-        }}
-      >
-        {label}
-      </Box>
-      <Box
-        sx={{
-          mt: 'auto',
-          fontFamily: 'var(--dash-font-display)',
-          fontSize: '24px',
-          fontWeight: 700,
-          fontVariantNumeric: 'tabular-nums',
-          lineHeight: 1.2,
-          color: 'var(--dash-ink)',
-        }}
-      >
-        {children}
-      </Box>
-    </Box>
-  );
-}
-
-function StatTileSkeleton() {
-  return (
-    <Box
-      sx={(theme) => ({
-        ...statTileFlex(theme),
-        minWidth: 0,
-        backgroundColor: 'var(--dash-surface2)',
-        border: '1px solid var(--dash-line)',
-        borderRadius: 'var(--dash-radius-sm)',
-        padding: '10px',
-        display: 'grid',
-        gap: 0.75,
-      })}
-    >
-      <Skeleton data-testid="my-team-skeleton" variant="text" width={64} height={11} />
-      <Skeleton data-testid="my-team-skeleton" variant="text" width={40} height={22} />
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+      <Skel data-testid="my-team-skeleton" width="64px" height={13} />
+      <Skel data-testid="my-team-skeleton" width="40px" height={20} />
     </Box>
   );
 }
 
 function StatValueSkeleton() {
-  return <Skeleton data-testid="my-team-skeleton" variant="text" width={40} height={22} />;
+  return <Skel data-testid="my-team-skeleton" width="40px" height={20} />;
 }
 
-// --- Starters section (#1101) ----------------------------------------------
-
-// The footer's check mark, the same path MatchupGrid's LeaderCheck draws.
-// Decorative and aria-hidden: the visible copy ("Lineup set"/"Lineup
-// incomplete") already carries the meaning to a screen reader. The caller
-// renders this ONLY for a set lineup - showing it beside "Lineup incomplete"
-// would tell a sighted manager the opposite of what the text says.
-function CheckIcon() {
+/**
+ * Movement in the projected finish since the previous stored power-rankings run, rendered beside the
+ * ordinal. The visible mark is a signed integer with a plain hyphen for a fall (ADR 0016: hyphens,
+ * never a dash character), which on its own is an unlabelled number, so the direction rides in
+ * visually hidden words rather than in a glyph or a colour.
+ *
+ * The caller renders this only when `change` is a real number. A null change (the first stored run
+ * of a season) must render NOTHING: 0 is a real value here, so a coerced null would announce that
+ * every Team held its place.
+ */
+function RankMovement({ change }) {
+  const places = Math.abs(change) === 1 ? 'place' : 'places';
+  const spoken = change === 0 ? 'held its place' : `${change > 0 ? 'up' : 'down'} ${Math.abs(change)} ${places}`;
   return (
-    <Box
-      component="span"
-      aria-hidden="true"
-      data-testid="my-team-lineup-check"
-      sx={{ display: 'flex', color: 'var(--dash-ink)' }}
-    >
-      <svg
-        width={16}
-        height={16}
-        viewBox="0 0 20 20"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        focusable="false"
-      >
-        <path d="M4 10.5 8 14.5 16 6" />
-      </svg>
+    <Box component="span" data-testid="stat-proj-movement" sx={{ marginLeft: '6px', fontSize: '13px', fontWeight: 600, color: 'var(--ps-dim)' }}>
+      <Box component="span" aria-hidden="true">{change > 0 ? `+${change}` : String(change)}</Box>
+      <Box component="span" sx={SR_ONLY_SX}>{spoken}</Box>
     </Box>
   );
 }
 
-// A starter's injury designation beside his name: the wire's own abbreviation
-// (Q/D/O/IR, players.injury_status) on a Badge, always the `warning` variant
-// - this row never switches to `danger` the way InjuryTag does elsewhere, per
-// the design canvas: "No new contrast pairing: the injury Badge is the
-// registered `warning` variant over `dash-surface`" (#1101). Renders nothing
-// for a healthy starter (a null/empty status). The accessible description
-// expands the code to its full designation ("Injury status: Questionable"),
-// reading the name off shared/ui's exported `injuryView` (#1165) rather than
-// a private map - this row still does not compose InjuryTag itself (it never
-// switches Badge variant by code; InjuryTag does), only borrows its
-// code-to-name mapping via `injuryView`, ignoring `.variant`.
-function StarterInjuryBadge({ status }) {
-  const code = status ? String(status).trim() : '';
-  if (!code) return null;
-  // An unrecognized code (none of the four the wire actually sends) still
-  // renders the Badge, unlike InjuryTag, which renders nothing for one
-  // (#1101 formal review, n1): the ticket's own instruction is "a warning
-  // Badge reading the injury status abbreviation when the starter carries
-  // one" - any non-null status, not only a recognized one - so the fallback
-  // announces the raw code rather than silently dropping the flag.
-  const name = injuryView(code)?.name || code;
+function StarterRow({ starter, last }) {
+  const secondLine = starter.opponent ? `${starter.nflTeam ?? ''} vs ${starter.opponent}` : starter.nflTeam ?? '';
+  const known = Number.isFinite(starter.projectedPoints);
   return (
-    <Badge
-      variant="warning"
-      data-testid="starter-injury-badge"
+    <Box
+      component="li"
+      data-testid="starter-row"
       sx={{
-        fontSize: '10px',
-        lineHeight: 1.2,
-        flex: 'none',
-        '& .MuiChip-label': { px: 0.75, py: 0.25 },
+        display: 'flex', alignItems: 'center', gap: '12px', minHeight: '44px', borderBottom: last ? 0 : '2px solid var(--ps-rule)',
       }}
     >
-      <span aria-hidden="true">{code}</span>
-      <span style={visuallyHidden}>{`Injury status: ${name}`}</span>
-    </Badge>
-  );
-}
-
-// One starter row: PosChip, name (+ injury Badge when flagged), the
-// "NFLTEAM vs OPP" line, and the projection right-aligned in tabular numerals.
-// `opponent` is a Team code or null (lineupModel's docblock: null means
-// absence - a bye or an unsynced slate - never "unknown"), so a null renders
-// the team code ALONE with no "vs" clause and no invented label ("BYE",
-// "TBD", "-"): that data cannot support one (#1101 ruling, 2026-09-10).
-function StarterRow({ starter }) {
-  const secondLine = starter.opponent
-    ? `${starter.nflTeam ?? ''} vs ${starter.opponent}`
-    : starter.nflTeam ?? '';
-  return (
-    <Box data-testid="starter-row" sx={{ display: 'flex', alignItems: 'center', gap: '8px', py: '4px' }}>
-      <PosChip position={starter.slot} sx={{ flex: 'none' }} />
-      <Box sx={{ minWidth: 0, flex: '1 1 auto' }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <Box
-            component="span"
-            sx={{
-              minWidth: 0,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-              fontSize: '13px',
-              fontWeight: 600,
-              color: 'var(--dash-ink)',
-            }}
-          >
-            {starter.name}
-          </Box>
-          <StarterInjuryBadge status={starter.injuryStatus} />
+      <PosTag position={starter.slot} data-testid="pos-chip" />
+      <Box sx={{ flex: 1, minWidth: 0 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <Box component="span" sx={{ minWidth: 0, fontSize: '15px', fontWeight: 600 }}>{starter.name}</Box>
+          <InjuryTag status={starter.injuryStatus} data-testid="starter-injury-badge" />
         </Box>
-        <Box
-          component="div"
-          data-testid="starter-opponent-line"
-          sx={{ fontSize: '11.5px', color: 'var(--dash-faint)' }}
-        >
-          {secondLine}
-        </Box>
+        <Box data-testid="starter-opponent-line" sx={{ fontSize: '13px', color: 'var(--ps-dim)' }}>{secondLine}</Box>
       </Box>
       <Box
         component="span"
         data-testid="starter-projection"
         sx={{
-          flex: 'none',
-          minWidth: '34px',
-          textAlign: 'right',
-          fontVariantNumeric: 'tabular-nums',
-          fontSize: '13px',
-          fontWeight: 600,
-          color: 'var(--dash-ink)',
+          flex: 'none', minWidth: '44px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontSize: '15px', fontWeight: 600,
         }}
       >
-        {/* The bare number has no column header to give it meaning in the
-            accessibility tree, so a hidden label names it; the visible glyph
-            stays a plain number (the mockup's tabular column). */}
-        <span aria-hidden="true">
-          {Number.isFinite(starter.projectedPoints) ? starter.projectedPoints.toFixed(1) : '-'}
-        </span>
-        <span style={visuallyHidden}>
-          {Number.isFinite(starter.projectedPoints)
-            ? `${starter.projectedPoints.toFixed(1)} projected points`
-            : 'Projection not available'}
-        </span>
+        {/* The bare number has no column header in the accessibility tree, so a hidden label names it. */}
+        <span aria-hidden="true">{known ? starter.projectedPoints.toFixed(1) : '-'}</span>
+        <span style={{ ...SR_ONLY_SX }}>{known ? `${starter.projectedPoints.toFixed(1)} projected points` : 'Projection not available'}</span>
       </Box>
     </Box>
   );
 }
 
-function StarterRowSkeleton() {
-  return <Skeleton data-testid="my-team-starters-skeleton" variant="text" height={32} />;
-}
-
-/**
- * "Starters · Week N": the first five starters, a "and N more starters · M
- * questionable" note, and a footer stating lineup completeness beside the Set
- * Lineup button. `flex: 1 1 auto` on the root lets this section (not the
- * identity row or the tile row) absorb whatever extra height the page's grid
- * stretches the card to.
- *
- * The heading below is deliberately NOT a heading element: the card names
- * itself with exactly one <h2> (its Team name, see the region docs above), and
- * a second heading here would break that count.
- */
-function StartersSection({ starters }) {
+function StartersList({ starters }) {
   const loading = starters.status === 'loading';
-  const isLineupSet = !loading && starters.filled >= starters.totalSlots;
   return (
-    <Box
-      data-testid="my-team-starters"
-      sx={{ flex: '1 1 auto', display: 'flex', flexDirection: 'column', gap: '10px' }}
-    >
-      <Typography
-        component="div"
-        sx={{
-          fontSize: '11px',
-          fontWeight: 600,
-          letterSpacing: '0.04em',
-          textTransform: 'uppercase',
-          color: 'var(--dash-faint)',
-        }}
-      >
-        {starters.week != null ? `Starters · Week ${starters.week}` : 'Starters'}
-      </Typography>
-
+    <Box data-testid="my-team-starters" sx={{ minWidth: 0 }}>
+      <Box sx={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '12px', marginBottom: '4px' }}>
+        <Box sx={{ fontSize: '13px', fontWeight: 600, letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--ps-dim)' }}>
+          {starters.week != null ? `Starters · Week ${starters.week}` : 'Starters'}
+        </Box>
+        <Box
+          component="span"
+          aria-hidden="true"
+          sx={{ fontSize: '13px', fontWeight: 600, letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--ps-dim)' }}
+        >
+          Proj
+        </Box>
+      </Box>
       {loading ? (
         <Box sx={{ display: 'grid', gap: '4px' }}>
           {Array.from({ length: 5 }, (_, i) => (
-            <StarterRowSkeleton key={i} />
+            <Box key={i} data-testid="my-team-starters-skeleton"><Skel width="100%" height={40} /></Box>
           ))}
         </Box>
       ) : (
         <>
-          <Box sx={{ display: 'grid' }}>
-            {starters.rows.map((starter) => (
-              <StarterRow key={starter.playerId ?? starter.name} starter={starter} />
+          <Box component="ul" sx={{ listStyle: 'none', m: 0, p: 0 }}>
+            {starters.rows.map((starter, i) => (
+              <StarterRow key={starter.playerId ?? starter.name} starter={starter} last={i === starters.rows.length - 1} />
             ))}
           </Box>
-
           {starters.moreCount > 0 && (
-            <Typography
-              component="div"
-              data-testid="my-team-starters-more"
-              sx={{ fontSize: '12px', color: 'var(--dash-faint)' }}
-            >
+            <Box data-testid="my-team-starters-more" sx={{ margin: '8px 0 0', fontSize: '14px', color: 'var(--ps-dim)' }}>
               {`and ${starters.moreCount} more starter${starters.moreCount === 1 ? '' : 's'} · ${starters.questionableCount} questionable`}
-            </Typography>
-          )}
-
-          <Box
-            data-testid="my-team-lineup-footer"
-            sx={{
-              mt: 'auto',
-              pt: 1,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: 1,
-            }}
-          >
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              {/* The check mark is a "done" affirmation, not a neutral bullet:
-                  showing it next to "Lineup incomplete" would tell a sighted
-                  manager the opposite of what the text says, so it renders
-                  only once the lineup actually is set. */}
-              {isLineupSet && <CheckIcon />}
-              <Typography
-                component="span"
-                data-testid="my-team-lineup-status"
-                sx={{ fontSize: '13px', fontWeight: 600, color: 'var(--dash-ink)' }}
-              >
-                {isLineupSet ? 'Lineup set' : 'Lineup incomplete'}
-                {` · ${starters.filled} of ${starters.totalSlots}`}
-              </Typography>
             </Box>
-            <DashButton component={RouterLink} to={starters.lineupHref}>
-              Set Lineup
-            </DashButton>
-          </Box>
+          )}
         </>
       )}
+    </Box>
+  );
+}
+
+// The lineup's completeness, and the way to fix it: "Lineup set · 9 of 9" with a check, or "Lineup
+// incomplete · 7 of 9" with a Fix lineup link (the check mark is a "done" affirmation, so it renders
+// only once the lineup actually is set). Before the draft there is nothing to set yet.
+function StartersStatus({ starters, lineupHref, fixLineup }) {
+  if (starters.status === 'loading') return null;
+  if (starters.status === 'closed') {
+    return (
+      <Box data-testid="my-team-lineup-status" sx={{ fontSize: '15px', fontWeight: 600 }}>Lineups open after the draft</Box>
+    );
+  }
+  const isLineupSet = starters.filled >= starters.totalSlots;
+  return (
+    <Box data-testid="my-team-lineup-footer" sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0 8px', marginTop: 'auto', fontSize: '15px', fontWeight: 600 }}>
+      {isLineupSet && <Box component="span" data-testid="my-team-lineup-check" aria-hidden="true" sx={{ display: 'inline-flex' }}><PixelCheck /></Box>}
+      <Box component="span" data-testid="my-team-lineup-status">
+        {`${isLineupSet ? 'Lineup set' : 'Lineup incomplete'} · ${starters.filled} of ${starters.totalSlots}`}
+      </Box>
+      {!isLineupSet && fixLineup && lineupHref && (
+        <PsLink to={lineupHref} ariaLabel="Fix lineup">Fix lineup</PsLink>
+      )}
+    </Box>
+  );
+}
+
+function StartersSection({ starters, lineupHref, fixLineup }) {
+  if (starters.status === 'closed') return <StartersStatus starters={starters} lineupHref={lineupHref} fixLineup={fixLineup} />;
+  return (
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: '16px', flex: 1 }}>
+      <StartersList starters={starters} />
+      <StartersStatus starters={starters} lineupHref={lineupHref} fixLineup={fixLineup} />
     </Box>
   );
 }

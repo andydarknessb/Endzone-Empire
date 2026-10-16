@@ -1,60 +1,45 @@
 /**
- * Layout guard for the League Dashboard v2 composition (#1110, ADR 0034) and
- * its game-day order (#1980, spec #1979).
+ * Layout guard for the League Dashboard (#1110, ADR 0034; game-day order #1980; rebuilt on Play-select
+ * #2330, ADR 0067 wave 1b).
  *
- * jsdom has no layout engine, so the geometry this ticket's canvas measured
- * (equal-height hero cards via `align-items: stretch`, a rail that tracks the
- * standings table it sits beside and stays sticky, a Quick Actions card that
- * spans the content width, no card ever wider than its column, and since #1980
- * the matchup first:
- * above the fold on a phone, left of My Team on desktop, its two scores side
- * by side) is measured by hand in headless Chromium and bound here, exactly as tests/e2e/game-center-matchup-layout.spec.ts (#920) binds
- * the same family of invariants for Game Center and Matchup Detail. The jsdom
- * page test (LeagueDashboardPage.test.jsx) binds the CSS RULES (the grid
- * template strings, the `align-items: stretch` declaration); this spec binds
- * the RENDERED RESULT of those rules, which is the right split (ADR: jsdom
- * asserts a rule, Chromium proves what the rule produces on screen).
+ * jsdom has no layout engine, so the geometry the dashboard promises (equal-height hero columns via
+ * grid stretch, standings and Recent activity ending together, a Playbook that spans the content width,
+ * no card ever wider than its column, the matchup on the first screen of a phone and left of My team on
+ * desktop) is measured in headless Chromium and bound here, exactly as
+ * tests/e2e/game-center-matchup-layout.spec.ts (#920) binds the same family of invariants for Game
+ * Center and Matchup Detail. The jsdom page test (LeagueDashboardPage.test.jsx) binds the CSS RULES (the
+ * grid template strings, the stretch declaration); this spec binds the RENDERED RESULT of those rules,
+ * which is the right split (ADR: jsdom asserts a rule, Chromium proves what the rule produces on screen).
+ * The Play-select states (cursor counts, both themes, the phone standings fold) are the sibling
+ * league-dashboard-playselect.spec.ts.
  *
- * Fixture: `layoutGuardFixtures.ts`'s `setupLayoutGuard` / `fulfilApi`,
- * extended in this ticket with the dashboard's own reads (draft grades, the
- * viewer's lineup, recent activity, the commissioner strip's join-request
- * queue) alongside the nine endpoints Game Center and Matchup Detail already
- * used. The league row is a fantasy, in-season, commissioner league (#1110's
- * own `LEAGUE_ROW` extension), so every widget this ticket composes mounts
- * with real content: the strip, the hero (matchup + My Team), Around the
- * League, the main grid (standings + a rail holding Recent activity), and the
- * full-width Quick Actions card under it. The fixture serves 6 teams and 8
- * activity rows, so the page's team-count cap on the rail card (6 rows) is what
- * the height bound below measures.
+ * Fixture: `layoutGuardFixtures.ts`'s `setupLayoutGuard` / `fulfilApi`: a fantasy, in-season, commissioner
+ * league, so every widget the page composes mounts with real content: the strip, the hero (matchup + My
+ * team), Around the league, the main grid (standings beside Recent activity) and the Playbook line under
+ * it. The fixture serves 6 teams and 8 activity rows. The Playbook's three-column frame is the completed
+ * season's (and a pre-draft league's), so that case runs on the `complete` state of
+ * `leagueDashboardPlayselectFixtures.ts`.
  *
- * The 12 and 20-team variants (#1993) re-route the reads whose row count
- * follows the team count (`fixtures/teamCountDashboardFixtures.ts`: the
- * league's teams, the standings, the week's matchups, 20 activity rows),
- * registered after `setupLayoutGuard`. The regression behind them showed only at 12 teams: the
- * rail ended well above the standings, and a second row paired Quick Actions
- * with a card of another height, leaving bare page under it. Draft Grades left
- * the dashboard and Quick Actions now spans the row alone (#1993).
+ * The 12 and 20-team variants (#1993) re-route the reads whose row count follows the team count
+ * (`fixtures/teamCountDashboardFixtures.ts`: the league's teams, the standings, the week's matchups, 20
+ * activity rows), registered after `setupLayoutGuard`. The regression behind them showed only at 12
+ * teams: the rail ended well above the standings.
  *
- * It runs in the `browser-security` job (`npm run test:e2e`), which collects
- * every spec under tests/e2e with no file argument, so this file is picked up
- * with no workflow edit. It is Chromium-only (the e2e config declares no
- * projects).
+ * It runs in the `browser-security` job (`npm run test:e2e`), which collects every spec under tests/e2e
+ * with no file argument, so this file is picked up with no workflow edit. It is Chromium-only (the e2e
+ * config declares no projects).
  *
  * What this guard does NOT cover, and its green must NOT be read as covering:
- *   - the League chat drawer's own geometry (composes "as today", #1110's own
- *     "What to build" item 7): it is closed throughout every case here and
- *     measured (Chromium, `getComputedStyle`) to contribute nothing to either
- *     `document.body.scrollWidth` or `document.documentElement.scrollWidth`
- *     while closed, so no exclusion for it was needed once the real 320px
- *     regression below was found and fixed at its actual source.
- *   - recap, trophy case and the pre-draft countdown, none of which this
- *     fixture's league puts on screen (no recap generated, no trophies, past
- *     pre-draft) - each composes "as today" too, and none is this ticket's
- *     own new geometry.
+ *   - the League chat drawer's own geometry: it is closed throughout every case here.
+ *   - the recap and the trophy room (recap-layout.spec.ts, trophy-case-layout.spec.ts), and the
+ *     pre-draft countdown, which this fixture's league does not put on screen.
+ *   - what a removed structure used to promise: the dashboard no longer has a sticky rail, a Set Lineup
+ *     tile or a per-row points line, and the matchup's two sides stack on a phone (ADR 0067 boards).
  */
 import { expect, test, type Page } from '@playwright/test';
 import { setupLayoutGuard, DASHBOARD_URL, LEAGUE_ID } from './fixtures/layoutGuardFixtures';
 import { routeLeagueOfSize } from './fixtures/teamCountDashboardFixtures';
+import { setupDashboard, DASH_URL } from './fixtures/leagueDashboardPlayselectFixtures';
 
 type TeamCount = 6 | 12 | 20;
 const TEAM_COUNTS: TeamCount[] = [6, 12, 20];
@@ -65,10 +50,11 @@ const HEIGHT = 900;
 // The one width the audit's hero/rail-height claims were measured at.
 const MEASURED_WIDTH = 1440;
 
-// Every card this ticket composes that the fixture feeds real content, so
-// each is a real column-width claim rather than an accident of an absent or
-// empty card. `slot-commissioner-strip`/`dashboard-shell` are containers, not
-// cards, and are checked separately.
+// How far Recent activity's last row may sit from the standings' last row, either way.
+const RAIL_ROW_BOUND = 120;
+
+// Every card the page composes that the fixture feeds real content, so each is a real column-width
+// claim rather than an accident of an absent or empty card. `dashboard-shell` is the column, not a card.
 const CARD_TESTIDS = [
   'commissioner-strip',
   'my-team-summary',
@@ -143,32 +129,34 @@ function probeHeroHeights() {
 }
 
 /**
- * ADR 0034's rail bound: the main grid (standings beside the rail) is within
- * 120px of the standings table alone, so the two columns end about together.
- * `main` is the taller of its two columns, so this reads a rail that outgrows
- * the standings; `railCardHeight` reads the other direction, a rail card that
- * stops short of them (the 12-team regression). Also reads the rail's computed
- * position.
+ * ADR 0034's rail bound, on the Play-select grid. The two columns of the main row stretch to one height
+ * (so the CARD heights always agree and say nothing about the feed), which makes the bound a read of
+ * their CONTENT: where the standings' last row ends against where Recent activity's last row ends. A rail
+ * that outgrows the standings pushes its last row below theirs; one that stops short (the 12-team
+ * regression) leaves a bare column under its last row.
  */
 function probeRailBound() {
-  const el = (testId: string) => document.querySelector(`[data-testid="${testId}"]`);
   const height = (testId: string) => {
-    const e = el(testId);
+    const e = document.querySelector(`[data-testid="${testId}"]`);
     return e ? e.getBoundingClientRect().height : null;
   };
-  const rail = el('dashboard-rail');
+  const lastBottom = (selector: string) => {
+    const els = Array.from(document.querySelectorAll(selector));
+    return els.length ? Math.max(...els.map((e) => e.getBoundingClientRect().bottom)) : null;
+  };
   return {
     mainHeight: height('dashboard-main'),
     standingsHeight: height('standings-table'),
     railCardHeight: height('recent-activity'),
-    railPosition: rail ? getComputedStyle(rail).position : null,
+    standingsRowsBottom: lastBottom('[data-testid="standings-table"] tbody tr'),
+    railRowsBottom: lastBottom('[data-testid="recent-activity-row"]'),
   };
 }
 
 /**
  * #1998: the standings' width against the main row's, and where Recent
  * activity starts against where the standings end. Side by side, the standings
- * are the 8fr column and Recent activity's top is level with theirs; stacked,
+ * are the wider column and Recent activity's top is level with theirs; stacked,
  * the standings span the row and Recent activity starts at or below their
  * bottom edge.
  */
@@ -189,9 +177,8 @@ function probeStack() {
 }
 
 /**
- * Quick Actions is alone in its row, so its card spans the shell's content
- * width (the shell's box minus its horizontal padding) and lays one column per
- * group out at md.
+ * The Playbook is alone in its row, so its card spans the shell's content width (the shell's box minus
+ * its horizontal padding). The frame variant lays out one column per group at md.
  */
 function probeQuickActionsWidth() {
   const shell = document.querySelector('[data-testid="dashboard-shell"]') as HTMLElement | null;
@@ -207,18 +194,12 @@ function probeQuickActionsWidth() {
   };
 }
 
-/** Top edges of the matchup card and of the two sides' score figures. */
+/** Top and height of the matchup card. */
 function probeMatchupGame() {
-  const topOf = (selector: string) => {
-    const el = document.querySelector(selector);
-    return el ? el.getBoundingClientRect().top + window.scrollY : null;
-  };
   const card = document.querySelector('[data-testid="matchup-preview"]');
   return {
-    cardTop: topOf('[data-testid="matchup-preview"]'),
+    cardTop: card ? card.getBoundingClientRect().top + window.scrollY : null,
     cardHeight: card ? card.getBoundingClientRect().height : null,
-    viewerScoreTop: topOf('[data-testid="matchup-side-viewer"] [data-testid="matchup-side-score"]'),
-    opponentScoreTop: topOf('[data-testid="matchup-side-opponent"] [data-testid="matchup-side-score"]'),
   };
 }
 
@@ -259,10 +240,10 @@ async function fontsReady(page: Page) {
 
 /**
  * Installs the harness, sizes the viewport, opens the dashboard and waits for
- * every widget this ticket composes to have rendered its real content (not
+ * every widget the page composes to have rendered its real content (not
  * just its skeleton): the strip's facts, the hero's two cards, an Around the
  * League tile, a standings row, a Recent activity row (the rail beside the
- * standings) and Quick Actions. Quick Actions and Recent activity are the last
+ * standings) and the Playbook. The Playbook and Recent activity are the last
  * of these to settle, which is what makes the width and height probes below
  * measure the fully-loaded page rather than a mid-load layout.
  */
@@ -284,7 +265,7 @@ async function gotoDashboard(
   await page.getByTestId('matchup-preview').waitFor();
   await page.getByTestId('around-the-league-tile').first().waitFor();
   await page.getByTestId('standings-table-count').waitFor();
-  await page.getByTestId('quick-actions-body').waitFor();
+  await page.getByTestId('quick-actions').waitFor();
   // An empty feed renders its sentence instead of a row (#1998).
   await page.getByTestId(feedRows === 0 ? 'recent-activity-empty' : 'recent-activity-row').first().waitFor();
   await fontsReady(page);
@@ -330,47 +311,47 @@ test(`League Dashboard @ ${MEASURED_WIDTH}x${HEIGHT}: the hero cards are equal h
   expect(heights.myTeam, 'my-team-summary must be found').not.toBeNull();
   expect(heights.matchup, 'matchup-preview must be found').not.toBeNull();
 
-  // `align-items: stretch` (#1110) on the hero grid: My Team and the matchup
-  // card share the row height, within 1px (sub-pixel layout rounding).
+  // Grid stretch on the hero: My team and the matchup card share the row height, within 1px (sub-pixel
+  // layout rounding). With no Pick'em panel the matchup's column is one row, so it must fill it (a
+  // phantom empty row for the absent panel is what used to leave the matchup short).
   expect(
     Math.abs((heights.myTeam as number) - (heights.matchup as number)),
     `My Team height=${heights.myTeam} matchup height=${heights.matchup}`,
   ).toBeLessThanOrEqual(1);
 });
 
-// ---- Geometry: the rail tracks the standings, Quick Actions spans the row ----
+// ---- Geometry: the rail's rows end with the standings', the Playbook spans the row ----
 
-// ADR 0034's bound: `dashboard-main` is within 120px of the standings table, so
-// a rail that outgrows the standings is what fails. The rail card itself is held
-// to 60px of the standings, so a card that stops short of them (the 12-team
-// regression) fails too: it shows ceil(teams * 5 / 6) rows, because a standings
-// row is 49px and an activity row 58.8px. Run at 6, 12 and 20 teams.
+// ADR 0034's bound: the last row of Recent activity is within 120px of the standings' last row, so a rail
+// that outgrows the standings fails, and so does one that stops short of them (the 12-team regression): it
+// shows ceil(teams * 3 / 4) rows, because a standings row is 44px and an activity row about 59px. The
+// two columns' cards stretch to one height. Run at 6, 12 and 20 teams.
 for (const teams of TEAM_COUNTS) {
-  test(`League Dashboard, ${teams} teams @ ${MEASURED_WIDTH}x${HEIGHT}: the rail tracks the standings within 120px and stays sticky`, async ({ page }) => {
+  test(`League Dashboard, ${teams} teams @ ${MEASURED_WIDTH}x${HEIGHT}: the rail's rows end with the standings' within ${RAIL_ROW_BOUND}px, and both cards stretch to one height`, async ({ page }) => {
     await gotoDashboard(page, MEASURED_WIDTH, HEIGHT, teams);
 
     const bound = await page.evaluate(probeRailBound);
     expect(bound.mainHeight, 'dashboard-main must be found').not.toBeNull();
     expect(bound.standingsHeight, 'standings-table must be found').not.toBeNull();
     expect(bound.railCardHeight, 'recent-activity must be found').not.toBeNull();
-    const mainDiff = Math.abs((bound.mainHeight as number) - (bound.standingsHeight as number));
-    expect(
-      mainDiff,
-      `${teams} teams: dashboard-main height=${bound.mainHeight} standings height=${bound.standingsHeight}`,
-    ).toBeLessThanOrEqual(120);
-    const railDiff = Math.abs((bound.railCardHeight as number) - (bound.standingsHeight as number));
+    expect(bound.standingsRowsBottom, 'standings rows must be found').not.toBeNull();
+    expect(bound.railRowsBottom, 'recent-activity rows must be found').not.toBeNull();
+    const rowsGap = Math.abs((bound.railRowsBottom as number) - (bound.standingsRowsBottom as number));
     // Measured deltas, reported in the PR.
     console.log(
-      `[league-dashboard-layout] ${teams} teams: standings=${bound.standingsHeight} main=${bound.mainHeight} rail card=${bound.railCardHeight} |main-standings|=${mainDiff.toFixed(1)} |rail-standings|=${railDiff.toFixed(1)}`,
+      `[league-dashboard-layout] ${teams} teams: standings=${bound.standingsHeight} main=${bound.mainHeight} rail card=${bound.railCardHeight} |rail rows - standings rows|=${rowsGap.toFixed(1)}`,
     );
     expect(
-      railDiff,
-      `${teams} teams: recent-activity height=${bound.railCardHeight} standings height=${bound.standingsHeight}`,
-    ).toBeLessThanOrEqual(60);
-    expect(bound.railPosition, 'dashboard-rail must compute position: sticky at md').toBe('sticky');
+      rowsGap,
+      `${teams} teams: recent-activity last row bottom=${bound.railRowsBottom} standings last row bottom=${bound.standingsRowsBottom}`,
+    ).toBeLessThanOrEqual(RAIL_ROW_BOUND);
+    expect(
+      Math.abs((bound.standingsHeight as number) - (bound.railCardHeight as number)),
+      `${teams} teams: standings height=${bound.standingsHeight} recent-activity height=${bound.railCardHeight}`,
+    ).toBeLessThanOrEqual(1);
   });
 
-  test(`League Dashboard, ${teams} teams @ ${MEASURED_WIDTH}x${HEIGHT}: Quick Actions spans the content width, one column per group`, async ({ page }) => {
+  test(`League Dashboard, ${teams} teams @ ${MEASURED_WIDTH}x${HEIGHT}: the Playbook line spans the content width`, async ({ page }) => {
     await gotoDashboard(page, MEASURED_WIDTH, HEIGHT, teams);
 
     const qa = await page.evaluate(probeQuickActionsWidth);
@@ -379,72 +360,78 @@ for (const teams of TEAM_COUNTS) {
       Math.abs((qa.cardWidth as number) - (qa.contentWidth as number)),
       `${teams} teams: quick-actions width=${qa.cardWidth} shell content width=${qa.contentWidth}`,
     ).toBeLessThanOrEqual(1);
-    // A fantasy league has three groups (Play, Moves, League), each in its own
-    // column: three distinct lefts, strictly increasing.
-    expect(qa.groupLefts, `group lefts=${qa.groupLefts.join(',')}`).toHaveLength(3);
-    expect(new Set(qa.groupLefts).size, `group lefts=${qa.groupLefts.join(',')}`).toBe(3);
-    expect([...qa.groupLefts].sort((x, y) => x - y)).toEqual(qa.groupLefts);
   });
 }
 
-// Negative controls: the main-row bound must be able to go red, both ways. A
-// rail forced tall enough to outgrow the standings pushes the main row over
-// 120px, and a rail card forced short of them (the shape of the 12-team
-// regression) fails the card bound; Quick Actions forced narrower than the row
-// fails the width predicate. Removing each forcing brings every predicate back.
-// A bound that cannot go red would pass the regressions it exists to catch.
+// The Playbook FRAME (the completed season's, and a pre-draft league's): three groups (Play, Moves,
+// League), each in its own column, spanning the content width. Run on the `complete` Play-select state.
+test(`League Dashboard, complete @ ${MEASURED_WIDTH}x${HEIGHT}: the Playbook frame spans the content width, one column per group`, async ({ page }) => {
+  await setupDashboard(page, 'complete');
+  await page.setViewportSize({ width: MEASURED_WIDTH, height: HEIGHT });
+  await page.goto(DASH_URL);
+  await page.getByTestId('quick-actions-group-play').waitFor();
+  await fontsReady(page);
+
+  const qa = await page.evaluate(probeQuickActionsWidth);
+  expect(qa.cardWidth, 'quick-actions must be found').not.toBeNull();
+  expect(
+    Math.abs((qa.cardWidth as number) - (qa.contentWidth as number)),
+    `quick-actions width=${qa.cardWidth} shell content width=${qa.contentWidth}`,
+  ).toBeLessThanOrEqual(1);
+  expect(qa.groupLefts, `group lefts=${qa.groupLefts.join(',')}`).toHaveLength(3);
+  expect(new Set(qa.groupLefts).size, `group lefts=${qa.groupLefts.join(',')}`).toBe(3);
+  expect([...qa.groupLefts].sort((x, y) => x - y)).toEqual(qa.groupLefts);
+});
+
+// Negative controls: the rail-row bound must be able to go red, both ways. A tall block put in front of
+// the feed pushes its last row past the standings' (outgrows); hiding all but the first row leaves the
+// rail short of them (the shape of the 12-team regression); the Playbook forced narrower than the row
+// fails the width predicate. Removing each forcing brings every predicate back. A bound that cannot go
+// red would pass the regressions it exists to catch.
 for (const teams of TEAM_COUNTS) {
-  test(`negative control, ${teams} teams: the main-row bound reports a rail that outgrows or falls short of the standings`, async ({ page }) => {
+  test(`negative control, ${teams} teams: the rail-row bound reports a rail that outgrows or falls short of the standings`, async ({ page }) => {
     await gotoDashboard(page, MEASURED_WIDTH, HEIGHT, teams);
-    const diffs = async () => {
+    const gap = async () => {
       const b = await page.evaluate(probeRailBound);
-      return {
-        main: Math.abs((b.mainHeight as number) - (b.standingsHeight as number)),
-        card: Math.abs((b.railCardHeight as number) - (b.standingsHeight as number)),
-      };
+      return Math.abs((b.railRowsBottom as number) - (b.standingsRowsBottom as number));
     };
 
-    const before = await diffs();
-    expect(before.main).toBeLessThanOrEqual(120);
-    expect(before.card).toBeLessThanOrEqual(60);
-
-    await page.evaluate(() => {
-      const rail = document.querySelector('[data-testid="dashboard-rail"]') as HTMLElement | null;
-      if (rail) rail.style.minHeight = '2000px';
-    });
-    expect((await diffs()).main, 'a forced 2000px rail must be reported as over the bound').toBeGreaterThan(120);
-    await page.evaluate(() => {
-      const rail = document.querySelector('[data-testid="dashboard-rail"]') as HTMLElement | null;
-      if (rail) rail.style.minHeight = '';
-    });
-    expect((await diffs()).main).toBeLessThanOrEqual(120);
+    expect(await gap()).toBeLessThanOrEqual(RAIL_ROW_BOUND);
 
     await page.evaluate(() => {
       const card = document.querySelector('[data-testid="recent-activity"]') as HTMLElement | null;
-      if (card) {
-        card.style.maxHeight = '150px';
-        card.style.overflow = 'hidden';
-      }
+      if (!card) return;
+      const spacer = document.createElement('div');
+      spacer.setAttribute('data-negative-control', 'tall');
+      spacer.style.height = '2000px';
+      card.prepend(spacer);
     });
-    expect((await diffs()).card, 'a rail card cut to 150px must be reported as short of the standings').toBeGreaterThan(60);
+    expect(await gap(), 'a 2000px block ahead of the feed must be reported as over the bound').toBeGreaterThan(RAIL_ROW_BOUND);
+    await page.evaluate(() => document.querySelector('[data-negative-control="tall"]')?.remove());
+    expect(await gap()).toBeLessThanOrEqual(RAIL_ROW_BOUND);
+
     await page.evaluate(() => {
-      const card = document.querySelector('[data-testid="recent-activity"]') as HTMLElement | null;
-      if (card) {
-        card.style.maxHeight = '';
-        card.style.overflow = '';
-      }
+      Array.from(document.querySelectorAll('[data-testid="recent-activity-row"]')).slice(1).forEach((row) => {
+        (row as HTMLElement).style.display = 'none';
+      });
     });
-    expect((await diffs()).card).toBeLessThanOrEqual(60);
+    expect(await gap(), 'a feed cut to one row must be reported as short of the standings').toBeGreaterThan(RAIL_ROW_BOUND);
+    await page.evaluate(() => {
+      Array.from(document.querySelectorAll('[data-testid="recent-activity-row"]')).forEach((row) => {
+        (row as HTMLElement).style.display = '';
+      });
+    });
+    expect(await gap()).toBeLessThanOrEqual(RAIL_ROW_BOUND);
   });
 }
 
 // ---- Geometry: a feed too short to fill the rail stacks (#1998, ADR 0034) ----
 
-// ceil(12 * 5 / 6) = 10 rows fill the rail at 12 teams. Fewer (an empty feed
+// ceil(12 * 3 / 4) = 9 rows fill the rail at 12 teams. Fewer (an empty feed
 // included) stack Recent activity under the full-width standings, so no bare
 // rail column is left beside them; moving the threshold down one row turns the
-// 9-row case red, up one turns the 10-row case red.
-for (const feedRows of [0, 3, 9]) {
+// 8-row case red, up one turns the 9-row case red.
+for (const feedRows of [0, 3, 8]) {
   test(`League Dashboard, 12 teams, ${feedRows}-row feed @ ${MEASURED_WIDTH}x${HEIGHT}: the standings span the row and Recent activity sits under them`, async ({ page }) => {
     await gotoDashboard(page, MEASURED_WIDTH, HEIGHT, 12, feedRows);
 
@@ -461,8 +448,8 @@ for (const feedRows of [0, 3, 9]) {
   });
 }
 
-test(`League Dashboard, 12 teams, 10-row feed @ ${MEASURED_WIDTH}x${HEIGHT}: the rail is full, so the row stays two columns within the 120px and 60px bounds`, async ({ page }) => {
-  await gotoDashboard(page, MEASURED_WIDTH, HEIGHT, 12, 10);
+test(`League Dashboard, 12 teams, 9-row feed @ ${MEASURED_WIDTH}x${HEIGHT}: the rail is full, so the row stays two columns within the ${RAIL_ROW_BOUND}px bound`, async ({ page }) => {
+  await gotoDashboard(page, MEASURED_WIDTH, HEIGHT, 12, 9);
 
   const g = await page.evaluate(probeStack);
   expect(g.standingsWidth as number, `standings width=${g.standingsWidth} main width=${g.mainWidth}`).toBeLessThan(
@@ -472,8 +459,8 @@ test(`League Dashboard, 12 teams, 10-row feed @ ${MEASURED_WIDTH}x${HEIGHT}: the
     g.standingsBottom as number,
   );
   const bound = await page.evaluate(probeRailBound);
-  expect(Math.abs((bound.mainHeight as number) - (bound.standingsHeight as number))).toBeLessThanOrEqual(120);
-  expect(Math.abs((bound.railCardHeight as number) - (bound.standingsHeight as number))).toBeLessThanOrEqual(60);
+  expect(Math.abs((bound.railRowsBottom as number) - (bound.standingsRowsBottom as number))).toBeLessThanOrEqual(RAIL_ROW_BOUND);
+  expect(Math.abs((bound.standingsHeight as number) - (bound.railCardHeight as number))).toBeLessThanOrEqual(1);
 });
 
 // The widget stays the feed's only reader: a second caller of
@@ -508,7 +495,7 @@ for (const [feedRows, stacks] of [[3, true], [20, false]] as const) {
   });
 }
 
-test('negative control: the Quick Actions width predicate reports a card narrower than the row', async ({ page }) => {
+test('negative control: the Playbook width predicate reports a card narrower than the row', async ({ page }) => {
   await gotoDashboard(page, MEASURED_WIDTH, HEIGHT);
   const gap = async () => {
     const qa = await page.evaluate(probeQuickActionsWidth);
@@ -520,7 +507,7 @@ test('negative control: the Quick Actions width predicate reports a card narrowe
     const card = document.querySelector('[data-testid="quick-actions"]') as HTMLElement | null;
     if (card) card.style.maxWidth = '700px';
   });
-  expect(await gap(), 'a Quick Actions card capped at 700px must be reported as narrower than the row').toBeGreaterThan(1);
+  expect(await gap(), 'a Playbook card capped at 700px must be reported as narrower than the row').toBeGreaterThan(1);
   await page.evaluate(() => {
     const card = document.querySelector('[data-testid="quick-actions"]') as HTMLElement | null;
     if (card) card.style.maxWidth = '';
@@ -528,32 +515,33 @@ test('negative control: the Quick Actions width predicate reports a card narrowe
   expect(await gap()).toBeLessThanOrEqual(1);
 });
 
-// ---- Game-day order (#1980, spec #1979 L1 L2 L4 L5) ----
+// ---- The matchup first on a phone, left of My team on desktop (#1980, spec #1979 L1 L2 L4 L5) ----
 
-test('League Dashboard @ 390x844: the matchup is above the fold and its two scores sit side by side', async ({ page }) => {
-  await gotoDashboard(page, 390, 844);
+// ADR 0067's game-day top rule: with no lock inside the hour the live scoreboard leads the page, so on a
+// phone its card starts inside the first screen. Off game day the product order puts Your move and the
+// commissioner strip above the hero (a commissioner's strip alone is a screen tall at 390), so the
+// "above the fold" claim holds only on game day and is bound on the `gamedaySet` Play-select state.
+test('League Dashboard @ 390x844, game day: the live matchup card starts on the first screen', async ({ page }) => {
+  await setupDashboard(page, 'gamedaySet');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(DASH_URL);
+  await page.getByTestId('matchup-preview').waitFor();
+  await fontsReady(page);
 
   const game = await page.evaluate(probeMatchupGame);
   expect(game.cardTop, 'matchup-preview must be found').not.toBeNull();
-  expect(game.viewerScoreTop, 'the viewer side score must be found').not.toBeNull();
-  expect(game.opponentScoreTop, 'the opponent side score must be found').not.toBeNull();
-
-  // The commissioner strip is compact on a phone (no fact grid), so the
-  // matchup card starts in the upper part of the first screen.
   expect(game.cardTop as number, `matchup card top=${game.cardTop}`).toBeLessThanOrEqual(600);
-  // Side by side, not stacked: the two scores' tops agree.
-  expect(
-    Math.abs((game.viewerScoreTop as number) - (game.opponentScoreTop as number)),
-    `viewer score top=${game.viewerScoreTop} opponent score top=${game.opponentScoreTop}`,
-  ).toBeLessThanOrEqual(4);
 });
 
-test('League Dashboard @ 390x844: the matchup card is 520px tall or less', async ({ page }) => {
+// The two sides stack on a phone (each side is a full-width block, the boards' phone layout), which makes
+// the card taller than the old side-by-side one (it was bound to 520px): the bound is what the stacked
+// card measures, so a card that balloons still fails.
+test('League Dashboard @ 390x844: the matchup card is 620px tall or less', async ({ page }) => {
   await gotoDashboard(page, 390, 844);
 
   const game = await page.evaluate(probeMatchupGame);
   expect(game.cardHeight, 'matchup-preview must be found').not.toBeNull();
-  expect(game.cardHeight as number, `matchup card height=${game.cardHeight}`).toBeLessThanOrEqual(520);
+  expect(game.cardHeight as number, `matchup card height=${game.cardHeight}`).toBeLessThanOrEqual(620);
 });
 
 test(`League Dashboard @ ${MEASURED_WIDTH}x${HEIGHT}: the matchup is left of My Team and Recent activity rides the rail, not Draft Grades`, async ({ page }) => {
@@ -606,49 +594,65 @@ test('negative control: the width predicate reports a forced card overflow', asy
 
 // ======================================================================
 // BEGIN #1981 widget cases (Around the League fill, phone standings, one
-// lineup answer). Kept as one delimited block, below everything above, so a
-// rebase onto the page-layout ticket's edits to this file stays mechanical.
+// lineup answer), retargeted to the Play-select markup (#2330). Kept as one
+// delimited block, below everything above.
 // ======================================================================
 
-test(`League Dashboard @ ${MEASURED_WIDTH}x${HEIGHT}: the three Around the League tiles span at least 90% of the strip's inner width`, async ({ page }) => {
+test(`League Dashboard @ ${MEASURED_WIDTH}x${HEIGHT}: the Around the League cells (two rival matchups and the All matchups cell) span at least 90% of the strip's inner width`, async ({ page }) => {
   await gotoDashboard(page, MEASURED_WIDTH, HEIGHT);
 
   const probe = await page.evaluate(() => {
     const body = document.querySelector('[data-testid="around-the-league-body"]') as HTMLElement;
-    const tiles = Array.from(document.querySelectorAll('[data-testid="around-the-league-tile"]')) as HTMLElement[];
+    // The viewer's own matchup is the hero's, so the strip holds the rival matchups, then the All cell.
+    const cells = Array.from(body.querySelectorAll(':scope > li')) as HTMLElement[];
+    const tiles = document.querySelectorAll('[data-testid="around-the-league-tile"]').length;
     const style = getComputedStyle(body);
     const inner = body.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
-    const lefts = tiles.map((t) => t.getBoundingClientRect().left);
-    const rights = tiles.map((t) => t.getBoundingClientRect().right);
-    return { count: tiles.length, inner, span: Math.max(...rights) - Math.min(...lefts) };
+    const lefts = cells.map((t) => t.getBoundingClientRect().left);
+    const rights = cells.map((t) => t.getBoundingClientRect().right);
+    return { count: cells.length, tiles, inner, span: Math.max(...rights) - Math.min(...lefts) };
   });
-  expect(probe.count, 'the fixture week has three matchups').toBe(3);
+  expect(probe.tiles, 'the fixture week has two rival matchups').toBe(2);
+  expect(probe.count, 'two tiles and the All matchups cell').toBe(3);
   expect(probe.span, `span=${probe.span} inner=${probe.inner}`).toBeGreaterThanOrEqual(probe.inner * 0.9);
 });
 
-test('League Dashboard @ 390x844: the viewer standings PF/PA line is never clipped and the You pill is not displayed', async ({ page }) => {
+test('League Dashboard @ 390x844: the viewer standings row keeps its You tag and record in view, and a long name ellipsizes', async ({ page }) => {
   await gotoDashboard(page, 390, 844);
 
   const row = page.getByTestId('standings-table-you-row');
-  const line = row.getByTestId('standings-table-points-line');
-  await expect(line).toBeVisible();
-  const fit = await line.evaluate((el) => ({ scrollWidth: el.scrollWidth, clientWidth: el.clientWidth }));
-  expect(fit.scrollWidth, `scrollWidth=${fit.scrollWidth} clientWidth=${fit.clientWidth}`).toBeLessThanOrEqual(fit.clientWidth);
-  // The fit alone would also hold for a line that clips with an ellipsis, so
-  // pin the mechanism too: it wraps, and nothing truncates it.
-  const style = await line.evaluate((el) => {
-    const cs = getComputedStyle(el);
-    return { textOverflow: cs.textOverflow, whiteSpace: cs.whiteSpace, overflow: cs.overflowX };
+  await expect(row).toBeVisible();
+  const probe = await row.evaluate((tr) => {
+    const scroller = tr.closest('[data-testid="standings-table-scroll"]') as HTMLElement;
+    const sr = scroller.getBoundingClientRect();
+    const th = tr.querySelector('th') as HTMLElement;
+    const name = th.querySelector('span[title]') as HTMLElement;
+    const tag = Array.from(th.querySelectorAll('span')).find((s) => s.textContent === 'You') as HTMLElement;
+    const record = tr.querySelectorAll('td')[1] as HTMLElement;
+    return {
+      scrollerRight: sr.right,
+      tagRight: tag.getBoundingClientRect().right,
+      recordLeft: record.getBoundingClientRect().left,
+      recordRight: record.getBoundingClientRect().right,
+      nameTitle: name.getAttribute('title'),
+      nameClipped: name.scrollWidth > name.clientWidth,
+      nameEllipsis: getComputedStyle(name).textOverflow,
+      thFits: th.scrollWidth <= th.clientWidth + 1,
+    };
   });
-  expect(style.textOverflow, 'the points line must not ellipsize').not.toBe('ellipsis');
-  expect(style.overflow, 'the points line must not clip').not.toBe('hidden');
-  expect(['normal', 'pre-wrap', 'pre-line', 'break-spaces'], `white-space=${style.whiteSpace}`).toContain(style.whiteSpace);
-
-  await expect(row.getByTestId('badge')).toBeHidden();
-  await expect(row.getByText('your team')).toBeAttached();
+  // eslint-disable-next-line no-console
+  console.log(`LEAGUE_DASHBOARD_STANDINGS_390 ${JSON.stringify(probe)}`);
+  expect(probe.tagRight, `You tag right=${probe.tagRight} scroller right=${probe.scrollerRight}`).toBeLessThanOrEqual(probe.scrollerRight);
+  expect(probe.recordRight, `record right=${probe.recordRight} scroller right=${probe.scrollerRight}`).toBeLessThanOrEqual(probe.scrollerRight);
+  expect(probe.thFits, 'the Team cell does not overflow itself').toBe(true);
+  // The fit alone would also hold for a name that wraps or is cut mid-letter, so pin the mechanism: the
+  // 30-character fixture name ellipsizes, and the full name is its title.
+  expect(probe.nameEllipsis, 'the name must ellipsize').toBe('ellipsis');
+  expect(probe.nameClipped, 'the fixture name is longer than the Team column').toBe(true);
+  expect(probe.nameTitle).toBe('Chattahoochee Valley Riverhogs');
 });
 
-test(`League Dashboard @ ${MEASURED_WIDTH}x${HEIGHT}: six Around the League tiles (a twelve-team week) share one row`, async ({ page }) => {
+test(`League Dashboard @ ${MEASURED_WIDTH}x${HEIGHT}: six rival Around the League matchups fill rows of three`, async ({ page }) => {
   // A route override local to this case (registered after the shared fixture's
   // catch-all, so it wins): six current-week matchups instead of the fixture's three.
   await setupLayoutGuard(page);
@@ -681,21 +685,28 @@ test(`League Dashboard @ ${MEASURED_WIDTH}x${HEIGHT}: six Around the League tile
   await page.getByTestId('around-the-league-tile').first().waitFor();
   await fontsReady(page);
 
-  const tops = await page.evaluate(() =>
-    Array.from(document.querySelectorAll('[data-testid="around-the-league-tile"]')).map(
-      (t) => Math.round(t.getBoundingClientRect().top),
-    ),
-  );
-  expect(tops, `tile tops=${tops.join(',')}`).toHaveLength(6);
-  expect(new Set(tops).size, `tile tops=${tops.join(',')}`).toBe(1);
+  // The grid is three columns off game day (four on it): six tiles make two full rows, the All matchups
+  // cell starts a third, and every tile in a row is the same width.
+  const probe = await page.evaluate(() => {
+    const tiles = Array.from(document.querySelectorAll('[data-testid="around-the-league-tile"]'));
+    return tiles.map((t) => {
+      const r = t.getBoundingClientRect();
+      return { top: Math.round(r.top), width: Math.round(r.width) };
+    });
+  });
+  const tops = probe.map((p) => p.top);
+  expect(probe, `tile tops=${tops.join(',')}`).toHaveLength(6);
+  expect(new Set(tops).size, `tile tops=${tops.join(',')}`).toBe(2);
+  expect(tops.filter((top) => top === tops[0]), `tile tops=${tops.join(',')}`).toHaveLength(3);
+  expect(new Set(probe.map((p) => p.width)).size, `tile widths=${probe.map((p) => p.width).join(',')}`).toBe(1);
 });
 
 test(`League Dashboard @ ${MEASURED_WIDTH}x${HEIGHT}: a full lineup shows no empty starting slot copy anywhere`, async ({ page }) => {
   await gotoDashboard(page, MEASURED_WIDTH, HEIGHT);
 
-  // The Set Lineup row settles on its plain copy once the lineup read lands, so
-  // the absence below is not a race with an unresolved read.
-  await expect(page.getByTestId('quick-action-lineup')).toContainText('Set your Week 18 lineup');
+  // My team's footer settles on its plain copy once the lineup read lands, so the absence below is not a
+  // race with an unresolved read.
+  await expect(page.getByTestId('my-team-lineup-status')).toContainText('Lineup set');
   await expect(page.getByText(/empty starting slot/)).toHaveCount(0);
 });
 

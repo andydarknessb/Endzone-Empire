@@ -6,6 +6,7 @@ import { visuallyHidden } from '@mui/utils';
 import { buildDraftIcs, draftTimezoneDetail, formatViewerLocalSchedule } from '../../lib/draftTimeFormat';
 import { MIN_TOUCH_TARGET_SX } from '../../shared/lib/a11y';
 import { timeUntil } from '../../shared/lib/timeUntil';
+import { PsButton, pixelSx } from '../../shared/ui/playselect';
 
 const MINUTE_MS = 60 * 1000;
 
@@ -61,6 +62,32 @@ function CountdownTicker({ targetTime, prefix = undefined, variant, detail = '',
 
   const { text } = untilText(targetTime, remainingMs);
 
+  // The League Dashboard's Play-select look: the two leading units, each in a Pixel 32 block.
+  if (variant === 'blocks') {
+    return (
+      <Box role="group" aria-label={`${prefix} ${text}`} sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '12px' }}>
+        <Box component="span" aria-hidden="true" sx={pixelSx(24)}>{prefix}</Box>
+        {text.split(' ').map((part) => (
+          <Box
+            key={part}
+            component="span"
+            aria-hidden="true"
+            sx={{
+              padding: '12px 16px',
+              boxSizing: 'border-box',
+              border: '2px solid var(--ps-frame)',
+              backgroundColor: 'var(--ps-field)',
+              ...pixelSx(32),
+              lineHeight: 1.2,
+            }}
+          >
+            {part}
+          </Box>
+        ))}
+      </Box>
+    );
+  }
+
   if (variant === 'chip') {
     const chip = <Chip size="small" label={`⏱ ${text}`} />;
     // The chip variant is compact enough that the hover/tap detail (#117
@@ -78,7 +105,7 @@ function CountdownTicker({ targetTime, prefix = undefined, variant, detail = '',
 CountdownTicker.propTypes = {
   targetTime: PropTypes.number.isRequired,
   prefix: PropTypes.string,
-  variant: PropTypes.oneOf(['chip', 'full']).isRequired,
+  variant: PropTypes.oneOf(['chip', 'full', 'blocks']).isRequired,
   detail: PropTypes.string,
   onExpire: PropTypes.func.isRequired,
 };
@@ -229,6 +256,23 @@ function Countdown({
     );
   }
 
+  if (variant === 'blocks') {
+    return (
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: '16px', alignItems: 'flex-start' }}>
+        <CountdownTicker targetTime={targetTime} prefix={prefix} variant="blocks" onExpire={handleExpire} />
+        {showScheduleDetail && (
+          <Tooltip title={detail} enterTouchDelay={0}>
+            <Box component="p" tabIndex={0} sx={{ m: 0, fontSize: '17px', cursor: 'help' }}>{viewerSchedule}</Box>
+          </Tooltip>
+        )}
+        {showScheduleDetail && leagueId != null && leagueName && (
+          <PsButton variant="ghost" onClick={handleDownloadIcs}>Add to calendar</PsButton>
+        )}
+        <CountdownAnnouncer targetTime={targetTime} eventLabel={eventLabel} enabled={announce} />
+      </Box>
+    );
+  }
+
   if (variant === 'inline') {
     return (
       <Box
@@ -283,7 +327,7 @@ function Countdown({
 Countdown.propTypes = {
   date: PropTypes.string,
   prefix: PropTypes.string,
-  variant: PropTypes.oneOf(['chip', 'full', 'inline']),
+  variant: PropTypes.oneOf(['chip', 'full', 'inline', 'blocks']),
   timeZone: PropTypes.string,
   leagueName: PropTypes.string,
   leagueId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),

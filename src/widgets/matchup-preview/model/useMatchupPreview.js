@@ -5,6 +5,7 @@ import {
   viewerMatchupOf,
   matchupFromDetailBody,
   matchupBoard,
+  applyScoreEvent,
 } from '../../../entities/matchup';
 
 /**
@@ -124,7 +125,9 @@ import {
 // BEFORE reading `detail.status`), so the "idles at 'loading'" notes throughout
 // this hook refer to that shared contract. See src/shared/lib/useEndpoint.js.
 
-export function useMatchupPreview(leagueId) {
+// `scoreEvent` (optional) is the League's last `scores:updated` event, read once by the page: it moves the
+// viewer's matchup (scores, Expected finals, players remaining, status) without a re-read.
+export function useMatchupPreview(leagueId, { scoreEvent } = {}) {
   const { teams, viewerTeamId, league } = useLeague(leagueId);
   const week = league?.current_week ?? null;
 
@@ -138,7 +141,11 @@ export function useMatchupPreview(leagueId) {
   // Pick the viewer's matchup by Team id (#112). The rows are already the one
   // Matchup shape (entities/matchup), so this widget never names a database
   // column again (#864).
-  const myMatchup = viewerMatchupOf(list.matchups, viewerTeamId);
+  const listMatchup = viewerMatchupOf(list.matchups, viewerTeamId);
+  const liveEntry = Array.isArray(scoreEvent?.scored)
+    ? scoreEvent.scored.find((entry) => listMatchup && entry.matchupId === listMatchup.id)
+    : null;
+  const myMatchup = liveEntry ? applyScoreEvent(listMatchup, liveEntry) : listMatchup;
   const matchupId = myMatchup ? myMatchup.id : null;
   const opponentId = myMatchup
     ? myMatchup.home.teamId === viewerTeamId
@@ -269,12 +276,21 @@ export function useMatchupPreview(leagueId) {
     return raw != null ? raw.toFixed(1) : null;
   };
 
+  // A started Matchup's Expected final, to one decimal: the live screen's per-side figure (the list
+  // row carries it while the week is live; it is null once the Matchup settles, by design).
+  const expectedFinalFor = (teamId) => {
+    if (hasStarted !== true || board.settled) return null;
+    const raw = finite(sideOf(teamId)?.expectedFinal);
+    return raw != null ? raw.toFixed(1) : null;
+  };
+
   const viewer =
     status === 'ready'
       ? {
           ...identityFor(viewerTeamId),
           projected: projectedFor(viewerTeamId),
           score: scoreFor(viewerTeamId),
+          expectedFinal: expectedFinalFor(viewerTeamId),
           playersRemaining: finite(sideOf(viewerTeamId)?.playersRemaining),
         }
       : null;
@@ -284,6 +300,7 @@ export function useMatchupPreview(leagueId) {
           ...identityFor(opponentId),
           projected: projectedFor(opponentId),
           score: scoreFor(opponentId),
+          expectedFinal: expectedFinalFor(opponentId),
           playersRemaining: finite(sideOf(opponentId)?.playersRemaining),
         }
       : null;
@@ -309,6 +326,15 @@ export function useMatchupPreview(leagueId) {
     const clamped = Math.max(0, Math.min(1, Number(raw) || 0));
     const viewerPct = Math.round(clamped * 100);
     winProbability = { viewerShare: clamped, viewerPct, opponentPct: 100 - viewerPct };
+  }
+
+  // The pre-kickoff win probability (the board's projected one), from the viewer's side, for the
+  // League Dashboard's Play-select versus panel; null once the Matchup has started.
+  let projectedWinProbability = null;
+  if (status === 'ready' && board.projectedWinProbability) {
+    const shares = board.projectedWinProbability;
+    const raw = board.viewerSide === 'home' ? shares.home : shares.away;
+    projectedWinProbability = { viewerPct: Math.round(Math.max(0, Math.min(1, Number(raw) || 0)) * 100) };
   }
 
   // The one caption before kickoff: which way the projections lean and by how
@@ -344,8 +370,10 @@ export function useMatchupPreview(leagueId) {
     chipVariant: chip?.variant ?? 'neutral',
     chipDot: chip?.dot ?? false,
     winProbability,
+    projectedWinProbability,
     projectedMargin,
     kickoffLabel,
+    isLive: board.isLive,
   };
 
   // aria-busy while a layout-holding read is in flight: the list spine, and
@@ -357,7 +385,9 @@ export function useMatchupPreview(leagueId) {
   const busy =
     status === 'loading' || (status === 'ready' && detailCanAnswer && detail.status === 'loading');
 
-  return { week, status, busy, matchupId, viewer, opponent, game, narrative: myMatchup?.narrative ?? null };
+  return {
+    week, status, busy, matchupId, viewer, opponent, game, narrative: myMatchup?.narrative ?? null, refetch: list.refetch,
+  };
 }
 
 export default useMatchupPreview;
