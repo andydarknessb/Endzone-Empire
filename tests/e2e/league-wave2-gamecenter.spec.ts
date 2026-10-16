@@ -154,7 +154,7 @@ test('phone: scrolled past the hero, a compact scoreboard no taller than 56px pi
 });
 
 // The margin line is nowrap beside the Live chip: a long team name must clip with an ellipsis, not run under it.
-for (const width of [360, 390]) {
+for (const width of [360, 390, 600, 640]) {
   test(`phone ${width}: the compact scoreboard's margin text clips before the Live chip`, async ({ page }) => {
     await openGameCenter(page, 'live', 'phone', 'dark');
     await page.setViewportSize({ width, height: 844 });
@@ -167,6 +167,7 @@ for (const width of [360, 390]) {
     expect(m.paintedRight, `"${m.text}" paints to ${m.paintedRight}, the Live chip starts at ${m.chipLeft}`).toBeLessThanOrEqual(m.chipLeft);
     expect(m.overflow, 'the margin span clips').toBe('hidden');
     expect(m.textOverflow, 'and ends in an ellipsis').toBe('ellipsis');
+    expect(m.scoreLines, 'the scores stay on one line').toBe(1);
   });
 }
 

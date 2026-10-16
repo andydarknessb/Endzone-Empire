@@ -500,7 +500,7 @@ function Shell({ children, chatLauncher = false }) {
           boxSizing: 'border-box',
           px: { xs: '16px', sm: '32px' },
           pt: { xs: '24px', sm: '40px' },
-          // 56px button at bottom: 24 is 80px of the viewport at full scroll; 96 leaves the last frame 16px clear.
+          // The launcher takes 80px of the viewport (56 + 24) and the page keeps 8px clear, so 88px minimum; 96 is the padding.
           pb: chatLauncher ? '96px' : { xs: '24px', sm: '64px' },
           display: 'flex',
           flexDirection: 'column',

@@ -135,8 +135,8 @@ test('phone around the league: a long one-word team name never runs under the sc
   }
 });
 
-// The chat launcher is a fixed 56px button 24px off the corner (88px of the viewport at full scroll). The last frame
-// must end above it with 8px to spare, and the page must reserve that room itself: the app footer below the shell
+// The chat launcher is a fixed 56px button 24px off the corner: it takes 80px of the viewport at full scroll. The last
+// frame must end above it with 8px to spare (88px minimum; the page pads 96), and the page must reserve that room itself: the app footer below the shell
 // gives clearance today, but the page does not own the footer.
 for (const state of ['inseason', 'gamedayUrgent', 'complete', 'predraft', 'pickemonly'] as const) {
   for (const viewport of ['phone', 'desktop'] as const) {

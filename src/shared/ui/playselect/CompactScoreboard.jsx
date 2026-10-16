@@ -45,11 +45,11 @@ export function CompactScoreboard({
     >
       <Box component="span" sx={SR_ONLY_SX}>{sentence}</Box>
       <Box aria-hidden="true" sx={{ minWidth: 0, display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, gap: '2px' }}>
-        <span>
+        <Box component="span" sx={{ flexShrink: 0, whiteSpace: 'nowrap' }}>
           {score(a, lead === 'a')}
           <Box component="span" sx={DOT_SX}> · </Box>
           {score(b, lead === 'b')}
-        </span>
+        </Box>
         {/* Clipped, not wrapped: the bar is 56px and the Live chip sits beside it; the sentence above carries the full text. */}
         <Box component="span" sx={{ display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
           <Box component="span" sx={{ ...DOT_SX, display: { xs: 'none', sm: 'inline' } }}> · </Box>
