@@ -1,60 +1,43 @@
-import React from 'react';
-import { Avatar, Box, IconButton, Tooltip, Typography, useMediaQuery, useTheme } from '@mui/material';
-import { visuallyHidden } from '@mui/utils';
-import { Badge, GameStateChip, InjuryTag, PosChip, injuryView } from '../../../shared/ui';
+import React, { useState } from 'react';
+import { Box, useMediaQuery, useTheme } from '@mui/material';
 import {
   formatPoints,
   hasNoHistory,
   initialsFor,
-  monogramInk,
   projectionLabel,
-  MIN_TOUCH_TARGET_SX,
-  NFL_TEAM_COLORS,
-  FALLBACK_KIT,
   BACKUP_LABEL,
   startVerdictReason,
 } from '../../../shared/lib';
 import { PlayerNameLink } from '../../../entities/player';
 import { locked, spent, unavailable as isUnavailable, unavailableLabel } from '../../../entities/roster';
+import { SR_ONLY_SX } from '../../../shared/ui/playselect';
+import {
+  Glyph, InjuryCode, SrOnly, WordTag,
+} from '../../../shared/ui/playselect/LineupParts';
 import EdgeLineIcon from '../lib/EdgeLineIcon';
 import { edgeLineColor, displayEdgeKind } from '../lib/edgeLine';
 import { gameCellView } from '../lib/gameCell';
 
-// A closed padlock: AC3, "locked rows show a lock, not a chip" - a small
-// inline glyph beside the name rather than the legacy page's "LOCKED" chip.
-function LockIcon() {
+const LOCKED_TEXT = "Locked: this player's game has kicked off";
+
+// A closed padlock: "locked rows show a lock, not a chip" (AC3): a small pictogram beside the name.
+function LockMark() {
   return (
-    <svg
-      width={13}
-      height={13}
-      viewBox="0 0 20 20"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.7}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      focusable="false"
-      style={{ display: 'block', flex: 'none' }}
+    <Box
+      component="span"
+      role="img"
+      aria-label={LOCKED_TEXT}
+      data-testid="ledger-lock-icon"
+      sx={{ display: 'inline-flex', alignItems: 'center', flex: 'none' }}
     >
-      <rect x="5" y="9" width="10" height="7" rx="1.5" />
-      <path d="M7 9V6.5a3 3 0 0 1 6 0V9" />
-    </svg>
+      <Glyph kind="lock" />
+    </Box>
   );
 }
 
-// The Situation line (CONTEXT.md's Situation; ADR 0037 ticket 9, #1241 AC1;
-// last play added #1292): possession, down/distance and the last play under
-// the live state chip, in that order, with a red zone marker when the flag
-// is set. Fields that are null are omitted entirely (never rendered as the
-// literal word "null"); the line itself renders nothing when none of
-// possession, down/distance or last play is known yet and the red zone flag
-// is false - a live game with no Situation data yet degrades to the
-// clock/score chip alone rather than an empty line. Pushing `lastPlay` into
-// `parts` (rather than appending after this guard) means a row carrying only
-// a last play - no possession, no down/distance, red zone false - still
-// renders the line, and the existing `parts.join(' · ')` below gives it the
-// same middot separator with no separator at all for a single part.
+// The Situation line (CONTEXT.md's Situation; ADR 0037 ticket 9, #1241 AC1; last play added #1292):
+// possession, down/distance and the last play under the live state, in that order, with an RZ mark when the
+// red zone flag is set. A null field is omitted; the line renders nothing when there is nothing to say.
 function SituationLine({ possession, downDistance, lastPlay, redZone }) {
   const parts = [];
   if (possession) parts.push(`${possession} ball`);
@@ -62,17 +45,10 @@ function SituationLine({ possession, downDistance, lastPlay, redZone }) {
   if (lastPlay) parts.push(lastPlay);
   if (parts.length === 0 && !redZone) return null;
   return (
-    <Box
-      data-testid="ledger-situation-line"
-      sx={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '10.5px', color: 'var(--dash-faint)' }}
-    >
+    <Box data-testid="ledger-situation-line" sx={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}>
       {parts.length > 0 && <span>{parts.join(' · ')}</span>}
       {redZone && (
-        <Box
-          component="span"
-          data-testid="ledger-red-zone-marker"
-          sx={{ fontSize: '9px', fontWeight: 700, letterSpacing: '0.03em', color: 'var(--dash-danger)' }}
-        >
+        <Box component="span" data-testid="ledger-red-zone-marker" sx={{ fontWeight: 700, letterSpacing: '.04em' }}>
           RZ
         </Box>
       )}
@@ -80,149 +56,141 @@ function SituationLine({ possession, downDistance, lastPlay, redZone }) {
   );
 }
 
-// The Game cell (see ../lib/gameCell.js), rendered as one GameStateChip plus
-// (while live) the Situation line beneath it. `view` is computed once by the
-// caller (LedgerRow, below) so the same read also drives the points cell's
-// live colour and the Edge line's kind transition (AC2/AC3) without a second
-// call to gameCellView. `align` is the cell's horizontal edge: `flex-end`
-// as its own column from `sm`, `flex-start` inside the info block below it.
-function GameCell({ view, align = 'flex-end' }) {
+const upperFirst = (text) => (text ? `${text[0].toUpperCase()}${text.slice(1)}` : text);
+
+// The Game cell (see ../lib/gameCell.js) as two lines: the state, then (pre-kickoff) the line and weather
+// or (live) the situation. `view` is computed once by the caller so the same read also drives the Edge
+// line's kind transition (AC2/AC3).
+function GameCell({ view, dim }) {
   if (!view) return null;
+  const stateSx = { fontSize: '14px', fontWeight: 600, whiteSpace: 'nowrap', minWidth: 0 };
+  const lineSx = { fontSize: '13px', color: dim, minWidth: 0 };
   if (view.kind === 'unavailable') {
-    // The chip's own state names the reason (bye/out/ir), never a blanket
-    // "bye" for every Unavailable cause (formal review finding
-    // game-state-chip-bye-for-every-unavailable-reason).
-    const state = view.reason === 'bye' ? 'bye' : 'unavailable';
-    return <GameStateChip state={state} data-testid="ledger-game-cell">{view.reasonLabel || 'unavailable'}</GameStateChip>;
+    return (
+      <Box
+        data-testid="ledger-game-cell"
+        data-game-state={view.reason === 'bye' ? 'bye' : 'unavailable'}
+        sx={{
+          display: 'inline-flex', alignItems: 'center', boxSizing: 'border-box', minHeight: '28px', padding: '0 8px', border: '2px solid var(--ps-rule)', ...stateSx, whiteSpace: 'normal',
+        }}
+      >
+        {upperFirst(view.reasonLabel || 'unavailable')}
+      </Box>
+    );
   }
   if (view.kind === 'pre') {
     const label = view.opponent ? `vs ${view.opponent}${view.kickoff ? ` · ${view.kickoff}` : ''}` : (view.kickoff || 'Bye');
-    // The Line/weather faint second line (#1329, ADR 0037): text only, no
-    // glyph (Ruling: "the glyph is not in this ticket - none exists"),
-    // rendered under the chip only when either piece has something to show.
+    // The Line and weather second line (#1329, ADR 0037): text only.
     const detail = [view.lineText, view.weatherText].filter(Boolean).join(' · ');
     return (
-      <Box sx={{ display: 'grid', justifyItems: align, gap: '2px', minWidth: 0 }}>
-        <GameStateChip state="pre" data-testid="ledger-game-cell">{label}</GameStateChip>
-        {detail && (
-          <Typography
-            component="span"
-            data-testid="ledger-game-detail"
-            sx={{ fontSize: '10.5px', color: 'var(--dash-faint)' }}
-          >
-            {detail}
-          </Typography>
-        )}
+      <Box sx={{ minWidth: 0 }}>
+        <Box data-testid="ledger-game-cell" data-game-state="pre" sx={stateSx}>{label}</Box>
+        {detail && <Box data-testid="ledger-game-detail" sx={lineSx}>{detail}</Box>}
       </Box>
     );
   }
   if (view.kind === 'live') {
     const score = view.teamScore != null && view.opponentScore != null ? `${view.teamScore}-${view.opponentScore} · ` : '';
     return (
-      <Box sx={{ display: 'grid', justifyItems: align, gap: '2px', minWidth: 0 }}>
-        <GameStateChip state="live" data-testid="ledger-game-cell">{`${score}${view.trailing}`}</GameStateChip>
-        <SituationLine possession={view.possession} downDistance={view.downDistance} lastPlay={view.lastPlay} redZone={view.redZone} />
+      <Box sx={{ minWidth: 0 }}>
+        <Box data-testid="ledger-game-cell" data-game-state="live" sx={{ ...stateSx, display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+          <Box component="span" aria-hidden="true" sx={{ width: '8px', height: '8px', flex: 'none', backgroundColor: 'var(--ps-accent)' }} />
+          <SrOnly>Live, </SrOnly>
+          {`${score}${view.trailing}`}
+        </Box>
+        <Box sx={lineSx}>
+          <SituationLine possession={view.possession} downDistance={view.downDistance} lastPlay={view.lastPlay} redZone={view.redZone} />
+        </Box>
       </Box>
     );
   }
-  // "Final" always carries the word, not just the chip's colour (a final
-  // state must not be distinguishable by colour/absence alone, matching the
-  // "pre" and "live" states, which both carry a word of their own).
+  // "Final" always carries the word, so a final state is never told by absence alone.
   const score = view.teamScore != null && view.opponentScore != null ? `Final ${view.teamScore}-${view.opponentScore}` : 'Final';
-  return <GameStateChip state="final" data-testid="ledger-game-cell">{score}</GameStateChip>;
+  return <Box data-testid="ledger-game-cell" data-game-state="final" sx={stateSx}>{score}</Box>;
 }
 
-// The Edge line (CONTEXT.md's Edge line): one icon, one line of text, in the
-// kind's own colour. Renders nothing for `none` or a missing edge, per
-// `computeEdgeLine`'s own contract (server/services/lineup.service.js).
+// The Edge line (CONTEXT.md's Edge line): one pictogram and one line of text, in Ink or Dim. Renders
+// nothing for `none` or a missing edge, per `computeEdgeLine`'s own contract.
 //
-// `gameCellKind` (#1241 AC3, ADR 0037 ticket 9) is the same `view.kind`
-// computed once for the Game cell: `displayEdgeKind` (../lib/edgeLine.js)
-// transitions the server's own `pace`/`result` kind instantly with the
-// live game's own state, so the icon/colour and `data-edge-kind` never lag
-// a live-to-final transition the Realtime channel already knows about,
-// even though the server's own `edge.text` only refreshes on the next
-// lineup fetch.
+// `gameCellKind` (#1241 AC3, ADR 0037 ticket 9) is the same `view.kind` computed once for the Game cell:
+// `displayEdgeKind` transitions the server's `pace`/`result` kind instantly with the live game's state.
 function EdgeLine({ edge, gameCellKind, noHistory }) {
   if (!edge || edge.kind === 'none' || !edge.text) return null;
   // No "Outprojects" comparison with a Position-baseline projection (#1776).
-  // The server already declines to build one for either side; this row-side
-  // guard keeps a stale or hand-built edge from printing one on this row.
   if (noHistory && edge.kind === 'bench-above-starter') return null;
   const kind = displayEdgeKind(edge.kind, gameCellKind);
   return (
     <Box
       data-testid="ledger-edge-line"
       data-edge-kind={kind}
-      sx={{ display: 'flex', alignItems: 'center', gap: '5px', mt: '2px', color: edgeLineColor(kind) }}
+      sx={{ display: 'flex', alignItems: 'flex-start', gap: '6px', fontSize: '13px', fontWeight: 600, color: edgeLineColor(kind) }}
     >
       <EdgeLineIcon kind={kind} />
-      <Typography component="span" sx={{ fontSize: '11.5px', fontWeight: 600, lineHeight: 1.3 }}>
-        {edge.text}
-      </Typography>
+      <Box component="span" sx={{ textWrap: 'pretty', lineHeight: 1.3 }}>{edge.text}</Box>
     </Box>
   );
 }
 
-// The player's avatar: the headshot (`photoUrl`, the players row's own
-// `photo_url` carried on the lineup entry) with initials on the NFL team's
-// jersey colour underneath as the fallback (CONTEXT.md's Ledger row, "avatar
-// with the NFL team colour") - MUI's Avatar shows its children whenever `src`
-// is absent or fails to load, so a team defense (no headshot) and a broken
-// image both land on the same monogram. The label ink is
-// `monogramInk(kit.jersey)` (`shared/lib`, #1301/#1317), not a themed token: a
-// themed token is the wrong ink for a background the theme does not change -
-// `kit.jersey` is a real external NFL brand color
-// (`src/shared/lib/nflTeamColors.js`, the one file the color-literals guard
-// allowlists for real NFL hex values) that stays the same fixed hex across
-// light and dark mode, so the ink drawn on it has to stay fixed alongside it
-// too. The themed text-inverse token this replaces failed 29 of 32 jerseys
-// below 4.5:1 in dark mode before this fix.
-function PlayerAvatar({ name, nflTeam, photoUrl }) {
-  const kit = NFL_TEAM_COLORS[nflTeam] || FALLBACK_KIT;
+// The player's avatar on every occupied row: the headshot (`photoUrl`) when there is one and it loads, else
+// his initials in a neutral square (Play-select: not the jersey colour). 36px, 28px on a phone.
+function PlayerAvatar({ name, photoUrl, size, color }) {
+  const [broken, setBroken] = useState(false);
   return (
-    <Avatar
+    <Box
+      component="span"
       aria-hidden="true"
-      src={photoUrl || undefined}
-      imgProps={{ loading: 'lazy', 'data-testid': 'ledger-headshot' }}
-      sx={{ width: { xs: 28, sm: 36 }, height: { xs: 28, sm: 36 }, fontSize: { xs: 11, sm: 13 }, bgcolor: kit.jersey, color: monogramInk(kit.jersey) }}
+      sx={{
+        display: 'inline-grid',
+        placeItems: 'center',
+        flex: 'none',
+        width: `${size}px`,
+        height: `${size}px`,
+        boxSizing: 'border-box',
+        border: `2px solid ${color}`,
+        overflow: 'hidden',
+        fontSize: '13px',
+        fontWeight: 700,
+        lineHeight: 1,
+        color,
+      }}
     >
-      {initialsFor(name)}
-    </Avatar>
+      {photoUrl && !broken ? (
+        <Box
+          component="img"
+          src={photoUrl}
+          alt=""
+          loading="lazy"
+          data-testid="ledger-headshot"
+          onError={() => setBroken(true)}
+          sx={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+        />
+      ) : initialsFor(name)}
+    </Box>
   );
 }
 
 /**
- * One Ledger row (CONTEXT.md's Ledger row; ADR 0037; #1237): slot, avatar,
- * name with injury designation and lock, position and Team code, the Game
- * cell, the Edge line, projection and points. An empty slot renders a plain
- * "Empty" placeholder; the row-level swap/quick-pick interaction and the
- * drop control are both driven by props supplied by the page (the
- * swap-players and drop-player features), so this widget stays a
- * presenter.
+ * One Ledger row (CONTEXT.md's Ledger row; ADR 0037; #1237; Play-select, ADR 0067 wave 3): slot, avatar,
+ * name with injury code and lock, position and Team code, the Game cell, the Edge line, points and
+ * projection. An empty slot renders a plain "Empty" placeholder; the row-level swap/quick-pick interaction
+ * and the drop control are both driven by props supplied by the page (the swap-players and drop-player
+ * features), so this widget stays a presenter.
  *
- * Structure (formal review findings ac1-widgets-reach-below-the-island's
- * sibling fixes and legacy-controls-dropped-without-a-criterion): the row's
- * own swap-select action is an invisible `<button>` absolutely covering the
- * row, UNDER the visible content, which is `pointer-events: none` except two
- * reclaimed islands - the player's name (a real `PlayerNameLink`, opening
- * the Decision card the page owns, #1240) and the Drop control - each independently
- * focusable and clickable without being a DOM descendant of the covering
- * button. That is what keeps `role`less nested-interactive controls out of
- * a widget role, restores the name as a real link (dropped without a
- * criterion authorising it), and is why neither control's own keydown can
- * ever bubble into the row's handler.
+ * `cursor` puts the page's one cursor frame on this row (`'urgent'` turns it Danger, under one hour from
+ * the lock); `note` is the lineup note the cursor row carries. `last` drops the rule under the row.
  *
- * `data-testid` (the caller's `testId`) names the OUTER wrapper, not the
- * covering button: `tests/e2e/auth-offline.spec.ts` asserts
- * `getByTestId('slot-row-...')` CONTAINS the row's own text (the player's
- * name, per its own `toContainText` check), and the covering button carries
- * no text of its own by design - the contract is "the testid'd element
- * contains the row's text", not "the testid'd element is the interactive
- * one". The covering button gets its own derived id (`${testId}-select`)
- * for anything that specifically needs the interactive element (a click, its
- * `aria-pressed`/`aria-label`/`disabled`), which is every unit test in
- * LedgerRow.test.jsx.
+ * Structure (formal review findings ac1-widgets-reach-below-the-island's sibling fixes and
+ * legacy-controls-dropped-without-a-criterion): the row's own swap-select action is an invisible `<button>`
+ * absolutely covering the row, UNDER the visible content, which is `pointer-events: none` except two
+ * reclaimed islands, the player's name (a real `PlayerNameLink`, opening the Decision card the page owns,
+ * #1240) and the Drop control, each independently focusable and clickable without being a DOM descendant of
+ * the covering button. That is what keeps nested-interactive controls out of a widget role, and is why
+ * neither control's own keydown can ever bubble into the row's handler.
+ *
+ * `data-testid` (the caller's `testId`) names the OUTER wrapper, not the covering button:
+ * `tests/e2e/auth-offline.spec.ts` asserts `getByTestId('slot-row-...')` CONTAINS the row's own text (the
+ * player's name), and the covering button carries no text of its own by design. The covering button gets
+ * its own derived id (`${testId}-select`) for anything that specifically needs the interactive element.
  */
 export default function LedgerRow({
   slotLabel,
@@ -238,62 +206,39 @@ export default function LedgerRow({
   canDrop,
   reserveDropTrack,
   onOpenDecisionCard = () => {},
+  cursor = false,
+  note = null,
+  last = false,
   'data-testid': testId,
 }) {
   const isEmpty = !entry;
-  // The Drop track is reserved on every occupied row once any row in the
-  // Ledger can drop (`reserveDropTrack`), so a row without the control (a
-  // spent one) keeps its numbers on the same right edge as its neighbours.
+  // The Drop track is reserved on every occupied row once any row in the Ledger can drop
+  // (`reserveDropTrack`), so a row without the control (a spent one) keeps its numbers on the same edge.
   const dropTrack = !isEmpty && (canDrop || reserveDropTrack);
   const unavailable = !isEmpty && isUnavailable(entry);
-  // Computed once here (rather than inside GameCell) so the same read also
-  // drives the points cell's live colour and the Edge line's kind
-  // transition (#1241 AC2/AC3) without a second call to gameCellView.
   const view = isEmpty ? null : gameCellView(entry, liveRow);
-  // The headline number is `entry.projectedPoints`, CONTEXT.md's Point
-  // estimate under The projection engine - whichever statistic the run's own
-  // Model version ranks lineups by (median or mean, `pointEstimateFor`,
-  // projection.service.js) - never `entry.projection` (the distribution's
-  // bare mean). #1482: the two can order two players differently, and the
-  // Edge line's "Outprojects" comparison (findBenchAboveStarter,
-  // server/services/lineup.service.js) and the Start/Sit ranking already
-  // read the Point estimate - printing the mean here was the one place on
-  // the row that disagreed with them. Floor and Ceiling (`entry.floor`/
-  // `entry.ceiling`, p10/p90) are untouched; they live on the Decision card,
-  // not this cell.
-  const projectionText = isEmpty
-    ? null
-    : unavailable
-      ? unavailableLabel(entry)
-      : projectionLabel(entry);
-  // L3: a real number reads "14.2 proj" under the points figure; a label
-  // ("no history", an Unavailable reason) or the dash for a missing
-  // projection stands alone, since "no history proj" is not a sentence.
-  const projectionShown = !isEmpty && !unavailable && !hasNoHistory(entry) && Number.isFinite(entry.projectedPoints);
-  // The points cell (AC2/AC3): the entry's actual/live fantasy points once
-  // his game is live or final, a dash reserved for an Unavailable row (never
-  // plays) and for a pre-kickoff row (nothing scored yet) alike -
-  // `formatPoints` already renders a dash for a null value, so an
-  // unavailable entry's points (always null on the wire) and a not-yet-
-  // started entry's points (also null) both fall through to it without a
-  // separate branch. #1241 AC2: while the game is live (never once final),
-  // the points cell paints in the live colour (`dash-danger`, the same
-  // token the live Game-state chip and the Edge line's own `pace` kind
-  // already use on this card surface) so a live score reads at a glance.
-  const pointsText = isEmpty ? null : unavailable ? '-' : formatPoints(entry.points);
-  const pointsColor = !isEmpty && !unavailable && view?.kind === 'live' ? 'var(--dash-danger)' : 'var(--dash-faint)';
+  // A row that shows eligibility and is no legal target is the dimmed one while a move is under way; a legal
+  // target, and both rows of a Bench what-if, take the Play-blue fill.
+  const eligibleRow = Boolean(swapHighlighted || (showEligibility && eligible));
+  const dimRow = Boolean(showEligibility && !eligible && !selected);
+  const dm = eligibleRow ? 'var(--ps-play-dim)' : 'var(--ps-dim)';
+  const nameInk = dimRow ? 'var(--ps-dim)' : 'inherit';
 
-  // The row's own accessible name (WAI-ARIA accname: an explicit aria-label
-  // wins outright over the button's accumulated content), so a screen
-  // reader hears one concise phrase per row rather than every chip, the
-  // Edge line and the visually-hidden points caption concatenated together.
-  // L5: the injury designation and the projection close the phrase, enough
-  // to make a start/sit call from the row alone. An Unavailable row names its
-  // reason instead, never the designation as well ("on IR, injured reserve").
+  // The headline number is `entry.projectedPoints`, CONTEXT.md's Point estimate under The projection engine,
+  // never `entry.projection` (#1482). A real number reads "proj 14.2" under the points figure; a label
+  // ("no history", an Unavailable reason) or the dash for a missing projection stands alone.
+  const projectionText = isEmpty ? null : unavailable ? unavailableLabel(entry) : projectionLabel(entry);
+  const projectionShown = !isEmpty && !unavailable && !hasNoHistory(entry) && Number.isFinite(entry.projectedPoints);
+  // The points cell: the entry's actual/live points once his game is live or final; a dash for an
+  // Unavailable row and for a pre-kickoff row alike (`formatPoints` renders the dash for a null).
+  const pointsText = isEmpty ? null : unavailable ? '-' : formatPoints(entry.points);
+  const finalPoints = !isEmpty && !unavailable && view?.kind === 'final' && pointsText !== '-';
+
+  // The row's own accessible name (an explicit aria-label wins over the button's content): one concise
+  // phrase per row. The injury designation and the projection close it; an Unavailable row names its
+  // reason instead; a dimmed row says why it cannot be pressed.
   const unavailableText = unavailable ? unavailableLabel(entry) : null;
-  const designation = isEmpty || unavailable ? null : injuryView(entry.injuryStatus)?.name.toLowerCase();
-  // Drop is inert while a swap is under way and this row is no legal target
-  // (the row itself is disabled and dimmed the same way).
+  const designation = isEmpty || unavailable ? null : injuryWord(entry.injuryStatus);
   const dropInert = Boolean(showEligibility && !eligible);
   const rowLabel = isEmpty
     ? `Empty ${slotLabel} slot`
@@ -306,282 +251,250 @@ export default function LedgerRow({
         projectionShown && `projected ${projectionText}`,
       ].filter(Boolean).join(', ');
 
-  // Below `sm` the Game cell sits in the info block on its own line (L2);
-  // from `sm` it takes its own grid column before the numbers. One DOM copy
-  // either way, so `ledger-game-cell` stays unique per row.
+  // Below `sm` the Game cell sits on its own line under the name (L2); from `sm` it takes its own grid
+  // column before the numbers. One DOM copy either way, so `ledger-game-cell` stays unique per row.
   const theme = useTheme();
-  const gameInline = useMediaQuery(theme.breakpoints.down('sm'), { noSsr: true });
+  const phone = useMediaQuery(theme.breakpoints.down('sm'), { noSsr: true });
 
-  return (
+  const label = (
     <Box
-      data-testid={testId}
-      data-spent={spent(entry) ? 'true' : undefined}
+      component="span"
+      data-testid="ledger-slot-chip"
       sx={{
-        position: 'relative',
-        mb: '8px',
-        // L7: the row's border, radius and fill live on this wrapper so the
-        // Drop control sits inside them.
-        borderRadius: 'var(--dash-radius-sm)',
-        border: '1px solid',
-        borderStyle: isEmpty ? 'dashed' : 'solid',
-        borderColor: selected || swapHighlighted
-          ? 'var(--dash-accent-line)'
-          : showEligibility && eligible
-            ? 'var(--dash-accent-line)'
-            : spent(entry)
-              ? 'var(--dash-warning)'
-              : 'var(--dash-line)',
-        backgroundColor: (selected || swapHighlighted || (showEligibility && eligible))
-          ? 'var(--dash-accent-soft)'
-          : 'var(--dash-surface)',
-        // L4: only the selected row gets the ring, drawn inset so the border
-        // width, and so the layout, never changes.
-        boxShadow: selected ? 'inset 0 0 0 2px var(--dash-accent)' : 'none',
-        opacity: showEligibility && !eligible && !selected ? 0.45 : 1,
+        flex: 'none', width: phone ? '46px' : '52px', fontSize: '13px', fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', color: nameInk,
       }}
     >
+      {slotLabel}
+    </Box>
+  );
+
+  let body;
+  if (isEmpty) {
+    body = (
+      <Box sx={{
+        position: 'relative', pointerEvents: 'none', display: 'flex', alignItems: 'center', gap: phone ? '8px' : '12px', minHeight: '52px',
+      }}
+      >
+        {label}
+        <Box component="span" sx={{ fontSize: '15px', color: dm }}>Empty</Box>
+      </Box>
+    );
+  } else {
+    const nameLink = (
+      <PlayerNameLink
+        name={entry.name}
+        playerId={entry.playerId}
+        onOpen={onOpenDecisionCard}
+        sx={{
+          pointerEvents: 'auto',
+          // A 44px target that does not grow the row: negative margins give back what the hit area adds.
+          minHeight: '44px',
+          minWidth: 0,
+          m: '-13px 0',
+          p: 0,
+          boxSizing: 'border-box',
+          color: nameInk,
+          fontSize: '15px',
+          fontWeight: 600,
+          whiteSpace: 'nowrap',
+          // The name gives way first (an ellipsis) and the tags beside it never do.
+          display: 'block',
+          flex: '0 1 auto',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          lineHeight: '44px',
+          '&:hover': { textDecoration: 'underline' },
+          '&:focus-visible, &.MuiLink-focusVisible': {
+            outline: '3px solid var(--ps-focus)', outlineOffset: 0, boxShadow: '0 0 0 7px var(--ps-halo)', borderRadius: 0,
+          },
+        }}
+      />
+    );
+    const tags = (
+      <>
+        <InjuryCode status={entry.injuryStatus} data-testid="injury-tag" />
+        {startVerdictReason(entry) === 'backup' && <WordTag data-testid="ledger-backup">{BACKUP_LABEL}</WordTag>}
+        {entry.slot === 'IR' && entry.irAttested && (
+          <WordTag data-testid="ledger-attested-chip" title="Attested by the commissioner: this stash stays valid even though the injury feed disagrees.">
+            Attested
+          </WordTag>
+        )}
+        {spent(entry) && <WordTag dashed data-testid="ledger-spent-chip">Spent</WordTag>}
+      </>
+    );
+    const lock = locked(entry) ? <LockMark /> : null;
+    const who = (
+      <Box data-testid="ledger-info" sx={{ minWidth: 0 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: phone ? 'nowrap' : 'wrap', gap: '4px 8px', minWidth: 0 }}>
+          {nameLink}
+          {!phone && tags}
+          {lock}
+        </Box>
+        <Box sx={{
+          fontSize: '13px', color: dm, display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '2px 6px', mt: phone ? 0 : '1px',
+        }}
+        >
+          {phone && tags}
+          {/* #1392: a player with no NFL team reads "FA" in place of the Team code. */}
+          <span>{`${entry.position ?? ''} · ${entry.nflTeam || 'FA'}`}</span>
+        </Box>
+      </Box>
+    );
+    const figures = (
+      <Box sx={{ textAlign: 'right', flex: 'none', minWidth: 0 }}>
+        <Box
+          data-testid="ledger-points"
+          sx={{
+            fontSize: '16px', fontWeight: 700, color: nameInk, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap',
+          }}
+        >
+          {pointsText === '-' ? (
+            <>
+              <span aria-hidden="true">-</span>
+              <Box component="span" sx={SR_ONLY_SX}>Points not available yet</Box>
+            </>
+          ) : pointsText}
+          {finalPoints && <Box component="span" sx={{ fontSize: '13px', fontWeight: 400, color: dm }}>{' pts · final'}</Box>}
+        </Box>
+        <Box data-testid="ledger-projection" sx={{ fontSize: '13px', color: dm, whiteSpace: 'nowrap', lineHeight: 1.3 }}>
+          {projectionShown ? `proj ${projectionText}` : projectionText}
+        </Box>
+      </Box>
+    );
+    // Drop is a SIBLING of the row's covering button, not a descendant of any widget-role element: nesting a
+    // real <button> inside a role like the row's own is an axe-core `nested-interactive` violation and let
+    // this control's Enter/Space keydown bubble into the row's handler, silently starting a swap instead of
+    // dropping the player. It is the grid's last column, 44px at every width, locked rows included.
+    const drop = canDrop ? (
       <Box
         component="button"
         type="button"
-        disabled={disabled}
-        aria-pressed={Boolean(selected)}
-        aria-label={rowLabel}
-        data-testid={testId ? `${testId}-select` : undefined}
-        onClick={onClick}
+        title={dropInert ? undefined : 'Drop player'}
+        disabled={dropInert}
+        aria-label={`Drop ${entry.name}`}
+        onClick={() => onRequestDrop?.(entry)}
         sx={{
-          position: 'absolute',
-          // Over the wrapper's 1px border too, so the whole visible row is the target.
-          inset: '-1px',
-          zIndex: 0,
-          m: 0,
+          pointerEvents: 'auto',
+          width: '44px',
+          height: '44px',
+          minWidth: '44px',
+          minHeight: '44px',
           p: 0,
-          border: 'none',
-          borderRadius: 'var(--dash-radius-sm)',
-          backgroundColor: 'transparent',
-          cursor: disabled ? 'default' : 'pointer',
-          '&:focus-visible': { outline: '2px solid var(--focus-ring)', outlineOffset: 2 },
-          '&:disabled': { cursor: 'default' },
-        }}
-      />
-
-      {/* L2: a fixed grid, never a wrapping flex - slot, avatar, info
-          (`minmax(0, 1fr)`), the Game column (from `sm`), the numbers
-          column, then Drop - so every row's numbers share one right edge
-          whatever the name length. Mirrors docs/design/team-lineup/build.mjs
-          (`COLS`, the mobile row). */}
-      <Box
-        sx={{
-          position: 'relative',
-          zIndex: 1,
-          pointerEvents: 'none',
           display: 'grid',
-          gridTemplateColumns: isEmpty
-            ? 'minmax(40px, max-content) minmax(0, 1fr)'
-            : {
-                xs: `minmax(40px, max-content) 28px minmax(0, 1fr) 52px${dropTrack ? ' 44px' : ''}`,
-                sm: `minmax(40px, max-content) 36px minmax(128px, 1fr) minmax(120px, 160px) 72px${dropTrack ? ' 44px' : ''}`,
-              },
-          alignItems: 'center',
-          columnGap: { xs: '6px', sm: '10px' },
-          p: dropTrack ? { xs: '8px 4px 8px 8px', sm: '10px 4px 10px 12px' } : { xs: '8px', sm: '10px 12px' },
+          placeItems: 'center',
+          boxSizing: 'border-box',
+          borderRadius: 0,
+          background: 'transparent',
+          border: '2px solid transparent',
+          color: dm,
+          cursor: 'pointer',
+          '&:disabled': { cursor: 'not-allowed' },
+          '&:hover:not(:disabled), &:focus-visible': { color: 'var(--ps-ink)' },
         }}
       >
-        <PosChip position={slotLabel} data-testid="ledger-slot-chip" sx={{ justifySelf: 'start' }} />
+        <Glyph kind="trash" />
+      </Box>
+    ) : (dropTrack ? <Box aria-hidden="true" data-testid="ledger-drop-spacer" /> : null);
+    const edge = <EdgeLine edge={entry.edge} gameCellKind={view?.kind} noHistory={hasNoHistory(entry)} />;
+    const hasEdge = Boolean(entry.edge && entry.edge.kind !== 'none' && entry.edge.text && !(hasNoHistory(entry) && entry.edge.kind === 'bench-above-starter'));
 
-        {isEmpty ? (
-          <Typography sx={{ fontSize: '13px', color: 'var(--dash-faint)' }}>Empty</Typography>
-        ) : (
-          <>
-            <PlayerAvatar name={entry.name} nflTeam={entry.nflTeam} photoUrl={entry.photoUrl} />
+    body = phone ? (
+      <Box sx={{
+        position: 'relative', pointerEvents: 'none', display: 'grid', gridTemplateColumns: `46px 28px minmax(0, 1fr) auto${dropTrack ? ' 44px' : ''}`, alignItems: 'center', columnGap: '4px', minHeight: '52px',
+      }}
+      >
+        {label}
+        <PlayerAvatar name={entry.name} photoUrl={entry.photoUrl} size={28} color={eligibleRow ? 'currentColor' : 'var(--ps-dim)'} />
+        <Box sx={{ minWidth: 0, pl: '4px' }}>{who}</Box>
+        {figures}
+        {drop}
+        <Box sx={{
+          gridColumn: '2 / -1', display: 'flex', flexDirection: 'column', gap: '1px', pb: '8px', fontSize: '13px', color: dm,
+        }}
+        >
+          <GameCell view={view} dim={dm} />
+          {hasEdge && <Box sx={{ mt: '3px' }}>{edge}</Box>}
+        </Box>
+      </Box>
+    ) : (
+      <Box sx={{
+        position: 'relative',
+        pointerEvents: 'none',
+        display: 'grid',
+        gridTemplateColumns: `52px 36px minmax(0, 1fr) minmax(0, 1.15fr) 96px${dropTrack ? ' 44px' : ''}`,
+        alignItems: 'center',
+        columnGap: '12px',
+        minHeight: '52px',
+        py: '2px',
+      }}
+      >
+        {label}
+        <PlayerAvatar name={entry.name} photoUrl={entry.photoUrl} size={36} color={eligibleRow ? 'currentColor' : 'var(--ps-dim)'} />
+        {who}
+        <Box sx={{ minWidth: 0 }}><GameCell view={view} dim={dm} /></Box>
+        {figures}
+        {drop}
+        {hasEdge && <Box sx={{ gridColumn: '3 / 5', mt: '-2px', pb: '6px' }}>{edge}</Box>}
+      </Box>
+    );
+  }
 
-            <Box data-testid="ledger-info" sx={{ minWidth: 0 }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
-                <PlayerNameLink
-                  name={entry.name}
-                  playerId={entry.playerId}
-                  onOpen={onOpenDecisionCard}
-                  sx={{
-                    pointerEvents: 'auto',
-                    fontSize: '14px',
-                    fontWeight: 600,
-                    color: 'var(--dash-ink)',
-                    // The name gives way first (an ellipsis) and the tags
-                    // beside it never do. Block, not the link's inline-flex,
-                    // so text-overflow applies to the text itself.
-                    display: 'block',
-                    minWidth: 0,
-                    flex: '0 1 auto',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}
-                />
-                <InjuryTag status={entry.injuryStatus} />
-                {startVerdictReason(entry) === 'backup' && (
-                  <Badge variant="neutral" data-testid="ledger-backup">{BACKUP_LABEL}</Badge>
-                )}
-                {locked(entry) && (
-                  <Tooltip title="Locked: this player's game has kicked off">
-                    {/* role="img" legitimizes the aria-label on this otherwise
-                        generic span (WAI-ARIA: aria-label is only valid on an
-                        element with an appropriate role) - the same pattern
-                        TeamAvatar's wrapper and my-team-summary's avatar
-                        wrapper already use, rather than relying on MUI
-                        Tooltip's own child-labelling, which would land the
-                        same aria-label on a bare, non-focusable span. */}
-                    <Box
-                      component="span"
-                      role="img"
-                      aria-label="Locked: this player's game has kicked off"
-                      data-testid="ledger-lock-icon"
-                      sx={{ display: 'flex', color: 'var(--dash-faint)' }}
-                    >
-                      <LockIcon />
-                    </Box>
-                  </Tooltip>
-                )}
-                {entry.slot === 'IR' && entry.irAttested && (
-                  <Tooltip title="Attested by the commissioner: this stash stays valid even though the injury feed disagrees.">
-                    <Box
-                      component="span"
-                      data-testid="ledger-attested-chip"
-                      sx={{
-                        fontSize: '10px',
-                        fontWeight: 700,
-                        letterSpacing: '0.05em',
-                        color: 'var(--dash-accent)',
-                        border: '1px solid var(--dash-accent-line)',
-                        borderRadius: 'var(--radius-pill)',
-                        px: '6px',
-                      }}
-                    >
-                      ATTESTED
-                    </Box>
-                  </Tooltip>
-                )}
-                {spent(entry) && (
-                  <Box
-                    component="span"
-                    data-testid="ledger-spent-chip"
-                    sx={{ fontSize: '10px', fontWeight: 700, color: 'var(--dash-warning)' }}
-                  >
-                    SPENT
-                  </Box>
-                )}
-              </Box>
-              <Typography
-                component="div"
-                sx={{ fontSize: '12px', color: 'var(--dash-faint)' }}
-              >
-                {/* #1392: a player with no NFL team (null or empty on the
-                    wire) reads "FA" in place of the Team code, rather than a
-                    dangling "QB · " separator - badge copy only, distinct
-                    from the glossary's Free agent (league availability). */}
-                {`${entry.position ?? ''} · ${entry.nflTeam || 'FA'}`}
-              </Typography>
-              {gameInline && (
-                <Box sx={{ mt: '2px' }}>
-                  <GameCell view={view} align="flex-start" />
-                </Box>
-              )}
-              <EdgeLine edge={entry.edge} gameCellKind={view?.kind} noHistory={hasNoHistory(entry)} />
-            </Box>
-
-            {!gameInline && (
-              <Box sx={{ minWidth: 0, display: 'grid', justifyItems: 'flex-end' }}>
-                <GameCell view={view} />
-              </Box>
-            )}
-
-            {/* L3: points are the headline figure, the projection sits
-                beneath it. `ledger-projection` is a grid item, so its right
-                edge is the column's, equal on every row. */}
-            <Box sx={{ display: 'grid', gap: '2px', textAlign: 'right', minWidth: 0 }}>
-              <Typography
-                component="span"
-                data-testid="ledger-points"
-                sx={{
-                  fontFamily: 'var(--dash-font-display)',
-                  fontSize: '20px',
-                  fontWeight: 700,
-                  lineHeight: 1,
-                  fontVariantNumeric: 'tabular-nums',
-                  color: pointsColor,
-                }}
-              >
-                {pointsText === '-' ? (
-                  <>
-                    <span aria-hidden="true">-</span>
-                    <span style={visuallyHidden}>Points not available yet</span>
-                  </>
-                ) : (
-                  pointsText
-                )}
-              </Typography>
-              <Typography
-                component="span"
-                data-testid="ledger-projection"
-                sx={{ fontSize: '12px', lineHeight: 1.2, whiteSpace: 'nowrap', color: unavailable ? 'var(--dash-warning)' : 'var(--dash-dim)' }}
-              >
-                {projectionShown ? `${projectionText} proj` : projectionText}
-              </Typography>
-            </Box>
-          </>
-        )}
-        {/* Drop is a SIBLING of the row's covering button, not a descendant of
-            any widget-role element: nesting a real <button> inside a role like
-            the row's own is an axe-core `nested-interactive` violation, is not
-            reliably exposed to a screen reader, and (found in review) let this
-            control's own Enter/Space keydown bubble into the row's handler,
-            silently starting a swap instead of dropping the player - a
-            keyboard user could never reach Drop at all. As a sibling, painted
-            above the covering button (it lives in the content grid, a
-            stacking context on top of the button's `zIndex: 0`, and reclaims
-            pointer events from that grid), it is independently focusable and
-            its own native button semantics handle Enter/Space without the
-            row's handler ever seeing the event. It is the grid's last column
-            (L7), inside the row's border. */}
-        {dropTrack && !canDrop && <Box aria-hidden="true" data-testid="ledger-drop-spacer" />}
-        {canDrop && (
-          // A disabled button takes no tooltip (MUI warns), so the title goes with it.
-          <Tooltip title={dropInert ? '' : 'Drop player'}>
-            <IconButton
-              size="small"
-              disabled={dropInert}
-              aria-label={`Drop ${entry.name}`}
-              onClick={() => onRequestDrop?.(entry)}
-              sx={{
-                pointerEvents: 'auto',
-                color: 'var(--dash-faint)',
-                '&:hover, &:focus-visible': { color: 'var(--dash-danger)' },
-                ...MIN_TOUCH_TARGET_SX,
-              }}
-            >
-              <DropIcon />
-            </IconButton>
-          </Tooltip>
-        )}
+  return (
+    <Box
+      component="li"
+      data-testid={testId}
+      data-spent={spent(entry) ? 'true' : undefined}
+      sx={{ listStyle: 'none', borderBottom: last ? 0 : `2px ${dimRow ? 'dashed' : 'solid'} var(--ps-rule)` }}
+    >
+      <Box
+        className={`${cursor ? 'cursor ' : ''}slot`}
+        data-row-mode={eligibleRow ? 'eligible' : dimRow ? 'dim' : undefined}
+        sx={{
+          position: 'relative',
+          '--cur': cursor === 'urgent' ? 'var(--ps-danger)' : 'var(--ps-cursor)',
+          border: `4px solid ${cursor ? 'var(--cur)' : 'transparent'}`,
+          boxSizing: 'border-box',
+          ...(eligibleRow ? { backgroundColor: 'var(--ps-play)', color: 'var(--ps-play-ink)' } : null),
+        }}
+      >
+        <Box sx={{ position: 'relative', px: { xs: '4px', sm: '8px' } }}>
+          <Box
+            component="button"
+            type="button"
+            disabled={disabled}
+            aria-pressed={Boolean(selected)}
+            aria-label={`${rowLabel}${dimRow ? ', not eligible' : ''}`}
+            data-testid={testId ? `${testId}-select` : undefined}
+            onClick={onClick}
+            sx={{
+              position: 'absolute',
+              inset: 0,
+              width: '100%',
+              height: '100%',
+              zIndex: 0,
+              m: 0,
+              p: 0,
+              border: 0,
+              borderRadius: 0,
+              backgroundColor: 'transparent',
+              cursor: disabled ? 'not-allowed' : 'pointer',
+            }}
+          />
+          {/* A fixed grid, never a wrapping flex (L2): slot, avatar, info (`minmax(0, 1fr)`), the Game column
+              (from `sm`), the numbers column, then Drop, so every row's numbers share one right edge
+              whatever the name length. */}
+          {body}
+        </Box>
+        {note && <Box sx={{ px: { xs: '4px', sm: '8px' }, pb: '8px' }}>{note}</Box>}
       </Box>
     </Box>
   );
 }
 
-function DropIcon() {
-  return (
-    <svg
-      width={16}
-      height={16}
-      viewBox="0 0 20 20"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.6}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      focusable="false"
-      style={{ display: 'block' }}
-    >
-      <path d="M5 5l10 10M15 5 5 15" />
-    </svg>
-  );
+const INJURY_WORDS = {
+  Q: 'questionable', D: 'doubtful', O: 'out', IR: 'injured reserve',
+};
+function injuryWord(status) {
+  const code = String(status || '').trim().toUpperCase();
+  return code ? (INJURY_WORDS[code] || code.toLowerCase()) : null;
 }

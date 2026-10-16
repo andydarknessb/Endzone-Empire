@@ -196,3 +196,61 @@ export function RangeBand({
 export function SrOnly({ children }) {
   return <Box component="span" sx={SR_ONLY_SX}>{children}</Box>;
 }
+
+// Small pictograms on the 2px grid (the canvas kit's), crisp edges, colour from the surrounding ink.
+const GLYPHS = {
+  lock: 'M5 1h6v2H5zM3 3h2v4H3zM11 3h2v4h-2zM2 7h12v8H2zM7 9h2v3H7z',
+  trash: 'M6 1h4v2H6zM2 3h12v2H2zM3 5h2v8H3zM11 5h2v8h-2zM3 13h10v2H3zM7 7h2v4H7z',
+  up: 'M7 2h2v2H7zM5 4h6v2H5zM3 6h10v2H3zM7 8h2v6H7z',
+  flag: 'M3 2h2v13H3zM5 3h2v2H5zM9 3h2v2H9zM7 5h2v2H7zM11 5h2v2h-2zM5 7h2v2H5zM9 7h2v2H9z',
+  bolt: 'M9 1h2v2H9zM7 3h2v2H7zM5 5h6v2H5zM7 7h2v2H7zM5 9h2v2H5zM3 11h2v2H3z',
+};
+
+export function Glyph({ kind, size = 16 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" aria-hidden="true" focusable="false" shapeRendering="crispEdges" style={{ flex: 'none', display: 'block' }}>
+      <path d={GLYPHS[kind]} fill="currentColor" fillRule="evenodd" />
+    </svg>
+  );
+}
+
+const INJURY_NAMES = {
+  Q: 'Questionable', D: 'Doubtful', O: 'Out', IR: 'Injured reserve',
+};
+
+/**
+ * The product's injury code (Q, D, O, IR) as an in-row badge, with the full word for a screen reader.
+ * Out and IR are the filled Ink chip, so they stand out without red. A code the wire does not name
+ * still shows, raw. Null for no designation.
+ */
+export function InjuryCode({ status, ...rest }) {
+  const code = String(status || '').trim().toUpperCase();
+  if (!code) return null;
+  const filled = code === 'O' || code === 'IR';
+  return (
+    <Box
+      component="span"
+      data-status={code}
+      {...rest}
+      sx={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        boxSizing: 'border-box',
+        flex: 'none',
+        minWidth: '24px',
+        height: '22px',
+        padding: code.length > 1 ? '0 5px' : 0,
+        border: `2px solid ${filled ? 'var(--ps-ink)' : 'currentColor'}`,
+        ...(filled ? { backgroundColor: 'var(--ps-ink)', color: 'var(--ps-panel)' } : null),
+        fontSize: '13px',
+        fontWeight: 700,
+        letterSpacing: '.04em',
+        lineHeight: 1,
+      }}
+    >
+      <span aria-hidden="true">{code}</span>
+      <Box component="span" sx={SR_ONLY_SX}>{`Injury status: ${INJURY_NAMES[code] || code}`}</Box>
+    </Box>
+  );
+}
