@@ -179,6 +179,17 @@ test('puts the viewer first: an away viewer is the left side, the bar and the sc
   expect(screen.getByTestId('matchup-hero-live-region')).toHaveTextContent('Fargo Frostbite 77.0, Duluth Dockworkers 82.2');
 });
 
+test('the Matchup link is named viewer first too', () => {
+  renderHero({ viewerTeamId: 20 });
+  expect(screen.getByRole('link', { name: 'Matchup, Fargo Frostbite against Duluth Dockworkers' })).toHaveAttribute('href', '/league/5/matchups/7');
+});
+
+test('countsPending holds the count lines and the sentence clause', () => {
+  renderHero({ countsPending: true });
+  expect(screen.queryByTestId('matchup-hero-remaining')).not.toBeInTheDocument();
+  expect(screen.getByTestId('matchup-hero-sentence')).toHaveTextContent(/^Ahead now, projected to trail by 13[.]4$/);
+});
+
 test('a home viewer, and a spectator, keep home on the left', () => {
   const { unmount } = renderHero({ viewerTeamId: 10 });
   expect(screen.getAllByTestId(/^matchup-hero-side-/).map((el) => el.getAttribute('data-testid'))).toEqual(['matchup-hero-side-home', 'matchup-hero-side-away']);

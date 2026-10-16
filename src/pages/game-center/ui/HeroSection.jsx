@@ -27,7 +27,7 @@ export function viewerSlots(league, starters) {
     if (s?.key == null) return;
     const key = String(s.key);
     const have = taken.get(key) || [];
-    for (let i = 0; i < (Number(s.count) || 1); i += 1) slots.push({ slot: key, player: have[i] ?? null });
+    for (let i = 0; i < Number(s.count ?? 1); i += 1) slots.push({ slot: key, player: have[i] ?? null });
     taken.delete(key);
   });
   taken.forEach((list) => list.forEach((player) => slots.push({ slot: String(player.slot ?? ''), player })));
@@ -52,8 +52,8 @@ const isOutStarter = (p) => p.injury_status === 'O' || p.availability?.reason ==
 
 /**
  * The hero with its count source and its lineup note settled (the page passes the hero's own props plus the
- * lineup note's: `league`, `now`, `actionItems`, `noteEligible`, `onLockPassed`, and `heroRef` for the compact
- * scoreboard's observer).
+ * lineup note's: `league`, `now`, `actionItems`, `noteEligible`, `onLockPassed`, and `heroRef`, a callback ref for the
+ * compact scoreboard's observer).
  *
  * Counts: the server prints `playersRemaining` and `yetToPlay` on each side of a Matchup (spec #2334, one
  * definition), and the hero reads them. A payload without `yetToPlay` falls back to the entity helpers over the
@@ -134,7 +134,8 @@ function WithLineups({
   return (
     <>
       <Box ref={heroRef}>
-        <MatchupHero matchup={hero} counts={counts} {...heroProps} />
+        {/* Until the lineups have read, the helper path prints no count at all, so the server's numbers never flash first. */}
+        <MatchupHero matchup={hero} counts={counts} countsPending={helperCounts && !counts} {...heroProps} />
       </Box>
       <LineupNote view={view} leagueId={leagueId} />
     </>

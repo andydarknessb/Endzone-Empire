@@ -24,7 +24,7 @@ import { matchupHeroView } from '../model/matchupHeroView';
  *
  * Props: `matchup` (the entity model), `viewerTeamId`, `records` ({ [teamId]: '2-0' } or null), `ranks`
  * ({ [teamId]: 3 } or null), `leagueId` (the two links), `gamesInProgress` (a count or null),
- * `nextKickoffAt` (ISO or null: the live footer's "Next kickoff", dropped before kickoff where the hero says it once), `counts` ({ home: { remaining, yet }, away: ... } or null: the sentence source when the payload has no `yetToPlay`, see matchupHeroView).
+ * `nextKickoffAt` (ISO or null: the live footer's "Next kickoff", dropped before kickoff where the hero says it once), `countsPending` (true while the lineups behind `counts` are still reading: no count line and no count clause yet), `counts` ({ home: { remaining, yet }, away: ... } or null: the sentence source when the payload has no `yetToPlay`, see matchupHeroView).
  *
  * Paints only `ps-*` tokens. No cursor and no filled action: a watching page (RULINGS "QA round 1").
  */
@@ -131,11 +131,12 @@ export default function MatchupHero({
   gamesInProgress = null,
   nextKickoffAt = null,
   counts = null,
+  countsPending = false,
   headingLevel = 2,
   ...rest
 }) {
   const headingId = useId();
-  const view = matchupHeroView(matchup, viewerTeamId, { counts });
+  const view = matchupHeroView(matchup, viewerTeamId, { counts, countsPending });
   const home = matchup?.home || {};
   const away = matchup?.away || {};
   const homeName = teamNameLabel(home.name);
@@ -157,7 +158,7 @@ export default function MatchupHero({
     const name = key === 'home' ? homeName : awayName;
     // One source per surface: the server pair, or the page's helper counts when the payload lacks yetToPlay.
     // A settled hero (played or final) has a score, not a forecast or anyone left to play: no lines.
-    const left = settled ? null : counts ? count(counts[key].remaining) : count(s.playersRemaining);
+    const left = settled || countsPending ? null : counts ? count(counts[key].remaining) : count(s.playersRemaining);
     const expected = s.expectedFinal;
     const stats = (
       <>
@@ -192,12 +193,12 @@ export default function MatchupHero({
     <Box sx={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: { sm: 'auto' }, flexWrap: 'wrap' }}>
       {board ? (
         <>
-          <PsLink to={`/league/${leagueId}/matchups/${matchup?.id}`} ariaLabel={`Matchup, ${homeName} against ${awayName}`} onBoard>Matchup</PsLink>
+          <PsLink to={`/league/${leagueId}/matchups/${matchup?.id}`} ariaLabel={`Matchup, ${names[first]} against ${names[second]}`} onBoard>Matchup</PsLink>
           <BoardGhost to={`/league/${leagueId}/lineup`}>Set lineup</BoardGhost>
         </>
       ) : (
         <>
-          <PsLink to={`/league/${leagueId}/matchups/${matchup?.id}`} ariaLabel={`Matchup, ${homeName} against ${awayName}`}>Matchup</PsLink>
+          <PsLink to={`/league/${leagueId}/matchups/${matchup?.id}`} ariaLabel={`Matchup, ${names[first]} against ${names[second]}`}>Matchup</PsLink>
           <PsButton variant="ghost" to={`/league/${leagueId}/lineup`}>Set lineup</PsButton>
         </>
       )}

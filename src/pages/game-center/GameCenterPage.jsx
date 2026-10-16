@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { Box, Container, GlobalStyles, useMediaQuery } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
@@ -48,11 +48,14 @@ import WeekGlance from './ui/WeekGlance';
  * the widgets and the shared Play-select kit; headings: one h1, then the h2 the frames render.
  */
 
-/** True once `ref`'s element has scrolled above the top of the viewport (needs IntersectionObserver). */
-function useScrolledPast(ref, enabled) {
+/**
+ * True once `el` has scrolled above the top of the viewport (needs IntersectionObserver). `el` is state, set by a
+ * callback ref, so the observer follows the hero when it remounts (a week switch changes which branch draws it)
+ * instead of watching a detached node.
+ */
+function useScrolledPast(el, enabled) {
   const [past, setPast] = useState(false);
   useEffect(() => {
-    const el = ref.current;
     if (!enabled || !el || typeof IntersectionObserver === 'undefined') {
       setPast(false);
       return undefined;
@@ -62,7 +65,7 @@ function useScrolledPast(ref, enabled) {
     });
     observer.observe(el);
     return () => observer.disconnect();
-  }, [ref, enabled]);
+  }, [el, enabled]);
   return past;
 }
 
@@ -94,15 +97,16 @@ export default function GameCenterPage() {
     retry,
   } = useGameCenter(leagueId);
   const { items: actionItems, reload: reloadActionItems } = useActionItems();
-  const heroRef = useRef(null);
+  const [heroEl, setHeroEl] = useState(null);
 
   const syncLine = pending ? null : syncLineText(syncedAt, now);
   const weekNumber = week === 'All' || week == null ? undefined : Number(week);
   const heroStarted = !!hero && matchupBoard(hero).hasStarted === true;
-  const pinned = useScrolledPast(heroRef, heroStarted);
+  const pinned = useScrolledPast(heroEl, heroStarted);
   const compactBar = useMemo(() => (hero ? compactScoreboardView(hero, viewerTeamId) : null), [hero, viewerTeamId]);
-  // Only the league's current week has a lineup still to set; a week on screen that is not it has no note.
-  const noteEligible = !!hero && !matchupBoard(hero).settled && Number(hero.week) === Number(league?.current_week);
+  // Only the league's current week has a lineup still to set, and best ball sets none (the optimizer fills the
+  // seats); a week on screen that is not the current one has no note.
+  const noteEligible = !!hero && !league?.best_ball && !matchupBoard(hero).settled && Number(hero.week) === Number(league?.current_week);
 
   return (
     <Box className="ps-root" sx={{ ...psRootSx, minHeight: '100%' }}>
@@ -168,7 +172,7 @@ export default function GameCenterPage() {
                     heroProps={{
                       viewerTeamId, records, ranks, leagueId, gamesInProgress, nextKickoffAt,
                     }}
-                    heroRef={heroRef}
+                    heroRef={setHeroEl}
                     noteEligible={noteEligible}
                     league={league}
                     now={now}

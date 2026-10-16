@@ -43,7 +43,7 @@ const percents = (share) => {
 };
 
 /** "Ahead now, projected to trail by 7.9 · they have 9 players remaining, 3 yet to play". */
-function liveSentence(m, viewerSide, counts) {
+function liveSentence(m, viewerSide, counts, countsPending) {
   const meKey = viewerSide === 'away' ? 'away' : 'home';
   const themKey = meKey === 'home' ? 'away' : 'home';
   const me = m[meKey] || {};
@@ -66,7 +66,9 @@ function liveSentence(m, viewerSide, counts) {
   const theirLeft = finite(theirs.remaining) ?? 0;
   const myLeft = finite(mine.remaining) ?? 0;
   let remaining = null;
-  if (theirLeft > 0) remaining = `they have ${players(theirLeft)}`;
+  // countsPending: the page is still reading the lineups its counts come from, so the clause waits.
+  if (countsPending) remaining = null;
+  else if (theirLeft > 0) remaining = `they have ${players(theirLeft)}`;
   else if (myLeft > 0) remaining = `you have ${players(myLeft)}`;
   const yet = finite(theirLeft > 0 ? theirs.yet : myLeft > 0 ? mine.yet : null);
   if (remaining && yet != null) remaining += `, ${yet} yet to play`;
@@ -78,7 +80,7 @@ function liveSentence(m, viewerSide, counts) {
  * of the two, else null (no tag, and the sentence falls back to the home side's perspective; the
  * page only renders this card for the viewer's own Matchup, so that fallback is a degrade path).
  */
-export function matchupHeroView(matchup, viewerTeamId, { counts = null } = {}) {
+export function matchupHeroView(matchup, viewerTeamId, { counts = null, countsPending = false } = {}) {
   const m = matchup || {};
   const board = matchupBoard(m, viewerTeamId);
   const { chip, hasStarted, viewerSide } = board;
@@ -90,7 +92,7 @@ export function matchupHeroView(matchup, viewerTeamId, { counts = null } = {}) {
   let sentence = null;
   if (hasStarted === true) {
     winProbability = priced ? percents(board.winProbability.home) : null;
-    sentence = board.resultLine ?? liveSentence(m, viewerSide, counts);
+    sentence = board.resultLine ?? liveSentence(m, viewerSide, counts, countsPending);
   }
   const projected = hasStarted === false && priced && board.projectedWinProbability
     ? percents(board.projectedWinProbability.home)

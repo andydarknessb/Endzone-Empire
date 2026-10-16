@@ -12,6 +12,7 @@ import { computeDefaultWeek } from '../../lib/matchupWeek';
 import { publishTeamProfileUpdate } from '../../lib/teamProfileEvents';
 import { matchupFromListRow } from '../../entities/matchup';
 import GameCenterPage from './index';
+import { viewerSlots } from './ui/HeroSection';
 import { SYNC_CADENCE_MS, syncLineText, weekGlanceFacts } from './model/useGameCenter';
 
 // The page reads everything through the shared apiClient (the league cache,
@@ -996,7 +997,7 @@ describe('Play-select', () => {
   });
 
   test('the hero and the tile print players remaining from the one count, and the glance row sums them (AC 6l)', async () => {
-    mockApi({ matchups: [viewerRow(), otherRow()], viewerTeamId: 10 });
+    mockApi({ matchups: [viewerRow({ home_yet_to_play: 2, away_yet_to_play: 3 }), otherRow()], viewerTeamId: 10 });
     renderPage();
     const hero = await screen.findByTestId('matchup-hero');
     expect(within(hero).getByTestId('matchup-hero-side-home')).toHaveTextContent('5 players remaining');
@@ -1006,7 +1007,7 @@ describe('Play-select', () => {
   });
 
   test('the live hero sentence names their players remaining', async () => {
-    mockApi({ matchups: [viewerRow(), otherRow()], viewerTeamId: 10 });
+    mockApi({ matchups: [viewerRow({ home_yet_to_play: 2, away_yet_to_play: 3 }), otherRow()], viewerTeamId: 10 });
     renderPage();
     const hero = await screen.findByTestId('matchup-hero');
     expect(within(hero).getByTestId('matchup-hero-sentence')).toHaveTextContent(/they have 4 players remaining/);
@@ -1267,6 +1268,66 @@ describe('Play-select', () => {
     expect(apiClient.get.mock.calls.filter(([url]) => url.startsWith('/api/team/lineup/advice'))).toHaveLength(1);
   });
 
+  // Re-QA: a count of 0 is a count. A league that lists a K slot with 0 seats has no K slot to fill.
+  test('a roster slot with a count of 0 is not an empty slot', async () => {
+    mockApi({
+      matchups: [viewerRow()],
+      viewerTeamId: 10,
+      league: { ...noteLeague, roster_slots: [{ key: 'QB', count: 1 }, { key: 'K', count: 0 }] },
+      detail: lineupDetail(),
+      actionItems: [lineupItemFor(noteLock())],
+    });
+    renderPage();
+    await screen.findByTestId('matchup-hero');
+    await waitFor(() => expect(apiClient.get.mock.calls.some(([url]) => url.includes('/matchups/'))).toBe(true));
+    expect(screen.queryByTestId('lineup-note')).not.toBeInTheDocument();
+  });
+
+  test('viewerSlots honours a count of 0 and fills a stray slot', () => {
+    expect(viewerSlots({ roster_slots: [{ key: 'QB', count: 1 }, { key: 'K', count: 0 }, { key: 'FLEX' }] }, [{ id: 1, slot: 'QB' }, { id: 2, slot: 'IDP' }]))
+      .toEqual([{ slot: 'QB', player: { id: 1, slot: 'QB' } }, { slot: 'FLEX', player: null }, { slot: 'IDP', player: { id: 2, slot: 'IDP' } }]);
+  });
+
+  test('best ball has no lineup to set: no lineup read for the note and no advice read', async () => {
+    mockApi({
+      matchups: [viewerRow({ status: 'scheduled', home_score: '0', away_score: '0' })],
+      viewerTeamId: 10,
+      league: { ...noteLeague, best_ball: true },
+      detail: lineupDetail(),
+      actionItems: [lineupItemFor(noteLock())],
+    });
+    renderPage();
+    await screen.findByTestId('matchup-hero');
+    await waitFor(() => expect(apiClient.get.mock.calls.some(([url]) => url.startsWith('/api/user/action-items'))).toBe(true));
+    expect(screen.queryByTestId('lineup-note')).not.toBeInTheDocument();
+    expect(apiClient.get.mock.calls.filter(([url]) => url.includes('/matchups/'))).toHaveLength(0);
+    expect(apiClient.get.mock.calls.filter(([url]) => url.startsWith('/api/team/lineup/advice'))).toHaveLength(0);
+  });
+
+  // Re-QA: while the helper path reads the lineups, no count shows, so the server's numbers never flash first.
+  test('on the helper path no count line and no count clause show until the lineups have read', async () => {
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    mockApi({
+      matchups: [viewerRow({ home_players_remaining: 5, away_players_remaining: 4 }), otherRow()],
+      viewerTeamId: 10,
+      league: noteLeague,
+      detail: lineupDetail({ awayStarters: [{ id: 5, slot: 'QB', game_state: 'in_progress' }] }),
+    });
+    const answer = apiClient.get.getMockImplementation();
+    apiClient.get.mockImplementation((url) => (url.includes('/matchups/') ? gate.then(() => answer(url)) : answer(url)));
+    renderPage();
+
+    const hero = await screen.findByTestId('matchup-hero');
+    expect(within(hero).queryByTestId('matchup-hero-remaining')).not.toBeInTheDocument();
+    expect(hero).not.toHaveTextContent(/players remaining/);
+    expect(within(hero).getByTestId('matchup-hero-sentence')).toHaveTextContent(/^Ahead now, projected to trail by 40[.]0$/);
+
+    release();
+    await waitFor(() => expect(within(hero).getByTestId('matchup-hero-side-away')).toHaveTextContent('1 player remaining'));
+    expect(within(hero).getByTestId('matchup-hero-sentence')).toHaveTextContent('they have 1 player remaining');
+  });
+
   test('a full lineup draws no note, and neither does a lock the page cannot name', async () => {
     mockApi({
       matchups: [viewerRow()],
@@ -1293,6 +1354,42 @@ describe('Play-select', () => {
 
 
   afterEach(() => { delete window.IntersectionObserver; });
+
+  // Re-QA: the compact bar watches the hero element that is on screen. A week switch changes which branch draws the
+  // hero, so an observer left on the old node would never pin again.
+  test('the compact scoreboard still pins after switching from the live week to a past final and back', async () => {
+    const observed = [];
+    window.IntersectionObserver = jest.fn((cb) => {
+      const record = { cb, el: null };
+      observed.push(record);
+      return { observe: jest.fn((el) => { record.el = el; }), disconnect: jest.fn() };
+    });
+    mockApi({
+      matchups: [
+        viewerRow({ week: 7 }),
+        viewerRow({
+          id: 6, week: 6, status: 'final', final: true, home_players_remaining: 0, away_players_remaining: 0,
+        }),
+        otherRow({ week: 7 }),
+      ],
+      viewerTeamId: 10,
+      league: { id: 1, name: 'Sunday Ballers', current_week: 7 },
+    });
+    renderPage();
+    await screen.findByTestId('matchup-hero');
+
+    await userEvent.click(screen.getByRole('radio', { name: 'Wk 6' }));
+    await waitFor(() => expect(screen.getByTestId('matchup-hero')).toHaveTextContent('Final'));
+    await userEvent.click(screen.getByRole('radio', { name: 'Wk 7' }));
+    await waitFor(() => expect(screen.getByTestId('matchup-hero')).toHaveTextContent('Live'));
+
+    // The observer that is watching the page is on the hero that is in the document now.
+    const live = observed.filter((o) => o.el && o.el.isConnected);
+    expect(live).toHaveLength(1);
+    expect(live[0].el).toContainElement(screen.getByTestId('matchup-hero'));
+    act(() => live[0].cb([{ isIntersecting: false, boundingClientRect: { bottom: -10 } }]));
+    expect(screen.getByTestId('game-center-compact-scoreboard')).toBeInTheDocument();
+  });
 
   test('once the hero scrolls out of view the compact scoreboard pins, and scroll-padding-top reserves it', async () => {
     let notify;
