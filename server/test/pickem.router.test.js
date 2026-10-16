@@ -611,6 +611,7 @@ test('a happy-path save writes the batch and echoes it back', async (t) => {
   assert.equal(res.status, 200);
   assert.deepEqual(res.body, {
     saved: 1,
+    cleared: [],
     myPicks: [{ gameKey: 'BUF|MIA', pickedTeam: 'MIA', confidence: null }],
   });
   const upsert = calls.find((call) => /INSERT INTO "pickem_picks"/.test(call.text));

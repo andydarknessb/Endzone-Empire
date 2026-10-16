@@ -901,6 +901,7 @@ test('upsertPicks bulk-upserts the whole batch in one statement', async (t) => {
   });
   assert.deepEqual(result, {
     saved: 1,
+    cleared: [],
     myPicks: [{ gameKey: 'DAL|WAS', pickedTeam: 'WAS', confidence: 1 }],
   });
 
@@ -981,4 +982,141 @@ test('account deletion wipes pickem_picks', async (t) => {
     'pickem_picks must be deleted alongside chat_reads'
   );
   assert.ok(calls.some((call) => call.text === 'COMMIT'));
+});
+
+/* ------------------------------------------------------------------ *
+ * Clearing a pick (save-on-tap Undo of a first pick, ADR 0067 wave 2) *
+ * ------------------------------------------------------------------ */
+
+test('validatePicksPayload treats pickedTeam null as a clear, with the same lock check', () => {
+  const games = slateOf();
+  const cleared = pickem.validatePicksPayload({
+    picks: [{ gameKey: 'DAL|WAS', pickedTeam: null }],
+    games, mode: 'straight', now: BEFORE_ALL,
+  });
+  assert.equal(cleared.code, null);
+  assert.deepEqual(cleared.picks, []);
+  assert.deepEqual(cleared.clears, ['DAL|WAS']);
+
+  const locked = pickem.validatePicksPayload({
+    picks: [{ gameKey: 'BUF|MIA', pickedTeam: null }],
+    games, mode: 'straight',
+    now: new Date('2026-09-10T00:20:00.000Z'), // exactly BUF/MIA kickoff
+  });
+  assert.equal(locked.code, 'PICKEM_LOCKED');
+  assert.deepEqual(locked.gameKeys, ['BUF|MIA']);
+});
+
+test('a clear needs no confidence in confidence mode and still rejects an unknown game', () => {
+  const games = slateOf();
+  const cleared = pickem.validatePicksPayload({
+    picks: [{ gameKey: 'DAL|WAS', pickedTeam: null }],
+    games, mode: 'confidence', now: BEFORE_ALL,
+  });
+  assert.equal(cleared.code, null);
+  assert.deepEqual(cleared.clears, ['DAL|WAS']);
+  const unknown = pickem.validatePicksPayload({
+    picks: [{ gameKey: 'XXX|YYY', pickedTeam: null }],
+    games, mode: 'straight', now: BEFORE_ALL,
+  });
+  assert.equal(unknown.code, 'PICKEM_BAD_GAME');
+});
+
+test('upsertPicks with pickedTeam null deletes that game\'s row and writes nothing else', async (t) => {
+  const calls = mockClient(t, [
+    ...TXN,
+    [/FROM "pickem_settings"/, () => ({ rows: [{ enabled: true, mode: 'straight' }] })],
+    [/FROM "nfl_games"/, () => ({ rows: nflGameRows(1, [
+      ['BUF', 'MIA', '2026-09-10T00:20:00.000Z'],
+      ['DAL', 'WAS', '2026-09-13T17:00:00.000Z'],
+    ]) })],
+    [/FROM "live_game_states"/, () => ({ rows: [] })],
+    [/SELECT "team_pair", "confidence" FROM "pickem_picks"/, () => ({ rows: [] })],
+    [/DELETE FROM "pickem_picks"/, () => ({ rows: [] })],
+    [/INSERT INTO "pickem_picks"/, () => ({ rows: [] })],
+  ]);
+
+  const result = await pickem.upsertPicks({
+    leagueId: 3, userId: 9, season: 2026, week: 1,
+    picks: [{ gameKey: 'dal|was', pickedTeam: null }],
+    now: new Date('2026-09-10T01:00:00.000Z'),
+  });
+  assert.deepEqual(result, { saved: 0, cleared: ['DAL|WAS'], myPicks: [] });
+  const del = calls.find((call) => /^DELETE FROM "pickem_picks"/.test(call.text));
+  assert.deepEqual(del.params, [3, 9, 2026, 1, ['DAL|WAS']]);
+  assert.equal(calls.filter((call) => /^INSERT INTO "pickem_picks"/.test(call.text)).length, 0);
+  assert.ok(calls.some((call) => call.text === 'COMMIT'));
+});
+
+test('upsertPicks refuses to clear a pick after kickoff and deletes nothing', async (t) => {
+  const calls = mockClient(t, [
+    ...TXN,
+    [/FROM "pickem_settings"/, () => ({ rows: [{ enabled: true, mode: 'straight' }] })],
+    [/FROM "nfl_games"/, () => ({ rows: nflGameRows(1, [
+      ['BUF', 'MIA', '2026-09-10T00:20:00.000Z'],
+      ['DAL', 'WAS', '2026-09-13T17:00:00.000Z'],
+    ]) })],
+    [/FROM "live_game_states"/, () => ({ rows: [] })],
+    [/SELECT "team_pair", "confidence" FROM "pickem_picks"/, () => ({ rows: [] })],
+    [/DELETE FROM "pickem_picks"/, () => ({ rows: [] })],
+  ]);
+
+  await assert.rejects(
+    () => pickem.upsertPicks({
+      leagueId: 3, userId: 9, season: 2026, week: 1,
+      picks: [{ gameKey: 'BUF|MIA', pickedTeam: null }],
+      now: new Date('2026-09-10T01:00:00.000Z'),
+    }),
+    (error) => {
+      assert.equal(error.statusCode, 409);
+      assert.equal(error.code, 'PICKEM_LOCKED');
+      assert.deepEqual(error.details, { gameKeys: ['BUF|MIA'] });
+      return true;
+    }
+  );
+  // #274: count, not boolean. The lock check sits above the delete.
+  assert.equal(
+    calls.filter((call) => /^DELETE FROM "pickem_picks"/.test(call.text)).length,
+    0,
+    'a started game\'s pick was not deleted'
+  );
+  assert.ok(calls.some((call) => call.text === 'ROLLBACK'));
+});
+
+test('a two-game confidence swap passes uniqueness in ONE statement, where two single saves would not', async (t) => {
+  const calls = mockClient(t, [
+    ...TXN,
+    [/FROM "pickem_settings"/, () => ({ rows: [{ enabled: true, mode: 'confidence' }] })],
+    [/FROM "nfl_games"/, () => ({ rows: nflGameRows(1, [
+      ['BUF', 'MIA', '2026-09-13T17:00:00.000Z'],
+      ['DAL', 'WAS', '2026-09-13T17:00:00.000Z'],
+    ]) })],
+    [/FROM "live_game_states"/, () => ({ rows: [] })],
+    // The member holds 1 on BUF|MIA and 2 on DAL|WAS; the swap trades them.
+    [/SELECT "team_pair", "confidence" FROM "pickem_picks"/, () => ({
+      rows: [{ team_pair: 'BUF|MIA', confidence: 1 }, { team_pair: 'DAL|WAS', confidence: 2 }],
+    })],
+    [/INSERT INTO "pickem_picks"/, () => ({ rows: [] })],
+  ]);
+
+  const result = await pickem.upsertPicks({
+    leagueId: 3, userId: 9, season: 2026, week: 1,
+    picks: [
+      { gameKey: 'BUF|MIA', pickedTeam: 'BUF', confidence: 2 },
+      { gameKey: 'DAL|WAS', pickedTeam: 'DAL', confidence: 1 },
+    ],
+    now: new Date('2026-09-10T01:00:00.000Z'),
+  });
+  assert.equal(result.saved, 2);
+  const inserts = calls.filter((call) => /^INSERT INTO "pickem_picks"/.test(call.text));
+  assert.equal(inserts.length, 1);
+  assert.deepEqual(inserts[0].params, [3, 9, 2026, 1, ['BUF|MIA', 'DAL|WAS'], ['BUF', 'DAL'], [2, 1]]);
+
+  // The single-game save of the same change fails: 2 is still held by DAL|WAS.
+  const single = pickem.validatePicksPayload({
+    picks: [{ gameKey: 'BUF|MIA', pickedTeam: 'BUF', confidence: 2 }],
+    games: slateOf(), mode: 'confidence', now: BEFORE_ALL,
+    heldConfidences: [{ gameKey: 'DAL|WAS', confidence: 2 }],
+  });
+  assert.equal(single.code, 'PICKEM_BAD_CONFIDENCE');
 });
