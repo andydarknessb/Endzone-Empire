@@ -12,13 +12,15 @@ import ScoreboardStrip from '../../widgets/scoreboard-strip';
 import SlotComparison from '../../widgets/slot-comparison';
 import NflGameStrip from '../../widgets/nfl-game-strip';
 import RetroScoreboard from '../../widgets/retro-scoreboard';
-import BenchWhatIf, { LineupNote, lineupIssues, lineupNoteView } from '../../features/bench-what-if';
+import BenchWhatIf, { LineupNote } from '../../features/bench-what-if';
 import ToggleMatchupView, { VIEW_SCOREBOARD, VIEW_STANDARD } from '../../features/toggle-matchup-view';
 import CelebrateTouchdown, { CelebrationsCaption } from '../../features/celebrate-touchdown';
 import PlayerDecisionCard, { myTeam, rostered } from '../../widgets/player-decision-card';
 import { toDecisionCardEntry } from '../../entities/player';
 import { useActionItems } from '../../entities/action-item';
-import { adviceGain, adviceNote, useAdvice } from '../../entities/roster';
+import {
+  adviceGain, adviceNote, lineupIssues, lineupNote, lineupSlots, nextKickoff, useAdvice,
+} from '../../entities/roster';
 import { useMatchupPage } from './model/useMatchupPage';
 import BenchCard from './ui/BenchCard';
 import LastPlays from './ui/LastPlays';
@@ -74,12 +76,7 @@ const MINUTE_MS = 60 * 1000;
 function nextLockAt(actionItems, games, leagueId) {
   const item = actionItems.find((i) => String(i.leagueId) === String(leagueId) && String(i.id).split(':')[0] === 'lineup_problem');
   const fromItem = item?.deadlineAt ? new Date(item.deadlineAt).getTime() : NaN;
-  if (Number.isFinite(fromItem)) return fromItem;
-  const kicks = (games || [])
-    .filter((g) => g && g.game_status !== 'in_progress' && g.game_status !== 'final')
-    .map((g) => new Date(g.kickoff_at ?? g.start_time ?? NaN).getTime())
-    .filter(Number.isFinite);
-  return kicks.length ? Math.min(...kicks) : null;
+  return Number.isFinite(fromItem) ? fromItem : nextKickoff(games);
 }
 
 const NUMBERS_TERMS = [
@@ -134,7 +131,8 @@ export default function MatchupPage() {
   // return; the advice is read only before kickoff, and only when there is a problem to name.
   const { viewerSide } = board;
   const actionItems = useActionItems();
-  const issues = useMemo(() => lineupIssues(starterRows, viewerSide), [starterRows, viewerSide]);
+  const slots = useMemo(() => lineupSlots(starterRows, viewerSide), [starterRows, viewerSide]);
+  const issues = useMemo(() => lineupIssues(slots, games), [slots, games]);
   const started = board.hasStarted === true;
   const noteOpen = canSetLineup && viewerHasRoster && issues.length > 0;
   const advice = useAdvice({
@@ -216,10 +214,10 @@ export default function MatchupPage() {
   // The note row: the lineup note while there is something to fix, else the Bench what-if while live.
   const otherSide = viewerSide === 'home' ? 'away' : 'home';
   const noteView = noteOpen
-    ? lineupNoteView({
-      rows: starterRows,
-      viewerSide,
+    ? lineupNote({
+      slots,
       bench: benches[viewerSide],
+      gameStates: games,
       started,
       lockAt,
       now,

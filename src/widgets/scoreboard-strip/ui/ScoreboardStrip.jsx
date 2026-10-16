@@ -223,6 +223,7 @@ export default function ScoreboardStrip({
       aria-labelledby="matchup-scoreboard-h"
       data-testid="scoreboard-strip"
       data-state={settled ? 'settled' : live ? 'live' : 'started'}
+      data-layout={phone ? 'mobile' : 'desktop'}
       sx={{
         boxSizing: 'border-box', minWidth: 0, backgroundColor: 'var(--ps-board)', color: 'var(--ps-board-ink)', border: '6px double var(--ps-board-dim)', ...sx,
       }}
@@ -231,7 +232,7 @@ export default function ScoreboardStrip({
       {inner}
     </Box>
   ) : (
-    <Frame labelledBy="matchup-scoreboard-h" data-testid="scoreboard-strip" data-state="scheduled" sx={sx} {...rest}>
+    <Frame labelledBy="matchup-scoreboard-h" data-testid="scoreboard-strip" data-state="scheduled" data-layout={phone ? 'mobile' : 'desktop'} sx={sx} {...rest}>
       {inner}
     </Frame>
   );

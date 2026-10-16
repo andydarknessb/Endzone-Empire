@@ -1618,7 +1618,7 @@ describe('the lineup note (AC 6j)', () => {
 
   test('when no bench player can fill the slot the note says so and links Free agents instead', async () => {
     liveGameRows = [nflGame({ start_time: inMinutes(120) })];
-    mockApi({ matchup: emptyFlex({ homeBench: [benchPlayer({ game_state: 'in_progress' })] }) });
+    mockApi({ matchup: emptyFlex({ homeBench: [benchPlayer({ game_state: 'in_progress', nfl_team: 'DAL' })] }) });
     renderPage();
 
     const note = await screen.findByTestId('lineup-note');

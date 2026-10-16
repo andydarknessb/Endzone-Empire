@@ -112,6 +112,9 @@ export { useTeamLineup, useLedgerSections } from './model/useTeamLineup';
 export { useAdvice } from './model/useAdvice';
 export { adviceNote, adviceGain } from './model/adviceNote';
 export {
+  lineupNote, lineupIssues, lineupSlots, nextKickoff,
+} from './model/lineupNote';
+export {
   parseRosterTemplate,
   accepts,
   slotsFor,
