@@ -87,7 +87,8 @@ export function PsTable({
       aria-label={`${label} table`}
       tabIndex={0}
       data-arrow-scroll-region="true"
-      sx={{ overflowX: 'auto' }}
+      // relative: an absolutely placed sr-only cell would otherwise escape this clip and widen the drawer.
+      sx={{ overflowX: 'auto', position: 'relative' }}
     >
       <Box
         component="table"
@@ -407,7 +408,7 @@ export function PsWeeklyBars({ weeks, currentWeek, seasonEnd }) {
         aria-label="Weekly points, actual and projected"
         tabIndex={0}
         data-arrow-scroll-region="true"
-        sx={{ display: 'flex', alignItems: 'flex-end', gap: '4px', overflowX: 'auto', flexShrink: 0 }}
+        sx={{ display: 'flex', alignItems: 'flex-end', gap: '4px', overflowX: 'auto', position: 'relative', flexShrink: 0 }}
       >
         {weeks.map((week) => (
           <WeekBar

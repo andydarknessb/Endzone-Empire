@@ -87,7 +87,8 @@ export const FIELD_SX = {
   },
   '&.Mui-error .MuiOutlinedInput-notchedOutline': { borderColor: 'var(--ps-danger)' },
   '& .MuiSelect-icon': { color: 'var(--ps-ink)' },
-  '& .MuiSelect-select': {
+  // MUI sets the select's height and padding at triple specificity; four classes win.
+  '& .MuiSelect-select.MuiSelect-select.MuiSelect-select': {
     height: '44px', boxSizing: 'border-box', display: 'flex', alignItems: 'center', padding: '0 40px 0 12px',
   },
   '& input': { height: '44px', boxSizing: 'border-box', padding: '0 12px' },

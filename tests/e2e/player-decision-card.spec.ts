@@ -227,3 +227,43 @@ test('negative control: the width predicate reports a forced sheet overflow', as
   const after = await page.evaluate(probeWidth, '[data-testid="decision-card"]');
   expect(after.scrollWidth).toBeLessThanOrEqual(after.clientWidth + 1);
 });
+
+// Spec #2347 ruling 7 (wave 3): the playselect look's one-filled-action rule. The phone sheet is modal, so it
+// may carry exactly one filled button (the Claim); the desktop drawer carries none. The default look's
+// contained Claim counts as a filled button too, so the sheet half holds under either look and the drawer
+// half is asserted once the card paints the playselect look (the `ps-root` class on its paper).
+const FILLED = '[data-variant="fill"], .MuiButton-contained';
+
+test('the sheet carries at most one filled button', async ({ page }) => {
+  await setupDecisionCardLayoutGuard(page);
+  await page.setViewportSize({ width: WIDTH, height: HEIGHT });
+  await page.goto(WAIVERS_URL);
+  await page.getByRole('button', { name: new RegExp(`^${PLAYER_NAME}`) }).click();
+  const card = page.getByTestId('decision-card');
+  await expect(card).toHaveAttribute('data-variant', 'sheet');
+  await expect(page.getByTestId('claim-player-action')).toBeVisible();
+  expect(await card.locator(FILLED).count()).toBeLessThanOrEqual(1);
+});
+
+test('the desktop drawer at 1440: no horizontal scroll, 44px controls, and no filled button in the playselect look', async ({ page }) => {
+  await setupDecisionCardLayoutGuard(page);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(WAIVERS_URL);
+  await page.getByRole('button', { name: new RegExp(`^${PLAYER_NAME}`) }).click();
+  const card = page.getByTestId('decision-card');
+  await expect(card).toHaveAttribute('data-variant', 'drawer');
+  await expect(page.getByTestId('weekly-points-bars')).toBeVisible();
+  await page.evaluate(() => document.fonts.ready.then(() => true));
+
+  const width = await page.evaluate(probeWidth, '[data-testid="decision-card"]');
+  expect(
+    width.scrollWidth,
+    `decision-card @ 1440: scrollWidth=${width.scrollWidth} clientWidth=${width.clientWidth}${width.worst ? ` worst overhang: ${JSON.stringify(width.worst)}` : ''}`
+  ).toBeLessThanOrEqual(width.clientWidth + 1);
+  const tapTargets = await page.evaluate(probeTapTargets, '[data-testid="decision-card"]');
+  for (const box of tapTargets.boxes) {
+    expect(box.height, `"${box.name}" is ${box.width}x${box.height}, under the 44px minimum`).toBeGreaterThanOrEqual(44);
+  }
+  const playselect = await card.evaluate((el) => el.classList.contains('ps-root'));
+  if (playselect) expect(await card.locator(FILLED).count()).toBe(0);
+});
