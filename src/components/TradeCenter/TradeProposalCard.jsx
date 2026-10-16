@@ -67,15 +67,16 @@ function Column({
   );
 }
 
-// One side of the title: avatar, name and the You badge are one nowrap unit, so a narrow card breaks
-// between the two teams and never inside one.
+// One side of the title: avatar, name and the You badge are one unit, so a narrow card breaks between
+// the two teams before it breaks inside one.
 function Side({
   name, avatarUrl, avatarStaticUrl, you, arrow,
 }) {
   return (
-    <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: '8px', whiteSpace: 'nowrap' }}>
+    <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: '8px', minWidth: 0, maxWidth: '100%' }}>
       <TeamMark name={name} avatarUrl={avatarUrl} avatarStaticUrl={avatarStaticUrl} size={28} />
-      <span>{name}</span>
+      {/* shortcut: a name wider than the card wraps inside its own unit (a 120 character team name), never past the card. */}
+      <Box component="span" sx={{ minWidth: 0, overflowWrap: 'anywhere' }}>{name}</Box>
       {you && <YouTag />}
       {arrow && (
         <>

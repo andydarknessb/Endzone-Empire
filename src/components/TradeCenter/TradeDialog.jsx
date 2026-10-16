@@ -40,7 +40,7 @@ const FIGURE = {
 
 /** One roster column: players grouped under their position, one 44px checkbox row each. */
 function RosterColumn({
-  label, players, selectedIds, onToggle, testId, autoFocusFirst = false,
+  label, players, selectedIds, onToggle, testId, firstRef,
 }) {
   const rows = groupPlayersByPosition(players || []).flatMap(({ players: group }) => group);
   return (
@@ -77,7 +77,7 @@ function RosterColumn({
             <Box
               component="input"
               type="checkbox"
-              autoFocus={autoFocusFirst && i === 0}
+              ref={i === 0 ? firstRef : undefined}
               checked={checked}
               onChange={() => onToggle(player.id)}
               aria-label={[
@@ -138,6 +138,13 @@ function SummaryChipRow({ label, ids, roster }) {
   );
 }
 
+// Focus lands from an effect inside the dialog, not from `autoFocus`: under StrictMode the focus trap restores
+// focus to the opener between its two effect runs, and a child's effect runs before the trap's each time.
+function FocusOnMount({ target }) {
+  useEffect(() => { target.current?.focus(); }, [target]);
+  return null;
+}
+
 const selectSx = {
   width: '100%',
   minHeight: '44px',
@@ -186,6 +193,12 @@ export default function TradeDialog({
   const teamChosen = selectedTeamId !== '';
   // Focus lands on "Trade with" unless the team was already chosen when the dialog opened (a counter, a deep link).
   const focusCheckbox = useRef(teamChosen);
+  const initialFocus = useRef(null);
+  const errorRef = useRef(null);
+  // The body scrolls under a pinned footer: a refusal at its end must not land out of sight.
+  useEffect(() => {
+    if (sendError) errorRef.current?.scrollIntoView?.({ block: 'nearest' });
+  }, [sendError]);
 
   // Fires ~600ms after the offered/requested ids last changed, rather than waiting for a click.
   useEffect(() => {
@@ -221,6 +234,7 @@ export default function TradeDialog({
         },
       }}
     >
+      <FocusOnMount target={initialFocus} />
       <Box sx={{ padding: { xs: '12px 14px', sm: '14px 20px' }, borderBottom: '2px solid var(--ps-rule)' }}>
         <Box component="h2" id="trade-dialog-title" sx={{ m: 0, ...pixelSx(16) }}>{title}</Box>
       </Box>
@@ -237,7 +251,7 @@ export default function TradeDialog({
             id="trade-with-select"
             value={selectedTeamId}
             disabled={counter}
-            autoFocus={!focusCheckbox.current}
+            ref={focusCheckbox.current ? undefined : initialFocus}
             onChange={(e) => onTeamChange(e.target.value === '' ? '' : Number(e.target.value))}
             sx={selectSx}
           >
@@ -256,7 +270,7 @@ export default function TradeDialog({
               selectedIds={sendIds}
               onToggle={onToggleSend}
               testId="roster-column-send"
-              autoFocusFirst={focusCheckbox.current}
+              firstRef={focusCheckbox.current ? initialFocus : undefined}
             />
             <RosterColumn
               label="You receive"
@@ -283,7 +297,7 @@ export default function TradeDialog({
           </Box>
         )}
 
-        {sendError && <TradeAlert testId="trade-dialog-error">{sendError}</TradeAlert>}
+        {sendError && <Box ref={errorRef}><TradeAlert testId="trade-dialog-error">{sendError}</TradeAlert></Box>}
       </Box>
 
       <Box sx={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'flex-end', gap: '12px', padding: { xs: '12px 14px', sm: '14px 20px' }, borderTop: '2px solid var(--ps-rule)' }}>

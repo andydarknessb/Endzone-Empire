@@ -7,6 +7,10 @@ import { clearLeagueCache } from '../../hooks/useLeague';
 import { SnackbarProvider } from '../Snackbar/SnackbarProvider';
 import TradeCenter from './TradeCenter';
 
+// A card is queried through its own `within(...)` scope (one page holds several), and the cursor, the filled
+// action and the live regions are classes and attributes with no role.
+/* eslint-disable testing-library/prefer-screen-queries, testing-library/no-node-access, testing-library/no-container */
+
 jest.mock('../../api/apiClient', () => ({
   __esModule: true,
   default: { get: jest.fn(), post: jest.fn() },
@@ -698,7 +702,7 @@ test('Analyze Trade on an existing trade card posts the trade id and renders a f
   );
   expect(await c.findByText('Fair')).toBeInTheDocument();
   // One decimal, whatever the wire sends.
-  expect(c.getByText(/gives 20\.0 · gets 20\.0/, { selector: 'div' })).toBeInTheDocument();
+  expect(c.getAllByText(/gives 20\.0 · gets 20\.0/, { selector: 'div' })).toHaveLength(2);
 });
 
 test('an analysis with verdict collusion_risk reads "Collusion risk", and the players show one-decimal values', async () => {
