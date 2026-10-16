@@ -1,3 +1,4 @@
+/* eslint-disable testing-library/no-node-access -- these cases read emotion rules, data attributes and the Live chip's dot, which have no role or text */
 import React from 'react';
 import { render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
@@ -68,47 +69,34 @@ test('renders both Team names and both scores, home left and away right', () => 
   expect(within(awaySide()).getByTestId('matchup-hero-name')).toHaveTextContent('Fargo Frostbite');
   expect(within(homeSide()).getByTestId('matchup-hero-score')).toHaveTextContent('82.2');
   expect(within(awaySide()).getByTestId('matchup-hero-score')).toHaveTextContent('77.0');
-
-  // Each avatar is named for its Team (TeamAvatar itself is aria-hidden).
-  expect(within(homeSide()).getByRole('img', { name: 'Duluth Dockworkers' })).toBeInTheDocument();
-  expect(within(awaySide()).getByRole('img', { name: 'Fargo Frostbite' })).toBeInTheDocument();
+  // The names are the h3s under the hero's own h2.
+  expect(within(homeSide()).getByRole('heading', { level: 3, name: 'Duluth Dockworkers' })).toBeInTheDocument();
 });
 
-test('renders Expected final and PMR as stat tiles on each side', () => {
+test('renders Expected final and players remaining on separate lines, each side', () => {
   renderHero();
 
-  expect(within(homeSide()).getByTestId('matchup-hero-expected-final')).toHaveTextContent('Expected final110.5');
-  expect(within(homeSide()).getByTestId('matchup-hero-pmr')).toHaveTextContent(/4$/);
-  expect(within(awaySide()).getByTestId('matchup-hero-expected-final')).toHaveTextContent('Expected final123.9');
-  expect(within(awaySide()).getByTestId('matchup-hero-pmr')).toHaveTextContent(/6$/);
+  expect(within(homeSide()).getByTestId('matchup-hero-expected-final')).toHaveTextContent('Expected final 110.5');
+  expect(within(homeSide()).getByTestId('matchup-hero-remaining')).toHaveTextContent('4 players remaining');
+  expect(within(awaySide()).getByTestId('matchup-hero-expected-final')).toHaveTextContent('Expected final 123.9');
+  expect(within(awaySide()).getByTestId('matchup-hero-remaining')).toHaveTextContent('6 players remaining');
+  // The visible text says "players remaining", never "PMR".
+  expect(document.body).not.toHaveTextContent('PMR');
 });
 
-// Red-tell (#897): printing the tile's label as the bare "PMR" string turns
-// this case red (no "Players remaining" text anywhere on the hero).
-test('the PMR tile reads Players remaining to assistive tech and PMR to the eye', () => {
-  renderHero();
-
-  const tile = within(homeSide()).getByTestId('matchup-hero-pmr');
-  expect(within(tile).getByText('Players remaining')).toBeInTheDocument();
-  expect(within(tile).getByText('PMR')).toHaveAttribute('aria-hidden', 'true');
-  // The value follows the expansion, so a screen reader hears "Players remaining 4".
-  expect(tile).toHaveTextContent(/Players remaining4$/);
-  // Expected final is not abbreviated: one visible label, nothing hidden.
-  const ef = within(homeSide()).getByTestId('matchup-hero-expected-final');
-  expect(ef).toHaveTextContent('Expected final110.5');
-  expect(within(ef).getByText('Expected final')).not.toHaveAttribute('aria-hidden');
+test('one player reads singular, and the live leader is Board ink with the trailer dim', () => {
+  renderHero({ matchup: { ...live, home: { ...dock, playersRemaining: 1 } } });
+  expect(within(homeSide()).getByTestId('matchup-hero-remaining')).toHaveTextContent('1 player remaining');
+  expect(within(homeSide()).getByTestId('matchup-hero-remaining')).not.toHaveTextContent('1 players');
 });
 
-test('both sides read Expected final before PMR, the away side included', () => {
+test('both sides read Expected final before players remaining, the away side included', () => {
   renderHero();
 
-  // The canvas's heroSide() mirrors only the avatar row on the away side; the
-  // tiles keep the home side's order. Nothing reverses the row in CSS, so the
-  // DOM order asserted here is the order the eye and a screen reader get.
   for (const side of [homeSide(), awaySide()]) {
     const ef = within(side).getByTestId('matchup-hero-expected-final');
-    const pmr = within(side).getByTestId('matchup-hero-pmr');
-    expect(ef.compareDocumentPosition(pmr) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const remaining = within(side).getByTestId('matchup-hero-remaining');
+    expect(ef.compareDocumentPosition(remaining) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   }
 });
 
@@ -149,64 +137,82 @@ test('puts the You pill on the viewer side only, matched by Team id', () => {
   expect(awaySide()).not.toHaveAttribute('data-viewer-team');
 });
 
-test('a live matchup renders the SplitBar with both percentages and the sentence', () => {
+test('a live matchup renders the two-sided bar with both names and percentages, the credit and the sentence', () => {
   renderHero();
 
-  // The bar is the one accessible name for the split; it carries both names
-  // and both percentages.
+  // One accessible name carries both teams and both percentages.
   expect(
-    screen.getByRole('img', { name: 'Win probability: Duluth Dockworkers 36%, Fargo Frostbite 64%' })
+    screen.getByRole('img', { name: 'Duluth Dockworkers 36%, Fargo Frostbite 64% win probability' })
   ).toBeInTheDocument();
-  expect(screen.getByTestId('split-bar-home').style.width).toBe('36%');
-  expect(screen.getByTestId('split-bar-away').style.width).toBe('64%');
+  const win = screen.getByTestId('matchup-hero-win-probability');
+  expect(win).toHaveTextContent('Win probability · Endzone Forecast');
+  expect(win).toHaveTextContent('Duluth Dockworkers 36%');
+  expect(win).toHaveTextContent('Fargo Frostbite 64%');
+  expect(win.querySelectorAll('[data-on="true"]')).toHaveLength(13);
 
-  // The per-side percentages beside it agree with the bar.
-  expect(screen.getByTestId('matchup-hero-home-pct')).toHaveTextContent('36%');
-  expect(screen.getByTestId('matchup-hero-away-pct')).toHaveTextContent('64%');
-
-  // The one plain sentence, from the viewer's (home) side.
   expect(screen.getByTestId('matchup-hero-sentence')).toHaveTextContent(
-    'Ahead now, projected to trail by 13.4 with 6 of theirs still to play'
+    'Ahead now, projected to trail by 13.4 \u00b7 they have 6 players remaining'
   );
   expect(screen.queryByTestId('matchup-hero-kickoff')).not.toBeInTheDocument();
+  // Exactly one Live chip on the hero, and one polite region carrying only the score sentence.
+  expect(within(screen.getByTestId('matchup-hero-status')).getByText('Live')).toBeInTheDocument();
+  expect(screen.getByTestId('matchup-hero-live-region')).toHaveTextContent('Duluth Dockworkers 82.2, Fargo Frostbite 77.0');
+});
+
+test('the live sentence reads the server yetToPlay, or the page counts when it lacks one', () => {
+  const served = { ...live, away: { ...frost, yetToPlay: 2 }, home: { ...dock, yetToPlay: 0 } };
+  const { unmount } = renderHero({ matchup: served });
+  expect(screen.getByTestId('matchup-hero-sentence')).toHaveTextContent(
+    'they have 6 players remaining, 2 yet to play'
+  );
+  unmount();
+  renderHero({ counts: { home: { remaining: 3, yet: 1 }, away: { remaining: 5, yet: 4 } } });
+  expect(screen.getByTestId('matchup-hero-sentence')).toHaveTextContent('they have 5 players remaining, 4 yet to play');
 });
 
 test('the sentence is written from the viewer side when the viewer is away', () => {
   renderHero({ viewerTeamId: 20 });
   expect(screen.getByTestId('matchup-hero-sentence')).toHaveTextContent(
-    'Behind now, projected to lead by 13.4 with 4 of theirs still to play'
+    'Behind now, projected to lead by 13.4 \u00b7 they have 4 players remaining'
   );
 });
 
-test('a scheduled matchup renders the kickoff line and no bar', () => {
-  renderHero({ matchup: scheduled });
+test('a scheduled matchup is the framed panel: Proj figures, the Ink bar, Kickoff, no 0.0 and no Next kickoff', () => {
+  renderHero({ matchup: scheduled, nextKickoffAt: scheduled.firstKickoffAt });
 
   const kickoff = screen.getByTestId('matchup-hero-kickoff');
   expect(kickoff).toHaveTextContent(`Kickoff${kickoffText(scheduled.firstKickoffAt)}`);
-  // The line reads firstKickoffAt, not the sync time.
   expect(kickoff).not.toHaveTextContent(kickoffText(scheduled.syncedAt));
 
-  expect(screen.queryByTestId('split-bar')).not.toBeInTheDocument();
-  expect(screen.queryByRole('img', { name: /^Win probability:/ })).not.toBeInTheDocument();
-  expect(screen.queryByText(/%$/)).not.toBeInTheDocument();
+  expect(within(homeSide()).getByTestId('matchup-hero-score')).toHaveTextContent('108.3');
+  expect(homeSide()).toHaveTextContent('Proj');
+  expect(homeSide()).toHaveTextContent('9 starters set to play');
+  expect(homeSide()).not.toHaveTextContent('Expected final');
+  expect(screen.getByRole('img', { name: /^Duluth Dockworkers \d+%, Fargo Frostbite \d+% win probability$/ })).toBeInTheDocument();
+  expect(screen.getByTestId('matchup-hero-win-probability')).toHaveTextContent('Projected margin · Fargo Frostbite by 3.6');
   expect(screen.queryByTestId('matchup-hero-sentence')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('matchup-hero-live-region')).not.toBeInTheDocument();
   expect(screen.getByTestId('matchup-hero-status')).toHaveTextContent('Scheduled');
+  // The hero says the kickoff once: the footer drops "Next kickoff".
+  expect(screen.getByTestId('matchup-hero-footer-facts')).toHaveTextContent('No games in progress');
+  expect(screen.queryByText(/Next kickoff/)).not.toBeInTheDocument();
 });
 
 test('a scheduled matchup with no kickoff time reads TBD', () => {
   renderHero({ matchup: { ...scheduled, firstKickoffAt: null } });
   expect(screen.getByTestId('matchup-hero-kickoff')).toHaveTextContent('KickoffTBD');
-  expect(screen.queryByTestId('split-bar')).not.toBeInTheDocument();
 });
 
-test('links Compare rosters to the matchup and Set lineup to the Lineup page', () => {
+test('links Matchup to the matchup and Set lineup to the Lineup page, a ghost, never filled', () => {
   renderHero();
 
-  expect(screen.getByRole('link', { name: 'Compare rosters' })).toHaveAttribute(
+  expect(screen.getByRole('link', { name: 'Matchup, Duluth Dockworkers against Fargo Frostbite' })).toHaveAttribute(
     'href',
     '/league/5/matchups/7'
   );
   expect(screen.getByRole('link', { name: 'Set lineup' })).toHaveAttribute('href', '/league/5/lineup');
+  expect(screen.queryByText('Compare rosters')).not.toBeInTheDocument();
+  expect(document.querySelectorAll('[data-filled="true"]')).toHaveLength(0);
 });
 
 test('shows record and rank beneath each name from the lookups the page passes', () => {
@@ -229,11 +235,9 @@ test('shows the record alone without ranks, and no line without either', () => {
   expect(screen.queryByTestId('matchup-hero-record')).not.toBeInTheDocument();
 });
 
-test('the status chip comes from the matchupBoard chip and is absent on an unknown status', () => {
+test('the chip is the Live chip while live, a status word once settled, and absent on an unknown status', () => {
   const { rerender } = renderHero();
-  // The artboard's red LIVE: the danger Badge with the dot.
-  expect(screen.getByTestId('matchup-hero-status')).toHaveTextContent('LIVE');
-  expect(screen.getByTestId('matchup-hero-status')).toHaveAttribute('data-variant', 'danger');
+  expect(screen.getByTestId('matchup-hero-status')).toHaveTextContent('Live');
 
   rerender(
     <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
@@ -241,17 +245,16 @@ test('the status chip comes from the matchupBoard chip and is absent on an unkno
     </MemoryRouter>
   );
   expect(screen.getByTestId('matchup-hero-status')).toHaveTextContent('Awaiting final');
-  expect(screen.getByTestId('matchup-hero-status')).toHaveAttribute('data-variant', 'warning');
 
   rerender(
     <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <MatchupHero leagueId={5} matchup={{ ...live, status: null }} viewerTeamId={10} />
     </MemoryRouter>
   );
-  // ADR 0030: an unknown status asserts neither state, so no chip, no bar and
-  // no kickoff line; the scores and names still render.
+  // ADR 0030: an unknown status asserts neither state, so no chip, no bar and no kickoff line; the
+  // scores and names still render.
   expect(screen.queryByTestId('matchup-hero-status')).not.toBeInTheDocument();
-  expect(screen.queryByTestId('split-bar')).not.toBeInTheDocument();
+  expect(screen.queryByRole('img', { name: /win probability/ })).not.toBeInTheDocument();
   expect(screen.queryByTestId('matchup-hero-kickoff')).not.toBeInTheDocument();
   expect(within(homeSide()).getByTestId('matchup-hero-score')).toHaveTextContent('82.2');
 });
@@ -278,8 +281,8 @@ test('renders the games-in-progress and next-kickoff footer lines only when supp
     </MemoryRouter>
   );
   expect(screen.queryByTestId('matchup-hero-footer-facts')).not.toBeInTheDocument();
-  // The actions are there regardless.
-  expect(screen.getByRole('link', { name: 'Compare rosters' })).toBeInTheDocument();
+  // The links are there regardless.
+  expect(screen.getByRole('link', { name: /^Matchup, / })).toBeInTheDocument();
 });
 
 test('a final matchup degrades a missing Expected final to a named placeholder', () => {
@@ -296,10 +299,9 @@ test('a final matchup degrades a missing Expected final to a named placeholder',
   const tile = within(homeSide()).getByTestId('matchup-hero-expected-final');
   expect(within(tile).getByText('Not available')).toBeInTheDocument();
   expect(within(tile).getByText('-')).toHaveAttribute('aria-hidden', 'true');
-  expect(within(homeSide()).getByTestId('matchup-hero-pmr')).toHaveTextContent(/0$/);
+  expect(within(homeSide()).getByTestId('matchup-hero-remaining')).toHaveTextContent('0 players remaining');
   expect(screen.getByTestId('matchup-hero-sentence')).toHaveTextContent('You won by 5.2');
   expect(screen.getByTestId('matchup-hero-status')).toHaveTextContent('Final');
-  expect(screen.getByTestId('matchup-hero-status')).toHaveAttribute('data-variant', 'success');
 });
 
 test('is a labelled region whose title is a heading, level 2 by default', () => {

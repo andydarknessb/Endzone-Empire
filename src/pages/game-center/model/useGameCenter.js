@@ -114,7 +114,7 @@ export function syncLineText(syncedAt, now = Date.now()) {
 /**
  * The week-at-a-glance rows from the week's Matchups alone, in the canvas's
  * order: the top score, the closest Matchup, the biggest lead, and the
- * starters still to play league-wide. Each row is `{ key, label, text,
+ * players remaining league-wide. Each row is `{ key, label, text,
  * value }` with `value` already formatted; a row whose fact is not derivable
  * is left out rather than printed as a zero.
  *
@@ -126,9 +126,10 @@ export function syncLineText(syncedAt, now = Date.now()) {
  *     names middot-separated; biggest lead is the largest margin, "<leader>
  *     over <trailer>", and is not derivable when no one leads (every started
  *     Matchup tied).
- *   - Still to play sums Players remaining across every side of the week,
- *     scheduled Matchups included (their starters are still to play), and is
- *     not derivable when no side reports a count.
+ *   - Players remaining sums the server's count across every side of the week
+ *     (the one definition: starters whose game is not final, Out starters and
+ *     empty slots excluded), and is not derivable when no side reports a
+ *     count. Before any Matchup starts it reads "Starters set to play".
  */
 export function weekGlanceFacts(matchups) {
   const list = Array.isArray(matchups) ? matchups.filter(Boolean) : [];
@@ -172,7 +173,15 @@ export function weekGlanceFacts(matchups) {
   if (closest) rows.push({ key: 'closest', label: 'Closest', text: closest.text, value: closest.margin.toFixed(1) });
   if (lead) rows.push({ key: 'biggest-lead', label: 'Biggest lead', text: lead.text, value: lead.margin.toFixed(1) });
   if (remaining != null) {
-    rows.push({ key: 'still-to-play', label: 'Still to play', text: 'Starters league-wide', value: String(remaining) });
+    // Critique 11 item 9 and Critique 10 item 12: live it is the one players-remaining definition; before
+    // kickoff nothing is live, so the same figure reads as starters set to play.
+    const pre = started.length === 0;
+    rows.push({
+      key: 'players-remaining',
+      label: pre ? 'Starters set to play' : 'Players remaining',
+      text: pre ? 'League-wide' : 'Starters league-wide',
+      value: String(remaining),
+    });
   }
   return rows;
 }
@@ -303,6 +312,9 @@ export function useGameCenter(leagueId) {
     return best ? best.iso : null;
   }, [weekMatchups]);
 
+  // The h1 row's Live chip: some Matchup of the week on screen is live (the server's status fact).
+  const anyLive = useMemo(() => weekMatchups.some((m) => matchupBoard(m).isLive), [weekMatchups]);
+
   const games = useMemo(
     () => liveGames.filter((game) => inWeek(week, game.week)),
     [liveGames, week]
@@ -370,6 +382,7 @@ export function useGameCenter(leagueId) {
     gamesInProgress,
     items,
     glance,
+    anyLive,
   };
 }
 

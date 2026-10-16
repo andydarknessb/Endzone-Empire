@@ -3,38 +3,22 @@ import { formatKickoff, formatPoints, finite } from '../../../shared/lib';
 import { lookupRecord } from '../lib/records';
 
 /**
- * The per-card view of one Matchup for the League matchups grid (ticket #894):
- * everything a card or a compact row prints, derived once from the entity model
- * so the two layouts read the same numbers and copy and the UI stays a thin
- * presenter. Pure: no render, no fetch.
+ * The per-tile view of one Matchup for the League matchups grid (ticket #894, restyled for ADR 0067
+ * wave 2): everything a tile or a phone row prints, derived once from the entity model so the two
+ * layouts read the same numbers and copy and the UI stays a thin presenter. Pure: no render, no fetch.
  *
- * What it settles, from the design source (docs/design/game-center-matchups/
- * build.mjs, matchupCard / matchupRowMobile):
+ * `state` is the server's status fact through the entity's `matchupBoard` (ADR 0030): 'live' (Board
+ * black), 'scheduled' (the framed tile with "Proj" figures), 'played' (every starter done, "Awaiting
+ * final") or 'final' (the winner in ink, no bar), and 'unknown' for a status the entity does not know,
+ * which asserts neither a score state nor a probability: the stored scores show and nothing else.
  *
- *   - Whether the Matchup has started is the server's status fact through the
- *     entity's `matchupBoard` (ADR 0030). `hasStarted === true` shows the scores
- *     and the win probability bar; `hasStarted === false` shows each side's
- *     projected total in the faint tier, a hairline instead of a bar, and the
- *     kickoff line; an unknown status (`null`) asserts neither: the scores
- *     (stored facts) show, but no bar, no chip and no footer sentence.
- *   - The leader is the side with the higher score, compared numerically (pg
- *     returns DECIMAL scores as strings). The check mark rides the leader once
- *     every starter is done (`played`) or the score is of record (`final`).
- *   - The footer sentence per status: the two win probability percentages
- *     while live, "Waiting on the score of record" once played, "Projected
- *     totals shown until kickoff" before it. A final Matchup has no probability
- *     to print (its score is the result), so its footer reads "Score of
- *     record", the line the played copy is waiting on.
- *   - The header note is the week, or before kickoff the kickoff time from the
- *     model's `firstKickoffAt` (#892) in the viewer's own zone.
- *   - The status chip's Badge variant follows the design source's statusChip():
- *     the danger red with the dot while live, success green once final,
- *     warning for Awaiting final, the plain chip for Scheduled. The label is
- *     the board's.
+ * Win probability is the entity board's (#2142): the live figure while started, the projections-only
+ * figure before kickoff. A final tile prints no probability (its score is the result). `favourite` is
+ * the side the bar favours, for the phone row's "62% Blitz Brigade".
  *
- * Win probability is the entity board's (#2142); the kickoff format and the
- * points figure come from `shared/lib` (ADR 0031, #1120), the island's shared
- * bottom layer: an empty points string reads as unknown (the dash), not `0.0`.
+ * Players remaining is the server's count (RULINGS Critique 9, spec #2334 AC 6l: starters whose game is
+ * not final, Out starters and empty slots excluded), the same field the hero reads, so a team prints one
+ * number wherever it appears. Before kickoff the line reads "{n} starters set to play".
  */
 
 /** Players remaining as a whole number, or a dash when unknown. */
@@ -43,84 +27,71 @@ export function formatCount(value) {
   return n != null ? String(n) : '-';
 }
 
-function joinNote(parts) {
-  return parts.filter((p) => p != null && p !== '').join(' \u00b7 ');
-}
+const remainingLine = (n, scheduled) => {
+  const c = finite(n);
+  if (c == null) return '';
+  if (scheduled) return `${c} ${c === 1 ? 'starter' : 'starters'} set to play`;
+  return `${c} ${c === 1 ? 'player' : 'players'} remaining`;
+};
 
 export function matchupCardView(matchup, { records, timeZone, locale } = {}) {
   const m = matchup || {};
   const home = m.home || {};
   const away = m.away || {};
-  const status = m.status ?? null;
   const board = matchupBoard(m);
   const { chip, settled } = board;
   const started = board.hasStarted === true;
   const scheduled = board.hasStarted === false;
+  const state = board.isLive ? 'live' : scheduled ? 'scheduled' : board.isFinal ? 'final' : settled ? 'played' : 'unknown';
 
   const homeScore = Number(home.score) || 0;
   const awayScore = Number(away.score) || 0;
   const homeLeads = started && homeScore > awayScore;
   const awayLeads = started && awayScore > homeScore;
 
-  const probability = board.winProbability;
+  const probability = state === 'final' || state === 'played' || state === 'unknown'
+    ? null
+    : (board.winProbability ?? board.projectedWinProbability);
   const homePct = probability ? Math.round(probability.home * 100) : null;
   const awayPct = probability ? 100 - homePct : null;
+  const favourite = probability ? (homePct >= 50 ? 'home' : 'away') : null;
 
-  const weekNote = m.week != null ? `Week ${m.week}` : '';
   const kickoff = scheduled ? formatKickoff(m.firstKickoffAt, { timeZone, locale }) : null;
-  const headerNote = kickoff ? `Kicks off ${kickoff}` : weekNote;
-
-  let footer = '';
-  if (board.isLive) footer = `Win probability ${homePct}% \u00b7 ${awayPct}%`;
-  else if (settled) footer = board.isFinal ? 'Score of record' : 'Waiting on the score of record';
-  else if (scheduled) footer = 'Projected totals shown until kickoff';
 
   const side = (s, leads) => {
-    const record = lookupRecord(records, s.teamId);
     const ef = formatPoints(s.expectedFinal);
-    const pmr = formatCount(s.playersRemaining);
-    const score = formatPoints(s.score);
     return {
       teamId: s.teamId ?? null,
       name: s.name ?? '',
       avatarUrl: s.avatarUrl ?? null,
       avatarStaticUrl: s.avatarStaticUrl ?? null,
-      record,
-      // The big number: the score once started (and on an unknown status, a
-      // stored fact), the projected total in the faint tier before kickoff.
-      figure: scheduled ? ef : score,
-      figureTier: scheduled ? 'faint' : 'ink',
-      // The compact row prints its score column only once started; before
-      // kickoff the projection rides the note line instead ("Proj 108.3").
-      rowFigure: scheduled ? '' : score,
-      // Desktop note: the record, then Expected final and Players remaining
-      // until the Matchup is settled (a settled game has a score, not a
-      // forecast).
-      note: settled ? joinNote([record]) : joinNote([record, `EF ${ef}`, `PMR ${pmr}`]),
-      rowNote: settled
-        ? joinNote([record])
-        : scheduled
-          ? joinNote([record, `Proj ${ef}`])
-          : joinNote([record, `EF ${ef}`, `PMR ${pmr}`]),
+      record: lookupRecord(records, s.teamId),
+      // The big number: the score once started (and on an unknown status, a stored fact), the projected
+      // total before kickoff (the column is headed "Proj").
+      figure: scheduled ? ef : formatPoints(s.score),
+      // Line two while live ("Exp final 118.0"), then the players remaining line; a settled game has a
+      // score, not a forecast.
+      expectedLine: state === 'live' ? `Exp final ${ef}` : '',
+      remainingLine: state === 'live' || scheduled ? remainingLine(s.playersRemaining, scheduled) : '',
       leads,
-      check: leads && settled,
+      // A final tile's winner in ink; every other side of a settled tile is dim.
+      winner: state === 'final' && leads,
     };
   };
 
   return {
     id: m.id ?? null,
     week: m.week ?? null,
-    status,
+    status: m.status ?? null,
+    state,
     chipLabel: chip?.label ?? null,
-    chipVariant: chip?.variant ?? 'neutral',
-    chipDot: chip?.dot ?? false,
     started,
     scheduled,
-    headerNote,
-    footer,
+    kickoff,
     homeShare: probability ? probability.home : null,
     homePct,
     awayPct,
+    favourite,
     home: side(home, homeLeads),
     away: side(away, awayLeads),
   };

@@ -91,13 +91,6 @@ export function sideKey(side) {
   return side === 'home' || side === 'away' ? side : 'neutral';
 }
 
-/** The `dash-*` token the side dot paints, by side key. */
-export const SIDE_TOKENS = {
-  home: 'var(--dash-home)',
-  away: 'var(--dash-away)',
-  neutral: 'var(--dash-faint)',
-};
-
 /** The visually hidden side text a screen reader hears beside the dot (none for neutral). */
 export const SIDE_LABELS = {
   home: 'Home side',

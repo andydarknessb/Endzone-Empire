@@ -1,528 +1,55 @@
-import React from 'react';
-import { Box, Typography } from '@mui/material';
-import { visuallyHidden } from '@mui/utils';
+import React, { useId } from 'react';
+import { Box } from '@mui/material';
 import { Link as RouterLink } from 'react-router-dom';
-import { Card, Badge, DashButton, StatTile, SplitBar, TeamAvatar } from '../../../shared/ui';
+import {
+  Frame, FrameHead, LiveChip, PixelClock, PixelHeading, PsButton, PsLink, SR_ONLY_SX, StatusChip, TeamMark,
+  TwoSidedOdds, YouTag, pixelSx,
+} from '../../../shared/ui/playselect';
 import { formatKickoff, teamNameLabel, ordinal } from '../../../shared/lib';
 import { matchupHeroView } from '../model/matchupHeroView';
 
 /**
- * The "Your matchup" card (ticket #893, ADR 0031): the viewer's Matchup on
- * Game Center, transcribed from the canvas's heroCard() / heroCardMobile()
- * (docs/design/game-center-matchups/build.mjs). Home on the left, away on the
- * right, the way SplitBar encodes the two sides; the You pill sits on the side
- * whose Team id is the viewer's, never on a fixed side (#112).
+ * The "Your matchup" hero on Game Center (ADR 0067 wave 2, spec #2334 ruling 6): the viewer's Matchup.
  *
- * Each side: a 64px avatar (44px on a phone) in a team-color ring over a
- * page-background halo, the Team name in the display face with the record and
- * rank beneath (from the `records` / `ranks` lookups the page passes down,
- * since a Team's record does not join the wire - ADR 0031's ruling), the score
- * at 56px tabular (34px on a phone), then Expected final and PMR as StatTiles.
- * On desktop the away side hugs the right edge with its avatar outboard, as
- * the canvas draws it, but reads left to right like the home side (name, then
- * the pill; Expected final, then PMR): only the avatar row mirrors. The
- * middle, once the Matchup has started, is the win probability: a per-side
- * percentage beside a SplitBar and one plain sentence from the viewer's side
- * (on a phone the label sits between the two percentages, as the mobile
- * artboard draws it; the tiles and the full sentence stay). Before kickoff
- * (`hasStarted === false`) the middle reads the kickoff time from
- * `firstKickoffAt` (#892) and there is no bar; on an unknown status the
- * middle asserts neither. The footer carries the games-in-progress and
- * next-kickoff lines the page supplies, and the two actions: Compare rosters
- * to the Matchup, Set lineup to the Lineup page (ADR 0019: Lineup is the sole
- * team management surface).
+ * While live (and once settled) it is the Board-black versus screen: per side the Team mark and name in
+ * Pixel 16, the You tag on the viewer's own side (matched on Team id, never on home/away, #112), the record
+ * and rank line, the score in Pixel 32 (24 below sm) with the leader in Board ink and the trailer in Board
+ * dim, "Expected final {x}" and "{n} players remaining" on separate lines, then one two-sided win
+ * probability bar with both team names and the one "Endzone Forecast" credit, the sentence, and a footer
+ * of facts and links ("Matchup", and "Set lineup" as a ghost button). A visually hidden polite live region
+ * carries the score sentence only, so it announces when a score changes and not on a repeated payload.
+ * Before kickoff it is the framed versus panel: "Proj" figures from the Expected final, "{n} starters set
+ * to play", the projected margin over an Ink two-sided bar, "Kickoff {time}" and no 0.0 scores. The page
+ * drops "Next kickoff" there because the hero already says it.
  *
- * Props:
- *   - `matchup`: the entity model (`entities/matchup`), read only.
- *   - `viewerTeamId`: the viewer's Team id (per-viewer channel, never a
- *     broadcast field).
- *   - `records`: `{ [teamId]: '2-0' }` or null; `ranks`: `{ [teamId]: 3 }`
- *     or null. A side with neither renders no secondary line.
- *   - `leagueId`: for the two action routes.
- *   - `gamesInProgress`: a count or null; `nextKickoffAt`: ISO or null. Each
- *     footer line renders only when its value is supplied.
- *   - `headingLevel`: the Card title's heading level (default 2).
+ * Props: `matchup` (the entity model), `viewerTeamId`, `records` ({ [teamId]: '2-0' } or null), `ranks`
+ * ({ [teamId]: 3 } or null), `leagueId` (the two links), `gamesInProgress` (a count or null),
+ * `nextKickoffAt` (ISO or null: the live footer's "Next kickoff", dropped before kickoff where the hero says it once), `counts` ({ home: { remaining, yet }, away: ... } or null: the sentence source when the payload has no `yetToPlay`, see matchupHeroView).
  *
- * Composes `shared/ui` (ADR 0020) and paints only `dash-*` tokens. Pairings
- * registered in tokens.contrast.test.js: ink / dim / faint on the card, the
- * home and away hues on the card (the percentages), faint and ink on the stat
- * tile (StatTile), the You pill on the accent tint over the card, the status
- * chip's danger / success / warning text on its tint over the card (the
- * canvas's statusChip(); each tinted Badge is guarded over `dash-surface`
- * only, which is what a Card paints), and the primary button's
- * `dash-on-accent` on `dash-accent`. One DOM serves both
- * sizes: the sides restack through grid areas at the `md` breakpoint and the
- * actions stretch to full width with a 44px hit target below it, so no
- * media-query JS runs and the tree a test sees is the tree a phone gets.
+ * Paints only `ps-*` tokens. No cursor and no filled action: a watching page (RULINGS "QA round 1").
  */
-export default function MatchupHero({
-  matchup,
-  viewerTeamId,
-  records = null,
-  ranks = null,
-  leagueId,
-  gamesInProgress = null,
-  nextKickoffAt = null,
-  headingLevel = 2,
-  sx,
-  ...rest
-}) {
-  const view = matchupHeroView(matchup, viewerTeamId);
-  const home = matchup?.home || {};
-  const away = matchup?.away || {};
-  const homeName = teamNameLabel(home.name);
-  const awayName = teamNameLabel(away.name);
-  const week = matchup?.week;
 
-  const gamesLine = gamesInProgressLabel(gamesInProgress);
-  const nextKickoff = formatKickoff(nextKickoffAt);
+const BOARD = { ink: 'var(--ps-board-ink)', dim: 'var(--ps-board-dim)', rule: 'var(--ps-board-rule)' };
+const PAGE = { ink: 'var(--ps-ink)', dim: 'var(--ps-dim)', rule: 'var(--ps-rule)' };
 
-  return (
-    <Card
-      data-testid="matchup-hero"
-      title="Your matchup"
-      count={week != null ? `Week ${week}` : undefined}
-      tail={
-        view.chipLabel ? (
-          <Badge variant={view.chipVariant} data-testid="matchup-hero-status">
-            {view.chipDot && <Dot />}
-            {view.chipLabel}
-          </Badge>
-        ) : undefined
-      }
-      headingLevel={headingLevel}
-      sx={sx}
-      {...rest}
-    >
-      <Box sx={{ px: { xs: '14px', md: '24px' }, pt: { xs: '12px', md: '16px' }, pb: { xs: '12px', md: '16px' } }}>
-        <Box
-          sx={{
-            display: 'grid',
-            gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: 'minmax(0, 1fr) 220px minmax(0, 1fr)' },
-            gap: { xs: '12px', md: '24px' },
-            alignItems: 'center',
-          }}
-        >
-          <HeroSide
-            sideKey="home"
-            side={home}
-            scoreLabel={view.scoreLabels.home}
-            name={homeName}
-            isViewer={view.viewerSide === 'home'}
-            records={records}
-            ranks={ranks}
-          />
+const remainingText = (n) => `${n} ${n === 1 ? 'player' : 'players'} remaining`;
+const setToPlayText = (n) => `${n} ${n === 1 ? 'starter' : 'starters'} set to play`;
 
-          {/* On a phone the middle drops beneath both sides (visual order
-              only; nothing in the sides or the middle takes focus, so the
-              reading order is unchanged). */}
-          <Box sx={{ order: { xs: 2, md: 0 }, minWidth: 0 }}>
-            {view.hasStarted === true && (
-              <WinProbability view={view} homeName={homeName} awayName={awayName} />
-            )}
-            {view.hasStarted === false && <Kickoff kickoff={view.kickoff} />}
-            {view.hasStarted == null && (
-              <Typography
-                component="div"
-                aria-hidden="true"
-                sx={{
-                  textAlign: 'center',
-                  fontFamily: 'var(--dash-font-display)',
-                  fontSize: '16px',
-                  fontWeight: 600,
-                  color: 'var(--dash-faint)',
-                }}
-              >
-                vs
-              </Typography>
-            )}
-          </Box>
+/** A count as a whole number, or null when unknown. */
+const count = (value) => {
+  if (value == null || value === '') return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? Math.trunc(n) : null;
+};
 
-          <HeroSide
-            sideKey="away"
-            side={away}
-            scoreLabel={view.scoreLabels.away}
-            name={awayName}
-            isViewer={view.viewerSide === 'away'}
-            records={records}
-            ranks={ranks}
-          />
-        </Box>
-
-        <Box
-          sx={{
-            display: 'flex',
-            flexWrap: 'wrap',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: '10px',
-            mt: { xs: '12px', md: '16px' },
-            pt: '12px',
-            borderTop: '1px solid var(--dash-line)',
-          }}
-        >
-          {(gamesLine || nextKickoff) && (
-            <Box
-              data-testid="matchup-hero-footer-facts"
-              sx={{ display: 'flex', flexWrap: 'wrap', gap: '14px', fontSize: '13px', color: 'var(--dash-dim)' }}
-            >
-              {gamesLine && (
-                <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: '6px', color: 'var(--dash-dim)' }}>
-                  <Box component="span" sx={{ display: 'inline-flex', color: 'var(--dash-accent)' }}>
-                    <Dot />
-                  </Box>
-                  {gamesLine}
-                </Box>
-              )}
-              {nextKickoff && (
-                <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                  <ClockIcon />
-                  {`Next kickoff ${nextKickoff}`}
-                </Box>
-              )}
-            </Box>
-          )}
-          <Box
-            sx={{
-              display: 'flex',
-              gap: { xs: '8px', md: '10px' },
-              flex: { xs: '1 1 100%', md: '0 0 auto' },
-              marginLeft: { md: 'auto' },
-            }}
-          >
-            <DashButton
-              variant="ghost"
-              component={RouterLink}
-              to={`/league/${leagueId}/matchups/${matchup?.id}`}
-              sx={BUTTON_ROW_SX}
-            >
-              Compare rosters
-            </DashButton>
-            <DashButton
-              component={RouterLink}
-              to={`/league/${leagueId}/lineup`}
-              sx={BUTTON_ROW_SX}
-            >
-              Set lineup
-            </DashButton>
-          </Box>
-        </Box>
-      </Box>
-    </Card>
-  );
-}
-
-// The same component under its name, for `import { MatchupHero }`.
-export { MatchupHero };
-
-/**
- * One side of the card. A CSS grid with two templates: on `md` and up the
- * canvas's desktop column (identity row, score, tiles), below it the mobile
- * row (avatar, name and note, score at the end) with the tiles beneath. On
- * desktop the away side aligns to the right and only its avatar row reverses
- * (avatar outboard); the name row and the tiles keep the home side's reading
- * order, as the canvas's heroSide() draws them.
- */
-function HeroSide({ sideKey, side, scoreLabel, name, isViewer, records, ranks }) {
-  const right = sideKey === 'away';
-  const record = records ? records[side.teamId] : null;
-  const rankText = ranks ? rankLabel(ranks[side.teamId]) : null;
-  const secondary = [record, rankText].filter(Boolean).join(' · ') || null;
-  const ring = right ? 'var(--dash-away)' : 'var(--dash-home)';
-  const desktopAlign = right ? 'end' : 'start';
-
-  return (
-    <Box
-      data-testid={`matchup-hero-side-${sideKey}`}
-      data-viewer-team={isViewer || undefined}
-      sx={{
-        display: 'grid',
-        gridTemplateAreas: { xs: '"identity score" "tiles tiles"', md: '"identity" "score" "tiles"' },
-        gridTemplateColumns: { xs: 'minmax(0, 1fr) auto', md: 'minmax(0, 1fr)' },
-        alignItems: 'center',
-        columnGap: '12px',
-        rowGap: { xs: '6px', md: '8px' },
-        minWidth: 0,
-        justifyItems: { xs: 'start', md: desktopAlign },
-        textAlign: { xs: 'left', md: right ? 'right' : 'left' },
-      }}
-    >
-      <Box
-        sx={{
-          gridArea: 'identity',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '12px',
-          minWidth: 0,
-          maxWidth: '100%',
-          flexDirection: { xs: 'row', md: right ? 'row-reverse' : 'row' },
-        }}
-      >
-        {/* The avatar carries the Team name as its accessible name. TeamAvatar
-            is deliberately aria-hidden (#327), so the name rides on this
-            wrapper's role="img"; the ring is the side's hue over the card. */}
-        <Box
-          role="img"
-          aria-label={name}
-          sx={{
-            flex: 'none',
-            display: 'flex',
-            borderRadius: 'var(--radius-pill)',
-            boxShadow: `0 0 0 2px var(--dash-bg), 0 0 0 4px ${ring}`,
-            '& .MuiAvatar-root': {
-              width: { xs: 44, md: 64 },
-              height: { xs: 44, md: 64 },
-              fontSize: { xs: '17.6px', md: '25.6px' },
-            },
-          }}
-        >
-          <TeamAvatar
-            name={name}
-            avatarUrl={side.avatarUrl}
-            avatarStaticUrl={side.avatarStaticUrl}
-            size={64}
-          />
-        </Box>
-        <Box
-          sx={{
-            minWidth: 0,
-            display: 'grid',
-            gap: '2px',
-            justifyItems: { xs: 'start', md: desktopAlign },
-          }}
-        >
-          <Box
-            sx={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: { xs: '6px', md: '8px' },
-              minWidth: 0,
-              maxWidth: '100%',
-            }}
-          >
-            <Typography
-              component="div"
-              data-testid="matchup-hero-name"
-              sx={{
-                minWidth: 0,
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-                fontFamily: 'var(--dash-font-display)',
-                fontSize: { xs: '18px', md: '22px' },
-                fontWeight: 700,
-                letterSpacing: '0.02em',
-                lineHeight: 1.1,
-                color: 'var(--dash-ink)',
-              }}
-            >
-              {name}
-            </Typography>
-            {isViewer && <Badge variant="you">You</Badge>}
-          </Box>
-          {secondary && (
-            <Typography
-              component="div"
-              data-testid="matchup-hero-record"
-              sx={{ fontSize: '12px', fontVariantNumeric: 'tabular-nums', color: 'var(--dash-faint)' }}
-            >
-              {secondary}
-            </Typography>
-          )}
-        </Box>
-      </Box>
-
-      <Typography
-        component="div"
-        data-testid="matchup-hero-score"
-        sx={{
-          gridArea: 'score',
-          fontFamily: 'var(--dash-font-display)',
-          fontSize: { xs: '34px', md: '56px' },
-          fontWeight: 700,
-          fontVariantNumeric: 'tabular-nums',
-          lineHeight: 1,
-          letterSpacing: '0.01em',
-          color: 'var(--dash-ink)',
-        }}
-      >
-        {scoreLabel}
-      </Typography>
-
-      <Box
-        sx={{
-          gridArea: 'tiles',
-          display: 'flex',
-          gap: '8px',
-        }}
-      >
-        <StatTile
-          label="Expected final"
-          value={figureOrPlaceholder(side.expectedFinal, 1)}
-          align={right ? 'end' : 'start'}
-          sx={{ minWidth: 88 }}
-          data-testid="matchup-hero-expected-final"
-        />
-        {/* The eye reads the canvas's "PMR"; assistive tech reads the
-            expansion, so the tile is heard as "Players remaining 4". */}
-        <StatTile
-          label={
-            <>
-              <Box component="span" aria-hidden="true">PMR</Box>
-              <Box component="span" sx={visuallyHidden}>Players remaining</Box>
-            </>
-          }
-          value={figureOrPlaceholder(side.playersRemaining, 0)}
-          align={right ? 'end' : 'start'}
-          sx={{ minWidth: 64 }}
-          data-testid="matchup-hero-pmr"
-        />
-      </Box>
-    </Box>
-  );
-}
-
-/**
- * The started middle: the label, the two percentages, the SplitBar and the
- * sentence, on one grid with two area templates. Desktop (heroCard) stacks
- * the label above a centred percentage row with a "vs" between the figures at
- * 22px; a phone (heroCardMobile) puts the label between the two percentages on
- * one row at 13px, ends out, with no "vs". The bar's own accessible name
- * already carries both names and both percentages, so the label, the
- * percentages and the "vs" are aria-hidden (#878: a screen reader hears the
- * numbers once, from the bar); the sentence stays in the tree because it says
- * something the bar does not.
- */
-function WinProbability({ view, homeName, awayName }) {
-  const { homeShare, homePct, awayPct } = view.winProbability;
-  return (
-    <Box
-      data-testid="matchup-hero-win-probability"
-      sx={{
-        display: 'grid',
-        gridTemplateColumns: {
-          xs: 'auto minmax(0, 1fr) auto',
-          md: 'minmax(0, 1fr) auto minmax(0, 1fr)',
-        },
-        gridTemplateAreas: {
-          xs: '"home label away" "bar bar bar" "sentence sentence sentence"',
-          md: '"label label label" "home vs away" "bar bar bar" "sentence sentence sentence"',
-        },
-        columnGap: '12px',
-        rowGap: { xs: '6px', md: '10px' },
-      }}
-    >
-      <Typography
-        component="span"
-        aria-hidden="true"
-        sx={{ ...LABEL_SX, gridArea: 'label', justifySelf: 'center', alignSelf: 'baseline' }}
-      >
-        Win probability
-      </Typography>
-      <Box
-        component="span"
-        aria-hidden="true"
-        data-testid="matchup-hero-home-pct"
-        sx={{
-          ...PCT_SX,
-          gridArea: 'home',
-          justifySelf: { xs: 'start', md: 'end' },
-          color: 'var(--dash-home)',
-        }}
-      >
-        {`${homePct}%`}
-      </Box>
-      <Box
-        component="span"
-        aria-hidden="true"
-        sx={{
-          gridArea: 'vs',
-          display: { xs: 'none', md: 'inline' },
-          justifySelf: 'center',
-          alignSelf: 'baseline',
-          fontSize: '14px',
-          fontWeight: 500,
-          color: 'var(--dash-faint)',
-        }}
-      >
-        vs
-      </Box>
-      <Box
-        component="span"
-        aria-hidden="true"
-        data-testid="matchup-hero-away-pct"
-        sx={{
-          ...PCT_SX,
-          gridArea: 'away',
-          justifySelf: { xs: 'end', md: 'start' },
-          color: 'var(--dash-away)',
-        }}
-      >
-        {`${awayPct}%`}
-      </Box>
-      <Box sx={{ gridArea: 'bar', width: '100%' }}>
-        <SplitBar
-          homeName={homeName}
-          awayName={awayName}
-          homeShare={homeShare}
-          height={10}
-          sx={{ height: { xs: 8, md: 10 } }}
-        />
-      </Box>
-      <Typography
-        component="p"
-        data-testid="matchup-hero-sentence"
-        sx={{ gridArea: 'sentence', m: 0, fontSize: '12px', textAlign: 'center', color: 'var(--dash-faint)' }}
-      >
-        {view.sentence}
-      </Typography>
-    </Box>
-  );
-}
-
-/** The pre-kickoff middle: the kickoff time in the display face, no bar. */
-function Kickoff({ kickoff }) {
-  return (
-    <Box
-      data-testid="matchup-hero-kickoff"
-      sx={{ display: 'grid', gap: '4px', justifyItems: 'center', textAlign: 'center' }}
-    >
-      <Typography component="span" sx={LABEL_SX}>
-        Kickoff
-      </Typography>
-      <Typography
-        component="span"
-        sx={{
-          fontFamily: 'var(--dash-font-display)',
-          fontSize: '22px',
-          fontWeight: 700,
-          lineHeight: 1.1,
-          fontVariantNumeric: 'tabular-nums',
-          color: 'var(--dash-ink)',
-        }}
-      >
-        {kickoff ?? 'TBD'}
-      </Typography>
-    </Box>
-  );
-}
-
-/**
- * A tile figure to `digits` decimals, or the placeholder: a dash for the eye
- * (aria-hidden) and a visually hidden "Not available" for a screen reader,
- * which would otherwise hear the label pointing at nothing.
- */
-function figureOrPlaceholder(value, digits) {
+/** A tile figure to one decimal, or a dash with a hidden "Not available". */
+function figureOrPlaceholder(value) {
   const known = value != null && value !== '' && Number.isFinite(Number(value));
-  if (known) return Number(value).toFixed(digits);
+  if (known) return Number(value).toFixed(1);
   return (
     <>
-      <Box component="span" aria-hidden="true" sx={{ color: 'var(--dash-dim)' }}>
-        -
-      </Box>
-      <Box component="span" sx={visuallyHidden}>
-        Not available
-      </Box>
+      <span aria-hidden="true">-</span>
+      <Box component="span" sx={SR_ONLY_SX}>Not available</Box>
     </>
   );
 }
@@ -532,74 +59,271 @@ function rankLabel(rank) {
   return ord ? `${ord} in league` : null;
 }
 
-function gamesInProgressLabel(count) {
-  if (count == null || !Number.isFinite(Number(count))) return null;
-  const n = Math.max(0, Math.trunc(Number(count)));
-  if (n === 0) return 'No games in progress';
-  return n === 1 ? '1 game in progress' : `${n} games in progress`;
+function gamesInProgressLabel(n) {
+  const c = count(n);
+  if (c == null) return null;
+  if (c <= 0) return 'No games in progress';
+  return c === 1 ? '1 game in progress' : `${c} games in progress`;
 }
 
-/** The 8px status dot, in the current text colour (decorative). */
-function Dot() {
+/** The ghost link on Board black: Board ink border and text (PsButton's ghost is Ink, unreadable on the Board). */
+function BoardGhost({ to, children }) {
   return (
     <Box
-      component="span"
-      aria-hidden="true"
+      component={RouterLink}
+      to={to}
       sx={{
-        display: 'inline-block',
-        width: 8,
-        height: 8,
-        mr: '6px',
-        borderRadius: 'var(--radius-pill)',
-        backgroundColor: 'currentColor',
-        flex: 'none',
-        verticalAlign: 'middle',
+        minHeight: '44px',
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        boxSizing: 'border-box',
+        padding: '0 16px',
+        border: '2px solid var(--ps-board-ink)',
+        color: 'var(--ps-board-ink)',
+        fontSize: '15px',
+        fontWeight: 600,
+        textDecoration: 'none',
       }}
-    />
-  );
-}
-
-/** The canvas's clock glyph: inline stroke SVG on the 20px grid, decorative. */
-function ClockIcon() {
-  return (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 20 20"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.6"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      focusable="false"
     >
-      <circle cx="10" cy="10" r="7" />
-      <path d="M10 6v4l3 2" />
-    </svg>
+      {children}
+    </Box>
   );
 }
 
-const LABEL_SX = {
-  fontSize: '11px',
-  fontWeight: 600,
-  letterSpacing: '0.06em',
-  textTransform: 'uppercase',
-  color: 'var(--dash-faint)',
-};
+function Side({
+  side, name, right, viewer, board, lead, record, rankText, figureLabel, figure, stats,
+}) {
+  const c = board ? BOARD : PAGE;
+  const color = !board || lead ? c.ink : c.dim;
+  const line = [record, rankText].filter(Boolean).join(' · ');
+  return (
+    <Box sx={{ minWidth: 0, textAlign: { xs: 'left', sm: right ? 'right' : 'left' } }}>
+      <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '6px 10px', flexDirection: { xs: 'row', sm: right ? 'row-reverse' : 'row' }, color }}>
+        <Box component="span" sx={{ display: { xs: 'none', sm: 'inline-flex' } }}><TeamMark name={name} avatarUrl={side.avatarUrl} avatarStaticUrl={side.avatarStaticUrl} size={40} /></Box>
+        <Box component="h3" data-testid="matchup-hero-name" sx={{ m: 0, minWidth: 0, flex: { xs: '1 1 100%', sm: '0 1 auto' }, ...pixelSx(16), color, overflowWrap: 'anywhere' }}>{name}</Box>
+        {viewer && <YouTag color={c.ink} />}
+      </Box>
+      {line && (
+        <Box data-testid="matchup-hero-record" sx={{ fontSize: '14px', color: c.dim, marginTop: '6px', fontVariantNumeric: 'tabular-nums' }}>{line}</Box>
+      )}
+      {figureLabel && <Box sx={{ fontSize: '13px', color: c.dim, marginTop: '14px' }}>{figureLabel}</Box>}
+      <Box
+        data-testid="matchup-hero-score"
+        sx={{
+          ...pixelSx(32), fontSize: { xs: '24px', sm: '32px' }, lineHeight: 1.2, marginTop: figureLabel ? '4px' : '14px', color,
+        }}
+      >
+        {figure}
+      </Box>
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: '2px', marginTop: '12px', fontSize: '15px', color: c.ink }}>{stats}</Box>
+    </Box>
+  );
+}
 
-// The win probability percentages: 22px in the desktop row (heroCard), 13px
-// on the phone row that carries the label between them (heroCardMobile).
-const PCT_SX = {
-  fontVariantNumeric: 'tabular-nums',
-  fontSize: { xs: '13px', md: '22px' },
-  fontWeight: 700,
-  lineHeight: 1.2,
-  alignSelf: 'baseline',
-};
+export default function MatchupHero({
+  matchup,
+  viewerTeamId,
+  records = null,
+  ranks = null,
+  leagueId,
+  gamesInProgress = null,
+  nextKickoffAt = null,
+  counts = null,
+  headingLevel = 2,
+  ...rest
+}) {
+  const headingId = useId();
+  const view = matchupHeroView(matchup, viewerTeamId, { counts });
+  const home = matchup?.home || {};
+  const away = matchup?.away || {};
+  const homeName = teamNameLabel(home.name);
+  const awayName = teamNameLabel(away.name);
+  const week = matchup?.week;
+  const started = view.hasStarted === true;
+  const board = started;
+  const c = board ? BOARD : PAGE;
+  const gamesLine = view.hasStarted === false ? 'No games in progress' : gamesInProgressLabel(gamesInProgress);
 
-// Row layout, not the button's own paint (DashButton, shared/ui, #1166):
-// stretched to the row with a 44px hit target below `md`.
-const BUTTON_ROW_SX = {
-  flex: { xs: '1 1 0', md: 'none' },
-};
+  const sideProps = (key) => {
+    const s = key === 'home' ? home : away;
+    const name = key === 'home' ? homeName : awayName;
+    // One source per surface: the server pair, or the page's helper counts when the payload lacks yetToPlay.
+    const left = counts ? count(counts[key].remaining) : count(s.playersRemaining);
+    const expected = s.expectedFinal;
+    const stats = (
+      <>
+        {started && (
+          <Box data-testid="matchup-hero-expected-final">
+            <Box component="span" sx={{ color: c.dim }}>Expected final</Box>
+            {' '}
+            <Box component="b" sx={{ fontWeight: 600, whiteSpace: 'nowrap' }}>{figureOrPlaceholder(expected)}</Box>
+          </Box>
+        )}
+        {left != null && (
+          <Box data-testid="matchup-hero-remaining">{view.hasStarted === false ? setToPlayText(left) : remainingText(left)}</Box>
+        )}
+      </>
+    );
+    return {
+      side: s,
+      name,
+      right: key === 'away',
+      viewer: view.viewerSide === key,
+      board,
+      lead: view.leadSide === key,
+      record: records ? records[s.teamId] : null,
+      rankText: ranks ? rankLabel(ranks[s.teamId]) : null,
+      figureLabel: view.hasStarted === false ? 'Proj' : null,
+      figure: view.hasStarted === false ? figureOrPlaceholder(expected) : view.scoreLabels[key],
+      stats,
+    };
+  };
+
+  const links = (
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: { sm: 'auto' }, flexWrap: 'wrap' }}>
+      {board ? (
+        <>
+          <PsLink to={`/league/${leagueId}/matchups/${matchup?.id}`} ariaLabel={`Matchup, ${homeName} against ${awayName}`} onBoard>Matchup</PsLink>
+          <BoardGhost to={`/league/${leagueId}/lineup`}>Set lineup</BoardGhost>
+        </>
+      ) : (
+        <>
+          <PsLink to={`/league/${leagueId}/matchups/${matchup?.id}`} ariaLabel={`Matchup, ${homeName} against ${awayName}`}>Matchup</PsLink>
+          <PsButton variant="ghost" to={`/league/${leagueId}/lineup`}>Set lineup</PsButton>
+        </>
+      )}
+    </Box>
+  );
+
+  const nextKickoff = started ? formatKickoff(nextKickoffAt) : null;
+  const facts = (gamesLine || nextKickoff) && (
+    <Box data-testid="matchup-hero-footer-facts" sx={{ display: 'inline-flex', flexWrap: 'wrap', alignItems: 'center', gap: '4px 20px', fontSize: '14px', color: c.dim }}>
+      {gamesLine && (
+        <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+          {board && view.isLive ? (
+            <Box component="span" aria-hidden="true" sx={{ width: '8px', height: '8px', flex: 'none', backgroundColor: 'var(--ps-board-live)' }} />
+          ) : (
+            <PixelClock />
+          )}
+          {gamesLine}
+        </Box>
+      )}
+      {nextKickoff && <Box component="span">{`Next kickoff ${nextKickoff}`}</Box>}
+    </Box>
+  );
+
+  if (!started) {
+    const leader = view.projectedLeader === 'home' ? homeName : awayName;
+    const probability = view.projectedWinProbability;
+    return (
+      <Frame
+        labelledBy={headingId}
+        data-testid="matchup-hero"
+        {...rest}
+        head={(
+          <FrameHead>
+            <PixelHeading id={headingId} level={headingLevel}>Your matchup</PixelHeading>
+            {week != null && <Box component="span" sx={{ fontSize: '13px', color: 'var(--ps-dim)' }}>{`Week ${week}`}</Box>}
+            {view.chipLabel && <Box component="span" sx={{ marginLeft: 'auto' }} data-testid="matchup-hero-status"><StatusChip>{view.chipLabel}</StatusChip></Box>}
+          </FrameHead>
+        )}
+      >
+        <Box sx={{ padding: { xs: '14px', md: '24px' }, display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: { xs: '12px', md: '24px' }, alignItems: 'start' }}>
+            <Box data-testid="matchup-hero-side-home" data-viewer-team={view.viewerSide === 'home' || undefined} sx={{ minWidth: 0 }}><Side {...sideProps('home')} /></Box>
+            <Box data-testid="matchup-hero-side-away" data-viewer-team={view.viewerSide === 'away' || undefined} sx={{ minWidth: 0 }}><Side {...sideProps('away')} /></Box>
+          </Box>
+          {probability && (
+            <Box data-testid="matchup-hero-win-probability" sx={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {view.projectedLeader && (
+                <Box sx={{ fontSize: '16px' }}>
+                  <Box component="span" sx={{ color: 'var(--ps-dim)' }}>Projected margin · </Box>
+                  <Box component="b" sx={{ fontWeight: 700 }}>{`${leader} by ${view.projectedMargin.toFixed(1)}`}</Box>
+                </Box>
+              )}
+              <TwoSidedOdds
+                a={homeName}
+                b={awayName}
+                pct={probability.homePct}
+                caption={<>Win probability · <Box component="span" sx={{ whiteSpace: 'nowrap' }}>Endzone Forecast</Box></>}
+              />
+            </Box>
+          )}
+          {view.hasStarted === false && (
+            <Box
+              data-testid="matchup-hero-kickoff"
+              sx={{
+                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', padding: '14px 0', borderTop: '2px solid var(--ps-rule)', borderBottom: '2px solid var(--ps-rule)',
+              }}
+            >
+              <Box component="span" sx={{ fontSize: '13px', fontWeight: 600, letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--ps-dim)' }}>Kickoff</Box>
+              <Box component="span" sx={{ ...pixelSx(16), fontSize: { xs: '16px', md: '24px' } }}>{view.kickoff ?? 'TBD'}</Box>
+            </Box>
+          )}
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px 16px' }}>{facts}{links}</Box>
+        </Box>
+      </Frame>
+    );
+  }
+
+  const probability = view.winProbability;
+  const sentence = `${homeName} ${view.scoreLabels.home}, ${awayName} ${view.scoreLabels.away}`;
+  return (
+    <Box
+      component="section"
+      aria-labelledby={headingId}
+      data-testid="matchup-hero"
+      {...rest}
+      sx={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: { xs: '12px', md: '20px' },
+        padding: { xs: '12px', md: '24px' },
+        boxSizing: 'border-box',
+        backgroundColor: 'var(--ps-board)',
+        color: 'var(--ps-board-ink)',
+        border: '6px double var(--ps-board-dim)',
+        minWidth: 0,
+      }}
+    >
+      <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px 12px' }}>
+        <PixelHeading id={headingId} level={headingLevel}>Your matchup</PixelHeading>
+        {week != null && <Box component="span" sx={{ fontSize: '13px', color: BOARD.dim }}>{`Week ${week}`}</Box>}
+        <Box component="span" data-testid="matchup-hero-status" sx={{ marginLeft: 'auto' }}>
+          {view.isLive ? <LiveChip onBoard /> : <StatusChip onBoard>{view.chipLabel || 'Final'}</StatusChip>}
+        </Box>
+      </Box>
+      <Box component="p" aria-live="polite" data-testid="matchup-hero-live-region" sx={{ m: 0, ...SR_ONLY_SX }}>{sentence}</Box>
+      <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: { xs: '12px', md: '24px' }, alignItems: 'start' }}>
+        <Box data-testid="matchup-hero-side-home" data-viewer-team={view.viewerSide === 'home' || undefined} sx={{ minWidth: 0 }}><Side {...sideProps('home')} /></Box>
+        <Box data-testid="matchup-hero-side-away" data-viewer-team={view.viewerSide === 'away' || undefined} sx={{ minWidth: 0 }}><Side {...sideProps('away')} /></Box>
+      </Box>
+      <Box data-testid="matchup-hero-win-probability" sx={{ display: 'flex', flexDirection: 'column', gap: { xs: '6px', md: '10px' } }}>
+        {probability && (
+          <TwoSidedOdds
+            a={homeName}
+            b={awayName}
+            pct={probability.homePct}
+            live={view.isLive}
+            onBoard
+            caption={<>Win probability · <Box component="span" sx={{ whiteSpace: 'nowrap' }}>Endzone Forecast</Box></>}
+          />
+        )}
+        {view.sentence && (
+          <Box component="p" data-testid="matchup-hero-sentence" sx={{ m: 0, fontSize: { xs: '14px', md: '15px' }, textWrap: 'pretty' }}>{view.sentence}</Box>
+        )}
+      </Box>
+      <Box sx={{
+        display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '4px 16px', paddingTop: '12px', borderTop: `2px solid ${BOARD.rule}`,
+      }}
+      >
+        {facts}
+        {links}
+      </Box>
+    </Box>
+  );
+}
+
+// The same component under its name, for `import { MatchupHero }`.
+export { MatchupHero };

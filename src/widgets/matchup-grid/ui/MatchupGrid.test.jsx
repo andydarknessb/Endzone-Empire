@@ -3,8 +3,8 @@ import { render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { matchupFromListRow } from '../../../entities/matchup';
 import { MatchupGrid } from '../index';
+import MatchupHero from '../../matchup-hero';
 import { recordsByTeamId } from '../../../entities/standings';
-import { formatKickoff } from '../../../shared/lib';
 
 // Fixtures are built through the entity's own list-row builder, so a test
 // proves the widget reads the one Matchup shape and never a wire column.
@@ -113,142 +113,105 @@ afterEach(() => {
   delete window.matchMedia;
 });
 
-test('a live card shows both scores and a bar with the two percentages', () => {
+const frame = () => screen.getByRole('region', { name: 'League matchups' });
+
+test('the frame is a tertiary frame with an h2, the count, the credit and no tile chips', () => {
+  renderGrid({ matchups: [LIVE, PLAYED], more: 2 });
+  expect(screen.getByRole('heading', { level: 2, name: 'League matchups' })).toBeInTheDocument();
+  expect(screen.getByTestId('game-center-grid-count')).toHaveTextContent('2 more');
+  expect(frame()).toHaveTextContent(/win probability · Endzone Forecast/);
+  expect(frame()).not.toHaveTextContent('Projected totals shown until kickoff');
+  // Live tiles carry no Live chip and no week label: Board black says live.
+  expect(within(card(1)).queryByText('Live')).toBeNull();
+  expect(within(card(1)).queryByTestId('matchup-status')).toBeNull();
+  expect(card(1)).not.toHaveTextContent('Week 3');
+});
+
+test('a live card is Board black: both scores, Exp final and players remaining on separate lines, a two-sided bar', () => {
   renderGrid({ matchups: [LIVE] });
   const c = card(1);
+  expect(c).toHaveAttribute('data-state', 'live');
   const home = within(c).getByTestId('matchup-side-home');
   const away = within(c).getByTestId('matchup-side-away');
-  expect(within(home).getByText('Bemidji Blizzard')).toBeInTheDocument();
+  expect(within(home).getByText(/Bemidji Blizzard/)).toBeInTheDocument();
   expect(within(home).getByTestId('matchup-figure')).toHaveTextContent('92.1');
-  expect(within(away).getByText('Mankato Mavericks')).toBeInTheDocument();
   expect(within(away).getByTestId('matchup-figure')).toHaveTextContent('88.7');
-  // Expected final and Players remaining ride the note line while live.
-  expect(within(home).getByTestId('matchup-side-note')).toHaveTextContent('EF 118.0 · PMR 2');
-  expect(within(away).getByTestId('matchup-side-note')).toHaveTextContent('EF 119.4 · PMR 3');
-  // The bar, named with both sides and their shares, 5px on a card.
-  const bar = within(c).getByRole('img', {
-    name: 'Win probability: Bemidji Blizzard 49%, Mankato Mavericks 51%',
-  });
-  expect(bar).toBeInTheDocument();
-  expect(within(c).getByTestId('split-bar-home').style.width).toBe('49%');
-  expect(within(c).getByTestId('split-bar-away').style.width).toBe('51%');
-  expect(within(c).queryByTestId('matchup-hairline')).toBeNull();
-  // The footer carries the same two percentages; the header carries the week.
-  expect(within(c).getByTestId('matchup-card-footer')).toHaveTextContent('Win probability 49% · 51%');
-  expect(within(c).getByTestId('matchup-card-note')).toHaveTextContent('Week 3');
-  // The artboard's red LIVE: the danger Badge with the dot.
-  expect(within(c).getByTestId('matchup-status')).toHaveTextContent('LIVE');
-  expect(within(c).getByTestId('matchup-status')).toHaveAttribute('data-variant', 'danger');
-  // Live: no check mark on anyone yet.
-  expect(within(c).queryByRole('img', { name: 'Leading' })).toBeNull();
+  expect(within(home).getByTestId('matchup-side-expected')).toHaveTextContent('Exp final 118.0');
+  expect(within(home).getByTestId('matchup-side-remaining')).toHaveTextContent('2 players remaining');
+  expect(within(away).getByTestId('matchup-side-remaining')).toHaveTextContent('3 players remaining');
+  // One accessible name carries both teams and both percentages; the ends print them too.
+  expect(within(c).getByRole('img', { name: 'Bemidji Blizzard 49%, Mankato Mavericks 51% win probability' })).toBeInTheDocument();
+  expect(c).toHaveTextContent('Bemidji Blizzard 49%');
+  expect(c).toHaveTextContent('Mankato Mavericks 51%');
+  expect(within(c).queryByTestId('leader-check')).toBeNull();
 });
 
-// Red-tell (#897): removing aria-hidden from the live footer puts "Win
-// probability" in the card link's name twice (the bar's label and the footer
-// text) and turns this case red; a played card's footer stays in its name.
-test('a live card link names the win probability once, from the bar', () => {
-  renderGrid({ matchups: [LIVE, PLAYED] });
-  const once = (name) => name.split('Win probability').length === 2;
-
-  const live = screen.getByRole('link', {
-    name: (name) => once(name) && /Bemidji Blizzard 49%, Mankato Mavericks 51%/.test(name),
-  });
-  expect(live).toBe(card(1));
-  // The footer is still on screen for the eye.
-  expect(within(live).getByTestId('matchup-card-footer')).toHaveAttribute('aria-hidden', 'true');
-  expect(within(live).getByTestId('matchup-card-footer')).toHaveTextContent('Win probability 49% · 51%');
-
-  // A played card's footer says what the bar does not, and is in the name.
-  const played = screen.getByRole('link', {
-    name: (name) => once(name) && /Waiting on the score of record/.test(name),
-  });
-  expect(played).toBe(card(3));
-  expect(within(played).getByTestId('matchup-card-footer')).not.toHaveAttribute('aria-hidden');
+test('the tile link is named by both sides, the figures and both win probabilities', () => {
+  renderGrid({ matchups: [LIVE, SCHEDULED] });
+  expect(screen.getByRole('link', {
+    name: 'Bemidji Blizzard against Mankato Mavericks, live, 92.1 to 88.7, Bemidji Blizzard 49%, Mankato Mavericks 51% win probability',
+  })).toBe(card(1));
+  expect(card(2)).toHaveAccessibleName(/^Hibbing Hawks against Brainerd Bruisers, projected 108\.3 to 111\.9, Hibbing Hawks \d+%, Brainerd Bruisers \d+% win probability$/);
 });
 
-// Red-tell: rendering the score on a scheduled card turns THIS case red and no
-// other (the live and played cases above and below assert their scores present).
-test('a scheduled card shows projected totals, no bar and its kickoff line', () => {
+// Red-tell: rendering the score on a scheduled card turns THIS case red and no other.
+test('a scheduled card is framed with Proj figures, starters set to play, no chip, and the frame head says it once', () => {
   renderGrid({ matchups: [SCHEDULED] });
   const c = card(2);
+  expect(c).toHaveAttribute('data-state', 'scheduled');
   const home = within(c).getByTestId('matchup-side-home');
   const away = within(c).getByTestId('matchup-side-away');
-  // The big number is each side's projected total in the faint tier, not the
-  // (zero) score.
   expect(within(home).getByTestId('matchup-figure')).toHaveTextContent('108.3');
   expect(within(away).getByTestId('matchup-figure')).toHaveTextContent('111.9');
+  expect(c).toHaveTextContent('Proj');
   expect(within(c).queryByText('0.0')).toBeNull();
-  expect(within(c).queryByText('0')).toBeNull();
-  // No bar: a hairline sits between the rows instead.
-  expect(within(c).queryByRole('img', { name: /Win probability/ })).toBeNull();
-  expect(within(c).queryByTestId('split-bar')).toBeNull();
-  expect(within(c).getByTestId('matchup-hairline')).toBeInTheDocument();
-  // The kickoff line reads from firstKickoffAt in the viewer's zone, and the
-  // footer says what the numbers are.
-  expect(within(c).getByTestId('matchup-card-note')).toHaveTextContent(
-    `Kicks off ${formatKickoff(KICKOFF)}`
-  );
-  expect(within(c).getByTestId('matchup-card-note')).toHaveTextContent(/^Kicks off /);
-  expect(within(c).getByTestId('matchup-card-footer')).toHaveTextContent(
-    'Projected totals shown until kickoff'
-  );
-  expect(within(c).getByTestId('matchup-status')).toHaveTextContent('Scheduled');
-  expect(within(c).getByTestId('matchup-status')).toHaveAttribute('data-variant', 'neutral');
+  expect(within(home).getByTestId('matchup-side-remaining')).toHaveTextContent('9 starters set to play');
+  expect(within(home).queryByTestId('matchup-side-expected')).toBeNull();
+  // No per-tile chip and no "Kicks off" line.
+  expect(within(c).queryByTestId('matchup-status')).toBeNull();
+  expect(c).not.toHaveTextContent(/Scheduled|Kicks off/);
+  expect(screen.getAllByText(/Projected totals shown until kickoff/)).toHaveLength(1);
+  expect(frame()).toHaveTextContent('Projected totals shown until kickoff');
+  // The bar is the projections-only split.
+  expect(within(c).getByRole('img', { name: /^Hibbing Hawks \d+%, Brainerd Bruisers \d+% win probability$/ })).toBeInTheDocument();
 });
 
-test('a scheduled card with no kickoff instant falls back to its week line', () => {
-  renderGrid({ matchups: [{ ...SCHEDULED, firstKickoffAt: null }] });
-  expect(within(card(2)).getByTestId('matchup-card-note')).toHaveTextContent('Week 3');
-  expect(within(card(2)).getByTestId('matchup-card-note')).not.toHaveTextContent('Kicks off');
-});
-
-test('a played card shows the check mark on the leader and the awaiting line', () => {
+test('a played card says Awaiting final and waits on the score of record, with no forecast lines', () => {
   renderGrid({ matchups: [PLAYED] });
   const c = card(3);
   const home = within(c).getByTestId('matchup-side-home');
-  const away = within(c).getByTestId('matchup-side-away');
   expect(within(home).getByTestId('matchup-figure')).toHaveTextContent('101.3');
-  expect(within(away).getByTestId('matchup-figure')).toHaveTextContent('97.6');
-  // The check mark rides the leader only.
-  expect(within(home).getByRole('img', { name: 'Leading' })).toBeInTheDocument();
-  expect(within(away).queryByRole('img', { name: 'Leading' })).toBeNull();
-  expect(within(c).getByTestId('matchup-card-footer')).toHaveTextContent(
-    'Waiting on the score of record'
-  );
+  expect(within(within(c).getByTestId('matchup-side-away')).getByTestId('matchup-figure')).toHaveTextContent('97.6');
   expect(within(c).getByTestId('matchup-status')).toHaveTextContent('Awaiting final');
-  expect(within(c).getByTestId('matchup-status')).toHaveAttribute('data-variant', 'warning');
-  // A settled game shows no forecast on its note line.
-  expect(within(home).queryByTestId('matchup-side-note')).toBeNull();
-  // The bar still splits the two sides.
-  expect(within(c).getByRole('img', { name: /^Win probability: Winona Wolfpack/ })).toBeInTheDocument();
+  expect(within(c).getByTestId('matchup-card-footer')).toHaveTextContent('Waiting on the score of record');
+  expect(within(home).queryByTestId('matchup-side-expected')).toBeNull();
+  expect(within(home).queryByTestId('matchup-side-remaining')).toBeNull();
+  expect(within(c).queryByRole('img', { name: /win probability/ })).toBeNull();
 });
 
-test('a final card checks the winner, wherever they sit, and reads the score of record', () => {
+test('a final card marks the winner wherever they sit, with no bar and no 100/0', () => {
   renderGrid({ matchups: [FINAL] });
   const c = card(4);
   const home = within(c).getByTestId('matchup-side-home');
   const away = within(c).getByTestId('matchup-side-away');
-  // The away side won this one: the check is on the away row, not the home row.
-  expect(within(away).getByRole('img', { name: 'Leading' })).toBeInTheDocument();
-  expect(within(home).queryByRole('img', { name: 'Leading' })).toBeNull();
+  expect(within(away).getByRole('img', { name: 'Winner' })).toBeInTheDocument();
+  expect(within(home).queryByRole('img', { name: 'Winner' })).toBeNull();
   expect(within(home).getByTestId('matchup-figure')).toHaveTextContent('80.0');
   expect(within(away).getByTestId('matchup-figure')).toHaveTextContent('90.0');
   expect(within(c).getByTestId('matchup-status')).toHaveTextContent('Final');
-  expect(within(c).getByTestId('matchup-status')).toHaveAttribute('data-variant', 'success');
   expect(within(c).getByTestId('matchup-card-footer')).toHaveTextContent('Score of record');
-  expect(within(c).getByTestId('matchup-card-footer')).not.toHaveTextContent('Win probability');
+  expect(within(c).queryByRole('img', { name: /win probability/ })).toBeNull();
+  expect(c).not.toHaveTextContent(/100%|0%/);
 });
 
 test('each card is a link to /league/:id/matchups/:matchupId', () => {
   renderGrid({ matchups: [LIVE, SCHEDULED, PLAYED, FINAL] });
-  const links = screen.getAllByRole('link');
-  expect(links.map((a) => a.getAttribute('href'))).toEqual([
+  expect(screen.getAllByRole('link').map((a) => a.getAttribute('href'))).toEqual([
     '/league/7/matchups/1',
     '/league/7/matchups/2',
     '/league/7/matchups/3',
     '/league/7/matchups/4',
   ]);
-  // The card itself is the link (one hit target), listed for navigation.
   expect(card(1).tagName).toBe('A');
   expect(screen.getByRole('list')).toBeInTheDocument();
   expect(screen.getAllByRole('listitem')).toHaveLength(4);
@@ -256,8 +219,8 @@ test('each card is a link to /league/:id/matchups/:matchupId', () => {
 
 test('each side prints its record from the lookup, in any of its shapes', () => {
   const { unmount } = renderGrid({ matchups: [LIVE], records: { 1: '2-0', 2: '1-1' } });
-  expect(within(card(1)).getByTestId('matchup-side-home')).toHaveTextContent('2-0 · EF 118.0 · PMR 2');
-  expect(within(card(1)).getByTestId('matchup-side-away')).toHaveTextContent('1-1 · EF 119.4 · PMR 3');
+  expect(within(card(1)).getByTestId('matchup-side-home')).toHaveTextContent('Bemidji Blizzard 2-0');
+  expect(within(card(1)).getByTestId('matchup-side-away')).toHaveTextContent('Mankato Mavericks 1-1');
   unmount();
 
   const fromStandings = recordsByTeamId([
@@ -265,31 +228,45 @@ test('each side prints its record from the lookup, in any of its shapes', () => 
     { teamId: 6, wins: 1, losses: 1, ties: 1 },
   ]);
   const { unmount: unmountSecond } = renderGrid({ matchups: [PLAYED], records: fromStandings });
-  // A settled card shows the record alone on its note line.
-  expect(within(card(3)).getByTestId('matchup-side-home')).toHaveTextContent('2-0');
-  expect(within(card(3)).getByTestId('matchup-side-away')).toHaveTextContent('1-1-1');
+  expect(within(card(3)).getByTestId('matchup-side-home')).toHaveTextContent('Winona Wolfpack 2-0');
+  expect(within(card(3)).getByTestId('matchup-side-away')).toHaveTextContent('Moorhead Monarchs 1-1-1');
   unmountSecond();
 
   renderGrid({ matchups: [LIVE], records: (teamId) => (teamId === 1 ? '3-0' : null) });
-  expect(within(card(1)).getByTestId('matchup-side-home')).toHaveTextContent('3-0 · EF 118.0');
-  expect(within(card(1)).getByTestId('matchup-side-away')).toHaveTextContent('EF 119.4 · PMR 3');
+  expect(within(card(1)).getByTestId('matchup-side-home')).toHaveTextContent('Bemidji Blizzard 3-0');
   expect(within(card(1)).getByTestId('matchup-side-away')).not.toHaveTextContent('null');
 });
 
-test('an unknown status renders no chip, no bar and no footer sentence', () => {
+test('an unknown status asserts neither a chip nor a probability, and shows the stored scores', () => {
   renderGrid({ matchups: [{ ...LIVE, status: null }] });
   const c = card(1);
+  expect(c).toHaveAttribute('data-state', 'unknown');
   expect(within(c).queryByTestId('matchup-status')).toBeNull();
-  expect(within(c).queryByRole('img', { name: /Win probability/ })).toBeNull();
-  expect(within(c).getByTestId('matchup-hairline')).toBeInTheDocument();
-  expect(within(c).getByTestId('matchup-card-footer')).toHaveTextContent('');
-  expect(within(c).getByTestId('matchup-card-note')).toHaveTextContent('Week 3');
+  expect(within(c).queryByRole('img', { name: /win probability/ })).toBeNull();
+  expect(within(within(c).getByTestId('matchup-side-home')).getByTestId('matchup-figure')).toHaveTextContent('92.1');
 });
 
-test('an empty list renders nothing', () => {
-  const { container } = renderGrid({ matchups: [] });
-  expect(screen.queryByTestId('matchup-grid')).toBeNull();
+test('an empty list renders nothing without an empty line, and the line in a frame with one', () => {
+  const { container, unmount } = renderGrid({ matchups: [] });
   expect(container).toBeEmptyDOMElement();
+  unmount();
+  renderGrid({ matchups: [], empty: 'No other league matchups this week.' });
+  expect(screen.getByTestId('game-center-grid-empty')).toHaveTextContent('No other league matchups this week.');
+  expect(screen.getByRole('heading', { level: 2, name: 'League matchups' })).toBeInTheDocument();
+});
+
+test('a team prints one players-remaining number in the hero and its tile (AC 6l)', () => {
+  // Same model in both places: the hero reads side.playersRemaining, and so does the tile.
+  const view = render(
+    <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+      <MatchupHero matchup={LIVE} viewerTeamId={1} leagueId={7} />
+    </MemoryRouter>
+  );
+  const heroHome = within(view.container).getByTestId('matchup-hero-side-home');
+  expect(heroHome).toHaveTextContent('2 players remaining');
+  view.unmount();
+  renderGrid({ matchups: [LIVE] });
+  expect(within(card(1)).getByTestId('matchup-side-home')).toHaveTextContent('2 players remaining');
 });
 
 describe('below the sm breakpoint', () => {
@@ -297,38 +274,30 @@ describe('below the sm breakpoint', () => {
     matchMediaMatches = (query) => /max-width/.test(query);
   });
 
-  test('the same data renders as compact rows', () => {
+  test('the same data renders as ~56px rows with the leader marked by the word Leads', () => {
     renderGrid({ matchups: [LIVE, SCHEDULED, PLAYED], records: { 1: '2-0', 2: '1-1' } });
     expect(screen.getByTestId('matchup-grid')).toHaveAttribute('data-layout', 'rows');
 
     const live = card(1);
     expect(live).toHaveAttribute('data-layout', 'row');
     const liveHome = within(live).getByTestId('matchup-side-home');
-    const liveAway = within(live).getByTestId('matchup-side-away');
     expect(within(liveHome).getByText('Bemidji Blizzard')).toBeInTheDocument();
     expect(within(liveHome).getByTestId('matchup-figure')).toHaveTextContent('92.1');
-    expect(within(liveHome).getByTestId('matchup-side-note')).toHaveTextContent('2-0 · EF 118.0 · PMR 2');
-    expect(within(liveAway).getByTestId('matchup-figure')).toHaveTextContent('88.7');
-    expect(within(live).getByRole('img', { name: 'Win probability: Bemidji Blizzard 49%, Mankato Mavericks 51%' })).toBeInTheDocument();
-    expect(within(live).getByTestId('matchup-card-note')).toHaveTextContent('Week 3');
-    expect(within(live).getByTestId('matchup-status')).toHaveTextContent('LIVE');
+    expect(liveHome).toHaveTextContent('Leads');
+    expect(within(within(live).getByTestId('matchup-side-away')).getByTestId('matchup-figure')).toHaveTextContent('88.7');
+    // The win probability names its team; the whole row's name carries who leads.
+    expect(live).toHaveTextContent('51% Mankato Mavericks');
+    expect(live).toHaveAccessibleName('Bemidji Blizzard against Mankato Mavericks, 92.1 to 88.7, Bemidji Blizzard leads, 51% win probability for Mankato Mavericks');
+    expect(live).toHaveTextContent('Details');
 
-    // Scheduled: the projection rides the note line, the score column is empty.
+    // Scheduled: the Proj figures, no "Leads".
     const scheduled = card(2);
-    const schedHome = within(scheduled).getByTestId('matchup-side-home');
-    expect(within(schedHome).getByTestId('matchup-side-note')).toHaveTextContent('Proj 108.3');
-    expect(within(schedHome).queryByTestId('matchup-figure')).toBeNull();
-    expect(within(scheduled).queryByText('0.0')).toBeNull();
-    expect(within(scheduled).queryByTestId('split-bar')).toBeNull();
-    expect(within(scheduled).getByTestId('matchup-hairline')).toBeInTheDocument();
-    expect(within(scheduled).getByTestId('matchup-card-note')).toHaveTextContent(/^Kicks off /);
+    expect(within(within(scheduled).getByTestId('matchup-side-home')).getByTestId('matchup-figure')).toHaveTextContent('108.3');
+    expect(scheduled).not.toHaveTextContent('Leads');
 
-    // Played: the leader's check mark, no forecast on the note line.
-    const played = card(3);
-    expect(within(within(played).getByTestId('matchup-side-home')).getByRole('img', { name: 'Leading' })).toBeInTheDocument();
-    expect(within(within(played).getByTestId('matchup-side-away')).queryByRole('img', { name: 'Leading' })).toBeNull();
+    // Played: the state word.
+    expect(card(3)).toHaveTextContent('Awaiting final');
 
-    // Every row is still a link to its matchup.
     expect(screen.getAllByRole('link').map((a) => a.getAttribute('href'))).toEqual([
       '/league/7/matchups/1',
       '/league/7/matchups/2',

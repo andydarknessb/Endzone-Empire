@@ -7,3 +7,4 @@
  * does not join the wire.
  */
 export { default, MatchupHero } from './ui/MatchupHero';
+export { compactScoreboardView } from './model/matchupHeroView';

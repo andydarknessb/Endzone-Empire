@@ -1,3 +1,4 @@
+/* eslint-disable testing-library/no-node-access -- these cases read emotion rules, data attributes and the Live chip's dot, which have no role or text */
 import React from 'react';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -32,7 +33,6 @@ beforeEach(() => {
 // The canvas's sample afternoon (build.mjs FEED), as the item shape the page
 // hands the widget: newest first, times in local clock time so the formatted
 // output is the viewer's own.
-const NOW = new Date(2026, 8, 6, 15, 42);
 const at = (h, m) => new Date(2026, 8, 6, h, m);
 const FEED = [
   { playerId: 1, name: 'J. Jefferson', nflTeam: 'MIN', teamName: 'Fargo Frostbite', pointsDelta: 10.4, type: 'receiving', isTouchdown: true, at: at(15, 41), side: 'away' },
@@ -49,130 +49,69 @@ const EMOJI = /\p{Extended_Pictographic}/u;
 const EM_DASH = new RegExp(String.fromCharCode(0x2014));
 
 describe('ScoringStrip', () => {
-  test('renders the Live pill and the latest play as "Name NFL · play · +pts to Team"', () => {
-    render(<ScoringStrip items={FEED} now={NOW} />);
+  test('is a Board-black region with a quiet "Latest plays" label and the play as "Name NFL · play · +pts to Team"', () => {
+    render(<ScoringStrip items={FEED} />);
     const strip = screen.getByRole('region', { name: 'Recent league scoring plays' });
-    const pill = within(strip).getByTestId('scoring-strip-live');
-    // The canvas's `.chip.live` is the danger (red) chip, not the dashboard's
-    // accent `live` variant; this is the red-tell for that tone.
-    expect(pill).toHaveAttribute('data-variant', 'danger');
-    expect(pill).toHaveTextContent('Live');
+    expect(strip).toHaveTextContent('Latest plays');
+    // Live is the h1 row's and the hero's chip: the strip draws none, and no red badge.
+    expect(within(strip).queryByText('Live')).toBeNull();
+    expect(screen.queryByTestId('scoring-strip-live')).toBeNull();
 
     const plays = within(strip).getAllByTestId('scoring-strip-play');
-    // The visible group carries four plays on desktop (the canvas's count).
-    const group = within(strip).getByTestId('scoring-strip-group');
-    expect(within(group).getAllByTestId('scoring-strip-play')).toHaveLength(4);
     expect(plays[0]).toHaveTextContent('J. Jefferson');
-    expect(plays[0]).toHaveTextContent('MIN');
-    expect(plays[0]).toHaveTextContent('receiving TD');
-    expect(plays[0]).toHaveTextContent('+10.4');
-    expect(plays[0]).toHaveTextContent('to Fargo Frostbite');
     expect(plays[0].textContent.replace(/\s+/g, ' ').trim()).toBe(
       'J. Jefferson MIN · receiving TD · +10.4 to Fargo Frostbite'
     );
   });
 
-  test('red-tell: renders no football emoji, no emoji at all, and no em dash', () => {
-    const { container } = render(<ScoringStrip items={FEED} now={NOW} />);
+  // AC 6b (spec #2334): six plays render the newest four, statically.
+  test('renders the newest four of six plays, statically, with no animation', () => {
+    render(<ScoringStrip items={FEED} />);
+    const plays = screen.getAllByTestId('scoring-strip-play');
+    expect(plays).toHaveLength(4);
+    expect(plays.map((el) => el.textContent.split(' ')[1])).toEqual(['Jefferson', 'Jones', 'Kelce', 'Lamb']);
+    // No marquee: one group, no hidden clone, no motion flag, and no animation rule on any node.
+    expect(screen.queryByTestId('scoring-strip-clone')).toBeNull();
+    const strip = screen.getByTestId('scoring-strip');
+    [strip, ...strip.querySelectorAll('*')].forEach((el) => {
+      expect(window.getComputedStyle(el).getPropertyValue('animation') || 'none').toMatch(/^(none|)$/);
+    });
+    expect(strip.querySelector('[data-motion]')).toBeNull();
+  });
+
+  test('honours desktopLimit and shows the newest play only below sm', () => {
+    const { unmount } = render(<ScoringStrip items={FEED} desktopLimit={2} />);
+    expect(screen.getAllByTestId('scoring-strip-play')).toHaveLength(2);
+    unmount();
+    mobile = true;
+    render(<ScoringStrip items={FEED} />);
+    expect(screen.getAllByTestId('scoring-strip-play')).toHaveLength(1);
+    expect(screen.getByTestId('scoring-strip-play')).toHaveTextContent('J. Jefferson');
+  });
+
+  test('no football emoji, no emoji at all, and no em dash', () => {
+    const { container } = render(<ScoringStrip items={FEED} />);
     expect(container.textContent).not.toContain('\u{1F3C8}');
     expect(container.textContent).not.toMatch(EMOJI);
     expect(container.textContent).not.toMatch(EM_DASH);
     expect(container.innerHTML).not.toMatch(EMOJI);
   });
 
-  test('counts the plays of the last rolling hour on desktop, singular when one', () => {
-    render(<ScoringStrip items={FEED} now={NOW} />);
-    // 15:42 now: every canvas play since 14:42 is in (the oldest is 14:44).
-    expect(screen.getByTestId('scoring-strip-count')).toHaveTextContent('6 plays this hour');
-  });
-
-  test('a play older than an hour leaves the count', () => {
-    const items = [FEED[0], { ...FEED[1], at: at(13, 0) }];
-    render(<ScoringStrip items={items} now={NOW} />);
-    expect(screen.getByTestId('scoring-strip-count')).toHaveTextContent('1 play this hour');
-  });
-
-  test('the count icon is inline SVG marked decorative', () => {
-    render(<ScoringStrip items={FEED} now={NOW} />);
-    const count = screen.getByTestId('scoring-strip-count');
-    const svg = within(count).getByTestId('scoring-strip-count-icon');
-    expect(svg.tagName.toLowerCase()).toBe('svg');
-    expect(svg).toHaveAttribute('aria-hidden', 'true');
-    expect(svg).toHaveAttribute('stroke', 'currentColor');
-    // No raster or emoji stand-in anywhere on the strip.
-    expect(screen.queryByRole('img', { hidden: true })).toBeNull();
-  });
-
-  test('marquees on desktop with motion allowed: a hidden second group tiles the loop', () => {
-    render(<ScoringStrip items={FEED} now={NOW} />);
-    const track = screen.getByTestId('scoring-strip-track');
-    expect(track).toHaveAttribute('data-motion', 'marquee');
-    // The animation itself, read from the cascade (jsdom applies emotion's
-    // stylesheet), not just the flag beside it.
-    expect(window.getComputedStyle(track).getPropertyValue('animation')).toMatch(
-      /^animation-\w+ 24s linear infinite$/
-    );
-    const clone = screen.getByTestId('scoring-strip-clone');
-    expect(clone).toHaveAttribute('aria-hidden', 'true');
-    // Eight play nodes in the DOM, four of them hidden from assistive tech.
-    expect(screen.getAllByTestId('scoring-strip-play')).toHaveLength(8);
-    expect(within(clone).getAllByTestId('scoring-strip-play')).toHaveLength(4);
-  });
-
-  test('under prefers-reduced-motion: reduce the strip has no animation and no clone', () => {
-    reducedMotion = true;
-    render(<ScoringStrip items={FEED} now={NOW} />);
-    const track = screen.getByTestId('scoring-strip-track');
-    expect(track).toHaveAttribute('data-motion', 'static');
-    // Binds the animation, not only the flag: jsdom resolves the cascaded
-    // `animation` from emotion's stylesheet and skips `@media` rules that do
-    // not name `screen`, so this reads the ternary's own value. Making the
-    // animation unconditional turns this red even with the flag intact.
-    expect(track).toHaveStyle({ animation: 'none' });
-    expect(window.getComputedStyle(track).getPropertyValue('animation')).toBe('none');
-    expect(screen.queryByTestId('scoring-strip-clone')).toBeNull();
-    expect(screen.getAllByTestId('scoring-strip-play')).toHaveLength(4);
-    // The Live pill and the latest play still render; only the motion is gone.
-    expect(screen.getByTestId('scoring-strip-live')).toHaveTextContent('Live');
-    expect(screen.getAllByTestId('scoring-strip-play')[0]).toHaveTextContent('J. Jefferson');
-  });
-
-  test('a single play never marquees (nothing to cycle)', () => {
-    render(<ScoringStrip items={[FEED[0]]} now={NOW} />);
-    expect(screen.getByTestId('scoring-strip-track')).toHaveAttribute('data-motion', 'static');
-    expect(screen.queryByTestId('scoring-strip-clone')).toBeNull();
-  });
-
-  test('on mobile it shows one play, no count, and no marquee', () => {
-    mobile = true;
-    render(<ScoringStrip items={FEED} now={NOW} />);
-    expect(screen.getAllByTestId('scoring-strip-play')).toHaveLength(1);
-    expect(screen.getByTestId('scoring-strip-play')).toHaveTextContent('J. Jefferson');
-    expect(screen.queryByTestId('scoring-strip-count')).toBeNull();
-    expect(screen.getByTestId('scoring-strip-track')).toHaveAttribute('data-motion', 'static');
-    expect(screen.getByTestId('scoring-strip-live')).toHaveTextContent('Live');
-  });
-
-  test('with no items it renders the idle line and no Live pill', () => {
-    render(<ScoringStrip items={[]} now={NOW} />);
-    expect(
-      screen.getByText('Live scoring plays will appear here once games kick off.')
-    ).toBeInTheDocument();
-    expect(screen.queryByTestId('scoring-strip-live')).toBeNull();
-    expect(screen.queryByTestId('scoring-strip-play')).toBeNull();
-    expect(screen.queryByRole('region')).toBeNull();
+  test('with no plays it is not drawn (the feed keeps the idle line)', () => {
+    const { container } = render(<ScoringStrip items={[]} />);
+    expect(container).toBeEmptyDOMElement();
   });
 
   test('a non-touchdown play reads its own label through playLabel', () => {
     const items = [{ ...FEED[0], type: 'fieldGoal', isTouchdown: false, pointsDelta: 3 }];
-    render(<ScoringStrip items={items} now={NOW} />);
+    render(<ScoringStrip items={items} />);
     expect(screen.getByTestId('scoring-strip-play')).toHaveTextContent('FIELD GOAL');
     expect(screen.getByTestId('scoring-strip-play')).toHaveTextContent('+3.0');
   });
 });
 
 describe('ScoringFeedList', () => {
-  test('is a Card titled "Scoring feed" with one row per item: time, player, play and team', () => {
+  test('is a frame titled "Scoring feed" with one row per item: time, player, play and team', () => {
     render(<ScoringFeedList items={FEED.slice(0, 3)} week={3} tail="TDs only" />);
     const card = screen.getByRole('region', { name: 'Scoring feed' });
     expect(within(card).getByRole('heading', { level: 2, name: 'Scoring feed' })).toBeInTheDocument();
@@ -197,16 +136,13 @@ describe('ScoringFeedList', () => {
     expect(first.textContent).toMatch(/MIN · Fargo Frostbite/);
   });
 
-  test('colors the side dot by item.side: home, away, or neutral for null', () => {
+  test('says the side in words for a screen reader, and nothing for a play in another matchup', () => {
     render(<ScoringFeedList items={[FEED[1], FEED[0], FEED[3]]} />);
-    const dots = screen.getAllByTestId('scoring-feed-side');
-    expect(dots.map((d) => d.getAttribute('data-side'))).toEqual(['home', 'away', 'neutral']);
-    // The dot is decorative; the side is also said in text for a screen reader,
-    // and a play in another matchup says nothing.
     const rows = screen.getAllByRole('listitem');
     expect(rows[0]).toHaveTextContent('Home side');
     expect(rows[1]).toHaveTextContent('Away side');
     expect(rows[2]).not.toHaveTextContent(/side/);
+    expect(screen.getAllByTestId('scoring-feed-side').map((d) => d.getAttribute('data-side'))).toEqual(['home', 'away']);
   });
 
   test('a play with no time leaves the time cell blank rather than "Invalid Date"', () => {

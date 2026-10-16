@@ -39,14 +39,39 @@ describe('matchupHeroView', () => {
     expect(view.chipVariant).toBe('danger');
     expect(view.chipDot).toBe(true);
     expect(view.winProbability).toMatchObject({ homePct: 36, awayPct: 64 });
-    expect(view.sentence).toBe('Ahead now, projected to trail by 13.4 with 6 of theirs still to play');
+    expect(view.sentence).toBe('Ahead now, projected to trail by 13.4 · they have 6 players remaining');
     expect(view.kickoff).toBeNull();
   });
 
   test('the sentence is written from the viewer side', () => {
     expect(matchupHeroView(live, 20).sentence).toBe(
-      'Behind now, projected to lead by 13.4 with 4 of theirs still to play'
+      'Behind now, projected to lead by 13.4 · they have 4 players remaining'
     );
+  });
+
+  // Critique 11 item 9 (spec #2334): "they have {n} players remaining, {k} yet to play", from the server's
+  // yetToPlay on each side; "yet to play" means not started, and the count never mixes sources.
+  test('the sentence reads the server yetToPlay, and singular for one', () => {
+    const served = {
+      ...live,
+      home: { ...dock, yetToPlay: 1 },
+      away: { ...frost, playersRemaining: 1, yetToPlay: 1 },
+    };
+    expect(matchupHeroView(served, 10).sentence)
+      .toBe('Ahead now, projected to trail by 13.4 · they have 1 player remaining, 1 yet to play');
+    expect(matchupHeroView({ ...served, away: { ...served.away, playersRemaining: 6, yetToPlay: 3 } }, 10).sentence)
+      .toBe('Ahead now, projected to trail by 13.4 · they have 6 players remaining, 3 yet to play');
+  });
+
+  test('a page that computed its own counts hands them over and the sentence reads only those', () => {
+    const counts = { home: { remaining: 2, yet: 0 }, away: { remaining: 5, yet: 2 } };
+    expect(matchupHeroView({ ...live, away: { ...frost, yetToPlay: 9 } }, 10, { counts }).sentence)
+      .toBe('Ahead now, projected to trail by 13.4 · they have 5 players remaining, 2 yet to play');
+  });
+
+  test('with none of theirs left it names the viewer own players', () => {
+    const view = matchupHeroView({ ...live, away: { ...frost, playersRemaining: 0 }, home: { ...dock, yetToPlay: 1 } }, 10);
+    expect(view.sentence).toBe('Ahead now, projected to trail by 13.4 · you have 4 players remaining, 1 yet to play');
   });
 
   test('the two percentages always sum to 100, the way SplitBar rounds', () => {

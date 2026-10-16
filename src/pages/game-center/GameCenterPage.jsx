@@ -1,63 +1,74 @@
-import React, { useEffect, useState } from 'react';
-import { Link as RouterLink, useParams } from 'react-router-dom';
-import { Alert, Box, Container, Link, Typography, useMediaQuery } from '@mui/material';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useParams } from 'react-router-dom';
+import { Box, Container, GlobalStyles, useMediaQuery } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
-import { Skeleton } from '../../shared/ui';
-import PickWeek from '../../features/pick-week';
-import MatchupHero from '../../widgets/matchup-hero';
+import {
+  CompactScoreboard, ErrorPanel, Skel, psRootSx,
+} from '../../shared/ui/playselect';
+import { compactScoreboardView } from '../../widgets/matchup-hero';
 import MatchupGrid from '../../widgets/matchup-grid';
 import NflGameStrip from '../../widgets/nfl-game-strip';
 import { ScoringFeedList, ScoringStrip } from '../../widgets/scoring-feed';
+import { matchupBoard } from '../../entities/matchup';
+import { useActionItems } from '../../entities/action-item';
 import { useGameCenter, syncLineText } from './model/useGameCenter';
+import GameCenterHead from './ui/GameCenterHead';
+import HeroSection from './ui/HeroSection';
+import LineupNote from './ui/LineupNote';
 import WeekGlance from './ui/WeekGlance';
 
 /**
- * Game Center page slice (ADR 0031, #897), on the `/league/:leagueId/game-center`
- * route in place of the legacy Game Center page under the components tree,
- * which is deleted with its test. Transcribed from the canvas's
- * `gameCenterDesktop()` and `gameCenterMobile()` (docs/design/
- * game-center-matchups/build.mjs):
+ * Game Center page slice (ADR 0031, #897), on the `/league/:leagueId/game-center` route, on the Play-select
+ * look since ADR 0067 wave 2 (spec #2334). Sections, order, navigation and data reads are the product's;
+ * the approved behaviour changes are the only differences:
  *
- *   - the breadcrumb (Leagues / league name / Game Center), then the h1
- *     "Game Center" in the display face with the sync line beneath it
- *     ("Scores synced 3:42 PM · next pass in 8 min", from the week's
- *     `syncedAt`; omitted while the week has no sync), and the week picker
- *     (features/pick-week) on the right, full width below the `sm` breakpoint;
- *   - the live scoring ticker strip (widgets/scoring-feed) and the real NFL
- *     game strip (widgets/nfl-game-strip);
- *   - a two-column grid, `minmax(0, 1fr) 340px` at `md` and up and a single
- *     column below it: the viewer's Matchup as the hero (widgets/matchup-hero)
- *     and the "League matchups" heading over the rest of the week's Matchups
- *     (widgets/matchup-grid, cards on desktop and rows on a phone) on the
- *     left; the Scoring feed (six rows, three on a phone) and, at `sm` and
- *     up, the Week at a glance tile in the rail (the mobile artboard has no
- *     glance tile, so the tile is not rendered below `sm`).
+ *   - the head (ui/GameCenterHead): the breadcrumb, the pixel h1 with the Live chip on its row while a
+ *     matchup of the week is live, the sync line, the week picker (one tab stop) and the closed "What the
+ *     numbers mean" disclosure;
+ *   - on phones and tablets (below `md`) the latest-plays strip, the one newest play below `sm`; desktop
+ *     does not draw it, the rail's Scoring feed shows the same plays (Critique 11 item 12);
+ *   - the real NFL game strip (widgets/nfl-game-strip);
+ *   - a two-column grid, `minmax(0, 1fr) 340px` at `md` and up: the viewer's hero (widgets/matchup-hero,
+ *     Board black while live), the lineup note when the dashboard's lineup problem applies, and League
+ *     matchups (widgets/matchup-grid) on the left; the Scoring feed and, at `sm` and up, Week at a glance in
+ *     the rail.
  *
- * Every value two slices need (the week's Matchups, the viewer's Team id,
- * the standings-derived records and ranks, the plays) is read once in the
- * page model (./model/useGameCenter) and passed down, the way ADR 0020's page
- * passes shared values (a Team's record does not join the wire: spec #890's
- * ruling). Widgets, the feature, the entity and the kit are imported through
- * their index files only; the page reaches below the island for the league
- * cache hook and the legacy helpers ADR 0031 names as sanctioned.
+ * The full hero stays in flow. Once it scrolls out of view a 56px compact bar ("DF 61.0 · SS 58.9 · Darkness
+ * Falls by 2.1") pins to the top, and the page reserves it with `scroll-padding-top` (Critique 11 item 8).
  *
- * Loading: the first load renders a skeleton per region, each region carrying
- * `aria-busy` (Skeleton.jsx: the shapes stay aria-hidden, the owning region
- * announces). A background refetch (a reconnect) never blanks the page. A
- * failed read renders an Alert above the body; the body still renders with
- * whatever did load.
+ * Every value two slices need is read once in the page model (./model/useGameCenter) and passed down. The
+ * page adds one shared, cached read the dashboard also uses (`useActionItems`) for the lineup note. Loading:
+ * the first load renders a skeleton per region, each carrying `aria-busy`. A background refetch never blanks
+ * the page. A failed read renders an error panel above the body; the body still renders with whatever did
+ * load.
  *
- * Paints the island's own token context (`dash-bg` / `dash-ink`, the display
- * and body faces) and only `dash-*` tokens plus the app's focus ring. Every
- * pairing here is registered in tokens.contrast.test.js: ink, dim and faint
- * on the page background, and the focus ring on the page. Headings are
- * explicit (ADR 0021): one h1, then the h2 Card titles the widgets render and
- * the h2 over the grid.
+ * Watching page: no cursor and no filled action (RULINGS "QA round 1"). Paints only `ps-*` tokens through
+ * the widgets and the shared Play-select kit; headings: one h1, then the h2 the frames render.
  */
+
+/** True once `ref`'s element has scrolled above the top of the viewport (needs IntersectionObserver). */
+function useScrolledPast(ref, enabled) {
+  const [past, setPast] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!enabled || !el || typeof IntersectionObserver === 'undefined') {
+      setPast(false);
+      return undefined;
+    }
+    const observer = new IntersectionObserver(([entry]) => {
+      setPast(!entry.isIntersecting && entry.boundingClientRect.bottom < 0);
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [ref, enabled]);
+  return past;
+}
+
 export default function GameCenterPage() {
   const { leagueId } = useParams();
   const theme = useTheme();
   const compact = useMediaQuery(theme.breakpoints.down('sm'), { noSsr: true });
+  const belowMd = useMediaQuery(theme.breakpoints.down('md'), { noSsr: true });
   const now = useMinuteClock();
   const {
     league,
@@ -77,210 +88,123 @@ export default function GameCenterPage() {
     gamesInProgress,
     items,
     glance,
+    anyLive,
   } = useGameCenter(leagueId);
+  const { items: actionItems } = useActionItems();
+  const heroRef = useRef(null);
 
   const syncLine = pending ? null : syncLineText(syncedAt, now);
   const weekNumber = week === 'All' || week == null ? undefined : Number(week);
+  const heroStarted = !!hero && matchupBoard(hero).hasStarted === true;
+  const pinned = useScrolledPast(heroRef, heroStarted);
+  const compactBar = useMemo(() => (hero ? compactScoreboardView(hero) : null), [hero]);
+  const lineupItem = useMemo(
+    () => (hero && !matchupBoard(hero).settled
+      ? actionItems.find((i) => i.type === 'lineup_problem' && String(i.leagueId) === String(leagueId)) || null
+      : null),
+    [actionItems, hero, leagueId]
+  );
 
   return (
-    <Shell>
-      <Box sx={{ display: 'grid', gap: '6px', mb: '18px' }}>
-        <Breadcrumb leagueId={leagueId} leagueName={league?.name} />
-        <Box
-          data-testid="game-center-header"
-          sx={{
-            display: 'flex',
-            flexDirection: { xs: 'column', sm: 'row' },
-            justifyContent: 'space-between',
-            // The artboard's header row: the picker sits vertically centred
-            // against the h1 + sync-line stack.
-            alignItems: { xs: 'stretch', sm: 'center' },
-            gap: { xs: '12px', sm: '24px' },
-            // This row is a grid item, and a grid item's automatic minimum
-            // size is its content's. Without this the scrollable week strip
-            // below it (features/pick-week, #916) reports the width of a
-            // whole season to the grid and the document grows past the
-            // phone, which is the dead strip beside every card the fix is
-            // about. The row that holds both columns is what the grid
-            // measures; inside it only the picker carries a zero minimum.
-            minWidth: 0,
-          }}
-        >
-          <Box
-            data-testid="game-center-title"
-            sx={{
-              display: 'grid',
-              gap: '4px',
-              // No zero minimum here (#921). This column holds words, not a
-              // scroll container: shrunk past the min-content width of
-              // CENTER it does not clip, it overflows, and the overflow
-              // lands on the week picker's first chevron between 600 and
-              // 730px (measured). The picker beside it carries the zero
-              // minimum and absorbs the whole shrink, because its strip
-              // scrolls at every width.
-            }}
-          >
-            <Typography
-              component="h1"
-              sx={{
-                m: 0,
-                fontFamily: 'var(--dash-font-display)',
-                fontSize: { xs: '30px', sm: '36px' },
-                fontWeight: 700,
-                letterSpacing: '0.02em',
-                lineHeight: 1.05,
-                textTransform: 'uppercase',
-                color: 'var(--dash-ink)',
-              }}
-            >
-              Game Center
-            </Typography>
-            {syncLine && <SyncLine text={syncLine} />}
-          </Box>
-          {pending ? (
-            <Box
-              data-testid="game-center-loading-picker"
-              aria-busy="true"
-              sx={{ display: 'flex', justifyContent: { sm: 'flex-end' } }}
-            >
-              <Skeleton width={compact ? '100%' : 320} height={38} />
+    <Box className="ps-root" sx={{ ...psRootSx, minHeight: '100%' }}>
+      {heroStarted && <GlobalStyles styles={{ html: { scrollPaddingTop: '72px' } }} />}
+      <Container
+        maxWidth={false}
+        data-testid="game-center-column"
+        sx={{
+          maxWidth: 1280,
+          px: { xs: '14px', sm: '32px' },
+          pt: { xs: '14px', sm: '24px' },
+          pb: { xs: '32px', sm: '64px' },
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '24px',
+        }}
+      >
+        {/* The pinned compact bar: a zero-height sticky holder, so showing it never shifts the page. */}
+        <Box sx={{ position: 'sticky', top: 0, zIndex: (t) => t.zIndex.appBar - 1, height: 0, mb: '-24px' }}>
+          {pinned && compactBar && (
+            <Box data-testid="game-center-compact-scoreboard" sx={{ position: 'absolute', left: 0, right: 0, top: 0 }}>
+              <CompactScoreboard {...compactBar} />
             </Box>
-          ) : (
-            <PickWeek weeks={weeks} value={week ?? 'All'} onChange={setWeek} fill={compact} />
           )}
         </Box>
-      </Box>
 
-      {error && (
-        <Alert severity="error" sx={{ mb: '18px' }}>
-          {error}
-        </Alert>
-      )}
+        <GameCenterHead
+          leagueId={leagueId}
+          leagueName={league?.name}
+          compact={compact}
+          live={anyLive}
+          syncLine={syncLine}
+          pending={pending}
+          weeks={weeks}
+          week={week}
+          onWeek={setWeek}
+        />
 
-      {pending ? (
-        <LoadingRegions />
-      ) : (
-        <>
-          <Box sx={{ mb: '18px' }}>
-            <ScoringStrip items={items} now={now} />
-          </Box>
-          {games.length > 0 && (
-            <Box sx={{ mb: '18px' }}>
-              <NflGameStrip games={games} data-testid="game-center-nfl-games" />
-            </Box>
-          )}
+        {error && (
+          <ErrorPanel title="Game Center" body={String(error)} />
+        )}
 
-          <Box
-            data-testid="game-center-body"
-            sx={{
-              display: 'grid',
-              gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: 'minmax(0, 1fr) 340px' },
-              gap: '20px',
-              alignItems: 'start',
-            }}
-          >
-            <Box data-testid="game-center-main" sx={{ display: 'grid', gap: '18px', minWidth: 0 }}>
-              {hero && (
-                <MatchupHero
-                  matchup={hero}
-                  viewerTeamId={viewerTeamId}
-                  records={records}
-                  ranks={ranks}
-                  leagueId={leagueId}
-                  gamesInProgress={gamesInProgress}
-                  nextKickoffAt={nextKickoffAt}
-                />
-              )}
-
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: { xs: '8px', sm: '10px' }, mt: '4px' }}>
-                <Typography
-                  component="h2"
-                  sx={{
-                    m: 0,
-                    fontFamily: 'var(--dash-font-display)',
-                    fontSize: { xs: '16px', sm: '17px' },
-                    fontWeight: 600,
-                    letterSpacing: '0.08em',
-                    textTransform: 'uppercase',
-                    color: 'var(--dash-ink)',
-                  }}
-                >
-                  League matchups
-                </Typography>
-                {hero && rest.length > 0 && (
-                  <Typography
-                    component="span"
-                    data-testid="game-center-grid-count"
-                    sx={{ fontSize: '12px', color: 'var(--dash-faint)' }}
-                  >
-                    {`${rest.length} more`}
-                  </Typography>
-                )}
-                <Box sx={{ flex: '1 1 0' }} />
-                {/* The bar colour legend, for the eye only: every bar already
-                    names both sides in its accessible name, so a screen reader
-                    would hear "Home Away" with nothing to attach it to. */}
-                <Box
-                  aria-hidden="true"
-                  sx={{
-                    display: { xs: 'none', sm: 'flex' },
-                    gap: '8px',
-                    fontSize: '12px',
-                    color: 'var(--dash-faint)',
-                  }}
-                >
-                  <LegendDot token="var(--dash-home)" label="Home" />
-                  <LegendDot token="var(--dash-away)" label="Away" />
-                </Box>
-              </Box>
-
-              {rest.length > 0 ? (
-                <MatchupGrid matchups={rest} leagueId={leagueId} records={records} />
-              ) : (
-                <Typography
-                  component="p"
-                  data-testid="game-center-grid-empty"
-                  sx={{ m: 0, fontSize: '14px', color: 'var(--dash-dim)' }}
-                >
-                  {hero ? 'No other league matchups this week.' : 'No matchups this week.'}
-                </Typography>
-              )}
-            </Box>
+        {pending ? (
+          <LoadingRegions />
+        ) : (
+          <>
+            {belowMd && <ScoringStrip items={items} />}
+            {games.length > 0 && <NflGameStrip games={games} data-testid="game-center-nfl-games" />}
 
             <Box
-              data-testid="game-center-rail"
+              data-testid="game-center-body"
               sx={{
                 display: 'grid',
-                // Explicit, zero-floored track (#932). Without it the single
-                // implicit track is `auto`, whose base size floors at the
-                // widest child (a Card's min-width is `auto`) min-content and
-                // free space can only grow a track above that floor, so the
-                // definite 340px this rail is given cannot clamp it and a long
-                // team name in the week-glance line spills the page column at
-                // md+. `minmax(0, 1fr)` gives the track a zero minimum, the
-                // idiom `game-center-body` above already uses; the Cards then
-                // lay out at the rail's width and their own ellipsis clips.
-                gridTemplateColumns: 'minmax(0, 1fr)',
-                gap: '18px',
-                minWidth: 0,
+                gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: 'minmax(0, 1fr) 340px' },
+                gap: '24px',
+                alignItems: 'start',
               }}
             >
-              <ScoringFeedList items={items} week={weekNumber} limit={compact ? 3 : 6} />
-              {/* The mobile artboard ends at the feed: no glance tile below sm;
-                  under "All weeks" the model hands no rows (the facts are
-                  per-week) and the tile renders nothing. */}
-              {!compact && <WeekGlance rows={glance} />}
+              <Box data-testid="game-center-main" sx={{ display: 'flex', flexDirection: 'column', gap: { xs: '16px', md: '24px' }, minWidth: 0 }}>
+                {hero && (
+                  <>
+                    <Box ref={heroRef}>
+                      <HeroSection
+                        hero={hero}
+                        viewerTeamId={viewerTeamId}
+                        records={records}
+                        ranks={ranks}
+                        leagueId={leagueId}
+                        gamesInProgress={gamesInProgress}
+                        nextKickoffAt={nextKickoffAt}
+                      />
+                    </Box>
+                    <LineupNote item={lineupItem} now={now} to={`/league/${leagueId}/lineup`} />
+                  </>
+                )}
+                <MatchupGrid
+                  matchups={rest}
+                  leagueId={leagueId}
+                  records={records}
+                  more={hero ? rest.length : undefined}
+                  empty={hero ? 'No other league matchups this week.' : 'No matchups this week.'}
+                />
+              </Box>
+
+              <Box data-testid="game-center-rail" sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: '24px', minWidth: 0 }}>
+                <ScoringFeedList items={items} week={weekNumber} limit={compact ? 3 : 6} />
+                {/* The phone board ends at the feed: no glance frame below sm; under "All weeks" the model
+                    hands no rows (the facts are per-week) and the frame renders nothing. */}
+                {!compact && <WeekGlance rows={glance} />}
+              </Box>
             </Box>
-          </Box>
-        </>
-      )}
-    </Shell>
+          </>
+        )}
+      </Container>
+    </Box>
   );
 }
 
 /**
- * The clock the sync line counts down against, refreshed once a minute so
- * "next pass in N min" stays honest between score events. Epoch ms.
+ * The clock the sync line counts down against, refreshed once a minute so "next pass in N min" stays honest
+ * between score events. Epoch ms.
  */
 function useMinuteClock() {
   const [now, setNow] = useState(() => Date.now());
@@ -292,185 +216,30 @@ function useMinuteClock() {
 }
 
 /**
- * The island's page frame: the `dash-*` token context plus the canvas's
- * 1200px column (24px sides on desktop, 14px on a phone). Every state renders
- * inside it so the island background is constant.
- */
-function Shell({ children }) {
-  return (
-    <Box
-      sx={{
-        backgroundColor: 'var(--dash-bg)',
-        color: 'var(--dash-ink)',
-        fontFamily: 'var(--dash-font-body)',
-        minHeight: '100%',
-      }}
-    >
-      <Container
-        maxWidth="lg"
-        data-testid="game-center-column"
-        sx={{
-          px: { xs: '14px', sm: '24px' },
-          pt: { xs: '14px', sm: '24px' },
-          pb: { xs: '32px', sm: '40px' },
-        }}
-      >
-        {children}
-      </Container>
-    </Box>
-  );
-}
-
-const CRUMB_LINK_SX = {
-  color: 'var(--dash-faint)',
-  textDecoration: 'none',
-  '&:hover': { color: 'var(--dash-ink)', textDecoration: 'underline' },
-  '&:focus-visible': { outline: '2px solid var(--focus-ring)', outlineOffset: 2 },
-};
-
-/**
- * The canvas's `breadcrumb()`: Leagues / <league name> / Game Center at 13px
- * in the faint tier, the current page in dim. A `nav` landmark holding a
- * list, the WAI-ARIA breadcrumb shape; the league crumb waits for the row.
- */
-function Breadcrumb({ leagueId, leagueName }) {
-  return (
-    <Box component="nav" aria-label="Breadcrumb" data-testid="game-center-breadcrumb">
-      <Box
-        component="ol"
-        role="list"
-        sx={{
-          listStyle: 'none',
-          m: 0,
-          p: 0,
-          display: 'flex',
-          alignItems: 'center',
-          flexWrap: 'wrap',
-          gap: '8px',
-          fontSize: '13px',
-          color: 'var(--dash-faint)',
-        }}
-      >
-        <Box component="li" sx={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <Link component={RouterLink} to="/league" sx={CRUMB_LINK_SX}>
-            Leagues
-          </Link>
-          <Box component="span" aria-hidden="true">/</Box>
-        </Box>
-        {leagueName && (
-          <Box component="li" sx={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
-            <Link
-              component={RouterLink}
-              to={`/league/${leagueId}`}
-              sx={{ ...CRUMB_LINK_SX, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-            >
-              {leagueName}
-            </Link>
-            <Box component="span" aria-hidden="true">/</Box>
-          </Box>
-        )}
-        <Box component="li" aria-current="page" sx={{ color: 'var(--dash-dim)' }}>
-          Game Center
-        </Box>
-      </Box>
-    </Box>
-  );
-}
-
-/** The canvas's `syncLine()`: the sync glyph and one line at 12px in the faint tier. */
-function SyncLine({ text }) {
-  return (
-    <Box
-      data-testid="game-center-sync"
-      sx={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'var(--dash-faint)' }}
-    >
-      <SyncIcon />
-      <span>{text}</span>
-    </Box>
-  );
-}
-
-/** The canvas's `sync` icon at 14px: inline stroke SVG on the 20px grid, decorative. */
-function SyncIcon() {
-  return (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 20 20"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.6"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      focusable="false"
-      style={{ display: 'block', flex: 'none' }}
-    >
-      <path d="M16 8A6.5 6.5 0 0 0 4.5 6.5M4 12a6.5 6.5 0 0 0 11.5 1.5" />
-      <path d="M16 3v5h-5M4 17v-5h5" />
-    </svg>
-  );
-}
-
-/** One legend entry: the 8px side dot in its hue beside its word. */
-function LegendDot({ token, label }) {
-  return (
-    <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-      <Box
-        component="span"
-        sx={{
-          display: 'inline-block',
-          width: 8,
-          height: 8,
-          borderRadius: 'var(--radius-pill)',
-          backgroundColor: token,
-          flex: 'none',
-        }}
-      />
-      {label}
-    </Box>
-  );
-}
-
-/**
- * The first-load skeletons, one region per part of the page the reads fill
- * (the strip, the hero and grid, the rail), each carrying aria-busy so the
- * region that owns the read announces it. A literal "true" is correct: this
- * branch unmounts the moment the reads settle, so there is no in-DOM
- * transition to "false" for a screen reader to observe.
+ * The first-load skeletons, one region per part of the page the reads fill (the strip, the hero and grid, the
+ * rail), each carrying aria-busy so the region that owns the read announces it. A literal "true" is correct:
+ * this branch unmounts the moment the reads settle.
  */
 function LoadingRegions() {
   return (
-    <Box data-testid="game-center-loading" sx={{ display: 'grid', gap: '18px' }}>
+    <Box data-testid="game-center-loading" sx={{ display: 'grid', gap: '24px' }}>
       <Box data-testid="game-center-loading-strip" aria-busy="true">
-        <Skeleton height={40} />
+        <Skel data-testid="skeleton" width="100%" height={64} />
       </Box>
-      <Box
-        sx={{
-          display: 'grid',
-          gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: 'minmax(0, 1fr) 340px' },
-          gap: '20px',
-          alignItems: 'start',
-        }}
-      >
-        <Box data-testid="game-center-loading-main" aria-busy="true" sx={{ display: 'grid', gap: '18px' }}>
-          <Skeleton height={240} />
-          <Skeleton variant="text" width={180} height={24} />
-          <Box
-            sx={{
-              display: 'grid',
-              gridTemplateColumns: { xs: 'minmax(0, 1fr)', sm: 'repeat(2, minmax(0, 1fr))' },
-              gap: '14px',
-            }}
-          >
+      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: 'minmax(0, 1fr) 340px' }, gap: '24px', alignItems: 'start' }}>
+        <Box data-testid="game-center-loading-main" aria-busy="true" sx={{ display: 'grid', gap: '16px' }}>
+          <Skel data-testid="skeleton" width="100%" height={240} />
+          <Skel data-testid="skeleton" width={180} height={24} />
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', sm: 'repeat(2, minmax(0, 1fr))' }, gap: '16px' }}>
             {Array.from({ length: 4 }).map((_, i) => (
-              <Skeleton key={i} height={150} />
+              // eslint-disable-next-line react/no-array-index-key
+              <Skel key={i} width="100%" height={150} />
             ))}
           </Box>
         </Box>
-        <Box data-testid="game-center-loading-rail" aria-busy="true" sx={{ display: 'grid', gap: '18px' }}>
-          <Skeleton height={320} />
-          <Skeleton height={220} />
+        <Box data-testid="game-center-loading-rail" aria-busy="true" sx={{ display: 'grid', gap: '24px' }}>
+          <Skel data-testid="skeleton" width="100%" height={320} />
+          <Skel data-testid="skeleton" width="100%" height={220} />
         </Box>
       </Box>
     </Box>
