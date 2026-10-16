@@ -42,6 +42,30 @@ describe('Countdown', () => {
     expect(screen.getByText('Draft in 30s')).toBeInTheDocument();
   });
 
+  // The League Dashboard's Play-select look (ADR 0067 wave 1b): the two leading units in Pixel 32
+  // blocks, one label for a screen reader, the schedule and the calendar control under them.
+  describe('the blocks variant', () => {
+    test('shows the two leading units as blocks and names the whole time once', () => {
+      render(<Countdown date={futureIso(3 * DAY + 4 * HOUR)} variant="blocks" leagueId={1} leagueName="Sunday League" />);
+      const group = screen.getByRole('group', { name: 'Draft in 3d 04h' });
+      expect(group).toBeInTheDocument();
+      expect(screen.getByText('3d')).toBeInTheDocument();
+      expect(screen.getByText('04h')).toBeInTheDocument();
+      // The blocks and the prefix are decorative to a screen reader: the group's label says it once.
+      expect(screen.getByText('3d')).toHaveAttribute('aria-hidden', 'true');
+      expect(screen.getByRole('button', { name: 'Add to calendar' })).toBeInTheDocument();
+    });
+
+    test('ticks over by the minute inside the last day and renders nothing once the date passes', () => {
+      const { container } = render(<Countdown date={futureIso(3 * HOUR + 5 * MINUTE)} variant="blocks" />);
+      expect(screen.getByRole('group', { name: 'Draft in 3h 05m' })).toBeInTheDocument();
+      act(() => { jest.advanceTimersByTime(MINUTE); });
+      expect(screen.getByRole('group', { name: 'Draft in 3h 04m' })).toBeInTheDocument();
+      act(() => { jest.advanceTimersByTime(4 * HOUR); });
+      expect(container).toBeEmptyDOMElement();
+    });
+  });
+
   describe('tiered cadence (#117 AC4)', () => {
     test('more than 24h out shows days and hours', () => {
       render(<Countdown date={futureIso(2 * DAY + 3 * HOUR)} />);

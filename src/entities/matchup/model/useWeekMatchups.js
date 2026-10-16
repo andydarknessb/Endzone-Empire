@@ -49,7 +49,7 @@ export function clearWeekMatchupsCache(leagueId) {
  */
 export function useWeekMatchups(leagueId, week, { enabled = true } = {}) {
   const active = enabled && leagueId != null && week != null;
-  const { data, loading, error } = useResource(
+  const { data, loading, error, refetch } = useResource(
     active ? ['league-matchups', leagueId, week] : null,
     active ? `/api/league/${leagueId}/matchups?week=${week}` : null,
     { ttl: TTL_MS }
@@ -58,7 +58,7 @@ export function useWeekMatchups(leagueId, week, { enabled = true } = {}) {
     () => (Array.isArray(data) ? data.map(matchupFromListRow) : []),
     [data]
   );
-  return { matchups, loading: active && loading, error };
+  return { matchups, loading: active && loading, error, refetch };
 }
 
 export default useWeekMatchups;

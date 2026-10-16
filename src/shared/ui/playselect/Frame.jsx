@@ -4,9 +4,14 @@ import { PIXEL_FONT, SR_ONLY_SX, pixelSx } from './type';
 
 const asList = (sx) => (Array.isArray(sx) ? sx : [sx]);
 
-/** The one frame: a 6px double rule, square corners, panel fill. `tone="danger"` is the error frame. Other props (`aria-label`, `data-testid`) pass through. */
+/**
+ * The one frame: a 6px double rule, square corners, panel fill. `tone="danger"` is the error frame.
+ * `tier="rule"` is the tertiary frame league pages use for Recap, Around the league, Recent activity,
+ * Pick'em and Commissioner: a 2px single edge in `ps-frame-2`. Other props (`aria-label`, `data-testid`)
+ * pass through.
+ */
 export function Frame({
-  component = 'section', labelledBy, tone = 'frame', role, head, children, sx, ...rest
+  component = 'section', labelledBy, tone = 'frame', tier = 'primary', role, head, children, sx, ...rest
 }) {
   return (
     <Box
@@ -16,7 +21,9 @@ export function Frame({
       {...rest}
       sx={[
         {
-          border: `6px double var(--ps-${tone === 'danger' ? 'danger' : 'frame'})`,
+          border: tier === 'rule' && tone !== 'danger'
+            ? '2px solid var(--ps-frame-2)'
+            : `6px double var(--ps-${tone === 'danger' ? 'danger' : 'frame'})`,
           backgroundColor: 'var(--ps-panel)',
           color: 'var(--ps-ink)',
           minWidth: 0,

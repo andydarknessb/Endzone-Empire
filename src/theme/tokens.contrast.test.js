@@ -11,6 +11,10 @@ import { BUCKET_OPACITY } from '../widgets/pickem-standings/ui/StandingsTable';
 const AA_TEXT = 4.5;
 const AA_LARGE = 3.0;
 
+// Not a WCAG number: the floor for a container edge that no meaning rests on (a tertiary
+// frame's 2px border; its own Pixel 16 heading names the region). Dark Rule is 2:1 on Field.
+const DECORATIVE_EDGE = 1.5;
+
 // Not a WCAG number: a project judgement about visible interactive feedback.
 // A resting color and its hover color that sit too close together mean a
 // button gives no visible signal on hover; #267 restored the delta after
@@ -549,6 +553,11 @@ const PAIRINGS = [
   pairing('ps-accent', 'ps-panel', AA_TEXT, 'live chip text and outline in a frame'),
   pairing('ps-focus', 'ps-halo', AA_LARGE, 'focus ring on its dark halo'),
   pairing('ps-halo', 'ps-selection', AA_TEXT, 'selected text on the cursor-yellow selection'),
+  // League pages: the 2px edge of a tertiary frame, on the page and against its own panel fill.
+  pairing('ps-frame-2', 'ps-field', DECORATIVE_EDGE, 'tertiary frame edge on the page'),
+  pairing('ps-frame-2', 'ps-panel', DECORATIVE_EDGE, 'tertiary frame edge against its own panel fill'),
+  // Position tags on a frame: a data encoding (RULINGS.md), still held to AA text on Panel.
+  ...['qb', 'rb', 'wr', 'te', 'k', 'def', 'idp'].map((pos) => pairing(`pos-${pos}`, 'ps-panel', AA_TEXT, `position tag text and edge on a Play-select frame (${pos})`)),
 ];
 
 // Kept out of PAIRINGS, with their own test title below, so a pass here can

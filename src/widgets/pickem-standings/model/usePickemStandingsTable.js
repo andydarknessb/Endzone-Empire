@@ -38,7 +38,7 @@ export function usePickemStandingsTable(leagueId, { seasons } = {}) {
   const seasonOptions = Array.isArray(seasons) ? seasons : [];
   const [season, setSeason] = useState(() => (seasonOptions.length > 0 ? seasonOptions[0] : undefined));
 
-  const { data, loading, error } = usePickemStandings(leagueId, season);
+  const { data, loading, error, refetch } = usePickemStandings(leagueId, season);
 
   const rows = useMemo(() => {
     const viewerTeamId = data?.viewerTeamId ?? null;
@@ -85,6 +85,7 @@ export function usePickemStandingsTable(leagueId, { seasons } = {}) {
     viewer,
     behindLeader,
     currentWeek,
+    refetch,
   };
 }
 

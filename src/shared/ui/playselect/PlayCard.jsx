@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useId } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import { Box } from '@mui/material';
 import { PixelArrow, PixelClock, Pictogram } from './Icons';
@@ -34,18 +34,26 @@ const stripText = (countdown) => `${String(countdown).replace(/^in /, '')} left`
  * play across several leagues a group with one foot per league; the card is
  * then a group, not a link. A `cta.onClick` (no `to`) makes the card one
  * button, for a play that opens a dialog (first run's Create and Join).
+ *
+ * League pages' Your move adds three optional looks. `compact` drops the field
+ * band (a non-lead card: name, lock, foot). `wide` seats the band left of the
+ * text (the lead on desktop) and lays a group's feet in a row. `headingLevel`
+ * makes the name a real heading that names the card, instead of an aria-label
+ * that repeats it; an action's `bare` drops the second line of its foot.
  */
 export function PlayCard({
   kind, name, league, detail, lockDay, lockTime, countdown, lockNote, cta, actions,
   state = 'open', lead = state === 'next', filledFoot = true, ariaLabel,
+  compact = false, wide = false, headingLevel,
 }) {
+  const headingId = useId();
   const urgent = state === 'urgent' && Boolean(countdown);
   const ring = state === 'urgent' ? 'var(--ps-danger)' : 'var(--ps-cursor)';
   const live = lockDay === 'Live';
   const filled = lead && filledFoot;
 
   const feet = actions ? (
-    <Box component="span" sx={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+    <Box component="span" sx={{ marginTop: 'auto', display: 'flex', flexDirection: wide ? { xs: 'column', md: 'row' } : 'column', gap: '8px' }}>
       {actions.map((a, i) => (
         <Box
           key={a.to || a.label}
@@ -53,15 +61,17 @@ export function PlayCard({
           to={a.to}
           aria-label={a.ariaLabel}
           data-filled={filled && i === 0 ? 'true' : undefined}
-          sx={{ ...footSx(filled && i === 0), padding: '8px 12px' }}
+          sx={{ ...footSx(filled && i === 0), ...(a.bare ? { flex: wide ? { md: 1 } : undefined } : { padding: '8px 12px' }) }}
         >
-          <Box component="span" sx={{ display: 'flex', flexDirection: 'column', lineHeight: 1.3 }}>
-            <span>{a.label}</span>
-            <Box component="span" sx={{ fontSize: '14px', fontWeight: 400 }}>
-              {(cta && cta.label) || 'Make picks'}
-              {a.note ? ` · ${a.note}` : ''}
+          {a.bare ? a.label : (
+            <Box component="span" sx={{ display: 'flex', flexDirection: 'column', lineHeight: 1.3 }}>
+              <span>{a.label}</span>
+              <Box component="span" sx={{ fontSize: '14px', fontWeight: 400 }}>
+                {(cta && cta.label) || 'Make picks'}
+                {a.note ? ` · ${a.note}` : ''}
+              </Box>
             </Box>
-          </Box>
+          )}
           <PixelArrow />
         </Box>
       ))}
@@ -82,6 +92,7 @@ export function PlayCard({
       {urgent && (
         <Box
           component="span"
+          id={headingLevel ? `${headingId}-t` : undefined}
           sx={{
             display: 'flex',
             alignItems: 'center',
@@ -97,21 +108,31 @@ export function PlayCard({
           {stripText(countdown)}
         </Box>
       )}
-      <Box
-        component="span"
-        sx={{
-          display: 'grid',
-          placeItems: 'center',
-          padding: { xs: '10px 0', md: '14px 0' },
-          backgroundColor: 'var(--ps-play-field)',
-          borderTop: '2px dashed var(--ps-play-dim)',
-          borderBottom: '2px dashed var(--ps-play-dim)',
-        }}
-      >
-        <Box component="span" sx={{ display: 'block', width: { xs: '96px', md: '144px' } }}>
-          <Pictogram kind={kind} width="100%" />
+      <Box component="span" sx={{ display: 'flex', flex: 1, flexDirection: wide ? { xs: 'column', md: 'row' } : 'column' }}>
+      {!compact && (
+        <Box
+          component="span"
+          sx={{
+            display: 'grid',
+            placeItems: 'center',
+            padding: { xs: '10px 0', md: '14px 0' },
+            backgroundColor: 'var(--ps-play-field)',
+            ...(wide
+              ? {
+                borderTop: { xs: '2px dashed var(--ps-play-dim)', md: 0 },
+                borderBottom: { xs: '2px dashed var(--ps-play-dim)', md: 0 },
+                borderRight: { md: '2px dashed var(--ps-play-dim)' },
+                width: { md: '192px' },
+                flex: { md: 'none' },
+              }
+              : { borderTop: '2px dashed var(--ps-play-dim)', borderBottom: '2px dashed var(--ps-play-dim)' }),
+          }}
+        >
+          <Box component="span" sx={{ display: 'block', width: { xs: '96px', md: '144px' } }}>
+            <Pictogram kind={kind} width="100%" />
+          </Box>
         </Box>
-      </Box>
+      )}
       <Box
         component="span"
         sx={{
@@ -123,11 +144,20 @@ export function PlayCard({
         }}
       >
         <Box component="span" sx={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-          <Box component="span" sx={{ ...pixelSx(16), color: 'var(--ps-play-ink)', overflowWrap: 'anywhere' }}>{name}</Box>
-          <Box component="span" sx={{ fontSize: { xs: '14px', md: '15px' }, color: 'var(--ps-play-dim)' }}>
-            {league}
-            {detail ? ` · ${detail}` : ''}
+          <Box
+            component={headingLevel ? `h${headingLevel}` : 'span'}
+            id={headingLevel ? headingId : undefined}
+            sx={{
+              ...(headingLevel ? { m: 0 } : null), ...pixelSx(16), color: 'var(--ps-play-ink)', overflowWrap: 'anywhere',
+            }}
+          >
+            {name}
           </Box>
+          {!compact && (
+            <Box component="span" sx={{ fontSize: { xs: '14px', md: '15px' }, color: 'var(--ps-play-dim)' }}>
+              {[league, detail].filter(Boolean).join(' · ')}
+            </Box>
+          )}
         </Box>
         <Box component="span" sx={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
           <Box
@@ -149,6 +179,7 @@ export function PlayCard({
         </Box>
         {feet}
       </Box>
+      </Box>
     </>
   );
 
@@ -166,8 +197,11 @@ export function PlayCard({
     ...boxSx, width: '100%', margin: 0, padding: 0, border: 0, font: 'inherit', textAlign: 'left', cursor: 'pointer',
   };
   let card;
-  if (actions) card = <Box role="group" aria-label={label} sx={boxSx}>{inner}</Box>;
-  else if (cta && cta.onClick) card = <Box component="button" type="button" onClick={cta.onClick} aria-label={label} sx={buttonSx}>{inner}</Box>;
+  if (actions) {
+    card = headingLevel
+      ? <Box role="group" aria-labelledby={urgent ? `${headingId} ${headingId}-t` : headingId} sx={boxSx}>{inner}</Box>
+      : <Box role="group" aria-label={label} sx={boxSx}>{inner}</Box>;
+  } else if (cta && cta.onClick) card = <Box component="button" type="button" onClick={cta.onClick} aria-label={label} sx={buttonSx}>{inner}</Box>;
   else card = <Box component={RouterLink} to={cta ? cta.to : '#'} aria-label={label} sx={boxSx}>{inner}</Box>;
 
   return (

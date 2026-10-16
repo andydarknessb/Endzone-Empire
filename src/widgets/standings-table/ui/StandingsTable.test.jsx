@@ -1,5 +1,6 @@
 import React from 'react';
 import { screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../../test-utils/renderWithProviders';
 import apiClient from '../../../api/apiClient';
 import { invalidate, setResource } from '../../../lib/resourceCache';
@@ -66,7 +67,6 @@ const allRules = (el) => Object.values(rulesUnder(el)).join(' ');
 // the unconditional rule but in the 0px one.
 const XS = '(min-width:0px)';
 const SM = '(min-width:600px)';
-const LG = '(min-width:1200px)';
 
 const teamsPayload = (n) =>
   Array.from({ length: n }, (_, i) => ({
@@ -165,9 +165,9 @@ const renderTable = () => renderWithProviders(<StandingsTable leagueId={1} />);
 // eslint-disable-next-line testing-library/no-node-access -- the cut mark is a border on a row, identifiable to tooling only
 const cutRows = () => document.querySelectorAll('tr[data-cut-line]');
 
-// --- density: streak, win percentage --------------------------------------
+/// --- density: streak, record ----------------------------------------------
 
-test('standings-table: renders the streak and win percentage the read already carries', async () => {
+test('standings-table: renders the streak the read already carries and no win percentage column', async () => {
   primeLeague();
   mockGetByUrl({
     '/api/scoring/league/1/standings': standingsResponse(),
@@ -176,12 +176,13 @@ test('standings-table: renders the streak and win percentage the read already ca
 
   const card = await screen.findByTestId('standings-table');
   const youRow = await within(card).findByTestId('standings-table-you-row');
-  // The column exists, and the viewer's own row carries the server's trailing
-  // streak string and its win percentage in standings form (no leading zero).
+  // The column exists, and the viewer's own row carries the server's trailing streak string. The
+  // board's columns are rank, team, W-L-T, PF, PA and STRK: win percentage is not one of them.
   expect(within(card).getByText('STRK')).toBeInTheDocument();
-  expect(within(card).getByText('PCT')).toBeInTheDocument();
+  expect(within(card).queryByText('PCT')).not.toBeInTheDocument();
   expect(within(youRow).getByText('W3')).toBeInTheDocument();
-  expect(within(youRow).getByText('.875')).toBeInTheDocument();
+  expect(within(youRow).getByText('1200.0')).toBeInTheDocument();
+  expect(within(youRow).getByText('1000.0')).toBeInTheDocument();
 });
 
 test('standings-table: preseason masks the streak instead of printing the server dash', async () => {
@@ -197,18 +198,15 @@ test('standings-table: preseason masks the streak instead of printing the server
   // which is what makes the footer note ("populate after Week 1") true.
   expect(within(card).queryByText('.000')).not.toBeInTheDocument();
   expect(within(card).getAllByText('Not available').length).toBeGreaterThan(0);
+  expect(within(card).getByTestId('standings-table-preseason-note')).toHaveTextContent(
+    'Records, points and streaks populate after Week 1.'
+  );
 });
 
 // --- the Record cell (#959) -------------------------------------------------
 
-// The two record-FORMAT cases that stood here (a tie-less Team renders two
-// parts, a Team with ties renders three) are gone: the tie rule is no longer
-// this widget's to state. src/entities/standings owns it and asserts all four
-// cases as a table with no render (standingsModel.test.js), and each of the two
-// deletions is behind its own red-tell in this PR - the entity's tie-less row
-// goes red when the format is made unconditional, and its with-ties row goes
-// red when the tie part is always dropped. What is left here is the widget's
-// own job: the entity's value reaches the DOM.
+// The tie rule is not this widget's to state: src/entities/standings owns it and asserts every case
+// (standingsModel.test.js). What is left here is the widget's own job: the entity's value reaches the DOM.
 test("standings-table: the entity's record for a row reaches that row's cell", async () => {
   primeLeague();
   const rows = standingsRows({ count: 12 });
@@ -225,9 +223,9 @@ test("standings-table: the entity's record for a row reaches that row's cell", a
   expect(within(youRow).getByText(teamStandingFromRow(rows[0]).record)).toBeInTheDocument();
 });
 
-// --- the playoff cut -------------------------------------------------------
+// --- the playoff line ------------------------------------------------------
 
-test('standings-table: the playoff cut rules off the first Team out of the bracket', async () => {
+test('standings-table: the playoff line sits between the last Team in the bracket and the first out', async () => {
   primeLeague();
   mockGetByUrl({
     '/api/scoring/league/1/standings': standingsResponse({
@@ -239,21 +237,20 @@ test('standings-table: the playoff cut rules off the first Team out of the brack
 
   const card = await screen.findByTestId('standings-table');
   await within(card).findByText('Squad 1');
-  // Exactly once, and on the row below the last seeded Team - so it reads as a
-  // boundary, not as a property of a row.
+  // Exactly once, labelled in words (never colour or a dash alone), directly under the last seeded Team.
   const marks = within(card).getAllByTestId('standings-table-cut-line');
   expect(marks).toHaveLength(1);
-  expect(marks[0]).toHaveTextContent('Playoff cut line');
-  // eslint-disable-next-line testing-library/no-node-access -- walking from the visually hidden mark up to its own row is the assertion
+  expect(marks[0]).toHaveTextContent('Playoff line');
+  // eslint-disable-next-line testing-library/no-node-access -- walking from the label up to its own row is the assertion
   const cutRow = marks[0].closest('tr');
-  expect(within(cutRow).getByText('Squad 7')).toBeInTheDocument();
   expect(cutRows()).toHaveLength(1);
-  // The rule itself, on that row's cells: the strong line token, not the
-  // hairline every other row carries.
-  expect(allRules(cutRow)).toMatch(/border-top:\s*2px solid var\(--dash-line-strong\)/);
+  // eslint-disable-next-line testing-library/no-node-access -- the boundary is the row order: last in, line, first out
+  expect(within(cutRow.previousElementSibling).getByText('Squad 6')).toBeInTheDocument();
+  // eslint-disable-next-line testing-library/no-node-access -- see above
+  expect(within(cutRow.nextElementSibling).getByText('Squad 7')).toBeInTheDocument();
 });
 
-test('standings-table: no cut line in a league where every team makes the playoffs', async () => {
+test('standings-table: no playoff line in a league where every team makes the playoffs', async () => {
   primeLeague({ teamCount: 4 });
   mockGetByUrl({
     '/api/scoring/league/1/standings': standingsResponse({
@@ -265,18 +262,12 @@ test('standings-table: no cut line in a league where every team makes the playof
 
   const card = await screen.findByTestId('standings-table');
   await within(card).findByText('Squad 4');
-  // Nothing is out, so there is no boundary to draw or to announce - and no
-  // row may carry the rule, including the last one.
+  // Nothing is out, so there is no boundary to draw or to announce.
   expect(within(card).queryByTestId('standings-table-cut-line')).not.toBeInTheDocument();
   expect(cutRows()).toHaveLength(0);
-  // eslint-disable-next-line testing-library/no-node-access -- proving the rule is on NO row means reading every row as an element
-  const rows = card.querySelectorAll('tbody tr');
-  rows.forEach((row) => {
-    expect(allRules(row)).not.toMatch(/var\(--dash-line-strong\)/);
-  });
 });
 
-test('standings-table: no cut line when the standings read states no bracket', async () => {
+test('standings-table: no playoff line when the standings read states no bracket', async () => {
   // The shape the page-test fixture ships: no playoff_teams on the league, and
   // therefore no seed on any row. Unguarded, "the first row with no seed" is
   // row 1 and the rule lands above the league leader.
@@ -294,7 +285,7 @@ test('standings-table: no cut line when the standings read states no bracket', a
   expect(cutRows()).toHaveLength(0);
 });
 
-test('standings-table: no cut line across a preseason table', async () => {
+test('standings-table: no playoff line across a preseason table', async () => {
   primeLeague({ teamCount: 8, league: { draft_status: 'pending' } });
   mockGetByUrl({
     '/api/scoring/league/1/standings': standingsResponse({
@@ -311,9 +302,9 @@ test('standings-table: no cut line across a preseason table', async () => {
   expect(cutRows()).toHaveLength(0);
 });
 
-// --- the island's row treatment (T3) ---------------------------------------
+// --- the Play-select look ---------------------------------------------------
 
-test('standings-table: the viewer row carries the accent tint and the accent bar', async () => {
+test('standings-table: the viewer row is Play blue with an arrow and a You tag, not a cursor', async () => {
   primeLeague();
   mockGetByUrl({
     '/api/scoring/league/1/standings': standingsResponse(),
@@ -322,22 +313,26 @@ test('standings-table: the viewer row carries the accent tint and the accent bar
 
   const card = await screen.findByTestId('standings-table');
   const youRow = await within(card).findByTestId('standings-table-you-row');
-  const viewerRules = allRules(youRow);
-  expect(viewerRules).toMatch(/background-color:\s*var\(--dash-accent-soft\)/);
-  expect(viewerRules).toMatch(/box-shadow:\s*inset 3px 0 0 var\(--dash-accent\)/);
+  expect(youRow).toHaveAttribute('aria-current', 'true');
+  expect(within(youRow).getByText('You')).toBeInTheDocument();
+  const cells = within(youRow).getAllByRole('cell');
+  expect(allRules(cells[0])).toMatch(/background-color:\s*var\(--ps-play\)/);
+  expect(allRules(cells[0])).toMatch(/color:\s*var\(--ps-play-ink\)/);
+  // eslint-disable-next-line testing-library/no-node-access -- the arrow is a decorative svg before the name
+  expect(youRow.querySelector('svg')).not.toBeNull();
+  // The one cursor belongs to Your move: nothing in this table wears it.
+  // eslint-disable-next-line testing-library/no-node-access -- the cursor is a class, not a role
+  expect(card.querySelector('.cursor')).toBeNull();
 
-  // A non-viewer row is untinted and hovers to surface3, NOT to surface2 (the
-  // tier that used to mark the viewer's own row, which would now be ambiguous).
+  // A non-viewer row is a plain panel row on a 2px Rule divider, with no You tag.
   // eslint-disable-next-line testing-library/no-node-access -- walking from a cell to the row whose emitted rules are under test
   const otherRow = within(card).getByText('Squad 2').closest('tr');
-  const otherRules = allRules(otherRow);
-  expect(otherRules).not.toMatch(/background-color:\s*var\(--dash-accent-soft\)/);
-  expect(otherRules).toMatch(/background-color:\s*var\(--dash-surface3\)/);
-  expect(otherRules).not.toMatch(/var\(--dash-surface2\)/);
-  expect(otherRules).toMatch(/transition:\s*background-color var\(--transition-fast\)/);
+  expect(otherRow).not.toHaveAttribute('aria-current');
+  expect(within(otherRow).queryByText('You')).not.toBeInTheDocument();
+  expect(allRules(within(otherRow).getAllByRole('cell')[0])).toMatch(/border-bottom:\s*2px solid var\(--ps-rule\)/);
 });
 
-test('standings-table: the header cells stick to the top of the scroll wrapper', async () => {
+test('standings-table: the first two columns stay in view and the table scrolls inside its box', async () => {
   primeLeague();
   mockGetByUrl({
     '/api/scoring/league/1/standings': standingsResponse(),
@@ -347,46 +342,12 @@ test('standings-table: the header cells stick to the top of the scroll wrapper',
   const card = await screen.findByTestId('standings-table');
   await within(card).findByText('Squad 1');
   const head = within(card).getByRole('columnheader', { name: 'Rank' });
-  const headRules = allRules(head);
-  expect(headRules).toMatch(/position:\s*sticky/);
-  // top: 0, not an app-bar offset: Nav is position="static".
-  expect(headRules).toMatch(/top:\s*0/);
-  expect(headRules).toMatch(/background-color:\s*var\(--dash-surface\)/);
-  // The wrapper stops being a one-axis scroller (and therefore the scrollport
-  // the header would stick to) at the widths where the table fits.
-  const scrollRules = rulesUnder(within(card).getByTestId('standings-table-scroll'));
-  expect(scrollRules[XS]).toMatch(/overflow-x:\s*auto/);
-  expect(scrollRules[LG]).toMatch(/overflow-x:\s*visible/);
+  expect(allRules(head)).toMatch(/position:\s*sticky/);
+  expect(allRules(head)).toMatch(/left:\s*0/);
+  expect(allRules(within(card).getByTestId('standings-table-scroll'))).toMatch(/overflow-x:\s*auto/);
+  // The scroll box is a named, focusable region, so a keyboard user can scroll it.
+  expect(within(card).getByRole('region', { name: 'Standings, 12 teams' })).toHaveAttribute('tabindex', '0');
 });
-
-// --- the phone fold (T4) ---------------------------------------------------
-
-test('standings-table: PF and PA fold into the Team cell below sm', async () => {
-  primeLeague();
-  mockGetByUrl({
-    '/api/scoring/league/1/standings': standingsResponse(),
-  });
-  renderTable();
-
-  const card = await screen.findByTestId('standings-table');
-  const youRow = await within(card).findByTestId('standings-table-you-row');
-  // The column is gone at xs and back at sm...
-  const pfRules = rulesUnder(within(card).getByText('PF'));
-  expect(pfRules[XS]).toMatch(/display:\s*none/);
-  expect(pfRules[SM]).toMatch(/display:\s*table-cell/);
-  // ...and the same two totals ride in the Team cell instead, one line, one
-  // middot, mirrored: exactly one of the two is on screen at any width, so
-  // nothing is announced twice.
-  const points = within(youRow).getByTestId('standings-table-points-line');
-  expect(points).toHaveTextContent('1200.0 PF · 1000.0 PA');
-  // eslint-disable-next-line testing-library/no-node-access -- proving the folded points line shares the team name cell means comparing the two th elements
-  expect(points.closest('th')).toBe(within(youRow).getByText('Squad 1').closest('th'));
-  const pointsRules = rulesUnder(points);
-  expect(pointsRules[XS]).toMatch(/display:\s*block/);
-  expect(pointsRules[SM]).toMatch(/display:\s*none/);
-});
-
-// --- the phone fold, viewer row and rank (#1981 L7) ------------------------
 
 test('standings-table: the Rank head reads # below sm and keeps Rank as its name', async () => {
   primeLeague();
@@ -405,44 +366,95 @@ test('standings-table: the Rank head reads # below sm and keeps Rank as its name
   expect(rulesUnder(glyph)[SM]).toMatch(/display:\s*none/);
 });
 
-test('standings-table: below sm the viewer row shows no You badge and says your team instead', async () => {
-  primeLeague();
-  mockGetByUrl({ '/api/scoring/league/1/standings': standingsResponse() });
-  renderTable();
+// --- the phone fold ---------------------------------------------------------
 
-  const card = await screen.findByTestId('standings-table');
-  const youRow = await within(card).findByTestId('standings-table-you-row');
-  // The badge is not displayed at xs and is back at sm...
-  const badge = within(youRow).getByText('You');
-  // eslint-disable-next-line testing-library/no-node-access -- the Chip's label sits inside the styled root the display rule is on
-  const badgeRoot = badge.closest('[data-testid="badge"]');
-  expect(rulesUnder(badgeRoot)[XS]).toMatch(/display:\s*none/);
-  expect(rulesUnder(badgeRoot)[SM]).toMatch(/display:\s*inline-flex/);
-  // ...and the row keeps its tint and accent bar, with the identity as text.
-  expect(allRules(youRow)).toMatch(/background-color:\s*var\(--dash-accent-soft\)/);
-  expect(allRules(youRow)).toMatch(/box-shadow:\s*inset 3px 0 0 var\(--dash-accent\)/);
-  const hidden = within(youRow).getByText('your team');
-  expect(rulesUnder(hidden)[SM]).toMatch(/display:\s*none/);
-  expect(within(card).getAllByText('your team')).toHaveLength(1);
+// MUI's useMediaQuery reads window.matchMedia; this answers down('sm') true for a phone.
+const asPhone = () => {
+  window.matchMedia = jest.fn().mockImplementation((query) => ({
+    matches: /max-width/.test(query),
+    media: query,
+    onchange: null,
+    addListener: jest.fn(),
+    removeListener: jest.fn(),
+    addEventListener: jest.fn(),
+    removeEventListener: jest.fn(),
+    dispatchEvent: jest.fn(),
+  }));
+};
+
+describe('on a phone', () => {
+  beforeEach(asPhone);
+  afterEach(() => {
+    delete window.matchMedia;
+  });
+
+  test('standings-table: the table folds to the viewer row, two teams either side and the playoff line', async () => {
+    primeLeague();
+    // The viewer (team 1) leads, so the window is rows 1-3 and then runs down to the cut after 6.
+    mockGetByUrl({
+      '/api/scoring/league/1/standings': standingsResponse({
+        rows: standingsRows({ count: 12, playoffTeams: 6 }),
+        league: { playoff_teams: 6 },
+      }),
+    });
+    renderTable();
+
+    const card = await screen.findByTestId('standings-table');
+    await within(card).findByText('Squad 1');
+    expect(within(card).getByText('Squad 3')).toBeInTheDocument();
+    expect(within(card).getByText('Squad 6')).toBeInTheDocument();
+    expect(within(card).queryByText('Squad 7')).not.toBeInTheDocument();
+    expect(within(card).getByTestId('standings-table-cut-line')).toBeInTheDocument();
+    expect(within(card).getByRole('link', { name: 'Full standings, all 12 teams' })).toBeInTheDocument();
+  });
+
+  test('standings-table: a viewer mid-table gets two teams above and below, and Full standings opens the rest', async () => {
+    primeLeague();
+    setResource(['league', 1], { ...leagueResponse().data, viewerTeamId: 8 });
+    mockGetByUrl({
+      '/api/scoring/league/1/standings': standingsResponse({
+        rows: standingsRows({ count: 12, playoffTeams: 6 }),
+        league: { playoff_teams: 6 },
+      }),
+    });
+    renderTable();
+
+    const card = await screen.findByTestId('standings-table');
+    await within(card).findByText('Squad 8');
+    ['Squad 6', 'Squad 7', 'Squad 8', 'Squad 9', 'Squad 10'].forEach((name) => {
+      expect(within(card).getByText(name)).toBeInTheDocument();
+    });
+    expect(within(card).queryByText('Squad 5')).not.toBeInTheDocument();
+    expect(within(card).queryByText('Squad 11')).not.toBeInTheDocument();
+    expect(within(card).getByTestId('standings-table-you-row')).toHaveTextContent('Squad 8');
+
+    await userEvent.click(within(card).getByRole('link', { name: 'Full standings, all 12 teams' }));
+    expect(within(card).getByText('Squad 1')).toBeInTheDocument();
+    expect(within(card).getByText('Squad 12')).toBeInTheDocument();
+    expect(within(card).getByRole('link', { name: 'Show fewer teams' })).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  test('standings-table: a short league has nothing to fold', async () => {
+    primeLeague({ teamCount: 4 });
+    mockGetByUrl({ '/api/scoring/league/1/standings': standingsResponse({ rows: standingsRows({ count: 4 }) }) });
+    renderTable();
+
+    const card = await screen.findByTestId('standings-table');
+    await within(card).findByText('Squad 4');
+    expect(within(card).queryByRole('link', { name: /Full standings/ })).not.toBeInTheDocument();
+  });
 });
 
-test('standings-table: the phone points line wraps instead of clipping', async () => {
+test('standings-table: a failed read is one danger panel that re-fires the read', async () => {
   primeLeague();
-  mockGetByUrl({
-    '/api/scoring/league/1/standings': standingsResponse({
-      rows: standingsRows().map((r) => ({ ...r, pf: 1234.5, pa: 1234.5 })),
-    }),
-  });
+  mockGetByUrl({ '/api/scoring/league/1/standings': { reject: new Error('boom') } });
   renderTable();
 
-  const card = await screen.findByTestId('standings-table');
-  const youRow = await within(card).findByTestId('standings-table-you-row');
-  const points = within(youRow).getByTestId('standings-table-points-line');
-  expect(points).toHaveTextContent('1234.5 PF · 1234.5 PA');
-  // Nothing on the line clips or ellipsizes (it wraps between PF and PA), so
-  // the totals are never cut at 390.
-  expect(allRules(points)).not.toMatch(/text-overflow/);
-  expect(allRules(points)).not.toMatch(/overflow:\s*hidden/);
+  expect(await screen.findByRole('alert')).toHaveTextContent('We could not load the standings right now.');
+  const reads = () => apiClient.get.mock.calls.filter(([url]) => String(url).startsWith('/api/scoring/league/1/standings')).length;
+  const before = reads();
+  await userEvent.click(screen.getByRole('button', { name: 'Try loading the standings again' }));
+  await waitFor(() => expect(reads()).toBeGreaterThan(before));
 });
 
 test.each([null, undefined, ''])('winPctLabel(%p) is null so the cell shows the placeholder', (value) => {
@@ -475,6 +487,7 @@ test.each([4, 12])(
         String(teamCount)
       )
     );
+    expect(card).toHaveAttribute('aria-busy', 'true');
     // eslint-disable-next-line testing-library/no-node-access -- skeleton rows are aria-hidden placeholders, so they are counted as elements
     expect(card.querySelectorAll('tbody tr')).toHaveLength(teamCount);
   }

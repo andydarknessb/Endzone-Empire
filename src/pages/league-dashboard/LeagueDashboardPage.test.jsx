@@ -7,6 +7,8 @@ import { clearLeagueCache } from '../../hooks/useLeague';
 import { invalidate, read } from '../../lib/resourceCache';
 import { publishTeamProfileUpdate } from '../../lib/teamProfileEvents';
 import LeagueDashboardPage from './index';
+import QuickActions from '../../widgets/quick-actions';
+import MyTeamSummary from '../../widgets/my-team-summary';
 
 // The page reads the league through the shared apiClient (via useLeague ->
 // useResource), so the whole client is mocked and every GET is answered by the
@@ -18,13 +20,14 @@ jest.mock('../../api/apiClient', () => ({
   default: { get: jest.fn(), post: jest.fn(), put: jest.fn(), delete: jest.fn() },
 }));
 
-// The four legacy surfaces the cutover (#645) composes "as-is" are mocked as
-// lightweight stand-ins: each has its own dedicated test file, carries its own
-// socket/Redux/self-fetching machinery, and is composed here only for its
-// presence and the conditions it mounts under. Mocking them keeps this page
-// test on the ONE apiClient seam above (no socket mock, no pick'em cache setup)
-// and isolates what the cutover actually adds: the composition gating and the
-// page's own chat launcher/badge markup, which stay real below.
+// The legacy chat panel the cutover (#645) composes "as-is" is a lightweight
+// stand-in: it has its own dedicated test file and carries its own socket and
+// self-fetching machinery, and is composed here only for its presence. Mocking
+// it keeps this page test on the ONE apiClient seam above (no socket mock) and
+// isolates what the page adds: the composition gating and its own chat
+// launcher/badge markup, which stay real below. The recap, the trophies and the
+// pick'em standings are NOT mocked: the dashboard renders its own Play-select
+// views over their reads, so they are answered through the apiClient seam.
 //
 // The chat panel stand-in reports `mockChatUnread` up through onUnreadChange on
 // mount, so a test can drive the launcher's badge without reaching into the
@@ -39,41 +42,6 @@ jest.mock('../../components/ChatPanel/ChatPanel', () => {
     return ReactLib.createElement('div', { 'data-testid': 'mock-chat-panel' });
   }
   return { __esModule: true, default: MockChatPanel };
-});
-jest.mock('../../components/RecapCard/RecapCard', () => {
-  const ReactLib = require('react');
-  return {
-    __esModule: true,
-    default: ({ leagueId }) =>
-      ReactLib.createElement('div', { 'data-testid': 'recap-card' }, `recap ${leagueId}`),
-  };
-});
-jest.mock('../../components/TrophyCase/TrophyCase', () => {
-  const ReactLib = require('react');
-  return {
-    __esModule: true,
-    default: ({ leagueId, viewerTeamId }) =>
-      ReactLib.createElement(
-        'div',
-        { 'data-testid': 'trophy-case', 'data-viewer-team-id': viewerTeamId == null ? undefined : String(viewerTeamId) },
-        `trophies ${leagueId}`
-      ),
-  };
-});
-jest.mock('../../widgets/pickem-standings', () => {
-  const ReactLib = require('react');
-  return {
-    __esModule: true,
-    // Stands in for the widget's own Card, which names itself with its `title`
-    // prop (default `Standings`): the page must not wrap it in a second one.
-    default: ({ leagueId, title = 'Standings' }) =>
-      ReactLib.createElement(
-        'div',
-        { 'data-testid': 'pickem-standings' },
-        ReactLib.createElement('h2', null, title),
-        `pickem ${leagueId}`
-      ),
-  };
 });
 
 // The emulated viewport width, in px, that every useMediaQuery on this page
@@ -304,18 +272,24 @@ test("page shell: pick'em standings do not widen the document", async () => {
   // min-content anywhere inside set the document's width. In a column flex
   // container the automatic minimum applies to the block axis, so every child
   // resolves to a zero inline minimum with no per-child `minWidth: 0`.
-  // Red-tell: putting `display: grid` back on the Container turns this case red.
-  const shell = rulesUnder(screen.getByTestId('dashboard-shell'))[''];
+  // Red-tell: putting `display: grid` back on the shell turns this case red.
+  const shellEl = screen.getByTestId('dashboard-shell');
+  const shell = rulesUnder(shellEl)[''];
   expect(shell).toMatch(/display:\s*flex/);
   expect(shell).toMatch(/flex-direction:\s*column/);
-  // The stacking rhythm the grid used to own rides on the flex container now.
-  expect(shell).toMatch(/gap:\s*22px/);
-  // The fixed chat Fab (56px tall, at bottom: 24) was landing on the last card
-  // because the empty rows below it were the only thing keeping it clear. This
-  // is the clearance that replaces them, and it has to survive the `py` above
-  // it in the same sx object. Read through cssFor: MUI emits an xs breakpoint
-  // value as `@media (min-width: 0px)`, not as a base declaration.
-  expect(cssFor(screen.getByTestId('dashboard-shell'))).toMatch(/padding-bottom:\s*96px/);
+  // The stacking rhythm: 24px on a phone, 32px from sm (the canvas boards).
+  expect(cssFor(shellEl)).toMatch(/gap:\s*24px/);
+  expect(cssFor(shellEl)).toMatch(/gap:\s*32px/);
+  // The fixed chat button (56px tall, at bottom: 24) was landing on the last
+  // card because the empty rows below it were the only thing keeping it clear.
+  // This is the clearance that replaces them (96px under the phone's content).
+  expect(cssFor(shellEl)).toMatch(/padding:\s*24px 16px 96px/);
+  // The page paints the Play-select ground on a `.ps-root` element, which also
+  // scopes the focus ring, the cursor blink and the hover rules.
+  // eslint-disable-next-line testing-library/no-node-access
+  const root = shellEl.parentElement;
+  expect(root).toHaveClass('ps-root');
+  expect(rulesUnder(root)['']).toMatch(/background-color:\s*var\(--ps-field\)/);
 
   // The pool standings are the primary content of this league type, so they are
   // a named region with a real heading rather than a bare section.
@@ -324,27 +298,21 @@ test("page shell: pick'em standings do not widen the document", async () => {
   ).toBeInTheDocument();
 });
 
-test('page shell: the standings track has a zero minimum and the rail track keeps its own', async () => {
+test('page shell: both main-grid tracks have a zero minimum, so a wide table cannot push the document', async () => {
   mockGetByUrl({ '/api/league/1': inSeasonLeague() });
   renderPage();
 
   await screen.findByRole('heading', { level: 1, name: 'MinneApple' });
   const main = cssFor(screen.getByTestId('dashboard-main'));
-  // The standings track alone is floored at zero. `1fr` still floors at the
-  // item's min-content width, which is what let a wide table push the document.
-  expect(main).toMatch(/minmax\(0,\s*8fr\)\s+4fr/);
-  expect(main).toMatch(/minmax\(0,\s*1fr\)/);
-  // The rail track is deliberately NOT zeroed: it holds the legacy
-  // commissioner selects, whose fixed widths would overflow a zeroed track
-  // rather than clip inside it (#916/#917/#919/#921).
-  expect(main).not.toMatch(/minmax\(0,\s*4fr\)/);
+  // A bare `1fr` track still floors at its item's min-content width, which is
+  // what let a wide table push the document. The standings and the activity
+  // frame both sit on `minmax(0, ...)` tracks: the table scrolls inside its own
+  // named region instead (the standings widget's own test pins that box).
+  expect(main).toMatch(/minmax\(0,\s*1\.55fr\)\s+minmax\(0,\s*1fr\)/);
+  expect(main).toMatch(/grid-template-columns:\s*minmax\(0,\s*1fr\)/);
 
-  // The grid item needs its own zero minimum too, and it is paired with a clip
-  // on the same box. `clip` and not `hidden`/`auto`: those would make this box a
-  // scroll container and capture the standings table's sticky header.
-  const standings = rulesUnder(screen.getByTestId('slot-standings'))[''];
-  expect(standings).toMatch(/min-width:\s*0/);
-  expect(standings).toMatch(/overflow-x:\s*clip/);
+  // The grid item needs its own zero minimum too.
+  expect(rulesUnder(screen.getByTestId('slot-standings'))['']).toMatch(/min-width:\s*0/);
 });
 
 test('page shell: a member\'s null-rendering wrappers collapse instead of buying a gap', async () => {
@@ -378,13 +346,12 @@ test('page shell: a viewer with no team of their own loses the hero column, not 
   // hero as bare page beside a lone matchup card.
   expect(screen.queryByTestId('slot-my-team')).not.toBeInTheDocument();
   expect(screen.getByTestId('slot-matchup-preview')).toBeInTheDocument();
-  expect(cssFor(screen.getByTestId('dashboard-hero'))).not.toMatch(/7fr\s+5fr/);
+  expect(cssFor(screen.getByTestId('dashboard-hero'))).not.toMatch(/1\.2fr/);
 });
 
-// Red-tell (#1979 L1): putting slot-my-team back ahead of the matchup, or the
-// template back to `5fr 7fr`, turns this case red. Game day opens on the
-// matchup: it is first in the DOM (the top of a phone's one column) and the
-// wide left track at md.
+// Game day opens on the matchup: it is first in the DOM (the top of a phone's
+// one column) and the wide left track at md, with My team in the right track
+// spanning both rows so the Pick'em panel can sit under the matchup.
 test('hero: the matchup comes first in the DOM and takes the wide left track at md', async () => {
   mockGetByUrl({ '/api/league/1': inSeasonLeague() });
   renderPage();
@@ -394,10 +361,12 @@ test('hero: the matchup comes first in the DOM and takes the wide left track at 
   const matchup = within(hero).getByTestId('slot-matchup-preview');
   const myTeam = within(hero).getByTestId('slot-my-team');
   expect(precedes(matchup, myTeam)).toBe(true);
-  expect(cssFor(hero)).toMatch(/7fr\s+5fr/);
-  expect(cssFor(hero)).not.toMatch(/5fr\s+7fr/);
-  // The phone column stays a single track.
-  expect(cssFor(hero)).toMatch(/grid-template-columns:\s*1fr/);
+  expect(cssFor(hero)).toMatch(/minmax\(0,\s*1\.2fr\)\s+minmax\(0,\s*1fr\)/);
+  expect(cssFor(hero)).not.toMatch(/minmax\(0,\s*1fr\)\s+minmax\(0,\s*1\.2fr\)/);
+  // The phone column stays a single track, in the order matchup, My team, Pick'em.
+  expect(cssFor(hero)).toMatch(/grid-template-columns:\s*minmax\(0,\s*1fr\);/);
+  expect(cssFor(hero)).toMatch(/grid-template-areas:\s*"v" "m" "p"/);
+  expect(cssFor(hero)).toMatch(/grid-template-areas:\s*"v m" "p m"/);
 });
 
 // --- header chips (derived from the League-phase helper) -------------------
@@ -561,16 +530,17 @@ const transactionRows = (n) =>
   }));
 
 // Red-tell (#1993): Draft Grades is gone from the dashboard (product ruling on
-// #1993), and the rail holds Recent activity in every phase, still sticky.
-// Putting Draft Grades back anywhere, or swapping the rail's occupant for the
-// live season (the #1979 L5 composition), turns every case red.
+// #1993), and the rail holds Recent activity in every fantasy phase. Putting
+// Draft Grades back anywhere, or swapping the rail's occupant for the live
+// season (the #1979 L5 composition), turns every case red. The rail is no
+// longer sticky: on the Play-select boards the two frames stretch to one height.
 test.each([
   ['pre-draft', () => layoutV2League({ draft_status: 'pending' })],
   ['drafting', () => layoutV2League({ draft_status: 'active' })],
   ['in season', () => layoutV2League()],
   ['playoffs', () => layoutV2League({ season_status: 'playoffs' })],
   ['season complete', () => layoutV2League({ season_status: 'complete' })],
-])('rail occupant, %s: Recent activity rides the sticky rail and there is no Draft Grades', async (_phase, build) => {
+])('rail occupant, %s: Recent activity rides the rail beside the standings and there is no Draft Grades', async (_phase, build) => {
   mockGetByUrl({ '/api/league/1': build() });
   renderPage();
 
@@ -580,7 +550,7 @@ test.each([
   expect(screen.queryByTestId('slot-draft-grades')).not.toBeInTheDocument();
   expect(screen.queryByTestId('draft-grades')).not.toBeInTheDocument();
   expect(screen.queryByRole('heading', { name: 'Draft Grades' })).not.toBeInTheDocument();
-  expect(cssFor(rail)).toMatch(/position:\s*sticky/);
+  expect(cssFor(rail)).not.toMatch(/position:\s*sticky/);
 });
 
 // Red-tell (#1993): the rail tracks the standings. A standings row measures 49px
@@ -634,9 +604,9 @@ test.each([
   renderPage();
 
   const main = await screen.findByTestId('dashboard-main');
-  // The base (xs) rule is one column already, so the 8fr md rule going away is
+  // The base (xs) rule is one column already, so the 1.55fr md rule going away is
   // what shows the stack.
-  await waitFor(() => expect(cssFor(main)).not.toMatch(/8fr/));
+  await waitFor(() => expect(cssFor(main)).not.toMatch(/1\.55fr/));
 });
 
 test('a feed that fills the rail keeps the standings beside it (10 rows at 12 teams)', async () => {
@@ -651,7 +621,7 @@ test('a feed that fills the rail keeps the standings beside it (10 rows at 12 te
 
   const rail = await screen.findByTestId('dashboard-rail');
   await within(rail).findAllByTestId('recent-activity-row');
-  expect(mainColumns()).toMatch(/8fr/);
+  expect(mainColumns()).toMatch(/1\.55fr/);
 });
 
 test('while the feed is loading the main row stays two columns', async () => {
@@ -665,7 +635,7 @@ test('while the feed is loading the main row stays two columns', async () => {
   renderPage();
 
   await screen.findByTestId('dashboard-main');
-  expect(mainColumns()).toMatch(/8fr/);
+  expect(mainColumns()).toMatch(/1\.55fr/);
 });
 
 // Red-tell (#1993): Quick Actions is alone under the main row, so it spans the
@@ -828,7 +798,7 @@ const powerRankingsResponse = (viewerRank = 6) => ({
 // dispatcher's unmatched-URL default.
 const lineupResponse = () => ({ data: { week: 3, season: 2026, teamId: 1, entries: [] } });
 
-test('my-team card shows the viewer Team name from teams[] with a You badge and a named avatar', async () => {
+test('my-team card shows the viewer Team name from teams[] with a You tag', async () => {
   mockGetByUrl({
     '/api/league/1': myTeamLeague(),
     '/api/team/lineup?leagueId=1&week=3': lineupResponse(),
@@ -837,13 +807,9 @@ test('my-team card shows the viewer Team name from teams[] with a You badge and 
 
   const card = await screen.findByTestId('my-team-summary');
   // The name is the viewer's Team (teamId 1), not the league name or any account
-  // identifier.
-  expect(within(card).getByText('MyBallsHurts')).toBeInTheDocument();
+  // identifier: the one heading that names the frame.
+  expect(within(card).getByRole('heading', { level: 2, name: 'MyBallsHurts' })).toBeInTheDocument();
   expect(within(card).getByText('You')).toBeInTheDocument();
-  // The avatar's accessible name is the Team name (it rides on the labelled
-  // wrapper, since TeamAvatar itself is aria-hidden). Scoped to the card:
-  // sibling widgets render the viewer's avatar too.
-  expect(within(card).getByRole('img', { name: 'MyBallsHurts' })).toBeInTheDocument();
 });
 
 test('my-team card: draft-grades fixture fills the grade and roster-value tiles', async () => {
@@ -924,7 +890,7 @@ test('my-team card: a power-rankings fixture placing the viewer 6th reads "6th"'
   expect(projTile).toHaveTextContent('6th');
 });
 
-test('my-team card: the secondary line shows record and rank once games have been played', async () => {
+test('my-team card: the record and the standing line show once games have been played', async () => {
   mockGetByUrl({
     '/api/league/1': myTeamLeague(),
     '/api/scoring/league/1/standings': standingsResponse({ wins: 3, losses: 1, ties: 0, rank: 2 }),
@@ -933,9 +899,10 @@ test('my-team card: the secondary line shows record and rank once games have bee
   renderPage();
 
   await screen.findByTestId('my-team-summary');
-  const secondary = await screen.findByTestId('my-team-record');
-  expect(secondary).toHaveTextContent('3-1');
-  expect(secondary).toHaveTextContent('2nd');
+  const record = await screen.findByTestId('my-team-record');
+  expect(record).toHaveTextContent('3-1');
+  // The standing line sits in the frame head: "2nd of 2" (this fixture has two teams).
+  expect(screen.getByTestId('my-team-rank')).toHaveTextContent('2nd of 2');
 });
 
 test('my-team card: preseason (no games played) omits the secondary record line', async () => {
@@ -969,7 +936,7 @@ test('my-team card: while standings are pending the card holds its layout with s
   expect(card).toHaveAttribute('aria-busy', 'true');
 });
 
-test('my-team card: a standings 500 shows a compact error inside the card while the page header chips still render', async () => {
+test('my-team card: a standings 500 shows one danger panel in the card while the page header chips still render', async () => {
   mockGetByUrl({
     '/api/league/1': myTeamLeague(),
     '/api/scoring/league/1/standings': { reject: { response: { status: 500, data: { error: 'boom' } } } },
@@ -977,16 +944,14 @@ test('my-team card: a standings 500 shows a compact error inside the card while 
   });
   renderPage();
 
-  // The compact error is self-contained in the card.
-  const alert = await screen.findByTestId('my-team-error');
-  expect(alert).toHaveTextContent(/could not load/i);
+  // The error is self-contained in the card's own slot, with a way to retry. The failed state is a
+  // different element from the loading one, so the slot is queried again once it lands.
+  await waitFor(() => expect(within(screen.getByTestId('my-team-summary')).getByRole('alert'))
+    .toHaveTextContent('We could not load your team summary right now.'));
+  expect(within(screen.getByTestId('my-team-summary')).getByRole('button', { name: 'Try loading your team summary again' })).toBeInTheDocument();
   // The rest of the page is untouched: the league header chips (page-level
-  // chrome, so page-scoped on purpose) still render...
+  // chrome, so page-scoped on purpose) still render.
   expect(screen.getByText('Week 3 · In season')).toBeInTheDocument();
-  // ...and the viewer identity still renders inside the card (scoped: siblings
-  // render the viewer's Team name too).
-  const card = screen.getByTestId('my-team-summary');
-  expect(within(card).getByText('MyBallsHurts')).toBeInTheDocument();
 });
 
 // ==========================================================================
@@ -1073,12 +1038,13 @@ test('standings-table: in-season renders the full table, a team count, names fro
   const card = await screen.findByTestId('standings-table');
   // Wait for the standings read to resolve (the card is present while it loads).
   await within(card).findByText('Squad 1');
-  // Column headers.
+  // Column headers: the board's six (rank, team, W-L-T, PF, PA, STRK).
   expect(within(card).getByText('Rank')).toBeInTheDocument();
   expect(within(card).getByText('Team')).toBeInTheDocument();
-  expect(within(card).getByText('Record')).toBeInTheDocument();
+  expect(within(card).getByText('W-L-T')).toBeInTheDocument();
   expect(within(card).getByText('PF')).toBeInTheDocument();
   expect(within(card).getByText('PA')).toBeInTheDocument();
+  expect(within(card).getByText('STRK')).toBeInTheDocument();
   // The header count of teams.
   expect(within(card).getByTestId('standings-table-count')).toHaveTextContent('12');
   // Each Team name comes from teams[] (teamName), never the standings row's raw
@@ -1086,8 +1052,8 @@ test('standings-table: in-season renders the full table, a team count, names fro
   expect(within(card).getByText('Squad 1')).toBeInTheDocument();
   expect(within(card).getByText('Squad 12')).toBeInTheDocument();
   expect(within(card).queryByText('RAW 1')).not.toBeInTheDocument();
-  // Exactly one You badge, in the viewer's own row - this already proves the
-  // pill is absent from every non-viewer row, not just present on the
+  // Exactly one You tag, in the viewer's own row - this already proves the
+  // tag is absent from every non-viewer row, not just present on the
   // viewer's.
   const youBadges = within(card).getAllByText('You');
   expect(youBadges).toHaveLength(1);
@@ -1095,22 +1061,16 @@ test('standings-table: in-season renders the full table, a team count, names fro
   expect(within(youRow).getByText('You')).toBeInTheDocument();
   expect(within(youRow).getByText('Squad 1')).toBeInTheDocument();
   // The row contract (#671): every row-shaped viewer mark carries
-  // data-viewer-team, in addition to the visible You pill.
+  // data-viewer-team, in addition to the visible You tag.
   expect(youRow).toHaveAttribute('data-viewer-team', 'true');
-  const youBadge = within(youRow).getByTestId('badge');
-  expect(youBadge).toHaveAttribute('data-variant', 'you');
-  expect(youBadge).toHaveTextContent('You');
-  // Exclusivity, checked directly (not just inferred from the badge count):
-  // a non-viewer row carries neither half of the marker. The attribute and
-  // the pill are two independent conditionals in the widget, so each needs
-  // its own negative - a regression that drops the isViewer guard on only
-  // one of them would otherwise pass. Row 0 is the header; row 1 is the
-  // viewer (Squad 1); row 2 is the first non-viewer row (Squad 2).
+  // Exclusivity, checked directly (not just inferred from the tag count):
+  // a non-viewer row carries neither half of the marker. Row 0 is the header;
+  // row 1 is the viewer (Squad 1); row 2 is the first non-viewer row (Squad 2).
   const tableRows = within(card).getAllByRole('row');
   const otherRow = tableRows[2];
   expect(within(otherRow).getByText('Squad 2')).toBeInTheDocument();
   expect(otherRow).not.toHaveAttribute('data-viewer-team');
-  expect(within(otherRow).queryByTestId('badge')).not.toBeInTheDocument();
+  expect(within(otherRow).queryByText('You')).not.toBeInTheDocument();
 });
 
 test('standings-table: in-season renders the viewer record as W-L (no ties) and points to one decimal', async () => {
@@ -1149,7 +1109,7 @@ test('standings-table: preseason masks records and points and shows the after-We
   expect(note).toHaveTextContent(/after Week 1/i);
 });
 
-test('standings-table: pending standings shows skeletons and marks the card busy', async () => {
+test('standings-table: pending standings shows one skeleton row per team and marks the card busy', async () => {
   mockGetByUrl({
     '/api/league/1': standingsTableLeague(),
     '/api/scoring/league/1/standings': { pending: true },
@@ -1157,24 +1117,24 @@ test('standings-table: pending standings shows skeletons and marks the card busy
   renderPage();
 
   const card = await screen.findByTestId('standings-table');
-  expect(within(card).getAllByTestId('standings-table-skeleton').length).toBeGreaterThan(0);
+  // eslint-disable-next-line testing-library/no-node-access -- skeleton rows are aria-hidden placeholders, so they are counted as elements
+  expect(card.querySelectorAll('tbody tr')).toHaveLength(12);
   // The card owns the fetch, so it (not each aria-hidden skeleton) reports busy.
   expect(card).toHaveAttribute('aria-busy', 'true');
 });
 
-test('standings-table: a standings 500 shows a compact error while the header still renders', async () => {
+test('standings-table: a standings 500 shows one danger panel while the page header still renders', async () => {
   mockGetByUrl({
     '/api/league/1': standingsTableLeague(),
     '/api/scoring/league/1/standings': { reject: { response: { status: 500, data: { error: 'boom' } } } },
   });
   renderPage();
 
-  const card = await screen.findByTestId('standings-table');
-  const error = await within(card).findByTestId('standings-table-error');
-  expect(error).toHaveTextContent(/could not load/i);
-  // The card header (a labelled landmark) still renders beside the error.
-  expect(within(card).getByRole('heading', { name: /standings/i })).toBeInTheDocument();
-  expect(within(card).getByTestId('standings-table-count')).toBeInTheDocument();
+  await waitFor(() => expect(within(screen.getByTestId('standings-table')).getByRole('alert'))
+    .toHaveTextContent('We could not load the standings right now.'));
+  expect(within(screen.getByTestId('standings-table')).getByRole('button', { name: 'Try loading the standings again' })).toBeInTheDocument();
+  // The page header still renders beside the error.
+  expect(screen.getByText('Week 3 · In season')).toBeInTheDocument();
 });
 
 test('standings-table: advancing the league current week causes a second standings GET (1 -> 2)', async () => {
@@ -1277,7 +1237,19 @@ const mpMatchupDetail = ({ homeFinal = 112.4, awayFinal = 118.9 } = {}) => ({
 const MP_LIST_URL = '/api/league/1/matchups?week=1';
 const MP_DETAIL_URL = '/api/league/1/matchups/55';
 
-test('matchup card: heading, both Team names from teams[], and each projected total beside a Projected label', async () => {
+// The dashboard's own Play-select view of this read (ui/VersusPanel): a framed
+// versus panel before kickoff, the Board-black scoreboard once started. The
+// model underneath is the matchup-preview widget's, unchanged.
+const viewerFigure = (card) => within(card).getByTestId('matchup-figure-viewer');
+// The loading, pre-kickoff and scoreboard states are different elements, so a card grabbed while the
+// read is in flight goes stale: wait for the state under test, then take the card.
+const findStartedMatchup = async () => {
+  await screen.findByTestId('matchup-versus');
+  return screen.getByTestId('matchup-preview');
+};
+const opponentFigure = (card) => within(card).getByTestId('matchup-figure-opponent');
+
+test('matchup card: heading, both Team names from teams[], and each projected total beside a Proj label', async () => {
   mockGetByUrl({
     '/api/league/1': mpLeague(),
     [MP_LIST_URL]: mpMatchupsList(mpViewerPaired),
@@ -1286,24 +1258,23 @@ test('matchup card: heading, both Team names from teams[], and each projected to
   renderPage();
 
   const card = await screen.findByTestId('matchup-preview');
-  expect(within(card).getByRole('heading', { name: 'Week 1 Matchup' })).toBeInTheDocument();
-
-  // Each side is scoped so the viewer's number sits beside the viewer's name and
-  // its own "Projected" label, and likewise the opponent's. findBy waits for the
-  // list spine to resolve and the pairing to render.
-  const viewerSide = await within(card).findByTestId('matchup-side-viewer');
-  const opponentSide = within(card).getByTestId('matchup-side-opponent');
+  expect(within(card).getByRole('heading', { level: 2, name: 'Week 1 Matchup' })).toBeInTheDocument();
   // Names come from teams[] (teamName), matched by id, NOT the detail's name.
-  expect(within(viewerSide).getByText('MyBallsHurts')).toBeInTheDocument();
-  expect(within(opponentSide).getByText('Terrific T')).toBeInTheDocument();
-  // The projected totals arrive on the chained detail read.
-  expect(await within(viewerSide).findByText('112.4')).toBeInTheDocument();
-  expect(within(viewerSide).getByText('Projected')).toBeInTheDocument();
-  expect(within(opponentSide).getByText('118.9')).toBeInTheDocument();
-  expect(within(opponentSide).getByText('Projected')).toBeInTheDocument();
+  const versus = await within(card).findByTestId('matchup-versus');
+  expect(within(versus).getByRole('heading', { level: 3, name: 'MyBallsHurts' })).toBeInTheDocument();
+  expect(within(versus).getByRole('heading', { level: 3, name: 'Terrific T' })).toBeInTheDocument();
+  // The projected totals arrive on the chained detail read, each under a "Proj" label.
+  expect(await within(card).findByText('112.4')).toBeInTheDocument();
+  expect(viewerFigure(card)).toHaveTextContent('112.4');
+  expect(opponentFigure(card)).toHaveTextContent('118.9');
+  expect(within(versus).getAllByText('Proj')).toHaveLength(2);
+  // Before kickoff the panel is framed, not Board black, and says it is scheduled only when the
+  // server says so (these rows carry no status, so it asserts neither state).
+  expect(card).not.toHaveAttribute('data-state');
+  expect(within(card).queryByText('Live')).not.toBeInTheDocument();
 });
 
-test('matchup card: Compare rosters links to the matchup detail page and the footer has no Set Lineup', async () => {
+test('matchup card: the Matchup link goes to the matchup detail page and is named for both teams', async () => {
   mockGetByUrl({
     '/api/league/1': mpLeague(),
     [MP_LIST_URL]: mpMatchupsList(mpViewerPaired),
@@ -1312,11 +1283,13 @@ test('matchup card: Compare rosters links to the matchup detail page and the foo
   renderPage();
 
   const card = await screen.findByTestId('matchup-preview');
-  const compare = await within(card).findByRole('link', { name: 'Compare rosters' });
-  // The matchup id (55) rides on the Compare-rosters href (#1979 L4: the
-  // lineup link left this footer; My Team and Quick Actions carry it).
-  expect(compare.getAttribute('href')).toMatch(/\/league\/1\/matchups\/55$/);
+  const link = await within(card).findByRole('link', { name: 'Matchup, MyBallsHurts against Terrific T' });
+  // The matchup id (55) rides on the href (#1979 L4: the lineup link is not here;
+  // My team and the Playbook carry it).
+  expect(link.getAttribute('href')).toMatch(/\/league\/1\/matchups\/55$/);
   expect(within(card).queryByRole('link', { name: 'Set Lineup' })).not.toBeInTheDocument();
+  // The one label for this destination: no "Compare rosters".
+  expect(within(card).queryByRole('link', { name: 'Compare rosters' })).not.toBeInTheDocument();
 });
 
 test('matchup card: with no matchup for the viewer this week, the card reads "No matchup this week" and has no links', async () => {
@@ -1328,21 +1301,21 @@ test('matchup card: with no matchup for the viewer this week, the card reads "No
 
   const card = await screen.findByTestId('matchup-preview');
   expect(await within(card).findByText('No matchup this week')).toBeInTheDocument();
-  expect(within(card).queryByRole('link', { name: 'Compare rosters' })).not.toBeInTheDocument();
-  expect(within(card).queryByRole('link', { name: 'Set Lineup' })).not.toBeInTheDocument();
+  expect(within(card).queryByRole('link')).not.toBeInTheDocument();
   // The chained detail read must NOT fire with a null id when there is no pick.
   expect(apiClient.get.mock.calls.some(([u]) => /\/matchups\/\d+$/.test(u))).toBe(false);
 });
 
-test('matchup card: a 500 from the matchups list shows a compact error in the card while my-team and the header still render', async () => {
+test('matchup card: a 500 from the matchups list shows one danger panel in the card while my-team and the header still render', async () => {
   mockGetByUrl({
     '/api/league/1': mpLeague(),
     [MP_LIST_URL]: { reject: { response: { status: 500, data: { error: 'boom' } } } },
   });
   renderPage();
 
-  const alert = await screen.findByTestId('matchup-preview-error');
-  expect(alert).toHaveTextContent(/could not load/i);
+  await waitFor(() => expect(within(screen.getByTestId('matchup-preview')).getByRole('alert'))
+    .toHaveTextContent("We could not load this week's matchup right now."));
+  expect(within(screen.getByTestId('matchup-preview')).getByRole('button', { name: 'Try loading the matchup again' })).toBeInTheDocument();
   // The failed read is self-contained: the sibling widget and the page header
   // chips (page-level chrome, so page-scoped on purpose) still render.
   expect(screen.getByTestId('my-team-summary')).toBeInTheDocument();
@@ -1358,7 +1331,9 @@ test('matchup card: exactly one matchups-list GET is made, and it carries the cu
   renderPage();
 
   // Wait for the chained detail read to land so any re-render that would double
-  // the list request has already had its chance before we count.
+  // the list request has already had its chance before we count. The page's own
+  // read of the week (the head's live count) is the same shared cache entry, so
+  // it is the same one request.
   const card = await screen.findByTestId('matchup-preview');
   await within(card).findByText('112.4');
   const listGets = apiClient.get.mock.calls.filter(([u]) => u.includes('/matchups?week='));
@@ -1413,8 +1388,8 @@ test('matchup card: while the detail read is pending the pairing shows with skel
   const card = await screen.findByTestId('matchup-preview');
   // Identity is up from the list + teams[] while the projected totals wait on
   // the chained read, so the card is still layout-busy.
-  expect(await within(card).findByText('MyBallsHurts')).toBeInTheDocument();
-  expect(within(card).getAllByTestId('matchup-skeleton').length).toBeGreaterThan(0);
+  expect(await within(card).findByRole('heading', { level: 3, name: 'MyBallsHurts' })).toBeInTheDocument();
+  expect(within(viewerFigure(card)).getByTestId('matchup-skeleton')).toBeInTheDocument();
   expect(card).toHaveAttribute('aria-busy', 'true');
 });
 
@@ -1427,18 +1402,18 @@ test('matchup card: a failed detail read degrades the projected totals to a plac
   renderPage();
 
   const card = await screen.findByTestId('matchup-preview');
-  const viewerSide = await within(card).findByTestId('matchup-side-viewer');
+  const versus = await within(card).findByTestId('matchup-versus');
   // The pairing (from the list + teams[]) still renders: the spine is fine, so a
   // failed detail read degrades only the number, it does not error the card.
-  expect(within(viewerSide).getByText('MyBallsHurts')).toBeInTheDocument();
-  expect(within(card).queryByTestId('matchup-preview-error')).not.toBeInTheDocument();
+  expect(within(versus).getByRole('heading', { level: 3, name: 'MyBallsHurts' })).toBeInTheDocument();
+  expect(within(card).queryByRole('alert')).not.toBeInTheDocument();
   // The projected total is a placeholder: no digits, a real "Not available" for
-  // a screen reader, and the "Projected" label is not left pointing at nothing.
-  await within(viewerSide).findByText('Not available');
-  expect(viewerSide.textContent).not.toMatch(/\d/);
-  expect(within(viewerSide).getByText('Projected')).toBeInTheDocument();
+  // a screen reader, and the "Proj" label is not left pointing at nothing.
+  await within(viewerFigure(card)).findByText('Not available');
+  expect(viewerFigure(card).textContent).not.toMatch(/\d/);
+  expect(within(versus).getAllByText('Proj')).toHaveLength(2);
   // The detail read has settled, so the card is no longer busy.
-  expect(card).toHaveAttribute('aria-busy', 'false');
+  await waitFor(() => expect(card).toHaveAttribute('aria-busy', 'false'));
 });
 
 // #670: the list row already carries `home_expected_final` /
@@ -1456,10 +1431,9 @@ test('matchup card: list row with both expected finals present renders them and 
   renderPage();
 
   const card = await screen.findByTestId('matchup-preview');
-  const viewerSide = await within(card).findByTestId('matchup-side-viewer');
-  const opponentSide = within(card).getByTestId('matchup-side-opponent');
-  expect(within(viewerSide).getByText('101.2')).toBeInTheDocument();
-  expect(within(opponentSide).getByText('97.5')).toBeInTheDocument();
+  await within(card).findByTestId('matchup-versus');
+  expect(viewerFigure(card)).toHaveTextContent('101.2');
+  expect(opponentFigure(card)).toHaveTextContent('97.5');
   expect(card).toHaveAttribute('aria-busy', 'false');
   // The list already answered both sides, so the detail read must never fire.
   expect(apiClient.get.mock.calls.some(([u]) => /\/matchups\/\d+$/.test(u))).toBe(false);
@@ -1477,12 +1451,11 @@ test('matchup card: list row with one side null falls back to the detail read an
   renderPage();
 
   const card = await screen.findByTestId('matchup-preview');
-  const viewerSide = await within(card).findByTestId('matchup-side-viewer');
-  const opponentSide = within(card).getByTestId('matchup-side-opponent');
+  await within(card).findByTestId('matchup-versus');
   // Both sides come from the detail response once the fallback fires, not a mix
   // of the list's non-null side and the detail's: the fallback is all-or-nothing.
-  expect(await within(viewerSide).findByText('112.4')).toBeInTheDocument();
-  expect(within(opponentSide).getByText('118.9')).toBeInTheDocument();
+  expect(await within(card).findByText('112.4')).toBeInTheDocument();
+  expect(opponentFigure(card)).toHaveTextContent('118.9');
   expect(apiClient.get.mock.calls.some(([u]) => u === MP_DETAIL_URL)).toBe(true);
 });
 
@@ -1497,10 +1470,9 @@ test('matchup card: a list value of 0 is a real value, not a trigger for the det
   renderPage();
 
   const card = await screen.findByTestId('matchup-preview');
-  const viewerSide = await within(card).findByTestId('matchup-side-viewer');
-  const opponentSide = within(card).getByTestId('matchup-side-opponent');
-  expect(await within(viewerSide).findByText('0.0')).toBeInTheDocument();
-  expect(within(opponentSide).getByText('45.6')).toBeInTheDocument();
+  await within(card).findByTestId('matchup-versus');
+  expect(await within(card).findByText('0.0')).toBeInTheDocument();
+  expect(opponentFigure(card)).toHaveTextContent('45.6');
   expect(apiClient.get.mock.calls.some(([u]) => /\/matchups\/\d+$/.test(u))).toBe(false);
 });
 
@@ -1530,14 +1502,92 @@ test('matchup card: a best-ball league skips the detail read, rendering both pla
   renderPage();
 
   const card = await screen.findByTestId('matchup-preview');
-  const viewerSide = await within(card).findByTestId('matchup-side-viewer');
-  const opponentSide = within(card).getByTestId('matchup-side-opponent');
-  expect(await within(viewerSide).findByText('Not available')).toBeInTheDocument();
-  expect(within(opponentSide).getByText('Not available')).toBeInTheDocument();
+  await within(card).findByTestId('matchup-versus');
+  expect(await within(viewerFigure(card)).findByText('Not available')).toBeInTheDocument();
+  expect(within(opponentFigure(card)).getByText('Not available')).toBeInTheDocument();
   expect(card).toHaveAttribute('aria-busy', 'false');
   // The detail URL must never be requested: neither read can answer for a
   // best-ball league, so paying for the round trip buys nothing.
   expect(apiClient.get.mock.calls.some(([u]) => u === MP_DETAIL_URL)).toBe(false);
+});
+
+// Once the matchup has started the panel is the Board-black scoreboard (the
+// dashboard's view of the live state): the score block is one link, the margin
+// sits under the viewer's score, and a polite live region carries the sentence.
+const mpLiveRow = (overrides = {}) => ({
+  ...mpViewerPaired[0],
+  status: 'live',
+  home_score: '61.0',
+  away_score: '58.9',
+  home_expected_final: 112.4,
+  away_expected_final: 108.1,
+  home_players_remaining: 7,
+  away_players_remaining: 9,
+  ...overrides,
+});
+
+test('matchup card: a live matchup is the Board-black scoreboard, with the margin under the viewer, a live chip and a polite sentence', async () => {
+  mockGetByUrl({
+    '/api/league/1': mpLeague(),
+    [MP_LIST_URL]: mpMatchupsList([mpLiveRow(), mpViewerPaired[1]]),
+  });
+  renderPage();
+
+  const card = await findStartedMatchup();
+  expect(card).toHaveAttribute('data-state', 'live');
+  expect(rulesUnder(card)['']).toMatch(/background-color:\s*var\(--ps-board\)/);
+  expect(rulesUnder(card)['']).toMatch(/border:\s*6px double var\(--ps-board-dim\)/);
+  expect(within(card).getByText('Live')).toBeInTheDocument();
+  expect(viewerFigure(card)).toHaveTextContent('61.0');
+  expect(opponentFigure(card)).toHaveTextContent('58.9');
+  // The viewer leads by 2.1: the margin sits directly under the viewer's score; the Expected final
+  // and the players remaining ride per side.
+  expect(within(card).getByText('Up 2.1')).toBeInTheDocument();
+  expect(within(card).getByText('7 players remaining')).toBeInTheDocument();
+  expect(within(card).getByText('9 players remaining')).toBeInTheDocument();
+  expect(within(card).getByText('112.4')).toBeInTheDocument();
+  // The score block is one link whose name states the whole score.
+  const link = within(card).getByRole('link', { name: /^Matchup: MyBallsHurts lead Terrific T 61\.0 to 58\.9, expected final 112\.4 to 108\.1, \d+% MyBallsHurts win probability\. PMR, players remaining: 7 for MyBallsHurts and 9 for Terrific T$/ });
+  expect(link.getAttribute('href')).toMatch(/\/league\/1\/matchups\/55$/);
+  // A visually hidden polite region carries the score sentence.
+  const region = within(card).getByTestId('matchup-live-region');
+  expect(region).toHaveAttribute('aria-live', 'polite');
+  expect(region).toHaveTextContent('MyBallsHurts 61.0, Terrific T 58.9');
+  // The live odds bar is the one place green sits on this panel, and the board stays flash-free at rest.
+  expect(within(card).getByRole('img', { name: /^MyBallsHurts win probability \d+%$/ })).toBeInTheDocument();
+  // eslint-disable-next-line testing-library/no-node-access
+  expect(card.querySelector('.scored')).toBeNull();
+});
+
+test('matchup card: a trailing viewer reads "Down" and the opponent is the leader', async () => {
+  mockGetByUrl({
+    '/api/league/1': mpLeague(),
+    [MP_LIST_URL]: mpMatchupsList([mpLiveRow({ home_score: '40.0', away_score: '44.5' }), mpViewerPaired[1]]),
+  });
+  renderPage();
+
+  const card = await findStartedMatchup();
+  expect(within(card).getByText('Down 4.5')).toBeInTheDocument();
+  expect(within(card).getByRole('link', { name: /MyBallsHurts trail Terrific T 40\.0 to 44\.5/ })).toBeInTheDocument();
+});
+
+test('matchup card: a final matchup is a result on Board black, not a live screen', async () => {
+  mockGetByUrl({
+    '/api/league/1': mpLeague(),
+    [MP_LIST_URL]: mpMatchupsList([
+      mpLiveRow({ status: 'final', final: true, home_score: '118.4', away_score: '96.2' }),
+      mpViewerPaired[1],
+    ]),
+  });
+  renderPage();
+
+  const card = await findStartedMatchup();
+  expect(card).toHaveAttribute('data-state', 'settled');
+  expect(within(card).getByText('Final')).toBeInTheDocument();
+  expect(within(card).queryByText('Live')).not.toBeInTheDocument();
+  expect(within(card).getByText('Won by 22.2')).toBeInTheDocument();
+  expect(within(card).queryByText(/players remaining/)).not.toBeInTheDocument();
+  expect(within(card).queryByText('Expected final')).not.toBeInTheDocument();
 });
 
 // ==========================================================================
@@ -1621,47 +1671,63 @@ const quickActionsFullRoster = () => [
 
 const QUICK_ACTIONS_LINEUP_URL = '/api/team/lineup?leagueId=1&week=3';
 
-test('quick-actions: in-season fantasy member renders Play/Moves/League labels with counts and cards linking to league sub-routes', async () => {
-  mockGetByUrl({ '/api/league/1': quickActionsLeague() });
-  renderPage();
-
-  const card = await screen.findByTestId('quick-actions');
-  // Group labels carry the visible-card count (no Draft Settings for a member,
-  // so League is 4).
-  expect(within(card).getByText('Play · 4')).toBeInTheDocument();
-  expect(within(card).getByText('Moves · 2')).toBeInTheDocument();
-  expect(within(card).getByText('League · 4')).toBeInTheDocument();
-  expect(within(card).queryByRole('link', { name: /Draft Settings/ })).not.toBeInTheDocument();
-
-  // Each card is a link whose href ends in the expected league sub-route
-  // (scoped to this widget: matchup-preview also renders a "Set Lineup" link).
-  const expectedRoutes = {
-    draft: /\/league\/1\/draft$/,
-    lineup: /\/league\/1\/lineup$/,
-    'game-center': /\/league\/1\/game-center$/,
-    pickem: /\/league\/1\/pickem$/,
-    waivers: /\/league\/1\/waivers$/,
-    trades: /\/league\/1\/trades$/,
-    activity: /\/league\/1\/activity$/,
-    'power-rankings': /\/league\/1\/power-rankings$/,
-    history: /\/league\/1\/history$/,
-    rules: /\/league\/1\/rules$/,
-  };
-  Object.entries(expectedRoutes).forEach(([key, route]) => {
-    const tile = within(card).getByTestId(`quick-action-${key}`);
-    expect(tile.getAttribute('href')).toMatch(route);
-  });
+// Two trophies of the 2026 season (the weekly awards a league has handed out so far).
+const quickActionsTrophies = () => ({
+  data: [
+    { id: 1, season: 2026, week: 1, type: 'weekly_high', label: 'Weekly High', team_id: 2, team_name: 'Terrific T' },
+    { id: 2, season: 2026, week: 2, type: 'closest_game', label: 'Closest Game', team_id: 1, team_name: 'MyBallsHurts' },
+  ],
 });
 
-test('quick-actions: a pre-draft commissioner fixture adds Draft Settings and the League count becomes 5', async () => {
+// The Playbook says each destination once (DESIGN.md "Say it once"): in season it is one line of links
+// that ends in the trophy case, and it drops every tile another frame on the page already links.
+test('quick-actions: in season the Playbook is one link row ending in the trophy case, and drops what the page shows elsewhere', async () => {
+  mockGetByUrl({
+    '/api/league/1': quickActionsLeague(),
+    '/api/league/1/trophies': quickActionsTrophies(),
+  });
+  renderPage();
+
+  const nav = await screen.findByRole('navigation', { name: 'Playbook' });
+  await within(nav).findByRole('link', { name: 'Trophy case (2)' });
+  expect(within(nav).getAllByRole('link').map((link) => link.textContent)).toEqual([
+    "Pick'em", 'Power Rankings', 'History', 'League Rules', 'Trophy case (2)',
+  ]);
+  expect(within(nav).getByRole('link', { name: 'Trophy case (2)' }).getAttribute('href')).toBe('/league/1/history');
+  // Dropped: the Draft Room (the draft is over), Set Lineup, Waivers and Trades (My team links them),
+  // Game Center (Around the league), Activity (Recent activity).
+  ['draft', 'lineup', 'waivers', 'trades', 'game-center', 'activity'].forEach((key) => {
+    expect(within(nav).queryByTestId(`quick-action-${key}`)).not.toBeInTheDocument();
+  });
+  // The trophy case is not a second row.
+  expect(screen.queryByTestId('trophy-link')).not.toBeInTheDocument();
+  expect(screen.queryByText('Trophy room')).not.toBeInTheDocument();
+});
+
+test('quick-actions: a pre-draft commissioner fixture adds Draft Settings and the League group holds the four league tiles', async () => {
   mockGetByUrl({ '/api/league/1': quickActionsLeague({ league: { draft_status: 'pending', season_status: 'pending', current_week: 3, is_commissioner: true } }) });
   renderPage();
 
   const card = await screen.findByTestId('quick-actions');
-  expect(within(card).getByText('League · 5')).toBeInTheDocument();
+  // Pre-draft the Playbook is the frame: Power Rankings, History, League Rules and Draft Settings
+  // (Activity is Recent activity's link, Waivers and Trades are My team's).
+  expect(within(card).getByText('League · 4')).toBeInTheDocument();
   const draftSettings = within(card).getByTestId('quick-action-draft-settings');
   expect(draftSettings.getAttribute('href')).toMatch(/\/league\/1\/draft-settings$/);
+  expect(within(card).queryByTestId('quick-action-waivers')).not.toBeInTheDocument();
+  expect(within(card).queryByText(/^Moves ·/)).not.toBeInTheDocument();
 });
+
+// The lineup recommendation and its agreement with My team are properties of the two widgets' shared
+// lineup read, not of the page, and the page drops the Set Lineup tile in season (My team links it).
+// So these cases mount the two widgets side by side on the same seam instead.
+const renderPlaybookAndMyTeam = () =>
+  renderWithProviders(
+    <>
+      <QuickActions leagueId="1" />
+      <MyTeamSummary leagueId="1" />
+    </>
+  );
 
 test('quick-actions: two starters on a current-week bye mark Set Lineup Recommended with the bye copy', async () => {
   const roster = quickActionsFullRoster().map((row) =>
@@ -1678,7 +1744,7 @@ test('quick-actions: two starters on a current-week bye mark Set Lineup Recommen
     }),
     [QUICK_ACTIONS_LINEUP_URL]: quickActionsLineupResponse(roster),
   });
-  renderPage();
+  renderPlaybookAndMyTeam();
 
   const card = await screen.findByTestId('quick-actions');
   const tile = within(card).getByTestId('quick-action-lineup');
@@ -1687,7 +1753,7 @@ test('quick-actions: two starters on a current-week bye mark Set Lineup Recommen
   expect(within(tile).getByText('2 starters on bye · fix before Sunday')).toBeInTheDocument();
 });
 
-test('quick-actions: a full roster with no current-week byes shows no Recommended anywhere on an in-season member page', async () => {
+test('quick-actions: a full roster with no current-week byes shows no Recommended anywhere', async () => {
   // roster_slots is supplied so the empty-slot half of the recommendation is
   // LIVE here, not inert: with the required slots known, an empty roster would
   // read 9 empty slots and recommend. A full roster is therefore the reason
@@ -1705,15 +1771,13 @@ test('quick-actions: a full roster with no current-week byes shows no Recommende
     }),
     [QUICK_ACTIONS_LINEUP_URL]: quickActionsLineupResponse(quickActionsFullRoster()),
   });
-  renderPage();
+  renderPlaybookAndMyTeam();
 
   const card = await screen.findByTestId('quick-actions');
   const tile = within(card).getByTestId('quick-action-lineup');
   // Wait for the lineup read to resolve into the plain Set Lineup copy, so the
   // absence assertion below is not merely racing an unresolved read.
   expect(await within(tile).findByText('Set your Week 3 lineup')).toBeInTheDocument();
-  // A page-level claim on purpose: no card, in this widget or any sibling on the
-  // in-season member page, renders "Recommended".
   expect(screen.queryByText('Recommended')).not.toBeInTheDocument();
 });
 
@@ -1731,7 +1795,7 @@ test('quick-actions: a starter missing from a slot the league requires marks Set
     }),
     [QUICK_ACTIONS_LINEUP_URL]: quickActionsLineupResponse(roster),
   });
-  renderPage();
+  renderPlaybookAndMyTeam();
 
   const card = await screen.findByTestId('quick-actions');
   const tile = within(card).getByTestId('quick-action-lineup');
@@ -1744,7 +1808,7 @@ test('quick-actions: a 500 from the lineup read leaves every card rendered and n
     '/api/league/1': quickActionsLeague(),
     [QUICK_ACTIONS_LINEUP_URL]: { reject: { response: { status: 500 } } },
   });
-  renderPage();
+  renderPlaybookAndMyTeam();
 
   const card = await screen.findByTestId('quick-actions');
   const tile = within(card).getByTestId('quick-action-lineup');
@@ -1780,11 +1844,11 @@ test('quick-actions: with a full lineup, Quick Actions and My Team agree it is s
     '/api/league/1': quickActionsAgreementLeague(),
     [QUICK_ACTIONS_LINEUP_URL]: quickActionsLineupResponse(quickActionsFullRoster()),
   });
-  renderPage();
+  renderPlaybookAndMyTeam();
 
   const tile = within(await screen.findByTestId('quick-actions')).getByTestId('quick-action-lineup');
   expect(await within(tile).findByText('Set your Week 3 lineup')).toBeInTheDocument();
-  const myTeam = screen.getByTestId('my-team-summary');
+  const myTeam = await screen.findByTestId('my-team-summary');
   expect(await within(myTeam).findByText(/Lineup set/)).toBeInTheDocument();
   expect(screen.queryByText(/empty starting slot/)).not.toBeInTheDocument();
   expect(lineupGets()).toHaveLength(1);
@@ -1796,11 +1860,11 @@ test('quick-actions: with an empty starting slot, Quick Actions and My Team both
     '/api/league/1': quickActionsAgreementLeague(),
     [QUICK_ACTIONS_LINEUP_URL]: quickActionsLineupResponse(entries),
   });
-  renderPage();
+  renderPlaybookAndMyTeam();
 
   const tile = within(await screen.findByTestId('quick-actions')).getByTestId('quick-action-lineup');
   expect(await within(tile).findByText('1 empty starting slot')).toBeInTheDocument();
-  const myTeam = screen.getByTestId('my-team-summary');
+  const myTeam = await screen.findByTestId('my-team-summary');
   expect(await within(myTeam).findByText(/Lineup incomplete · 8 of 9/)).toBeInTheDocument();
   expect(lineupGets()).toHaveLength(1);
 });
@@ -1815,11 +1879,11 @@ test('quick-actions: a spent starting slot counts as filled in Quick Actions and
     '/api/league/1': quickActionsAgreementLeague(),
     [QUICK_ACTIONS_LINEUP_URL]: quickActionsLineupResponse(entries),
   });
-  renderPage();
+  renderPlaybookAndMyTeam();
 
   const tile = within(await screen.findByTestId('quick-actions')).getByTestId('quick-action-lineup');
   expect(await within(tile).findByText('Set your Week 3 lineup')).toBeInTheDocument();
-  const myTeam = screen.getByTestId('my-team-summary');
+  const myTeam = await screen.findByTestId('my-team-summary');
   expect(await within(myTeam).findByText(/Lineup set · 9 of 9/)).toBeInTheDocument();
   expect(within(tile).queryByText('Recommended')).not.toBeInTheDocument();
   expect(lineupGets()).toHaveLength(1);
@@ -1906,7 +1970,15 @@ const cutoverFantasyGets = () =>
 test('cutover: a fantasy member composes the chat launcher, recap and trophy case alongside the widget slices', async () => {
   // inSeasonLeague() is a member (is_commissioner false, no invite_code) with a
   // draft-complete, in-season, 12-team league.
-  mockGetByUrl({ '/api/league/1': inSeasonLeague() });
+  mockGetByUrl({
+    '/api/league/1': inSeasonLeague(),
+    '/api/scoring/league/1/recap': {
+      data: { season: 2026, week: 2, data: { generatedAt: '2026-10-13T14:00:00.000Z', narrative: 'A recap.', facts: {} } },
+    },
+    '/api/league/1/trophies': {
+      data: [{ id: 1, season: 2026, week: 2, type: 'weekly_high', label: 'Weekly High', team_id: 1, team_name: 'Team 1' }],
+    },
+  });
   renderPage();
 
   await screen.findByRole('heading', { level: 1, name: 'MinneApple' });
@@ -1923,11 +1995,12 @@ test('cutover: a fantasy member composes the chat launcher, recap and trophy cas
   expect(screen.getByTestId('slot-recent-activity')).toBeInTheDocument();
   expect(screen.queryByTestId('commissioner-strip')).not.toBeInTheDocument();
 
-  // The composed-as-is fantasy surfaces.
-  expect(screen.getByTestId('recap-card')).toBeInTheDocument();
-  expect(screen.getByTestId('trophy-case')).toBeInTheDocument();
-  // The trophy tally marks the viewer's own Team, from the same league read.
-  expect(screen.getByTestId('trophy-case')).toHaveAttribute('data-viewer-team-id', '1');
+  // The dashboard's own views of the legacy surfaces: the recap panel, and
+  // in season the trophy case is a link in the Playbook line (the full trophy
+  // room is the completed season's).
+  expect(await screen.findByTestId('recap-card')).toBeInTheDocument();
+  expect(await screen.findByRole('link', { name: 'Trophy case (1)' })).toBeInTheDocument();
+  expect(screen.queryByTestId('trophy-case')).not.toBeInTheDocument();
   // Pick'em standings never mount on a fantasy league.
   expect(screen.queryByTestId('pickem-standings')).not.toBeInTheDocument();
 
@@ -2029,7 +2102,12 @@ test('chat drawer: the unread count survives an open and a close', async () => {
 
 test("cutover: a pick'em-only member shows pick'em standings and the Pick'em action, omits every fantasy slice, and fires no fantasy read", async () => {
   // pickemOnlyLeague() is a member, pickem_only, in season at week 6.
-  mockGetByUrl({ '/api/league/1': pickemOnlyLeague() });
+  mockGetByUrl({
+    '/api/league/1': pickemOnlyLeague(),
+    '/api/league/1/trophies': {
+      data: [{ id: 1, season: 2026, week: 0, type: 'pickem_champion', label: "Pick'em Champion", team_id: 1, team_name: 'Team 1' }],
+    },
+  });
   renderPage();
 
   await screen.findByRole('heading', { level: 1, name: 'MinneApple' });
@@ -2041,8 +2119,9 @@ test("cutover: a pick'em-only member shows pick'em standings and the Pick'em act
   const quickActions = screen.getByTestId('quick-actions');
   expect(within(quickActions).getByTestId('quick-action-pickem')).toBeInTheDocument();
   // The trophy case is common to both league kinds: a completed pick'em season
-  // earns a pickem_champion trophy, so gating it on fantasy would drop it.
-  expect(screen.getByTestId('trophy-case')).toBeInTheDocument();
+  // earns a pickem_champion trophy, so gating it on fantasy would drop it. A
+  // pick'em-only league has no Playbook line to fold it into, so it is its own link row.
+  expect(await screen.findByTestId('trophy-link')).toHaveAttribute('href', '/league/1/history');
 
   // No fantasy slices, no fantasy layout regions, no recap, no advance control.
   expect(screen.queryByTestId('dashboard-hero')).not.toBeInTheDocument();
@@ -2179,18 +2258,18 @@ test('cutover: a standings 500 errors the my-team card while matchup, recent act
   await screen.findByRole('heading', { level: 1, name: 'MinneApple' });
 
   // The my-team card shows its own compact error.
-  const myTeam = await screen.findByTestId('my-team-summary');
-  expect(await within(myTeam).findByTestId('my-team-error')).toBeInTheDocument();
+  await waitFor(() => expect(within(screen.getByTestId('my-team-summary')).getByRole('alert'))
+    .toHaveTextContent('We could not load your team summary right now.'));
 
   // Matchup preview renders (no error) rather than being blanked by the
   // standings failure.
   const matchup = screen.getByTestId('matchup-preview');
-  expect(within(matchup).queryByTestId('matchup-preview-error')).not.toBeInTheDocument();
+  expect(within(matchup).queryByRole('alert')).not.toBeInTheDocument();
 
   // Recent activity renders its rail rows (no error).
   const recentActivity = screen.getByTestId('recent-activity');
   expect(await within(recentActivity).findAllByTestId('recent-activity-row')).toHaveLength(3);
-  expect(within(recentActivity).queryByTestId('recent-activity-error')).not.toBeInTheDocument();
+  expect(within(recentActivity).queryByRole('alert')).not.toBeInTheDocument();
 
   // Quick actions render.
   expect(screen.getByTestId('quick-actions')).toBeInTheDocument();
@@ -2261,6 +2340,433 @@ test('cutover: no draft countdown once the draft_date is absent, past pre-draft,
   renderPage();
   await screen.findByRole('heading', { level: 1, name: 'MinneApple' });
   expect(screen.queryByTestId('slot-draft-countdown')).not.toBeInTheDocument();
+});
+
+// ==========================================================================
+// The Play-select states (ADR 0067 wave 1b, #2330): every board of the approved
+// canvas (docs/design/league/) has its page state pinned below. The widgets'
+// own looks are pinned in their suites; what lives here is the composition:
+// which pieces mount in which phase, in what order, and the one cursor and one
+// filled action per page.
+// ==========================================================================
+
+// The cursor and the filled foot are CSS classes and data attributes with no role.
+/* eslint-disable testing-library/no-node-access */
+const cursorCount = () => document.querySelectorAll('.cursor').length;
+const filledCount = () => document.querySelectorAll('[data-filled="true"]').length;
+/* eslint-enable testing-library/no-node-access */
+
+// A fantasy league on game day: the viewer (Team 3) is mid-game against Team 7, the other pairing live
+// and a third final, in a 12-team league whose standings put the viewer fourth.
+const gameDayTeams = Array.from({ length: 12 }, (_, i) => ({
+  teamId: i + 1, id: i + 1, teamName: `Squad ${i + 1}`, avatar_url: null, avatar_static_url: null,
+}));
+const gameDayLeague = (overrides = {}) =>
+  leagueDetail({
+    league: {
+      draft_status: 'complete', season_status: 'regular', current_week: 1, is_commissioner: true, invite_code: 'abc123', ...overrides,
+    },
+    teams: gameDayTeams,
+    viewerTeamId: 3,
+  });
+const gameDayRows = () => [
+  mpLiveRow({ home_team_id: 3, away_team_id: 7 }),
+  { id: 56, week: 1, season: 2026, status: 'live', home_team_id: 5, away_team_id: 9, home_score: '20.0', away_score: '15.0', home_expected_final: 100, away_expected_final: 90, final: false },
+  { id: 57, week: 1, season: 2026, status: 'final', home_team_id: 1, away_team_id: 2, home_score: '110.0', away_score: '90.0', final: true },
+  { id: 58, week: 1, season: 2026, status: 'live', home_team_id: 4, away_team_id: 6, home_score: '30.0', away_score: '33.0', home_expected_final: 100, away_expected_final: 101, final: false },
+  { id: 59, week: 1, season: 2026, status: 'scheduled', home_team_id: 8, away_team_id: 10, home_expected_final: 100, away_expected_final: 99, final: false },
+  { id: 60, week: 1, season: 2026, status: 'scheduled', home_team_id: 11, away_team_id: 12, home_expected_final: 100, away_expected_final: 99, final: false },
+];
+const gameDayStandings = () => ({
+  data: {
+    league: { current_week: 1 },
+    standings: gameDayTeams.map((t, i) => ({
+      teamId: t.teamId, name: `RAW ${t.teamId}`, wins: 12 - i, losses: i, ties: 0, pf: 1200 - i * 7, pa: 1000 + i * 3, rank: i + 1, streak: 'W1',
+    })),
+  },
+});
+const gameDayMocks = (extra = {}) => ({
+  '/api/league/1': gameDayLeague(),
+  [MP_LIST_URL]: mpMatchupsList(gameDayRows()),
+  '/api/league/1/matchups': mpMatchupsList(gameDayRows()),
+  '/api/scoring/league/1/standings': gameDayStandings(),
+  '/api/league/1/transactions': { data: transactionRows(20) },
+  ...extra,
+});
+
+describe('game day (the viewer\'s matchup is live)', () => {
+  test('the head says how many matchups are live, in the Live chip', async () => {
+    mockGetByUrl(gameDayMocks());
+    renderPage();
+
+    await screen.findByRole('heading', { level: 1, name: 'MinneApple' });
+    expect(await screen.findByText('3 matchups live')).toBeInTheDocument();
+    expect(screen.getByText('Week 1 · In season')).toBeInTheDocument();
+  });
+
+  test('order: the scoreboard leads, then My team at full width, the Pick\'em panel, the strip, the recap, around the league and the main grid', async () => {
+    mockGetByUrl(gameDayMocks({
+      '/api/pickem/league/1/settings': { data: { enabled: true, mode: 'straight' } },
+      '/api/scoring/league/1/recap': {
+        data: { season: 2026, week: 0, data: { generatedAt: '2026-10-13T14:00:00.000Z', narrative: 'A recap.', facts: {} } },
+      },
+    }));
+    renderPage();
+
+    const matchup = await screen.findByTestId('slot-matchup-preview');
+    await within(matchup).findByTestId('matchup-versus');
+    expect(within(matchup).getByTestId('matchup-preview')).toHaveAttribute('data-state', 'live');
+    const myTeam = screen.getByTestId('slot-my-team');
+    const pickem = await screen.findByTestId('slot-pickem-panel');
+    const strip = screen.getByTestId('slot-commissioner-strip');
+    const recap = screen.getByTestId('slot-recap');
+    const around = screen.getByTestId('slot-around-the-league');
+    const main = screen.getByTestId('dashboard-main');
+    expect(precedes(matchup, myTeam)).toBe(true);
+    expect(precedes(myTeam, pickem)).toBe(true);
+    expect(precedes(pickem, strip)).toBe(true);
+    expect(precedes(strip, recap)).toBe(true);
+    expect(precedes(recap, around)).toBe(true);
+    expect(precedes(around, main)).toBe(true);
+    // Game day is not the two-column hero: the same three pieces run full width, one under the other, in
+    // the same wrapper (so a widget is not remounted when the page learns the matchup has started).
+    const hero = screen.getByTestId('dashboard-hero');
+    expect(within(hero).getByTestId('slot-matchup-preview')).toBe(matchup);
+    expect(within(hero).getByTestId('slot-my-team')).toBe(myTeam);
+    expect(cssFor(hero)).toMatch(/flex-direction:\s*column/);
+    expect(precedes(hero, strip)).toBe(true);
+  });
+
+  test('Around the league folds to the viewer\'s three rival games and Recent activity to three rows', async () => {
+    mockGetByUrl(gameDayMocks());
+    renderPage();
+
+    const around = await screen.findByTestId('around-the-league');
+    // The viewer (Squad 3) is third: the games of Squad 2's, 4's and 5's neighbourhood come first.
+    await waitFor(() => expect(within(around).getAllByTestId('around-the-league-tile')).toHaveLength(3));
+    expect(within(around).getByText(/3 rival matchups/)).toBeInTheDocument();
+    expect(within(around).getByRole('link', { name: 'All matchups in Game Center' })).toBeInTheDocument();
+    const activity = await screen.findByTestId('recent-activity');
+    expect(await within(activity).findAllByTestId('recent-activity-row')).toHaveLength(3);
+    expect(within(activity).getByRole('link', { name: 'All activity' })).toBeInTheDocument();
+  });
+
+  test('on a phone the Invite control leaves the head for the commissioner strip', async () => {
+    viewport = 390;
+    mockGetByUrl(gameDayMocks());
+    renderPage();
+
+    const strip = await screen.findByTestId('commissioner-strip');
+    expect(await within(strip).findByRole('button', { name: /invite/i })).toBeInTheDocument();
+    expect(within(strip).getByText('Copy the invite link for new teams')).toBeInTheDocument();
+    // One Invite control on the page, and it is in the strip, not the head.
+    expect(screen.getAllByRole('button', { name: /invite/i })).toHaveLength(1);
+    expect(within(screen.getByTestId('dashboard-head')).queryByRole('button', { name: /invite/i })).not.toBeInTheDocument();
+  });
+
+  test('on a desktop the Invite control stays in the head', async () => {
+    mockGetByUrl(gameDayMocks());
+    renderPage();
+
+    await screen.findByTestId('commissioner-strip');
+    expect(within(screen.getByTestId('dashboard-head')).getByRole('button', { name: /invite/i })).toBeInTheDocument();
+    expect(within(screen.getByTestId('commissioner-strip')).queryByText('Copy the invite link for new teams')).not.toBeInTheDocument();
+  });
+});
+
+describe('before kickoff the hero is the matchup, My team and the Pick\'em panel', () => {
+  const pickemStandings = (extra = {}) => ({
+    data: {
+      season: 2026,
+      mode: 'straight',
+      viewerTeamId: 1,
+      standings: [
+        { teamId: 2, teamName: 'Squad 2', rank: 1, previousRank: 1, points: 105, correct: 12, incorrect: 2, pushes: 0, pending: 0, made: 14, weekly: { 6: 12 }, ...extra },
+        { teamId: 1, teamName: 'Squad 1', rank: 2, previousRank: 3, points: 94, correct: 10, incorrect: 4, pushes: 0, pending: 0, made: 14, weekly: { 6: 9, 7: 4 } },
+      ],
+    },
+  });
+  const scheduledLeague = () => leagueDetail({
+    league: { draft_status: 'complete', season_status: 'regular', current_week: 7 },
+    teams: gameDayTeams,
+    viewerTeamId: 1,
+  });
+
+  test('a fantasy plus pick\'em league shows the panel with the viewer\'s rank, points, week and gap to the leader', async () => {
+    mockGetByUrl({
+      '/api/league/1': scheduledLeague(),
+      '/api/pickem/league/1/settings': { data: { enabled: true, mode: 'straight' } },
+      '/api/pickem/league/1/standings': pickemStandings(),
+    });
+    renderPage();
+
+    const panel = await screen.findByTestId('pickem-panel');
+    expect(within(panel).getByRole('heading', { level: 2, name: "Pick'em" })).toBeInTheDocument();
+    expect(await within(panel).findByTestId('pickem-panel-rank')).toHaveTextContent('2nd');
+    expect(within(panel).getByTestId('pickem-panel-points')).toHaveTextContent('94');
+    expect(within(panel).getByTestId('pickem-panel-week')).toHaveTextContent('Wk 74');
+    expect(within(panel).getByTestId('pickem-panel-behind')).toHaveTextContent('11 pts');
+    expect(within(panel).getByRole('link', { name: "Pick'em picks, Week 7" })).toHaveAttribute('href', '/league/1/pickem');
+    // The panel sits in the hero's left column, under the matchup.
+    expect(within(screen.getByTestId('dashboard-hero')).getByTestId('slot-pickem-panel')).toBeInTheDocument();
+    expect(cssFor(screen.getByTestId('slot-pickem-panel'))).toMatch(/grid-area:\s*p/);
+  });
+
+  test('a tied rank reads T-n', async () => {
+    mockGetByUrl({
+      '/api/league/1': scheduledLeague(),
+      '/api/pickem/league/1/settings': { data: { enabled: true, mode: 'straight' } },
+      '/api/pickem/league/1/standings': pickemStandings({ rank: 2 }),
+    });
+    renderPage();
+
+    expect(await screen.findByTestId('pickem-panel-rank')).toHaveTextContent('T-2');
+  });
+
+  test('a fantasy-only league has no Pick\'em panel, and reads no pick\'em standings', async () => {
+    mockGetByUrl({
+      '/api/league/1': scheduledLeague(),
+      '/api/pickem/league/1/settings': { data: { enabled: false, mode: 'straight' } },
+      '/api/pickem/league/1/standings': pickemStandings(),
+    });
+    renderPage();
+
+    await screen.findByTestId('dashboard-hero');
+    await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/pickem/league/1/settings'));
+    expect(screen.queryByTestId('pickem-panel')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('slot-pickem-panel')).not.toBeInTheDocument();
+    expect(apiClient.get.mock.calls.some(([url]) => String(url).includes('/api/pickem/league/1/standings'))).toBe(false);
+  });
+
+  test('the panel appears in season only: a pre-draft league with pick\'em on has none', async () => {
+    mockGetByUrl({
+      '/api/league/1': leagueDetail({ league: { draft_status: 'pending' }, teams: buildTeams(8), viewerTeamId: 1 }),
+      '/api/pickem/league/1/settings': { data: { enabled: true, mode: 'straight' } },
+    });
+    renderPage();
+
+    await screen.findByRole('heading', { level: 1, name: 'MinneApple' });
+    expect(screen.queryByTestId('pickem-panel')).not.toBeInTheDocument();
+  });
+
+  test('a panel whose viewer has no row yet renders nothing, and its wrapper collapses', async () => {
+    mockGetByUrl({
+      '/api/league/1': scheduledLeague(),
+      '/api/pickem/league/1/settings': { data: { enabled: true, mode: 'straight' } },
+      '/api/pickem/league/1/standings': { data: { season: 2026, mode: 'straight', viewerTeamId: 1, standings: [] } },
+    });
+    renderPage();
+
+    await screen.findByTestId('dashboard-hero');
+    await waitFor(() => expect(screen.getByTestId('slot-pickem-panel')).toBeEmptyDOMElement());
+  });
+});
+
+describe('a completed season', () => {
+  const completeLeague = () => inSeasonLeague({ season_status: 'complete' });
+  const champion = {
+    id: 9, season: 2026, week: 0, type: 'champion', label: 'League Champion', team_id: 2, team_name: 'Terrific T',
+  };
+  const trophies = () => ({
+    data: [
+      champion,
+      { id: 10, season: 2026, week: 6, type: 'weekly_high', label: 'Weekly High', team_id: 3, team_name: 'Squad 3' },
+      { id: 11, season: 2026, week: 5, type: 'closest_game', label: 'Closest Game', team_id: 1, team_name: 'Squad 1' },
+    ],
+  });
+
+  test('opens on the trophy room, with no matchup, My team or Around the league, and keeps the Playbook frame', async () => {
+    mockGetByUrl({ '/api/league/1': completeLeague(), '/api/league/1/trophies': trophies() });
+    renderPage();
+
+    const room = await screen.findByTestId('trophy-case');
+    expect(within(room).getByRole('heading', { level: 2, name: 'Trophy room' })).toBeInTheDocument();
+    const hero = within(room).getByTestId('trophy-champion');
+    expect(within(hero).getByRole('heading', { level: 3, name: '2026 League Champion' })).toBeInTheDocument();
+    expect(within(hero).getByText('Terrific T')).toBeInTheDocument();
+    // The awards: one row per award with the week, never an invented figure.
+    expect(within(room).getByTestId('trophy-10')).toHaveTextContent('Weekly High');
+    expect(within(room).getByTestId('trophy-10')).toHaveTextContent('Squad 3 · Week 6');
+    expect(screen.queryByTestId('dashboard-hero')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('slot-around-the-league')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('slot-matchup-preview')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('slot-my-team')).not.toBeInTheDocument();
+    // The trophy room precedes the standings; the Playbook is the frame with its three groups.
+    expect(precedes(room, screen.getByTestId('dashboard-main'))).toBe(true);
+    const playbook = screen.getByTestId('quick-actions');
+    expect(within(playbook).getByText('Moves · 2')).toBeInTheDocument();
+    expect(screen.queryByTestId('trophy-link')).not.toBeInTheDocument();
+    // The head: the phase chip, the team count and Draft Complete.
+    expect(screen.getByText('Complete')).toBeInTheDocument();
+    expect(screen.getByText('Draft Complete')).toBeInTheDocument();
+  });
+
+  test('a completed league with no trophies has no trophy room', async () => {
+    mockGetByUrl({ '/api/league/1': completeLeague(), '/api/league/1/trophies': { data: [] } });
+    renderPage();
+
+    await screen.findByTestId('dashboard-main');
+    expect(screen.queryByRole('heading', { name: 'Trophy room' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('slot-trophy-case')).toBeEmptyDOMElement();
+  });
+
+  test('the award list is capped at six, with one toggle that opens the rest', async () => {
+    const many = [champion, ...Array.from({ length: 8 }, (_, i) => ({
+      id: 20 + i, season: 2026, week: i + 1, type: 'weekly_high', label: 'Weekly High', team_id: 2, team_name: 'Terrific T',
+    }))];
+    mockGetByUrl({ '/api/league/1': completeLeague(), '/api/league/1/trophies': { data: many } });
+    renderPage();
+
+    const room = await screen.findByTestId('trophy-case');
+    expect(within(room).getAllByRole('heading', { level: 3, name: 'Weekly High' })).toHaveLength(6);
+    await userEvent.click(within(room).getByRole('button', { name: 'Show all 8 awards' }));
+    expect(within(room).getAllByRole('heading', { level: 3, name: 'Weekly High' })).toHaveLength(8);
+    expect(within(room).getByRole('button', { name: 'Show fewer awards' })).toHaveAttribute('aria-expanded', 'true');
+  });
+});
+
+describe('the recap panel', () => {
+  const recap = (overrides = {}) => ({
+    data: {
+      season: 2026,
+      week: 6,
+      data: {
+        generatedAt: '2026-10-13T14:00:00.000Z',
+        narrative: 'Blitz Brigade went off for the week\'s top score.',
+        facts: {
+          highestScorer: { team: 'Blitz Brigade', points: 141.7 },
+          benchBlunder: { team: 'Sunday Scaries', pointsLeftOnBench: 18.4 },
+          waiverSteal: { player: 'Woody Marks', team: 'Darkness Falls', points: 22.6 },
+          closestMatchup: { home: 'Gridiron Ghosts', away: 'Hail Mary Club', margin: 0.8 },
+        },
+        ...overrides,
+      },
+    },
+  });
+
+  test('is a tertiary frame labelled as a recap, with its narrative, fact rows in the product\'s order and the time it was generated', async () => {
+    mockGetByUrl({ '/api/league/1': inSeasonLeague(), '/api/scoring/league/1/recap': recap() });
+    renderPage();
+
+    const card = await screen.findByTestId('recap-card');
+    expect(within(card).getByRole('heading', { level: 2, name: 'Week 6 recap' })).toBeInTheDocument();
+    expect(within(card).getByText(/^Generated /)).toBeInTheDocument();
+    expect(within(card).getByText("Blitz Brigade went off for the week's top score.")).toBeInTheDocument();
+    const labels = within(card).getAllByRole('term').map((t) => t.textContent);
+    expect(labels).toEqual(['High score', 'Bench blunder', 'Waiver steal', 'Closest game']);
+    expect(within(card).getByText('Blitz Brigade · 141.7')).toBeInTheDocument();
+    expect(cssFor(card)).toMatch(/border:\s*2px solid var\(--ps-frame-2\)/);
+    // Never a Projection, and a member has no rebuild control.
+    expect(within(card).queryByText(/projection/i)).not.toBeInTheDocument();
+    expect(within(card).queryByRole('button', { name: 'Rebuild recap' })).not.toBeInTheDocument();
+  });
+
+  test('a commissioner of the current season can rebuild it, and the rebuilt recap replaces the one on screen', async () => {
+    apiClient.post.mockResolvedValue(recap({ narrative: 'Rebuilt narrative.' }));
+    mockGetByUrl({
+      '/api/league/1': inSeasonLeague({ is_commissioner: true, current_season: 2026 }),
+      '/api/scoring/league/1/recap': recap(),
+    });
+    renderPage();
+
+    const card = await screen.findByTestId('recap-card');
+    await userEvent.click(await within(card).findByRole('button', { name: 'Rebuild recap' }));
+    expect(apiClient.post).toHaveBeenCalledWith('/api/scoring/league/1/recap', { week: 6, season: 2026 });
+    expect(await within(card).findByText('Rebuilt narrative.')).toBeInTheDocument();
+  });
+
+  test('no recap yet, no panel: the wrapper collapses', async () => {
+    mockGetByUrl({ '/api/league/1': inSeasonLeague(), '/api/scoring/league/1/recap': { reject: { response: { status: 404 } } } });
+    renderPage();
+
+    await screen.findByTestId('dashboard-main');
+    await waitFor(() => expect(screen.getByTestId('slot-recap')).toBeEmptyDOMElement());
+  });
+});
+
+describe('the pick\'em-only body', () => {
+  const standings = () => ({
+    data: {
+      season: 2026,
+      mode: 'straight',
+      viewerTeamId: 1,
+      standings: [
+        { teamId: 2, teamName: 'Terrific T', rank: 1, previousRank: 1, points: 105, correct: 12, incorrect: 2, pushes: 0, pending: 1, made: 15, weekly: { 5: 11, 6: 12 } },
+        { teamId: 1, teamName: 'MyBallsHurts', rank: 2, previousRank: 3, points: 94, correct: 10, incorrect: 4, pushes: 0, pending: 0, made: 14, weekly: { 5: 9, 6: 15 } },
+      ],
+    },
+  });
+
+  test('is the pool standings in a primary frame: the viewer strip, then the table with the viewer\'s row on Play blue', async () => {
+    mockGetByUrl({ '/api/league/1': pickemOnlyLeague(), '/api/pickem/league/1/standings': standings() });
+    renderPage();
+
+    const card = await screen.findByTestId('pickem-standings');
+    const you = await within(card).findByTestId('pickem-standings-you-row');
+    expect(within(you).getByText('MyBallsHurts')).toBeInTheDocument();
+    expect(within(you).getByText('You')).toBeInTheDocument();
+    expect(you).toHaveAttribute('aria-current', 'true');
+    expect(cssFor(within(you).getAllByRole('cell')[0])).toMatch(/background-color:\s*var\(--ps-play\)/);
+    expect(within(card).getByTestId('pickem-standings-your-rank')).toHaveTextContent('2nd');
+    expect(within(card).getByTestId('pickem-standings-behind-leader')).toHaveTextContent('11 pts');
+    expect(within(card).getByTestId('pickem-standings-your-accuracy')).toHaveTextContent('71%');
+    expect(within(card).getByTestId('pickem-standings-best-week')).toHaveTextContent('Wk 6');
+    expect(within(card).getByTestId('pickem-standings-count')).toHaveTextContent('2 teams');
+    // The weekly heat strip: eighteen weeks per row, the best week marked.
+    expect(within(you).getAllByTestId('pickem-standings-heat-cell')).toHaveLength(18);
+    expect(within(you).getAllByTestId('pickem-standings-heat-cell').filter((cell) => cell.hasAttribute('data-best'))).toHaveLength(1);
+  });
+
+  test('wears no cursor and no filled action of its own', async () => {
+    mockGetByUrl({ '/api/league/1': pickemOnlyLeague(), '/api/pickem/league/1/standings': standings() });
+    renderPage();
+
+    const card = await screen.findByTestId('pickem-standings');
+    await within(card).findByTestId('pickem-standings-you-row');
+    // eslint-disable-next-line testing-library/no-node-access
+    expect(card.querySelector('.cursor, [data-filled="true"]')).toBeNull();
+  });
+});
+
+// The page's one cursor and one filled action are the lead card of Your move (AC2 of #2330), so the
+// counts that need an open play wait for the page's Your move wiring. What every state pins today is the
+// ceiling of one of each, and the states where nothing needs the viewer are pinned at exactly zero.
+describe('the one cursor and the one filled action', () => {
+  const fixtures = [
+    ['in season, member', () => inSeasonLeague(), {}],
+    ['game day, lock in 45 minutes, commissioner', () => gameDayLeague(), gameDayMocks()],
+    ['game day, nothing due', () => gameDayLeague({ is_commissioner: false, invite_code: undefined }), gameDayMocks()],
+    ['pre-draft, commissioner', () => preDraftLeague({ is_commissioner: true }), {}],
+    ['drafting', () => leagueDetail({ league: { draft_status: 'active', season_status: 'regular' }, teams: buildTeams(8) }), {}],
+    ['complete', () => inSeasonLeague({ season_status: 'complete' }), {}],
+    ["pick'em-only", () => pickemOnlyLeague(), {}],
+  ];
+
+  test.each(fixtures)('%s: at most one cursor and one filled action', async (_name, build, extra) => {
+    mockGetByUrl({ ...extra, '/api/league/1': build() });
+    renderPage();
+
+    await screen.findByRole('heading', { level: 1, name: 'MinneApple' });
+    await screen.findByTestId('dashboard-quick-actions');
+    expect(cursorCount()).toBeLessThanOrEqual(1);
+    expect(filledCount()).toBeLessThanOrEqual(1);
+  });
+
+  test('complete: nothing needs the viewer, so no cursor and no filled action', async () => {
+    mockGetByUrl({ '/api/league/1': inSeasonLeague({ season_status: 'complete' }) });
+    renderPage();
+
+    await screen.findByTestId('dashboard-main');
+    expect(cursorCount()).toBe(0);
+    expect(filledCount()).toBe(0);
+  });
+
+  test.todo('in season, member: 1 cursor and 1 filled action (needs Your move\'s action items)');
+  test.todo('game day, lock in 45 minutes, commissioner: 1 cursor and 1 filled action, Your move before the scoreboard');
+  test.todo('game day, nothing due: 0 cursors and 0 filled actions, the scoreboard before "You\'re set"');
+  test.todo('pre-draft, commissioner: 1 cursor and 1 filled action');
+  test.todo('drafting: 1 cursor and 1 filled action');
+  test.todo('pick\'em-only: 1 cursor and 1 filled action');
 });
 
 // The pre-draft-fantasy-commissioner "raw name column" cutover case that used

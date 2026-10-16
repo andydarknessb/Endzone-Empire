@@ -32,6 +32,7 @@ colors:
   ps-panel: "#10131f"
   ps-frame: "#c8d0ff"
   ps-rule: "#3a4170"
+  ps-frame-2: "#3a4170"
   ps-ink: "#f4f4f8"
   ps-dim: "#a8adc8"
   ps-play: "#1830b8"
@@ -52,6 +53,7 @@ colors:
   ps-panel-light: "#ffffff"
   ps-frame-light: "#1830b8"
   ps-rule-light: "#b4bce0"
+  ps-frame-2-light: "#1830b8"
   ps-ink-light: "#0c0e1c"
   ps-dim-light: "#4a5070"
   ps-accent-light: "#0f6a41"
@@ -404,7 +406,7 @@ Home (`/user`) is a play-call screen: a near-black field, NES-blue play cards wi
 
 ### Palette (both themes)
 - **Field** (ps-field): the page ground, near-black in dark and pale lavender-white in light. **Panel** (ps-panel): the fill inside frames.
-- **Frame** (ps-frame): the double rule, pale periwinkle in dark and the play blue in light. **Rule** (ps-rule): the 2px inner dividers.
+- **Frame** (ps-frame): the double rule, pale periwinkle in dark and the play blue in light. **Rule** (ps-rule): the 2px inner dividers. **Frame 2** (ps-frame-2): the 2px edge of a tertiary frame, the Rule colour on the dark Field and the Frame colour on the lavender one.
 - **Ink** and **Dim** (ps-ink, ps-dim): text tiers on the page and panels.
 - **Play, Play field, Play ink, Play dim**: the card's NES-blue fill, its darker field band, the white diagram and name, and the pale blue for league lines and hash marks. **Play accent** with **On play accent** is the field green of the filled foot and the Live lock line on the card. Fixed in both themes, like the scoreboard.
 - **Accent** (ps-accent) with **On accent**: field green in dark and the deep green in light; the one filled action and live state.

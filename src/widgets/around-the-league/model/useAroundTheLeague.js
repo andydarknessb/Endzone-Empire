@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { useLeague } from '../../../hooks/useLeague';
 import { useLeagueMatchups } from '../../../entities/matchup';
+import { useLeagueStandings } from '../../../entities/standings';
 import { isPickemOnly } from '../../../shared/lib';
 import { aroundLeagueTileView } from './tileView';
 
@@ -26,6 +27,9 @@ import { aroundLeagueTileView } from './tileView';
  * league resolves as pick'em-only, before the loading state ever shows a
  * skeleton for a fetch this league will never answer.
  */
+// Rival games shown on game day.
+const RIVAL_TILES = 3;
+
 export function useAroundTheLeague(leagueId) {
   const {
     league,
@@ -33,10 +37,15 @@ export function useAroundTheLeague(leagueId) {
     loading: leagueLoading,
     error: leagueError,
   } = useLeague(leagueId);
-  const { matchups, loading: matchupsLoading, error: matchupsError } = useLeagueMatchups(leagueId);
+  const {
+    matchups, loading: matchupsLoading, error: matchupsError, refetch,
+  } = useLeagueMatchups(leagueId);
 
   const pickemOnly = isPickemOnly(league);
   const currentWeek = league?.current_week ?? null;
+  // Standing positions, only to pick the viewer's rivals on game day. The read is the standings
+  // table's own shared cache entry, and a failed one just leaves the matchups in their own order.
+  const { rows: standingRows } = useLeagueStandings(pickemOnly ? null : leagueId, currentWeek);
 
   const weekMatchups = useMemo(() => {
     if (currentWeek == null) return [];
@@ -57,14 +66,32 @@ export function useAroundTheLeague(leagueId) {
 
   // "Live" replaces "Projected" the moment any tile's own Matchup has
   // started (the entity's `hasStarted === true`, ADR 0030); an unknown
-  // status never flips the headline on its own.
-  const anyStarted = tiles.some((tile) => tile.started);
+  // status never flips the headline on its own. That is game day.
+  const gameDay = tiles.some((tile) => tile.started);
+
+  // The viewer's own matchup is the page's Matchup panel, so this strip is "the other matchups"
+  // (a viewer with no Team of their own sees every one). On game day it folds to the three rival
+  // games: the matchups whose teams stand nearest the viewer, ties going to the higher standing.
+  const others = useMemo(() => {
+    const rest = tiles.filter((tile) => !tile.isViewer);
+    if (!gameDay || viewerTeamId == null) return rest;
+    const position = new Map(standingRows.map((row) => [row.teamId, row.position]));
+    const mine = position.get(viewerTeamId);
+    if (mine == null) return rest.slice(0, RIVAL_TILES);
+    const near = (tile) => Math.min(
+      ...[tile.home.teamId, tile.away.teamId].map((id) => (position.has(id) ? Math.abs(position.get(id) - mine) : Infinity)),
+    );
+    const high = (tile) => Math.min(...[tile.home.teamId, tile.away.teamId].map((id) => position.get(id) ?? Infinity));
+    return [...rest].sort((a, b) => near(a) - near(b) || high(a) - high(b)).slice(0, RIVAL_TILES);
+  }, [tiles, gameDay, viewerTeamId, standingRows]);
 
   return {
     status,
-    tiles,
-    count: tiles.length,
-    tailLabel: anyStarted ? 'Live' : 'Projected',
+    tiles: others,
+    count: others.length,
+    gameDay,
+    tailLabel: gameDay ? 'Live' : 'Projected',
+    refetch,
   };
 }
 

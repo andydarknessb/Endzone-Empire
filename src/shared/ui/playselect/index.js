@@ -11,10 +11,13 @@ export {
   Frame, FrameHead, PixelHeading, CountBadge,
 } from './Frame';
 export {
-  Pictogram, PixelArrow, PixelClock, PixelWarn,
+  Pictogram, PixelArrow, PixelCheck, PixelClock, PixelClose, PixelSpeech, PixelWarn,
 } from './Icons';
+export {
+  InjuryTag, PosTag, StatusChip, Tag, TeamMark, YouTag,
+} from './Marks';
 export { PlayCard } from './PlayCard';
 export { OddsBar } from './OddsBar';
 export {
-  PsButton, PsLink, LiveChip, ErrorPanel, Skel,
+  PsButton, PsLink, PsLinkButton, LiveChip, ErrorPanel, Skel,
 } from './Controls';

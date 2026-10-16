@@ -1,5 +1,6 @@
 import React from 'react';
 import { screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../../test-utils/renderWithProviders';
 import apiClient from '../../../api/apiClient';
 import { invalidate, setResource } from '../../../lib/resourceCache';
@@ -131,22 +132,6 @@ const rulesUnder = (el) => {
   return found;
 };
 
-// The element's rules that live inside `@media` blocks (rulesUnder sees only
-// top-level rules), each as "<condition>{<declarations>}".
-const mediaRulesUnder = (el) => {
-  const cls = Array.from(el.classList).find((c) => c.startsWith('css-'));
-  let text = '';
-  Array.from(document.styleSheets).forEach((sheet) => {
-    Array.from(sheet.cssRules).forEach((rule) => {
-      if (!rule.media || !rule.cssRules) return;
-      Array.from(rule.cssRules).forEach((inner) => {
-        if (inner.selectorText === `.${cls}`) text += `${rule.media.mediaText}{${inner.style.cssText}}`;
-      });
-    });
-  });
-  return text;
-};
-
 const tileRow = () => rulesUnder(screen.getByTestId('my-team-tiles'))[''];
 
 // --- the tile track --------------------------------------------------------
@@ -167,25 +152,14 @@ test('two tiles fill the row when power rankings 404', async () => {
   expect(screen.queryByTestId('stat-playoff-odds')).not.toBeInTheDocument();
   expect(screen.queryByTestId('stat-capacity')).not.toBeInTheDocument();
 
-  // A wrapping flex row of equal-growing tiles, so those two fill the card
-  // instead of leaving a third track empty, and a row that does not fit
-  // (five tiles in a 322px phone card) wraps instead of squeezing every tile
-  // to 55px (jsdom lays nothing out; the wrap itself was measured in
-  // Chromium, see the widget docblock). Red-tell: put `repeat(3, 1fr)` or the
-  // one-line `grid-auto-flow: column` back and these are the assertions that
-  // go red.
+  // A wrapping flex row of plain label-over-value facts (no boxed tiles on a Play-select frame), so a
+  // row that does not fit a phone wraps instead of squeezing every fact (jsdom lays nothing out).
   const row = tileRow();
   expect(row).toMatch(/display:\s*flex/);
   expect(row).toMatch(/flex-wrap:\s*wrap/);
   expect(row).not.toMatch(/grid-auto-flow/);
-  expect(row).not.toMatch(/repeat\(3/);
-  const tile = rulesUnder(screen.getByTestId('stat-roster-value'))[''];
-  expect(tile).toMatch(/flex:\s*1 1 86px/);
-  // ...and the wider `lg` basis (the 430px desktop hero card otherwise packs
-  // four on the first line and strands the fifth full width).
-  expect(mediaRulesUnder(screen.getByTestId('stat-roster-value'))).toMatch(
-    /min-width:\s*1200px[^{]*\{[^}]*flex:\s*1 1 104px/
-  );
+  const fact = rulesUnder(screen.getByTestId('stat-roster-value'))[''];
+  expect(fact).not.toMatch(/background-color|border/);
 });
 
 // Red-tell (#1979 L13): rendering the tile with a dash again when the read has
@@ -251,7 +225,7 @@ test('while the draft-grades read is in flight both tiles hold their place as sk
   ).toBeInTheDocument();
 });
 
-test('the loading row lays its skeletons on the same auto-flow track', async () => {
+test('the loading row holds its skeletons on the same wrapping track', async () => {
   // The standings spine is the card's loading state, and its three skeletons
   // are why a conditional track count cannot work: the count would change under
   // the reader as each read lands.
@@ -262,12 +236,7 @@ test('the loading row lays its skeletons on the same auto-flow track', async () 
   const row = tileRow();
   expect(row).toMatch(/flex-wrap:\s*wrap/);
   expect(row).not.toMatch(/repeat\(3/);
-  // The skeleton tile shares the real tile's basis, so the loading row wraps
-  // at the same width the ready row will.
-  // The skeleton tile has no testid of its own; its first skeleton's parent is it.
-  // eslint-disable-next-line testing-library/no-node-access
-  const skeletonTile = screen.getAllByTestId('my-team-skeleton')[1].parentElement;
-  expect(rulesUnder(skeletonTile)['']).toMatch(/flex:\s*1 1 86px/);
+  expect(screen.getByTestId('my-team-summary')).toHaveAttribute('aria-busy', 'true');
 });
 
 test('a full payload renders five tiles in one row', async () => {
@@ -401,9 +370,10 @@ test('the Team name box breaks inside itself rather than over its neighbour', as
   mountWith();
 
   const heading = await screen.findByRole('heading', { level: 2, name: 'MyBallsHurts' });
-  // The zero minimum on the identity column is only safe because the box of
-  // words on it is told to break (#916/#917/#919/#921).
-  expect(rulesUnder(heading)['']).toMatch(/overflow-wrap:\s*anywhere/);
+  // A long Team name must break inside its own box (#916/#917/#919/#921): the name span in the
+  // frame head is told to break anywhere.
+  // eslint-disable-next-line testing-library/no-node-access
+  expect(rulesUnder(heading.firstElementChild)['']).toMatch(/overflow-wrap:\s*anywhere/);
 });
 
 // --- Starters section (#1101) ----------------------------------------------
@@ -655,23 +625,24 @@ test('a null opponent renders the team code alone, with no "vs" clause', async (
   expect(within(row).queryByText(/vs/)).not.toBeInTheDocument();
 });
 
-test('a questionable starter carries a warning Badge reading the wire abbreviation', async () => {
+test('a questionable starter carries an outlined tag reading the wire abbreviation', async () => {
   mountWith({
     [LINEUP_URL]: lineupResponse([lineupRow({ id: 1, name: 'Hurt Guy', slot: 'QB', injury_status: 'Q' })]),
   });
 
   const row = await screen.findByTestId('starter-row');
   const badge = within(row).getByTestId('starter-injury-badge');
-  expect(badge).toHaveAttribute('data-variant', 'warning');
+  expect(badge).toHaveAttribute('data-status', 'Q');
   expect(badge).toHaveTextContent('Q');
+  // Questionable is outlined, never filled and never red (Out alone is a filled Ink chip).
+  expect(rulesUnder(badge)['']).not.toMatch(/background-color/);
   // The visible label stays the abbreviation, but the accessible description
-  // expands it to the full designation (InjuryTag's own convention): "Injury
-  // status: Q" would leave a screen-reader user unable to tell Out from
-  // Questionable by ear.
+  // expands it to the full designation: "Injury status: Q" would leave a
+  // screen-reader user unable to tell Out from Questionable by ear.
   expect(within(badge).getByText('Injury status: Questionable')).toBeInTheDocument();
 });
 
-test('an unrecognized injury code still renders the warning Badge with the raw code', async () => {
+test('an unrecognized injury code still renders an outlined tag with the raw code', async () => {
   // #1165: the row's fallback for a code injuryView does not recognize is the
   // raw trimmed code, not a dropped flag - the #1101 n1 ruling that "when the
   // starter carries one" means any non-null status, not only a recognized one.
@@ -681,7 +652,7 @@ test('an unrecognized injury code still renders the warning Badge with the raw c
 
   const row = await screen.findByTestId('starter-row');
   const badge = within(row).getByTestId('starter-injury-badge');
-  expect(badge).toHaveAttribute('data-variant', 'warning');
+  expect(badge).toHaveAttribute('data-status', 'PUP');
   expect(badge).toHaveTextContent('PUP');
   expect(within(badge).getByText('Injury status: PUP')).toBeInTheDocument();
 });
@@ -716,16 +687,117 @@ test('a pick-em-only viewer never mounts the starters section, and the lineup is
   expect(screen.queryByTestId('my-team-starters')).not.toBeInTheDocument();
 });
 
-test('the Set Lineup control links to /league/42/lineup', async () => {
+// --- the Play-select look --------------------------------------------------
+
+test('an out starter is a filled Ink tag, and a position tag carries the slot', async () => {
+  mountWith({
+    [LINEUP_URL]: lineupResponse([lineupRow({ id: 1, name: 'Out Guy', slot: 'WR', injury_status: 'O' })]),
+  });
+
+  const row = await screen.findByTestId('starter-row');
+  const tag = within(row).getByTestId('starter-injury-badge');
+  expect(tag).toHaveTextContent('OUT');
+  expect(rulesUnder(tag)['']).toMatch(/background-color:\s*var\(--ps-ink\)/);
+  expect(within(row).getByTestId('pos-chip')).toHaveAttribute('data-position', 'wr');
+  // The column is labelled once, for the whole list.
+  expect(within(screen.getByTestId('my-team-starters')).getByText('Proj')).toBeInTheDocument();
+});
+
+test('the frame states the Record in Pixel 24 with points for and against and the standing line', async () => {
+  mountWith();
+
+  expect(await screen.findByTestId('my-team-record')).toHaveTextContent('3-1');
+  expect(screen.getByTestId('my-team-points-for')).toHaveTextContent('Points for');
+  expect(screen.getByTestId('my-team-points-against')).toHaveTextContent('Points against');
+  expect(screen.getByTestId('my-team-rank')).toHaveTextContent('2nd of 2');
+  expect(screen.getByText('You')).toBeInTheDocument();
+  expect(rulesUnder(screen.getByTestId('my-team-record'))['']).toMatch(/font-size:\s*24px/);
+});
+
+test('the foot links Lineup, Waivers and Trades, each named for the Team', async () => {
+  mountWith();
+
+  const nav = await screen.findByRole('navigation', { name: 'MyBallsHurts' });
+  expect(within(nav).getByRole('link', { name: 'MyBallsHurts lineup' })).toHaveAttribute('href', '/league/1/lineup');
+  expect(within(nav).getByRole('link', { name: 'MyBallsHurts waivers' })).toHaveAttribute('href', '/league/1/waivers');
+  expect(within(nav).getByRole('link', { name: 'MyBallsHurts trades' })).toHaveAttribute('href', '/league/1/trades');
+});
+
+test('an incomplete lineup offers Fix lineup, and the page can take it away when Your move carries the play', async () => {
+  const sevenStarters = () => lineupResponse(wireEntries(nineStarters().slice(0, 7)));
   setResource(['league', 42], leagueDetail({}));
   mockGetByUrl({
     '/api/scoring/league/42/standings': standingsResponse(),
     '/api/league/42/draft-grades': draftGradesResponse(),
     '/api/scoring/league/42/power-rankings': powerRankingsResponse(),
-    '/api/team/lineup?leagueId=42&week=3': lineupResponse(nineStarters()),
+    '/api/team/lineup?leagueId=42&week=3': sevenStarters(),
   });
-  renderWithProviders(<MyTeamSummary leagueId={42} />);
+  const { unmount } = renderWithProviders(<MyTeamSummary leagueId={42} />);
 
-  const link = await screen.findByRole('link', { name: 'Set Lineup' });
+  const link = await screen.findByRole('link', { name: 'Fix lineup' });
   expect(link.getAttribute('href')).toBe('/league/42/lineup');
+  unmount();
+
+  mockGetByUrl({
+    '/api/scoring/league/42/standings': standingsResponse(),
+    '/api/league/42/draft-grades': draftGradesResponse(),
+    '/api/scoring/league/42/power-rankings': powerRankingsResponse(),
+    '/api/team/lineup?leagueId=42&week=3': sevenStarters(),
+  });
+  renderWithProviders(<MyTeamSummary leagueId={42} fixLineup={false} />);
+  expect(await screen.findByTestId('my-team-lineup-status')).toHaveTextContent('Lineup incomplete · 7 of 9');
+  expect(screen.queryByRole('link', { name: 'Fix lineup' })).not.toBeInTheDocument();
+});
+
+test('a set lineup has no Fix lineup link', async () => {
+  mountWith({ league: { roster_slots: NINE_SLOT_LEAGUE }, [LINEUP_URL]: lineupResponse(wireEntries(nineStarters())) });
+
+  await screen.findByTestId('my-team-lineup-check');
+  expect(screen.queryByRole('link', { name: 'Fix lineup' })).not.toBeInTheDocument();
+});
+
+test('before the draft no lineup is read and the card says lineups open after it', async () => {
+  mountWith({
+    league: { draft_status: 'pending', season_status: 'pending', waiver_type: 'faab', faab_budget: 100 },
+    teams: [{ teamId: 1, id: 1, teamName: 'MyBallsHurts', faab_remaining: 100 }],
+  });
+
+  expect(await screen.findByTestId('my-team-lineup-status')).toHaveTextContent('Lineups open after the draft');
+  expect(apiClient.get).not.toHaveBeenCalledWith(expect.stringContaining('/api/team/lineup'));
+  expect(screen.queryByTestId('my-team-starters')).not.toBeInTheDocument();
+  expect(await screen.findByTestId('stat-capacity')).toHaveTextContent('100/100');
+});
+
+test('wide seats the numbers and status beside the starters', async () => {
+  setResource(['league', 1], leagueDetail({}));
+  mockGetByUrl({
+    '/api/scoring/league/1/standings': standingsResponse(),
+    '/api/league/1/draft-grades': draftGradesResponse(),
+    '/api/scoring/league/1/power-rankings': powerRankingsResponse(),
+    [LINEUP_URL]: lineupResponse(wireEntries(nineStarters())),
+  });
+  renderWithProviders(<MyTeamSummary leagueId={1} wide />);
+
+  expect(await screen.findByTestId('my-team-starters')).toBeInTheDocument();
+  expect(screen.getByTestId('my-team-lineup-status')).toHaveTextContent('Lineup set · 9 of 9');
+  expect(screen.getByTestId('my-team-record')).toBeInTheDocument();
+});
+
+test('a failed standings read is one danger panel that re-fires the read', async () => {
+  mountWith({ '/api/scoring/league/1/standings': { reject: { response: { status: 500 } } } });
+
+  expect(await screen.findByRole('alert')).toHaveTextContent('We could not load your team summary right now.');
+  const reads = () => apiClient.get.mock.calls.filter(([url]) => String(url).includes('/standings')).length;
+  const before = reads();
+  await userEvent.click(screen.getByRole('button', { name: 'Try loading your team summary again' }));
+  await waitFor(() => expect(reads()).toBeGreaterThan(before));
+});
+
+test('the frame never wears the cursor or a filled action', async () => {
+  mountWith({ [LINEUP_URL]: lineupResponse(wireEntries(nineStarters().slice(0, 7))) });
+
+  const card = await screen.findByTestId('my-team-summary');
+  await screen.findByTestId('my-team-starters');
+  // eslint-disable-next-line testing-library/no-node-access
+  expect(card.querySelector('.cursor, [data-filled="true"]')).toBeNull();
 });

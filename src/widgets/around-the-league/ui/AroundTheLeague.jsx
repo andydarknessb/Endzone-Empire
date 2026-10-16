@@ -1,318 +1,284 @@
-import React from 'react';
-import { Box, Link as MuiLink, Typography, useMediaQuery, useTheme } from '@mui/material';
-import { visuallyHidden } from '@mui/utils';
+import React, { useId } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
-import { Badge, Card, Skeleton, SplitBar, TeamAvatar } from '../../../shared/ui';
+import { Box, useMediaQuery, useTheme } from '@mui/material';
+import {
+  ErrorPanel, Frame, FrameHead, LiveChip, OddsBar, PixelArrow, PixelHeading, pixelSx, PsLink, Skel, SR_ONLY_SX, StatusChip, TeamMark,
+} from '../../../shared/ui/playselect';
 import useAroundTheLeague from '../model/useAroundTheLeague';
 
 /**
- * League Dashboard widget (#1103, the canvas's "Around the league" card): six
- * compact matchup tiles for the league's current week, below the hero. Each
- * tile is two team rows (a 20px avatar, the Team name, and the projected
- * total before kickoff or the live score after, right-aligned tabular) over a
- * 5px SplitBar of the win probability; the viewer's own tile carries the
- * accent ring the recommended Quick Action tile uses (a `dash-accent-line`
- * border plus its matching 1px box-shadow ring, QuickActions.jsx) AND the
- * viewer's own row within that tile carries the visible `Badge variant="you"`
- * pill, the League Dashboard island's shared viewer-row marker (#671,
- * Badge.jsx): the ring is a border/box-shadow, colour and shape alone, so the
- * pill is what makes the viewer's row identifiable in the accessibility tree
- * rather than by colour only (WCAG 1.4.1), matching StandingsTable's
- * viewer rows. It sits on whichever SIDE (home or away) is
- * the viewer's own Team, never on both and never guessed from seating.
+ * League Dashboard Around the league widget (ADR 0067 wave 1b): the week's other matchups as small
+ * tiles in a tertiary frame (2px edge, Pixel 16 heading). The viewer's own matchup is the page's
+ * Matchup panel, so it is not repeated here; a viewer with no Team of their own sees every matchup.
  *
- * Each tile is one link to its Matchup's detail page
- * (`/league/:leagueId/matchups/:matchupId`, the tile view's `id`, #1981); a
- * tile with no id keeps the Game Center link, and the tail's Game Center link
- * is unchanged.
+ * A tile is framed before kickoff (Proj figures, a Frame-colour odds bar), Board black once started
+ * (the leader white, the trailer dim; the odds bar green only while live) and a result when settled.
+ * Each tile is one link to its matchup, named by a sentence that states both sides, the figures and
+ * the win probability. Win probability is the entity board's (#2142), the figure Game Center reads.
  *
- * From `md` the tiles share one row of as many equal columns as there are
- * tiles, capped at six (#1981): a short week (one to three matchups) widens its
- * tiles across the strip instead of leaving columns empty, a full twelve-team
- * week is one row of six, and seven or more wrap to a further row. (An
- * `auto-fit` track left a lone tile on a second row for six matchups.) Below
- * `md` they become a horizontal scroller of 200px tiles
- * (docs/design/league-dashboard-v2/build.mjs, aroundLeague()). Widgets never
- * import widgets (CONTEXT.md carry-over from ADR 0020): this tile is this
- * slice's own, not matchup-grid's. The scroller keeps its `tabIndex={0}`, an
- * accessible name and a focus ring (the same shape nfl-game-strip's scroller
- * uses, NflGameStrip.jsx), unchanged from before the tiles were links: it
- * makes the strip itself a keyboard stop that arrow keys scroll, while Tab onto
- * a tile (now a link) also scrolls that tile into view.
+ * Game day (any matchup started) folds the strip to the viewer's three rival games, the ones whose
+ * teams stand nearest the viewer, and every state ends in an "All matchups in Game Center" tile.
+ * Below md the tiles scroll sideways inside the frame, a named, focusable region.
  *
- * Each figure also carries a visually hidden label naming what it is
- * ("Score" once the Matchup has started, "Projected" before it), because two
- * different numbers share the same slot and the tile's own status is the
- * only thing that says which one is on screen; a missing figure (the "-"
- * placeholder) carries its own visually hidden "Not available" rather than
- * announcing silence. Both follow matchup-preview's own NotAvailable/label
- * convention.
- *
- * The widget owns its own reads (useAroundTheLeague): while they are in
- * flight it holds its layout with six skeleton tiles, and if either fails it
- * renders one compact, self-contained alert sentence, so a failed read never
- * touches the rest of the page. A pick'em-only league never mounts a body at
- * all (CONTEXT.md: League type - no fantasy Matchups exist to show), and an
- * empty current week (every Matchup filtered away, or none generated yet)
- * renders nothing, the same "the page decides what an empty week says"
- * convention matchup-grid uses.
- *
- * Composes `shared/ui` (ADR 0020) and paints only `dash-*` tokens already
- * registered in tokens.contrast.test.js: ink/dim/faint on the card surface
- * and on a `dash-surface2` tile (both pairs matchup-grid and the stat tiles
- * already certify), the "You" pill's accent-on-accent-soft over a card (the
- * same pairing StandingsTable's pill already composes), and
- * SplitBar's own home/away segments on its `dash-surface3` track. The accent
- * ring is a border and a box-shadow, never text, so it composes no new
- * ink-on-surface pairing (the same reasoning QuickActions.jsx's ActionTile
- * ring records); the "Game Center" link inherits the tail's own
- * `dash-faint`-on-`dash-surface` color (Card.jsx) rather than painting a new
- * accent-on-surface pairing.
+ * The matchups read is the frame's spine: loading holds three skeleton tiles, and a failed read is
+ * one danger panel with a way to retry. Paints only ps-* tokens.
  */
 
-const SKELETON_COUNT = 6;
-const MAX_COLUMNS = 6;
+const SKELETON_COUNT = 3;
+const TILE_W = '280px';
 
-function pluralMatchups(count) {
-  return `${count} matchup${count === 1 ? '' : 's'}`;
+function pluralMatchups(count, rival) {
+  return `${count} ${rival ? 'rival ' : ''}matchup${count === 1 ? '' : 's'}`;
+}
+
+const figureWords = (tile) => `${tile.home.figure} to ${tile.away.figure}`;
+
+function tileLabel(tile, pct) {
+  const sides = `${tile.home.name} against ${tile.away.name}`;
+  const prob = pct == null ? '' : `, ${pct}% win probability for ${tile.home.name}`;
+  if (tile.final) return `${sides}, final, ${figureWords(tile)}`;
+  if (tile.live) return `${sides}, live, ${figureWords(tile)}${prob}`;
+  if (tile.started) return `${sides}, ${figureWords(tile)}${prob}`;
+  return `${sides}, ${tile.scheduled ? 'projected' : 'score'} ${figureWords(tile)}${prob}`;
 }
 
 export default function AroundTheLeague({ leagueId }) {
   const theme = useTheme();
   const compact = useMediaQuery(theme.breakpoints.down('md'), { noSsr: true });
-  const { status, tiles, count, tailLabel } = useAroundTheLeague(leagueId);
+  const {
+    status, tiles, count, gameDay, tailLabel, refetch,
+  } = useAroundTheLeague(leagueId);
+  const headingId = useId();
 
   if (status === 'hidden') return null;
   if (status === 'ready' && tiles.length === 0) return null;
 
-  // The scroller is only a real scroller once it holds the real tiles: while
-  // loading or on a failed read there is nothing below `md` to pan to, so it
-  // stays a plain (non-focusable) container rather than adding an empty tab
-  // stop.
-  const scrollable = compact && status === 'ready';
+  if (status === 'error') {
+    return (
+      <Box data-testid="around-the-league">
+        <ErrorPanel
+          title="Around the league"
+          body="We could not load this week's matchups right now."
+          onRetry={refetch}
+          retryAriaLabel="Try loading the matchups again"
+        />
+      </Box>
+    );
+  }
 
-  // One column per tile up to six; the loading skeleton holds the full six, and
-  // an error sentence needs just the one.
-  const columns =
-    status === 'ready' ? Math.min(tiles.length, MAX_COLUMNS) : status === 'loading' ? MAX_COLUMNS : 1;
-
-  const tail = (
-    <>
-      {status === 'ready' ? `${tailLabel} · ` : null}
-      <MuiLink
-        component={RouterLink}
-        to={`/league/${leagueId}/game-center`}
-        sx={{ color: 'inherit', textDecoration: 'underline' }}
-      >
-        Game Center
-      </MuiLink>
-    </>
-  );
+  const ready = status === 'ready';
+  const columns = gameDay ? 4 : 3;
 
   return (
-    <Card
+    <Frame
+      tier="rule"
+      labelledBy={headingId}
       data-testid="around-the-league"
-      title="Around the league"
-      count={status === 'ready' ? pluralMatchups(count) : null}
-      tail={tail}
       aria-busy={status === 'loading'}
+      head={(
+        <FrameHead>
+          <PixelHeading id={headingId} size={16}>Around the league</PixelHeading>
+          {ready && (
+            <Box component="span" sx={{ fontSize: '13px', color: 'var(--ps-dim)' }}>
+              {`${pluralMatchups(count, gameDay)} · win probability · `}
+              <Box component="span" sx={{ whiteSpace: 'nowrap' }}>Endzone Forecast</Box>
+            </Box>
+          )}
+          <Box component="span" sx={{ marginLeft: 'auto' }}>
+            <PsLink to={`/league/${leagueId}/game-center`}>{ready ? `${tailLabel} · Game Center` : 'Game Center'}</PsLink>
+          </Box>
+        </FrameHead>
+      )}
     >
       <Box
-        component={status === 'ready' ? 'ul' : 'div'}
-        role={status === 'ready' ? 'list' : undefined}
-        tabIndex={scrollable ? 0 : undefined}
-        aria-label={scrollable ? "This week's matchups" : undefined}
+        component={ready ? 'ul' : 'div'}
+        role={ready ? 'list' : undefined}
+        tabIndex={compact && ready ? 0 : undefined}
+        aria-label={compact && ready ? "This week's matchups" : undefined}
         data-testid="around-the-league-body"
         data-layout={compact ? 'scroll' : 'grid'}
         sx={{
           listStyle: 'none',
           m: 0,
-          p: '14px 18px',
+          padding: { xs: '14px', md: '20px' },
           display: compact ? 'flex' : 'grid',
           gridTemplateColumns: compact ? undefined : `repeat(${columns}, minmax(0, 1fr))`,
-          gap: '10px',
+          gap: { xs: '12px', md: '16px' },
           overflowX: compact ? 'auto' : 'visible',
-          '&:focus-visible': scrollable
-            ? { outline: '2px solid var(--focus-ring)', outlineOffset: 2 }
-            : undefined,
+          scrollSnapType: compact ? 'x mandatory' : undefined,
         }}
       >
-        {status === 'loading' &&
-          Array.from({ length: SKELETON_COUNT }, (_, i) => (
-            <SkeletonTile key={`skeleton-${i}`} compact={compact} />
-          ))}
+        {status === 'loading'
+          && Array.from({ length: SKELETON_COUNT }, (_, i) => <SkeletonTile key={`skeleton-${i}`} compact={compact} />)}
 
-        {status === 'error' && (
-          <Typography
-            role="alert"
-            data-testid="around-the-league-error"
-            sx={{ fontSize: '13px', color: 'var(--dash-ink)' }}
+        {ready && tiles.map((tile, index) => (
+          <Box
+            component="li"
+            key={tile.id != null ? tile.id : `index-${index}`}
+            sx={{ minWidth: 0, flex: compact ? `0 0 ${TILE_W}` : undefined, scrollSnapAlign: compact ? 'start' : undefined }}
           >
-            We could not load this week&apos;s matchups right now.
-          </Typography>
-        )}
+            <Tile
+              tile={tile}
+              to={tile.id != null ? `/league/${leagueId}/matchups/${tile.id}` : `/league/${leagueId}/game-center`}
+            />
+          </Box>
+        ))}
 
-        {status === 'ready' &&
-          tiles.map((tile, index) => (
+        {ready && (
+          <Box component="li" sx={{ minWidth: 0, flex: compact ? '0 0 200px' : undefined, scrollSnapAlign: compact ? 'start' : undefined }}>
             <Box
-              component="li"
-              key={tile.id != null ? tile.id : `index-${index}`}
-              sx={{ minWidth: 0, flex: compact ? '0 0 200px' : undefined }}
+              component={RouterLink}
+              to={`/league/${leagueId}/game-center`}
+              data-testid="around-the-league-all"
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '10px',
+                boxSizing: 'border-box',
+                height: '100%',
+                minHeight: '88px',
+                border: '2px dashed var(--ps-frame)',
+                color: 'inherit',
+                fontSize: '15px',
+                fontWeight: 600,
+                textAlign: 'center',
+                textDecoration: 'none',
+              }}
             >
-              <Tile
-                tile={tile}
-                to={
-                  tile.id != null
-                    ? `/league/${leagueId}/matchups/${tile.id}`
-                    : `/league/${leagueId}/game-center`
-                }
-              />
+              All matchups in Game Center
+              <PixelArrow />
             </Box>
-          ))}
+          </Box>
+        )}
       </Box>
-    </Card>
+    </Frame>
+  );
+}
+
+const tileBase = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '12px',
+  padding: '14px',
+  boxSizing: 'border-box',
+  height: '100%',
+  minWidth: 0,
+  textDecoration: 'none',
+};
+
+function WinLine({ pct, name, colors }) {
+  return (
+    <Box sx={{ fontSize: '13px', color: colors.dim }}>
+      <Box component="b" sx={{ color: colors.ink }}>{`${pct}%`}</Box>
+      {` ${name}`}
+    </Box>
   );
 }
 
 function Tile({ tile, to }) {
-  // Keyed off `scheduled` (ADR 0030's `hasStarted === false`), the same
-  // predicate the figure's own VALUE is keyed off (tileView.js), never off
-  // `!tile.started`: an unknown status is neither started nor scheduled, and
-  // the figure there is already the score (a stored fact), so the label
-  // must read "Score" too, not "Projected" - a false accessible name is the
-  // same class of defect #872 forbade for SplitBar.
+  const pct = tile.homeShare != null ? Math.round(tile.homeShare * 100) : null;
+  const board = tile.started;
+  const colors = board
+    ? { ink: 'var(--ps-board-ink)', dim: 'var(--ps-board-dim)' }
+    : { ink: 'var(--ps-ink)', dim: 'var(--ps-dim)' };
+  const decided = tile.home.points != null && tile.away.points != null && tile.home.points !== tile.away.points;
+  const leader = decided ? (tile.home.points > tile.away.points ? tile.home : tile.away) : null;
+  const margin = decided ? Math.abs(tile.home.points - tile.away.points).toFixed(1) : null;
   const figureLabel = tile.scheduled ? 'Projected' : 'Score';
+  const leads = (side) => !board || leader == null || leader === side;
+
   return (
     <Box
       component={RouterLink}
       to={to}
+      aria-label={tileLabel(tile, pct)}
       data-testid="around-the-league-tile"
       data-matchup-id={tile.id}
-      data-viewer-tile={tile.isViewer || undefined}
+      data-state={tile.live ? 'live' : tile.settled ? 'final' : tile.started ? 'started' : 'scheduled'}
       sx={{
-        display: 'flex',
-        textDecoration: 'none',
-        color: 'inherit',
-        flexDirection: 'column',
-        gap: '6px',
-        minWidth: 0,
-        padding: '10px 12px',
-        borderRadius: 'var(--dash-radius-sm)',
-        backgroundColor: 'var(--dash-surface2)',
-        border: `1px solid ${tile.isViewer ? 'var(--dash-accent-line)' : 'var(--dash-line)'}`,
-        boxShadow: tile.isViewer ? '0 0 0 1px var(--dash-accent-line)' : 'none',
-        '&:hover': tile.isViewer
-          ? { textDecoration: 'none' }
-          : { borderColor: 'var(--dash-line-strong)', textDecoration: 'none' },
-        '&:focus-visible': { outline: '2px solid var(--focus-ring)', outlineOffset: 2 },
+        ...tileBase,
+        color: colors.ink,
+        backgroundColor: board ? 'var(--ps-board)' : 'var(--ps-panel)',
+        border: `2px solid ${board ? 'var(--ps-board-dim)' : 'var(--ps-frame)'}`,
       }}
     >
-      <TileRow side={tile.home} testId="around-the-league-tile-home" figureLabel={figureLabel} />
-      <TileRow side={tile.away} testId="around-the-league-tile-away" figureLabel={figureLabel} />
-      {tile.homeShare != null && (
-        <SplitBar
-          homeName={tile.home.name}
-          awayName={tile.away.name}
-          homeShare={tile.homeShare}
-          height={5}
-        />
-      )}
-    </Box>
-  );
-}
-
-function TileRow({ side, testId, figureLabel }) {
-  return (
-    <Box data-testid={testId} sx={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
-      <TeamAvatar
-        name={side.name}
-        avatarUrl={side.avatarUrl}
-        avatarStaticUrl={side.avatarStaticUrl}
-        size={20}
-        data-testid={`${testId}-avatar`}
-      />
-      <Typography
-        component="span"
-        sx={{
-          flex: '1 1 0',
-          minWidth: 0,
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap',
-          fontSize: '12.5px',
-          fontWeight: 600,
-          color: 'var(--dash-ink)',
-        }}
-      >
-        {side.name}
-      </Typography>
-      {side.isViewer && (
-        <Badge variant="you" sx={{ flex: 'none' }}>
-          You
-        </Badge>
-      )}
-      <Figure label={figureLabel} value={side.figure} />
-    </Box>
-  );
-}
-
-// The right-aligned figure: a visually hidden label naming what it is (the
-// two states share one slot, so the label is the only thing that
-// disambiguates them for assistive tech), and a visually hidden "Not
-// available" standing in for the "-" placeholder, which is otherwise
-// announced as silence.
-function Figure({ label, value }) {
-  return (
-    <Typography
-      component="span"
-      data-testid="around-the-league-figure"
-      sx={{
-        flex: 'none',
-        fontSize: '13px',
-        fontWeight: 700,
-        fontVariantNumeric: 'tabular-nums',
-        color: 'var(--dash-ink)',
-      }}
-    >
-      <Box component="span" sx={visuallyHidden}>
-        {label}{' '}
-      </Box>
-      {value === '-' ? (
-        <>
-          <Box component="span" aria-hidden="true">
-            -
-          </Box>
-          <Box component="span" sx={visuallyHidden}>
-            Not available
-          </Box>
-        </>
+      {board ? (
+        <Box component="span" sx={{ alignSelf: 'flex-start' }}>
+          {tile.live ? <LiveChip onBoard /> : <StatusChip onBoard>{tile.final ? 'Final' : 'Awaiting final'}</StatusChip>}
+        </Box>
       ) : (
-        value
+        <Box
+          component="span"
+          aria-hidden="true"
+          sx={{
+            margin: '-4px 0 -6px', textAlign: 'right', fontSize: '13px', fontWeight: 600, letterSpacing: '.04em', textTransform: 'uppercase', color: colors.dim,
+          }}
+        >
+          {tile.scheduled ? 'Proj' : 'Score'}
+        </Box>
       )}
-    </Typography>
+      <TileRow side={tile.home} testId="around-the-league-tile-home" figureLabel={figureLabel} colors={colors} dim={board && !leads(tile.home)} />
+      <TileRow side={tile.away} testId="around-the-league-tile-away" figureLabel={figureLabel} colors={colors} dim={board && !leads(tile.away)} />
+      {pct != null && tile.live && (
+        <>
+          <OddsBar pct={pct} live onBoard label={false} name={tile.home.name} />
+          <WinLine pct={pct} name={tile.home.name} colors={colors} />
+        </>
+      )}
+      {pct != null && !board && (
+        <>
+          <OddsBar pct={pct} label={false} name={tile.home.name} />
+          <WinLine pct={pct} name={tile.home.name} colors={colors} />
+        </>
+      )}
+      {board && !tile.live && leader && (
+        <Box sx={{ fontSize: '13px', color: colors.dim }}>
+          <Box component="b" sx={{ color: colors.ink, fontWeight: 600 }}>{leader.name}</Box>
+          {` won by ${margin}`}
+        </Box>
+      )}
+    </Box>
   );
 }
 
-// One skeleton tile holds the real tile's shape (two rows, a bar) so the
-// layout does not jump when the reads land.
+function TileRow({
+  side, testId, figureLabel, colors, dim,
+}) {
+  return (
+    <Box data-testid={testId} sx={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0, color: dim ? colors.dim : colors.ink }}>
+      <TeamMark name={side.name} avatarUrl={side.avatarUrl} avatarStaticUrl={side.avatarStaticUrl} />
+      <Box component="span" sx={{ flex: 1, minWidth: 0, fontSize: '15px', fontWeight: 600 }}>{side.name}</Box>
+      <Box component="span" data-testid="around-the-league-figure" sx={{ ...pixelSx(16), flex: 'none' }}>
+        <Box component="span" sx={SR_ONLY_SX}>{`${figureLabel} `}</Box>
+        {side.figure === '-' ? (
+          <>
+            <Box component="span" aria-hidden="true">-</Box>
+            <Box component="span" sx={SR_ONLY_SX}>Not available</Box>
+          </>
+        ) : side.figure}
+      </Box>
+    </Box>
+  );
+}
+
 function SkeletonTile({ compact }) {
   return (
     <Box
       sx={{
-        flex: compact ? '0 0 200px' : undefined,
+        flex: compact ? `0 0 ${TILE_W}` : undefined,
         minWidth: 0,
         display: 'flex',
         flexDirection: 'column',
-        gap: '8px',
-        padding: '10px 12px',
-        borderRadius: 'var(--dash-radius-sm)',
-        backgroundColor: 'var(--dash-surface2)',
-        border: '1px solid var(--dash-line)',
+        gap: '12px',
+        padding: '14px',
+        boxSizing: 'border-box',
+        border: '2px solid var(--ps-rule)',
       }}
     >
-      <Skeleton variant="text" width="70%" height={16} />
-      <Skeleton variant="text" width="70%" height={16} />
-      <Skeleton variant="rounded" width="100%" height={5} />
+      <Skel width="70%" height={20} />
+      <Skel width="70%" height={20} />
+      <Skel width="100%" height={12} />
     </Box>
   );
 }
