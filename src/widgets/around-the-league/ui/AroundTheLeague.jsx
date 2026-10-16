@@ -250,7 +250,7 @@ function TileRow({
   return (
     <Box data-testid={testId} sx={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0, color: dim ? colors.dim : colors.ink }}>
       <TeamMark name={side.name} avatarUrl={side.avatarUrl} avatarStaticUrl={side.avatarStaticUrl} />
-      <Box component="span" sx={{ flex: 1, minWidth: 0, fontSize: '15px', fontWeight: 600 }}>{side.name}</Box>
+      <Box component="span" sx={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere', fontSize: '15px', fontWeight: 600 }}>{side.name}</Box>
       <Box component="span" data-testid="around-the-league-figure" sx={{ ...pixelSx(16), flex: 'none' }}>
         <Box component="span" sx={SR_ONLY_SX}>{`${figureLabel} `}</Box>
         {side.figure === '-' ? (

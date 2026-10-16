@@ -127,9 +127,10 @@ function matchupRow(
   awayId: number,
   status: 'scheduled' | 'live' | 'final',
   week = WEEK,
+  teams = DASH_TEAMS,
 ) {
   const started = status !== 'scheduled';
-  const names = (teamId: number) => DASH_TEAMS.find((t) => t.teamId === teamId)!.teamName;
+  const names = (teamId: number) => teams.find((t) => t.teamId === teamId)!.teamName;
   return {
     id,
     season: 2026,
@@ -151,16 +152,16 @@ function matchupRow(
   };
 }
 
-function matchupsBody(state: DashState) {
+function matchupsBody(state: DashState, teams = DASH_TEAMS) {
   const status = state === 'gamedayUrgent' || state === 'gamedaySet' ? 'live' : state === 'complete' ? 'final' : 'scheduled';
   const week = state === 'complete' ? 18 : WEEK;
   return [
-    matchupRow(918, VIEWER_TEAM_ID, 102, status, week),
-    matchupRow(919, 103, 104, status, week),
-    matchupRow(920, 105, 106, status, week),
-    matchupRow(921, 107, 108, status, week),
-    matchupRow(922, 109, 110, status, week),
-    matchupRow(923, 111, 112, status, week),
+    matchupRow(918, VIEWER_TEAM_ID, 102, status, week, teams),
+    matchupRow(919, 103, 104, status, week, teams),
+    matchupRow(920, 105, 106, status, week, teams),
+    matchupRow(921, 107, 108, status, week, teams),
+    matchupRow(922, 109, 110, status, week, teams),
+    matchupRow(923, 111, 112, status, week, teams),
   ];
 }
 
@@ -224,9 +225,11 @@ export type DashHarness = { items: () => Record<string, unknown>[] };
 export async function setupDashboard(
   page: Page,
   state: DashState,
-  opts: { theme?: DashTheme; now?: number } = {},
+  opts: { theme?: DashTheme; now?: number; teamNames?: Record<number, string> } = {},
 ): Promise<DashHarness> {
   const now = opts.now ?? Date.now();
+  // A per-call copy: DASH_TEAMS is shared by every test in the worker.
+  const teams = DASH_TEAMS.map((t) => ({ ...t, teamName: opts.teamNames?.[t.teamId] ?? t.teamName }));
   if (opts.theme) {
     await page.addInitScript((theme) => {
       try { window.localStorage.setItem('endzone_theme', theme); } catch { /* storage blocked: the app falls back to its default */ }
@@ -243,9 +246,9 @@ export async function setupDashboard(
     const { pathname } = new URL(request.url());
     if (request.method() !== 'GET') return route.fallback();
     if (pathname === `/api/league/${LEAGUE_ID}`) {
-      return json(route, 200, { league: leagueRow(state), teams: DASH_TEAMS, viewerTeamId: VIEWER_TEAM_ID });
+      return json(route, 200, { league: leagueRow(state), teams, viewerTeamId: VIEWER_TEAM_ID });
     }
-    if (pathname === `/api/league/${LEAGUE_ID}/matchups`) return json(route, 200, matchupsBody(state));
+    if (pathname === `/api/league/${LEAGUE_ID}/matchups`) return json(route, 200, matchupsBody(state, teams));
     if (pathname === `/api/scoring/league/${LEAGUE_ID}/standings`) return json(route, 200, standingsBody(pregame));
     if (pathname === '/api/user/action-items') {
       const counted = items.filter((i) => i.severity !== 'info');

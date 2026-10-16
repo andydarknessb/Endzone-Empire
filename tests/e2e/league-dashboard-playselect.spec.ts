@@ -111,6 +111,26 @@ test('phone standings: the viewer row with two teams either side and a Full stan
   await expect(rows).toHaveCount(12);
 });
 
+// An unbreakable team name (a real league has one) in a flex:1 / minWidth:0 span overflows its box into the
+// score unless the span breaks anywhere; names with spaces wrap, which is why the stock fixtures never caught it.
+test('phone around the league: a long one-word team name never runs under the score', async ({ page }) => {
+  unanswered = [];
+  await setupDashboard(page, 'gamedaySet', { theme: 'light', teamNames: { 103: 'DoDaPerpsHave@QB?WithNoSpaces', 106: 'CaShMeOuTsIdEeRiGhTnOwPlEaSe' } });
+  await page.setViewportSize(VIEWPORTS.phone);
+  await page.goto(DASH_URL);
+  await expect(page.getByTestId('around-the-league-tile').first()).toBeVisible();
+  await page.evaluate(() => document.fonts.ready.then(() => true));
+  const rows = await page.evaluate(() => Array.from(document.querySelectorAll('[data-testid="around-the-league-figure"]')).map((fig) => {
+    const name = fig.previousElementSibling as HTMLElement;
+    return { name: name.textContent, scrollWidth: name.scrollWidth, clientWidth: name.clientWidth, right: name.getBoundingClientRect().right, figureLeft: fig.getBoundingClientRect().left };
+  }));
+  expect(rows.some((r) => r.name === 'DoDaPerpsHave@QB?WithNoSpaces'), 'the long name is on a tile').toBe(true);
+  for (const r of rows) {
+    expect(r.scrollWidth, `${r.name}: text wider than its box`).toBeLessThanOrEqual(r.clientWidth);
+    expect(r.right, `${r.name}: name runs under the figure`).toBeLessThanOrEqual(r.figureLeft);
+  }
+});
+
 test('desktop standings: all twelve teams, no fold control', async ({ page }) => {
   await openDashboard(page, 'inseason', 'desktop');
   const table = page.getByTestId('standings-table');

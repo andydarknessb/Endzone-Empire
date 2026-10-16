@@ -148,6 +148,29 @@ test('phone: scrolled past the hero, a compact scoreboard no taller than 56px pi
   expect(top, 'the focused tile is not under the pinned bar').toBeGreaterThanOrEqual(56);
 });
 
+// The league matchups tile (sm and up) sets the name beside the figure; an unbreakable name must wrap inside its box.
+for (const viewport of ['desktop', 'tablet'] as const) {
+  test(`Game Center ${viewport}: a long one-word team name never runs under the tile's score`, async ({ page }) => {
+    unanswered = [];
+    await setupDashboard(page, 'gamedayUrgent', { theme: 'light', teamNames: { 103: 'DoDaPerpsHave@QB?WithNoSpaces', 106: 'CaShMeOuTsIdEeRiGhTnOwPlEaSe' } });
+    await page.route(`**/api/league/${LEAGUE_ID}/matchups/918`, (route: Route) => json(route, 200, lineupDetail()));
+    await page.setViewportSize(viewport === 'tablet' ? { width: 768, height: 900 } : VIEWPORTS.desktop);
+    await page.goto(GC_URL);
+    await expect(page.getByTestId('matchup-hero')).toBeVisible();
+    await expect(page.getByTestId('matchup-card').first()).toBeVisible();
+    await page.evaluate(() => document.fonts.ready.then(() => true));
+    const rows = await page.evaluate(() => Array.from(document.querySelectorAll('[data-testid="matchup-grid"] [data-testid="matchup-figure"]')).map((fig) => {
+      const name = (fig.parentElement!.children[1] as HTMLElement).firstElementChild as HTMLElement;
+      return { name: name.textContent, scrollWidth: name.scrollWidth, clientWidth: name.clientWidth, right: name.getBoundingClientRect().right, figureLeft: fig.getBoundingClientRect().left };
+    }));
+    expect(rows.some((r) => r.name?.startsWith('DoDaPerpsHave@QB?WithNoSpaces')), 'the long name is on a tile').toBe(true);
+    for (const r of rows) {
+      expect(r.scrollWidth, `${r.name}: text wider than its box`).toBeLessThanOrEqual(r.clientWidth);
+      expect(r.right, `${r.name}: name runs under the figure`).toBeLessThanOrEqual(r.figureLeft);
+    }
+  });
+}
+
 test('negative control: a forced overflow widens the document, so the scroll probe can fail', async ({ page }) => {
   await openGameCenter(page, 'live', 'phone', 'dark');
   await page.evaluate(() => {
