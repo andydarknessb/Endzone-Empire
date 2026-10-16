@@ -5,6 +5,7 @@ import { matchupFromListRow } from '../../../entities/matchup';
 import { MatchupGrid } from '../index';
 import { recordsByTeamId } from '../../../entities/standings';
 import { formatKickoff } from '../../../shared/lib';
+import { invalidate, setResource } from '../../../lib/resourceCache';
 
 // Fixtures are built through the entity's own list-row builder, so a test
 // proves the widget reads the one Matchup shape and never a wire column.
@@ -335,4 +336,22 @@ describe('below the sm breakpoint', () => {
       '/league/7/matchups/3',
     ]);
   });
+});
+
+test('a CPU-managed side (league teams[].is_cpu) carries the CPU label beside its name', () => {
+  setResource(['league', 7], {
+    league: { id: 7 },
+    teams: [{ teamId: 1, teamName: 'Bemidji Blizzard' }, { teamId: 2, teamName: 'Mankato Mavericks', is_cpu: true }],
+    viewerTeamId: 1,
+  });
+  try {
+    renderGrid({ matchups: [LIVE] });
+    expect(screen.getAllByTestId('cpu-badge')).toHaveLength(1);
+    const away = screen.getByTestId('matchup-side-away');
+    expect(within(away).getByText('Mankato Mavericks')).toBeInTheDocument();
+    expect(within(away).getByTestId('cpu-badge')).toHaveTextContent('CPU');
+    expect(within(screen.getByTestId('matchup-side-home')).queryByTestId('cpu-badge')).not.toBeInTheDocument();
+  } finally {
+    invalidate(['league', 7]);
+  }
 });

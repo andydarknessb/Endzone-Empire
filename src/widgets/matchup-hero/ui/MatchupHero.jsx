@@ -2,7 +2,8 @@ import React from 'react';
 import { Box, Typography } from '@mui/material';
 import { visuallyHidden } from '@mui/utils';
 import { Link as RouterLink } from 'react-router-dom';
-import { Card, Badge, DashButton, StatTile, SplitBar, TeamAvatar } from '../../../shared/ui';
+import { Card, Badge, CpuBadge, DashButton, StatTile, SplitBar, TeamAvatar } from '../../../shared/ui';
+import { useCpuTeamIds } from '../../../hooks/useCpuTeamIds';
 import { formatKickoff, teamNameLabel, ordinal } from '../../../shared/lib';
 import { matchupHeroView } from '../model/matchupHeroView';
 
@@ -68,6 +69,7 @@ export default function MatchupHero({
   ...rest
 }) {
   const view = matchupHeroView(matchup, viewerTeamId);
+  const cpuTeamIds = useCpuTeamIds(leagueId);
   const home = matchup?.home || {};
   const away = matchup?.away || {};
   const homeName = teamNameLabel(home.name);
@@ -109,6 +111,7 @@ export default function MatchupHero({
             scoreLabel={view.scoreLabels.home}
             name={homeName}
             isViewer={view.viewerSide === 'home'}
+            isCpu={cpuTeamIds.has(home.teamId)}
             records={records}
             ranks={ranks}
           />
@@ -144,6 +147,7 @@ export default function MatchupHero({
             scoreLabel={view.scoreLabels.away}
             name={awayName}
             isViewer={view.viewerSide === 'away'}
+            isCpu={cpuTeamIds.has(away.teamId)}
             records={records}
             ranks={ranks}
           />
@@ -223,7 +227,7 @@ export { MatchupHero };
  * (avatar outboard); the name row and the tiles keep the home side's reading
  * order, as the canvas's heroSide() draws them.
  */
-function HeroSide({ sideKey, side, scoreLabel, name, isViewer, records, ranks }) {
+function HeroSide({ sideKey, side, scoreLabel, name, isViewer, isCpu = false, records, ranks }) {
   const right = sideKey === 'away';
   const record = records ? records[side.teamId] : null;
   const rankText = ranks ? rankLabel(ranks[side.teamId]) : null;
@@ -318,6 +322,7 @@ function HeroSide({ sideKey, side, scoreLabel, name, isViewer, records, ranks })
             >
               {name}
             </Typography>
+            {isCpu && <CpuBadge />}
             {isViewer && <Badge variant="you">You</Badge>}
           </Box>
           {secondary && (

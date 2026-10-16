@@ -2,7 +2,7 @@ import React from 'react';
 import { Box, Typography } from '@mui/material';
 import { visuallyHidden } from '@mui/utils';
 import { Link as RouterLink } from 'react-router-dom';
-import { Badge, Card, DashButton, Skeleton, SplitBar, StatTile, TeamAvatar } from '../../../shared/ui';
+import { Badge, Card, CpuBadge, DashButton, Skeleton, SplitBar, StatTile, TeamAvatar } from '../../../shared/ui';
 import useMatchupPreview from '../model/useMatchupPreview';
 
 /**
@@ -250,6 +250,7 @@ function Side({ testid, side, started }) {
       >
         {side.name}
       </Typography>
+      {side.isCpu && <CpuBadge />}
       {started ? (
         <Figure data-testid="matchup-side-score">
           {side.score != null ? side.score : <Placeholder />}
