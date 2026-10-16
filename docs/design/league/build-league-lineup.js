@@ -7,7 +7,7 @@ const opts = { clock: 9, row: rowOpt };
 
 const body = `<main style="max-width: 1280px; margin: 0 auto; padding: 40px 32px 64px; display: flex; flex-direction: column; gap: 24px">
 ${k.head()}
-<div style="display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 24px; align-items: start">
+<div style="display: grid; grid-template-columns: minmax(0, 1.9fr) minmax(0, 1.1fr); gap: 24px; align-items: start">
 <div data-testid="lineup-roster-column" style="display: flex; flex-direction: column; gap: 24px; min-width: 0">${k.summaryStrip({ clock: 9 })}${k.startersFrame(opts)}${k.irFrame(opts)}${k.benchFrame(opts)}</div>
 <div data-testid="lineup-outlook-column" style="display: flex; flex-direction: column; gap: 24px; min-width: 0">${k.forecastPanel({ mode: 'pre' })}${k.byeClusters()}${k.matchupPreview({ mode: 'pre' })}</div>
 </div>

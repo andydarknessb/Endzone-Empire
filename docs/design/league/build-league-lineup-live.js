@@ -3,13 +3,16 @@
 const k = require('./league-kit-lineup');
 const out = process.argv[2];
 const D0 = require('./lineup-data');
-const note = k.lineupNote('live');
+const note0 = k.lineupNote('live');
+// A dot stays at the end of the line before it (never starts one); "next kickoff in 45 min" is one nowrap unit already.
+const cut = note0.indexOf('</svg></span><span>') + '</svg></span><span>'.length;
+const note = note0.slice(0, cut) + note0.slice(cut).replace(/(\S+) · /g, '$1&nbsp;· ');
 const rowOpt = e => (e.empty ? { cursor: 'urgent', note } : {});
 const opts = { clock: 240, row: rowOpt };
 
 const body = `<main style="max-width: 1280px; margin: 0 auto; padding: 40px 32px 64px; display: flex; flex-direction: column; gap: 24px">
 ${k.head({ live: true })}
-<div style="display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 24px; align-items: start">
+<div style="display: grid; grid-template-columns: minmax(0, 1.9fr) minmax(0, 1.1fr); gap: 24px; align-items: start">
 <div data-testid="lineup-roster-column" style="display: flex; flex-direction: column; gap: 24px; min-width: 0">${k.summaryStrip({ clock: 240 })}${k.startersFrame(opts)}${k.irFrame(opts)}${k.benchFrame(opts)}</div>
 <div data-testid="lineup-outlook-column" style="display: flex; flex-direction: column; gap: 24px; min-width: 0">${k.forecastPanel({ mode: 'live' })}${k.byeClusters()}${k.matchupPreview({ mode: 'live' })}</div>
 </div>

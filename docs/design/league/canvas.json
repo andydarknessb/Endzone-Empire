@@ -97,14 +97,14 @@
     },
     "Lineup.dc.html": {
       "expand": "fill",
-      "h": 2278,
+      "h": 2294,
       "title": "Wave 3: Lineup, before kickoff (desktop)",
       "w": 1440,
       "x": 2900,
       "y": 24600
     },
     "LineupPhone.dc.html": {
-      "h": 2214,
+      "h": 2263,
       "title": "Wave 3: Lineup, moving a player (phone)",
       "w": 390,
       "x": 4420,
@@ -251,7 +251,7 @@
     },
     "WaiversStates.dc.html": {
       "expand": "fill",
-      "h": 8217,
+      "h": 8307,
       "title": "Wave 3: Waivers states and claim sheet",
       "w": 1300,
       "x": 4890,
@@ -266,7 +266,7 @@
       "y": 30951
     },
     "TradesPhone.dc.html": {
-      "h": 2485,
+      "h": 2645,
       "title": "Wave 3: Trade Center (phone)",
       "w": 390,
       "x": 7790,
@@ -274,7 +274,7 @@
     },
     "TradePropose.dc.html": {
       "expand": "fill",
-      "h": 6587,
+      "h": 6575,
       "title": "Wave 3: Propose and counter a trade",
       "w": 1300,
       "x": 8260,
@@ -282,7 +282,7 @@
     },
     "TradesStates.dc.html": {
       "expand": "fill",
-      "h": 4524,
+      "h": 4525,
       "title": "Wave 3: Trade Center states",
       "w": 1300,
       "x": 9640,

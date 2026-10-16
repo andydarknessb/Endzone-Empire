@@ -98,15 +98,16 @@ function ledgerRow(e, { idx = 0, clock = 9, phone = false, mode = 'normal', curs
   // the product's accessible name: "{name}, {slot}, locked, {unavailable}, {injury}, projected {x}"
   const rowName = m.empty ? `Empty ${lblTxt} slot` : [e.name, lblTxt, m.locked && 'locked', m.unavailable && reasonLc, desig, !m.unavailable && `projected ${e.proj}`].filter(Boolean).join(', ');
   const hit = `<button type="button" class="rowhit" aria-pressed="${moving}" aria-label="${esc(rowName)}${dim ? ', not eligible' : ''}"${dim ? ' aria-disabled="true"' : ''} style="${HIT}; cursor: ${off ? 'not-allowed' : 'pointer'}"></button>`;
-  const lbl = `<span style="flex: none; width: ${phone ? 50 : 52}px; font-size: 13px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: ${nm}">${lblTxt}</span>`;
+  const lbl = `<span style="flex: none; width: ${phone ? 46 : 52}px; font-size: 13px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: ${nm}">${lblTxt}</span>`;
   const sz = 44;
   if (m.empty) {
     const inner = `<div style="position: relative; pointer-events: none; display: flex; align-items: center; gap: ${phone ? 8 : 12}px; min-height: 52px">${lbl}<span style="font-size: 15px; color: ${dm}">Empty</span></div>`;
     return rowShell({ hi, cur, urgent, last, dim, body: hit + inner, note });
   }
   // 44px name button (a 15px line plus 12px of padding either side)
-  const nameBtn = `<button type="button" aria-label="${esc(e.name)}" style="pointer-events: auto; padding: 12px 0; margin: -12px 0; border: 0; border-radius: 0; background: none; color: ${nm}; font: inherit; font-size: 15px; font-weight: 600; text-align: left; cursor: pointer">${e.name}</button>`;
-  const lockSpan = m.locked ? `<span style="display: inline-flex; align-items: center">${lockIcon()}<span style="${SR}">Locked: this player's game has kicked off</span></span>` : '';
+  // exactly 44px tall (min-height) without growing the row: negative margins give back what the hit area adds; the name never wraps (a phone truncates with an ellipsis, the tags beside it never move)
+  const nameBtn = `<button type="button" aria-label="${esc(e.name)}" style="pointer-events: auto; min-height: 44px; box-sizing: border-box; display: inline-flex; align-items: center; padding: 0; margin: -13px 0; border: 0; border-radius: 0; background: none; color: ${nm}; font: inherit; font-size: 15px; font-weight: 600; line-height: 18px; text-align: left; white-space: nowrap; min-width: 0; ${phone ? 'overflow: hidden; text-overflow: ellipsis; display: block; line-height: 44px; ' : ''}cursor: pointer">${e.name}</button>`;
+  const lockSpan = m.locked ? `<span style="display: inline-flex; align-items: center; flex: none">${lockIcon()}<span style="${SR}">Locked: this player's game has kicked off</span></span>` : '';
   let g1 = '', g2 = '';
   if (m.unavailable) g1 = `<span style="display: inline-flex; align-items: center; box-sizing: border-box; min-height: 28px; padding: 0 8px; border: 2px solid {{t.rule}}; font-size: 14px; font-weight: 600">${m.reason}</span>`;
   else if (m.status === 'live') { g1 = `<span style="display: inline-flex; align-items: center; gap: 8px; white-space: nowrap"><span aria-hidden="true" style="width: 8px; height: 8px; flex: none; background: {{t.accent}}"></span><span style="${SR}">Live, </span>${m.score} · ${m.st.clock}</span>`; g2 = m.ball; }
@@ -116,7 +117,8 @@ function ledgerRow(e, { idx = 0, clock = 9, phone = false, mode = 'normal', curs
   const edgeHtml = edge ? `<div data-testid="ledger-edge-line" data-edge-kind="${edge.kind}" style="display: flex; align-items: flex-start; gap: 6px; font-size: 13px; font-weight: 600; color: ${edge.kind === 'injury' ? 'inherit' : dm}; padding: 0 0 6px">${EDGE_ICON[edge.kind]()}<span style="text-wrap: pretty">${edge.text}</span></div>` : '';
   const tags = (e.tags || []).join('');
   const av = k.avatar(e.name, { size: phone ? 28 : 36, c: hi ? 'currentColor' : '{{t.dim}}' });
-  const who = `<div style="min-width: 0"><div style="display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px">${nameBtn}${e.inj ? injCode(e.inj) : ''}${tags}${lockSpan}</div><div style="font-size: 13px; color: ${dm}">${e.sub}</div>${phone ? `<div style="font-size: 13px; color: ${dm}">${m.unavailable ? m.reason : String(g1).split(' · ').map(x => `<span style="white-space: nowrap">${x}</span>`).join(' · ')}</div>${edgeHtml ? `<div style="margin-top: 4px">${edgeHtml}</div>` : ''}` : ''}</div>`;
+  const nameLine = `<div style="display: flex; align-items: center; ${phone ? 'flex-wrap: nowrap' : 'flex-wrap: wrap'}; gap: 4px 8px; min-width: 0">${nameBtn}${phone ? '' : (e.inj ? injCode(e.inj) : '') + tags}${lockSpan}</div>`;
+  const who = `<div style="min-width: 0">${nameLine}<div style="font-size: 13px; color: ${dm}; ${phone ? 'display: flex; align-items: center; flex-wrap: wrap; gap: 2px 6px; ' : ''}">${phone ? (e.inj ? injCode(e.inj) : '') + tags : ''}<span>${e.sub}</span></div>${phone ? '' : ''}</div>`;
   const gcell = `<div style="min-width: 0"><div style="font-size: 14px; font-weight: 600; ${m.unavailable ? '' : 'white-space: nowrap'}">${g1}</div>${g2 ? `<div style="font-size: 13px; color: ${dm}">${g2}</div>` : ''}</div>`;
   const ptsTxt = m.unavailable || m.pts == null ? `<span aria-hidden="true">-</span><span style="${SR}">Points not available yet</span>` : f1(m.pts);
   const fin = m.status === 'final' && !m.unavailable;
@@ -126,8 +128,8 @@ function ledgerRow(e, { idx = 0, clock = 9, phone = false, mode = 'normal', curs
   let drop = e.noDrop ? '' : k.iconBtn('trash', `Drop ${e.name}`, { size: sz, quiet: true }).replace('style="', 'style="pointer-events: auto; ');
   if (hi) drop = drop.replace('color: {{t.dim}}', 'color: inherit');
   const inner = phone
-    ? `<div style="position: relative; pointer-events: none; display: flex; align-items: center; gap: 8px; min-height: 52px">${lbl}${av}<div style="flex: 1; min-width: 0">${who}</div>${fig}<span style="width: ${sz}px; flex: none; display: inline-flex">${drop}</span></div>`
-    : `<div style="position: relative; pointer-events: none; display: grid; grid-template-columns: 52px 36px minmax(0, 1.2fr) minmax(0, 1fr) 112px 44px; align-items: center; gap: 0 12px; min-height: 52px; padding: 2px 0">${lbl}${av}${who}${gcell}${fig}<div style="display: flex; justify-content: flex-end">${drop}</div>${edgeHtml ? `<div style="grid-column: 3 / 5; margin-top: -2px">${edgeHtml}</div>` : ''}</div>`;
+    ? `<div style="position: relative; pointer-events: none; display: grid; grid-template-columns: 46px 28px minmax(0, 1fr) auto 44px; align-items: center; column-gap: 4px; min-height: 52px">${lbl}${av}<div style="min-width: 0; padding-left: 4px">${who}</div>${fig}<span style="display: inline-flex; justify-content: flex-end">${drop}</span><div style="grid-column: 2 / -1; display: flex; flex-direction: column; gap: 1px; padding: 0 0 8px; font-size: 13px; color: ${dm}"><div style="white-space: nowrap">${m.unavailable ? m.reason : g1}</div>${g2 && !m.unavailable ? `<div style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis">${g2}</div>` : ''}${edgeHtml ? `<div style="margin-top: 3px">${edgeHtml.replace('padding: 0 0 6px', 'padding: 0')}</div>` : ''}</div></div>`
+    : `<div style="position: relative; pointer-events: none; display: grid; grid-template-columns: 52px 36px minmax(0, 1fr) minmax(0, 1.15fr) 96px 44px; align-items: center; gap: 0 12px; min-height: 52px; padding: 2px 0">${lbl}${av}${who}${gcell}${fig}<div style="display: flex; justify-content: flex-end">${drop}</div>${edgeHtml ? `<div style="grid-column: 3 / 5; margin-top: -2px">${edgeHtml}</div>` : ''}</div>`;
   return rowShell({ hi, cur, urgent, last, dim, body: hit + inner, note });
 }
 function rowShell({ hi, cur, urgent, last, dim, body, note }) {
@@ -185,29 +187,31 @@ const forecastStats = () => `<div style="display: flex; flex-direction: column">
 // Lean line (projectedLeanLine): only when the Expected-final gap is 10 or more.
 const leanLine = text => `<p data-testid="start-sit-lean-line" style="margin: 0; font-size: 15px; font-weight: 600">${text}</p>`;
 // Suggestion card, drawn to the product (head: slot, verdict, "about n%", "+gain"; Sit and Start columns; opponent context; Decide by; actions). No fact chips here: no game reaches a threshold.
-function suggestionCard() {
+function suggestionCard({ phone = false } = {}) {
   const lab = t => `<span style="font-size: 13px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: {{t.dim}}">${t}</span>`;
   const name = (n, inj) => `<div style="display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px"><span style="font-size: 15px; font-weight: 600">${n}</span>${inj ? injCode(inj) : ''}</div>`;
   const kick = '<div style="font-size: 13px; color: {{t.dim}}">Sun ' + D0.FIRST_LOCK + '</div>';
   const opp = t => `<div style="font-size: 13px; color: {{t.dim}}">${t}</div>`;
   const cells = [[lab('Sit'), lab('Start')], [name('Puka Nacua', 'Out'), name('Jordan Addison')], [k.rangeBar({ floor: 0, proj: 0, ceil: 0, max: 24 }), k.rangeBar({ floor: 3.2, proj: 10.1, ceil: 19.4, max: 24 })], [kick, kick], [opp('vs JAX'), opp('vs PHI')]];
   return `<div data-testid="suggestion-card" style="border: 2px solid {{t.ink}}; display: flex; flex-direction: column">
-<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 10px 12px; border-bottom: 2px solid {{t.rule}}"><span style="display: inline-flex; align-items: center; height: 24px; padding: 0 6px; box-sizing: border-box; border: 2px solid {{t.rule}}; font-size: 13px; font-weight: 700; letter-spacing: .04em; line-height: 1">WR</span><span style="${px(16)}">Strong start</span><span style="font-size: 13px; color: {{t.dim}}">about 90%</span><span style="margin-left: auto; font-size: 13px; color: {{t.dim}}">+10.1 pts</span></div>
+<div style="display: flex; flex-wrap: ${phone ? 'wrap' : 'nowrap'}; align-items: center; gap: 6px 8px; padding: 10px 12px; border-bottom: 2px solid {{t.rule}}"><span style="display: inline-flex; align-items: center; height: 24px; padding: 0 6px; box-sizing: border-box; border: 2px solid {{t.rule}}; font-size: 13px; font-weight: 700; letter-spacing: .04em; line-height: 1; flex: none">WR</span><span style="${px(16)}; white-space: nowrap">Strong start</span><span style="margin-left: auto; font-size: 13px; color: {{t.dim}}; white-space: nowrap">about 90% · +10.1 pts</span></div>
 <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 24px; padding: 12px">${cells.flat().join('')}</div>
 <div style="display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-top: 2px solid {{t.rule}}; font-size: 14px; font-weight: 600">${k.clock('currentColor')}Decide by Sun ${D0.FIRST_LOCK}</div>
 <div style="display: flex; flex-wrap: wrap; gap: 8px; padding: 0 12px 12px">${k.btnGhost('Compare', { aria: 'Compare Jordan Addison with Puka Nacua' })}${k.btnGhost('Dismiss')}${k.btnGhost('Call your shot', { aria: 'Call your shot: keep Puka Nacua over Jordan Addison' })}</div>
 </div>`;
 }
+// A separator stays with the word before it (a line may end with the dot, never start with one).
+const glueDots = t => t.replace(/(\S+) · /g, '<span style="white-space: nowrap">$1&nbsp;·</span> ');
 // mode: 'pre' (the move plan has two moves), 'live' (nothing on the bench can move: the empty-state line says so), 'set' (nothing is open: "Lineup set").
 // The plan line is adviceNote({ suggestions, openSlotFills }) (entities/roster/model/adviceNote.js): two moves read "Two moves · +23.0 pts: Addison in for Puka Nacua (Out) · Spears into the empty FLEX"; it is D0.SWAP.line, the same sentence, and it appears once, above Apply.
 function forecastPanel({ mode = 'pre', phone = false, shot = '', lean = '', uid = '' } = {}) {
   const pre = mode === 'pre';
-  const apply = `<div style="display: flex; flex-direction: column; gap: 10px; align-items: flex-start"><p style="margin: 0; font-size: 15px; font-weight: 600; text-wrap: pretty">${D0.SWAP.line.replace(/ · (\S+)/g, ' <span style="white-space: nowrap">·&nbsp;$1</span>')}</p>${k.btnFill('Apply', { tag: 'button' })}</div>`;
+  const apply = `<div style="display: flex; flex-direction: column; gap: 10px; align-items: flex-start"><p style="margin: 0; font-size: 15px; font-weight: 600; text-wrap: pretty">${glueDots(D0.SWAP.line)}</p>${k.btnFill('Apply', { tag: 'button' })}</div>`;
   const emptyText = mode === 'set' ? 'Lineup set' : 'No move from your bench';
   const body = pre
-    ? `${lean}${forecastStats()}${shot}${suggestionCard()}${apply}`
+    ? `${lean}${forecastStats()}${shot}${suggestionCard({ phone })}${apply}`
     : `${lean}${forecastStats()}${shot}<p data-testid="start-sit-panel-empty" style="margin: 0; font-size: 15px; color: {{t.dim}}">${emptyText}</p>`;
-  return `<section aria-labelledby="ef-h${uid}" data-testid="start-sit-panel" style="${FRAME2}; min-width: 0">${frameHead(`<h2 id="ef-h${uid}" style="margin: 0; ${px(16)}">Endzone Forecast</h2>`, { phone })}<div style="padding: ${phone ? '14px' : '16px'}; display: flex; flex-direction: column; gap: 14px">${body}</div></section>`;
+  return `<section aria-labelledby="ef-h${uid}" data-testid="start-sit-panel" style="${FRAME2}; min-width: 0">${frameHead(`<h2 id="ef-h${uid}" style="margin: 0; ${px(16)}">Endzone Forecast</h2>`, { phone })}<div style="padding: ${phone ? '14px' : '12px'}; display: flex; flex-direction: column; gap: 14px">${body}</div></section>`;
 }
 
 // ---- bye clusters (ByeClusterGrid): 7 tiles for the weeks after the viewed week, then the worst cluster named ----
@@ -307,4 +311,4 @@ function quickPickFlex(clock = 9) {
   return items;
 }
 
-module.exports = { ...k, FRAME2, LG, EMPTY_SLOT, rowModel, teamOf, ledgerRow, ledgerFrame, startersFrame, irFrame, benchFrame, summaryStrip, forecastPanel, forecastStats, leanLine, suggestionCard, byeClusters, CLUSTERS, WORST, worstLine, matchupPreview, weekPicker, head, phoneFooter, moveStrip, spec, msgCard, alertRow, skel, toast, danger, dropDialog, calledShot, calledShotWhen, quickPickFlex, injCode, wordTag, attn, detailOf, labelOf, edgeOf };
+module.exports = { ...k, FRAME2, LG, EMPTY_SLOT, rowModel, teamOf, ledgerRow, ledgerFrame, startersFrame, irFrame, benchFrame, summaryStrip, forecastPanel, forecastStats, leanLine, suggestionCard, byeClusters, CLUSTERS, WORST, worstLine, matchupPreview, weekPicker, head, phoneFooter, moveStrip, glueDots, spec, msgCard, alertRow, skel, toast, danger, dropDialog, calledShot, calledShotWhen, quickPickFlex, injCode, wordTag, attn, detailOf, labelOf, edgeOf };

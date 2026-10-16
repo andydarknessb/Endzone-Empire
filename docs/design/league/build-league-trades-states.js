@@ -17,19 +17,20 @@ const completed = [
   k.tradeCard({ id: 'trade-6', a: V, b: 'Red Zone Rejects', you: V, age: 'Tue 11:05 AM', status: 'Cancelled', leftLabel: 'You Receive', left: [M('Zach Charbonnet', 'RB', 'SEA')], rightLabel: 'Red Zone Rejects Receives', right: [k.df('Rome Odunze')] }),
   k.tradeCard({ id: 'trade-5', a: 'Pocket Aces', b: V, you: V, age: 'Mon 2:30 PM', status: 'Countered', leftLabel: 'You Receive', left: [M('Chuba Hubbard', 'RB', 'CAR')], rightLabel: 'Pocket Aces Receives', right: [k.df('Jordan Addison')] }),
 ];
-const completedTab = `<div style="display: flex; flex-direction: column; gap: 16px">${k.trTabs({ selected: 1 })}${grid2(completed.slice(0, 4).join(''), 'stretch')}<div style="max-width: calc(50% - 10px)">${completed[4]}</div></div>`;
+const completedTab = `<div style="display: flex; flex-direction: column; gap: 16px">${k.trTabs({ selected: 1 })}${grid2(completed.slice(0, 4).join(''))}<div style="max-width: calc(50% - 10px)">${completed[4]}</div></div>`;
 
 // B. Analysis states, one tertiary frame each
-const frame = (id, title, inner) => `<section aria-labelledby="${id}" style="${FRAME2}; min-width: 0"><div style="padding: 14px 20px; border-bottom: 2px solid {{t.rule}}">${h2s(id, title)}</div><div style="padding: 16px 20px; display: flex; flex-direction: column; gap: 12px">${inner}</div></section>`;
+// Each specimen is a sheet caption (Archivo, with its dim line) over a tertiary frame, so the verdict chip is the only pixel word.
+const frame = (id, title, sub, inner) => `<section aria-labelledby="${id}" style="min-width: 0"><div id="${id}">${cap(title, sub)}</div><div style="${FRAME2}; padding: 16px 20px; display: flex; flex-direction: column; gap: 12px">${inner}</div></section>`;
 const COLL = k.analyze([k.df('Tank Bigsby')], [k.dads('Malik Nabers')], k.posOf(k.DF), k.posOf(k.DADS));
 if (COLL.verdict !== 'collusion_risk') throw new Error('collusion specimen reads ' + COLL.verdict);
 const analysis = `<div style="display: flex; flex-direction: column; gap: 20px">${grid2(`
-${frame('an-1', 'Running', `<div>${k.btnOff('Analyzing…')}</div>`)}
-${frame('an-2', 'Fair', k.analysisResult(k.P_RES))}
-${frame('an-3', 'Favors Proposer', k.analysisResult(k.A_RES))}
-${frame('an-4', 'Favors Receiver', k.analysisResult(k.C_RES))}
-${frame('an-5', 'Collusion risk', k.analysisResult(COLL))}
-${frame('an-6', 'Analysis failed', `${k.alertBar('cannot analyze a trade with yourself')}<div>${btnGhost('Analyze Trade')}</div>`)}`)}</div>`;
+${frame('an-1', 'Running', 'The button disables and reads Analyzing… while the request runs.', `<div>${k.btnOff('Analyzing…')}</div>`)}
+${frame('an-2', 'Fair', 'The two fit-adjusted totals are within 10% of the larger.', k.analysisResult(k.P_RES))}
+${frame('an-3', 'Favors Proposer', 'The proposer gets more value than the receiver.', k.analysisResult(k.A_RES))}
+${frame('an-4', 'Favors Receiver', 'The receiver gets more value than the proposer.', k.analysisResult(k.C_RES))}
+${frame('an-5', 'Collusion risk', 'The raw collusion_risk: the unadjusted values are over 50% apart.', k.analysisResult(COLL))}
+${frame('an-6', 'Analysis failed', 'What an incoming or uninvolved card shows today.', `${k.alertBar('cannot analyze a trade with yourself')}<div>${btnGhost('Analyze Trade')}</div>`)}`)}</div>`;
 
 // C. Empty states (the three the page ships) and Trade Block
 const empties = grid2(`
@@ -67,5 +68,5 @@ ${section('s-e', 'Errors and server refusals', 'The non-fatal page error and thr
 ${section('s-f', 'Toasts', 'The product\'s eight confirmations.', toasts)}
 ${notes}
 </main>`;
-k.write(out, 'TradesStates.dc.html', k.page({ title: 'Trades states', w: 1300, h: 4524, body }));
+k.write(out, 'TradesStates.dc.html', k.page({ title: 'Trades states', w: 1300, h: 4525, body }));
 console.log('ok');

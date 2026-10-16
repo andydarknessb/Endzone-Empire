@@ -4,7 +4,7 @@ const out = process.argv[2];
 
 const cap = (t, sub) => `<div style="display: flex; flex-direction: column; gap: 2px; margin-bottom: 12px"><span style="font-size: 14px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase">${t}</span>${sub ? `<span style="font-size: 13px; color: {{t.dim}}; max-width: 90ch; text-wrap: pretty">${sub}</span>` : ''}</div>`;
 const section = (id, title, sub, inner) => `<section aria-labelledby="${id}" style="display: flex; flex-direction: column; min-width: 0"><div id="${id}">${cap(title, sub)}</div>${inner}</section>`;
-const scrim = inner => `<div style="background: {{t.scrim}}; padding: 32px; box-sizing: border-box; border: 2px dashed {{t.rule}}">${inner}</div>`;
+const scrim = inner => `<div style="background: {{t.scrim}}; padding: 32px; box-sizing: border-box">${inner}</div>`;
 const names = a => a.map(p => p.name);
 
 // Ghosts' roster (Counter's "You receive" column): QB 1, RB 2, WR 4, TE 1, K 1, DEF 1, as GHOSTS_POS reads it.
@@ -64,5 +64,5 @@ ${section('s-c', 'Counter Trade', "Opened from 'Counter' on the Gridiron Ghosts 
 ${section('s-d', 'Send Offer refused', "The server refuses the send: the sentence shows inside the dialog, which stays open (a locked-transactions refusal as the example).", refused)}
 ${notes}
 </main>`;
-k.write(out, 'TradePropose.dc.html', k.page({ title: 'Trade propose and counter', w: 1300, h: 6587, body }));
+k.write(out, 'TradePropose.dc.html', k.page({ title: 'Trade propose and counter', w: 1300, h: 6575, body }));
 console.log('ok');
