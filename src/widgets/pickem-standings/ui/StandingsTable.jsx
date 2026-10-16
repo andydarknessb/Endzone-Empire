@@ -18,6 +18,11 @@ const TREND = {
   flat: ['M2 6h12v4H2z', 'Trend: unchanged'],
 };
 
+// The heat fill is opaque now (no opacity anywhere on Play-select pages), so every bucket's alpha is 1.
+// Kept as a named export only because src/theme/tokens.contrast.test.js's #1319 lane imports it; that
+// lane measures dash-* tokens this widget no longer paints and can be retired by the theme owner.
+export const BUCKET_OPACITY = { h1: 1, h2: 1, h3: 1, h4: 1 };
+
 const rankLabel = (row) => (row.tied ? `T-${row.rank}` : String(row.rank));
 const listOf = (items) => (items.length < 2
   ? String(items[0])
