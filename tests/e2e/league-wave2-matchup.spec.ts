@@ -33,6 +33,7 @@ const SHOTS = path.join('test-results', 'league-wave2-matchup-shots');
 
 const VIEWER_TEAM_ID = 101;
 const OPP_TEAM_ID = 102;
+const SPECTATOR_TEAM_ID = 999;
 const MATCHUP_ID = 918;
 const HOME = 'Chattahoochee Valley Riverhogs';
 const AWAY = 'Sasquatch of the Cascade Range';
@@ -77,19 +78,20 @@ const bench = (offset: number, phase: 'live' | 'pre') => Array.from({ length: 4 
   availability: { available: true, reason: null },
 }));
 
-function detail(phase: 'live' | 'pre', names = { home: HOME, away: AWAY }) {
-  const live = phase === 'live';
+function detail(phase: 'live' | 'pre' | 'final', names = { home: HOME, away: AWAY }) {
+  const final = phase === 'final';
+  const live = phase !== 'pre';
   return {
     matchup: {
-      id: MATCHUP_ID, season: 2026, week: 18, final: false, status: live ? 'live' : 'scheduled', is_playoff: false, first_kickoff_at: null, synced_at: null, home_score: live ? 61 : 0, away_score: live ? 58.9 : 0,
+      id: MATCHUP_ID, season: 2026, week: 18, final, status: final ? 'final' : (live ? 'live' : 'scheduled'), is_playoff: false, first_kickoff_at: null, synced_at: null, home_score: live ? (final ? 58.9 : 61) : 0, away_score: live ? (final ? 61 : 58.9) : 0,
     },
     home: {
-      teamId: VIEWER_TEAM_ID, name: names.home, expectedFinal: 91.7, playersRemaining: 7, yetToPlay: 3, starters: starters('home', phase), bench: bench(0, phase),
+      teamId: VIEWER_TEAM_ID, name: names.home, expectedFinal: 91.7, playersRemaining: 7, yetToPlay: 3, starters: starters('home', final ? 'live' : phase), bench: bench(0, final ? 'live' : phase),
     },
     away: {
-      teamId: OPP_TEAM_ID, name: names.away, expectedFinal: 99.6, playersRemaining: 9, yetToPlay: 3, starters: starters('away', phase), bench: bench(50, phase),
+      teamId: OPP_TEAM_ID, name: names.away, expectedFinal: 99.6, playersRemaining: 9, yetToPlay: 3, starters: starters('away', final ? 'live' : phase), bench: bench(50, final ? 'live' : phase),
     },
-    viewerTeamId: VIEWER_TEAM_ID,
+    viewerTeamId: final ? SPECTATOR_TEAM_ID : VIEWER_TEAM_ID,
     viewerWhatIf: null,
     nflGameIds: [],
   };
@@ -100,7 +102,7 @@ async function open(
   shape: Shape,
   viewport: ViewportName,
   theme: Theme,
-  opts: { width?: number; names?: { home: string; away: string } } = {},
+  opts: { width?: number; names?: { home: string; away: string }; final?: boolean } = {},
 ) {
   await setupLayoutGuard(page, { view: shape === 'scoreboard' ? 'scoreboard' : 'standard' });
   await page.addInitScript((t) => {
@@ -110,10 +112,10 @@ async function open(
   await page.route('**/api/**', async (route: Route) => {
     const { pathname } = new URL(route.request().url());
     if (route.request().method() === 'GET' && pathname === `/api/league/${LEAGUE_ID}/matchups/${MATCHUP_ID}`) {
-      return json(route, 200, detail(shape === 'pre' ? 'pre' : 'live', opts.names));
+      return json(route, 200, detail(opts.final ? 'final' : (shape === 'pre' ? 'pre' : 'live'), opts.names));
     }
     if (route.request().method() === 'GET' && pathname === `/api/league/${LEAGUE_ID}`) {
-      return json(route, 200, { league: { ...LEAGUE_ROW, current_week: 18 }, teams: [], viewerTeamId: VIEWER_TEAM_ID });
+      return json(route, 200, { league: { ...LEAGUE_ROW, current_week: 18 }, teams: [], viewerTeamId: opts.final ? SPECTATOR_TEAM_ID : VIEWER_TEAM_ID });
     }
     if (route.request().method() === 'GET' && pathname === '/api/user/action-items') {
       return json(route, 200, {
@@ -182,17 +184,20 @@ test('the lineup note names the empty FLEX and carries one ghost Set lineup, bef
 // An unbreakable team name (a real league has one) must wrap inside the margin line, not widen the page: the
 // leader is Home live (61 to 58.9) and Away before kickoff (99.6 to 91.7 projected), so both sides carry the name.
 const LONG_NAMES = { home: 'ChattahoocheeValleyRiverhogs', away: 'SasquatchOfTheCascadeRangeWestCoastDivision' };
-for (const shape of ['live', 'pre'] as const) {
+// 'final' is a settled Matchup the viewer is not in: the result line names the winner (away, 61 to 58.9).
+for (const shape of ['live', 'pre', 'final'] as const) {
   for (const width of [360, 390]) {
     test(`Matchup ${shape} at ${width}: a one-word leader name wraps inside the margin line, no sideways scroll`, async ({ page }) => {
-      await open(page, shape, 'phone', 'light', { width, names: LONG_NAMES });
-      const probe = await page.evaluate(() => ({
+      await open(page, shape === 'final' ? 'live' : shape, 'phone', 'light', { width, names: LONG_NAMES, final: shape === 'final' });
+      const probe = await page.evaluate((final) => ({
         scrollWidth: document.documentElement.scrollWidth,
         innerWidth: window.innerWidth,
-        margins: Array.from(document.querySelectorAll('[data-testid="scoreboard-margin"]')).map((p) => ({ text: p.textContent, scrollWidth: p.scrollWidth, clientWidth: p.clientWidth })),
-      }));
+        margins: Array.from(document.querySelectorAll(`[data-testid="${final ? 'scoreboard-result' : 'scoreboard-margin'}"]`)).map((p) => ({ text: p.textContent, scrollWidth: p.scrollWidth, clientWidth: p.clientWidth })),
+        odds: Array.from(document.querySelectorAll('[data-testid="scoreboard-odds"] [aria-hidden="true"] > span')).map((n) => ({ text: n.textContent, scrollWidth: n.scrollWidth, clientWidth: n.clientWidth })),
+      }), shape === 'final');
       expect(probe.margins.length, 'the strip draws a margin line').toBe(1);
       expect(probe.margins[0].text, 'the margin names the one-word leader').toContain(shape === 'live' ? LONG_NAMES.home : LONG_NAMES.away);
+      for (const n of probe.odds) expect.soft(n.scrollWidth, `odds name "${n.text}" text ${n.scrollWidth} vs box ${n.clientWidth}`).toBeLessThanOrEqual(n.clientWidth);
       expect.soft(probe.margins[0].scrollWidth, `margin line text ${probe.margins[0].scrollWidth} vs box ${probe.margins[0].clientWidth}`).toBeLessThanOrEqual(probe.margins[0].clientWidth);
       expect.soft(probe.scrollWidth, `document scrollWidth ${probe.scrollWidth} vs innerWidth ${probe.innerWidth}`).toBeLessThanOrEqual(probe.innerWidth);
     });
