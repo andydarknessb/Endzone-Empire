@@ -1,6 +1,6 @@
 import { useLeague } from '../../../hooks/useLeague';
 import { commissionerFacts, useEndpoint, isPickemOnly, isSeasonLive } from '../../../shared/lib';
-import { allWeekFinal, applyScoreEvent, useWeekMatchups } from '../../../entities/matchup';
+import { allWeekSettled, applyScoreEvent, useWeekMatchups } from '../../../entities/matchup';
 
 /**
  * Data model for the commissioner-strip widget (League Dashboard, #1108). It
@@ -72,13 +72,19 @@ export function useCommissionerStrip(leagueId, { scoreEvent } = {}) {
     const entry = entries.find((e) => e.matchupId === m.id);
     return entry ? applyScoreEvent(m, entry) : m;
   });
-  const advanceDisabledReason =
-    advanceApplies && (weekMatchups.loading || !allWeekFinal(settled, currentWeek))
-      ? `Opens when every Week ${currentWeek} game is final`
-      : null;
+  // A failed read is its own reason with a retry, never a permanent "opens when final".
+  const checkFailed = advanceApplies && !weekMatchups.loading && !!weekMatchups.error && settled.length === 0;
+  const advanceDisabledReason = !advanceApplies
+    ? null
+    : checkFailed
+      ? `Couldn't check Week ${currentWeek} games`
+      : weekMatchups.loading || !allWeekSettled(settled, currentWeek)
+        ? `Opens when every Week ${currentWeek} game is final`
+        : null;
 
   return {
     advanceDisabledReason,
+    advanceRetry: checkFailed ? weekMatchups.refetch : undefined,
     isCommissioner: !!league?.is_commissioner,
     pickemOnly: isPickemOnly(league),
     seasonLive: isSeasonLive(league),

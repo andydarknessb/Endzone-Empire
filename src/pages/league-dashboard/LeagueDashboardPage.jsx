@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { Box, useMediaQuery, useTheme } from '@mui/material';
 import { useLeague } from '../../hooks/useLeague';
@@ -190,10 +190,12 @@ function DashboardBody({
   // The matchup the page leads with, read once: the pre-kickoff panel, the scoreboard and the game-day
   // order all come from it. A pick'em-only league has no fantasy matchups, so it never reads them.
   // The League's live score feed, subscribed to once here: it moves the scoreboard, the head's live count
-  // and the Advance control's readiness with no polling. "As of" is the time of the last read or event.
-  const { scoreEvent } = useLiveScores({ leagueId: fantasy ? leagueId : null });
-  const matchup = useMatchupPreview(fantasy ? leagueId : null, { scoreEvent });
+  // and the Advance control's readiness with no polling. A reconnect re-reads the week's matchups (the
+  // cache key the scoreboard, the strip and the live count share), since events missed while away never
+  // arrive.
   const weekMatchups = useWeekMatchups(fantasy ? leagueId : null, week);
+  const { scoreEvent } = useLiveScores({ leagueId: fantasy ? leagueId : null, refetch: () => weekMatchups.refetch() });
+  const matchup = useMatchupPreview(fantasy ? leagueId : null, { scoreEvent });
   const scored = Array.isArray(scoreEvent?.scored) ? scoreEvent.scored : [];
   const liveCount = weekMatchups.matchups
     .map((m) => {
@@ -202,14 +204,20 @@ function DashboardBody({
     })
     .filter((m) => m.status === 'live').length;
   const gameDay = fantasy && matchup.status === 'ready' && matchup.game.isLive === true;
-  const matchupReady = matchup.status === 'ready';
-  const [asOf, setAsOf] = useState(null);
-  useEffect(() => {
-    if (matchupReady) setAsOf((prev) => prev ?? Date.now());
-  }, [matchupReady]);
-  useEffect(() => {
-    if (scoreEvent) setAsOf(Date.now());
-  }, [scoreEvent]);
+  // "As of": the later of when the week's matchups were last read (the data's own completion time, so a
+  // cached remount is not stamped as current) and the last event for this week that touched the viewer's
+  // matchup. It is settled in the render the event arrives in (not an effect after it), so the scoreboard's
+  // announcement and its stamp land together; the time is kept per league, so changing leagues starts clean.
+  const stamp = useRef({ leagueId, event: null, at: null });
+  if (stamp.current.leagueId !== leagueId) stamp.current = { leagueId, event: null, at: null };
+  if (stamp.current.event !== scoreEvent) {
+    const touchesViewer = scoreEvent
+      && Number(scoreEvent.week) === Number(week)
+      && scored.some((entry) => entry.matchupId === matchup.matchupId);
+    stamp.current = { leagueId, event: scoreEvent, at: touchesViewer ? Date.now() : stamp.current.at };
+  }
+  const eventAt = stamp.current.at;
+  const asOf = matchup.status === 'ready' ? Math.max(weekMatchups.readAt ?? 0, eventAt ?? 0) || null : null;
 
   const pickemSettings = usePickemSettings(fantasy ? leagueId : null);
   const showPickem = fantasy && seasonLive && pickemSettings.settings?.enabled === true;
@@ -244,7 +252,9 @@ function DashboardBody({
     : undefined;
   const toCard = (card, note) => ({ feet: card.items, ...(note ? { note } : null) });
   let yourMove = null;
-  if (!actions.loading && !actions.error) {
+  // Cached items stay on screen while they re-read, so the card does not vanish and jump on a revisit.
+  const itemsPending = actions.loading && actions.items.length === 0;
+  if (!itemsPending && !actions.error) {
     if (!move.empty) {
       yourMove = {
         lead: toCard(move.lead, swapNote),
@@ -264,7 +274,7 @@ function DashboardBody({
       <YourMove {...yourMove} />
     </Box>
   );
-  const yourMoveFailed = !actions.loading && actions.error && !complete && (
+  const yourMoveFailed = !itemsPending && actions.error && !complete && (
     <Box data-testid="slot-your-move">
       <ErrorPanel
         title="Couldn't check what needs you"
@@ -302,7 +312,7 @@ function DashboardBody({
 
   const commissionerStrip = (
     <Box component="section" data-testid="slot-commissioner-strip" sx={EMPTY_HIDDEN_SX}>
-      <CommissionerStrip leagueId={leagueId} invite={inviteInStrip ? invite : undefined} scoreEvent={scoreEvent} />
+      <CommissionerStrip leagueId={leagueId} invite={inviteInStrip ? invite : undefined} scoreEvent={scoreEvent} onAdvanced={actions.reload} />
     </Box>
   );
 

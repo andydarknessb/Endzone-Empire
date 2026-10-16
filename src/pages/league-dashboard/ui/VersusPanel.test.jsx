@@ -26,7 +26,6 @@ const game = (overrides = {}) => ({
   projectedMargin: 'Projected margin · Darkness Falls by 7.6',
   kickoffLabel: 'Sun 12:00 PM',
   isLive: false,
-  settled: false,
   ...overrides,
 });
 
@@ -168,6 +167,42 @@ describe('VersusPanel once started', () => {
     expect(screen.getByText('Up 8.1')).toBeInTheDocument();
   });
 
+  test('a score change keeps the focused link in place and still flashes', () => {
+    const { rerender } = render(panel({ model: live() }));
+    const link = screen.getByTestId('matchup-versus');
+    link.focus();
+    expect(link).toHaveFocus();
+
+    rerender(panel({ model: live({ viewer: side({ score: '67.0', expectedFinal: '112.4', playersRemaining: 7 }) }) }));
+    expect(screen.getByTestId('matchup-versus')).toBe(link);
+    expect(link).toHaveFocus();
+    // eslint-disable-next-line testing-library/no-node-access
+    expect(link.querySelector('.scored')).not.toBeNull();
+  });
+
+  test('the live region repeats only when the two scores change, not for a new stamp or a new Expected final', () => {
+    const at = (h, m) => new Date(2026, 9, 18, h, m).getTime();
+    const { rerender } = render(panel({ model: live(), asOf: at(14, 40) }));
+    const region = () => screen.getByTestId('matchup-live-region');
+    expect(region()).toHaveTextContent('Darkness Falls 61.0, Sunday Scaries 58.9, as of 2:40 PM');
+
+    rerender(panel({ model: live(), asOf: at(14, 50) }));
+    expect(screen.getByTestId('matchup-as-of')).toHaveTextContent('As of 2:50 PM');
+    expect(region()).toHaveTextContent('Darkness Falls 61.0, Sunday Scaries 58.9, as of 2:40 PM');
+
+    rerender(panel({
+      model: live({ viewer: side({ score: '61.0', expectedFinal: '115.0', playersRemaining: 6 }) }),
+      asOf: at(14, 55),
+    }));
+    expect(region()).toHaveTextContent('as of 2:40 PM');
+
+    rerender(panel({
+      model: live({ viewer: side({ score: '64.0', expectedFinal: '115.0', playersRemaining: 6 }) }),
+      asOf: at(14, 58),
+    }));
+    expect(region()).toHaveTextContent('Darkness Falls 64.0, Sunday Scaries 58.9, as of 2:58 PM');
+  });
+
   test('a trailing viewer reads Down and the opponent leads', () => {
     renderPanel({
       model: live({ viewer: side({ score: '40.0', expectedFinal: '99.0', playersRemaining: 7 }) }),
@@ -183,7 +218,7 @@ describe('VersusPanel once started', () => {
         viewer: side({ score: '118.4' }),
         opponent: side({ name: 'Sunday Scaries', score: '96.2' }),
         game: game({
-          hasStarted: true, chipLabel: 'Final', isLive: false, settled: true, projectedWinProbability: null, winProbability: null, projectedMargin: null,
+          hasStarted: true, chipLabel: 'Final', isLive: false, projectedWinProbability: null, winProbability: null, projectedMargin: null,
         }),
       }),
     });

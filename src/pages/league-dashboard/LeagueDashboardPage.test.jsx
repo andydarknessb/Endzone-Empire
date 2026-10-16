@@ -2833,6 +2833,19 @@ describe('Your move', () => {
     expect(screen.getByRole('button', { name: 'Try checking your plays again' })).toBeInTheDocument();
   });
 
+  test('a revisit with cached items keeps the card on screen while the items re-read', async () => {
+    mockGetByUrl({ '/api/league/1': inSeasonLeague(), ...actionItems([lineupItem(IN_MINUTES(6 * 60))]) });
+    const { unmount } = renderPage();
+    await screen.findByTestId('your-move');
+    unmount();
+
+    // The shared items entry survives the unmount; the league and the rest are read again.
+    mockGetByUrl({ '/api/league/1': inSeasonLeague(), [ACTION_URL]: { pending: true } });
+    renderPage();
+    await screen.findByRole('heading', { level: 1, name: 'MinneApple' });
+    expect(screen.getByTestId('your-move')).toBeInTheDocument();
+  });
+
   test('the lead lineup card names the swap from the Forecast: Start {in} for {out} · +{gain} pts', async () => {
     mockGetByUrl({
       '/api/league/1': inSeasonLeague(),
@@ -2922,7 +2935,8 @@ describe('Advance week', () => {
   const advanceLeague = () => mpLeague({
     league: { draft_status: 'complete', season_status: 'regular', current_week: 1, is_commissioner: true },
   });
-  const finalRows = () => mpViewerPaired.map((r) => ({ ...r, status: 'final', final: true, home_score: 100, away_score: 90 }));
+  // The server marks a finished, unadvanced game 'played'; only advancing writes 'final'.
+  const finalRows = () => mpViewerPaired.map((r) => ({ ...r, status: 'played', final: false, home_score: 100, away_score: 90 }));
 
   test('with a game still to settle it is disabled and the reason is text', async () => {
     const rows = [{ ...mpViewerPaired[0], status: 'live' }, ...finalRows().slice(1)];
@@ -2935,6 +2949,34 @@ describe('Advance week', () => {
     expect(button).toHaveAttribute('aria-describedby', reason.id);
     // Never a filled action: the one filled foot is the lead play's.
     expect(button).not.toHaveAttribute('data-filled');
+  });
+
+  test('a week already marked final (final: true) opens it too', async () => {
+    const rows = mpViewerPaired.map((r) => ({ ...r, status: 'final', final: true, home_score: 100, away_score: 90 }));
+    mockGetByUrl({ '/api/league/1': advanceLeague(), [MP_LIST_URL]: mpMatchupsList(rows), ...actionItems([]) });
+    renderPage();
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Advance to Week 2' })).toBeEnabled());
+  });
+
+  test('a failed week read says so, stays disabled and offers a retry that re-reads the week', async () => {
+    mockGetByUrl({
+      '/api/league/1': advanceLeague(),
+      [MP_LIST_URL]: { reject: { response: { status: 500 } } },
+      ...actionItems([]),
+    });
+    renderPage();
+
+    const reason = await screen.findByText("Couldn't check Week 1 games");
+    expect(screen.getByRole('button', { name: 'Advance to Week 2' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Advance to Week 2' })).toHaveAttribute('aria-describedby', reason.id);
+    const reads = () => apiClient.get.mock.calls.filter(([url]) => url === MP_LIST_URL).length;
+    const before = reads();
+    mockGetByUrl({ '/api/league/1': advanceLeague(), [MP_LIST_URL]: mpMatchupsList(finalRows()), ...actionItems([]) });
+    await userEvent.click(screen.getByRole('button', { name: 'Try checking Week 1 games again' }));
+    await waitFor(() => expect(reads()).toBeGreaterThan(before));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Advance to Week 2' })).toBeEnabled());
+    expect(screen.queryByText("Couldn't check Week 1 games")).not.toBeInTheDocument();
   });
 
   test('with every game final it is enabled and the reason is gone', async () => {
@@ -2957,6 +2999,21 @@ describe('Advance week', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Confirm' }));
     expect(apiClient.post).toHaveBeenCalledWith('/api/scoring/league/1/advance-week', { week: 1 });
   });
+
+  test('a successful advance re-reads the action items', async () => {
+    apiClient.post.mockResolvedValue({ data: {} });
+    mockGetByUrl({ '/api/league/1': advanceLeague(), [MP_LIST_URL]: mpMatchupsList(finalRows()), ...actionItems([]) });
+    renderPage();
+
+    const button = await screen.findByRole('button', { name: 'Advance to Week 2' });
+    await waitFor(() => expect(button).toBeEnabled());
+    const reads = () => apiClient.get.mock.calls.filter(([url]) => url === ACTION_URL).length;
+    await waitFor(() => expect(reads()).toBeGreaterThan(0));
+    const before = reads();
+    await userEvent.click(button);
+    await userEvent.click(await screen.findByRole('button', { name: 'Confirm' }));
+    await waitFor(() => expect(reads()).toBeGreaterThan(before));
+  });
 });
 
 // AC6: no polling, no Refresh: the scoreboard moves on the scores:updated socket event.
@@ -2966,12 +3023,14 @@ describe('live updates', () => {
     sockets = [];
     window.__ENDZONE_TEST_SOCKET_FACTORY__ = () => {
       const handlers = {};
+      const ioHandlers = {};
       const socket = {
         emit: jest.fn(),
         on: jest.fn((event, cb) => { handlers[event] = cb; }),
-        io: { on: jest.fn(), off: jest.fn() },
+        io: { on: jest.fn((event, cb) => { ioHandlers[event] = cb; }), off: jest.fn() },
         disconnect: jest.fn(),
         fire: (event, payload) => handlers[event]?.(payload),
+        reconnect: () => ioHandlers.reconnect?.(),
       };
       sockets.push(socket);
       return socket;
@@ -3019,10 +3078,71 @@ describe('live updates', () => {
     expect(screen.queryByRole('button', { name: /refresh/i })).not.toBeInTheDocument();
   });
 
+  const liveEvent = (over = {}, entry = {}) => ({
+    leagueId: 1,
+    season: 2026,
+    week: 1,
+    scored: [{
+      matchupId: 55, status: 'live', homeScore: 70.5, awayScore: 58.9, homeExpectedFinal: 112.4, awayExpectedFinal: 108.1, homePlayersRemaining: 6, awayPlayersRemaining: 9, ...entry,
+    }],
+    plays: [],
+    ...over,
+  });
+
+  test('a reconnect re-reads the week matchups', async () => {
+    mockGetByUrl(gameDayMocks(actionItems([])));
+    renderPage();
+    await screen.findByTestId('matchup-versus');
+    await waitFor(() => expect(sockets.length).toBeGreaterThan(0));
+    const reads = () => apiClient.get.mock.calls.filter(([url]) => url === MP_LIST_URL).length;
+    const before = reads();
+
+    act(() => sockets.forEach((socket) => socket.reconnect()));
+    await waitFor(() => expect(reads()).toBeGreaterThan(before));
+  });
+
+  test('"As of" is the time the read completed, not the time of a cached remount', async () => {
+    const clock = jest.spyOn(Date, 'now');
+    clock.mockReturnValue(new Date(2026, 9, 18, 14, 40, 50).getTime());
+    mockGetByUrl(gameDayMocks(actionItems([])));
+    const { unmount } = renderPage();
+    await screen.findByTestId('matchup-as-of');
+    expect(screen.getByTestId('matchup-as-of')).toHaveTextContent('As of 2:40 PM');
+    unmount();
+
+    // 25 seconds on: the matchups entry is still fresh, so the remount reads nothing new.
+    clock.mockReturnValue(new Date(2026, 9, 18, 14, 41, 15).getTime());
+    renderPage();
+    await screen.findByTestId('matchup-as-of');
+    expect(screen.getByTestId('matchup-as-of')).toHaveTextContent('As of 2:40 PM');
+  });
+
+  test('only a current-week event that touches the viewer matchup moves the stamp and the announcement', async () => {
+    const clock = jest.spyOn(Date, 'now');
+    clock.mockReturnValue(new Date(2026, 9, 18, 14, 40).getTime());
+    mockGetByUrl(gameDayMocks(actionItems([])));
+    renderPage();
+    await screen.findByTestId('matchup-as-of');
+    await waitFor(() => expect(sockets.length).toBeGreaterThan(0));
+    const fire = (payload) => act(() => sockets.forEach((socket) => socket.fire('scores:updated', payload)));
+    clock.mockReturnValue(new Date(2026, 9, 18, 14, 50).getTime());
+
+    // Another week's slate, and another matchup of this week: nothing moves.
+    fire(liveEvent({ week: 2 }));
+    fire(liveEvent({}, { matchupId: 56, homeScore: 99.9 }));
+    expect(screen.getByTestId('matchup-as-of')).toHaveTextContent('As of 2:40 PM');
+    expect(screen.getByTestId('matchup-live-region')).toHaveTextContent('Squad 3 61.0, Squad 7 58.9, as of 2:40 PM');
+
+    // The viewer's matchup with the same scores: the stamp moves, the announcement does not repeat.
+    fire(liveEvent({}, { homeScore: 61.0, awayScore: 58.9 }));
+    expect(screen.getByTestId('matchup-as-of')).toHaveTextContent('As of 2:50 PM');
+    expect(screen.getByTestId('matchup-live-region')).toHaveTextContent('Squad 3 61.0, Squad 7 58.9, as of 2:40 PM');
+  });
+
   test('an event that finishes the last game of the week opens Advance week without a reload', async () => {
     const rows = [
       mpLiveRow({ status: 'live' }),
-      { ...mpViewerPaired[1], status: 'final', final: true, home_score: 100, away_score: 90 },
+      { ...mpViewerPaired[1], status: 'played', home_score: 100, away_score: 90 },
     ];
     mockGetByUrl({
       '/api/league/1': mpLeague({ league: { draft_status: 'complete', season_status: 'regular', current_week: 1, is_commissioner: true } }),
@@ -3036,7 +3156,7 @@ describe('live updates', () => {
     expect(button).toBeDisabled();
     act(() => {
       sockets.forEach((socket) => socket.fire('scores:updated', {
-        leagueId: 1, season: 2026, week: 1, scored: [{ matchupId: 55, status: 'final', homeScore: 118.4, awayScore: 96.2 }], plays: [],
+        leagueId: 1, season: 2026, week: 1, scored: [{ matchupId: 55, status: 'played', homeScore: 118.4, awayScore: 96.2 }], plays: [],
       }));
     });
     await waitFor(() => expect(screen.getByRole('button', { name: 'Advance to Week 2' })).toBeEnabled());

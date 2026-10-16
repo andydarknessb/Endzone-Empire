@@ -374,7 +374,6 @@ export function useMatchupPreview(leagueId, { scoreEvent } = {}) {
     projectedMargin,
     kickoffLabel,
     isLive: board.isLive,
-    settled: board.settled,
   };
 
   // aria-busy while a layout-holding read is in flight: the list spine, and

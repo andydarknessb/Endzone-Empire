@@ -25,7 +25,7 @@ import useCommissionerStrip from '../model/useCommissionerStrip';
  * It is disabled with its reason as text ("Opens when every Week 7 game is final") until every game of
  * the current week is final.
  */
-export default function CommissionerStrip({ leagueId, invite, scoreEvent }) {
+export default function CommissionerStrip({ leagueId, invite, scoreEvent, onAdvanced }) {
   const {
     isCommissioner,
     pickemOnly,
@@ -34,6 +34,7 @@ export default function CommissionerStrip({ leagueId, invite, scoreEvent }) {
     facts,
     pendingJoinRequests,
     advanceDisabledReason,
+    advanceRetry,
     refetch,
   } = useCommissionerStrip(leagueId, { scoreEvent });
   const headingId = useId();
@@ -87,8 +88,12 @@ export default function CommissionerStrip({ leagueId, invite, scoreEvent }) {
           look="playselect"
           leagueId={leagueId}
           currentWeek={currentWeek}
-          onAdvanced={refetch}
+          onAdvanced={() => {
+            refetch();
+            if (onAdvanced) onAdvanced();
+          }}
           disabledReason={advanceDisabledReason || undefined}
+          onRetry={advanceRetry}
         />
       </Box>
     );

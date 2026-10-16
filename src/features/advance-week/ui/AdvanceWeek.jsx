@@ -12,7 +12,7 @@ import {
 } from '@mui/material';
 import apiClient from '../../../api/apiClient';
 import { readHttpFailure } from '../../../lib/httpFailure';
-import { PsButton, psRootSx, pixelSx } from '../../../shared/ui/playselect';
+import { PsButton, PsLinkButton, psRootSx, pixelSx } from '../../../shared/ui/playselect';
 
 /**
  * advance-week feature (ADR 0020): the commissioner's control to close the
@@ -48,7 +48,8 @@ import { PsButton, psRootSx, pixelSx } from '../../../shared/ui/playselect';
  *
  * `disabledReason` (optional, #2330): a sentence that disables the button and is
  * shown beside it, linked with aria-describedby. Unset leaves the control as it
- * was. The caller decides when the week may not advance (see `allWeekFinal`).
+ * was. The caller decides when the week may not advance (see `allWeekSettled`). `onRetry` (playselect
+ * look only) adds a "Try again" control to the reason, for a reason that is a failed check.
  *
  * `look="playselect"` (#2330) is the League Dashboard's commissioner strip: the same control, post and
  * refusal handling in the shared Play-select controls. The button is a ghost (the page's one filled
@@ -56,7 +57,7 @@ import { PsButton, psRootSx, pixelSx } from '../../../shared/ui/playselect';
  * frame, and the confirm dialog is a double-ruled frame. The commissioner console keeps the default look.
  */
 export default function AdvanceWeek({
-  leagueId, currentWeek, onAdvanced, disabledReason, look,
+  leagueId, currentWeek, onAdvanced, disabledReason, look, onRetry,
 }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -102,6 +103,9 @@ export default function AdvanceWeek({
           >
             {sentence}
           </Box>
+          {disabledReason && onRetry && (
+            <PsLinkButton onClick={onRetry} aria-label={`Try checking Week ${currentWeek} games again`}>Try again</PsLinkButton>
+          )}
         </Box>
         <PsButton
           variant="ghost"

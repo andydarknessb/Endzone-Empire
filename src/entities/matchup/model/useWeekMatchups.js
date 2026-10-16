@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { useResource } from '../../../hooks/useResource';
-import { invalidate } from '../../../lib/resourceCache';
+import { invalidate, read, serializeKey } from '../../../lib/resourceCache';
 import { matchupFromListRow } from './matchupModel';
 
 const TTL_MS = 30000;
@@ -42,7 +42,9 @@ export function clearWeekMatchupsCache(leagueId) {
  * A null `leagueId` or `week` never fetches (the same null-URL contract the plain
  * reads it replaces relied on), and `enabled: false` is the same for a caller
  * that has a reason not to read (best ball shows no card). Returns
- * `{ matchups, loading, error }`: `matchups` is the rows already read through
+ * `{ matchups, loading, error, refetch, readAt }`: `readAt` is when the response last completed (epoch ms,
+ * null before the first), so a stamp reads the data's age, never the time a cached mount arrived.
+ * `matchups` is the rows already read through
  * `matchupFromListRow` (empty until loaded), `loading` is true from mount until
  * the read settles, `error` is set when it failed. `useLeagueMatchups` reads the
  * unscoped list and is a different read.
@@ -58,7 +60,13 @@ export function useWeekMatchups(leagueId, week, { enabled = true } = {}) {
     () => (Array.isArray(data) ? data.map(matchupFromListRow) : []),
     [data]
   );
-  return { matchups, loading: active && loading, error, refetch };
+  // The store stamps `fetchedAt` when a response lands, before this mount's `data` updates.
+  const readAt = useMemo(
+    () => (data && active ? read(serializeKey(['league-matchups', leagueId, week]))?.fetchedAt ?? null : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [data]
+  );
+  return { matchups, loading: active && loading, error, refetch, readAt };
 }
 
 export default useWeekMatchups;

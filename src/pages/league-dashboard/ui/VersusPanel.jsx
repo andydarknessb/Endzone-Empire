@@ -1,4 +1,6 @@
-import React, { useEffect, useId, useRef } from 'react';
+import React, {
+  useEffect, useId, useMemo, useRef,
+} from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import { Box } from '@mui/material';
 import {
@@ -17,8 +19,9 @@ import { formatInstant } from '../../../shared/lib';
  * block is one link to the matchup, the leader white and the trailer dim, the margin under the
  * viewer's score, the Expected final and players remaining per side, a full-width odds bar (green
  * only while live) and, under the LIVE chip, "As of {time}" when the page knows one. A visually hidden
- * polite live region carries the score sentence, so a changed score is announced. A changed score
- * remounts the link with the `scored` class, which flashes it; nothing else animates.
+ * polite live region carries the score sentence, so a changed score is announced (a new stamp or a new
+ * Expected final alone is not). A changed score remounts an inner wrapper with the `scored` class, which
+ * flashes it; the link itself stays put, so keyboard focus survives a score event. Nothing else animates.
  */
 
 const MARGIN_SX = pixelSx(16);
@@ -140,7 +143,12 @@ function Scoreboard({
   const time = asOf ? formatInstant(asOf, 'time') : null;
   const live = game.isLive;
   const remaining = (n) => (n == null ? null : `${n} ${n === 1 ? 'player' : 'players'} remaining`);
-  const sentence = `${viewer.name} ${viewer.score ?? '-'}, ${opponent.name} ${opponent.score ?? '-'}${time ? `, as of ${time}` : ''}`;
+  // Rebuilt only when a name or a score changes, so the live region (and its time) repeat only then.
+  const sentence = useMemo(
+    () => `${viewer.name} ${viewer.score ?? '-'}, ${opponent.name} ${opponent.score ?? '-'}${time ? `, as of ${time}` : ''}`,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [viewer.name, viewer.score, opponent.name, opponent.score]
+  );
   const label = [
     `Matchup: ${viewer.name} ${youLead ? 'lead' : 'trail'} ${opponent.name} ${viewer.score ?? '-'} to ${opponent.score ?? '-'}`,
     viewer.expectedFinal && opponent.expectedFinal ? `expected final ${viewer.expectedFinal} to ${opponent.expectedFinal}` : null,
@@ -178,17 +186,14 @@ function Scoreboard({
       </Box>
       <Box component="p" aria-live="polite" data-testid="matchup-live-region" sx={{ m: 0, ...SR_ONLY_SX }}>{sentence}</Box>
       <Box
-        // A changed score changes the label, which remounts the link and restarts the flash.
-        key={label}
         component={RouterLink}
         to={`/league/${leagueId}/matchups/${matchupId}`}
-        className={flashed ? 'scored' : undefined}
         aria-label={label}
         data-testid="matchup-versus"
-        sx={{
-          display: 'flex', flexDirection: 'column', gap: '20px', color: 'inherit', textDecoration: 'none',
-        }}
+        sx={{ display: 'block', color: 'inherit', textDecoration: 'none' }}
       >
+        {/* A changed score changes the label, which remounts this wrapper and restarts the flash. */}
+        <Box key={label} className={flashed ? 'scored' : undefined} sx={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', sm: 'minmax(0, 1fr) minmax(0, 1fr)' }, gap: { xs: '16px', md: '24px' }, alignItems: 'start' }}>
           <Side
             side={viewer}
@@ -223,6 +228,7 @@ function Scoreboard({
             Matchup
             <PixelArrow />
           </Box>
+        </Box>
         </Box>
       </Box>
     </Box>

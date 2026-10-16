@@ -39,7 +39,7 @@ export {
   viewerMatchupOf,
 } from './model/matchupModel';
 export { matchupBoard, matchupPhase } from './model/matchupBoard';
-export { allWeekFinal } from './model/allWeekFinal';
+export { allWeekSettled } from './model/allWeekSettled';
 export {
   playsFromScoreEvent, deltasFor, matchupPlaySide, playLabel, formatSignedPoints,
 } from './model/play';
