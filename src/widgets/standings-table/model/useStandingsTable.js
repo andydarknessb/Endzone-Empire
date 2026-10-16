@@ -95,7 +95,7 @@ export function useStandingsTable(leagueId) {
       avatarUrl: team?.avatar_url ?? null,
       avatarStaticUrl: team?.avatar_static_url ?? null,
       isViewer: row.teamId != null && row.teamId === viewerTeamId,
-      // A CPU-managed team (ADR 0067) is labelled beside its name.
+      // A CPU-managed team (ADR 0068) is labelled beside its name.
       isCpu: Boolean(team?.is_cpu),
       // The Record arrives FORMATTED from the entity, which owns the tie rule
       // (CONTEXT.md, Record); nothing here re-derives it. Points are the

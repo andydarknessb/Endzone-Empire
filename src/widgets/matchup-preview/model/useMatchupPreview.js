@@ -209,7 +209,7 @@ export function useMatchupPreview(leagueId, { scoreEvent } = {}) {
       name: teamNameLabel(row ? row.teamName : null),
       avatarUrl: row ? row.avatar_url ?? null : null,
       avatarStaticUrl: row ? row.avatar_static_url ?? null : null,
-      // A CPU-managed team (ADR 0067) is labelled under its name.
+      // A CPU-managed team (ADR 0068) is labelled under its name.
       isCpu: Boolean(row && row.is_cpu),
     };
   };
