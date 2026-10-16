@@ -6,9 +6,9 @@ const D = require('./lineup-data');
 const LG = 'Thursday Night Regulars';
 const TEAMS = [
   ['Blitz Brigade', 5, 1, 701.2, 598.4, 'W3'], ['Waiver Wolves', 5, 1, 688.7, 612.0, 'W2'], ['Darkness Falls', 4, 2, 664.5, 603.1, 'W1'],
-  ['Sunday Scaries', 4, 2, 651.0, 622.9, 'L1'], ['Gridiron Ghosts', 4, 2, 642.8, 630.4, 'W1'], ['Fumble Rooskie', 4, 2, 630.1, 617.5, 'W2'],
+  ['Sunday Scaries', 4, 2, 651.0, 622.9, 'L1'], ['Gridiron Ghosts', 4, 2, 642.8, 630.4, 'W1'], ['Fumble Rooskie', 3, 3, 630.1, 617.5, 'W2'],
   ['Hail Mary Club', 3, 3, 618.9, 624.0, 'L2'], ['Pocket Aces', 3, 3, 609.4, 615.2, 'W1'], ['Dynasty Dads', 2, 4, 598.3, 640.6, 'L3'],
-  ['Red Zone Rejects', 2, 4, 587.0, 633.9, 'L1'], ['Bench Mob', 1, 5, 561.2, 655.3, 'L4'], ['Practice Squad', 0, 6, 540.8, 671.7, 'L6'],
+  ['Red Zone Rejects', 2, 4, 587.0, 633.9, 'L1'], ['Bench Mob', 1, 5, 561.2, 639.0, 'L4'], ['Practice Squad', 0, 6, 540.8, 656.9, 'L6'],
 ];
 const standingsData = TEAMS.map(([team, w, l, pf, pa, strk], i) => ({ rank: i + 1, team, w, l, t: 0, pf: pf.toFixed(1), pa: pa.toFixed(1), strk }));
 // Kinds: Add, Drop, Trade, Waiver, Settings, Stat correction, Recap. League-level rows (stat correction, recap) carry no team.
@@ -40,9 +40,11 @@ const RECAP = {
 };
 // Shared Lock Rule: the lineup play (an empty or Out starter) locks at the next eligible kickoff and Week 7 picks lock at the earliest unpicked kickoff.
 // When the two tie they are ONE card, one foot per action, only the first filled. "+N pts available" is said once, in the lock note.
-function sharedCard({ lineupLock, picksLock, picksMade, state, countdown }) {
+// swapNote: only while the Forecast has a swap to name. At 2:40 PM every bench player is locked, so the card shows its own detail (the lineup status) instead.
+function sharedCard({ lineupLock, picksLock, picksMade, state, countdown, swapNote = true }) {
   if (lineupLock !== picksLock) throw new Error('locks differ: ' + lineupLock + ' vs ' + picksLock + ', build two cards');
-  const note = `Start ${D.SWAP.in} for ${D.SWAP.out} · +${D.ADVICE.gain}&nbsp;pts`;
+  // Critique 11 item 10: "Two moves · +23.0 pts: Addison in for Puka Nacua (Out) · Spears into the empty FLEX"; the head's words are glued so a narrow card never orphans "pts".
+  const note = swapNote ? `${D.SWAP.head.replace(/ /g, '&nbsp;')}: ${D.SWAP.moves}` : D.LINEUP_STATUS;
   const why = 'Sunday ' + lineupLock;
   return {
     kind: 'lineup', name: 'Lineup and picks', league: '', detail: `Darkness Falls · ${picksMade} of 14 picks made`, lockDay: 'Sun', lockTime: lineupLock, lockNote: note, state, lead: true, countdown,
@@ -53,8 +55,8 @@ function sharedCard({ lineupLock, picksLock, picksMade, state, countdown }) {
     ],
   };
 }
-const SHARED_MAIN = sharedCard({ lineupLock: D.FIRST_LOCK, picksLock: D.PICKS_FIRST_LOCK, picksMade: 0, state: 'next' });
-const SHARED_LIVE = sharedCard({ lineupLock: D.NEXT_LOCK, picksLock: D.PICKS_NEXT_LOCK, picksMade: 9, state: 'urgent', countdown: 'in ' + (D.mins(D.NEXT_LOCK) - D.CLOCK.liveMin) + ' min' });
+const SHARED_MAIN = sharedCard({ lineupLock: D.FIRST_LOCK, picksLock: D.PICKS_FIRST_LOCK, picksMade: 1, state: 'next' });
+const SHARED_LIVE = sharedCard({ lineupLock: D.NEXT_LOCK, picksLock: D.PICKS_NEXT_LOCK, picksMade: 9, state: 'urgent', swapNote: false, countdown: 'in ' + (D.mins(D.NEXT_LOCK) - D.CLOCK.liveMin) + ' min' });
 const WAIVERS = { kind: 'waivers', name: 'Waivers', league: '', detail: 'FAAB · 48h', lockDay: 'Wed', lockTime: '2:00 AM', lockNote: 'Claims clear after Week 7. 1 claim pending.', cta: 'View claims', aria: `View your waiver claims in ${LG}, they clear Wednesday 2:00 AM` };
 
 const phoneize = html => html.replace(/font-size: 24px/g, 'font-size: 16px').replace(/padding: 14px 20px/g, 'padding: 12px 14px');
@@ -88,27 +90,28 @@ function recapPhone({ body, facts, generated }) {
 <div style="margin-left: -10px">${k.link('Read the full recap', 'Read the full Week 6 recap')}</div></div></section>`;
 }
 
-// ---- board tile for Around the league on game day: live or final ----
-function boardTile({ a, b, live, pct, aria }) {
-  const lead = a.fig >= b.fig ? a : b;
+// ---- board tile for Around the league on game day: live, played (the product's "Awaiting final": scores shown, no winner, "Waiting on the score of record") or final ----
+function boardTile({ a, b, live, played = false, pct, aria }) {
+  const lead = played ? null : a.fig >= b.fig ? a : b;
   const margin = Math.abs(a.fig - b.fig).toFixed(1);
   const row = s => {
-    const w = s === lead, c = w ? '{{t.boardInk}}' : '{{t.boardDim}}';
+    const w = !lead || s === lead, c = w ? '{{t.boardInk}}' : '{{t.boardDim}}';
     return `<div style="display: flex; align-items: center; gap: 10px; min-width: 0">${k.avatar(s.name, { c })}<span style="flex: 1; min-width: 0; font-size: 15px; font-weight: 600; color: ${c}">${s.name}</span><span style="${px(16, c)}">${s.fig.toFixed(1)}</span></div>`;
   };
-  const status = live ? k.liveChipBoard('Live') : k.chip('Final', { c: '{{t.boardDim}}' });
+  const status = live ? k.liveChipBoard('Live') : k.chip(played ? 'Awaiting final' : 'Final', { c: '{{t.boardDim}}' });
   const foot = live
     ? `${k.oddsBar(pct, { label: false, on: 'board', name: a.name })}<div style="font-size: 13px; color: {{t.boardDim}}"><b style="color: {{t.boardInk}}">${pct}%</b> ${a.name}</div>`
+    : played ? '<div style="font-size: 13px; color: {{t.boardDim}}">Waiting on the score of record</div>'
     : `<div style="font-size: 13px; color: {{t.boardDim}}"><b style="color: {{t.boardInk}}; font-weight: 600">${lead.name}</b> won by ${margin}</div>`;
   return `<a href="#" aria-label="${k.esc(aria)}" style="display: flex; flex-direction: column; gap: 12px; padding: 14px; box-sizing: border-box; height: 100%; background: {{t.board}}; color: {{t.boardInk}}; border: 2px solid {{t.boardDim}}; text-decoration: none; min-width: 0"><span style="align-self: flex-start">${status}</span>${row(a)}${row(b)}${foot}</a>`;
 }
-// The other five Week 7 matchups on game day: 3 live, 2 final.
+// The other five Week 7 matchups at 2:40 PM: all live (all 6 league matchups are live, so GameDay reads "6 matchups live").
 const AROUND_LIVE = [
   { a: { name: 'Blitz Brigade', fig: 92.6 }, b: { name: 'Bench Mob', fig: 71.3 }, live: true, pct: 82 },
   { a: { name: 'Waiver Wolves', fig: 77.4 }, b: { name: 'Dynasty Dads', fig: 80.9 }, live: true, pct: 46 },
   { a: { name: 'Gridiron Ghosts', fig: 64.2 }, b: { name: 'Hail Mary Club', fig: 63.9 }, live: true, pct: 51 },
-  { a: { name: 'Pocket Aces', fig: 118.7 }, b: { name: 'Fumble Rooskie', fig: 104.2 }, live: false },
-  { a: { name: 'Red Zone Rejects', fig: 97.5 }, b: { name: 'Practice Squad', fig: 88.2 }, live: false },
+  { a: { name: 'Pocket Aces', fig: 76.3 }, b: { name: 'Fumble Rooskie', fig: 71.8 }, live: true, pct: 54 },
+  { a: { name: 'Red Zone Rejects', fig: 69.4 }, b: { name: 'Practice Squad', fig: 52.7 }, live: true, pct: 71 },
 ].map(t => ({ ...t, aria: t.live
   ? `${t.a.name} against ${t.b.name}, live, ${t.a.fig.toFixed(1)} to ${t.b.fig.toFixed(1)}, ${t.pct}% win probability for ${t.a.name}`
   : `${t.a.name} against ${t.b.name}, final, ${t.a.fig.toFixed(1)} to ${t.b.fig.toFixed(1)}` }));
@@ -154,8 +157,8 @@ const PLAYBOOK_LIVE = PLAYBOOK_MAIN;
 const INVITE = k.inviteButton();
 
 // Pick'em panel (fantasy + pick'em leagues): the product's pick'em standings viewer strip plus the Picks link. 2px tier.
-const PICKEM_PRE = { rank: 'T-3', points: '94', wk: '0 of 14 made', behind: '11 pts' };
-const PICKEM_LIVE = { rank: 'T-3', points: '94', wk: '9 of 14 made', behind: '11 pts' };
+const PICKEM_PRE = { rank: 'T-3', points: '52', wk: '1 of 14 made', behind: '6 pts' };
+const PICKEM_LIVE = { rank: 'T-3', points: '52', wk: '9 of 14 made', behind: '6 pts' };
 function pickemPanel({ rank, points, wk, behind }, phone = false, box = false) {
   const stat = ([l, v]) => `<div style="display: flex; flex-direction: column; gap: 2px; min-width: 0"><span style="font-size: 13px; color: {{t.dim}}">${l}</span>${l === 'Your rank' || l === 'Points' ? `<span style="${px(24)}; line-height: 1.3; white-space: nowrap">${v}</span>` : `<span style="font-size: 16px; font-weight: 600; white-space: nowrap">${v}</span>`}</div>`;
   const stats = [['Your rank', rank], ['Points', points], ['Wk 7', wk], ['Behind leader', behind]].map(stat).join('');
@@ -193,7 +196,7 @@ const myTeamPhone = o => k.myTeam({ ...o, phone: true }).replace(/padding: 20px;
 const T = D.LIVE_TOTALS, youLeads = T.lead >= 0, margin = D.f1(Math.abs(T.lead));
 const LIVE_VS = {
   you: { name: 'Darkness Falls', fig: D.f1(T.meNow), expected: D.f1(T.meExp), note: `${D.plural(T.meLeft, 'player')} remaining` }, opp: { name: 'Sunday Scaries', fig: D.f1(T.oppNow), expected: D.f1(T.oppExp), note: `${D.plural(T.oppLeft, 'player')} remaining` },
-  youLeads, margin: youLeads ? `Up ${margin}` : `Down ${margin}`, pct: T.pct, updated: 'As of 2:40 PM', sentence: `Darkness Falls ${D.f1(T.meNow)}, Sunday Scaries ${D.f1(T.oppNow)}, as of 2:40 PM`,
+  youLeads, margin: youLeads ? `Up ${margin}` : `Down ${margin}`, pct: T.pct, updated: 'As of 2:40 PM', sentence: `Darkness Falls ${D.f1(T.meNow)}, Sunday Scaries ${D.f1(T.oppNow)}`,
   aria: `${LG} matchup: Darkness Falls ${youLeads ? 'lead' : 'trail'} Sunday Scaries ${D.f1(T.meNow)} to ${D.f1(T.oppNow)}, expected final ${D.f1(T.meExp)} to ${D.f1(T.oppExp)}, ${T.pct}% Darkness Falls win probability. PMR, players remaining: ${T.meLeft} for Darkness Falls and ${T.oppLeft} for Sunday Scaries`,
 };
 // The pre-kickoff versus panel (Main, MainPhone): projected totals of the same fixture.

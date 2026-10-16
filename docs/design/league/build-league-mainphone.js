@@ -1,6 +1,7 @@
 // Main (in season, before Sunday kickoffs) at 390 wide.
 const P = require('./league-dash-parts');
 const { k, LG } = P;
+const { AROUND_PRE } = require('./league-kit-gc'); // shared with Main and Game Center Pre
 const out = process.argv[2];
 const ph = { phone: true };
 
@@ -17,7 +18,7 @@ const recap = P.recapPhone(P.RECAP);
 
 const tile = (a, b, pct) => k.aroundTile({ a: { name: a[0], fig: a[1] }, b: { name: b[0], fig: b[1] }, pct, aria: `${a[0]} against ${b[0]}, projected ${a[1]} to ${b[1]}, ${pct}% win probability for ${a[0]}` });
 const around = P.aroundPhone({
-  tiles: [tile(['Blitz Brigade', '118.2'], ['Bench Mob', '96.4'], 78), tile(['Waiver Wolves', '109.9'], ['Dynasty Dads', '101.3'], 63), tile(['Gridiron Ghosts', '107.1'], ['Hail Mary Club', '105.3'], 54), tile(['Pocket Aces', '103.1'], ['Fumble Rooskie', '99.8'], 59), tile(['Red Zone Rejects', '97.5'], ['Practice Squad', '88.2'], 68)],
+  tiles: AROUND_PRE.map(([a, b, pct]) => tile(a, b, pct)),
   count: '5 matchups · win probability · Endzone Forecast', tail: 'Projected · Game Center', tailAria: 'Projected scores, open Game Center',
   moreLabel: 'All matchups in Game Center', moreAria: 'Open Game Center, all Week 7 matchups',
 });
@@ -48,5 +49,5 @@ ${chat}
 ${notes}
 </main>`;
 
-k.write(out, 'MainPhone.dc.html', k.page({ title: 'League dashboard, in season, phone', w: 390, h: 4000, body, phone: true }));
+k.write(out, 'MainPhone.dc.html', k.page({ title: 'League dashboard, in season, phone', w: 390, h: 4604, body, phone: true }));
 console.log('ok');
