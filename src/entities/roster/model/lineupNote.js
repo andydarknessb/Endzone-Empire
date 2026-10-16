@@ -149,3 +149,39 @@ export function lineupNote({
     kind: 'live', segments, sub: null, plain, danger, link: canFill ? 'lineup' : 'free-agents',
   };
 }
+
+const kickoffMs = (value) => {
+  const ms = new Date(value ?? NaN).getTime();
+  return Number.isFinite(ms) ? ms : null;
+};
+
+/**
+ * The starting slot that needs the viewer next (RULINGS "Wave 3 boards", spec #2347 ruling 4): the cursor
+ * of the Lineup page. Built on `lineupIssues`: an empty slot or a not-yet-started Out starter. An Out
+ * starter locks when his own game kicks off; an empty slot locks at the next kickoff still to come
+ * (`nextKickoff`). The pick is the issue that locks first, slot order breaking a tie, and a slot with no
+ * lock left to beat (its game started, or every game has) is skipped. Null when nothing needs the viewer.
+ *
+ * `entries` is the viewer's starting slots in the shape `lineupIssues` reads (`[{ slot, player }]`,
+ * `player` null for an empty slot); a player is a lineup entry (`nflTeam`, `injuryStatus`, `kickoff`).
+ * Returns `{ slot, kind: 'empty'|'out', lockAt }` with `lockAt` in epoch ms (null when no game rows
+ * have been read yet), so the caller can turn the cursor Danger under one hour.
+ */
+export function nextLineupSlot(entries, gameStates = [], now = Date.now()) {
+  const rows = Array.isArray(gameStates) ? gameStates : [];
+  const open = nextKickoff(rows);
+  const everyGameStarted = rows.length > 0 && open == null;
+  const list = Array.isArray(entries) ? entries : [];
+  const picks = lineupIssues(list, rows).flatMap((issue) => {
+    if (issue.kind === 'empty') {
+      return everyGameStarted ? [] : [{ slot: issue.slot, kind: issue.kind, lockAt: open }];
+    }
+    const player = list.find((s) => s.slot === issue.slot)?.player;
+    const team = code(player?.nfl_team ?? player?.nflTeam);
+    const row = team ? rows.find((g) => code(g.away_team) === team || code(g.home_team) === team) : null;
+    return [{ slot: issue.slot, kind: issue.kind, lockAt: kickoffMs(row?.kickoff_at ?? row?.start_time ?? player?.kickoff) }];
+  }).filter((pick) => pick.lockAt == null || pick.lockAt > now);
+  // Array.prototype.sort is stable: slot order breaks a tie, a null lock sorts last.
+  picks.sort((a, b) => (a.lockAt ?? Infinity) - (b.lockAt ?? Infinity));
+  return picks[0] ?? null;
+}
