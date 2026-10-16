@@ -26,10 +26,13 @@ const OPP = [
   ['FLEX', 'Tyreek Hill', '', 'MIA vs BUF', 'fin', 10.2, 10.2, 10.2], ['K', "Ka'imi Fairbairn", '', 'HOU vs SEA', 'fin', 6.0, 7.0, 6.0],
   ['DEF', 'Eagles', '', 'PHI vs MIN', 'fin', 7.0, 6.0, 7.0],
 ];
+// Critique 11 item 13: Expected final = points so far + projection x the share of the game left. At 4:10 PM the 3:25 PM games are 45 minutes in, about one quarter played (a game runs ~3 hours for 60 game minutes, so ~15 game minutes are gone): 0.75 of each is left. Final games keep their points. The typed expected figures are replaced here.
+const SHARE_LEFT = 0.75;
+for (const r of [...ME, ...OPP]) r[7] = Math.round((r[5] + (r[4] === 'ip' ? r[6] * SHARE_LEFT : 0)) * 10) / 10;
 const sum = (rows, i) => rows.reduce((a, r) => a + r[i], 0), left = rows => rows.filter(r => r[4] === 'ip').length;
 const meNow = sum(ME, 5), oppNow = sum(OPP, 5), meExp = sum(ME, 7), oppExp = sum(OPP, 7), lead = meNow - oppNow;
-const pct = Math.round(100 / (1 + Math.exp((oppExp - meExp) / 12)));
-const sentence = `Darkness Falls ${f1(meNow)}, Sunday Scaries ${f1(oppNow)}, as of 4:10 PM`;
+const pct = 82; // the Forecast's own figure stays when the Expected finals are recomputed (Critique 11 item 13)
+const sentence = `Darkness Falls ${f1(meNow)}, Sunday Scaries ${f1(oppNow)}`;
 const VS = {
   you: { name: 'Darkness Falls', fig: f1(meNow), expected: f1(meExp), note: `${P.D.plural(left(ME), 'player')} remaining` },
   opp: { name: 'Sunday Scaries', fig: f1(oppNow), expected: f1(oppExp), note: `${P.D.plural(left(OPP), 'player')} remaining` },
@@ -53,18 +56,19 @@ const myTeam = k.myTeamWide({
   starters: ME.slice(0, 5).map(r => ({ slot: r[0].split(' ')[0], name: r[1], inj: r[2] || undefined, game: r[3], proj: f1(r[6]), pts: r[5] })),
   more: `and ${ME.length - 5} more starters`,
 });
-const pickem = P.pickemPanel({ rank: 'T-3', points: '94', wk: '14 of 14 made', behind: '11 pts' });
+const pickem = P.pickemPanel({ rank: 'T-3', points: '56', wk: '14 of 14 made', behind: '6 pts' });
 const commissioner = P.commissionerFrame();
 const recap = k.recapPanel(P.RECAP);
 
 const AROUND = [
-  { a: { name: 'Blitz Brigade', fig: 118.9 }, b: { name: 'Bench Mob', fig: 90.2 }, live: false },
+  { a: { name: 'Blitz Brigade', fig: 118.9 }, b: { name: 'Bench Mob', fig: 90.2 }, live: false, played: true },
   { a: { name: 'Waiver Wolves', fig: 101.4 }, b: { name: 'Dynasty Dads', fig: 99.8 }, live: true, pct: 55 },
   { a: { name: 'Gridiron Ghosts', fig: 88.1 }, b: { name: 'Hail Mary Club', fig: 94.6 }, live: true, pct: 38 },
-  { a: { name: 'Pocket Aces', fig: 118.7 }, b: { name: 'Fumble Rooskie', fig: 104.2 }, live: false },
-  { a: { name: 'Red Zone Rejects', fig: 97.5 }, b: { name: 'Practice Squad', fig: 88.2 }, live: false },
+  { a: { name: 'Pocket Aces', fig: 118.7 }, b: { name: 'Fumble Rooskie', fig: 104.2 }, live: false, played: true },
+  { a: { name: 'Red Zone Rejects', fig: 97.5 }, b: { name: 'Practice Squad', fig: 88.2 }, live: false, played: true },
 ].map(t => ({ ...t, aria: t.live
   ? `${t.a.name} against ${t.b.name}, live, ${t.a.fig.toFixed(1)} to ${t.b.fig.toFixed(1)}, ${t.pct}% win probability for ${t.a.name}`
+  : t.played ? `${t.a.name} against ${t.b.name}, awaiting final, ${t.a.fig.toFixed(1)} to ${t.b.fig.toFixed(1)}, waiting on the score of record`
   : `${t.a.name} against ${t.b.name}, final, ${t.a.fig.toFixed(1)} to ${t.b.fig.toFixed(1)}` }));
 const around = `<section aria-labelledby="ar-h" style="${k.FRAME2}">
 ${k.frameHead(`${k.h2s('ar-h', 'Around the league')}${k.meta('3 rival matchups · win probability · Endzone Forecast', 'margin-left: auto')}${k.link('Live · Game Center', 'Live scores, open Game Center')}`)}
@@ -86,8 +90,8 @@ const chat = `<div style="display: flex; justify-content: flex-end; padding-top:
 
 const notes = k.notes([
   'Game-day top rule: when no lock is under one hour, the live scoreboard leads the page and Your move follows it. Here it is Sunday 4:10 PM CDT, the 12:00 games are final, the 3:25 games are live, and the next lock is Monday 7:15 PM, so Your move is a calm "You\'re set" card: no cursor, no filled action, no badge. GameDay (a 45 minute lock) keeps Your move first.',
-  'Fixture clock: Sun Oct 18, 4:10 PM CDT (activity ages derive from it). The owner already acted, so this board\'s lineup differs from GameDay on purpose: Jordan Addison replaced Puka Nacua at WR and Tyjae Spears fills FLEX, and all 14 picks are in. Totals, Expected final and players remaining are computed from the starters below the screen.',
-  'The scoreboard is plain Board black at rest, both names on one baseline, the margin directly under the viewer score, and a visually hidden polite live region carries the score sentence with the "As of 4:10 PM" stamp. Order after it: You\'re set, My team, Pick\'em, the Commissioner strip, recap, around the league, standings and activity, then one Playbook and trophy case link row.',
+  'Fixture clock: Sun Oct 18, 4:10 PM CDT (activity ages derive from it). The owner already acted, so this board\'s lineup differs from GameDay on purpose: Jordan Addison replaced Puka Nacua at WR and Tyjae Spears fills FLEX, and all 14 picks are in. Totals, Expected final (points so far plus each live starter&#39;s projection times 0.75, the share left about 45 minutes into the 3:25 PM games; Critique 11 item 13: 121.0 → 123.4 and 103.2 → 109.2; the win probability stays 82%) and players remaining are computed from the starters below the screen.',
+  'The scoreboard is plain Board black at rest, both names on one baseline, the margin directly under the viewer score, and a visually hidden polite live region carries the score sentence only. Order after it: You\'re set, My team, Pick\'em, the Commissioner strip, recap, around the league, standings and activity, then one Playbook and trophy case link row.',
 ]);
 
 const body = `<main style="max-width: 1280px; margin: 0 auto; padding: 40px 32px 64px; display: flex; flex-direction: column; gap: 32px">
@@ -105,5 +109,5 @@ ${chat}
 ${notes}
 </main>`;
 
-k.write(out, 'GameDaySet.dc.html', k.page({ title: 'League dashboard, game day, all set', w: 1440, h: 3600, body }));
+k.write(out, 'GameDaySet.dc.html', k.page({ title: 'League dashboard, game day, all set', w: 1440, h: 3442, body }));
 console.log('ok');

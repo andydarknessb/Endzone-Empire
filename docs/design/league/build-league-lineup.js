@@ -74,5 +74,5 @@ ${head}
 ${notes}
 </main>`;
 
-k.write(out, 'Lineup.dc.html', k.page({ title: 'Lineup, before kickoff', w: 1440, h: 2400, body }));
+k.write(out, 'Lineup.dc.html', k.page({ title: 'Lineup, before kickoff', w: 1440, h: 1911, body }));
 console.log('ok');

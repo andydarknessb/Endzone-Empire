@@ -33,7 +33,7 @@ body{font-variant-numeric:tabular-nums}
 .sw:checked+.tg-track{background:var(--on);border-color:var(--onInk)}
 .sw:checked+.tg-track .tg-knob{left:22px;background:var(--onInk)}
 .sw:focus-visible+.tg-track{outline:3px solid #ffffff;box-shadow:0 0 0 7px #07080f}
-.sw:disabled+.tg-track{opacity:.45}
+.sw:disabled+.tg-track{cursor:not-allowed}
 .tg-state::before{content:'Off'}.sw:checked~.tg-state::before{content:'On'}
 .rc .sw{width:100%;height:100%}
 .rc-card{display:flex;gap:12px;align-items:flex-start;box-sizing:border-box;height:100%;min-height:44px;padding:12px 14px;border:2px solid var(--off)}
@@ -41,7 +41,8 @@ body{font-variant-numeric:tabular-nums}
 .sw:checked+.rc-card{background:var(--on);color:var(--onInk);border-color:var(--onInk)}
 .sw:checked+.rc-card .rc-dot::after{content:'';width:6px;height:6px;background:currentColor}
 .sw:focus-visible+.rc-card{outline:3px solid #ffffff;box-shadow:0 0 0 7px #07080f}
-.sw:disabled+.rc-card{opacity:.45;cursor:not-allowed}
+.sw:disabled+.rc-card{cursor:not-allowed}
+.sw:disabled:not(:checked)+.rc-card{color:var(--off)}
 .pb:hover,.pb:focus-visible{background:var(--on)!important;color:var(--onInk)!important}
 .cur-row>*{animation:blink .5s steps(1) 3}@media (prefers-reduced-motion:reduce){.cur-row>*{animation:none}}
 </style>
@@ -67,7 +68,7 @@ body{font-variant-numeric:tabular-nums}
 <div style="position: sticky; bottom: 0; z-index: 5; box-sizing: border-box; background: {{t.panel}}; border-top: 6px double {{t.frame}}; padding: 10px 16px 12px; display: flex; flex-direction: column; gap: 10px"><div role="status" style="display: flex; align-items: center; justify-content: space-between; gap: 12px"><span style="font-size: 14px; font-weight: 600">Moving Puka Nacua. Pick a highlighted player.</span><button type="button" style="min-height: 44px; display: inline-flex; align-items: center; justify-content: center; gap: 10px; padding: 0 16px; box-sizing: border-box; border-radius: 0; font-family: inherit; font-size: 15px; font-weight: 600; text-decoration: none; cursor: pointer; background: transparent; border: 2px solid {{t.ink}}; color: {{t.ink}}">Cancel</button></div><div role="group" aria-label="Show" style="display: flex; gap: 8px"><button type="button" aria-pressed="true" style="flex: 1; min-height: 44px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 0 8px; box-sizing: border-box; border-radius: 0; font-family: inherit; font-size: 14px; font-weight: 600; border: 2px solid {{t.play}}; background: {{t.play}}; color: {{t.playInk}}"><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true" style="flex: none"><path d="M3 1h2v2h2v2h2v2H7v2H5v2H3z" fill="currentColor"/></svg>Starters <span style="font-weight: 400">8/9</span></button><button type="button" aria-pressed="true" style="flex: 1; min-height: 44px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 0 8px; box-sizing: border-box; border-radius: 0; font-family: inherit; font-size: 14px; font-weight: 600; border: 2px solid {{t.play}}; background: {{t.play}}; color: {{t.playInk}}"><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true" style="flex: none"><path d="M3 1h2v2h2v2h2v2H7v2H5v2H3z" fill="currentColor"/></svg>Bench <span style="font-weight: 400">6</span></button><button type="button" aria-pressed="false" style="flex: 1; min-height: 44px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 0 8px; box-sizing: border-box; border-radius: 0; font-family: inherit; font-size: 14px; font-weight: 600; border: 2px solid {{t.ink}}; background: transparent; color: {{t.ink}}">Outlook</button></div></div>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"light":{"editor":"boolean","default":false},"$preview":{"width":390,"height":3200}}'>
+<script type="text/x-dc" data-dc-script data-props='{"light":{"editor":"boolean","default":false},"$preview":{"width":390,"height":2288}}'>
 class Component extends DCLogic {
   renderVals() {
     const dark = {"bg":"#07080f","panel":"#10131f","frame":"#c8d0ff","rule":"#3a4170","ink":"#f4f4f8","dim":"#a8adc8","play":"#1830b8","playField":"#0f2190","playInk":"#ffffff","playDim":"#c8d0ff","playAccent":"#2fd97b","onPlayAccent":"#07080f","accent":"#2fd97b","onAccent":"#07080f","cursor":"#f8d030","danger":"#ff5a4a","onDanger":"#07080f","board":"#000000","boardInk":"#ffffff","boardDim":"#a8adc8","boardRule":"#3a4170","skel":"#2a3052","posQb":"#ff8a80","posRb":"#7ee2a8","posWr":"#7fb0ff","posTe":"#f0b34e","posK":"#c4a2f5","posDef":"#b0bec5","posIdp":"#4db6ac","gradeA":"#2fd97b","gradeB":"#a8cc4a","gradeC":"#e5b04a","gradeD":"#e07a45","gradeF":"#e25c5c","onGrade":"#07080f","boardLive":"#2fd97b","posQbBoard":"#ff8a80","posRbBoard":"#7ee2a8","posWrBoard":"#7fb0ff","posTeBoard":"#f0b34e","posKBoard":"#c4a2f5","posDefBoard":"#b0bec5","posIdpBoard":"#4db6ac","scrim":"#07080fe6","chip":"#f4f4f8","frame2":"#3a4170"};
