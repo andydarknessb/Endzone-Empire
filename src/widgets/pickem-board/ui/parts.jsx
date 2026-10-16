@@ -2,38 +2,9 @@ import React from 'react';
 import { Box } from '@mui/material';
 import { Frame, PixelWarn, PsButton } from '../../../shared/ui/playselect';
 
-// Small pieces the board draws that the shared Play-select kit does not carry (the ghost button
-// that is a disclosure, the lock and star pictograms, the outcome chip). Kit markup:
+// Small pieces the board draws that the shared Play-select kit does not carry (the lock and star
+// pictograms, the error box). Kit markup:
 // docs/design/league/league-kit-pickem.js.
-
-/** A 44px ghost button that takes the disclosure props (`aria-expanded`, `aria-controls`) PsButton does not pass on. */
-export const GhostButton = React.forwardRef(({ children, onClick, ...rest }, ref) => (
-  <Box
-    ref={ref}
-    component="button"
-    type="button"
-    onClick={onClick}
-    {...rest}
-    sx={{
-      minHeight: '44px',
-      display: 'inline-flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      padding: '0 16px',
-      boxSizing: 'border-box',
-      borderRadius: 0,
-      backgroundColor: 'transparent',
-      border: '2px solid var(--ps-ink)',
-      color: 'var(--ps-ink)',
-      fontFamily: 'inherit',
-      fontSize: '15px',
-      fontWeight: 600,
-      cursor: 'pointer',
-    }}
-  >
-    {children}
-  </Box>
-));
 
 export function LockIcon() {
   return (

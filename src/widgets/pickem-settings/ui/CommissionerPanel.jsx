@@ -1,6 +1,8 @@
 import React, { useEffect, useId, useRef, useState } from 'react';
 import { Box } from '@mui/material';
-import { Frame, PixelWarn, SR_ONLY_SX, pixelSx } from '../../../shared/ui/playselect';
+import {
+  Frame, PixelWarn, PsButton, SR_ONLY_SX, pixelSx,
+} from '../../../shared/ui/playselect';
 
 // The two scoring modes, worded once and shared with the create dialogs' mode
 // picker (src/components/common/LeagueTypeFields.jsx) and the read-only
@@ -12,28 +14,6 @@ export const PICKEM_MODE_OPTIONS = Object.freeze([
 ]);
 
 const MODE_WORD = { straight: 'Straight up', confidence: 'Confidence' };
-
-// The kit's ghost button: 44px, a 2px Ink edge, never filled. It takes the disclosure props
-// (`aria-expanded`, `aria-controls`) the shared PsButton does not pass on. Disabled is a solid Rule
-// edge with Dim text: no dash and no opacity.
-const GHOST_SX = {
-  minHeight: '44px',
-  display: 'inline-flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  padding: '0 16px',
-  boxSizing: 'border-box',
-  borderRadius: 0,
-  backgroundColor: 'transparent',
-  border: '2px solid var(--ps-ink)',
-  color: 'var(--ps-ink)',
-  fontFamily: 'inherit',
-  fontSize: '15px',
-  fontWeight: 600,
-  cursor: 'pointer',
-  '&:disabled': { borderColor: 'var(--ps-rule)', color: 'var(--ps-dim)', cursor: 'not-allowed' },
-  '&:disabled:hover': { filter: 'none' },
-};
 
 const FOCUS_RING = { outline: '3px solid var(--ps-focus)', boxShadow: '0 0 0 7px var(--ps-halo)' };
 
@@ -215,17 +195,15 @@ export default function CommissionerPanel({
           <Box component="h2" id={headingId} sx={{ m: 0, ...pixelSx(16) }}>Commissioner settings</Box>
           <Box component="span" data-testid="pickem-settings-summary" sx={{ fontSize: '15px', color: 'var(--ps-dim)' }}>{summary}</Box>
         </Box>
-        <Box
-          component="button"
-          type="button"
-          aria-expanded={open}
-          aria-controls={bodyId}
-          aria-label={`${open ? 'Hide' : 'Edit'} commissioner settings`}
+        <PsButton
+          variant="ghost"
+          ariaExpanded={open}
+          ariaControls={open ? bodyId : undefined}
+          ariaLabel={`${open ? 'Hide' : 'Edit'} commissioner settings`}
           onClick={() => setOpen((value) => !value)}
-          sx={GHOST_SX}
         >
           {open ? 'Hide' : 'Edit'}
-        </Box>
+        </PsButton>
       </Box>
 
       {open && (
@@ -274,15 +252,13 @@ export default function CommissionerPanel({
           </Box>
 
           <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px 16px' }}>
-            <Box
-              component="button"
-              type="button"
+            <PsButton
+              variant="ghost"
               disabled={saving || modeLocked || mode === settings.mode}
               onClick={handleSaveMode}
-              sx={GHOST_SX}
             >
               Save scoring mode
-            </Box>
+            </PsButton>
             <Box component="span" sx={{ fontSize: '14px', color: 'var(--ps-dim)' }}>
               The mode can only change before the season&apos;s first pick.
             </Box>

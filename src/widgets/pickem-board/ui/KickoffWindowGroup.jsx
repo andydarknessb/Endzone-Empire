@@ -1,8 +1,10 @@
 import React, { useId, useState } from 'react';
 import { Box } from '@mui/material';
-import { Frame, FrameHead, pixelSx } from '../../../shared/ui/playselect';
+import {
+  Frame, FrameHead, PsButton, pixelSx,
+} from '../../../shared/ui/playselect';
 import GameCard from './GameCard';
-import { GhostButton, StarIcon } from './parts';
+import { StarIcon } from './parts';
 
 /**
  * pickem-board widget (ADR 0038, Play-select in ADR 0067 wave 2): one kickoff window as a tertiary
@@ -129,14 +131,15 @@ export default function KickoffWindowGroup({
             )}
           </Box>
           <Box component="span" sx={{ marginLeft: 'auto', flex: 'none' }}>
-            <GhostButton
-              aria-expanded={expanded}
-              aria-controls={expanded ? listId : undefined}
-              aria-label={`${expanded ? 'Hide' : 'Show'} games, ${label}`}
+            <PsButton
+              variant="ghost"
+              ariaExpanded={expanded}
+              ariaControls={expanded ? listId : undefined}
+              ariaLabel={`${expanded ? 'Hide' : 'Show'} games, ${label}`}
               onClick={() => setExpanded((open) => !open)}
             >
               {expanded ? 'Hide games' : 'Show games'}
-            </GhostButton>
+            </PsButton>
           </Box>
         </Box>
         {expanded && cards}

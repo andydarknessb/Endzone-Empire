@@ -27,15 +27,23 @@ const VARIANT = {
   quiet: { backgroundColor: 'transparent', border: '2px solid transparent', color: 'var(--ps-dim)' },
 };
 
-const DISABLED_SX = { '&[disabled], &[aria-disabled="true"]': { opacity: 0.5, cursor: 'not-allowed' } };
+// Disabled is a solid Rule edge with Dim text on the page: no dash and no opacity (RULINGS Critique 7),
+// whatever the variant.
+const DISABLED_SX = {
+  '&[disabled], &[aria-disabled="true"]': {
+    backgroundColor: 'transparent', borderColor: 'var(--ps-rule)', color: 'var(--ps-dim)', cursor: 'not-allowed',
+  },
+  '&[disabled]:hover': { filter: 'none' },
+};
 
 /**
  * Square 44px button: fill (the page's one filled action), ghost, or quiet. A
  * `to` makes it a router link. `disabled` is the native attribute on a button;
- * a link gets aria-disabled and swallows the click, so it does not navigate.
+ * a link gets aria-disabled and swallows the click, so it does not navigate. `ariaExpanded` and
+ * `ariaControls` make it a disclosure (Show games, Edit): the button reports the state of what it opens.
  */
 export function PsButton({
-  variant = 'ghost', to, onClick, ariaLabel, describedBy, children, type = 'button', disabled = false,
+  variant = 'ghost', to, onClick, ariaLabel, describedBy, ariaExpanded, ariaControls, children, type = 'button', disabled = false,
 }) {
   const sx = { ...BTN, ...VARIANT[variant], ...DISABLED_SX };
   const arrow = variant === 'fill' ? <PixelArrow /> : null;
@@ -47,6 +55,8 @@ export function PsButton({
         onClick={disabled ? (event) => event.preventDefault() : onClick}
         aria-label={ariaLabel}
         aria-describedby={describedBy}
+        aria-expanded={ariaExpanded}
+        aria-controls={ariaControls}
         aria-disabled={disabled ? 'true' : undefined}
         tabIndex={disabled ? -1 : undefined}
         sx={sx}
@@ -57,7 +67,17 @@ export function PsButton({
     );
   }
   return (
-    <Box component="button" type={type} onClick={onClick} aria-label={ariaLabel} aria-describedby={describedBy} disabled={disabled} sx={sx}>
+    <Box
+      component="button"
+      type={type}
+      onClick={onClick}
+      aria-label={ariaLabel}
+      aria-describedby={describedBy}
+      aria-expanded={ariaExpanded}
+      aria-controls={ariaControls}
+      disabled={disabled}
+      sx={sx}
+    >
       {children}
       {arrow}
     </Box>
