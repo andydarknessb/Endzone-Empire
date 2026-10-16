@@ -169,12 +169,12 @@ export default function ScoreboardStrip({
 
   let margin = null;
   if (settled) {
-    margin = <Box component="p" data-testid="scoreboard-result" sx={{ m: 0, fontSize: '16px', fontWeight: 600, color: colors.ink }}>{view.result}</Box>;
+    margin = <Box component="p" data-testid="scoreboard-result" sx={{ m: 0, fontSize: '16px', fontWeight: 600, color: colors.ink, overflowWrap: 'anywhere' }}>{view.result}</Box>;
   } else if (view.marginText && started) {
-    margin = <Box component="p" data-testid="scoreboard-margin" sx={{ m: 0, ...pixelSx(16), color: colors.ink }}>{view.marginText}</Box>;
+    margin = <Box component="p" data-testid="scoreboard-margin" sx={{ m: 0, ...pixelSx(16), color: colors.ink, overflowWrap: 'anywhere' }}>{view.marginText}</Box>;
   } else if (view.marginText) {
     margin = (
-      <Box component="p" data-testid="scoreboard-margin" sx={{ m: 0, fontSize: '16px', color: colors.dim }}>
+      <Box component="p" data-testid="scoreboard-margin" sx={{ m: 0, fontSize: '16px', color: colors.dim, overflowWrap: 'anywhere' }}>
         Projected margin ·
         {' '}
         <Box component="b" sx={{ fontWeight: 700, color: colors.ink }}>{view.marginText}</Box>

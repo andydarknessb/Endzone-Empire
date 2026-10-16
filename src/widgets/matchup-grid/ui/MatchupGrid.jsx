@@ -141,7 +141,7 @@ function TileSide({ side, colors, figureLabel, state }) {
   return (
     <Box data-testid={side.testId} sx={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0, color }}>
       <TeamMark name={side.name} avatarUrl={side.avatarUrl} avatarStaticUrl={side.avatarStaticUrl} />
-      <Box sx={{ flex: 1, minWidth: 0 }}>
+      <Box sx={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}>
         <Box sx={{ fontSize: '15px', fontWeight: side.leads && state !== 'scheduled' ? 700 : 600 }}>
           {side.name}
           {side.isCpu && <>{' '}<CpuTag /></>}

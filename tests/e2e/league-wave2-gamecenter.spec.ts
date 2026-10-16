@@ -24,6 +24,7 @@ import path from 'path';
 import { expect, test } from '@playwright/test';
 import type { Page, Route } from '@playwright/test';
 import { LEAGUE_ID } from './fixtures/layoutGuardFixtures';
+import { probeCompactBar } from './fixtures/compactBarProbe';
 import { json } from './fixtures/jsonRoute';
 import { setupDashboard } from './fixtures/leagueDashboardPlayselectFixtures';
 import type { DashTheme } from './fixtures/leagueDashboardPlayselectFixtures';
@@ -65,12 +66,16 @@ test.afterEach(() => {
   expect(unanswered, 'every request Game Center makes is answered by the fixture').toEqual([]);
 });
 
-async function openGameCenter(page: Page, state: State, viewport: ViewportName, theme: DashTheme) {
+function watchUnanswered(page: Page) {
   unanswered = [];
   page.on('response', (res) => {
     const { pathname } = new URL(res.url(), 'http://x');
     if (res.status() === 500 && pathname.startsWith('/api/') && pathname !== '/api/auth/refresh') unanswered.push(pathname);
   });
+}
+
+async function openGameCenter(page: Page, state: State, viewport: ViewportName, theme: DashTheme) {
+  watchUnanswered(page);
   await setupDashboard(page, STATES[state], { theme });
   await page.route(`**/api/league/${LEAGUE_ID}/matchups/918`, (route: Route) => json(route, 200, lineupDetail()));
   await page.setViewportSize(VIEWPORTS[viewport]);
@@ -147,6 +152,47 @@ test('phone: scrolled past the hero, a compact scoreboard no taller than 56px pi
   const top = await target.evaluate((el) => el.getBoundingClientRect().top);
   expect(top, 'the focused tile is not under the pinned bar').toBeGreaterThanOrEqual(56);
 });
+
+// The margin line is nowrap beside the Live chip: a long team name must clip with an ellipsis, not run under it.
+for (const width of [360, 390, 600, 640]) {
+  test(`phone ${width}: the compact scoreboard's margin text clips before the Live chip`, async ({ page }) => {
+    await openGameCenter(page, 'live', 'phone', 'dark');
+    await page.setViewportSize({ width, height: 844 });
+    const bottom = await page.getByTestId('matchup-hero').evaluate((el) => el.getBoundingClientRect().bottom + window.scrollY);
+    await page.evaluate((y) => window.scrollTo(0, y + 40), bottom);
+    const bar = page.getByTestId('game-center-compact-scoreboard');
+    await expect(bar).toBeVisible();
+    expect((await bar.boundingBox())!.height, 'the pinned bar is at most 56px tall').toBeLessThanOrEqual(56);
+    const m = await probeCompactBar(bar);
+    expect(m.paintedRight, `"${m.text}" paints to ${m.paintedRight}, the Live chip starts at ${m.chipLeft}`).toBeLessThanOrEqual(m.chipLeft);
+    expect(m.overflow, 'the margin span clips').toBe('hidden');
+    expect(m.textOverflow, 'and ends in an ellipsis').toBe('ellipsis');
+    expect(m.scoreLines, 'the scores stay on one line').toBe(1);
+  });
+}
+
+// The league matchups tile (sm and up) sets the name beside the figure; an unbreakable name must wrap inside its box.
+for (const viewport of ['desktop', 'tablet'] as const) {
+  test(`Game Center ${viewport}: a long one-word team name never runs under the tile's score`, async ({ page }) => {
+    watchUnanswered(page);
+    await setupDashboard(page, 'gamedayUrgent', { theme: 'light', teamNames: { 103: 'DoDaPerpsHave@QB?WithNoSpaces', 106: 'CaShMeOuTsIdEeRiGhTnOwPlEaSe' } });
+    await page.route(`**/api/league/${LEAGUE_ID}/matchups/918`, (route: Route) => json(route, 200, lineupDetail()));
+    await page.setViewportSize(viewport === 'tablet' ? { width: 768, height: 900 } : VIEWPORTS.desktop);
+    await page.goto(GC_URL);
+    await expect(page.getByTestId('matchup-hero')).toBeVisible();
+    await expect(page.getByTestId('matchup-card').first()).toBeVisible();
+    await page.evaluate(() => document.fonts.ready.then(() => true));
+    const rows = await page.evaluate(() => Array.from(document.querySelectorAll('[data-testid="matchup-grid"] [data-testid="matchup-figure"]')).map((fig) => {
+      const name = (fig.parentElement!.children[1] as HTMLElement).firstElementChild as HTMLElement;
+      return { name: name.textContent, scrollWidth: name.scrollWidth, clientWidth: name.clientWidth, right: name.getBoundingClientRect().right, figureLeft: fig.getBoundingClientRect().left };
+    }));
+    expect(rows.some((r) => r.name?.startsWith('DoDaPerpsHave@QB?WithNoSpaces')), 'the long name is on a tile').toBe(true);
+    for (const r of rows) {
+      expect(r.scrollWidth, `${r.name}: text wider than its box`).toBeLessThanOrEqual(r.clientWidth);
+      expect(r.right, `${r.name}: name runs under the figure`).toBeLessThanOrEqual(r.figureLeft);
+    }
+  });
+}
 
 test('negative control: a forced overflow widens the document, so the scroll probe can fail', async ({ page }) => {
   await openGameCenter(page, 'live', 'phone', 'dark');

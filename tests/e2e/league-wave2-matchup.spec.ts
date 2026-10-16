@@ -16,6 +16,7 @@ import fs from 'fs';
 import path from 'path';
 import { expect, test } from '@playwright/test';
 import type { Page, Route } from '@playwright/test';
+import { probeCompactBar } from './fixtures/compactBarProbe';
 import { json } from './fixtures/jsonRoute';
 import { LEAGUE_ID, LEAGUE_ROW, MATCHUP_URL, setupLayoutGuard } from './fixtures/layoutGuardFixtures';
 
@@ -32,6 +33,7 @@ const SHOTS = path.join('test-results', 'league-wave2-matchup-shots');
 
 const VIEWER_TEAM_ID = 101;
 const OPP_TEAM_ID = 102;
+const SPECTATOR_TEAM_ID = 999;
 const MATCHUP_ID = 918;
 const HOME = 'Chattahoochee Valley Riverhogs';
 const AWAY = 'Sasquatch of the Cascade Range';
@@ -76,25 +78,32 @@ const bench = (offset: number, phase: 'live' | 'pre') => Array.from({ length: 4 
   availability: { available: true, reason: null },
 }));
 
-function detail(phase: 'live' | 'pre') {
-  const live = phase === 'live';
+function detail(phase: 'live' | 'pre' | 'final', names = { home: HOME, away: AWAY }) {
+  const final = phase === 'final';
+  const live = phase !== 'pre';
   return {
     matchup: {
-      id: MATCHUP_ID, season: 2026, week: 18, final: false, status: live ? 'live' : 'scheduled', is_playoff: false, first_kickoff_at: null, synced_at: null, home_score: live ? 61 : 0, away_score: live ? 58.9 : 0,
+      id: MATCHUP_ID, season: 2026, week: 18, final, status: final ? 'final' : (live ? 'live' : 'scheduled'), is_playoff: false, first_kickoff_at: null, synced_at: null, home_score: live ? (final ? 58.9 : 61) : 0, away_score: live ? (final ? 61 : 58.9) : 0,
     },
     home: {
-      teamId: VIEWER_TEAM_ID, name: HOME, expectedFinal: 91.7, playersRemaining: 7, yetToPlay: 3, starters: starters('home', phase), bench: bench(0, phase),
+      teamId: VIEWER_TEAM_ID, name: names.home, expectedFinal: 91.7, playersRemaining: 7, yetToPlay: 3, starters: starters('home', final ? 'live' : phase), bench: bench(0, final ? 'live' : phase),
     },
     away: {
-      teamId: OPP_TEAM_ID, name: AWAY, expectedFinal: 99.6, playersRemaining: 9, yetToPlay: 3, starters: starters('away', phase), bench: bench(50, phase),
+      teamId: OPP_TEAM_ID, name: names.away, expectedFinal: 99.6, playersRemaining: 9, yetToPlay: 3, starters: starters('away', final ? 'live' : phase), bench: bench(50, final ? 'live' : phase),
     },
-    viewerTeamId: VIEWER_TEAM_ID,
+    viewerTeamId: final ? SPECTATOR_TEAM_ID : VIEWER_TEAM_ID,
     viewerWhatIf: null,
     nflGameIds: [],
   };
 }
 
-async function open(page: Page, shape: Shape, viewport: ViewportName, theme: Theme) {
+async function open(
+  page: Page,
+  shape: Shape,
+  viewport: ViewportName,
+  theme: Theme,
+  opts: { width?: number; names?: { home: string; away: string }; final?: boolean } = {},
+) {
   await setupLayoutGuard(page, { view: shape === 'scoreboard' ? 'scoreboard' : 'standard' });
   await page.addInitScript((t) => {
     try { window.localStorage.setItem('endzone_theme', t); } catch { /* storage blocked: the app falls back to its default */ }
@@ -103,10 +112,10 @@ async function open(page: Page, shape: Shape, viewport: ViewportName, theme: The
   await page.route('**/api/**', async (route: Route) => {
     const { pathname } = new URL(route.request().url());
     if (route.request().method() === 'GET' && pathname === `/api/league/${LEAGUE_ID}/matchups/${MATCHUP_ID}`) {
-      return json(route, 200, detail(shape === 'pre' ? 'pre' : 'live'));
+      return json(route, 200, detail(opts.final ? 'final' : (shape === 'pre' ? 'pre' : 'live'), opts.names));
     }
     if (route.request().method() === 'GET' && pathname === `/api/league/${LEAGUE_ID}`) {
-      return json(route, 200, { league: { ...LEAGUE_ROW, current_week: 18 }, teams: [], viewerTeamId: VIEWER_TEAM_ID });
+      return json(route, 200, { league: { ...LEAGUE_ROW, current_week: 18 }, teams: [], viewerTeamId: opts.final ? SPECTATOR_TEAM_ID : VIEWER_TEAM_ID });
     }
     if (route.request().method() === 'GET' && pathname === '/api/user/action-items') {
       return json(route, 200, {
@@ -118,7 +127,7 @@ async function open(page: Page, shape: Shape, viewport: ViewportName, theme: The
     }
     return route.fallback();
   });
-  await page.setViewportSize(VIEWPORTS[viewport]);
+  await page.setViewportSize({ ...VIEWPORTS[viewport], width: opts.width ?? VIEWPORTS[viewport].width });
   await page.goto(MATCHUP_URL);
   await expect(page.getByRole('heading', { level: 1, name: 'Week 18 Matchup' })).toBeVisible();
   await expect(shape === 'scoreboard' ? page.getByTestId('led-board') : page.getByTestId('slot-row').first()).toBeVisible();
@@ -172,7 +181,49 @@ test('the lineup note names the empty FLEX and carries one ghost Set lineup, bef
   await expect(note.getByRole('link', { name: 'Set lineup' })).toBeVisible();
 });
 
+// An unbreakable team name (a real league has one) must wrap inside the margin line, not widen the page: the
+// leader is Home live (61 to 58.9) and Away before kickoff (99.6 to 91.7 projected), so both sides carry the name.
+const LONG_NAMES = { home: 'ChattahoocheeValleyRiverhogs', away: 'SasquatchOfTheCascadeRangeWestCoastDivision' };
+// 'final' is a settled Matchup the viewer is not in: the result line names the winner (away, 61 to 58.9).
+for (const shape of ['live', 'pre', 'final'] as const) {
+  for (const width of [360, 390]) {
+    test(`Matchup ${shape} at ${width}: a one-word leader name wraps inside the margin line, no sideways scroll`, async ({ page }) => {
+      await open(page, shape === 'final' ? 'live' : shape, 'phone', 'light', { width, names: LONG_NAMES, final: shape === 'final' });
+      const probe = await page.evaluate((final) => ({
+        scrollWidth: document.documentElement.scrollWidth,
+        innerWidth: window.innerWidth,
+        margins: Array.from(document.querySelectorAll(`[data-testid="${final ? 'scoreboard-result' : 'scoreboard-margin'}"]`)).map((p) => ({ text: p.textContent, scrollWidth: p.scrollWidth, clientWidth: p.clientWidth })),
+        odds: Array.from(document.querySelectorAll('[data-testid="scoreboard-odds"] [aria-hidden="true"] > span')).map((n) => ({ text: n.textContent, scrollWidth: n.scrollWidth, clientWidth: n.clientWidth })),
+      }), shape === 'final');
+      expect(probe.margins.length, 'the strip draws a margin line').toBe(1);
+      expect(probe.margins[0].text, 'the margin names the one-word leader').toContain(shape === 'live' ? LONG_NAMES.home : LONG_NAMES.away);
+      for (const n of probe.odds) expect.soft(n.scrollWidth, `odds name "${n.text}" text ${n.scrollWidth} vs box ${n.clientWidth}`).toBeLessThanOrEqual(n.clientWidth);
+      expect.soft(probe.margins[0].scrollWidth, `margin line text ${probe.margins[0].scrollWidth} vs box ${probe.margins[0].clientWidth}`).toBeLessThanOrEqual(probe.margins[0].clientWidth);
+      expect.soft(probe.scrollWidth, `document scrollWidth ${probe.scrollWidth} vs innerWidth ${probe.innerWidth}`).toBeLessThanOrEqual(probe.innerWidth);
+    });
+  }
+}
+
 test.describe('the compact scoreboard bar at 390x844', () => {
+  // The margin line is nowrap beside the Live chip: a long team name must clip with an ellipsis, not run under it.
+  for (const width of [360, 390, 600, 640]) {
+    test(`at ${width} the margin text clips before the Live chip`, async ({ page }) => {
+      await open(page, 'live', 'phone', 'light', { width });
+      await page.evaluate(() => {
+        const panelEl = document.querySelector('[data-testid="scoreboard-strip"]') as HTMLElement;
+        window.scrollTo(0, panelEl.getBoundingClientRect().bottom + window.scrollY + 300);
+      });
+      const bar = page.getByRole('group', { name: /Home|Chattahoochee/ }).filter({ hasText: ' by ' });
+      await expect(bar).toBeVisible();
+      expect((await bar.boundingBox())!.height, 'the pinned bar is at most 56px tall').toBeLessThanOrEqual(56);
+      const m = await probeCompactBar(bar);
+      expect(m.paintedRight, `"${m.text}" paints to ${m.paintedRight}, the Live chip starts at ${m.chipLeft}`).toBeLessThanOrEqual(m.chipLeft);
+      expect(m.overflow, 'the margin span clips').toBe('hidden');
+      expect(m.textOverflow, 'and ends in an ellipsis').toBe('ellipsis');
+      expect(m.scoreLines, 'the scores stay on one line').toBe(1);
+    });
+  }
+
   test('pins no taller than 56px once the versus panel scrolls away, and a focused starter row is not under it', async ({ page }) => {
     await open(page, 'live', 'phone', 'light');
     const panel = page.getByTestId('scoreboard-strip');
