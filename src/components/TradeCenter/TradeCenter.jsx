@@ -1,46 +1,32 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
-import {
-  Container,
-  Typography,
-  Box,
-  Chip,
-  Button,
-  Alert,
-  Skeleton,
-  Tabs,
-  Tab,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
-  Checkbox,
-  FormControlLabel,
-} from '@mui/material';
-import Grid from '@mui/material/Unstable_Grid2';
-import HandshakeOutlinedIcon from '@mui/icons-material/HandshakeOutlined';
-import HistoryOutlinedIcon from '@mui/icons-material/HistoryOutlined';
-import ConstructionOutlinedIcon from '@mui/icons-material/ConstructionOutlined';
+import { Box, useMediaQuery } from '@mui/material';
+import { useTheme } from '@mui/material/styles';
 import apiClient from '../../api/apiClient';
 import { readHttpFailure } from '../../lib/httpFailure';
 import { applyTeamProfileUpdate, subscribeToTeamProfileUpdates } from '../../lib/teamProfileEvents';
 import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
 import { useLeague } from '../../hooks/useLeague';
 import { isLeagueCreator } from '../../shared/lib/teamIdentity';
+import { formatInstant } from '../../shared/lib/instantFormat';
 import PlayerDecisionCard, { myTeam, rostered } from '../../widgets/player-decision-card';
-import { toDecisionCardEntry, PlayerNameLink } from '../../entities/player';
+import { toDecisionCardEntry } from '../../entities/player';
+import '../../shared/ui/playselect/playselect.css';
+import { PsButton, Skel } from '../../shared/ui/playselect/Controls';
+import { Frame } from '../../shared/ui/playselect/Frame';
+import { psRootSx } from '../../shared/ui/playselect/root';
+import { pixelSx } from '../../shared/ui/playselect/type';
 import TradeProposalCard from './TradeProposalCard';
+import TradeDialog from './TradeDialog';
+import TradeTabs from './TradeTabs';
+import TradeAlert from './TradeAlert';
 import { useSnackbar } from '../Snackbar/SnackbarProvider';
 
 // Trades still awaiting a final outcome — active either because a decision
 // is pending or because they're inside the post-accept league review window.
 const ACTIVE_STATUSES = new Set(['pending', 'accepted']);
 
-const POSITION_ORDER = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'];
+const PANEL_ID = 'trade-panel';
 
 function toggleInSet(set, id) {
   const next = new Set(set);
@@ -52,191 +38,92 @@ function toggleInSet(set, id) {
   return next;
 }
 
-/** Position-grouped, in QB/RB/WR/TE/K/DEF order, with anything else appended after. */
-function groupPlayersByPosition(players) {
-  const byPosition = new Map();
-  for (const player of players) {
-    const key = player.position || 'Other';
-    if (!byPosition.has(key)) byPosition.set(key, []);
-    byPosition.get(key).push(player);
-  }
-  const orderedKeys = [
-    ...POSITION_ORDER.filter((pos) => byPosition.has(pos)),
-    ...[...byPosition.keys()].filter((pos) => !POSITION_ORDER.includes(pos)),
-  ];
-  return orderedKeys.map((position) => ({ position, players: byPosition.get(position) }));
-}
-
-const VERDICT_LABEL = {
-  fair: 'Fair',
-  favors_proposer: 'Favors Proposer',
-  favors_receiver: 'Favors Receiver',
-};
-
-// Self-contained "Analyze trade" control: posts to /api/trades/analyze and
-// renders the verdict + per-player breakdown. Used both in the compose
-// dialog and on each existing trade card, so it owns its own request state.
-// autoRun (compose dialog only) fires the request ~600ms after the offered/
-// requested ids last changed instead of waiting for a button click; existing
-// trade cards leave autoRun off and keep the manual button.
-function TradeAnalysisPanel({ leagueId, receivingTeamId, offeredPlayerIds, requestedPlayerIds, onOpenPlayer, autoRun = false }) {
-  const [result, setResult] = useState(null);
-  const [analyzing, setAnalyzing] = useState(false);
-  const [analyzeError, setAnalyzeError] = useState(null);
-
-  const handleAnalyze = async () => {
-    try {
-      setAnalyzing(true);
-      setAnalyzeError(null);
-      const res = await apiClient.post('/api/trades/analyze', {
-        leagueId: Number(leagueId),
-        receivingTeamId,
-        offeredPlayerIds,
-        requestedPlayerIds,
-      });
-      setResult(res.data);
-    } catch (err) {
-      setAnalyzeError(readHttpFailure(err).message || err.message);
-    } finally {
-      setAnalyzing(false);
-    }
-  };
-
-  useEffect(() => {
-    if (!autoRun) return undefined;
-    if (offeredPlayerIds.length === 0 || requestedPlayerIds.length === 0) return undefined;
-    const handle = setTimeout(() => {
-      handleAnalyze();
-    }, 600);
-    return () => clearTimeout(handle);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoRun, receivingTeamId, offeredPlayerIds.join(','), requestedPlayerIds.join(',')]);
-
+function Shell({ children }) {
   return (
-    <Box sx={{ mt: 2 }}>
-      {!autoRun && (
-        <Button size="small" variant="outlined" onClick={handleAnalyze} disabled={analyzing}>
-          {analyzing ? 'Analyzing…' : 'Analyze Trade'}
-        </Button>
-      )}
-      {autoRun && analyzing && (
-        <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-          Analyzing…
-        </Typography>
-      )}
-      {analyzeError && (
-        <Alert severity="error" sx={{ mt: 1 }}>
-          {analyzeError}
-        </Alert>
-      )}
-      {result && (
-        <Box sx={{ mt: 1 }}>
-          <Chip
-            label={VERDICT_LABEL[result.verdict] || result.verdict}
-            color={result.verdict === 'fair' ? 'success' : 'warning'}
-            size="small"
-            sx={{ mb: 1 }}
-          />
-          <Grid container spacing={2} sx={{ mb: 1 }}>
-            <Grid xs={6}>
-              <Typography variant="body2">
-                Proposer: gives {result.proposerGives} · gets {result.proposerGets}
-              </Typography>
-            </Grid>
-            <Grid xs={6}>
-              <Typography variant="body2">
-                Receiver: gives {result.receiverGives} · gets {result.receiverGets}
-              </Typography>
-            </Grid>
-          </Grid>
-          {(result.players || []).map((p) => (
-            <Typography key={p.playerId} variant="body2">
-              <PlayerNameLink name={p.name} playerId={p.playerId} onOpen={onOpenPlayer} /> ({p.position}):{' '}
-              {p.rosValue} → {p.fitAdjustedValue}
-            </Typography>
-          ))}
-        </Box>
-      )}
+    <Box className="ps-root" sx={{ ...psRootSx, minHeight: '100%' }}>
+      <Box
+        data-testid="trade-center"
+        sx={{
+          maxWidth: '1280px',
+          marginX: 'auto',
+          boxSizing: 'border-box',
+          padding: { xs: '14px 16px 48px', sm: '24px 32px 64px' },
+          display: 'flex',
+          flexDirection: 'column',
+          gap: { xs: '16px', sm: '24px' },
+        }}
+      >
+        {children}
+      </Box>
     </Box>
   );
 }
 
-/** One roster column in the propose dialog: players grouped under position subheaders. */
-function RosterColumn({ label, players, selectedIds, onToggle, testId }) {
-  const groups = groupPlayersByPosition(players || []);
+// A tertiary frame with a Pixel 16 title and a Dim sentence: the empty states and the Trade Block tab.
+function Notice({ id, title, children }) {
   return (
-    <Grid xs={12} sm={6} data-testid={testId}>
-      <Typography variant="subtitle1" component="h3" sx={{ mb: 1 }}>
-        {label}
-      </Typography>
-      {groups.map(({ position, players: groupPlayers }) => (
-        <Box key={position} sx={{ mb: 1 }}>
-          <Typography variant="caption" sx={{ display: 'block', fontWeight: 'bold', color: 'text.secondary' }}>
-            {position}
-          </Typography>
-          {groupPlayers.map((player) => (
-            <FormControlLabel
-              key={player.id}
-              control={
-                <Checkbox
-                  checked={selectedIds.has(player.id)}
-                  onChange={() => onToggle(player.id)}
-                />
-              }
-              label={[
-                `${player.name} (${player.position})`,
-                player.projected_weekly_points != null ? `weekly proj ${player.projected_weekly_points}` : null,
-                player.rest_of_season_points != null ? `ROS ${player.rest_of_season_points}` : null,
-              ].filter(Boolean).join(' · ')}
-            />
-          ))}
-        </Box>
-      ))}
-    </Grid>
+    <Frame tier="rule" labelledBy={id} sx={{ padding: '32px 20px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '8px' }}>
+      <Box component="h2" id={id} sx={{ m: 0, ...pixelSx(16) }}>{title}</Box>
+      <Box component="p" sx={{ m: 0, fontSize: '16px', color: 'var(--ps-dim)', maxWidth: '60ch', textWrap: 'pretty' }}>{children}</Box>
+    </Frame>
   );
 }
 
-/** A "You send (n): <chips>" / "You receive (n): <chips>" scannable summary row. */
-function SummaryChipRow({ label, ids, roster }) {
-  const idList = [...ids];
+function Loading() {
   return (
-    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, alignItems: 'center', mb: 1 }}>
-      <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
-        {label} ({idList.length}):
-      </Typography>
-      {idList.length === 0 ? (
-        <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-          none selected
-        </Typography>
-      ) : (
-        idList.map((id) => (
-          <Chip key={id} size="small" label={roster?.players?.find((p) => p.id === id)?.name || `#${id}`} />
-        ))
-      )}
-    </Box>
+    <Shell>
+      <Box aria-busy="true" data-testid="page-skeleton" sx={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Skel width="200px" height={48} />
+          <Skel width="140px" height={44} />
+        </Box>
+        {[0, 1, 2].map((n) => (
+          <Frame key={n} tier="rule" component="div" sx={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <Skel width="60%" height={20} />
+            <Skel width="100%" height={56} />
+            <Skel width="40%" height={20} />
+          </Frame>
+        ))}
+      </Box>
+    </Shell>
   );
 }
 
 function TradeCenter() {
   const { leagueId } = useParams();
   const notify = useSnackbar();
+  const theme = useTheme();
+  const compact = useMediaQuery(theme.breakpoints.down('sm'), { noSsr: true });
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [trades, setTrades] = useState(null);
   const [myTeamId, setMyTeamId] = useState(null);
   const [rosters, setRosters] = useState([]);
-  const { league, viewerTeamId, loading: leagueLoading, error: leagueError } = useLeague(leagueId);
+  const {
+    league, viewerTeamId, loading: leagueLoading, error: leagueError, refetch: refetchLeague,
+  } = useLeague(leagueId);
 
   const [loading, setLoading] = useState(true);
+  // A failed read (Retry) and a refused action (the server's sentence) are different alerts.
+  const [loadError, setLoadError] = useState(null);
   const [error, setError] = useState(null);
 
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [sendError, setSendError] = useState(null);
   const [selectedTeamId, setSelectedTeamId] = useState('');
   const [sendIds, setSendIds] = useState(new Set());
   const [receiveIds, setReceiveIds] = useState(new Set());
   const [counterTradeId, setCounterTradeId] = useState(null);
   const [decisionCardPlayerId, setDecisionCardPlayerId] = useState(null);
   const [tab, setTab] = useState(0);
+
+  // Focus: the h1 takes it back when a deep-linked dialog (no opener) closes; a card action that
+  // moves its trade lands on that card's heading, the next one's, or the Pending tab.
+  const titleRef = useRef(null);
+  const tabsRef = useRef(null);
+  const headingRefs = useRef(new Map());
+  const deepLinkOpenRef = useRef(false);
+  const [focusAfter, setFocusAfter] = useState(null);
 
   useEffect(() => {
     fetchAll();
@@ -304,6 +191,8 @@ function TradeCenter() {
     setSendIds(new Set());
     setReceiveIds(playerOnTeam ? new Set([playerId]) : new Set());
     setCounterTradeId(null);
+    setSendError(null);
+    deepLinkOpenRef.current = true;
     setDialogOpen(true);
     setSearchParams((current) => {
       const next = new URLSearchParams(current);
@@ -312,6 +201,13 @@ function TradeCenter() {
       return next;
     }, { replace: true });
   }, [rosters, myTeamId, searchParams, setSearchParams]);
+
+  // A deep link has no opener to give focus back to, so the h1 takes it when the dialog closes.
+  useEffect(() => {
+    if (dialogOpen || !deepLinkOpenRef.current) return;
+    deepLinkOpenRef.current = false;
+    titleRef.current?.focus();
+  }, [dialogOpen]);
 
   const fetchTrades = async () => {
     const res = await apiClient.get(`/api/trades?leagueId=${leagueId}`);
@@ -322,7 +218,7 @@ function TradeCenter() {
   const fetchAll = async () => {
     try {
       setLoading(true);
-      setError(null);
+      setLoadError(null);
       const [tradesRes, rostersRes] = await Promise.all([
         apiClient.get(`/api/trades?leagueId=${leagueId}`),
         apiClient.get(`/api/league/${leagueId}/rosters`),
@@ -331,10 +227,15 @@ function TradeCenter() {
       setTrades(tradesRes.data.trades || []);
       setRosters(rostersRes.data || []);
     } catch (err) {
-      setError(readHttpFailure(err).message || err.message);
+      setLoadError(readHttpFailure(err).message || err.message);
     } finally {
       setLoading(false);
     }
+  };
+
+  const retry = () => {
+    fetchAll();
+    if (leagueError) refetchLeague();
   };
 
   const handleOpenDialog = () => {
@@ -342,6 +243,7 @@ function TradeCenter() {
     setSendIds(new Set());
     setReceiveIds(new Set());
     setCounterTradeId(null);
+    setSendError(null);
     setDialogOpen(true);
   };
 
@@ -355,24 +257,52 @@ function TradeCenter() {
     setSendIds(new Set(requestedFromMe.map((i) => i.player_id)));
     setReceiveIds(new Set(offeredToMe.map((i) => i.player_id)));
     setCounterTradeId(trade.id);
+    setSendError(null);
     setDialogOpen(true);
   };
 
   const handleCloseDialog = () => {
     setDialogOpen(false);
     setCounterTradeId(null);
+    setSendError(null);
   };
 
-  const handleTeamChange = (e) => {
-    setSelectedTeamId(e.target.value);
+  const handleTeamChange = (teamId) => {
+    setSelectedTeamId(teamId);
     setSendIds(new Set());
     setReceiveIds(new Set());
   };
 
+  const visibleTrades = (list = trades) => (list || []).filter(
+    (t) => (tab === 0 ? ACTIVE_STATUSES.has(t.status) : tab === 1 && !ACTIVE_STATUSES.has(t.status))
+  );
+
+  // The card's footer button is gone once its action lands: focus goes to that card's heading (it
+  // stays Pending as Accepted), else the next card's, else the Pending tab.
+  const markMoved = (tradeId) => {
+    const order = visibleTrades().map((t) => t.id);
+    return () => setFocusAfter({ tradeId, order });
+  };
+
+  useEffect(() => {
+    if (!focusAfter) return;
+    const { tradeId, order } = focusAfter;
+    setFocusAfter(null);
+    const stillThere = new Set(visibleTrades().map((t) => t.id));
+    const after = order.slice(order.indexOf(tradeId) + 1);
+    const before = order.slice(0, order.indexOf(tradeId)).reverse();
+    const targetId = [tradeId, ...after, ...before].find((id) => stillThere.has(id));
+    const target = targetId != null ? headingRefs.current.get(targetId) : tabsRef.current?.querySelector('[role="tab"]');
+    target?.focus();
+    // visibleTrades reads the render this effect was created in, which is the one that carries the new list.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusAfter]);
+
   const handleSendOffer = async () => {
     try {
-      setError(null);
+      setSendError(null);
       const playerIds = [...sendIds, ...receiveIds];
+      const settled = counterTradeId ? markMoved(counterTradeId) : null;
       if (counterTradeId) {
         await apiClient.post(`/api/trades/${counterTradeId}/counter`, { playerIds });
       } else {
@@ -386,65 +316,55 @@ function TradeCenter() {
       notify(counterTradeId ? 'Counter offer sent' : 'Trade offer sent');
       setCounterTradeId(null);
       await fetchTrades();
+      if (settled) settled();
     } catch (err) {
-      const message = readHttpFailure(err).message || err.message;
-      setError(message);
-      notify(message, { severity: 'error' });
+      // The refusal stays with the dialog, which stays open: the same press is the retry.
+      setSendError(readHttpFailure(err).message || err.message);
     }
   };
 
-  const performAction = async (url, body, message) => {
+  const performAction = async (trade, url, body, message) => {
     try {
       setError(null);
+      const settled = markMoved(trade.id);
       await apiClient.post(url, body);
       notify(message);
       await fetchTrades();
+      settled();
     } catch (err) {
-      const message = readHttpFailure(err).message || err.message;
-      setError(message);
-      notify(message, { severity: 'error' });
+      const failure = readHttpFailure(err).message || err.message;
+      setError(failure);
+      notify(failure, { severity: 'error' });
     }
   };
 
   const handleAccept = (trade) =>
-    performAction(`/api/trades/${trade.id}/respond`, { action: 'accept' }, 'Trade accepted');
+    performAction(trade, `/api/trades/${trade.id}/respond`, { action: 'accept' }, 'Trade accepted');
 
   const handleReject = (trade) =>
-    performAction(`/api/trades/${trade.id}/respond`, { action: 'reject' }, 'Trade rejected');
+    performAction(trade, `/api/trades/${trade.id}/respond`, { action: 'reject' }, 'Trade rejected');
 
   const handleCancel = (trade) =>
-    performAction(`/api/trades/${trade.id}/cancel`, {}, 'Trade cancelled');
+    performAction(trade, `/api/trades/${trade.id}/cancel`, {}, 'Trade cancelled');
 
   const handleVeto = (trade) =>
-    performAction(`/api/trades/${trade.id}/veto`, {}, 'Veto vote recorded');
+    performAction(trade, `/api/trades/${trade.id}/veto`, {}, 'Veto vote recorded');
 
   const handleForceApprove = (trade) =>
-    performAction(`/api/trades/${trade.id}/decide`, { approve: true }, 'Trade approved');
+    performAction(trade, `/api/trades/${trade.id}/decide`, { approve: true }, 'Trade approved');
 
   const handleCommissionerVeto = (trade) =>
-    performAction(`/api/trades/${trade.id}/decide`, { approve: false }, 'Trade vetoed');
+    performAction(trade, `/api/trades/${trade.id}/decide`, { approve: false }, 'Trade vetoed');
 
-  if ((loading || leagueLoading) && trades === null) {
-    return (
-      <Container maxWidth="md" sx={{ py: 4 }} data-testid="page-skeleton">
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-          <Skeleton variant="text" width={200} height={48} />
-          <Skeleton variant="rounded" width={140} height={36} />
-        </Box>
-        <Skeleton variant="rectangular" height={140} sx={{ mb: 2, borderRadius: 1 }} />
-        <Skeleton variant="rectangular" height={140} sx={{ mb: 2, borderRadius: 1 }} />
-        <Skeleton variant="rectangular" height={140} sx={{ borderRadius: 1 }} />
-      </Container>
-    );
-  }
+  if ((loading || leagueLoading) && trades === null) return <Loading />;
 
   const myRoster = rosters.find((r) => r.teamId === myTeamId);
   const otherTeams = rosters.filter((r) => r.teamId !== myTeamId);
   const theirRoster = rosters.find((r) => r.teamId === selectedTeamId);
 
-  // The Decision card's entry for whichever player a PlayerNameLink opened
+  // The Decision card's entry for whichever player a name button opened
   // (#1311, ADR 0040 ruling d): looked up first off a roster row (the fuller
-  // shape RosterColumn/SummaryChipRow already read), falling back to the
+  // shape the dialog's roster columns read), falling back to the
   // trade item itself (name/position/nfl_team, all a trade row carries) for
   // a player on neither roster the viewer has loaded (e.g. a third team's in
   // a veto vote). The built context is `myTeam({ managed: false })` only
@@ -484,6 +404,16 @@ function TradeCenter() {
   const pendingTrades = (trades || []).filter((t) => ACTIVE_STATUSES.has(t.status));
   const completedTrades = (trades || []).filter((t) => !ACTIVE_STATUSES.has(t.status));
 
+  // The one cursor: the oldest incoming pending offer. Nothing else on the page asks for the viewer.
+  const cursorTrade = pendingTrades
+    .filter((t) => t.status === 'pending' && myTeamId != null && t.receiving_team_id === myTeamId)
+    .reduce((oldest, t) => {
+      if (!oldest) return t;
+      const a = new Date(t.created_at).getTime();
+      const b = new Date(oldest.created_at).getTime();
+      return (Number.isFinite(a) ? a : Infinity) < (Number.isFinite(b) ? b : Infinity) ? t : oldest;
+    }, null);
+
   const renderTradeCard = (trade) => {
     const itemsFromProposing = (trade.items || []).filter(
       (i) => i.from_team_id === trade.proposing_team_id
@@ -498,7 +428,8 @@ function TradeCenter() {
 
     // The left column is always "You Receive" when the viewer is a party to
     // the trade; an uninvolved league member (e.g. voting to veto) sees both
-    // sides labeled by team name instead.
+    // sides labeled by team name instead, each naming what that team RECEIVES
+    // (the players the other side sends).
     let leftLabel;
     let leftItems;
     let rightLabel;
@@ -515,202 +446,135 @@ function TradeCenter() {
       rightItems = itemsFromProposing;
     } else {
       leftLabel = `${trade.proposing_team_name} Receives`;
-      leftItems = itemsFromProposing;
+      leftItems = itemsFromReceiving;
       rightLabel = `${trade.receiving_team_name} Receives`;
-      rightItems = itemsFromReceiving;
+      rightItems = itemsFromProposing;
     }
 
-    const secondaryActions = [];
+    const actions = [];
     if (isReceivingTeam && trade.status === 'pending') {
-      secondaryActions.push({
-        key: 'counter',
-        label: 'Counter',
-        variant: 'outlined',
-        onClick: () => handleOpenCounter(trade),
-      });
+      actions.push({ key: 'accept', label: 'Accept Trade', onClick: () => handleAccept(trade) });
+      actions.push({ key: 'reject', label: 'Decline', onClick: () => handleReject(trade) });
+      actions.push({ key: 'counter', label: 'Counter', onClick: () => handleOpenCounter(trade) });
     }
     if (isProposingTeam && trade.status === 'pending') {
-      secondaryActions.push({ key: 'cancel', label: 'Cancel', onClick: () => handleCancel(trade) });
+      actions.push({ key: 'cancel', label: 'Cancel', onClick: () => handleCancel(trade) });
     }
     if (notInTrade && trade.status === 'accepted') {
-      secondaryActions.push({
-        key: 'veto',
-        label: 'Vote to Veto',
-        color: 'error',
-        onClick: () => handleVeto(trade),
-      });
+      actions.push({ key: 'veto', label: 'Vote to Veto', onClick: () => handleVeto(trade) });
     }
-    if (isCommissioner && isPendingOrAccepted) {
-      secondaryActions.push({
-        key: 'force-approve',
-        label: 'Force Approve',
-        variant: 'outlined',
-        onClick: () => handleForceApprove(trade),
-      });
-      secondaryActions.push({
-        key: 'commissioner-veto',
-        label: 'Commissioner Veto',
-        variant: 'outlined',
-        color: 'error',
-        onClick: () => handleCommissionerVeto(trade),
-      });
-    }
+    // Integrity: a commissioner never overrides a trade their own team is in.
+    const commissionerActions = isCommissioner && isPendingOrAccepted && notInTrade
+      ? [
+        { key: 'force-approve', label: 'Force Approve', onClick: () => handleForceApprove(trade) },
+        { key: 'commissioner-veto', label: 'Commissioner Veto', onClick: () => handleCommissionerVeto(trade) },
+      ]
+      : [];
 
     return (
       <TradeProposalCard
         key={trade.id}
         trade={trade}
+        leagueId={leagueId}
+        viewerTeamId={myTeamId}
         leftLabel={leftLabel}
         leftItems={leftItems}
         rightLabel={rightLabel}
         rightItems={rightItems}
         onOpenPlayer={setDecisionCardPlayerId}
-        canAccept={isReceivingTeam && trade.status === 'pending'}
-        onAccept={() => handleAccept(trade)}
-        canReject={isReceivingTeam && trade.status === 'pending'}
-        onReject={() => handleReject(trade)}
-        secondaryActions={secondaryActions}
-        analysis={
-          <TradeAnalysisPanel
-            leagueId={leagueId}
-            receivingTeamId={trade.receiving_team_id}
-            offeredPlayerIds={itemsFromProposing.map((i) => i.player_id)}
-            requestedPlayerIds={itemsFromReceiving.map((i) => i.player_id)}
-            onOpenPlayer={setDecisionCardPlayerId}
-          />
-        }
+        actions={actions}
+        commissionerActions={commissionerActions}
+        cursor={tab === 0 && cursorTrade?.id === trade.id}
+        headingRef={(el) => {
+          if (el) headingRefs.current.set(trade.id, el);
+          else headingRefs.current.delete(trade.id);
+        }}
       />
     );
   };
 
+  const zone = formatInstant(new Date(), 'zone') || 'your time zone';
+  const subLine = league?.trade_deadline_week != null
+    ? `Trade deadline Week ${league.trade_deadline_week} · times in ${zone}`
+    : `Times in ${zone}`;
+
   return (
-    <Container maxWidth="md" sx={{ py: 4 }}>
-      <LeagueBreadcrumb />
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-        <Typography variant="h4">Trade Center</Typography>
-        <Button variant="contained" onClick={handleOpenDialog}>
-          Propose Trade
-        </Button>
+    <Shell>
+      <Box component="section" aria-labelledby="trade-center-title" sx={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: 0 }}>
+        <LeagueBreadcrumb name={league?.name} look="playselect" />
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', justifyContent: 'space-between', gap: '12px 24px' }}>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: '12px', minWidth: 0 }}>
+            <Box
+              component="h1"
+              id="trade-center-title"
+              ref={titleRef}
+              tabIndex={-1}
+              sx={{
+                m: 0, ...pixelSx(16), fontSize: { xs: '24px', md: '32px' }, lineHeight: 1.3, overflowWrap: 'break-word',
+              }}
+            >
+              Trade Center
+            </Box>
+            <Box component="p" sx={{ m: 0, fontSize: { xs: '16px', sm: '17px' }, color: 'var(--ps-dim)', textWrap: 'pretty' }}>{subLine}</Box>
+          </Box>
+          <PsButton variant="ghost" onClick={handleOpenDialog}>Propose Trade</PsButton>
+        </Box>
       </Box>
 
-      <Tabs value={tab} onChange={(e, value) => setTab(value)} sx={{ mb: 3 }}>
-        <Tab label="Pending" />
-        <Tab label="Completed" />
-        <Tab label="Trade Block" />
-      </Tabs>
+      <TradeTabs ref={tabsRef} value={tab} onChange={setTab} panelId={PANEL_ID} />
 
-      {(error || leagueError) && (
-        <Alert severity="error" sx={{ mb: 2 }}>
-          {error || leagueError}
-        </Alert>
+      {(loadError || leagueError) && (
+        <TradeAlert detail={loadError || leagueError} onRetry={retry}>We could not load trades.</TradeAlert>
       )}
+      {error && <TradeAlert>{error}</TradeAlert>}
 
-      {tab === 0 &&
-        (pendingTrades.length === 0 ? (
-          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', py: 8 }}>
-            <HandshakeOutlinedIcon sx={{ fontSize: 56, mb: 2, color: 'text.disabled' }} />
-            <Typography variant="h6">No Pending Trades</Typography>
-            <Typography sx={{ color: 'text.secondary' }}>
-              Trades proposed by you or to you will appear here.
-            </Typography>
-          </Box>
-        ) : (
-          pendingTrades.map(renderTradeCard)
-        ))}
+      <Box
+        component="section"
+        id={PANEL_ID}
+        role="tabpanel"
+        aria-labelledby={`trade-tab-${tab}`}
+        sx={{ display: 'flex', flexDirection: 'column', gap: '12px', minWidth: 0 }}
+      >
+        {tab === 0 && (pendingTrades.length === 0
+          ? <Notice id="trade-empty-pending" title="No Pending Trades">Trades proposed by you or to you will appear here.</Notice>
+          : pendingTrades.map(renderTradeCard))}
 
-      {tab === 1 &&
-        (completedTrades.length === 0 ? (
-          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', py: 8 }}>
-            <HistoryOutlinedIcon sx={{ fontSize: 56, mb: 2, color: 'text.disabled' }} />
-            <Typography variant="h6">No Completed Trades</Typography>
-            <Typography sx={{ color: 'text.secondary' }}>
-              Executed, declined, and cancelled trades will show up here.
-            </Typography>
-          </Box>
-        ) : (
-          completedTrades.map(renderTradeCard)
-        ))}
+        {tab === 1 && (completedTrades.length === 0
+          ? <Notice id="trade-empty-completed" title="No Completed Trades">Executed, declined, and cancelled trades will show up here.</Notice>
+          : completedTrades.map(renderTradeCard))}
 
-      {tab === 2 && (
-        <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', py: 8 }}>
-          <ConstructionOutlinedIcon sx={{ fontSize: 56, mb: 2, color: 'text.disabled' }} />
-          <Typography variant="h6">Trade Block</Typography>
-          <Typography sx={{ color: 'text.secondary' }}>
+        {tab === 2 && (
+          <Notice id="trade-block" title="Trade Block">
             Mark players as available so the rest of the league can make an offer. Coming soon.
-          </Typography>
-        </Box>
+          </Notice>
+        )}
+      </Box>
+
+      {dialogOpen && (
+        <TradeDialog
+          open
+          onClose={handleCloseDialog}
+          title={counterTradeId ? 'Counter Trade' : 'Propose Trade'}
+          leagueId={leagueId}
+          counter={counterTradeId != null}
+          otherTeams={otherTeams}
+          selectedTeamId={selectedTeamId}
+          onTeamChange={handleTeamChange}
+          myRoster={myRoster}
+          theirRoster={theirRoster}
+          sendIds={sendIds}
+          receiveIds={receiveIds}
+          onToggleSend={(id) => setSendIds((prev) => toggleInSet(prev, id))}
+          onToggleReceive={(id) => setReceiveIds((prev) => toggleInSet(prev, id))}
+          onSend={handleSendOffer}
+          sendError={sendError}
+          onOpenPlayer={setDecisionCardPlayerId}
+          compact={compact}
+        />
       )}
 
-      <Dialog open={dialogOpen} onClose={handleCloseDialog} fullWidth maxWidth="md">
-        <DialogTitle>{counterTradeId ? 'Counter Trade' : 'Propose Trade'}</DialogTitle>
-        <DialogContent>
-          <FormControl fullWidth sx={{ mt: 1, mb: 2 }} disabled={counterTradeId != null}>
-            <InputLabel id="trade-with-select-label">Trade with</InputLabel>
-            <Select
-              labelId="trade-with-select-label"
-              id="trade-with-select"
-              value={selectedTeamId}
-              label="Trade with"
-              onChange={handleTeamChange}
-            >
-              {otherTeams.map((team) => (
-                <MenuItem key={team.teamId} value={team.teamId}>
-                  {team.teamName}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-
-          {selectedTeamId !== '' && (
-            <Grid container spacing={2}>
-              <RosterColumn
-                label="You send"
-                players={myRoster?.players}
-                selectedIds={sendIds}
-                onToggle={(id) => setSendIds((prev) => toggleInSet(prev, id))}
-                testId="roster-column-send"
-              />
-              <RosterColumn
-                label="You receive"
-                players={theirRoster?.players}
-                selectedIds={receiveIds}
-                onToggle={(id) => setReceiveIds((prev) => toggleInSet(prev, id))}
-                testId="roster-column-receive"
-              />
-            </Grid>
-          )}
-
-          {selectedTeamId !== '' && sendIds.size > 0 && receiveIds.size > 0 && (
-            <TradeAnalysisPanel
-              leagueId={leagueId}
-              receivingTeamId={selectedTeamId}
-              offeredPlayerIds={[...sendIds]}
-              requestedPlayerIds={[...receiveIds]}
-              onOpenPlayer={setDecisionCardPlayerId}
-              autoRun
-            />
-          )}
-
-          {selectedTeamId !== '' && (
-            <Box sx={{ mt: 2 }}>
-              <SummaryChipRow label="You send" ids={sendIds} roster={myRoster} />
-              <SummaryChipRow label="You receive" ids={receiveIds} roster={theirRoster} />
-            </Box>
-          )}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={handleCloseDialog}>Cancel</Button>
-          <Button
-            variant="contained"
-            disabled={sendIds.size === 0 || receiveIds.size === 0}
-            onClick={handleSendOffer}
-          >
-            Send Offer
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* #1515 (T19): `availability` rides inside the built context now (the
+      {/* `look="playselect"` joins these props once the card PR lands: the card throws on any prop it does not
+          list until then. #1515 (T19): `availability` rides inside the built context now (the
           rostered() builder already carries it) - no loose prop beside it. */}
       <PlayerDecisionCard
         open={decisionCardPlayerId != null}
@@ -719,7 +583,7 @@ function TradeCenter() {
         leagueId={Number(leagueId)}
         context={decisionCardBuiltContext}
       />
-    </Container>
+    </Shell>
   );
 }
 

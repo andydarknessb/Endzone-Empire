@@ -1,30 +1,22 @@
 import React from 'react';
-import { Card, CardContent, CardActions, Box, Typography, Chip, Avatar, Button, Stack, Tooltip } from '@mui/material';
-import Grid from '@mui/material/Unstable_Grid2';
-import { PlayerNameLink } from '../../entities/player';
-// Concrete module path, not the shared/ui barrel: a legacy consumer (ADR
-// 0031's #1146 amendment) - the index would pull the whole kit, and
-// shared/lib's useEndpoint through it, into this bundle.
-import TeamAvatar from '../../shared/ui/TeamAvatar';
+import { Box } from '@mui/material';
+import { PsButton, PsLinkButton } from '../../shared/ui/playselect/Controls';
+import { PixelClock } from '../../shared/ui/playselect/Icons';
+import { PosTag, StatusChip, TeamMark, YouTag } from '../../shared/ui/playselect/Marks';
+import { SR_ONLY_SX } from '../../shared/ui/playselect/type';
+import { formatInstant } from '../../shared/lib/instantFormat';
 import { formatTimeSince } from '../../shared/lib/formatTimeSince';
+import { AnalysisError, AnalysisResult, useTradeAnalysis } from './TradeAnalysis';
 
-const STATUS_COLOR = {
-  pending: 'warning',
-  accepted: 'info',
-  executed: 'success',
-  rejected: 'error',
-  vetoed: 'error',
-  cancelled: 'default',
-  countered: 'default',
+const STATUS_WORD = {
+  pending: 'Pending',
+  accepted: 'Accepted',
+  executed: 'Executed',
+  rejected: 'Rejected',
+  vetoed: 'Vetoed',
+  cancelled: 'Cancelled',
+  countered: 'Countered',
 };
-
-function initialsFor(name) {
-  if (!name) return '?';
-  const parts = name.trim().split(/\s+/);
-  const first = parts[0]?.[0] || '';
-  const last = parts.length > 1 ? parts[parts.length - 1][0] : '';
-  return (first + last).toUpperCase();
-}
 
 // #1585: the week's NFL opponent (CONTEXT.md). `vs BUF`, or a bare `Bye` when
 // the server sent null for a player with an nfl_team; nothing when both are
@@ -34,129 +26,217 @@ function opponentLabel(item) {
   return item.nfl_team ? 'Bye' : null;
 }
 
-function PlayerRow({ item, onOpenPlayer }) {
+function PlayerRow({ item, last, onOpenPlayer }) {
   const opponent = opponentLabel(item);
   return (
-    <Stack direction="row" spacing={1.5} alignItems="center">
-      <Avatar sx={{ width: 32, height: 32, fontSize: 13, bgcolor: 'action.selected', color: 'text.secondary' }}>
-        {initialsFor(item.name)}
-      </Avatar>
-      <Typography variant="body2">
-        <PlayerNameLink name={item.name} playerId={item.player_id} onOpen={onOpenPlayer} /> ({item.position})
-      </Typography>
-      {opponent && (
-        <Typography variant="caption" color="text.secondary">
-          {opponent}
-        </Typography>
-      )}
-    </Stack>
+    <Box
+      component="li"
+      sx={{
+        display: 'flex', alignItems: 'center', gap: '10px', minHeight: '44px', borderBottom: last ? 0 : '2px solid var(--ps-rule)',
+      }}
+    >
+      <PosTag position={item.position} />
+      <Box sx={{ flex: 1, minWidth: 0 }}>
+        <PsLinkButton onClick={() => onOpenPlayer(item.player_id)}>{item.name}</PsLinkButton>
+      </Box>
+      {opponent && <Box component="span" sx={{ fontSize: '14px', color: 'var(--ps-dim)', whiteSpace: 'nowrap' }}>{opponent}</Box>}
+    </Box>
   );
 }
 
+function Column({
+  id, label, items, onOpenPlayer, divided,
+}) {
+  return (
+    <Box
+      sx={divided ? {
+        minWidth: 0,
+        borderTop: { xs: '2px solid var(--ps-rule)', sm: 0 },
+        pt: { xs: '12px', sm: 0 },
+        borderLeft: { sm: '2px solid var(--ps-rule)' },
+        pl: { sm: '24px' },
+      } : { minWidth: 0, pr: { sm: '24px' } }}
+    >
+      <Box component="h3" id={id} sx={{ m: '0 0 4px', fontSize: '15px', fontWeight: 700 }}>{label}</Box>
+      <Box component="ul" aria-labelledby={id} sx={{ listStyle: 'none', m: 0, p: 0 }}>
+        {items.map((item, i) => (
+          <PlayerRow key={item.player_id} item={item} last={i === items.length - 1} onOpenPlayer={onOpenPlayer} />
+        ))}
+      </Box>
+    </Box>
+  );
+}
+
+// One side of the title: avatar, name and the You badge are one nowrap unit, so a narrow card breaks
+// between the two teams and never inside one.
+function Side({
+  name, avatarUrl, avatarStaticUrl, you, arrow,
+}) {
+  return (
+    <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: '8px', whiteSpace: 'nowrap' }}>
+      <TeamMark name={name} avatarUrl={avatarUrl} avatarStaticUrl={avatarStaticUrl} size={28} />
+      <span>{name}</span>
+      {you && <YouTag />}
+      {arrow && (
+        <>
+          <Box component="span" aria-hidden="true" sx={{ fontWeight: 400, color: 'var(--ps-dim)' }}>⇄</Box>
+          <Box component="span" sx={SR_ONLY_SX}>to</Box>
+        </>
+      )}
+    </Box>
+  );
+}
+
+const bar = {
+  display: 'flex', flexWrap: 'wrap', gap: '8px', padding: { xs: '12px 14px', sm: '12px 20px' }, borderTop: '2px solid var(--ps-rule)',
+};
+
 /**
- * One trade proposal, symmetric two-column "who gets what" layout with a
- * high-contrast Accept/Decline pair plus whatever role-specific secondary
- * actions apply (Counter, Cancel, Vote to Veto, commissioner overrides).
+ * One trade, as a tertiary frame (Play-select, docs/design/league Trades board): the head "{team} ⇄ {team}"
+ * with both avatars, the age, the review end of an accepted trade and the Pixel status chip; two columns of
+ * players with position tags; then, when it has one, the analysis; then the footer row. Every action is a
+ * ghost button and "Analyze Trade" is always the last of its row; the commissioner's overrides sit on their
+ * own labelled row. `cursor` marks the page's one cursor (the oldest incoming pending offer).
+ *
+ * Analysis is the card's own request: POST /api/trades/analyze with the trade's id, so any league member
+ * reads the trade as its own proposing and receiving teams.
  */
 function TradeProposalCard({
   trade,
+  leagueId,
+  viewerTeamId,
   leftLabel,
   leftItems,
   rightLabel,
   rightItems,
   onOpenPlayer,
-  canAccept,
-  onAccept,
-  canReject,
-  onReject,
-  secondaryActions = [],
-  analysis,
+  actions = [],
+  commissionerActions = [],
+  cursor = false,
+  headingRef,
 }) {
-  const hasActions = canAccept || canReject || secondaryActions.length > 0;
+  const analysis = useTradeAnalysis(leagueId);
+  const id = `trade-${trade.id}`;
+  const age = trade.created_at ? formatTimeSince(trade.created_at) : null;
+  const reviewEnds = trade.status === 'accepted' ? formatInstant(trade.review_ends_at, 'weekdayTime') : null;
+  const isYou = (teamId) => viewerTeamId != null && viewerTeamId === teamId;
 
-  return (
-    <Card sx={{ mb: 2 }} data-testid={`trade-${trade.id}`}>
-      <CardContent>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 1, mb: 2 }}>
-          <Box>
-            <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-              <TeamAvatar
-                name={trade.proposing_team_name}
-                avatarUrl={trade.proposing_team_avatar_url}
-                avatarStaticUrl={trade.proposing_team_avatar_static_url}
-                size={24}
-              />
-              {trade.proposing_team_name} ⇄ {trade.receiving_team_name}
-              <TeamAvatar
-                name={trade.receiving_team_name}
-                avatarUrl={trade.receiving_team_avatar_url}
-                avatarStaticUrl={trade.receiving_team_avatar_static_url}
-                size={24}
-              />
-            </Typography>
-            {trade.created_at && (
-              <Tooltip title={new Date(trade.created_at).toLocaleString()}>
-                <Typography variant="caption" component="span" sx={{ color: 'text.secondary' }}>
-                  {formatTimeSince(trade.created_at)}
-                </Typography>
-              </Tooltip>
+  const card = (
+    <Box
+      component="article"
+      aria-labelledby={`${id}-h`}
+      data-testid={id}
+      sx={{
+        border: '2px solid var(--ps-frame-2)', backgroundColor: 'var(--ps-panel)', color: 'var(--ps-ink)', minWidth: 0, flex: 1,
+      }}
+    >
+      <Box
+        sx={{
+          display: 'flex',
+          flexDirection: { xs: 'column-reverse', sm: 'row' },
+          alignItems: 'flex-start',
+          justifyContent: 'space-between',
+          gap: { xs: '10px', sm: '8px 16px' },
+          padding: { xs: '10px 14px 12px', sm: '16px 20px 12px' },
+        }}
+      >
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: 0, flex: 1 }}>
+          <Box
+            component="h2"
+            id={`${id}-h`}
+            ref={headingRef}
+            tabIndex={-1}
+            sx={{
+              m: 0, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '6px 10px', fontSize: '17px', fontWeight: 700, lineHeight: 1.3,
+            }}
+          >
+            <Side
+              name={trade.proposing_team_name}
+              avatarUrl={trade.proposing_team_avatar_url}
+              avatarStaticUrl={trade.proposing_team_avatar_static_url}
+              you={isYou(trade.proposing_team_id)}
+              arrow
+            />
+            <Side
+              name={trade.receiving_team_name}
+              avatarUrl={trade.receiving_team_avatar_url}
+              avatarStaticUrl={trade.receiving_team_avatar_static_url}
+              you={isYou(trade.receiving_team_id)}
+            />
+          </Box>
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '2px 14px', fontSize: '14px', color: 'var(--ps-dim)' }}>
+            {age && <span title={new Date(trade.created_at).toLocaleString()}>{age}</span>}
+            {reviewEnds && (
+              <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: '8px', color: 'var(--ps-ink)', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                <PixelClock />
+                {`League review ends ${reviewEnds}`}
+              </Box>
             )}
           </Box>
-          <Chip label={trade.status} color={STATUS_COLOR[trade.status] || 'default'} size="small" />
         </Box>
+        <StatusChip>{STATUS_WORD[trade.status] || trade.status}</StatusChip>
+      </Box>
 
-        <Grid container spacing={2}>
-          <Grid xs={12} sm={6}>
-            <Typography variant="subtitle2" component="p" sx={{ mb: 1, fontWeight: 700 }}>
-              {leftLabel}
-            </Typography>
-            <Stack spacing={1}>
-              {leftItems.map((item) => (
-                <PlayerRow key={item.player_id} item={item} onOpenPlayer={onOpenPlayer} />
-              ))}
-            </Stack>
-          </Grid>
-          <Grid xs={12} sm={6} sx={{ borderLeft: { sm: '1px solid' }, borderColor: { sm: 'divider' }, pl: { sm: 3 } }}>
-            <Typography variant="subtitle2" component="p" sx={{ mb: 1, fontWeight: 700 }}>
-              {rightLabel}
-            </Typography>
-            <Stack spacing={1}>
-              {rightItems.map((item) => (
-                <PlayerRow key={item.player_id} item={item} onOpenPlayer={onOpenPlayer} />
-              ))}
-            </Stack>
-          </Grid>
-        </Grid>
+      <Box
+        sx={{
+          display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'minmax(0, 1fr) minmax(0, 1fr)' }, gap: { xs: '12px', sm: 0 }, padding: { xs: '4px 14px 12px', sm: '4px 20px 12px' },
+        }}
+      >
+        <Column id={`${id}-l`} label={leftLabel} items={leftItems} onOpenPlayer={onOpenPlayer} />
+        <Column id={`${id}-r`} label={rightLabel} items={rightItems} onOpenPlayer={onOpenPlayer} divided />
+      </Box>
 
-        {analysis}
-      </CardContent>
-
-      {hasActions && (
-        <CardActions sx={{ px: 2, pb: 2, flexWrap: 'wrap', gap: 1 }}>
-          {canAccept && (
-            <Button variant="contained" color="success" onClick={onAccept}>
-              Accept Trade
-            </Button>
-          )}
-          {canReject && (
-            <Button variant="outlined" color="error" onClick={onReject}>
-              Decline
-            </Button>
-          )}
-          {secondaryActions.map((action) => (
-            <Button
-              key={action.key}
-              size="small"
-              variant={action.variant || 'text'}
-              color={action.color || 'primary'}
-              onClick={action.onClick}
-            >
-              {action.label}
-            </Button>
-          ))}
-        </CardActions>
+      {(analysis.result || analysis.error) && (
+        <Box sx={{ padding: { xs: '12px 14px', sm: '12px 20px' }, borderTop: '2px solid var(--ps-rule)', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          <AnalysisError error={analysis.error} />
+          {analysis.result && <AnalysisResult result={analysis.result} onOpenPlayer={onOpenPlayer} />}
+        </Box>
       )}
-    </Card>
+
+      <Box sx={bar}>
+        {actions.map((action) => (
+          <PsButton key={action.key} variant="ghost" onClick={action.onClick}>{action.label}</PsButton>
+        ))}
+        <Box sx={{ ml: { sm: 'auto' } }}>
+          <PsButton variant="ghost" disabled={analysis.analyzing} onClick={() => analysis.run({ tradeId: trade.id })}>
+            {analysis.analyzing ? 'Analyzing…' : 'Analyze Trade'}
+          </PsButton>
+        </Box>
+      </Box>
+
+      {commissionerActions.length > 0 && (
+        <Box role="group" aria-label="Commissioner" sx={{ ...bar, alignItems: 'center', gap: '8px 12px' }}>
+          <Box
+            component="span"
+            sx={{
+              width: { xs: '100%', sm: '112px' }, fontSize: '13px', fontWeight: 600, letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--ps-dim)',
+            }}
+          >
+            Commissioner
+          </Box>
+          {commissionerActions.map((action) => (
+            <PsButton key={action.key} variant="ghost" onClick={action.onClick}>{action.label}</PsButton>
+          ))}
+        </Box>
+      )}
+    </Box>
+  );
+
+  return (
+    <Box
+      className={cursor ? 'cursor slot' : undefined}
+      sx={{
+        '--cur': 'var(--ps-cursor)',
+        padding: { xs: 0, sm: '4px' },
+        border: `4px solid ${cursor ? 'var(--ps-cursor)' : 'transparent'}`,
+        boxSizing: 'border-box',
+        display: 'flex',
+        flexDirection: 'column',
+      }}
+    >
+      {cursor && <Box component="span" sx={SR_ONLY_SX}>Next move: respond to this offer</Box>}
+      {card}
+    </Box>
   );
 }
 
