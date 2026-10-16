@@ -4,9 +4,9 @@ import { VIEW_SCOREBOARD, VIEW_STANDARD } from '../model/useMatchupView';
 
 /**
  * toggle-matchup-view feature (ADR 0031, #903): the Standard / Scoreboard
- * view toggle from the Matchup Detail canvas (`detailHeader()` in
- * docs/design/game-center-matchups/build.mjs), a SegmentedControl with the
- * list icon beside Standard and the field icon beside Scoreboard. The page
+ * view toggle from the Matchup Detail canvas, a SegmentedControl in its
+ * `playselect` look (ADR 0067 wave 2): square 44px segments, the checked one
+ * in Play blue with an arrow, so the state is not colour alone. The page
  * keeps owning the view (through `useMatchupView`, which remembers it per
  * viewer); this control only reports a pick through `onChange`.
  *
@@ -14,9 +14,8 @@ import { VIEW_SCOREBOARD, VIEW_STANDARD } from '../model/useMatchupView';
  *   - `value`: 'standard' or 'scoreboard'.
  *   - `onChange`: called with the picked view.
  *   - `fill`: the mobile layout, where the control stretches to its row and
- *     the two segments share its width, each grown to the 44px touch target
- *     (the kit's segment is 30px; the rule is passed as `sx`, the way the
- *     pick-week feature sizes its own segments).
+ *     the two segments share its width (every segment is 44px tall in the
+ *     playselect look).
  *
  * The control is the kit's radio group ("Matchup view"), so the selected view
  * is a checked radio and an arrow key walks from the focused option, carrying
@@ -24,16 +23,12 @@ import { VIEW_SCOREBOARD, VIEW_STANDARD } from '../model/useMatchupView';
  * stop stay the same button (#933). A `ref` reaches the group element (the kit
  * forwards it), so the page can move focus onto the checked option when another
  * control swaps the view. Paints nothing of its
- * own: the kit paints the segments, and the icons are inline stroke SVG on
- * the canvas's 20px grid, aria-hidden beside their words.
+ * own: the kit paints the segments.
  */
 const OPTIONS = [
-  { value: VIEW_STANDARD, label: 'Standard', icon: <Icon name="list" /> },
-  { value: VIEW_SCOREBOARD, label: 'Scoreboard', icon: <Icon name="field" /> },
+  { value: VIEW_STANDARD, label: 'Standard' },
+  { value: VIEW_SCOREBOARD, label: 'Scoreboard' },
 ];
-
-// Below sm every segment is at least the 44px touch target.
-const FILL_SX = { '& [role="radio"]': { minHeight: 44 } };
 
 const ToggleMatchupView = React.forwardRef(function ToggleMatchupView({ value, onChange, fill = false, sx, ...rest }, ref) {
   return (
@@ -41,44 +36,15 @@ const ToggleMatchupView = React.forwardRef(function ToggleMatchupView({ value, o
       ref={ref}
       aria-label="Matchup view"
       data-testid="toggle-matchup-view"
+      look="playselect"
       options={OPTIONS}
       value={value}
       onChange={onChange}
       fill={fill}
-      sx={fill ? { ...FILL_SX, ...sx } : sx}
+      sx={sx}
       {...rest}
     />
   );
 });
 
 export default ToggleMatchupView;
-
-const ICON_PATHS = {
-  list: <path d="M4 6h12M4 10h12M4 14h12" />,
-  field: (
-    <>
-      <rect x="2.5" y="4.5" width="15" height="11" rx="1.5" />
-      <path d="M10 4.5v11M6 4.5v11M14 4.5v11" />
-    </>
-  ),
-};
-
-function Icon({ name, size = 15 }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 20 20"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.6"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      focusable="false"
-      style={{ display: 'block', flex: 'none' }}
-    >
-      {ICON_PATHS[name]}
-    </svg>
-  );
-}

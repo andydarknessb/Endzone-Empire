@@ -1,5 +1,8 @@
+/* eslint-disable testing-library/no-node-access -- reads emotion rules, the position tag and the checked segment glyph, none of which has a role or a name */
 import React from 'react';
-import { render, renderHook, screen, act } from '@testing-library/react';
+import {
+  render, renderHook, screen, act,
+} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {
   ToggleMatchupView, useMatchupView, matchupViewStorageKey, viewerKeyFor, ANON_VIEWER,
@@ -45,17 +48,22 @@ test('clicking a view reports it through onChange', async () => {
   expect(onChange).toHaveBeenCalledWith('scoreboard');
 });
 
-// Red-tell (#903 review): dropping the `fill` rule (or lowering it to the
-// kit's 30px / the week picker's 38px) turns the first half red; applying it
-// regardless of `fill` turns the second half red.
-test('below sm (fill) every segment grows to the 44px touch target; the desktop control keeps the kit size', () => {
+// The toggle uses the playselect look: every segment is the 44px target at every width, the checked one
+// carries an arrow beside its word (state is not colour alone), and `fill` only stretches the group.
+test('the playselect look sets every segment at 44px, and fill stretches the group', () => {
   const { rerender } = render(<ToggleMatchupView value="standard" onChange={() => {}} fill />);
-  const filled = rulesUnder(screen.getByRole('radiogroup', { name: 'Matchup view' }));
-  expect(filled['[role="radio"]']).toMatch(/min-height:\s*44px/);
+  expect(rulesUnder(screen.getByRole('radiogroup', { name: 'Matchup view' }))['']).toMatch(/width:\s*100%/);
+  expect(rulesUnder(screen.getByRole('radio', { name: 'Standard' }))['']).toMatch(/min-height:\s*44px/);
 
   rerender(<ToggleMatchupView value="standard" onChange={() => {}} />);
-  const desktop = rulesUnder(screen.getByRole('radiogroup', { name: 'Matchup view' }));
-  expect(desktop['[role="radio"]'] || '').not.toMatch(/min-height/);
+  expect(rulesUnder(screen.getByRole('radiogroup', { name: 'Matchup view' }))['']).not.toMatch(/width:\s*100%/);
+  expect(rulesUnder(screen.getByRole('radio', { name: 'Scoreboard' }))['']).toMatch(/min-height:\s*44px/);
+});
+
+test('the checked segment carries an arrow so the state is not colour alone', () => {
+  render(<ToggleMatchupView value="scoreboard" onChange={() => {}} />);
+  expect(screen.getByRole('radio', { name: 'Scoreboard' }).querySelector('svg')).not.toBeNull();
+  expect(screen.queryByRole('radio', { name: 'Standard' }).querySelector('svg')).toBeNull();
 });
 
 test('forwards a ref to the group element, so the page can focus the checked option', () => {

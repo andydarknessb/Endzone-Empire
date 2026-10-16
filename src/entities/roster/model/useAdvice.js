@@ -45,6 +45,8 @@ export function useAdvice({ leagueId, week, bestBall }) {
   return {
     status: bestBall ? 'hidden' : status,
     suggestions: Array.isArray(data?.suggestions) ? data.suggestions : [],
+    // Bench players the optimizer would start in an empty starting slot (the advice wire's `openSlotFills`).
+    openSlotFills: Array.isArray(data?.openSlotFills) ? data.openSlotFills : [],
     movePlan: Array.isArray(data?.movePlan) ? data.movePlan : [],
     projectedTotal: data?.projectedTotal ?? null,
     optimalTotal: data?.optimalTotal ?? null,

@@ -10,7 +10,7 @@ import { LED_FONT } from './LedBoard';
 
 /**
  * The retro field from the Scoreboard view (design canvas retroField()): one
- * inline SVG with team-color end zones (`dash-home` left, `dash-away` right),
+ * inline SVG with team-color end zones (`ps-play` left, `ps-board-dim` right),
  * yard lines and numbers, and the two Tecmo sprites placed by the home win
  * probability. There is no real field position in a fantasy matchup, so
  * "further toward the away end zone" stands in for "more likely to win": both
@@ -49,8 +49,8 @@ import { LED_FONT } from './LedBoard';
  * reach; it holds a still frame under reduced motion for the same reason.
  *
  * Colors. The end zones, the sprites' jerseys, the callout and the labels ride
- * `dash-*` tokens (the end-zone label is `text-inverse` on the side color,
- * the pairing the position chips already use). The sprite kit is the
+ * `ps-*` tokens (the end-zone label is `ps-play-ink` on the home color and `ps-board` on the away color,
+ * so each reads on its fill). The sprite kit is the
  * kit's TecmoSprite palette (shared/ui): the jersey is `currentColor`, inherited from
  * a `<g>` painted with the side's token, because a `var()` inside an SVG
  * presentation attribute is not honoured everywhere while `currentColor` is;
@@ -73,7 +73,7 @@ const MOBILE = { w: 362, h: 140, ez: 30, sprite: 18, homeY: 28, awayY: 62, yardY
 
 const dash = keyframes`
   from { transform: translateX(0); }
-  to { transform: translateX(var(--dash-distance)); }
+  to { transform: translateX(var(--sprite-distance)); }
 `;
 
 const flashIn = keyframes`
@@ -103,12 +103,12 @@ function FieldSprite({ side, x, y, size, kit, frame, label, dashDistance, labelS
       style={{
         transform: `translate(${x.toFixed(1)}px, ${y}px)`,
         transition: 'transform 1.2s ease',
-        color: side === 'home' ? 'var(--dash-home)' : 'var(--dash-away)',
+        color: side === 'home' ? 'var(--ps-play)' : 'var(--ps-board-dim)',
       }}
     >
       <Box
         component="g"
-        sx={dashDistance != null ? { '--dash-distance': `${dashDistance.toFixed(1)}px`, animation: `${dash} ${DASH_MS}ms ease-out forwards` } : undefined}
+        sx={dashDistance != null ? { '--sprite-distance': `${dashDistance.toFixed(1)}px`, animation: `${dash} ${DASH_MS}ms ease-out forwards` } : undefined}
       >
         <g transform={flip ? 'scale(-1 1)' : undefined}>
           <svg x={-size / 2} y={0} width={size} height={size} viewBox="0 0 16 16" overflow="visible">
@@ -176,12 +176,12 @@ export default function RetroField({ homeName, awayName, homeProb, activePlay, m
     <Box
       data-testid="retro-field"
       sx={{
-        backgroundColor: 'var(--dash-surface)',
-        border: '1px solid var(--dash-line)',
-        borderRadius: 'var(--dash-radius)',
+        backgroundColor: 'var(--ps-panel)',
+        border: '2px solid var(--ps-frame-2)',
+        borderRadius: 0,
         p: mobile ? '10px' : '14px',
         overflow: 'hidden',
-        color: 'var(--dash-ink)',
+        color: 'var(--ps-ink)',
       }}
     >
       <Box sx={{ position: 'relative' }}>
@@ -197,8 +197,8 @@ export default function RetroField({ homeName, awayName, homeProb, activePlay, m
           style={{ display: 'block', height: 'auto' }}
         >
           <rect x="0" y="0" width={g.w} height={g.h} rx="10" fill={FIELD_GREEN} />
-          <rect x="0" y="0" width={g.ez} height={g.h} style={{ fill: 'var(--dash-home)' }} />
-          <rect x={g.w - g.ez} y="0" width={g.ez} height={g.h} style={{ fill: 'var(--dash-away)' }} />
+          <rect x="0" y="0" width={g.ez} height={g.h} style={{ fill: 'var(--ps-play)' }} />
+          <rect x={g.w - g.ez} y="0" width={g.ez} height={g.h} style={{ fill: 'var(--ps-board-dim)' }} />
           {Array.from({ length: 11 }, (_, i) => (
             <line
               key={i}
@@ -230,7 +230,7 @@ export default function RetroField({ homeName, awayName, homeProb, activePlay, m
             fontSize={g.labelSize}
             fontWeight="700"
             letterSpacing="0.08em"
-            style={{ fontFamily: 'var(--dash-font-display)', fill: 'var(--text-inverse)' }}
+            style={{ fontFamily: 'inherit', fill: 'var(--ps-play-ink)' }}
           >
             {endzoneLabel(homeName)}
           </text>
@@ -242,7 +242,7 @@ export default function RetroField({ homeName, awayName, homeProb, activePlay, m
             fontSize={g.labelSize}
             fontWeight="700"
             letterSpacing="0.08em"
-            style={{ fontFamily: 'var(--dash-font-display)', fill: 'var(--text-inverse)' }}
+            style={{ fontFamily: 'inherit', fill: 'var(--ps-board)' }}
           >
             {endzoneLabel(awayName)}
           </text>
@@ -283,12 +283,12 @@ export default function RetroField({ homeName, awayName, homeProb, activePlay, m
               height: 22,
               px: '12px',
               borderRadius: 'var(--radius-sm)',
-              backgroundColor: 'var(--dash-board)',
+              backgroundColor: 'var(--ps-board)',
               whiteSpace: 'nowrap',
               fontFamily: LED_FONT,
               fontSize: mobile ? '6px' : '8px',
               lineHeight: 1,
-              color: 'var(--dash-led)',
+              color: 'var(--ps-led)',
               // Under reduced motion, the global policy would collapse this to
               // 0s and `forwards` would leave it hidden; skip the animation and
               // stay visible (the timer above dismisses it) so the callout is
@@ -313,7 +313,7 @@ export default function RetroField({ homeName, awayName, homeProb, activePlay, m
             justifyContent: 'space-between',
             gap: '12px',
             fontSize: '12px',
-            color: 'var(--dash-faint)',
+            color: 'var(--ps-dim)',
           }}
         >
           {!mobile && <span>Sprites move with win probability. Plays flash on the field as they land.</span>}
