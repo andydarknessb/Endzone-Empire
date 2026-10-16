@@ -346,9 +346,11 @@ test('a CPU-managed side (league teams[].is_cpu) carries the CPU label beside it
   });
   try {
     renderGrid({ matchups: [LIVE] });
-    const away = screen.getAllByTestId('cpu-badge');
-    expect(away).toHaveLength(1);
-    expect(screen.getByText('Mankato Mavericks').parentElement).toContainElement(away[0]);
+    expect(screen.getAllByTestId('cpu-badge')).toHaveLength(1);
+    const away = screen.getByTestId('matchup-side-away');
+    expect(within(away).getByText('Mankato Mavericks')).toBeInTheDocument();
+    expect(within(away).getByTestId('cpu-badge')).toHaveTextContent('CPU');
+    expect(within(screen.getByTestId('matchup-side-home')).queryByTestId('cpu-badge')).not.toBeInTheDocument();
   } finally {
     invalidate(['league', 7]);
   }
