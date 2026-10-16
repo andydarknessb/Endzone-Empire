@@ -13,7 +13,7 @@ import { buildSuggestionView, calledRecordLine, calledShotLine, forecastRecordLi
  * to-call chip, the opponent context, and both kickoffs with the decide-by
  * time. Hidden outright in best ball (AC1: "standard leagues only; hidden in
  * best ball") - a best-ball league never calls the advice endpoint at all
- * (`../../pages/lineup/model/useAdvice.js`), so this widget's own job is
+ * (`entities/roster`'s `useAdvice`), so this widget's own job is
  * simply never to render when `bestBall` is true.
  *
  * Reads only `entities` and `shared` (ADR 0020/0029): `advice` and `entries`

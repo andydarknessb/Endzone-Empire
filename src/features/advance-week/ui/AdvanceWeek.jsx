@@ -44,8 +44,12 @@ import { readHttpFailure } from '../../../lib/httpFailure';
  * dropped connection has no 409 body to quote), the local fallback below shows
  * instead. The button stays enabled so the commissioner can retry once the
  * draft completes.
+ *
+ * `disabledReason` (optional, #2330): a sentence that disables the button and is
+ * shown beside it, linked with aria-describedby. Unset leaves the control as it
+ * was. The caller decides when the week may not advance (see `allWeekFinal`).
  */
-export default function AdvanceWeek({ leagueId, currentWeek, onAdvanced }) {
+export default function AdvanceWeek({ leagueId, currentWeek, onAdvanced, disabledReason }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
@@ -83,7 +87,8 @@ export default function AdvanceWeek({ leagueId, currentWeek, onAdvanced }) {
           type="button"
           variant="outlined"
           size="small"
-          disabled={busy}
+          disabled={busy || !!disabledReason}
+          aria-describedby={disabledReason ? 'advance-week-disabled-reason' : undefined}
           onClick={() => {
             setError(null);
             setOpen(true);
@@ -115,6 +120,12 @@ export default function AdvanceWeek({ leagueId, currentWeek, onAdvanced }) {
           {`Advance to Week ${nextWeek}`}
         </Button>
       </Box>
+
+      {disabledReason && (
+        <Typography id="advance-week-disabled-reason" sx={{ fontSize: '13px', lineHeight: 1.4, color: 'var(--dash-dim)' }}>
+          {disabledReason}
+        </Typography>
+      )}
 
       {/* The server's refusal. MUI Alert carries role="alert", so a screen
           reader hears it when it appears; the text is the server's own sentence
