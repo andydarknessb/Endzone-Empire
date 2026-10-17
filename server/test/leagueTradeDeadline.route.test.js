@@ -119,9 +119,9 @@ test('the flag was appended at the end, so every pre-existing bind position stil
   const calls = mockPool(t);
   await request(app).put('/api/league/1').set('Authorization', authed()).send({ tradeDeadlineWeek: 3 });
   const update = updateOf(calls);
-  // 39, not PROVIDED_PARAM (37): #116 appended two more params (draftTimezone
+  // 41, not PROVIDED_PARAM (37): #116 appended two more params (draftTimezone
   // provided flag + value) after this feature's own $37.
-  assert.equal(update.params.length, 39);
+  assert.equal(update.params.length, 41);
   // Values that would shift if the new parameter had been inserted anywhere
   // but the end: the league id and commissioner id the WHERE binds, and the
   // three other tri-state "provided" flags, all false for this body.

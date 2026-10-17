@@ -812,7 +812,7 @@ a manager's own Picks, Queue and Pick clock over approved measures (ADP,
 steal and reach, Starting need, Autopick). It never ranks, recommends or
 alters Best available, presents nothing as Draft value, and is never shown to
 a presenter (sense 1, the share-link viewer). "Polk High Legend" is the name
-of its first voice, not of the assistant.
+of its first Voice, not of the assistant.
 _Avoid_: bot, advisor, coach, recommendation engine, commentary feed (Draft
 activity is the shared feed; the assistant is private)
 
@@ -1535,6 +1535,16 @@ cutscene and the League Dashboard matchup card show it; the Recap does not
 repeat it.
 _Avoid_: matchup recap (the postgame moment is one half of this), trash talk,
 preview article
+
+**Voice**:
+An original character that the Draft assistant, a Recap or a Matchup
+narrative may speak in. A Voice changes how the prose sounds, never which
+facts it names, and it roasts a decision, never a person. It never borrows a
+name, catchphrase or character from anywhere else. A league's commissioner
+picks the Voice for that league's Recap and Matchup narrative, and neutral is
+the default. Every other Narrative, and every template, is always neutral.
+"Polk High Legend" is the first Voice.
+_Avoid_: persona, character, tone (unqualified), any borrowed character name
 
 **Postgame cutscene**:
 A full-screen Tecmo cutscene that reveals one Team's final Matchup result, win,

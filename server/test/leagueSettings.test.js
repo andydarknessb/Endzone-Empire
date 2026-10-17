@@ -36,7 +36,7 @@ const VALIDATION_ORDER = [
   'waiverType', 'waiverPeriodHours', 'faabBudget', 'tradeDeadlineWeek', 'tradeReviewHours', 'tradeVetoVotes',
   'scoringPreset', 'scoringRules', 'regularSeasonWeeks', 'playoffTeams', 'playoffConsolation',
   'pickTimeSeconds', 'autodraftDelaySeconds', 'draftType', 'draftRotation', 'draftOrderOverrides',
-  'keepersEnabled', 'keeperCount', 'auctionSettings', 'keeperLockAt',
+  'keepersEnabled', 'keeperCount', 'auctionSettings', 'keeperLockAt', 'narrativeVoice',
   'name', 'minTeams', 'maxTeams',
 ];
 
@@ -50,12 +50,12 @@ const COLUMNS = {
   pickTimeSeconds: 'pick_time_seconds', autodraftDelaySeconds: 'autodraft_delay_seconds', draftType: 'draft_type',
   draftRotation: 'draft_rotation', draftOrderOverrides: 'draft_order_overrides', keepersEnabled: 'keepers_enabled',
   keeperCount: 'keeper_count', auctionSettings: 'auction_settings', keeperLockAt: 'keeper_lock_at',
-  name: 'name', minTeams: 'min_teams', maxTeams: 'max_teams',
+  narrativeVoice: 'narrative_voice', name: 'name', minTeams: 'min_teams', maxTeams: 'max_teams',
 };
 
-test('the registry holds the 30 settable wire keys in the handler\'s validation order, each naming its column', () => {
+test('the registry holds the 31 settable wire keys in the handler\'s validation order, each naming its column', () => {
   assert.deepEqual(SETTINGS.map((row) => row.key), VALIDATION_ORDER);
-  assert.equal(new Set(VALIDATION_ORDER).size, 30);
+  assert.equal(new Set(VALIDATION_ORDER).size, 31);
   assert.deepEqual(Object.fromEntries(SETTINGS.map((row) => [row.key, row.column])), COLUMNS);
   for (const row of SETTINGS) assert.ok(Object.isFrozen(row), `${row.key} row is frozen`);
   // Every validated row is exercised by the rejection table below.
@@ -90,7 +90,7 @@ test('only name and the size limits are not fantasy-only; the size limits are dr
   assert.equal(SETTINGS.find((row) => row.key === 'name').draftFrozen, false);
 });
 
-test('FANTASY_ONLY_SETTING_KEYS is the current 27-key refusal list, in refusal order', () => {
+test('FANTASY_ONLY_SETTING_KEYS is the current 28-key refusal list, in refusal order', () => {
   assert.deepEqual([...FANTASY_ONLY_SETTING_KEYS], [
     'rosterSlots', 'positionCaps', 'benchSlots', 'dpEnabled', 'irSlots',
     'scoringRules', 'regularSeasonWeeks', 'playoffTeams',
@@ -98,15 +98,15 @@ test('FANTASY_ONLY_SETTING_KEYS is the current 27-key refusal list, in refusal o
     'draftDate', 'draftTimezone', 'draftType', 'draftRotation', 'keepersEnabled', 'keeperCount',
     'draftOrderOverrides', 'auctionSettings', 'keeperLockAt',
     'scoringPreset', 'waiverType', 'waiverPeriodHours', 'faabBudget',
-    'tradeDeadlineWeek', 'tradeReviewHours', 'tradeVetoVotes',
+    'tradeDeadlineWeek', 'tradeReviewHours', 'tradeVetoVotes', 'narrativeVoice',
   ]);
-  assert.equal(FANTASY_ONLY_SETTING_KEYS.length, 27);
+  assert.equal(FANTASY_ONLY_SETTING_KEYS.length, 28);
   assert.ok(Object.isFrozen(FANTASY_ONLY_SETTING_KEYS));
 });
 
 test('the ordered not-frozen list names exactly the registry rows that are fantasy-only and not draft-frozen', () => {
   assert.deepEqual([...FANTASY_ONLY_NOT_FROZEN_KEYS], [
-    'scoringPreset', 'waiverType', 'waiverPeriodHours', 'faabBudget', 'tradeDeadlineWeek', 'tradeReviewHours', 'tradeVetoVotes',
+    'scoringPreset', 'waiverType', 'waiverPeriodHours', 'faabBudget', 'tradeDeadlineWeek', 'tradeReviewHours', 'tradeVetoVotes', 'narrativeVoice',
   ]);
   const fromRows = SETTINGS.filter((row) => row.fantasyOnly && !row.draftFrozen).map((row) => row.key).sort();
   assert.deepEqual([...FANTASY_ONLY_NOT_FROZEN_KEYS].sort(), fromRows);
@@ -165,6 +165,9 @@ const REJECTIONS = [
   [{ tradeDeadlineWeek: '5' }, 'tradeDeadlineWeek must be an integer between 1 and 18 (or null)'],
   [{ tradeReviewHours: 1.5 }, 'tradeReviewHours must be an integer between 0 and 168'],
   [{ tradeVetoVotes: 21 }, 'tradeVetoVotes must be an integer between 0 and 20'],
+  [{ narrativeVoice: 'mystery' }, "narrativeVoice must be 'polk_high_legend' or null"],
+  [{ narrativeVoice: 'Polk_High_Legend' }, "narrativeVoice must be 'polk_high_legend' or null"],
+  [{ narrativeVoice: '' }, "narrativeVoice must be 'polk_high_legend' or null"],
   [{ scoringPreset: 'full' }, 'scoringPreset must be one of standard, half_ppr, ppr'],
   // #70: prototype-chain names found Object / Object.prototype and passed.
   [{ scoringPreset: 'constructor' }, 'scoringPreset must be one of standard, half_ppr, ppr'],
@@ -332,7 +335,7 @@ test('a full fantasy body lists frozen keys in DRAFT_FROZEN order and fantasy-on
     pickTimeSeconds: 60, playoffConsolation: true, playoffTeams: 4, regularSeasonWeeks: 14, scoringRules: { passing: { touchdowns: 4 } },
     irSlots: 1, dpEnabled: false, benchSlots: 6, positionCaps: { QB: 3 }, rosterSlots: [QB],
     tradeVetoVotes: 4, tradeReviewHours: 24, tradeDeadlineWeek: null, faabBudget: 100, waiverPeriodHours: 24, waiverType: 'faab',
-    scoringPreset: 'ppr', name: 'Full',
+    scoringPreset: 'ppr', name: 'Full', narrativeVoice: null,
   };
   const { value, error } = parseSettingsPatch(body);
   assert.equal(error, undefined);
@@ -351,7 +354,7 @@ test('a full fantasy body lists frozen keys in DRAFT_FROZEN order and fantasy-on
     'draftDate', 'draftTimezone', 'draftType', 'draftRotation', 'keepersEnabled', 'keeperCount',
     'draftOrderOverrides', 'auctionSettings', 'keeperLockAt',
     'scoringPreset', 'waiverType', 'waiverPeriodHours', 'faabBudget',
-    'tradeDeadlineWeek', 'tradeReviewHours', 'tradeVetoVotes',
+    'tradeDeadlineWeek', 'tradeReviewHours', 'tradeVetoVotes', 'narrativeVoice',
   ]);
   // A partial body keeps relative order too (waiverType before tradeVetoVotes,
   // scoringPreset before both, draft-frozen keys before all of them).
@@ -468,4 +471,20 @@ test('a valid roster body passes through untouched (space in a slot name, group 
   assert.equal(error, undefined);
   assert.deepEqual(value.rosterSlots, rosterSlots);
   assert.equal(value.dpEnabled, true);
+});
+
+test('narrativeVoice (ADR 0069) takes null or polk_high_legend, is fantasy-only and is never draft-frozen', () => {
+  for (const narrativeVoice of [null, 'polk_high_legend']) {
+    const { value, error } = parseSettingsPatch({ narrativeVoice });
+    assert.equal(error, undefined);
+    assert.equal(value.narrativeVoice, narrativeVoice);
+    assert.equal(value.narrativeVoiceProvided, true);
+    assert.deepEqual(value.fantasyOnlyRequested, ['narrativeVoice']);
+    assert.deepEqual(value.frozenRequested, [], 'editable after the draft and all season');
+  }
+  assert.equal(parseSettingsPatch({}).value.narrativeVoiceProvided, false);
+  const row = SETTINGS.find((r) => r.key === 'narrativeVoice');
+  assert.equal(row.fantasyOnly, true);
+  assert.equal(row.draftFrozen, false);
+  assert.equal(DRAFT_FROZEN_SETTING_KEYS.includes('narrativeVoice'), false);
 });

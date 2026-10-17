@@ -403,3 +403,63 @@ test('ADR 0063: the prompt carries [[team:N]] tokens, never a team name; the LLM
   assert.match(JSON.parse(inserts[0].params[3]).narrative, /Team A lit up the scoreboard/);
   assert.equal(JSON.parse(inserts[1].params[3]).narrative, 'Team A won.');
 });
+
+// ---- Voice (ADR 0069) ----------------------------------------------------------
+
+const RECAP_BASE =
+  'You write short, punchy fantasy football weekly recaps for a league of friends. ' +
+  'Two paragraphs max. Fun trash-talk energy, never mean-spirited. Use ONLY the facts ' +
+  'provided. Never invent players, scores, or events. Plain text, no headings, no em dashes. ' +
+  'Team names appear as [[team:N]] tokens; copy each token exactly where the team is named.';
+
+const voicedWorld = (voice) => recapWorld({
+  handlers: [[/^SELECT \* FROM "leagues" WHERE "id" = \$1/, () => ({ rows: [{ id: 7, scoring_rules: null, narrative_voice: voice }] })]],
+});
+
+async function recapWith(t, voice, reply) {
+  voicedWorld(voice).install(t);
+  const claude = require('../services/claude');
+  let sent;
+  t.mock.method(claude, 'narrative', async (req) => { sent = req; return reply; });
+  const { computeAndStoreWeeklyRecap } = require('../services/recap.service');
+  const data = await computeAndStoreWeeklyRecap({ leagueId: 7, season: 2026, week: 5 });
+  return { sent, data };
+}
+
+test('a league with no Voice sends the Recap system prompt it always has', async (t) => {
+  const { sent } = await recapWith(t, null, 'Team A won.');
+  assert.equal(sent.system, RECAP_BASE);
+});
+
+test('a Voice league heads the Recap system prompt with the Voice block and drops the trash-talk line', async (t) => {
+  const { VOICE_BLOCK } = require('../services/voices/polkHighLegend');
+  const { sent } = await recapWith(t, 'polk_high_legend', 'Team A won.');
+  assert.equal(sent.system, `${VOICE_BLOCK}\n\n${RECAP_BASE.replace('Fun trash-talk energy, never mean-spirited. ', '')}`);
+  assert.doesNotMatch(sent.system, /Fun trash-talk energy/);
+  assert.match(sent.system, /Use ONLY the facts/);
+});
+
+test('a Voice Recap rewrite naming any deny-list term is discarded and the template stays stored', async (t) => {
+  const { DENY } = require('../services/voices/polkHighLegend');
+  for (const term of DENY) {
+    const { data } = await recapWith(t, 'polk_high_legend', `Team A won, says ${term}.`);
+    assert.match(data.narrative, /Team A lit up the scoreboard/, `${term} discarded`);
+  }
+});
+
+test('a deny-list term the facts or a Team name carry does not discard a Voice Recap rewrite', async (t) => {
+  const { DENY } = require('../services/voices/polkHighLegend');
+  const claude = require('../services/claude');
+  const { llmNarrative } = require('../services/recap.service');
+  const term = DENY[0];
+  const reply = `[[team:1]] won behind ${term} Allen.`;
+  t.mock.method(claude, 'narrative', async () => reply);
+  const voice = 'polk_high_legend';
+
+  const viaFacts = await llmNarrative({ week: 5, highestScorer: { player: `${term} Allen` } }, { voice, placeholders: {} });
+  assert.equal(viaFacts, reply);
+  const viaTeam = await llmNarrative({ week: 5 }, { voice, placeholders: { '[[team:1]]': `${term} Allen` } });
+  assert.equal(viaTeam, reply);
+  assert.equal(await llmNarrative({ week: 5 }, { voice, placeholders: {} }), null, 'neither carries it: discarded');
+  assert.equal(await llmNarrative({ week: 5 }, { voice: null, placeholders: {} }), reply, 'a neutral league has no deny check');
+});

@@ -7,6 +7,7 @@ const { logTransaction, notifyLeague } = require('./activity.service');
 const { calculateFantasyPoints, rulesForLeague } = require('./scoringRules');
 const { CALLED_SHOT_BOLD_PROBABILITY } = require('./trophy.service');
 const claude = require('./claude');
+const { voiceBlockFor, withVoice, deniedTerm } = require('./narrativeVoice');
 
 /**
  * Weekly league recaps: after a week is finalized, gather its storylines
@@ -191,21 +192,31 @@ function templateNarrative(facts) {
   return lines.join(' ');
 }
 
+const TRASH_TALK = 'Fun trash-talk energy, never mean-spirited. ';
+const SYSTEM =
+  'You write short, punchy fantasy football weekly recaps for a league of friends. ' +
+  `Two paragraphs max. ${TRASH_TALK}Use ONLY the facts ` +
+  'provided. Never invent players, scores, or events. Plain text, no headings, no em dashes. ' +
+  'Team names appear as [[team:N]] tokens; copy each token exactly where the team is named.';
+
 /**
  * Narrative via Claude (services/claude.js: ANTHROPIC_API_KEY, monthly budget);
  * returns null on any failure so the caller falls back to the template.
+ * A league's Voice (ADR 0069) heads the system prompt in place of the
+ * trash-talk line; a Voice rewrite naming a deny-list term the facts do not
+ * carry is null too.
  */
-async function llmNarrative(facts, { client, pool, placeholders } = {}) {
-  return claude.narrative({
+async function llmNarrative(facts, { client, pool, placeholders, voice } = {}) {
+  const voiced = Boolean(voiceBlockFor(voice));
+  const text = await claude.narrative({
     feature: 'recap',
-    system:
-      'You write short, punchy fantasy football weekly recaps for a league of friends. ' +
-      'Two paragraphs max. Fun trash-talk energy, never mean-spirited. Use ONLY the facts ' +
-      'provided. Never invent players, scores, or events. Plain text, no headings, no em dashes. ' +
-      'Team names appear as [[team:N]] tokens; copy each token exactly where the team is named.',
+    system: voiced ? withVoice(SYSTEM.replace(TRASH_TALK, ''), voice) : SYSTEM,
     user: `Write the week ${facts.week} recap from these facts:\n${JSON.stringify(facts, null, 2)}`,
     placeholders,
   }, { client, pool });
+  // Managers type team names, and they are tokenized out of the facts: they count as facts here.
+  const known = `${JSON.stringify(facts)} ${Object.values(placeholders || {}).join(' ')}`;
+  return text && voiced && deniedTerm(text, known) ? null : text;
 }
 
 /**
@@ -406,7 +417,10 @@ async function computeAndStoreWeeklyRecap({ leagueId, season, week }) {
   }
   for (const r of oddsRankings) idByName.set(r.name, r.teamId);
   const prompt = tokenizeTeamNames(facts, idByName);
-  const enhanced = await llmNarrative(prompt.facts, { placeholders: prompt.placeholders });
+  const enhanced = await llmNarrative(prompt.facts, {
+    placeholders: prompt.placeholders,
+    voice: league && league.narrative_voice,
+  });
   if (enhanced) {
     data.narrative = enhanced;
     await store();
