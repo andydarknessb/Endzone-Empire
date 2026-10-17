@@ -105,7 +105,7 @@ export default function LineupPage() {
     leagues, selectedLeagueId, setSelectedLeagueId, loading: leaguesLoading, error: leaguesError, refetch: refetchLeagues,
   } = useLineupLeagues();
   const {
-    league, teams, viewerTeamId, loading: leagueLoading, error: leagueError, refetch: refetchLeague,
+    league, teams, viewerTeamId, loading: leagueLoading, refetch: refetchLeague,
   } = useLeague(selectedLeagueId);
   const [searchParams, setSearchParams] = useSearchParams();
   const [week, setWeek] = useState(null);

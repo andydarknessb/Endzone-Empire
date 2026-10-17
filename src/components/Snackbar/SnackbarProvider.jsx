@@ -42,7 +42,10 @@ export function SnackbarProvider({ children }) {
     setOpen(false);
   };
 
-  const handleAction = () => {
+  const handleAction = (event) => {
+    // The toast is about to close with the button in it: hand focus back to the page now, as the browser would when
+    // the button unmounts, so a caller that restores focus after Undo sees it on <body> and not on a toast.
+    event?.currentTarget?.blur?.();
     if (snack?.onAction) snack.onAction();
     setOpen(false);
   };

@@ -1,3 +1,4 @@
+/* eslint-disable testing-library/no-node-access, testing-library/no-container, testing-library/prefer-presence-queries -- the Play-select cursor, fill and live-region facts are DOM structure (a class, a data attribute, "no button inside this region"), which Testing Library has no query for */
 import React from 'react';
 import { render, screen, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -126,4 +127,18 @@ describe('live region holds text only (spec #2347 ruling 4)', () => {
     expect(alert).toHaveTextContent('It failed');
     expect(alert.querySelector('button')).toBeNull();
   });
+});
+
+test('Undo hands focus back to the page before its action runs, so a caller restoring focus does not find it on the toast', async () => {
+  let activeInAction = null;
+  const onAction = jest.fn(() => { activeInAction = document.activeElement; });
+  render(
+    <SnackbarProvider>
+      <Trigger options={{ actionLabel: 'Undo', onAction }} />
+    </SnackbarProvider>
+  );
+  await userEvent.click(screen.getByRole('button', { name: 'fire' }));
+  await userEvent.click(await screen.findByRole('button', { name: 'Undo' }));
+  expect(onAction).toHaveBeenCalledTimes(1);
+  expect(activeInAction).toBe(document.body);
 });

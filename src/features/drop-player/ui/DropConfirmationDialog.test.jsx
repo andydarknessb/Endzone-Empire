@@ -1,3 +1,4 @@
+/* eslint-disable testing-library/no-node-access, testing-library/no-container, testing-library/prefer-presence-queries -- the Play-select cursor, fill and live-region facts are DOM structure (a class, a data attribute, "no button inside this region"), which Testing Library has no query for */
 import React from 'react';
 import { render, screen } from '@testing-library/react';
 import DropConfirmationDialog from './DropConfirmationDialog';
