@@ -4,10 +4,10 @@ import { Box } from '@mui/material';
 import { Frame, PsLink, pixelSx } from '../../../shared/ui/playselect';
 
 // League links always run in this order and keep only the ones the league has.
-const LINK_ORDER = ['Matchup', 'Lineup', 'Picks', 'Waivers'];
+const LINK_ORDER = ['Matchup', 'Lineup', 'Picks', 'Waivers', 'Dashboard'];
 
 /**
- * A league's links in the fixed order Matchup, Lineup, Picks, Waivers,
+ * A league's links in the fixed order Matchup, Lineup, Picks, Waivers, Dashboard,
  * whatever order they arrive in. Pinned to the bottom of its tile or panel
  * (margin-top: auto) over a 2px rule.
  */

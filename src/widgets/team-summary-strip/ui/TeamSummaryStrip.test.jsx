@@ -298,6 +298,7 @@ describe('the questionable-starter and starter-on-bye attention chips (#1330)', 
       worstByeCluster: { week: 5, count: 3, players: [] },
     });
     const row = await screen.findByTestId('strip-attention');
+    expect(row).toHaveTextContent(/^Watch/);
     const badges = within(row).getAllByTestId(/^attention-chip-/);
     expect(badges.map((b) => b.textContent)).toEqual([
       'Lamb Q · ankle',
