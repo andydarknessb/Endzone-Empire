@@ -321,3 +321,21 @@ describe('look', () => {
     expect(rules(screen.getByRole('radio', { name: 'Wk 9' }))).toMatch(/[^-]flex: 0 0 auto/);
   });
 });
+
+describe('describedBy', () => {
+  test('an option names an element that describes its radio, and has none by default', () => {
+    render(
+      <>
+        <SegmentedControl
+          aria-label="View"
+          options={[{ value: 'a', label: 'On waivers' }, { value: 'b', label: 'My claims', describedBy: 'claims-n' }]}
+          value="a"
+          onChange={() => {}}
+        />
+        <span id="claims-n">2 pending claims</span>
+      </>,
+    );
+    expect(screen.getByRole('radio', { name: 'My claims' })).toHaveAccessibleDescription('2 pending claims');
+    expect(screen.getByRole('radio', { name: 'On waivers' })).not.toHaveAttribute('aria-describedby');
+  });
+});

@@ -216,6 +216,11 @@ const ALLOWLIST = [
     code: 'teams.get(trade.proposing_team_id).owner_id !== userId',
     rule: 'caller: only the proposing team\'s own manager may cancel their proposal',
   },
+  {
+    file: 'server/services/trade.service.js',
+    code: 'teams.get(id)?.owner_id === userId',
+    rule: 'caller: a commissioner cannot force-approve or veto a trade their OWN team is in (wave 3); it compares the trade\'s teams against the CALLER, never against the league owner',
+  },
 
   // --- Single-recipient notifications ------------------------------------
   {

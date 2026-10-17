@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createFakePool, select, insert, update, remove } = require('./helpers/fakePool');
-const { TradeError, executeTrade, cancelTrade, proposeTrade, counterTrade, processDueTrades, readTradeItems } = require('../services/trade.service');
+const { TradeError, executeTrade, cancelTrade, proposeTrade, counterTrade, commissionerDecide, processDueTrades, readTradeItems } = require('../services/trade.service');
 const lineupService = require('../services/lineup.service');
 const { setDraftRoomBroadcast, peekDraftRoomBroadcast } = require('../modules/draftRoomBroadcast');
 
@@ -974,5 +974,41 @@ test('proposeTrade: an offer to a CPU-managed team (owner_id NULL) is refused 40
   );
   assert.equal(world.matching(insert('trades')).length, 0, 'no trade row');
   assert.equal(world.matching(insert('notifications')).length, 0, 'nobody notified');
+  world.assertClean();
+});
+
+// --- commissionerDecide: a commissioner cannot decide their own trade (wave 3, ruling 6)
+
+const commissionerDecideWorld = () => [
+  [/FROM "leagues" WHERE "id" = \(SELECT "league_id"/, () => ({ rows: [{ id: 1 }] })],
+  [select('trades'), () => ({ rows: [{ id: 9, league_id: 1, status: 'pending', proposing_team_id: 41, receiving_team_id: 42 }] })],
+  [select('trade_items'), () => ({ rows: [] })],
+  [select('teams'), () => ({ rows: [{ id: 41, owner_id: 7 }, { id: 42, owner_id: 8 }] })],
+  // Whoever asks is the commissioner: the gate under test comes after this one.
+  [/^SELECT 1 FROM "leagues" WHERE "id" = \$1 AND/, () => ({ rows: [{ 1: 1 }] })],
+  [update('trades'), () => ({ rows: [], rowCount: 1 })],
+  [insert('notifications'), () => ({ rows: [] })],
+];
+
+for (const [side, userId] of [['proposing', 7], ['receiving', 8]]) {
+  for (const approve of [true, false]) {
+    test(`commissionerDecide: ${approve ? 'force approve' : 'veto'} by the ${side} team's own commissioner is a 403 and the trade is unchanged`, async (t) => {
+      const world = createFakePool(commissionerDecideWorld()).install(t);
+      await assert.rejects(
+        commissionerDecide({ tradeId: 9, userId, approve }),
+        { statusCode: 403, message: "a commissioner can't decide a trade their own team is in" }
+      );
+      assert.equal(world.matching(update('trades')).length, 0, 'the trade row was not written');
+      assert.equal(world.matching(insert('notifications')).length, 0, 'nobody was notified');
+      world.assertClean();
+    });
+  }
+}
+
+test('commissionerDecide: a commissioner outside the trade still vetoes it (control)', async (t) => {
+  const world = createFakePool(commissionerDecideWorld()).install(t);
+  const outcome = await commissionerDecide({ tradeId: 9, userId: 99, approve: false });
+  assert.deepEqual(outcome, { tradeId: 9, status: 'vetoed' });
+  assert.equal(world.matching(update('trades')).length, 1);
   world.assertClean();
 });

@@ -1,29 +1,76 @@
 import React, { useEffect, useRef } from 'react';
-import { Alert, Box, IconButton, Typography } from '@mui/material';
-import { visuallyHidden } from '@mui/utils';
-import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
-import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
-import EditIcon from '@mui/icons-material/Edit';
-import CloseIcon from '@mui/icons-material/Close';
-import { MIN_TOUCH_TARGET_SX } from '../../../shared/lib';
+import { Box } from '@mui/material';
+import { PixelWarn, SR_ONLY_SX } from '../../../shared/ui/playselect';
 
 const dollars = (n) => `$${n}`;
 
-/** The one line a resolved claim reads as. Null-safe on the Winning bid. */
-export function resultLine(result, showBid) {
-  if (result.result === 'won') return showBid ? `Won · ${dollars(result.bid)}` : 'Won';
+/**
+ * What a resolved claim reads as: `head` is the outcome word the chip holds ("Won · $12", "Lost",
+ * "Didn't go through"), `detail` the line beneath it (who won, at what bid, the server's reason).
+ * Null-safe on the Winning bid. `showBid` is a FAAB league.
+ */
+export function resultView(result, showBid) {
+  if (result.result === 'won') return { head: showBid ? `Won · ${dollars(result.bid)}` : 'Won', detail: null };
   if (result.result === 'lost') {
     const team = result.winningTeam;
     const bid = result.winningBid;
-    let line = 'Lost';
-    if (team && bid != null) line = `Lost to ${team} · won at ${dollars(bid)}`;
-    else if (team) line = `Lost to ${team}`;
-    return showBid ? `${line} · your bid ${dollars(result.bid)}` : line;
+    const parts = [];
+    if (team && bid != null) parts.push(`to ${team} · won at ${dollars(bid)}`);
+    else if (team) parts.push(`to ${team}`);
+    if (showBid) parts.push(`your bid ${dollars(result.bid)}`);
+    return { head: 'Lost', detail: parts.length ? parts.join(' · ') : null };
   }
-  return "Didn't go through";
+  return { head: "Didn't go through", detail: result.reason || null };
 }
 
-const headingSx = { fontSize: 13, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em' };
+const headingSx = {
+  m: 0, fontSize: '13px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em',
+};
+const DIM = 'var(--ps-dim)';
+
+// 16px glyphs on the 2px grid, the kit's: move arrows, edit and remove.
+const ICONS = {
+  up: 'M7 2h2v2H7zM5 4h6v2H5zM3 6h10v2H3zM7 8h2v6H7z',
+  down: 'M7 2h2v6H7zM3 8h10v2H3zM5 10h6v2H5zM7 12h2v2H7z',
+  edit: 'M11 1h2v2h2v2h-2v-2h-2zM9 3h2v2h2v2h-2V5H9zM7 5h2v2h2v2H9V7H7zM5 7h2v2h2v2H7V9H5zM3 9h2v2h2v2H4v1H2v-1zM1 13h2v2H1z',
+  cancel: 'M3 3h2v2H3zM5 5h2v2H5zM7 7h2v2H7zM9 9h2v2H9zM11 11h2v2h-2zM11 3h2v2h-2zM9 5h2v2H9zM5 9h2v2H5zM3 11h2v2H3z',
+};
+
+function IconButton({
+  kind, label, disabled, onClick, ...rest
+}) {
+  return (
+    <Box
+      component="button"
+      type="button"
+      aria-label={label}
+      disabled={disabled}
+      onClick={onClick}
+      {...rest}
+      sx={{
+        width: '44px',
+        height: '44px',
+        minWidth: '44px',
+        minHeight: '44px',
+        padding: 0,
+        display: 'grid',
+        placeItems: 'center',
+        flex: 'none',
+        boxSizing: 'border-box',
+        borderRadius: 0,
+        background: 'transparent',
+        border: '2px solid var(--ps-ink)',
+        color: 'var(--ps-ink)',
+        '&[disabled]': { borderColor: 'var(--ps-rule)', color: DIM, cursor: 'not-allowed' },
+        '&[disabled]:hover': { filter: 'none' },
+      }}
+    >
+      <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" shapeRendering="crispEdges">
+        <path d={ICONS[kind]} fill="currentColor" />
+      </svg>
+    </Box>
+  );
+}
 
 /** "#1 and #3", "#1, #2 and #3": the ranks of a shared-drop set, in Claim order. */
 function rankList(ranks) {
@@ -32,93 +79,111 @@ function rankList(ranks) {
   return `${labels.slice(0, -1).join(', ')} and ${labels[labels.length - 1]}`;
 }
 
-/** Neutral: it reports the clash and how claims resolve, never which one goes through. */
-function SharedDropWarning({ claim, rankById }) {
-  const ranks = [claim.id, ...claim.sharesDropWith]
-    .map((id) => rankById.get(id))
-    .filter((r) => r != null)
-    .sort((a, b) => a - b);
+/** Neutral: it reports the clash and how claims resolve, never which one goes through. Drawn once per group. */
+function SharedDropNote({ ranks, dropName }) {
   return (
     <Box
       role="note"
-      sx={{ mt: 0.5, p: 1, border: '1px solid var(--dash-line)', borderRadius: 1, fontSize: 12, minWidth: 0 }}
+      sx={{
+        display: 'flex', gap: '10px', alignItems: 'flex-start', border: '2px solid var(--ps-rule)', padding: '10px 12px', minWidth: 0, mt: '4px',
+      }}
     >
-      <Typography component="span" sx={{ display: 'block', fontSize: 12, fontWeight: 600, overflowWrap: 'anywhere' }}>
-        {`Only one of these can go through: ${rankList(ranks)} ${ranks.length > 2 ? 'all' : 'both'} drop ${claim.dropPlayerName || 'the same player'}`}
-      </Typography>
-      <Typography component="span" sx={{ display: 'block', fontSize: 12, color: 'var(--dash-dim)' }}>
-        Higher bid first, then Waiver priority, then your Claim order, each at its player&apos;s Clear time.
-      </Typography>
+      <PixelWarn color="var(--ps-ink)" />
+      <Box sx={{
+        display: 'flex', flexDirection: 'column', gap: '2px', minWidth: 0,
+      }}
+      >
+        <Box component="span" sx={{
+          fontSize: '14px', fontWeight: 600, overflowWrap: 'anywhere', textWrap: 'pretty',
+        }}
+        >
+          {`Only one of these can go through: ${rankList(ranks)} ${ranks.length > 2 ? 'all' : 'both'} drop ${dropName || 'the same player'}.`}
+        </Box>
+        <Box component="span" sx={{ fontSize: '14px', color: DIM, textWrap: 'pretty' }}>
+          Higher bid first, then Waiver priority, then your Claim order, each at its player&apos;s Clear time.
+        </Box>
+      </Box>
     </Box>
   );
 }
 
-function PendingClaim({ claim, rank, rankById, isFirst, isLast, onMove, onEdit, onCancel, busy }) {
+function PendingClaim({
+  claim, rank, isFirst, isLast, onMove, onEdit, onCancel, busy, showBid, note,
+}) {
   return (
     <Box
       component="li"
-      sx={{ display: 'flex', flexDirection: 'column', py: 1, borderTop: '1px solid var(--dash-line)', listStyle: 'none', minWidth: 0 }}
+      sx={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '4px',
+        padding: '10px 0',
+        listStyle: 'none',
+        minWidth: 0,
+        borderTop: isFirst ? 'none' : '2px solid var(--ps-rule)',
+      }}
     >
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-      <Typography component="span" sx={{ fontWeight: 700, minWidth: 32 }}>{`#${rank}`}</Typography>
-      <Box sx={{ minWidth: 0, flexGrow: 1 }}>
-        <Typography component="span" sx={{ fontWeight: 600, display: 'block', overflowWrap: 'anywhere' }}>
-          {claim.playerName}
-        </Typography>
-        <Typography component="span" sx={{ fontSize: 12, color: 'var(--dash-dim)', display: 'block' }}>
-          {`Drop: ${claim.dropPlayerName || 'None'}`}
-        </Typography>
-      </Box>
-      </Box>
-      <Box id={`waiver-claim-${claim.id}-controls`} sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', ml: 5 }}>
-        <IconButton
-          aria-label={`Move ${claim.playerName} up`}
-          data-claim-move={`${claim.id}-up`}
-          disabled={isFirst}
-          onClick={() => onMove(claim.id, -1)}
-          sx={MIN_TOUCH_TARGET_SX}
-        >
-          <KeyboardArrowUpIcon />
-        </IconButton>
-        <IconButton
-          aria-label={`Move ${claim.playerName} down`}
-          data-claim-move={`${claim.id}-down`}
-          disabled={isLast}
-          onClick={() => onMove(claim.id, 1)}
-          sx={MIN_TOUCH_TARGET_SX}
-        >
-          <KeyboardArrowDownIcon />
-        </IconButton>
-        <IconButton aria-label={`Edit claim on ${claim.playerName}`} onClick={() => onEdit(claim)} sx={MIN_TOUCH_TARGET_SX}>
-          <EditIcon />
-        </IconButton>
-        <IconButton
-          aria-label={`Cancel claim on ${claim.playerName}`}
-          data-claim-cancel={rank}
-          disabled={busy}
-          onClick={() => onCancel(claim, rank - 1)}
-          sx={MIN_TOUCH_TARGET_SX}
-        >
-          <CloseIcon />
-        </IconButton>
-      </Box>
-      {claim.sharesDropWith.length > 0 && (
-        <Box sx={{ ml: 5 }}>
-          <SharedDropWarning claim={claim} rankById={rankById} />
+      <Box sx={{ display: 'flex', alignItems: 'baseline', gap: '10px' }}>
+        <Box component="span" sx={{ fontSize: '16px', fontWeight: 700, minWidth: '28px' }}>{`#${rank}`}</Box>
+        <Box sx={{ minWidth: 0, flexGrow: 1 }}>
+          <Box component="span" sx={{
+            fontSize: '15px', fontWeight: 600, display: 'block', overflowWrap: 'anywhere',
+          }}
+          >
+            {claim.playerName}
+          </Box>
+          <Box component="span" sx={{ fontSize: '14px', color: DIM, display: 'block' }}>
+            {`Drop: ${claim.dropPlayerName || 'None'}${showBid ? ` · Bid ${dollars(claim.bid)}` : ''}`}
+          </Box>
         </Box>
-      )}
+      </Box>
+      <Box id={`waiver-claim-${claim.id}-controls`} sx={{
+        display: 'flex', flexWrap: 'wrap', gap: '6px', ml: '38px',
+      }}
+      >
+        <IconButton kind="up" label={`Move ${claim.playerName} up`} data-claim-move={`${claim.id}-up`} disabled={isFirst} onClick={() => onMove(claim.id, -1)} />
+        <IconButton kind="down" label={`Move ${claim.playerName} down`} data-claim-move={`${claim.id}-down`} disabled={isLast} onClick={() => onMove(claim.id, 1)} />
+        <IconButton kind="edit" label={`Edit claim on ${claim.playerName}`} onClick={() => onEdit(claim)} />
+        <IconButton kind="cancel" label={`Cancel claim on ${claim.playerName}`} data-claim-cancel={rank} disabled={busy} onClick={() => onCancel(claim, rank - 1)} />
+      </Box>
+      {note}
+    </Box>
+  );
+}
+
+function Chip({ children }) {
+  return (
+    <Box
+      component="span"
+      sx={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        boxSizing: 'border-box',
+        minHeight: '32px',
+        padding: '4px 10px',
+        border: '2px solid var(--ps-ink)',
+        fontSize: '14px',
+        fontWeight: 700,
+        lineHeight: 1.25,
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {children}
     </Box>
   );
 }
 
 /**
- * Pending claims in Claim order, then Results grouped by week. `claims` is the
- * `waiver-claim` read model; `onMove(claimId, -1 | +1)` is its `moveClaim`;
- * `onEdit(claim)` and `onCancel(claim, position)` are the page's `manage-claim`
- * wiring (#1616). Claims that name the same drop each carry a neutral warning.
+ * The body of the My claims frame: pending claims in Claim order, then Results by week. `claims` is
+ * the `waiver-claim` read model; `onMove(claimId, -1 | +1)` is its `moveClaim`; `onEdit(claim)` and
+ * `onCancel(claim, position)` are the page's `manage-claim` wiring (#1616). Claims that name the same
+ * drop share one neutral note per group. The page draws the frame and its heading (Play-select, ADR
+ * 0067 wave 3).
  */
-export default function WaiverClaims({ claims, onMove, onEdit, onCancel, busy = false, orderError, orderAnnouncement, orderSettled, showBid }) {
-  const { pending, resultsByWeek } = claims;
+export default function WaiverClaims({
+  claims, onMove, onEdit, onCancel, busy = false, orderError, orderAnnouncement, orderSettled, showBid,
+}) {
+  const { pending, resultsByWeek, sharedDrops = [] } = claims;
   const rootRef = useRef(null);
   const focusRef = useRef(null);
 
@@ -135,9 +200,8 @@ export default function WaiverClaims({ claims, onMove, onEdit, onCancel, busy = 
     const target = focusRef.current;
     if (!target || !rootRef.current) return;
     const other = target.dir === 'up' ? 'down' : 'up';
-    const el =
-      rootRef.current.querySelector(`[data-claim-move="${target.id}-${target.dir}"]:not(:disabled)`) ||
-      rootRef.current.querySelector(`[data-claim-move="${target.id}-${other}"]:not(:disabled)`);
+    const el = rootRef.current.querySelector(`[data-claim-move="${target.id}-${target.dir}"]:not(:disabled)`)
+      || rootRef.current.querySelector(`[data-claim-move="${target.id}-${other}"]:not(:disabled)`);
     if (el && document.activeElement !== el) el.focus();
     if (settledRef.current !== orderSettled) {
       settledRef.current = orderSettled;
@@ -162,48 +226,75 @@ export default function WaiverClaims({ claims, onMove, onEdit, onCancel, busy = 
   }, [pending]);
 
   const rankById = new Map(pending.map((claim, index) => [claim.id, index + 1]));
+  // The note for a shared-drop group sits under its last claim in Claim order.
+  const noteAfter = new Map();
+  sharedDrops.forEach((group) => {
+    const ranks = group.claimIds.map((id) => rankById.get(id)).filter((r) => r != null).sort((a, b) => a - b);
+    if (ranks.length < 2) return;
+    const lastClaim = pending[ranks[ranks.length - 1] - 1];
+    noteAfter.set(lastClaim.id, <SharedDropNote ranks={ranks} dropName={lastClaim.dropPlayerName} />);
+  });
   const results = resultsByWeek.filter((group) => group.results.length > 0);
 
   if (pending.length === 0 && results.length === 0) {
     return (
-      <Typography ref={rootRef} tabIndex={-1} sx={{ p: 2, fontSize: 14, color: 'var(--dash-dim)', outline: 'none' }}>
+      <Box
+        ref={rootRef}
+        component="p"
+        tabIndex={-1}
+        sx={{
+          m: 0, padding: '16px 20px', fontSize: '15px', color: DIM, outline: 'none',
+        }}
+      >
         No claims yet
-      </Typography>
+      </Box>
     );
   }
 
   return (
-    <Box ref={rootRef} tabIndex={-1} sx={{ p: 2, minWidth: 0, outline: 'none' }}>
+    <Box
+      ref={rootRef}
+      tabIndex={-1}
+      sx={{
+        padding: { xs: '14px', md: '16px 20px 20px' }, minWidth: 0, outline: 'none', display: 'flex', flexDirection: 'column', gap: '20px',
+      }}
+    >
       {orderError && (
-        <Alert severity="error" sx={{ mb: 1.5 }}>
-          {orderError}
-        </Alert>
+        <Box sx={{ border: '2px solid var(--ps-danger)', padding: '10px 12px' }}>
+          <Box role="alert" sx={{
+            display: 'flex', gap: '10px', alignItems: 'flex-start', fontSize: '14px',
+          }}
+          >
+            <PixelWarn color="var(--ps-danger)" />
+            <span>{orderError}</span>
+          </Box>
+        </Box>
       )}
-      <Typography role="status" aria-live="polite" sx={visuallyHidden}>
-        {orderAnnouncement}
-      </Typography>
+      <Box role="status" aria-live="polite" sx={SR_ONLY_SX}>{orderAnnouncement}</Box>
 
       {pending.length > 0 && (
-        <Box component="section" aria-label="Pending claims">
-          <Typography component="h3" sx={headingSx}>
-            Pending
-          </Typography>
-          <Typography sx={{ fontSize: 12, color: 'var(--dash-dim)', mb: 0.5 }}>
+        <Box component="section" aria-label="Pending claims" sx={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+          <Box component="h3" sx={headingSx}>Pending</Box>
+          <Box component="p" sx={{
+            m: 0, fontSize: '14px', color: DIM, textWrap: 'pretty',
+          }}
+          >
             Claim order ranks your own claims. A higher bid still processes first.
-          </Typography>
+          </Box>
           <Box component="ol" sx={{ m: 0, p: 0 }}>
             {pending.map((claim, index) => (
               <PendingClaim
                 key={claim.id}
                 claim={claim}
                 rank={index + 1}
-                rankById={rankById}
                 onEdit={onEdit}
                 onCancel={handleCancel}
                 busy={busy}
                 isFirst={index === 0}
                 isLast={index === pending.length - 1}
                 onMove={handleMove}
+                showBid={showBid}
+                note={noteAfter.get(claim.id)}
               />
             ))}
           </Box>
@@ -211,44 +302,58 @@ export default function WaiverClaims({ claims, onMove, onEdit, onCancel, busy = 
       )}
 
       {results.length > 0 && (
-        <Box component="section" aria-label="Results" sx={{ mt: pending.length > 0 ? 2.5 : 0 }}>
-          <Typography component="h3" sx={headingSx}>
-            Results
-          </Typography>
+        <Box component="section" aria-label="Results" sx={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <Box component="h3" sx={headingSx}>Results</Box>
           {results.map((group) => (
-            <Box key={group.week ?? 'earlier'} sx={{ mt: 1 }}>
-              <Typography component="h4" sx={{ fontSize: 12, fontWeight: 600, color: 'var(--dash-dim)' }}>
+            <Box key={group.week ?? 'earlier'} sx={{ display: 'flex', flexDirection: 'column' }}>
+              <Box component="h4" sx={{
+                m: 0, mb: '2px', fontSize: '14px', fontWeight: 600, color: DIM,
+              }}
+              >
                 {group.week != null ? `Week ${group.week}` : 'Earlier'}
-              </Typography>
+              </Box>
               <Box component="ul" sx={{ m: 0, p: 0 }}>
-                {group.results.map((r) => (
-                  <Box
-                    key={r.id}
-                    component="li"
-                    sx={{ py: 1, borderTop: '1px solid var(--dash-line)', listStyle: 'none', minWidth: 0 }}
-                  >
-                    <Typography component="span" sx={{ fontWeight: 600, display: 'block', overflowWrap: 'anywhere' }}>
-                      {r.playerName}
-                    </Typography>
-                    <Typography
-                      component="span"
-                      data-testid="claim-result-line"
+                {group.results.map((r) => {
+                  const { head, detail } = resultView(r, showBid);
+                  return (
+                    <Box
+                      key={r.id}
+                      component="li"
                       sx={{
-                        display: 'block',
-                        mt: 0.5,
-                        fontSize: 13,
-                        fontWeight: 600,
-                        overflowWrap: 'anywhere',
-                        color: r.result === 'won' ? 'success.main' : 'var(--dash-ink)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'flex-start',
+                        gap: '6px',
+                        padding: '10px 0',
+                        borderTop: '2px solid var(--ps-rule)',
+                        listStyle: 'none',
+                        minWidth: 0,
                       }}
                     >
-                      {resultLine(r, showBid)}
-                    </Typography>
-                    {r.result === 'didnt-go-through' && r.reason && (
-                      <Typography sx={{ fontSize: 12, color: 'var(--dash-dim)', mt: 0.5 }}>{r.reason}</Typography>
-                    )}
-                  </Box>
-                ))}
+                      <Box component="span" sx={{ fontSize: '15px', fontWeight: 600, overflowWrap: 'anywhere' }}>{r.playerName}</Box>
+                      <Box
+                        component="span"
+                        data-testid="claim-result-line"
+                        sx={{
+                          display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '4px', minWidth: 0,
+                        }}
+                      >
+                        <Chip>{head}</Chip>
+                        {detail && (
+                          <>
+                            {' '}
+                            <Box component="span" sx={{
+                              fontSize: '14px', color: DIM, overflowWrap: 'anywhere', textWrap: 'pretty',
+                            }}
+                            >
+                              {detail}
+                            </Box>
+                          </>
+                        )}
+                      </Box>
+                    </Box>
+                  );
+                })}
               </Box>
             </Box>
           ))}
