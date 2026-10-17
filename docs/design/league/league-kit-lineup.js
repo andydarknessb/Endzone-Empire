@@ -175,7 +175,7 @@ function summaryStrip({ clock = 9, phone = false, uid = '' } = {}) {
 <div style="padding: ${phone ? '12px 14px' : '14px 20px'}; display: flex; flex-direction: column; gap: 12px">
 <div style="display: grid; grid-template-columns: repeat(${phone ? 2 : 4}, minmax(0, 1fr)); gap: 12px 16px">${stripTile('Score vs proj.', me, phone)}${stripTile('Opponent vs proj.', opp, phone)}${stripTile('Starters', left + ' to play', phone)}${stripTile('Locked', locked + ' of ' + TOTAL_STARTERS, phone)}</div>
 <p style="margin: 0; font-size: 14px; color: {{t.dim}}"><b style="font-weight: 700; color: {{t.ink}}">Win probability ${pct}%</b> · <span style="white-space: nowrap">Endzone Forecast</span></p>
-<div data-testid="strip-attention" style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px"><span style="font-size: 13px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: {{t.dim}}">Needs attention</span>${chips}</div>
+<div data-testid="strip-attention" style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px"><span style="font-size: 13px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: {{t.dim}}">Watch</span>${chips}</div>
 <div data-testid="strip-advice" style="display: flex; flex-direction: column; gap: 2px; border-top: 2px solid {{t.rule}}; padding-top: 10px"><span style="font-size: 13px; color: {{t.dim}}">Advice</span><span style="font-size: ${phone ? 15 : 16}px; font-weight: 700; text-wrap: pretty">${advice}</span></div>
 </div></section>`;
 }

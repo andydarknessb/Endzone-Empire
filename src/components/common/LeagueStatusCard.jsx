@@ -181,7 +181,7 @@ function PicksLine({ pickem, week }) {
   return <Box sx={lineSx}>{`${week ? `Week ${week} picks` : 'Picks'}: ${pickem.made} of ${pickem.total} made`}</Box>;
 }
 
-// The foot for panels whose links are not the four league links (draft room, league home).
+// The foot for panels whose links are not the four league links (draft room, dashboard).
 function PanelNav({ league, links }) {
   return (
     <Box
@@ -491,7 +491,7 @@ function LeagueStatusCard({ league, live = false, scored = false }) {
     body = variant === 'basic'
       ? <BasicBody league={league} />
       : <Box sx={dimLineSx}>Status unavailable right now.</Box>;
-    links = <PanelNav league={league} links={[{ label: 'League home', to: base }]} />;
+    links = <PanelNav league={league} links={[{ label: 'Dashboard', to: base }]} />;
   }
   return (
     <LeaguePanel id={`league-status-${league.id}`} name={league.name} to={base} right={league.my_team_name} links={links}>

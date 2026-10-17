@@ -38,10 +38,13 @@ export function LineupHead({
             {selectedLeagueId != null && (
               <>
                 {' · '}
-                <PsLink to={`/league/${selectedLeagueId}`}>
-                  Dashboard
-                  <Box component="span" aria-hidden="true" sx={{ ml: '4px' }}>▸</Box>
-                </PsLink>
+                {/* Negative margins keep the 44px hit target without growing the 14px line box. */}
+                <Box component="span" sx={{ display: 'inline-block', my: '-12px', ml: '-10px' }}>
+                  <PsLink to={`/league/${selectedLeagueId}`}>
+                    Dashboard
+                    <Box component="span" aria-hidden="true" sx={{ ml: '4px' }}>▸</Box>
+                  </PsLink>
+                </Box>
               </>
             )}
             {/* On a phone the times note rides this line instead of costing a row of its own. */}

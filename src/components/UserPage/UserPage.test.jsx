@@ -338,6 +338,10 @@ describe('game day', () => {
 
     expect(await screen.findByRole('heading', { level: 2, name: 'Columns' })).toBeInTheDocument();
     expect(screen.getAllByRole('heading', { level: 2, name: 'Columns' })).toHaveLength(1);
+    // The grid is mocked here; it stands in for the Live scores section.
+    const live = screen.getByTestId('league-grid');
+    const columns = screen.getByRole('heading', { level: 2, name: 'Columns' });
+    expect(live.compareDocumentPosition(columns) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   describe('with fake timers', () => {

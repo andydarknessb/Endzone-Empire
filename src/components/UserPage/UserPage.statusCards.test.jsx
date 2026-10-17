@@ -236,7 +236,7 @@ describe('before kickoff', () => {
     ['No Status', 'Failed Status'].forEach((name) => {
       const panel = panelFor(name);
       expect(within(panel).getByText('Status unavailable right now.')).toBeInTheDocument();
-      expect(within(panel).getByRole('link', { name: `${name} league home` })).toBeInTheDocument();
+      expect(within(panel).getByRole('link', { name: `${name} dashboard` })).toBeInTheDocument();
     });
   });
 });
@@ -324,6 +324,9 @@ describe('live', () => {
     expect(within(tile).getByText('4th')).toBeInTheDocument();
     expect(within(tile).getByText('9 of 15 in')).toBeInTheDocument();
     expect(within(tile).queryByText(/points/i)).toBeNull();
+    const nav = within(tile).getByRole('navigation');
+    expect(linkNames(nav)).toEqual(['Dashboard']);
+    expect(within(nav).getByRole('link', { name: /dashboard/i })).toHaveAttribute('href', '/league/5');
   });
 });
 
