@@ -593,10 +593,10 @@ function TradeCenter() {
         />
       )}
 
-      {/* `look="playselect"` joins these props once the card PR lands: the card throws on any prop it does not
-          list until then. #1515 (T19): `availability` rides inside the built context now (the
+      {/* #1515 (T19): `availability` rides inside the built context now (the
           rostered() builder already carries it) - no loose prop beside it. */}
       <PlayerDecisionCard
+        look="playselect"
         open={decisionCardPlayerId != null}
         onClose={() => setDecisionCardPlayerId(null)}
         entry={decisionCardEntry}
