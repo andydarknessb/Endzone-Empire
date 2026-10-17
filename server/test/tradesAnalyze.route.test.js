@@ -31,15 +31,20 @@ const bearer = (id) => `Bearer ${signToken({ id, username: `u${id}` })}`;
 // Owner 9 holds team 43, uninvolved. Owner 10 is in no team of league 1.
 const TEAMS = { 7: { id: 41 }, 8: { id: 42 }, 9: { id: 43 } };
 const TRADE = { id: 9, league_id: 1, proposing_team_id: 41, receiving_team_id: 42 };
+// GET /api/trades shows an uninvolved member only `accepted` trades; analyze-by-id follows that rule.
 const ITEMS = [
   { trade_id: 9, from_team_id: 41, to_team_id: 42, player_id: 21 },
   { trade_id: 9, from_team_id: 42, to_team_id: 41, player_id: 22 },
 ];
 
-function world(t, { analyzed }) {
+function world(t, { analyzed, status = 'pending' }) {
   createFakePool([
     [select('teams'), (text, params) => ({ rows: TEAMS[params[1]] ? [TEAMS[params[1]]] : [] })],
-    [select('trades'), (text, params) => ({ rows: params[0] === TRADE.id && params[1] === TRADE.league_id ? [TRADE] : [] })],
+    [select('trades'), (text, params) => {
+      const [id, leagueId, viewerTeamId] = params;
+      const seen = status === 'accepted' || [TRADE.proposing_team_id, TRADE.receiving_team_id].includes(viewerTeamId);
+      return { rows: id === TRADE.id && leagueId === TRADE.league_id && seen ? [{ ...TRADE, status }] : [] };
+    }],
     [select('trade_items'), () => ({ rows: ITEMS })],
   ]).install(t);
   t.mock.method(decision, 'analyzeTrade', async (args) => {
@@ -62,13 +67,21 @@ test('the receiving manager analyzes an incoming offer as its own two teams', as
   }]);
 });
 
-test('an uninvolved league member analyzes the same trade', async (t) => {
+test('an uninvolved league member analyzes an accepted trade', async (t) => {
   const analyzed = [];
-  world(t, { analyzed });
+  world(t, { analyzed, status: 'accepted' });
   const res = await request(app).post('/api/trades/analyze').set('Authorization', bearer(9)).send(body({ tradeId: 9 }));
   assert.equal(res.status, 200, JSON.stringify(res.body));
   assert.equal(analyzed[0].proposingTeamId, 41);
   assert.equal(analyzed[0].receivingTeamId, 42);
+});
+
+test('an uninvolved league member cannot analyze a pending trade by id: 404, as the list does not show it', async (t) => {
+  const analyzed = [];
+  world(t, { analyzed });
+  const res = await request(app).post('/api/trades/analyze').set('Authorization', bearer(9)).send(body({ tradeId: 9 }));
+  assert.equal(res.status, 404, JSON.stringify(res.body));
+  assert.equal(analyzed.length, 0);
 });
 
 test('a non-member is refused 403 and nothing is analyzed', async (t) => {

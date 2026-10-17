@@ -75,15 +75,18 @@ function Side({
   return (
     <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: '8px', minWidth: 0, maxWidth: '100%' }}>
       <TeamMark name={name} avatarUrl={avatarUrl} avatarStaticUrl={avatarStaticUrl} size={28} />
-      {/* shortcut: a name wider than the card wraps inside its own unit (a 120 character team name), never past the card. */}
-      <Box component="span" sx={{ minWidth: 0, overflowWrap: 'anywhere' }}>{name}</Box>
-      {you && <YouTag />}
-      {arrow && (
-        <>
-          <Box component="span" aria-hidden="true" sx={{ fontWeight: 400, color: 'var(--ps-dim)' }}>⇄</Box>
-          <Box component="span" sx={SR_ONLY_SX}>to</Box>
-        </>
-      )}
+      {/* shortcut: a name wider than the card wraps inside its own unit (a 120 character team name), never past the card;
+          the You badge and the arrow sit inline after the last word, so they follow the name. */}
+      <Box component="span" sx={{ minWidth: 0, overflowWrap: 'anywhere' }}>
+        {name}
+        {you && <Box component="span" sx={{ display: 'inline-block', ml: '8px', verticalAlign: 'middle' }}><YouTag /></Box>}
+        {arrow && (
+          <>
+            <Box component="span" aria-hidden="true" sx={{ ml: '8px', fontWeight: 400, color: 'var(--ps-dim)' }}>⇄</Box>
+            <Box component="span" sx={SR_ONLY_SX}>to</Box>
+          </>
+        )}
+      </Box>
     </Box>
   );
 }
@@ -114,6 +117,7 @@ function TradeProposalCard({
   actions = [],
   commissionerActions = [],
   cursor = false,
+  busy = false,
   headingRef,
 }) {
   const analysis = useTradeAnalysis(leagueId);
@@ -194,15 +198,26 @@ function TradeProposalCard({
         </Box>
       )}
 
-      <Box sx={bar}>
+      {/* Two to a row on a phone with Analyze last (the TradesPhone board); one row from sm up, Analyze at the end. */}
+      <Box
+        sx={{
+          ...bar,
+          display: { xs: 'grid', sm: 'flex' },
+          gridTemplateColumns: { xs: '1fr 1fr' },
+          '& button': { width: { xs: '100%', sm: 'auto' } },
+        }}
+      >
         {actions.map((action) => (
-          <PsButton key={action.key} variant="ghost" onClick={action.onClick}>{action.label}</PsButton>
+          <PsButton key={action.key} variant="ghost" disabled={busy} onClick={action.onClick}>{action.label}</PsButton>
         ))}
-        <Box sx={{ ml: { sm: 'auto' } }}>
-          <PsButton variant="ghost" disabled={analysis.analyzing} onClick={() => analysis.run({ tradeId: trade.id })}>
-            {analysis.analyzing ? 'Analyzing…' : 'Analyze Trade'}
-          </PsButton>
-        </Box>
+        {/* Analysis reads today's rosters, which an executed trade has already changed: nothing to analyze. */}
+        {trade.status !== 'executed' && (
+          <Box sx={{ ml: { sm: 'auto' }, display: 'flex' }}>
+            <PsButton variant="ghost" disabled={analysis.analyzing} onClick={() => analysis.run({ tradeId: trade.id })}>
+              {analysis.analyzing ? 'Analyzing…' : 'Analyze Trade'}
+            </PsButton>
+          </Box>
+        )}
       </Box>
 
       {commissionerActions.length > 0 && (
@@ -216,7 +231,7 @@ function TradeProposalCard({
             Commissioner
           </Box>
           {commissionerActions.map((action) => (
-            <PsButton key={action.key} variant="ghost" onClick={action.onClick}>{action.label}</PsButton>
+            <PsButton key={action.key} variant="ghost" disabled={busy} onClick={action.onClick}>{action.label}</PsButton>
           ))}
         </Box>
       )}

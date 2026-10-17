@@ -183,11 +183,12 @@ export default function TradeDialog({
   onToggleReceive,
   onSend,
   sendError,
+  sending,
   onOpenPlayer,
   compact,
 }) {
   const analysis = useTradeAnalysis(leagueId);
-  const { run } = analysis;
+  const { run, reset } = analysis;
   const offered = [...sendIds];
   const requested = [...receiveIds];
   const teamChosen = selectedTeamId !== '';
@@ -202,13 +203,14 @@ export default function TradeDialog({
 
   // Fires ~600ms after the offered/requested ids last changed, rather than waiting for a click.
   useEffect(() => {
+    reset();
     if (!open || offered.length === 0 || requested.length === 0) return undefined;
     const handle = setTimeout(() => {
       run({ receivingTeamId: selectedTeamId, offeredPlayerIds: offered, requestedPlayerIds: requested });
     }, 600);
     return () => clearTimeout(handle);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, selectedTeamId, offered.join(','), requested.join(','), run]);
+  }, [open, selectedTeamId, offered.join(','), requested.join(','), run, reset]);
 
   return (
     <Dialog
@@ -282,9 +284,13 @@ export default function TradeDialog({
           </Box>
         )}
 
+        {/* Mounted before it speaks, so "Analyzing…" is announced; out of sight while empty. */}
+        <Box role="status" sx={analysis.analyzing ? { fontSize: '15px', color: 'var(--ps-dim)' } : SR_ONLY_SX}>
+          {analysis.analyzing ? 'Analyzing…' : ''}
+        </Box>
+
         {teamChosen && offered.length > 0 && requested.length > 0 && (
           <Box sx={{ borderTop: '2px solid var(--ps-rule)', pt: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            {analysis.analyzing && <Box role="status" sx={{ fontSize: '15px', color: 'var(--ps-dim)' }}>Analyzing…</Box>}
             <AnalysisError error={analysis.error} />
             {analysis.result && <AnalysisResult result={analysis.result} onOpenPlayer={onOpenPlayer} />}
           </Box>
@@ -302,7 +308,7 @@ export default function TradeDialog({
 
       <Box sx={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'flex-end', gap: '12px', padding: { xs: '12px 14px', sm: '14px 20px' }, borderTop: '2px solid var(--ps-rule)' }}>
         <PsButton variant="ghost" onClick={onClose}>Cancel</PsButton>
-        <PsButton variant="fill" disabled={offered.length === 0 || requested.length === 0} onClick={onSend}>Send Offer</PsButton>
+        <PsButton variant="fill" disabled={sending || offered.length === 0 || requested.length === 0} onClick={onSend}>Send Offer</PsButton>
       </Box>
     </Dialog>
   );

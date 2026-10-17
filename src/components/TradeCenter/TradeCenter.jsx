@@ -110,6 +110,12 @@ function TradeCenter() {
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [sendError, setSendError] = useState(null);
+  // One request at a time: an offer in flight, and the trade whose action is in flight. The refs guard the
+  // press that lands before the disabled button has rendered.
+  const [sending, setSending] = useState(false);
+  const [busyTradeId, setBusyTradeId] = useState(null);
+  const sendingRef = useRef(false);
+  const busyRef = useRef(null);
   const [selectedTeamId, setSelectedTeamId] = useState('');
   const [sendIds, setSendIds] = useState(new Set());
   const [receiveIds, setReceiveIds] = useState(new Set());
@@ -299,6 +305,9 @@ function TradeCenter() {
   }, [focusAfter]);
 
   const handleSendOffer = async () => {
+    if (sendingRef.current) return;
+    sendingRef.current = true;
+    setSending(true);
     try {
       setSendError(null);
       const playerIds = [...sendIds, ...receiveIds];
@@ -320,10 +329,16 @@ function TradeCenter() {
     } catch (err) {
       // The refusal stays with the dialog, which stays open: the same press is the retry.
       setSendError(readHttpFailure(err).message || err.message);
+    } finally {
+      sendingRef.current = false;
+      setSending(false);
     }
   };
 
   const performAction = async (trade, url, body, message) => {
+    if (busyRef.current === trade.id) return;
+    busyRef.current = trade.id;
+    setBusyTradeId(trade.id);
     try {
       setError(null);
       const settled = markMoved(trade.id);
@@ -335,6 +350,9 @@ function TradeCenter() {
       const failure = readHttpFailure(err).message || err.message;
       setError(failure);
       notify(failure, { severity: 'error' });
+    } finally {
+      busyRef.current = null;
+      setBusyTradeId(null);
     }
   };
 
@@ -485,6 +503,7 @@ function TradeCenter() {
         actions={actions}
         commissionerActions={commissionerActions}
         cursor={tab === 0 && cursorTrade?.id === trade.id}
+        busy={busyTradeId === trade.id}
         headingRef={(el) => {
           if (el) headingRefs.current.set(trade.id, el);
           else headingRefs.current.delete(trade.id);
@@ -568,6 +587,7 @@ function TradeCenter() {
           onToggleReceive={(id) => setReceiveIds((prev) => toggleInSet(prev, id))}
           onSend={handleSendOffer}
           sendError={sendError}
+          sending={sending}
           onOpenPlayer={setDecisionCardPlayerId}
           compact={compact}
         />

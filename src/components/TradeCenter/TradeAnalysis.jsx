@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import { Box } from '@mui/material';
 import apiClient from '../../api/apiClient';
 import { readHttpFailure } from '../../lib/httpFailure';
@@ -26,20 +26,33 @@ export function useTradeAnalysis(leagueId) {
   const [analyzing, setAnalyzing] = useState(false);
   const [error, setError] = useState(null);
 
+  // Only the latest request may write: a slower, older answer is for a selection that has since changed.
+  const latest = useRef(0);
+
   const run = useCallback(async (body) => {
+    latest.current += 1;
+    const mine = latest.current;
     try {
       setAnalyzing(true);
       setError(null);
       const res = await apiClient.post('/api/trades/analyze', { leagueId: Number(leagueId), ...body });
-      setResult(res.data);
+      if (mine === latest.current) setResult(res.data);
     } catch (err) {
-      setError(readHttpFailure(err).message || err.message);
+      if (mine === latest.current) setError(readHttpFailure(err).message || err.message);
     } finally {
-      setAnalyzing(false);
+      if (mine === latest.current) setAnalyzing(false);
     }
   }, [leagueId]);
 
-  return { result, analyzing, error, run };
+  // The selection changed: the old answer (and any request still out) no longer describes it.
+  const reset = useCallback(() => {
+    latest.current += 1;
+    setResult(null);
+    setError(null);
+    setAnalyzing(false);
+  }, []);
+
+  return { result, analyzing, error, run, reset };
 }
 
 /** The failure, or nothing. */

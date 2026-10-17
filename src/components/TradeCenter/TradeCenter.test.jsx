@@ -826,7 +826,7 @@ test('a pending trade shows no review line', async () => {
   expect((await findCard()).queryByText(/League review ends/)).not.toBeInTheDocument();
 });
 
-test('the Completed tab prints each status word and offers only Analyze Trade', async () => {
+test('the Completed tab prints each status word; an executed trade offers nothing, the rest only Analyze Trade', async () => {
   const done = ['executed', 'rejected', 'vetoed', 'cancelled', 'countered'].map((status, i) => pendingTrade({ id: 20 + i, status }));
   mockGetSequence({ trades: done, myTeamId: 10 });
   renderScreen();
@@ -836,7 +836,9 @@ test('the Completed tab prints each status word and offers only Analyze Trade', 
   for (const word of ['Executed', 'Rejected', 'Vetoed', 'Cancelled', 'Countered']) {
     expect(screen.getByText(word, { selector: 'span' })).toBeInTheDocument();
   }
-  expect(screen.getAllByRole('button', { name: 'Analyze Trade' })).toHaveLength(5);
+  // Analysis reads today's rosters, which an executed trade has already changed: its card has no button.
+  expect(screen.getAllByRole('button', { name: 'Analyze Trade' })).toHaveLength(4);
+  expect(within(screen.getByTestId('trade-20')).queryByRole('button', { name: 'Analyze Trade' })).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Cancel' })).not.toBeInTheDocument();
 });
 
@@ -914,5 +916,71 @@ describe('cursor and filled action', () => {
     const regions = container.querySelectorAll('[role="status"], [role="alert"]');
     expect(regions.length).toBeGreaterThan(0);
     regions.forEach((region) => expect(region.querySelector('button, a')).toBeNull());
+  });
+});
+
+describe('one request at a time', () => {
+  const never = () => new Promise(() => {});
+
+  test('Send Offer is disabled while the offer is in flight, and a second press posts nothing more', async () => {
+    mockGetSequence({ trades: [] });
+    apiClient.post.mockImplementation(never);
+    renderScreen();
+    await screen.findByText('No Pending Trades');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Propose Trade' }));
+    await selectTeam('Bob Squad');
+    await userEvent.click(await screen.findByLabelText('Stefon Diggs (WR)'));
+    await userEvent.click(await screen.findByLabelText('Tyreek Hill (WR)'));
+    const send = screen.getByRole('button', { name: 'Send Offer' });
+    await userEvent.click(send);
+    await userEvent.click(send);
+
+    expect(send).toBeDisabled();
+    expect(apiClient.post.mock.calls.filter(([url]) => url === '/api/trades')).toHaveLength(1);
+  });
+
+  test('the actions of a card are disabled while one of them is in flight, and a second press posts nothing more', async () => {
+    mockGetSequence({ trades: [pendingTrade(), pendingTrade({ id: 4, proposing_team_id: 30, proposing_team_name: 'Carol Squad' })], myTeamId: 20 });
+    apiClient.post.mockImplementation(never);
+    renderScreen();
+    const c = await findCard();
+
+    const accept = c.getByRole('button', { name: 'Accept Trade' });
+    await userEvent.click(accept);
+    await userEvent.click(accept);
+
+    expect(accept).toBeDisabled();
+    expect(c.getByRole('button', { name: 'Decline' })).toBeDisabled();
+    expect(c.getByRole('button', { name: 'Counter' })).toBeDisabled();
+    expect(apiClient.post).toHaveBeenCalledTimes(1);
+    // Another card is free to act.
+    expect(within(screen.getByTestId('trade-4')).getByRole('button', { name: 'Accept Trade' })).toBeEnabled();
+  });
+
+  test('the dialog keeps one status region mounted, and a changed selection clears the old analysis at once', async () => {
+    jest.useFakeTimers({ legacyFakeTimers: false });
+    const user = userEvent.setup({ delay: null });
+    mockGetSequence({ trades: [], rostersData: [{ ...rosters[0], players: [...rosters[0].players, { id: 102, name: 'Davante Adams', position: 'WR', nfl_team: 'LV' }] }, rosters[1], rosters[2]] });
+    apiClient.post.mockResolvedValue({ data: FAIR });
+    renderScreen();
+    await screen.findByText('No Pending Trades');
+
+    await user.click(screen.getByRole('button', { name: 'Propose Trade' }));
+    await user.selectOptions(screen.getByLabelText('Trade with'), 'Bob Squad');
+    const dialog = within(screen.getByRole('dialog'));
+    const status = dialog.getByRole('status');
+    expect(status).toBeEmptyDOMElement();
+    await user.click(dialog.getByLabelText('Stefon Diggs (WR)'));
+    await user.click(dialog.getByLabelText('Tyreek Hill (WR)'));
+    // The same element carries the text, rather than a new one mounting with it.
+    expect(dialog.getByRole('status')).toBe(status);
+
+    await act(async () => { jest.advanceTimersByTime(600); });
+    expect(await dialog.findByText('Fair')).toBeInTheDocument();
+    expect(status).toBeEmptyDOMElement();
+
+    await user.click(dialog.getByLabelText('Davante Adams (WR)'));
+    expect(dialog.queryByText('Fair')).not.toBeInTheDocument();
   });
 });

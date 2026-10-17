@@ -84,10 +84,13 @@ router.post('/analyze', async (req, res) => {
       return res.status(400).json({ error: 'leagueId and tradeId (integers) are required' });
     }
     try {
-      await requireMember(pool, { leagueId, userId: req.user.id });
+      const me = await requireMember(pool, { leagueId, userId: req.user.id });
+      // The list's visibility rule (GET /api/trades): your own trades, and any accepted one.
       const trade = (await pool.query(
-        `SELECT * FROM "trades" WHERE "id" = $1 AND "league_id" = $2`,
-        [tradeId, leagueId]
+        `SELECT * FROM "trades"
+         WHERE "id" = $1 AND "league_id" = $2
+           AND ("proposing_team_id" = $3 OR "receiving_team_id" = $3 OR "status" = 'accepted')`,
+        [tradeId, leagueId, me.id]
       )).rows[0];
       if (!trade) return res.status(404).json({ error: 'trade not found' });
       const items = (await pool.query(`SELECT * FROM "trade_items" WHERE "trade_id" = $1`, [tradeId])).rows;
