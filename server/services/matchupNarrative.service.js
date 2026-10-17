@@ -2,6 +2,7 @@ const defaultPool = require('../modules/pool');
 const { logger } = require('../modules/logger');
 const { withTransaction } = require('../modules/withTransaction');
 const claude = require('./claude');
+const { voiceBlockFor, withVoice, deniedTerm } = require('./narrativeVoice');
 const lineup = require('./lineup.service');
 const expectedFinal = require('./expectedFinal.service');
 const { computeStandings } = require('./season.service');
@@ -101,6 +102,17 @@ const put = (db, key, matchupId, moment, narrative, source, facts) =>
 
 const withoutNames = (text, names) =>
   Object.values(names).sort((a, b) => b.length - a.length).reduce((t, n) => t.split(n).join(''), text);
+
+/**
+ * A Voice rewrite (ADR 0069) may not name a deny-list term the facts do not
+ * carry; team names are typed by managers and tokenized out of the facts, so
+ * they count as facts. A neutral league has no deny check.
+ */
+const voiceOk = (voice, text, names, facts, where) => {
+  const term = voiceBlockFor(voice) ? deniedTerm(text, `${JSON.stringify(facts)} ${Object.values(names).join(' ')}`) : null;
+  if (term) logger.warn({ ...where, term }, 'voice rewrite discarded');
+  return !term;
+};
 
 /** A preview states no number at all. */
 const previewOk = (text, names) => !/\d/.test(withoutNames(text, names));
@@ -224,13 +236,13 @@ async function writePreviews({ league, now = new Date(), db = defaultPool, clien
         matchupId: m.id,
         moment: 'preview',
         feature: 'matchup_preview',
-        system: PREVIEW_SYSTEM,
+        system: withVoice(PREVIEW_SYSTEM, league.narrative_voice),
         facts,
         factsKey,
         templateFacts: facts,
         template: templatePreview,
         names: namesOf,
-        accept: (text) => previewOk(text, namesOf),
+        accept: (text) => previewOk(text, namesOf) && voiceOk(league.narrative_voice, text, namesOf, facts, { leagueId, feature: 'matchup_preview' }),
       }));
     } catch (err) {
       logger.error({ err, leagueId, matchupId: m.id }, 'matchup preview failed');
@@ -315,12 +327,12 @@ async function writePostgames({ leagueId, season, week, now = new Date(), db = d
         matchupId: m.id,
         moment: 'postgame',
         feature: 'matchup_postgame',
-        system: POSTGAME_SYSTEM,
+        system: withVoice(POSTGAME_SYSTEM, league?.narrative_voice),
         facts,
         templateFacts: full,
         template: templatePostgame,
         names: namesOf,
-        accept: (text) => postgameOk(text, namesOf, facts),
+        accept: (text) => postgameOk(text, namesOf, facts) && voiceOk(league?.narrative_voice, text, namesOf, facts, { leagueId, feature: 'matchup_postgame' }),
       }));
     } catch (err) {
       logger.error({ err, leagueId, matchupId: m.id }, 'matchup postgame failed');

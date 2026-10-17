@@ -53,6 +53,7 @@ const { isValidIanaTimeZone } = require('../modules/ianaTimeZones');
 const activityService = require('./activity.service');
 const { POSITION_GROUPS } = require('./lineup.service');
 const { SCORING_PRESETS, SCORING_RULES, isValidTierArray } = require('./scoringRules');
+const { VOICE_KEYS } = require('./narrativeVoice');
 
 /* ------------------------------------------------------------------ *
  * Shared rules and constants                                          *
@@ -241,6 +242,12 @@ const SETTINGS = Object.freeze([
   // Future like draftDate (#67): a past lock would lock keepers the moment it
   // is saved, which is never what a commissioner meant. null still clears.
   { key: 'keeperLockAt', column: 'keeper_lock_at', validate: dateRule('keeperLockAt', { mustBeFuture: true }) },
+  // The Voice of the league's Recap and Matchup narratives (ADR 0069): null is
+  // neutral. Administrative like waivers and trades, so it never freezes.
+  {
+    key: 'narrativeVoice', column: 'narrative_voice',
+    validate: (v) => (v === null || VOICE_KEYS.includes(v) ? null : `narrativeVoice must be '${VOICE_KEYS.join("' or '")}' or null`),
+  },
   // Validated like POST / plus the column's varchar(120) cap (#66): before
   // this row existed, '' / 0 / false were silent no-ops via the write path's
   // COALESCE and 12345 or {} went straight to node-pg.
@@ -282,7 +289,7 @@ for (const key of DRAFT_FROZEN_SETTING_KEYS) {
  */
 const FANTASY_ONLY_NOT_FROZEN_KEYS = Object.freeze([
   'scoringPreset', 'waiverType', 'waiverPeriodHours', 'faabBudget',
-  'tradeDeadlineWeek', 'tradeReviewHours', 'tradeVetoVotes',
+  'tradeDeadlineWeek', 'tradeReviewHours', 'tradeVetoVotes', 'narrativeVoice',
 ]);
 {
   const fromRows = SETTINGS.filter((row) => row.fantasyOnly && !row.draftFrozen).map((row) => row.key);
@@ -373,7 +380,7 @@ function parseSettingsPatch(body) {
   const {
     name, rosterSlots, positionCaps, benchSlots, dpEnabled, irSlots,
     waiverType, waiverPeriodHours, faabBudget,
-    tradeDeadlineWeek, tradeReviewHours, tradeVetoVotes,
+    tradeDeadlineWeek, tradeReviewHours, tradeVetoVotes, narrativeVoice,
     scoringPreset, scoringRules, regularSeasonWeeks, playoffTeams, playoffConsolation,
     pickTimeSeconds, minTeams, maxTeams, draftDate, draftTimezone, autodraftDelaySeconds,
     draftType, draftRotation, draftOrderOverrides, auctionSettings,
@@ -427,7 +434,8 @@ function parseSettingsPatch(body) {
     value: {
       name, rosterSlots, positionCaps, benchSlots, dpEnabled, irSlots,
       waiverType, waiverPeriodHours, faabBudget,
-      tradeDeadlineWeek, tradeReviewHours, tradeVetoVotes,
+      tradeDeadlineWeek, tradeReviewHours, tradeVetoVotes, narrativeVoice,
+      narrativeVoiceProvided: narrativeVoice !== undefined,
       regularSeasonWeeks, playoffTeams, playoffConsolation,
       pickTimeSeconds, autodraftDelaySeconds,
       draftType, draftRotation, draftOrderOverrides, auctionSettings,
@@ -494,12 +502,12 @@ async function updateLeagueSettings(db, { leagueId, userId, patch }) {
   const {
     name, rosterSlots, positionCaps, benchSlots, dpEnabled, irSlots,
     waiverType, waiverPeriodHours, faabBudget,
-    tradeDeadlineWeek, tradeReviewHours, tradeVetoVotes,
+    tradeDeadlineWeek, tradeReviewHours, tradeVetoVotes, narrativeVoice,
     regularSeasonWeeks, playoffTeams, playoffConsolation,
     pickTimeSeconds, autodraftDelaySeconds,
     draftType, draftRotation, draftOrderOverrides, auctionSettings,
     keepersEnabled, keeperCount,
-    tradeDeadlineWeekProvided,
+    tradeDeadlineWeekProvided, narrativeVoiceProvided,
     draftDateProvided, draftDateValue, draftTimezoneProvided, draftTimezone,
     keeperLockAtProvided, keeperLockAtValue,
     draftOrderOverridesProvided, auctionSettingsProvided, keeperSettingsProvided,
@@ -789,6 +797,8 @@ async function updateLeagueSettings(db, { leagueId, userId, patch }) {
            "draft_order_overrides" = CASE WHEN $31::boolean THEN $32::jsonb ELSE "draft_order_overrides" END,
            "auction_settings" = CASE WHEN $33::boolean THEN $34::jsonb ELSE "auction_settings" END,
            "keeper_lock_at" = CASE WHEN $35::boolean THEN $36::timestamptz ELSE "keeper_lock_at" END,
+           -- Tri-state: null is a deliberate clear back to the neutral Voice.
+           "narrative_voice" = CASE WHEN $40::boolean THEN $41::text ELSE "narrative_voice" END,
            "updated_at" = now()
        WHERE "id" = $17 AND ${commissionerPredicate(18)}
          ${frozenRequested.length > 0 ? `AND ${settingsUnfrozenWhereSql()}` : ''}
@@ -834,6 +844,8 @@ async function updateLeagueSettings(db, { leagueId, userId, patch }) {
         tradeDeadlineWeekProvided,
         draftTimezoneProvided,
         draftTimezoneProvided ? draftTimezone : null,
+        narrativeVoiceProvided,
+        narrativeVoiceProvided ? narrativeVoice : null,
       ]
     );
     if (!result.rows[0]) {

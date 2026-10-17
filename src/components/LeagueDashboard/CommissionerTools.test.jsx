@@ -1351,6 +1351,63 @@ test('an already-promoted member drops out of the candidate list', () => {
   expect(screen.getByRole('combobox', { name: 'Add a co-commissioner' })).toHaveAttribute('aria-disabled', 'true');
 });
 
+// --- Voice (ADR 0069) ---
+
+test('a season league shows the Voice control on General with Neutral selected when narrative_voice is null', () => {
+  renderTools({ league: league({ narrative_voice: null }) });
+
+  const group = screen.getByRole('radiogroup', { name: 'Voice' });
+  expect(within(group).getByRole('radio', { name: 'Neutral' })).toHaveAttribute('aria-checked', 'true');
+  expect(within(group).getByRole('radio', { name: 'Polk High Legend' })).toHaveAttribute('aria-checked', 'false');
+  expect(screen.getByText(/never the managers/)).toBeInTheDocument();
+});
+
+test('a league with no narrative_voice field at all reads as Neutral', () => {
+  renderTools();
+  expect(screen.getByRole('radio', { name: 'Neutral' })).toHaveAttribute('aria-checked', 'true');
+});
+
+test('a stored Polk High Legend shows as selected', () => {
+  renderTools({ league: league({ narrative_voice: 'polk_high_legend' }) });
+  expect(screen.getByRole('radio', { name: 'Polk High Legend' })).toHaveAttribute('aria-checked', 'true');
+});
+
+test('choosing Polk High Legend saves narrativeVoice through the league settings PUT', async () => {
+  const onRefresh = jest.fn();
+  apiClient.put.mockResolvedValue({ data: {} });
+  renderTools({ onRefresh });
+
+  await userEvent.click(screen.getByRole('radio', { name: 'Polk High Legend' }));
+
+  await waitFor(() => expect(apiClient.put).toHaveBeenCalledWith('/api/league/1', { narrativeVoice: 'polk_high_legend' }));
+  await waitFor(() => expect(onRefresh).toHaveBeenCalled());
+});
+
+test('choosing Neutral sends narrativeVoice null', async () => {
+  apiClient.put.mockResolvedValue({ data: {} });
+  renderTools({ league: league({ narrative_voice: 'polk_high_legend' }) });
+
+  await userEvent.click(screen.getByRole('radio', { name: 'Neutral' }));
+
+  await waitFor(() => expect(apiClient.put).toHaveBeenCalledWith('/api/league/1', { narrativeVoice: null }));
+});
+
+test('a failed Voice save is reported and does not refresh', async () => {
+  const onRefresh = jest.fn();
+  apiClient.put.mockRejectedValue({ response: { data: { error: 'nope' } } });
+  renderTools({ onRefresh });
+
+  await userEvent.click(screen.getByRole('radio', { name: 'Polk High Legend' }));
+
+  expect(await findToast('nope')).toBeInTheDocument();
+  expect(onRefresh).not.toHaveBeenCalled();
+});
+
+test("a pick'em-only league has no Voice control", () => {
+  renderTools({ league: league({ pickem_only: true, season_status: 'regular', min_teams: 2, max_teams: 50 }) });
+  expect(screen.queryByRole('radiogroup', { name: 'Voice' })).not.toBeInTheDocument();
+});
+
 // --- Pick'em-only leagues ---
 
 const pickemLeague = (overrides = {}) =>

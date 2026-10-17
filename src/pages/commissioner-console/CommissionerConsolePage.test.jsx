@@ -243,6 +243,8 @@ test('a member is redirected to the league dashboard', async () => {
   // here would pass whether or not the redirect actually happened.
   expect(await screen.findByTestId('location-probe')).toHaveTextContent(/^\/league\/42$/);
   expect(screen.queryByRole('heading', { name: 'Commissioner console' })).not.toBeInTheDocument();
+  // The tools (and the Voice control in them, ADR 0069) are never mounted for a member.
+  expect(screen.queryByTestId('mock-commissioner-tools')).not.toBeInTheDocument();
 });
 
 test('a non-owner commissioner sees the co-commissioner explainer', async () => {
