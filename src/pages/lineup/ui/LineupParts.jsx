@@ -17,6 +17,12 @@ import PickWeek from '../../../features/pick-week';
 export function LineupHead({
   leagueName, teamName, avatarUrl, avatarStaticUrl, bestBall, live, zone, compact, leagues, selectedLeagueId, onSelectLeague, weeks, week, onWeek,
 }) {
+  const chips = (
+    <>
+      {bestBall && <Tag>Best ball</Tag>}
+      {live && <LiveChip>Live</LiveChip>}
+    </>
+  );
   return (
     <Box
       data-testid="lineup-head"
@@ -25,10 +31,14 @@ export function LineupHead({
       }}
     >
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: { xs: '8px', sm: '12px' }, minWidth: 0, flex: { xs: '1 1 100%', md: '1 1 auto' } }}>
-        <Box data-testid="lineup-league-line" sx={{ fontSize: { xs: '14px', sm: '15px' }, fontWeight: 600, color: 'var(--ps-dim)' }}>
-          {leagueName ? `Lineup · ${leagueName}` : 'Lineup'}
-          {/* On a phone the times note rides this line instead of costing a row of its own. */}
-          <Box component="span" sx={{ display: { xs: 'inline', sm: 'none' }, fontWeight: 400 }}>{` · Times in ${zone}`}</Box>
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '4px 12px', minWidth: 0 }}>
+          <Box data-testid="lineup-league-line" sx={{ fontSize: { xs: '14px', sm: '15px' }, fontWeight: 600, color: 'var(--ps-dim)' }}>
+            {leagueName ? `Lineup · ${leagueName}` : 'Lineup'}
+            {/* On a phone the times note rides this line instead of costing a row of its own. */}
+            <Box component="span" sx={{ display: { xs: 'inline', sm: 'none' }, fontWeight: 400 }}>{` · Times in ${zone}`}</Box>
+          </Box>
+          {/* ... and so do the chips (Best ball, Live), which would otherwise cost a row of their own. */}
+          {compact && chips}
         </Box>
         <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: { xs: '8px 12px', sm: '12px 16px' }, minWidth: 0 }}>
           {/* The avatar and the name stay on one row at every width (the name wraps beside the avatar), with the
@@ -39,8 +49,7 @@ export function LineupHead({
             </Box>
             <PixelHeading level={1}>{teamName || 'Lineup'}</PixelHeading>
           </Box>
-          {bestBall && <Tag>Best ball</Tag>}
-          {live && <LiveChip>Live</LiveChip>}
+          {!compact && chips}
         </Box>
         <Box component="p" sx={{ m: 0, display: { xs: 'none', sm: 'block' }, fontSize: '17px', color: 'var(--ps-dim)' }}>{`Times in ${zone}`}</Box>
       </Box>
@@ -49,7 +58,19 @@ export function LineupHead({
           <LeagueSelect leagues={leagues} value={selectedLeagueId} onChange={onSelectLeague} />
         )}
         {week != null && (
-          <Box sx={{ minWidth: 0, maxWidth: '100%', width: { xs: '100%', md: '460px' }, flex: { xs: '1 1 100%', md: 'none' } }}>
+          <Box
+            sx={{
+              minWidth: 0,
+              maxWidth: '100%',
+              width: { xs: '100%', md: '460px' },
+              flex: { xs: '1 1 100%', md: 'none' },
+              // A phone's scrollbars overlay and take no room; a desktop browser narrowed to phone width would add a
+              // 15px track under the week strip, so it is hidden there (the strip still scrolls and keeps the selected week in view).
+              '@media (max-width: 599.95px)': {
+                '& [data-testid="pick-week-weeks"]': { scrollbarWidth: 'none', '&::-webkit-scrollbar': { display: 'none' } },
+              },
+            }}
+          >
             <PickWeek weeks={weeks} value={week} onChange={onWeek} fill={compact} look="playselect" allWeeks={false} />
           </Box>
         )}

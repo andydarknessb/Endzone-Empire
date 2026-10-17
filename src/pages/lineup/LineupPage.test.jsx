@@ -1959,3 +1959,62 @@ test('multi-seat slots say which seat is empty (QA P3)', async () => {
   expect(note).toHaveTextContent('WR 2 is empty');
   expect(screen.getByTestId('slot-row-WR-1')).toContainElement(note);
 });
+
+describe('QA round 2 (wave 3)', () => {
+  // N2: useResource reports loading=false for the commit before its effect starts the read; the error row must not
+  // flash on a normal load. A MutationObserver sees any node that mounts and leaves between two awaits.
+  test('the league error row never mounts during a normal load', async () => {
+    const seen = [];
+    const observer = new MutationObserver((records) => {
+      records.forEach((record) => record.addedNodes.forEach((node) => {
+        if (node.nodeType === 1 && (node.matches?.('[data-testid="league-error"]') || node.querySelector?.('[data-testid="league-error"]'))) seen.push(node);
+      }));
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+    try {
+      renderPage(withEntries([qb(), rb(), wr(), benchWr()]));
+      await screen.findByText('Josh Allen');
+      await screen.findByTestId("strip-advice");
+    } finally {
+      observer.disconnect();
+    }
+    expect(seen).toHaveLength(0);
+    expect(screen.queryByTestId('league-error')).toBeNull();
+  });
+
+  // N4: after a Dismiss the Advice tile counts and sums the moves the plan line names.
+  test('the Advice tile follows a Dismiss: it counts and sums the suggestions still showing', async () => {
+    const user = userEvent.setup();
+    const second = adviceSuggestion({
+      slot: 'RB',
+      gain: 4,
+      current: { playerId: 2, name: 'Derrick King', projection: 8, opponent: 'CIN', distribution: { p10: 3, p90: 13 } },
+      suggested: { playerId: 10, name: 'Bench Guy', projection: 12, opponent: 'NYJ', distribution: { p10: 6, p90: 18 } },
+    });
+    const first = adviceSuggestion({
+      slot: 'WR',
+      gain: 10.1,
+      current: { playerId: 30, name: 'Out Guy', projection: 0, opponent: 'JAX', startVerdict: { outcome: 'unavailable', reason: 'out' }, distribution: { p10: 0, p90: 0 } },
+      suggested: { playerId: 11, name: 'Other Guy', projection: 10.1, opponent: 'PHI', distribution: { p10: 3, p90: 19 } },
+    });
+    renderPage(withEntries([qb(), rb(), outWr(), benchWr()], {
+      [ADVICE_URL]: {
+        data: adviceBody({
+          projectedTotal: 90,
+          optimalTotal: 104.1,
+          suggestions: [first, second],
+          movePlan: [
+            { playerId: 30, fromSlot: 'WR', toSlot: 'BENCH' }, { playerId: 11, fromSlot: 'BENCH', toSlot: 'WR' },
+            { playerId: 2, fromSlot: 'RB', toSlot: 'BENCH' }, { playerId: 10, fromSlot: 'BENCH', toSlot: 'RB' },
+          ],
+        }),
+      },
+    }));
+    await screen.findByTestId('start-sit-apply');
+    expect(screen.getByTestId('strip-advice')).toHaveTextContent('+14.1 pts · 2 swaps');
+    expect(screen.getByTestId('start-sit-plan-line')).toHaveTextContent('Two moves');
+    await user.click(screen.getAllByTestId('suggestion-dismiss')[0]);
+    await waitFor(() => expect(screen.getByTestId('strip-advice')).toHaveTextContent('+4.0 pts · 1 swap'));
+    expect(screen.getByTestId('start-sit-plan-line')).toHaveTextContent('Start Bench Guy for Derrick King · +4.0 pts');
+  });
+});

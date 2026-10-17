@@ -141,7 +141,7 @@ export default function TeamSummaryStrip({
       aria-busy={status === 'loading'}
       head={<FrameHead><PixelHeading id="team-summary-h" size={16}>This week</PixelHeading></FrameHead>}
     >
-      <Box sx={{ p: { xs: '12px 14px', md: '14px 20px' }, display: 'flex', flexDirection: 'column', gap: { xs: '10px', md: '12px' } }}>
+      <Box sx={{ p: { xs: '10px 14px', md: '14px 20px' }, display: 'flex', flexDirection: 'column', gap: { xs: '8px', md: '12px' } }}>
         {status === 'loading' && (
           <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', sm: 'repeat(4, minmax(0, 1fr))' }, gap: '12px 16px' }}>
             {Array.from({ length: 4 }, (_, i) => <Skel key={i} width="100%" height={40} />)}
@@ -159,7 +159,7 @@ export default function TeamSummaryStrip({
         )}
 
         {status === 'ready' && (
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', sm: 'repeat(4, minmax(0, 1fr))' }, gap: '12px 16px' }}>
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', sm: 'repeat(4, minmax(0, 1fr))' }, gap: { xs: '8px 16px', sm: '12px 16px' } }}>
             <Tile testId="strip-score" label="Score vs proj." value={figureLabel(viewer?.score, viewer?.projected)} />
             <Tile testId="strip-opponent-score" label="Opponent vs proj." value={figureLabel(opponent?.score, opponent?.projected)} />
             <Tile
@@ -181,7 +181,8 @@ export default function TeamSummaryStrip({
 
         {hasAttentionRow && (
           <Box data-testid="strip-attention" sx={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-            <Box component="span" sx={CAPTION_SX}>Needs attention</Box>
+            {/* On a phone the label heads its own line, so the chips share one row under it. */}
+            <Box component="span" sx={{ ...CAPTION_SX, flexBasis: { xs: '100%', sm: 'auto' } }}>Needs attention</Box>
             {questionableChips.map((chip) => <AttentionChip key={chip.key} testId={chip.testId}>{chip.label}</AttentionChip>)}
             {byeChips.map((chip) => <AttentionChip key={chip.key} testId={chip.testId}>{chip.label}</AttentionChip>)}
             {byeClusterAttention && (
@@ -193,7 +194,7 @@ export default function TeamSummaryStrip({
         {/* The advice tile stands apart from the ready/empty/error grid above (#1238 AC4): it reads its own
             `advice` prop, not the matchup read this widget's `status` tracks, so a bye week or a failed
             matchup read never hides "how many swaps the advice wants". */}
-        <Box data-testid="strip-advice" sx={{ display: 'flex', flexDirection: 'column', gap: '2px', borderTop: '2px solid var(--ps-rule)', pt: '10px' }}>
+        <Box data-testid="strip-advice" sx={{ display: 'flex', flexDirection: { xs: 'row', sm: 'column' }, flexWrap: 'wrap', alignItems: { xs: 'baseline', sm: 'stretch' }, gap: { xs: '0 10px', sm: '2px' }, borderTop: '2px solid var(--ps-rule)', pt: { xs: '8px', sm: '10px' } }}>
           <Box component="span" sx={{ fontSize: '13px', color: 'var(--ps-dim)' }}>Advice</Box>
           <Box component="span" sx={{ fontSize: { xs: '15px', sm: '16px' }, fontWeight: 700, textWrap: 'pretty' }}>{adviceValue}</Box>
         </Box>

@@ -185,13 +185,14 @@ test('at 390px the one bar sticks to the viewport bottom on Starters and Outlook
   await expect(tabs.getByRole('button')).toHaveCount(3);
   await expect(page.getByTestId('lineup-mobile-view')).toHaveCount(0);
 
-  // The first starter must start on the first screen, above the pinned footer's top edge (the head and the "This
-  // week" frame above it may not push Starters under the footer).
+  // The whole first starter row must be on the first screen, clear of the pinned footer (the head and the "This week"
+  // frame above it may not push Starters under the footer).
   const firstStarter = await box(page.getByTestId('slot-row-QB-0'));
   const footerTop = (await box(page.getByTestId('lineup-sticky-footer'))).y;
+  const rowBottom = firstStarter.y + firstStarter.height;
   // eslint-disable-next-line no-console
-  console.log(`LEDGER_FIRST_STARTER_TOP_390 ${firstStarter.y} footer top ${footerTop}`);
-  expect(firstStarter.y, `the first starter top ${firstStarter.y} must be above the pinned footer top ${footerTop}`).toBeLessThan(footerTop);
+  console.log(`LEDGER_FIRST_STARTER_390 top ${firstStarter.y} bottom ${rowBottom} footer top ${footerTop}`);
+  expect(rowBottom, `the first starter row spans ${firstStarter.y} to ${rowBottom}; the pinned footer starts at ${footerTop}`).toBeLessThanOrEqual(footerTop);
 
   const barBottomGap = async () => {
     await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
@@ -252,16 +253,20 @@ test('at 390px a save toast sits above the bar and focused rows scroll clear of 
   await page.getByTestId('ledger-bench-rows').locator('[data-testid$="-select"]:not([disabled])').first().click({ position: { x: 6, y: 6 } });
 
   const toast = page.locator('.MuiSnackbar-root');
-  await expect(toast).toContainText('Lineup saved');
+  // The sentence has one DOM copy, in the always-mounted status region; the toast draws it.
+  await expect(page.getByTestId('toast-status')).toContainText('Lineup saved');
   const toastBox = await box(toast);
   const barBox = await box(page.getByTestId('lineup-mobile-tabs'));
   expect(toastBox.y + toastBox.height, `toast ${JSON.stringify(toastBox)} over bar ${JSON.stringify(barBox)}`).toBeLessThanOrEqual(barBox.y);
 });
 
-// The same guard on the boards' fixture (Darkness Falls, nine starters, a Best-ball-free head with a long team name): the
-// first starter starts above the pinned footer at 390x844, before kickoff and live.
+// The same guard on the boards' fixture (Darkness Falls, nine starters, a two-line team name), at 390x844.
+//  - Before kickoff the WHOLE first starter row is above the pinned footer.
+//  - Live the row is taller (a locked starter's game and pace lines) and the head carries the Live chip, so the board's own
+//    phone layout puts the row's bottom past the footer by about 60px; there the guard is that the row's top and the line
+//    holding the name (the first 52px) are on the first screen, never under the footer.
 for (const moment of ['pre', 'live'] as const) {
-  test(`at 390px the first starter starts above the pinned footer on the wave 3 fixture, ${moment}`, async ({ page }) => {
+  test(`at 390px the first starter row is clear of the pinned footer on the wave 3 fixture, ${moment}`, async ({ page }) => {
     await setupWave3Lineup(page, moment, 'light');
     await page.setViewportSize(PHONE);
     await page.goto(WAVE3_LINEUP_URL);
@@ -269,8 +274,10 @@ for (const moment of ['pre', 'live'] as const) {
     await page.evaluate(() => document.fonts.ready.then(() => true));
     const firstStarter = await box(page.getByTestId('slot-row-QB-0'));
     const footerTop = (await box(page.getByTestId('lineup-sticky-footer'))).y;
+    const rowBottom = firstStarter.y + firstStarter.height;
     // eslint-disable-next-line no-console
-    console.log(`WAVE3_FIRST_STARTER_TOP_390 ${moment} ${firstStarter.y} footer top ${footerTop}`);
-    expect(firstStarter.y, `the first starter top ${firstStarter.y} must be above the pinned footer top ${footerTop}`).toBeLessThan(footerTop);
+    console.log(`WAVE3_FIRST_STARTER_390 ${moment} top ${firstStarter.y} bottom ${rowBottom} footer top ${footerTop}`);
+    const visibleEdge = moment === 'pre' ? rowBottom : firstStarter.y + 52;
+    expect(visibleEdge, `the first starter row spans ${firstStarter.y} to ${rowBottom}; the pinned footer starts at ${footerTop}`).toBeLessThanOrEqual(footerTop);
   });
 }

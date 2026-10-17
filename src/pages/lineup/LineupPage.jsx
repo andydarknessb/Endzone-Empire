@@ -14,7 +14,7 @@ import StartSitPanel from '../../widgets/start-sit-panel';
 import ByeClusterGrid from '../../widgets/bye-cluster';
 import { useLineupWrite, useSwapPlayers, isEligibleMove, QuickPickMenu } from '../../features/lineup-write';
 import {
-  useLedgerSections, useAdvice, ledgerTabCounts, lineupNote, nextKickoff, nextLineupSlot, parseRosterTemplate,
+  useLedgerSections, useAdvice, adviceGain, ledgerTabCounts, lineupNote, nextKickoff, nextLineupSlot, parseRosterTemplate,
 } from '../../entities/roster';
 import { useDropPlayer, DropConfirmationDialog } from '../../features/drop-player';
 import { LineupNote } from '../../features/bench-what-if';
@@ -105,7 +105,7 @@ export default function LineupPage() {
     leagues, selectedLeagueId, setSelectedLeagueId, loading: leaguesLoading, error: leaguesError, refetch: refetchLeagues,
   } = useLineupLeagues();
   const {
-    league, teams, viewerTeamId, loading: leagueLoading, refetch: refetchLeague,
+    league, teams, viewerTeamId, error: leagueError, refetch: refetchLeague,
   } = useLeague(selectedLeagueId);
   const [searchParams, setSearchParams] = useSearchParams();
   const [week, setWeek] = useState(null);
@@ -138,7 +138,9 @@ export default function LineupPage() {
   // "loading"/"error" both commit to nothing until the league is genuinely
   // known, so a background revalidation of an already-known league can never
   // demote it back to unsettled.
-  const leagueMode = league != null ? (league.best_ball ? 'bestBall' : 'standard') : (leagueLoading ? 'loading' : 'error');
+  // The read's own error decides "error": `loading` is false for the commit before its effect starts the read, and
+  // would flash the error row on every normal load.
+  const leagueMode = league != null ? (league.best_ball ? 'bestBall' : 'standard') : (leagueError ? 'error' : 'loading');
   const bestBall = leagueMode === 'bestBall';
   const leagueUnsettled = leagueMode === 'loading' || leagueMode === 'error';
 
@@ -234,6 +236,17 @@ export default function LineupPage() {
   // is passed down by the page" rule `useLineupData` already follows for the
   // lineup itself. Best ball never calls the endpoint at all.
   const advice = useAdvice({ leagueId: selectedLeagueId, week: lineup?.week, bestBall });
+  // The Forecast tells the page which suggestions are still showing (a Dismiss hides one), so the Advice tile counts
+  // and sums the same moves the plan line above Apply names.
+  const [visibleSuggestions, setVisibleSuggestions] = useState(null);
+  const stripAdvice = visibleSuggestions && visibleSuggestions.length !== advice.suggestions.length
+    ? {
+      ...advice,
+      suggestions: visibleSuggestions,
+      projectedTotal: 0,
+      optimalTotal: adviceGain({ suggestions: visibleSuggestions, openSlotFills: advice.openSlotFills }) ?? 0,
+    }
+    : advice;
   // The one Lineup write (spec #2042): swap, the Start/sit card's Apply, the
   // Bench what-if and the Decision card all hand move plans to its `submit`.
   // It clears the week's cached Matchups list itself when a save lands (#1881), as drop-player does for a roster change.
@@ -462,10 +475,10 @@ export default function LineupPage() {
           maxWidth: '1280px',
           mx: 'auto',
           boxSizing: 'border-box',
-          padding: { xs: '14px 16px 48px', sm: '24px 32px 64px' },
+          padding: { xs: '10px 16px 48px', sm: '24px 32px 64px' },
           display: 'flex',
           flexDirection: 'column',
-          gap: { xs: '16px', sm: '24px' },
+          gap: { xs: '12px', sm: '24px' },
         }}
       >
         {leaguesError && (
@@ -473,7 +486,7 @@ export default function LineupPage() {
             We could not load your leagues. Check your connection and try again.
           </ErrorRow>
         )}
-        {selectedLeagueId != null && leagueMode === 'error' && (
+        {leagueMode === 'error' && (
           <ErrorRow testId="league-error" onRetry={refetchLeague}>
             We could not load this league. Check your connection and try again.
           </ErrorRow>
@@ -550,14 +563,14 @@ export default function LineupPage() {
                   />
                 )}
 
-                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: 'minmax(0, 2fr) minmax(0, 1fr)' }, gap: { xs: '16px', sm: '24px' }, alignItems: 'start' }}>
-                  <Box data-testid="lineup-roster-column" sx={{ display: { xs: phoneView === 'outlook' ? 'none' : 'grid', sm: 'grid' }, gap: { xs: '16px', sm: '24px' }, minWidth: 0 }}>
+                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: 'minmax(0, 2fr) minmax(0, 1fr)' }, gap: { xs: '12px', sm: '24px' }, alignItems: 'start' }}>
+                  <Box data-testid="lineup-roster-column" sx={{ display: { xs: phoneView === 'outlook' ? 'none' : 'grid', sm: 'grid' }, gap: { xs: '12px', sm: '24px' }, minWidth: 0 }}>
                     <TeamSummaryStrip
                       leagueId={selectedLeagueId}
                       week={league?.current_week ?? null}
                       viewerTeamId={viewerTeamId}
                       lineup={lineup}
-                      advice={advice}
+                      advice={stripAdvice}
                       worstByeCluster={worstCluster}
                       scoreEvent={scoreEvent}
                       bestBall={bestBall}
@@ -607,6 +620,7 @@ export default function LineupPage() {
                       onCompare={compareSuggestion}
                       expectedFinals={expectedFinals}
                       openSlot={openSlot}
+                      onVisibleSuggestions={setVisibleSuggestions}
                     />
                     <ByeClusterGrid
                       entries={lineup?.entries}

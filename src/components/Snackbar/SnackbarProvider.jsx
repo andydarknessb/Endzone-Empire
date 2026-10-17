@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useCallback, useEffect, useRef, useState } from 'react';
+import React, { createContext, useContext, useCallback, useEffect, useId, useRef, useState } from 'react';
 import { Snackbar, Alert, Box, Button, IconButton } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import { visuallyHidden } from '@mui/utils';
@@ -16,14 +16,20 @@ import { MIN_TOUCH_TARGET_SX } from '../../shared/lib/a11y';
  * Live regions (spec #2347 ruling 4): a screen reader announces a CHANGE inside a live region that is already
  * in the page, and often skips one that mounts holding its text, which is what a toast remounted per message
  * is. So the provider keeps ONE screen-reader-only polite region and ONE assertive region (errors) mounted
- * for good and sets their text a beat after a toast opens; the toast itself is `role="presentation"` with its
- * message `aria-hidden` (the region says it once) and its Undo and Dismiss buttons outside every live region.
+ * for good and sets their text when a toast opens (a repeat of the same sentence clears first, then sets); the toast itself is `role="presentation"` with its
+ * message drawn from an attribute and `aria-hidden` (the region holds the one copy of the text) and its Undo and
+ * Dismiss buttons outside every live region.
  * The two regions are `aria-live` divs (what `role="status"` and `role="alert"` expand to) with no ARIA role
  * of their own: a role on a node every page carries would answer every `getByRole('status')` and
  * `getByRole('alert')` in every page's tests, and a page's own status and alert would no longer be the only one.
  * Find them by `data-testid="toast-status"` and `"toast-alert"`.
  */
 const SnackbarContext = createContext(() => {});
+
+// How long a region sits empty before the SAME sentence is set again (a repeat is not a change until it is cleared first):
+// long enough that a screen reader has registered the clear.
+const ANNOUNCE_DELAY_MS = 120;
+
 
 export function useSnackbar() {
   return useContext(SnackbarContext);
@@ -35,6 +41,8 @@ export function SnackbarProvider({ children }) {
   // What the two always-mounted regions say; '' when no toast is up.
   const [live, setLive] = useState({ status: '', alert: '' });
   const announceTimer = useRef(null);
+  const liveText = useRef('');
+  const statusId = useId();
   useEffect(() => () => clearTimeout(announceTimer.current), []);
 
   const notify = useCallback((message, options = {}) => {
@@ -49,18 +57,25 @@ export function SnackbarProvider({ children }) {
       key: Date.now(),
     });
     setOpen(true);
-    // Clear, then set on the next tick: the same sentence twice in a row is still a change to announce.
+    // The regions are already in the page, so setting their text is the change a screen reader announces. The same
+    // sentence again is no change: clear it and set it after a beat.
     const text = `${message}${options.actionLabel ? `. ${options.actionLabel} available.` : ''}`;
-    const error = options.severity === 'error';
-    setLive({ status: '', alert: '' });
+    const next = options.severity === 'error' ? { status: '', alert: text } : { status: text, alert: '' };
     clearTimeout(announceTimer.current);
-    announceTimer.current = setTimeout(() => setLive(error ? { status: '', alert: text } : { status: text, alert: '' }), 50);
+    if (liveText.current === text) {
+      setLive({ status: '', alert: '' });
+      announceTimer.current = setTimeout(() => setLive(next), ANNOUNCE_DELAY_MS);
+    } else {
+      setLive(next);
+    }
+    liveText.current = text;
   }, []);
 
   const handleClose = (event, reason) => {
     if (reason === 'clickaway') return;
     setOpen(false);
     clearTimeout(announceTimer.current);
+    liveText.current = '';
     setLive({ status: '', alert: '' });
   };
 
@@ -71,13 +86,14 @@ export function SnackbarProvider({ children }) {
     if (snack?.onAction) snack.onAction();
     setOpen(false);
     clearTimeout(announceTimer.current);
+    liveText.current = '';
     setLive({ status: '', alert: '' });
   };
 
   return (
     <SnackbarContext.Provider value={notify}>
       {children}
-      <Box component="div" data-testid="toast-status" aria-live="polite" aria-atomic="true" sx={visuallyHidden}>{live.status}</Box>
+      <Box component="div" id={statusId} data-testid="toast-status" aria-live="polite" aria-atomic="true" sx={visuallyHidden}>{live.status}</Box>
       <Box component="div" data-testid="toast-alert" aria-live="assertive" aria-atomic="true" sx={visuallyHidden}>{live.alert}</Box>
       <Snackbar
         key={snack?.key}
@@ -97,7 +113,9 @@ export function SnackbarProvider({ children }) {
           action={
             <>
               {snack?.actionLabel && (
-                <Button color="inherit" size="small" onClick={handleAction} sx={{ fontWeight: 700, ...MIN_TOUCH_TARGET_SX }}>
+                // The visible message is aria-hidden, so the button says what it undoes through its description, the
+                // status region's sentence (its name stays "Undo": label-in-name).
+                <Button color="inherit" size="small" aria-describedby={statusId} onClick={handleAction} sx={{ fontWeight: 700, ...MIN_TOUCH_TARGET_SX }}>
                   {snack.actionLabel}
                 </Button>
               )}
@@ -107,7 +125,9 @@ export function SnackbarProvider({ children }) {
             </>
           }
         >
-          <Box component="span" aria-hidden="true">{snack?.message}</Box>
+          {/* The sentence is DRAWN here, not written here: the status region holds its one DOM copy, so a text query (and a
+              reader) meets each toast once. `pre-line` on the message keeps a multi-line body's line breaks. */}
+          <Box component="span" aria-hidden="true" data-message={snack?.message} sx={{ '&::before': { content: 'attr(data-message)' } }} />
         </Alert>
       </Snackbar>
     </SnackbarContext.Provider>

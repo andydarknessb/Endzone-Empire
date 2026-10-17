@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Box } from '@mui/material';
 import {
   Frame, FrameHead, InjuryTag, LiveChip, PixelClock, PixelHeading, PsButton, StatusChip, Tag,
@@ -61,6 +61,7 @@ import { buildSuggestionView, calledRecordLine, calledShotLine, forecastRecordLi
  */
 export default function StartSitPanel({
   advice, entries, bestBall, onApply, onCompare, onOpenDecisionCard, expectedFinals, onCallShot, onWithdrawShot, shotBusy, openSlot = false,
+  onVisibleSuggestions,
 }) {
   const [dismissed, setDismissed] = useState(() => new Set());
   const [announcement, setAnnouncement] = useState('');
@@ -75,12 +76,20 @@ export default function StartSitPanel({
   const contentRef = useRef(null);
   const dismissButtonRefs = useRef(new Map());
 
-  if (bestBall) return null;
-
   const entriesById = new Map((Array.isArray(entries) ? entries : []).map((e) => [e.playerId, e]));
   const suggestions = Array.isArray(advice?.suggestions) ? advice.suggestions : [];
   const allViews = suggestions.map((s) => buildSuggestionView(s, entriesById));
   const views = allViews.filter((v) => !dismissed.has(v.key));
+  // The suggestions still showing, reported up so the Advice tile counts the same moves the plan line names after a
+  // Dismiss. Keyed on the content, not the array: an empty advice hands over a fresh [] every render.
+  const visible = suggestions.filter((s, i) => !dismissed.has(allViews[i].key));
+  const visibleSig = JSON.stringify(visible);
+  useEffect(() => {
+    onVisibleSuggestions?.(visible);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visibleSig, onVisibleSuggestions]);
+
+  if (bestBall) return null;
   // Apply makes the moves of the suggestions still showing and nothing else
   // (#1851): the advice's movePlan comes from the server's optimal assignment,
   // so the dismissed pairs' moves are taken out of it here.
@@ -88,7 +97,7 @@ export default function StartSitPanel({
   const canApply = movePlan.length > 0;
   // The plan line names the moves Apply will make: the suggestions still showing, and the open-slot fills.
   const planLine = canApply
-    ? adviceNote({ suggestions: suggestions.filter((s, i) => !dismissed.has(allViews[i].key)), openSlotFills: advice?.openSlotFills })
+    ? adviceNote({ suggestions: visible, openSlotFills: advice?.openSlotFills })
     : null;
   const leanLine = projectedLeanLine(expectedFinals);
   // The standing "Your called shot" line reads the advice payload (#1856): the

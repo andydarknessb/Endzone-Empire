@@ -148,16 +148,19 @@ describe('live regions hold text only (spec #2347 ruling 4)', () => {
     expect(screen.getByTestId('toast-alert').querySelector('button')).toBeNull();
   });
 
-  test('the visible toast is presentation, with its message hidden from assistive tech (the region says it once)', async () => {
+  test('the visible toast is presentation and draws its message from an attribute; the region holds the one DOM copy of the text', async () => {
     render(
       <SnackbarProvider>
         <Trigger />
       </SnackbarProvider>
     );
     await userEvent.click(screen.getByRole('button', { name: 'fire' }));
-    const message = await screen.findByText('Hello there');
-    expect(message).toHaveAttribute('aria-hidden', 'true');
-    expect(message.closest('[role="presentation"]')).not.toBeNull();
+    // One node carries the sentence, so a text query meets the toast once.
+    expect(screen.getAllByText('Hello there')).toHaveLength(1);
+    expect(screen.getByText('Hello there')).toBe(screen.getByTestId('toast-status'));
+    const drawn = document.querySelector('[data-message="Hello there"]');
+    expect(drawn).toHaveAttribute('aria-hidden', 'true');
+    expect(drawn.closest('[role="presentation"]')).not.toBeNull();
   });
 
   test('closing the toast empties the regions, so a stale sentence is not announced again', async () => {
@@ -173,6 +176,17 @@ describe('live regions hold text only (spec #2347 ruling 4)', () => {
   });
 });
 
+test('Undo is described by the message it undoes, and keeps the name "Undo"', async () => {
+  render(
+    <SnackbarProvider>
+      <Trigger options={{ actionLabel: 'Undo', onAction: jest.fn() }} />
+    </SnackbarProvider>
+  );
+  await userEvent.click(screen.getByRole('button', { name: 'fire' }));
+  const undo = await screen.findByRole('button', { name: 'Undo' });
+  expect(undo).toHaveAccessibleDescription('Hello there. Undo available.');
+});
+
 test('Undo hands focus back to the page before its action runs, so a caller restoring focus does not find it on the toast', async () => {
   let activeInAction = null;
   const onAction = jest.fn(() => { activeInAction = document.activeElement; });
@@ -185,4 +199,18 @@ test('Undo hands focus back to the page before its action runs, so a caller rest
   await userEvent.click(await screen.findByRole('button', { name: 'Undo' }));
   expect(onAction).toHaveBeenCalledTimes(1);
   expect(activeInAction).toBe(document.body);
+});
+
+test('the same sentence twice in a row clears the region first, so it is a change to announce again', async () => {
+  render(
+    <SnackbarProvider>
+      <Trigger />
+    </SnackbarProvider>
+  );
+  const status = screen.getByTestId('toast-status');
+  await userEvent.click(screen.getByRole('button', { name: 'fire' }));
+  expect(status).toHaveTextContent('Hello there');
+  await userEvent.click(screen.getByRole('button', { name: 'fire' }));
+  expect(status).toBeEmptyDOMElement();
+  await waitFor(() => expect(status).toHaveTextContent('Hello there'));
 });
