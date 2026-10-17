@@ -1,10 +1,10 @@
 import React, { useRef, useState } from 'react';
 import { Box } from '@mui/material';
 import {
-  Frame, FrameHead, LiveChip, PixelClock, PixelHeading, StatusChip,
+  Frame, FrameHead, InjuryTag, LiveChip, PixelClock, PixelHeading, PsButton, StatusChip, Tag,
 } from '../../../shared/ui/playselect';
 import {
-  CAPTION_SX, Glyph, InjuryCode, PsAction, RangeBand, RuleStat, WordTag,
+  CAPTION_SX, Glyph, RangeBand, RuleStat,
 } from '../../../shared/ui/playselect/LineupParts';
 import { PlayerNameLink } from '../../../entities/player';
 import { adviceNote } from '../../../entities/roster';
@@ -189,14 +189,14 @@ export default function StartSitPanel({
             <Box data-testid="called-shot-status" sx={{ fontSize: '14px' }}>{shotLine.status}</Box>
             {shotLine.canWithdraw && onWithdrawShot && (
               <Box>
-                <PsAction
+                <PsButton
                   data-testid="called-shot-withdraw"
-                  aria-label={`Withdraw your called shot: ${shotLine.text}`}
+                  ariaLabel={`Withdraw your called shot: ${shotLine.text}`}
                   aria-disabled={shotBusy || undefined}
                   onClick={withdrawShot}
                 >
                   Withdraw
-                </PsAction>
+                </PsButton>
               </Box>
             )}
           </Box>
@@ -261,15 +261,15 @@ export default function StartSitPanel({
 
             <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: '8px', p: '0 12px 12px' }}>
               {onCompare && (
-                <PsAction
+                <PsButton
                   data-testid="suggestion-compare"
-                  aria-label={`Compare ${view.start.name} with ${view.sit.name}`}
+                  ariaLabel={`Compare ${view.start.name} with ${view.sit.name}`}
                   onClick={() => onCompare(view)}
                 >
                   Compare
-                </PsAction>
+                </PsButton>
               )}
-              <PsAction
+              <PsButton
                 data-testid="suggestion-dismiss"
                 ref={(node) => {
                   if (node) dismissButtonRefs.current.set(view.key, node);
@@ -278,16 +278,16 @@ export default function StartSitPanel({
                 onClick={() => dismiss(view)}
               >
                 Dismiss
-              </PsAction>
+              </PsButton>
               {view.canCallShot && onCallShot && (
-                <PsAction
+                <PsButton
                   data-testid="suggestion-call-shot"
-                  aria-label={`Call your shot: keep ${view.sit.name} over ${view.start.name}`}
+                  ariaLabel={`Call your shot: keep ${view.sit.name} over ${view.start.name}`}
                   aria-disabled={shotBusy || undefined}
                   onClick={() => callShot(view)}
                 >
                   Call your shot
-                </PsAction>
+                </PsButton>
               )}
             </Box>
           </Box>
@@ -300,9 +300,9 @@ export default function StartSitPanel({
                 {glueDots(planLine)}
               </Box>
             )}
-            <PsAction variant="fill" data-testid="start-sit-apply" onClick={() => onApply?.(movePlan)}>
+            <PsButton variant="fill" data-testid="start-sit-apply" onClick={() => onApply?.(movePlan)}>
               Apply
-            </PsAction>
+            </PsButton>
           </Box>
         )}
       </Box>
@@ -372,10 +372,10 @@ function PlayerColumn({ label, player, domainMin, domainMax, onOpenDecisionCard 
         ) : (
           <Box component="span" sx={NAME_SX}>{player.name}</Box>
         )}
-        <InjuryCode status={player.injuryStatus} data-testid="injury-tag" />
-        {player.noPractice && <WordTag data-testid="suggestion-no-practice">{NO_PRACTICE_LABEL}</WordTag>}
-        {player.backup && <WordTag data-testid="suggestion-backup">{BACKUP_LABEL}</WordTag>}
-        {player.volatility && <WordTag data-testid="suggestion-volatility">{player.volatility}</WordTag>}
+        <InjuryTag codes status={player.injuryStatus} data-testid="injury-tag" />
+        {player.noPractice && <Tag data-testid="suggestion-no-practice">{NO_PRACTICE_LABEL}</Tag>}
+        {player.backup && <Tag data-testid="suggestion-backup">{BACKUP_LABEL}</Tag>}
+        {player.volatility && <Tag data-testid="suggestion-volatility">{player.volatility}</Tag>}
       </Box>
       <Box sx={{ pt: '4px' }}>
         <RangeBand

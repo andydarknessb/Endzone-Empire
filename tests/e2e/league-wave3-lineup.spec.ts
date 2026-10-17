@@ -107,7 +107,14 @@ test('before kickoff the cursor is the Out starter and Apply, with its plan line
   await expect(apply).toBeVisible();
   await expect(page.locator('[data-variant="fill"]')).toHaveCount(1);
   await expect(page.getByTestId('start-sit-plan-line')).toContainText('Two moves');
-  await expect(page.getByTestId('strip-advice')).toContainText('+23.0 pts');
+  await expect(page.getByTestId('strip-advice')).toContainText('+23.0 pts · 2 swaps');
+  // The suggestion card's head carries "about {n}%" and its actions include Call your shot.
+  await expect(page.getByTestId('suggestion-probability')).toHaveText('about 90%');
+  await expect(page.getByRole('button', { name: /^Call your shot/ })).toBeVisible();
+  // The Forecast's season lines come from the advice payload (pointsLeft, overrideRecord, calledShotRecord).
+  await expect(page.getByTestId('points-left-line')).toContainText('Left on the bench this season');
+  await expect(page.getByTestId('forecast-record-line')).toContainText('You vs the Forecast');
+  await expect(page.getByTestId('called-record-line')).toContainText('Called shots this season');
   // Far from the lock: the calm Cursor frame.
   await expect(page.locator('.cursor')).not.toHaveAttribute('data-urgent', 'true');
   await expect(page.getByText('All weeks')).toHaveCount(0);
@@ -127,6 +134,29 @@ test('live the cursor is the empty FLEX in a Danger frame, with the lineup note,
   await expect(page.getByTestId('start-sit-panel-empty')).toContainText('No move from your bench');
   await expect(page.getByText('Lineup set')).toHaveCount(0);
   await expect(page.getByText(/Bench points this season/)).toHaveCount(0);
+  // The pace Edge line (the server's, with the clock pictogram) reads on the locked starters.
+  await expect(page.locator('[data-testid="ledger-edge-line"][data-edge-kind="pace"]').first()).toContainText('of projection so far');
+});
+
+test('the drop dialog opens with focus on Cancel, and Drop is a ghost button', async ({ page }) => {
+  await open(page, 'pre', 'desktop', 'light');
+  await page.getByRole('button', { name: 'Drop Brandon Aubrey' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Drop Brandon Aubrey?' });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeFocused();
+  await expect(dialog.getByRole('button', { name: 'Drop', exact: true })).toHaveAttribute('data-variant', 'ghost');
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+});
+
+test('a phone head puts the avatar and the name on one row, with the times note on the league line', async ({ page }) => {
+  await open(page, 'pre', 'phone', 'light');
+  const avatar = await page.getByTestId('lineup-team-avatar').boundingBox();
+  const h1 = await page.getByRole('heading', { level: 1, name: 'Darkness Falls' }).boundingBox();
+  expect(avatar && h1).toBeTruthy();
+  expect(Math.abs((avatar!.y + avatar!.height / 2) - (h1!.y + h1!.height / 2)), 'avatar centre against the name centre').toBeLessThanOrEqual(40);
+  expect(h1!.x, 'the name sits to the right of the avatar').toBeGreaterThanOrEqual(avatar!.x + avatar!.width);
+  await expect(page.getByTestId('lineup-league-line')).toContainText('Times in');
 });
 
 test('the Bye clusters line names the clear time the waivers read returns', async ({ page }) => {

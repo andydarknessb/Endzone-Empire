@@ -24,11 +24,11 @@ import { useTeamSummaryStrip } from '../model/useTeamSummaryStrip';
  * no move to make and a starting slot still open (`openSlot`, the page's own
  * `nextLineupSlot`: empty or holding an Out starter whose game has not
  * started) it reads "No bench move" instead: "Lineup set" would say the open
- * slot was fine (spec #2347 ruling 4). The tile's "swap count" is
- * `suggestions.length` - the number of sit/start pairs the panel itself
- * shows, matching what a manager actually perceives as "the swaps the advice
- * wants" rather than the movePlan's own internal move count (which also
- * counts a solo bench demotion with no replacement).
+ * slot was fine (spec #2347 ruling 4). The tile's "swap count" is the swap
+ * suggestions plus the open-slot fills (`advice.openSlotFills`): the moves the
+ * plan line above Apply names, so "+23.0 pts · 2 swaps" and "Two moves" agree. It is
+ * still not the movePlan's own internal move count (which also counts a solo
+ * bench demotion with no replacement).
  *
  * The attention chips (#1239 shipped the Bye cluster chip; #1330 adds the
  * other two the parent spec #1232 user story 19 names: "attention chips for
@@ -73,7 +73,9 @@ export default function TeamSummaryStrip({
     scoreEvent,
   });
 
-  const suggestionCount = Array.isArray(advice?.suggestions) ? advice.suggestions.length : 0;
+  // The moves the plan makes: each swap suggestion, and each bench player it starts in an empty slot.
+  const suggestionCount = (Array.isArray(advice?.suggestions) ? advice.suggestions.length : 0)
+    + (Array.isArray(advice?.openSlotFills) ? advice.openSlotFills.length : 0);
   const gain =
     advice?.optimalTotal != null && advice?.projectedTotal != null
       ? advice.optimalTotal - advice.projectedTotal
@@ -139,7 +141,7 @@ export default function TeamSummaryStrip({
       aria-busy={status === 'loading'}
       head={<FrameHead><PixelHeading id="team-summary-h" size={16}>This week</PixelHeading></FrameHead>}
     >
-      <Box sx={{ p: { xs: '12px 14px', md: '14px 20px' }, display: 'flex', flexDirection: 'column', gap: '12px' }}>
+      <Box sx={{ p: { xs: '12px 14px', md: '14px 20px' }, display: 'flex', flexDirection: 'column', gap: { xs: '10px', md: '12px' } }}>
         {status === 'loading' && (
           <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', sm: 'repeat(4, minmax(0, 1fr))' }, gap: '12px 16px' }}>
             {Array.from({ length: 4 }, (_, i) => <Skel key={i} width="100%" height={40} />)}

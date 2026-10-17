@@ -1,9 +1,9 @@
 import React from 'react';
 import { Box } from '@mui/material';
 import {
-  CpuTag, Frame, FrameHead, LiveChip, PixelHeading, PsLink, Skel, StatusChip, TwoSidedOdds, pixelSx,
+  CpuTag, Frame, FrameHead, LiveChip, PixelHeading, PsButton, PsLink, Skel, StatusChip, TwoSidedOdds, pixelSx,
 } from '../../../shared/ui/playselect';
-import { PsAction, SrOnly } from '../../../shared/ui/playselect/LineupParts';
+import { SrOnly } from '../../../shared/ui/playselect/LineupParts';
 import useMatchupPreview from '../model/useMatchupPreview';
 
 /**
@@ -95,7 +95,7 @@ export default function MatchupPreview({ leagueId }) {
           <Box role="alert" data-testid="matchup-preview-error" sx={{ flex: '1 1 220px', fontSize: '15px' }}>
             We could not load this week&apos;s matchup right now.
           </Box>
-          {refetch && <PsAction onClick={refetch}>Retry</PsAction>}
+          {refetch && <PsButton onClick={refetch}>Retry</PsButton>}
         </Box>
       )}
 

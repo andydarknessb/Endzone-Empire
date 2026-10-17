@@ -253,6 +253,7 @@ test('offline lineup edit is blocked, persisted, and replayed immediately on rec
   });
   expect(await page.evaluate(() => localStorage.getItem('pending_lineup_mutations'))).toBeNull();
   await expect(page.getByText(/you're offline/i)).toBeHidden();
-  await expect(page.getByText('Lineup saved')).toBeVisible();
+  // The toast is said once, in the provider's always-mounted status region (its visible copy is aria-hidden).
+  await expect(page.getByTestId('toast-status').filter({ hasText: 'Lineup saved' })).toBeVisible();
   await expect(page.getByTestId('slot-row-WR-0')).toContainText('Amon-Ra St. Brown');
 });

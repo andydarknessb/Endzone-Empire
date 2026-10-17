@@ -1,9 +1,8 @@
 import React from 'react';
 import { Box } from '@mui/material';
 import {
-  Frame, LiveChip, PixelArrow, PixelHeading, PixelWarn, Tag, TeamMark,
+  Frame, LiveChip, PixelArrow, PixelHeading, PixelWarn, PsButton, Tag, TeamMark,
 } from '../../../shared/ui/playselect';
-import { PsAction } from '../../../shared/ui/playselect/LineupParts';
 import PickWeek from '../../../features/pick-week';
 
 // The page's own pieces, drawn from the approved boards (docs/design/league: Lineup, LineupLive, LineupPhone,
@@ -25,19 +24,25 @@ export function LineupHead({
         display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', justifyContent: 'space-between', gap: '16px 24px',
       }}
     >
-      <Box sx={{ display: 'flex', flexDirection: 'column', gap: { xs: '10px', sm: '12px' }, minWidth: 0, flex: { xs: '1 1 100%', md: '1 1 auto' } }}>
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: { xs: '8px', sm: '12px' }, minWidth: 0, flex: { xs: '1 1 100%', md: '1 1 auto' } }}>
         <Box data-testid="lineup-league-line" sx={{ fontSize: { xs: '14px', sm: '15px' }, fontWeight: 600, color: 'var(--ps-dim)' }}>
           {leagueName ? `Lineup · ${leagueName}` : 'Lineup'}
+          {/* On a phone the times note rides this line instead of costing a row of its own. */}
+          <Box component="span" sx={{ display: { xs: 'inline', sm: 'none' }, fontWeight: 400 }}>{` · Times in ${zone}`}</Box>
         </Box>
-        <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: { xs: '12px', sm: '12px 16px' } }}>
-          <Box data-testid="lineup-team-avatar" sx={{ display: 'inline-flex' }}>
-            <TeamMark name={teamName || 'My Team'} avatarUrl={avatarUrl} avatarStaticUrl={avatarStaticUrl} size={compact ? 40 : 48} />
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: { xs: '8px 12px', sm: '12px 16px' }, minWidth: 0 }}>
+          {/* The avatar and the name stay on one row at every width (the name wraps beside the avatar), with the
+              chips after them; a phone does not spend a row on the avatar alone. */}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: { xs: '12px', sm: '16px' }, minWidth: 0, maxWidth: '100%' }}>
+            <Box data-testid="lineup-team-avatar" sx={{ display: 'inline-flex', flex: 'none' }}>
+              <TeamMark name={teamName || 'My Team'} avatarUrl={avatarUrl} avatarStaticUrl={avatarStaticUrl} size={compact ? 40 : 48} />
+            </Box>
+            <PixelHeading level={1}>{teamName || 'Lineup'}</PixelHeading>
           </Box>
-          <PixelHeading level={1}>{teamName || 'Lineup'}</PixelHeading>
           {bestBall && <Tag>Best ball</Tag>}
           {live && <LiveChip>Live</LiveChip>}
         </Box>
-        <Box component="p" sx={{ m: 0, fontSize: { xs: '15px', sm: '17px' }, color: 'var(--ps-dim)' }}>{`Times in ${zone}`}</Box>
+        <Box component="p" sx={{ m: 0, display: { xs: 'none', sm: 'block' }, fontSize: '17px', color: 'var(--ps-dim)' }}>{`Times in ${zone}`}</Box>
       </Box>
       <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', gap: '12px 16px', minWidth: 0, width: { xs: '100%', md: 'auto' } }}>
         {leagues.length > 1 && (
@@ -117,7 +122,7 @@ export function ErrorRow({
         <PixelWarn color="var(--ps-danger)" />
         <Box component="span" sx={{ textWrap: 'pretty' }}>{children}</Box>
       </Box>
-      {onRetry && <PsAction onClick={onRetry}>Retry</PsAction>}
+      {onRetry && <PsButton onClick={onRetry}>Retry</PsButton>}
     </Box>
   );
 }
@@ -129,7 +134,7 @@ export function MessageCard({
   return (
     <Frame component="div" tier="rule" data-testid={testId} sx={{ p: '20px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '14px', boxSizing: 'border-box' }}>
       <Box component="p" sx={{ m: 0, fontSize: '16px', textWrap: 'pretty' }}>{text}</Box>
-      <PsAction variant="fill" to={to}>{actionLabel}</PsAction>
+      <PsButton variant="fill" to={to}>{actionLabel}</PsButton>
     </Frame>
   );
 }
@@ -157,49 +162,8 @@ export function SwapOffer({
       <Box sx={{ flex: '1 1 260px', fontSize: '15px', fontWeight: 600 }}>
         {`Bench what-if · Start ${inName} over ${outName}`}
       </Box>
-      <PsAction onClick={onSwap}>Swap</PsAction>
-      <PsAction onClick={onDismiss}>Dismiss</PsAction>
-    </Box>
-  );
-}
-
-/**
- * The lineup note the cursor row carries (`lineupNote`'s view, `entities/roster`): the warning pictogram, the
- * sentence with its Danger run when under an hour from the lock, and, when no bench player can fill the slot,
- * a ghost "Free agents" link. A slot a bench player CAN fill gets no link: "Set lineup" would point at this
- * page. No cursor of its own and no filled action: the row it sits in carries the page's one cursor.
- */
-export function CursorNote({ view, leagueId }) {
-  if (!view) return null;
-  const free = view.link === 'free-agents';
-  return (
-    <Box
-      component="section"
-      data-testid="lineup-note"
-      data-kind={view.kind}
-      aria-label={`Lineup note: ${view.plain}`}
-      sx={{
-        border: '2px solid var(--ps-frame-2)', backgroundColor: 'var(--ps-panel)', color: 'var(--ps-dim)', boxSizing: 'border-box', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px 16px', p: '10px 14px', fontSize: '14px', minWidth: 0,
-      }}
-    >
-      <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: '8px', flex: '1 1 260px', minWidth: 0 }}>
-        <Box component="span" sx={{ mt: '2px', display: 'inline-flex', color: view.danger ? 'var(--ps-danger)' : 'var(--ps-ink)' }}><PixelWarn /></Box>
-        <Box component="span">
-          {view.segments.map((seg) => (
-            <Box
-              key={seg.text}
-              component={seg.strong ? 'b' : 'span'}
-              sx={{
-                ...(seg.strong ? { fontWeight: 600, color: 'var(--ps-ink)' } : null),
-                ...(seg.danger ? { fontWeight: 700, color: 'var(--ps-danger)', whiteSpace: 'nowrap' } : null),
-              }}
-            >
-              {seg.text}
-            </Box>
-          ))}
-        </Box>
-      </Box>
-      {free && <PsAction to={`/league/${leagueId}/waivers`}>Free agents</PsAction>}
+      <PsButton onClick={onSwap}>Swap</PsButton>
+      <PsButton onClick={onDismiss}>Dismiss</PsButton>
     </Box>
   );
 }

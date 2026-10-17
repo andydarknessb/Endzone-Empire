@@ -177,6 +177,12 @@ test('the advice tile reads "No bench move" when there is no suggestion and a st
   expect(tile).not.toHaveTextContent('Lineup set');
 });
 
+test('open-slot fills count as moves: one swap plus one fill reads "2 swaps"', async () => {
+  mockGetByUrl({ [LIST_URL]: { data: [] } });
+  renderStrip({ advice: { suggestions: [{}], openSlotFills: [{ name: 'Tyjae Spears', slot: 'FLEX' }], optimalTotal: 143, projectedTotal: 120 } });
+  expect(await screen.findByTestId('strip-advice')).toHaveTextContent('+23.0 pts · 2 swaps');
+});
+
 test('a move plan still reads the gain and the swap count, open slot or not', async () => {
   mockGetByUrl({ [LIST_URL]: { data: [] } });
   renderStrip({ advice: { suggestions: [{}, {}], optimalTotal: 143, projectedTotal: 120 }, openSlot: true });

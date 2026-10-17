@@ -1,99 +1,9 @@
 import React from 'react';
-import { Link as RouterLink } from 'react-router-dom';
 import { Box } from '@mui/material';
-import { PixelArrow } from './Icons';
 import { SR_ONLY_SX } from './type';
 
-// Pieces the wave 3 Lineup slices share (ADR 0067, spec #2347): a 44px action that passes its props through
-// (PsButton does not), the in-row word tag, the Floor to Ceiling band, and the ruled stat line. Imported by
-// direct path, never through the playselect index.
-
-const ACTION = {
-  minHeight: '44px',
-  display: 'inline-flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  gap: '10px',
-  padding: '0 16px',
-  boxSizing: 'border-box',
-  borderRadius: 0,
-  fontFamily: 'inherit',
-  fontSize: '15px',
-  fontWeight: 600,
-  lineHeight: 1.2,
-  textDecoration: 'none',
-  cursor: 'pointer',
-};
-
-const VARIANT = {
-  fill: { backgroundColor: 'var(--ps-accent)', border: '2px solid var(--ps-accent)', color: 'var(--ps-on-accent)' },
-  ghost: { backgroundColor: 'transparent', border: '2px solid var(--ps-ink)', color: 'var(--ps-ink)' },
-  quiet: { backgroundColor: 'transparent', border: '2px solid transparent', color: 'var(--ps-dim)' },
-};
-
-// A destructive ghost: Ink edge, Danger text (RULINGS "Wave 3 boards", the drop dialog).
-const DANGER_TEXT = { color: 'var(--ps-danger)' };
-
-// Disabled is a solid Rule edge with Dim text and no opacity, whatever the variant (RULINGS Critique 7).
-const DISABLED = {
-  '&[disabled], &[aria-disabled="true"]': {
-    backgroundColor: 'transparent', borderColor: 'var(--ps-rule)', color: 'var(--ps-dim)', cursor: 'not-allowed',
-  },
-  '&[disabled]:hover': { filter: 'none' },
-};
-
-/**
- * A square 44px action. `variant` is `fill` (the page's one filled action), `ghost` or `quiet`; `danger`
- * paints a ghost's text in Danger; `to` makes it a router link. Every other prop (`data-testid`,
- * `aria-*`, `onClick`, `disabled`) reaches the element. The root carries `data-variant`, so a test can
- * count the page's filled actions.
- */
-export const PsAction = React.forwardRef(function PsAction({
-  variant = 'ghost', danger = false, to, sx, children, ...rest
-}, ref) {
-  const link = Boolean(to);
-  return (
-    <Box
-      ref={ref}
-      component={link ? RouterLink : 'button'}
-      to={link ? to : undefined}
-      type={link ? undefined : 'button'}
-      data-variant={variant}
-      {...rest}
-      sx={[ACTION, VARIANT[variant], danger ? DANGER_TEXT : null, DISABLED, ...(Array.isArray(sx) ? sx : [sx])]}
-    >
-      {children}
-      {variant === 'fill' ? <PixelArrow /> : null}
-    </Box>
-  );
-});
-
-/** A small word tag (Backup, Attested, Spent): Archivo 13 700 uppercase on a 2px edge in the surrounding ink. */
-export function WordTag({ children, dashed = false, ...rest }) {
-  return (
-    <Box
-      component="span"
-      {...rest}
-      sx={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        boxSizing: 'border-box',
-        flex: 'none',
-        height: '22px',
-        padding: '0 6px',
-        border: `2px ${dashed ? 'dashed' : 'solid'} currentColor`,
-        fontSize: '13px',
-        fontWeight: 700,
-        letterSpacing: '.04em',
-        textTransform: 'uppercase',
-        lineHeight: 1,
-        whiteSpace: 'nowrap',
-      }}
-    >
-      {children}
-    </Box>
-  );
-}
+// Pieces the wave 3 Lineup slices share (ADR 0067, spec #2347): the Floor to Ceiling band, the ruled stat line,
+// the small pictograms and the screen-reader-only text. Imported by direct path, never through the playselect index.
 
 /** The 13px 700 uppercase Dim label that heads a column or a group (Sit, Start, Needs attention). */
 export const CAPTION_SX = {
@@ -214,46 +124,5 @@ export function Glyph({ kind, size = 16 }) {
     <svg width={size} height={size} viewBox="0 0 16 16" aria-hidden="true" focusable="false" shapeRendering="crispEdges" style={{ flex: 'none', display: 'block' }}>
       <path d={GLYPHS[kind]} fill="currentColor" fillRule="evenodd" />
     </svg>
-  );
-}
-
-const INJURY_NAMES = {
-  Q: 'Questionable', D: 'Doubtful', O: 'Out', IR: 'Injured reserve',
-};
-
-/**
- * The product's injury code (Q, D, O, IR) as an in-row badge, with the full word for a screen reader.
- * Out and IR are the filled Ink chip, so they stand out without red. A code the wire does not name
- * still shows, raw. Null for no designation.
- */
-export function InjuryCode({ status, ...rest }) {
-  const code = String(status || '').trim().toUpperCase();
-  if (!code) return null;
-  const filled = code === 'O' || code === 'IR';
-  return (
-    <Box
-      component="span"
-      data-status={code}
-      {...rest}
-      sx={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        boxSizing: 'border-box',
-        flex: 'none',
-        minWidth: '24px',
-        height: '22px',
-        padding: code.length > 1 ? '0 5px' : 0,
-        border: `2px solid ${filled ? 'var(--ps-ink)' : 'currentColor'}`,
-        ...(filled ? { backgroundColor: 'var(--ps-ink)', color: 'var(--ps-panel)' } : null),
-        fontSize: '13px',
-        fontWeight: 700,
-        letterSpacing: '.04em',
-        lineHeight: 1,
-      }}
-    >
-      <span aria-hidden="true">{code}</span>
-      <Box component="span" sx={SR_ONLY_SX}>{`Injury status: ${INJURY_NAMES[code] || code}`}</Box>
-    </Box>
   );
 }

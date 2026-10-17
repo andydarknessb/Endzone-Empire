@@ -9,6 +9,7 @@
  */
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { LINEUP_URL, LONG_NAME, setupLineupLedgerFixture } from './fixtures/lineupLedgerFixtures';
+import { WAVE3_LINEUP_URL, setupWave3Lineup } from './fixtures/wave3LineupFixtures';
 
 const DESKTOP = { width: 1280, height: 900 };
 const PHONE = { width: 390, height: 844 };
@@ -178,20 +179,19 @@ test('at 390px the move strip never overlaps the tab bar at any scroll position'
 // The bar is fixed below `sm` (a sticky one rests above the app Footer at the
 // end of the scroll), so a second case checks the last row is not left under
 // the bar or the strip.
-// First starter top at 330ede27 was 584.34 with the removed control above it.
-// Wave 3 (spec #2347): the Play-select head (the dim league line, the team name, "Times in", the week picker) and the
-// "This week" frame above Starters are taller than the dash ones. The old bound sat 50px under 330ede27's top;
-// raised to the measured value (586.19 at 390x844 on this fixture), as the spec allows.
-const FIRST_STARTER_TOP_MAX = 586.2;
-
 test('at 390px the one bar sticks to the viewport bottom on Starters and Outlook, and the first starter sits higher', async ({ page }) => {
   await openLineup(page, PHONE);
   const tabs = page.getByTestId('lineup-mobile-tabs');
   await expect(tabs.getByRole('button')).toHaveCount(3);
   await expect(page.getByTestId('lineup-mobile-view')).toHaveCount(0);
 
+  // The first starter must start on the first screen, above the pinned footer's top edge (the head and the "This
+  // week" frame above it may not push Starters under the footer).
   const firstStarter = await box(page.getByTestId('slot-row-QB-0'));
-  expect(firstStarter.y, 'the removed control took about 60px').toBeLessThanOrEqual(FIRST_STARTER_TOP_MAX);
+  const footerTop = (await box(page.getByTestId('lineup-sticky-footer'))).y;
+  // eslint-disable-next-line no-console
+  console.log(`LEDGER_FIRST_STARTER_TOP_390 ${firstStarter.y} footer top ${footerTop}`);
+  expect(firstStarter.y, `the first starter top ${firstStarter.y} must be above the pinned footer top ${footerTop}`).toBeLessThan(footerTop);
 
   const barBottomGap = async () => {
     await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
@@ -257,3 +257,20 @@ test('at 390px a save toast sits above the bar and focused rows scroll clear of 
   const barBox = await box(page.getByTestId('lineup-mobile-tabs'));
   expect(toastBox.y + toastBox.height, `toast ${JSON.stringify(toastBox)} over bar ${JSON.stringify(barBox)}`).toBeLessThanOrEqual(barBox.y);
 });
+
+// The same guard on the boards' fixture (Darkness Falls, nine starters, a Best-ball-free head with a long team name): the
+// first starter starts above the pinned footer at 390x844, before kickoff and live.
+for (const moment of ['pre', 'live'] as const) {
+  test(`at 390px the first starter starts above the pinned footer on the wave 3 fixture, ${moment}`, async ({ page }) => {
+    await setupWave3Lineup(page, moment, 'light');
+    await page.setViewportSize(PHONE);
+    await page.goto(WAVE3_LINEUP_URL);
+    await expect(page.getByTestId('ledger-starters')).toBeVisible();
+    await page.evaluate(() => document.fonts.ready.then(() => true));
+    const firstStarter = await box(page.getByTestId('slot-row-QB-0'));
+    const footerTop = (await box(page.getByTestId('lineup-sticky-footer'))).y;
+    // eslint-disable-next-line no-console
+    console.log(`WAVE3_FIRST_STARTER_TOP_390 ${moment} ${firstStarter.y} footer top ${footerTop}`);
+    expect(firstStarter.y, `the first starter top ${firstStarter.y} must be above the pinned footer top ${footerTop}`).toBeLessThan(footerTop);
+  });
+}

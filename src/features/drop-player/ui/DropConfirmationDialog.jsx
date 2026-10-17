@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import { Box, Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle } from '@mui/material';
-import { PsAction } from '../../../shared/ui/playselect/LineupParts';
+import { PsButton } from '../../../shared/ui/playselect';
 
 /**
  * The drop confirmation dialog (#1237, restated from LineupScreen.jsx).
@@ -10,10 +10,13 @@ import { PsAction } from '../../../shared/ui/playselect/LineupParts';
  *
  * `look` is `'dash'` (default, PlayerManagement) or `'playselect'` (ADR 0067 wave 3, spec #2347
  * ruling 3; the Lineup page): a 6px double frame, the title in Archivo 700 (it carries a player name,
- * never pixel type), "Cancel" with the default focus, and "Drop" a ghost with Danger text.
+ * never pixel type), "Cancel" with the default focus, and "Drop" a ghost with Danger text. MUI's focus trap
+ * puts focus on the dialog container once the transition ends, which beats `autoFocus` on a child in
+ * Chromium, so Cancel is focused from `onEntered` instead.
  */
 export default function DropConfirmationDialog({ entry, onClose, onConfirm, look = 'dash' }) {
   const ps = look === 'playselect';
+  const cancelRef = useRef(null);
   return (
     <Dialog
       open={Boolean(entry)}
@@ -21,6 +24,7 @@ export default function DropConfirmationDialog({ entry, onClose, onConfirm, look
       aria-labelledby="drop-player-dialog-title"
       aria-describedby="drop-player-dialog-description"
       {...(ps ? {
+        TransitionProps: { onEntered: () => cancelRef.current?.focus() },
         PaperProps: {
           className: 'ps-root',
           sx: {
@@ -56,8 +60,8 @@ export default function DropConfirmationDialog({ entry, onClose, onConfirm, look
       </DialogContent>
       {ps ? (
         <Box sx={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'flex-end', gap: '12px', p: '14px 20px', borderTop: '2px solid var(--ps-rule)' }}>
-          <PsAction autoFocus onClick={onClose}>Cancel</PsAction>
-          <PsAction danger onClick={onConfirm}>Drop</PsAction>
+          <PsButton ref={cancelRef} onClick={onClose}>Cancel</PsButton>
+          <PsButton style={{ color: 'var(--ps-danger)' }} onClick={onConfirm}>Drop</PsButton>
         </Box>
       ) : (
         <DialogActions>

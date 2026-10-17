@@ -1,8 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Box, GlobalStyles, useMediaQuery, useTheme } from '@mui/material';
-import { Skel, psRootSx } from '../../shared/ui/playselect';
-import { PsAction } from '../../shared/ui/playselect/LineupParts';
+import { PsButton, Skel, psRootSx } from '../../shared/ui/playselect';
 import { useLeague } from '../../hooks/useLeague';
 import { useLiveGameStates, useLiveScores, useWeekMatchups, viewerMatchupOf, matchupBoard } from '../../entities/matchup';
 import {
@@ -18,13 +17,14 @@ import {
   useLedgerSections, useAdvice, ledgerTabCounts, lineupNote, nextKickoff, nextLineupSlot, parseRosterTemplate,
 } from '../../entities/roster';
 import { useDropPlayer, DropConfirmationDialog } from '../../features/drop-player';
+import { LineupNote } from '../../features/bench-what-if';
 import PlayerDecisionCard, { myTeam } from '../../widgets/player-decision-card';
 import { useLineupLeagues } from './model/useLineupLeagues';
 import { useLineupData } from './model/useLineupData';
 import { useCalledShot } from './model/useCalledShot';
 import { readRequestedSwap, resolveRequestedSwap } from './model/requestedSwap';
 import {
-  BestBallNotice, CursorNote, ErrorRow, LineupHead, MessageCard, SectionToggles, SwapOffer,
+  BestBallNotice, ErrorRow, LineupHead, MessageCard, SectionToggles, SwapOffer,
 } from './ui/LineupParts';
 
 const MIN_WEEK = 1;
@@ -382,7 +382,7 @@ export default function LineupPage() {
   // fill the slot and points at free agents). Before kickoff the Forecast's plan line says it instead.
   const noteView = !movingRow && nextSlotRow && started
     ? lineupNote({
-      slots: [{ slot: nextSlotRow.slotType, player: nextSlotRow.entry }],
+      slots: [{ slot: nextSlotRow.slotType, label: nextSlotRow.slotLabel, player: nextSlotRow.entry }],
       bench: (sections?.bench ?? []).map((row) => row.entry).filter(Boolean),
       template,
       gameStates,
@@ -473,7 +473,7 @@ export default function LineupPage() {
             We could not load your leagues. Check your connection and try again.
           </ErrorRow>
         )}
-        {leagueMode === 'error' && (
+        {selectedLeagueId != null && leagueMode === 'error' && (
           <ErrorRow testId="league-error" onRetry={refetchLeague}>
             We could not load this league. Check your connection and try again.
           </ErrorRow>
@@ -589,7 +589,7 @@ export default function LineupPage() {
                         onMobileTabChange={onLedgerTabChange}
                         cursorKey={cursorRow?.key ?? null}
                         cursorTone={urgent ? 'urgent' : true}
-                        cursorNote={noteView ? <CursorNote view={noteView} leagueId={selectedLeagueId} /> : null}
+                        cursorNote={noteView ? <LineupNote view={noteView} leagueId={selectedLeagueId} selfLink={false} /> : null}
                       />
                     )}
                   </Box>
@@ -685,7 +685,7 @@ export default function LineupPage() {
                       <Box component="span" role="status" sx={{ fontSize: '14px', fontWeight: 600 }}>
                         {`Moving ${swap.selectedEntry.name}. Pick a highlighted player.`}
                       </Box>
-                      <PsAction aria-keyshortcuts="Escape" onClick={swap.cancelSelection}>Cancel</PsAction>
+                      <PsButton aria-keyshortcuts="Escape" onClick={swap.cancelSelection}>Cancel</PsButton>
                     </Box>
                   )}
                   {/* Plain toggle buttons with `aria-pressed`, NOT `role="tablist"`/`role="tab"`: the ARIA
@@ -715,8 +715,6 @@ export default function LineupPage() {
         onConfirm={drop.confirmDrop}
         look="playselect"
       />
-      {/* The card PR (spec #2347 ruling 3) adds a `look` option; once `look` is in PlayerDecisionCard's ALLOWED_PROPS this
-          call passes look="playselect" (the card throws on a prop it does not list, so it cannot be passed before). */}
       {/* #1515 (T19): the managed set (entries/onSwap/onRequestDrop/
           canDropEntry/bestBall/leagueUnsettled) rides inside the built
           context now - no loose prop stays beside it. */}
@@ -729,6 +727,7 @@ export default function LineupPage() {
         entry={decisionCardEntry}
         leagueId={selectedLeagueId}
         week={lineup?.week}
+        look="playselect"
         context={myTeam({
           managed: true,
           onSwap: submit,

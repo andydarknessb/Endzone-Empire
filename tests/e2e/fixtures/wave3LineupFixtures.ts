@@ -11,8 +11,10 @@
 //    and carries the lineup note, there is no move plan and so no filled action. The next kickoff is 45 minutes away,
 //    so the cursor frame is Danger.
 //
-// Realtime (`live_game_states`) is unavailable in e2e; the page falls back to the lineup entries' own `locked` flag and
-// kickoff, which is what the live moment is built from.
+// Realtime (`live_game_states`) is unavailable in e2e (the client has no Supabase env, and the shared Playwright config
+// starts it without one), so the live moment is built from what the lineup wire itself carries: the entries' `locked`
+// flag and kickoff, their live points, and the server's own pace Edge line ("90% of projection so far"). Live score and
+// clock on the Game cell need a live row; the LineupPage jest tests cover that through a faked channel.
 import type { Page } from '@playwright/test';
 import { json } from './jsonRoute';
 
@@ -106,7 +108,9 @@ const wireEntry = (seed: Seed, moment: Moment, now: number) => {
       ? { kind: 'injury', text: 'out' }
       : seed.injury === 'Q'
         ? { kind: 'injury', text: 'questionable' }
-        : null,
+        : live && locked && seed.points != null && seed.proj
+          ? { kind: 'pace', text: `${Math.round((seed.points / seed.proj) * 100)}% of projection so far (${seed.points.toFixed(1)} of ${seed.proj.toFixed(1)} pts)` }
+          : null,
   };
 };
 
@@ -139,6 +143,7 @@ const adviceBody = (moment: Moment) => (moment === 'live'
       slot: 'WR',
       gain: 10.1,
       verdict: 'strong',
+      probabilityBetter: 0.9,
       current: {
         playerId: 104, name: 'Puka Nacua', projection: 0, opponent: 'JAX', startVerdict: { outcome: 'unavailable', reason: 'out' }, distribution: { p10: 0, p90: 0 },
       },

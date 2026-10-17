@@ -16,7 +16,7 @@ import { useSnackbar } from '../../../components/Snackbar/SnackbarProvider';
 function focusRestoredClaim(claimId, tries = 20) {
   // Never steal focus the user has since moved elsewhere; the Undo click leaves it on <body> or the closing toast.
   const active = document.activeElement;
-  if (active && active !== document.body && !active.closest('[role="alert"]')) return;
+  if (active && active !== document.body && !active.closest('.MuiSnackbar-root')) return;
   const group = document.getElementById(`waiver-claim-${claimId}-controls`);
   const target = group?.querySelector('button:not(:disabled)');
   if (target) target.focus();

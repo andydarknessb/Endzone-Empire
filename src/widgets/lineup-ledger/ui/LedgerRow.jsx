@@ -11,9 +11,8 @@ import {
 import { PlayerNameLink } from '../../../entities/player';
 import { locked, spent, unavailable as isUnavailable, unavailableLabel } from '../../../entities/roster';
 import { SR_ONLY_SX } from '../../../shared/ui/playselect';
-import {
-  Glyph, InjuryCode, SrOnly, WordTag,
-} from '../../../shared/ui/playselect/LineupParts';
+import { InjuryTag, Tag } from '../../../shared/ui/playselect';
+import { Glyph, SrOnly } from '../../../shared/ui/playselect/LineupParts';
 import EdgeLineIcon from '../lib/EdgeLineIcon';
 import { edgeLineColor, displayEdgeKind } from '../lib/edgeLine';
 import { gameCellView } from '../lib/gameCell';
@@ -318,14 +317,14 @@ export default function LedgerRow({
     );
     const tags = (
       <>
-        <InjuryCode status={entry.injuryStatus} data-testid="injury-tag" />
-        {startVerdictReason(entry) === 'backup' && <WordTag data-testid="ledger-backup">{BACKUP_LABEL}</WordTag>}
+        <InjuryTag codes status={entry.injuryStatus} data-testid="injury-tag" />
+        {startVerdictReason(entry) === 'backup' && <Tag data-testid="ledger-backup">{BACKUP_LABEL}</Tag>}
         {entry.slot === 'IR' && entry.irAttested && (
-          <WordTag data-testid="ledger-attested-chip" title="Attested by the commissioner: this stash stays valid even though the injury feed disagrees.">
+          <Tag data-testid="ledger-attested-chip" title="Attested by the commissioner: this stash stays valid even though the injury feed disagrees.">
             Attested
-          </WordTag>
+          </Tag>
         )}
-        {spent(entry) && <WordTag dashed data-testid="ledger-spent-chip">Spent</WordTag>}
+        {spent(entry) && <Tag data-testid="ledger-spent-chip">Spent</Tag>}
       </>
     );
     const lock = locked(entry) ? <LockMark /> : null;

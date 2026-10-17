@@ -28,8 +28,9 @@ function fitsSlot(template, slotKey, position) {
 }
 
 /**
- * The viewer's starting slots as the note reads them: `[{ slot, player }]`, `player` null for an empty
- * slot. `rows` are the Matchup page's paired starter rows (`{ slot, home, away }`) and `side` the viewer's
+ * The viewer's starting slots as the note reads them: `[{ slot, player, label? }]`, `player` null for an empty
+ * slot. `label` is what the note says for the slot when that differs from the slot key the roster template
+ * knows ("WR 2" for the second WR seat); the slot key still decides who may fill it. `rows` are the Matchup page's paired starter rows (`{ slot, home, away }`) and `side` the viewer's
  * side; a caller that holds one lineup already (Game Center) builds the same shape itself.
  */
 export function lineupSlots(rows, side) {
@@ -56,9 +57,10 @@ export function nextKickoff(gameStates) {
 export function lineupIssues(slots, gameStates = []) {
   const rows = Array.isArray(gameStates) ? gameStates : [];
   const issues = [];
-  (slots || []).forEach(({ slot, player }) => {
-    if (!player) issues.push({ slot, kind: 'empty' });
-    else if (isOut(player) && unlocked(player, rows)) issues.push({ slot, kind: 'out', name: player.name });
+  (slots || []).forEach(({ slot, player, label }) => {
+    const shown = label ? { label } : null;
+    if (!player) issues.push({ slot, kind: 'empty', ...shown });
+    else if (isOut(player) && unlocked(player, rows)) issues.push({ slot, kind: 'out', name: player.name, ...shown });
   });
   return issues;
 }
@@ -106,7 +108,7 @@ export function lineupNote({
   const lockWord = lockAt != null ? formatInstant(lockAt, 'weekdayTime') : null;
 
   if (!started) {
-    const named = advice || issues.map((i) => (i.kind === 'empty' ? `${i.slot} is empty` : `${i.name} (Out) at ${i.slot}`)).join(' · ');
+    const named = advice || issues.map((i) => (i.kind === 'empty' ? `${i.label ?? i.slot} is empty` : `${i.name} (Out) at ${i.label ?? i.slot}`)).join(' · ');
     const you = Number(proj?.you);
     const them = Number(proj?.them);
     const outlook = gain != null && Number.isFinite(you) && Number.isFinite(them) && proj.you != null && proj.them != null
@@ -125,7 +127,8 @@ export function lineupNote({
   // Live: only a lock still to come leaves a slot open.
   if (lockAt == null || lockAt <= now) return null;
   const issue = issues[0];
-  const lead = issue.kind === 'empty' ? `${issue.slot} is empty` : `${issue.slot} holds ${issue.name} (Out)`;
+  const where = issue.label ?? issue.slot;
+  const lead = issue.kind === 'empty' ? `${where} is empty` : `${where} holds ${issue.name} (Out)`;
   const minutes = Math.max(1, Math.ceil((lockAt - now) / MINUTE_MS));
   const danger = lockAt - now < HOUR_MS;
   const canFill = (bench || []).some((p) => unlocked(p, rows) && !isOut(p) && p.availability?.available !== false && fitsSlot(template, issue.slot, p.position));

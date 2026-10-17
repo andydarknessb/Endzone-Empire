@@ -1,6 +1,6 @@
-/* eslint-disable testing-library/no-node-access, testing-library/no-container, testing-library/prefer-presence-queries -- the Play-select cursor, fill and live-region facts are DOM structure (a class, a data attribute, "no button inside this region"), which Testing Library has no query for */
+/* eslint-disable testing-library/no-node-access, testing-library/prefer-presence-queries -- the cursor, fill and live-region facts are DOM structure, which Testing Library has no query for */
 import React from 'react';
-import { render, screen, act } from '@testing-library/react';
+import { render, screen, act, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { SnackbarProvider, useSnackbar } from './SnackbarProvider';
 
@@ -65,7 +65,8 @@ describe('actionable toast (#1645)', () => {
       act(() => {
         jest.advanceTimersByTime(10000);
       });
-      expect(screen.getByText(/Hello there/)).toBeInTheDocument();
+      // The visible message and the status region both carry it while it is up.
+      expect(screen.getAllByText(/Hello there/).length).toBeGreaterThan(0);
       act(() => {
         jest.advanceTimersByTime(10000);
       });
@@ -85,7 +86,7 @@ describe('actionable toast (#1645)', () => {
       </SnackbarProvider>
     );
     await userEvent.click(screen.getByRole('button', { name: 'fire' }));
-    expect(await screen.findByRole('status')).toHaveTextContent('Hello there. Undo available.');
+    await waitFor(() => expect(screen.getByTestId('toast-status')).toHaveTextContent('Hello there. Undo available.'));
     unmount();
     render(
       <SnackbarProvider>
@@ -93,39 +94,82 @@ describe('actionable toast (#1645)', () => {
       </SnackbarProvider>
     );
     await userEvent.click(screen.getByRole('button', { name: 'fire' }));
-    expect(await screen.findByRole('status')).not.toHaveTextContent('Undo');
+    await waitFor(() => expect(screen.getByTestId('toast-status')).toHaveTextContent('Hello there'));
+    expect(screen.getByTestId('toast-status')).not.toHaveTextContent('Undo');
   });
 });
 
-describe('live region holds text only (spec #2347 ruling 4)', () => {
-  test('a toast with Undo and Dismiss keeps both buttons outside its status region', async () => {
+describe('live regions hold text only (spec #2347 ruling 4)', () => {
+  function ErrorTrigger() {
+    const notify = useSnackbar();
+    return <button onClick={() => notify('It failed', { severity: 'error' })}>fire</button>;
+  }
+
+  test('the status and alert regions are mounted before any toast, and are the same nodes after one', async () => {
+    render(
+      <SnackbarProvider>
+        <Trigger options={{ actionLabel: 'Undo', onAction: jest.fn() }} />
+      </SnackbarProvider>
+    );
+    const status = screen.getByTestId('toast-status');
+    const alert = screen.getByTestId('toast-alert');
+    expect(status).toBeEmptyDOMElement();
+    expect(alert).toBeEmptyDOMElement();
+    await userEvent.click(screen.getByRole('button', { name: 'fire' }));
+    await waitFor(() => expect(status).toHaveTextContent('Hello there. Undo available.'));
+    // One region node for good, so a screen reader hears the change instead of a mount.
+    expect(screen.getByTestId('toast-status')).toBe(status);
+    expect(screen.getByTestId('toast-alert')).toBe(alert);
+  });
+
+  test('a toast with Undo and Dismiss keeps both buttons outside every live region', async () => {
     render(
       <SnackbarProvider>
         <Trigger options={{ actionLabel: 'Undo', onAction: jest.fn() }} />
       </SnackbarProvider>
     );
     await userEvent.click(screen.getByRole('button', { name: 'fire' }));
-    const status = await screen.findByRole('status');
-    expect(status.querySelector('button')).toBeNull();
-    expect(document.querySelectorAll('[role="alert"]')).toHaveLength(0);
+    await waitFor(() => expect(screen.getByTestId('toast-status')).toHaveTextContent('Hello there'));
+    expect(screen.getByTestId('toast-status').querySelector('button')).toBeNull();
+    expect(screen.getByTestId('toast-alert')).toBeEmptyDOMElement();
     expect(screen.getByRole('button', { name: 'Undo' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Dismiss notification' })).toBeInTheDocument();
   });
 
-  test('an error toast is the alert region, on its text, with its buttons outside', async () => {
-    function ErrorTrigger() {
-      const notify = useSnackbar();
-      return <button onClick={() => notify('It failed', { severity: 'error' })}>fire</button>;
-    }
+  test('an error toast is said in the alert region, with the status region quiet', async () => {
     render(
       <SnackbarProvider>
         <ErrorTrigger />
       </SnackbarProvider>
     );
     await userEvent.click(screen.getByRole('button', { name: 'fire' }));
-    const alert = await screen.findByRole('alert');
-    expect(alert).toHaveTextContent('It failed');
-    expect(alert.querySelector('button')).toBeNull();
+    await waitFor(() => expect(screen.getByTestId('toast-alert')).toHaveTextContent('It failed'));
+    expect(screen.getByTestId('toast-status')).toBeEmptyDOMElement();
+    expect(screen.getByTestId('toast-alert').querySelector('button')).toBeNull();
+  });
+
+  test('the visible toast is presentation, with its message hidden from assistive tech (the region says it once)', async () => {
+    render(
+      <SnackbarProvider>
+        <Trigger />
+      </SnackbarProvider>
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'fire' }));
+    const message = await screen.findByText('Hello there');
+    expect(message).toHaveAttribute('aria-hidden', 'true');
+    expect(message.closest('[role="presentation"]')).not.toBeNull();
+  });
+
+  test('closing the toast empties the regions, so a stale sentence is not announced again', async () => {
+    render(
+      <SnackbarProvider>
+        <Trigger />
+      </SnackbarProvider>
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'fire' }));
+    await waitFor(() => expect(screen.getByTestId('toast-status')).toHaveTextContent('Hello there'));
+    await userEvent.click(screen.getByRole('button', { name: 'Dismiss notification' }));
+    expect(screen.getByTestId('toast-status')).toBeEmptyDOMElement();
   });
 });
 

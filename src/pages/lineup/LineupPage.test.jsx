@@ -1,4 +1,4 @@
-/* eslint-disable testing-library/no-node-access, testing-library/no-container, testing-library/prefer-presence-queries -- the Play-select cursor, fill and live-region facts are DOM structure (a class, a data attribute, "no button inside this region"), which Testing Library has no query for */
+/* eslint-disable testing-library/no-node-access, testing-library/prefer-presence-queries -- the cursor, fill and live-region facts are DOM structure, which Testing Library has no query for */
 import React from 'react';
 import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -1755,7 +1755,7 @@ describe('Lineup copy (spec #2347 ruling 4)', () => {
   test('with a move plan the Advice tile reads the gain and the swap count, and the two-move sentence appears once', async () => {
     renderPage(withEntries([qb(), rb(), outWr(), benchWr()], { [ADVICE_URL]: { data: movePlanAdvice() } }));
     await screen.findByTestId('start-sit-apply');
-    expect(screen.getByTestId('strip-advice')).toHaveTextContent('+23.0 pts · 1 swap');
+    expect(screen.getByTestId('strip-advice')).toHaveTextContent('+23.0 pts · 2 swaps');
     const sentence = screen.getByTestId('start-sit-plan-line');
     expect(sentence).toHaveTextContent('Two moves · +23.0 pts: Guy in for Out Guy (Out) · Spears into the empty FLEX');
     expect(document.body.textContent.match(/Two moves/g)).toHaveLength(1);
@@ -1895,4 +1895,67 @@ describe('the waivers clear time on the Bye clusters line', () => {
     expect(screen.queryByTestId('bye-cluster-line')).toBeNull();
     expect(apiClient.get.mock.calls.some(([url]) => url === '/api/waivers?leagueId=1')).toBe(false);
   });
+});
+
+describe('the league read error (QA P1-1)', () => {
+  test('a manager with no leagues sees the no-leagues card and no league error', async () => {
+    renderPage({ [LEAGUES_URL]: { data: [] } });
+    expect(await screen.findByTestId('lineup-no-leagues')).toBeInTheDocument();
+    expect(screen.queryByTestId('league-error')).toBeNull();
+    expect(screen.queryByText(/We could not load this league/)).toBeNull();
+  });
+
+  test('no league error while the league read is still in flight', async () => {
+    const urls = baseUrls();
+    apiClient.get.mockImplementation((url) => (
+      url === LEAGUE_URL ? new Promise(() => {}) : Promise.resolve(urls[url] ?? { data: [] })
+    ));
+    renderWithProviders(<LineupPage />, { route: '/team?leagueId=1', path: '/team' });
+    await screen.findByTestId('lineup-league-line');
+    expect(screen.queryByTestId('league-error')).toBeNull();
+  });
+
+  test('a league read that fails says so, with a Retry', async () => {
+    const urls = baseUrls();
+    apiClient.get.mockImplementation((url) => (
+      url === LEAGUE_URL ? Promise.reject(new Error('boom')) : Promise.resolve(urls[url] ?? { data: [] })
+    ));
+    renderWithProviders(<LineupPage />, { route: '/team?leagueId=1', path: '/team' });
+    await screen.findByTestId('league-error');
+    await waitFor(() => expect(screen.getByTestId('league-error')).toHaveTextContent('We could not load this league.'));
+    expect(within(screen.getByTestId('league-error')).getByRole('button', { name: 'Retry' })).toBeVisible();
+  });
+});
+
+test('the Forecast prints the season lines the advice payload carries (QA P1-2)', async () => {
+  renderPage(withEntries([qb(), rb(), wr(), benchWr()], {
+    [ADVICE_URL]: {
+      data: adviceBody({
+        pointsLeft: { total: 38.6, rank: 4, teams: 12 },
+        overrideRecord: { hits: 3, misses: 2 },
+        calledShotRecord: { hits: 2, resolved: 3, streak: 1 },
+      }),
+    },
+  }));
+  expect(await screen.findByTestId('points-left-line')).toHaveTextContent('Left on the bench this season: 38.6 (4th fewest of 12)');
+  expect(screen.getByTestId('forecast-record-line')).toHaveTextContent('You vs the Forecast: 3-2');
+  expect(screen.getByTestId('called-record-line')).toHaveTextContent('Called shots this season: 2 of 3 · streak 1');
+});
+
+test('multi-seat slots say which seat is empty (QA P3)', async () => {
+  liveGameRows = [inProgress()];
+  renderPage({
+    ...withEntries([qb(), rb(), wr(), outBench()]),
+    [LINEUP_URL]: {
+      data: lineupBody({
+        body: {
+          rosterSlots: [...ROSTER_SLOTS.slice(0, 2), { key: 'WR', count: 2, eligiblePositions: ['WR'] }],
+          entries: [qb(), rb(), wr(), outBench()],
+        },
+      }),
+    },
+  });
+  const note = await screen.findByTestId('lineup-note');
+  expect(note).toHaveTextContent('WR 2 is empty');
+  expect(screen.getByTestId('slot-row-WR-1')).toContainElement(note);
 });
