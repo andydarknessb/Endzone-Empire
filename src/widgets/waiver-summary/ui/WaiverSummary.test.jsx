@@ -43,9 +43,9 @@ test('under an hour drops the hours, the last minute reads Under 1m, and an arri
     unmount();
     return text;
   };
-  expect(tileText(59 * 60000 + 40000)).toContain('59 min');
-  expect(tileText(59 * 60000 + 40000)).not.toContain('0 h');
-  expect(tileText(30000)).toContain('Under 1 min');
+  expect(tileText(59 * 60000 + 40000)).toContain('59\u00a0min');
+  expect(tileText(59 * 60000 + 40000)).not.toContain('0\u00a0h');
+  expect(tileText(30000)).toContain('Under 1\u00a0min');
   expect(tileText(-1000)).toContain('Clearing now');
 });
 

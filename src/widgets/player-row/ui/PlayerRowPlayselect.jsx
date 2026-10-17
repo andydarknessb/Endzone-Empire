@@ -150,12 +150,12 @@ function WeekSpark({ weeks, currentWeek, barWidth = 6 }) {
 }
 
 // Status: the state word over its one fact (the Clear time, Danger with the clock under an hour).
-function Status({ player, align }) {
+function Status({ player, align, now }) {
   const state = availabilityOf(player);
   const availability = player.availability || {};
   let detail = null;
   if (state === 'waivers' && availability.availableAt) {
-    const soon = clearsUnderHour(availability.availableAt);
+    const soon = clearsUnderHour(availability.availableAt, now);
     detail = (
       <Box
         component="span"
@@ -248,7 +248,7 @@ const cursorColor = (cursor) => (cursor === 'urgent' ? 'var(--ps-danger)' : 'var
  * colour and the cells follow).
  */
 export default function PlayerRowPlayselect({
-  player, action, expansion, bestBall = false, variant = 'row', onOpenPlayer, hideOwnership = false, cursor,
+  player, action, expansion, bestBall = false, variant = 'row', onOpenPlayer, hideOwnership = false, cursor, now,
 }) {
   const showUpgrade = !bestBall;
   const currentWeek = player.projWeek?.week;
@@ -260,7 +260,7 @@ export default function PlayerRowPlayselect({
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px' }}>
           <Box sx={{ minWidth: 0 }}><Identity player={player} onOpenPlayer={onOpenPlayer} wrap /></Box>
-          <Box sx={{ flex: 'none' }}><Status player={player} align="flex-end" /></Box>
+          <Box sx={{ flex: 'none' }}><Status player={player} align="flex-end" now={now} /></Box>
         </Box>
         <Box sx={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: '12px' }}>
           <Box sx={{ display: 'flex', gap: '16px' }}>
@@ -304,7 +304,7 @@ export default function PlayerRowPlayselect({
     ...(hideOwnership ? [] : [<OwnershipCell key="own" ownership={player.ownership} />]),
     ...(showUpgrade ? [<UpgradeBadge key="up" upgrade={player.upgrade} currentWeek={currentWeek} />] : []),
     <WeekSpark key="wk" weeks={player.weeks} currentWeek={currentWeek} />,
-    <Status key="st" player={player} />,
+    <Status key="st" player={player} now={now} />,
     <Box key="act" sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '4px' }}>
       <ExpandToggle expansion={expansion} playerName={player.name} />
       <Action action={action} playerId={player.id} />

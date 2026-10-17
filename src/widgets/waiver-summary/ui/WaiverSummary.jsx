@@ -6,22 +6,23 @@ import { Frame, SR_ONLY_SX, pixelSx } from '../../../shared/ui/playselect';
 // The countdown spells its units: Pixel 24 makes "2d 16h" and "40m" ambiguous. The house style text
 // ("2d 16h", "14h 05m", "59m", "Under 1m") is turned into "2 days 16 h", "14 h 5 min", "59 min",
 // "Under 1 min", set in caps by the pixel face; a screen reader hears the words, not the units.
+// Each number and its unit are joined by a no-break space, so a unit never wraps onto a line alone.
 function spellTime(text) {
   const dh = /^(\d+)d (\d+)h$/.exec(text);
   if (dh) {
     const days = Number(dh[1]);
     const hours = Number(dh[2]);
-    return { value: `${days} ${days === 1 ? 'day' : 'days'} ${hours} h`, spoken: `${days} ${days === 1 ? 'day' : 'days'} ${hours} ${hours === 1 ? 'hour' : 'hours'}` };
+    return { value: `${days}\u00a0${days === 1 ? 'day' : 'days'} ${hours}\u00a0h`, spoken: `${days} ${days === 1 ? 'day' : 'days'} ${hours} ${hours === 1 ? 'hour' : 'hours'}` };
   }
   const hm = /^(\d+)h (\d+)m$/.exec(text);
   if (hm) {
     const hours = Number(hm[1]);
     const minutes = Number(hm[2]);
-    return { value: `${hours} h ${minutes} min`, spoken: `${hours} ${hours === 1 ? 'hour' : 'hours'} ${minutes} ${minutes === 1 ? 'minute' : 'minutes'}` };
+    return { value: `${hours}\u00a0h ${minutes}\u00a0min`, spoken: `${hours} ${hours === 1 ? 'hour' : 'hours'} ${minutes} ${minutes === 1 ? 'minute' : 'minutes'}` };
   }
   const m = /^(\d+)m$/.exec(text);
-  if (m) return { value: `${m[1]} min`, spoken: `${m[1]} ${Number(m[1]) === 1 ? 'minute' : 'minutes'}` };
-  if (text === 'Under 1m') return { value: 'Under 1 min', spoken: 'Under 1 minute' };
+  if (m) return { value: `${m[1]}\u00a0min`, spoken: `${m[1]} ${Number(m[1]) === 1 ? 'minute' : 'minutes'}` };
+  if (text === 'Under 1m') return { value: 'Under 1\u00a0min', spoken: 'Under 1 minute' };
   return { value: text, spoken: null };
 }
 

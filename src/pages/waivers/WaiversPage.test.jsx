@@ -1,5 +1,5 @@
 import React from 'react';
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useLocation } from 'react-router-dom';
 import renderWithProviders from '../../test-utils/renderWithProviders';
@@ -1211,4 +1211,57 @@ test('the Upgrade pill is an outlined Ink badge naming its week, and the sheet t
   const dialog = await screen.findByRole('dialog', { name: /Claim Player 01/ });
   expect(within(dialog).getByRole('heading', { name: /Claim Player 01/ })).toBeInTheDocument();
   expect(within(dialog).getByRole('button', { name: 'Submit claim' })).toHaveAttribute('data-variant', 'fill');
+});
+
+// QA round: the "Next: ..." note is armed by a claim filed from the sheet, not by any rise in the pending count.
+const nextNote = () => screen.queryByText(/^Next: /);
+
+test('filing a claim from the sheet announces the next cursor row once', async () => {
+  const waivers = waiversBody();
+  setup({ players: [upRow(1, 3), upRow(2, 2)], waivers });
+  freshClaimReads(waivers);
+  apiClient.post.mockImplementation(async () => {
+    waivers.myClaims = [pendingClaim({ id: 5, player_id: 1, player_name: 'Player 01', claim_order: 1 })];
+    return { data: {} };
+  });
+  renderPage();
+  await userEvent.click(await screen.findByRole('button', { name: 'Claim Player 01' }));
+  const sheet = await screen.findByRole('dialog', { name: /Claim Player 01/ });
+  await userEvent.click(within(sheet).getByRole('button', { name: 'Submit claim' }));
+  expect(await screen.findByText('Next: Player 02, +2.0 Wk 5')).toBeInTheDocument();
+});
+
+test('the Undo of a cancel re-files a claim without announcing a next row', async () => {
+  const waivers = waiversBody({ myClaims: manageClaims() });
+  setup({ players: [upRow(20, 3)], waivers, roster: SHEET_ROSTER });
+  cancelWith(waivers);
+  apiClient.post.mockImplementation(async () => {
+    waivers.myClaims = [...waivers.myClaims, pendingClaim({ id: 9, player_id: 12, player_name: 'Claim A', claim_order: 2, drop_player_id: 2, drop_player_name: 'Starter Two', bid: 10 })];
+    return { data: { id: 9 } };
+  });
+  apiClient.put.mockResolvedValue({ data: {} });
+  renderWithToast();
+  const card = await claimsCard();
+  await userEvent.click(await within(card).findByRole('button', { name: 'Cancel claim on Claim A' }));
+  await waitFor(() => expect(within(card).queryByText('Claim A')).not.toBeInTheDocument());
+  await userEvent.click(await screen.findByRole('button', { name: 'Undo' }));
+  await waitFor(() => expect(apiClient.post).toHaveBeenCalled());
+  await within(card).findByText('Claim A');
+  expect(nextNote()).not.toBeInTheDocument();
+});
+
+test('the under-one-hour Danger state flips while the page is open', async () => {
+  jest.useFakeTimers({ now: Date.now() });
+  try {
+    const at = new Date(Date.now() + 61 * 60000).toISOString();
+    setup({ players: [upRow(1, 3, { availability: { state: 'waivers', teamId: null, teamName: null, availableAt: at } })] });
+    renderPage();
+    await screen.findByText('Player 01');
+    expect(document.querySelector('.cursor')).toHaveStyle({ borderColor: 'var(--ps-cursor)' });
+    await act(async () => { jest.advanceTimersByTime(2 * 60000); });
+    expect(document.querySelector('.cursor')).toHaveStyle({ borderColor: 'var(--ps-danger)' });
+    expect(screen.getByTestId('player-row-status-detail')).toHaveStyle({ color: 'var(--ps-danger)' });
+  } finally {
+    jest.useRealTimers();
+  }
 });

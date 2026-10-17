@@ -114,8 +114,6 @@ export default function ClaimSheetPlayselect({
             </Box>
           )}
           <Box
-            tabIndex={0}
-            aria-label="Players you can drop"
             sx={{
               maxHeight: `${rows * 44 + 22}px`, overflowY: 'auto', borderTop: '2px solid var(--ps-rule)', borderBottom: '2px solid var(--ps-rule)',
             }}

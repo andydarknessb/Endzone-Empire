@@ -285,7 +285,8 @@ function ExpandToggle({ expansion, playerName }) {
  * `look`: `'dash'` (default: PlayerManagement and every current caller) or `'playselect'` (ADR 0067
  * wave 3, the Waivers page): the same row on `ps-*` tokens (`PlayerRowPlayselect`). In that look
  * `cursor` is `'cursor'` or `'urgent'` (the page's one next move, framed; Danger when its Clear is
- * under an hour) and `action.fill` makes the row's Claim the page's one filled action.
+ * under an hour) and `action.fill` makes the row's Claim the page's one filled action. `now` (epoch ms,
+ * optional) is the page's ticking clock, so the under-one-hour Danger state flips while the page is open.
  *
  * One Players list row (#1310, ADR 0040): every availability state renders
  * through the SAME row, columns Player / Proj Wk / ROS / Ownership / Upgrade
@@ -303,9 +304,9 @@ function ExpandToggle({ expansion, playerName }) {
  * onClick, pending? }` - and renders nothing when the caller omits it, so a
  * consumer with no watch state wired in (or no league selected) is unchanged.
  */
-export default function PlayerRow({ player, action, watchAction, expansion, bestBall = false, variant = 'row', onOpenPlayer, hideOwnership = false, look = 'dash', cursor }) {
+export default function PlayerRow({ player, action, watchAction, expansion, bestBall = false, variant = 'row', onOpenPlayer, hideOwnership = false, look = 'dash', cursor, now }) {
   if (look === 'playselect') {
-    return <PlayerRowPlayselect {...{ player, action, expansion, bestBall, variant, onOpenPlayer, hideOwnership, cursor }} />;
+    return <PlayerRowPlayselect {...{ player, action, expansion, bestBall, variant, onOpenPlayer, hideOwnership, cursor, now }} />;
   }
   const weeks = weeksForSparkline(player.weeks);
   const showWeeks = weeks.length > 0;

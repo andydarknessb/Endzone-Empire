@@ -11,7 +11,7 @@ import {
   Frame, FrameHead, PixelHeading, PixelWarn, PsButton, SR_ONLY_SX, Skel, psRootSx,
 } from '../../shared/ui/playselect';
 import {
-  useEndpoint, isRosterAtCapacity, formatPoints,
+  useEndpoint, isRosterAtCapacity, formatPoints, useNow,
 } from '../../shared/lib';
 import {
   useWaiverClaims, readClaimTarget, nextClaimRow, clearsUnderHour,
@@ -29,6 +29,7 @@ import PlayerDecisionCard, { waivers } from '../../widgets/player-decision-card'
 import { ClaimSheet } from '../../features/claim-player';
 import { useManageClaim } from '../../features/manage-claim';
 
+const HOUR_MS = 3600 * 1000;
 const TABS = [
   { value: 'waivers', label: 'On waivers' },
   { value: 'claims', label: 'My claims' },
@@ -138,6 +139,17 @@ export default function WaiversPage() {
   // pool is kept out of sight so its empty copy never shows for a list that
   // has not been read.
   const [poolSettled, setPoolSettled] = useState(false);
+  // The under-one-hour state (the cursor frame, a row's Status) flips while the page is open: the clock
+  // repaints at the first instant a shown row's Clear time comes within the hour.
+  const now = useNow((at) => {
+    let next = null;
+    players.forEach((player) => {
+      const clearAt = player.availability?.availableAt ? new Date(player.availability.availableAt).getTime() : NaN;
+      const flips = clearAt - HOUR_MS + 1;
+      if (Number.isFinite(clearAt) && flips > at && (next == null || flips < next)) next = flips;
+    });
+    return next;
+  }, players);
   const [quickViewId, setQuickViewId] = useState(null);
   const [claimId, setClaimId] = useState(null);
   // #1617: one expanded row at a time; `cardReads` keeps each expanded player's
@@ -191,17 +203,7 @@ export default function WaiversPage() {
     { replace: true },
   );
 
-  // The phone's "My claims" radio carries its count as a description, not in its name. The shared
-  // segmented control has no per-option description, so the attribute is set on the rendered radio.
-  const tabsRef = useRef(null);
   const pendingCount = claims.pending.length;
-  useEffect(() => {
-    const radios = tabsRef.current?.querySelectorAll('[role="radio"]');
-    const claimsRadio = radios && radios[1];
-    if (!claimsRadio) return;
-    if (pendingCount > 0) claimsRadio.setAttribute('aria-describedby', 'waivers-claims-count');
-    else claimsRadio.removeAttribute('aria-describedby');
-  }, [pendingCount, tab]);
 
   // A read that fails keeps the error up until a read succeeds: the pool
   // reports `null` when a read STARTS, which must not flash the (empty) list.
@@ -265,16 +267,21 @@ export default function WaiversPage() {
     () => (bestBall ? null : nextClaimRow(shownPlayers, claimOrderByPlayer.keys())),
     [bestBall, shownPlayers, claimOrderByPlayer],
   );
-  const cursorUrgent = cursorRow ? clearsUnderHour(cursorRow.availability?.availableAt) : false;
+  const cursorUrgent = cursorRow ? clearsUnderHour(cursorRow.availability?.availableAt, now) : false;
 
-  // After a claim lands the cursor moves to the next unclaimed row; say so once, politely.
+  // After a claim is filed from the sheet the cursor moves to the next unclaimed row; say so once,
+  // politely. The sheet's `onClaimed` arms it, so a pending count that rises another way (the Undo of a
+  // cancel) does not announce.
   const [nextNote, setNextNote] = useState('');
+  const announceNext = useRef(false);
   const seenPending = useRef(null);
   useEffect(() => {
     if (claimsStatus === 'loading') return;
     const previous = seenPending.current;
     seenPending.current = pendingCount;
     if (previous == null || pendingCount <= previous) return;
+    if (!announceNext.current) return;
+    announceNext.current = false;
     if (!cursorRow) {
       setNextNote('');
       return;
@@ -307,6 +314,7 @@ export default function WaiversPage() {
         hideOwnership={!ownershipKnown}
         variant={inCard ? 'card' : undefined}
         cursor={isCursor ? (cursorUrgent ? 'urgent' : 'cursor') : undefined}
+        now={now}
         onOpenPlayer={setQuickViewId}
         expansion={{
           expanded: expandedId === player.id,
@@ -411,13 +419,14 @@ export default function WaiversPage() {
         {pageBody && (
           <Box sx={{ display: { xs: 'block', md: 'none' } }}>
             <SegmentedControl
-              ref={tabsRef}
               aria-label="Waivers view"
               look="playselect"
               options={[
                 TABS[0],
                 {
                   ...TABS[1],
+                  // The count is the radio's description, not part of its name.
+                  describedBy: pendingCount > 0 ? 'waivers-claims-count' : undefined,
                   label: (
                     <>
                       My claims
@@ -540,7 +549,10 @@ export default function WaiversPage() {
         roster={rosterData}
         dropSuggestion={context?.dropSuggestion}
         onClose={() => setClaimId(null)}
-        onClaimed={refreshAfterAction}
+        onClaimed={() => {
+          announceNext.current = true;
+          return refreshAfterAction();
+        }}
       />
       <ClaimSheet
         look="playselect"
