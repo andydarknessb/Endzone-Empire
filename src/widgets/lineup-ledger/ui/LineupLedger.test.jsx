@@ -1,3 +1,4 @@
+/* eslint-disable testing-library/no-node-access -- the cursor, fill and live-region facts are DOM structure, which Testing Library has no query for */
 import React from 'react';
 import { render, screen } from '@testing-library/react';
 import LineupLedger from './LineupLedger';
@@ -195,4 +196,29 @@ test('a spent row renders the Drop placeholder when other rows can drop, and non
   unmount();
   renderLedger({ sections: spentSections(), canDropEntry: () => false });
   expect(screen.queryByTestId('ledger-drop-spacer')).toBeNull();
+});
+
+// Spec #2347 ruling 4 (bench points said once): the Bench card prints no "Bench points this season" line, and
+// makes no hindsight read for one.
+test('the Bench card carries no "Bench points this season" line', () => {
+  render(<LineupLedger lineup={lineup()} sections={sectionsOf({ starters: [starter()], bench: [benchPlayer()] })} mobileTab="bench" />);
+  expect(screen.queryByText(/Bench points this season/)).toBeNull();
+  expect(screen.queryByTestId('bench-points-left')).toBeNull();
+});
+
+// One cursor: the named row wears it, with its note, and no other row does.
+test('the cursor frame and its note land on the named row only', () => {
+  render(
+    <LineupLedger
+      lineup={lineup()}
+      sections={sectionsOf({ starters: [starter(), starter({ playerId: 3, name: 'Starter Two', slot: 'RB' })], bench: [benchPlayer()] })}
+      mobileTab="starters"
+      cursorKey="RB-1"
+      cursorTone="urgent"
+      cursorNote={<p>RB is empty</p>}
+    />,
+  );
+  expect(document.querySelectorAll('.cursor')).toHaveLength(1);
+  expect(screen.getByTestId('slot-row-RB-1').querySelector('.cursor')).not.toBeNull();
+  expect(screen.getByTestId('slot-row-RB-1')).toHaveTextContent('RB is empty');
 });

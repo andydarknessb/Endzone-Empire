@@ -66,3 +66,28 @@ test('reload re-reads the advice and keeps the previous advice on screen meanwhi
   await waitFor(() => expect(result.current.calledShot).toEqual({ status: 'pending' }));
   expect(result.current.suggestions).toEqual([]);
 });
+
+// The Forecast's three season lines read these off the advice payload (decision.service.js: pointsLeft,
+// overrideRecord, calledShotRecord); dropping them here left "Left on the bench this season" nowhere on the page.
+test('carries pointsLeft, overrideRecord and calledShotRecord from the payload, null when absent', async () => {
+  apiClient.get.mockResolvedValue({
+    data: {
+      suggestions: [],
+      pointsLeft: { total: 38.6, rank: 4, teams: 12 },
+      overrideRecord: { hits: 3, misses: 2 },
+      calledShotRecord: { hits: 2, resolved: 3, streak: 1 },
+    },
+  });
+  const { result } = renderHook(() => useAdvice({ leagueId: 1, week: 4, bestBall: false }));
+  await waitFor(() => expect(result.current.status).toBe('ready'));
+  expect(result.current.pointsLeft).toEqual({ total: 38.6, rank: 4, teams: 12 });
+  expect(result.current.overrideRecord).toEqual({ hits: 3, misses: 2 });
+  expect(result.current.calledShotRecord).toEqual({ hits: 2, resolved: 3, streak: 1 });
+
+  apiClient.get.mockResolvedValue({ data: { suggestions: [] } });
+  const { result: second } = renderHook(() => useAdvice({ leagueId: 2, week: 4, bestBall: false }));
+  await waitFor(() => expect(second.current.status).toBe('ready'));
+  expect(second.current.pointsLeft).toBeNull();
+  expect(second.current.overrideRecord).toBeNull();
+  expect(second.current.calledShotRecord).toBeNull();
+});

@@ -21,7 +21,8 @@ import { PixelArrow } from './playselect/Icons';
  * option and the single tab stop are always the same button. This holds
  * identically whether the group scrolls or not.
  *
- * `options` are `{ value, label, icon? }`; `onChange` receives the picked
+ * `options` are `{ value, label, icon?, describedBy? }` (`describedBy` is an element id the radio
+ * is described by, for a count that is not part of its name); `onChange` receives the picked
  * option's value. `fill` stretches the segments to the container (the Standard
  * / Scoreboard view toggle). A `ref` reaches the group element, so a composer
  * can move focus to the checked option (the Matchup page does, when another
@@ -173,6 +174,7 @@ const SegmentedControl = React.forwardRef(function SegmentedControl({
             type="button"
             role="radio"
             aria-checked={checked}
+            aria-describedby={option.describedBy}
             id={`${groupId}-${index}`}
             tabIndex={checked || (checkedIndex === -1 && index === 0) ? 0 : -1}
             onClick={() => onChange?.(option.value)}

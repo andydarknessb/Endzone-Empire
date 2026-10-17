@@ -9,19 +9,24 @@ import NoteRow from './NoteRow';
  * `lineupNote`'s result (`entities/roster`); this lays it out. A warning pictogram (never the lock, which means
  * Locked), the sentence with its Danger run when under an hour from the lock, the lock on a second
  * line before kickoff, and one ghost link: "Set lineup", or "Free agents" when no bench player can
- * fill the slot. No cursor, no filled action.
+ * fill the slot. No cursor, no filled action. `selfLink={false}` is for the Lineup page itself, where "Set lineup"
+ * would point at the page the note is on: it drops that one link and keeps "Free agents" (default true, so
+ * Matchup and Game Center are unchanged).
  */
-export default function LineupNote({ view, leagueId, ...rest }) {
+export default function LineupNote({
+  view, leagueId, selfLink = true, ...rest
+}) {
   if (!view) return null;
   const free = view.link === 'free-agents';
   const to = free ? `/league/${leagueId}/waivers` : `/league/${leagueId}/lineup`;
+  const showLink = free || selfLink;
   return (
     <NoteRow
       data-testid="lineup-note"
       data-kind={view.kind}
       ariaLabel={`Lineup note: ${view.plain}`}
       icon={<PixelWarn color={view.danger ? 'var(--ps-danger)' : 'var(--ps-ink)'} />}
-      action={<PsButton variant="ghost" to={to}>{free ? 'Free agents' : 'Set lineup'}</PsButton>}
+      action={showLink ? <PsButton variant="ghost" to={to}>{free ? 'Free agents' : 'Set lineup'}</PsButton> : undefined}
       {...rest}
     >
       {view.segments.map((seg) => (

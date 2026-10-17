@@ -406,6 +406,10 @@ async function commissionerDecide({ tradeId, userId, approve }) {
       if (!(await isLeagueCommissioner(client, league.id, userId))) {
         throw new TradeError(403, 'only the commissioner can do this');
       }
+      // Integrity: the override is never theirs to use on a trade their own team is in.
+      if ([trade.proposing_team_id, trade.receiving_team_id].some((id) => teams.get(id)?.owner_id === userId)) {
+        throw new TradeError(403, "a commissioner can't decide a trade their own team is in");
+      }
       if (!['pending', 'accepted'].includes(trade.status)) {
         throw new TradeError(409, `trade is ${trade.status}`);
       }

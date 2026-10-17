@@ -57,7 +57,7 @@ function sharedCard({ lineupLock, picksLock, picksMade, state, countdown, swapNo
 }
 const SHARED_MAIN = sharedCard({ lineupLock: D.FIRST_LOCK, picksLock: D.PICKS_FIRST_LOCK, picksMade: 1, state: 'next' });
 const SHARED_LIVE = sharedCard({ lineupLock: D.NEXT_LOCK, picksLock: D.PICKS_NEXT_LOCK, picksMade: 9, state: 'urgent', swapNote: false, countdown: 'in ' + (D.mins(D.NEXT_LOCK) - D.CLOCK.liveMin) + ' min' });
-const WAIVERS = { kind: 'waivers', name: 'Waivers', league: '', detail: 'FAAB · 48h', lockDay: 'Wed', lockTime: '2:00 AM', lockNote: 'Claims clear after Week 7. 1 claim pending.', cta: 'View claims', aria: `View your waiver claims in ${LG}, they clear Wednesday 2:00 AM` };
+const WAIVERS = { kind: 'waivers', name: 'Waivers', league: '', detail: 'FAAB · 48h', lockDay: 'Wed', lockTime: '2:00 AM', lockNote: 'Claims clear after Week 7. 2 claims pending.', cta: 'View claims', aria: `View your waiver claims in ${LG}, they clear Wednesday 2:00 AM` };
 
 const phoneize = html => html.replace(/font-size: 24px/g, 'font-size: 16px').replace(/padding: 14px 20px/g, 'padding: 12px 14px');
 

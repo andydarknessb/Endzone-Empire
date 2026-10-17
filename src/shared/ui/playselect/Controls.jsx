@@ -25,6 +25,7 @@ const VARIANT = {
   fill: { backgroundColor: 'var(--ps-accent)', border: '2px solid var(--ps-accent)', color: 'var(--ps-on-accent)' },
   ghost: { backgroundColor: 'transparent', border: '2px solid var(--ps-ink)', color: 'var(--ps-ink)' },
   quiet: { backgroundColor: 'transparent', border: '2px solid transparent', color: 'var(--ps-dim)' },
+  selected: { backgroundColor: 'var(--ps-play)', border: '2px solid var(--ps-play)', color: 'var(--ps-play-ink)' },
 };
 
 // Disabled is a solid Rule edge with Dim text on the page: no dash and no opacity (RULINGS Critique 7),
@@ -37,20 +38,23 @@ const DISABLED_SX = {
 };
 
 /**
- * Square 44px button: fill (the page's one filled action), ghost, or quiet. A
+ * Square 44px button: fill (the page's one filled action), ghost, quiet, or selected (a pressed toggle in
+ * the Play-blue selected state, never the green fill). A
  * `to` makes it a router link. `disabled` is the native attribute on a button;
  * a link gets aria-disabled and swallows the click, so it does not navigate. `ariaExpanded` and
  * `ariaControls` make it a disclosure (Show games, Edit): the button reports the state of what it opens.
  * The root carries `data-variant`, so a test can count the page's filled actions (`[data-variant="fill"]`).
+ * It forwards its ref and passes other props (`data-testid`, `aria-pressed`, `aria-haspopup`) to the element.
  */
-export function PsButton({
-  variant = 'ghost', to, onClick, ariaLabel, describedBy, ariaExpanded, ariaControls, children, type = 'button', disabled = false,
-}) {
+export const PsButton = React.forwardRef(({
+  variant = 'ghost', to, onClick, ariaLabel, describedBy, ariaExpanded, ariaControls, children, type = 'button', disabled = false, ...rest
+}, ref) => {
   const sx = { ...BTN, ...VARIANT[variant], ...DISABLED_SX };
-  const arrow = variant === 'fill' ? <PixelArrow /> : null;
+  const arrow = variant === 'fill' || variant === 'selected' ? <PixelArrow /> : null;
   if (to) {
     return (
       <Box
+        ref={ref}
         component={RouterLink}
         to={to}
         onClick={disabled ? (event) => event.preventDefault() : onClick}
@@ -61,15 +65,18 @@ export function PsButton({
         aria-controls={ariaControls}
         aria-disabled={disabled ? 'true' : undefined}
         tabIndex={disabled ? -1 : undefined}
+        {...rest}
         sx={sx}
       >
+        {variant === 'selected' ? arrow : null}
         {children}
-        {arrow}
+        {variant === 'fill' ? arrow : null}
       </Box>
     );
   }
   return (
     <Box
+      ref={ref}
       component="button"
       type={type}
       onClick={onClick}
@@ -79,13 +86,15 @@ export function PsButton({
       aria-controls={ariaControls}
       data-variant={variant}
       disabled={disabled}
+      {...rest}
       sx={sx}
     >
+      {variant === 'selected' ? arrow : null}
       {children}
-      {arrow}
+      {variant === 'fill' ? arrow : null}
     </Box>
   );
-}
+});
 
 /** A 44px link target: Ink with a 2px Dim underline offset 5px; Board ink and dim on a scoreboard tile. */
 export function PsLink({

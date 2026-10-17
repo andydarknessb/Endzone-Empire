@@ -1,78 +1,92 @@
 import React from 'react';
-import { Box, Typography } from '@mui/material';
+import { Box } from '@mui/material';
 import { formatInstant, timeUntil, useNow } from '../../../shared/lib';
+import { Frame, SR_ONLY_SX, pixelSx } from '../../../shared/ui/playselect';
 
-function Tile({ label, value, unit, note, flag, warn, testId }) {
+// The countdown spells its units: Pixel 24 makes "2d 16h" and "40m" ambiguous. The house style text
+// ("2d 16h", "14h 05m", "59m", "Under 1m") is turned into "2 days 16 h", "14 h 5 min", "59 min",
+// "Under 1 min", set in caps by the pixel face; a screen reader hears the words, not the units.
+// Each number and its unit are joined by a no-break space, so a unit never wraps onto a line alone.
+function spellTime(text) {
+  const dh = /^(\d+)d (\d+)h$/.exec(text);
+  if (dh) {
+    const days = Number(dh[1]);
+    const hours = Number(dh[2]);
+    return { value: `${days}\u00a0${days === 1 ? 'day' : 'days'} ${hours}\u00a0h`, spoken: `${days} ${days === 1 ? 'day' : 'days'} ${hours} ${hours === 1 ? 'hour' : 'hours'}` };
+  }
+  const hm = /^(\d+)h (\d+)m$/.exec(text);
+  if (hm) {
+    const hours = Number(hm[1]);
+    const minutes = Number(hm[2]);
+    return { value: `${hours}\u00a0h ${minutes}\u00a0min`, spoken: `${hours} ${hours === 1 ? 'hour' : 'hours'} ${minutes} ${minutes === 1 ? 'minute' : 'minutes'}` };
+  }
+  const m = /^(\d+)m$/.exec(text);
+  if (m) return { value: `${m[1]}\u00a0min`, spoken: `${m[1]} ${Number(m[1]) === 1 ? 'minute' : 'minutes'}` };
+  if (text === 'Under 1m') return { value: 'Under 1\u00a0min', spoken: 'Under 1 minute' };
+  return { value: text, spoken: null };
+}
+
+function FullChip() {
   return (
     <Box
-      component="div"
+      component="span"
+      sx={{
+        display: 'inline-flex', alignItems: 'center', boxSizing: 'border-box', height: '28px', padding: '0 8px', border: '2px solid var(--ps-ink)',
+        fontSize: '13px', fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', lineHeight: 1, flex: 'none',
+      }}
+    >
+      Full
+    </Box>
+  );
+}
+
+function Tile({
+  label, value, spoken, note, chip, testId, index, count,
+}) {
+  return (
+    <Box
       role="group"
       aria-label={label}
       data-testid={testId}
       sx={{
+        minWidth: 0,
+        boxSizing: 'border-box',
+        padding: { xs: '12px 14px', md: '16px 20px' },
         display: 'flex',
         flexDirection: 'column',
         gap: '6px',
-        minWidth: 0,
-        px: 2,
-        py: 1.75,
-        backgroundColor: 'var(--dash-surface2)',
-        border: '1px solid',
-        borderColor: warn ? 'var(--dash-warning)' : 'var(--dash-line)',
-        borderRadius: 'var(--dash-radius)',
-        color: 'var(--dash-ink)',
+        borderLeft: { xs: index % 2 ? '2px solid var(--ps-rule)' : 'none', md: index ? '2px solid var(--ps-rule)' : 'none' },
+        borderTop: { xs: index >= 2 ? '2px solid var(--ps-rule)' : 'none', md: 'none' },
+        gridColumn: { xs: index === count - 1 && count % 2 ? 'span 2' : undefined, md: 'auto' },
       }}
     >
-      <Typography
-        component="span"
-        sx={{
-          fontSize: 12,
-          fontWeight: 600,
-          letterSpacing: '0.08em',
-          textTransform: 'uppercase',
-          color: 'var(--dash-faint)',
-        }}
+      <Box component="span" sx={{
+        fontSize: '13px', fontWeight: 600, letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--ps-dim)',
+      }}
       >
         {label}
-      </Typography>
-      <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.75, flexWrap: 'wrap' }}>
-        <Typography
-          component="span"
-          sx={{
-            fontFamily: 'var(--dash-font-display)',
-            fontSize: 30,
-            fontWeight: 700,
-            lineHeight: 1,
-            fontVariantNumeric: 'tabular-nums',
-            color: 'var(--dash-ink)',
-          }}
-        >
-          {value}
-        </Typography>
-        {unit && (
-          <Typography component="span" sx={{ fontSize: 13, color: 'var(--dash-dim)' }}>
-            {unit}
-          </Typography>
-        )}
-        {flag && (
-          <Typography component="span" sx={{ fontSize: 13, fontWeight: 700, color: 'var(--dash-ink)' }}>
-            {flag}
-          </Typography>
-        )}
       </Box>
-      {note && (
-        <Typography component="span" sx={{ fontSize: 12, color: 'var(--dash-faint)' }}>
-          {note}
-        </Typography>
-      )}
+      <Box component="span" sx={{
+        display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '4px 10px',
+      }}
+      >
+        <Box component="span" sx={{ ...pixelSx(String(value).length > 11 ? 16 : 24), lineHeight: 1.3, fontVariantNumeric: 'tabular-nums' }}>
+          {spoken ? <span aria-hidden="true">{value}</span> : value}
+          {spoken && <Box component="span" sx={SR_ONLY_SX}>{spoken}</Box>}
+        </Box>
+        {chip}
+      </Box>
+      {note ? (
+        <Box component="span" sx={{ fontSize: { xs: '13px', md: '14px' }, color: 'var(--ps-dim)', textWrap: 'pretty' }}>{note}</Box>
+      ) : null}
     </Box>
   );
 }
 
 /**
- * The Waivers summary strip (ADR 0049): the next Clear time as a countdown,
- * FAAB left after pending bids (FAAB league), Waiver priority, and the roster
- * count with a drop-required flag at Roster capacity.
+ * The Waivers summary strip (ADR 0049), one tertiary frame of figures in the Play-select look (ADR
+ * 0067 wave 3): the next Clear time as a countdown, FAAB left after pending bids (FAAB league),
+ * Waiver priority, and the roster count with a "Full" word chip at Roster capacity.
  *
  * Reads only what the page hands it, built from the `waiver-claim` entity and
  * the cards read's context (no import above `shared`, ADR 0020):
@@ -84,13 +98,15 @@ function Tile({ label, value, unit, note, flag, warn, testId }) {
  * "process at": the tile says when the NEXT one clears, or that waivers clear
  * while the league's blanket clear time runs.
  */
-export default function WaiverSummary({ nextClear, pendingCount = 0, faab, waiverPriority, roster, now: pinnedNow }) {
+export default function WaiverSummary({
+  nextClear, pendingCount = 0, faab, waiverPriority, roster, now: pinnedNow,
+}) {
   // The countdown walks down while the page is open, repainting exactly when
   // its text changes; a `now` prop pins the clock for a test.
   const liveNow = useNow((at) => (pinnedNow || !nextClear ? null : timeUntil(nextClear.at, at)?.changesAt ?? null), nextClear?.at);
   const until = nextClear ? timeUntil(nextClear.at, pinnedNow || liveNow) : null;
-  let countdown = null;
-  if (until) countdown = until.passed ? 'Clearing now' : until.text;
+  let countdown = { value: 'None', spoken: null };
+  if (until) countdown = until.passed ? { value: 'Clearing now', spoken: null } : spellTime(until.text);
 
   const nextNote = !nextClear
     ? 'No pending claims'
@@ -98,47 +114,43 @@ export default function WaiverSummary({ nextClear, pendingCount = 0, faab, waive
       ? `Waivers clear ${formatInstant(nextClear.at, 'weekdayTime')}`
       : `${nextClear.playerName || 'Your next claim'} clears ${formatInstant(nextClear.at, 'weekdayTime')}`;
 
+  const tiles = [
+    {
+      testId: 'waiver-summary-next-clear', label: 'Next claim resolves', ...countdown, note: nextNote,
+    },
+    faab && {
+      testId: 'waiver-summary-faab',
+      label: 'FAAB left',
+      value: `$${faab.left}`,
+      note: `$${faab.committed} bid on ${pendingCount} pending claim${pendingCount === 1 ? '' : 's'}`,
+    },
+    {
+      testId: 'waiver-summary-priority',
+      label: 'Waiver priority',
+      value: waiverPriority != null ? `#${waiverPriority}` : 'TBD',
+      note: faab ? 'Breaks equal bids. A win sends you to the back.' : 'Your place in line.',
+    },
+    roster && {
+      testId: 'waiver-summary-roster',
+      label: 'Roster',
+      value: `${roster.count}/${roster.capacity ?? '-'}`,
+      chip: roster.atCapacity ? <FullChip /> : null,
+      note: roster.atCapacity ? 'Every claim needs a drop.' : null,
+    },
+  ].filter(Boolean);
+
   return (
-    <Box
-      component="section"
-      aria-label="Waiver summary"
-      data-testid="waiver-summary"
-      sx={{
+    <Frame tier="rule" labelledBy="waiver-summary-heading" data-testid="waiver-summary">
+      <Box component="h2" id="waiver-summary-heading" sx={{ m: 0, ...SR_ONLY_SX }}>Waiver summary</Box>
+      <Box sx={{
         display: 'grid',
-        gap: 1.5,
-        gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', md: 'repeat(4, minmax(0, 1fr))' },
+        gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', md: `repeat(${tiles.length}, minmax(0, 1fr))` },
       }}
-    >
-      <Tile
-        testId="waiver-summary-next-clear"
-        label="Next claim resolves"
-        value={countdown || 'None'}
-        note={nextNote}
-      />
-      {faab && (
-        <Tile
-          testId="waiver-summary-faab"
-          label="FAAB left"
-          value={`$${faab.left}`}
-          note={`$${faab.committed} bid on ${pendingCount} pending claim${pendingCount === 1 ? '' : 's'}`}
-        />
-      )}
-      <Tile
-        testId="waiver-summary-priority"
-        label="Waiver priority"
-        value={waiverPriority != null ? `#${waiverPriority}` : 'TBD'}
-        note={faab ? 'Breaks equal bids. A win sends you to the back.' : 'Your place in line.'}
-      />
-      {roster && (
-        <Tile
-          testId="waiver-summary-roster"
-          label="Roster"
-          value={`${roster.count}/${roster.capacity ?? '-'}`}
-          flag={roster.atCapacity ? 'Full' : null}
-          warn={roster.atCapacity}
-          note={roster.atCapacity ? 'Every claim needs a drop.' : null}
-        />
-      )}
-    </Box>
+      >
+        {tiles.map((tile, index) => (
+          <Tile key={tile.testId} {...tile} index={index} count={tiles.length} />
+        ))}
+      </Box>
+    </Frame>
   );
 }

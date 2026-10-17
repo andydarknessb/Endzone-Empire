@@ -1,5 +1,5 @@
 import React from 'react';
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useLocation } from 'react-router-dom';
 import renderWithProviders from '../../test-utils/renderWithProviders';
@@ -7,6 +7,7 @@ import apiClient from '../../api/apiClient';
 import { clearLeagueCache } from '../../hooks/useLeague';
 import { SnackbarProvider } from '../../components/Snackbar/SnackbarProvider';
 import WaiversPage from './WaiversPage';
+import { findToast } from '../../test-utils/toast';
 
 jest.mock('../../api/apiClient', () => ({
   __esModule: true,
@@ -207,7 +208,11 @@ test('an empty list says nobody is on waivers', async () => {
 test('a failed read shows the error state, never an empty list', async () => {
   setup({ playersError: { response: { status: 500, data: { error: 'boom' } }, message: 'Request failed' } });
   renderPage();
-  expect(await screen.findByRole('alert')).toHaveTextContent(/boom|Request failed/);
+  // Ruling 5: the load error is the product sentence ("We could not load ..."), with one Retry outside the alert.
+  const alert = await screen.findByRole('alert');
+  expect(alert).toHaveTextContent('We could not load the players.');
+  expect(within(alert).queryByRole('button')).not.toBeInTheDocument();
+  expect(screen.getAllByRole('button', { name: 'Retry' })).toHaveLength(1);
   screen.queryAllByText(/No players/).forEach((el) => expect(el).not.toBeVisible());
   // The pool region is display:none, not merely [hidden] (page CSS would beat the attribute).
   expect(screen.queryByRole('table')).not.toBeInTheDocument();
@@ -853,7 +858,7 @@ test('three claims naming the same drop read "all drop", two read "both drop"', 
   setup({ waivers: waiversBody({ myClaims: claims }), roster: SHEET_ROSTER });
   renderPage('/league/1/waivers?tab=claims');
   const card = await claimsCard();
-  expect(await within(card).findAllByText('Only one of these can go through: #1, #2 and #3 all drop Best Bench')).toHaveLength(3);
+  expect(await within(card).findAllByText('Only one of these can go through: #1, #2 and #3 all drop Best Bench.')).toHaveLength(1);
   expect(within(card).queryByText(/both drop/)).not.toBeInTheDocument();
 });
 
@@ -883,20 +888,21 @@ test('a failed Undo says so in the toast', async () => {
   const card = await claimsCard();
   await userEvent.click(await within(card).findByRole('button', { name: 'Cancel claim on Claim A' }));
   await userEvent.click(await screen.findByRole('button', { name: 'Undo' }));
-  expect(await screen.findByText(/Could not undo/i)).toBeInTheDocument();
+  expect(await findToast(/Could not undo/i)).toBeInTheDocument();
   expect(apiClient.put).not.toHaveBeenCalled();
 });
 
-test('claims that name the same drop each carry the neutral warning and the resolution line, with no prediction', async () => {
+test('claims that name the same drop share one neutral warning and the resolution line, with no prediction', async () => {
   const claims = manageClaims();
   claims[2] = { ...claims[2], drop_player_id: 3, drop_player_name: 'Best Bench' };
   setup({ waivers: waiversBody({ myClaims: claims }), roster: SHEET_ROSTER });
   renderPage('/league/1/waivers?tab=claims');
   const card = await claimsCard();
   await within(card).findByText('Claim A');
-  const warnings = within(card).getAllByText('Only one of these can go through: #1 and #3 both drop Best Bench');
-  expect(warnings).toHaveLength(2);
-  expect(within(card).getAllByText(/higher bid first, then Waiver priority, then your Claim order, each at its player's Clear time/i)).toHaveLength(2);
+  // Ruling 5: the note is drawn once per group, with the warning pictogram.
+  const warnings = within(card).getAllByText('Only one of these can go through: #1 and #3 both drop Best Bench.');
+  expect(warnings).toHaveLength(1);
+  expect(within(card).getAllByText(/higher bid first, then Waiver priority, then your Claim order, each at its player's Clear time/i)).toHaveLength(1);
   expect(card.textContent).not.toMatch(/will (win|go through)|likely/i);
 });
 
@@ -1132,4 +1138,131 @@ test('a Position-baseline row reads "no history" in the Proj Wk column, no numbe
   expect(within(beck).getByText('no history')).toBeInTheDocument();
   expect(beck.textContent).not.toMatch(/15.4|15.37/);
   expect(within(starter).getByText('17.2')).toBeInTheDocument();
+});
+
+/* eslint-disable testing-library/no-node-access -- the cursor is counted by its .cursor class and the filled action by data-variant, which have no role */
+// ADR 0067 wave 3 (spec #2347 ruling 5 and 8): the cursor and the one filled action.
+const upRow = (id, points, over = {}) => cardsPlayer({
+  id,
+  name: `Player ${String(id).padStart(2, '0')}`,
+  upgrade: points == null ? null : { points, week: 5, overPlayer: null },
+  weeks: [{ week: 5, points: 10 }],
+  ...over,
+});
+const counts = () => ({
+  cursors: document.querySelectorAll('.cursor').length,
+  filled: document.querySelectorAll('[data-variant="fill"]').length,
+});
+
+test('ten rows: exactly one filled Claim, on the nextClaimRow row; every other Claim and Claim #n is a ghost', async () => {
+  const players = Array.from({ length: 10 }, (_, i) => upRow(i + 1, 1 + i * 0.5));
+  setup({
+    players,
+    // Player 10 has the largest Upgrade but a pending claim, so the cursor is Player 09.
+    waivers: waiversBody({ myClaims: [pendingClaim({ player_id: 10, player_name: 'Player 10', claim_order: 1 })] }),
+  });
+  renderPage();
+  await screen.findByText('Player 09');
+  const filled = screen.getAllByRole('button', { name: /^Claim( #\d+)? Player/ }).filter((b) => b.getAttribute('data-variant') === 'fill');
+  expect(filled).toHaveLength(1);
+  expect(filled[0]).toHaveAccessibleName('Claim Player 09');
+  const all = screen.getAllByRole('button', { name: /^Claim( #\d+)? Player/ });
+  expect(all).toHaveLength(10);
+  all.filter((b) => b !== filled[0]).forEach((b) => expect(b).toHaveAttribute('data-variant', 'ghost'));
+  expect(screen.getByRole('button', { name: 'Claim #1 Player 10' })).toHaveAttribute('data-variant', 'ghost');
+  expect(counts()).toEqual({ cursors: 1, filled: 1 });
+  expect(document.querySelector('.cursor')).toHaveTextContent('Player 09');
+});
+
+test('no positive Upgrade on the page: no cursor and no filled action', async () => {
+  setup({ players: [upRow(1, 0), upRow(2, null)] });
+  renderPage();
+  await screen.findByText('Player 01');
+  expect(counts()).toEqual({ cursors: 0, filled: 0 });
+});
+
+test('best ball: no cursor and no filled action, whatever the rows carry', async () => {
+  setup({ league: { id: 1, best_ball: true, waiver_type: 'priority' }, players: [upRow(1, 4), upRow(2, 2)] });
+  renderPage();
+  await screen.findByText('Player 01');
+  expect(counts()).toEqual({ cursors: 0, filled: 0 });
+});
+
+test('the cursor frame is the cursor colour at 30 hours and Danger when the row clears in 45 minutes', async () => {
+  const soon = (h) => ({ state: 'waivers', teamId: null, teamName: null, availableAt: new Date(Date.now() + h * 3600 * 1000).toISOString() });
+  setup({ players: [upRow(1, 3, { availability: soon(30) })] });
+  const { unmount } = renderPage();
+  await screen.findByText('Player 01');
+  expect(document.querySelector('.cursor')).toHaveStyle({ borderColor: 'var(--ps-cursor)' });
+  unmount();
+  setup({ players: [upRow(1, 3, { availability: soon(0.75) })] });
+  renderPage();
+  await screen.findByText('Player 01');
+  expect(document.querySelector('.cursor')).toHaveStyle({ borderColor: 'var(--ps-danger)' });
+  expect(counts()).toEqual({ cursors: 1, filled: 1 });
+});
+
+test('the Upgrade pill is an outlined Ink badge naming its week, and the sheet title never uses pixel type for the name', async () => {
+  setup({ players: [upRow(1, 2.4, { projWeek: { week: 4, points: 12 }, upgrade: { points: 2.4, week: 5, overPlayer: null } })] });
+  renderPage();
+  const pill = await screen.findByTestId('player-row-upgrade');
+  expect(pill).toHaveTextContent('+2.4 Wk 5');
+  expect(pill).toHaveStyle({ border: '2px solid var(--ps-ink)' });
+  await userEvent.click(screen.getByRole('button', { name: 'Claim Player 01' }));
+  const dialog = await screen.findByRole('dialog', { name: /Claim Player 01/ });
+  expect(within(dialog).getByRole('heading', { name: /Claim Player 01/ })).toBeInTheDocument();
+  expect(within(dialog).getByRole('button', { name: 'Submit claim' })).toHaveAttribute('data-variant', 'fill');
+});
+
+// QA round: the "Next: ..." note is armed by a claim filed from the sheet, not by any rise in the pending count.
+const nextNote = () => screen.queryByText(/^Next: /);
+
+test('filing a claim from the sheet announces the next cursor row once', async () => {
+  const waivers = waiversBody();
+  setup({ players: [upRow(1, 3), upRow(2, 2)], waivers });
+  freshClaimReads(waivers);
+  apiClient.post.mockImplementation(async () => {
+    waivers.myClaims = [pendingClaim({ id: 5, player_id: 1, player_name: 'Player 01', claim_order: 1 })];
+    return { data: {} };
+  });
+  renderPage();
+  await userEvent.click(await screen.findByRole('button', { name: 'Claim Player 01' }));
+  const sheet = await screen.findByRole('dialog', { name: /Claim Player 01/ });
+  await userEvent.click(within(sheet).getByRole('button', { name: 'Submit claim' }));
+  expect(await screen.findByText('Next: Player 02, +2.0 Wk 5')).toBeInTheDocument();
+});
+
+test('the Undo of a cancel re-files a claim without announcing a next row', async () => {
+  const waivers = waiversBody({ myClaims: manageClaims() });
+  setup({ players: [upRow(20, 3)], waivers, roster: SHEET_ROSTER });
+  cancelWith(waivers);
+  apiClient.post.mockImplementation(async () => {
+    waivers.myClaims = [...waivers.myClaims, pendingClaim({ id: 9, player_id: 12, player_name: 'Claim A', claim_order: 2, drop_player_id: 2, drop_player_name: 'Starter Two', bid: 10 })];
+    return { data: { id: 9 } };
+  });
+  apiClient.put.mockResolvedValue({ data: {} });
+  renderWithToast();
+  const card = await claimsCard();
+  await userEvent.click(await within(card).findByRole('button', { name: 'Cancel claim on Claim A' }));
+  await waitFor(() => expect(within(card).queryByText('Claim A')).not.toBeInTheDocument());
+  await userEvent.click(await screen.findByRole('button', { name: 'Undo' }));
+  await waitFor(() => expect(apiClient.post).toHaveBeenCalled());
+  await within(card).findByText('Claim A');
+  expect(nextNote()).not.toBeInTheDocument();
+});
+
+test('the under-one-hour Danger state flips while the page is open', async () => {
+  jest.useFakeTimers({ now: Date.now() });
+  try {
+    const at = new Date(Date.now() + 61 * 60000).toISOString();
+    setup({ players: [upRow(1, 3, { availability: { state: 'waivers', teamId: null, teamName: null, availableAt: at } })] });
+    renderPage();
+    await screen.findByText('Player 01');
+    expect(document.querySelector('.cursor')).toHaveStyle({ borderColor: 'var(--ps-cursor)' });
+    await act(async () => { jest.advanceTimersByTime(2 * 60000); });
+    expect(document.querySelector('.cursor')).toHaveStyle({ borderColor: 'var(--ps-danger)' });
+    expect(screen.getByTestId('player-row-status-detail')).toHaveStyle({ color: 'var(--ps-danger)' });
+  } finally {
+    jest.useRealTimers();
+  }
 });

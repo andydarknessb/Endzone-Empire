@@ -100,8 +100,8 @@ for (const width of [320, 390]) {
     await expect(page.getByRole('button', { name: `Move ${CLAIMED_PLAYER_NAME} down` })).toBeVisible();
     await expect(page.getByRole('button', { name: `Edit claim on ${CLAIMED_PLAYER_NAME}` })).toBeVisible();
     await expect(page.getByRole('button', { name: `Cancel claim on ${CLAIMED_PLAYER_NAME}` })).toBeVisible();
-    // #1616: the two pending claims name the same drop, so each carries the warning.
-    await expect(page.getByText(/Only one of these can go through: #1 and #2 both drop/)).toHaveCount(2);
+    // #1616: the two pending claims name the same drop; ruling 5: the note is drawn once per group.
+    await expect(page.getByText(/Only one of these can go through: #1 and #2 both drop/)).toHaveCount(1);
     await expect(page.getByRole('heading', { name: 'Week 2' })).toBeVisible();
     await expect(page.getByText(/Lost to The Extraordinarily Long Team Name FC · won at \$17/)).toBeVisible();
     await page.evaluate(() => document.fonts.ready.then(() => true));
@@ -147,7 +147,7 @@ test('the claim sheet at 390px: full height, no overflow, controls at least 44px
   const doc = await page.evaluate(probeDocument);
   expect(doc.scrollWidth).toBeLessThanOrEqual(doc.clientWidth + 1);
 
-  const small = await sheet.locator('button, label.MuiFormControlLabel-root, input[type="number"]').evaluateAll((els) =>
+  const small = await sheet.locator('button, label:has(input[type="radio"]), input[type="number"]').evaluateAll((els) =>
     els
       .filter((el) => el.getClientRects().length > 0 && (el as HTMLInputElement).type !== 'radio')
       .map((el) => {
