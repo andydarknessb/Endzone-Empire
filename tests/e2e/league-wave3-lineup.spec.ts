@@ -164,6 +164,23 @@ test('the Bye clusters line names the clear time the waivers read returns', asyn
   await expect(page.getByTestId('bye-cluster-line')).toContainText(/Waivers clear \w{3} \d{1,2}:\d{2} [AP]M\.$/);
 });
 
+test('live, the Game cell reads the score and clock from the live_game_states row', async ({ page }) => {
+  // The client reaches live_game_states through Supabase (src/api/supabaseClient.js); the e2e server points it at a
+  // stub host, so the realtime socket fails, the hook falls back to its REST read, and this route answers it.
+  await page.route('**/rest/v1/live_game_states**', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify([{
+      tank01_game_id: 'g-BUF', home_team: 'BUF', away_team: 'MIA', current_score_home: 17, current_score_away: 10,
+      quarter: 'Q3', time_remaining: '6:42', game_status: 'in_progress',
+    }]),
+  }));
+  await open(page, 'live', 'desktop', 'dark');
+  const cell = page.getByTestId('slot-row-QB-0').getByTestId('ledger-game-cell');
+  await expect(cell).toHaveAttribute('data-game-state', 'live');
+  await expect(cell).toContainText('17-10 · Q3 6:42');
+});
+
 test.describe('on a phone', () => {
   test('the Outlook view keeps one filled action (Apply) and a Forecast that fits', async ({ page }) => {
     await open(page, 'pre', 'phone', 'dark');

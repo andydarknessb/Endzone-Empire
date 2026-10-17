@@ -11,10 +11,10 @@
 //    and carries the lineup note, there is no move plan and so no filled action. The next kickoff is 45 minutes away,
 //    so the cursor frame is Danger.
 //
-// Realtime (`live_game_states`) is unavailable in e2e (the client has no Supabase env, and the shared Playwright config
-// starts it without one), so the live moment is built from what the lineup wire itself carries: the entries' `locked`
-// flag and kickoff, their live points, and the server's own pace Edge line ("90% of projection so far"). Live score and
-// clock on the Game cell need a live row; the LineupPage jest tests cover that through a faked channel.
+// Realtime (`live_game_states`) is a stub host in e2e (playwright.e2e.config.js), and this fixture answers none of its
+// reads, so the live moment is built from what the lineup wire itself carries: the entries' `locked` flag and kickoff,
+// their live points, and the server's own pace Edge line ("90% of projection so far"). Live score and clock on the Game
+// cell need a live row, which the one spec that checks them routes itself (rest/v1/live_game_states).
 import type { Page } from '@playwright/test';
 import { json } from './jsonRoute';
 

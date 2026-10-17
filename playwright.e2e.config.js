@@ -25,7 +25,16 @@ module.exports = defineConfig({
         // other value (including "0" or "false") leaves the safe default in place.
         reuseExistingServer: process.env.CI ? false : process.env.E2E_REUSE_SERVER === '1',
         timeout: 120_000,
-        env: { BROWSER: 'none', HOST: '0.0.0.0', PORT: '4173' },
+        // A stub Supabase host, never the real one from .env: the realtime socket fails, useLiveGameStates falls back
+        // to its REST read, and a spec answers that with page.route('**/rest/v1/live_game_states**'). Unset, the
+        // client is null and no spec can render a live Game cell.
+        env: {
+          BROWSER: 'none',
+          HOST: '0.0.0.0',
+          PORT: '4173',
+          REACT_APP_SUPABASE_URL: 'http://supabase.e2e.test',
+          REACT_APP_SUPABASE_ANON_KEY: 'e2e-anon-key',
+        },
       },
   use: {
     baseURL: process.env.E2E_BASE_URL || 'http://127.0.0.1:4173',
