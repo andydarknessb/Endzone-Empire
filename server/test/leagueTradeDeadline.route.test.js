@@ -134,3 +134,26 @@ test('the flag was appended at the end, so every pre-existing bind position stil
   // The auction-conversion guard another route test pins by position.
   assert.match(update.text, /WHEN \$27::text = 'auction' THEN NULL/);
 });
+
+test('narrativeVoice: a non-commissioner member is refused 403 and no row changes', async (t) => {
+  const MEMBER = 8;
+  const calls = [];
+  let changed = 0;
+  // The commissioner predicate in the SQL finds no row for anyone but the commissioner.
+  t.mock.method(pool, 'query', async (sql, params) => {
+    const text = String(sql).replace(/\s+/g, ' ').trim();
+    calls.push({ text, params });
+    const isCommissioner = params.includes(COMMISSIONER);
+    if (text.includes('SELECT "draft_status"')) return { rows: isCommissioner ? [statusRow()] : [] };
+    if (text.startsWith('UPDATE "leagues"')) {
+      if (isCommissioner) changed += 1;
+      return { rows: isCommissioner ? [{ id: 1 }] : [], rowCount: isCommissioner ? 1 : 0 };
+    }
+    throw new Error(`Unexpected SQL: ${text}`);
+  });
+  const member = `Bearer ${signToken({ id: MEMBER, username: 'member' })}`;
+  const res = await request(app).put('/api/league/1').set('Authorization', member).send({ narrativeVoice: 'polk_high_legend' });
+  assert.equal(res.status, 403, JSON.stringify(res.body));
+  assert.equal(changed, 0, 'no row changed');
+  assert.ok(calls.every((c) => c.params.includes(MEMBER) && !c.params.includes(COMMISSIONER)), 'every query ran as the member');
+});

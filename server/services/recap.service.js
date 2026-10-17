@@ -7,6 +7,7 @@ const { logTransaction, notifyLeague } = require('./activity.service');
 const { calculateFantasyPoints, rulesForLeague } = require('./scoringRules');
 const { CALLED_SHOT_BOLD_PROBABILITY } = require('./trophy.service');
 const claude = require('./claude');
+const { logger } = require('../modules/logger');
 const { voiceBlockFor, withVoice, deniedTerm } = require('./narrativeVoice');
 
 /**
@@ -206,7 +207,7 @@ const SYSTEM =
  * trash-talk line; a Voice rewrite naming a deny-list term the facts do not
  * carry is null too.
  */
-async function llmNarrative(facts, { client, pool, placeholders, voice } = {}) {
+async function llmNarrative(facts, { client, pool, placeholders, voice, leagueId } = {}) {
   const voiced = Boolean(voiceBlockFor(voice));
   const text = await claude.narrative({
     feature: 'recap',
@@ -216,7 +217,12 @@ async function llmNarrative(facts, { client, pool, placeholders, voice } = {}) {
   }, { client, pool });
   // Managers type team names, and they are tokenized out of the facts: they count as facts here.
   const known = `${JSON.stringify(facts)} ${Object.values(placeholders || {}).join(' ')}`;
-  return text && voiced && deniedTerm(text, known) ? null : text;
+  const term = text && voiced ? deniedTerm(text, known) : null;
+  if (term) {
+    logger.warn({ leagueId, feature: 'recap', term }, 'voice rewrite discarded');
+    return null;
+  }
+  return text;
 }
 
 /**
@@ -420,6 +426,7 @@ async function computeAndStoreWeeklyRecap({ leagueId, season, week }) {
   const enhanced = await llmNarrative(prompt.facts, {
     placeholders: prompt.placeholders,
     voice: league && league.narrative_voice,
+    leagueId,
   });
   if (enhanced) {
     data.narrative = enhanced;

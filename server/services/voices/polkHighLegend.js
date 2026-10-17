@@ -19,8 +19,8 @@ Example sentences in the voice (for style only, never copy them):
 4. Four touchdowns, one game, Polk High. This team couldn't find the end zone with a map and a flashlight.`;
 
 const DENY = Object.freeze([
-  'Bundy', 'Peggy', 'Kelly', 'Bud', 'Marcy', 'Jefferson', 'Married with Children',
-  'Married... with Children', "Gary's Shoes", 'Whoa Mama', 'Hooters', 'Steve Rhoades', 'Jim Dial',
+  'Bundy', 'Peggy', 'Kelly', 'Marcy', 'Jefferson', 'Married with Children',
+  "Gary's Shoes", 'Whoa Mama', 'Hooters', 'Steve Rhoades', 'Jim Dial',
 ]);
 
 module.exports = { VOICE_BLOCK, DENY };

@@ -1,6 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { createFakePool } = require('./helpers/fakePool');
+const { logger } = require('../modules/logger');
 const lineup = require('../services/lineup.service');
 const expectedFinal = require('../services/expectedFinal.service');
 const {
@@ -451,6 +452,19 @@ test('a Voice rewrite naming any deny-list term is discarded and the template st
     await postgame(g, stubClient(g, `Cory's Crunchers took it 114.5 to 98.2, says ${term}.`));
     assert.equal(g.stored.matchups[901].postgame.source, 'template', `postgame discards ${term}`);
   }
+});
+
+test('a discarded Voice rewrite is logged with the league, feature and term', async (t) => {
+  stubEngine(t);
+  stubHeld(t);
+  const warn = t.mock.method(logger, 'warn', () => {});
+  const p = world();
+  await previewVoiced(p, stubClient(p, "Cory's Crunchers hold the edge, says Bundy."));
+  const g = postgameWorld({ leagueRow: VOICED });
+  await postgame(g, stubClient(g, "Cory's Crunchers took it 114.5 to 98.2, says Bundy."));
+  const logged = warn.mock.calls.map((c) => c.arguments).filter((a) => a[1] === 'voice rewrite discarded');
+  assert.deepEqual(logged.map(([f]) => [f.feature, f.term, f.leagueId === LEAGUE.id]), [
+    ['matchup_preview', 'Bundy', true], ['matchup_postgame', 'Bundy', true]]);
 });
 
 test('a Voice rewrite is kept when it names no deny-list term', async (t) => {

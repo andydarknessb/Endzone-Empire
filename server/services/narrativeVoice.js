@@ -21,13 +21,16 @@ const voiceBlockFor = (voice) => (VOICE_KEYS.includes(voice) ? VOICES[voice].VOI
 /** `system` with the Voice block at its head; `system` itself when neutral. */
 const withVoice = (system, voice) => (voiceBlockFor(voice) ? `${voiceBlockFor(voice)}\n\n${system}` : system);
 
-const plain = (s) => String(s).replace(/[\u2018\u2019]/g, "'").toLowerCase();
+/**
+ * Lowercase, every other run of non-letters/digits one space. Apostrophe-like
+ * characters are deleted (a typed "Xs" = "X's" for a phrase) or, as the second
+ * variant, spaced (a possessive matches its bare name).
+ */
+const plain = (s, apostrophe) =>
+  String(s).toLowerCase().replace(/['\u2018\u2019\u02bc`]/g, apostrophe).replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 
-/** Whole word or whole phrase, case-insensitive; a letter or digit beside it is not a match. */
-const hasTerm = (text, term) => {
-  const escaped = plain(term).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return new RegExp(`(?<![\\p{L}\\p{N}_])${escaped}(?![\\p{L}\\p{N}_])`, 'u').test(plain(text));
-};
+/** Whole word or whole phrase, case-, punctuation- and spacing-insensitive, under either apostrophe variant. */
+const hasTerm = (text, term) => ['', ' '].some((a) => ` ${plain(text, a)} `.includes(` ${plain(term, a)} `));
 
 /**
  * The first deny-list term in `text` that `factsText` does not also carry, else

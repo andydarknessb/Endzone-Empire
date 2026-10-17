@@ -46,7 +46,23 @@ test('every deny term is caught whole, in any case, and passes when the facts ca
 test('a deny term is a whole word: longer words and the plain word "married" pass', () => {
   assert.equal(deniedTerm('A budget for budding, bundled kellys.', ''), null);
   assert.equal(deniedTerm('They are married to the waiver wire.', ''), null);
-  assert.equal(deniedTerm('Kelly\u2019s lineup flopped.', ''), 'Kelly');
+  assert.equal(deniedTerm('Kelly’s lineup flopped.', ''), 'Kelly');
+  assert.equal(deniedTerm("Bundy's bench", ''), 'Bundy');
+  assert.equal(deniedTerm("Peggy's waiver claim", ''), 'Peggy');
+  assert.equal(deniedTerm("Jefferson's catch", 'Justin Jefferson'), null, 'facts exempt the possessive too');
+});
+
+test('punctuation, spacing, apostrophe style and case never hide a deny term', () => {
+  for (const text of ['Whoa, Mama!', 'Married… with Children', 'Married with  Children', 'Garys Shoes',
+    'Garyʼs Shoes', "GARY'S SHOES", 'Gary’s Shoes']) {
+    assert.notEqual(deniedTerm(text, ''), null, `${text} denied`);
+  }
+});
+
+test('ordinary English passes: bud, a bud, and marrying the bench', () => {
+  for (const text of ['Listen, bud.', 'nipped in the bud', 'she married the bench']) {
+    assert.equal(deniedTerm(text, ''), null, `${text} passes`);
+  }
 });
 
 test('the first denied term wins, and a facts-carried term does not mask a later one', () => {
@@ -69,8 +85,8 @@ test('only recap and matchupNarrative reach for the Voice; the game recap and Pr
   assert.match(source(SERVICES, 'matchupNarrative.service.js'), /require\('\.\/narrativeVoice'\)/);
 });
 
-test('no server service or route outside the Voice module carries a deny term (Kelly, Bud and Jefferson are ordinary names)', () => {
-  const ordinary = new Set(['Kelly', 'Bud', 'Jefferson']);
+test('no server service or route outside the Voice module carries a deny term (Kelly and Jefferson are ordinary names)', () => {
+  const ordinary = new Set(['Kelly', 'Jefferson']);
   const files = [SERVICES, ROUTES].flatMap((dir) =>
     fs.readdirSync(dir, { recursive: true, withFileTypes: true })
       .filter((e) => e.isFile() && e.name.endsWith('.js'))

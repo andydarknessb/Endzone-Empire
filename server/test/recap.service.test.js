@@ -447,6 +447,17 @@ test('a Voice Recap rewrite naming any deny-list term is discarded and the templ
   }
 });
 
+test('a discarded Voice Recap rewrite is logged once with the league, feature and term', async (t) => {
+  const { logger } = require('../modules/logger');
+  const claude = require('../services/claude');
+  const { llmNarrative } = require('../services/recap.service');
+  const warn = t.mock.method(logger, 'warn', () => {});
+  t.mock.method(claude, 'narrative', async () => 'Team A won, says Bundy.');
+  assert.equal(await llmNarrative({ week: 5 }, { voice: 'polk_high_legend', placeholders: {}, leagueId: 7 }), null);
+  assert.equal(warn.mock.callCount(), 1);
+  assert.deepEqual(warn.mock.calls[0].arguments, [{ leagueId: 7, feature: 'recap', term: 'Bundy' }, 'voice rewrite discarded']);
+});
+
 test('a deny-list term the facts or a Team name carry does not discard a Voice Recap rewrite', async (t) => {
   const { DENY } = require('../services/voices/polkHighLegend');
   const claude = require('../services/claude');

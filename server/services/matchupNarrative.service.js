@@ -108,8 +108,11 @@ const withoutNames = (text, names) =>
  * carry; team names are typed by managers and tokenized out of the facts, so
  * they count as facts. A neutral league has no deny check.
  */
-const voiceOk = (voice, text, names, facts) =>
-  !voiceBlockFor(voice) || !deniedTerm(text, `${JSON.stringify(facts)} ${Object.values(names).join(' ')}`);
+const voiceOk = (voice, text, names, facts, where) => {
+  const term = voiceBlockFor(voice) ? deniedTerm(text, `${JSON.stringify(facts)} ${Object.values(names).join(' ')}`) : null;
+  if (term) logger.warn({ ...where, term }, 'voice rewrite discarded');
+  return !term;
+};
 
 /** A preview states no number at all. */
 const previewOk = (text, names) => !/\d/.test(withoutNames(text, names));
@@ -239,7 +242,7 @@ async function writePreviews({ league, now = new Date(), db = defaultPool, clien
         templateFacts: facts,
         template: templatePreview,
         names: namesOf,
-        accept: (text) => previewOk(text, namesOf) && voiceOk(league.narrative_voice, text, namesOf, facts),
+        accept: (text) => previewOk(text, namesOf) && voiceOk(league.narrative_voice, text, namesOf, facts, { leagueId, feature: 'matchup_preview' }),
       }));
     } catch (err) {
       logger.error({ err, leagueId, matchupId: m.id }, 'matchup preview failed');
@@ -329,7 +332,7 @@ async function writePostgames({ leagueId, season, week, now = new Date(), db = d
         templateFacts: full,
         template: templatePostgame,
         names: namesOf,
-        accept: (text) => postgameOk(text, namesOf, facts) && voiceOk(league?.narrative_voice, text, namesOf, facts),
+        accept: (text) => postgameOk(text, namesOf, facts) && voiceOk(league?.narrative_voice, text, namesOf, facts, { leagueId, feature: 'matchup_postgame' }),
       }));
     } catch (err) {
       logger.error({ err, leagueId, matchupId: m.id }, 'matchup postgame failed');
