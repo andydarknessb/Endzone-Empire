@@ -262,9 +262,9 @@ test('at 390px a save toast sits above the bar and focused rows scroll clear of 
 
 // The same guard on the boards' fixture (Darkness Falls, nine starters, a two-line team name), at 390x844.
 //  - Before kickoff the WHOLE first starter row is above the pinned footer.
-//  - Live the row is taller (a locked starter's game and pace lines) and the head carries the Live chip, so the board's own
-//    phone layout puts the row's bottom past the footer by about 60px; there the guard is that the row's top and the line
-//    holding the name (the first 52px) are on the first screen, never under the footer.
+//  - Live the guard is the row top plus the name line (its first 52px) only. The LineupPhone board is the 9:10 AM moment,
+//    so the approved phone layout has no live phone state: live adds the Live chip to the head and a taller row (a locked
+//    starter's game and pace lines), which puts the row's bottom about 58px past the footer; ruled acceptable (round 2).
 for (const moment of ['pre', 'live'] as const) {
   test(`at 390px the first starter row is clear of the pinned footer on the wave 3 fixture, ${moment}`, async ({ page }) => {
     await setupWave3Lineup(page, moment, 'light');

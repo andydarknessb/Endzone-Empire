@@ -1858,7 +1858,7 @@ test('Randomize Draft order shows only for the commissioner pre-draft and POSTs'
   await waitFor(() =>
     expect(apiClient.post).toHaveBeenCalledWith('/api/draft/league/1/order', { randomize: true })
   );
-  expect(await screen.findByText('Draft order randomized')).toBeInTheDocument();
+  expect(await findToast('Draft order randomized')).toBeInTheDocument();
   unmount();
 
   // A manager the ack did not name a commissioner never sees the button
@@ -1913,7 +1913,7 @@ test('commissioner corrects the latest pick with a reason, posting the confirmed
     pickNumber: 1,
     reason: 'wrong team entered, correcting before we resume',
   }));
-  expect(await screen.findByText('Latest pick corrected; draft paused')).toBeInTheDocument();
+  expect(await findToast('Latest pick corrected; draft paused')).toBeInTheDocument();
 });
 
 test('Correct latest Pick is disabled when the most recent reached pick is a keeper', async () => {

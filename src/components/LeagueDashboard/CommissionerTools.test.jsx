@@ -500,7 +500,7 @@ test('Save Roster Settings sends the slot array plus bench/IR/DP payload', async
       dpEnabled: false,
     })
   );
-  expect(await screen.findByText('Roster settings saved')).toBeInTheDocument();
+  expect(await findToast('Roster settings saved')).toBeInTheDocument();
   expect(onRefresh).toHaveBeenCalled();
 });
 
@@ -680,7 +680,7 @@ test('editing a leaf value and a tier field, then saving, sends the full nested 
       },
     })
   );
-  expect(await screen.findByText('Scoring settings saved')).toBeInTheDocument();
+  expect(await findToast('Scoring settings saved')).toBeInTheDocument();
   expect(onRefresh).toHaveBeenCalled();
 });
 
@@ -732,7 +732,7 @@ test('an invalid slot name is rejected client-side with a specific message, no r
   await userEvent.type(nameFields[nameFields.length - 1], 'FLEX!');
   await userEvent.click(screen.getByRole('button', { name: 'Save Roster Settings' }));
 
-  expect(await screen.findByText(/slot names are 1-20 characters/i)).toBeInTheDocument();
+  expect(await findToast(/slot names are 1-20 characters/i)).toBeInTheDocument();
   expect(apiClient.put).not.toHaveBeenCalled();
 });
 
@@ -791,7 +791,7 @@ test('Save Playoff Settings sends the playoff-teams/start-week/consolation paylo
       playoffConsolation: false,
     })
   );
-  expect(await screen.findByText('Playoff settings saved')).toBeInTheDocument();
+  expect(await findToast('Playoff settings saved')).toBeInTheDocument();
   expect(onRefresh).toHaveBeenCalled();
 });
 
@@ -807,7 +807,7 @@ test('Save Trade Deadline sends the selected week', async () => {
   await waitFor(() =>
     expect(apiClient.put).toHaveBeenCalledWith('/api/league/1', { tradeDeadlineWeek: 11 })
   );
-  expect(await screen.findByText('Trade deadline saved')).toBeInTheDocument();
+  expect(await findToast('Trade deadline saved')).toBeInTheDocument();
 });
 
 test('Save Trade Deadline sends null when the commissioner picks No deadline (the clear path, #65)', async () => {
@@ -822,7 +822,7 @@ test('Save Trade Deadline sends null when the commissioner picks No deadline (th
   await waitFor(() =>
     expect(apiClient.put).toHaveBeenCalledWith('/api/league/1', { tradeDeadlineWeek: null })
   );
-  expect(await screen.findByText('Trade deadline saved')).toBeInTheDocument();
+  expect(await findToast('Trade deadline saved')).toBeInTheDocument();
 });
 
 // --- Waivers & Trades ---
@@ -990,14 +990,14 @@ test('Matchup Scheduling & Scoring posts the league\'s own season and week', asy
   await waitFor(() =>
     expect(apiClient.post).toHaveBeenCalledWith('/api/scoring/league/1/matchups', { season: 2026, week: 3 })
   );
-  expect(await screen.findByText('Generated 5 matchups for week 3')).toBeInTheDocument();
+  expect(await findToast('Generated 5 matchups for week 3')).toBeInTheDocument();
 
   apiClient.post.mockResolvedValue({ data: { scored: [{ id: 1 }, { id: 2 }] } });
   await userEvent.click(screen.getByRole('button', { name: 'Score Week' }));
   await waitFor(() =>
     expect(apiClient.post).toHaveBeenCalledWith('/api/scoring/league/1/score', { season: 2026, week: 3 })
   );
-  expect(await screen.findByText('Scored 2 matchups in week 3')).toBeInTheDocument();
+  expect(await findToast('Scored 2 matchups in week 3')).toBeInTheDocument();
   expect(onRefresh).toHaveBeenCalled();
 });
 
@@ -1019,7 +1019,7 @@ test('Matchup Scheduling & Scoring reports the server\'s own reason when it crea
 
   apiClient.post.mockResolvedValue({ data: { scored: [] } });
   await userEvent.click(screen.getByRole('button', { name: 'Score Week' }));
-  expect(await screen.findByText('No matchups found for 2026 week 3')).toBeInTheDocument();
+  expect(await findToast('No matchups found for 2026 week 3')).toBeInTheDocument();
   expect(onRefresh).not.toHaveBeenCalled();
 });
 
@@ -1044,7 +1044,7 @@ test('Matchup Scheduling & Scoring surfaces a toast and skips refresh when an op
   await waitFor(() =>
     expect(apiClient.post).toHaveBeenCalledWith('/api/scoring/league/1/matchups', { season: 2026, week: 3 })
   );
-  expect(await screen.findByText('No teams to schedule')).toBeInTheDocument();
+  expect(await findToast('No teams to schedule')).toBeInTheDocument();
   expect(onRefresh).not.toHaveBeenCalled();
 
   // Score Week fails independently and likewise reports rather than refreshing.
@@ -1398,7 +1398,7 @@ test("the pick'em Season tab explains the automatic season and offers rollover o
   await waitFor(() =>
     expect(apiClient.post).toHaveBeenCalledWith('/api/commissioner/league/1/rollover', {})
   );
-  expect(await screen.findByText('New season started!')).toBeInTheDocument();
+  expect(await findToast('New season started!')).toBeInTheDocument();
   expect(onRefresh).toHaveBeenCalled();
 });
 
@@ -1501,7 +1501,7 @@ test('Start New Season falls back to the error field when the envelope carries n
   await userEvent.click(screen.getByRole('button', { name: 'Start New Season' }));
   await userEvent.click(screen.getByRole('button', { name: 'Confirm' }));
 
-  expect(await screen.findByText('The season is already archived.')).toBeInTheDocument();
+  expect(await findToast('The season is already archived.')).toBeInTheDocument();
 });
 
 // The live consumer this ticket must not regress: Manual Score Correction
@@ -1783,7 +1783,7 @@ test('saving clears the unsaved marker without discarding the values on screen',
   expect(screen.getByRole('tab', { name: 'Roster Settings Unsaved' })).toBeInTheDocument();
 
   await userEvent.click(screen.getByRole('button', { name: 'Save Roster Settings' }));
-  expect(await screen.findByText('Roster settings saved')).toBeInTheDocument();
+  expect(await findToast('Roster settings saved')).toBeInTheDocument();
 
   expect(screen.getByRole('tab', { name: 'Roster Settings' })).toBeInTheDocument();
   expect(screen.queryByTestId('tab-dirty-dot')).not.toBeInTheDocument();

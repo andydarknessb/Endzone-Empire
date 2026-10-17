@@ -169,7 +169,7 @@ test('creating a fantasy league with the defaults posts the same payload, announ
       scoringPreset: 'half_ppr',
     })
   );
-  expect(await screen.findByText('League created!')).toBeInTheDocument();
+  expect(await findToast('League created!')).toBeInTheDocument();
   await waitFor(() => expect(getCallsTo('/api/league')).toBe(2));
 
   const done = await screen.findByRole('heading', { name: 'Monday Mayhem is ready' });
@@ -207,11 +207,11 @@ test('the done step copies the invite code and the invite link', async () => {
 
   await userEvent.click(screen.getByRole('button', { name: 'Copy invite code ab12cd34' }));
   expect(writeText).toHaveBeenLastCalledWith('ab12cd34');
-  expect(await screen.findByText('Invite code copied')).toBeInTheDocument();
+  expect(await findToast('Invite code copied')).toBeInTheDocument();
 
   await userEvent.click(screen.getByRole('button', { name: 'Copy invite link' }));
   expect(writeText).toHaveBeenLastCalledWith(`${window.location.origin}/#/league/join?code=ab12cd34`);
-  expect(await screen.findByText('Invite link copied')).toBeInTheDocument();
+  expect(await findToast('Invite link copied')).toBeInTheDocument();
 });
 
 test('a public, approval-required, best-ball, half-PPR league with a draft date sends every field, the zone acknowledged', async () => {
