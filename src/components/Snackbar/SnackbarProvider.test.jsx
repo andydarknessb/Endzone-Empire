@@ -148,19 +148,17 @@ describe('live regions hold text only (spec #2347 ruling 4)', () => {
     expect(screen.getByTestId('toast-alert').querySelector('button')).toBeNull();
   });
 
-  test('the visible toast is presentation and draws its message from an attribute; the region holds the one DOM copy of the text', async () => {
+  test('the visible toast is presentation with its message hidden from assistive tech; the region is the one reader copy', async () => {
     render(
       <SnackbarProvider>
         <Trigger />
       </SnackbarProvider>
     );
     await userEvent.click(screen.getByRole('button', { name: 'fire' }));
-    // One node carries the sentence, so a text query meets the toast once.
-    expect(screen.getAllByText('Hello there')).toHaveLength(1);
-    expect(screen.getByText('Hello there')).toBe(screen.getByTestId('toast-status'));
-    const drawn = document.querySelector('[data-message="Hello there"]');
-    expect(drawn).toHaveAttribute('aria-hidden', 'true');
-    expect(drawn.closest('[role="presentation"]')).not.toBeNull();
+    const visible = screen.getAllByText('Hello there').find((node) => node.getAttribute('aria-hidden') === 'true');
+    expect(visible).toBeDefined();
+    expect(visible.closest('[role="presentation"]')).not.toBeNull();
+    expect(screen.getByTestId('toast-status')).toHaveTextContent('Hello there');
   });
 
   test('closing the toast empties the regions, so a stale sentence is not announced again', async () => {

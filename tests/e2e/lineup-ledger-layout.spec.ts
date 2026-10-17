@@ -253,7 +253,7 @@ test('at 390px a save toast sits above the bar and focused rows scroll clear of 
   await page.getByTestId('ledger-bench-rows').locator('[data-testid$="-select"]:not([disabled])').first().click({ position: { x: 6, y: 6 } });
 
   const toast = page.locator('.MuiSnackbar-root');
-  // The sentence has one DOM copy, in the always-mounted status region; the toast draws it.
+  // The reader's copy of the sentence is the always-mounted status region (the toast's own text is aria-hidden).
   await expect(page.getByTestId('toast-status')).toContainText('Lineup saved');
   const toastBox = await box(toast);
   const barBox = await box(page.getByTestId('lineup-mobile-tabs'));

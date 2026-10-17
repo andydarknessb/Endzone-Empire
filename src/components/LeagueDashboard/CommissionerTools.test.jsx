@@ -13,6 +13,7 @@ import CommissionerTools, { clearCommissionerDrafts } from './CommissionerTools'
 // without dragging the pg pool into the bundle. This is the authority the
 // Standard template's rendered rows are pinned to below.
 import { DEFAULT_ROSTER_SLOTS as SERVER_DEFAULT_ROSTER_SLOTS } from '../../../server/services/rosterSlots';
+import { findToast } from '../../test-utils/toast';
 
 jest.mock('../../api/apiClient', () => ({
   __esModule: true,
@@ -1012,7 +1013,7 @@ test('Matchup Scheduling & Scoring reports the server\'s own reason when it crea
   await userEvent.click(screen.getByRole('tab', { name: 'System Overrides' }));
 
   await userEvent.click(screen.getByRole('button', { name: 'Generate Matchups' }));
-  expect(await screen.findByText('No matchups generated · matchups already exist for this week'))
+  expect(await findToast('No matchups generated · matchups already exist for this week'))
     .toBeInTheDocument();
   expect(onRefresh).not.toHaveBeenCalled();
 
@@ -1482,7 +1483,7 @@ test('Start New Season shows the message, not the code, when the rollover envelo
   await userEvent.click(screen.getByRole('button', { name: 'Start New Season' }));
   await userEvent.click(screen.getByRole('button', { name: 'Confirm' }));
 
-  expect(await screen.findByText("Finish scoring this season's last week before starting a new one."))
+  expect(await findToast("Finish scoring this season's last week before starting a new one."))
     .toBeInTheDocument();
   expect(screen.queryByText('PICKEM_SEASON_RESULT_MISSING')).not.toBeInTheDocument();
 });
@@ -1541,7 +1542,7 @@ test('Manual Score Correction shows the message and stays unlocked for a refusal
   const submitButton = screen.getByRole('button', { name: 'Apply Correction' });
   await userEvent.click(submitButton);
 
-  expect(await screen.findByText('The database is temporarily unavailable. Try again shortly.'))
+  expect(await findToast('The database is temporarily unavailable. Try again shortly.'))
     .toBeInTheDocument();
   expect(screen.queryByText('DATABASE_TEMPORARILY_UNAVAILABLE')).not.toBeInTheDocument();
   expect(submitButton).not.toBeDisabled();
@@ -1638,7 +1639,7 @@ test("a pick'em-only league edits only its max teams (min gates nothing without 
   // save-settings tests in this file - by the time it appears, the put call
   // has already happened with its final args, so no separate waitFor is
   // needed for that.
-  expect(await screen.findByText('Team limits updated')).toBeInTheDocument();
+  expect(await findToast('Team limits updated')).toBeInTheDocument();
   expect(apiClient.put).toHaveBeenCalledWith('/api/league/1', { maxTeams: 12 });
 });
 

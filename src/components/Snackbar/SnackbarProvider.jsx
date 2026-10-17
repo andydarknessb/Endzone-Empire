@@ -17,8 +17,8 @@ import { MIN_TOUCH_TARGET_SX } from '../../shared/lib/a11y';
  * in the page, and often skips one that mounts holding its text, which is what a toast remounted per message
  * is. So the provider keeps ONE screen-reader-only polite region and ONE assertive region (errors) mounted
  * for good and sets their text when a toast opens (a repeat of the same sentence clears first, then sets); the toast itself is `role="presentation"` with its
- * message drawn from an attribute and `aria-hidden` (the region holds the one copy of the text) and its Undo and
- * Dismiss buttons outside every live region.
+ * message `aria-hidden` (the region is the one copy a screen reader gets) and its Undo and Dismiss buttons outside
+ * every live region.
  * The two regions are `aria-live` divs (what `role="status"` and `role="alert"` expand to) with no ARIA role
  * of their own: a role on a node every page carries would answer every `getByRole('status')` and
  * `getByRole('alert')` in every page's tests, and a page's own status and alert would no longer be the only one.
@@ -125,9 +125,8 @@ export function SnackbarProvider({ children }) {
             </>
           }
         >
-          {/* The sentence is DRAWN here, not written here: the status region holds its one DOM copy, so a text query (and a
-              reader) meets each toast once. `pre-line` on the message keeps a multi-line body's line breaks. */}
-          <Box component="span" aria-hidden="true" data-message={snack?.message} sx={{ '&::before': { content: 'attr(data-message)' } }} />
+          {/* Hidden from assistive tech: the status region above is the one copy a screen reader gets. */}
+          <Box component="span" aria-hidden="true">{snack?.message}</Box>
         </Alert>
       </Snackbar>
     </SnackbarContext.Provider>

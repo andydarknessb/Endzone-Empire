@@ -5,6 +5,7 @@ import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
 import UserPage from './UserPage';
 import { SnackbarProvider } from '../Snackbar/SnackbarProvider';
+import { findToast } from '../../test-utils/toast';
 
 // Home v2 slice 4: Create league in five steps (CreateLeagueStepper). The seam
 // is the page itself: UserPage rendered the way the app mounts it, apiClient
@@ -511,7 +512,7 @@ test('Create cannot be sent twice while the first request is in flight', async (
   expect(apiClient.post).toHaveBeenCalledTimes(1);
 
   pending.resolve({ data: { id: 2 } });
-  expect(await screen.findByText('League created!')).toBeInTheDocument();
+  expect(await findToast('League created!')).toBeInTheDocument();
   expect(apiClient.post).toHaveBeenCalledTimes(1);
 });
 
@@ -546,8 +547,8 @@ test('a successful create is announced once', async () => {
   await walkToReview();
   await submitCreate();
 
-  expect(await screen.findByText('League created!')).toBeInTheDocument();
-  expect(screen.getAllByText('League created!')).toHaveLength(1);
+  // Announced once: the status region says the sentence exactly once (the visible toast repeats it under aria-hidden).
+  expect((await findToast('League created!')).textContent).toBe('League created!');
 });
 
 // --- Closing ---

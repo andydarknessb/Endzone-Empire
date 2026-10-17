@@ -7,6 +7,7 @@ import apiClient from '../../api/apiClient';
 import { clearLeagueCache } from '../../hooks/useLeague';
 import { SnackbarProvider } from '../../components/Snackbar/SnackbarProvider';
 import WaiversPage from './WaiversPage';
+import { findToast } from '../../test-utils/toast';
 
 jest.mock('../../api/apiClient', () => ({
   __esModule: true,
@@ -883,7 +884,7 @@ test('a failed Undo says so in the toast', async () => {
   const card = await claimsCard();
   await userEvent.click(await within(card).findByRole('button', { name: 'Cancel claim on Claim A' }));
   await userEvent.click(await screen.findByRole('button', { name: 'Undo' }));
-  expect(await screen.findByText(/Could not undo/i)).toBeInTheDocument();
+  expect(await findToast(/Could not undo/i)).toBeInTheDocument();
   expect(apiClient.put).not.toHaveBeenCalled();
 });
 
