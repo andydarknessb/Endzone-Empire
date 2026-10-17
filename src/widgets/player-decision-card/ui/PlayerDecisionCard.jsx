@@ -23,7 +23,18 @@ import {
 import { useTheme } from '@mui/material/styles';
 import { visuallyHidden } from '@mui/utils';
 import CloseIcon from '@mui/icons-material/Close';
-import { Badge, InjuryTag, PosChip, RangeBar, SegmentedControl } from '../../../shared/ui';
+import {
+  Badge, InjuryTag, PlayerAvatar, PosChip, RangeBar, SegmentedControl, statLine,
+} from '../../../shared/ui';
+import {
+  BODY_FONT, Frame, InjuryTag as PsInjuryTag, PixelClose, PosTag, PsButton, Skel,
+} from '../../../shared/ui/playselect';
+// New playselect file, imported by direct path (ADR 0067, wave 3 `look` option).
+import { MENU_PAPER } from '../../../shared/ui/playselect/CardControls';
+import {
+  DIM_LINE_SX, INK_LINE_SX, PS_STACK_SX, PsBio, PsDecisionStrip, PsLoadError, PsNewsList, PsRangeBar, PsSection, PsTable,
+  PsWeeklyBars, RowBadge,
+} from './playselectPieces';
 import {
   formatKickoff,
   formatPoints,
@@ -225,8 +236,16 @@ function isTypingTarget(el) {
  * state (when the card opens or `compareWith` changes): the Compare menu
  * and Clear compare keep working after it, and prev/next leaves the compared
  * player alone.
+ *
+ * ADR 0067, spec #2347 ruling 7: `look` is `'dash'` (default; DraftBoard, TransactionLog,
+ * PlayerManagement and PlayerProfilePage keep it) or `'playselect'` (Lineup, Waivers, Trade Center and
+ * Matchup pass it). The playselect look is the board PlayerCard: a primary frame drawer (6px double
+ * rule), Archivo 24 700 name, tertiary-frame sections with Pixel 16 heads and the kit table, in-row
+ * badges, ghost actions. The desktop drawer carries no filled button; the phone sheet is modal, so its
+ * Claim or Add is the one filled action (`filled` on ClaimPlayerAction and AddPlayerAction). The pieces
+ * live in `playselectPieces.jsx` and keep the default pieces' test ids, so the same e2e reads either.
  */
-const ALLOWED_PROPS = ['open', 'onClose', 'entry', 'leagueId', 'week', 'context'];
+const ALLOWED_PROPS = ['open', 'onClose', 'entry', 'leagueId', 'week', 'context', 'look'];
 
 export default function PlayerDecisionCard(props) {
   if (process.env.NODE_ENV !== 'production') {
@@ -238,7 +257,10 @@ export default function PlayerDecisionCard(props) {
       );
     }
   }
-  const { open, onClose, entry, leagueId, week, context } = props;
+  const { open, onClose, entry, leagueId, week, context, look = 'dash' } = props;
+  // ADR 0067, spec #2347 ruling 7: `look="playselect"` repaints the card on `ps-*` tokens (Lineup, Waivers,
+  // Trade Center and Matchup pass it). The default is today's look, which every other caller keeps.
+  const ps = look === 'playselect';
   // #1515: every context-specific field the eighteen removed loose props used
   // to carry now lives on the builder's own object (`model/decisionContext.js`)
   // - read once here, under the SAME local names the rest of this component
@@ -511,6 +533,29 @@ export default function PlayerDecisionCard(props) {
   // carries on its own).
   const benchOptionsHidden = isStarting && bestBall;
 
+  // Action rows: the playselect look groups them as "Player actions" and adds Watch to the lineup and
+  // rostered rows (the board draws it in line); elsewhere Watch keeps its own row.
+  const rowSx = ps
+    ? { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px', px: '20px', pb: '16px' }
+    : { display: 'flex', gap: 1, flexWrap: 'wrap', px: 2, pb: 1.5 };
+  const rowProps = ps ? { role: 'group', 'aria-label': 'Player actions' } : null;
+  const watchInRow = ps && (lineupManaged || effectiveContext === 'rostered' || effectiveContext === 'my_team');
+  const watchButton = entry && (
+    <WatchPlayerAction
+      playerId={entry.playerId}
+      leagueId={leagueId}
+      watching={watching}
+      onToggled={setWatchingOverride}
+      onDone={onActionDone}
+      {...(ps ? { look: 'playselect' } : null)}
+    />
+  );
+  const watchSlot = (
+    <Box component="span" data-testid="decision-card-watch" sx={{ display: 'inline-flex' }}>{watchButton}</Box>
+  );
+  // Claim and Add are filled only on the phone sheet, which is modal; the desktop drawer carries none.
+  const psActionProps = ps ? { look: 'playselect', filled: isMobile } : null;
+
   return (
     <Drawer
       anchor={isMobile ? 'bottom' : 'right'}
@@ -530,6 +575,8 @@ export default function PlayerDecisionCard(props) {
         'aria-busy': awaitingCard || undefined,
         'data-testid': 'decision-card',
         'data-variant': isMobile ? 'sheet' : 'drawer',
+        // ps-root scopes the Play-select focus ring and hover rules (playselect.css) to the drawer.
+        className: ps ? 'ps-root' : undefined,
         sx: {
           // f6 (formal review round 1): the body and ADR 0040 (Main.dc.html:18)
           // both say 560, not the 420 this shipped at; Compare's two-column
@@ -547,12 +594,25 @@ export default function PlayerDecisionCard(props) {
           borderTopLeftRadius: isMobile ? 16 : 0,
           borderTopRightRadius: isMobile ? 16 : 0,
           overflowY: 'auto',
+          // The primary frame: a 6px double rule on the Panel, square corners; the phone sheet has no bottom edge.
+          ...(ps ? {
+            borderRadius: 0,
+            border: '6px double var(--ps-frame)',
+            borderBottom: isMobile ? 0 : undefined,
+            backgroundColor: 'var(--ps-panel)',
+            backgroundImage: 'none',
+            color: 'var(--ps-ink)',
+            fontFamily: BODY_FONT,
+            boxShadow: 'none',
+            // MUI's Typography takes the theme font; every body line in the drawer takes Archivo.
+            '& .MuiTypography-root': { fontFamily: 'inherit' },
+          } : null),
         },
       }}
     >
       {entry && (
         <>
-          {isMobile && <DragHandle />}
+          {isMobile && <DragHandle ps={ps} />}
 
           {/* Risk review (#1311): the ONE case where the whole card waits on
               this read (a `fromCard()` context, before the payload answers)
@@ -565,6 +625,19 @@ export default function PlayerDecisionCard(props) {
             </Typography>
           )}
 
+          {ps ? (
+            <PsCardHeader
+              entry={entry}
+              displayEntry={displayEntry}
+              verdict={card?.startVerdict}
+              locked={isLocked}
+              spentFlag={spent(entry)}
+              titleRef={titleRef}
+              phone={isMobile}
+              nav={navIds ? { index: navIndex, total: navIds.length, canPrev, canNext, goPrev, goNext } : null}
+              onClose={handleClose}
+            />
+          ) : (
           <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 1, p: 2 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, minWidth: 0 }}>
               <HeaderAvatar name={displayEntry.name} nflTeam={displayEntry.nflTeam} photoUrl={displayEntry.photoUrl} />
@@ -660,6 +733,7 @@ export default function PlayerDecisionCard(props) {
               </IconButton>
             </Box>
           </Box>
+          )}
 
           {/* Formal review round 1, f1: restated from PlayerQuickView's own
               `!loading && error && <Alert severity="error">` - the one path
@@ -667,11 +741,16 @@ export default function PlayerDecisionCard(props) {
               explanation on failure, not a permanently near-empty dialog.
               MUI's Alert carries role="alert" itself. No action bar renders
               either way, since effectiveContext stays null on error too. */}
-          {cardFailed && (
+          {cardFailed && (ps ? (
+            <PsLoadError>{"We could not load this player's details."}</PsLoadError>
+          ) : (
             <Alert severity="error" sx={{ mx: 2, mb: 2 }} data-testid="decision-card-load-error">
               {"Couldn't load this player's details."}
             </Alert>
-          )}
+          ))}
+
+          {/* The loading skeleton (board PlayerCard): blocks where the actions and sections will land. */}
+          {ps && awaitingCard && <PsLoadingBlocks />}
 
           {effectiveContext === 'my_team' && !lineupManaged && (
             // f1 (formal review round 1, blocker): a my_team open with no
@@ -679,38 +758,34 @@ export default function PlayerDecisionCard(props) {
             // link that actually works, restated from the base behaviour
             // PlayerQuickView's "In lineup" action already gave it, rather
             // than a Bench/Start bar with no onSwap to call.
-            <Box data-testid="decision-card-actions" sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', px: 2, pb: 1.5 }}>
-              <Button
-                size="small"
+            <Box data-testid="decision-card-actions" sx={rowSx} {...rowProps}>
+              <CardButton
+                ps={ps}
                 variant="contained"
-                component={RouterLink}
                 to={`/league/${leagueId}/lineup`}
                 onClick={handleClose}
-                sx={MIN_TOUCH_TARGET_SX}
                 data-testid="decision-card-open-lineup"
               >
                 Open lineup
-              </Button>
+              </CardButton>
+              {watchInRow && watchSlot}
             </Box>
           )}
 
           {lineupManaged && (
-          <Box data-testid="decision-card-actions" sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', px: 2, pb: 1.5 }}>
+          <Box data-testid="decision-card-actions" sx={rowSx} {...rowProps}>
             {isStarting ? (
-              <Button
-                size="small"
-                variant="outlined"
+              <CardButton
+                ps={ps}
                 disabled={!benchAllowed}
                 onClick={() => onSwap?.([{ playerId: entry.playerId, slot: 'BENCH' }])}
-                sx={MIN_TOUCH_TARGET_SX}
                 data-testid="decision-card-bench-action"
               >
                 Bench
-              </Button>
+              </CardButton>
             ) : (
-              <Button
-                size="small"
-                variant="outlined"
+              <CardButton
+                ps={ps}
                 disabled={startTargets.length === 0}
                 aria-haspopup={startTargets.length > 1 ? 'menu' : undefined}
                 aria-expanded={startTargets.length > 1 ? Boolean(startMenuAnchor) : undefined}
@@ -719,17 +794,17 @@ export default function PlayerDecisionCard(props) {
                     ? startInto(startTargets[0])
                     : setStartMenuAnchor(event.currentTarget)
                 }
-                sx={MIN_TOUCH_TARGET_SX}
                 data-testid="decision-card-start-action"
               >
                 Start
-              </Button>
+              </CardButton>
             )}
             <Menu
               anchorEl={startMenuAnchor}
               open={Boolean(startMenuAnchor)}
               onClose={() => setStartMenuAnchor(null)}
               MenuListProps={{ 'aria-label': 'Eligible starting slots' }}
+              PaperProps={ps ? MENU_PAPER : undefined}
             >
               {startTargets.map((slot) => (
                 <MenuItem
@@ -744,23 +819,23 @@ export default function PlayerDecisionCard(props) {
               ))}
             </Menu>
 
-            <Button
+            <CardButton
+              ps={ps}
               ref={compareButtonRef}
-              size="small"
-              variant="outlined"
               aria-haspopup="menu"
               aria-expanded={Boolean(compareMenuAnchor)}
               onClick={(event) => setCompareMenuAnchor(event.currentTarget)}
-              sx={MIN_TOUCH_TARGET_SX}
               data-testid="decision-card-compare-action"
             >
               {compareEntry ? 'Change compare' : 'Compare'}
-            </Button>
+              {ps && <PixelCaret />}
+            </CardButton>
             <Menu
               anchorEl={compareMenuAnchor}
               open={Boolean(compareMenuAnchor)}
               onClose={() => setCompareMenuAnchor(null)}
               MenuListProps={{ 'aria-label': 'Players to compare' }}
+              PaperProps={ps ? MENU_PAPER : undefined}
             >
               {compareCandidates.length === 0 ? (
                 <MenuItem disabled>No other players to compare</MenuItem>
@@ -779,29 +854,25 @@ export default function PlayerDecisionCard(props) {
               )}
             </Menu>
 
-            <Button
-              size="small"
-              variant="outlined"
-              component={RouterLink}
+            <CardButton
+              ps={ps}
               to={`/league/${leagueId}/trades`}
               onClick={handleClose}
-              sx={MIN_TOUCH_TARGET_SX}
               data-testid="decision-card-trade"
             >
               Trade
-            </Button>
+            </CardButton>
 
-            <Button
-              size="small"
-              variant="outlined"
+            <CardButton
+              ps={ps}
               color="error"
               disabled={!dropAllowed}
               onClick={() => onRequestDrop?.(entry)}
-              sx={MIN_TOUCH_TARGET_SX}
               data-testid="decision-card-drop"
             >
               Drop
-            </Button>
+            </CardButton>
+            {watchInRow && watchSlot}
           </Box>
           )}
 
@@ -817,6 +888,7 @@ export default function PlayerDecisionCard(props) {
               availability={availability}
               roster={roster}
               onAdded={onActionDone}
+              {...psActionProps}
             />
           )}
           {effectiveContext === 'waivers' && (
@@ -826,26 +898,29 @@ export default function PlayerDecisionCard(props) {
               availability={availability}
               roster={roster}
               onClaimed={onActionDone}
+              {...psActionProps}
             />
           )}
           {effectiveContext === 'rostered' && (
-            <Box data-testid="decision-card-actions" sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', px: 2, pb: 1.5, alignItems: 'center' }}>
-              <Button
-                size="small"
-                variant="outlined"
-                component={RouterLink}
+            <Box
+              data-testid="decision-card-actions"
+              sx={ps ? rowSx : { display: 'flex', gap: 1, flexWrap: 'wrap', px: 2, pb: 1.5, alignItems: 'center' }}
+              {...rowProps}
+            >
+              <CardButton
+                ps={ps}
                 to={`/league/${leagueId}/trades`}
                 onClick={handleClose}
-                sx={MIN_TOUCH_TARGET_SX}
                 data-testid="decision-card-propose-trade"
               >
                 Propose trade
-              </Button>
+              </CardButton>
               {availability?.teamName && (
-                <Typography sx={{ fontSize: 12, color: 'var(--dash-faint)' }}>
+                <Typography sx={ps ? DIM_LINE_SX : { fontSize: 12, color: 'var(--dash-faint)' }}>
                   {`Rostered by ${availability.teamName}`}
                 </Typography>
               )}
+              {watchInRow && watchSlot}
             </Box>
           )}
           {/* #1313: the Draft room's own action bar - Draft/Queue for an
@@ -872,12 +947,12 @@ export default function PlayerDecisionCard(props) {
                 </Alert>
               </Box>
             ) : (
-              <Box data-testid="decision-card-actions" sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', px: 2, pb: 1.5 }}>
+              <Box data-testid="decision-card-actions" sx={rowSx} {...rowProps}>
                 {canDraft && (
                   <Tooltip title={draftUnavailableReason || ''}>
                     <span>
-                      <Button
-                        size="small"
+                      <CardButton
+                        ps={ps}
                         variant="contained"
                         color="success"
                         aria-disabled={draftUnavailableReason ? true : undefined}
@@ -896,24 +971,21 @@ export default function PlayerDecisionCard(props) {
                           if (draftUnavailableReason) return; // suppressed activation
                           onDraft?.();
                         }}
-                        sx={MIN_TOUCH_TARGET_SX}
                         data-testid="decision-card-draft-action"
                       >
                         Draft
-                      </Button>
+                      </CardButton>
                     </span>
                   </Tooltip>
                 )}
-                <Button
-                  size="small"
-                  variant="outlined"
+                <CardButton
+                  ps={ps}
                   disabled={queued}
                   onClick={() => onQueue?.()}
-                  sx={MIN_TOUCH_TARGET_SX}
                   data-testid="decision-card-queue-action"
                 >
                   {queued ? 'Queued' : 'Queue'}
-                </Button>
+                </CardButton>
                 {draftUnavailableReason && (
                   <Box id="decision-card-draft-unavailable-reason" sx={visuallyHidden}>
                     {draftUnavailableReason}
@@ -922,24 +994,19 @@ export default function PlayerDecisionCard(props) {
               </Box>
             )
           )}
-          {effectiveContext === 'draft' && <DraftPoolSection adp={adp} poolRank={navIndex >= 0 ? navIndex + 1 : null} />}
+          {effectiveContext === 'draft' && <DraftPoolSection ps={ps} adp={adp} poolRank={navIndex >= 0 ? navIndex + 1 : null} />}
           {/* #1312, ADR 0040 follow-up (grill ruling Q6, the design canvas's
               CardStates artboard): Watch/Watching across every Availability
               context - my_team included (the design draws it on all four
               card states) - never the `draft` context, which is not an
               Availability state (#1313). */}
-          {effectiveContext && effectiveContext !== 'draft' && (
-            <Box data-testid="decision-card-watch" sx={{ px: 2, pb: 1.5 }}>
-              <WatchPlayerAction
-                playerId={entry.playerId}
-                leagueId={leagueId}
-                watching={watching}
-                onToggled={setWatchingOverride}
-                onDone={onActionDone}
-              />
+          {effectiveContext && effectiveContext !== 'draft' && !watchInRow && (
+            <Box data-testid="decision-card-watch" sx={ps ? { px: '20px', pb: '16px' } : { px: 2, pb: 1.5 }}>
+              {watchButton}
             </Box>
           )}
-          {effectiveContext !== 'my_team' && <NewsSection news={card?.news} />}
+          <Stack ps={ps}>
+          {effectiveContext !== 'my_team' && <NewsSection ps={ps} news={card?.news} />}
 
           {compareEntry ? (
             // AC7: two cards side by side (stacked on a phone). The primary
@@ -967,19 +1034,25 @@ export default function PlayerDecisionCard(props) {
             // for here.
             <Box
               data-testid="decision-card-compare"
-              sx={{
+              sx={ps ? {
+                display: 'grid',
+                gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' },
+                gap: '16px',
+                alignItems: 'start',
+              } : {
                 display: 'grid',
                 gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' },
                 borderTop: '2px solid var(--dash-line)',
               }}
             >
-              <Box data-testid={`decision-card-compare-panel-${entry.playerId}`}>
-                <Typography component="h3" sx={{ fontWeight: 700, px: 2, pt: 1.5 }}>{entry.name}</Typography>
-                <InjurySection entry={entry} level="h4" practice={card?.player?.practice} practiceTestId="decision-card-practice" />
-                <GameSection entry={entry} line={line} weather={weather} level="h4" />
-                <ProjectionSection entry={entry} level="h4" volatility={card?.decision?.volatility} explanation={card?.explanation} />
-                <UsageSection usage={usage} opponents={opponents} position={entry.position} level="h4" />
+              <Box data-testid={`decision-card-compare-panel-${entry.playerId}`} sx={ps ? PS_PANEL_SX : undefined}>
+                <Typography component="h3" sx={ps ? PS_PANEL_NAME_SX : { fontWeight: 700, px: 2, pt: 1.5 }}>{entry.name}</Typography>
+                <InjurySection ps={ps} entry={entry} level="h4" practice={card?.player?.practice} practiceTestId="decision-card-practice" />
+                <GameSection ps={ps} entry={entry} line={line} weather={weather} level="h4" />
+                <ProjectionSection ps={ps} entry={entry} level="h4" volatility={card?.decision?.volatility} explanation={card?.explanation} />
+                <UsageSection ps={ps} usage={usage} opponents={opponents} position={entry.position} level="h4" />
                 <BenchOptionsSection
+                  ps={ps}
                   entry={entry}
                   entries={list}
                   onSwap={onSwap}
@@ -991,34 +1064,39 @@ export default function PlayerDecisionCard(props) {
               </Box>
               <Box
                 data-testid={`decision-card-compare-panel-${compareEntry.playerId}`}
-                sx={{ borderTop: { xs: '1px solid var(--dash-line)', md: 0 }, borderLeft: { md: '1px solid var(--dash-line)' } }}
+                sx={ps ? PS_PANEL_SX : { borderTop: { xs: '1px solid var(--dash-line)', md: 0 }, borderLeft: { md: '1px solid var(--dash-line)' } }}
               >
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', px: 2, pt: 1.5 }}>
+                <Box sx={ps ? { display: 'flex', justifyContent: 'space-between', alignItems: 'center' } : { display: 'flex', justifyContent: 'space-between', alignItems: 'center', px: 2, pt: 1.5 }}>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0, flexWrap: 'wrap' }}>
-                    <Typography component="h3" sx={{ fontWeight: 700 }}>{compareEntry.name}</Typography>
-                    <NoPracticeNote verdict={compareCard?.startVerdict} testId="decision-card-compare-no-practice" />
-                    <BackupNote verdict={compareCard?.startVerdict} testId="decision-card-compare-backup" />
+                    <Typography component="h3" sx={ps ? PS_PANEL_NAME_SX : { fontWeight: 700 }}>{compareEntry.name}</Typography>
+                    <NoPracticeNote ps={ps} verdict={compareCard?.startVerdict} testId="decision-card-compare-no-practice" />
+                    <BackupNote ps={ps} verdict={compareCard?.startVerdict} testId="decision-card-compare-backup" />
                   </Box>
-                  <IconButton size="small" aria-label="Clear compare" onClick={clearCompare} sx={MIN_TOUCH_TARGET_SX}>
-                    <CloseIcon fontSize="small" />
-                  </IconButton>
+                  {ps ? (
+                    <PsIconButton quiet label="Clear compare" onClick={clearCompare}><PixelClose /></PsIconButton>
+                  ) : (
+                    <IconButton size="small" aria-label="Clear compare" onClick={clearCompare} sx={MIN_TOUCH_TARGET_SX}>
+                      <CloseIcon fontSize="small" />
+                    </IconButton>
+                  )}
                 </Box>
-                <InjurySection entry={compareEntry} level="h4" practice={compareCard?.player?.practice} practiceTestId="decision-card-compare-practice" />
-                <GameSection entry={compareEntry} line={compareLine} weather={compareWeather} level="h4" />
-                <ProjectionSection entry={compareEntry} level="h4" volatility={compareCard?.decision?.volatility} explanation={compareCard?.explanation} />
-                <UsageSection usage={compareUsage} opponents={compareOpponents} position={compareEntry.position} level="h4" />
+                <InjurySection ps={ps} entry={compareEntry} level="h4" practice={compareCard?.player?.practice} practiceTestId="decision-card-compare-practice" />
+                <GameSection ps={ps} entry={compareEntry} line={compareLine} weather={compareWeather} level="h4" />
+                <ProjectionSection ps={ps} entry={compareEntry} level="h4" volatility={compareCard?.decision?.volatility} explanation={compareCard?.explanation} />
+                <UsageSection ps={ps} usage={compareUsage} opponents={compareOpponents} position={compareEntry.position} level="h4" />
               </Box>
             </Box>
           ) : (
             <>
-              <InjurySection entry={displayEntry} practice={card?.player?.practice} practiceTestId="decision-card-practice" />
-              {lineupManaged && <GameSection entry={entry} line={line} weather={weather} />}
-              {lineupManaged && <ProjectionSection entry={entry} volatility={card?.decision?.volatility} explanation={card?.explanation} />}
-              <UsageSection usage={usage} opponents={opponents} position={entry?.position} showTable={lineupManaged} />
+              <InjurySection ps={ps} entry={displayEntry} practice={card?.player?.practice} practiceTestId="decision-card-practice" />
+              {lineupManaged && <GameSection ps={ps} entry={entry} line={line} weather={weather} />}
+              {lineupManaged && <ProjectionSection ps={ps} entry={entry} volatility={card?.decision?.volatility} explanation={card?.explanation} />}
+              <UsageSection ps={ps} usage={usage} opponents={opponents} position={entry?.position} showTable={lineupManaged} />
               {/* #1307, ADR 0040: "Every context adds the decision strip ...
                   and the eighteen-week bars" - additive to my_team's own
                   Game/Projection/Usage sections above, not a replacement. */}
               <DecisionStripSection
+                ps={ps}
                 decision={card?.decision}
                 usage={card?.decision?.usage}
                 ownership={card?.ownership}
@@ -1031,26 +1109,40 @@ export default function PlayerDecisionCard(props) {
                   game log below now read the PICKED season's own `weeks`/
                   `log`, never the top-level `card.weeks`/`card.log` fields -
                   those went away with this ticket. */}
-              <SeasonSummarySection seasons={seasons} />
+              <SeasonSummarySection ps={ps} seasons={seasons} />
               <SeasonPickSection
+                ps={ps}
                 seasons={seasons}
                 value={selectedSeasonEntry?.season ?? null}
                 onChange={setPickedSeason}
               />
-              <WeeklyPointsBars
-                weeks={selectedSeasonEntry?.weeks}
-                currentWeek={isCurrentSeasonSelected ? card?.decision?.projWeek?.week : undefined}
-                seasonEnd={isCurrentSeasonSelected ? card?.seasonEnd : undefined}
-              />
+              {ps ? (
+                Array.isArray(selectedSeasonEntry?.weeks) && selectedSeasonEntry.weeks.length > 0 && (
+                  <PsSection title="Weekly points" testId="decision-card-weekly-section">
+                    <PsWeeklyBars
+                      weeks={selectedSeasonEntry.weeks}
+                      currentWeek={isCurrentSeasonSelected ? card?.decision?.projWeek?.week : undefined}
+                      seasonEnd={isCurrentSeasonSelected ? card?.seasonEnd : undefined}
+                    />
+                  </PsSection>
+                )
+              ) : (
+                <WeeklyPointsBars
+                  weeks={selectedSeasonEntry?.weeks}
+                  currentWeek={isCurrentSeasonSelected ? card?.decision?.projWeek?.week : undefined}
+                  seasonEnd={isCurrentSeasonSelected ? card?.seasonEnd : undefined}
+                />
+              )}
               {/* `card.seasons[i].log` is already the row array
                   `GameLogTable` reads as `log.current` (lead correction on
                   the issue thread) - wrapped here rather than changing
                   GameLogSection/GameLogTable, which live outside this
                   ticket's reservation. */}
-              <GameLogSection log={{ current: selectedSeasonEntry?.log ?? [] }} />
-              <Bio bio={card?.bio} />
+              <GameLogSection ps={ps} log={{ current: selectedSeasonEntry?.log ?? [] }} />
+              {ps ? <PsBio bio={card?.bio} /> : <Bio bio={card?.bio} />}
               {lineupManaged && (
                 <BenchOptionsSection
+                  ps={ps}
                   entry={entry}
                   entries={list}
                   onSwap={onSwap}
@@ -1061,6 +1153,7 @@ export default function PlayerDecisionCard(props) {
               )}
             </>
           )}
+          </Stack>
         </>
       )}
     </Drawer>
@@ -1078,12 +1171,197 @@ PlayerDecisionCard.propTypes = {
   leagueId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
   week: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
   context: PropTypes.object,
+  look: PropTypes.oneOf(['dash', 'playselect']),
 };
+
+// --- The playselect look (ADR 0067, spec #2347 ruling 7) -------------------------------------------------
+
+// A card action: MUI's small outlined button by default (contained for Open lineup and Draft), a square
+// ghost 44px button in the playselect look. Props and the ref pass to whichever button renders.
+const CardButton = React.forwardRef(function CardButton({
+  ps, variant = 'outlined', color, to, children, ...rest
+}, ref) {
+  if (ps) return <PsButton ref={ref} to={to} {...rest}>{children}</PsButton>;
+  return (
+    <Button
+      ref={ref}
+      size="small"
+      variant={variant}
+      color={color}
+      component={to ? RouterLink : undefined}
+      to={to}
+      sx={MIN_TOUCH_TARGET_SX}
+      {...rest}
+    >
+      {children}
+    </Button>
+  );
+});
+
+// The stack the sections sit in: 16px gaps under the header and action rows in the playselect look; the
+// default look has no wrapper, its sections are siblings.
+function Stack({ ps, children }) {
+  return ps ? <Box sx={PS_STACK_SX}>{children}</Box> : <>{children}</>;
+}
+
+const PS_PANEL_SX = { display: 'flex', flexDirection: 'column', gap: '16px', minWidth: 0 };
+const PS_PANEL_NAME_SX = { m: 0, fontSize: '17px', fontWeight: 700 };
+
+// A 44px square icon button: a transparent 2px edge, Ink glyph.
+function PsIconButton({ label, onClick, disabled, quiet, children, ...rest }) {
+  return (
+    <Box
+      component="button"
+      type="button"
+      aria-label={label}
+      onClick={onClick}
+      disabled={disabled}
+      {...rest}
+      sx={{
+        width: '44px',
+        height: '44px',
+        p: 0,
+        flex: 'none',
+        display: 'grid',
+        placeItems: 'center',
+        boxSizing: 'border-box',
+        borderRadius: 0,
+        backgroundColor: 'transparent',
+        border: '2px solid transparent',
+        color: quiet ? 'var(--ps-dim)' : 'var(--ps-ink)',
+        cursor: 'pointer',
+        '&[disabled]': { color: 'var(--ps-dim)', cursor: 'not-allowed' },
+      }}
+    >
+      {children}
+    </Box>
+  );
+}
+
+const Chevron = ({ dir }) => (
+  <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true" shapeRendering="crispEdges" style={{ flex: 'none' }}>
+    <path
+      d={dir === 'prev' ? 'M7 1h2v2H7zM5 3h2v2H5zM3 5h2v2H3zM5 7h2v2H5zM7 9h2v2H7z' : 'M3 1h2v2H3zM5 3h2v2H5zM7 5h2v2H7zM5 7h2v2H5zM3 9h2v2H3z'}
+      fill="currentColor"
+    />
+  </svg>
+);
+
+const PixelCaret = () => (
+  <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true" style={{ flex: 'none' }}>
+    <path d="M1 2h10v2H9v2H7v2H5V6H3V4H1z" fill="currentColor" />
+  </svg>
+);
+
+// The header: the player's square avatar, the name in Archivo 24 700 (a name is not pixel type) and the
+// in-row tags; the counter, previous, next and close sit at the right, or on their own row on a phone.
+// `nav` is null with no list to walk. The counter is a polite live region and holds text only.
+function PsCardHeader({
+  entry, displayEntry, verdict, locked: isLocked, spentFlag, titleRef, phone, nav, onClose,
+}) {
+  const controls = (
+    <Box sx={{ display: 'flex', alignItems: 'center', flex: 'none' }}>
+      {nav && (
+        <>
+          {nav.index >= 0 && (
+            <Box
+              component="span"
+              role="status"
+              aria-label={`Player ${nav.index + 1} of ${nav.total}`}
+              sx={{ fontSize: '14px', color: 'var(--ps-dim)', whiteSpace: 'nowrap', px: '6px' }}
+            >
+              {nav.index + 1} of {nav.total}
+            </Box>
+          )}
+          <PsIconButton label="Previous player" onClick={nav.goPrev} disabled={!nav.canPrev} data-testid="decision-card-prev">
+            <Chevron dir="prev" />
+          </PsIconButton>
+          <PsIconButton label="Next player" onClick={nav.goNext} disabled={!nav.canNext} data-testid="decision-card-next">
+            <Chevron dir="next" />
+          </PsIconButton>
+        </>
+      )}
+      <PsIconButton quiet label="Close" onClick={onClose} data-testid="decision-card-close"><PixelClose /></PsIconButton>
+    </Box>
+  );
+  const ident = (
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: '14px', minWidth: 0 }}>
+      <PlayerAvatar look="playselect" name={displayEntry.name} photoUrl={displayEntry.photoUrl} size={56} />
+      <Box sx={{ minWidth: 0 }}>
+        <Typography
+          id="decision-card-title"
+          ref={titleRef}
+          component="h2"
+          // Programmatically focusable for the prev/next effect, never in the tab order.
+          tabIndex={-1}
+          sx={{ m: 0, fontFamily: 'inherit', fontSize: '24px', lineHeight: 1.2, fontWeight: 700 }}
+          noWrap
+        >
+          {displayEntry.name}
+        </Typography>
+        <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '6px 8px', mt: '6px' }}>
+          {displayEntry.slot && <PosTag position={displayEntry.slot} />}
+          <PsInjuryTag status={displayEntry.injuryStatus} />
+          <NoPracticeNote ps verdict={verdict} testId="decision-card-no-practice" />
+          <BackupNote ps verdict={verdict} testId="decision-card-backup" />
+          <Box component="span" sx={{ fontSize: '14px', color: 'var(--ps-dim)' }}>{displayEntry.nflTeam}</Box>
+          {isLocked && (
+            <Box component="span" data-testid="decision-card-locked" sx={{ fontSize: '13px', fontWeight: 700, color: 'var(--ps-dim)' }}>
+              Locked
+            </Box>
+          )}
+          {spentFlag && <RowBadge data-testid="decision-card-spent">Spent</RowBadge>}
+        </Box>
+      </Box>
+    </Box>
+  );
+  return phone ? (
+    <Box sx={{ p: '0 8px 12px 16px' }}>
+      <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>{controls}</Box>
+      {ident}
+    </Box>
+  ) : (
+    <Box sx={{ p: '12px 8px 12px 20px', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '8px' }}>
+      {ident}
+      {controls}
+    </Box>
+  );
+}
+
+// The loading skeleton for a card that waits on its read (a `fromCard()` context): blocks where the actions
+// and the sections will land, hidden from assistive tech (the status line above them speaks).
+function PsLoadingBlocks() {
+  return (
+    <Box aria-hidden="true" sx={PS_STACK_SX}>
+      <Box sx={{ display: 'flex', gap: '8px' }}>
+        {[88, 120, 80].map((w) => <Skel key={w} width={`${w}px`} height={44} />)}
+      </Box>
+      {[0, 1].map((i) => (
+        <Frame key={i} component="div" tier="rule">
+          <Box sx={{ p: '14px 20px', borderBottom: '2px solid var(--ps-rule)' }}><Skel width="96px" height={16} /></Box>
+          <Box sx={{ p: '14px 20px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            <Skel width="60%" height={16} />
+            <Skel width="80%" height={16} />
+          </Box>
+        </Frame>
+      ))}
+    </Box>
+  );
+}
 
 // The phone sheet's drag handle (AC6): decorative only - the sheet closes on
 // Escape and the close control, never by an actual drag gesture this ticket
-// implements.
-function DragHandle() {
+// implements. In the playselect look it is a square 40x4 Rule bar.
+function DragHandle({ ps }) {
+  if (ps) {
+    return (
+      <Box
+        aria-hidden="true"
+        data-testid="decision-card-drag-handle"
+        sx={{ width: '40px', height: '4px', backgroundColor: 'var(--ps-rule)', m: '8px auto 4px', flex: 'none' }}
+      />
+    );
+  }
   return (
     <Box
       aria-hidden="true"
@@ -1136,7 +1414,8 @@ function HeaderAvatar({ name, nflTeam, photoUrl }) {
   );
 }
 
-function Section({ title, testId, level = 'h3', children }) {
+function Section({ ps, title, testId, level = 'h3', children }) {
+  if (ps) return <PsSection title={title} testId={testId} level={level}>{children}</PsSection>;
   return (
     <Box data-testid={testId} sx={{ px: 2, py: 1.5, borderTop: '1px solid var(--dash-line)' }}>
       {title && (
@@ -1165,8 +1444,9 @@ function Section({ title, testId, level = 'h3', children }) {
  * verdict (`card.startVerdict`, spec #2042), so every surface that opens the
  * card shows it; the verdict reads `no_practice` only for a Questionable player.
  */
-function NoPracticeNote({ verdict, testId }) {
+function NoPracticeNote({ ps, verdict, testId }) {
   if (verdict?.reason !== 'no_practice') return null;
+  if (ps) return <RowBadge data-testid={testId}>{NO_PRACTICE_LABEL}</RowBadge>;
   return <Badge variant="neutral" data-testid={testId}>{NO_PRACTICE_LABEL}</Badge>;
 }
 
@@ -1174,26 +1454,26 @@ function NoPracticeNote({ verdict, testId }) {
  * ADR 0057: "Backup" on a quarterback behind an available teammate, read off
  * the card payload's Start verdict. His number stays printed; this only tags it.
  */
-function BackupNote({ verdict, testId }) {
+function BackupNote({ ps, verdict, testId }) {
   if (verdict?.reason !== 'backup') return null;
+  if (ps) return <RowBadge data-testid={testId}>{BACKUP_LABEL}</RowBadge>;
   return <Badge variant="neutral" data-testid={testId}>{BACKUP_LABEL}</Badge>;
 }
 
 // AC2/AC3: the injury designation and the feed's detail, hidden only when the
 // designation and the Practice participation line (#1923, `practice`: the
 // card's `player.practice` entries, context only) are both absent.
-function InjurySection({ entry, level, practice, practiceTestId }) {
+function InjurySection({ ps, entry, level, practice, practiceTestId }) {
   const view = injuryTileView(entry);
   const entries = Array.isArray(practice) ? practice : [];
   if (!view && entries.length === 0) return null;
+  const dim = ps ? DIM_LINE_SX : { fontSize: 13, color: 'var(--dash-faint)', mt: 0.5 };
   return (
-    <Section title="Injury" testId="decision-card-injury" level={level}>
-      {view && <Typography sx={{ fontSize: 14 }}>{view.name}</Typography>}
-      {view && view.detail && (
-        <Typography sx={{ fontSize: 13, color: 'var(--dash-faint)', mt: 0.5 }}>{view.detail}</Typography>
-      )}
+    <Section ps={ps} title="Injury" testId="decision-card-injury" level={level}>
+      {view && <Typography sx={ps ? INK_LINE_SX : { fontSize: 14 }}>{view.name}</Typography>}
+      {view && view.detail && <Typography sx={dim}>{view.detail}</Typography>}
       {entries.length > 0 && (
-        <Typography data-testid={practiceTestId} sx={{ fontSize: 13, color: 'var(--dash-faint)', mt: view ? 0.5 : 0 }}>
+        <Typography data-testid={practiceTestId} sx={ps ? dim : { ...dim, mt: view ? 0.5 : 0 }}>
           {`Practice: ${entries.map((e) => `${e.status} (${e.day})`).join(', ')}`}
         </Typography>
       )}
@@ -1203,33 +1483,34 @@ function InjurySection({ entry, level, practice, practiceTestId }) {
 
 // AC2/AC3: opponent, kickoff, Line, Implied team total (both hidden together
 // on a null Line) and weather with indoor (hidden on a null weather).
-function GameSection({ entry, line, weather, level }) {
+function GameSection({ ps, entry, line, weather, level }) {
   const hasOpponent = entry.opponent != null;
   const kickoff = formatKickoff(entry.kickoff);
   const showLine = line != null;
   const showWeather = weather != null;
   if (!hasOpponent && !showLine && !showWeather) return null;
+  const dim = ps ? DIM_LINE_SX : { fontSize: 13, color: 'var(--dash-faint)' };
   return (
-    <Section title="Game" testId="decision-card-game" level={level}>
+    <Section ps={ps} title="Game" testId="decision-card-game" level={level}>
       {hasOpponent && (
-        <Typography sx={{ fontSize: 14 }} data-testid="decision-card-opponent">
+        <Typography sx={ps ? INK_LINE_SX : { fontSize: 14 }} data-testid="decision-card-opponent">
           {`vs ${entry.opponent}${kickoff ? ` · ${kickoff}` : ''}`}
         </Typography>
       )}
       {showLine && (
-        <Box data-testid="decision-card-line" sx={{ mt: 0.5, display: 'flex', gap: 1.5, flexWrap: 'wrap' }}>
-          <Typography sx={{ fontSize: 13, color: 'var(--dash-faint)' }}>
+        <Box data-testid="decision-card-line" sx={ps ? { display: 'flex', gap: '4px 12px', flexWrap: 'wrap' } : { mt: 0.5, display: 'flex', gap: 1.5, flexWrap: 'wrap' }}>
+          <Typography sx={dim}>
             {`Line: ${line.spread != null ? line.spread : '-'} / ${line.total != null ? line.total : '-'}`}
           </Typography>
           {line.impliedTeamTotal != null && (
-            <Typography data-testid="decision-card-implied-total" sx={{ fontSize: 13, color: 'var(--dash-faint)' }}>
+            <Typography data-testid="decision-card-implied-total" sx={dim}>
               {`Implied team total: ${formatPoints(line.impliedTeamTotal)}`}
             </Typography>
           )}
         </Box>
       )}
       {showWeather && (
-        <Typography data-testid="decision-card-weather" sx={{ mt: 0.5, fontSize: 13, color: 'var(--dash-faint)' }}>
+        <Typography data-testid="decision-card-weather" sx={ps ? dim : { mt: 0.5, ...dim }}>
           {weather.indoor
             ? 'Indoor'
             : [
@@ -1272,14 +1553,15 @@ function GameSection({ entry, line, weather, level }) {
 // from the card payload's `decision.volatility` (`steady` | `boom_or_bust`);
 // anything else (null, absent, a tag this build does not know) renders nothing,
 // never an "unavailable" (ADR 0040).
-function ProjectionSection({ entry, level, volatility, explanation }) {
+function ProjectionSection({ ps, entry, level, volatility, explanation }) {
   const factorText = entry.factorExplanation || null;
   const volatilityLabel = VOLATILITY_LABELS[volatility] ?? null;
+  const Bar = ps ? PsRangeBar : RangeBar;
   return (
-    <Section title="Weekly projection" testId="decision-card-projection" level={level}>
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+    <Section ps={ps} title="Weekly projection" testId="decision-card-projection" level={level}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: ps ? '12px' : 1 }}>
         <Box sx={{ flex: 1, minWidth: 0 }}>
-          <RangeBar
+          <Bar
             floor={entry.floor}
             ceiling={entry.ceiling}
             projection={hasNoHistory(entry) ? null : entry.projectedPoints}
@@ -1287,20 +1569,26 @@ function ProjectionSection({ entry, level, volatility, explanation }) {
             data-testid="decision-card-range-bar"
           />
         </Box>
-        {volatilityLabel && <Badge data-testid="decision-card-volatility">{volatilityLabel}</Badge>}
+        {volatilityLabel && (ps
+          ? <RowBadge data-testid="decision-card-volatility">{volatilityLabel}</RowBadge>
+          : <Badge data-testid="decision-card-volatility">{volatilityLabel}</Badge>)}
       </Box>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 0.5, fontSize: 12, color: 'var(--dash-faint)' }}>
+      <Box
+        sx={ps
+          ? { ...DIM_LINE_SX, fontSize: '13px', display: 'flex', justifyContent: 'space-between' }
+          : { display: 'flex', justifyContent: 'space-between', mt: 0.5, fontSize: 12, color: 'var(--dash-faint)' }}
+      >
         <span>{`Floor ${formatPoints(entry.floor)}`}</span>
         <span>{`Proj ${projectionLabel(entry)}`}</span>
         <span>{`Ceiling ${formatPoints(entry.ceiling)}`}</span>
       </Box>
       {factorText && (
-        <Typography data-testid="decision-card-factor" sx={{ mt: 1, fontSize: 13 }}>
+        <Typography data-testid="decision-card-factor" sx={ps ? { ...INK_LINE_SX, fontSize: '14px' } : { mt: 1, fontSize: 13 }}>
           {factorText}
         </Typography>
       )}
       {explanation && (
-        <Typography variant="body2" data-testid="decision-card-explanation" sx={{ mt: 1, fontSize: 13 }}>
+        <Typography variant="body2" data-testid="decision-card-explanation" sx={ps ? { ...INK_LINE_SX, fontSize: '14px' } : { mt: 1, fontSize: 13 }}>
           {explanation}
         </Typography>
       )}
@@ -1313,7 +1601,7 @@ function ProjectionSection({ entry, level, volatility, explanation }) {
 // #1609: the "Opp rank vs <POS>" line under the table, one entry per next
 // game, rendering nothing when there are none (ADR 0040). It shows in every
 // context; the table itself stays with the lineup-managed card (`showTable`).
-function UsageSection({ usage, opponents, position, level, showTable = true }) {
+function UsageSection({ ps, usage, opponents, position, level, showTable = true }) {
   const hasTable = showTable && usage && Array.isArray(usage.weeks) && usage.weeks.length > 0;
   const hasOpponents = Array.isArray(opponents) && opponents.length > 0;
   if (!hasTable && !hasOpponents) return null;
@@ -1323,6 +1611,51 @@ function UsageSection({ usage, opponents, position, level, showTable = true }) {
         { ...usage.seasonAverage, isAverage: true },
       ]
     : [];
+  if (ps) {
+    return (
+      <PsSection title="Usage" testId="decision-card-usage" level={level} pad={false}>
+        {hasTable && (
+          <PsTable
+            label="Usage"
+            testId="decision-card-usage-table"
+            minWidth={480}
+            cols={[
+              { label: 'Week' },
+              { label: 'Tgt', align: 'right' },
+              { label: 'Car', align: 'right' },
+              { label: 'Air yds', align: 'right' },
+              { label: 'Snaps', align: 'right' },
+              { label: 'Tgt share', align: 'right' },
+              { label: 'FPTS', align: 'right' },
+            ]}
+            rows={rows.map((row) => ({
+              key: row.isAverage ? 'season-average' : `${row.season}-${row.week}`,
+              cells: [
+                row.isAverage ? 'Season avg' : `Wk ${row.week}`,
+                row.targets ?? '-',
+                row.carries ?? '-',
+                row.airYards ?? '-',
+                row.snaps != null
+                  ? `${row.snaps}${row.snapShare != null ? ` (${Math.round(row.snapShare * 100)}%)` : ''}`
+                  : '-',
+                row.targetShare != null ? `${Math.round(row.targetShare * 100)}%` : '-',
+                formatPoints(row.fantasyPoints),
+              ],
+            }))}
+          />
+        )}
+        {hasOpponents && (
+          <Typography
+            data-testid="decision-card-opp-rank"
+            sx={{ ...DIM_LINE_SX, p: '12px 20px 14px', ...(hasTable ? { borderTop: '2px solid var(--ps-rule)' } : null) }}
+          >
+            Opp rank vs {position}:{' '}
+            {opponents.map((o) => `W${o.week} ${o.opponent} ${ordinal(o.rankVsPosition)}`).join(', ')}
+          </Typography>
+        )}
+      </PsSection>
+    );
+  }
   return (
     <Section title="Usage" testId="decision-card-usage" level={level}>
       {hasTable && (
@@ -1374,7 +1707,7 @@ function UsageSection({ usage, opponents, position, level, showTable = true }) {
 // `hasContent` restates `DecisionStrip`'s own per-tile null checks (the
 // same duplicated-on-purpose shape `GameLogSection` below already uses)
 // rather than rendering an empty, still-titled Section around nothing.
-function DecisionStripSection({ decision, usage, ownership, depth, rosterStatus, noHistory }) {
+function DecisionStripSection({ ps, decision, usage, ownership, depth, rosterStatus, noHistory }) {
   const hasContent =
     (decision?.projWeek && decision.projWeek.points != null) ||
     (decision?.ros && decision.ros.points != null) ||
@@ -1384,9 +1717,10 @@ function DecisionStripSection({ decision, usage, ownership, depth, rosterStatus,
     (depth && depth.positionGroup && depth.rank != null) ||
     Boolean(rosterStatus);
   if (!hasContent) return null;
+  const Strip = ps ? PsDecisionStrip : DecisionStrip;
   return (
-    <Section title="Decision strip" testId="decision-card-strip-section">
-      <DecisionStrip
+    <Section ps={ps} title="Decision strip" testId="decision-card-strip-section">
+      <Strip
         decision={decision}
         usage={usage}
         ownership={ownership}
@@ -1405,8 +1739,40 @@ function DecisionStripSection({ decision, usage, ownership, depth, rosterStatus,
 // record (the card hasn't answered yet); the payload otherwise always
 // carries at least the current season, even for a rookie with no rows on
 // file (#1356 ruling).
-function SeasonSummarySection({ seasons }) {
+function SeasonSummarySection({ ps, seasons }) {
   if (!Array.isArray(seasons) || seasons.length === 0) return null;
+  if (ps) {
+    return (
+      <PsSection title="Season summary" testId="decision-card-season-summary-section" pad={false}>
+        <PsTable
+          label="Season summary"
+          testId="decision-card-seasons"
+          minWidth={440}
+          cols={[
+            { label: 'Season' },
+            { label: 'G', align: 'right' },
+            { label: 'FPTS/G', align: 'right' },
+            { label: 'Pts', align: 'right' },
+            { label: 'Pos rank', align: 'right' },
+            { label: 'ADP', align: 'right' },
+          ]}
+          rows={seasons.map((row) => ({
+            key: row.season,
+            cells: [
+              row.season,
+              row.games,
+              formatPoints(row.pointsPerGame),
+              formatPoints(row.points),
+              row.posRank != null && row.posRankOf != null
+                ? `${row.posRank} of ${row.posRankOf}`
+                : <DashValue label="no rank on record" />,
+              row.adp != null ? formatPoints(row.adp) : <DashValue label="no ADP on record" />,
+            ],
+          }))}
+        />
+      </PsSection>
+    );
+  }
   return (
     <Section title="Season summary" testId="decision-card-season-summary-section">
       {/* Six columns at the 390px sheet's own width (ADR 0040's premise-check
@@ -1482,17 +1848,18 @@ function DashValue({ label }) {
 // radiogroup would let a manager pick nothing else anyway. Each segment is
 // at least 44px tall, the same `sx` override PickWeek and LineupPage's
 // mobile view toggle already apply to this same shared/ui control.
-function SeasonPickSection({ seasons, value, onChange }) {
+function SeasonPickSection({ ps, seasons, value, onChange }) {
   if (!Array.isArray(seasons) || seasons.length < 2) return null;
   const options = seasons.map((row) => ({ value: row.season, label: String(row.season) }));
   return (
-    <Box sx={{ px: 2, pt: 1.5 }}>
+    <Box sx={ps ? undefined : { px: 2, pt: 1.5 }}>
       <SegmentedControl
         aria-label="Season"
         data-testid="decision-card-season-pick"
         options={options}
         value={value}
         onChange={onChange}
+        look={ps ? 'playselect' : undefined}
         sx={{ '& [role="radio"]': { minHeight: 44 } }}
       />
     </Box>
@@ -1506,8 +1873,18 @@ function SeasonPickSection({ seasons, value, onChange }) {
 // Chips, matching the fantasy strip the room's old PlayerQuickView rendered
 // for the identical facts. Hidden entirely with neither fact to show (a
 // player the market has not ranked, opened outside the pool's own order).
-function DraftPoolSection({ adp, poolRank }) {
+function DraftPoolSection({ ps, adp, poolRank }) {
   if (adp == null && poolRank == null) return null;
+  if (ps) {
+    return (
+      <Box data-testid="decision-card-draft-pool" sx={{ display: 'flex', gap: '8px', flexWrap: 'wrap', px: '20px', pb: '16px' }}>
+        {adp != null && <RowBadge data-testid="decision-card-draft-adp">{`ADP ${adp}`}</RowBadge>}
+        {poolRank != null && (
+          <RowBadge data-testid="decision-card-draft-best-available">{`Best available #${poolRank}`}</RowBadge>
+        )}
+      </Box>
+    );
+  }
   return (
     <Box data-testid="decision-card-draft-pool" sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', px: 2, pb: 1.5 }}>
       {adp != null && (
@@ -1528,11 +1905,12 @@ function DraftPoolSection({ adp, poolRank }) {
 // #1307, ADR 0040/CONTEXT.md's News: shown for every Availability context
 // but the caller's own player, so the card only asks for it there; hidden
 // entirely on an empty list, `entities/player`'s NewsList's own rule.
-function NewsSection({ news }) {
+function NewsSection({ ps, news }) {
   if (!Array.isArray(news) || news.length === 0) return null;
+  const List = ps ? PsNewsList : NewsList;
   return (
-    <Section title="News" testId="decision-card-news-section">
-      <NewsList news={news} />
+    <Section ps={ps} title="News" testId="decision-card-news-section">
+      <List news={news} />
     </Section>
   );
 }
@@ -1542,8 +1920,24 @@ function NewsSection({ news }) {
 // `buildPlayerSummary`'s current-season weekly rows, the same producer
 // PlayerQuickView's own current-season table reads. Hidden with no played
 // week yet.
-function GameLogSection({ log }) {
+function GameLogSection({ ps, log }) {
   if (!Array.isArray(log?.current) || log.current.length === 0) return null;
+  if (ps) {
+    return (
+      <PsSection title="Game log" testId="decision-card-gamelog-section" pad={false}>
+        <PsTable
+          label="Game log"
+          testId="decision-card-game-log"
+          minWidth={440}
+          cols={[{ label: 'Week' }, { label: 'Opponent' }, { label: 'Stat line' }, { label: 'FPTS', align: 'right' }]}
+          rows={log.current.map((row) => ({
+            key: row.week,
+            cells: [`Wk ${row.week}`, row.opponent || '-', statLine(row.statLine), formatPoints(row.points)],
+          }))}
+        />
+      </PsSection>
+    );
+  }
   return (
     <Section title="Game log" testId="decision-card-gamelog-section">
       <GameLogTable log={log} />
@@ -1570,39 +1964,44 @@ function GameLogSection({ log }) {
 // "the lock shown" for the opened player himself is the header's Locked/
 // Spent indicator, not a duplicate per-row note - that note stays reserved
 // below for a locked CANDIDATE specifically, an independent fact.
-function BenchOptionsSection({ entry, entries, onSwap, level, hidden, bestBall, leagueUnsettled }) {
+function BenchOptionsSection({ ps, entry, entries, onSwap, level, hidden, bestBall, leagueUnsettled }) {
   if (hidden) return null;
   const options = benchOptionsForSlot(entries, entry.slot, { entry, bestBall, leagueUnsettled });
   if (options.length === 0) return null;
   return (
-    <Section title="Bench options" testId="decision-card-bench-options" level={level}>
-      <Box component="ul" role="list" sx={{ listStyle: 'none', m: 0, p: 0, display: 'grid', gap: 1 }}>
-        {options.map(({ entry: candidate, locked: candidateLocked, swapEligible }) => (
+    <Section ps={ps} title="Bench options" testId="decision-card-bench-options" level={level}>
+      <Box component="ul" role="list" sx={{ listStyle: 'none', m: 0, p: 0, display: 'grid', gap: ps ? 0 : 1 }}>
+        {options.map(({ entry: candidate, locked: candidateLocked, swapEligible }, i) => (
           <Box
             component="li"
             key={candidate.playerId}
-            sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: ps ? '12px' : 1,
+              ...(ps ? { py: '6px', borderBottom: i < options.length - 1 ? '2px solid var(--ps-rule)' : 0 } : null),
+            }}
           >
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
-              <PosChip position={candidate.position} />
-              <Typography sx={{ fontSize: 13 }} noWrap>{candidate.name}</Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: ps ? '10px' : 1, minWidth: 0 }}>
+              {ps ? <PosTag position={candidate.position} /> : <PosChip position={candidate.position} />}
+              <Typography sx={ps ? { fontSize: '15px', fontWeight: 600 } : { fontSize: 13 }} noWrap>{candidate.name}</Typography>
               {/* #1482, formal-002-f1: projectedPoints (the Point estimate),
                   never projection (the mean) - the same number the candidate's
                   own Ledger row headlines and the sort below orders by. */}
-              <Typography sx={{ fontSize: 12, color: 'var(--dash-faint)' }}>{projectionLabel(candidate)}</Typography>
+              <Typography sx={ps ? { ...DIM_LINE_SX, flex: 'none' } : { fontSize: 12, color: 'var(--dash-faint)' }}>{projectionLabel(candidate)}</Typography>
               {candidateLocked && (
                 <Typography
                   component="span"
                   data-testid="decision-card-bench-option-lock"
-                  sx={{ fontSize: 11, fontWeight: 700, color: 'var(--dash-faint)' }}
+                  sx={ps ? { fontSize: '13px', fontWeight: 700, color: 'var(--ps-dim)' } : { fontSize: 11, fontWeight: 700, color: 'var(--dash-faint)' }}
                 >
                   Locked
                 </Typography>
               )}
             </Box>
-            <Button
-              size="small"
-              variant="outlined"
+            <CardButton
+              ps={ps}
               disabled={!swapEligible}
               aria-label={`Swap in ${candidate.name}`}
               onClick={() =>
@@ -1611,11 +2010,10 @@ function BenchOptionsSection({ entry, entries, onSwap, level, hidden, bestBall, 
                   { playerId: entry.playerId, slot: candidate.slot },
                 ])
               }
-              sx={MIN_TOUCH_TARGET_SX}
               data-testid={`decision-card-bench-swap-${candidate.playerId}`}
             >
               Swap
-            </Button>
+            </CardButton>
           </Box>
         ))}
       </Box>
