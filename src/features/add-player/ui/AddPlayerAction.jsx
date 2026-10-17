@@ -3,8 +3,9 @@ import { Box, Button, FormControl, InputLabel, MenuItem, Select, Typography } fr
 import { MIN_TOUCH_TARGET_SX, isRosterAtCapacity, sortRosterForDrop } from '../../../shared/lib';
 import { useAddPlayer } from '../model/useAddPlayer';
 // New playselect file, imported by direct path (the look is opt-in, see `look` below).
+import { PsButton } from '../../../shared/ui/playselect';
 import {
-  ActionButton, FIELD_SX, FieldLabel, MENU_PAPER,
+  FIELD_SX, FieldLabel, MENU_PAPER,
 } from '../../../shared/ui/playselect/CardControls';
 
 /**
@@ -61,7 +62,7 @@ export default function AddPlayerAction({
                 <MenuItem key={p.id} value={p.id}>
                   {p.name} ({p.position})
                   {p.projected_weekly_points != null && (
-                    <Typography component="span" sx={{ fontSize: '14px', color: 'var(--ps-dim)', ml: 1 }}>
+                    <Typography component="span" sx={{ fontFamily: 'inherit', fontSize: '14px', color: 'var(--ps-dim)', ml: 1 }}>
                       weekly proj {p.projected_weekly_points}
                     </Typography>
                   )}
@@ -71,16 +72,16 @@ export default function AddPlayerAction({
           </Box>
         )}
         <Box sx={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-          <ActionButton
+          <PsButton
             variant={filled ? 'fill' : 'ghost'}
             disabled={pending || (atCapacity && dropPlayerId === '')}
             onClick={handleAdd}
             data-testid="add-player-submit"
           >
             {atCapacity ? 'Add and drop' : 'Add to roster'}
-          </ActionButton>
+          </PsButton>
           {availability?.rosterCount != null && (
-            <Typography sx={{ fontSize: '14px', color: 'var(--ps-dim)' }}>
+            <Typography sx={{ fontFamily: 'inherit', fontSize: '14px', color: 'var(--ps-dim)' }}>
               {`Roster ${availability.rosterCount} of ${availability.rosterCapacity}`}
             </Typography>
           )}

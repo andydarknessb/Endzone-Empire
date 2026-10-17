@@ -4,8 +4,9 @@ import { MIN_TOUCH_TARGET_SX, isRosterAtCapacity, sortRosterForDrop } from '../.
 import { useClaimPlayer } from '../model/useClaimPlayer';
 import { bidHelperText, isValidBid } from '../model/bidValidity';
 // New playselect file, imported by direct path (the look is opt-in, see `look` below).
+import { PsButton } from '../../../shared/ui/playselect';
 import {
-  ActionButton, FIELD_SX, FieldLabel, HINT_SX, MENU_PAPER,
+  FIELD_SX, FieldLabel, HINT_SX, MENU_PAPER,
 } from '../../../shared/ui/playselect/CardControls';
 
 /**
@@ -55,7 +56,7 @@ export default function ClaimPlayerAction({
         sx={{ display: 'flex', flexDirection: 'column', gap: '14px', px: '16px', pb: '16px' }}
       >
         {atCapacity && (
-          <Typography sx={{ fontSize: '14px', color: 'var(--ps-dim)' }} data-testid="claim-player-capacity-note">
+          <Typography sx={{ fontFamily: 'inherit', fontSize: '14px', color: 'var(--ps-dim)' }} data-testid="claim-player-capacity-note">
             Your roster is full. Choose a player to drop when this claim clears.
           </Typography>
         )}
@@ -97,16 +98,16 @@ export default function ClaimPlayerAction({
           </Box>
         )}
         <Box sx={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-          <ActionButton
+          <PsButton
             variant={filled ? 'fill' : 'ghost'}
             disabled={pending || bidInvalid || dropMissing}
             onClick={handleClaim}
             data-testid="claim-player-submit"
           >
             Claim
-          </ActionButton>
+          </PsButton>
           {availability?.waiverPriority != null && (
-            <Typography sx={{ fontSize: '14px', color: 'var(--ps-dim)' }}>{`Priority #${availability.waiverPriority}`}</Typography>
+            <Typography sx={{ fontFamily: 'inherit', fontSize: '14px', color: 'var(--ps-dim)' }}>{`Priority #${availability.waiverPriority}`}</Typography>
           )}
         </Box>
       </Box>

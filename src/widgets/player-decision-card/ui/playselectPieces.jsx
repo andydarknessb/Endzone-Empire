@@ -38,8 +38,8 @@ export const PS_STACK_SX = {
   display: 'flex', flexDirection: 'column', gap: '16px', p: '0 16px 16px', flexShrink: 0, minWidth: 0,
 };
 
-export const INK_LINE_SX = { fontSize: '15px', m: 0 };
-export const DIM_LINE_SX = { fontSize: '14px', color: 'var(--ps-dim)', m: 0 };
+export const INK_LINE_SX = { fontFamily: 'inherit', fontSize: '15px', m: 0 };
+export const DIM_LINE_SX = { fontFamily: 'inherit', fontSize: '14px', color: 'var(--ps-dim)', m: 0 };
 
 /** An in-row badge: Archivo 13 700 uppercase on a 2px Rule edge (the product's neutral Badge). */
 export function RowBadge({ children, ...rest }) {

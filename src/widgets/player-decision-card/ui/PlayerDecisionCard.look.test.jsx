@@ -395,3 +395,17 @@ describe('look="playselect", compare', () => {
     expect(buttonsIn(screen.getByTestId('decision-card')).filter(isFilled)).toHaveLength(0);
   });
 });
+
+describe('look="playselect", type', () => {
+  test('body lines take the page font (Archivo), not the theme font MUI Typography would apply', async () => {
+    mockCardRoute({ ...RICH_CARD });
+    renderCard({ look: 'playselect', context: lineupContext() });
+    const dialog = await screen.findByTestId('decision-card');
+    const opponent = await screen.findByTestId('decision-card-opponent');
+
+    // The paper sets Archivo and each body line inherits it; MUI's own Typography rule is reset to inherit.
+    expect(own(dialog)).toMatch(/Archivo/);
+    expect(own(opponent)).toMatch(/font-family: inherit/);
+    expect(getComputedStyle(opponent).fontFamily).toMatch(/Archivo|inherit/);
+  });
+});

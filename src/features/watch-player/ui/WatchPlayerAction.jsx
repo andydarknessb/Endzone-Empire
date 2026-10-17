@@ -3,7 +3,7 @@ import { Button } from '@mui/material';
 import { MIN_TOUCH_TARGET_SX } from '../../../shared/lib';
 import { useWatchPlayer } from '../model/useWatchPlayer';
 // New playselect file, imported by direct path (the look is opt-in, see `look` below).
-import { ActionButton } from '../../../shared/ui/playselect/CardControls';
+import { PsButton } from '../../../shared/ui/playselect';
 
 /**
  * The Decision card's Watch action (#1312, ADR 0040 follow-up, grill ruling
@@ -36,7 +36,7 @@ export default function WatchPlayerAction({
 
   if (look === 'playselect') {
     return (
-      <ActionButton
+      <PsButton
         variant={watching ? 'selected' : 'ghost'}
         disabled={pending || playerId == null}
         onClick={handleClick}
@@ -44,7 +44,7 @@ export default function WatchPlayerAction({
         data-testid="watch-player-action"
       >
         {watching ? 'Watching' : 'Watch'}
-      </ActionButton>
+      </PsButton>
     );
   }
 

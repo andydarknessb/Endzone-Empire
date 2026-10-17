@@ -27,10 +27,10 @@ import {
   Badge, InjuryTag, PlayerAvatar, PosChip, RangeBar, SegmentedControl, statLine,
 } from '../../../shared/ui';
 import {
-  BODY_FONT, Frame, InjuryTag as PsInjuryTag, PixelClose, PosTag, Skel,
+  BODY_FONT, Frame, InjuryTag as PsInjuryTag, PixelClose, PosTag, PsButton, Skel,
 } from '../../../shared/ui/playselect';
 // New playselect file, imported by direct path (ADR 0067, wave 3 `look` option).
-import { ActionButton, MENU_PAPER } from '../../../shared/ui/playselect/CardControls';
+import { MENU_PAPER } from '../../../shared/ui/playselect/CardControls';
 import {
   DIM_LINE_SX, INK_LINE_SX, PS_STACK_SX, PsBio, PsDecisionStrip, PsLoadError, PsNewsList, PsRangeBar, PsSection, PsTable,
   PsWeeklyBars, RowBadge,
@@ -539,7 +539,7 @@ export default function PlayerDecisionCard(props) {
     ? { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px', px: '20px', pb: '16px' }
     : { display: 'flex', gap: 1, flexWrap: 'wrap', px: 2, pb: 1.5 };
   const rowProps = ps ? { role: 'group', 'aria-label': 'Player actions' } : null;
-  const watchInRow = ps && (lineupManaged || effectiveContext === 'rostered');
+  const watchInRow = ps && (lineupManaged || effectiveContext === 'rostered' || effectiveContext === 'my_team');
   const watchButton = entry && (
     <WatchPlayerAction
       playerId={entry.playerId}
@@ -604,6 +604,8 @@ export default function PlayerDecisionCard(props) {
             color: 'var(--ps-ink)',
             fontFamily: BODY_FONT,
             boxShadow: 'none',
+            // MUI's Typography takes the theme font; every body line in the drawer takes Archivo.
+            '& .MuiTypography-root': { fontFamily: 'inherit' },
           } : null),
         },
       }}
@@ -766,6 +768,7 @@ export default function PlayerDecisionCard(props) {
               >
                 Open lineup
               </CardButton>
+              {watchInRow && watchSlot}
             </Box>
           )}
 
@@ -1070,7 +1073,7 @@ export default function PlayerDecisionCard(props) {
                     <BackupNote ps={ps} verdict={compareCard?.startVerdict} testId="decision-card-compare-backup" />
                   </Box>
                   {ps ? (
-                    <PsIconButton label="Clear compare" onClick={clearCompare}><PixelClose /></PsIconButton>
+                    <PsIconButton quiet label="Clear compare" onClick={clearCompare}><PixelClose /></PsIconButton>
                   ) : (
                     <IconButton size="small" aria-label="Clear compare" onClick={clearCompare} sx={MIN_TOUCH_TARGET_SX}>
                       <CloseIcon fontSize="small" />
@@ -1178,7 +1181,7 @@ PlayerDecisionCard.propTypes = {
 const CardButton = React.forwardRef(function CardButton({
   ps, variant = 'outlined', color, to, children, ...rest
 }, ref) {
-  if (ps) return <ActionButton ref={ref} to={to} {...rest}>{children}</ActionButton>;
+  if (ps) return <PsButton ref={ref} to={to} {...rest}>{children}</PsButton>;
   return (
     <Button
       ref={ref}
@@ -1205,7 +1208,7 @@ const PS_PANEL_SX = { display: 'flex', flexDirection: 'column', gap: '16px', min
 const PS_PANEL_NAME_SX = { m: 0, fontSize: '17px', fontWeight: 700 };
 
 // A 44px square icon button: a transparent 2px edge, Ink glyph.
-function PsIconButton({ label, onClick, disabled, children, ...rest }) {
+function PsIconButton({ label, onClick, disabled, quiet, children, ...rest }) {
   return (
     <Box
       component="button"
@@ -1225,7 +1228,7 @@ function PsIconButton({ label, onClick, disabled, children, ...rest }) {
         borderRadius: 0,
         backgroundColor: 'transparent',
         border: '2px solid transparent',
-        color: 'var(--ps-ink)',
+        color: quiet ? 'var(--ps-dim)' : 'var(--ps-ink)',
         cursor: 'pointer',
         '&[disabled]': { color: 'var(--ps-dim)', cursor: 'not-allowed' },
       }}
@@ -1278,7 +1281,7 @@ function PsCardHeader({
           </PsIconButton>
         </>
       )}
-      <PsIconButton label="Close" onClick={onClose} data-testid="decision-card-close"><PixelClose /></PsIconButton>
+      <PsIconButton quiet label="Close" onClick={onClose} data-testid="decision-card-close"><PixelClose /></PsIconButton>
     </Box>
   );
   const ident = (
