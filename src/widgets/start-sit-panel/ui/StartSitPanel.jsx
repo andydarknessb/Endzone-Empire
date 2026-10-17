@@ -310,17 +310,8 @@ export default function StartSitPanel({
   );
 }
 
-// A separator stays with the word before it, so a line may end with the dot and never start with one.
-function glueDots(text) {
-  const parts = String(text).split(' · ');
-  return parts.map((part, i) => (
-    // eslint-disable-next-line react/no-array-index-key
-    <React.Fragment key={i}>
-      {i < parts.length - 1 ? <span style={{ whiteSpace: 'nowrap' }}>{`${part} ·`}</span> : part}
-      {i < parts.length - 1 ? ' ' : null}
-    </React.Fragment>
-  ));
-}
+// A separator stays with the word before it (a non-breaking space), so a line may end with the dot and never start with one.
+const glueDots = (text) => String(text).replace(/(\S+) · /g, '$1\u00a0· ');
 
 const VERDICT = {
   strong: { text: 'Strong start', attr: 'strong' },

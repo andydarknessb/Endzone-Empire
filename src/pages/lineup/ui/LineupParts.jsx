@@ -44,7 +44,7 @@ export function LineupHead({
           <LeagueSelect leagues={leagues} value={selectedLeagueId} onChange={onSelectLeague} />
         )}
         {week != null && (
-          <Box sx={{ minWidth: 0, flex: { xs: '1 1 100%', md: 'none' } }}>
+          <Box sx={{ minWidth: 0, maxWidth: '100%', width: { xs: '100%', md: '460px' }, flex: { xs: '1 1 100%', md: 'none' } }}>
             <PickWeek weeks={weeks} value={week} onChange={onWeek} fill={compact} look="playselect" allWeeks={false} />
           </Box>
         )}

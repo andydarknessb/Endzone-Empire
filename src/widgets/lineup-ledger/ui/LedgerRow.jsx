@@ -74,7 +74,7 @@ function GameCell({ view, dim }) {
         data-testid="ledger-game-cell"
         data-game-state={view.reason === 'bye' ? 'bye' : 'unavailable'}
         sx={{
-          display: 'inline-flex', alignItems: 'center', boxSizing: 'border-box', minHeight: '28px', padding: '0 8px', border: '2px solid var(--ps-rule)', ...stateSx, whiteSpace: 'normal',
+          display: 'flex', width: 'fit-content', maxWidth: '100%', alignItems: 'center', boxSizing: 'border-box', minHeight: '28px', padding: '0 8px', border: '2px solid var(--ps-rule)', ...stateSx, whiteSpace: 'normal',
         }}
       >
         {upperFirst(view.reasonLabel || 'unavailable')}
