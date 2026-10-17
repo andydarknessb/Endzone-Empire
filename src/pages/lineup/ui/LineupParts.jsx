@@ -43,7 +43,7 @@ export function LineupHead({
                   to={`/league/${selectedLeagueId}`}
                   aria-label={`${leagueName} dashboard`}
                   sx={{
-                    color: 'inherit', textDecoration: 'underline', textDecorationThickness: '2px', textUnderlineOffset: '4px', textDecorationColor: 'var(--ps-dim)', py: '12px',
+                    color: 'inherit', textDecoration: 'underline', textDecorationThickness: '2px', textUnderlineOffset: '4px', textDecorationColor: 'var(--ps-dim)', py: '15px',
                   }}
                 >
                   {leagueName}
