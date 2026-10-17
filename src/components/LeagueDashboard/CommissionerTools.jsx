@@ -69,6 +69,12 @@ const WAIVER_PERIOD_OPTIONS = [
   { hours: 72, label: '72 hours after a drop' },
 ];
 
+// ADR 0069: the league's Voice for the Recap and Matchup narrative. `null` is Neutral.
+const NARRATIVE_VOICE_OPTIONS = [
+  { value: null, label: 'Neutral' },
+  { value: 'polk_high_legend', label: 'Polk High Legend' },
+];
+
 // A field that is the whole row on a phone and its designed width from sm up.
 // Every fixed `minWidth` in this tree used to be unconditional, which on a
 // 390px phone pushed a 260px select past the card it sits in.
@@ -596,6 +602,18 @@ function GeneralSettingsPanel({
     }
   };
 
+  // Applies on pick, like the transactions lock above: one enum with nothing to
+  // batch, so no draft and no Save button. Neutral is `null` on the wire.
+  const handleChooseVoice = async (voice) => {
+    try {
+      await apiClient.put(`/api/league/${leagueId}`, { narrativeVoice: voice });
+      notify('Voice saved');
+      onRefresh();
+    } catch (err) {
+      report(err);
+    }
+  };
+
   const handleSaveLimits = async () => {
     try {
       // A pick'em-only league has no draft for a minimum to gate, so only the
@@ -714,6 +732,23 @@ function GeneralSettingsPanel({
           />
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', ml: 4.5 }}>
             Applies immediately. Freezes adds, drops, waiver claims, and trades for the entire league.
+          </Typography>
+        </Box>
+      )}
+
+      {!pickemOnly && (
+        <Box>
+          <Typography variant="subtitle2" component="h4" sx={{ mb: 1 }}>Voice</Typography>
+          <SegmentedControl
+            aria-label="Voice"
+            data-testid="narrative-voice-control"
+            options={NARRATIVE_VOICE_OPTIONS}
+            value={league.narrative_voice ?? null}
+            onChange={handleChooseVoice}
+          />
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+            How the weekly Recap and Matchup write-ups sound. Polk High Legend is a washed-up high school star
+            who roasts the week's decisions, never the managers.
           </Typography>
         </Box>
       )}

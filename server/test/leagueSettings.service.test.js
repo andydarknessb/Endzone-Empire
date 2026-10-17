@@ -243,8 +243,8 @@ test('the UPDATE parameters: roster_limit is derived from the merged roster shap
   const db = fakeDb({ status: statusRow({ roster_slots: [{ key: 'QB', count: 1, eligiblePositions: ['QB'] }, { key: 'RB', count: 2, eligiblePositions: ['RB'] }], bench_slots: 4, ir_slots: 1 }) });
   await run(db, { name: 'Renamed', benchSlots: 6, positionCaps: { QB: 3, RB: 5 } });
   const update = db.calls.find((c) => c.text.startsWith('UPDATE "leagues"'));
-  // 39, not 37: #116 appended draftTimezoneProvided/draftTimezone as $38/$39.
-  assert.equal(update.params.length, 39);
+  // 41, not 39: the Voice (ADR 0069) appended narrativeVoiceProvided/narrativeVoice as $40/$41.
+  assert.equal(update.params.length, 41);
   // An empty name is a parse-time 400 since #66, so the write path's || null
   // coercion is unreachable for a provided name; a valid one passes through.
   assert.equal(update.params[0], 'Renamed');
@@ -255,6 +255,7 @@ test('the UPDATE parameters: roster_limit is derived from the merged roster shap
   assert.equal(update.params[36], false, 'tradeDeadlineWeek was not sent');
   assert.equal(update.params[37], false, 'draftTimezone was not sent');
   assert.equal(update.params[38], null, 'draftTimezone value is null when not sent');
+  assert.equal(update.params[39], false, 'narrativeVoice was not sent');
 });
 test('notification: fired once, after COMMIT, on the pool argument (not the client), with the scheduled verb and date', async (t) => {
   const db = fakeDb({ status: statusRow({ draft_date: null }) });
@@ -639,4 +640,29 @@ test('the auction conversion race: zero rows + a re-read saying auction is the d
   assert.equal(error.message, 'this league was converted to a salary-cap auction; auction drafts cannot be scheduled');
   assert.deepEqual(db.firstWord(), ['SELECT', 'UPDATE', 'SELECT']);
   assert.match(db.calls[1].text, /AND "draft_type" <> 'auction'/);
+});
+
+test('narrativeVoice (ADR 0069) writes tri-state: sent sets or clears the Voice, absent leaves it, and a league past the draft still accepts it', async () => {
+  const set = fakeDb({ status: statusRow({ draft_status: 'completed' }) });
+  assert.deepEqual(await run(set, { narrativeVoice: 'polk_high_legend' }), UPDATED_ROW);
+  const update = set.calls.find((c) => c.text.startsWith('UPDATE "leagues"'));
+  assert.match(update.text, /"narrative_voice" = CASE WHEN \$40::boolean THEN \$41::text ELSE "narrative_voice" END/);
+  assert.deepEqual(update.params.slice(39), [true, 'polk_high_legend']);
+  assert.doesNotMatch(update.text, /draft_status. = .pending./, 'no draft-freeze guard rides a Voice-only edit');
+
+  const clear = fakeDb();
+  await run(clear, { narrativeVoice: null });
+  assert.deepEqual(clear.calls.find((c) => c.text.startsWith('UPDATE "leagues"')).params.slice(39), [true, null]);
+
+  const absent = fakeDb();
+  await run(absent, { name: 'Ballers' });
+  assert.deepEqual(absent.calls.find((c) => c.text.startsWith('UPDATE "leagues"')).params.slice(39), [false, null]);
+});
+
+test("narrativeVoice is refused for a pick'em-only league like every fantasy-only setting", async () => {
+  const db = fakeDb({ status: statusRow({ pickem_only: true }) });
+  const error = await refusal(db, { narrativeVoice: 'polk_high_legend' });
+  assert.equal(error.statusCode, 409);
+  assert.equal(error.message, "these settings do not apply to a pick'em league: narrativeVoice");
+  assertNoSettingsWrite(db);
 });
