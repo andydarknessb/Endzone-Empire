@@ -17,6 +17,8 @@
  * so a real overflow or an under-sized control has somewhere to hide.
  */
 import { expect, test } from '@playwright/test';
+import { json } from './fixtures/jsonRoute';
+import { MATCHUP_URL, setupLayoutGuard } from './fixtures/layoutGuardFixtures';
 import {
   setupDecisionCardLayoutGuard,
   PLAYER_NAME,
@@ -227,3 +229,81 @@ test('negative control: the width predicate reports a forced sheet overflow', as
   const after = await page.evaluate(probeWidth, '[data-testid="decision-card"]');
   expect(after.scrollWidth).toBeLessThanOrEqual(after.clientWidth + 1);
 });
+
+// Spec #2347 ruling 7 (wave 3): the playselect look's one-filled-action rule. The phone sheet is modal, so it
+// may carry exactly one filled button (the Claim); the desktop drawer carries none. The default look's
+// contained Claim counts as a filled button too, so the waivers sheet half holds under either look. The
+// playselect drawer is asserted on Matchup below, which passes the look on this branch.
+const FILLED = '[data-variant="fill"], .MuiButton-contained';
+
+test('the sheet carries at most one filled button', async ({ page }) => {
+  await setupDecisionCardLayoutGuard(page);
+  await page.setViewportSize({ width: WIDTH, height: HEIGHT });
+  await page.goto(WAIVERS_URL);
+  await page.getByRole('button', { name: new RegExp(`^${PLAYER_NAME}`) }).click();
+  const card = page.getByTestId('decision-card');
+  await expect(card).toHaveAttribute('data-variant', 'sheet');
+  await expect(page.getByTestId('claim-player-action')).toBeVisible();
+  expect(await card.locator(FILLED).count()).toBeLessThanOrEqual(1);
+});
+
+test('the desktop drawer at 1440: no horizontal scroll and 44px controls', async ({ page }) => {
+  await setupDecisionCardLayoutGuard(page);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(WAIVERS_URL);
+  await page.getByRole('button', { name: new RegExp(`^${PLAYER_NAME}`) }).click();
+  const card = page.getByTestId('decision-card');
+  await expect(card).toHaveAttribute('data-variant', 'drawer');
+  await expect(page.getByTestId('weekly-points-bars')).toBeVisible();
+  await page.evaluate(() => document.fonts.ready.then(() => true));
+
+  const width = await page.evaluate(probeWidth, '[data-testid="decision-card"]');
+  expect(
+    width.scrollWidth,
+    `decision-card @ 1440: scrollWidth=${width.scrollWidth} clientWidth=${width.clientWidth}${width.worst ? ` worst overhang: ${JSON.stringify(width.worst)}` : ''}`
+  ).toBeLessThanOrEqual(width.clientWidth + 1);
+  const tapTargets = await page.evaluate(probeTapTargets, '[data-testid="decision-card"]');
+  for (const box of tapTargets.boxes) {
+    expect(box.height, `"${box.name}" is ${box.width}x${box.height}, under the 44px minimum`).toBeGreaterThanOrEqual(44);
+  }
+});
+
+// Matchup passes look="playselect" (spec #2347 ruling 7), so this is the playselect card in a real browser: the
+// drawer carries no filled button at 1440 and the sheet none at 390 (a rostered open has no Claim), the paper is
+// the playselect frame, and a body line is Archivo, not the theme font Typography would otherwise take.
+for (const [name, size] of [['drawer at 1440', { width: 1440, height: 900 }], ['sheet at 390', { width: WIDTH, height: HEIGHT }]] as const) {
+  test(`Matchup's playselect card, ${name}: no filled button, Archivo body lines, no sideways scroll`, async ({ page }) => {
+    await setupLayoutGuard(page, { view: 'standard' });
+    // Registered after the harness, so it wins: a small card read for whichever player the bench row opens.
+    await page.route('**/api/players/*/card*', (route) => json(route, 200, {
+      line: null,
+      weather: null,
+      usage: null,
+      watching: false,
+      decision: { projWeek: { week: 7, points: 12.1 }, ros: { points: 150.2, throughWeek: 18 } },
+      seasons: [],
+      news: [{ headline: 'Logged a full practice on Friday.', publishedAt: null }],
+    }));
+    await page.setViewportSize(size);
+    await page.goto(MATCHUP_URL);
+    // An away starter is the other side's player: a rostered open, which prints "Rostered by {team}".
+    await page.getByRole('button', { name: 'Josh Allen', exact: true }).click();
+    const card = page.getByTestId('decision-card');
+    await expect(card).toHaveAttribute('data-variant', size.width < 600 ? 'sheet' : 'drawer');
+    await expect(card).toHaveClass(/ps-root/);
+    await expect(card.getByTestId('decision-strip')).toBeVisible();
+    await page.evaluate(() => document.fonts.ready.then(() => true));
+
+    expect(await card.locator(FILLED).count(), 'no filled button in the Matchup card').toBe(0);
+    const fonts = await card.evaluate((el) => {
+      const lines = Array.from(el.querySelectorAll('p, [data-testid="decision-strip"] *'))
+        .filter((n) => (n.textContent || '').trim() && n.children.length === 0)
+        .map((n) => getComputedStyle(n).fontFamily);
+      return { count: lines.length, other: lines.filter((f) => !/Archivo/.test(f) && !/Press Start/.test(f)) };
+    });
+    expect(fonts.count, 'the card has body lines to measure').toBeGreaterThan(0);
+    expect(fonts.other, 'every body line is Archivo or the pixel face').toEqual([]);
+    const width = await page.evaluate(probeWidth, '[data-testid="decision-card"]');
+    expect(width.scrollWidth).toBeLessThanOrEqual(width.clientWidth + 1);
+  });
+}

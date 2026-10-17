@@ -11,8 +11,36 @@ import { initialsFor } from '../lib/initials';
  * A player's headshot with a position-colored, initials fallback when no
  * photo_url is available. Shared by the players table, quick-view, and the
  * full profile page so avatars look identical everywhere.
+ *
+ * `look="playselect"` (ADR 0067, wave 3): a neutral square on `ps-*` tokens, an Ink 2px edge and Ink
+ * initials, with no position or jersey colour. The default look is unchanged.
  */
-function PlayerAvatar({ name, position, photoUrl, size = 32 }) {
+function PlayerAvatar({ name, position, photoUrl, size = 32, look = 'dash' }) {
+  if (look === 'playselect') {
+    return (
+      <Avatar
+        aria-hidden="true"
+        variant="square"
+        src={photoUrl || undefined}
+        imgProps={{ loading: 'lazy' }}
+        sx={{
+          width: size,
+          height: size,
+          boxSizing: 'border-box',
+          border: '2px solid var(--ps-ink)',
+          borderRadius: 0,
+          fontFamily: 'inherit',
+          fontSize: 13,
+          fontWeight: 700,
+          lineHeight: 1,
+          bgcolor: 'var(--ps-panel)',
+          color: 'var(--ps-ink)',
+        }}
+      >
+        {initialsFor(name)}
+      </Avatar>
+    );
+  }
   // Match the position chip; fall back to the neutral (DEF) fill when unknown.
   const colorSx = positionColorSx(position) || {
     bgcolor: 'var(--pos-def)',
