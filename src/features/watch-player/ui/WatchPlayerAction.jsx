@@ -2,6 +2,8 @@ import React from 'react';
 import { Button } from '@mui/material';
 import { MIN_TOUCH_TARGET_SX } from '../../../shared/lib';
 import { useWatchPlayer } from '../model/useWatchPlayer';
+// New playselect file, imported by direct path (the look is opt-in, see `look` below).
+import { PsButton } from '../../../shared/ui/playselect';
 
 /**
  * The Decision card's Watch action (#1312, ADR 0040 follow-up, grill ruling
@@ -18,14 +20,33 @@ import { useWatchPlayer } from '../model/useWatchPlayer';
  * `/:id/card` read has no refetch of its own - `shared/lib`'s `useEndpoint`
  * only re-reads on a URL change). `onDone` is the same best-effort refresh
  * hook every other action-bar button already takes (`onActionDone`).
+ *
+ * `look` is `'dash'` (default, every current caller) or `'playselect'` (ADR 0067, spec #2347 ruling 7):
+ * a square ghost toggle, and the Play-blue selected state while watching, never the green filled action.
  */
-export default function WatchPlayerAction({ playerId, leagueId, watching, onToggled, onDone }) {
+export default function WatchPlayerAction({
+  playerId, leagueId, watching, onToggled, onDone, look = 'dash',
+}) {
   const { toggleWatch, pending } = useWatchPlayer({ leagueId, onDone });
 
   const handleClick = async () => {
     const outcome = await toggleWatch({ playerId, watching });
     if (outcome.ok) onToggled?.(outcome.watching);
   };
+
+  if (look === 'playselect') {
+    return (
+      <PsButton
+        variant={watching ? 'selected' : 'ghost'}
+        disabled={pending || playerId == null}
+        onClick={handleClick}
+        aria-pressed={watching}
+        data-testid="watch-player-action"
+      >
+        {watching ? 'Watching' : 'Watch'}
+      </PsButton>
+    );
+  }
 
   return (
     <Button

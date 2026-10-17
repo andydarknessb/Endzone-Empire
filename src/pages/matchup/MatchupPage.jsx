@@ -341,6 +341,7 @@ export default function MatchupPage() {
         entry={decisionCardEntry}
         leagueId={Number(leagueId)}
         context={decisionCardBuiltContext}
+        look="playselect"
       />
     </Shell>
   );
