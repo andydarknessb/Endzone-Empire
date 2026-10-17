@@ -447,18 +447,16 @@ function UserPage() {
                 updatedAt={updatedAt}
               />
               {!gameDay && (
-                <>
-                  <LeagueNews
-                    items={newsItems}
-                    awaiting={loadingNews && !haveNews}
-                    error={Boolean(newsFailure) && !haveNews}
-                    onRetry={refetchNews}
-                  />
-                  <Suspense fallback={null}>
-                    <PublicHighlights />
-                  </Suspense>
-                </>
+                <LeagueNews
+                  items={newsItems}
+                  awaiting={loadingNews && !haveNews}
+                  error={Boolean(newsFailure) && !haveNews}
+                  onRetry={refetchNews}
+                />
               )}
+              <Suspense fallback={null}>
+                <PublicHighlights />
+              </Suspense>
               <AlertPrompt leagues={myLeagues} />
               {!isDesktop && joinCreate}
             </>

@@ -182,7 +182,7 @@ export default function TeamSummaryStrip({
         {hasAttentionRow && (
           <Box data-testid="strip-attention" sx={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
             {/* On a phone the label heads its own line, so the chips share one row under it. */}
-            <Box component="span" sx={{ ...CAPTION_SX, flexBasis: { xs: '100%', sm: 'auto' } }}>Needs attention</Box>
+            <Box component="span" sx={{ ...CAPTION_SX, flexBasis: { xs: '100%', sm: 'auto' } }}>Watch</Box>
             {questionableChips.map((chip) => <AttentionChip key={chip.key} testId={chip.testId}>{chip.label}</AttentionChip>)}
             {byeChips.map((chip) => <AttentionChip key={chip.key} testId={chip.testId}>{chip.label}</AttentionChip>)}
             {byeClusterAttention && (

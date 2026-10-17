@@ -4,11 +4,12 @@ import { renderWithProviders } from '../../../test-utils/renderWithProviders';
 import { LeagueLinks, PickemTile, ScoreTile } from './index';
 
 describe('LeagueLinks', () => {
-  test('runs Matchup, Lineup, Picks, Waivers whatever order it is given, and drops the rest', () => {
+  test('runs Matchup, Lineup, Picks, Waivers, Dashboard whatever order it is given, and drops the rest', () => {
     renderWithProviders(
       <LeagueLinks
         league="Sunday League"
         links={[
+          { label: 'Dashboard', to: '/d' },
           { label: 'Waivers', to: '/w' },
           { label: 'Picks', to: '/p' },
           { label: 'Matchup', to: '/m' },
@@ -18,7 +19,7 @@ describe('LeagueLinks', () => {
       />
     );
     const nav = screen.getByRole('navigation', { name: 'Sunday League' });
-    expect(within(nav).getAllByRole('link').map((a) => a.textContent)).toEqual(['Matchup', 'Lineup', 'Picks', 'Waivers']);
+    expect(within(nav).getAllByRole('link').map((a) => a.textContent)).toEqual(['Matchup', 'Lineup', 'Picks', 'Waivers', 'Dashboard']);
     expect(within(nav).getByRole('link', { name: 'Sunday League matchup' })).toHaveAttribute('href', '/m');
   });
 
