@@ -140,7 +140,7 @@ describe('before kickoff', () => {
     expect(within(panel).getByText('105.9')).toBeInTheDocument();
     expect(within(panel).getByText('98.4')).toBeInTheDocument();
     expect(within(panel).getByText('Lineup set')).toBeInTheDocument();
-    expect(linkNames(within(panel).getByRole('navigation', { name: 'Thursday Night Regulars' }))).toEqual(['Matchup', 'Lineup', 'Waivers']);
+    expect(linkNames(within(panel).getByRole('navigation', { name: 'Thursday Night Regulars' }))).toEqual(['Matchup', 'Lineup', 'Waivers', 'Dashboard']);
     expect(within(panel).getByRole('link', { name: 'Thursday Night Regulars matchup' })).toHaveAttribute('href', '/league/71/matchups/912');
   });
 
@@ -165,10 +165,10 @@ describe('before kickoff', () => {
     expect(declaredStyle(filled[0])).not.toContain('live');
   });
 
-  test("pick'em on a fantasy league adds Picks between Lineup and Waivers and a progress line", () => {
+  test("pick'em on a fantasy league adds Picks between Lineup and Waivers, Dashboard comes last, and a progress line", () => {
     renderGrid({ leagues: [fantasyLeague({ pickem: { made: 3, total: 14, missing: 11, nextLockAt: future(DAY_MS) } })] });
     const panel = panelFor('Thursday Night Regulars');
-    expect(linkNames(within(panel).getByRole('navigation'))).toEqual(['Matchup', 'Lineup', 'Picks', 'Waivers']);
+    expect(linkNames(within(panel).getByRole('navigation'))).toEqual(['Matchup', 'Lineup', 'Picks', 'Waivers', 'Dashboard']);
     expect(within(panel).getByText('Week 6 picks: 3 of 14 made')).toBeInTheDocument();
   });
 
@@ -185,7 +185,7 @@ describe('before kickoff', () => {
     const panel = panelFor('Thursday Night Regulars');
     expect(within(panel).getByText('Bye week')).toBeInTheDocument();
     expect(screen.queryByRole('img', { name: /win probability/ })).toBeNull();
-    expect(linkNames(within(panel).getByRole('navigation'))).toEqual(['Lineup', 'Waivers']);
+    expect(linkNames(within(panel).getByRole('navigation'))).toEqual(['Lineup', 'Waivers', 'Dashboard']);
   });
 
   test("a pick'em-only league shows the standing and picks progress, and no season points", () => {
@@ -196,7 +196,7 @@ describe('before kickoff', () => {
     expect(within(panel).getByText('of 12')).toBeInTheDocument();
     expect(within(panel).getByText('Week 6 picks: 9 of 15 made')).toBeInTheDocument();
     expect(within(panel).queryByText(/points?\b/i)).toBeNull();
-    expect(linkNames(within(panel).getByRole('navigation'))).toEqual(['Picks']);
+    expect(linkNames(within(panel).getByRole('navigation'))).toEqual(['Picks', 'Dashboard']);
   });
 
   test('a pre-draft league shows the draft line, seats, the invite code and the draft room', () => {
@@ -251,7 +251,7 @@ describe('final', () => {
     expect(declaredStyle(within(panel).getByText('112.6'))).toContain('var(--ps-ink)');
     expect(declaredStyle(within(panel).getByText('97.0'))).toContain('var(--ps-dim)');
     expect(screen.queryByRole('img', { name: /win probability/ })).toBeNull();
-    expect(linkNames(within(panel).getByRole('navigation'))).toEqual(['Matchup', 'Lineup', 'Waivers']);
+    expect(linkNames(within(panel).getByRole('navigation'))).toEqual(['Matchup', 'Lineup', 'Waivers', 'Dashboard']);
   });
 
   test('a loss shows the chip alone, no trophy, and dims your score', () => {
@@ -278,7 +278,7 @@ describe('live', () => {
     expect(within(tile).getByText('4-1 · 2nd of 10, 1 starter Out')).toBeInTheDocument();
     expect(within(score).getByRole('img', { name: /% win probability$/ }).children).toHaveLength(20);
     // The score block is the matchup link; the foot has the rest.
-    expect(linkNames(within(tile).getByRole('navigation'))).toEqual(['Lineup', 'Waivers']);
+    expect(linkNames(within(tile).getByRole('navigation'))).toEqual(['Lineup', 'Waivers', 'Dashboard']);
   });
 
   test('a trailing live league reads "Down" and dims your score', () => {

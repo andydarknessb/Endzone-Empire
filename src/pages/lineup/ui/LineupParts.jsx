@@ -1,7 +1,7 @@
 import React from 'react';
 import { Box } from '@mui/material';
 import {
-  Frame, LiveChip, PixelArrow, PixelHeading, PixelWarn, PsButton, Tag, TeamMark,
+  Frame, LiveChip, PixelArrow, PixelHeading, PixelWarn, PsButton, PsLink, Tag, TeamMark,
 } from '../../../shared/ui/playselect';
 import PickWeek from '../../../features/pick-week';
 
@@ -34,6 +34,16 @@ export function LineupHead({
         <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '4px 12px', minWidth: 0 }}>
           <Box data-testid="lineup-league-line" sx={{ fontSize: { xs: '14px', sm: '15px' }, fontWeight: 600, color: 'var(--ps-dim)' }}>
             {leagueName ? `Lineup · ${leagueName}` : 'Lineup'}
+            {/* The dashboard of the league the page is showing, so it follows the League select. */}
+            {selectedLeagueId != null && (
+              <>
+                {' · '}
+                <PsLink to={`/league/${selectedLeagueId}`}>
+                  Dashboard
+                  <Box component="span" aria-hidden="true" sx={{ ml: '4px' }}>▸</Box>
+                </PsLink>
+              </>
+            )}
             {/* On a phone the times note rides this line instead of costing a row of its own. */}
             <Box component="span" sx={{ display: { xs: 'inline', sm: 'none' }, fontWeight: 400 }}>{` · Times in ${zone}`}</Box>
           </Box>

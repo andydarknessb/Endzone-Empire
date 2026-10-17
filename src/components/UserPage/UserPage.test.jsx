@@ -321,7 +321,7 @@ describe('game day', () => {
     return Promise.resolve({ data: [] });
   });
 
-  test('League news and Columns are left out, and the grid is told it is live', async () => {
+  test('League news is left out, and the grid is told it is live', async () => {
     gameDayApi();
     renderPage();
 
@@ -329,8 +329,15 @@ describe('game day', () => {
     await flushEffects();
     expect(screen.getByTestId('league-grid')).toHaveAttribute('data-live', 'true');
     expect(screen.queryByRole('heading', { name: 'League news' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('heading', { name: 'Columns' })).not.toBeInTheDocument();
     expect(screen.queryByText('A trade went through')).not.toBeInTheDocument();
+  });
+
+  test('Columns still shows under the grid, once', async () => {
+    gameDayApi();
+    renderPage();
+
+    expect(await screen.findByRole('heading', { level: 2, name: 'Columns' })).toBeInTheDocument();
+    expect(screen.getAllByRole('heading', { level: 2, name: 'Columns' })).toHaveLength(1);
   });
 
   describe('with fake timers', () => {

@@ -93,16 +93,17 @@ function lineupText(lineup) {
   return problems.length === 1 ? problems[0] : `${problems[0]} · ${problems.length - 1} more`;
 }
 
-// The links a league has; the primitive sorts them into Matchup, Lineup, Picks, Waivers.
+// The links a league has; the primitive sorts them into Matchup, Lineup, Picks, Waivers, Dashboard.
 function leagueLinks(league) {
   const { status } = league;
   const base = `/league/${league.id}`;
-  if (statusVariant(league) === 'pickem') return [{ label: 'Picks', to: `${base}/pickem` }];
+  const dashboard = { label: 'Dashboard', to: base };
+  if (statusVariant(league) === 'pickem') return [{ label: 'Picks', to: `${base}/pickem` }, dashboard];
   const links = [];
   if (status.matchup) links.push({ label: 'Matchup', to: `${base}/matchups/${status.matchup.id}` });
   links.push({ label: 'Lineup', to: `${base}/lineup` });
   if (status.pickem) links.push({ label: 'Picks', to: `${base}/pickem` });
-  links.push({ label: 'Waivers', to: `${base}/waivers` });
+  links.push({ label: 'Waivers', to: `${base}/waivers` }, dashboard);
   return links;
 }
 

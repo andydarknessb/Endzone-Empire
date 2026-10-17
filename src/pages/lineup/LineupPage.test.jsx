@@ -1786,6 +1786,19 @@ describe('the head', () => {
     expect(screen.queryByLabelText('League')).toBeNull();
   });
 
+  test('the league line ends in a Dashboard link to the selected league, and follows the League select', async () => {
+    const user = userEvent.setup();
+    renderPage({
+      ...withEntries([qb(), rb(), wr(), benchWr()]),
+      [LEAGUES_URL]: { data: [{ id: 1, name: 'Sunday Ballers', pickem_only: false }, { id: 2, name: 'Monday Misfits', pickem_only: false }] },
+    });
+    const line = await screen.findByTestId('lineup-league-line');
+    expect(line).toHaveTextContent('Lineup · Sunday Ballers · Dashboard▸');
+    expect(within(line).getByRole('link', { name: 'Dashboard' })).toHaveAttribute('href', '/league/1');
+    await user.selectOptions(await screen.findByLabelText('League'), '2');
+    expect(within(screen.getByTestId('lineup-league-line')).getByRole('link', { name: 'Dashboard' })).toHaveAttribute('href', '/league/2');
+  });
+
   test('a manager in more than one league gets the League select', async () => {
     const user = userEvent.setup();
     renderPage({
