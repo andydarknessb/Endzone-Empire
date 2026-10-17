@@ -22,6 +22,11 @@ includes fantasy football it owns its own scoring rules, roster shape, schedule
 and playoff structure; a pick'em league owns none of those.
 _Avoid_: pool, group, room
 
+**League dashboard**:
+One league's home page: its standings, this week's matchups and the league's
+activity. Links to it are labelled Dashboard.
+_Avoid_: league home, league page
+
 **League type**:
 The create-time, immutable choice of what a league plays: fantasy football,
 NFL pick'em, or both. "Both" is a fantasy league with pick'em enabled from the

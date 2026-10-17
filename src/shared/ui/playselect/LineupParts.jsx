@@ -5,7 +5,7 @@ import { SR_ONLY_SX } from './type';
 // Pieces the wave 3 Lineup slices share (ADR 0067, spec #2347): the Floor to Ceiling band, the ruled stat line,
 // the small pictograms and the screen-reader-only text. Imported by direct path, never through the playselect index.
 
-/** The 13px 700 uppercase Dim label that heads a column or a group (Sit, Start, Needs attention). */
+/** The 13px 700 uppercase Dim label that heads a column or a group (Sit, Start, Watch). */
 export const CAPTION_SX = {
   fontSize: '13px',
   fontWeight: 700,

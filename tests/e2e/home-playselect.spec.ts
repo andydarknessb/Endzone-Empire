@@ -59,7 +59,7 @@ async function settled(page: Page, state: HomeState) {
     await expect(page.getByRole('heading', { name: state === 'gameday' ? 'Live scores' : 'My leagues' })).toBeVisible();
     await expect(page.locator('.slot').first()).toBeVisible();
   }
-  if (state !== 'gameday') await expect(page.getByRole('heading', { name: 'Columns' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Columns' })).toBeVisible();
   await page.evaluate(() => document.fonts.ready.then(() => true));
 }
 

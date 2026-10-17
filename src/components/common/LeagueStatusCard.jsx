@@ -93,16 +93,17 @@ function lineupText(lineup) {
   return problems.length === 1 ? problems[0] : `${problems[0]} · ${problems.length - 1} more`;
 }
 
-// The links a league has; the primitive sorts them into Matchup, Lineup, Picks, Waivers.
+// The links a league has; the primitive sorts them into Matchup, Lineup, Picks, Waivers, Dashboard.
 function leagueLinks(league) {
   const { status } = league;
   const base = `/league/${league.id}`;
-  if (statusVariant(league) === 'pickem') return [{ label: 'Picks', to: `${base}/pickem` }];
+  const dashboard = { label: 'Dashboard', to: base };
+  if (statusVariant(league) === 'pickem') return [{ label: 'Picks', to: `${base}/pickem` }, dashboard];
   const links = [];
   if (status.matchup) links.push({ label: 'Matchup', to: `${base}/matchups/${status.matchup.id}` });
   links.push({ label: 'Lineup', to: `${base}/lineup` });
   if (status.pickem) links.push({ label: 'Picks', to: `${base}/pickem` });
-  links.push({ label: 'Waivers', to: `${base}/waivers` });
+  links.push({ label: 'Waivers', to: `${base}/waivers` }, dashboard);
   return links;
 }
 
@@ -180,7 +181,7 @@ function PicksLine({ pickem, week }) {
   return <Box sx={lineSx}>{`${week ? `Week ${week} picks` : 'Picks'}: ${pickem.made} of ${pickem.total} made`}</Box>;
 }
 
-// The foot for panels whose links are not the four league links (draft room, league home).
+// The foot for panels whose links are not the four league links (draft room, dashboard).
 function PanelNav({ league, links }) {
   return (
     <Box
@@ -490,7 +491,7 @@ function LeagueStatusCard({ league, live = false, scored = false }) {
     body = variant === 'basic'
       ? <BasicBody league={league} />
       : <Box sx={dimLineSx}>Status unavailable right now.</Box>;
-    links = <PanelNav league={league} links={[{ label: 'League home', to: base }]} />;
+    links = <PanelNav league={league} links={[{ label: 'Dashboard', to: base }]} />;
   }
   return (
     <LeaguePanel id={`league-status-${league.id}`} name={league.name} to={base} right={league.my_team_name} links={links}>

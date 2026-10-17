@@ -1,5 +1,6 @@
 import React from 'react';
 import { Box } from '@mui/material';
+import { Link as RouterLink } from 'react-router-dom';
 import {
   Frame, LiveChip, PixelArrow, PixelHeading, PixelWarn, PsButton, Tag, TeamMark,
 } from '../../../shared/ui/playselect';
@@ -33,7 +34,22 @@ export function LineupHead({
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: { xs: '8px', sm: '12px' }, minWidth: 0, flex: { xs: '1 1 100%', md: '1 1 auto' } }}>
         <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '4px 12px', minWidth: 0 }}>
           <Box data-testid="lineup-league-line" sx={{ fontSize: { xs: '14px', sm: '15px' }, fontWeight: 600, color: 'var(--ps-dim)' }}>
-            {leagueName ? `Lineup · ${leagueName}` : 'Lineup'}
+            {leagueName && selectedLeagueId != null ? (
+              <>
+                {'Lineup · '}
+                {/* The name links to that league's dashboard (so it follows the League select); inline with vertical padding so the tap target grows without changing the line box or the wrap. */}
+                <Box
+                  component={RouterLink}
+                  to={`/league/${selectedLeagueId}`}
+                  aria-label={`${leagueName} dashboard`}
+                  sx={{
+                    color: 'inherit', textDecoration: 'underline', textDecorationThickness: '2px', textUnderlineOffset: '4px', textDecorationColor: 'var(--ps-dim)', py: '15px',
+                  }}
+                >
+                  {leagueName}
+                </Box>
+              </>
+            ) : (leagueName ? `Lineup · ${leagueName}` : 'Lineup')}
             {/* On a phone the times note rides this line instead of costing a row of its own. */}
             <Box component="span" sx={{ display: { xs: 'inline', sm: 'none' }, fontWeight: 400 }}>{` · Times in ${zone}`}</Box>
           </Box>
