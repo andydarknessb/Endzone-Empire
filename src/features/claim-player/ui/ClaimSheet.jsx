@@ -23,11 +23,23 @@ import {
   reasonLabel,
 } from '../../../shared/lib';
 import { usePlayerCard } from '../../../entities/player';
+import { BODY_FONT } from '../../../shared/ui/playselect';
 import { useClaimPlayer } from '../model/useClaimPlayer';
 import { bidHelperText, isValidBid } from '../model/bidValidity';
+import ClaimSheetPlayselect from './ClaimSheetPlayselect';
 
 const fmt = (n) => (n == null || Number.isNaN(Number(n)) ? '-' : Number(n).toFixed(1));
 const TOUCH = { minHeight: 44, minWidth: 44 };
+// The Play-select sheet: a 6px double frame, square, on the panel fill, 480px from `sm` (full screen below).
+const PS_PAPER_SX = {
+  border: '6px double var(--ps-frame)',
+  borderRadius: 0,
+  backgroundColor: 'var(--ps-panel)',
+  backgroundImage: 'none',
+  color: 'var(--ps-ink)',
+  fontFamily: BODY_FONT,
+  boxSizing: 'border-box',
+};
 
 /**
  * The swap preview: this player's Proj Wk against the starter he replaces.
@@ -50,8 +62,11 @@ const TOUCH = { minHeight: 44, minWidth: 44 };
  * Upgrade is 0 with no overPlayer (a drop worth more than the claim).
  * `netPending`: a drop is picked and its net has not arrived (loading or
  * errored), so the Upgrade, which is not net of the drop, prints no gain line.
+ *
+ * `look`: `'dash'` (default) or `'playselect'` (ADR 0067 wave 3): the same lines in a 2px Rule frame
+ * on `ps-*` tokens.
  */
-export function SwapPreview({ player, netPending = false }) {
+export function SwapPreview({ player, netPending = false, look = 'dash' }) {
   const upgrade = player.upgrade;
   const swapNet = player.swapNet ?? null;
   if (upgrade == null || upgrade.points == null || (upgrade.overPlayer == null && swapNet == null)) return null;
@@ -71,6 +86,20 @@ export function SwapPreview({ player, netPending = false }) {
   // line (#1808): the gain is built from the hidden number. The verdict is the
   // server's, read through `hasNoHistory`, never re-derived here.
   const noHistory = hasNoHistory(player);
+  if (look === 'playselect') {
+    return (
+      <Box data-testid="claim-sheet-swap" sx={{ border: '2px solid var(--ps-rule)', padding: '12px', display: 'flex', flexDirection: 'column', gap: '4px', minWidth: 0 }}>
+        <Box component="span" sx={{ fontSize: '13px', color: 'var(--ps-dim)' }}>{later ? `Wk ${week} swap` : "This week's swap"}</Box>
+        <Box component="span" sx={{ display: 'flex', justifyContent: 'space-between', gap: '12px', fontSize: '15px' }}>
+          <span>{`${player.name} ${noHistory ? NO_HISTORY_LABEL : fmt(mine)}`}</span>
+          {overPlayer && <Box component="span" sx={{ textAlign: 'right' }}>{reason ? `${overPlayer.name} ${reason}` : `${overPlayer.name} ${fmt(theirs)}`}</Box>}
+        </Box>
+        {!noHistory && !netPending && (
+          <Box component="b" sx={{ fontSize: '15px', fontWeight: 700 }}>{`${gain >= 0 ? '+' : ''}${fmt(gain)} ${later ? `Wk ${week}` : 'this week'}`}</Box>
+        )}
+      </Box>
+    );
+  }
   return (
     <Box data-testid="claim-sheet-swap" sx={{ border: '1px solid var(--dash-line)', borderRadius: 1, p: 1.5 }}>
       <Typography sx={{ fontSize: 12, color: 'var(--dash-dim)', mb: 0.5 }}>
@@ -91,7 +120,7 @@ export function SwapPreview({ player, netPending = false }) {
   );
 }
 
-function ClaimSheetBody({ player, claim, onSave, leagueId, availability, roster, dropSuggestion, onClose, onClaimed }) {
+function ClaimSheetBody({ player, claim, onSave, leagueId, availability, roster, dropSuggestion, onClose, onClaimed, look }) {
   const sortedRoster = sortRosterForDrop(roster);
   // The server's suggested drop (#1912, ADR 0055): the lowest Rest of season
   // player on a full roster. Never `upgrade.overPlayer`, who is the player the
@@ -140,6 +169,37 @@ function ClaimSheetBody({ player, claim, onSave, leagueId, availability, roster,
     });
     if (result.ok) onClose();
   };
+
+  if (look === 'playselect') {
+    return (
+      <ClaimSheetPlayselect
+        player={player}
+        editing={editing}
+        swap={(
+          <SwapPreview
+            look="playselect"
+            player={swapNet ? { ...player, swapNet } : player}
+            netPending={dropId !== '' && player.upgrade != null && swapNet == null}
+          />
+        )}
+        atCapacity={atCapacity}
+        roster={sortedRoster}
+        dropId={dropId}
+        onDrop={setDropId}
+        isFaab={isFaab}
+        bid={bid}
+        onBid={setBid}
+        bidInvalid={bidInvalid}
+        faabRemaining={faabRemaining}
+        onStep={step}
+        waiverPriority={availability?.waiverPriority}
+        pending={pending}
+        dropMissing={dropMissing}
+        onSubmit={submit}
+        onClose={onClose}
+      />
+    );
+  }
 
   return (
     <>
@@ -234,12 +294,25 @@ function ClaimSheetBody({ player, claim, onSave, leagueId, availability, roster,
  * row) and `onSave({ bid, dropPlayerId })`, which resolves `{ ok }`. The sheet
  * opens prefilled and saves through `onSave`, never a new submission; the
  * Claim order is the server's to keep.
+ *
+ * `look`: `'dash'` (default: PlayerManagement and the Decision card's claim bar) or `'playselect'`
+ * (ADR 0067 wave 3: the Waivers page): the same sheet, reads and submission on `ps-*` tokens.
  */
-export default function ClaimSheet({ open, player, claim, onSave, leagueId, availability, roster, dropSuggestion, onClose, onClaimed }) {
+export default function ClaimSheet({ open, player, claim, onSave, leagueId, availability, roster, dropSuggestion, onClose, onClaimed, look = 'dash' }) {
   const phone = useMediaQuery('(max-width:599.95px)'); // below MUI's sm
   if (!player) return null;
+  const ps = look === 'playselect';
   return (
-    <Dialog open={open} onClose={onClose} fullScreen={phone} fullWidth maxWidth="sm" aria-labelledby="claim-sheet-title">
+    <Dialog
+      open={open}
+      onClose={onClose}
+      fullScreen={phone}
+      fullWidth
+      maxWidth={ps ? false : 'sm'}
+      aria-labelledby="claim-sheet-title"
+      className={ps ? 'ps-root' : undefined}
+      PaperProps={ps ? { sx: phone ? PS_PAPER_SX : { ...PS_PAPER_SX, maxWidth: '480px' } } : undefined}
+    >
       <ClaimSheetBody
         key={`${player.id}-${claim?.id ?? 'new'}`}
         claim={claim}
@@ -251,6 +324,7 @@ export default function ClaimSheet({ open, player, claim, onSave, leagueId, avai
         dropSuggestion={dropSuggestion}
         onClose={onClose}
         onClaimed={onClaimed}
+        look={look}
       />
     </Dialog>
   );
