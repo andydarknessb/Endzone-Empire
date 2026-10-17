@@ -1,7 +1,6 @@
 import React, { useEffect } from 'react';
-import { Box, Typography, useMediaQuery, useTheme } from '@mui/material';
-import { Card } from '../../../shared/ui';
-import { useBenchPointsLeft } from '../model/useBenchPointsLeft';
+import { Box, useMediaQuery, useTheme } from '@mui/material';
+import { Frame, FrameHead, PixelHeading } from '../../../shared/ui/playselect';
 import { spent } from '../../../entities/roster';
 import LedgerRow from './LedgerRow';
 
@@ -30,12 +29,13 @@ const EMPTY_SECTIONS = { starters: [], bench: [], ir: [] };
  * owns its own vertical scrolling; nothing here forces horizontal scroll (rows
  * are a fixed grid whose name truncates).
  *
- * The Bench card also carries AC5's bench-points-left line (this widget's
- * own `useBenchPointsLeft` read of the existing hindsight endpoint, keyed
- * off `leagueId` plus the `lineup` prop's own `teamId`/`season`), and
- * `onOpenDecisionCard` is forwarded to every occupied row so its player name
- * can open the page-owned Decision card (#1240; see `../index.js`'s
- * below-island edges note for why that control lives below the island).
+ * Play-select (ADR 0067 wave 3): Starters and Bench are primary frames, IR a tertiary one. The Bench card
+ * no longer prints its own "Bench points this season" line: it is the same quantity as the Forecast's
+ * "Left on the bench this season", which says it once. The page's one cursor lands on the row named by
+ * `cursorKey` (its frame `'urgent'` under one hour from the lock), and `cursorNote` is the lineup note
+ * that row carries. `onOpenDecisionCard` is forwarded to every occupied row so its player name can open
+ * the page-owned Decision card (#1240; see `../index.js`'s below-island edges note for why that control
+ * lives below the island).
  *
  * Below `sm`, selecting a row asks the page to switch to whichever section
  * actually holds an eligible target for it (`onMobileTabChange`; #1425: the
@@ -47,8 +47,6 @@ const EMPTY_SECTIONS = { starters: [], bench: [], ir: [] };
  * bar button the switch lands on is the page's job, since the bar is its own.
  */
 export default function LineupLedger({
-  leagueId,
-  lineup,
   sections,
   liveGamesByKey,
   disabled,
@@ -62,6 +60,9 @@ export default function LineupLedger({
   onOpenDecisionCard,
   mobileTab,
   onMobileTabChange,
+  cursorKey = null,
+  cursorTone = true,
+  cursorNote = null,
 }) {
   const theme = useTheme();
   // Below `sm` only (#1425 ruling): at `sm` and up both sections are always
@@ -105,15 +106,11 @@ export default function LineupLedger({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedEntryId, isMobile]);
 
-  // AC5: "the bench points left on the table line reads the existing
-  // hindsight endpoint" (formal review finding ac5-hindsight-line-missing).
-  const benchPointsLeft = useBenchPointsLeft({ leagueId, teamId: lineup?.teamId, season: lineup?.season });
-
   // Reserve the Drop track on every row when any row can drop (a spent row
   // has no Drop but must keep the same numbers edge).
   const reserveDropTrack = [...starters, ...ir, ...bench].some((row) => row.entry && !spent(row.entry) && canDropEntry?.(row.entry));
 
-  const rowProps = (row) => {
+  const rowProps = (row, last) => {
     const entry = row.entry;
     const isSelected = Boolean(entry && selectedEntryId != null && entry.playerId === selectedEntryId);
     const rowShowsEligibility = Boolean(showEligibility) && !isSelected;
@@ -139,50 +136,35 @@ export default function LineupLedger({
       onClick: (event) => onRowClick?.(entry, row.slotType, event),
       onRequestDrop,
       onOpenDecisionCard,
+      last,
+      cursor: cursorKey != null && row.key === cursorKey ? cursorTone : false,
+      note: cursorKey != null && row.key === cursorKey ? cursorNote : null,
     };
   };
+
+  const rows = (list) => list.map((row, i) => {
+    const { key, ...props } = rowProps(row, i === list.length - 1);
+    return <LedgerRow key={key} {...props} />;
+  });
+  const listSx = { listStyle: 'none', m: 0, p: { xs: '2px 6px 6px', sm: '4px 12px 8px' } };
 
   return (
     <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: '16px' }}>
       <Box data-testid="ledger-starters-section" sx={{ display: mobileTab === 'starters' ? 'block' : { xs: 'none', sm: 'block' } }}>
-        <Card title="Starters" data-testid="ledger-starters">
-          <Box sx={{ p: { xs: '8px', sm: '12px' } }}>
-            {starters.map((row) => {
-              const { key, ...props } = rowProps(row);
-              return <LedgerRow key={key} {...props} />;
-            })}
-          </Box>
-        </Card>
+        <Frame labelledBy="ledger-starters-h" data-testid="ledger-starters" head={<FrameHead><PixelHeading id="ledger-starters-h">Starters</PixelHeading></FrameHead>}>
+          <Box component="ul" sx={listSx}>{rows(starters)}</Box>
+        </Frame>
       </Box>
 
       <Box data-testid="ledger-bench-section" sx={{ display: mobileTab === 'bench' ? 'block' : { xs: 'none', sm: 'block' } }}>
         {ir.length > 0 && (
-          <Card title="IR" data-testid="ledger-ir" sx={{ mb: '16px' }}>
-            <Box sx={{ p: { xs: '8px', sm: '12px' } }}>
-              {ir.map((row) => {
-                const { key, ...props } = rowProps(row);
-                return <LedgerRow key={key} {...props} />;
-              })}
-            </Box>
-          </Card>
+          <Frame tier="rule" labelledBy="ledger-ir-h" data-testid="ledger-ir" sx={{ mb: '16px' }} head={<FrameHead><PixelHeading id="ledger-ir-h" size={16}>IR</PixelHeading></FrameHead>}>
+            <Box component="ul" sx={listSx}>{rows(ir)}</Box>
+          </Frame>
         )}
-        <Card title="Bench" data-testid="ledger-bench">
-          {benchPointsLeft.text && (
-            <Typography
-              component="p"
-              data-testid="bench-points-left"
-              sx={{ m: 0, px: '12px', pt: '10px', fontSize: '12px', color: 'var(--dash-faint)' }}
-            >
-              {benchPointsLeft.text}
-            </Typography>
-          )}
-          <Box data-testid="ledger-bench-rows" sx={{ p: { xs: '8px', sm: '12px' } }}>
-            {bench.map((row) => {
-              const { key, ...props } = rowProps(row);
-              return <LedgerRow key={key} {...props} />;
-            })}
-          </Box>
-        </Card>
+        <Frame labelledBy="ledger-bench-h" data-testid="ledger-bench" head={<FrameHead><PixelHeading id="ledger-bench-h">Bench</PixelHeading></FrameHead>}>
+          <Box component="ul" data-testid="ledger-bench-rows" sx={listSx}>{rows(bench)}</Box>
+        </Frame>
       </Box>
     </Box>
   );

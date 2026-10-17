@@ -5,6 +5,7 @@ import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
 import UserPage from './UserPage';
 import { SnackbarProvider } from '../Snackbar/SnackbarProvider';
+import { findToast } from '../../test-utils/toast';
 
 // Home v2 slice 5: the Join League dialog previews the league an invite code
 // points at (GET /api/league/preview?code=, debounced 300ms) before the
@@ -310,8 +311,8 @@ test('joining posts the trimmed code and Team name, is announced once, closes an
   await waitFor(() =>
     expect(apiClient.post).toHaveBeenCalledWith('/api/league/join', { inviteCode: 'abcd1234', teamName: 'Joiner FC' })
   );
-  expect(await screen.findByText('Joined league!')).toBeInTheDocument();
-  expect(screen.getAllByText('Joined league!')).toHaveLength(1);
+  // Announced once: the status region says the sentence exactly once (the visible toast repeats it under aria-hidden).
+  expect((await findToast('Joined league!')).textContent).toBe('Joined league!');
   await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   await waitFor(() => expect(getCallsTo('/api/league')).toBe(2));
 });
@@ -353,7 +354,7 @@ test('Join cannot be sent twice while the first request is in flight', async () 
   expect(apiClient.post).toHaveBeenCalledTimes(1);
 
   pending.resolve({});
-  expect(await screen.findByText('Joined league!')).toBeInTheDocument();
+  expect(await findToast('Joined league!')).toBeInTheDocument();
 });
 
 // ActionQueue unmounts on the first-run state. An answer that lands after that

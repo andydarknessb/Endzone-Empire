@@ -1,50 +1,23 @@
-// Lineup on a phone (390), a move in progress: Puka Nacua is being moved, eligible rows are highlighted, the rest are Dim with a dashed rule.
-const k = require('./league-kit-samples');
-const { STARTERS, BENCH, IR, SUMMARY, BENCH_POINTS, FIRST_LOCK, FILLED, ADVICE, plural } = require('./lineup-data');
+// Lineup on a phone (390), Sunday 9:10 AM, a move in progress. Puka Nacua (Out) is selected; the phone shows one section at a time (Starters here), the move strip and the three toggles are pinned.
+const k = require('./league-kit-lineup');
 const out = process.argv[2];
-const LG = 'Thursday Night Regulars';
-const { px, FRAME, frameHead, h2, meta, injTag } = k;
-const f1 = n => n.toFixed(1);
-
-const head = `<section aria-labelledby="h1" style="display: flex; flex-direction: column; gap: 10px; min-width: 0">
-<div style="font-size: 14px; font-weight: 600; color: {{t.dim}}">Lineup · ${LG}</div>
-${k.h1('Darkness Falls', { phone: true })}
-<p style="margin: 0; font-size: 15px; color: {{t.dim}}">Week 7 · First lock Sun ${FIRST_LOCK} · times in CDT</p>
-${k.weekPicker({ week: 7, phone: true })}
-</section>`;
-
-const tile = (l, v) => `<div style="display: flex; flex-direction: column; gap: 2px; min-width: 0"><span style="font-size: 13px; color: {{t.dim}}">${l}</span><span style="font-size: 16px; font-weight: 700">${v}</span></div>`;
-const summary = `<section aria-label="Team summary" style="${FRAME}; min-width: 0">
-<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 12px 14px; border-bottom: 2px solid {{t.rule}}"><span style="display: inline-flex; align-items: center; height: 32px; padding: 0 10px; box-sizing: border-box; border: 2px solid {{t.ink}}; font-size: 14px; font-weight: 700">+${ADVICE.gain} pts · ${plural(ADVICE.swaps, 'swap')}</span><span style="font-size: 13px; color: {{t.dim}}">Wk 7 · 1 bye</span></div>
-<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding: 12px 14px">${tile('Score vs proj.', `0.0 · ${f1(SUMMARY.meProj)}`)}${tile('Opponent vs proj.', `0.0 · ${f1(SUMMARY.oppProj)}`)}${tile('Starters', `${FILLED} to play`)}${tile('Win probability', SUMMARY.pct + '%')}</div>
-<div style="display: flex; flex-wrap: wrap; gap: 6px 16px; padding: 0 14px 12px; font-size: 14px; font-weight: 600"><span style="display: inline-flex; align-items: center; gap: 8px">${injTag('Out')}Nacua</span><span style="display: inline-flex; align-items: center; gap: 8px">${injTag('Questionable')}Marks</span><span>Olave on bye</span></div>
-</section>`;
-
-const modeFor = s => {
-  if (s.name === 'Puka Nacua') return 'moving';
-  const wrSlot = s.slot === 'WR 2' || s.slot === 'FLEX' || s.pos === 'WR';
-  return wrSlot && !s.bye && !s.lock && s.slot !== 'IR' ? 'eligible' : 'dim';
-};
-const ledger = (id, title, rows, metaText) => `<section aria-labelledby="${id}" style="${FRAME}; min-width: 0">${frameHead(`${h2(id, title, { phone: true })}${meta(metaText, 'margin-left: auto')}`, { phone: true })}<ul style="list-style: none; margin: 0; padding: 2px 6px 6px">${rows.join('')}</ul></section>`;
-const starters = ledger('ls-h', 'Starters', STARTERS.map((s, i) => k.lineupRow({ ...s, phone: true, mode: modeFor(s), last: i === STARTERS.length - 1 })), `${FILLED} of ${STARTERS.length} filled`);
-const bench = ledger('lb-h', 'Bench', BENCH.map((s, i) => k.lineupRow({ ...s, phone: true, mode: modeFor(s), last: i === BENCH.length - 1 })), `Bench points this season: ${BENCH_POINTS}`);
-
-const ir = ledger('li-h', 'IR', IR.map((s, i) => k.lineupRow({ ...s, phone: true, mode: modeFor(s), last: i === IR.length - 1 })), '1 player');
-
-const notes = k.notes([
-  'A move in progress: Puka Nacua (WR, Out) is the pressed row and holds the one cursor. WR 2, the empty FLEX and the bench WR Jordan Addison are highlighted in Play-blue. Every other row keeps full opacity: Dim name, a dashed rule and "not eligible" for screen readers. Locked, bye and IR rows are never eligible.',
-  'No filled action on the phone while a move is open: the move strip offers Cancel, and the pick is the highlighted row. The footer toggles show or hide Starters, Bench and Outlook (the Endzone Forecast, byes and preview frames).',
-]);
+// Measured pinned footer (move strip over the toggles) at 390 wide, plus 16px: the page's scroll-padding-bottom, so a focused row is never under it (WCAG 2.4.11).
+const FOOTER_PX = 126, SCROLL_PAD = FOOTER_PX + 16;
+// A WR can move to WR 2 or the empty FLEX (bench Addison sits in the Bench view). Everything else in the Starters view is not eligible.
+const modeFor = e => (e.name === 'Puka Nacua' ? 'moving' : e.slot === 'WR 2' || e.slot === 'FLEX' ? 'eligible' : 'dim');
+const startersView = k.startersFrame({ clock: 9, phone: true, row: e => ({ mode: modeFor(e) }) });
 
 const body = `<main style="padding: 24px 16px 24px; display: flex; flex-direction: column; gap: 20px">
-${head}
-${summary}
-${starters}
-${bench}
-${ir}
-${notes}
+${k.head({ phone: true })}
+${k.summaryStrip({ clock: 9, phone: true })}
+${startersView}
+${k.notes([
+  'A move in progress: Puka Nacua (WR, Out) is the pressed row and holds the one cursor. WR 2 and the empty FLEX are highlighted in Play-blue (the bench WR Jordan Addison is eligible too, but he lives in the Bench view, which the page does not switch to because Starters already holds legal targets). Every other row keeps full opacity: Dim name, a dashed rule and "not eligible" for screen readers. Rows carry the Edge line under the game line; Drop is a 44px icon button on every row.',
+  'The product shows one section at a time below sm: Starters, Bench (IR folds into it) or Outlook (the Forecast, Bye clusters and the matchup preview). The three footer toggles are exclusive, drawn in the Play-select look with the pressed one filled Play-blue plus an arrow, named "Starters, 8 of 9 filled", "Bench, 6 players" and "Outlook"; here Starters is pressed, so the Bench and Outlook views are not on this board (LineupStates draws them). No filled action while a move is open: the strip offers Cancel (aria-keyshortcuts="Escape") and the pick is a highlighted row.',
+  `The footer is one pinned container: the move strip stacked over the toggles, 44px targets, only the sentence is the polite live region. The page sets html { scroll-padding-bottom: ${SCROLL_PAD}px } (the measured ${FOOTER_PX}px footer plus 16px) so a focused row is never under it.`,
+])}
 </main>
-${k.stickyFooter({ name: 'Puka Nacua' })}`;
+${k.phoneFooter({ view: 'starters', moving: 'Puka Nacua' })}`;
 
-k.write(out, 'LineupPhone.dc.html', k.page({ title: 'Lineup, phone', w: 390, h: 2288, body, phone: true }));
+k.write(out, 'LineupPhone.dc.html', k.page({ title: 'Lineup, phone', w: 390, h: 2300, body, phone: true }).replace('</style>', `html { scroll-padding-bottom: ${SCROLL_PAD}px }\n</style>`));
 console.log('ok');

@@ -1,3 +1,4 @@
+/* eslint-disable testing-library/no-node-access, testing-library/prefer-presence-queries -- the cursor, fill and live-region facts are DOM structure, which Testing Library has no query for */
 import React from 'react';
 import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -830,20 +831,22 @@ describe('#1958: team header size', () => {
     }));
   };
 
-  test('below sm the avatar is 40px and the title 22px', async () => {
+  const avatarBox = () => screen.getByTestId('lineup-team-avatar').firstChild;
+
+  test('below sm the avatar is 40px and the title is the 24px pixel h1', async () => {
     setNarrow(true);
     renderPage();
     const heading = await screen.findByRole('heading', { level: 1, name: 'My Team' });
-    expect(screen.getByTestId('lineup-team-avatar')).toHaveStyle({ width: '40px', height: '40px' });
-    expect(heading).toHaveStyle({ fontSize: '22px' });
+    expect(avatarBox()).toHaveStyle({ width: '40px', height: '40px' });
+    expect(rulesUnder(heading, '(min-width:0px)')).toMatch(/font-size: 24px/);
   });
 
-  test('from sm up the avatar is 56px and the title 26px', async () => {
+  test('from sm up the avatar is 48px and the title is the 32px pixel h1', async () => {
     setNarrow(false);
     renderPage();
     const heading = await screen.findByRole('heading', { level: 1, name: 'My Team' });
-    expect(screen.getByTestId('lineup-team-avatar')).toHaveStyle({ width: '56px', height: '56px' });
-    expect(heading).toHaveStyle({ fontSize: '26px' });
+    expect(avatarBox()).toHaveStyle({ width: '48px', height: '48px' });
+    expect(rulesUnder(heading, '(min-width:900px)')).toMatch(/font-size: 32px/);
   });
 });
 
@@ -896,9 +899,15 @@ test('no "optimal" copy in the best-ball notice either', async () => {
 
 // AC5 (formal review finding ac5-hindsight-line-missing): the bench points
 // left on the table line reads the existing hindsight endpoint.
-test('the bench points left on the table line reads the hindsight endpoint', async () => {
+// Spec #2347 ruling 4 / AC5: the Bench card's "Bench points this season" line is gone (the Forecast's "Left on the
+// bench this season" is the same quantity and says it once), and the page no longer reads the hindsight endpoint
+// for it.
+test('the Bench card has no "Bench points this season" line and the page makes no hindsight read', async () => {
   renderPage();
-  expect(await screen.findByTestId('bench-points-left')).toHaveTextContent('Bench points this season: 12.5');
+  await screen.findByText('Josh Allen');
+  expect(screen.queryByText(/Bench points this season/)).toBeNull();
+  expect(screen.queryByTestId('bench-points-left')).toBeNull();
+  expect(apiClient.get.mock.calls.some(([url]) => /\/api\/team\/hindsight/.test(url))).toBe(false);
 });
 
 // Formal review finding legacy-controls-dropped-without-a-criterion:
@@ -1375,7 +1384,7 @@ test('the page root is pinned to 100% width so the week strip cannot widen it in
   await screen.findByText('Josh Allen');
   const own = rulesUnder(screen.getByTestId('lineup-page'));
   expect(own).toMatch(/(^|[^-])width: 100%/);
-  expect(own).toMatch(/max-width: 1180px/);
+  expect(own).toMatch(/max-width: 1280px/);
 });
 
 // #1239 AC1-AC7: the Bye cluster grid and its attention chip. The default
@@ -1597,4 +1606,415 @@ test("the week's matchups list is read once for the page, not once per surface (
 
   await screen.findByTestId('ledger-starters');
   expect(apiClient.get.mock.calls.filter(([url]) => url === MATCHUPS_URL)).toHaveLength(1);
+});
+
+// ---- Play-select (ADR 0067 wave 3, spec #2347 rulings 4 and 8) ----------------------------------------------------
+
+const inHours = (h) => new Date(Date.now() + h * 60 * 60 * 1000).toISOString();
+const inMinutes = (m) => new Date(Date.now() + m * 60 * 1000).toISOString();
+const wr = (over = {}) => entryRow({
+  id: 30, name: 'Out Guy', position: 'WR', slot: 'WR', nfl_team: 'LAR', opponent: 'JAX', game_key: 'g3', kickoff: inHours(3), ...over,
+});
+const outWr = (over = {}) => wr({
+  injury_status: 'O', startVerdict: { outcome: 'unavailable', reason: 'out', numberTrusted: true }, projected_points: null, projection: null, ...over,
+});
+const qb = (over = {}) => entryRow({
+  id: 1, name: 'Josh Allen', position: 'QB', slot: 'QB', nfl_team: 'BUF', opponent: 'MIA', game_key: 'g1', kickoff: inHours(3), ...over,
+});
+const rb = (over = {}) => entryRow({
+  id: 2, name: 'Derrick King', position: 'RB', slot: 'RB', nfl_team: 'BAL', opponent: 'CIN', game_key: 'g2', kickoff: inHours(3), ...over,
+});
+const benchWr = (over = {}) => entryRow({
+  id: 10, name: 'Bench Guy', position: 'WR', slot: 'BENCH', nfl_team: 'MIA', opponent: 'NYJ', game_key: 'g4', kickoff: inHours(3), ...over,
+});
+const outBench = (over = {}) => benchWr({
+  injury_status: 'O', startVerdict: { outcome: 'unavailable', reason: 'out', numberTrusted: true }, projected_points: null, projection: null, ...over,
+});
+const withEntries = (entries, extra = {}) => ({ [LINEUP_URL]: { data: lineupBody({ body: { entries } }) }, ...extra });
+const cursors = () => document.querySelectorAll('.cursor');
+const filled = () => document.querySelectorAll('[data-variant="fill"]');
+const movePlanAdvice = () => adviceBody({
+  projectedTotal: 90,
+  optimalTotal: 113,
+  suggestions: [adviceSuggestion({
+    slot: 'WR',
+    gain: 10.1,
+    current: {
+      playerId: 30, name: 'Out Guy', projection: 0, opponent: 'JAX', startVerdict: { outcome: 'unavailable', reason: 'out' }, distribution: { p10: 0, p90: 0 },
+    },
+    suggested: { playerId: 10, name: 'Bench Guy', projection: 10.1, opponent: 'NYJ', distribution: { p10: 3.2, p90: 19.4 } },
+  })],
+  openSlotFills: [{ playerId: 11, name: 'Tyjae Spears', slot: 'FLEX', projection: 12.9 }],
+  movePlan: [{ playerId: 30, fromSlot: 'WR', toSlot: 'BENCH' }, { playerId: 10, fromSlot: 'BENCH', toSlot: 'WR' }],
+});
+const inProgress = (over = {}) => ({
+  tank01_game_id: 'g1', game_status: 'in_progress', home_team: 'MIA', away_team: 'BUF', current_score_home: 7, current_score_away: 10, quarter: 'Q2', time_remaining: '4:21', ...over,
+});
+
+describe('the one cursor and the one filled action (ruling 8)', () => {
+  test('before kickoff, with an Out starter and a Forecast plan: the cursor is the Out starter and Apply is the one filled action', async () => {
+    renderPage(withEntries([qb(), rb(), outWr(), benchWr()], { [ADVICE_URL]: { data: movePlanAdvice() } }));
+    await screen.findByTestId('start-sit-apply');
+    expect(cursors()).toHaveLength(1);
+    expect(screen.getByTestId('slot-row-WR-0').querySelector('.cursor')).not.toBeNull();
+    expect(filled()).toHaveLength(1);
+    expect(filled()[0]).toBe(screen.getByTestId('start-sit-apply'));
+  });
+
+  test('live, an empty slot nobody can fill: one cursor on the open slot, no filled action', async () => {
+    liveGameRows = [inProgress()];
+    // The WR slot is empty (no WR entry), the lone bench player is Out, and one game is still to come.
+    renderPage(withEntries([qb(), rb(), outBench()]));
+    await screen.findByTestId('lineup-note');
+    expect(cursors()).toHaveLength(1);
+    expect(screen.getByTestId('slot-row-WR-0').querySelector('.cursor')).not.toBeNull();
+    expect(filled()).toHaveLength(0);
+  });
+
+  test('lineup set: no cursor and no filled action', async () => {
+    renderPage(withEntries([qb(), rb(), wr(), benchWr()]));
+    await screen.findByText('Josh Allen');
+    expect(cursors()).toHaveLength(0);
+    expect(filled()).toHaveLength(0);
+    expect(screen.getByTestId('strip-advice')).toHaveTextContent('Lineup set');
+  });
+
+  test('best ball has no cursor: the lineup sets itself', async () => {
+    renderPage({
+      ...withEntries([qb(), rb(), benchWr()]),
+      [LEAGUES_URL]: leaguesListResponse({ best_ball: true }),
+      [LEAGUE_URL]: leagueResponse({ best_ball: true }),
+    });
+    await screen.findByTestId('best-ball-notice');
+    await screen.findByText('Josh Allen');
+    expect(cursors()).toHaveLength(0);
+  });
+
+  test('a move under way holds the one cursor on the pressed row, and the open slot gives it up', async () => {
+    const user = userEvent.setup();
+    renderPage(withEntries([qb(), rb(), benchWr()]));
+    await screen.findByText('Josh Allen');
+    expect(screen.getByTestId('slot-row-WR-0').querySelector('.cursor')).not.toBeNull();
+    await user.click(screen.getByTestId('slot-row-QB-0-select'));
+    expect(cursors()).toHaveLength(1);
+    expect(screen.getByTestId('slot-row-QB-0').querySelector('.cursor')).not.toBeNull();
+    expect(screen.getByTestId('slot-row-WR-0').querySelector('.cursor')).toBeNull();
+  });
+});
+
+// AC3: the cursor frame turns Danger under one hour from the lock.
+describe('the cursor frame turns Danger under one hour', () => {
+  test('45 minutes from the Out starter kickoff the frame is Danger', async () => {
+    renderPage(withEntries([qb(), rb(), outWr({ kickoff: inMinutes(45) }), benchWr()]));
+    await screen.findByText('Out Guy');
+    expect(cursors()).toHaveLength(1);
+    expect(cursors()[0]).toHaveAttribute('data-urgent', 'true');
+  });
+
+  test('three hours out it is the calm Cursor frame', async () => {
+    renderPage(withEntries([qb(), rb(), outWr({ kickoff: inHours(3) }), benchWr()]));
+    await screen.findByText('Out Guy');
+    expect(cursors()).toHaveLength(1);
+    expect(cursors()[0]).not.toHaveAttribute('data-urgent');
+  });
+
+  test('live, an empty slot whose next kickoff is 45 minutes away is Danger and says so in the note', async () => {
+    liveGameRows = [inProgress()];
+    renderPage(withEntries([qb(), rb({ kickoff: inMinutes(45) }), outBench({ game_key: null })]));
+    const note = await screen.findByTestId('lineup-note');
+    expect(cursors()[0]).toHaveAttribute('data-urgent', 'true');
+    expect(note).toHaveTextContent(/next kickoff in \d+ min/);
+  });
+});
+
+// AC5: Lineup copy.
+describe('Lineup copy (spec #2347 ruling 4)', () => {
+  test('live with an empty unlocked slot and no fillable bench player: the note, "No bench move", "No move from your bench", no "Lineup set"', async () => {
+    liveGameRows = [inProgress()];
+    renderPage(withEntries([qb(), rb(), outBench()]));
+    const note = await screen.findByTestId('lineup-note');
+    expect(screen.getByTestId('slot-row-WR-0')).toContainElement(note);
+    expect(note).toHaveTextContent('no bench player can fill it');
+    expect(note).toHaveTextContent('add a free agent playing at');
+    expect(within(note).getByRole('link', { name: 'Free agents' })).toHaveAttribute('href', '/league/1/waivers');
+    expect(screen.getByTestId('strip-advice')).toHaveTextContent('No bench move');
+    expect(screen.getByTestId('start-sit-panel-empty')).toHaveTextContent('No move from your bench');
+    expect(screen.queryByText('Lineup set')).toBeNull();
+  });
+
+  test('a bench player who can fill the slot says the slot is open and links nowhere', async () => {
+    liveGameRows = [inProgress()];
+    // A bench receiver on a team whose game has not started.
+    renderPage(withEntries([qb(), rb(), benchWr({ nfl_team: 'NYJ', opponent: 'TEN' })]));
+    const note = await screen.findByTestId('lineup-note');
+    expect(note).toHaveTextContent(/WR is empty · next kickoff/);
+    expect(note).not.toHaveTextContent('no bench player can fill it');
+    expect(within(note).queryByRole('link')).toBeNull();
+  });
+
+  test('with a move plan the Advice tile reads the gain and the swap count, and the two-move sentence appears once', async () => {
+    renderPage(withEntries([qb(), rb(), outWr(), benchWr()], { [ADVICE_URL]: { data: movePlanAdvice() } }));
+    await screen.findByTestId('start-sit-apply');
+    expect(screen.getByTestId('strip-advice')).toHaveTextContent('+23.0 pts · 2 swaps');
+    const sentence = screen.getByTestId('start-sit-plan-line');
+    expect(sentence).toHaveTextContent('Two moves · +23.0 pts: Guy in for Out Guy (Out) · Spears into the empty FLEX');
+    expect(document.body.textContent.match(/Two moves/g)).toHaveLength(1);
+    expect(screen.getByTestId('suggestion-card').querySelector('h2, h3')).toBeNull();
+  });
+
+  test('the Bench card has no "Bench points this season" text', async () => {
+    renderPage(withEntries([qb(), rb(), wr(), benchWr()]));
+    await screen.findByText('Josh Allen');
+    expect(within(screen.getByTestId('ledger-bench')).queryByText(/Bench points this season/)).toBeNull();
+  });
+
+  test('PickWeek renders no "All weeks": it is inert on a single-week Lineup', async () => {
+    renderPage(withEntries([qb(), rb(), wr(), benchWr()]));
+    await screen.findByText('Josh Allen');
+    expect(screen.getByRole('group', { name: 'Week picker' })).toBeInTheDocument();
+    expect(screen.queryByText('All weeks')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'All weeks' })).toBeNull();
+  });
+});
+
+describe('the head', () => {
+  test('is the dim "Lineup · {league}" line, the team name as the h1 and the times note', async () => {
+    renderPage(withEntries([qb(), rb(), wr(), benchWr()]));
+    expect(await screen.findByRole('heading', { level: 1, name: 'My Team' })).toBeInTheDocument();
+    expect(screen.getByTestId('lineup-league-line')).toHaveTextContent('Lineup · Sunday Ballers');
+    expect(screen.getByText(/^Times in /)).toBeInTheDocument();
+    expect(screen.queryByLabelText('League')).toBeNull();
+  });
+
+  test('a manager in more than one league gets the League select', async () => {
+    const user = userEvent.setup();
+    renderPage({
+      ...withEntries([qb(), rb(), wr(), benchWr()]),
+      [LEAGUES_URL]: { data: [{ id: 1, name: 'Sunday Ballers', pickem_only: false }, { id: 2, name: 'Monday Misfits', pickem_only: false }] },
+    });
+    const select = await screen.findByLabelText('League');
+    expect(select).toHaveValue('1');
+    expect(within(select).getAllByRole('option').map((o) => o.textContent)).toEqual(['Sunday Ballers', 'Monday Misfits']);
+    await user.selectOptions(select, '2');
+    expect(select).toHaveValue('2');
+  });
+
+  test('best ball adds the Best ball tag to the h1 row', async () => {
+    renderPage({
+      ...withEntries([qb(), rb(), benchWr()]),
+      [LEAGUES_URL]: leaguesListResponse({ best_ball: true }),
+      [LEAGUE_URL]: leagueResponse({ best_ball: true }),
+    });
+    await screen.findByTestId('best-ball-notice');
+    expect(screen.getByText('Best ball')).toBeInTheDocument();
+  });
+});
+
+describe('errors and live regions', () => {
+  test('a failed lineup read says "We could not load your lineup" with a ghost Retry outside the alert', async () => {
+    const user = userEvent.setup();
+    const urls = baseUrls();
+    apiClient.get.mockImplementation((url) => (
+      url === LINEUP_URL ? Promise.reject(new Error('boom')) : Promise.resolve(urls[url] ?? { data: [] })
+    ));
+    renderWithProviders(<LineupPage />, { route: '/team?leagueId=1', path: '/team' });
+    const row = await screen.findByTestId('lineup-error');
+    expect(row).toHaveTextContent('We could not load your lineup.');
+    const alert = within(row).getByRole('alert');
+    expect(within(alert).queryByRole('button')).toBeNull();
+    const retry = within(row).getByRole('button', { name: 'Retry' });
+    expect(retry).toHaveAttribute('data-variant', 'ghost');
+    const reads = () => apiClient.get.mock.calls.filter(([url]) => url === LINEUP_URL).length;
+    const before = reads();
+    await user.click(retry);
+    await waitFor(() => expect(reads()).toBeGreaterThan(before));
+  });
+
+  test('no element with role status or alert holds a button, with a move under way', async () => {
+    const user = userEvent.setup();
+    renderPage(withEntries([qb(), rb(), benchWr()]));
+    await screen.findByText('Josh Allen');
+    await user.click(screen.getByTestId('slot-row-QB-0-select'));
+    const strip = await screen.findByTestId('lineup-move-strip');
+    expect(within(strip).getByRole('status')).toHaveTextContent('Moving Josh Allen. Pick a highlighted player.');
+    expect(within(strip).getByRole('button', { name: 'Cancel' })).toHaveAttribute('aria-keyshortcuts', 'Escape');
+    const regions = document.querySelectorAll('[role="status"], [role="alert"]');
+    expect(regions.length).toBeGreaterThan(0);
+    regions.forEach((region) => expect(region.querySelector('button, a[href]')).toBeNull());
+  });
+
+  test('the phone footer toggles are toggle buttons named for their counts', async () => {
+    renderPage(withEntries([qb(), rb(), wr(), benchWr()]));
+    await screen.findByText('Josh Allen');
+    const group = screen.getByRole('group', { name: 'Lineup section' });
+    expect(within(group).getByRole('button', { name: 'Starters, 3 of 3 filled' })).toHaveAttribute('aria-pressed', 'true');
+    expect(within(group).getByRole('button', { name: 'Bench, 1 player' })).toHaveAttribute('aria-pressed', 'false');
+    expect(within(group).getByRole('button', { name: 'Outlook' })).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  test('the page reserves the phone footer with scroll-padding-bottom', async () => {
+    renderPage(withEntries([qb(), rb(), wr(), benchWr()]));
+    await screen.findByText('Josh Allen');
+    const text = [];
+    const walk = (rules) => Array.from(rules).forEach((rule) => {
+      text.push(rule.cssText);
+      if (rule.cssRules) walk(rule.cssRules);
+    });
+    Array.from(document.styleSheets).forEach((sheet) => walk(sheet.cssRules));
+    expect(text.join('\n')).toMatch(/scroll-padding-bottom:\s*142px/);
+  });
+});
+
+describe('the waivers clear time on the Bye clusters line', () => {
+  const clusterEntries = () => [
+    qb(), rb(), wr(),
+    benchWr({ id: 41, name: 'Bye One', bye_week: 5 }),
+    benchWr({ id: 42, name: 'Bye Two', bye_week: 5 }),
+  ];
+
+  test('reads waivers_clear_at from GET /api/waivers and names the weekday and time', async () => {
+    const clear = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString();
+    renderPage({
+      ...withEntries(clusterEntries()),
+      '/api/waivers?leagueId=1': { data: { league: { waivers_clear_at: clear }, myClaims: [], onWaivers: [] } },
+    });
+    const line = await screen.findByTestId('bye-cluster-line');
+    await waitFor(() => expect(line).toHaveTextContent(/Waivers clear \w{3} \d{1,2}:\d{2} [AP]M\.$/));
+  });
+
+  test('keeps "in {n} hours" when the league has no clear time', async () => {
+    renderPage(withEntries(clusterEntries()));
+    const line = await screen.findByTestId('bye-cluster-line');
+    expect(line).toHaveTextContent('Waivers clear in 24 hours.');
+    expect(apiClient.get.mock.calls.some(([url]) => url === '/api/waivers?leagueId=1')).toBe(true);
+  });
+
+  test('no cluster of two: no waivers read at all', async () => {
+    renderPage(withEntries([qb(), rb(), wr(), benchWr()]));
+    await screen.findByText('Josh Allen');
+    expect(screen.queryByTestId('bye-cluster-line')).toBeNull();
+    expect(apiClient.get.mock.calls.some(([url]) => url === '/api/waivers?leagueId=1')).toBe(false);
+  });
+});
+
+describe('the league read error (QA P1-1)', () => {
+  test('a manager with no leagues sees the no-leagues card and no league error', async () => {
+    renderPage({ [LEAGUES_URL]: { data: [] } });
+    expect(await screen.findByTestId('lineup-no-leagues')).toBeInTheDocument();
+    expect(screen.queryByTestId('league-error')).toBeNull();
+    expect(screen.queryByText(/We could not load this league/)).toBeNull();
+  });
+
+  test('no league error while the league read is still in flight', async () => {
+    const urls = baseUrls();
+    apiClient.get.mockImplementation((url) => (
+      url === LEAGUE_URL ? new Promise(() => {}) : Promise.resolve(urls[url] ?? { data: [] })
+    ));
+    renderWithProviders(<LineupPage />, { route: '/team?leagueId=1', path: '/team' });
+    await screen.findByTestId('lineup-league-line');
+    expect(screen.queryByTestId('league-error')).toBeNull();
+  });
+
+  test('a league read that fails says so, with a Retry', async () => {
+    const urls = baseUrls();
+    apiClient.get.mockImplementation((url) => (
+      url === LEAGUE_URL ? Promise.reject(new Error('boom')) : Promise.resolve(urls[url] ?? { data: [] })
+    ));
+    renderWithProviders(<LineupPage />, { route: '/team?leagueId=1', path: '/team' });
+    await screen.findByTestId('league-error');
+    await waitFor(() => expect(screen.getByTestId('league-error')).toHaveTextContent('We could not load this league.'));
+    expect(within(screen.getByTestId('league-error')).getByRole('button', { name: 'Retry' })).toBeVisible();
+  });
+});
+
+test('the Forecast prints the season lines the advice payload carries (QA P1-2)', async () => {
+  renderPage(withEntries([qb(), rb(), wr(), benchWr()], {
+    [ADVICE_URL]: {
+      data: adviceBody({
+        pointsLeft: { total: 38.6, rank: 4, teams: 12 },
+        overrideRecord: { hits: 3, misses: 2 },
+        calledShotRecord: { hits: 2, resolved: 3, streak: 1 },
+      }),
+    },
+  }));
+  expect(await screen.findByTestId('points-left-line')).toHaveTextContent('Left on the bench this season: 38.6 (4th fewest of 12)');
+  expect(screen.getByTestId('forecast-record-line')).toHaveTextContent('You vs the Forecast: 3-2');
+  expect(screen.getByTestId('called-record-line')).toHaveTextContent('Called shots this season: 2 of 3 · streak 1');
+});
+
+test('multi-seat slots say which seat is empty (QA P3)', async () => {
+  liveGameRows = [inProgress()];
+  renderPage({
+    ...withEntries([qb(), rb(), wr(), outBench()]),
+    [LINEUP_URL]: {
+      data: lineupBody({
+        body: {
+          rosterSlots: [...ROSTER_SLOTS.slice(0, 2), { key: 'WR', count: 2, eligiblePositions: ['WR'] }],
+          entries: [qb(), rb(), wr(), outBench()],
+        },
+      }),
+    },
+  });
+  const note = await screen.findByTestId('lineup-note');
+  expect(note).toHaveTextContent('WR 2 is empty');
+  expect(screen.getByTestId('slot-row-WR-1')).toContainElement(note);
+});
+
+describe('QA round 2 (wave 3)', () => {
+  // N2: useResource reports loading=false for the commit before its effect starts the read; the error row must not
+  // flash on a normal load. A MutationObserver sees any node that mounts and leaves between two awaits.
+  test('the league error row never mounts during a normal load', async () => {
+    const seen = [];
+    const observer = new MutationObserver((records) => {
+      records.forEach((record) => record.addedNodes.forEach((node) => {
+        if (node.nodeType === 1 && (node.matches?.('[data-testid="league-error"]') || node.querySelector?.('[data-testid="league-error"]'))) seen.push(node);
+      }));
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+    try {
+      renderPage(withEntries([qb(), rb(), wr(), benchWr()]));
+      await screen.findByText('Josh Allen');
+      await screen.findByTestId("strip-advice");
+    } finally {
+      observer.disconnect();
+    }
+    expect(seen).toHaveLength(0);
+    expect(screen.queryByTestId('league-error')).toBeNull();
+  });
+
+  // N4: after a Dismiss the Advice tile counts and sums the moves the plan line names.
+  test('the Advice tile follows a Dismiss: it counts and sums the suggestions still showing', async () => {
+    const user = userEvent.setup();
+    const second = adviceSuggestion({
+      slot: 'RB',
+      gain: 4,
+      current: { playerId: 2, name: 'Derrick King', projection: 8, opponent: 'CIN', distribution: { p10: 3, p90: 13 } },
+      suggested: { playerId: 10, name: 'Bench Guy', projection: 12, opponent: 'NYJ', distribution: { p10: 6, p90: 18 } },
+    });
+    const first = adviceSuggestion({
+      slot: 'WR',
+      gain: 10.1,
+      current: { playerId: 30, name: 'Out Guy', projection: 0, opponent: 'JAX', startVerdict: { outcome: 'unavailable', reason: 'out' }, distribution: { p10: 0, p90: 0 } },
+      suggested: { playerId: 11, name: 'Other Guy', projection: 10.1, opponent: 'PHI', distribution: { p10: 3, p90: 19 } },
+    });
+    renderPage(withEntries([qb(), rb(), outWr(), benchWr()], {
+      [ADVICE_URL]: {
+        data: adviceBody({
+          projectedTotal: 90,
+          optimalTotal: 104.1,
+          suggestions: [first, second],
+          movePlan: [
+            { playerId: 30, fromSlot: 'WR', toSlot: 'BENCH' }, { playerId: 11, fromSlot: 'BENCH', toSlot: 'WR' },
+            { playerId: 2, fromSlot: 'RB', toSlot: 'BENCH' }, { playerId: 10, fromSlot: 'BENCH', toSlot: 'RB' },
+          ],
+        }),
+      },
+    }));
+    await screen.findByTestId('start-sit-apply');
+    expect(screen.getByTestId('strip-advice')).toHaveTextContent('+14.1 pts · 2 swaps');
+    expect(screen.getByTestId('start-sit-plan-line')).toHaveTextContent('Two moves');
+    await user.click(screen.getAllByTestId('suggestion-dismiss')[0]);
+    await waitFor(() => expect(screen.getByTestId('strip-advice')).toHaveTextContent('+4.0 pts · 1 swap'));
+    expect(screen.getByTestId('start-sit-plan-line')).toHaveTextContent('Start Bench Guy for Derrick King · +4.0 pts');
+  });
 });

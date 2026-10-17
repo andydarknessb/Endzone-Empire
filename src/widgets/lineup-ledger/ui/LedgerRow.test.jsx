@@ -1,5 +1,6 @@
+/* eslint-disable testing-library/no-node-access, testing-library/prefer-presence-queries -- the cursor, fill and live-region facts are DOM structure, which Testing Library has no query for */
 import React from 'react';
-import { act, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import LedgerRow from './LedgerRow';
 import { lineupEntries } from '../../../entities/roster';
@@ -79,19 +80,24 @@ test('a locked row shows the lock icon and not the legacy chip text', () => {
   expect(screen.queryByText('LOCKED')).toBeNull();
 });
 
-// #1317: the avatar's ink is monogramInk(kit.jersey), not the themed
-// var(--text-inverse) - a fixed white or black chosen against the specific
-// jersey, since the jersey itself is a fixed external brand color that never
-// changes with the theme. CHI's jersey (#0b162a) clears 4.5:1 against white;
-// CIN's (#fb4f14) does not.
-test('the avatar ink is white for a jersey that clears 4.5:1 against white (CHI)', () => {
-  render(<LedgerRow slotLabel="QB" entry={entry({ nflTeam: 'CHI' })} onClick={jest.fn()} data-testid="row" />);
-  expect(screen.getByText('JA')).toHaveStyle({ color: '#ffffff' });
+// Play-select (spec #2347 ruling 4): the avatar shows on every occupied row, and its initials fallback is a
+// neutral square, not the NFL team's jersey colour.
+test('the avatar is a neutral initials square, whatever the NFL team', () => {
+  const { rerender } = render(<LedgerRow slotLabel="QB" entry={entry({ nflTeam: 'CIN' })} onClick={jest.fn()} data-testid="row" />);
+  const cin = getComputedStyle(screen.getByText('JA'));
+  rerender(<LedgerRow slotLabel="QB" entry={entry({ nflTeam: 'CHI' })} onClick={jest.fn()} data-testid="row" />);
+  const chi = getComputedStyle(screen.getByText('JA'));
+  expect(cin.backgroundColor).toBe(chi.backgroundColor);
+  expect(cin.color).toBe(chi.color);
+  expect(screen.getByText('JA')).toHaveStyle({ width: '36px', height: '36px' });
 });
 
-test('the avatar ink is black for a jersey that fails 4.5:1 against white (CIN)', () => {
-  render(<LedgerRow slotLabel="QB" entry={entry({ nflTeam: 'CIN' })} onClick={jest.fn()} data-testid="row" />);
-  expect(screen.getByText('JA')).toHaveStyle({ color: '#000000' });
+test('a headshot replaces the initials and falls back to them when it fails to load', () => {
+  render(<LedgerRow slotLabel="QB" entry={entry({ photoUrl: 'https://example.test/josh.png' })} onClick={jest.fn()} data-testid="row" />);
+  const img = screen.getByTestId('ledger-headshot');
+  expect(screen.queryByText('JA')).toBeNull();
+  fireEvent.error(img);
+  expect(screen.getByText('JA')).toBeInTheDocument();
 });
 
 test('an injured player shows the injury tag', () => {
@@ -414,9 +420,8 @@ test('a live Game cell shows the clock and score, points in the live colour, and
   expect(cell).toHaveTextContent('14-10');
   expect(cell).toHaveTextContent('Q2 4:15');
   expect(screen.queryByTestId('ledger-situation-line')).toBeNull();
-  // #1241 AC2: the points cell paints in the live colour while the game is
-  // in progress.
-  expect(screen.getByTestId('ledger-points')).toHaveStyle({ color: 'var(--dash-danger)' });
+  // The live state is told by the Accent dot and the word for a screen reader, not by red points.
+  expect(cell).toHaveTextContent('Live,');
 });
 
 // #1241 AC1: the Situation line (possession, down/distance) renders under
@@ -525,12 +530,12 @@ test('a live Game cell with a null last play omits it from the Situation line, n
 
 // A pre-kickoff or final Game cell never paints the points cell in the live
 // colour, even when the wire happens to carry a points value.
-test('a pre-kickoff Game cell keeps the points cell in the faint colour, never the live colour', () => {
+test('a pre-kickoff Game cell carries no live word, even when the wire happens to carry a points value', () => {
   render(<LedgerRow slotLabel="QB" entry={entry({ points: 12.4 })} onClick={jest.fn()} data-testid="row" />);
-  expect(screen.getByTestId('ledger-points')).toHaveStyle({ color: 'var(--dash-faint)' });
+  expect(screen.getByTestId('ledger-game-cell')).not.toHaveTextContent('Live,');
 });
 
-test('a final Game cell keeps the points cell in the faint colour, not the live colour', () => {
+test('a final Game cell prints "pts · final" after the points, not the live word', () => {
   render(
     <LedgerRow
       slotLabel="QB"
@@ -540,7 +545,8 @@ test('a final Game cell keeps the points cell in the faint colour, not the live 
       data-testid="row"
     />
   );
-  expect(screen.getByTestId('ledger-points')).toHaveStyle({ color: 'var(--dash-faint)' });
+  expect(screen.getByTestId('ledger-points')).toHaveTextContent('27.0 pts · final');
+  expect(screen.getByTestId('ledger-game-cell')).not.toHaveTextContent('Live,');
 });
 
 test('the Edge line renders the server-computed kind and text', () => {
@@ -711,48 +717,74 @@ test('a row with no projection or only a Position baseline claims no projection 
 });
 
 // #1957 L3: points headline, projection beneath it labelled "proj".
-test('the projection reads "<n> proj" beneath the points figure, which is the larger of the two', () => {
+test('the projection reads "proj <n>" beneath the points figure', () => {
   render(<LedgerRow slotLabel="QB" entry={entry({ projectedPoints: 14.2, points: 9.5 })} onClick={jest.fn()} data-testid="row" />);
   const points = screen.getByTestId('ledger-points');
   const projection = screen.getByTestId('ledger-projection');
-  expect(projection).toHaveTextContent(/^14\.2 proj$/);
-  expect(points).toHaveStyle({ fontSize: '20px', fontWeight: '700', fontVariantNumeric: 'tabular-nums' });
-  expect(projection).toHaveStyle({ fontSize: '12px' });
+  expect(projection).toHaveTextContent(/^proj 14\.2$/);
+  expect(points).toHaveStyle({ fontSize: '16px', fontWeight: '700', fontVariantNumeric: 'tabular-nums' });
+  expect(projection).toHaveStyle({ fontSize: '13px' });
   expect(points.compareDocumentPosition(projection) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 });
 
-test('an Unavailable row paints its reason in the warning colour and a label stands alone without "proj"', () => {
+test('an Unavailable row names its reason and a label stands alone without "proj"', () => {
   const { rerender } = render(
     <LedgerRow slotLabel="WR" entry={entry({ availability: { available: false, reason: 'out' } })} onClick={jest.fn()} data-testid="row" />
   );
-  expect(screen.getByTestId('ledger-projection')).toHaveStyle({ color: 'var(--dash-warning)' });
   expect(screen.getByTestId('ledger-projection')).toHaveTextContent(/^out$/);
   rerender(<LedgerRow slotLabel="QB" entry={entry({ startVerdict: { outcome: 'not_recommended', reason: 'no_history', numberTrusted: false } })} onClick={jest.fn()} data-testid="row" />);
   expect(screen.getByTestId('ledger-projection')).toHaveTextContent(/^no history$/);
 });
 
-// #1957 L4: the selected row alone wears a ring (an inset box-shadow on the
-// row wrapper, which also carries the border and fill, L7).
-test('the selected row has an accent ring that an eligible target and a plain row lack', () => {
-  const { rerender } = render(<LedgerRow slotLabel="QB" entry={entry()} selected onClick={jest.fn()} data-testid="row" />);
-  expect(getComputedStyle(screen.getByTestId('row')).boxShadow).toContain('inset');
-  rerender(<LedgerRow slotLabel="QB" entry={entry()} showEligibility eligible onClick={jest.fn()} data-testid="row" />);
-  expect(getComputedStyle(screen.getByTestId('row')).boxShadow).toBe('none');
-  rerender(<LedgerRow slotLabel="QB" entry={entry()} swapHighlighted onClick={jest.fn()} data-testid="row" />);
-  expect(getComputedStyle(screen.getByTestId('row')).boxShadow).toBe('none');
+// Play-select: the Play-blue fill is the one highlight, for a legal target and for both rows of a Bench
+// what-if; the pressed row is told by aria-pressed (the page hands the cursor frame to it).
+test('an eligible target and a what-if row take the Play-blue fill; a plain or pressed row does not', () => {
+  const mode = (props) => {
+    const { unmount } = render(<LedgerRow slotLabel="QB" entry={entry()} onClick={jest.fn()} data-testid="row" {...props} />);
+    const value = screen.getByTestId('row').querySelector('.slot').getAttribute('data-row-mode');
+    unmount();
+    return value;
+  };
+  expect(mode({})).toBeNull();
+  expect(mode({ showEligibility: true, eligible: true })).toBe('eligible');
+  expect(mode({ swapHighlighted: true })).toBe('eligible');
+  expect(mode({ selected: true })).toBeNull();
 });
 
-// #1957 L7: Drop sits inside the row's own border, not beside it.
-test('the drop control is inside the bordered row wrapper', () => {
-  render(<LedgerRow slotLabel="QB" entry={entry()} canDrop onRequestDrop={jest.fn()} onClick={jest.fn()} data-testid="row" />);
+test('a row that is not a legal target reads "not eligible" and is the dimmed one', () => {
+  render(<LedgerRow slotLabel="QB" entry={entry()} showEligibility eligible={false} disabled onClick={jest.fn()} data-testid="row" />);
+  expect(screen.getByTestId('row-select')).toHaveAttribute('aria-label', 'Josh Allen, QB, projected 24.3, not eligible');
+  expect(screen.getByTestId('row').querySelector('.slot')).toHaveAttribute('data-row-mode', 'dim');
+});
+
+test('the cursor frame and the note ride on the named row, and urgent turns the frame Danger', () => {
+  const { rerender } = render(<LedgerRow slotLabel="WR 1" entry={null} cursor note={<p>FLEX is empty</p>} onClick={jest.fn()} data-testid="row" />);
   const row = screen.getByTestId('row');
-  expect(row).toHaveStyle({ borderStyle: 'solid' });
-  expect(row).toContainElement(screen.getByRole('button', { name: /drop josh allen/i }));
+  expect(row.querySelector('.cursor')).not.toBeNull();
+  expect(row).toHaveTextContent('FLEX is empty');
+  rerender(<LedgerRow slotLabel="WR 1" entry={null} cursor="urgent" onClick={jest.fn()} data-testid="row" />);
+  expect(screen.getByTestId('row').querySelector('.cursor')).not.toBeNull();
+  rerender(<LedgerRow slotLabel="WR 1" entry={null} onClick={jest.fn()} data-testid="row" />);
+  expect(screen.getByTestId('row').querySelector('.cursor')).toBeNull();
+});
+
+// #1957 L7: Drop sits inside the row's own frame, not beside it.
+test('the drop control is inside the row wrapper', () => {
+  render(<LedgerRow slotLabel="QB" entry={entry()} canDrop onRequestDrop={jest.fn()} onClick={jest.fn()} data-testid="row" />);
+  expect(screen.getByTestId('row')).toContainElement(screen.getByRole('button', { name: /drop josh allen/i }));
+});
+
+// Spec #2347 ruling 4: injury tags print the codes with the full word as screen-reader text.
+test('an injury tag prints the code and says the word for a screen reader', () => {
+  render(<LedgerRow slotLabel="WR" entry={entry({ injuryStatus: 'Q' })} onClick={jest.fn()} data-testid="row" />);
+  const tag = screen.getByTestId('injury-tag');
+  expect(tag).toHaveTextContent('Q');
+  expect(tag).toHaveTextContent('Injury status: Questionable');
 });
 
 // #1957 L2: the Game cell is one DOM copy, in the info block below `sm` and
 // in its own column from `sm`.
-test('the Game cell renders once, inside the info block below sm and outside it from sm', () => {
+test('the Game cell renders once at every width, on its own line below sm and in its own column from sm', () => {
   const originalMatchMedia = window.matchMedia;
   const mockViewport = (width) => {
     window.matchMedia = jest.fn().mockImplementation((query) => {
@@ -764,7 +796,7 @@ test('the Game cell renders once, inside the info block below sm and outside it 
     mockViewport(375);
     const { unmount } = render(<LedgerRow slotLabel="QB" entry={entry()} onClick={jest.fn()} data-testid="row" />);
     expect(screen.getAllByTestId('ledger-game-cell')).toHaveLength(1);
-    expect(within(screen.getByTestId('ledger-info')).getByTestId('ledger-game-cell')).toBeInTheDocument();
+    expect(within(screen.getByTestId('ledger-info')).queryByTestId('ledger-game-cell')).toBeNull();
     unmount();
     mockViewport(1280);
     render(<LedgerRow slotLabel="QB" entry={entry()} onClick={jest.fn()} data-testid="row" />);

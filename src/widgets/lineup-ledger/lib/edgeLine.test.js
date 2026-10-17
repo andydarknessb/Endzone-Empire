@@ -1,12 +1,12 @@
 import { EDGE_LINE_KINDS, edgeLineColor, displayEdgeKind } from './edgeLine';
 
-test('every Edge line kind gets its own colour (AC3, no two kinds share one)', () => {
-  const colors = EDGE_LINE_KINDS.map(edgeLineColor);
-  expect(new Set(colors).size).toBe(EDGE_LINE_KINDS.length);
+test('the injury line reads in Ink and every other kind in Dim, never green or red', () => {
+  expect(edgeLineColor('injury')).toBe('var(--ps-ink)');
+  EDGE_LINE_KINDS.filter((kind) => kind !== 'injury').forEach((kind) => expect(edgeLineColor(kind)).toBe('var(--ps-dim)'));
 });
 
-test('an unknown kind falls back to dash-faint rather than throwing', () => {
-  expect(edgeLineColor('nonsense')).toBe('var(--dash-faint)');
+test('an unknown kind reads in Dim rather than throwing', () => {
+  expect(edgeLineColor('nonsense')).toBe('var(--ps-dim)');
 });
 
 // #1241 AC3: "the pace Edge line renders while the game is in progress and

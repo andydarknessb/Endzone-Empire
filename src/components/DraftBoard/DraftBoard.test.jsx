@@ -15,6 +15,7 @@ import { railCompositionFor, RAIL_PANELS } from './railComposition';
 import { DRAFT_ASSISTANT_KEY } from '../../lib/draftAssistantPreference';
 import { fillTemplate, TRIGGERS, POLK_HIGH_LEGEND_LINES } from '../../lib/draftAssistant';
 import { DEFAULT_ROSTER_SLOTS } from '../../lib/draftSim/templates';
+import { findToast } from '../../test-utils/toast';
 
 jest.mock('../../api/apiClient', () => ({
   __esModule: true,
@@ -1480,7 +1481,7 @@ test("the queue's top-row Draft button is aria-disabled off-turn and fully enabl
   // The success toast names the actual player even though he was only ever
   // resolvable through the queue, not the (unrelated) pool response - the
   // same lookup requestDraftPlayer used to build the confirmation dialog.
-  expect(await screen.findByText('Drafted Bijan Robinson!')).toBeInTheDocument();
+  expect(await findToast('Drafted Bijan Robinson!')).toBeInTheDocument();
 });
 
 test("the queue's top-row Draft button is aria-disabled on your turn while the draft is paused, with the same shared explanation as the pool row", async () => {
@@ -1857,7 +1858,7 @@ test('Randomize Draft order shows only for the commissioner pre-draft and POSTs'
   await waitFor(() =>
     expect(apiClient.post).toHaveBeenCalledWith('/api/draft/league/1/order', { randomize: true })
   );
-  expect(await screen.findByText('Draft order randomized')).toBeInTheDocument();
+  expect(await findToast('Draft order randomized')).toBeInTheDocument();
   unmount();
 
   // A manager the ack did not name a commissioner never sees the button
@@ -1912,7 +1913,7 @@ test('commissioner corrects the latest pick with a reason, posting the confirmed
     pickNumber: 1,
     reason: 'wrong team entered, correcting before we resume',
   }));
-  expect(await screen.findByText('Latest pick corrected; draft paused')).toBeInTheDocument();
+  expect(await findToast('Latest pick corrected; draft paused')).toBeInTheDocument();
 });
 
 test('Correct latest Pick is disabled when the most recent reached pick is a keeper', async () => {

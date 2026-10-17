@@ -6,6 +6,11 @@ import apiClient from '../../api/apiClient';
 import { clearLeagueCache } from '../../hooks/useLeague';
 import { SnackbarProvider } from '../Snackbar/SnackbarProvider';
 import TradeCenter from './TradeCenter';
+import { findToast } from '../../test-utils/toast';
+
+// A card is queried through its own `within(...)` scope (one page holds several), and the cursor, the filled
+// action and the live regions are classes and attributes with no role.
+/* eslint-disable testing-library/prefer-screen-queries, testing-library/no-node-access, testing-library/no-container */
 
 jest.mock('../../api/apiClient', () => ({
   __esModule: true,
@@ -101,7 +106,7 @@ const pendingTrade = (overrides = {}) => ({
 const mockGetSequence = ({ trades = [], myTeamId = 10, rostersData = rosters, league = leagueResponse() }) => {
   apiClient.get.mockImplementation((url) => {
     if (url.startsWith('/api/trades')) {
-      return Promise.resolve({ data: { myTeamId, trades } });
+      return Promise.resolve({ data: { myTeamId, trades: typeof trades === 'function' ? trades() : trades } });
     }
     if (url.includes('/rosters')) {
       return Promise.resolve({ data: rostersData });
@@ -116,11 +121,13 @@ afterEach(() => {
   clearLeagueCache();
 });
 
-// PlayerNameLink renders the player's name inside a nested <button>, so a
-// "Name (POS)" query is now split across elements — a plain string no
-// longer matches (RTL only reads an element's own direct text nodes).
-// This content-matching function checks the full textContent instead.
-const byText = (text) => (_, element) => element?.textContent === text;
+const findCard = async (id = 5) => within(await screen.findByTestId(`trade-${id}`));
+const selectTeam = (name) => userEvent.selectOptions(screen.getByLabelText('Trade with'), name);
+const FAIR = {
+  verdict: 'fair', proposerGives: 20.04, proposerGets: 19.96, receiverGives: 19.96, receiverGets: 20.04, players: [],
+};
+// The page's one filled action lives in a modal: outside a dialog nothing is filled.
+const filled = (root = document) => root.querySelectorAll('[data-variant="fill"]');
 
 test('shows a loading skeleton before data arrives', () => {
   apiClient.get.mockReturnValue(new Promise(() => {}));
@@ -128,16 +135,59 @@ test('shows a loading skeleton before data arrives', () => {
   expect(screen.getByTestId('page-skeleton')).toBeInTheDocument();
 });
 
-test('renders trades with team names, status, items, and a relative created_at caption', async () => {
+test('renders trades with team names, status word, items, and a relative created_at caption', async () => {
   mockGetSequence({ trades: [pendingTrade()] });
 
   renderScreen();
 
-  await screen.findByText('Alice Squad ⇄ Bob Squad');
-  expect(screen.getByText('pending')).toBeInTheDocument();
-  expect(screen.getByText(byText('Stefon Diggs (WR)'))).toBeInTheDocument();
-  expect(screen.getByText(byText('Tyreek Hill (WR)'))).toBeInTheDocument();
-  expect(within(screen.getByTestId('trade-5')).getByText('just now')).toBeInTheDocument();
+  const c = await findCard();
+  expect(screen.getByRole('heading', { level: 2, name: /Alice Squad.*Bob Squad/ })).toBeInTheDocument();
+  // The status chip prints the word, not the raw lowercase status.
+  expect(c.getByText('Pending')).toBeInTheDocument();
+  expect(c.queryByText('pending')).not.toBeInTheDocument();
+  expect(c.getByRole('button', { name: 'Stefon Diggs' })).toBeInTheDocument();
+  expect(c.getByRole('button', { name: 'Tyreek Hill' })).toBeInTheDocument();
+  expect(c.getByText('just now')).toBeInTheDocument();
+});
+
+test('the head names the league, the trade deadline and the time zone', async () => {
+  mockGetSequence({ trades: [], league: leagueResponse({ trade_deadline_week: 10 }) });
+  renderScreen();
+
+  expect(await screen.findByRole('heading', { level: 1, name: 'Trade Center' })).toBeInTheDocument();
+  expect(screen.getByText(/^Trade deadline Week 10 · times in /)).toBeInTheDocument();
+  expect(screen.getByRole('link', { name: /Test League/ })).toBeInTheDocument();
+});
+
+test('with no trade deadline the sub-line keeps only the time zone', async () => {
+  mockGetSequence({ trades: [], league: leagueResponse({ trade_deadline_week: null }) });
+  renderScreen();
+
+  await screen.findByRole('heading', { level: 1, name: 'Trade Center' });
+  expect(screen.queryByText(/Trade deadline/)).not.toBeInTheDocument();
+  expect(screen.getByText(/^Times in /)).toBeInTheDocument();
+});
+
+test('the sections are a tablist: Left/Right move and activate, Trade Block keeps its Coming soon copy', async () => {
+  mockGetSequence({ trades: [pendingTrade()] });
+  renderScreen();
+  await screen.findByTestId('trade-5');
+
+  const tabs = screen.getAllByRole('tab');
+  expect(tabs.map((t) => t.textContent)).toEqual(['Pending', 'Completed', 'Trade Block']);
+  expect(tabs[0]).toHaveAttribute('aria-selected', 'true');
+  expect(tabs[0]).toHaveAttribute('tabindex', '0');
+  expect(tabs[1]).toHaveAttribute('tabindex', '-1');
+  expect(screen.getByRole('tabpanel')).toHaveAttribute('aria-labelledby', tabs[0].id);
+
+  tabs[0].focus();
+  await userEvent.keyboard('{ArrowRight}');
+  expect(screen.getAllByRole('tab')[1]).toHaveAttribute('aria-selected', 'true');
+  expect(screen.getAllByRole('tab')[1]).toHaveFocus();
+  expect(screen.getByText('No Completed Trades')).toBeInTheDocument();
+
+  await userEvent.keyboard('{End}');
+  expect(screen.getByText(/Coming soon/)).toBeInTheDocument();
 });
 
 // #1311, ADR 0040 ruling (d): TradeCenter opens the Decision card with
@@ -147,7 +197,7 @@ test('clicking a player name opens the Decision card, with context keyed off the
   mockGetSequence({ trades: [pendingTrade()] });
   renderScreen();
 
-  await screen.findByText('Alice Squad ⇄ Bob Squad');
+  await screen.findByTestId('trade-5');
 
   // Stefon Diggs (101) is on Alice Squad (team 10 == myTeamId): my_team, with
   // no lineup wiring here, so the card renders the Open lineup link.
@@ -185,11 +235,11 @@ test('a Trade deep-link (?receivingTeamId=&playerId=) preselects the receiving t
     state: { user: { id: 1, username: 'alice' } },
   });
 
-  await screen.findByText('No Pending Trades');
-
   const receiveColumn = await screen.findByTestId('roster-column-receive');
   expect(within(receiveColumn).getByLabelText('Tyreek Hill (WR)')).toBeChecked();
-  expect(screen.getByRole('combobox', { name: 'Trade with' })).toHaveTextContent('Bob Squad');
+  expect(screen.getByLabelText('Trade with')).toHaveDisplayValue('Bob Squad');
+  // The team is already chosen, so focus opens on the first "You send" checkbox, not the select.
+  expect(within(screen.getByTestId('roster-column-send')).getByLabelText('Josh Allen (QB)')).toHaveFocus();
 });
 
 // Formal review formal-1310-f4: a stale/mistyped playerId (traded, dropped,
@@ -205,10 +255,24 @@ test('a Trade deep-link whose playerId is not on the receiving team\'s roster pr
     state: { user: { id: 1, username: 'alice' } },
   });
 
-  await screen.findByText('No Pending Trades');
-
-  expect(screen.getByRole('combobox', { name: 'Trade with' })).toHaveTextContent('Bob Squad');
+  await screen.findByTestId('roster-column-receive');
+  expect(screen.getByLabelText('Trade with')).toHaveDisplayValue('Bob Squad');
   expect(screen.getByRole('button', { name: 'Send Offer' })).toBeDisabled();
+});
+
+test('closing a deep-linked dialog, which has no opener, puts focus on the h1', async () => {
+  mockGetSequence({ trades: [] });
+
+  renderWithProviders(<TradeCenter />, {
+    path: '/league/:leagueId/trades',
+    route: '/league/1/trades?receivingTeamId=20&playerId=200',
+    state: { user: { id: 1, username: 'alice' } },
+  });
+
+  await screen.findByTestId('roster-column-receive');
+  await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  expect(screen.getByRole('heading', { level: 1, name: 'Trade Center' })).toHaveFocus();
 });
 
 test('shows empty state when there are no trades', async () => {
@@ -228,8 +292,11 @@ test('propose trade dialog flow posts the correct body, toasts, and refetches', 
 
   await userEvent.click(screen.getByRole('button', { name: 'Propose Trade' }));
 
-  await userEvent.click(screen.getByLabelText('Trade with'));
-  await userEvent.click(await screen.findByRole('option', { name: 'Bob Squad' }));
+  // Focus opens on "Trade with", and the dialog is named by its title.
+  expect(screen.getByLabelText('Trade with')).toHaveFocus();
+  expect(screen.getByRole('dialog', { name: 'Propose Trade' })).toBeInTheDocument();
+
+  await selectTeam('Bob Squad');
 
   await userEvent.click(await screen.findByLabelText('Stefon Diggs (WR)'));
   await userEvent.click(await screen.findByLabelText('Tyreek Hill (WR)'));
@@ -244,8 +311,20 @@ test('propose trade dialog flow posts the correct body, toasts, and refetches', 
     })
   );
 
-  expect(await screen.findByText('Trade offer sent')).toBeInTheDocument();
+  expect(await findToast('Trade offer sent')).toBeInTheDocument();
   expect(apiClient.get).toHaveBeenCalledTimes(4); // 3 initial + 1 refetch of trades
+});
+
+test('closing the dialog hands focus back to the Propose Trade button', async () => {
+  mockGetSequence({ trades: [] });
+  renderScreen();
+  await screen.findByText('No Pending Trades');
+
+  await userEvent.click(screen.getByRole('button', { name: 'Propose Trade' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  expect(screen.getByRole('button', { name: 'Propose Trade' })).toHaveFocus();
 });
 
 test('Send Offer is disabled until at least one player is checked on each side', async () => {
@@ -255,8 +334,7 @@ test('Send Offer is disabled until at least one player is checked on each side',
   await screen.findByText('No Pending Trades');
 
   await userEvent.click(screen.getByRole('button', { name: 'Propose Trade' }));
-  await userEvent.click(screen.getByLabelText('Trade with'));
-  await userEvent.click(await screen.findByRole('option', { name: 'Bob Squad' }));
+  await selectTeam('Bob Squad');
 
   expect(screen.getByRole('button', { name: 'Send Offer' })).toBeDisabled();
 
@@ -267,27 +345,60 @@ test('Send Offer is disabled until at least one player is checked on each side',
   expect(screen.getByRole('button', { name: 'Send Offer' })).not.toBeDisabled();
 });
 
-test('propose dialog roster columns stack full width on mobile (xs=12, sm=6) and group players by position', async () => {
+test('a refused Send Offer says why inside the dialog, which stays open', async () => {
   mockGetSequence({ trades: [] });
+  apiClient.post.mockRejectedValue({ response: { data: { error: 'transactions are locked by the commissioner' } } });
+
+  renderScreenWithToasts();
+  await screen.findByText('No Pending Trades');
+
+  await userEvent.click(screen.getByRole('button', { name: 'Propose Trade' }));
+  await selectTeam('Bob Squad');
+  await userEvent.click(await screen.findByLabelText('Stefon Diggs (WR)'));
+  await userEvent.click(await screen.findByLabelText('Tyreek Hill (WR)'));
+  await userEvent.click(screen.getByRole('button', { name: 'Send Offer' }));
+
+  const alert = await within(screen.getByRole('dialog')).findByRole('alert');
+  expect(alert).toHaveTextContent('transactions are locked by the commissioner');
+  // The live region holds text only, and the dialog is still open with Send Offer ready to retry.
+  expect(within(alert).queryByRole('button')).not.toBeInTheDocument();
+  expect(screen.getByRole('dialog')).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Send Offer' })).toBeEnabled();
+  // It is not also on the page behind the modal.
+  expect(screen.getAllByText('transactions are locked by the commissioner')).toHaveLength(1);
+});
+
+test('the dialog is the page\'s one filled button; the page behind it has none', async () => {
+  mockGetSequence({ trades: [pendingTrade()], myTeamId: 20 });
+  renderScreen();
+  await screen.findByTestId('trade-5');
+
+  expect(filled()).toHaveLength(0);
+
+  await userEvent.click(screen.getByRole('button', { name: 'Propose Trade' }));
+  const dialog = screen.getByRole('dialog');
+  expect(filled(dialog)).toHaveLength(1);
+  expect(within(dialog).getByRole('button', { name: 'Send Offer' })).toHaveAttribute('data-variant', 'fill');
+  expect(filled()).toHaveLength(1);
+});
+
+test('roster rows carry position tags and Weekly proj and ROS column heads, grouped in position order', async () => {
+  mockGetSequence({ trades: [], rostersData: rostersWithProjections });
 
   renderScreen();
   await screen.findByText('No Pending Trades');
 
   await userEvent.click(screen.getByRole('button', { name: 'Propose Trade' }));
-  await userEvent.click(screen.getByLabelText('Trade with'));
-  await userEvent.click(await screen.findByRole('option', { name: 'Bob Squad' }));
+  await selectTeam('Bob Squad');
 
   const sendColumn = await screen.findByTestId('roster-column-send');
-  const receiveColumn = screen.getByTestId('roster-column-receive');
-
-  expect(sendColumn.className).toEqual(expect.stringContaining('MuiGrid2-grid-xs-12'));
-  expect(sendColumn.className).toEqual(expect.stringContaining('MuiGrid2-grid-sm-6'));
-  expect(receiveColumn.className).toEqual(expect.stringContaining('MuiGrid2-grid-xs-12'));
-  expect(receiveColumn.className).toEqual(expect.stringContaining('MuiGrid2-grid-sm-6'));
-
-  // Alice Squad's roster has a QB and a WR — grouped under position subheaders.
-  expect(within(sendColumn).getByText('QB')).toBeInTheDocument();
-  expect(within(sendColumn).getByText('WR')).toBeInTheDocument();
+  expect(within(sendColumn).getAllByText('Weekly proj')).toHaveLength(1);
+  expect(within(sendColumn).getByText('ROS')).toBeInTheDocument();
+  // Josh Allen (QB) comes before Stefon Diggs (WR); each row has its position tag.
+  const labels = within(sendColumn).getAllByRole('checkbox').map((box) => box.getAttribute('aria-label'));
+  expect(labels[0]).toMatch(/^Josh Allen \(QB\)/);
+  expect(labels[1]).toMatch(/^Stefon Diggs \(WR\)/);
+  expect(sendColumn.querySelectorAll('[data-position]').length).toBe(2);
 });
 
 test('propose dialog composes weekly and rest-of-season projection labels', async () => {
@@ -297,8 +408,7 @@ test('propose dialog composes weekly and rest-of-season projection labels', asyn
   await screen.findByText('No Pending Trades');
 
   await userEvent.click(screen.getByRole('button', { name: 'Propose Trade' }));
-  await userEvent.click(screen.getByLabelText('Trade with'));
-  await userEvent.click(await screen.findByRole('option', { name: 'Bob Squad' }));
+  await selectTeam('Bob Squad');
 
   expect(await screen.findByLabelText('Josh Allen (QB) · weekly proj 22.4 · ROS 180.2')).toBeInTheDocument();
   expect(screen.getByLabelText('Tyreek Hill (WR) · weekly proj 18.7')).toBeInTheDocument();
@@ -312,8 +422,7 @@ test('live summary chip rows reflect the current selection on each side', async 
   await screen.findByText('No Pending Trades');
 
   await userEvent.click(screen.getByRole('button', { name: 'Propose Trade' }));
-  await userEvent.click(screen.getByLabelText('Trade with'));
-  await userEvent.click(await screen.findByRole('option', { name: 'Bob Squad' }));
+  await selectTeam('Bob Squad');
 
   expect(screen.getByText('You send (0):')).toBeInTheDocument();
   expect(screen.getByText('You receive (0):')).toBeInTheDocument();
@@ -336,18 +445,7 @@ test('auto-analyze in the compose dialog debounces ~600ms after the last checkbo
   const user = userEvent.setup({ delay: null });
   mockGetSequence({ trades: [] });
   apiClient.post.mockImplementation((url) => {
-    if (url === '/api/trades/analyze') {
-      return Promise.resolve({
-        data: {
-          verdict: 'fair',
-          proposerGives: 20,
-          proposerGets: 20,
-          receiverGives: 20,
-          receiverGets: 20,
-          players: [],
-        },
-      });
-    }
+    if (url === '/api/trades/analyze') return Promise.resolve({ data: FAIR });
     return Promise.resolve({});
   });
 
@@ -355,8 +453,7 @@ test('auto-analyze in the compose dialog debounces ~600ms after the last checkbo
   await screen.findByText('No Pending Trades');
 
   await user.click(screen.getByRole('button', { name: 'Propose Trade' }));
-  await user.click(screen.getByLabelText('Trade with'));
-  await user.click(await screen.findByRole('option', { name: 'Bob Squad' }));
+  await user.selectOptions(screen.getByLabelText('Trade with'), 'Bob Squad');
   await user.click(await screen.findByLabelText('Stefon Diggs (WR)'));
 
   // Only one side is non-empty — no auto-run should be scheduled yet.
@@ -398,8 +495,7 @@ test('auto-analyze in the compose dialog surfaces an error message when the debo
   await screen.findByText('No Pending Trades');
 
   await user.click(screen.getByRole('button', { name: 'Propose Trade' }));
-  await user.click(screen.getByLabelText('Trade with'));
-  await user.click(await screen.findByRole('option', { name: 'Bob Squad' }));
+  await user.selectOptions(screen.getByLabelText('Trade with'), 'Bob Squad');
   await user.click(await screen.findByLabelText('Stefon Diggs (WR)'));
   await user.click(await screen.findByLabelText('Tyreek Hill (WR)'));
 
@@ -415,19 +511,19 @@ test('accept and reject buttons appear only for the receiving team owner on a pe
   apiClient.post.mockResolvedValue({});
 
   renderScreenWithToasts();
-  await screen.findByText('Alice Squad ⇄ Bob Squad');
+  const c = await findCard();
 
-  const acceptButton = screen.getByRole('button', { name: 'Accept Trade' });
+  const acceptButton = c.getByRole('button', { name: 'Accept Trade' });
   expect(acceptButton).toBeInTheDocument();
-  expect(screen.getByRole('button', { name: 'Decline' })).toBeInTheDocument();
-  expect(screen.queryByRole('button', { name: 'Cancel' })).not.toBeInTheDocument();
+  expect(c.getByRole('button', { name: 'Decline' })).toBeInTheDocument();
+  expect(c.queryByRole('button', { name: 'Cancel' })).not.toBeInTheDocument();
 
   await userEvent.click(acceptButton);
 
   await waitFor(() =>
     expect(apiClient.post).toHaveBeenCalledWith('/api/trades/5/respond', { action: 'accept' })
   );
-  expect(await screen.findByText('Trade accepted')).toBeInTheDocument();
+  expect(await findToast('Trade accepted')).toBeInTheDocument();
 });
 
 test('Counter button appears for the receiving team and opens the propose dialog pre-filled with the trade inverted', async () => {
@@ -435,23 +531,23 @@ test('Counter button appears for the receiving team and opens the propose dialog
   apiClient.post.mockResolvedValue({});
 
   renderScreenWithToasts();
-  await screen.findByText('Alice Squad ⇄ Bob Squad');
+  const c = await findCard();
 
-  await userEvent.click(
-    within(screen.getByTestId('trade-5')).getByRole('button', { name: 'Counter' })
-  );
+  await userEvent.click(c.getByRole('button', { name: 'Counter' }));
 
-  expect(screen.getByText('Counter Trade')).toBeInTheDocument();
+  expect(screen.getByRole('dialog', { name: 'Counter Trade' })).toBeInTheDocument();
 
   // Fixed to the original proposer and disabled — a counter always goes back to them.
-  const teamSelect = screen.getByRole('combobox', { name: 'Trade with' });
-  expect(teamSelect).toHaveTextContent('Alice Squad');
-  expect(teamSelect).toHaveAttribute('aria-disabled', 'true');
+  const teamSelect = screen.getByLabelText('Trade with');
+  expect(teamSelect).toHaveDisplayValue('Alice Squad');
+  expect(teamSelect).toBeDisabled();
 
   // Sides inverted: what the proposer originally requested from me is now
   // pre-checked as what I send; what they offered is pre-checked as what I receive.
   expect(await screen.findByLabelText('Tyreek Hill (WR)')).toBeChecked();
   expect(screen.getByLabelText('Stefon Diggs (WR)')).toBeChecked();
+  // The select is disabled, so focus opens on the first "You send" checkbox.
+  expect(within(screen.getByTestId('roster-column-send')).getByLabelText('Tyreek Hill (WR)')).toHaveFocus();
 
   await userEvent.click(screen.getByRole('button', { name: 'Send Offer' }));
 
@@ -460,7 +556,7 @@ test('Counter button appears for the receiving team and opens the propose dialog
       playerIds: [200, 101],
     })
   );
-  expect(await screen.findByText('Counter offer sent')).toBeInTheDocument();
+  expect(await findToast('Counter offer sent')).toBeInTheDocument();
 });
 
 test('cancel button appears for the proposing team on a pending trade and calls cancel', async () => {
@@ -468,17 +564,45 @@ test('cancel button appears for the proposing team on a pending trade and calls 
   apiClient.post.mockResolvedValue({});
 
   renderScreenWithToasts();
-  await screen.findByText('Alice Squad ⇄ Bob Squad');
+  const c = await findCard();
 
-  expect(screen.queryByRole('button', { name: 'Accept Trade' })).not.toBeInTheDocument();
-  const cancelButton = screen.getByRole('button', { name: 'Cancel' });
-
-  await userEvent.click(cancelButton);
+  expect(c.queryByRole('button', { name: 'Accept Trade' })).not.toBeInTheDocument();
+  await userEvent.click(c.getByRole('button', { name: 'Cancel' }));
 
   await waitFor(() =>
     expect(apiClient.post).toHaveBeenCalledWith('/api/trades/5/cancel', {})
   );
-  expect(await screen.findByText('Trade cancelled')).toBeInTheDocument();
+  expect(await findToast('Trade cancelled')).toBeInTheDocument();
+});
+
+test('a card action that moves its trade puts focus on the next card\'s heading', async () => {
+  let list = [pendingTrade(), pendingTrade({ id: 4, receiving_team_name: 'Carol Squad', receiving_team_id: 30 })];
+  mockGetSequence({ trades: () => list, myTeamId: 10 });
+  apiClient.post.mockImplementation(async () => {
+    list = list.filter((t) => t.id !== 5);
+    return {};
+  });
+
+  renderScreen();
+  await userEvent.click((await findCard()).getByRole('button', { name: 'Cancel' }));
+
+  await waitFor(() => expect(screen.queryByTestId('trade-5')).not.toBeInTheDocument());
+  await waitFor(() => expect(within(screen.getByTestId('trade-4')).getByRole('heading', { level: 2 })).toHaveFocus());
+});
+
+test('the last card leaving Pending puts focus on the Pending tab', async () => {
+  let list = [pendingTrade()];
+  mockGetSequence({ trades: () => list, myTeamId: 10 });
+  apiClient.post.mockImplementation(async () => {
+    list = [];
+    return {};
+  });
+
+  renderScreen();
+  await userEvent.click((await findCard()).getByRole('button', { name: 'Cancel' }));
+
+  await screen.findByText('No Pending Trades');
+  await waitFor(() => expect(screen.getByRole('tab', { name: 'Pending' })).toHaveFocus());
 });
 
 test('vote to veto button appears for an uninvolved team on an accepted trade', async () => {
@@ -486,77 +610,137 @@ test('vote to veto button appears for an uninvolved team on an accepted trade', 
   apiClient.post.mockResolvedValue({});
 
   renderScreen();
-  await screen.findByText('Alice Squad ⇄ Bob Squad');
+  const c = await findCard();
 
-  const vetoButton = screen.getByRole('button', { name: 'Vote to Veto' });
-  await userEvent.click(vetoButton);
+  await userEvent.click(c.getByRole('button', { name: 'Vote to Veto' }));
 
   await waitFor(() =>
     expect(apiClient.post).toHaveBeenCalledWith('/api/trades/5/veto', {})
   );
 });
 
-test('commissioner sees force approve and can force-approve a pending trade', async () => {
+test('commissioner sees force approve and can force-approve a pending trade, on a labelled row of its own', async () => {
   mockGetSequence({ trades: [pendingTrade()], myTeamId: 30, league: leagueResponse({ ownerTeamId: 1 }) });
   apiClient.post.mockResolvedValue({});
 
   renderScreenWithToasts();
-  await screen.findByText('Alice Squad ⇄ Bob Squad');
+  const c = await findCard();
 
-  const forceApprove = screen.getByRole('button', { name: 'Force Approve' });
-  expect(screen.getByRole('button', { name: 'Commissioner Veto' })).toBeInTheDocument();
+  const row = c.getByRole('group', { name: 'Commissioner' });
+  const forceApprove = within(row).getByRole('button', { name: 'Force Approve' });
+  expect(within(row).getByRole('button', { name: 'Commissioner Veto' })).toBeInTheDocument();
 
   await userEvent.click(forceApprove);
 
   await waitFor(() =>
     expect(apiClient.post).toHaveBeenCalledWith('/api/trades/5/decide', { approve: true })
   );
-  expect(await screen.findByText('Trade approved')).toBeInTheDocument();
+  expect(await findToast('Trade approved')).toBeInTheDocument();
 });
 
-test('shows an error alert when the initial fetch fails', async () => {
+test('the commissioner\'s own trade, proposed or received, has no Force Approve or Commissioner Veto', async () => {
+  // The viewer is the commissioner (is_commissioner) and Alice Squad (team 10) is the proposer.
+  mockGetSequence({ trades: [pendingTrade()], myTeamId: 10, league: leagueResponse({ is_commissioner: true }) });
+  const { unmount } = renderScreen();
+  const c = await findCard();
+  expect(c.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
+  expect(c.queryByRole('button', { name: 'Force Approve' })).not.toBeInTheDocument();
+  expect(c.queryByRole('button', { name: 'Commissioner Veto' })).not.toBeInTheDocument();
+  expect(c.queryByRole('group', { name: 'Commissioner' })).not.toBeInTheDocument();
+  unmount();
+  clearLeagueCache();
+
+  // As the receiving team too.
+  mockGetSequence({ trades: [pendingTrade()], myTeamId: 20, league: leagueResponse({ is_commissioner: true }) });
+  renderScreen();
+  const received = await findCard();
+  expect(received.getByRole('button', { name: 'Accept Trade' })).toBeInTheDocument();
+  expect(received.queryByRole('button', { name: 'Force Approve' })).not.toBeInTheDocument();
+});
+
+test('a failed read says "We could not load trades." with a Retry outside the alert, and Retry reads again', async () => {
   apiClient.get.mockRejectedValue({ response: { data: { error: 'trades unavailable' } } });
 
   renderScreen();
 
-  expect(await screen.findByText('trades unavailable')).toBeInTheDocument();
+  const alert = await screen.findByRole('alert');
+  expect(alert).toHaveTextContent('We could not load trades.');
+  expect(within(alert).queryByRole('button')).not.toBeInTheDocument();
+
+  mockGetSequence({ trades: [pendingTrade()] });
+  await userEvent.click(screen.getByRole('button', { name: 'Retry' }));
+  expect(await screen.findByTestId('trade-5')).toBeInTheDocument();
+  expect(screen.queryByText('We could not load trades.')).not.toBeInTheDocument();
 });
 
-test('Analyze Trade on an existing trade card posts the trade items and renders a fair verdict chip', async () => {
+test('a refused card action shows the server\'s sentence in an alert with no Retry', async () => {
+  mockGetSequence({ trades: [pendingTrade()], myTeamId: 20 });
+  apiClient.post.mockRejectedValue({ response: { data: { error: 'trade would put Bob Squad over its roster capacity of 15' } } });
+
+  renderScreen();
+  await userEvent.click((await findCard()).getByRole('button', { name: 'Accept Trade' }));
+
+  const alert = await screen.findByRole('alert');
+  expect(alert).toHaveTextContent('trade would put Bob Squad over its roster capacity of 15');
+  expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
+});
+
+test('Analyze Trade on an existing trade card posts the trade id and renders a fair verdict chip', async () => {
   mockGetSequence({ trades: [pendingTrade()] });
   apiClient.post.mockImplementation((url) => {
-    if (url === '/api/trades/analyze') {
-      return Promise.resolve({
-        data: {
-          verdict: 'fair',
-          proposerGives: 20,
-          proposerGets: 20,
-          receiverGives: 20,
-          receiverGets: 20,
-          players: [],
-        },
-      });
-    }
+    if (url === '/api/trades/analyze') return Promise.resolve({ data: FAIR });
     return Promise.resolve({});
   });
 
   renderScreen();
-  await screen.findByText('Alice Squad ⇄ Bob Squad');
+  const c = await findCard();
 
   // Existing trade cards keep the manual button — no auto-run there.
-  await userEvent.click(
-    within(screen.getByTestId('trade-5')).getByRole('button', { name: 'Analyze Trade' })
-  );
+  await userEvent.click(c.getByRole('button', { name: 'Analyze Trade' }));
 
   await waitFor(() =>
-    expect(apiClient.post).toHaveBeenCalledWith('/api/trades/analyze', {
-      leagueId: 1,
-      receivingTeamId: 20,
-      offeredPlayerIds: [101],
-      requestedPlayerIds: [200],
-    })
+    expect(apiClient.post).toHaveBeenCalledWith('/api/trades/analyze', { leagueId: 1, tradeId: 5 })
   );
-  expect(await screen.findByText('Fair')).toBeInTheDocument();
+  expect(await c.findByText('Fair')).toBeInTheDocument();
+  // One decimal, whatever the wire sends.
+  expect(c.getAllByText(/gives 20\.0 · gets 20\.0/, { selector: 'div' })).toHaveLength(2);
+});
+
+test('an analysis with verdict collusion_risk reads "Collusion risk", and the players show one-decimal values', async () => {
+  mockGetSequence({ trades: [pendingTrade()] });
+  apiClient.post.mockResolvedValue({
+    data: {
+      verdict: 'collusion_risk',
+      proposerGives: 68,
+      proposerGets: 166,
+      receiverGives: 166,
+      receiverGets: 68,
+      players: [{
+        playerId: 101, name: 'Stefon Diggs', position: 'WR', rosValue: 68, fitAdjustedValue: 57.8,
+      }],
+    },
+  });
+
+  renderScreen();
+  const c = await findCard();
+  await userEvent.click(c.getByRole('button', { name: 'Analyze Trade' }));
+
+  expect(await c.findByText('Collusion risk')).toBeInTheDocument();
+  expect(c.queryByText('collusion_risk')).not.toBeInTheDocument();
+  expect(c.getByText(/gives 68\.0 · gets 166\.0/, { selector: 'div' })).toBeInTheDocument();
+  expect(c.getByText('rest-of-season value 68.0, adjusted for roster fit 57.8')).toBeInTheDocument();
+});
+
+test('a failed analysis shows its sentence inside the card and the button comes back', async () => {
+  mockGetSequence({ trades: [pendingTrade()] });
+  apiClient.post.mockRejectedValue({ response: { data: { error: 'cannot analyze a trade right now' } } });
+
+  renderScreen();
+  const c = await findCard();
+  await userEvent.click(c.getByRole('button', { name: 'Analyze Trade' }));
+
+  expect(await c.findByRole('alert')).toHaveTextContent('cannot analyze a trade right now');
+  expect(c.getByRole('button', { name: 'Analyze Trade' })).toBeEnabled();
 });
 
 // #970: the trade centre reads its load failure through readHttpFailure. This
@@ -591,8 +775,7 @@ test('a trade item with an nfl_opponent renders "vs BUF"', async () => {
   mockGetSequence({ trades: [trade] });
   renderScreen();
 
-  await screen.findByText('Alice Squad ⇄ Bob Squad');
-  expect(within(screen.getByTestId('trade-5')).getByText('vs BUF')).toBeInTheDocument();
+  expect((await findCard()).getByText('vs BUF')).toBeInTheDocument();
 });
 
 test('a trade item with a null nfl_opponent renders "Bye" and no "vs"', async () => {
@@ -601,8 +784,204 @@ test('a trade item with a null nfl_opponent renders "Bye" and no "vs"', async ()
   mockGetSequence({ trades: [trade] });
   renderScreen();
 
-  await screen.findByText('Alice Squad ⇄ Bob Squad');
-  const card = within(screen.getByTestId('trade-5'));
-  expect(card.getByText('Bye')).toBeInTheDocument();
-  expect(card.queryByText(/^vs /)).not.toBeInTheDocument();
+  const c = await findCard();
+  expect(c.getByText('Bye')).toBeInTheDocument();
+  expect(c.queryByText(/^vs /)).not.toBeInTheDocument();
+});
+
+test('an uninvolved viewer\'s "{proposing} Receives" column lists what the receiving team sends', async () => {
+  mockGetSequence({ trades: [pendingTrade({ status: 'accepted' })], myTeamId: 30, league: leagueResponse({ ownerTeamId: 3 }) });
+  renderScreen();
+  const c = await findCard();
+
+  // Alice Squad (proposing) receives Tyreek Hill, whom Bob Squad (receiving) sends; and the reverse.
+  const aliceColumn = c.getByRole('list', { name: 'Alice Squad Receives' });
+  expect(within(aliceColumn).getByRole('button', { name: 'Tyreek Hill' })).toBeInTheDocument();
+  expect(within(aliceColumn).queryByRole('button', { name: 'Stefon Diggs' })).not.toBeInTheDocument();
+  const bobColumn = c.getByRole('list', { name: 'Bob Squad Receives' });
+  expect(within(bobColumn).getByRole('button', { name: 'Stefon Diggs' })).toBeInTheDocument();
+});
+
+test('an involved viewer reads "You Receive" first, then what the other team receives', async () => {
+  mockGetSequence({ trades: [pendingTrade()], myTeamId: 20 });
+  renderScreen();
+  const c = await findCard();
+
+  expect(within(c.getByRole('list', { name: 'You Receive' })).getByRole('button', { name: 'Stefon Diggs' })).toBeInTheDocument();
+  expect(within(c.getByRole('list', { name: 'Alice Squad Receives' })).getByRole('button', { name: 'Tyreek Hill' })).toBeInTheDocument();
+});
+
+test('an accepted trade shows when league review ends, from review_ends_at', async () => {
+  const reviewEnds = new Date(Date.now() + 6 * 3600 * 1000).toISOString();
+  mockGetSequence({ trades: [pendingTrade({ status: 'accepted', review_ends_at: reviewEnds })], myTeamId: 30, league: leagueResponse({ ownerTeamId: 3 }) });
+  renderScreen();
+
+  const c = await findCard();
+  expect(c.getByText(/^League review ends \S+ \d{1,2}:\d{2}/)).toBeInTheDocument();
+});
+
+test('a pending trade shows no review line', async () => {
+  mockGetSequence({ trades: [pendingTrade({ review_ends_at: new Date(Date.now() + 3600 * 1000).toISOString() })], myTeamId: 20 });
+  renderScreen();
+
+  expect((await findCard()).queryByText(/League review ends/)).not.toBeInTheDocument();
+});
+
+test('the Completed tab prints each status word; an executed trade offers nothing, the rest only Analyze Trade', async () => {
+  const done = ['executed', 'rejected', 'vetoed', 'cancelled', 'countered'].map((status, i) => pendingTrade({ id: 20 + i, status }));
+  mockGetSequence({ trades: done, myTeamId: 10 });
+  renderScreen();
+  await screen.findByText('No Pending Trades');
+
+  await userEvent.click(screen.getByRole('tab', { name: 'Completed' }));
+  for (const word of ['Executed', 'Rejected', 'Vetoed', 'Cancelled', 'Countered']) {
+    expect(screen.getByText(word, { selector: 'span' })).toBeInTheDocument();
+  }
+  // Analysis reads today's rosters, which an executed trade has already changed: its card has no button.
+  expect(screen.getAllByRole('button', { name: 'Analyze Trade' })).toHaveLength(4);
+  expect(within(screen.getByTestId('trade-20')).queryByRole('button', { name: 'Analyze Trade' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Cancel' })).not.toBeInTheDocument();
+});
+
+describe('cursor and filled action', () => {
+  const cursors = (container) => container.querySelectorAll('.cursor');
+
+  test('the oldest incoming pending offer wears the one cursor', async () => {
+    const newer = pendingTrade({ id: 7, created_at: new Date(Date.now() - 3600 * 1000).toISOString() });
+    const older = pendingTrade({ id: 6, created_at: new Date(Date.now() - 5 * 3600 * 1000).toISOString() });
+    const outgoing = pendingTrade({
+      id: 8,
+      proposing_team_id: 20,
+      receiving_team_id: 10,
+      proposing_team_name: 'Bob Squad',
+      receiving_team_name: 'Alice Squad',
+      created_at: new Date(Date.now() - 9 * 3600 * 1000).toISOString(),
+    });
+    mockGetSequence({ trades: [newer, older, outgoing], myTeamId: 20 });
+    const { container } = renderScreen();
+    await screen.findByTestId('trade-6');
+
+    // Trades 7 and 6 are incoming to team 20; trade 8 is its own outgoing offer.
+    expect(cursors(container)).toHaveLength(1);
+    expect(screen.getByTestId('trade-6').closest('.cursor')).not.toBeNull();
+    expect(filled(container)).toHaveLength(0);
+  });
+
+  test('with no incoming pending offer the page has no cursor', async () => {
+    // An outgoing offer, and an incoming one that is already accepted.
+    mockGetSequence({
+      trades: [pendingTrade({ id: 1 }), pendingTrade({ id: 2, status: 'accepted', proposing_team_id: 20, receiving_team_id: 10 })],
+      myTeamId: 10,
+    });
+    const { container } = renderScreen();
+    await screen.findByTestId('trade-1');
+
+    expect(cursors(container)).toHaveLength(0);
+    expect(filled(container)).toHaveLength(0);
+  });
+
+  test('the cursor stays on Pending only', async () => {
+    mockGetSequence({ trades: [pendingTrade()], myTeamId: 20 });
+    const { container } = renderScreen();
+    await screen.findByTestId('trade-5');
+    expect(cursors(container)).toHaveLength(1);
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Completed' }));
+    expect(cursors(container)).toHaveLength(0);
+  });
+
+  test('the page has no contained button: every action on every card is a ghost', async () => {
+    mockGetSequence({
+      trades: [pendingTrade(), pendingTrade({ id: 6, status: 'accepted' })],
+      myTeamId: 20,
+      league: leagueResponse({ is_commissioner: true }),
+    });
+    const { container } = renderScreen();
+    await screen.findByTestId('trade-5');
+
+    expect(container.querySelectorAll('.MuiButton-contained')).toHaveLength(0);
+    const variants = Array.from(container.querySelectorAll('button[data-variant]')).map((b) => b.getAttribute('data-variant'));
+    expect(variants.length).toBeGreaterThan(4);
+    expect(variants.every((v) => v === 'ghost')).toBe(true);
+    // No action is red: nothing takes the MUI error colour.
+    expect(container.querySelectorAll('.MuiButton-colorError, .MuiButton-colorSuccess')).toHaveLength(0);
+  });
+
+  test('no live region on the page holds a button', async () => {
+    mockGetSequence({ trades: [pendingTrade()], myTeamId: 20 });
+    apiClient.post.mockRejectedValue({ response: { data: { error: 'refused' } } });
+    const { container } = renderScreen();
+    await userEvent.click((await findCard()).getByRole('button', { name: 'Accept Trade' }));
+    await screen.findByRole('alert');
+
+    const regions = container.querySelectorAll('[role="status"], [role="alert"]');
+    expect(regions.length).toBeGreaterThan(0);
+    regions.forEach((region) => expect(region.querySelector('button, a')).toBeNull());
+  });
+});
+
+describe('one request at a time', () => {
+  const never = () => new Promise(() => {});
+
+  test('Send Offer is disabled while the offer is in flight, and a second press posts nothing more', async () => {
+    mockGetSequence({ trades: [] });
+    apiClient.post.mockImplementation(never);
+    renderScreen();
+    await screen.findByText('No Pending Trades');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Propose Trade' }));
+    await selectTeam('Bob Squad');
+    await userEvent.click(await screen.findByLabelText('Stefon Diggs (WR)'));
+    await userEvent.click(await screen.findByLabelText('Tyreek Hill (WR)'));
+    const send = screen.getByRole('button', { name: 'Send Offer' });
+    await userEvent.click(send);
+    await userEvent.click(send);
+
+    expect(send).toBeDisabled();
+    expect(apiClient.post.mock.calls.filter(([url]) => url === '/api/trades')).toHaveLength(1);
+  });
+
+  test('the actions of a card are disabled while one of them is in flight, and a second press posts nothing more', async () => {
+    mockGetSequence({ trades: [pendingTrade(), pendingTrade({ id: 4, proposing_team_id: 30, proposing_team_name: 'Carol Squad' })], myTeamId: 20 });
+    apiClient.post.mockImplementation(never);
+    renderScreen();
+    const c = await findCard();
+
+    const accept = c.getByRole('button', { name: 'Accept Trade' });
+    await userEvent.click(accept);
+    await userEvent.click(accept);
+
+    expect(accept).toBeDisabled();
+    expect(c.getByRole('button', { name: 'Decline' })).toBeDisabled();
+    expect(c.getByRole('button', { name: 'Counter' })).toBeDisabled();
+    expect(apiClient.post).toHaveBeenCalledTimes(1);
+    // Another card is free to act.
+    expect(within(screen.getByTestId('trade-4')).getByRole('button', { name: 'Accept Trade' })).toBeEnabled();
+  });
+
+  test('the dialog keeps one status region mounted, and a changed selection clears the old analysis at once', async () => {
+    jest.useFakeTimers({ legacyFakeTimers: false });
+    const user = userEvent.setup({ delay: null });
+    mockGetSequence({ trades: [], rostersData: [{ ...rosters[0], players: [...rosters[0].players, { id: 102, name: 'Davante Adams', position: 'WR', nfl_team: 'LV' }] }, rosters[1], rosters[2]] });
+    apiClient.post.mockResolvedValue({ data: FAIR });
+    renderScreen();
+    await screen.findByText('No Pending Trades');
+
+    await user.click(screen.getByRole('button', { name: 'Propose Trade' }));
+    await user.selectOptions(screen.getByLabelText('Trade with'), 'Bob Squad');
+    const dialog = within(screen.getByRole('dialog'));
+    const status = dialog.getByRole('status');
+    expect(status).toBeEmptyDOMElement();
+    await user.click(dialog.getByLabelText('Stefon Diggs (WR)'));
+    await user.click(dialog.getByLabelText('Tyreek Hill (WR)'));
+    // The same element carries the text, rather than a new one mounting with it.
+    expect(dialog.getByRole('status')).toBe(status);
+
+    await act(async () => { jest.advanceTimersByTime(600); });
+    expect(await dialog.findByText('Fair')).toBeInTheDocument();
+    expect(status).toBeEmptyDOMElement();
+
+    await user.click(dialog.getByLabelText('Davante Adams (WR)'));
+    expect(dialog.queryByText('Fair')).not.toBeInTheDocument();
+  });
 });

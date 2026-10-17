@@ -11,3 +11,4 @@
 export { claimsFromResponse } from './model/claimsModel';
 export { useWaiverClaims } from './model/useWaiverClaims';
 export { submitClaim, editClaim, cancelClaim, moveClaim, readClaimTarget } from './model/claimWrites';
+export { nextClaimRow, clearsUnderHour } from './model/nextClaimRow';

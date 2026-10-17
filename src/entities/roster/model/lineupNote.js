@@ -28,8 +28,9 @@ function fitsSlot(template, slotKey, position) {
 }
 
 /**
- * The viewer's starting slots as the note reads them: `[{ slot, player }]`, `player` null for an empty
- * slot. `rows` are the Matchup page's paired starter rows (`{ slot, home, away }`) and `side` the viewer's
+ * The viewer's starting slots as the note reads them: `[{ slot, player, label? }]`, `player` null for an empty
+ * slot. `label` is what the note says for the slot when that differs from the slot key the roster template
+ * knows ("WR 2" for the second WR seat); the slot key still decides who may fill it. `rows` are the Matchup page's paired starter rows (`{ slot, home, away }`) and `side` the viewer's
  * side; a caller that holds one lineup already (Game Center) builds the same shape itself.
  */
 export function lineupSlots(rows, side) {
@@ -56,9 +57,10 @@ export function nextKickoff(gameStates) {
 export function lineupIssues(slots, gameStates = []) {
   const rows = Array.isArray(gameStates) ? gameStates : [];
   const issues = [];
-  (slots || []).forEach(({ slot, player }) => {
-    if (!player) issues.push({ slot, kind: 'empty' });
-    else if (isOut(player) && unlocked(player, rows)) issues.push({ slot, kind: 'out', name: player.name });
+  (slots || []).forEach(({ slot, player, label }) => {
+    const shown = label ? { label } : null;
+    if (!player) issues.push({ slot, kind: 'empty', ...shown });
+    else if (isOut(player) && unlocked(player, rows)) issues.push({ slot, kind: 'out', name: player.name, ...shown });
   });
   return issues;
 }
@@ -106,7 +108,7 @@ export function lineupNote({
   const lockWord = lockAt != null ? formatInstant(lockAt, 'weekdayTime') : null;
 
   if (!started) {
-    const named = advice || issues.map((i) => (i.kind === 'empty' ? `${i.slot} is empty` : `${i.name} (Out) at ${i.slot}`)).join(' · ');
+    const named = advice || issues.map((i) => (i.kind === 'empty' ? `${i.label ?? i.slot} is empty` : `${i.name} (Out) at ${i.label ?? i.slot}`)).join(' · ');
     const you = Number(proj?.you);
     const them = Number(proj?.them);
     const outlook = gain != null && Number.isFinite(you) && Number.isFinite(them) && proj.you != null && proj.them != null
@@ -125,7 +127,8 @@ export function lineupNote({
   // Live: only a lock still to come leaves a slot open.
   if (lockAt == null || lockAt <= now) return null;
   const issue = issues[0];
-  const lead = issue.kind === 'empty' ? `${issue.slot} is empty` : `${issue.slot} holds ${issue.name} (Out)`;
+  const where = issue.label ?? issue.slot;
+  const lead = issue.kind === 'empty' ? `${where} is empty` : `${where} holds ${issue.name} (Out)`;
   const minutes = Math.max(1, Math.ceil((lockAt - now) / MINUTE_MS));
   const danger = lockAt - now < HOUR_MS;
   const canFill = (bench || []).some((p) => unlocked(p, rows) && !isOut(p) && p.availability?.available !== false && fitsSlot(template, issue.slot, p.position));
@@ -148,4 +151,40 @@ export function lineupNote({
   return {
     kind: 'live', segments, sub: null, plain, danger, link: canFill ? 'lineup' : 'free-agents',
   };
+}
+
+const kickoffMs = (value) => {
+  const ms = new Date(value ?? NaN).getTime();
+  return Number.isFinite(ms) ? ms : null;
+};
+
+/**
+ * The starting slot that needs the viewer next (RULINGS "Wave 3 boards", spec #2347 ruling 4): the cursor
+ * of the Lineup page. Built on `lineupIssues`: an empty slot or a not-yet-started Out starter. An Out
+ * starter locks when his own game kicks off; an empty slot locks at the next kickoff still to come
+ * (`nextKickoff`). The pick is the issue that locks first, slot order breaking a tie, and a slot with no
+ * lock left to beat (its game started, or every game has) is skipped. Null when nothing needs the viewer.
+ *
+ * `entries` is the viewer's starting slots in the shape `lineupIssues` reads (`[{ slot, player }]`,
+ * `player` null for an empty slot); a player is a lineup entry (`nflTeam`, `injuryStatus`, `kickoff`).
+ * Returns `{ slot, kind: 'empty'|'out', lockAt }` with `lockAt` in epoch ms (null when no game rows
+ * have been read yet), so the caller can turn the cursor Danger under one hour.
+ */
+export function nextLineupSlot(entries, gameStates = [], now = Date.now()) {
+  const rows = Array.isArray(gameStates) ? gameStates : [];
+  const open = nextKickoff(rows);
+  const everyGameStarted = rows.length > 0 && open == null;
+  const list = Array.isArray(entries) ? entries : [];
+  const picks = lineupIssues(list, rows).flatMap((issue) => {
+    if (issue.kind === 'empty') {
+      return everyGameStarted ? [] : [{ slot: issue.slot, kind: issue.kind, lockAt: open }];
+    }
+    const player = list.find((s) => s.slot === issue.slot)?.player;
+    const team = code(player?.nfl_team ?? player?.nflTeam);
+    const row = team ? rows.find((g) => code(g.away_team) === team || code(g.home_team) === team) : null;
+    return [{ slot: issue.slot, kind: issue.kind, lockAt: kickoffMs(row?.kickoff_at ?? row?.start_time ?? player?.kickoff) }];
+  }).filter((pick) => pick.lockAt == null || pick.lockAt > now);
+  // Array.prototype.sort is stable: slot order breaks a tie, a null lock sorts last.
+  picks.sort((a, b) => (a.lockAt ?? Infinity) - (b.lockAt ?? Infinity));
+  return picks[0] ?? null;
 }

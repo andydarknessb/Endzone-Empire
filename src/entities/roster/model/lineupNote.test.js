@@ -186,3 +186,27 @@ describe('lineupNote', () => {
     expect(note.sub).toBeNull();
   });
 });
+
+describe('a display label apart from the slot key', () => {
+  const NOW_ = new Date('2026-10-18T19:40:00Z').getTime();
+  const slots = [{ slot: 'WR', label: 'WR 2', player: null }];
+  const bench = [{ id: 5, name: 'Bench Runner', position: 'WR', nfl_team: 'DAL', availability: { available: true, reason: null } }];
+
+  test('the note names the seat by its label', () => {
+    const note = lineupNote({ slots, bench, now: NOW_, started: true, lockAt: NOW_ + 3 * HOUR });
+    expect(note.plain).toMatch(/^WR 2 is empty · next kickoff/);
+    expect(lineupIssues(slots)).toEqual([{ slot: 'WR', kind: 'empty', label: 'WR 2' }]);
+  });
+
+  test('the slot key, not the label, decides who can fill it', () => {
+    const template = [{ key: 'WR', eligiblePositions: ['WR'] }];
+    const kicker = [{ id: 6, name: 'K', position: 'K', nfl_team: 'DAL', availability: { available: true, reason: null } }];
+    const note = lineupNote({ slots, bench: kicker, template, now: NOW_, started: true, lockAt: NOW_ + 3 * HOUR });
+    expect(note.link).toBe('free-agents');
+    expect(note.plain).toMatch(/^WR 2 is empty · no bench player can fill it/);
+  });
+
+  test('without a label it says the key, as before', () => {
+    expect(lineupNote({ slots: [{ slot: 'FLEX', player: null }], bench, now: NOW_, started: true, lockAt: NOW_ + 3 * HOUR }).plain).toMatch(/^FLEX is empty/);
+  });
+});

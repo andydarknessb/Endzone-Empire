@@ -6,6 +6,7 @@ import apiClient from '../../api/apiClient';
 import { TEAM_PROFILE_UPDATED_EVENT } from '../../lib/teamProfileEvents';
 import { SnackbarProvider } from '../Snackbar/SnackbarProvider';
 import ProfileSettingsModal from './ProfileSettingsModal';
+import { findToast } from '../../test-utils/toast';
 
 jest.mock('react-redux', () => ({
   useDispatch: () => jest.fn(),
@@ -261,7 +262,7 @@ test('the deletion refusal names the leagues the user created, not commissioned'
   await user.click(screen.getByRole('button', { name: 'Delete my account' }));
 
   await waitFor(() => expect(mock.history.delete).toHaveLength(1));
-  const toast = await screen.findByText(/Sunday League/);
+  const toast = await findToast(/Sunday League/);
   expect(toast.textContent).toMatch(/leagues you created/);
   expect(toast.textContent).not.toMatch(/commission/i);
 });

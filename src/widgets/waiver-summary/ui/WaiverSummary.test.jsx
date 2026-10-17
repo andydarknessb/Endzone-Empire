@@ -21,14 +21,16 @@ const renderStrip = (over) => renderWithProviders(<WaiverSummary {...base} {...o
 test('a per-player Clear time shows the countdown and names the player', () => {
   renderStrip({ nextClear: { at: in_(14 * H + 22 * 60000), kind: 'player', playerName: 'Tyjae Spears' } });
   const tile = screen.getByTestId('waiver-summary-next-clear');
-  expect(within(tile).getByText('14h 22m')).toBeInTheDocument();
+  // The units are spelled (Pixel 24 makes "14h 22m" hard to read): "14 h 22 min", and a screen reader hears the words.
+  expect(within(tile).getByText('14 h 22 min')).toBeInTheDocument();
+  expect(within(tile).getByText('14 hours 22 minutes')).toBeInTheDocument();
   expect(within(tile).getByText(/Tyjae Spears clears/)).toBeInTheDocument();
 });
 
 test('while the blanket clear time runs it says waivers clear, with no player', () => {
   renderStrip({ nextClear: { at: in_(3 * H), kind: 'blanket', playerName: null }, pendingCount: 2 });
   const tile = screen.getByTestId('waiver-summary-next-clear');
-  expect(within(tile).getByText('3h 00m')).toBeInTheDocument();
+  expect(within(tile).getByText('3 h 0 min')).toBeInTheDocument();
   expect(within(tile).getByText(/Waivers clear/)).toBeInTheDocument();
 });
 
@@ -41,9 +43,9 @@ test('under an hour drops the hours, the last minute reads Under 1m, and an arri
     unmount();
     return text;
   };
-  expect(tileText(59 * 60000 + 40000)).toContain('59m');
-  expect(tileText(59 * 60000 + 40000)).not.toContain('0h');
-  expect(tileText(30000)).toContain('Under 1m');
+  expect(tileText(59 * 60000 + 40000)).toContain('59\u00a0min');
+  expect(tileText(59 * 60000 + 40000)).not.toContain('0\u00a0h');
+  expect(tileText(30000)).toContain('Under 1\u00a0min');
   expect(tileText(-1000)).toContain('Clearing now');
 });
 
@@ -57,6 +59,12 @@ test('no pending claims shows none', () => {
 test('the copy never says claims process at a single time', () => {
   const { container } = renderStrip({ nextClear: { at: in_(H), kind: 'blanket', playerName: null } });
   expect(container.textContent).not.toMatch(/claims process at/i);
+});
+
+test('a two-day countdown spells days and hours, and Full at capacity is a word chip in Ink, not a colour', () => {
+  renderStrip({ nextClear: { at: in_(64 * H), kind: 'blanket', playerName: null }, roster: { count: 15, capacity: 15, atCapacity: true } });
+  expect(within(screen.getByTestId('waiver-summary-next-clear')).getByText('2 days 16 h')).toBeInTheDocument();
+  expect(screen.getByText('Full')).toHaveStyle({ border: '2px solid var(--ps-ink)' });
 });
 
 test('a FAAB league shows FAAB left after pending bids, with Waiver priority as the tiebreaker', () => {
