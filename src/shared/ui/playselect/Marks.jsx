@@ -125,12 +125,13 @@ const DESIGNATION = {
 /**
  * An injury tag: outlined for Questionable and Doubtful, a filled Ink "OUT" for Out. Never red. A
  * code the wire does not name still shows, raw, outlined (any non-null status means the feed flagged
- * the player).
+ * the player). `codes` is the Lineup page's variant (spec #2347 ruling 4): the product's own codes (Q, D, O,
+ * IR) are what print, Out filled and Injured reserve outlined; the word is still said for a screen reader.
  */
-export function InjuryTag({ status, ...rest }) {
+export function InjuryTag({ status, codes = false, ...rest }) {
   const code = String(status || '').trim().toUpperCase();
   if (!code) return null;
-  const out = code === 'O' || code === 'IR';
+  const out = codes ? code === 'O' : code === 'O' || code === 'IR';
   return (
     <Box
       component="span"
@@ -146,7 +147,7 @@ export function InjuryTag({ status, ...rest }) {
         lineHeight: 1,
       }}
     >
-      <span aria-hidden="true">{out ? code === 'O' ? 'OUT' : 'IR' : code}</span>
+      <span aria-hidden="true">{codes || !out ? code : code === 'O' ? 'OUT' : 'IR'}</span>
       <Box component="span" sx={SR_ONLY_SX}>{`Injury status: ${DESIGNATION[code] || code}`}</Box>
     </Box>
   );

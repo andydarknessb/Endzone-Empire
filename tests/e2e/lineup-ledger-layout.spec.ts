@@ -9,6 +9,7 @@
  */
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { LINEUP_URL, LONG_NAME, setupLineupLedgerFixture } from './fixtures/lineupLedgerFixtures';
+import { WAVE3_LINEUP_URL, setupWave3Lineup } from './fixtures/wave3LineupFixtures';
 
 const DESKTOP = { width: 1280, height: 900 };
 const PHONE = { width: 390, height: 844 };
@@ -60,10 +61,15 @@ for (const viewport of [PHONE, DESKTOP]) {
   });
 }
 
-test('at 390px the selected row wears a ring and an eligible Bench row does not', async ({ page }) => {
+// Play-select (spec #2347 ruling 4): the pressed row holds the one cursor frame (a solid 4px Cursor border) and an
+// eligible target is Play blue, so the ring this test used to read is the `.cursor` frame now.
+test('at 390px the selected row wears the cursor frame and an eligible Bench row does not', async ({ page }) => {
   await openLineup(page, PHONE);
 
-  const boxShadowOf = (locator: Locator) => locator.evaluate((el) => getComputedStyle(el).boxShadow);
+  const cursorOf = (locator: Locator) => locator.evaluate((el) => {
+    const frame = el.querySelector('.cursor');
+    return frame ? getComputedStyle(frame).borderTopStyle + ' ' + getComputedStyle(frame).borderTopWidth : null;
+  });
   const tabs = page.getByTestId('lineup-mobile-tabs');
 
   // The top-left corner of the covering button, clear of the name link.
@@ -79,13 +85,14 @@ test('at 390px the selected row wears a ring and an eligible Bench row does not'
   await expect(benchRows).toBeVisible();
   const eligible = benchRows.locator('[data-testid$="-select"]:not([disabled])').first();
   await expect(eligible).toBeVisible();
-  const eligibleRow = eligible.locator('xpath=..');
-  expect(await boxShadowOf(eligibleRow)).toBe('none');
+  const eligibleRow = eligible.locator('xpath=ancestor::li[1]');
+  expect(await cursorOf(eligibleRow)).toBeNull();
 
   await tabs.getByRole('button', { name: /^Starters/ }).click();
   const selectedRow = page.getByTestId('slot-row-RB-0');
   await expect(selectedRow).toBeVisible();
-  expect(await boxShadowOf(selectedRow)).not.toBe('none');
+  expect(await cursorOf(selectedRow)).toBe('solid 4px');
+  await expect(page.locator('.cursor')).toHaveCount(1);
 });
 
 test('at 390px a short name is not truncated and the info column keeps at least 128px', async ({ page }) => {
@@ -109,7 +116,7 @@ test('at 390px the BENCH slot chip clears the avatar and a Bench name is not tru
   const row = page.getByTestId('slot-row-BENCH-201');
   await expect(row).toBeVisible();
   const chip = await box(row.getByTestId('ledger-slot-chip'));
-  const avatar = await box(row.locator('.MuiAvatar-root'));
+  const avatar = await box(row.getByTestId('ledger-avatar'));
   expect(chip.x + chip.width, 'the slot chip must not overlap the avatar').toBeLessThanOrEqual(avatar.x);
 
   const name = row.getByRole('button', { name: 'Rachaad White', exact: true });
@@ -172,20 +179,25 @@ test('at 390px the move strip never overlaps the tab bar at any scroll position'
 // The bar is fixed below `sm` (a sticky one rests above the app Footer at the
 // end of the scroll), so a second case checks the last row is not left under
 // the bar or the strip.
-const FIRST_STARTER_TOP_AT_330EDE27 = 584.34;
-
 test('at 390px the one bar sticks to the viewport bottom on Starters and Outlook, and the first starter sits higher', async ({ page }) => {
   await openLineup(page, PHONE);
   const tabs = page.getByTestId('lineup-mobile-tabs');
   await expect(tabs.getByRole('button')).toHaveCount(3);
   await expect(page.getByTestId('lineup-mobile-view')).toHaveCount(0);
 
+  // The whole first starter row must be on the first screen, clear of the pinned footer (the head and the "This week"
+  // frame above it may not push Starters under the footer).
   const firstStarter = await box(page.getByTestId('slot-row-QB-0'));
-  expect(firstStarter.y, 'the removed control took about 60px').toBeLessThan(FIRST_STARTER_TOP_AT_330EDE27 - 50);
+  const footerTop = (await box(page.getByTestId('lineup-sticky-footer'))).y;
+  const rowBottom = firstStarter.y + firstStarter.height;
+  // eslint-disable-next-line no-console
+  console.log(`LEDGER_FIRST_STARTER_390 top ${firstStarter.y} bottom ${rowBottom} footer top ${footerTop}`);
+  expect(rowBottom, `the first starter row spans ${firstStarter.y} to ${rowBottom}; the pinned footer starts at ${footerTop}`).toBeLessThanOrEqual(footerTop);
 
   const barBottomGap = async () => {
     await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
-    const bar = await box(tabs);
+    // The pinned container (the toggles plus its 12px of bottom padding and the 6px double rule), not the bare toggles.
+    const bar = await box(page.getByTestId('lineup-sticky-footer'));
     const viewportHeight = await page.evaluate(() => window.innerHeight);
     return viewportHeight - (bar.y + bar.height);
   };
@@ -234,15 +246,38 @@ test('at 390px a save toast sits above the bar and focused rows scroll clear of 
   );
 
   const scrollPaddingBottom = await page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).scrollPaddingBottom));
-  expect(scrollPaddingBottom, 'bar (54) plus strip (78)').toBeGreaterThanOrEqual(132);
+  expect(scrollPaddingBottom, 'footer (72) plus strip (54), and 16').toBeGreaterThanOrEqual(142);
 
   await page.getByTestId('slot-row-RB-0-select').click({ position: { x: 6, y: 6 } });
   await expect(page.getByTestId('ledger-bench')).toBeVisible();
   await page.getByTestId('ledger-bench-rows').locator('[data-testid$="-select"]:not([disabled])').first().click({ position: { x: 6, y: 6 } });
 
   const toast = page.locator('.MuiSnackbar-root');
-  await expect(toast).toContainText('Lineup saved');
+  // The reader's copy of the sentence is the always-mounted status region (the toast's own text is aria-hidden).
+  await expect(page.getByTestId('toast-status')).toContainText('Lineup saved');
   const toastBox = await box(toast);
   const barBox = await box(page.getByTestId('lineup-mobile-tabs'));
   expect(toastBox.y + toastBox.height, `toast ${JSON.stringify(toastBox)} over bar ${JSON.stringify(barBox)}`).toBeLessThanOrEqual(barBox.y);
 });
+
+// The same guard on the boards' fixture (Darkness Falls, nine starters, a two-line team name), at 390x844.
+//  - Before kickoff the WHOLE first starter row is above the pinned footer.
+//  - Live the guard is the row top plus the name line (its first 52px) only. The LineupPhone board is the 9:10 AM moment,
+//    so the approved phone layout has no live phone state: live adds the Live chip to the head and a taller row (a locked
+//    starter's game and pace lines), which puts the row's bottom about 58px past the footer; ruled acceptable (round 2).
+for (const moment of ['pre', 'live'] as const) {
+  test(`at 390px the first starter row is clear of the pinned footer on the wave 3 fixture, ${moment}`, async ({ page }) => {
+    await setupWave3Lineup(page, moment, 'light');
+    await page.setViewportSize(PHONE);
+    await page.goto(WAVE3_LINEUP_URL);
+    await expect(page.getByTestId('ledger-starters')).toBeVisible();
+    await page.evaluate(() => document.fonts.ready.then(() => true));
+    const firstStarter = await box(page.getByTestId('slot-row-QB-0'));
+    const footerTop = (await box(page.getByTestId('lineup-sticky-footer'))).y;
+    const rowBottom = firstStarter.y + firstStarter.height;
+    // eslint-disable-next-line no-console
+    console.log(`WAVE3_FIRST_STARTER_390 ${moment} top ${firstStarter.y} bottom ${rowBottom} footer top ${footerTop}`);
+    const visibleEdge = moment === 'pre' ? rowBottom : firstStarter.y + 52;
+    expect(visibleEdge, `the first starter row spans ${firstStarter.y} to ${rowBottom}; the pinned footer starts at ${footerTop}`).toBeLessThanOrEqual(footerTop);
+  });
+}

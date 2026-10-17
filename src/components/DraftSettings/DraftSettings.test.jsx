@@ -8,6 +8,7 @@ import { clearLeagueCache } from '../../hooks/useLeague';
 import { SnackbarProvider } from '../Snackbar/SnackbarProvider';
 import DraftSettings from './DraftSettings';
 import NavigationGuard from '../NavigationGuard/NavigationGuard';
+import { findToast } from '../../test-utils/toast';
 
 jest.mock('../../api/apiClient', () => ({
   __esModule: true,
@@ -260,7 +261,7 @@ test('reloads the league exactly once after a save', async () => {
   await userEvent.click(screen.getByRole('tab', { name: 'Timer' }));
   await userEvent.click(screen.getByRole('button', { name: 'Save timer' }));
 
-  expect(await screen.findByText('Timer saved')).toBeInTheDocument();
+  expect(await findToast('Timer saved')).toBeInTheDocument();
   // Save timer re-enables only once saveLeague's refresh has settled, so the
   // count below is the final one, not a snapshot mid-flight.
   await waitFor(() => expect(screen.getByRole('button', { name: 'Save timer' })).toBeEnabled());

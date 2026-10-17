@@ -695,7 +695,8 @@ test.describe('pick-safe player actions across draft state (issue #120)', () => 
       .getByRole('button', { name: 'Draft', exact: true })
       .click();
     await page.getByRole('dialog').getByRole('button', { name: 'Draft Bijan Robinson' }).click();
-    await expect(page.getByText('Drafted Bijan Robinson!')).toBeVisible();
+    // The toast's words live in its status region (the visible copy is aria-hidden, #2347).
+    await expect(page.getByTestId('toast-status')).toHaveText('Drafted Bijan Robinson!');
   });
 
   test('the Decision card exposes the same gated Draft action and confirmation as the row', async ({ page }) => {
@@ -710,7 +711,8 @@ test.describe('pick-safe player actions across draft state (issue #120)', () => 
     await expect(confirmDialog).toBeVisible();
     await confirmDialog.getByRole('button', { name: 'Draft Bijan Robinson' }).click();
 
-    await expect(page.getByText('Drafted Bijan Robinson!')).toBeVisible();
+    // The toast's words live in its status region (the visible copy is aria-hidden, #2347).
+    await expect(page.getByTestId('toast-status')).toHaveText('Drafted Bijan Robinson!');
   });
 });
 

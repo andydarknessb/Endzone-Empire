@@ -53,6 +53,11 @@ export function useAdvice({ leagueId, week, bestBall }) {
     // The team's called shot for the week, or null (#1856): rendered as the
     // standing "Your called shot" line.
     calledShot: data?.calledShot ?? null,
+    // The season standing lines the Forecast prints (#1861, #1862): `{ total, rank, teams }` of points left on the
+    // bench, `{ hits, misses }` over resolved Overrides, `{ hits, resolved, streak }` over resolved Called shots.
+    pointsLeft: data?.pointsLeft ?? null,
+    overrideRecord: data?.overrideRecord ?? null,
+    calledShotRecord: data?.calledShotRecord ?? null,
     reload,
   };
 }

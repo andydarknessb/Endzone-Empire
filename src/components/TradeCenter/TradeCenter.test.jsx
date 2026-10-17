@@ -6,6 +6,7 @@ import apiClient from '../../api/apiClient';
 import { clearLeagueCache } from '../../hooks/useLeague';
 import { SnackbarProvider } from '../Snackbar/SnackbarProvider';
 import TradeCenter from './TradeCenter';
+import { findToast } from '../../test-utils/toast';
 
 // A card is queried through its own `within(...)` scope (one page holds several), and the cursor, the filled
 // action and the live regions are classes and attributes with no role.
@@ -310,7 +311,7 @@ test('propose trade dialog flow posts the correct body, toasts, and refetches', 
     })
   );
 
-  expect(await screen.findByText('Trade offer sent')).toBeInTheDocument();
+  expect(await findToast('Trade offer sent')).toBeInTheDocument();
   expect(apiClient.get).toHaveBeenCalledTimes(4); // 3 initial + 1 refetch of trades
 });
 
@@ -522,7 +523,7 @@ test('accept and reject buttons appear only for the receiving team owner on a pe
   await waitFor(() =>
     expect(apiClient.post).toHaveBeenCalledWith('/api/trades/5/respond', { action: 'accept' })
   );
-  expect(await screen.findByText('Trade accepted')).toBeInTheDocument();
+  expect(await findToast('Trade accepted')).toBeInTheDocument();
 });
 
 test('Counter button appears for the receiving team and opens the propose dialog pre-filled with the trade inverted', async () => {
@@ -555,7 +556,7 @@ test('Counter button appears for the receiving team and opens the propose dialog
       playerIds: [200, 101],
     })
   );
-  expect(await screen.findByText('Counter offer sent')).toBeInTheDocument();
+  expect(await findToast('Counter offer sent')).toBeInTheDocument();
 });
 
 test('cancel button appears for the proposing team on a pending trade and calls cancel', async () => {
@@ -571,7 +572,7 @@ test('cancel button appears for the proposing team on a pending trade and calls 
   await waitFor(() =>
     expect(apiClient.post).toHaveBeenCalledWith('/api/trades/5/cancel', {})
   );
-  expect(await screen.findByText('Trade cancelled')).toBeInTheDocument();
+  expect(await findToast('Trade cancelled')).toBeInTheDocument();
 });
 
 test('a card action that moves its trade puts focus on the next card\'s heading', async () => {
@@ -634,7 +635,7 @@ test('commissioner sees force approve and can force-approve a pending trade, on 
   await waitFor(() =>
     expect(apiClient.post).toHaveBeenCalledWith('/api/trades/5/decide', { approve: true })
   );
-  expect(await screen.findByText('Trade approved')).toBeInTheDocument();
+  expect(await findToast('Trade approved')).toBeInTheDocument();
 });
 
 test('the commissioner\'s own trade, proposed or received, has no Force Approve or Commissioner Veto', async () => {

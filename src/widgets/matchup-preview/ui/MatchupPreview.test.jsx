@@ -210,24 +210,17 @@ test('a live matchup shows the score in the display slot, to one decimal', async
   expect(detailCalls()).toHaveLength(0);
 });
 
-test('a live matchup demotes each projection to an Expected final tile beside Players remaining', async () => {
+test('a live matchup demotes each projection to an Expected final line beside "{n} players remaining"', async () => {
   renderCard(LIVE_ROW);
 
   await screen.findByTestId('matchup-side-viewer');
-  expect(within(viewerSide()).getByTestId('matchup-expected-final')).toHaveTextContent(
-    'Expected final110.5'
-  );
-  expect(within(opponentSide()).getByTestId('matchup-expected-final')).toHaveTextContent(
-    'Expected final123.9'
-  );
+  expect(within(viewerSide()).getByTestId('matchup-expected-final')).toHaveTextContent('Expected final 110.5');
+  expect(within(opponentSide()).getByTestId('matchup-expected-final')).toHaveTextContent('Expected final 123.9');
 
-  // "PMR" is the visible abbreviation; the expansion is what assistive tech
-  // hears, so a screen reader gets "Players remaining 4".
-  const pmr = within(viewerSide()).getByTestId('matchup-players-remaining');
-  expect(within(pmr).getByText('Players remaining')).toBeInTheDocument();
-  expect(within(pmr).getByText('PMR')).toHaveAttribute('aria-hidden', 'true');
-  expect(pmr).toHaveTextContent(/4$/);
-  expect(within(opponentSide()).getByTestId('matchup-players-remaining')).toHaveTextContent(/6$/);
+  // Spec #2347 ruling 4: the sentence, never the "PMR" initialism.
+  expect(within(viewerSide()).getByTestId('matchup-players-remaining')).toHaveTextContent('4 players remaining');
+  expect(within(opponentSide()).getByTestId('matchup-players-remaining')).toHaveTextContent('6 players remaining');
+  expect(screen.queryByText('PMR')).not.toBeInTheDocument();
 });
 
 // Red-tell (T6): feeding SplitBar a points ratio (82.2 / 159.2 = 52%) instead of
@@ -241,12 +234,10 @@ test('the win probability bar is named from the board win probability, never a p
   await screen.findByTestId('matchup-side-viewer');
   // Expected finals 110.5 (viewer) against 123.9: a 13.4 deficit over the 24
   // point margin scale is a 36% viewer share, not the 52% the scores split.
-  expect(screen.getByTestId('split-bar')).toHaveAccessibleName(
-    'Win probability: MyBallsHurts 36%, Terrific T 64%'
-  );
   const block = screen.getByTestId('matchup-win-probability');
-  expect(block).toHaveTextContent('36%');
-  expect(block).toHaveTextContent('64%');
+  expect(within(block).getByRole('img')).toHaveAccessibleName('MyBallsHurts 36%, Terrific T 64% win probability');
+  expect(block).toHaveTextContent('MyBallsHurts 36%');
+  expect(block).toHaveTextContent('Terrific T 64%');
 });
 
 test.each([
@@ -273,7 +264,7 @@ test('before kickoff the card keeps the projections and captions the margin', as
 
   await screen.findByTestId('matchup-side-viewer');
   expect(within(viewerSide()).getByText('110.5')).toBeInTheDocument();
-  expect(within(viewerSide()).getByText('Projected')).toBeInTheDocument();
+  expect(within(viewerSide()).getByText('Proj')).toBeInTheDocument();
   expect(screen.getByTestId('matchup-projected-margin')).toHaveTextContent(
     'Projected margin · MyBallsHurts by 6.5'
   );
@@ -281,7 +272,7 @@ test('before kickoff the card keeps the projections and captions the margin', as
   // tail assertion here only holds because this fixture's row carries no
   // first_kickoff_at (the fallback caption path); a row that does carry one
   // wears the kickoff Badge instead, covered by the kickoff-tail tests below.
-  expect(screen.queryByTestId('split-bar')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('matchup-win-probability')).not.toBeInTheDocument();
   expect(screen.queryByTestId('matchup-side-score')).not.toBeInTheDocument();
   expect(screen.queryByTestId('matchup-preview-status')).not.toBeInTheDocument();
 });
@@ -355,69 +346,59 @@ test('a level projection reads as even rather than "by 0.0"', async () => {
 
 // --- geometry -----------------------------------------------------------------
 
-// Red-tell (L2): putting the phone track back to a single column
-// (`minmax(0, 1fr)` at xs) turns this case red. The phone is the width the
-// block is for: the two scores have to sit side by side there so the card
-// stays above the fold, and the Team names clamp to two lines instead of
-// stacking the sides one under the other.
-test('the versus block is three columns at every width, with side columns that may shrink', async () => {
+// Red-tell (L2): putting the phone track back to a single column turns this case red. The phone is the width the
+// block is for: the two scores have to sit side by side there so the card stays above the fold.
+test('the versus block is two columns at every width, with side columns that may shrink', async () => {
   renderCard(row({ status: 'scheduled', home_expected_final: '110.5', away_expected_final: '104.0' }));
 
   await screen.findByTestId('matchup-side-viewer');
   const block = screen.getByTestId('matchup-versus');
-  expect(rulesUnder(block)).toMatch(/grid-template-columns: minmax\(0, 1fr\) auto minmax\(0, 1fr\)/);
+  expect(rulesUnder(block)).toMatch(/grid-template-columns: minmax\(0, 1fr\) minmax\(0, 1fr\)/);
   // No breakpoint override: nothing collapses to one column at any width.
   expect(rulesUnder(block, '(min-width:0px)')).not.toMatch(/grid-template-columns/);
   expect(rulesUnder(block, '(min-width:600px)')).not.toMatch(/grid-template-columns/);
-  // Without a centred justify-self the pill stretches to its track.
-  expect(rulesUnder(screen.getByText('VS'))).toMatch(/justify-self: center/);
 });
 
-test('a Team name clamps to two lines instead of ellipsising on one', async () => {
+test('a Team name breaks inside its column instead of widening the card', async () => {
   renderCard(row({ status: 'scheduled' }));
 
   await screen.findByTestId('matchup-side-viewer');
-  const name = within(viewerSide()).getByText('MyBallsHurts');
-  const rules = rulesUnder(name);
-  expect(rules).toMatch(/-webkit-line-clamp: 2/);
+  const rules = rulesUnder(within(viewerSide()).getByText('MyBallsHurts'));
+  expect(rules).toMatch(/overflow-wrap: anywhere/);
   expect(rules).not.toMatch(/white-space: nowrap/);
 });
 
 test('the loading skeleton carries the same tracks, so the card does not reflow', async () => {
-  // The league has to land for the week-scoped list URL to exist at all; it is
-  // that list read the card skeletons for.
+  // The league has to land for the week-scoped list URL to exist at all; it is that list read the card
+  // skeletons for.
   apiClient.get.mockImplementation((url) =>
     url === '/api/league/1' ? Promise.resolve(leagueResponse()) : new Promise(() => {})
   );
   renderWithProviders(<MatchupPreview leagueId={1} />);
 
-  const shapes = await screen.findAllByTestId('matchup-skeleton');
+  await screen.findAllByTestId('matchup-skeleton');
   const block = screen.getByTestId('matchup-versus');
-  expect(rulesUnder(block)).toMatch(/grid-template-columns: minmax\(0, 1fr\) auto minmax\(0, 1fr\)/);
-  // The pill's stand-in is centred for the same reason the pill is.
-  expect(shapes.some((el) => rulesUnder(el).includes('justify-self: center'))).toBe(true);
+  expect(rulesUnder(block)).toMatch(/grid-template-columns: minmax\(0, 1fr\) minmax\(0, 1fr\)/);
 });
 
-// Red-tell (T2): deleting the `md` breakpoint from DashButton's size map
-// (shared/ui, #1166) turns this case red and no other.
-test('the footer action meets the 44px touch target on a phone and stays 38px on desktop', async () => {
+// The footer link is "Matchup" (RULINGS Critique 4 ruling 2), named for the pairing.
+test('the footer link reads "Matchup" and is named for the pairing', async () => {
   renderCard(row({ status: 'scheduled' }));
 
   await screen.findByTestId('matchup-side-viewer');
-  const button = screen.getByRole('link', { name: 'Compare rosters' });
-  expect(rulesUnder(button, '(min-width:0px)')).toMatch(/min-height: 44px/);
-  expect(rulesUnder(button, '(min-width:900px)')).toMatch(/min-height: 38px/);
-  // The phone flex is what stretches the lone action across the row.
-  expect(rulesUnder(button, '(min-width:0px)')).toMatch(/flex: 1 1 0|flex-grow: 1/);
+  const link = screen.getByRole('link', { name: 'Matchup, MyBallsHurts against Terrific T' });
+  expect(link).toHaveTextContent('Matchup');
+  expect(link).toHaveAttribute('href', '/league/1/matchups/55');
+  expect(screen.queryByRole('link', { name: 'Compare rosters' })).not.toBeInTheDocument();
 });
 
 // Red-tell (L4): restoring the Set Lineup button turns this case red. The
 // lineup is one tap away on the My Team card and in Quick Actions, so the
 // matchup footer carries Compare rosters alone.
-test('the footer has Compare rosters and no Set Lineup button', async () => {
+test('the footer has the Matchup link and no Set Lineup button', async () => {
   renderCard(row({ status: 'scheduled' }));
 
   await screen.findByTestId('matchup-side-viewer');
-  expect(screen.getByRole('link', { name: 'Compare rosters' })).toBeInTheDocument();
+  expect(screen.getByRole('link', { name: /^Matchup/ })).toBeInTheDocument();
   expect(screen.queryByRole('link', { name: 'Set Lineup' })).not.toBeInTheDocument();
 });
