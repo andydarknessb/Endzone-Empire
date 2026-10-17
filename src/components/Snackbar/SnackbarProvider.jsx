@@ -60,6 +60,9 @@ export function SnackbarProvider({ children }) {
         <Alert
           severity={snack?.severity || 'success'}
           variant="filled"
+          // The live region is the message text alone (below), never the Alert root: its Undo and Dismiss buttons
+          // sit outside it (spec #2347 ruling 4, live regions hold text only).
+          role="presentation"
           onClose={handleClose}
           sx={{ alignItems: 'center', '& .MuiAlert-message': { whiteSpace: 'pre-line' } }}
           action={
@@ -75,8 +78,10 @@ export function SnackbarProvider({ children }) {
             </>
           }
         >
-          {snack?.message}
-          {snack?.actionLabel && <Box component="span" sx={visuallyHidden}>{`. ${snack.actionLabel} available.`}</Box>}
+          <Box component="span" role={snack?.severity === 'error' ? 'alert' : 'status'}>
+            {snack?.message}
+            {snack?.actionLabel && <Box component="span" sx={visuallyHidden}>{`. ${snack.actionLabel} available.`}</Box>}
+          </Box>
         </Alert>
       </Snackbar>
     </SnackbarContext.Provider>
