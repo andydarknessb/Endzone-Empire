@@ -329,3 +329,12 @@ test('leagueDetail accepts an injected db straight (not only an installed pool)'
   assert.equal(detail.league.name, 'Injected League');
   assert.equal(detail.teams.length, 0);
 });
+
+test("leagueDetail carries the league's Voice to every member (ADR 0069)", async (t) => {
+  const leagueRow = {
+    id: 1, owner_id: 7, name: 'Sunday Ballers', narrative_voice: 'polk_high_legend',
+    ownerTeamId: 11, ownerTeamName: "Alice's Team",
+  };
+  mockLeagueDetail(t, { isCommissioner: false, leagueRow });
+  assert.equal((await leagueDetail({ leagueId: 1, viewer: 55 }, {})).league.narrative_voice, 'polk_high_legend');
+});

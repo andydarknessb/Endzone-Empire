@@ -1,11 +1,13 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { createFakePool } = require('./helpers/fakePool');
+const { logger } = require('../modules/logger');
 const lineup = require('../services/lineup.service');
 const expectedFinal = require('../services/expectedFinal.service');
 const {
   writePreviews, writePostgames, templatePreview, templatePostgame,
 } = require('../services/matchupNarrative.service');
+const { VOICE_BLOCK, DENY } = require('../services/voices/polkHighLegend');
 
 /**
  * Matchup narrative (ADR 0063): templates, the template-first write, the
@@ -33,6 +35,7 @@ function world(extra = {}) {
     failClaudePutFor: null, // matchup id whose claude write throws
     lineupRows: {}, // team id -> lineup_entries rows
     usage: 0,
+    leagueRow: {}, // extra columns on the postgame's leagues row
     ...extra,
   };
   w.fake = createFakePool([
@@ -50,8 +53,8 @@ function world(extra = {}) {
     }],
     [/FROM "matchups"/, () => ({ rows: w.matchups })],
     [/FROM "teams"/, () => ({ rows: Object.entries(NAMES).map(([id, name]) => ({ id: Number(id), name })) })],
-    [/FROM "players"/, () => ({ rows: [player(1, 'Josh Allen', 'BUF'), player(2, 'Bijan Robinson', 'ATL'), player(3, 'Zero Guy', 'KC')] })],
-    [/FROM "leagues"/, () => ({ rows: [{ id: 71 }] })],
+    [/FROM "players"/, () => ({ rows: w.players || [player(1, 'Josh Allen', 'BUF'), player(2, 'Bijan Robinson', 'ATL'), player(3, 'Zero Guy', 'KC')] })],
+    [/FROM "leagues"/, () => ({ rows: [{ id: 71, ...w.leagueRow }] })],
     [/FROM "lineup_entries"/, (text, params) => ({ rows: w.lineupRows[params[0]] || [] })],
     [/FROM "llm_usage"/, () => ({ rows: [{ spent: w.usage }] })],
     [/^INSERT INTO "llm_usage"/, () => ({ rows: [], rowCount: 1 })],
@@ -393,4 +396,110 @@ test('a week with no final Matchup writes nothing', async (t) => {
   const w = postgameWorld({ matchups: [finalMatchup({ final: false })] });
   await postgame(w, stubClient(w, 'x'));
   assert.equal(w.writes.length, 0);
+});
+
+// ---- Voice (ADR 0069) ----------------------------------------------------------
+
+const BASE =
+  'You rewrite short fantasy football matchup notes for a league of friends. Two or three plain ' +
+  'sentences. Use ONLY the facts provided. Never invent players, scores or events. Team names ' +
+  'appear as [[team:N]] tokens; copy each token exactly where the team is named. Plain text, no ' +
+  'headings, no em dashes.';
+const PREVIEW_BASE = `${BASE} This is a preview before kickoff: state the projected edge in words only; the text must contain no digits at all.`;
+const POSTGAME_BASE = `${BASE} This is a postgame note: you may state the final score and a top scorer's points exactly as given, and no other number.`;
+const VOICED = { narrative_voice: 'polk_high_legend' };
+const previewVoiced = (w, client) => writePreviews({ league: { ...LEAGUE, ...VOICED }, now: NOW, db: w.fake, client });
+
+test('a neutral league sends the same preview and postgame system prompts as before the Voice', async (t) => {
+  stubEngine(t);
+  const p = world();
+  const pc = stubClient(p, 'A rewrite.');
+  await preview(p, pc);
+  assert.equal(pc.requests[0].system, PREVIEW_BASE);
+  await writePreviews({ league: { ...LEAGUE, narrative_voice: null }, now: NOW, db: world().fake, client: pc });
+  assert.equal(pc.requests[1].system, PREVIEW_BASE);
+
+  stubHeld(t);
+  const g = postgameWorld();
+  const gc = stubClient(g, 'A rewrite.');
+  await postgame(g, gc);
+  assert.equal(gc.requests[0].system, POSTGAME_BASE);
+});
+
+test('a Voice league puts the Voice block first and the surface rules after it', async (t) => {
+  stubEngine(t);
+  const p = world();
+  const pc = stubClient(p, 'A rewrite.');
+  await previewVoiced(p, pc);
+  assert.equal(pc.requests[0].system, `${VOICE_BLOCK}\n\n${PREVIEW_BASE}`);
+
+  stubHeld(t);
+  const g = postgameWorld({ leagueRow: VOICED });
+  const gc = stubClient(g, 'A rewrite.');
+  await postgame(g, gc);
+  assert.equal(gc.requests[0].system, `${VOICE_BLOCK}\n\n${POSTGAME_BASE}`);
+});
+
+test('a Voice rewrite naming any deny-list term is discarded and the template stays', async (t) => {
+  stubEngine(t);
+  stubHeld(t);
+  for (const term of DENY) {
+    const p = world();
+    await previewVoiced(p, stubClient(p, `Cory's Crunchers hold the edge, says ${term}.`));
+    assert.equal(p.stored.matchups[901].preview.source, 'template', `preview discards ${term}`);
+
+    const g = postgameWorld({ leagueRow: VOICED });
+    await postgame(g, stubClient(g, `Cory's Crunchers took it 114.5 to 98.2, says ${term}.`));
+    assert.equal(g.stored.matchups[901].postgame.source, 'template', `postgame discards ${term}`);
+  }
+});
+
+test('a discarded Voice rewrite is logged with the league, feature and term', async (t) => {
+  stubEngine(t);
+  stubHeld(t);
+  const warn = t.mock.method(logger, 'warn', () => {});
+  const p = world();
+  await previewVoiced(p, stubClient(p, "Cory's Crunchers hold the edge, says Bundy."));
+  const g = postgameWorld({ leagueRow: VOICED });
+  await postgame(g, stubClient(g, "Cory's Crunchers took it 114.5 to 98.2, says Bundy."));
+  const logged = warn.mock.calls.map((c) => c.arguments).filter((a) => a[1] === 'voice rewrite discarded');
+  assert.deepEqual(logged.map(([f]) => [f.feature, f.term, f.leagueId === LEAGUE.id]), [
+    ['matchup_preview', 'Bundy', true], ['matchup_postgame', 'Bundy', true]]);
+});
+
+test('a Voice rewrite is kept when it names no deny-list term', async (t) => {
+  stubEngine(t);
+  stubHeld(t);
+  const p = world();
+  await previewVoiced(p, stubClient(p, "Cory's Crunchers hold the edge. I have seen better lineups behind a shoe counter."));
+  assert.equal(p.stored.matchups[901].preview.source, 'claude');
+
+  const g = postgameWorld({ leagueRow: VOICED });
+  await postgame(g, stubClient(g, "Cory's Crunchers took it 114.5 to 98.2. A win is a win."));
+  assert.equal(g.stored.matchups[901].postgame.source, 'claude');
+});
+
+test('a deny-list term the facts carry (a real player, a Team name) never discards a Voice rewrite', async (t) => {
+  stubEngine(t);
+  const term = DENY[0];
+  const viaPlayer = world({ players: [player(1, `${term} Allen`, 'BUF'), player(2, 'Bijan Robinson', 'ATL')] });
+  await previewVoiced(viaPlayer, stubClient(viaPlayer, `Cory's Crunchers lean on ${term} Allen this week.`));
+  assert.equal(viaPlayer.stored.matchups[901].preview.source, 'claude');
+
+  const original = NAMES[10];
+  NAMES[10] = `${term} Crushers`;
+  try {
+    const viaTeam = world();
+    await previewVoiced(viaTeam, stubClient(viaTeam, `${term} Crushers hold the edge.`));
+    assert.equal(viaTeam.stored.matchups[901].preview.source, 'claude');
+  } finally {
+    NAMES[10] = original;
+  }
+});
+
+test('a neutral league has no deny check', async (t) => {
+  stubEngine(t);
+  const p = world();
+  await preview(p, stubClient(p, `Cory's Crunchers hold the edge, says ${DENY[0]}.`));
+  assert.equal(p.stored.matchups[901].preview.source, 'claude');
 });
