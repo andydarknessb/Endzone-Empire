@@ -528,6 +528,7 @@ export default function WaiversPage() {
       </Box>
 
       <PlayerDecisionCard
+        look="playselect"
         open={quickViewId != null}
         onClose={() => setQuickViewId(null)}
         entry={toDecisionCardEntry(quickViewPlayer)}
