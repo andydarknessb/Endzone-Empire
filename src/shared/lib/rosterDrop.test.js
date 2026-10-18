@@ -10,6 +10,15 @@ test('sorts worst weekly projection first, unprojected last', () => {
   expect(sortRosterForDrop(roster).map((p) => p.id)).toEqual([2, 4, 1, 3]);
 });
 
+test('leaves out players in an IR slot', () => {
+  const roster = [
+    { id: 1, projected_weekly_points: 5, lineup_slot: 'BENCH' },
+    { id: 2, projected_weekly_points: 0, lineup_slot: 'IR' },
+    { id: 3, projected_weekly_points: 9 },
+  ];
+  expect(sortRosterForDrop(roster).map((p) => p.id)).toEqual([1, 3]);
+});
+
 test('a null or undefined roster sorts to an empty list', () => {
   expect(sortRosterForDrop(null)).toEqual([]);
   expect(sortRosterForDrop(undefined)).toEqual([]);
