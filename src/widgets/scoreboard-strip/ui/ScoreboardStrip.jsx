@@ -116,7 +116,7 @@ export default function ScoreboardStrip({
         sx={{ gridArea: isRight ? 'sr' : 'sl', minWidth: 0, textAlign: isRight ? 'right' : 'left' }}
       >
         <Box sx={{ display: 'flex', alignItems: 'center', gap: '10px', flexDirection: isRight ? 'row-reverse' : 'row', color: colors.ink }}>
-          <TeamMark name={side.name} avatarUrl={side.avatarUrl} avatarStaticUrl={side.avatarStaticUrl} />
+          <Box component="span" sx={{ display: { xs: 'none', sm: 'inline-flex' } }}><TeamMark name={side.name} avatarUrl={side.avatarUrl} avatarStaticUrl={side.avatarStaticUrl} /></Box>
           <Box
             component="h3"
             data-testid="scoreboard-team-name"

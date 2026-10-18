@@ -647,6 +647,46 @@ for (const { label, names } of LONG_NAME_PAIRS) {
   }
 }
 
+// The hero's record line is one line too (#2363 QA): "10-7-1 · 12th in league" is
+// 138px, wider than the (viewport - 76) / 2 column below ~353px, and wrapping on
+// the viewer's side alone dropped that side's score 22px. Short names, so the
+// only thing that can misalign the scores here is the record line.
+test('Game Center hero @ 344: the widest record line stays on one line and the scores line up', async ({ page }) => {
+  await setupLayoutGuard(page, { teamNames: ['Duluth', 'Fargo'], viewerRecord: { wins: 10, losses: 7, ties: 1, rank: 12 } });
+  await page.setViewportSize({ width: 344, height: 844 });
+  await page.goto(GAME_CENTER.url);
+  await GAME_CENTER.ready(page);
+
+  const res = await page.evaluate(() => {
+    const records = Array.from(document.querySelectorAll('[data-testid="matchup-hero-record"]')).map((el) => {
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      return { text: (el.textContent || '').trim(), lines: new Set(Array.from(range.getClientRects()).map((r) => Math.round(r.top))).size };
+    });
+    const tops = Array.from(document.querySelectorAll('[data-testid="matchup-hero-score"]')).map((el) => el.getBoundingClientRect().top);
+    return { records, tops };
+  });
+  expect(res.records.map((r) => r.text), 'the viewer record carries the widest line').toContain('10-7-1 · 12th in league');
+  for (const r of res.records) expect(r.lines, `"${r.text}" is one line`).toBe(1);
+  expect(res.tops).toHaveLength(2);
+  expect(Math.abs(res.tops[0] - res.tops[1]), `scores line up (tops ${res.tops.join(' / ')})`).toBeLessThanOrEqual(2);
+});
+
+// The strip hides its Team mark on a phone (as the hero and the Starters header do), so a
+// short name like "Nanagoat" has its full width and is not truncated at 390.
+test('Matchup scoreboard @ 390: a short name is not truncated beside a hidden Team mark', async ({ page }) => {
+  await setupLayoutGuard(page, { view: MATCHUP_STANDARD.view, teamNames: ['MyBaLlsHuRts', 'Nanagoat'] });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(MATCHUP_STANDARD.url);
+  await MATCHUP_STANDARD.ready(page);
+
+  const m = await page.evaluate(() => {
+    const el = Array.from(document.querySelectorAll('[data-testid="scoreboard-team-name"]')).find((e) => e.textContent === 'Nanagoat') as HTMLElement;
+    return { scrollWidth: el.scrollWidth, clientWidth: el.clientWidth };
+  });
+  expect(m.scrollWidth, `"Nanagoat" scrollWidth ${m.scrollWidth} vs box ${m.clientWidth}`).toBeLessThanOrEqual(m.clientWidth);
+});
+
 // ---- Red-tell outcomes (#920, each run in Chromium; see the PR body) ----
 //
 // Game Center (both fire, and each co-binds the jsdom case in

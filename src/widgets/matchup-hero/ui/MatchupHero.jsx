@@ -106,7 +106,7 @@ function Side({
         <Box component="h3" data-testid="matchup-hero-name" title={name} sx={{ m: 0, minWidth: 0, ...pixelSx(16), color, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{name}</Box>
       </Box>
       {line && (
-        <Box data-testid="matchup-hero-record" sx={{ fontSize: '14px', color: c.dim, marginTop: '6px', fontVariantNumeric: 'tabular-nums' }}>{line}</Box>
+        <Box data-testid="matchup-hero-record" title={line} sx={{ fontSize: '14px', color: c.dim, marginTop: '6px', fontVariantNumeric: 'tabular-nums', minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{line}</Box>
       )}
       {/* The tags get their own row, reserved on both sides, so the scores line up whichever side wears one (#2363). */}
       <Box sx={{ display: 'flex', alignItems: 'center', gap: '10px', flexDirection: { xs: 'row', sm: right ? 'row-reverse' : 'row' }, minHeight: '22px', marginTop: '6px' }}>

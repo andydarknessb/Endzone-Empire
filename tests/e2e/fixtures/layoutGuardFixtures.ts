@@ -301,7 +301,10 @@ const SCORE_PLAYS = [
 // `pointsFor` off this raw row (Game Center and Matchup Detail read Record
 // only, through `recordsByTeamId`, which is wins/losses/ties, not points), so
 // this rename is safe for both existing consumers of this fixture.
-function standings() {
+// The viewer's standings row overrides (#2363): the widest record line, "10-7-1 · 12th in league".
+type ViewerRecord = { wins: number; losses: number; ties: number; rank: number };
+
+function standings(viewerRecord?: ViewerRecord) {
   return {
     standings: TEAMS.map((t, i) => ({
       teamId: t.teamId,
@@ -310,6 +313,7 @@ function standings() {
       wins: 10 - i,
       losses: i,
       ties: 0,
+      ...(t.teamId === VIEWER_TEAM_ID ? viewerRecord : {}),
       pf: 1500 - i * 20,
       pa: 1200 + i * 15,
     })),
@@ -415,7 +419,10 @@ function rosterRows() {
  * Center, Matchup Detail and the League Dashboard read (see the module
  * docblock) and 500s on anything unrecognised.
  */
-async function fulfilApi(route: Route, { liveStarters = false, teamNames }: { liveStarters?: boolean; teamNames?: [string, string] } = {}) {
+async function fulfilApi(
+  route: Route,
+  { liveStarters = false, teamNames, viewerRecord }: { liveStarters?: boolean; teamNames?: [string, string]; viewerRecord?: ViewerRecord } = {},
+) {
   const request = route.request();
   const { pathname } = new URL(request.url());
   const method = request.method();
@@ -442,7 +449,7 @@ async function fulfilApi(route: Route, { liveStarters = false, teamNames }: { li
     return json(route, 200, rosters());
   }
   if (method === 'GET' && pathname === `/api/scoring/league/${LEAGUE_ID}/standings`) {
-    return json(route, 200, standings());
+    return json(route, 200, standings(viewerRecord));
   }
   if (method === 'GET' && pathname === '/api/team/hindsight') {
     return json(route, 200, { pointsLeftOnBench: 0 });
@@ -546,13 +553,14 @@ async function seedScoreboardView(page: Page) {
  * to also seed the Matchup view memory so Matchup Detail opens in the Scoreboard
  * view. Pass `liveStarters: true` for a live Matchup with two starters per side
  * in progress, flagged and carrying a game clock (the phone-row guard, #2008). Pass
- * `teamNames: [viewer, opponent]` to override both sides' names in the viewer's Matchup (#2363). Must be called before the first `page.goto`.
+ * `teamNames: [viewer, opponent]` to override both sides' names in the viewer's Matchup (#2363). Pass
+ * `viewerRecord` to override the viewer's standings row (record and rank). Must be called before the first `page.goto`.
  */
 export async function setupLayoutGuard(
   page: Page,
-  { view, liveStarters = false, teamNames }: { view?: 'standard' | 'scoreboard'; liveStarters?: boolean; teamNames?: [string, string] } = {},
+  { view, liveStarters = false, teamNames, viewerRecord }: { view?: 'standard' | 'scoreboard'; liveStarters?: boolean; teamNames?: [string, string]; viewerRecord?: ViewerRecord } = {},
 ) {
   await installSocketStub(page);
   if (view === 'scoreboard') await seedScoreboardView(page);
-  await page.route('**/api/**', (route) => fulfilApi(route, { liveStarters, teamNames }));
+  await page.route('**/api/**', (route) => fulfilApi(route, { liveStarters, teamNames, viewerRecord }));
 }
