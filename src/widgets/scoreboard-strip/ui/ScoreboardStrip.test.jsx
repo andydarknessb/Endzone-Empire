@@ -121,6 +121,15 @@ test('a null status draws no bar and no result', () => {
   expect(screen.queryByTestId('scoreboard-result')).not.toBeInTheDocument();
 });
 
+// A name that does not fit truncates with an ellipsis (#2363): the full name stays in the text and is the title.
+test('each team name keeps its full text and carries it as a title', () => {
+  render(<ScoreboardStrip matchup={detail()} />);
+
+  const names = screen.getAllByTestId('scoreboard-team-name');
+  expect(names.map((n) => n.getAttribute('title'))).toEqual(['Duluth Dockworkers', 'Fargo Frostbite']);
+  expect(names.map((n) => n.textContent)).toEqual(['Duluth Dockworkers', 'Fargo Frostbite']);
+});
+
 test('the viewer side wears the You tag and a record under the name when the page passes one', () => {
   render(<ScoreboardStrip matchup={detail()} viewerTeamId={34} records={{ 12: '2-0', 34: '1-1' }} />);
 

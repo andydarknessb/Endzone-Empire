@@ -571,6 +571,122 @@ for (const w of [360, 390]) {
   });
 }
 
+// ---- Long Team names (#2363) ----
+//
+// The pixel glyph is 16px wide, so a name box of 70-155px holds 4-9 glyphs and
+// `overflow-wrap: anywhere` used to split any longer word mid-letter, and the
+// unequal line counts pushed one side's record and score below the other's. The
+// ruling: a name that does not fit truncates to ONE line with an ellipsis (full
+// name stays in the DOM text and the `title`), and the two scores line up.
+// Binds, for the Matchup scoreboard, the Starters header and the Game Center
+// hero, with a single long word and with two long phrases: (a) each name is one
+// line (no word splits), (b) each name stays inside its column, (c) the two
+// score elements share a top (scoreboard and hero), (d) the two Starters header
+// names share a top.
+const LONG_NAME_PAIRS: Array<{ label: string; names: [string, string] }> = [
+  { label: 'one long word', names: ['MyBaLlsHuRts', 'Nanagoat'] },
+  { label: 'two long phrases', names: ['Mike Mike Mike', 'Keep my team name out yo mouth'] },
+];
+
+function probeNames(args: { name: string; column: string }) {
+  const els = Array.from(document.querySelectorAll(args.name)) as HTMLElement[];
+  return els.map((el) => {
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    const rects = Array.from(range.getClientRects());
+    const lines = new Set(rects.map((r) => Math.round(r.top))).size;
+    const col = el.closest(args.column)!.getBoundingClientRect();
+    const box = el.getBoundingClientRect();
+    return {
+      text: (el.textContent || '').trim(),
+      lines,
+      top: box.top,
+      left: box.left - col.left,
+      right: box.right - col.right,
+      ellipsis: getComputedStyle(el).textOverflow === 'ellipsis' && getComputedStyle(el).overflow === 'hidden', // what clips the glyphs the range still measures
+      title: el.getAttribute('title'),
+    };
+  });
+}
+
+function probeTops(selector: string) {
+  return Array.from(document.querySelectorAll(selector)).map((el) => el.getBoundingClientRect().top);
+}
+
+for (const { label, names } of LONG_NAME_PAIRS) {
+  for (const w of [390, 1440]) {
+    for (const surface of [
+      { shape: MATCHUP_STANDARD, name: '[data-testid="scoreboard-team-name"]', column: '[data-testid^="scoreboard-side-"]', score: '[data-testid="scoreboard-score"]', title: 'scoreboard' },
+      { shape: MATCHUP_STANDARD, name: '[data-testid="slot-team-name"]', column: '[data-testid="slot-team-head"]', score: null, title: 'Starters header' },
+      { shape: GAME_CENTER, name: '[data-testid="matchup-hero-name"]', column: '[data-testid^="matchup-hero-side-"]', score: '[data-testid="matchup-hero-score"]', title: 'Game Center hero' },
+    ]) {
+      test(`${surface.title} @ ${w}: ${label} - names stay on one line inside their column, scores line up`, async ({ page }) => {
+        await setupLayoutGuard(page, { view: surface.shape.view, teamNames: names });
+        await page.setViewportSize({ width: w, height: 844 });
+        await page.goto(surface.shape.url);
+        await surface.shape.ready(page);
+
+        const found = await page.evaluate(probeNames, { name: surface.name, column: surface.column });
+        expect(found.map((n) => n.text).sort(), 'both team names render, in full, in the DOM').toEqual([...names].sort());
+        for (const n of found) {
+          expect(n.lines, `"${n.text}" is one line (no word splits)`).toBe(1);
+          expect(n.left, `"${n.text}" starts inside its column`).toBeGreaterThanOrEqual(-1);
+          expect(n.right, `"${n.text}" ends inside its column`).toBeLessThanOrEqual(1);
+          expect(n.ellipsis, `"${n.text}" clips with an ellipsis`).toBe(true);
+        }
+        if (surface.score) {
+          const tops = await page.evaluate(probeTops, surface.score);
+          expect(tops, 'both score elements render').toHaveLength(2);
+          expect(Math.abs(tops[0] - tops[1]), `scores line up (tops ${tops.join(' / ')})`).toBeLessThanOrEqual(2);
+        } else {
+          expect(Math.abs(found[0].top - found[1].top), `header name tops line up (${found.map((n) => n.top).join(' / ')})`).toBeLessThanOrEqual(2);
+        }
+        for (const n of found) expect(n.title, `"${n.text}" carries its full name as a title`).toBe(n.text);
+      });
+    }
+  }
+}
+
+// The hero's record line is one line too (#2363 QA): "10-7-1 · 12th in league" is
+// 138px, wider than the (viewport - 76) / 2 column below ~353px, and wrapping on
+// the viewer's side alone dropped that side's score 22px. Short names, so the
+// only thing that can misalign the scores here is the record line.
+test('Game Center hero @ 344: the widest record line stays on one line and the scores line up', async ({ page }) => {
+  await setupLayoutGuard(page, { teamNames: ['Duluth', 'Fargo'], viewerRecord: { wins: 10, losses: 7, ties: 1, rank: 12 } });
+  await page.setViewportSize({ width: 344, height: 844 });
+  await page.goto(GAME_CENTER.url);
+  await GAME_CENTER.ready(page);
+
+  const res = await page.evaluate(() => {
+    const records = Array.from(document.querySelectorAll('[data-testid="matchup-hero-record"]')).map((el) => {
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      return { text: (el.textContent || '').trim(), lines: new Set(Array.from(range.getClientRects()).map((r) => Math.round(r.top))).size };
+    });
+    const tops = Array.from(document.querySelectorAll('[data-testid="matchup-hero-score"]')).map((el) => el.getBoundingClientRect().top);
+    return { records, tops };
+  });
+  expect(res.records.map((r) => r.text), 'the viewer record carries the widest line').toContain('10-7-1 · 12th in league');
+  for (const r of res.records) expect(r.lines, `"${r.text}" is one line`).toBe(1);
+  expect(res.tops).toHaveLength(2);
+  expect(Math.abs(res.tops[0] - res.tops[1]), `scores line up (tops ${res.tops.join(' / ')})`).toBeLessThanOrEqual(2);
+});
+
+// The strip hides its Team mark on a phone (as the hero and the Starters header do), so a
+// short name like "Nanagoat" has its full width and is not truncated at 390.
+test('Matchup scoreboard @ 390: a short name is not truncated beside a hidden Team mark', async ({ page }) => {
+  await setupLayoutGuard(page, { view: MATCHUP_STANDARD.view, teamNames: ['MyBaLlsHuRts', 'Nanagoat'] });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(MATCHUP_STANDARD.url);
+  await MATCHUP_STANDARD.ready(page);
+
+  const m = await page.evaluate(() => {
+    const el = Array.from(document.querySelectorAll('[data-testid="scoreboard-team-name"]')).find((e) => e.textContent === 'Nanagoat') as HTMLElement;
+    return { scrollWidth: el.scrollWidth, clientWidth: el.clientWidth };
+  });
+  expect(m.scrollWidth, `"Nanagoat" scrollWidth ${m.scrollWidth} vs box ${m.clientWidth}`).toBeLessThanOrEqual(m.clientWidth);
+});
+
 // ---- Red-tell outcomes (#920, each run in Chromium; see the PR body) ----
 //
 // Game Center (both fire, and each co-binds the jsdom case in
