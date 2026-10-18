@@ -687,6 +687,78 @@ test('Matchup scoreboard @ 390: a short name is not truncated beside a hidden Te
   expect(m.scrollWidth, `"Nanagoat" scrollWidth ${m.scrollWidth} vs box ${m.clientWidth}`).toBeLessThanOrEqual(m.clientWidth);
 });
 
+// ---- Settled scoreboard keeps the full names (#2366) ----
+//
+// #2364 truncates the scoreboard names to one line, and a settled Matchup hides the
+// win bar, the only other place full names print. The fixture's `played` Matchup is
+// settled; `liveStarters` makes it live. The settled state keeps a caption row where
+// the bar's name captions sit: both full names, wrapping at spaces, never truncated.
+function probeFinalNames() {
+  const row = document.querySelector('[data-testid="scoreboard-final-names"]') as HTMLElement | null;
+  const board = document.querySelector('[data-testid="scoreboard-strip"]') as HTMLElement;
+  if (!row) return { exists: false } as const;
+  const b = board.getBoundingClientRect();
+  const r = row.getBoundingClientRect();
+  const names = Array.from(row.children) as HTMLElement[];
+  const wordSplits: string[] = [];
+  for (const el of names) {
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      const text = n.textContent || '';
+      for (const m of text.matchAll(/\S+/g)) {
+        const range = document.createRange();
+        range.setStart(n, m.index!);
+        range.setEnd(n, m.index! + m[0].length);
+        if (new Set(Array.from(range.getClientRects()).map((q) => Math.round(q.top))).size > 1) wordSplits.push(m[0]);
+      }
+    }
+  }
+  return {
+    exists: true,
+    text: names.map((el) => (el.textContent || '').trim()),
+    truncated: names.map((el) => el.scrollWidth > el.clientWidth + 1 || (getComputedStyle(el).textOverflow === 'ellipsis' && getComputedStyle(el).overflow === 'hidden')),
+    wordSplits,
+    lefts: names.map((el) => el.getBoundingClientRect().left),
+    aligns: names.map((el) => getComputedStyle(el).textAlign),
+    inside: r.left >= b.left - 1 && r.right <= b.right + 1,
+    docOverflow: document.documentElement.scrollWidth > window.innerWidth,
+  } as const;
+}
+
+for (const { label, names } of LONG_NAME_PAIRS) {
+  for (const w of [344, 390, 1440]) {
+    test(`Matchup scoreboard settled @ ${w}: ${label} - full names caption row, untruncated, inside the board`, async ({ page }) => {
+      await setupLayoutGuard(page, { view: MATCHUP_STANDARD.view, teamNames: names });
+      await page.setViewportSize({ width: w, height: 844 });
+      await page.goto(MATCHUP_STANDARD.url);
+      await MATCHUP_STANDARD.ready(page);
+
+      await expect(page.locator('[data-testid="scoreboard-strip"]')).toHaveAttribute('data-state', 'settled');
+      const f = await page.evaluate(probeFinalNames);
+      expect(f.exists, 'settled scoreboard has the full-name caption row').toBe(true);
+      if (!f.exists) return;
+      expect([...f.text].sort(), 'both full names are visible text').toEqual([...names].sort());
+      expect(f.truncated, 'no name is truncated').toEqual([false, false]);
+      expect(f.wordSplits, 'no word splits across lines').toEqual([]);
+      expect(f.inside, 'row stays within the scoreboard box').toBe(true);
+      expect(f.docOverflow, 'page does not scroll sideways').toBe(false);
+      expect(f.aligns[0] === 'start' || f.aligns[0] === 'left', 'left name start-aligned').toBe(true);
+      expect(f.aligns[1], 'right name end-aligned').toBe('right');
+      expect(f.lefts[0], 'left name sits left of the right name').toBeLessThan(f.lefts[1]);
+    });
+  }
+}
+
+test('Matchup scoreboard live @ 390: no full-name row, the win bar stays', async ({ page }) => {
+  await setupLayoutGuard(page, { view: MATCHUP_STANDARD.view, liveStarters: true, teamNames: LONG_NAME_PAIRS[1].names });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(MATCHUP_STANDARD.url);
+  await MATCHUP_STANDARD.ready(page);
+  await expect(page.locator('[data-testid="scoreboard-strip"]')).toHaveAttribute('data-state', 'live');
+  await expect(page.locator('[data-testid="scoreboard-final-names"]')).toHaveCount(0);
+  await expect(page.locator('[data-testid="scoreboard-odds"]')).toHaveCount(1);
+});
+
 // ---- Red-tell outcomes (#920, each run in Chromium; see the PR body) ----
 //
 // Game Center (both fire, and each co-binds the jsdom case in
