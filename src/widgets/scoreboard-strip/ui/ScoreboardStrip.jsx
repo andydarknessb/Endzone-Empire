@@ -204,6 +204,29 @@ export default function ScoreboardStrip({
         {figuresBelow(left, leftKey)}
         {figuresBelow(right, rightKey)}
       </Box>
+      {settled && (
+        // The bar is gone once settled and the names above truncate (#2364), so the bar's caption slot keeps the full names:
+        // TwoSidedOdds' 14px body type, leader in ink, trailer dim. aria-hidden: the team headings already announce them.
+        <Box
+          aria-hidden="true"
+          data-testid="scoreboard-final-names"
+          sx={{
+            display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '2px 12px', fontSize: '14px', color: colors.dim,
+          }}
+        >
+          {[[left, leftKey, false], [right, rightKey, true]].map(([side, key, end]) => (
+            <Box
+              key={key}
+              component="span"
+              sx={{
+                minWidth: 0, overflowWrap: 'anywhere', textAlign: end ? 'right' : 'left', ...(view.leader == null || view.leader === key ? { fontWeight: 700, color: colors.ink } : null),
+              }}
+            >
+              {side.name}
+            </Box>
+          ))}
+        </Box>
+      )}
       {view.showBar && (
         <Box data-testid="scoreboard-odds" sx={{ width: '100%' }}>
           <TwoSidedOdds

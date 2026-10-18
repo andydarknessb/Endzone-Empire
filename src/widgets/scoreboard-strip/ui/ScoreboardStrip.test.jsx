@@ -232,3 +232,17 @@ describe('the viewer\'s side comes first', () => {
     expect(sideOrder()).toEqual(['scoreboard-side-home', 'scoreboard-side-away']);
   });
 });
+
+test('a settled scoreboard keeps both full names in a hidden-from-readers caption row where the bar sat; a live one has no row (#2366)', () => {
+  const { rerender } = render(<ScoreboardStrip matchup={detail({ matchup: { status: 'final', final: true } })} />);
+
+  const row = screen.getByTestId('scoreboard-final-names');
+  expect(within(row).getByText('Duluth Dockworkers')).toBeInTheDocument();
+  expect(within(row).getByText('Fargo Frostbite')).toBeInTheDocument();
+  expect(row).toHaveAttribute('aria-hidden', 'true');
+  expect(odds()).not.toBeInTheDocument();
+
+  rerender(<ScoreboardStrip matchup={detail()} />);
+  expect(screen.queryByTestId('scoreboard-final-names')).not.toBeInTheDocument();
+  expect(odds()).toBeInTheDocument();
+});
