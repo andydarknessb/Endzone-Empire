@@ -53,6 +53,13 @@ test('lists the roster worst projection first, labelled as the claim sheet label
   expect(radios[2]).toHaveAccessibleName('Josh Allen (QB) · 22.4 proj');
 });
 
+test('does not offer a player stashed in an IR slot, whose drop frees no roster spot', () => {
+  // MinneApple 2026-10-18: Jalen Hurts on IR was offered, the add then 409'd and the undo re-added him.
+  renderSheet({ roster: [...roster, { id: 23, name: 'Jalen Hurts', position: 'QB', projected_weekly_points: 0, lineup_slot: 'IR' }] });
+  expect(screen.queryByRole('radio', { name: /Jalen Hurts/ })).not.toBeInTheDocument();
+  expect(screen.getAllByRole('radio')).toHaveLength(3);
+});
+
 test('checks the dropSuggestion on open, and nothing when it is not on the roster', () => {
   const { unmount } = renderSheet({ dropSuggestion: { id: 22, name: 'Mid Guy' } });
   expect(screen.getByRole('radio', { name: /Mid Guy/ })).toBeChecked();
