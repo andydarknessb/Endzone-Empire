@@ -101,6 +101,15 @@ test('both sides read Expected final before players remaining, the away side inc
   }
 });
 
+// A name that does not fit truncates with an ellipsis (#2363): the full name stays in the text and is the title.
+test('each team name keeps its full text and carries it as a title', () => {
+  renderHero();
+
+  const names = screen.getAllByTestId('matchup-hero-name');
+  expect(names).toHaveLength(2);
+  names.forEach((n) => expect(n).toHaveAttribute('title', n.textContent));
+});
+
 // Red-tell (#893): placing the You pill by home/away instead of by the
 // viewer's Team id turns this case red and no other.
 test('puts the You pill on the viewer side only, matched by Team id', () => {

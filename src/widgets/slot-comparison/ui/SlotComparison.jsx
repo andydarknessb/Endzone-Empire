@@ -93,7 +93,7 @@ export default function SlotComparison({
         </FrameHead>
       )}
     >
-      <Box sx={{ ...COLUMNS, alignItems: 'center', padding: { xs: '12px 14px 8px', md: '14px 20px 8px' }, borderBottom: '2px solid var(--ps-rule)' }}>
+      <Box sx={{ ...COLUMNS, alignItems: 'start', padding: { xs: '12px 14px 8px', md: '14px 20px 8px' }, borderBottom: '2px solid var(--ps-rule)' }}>
         <TeamHead name={names[leftKey]} you={viewerSide === leftKey} />
         <Box component="span" sx={{ ...LABEL, textAlign: 'center' }}>Slot</Box>
         <TeamHead name={names[rightKey]} you={viewerSide === rightKey} right />
@@ -199,12 +199,15 @@ function ColumnLabel({ pre, showExp, right }) {
   );
 }
 
+// The YOU tag sits under the name so it never takes name width; the name truncates to one line (#2363).
 function TeamHead({ name, you, right }) {
   return (
-    <Box sx={{ display: 'flex', alignItems: 'center', gap: '10px', flexDirection: right ? 'row-reverse' : 'row', minWidth: 0, textAlign: right ? 'right' : 'left' }}>
+    <Box data-testid="slot-team-head" sx={{ display: 'flex', alignItems: 'flex-start', gap: '10px', flexDirection: right ? 'row-reverse' : 'row', minWidth: 0, textAlign: right ? 'right' : 'left' }}>
       <Box component="span" sx={{ display: { xs: 'none', sm: 'inline-flex' } }}><TeamMark name={name || ''} /></Box>
-      <Box component="span" sx={{ ...pixelSx(16), minWidth: 0, overflowWrap: 'anywhere' }}>{name || ''}</Box>
-      {you && <YouTag />}
+      <Box sx={{ minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: right ? 'flex-end' : 'flex-start', gap: '4px' }}>
+        <Box component="span" data-testid="slot-team-name" title={name || undefined} sx={{ ...pixelSx(16), minWidth: 0, maxWidth: '100%', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{name || ''}</Box>
+        {you && <YouTag />}
+      </Box>
     </Box>
   );
 }
