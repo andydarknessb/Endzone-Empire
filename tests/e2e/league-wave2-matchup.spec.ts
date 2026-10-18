@@ -244,7 +244,8 @@ test.describe('the compact scoreboard bar at 390x844', () => {
     // A starter row cut off at the top edge (the row under the bar): focusing its control must scroll it
     // clear of the pinned bar. Chrome aligns a partly hidden element to the edge unless scroll-padding-top
     // reserves the bar, which is what the page sets.
-    const target = page.getByRole('button', { name: 'Stats for Home Starter 3 RB' });
+    // Starter 6, not 3: focus centres the row, and with one-line names (#2363) the page above it is shorter, so row 3 centred would scroll the strip back into view and unpin the bar.
+    const target = page.getByRole('button', { name: 'Stats for Home Starter 6 TE' });
     const docY = await target.evaluate((el) => el.getBoundingClientRect().top + window.scrollY);
     await page.evaluate((y) => window.scrollTo({ top: y + 12, behavior: 'instant' }), docY);
     expect((await target.boundingBox())!.y, 'the row starts hidden under the top edge').toBeLessThan(0);
