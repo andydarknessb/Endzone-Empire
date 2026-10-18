@@ -211,10 +211,10 @@ function listRow(id: number, week: number, homeId: number, homeName: string, awa
 // week 18 so the "League matchups" grid renders cards. The week segments are
 // derived from this list, so a season claiming week 18 with no rows would
 // render zero radios.
-function matchupList() {
+function matchupList(names?: [string, string]) {
   const rows = [];
   for (let week = 1; week <= CURRENT_WEEK; week++) {
-    rows.push(listRow(week, week, VIEWER_TEAM_ID, GC_HOME_NAME, OPP_TEAM_ID, GC_AWAY_NAME));
+    rows.push(listRow(week, week, VIEWER_TEAM_ID, names?.[0] ?? GC_HOME_NAME, OPP_TEAM_ID, names?.[1] ?? GC_AWAY_NAME));
   }
   rows.push(listRow(500, CURRENT_WEEK, 103, TEAMS[2].teamName, 104, TEAMS[3].teamName));
   rows.push(listRow(501, CURRENT_WEEK, 105, TEAMS[4].teamName, 106, TEAMS[5].teamName));
@@ -225,7 +225,7 @@ function matchupList() {
 // 18, both sides with 22+ char names, starters carrying the league's slot keys
 // and empty NFL game ids (so the Supabase path stays silent regardless of a
 // developer's local environment).
-function matchupDetail(live = false) {
+function matchupDetail(live = false, names?: [string, string]) {
   return {
     matchup: {
       id: MATCHUP_ID,
@@ -243,7 +243,7 @@ function matchupDetail(live = false) {
     },
     home: {
       teamId: VIEWER_TEAM_ID,
-      name: HOME_TEAM_NAME,
+      name: names?.[0] ?? HOME_TEAM_NAME,
       expectedFinal: 118.9,
       playersRemaining: 2,
       starters: startersFor(HOME_STARTER_NAMES, live),
@@ -251,7 +251,7 @@ function matchupDetail(live = false) {
     },
     away: {
       teamId: OPP_TEAM_ID,
-      name: AWAY_TEAM_NAME,
+      name: names?.[1] ?? AWAY_TEAM_NAME,
       expectedFinal: 114.2,
       playersRemaining: 3,
       starters: startersFor(AWAY_STARTER_NAMES, live),
@@ -415,7 +415,7 @@ function rosterRows() {
  * Center, Matchup Detail and the League Dashboard read (see the module
  * docblock) and 500s on anything unrecognised.
  */
-async function fulfilApi(route: Route, { liveStarters = false }: { liveStarters?: boolean } = {}) {
+async function fulfilApi(route: Route, { liveStarters = false, teamNames }: { liveStarters?: boolean; teamNames?: [string, string] } = {}) {
   const request = route.request();
   const { pathname } = new URL(request.url());
   const method = request.method();
@@ -433,10 +433,10 @@ async function fulfilApi(route: Route, { liveStarters = false }: { liveStarters?
     return json(route, 200, { league: LEAGUE_ROW, teams: TEAMS, viewerTeamId: VIEWER_TEAM_ID });
   }
   if (method === 'GET' && pathname === `/api/league/${LEAGUE_ID}/matchups`) {
-    return json(route, 200, matchupList());
+    return json(route, 200, matchupList(teamNames));
   }
   if (method === 'GET' && pathname === `/api/league/${LEAGUE_ID}/matchups/${MATCHUP_ID}`) {
-    return json(route, 200, matchupDetail(liveStarters));
+    return json(route, 200, matchupDetail(liveStarters, teamNames));
   }
   if (method === 'GET' && pathname === `/api/league/${LEAGUE_ID}/rosters`) {
     return json(route, 200, rosters());
@@ -545,13 +545,14 @@ async function seedScoreboardView(page: Page) {
  * Installs the API route and the socket stub on `page`. Pass `view: 'scoreboard'`
  * to also seed the Matchup view memory so Matchup Detail opens in the Scoreboard
  * view. Pass `liveStarters: true` for a live Matchup with two starters per side
- * in progress, flagged and carrying a game clock (the phone-row guard, #2008). Must be called before the first `page.goto`.
+ * in progress, flagged and carrying a game clock (the phone-row guard, #2008). Pass
+ * `teamNames: [viewer, opponent]` to override both sides' names in the viewer's Matchup (#2363). Must be called before the first `page.goto`.
  */
 export async function setupLayoutGuard(
   page: Page,
-  { view, liveStarters = false }: { view?: 'standard' | 'scoreboard'; liveStarters?: boolean } = {},
+  { view, liveStarters = false, teamNames }: { view?: 'standard' | 'scoreboard'; liveStarters?: boolean; teamNames?: [string, string] } = {},
 ) {
   await installSocketStub(page);
   if (view === 'scoreboard') await seedScoreboardView(page);
-  await page.route('**/api/**', (route) => fulfilApi(route, { liveStarters }));
+  await page.route('**/api/**', (route) => fulfilApi(route, { liveStarters, teamNames }));
 }

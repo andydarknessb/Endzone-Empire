@@ -101,15 +101,18 @@ function Side({
   const line = [record, rankText].filter(Boolean).join(' · ');
   return (
     <Box sx={{ minWidth: 0, textAlign: { xs: 'left', sm: right ? 'right' : 'left' } }}>
-      <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '6px 10px', flexDirection: { xs: 'row', sm: right ? 'row-reverse' : 'row' }, color }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: '6px 10px', flexDirection: { xs: 'row', sm: right ? 'row-reverse' : 'row' }, color }}>
         <Box component="span" sx={{ display: { xs: 'none', sm: 'inline-flex' } }}><TeamMark name={name} avatarUrl={side.avatarUrl} avatarStaticUrl={side.avatarStaticUrl} size={40} /></Box>
-        <Box component="h3" data-testid="matchup-hero-name" sx={{ m: 0, minWidth: 0, flex: { xs: '1 1 100%', sm: '0 1 auto' }, ...pixelSx(16), color, overflowWrap: 'anywhere' }}>{name}</Box>
-        {cpu && <CpuTag color={c.ink} />}
-        {viewer && <YouTag color={c.ink} />}
+        <Box component="h3" data-testid="matchup-hero-name" title={name} sx={{ m: 0, minWidth: 0, ...pixelSx(16), color, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{name}</Box>
       </Box>
       {line && (
         <Box data-testid="matchup-hero-record" sx={{ fontSize: '14px', color: c.dim, marginTop: '6px', fontVariantNumeric: 'tabular-nums' }}>{line}</Box>
       )}
+      {/* The tags get their own row, reserved on both sides, so the scores line up whichever side wears one (#2363). */}
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: '10px', flexDirection: { xs: 'row', sm: right ? 'row-reverse' : 'row' }, minHeight: '22px', marginTop: '6px' }}>
+        {cpu && <CpuTag color={c.ink} />}
+        {viewer && <YouTag color={c.ink} />}
+      </Box>
       {figureLabel && <Box sx={{ fontSize: '13px', color: c.dim, marginTop: '14px' }}>{figureLabel}</Box>}
       <Box
         data-testid="matchup-hero-score"

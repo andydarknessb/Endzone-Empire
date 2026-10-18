@@ -114,9 +114,19 @@ test('is the Starters frame: an h2 that labels it, the slot count, both Team nam
 test('the viewer side wears the You tag', () => {
   const { rerender } = render(<SlotComparison {...baseProps} viewerSide="away" />);
   expect(screen.getAllByText('You')).toHaveLength(1);
-  expect(screen.getByText('Fargo Frostbite').parentElement).toHaveTextContent('You');
+  // The tag sits under the name, in the same column box, so it never takes name width (#2363).
+  const name = screen.getByText('Fargo Frostbite');
+  expect(name.nextElementSibling).toHaveTextContent('You');
+  expect(name.parentElement).toHaveTextContent('You');
   rerender(<SlotComparison {...baseProps} />);
   expect(screen.queryByText('You')).not.toBeInTheDocument();
+});
+
+test('each header name keeps its full text and carries it as a title', () => {
+  render(<SlotComparison {...baseProps} />);
+  const names = screen.getAllByTestId('slot-team-name');
+  expect(names.map((n) => n.getAttribute('title'))).toEqual(['Duluth Dockworkers', 'Fargo Frostbite']);
+  expect(names.map((n) => n.textContent)).toEqual(['Duluth Dockworkers', 'Fargo Frostbite']);
 });
 
 test.each([

@@ -120,7 +120,8 @@ export default function ScoreboardStrip({
           <Box
             component="h3"
             data-testid="scoreboard-team-name"
-            sx={{ m: 0, minWidth: 0, ...pixelSx(16), color: colors.ink, overflowWrap: 'anywhere' }}
+            title={side.name}
+            sx={{ m: 0, minWidth: 0, ...pixelSx(16), color: colors.ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
           >
             {side.name}
           </Box>
