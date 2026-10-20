@@ -188,6 +188,7 @@ function shotWorld(t, shots) {
   t.mock.method(decisionSvc, 'weekHindsight', async () => ({ pointsLeftOnBench: 0 }));
   t.mock.method(montecarlo, 'computeLeagueOdds', async () => ({}));
   t.mock.method(digest, 'sendWeeklyRecapDigest', async () => ({}));
+  t.mock.method(matchupNarrative, 'writePreviews', async () => {});
   return { fake, stored, left };
 }
 
