@@ -159,6 +159,18 @@ test('each row carries its stored preview Narrative, null where none is written'
   const { body } = await listMatchups(t, { matchups: [OPEN, FINAL], narratives });
   assert.equal(body.find((m) => m.id === 7).narrative, 'A close one.');
   assert.equal(body.find((m) => m.id === 6).narrative, null);
+  assert.equal(body.find((m) => m.id === 7).postgame, null);
+});
+
+test('a stored postgame comes back as postgame, the preview stays in narrative, none stored is null for both', async (t) => {
+  const narratives = [{ season: 2026, week: 1, data: { matchups: { 6: { preview: { narrative: 'Pre.' }, postgame: { narrative: 'A rout.' } } } } }];
+  const { body } = await listMatchups(t, { matchups: [OPEN, FINAL], narratives });
+  const final = body.find((m) => m.id === 6);
+  assert.equal(final.postgame, 'A rout.');
+  assert.equal(final.narrative, 'Pre.');
+  const none = (await listMatchups(t, { matchups: [FINAL] })).body[0];
+  assert.equal(none.postgame, null);
+  assert.equal(none.narrative, null);
 });
 
 test('a team with no starter rows stays null, not zero', async (t) => {

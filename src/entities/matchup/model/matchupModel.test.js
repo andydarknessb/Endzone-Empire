@@ -44,6 +44,10 @@ const detailBody = {
 };
 
 describe('matchupFromListRow / matchupFromDetailBody: one shape from any wire', () => {
+  test('a list row carries its stored postgame next to the preview narrative', () => {
+    expect(matchupFromListRow({ ...listRow, narrative: 'Pre.', postgame: 'Post.' })).toMatchObject({ narrative: 'Pre.', postgame: 'Post.' });
+  });
+
   test('a list row becomes the one per-side shape', () => {
     expect(matchupFromListRow(listRow)).toEqual({
       id: 5,
@@ -55,6 +59,7 @@ describe('matchupFromListRow / matchupFromDetailBody: one shape from any wire', 
       firstKickoffAt: null,
       syncedAt: null,
       narrative: null,
+      postgame: null,
       home: {
         teamId: 10,
         name: 'Home Town',
