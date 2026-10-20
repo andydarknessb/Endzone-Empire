@@ -7,13 +7,14 @@ const trophies = require('../services/trophy.service');
 const digest = require('../services/digest.service');
 const matchupNarrative = require('../services/matchupNarrative.service');
 const { settleFollowUp } = require('../services/settleFollowUp.service');
+const pool = require('../modules/pool');
 const { createFakePool } = require('./helpers/fakePool');
 
 const ARGS = { leagueId: 7, season: 2026, week: 5 };
 
 // Every step is stubbed at its module object and appends its name to one
 // shared log, so the log IS the order the follow-up ran in.
-function stubAll(t, { failing } = {}) {
+function stubAll(t, { failing, league = { id: 7, current_season: 2026, current_week: 6 } } = {}) {
   const order = [];
   const step = (label, mod, fn) =>
     t.mock.method(mod, fn, async (arg) => {
@@ -28,6 +29,14 @@ function stubAll(t, { failing } = {}) {
   step('reconcileWeeklyHighScoreTrophy', trophies, 'reconcileWeeklyHighScoreTrophy');
   step('sendWeeklyRecapDigest', digest, 'sendWeeklyRecapDigest');
   step('writePostgames', matchupNarrative, 'writePostgames');
+  step('writePreviews', matchupNarrative, 'writePreviews');
+  // The previews step reads the league fresh (after the advance); reads are
+  // kept off the step log so the order arrays stay steps only.
+  order.reads = [];
+  t.mock.method(pool, 'query', async (text, params) => {
+    order.reads.push({ text, params });
+    return { rows: league ? [league] : [] };
+  });
   return order;
 }
 
@@ -38,10 +47,10 @@ test('advance: odds, then every trophy, then the Matchup postgames, then the ann
   await settleFollowUp({ ...ARGS, mode: 'advance' });
   assert.deepEqual(
     order.map((o) => o.label),
-    ['odds', 'awardWeeklyTrophies', 'writePostgames', 'generateWeeklyRecap', 'sendWeeklyRecapDigest']
+    ['odds', 'awardWeeklyTrophies', 'writePostgames', 'generateWeeklyRecap', 'sendWeeklyRecapDigest', 'writePreviews']
   );
   assert.deepEqual(order[0].arg, { leagueId: 7 });
-  for (const call of order.slice(1)) assert.deepEqual(call.arg, ARGS);
+  for (const call of order.slice(1, -1)) assert.deepEqual(call.arg, ARGS);
 });
 
 test('correction: odds, then the weekly high score reconcile, then the Matchup postgames, then the silent recap, no digest', async (t) => {
@@ -55,7 +64,7 @@ test('correction: odds, then the weekly high score reconcile, then the Matchup p
 });
 
 for (const [mode, labels] of [
-  ['advance', ['odds', 'awardWeeklyTrophies', 'writePostgames', 'generateWeeklyRecap', 'sendWeeklyRecapDigest']],
+  ['advance', ['odds', 'awardWeeklyTrophies', 'writePostgames', 'generateWeeklyRecap', 'sendWeeklyRecapDigest', 'writePreviews']],
   ['correction', ['odds', 'reconcileWeeklyHighScoreTrophy', 'writePostgames', 'computeAndStoreWeeklyRecap']],
 ]) {
   for (const failing of labels) {
@@ -75,6 +84,32 @@ test('advance: seasonComplete reaches the trophy step (and so the Called shot ju
   const order = stubAll(t);
   await settleFollowUp({ ...ARGS, mode: 'advance', seasonComplete: true });
   assert.deepEqual(order.find((o) => o.label === 'awardWeeklyTrophies').arg, { ...ARGS, seasonComplete: true });
+});
+
+// The nightly fill only previews a week that has not kicked off; an advance is
+// what opens the new week, so it writes the previews itself.
+test('advance: the Matchup previews are written for the freshly read league', async (t) => {
+  const order = stubAll(t);
+  await settleFollowUp({ ...ARGS, mode: 'advance' });
+  assert.deepEqual(order.reads.map((r) => r.params), [[7]]);
+  assert.equal(order.reads[0].text, 'SELECT * FROM "leagues" WHERE "id" = $1');
+  assert.deepEqual(order.find((o) => o.label === 'writePreviews').arg, { league: { id: 7, current_season: 2026, current_week: 6 } });
+});
+
+test('advance: a missing league row skips the previews without a failure', async (t) => {
+  const order = stubAll(t, { league: null });
+  const logs = [];
+  t.mock.method(console, 'error', (...args) => { logs.push(args); });
+  await settleFollowUp({ ...ARGS, mode: 'advance' });
+  assert.ok(!order.some((o) => o.label === 'writePreviews'));
+  assert.equal(logs.length, 0);
+});
+
+test('correction: never reads the league or writes previews', async (t) => {
+  const order = stubAll(t);
+  await settleFollowUp({ ...ARGS, mode: 'correction' });
+  assert.equal(order.reads.length, 0);
+  assert.ok(!order.some((o) => o.label === 'writePreviews'));
 });
 
 test('an unknown mode is refused before any step runs', async (t) => {
