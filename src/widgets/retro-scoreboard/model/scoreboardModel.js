@@ -160,3 +160,25 @@ export function gameClock(game) {
 export function liveCount(games) {
   return (games || []).filter((g) => gameState(g) === 'live').length;
 }
+
+/**
+ * Viewer first (QA ruling #2334): a participant's own team reads on the left
+ * and the opponent on the right, whichever side they are; a non-participant
+ * sees home on the left. The widgets draw the "home" slot on the left, so an
+ * away viewer's inputs are mirrored once here and every child stays side-blind.
+ * Existing values are swapped, never recomputed.
+ */
+export function viewerFirst(inputs) {
+  const { matchup, board, rows, activePlay } = inputs;
+  if (board?.viewerSide !== 'away') return inputs;
+  const swap = (o) => (o ? { ...o, home: o.away, away: o.home } : o);
+  return {
+    matchup: swap(matchup),
+    board: { ...swap(board), viewerSide: 'home',
+      winProbability: swap(board.winProbability),
+      projectedWinProbability: swap(board.projectedWinProbability),
+    },
+    rows: rows?.map(swap),
+    activePlay: activePlay ? { ...activePlay, side: activePlay.side === 'home' ? 'away' : 'home' } : activePlay,
+  };
+}

@@ -6,6 +6,7 @@ import LedBoard from './LedBoard';
 import RetroField from './RetroField';
 import LineupsCard from './LineupsCard';
 import GamesTile from './GamesTile';
+import { viewerFirst } from '../model/scoreboardModel';
 
 /**
  * The Scoreboard view of a Matchup (ADR 0031, #902): the LED board, the retro
@@ -59,17 +60,22 @@ import GamesTile from './GamesTile';
  *     (the canvas draws the "Celebrations on" affordance there; it is the
  *     celebrate-touchdown feature's, so the page slots it in).
  *
+ * Viewer first (QA ruling #2334): the left team is the viewer's own whichever
+ * side they are, and home for a non-participant, as the Standard view does.
+ * `viewerFirst` mirrors `matchup`, `board`, `rows` and `activePlay` once here
+ * for an away viewer, so the board, field and cards below stay side-blind.
+ *
  * The widget renders nothing without a Matchup. It reads no data of its own:
  * the page owns the entity hook, the score feed, the cutscene queue and the
  * toasts, and hands the widget what it shows.
  */
 export default function RetroScoreboard({
-  matchup,
+  matchup: matchupProp,
   leagueName,
-  board,
-  rows,
+  board: boardProp,
+  rows: rowsProp,
   games,
-  activePlay,
+  activePlay: activePlayProp,
   headingLevel = 2,
   onFullComparison,
   ticker,
@@ -82,7 +88,12 @@ export default function RetroScoreboard({
   // no remount); the mobile geometry starts below `sm`.
   const theme = useTheme();
   const mobile = useMediaQuery(theme.breakpoints.down('sm'));
-  if (!matchup) return null;
+  if (!matchupProp) return null;
+
+  // Viewer first (QA ruling #2334): an away viewer's team takes the left.
+  const { matchup, board, rows, activePlay } = viewerFirst({
+    matchup: matchupProp, board: boardProp, rows: rowsProp, activePlay: activePlayProp,
+  });
 
   const gap = mobile ? '12px' : '16px';
   const shownProb = board.winProbability?.home ?? null;
