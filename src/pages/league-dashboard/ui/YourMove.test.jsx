@@ -14,6 +14,7 @@ const SOON = () => new Date(Date.now() + 45 * 60 * 1000).toISOString();
 
 const lineup = (deadlineAt = LOCK) => ({
   id: 'lineup_problem:1',
+  type: 'lineup_problem',
   title: 'Set your lineup',
   detail: '1 empty starting slot',
   cta: { label: 'Set lineup', to: '/league/1/lineup' },
@@ -21,6 +22,7 @@ const lineup = (deadlineAt = LOCK) => ({
 });
 const picks = (deadlineAt = LOCK) => ({
   id: 'picks_open:1:2026-7',
+  type: 'picks_open',
   title: 'Week 7 picks',
   detail: '9 of 14 picks made',
   cta: { label: 'Make picks', to: '/league/1/pickem' },
@@ -28,6 +30,7 @@ const picks = (deadlineAt = LOCK) => ({
 });
 const waivers = {
   id: 'waiver_claims:1',
+  type: 'waiver_claims',
   title: 'Waivers',
   detail: 'Claims clear after Week 7. 1 claim pending.',
   cta: { label: 'View claims', to: '/league/1/waivers' },

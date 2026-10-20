@@ -280,7 +280,7 @@ function ActionQueue({
   // moves here instead of dropping to the top of the page.
   const firstRevealedRef = useRef(null);
   const {
-    items, partial, loading, error, reload,
+    items, partial, loading, error, fetchedAt, reload,
   } = useActionItems();
   // Loading with items present is loaded (a refetch keeps the plays); an error with none is a failure.
   const pending = loading && items.length === 0 && !error;
@@ -295,16 +295,15 @@ function ActionQueue({
   }, [expanded]);
 
   // The read settled: stamp it and hand the page the body (null on a failure).
-  // shortcut: a cached remount stamps "updated just now" (useResource keeps no read time); read the cache's time if that misleads.
   useEffect(() => {
     if (pending) return;
     if (failed) {
       onLoadedRef.current?.(null);
       return;
     }
-    setUpdatedAt(Date.now());
+    setUpdatedAt(fetchedAt ?? Date.now());
     onLoadedRef.current?.({ items, partial });
-  }, [pending, failed, items, partial]);
+  }, [pending, failed, items, partial, fetchedAt]);
 
   const { specs, sideline } = loaded ? buildPlays(items, leagues, now, onDraftExpire) : { specs: [], sideline: [] };
   // What the greeting reads off the list: which plays, which locks have passed, and today's date.

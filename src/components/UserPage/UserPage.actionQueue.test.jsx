@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
 import ActionQueue from './ActionQueue';
-import { invalidate } from '../../lib/resourceCache';
+import { invalidate, setResource } from '../../lib/resourceCache';
 
 jest.mock('../../api/apiClient', () => ({
   __esModule: true,
@@ -102,6 +102,19 @@ describe('the play cards', () => {
     expect(apiClient.get).toHaveBeenCalledWith(
       `/api/user/action-items?tz=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone)}`
     );
+  });
+
+  test('a remount answered from the cache stamps the time of that fetch, not the mount', async () => {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const realNow = Date.now();
+    const clock = jest.spyOn(Date, 'now').mockReturnValue(realNow - 10 * MINUTE);
+    setResource(['action-items', tz], body([item({ deadlineAt: inFromNow(3 * HOUR) })]));
+    clock.mockRestore();
+    mockItems('pending'); // the quiet refetch stays in flight, so the cached entry is what is shown
+    renderWithProviders(<ActionQueue leagues={[]} />);
+
+    const region = await frame();
+    expect(within(region).getByText(/ · updated 10 min ago$/)).toBeInTheDocument();
   });
 
   test('picks in two leagues are one card with a foot per league; one cursor, one filled foot', async () => {
