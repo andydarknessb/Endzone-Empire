@@ -1,0 +1,191 @@
+/**
+ * Week 7 2026 editorial waiver board, seeded from the Week 7 Darkness Report's
+ * "The Full Board" table (src/content/articles/week7-waiver-wire-darkness-report.jsx),
+ * in the column's order. Bids are percent of a $100 FAAB budget; the `$1` rows
+ * are 1..1. All 25 are kept so the endpoint's cap still fills after the Ownership
+ * cutoff drops some. `playerId` values are the production `players.id` rows from
+ * the editorial rulings for issue #2377.
+ *
+ * @type {import('./index').WaiverBoard}
+ */
+module.exports = {
+  season: 2026,
+  week: 7,
+  entries: [
+    {
+      playerId: 479,
+      name: 'Tanner McKee',
+      bidMin: 8,
+      bidMax: 14,
+      reason: 'Hurts out for the season (blood clots). 215 yards and a TD in his first start.',
+    },
+    {
+      playerId: 336,
+      name: 'Omar Cooper Jr.',
+      bidMin: 8,
+      bidMax: 12,
+      reason: '6 for 103 and a TD on a 24% target share, first game off IR.',
+    },
+    {
+      playerId: 303,
+      name: 'DeMario Douglas',
+      bidMin: 6,
+      bidMax: 10,
+      reason: '7 for 86 and a TD on a 27% target share. Doubs on IR.',
+    },
+    {
+      playerId: 1373,
+      name: 'C.J. Stroud',
+      bidMin: 4,
+      bidMax: 7,
+      reason: '20-plus points three straight weeks. Giants implied for 16.25.',
+    },
+    {
+      playerId: 679,
+      name: 'Michael Penix Jr.',
+      bidMin: 4,
+      bidMax: 7,
+      reason: '225 yards and 3 TDs. A 50.5 total against the 49ers.',
+    },
+    {
+      playerId: 42,
+      name: 'Roschon Johnson',
+      bidMin: 4,
+      bidMax: 7,
+      reason: 'Monangai out (thumb/toe). 51 yards and a TD behind Swift.',
+    },
+    {
+      playerId: 1098,
+      name: 'Jaylin Noel',
+      bidMin: 3,
+      bidMax: 6,
+      reason: '4 for 107 and a TD. Dell (knee) is on track to return Sunday.',
+    },
+    {
+      playerId: 1282,
+      name: 'Kyler Murray',
+      bidMin: 3,
+      bidMax: 6,
+      reason: '18.3 points before the bye. Colts implied for 17.5.',
+    },
+    {
+      playerId: 1118,
+      name: 'Aaron Rodgers',
+      bidMin: 3,
+      bidMax: 6,
+      reason: '16.0 after three straight 3-TD games. Paris, early kick.',
+    },
+    {
+      playerId: 172,
+      name: 'Tre Tucker',
+      bidMin: 3,
+      bidMax: 6,
+      reason: '5 for 97 and two TDs on an 18% target share.',
+    },
+    {
+      playerId: 255,
+      name: "Ja'Kobi Lane",
+      bidMin: 3,
+      bidMax: 6,
+      reason: 'Back from IR, 4 for 40 on a 16% share. Ravens implied for 27.25.',
+    },
+    {
+      playerId: 105,
+      name: 'Kendre Miller',
+      bidMin: 3,
+      bidMax: 5,
+      reason: '70 rushing yards, the early-down half of the Saints backfield.',
+    },
+    {
+      playerId: 965,
+      name: 'Michael Mayer',
+      bidMin: 2,
+      bidMax: 4,
+      reason: '7 for 95 on a 23% target share.',
+    },
+    {
+      playerId: 563,
+      name: 'Keenan Allen',
+      bidMin: 2,
+      bidMax: 4,
+      reason: '8 for 82 on a 29% target share. Warren out.',
+    },
+    {
+      playerId: 166,
+      name: 'Hunter Henry',
+      bidMin: 2,
+      bidMax: 4,
+      reason: '4 for 48 and a TD, 17% share. 13.8, 11.9 and 8.7 the last three weeks.',
+    },
+    {
+      playerId: 790,
+      name: 'Jaleel McLaughlin',
+      bidMin: 2,
+      bidMax: 4,
+      reason: 'Judkins out (ankle). 41 yards and 4 catches on a 16% share.',
+    },
+    {
+      playerId: 908,
+      name: 'Bam Knight',
+      bidMin: 1,
+      bidMax: 3,
+      reason: '80 rushing yards with Love out. Love may run Tuesday.',
+    },
+    {
+      playerId: 327,
+      name: 'Colby Parkinson',
+      bidMin: 1,
+      bidMax: 3,
+      reason: '5 for 31 and a TD on a 19% share. Adams out.',
+    },
+    {
+      playerId: 1519,
+      name: 'Ryan Flournoy',
+      bidMin: 1,
+      bidMax: 3,
+      reason: '7 for 40 and a TD. 13.5 and 10.5 the last two weeks.',
+    },
+    {
+      playerId: 1261,
+      name: 'J.J. McCarthy',
+      bidMin: 1,
+      bidMax: 3,
+      reason: '243 yards and a TD in Week 6. Starter not yet named.',
+    },
+    {
+      playerId: 324,
+      name: 'Geno Smith',
+      bidMin: 1,
+      bidMax: 2,
+      reason: '8.8, 10.0 and 12.0 the last three weeks. Home against Miami.',
+    },
+    {
+      playerId: 1344,
+      name: 'Jahan Dotson',
+      bidMin: 1,
+      bidMax: 2,
+      reason: '3 for 87 and a TD on a 15% share.',
+    },
+    {
+      playerId: 685,
+      name: 'Jawhar Jordan',
+      bidMin: 1,
+      bidMax: 2,
+      reason: 'Montgomery out. 43 yards and a TD; Houston is a 10-point favorite.',
+    },
+    {
+      playerId: 1357,
+      name: 'Audric Estime',
+      bidMin: 1,
+      bidMax: 1,
+      reason: 'Judkins out, Sampson still on IR. A TD on 19 yards.',
+    },
+    {
+      playerId: 279,
+      name: 'Darnell Washington',
+      bidMin: 1,
+      bidMax: 1,
+      reason: '4 for 25 and a TD on a 14% share; Freiermuth had 7%.',
+    },
+  ],
+};
