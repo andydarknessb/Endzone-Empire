@@ -202,7 +202,7 @@ function statLineKey(line) {
 }
 
 // players.position codes that earn IDP points: lineup.service POSITION_GROUPS
-// DL + LB + DB (this module stays a leaf, so server/test/playerStatsWrite.test.js
+// DL + LB + DB (this module stays a leaf, so server/test/idpPositionGate.test.js
 // pins the list against feedSyncRuns.IDP_POSITIONS).
 const IDP_POSITION_CODES = new Set(['DL', 'DE', 'DT', 'NT', 'LB', 'ILB', 'OLB', 'DB', 'CB', 'S', 'FS', 'SS']);
 

@@ -1165,7 +1165,7 @@ async function syncNflverseCorrection({
         `SELECT "id", "external_id", "position" FROM "players" WHERE "external_id" IS NOT NULL`
       );
       const idByExternal = new Map(knownPlayers.rows.map((r) => [String(r.external_id), r.id]));
-  const positionById = new Map(knownPlayers.rows.map((r) => [r.id, r.position]));
+      const positionById = new Map(knownPlayers.rows.map((r) => [r.id, r.position]));
       // The DEF-unit map, built by the SAME shared builder the live path uses
       // (scoring.loadDefUnitsByTeamCode), so the Team-code keying rule lives in one
       // place and the two paths cannot drift. nflverse spells Washington WAS, so the
