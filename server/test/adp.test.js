@@ -50,6 +50,25 @@ test('buildAdpUpdates disambiguates same-named players by position', () => {
   assert.equal(updates[0].adp, 30.5); // the QB, not the LB
 });
 
+test('buildAdpUpdates gives same-named players on different teams only the entry for their own team (#2413)', () => {
+  const updates = buildAdpUpdates(
+    [
+      { id: 1, name: 'Davante Adams', position: 'WR', nfl_team: 'LAR' },
+      { id: 2, name: 'Davante Adams', position: 'WR', nfl_team: 'NYJ' },
+    ],
+    [{ name: 'Davante Adams', nameKey: 'davante adams', position: 'WR', teamAbbr: 'LAR', adp: 33.9 }]
+  );
+  assert.deepEqual(updates, [{ id: 1, adp: 33.9 }]);
+});
+
+test('buildAdpUpdates gives a player with no team no ADP from a team-tagged entry (#2413)', () => {
+  const updates = buildAdpUpdates(
+    [{ id: 3, name: 'Davante Adams', position: 'WR', nfl_team: null }],
+    [{ name: 'Davante Adams', nameKey: 'davante adams', position: 'WR', teamAbbr: 'LAR', adp: 33.9 }]
+  );
+  assert.deepEqual(updates, []);
+});
+
 test('buildAdpUpdates leaves unmatched (undrafted) players out', () => {
   const updates = buildAdpUpdates([{ id: 2, name: 'Deep Sleeper', position: 'WR' }], entries);
   assert.deepEqual(updates, []);

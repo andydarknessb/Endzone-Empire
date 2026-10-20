@@ -27,7 +27,7 @@ function firstLockToday(plays, now) {
  * The summary line, or null when there is nothing honest to say (no body or no
  * plays yet, or an empty list with item types the server could not check, where
  * "all caught up" would be a claim it can't back). `plays` is what the cards
- * show (ActionQueue's buildPlays, read at `now`), so the greeting's count, its
+ * show (ActionQueue's Plays, read at `now`), so the greeting's count, its
  * due-today count and the badge all come from one list: due today is the plays
  * whose lock falls on today's date in the viewer's zone.
  */

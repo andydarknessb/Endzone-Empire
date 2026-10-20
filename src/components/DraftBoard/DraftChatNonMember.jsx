@@ -34,7 +34,7 @@ const HEADING_ID = 'draft-chat-non-member-heading';
  * navigable, never a live region of its own. The copy states an availability
  * rule (no em-dash, house style) rather than blaming the viewer.
  */
-function DraftChatNonMember() {
+function DraftChatNonMember({ removedFrom = null }) {
   return (
     <Paper
       component="section"
@@ -47,7 +47,7 @@ function DraftChatNonMember() {
         League Chat
       </Typography>
       <Alert severity="info" role="presentation" data-testid="draft-chat-non-member">
-        League chat is available to league members only.
+        {removedFrom == null ? 'League chat is available to league members only.' : `You were removed from ${removedFrom}`}
       </Alert>
     </Paper>
   );

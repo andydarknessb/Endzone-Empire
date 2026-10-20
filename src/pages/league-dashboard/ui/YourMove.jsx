@@ -3,13 +3,14 @@ import { Box } from '@mui/material';
 import {
   CountBadge, Frame, FrameHead, PixelCheck, PixelHeading, PlayCard, pixelSx,
 } from '../../../shared/ui/playselect';
+import { playName } from '../../../entities/action-item';
 import { formatInstant, timeUntil, useNow } from '../../../shared/lib';
 
 const MINUTE_MS = 60 * 1000;
 const HOUR_MS = 60 * MINUTE_MS;
 const DAY_MS = 24 * HOUR_MS;
 
-// Item type -> play kind (the pictogram) and the noun a shared-lock card names it by. The type is
+// Item type -> play kind (the pictogram). The type is
 // the first segment of the item's id ("picks_open:4:2026-6"): the wire has no kind field.
 const KIND = {
   picks_open: 'picks',
@@ -20,16 +21,6 @@ const KIND = {
   trade_offer: 'trade',
   join_requests: 'join',
   waiver_claims: 'waivers',
-};
-const NOUN = {
-  picks_open: 'picks',
-  lineup_problem: 'Lineup',
-  draft_live: 'Draft',
-  seats_open: 'Open seats',
-  trade_review: 'Trade review',
-  trade_offer: 'Trade offer',
-  join_requests: 'Join requests',
-  waiver_claims: 'Waivers',
 };
 const FALLBACK_KIND = 'lineup';
 
@@ -69,15 +60,6 @@ function nextChange(cards, now) {
   return next;
 }
 
-// A card's name: the one item's title, or the shared-lock items' nouns ("Lineup and picks").
-function cardName(card) {
-  const feet = card.feet || [];
-  if (feet.length === 1) return feet[0].title;
-  const nouns = feet.map((foot) => NOUN[typeOf(foot)] || foot.title);
-  const [first, ...others] = nouns;
-  return [first, ...others.map((noun) => noun.charAt(0).toLowerCase() + noun.slice(1))].join(' and ');
-}
-
 function MoveCard({
   card, lead, urgent, wide, compact, now,
 }) {
@@ -87,7 +69,7 @@ function MoveCard({
   const lock = lockParts(at, now);
   const isUrgent = lead && urgent && at !== null && at > now;
   const multi = feet.length > 1;
-  const name = cardName(card);
+  const name = card.name ?? playName(feet);
   const minutes = at !== null ? Math.max(1, Math.floor((at - now) / MINUTE_MS)) : null;
   const details = feet.map((foot) => foot.detail).filter(Boolean);
 

@@ -252,9 +252,26 @@ before the lock), `picks_open` (pick'em picks still to make), `trade_review`
 underlying state resolves (the lineup is fixed, the pick made, the vote cast),
 never when a notification is read, so it is not read or dismissed, only
 refetched. On Home the Manager's open Action items, ranked blocking, then timed
-by deadline, then untimed, then info, are the to-do list.
+by deadline, then untimed, then info, are grouped into Plays.
 _Avoid_: Next up (the retired Home nudge it replaced), notification (an event
 that happened and can be read; an Action item is state that is still open)
+
+**Play**:
+One card on Home or the League dashboard that asks a Manager to act: the
+Action items that share one lock, whatever their type and across leagues, or a
+single Action item with no deadline, with a foot per Action item. Plays run
+earliest lock first. An info item or a join request is never a Play; Home
+shows those on the sideline. Home also shows the Manager's featured Draft as a
+Play; the League dashboard shows only that league's Plays. A Play is never an
+NFL play: a Scoring play, Moment play or Big play happens in an NFL game, and
+the bare word "play" in this app's copy and code means this card.
+_Avoid_: to-do, to-do list, task, move (as a name for the card)
+
+**League card**:
+One card per League on Home, stating the league's phase and, in season, this
+week's Matchup or pick'em status; on game day a live Matchup or slate leads as
+a tile.
+_Avoid_: league status card
 
 ### The NFL layer
 
@@ -1083,7 +1100,7 @@ A reason a Team's lineup will not score as its Manager intends that the
 Manager can still act on: an empty starting slot, a starter on bye or Out, an
 IR stash that no longer qualifies. A starter whose game has kicked off is not
 a problem, and after the week's last kickoff there are none; the lineup
-reminder, the league card and the to-do list state the same set.
+reminder, the league card and the Plays state the same set.
 _Avoid_: lineup issue, lineup warning, invalid lineup
 
 **Roster lock**:
@@ -1269,6 +1286,12 @@ team that has scored nothing has a score of zero, not a missing one. Only a
 Team with no Matchup this week (a bye, nothing scheduled) has no score to
 show.
 _Avoid_: game (a game is an NFL game), fixture
+
+**Viewer first**:
+On any surface showing a Matchup, the viewer's Team is drawn first (left, or on
+top) when the viewer has a Team in it; any other reader sees the home Team
+first.
+_Avoid_: viewer's side (as a rule; the viewer's side is the side the rule puts first)
 
 **NFL opponent**:
 The NFL team a player's own NFL team faces in one NFL week. Null on a bye,

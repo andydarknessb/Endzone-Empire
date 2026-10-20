@@ -31,30 +31,33 @@ function withTimeout(promise, ms) {
 }
 
 function createEmitterTransport() {
+  // Runs one BroadcastOperator call (`emit` or `socketsLeave`) against a client
+  // that captures the publish. The operator calls capturingClient.publish
+  // synchronously, setting `publish` to the real publish promise before it
+  // returns. If a future emitter version defers, batches, or short-circuits on
+  // an empty room and never calls publish, `publish` stays null and we throw
+  // rather than reporting a delivery that never happened (#744, review 751-f5).
+  async function publishOnce(room, call) {
+    const client = await redis.getDraftPublisher();
+    if (!client) throw new Error('no Redis client for draft room publish');
+
+    let publish = null;
+    const capturingClient = {
+      publish: (channel, message) => {
+        publish = Promise.resolve(client.publish(channel, message));
+        return publish;
+      },
+    };
+    call(new Emitter(capturingClient).to(room));
+    if (!publish) throw new Error('emitter did not publish the draft event');
+    await withTimeout(publish, redis.DRAFT_PUBLISH_TIMEOUT_MS);
+  }
+
   return {
     to(room) {
       return {
-        async emit(event, payload) {
-          const client = await redis.getDraftPublisher();
-          if (!client) throw new Error('no Redis client for draft room publish');
-
-          let publish = null;
-          const capturingClient = {
-            publish: (channel, message) => {
-              publish = Promise.resolve(client.publish(channel, message));
-              return publish;
-            },
-          };
-          // The BroadcastOperator's emit calls capturingClient.publish
-          // synchronously, setting `publish` to the real publish promise before
-          // it returns. If a future emitter version defers, batches, or
-          // short-circuits on an empty room and never calls publish, `publish`
-          // stays null and we throw rather than reporting a delivery that never
-          // happened (#744, review 751-f5).
-          new Emitter(capturingClient).to(room).emit(event, payload);
-          if (!publish) throw new Error('emitter did not publish the draft event');
-          await withTimeout(publish, redis.DRAFT_PUBLISH_TIMEOUT_MS);
-        },
+        emit: (event, payload) => publishOnce(room, (op) => op.emit(event, payload)),
+        socketsLeave: (leaveRoom) => publishOnce(room, (op) => op.socketsLeave(leaveRoom)),
       };
     },
   };

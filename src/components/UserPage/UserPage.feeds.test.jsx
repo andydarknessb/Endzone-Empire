@@ -16,11 +16,6 @@ jest.mock('../../api/apiClient', () => ({
   default: { get: jest.fn(), post: jest.fn(), put: jest.fn() },
 }));
 
-// The stub reports the plays through onPlaysChange (real buildPlays), as ActionQueue does.
-jest.mock('./ActionQueue', () => ({
-  __esModule: true,
-  default: require('./homeTestStubs').ActionQueueStub,
-}));
 jest.mock('./LeagueStatusGrid', () => ({ __esModule: true, default: require('./homeTestStubs').LeagueStatusGridStub }));
 
 jest.mock('../../utils/push', () => ({
@@ -41,6 +36,7 @@ const mockFeeds = ({ notifications = [], notificationsError = null } = {}) => {
     if (url === '/api/notifications') {
       return notificationsError ? Promise.reject(notificationsError) : Promise.resolve({ data: { notifications, unread: 0 } });
     }
+    if (url.startsWith('/api/user/action-items')) return Promise.resolve({ data: { items: [], partial: [] } });
     return Promise.resolve({ data: [{ id: 1, name: 'Sunday Ballers', my_team_id: 10, draft_status: 'pending' }] });
   });
 };

@@ -1,8 +1,6 @@
-import React, {
-  useCallback, useEffect, useRef, useState,
-} from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Box } from '@mui/material';
-import apiClient from '../../api/apiClient';
+import { playModel, useActionItems } from '../../entities/action-item';
 import { formatInstant } from '../../shared/lib/instantFormat';
 import { timeUntil, timeUntilWords, useNow } from '../../shared/lib/timeUntil';
 import NextDraftCard, { featuredDraft } from './NextDraftCard';
@@ -13,8 +11,10 @@ import {
 // "Call your plays" (Home Play-select, DESIGN.md "Play-select"): every open
 // item across the manager's leagues from GET /api/user/action-items (Contract
 // A) plus the featured draft, as play cards, then "On the sideline" for what
-// is only pending. It owns its own fetch and states so a slow or failed list
-// never holds up the leagues beside it.
+// is only pending. It reads through useActionItems and owns its states so a
+// slow or failed list never holds up the leagues beside it. The Action item
+// entity's playModel groups the items into Plays (the Shared Lock Rule); this
+// file adds the featured draft and draws the cards.
 
 // Cards shown before "Show all" (Handoff: ActionQueue maxVisible=4).
 const MAX_VISIBLE = 4;
@@ -24,10 +24,6 @@ const HOUR_MS = 60 * MINUTE_MS;
 const DAY_MS = 24 * HOUR_MS;
 const RULE = '2px solid var(--ps-rule)';
 
-function viewerTimeZone() {
-  return Intl.DateTimeFormat().resolvedOptions().timeZone;
-}
-
 const timeMs = (value) => {
   const at = value ? new Date(value).getTime() : NaN;
   return Number.isNaN(at) ? null : at;
@@ -35,7 +31,7 @@ const timeMs = (value) => {
 const weekday = (at, style = 'short') => new Intl.DateTimeFormat(undefined, { weekday: style }).format(at);
 
 // Item type -> play kind (the pictogram). A draft_live and a seats_open both
-// belong to the draft; an unknown actionable type reads as a generic to-do,
+// belong to the draft; an unknown actionable type reads as a generic play,
 // which the lineup diagram is the closest to.
 const KIND = {
   picks_open: 'picks',
@@ -47,9 +43,6 @@ const KIND = {
 };
 const FALLBACK_KIND = 'lineup';
 
-// Info rows (FYI, nothing to do) and join requests sit on the sideline, not in the cards.
-const isSideline = (item) => item.severity === 'info' || item.type === 'join_requests';
-
 // The earliest instant anything on the card list reads differently: a lock's
 // relative text ticking over, a card crossing into its last hour (the urgent
 // strip) or past its lock, a draft's start, or the "updated" stamp's minute.
@@ -58,8 +51,8 @@ function nextChange(items, leagues, updatedAt, now) {
   const consider = (instant) => {
     if (instant > now && (next === null || instant < next)) next = instant;
   };
-  items.forEach((item) => {
-    if (item.type === 'draft_live' || isSideline(item)) return;
+  playModel(items, { now }).plays.flatMap((play) => play.feet).forEach((item) => {
+    if (item.type === 'draft_live') return;
     const at = timeMs(item.deadlineAt);
     if (at === null || at <= now) return;
     consider(at);
@@ -88,77 +81,51 @@ function lockParts(at, now) {
 
 const spoken = ({ lockDay, lockTime }) => [lockDay, lockTime].filter(Boolean).join(' ');
 
-// The week number rides in the id's key ("picks_open:4:2026-6"); the item has no field for it.
-const weekOf = (item) => /-(\d+)$/.exec(String(item.id))?.[1] ?? null;
-
-// Shared Lock Rule: the picks_open items that share one lock are one card, with
-// one foot per league (alphabetical) when there are several; a different lock
-// is a different card.
-function picksSpec(group) {
-  const at = (entry) => timeMs(entry.deadlineAt);
-  const sorted = [...group].sort((a, b) => (at(a) ?? Infinity) - (at(b) ?? Infinity)
-    || String(a.leagueName).localeCompare(String(b.leagueName)));
-  const first = sorted[0];
-  const lockAt = at(first);
-  const week = weekOf(first);
-  const games = Math.max(0, ...group.map((entry) => Number(entry.progress?.total) || 0));
-  const multi = group.length > 1;
-  const cta = { label: first.cta?.label || 'Make picks', to: first.cta?.to };
+// A Play (the entity's Shared Lock Rule: the items that share one lock, whatever their type and
+// across leagues, or one untimed item) as a card, with a foot per item when there are several.
+function playSpec(play) {
+  const { feet, leagues: names, name } = play;
+  const first = feet[0];
+  const at = timeMs(first.deadlineAt);
+  const multi = feet.length > 1;
+  const crossLeague = names.length > 1;
+  const sameType = new Set(feet.map((foot) => foot.type)).size === 1;
+  const hasPicks = feet.some((foot) => foot.type === 'picks_open');
+  const games = Math.max(0, ...feet.map((foot) => Number(foot.progress?.total) || 0));
+  const league = crossLeague ? `${names.length} leagues` : first.leagueName;
+  const cta = multi ? undefined : { label: first.cta?.label || (hasPicks ? 'Make picks' : first.title), to: first.cta?.to };
+  const label = (foot) => foot.cta?.label || (foot.type === 'picks_open' ? 'Make picks' : foot.title);
   return {
-    key: `picks_open:${lockAt}`,
-    at: lockAt,
-    title: first.title,
-    render: (now2, lead, state) => {
-      const words = lockAt !== null ? timeUntilWords(lockAt, now2) : null;
-      const lock = lockParts(lockAt, now2);
-      return (
-        <PlayCard
-          kind="picks"
-          name={week ? `Week ${week} picks` : 'Your picks'}
-          league={multi ? `${group.length} leagues` : first.leagueName}
-          detail={games ? `${games} games` : null}
-          {...lock}
-          countdown={state === 'urgent' ? `${Math.max(1, Math.floor((lockAt - now2) / MINUTE_MS))} min` : undefined}
-          lockNote={words
-            ? `First game locks in ${words}. Each game locks at its own kickoff.`
-            : 'Games are locking. Each game locks at its own kickoff.'}
-          cta={cta}
-          actions={multi ? sorted.map((entry) => {
-            const note = entry.progress ? `${entry.progress.done} of ${entry.progress.total} made` : null;
-            return {
-              label: entry.leagueName,
-              note,
-              to: entry.cta?.to,
-              ariaLabel: `${cta.label} in ${entry.leagueName}${note ? `, ${note}` : ''}`,
-            };
-          }) : undefined}
-          ariaLabel={`${cta.label} in ${multi ? `${group.length} leagues` : first.leagueName}${lockAt !== null ? `, ${spoken(lock)}` : ''}`}
-          state={state}
-          lead={lead}
-        />
-      );
-    },
-  };
-}
-
-function itemSpec(item) {
-  const at = timeMs(item.deadlineAt);
-  return {
-    key: item.id,
+    key: play.key,
     at,
-    title: item.title,
+    title: name,
     render: (now, lead, state) => {
+      const words = at !== null ? timeUntilWords(at, now) : null;
       const lock = lockParts(at, now);
+      const picksNote = words
+        ? `First game locks in ${words}. Each game locks at its own kickoff.`
+        : 'Games are locking. Each game locks at its own kickoff.';
       return (
         <PlayCard
-          kind={KIND[item.type] || FALLBACK_KIND}
-          name={item.title}
-          league={item.leagueName}
+          kind={KIND[first.type] || FALLBACK_KIND}
+          name={name}
+          league={league}
+          detail={hasPicks && games ? `${games} games` : null}
           {...lock}
           countdown={state === 'urgent' ? `${Math.max(1, Math.floor((at - now) / MINUTE_MS))} min` : undefined}
-          lockNote={item.detail}
-          cta={item.cta}
-          ariaLabel={`${item.cta?.label || item.title} in ${item.leagueName}${at !== null ? `, ${spoken(lock)}` : ''}`}
+          lockNote={hasPicks ? picksNote : (multi ? null : first.detail)}
+          cta={cta}
+          actions={multi ? feet.map((foot) => {
+            const note = foot.progress ? `${foot.progress.done} of ${foot.progress.total} made` : null;
+            return {
+              key: foot.id,
+              label: crossLeague && sameType ? foot.leagueName : label(foot),
+              note: note || (crossLeague && !sameType ? foot.leagueName : null),
+              to: foot.cta?.to,
+              ariaLabel: `${label(foot)} in ${foot.leagueName}${note ? `, ${note}` : ''}`,
+            };
+          }) : undefined}
+          ariaLabel={`${cta?.label || name} in ${league}${at !== null ? `, ${spoken(lock)}` : ''}`}
           state={state}
           lead={lead}
         />
@@ -186,38 +153,34 @@ function draftSpec(league, onDraftExpire) {
   };
 }
 
-// The plays on the page, in order, from a GET /api/user/action-items body, the
-// leagues and the clock: the one list the cards, the count badge and the
+// The plays on the page, in order, and the sideline rows, from the action items,
+// the leagues and the clock: the one list the cards, the count badge and the
 // greeting's number all come from. The lead is the earliest lock still ahead;
 // the plays with no lock (drafts, untimed offers) follow in the server's order.
 // A live draft never outranks a timed play, but a play whose lock has already
 // passed never outranks the draft card either, and a past-deadline seats_open
 // is dropped when a draft card for its league is shown.
-export function buildPlays(body, leagues, now, onDraftExpire) {
-  const items = Array.isArray(body?.items) ? body.items : [];
+export function buildPlays(items, leagues, now, onDraftExpire) {
   const featured = featuredDraft(leagues, now);
   const drafts = [];
   if (featured) drafts.push(draftSpec(featured.league, onDraftExpire));
-  const actionable = items.filter((item) => !isSideline(item));
-  actionable.filter((item) => item.type === 'draft_live').forEach((item) => {
+  const liveDrafts = items.filter((item) => item.type === 'draft_live' && item.severity !== 'info');
+  liveDrafts.forEach((item) => {
     if (featured?.state === 'live' && String(featured.league.id) === String(item.leagueId)) return;
     drafts.push(draftSpec({ id: item.leagueId, name: item.leagueName, draft_status: 'active' }, onDraftExpire));
   });
   const draftLeagues = new Set(drafts.map((spec) => String(spec.leagueId)));
   const stale = (item) => item.type === 'seats_open' && timeMs(item.deadlineAt) !== null && timeMs(item.deadlineAt) <= now
     && draftLeagues.has(String(item.leagueId));
-  const picks = actionable.filter((item) => item.type === 'picks_open');
-  const others = actionable.filter((item) => item.type !== 'picks_open' && item.type !== 'draft_live' && !stale(item));
-  const picksByLock = new Map();
-  picks.forEach((item) => {
-    const key = timeMs(item.deadlineAt);
-    picksByLock.set(key, [...(picksByLock.get(key) || []), item]);
-  });
-  const specs = [...[...picksByLock.values()].map(picksSpec), ...others.map(itemSpec)];
-  const timed = specs.filter((spec) => spec.at !== null).sort((a, b) => a.at - b.at);
+  const model = playModel(items.filter((item) => !liveDrafts.includes(item) && !stale(item)), { now });
+  const specs = model.plays.map(playSpec);
+  const timed = specs.filter((spec) => spec.at !== null);
   const untimed = specs.filter((spec) => spec.at === null);
   const passed = drafts.length > 0 ? timed.filter((spec) => spec.at <= now) : [];
-  return [...timed.filter((spec) => !passed.includes(spec)), ...drafts, ...passed, ...untimed];
+  return {
+    specs: [...timed.filter((spec) => !passed.includes(spec)), ...drafts, ...passed, ...untimed],
+    sideline: model.sideline,
+  };
 }
 
 const metaSx = {
@@ -311,60 +274,41 @@ function ActionQueue({
   onLoadedRef.current = onLoaded;
   const onPlaysChangeRef = useRef(onPlaysChange);
   onPlaysChangeRef.current = onPlaysChange;
-  const [data, setData] = useState(null);
-  const dataRef = useRef(null);
-  dataRef.current = data;
   const [updatedAt, setUpdatedAt] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [failed, setFailed] = useState(false);
   const [expanded, setExpanded] = useState(false);
   // The first card Show all reveals: the button disappears on click, so focus
   // moves here instead of dropping to the top of the page.
   const firstRevealedRef = useRef(null);
-  const items = Array.isArray(data?.items) ? data.items : [];
+  const {
+    items, partial, loading, error, reload,
+  } = useActionItems();
+  // Loading with items present is loaded (a refetch keeps the plays); an error with none is a failure.
+  const pending = loading && items.length === 0 && !error;
+  const failed = !pending && Boolean(error) && items.length === 0;
+  const loaded = !pending && !failed;
   // Lock text ("in 1h 12m"), the urgent strip and the stamp repaint exactly
   // when one of them would read differently; a refetch re-reads the clock.
-  const now = useNow((at) => nextChange(items, leagues, updatedAt, at), data);
+  const now = useNow((at) => nextChange(items, leagues, updatedAt, at), items);
 
   useEffect(() => {
     if (expanded) firstRevealedRef.current?.focus();
   }, [expanded]);
 
-  // Only the newest fetch may report: an answer that lands after unmount or
-  // after a newer fetch began is dropped, so it never reaches onLoaded or state.
-  const latestFetch = useRef(0);
-  useEffect(() => () => { latestFetch.current += 1; }, []);
-
-  const fetchItems = useCallback(async ({ silent = false } = {}) => {
-    latestFetch.current += 1;
-    const mine = latestFetch.current;
-    const stale = () => mine !== latestFetch.current;
-    try {
-      if (!silent) setLoading(true);
-      const response = await apiClient.get('/api/user/action-items', { params: { tz: viewerTimeZone() } });
-      if (stale()) return;
-      setData(response.data);
-      setUpdatedAt(Date.now());
-      setFailed(false);
-      onLoadedRef.current?.(response.data);
-    } catch (err) {
-      if (stale()) return;
-      // A quiet refetch that fails leaves the plays we have.
-      if (silent && dataRef.current) return;
-      setFailed(true);
-      onLoadedRef.current?.(null);
-    } finally {
-      if (!stale()) setLoading(false);
-    }
-  }, []);
-
+  // The read settled: stamp it and hand the page the body (null on a failure).
+  // shortcut: a cached remount stamps "updated just now" (useResource keeps no read time); read the cache's time if that misleads.
   useEffect(() => {
-    fetchItems();
-  }, [fetchItems]);
+    if (pending) return;
+    if (failed) {
+      onLoadedRef.current?.(null);
+      return;
+    }
+    setUpdatedAt(Date.now());
+    onLoadedRef.current?.({ items, partial });
+  }, [pending, failed, items, partial]);
 
-  const specs = data ? buildPlays(data, leagues, now, onDraftExpire) : [];
+  const { specs, sideline } = loaded ? buildPlays(items, leagues, now, onDraftExpire) : { specs: [], sideline: [] };
   // What the greeting reads off the list: which plays, which locks have passed, and today's date.
-  const playsSignature = data
+  const playsSignature = loaded
     ? `${new Date(now).toDateString()}|${specs.map((spec) => `${spec.key}@${spec.at}@${spec.title}${spec.at !== null && spec.at <= now ? 'p' : ''}`).join('|')}`
     : null;
   const latestPlays = useRef(null);
@@ -379,26 +323,24 @@ function ActionQueue({
       firstKey.current = false;
       return;
     }
-    fetchItems({ silent: true });
-  }, [refreshKey, fetchItems]);
+    reload();
+  }, [refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps -- reload is a fresh function each render; only refreshKey should refetch
 
-  if (loading && !data) return <ActionQueueSkeleton />;
+  if (pending) return <ActionQueueSkeleton />;
 
   // Item types whose builder failed on the server: the rest still arrived, but
   // an empty list is then not proof that nothing needs the manager.
-  const incomplete = Array.isArray(data?.partial) && data.partial.length > 0;
-  if (failed || !data || (incomplete && specs.length === 0)) {
+  if (failed || (partial.length > 0 && specs.length === 0)) {
     return (
       <ErrorPanel
         title="Couldn't check what needs you"
         body="Your leagues are below. Open each one, or try again."
-        onRetry={() => fetchItems()}
+        onRetry={() => reload()}
         retryAriaLabel="Try checking your plays again"
       />
     );
   }
 
-  const sideline = items.filter(isSideline);
   const lead = specs[0];
   const urgent = lead?.at != null && lead.at > now && lead.at - now < HOUR_MS;
   const visible = expanded ? specs : specs.slice(0, MAX_VISIBLE);

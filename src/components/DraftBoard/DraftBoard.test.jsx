@@ -1097,6 +1097,35 @@ describe('league chat is gated on confirmed membership (#534)', () => {
     expect(screen.queryByTestId('draft-chat-non-member')).not.toBeInTheDocument();
   });
 
+  test('league:removed for the open league lands in the NOT_A_MEMBER state and says so', async () => {
+    renderBoard(1);
+    await screen.findByText('Patrick Mahomes');
+    connectAsTeam(2);
+    act(() => fakeSocket.trigger('draft:state', activeState));
+    await screen.findByLabelText('Message');
+
+    act(() => fakeSocket.trigger('league:removed', { leagueId: 1, leagueName: 'Sunday Ballers' }));
+
+    expect(await screen.findByTestId('draft-chat-non-member'))
+      .toHaveTextContent('You were removed from Sunday Ballers');
+    expect(screen.queryByRole('group', { name: 'Chat composer' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Send' })).not.toBeInTheDocument();
+  });
+
+  test('league:removed for another league changes nothing', async () => {
+    renderBoard(1);
+    await screen.findByText('Patrick Mahomes');
+    connectAsTeam(2);
+    act(() => fakeSocket.trigger('draft:state', activeState));
+    await screen.findByLabelText('Message');
+
+    act(() => fakeSocket.trigger('league:removed', { leagueId: 99, leagueName: 'Elsewhere' }));
+
+    expect(screen.getByLabelText('Message')).toBeInTheDocument();
+    expect(screen.queryByTestId('draft-chat-non-member')).not.toBeInTheDocument();
+    expect(screen.queryByText(/You were removed from/)).not.toBeInTheDocument();
+  });
+
   test('a11y: a mid-session revocation hands focus to the non-member surface, never to the body', async () => {
     // The same standard the room holds when a commissioner's Hide button is torn
     // out by a socket broadcast (draft-accessibility.spec.ts): a teardown must
