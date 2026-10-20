@@ -669,7 +669,7 @@ const nflverseSync = require('../services/nflverseSync.service');
  * and the one run row on the pool. */
 function fakeCorrectionPool(t, { existing = [], defRows = [], upserts = [], runRows = [] } = {}) {
   return createFakePool([
-    [/^SELECT "id", "external_id" FROM "players"/, () => ({ rows: [{ id: 42, external_id: '4429795' }] }), 'pool'],
+    [/^SELECT "id", "external_id", "position" FROM "players"/, () => ({ rows: [{ id: 42, external_id: '4429795' }] }), 'pool'],
     [/"position" = 'DEF'/, () => ({ rows: defRows }), 'pool'],
     [/^SELECT "player_id", "stats" FROM "player_stats"/, () => ({ rows: existing }), 'client'],
     [insert('player_stats'), (text, params) => { upserts.push(params); return { rows: [] }; }, 'client'],
@@ -817,7 +817,7 @@ function stubNflverseWeekFeed(t) {
 
 function fakeNflverseWeekPool(t, dataSyncRunHandler) {
   return createFakePool([
-    [/^SELECT "id", "external_id" FROM "players"/, () => ({ rows: [{ id: 42, external_id: '4429795' }] }), 'client'],
+    [/^SELECT "id", "external_id", "position" FROM "players"/, () => ({ rows: [{ id: 42, external_id: '4429795' }] }), 'client'],
     [/^SELECT "stats" FROM "player_stats"/, () => ({ rows: [] }), 'client'],
     [insert('player_stats'), () => ({ rows: [] }), 'client'],
     [insert('data_sync_runs'), dataSyncRunHandler || (() => ({ rows: [] }))],
@@ -875,7 +875,7 @@ test('syncNflverseWeek: target_share/air_yards_share/wopr/EPA land as new keys o
   const existingStats = { receptions: 5, receivingYards: 61, gameTeam: 'KC', usageTargets: 7 };
   const upserts = [];
   createFakePool([
-    [/^SELECT "id", "external_id" FROM "players"/, () => ({ rows: [{ id: 42, external_id: '4429795' }] }), 'client'],
+    [/^SELECT "id", "external_id", "position" FROM "players"/, () => ({ rows: [{ id: 42, external_id: '4429795' }] }), 'client'],
     [/^SELECT "stats" FROM "player_stats"/, () => ({ rows: [{ stats: existingStats }] }), 'client'],
     [insert('player_stats'), (text, params) => { upserts.push(params); return { rows: [] }; }, 'client'],
     [insert('data_sync_runs'), () => ({ rows: [] })],
@@ -917,7 +917,7 @@ test('syncNflverseWeek: a share/EPA-only row with no idp yardage never creates a
   });
   const upserts = [];
   createFakePool([
-    [/^SELECT "id", "external_id" FROM "players"/, () => ({ rows: [{ id: 42, external_id: '4429795' }] }), 'client'],
+    [/^SELECT "id", "external_id", "position" FROM "players"/, () => ({ rows: [{ id: 42, external_id: '4429795' }] }), 'client'],
     [/^SELECT "stats" FROM "player_stats"/, () => ({ rows: [] }), 'client'], // no existing row for this player/week
     [insert('player_stats'), (text, params) => { upserts.push(params); return { rows: [] }; }, 'client'],
     [insert('data_sync_runs'), () => ({ rows: [] })],
@@ -934,7 +934,7 @@ test('syncNflverseWeek: a non-zero per-defender yardage value creates the line w
   stubNflverseWeekFeed(t);
   const upserts = [];
   createFakePool([
-    [/^SELECT "id", "external_id" FROM "players"/, () => ({ rows: [{ id: 42, external_id: '4429795' }] }), 'client'],
+    [/^SELECT "id", "external_id", "position" FROM "players"/, () => ({ rows: [{ id: 42, external_id: '4429795', position: 'DL' }] }), 'client'],
     [/^SELECT "stats" FROM "player_stats"/, () => ({ rows: [] }), 'client'],
     [insert('player_stats'), (text, params) => { upserts.push(params); return { rows: [] }; }, 'client'],
     [insert('data_sync_runs'), () => ({ rows: [] })],
@@ -965,7 +965,7 @@ test('syncNflverseSnaps: a player with no stored line is not created and not cou
   });
   const upserts = [];
   createFakePool([
-    [/^SELECT "id", "external_id" FROM "players"/, () => ({ rows: [{ id: 42, external_id: '4429795' }, { id: 43, external_id: '4429796' }] }), 'client'],
+    [/^SELECT "id", "external_id", "position" FROM "players"/, () => ({ rows: [{ id: 42, external_id: '4429795' }, { id: 43, external_id: '4429796' }] }), 'client'],
     [/^SELECT "player_id", "stats" FROM "player_stats"/, () => ({ rows: [{ player_id: 42, stats: { receptions: 5, gameTeam: 'KC' } }] }), 'client'],
     [insert('player_stats'), (text, params) => { upserts.push(params); return { rows: [] }; }, 'client'],
     [insert('data_sync_runs'), () => ({ rows: [] })],
@@ -1017,7 +1017,7 @@ function fakeCurrentWeekPool(t, { leagues, recent, seen = [], runRows = [] }) {
   return createFakePool([
     [/FROM "nfl_games"/, (text, [season, week]) => ({ rows: recent.includes(`${season}:${week}`) ? [{ '?column?': 1 }] : [] })],
     [/^SELECT 1 FROM "data_sync_runs"/, (text, [version, season, week]) => ({ rows: seen.includes(`${season}:${week}:${version}`) ? [{ '?column?': 1 }] : [] })],
-    [/^SELECT "id", "external_id" FROM "players"/, () => ({ rows: [{ id: 42, external_id: '4429795' }] }), 'client'],
+    [/^SELECT "id", "external_id", "position" FROM "players"/, () => ({ rows: [{ id: 42, external_id: '4429795', position: 'LB' }] }), 'client'],
     [/^SELECT "stats" FROM "player_stats"/, () => ({ rows: [{ stats: { soloTackle: 6 } }] }), 'client'],
     [insert('player_stats'), () => ({ rows: [] }), 'client'],
     [insert('data_sync_runs'), (text, params) => { runRows.push(params); return { rows: [] }; }],
@@ -1511,7 +1511,7 @@ function stubFinalizeWorld(t, { snapsFail = false } = {}) {
     return { data: '' };
   });
   createFakePool([
-    [/^SELECT "id", "external_id" FROM "players"/, () => ({ rows: [{ id: 42, external_id: '4429795' }] }), 'client'],
+    [/^SELECT "id", "external_id", "position" FROM "players"/, () => ({ rows: [{ id: 42, external_id: '4429795' }] }), 'client'],
     [/^SELECT "stats" FROM "player_stats"/, () => ({ rows: [] }), 'client'],
     [/^SELECT "player_id", "stats" FROM "player_stats"/, () => ({ rows: [] }), 'client'],
     [insert('player_stats'), () => ({ rows: [] }), 'client'],
