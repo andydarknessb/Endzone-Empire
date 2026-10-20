@@ -35,7 +35,8 @@ describe('lineTwo', () => {
   test('reads team, opponent and clock with middots, dropping what is absent', () => {
     expect(lineTwo({ nfl_team: 'GB', opponent: 'TB', game_clock: 'Q3 6:42' })).toBe('GB vs TB · Q3 6:42');
     expect(lineTwo({ nfl_team: 'DET', opponent: 'CHI', game_clock: null })).toBe('DET vs CHI');
-    expect(lineTwo({ nfl_team: 'HOU', opponent: null, game_clock: null })).toBe('HOU');
+    expect(lineTwo({ nfl_team: 'HOU', opponent: null, game_clock: null })).toBe('HOU · Bye');
+    expect(lineTwo({ nfl_team: 'DET', opponent: null, game_clock: null, availability: { available: false, reason: 'bye' } })).toBe('DET');
     expect(lineTwo({ nfl_team: null, opponent: null, game_clock: null })).toBe('');
   });
 });

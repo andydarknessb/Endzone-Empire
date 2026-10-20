@@ -291,3 +291,9 @@ Trades:
 
 ## Wave 3 approval (owner: "Approve"; 2026-10-16), binding
 Canvas v27 with the 12 wave 3 boards (Lineup, LineupLive, LineupPhone, LineupStates, PlayerCard, Waivers, WaiversPhone, WaiversStates, Trades, TradesPhone, TradePropose, TradesStates) is approved as drawn, including every product change in "Wave 3 boards" and "Wave 3 QA rulings" and the confirmation-pass fixes (no bench player "can fill" = lineupNote canFill; Advice tile "+23.0 pts · 2 swaps"; PlayerAvatar initials squares on rows; live regions hold text only). Spec issue follows. Known fixture nit left as is: the Week 6 recap credits the Woody Marks claim, which cleared after Week 6.
+
+## Matchup Starters state marks (owner request #2395; 2026-10-20), binding
+- In progress: solid 12px square in Danger, blinking stepped (lit, then dim at about .35, 1s cycle, never fully off; no animation under reduced motion); the legend sample is the same square without the blink. This is the one added exception in The Red Is Rare Rule.
+- Final: 12px 3x3 pixel checker (checkered flag) in Ink, crisp edges. Yet to play: empty 12px square, 2px Dim outline, no dot. Marks set their own colour; testids unchanged.
+- Phone starter cells are three lines: name and injury tag, mark and figure, game text on its own line (wraps at spaces). Desktop unchanged.
+- A starter with a team and no opponent reads "DET · Bye" on the game line, said once (no "· Bye" when his figure already says "on bye").

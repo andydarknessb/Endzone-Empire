@@ -108,9 +108,15 @@ const LIVE_STARTER = {
   opponent: 'LAC',
 };
 
+// A final starter with a short game line ("KC vs DEN"), and every other live-week starter keeps no
+// opponent (a bye, "KC · Bye"): short lines are the ones that used to sit inline beside the figure (#2395).
+const FINAL_STARTER_INDEXES = [1, 7];
+const FINAL_STARTER = { game_state: 'final', opponent: 'DEN' };
+
 function startersFor(names: string[], live = false) {
   return STARTER_SLOTS.map((slot, i) => ({
     ...(live && LIVE_STARTER_INDEXES.includes(i) ? LIVE_STARTER : {}),
+    ...(live && FINAL_STARTER_INDEXES.includes(i) ? FINAL_STARTER : {}),
     id: 1000 + i + (names === AWAY_STARTER_NAMES ? 100 : 0),
     slot,
     name: names[i],

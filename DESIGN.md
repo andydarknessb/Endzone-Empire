@@ -452,6 +452,7 @@ The canvas at https://claude.ai/artifact/PrJq3Dhr94dkYbkG4hw2Vj (version 12, wor
 - **Live scoreboard:** Board black edge to edge, both sides on two equal columns, names on one baseline, the margin ("UP 2.1") under the viewer's score, "As of 2:40 PM" under the Live chip, a full-width live odds bar, and a polite live region carrying the score sentence. On game day it sits directly under Your move, and it leads the page when no lock is under an hour.
 - **Standings screen:** rank, team, W-L-T, PF, PA, STRK in tabular figures on 44px rows; the viewer's row is Play-blue with a pixel arrow (not a cursor); a dashed Frame rule marks the playoff line. Phones show the viewer's row with two teams either side and a "Full standings" link.
 - **Tags:** position tags are a 2px border and text in the position colour (data encodings, exempt from the red and green rules); injury tags are outlined ("Q", "D") or a filled Ink "OUT"; activity kind tags use the product's kinds. Chips with a status word are Pixel 16; in-row badges are Archivo 13 700 uppercase. Nothing is set below 13px.
+- **Starter state marks (Matchup Starters, #2395):** In progress is a solid 12px square in Danger that blinks lit then dim on a 1s stepped cycle (it holds lit under reduced motion; the legend sample never blinks); Final is a 12px 3x3 pixel checker in Ink; Yet to play is an empty 12px square with a 2px Dim outline. Desktop prints the word beside the mark; on phones the word is screen-reader-only and a starter cell is three lines (name and injury tag, mark and figure, game text), with "DET · Bye" on the game line for a starter with no opponent.
 - **Tables and forms:** sticky first column and a scrolling box at phone width; buttons inside dense desktop tables may be 36px, every other control is 44px. Toggles, tabs and radio cards show their selected state with a word, dot or arrow as well as the Play-blue fill.
 - **Say it once:** one label per destination ("Set lineup" as an action, "Lineup" in link rows, "Matchup" for the matchup page), one Endzone Forecast credit per frame, one lock time per fact.
 
@@ -464,7 +465,7 @@ The canvas at https://claude.ai/artifact/PrJq3Dhr94dkYbkG4hw2Vj (version 12, wor
 
 **The Green Means Go Rule.** Accent green appears only on the one filled action and on live state (the live chip and the live odds bar). It never decorates, and an odds bar before kickoff is Frame color.
 
-**The Red Is Rare Rule.** Danger red appears only when a lock is under one hour (the urgent strip and the cursor turned red), when a draft pick clock is under 30 seconds, and for errors. A page with nothing urgent and no error has no red.
+**The Red Is Rare Rule.** Danger red appears only when a lock is under one hour (the urgent strip and the cursor turned red), when a draft pick clock is under 30 seconds, for errors, and for the blinking light of a starter whose game is in progress (Matchup Starters, #2395, owner request 2026-10-20). A page with nothing urgent and no error has no red.
 
 **The Shared Lock Rule.** Plays that share a lock are one card, not several (picks and a lineup locking at the same kickoff are one card with a foot each). One play across several leagues is a single card with one foot link per league.
 

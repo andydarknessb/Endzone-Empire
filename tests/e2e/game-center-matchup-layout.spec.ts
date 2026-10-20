@@ -518,7 +518,8 @@ for (const w of [320, 360, 390]) {
         });
         if (cell.querySelector('[data-testid="injury-tag"]')) tags++;
         if (line2.querySelector('[data-testid="injury-tag"]')) tagsOnLine2++;
-        if ((line2.textContent || '').includes('Q4 12:45')) clocks++;
+        // The clock rides the game line under line two (#2395).
+        if ((cell.querySelector('[data-testid="slot-game"]')?.textContent || '').includes('Q4 12:45')) clocks++;
       }
       const root = document.documentElement;
       return { out, tags, tagsOnLine2, clocks, scrollWidth: root.scrollWidth, clientWidth: root.clientWidth };
@@ -533,6 +534,52 @@ for (const w of [320, 360, 390]) {
       expect(r.line2.right, `${r.cell} "${r.text}" ends inside its cell`).toBeLessThanOrEqual(r.box.right + 1);
     }
     expect(res.scrollWidth, `document scrolls sideways at ${w}`).toBeLessThanOrEqual(res.clientWidth + 1);
+  });
+}
+
+// ---- Phone starter rows are three lines (#2395) ----
+//
+// The game text sits on its own line under the marker and figure, always, so a short line ("KC · Bye",
+// "KC vs DEN") never rides inline. Binds, for every filled cell: slot-game top is at or below the
+// slot-points bottom, and the game box stays inside its cell. The fixture carries a bye starter and a
+// final one (short lines), and the live marker blinks (a running animation) except under reduced motion.
+for (const w of [360, 390]) {
+  test(`Matchup Standard @ ${w}: each starter's game line sits under its figure, inside its cell; the live light blinks`, async ({ page }) => {
+    await setupLayoutGuard(page, { view: 'standard', liveStarters: true });
+    await page.setViewportSize({ width: w, height: 844 });
+    await page.goto(MATCHUP_URL);
+    await page.getByTestId('slot-row').first().waitFor();
+    await fontsReady(page);
+
+    const res = await page.evaluate(() => {
+      const bad: string[] = [];
+      let n = 0;
+      const games: string[] = [];
+      for (const cell of Array.from(document.querySelectorAll('[data-testid^="slot-cell-"]'))) {
+        const game = cell.querySelector('[data-testid="slot-game"]');
+        const pts = cell.querySelector('[data-testid="slot-points"]');
+        if (!game || !pts) continue;
+        n++;
+        games.push((game.textContent || '').trim());
+        const g = game.getBoundingClientRect();
+        const p = pts.getBoundingClientRect();
+        const c = cell.getBoundingClientRect();
+        const label = `${cell.getAttribute('data-testid')} "${game.textContent}"`;
+        if (g.top < p.bottom - 0.5) bad.push(`${label} game top ${g.top} above figure bottom ${p.bottom}`);
+        if (g.left < c.left - 1 || g.right > c.right + 1 || g.bottom > c.bottom + 1) bad.push(`${label} outside its cell`);
+      }
+      const live = document.querySelector('[data-testid="slot-cell-home"] [data-testid="state-live"]');
+      return { n, bad, games, anim: live ? getComputedStyle(live).animationName : null };
+    });
+    expect(res.n, 'filled cells measured').toBeGreaterThan(0);
+    expect(res.games.some((g) => g.includes('Bye')), 'a short bye line is present').toBe(true);
+    expect(res.games.some((g) => g === 'KC vs DEN'), 'a short final line is present').toBe(true);
+    expect(res.bad).toEqual([]);
+    expect(res.anim, 'the live light runs its blink').toBe('live-light');
+
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    const still = await page.evaluate(() => getComputedStyle(document.querySelector('[data-testid="state-live"]')!).animationName);
+    expect(still, 'reduced motion holds the light lit').toBe('none');
   });
 }
 

@@ -52,15 +52,17 @@ export function formatPoints(value) {
 }
 
 /**
- * The second line of a starter cell: "NFL vs OPP · clock". The opponent is
+ * The game line of a starter cell: "NFL vs OPP · clock". The opponent is
  * the schedule's team code (no home/away marker rides the wire, ADR 0011), the
- * clock the live "Q3 6:42" string while in progress, else null. Each part is
- * dropped when absent, so a starter with no scheduled game reads as his team
- * alone and never "vs null".
+ * clock the live "Q3 6:42" string while in progress, else null. A starter with a
+ * team but no opponent this week reads "DET · Bye" (#2395), unless his figure
+ * already says "on bye" (availability reason 'bye'): the bye is said once. No
+ * team at all reads empty, never "vs null".
  */
 export function lineTwo(player) {
+  const bye = player.nfl_team && !player.opponent && player.availability?.reason !== 'bye' ? 'Bye' : null;
   const teamAndOpponent = [player.nfl_team, player.opponent ? `vs ${player.opponent}` : null]
     .filter(Boolean)
     .join(' ');
-  return [teamAndOpponent, player.game_clock].filter(Boolean).join(' · ');
+  return [teamAndOpponent, bye, player.game_clock].filter(Boolean).join(' · ');
 }
