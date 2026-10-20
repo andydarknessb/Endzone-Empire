@@ -70,6 +70,9 @@ function attachDraftSocket(httpServer) {
     // broadcast can identify a REMOTE socket (one on another instance behind the
     // Redis adapter), which carries only `data`, not the local `user` object.
     socket.data.userId = socket.user.id;
+    // Addressable by user (membershipEnded): a removed manager's sockets are
+    // reached here even though they joined the league room on their own.
+    socket.join(`user:${socket.user.id}`);
 
     // Generic league room join (live scores, chat) — no draft state attached
     socket.on('league:join', async ({ leagueId } = {}, ack) => {
