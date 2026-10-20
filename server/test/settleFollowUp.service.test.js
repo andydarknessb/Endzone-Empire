@@ -9,6 +9,7 @@ const matchupNarrative = require('../services/matchupNarrative.service');
 const { settleFollowUp } = require('../services/settleFollowUp.service');
 const pool = require('../modules/pool');
 const { createFakePool } = require('./helpers/fakePool');
+const { failOnSettleFollowUpErrors } = require('./helpers/noSettleFollowUpFailure');
 
 const ARGS = { leagueId: 7, season: 2026, week: 5 };
 
@@ -132,6 +133,7 @@ const shotRow = (over) => ({
 });
 
 function shotWorld(t, shots) {
+  failOnSettleFollowUpErrors(t);
   const stored = [];
   const left = new Map();
   const fake = createFakePool([
@@ -187,8 +189,8 @@ function shotWorld(t, shots) {
   t.mock.method(decisionSvc, 'weekHindsightRoster', async () => roster);
   t.mock.method(decisionSvc, 'weekHindsight', async () => ({ pointsLeftOnBench: 0 }));
   t.mock.method(montecarlo, 'computeLeagueOdds', async () => ({}));
-  t.mock.method(digest, 'sendWeeklyRecapDigest', async () => ({}));
   t.mock.method(matchupNarrative, 'writePreviews', async () => {});
+  t.mock.method(digest, 'sendWeeklyRecapDigest', async () => ({}));
   return { fake, stored, left };
 }
 

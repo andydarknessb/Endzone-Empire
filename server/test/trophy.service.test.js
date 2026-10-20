@@ -486,6 +486,7 @@ test('#1854: a Hindsight read that fails skips that team and never rolls back th
   const fake = awardWorld({ leagueId: L, homeScore: 98, awayScore: 110 });
   fake.install(t);
   t.mock.method(decisionSvc, 'weekHindsightRoster', async () => { throw new Error('hindsight boom'); });
+  // Silences the logged 'lineup trophies skipped' Hindsight error (trophy.service), not a Settle follow-up step failure.
   t.mock.method(console, 'error', () => {});
 
   const awarded = await trophySvc.awardWeeklyTrophies({ leagueId: L, season: S, week: W });
@@ -646,6 +647,7 @@ test('#1860: a week whose Hindsight cannot be read leaves its row pending and ne
   const fake = awardWorld({ leagueId: L, homeScore: 98, awayScore: 110, overrides: [shotRow({ week: W - 1 })] });
   fake.install(t);
   t.mock.method(decisionSvc, 'weekHindsightRoster', async () => { throw new Error('week 4 is not final yet'); });
+  // Silences the logged 'called shot skipped' Hindsight error (trophy.service), not a Settle follow-up step failure.
   t.mock.method(console, 'error', () => {});
   await trophySvc.awardWeeklyTrophies({ leagueId: L, season: S, week: W });
   assert.equal(shotUpdates(fake).length, 0);
@@ -770,6 +772,7 @@ test('#1861: a team whose Hindsight cannot be read leaves no row, rather than a 
     if (teamId === 20) throw new Error('hindsight down');
     return NORMAL_WEEK;
   });
+  // Silences the logged 'lineup trophies skipped' Hindsight error (trophy.service), not a Settle follow-up step failure.
   t.mock.method(console, 'error', () => {});
 
   await trophySvc.awardWeeklyTrophies({ leagueId: L, season: S, week: W });
@@ -804,6 +807,7 @@ test('#1861: the season trophy is awarded even when the final week\'s Hindsight 
   });
   fake.install(t);
   t.mock.method(decisionSvc, 'weekHindsightRoster', async () => { throw new Error('hindsight down'); });
+  // Silences the logged 'called shots failed' Hindsight error (trophy.service), not a Settle follow-up step failure.
   t.mock.method(console, 'error', () => {});
 
   await trophySvc.awardWeeklyTrophies({ leagueId: L, season: S, week: 16 });
