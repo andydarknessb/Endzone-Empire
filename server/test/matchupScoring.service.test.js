@@ -223,16 +223,19 @@ test('scoreMatchups: an overridden matchup is not re-scored, a normal one in the
 // scoring mid-week exactly as settle will count him. Best ball keeps the join.
 // The fake answers the join as the table would: an off-roster row comes back
 // only from a statement that no longer joins team_players.
-async function liveScoreWithDroppedStarter(t, bestBall) {
+// `notHeld` is the tenure read's answer (#2391): the ids settle's filter excludes.
+async function liveScoreWithDroppedStarter(t, bestBall, notHeld = []) {
   t.mock.method(expectedFinalService, 'expectedFinalsForWeek', async () => new Map());
   installRecordingBroadcast(t);
   const matchup = { id: 80, league_id: 1, season: 2026, week: 8, final: false, home_team_id: 10, away_team_id: 20, home_score: '0', away_score: '0', score_overridden: false };
-  const dropped = { player_id: 7, slot: 'QB', position: 'QB', nfl_team: 'KC', stats: { passingYards: 250 } };
+  const dropped = { player_id: 7, slot: 'QB', position: 'QB', nfl_team: 'KC', stats: { passingYards: 250 }, on_roster: false };
   const fake = createFakePool([
     [select('leagues'), () => ({ rows: [{ id: 1, scoring_preset: 'half_ppr', best_ball: bestBall, roster_positions: null }] })],
     [/^SELECT 1 FROM "matchups"/, () => ({ rows: [] })],
     [select('matchups'), () => ({ rows: [{ ...matchup }] })],
     [/FROM "team_players" JOIN "players"/, () => ({ rows: [] })], // materializeLineup: empty roster, nothing to seed
+    [/FROM "nfl_games"/, () => ({ rows: [{ nfl_team: 'KC', kickoff_at: '2026-10-25T17:00:00.000Z' }] })],
+    [/FROM unnest/, () => ({ rows: notHeld.map((player_id) => ({ player_id })) })],
     [/FROM "lineup_entries"/, (text, params) => ({
       rows: params[0] === 10 && !/JOIN "team_players"/.test(text) ? [dropped] : [],
     })],
@@ -249,4 +252,9 @@ test('scoreMatchups: a live standard week still scores a starter dropped after k
 
 test('scoreMatchups: a live best-ball week still joins the current roster and drops him (#2388)', async (t) => {
   assert.equal(await liveScoreWithDroppedStarter(t, true), 0);
+});
+
+// #2391: the off-roster starter goes through settle's filter, so live never counts a row settle takes off.
+test('scoreMatchups: a live standard week leaves out an off-roster starter settle would exclude (#2391)', async (t) => {
+  assert.equal(await liveScoreWithDroppedStarter(t, false, [7]), 0);
 });
