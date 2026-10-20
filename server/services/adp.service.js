@@ -110,8 +110,9 @@ function normalizeAdpEntry(entry) {
  * Pure matching: our players ([{id, name, position, nfl_team}]) x normalized
  * ADP entries -> [{ id, adp }]. DEF rows match by team code (our DEF names are
  * full team names like "Denver Broncos", FFC's are "Denver Defense" — only the
- * team abbreviation lines up). Everyone else matches by name key; when a name
- * collides, prefer the entry whose position matches ours. Unmatched players
+ * team abbreviation lines up). Everyone else matches by name key, and an entry
+ * is a candidate only when it has no team or its team is ours; among the
+ * candidates prefer the entry whose position matches ours. Unmatched players
  * produce no update (adp stays null / undrafted).
  */
 function buildAdpUpdates(players, entries) {
@@ -141,8 +142,13 @@ function buildAdpUpdates(players, entries) {
     // same-named offensive player (a real hazard: LB Justin Jefferson, CB
     // Lamar Jackson). IDP ADP stays null by design.
     if (IDP_POSITION_SET.has(pos)) continue;
-    const candidates = byNameKey.get(normalizeNameKey(player.name));
-    if (!candidates || candidates.length === 0) continue;
+    // A same-named entry on another team (or a player with no team of ours)
+    // is a different or unverifiable player: no ADP beats a wrong one (#2413).
+    const team = normalizeNflTeam(player.nfl_team);
+    const candidates = (byNameKey.get(normalizeNameKey(player.name)) || []).filter(
+      (c) => !c.teamAbbr || c.teamAbbr === team
+    );
+    if (candidates.length === 0) continue;
     const match = candidates.find((c) => c.position === pos) || candidates[0];
     updates.push({ id: player.id, adp: match.adp });
   }
