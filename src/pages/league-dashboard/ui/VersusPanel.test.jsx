@@ -63,6 +63,27 @@ const panel = (props) => (
   </MemoryRouter>
 );
 
+describe('VersusPanel last week postgame', () => {
+  test('before kickoff it shows a Last week label and the postgame under the preview line', () => {
+    renderPanel({ model: model({ narrative: 'A close one.', lastWeek: { narrative: 'A rout.' } }) });
+    const line = screen.getByTestId('matchup-postgame-narrative');
+    expect(line).toHaveTextContent('Last week');
+    expect(line).toHaveTextContent('A rout.');
+    expect(screen.getByTestId('matchup-preview-narrative')).toHaveTextContent('A close one.');
+  });
+
+  test('once the week has kicked off the postgame is gone', () => {
+    renderPanel({ model: live({ lastWeek: { narrative: 'A rout.' } }) });
+    expect(screen.queryByTestId('matchup-postgame-narrative')).not.toBeInTheDocument();
+  });
+
+  test('without a postgame nothing renders, label included', () => {
+    renderPanel({ model: model({ lastWeek: null }) });
+    expect(screen.queryByTestId('matchup-postgame-narrative')).not.toBeInTheDocument();
+    expect(screen.queryByText('Last week')).not.toBeInTheDocument();
+  });
+});
+
 describe('VersusPanel before kickoff', () => {
   test('is a framed versus panel: both names, projected figures under a Proj label, the odds bar and the margin', () => {
     renderPanel({ model: model() });

@@ -138,6 +138,12 @@ export function useMatchupPreview(leagueId, { scoreEvent } = {}) {
   const list = useWeekMatchups(leagueId, week);
   const hasListRead = leagueId != null && week != null;
 
+  // Last week's postgame Narrative for the pre-kickoff panel: the same cached read, one week back
+  // (never fired in week 1), shown only once that Matchup is final and has a postgame.
+  const prev = useWeekMatchups(leagueId, week != null ? week - 1 : null, { enabled: week > 1 });
+  const prevMatchup = week > 1 ? viewerMatchupOf(prev.matchups, viewerTeamId) : null;
+  const lastWeek = prevMatchup?.final && prevMatchup.postgame ? { narrative: prevMatchup.postgame } : null;
+
   // Pick the viewer's matchup by Team id (#112). The rows are already the one
   // Matchup shape (entities/matchup), so this widget never names a database
   // column again (#864).
@@ -388,7 +394,7 @@ export function useMatchupPreview(leagueId, { scoreEvent } = {}) {
     status === 'loading' || (status === 'ready' && detailCanAnswer && detail.status === 'loading');
 
   return {
-    week, status, busy, matchupId, viewer, opponent, game, narrative: myMatchup?.narrative ?? null, refetch: list.refetch,
+    week, status, busy, matchupId, viewer, opponent, game, narrative: myMatchup?.narrative ?? null, lastWeek, refetch: list.refetch,
   };
 }
 
