@@ -11,8 +11,9 @@ import Icon from './icons';
 /**
  * The Lineups card from the Scoreboard view (design canvas rosterPreview()):
  * a compact, non-interactive slot-by-slot preview of the paired rows the
- * Matchup page model hands down, home on the left, the PosChip in the
- * middle, away mirrored on the right. Each filled side is a 28px PlayerAvatar
+ * Matchup page model hands down, the viewer's team on the left (home for a
+ * non-participant; the widget mirrors an away viewer's rows), the PosChip in the
+ * middle, the other team mirrored on the right. Each filled side is a 28px PlayerAvatar
  * headshot (the ESPN photo, position-colored initials when there is none) in
  * a 2px ring of its position's `pos-*` color, as the canvas's headshot() draws it
  * and the slot-comparison widget rings its own (so the two lineup renderings

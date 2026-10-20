@@ -710,3 +710,23 @@ test('without a ticker or an aside the widget renders only its own pieces', () =
   expect(screen.getByTestId('lineups-card')).toBeInTheDocument();
   expect(screen.getByTestId('games-tile')).toBeInTheDocument();
 });
+
+// --- Viewer first (QA ruling #2334) ---------------------------------------------
+
+// A participant's team reads on the left whichever side they are; a
+// non-participant sees home on the left. Position is read from document order.
+const leftOf = (el, [a, b]) => (el.textContent.indexOf(a) <= el.textContent.indexOf(b) ? a : b);
+
+test.each([
+  ['the away viewer', 2, { led: 'FARGO FROSTBITE', field: 'FARGO FROSTBITE', player: 'J. Allen', win: '64%' }],
+  ['the home viewer', 1, { led: 'DULUTH DOCKWORKERS', field: 'DULUTH DOCKWORKERS', player: 'J. Goff', win: '36%' }],
+  ['a non-participant', null, { led: 'DULUTH DOCKWORKERS', field: 'DULUTH DOCKWORKERS', player: 'J. Goff', win: '36%' }],
+])('%s sees their own team on the left of the board, field and Lineups', (_who, viewerTeamId, left) => {
+  renderBoard({ homeProb: 0.36, viewerTeamId });
+
+  const led = screen.getByTestId('led-board');
+  expect(leftOf(led, ['DULUTH DOCKWORKERS', 'FARGO FROSTBITE'])).toBe(left.led);
+  expect(within(led).getAllByTestId(/^led-win-/)[0]).toHaveTextContent(left.win);
+  expect(leftOf(screen.getByTestId('retro-field'), ['DULUTH DOCKWORKERS', 'FARGO FROSTBITE'])).toBe(left.field);
+  expect(leftOf(screen.getAllByTestId('slot-row')[0], ['J. Goff', 'J. Allen'])).toBe(left.player);
+});
