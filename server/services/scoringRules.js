@@ -15,7 +15,10 @@
 // Settings tab) without changing anyone's score by default, the same way
 // `reception` defaults to 0 under the "standard" preset. `idp` scores
 // individual defenders (DP roster slots, see lineup.service.js's
-// POSITION_GROUPS) — it's inert until a league enables DP. Individual
+// POSITION_GROUPS). The default rates are non-zero, so a stat line must never
+// carry an IDP key for a player outside DL/LB/DB: upsertPlayerStats
+// (playerStatsWrite.service.js) strips them on every write, which keeps a WR's
+// special-teams tackle at 0 in every league. Individual
 // blocked-kick attribution has no data source and is intentionally not a
 // scored stat anywhere below; `teamDefense.blockedKick` is a team-level stat
 // only.
@@ -201,6 +204,9 @@ const STAT_KEY_PATHS = {
   idpInterceptionReturnYards: { path: ['idp', 'interceptionReturnYards'] },
 };
 
+/** Every stat key priced from the `idp` rules group (STAT_KEY_PATHS paths starting 'idp'). */
+const IDP_STAT_KEYS = Object.keys(STAT_KEY_PATHS).filter((k) => STAT_KEY_PATHS[k].path[0] === 'idp');
+
 /** True iff `arr` is a well-formed tier list: finite min/points, max is a
  * finite number >= min or null ("and up"), sorted ascending by min, and
  * non-overlapping (each tier's min is past the previous tier's max). */
@@ -365,4 +371,5 @@ module.exports = {
   rulesForLeague,
   calculateFantasyPoints,
   hasTeamDefenseTiers,
+  IDP_STAT_KEYS,
 };

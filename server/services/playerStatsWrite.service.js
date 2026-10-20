@@ -201,19 +201,43 @@ function statLineKey(line) {
   return JSON.stringify(canon(line || null));
 }
 
+// players.position codes that earn IDP points: lineup.service POSITION_GROUPS
+// DL + LB + DB (this module stays a leaf, so server/test/playerStatsWrite.test.js
+// pins the list against feedSyncRuns.IDP_POSITIONS).
+const IDP_POSITION_CODES = new Set(['DL', 'DE', 'DT', 'NT', 'LB', 'ILB', 'OLB', 'DB', 'CB', 'S', 'FS', 'SS']);
+
 /**
- * Write one Player-week's Stat line as `source` sees it. Resolves to
+ * Pure: `stats` without any non-zero IDP key unless `position` is a defender.
+ * A WR's special-teams tackle appears in the box's defensive figures, and the
+ * default IDP rates are non-zero, so without this it would score in every
+ * league (#2373). An unknown position strips too: a line is only trusted with
+ * IDP keys by a position that says so. Zeros stay, so a stored line's shape
+ * (and the Live box's no-change check) does not move. Returns `stats` itself
+ * when nothing is dropped.
+ */
+function withoutIdpUnlessDefender(stats, position) {
+  if (IDP_POSITION_CODES.has(position)) return stats;
+  const { IDP_STAT_KEYS } = require('./scoringRules');
+  if (!IDP_STAT_KEYS.some((key) => stats[key])) return stats;
+  const out = { ...stats };
+  for (const key of IDP_STAT_KEYS) if (out[key]) delete out[key];
+  return out;
+}
+
+/**
+ * Write one Player-week's Stat line as `source` sees it. `position` is the
+ * player's players.position (a two-way player follows it). Resolves to
  * `{ stats, fantasyPoints, written }` (the stored line, its default-rules score,
  * and whether a statement ran), or null, with no statement issued, when the
  * policy writes nothing.
  */
-async function upsertPlayerStats(db, { playerId, season, week, source, fresh, prior }) {
+async function upsertPlayerStats(db, { playerId, season, week, source, fresh, prior, position }) {
   const stored = storedStatLine({ source, fresh, prior });
   if (stored === null) return null;
-  const { stats } = stored;
   // Lazy: scoring.service is the caller of this module on the Live/Final box
   // path, so a load-time require would be a cycle.
   const { calculateFantasyPoints } = require('./scoringRules');
+  const stats = withoutIdpUnlessDefender(stored.stats, position);
   const fantasyPoints = calculateFantasyPoints(stats);
   // The Live box re-applies every player in a game each tick (#2203) and most
   // lines do not move between ticks; the stored points derive from the stats,
@@ -233,4 +257,4 @@ async function upsertPlayerStats(db, { playerId, season, week, source, fresh, pr
   return { stats, fantasyPoints, written: true };
 }
 
-module.exports = { upsertPlayerStats, storedStatLine, statLineKey, STAT_KEY_OWNERSHIP };
+module.exports = { upsertPlayerStats, storedStatLine, statLineKey, STAT_KEY_OWNERSHIP, IDP_POSITION_CODES };

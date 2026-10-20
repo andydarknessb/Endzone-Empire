@@ -402,9 +402,10 @@ async function syncNflverseSnaps({ season, week, pfrCrosswalk: given }) {
 
 async function applyNflverseSnapsUnit(db, { season, week, snapRows, pfrCrosswalk }) {
   const knownPlayers = await db.query(
-    `SELECT "id", "external_id" FROM "players" WHERE "external_id" IS NOT NULL`
+    `SELECT "id", "external_id", "position" FROM "players" WHERE "external_id" IS NOT NULL`
   );
   const idByExternal = new Map(knownPlayers.rows.map((r) => [String(r.external_id), r.id]));
+  const positionById = new Map(knownPlayers.rows.map((r) => [r.id, r.position]));
   const existingStats = await db.query(
     `SELECT "player_id", "stats" FROM "player_stats" WHERE "season" = $1 AND "week" = $2`,
     [season, week]
@@ -428,7 +429,7 @@ async function applyNflverseSnapsUnit(db, { season, week, snapRows, pfrCrosswalk
     // The write module decides: a snap patch never creates a row (#1760), so a
     // player with no stored line is counted as nothing written.
     const written = await upsertPlayerStats(db, {
-      playerId, season, week, source: 'nflverse-snaps', fresh: patch, prior: statsByPlayer.get(playerId) || null,
+      playerId, season, week, source: 'nflverse-snaps', fresh: patch, prior: statsByPlayer.get(playerId) || null, position: positionById.get(playerId),
     });
     if (written) playersUpdated += 1;
   }
@@ -499,9 +500,10 @@ async function applyNflverseWeekUnit(db, { season, week, defRows, crosswalk }) {
   const weekRows = filterRowsForWeek(defRows, { season, week });
 
   const knownPlayers = await db.query(
-    `SELECT "id", "external_id" FROM "players" WHERE "external_id" IS NOT NULL`
+    `SELECT "id", "external_id", "position" FROM "players" WHERE "external_id" IS NOT NULL`
   );
   const idByExternal = new Map(knownPlayers.rows.map((r) => [String(r.external_id), r.id]));
+  const positionById = new Map(knownPlayers.rows.map((r) => [r.id, r.position]));
 
   const updates = buildStatUpdates({ defRows: weekRows, crosswalk, knownPlayersByExternalId: idByExternal });
   let playersUpdated = 0;
@@ -515,7 +517,7 @@ async function applyNflverseWeekUnit(db, { season, week, defRows, crosswalk }) {
     // never INSERTs a row from the share/EPA keys alone, only from a non-zero
     // per-defender yardage value; with a row it merges every owned key onto it.
     const written = await upsertPlayerStats(db, {
-      playerId, season, week, source: 'nflverse-week', fresh: patch, prior: priorRow ? priorRow.stats || {} : null,
+      playerId, season, week, source: 'nflverse-week', fresh: patch, prior: priorRow ? priorRow.stats || {} : null, position: positionById.get(playerId),
     });
     if (written) playersUpdated += 1;
   }
@@ -1067,7 +1069,7 @@ function buildCorrectionUnits({ weekPlayerRows, weekTeamRows }) {
  */
 async function applyNflverseFullWeek(db, unit) {
   const { season, week, gameId, playerRows, teamRows, scoresByGameId, crosswalk,
-    idByExternal, defByTeamCode } = unit;
+    idByExternal, positionById, defByTeamCode } = unit;
   try {
     const playerUpdates = buildFullStatUpdates({
       rows: playerRows,
@@ -1101,14 +1103,14 @@ async function applyNflverseFullWeek(db, unit) {
     let playersUpdated = 0;
     for (const { playerId, stats: fresh } of playerUpdates) {
       const written = await upsertPlayerStats(db, {
-        playerId, season, week, source: 'nflverse-correction', fresh, prior: priorByPlayer.get(playerId) || null,
+        playerId, season, week, source: 'nflverse-correction', fresh, prior: priorByPlayer.get(playerId) || null, position: positionById.get(playerId),
       });
       if (written) playersUpdated += 1;
     }
     let dstUpdated = 0;
     for (const { playerId, stats: fresh } of dstTargets) {
       const written = await upsertPlayerStats(db, {
-        playerId, season, week, source: 'nflverse-correction', fresh, prior: priorByPlayer.get(playerId) || null,
+        playerId, season, week, source: 'nflverse-correction', fresh, prior: priorByPlayer.get(playerId) || null, position: 'DEF',
       });
       if (written) dstUpdated += 1;
     }
@@ -1160,9 +1162,10 @@ async function syncNflverseCorrection({
       const weekPlayerRows = filterRowsForWeek(players, { season, week });
       const weekTeamRows = filterRowsForWeek(teams, { season, week });
       const knownPlayers = await pool.query(
-        `SELECT "id", "external_id" FROM "players" WHERE "external_id" IS NOT NULL`
+        `SELECT "id", "external_id", "position" FROM "players" WHERE "external_id" IS NOT NULL`
       );
       const idByExternal = new Map(knownPlayers.rows.map((r) => [String(r.external_id), r.id]));
+  const positionById = new Map(knownPlayers.rows.map((r) => [r.id, r.position]));
       // The DEF-unit map, built by the SAME shared builder the live path uses
       // (scoring.loadDefUnitsByTeamCode), so the Team-code keying rule lives in one
       // place and the two paths cannot drift. nflverse spells Washington WAS, so the
@@ -1170,7 +1173,7 @@ async function syncNflverseCorrection({
       // diverges on the Rams) already lands on WAS and keeps matching;
       // normalizeNflTeam('WAS') is a no-op.
       const defByTeamCode = await boxScoreApply.loadDefUnitsByTeamCode();
-      const shared = { season, week, scoresByGameId: scores, crosswalk: xwalk, idByExternal, defByTeamCode };
+      const shared = { season, week, scoresByGameId: scores, crosswalk: xwalk, idByExternal, positionById, defByTeamCode };
       const units = buildCorrectionUnits({ weekPlayerRows, weekTeamRows }).map((u) => ({ ...shared, ...u }));
       gamesInFile = Math.floor(weekTeamRows.length / 2);
       return { units, detail: { season, week, gamesInFile, games: units.map((u) => u.gameId) } };
