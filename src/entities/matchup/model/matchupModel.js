@@ -50,6 +50,8 @@ export function matchupFromListRow(row) {
     syncedAt: r.synced_at ?? null,
     // The stored preview Narrative (ADR 0063), or null.
     narrative: r.narrative ?? null,
+    // The stored postgame Narrative, once the Matchup is final, or null.
+    postgame: r.postgame ?? null,
     home: {
       teamId: r.home_team_id ?? null,
       name: r.home_team_name ?? null,

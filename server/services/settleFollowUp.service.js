@@ -3,17 +3,28 @@ const recap = require('./recap.service');
 const trophies = require('./trophy.service');
 const digest = require('./digest.service');
 const matchupNarrative = require('./matchupNarrative.service');
+const pool = require('../modules/pool');
+
+// The nightly fill writes previews only for the week current when it runs, so an
+// advance after the day's fill writes the new week's itself (the row read after finalize).
+async function writeNewWeekPreviews({ leagueId }) {
+  const { rows: [league] } = await pool.query('SELECT * FROM "leagues" WHERE "id" = $1', [leagueId]);
+  if (league) await matchupNarrative.writePreviews({ league });
+}
 
 /**
  * The Settle follow-up: the post-week analytics that run after a week settles,
  * as one ordered chain. Odds first so the recap reads fresh playoff numbers
  * (the recap reads the latest stored power_rankings row), then trophies, then
- * the Matchup narratives (postgames), then the recap, then (advance only) the digest. Trophies come before the recap
+ * the Matchup narratives (postgames), then the recap, then (advance only) the
+ * digest and the new week's Matchup previews, last because they cost a Claude
+ * call per matchup and nothing waits on them. Trophies come before the recap
  * because the recap narrates them (#1854): it reads the trophy rows just
  * written and never recomputes them.
  *
  * `mode` picks each step's variant:
- *   advance    - award every trophy, announce the recap, send the digest.
+ *   advance    - award every trophy, announce the recap, send the digest,
+ *                write the new week's previews.
  *   correction - reconcile only the weekly high score trophy, then store the
  *                recap silently (the correction's own "scores were updated"
  *                notice is the one announcement), no digest.
@@ -29,6 +40,7 @@ const STEPS = {
     { failed: 'matchup narratives failed', run: (a) => matchupNarrative.writePostgames(a) },
     { failed: 'weekly recap failed', run: (a) => recap.generateWeeklyRecap(a) },
     { failed: 'recap digest failed', run: (a) => digest.sendWeeklyRecapDigest(a) },
+    { failed: 'matchup previews failed', run: writeNewWeekPreviews },
   ],
   correction: [
     { failed: 'power rankings failed', run: ({ leagueId }) => montecarlo.computeLeagueOdds({ leagueId }) },
