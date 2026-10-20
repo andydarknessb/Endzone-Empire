@@ -39,6 +39,17 @@
   }
 }
 
+/* Live starter light (#2395): lit then dim, never off; the legend sample has no .live-light. */
+.ps-root .live-light {
+  animation: live-light 1s steps(1) infinite;
+}
+
+@keyframes live-light {
+  50% {
+    opacity: 0.35;
+  }
+}
+
 /* Cursor move: hover (pointer devices) or focus inside a card moves the frame
    to it in --cur and clears it from the lead; leaving puts it back. */
 @media (hover: hover) {
@@ -90,6 +101,10 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .ps-root .live-light {
+    animation: none;
+  }
+
   .ps-root .cursor {
     animation: none;
   }
