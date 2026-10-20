@@ -99,7 +99,7 @@ export default function GameCenterPage() {
   const { items: actionItems, reload: reloadActionItems } = useActionItems();
   const [heroEl, setHeroEl] = useState(null);
 
-  const syncLine = pending ? null : syncLineText(syncedAt, now);
+  const syncLine = pending ? null : syncLineText(syncedAt, gamesInProgress > 0);
   const weekNumber = week === 'All' || week == null ? undefined : Number(week);
   const heroStarted = !!hero && matchupBoard(hero).hasStarted === true;
   const pinned = useScrolledPast(heroEl, heroStarted);
@@ -204,8 +204,7 @@ export default function GameCenterPage() {
 }
 
 /**
- * The clock the sync line counts down against, refreshed once a minute so "next pass in N min" stays honest
- * between score events. Epoch ms.
+ * The clock the hero's lock countdown reads, refreshed once a minute between score events. Epoch ms.
  */
 function useMinuteClock() {
   const [now, setNow] = useState(() => Date.now());
