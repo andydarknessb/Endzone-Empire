@@ -13,7 +13,7 @@ import { publishTeamProfileUpdate } from '../../lib/teamProfileEvents';
 import { matchupFromListRow } from '../../entities/matchup';
 import GameCenterPage from './index';
 import { viewerSlots } from './ui/HeroSection';
-import { SYNC_CADENCE_MS, syncLineText, weekGlanceFacts } from './model/useGameCenter';
+import { syncLineText, weekGlanceFacts } from './model/useGameCenter';
 
 // The page reads everything through the shared apiClient (the league cache,
 // the Matchup list, the standings cache, the rosters), so the whole client is
@@ -424,14 +424,33 @@ test('the hero footer carries the earliest kickoff among the week\'s scheduled M
 
 // --- the sync line ---------------------------------------------------------
 
-test('the sync line reads from the week\'s syncedAt and counts down to the next pass', async () => {
-  const syncedAt = new Date(Date.now() - 22 * 60000).toISOString();
-  mockApi({ matchups: [viewerRow({ synced_at: syncedAt }), otherRow({ synced_at: syncedAt })], viewerTeamId: 10 });
+const clock = (iso) => new Date(iso).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+
+const liveGame = (game_status) => ({
+  tank01_game_id: 'g1', week: 1, game_status, away_team: 'GB', home_team: 'CHI', current_score_away: 10, current_score_home: 7,
+});
+
+test('the sync line says it refreshes every minute while an NFL game is in progress, with no countdown', async () => {
+  installLiveGames([liveGame('in_progress')]);
+  const syncedAt = new Date(Date.now() - 20000).toISOString();
+  mockApi({ matchups: [viewerRow({ nfl_game_ids: ['g1'], synced_at: syncedAt }), otherRow({ synced_at: syncedAt })], viewerTeamId: 10 });
   renderPage();
 
   const line = await screen.findByTestId('game-center-sync');
-  const time = new Date(syncedAt).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
-  expect(line).toHaveTextContent(`Scores synced ${time} · next pass in 8 min`);
+  await waitFor(() => expect(line).toHaveTextContent(`Scores synced ${clock(syncedAt)} · refreshes every minute`));
+  expect(line).not.toHaveTextContent('next pass');
+});
+
+// #2392 QA: a Matchup stays live from a final Thursday starter until Sunday, and the live pass sleeps in between,
+// so the refresh tail follows games in progress, not the Live chip.
+test('a live Matchup with no NFL game in progress shows the sync time alone', async () => {
+  installLiveGames([liveGame('final')]);
+  const syncedAt = new Date(Date.now() - 20000).toISOString();
+  mockApi({ matchups: [viewerRow({ nfl_game_ids: ['g1'], synced_at: syncedAt }), otherRow({ synced_at: syncedAt })], viewerTeamId: 10 });
+  renderPage();
+
+  await screen.findByTestId('game-center-nfl-games');
+  expect(screen.getByTestId('game-center-sync').textContent.trim()).toBe(`Scores synced ${clock(syncedAt)}`);
 });
 
 test('the sync line is omitted while the week has no syncedAt', async () => {
@@ -442,35 +461,12 @@ test('the sync line is omitted while the week has no syncedAt', async () => {
   expect(screen.queryByTestId('game-center-sync')).not.toBeInTheDocument();
 });
 
-// Red-tell (#897): flooring the countdown at zero and printing the tail
-// regardless ("next pass in 0 min", forever, once the week is over) turns
-// this case and the page case below red; the countdown case above binds the
-// tail while a pass is still due.
-test('syncLineText: the next-pass tail is dropped once that instant has passed', () => {
-  const now = Date.UTC(2026, 8, 13, 20, 0, 0);
-  const time = (ms) => new Date(ms).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
-  // 45 minutes after the sync the 30-minute pass is 15 minutes late: no tail.
-  const late = now - 45 * 60000;
-  expect(syncLineText(new Date(late).toISOString(), now)).toBe(`Scores synced ${time(late)}`);
-  // Exactly on the instant: nothing left to count down, no tail.
-  const due = now - SYNC_CADENCE_MS;
-  expect(syncLineText(new Date(due).toISOString(), now)).toBe(`Scores synced ${time(due)}`);
-  // Half a minute short of it rounds up to the last whole minute.
-  const almost = now - SYNC_CADENCE_MS + 30000;
-  expect(syncLineText(new Date(almost).toISOString(), now)).toBe(`Scores synced ${time(almost)} · next pass in 1 min`);
-  expect(syncLineText(null, now)).toBeNull();
-  expect(syncLineText('not a date', now)).toBeNull();
-});
-
-test('the sync line drops the countdown once the pass is overdue', async () => {
-  const syncedAt = new Date(Date.now() - 45 * 60000).toISOString();
-  mockApi({ matchups: [viewerRow({ synced_at: syncedAt }), otherRow({ synced_at: syncedAt })], viewerTeamId: 10 });
-  renderPage();
-
-  const line = await screen.findByTestId('game-center-sync');
-  const time = new Date(syncedAt).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
-  expect(line).toHaveTextContent(`Scores synced ${time}`);
-  expect(line).not.toHaveTextContent('next pass');
+test('syncLineText: the refresh tail rides only on a live week', () => {
+  const at = '2026-09-13T20:13:00.000Z';
+  expect(syncLineText(null, true)).toBeNull();
+  expect(syncLineText('not a date', true)).toBeNull();
+  expect(syncLineText(at, true)).toBe(`Scores synced ${clock(at)} · refreshes every minute`);
+  expect(syncLineText(at, false)).toBe(`Scores synced ${clock(at)}`);
 });
 
 // --- week at a glance ------------------------------------------------------
