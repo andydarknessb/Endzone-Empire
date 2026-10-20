@@ -1413,6 +1413,7 @@ module.exports = {
   buildDstStatUpdates,
   applyNflverseWeek,
   buildCorrectionUnits,
+  applyNflverseFullWeek,
   syncNflverseCorrection,
   correctWeekFromNflverse,
   syncNflverseWeek,
