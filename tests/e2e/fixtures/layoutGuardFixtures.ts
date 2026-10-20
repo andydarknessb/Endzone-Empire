@@ -108,19 +108,41 @@ const LIVE_STARTER = {
   opponent: 'LAC',
 };
 
+// Short game lines are the ones that used to sit inline beside the figure (#2395): a final starter
+// ("KC vs DEN"), a scheduled one (proj figure, outline mark), and, in production shape, every other
+// live-week starter on bye (the server sends a bye as game_state 'final', 0 points, no opponent, and
+// availability reason 'bye'; the line reads "KC · Bye").
+const FINAL_STARTER_INDEXES = [1, 7];
+const FINAL_STARTER = { game_state: 'final', opponent: 'DEN' };
+const SCHEDULED_STARTER_INDEXES = [2];
+const SCHEDULED_STARTER = { game_state: 'scheduled', opponent: 'MIA', points: 0 };
+const BYE_STARTER = {
+  nfl_team: 'TB', game_state: 'final', opponent: null, points: 0, availability: { available: false, reason: 'bye' },
+}; // TB: the narrowest team code, so this is the shortest game line, the one that could sit inline
+
 function startersFor(names: string[], live = false) {
-  return STARTER_SLOTS.map((slot, i) => ({
-    ...(live && LIVE_STARTER_INDEXES.includes(i) ? LIVE_STARTER : {}),
-    id: 1000 + i + (names === AWAY_STARTER_NAMES ? 100 : 0),
-    slot,
-    name: names[i],
-    position: slot === 'FLEX' ? 'RB' : slot,
-    nfl_team: 'KC',
-    points: 12.4 + i,
-    projected: 11.8 + i,
-    onBye: false,
-    locked: true,
-  }));
+  return STARTER_SLOTS.map((slot, i) => {
+    const special = [LIVE_STARTER_INDEXES, FINAL_STARTER_INDEXES, SCHEDULED_STARTER_INDEXES];
+    let over = {};
+    if (live) {
+      if (LIVE_STARTER_INDEXES.includes(i)) over = LIVE_STARTER;
+      else if (FINAL_STARTER_INDEXES.includes(i)) over = FINAL_STARTER;
+      else if (SCHEDULED_STARTER_INDEXES.includes(i)) over = SCHEDULED_STARTER;
+      else if (!special.some((list) => list.includes(i))) over = BYE_STARTER;
+    }
+    return {
+      id: 1000 + i + (names === AWAY_STARTER_NAMES ? 100 : 0),
+      slot,
+      name: names[i],
+      position: slot === 'FLEX' ? 'RB' : slot,
+      nfl_team: 'KC',
+      points: 12.4 + i,
+      projected: 11.8 + i,
+      onBye: false,
+      locked: true,
+      ...over, // after the base fields: the live-week states override points, team and opponent
+    };
+  });
 }
 
 function benchFor(offset: number) {

@@ -64,9 +64,6 @@ import { recordsByTeamId } from '../../../entities/standings';
  * rows and renders no tile.
  */
 
-/** The live score pass's cadence, which the sync line counts down against. */
-export const SYNC_CADENCE_MS = 30 * 60 * 1000;
-
 /** How many plays the page holds across every week (the feed shows six at a time). */
 export const PLAYS_LIMIT = 50;
 
@@ -90,25 +87,18 @@ function tenth(value) {
 }
 
 /**
- * "Scores synced 3:42 PM · next pass in 8 min" for the week's `syncedAt`
- * (#892), or null when the week has not been synced (the page omits the
- * line). The clock time is the viewer's own locale; the next pass is the
- * cadence after the sync, in whole minutes rounded up, and the "next pass"
- * tail is printed only while at least a minute of it is left: once that
- * instant has gone by (the pass is late, or the week is over and there is no
- * next pass) the line is "Scores synced 3:42 PM" alone, never a "0 min" that
- * sits there forever. `now` (epoch ms) exists so a test can pin the countdown.
+ * "Scores synced 3:42 PM" for the week's `syncedAt` (#892), with " · refreshes every minute" while an NFL game is
+ * in progress (the only time the live pass runs; each re-score, at most once a minute, re-stamps it), or null when
+ * the week has not been synced.
  */
-export function syncLineText(syncedAt, now = Date.now()) {
+export function syncLineText(syncedAt, live) {
   const syncedMs = toMs(syncedAt);
   if (syncedMs == null) return null;
   const time = new Date(syncedMs).toLocaleTimeString(undefined, {
     hour: 'numeric',
     minute: '2-digit',
   });
-  const synced = `Scores synced ${time}`;
-  const remaining = Math.ceil((syncedMs + SYNC_CADENCE_MS - now) / 60000);
-  return remaining >= 1 ? `${synced} · next pass in ${remaining} min` : synced;
+  return live ? `Scores synced ${time} · refreshes every minute` : `Scores synced ${time}`;
 }
 
 /**

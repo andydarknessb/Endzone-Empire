@@ -1839,7 +1839,7 @@ test('a starter row shows the product line two and the state words while started
   const { unmount } = renderPage();
   const table = await screen.findByTestId('slot-comparison');
   const lines = within(table).getAllByTestId('slot-line2').map((el) => el.textContent);
-  expect(lines[0]).toContain('KC vs MIA · Q4 4:21');
+  expect(lines[0]).toContain('KC vs MIA · Q4\u00a04:21');
   expect(within(table).getAllByText('In progress').length).toBeGreaterThan(0);
   expect(within(table).getAllByText('Yet to play').length).toBeGreaterThan(0);
   unmount();
