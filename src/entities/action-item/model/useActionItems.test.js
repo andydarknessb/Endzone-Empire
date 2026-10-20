@@ -15,4 +15,5 @@ test('reads the action items with the viewer time zone and returns the items', a
   expect(apiClient.get).toHaveBeenCalledWith(`/api/user/action-items?tz=${encodeURIComponent(tz)}`);
   expect(result.current.items).toEqual([{ id: 'a' }]);
   expect(typeof result.current.reload).toBe('function');
+  expect(typeof result.current.fetchedAt).toBe('number');
 });

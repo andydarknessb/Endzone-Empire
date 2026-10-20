@@ -5,8 +5,7 @@ const timeMs = (value) => {
   return Number.isNaN(at) ? null : at;
 };
 
-// The noun a Play names an item by when several share a lock. The type is the first segment of the
-// item's id ("picks_open:4:2026-6"): the wire has no kind field.
+// The noun a Play names an item by when several share a lock, keyed on the item's `type`.
 const NOUN = {
   picks_open: 'Picks',
   lineup_problem: 'Lineup',
@@ -17,14 +16,16 @@ const NOUN = {
   join_requests: 'Join requests',
   waiver_claims: 'Waivers',
 };
-const typeOf = (item) => String(item.id || '').split(':')[0];
 
 /** A Play's name: the item's title, or the distinct nouns of its items joined ("Lineup and picks"). */
 export function playName(feet) {
   if (feet.length === 1) return feet[0].title;
-  const [first, ...others] = [...new Set(feet.map((foot) => NOUN[typeOf(foot)] || foot.title))];
+  const [first, ...others] = [...new Set(feet.map((foot) => NOUN[foot.type] || foot.title))];
   return [first, ...others.map((noun) => noun.charAt(0).toLowerCase() + noun.slice(1))].join(' and ');
 }
+
+// One name per distinct league (by id), so two leagues sharing a name still count as two.
+const leagueNames = (feet) => [...new Map(feet.filter((f) => f.leagueName).map((f) => [f.leagueId, f.leagueName])).values()];
 
 // Info rows (FYI, nothing to do) and join requests are the sideline, not Plays.
 const isSideline = (item) => item.severity === 'info' || item.type === 'join_requests';
@@ -68,7 +69,7 @@ export function playModel(items, { now, leagueId = null }) {
   groups.sort((a, b) => (a.at ?? Infinity) - (b.at ?? Infinity) || 0);
   const plays = groups.map((group) => {
     const feet = [...group.feet].sort((a, b) => String(a.leagueName ?? '').localeCompare(String(b.leagueName ?? '')));
-    return { ...group, feet, name: playName(feet), leagues: [...new Set(feet.map((f) => f.leagueName).filter(Boolean))] };
+    return { ...group, feet, name: playName(feet), leagues: leagueNames(feet) };
   });
 
   const urgent = plays.some(({ at }) => at != null && at >= nowMs && at - nowMs <= HOUR_MS);

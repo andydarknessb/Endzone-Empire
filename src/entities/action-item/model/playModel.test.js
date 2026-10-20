@@ -35,6 +35,22 @@ test('the same pair across two leagues is one Play, feet ordered by league name,
   expect(m.plays[0].leagues).toEqual(['Alpha', 'Zeta']);
 });
 
+test('two leagues sharing a name stay two leagues', () => {
+  const m = playModel([
+    item('a', { leagueId: 1, leagueName: 'Same', deadlineAt: at(90) }),
+    item('b', { leagueId: 2, leagueName: 'Same', deadlineAt: at(90) }),
+  ], { now: NOW });
+  expect(m.plays[0].leagues).toEqual(['Same', 'Same']);
+});
+
+test('a Play names items by their type, not by the shape of their id', () => {
+  const m = playModel([
+    item('x1', { type: 'lineup_problem', deadlineAt: at(90) }),
+    item('x2', { type: 'picks_open', deadlineAt: at(90) }),
+  ], { now: NOW });
+  expect(m.plays[0].name).toBe('Lineup and picks');
+});
+
 test('feet keep server order within a league', () => {
   const m = playModel([item('x', { deadlineAt: at(9) }), item('y', { deadlineAt: at(9) })], { now: NOW });
   expect(ids(m.plays)).toEqual([['x', 'y']]);
