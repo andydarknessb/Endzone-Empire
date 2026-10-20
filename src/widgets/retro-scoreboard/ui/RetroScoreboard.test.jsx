@@ -726,7 +726,7 @@ test.each([
 
   const led = screen.getByTestId('led-board');
   expect(leftOf(led, ['DULUTH DOCKWORKERS', 'FARGO FROSTBITE'])).toBe(left.led);
-  expect(led.querySelectorAll('[data-testid^="led-win-"]')[0]).toHaveTextContent(left.win);
+  expect(within(led).getAllByTestId(/^led-win-/)[0]).toHaveTextContent(left.win);
   expect(leftOf(screen.getByTestId('retro-field'), ['DULUTH DOCKWORKERS', 'FARGO FROSTBITE'])).toBe(left.field);
   expect(leftOf(screen.getAllByTestId('slot-row')[0], ['J. Goff', 'J. Allen'])).toBe(left.player);
 });
