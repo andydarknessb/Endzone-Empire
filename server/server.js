@@ -51,6 +51,7 @@ const { attachDraftSocket, closeDraftSocket } = require('./modules/draftSocket')
 const { startScheduler, stopScheduler } = require('./modules/scheduler');
 const { startLiveGameEngine, stopLiveGameEngine } = require('./modules/liveGameEngine');
 const { createRateLimiter } = require('./modules/rateLimit');
+const { callerKey } = require('./modules/auth');
 const { requestLogMiddleware } = require('./modules/requestLog');
 const { getClientOrigins, getCorsOptions } = require('./modules/clientOrigins');
 // The module object, not a destructured function, so a test can stub
@@ -112,7 +113,7 @@ app.use('/api', (req, res, next) => {
 const generalApiLimiter = createRateLimiter({
   windowMs: 60 * 1000,
   max: 300,
-  keyFn: (req) => req.ip,
+  keyFn: callerKey,
 });
 const credentialLimiter = createRateLimiter({
   windowMs: 10 * 60 * 1000,
