@@ -145,8 +145,10 @@ const nflverse = require('../services/nflverseSync.service');
 const recapSvc = require('../services/recap.service');
 const montecarlo = require('../services/montecarlo.service');
 const trophySvc = require('../services/trophy.service');
+const matchupNarrative = require('../services/matchupNarrative.service');
 const settleFollowUpSvc = require('../services/settleFollowUp.service');
 const { createFakePool } = require('./helpers/fakePool');
+const { failOnSettleFollowUpErrors } = require('./helpers/noSettleFollowUpFailure');
 
 function stubOneInSeasonLeague(t) {
   t.mock.method(poolModule, 'query', async (sql) => {
@@ -361,6 +363,7 @@ test('a failed invalidation surfaces AFTER the leagues are corrected', async (t)
 });
 
 test('a failure in one corrected week does not skip cache maintenance for the next', async (t) => {
+  // Silences the deliberate 'stat correction: weekly projection cache invalidation failed' log (correction.service), not a Settle follow-up step failure.
   t.mock.method(console, 'error', () => {});
 
   // Two distinct corrected weeks: leagues on week 4 (correcting week 3) and
@@ -531,7 +534,11 @@ test('#1409: a recap rebuild still runs when the log/notify transaction itself t
   ]);
   fake.install(t);
   t.mock.method(matchupScoring, 'scoreMatchups', async () => ({}));
-  t.mock.method(console, 'error', () => {});
+  // The other follow-up steps are not this test's subject; the real recap rebuild is.
+  t.mock.method(montecarlo, 'computeLeagueOdds', async () => ({}));
+  t.mock.method(trophySvc, 'reconcileWeeklyHighScoreTrophy', async () => ({}));
+  t.mock.method(matchupNarrative, 'writePostgames', async () => {});
+  failOnSettleFollowUpErrors(t);
 
   await assert.rejects(
     correctionSvc.correctLeagueWeek({ leagueId: 7, season: 2026, week: 5 }),
@@ -1166,6 +1173,7 @@ test('resyncPriorWeeks returns the weeks whose sync threw as failed and still co
     if (week === 3) throw new Error('nflverse 503');
     return { playersUpdated: 1 };
   });
+  // Silences the logged week-3 nflverse 503 ('stat correction: sync failed', correction.service), not a Settle follow-up step failure.
   t.mock.method(console, 'error', () => {});
 
   const out = await correctionSvc.resyncPriorWeeks();
