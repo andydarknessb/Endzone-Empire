@@ -12,6 +12,7 @@ const { getDraftRoomBroadcast } = require('../modules/draftRoomBroadcast');
 const { seasonOperationsAvailable, SEASON_BEFORE_DRAFT_MESSAGE } = require('./leaguePhase');
 const { countedRoster } = require('./countedRoster.service');
 const { rulesForLeague, calculateFantasyPoints } = require('./scoringRules');
+const { roundRobinPairings } = require('./season.service');
 
 /**
  * Generate round-robin head-to-head pairings for a league week (idempotent —
@@ -57,8 +58,6 @@ async function generateMatchups({ leagueId, season, week }) {
       }
       // Same order and same rotation as the regular-season builder (#2414), so a
       // week filled here matches the rest of the season, odd-count bye included.
-      // Required here, not at load, in case season.service ever requires this module.
-      const { roundRobinPairings } = require('./season.service');
       const pairings = roundRobinPairings(ids, week);
       for (const { home, away } of pairings) {
         await client.query(
