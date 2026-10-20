@@ -192,9 +192,13 @@ async function scoreMatchups({ leagueId, season, week, plays = [], settle = fals
      * cannot go that way - cutting him closes the tenure, it does not erase
      * the one that failed to cover kickoff.
      *
-     * A LIVE week is the one population this does NOT govern. It answers a
-     * different and correct question by joining the CURRENT roster, so a
-     * dropped player stops scoring immediately mid-week.
+     * A LIVE week is the one population this does NOT govern. Best ball
+     * answers a different and correct question by joining the CURRENT
+     * roster, so a dropped player stops scoring immediately mid-week (its
+     * as-played pool excludes him the same way, ADR 0022). A standard week's
+     * live starters carry no join: they are the rows settle will score,
+     * including a starter's row spared after his kickoff (#627), so the live
+     * score never drops points that settle then puts back (#2388).
      *
      * Note what is NOT here: no `nfl_games` join. The kickoff question belongs
      * to the module that owns the schedule and the lineup lock, so #227 has
@@ -248,7 +252,6 @@ async function scoreMatchups({ leagueId, season, week, plays = [], settle = fals
       const r = await client.query(
         `SELECT "lineup_entries"."player_id", "players"."nfl_team", "player_stats"."stats"
          FROM "lineup_entries"
-         ${currentRosterJoin}
          JOIN "players" ON "players"."id" = "lineup_entries"."player_id"
          LEFT JOIN "player_stats" ON "player_stats"."player_id" = "lineup_entries"."player_id"
            AND "player_stats"."season" = $2 AND "player_stats"."week" = $3

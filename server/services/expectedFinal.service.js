@@ -122,15 +122,20 @@ async function expectedFinalsForWeek({ league, season, week, teamIds, db = pool,
     `SELECT "lineup_entries"."team_id", "lineup_entries"."player_id", "lineup_entries"."slot",
             "players"."position", "players"."nfl_team", "player_stats"."stats"
      FROM "lineup_entries"
-     JOIN "team_players" ON "team_players"."team_id" = "lineup_entries"."team_id"
+     LEFT JOIN "team_players" ON "team_players"."team_id" = "lineup_entries"."team_id"
        AND "team_players"."player_id" = "lineup_entries"."player_id"
      JOIN "players" ON "players"."id" = "lineup_entries"."player_id"
      LEFT JOIN "player_stats" ON "player_stats"."player_id" = "lineup_entries"."player_id"
        AND "player_stats"."season" = $2 AND "player_stats"."week" = $3
      WHERE "lineup_entries"."team_id" = ANY($1)
        AND "lineup_entries"."season" = $2 AND "lineup_entries"."week" = $3
-       AND "lineup_entries"."slot" != 'IR'`,
-    [ids, season, week]
+       AND "lineup_entries"."slot" != 'IR'
+       AND ("team_players"."player_id" IS NOT NULL
+         OR (NOT $4::boolean AND "lineup_entries"."slot" != 'BENCH'))`,
+    // A standard starter dropped after his kickoff keeps his spared row
+    // (#627) and counts as settle will count him; best ball and the bench
+    // need the current roster (#2388).
+    [ids, season, week, !!league.best_ball]
   );
   if (candidateRows.rows.length === 0) return result;
 
