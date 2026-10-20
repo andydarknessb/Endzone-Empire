@@ -93,12 +93,15 @@ async function getMatchupDetail({
          AND "team_players"."player_id" = "lineup_entries"."player_id"`;
   // lineup_entries.player_id rides beside players.id: rowsHeldAsPlayed reads
   // player_id, while the serialized row and the producer join key on id.
-  const lineupSql = (slotPredicate) => `SELECT "players"."id", "players"."name", "players"."position",
+  // Standard starters are read without the join (#2388): a starter dropped
+  // after his kickoff keeps his spared row (#627), which settle will score, so
+  // the live read shows it too. Best ball and the bench keep the join.
+  const lineupSql = (slotPredicate, join = rosterJoin) => `SELECT "players"."id", "players"."name", "players"."position",
               "players"."nfl_team", "players"."injury_status", "players"."photo_url",
               "lineup_entries"."player_id",
               "lineup_entries"."slot", "player_stats"."stats"
        FROM "lineup_entries"
-       ${rosterJoin}
+       ${join}
        JOIN "players" ON "players"."id" = "lineup_entries"."player_id"
        LEFT JOIN "player_stats" ON "player_stats"."player_id" = "lineup_entries"."player_id"
          AND "player_stats"."season" = $2 AND "player_stats"."week" = $3
@@ -121,7 +124,7 @@ async function getMatchupDetail({
       [teamId, matchup.season, matchup.week, 'BENCH']
     );
     const starterRows = await client.query(
-      lineupSql(`"lineup_entries"."slot" NOT IN ('BENCH', 'IR')`),
+      lineupSql(`"lineup_entries"."slot" NOT IN ('BENCH', 'IR')`, leagueRow.best_ball ? rosterJoin : ''),
       [teamId, matchup.season, matchup.week]
     );
     // Fatal, like the two reads it filters. A settled page that fell back to

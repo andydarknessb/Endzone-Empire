@@ -14,8 +14,8 @@ import { starterStateView } from '../../../shared/lib';
 // widget's UI and tests keep one import path.
 export { starterStateView };
 
-// The stat line's fields in reading order, the same list and order as the
-// legacy MatchupExtras.formatStatLine (copied for the reason above).
+// The stat line's fields in reading order: the legacy MatchupExtras.formatStatLine
+// list (copied for the reason above), then the D/ST and IDP keys the live rows carry.
 const STAT_LINE_FIELDS = [
   ['passingYards', 'pass yds'],
   ['passingTDs', 'pass TD'],
@@ -28,11 +28,35 @@ const STAT_LINE_FIELDS = [
   ['fieldGoal', 'FG'],
   ['extraPoint', 'XP'],
   ['fumbles', 'fum'],
+  ['sack', 'Sk'],
+  ['interceptionReturn', 'INT'],
+  ['fumbleRecovery', 'FR'],
+  ['defensiveTD', 'TD'],
+  ['safety', 'Sfty'],
+  ['blockedKick', 'Blk'],
+  ['pointsAllowed', 'PA'],
+  ['yardsAllowed', 'YdA'],
+  ['soloTackle', 'Solo'],
+  ['assistedTackle', 'Ast'],
+  ['idpSack', 'Sk'],
+  ['idpInterception', 'INT'],
+  ['forcedFumble', 'FF'],
+  ['idpFumbleRecovery', 'FR'],
+  ['passDeflection', 'PD'],
+  ['qbHit', 'QBH'],
+  ['tacklesForLoss', 'TFL'],
+  ['idpSafety', 'Sfty'],
+  ['idpDefensiveTD', 'TD'],
+  ['twoPointReturn', '2pt Ret'],
 ];
+
+// Shown at zero when present: a D/ST shutout reads "0 PA".
+const ALWAYS_SHOW = new Set(['pointsAllowed']);
 
 /**
  * Compact human summary of a starter's stat line ("289 pass yds · 2 pass TD ·
- * 1 INT"); '' when nothing is recorded. Zero and absent fields are dropped.
+ * 1 INT"); '' when nothing is recorded. Zero and absent fields are dropped,
+ * except a present pointsAllowed, which keeps its 0. Covers D/ST and IDP keys.
  * Parts are joined on a middot, the house separator, where the legacy line
  * used a bullet.
  */
@@ -40,8 +64,9 @@ export function formatStatLine(stats) {
   if (!stats) return '';
   const parts = [];
   for (const [key, unit] of STAT_LINE_FIELDS) {
+    if (stats[key] == null) continue;
     const value = Number(stats[key]);
-    if (value) parts.push(`${value} ${unit}`);
+    if (value || ALWAYS_SHOW.has(key)) parts.push(`${value} ${unit}`);
   }
   return parts.join(' · ');
 }

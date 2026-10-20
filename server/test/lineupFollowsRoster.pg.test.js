@@ -529,4 +529,120 @@ if (!ENABLED) {
       'the off-roster starter and nothing else: not the rostered starter, not the off-roster BENCH/IR rows, not another week'
     );
   });
+
+  /**
+   * #2388: a LIVE (non-final) week's readers against real rows. A standard
+   * starter dropped after his kickoff keeps his spared row (#627): off
+   * team_players, in a starting slot. settle scores that row, so the live
+   * score, the card and the expected final must count it too; best ball and
+   * the bench keep the current-roster join. The unit tests only pin which
+   * statements join; this is where Postgres answers.
+   */
+  async function seedLiveLeague({ name, code, bestBall }) {
+    const users = await pool.query(
+      `SELECT "id" FROM "users" WHERE "username" IN ('lineup_follows_roster_pg2', 'lineup_follows_roster_pg3') ORDER BY "username"`
+    );
+    const league = await pool.query(
+      `INSERT INTO "leagues" ("name", "owner_id", "invite_code", "current_season", "current_week", "best_ball", "scoring_preset")
+       VALUES ($1, $2, $3, $4, $5, $6, 'half_ppr') RETURNING "id"`,
+      [name, userId, code, SEASON, CURRENT_WEEK, bestBall]
+    );
+    const leagueId = league.rows[0].id;
+    leagueIds.push(leagueId);
+    const teams = await pool.query(
+      `INSERT INTO "teams" ("league_id", "owner_id", "name")
+       VALUES ($1, $2, 'PG Live Home'), ($1, $3, 'PG Live Away') RETURNING "id", "name"`,
+      [leagueId, users.rows[0].id, users.rows[1].id]
+    );
+    const home = teams.rows.find((t) => t.name === 'PG Live Home').id;
+    const away = teams.rows.find((t) => t.name === 'PG Live Away').id;
+    // Kept is rostered and starts at QB. KickedOff (his game has started) is a
+    // dropped starter at RB; Open is a dropped BENCH row. Neither is on team_players.
+    await pool.query(
+      `INSERT INTO "team_players" ("league_id", "team_id", "player_id") VALUES ($1, $2, $3)`,
+      [leagueId, home, playerIds.Kept]
+    );
+    for (const [playerId, slot] of [[playerIds.Kept, 'QB'], [playerIds.KickedOff, 'RB'], [playerIds.Open, 'BENCH']]) {
+      await pool.query(
+        `INSERT INTO "lineup_entries" ("league_id", "team_id", "player_id", "season", "week", "slot")
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [leagueId, home, playerId, SEASON, CURRENT_WEEK, slot]
+      );
+    }
+    const matchup = await pool.query(
+      `INSERT INTO "matchups" ("league_id", "season", "week", "home_team_id", "away_team_id", "final")
+       VALUES ($1, $2, $3, $4, $5, false) RETURNING "id"`,
+      [leagueId, SEASON, CURRENT_WEEK, home, away]
+    );
+    return { leagueId, home, matchupId: matchup.rows[0].id };
+  }
+
+  async function liveReaders(t, seeded) {
+    const { installRecordingBroadcast } = require('./helpers/recordingBroadcast');
+    const projectionService = require('../services/projection.service');
+    const { scoreMatchups } = require('../services/matchupScoring.service');
+    const { getMatchupDetail } = require('../services/matchupDetail.service');
+    const { expectedFinalsForWeek } = require('../services/expectedFinal.service');
+    installRecordingBroadcast(t);
+    // The projection model is not under test: price everyone at 5 and keep the
+    // real Start verdict accessor.
+    t.mock.method(projectionService, 'getWeeklyProjections', async () => ({
+      modelVersion: 'test',
+      projections: new Map(),
+      pointsFor: () => 5,
+      detailFor: () => null,
+      positionBaselineFor: () => false,
+      startVerdictFor: (id) => projectionService
+        .toWeeklyProjectionResult({ projections: new Map([[id, { factors: { availability: {} } }]]) })
+        .startVerdictFor(id),
+    }));
+    const { scored } = await scoreMatchups({ leagueId: seeded.leagueId, season: SEASON, week: CURRENT_WEEK });
+    const client = await pool.connect();
+    let detail;
+    try {
+      detail = await getMatchupDetail({
+        leagueId: seeded.leagueId, matchupId: seeded.matchupId, viewerUserId: userId, client,
+      });
+    } finally {
+      client.release();
+    }
+    const league = (await pool.query(`SELECT * FROM "leagues" WHERE "id" = $1`, [seeded.leagueId])).rows[0];
+    const expected = (await expectedFinalsForWeek({
+      league, season: SEASON, week: CURRENT_WEEK, teamIds: [seeded.home], db: pool,
+    })).get(seeded.home);
+    const ids = (rows) => rows.map((r) => r.id ?? r.playerId);
+    return {
+      score: scored.find((m) => m.matchupId === seeded.matchupId).homeScore,
+      detailStarters: ids(detail.home.starters),
+      detailBench: ids(detail.home.bench),
+      efStarters: ids(expected.starters),
+      efBench: ids(expected.bench),
+    };
+  }
+
+  test('a live standard week still counts a starter dropped after kickoff, and keeps a dropped bench row off (#2388)', async (t) => {
+    const seeded = await seedLiveLeague({ name: 'PG Live Standard', code: 'pglivestd', bestBall: false });
+    await pool.query(
+      `INSERT INTO "player_stats" ("player_id", "season", "week", "stats")
+       VALUES ($1, $2, $3, '{"rushingYards": 100}'), ($4, $2, $3, '{"rushingYards": 100}')
+       ON CONFLICT ("player_id", "season", "week") DO UPDATE SET "stats" = EXCLUDED."stats"`,
+      [playerIds.KickedOff, SEASON, CURRENT_WEEK, playerIds.Open]
+    );
+    const r = await liveReaders(t, seeded);
+    assert.ok(r.score > 0, 'the live score counts the dropped starter (a)');
+    assert.ok(r.detailStarters.includes(playerIds.KickedOff), 'the card lists him as a starter (b)');
+    assert.ok(r.efStarters.includes(playerIds.KickedOff), 'the expected final prices him (c)');
+    assert.equal(r.detailBench.includes(playerIds.Open), false, 'a dropped bench row is not on the card bench');
+    assert.equal(r.efBench.includes(playerIds.Open), false, 'a dropped bench row is not in the expected final');
+    assert.equal(r.efStarters.includes(playerIds.Open), false);
+  });
+
+  test('a live best-ball week keeps the roster join: the dropped starter is excluded from all three (#2388)', async (t) => {
+    const seeded = await seedLiveLeague({ name: 'PG Live Best Ball', code: 'pglivebb', bestBall: true });
+    const r = await liveReaders(t, seeded);
+    assert.equal(r.score, 0, 'the dropped starter does not score');
+    for (const list of [r.detailStarters, r.detailBench, r.efStarters, r.efBench]) {
+      assert.equal(list.includes(playerIds.KickedOff), false);
+    }
+  });
 }

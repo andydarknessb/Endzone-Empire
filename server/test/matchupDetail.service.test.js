@@ -123,7 +123,10 @@ function fakeWeeklyResult(projections) {
 }
 
 // Installs every seam the detail read crosses and returns the fake pool.
-function seed(t) {
+// #2388: `dropped` is a starter whose row was spared after his kickoff (#627)
+// and who is no longer on team_players: only a starters read that no longer
+// joins the current roster returns him, as the table would.
+function seed(t, { dropped = null, droppedBench = null, bestBall = false } = {}) {
   t.mock.method(clock, 'now', () => new Date(NOW));
   t.mock.method(projectionService, 'getWeeklyProjections', async () => fakeWeeklyResult(PROJECTIONS));
   t.mock.method(lineupService, 'materializeLineup', async () => {});
@@ -132,16 +135,23 @@ function seed(t) {
   return createFakePool([
     [/^SELECT 1 FROM "teams"/, () => ({ rows: [{ '?column?': 1 }] })],
     [select('matchups'), () => ({ rows: [{ ...MATCHUP_ROW }] })],
-    [select('leagues'), () => ({ rows: [{ id: LEAGUE_ID, scoring_preset: 'half_ppr', best_ball: false }] })],
+    [select('leagues'), () => ({ rows: [{ id: LEAGUE_ID, scoring_preset: 'half_ppr', best_ball: bestBall }] })],
     [/FROM "nfl_games" "ng"/, () => ({ rows: BYE_ROWS })],
     [/FROM "nfl_games"/, () => ({ rows: SCHEDULE })],
     [/FROM "live_game_states"/, () => ({ rows: LIVE })],
     [/FROM "view_matchup_nfl_games"/, () => ({
       rows: [{ tank01_game_id: '20261025_LV@KC' }, { tank01_game_id: '20261025_SF@DAL' }, { tank01_game_id: '20261025_LV@KC' }],
     })],
-    [/"lineup_entries"\."slot" = \$4/, (text, params) => ({ rows: params[0] === HOME ? HOME_BENCH : [] })],
+    // Off-roster rows come back only from a statement with no team_players join, as the table would.
+    [/"lineup_entries"\."slot" = \$4/, (text, params) => ({
+      rows: params[0] === HOME
+        ? [...HOME_BENCH, ...(droppedBench && !/JOIN "team_players"/.test(text) ? [droppedBench] : [])]
+        : [],
+    })],
     [/"players"\."id", "players"\."name"[\s\S]*"lineup_entries"\."slot" NOT IN/, (text, params) => ({
-      rows: params[0] === HOME ? HOME_STARTERS : AWAY_STARTERS,
+      rows: params[0] === HOME
+        ? [...HOME_STARTERS, ...(dropped && !/JOIN "team_players"/.test(text) ? [dropped] : [])]
+        : AWAY_STARTERS,
     })],
     [/"lineup_entries"\."team_id", "lineup_entries"\."player_id"/, () => ({ rows: PRODUCER_ROWS })],
   ]).install(t);
@@ -202,4 +212,37 @@ test('a throw inside the live path rolls the transaction back in the module and 
     client.release();
     fake.assertClean();
   }
+});
+
+// #2388: a standard league's live starters read without the current-roster
+// join, so a starter dropped after kickoff stays at his slot until settle. The
+// bench and best ball keep the join. The real-Postgres test in
+// lineupFollowsRoster.pg.test.js covers the semantics; these pin which reads join.
+const droppedStarter = () => player(106, 'Dropped Flex', 'WR', 'KC', null, 'FLEX', { receivingYards: 100 });
+const droppedBench = () => player(107, 'Dropped Reserve', 'RB', 'DAL', null, 'BENCH', null);
+async function liveDetail(t, opts) {
+  const fake = seed(t, opts);
+  const client = await fake.connect();
+  try {
+    return await getMatchupDetail({ leagueId: LEAGUE_ID, matchupId: 7, viewerUserId: 42, client });
+  } finally {
+    client.release();
+  }
+}
+
+test('a live standard week lists a starter dropped after kickoff at his slot, but not a dropped bench player (#2388)', async (t) => {
+  const detail = await liveDetail(t, { dropped: droppedStarter(), droppedBench: droppedBench() });
+  const row = detail.home.starters.find((s) => s.id === 106);
+  assert.ok(row, 'the dropped starter is still a starter');
+  assert.equal(row.slot, 'FLEX');
+  assert.equal(row.points, 10);
+  assert.equal(detail.home.bench.some((b) => b.id === 107), false, 'the bench keeps the roster join');
+});
+
+test('a live best-ball week does not list a starter dropped after kickoff (#2388)', async (t) => {
+  const detail = await liveDetail(t, { dropped: droppedStarter(), bestBall: true });
+  // Best-ball starters are the optimizer's chosen set over the joined rows, so
+  // a row that leaked past the join would surface on the bench instead.
+  const listed = [...detail.home.starters, ...detail.home.bench].map((p) => p.id);
+  assert.equal(listed.includes(106), false);
 });
