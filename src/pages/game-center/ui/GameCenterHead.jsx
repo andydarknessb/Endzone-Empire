@@ -48,7 +48,7 @@ function Breadcrumb({ leagueId, leagueName, compact }) {
   );
 }
 
-/** The sync line: a pixel clock and one Archivo line in the dim tier ("Scores synced 2:38 PM · next pass in 28 min"). */
+/** The sync line: a pixel clock and one Archivo line in the dim tier ("Scores synced 2:38 PM · refreshes every minute"). */
 function SyncLine({ text }) {
   return (
     <Box data-testid="game-center-sync" sx={{ m: 0, display: 'flex', alignItems: 'center', gap: '8px', fontSize: { xs: '16px', sm: '17px' }, color: 'var(--ps-dim)' }}>
