@@ -14,12 +14,12 @@ jest.mock('../../../entities/matchup', () => ({
 }));
 
 const row = (week, overrides = {}) => ({
-  id: week, week, final: false, status: 'upcoming', narrative: null, postgame: null,
+  id: week, season: 2026, week, final: false, status: 'upcoming', narrative: null, postgame: null,
   home: { teamId: 3, expectedFinal: null }, away: { teamId: 7, expectedFinal: null }, ...overrides,
 });
 
 const setup = (currentWeek, byWeek) => {
-  useLeague.mockReturnValue({ teams: [], viewerTeamId: 3, league: { current_week: currentWeek } });
+  useLeague.mockReturnValue({ teams: [], viewerTeamId: 3, league: { current_season: 2026, current_week: currentWeek } });
   useWeekMatchups.mockImplementation((leagueId, week) => ({
     matchups: byWeek[week] ?? [], loading: false, error: null, refetch: jest.fn(),
   }));
@@ -37,6 +37,13 @@ describe('useMatchupPreview lastWeek', () => {
   test('not final, or no postgame, gives null', () => {
     expect(setup(3, { 2: [row(2, { final: false, postgame: 'Early.' })] }).lastWeek).toBeNull();
     expect(setup(3, { 2: [row(2, { final: true })] }).lastWeek).toBeNull();
+  });
+
+  // The ?week= list read is not season-scoped: after a rollover, a viewer on a bye last week
+  // would otherwise match last season's same-week row and print its postgame.
+  test('a previous season\'s row for that week gives null', () => {
+    const model = setup(3, { 2: [row(2, { season: 2025, final: true, postgame: 'Last year.' })] });
+    expect(model.lastWeek).toBeNull();
   });
 
   test('week 1 gives null and never enables a previous-week read', () => {

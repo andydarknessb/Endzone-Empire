@@ -139,10 +139,13 @@ export function useMatchupPreview(leagueId, { scoreEvent } = {}) {
   const hasListRead = leagueId != null && week != null;
 
   // Last week's postgame Narrative for the pre-kickoff panel: the same cached read, one week back
-  // (never fired in week 1), shown only once that Matchup is final and has a postgame.
+  // (never fired in week 1), shown only once that Matchup is final and has a postgame. The ?week=
+  // read spans seasons, so a row from before a rollover is not last week's.
   const prev = useWeekMatchups(leagueId, week != null ? week - 1 : null, { enabled: week > 1 });
   const prevMatchup = week > 1 ? viewerMatchupOf(prev.matchups, viewerTeamId) : null;
-  const lastWeek = prevMatchup?.final && prevMatchup.postgame ? { narrative: prevMatchup.postgame } : null;
+  const lastWeek = prevMatchup?.final && prevMatchup.postgame
+    && Number(prevMatchup.season) === Number(league?.current_season)
+    ? { narrative: prevMatchup.postgame } : null;
 
   // Pick the viewer's matchup by Team id (#112). The rows are already the one
   // Matchup shape (entities/matchup), so this widget never names a database
