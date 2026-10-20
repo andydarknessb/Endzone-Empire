@@ -14,6 +14,18 @@ describe('formatStatLine', () => {
       .toBe('71 rush yds · 1 rush TD · 3 rec · 22 rec yds');
   });
 
+  // Live week-6 rows: an IDP's line carries zeroed offense keys, a D/ST's only team-defense keys.
+  test('reads an IDP line and a D/ST line, keeping a D/ST shutout as 0 PA', () => {
+    expect(formatStatLine({
+      soloTackle: 6, assistedTackle: 2, idpSack: 0, passingYards: 0, receptions: 0, fumbles: 0,
+    })).toBe('6 Solo · 2 Ast');
+    expect(formatStatLine({
+      sack: 2, safety: 0, blockedKick: 0, defensiveTD: 0, yardsAllowed: 399, pointsAllowed: 25,
+      fumbleRecovery: 0, interceptionReturn: 0,
+    })).toBe('2 Sk · 25 PA · 399 YdA');
+    expect(formatStatLine({ sack: 0, pointsAllowed: 0, yardsAllowed: 0 })).toBe('0 PA');
+  });
+
   test('is empty when nothing is recorded', () => {
     expect(formatStatLine(null)).toBe('');
     expect(formatStatLine({})).toBe('');
