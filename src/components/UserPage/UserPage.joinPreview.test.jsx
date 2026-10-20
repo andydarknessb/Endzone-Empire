@@ -359,8 +359,8 @@ test('Join cannot be sent twice while the first request is in flight', async () 
 
 // ActionQueue unmounts on the first-run state. An answer that lands after that
 // must not reach the page: after a join, the greeting would open with a stale
-// "You're all caught up." until the new to-do fetch resolves.
-test('a to-do answer that lands after the queue unmounted never paints a stale caught-up greeting after a join', async () => {
+// "You're all caught up." until the new action-items fetch resolves.
+test('an action-items answer that lands after the queue unmounted never paints a stale caught-up greeting after a join', async () => {
   let leagueCalls = 0;
   let itemCalls = 0;
   let resolveFirstItems;
@@ -371,7 +371,7 @@ test('a to-do answer that lands after the queue unmounted never paints a stale c
       const joined = { id: 1, name: 'Sunday Ballers', my_team_id: 10, draft_status: 'pending', owner_id: 1 };
       return Promise.resolve({ data: leagueCalls === 1 ? [] : [joined] });
     }
-    if (url === '/api/user/action-items') {
+    if (url.startsWith('/api/user/action-items')) {
       itemCalls += 1;
       return itemCalls === 1 ? firstItems : new Promise(() => {});
     }

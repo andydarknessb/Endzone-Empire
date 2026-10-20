@@ -4,12 +4,12 @@
  * (`GET /api/user/action-items`) from HERE and never from an internal path; the
  * entity imports no feature, widget, page or other entity.
  *
- * `useActionItems()` is the read; `yourMoveModel(items, { leagueId, now })` is
- * the pure League Dashboard "Your move" view over it (one card per shared
- * deadline, earliest first).
+ * `useActionItems()` is the read; `playModel(items, { now, leagueId? })` is
+ * the pure Play grouping over it (the Shared Lock Rule: one lock, one Play,
+ * earliest first), shared by Home and the League dashboard's Your move.
  *
  * Below-island edge (ADR 0029's 2026-09-05 amendment, plumbing only): `src/hooks/useResource`
  * for the shared cached GET, the same edge the Pickem standings entity names.
  */
 export { useActionItems } from './model/useActionItems';
-export { yourMoveModel } from './model/yourMoveModel';
+export { playModel, playName } from './model/playModel';

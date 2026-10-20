@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
 import ActionQueue from './ActionQueue';
+import { invalidate } from '../../lib/resourceCache';
 
 jest.mock('../../api/apiClient', () => ({
   __esModule: true,
@@ -84,6 +85,7 @@ const cursors = (container) => container.querySelectorAll('.cursor');
 const filled = (container) => container.querySelectorAll('[data-filled="true"]');
 const frame = () => screen.findByRole('region', { name: 'Call your plays' });
 
+beforeEach(() => { invalidate(undefined, { reload: false }); });
 afterEach(() => {
   jest.clearAllMocks();
 });
@@ -97,9 +99,9 @@ describe('the play cards', () => {
     expect(within(region).getByRole('heading', { level: 2, name: 'Call your plays' })).toBeInTheDocument();
     expect(within(region).getByText('2 things need you')).toBeInTheDocument();
     expect(within(region).getByText(/^Earliest lock first · times in .+ · updated just now$/)).toBeInTheDocument();
-    expect(apiClient.get).toHaveBeenCalledWith('/api/user/action-items', {
-      params: { tz: Intl.DateTimeFormat().resolvedOptions().timeZone },
-    });
+    expect(apiClient.get).toHaveBeenCalledWith(
+      `/api/user/action-items?tz=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone)}`
+    );
   });
 
   test('picks in two leagues are one card with a foot per league; one cursor, one filled foot', async () => {
@@ -109,7 +111,7 @@ describe('the play cards', () => {
     ]));
     const { container } = renderWithProviders(<ActionQueue leagues={[]} />);
 
-    const group = await screen.findByRole('group', { name: /^Next up: Week 6 picks\./ });
+    const group = await screen.findByRole('group', { name: /^Next up: Picks\./ });
     expect(within(group).getByText('2 leagues · 14 games')).toBeInTheDocument();
     const feet = within(group).getAllByRole('link');
     expect(feet).toHaveLength(2);
@@ -142,7 +144,7 @@ describe('the play cards', () => {
     // The earlier lock is first in the grid.
     const names = screen.getAllByRole('link').map((l) => l.getAttribute('aria-label')).filter(Boolean);
     expect(names[0]).toMatch(/^Next up: Fill your empty FLEX slot/);
-    expect(screen.getByRole('link', { name: /^Week 6 picks\./ })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /^14 picks still open\./ })).toBeInTheDocument();
   });
 
   test('only the lead can be urgent: a second card inside the hour stays open', async () => {
@@ -167,7 +169,7 @@ describe('the play cards', () => {
     ]));
     const { container } = renderWithProviders(<ActionQueue leagues={[liveLeague()]} />);
 
-    const lead = await screen.findByRole('link', { name: /^Next up: Week 6 picks\./ });
+    const lead = await screen.findByRole('link', { name: /^Next up: 14 picks still open\./ });
     expect(lead).toHaveTextContent('38 min left');
     // The league's draft_live item and the featured draft are one card, not two.
     const draft = screen.getByRole('link', { name: /^Draft room open\./ });
@@ -298,10 +300,10 @@ describe('lead order and the Shared Lock Rule', () => {
     ]));
     const { container } = renderWithProviders(<ActionQueue leagues={[]} />);
 
-    const group = await screen.findByRole('group', { name: /^Next up: Week 6 picks\./ });
+    const group = await screen.findByRole('group', { name: /^Next up: Picks\./ });
     expect(within(group).getByText('2 leagues · 14 games')).toBeInTheDocument();
     expect(within(group).getAllByRole('link')).toHaveLength(2);
-    const lone = screen.getByRole('link', { name: /^Week 6 picks. Make picks in Monday League/ });
+    const lone = screen.getByRole('link', { name: /^14 picks still open. Make picks in Monday League/ });
     expect(within(lone).getByText('Monday League · 14 games')).toBeInTheDocument();
     expect(screen.getByText('2 things need you')).toBeInTheDocument();
     expect(cursors(container)).toHaveLength(1);
@@ -322,7 +324,7 @@ describe('lock notes in words', () => {
     renderWithProviders(<ActionQueue leagues={[]} />);
 
     expect(await screen.findByText('First game locks in 37 min. Each game locks at its own kickoff.')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /^Next up: Week 6 picks./ })).toHaveTextContent('37 min left');
+    expect(screen.getByRole('link', { name: /^Next up: 14 picks still open./ })).toHaveTextContent('37 min left');
   });
 });
 

@@ -3,25 +3,20 @@ import { screen, within } from '@testing-library/react';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
 import UserPage from './UserPage';
-import { queueStub } from './homeTestStubs';
+import { invalidate } from '../../lib/resourceCache';
 
 jest.mock('../../api/apiClient', () => ({
   __esModule: true,
   default: { get: jest.fn(), post: jest.fn(), put: jest.fn() },
 }));
 
-// ActionQueue is tested in its own file. Here it hands the page the to-do list
-// body (`queueStub.body`), as the real one does through onLoaded.
-// The stub reports the plays through onPlaysChange (real buildPlays), as ActionQueue does.
-jest.mock('./ActionQueue', () => ({
-  __esModule: true,
-  default: require('./homeTestStubs').ActionQueueStub,
-}));
+// The real ActionQueue renders over the mocked apiClient: it reads the action items and hands the page
+// the body and the plays the greeting counts.
 jest.mock('./LeagueStatusGrid', () => ({ __esModule: true, default: require('./homeTestStubs').LeagueStatusGridStub }));
 
 // The greeting header as build-main.js draws it: the h1, one status line
-// ("Week N · Weekday, Mon D · summary") built from the to-do list response
-// ActionQueue already fetched (no second request), and a live chip counting
+// ("Week N · Weekday, Mon D · summary") built from the action items response
+// ActionQueue already read (no second request), and a live chip counting
 // live matchups. The seam is the page: UserPage rendered with apiClient mocked
 // by URL.
 
@@ -87,12 +82,14 @@ const fantasyLeague = (id, name, statusOverrides = {}, rowOverrides = {}) => ({
   ...rowOverrides,
 });
 
-// `actionItems` is the body ActionQueue would load (null: loading or failed).
+// `actionItems` is the body GET /api/user/action-items returns (null: the read fails).
 // A manager with at least one league by default: with none, Home is the first-run
 // state and shows no summary line (#2305).
 const mockApi = ({ leagues = [fantasyLeague(1, 'Default League', { matchup: null })], actionItems = actionItemsBody([]) } = {}) => {
-  queueStub.body = actionItems;
   apiClient.get.mockImplementation((url) => {
+    if (url.startsWith('/api/user/action-items')) {
+      return actionItems ? Promise.resolve({ data: actionItems }) : Promise.reject(new Error('action items failed'));
+    }
     if (url === '/api/league') return Promise.resolve({ data: leagues });
     if (url === '/api/notifications') return Promise.resolve({ data: { notifications: [], unread: 0 } });
     return Promise.resolve({ data: [] });
@@ -114,8 +111,8 @@ const laterToday = () => {
   return new Date(Math.min(Date.now() + 60 * 1000, endOfDay.getTime())).toISOString();
 };
 
+beforeEach(() => { invalidate(undefined, { reload: false }); });
 afterEach(() => {
-  queueStub.body = null;
   jest.clearAllMocks();
 });
 
@@ -253,7 +250,7 @@ test('the summary line counts the plays on the cards, the same number as the bad
   expect(await screen.findByText('1 thing needs you.')).toBeInTheDocument();
 });
 
-test('the summary line is left out while the to-do list loads or when it fails', async () => {
+test('the summary line is left out when the action items fail to load', async () => {
   mockApi({ actionItems: null });
   renderPage();
 

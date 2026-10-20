@@ -209,7 +209,7 @@ function UserPage() {
   const [createOpened, setCreateOpened] = useState(false);
   const [joinOpened, setJoinOpened] = useState(false);
 
-  // The to-do list body ActionQueue fetched, lifted for the greeting's
+  // The action items body ActionQueue read, lifted for the greeting's
   // summary line (one request, not two). Null until it loads and on error.
   const [actionItems, setActionItems] = useState(null);
   // The plays the cards show, and the clock ActionQueue built them at: the
@@ -291,7 +291,7 @@ function UserPage() {
     fetchMyLeagues();
   }, []);
 
-  // Game day (spec #2315, ruling 5): the leagues list and the to-do list reload
+  // Game day (spec #2315, ruling 5): the leagues list and the Plays reload
   // every minute while a matchup is live (or in the kickoff window after a
   // lock, before the server calls it live) and the tab is visible.
   useLiveRefresh({ active: polling, onTick: refreshLeagues });
