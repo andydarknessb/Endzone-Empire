@@ -312,7 +312,7 @@ const Body = () => (
     <P>
       The top of the priced board on one scale. Highlighted bars are the Big Three. Anything that
       tops out at 7% or less is a cheap bid: pick a number in the range and don&apos;t lose sleep.
-      Johnson is the exception: he is a bid only because Kyle Monangai is out.
+      Johnson is the exception: he is a bid only while Kyle Monangai is out.
     </P>
     <FaabLadder />
 
@@ -337,7 +337,7 @@ const Body = () => (
         <TR><TD>6</TD><TD><strong>Roschon Johnson</strong></TD><TD>RB</TD><TD>CHI</TD><TD>Monangai out (thumb/toe). 51 yards and a TD behind Swift.</TD><TD>vs NE (Thu)</TD><TD>While Monangai is out</TD><TD>4&ndash;7%</TD><TD>3.9%</TD></TR>
         <TR><TD>7</TD><TD><strong>Jaylin Noel</strong></TD><TD>WR</TD><TD>HOU</TD><TD>4 for 107 and a TD. Dell (knee) is on track to return Sunday.</TD><TD>vs NYG</TD><TD>Until Dell is up to speed</TD><TD>3&ndash;6%</TD><TD>4.7%</TD></TR>
         <TR><TD>8</TD><TD><strong>Kyler Murray</strong></TD><TD>QB</TD><TD>MIN</TD><TD>18.3 points before the bye. Colts implied for 17.5.</TD><TD>vs IND</TD><TD>Season</TD><TD>3&ndash;6%</TD><TD>48.6%</TD></TR>
-        <TR><TD>9</TD><TD><strong>Aaron Rodgers</strong></TD><TD>QB</TD><TD>PIT</TD><TD>16.0 after three straight 3-TD games. Paris, early kick.</TD><TD>vs NO (Paris)</TD><TD>Season</TD><TD>3&ndash;6%</TD><TD>26.2%</TD></TR>
+        <TR><TD>9</TD><TD><strong>Aaron Rodgers</strong></TD><TD>QB</TD><TD>PIT</TD><TD>16.0 after three straight 3-TD games. Paris, early kick.</TD><TD>at NO (Paris)</TD><TD>Season</TD><TD>3&ndash;6%</TD><TD>26.2%</TD></TR>
         <TR><TD>10</TD><TD><strong>Tre Tucker</strong></TD><TD>WR</TD><TD>LV</TD><TD>5 for 97 and two TDs on an 18% target share.</TD><TD>vs LAR</TD><TD>Season</TD><TD>3&ndash;6%</TD><TD>44.2%</TD></TR>
         <TR><TD>11</TD><TD><strong>Ja&apos;Kobi Lane</strong></TD><TD>WR</TD><TD>BAL</TD><TD>Back from IR, 4 for 40 on a 16% share. Ravens implied for 27.25.</TD><TD>vs CIN</TD><TD>Season</TD><TD>3&ndash;6%</TD><TD>9.9%</TD></TR>
         <TR><TD>12</TD><TD><strong>Kendre Miller</strong></TD><TD>RB</TD><TD>NO</TD><TD>70 rushing yards, the early-down half of the Saints backfield.</TD><TD>vs PIT (Paris)</TD><TD>Committee</TD><TD>3&ndash;5%</TD><TD>33.2%</TD></TR>
@@ -353,7 +353,7 @@ const Body = () => (
         <TR><TD>22</TD><TD><strong>Jahan Dotson</strong></TD><TD>WR</TD><TD>ATL</TD><TD>3 for 87 and a TD on a 15% share.</TD><TD>vs SF</TD><TD>Stream</TD><TD>1&ndash;2%</TD><TD>1.4%</TD></TR>
         <TR><TD>23</TD><TD><strong>Jawhar Jordan</strong></TD><TD>RB</TD><TD>HOU</TD><TD>Montgomery out. 43 yards and a TD; Houston is a 10-point favorite.</TD><TD>vs NYG</TD><TD>Handcuff</TD><TD>1&ndash;2%</TD><TD>0.1%</TD></TR>
         <TR><TD>24</TD><TD><strong>Audric Estime</strong></TD><TD>RB</TD><TD>CLE</TD><TD>Judkins out, Sampson still on IR. A TD on 19 yards.</TD><TD>at TEN</TD><TD>Handcuff</TD><TD>$1</TD><TD>0.3%</TD></TR>
-        <TR><TD>25</TD><TD><strong>Darnell Washington</strong></TD><TD>TE</TD><TD>PIT</TD><TD>4 for 25 and a TD on a 14% share; Freiermuth had 7%.</TD><TD>vs NO (Paris)</TD><TD>Stream</TD><TD>$1</TD><TD>2.1%</TD></TR>
+        <TR><TD>25</TD><TD><strong>Darnell Washington</strong></TD><TD>TE</TD><TD>PIT</TD><TD>4 for 25 and a TD on a 14% share; Freiermuth had 7%.</TD><TD>at NO (Paris)</TD><TD>Stream</TD><TD>$1</TD><TD>2.1%</TD></TR>
       </TBody>
     </Table>
     <P>
@@ -605,8 +605,8 @@ const Body = () => (
     </Table>
     <H3>The lesson</H3>
     <P>
-      The two receivers bought on target share, Bernard at 30% and Douglas at 16% plus two
-      scores, now 27%, returned 36.3 between them. The two players bought on last week&apos;s
+      The two receivers bought on target share returned 36.3 between them: Bernard on 30%,
+      and Douglas on 16% plus two scores, who then drew 27% of the targets. The two players bought on last week&apos;s
       touchdowns, Freiermuth&apos;s two and Lloyd&apos;s two, returned 3.1, and the market paid
       for both anyway.
     </P>
