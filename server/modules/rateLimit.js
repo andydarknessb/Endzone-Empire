@@ -60,7 +60,8 @@ function createRateLimiter({ windowMs, max, keyFn } = {}) {
       const redis = await getRedisClient();
       if (redis) {
         const bucket = Math.floor(now / windowMs);
-        const redisKey = `rate-limit:${req.baseUrl || 'api'}:${req.path}:${key}:${bucket}`;
+        // shortcut: limiters are told apart by req.baseUrl alone, so two limiters mounted in one router share a count; give each limiter a name if a second one is ever added to a router.
+        const redisKey = `rate-limit:${req.baseUrl || 'api'}:${key}:${bucket}`;
         const count = await redis.incr(redisKey);
         if (count === 1) await redis.pExpire(redisKey, windowMs);
         const ttl = Math.max(await redis.pTTL(redisKey), 0);

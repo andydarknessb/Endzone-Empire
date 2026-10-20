@@ -93,6 +93,10 @@ export default function useDraftSocket(leagueId, { onPickLanded, onDraftActivity
   // chat subtree (and so its combined-feed request) mounts only for MEMBER, so
   // UNKNOWN issues nothing (#534 AC1). Driven by the code, never the message.
   const [membership, setMembership] = useState(MEMBERSHIP_UNKNOWN);
+  // The league name from a live league:removed for THIS league, null otherwise.
+  // The server ends the membership and tells the open page at once (#2412), so
+  // the room does not wait for the next refused join to learn it.
+  const [removedFrom, setRemovedFrom] = useState(null);
   const [reconnecting, setReconnecting] = useState(false);
   const [onClockAlertOpen, setOnClockAlertOpen] = useState(false);
   // The live session, exposed so another concern in the room can ride it. The
@@ -142,6 +146,7 @@ export default function useDraftSocket(leagueId, { onPickLanded, onDraftActivity
     // join acknowledgement lands. Resetting here is also what keeps a member's
     // chat from flashing over during a league switch before the new ack decides.
     setMembership(MEMBERSHIP_UNKNOWN);
+    setRemovedFrom(null);
     const newSocket = createDraftSocket();
     socketRef.current = newSocket;
     setSocket(newSocket);
@@ -214,6 +219,17 @@ export default function useDraftSocket(leagueId, { onPickLanded, onDraftActivity
     // connection (e.g. a phone locking mid-draft). Re-join so we don't miss
     // picks that happened while disconnected.
     const offReconnect = onReconnect(newSocket, joinDraftRoom);
+
+    // The same non-member state a NOT_A_MEMBER join ack produces, reached live.
+    // An event for another league changes nothing.
+    newSocket.on('league:removed', (data) => {
+      if (Number(data?.leagueId) !== Number(leagueId)) return;
+      setMembership(MEMBERSHIP_NON_MEMBER);
+      setViewerTeamId(null);
+      setIsCommissioner(false);
+      setGifMessagesEnabled(false);
+      setRemovedFrom(data.leagueName ?? '');
+    });
 
     newSocket.on('draft:state', (data) => {
       dispatch({ type: 'state', data });
@@ -300,6 +316,7 @@ export default function useDraftSocket(leagueId, { onPickLanded, onDraftActivity
     isCommissioner,
     gifMessagesEnabled,
     membership,
+    removedFrom,
     revokeMembership,
     reconnecting,
     isMyTurn,

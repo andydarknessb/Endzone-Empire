@@ -47,3 +47,48 @@ test('a publish that outlasts DRAFT_PUBLISH_TIMEOUT_MS rejects on the bound', as
 
   await assert.rejects(pending, new RegExp(String(redis.DRAFT_PUBLISH_TIMEOUT_MS)));
 });
+
+test('to(room).socketsLeave publishes exactly once through the captured client', async (t) => {
+  const published = [];
+  t.mock.method(redis, 'getDraftPublisher', async () => ({
+    publish: async (channel, message) => { published.push({ channel, message }); },
+  }));
+
+  await createEmitterTransport().to('user:7').socketsLeave('league:3');
+
+  assert.equal(published.length, 1);
+  assert.ok(Buffer.from(published[0].message).toString('latin1').includes('user:7'), 'addressed to the user room');
+});
+
+test('socketsLeave rejects when there is no Redis client', async (t) => {
+  t.mock.method(redis, 'getDraftPublisher', async () => null);
+
+  await assert.rejects(
+    createEmitterTransport().to('user:7').socketsLeave('league:3'),
+    /no Redis client/
+  );
+});
+
+test('socketsLeave rejects when the emitter never publishes', async (t) => {
+  // A client that is present but never reached: simulate by a publisher whose
+  // publish is never called, which happens if the operator short-circuits.
+  t.mock.method(redis, 'getDraftPublisher', async () => ({ publish: async () => {} }));
+  const emitterModule = require('@socket.io/redis-emitter');
+  t.mock.method(emitterModule.BroadcastOperator.prototype, 'socketsLeave', () => {});
+
+  await assert.rejects(
+    createEmitterTransport().to('user:7').socketsLeave('league:3'),
+    /did not publish/
+  );
+});
+
+test('a socketsLeave publish that outlasts DRAFT_PUBLISH_TIMEOUT_MS rejects on the bound', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  t.mock.method(redis, 'getDraftPublisher', async () => ({ publish: () => new Promise(() => {}) }));
+
+  const pending = createEmitterTransport().to('user:7').socketsLeave('league:3');
+  for (let i = 0; i < 5; i += 1) await Promise.resolve();
+  t.mock.timers.tick(redis.DRAFT_PUBLISH_TIMEOUT_MS);
+
+  await assert.rejects(pending, new RegExp(String(redis.DRAFT_PUBLISH_TIMEOUT_MS)));
+});

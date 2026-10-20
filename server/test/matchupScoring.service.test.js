@@ -4,6 +4,7 @@ const { createFakePool, select, update } = require('./helpers/fakePool');
 const { installRecordingBroadcast } = require('./helpers/recordingBroadcast');
 const expectedFinalService = require('../services/expectedFinal.service');
 const { generateMatchups, scoreMatchups } = require('../services/matchupScoring.service');
+const { roundRobinPairings } = require('../services/season.service');
 
 // The following moved from scoring.service.test.js (#1506, spec #1492): all
 // exercise matchupScoring.service.js's generateMatchups/scoreMatchups
@@ -107,6 +108,41 @@ test('generateMatchups: fewer than two teams returns a COMMITted read-only trans
   assert.ok(fake.calls.some((c) => c.text === 'COMMIT'), 'the early-out COMMITs the read-only transaction');
   assert.equal(fake.calls.filter((c) => c.text === 'ROLLBACK').length, 0, 'the early-out never ROLLBACKs');
   assert.equal(fake.releaseArgs()[0], undefined, 'the connection returns to the pool bare');
+  fake.assertClean();
+});
+
+// #2414: the button fills a week with the season's own rotation, so the teams
+// come back in the regular-season builder's order (draft_position NULLS LAST,
+// id) and the pairs are roundRobinPairings of that order. The fake honors the
+// ORDER BY in the SQL it is given, so reverting to ORDER BY "id" turns this red.
+test('generateMatchups: pairs equal roundRobinPairings of the draft-ordered teams, bye included (#2414)', async (t) => {
+  const teams = [
+    { id: 1, draft_position: 4 },
+    { id: 2, draft_position: 2 },
+    { id: 3, draft_position: 5 },
+    { id: 4, draft_position: 1 },
+    { id: 5, draft_position: 3 },
+  ];
+  const byDraft = (a, b) => a.draft_position - b.draft_position || a.id - b.id;
+  const byId = (a, b) => a.id - b.id;
+  const inserted = [];
+  const fake = createFakePool([
+    [select('leagues'), () => ({ rows: [OPEN_LEAGUE] }), 'client'],
+    [select('matchups'), () => ({ rows: [] }), 'client'],
+    [select('teams'), (text) => ({
+      rows: [...teams].sort(/ORDER BY "draft_position" NULLS LAST, "id"$/.test(text) ? byDraft : byId).map((r) => ({ id: r.id })),
+    }), 'client'],
+    [/^INSERT INTO "matchups"/, (text, params) => { inserted.push({ home: params[3], away: params[4] }); return { rows: [] }; }, 'client'],
+  ]).install(t);
+
+  const result = await generateMatchups({ leagueId: 1, season: 2025, week: 3 });
+
+  const draftOrder = [...teams].sort(byDraft).map((r) => r.id);
+  const expected = roundRobinPairings(draftOrder, 3);
+  assert.deepEqual(result, { created: expected.length });
+  assert.deepEqual(inserted, expected);
+  const paired = new Set(inserted.flatMap((p) => [p.home, p.away]));
+  assert.equal(paired.size, 4, 'exactly one team is on a bye');
   fake.assertClean();
 });
 

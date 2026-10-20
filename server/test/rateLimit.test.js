@@ -71,3 +71,76 @@ test('retryAfterMs never goes negative even right at window boundary', () => {
   assert.equal(blocked.allowed, false);
   assert.ok(blocked.retryAfterMs >= 0);
 });
+
+// --- Redis branch: counts per caller, never per URL (#2411) ---
+
+const jwt = require('jsonwebtoken');
+process.env.JWT_SECRET = process.env.JWT_SECRET || 'test-secret-at-least-32-characters-long';
+const redisModule = require('../modules/redis');
+const { createRateLimiter } = require('../modules/rateLimit');
+const { callerKey } = require('../modules/auth');
+
+function fakeRedis() {
+  const counts = new Map();
+  return {
+    async incr(k) {
+      counts.set(k, (counts.get(k) || 0) + 1);
+      return counts.get(k);
+    },
+    async pExpire() {},
+    async pTTL() {
+      return 1000;
+    },
+  };
+}
+
+async function run(limiter, path) {
+  const res = {
+    code: 200,
+    set() {},
+    status(c) {
+      this.code = c;
+      return this;
+    },
+    json() {},
+  };
+  let passed = false;
+  await limiter({ baseUrl: '/api', path, ip: '1.1.1.1', id: 'r' }, res, () => {
+    passed = true;
+  });
+  return passed ? 200 : res.code;
+}
+
+test('redis branch: paths under one limiter share one count', async () => {
+  const original = redisModule.getRedisClient;
+  const redis = fakeRedis();
+  redisModule.getRedisClient = async () => redis;
+  try {
+    const limiter = createRateLimiter({ windowMs: 60_000, max: 1, keyFn: () => 'caller' });
+    assert.equal(await run(limiter, '/players/1'), 200);
+    assert.equal(await run(limiter, '/players/2'), 429);
+  } finally {
+    redisModule.getRedisClient = original;
+  }
+});
+
+function reqWith(token, ip = '2.2.2.2') {
+  return {
+    ip,
+    get: (h) => (h === 'Authorization' && token ? `Bearer ${token}` : undefined),
+  };
+}
+
+test('callerKey: valid tokens key by user, anonymous by IP, forged by IP', () => {
+  const secret = process.env.JWT_SECRET;
+  const t7 = jwt.sign({ sub: 7 }, secret);
+  const t8 = jwt.sign({ sub: 8 }, secret);
+  assert.equal(callerKey(reqWith(t7)), 'user:7');
+  assert.notEqual(callerKey(reqWith(t7)), callerKey(reqWith(t8)));
+  assert.equal(callerKey(reqWith(null)), 'ip:2.2.2.2');
+  assert.equal(callerKey(reqWith(null)), callerKey(reqWith(null)));
+  const forged = jwt.sign({ sub: 9 }, 'some-other-secret-that-is-long-enough!!');
+  assert.equal(callerKey(reqWith(forged)), 'ip:2.2.2.2');
+  const expired = jwt.sign({ sub: 7 }, secret, { expiresIn: -10 });
+  assert.equal(callerKey(reqWith(expired)), 'ip:2.2.2.2');
+});

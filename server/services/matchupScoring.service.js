@@ -12,6 +12,7 @@ const { getDraftRoomBroadcast } = require('../modules/draftRoomBroadcast');
 const { seasonOperationsAvailable, SEASON_BEFORE_DRAFT_MESSAGE } = require('./leaguePhase');
 const { countedRoster } = require('./countedRoster.service');
 const { rulesForLeague, calculateFantasyPoints } = require('./scoringRules');
+const { roundRobinPairings } = require('./season.service');
 
 /**
  * Generate round-robin head-to-head pairings for a league week (idempotent —
@@ -48,31 +49,24 @@ async function generateMatchups({ leagueId, season, week }) {
         return { created: 0, reason: 'matchups already exist for this week' };
       }
       const teamsResult = await client.query(
-        `SELECT "id" FROM "teams" WHERE "league_id" = $1 ORDER BY "id"`,
+        `SELECT "id" FROM "teams" WHERE "league_id" = $1 ORDER BY "draft_position" NULLS LAST, "id"`,
         [leagueId]
       );
       const ids = teamsResult.rows.map((r) => r.id);
       if (ids.length < 2) {
         return { created: 0, reason: 'need at least 2 teams' };
       }
-      // Circle-method round robin, rotated by week for variety
-      const rotation = week % Math.max(1, ids.length - 1);
-      const fixed = ids[0];
-      const rest = ids.slice(1);
-      const rotated = rest.slice(rotation).concat(rest.slice(0, rotation));
-      const order = [fixed, ...rotated];
-      let created = 0;
-      for (let i = 0; i < Math.floor(order.length / 2); i++) {
-        const home = order[i];
-        const away = order[order.length - 1 - i];
+      // Same order and same rotation as the regular-season builder (#2414), so a
+      // week filled here matches the rest of the season, odd-count bye included.
+      const pairings = roundRobinPairings(ids, week);
+      for (const { home, away } of pairings) {
         await client.query(
           `INSERT INTO "matchups" ("league_id", "season", "week", "home_team_id", "away_team_id")
            VALUES ($1, $2, $3, $4, $5)`,
           [leagueId, season, week, home, away]
         );
-        created += 1;
       }
-      return { created };
+      return { created: pairings.length };
     },
     { label: 'matchups' }
   );

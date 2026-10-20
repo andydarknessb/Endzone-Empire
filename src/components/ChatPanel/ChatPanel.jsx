@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useSelector } from 'react-redux';
+import { Alert } from '@mui/material';
 import { createDraftSocket, onReconnect } from '../../api/socket';
 import useLeagueChat from './useLeagueChat';
 import ChatConversation from './ChatConversation';
@@ -37,6 +38,9 @@ function ChatPanel({ leagueId, open = true, onUnreadChange = null }) {
   // The account scopes the composer draft (#442 AC5/AC6): a preserved draft
   // belongs to one account and is dropped on logout or account change. Team
   // identity stays the actor on the wire; the account id never leaves the client.
+  // The league name once the server reports this viewer's membership ended
+  // (league:removed, #2412); null while they are a member.
+  const [removedFrom, setRemovedFrom] = useState(null);
   const viewerUserId = useSelector((store) => (store.user && store.user.id != null ? store.user.id : null));
 
   useEffect(() => {
@@ -45,8 +49,19 @@ function ChatPanel({ leagueId, open = true, onUnreadChange = null }) {
     setViewerTeamId(null);
     setIsCommissioner(false);
     setGifEnabled(false);
+    setRemovedFrom(null);
     const newSocket = createDraftSocket();
     setSocket(newSocket);
+
+    // The same cleared viewer state a NOT_A_MEMBER ack leaves, reached live. An
+    // event for another league changes nothing.
+    newSocket.on('league:removed', (data) => {
+      if (Number(data?.leagueId) !== Number(leagueId)) return;
+      setViewerTeamId(null);
+      setIsCommissioner(false);
+      setGifEnabled(false);
+      setRemovedFrom(data.leagueName ?? '');
+    });
 
     // The ack is the panel's only per-viewer channel, so it is where the
     // viewer's own Team ID and commissioner status arrive. Re-answered on every
@@ -85,6 +100,10 @@ function ChatPanel({ leagueId, open = true, onUnreadChange = null }) {
   useEffect(() => {
     if (onUnreadChange) onUnreadChange(unread);
   }, [unread, onUnreadChange]);
+
+  if (removedFrom != null) {
+    return <Alert severity="info" data-testid="chat-removed">{`You were removed from ${removedFrom}`}</Alert>;
+  }
 
   return (
     <ChatConversation

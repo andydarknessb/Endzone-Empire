@@ -159,3 +159,40 @@ test('construction with no transport throws (no silent default)', () => {
   // accepted, so the throw is about the transport, not about any argument.
   assert.doesNotThrow(() => createDraftRoomBroadcast({ to: () => ({ emit: () => {} }) }, 'io'));
 });
+
+test('membershipEnded tells user:<id> league:removed, then has that user leave league:<id>', async () => {
+  const calls = [];
+  const transport = {
+    to(room) {
+      return {
+        emit(event, payload) { calls.push({ room, emit: event, payload }); },
+        socketsLeave(leaveRoom) { calls.push({ room, socketsLeave: leaveRoom }); },
+      };
+    },
+  };
+  const broadcast = createDraftRoomBroadcast(transport, 'io');
+
+  const result = await broadcast.membershipEnded(3, 7, { leagueName: 'X' });
+
+  assert.deepEqual(result, { delivered: true, transport: 'io' });
+  assert.deepEqual(calls, [
+    { room: 'user:7', emit: 'league:removed', payload: { leagueId: 3, leagueName: 'X' } },
+    { room: 'user:7', socketsLeave: 'league:3' },
+  ]);
+});
+
+test('membershipEnded reports a socketsLeave failure and resolves { delivered: false } without throwing', async (t) => {
+  const boom = new Error('redis down');
+  const transport = {
+    to: () => ({ emit() {}, socketsLeave() { throw boom; } }),
+  };
+  const logged = t.mock.method(logger, 'error', () => {});
+  const captured = t.mock.method(sentry, 'captureError', () => {});
+  const broadcast = createDraftRoomBroadcast(transport, 'io');
+
+  const result = await broadcast.membershipEnded(3, 7, { leagueName: 'X' });
+
+  assert.deepEqual(result, { delivered: false, transport: 'io', error: boom });
+  assert.equal(logged.mock.callCount(), 1);
+  assert.equal(captured.mock.callCount(), 1);
+});

@@ -112,7 +112,7 @@ const waiver = () => item({
 const mockApi = ({ leagues, items }) => {
   apiClient.get.mockImplementation((url) => {
     if (url === '/api/league') return Promise.resolve({ data: leagues });
-    if (url === '/api/user/action-items') {
+    if (url.startsWith('/api/user/action-items')) {
       return Promise.resolve({
         data: {
           generatedAt: new Date().toISOString(), counts: { total: items.length, dueToday: 0 }, partial: [], items,
@@ -123,7 +123,7 @@ const mockApi = ({ leagues, items }) => {
     return Promise.resolve({ data: [] });
   });
 };
-const reads = (url) => apiClient.get.mock.calls.filter(([u]) => u === url).length;
+const reads = (url) => apiClient.get.mock.calls.filter(([u]) => u.startsWith(url)).length;
 const setHidden = (hidden) => Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden });
 
 const renderPage = () => renderWithProviders(<UserPage />, { state: baseState });
@@ -150,7 +150,7 @@ test('main: picks in two leagues share a lock, a waiver claim waits on the sidel
   });
   const { container } = renderPage();
 
-  await screen.findByRole('group', { name: /^Next up: Week 4 picks\./ });
+  await screen.findByRole('group', { name: /^Next up: Picks\./ });
   await screen.findByRole('heading', { level: 2, name: 'My leagues' });
   expect(screen.getByText('Office League')).toBeInTheDocument();
   oneCursorOneFilled(container);
@@ -173,6 +173,45 @@ test('the greeting and the badge give the same number: picks in two leagues are 
   expect(await screen.findByTestId('greeting-summary')).toHaveTextContent(/^2 things need you\./);
 });
 
+test('a lineup problem and a picks_open sharing one lock are one Play card with two feet, and the greeting counts 1', async () => {
+  const lock = new Date(Date.now() + 5 * HOUR).toISOString();
+  mockApi({
+    leagues: [fantasyLeague(71, 'Thursday Night Regulars', scheduledMatchup)],
+    items: [item({ deadlineAt: lock }), picks(71, 'Thursday Night Regulars', lock)],
+  });
+  renderPage();
+
+  const region = await screen.findByRole('region', { name: 'Call your plays' });
+  const card = await within(region).findByRole('group', { name: /^Next up: Lineup and picks./ });
+  const feet = within(card).getAllByRole('link');
+  expect(feet).toHaveLength(2);
+  expect(feet[0]).toHaveTextContent('Fix lineup');
+  expect(feet[1]).toHaveTextContent('Make picks');
+  expect(within(region).getAllByRole('group')).toHaveLength(1);
+  expect(within(region).getByText('1 thing needs you')).toBeInTheDocument();
+  expect(await screen.findByTestId('greeting-summary')).toHaveTextContent(/^1 thing needs you./);
+});
+
+test('a failed refetch leaves the Plays on screen', async () => {
+  jest.useFakeTimers();
+  const lock = new Date(Date.now() + 5 * HOUR).toISOString();
+  mockApi({
+    leagues: [fantasyLeague(71, 'Thursday Night Regulars', liveMatchup)],
+    items: [item({ deadlineAt: lock })],
+  });
+  const answer = apiClient.get.getMockImplementation();
+  renderPage();
+  expect(await screen.findByRole('link', { name: /^Next up: Fill your empty FLEX slot/ })).toBeInTheDocument();
+
+  // Game day re-reads the Plays every 60 s; this time that read fails.
+  apiClient.get.mockImplementation((url) => (url.startsWith('/api/user/action-items') ? Promise.reject(new Error('down')) : answer(url)));
+  await act(async () => { jest.advanceTimersByTime(60 * 1000); });
+  expect(reads('/api/user/action-items')).toBe(2);
+  expect(screen.getByRole('link', { name: /^Next up: Fill your empty FLEX slot/ })).toBeInTheDocument();
+  expect(screen.queryByRole('alert', { name: /what needs you/ })).not.toBeInTheDocument();
+  expect(screen.queryByText("Couldn't check what needs you")).not.toBeInTheDocument();
+});
+
 test('"due today" counts the plays whose lock falls on today: two picks sharing today\'s lock and a lineup problem tomorrow', async () => {
   jest.useFakeTimers();
   jest.setSystemTime(new Date(2026, 9, 15, 15, 0, 0));
@@ -187,7 +226,7 @@ test('"due today" counts the plays whose lock falls on today: two picks sharing 
   });
   renderPage();
 
-  expect(await screen.findByTestId('greeting-summary')).toHaveTextContent(/^2 things need you\. 1 is due today: 14 picks still open, at 6:00 PM\.$/);
+  expect(await screen.findByTestId('greeting-summary')).toHaveTextContent(/^2 things need you\. 1 is due today: Picks, at 6:00 PM\.$/);
 });
 
 test('the greeting follows the same clock as the badge: when a seats_open lock passes, both drop to the same number', async () => {

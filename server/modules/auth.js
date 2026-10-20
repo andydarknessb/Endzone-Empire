@@ -51,6 +51,23 @@ function requireAuth(req, res, next) {
   }
 }
 
+/**
+ * Rate-limit identity: `user:<sub>` only when the bearer token verifies the way
+ * requireAuth verifies it, else `ip:<ip>`. Never refuses; requireAuth answers 401.
+ */
+function callerKey(req) {
+  const header = req.get('Authorization') || '';
+  if (header.startsWith('Bearer ')) {
+    try {
+      const { sub } = jwt.verify(header.slice(7), getSecret());
+      if (sub != null) return `user:${sub}`;
+    } catch (err) {
+      // expired, forged or malformed: counts by IP below
+    }
+  }
+  return `ip:${req.ip}`;
+}
+
 function requireRecentAuth(maxAgeSeconds = 10 * 60) {
   return (req, res, next) => {
     const authenticatedAt = Number(req.user?.authenticatedAt);
@@ -106,6 +123,7 @@ function requireSocketAuth(socket, next) {
 module.exports = {
   signToken,
   requireAuth,
+  callerKey,
   requireRecentAuth,
   requireSocketAuth,
   isPlatformAdmin,
