@@ -1,5 +1,6 @@
 const pool = require('../modules/pool');
 const { withTransaction } = require('../modules/withTransaction');
+const { getDraftRoomBroadcast } = require('../modules/draftRoomBroadcast');
 const { logTransaction, notify, notifyLeague } = require('./activity.service');
 const {
   materializeLineup,
@@ -121,7 +122,8 @@ async function loadTeamToRemove(client, { league, userId, teamId }) {
 }
 
 async function removeTeam({ leagueId, userId, teamId }) {
-  return withTransaction(
+  let ended = null;
+  const result = await withTransaction(
     pool,
     async (client) => {
       const league = await requireCommissioner(client, { leagueId, userId, forUpdate: true });
@@ -148,10 +150,21 @@ async function removeTeam({ leagueId, userId, teamId }) {
         type: 'league',
         message: `Your team was removed from ${league.name} by the commissioner`,
       });
+      ended = { managerId: team.owner_id, leagueName: league.name };
       return { leagueId, removedTeamId: teamId };
     },
     { label: 'removeTeam' }
   );
+  // After COMMIT, never inside the transaction: a rollback must not evict anyone.
+  await endMembership(leagueId, ended);
+  return result;
+}
+
+/** Tell the removed manager's open pages and drop them from the league room. Only
+ *  after the transaction committed. An unowned (CPU) team has no one to tell. */
+async function endMembership(leagueId, { managerId, leagueName }) {
+  if (managerId == null) return;
+  await getDraftRoomBroadcast().membershipEnded(leagueId, managerId, { leagueName });
 }
 
 /**
@@ -868,7 +881,8 @@ async function removeTeamAvatar({ leagueId, userId, teamId }) {
  * Returns `{ leagueId, teamId, outcome: 'removed' | 'cpu' }`.
  */
 async function banTeam({ leagueId, userId, teamId }) {
-  return withTransaction(
+  let ended = null;
+  const result = await withTransaction(
     pool,
     async (client) => {
       const league = await requireCommissioner(client, { leagueId, userId, forUpdate: true });
@@ -920,10 +934,13 @@ async function banTeam({ leagueId, userId, teamId }) {
         type: 'league',
         message: `You were removed from ${league.name} by the commissioner and can't rejoin`,
       });
+      ended = { managerId, leagueName: league.name };
       return { leagueId, teamId, outcome };
     },
     { label: 'banTeam' }
   );
+  await endMembership(leagueId, ended);
+  return result;
 }
 
 /**

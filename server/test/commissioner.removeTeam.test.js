@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createFakePool, select, insert, remove } = require('./helpers/fakePool');
 const { removeTeam } = require('../services/commissioner.service');
+const { setDraftRoomBroadcast } = require('../modules/draftRoomBroadcast');
 
 // --- commissioner team removal, at the authorization and phase seams --------
 // Three rules, three messages: the league must be Removable at all (a fantasy
@@ -81,6 +82,12 @@ function removeTeamWorld(t, leagueOverrides = {}) {
       return { rows: [] };
     }],
   ]).install(t);
+  // The post-commit membershipEnded call lands on a recording broadcast.
+  state.ended = [];
+  const prior = setDraftRoomBroadcast({
+    membershipEnded: async (...args) => { state.ended.push(args); return { delivered: true }; },
+  });
+  t.after(() => setDraftRoomBroadcast(prior));
   return { fake, state };
 }
 
@@ -303,4 +310,29 @@ test('the phase gate is checked before the per-team rules: a self-removal past p
   assert.deepEqual(state.grants, [CO_COMMISSIONER]);
   assert.equal(fake.matching(remove('teams')).length, 0, 'no team was deleted');
   fake.assertClean();
+});
+
+test('membershipEnded is called once, after COMMIT, with the league id, the removed manager and the league name', async (t) => {
+  const { fake, state } = removeTeamWorld(t);
+  let committedWhenCalled = null;
+  setDraftRoomBroadcast({
+    membershipEnded: async (...args) => {
+      committedWhenCalled = fake.matching(/^COMMIT$/).length;
+      state.ended.push(args);
+    },
+  });
+
+  const result = await removeTeam({ leagueId: 5, userId: CREATOR, teamId: 30 });
+
+  assert.deepEqual(state.ended, [[5, MEMBER, { leagueName: 'Test League' }]]);
+  assert.equal(committedWhenCalled, 1, 'the transaction had already committed');
+  assert.deepEqual(result, { leagueId: 5, removedTeamId: 30 }, 'the user id is not in the response');
+});
+
+test('membershipEnded is not called when the transaction throws', async (t) => {
+  const { state } = removeTeamWorld(t, { draft_status: 'active' });
+
+  await assert.rejects(removeTeam({ leagueId: 5, userId: CREATOR, teamId: 30 }));
+
+  assert.deepEqual(state.ended, []);
 });

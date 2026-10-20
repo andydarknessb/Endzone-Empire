@@ -105,6 +105,24 @@ function createDraftRoomBroadcast(io, transportName = 'local') {
      *  (`{ leagueId, season, week, scored, plays }`) is the caller's shape; the
      *  wire name `scores:updated` is this module's secret, like the others. */
     scoresUpdated: (leagueId, payload) => send(leagueId, 'scores:updated', payload),
+    /** A manager's membership ended (Team removal, Remove & ban). Tells that
+     *  user's open pages, then pulls every one of their sockets out of the league
+     *  room so they stop hearing it. Addressed through the `user:<id>` room every
+     *  socket joins on connect. Delivered or reported like the rest, never thrown. */
+    membershipEnded: async (leagueId, userId, { leagueName } = {}) => {
+      try {
+        const target = io.to(`user:${userId}`);
+        const pending = target.emit('league:removed', { leagueId, leagueName });
+        if (pending && typeof pending.then === 'function') await pending;
+        const left = target.socketsLeave(`league:${leagueId}`);
+        if (left && typeof left.then === 'function') await left;
+        return { delivered: true, transport: transportName };
+      } catch (error) {
+        logger.error({ err: error, event: 'league:removed', leagueId }, 'draft room broadcast failed');
+        sentry.captureError(error, { event: 'league:removed', leagueId });
+        return { delivered: false, transport: transportName, error };
+      }
+    },
   };
 }
 

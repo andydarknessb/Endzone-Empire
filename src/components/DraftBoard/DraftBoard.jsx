@@ -382,6 +382,7 @@ function DraftBoard() {
     // revokeMembership is the seam the feed hook calls when the server reports a
     // confirmed member was removed mid-draft (AC4).
     membership,
+    removedFrom,
     revokeMembership,
     reconnecting,
     isMyTurn,
@@ -755,7 +756,7 @@ function DraftBoard() {
       onMembershipRevoked={revokeMembership}
     />
   ) : membership === MEMBERSHIP_NON_MEMBER ? (
-    <DraftChatNonMember />
+    <DraftChatNonMember removedFrom={removedFrom} />
   ) : (
     <DraftChatConnecting />
   );

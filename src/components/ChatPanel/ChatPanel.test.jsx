@@ -342,3 +342,28 @@ test('re-joins the league room and re-fetches chat history on reconnect', async 
   expect(apiClient.get).toHaveBeenCalledWith('/api/league/7/chat');
   expect(await screen.findByText('missed while offline')).toBeInTheDocument();
 });
+
+test('league:removed for the open league replaces chat with the removal notice', async () => {
+  apiClient.get.mockResolvedValue({ data: [] });
+
+  renderWithProviders(<ChatPanel leagueId={7} />);
+  await screen.findByText('No messages yet');
+
+  act(() => socketHandlers['league:removed']({ leagueId: 7, leagueName: 'Minneapple League' }));
+
+  expect(screen.getByText('You were removed from Minneapple League')).toBeInTheDocument();
+  expect(screen.queryByLabelText('Message')).not.toBeInTheDocument();
+  expect(screen.queryByText('No messages yet')).not.toBeInTheDocument();
+});
+
+test('league:removed for another league changes nothing', async () => {
+  apiClient.get.mockResolvedValue({ data: [] });
+
+  renderWithProviders(<ChatPanel leagueId={7} />);
+  await screen.findByText('No messages yet');
+
+  act(() => socketHandlers['league:removed']({ leagueId: 8, leagueName: 'Elsewhere' }));
+
+  expect(screen.queryByText(/You were removed from/)).not.toBeInTheDocument();
+  expect(screen.getByText('No messages yet')).toBeInTheDocument();
+});

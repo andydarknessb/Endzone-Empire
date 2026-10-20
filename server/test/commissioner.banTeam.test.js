@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const { createFakePool, select, insert, update, remove } = require('./helpers/fakePool');
 const { banTeam, listBans, unban } = require('../services/commissioner.service');
 const { emailBanHash } = require('../services/leagueMembership.service');
+const { setDraftRoomBroadcast } = require('../modules/draftRoomBroadcast');
 
 // --- Remove & ban ------------------------------------------------------------
 // The same per-team rules as removeTeam (shared loadTeamToRemove), then a ban
@@ -86,6 +87,12 @@ function banWorld(t, leagueOverrides = {}) {
       return { rows: [] };
     }],
   ]).install(t);
+  // The post-commit membershipEnded call lands on a recording broadcast.
+  state.ended = [];
+  const prior = setDraftRoomBroadcast({
+    membershipEnded: async (...args) => { state.ended.push(args); return { delivered: true }; },
+  });
+  t.after(() => setDraftRoomBroadcast(prior));
   return { fake, state };
 }
 
@@ -196,4 +203,38 @@ test('unban deletes the row and logs it; an unknown ban is a 404', async (t) => 
     (error) => error.statusCode === 404
   );
   fake.assertClean();
+});
+
+test('membershipEnded is called once, after COMMIT, for the removed outcome', async (t) => {
+  const { fake, state } = banWorld(t);
+  let committedWhenCalled = null;
+  setDraftRoomBroadcast({
+    membershipEnded: async (...args) => {
+      committedWhenCalled = fake.matching(/^COMMIT$/).length;
+      state.ended.push(args);
+    },
+  });
+
+  const result = await banTeam({ leagueId: 5, userId: CREATOR, teamId: 30 });
+
+  assert.deepEqual(state.ended, [[5, MEMBER, { leagueName: 'Minneapple League' }]]);
+  assert.equal(committedWhenCalled, 1, 'the transaction had already committed');
+  assert.deepEqual(result, { leagueId: 5, teamId: 30, outcome: 'removed' }, 'the user id is not in the response');
+});
+
+test('membershipEnded is called for the cpu outcome too', async (t) => {
+  const { state } = banWorld(t, DRAFTED);
+
+  const result = await banTeam({ leagueId: 5, userId: CREATOR, teamId: 30 });
+
+  assert.equal(result.outcome, 'cpu');
+  assert.deepEqual(state.ended, [[5, MEMBER, { leagueName: 'Minneapple League' }]]);
+});
+
+test('membershipEnded is not called when the ban is refused', async (t) => {
+  const { state } = banWorld(t);
+
+  await assert.rejects(banTeam({ leagueId: 5, userId: CREATOR, teamId: 40 }));
+
+  assert.deepEqual(state.ended, []);
 });
