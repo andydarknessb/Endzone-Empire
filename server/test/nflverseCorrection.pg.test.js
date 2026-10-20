@@ -142,7 +142,8 @@ if (!ENABLED) {
   test('syncNflverseCorrection: a game whose apply throws rolls back that game only, and the run is write_failed naming it', async () => {
     const qbA = await seedPlayer('Disposable Fail QB A', 'QB', 'KC');
     const qbB1 = await seedPlayer('Disposable Fail QB B1', 'QB', 'DAL');
-    const qbB2 = await seedPlayer('Disposable Fail QB B2', 'QB', 'PHI');
+    // A defender: the IDP gate (#2373) drops idp.safety from a QB's line, so only a LB overflows.
+    const qbB2 = await seedPlayer('Disposable Fail LB B2', 'LB', 'PHI');
     await pool.query(`DELETE FROM "player_stats" WHERE "season" = $1`, [SEASON]);
 
     await assert.rejects(

@@ -80,7 +80,7 @@ function Side({
 
 function PreKickoffBody({ leagueId, model }) {
   const {
-    matchupId, viewer, opponent, game, narrative,
+    matchupId, viewer, opponent, game, narrative, lastWeek,
   } = model;
   const pct = game.projectedWinProbability?.viewerPct ?? null;
   const figure = (projected) => {
@@ -101,13 +101,20 @@ function PreKickoffBody({ leagueId, model }) {
           <Side side={opponent} right lead colors={colors} label="Proj" figure={figure(opponent.projected)} />
         </Box>
         {pct != null && <OddsBar pct={pct} name={viewer.name} />}
-        {(game.projectedMargin || narrative) && (
+        {(game.projectedMargin || narrative || lastWeek) && (
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
             {game.projectedMargin && (
               <Box data-testid="matchup-projected-margin" sx={{ fontSize: '16px', fontWeight: 700 }}>{game.projectedMargin}</Box>
             )}
             {narrative && (
               <Box component="p" data-testid="matchup-preview-narrative" sx={{ m: 0, fontSize: '15px', color: colors.dim }}>{narrative}</Box>
+            )}
+            {lastWeek && (
+              <Box component="p" data-testid="matchup-postgame-narrative" sx={{ m: 0, fontSize: '15px', color: colors.dim }}>
+                <Box component="b" sx={{ fontWeight: 600 }}>Last week</Box>
+                {' '}
+                {lastWeek.narrative}
+              </Box>
             )}
           </Box>
         )}

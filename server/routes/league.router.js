@@ -622,6 +622,7 @@ router.get('/:id/matchups', async (req, res) => {
     res.json(rows.map((m) => ({
       ...m,
       narrative: narratives.get(`${m.season}:${m.week}`)?.[m.id]?.preview?.narrative ?? null,
+      postgame: narratives.get(`${m.season}:${m.week}`)?.[m.id]?.postgame?.narrative ?? null,
     })));
   } catch (error) {
     console.error('Error fetching matchups', error);
