@@ -142,6 +142,34 @@ test.each([
   expect(within(c).getAllByTestId(/^state-/)).toHaveLength(1);
 });
 
+test('the three marks differ in shape and colour: a blinking red square, a checker in ink, an empty dim outline', () => {
+  render(<SlotComparison {...baseProps} />);
+  const live = within(cell(1, 'home')).getByTestId('state-live');
+  const final = within(cell(0, 'home')).getByTestId('state-final');
+  const sched = within(cell(2, 'home')).getByTestId('state-scheduled');
+
+  expect(live).toHaveClass('live-light');
+  expect(final.tagName.toLowerCase()).toBe('svg');
+  expect(final.querySelectorAll('rect')).toHaveLength(5);
+  expect(final).toHaveAttribute('shape-rendering', 'crispEdges');
+  expect(sched.querySelector('*')).toBeNull();
+  // The legend's red sample holds still.
+  expect(within(screen.getByTestId('slot-legend')).getByTestId('state-live')).not.toHaveClass('live-light');
+});
+
+test('a starter with a team and no opponent on bye reads "Bye" on the game line from the server verdict, once', () => {
+  const byeRows = [{
+    slot: 'K',
+    home: starter({ id: 8, nfl_team: 'DET', opponent: null, game_state: 'final', points: 0, stats: null, availability: { available: false, reason: 'bye' } }),
+    away: starter({ id: 9, nfl_team: 'BUF', opponent: null, game_state: 'scheduled', points: 0, stats: null, availability: { available: false, reason: 'bye' } }),
+  }];
+  render(<SlotComparison {...baseProps} rows={byeRows} />);
+  expect(within(cell(0, 'home')).getByTestId('slot-line2')).toHaveTextContent('DET · Bye');
+  expect(within(cell(0, 'away')).getByTestId('slot-line2')).toHaveTextContent('BUF');
+  expect(within(cell(0, 'away')).getByTestId('slot-points')).toHaveTextContent('on bye');
+  expect(within(cell(0, 'away')).getByTestId('slot-line2')).not.toHaveTextContent('Bye');
+});
+
 test('line two is the product text: "NFL vs OPP", with the live clock on an in-progress game only', () => {
   render(<SlotComparison {...baseProps} />);
 
@@ -302,7 +330,7 @@ describe('the controls', () => {
 describe('on a phone', () => {
   beforeEach(() => { phone = true; });
 
-  test('a cell is two lines: the name and injury tag, then the shape, the figure and the game', () => {
+  test('a cell is three lines: the name and injury tag, the shape and the figure, then the game on its own line', () => {
     render(<SlotComparison {...baseProps} />);
     const barkley = cell(1, 'away');
     const line2 = within(barkley).getByTestId('slot-line2');
@@ -313,7 +341,9 @@ describe('on a phone', () => {
     // The words stay for a screen reader beside the shape.
     expect(within(line2).getByText('In progress')).toBeInTheDocument();
     expect(within(line2).getByTestId('slot-points')).toHaveTextContent('4.8 pts');
-    expect(within(line2).getByTestId('slot-game')).toHaveTextContent('PHI vs NO · Q3 11:20');
+    const game = within(barkley).getByTestId('slot-game');
+    expect(game).toHaveTextContent('PHI vs NO · Q3 11:20');
+    expect(line2).not.toContainElement(game);
   });
 
   test('a starter yet to play shows his projection as the figure, never 0.0', () => {

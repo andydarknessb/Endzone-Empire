@@ -45,10 +45,24 @@ describe('starterStateView', () => {
 
 describe('lineTwo', () => {
   test('reads team, opponent and clock with middots, dropping what is absent', () => {
-    expect(lineTwo({ nfl_team: 'GB', opponent: 'TB', game_clock: 'Q3 6:42' })).toBe('GB vs TB · Q3 6:42');
+    expect(lineTwo({ nfl_team: 'GB', opponent: 'TB', game_clock: 'Q3 6:42' })).toBe('GB vs TB · Q3 6:42');
     expect(lineTwo({ nfl_team: 'DET', opponent: 'CHI', game_clock: null })).toBe('DET vs CHI');
     expect(lineTwo({ nfl_team: 'HOU', opponent: null, game_clock: null })).toBe('HOU');
     expect(lineTwo({ nfl_team: null, opponent: null, game_clock: null })).toBe('');
+  });
+
+  test('a bye reads "DET · Bye" once his game has started, and the team alone before (the figure says "on bye")', () => {
+    const bye = { nfl_team: 'DET', opponent: null, game_clock: null, availability: { available: false, reason: 'bye' } };
+    expect(lineTwo(bye, false)).toBe('DET · Bye');
+    expect(lineTwo(bye, true)).toBe('DET');
+  });
+
+  test('an out starter with no opponent reads the team alone', () => {
+    expect(lineTwo({ nfl_team: 'DET', opponent: null, game_clock: null, availability: { available: false, reason: 'out' } })).toBe('DET');
+  });
+
+  test('the clock keeps a non-breaking space', () => {
+    expect(lineTwo({ nfl_team: 'GB', opponent: 'TB', game_clock: 'Q3 6:42' })).toBe('GB vs TB · Q3 6:42');
   });
 });
 
