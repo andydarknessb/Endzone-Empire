@@ -396,7 +396,7 @@ function SideCell({
         }}
       >
         <Box sx={{ flex: 1, minWidth: 0 }}>
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '4px 8px', justifyContent: right ? 'flex-end' : 'flex-start' }}>
+          <Box sx={{ display: 'flex', flexWrap: 'nowrap', alignItems: 'center', gap: '4px 8px', justifyContent: right ? 'flex-end' : 'flex-start' }}>
             <Box
               component="button"
               type="button"
@@ -448,10 +448,10 @@ function SideCell({
                 )}
                 <span data-testid="slot-points">{figure}</span>
               </Box>
-              <Box data-testid="slot-game" sx={{ fontSize: '13px', color: 'var(--ps-dim)', overflowWrap: 'break-word' }}>{lineTwo(player)}</Box>
+              <Box data-testid="slot-game" sx={{ fontSize: '13px', color: 'var(--ps-dim)', overflowWrap: 'break-word' }}>{lineTwo(player, notStarted)}</Box>
             </>
           ) : (
-            <Box data-testid="slot-line2" sx={{ fontSize: '13px', color: 'var(--ps-dim)' }}>{lineTwo(player)}</Box>
+            <Box data-testid="slot-line2" sx={{ fontSize: '13px', color: 'var(--ps-dim)' }}>{lineTwo(player, notStarted)}</Box>
           )}
         </Box>
         {!compact && !pre && <Box sx={{ width: STATE_WIDTH, flex: 'none' }}>{marker}</Box>}

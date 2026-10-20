@@ -157,15 +157,16 @@ test('the three marks differ in shape and colour: a blinking red square, a check
   expect(within(screen.getByTestId('slot-legend')).getByTestId('state-live')).not.toHaveClass('live-light');
 });
 
-test('a starter with a team and no opponent reads "Bye" on the game line, once', () => {
+test('a starter with a team and no opponent on bye reads "Bye" on the game line from the server verdict, once', () => {
   const byeRows = [{
     slot: 'K',
-    home: starter({ id: 8, nfl_team: 'DET', opponent: null, game_state: 'scheduled', points: 0, stats: null }),
+    home: starter({ id: 8, nfl_team: 'DET', opponent: null, game_state: 'final', points: 0, stats: null, availability: { available: false, reason: 'bye' } }),
     away: starter({ id: 9, nfl_team: 'BUF', opponent: null, game_state: 'scheduled', points: 0, stats: null, availability: { available: false, reason: 'bye' } }),
   }];
   render(<SlotComparison {...baseProps} rows={byeRows} />);
   expect(within(cell(0, 'home')).getByTestId('slot-line2')).toHaveTextContent('DET · Bye');
   expect(within(cell(0, 'away')).getByTestId('slot-line2')).toHaveTextContent('BUF');
+  expect(within(cell(0, 'away')).getByTestId('slot-points')).toHaveTextContent('on bye');
   expect(within(cell(0, 'away')).getByTestId('slot-line2')).not.toHaveTextContent('Bye');
 });
 

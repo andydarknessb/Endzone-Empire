@@ -54,15 +54,18 @@ export function formatPoints(value) {
 /**
  * The game line of a starter cell: "NFL vs OPP · clock". The opponent is
  * the schedule's team code (no home/away marker rides the wire, ADR 0011), the
- * clock the live "Q3 6:42" string while in progress, else null. A starter with a
- * team but no opponent this week reads "DET · Bye" (#2395), unless his figure
- * already says "on bye" (availability reason 'bye'): the bye is said once. No
- * team at all reads empty, never "vs null".
+ * clock the live "Q3 6:42" string while in progress, else null; the clock keeps
+ * its space non-breaking so a wrapped line never splits "Q4" from "12:45". A
+ * starter the server marks on bye (availability reason 'bye') reads "DET · Bye"
+ * once his game has started (`notStarted` false); before that his figure says
+ * "on bye" and the line stays the team alone (#2395). No team at all reads
+ * empty, never "vs null".
  */
-export function lineTwo(player) {
-  const bye = player.nfl_team && !player.opponent && player.availability?.reason !== 'bye' ? 'Bye' : null;
+export function lineTwo(player, notStarted = false) {
+  const bye = player.availability?.reason === 'bye' && !notStarted ? 'Bye' : null;
   const teamAndOpponent = [player.nfl_team, player.opponent ? `vs ${player.opponent}` : null]
     .filter(Boolean)
     .join(' ');
-  return [teamAndOpponent, bye, player.game_clock].filter(Boolean).join(' · ');
+  const clock = player.game_clock ? player.game_clock.replace(' ', ' ') : null;
+  return [teamAndOpponent, bye, clock].filter(Boolean).join(' · ');
 }

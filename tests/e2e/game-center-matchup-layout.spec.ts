@@ -519,7 +519,7 @@ for (const w of [320, 360, 390]) {
         if (cell.querySelector('[data-testid="injury-tag"]')) tags++;
         if (line2.querySelector('[data-testid="injury-tag"]')) tagsOnLine2++;
         // The clock rides the game line under line two (#2395).
-        if ((cell.querySelector('[data-testid="slot-game"]')?.textContent || '').includes('Q4 12:45')) clocks++;
+        if ((cell.querySelector('[data-testid="slot-game"]')?.textContent || '').replace(/ /g, ' ').includes('Q4 12:45')) clocks++;
       }
       const root = document.documentElement;
       return { out, tags, tagsOnLine2, clocks, scrollWidth: root.scrollWidth, clientWidth: root.clientWidth };
@@ -543,6 +543,7 @@ for (const w of [320, 360, 390]) {
 // "KC vs DEN") never rides inline. Binds, for every filled cell: slot-game top is at or below the
 // slot-points bottom, and the game box stays inside its cell. The fixture carries a bye starter and a
 // final one (short lines), and the live marker blinks (a running animation) except under reduced motion.
+// 390 is the binding width: at 360 the half cell is too narrow for any short line to sit inline, so the old layout wrapped there too.
 for (const w of [360, 390]) {
   test(`Matchup Standard @ ${w}: each starter's game line sits under its figure, inside its cell; the live light blinks`, async ({ page }) => {
     await setupLayoutGuard(page, { view: 'standard', liveStarters: true });
@@ -568,11 +569,21 @@ for (const w of [360, 390]) {
         if (g.top < p.bottom - 0.5) bad.push(`${label} game top ${g.top} above figure bottom ${p.bottom}`);
         if (g.left < c.left - 1 || g.right > c.right + 1 || g.bottom > c.bottom + 1) bad.push(`${label} outside its cell`);
       }
+      // The injury tag stays beside its name, never on a line of its own.
+      let tags = 0;
+      for (const tag of Array.from(document.querySelectorAll('[data-testid="injury-tag"]'))) {
+        const name = tag.parentElement!.querySelector('button');
+        if (!name) continue;
+        tags++;
+        if (tag.getBoundingClientRect().top >= name.getBoundingClientRect().bottom) bad.push(`injury tag below its name "${name.textContent}"`);
+      }
+      if (tags === 0) bad.push('no injury tags measured');
       const live = document.querySelector('[data-testid="slot-cell-home"] [data-testid="state-live"]');
       return { n, bad, games, anim: live ? getComputedStyle(live).animationName : null };
     });
     expect(res.n, 'filled cells measured').toBeGreaterThan(0);
-    expect(res.games.some((g) => g.includes('Bye')), 'a short bye line is present').toBe(true);
+    expect(res.games.includes('TB · Bye'), 'a short bye line is present, from the verdict').toBe(true);
+    expect(res.games.includes('KC vs MIA'), 'a scheduled starter is present').toBe(true);
     expect(res.games.some((g) => g === 'KC vs DEN'), 'a short final line is present').toBe(true);
     expect(res.bad).toEqual([]);
     expect(res.anim, 'the live light runs its blink').toBe('live-light');
