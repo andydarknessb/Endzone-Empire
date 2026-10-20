@@ -363,7 +363,7 @@ test('a failed invalidation surfaces AFTER the leagues are corrected', async (t)
 });
 
 test('a failure in one corrected week does not skip cache maintenance for the next', async (t) => {
-  // Silences the logged per-league 'stat correction failed' error (correction.service), not a Settle follow-up step failure.
+  // Silences the deliberate 'stat correction: weekly projection cache invalidation failed' log (correction.service), not a Settle follow-up step failure.
   t.mock.method(console, 'error', () => {});
 
   // Two distinct corrected weeks: leagues on week 4 (correcting week 3) and

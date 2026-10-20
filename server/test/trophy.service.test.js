@@ -647,7 +647,7 @@ test('#1860: a week whose Hindsight cannot be read leaves its row pending and ne
   const fake = awardWorld({ leagueId: L, homeScore: 98, awayScore: 110, overrides: [shotRow({ week: W - 1 })] });
   fake.install(t);
   t.mock.method(decisionSvc, 'weekHindsightRoster', async () => { throw new Error('week 4 is not final yet'); });
-  // Silences the logged 'called shot skipped' Hindsight error (trophy.service), not a Settle follow-up step failure.
+  // Silences the logged 'called shot %s skipped' Hindsight error (trophy.service), not a Settle follow-up step failure.
   t.mock.method(console, 'error', () => {});
   await trophySvc.awardWeeklyTrophies({ leagueId: L, season: S, week: W });
   assert.equal(shotUpdates(fake).length, 0);

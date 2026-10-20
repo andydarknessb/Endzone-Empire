@@ -1,6 +1,7 @@
 const util = require('node:util');
 
-const PREFIX = 'settle follow-up (';
+// Must match the log format at settleFollowUp.service.js:63.
+const SETTLE_FOLLOW_UP_LOG_PREFIX = 'settle follow-up (';
 
 /**
  * Silences console.error for one test and fails that test (in t.after) when any
@@ -14,7 +15,7 @@ function failOnSettleFollowUpErrors(t) {
   const failures = [];
   t.mock.method(console, 'error', (...args) => {
     const message = util.format(...args);
-    if (message.startsWith(PREFIX)) failures.push(message);
+    if (message.startsWith(SETTLE_FOLLOW_UP_LOG_PREFIX)) failures.push(message);
   });
   t.after(() => {
     if (failures.length) throw new Error(`Settle follow-up step failed during the test:\n${failures.join('\n')}`);
