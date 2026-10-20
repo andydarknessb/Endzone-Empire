@@ -760,3 +760,24 @@ test('a Practice squad starter counts 0 and reads Unavailable practice_squad (#1
   assert.deepEqual(wr.availability, { available: false, reason: 'practice_squad' });
   assert.equal(wr.expectedFinal, 0);
 });
+
+// #2388: a standard league's live starter dropped after his kickoff keeps his
+// spared row (#627) and counts in the Expected final until settle does the same;
+// best ball and the bench keep the roster join. This fake does not run joins, so
+// it pins the statement (LEFT JOIN, the guard text, the best-ball param); the
+// real-Postgres test in lineupFollowsRoster.pg.test.js covers the semantics.
+test('the candidate read LEFT JOINs the roster and lets only a standard starter through without it (#2388)', async (t) => {
+  for (const bestBall of [false, true]) {
+    const fake = weekPool(t);
+    await expectedFinalsForWeek({
+      league: { ...LEAGUE, best_ball: bestBall }, season: SEASON, week: WEEK, teamIds: [10], db: fake, now: NOW,
+    });
+    const read = fake.calls.find((c) => /FROM "lineup_entries"/.test(c.text));
+    assert.match(read.text, /LEFT JOIN "team_players"/);
+    assert.ok(
+      read.text.includes(`("team_players"."player_id" IS NOT NULL OR (NOT $4::boolean AND "lineup_entries"."slot" != 'BENCH'))`),
+      'only a rostered row, or a starter in a standard league, is a candidate'
+    );
+    assert.equal(read.params[3], bestBall);
+  }
+});
