@@ -200,9 +200,10 @@ function itemsFor(state: DashState, now: number) {
   if (state === 'predraft') {
     return [
       item({
-        id: `join_requests:${L}`, type: 'join_requests', leagueId: L, leagueName: name,
-        title: 'Join requests', detail: '2 waiting', severity: 'timed',
-        deadlineAt: at(now, 3 * 24 * HOUR), cta: { label: 'Review requests', to: `/league/${L}/commissioner` },
+        // A join request is sideline, never a Play; an unfilled league before its draft is.
+        id: `seats_open:${L}`, type: 'seats_open', leagueId: L, leagueName: name,
+        title: 'Fill the open seats', detail: '2 seats left', severity: 'timed',
+        deadlineAt: at(now, 3 * 24 * HOUR), cta: { label: 'Invite managers', to: `/league/${L}/commissioner` },
       }),
     ];
   }

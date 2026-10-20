@@ -16,13 +16,8 @@ jest.mock('../../api/apiClient', () => ({
   default: { get: jest.fn(), post: jest.fn(), put: jest.fn() },
 }));
 
-// ActionQueue and LeagueStatusGrid are tested in their own files; here they
-// render the props UserPage hands them.
-// The stub reports the plays through onPlaysChange (real buildPlays), as ActionQueue does.
-jest.mock('./ActionQueue', () => ({
-  __esModule: true,
-  default: require('./homeTestStubs').ActionQueueStub,
-}));
+// LeagueStatusGrid is tested in its own file; here it renders the props UserPage hands it. The real
+// ActionQueue reads the action items over the mocked apiClient.
 jest.mock('./LeagueStatusGrid', () => ({ __esModule: true, default: require('./homeTestStubs').LeagueStatusGridStub }));
 
 // Push support is a browser fact jsdom lacks; the Alert prompt tests below turn it on.
@@ -63,6 +58,10 @@ const renderPage = () => renderWithProviders(<SnackbarProvider><UserPage /></Sna
 // Let every pending effect and resolved promise run, so an absence check cannot pass early.
 const flushEffects = () => act(() => new Promise((resolve) => { setTimeout(resolve, 0); }));
 
+// The action queue's frame (the skeleton while it loads, "Call your plays" after).
+const queue = () => screen.getByRole('region', { name: /plays$/ });
+const queueReads = () => apiClient.get.mock.calls.filter(([url]) => String(url).startsWith('/api/user/action-items')).length;
+
 const follows = (x, y) => Boolean(x.compareDocumentPosition(y) & Node.DOCUMENT_POSITION_FOLLOWING);
 
 // /api/notifications is a shared read (ADR 0004): without this a response, or an
@@ -97,14 +96,13 @@ test('the root carries the home class and is named by the h1', async () => {
   expect(root).toHaveAccessibleName('Welcome back, alice');
 });
 
-test('fetches the leagues with their status and hands them to the queue and the grid', async () => {
+test('fetches the leagues with their status and hands them to the grid and the queue', async () => {
   apiClient.get.mockResolvedValue({ data: [league()] });
   renderPage();
 
   expect(await screen.findByText('Sunday Ballers')).toBeInTheDocument();
   expect(apiClient.get).toHaveBeenCalledWith('/api/league', { params: { include: 'status' } });
-  expect(screen.getByTestId('action-queue')).toHaveAttribute('data-leagues', '1');
-  expect(screen.getByTestId('action-queue')).toHaveAttribute('data-has-expire', 'true');
+  expect(queue()).toBeInTheDocument();
   expect(screen.getByTestId('league-grid')).toHaveAttribute('data-live', 'false');
   expect(screen.getByTestId('league-grid')).toHaveAttribute('data-updated', 'yes');
 });
@@ -117,7 +115,7 @@ test('a failed leagues fetch keeps "Welcome back" and the play frame, and never 
 
   expect(await screen.findByText('server exploded')).toBeInTheDocument();
   expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Welcome back, alice');
-  expect(screen.getByTestId('action-queue')).toBeInTheDocument();
+  expect(queue()).toBeInTheDocument();
   expect(screen.queryByTestId('leagues-empty-state')).not.toBeInTheDocument();
 });
 
@@ -260,7 +258,7 @@ test('first run has no queue, no leagues, no summary and no League news', async 
 
   await screen.findByTestId('leagues-empty-state');
   await flushEffects();
-  expect(screen.queryByTestId('action-queue')).not.toBeInTheDocument();
+  expect(screen.queryByRole('region', { name: /plays$/ })).not.toBeInTheDocument();
   expect(screen.queryByTestId('league-grid')).not.toBeInTheDocument();
   expect(screen.queryByTestId('greeting-summary')).not.toBeInTheDocument();
   expect(screen.queryByRole('heading', { name: 'League news' })).not.toBeInTheDocument();
@@ -302,7 +300,7 @@ test('game-week order: header, queue, leagues, League news, Columns, Alert promp
   const columns = await screen.findByRole('heading', { level: 2, name: 'Columns' });
   const ordered = [
     screen.getByRole('heading', { level: 1 }),
-    screen.getByTestId('action-queue'),
+    queue(),
     screen.getByTestId('league-grid'),
     news,
     columns,
@@ -355,13 +353,13 @@ describe('game day', () => {
       renderPage();
       await screen.findByText('1 matchup live');
       expect(leagueReads()).toBe(1);
-      expect(screen.getByTestId('action-queue')).toHaveAttribute('data-refresh-key', '0');
+      expect(queueReads()).toBe(1);
 
       await act(async () => { jest.advanceTimersByTime(59 * 1000); });
       expect(leagueReads()).toBe(1);
       await act(async () => { jest.advanceTimersByTime(1000); });
       expect(leagueReads()).toBe(2);
-      expect(screen.getByTestId('action-queue')).toHaveAttribute('data-refresh-key', '1');
+      expect(queueReads()).toBe(2);
     });
 
     test('a quiet week with no lock ahead does not poll', async () => {
@@ -428,11 +426,11 @@ describe('before kickoff', () => {
     await act(async () => { jest.advanceTimersByTime(60 * 1000); });
     expect(leagueReads()).toBe(2);
     expect(await screen.findByText('1 matchup live')).toBeInTheDocument();
-    expect(screen.getByTestId('action-queue')).toHaveAttribute('data-refresh-key', '1');
+    expect(queueReads()).toBe(2);
 
     await act(async () => { jest.advanceTimersByTime(60 * 1000); });
     expect(leagueReads()).toBe(3);
-    expect(screen.getByTestId('action-queue')).toHaveAttribute('data-refresh-key', '2');
+    expect(queueReads()).toBe(3);
   });
 
   // Kickoff window (batch 2): the server still says `scheduled` for a while after
@@ -558,18 +556,19 @@ describe('before kickoff', () => {
     hide(false);
     await show();
     expect(leagueReads()).toBe(2);
-    expect(screen.getByTestId('action-queue')).toHaveAttribute('data-refresh-key', '1');
+    expect(queueReads()).toBe(2);
   });
 
   test('every silent leagues refresh bumps the queue key: the draft expiry and the late-draft poll', async () => {
     leaguesAnswers(() => [league({ draft_status: 'pending', draft_date: new Date(Date.now() - 60 * 60 * 1000).toISOString() })]);
     renderPage();
-    await screen.findByText('Sunday Ballers');
-    expect(screen.getByTestId('action-queue')).toHaveAttribute('data-refresh-key', '0');
+    await screen.findByRole('region', { name: 'Call your plays' });
+    await screen.findByTestId('league-grid');
+    expect(queueReads()).toBe(1);
 
     await act(async () => { jest.advanceTimersByTime(30 * 1000); });
     expect(leagueReads()).toBe(2);
-    expect(screen.getByTestId('action-queue')).toHaveAttribute('data-refresh-key', '1');
+    expect(queueReads()).toBe(2);
   });
 
   test('on game day one visibility event refreshes once, not once for the live path and again for a late draft', async () => {

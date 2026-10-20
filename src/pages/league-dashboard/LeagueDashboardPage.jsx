@@ -12,7 +12,7 @@ import RecentActivity from '../../widgets/recent-activity';
 import QuickActions from '../../widgets/quick-actions';
 import { useMatchupPreview } from '../../widgets/matchup-preview';
 import { applyScoreEvent, useLiveScores, useWeekMatchups } from '../../entities/matchup';
-import { useActionItems, yourMoveModel } from '../../entities/action-item';
+import { useActionItems, playModel } from '../../entities/action-item';
 import { adviceNote, useAdvice } from '../../entities/roster';
 import { usePickemSettings } from '../../entities/pickem-game';
 import { useTrophies } from '../../components/TrophyCase/TrophyCase';
@@ -225,19 +225,19 @@ function DashboardBody({
   const trophyCount = !trophy.loading && !trophy.error ? trophy.visibleTrophies.length : 0;
 
   // Your move: this league's open plays from the user's action items (GET /api/user/action-items), the
-  // page's one cursor and one filled action. The entity groups them (one card per shared lock, earliest
+  // page's one cursor and one filled action. The entity groups them (one Play per shared lock, earliest
   // first); this maps each card to ui/YourMove's plain data. Nothing is drawn while the read is in flight
   // (a "You're set" that then turns into a card would lie), and a completed league with nothing due draws
   // no card at all: the board has none.
   const actions = useActionItems();
   const clock = useNow((at) => at + 30 * 1000);
   const move = useMemo(
-    () => yourMoveModel(actions.items, { leagueId, now: clock }),
+    () => playModel(actions.items, { leagueId, now: clock }),
     [actions.items, leagueId, clock]
   );
   const isLineup = (item) => String(item.id).split(':')[0] === 'lineup_problem';
-  const carriesLineup = move.cards.some((card) => card.items.some(isLineup));
-  const leadCarriesLineup = Boolean(move.lead && move.lead.items.some(isLineup));
+  const carriesLineup = move.plays.some((play) => play.feet.some(isLineup));
+  const leadCarriesLineup = Boolean(move.lead && move.lead.feet.some(isLineup));
   // The lead lineup card names every move the Forecast would make behind its gain ("Two moves · +23.0 pts:
   // Addison in for Puka Nacua (Out) · Spears into the empty FLEX"). No move, no note (the item's own detail reads).
   const advice = useAdvice({
@@ -246,7 +246,7 @@ function DashboardBody({
     bestBall: Boolean(league.best_ball),
   });
   const swapNote = leadCarriesLineup ? adviceNote(advice) ?? undefined : undefined;
-  const toCard = (card, note) => ({ feet: card.items, ...(note ? { note } : null) });
+  const toCard = (play, note) => ({ name: play.name, feet: play.feet, ...(note ? { note } : null) });
   let yourMove = null;
   // Cached items stay on screen while they re-read, so the card does not vanish and jump on a revisit.
   const itemsPending = actions.loading && actions.items.length === 0;
@@ -254,8 +254,8 @@ function DashboardBody({
     if (!move.empty) {
       yourMove = {
         lead: toCard(move.lead, swapNote),
-        rest: move.rest.map((card) => toCard(card)),
-        badge: move.badge,
+        rest: move.plays.slice(1).map((play) => toCard(play)),
+        badge: move.count,
         urgent: move.urgent,
       };
     } else if (!complete) {

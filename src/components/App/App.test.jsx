@@ -614,7 +614,7 @@ test.each([
 test("a league panel's Waivers link on Home opens the league Waivers page in the app", async () => {
   renderApp('#/user', { user: loggedIn }, () => {
     apiClient.get.mockImplementation((url) => {
-      if (url === '/api/user/action-items') {
+      if (url.startsWith('/api/user/action-items')) {
         return Promise.resolve({ data: { generatedAt: new Date().toISOString(), counts: { total: 0, dueToday: 0 }, partial: [], items: [] } });
       }
       if (url === '/api/league') {

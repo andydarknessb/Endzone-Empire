@@ -2791,13 +2791,34 @@ describe('Your move', () => {
     const section = await screen.findByTestId('your-move');
     const group = await within(section).findByRole('group', { name: 'Lineup and picks' });
     expect(within(group).getAllByRole('link').map((link) => link.textContent)).toEqual(['Set lineup', 'Make picks']);
-    // Two cards (the shared lock and the waivers), so the badge says two.
-    expect(within(section).getByText('2 things need you')).toBeInTheDocument();
-    expect(within(section).getAllByRole('heading', { level: 3 }).map((h) => h.textContent)).toEqual(['Lineup and picks', 'Waivers']);
+    // One Play: the pending waiver claims are sideline (info), never a Play, so the badge says one.
+    expect(within(section).getByText('1 thing needs you')).toBeInTheDocument();
+    expect(within(section).getAllByRole('heading', { level: 3 }).map((h) => h.textContent)).toEqual(['Lineup and picks']);
     expect(cursorCount()).toBe(1);
     expect(filledCount()).toBe(1);
     // My team does not repeat the play: Your move already carries Set lineup.
     expect(screen.queryByRole('link', { name: 'Fix lineup' })).not.toBeInTheDocument();
+  });
+
+  test('a waiver claims info item and a join requests item for the league are not in Your move', async () => {
+    mockGetByUrl({
+      '/api/league/1': inSeasonLeague(),
+      ...actionItems([
+        item('waiver_claims', null, {
+          title: 'Waivers', detail: '1 claim pending', severity: 'info', deadlineAt: IN_MINUTES(3 * 24 * 60), cta: { label: 'View claims', to: '/league/1/waivers' },
+        }),
+        item('join_requests', null, {
+          title: 'Join requests', detail: '2 waiting', severity: 'timed', deadlineAt: null, cta: { label: 'Review requests', to: '/league/1/commissioner' },
+        }),
+      ]),
+    });
+    renderPage();
+
+    const section = await screen.findByTestId('your-move');
+    expect(await within(section).findByRole('heading', { level: 3, name: "You're set" })).toBeInTheDocument();
+    expect(within(section).queryByText('Waivers')).not.toBeInTheDocument();
+    expect(within(section).queryByText('Join requests')).not.toBeInTheDocument();
+    expect(cursorCount()).toBe(0);
   });
 
   test('an empty item list is the calm "You\'re set" card', async () => {
@@ -3173,12 +3194,12 @@ describe('the one cursor and the one filled action', () => {
     ['game day, lock in 45 min, commissioner', () => gameDayLeague(), gameDayMocks(actionItems([lineupItem(IN_MINUTES(45)), picksItem(IN_MINUTES(45))])), 1, 1],
     ['game day, nothing due', () => gameDayLeague({ is_commissioner: false, invite_code: undefined }), gameDayMocks(actionItems([])), 0, 0],
     [
-      'pre-draft, commissioner',
+      'pre-draft, commissioner (join requests stay in the strip, not a Play)',
       () => preDraftLeague({ is_commissioner: true }),
       actionItems([item('join_requests', null, {
         title: 'Join requests', detail: '2 waiting', severity: 'timed', deadlineAt: IN_MINUTES(3 * 24 * 60), cta: { label: 'Review requests', to: '/league/1/commissioner' },
       })]),
-      1, 1,
+      0, 0,
     ],
     [
       'drafting',
