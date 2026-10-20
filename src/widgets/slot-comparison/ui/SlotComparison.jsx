@@ -23,16 +23,17 @@ import { unavailableLabel } from '../../../entities/roster';
  *
  * Each filled side is a starter cell: the name (a button that opens the player) with his injury tag,
  * "NFL vs OPP · clock" on line two (the product's text; the product has no per-starter kickoff, so
- * none is drawn), the state marker with its words while the matchup has started (In progress a filled
- * square, Final an outline square, Yet to play an outline square with a dot, always beside the
- * words), the figure: his points, or "proj 17.9" while his game has not started (the reason ("out",
+ * none is drawn; a starter on bye reads "DET · Bye"), the state mark with its words while the matchup has
+ * started (In progress a solid red square that blinks, stepped, lit then dim, and holds lit under reduced
+ * motion; Final a 3x3 pixel checker; Yet to play an empty outline square; the legend's red sample never
+ * blinks, #2395), the figure: his points, or "proj 17.9" while his game has not started (the reason ("out",
  * "on bye") in place of the projection for an Unavailable starter), and, on a wide screen while the
  * matchup is live, his Exp final (the producer's `expected_final`, a dash when it priced none). Before
  * kickoff no row repeats "Yet to play": the head says "Every starter yet to play" once and every figure
  * is a Proj, with no Exp final column (it would equal Proj).
  *
- * On a phone a cell is two lines (#2008): the name and injury tag, then the state marker, the figure
- * and the game, wrapping rather than overflowing the half-width cell; each half keeps its side of a
+ * On a phone a cell is three lines (#2008, #2395): the name and injury tag; the mark (its word screen-reader
+ * only) and the figure; the game on its own line, wrapping at spaces inside the half-width cell; each half keeps its side of a
  * 48px slot column so team names stay inside their halves. There is no Exp final column; the Totals
  * carry each Team's.
  *
@@ -212,17 +213,20 @@ function TeamHead({ name, you, right }) {
   );
 }
 
-// The three state shapes (RULINGS Wave 2 boards): a filled square, an outline square, an outline
-// square with a dot; the words always ride beside them.
-function StateShape({ kind }) {
-  const base = { width: '12px', height: '12px', flex: 'none', boxSizing: 'border-box' };
-  if (kind === 'live') return <Box component="span" aria-hidden="true" data-testid="state-live" sx={{ ...base, backgroundColor: 'currentColor' }} />;
-  if (kind === 'final') return <Box component="span" aria-hidden="true" data-testid="state-final" sx={{ ...base, border: '2px solid currentColor' }} />;
-  return (
-    <Box component="span" aria-hidden="true" data-testid="state-scheduled" sx={{ ...base, border: '2px solid currentColor', display: 'grid', placeItems: 'center' }}>
-      <Box component="span" sx={{ width: '4px', height: '4px', backgroundColor: 'currentColor' }} />
-    </Box>
-  );
+// The three state marks (#2395): a blinking red square for in progress (the legend's sample holds
+// still), a 3x3 pixel checker for final, an empty outline square for yet to play. Each sets its own
+// colour; the words ride beside them on a wide screen and are screen-reader-only on a phone.
+function StateShape({ kind, still }) {
+  const base = { width: '12px', height: '12px', flex: 'none', boxSizing: 'border-box', display: 'block' };
+  if (kind === 'live') return <Box component="span" aria-hidden="true" data-testid="state-live" className={still ? undefined : 'live-light'} sx={{ ...base, backgroundColor: 'var(--ps-danger)' }} />;
+  if (kind === 'final') {
+    return (
+      <Box component="svg" aria-hidden="true" data-testid="state-final" viewBox="0 0 3 3" shapeRendering="crispEdges" sx={{ ...base, fill: 'var(--ps-ink)' }}>
+        {[[0, 0], [2, 0], [1, 1], [0, 2], [2, 2]].map(([x, y]) => <rect key={`${x}${y}`} x={x} y={y} width="1" height="1" />)}
+      </Box>
+    );
+  }
+  return <Box component="span" aria-hidden="true" data-testid="state-scheduled" sx={{ ...base, border: '2px solid var(--ps-dim)' }} />;
 }
 
 function Legend() {
@@ -236,7 +240,7 @@ function Legend() {
     >
       {[['live', 'In progress'], ['final', 'Final'], ['scheduled', 'Yet to play']].map(([kind, word]) => (
         <Box key={kind} component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
-          <StateShape kind={kind} />
+          <StateShape kind={kind} still />
           {word}
         </Box>
       ))}
@@ -392,7 +396,7 @@ function SideCell({
         }}
       >
         <Box sx={{ flex: 1, minWidth: 0 }}>
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '4px 8px', justifyContent: right ? 'flex-end' : 'flex-start' }}>
+          <Box sx={{ display: 'flex', flexWrap: 'nowrap', alignItems: 'center', gap: '4px 8px', justifyContent: right ? 'flex-end' : 'flex-start' }}>
             <Box
               component="button"
               type="button"
@@ -429,23 +433,25 @@ function SideCell({
             <InjuryTag status={player.injury_status} data-testid="injury-tag" />
           </Box>
           {compact ? (
-            <Box
-              data-testid="slot-line2"
-              sx={{
-                display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '2px 8px', fontSize: '14px', justifyContent: right ? 'flex-end' : 'flex-start', flexDirection: 'row', fontVariantNumeric: 'tabular-nums',
-              }}
-            >
-              {!pre && state && (
-                <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: '6px', color: 'var(--ps-dim)', flexDirection: right ? 'row-reverse' : 'row' }}>
-                  <StateShape kind={state.kind} />
-                  <Box component="span" sx={SR_ONLY_SX}>{state.label}</Box>
-                </Box>
-              )}
-              <span data-testid="slot-points">{figure}</span>
-              <Box component="span" data-testid="slot-game" sx={{ fontSize: '13px', color: 'var(--ps-dim)' }}>{lineTwo(player)}</Box>
-            </Box>
+            <>
+              <Box
+                data-testid="slot-line2"
+                sx={{
+                  display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '2px 8px', fontSize: '14px', justifyContent: right ? 'flex-end' : 'flex-start', fontVariantNumeric: 'tabular-nums',
+                }}
+              >
+                {!pre && state && (
+                  <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: '6px', flexDirection: right ? 'row-reverse' : 'row' }}>
+                    <StateShape kind={state.kind} />
+                    <Box component="span" sx={SR_ONLY_SX}>{state.label}</Box>
+                  </Box>
+                )}
+                <span data-testid="slot-points">{figure}</span>
+              </Box>
+              <Box data-testid="slot-game" sx={{ fontSize: '13px', color: 'var(--ps-dim)', overflowWrap: 'break-word' }}>{lineTwo(player, notStarted)}</Box>
+            </>
           ) : (
-            <Box data-testid="slot-line2" sx={{ fontSize: '13px', color: 'var(--ps-dim)' }}>{lineTwo(player)}</Box>
+            <Box data-testid="slot-line2" sx={{ fontSize: '13px', color: 'var(--ps-dim)' }}>{lineTwo(player, notStarted)}</Box>
           )}
         </Box>
         {!compact && !pre && <Box sx={{ width: STATE_WIDTH, flex: 'none' }}>{marker}</Box>}
