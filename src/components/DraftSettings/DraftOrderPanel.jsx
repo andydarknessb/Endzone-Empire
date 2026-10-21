@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import PropTypes from 'prop-types';
-import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, Stack, Typography } from '@mui/material';
+import { Accordion, AccordionDetails, AccordionSummary, Box, Stack, Typography } from '@mui/material';
+import { Note, PsButton, SubHead } from './kit';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import SortableTeamList from './SortableTeamList';
 import { draftRounds } from '../../lib/rosterShape';
@@ -25,22 +26,22 @@ export default function DraftOrderPanel({ league, teams, frozen, onSave, onSetOr
   const insufficientTeams = teams.length < 2;
   return (
     <Stack spacing={2}>
-      {frozen && <Alert severity="info">Draft order is locked once the draft starts.</Alert>}
-      {!frozen && insufficientTeams && <Alert severity="info">Add at least 2 teams to set a draft order.</Alert>}
-      <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}><Button variant="outlined" disabled={frozen || saving || insufficientTeams} onClick={onRandomize}>Randomize order</Button><Button variant="contained" disabled={frozen || saving || insufficientTeams} onClick={() => onSetOrder(order.map((team) => team.id))}>Save order</Button></Box>
-      <Typography variant="subtitle2" component="h5">Round 1 order</Typography>
+      {frozen && <Note>Draft order is locked once the draft starts.</Note>}
+      {!frozen && insufficientTeams && <Note>Add at least 2 teams to set a draft order.</Note>}
+      <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}><PsButton disabled={frozen || saving || insufficientTeams} onClick={onRandomize}>Randomize order</PsButton><PsButton disabled={frozen || saving || insufficientTeams} onClick={() => onSetOrder(order.map((team) => team.id))}>Save order</PsButton></Box>
+      <SubHead>Round 1 order</SubHead>
       <SortableTeamList items={labels(order.map((team) => team.id))} onChange={(rows) => setOrder(rows.map((row) => teamMap.get(String(row.id))))} disabled={frozen} />
-      <Typography variant="subtitle2" component="h5">Rotation preview</Typography>
+      <SubHead>Rotation preview</SubHead>
       {[1, 2, 3].map((round) => <Typography key={round} variant="body2">Round {round}: {labels(overrides[round] || effectiveOrder(order, league.draft_rotation || 'snake', round).map((team) => team.id)).map((team) => team.label).join(' · ') || 'Set the round 1 order first'}</Typography>)}
-      <Typography variant="subtitle2" component="h5">Round overrides</Typography>
+      <SubHead>Round overrides</SubHead>
       {/* Only rounds that will actually be drafted: the IR slot costs none
           (#96), and once the draft is active this is the fixed value, not a
           live recomputation (ADR 0005). */}
       {Array.from({ length: draftRounds(league) }, (_, index) => index + 1).map((round) => {
         const rows = labels(overrides[round] || effectiveOrder(order, league.draft_rotation || 'snake', round).map((team) => team.id));
-        return <Accordion key={round} disabled={frozen}><AccordionSummary expandIcon={<ExpandMoreIcon />}>Round {round}{overrides[round] ? ' (custom)' : ''}</AccordionSummary><AccordionDetails><Stack spacing={1}><SortableTeamList items={rows} onChange={(next) => setRound(round, next)} disabled={frozen} /><Box><Button size="small" disabled={!overrides[round]} onClick={() => setOverrides((current) => { const next = { ...current }; delete next[round]; return next; })}>Clear round override</Button></Box></Stack></AccordionDetails></Accordion>;
+        return <Accordion key={round} disabled={frozen} disableGutters square sx={{ border: '2px solid var(--ps-dim)', boxShadow: 'none', backgroundColor: 'var(--ps-panel)', color: 'var(--ps-ink)', '&:before': { display: 'none' } }}><AccordionSummary sx={{ minHeight: '44px' }} expandIcon={<ExpandMoreIcon />}>Round {round}{overrides[round] ? ' (custom)' : ''}</AccordionSummary><AccordionDetails><Stack spacing={1}><SortableTeamList items={rows} onChange={(next) => setRound(round, next)} disabled={frozen} /><Box><PsButton disabled={!overrides[round]} onClick={() => setOverrides((current) => { const next = { ...current }; delete next[round]; return next; })}>Clear round override</PsButton></Box></Stack></AccordionDetails></Accordion>;
       })}
-      <Box><Button variant="contained" disabled={frozen || saving || insufficientTeams} onClick={saveOverrides}>Save round overrides</Button></Box>
+      <Box><PsButton disabled={frozen || saving || insufficientTeams} onClick={saveOverrides}>Save round overrides</PsButton></Box>
     </Stack>
   );
 }

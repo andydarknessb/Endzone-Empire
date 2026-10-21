@@ -248,6 +248,19 @@ test('saves pending-draft timer and delay through the league settings endpoint',
   await waitFor(() => expect(apiClient.put).toHaveBeenCalledWith('/api/league/1', { pickTimeSeconds: 60, autodraftDelaySeconds: 10 }));
 });
 
+test('marks an edited field as unsaved and renders no filled action', async () => {
+  mockData();
+  const { container } = renderSettings();
+  await screen.findByText('Sunday Ballers');
+  await userEvent.click(screen.getByRole('tab', { name: 'Timer' }));
+  expect(screen.queryByText('Unsaved changes')).not.toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText('Autodraft delay (seconds)'), { target: { value: '20' } });
+  expect(await screen.findByText('Unsaved changes')).toBeInTheDocument();
+  // data-variant is the kit's marker for a filled action; it has no role or name to query by.
+  // eslint-disable-next-line testing-library/no-container, testing-library/no-node-access
+  expect(container.querySelector('[data-variant="fill"]')).toBeNull();
+});
+
 test('reloads the league exactly once after a save', async () => {
   const leagueGets = () => apiClient.get.mock.calls.filter(([url]) => url === '/api/league/1').length;
   mockData();
