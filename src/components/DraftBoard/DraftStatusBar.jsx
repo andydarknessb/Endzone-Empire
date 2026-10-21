@@ -1,8 +1,9 @@
-import React from 'react';
-import { Box, Chip, Button, IconButton, Tooltip, Snackbar, Alert } from '@mui/material';
+import React, { useEffect } from 'react';
+import { Box, Chip, Button, IconButton, Tooltip } from '@mui/material';
 import NotificationsActiveIcon from '@mui/icons-material/NotificationsActive';
 import NotificationsOffIcon from '@mui/icons-material/NotificationsOff';
 import { MIN_TOUCH_TARGET_SX } from '../../shared/lib/a11y';
+import { useSnackbar } from '../Snackbar/SnackbarProvider';
 import { draftStatusLabel, draftStatusChipColor } from './draftStatusCopy';
 
 // Issue #512: a stable name in both states, with aria-pressed alone carrying
@@ -42,6 +43,15 @@ function DraftStatusBar({
   // active; the assistant only speaks during an active draft.
   assistantToggle = null,
 }) {
+  const notify = useSnackbar();
+  // The shared toast kit shows and hides the toast itself; the room's flag only says "a turn just began", so it is
+  // reset as soon as the toast is handed over. The kit keeps its live regions free of buttons (#2440).
+  useEffect(() => {
+    if (!onClockAlertOpen) return;
+    notify("You're on the clock!", { severity: 'info' });
+    onCloseOnClockAlert();
+  }, [onClockAlertOpen, notify, onCloseOnClockAlert]);
+
   return (
     <>
       <Box
@@ -121,16 +131,6 @@ function DraftStatusBar({
         </Box>
       </Box>
 
-      <Snackbar
-        open={onClockAlertOpen}
-        autoHideDuration={6000}
-        onClose={onCloseOnClockAlert}
-        anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
-      >
-        <Alert onClose={onCloseOnClockAlert} severity="info" variant="filled" sx={{ fontWeight: 'bold' }}>
-          You&apos;re on the clock!
-        </Alert>
-      </Snackbar>
     </>
   );
 }
