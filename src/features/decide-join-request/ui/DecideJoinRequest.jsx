@@ -1,13 +1,13 @@
 import React, { useState } from 'react';
-import { Alert, Box, Button } from '@mui/material';
+import { Box } from '@mui/material';
 import apiClient from '../../../api/apiClient';
 import { readHttpFailure } from '../../../lib/httpFailure';
-import { MIN_TOUCH_TARGET_SX } from '../../../shared/lib';
+import { PsButton } from '../../../shared/ui/playselect';
 
 /**
- * decide-join-request feature (#1109): the pair of MUI Buttons a commissioner
- * uses to decide one pending join request - Deny (outlined) and Approve
- * (contained) - POSTing `/api/league/:id/join-requests/:requestId/decide`
+ * decide-join-request feature (#1109): the pair of Play-select buttons a
+ * commissioner uses to decide one pending join request - Deny (ghost) and
+ * Approve (fill on the `lead` request, else ghost) - POSTing `/api/league/:id/join-requests/:requestId/decide`
  * with `{ approve }`, the mutation CommissionerTools' own Join Requests tab
  * fires today (CommissionerTools.jsx's `handleDecideJoinRequest`).
  *
@@ -33,12 +33,10 @@ import { MIN_TOUCH_TARGET_SX } from '../../../shared/lib';
  * Busy uses `aria-disabled`, never the native `disabled` attribute (a11y risk
  * review): disabling a native button the instant it is activated forces the
  * browser to blur it (the HTML "focus fixup" rule), dropping keyboard focus to
- * `<body>` before the request even lands. `aria-disabled` plus `pointerEvents:
- * 'none'` keeps the control focusable and announced as disabled without that
- * blur; the `busy` guard at the top of `decide` is what actually blocks a
- * second submit, since a focused native button still dispatches a `click` on
- * Enter/Space regardless of `pointer-events` (a CSS hit-testing property, not
- * a keyboard gate).
+ * `<body>` before the request even lands. `aria-disabled` keeps the control
+ * focusable and announced as disabled without that blur; the `busy` guard at
+ * the top of `decide` is what actually blocks a second submit, from a pointer
+ * click or from Enter/Space alike, since `aria-disabled` does not stop a click.
  *
  * The refusal is shown as the server wrote it, read through the shared
  * `readHttpFailure` reader (src/lib/httpFailure.js) exactly as `AdvanceWeek`
@@ -50,7 +48,7 @@ import { MIN_TOUCH_TARGET_SX } from '../../../shared/lib';
  * it; only the widget's own re-read (after a successful decision) changes
  * what the list shows.
  */
-export default function DecideJoinRequest({ leagueId, requestId, teamName, onDecided }) {
+export default function DecideJoinRequest({ leagueId, requestId, teamName, lead = false, onDecided }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
 
@@ -71,54 +69,34 @@ export default function DecideJoinRequest({ leagueId, requestId, teamName, onDec
 
   const label = (verb) => (teamName ? `${verb} ${teamName}'s join request` : verb);
 
-  // Only the CSS half of "looks and behaves disabled" while busy - see the
-  // aria-disabled note above for why the native attribute is never used.
-  const busySx = busy ? { pointerEvents: 'none', opacity: 0.6 } : null;
+  // aria-disabled, never native disabled, while busy: see the note above. PsButton styles
+  // [aria-disabled="true"] as disabled.
+  const busyProps = busy ? { 'aria-disabled': 'true' } : null;
 
   return (
     <Box sx={{ display: 'grid', gap: 1 }}>
-      <Box
-        sx={{
-          display: 'flex',
-          flexWrap: 'wrap',
-          gap: 1,
-        }}
-      >
-        {/* Deny first, outlined: the mockup's error-toned refusal button, the
-            same order and emphasis CommissionerTools' own tab uses. Full-width
-            below `md` (the ticket's own responsive rule), auto width from
-            there. */}
-        <Button
-          type="button"
-          variant="outlined"
-          color="error"
-          aria-disabled={busy || undefined}
-          aria-label={label('Deny')}
-          onClick={() => decide(false)}
-          sx={{ ...MIN_TOUCH_TARGET_SX, width: { xs: '100%', md: 'auto' }, textTransform: 'none', ...busySx }}
-        >
+      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+        {/* Deny first, always a ghost. Approve is the page's one filled action
+            only on the `lead` (first pending) request; every other is a ghost
+            (RULINGS: at most one filled action per page). */}
+        <PsButton variant="ghost" ariaLabel={label('Deny')} onClick={() => decide(false)} {...busyProps}>
           Deny
-        </Button>
-        <Button
-          type="button"
-          variant="contained"
-          color="success"
-          aria-disabled={busy || undefined}
-          aria-label={label('Approve')}
-          onClick={() => decide(true)}
-          sx={{ ...MIN_TOUCH_TARGET_SX, width: { xs: '100%', md: 'auto' }, textTransform: 'none', ...busySx }}
-        >
+        </PsButton>
+        <PsButton variant={lead ? 'fill' : 'ghost'} ariaLabel={label('Approve')} onClick={() => decide(true)} {...busyProps}>
           Approve
-        </Button>
+        </PsButton>
       </Box>
 
-      {/* The server's refusal. MUI Alert carries role="alert", so a screen
-          reader hears it when it appears. Prefixed with the Team name (see
+      {/* The server's refusal. role="alert" makes a screen reader announce
+          it when it appears. Prefixed with the Team name (see
           docblock) so it is attributable when more than one row is pending. */}
       {error && (
-        <Alert severity="error" sx={{ fontSize: '13px' }}>
+        <Box
+          role="alert"
+          sx={{ fontSize: '14px', padding: '8px 12px', border: '2px solid var(--ps-danger)' }}
+        >
           {error}
-        </Alert>
+        </Box>
       )}
     </Box>
   );
