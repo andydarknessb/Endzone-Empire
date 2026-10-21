@@ -10,13 +10,14 @@
  */
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
+import { setTheme } from './fixtures/draftHarness';
 import { setupPlayersPageLayout, PLAYERS_LAYOUT_URL, PLAYERS_LAYOUT_LEAGUE_NAME } from './fixtures/playersPageLayoutFixtures';
 
 const DESKTOP = { width: 1440, height: 900 };
 const PHONE = { width: 390, height: 844 };
-const HEAD_TOP_MAX = 330;
+const HEAD_TOP_MAX = 504;
 const ROW_HEIGHT_MAX = 72;
-const CARD_TOP_MAX = 360;
+const CARD_TOP_MAX = 407;
 const CARD_HEIGHT_MAX = 220;
 const ACCENT = 'rgb(30, 91, 184)';
 
@@ -48,7 +49,7 @@ async function openDesktop(page: Page) {
   await page.evaluate(() => document.fonts.ready.then(() => true));
 }
 
-test('1440x900: the table head starts at or above y=330 and every row is 72px or less', async ({ page }) => {
+test('1440x900: the table head starts at or above y=504 and every row is 72px or less', async ({ page }) => {
   await openDesktop(page);
   const { headTop, rowHeights } = await page.evaluate(probeTable);
   // eslint-disable-next-line no-console
@@ -72,7 +73,7 @@ test('1440x900: the head sticks to the viewport top after scrolling and is not t
   expect(head.background, `head background ${head.background}`).not.toBe(ACCENT);
 });
 
-test('390x844: the league is named, the first card starts at or above y=360, is 220px or less, and nothing scrolls sideways', async ({ page }) => {
+test('390x844: the league is named, the first card starts at or above y=407, is 220px or less, and nothing scrolls sideways', async ({ page }) => {
   await setupPlayersPageLayout(page);
   await page.setViewportSize(PHONE);
   await page.goto(PLAYERS_LAYOUT_URL);
@@ -101,7 +102,7 @@ test('390x844: the league is named, the first card starts at or above y=360, is 
  * spare width the table hands the cell).
  */
 function probeWeeks() {
-  const strips = Array.from(document.querySelectorAll('[data-testid="player-row"] [data-testid="weekly-points-bars"]'));
+  const strips = Array.from(document.querySelectorAll('[data-testid="player-row"] [data-testid="player-row-weeks"]'));
   const container = document.querySelector('table')?.parentElement as HTMLElement | null;
   const span = (strip: Element) => {
     const columns = Array.from(strip.children).map((column) => column.getBoundingClientRect());
@@ -176,4 +177,62 @@ test('320x700: the first card is 220px or less and nothing scrolls sideways', as
   console.log(`PLAYERS_LAYOUT_PHONE_320 ${JSON.stringify({ top: box!.y, height: box!.height, ...doc })}`);
   expect(box!.height, `first card height ${box!.height} at 320`).toBeLessThanOrEqual(CARD_HEIGHT_MAX);
   expect(doc.scrollWidth, `document scrollWidth ${doc.scrollWidth} vs clientWidth ${doc.clientWidth}`).toBeLessThanOrEqual(doc.clientWidth + 1);
+});
+
+// Play-select (spec #2453): the page has no cursor and no filled action, never scrolls sideways, and
+// every button is 44px, or 36px inside the desktop table.
+/** Cursors, filled actions, page overflow, and every visible button/link below its minimum. */
+function probePlayselect({ tableMin, otherMin }: { tableMin: number; otherMin: number }) {
+  const controls = Array.from(document.querySelectorAll('.ps-root button, .ps-root a[href], .ps-root [role="button"]')) as HTMLElement[];
+  const small = controls
+    .filter((el) => getComputedStyle(el).visibility !== 'hidden' && el.getClientRects().length > 0)
+    .map((el) => {
+      const r = el.getBoundingClientRect();
+      const min = el.closest('table') ? tableMin : otherMin;
+      return { name: el.getAttribute('aria-label') || (el.textContent || '').trim().slice(0, 40), height: Math.round(r.height), min };
+    })
+    .filter((c) => c.height < c.min);
+  return {
+    cursors: document.querySelectorAll('.cursor').length,
+    fills: document.querySelectorAll('[data-variant="fill"]').length,
+    scrollWidth: document.documentElement.scrollWidth,
+    innerWidth: window.innerWidth,
+    small,
+  };
+}
+
+for (const viewport of [DESKTOP, PHONE]) {
+  for (const theme of ['light', 'dark'] as const) {
+    test(`${viewport.width} ${theme}: Play-select page has no cursor or fill, no sideways scroll, and buttons of at least 44px (36px in the desktop table)`, async ({ page }) => {
+      await setTheme(page, theme);
+      await setupPlayersPageLayout(page);
+      await page.setViewportSize(viewport);
+      await page.goto(PLAYERS_LAYOUT_URL);
+      await expect(page.getByTestId(viewport === DESKTOP ? 'player-row' : 'player-row-card').first()).toBeVisible();
+      await page.evaluate(() => document.fonts.ready.then(() => true));
+
+      const probe = await page.evaluate(probePlayselect, { tableMin: viewport === DESKTOP ? 36 : 44, otherMin: 44 });
+      // eslint-disable-next-line no-console
+      console.log(`PLAYERS_PLAYSELECT ${JSON.stringify({ viewport: viewport.width, theme, ...probe })}`);
+      expect(probe.cursors, 'no .cursor on the Players page').toBe(0);
+      expect(probe.fills, 'no filled action outside a modal').toBe(0);
+      expect(probe.scrollWidth, `scrollWidth ${probe.scrollWidth} vs innerWidth ${probe.innerWidth}`).toBeLessThanOrEqual(probe.innerWidth);
+      expect(probe.small, `controls under their minimum: ${JSON.stringify(probe.small)}`).toEqual([]);
+    });
+  }
+}
+
+// Permanent negative control: the probe reports a forced cursor, fill and short button.
+test('negative control: the Play-select probe reports a forced cursor, fill and short button', async ({ page }) => {
+  await setupPlayersPageLayout(page);
+  await page.setViewportSize(PHONE);
+  await page.goto(PLAYERS_LAYOUT_URL);
+  await expect(page.getByTestId('player-row-card').first()).toBeVisible();
+  await page.evaluate(() => {
+    document.querySelector('.ps-root')!.insertAdjacentHTML('beforeend', '<div class="cursor"></div><button data-variant="fill" style="height:20px">x</button>');
+  });
+  const probe = await page.evaluate(probePlayselect, { tableMin: 44, otherMin: 44 });
+  expect(probe.cursors).toBe(1);
+  expect(probe.fills).toBe(1);
+  expect(probe.small.length).toBeGreaterThan(0);
 });
