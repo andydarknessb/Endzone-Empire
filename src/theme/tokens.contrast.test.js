@@ -626,7 +626,7 @@ describe.each(['light', 'dark'])('%s theme contrast', (mode) => {
 // Per ADR 0010 ("A green check certifies exactly what that check reads, and
 // nothing adjacent"), this is not a blanket certification of every
 // `kit.jersey` consumer - only of `monogramInk` itself. `LedgerRow.jsx`'s
-// `PlayerAvatar` and `PlayerDecisionCard.jsx`'s former `HeaderAvatar` both called
+// `PlayerAvatar` and the Decision card's old header avatar both called
 // `monogramInk(kit.jersey)` too (#1317, the second and third consumers that
 // triggered this function's promotion to `shared/lib`), but each component's
 // own test file (`LedgerRow.test.jsx`, `PlayerDecisionCard.test.jsx`) is what
