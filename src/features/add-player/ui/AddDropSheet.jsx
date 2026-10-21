@@ -13,12 +13,24 @@ import {
   useMediaQuery,
 } from '@mui/material';
 import { MIN_TOUCH_TARGET_SX, sortRosterForDrop } from '../../../shared/lib';
+import { BODY_FONT } from '../../../shared/ui/playselect';
 import { useAddPlayer } from '../model/useAddPlayer';
+import AddDropSheetPlayselect from './AddDropSheetPlayselect';
 
 const fmt = (n) => (n == null || Number.isNaN(Number(n)) ? '-' : Number(n).toFixed(1));
 const TOUCH = { minHeight: 44, minWidth: 44 };
+// The Play-select sheet's paper, the same as ClaimSheet's: a 6px double frame, square, on the panel fill.
+const PS_PAPER_SX = {
+  border: '6px double var(--ps-frame)',
+  borderRadius: 0,
+  backgroundColor: 'var(--ps-panel)',
+  backgroundImage: 'none',
+  color: 'var(--ps-ink)',
+  fontFamily: BODY_FONT,
+  boxSizing: 'border-box',
+};
 
-function AddDropSheetBody({ player, leagueId, roster, dropSuggestion, onClose, onAdded }) {
+function AddDropSheetBody({ player, leagueId, roster, dropSuggestion, onClose, onAdded, look }) {
   const sortedRoster = sortRosterForDrop(roster);
   // The server's suggested drop (#1912, ADR 0055), the same preselect the
   // claim sheet makes: only when that player is on the list shown.
@@ -31,6 +43,20 @@ function AddDropSheetBody({ player, leagueId, roster, dropSuggestion, onClose, o
     const result = await addPlayer({ playerId: player.id, playerName: player.name, dropPlayerId: Number(dropId) });
     if (result.ok) onClose();
   };
+
+  if (look === 'playselect') {
+    return (
+      <AddDropSheetPlayselect
+        player={player}
+        roster={sortedRoster}
+        dropId={dropId}
+        onDrop={setDropId}
+        pending={pending}
+        onSubmit={submit}
+        onClose={onClose}
+      />
+    );
+  }
 
   return (
     <>
@@ -88,12 +114,24 @@ function AddDropSheetBody({ player, leagueId, roster, dropSuggestion, onClose, o
  * caller's own roster read; `dropSuggestion` is the players read's
  * `context.dropSuggestion` (`{ id, name } | null`), the one drop preselected.
  * `onAdded` runs after a successful add; the sheet then closes.
+ * `look` is `'dash'` (default) or `'playselect'` (ADR 0067, spec #2453): the same sheet on `ps-*`
+ * tokens (`AddDropSheetPlayselect`), its dialog a `ps-root` so the kit's focus ring and buttons apply.
  */
-export default function AddDropSheet({ open, player, leagueId, roster, dropSuggestion, onClose, onAdded }) {
+export default function AddDropSheet({ open, player, leagueId, roster, dropSuggestion, onClose, onAdded, look = 'dash' }) {
   const phone = useMediaQuery('(max-width:599.95px)'); // below MUI's sm
   if (!player) return null;
+  const ps = look === 'playselect';
   return (
-    <Dialog open={open} onClose={onClose} fullScreen={phone} fullWidth maxWidth="sm" aria-labelledby="add-drop-sheet-title">
+    <Dialog
+      open={open}
+      onClose={onClose}
+      fullScreen={phone}
+      fullWidth
+      maxWidth={ps ? false : 'sm'}
+      aria-labelledby="add-drop-sheet-title"
+      className={ps ? 'ps-root' : undefined}
+      PaperProps={ps ? { sx: phone ? PS_PAPER_SX : { ...PS_PAPER_SX, maxWidth: '480px' } } : undefined}
+    >
       <AddDropSheetBody
         key={player.id}
         player={player}
@@ -102,6 +140,7 @@ export default function AddDropSheet({ open, player, leagueId, roster, dropSugge
         dropSuggestion={dropSuggestion}
         onClose={onClose}
         onAdded={onAdded}
+        look={look}
       />
     </Dialog>
   );

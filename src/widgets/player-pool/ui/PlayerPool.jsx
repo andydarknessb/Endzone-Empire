@@ -333,6 +333,7 @@ const PlayerPool = forwardRef(function PlayerPool(
         visiblePlayers={visiblePlayers}
         renderRow={renderRow}
         renderTableHead={renderTableHead}
+        stickyHead={stickyHead}
         columnCount={columnCount}
         bestBall={bestBall}
         currentWeek={currentWeek}

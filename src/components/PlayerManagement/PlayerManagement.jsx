@@ -1,19 +1,11 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
-  Link as RouterLink,
-  useSearchParams,
-} from "react-router-dom";
-import {
-  Alert,
   Box,
-  Button,
   FormControl,
   InputLabel,
   MenuItem,
   Select,
-  Stack,
-  Typography,
-  Chip,
 } from "@mui/material";
 import apiClient from "../../api/apiClient";
 import { readHttpFailure } from "../../lib/httpFailure";
@@ -25,18 +17,13 @@ import PlayerRow, { PlayerRowTableHead, playerRowColumnCount } from "../../widge
 import { AddDropSheet, useAddPlayer } from "../../features/add-player";
 import { DropConfirmationDialog, useDropPlayer } from "../../features/drop-player";
 import { useClaimPlayer } from "../../features/claim-player";
-import { useWatchPlayer } from "../../features/watch-player";
 import { proposeTradeHref } from "../../features/propose-trade";
 import { rosterActionForPhase } from "../../shared/lib/leaguePhase";
 import { isRosterAtCapacity } from "../../shared/lib/rosterCapacity";
 import { isPickemOnly } from "../../shared/lib/leagueType";
-
-const actionSx = {
-  minHeight: 44,
-  minWidth: 104,
-  borderRadius: 2,
-  fontWeight: 800,
-};
+import {
+  ErrorPanel, PixelHeading, PsButton, PsLink, psRootSx,
+} from "../../shared/ui/playselect";
 
 function availabilityOf(player) {
   return player.availability?.state || "free_agent";
@@ -209,28 +196,6 @@ function PlayerManagement() {
     },
     [submitClaim],
   );
-  // #1312, ADR 0040 follow-up (grill ruling Q6): the row's own Watch toggle,
-  // the same one-tap shape `claimFromRow` already gives the row - its own
-  // per-row busy id, scoped separately from `pendingPlayerId` (Claim/Add's
-  // own tracker) since the two actions are independent and a manager may
-  // watch a row while an unrelated claim is still in flight.
-  const { toggleWatch } = useWatchPlayer({ leagueId: selectedLeague, onDone: refreshAfterAction });
-  const [pendingWatchPlayerId, setPendingWatchPlayerId] = useState(null);
-  const watchActionForPlayer = useCallback(
-    (player) => {
-      if (!selectedLeague) return null;
-      return {
-        watching: Boolean(player.watching),
-        pending: pendingWatchPlayerId === player.id,
-        onClick: async () => {
-          setPendingWatchPlayerId(player.id);
-          await toggleWatch({ playerId: player.id, watching: Boolean(player.watching) });
-          setPendingWatchPlayerId(null);
-        },
-      };
-    },
-    [pendingWatchPlayerId, selectedLeague, toggleWatch],
-  );
   const actionForPlayer = useCallback(
     (player) => {
       const state = availabilityOf(player);
@@ -271,8 +236,6 @@ function PlayerManagement() {
           kind: "button",
           label: "Drop",
           ariaLabel: `Drop ${player.name}`,
-          variant: "outlined",
-          color: "error",
           onClick: () => requestDrop({ playerId: player.id, name: player.name }),
           disabled: rosterAction.disabled,
           helper: rosterAction.disabled ? rosterAction.helper : undefined,
@@ -286,7 +249,6 @@ function PlayerManagement() {
             playerId: player.id,
           }),
           label: "Trade",
-          variant: "outlined",
           helper: player.availability?.teamName
             ? `Propose a trade with ${player.availability.teamName}.`
             : "Propose a trade for this player.",
@@ -302,7 +264,6 @@ function PlayerManagement() {
         // add and drop sheet (#1974 P1).
         onClick: rosterAtCapacity ? () => setAddDropPlayer(player) : () => addToRoster(player),
         disabled: rosterAction.disabled || rowPending,
-        variant: "contained",
         helper: rosterAction.disabled
           ? rosterAction.helper
           : rosterAtCapacity
@@ -367,120 +328,73 @@ function PlayerManagement() {
       : quickViewContext === "rostered"
       ? rostered({ availability: quickViewPlayer.availability || {}, ...quickViewShared })
       : myTeam({ managed: false, ...quickViewShared });
+  const contextLine = marketContext
+    ? [
+        marketContext.rosterCount != null && `${marketContext.rosterCount} / ${marketContext.rosterCapacity ?? "-"} rostered`,
+        marketContext.waiverType === "faab" && `FAAB $${marketContext.faabRemaining ?? "-"}`,
+        marketContext.waiverType === "priority" && `Waiver priority ${marketContext.waiverPriority ?? "-"}`,
+      ].filter(Boolean).join(" · ")
+    : "";
   return (
-    <Box
-      component="div"
-      sx={{
-        width: "100%",
-        maxWidth: 1280,
-        mx: "auto",
-        px: { xs: 1.5, sm: 3 },
-        py: { xs: 2, md: 3 },
-      }}
-    >
-      <Stack
-        component="header"
-        direction="row"
-        useFlexGap
-        flexWrap="wrap"
-        alignItems="center"
-        columnGap={1.5}
-        rowGap={1}
-        sx={{ mb: 1.5 }}
+    <Box className="ps-root" sx={{ ...psRootSx, minHeight: "100%" }}>
+      <Box
+        sx={{
+          width: "100%",
+          maxWidth: "1440px",
+          marginX: "auto",
+          boxSizing: "border-box",
+          padding: { xs: "24px 16px 48px", sm: "24px 32px 64px" },
+          display: "flex",
+          flexDirection: "column",
+          gap: "24px",
+        }}
       >
-        <Box
-          sx={{
-            display: "flex",
-            alignItems: "baseline",
-            columnGap: 1.5,
-            minWidth: 0,
-            width: { xs: "100%", sm: "auto" },
-          }}
-        >
-          <Typography
-            component="h1"
-            sx={{ fontSize: 24, fontWeight: 800, lineHeight: 1.2, color: "var(--text-primary)" }}
-          >
-            Players
-          </Typography>
+      <Box
+        component="header"
+        sx={{ display: "flex", flexWrap: "wrap", alignItems: "center", columnGap: "12px", rowGap: "8px" }}
+      >
+        <Box sx={{ display: "flex", flexDirection: "column", gap: "4px", minWidth: 0, flex: 1 }}>
+          <PixelHeading level={1}>Players</PixelHeading>
           {/* Below md the League select lives in the Filters drawer, so the
               header names the league there. */}
           {activeLeague?.name && (
-            <Typography
-              noWrap
-              sx={{ display: { xs: "block", md: "none" }, minWidth: 0, fontSize: 13, color: "var(--text-muted)" }}
-            >
+            <Box component="p" sx={{ display: { xs: "block", md: "none" }, m: 0, minWidth: 0, fontSize: "16px", color: "var(--ps-dim)" }}>
               {activeLeague.name}
-            </Typography>
+            </Box>
+          )}
+          {contextLine && (
+            <Box component="p" sx={{ m: 0, fontSize: { xs: "16px", sm: "17px" }, color: "var(--ps-dim)" }}>
+              {contextLine}
+            </Box>
           )}
         </Box>
-        {marketContext && (
-          <Stack direction="row" useFlexGap flexWrap="wrap" spacing={0.75}>
-            {marketContext.rosterCount != null && (
-              <Chip
-                size="small"
-                label={`${marketContext.rosterCount} / ${marketContext.rosterCapacity ?? "-"} rostered`}
-              />
-            )}
-            {marketContext.waiverType === "faab" && (
-              <Chip
-                size="small"
-                color="secondary"
-                label={`FAAB $${marketContext.faabRemaining ?? "-"}`}
-              />
-            )}
-            {marketContext.waiverType === "priority" && (
-              <Chip
-                size="small"
-                color="secondary"
-                label={`Waiver priority ${marketContext.waiverPriority ?? "-"}`}
-              />
-            )}
-          </Stack>
-        )}
         {selectedLeague && (
-          <Button
-            component={RouterLink}
-            to={`/league/${selectedLeague}/lineup`}
-            variant="outlined"
-            sx={{ ...actionSx, ml: { sm: "auto" } }}
-          >
-            Manage lineup
-          </Button>
+          <PsButton to={`/league/${selectedLeague}/lineup`}>Manage lineup</PsButton>
         )}
-      </Stack>
+      </Box>
       {error && (
-        <Alert severity="error" onClose={() => setError(null)} sx={{ mb: 2 }}>
-          {error}
-        </Alert>
+        <ErrorPanel title="Something went wrong" body={error} />
       )}
       {leaguesLoaded && leagues.length === 0 && (
-        <Alert
-          severity="info"
-          sx={{ mb: 2 }}
-          action={
-            <Button component={RouterLink} to="/league" color="inherit">
-              Go to Leagues
-            </Button>
-          }
-        >
+        <Box component="p" sx={{ m: 0, fontSize: "16px", color: "var(--ps-dim)" }}>
           You&apos;re not in a fantasy league yet, so players can be browsed but
-          not acquired.
-        </Alert>
+          not acquired. <PsLink to="/league">Go to Leagues</PsLink>
+        </Box>
       )}
       <PlayerPool
         ref={poolRef}
+        look="playselect"
         leagueId={selectedLeague}
         bestBall={bestBall}
         stickyHead
         ready={leaguesLoaded}
         columnCount={playerRowColumnCount(bestBall)}
-        renderTableHead={(headProps) => <PlayerRowTableHead {...headProps} />}
+        renderTableHead={(headProps) => <PlayerRowTableHead {...headProps} look="playselect" />}
         renderRow={(player, variant) => (
           <PlayerRow
+            look="playselect"
             player={player}
             action={actionForPlayer(player)}
-            watchAction={watchActionForPlayer(player)}
             bestBall={bestBall}
             variant={variant === "card" ? "card" : undefined}
             onOpenPlayer={setQuickViewId}
@@ -517,20 +431,15 @@ function PlayerManagement() {
         }}
         afterAvailabilityControl={() =>
           pendingClaimCount !== null && !bestBall ? (
-            <Button
-              component={RouterLink}
-              to={`/league/${Number(selectedLeague)}/waivers`}
-              variant="text"
-              size="small"
-              sx={{ minHeight: 44, whiteSpace: "nowrap" }}
-            >
+            <PsLink to={`/league/${Number(selectedLeague)}/waivers`}>
               {`Pending claims (${pendingClaimCount})`}
-            </Button>
+            </PsLink>
           ) : null
         }
       />
 
       <PlayerDecisionCard
+        look="playselect"
         open={quickViewId != null}
         onClose={() => setQuickViewId(null)}
         entry={toDecisionCardEntry(quickViewPlayer)}
@@ -539,6 +448,7 @@ function PlayerManagement() {
       />
 
       <AddDropSheet
+        look="playselect"
         open={addDropPlayer != null}
         player={addDropPlayer}
         leagueId={selectedLeague}
@@ -547,7 +457,8 @@ function PlayerManagement() {
         onClose={() => setAddDropPlayer(null)}
         onAdded={refreshAfterAction}
       />
-      <DropConfirmationDialog entry={dropCandidate} onClose={closeDropConfirmation} onConfirm={confirmDrop} />
+      <DropConfirmationDialog look="playselect" entry={dropCandidate} onClose={closeDropConfirmation} onConfirm={confirmDrop} />
+      </Box>
     </Box>
   );
 }

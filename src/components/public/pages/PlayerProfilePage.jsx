@@ -249,6 +249,7 @@ function InYourLeaguesBlock({ player }) {
       {/* #1515 (T19): `availability` rides inside fromCard()'s own context
           object now - no loose prop beside it. */}
       <PlayerDecisionCard
+        look="playselect"
         open={cardOpen}
         onClose={() => setCardOpen(false)}
         entry={entry}
