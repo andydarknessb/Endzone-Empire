@@ -877,7 +877,9 @@ function DraftBoard() {
         display: 'grid',
         gridTemplateColumns: 'minmax(0, 59fr) minmax(0, 25fr) minmax(0, 16fr)',
         gridTemplateRows: 'minmax(0, 1fr)',
-        gap: 2,
+        // 12px, not 16: each pane's rule Frame spends 2px a side, and the pool's fit
+        // check (draft-board.spec.ts, #119) has no slack to give back.
+        gap: 1.5,
         flex: '1 1 auto',
         height: '100%',
         minHeight: 0,
