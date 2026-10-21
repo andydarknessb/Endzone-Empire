@@ -45,6 +45,24 @@ test('lineupStatus checks a standard league in full against its roster slots', (
   assert.deepEqual(problems, ['1 empty RB slot', 'Quarterback (QB) is on bye']);
 });
 
+// #2391: a seat spent by a spared off-roster row is filled, as spentStartingSlots treats it on a save.
+test('lineupStatus counts a spent starting seat as filled and never nags its departed player', () => {
+  const entries = [
+    entry('QB', 'Quarterback'),
+    entry('K', 'Spared Kicker', { spent: true, verdict: unavailable('no_team') }),
+  ];
+  const problems = unlockedProblems({ entries, rosterSlots: slots({ QB: 1, K: 1 }), bestBall: false });
+  assert.deepEqual(problems, []);
+  assert.deepEqual(lineupStatus({
+    entries, rosterSlots: slots({ QB: 1, K: 1 }), bestBall: false,
+    kickoffByTeam: new Map(), weekLastKickoff: null, now: new Date('2026-10-04T12:00:00.000Z'),
+  }).emptySlots, []);
+});
+
+test('lineupEntryFromRow carries a spent row (no team_players match) as spent', () => {
+  assert.equal(homeStatus.lineupEntryFromRow({ player_id: 4, slot: 'K', name: 'Kicker', spent: true }).spent, true);
+});
+
 test('lineupStatus gives a best-ball league only its unresolved IR stashes', () => {
   const problems = unlockedProblems({
     entries: [
@@ -162,7 +180,7 @@ test('lineupStatus resurfaces an unresolved ineligible IR stash but never a comm
 test('lineupEntryFromRow reads the lineup query row into the builder shape', () => {
   assert.deepEqual(
     homeStatus.lineupEntryFromRow({ player_id: 9, slot: 'RB', name: 'Runner', injury_status: 'Q', ir_attested: false, extra: 1 }),
-    { playerId: 9, slot: 'RB', name: 'Runner', injury_status: 'Q', ir_attested: false }
+    { playerId: 9, slot: 'RB', name: 'Runner', injury_status: 'Q', ir_attested: false, spent: false }
   );
 });
 

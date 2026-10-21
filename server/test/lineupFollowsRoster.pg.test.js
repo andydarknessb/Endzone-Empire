@@ -538,7 +538,7 @@ if (!ENABLED) {
    * the bench keep the current-roster join. The unit tests only pin which
    * statements join; this is where Postgres answers.
    */
-  async function seedLiveLeague({ name, code, bestBall }) {
+  async function seedLiveLeague({ name, code, bestBall, heldAtKickoff = true }) {
     const users = await pool.query(
       `SELECT "id" FROM "users" WHERE "username" IN ('lineup_follows_roster_pg2', 'lineup_follows_roster_pg3') ORDER BY "username"`
     );
@@ -562,6 +562,21 @@ if (!ENABLED) {
       `INSERT INTO "team_players" ("league_id", "team_id", "player_id") VALUES ($1, $2, $3)`,
       [leagueId, home, playerIds.Kept]
     );
+    if (heldAtKickoff) {
+      // #2391: a spared row exists only because a tenure covered his kickoff (#627),
+      // and settle's rowsHeldAsPlayed asks for exactly that. Hold KickedOff from a day
+      // ago, then drop him: the trigger closes the tenure now, after PGK's kickoff.
+      await pool.query(
+        `INSERT INTO "team_players" ("league_id", "team_id", "player_id") VALUES ($1, $2, $3)`,
+        [leagueId, home, playerIds.KickedOff]
+      );
+      await pool.query(
+        `UPDATE "roster_tenures" SET "acquired_at" = now() - interval '1 day'
+          WHERE "team_id" = $1 AND "player_id" = $2 AND "released_at" IS NULL`,
+        [home, playerIds.KickedOff]
+      );
+      await pool.query(`DELETE FROM "team_players" WHERE "team_id" = $1 AND "player_id" = $2`, [home, playerIds.KickedOff]);
+    }
     for (const [playerId, slot] of [[playerIds.Kept, 'QB'], [playerIds.KickedOff, 'RB'], [playerIds.Open, 'BENCH']]) {
       await pool.query(
         `INSERT INTO "lineup_entries" ("league_id", "team_id", "player_id", "season", "week", "slot")
@@ -635,6 +650,22 @@ if (!ENABLED) {
     assert.equal(r.detailBench.includes(playerIds.Open), false, 'a dropped bench row is not on the card bench');
     assert.equal(r.efBench.includes(playerIds.Open), false, 'a dropped bench row is not in the expected final');
     assert.equal(r.efStarters.includes(playerIds.Open), false);
+  });
+
+  // #2391: the same dropped starter with NO tenure covering his kickoff is a row settle would
+  // exclude, so the live readers must leave him out too.
+  test('a live standard week leaves out a dropped starter no tenure covered at kickoff (#2391)', async (t) => {
+    const seeded = await seedLiveLeague({ name: 'PG Live Unheld', code: 'pgliveunh', bestBall: false, heldAtKickoff: false });
+    await pool.query(
+      `INSERT INTO "player_stats" ("player_id", "season", "week", "stats")
+       VALUES ($1, $2, $3, '{"rushingYards": 100}')
+       ON CONFLICT ("player_id", "season", "week") DO UPDATE SET "stats" = EXCLUDED."stats"`,
+      [playerIds.KickedOff, SEASON, CURRENT_WEEK]
+    );
+    const r = await liveReaders(t, seeded);
+    assert.equal(r.score, 0, 'the live score leaves him out, as settle does');
+    assert.equal(r.detailStarters.includes(playerIds.KickedOff), false);
+    assert.equal(r.efStarters.includes(playerIds.KickedOff), false);
   });
 
   test('a live best-ball week keeps the roster join: the dropped starter is excluded from all three (#2388)', async (t) => {
