@@ -282,6 +282,29 @@ for (const dialog of DIALOGS) {
   }
 }
 
+// The later Create steps carry the size presets, the stepper and the Edit buttons the first step lacks.
+for (const viewport of Object.keys(VIEWPORTS) as ViewportName[]) {
+  test(`Create league dialog ${viewport}: Rules and Review steps keep one fill and 44px buttons`, async ({ page }) => {
+    await openHome(page, 'main', viewport, { theme: 'light' });
+    await page.getByRole('button', { name: /create a league/i }).first().click();
+    const next = page.getByRole('button', { name: 'Continue' });
+    await next.click();
+    await page.getByLabel(/League name/).fill('Monday Mayhem');
+    await page.getByLabel(/Team name/).fill('Squad');
+    const sized = await dialogProbe(page);
+    expect(sized.small, 'Basics: buttons under 44px').toEqual([]);
+    await next.click();
+    await next.click();
+    await next.click();
+    await expect(page.getByRole('heading', { name: 'Look good?' })).toBeVisible();
+    await page.waitForTimeout(400);
+    const review = await dialogProbe(page);
+    expect(review.fills).toBe(1);
+    expect(review.small, 'Review: buttons under 44px').toEqual([]);
+    expect(review.scrollWidth).toBeLessThanOrEqual(review.innerWidth);
+  });
+}
+
 // Negative control: the probe reports a 20px button planted in the dialog.
 test('negative control: the dialog probe reports a button under 44px', async ({ page }) => {
   await openHome(page, 'main', 'desktop');

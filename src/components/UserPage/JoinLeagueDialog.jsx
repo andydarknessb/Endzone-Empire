@@ -7,7 +7,7 @@ import { readHttpFailure } from '../../lib/httpFailure';
 import { SCORING_PRESET_LABELS } from '../../lib/leagueRulesFormat';
 import { JOIN_REFUSAL_REASON } from '../../shared/lib/leaguePhase';
 import { isPickemOnly, shortLeagueTypeLabel } from '../../shared/lib/leagueType';
-import { Frame, PsButton, pixelSx } from '../../shared/ui/playselect';
+import { BODY_FONT, Frame, PsButton, pixelSx } from '../../shared/ui/playselect';
 import { useSnackbar } from '../Snackbar/SnackbarProvider';
 import {
   Dim, KitTextField, Note,

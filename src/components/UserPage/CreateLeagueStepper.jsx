@@ -22,7 +22,7 @@ import { joinLink } from '../../features/copy-invite';
 import DraftScheduleField from '../common/DraftScheduleField';
 import { useSnackbar } from '../Snackbar/SnackbarProvider';
 import {
-  Frame, PixelArrow, PixelCheck, PixelClose, PixelWarn, PsButton, pixelSx,
+  BODY_FONT, Frame, PixelArrow, PixelCheck, PixelClose, PixelWarn, PsButton, pixelSx,
 } from '../../shared/ui/playselect';
 import { Dim, KitTextField, Note } from '../DraftSettings/kit';
 
@@ -188,10 +188,12 @@ const optionCardSx = (selected) => ({
     p: '10px', color: 'inherit', '&.Mui-checked': { color: 'inherit' },
   },
   '& .ps-help': { color: selected ? 'var(--ps-play-dim)' : 'var(--ps-dim)' },
+  // The native input is invisible, so the kit ring goes on the whole card.
+  '&:has(input:focus-visible)': { outline: '3px solid var(--ps-focus)', outlineOffset: 0, boxShadow: '0 0 0 7px var(--ps-halo)' },
 });
 
 // A plain checkbox row (no card): Ink glyph, 44px target.
-const checkRowSx = { m: 0, minHeight: '44px', color: 'var(--ps-ink)', '& .MuiCheckbox-root': { p: '10px', color: 'var(--ps-ink)' } };
+const checkRowSx = { m: 0, minHeight: '44px', color: 'var(--ps-ink)', '&:has(input:focus-visible)': { outline: '3px solid var(--ps-focus)', outlineOffset: 0, boxShadow: '0 0 0 7px var(--ps-halo)' }, '& .MuiCheckbox-root': { p: '10px', color: 'var(--ps-ink)' } };
 
 // The Teams stepper's minus and plus: square, 2px Ink edge.
 const stepperButtonSx = {
@@ -806,7 +808,7 @@ export default function CreateLeagueStepper({ open, onClose, onCreated }) {
           backgroundImage: 'none',
           boxShadow: 'none',
           color: 'var(--ps-ink)',
-          fontFamily: 'inherit',
+          fontFamily: BODY_FONT,
           ...(fullScreen ? { m: 0 } : null),
         },
       }}
