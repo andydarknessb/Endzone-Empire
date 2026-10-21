@@ -313,6 +313,24 @@ test.describe('existing draft behavior baseline (active fixture)', () => {
     await expect(page.getByRole('columnheader', { name: 'Harbor Hawks' })).toBeVisible();
     await expect(page.getByRole('button', { name: /Round 1 pick 1, Harbor Hawks: Josh Allen/ })).toBeVisible();
   });
+
+  for (const width of [390, 1024]) {
+    test(`the board grid scrolls inside its frame at ${width} wide, never the page`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await setupActiveDraft(page);
+      await showBoard(page);
+
+      const grid = page.getByRole('region', { name: 'Draft Board' }).getByRole('table');
+      await expect(grid).toBeVisible();
+      const frame = grid.locator('xpath=..');
+      const { frameOverflows, pageOverflows } = await frame.evaluate((el) => ({
+        frameOverflows: el.scrollWidth > el.clientWidth,
+        pageOverflows: document.documentElement.scrollWidth > window.innerWidth,
+      }));
+      expect(pageOverflows).toBe(false);
+      expect(frameOverflows).toBe(true);
+    });
+  }
 });
 
 // --- Schedule-aware, truthful available-player pool (issue #119, parent #108) ---

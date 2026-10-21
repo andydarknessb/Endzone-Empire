@@ -71,8 +71,31 @@ test('marks the on-the-clock team column from the value object', () => {
     />
   );
 
-  const headers = screen.getAllByRole('columnheader').map((h) => h.textContent);
-  expect(headers).toContain('Team B⏱');
-  expect(headers).toContain('Team A');
-  expect(headers).not.toContain('Team A⏱');
+  const headers = screen.getAllByRole('columnheader');
+  const onClock = headers.filter((h) => h.dataset.onClock === 'true');
+  expect(onClock.map((h) => h.textContent)).toEqual(['Team B']);
+  expect(headers.map((h) => h.textContent)).toContain('Team A');
+});
+
+test('with team 3 on the clock in round 4, only its head and its round 4 cell carry data-on-clock', () => {
+  const teams = [1, 2, 3, 4].map((id) => ({ teamId: id, teamName: `Team ${id}`, draft_position: id }));
+  const picks = Array.from({ length: 14 }, (_, i) => ({
+    pick_number: 14 - i, player_id: 100 + i, teamId: ((13 - i) % 4) + 1, teamName: 'x', name: `P${i}`, position: 'RB',
+  }));
+  render(
+    <DraftBoardMatrix
+      teams={teams}
+      picks={picks}
+      onTheClock={{ team: { teamId: 3, teamName: 'Team 3' }, state: 'untimed', deadlineAt: null }}
+      draftRounds={4}
+      readOnly
+    />
+  );
+
+  const marked = [...screen.getAllByRole('columnheader'), ...screen.getAllByRole('cell')].filter(
+    (el) => el.getAttribute('data-on-clock') === 'true'
+  );
+  expect(marked).toHaveLength(2);
+  expect(screen.getByRole('columnheader', { name: 'Team 3' })).toHaveAttribute('data-on-clock', 'true');
+  expect(screen.getByRole('cell', { name: 'Round 4, Team 3: on the clock' })).toHaveAttribute('data-on-clock', 'true');
 });

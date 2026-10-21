@@ -1,7 +1,7 @@
 import React, { useId, useMemo, useRef, useState, useEffect } from 'react';
 import { Paper, Box, Chip, Typography, Table, TableBody, TableCell, TableContainer, TableHead, TableRow } from '@mui/material';
 import { keyframes } from '@mui/material/styles';
-import PositionChip from '../../shared/ui/PositionChip';
+import { PosTag, PixelArrow } from '../../shared/ui/playselect';
 import { MIN_TOUCH_TARGET_SX } from '../../shared/lib/a11y';
 import { isTeamOnTheClock } from '../../shared/lib/onTheClock';
 
@@ -9,7 +9,7 @@ import { isTeamOnTheClock } from '../../shared/lib/onTheClock';
 // no hard-coded literal) that fades in and back out.
 const pickLandedFlash = keyframes`
   0% { background-color: transparent; }
-  35% { background-color: var(--accent-soft); }
+  35% { background-color: var(--ps-led-dim); }
   100% { background-color: transparent; }
 `;
 
@@ -22,23 +22,27 @@ const onClockPulse = keyframes`
 `;
 
 const TEAM_COL_MIN_WIDTH = 110;
+// The frame scrolls sideways, never the page: the grid is at least this many
+// columns wide even for a short league (a 10-team board), so a narrow pane
+// scrolls inside the frame instead of squeezing the cells.
+const MIN_GRID_COLUMNS = 10;
 
 const stickyRoundHeadSx = {
-  color: 'primary.contrastText',
+  color: 'var(--ps-panel)',
   fontWeight: 'bold',
   position: 'sticky',
   left: 0,
-  bgcolor: 'primary.main',
+  bgcolor: 'var(--ps-ink)',
   zIndex: 3,
 };
 
 const stickyRoundCellSx = {
   position: 'sticky',
   left: 0,
-  bgcolor: 'inherit',
+  bgcolor: 'var(--ps-field)',
   zIndex: 1,
   fontWeight: 'bold',
-  color: 'text.secondary',
+  color: 'var(--ps-dim)',
 };
 
 /** Remounts (via the returned key) whenever `value` changes after the first render, so a CSS animation can replay. */
@@ -115,14 +119,14 @@ function DraftBoardMatrix({
 
   if (teamCount === 0) {
     return (
-      <Paper component="section" aria-labelledby={headingId} sx={{ p: 2 }}>
+      <Paper component="section" aria-labelledby={headingId} sx={{ p: 2, minWidth: 0, bgcolor: 'var(--ps-panel)' }}>
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, mb: 1 }}>
           <Typography id={headingId} variant="h6" component={titleComponent}>
             Draft Board
           </Typography>
           {headerAction}
         </Box>
-        <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+        <Typography variant="body2" sx={{ color: 'var(--ps-dim)' }}>
           Draft order isn&apos;t set yet.
         </Typography>
       </Paper>
@@ -132,17 +136,17 @@ function DraftBoardMatrix({
   const rounds = Array.from({ length: totalRounds }, (_, i) => i + 1);
 
   return (
-    <Paper component="section" aria-labelledby={headingId} sx={{ p: 2 }}>
+    <Paper component="section" aria-labelledby={headingId} sx={{ p: 2, minWidth: 0, bgcolor: 'var(--ps-panel)' }}>
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, mb: 2 }}>
         <Typography id={headingId} variant="h6" component={titleComponent}>
           Draft Board
         </Typography>
         {headerAction}
       </Box>
-      <TableContainer sx={{ overflowX: 'auto' }}>
-        <Table size="small" aria-labelledby={headingId}>
+      <TableContainer sx={{ overflowX: 'auto', maxWidth: '100%', border: '2px solid var(--ps-frame)' }}>
+        <Table size="small" aria-labelledby={headingId} sx={{ minWidth: Math.max(teamCount, MIN_GRID_COLUMNS) * TEAM_COL_MIN_WIDTH }}>
           <TableHead>
-            <TableRow sx={{ bgcolor: 'primary.main' }}>
+            <TableRow sx={{ bgcolor: 'var(--ps-ink)' }}>
               <TableCell component="th" scope="col" sx={stickyRoundHeadSx}>
                 Rd
               </TableCell>
@@ -153,15 +157,16 @@ function DraftBoardMatrix({
                     key={team.teamId}
                     component="th"
                     scope="col"
+                    data-on-clock={isOnClockTeam ? 'true' : undefined}
                     sx={{
-                      color: 'primary.contrastText',
+                      color: isOnClockTeam ? 'var(--ps-play-ink)' : 'var(--ps-panel)',
                       fontWeight: 'bold',
-                      bgcolor: isOnClockTeam ? 'primary.dark' : 'primary.main',
+                      bgcolor: isOnClockTeam ? 'var(--ps-play)' : 'var(--ps-ink)',
                       minWidth: TEAM_COL_MIN_WIDTH,
                     }}
                   >
                     {team.teamName}
-                    {isOnClockTeam && <Box component="span" sx={{ ml: 0.5 }}>⏱</Box>}
+                    {isOnClockTeam && <Box component="span" sx={{ ml: 0.5 }}><PixelArrow /></Box>}
                   </TableCell>
                 );
               })}
@@ -186,7 +191,12 @@ function DraftBoardMatrix({
                           {pick.name}
                         </Typography>
                         {pick.is_keeper && <Chip label="Keeper" size="small" color="secondary" />}
-                        <PositionChip position={pick.position} size="small" />
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                          <PosTag position={pick.position} />
+                          <Typography component="span" variant="caption" sx={{ color: 'var(--ps-dim)' }}>
+                            Pick {pick.pick_number}
+                          </Typography>
+                        </Box>
                       </>
                     );
 
@@ -216,13 +226,13 @@ function DraftBoardMatrix({
                               gap: 0.5, textAlign: 'left', border: 'none', bgcolor: 'transparent', borderRadius: 1,
                               p: 0.75, cursor: 'pointer', font: 'inherit', color: 'inherit',
                               ...MIN_TOUCH_TARGET_SX,
-                              '&:hover': { bgcolor: 'action.hover' },
+                              '&:hover': { bgcolor: 'var(--ps-skel)' },
                               // Same shared token every other focus-visible ring
                               // uses (see base.css); the offset is negative
                               // (inward) rather than the usual +2px so the ring
                               // stays inside this cell instead of bleeding into
                               // the next column over.
-                              '&:focus-visible': { outline: '2px solid var(--focus-ring)', outlineOffset: -2 },
+                              '&:focus-visible': { outline: '2px solid var(--ps-play)', outlineOffset: -2 },
                               animation: isFlashing ? `${pickLandedFlash} 1.2s ease-out` : 'none',
                               '@media (prefers-reduced-motion: reduce)': { animation: 'none' },
                             }}
@@ -238,6 +248,7 @@ function DraftBoardMatrix({
                     <TableCell
                       key={team.teamId}
                       sx={{ minWidth: TEAM_COL_MIN_WIDTH }}
+                      data-on-clock={isOnClockCell ? 'true' : undefined}
                       aria-label={
                         isOnClockCell ? `Round ${round}, ${team.teamName}: on the clock` : undefined
                       }
@@ -246,18 +257,21 @@ function DraftBoardMatrix({
                         sx={{
                           height: 40,
                           borderRadius: 1,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
                           ...(isOnClockCell
                             ? {
-                                outline: 2,
-                                outlineStyle: 'solid',
-                                outlineColor: 'primary.main',
-                                outlineOffset: -2,
+                                bgcolor: 'var(--ps-play)',
+                                color: 'var(--ps-play-ink)',
                                 animation: `${onClockPulse} 1.4s ease-in-out infinite`,
                                 '@media (prefers-reduced-motion: reduce)': { animation: 'none' },
                               }
-                            : { bgcolor: 'action.hover' }),
+                            : { bgcolor: 'var(--ps-skel)' }),
                         }}
-                      />
+                      >
+                        {isOnClockCell && <PixelArrow />}
+                      </Box>
                     </TableCell>
                   );
                 })}
