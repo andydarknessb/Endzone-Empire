@@ -2,20 +2,20 @@ import React, { useMemo, useState } from 'react';
 import {
   Alert,
   Box,
-  Button,
   Dialog,
   DialogActions,
   DialogContent,
   DialogContentText,
   DialogTitle,
-  Paper,
   TextField,
 } from '@mui/material';
-import { MIN_TOUCH_TARGET_SX } from '../../shared/lib/a11y';
+import { Frame, PsButton } from '../../shared/ui/playselect';
 import { teamNameLabel } from '../../shared/lib/teamIdentity';
+import { PS_DIALOG_PROPS, PS_DIALOG_TEXT_SX } from './DraftPickConfirmDialog';
 
 const REASON_MIN = 10;
 const REASON_MAX = 200;
+const DANGER_TEXT = { color: 'var(--ps-danger)' };
 
 /**
  * The active-draft commissioner toolbar (#439). It places the state-correct
@@ -65,23 +65,23 @@ export default function DraftDayControls({ league, picks, onTogglePause, onCorre
   };
 
   return (
-    <Paper component="section" aria-label="Commissioner draft controls" sx={{ p: 1.5, mb: 2, bgcolor: 'action.hover' }}>
+    <Frame tier="rule" component="section" aria-label="Commissioner draft controls" sx={{ p: 1.5, mb: 2 }}>
       <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-        <Button variant="outlined" onClick={onTogglePause} sx={MIN_TOUCH_TARGET_SX}>
+        <PsButton onClick={onTogglePause}>
           {league.draft_paused ? 'Resume Draft' : 'Pause Draft'}
-        </Button>
-        <Button variant="outlined" onClick={() => setCorrectOpen(true)} disabled={correctDisabled} sx={MIN_TOUCH_TARGET_SX}>Correct latest Pick</Button>
-        <Button variant="outlined" color="error" onClick={() => setResetOpen(true)} sx={MIN_TOUCH_TARGET_SX}>Reset draft</Button>
-        <Button variant="outlined" onClick={copyPresenterLink} disabled={sharing} sx={MIN_TOUCH_TARGET_SX}>{sharing ? 'Creating link…' : 'Presenter link'}</Button>
+        </PsButton>
+        <PsButton onClick={() => setCorrectOpen(true)} disabled={correctDisabled}>Correct latest Pick</PsButton>
+        <PsButton onClick={() => setResetOpen(true)} style={DANGER_TEXT}>Reset draft</PsButton>
+        <PsButton onClick={copyPresenterLink} disabled={sharing}>{sharing ? 'Creating link…' : 'Presenter link'}</PsButton>
       </Box>
       {shareLink && <TextField label="Presenter link" value={shareLink} fullWidth size="small" inputProps={{ readOnly: true }} sx={{ mt: 1 }} />}
       {lastReachedPick?.is_keeper && <Alert severity="info" sx={{ mt: 1 }}>Keeper picks cannot be corrected.</Alert>}
 
-      <Dialog open={correctOpen} onClose={closeCorrect} fullWidth maxWidth="sm">
+      <Dialog open={correctOpen} onClose={closeCorrect} fullWidth maxWidth="sm" {...PS_DIALOG_PROPS}>
         <DialogTitle>Correct latest pick?</DialogTitle>
         <DialogContent>
           {lastReachedPick && (
-            <DialogContentText component="div">
+            <DialogContentText component="div" sx={PS_DIALOG_TEXT_SX}>
               This pauses the draft and reverses{' '}
               <strong>{`Pick ${lastReachedPick.pick_number}`}</strong>
               {' · '}
@@ -108,22 +108,29 @@ export default function DraftDayControls({ league, picks, onTogglePause, onCorre
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={closeCorrect} sx={MIN_TOUCH_TARGET_SX}>Cancel</Button>
-          <Button variant="contained" disabled={!reasonValid} onClick={submitCorrection} sx={MIN_TOUCH_TARGET_SX}>Correct pick</Button>
+          <PsButton onClick={closeCorrect}>Cancel</PsButton>
+          <PsButton variant="fill" disabled={!reasonValid} onClick={submitCorrection}>Correct pick</PsButton>
         </DialogActions>
       </Dialog>
 
-      <Dialog open={resetOpen} onClose={() => setResetOpen(false)}>
+      <Dialog open={resetOpen} onClose={() => setResetOpen(false)} {...PS_DIALOG_PROPS}>
         <DialogTitle>Reset {league.name} draft?</DialogTitle>
         <DialogContent>
-          <DialogContentText>This deletes every draft pick and drafted roster entry, clears the schedule, and returns the draft to pending. Type the league name to continue.</DialogContentText>
-          <TextField autoFocus fullWidth label="League name" value={resetName} onChange={(event) => setResetName(event.target.value)} sx={{ mt: 2 }} />
+          <DialogContentText sx={PS_DIALOG_TEXT_SX}>This deletes every draft pick and drafted roster entry, clears the schedule, and returns the draft to pending. Type the league name to continue.</DialogContentText>
+          <TextField fullWidth label="League name" value={resetName} onChange={(event) => setResetName(event.target.value)} sx={{ mt: 2 }} />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setResetOpen(false)} sx={MIN_TOUCH_TARGET_SX}>Cancel</Button>
-          <Button color="error" variant="contained" disabled={resetName !== league.name} onClick={async () => { if (await onReset()) { setResetOpen(false); setResetName(''); } }} sx={MIN_TOUCH_TARGET_SX}>Reset draft</Button>
+          {/* Cancel takes initial focus: the destructive confirm is a ghost with Danger text (wave 3 Drop dialog ruling). */}
+          <PsButton autoFocus onClick={() => setResetOpen(false)}>Cancel</PsButton>
+          <PsButton
+            disabled={resetName !== league.name}
+            style={resetName === league.name ? DANGER_TEXT : undefined}
+            onClick={async () => { if (await onReset()) { setResetOpen(false); setResetName(''); } }}
+          >
+            Reset draft
+          </PsButton>
         </DialogActions>
       </Dialog>
-    </Paper>
+    </Frame>
   );
 }

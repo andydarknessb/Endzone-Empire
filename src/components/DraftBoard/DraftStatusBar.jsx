@@ -58,7 +58,7 @@ function DraftStatusBar({
       >
         {/* What the draft is doing. */}
         <Box role="group" aria-label="Draft status" sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
-          {reconnecting && <Chip label="Reconnecting…" color="default" size="small" variant="outlined" />}
+          {reconnecting && <Chip label="Reconnecting…" color="default" size="small" />}
           {onTheClock?.team ? (
             <Chip
               label={`On the clock: ${onTheClock.team.teamName}`}

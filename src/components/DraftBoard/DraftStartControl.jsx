@@ -3,7 +3,6 @@ import PropTypes from 'prop-types';
 import {
   Alert,
   Box,
-  Button,
   Dialog,
   DialogActions,
   DialogContent,
@@ -14,6 +13,10 @@ import {
 } from '@mui/material';
 import { formatTimeSince } from '../../shared/lib/formatTimeSince';
 import { readHttpFailure } from '../../lib/httpFailure';
+import { PsButton } from '../../shared/ui/playselect';
+import { PS_DIALOG_PROPS, PS_DIALOG_TEXT_SX } from './DraftPickConfirmDialog';
+
+const HINT_SX = { display: 'block', mt: 0.5, color: 'var(--ps-dim)' };
 
 /**
  * The commissioner-only pending-draft start action. Both the Draft room and
@@ -35,7 +38,7 @@ export default function DraftStartControl({
   market,
   onStart,
   label = 'Start Draft',
-  variant = 'contained',
+  ready = false,
   disabled = false,
   showHints = true,
   showMarketStatus = true,
@@ -113,8 +116,8 @@ export default function DraftStartControl({
     <Box>
       <Tooltip title={tooltipTitle}>
         <span>
-          <Button
-            variant={variant}
+          <PsButton
+            variant={ready ? 'fill' : 'ghost'}
             onClick={() => {
               setStartError('');
               setConfirmOpen(true);
@@ -122,47 +125,47 @@ export default function DraftStartControl({
             disabled={disabled || startPending || unavailable}
           >
             {label}
-          </Button>
+          </PsButton>
         </span>
       </Tooltip>
       {showHints && insufficientTeams && (
-        <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: 'text.secondary' }}>
+        <Typography variant="caption" sx={HINT_SX}>
           Requires a minimum of {minimumTeams} teams to start the draft.
         </Typography>
       )}
       {showHints && auctionUnavailable && !insufficientTeams && (
-        <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: 'text.secondary' }}>
+        <Typography variant="caption" sx={HINT_SX}>
           Live salary-cap auctions are not supported yet.
         </Typography>
       )}
       {showMarketStatus && marketAbsent && (
-        <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: 'text.secondary' }}>
+        <Typography variant="caption" sx={HINT_SX}>
           {`The player market has not loaded (${market.adpPlayers} of ${market.floor} players carry an ADP). Ask your admin to run the ADP sync.`}
         </Typography>
       )}
       {showMarketStatus && marketStale && (
-        <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: 'text.secondary' }}>
+        <Typography variant="caption" sx={HINT_SX}>
           {`Player market last updated ${formatTimeSince(market.lastSyncAt)}. Autopicks will use that market.`}
         </Typography>
       )}
       {showMarketStatus && marketNeverSynced && (
-        <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: 'text.secondary' }}>
+        <Typography variant="caption" sx={HINT_SX}>
           {`Player market loaded (${market.adpPlayers} players carry an ADP), but no sync has been recorded. Autopicks will use that market.`}
         </Typography>
       )}
-      <Dialog open={confirmOpen} onClose={closeConfirmation} aria-labelledby="start-draft-dialog-title">
+      <Dialog open={confirmOpen} onClose={closeConfirmation} aria-labelledby="start-draft-dialog-title" {...PS_DIALOG_PROPS}>
         <DialogTitle id="start-draft-dialog-title">Start draft now?</DialogTitle>
         <DialogContent>
-          <DialogContentText>
+          <DialogContentText sx={PS_DIALOG_TEXT_SX}>
             This starts immediately for all {teamCount} managers and can&apos;t be easily undone.
           </DialogContentText>
           {startError && <Alert severity="error" sx={{ mt: 2 }}>{startError}</Alert>}
         </DialogContent>
         <DialogActions>
-          <Button disabled={startPending} onClick={closeConfirmation}>Cancel</Button>
-          <Button variant="contained" disabled={startPending} onClick={handleStart}>
+          <PsButton disabled={startPending} onClick={closeConfirmation}>Cancel</PsButton>
+          <PsButton variant="fill" disabled={startPending} onClick={handleStart}>
             {startPending ? 'Starting…' : 'Start now'}
-          </Button>
+          </PsButton>
         </DialogActions>
       </Dialog>
     </Box>
@@ -181,7 +184,7 @@ DraftStartControl.propTypes = {
   }),
   onStart: PropTypes.func.isRequired,
   label: PropTypes.string,
-  variant: PropTypes.string,
+  ready: PropTypes.bool,
   disabled: PropTypes.bool,
   showHints: PropTypes.bool,
   showMarketStatus: PropTypes.bool,

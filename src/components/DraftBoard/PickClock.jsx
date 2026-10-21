@@ -20,6 +20,11 @@ const pulse = keyframes`
 // the room cannot know that, only that the server now owns the next move.
 export const OVERDUE_MESSAGE = 'Waiting on the server';
 
+// The colour and `data-urgent` flip under this many seconds (Play-select: the clock
+// is drawn in ps-danger under 30s). Deliberately NOT URGENT_SECONDS, which still
+// gates the pulse and the Draft assistant's one-shot urgent edge.
+const DANGER_BELOW_SECONDS = 30;
+
 /**
  * The pick clock's ticking leaf: the ONE component in a Draft room (or the
  * presenter) that re-renders every second (#754 amendments A2). It takes the
@@ -60,7 +65,7 @@ export const OVERDUE_MESSAGE = 'Waiting on the server';
  * right after one that was also already urgent still fires for the new turn.
  */
 function PickClock({
-  deadlineAt, prefix = null, variant = 'h1', onOverdue = null, onUrgent = null,
+  deadlineAt, prefix = null, variant = 'h1', onOverdue = null, onUrgent = null, sx = null,
 }) {
   const remainingMs = useCountdownTicking(deadlineAt, { nextDelay: alignedToSecond });
   const overdueRemainingMs = useCountdownTicking(deadlineAt + OVERDUE_AFTER_MS, {
@@ -76,6 +81,8 @@ function PickClock({
   // The pulse ends one step earlier than the colour, at 0:00 (#844): an
   // expired clock is the server's to advance, so "act now" has no reader.
   const showPulse = showUrgent && remaining > 0;
+  // Overdue ends the danger colour too, as it ends the pulse.
+  const danger = remaining < DANGER_BELOW_SECONDS && !overdue;
 
   // The once-per-turn urgent edge, off the same window `showUrgent` uses for
   // the pulse. A single effect compares the deadline it last fired for
@@ -120,13 +127,15 @@ function PickClock({
         variant={variant}
         component="div"
         data-testid="draft-clock"
+        data-urgent={danger ? 'true' : 'false'}
         sx={{
           fontWeight: 'bold',
           lineHeight: 1.1,
           fontVariantNumeric: 'tabular-nums',
-          color: showUrgent ? 'error.main' : 'text.primary',
+          color: danger ? 'var(--ps-danger)' : 'inherit',
           animation: showPulse ? `${pulse} 1s ease-in-out infinite` : 'none',
           '@media (prefers-reduced-motion: reduce)': { animation: 'none' },
+          ...sx,
         }}
       >
         {prefix ? `${prefix} ` : ''}
@@ -137,7 +146,7 @@ function PickClock({
           variant="caption"
           component="div"
           data-testid="draft-clock-overdue"
-          sx={{ color: 'text.secondary', fontWeight: 'normal', lineHeight: 1.2 }}
+          sx={{ color: 'inherit', opacity: 0.75, fontWeight: 'normal', lineHeight: 1.2 }}
         >
           {OVERDUE_MESSAGE}
         </Typography>
@@ -152,6 +161,7 @@ PickClock.propTypes = {
   variant: PropTypes.string,
   onOverdue: PropTypes.func,
   onUrgent: PropTypes.func,
+  sx: PropTypes.shape({}),
 };
 
 export default PickClock;

@@ -1,7 +1,7 @@
 import React from 'react';
-import { Link } from 'react-router-dom';
-import { Dialog, DialogTitle, DialogContent, DialogActions, Stack, TextField, Button } from '@mui/material';
-import { MIN_TOUCH_TARGET_SX } from '../../shared/lib/a11y';
+import { Dialog, DialogTitle, DialogContent, DialogActions, Stack, TextField } from '@mui/material';
+import { PsButton } from '../../shared/ui/playselect';
+import { PS_DIALOG_PROPS } from './DraftPickConfirmDialog';
 
 /** Commissioner-only pre-draft settings (pick clock + autodraft delay), in a
  * Dialog so it stays out of the way until opened from the header gear icon. */
@@ -23,7 +23,8 @@ function DraftSettingsPanel({
       onClose={onClose}
       maxWidth="xs"
       fullWidth
-      PaperProps={{ component: 'form', onSubmit }}
+      {...PS_DIALOG_PROPS}
+      PaperProps={{ ...PS_DIALOG_PROPS.PaperProps, component: 'form', onSubmit }}
     >
       <DialogTitle>Draft Settings</DialogTitle>
       <DialogContent>
@@ -52,13 +53,13 @@ function DraftSettingsPanel({
         </Stack>
       </DialogContent>
       <DialogActions>
-        <Button component={Link} to={`/league/${leagueId}/draft-settings`} onClick={onClose} sx={MIN_TOUCH_TARGET_SX}>
+        <PsButton variant="quiet" to={`/league/${leagueId}/draft-settings`} onClick={onClose}>
           All draft settings →
-        </Button>
-        <Button onClick={onClose} sx={MIN_TOUCH_TARGET_SX}>Cancel</Button>
-        <Button type="submit" variant="contained" disabled={saving} sx={MIN_TOUCH_TARGET_SX}>
+        </PsButton>
+        <PsButton onClick={onClose}>Cancel</PsButton>
+        <PsButton type="submit" variant="fill" disabled={saving}>
           Save
-        </Button>
+        </PsButton>
       </DialogActions>
     </Dialog>
   );

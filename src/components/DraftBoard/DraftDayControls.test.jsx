@@ -106,3 +106,12 @@ test('Reset draft still requires typing the exact league name (kept separate and
   await userEvent.click(reset);
   expect(onReset).toHaveBeenCalled();
 });
+
+test('the Reset draft confirm opens with Cancel focused and is a ghost, never the filled action', async () => {
+  renderControls();
+  await userEvent.click(screen.getByRole('button', { name: 'Reset draft' }));
+
+  const dialog = await screen.findByRole('dialog');
+  expect(within(dialog).getByRole('button', { name: 'Cancel' })).toHaveFocus();
+  expect(within(dialog).getByRole('button', { name: 'Reset draft' })).not.toHaveAttribute('data-variant', 'fill');
+});
