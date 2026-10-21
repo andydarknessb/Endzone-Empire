@@ -79,6 +79,10 @@ function renderSegments(segments, onOpenPlayer) {
       onOpen={() => onOpenPlayer({ playerId: seg.playerId, name: seg.name })}
       sx={{
         color: 'var(--ps-ink)', textDecoration: 'underline', textUnderlineOffset: '4px', fontWeight: 600, minHeight: 44,
+        // The link brings its own ring; the kit's replaces it.
+        '&:focus-visible, &.MuiLink-focusVisible': {
+          outline: '3px solid var(--ps-focus)', outlineOffset: 0, boxShadow: '0 0 0 7px var(--ps-halo)', borderRadius: 0,
+        },
       }}
     />
   ) : (
@@ -290,8 +294,6 @@ function TransactionLog() {
         <ErrorPanel
           title="League activity"
           body={error}
-          onRetry={fetchTransactions}
-          retryAriaLabel="Try again to load league activity"
         />
       )}
 
