@@ -282,6 +282,31 @@ describe('game day', () => {
     oneCursorOneFilled(container);
   });
 
+  test("a pick'em-only manager with a game in progress is in game day: Live scores header and the 60 s refresh", async () => {
+    jest.useFakeTimers();
+    const league = pickemLeague(5, "Sunday Pick'em");
+    league.pickem_only = true;
+    league.status = { phase: 'in-season', week: 4, standing: { rank: 4, of: 12 }, pickem: { made: 9, total: 15, missing: 0, nextLockAt: null, inProgress: true, weekPoints: 23, finals: 2 } };
+    mockApi({ leagues: [league], items: [] });
+    renderPage();
+
+    expect(await screen.findByRole('heading', { level: 2, name: 'Live scores' })).toBeInTheDocument();
+    // A pick'em game is not a matchup: no chip.
+    expect(screen.queryByTestId('live-matchups-chip')).toBeNull();
+    await act(async () => { jest.advanceTimersByTime(60 * 1000); });
+    expect(reads('/api/league')).toBe(2);
+  });
+
+  test("the live chip counts only matchups when a pick'em game is also in progress", async () => {
+    jest.useFakeTimers();
+    const league = pickemLeague(5, "Sunday Pick'em");
+    league.status = { phase: 'in-season', week: 4, pickem: { made: 9, total: 15, missing: 0, nextLockAt: null, inProgress: true } };
+    mockApi({ leagues: [fantasyLeague(71, 'Thursday Night Regulars', liveMatchup), league], items: [] });
+    renderPage();
+
+    expect(await screen.findByText('1 matchup live')).toBeInTheDocument();
+  });
+
   test('a hidden tab makes no second request', async () => {
     jest.useFakeTimers();
     setHidden(true);

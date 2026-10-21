@@ -57,6 +57,12 @@ export function liveMatchupCount(leagues) {
     .length;
 }
 
+/** Is any pick'em game in progress? It puts Home in game day without being a matchup. */
+export function pickemLive(leagues) {
+  return (Array.isArray(leagues) ? leagues : [])
+    .some((league) => league?.status && league.statusError !== true && league.status.pickem?.inProgress === true);
+}
+
 
 const greetingDateFormat = new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
 
