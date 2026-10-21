@@ -3,6 +3,7 @@ const pool = require('../modules/pool');
 const { withTransaction } = require('../modules/withTransaction');
 const encryptLib = require('../modules/encryption');
 const { deleteAvatarObjects } = require('./avatar.service');
+const { settleDepartedTeam } = require('./commissioner.service');
 const { getDraftRoomBroadcast } = require('../modules/draftRoomBroadcast');
 
 class PrivacyError extends Error {
@@ -151,6 +152,23 @@ async function deleteUserAccount({ userId, confirmation }) {
       );
     }
 
+    // A deleted account's teams take a banned manager's fate (#2477, ADR 0068):
+    // deleted while the league is Removable, else CPU-managed. Lock the league
+    // rows FIRST, in id order, like banTeam and the draft writes: any UPDATE on
+    // a held team (the avatar clear included) row-locks it, so it must come
+    // after. The league ids come from the teams read, so every team has a
+    // locked league row.
+    const heldTeams = await client.query(
+      `SELECT "id", "league_id" FROM "teams" WHERE "owner_id" = $1 ORDER BY "id"`,
+      [userId]
+    );
+    const heldLeagues = await client.query(
+      `SELECT "leagues".* FROM "leagues"
+       WHERE "leagues"."id" = ANY($1)
+       ORDER BY "leagues"."id" FOR UPDATE OF "leagues"`,
+      [[...new Set(heldTeams.rows.map((team) => team.league_id))]]
+    );
+
     const avatarResult = await client.query(
       `SELECT "avatar_url", "avatar_static_url" FROM "teams" WHERE "owner_id" = $1`,
       [userId]
@@ -161,6 +179,11 @@ async function deleteUserAccount({ userId, confirmation }) {
        WHERE "owner_id" = $1`,
       [userId]
     );
+    // The teams settle after the avatar clear, which finds them by owner_id.
+    for (const team of heldTeams.rows) {
+      const league = heldLeagues.rows.find((row) => row.id === team.league_id);
+      await settleDepartedTeam(client, { league, teamId: team.id });
+    }
     // Purge the feed positions this account's messages own BEFORE deleting the
     // messages (#436, ADR 0015): the shared registry mirrors positions the
     // record tables still hold, so a removed message's position must go with it,

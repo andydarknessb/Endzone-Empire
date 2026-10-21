@@ -107,7 +107,7 @@ _Avoid_: block (a manager's own mute of another's chat), kick
 
 **CPU-managed team**:
 A team with no manager (owner_id NULL), left behind when its manager was
-banned after the draft. It stays in standings, matchups and the schedule; the
+banned after the draft or deleted their account. It stays in standings, matchups and the schedule; the
 CPU starts its best available lineup each week and it makes no trades or
 waiver claims. It is not a member of anything: it has no account (ADR 0068).
 _Avoid_: bot, ghost team, orphan, abandoned team

@@ -98,6 +98,8 @@ const deletionHandlers = ({ owned = [], avatars = [] } = {}) => [
   [select('teams'), () => ({ rows: avatars })],
   [update('teams'), () => ({ rows: [] })],
   [update('users'), () => ({ rows: [] })],
+  [update('trades'), () => ({ rows: [] })],
+  [update('waiver_claims'), () => ({ rows: [] })],
   [/^DELETE FROM /, () => ({ rows: [] })],
   [insert('data_privacy_requests'), () => ({ rows: [] })],
 ];
@@ -262,6 +264,68 @@ test('revoking authorization does not delete league history', async (t) => {
     1,
     'the Team is kept, only its avatar is cleared'
   );
+});
+
+// Teams the account holds (#2477, ADR 0068): team 5 in a pre-draft league
+// (Removable), team 6 in a drafted one (not Removable).
+const PRE_DRAFT = { id: 1, name: 'Early', draft_status: 'pending' };
+const DRAFTED = { id: 2, name: 'Late', draft_status: 'complete', season_status: 'regular' };
+
+const heldWorld = () => [
+  [/FOR UPDATE OF "leagues"/, () => ({ rows: [PRE_DRAFT, DRAFTED] })],
+  [/^SELECT "id", "league_id" FROM "teams"/, () => ({
+    rows: [{ id: 5, league_id: 1 }, { id: 6, league_id: 2 }],
+  })],
+];
+
+test('a deleted account\'s teams follow the ban fate: removed pre-draft, CPU-managed after (#2477)', async (t) => {
+  const fake = createFakePool([...heldWorld(), ...deletionHandlers()]).install(t);
+
+  await privacy.deleteUserAccount({ userId: USER, confirmation: 'me' });
+
+  const heldRead = fake.calls.find((call) => /FOR UPDATE OF "leagues"/.test(call.text));
+  assert.ok(heldRead, 'the held leagues are read and locked');
+  assert.match(heldRead.text, /ORDER BY "leagues"\."id" FOR UPDATE OF "leagues"$/);
+  assert.deepEqual(
+    fake.matching(remove('teams')).map((call) => call.params),
+    [[5]],
+    'the pre-draft team is deleted'
+  );
+  const cpu = fake.matching(/^UPDATE "teams" SET "owner_id" = NULL, "autodraft" = true/);
+  assert.deepEqual(cpu.map((call) => call.params), [[6]], 'the drafted team becomes CPU-managed');
+  assert.deepEqual(fake.matching(update('trades')).map((call) => call.params), [[2, 6]]);
+  assert.deepEqual(fake.matching(update('waiver_claims')).map((call) => call.params), [[6]]);
+
+  // Every team write lands before the users row is anonymized, and the
+  // avatar clear (which finds teams by owner_id) comes first of all.
+  const index = (re) => fake.calls.findIndex((call) => re.test(call.text));
+  // League locks come before any UPDATE that row-locks a held team (the
+  // avatar clear included): League-first, like banTeam.
+  assert.ok(index(/FOR UPDATE OF "leagues"/) < index(/^UPDATE "teams" SET "avatar_url"/));
+  assert.ok(index(/^UPDATE "teams" SET "avatar_url"/) < index(/^DELETE FROM "teams"/));
+  assert.ok(index(/FOR UPDATE OF "leagues"/) < index(/^UPDATE "users"/));
+  assert.ok(index(/^UPDATE "trades"/) < index(/^UPDATE "users"/));
+  fake.assertClean();
+});
+
+test('a failure after the team step rolls every team write back (#2477)', async (t) => {
+  const fake = createFakePool([
+    [update('users'), () => { throw new Error('deadlock detected'); }],
+    ...heldWorld(),
+    ...deletionHandlers(),
+  ]).install(t);
+
+  await assert.rejects(
+    () => privacy.deleteUserAccount({ userId: USER, confirmation: 'me' }),
+    /deadlock detected/
+  );
+
+  assert.equal(fake.matching(remove('teams')).length, 1, 'the team step ran');
+  assert.ok(fake.matching(remove('teams')).every((call) => call.via === 'client'));
+  assert.ok(fake.matching(update('trades')).every((call) => call.via === 'client'));
+  assert.ok(!fake.calls.some((call) => call.text === 'COMMIT'), 'nothing was committed');
+  assert.ok(fake.calls.some((call) => call.text === 'ROLLBACK'));
+  fake.assertClean();
 });
 
 test('a committed deletion ends the account sockets once, with the user id (#2415)', async (t) => {
