@@ -13,9 +13,8 @@ const pickLandedFlash = keyframes`
   100% { background-color: transparent; }
 `;
 
-// Pulsing outline for the next-on-the-clock cell. The outline color itself is
-// set via sx (theme-aware); only the opacity animates here so the keyframe
-// stays theme-agnostic.
+// Pulse for the open on-the-clock cell. Its Play-blue fill is set via sx; only
+// the opacity animates here so the keyframe stays theme-agnostic.
 const onClockPulse = keyframes`
   0%, 100% { opacity: 1; }
   50% { opacity: 0.4; }
@@ -143,7 +142,7 @@ function DraftBoardMatrix({
         </Typography>
         {headerAction}
       </Box>
-      <TableContainer sx={{ overflowX: 'auto', maxWidth: '100%', border: '2px solid var(--ps-frame)' }}>
+      <TableContainer tabIndex={0} sx={{ overflowX: 'auto', maxWidth: '100%', border: '2px solid var(--ps-frame)' }}>
         <Table size="small" aria-labelledby={headingId} sx={{ minWidth: Math.max(teamCount, MIN_GRID_COLUMNS) * TEAM_COL_MIN_WIDTH }}>
           <TableHead>
             <TableRow sx={{ bgcolor: 'var(--ps-ink)' }}>
@@ -227,12 +226,12 @@ function DraftBoardMatrix({
                               p: 0.75, cursor: 'pointer', font: 'inherit', color: 'inherit',
                               ...MIN_TOUCH_TARGET_SX,
                               '&:hover': { bgcolor: 'var(--ps-skel)' },
-                              // Same shared token every other focus-visible ring
-                              // uses (see base.css); the offset is negative
-                              // (inward) rather than the usual +2px so the ring
-                              // stays inside this cell instead of bleeding into
-                              // the next column over.
-                              '&:focus-visible': { outline: '2px solid var(--ps-play)', outlineOffset: -2 },
+                              // ps-ink flips with the theme, so the ring clears 3:1 on
+                              // the panel in light and dark (ps-play does not in dark).
+                              // The offset is negative (inward) so the ring stays
+                              // inside this cell instead of bleeding into the next
+                              // column over.
+                              '&:focus-visible': { outline: '2px solid var(--ps-ink)', outlineOffset: -2 },
                               animation: isFlashing ? `${pickLandedFlash} 1.2s ease-out` : 'none',
                               '@media (prefers-reduced-motion: reduce)': { animation: 'none' },
                             }}
