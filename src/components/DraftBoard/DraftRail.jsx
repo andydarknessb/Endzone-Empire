@@ -243,8 +243,10 @@ function DraftRail({
                 gap: 1,
                 flexWrap: 'wrap',
                 mb: 1,
+                p: 0.5,
+                border: '2px solid transparent',
                 ...(showQuickDraft && !quickDraftUnavailable
-                  ? { bgcolor: 'var(--ps-selection)', p: 0.5 }
+                  ? { borderColor: 'var(--ps-cursor)' }
                   : {}),
               }}
             >

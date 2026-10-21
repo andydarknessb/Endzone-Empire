@@ -60,7 +60,6 @@ export default function DraftOrderPanel({
                 px: 1,
                 py: 0.5,
                 borderBottom: '2px solid var(--ps-rule)',
-                ...(isViewer ? { bgcolor: 'var(--ps-play)', color: 'var(--ps-play-ink)' } : {}),
               }}
             >
               <Typography variant="body2" sx={{ fontFamily: BODY_FONT, color: 'inherit', fontVariantNumeric: 'tabular-nums' }}>
@@ -95,7 +94,7 @@ export default function DraftOrderPanel({
                     <PixelClock />
                   </Box>
                 )}
-                {isViewer && <YouTag color="var(--ps-play-ink)" />}
+                {isViewer && <YouTag />}
                 {team.autodraft && !canToggle && <Tag>AUTO</Tag>}
               </Box>
               {canToggle && (
