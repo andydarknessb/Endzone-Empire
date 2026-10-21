@@ -8,6 +8,7 @@ import { readHttpFailure } from '../../lib/httpFailure';
 import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
 import { ErrorPanel, Skel } from '../../shared/ui/playselect/Controls';
 import { Frame, PixelHeading } from '../../shared/ui/playselect/Frame';
+import { PixelArrow } from '../../shared/ui/playselect/Icons';
 import { psRootSx } from '../../shared/ui/playselect/root';
 import '../../shared/ui/playselect/playselect.css';
 import { Dim } from './rulesParts';
@@ -88,6 +89,10 @@ function RulesTabs({ value, onChange }) {
             sx={{
               flex: { xs: '1 1 45%', sm: 'none' },
               minHeight: '44px',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '8px',
               px: '16px',
               mb: '-2px',
               ml: { sm: index ? '-2px' : 0 },
@@ -103,6 +108,7 @@ function RulesTabs({ value, onChange }) {
               ...(on ? { position: 'relative', zIndex: 1 } : null),
             }}
           >
+            {on ? <PixelArrow /> : null}
             {label}
           </Box>
         );
@@ -164,7 +170,7 @@ export default function LeagueRules() {
       <Shell>
         <ErrorPanel
           title="League rules"
-          body={`Unable to load league rules: ${error}`}
+          body={'We could not load the league rules.'}
           onRetry={refetch}
           retryAriaLabel="Try again to load league rules"
         />
@@ -184,7 +190,7 @@ export default function LeagueRules() {
       content = (
         <ErrorPanel
           title="Scoring rules"
-          body={`Unable to load scoring rules: ${defaultsError}`}
+          body={'We could not load the scoring rules.'}
           onRetry={() => setDefaultsReload((n) => n + 1)}
           retryAriaLabel="Try again to load scoring rules"
         />
@@ -211,7 +217,7 @@ export default function LeagueRules() {
       {error && (
         <ErrorPanel
           title="League rules"
-          body={`Unable to refresh league rules: ${error}`}
+          body={'We could not refresh the league rules.'}
           onRetry={refetch}
           retryAriaLabel="Try again to load league rules"
         />

@@ -1,5 +1,6 @@
 import React from 'react';
 import { Tag } from '../../shared/ui/playselect/Marks';
+import { Frame } from '../../shared/ui/playselect/Frame';
 import { Dim, TagRow } from './rulesParts';
 import { teamNameLabel, teamRowKey } from '../../shared/lib/teamIdentity';
 
@@ -41,7 +42,8 @@ export default function LeagueOfficials({ league }) {
   const coCommissioners = (league.co_commissioners || []).filter((c) => c.teamId != null);
 
   return (
-    <TagRow sx={{ mb: '24px' }}>
+    <Frame tier="rule" component="div" sx={{ padding: { xs: '12px', sm: '16px 20px' } }}>
+      <TagRow>
       <Dim component="span">Who can change these:</Dim>
       {/* Unconditional, and deliberately NOT on the same terms as the grants
           below: a league always has a creator (leagues.owner_id is NOT NULL)
@@ -56,6 +58,7 @@ export default function LeagueOfficials({ league }) {
       {coCommissioners.map((c, index) => (
         <Tag key={teamRowKey(c.teamId, index)} style={WRAP}>{`${teamNameLabel(c.teamName)} · co-commissioner`}</Tag>
       ))}
-    </TagRow>
+      </TagRow>
+    </Frame>
   );
 }

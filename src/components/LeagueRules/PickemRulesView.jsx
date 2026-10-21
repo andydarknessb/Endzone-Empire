@@ -28,7 +28,7 @@ export default function PickemRulesView({ league }) {
         {error ? (
           <ErrorPanel
             title="Scoring mode"
-            body={`Unable to load the scoring mode: ${error}`}
+            body={'We could not load the scoring mode.'}
             onRetry={refetch}
             retryAriaLabel="Try again to load the scoring mode"
           />

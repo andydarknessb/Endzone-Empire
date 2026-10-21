@@ -128,6 +128,9 @@ describe('LeagueRules', () => {
     await screen.findByRole('region', { name: 'Passing' });
     const scoring = screen.getByRole('tab', { name: 'Scoring' });
     expect(scoring).toHaveAttribute('tabindex', '0');
+    // The selected tab is marked by the arrow as well as the fill.
+    expect(scoring.innerHTML).toContain('<svg');
+    expect(screen.getByRole('tab', { name: 'Roster' }).innerHTML).not.toContain('<svg');
     expect(screen.getByRole('tab', { name: 'Roster' })).toHaveAttribute('tabindex', '-1');
 
     scoring.focus();
@@ -231,7 +234,7 @@ describe('LeagueRules', () => {
     mockRequests({ leagueError: { response: { data: { error: 'nope' } } } });
     renderPage();
 
-    expect(await screen.findByText(/Unable to load league rules: nope/)).toBeInTheDocument();
+    expect(await screen.findByText('We could not load the league rules.')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Try again to load league rules' })).toBeInTheDocument();
   });
 
@@ -239,7 +242,7 @@ describe('LeagueRules', () => {
     mockRequests({ defaultsError: { message: 'offline' } });
     renderPage();
 
-    expect(await screen.findByText(/Unable to load scoring rules: offline/)).toBeInTheDocument();
+    expect(await screen.findByText('We could not load the scoring rules.')).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole('tab', { name: 'Roster' }));
     expect(await screen.findByText('7 roster spots + up to 1 IR')).toBeInTheDocument();
