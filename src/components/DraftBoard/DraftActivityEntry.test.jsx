@@ -125,7 +125,7 @@ describe('DraftActivityEntry still renders the known kinds (regression)', () => 
         round: 1, pickNumber: 1, isAutopick: true, created_at: '2026-09-01T00:00:00.000Z',
       }} />
     );
-    expect(screen.getByTestId('draft-activity').firstChild).toHaveTextContent('Sunday Scaries drafted Pat Mahomes QB AUTO');
+    expect(screen.getByTestId('draft-activity')).toHaveTextContent('Sunday Scaries drafted Pat Mahomes QB AUTO');
   });
 
   it('renders a lifecycle transition attributed to its acting Team', () => {
