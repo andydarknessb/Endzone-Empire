@@ -1853,7 +1853,12 @@ test('the stepper moves a value by one and stops at its bounds', async () => {
   await userEvent.click(screen.getByRole('button', { name: 'Decrease IR Slots' }));
   await userEvent.click(screen.getByRole('button', { name: 'Decrease IR Slots' }));
   expect(ir).toHaveValue(0);
-  expect(screen.getByRole('button', { name: 'Decrease IR Slots' })).toBeDisabled();
+  // aria-disabled, not disabled: the button just pressed at the bound keeps focus, and a further press does nothing.
+  const down = screen.getByRole('button', { name: 'Decrease IR Slots' });
+  expect(down).toHaveAttribute('aria-disabled', 'true');
+  expect(down).toHaveFocus();
+  await userEvent.click(down);
+  expect(ir).toHaveValue(0);
 });
 
 test('opening the Remove confirm puts focus on Cancel, and Remove is a ghost, not a fill', async () => {

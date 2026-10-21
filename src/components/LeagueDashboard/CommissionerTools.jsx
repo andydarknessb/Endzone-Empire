@@ -152,7 +152,7 @@ const DIALOG_PAPER = {
 
 /** Ghost action on the page; `color="error"` is the same ghost with Danger text. Never a fill. */
 function ActionButton({
-  color, size, sx, disabled, children, ...rest
+  color, disabled, children, ...rest
 }) {
   return (
     <PsButton
@@ -221,16 +221,19 @@ function StepperField({
     if (max != null) next = Math.min(max, next);
     onChange({ target: { value: String(next) } });
   };
+  // aria-disabled, not disabled: a native disabled drops focus from the button just pressed at the bound.
+  const atMin = min != null && (Number(value) || 0) <= min;
+  const atMax = max != null && (Number(value) || 0) >= max;
   const stepSx = {
     width: '44px', height: '44px', flex: 'none', boxSizing: 'border-box', p: 0, borderRadius: 0, cursor: 'pointer',
     border: '2px solid var(--ps-ink)', backgroundColor: 'transparent', color: 'var(--ps-ink)', fontFamily: 'inherit', fontSize: '20px',
-    '&[disabled]': { borderColor: 'var(--ps-rule)', color: 'var(--ps-dim)', cursor: 'not-allowed' },
+    '&[disabled], &[aria-disabled="true"]': { borderColor: 'var(--ps-rule)', color: 'var(--ps-dim)', cursor: 'not-allowed' },
   };
   return (
     <Box sx={{ display: 'inline-flex', alignItems: 'flex-start', gap: '6px', ...sx }}>
       <Box
         component="button" type="button" aria-label={`Decrease ${label}`}
-        disabled={disabled || (min != null && (Number(value) || 0) <= min)} onClick={() => step(-1)} sx={stepSx}
+        disabled={disabled} aria-disabled={atMin || undefined} onClick={() => !atMin && step(-1)} sx={stepSx}
       >
         &minus;
       </Box>
@@ -240,7 +243,7 @@ function StepperField({
       />
       <Box
         component="button" type="button" aria-label={`Increase ${label}`}
-        disabled={disabled || (max != null && (Number(value) || 0) >= max)} onClick={() => step(1)} sx={stepSx}
+        disabled={disabled} aria-disabled={atMax || undefined} onClick={() => !atMax && step(1)} sx={stepSx}
       >
         +
       </Box>
@@ -1008,12 +1011,9 @@ function GeneralSettingsPanel({
                 <ListItem key={team.teamId} sx={{ gap: 1, flexWrap: 'wrap' }}>
                   <ListItemText primary={team.name} sx={{ my: 0 }} />
                   <ActionButton
-                   
-                   
                     color="error"
                     aria-label={`Remove ${team.name}`}
                     onClick={() => setRemoveTarget(team)}
-                    sx={{ flex: 'none' }}
                   >
                     Remove
                   </ActionButton>
@@ -1051,12 +1051,9 @@ function GeneralSettingsPanel({
             <ListItem key={team.teamId} sx={{ gap: 1, flexWrap: 'wrap' }}>
               <ListItemText primary={team.name} sx={{ my: 0 }} />
               <ActionButton
-               
-               
                 color="error"
                 aria-label={`Remove and ban ${team.name}`}
                 onClick={() => setBanTarget(team)}
-                sx={{ flex: 'none' }}
               >
                 Remove &amp; ban
               </ActionButton>
@@ -1073,10 +1070,8 @@ function GeneralSettingsPanel({
                 <ListItem key={ban.id} sx={{ gap: 1, flexWrap: 'wrap' }}>
                   <ListItemText primary={ban.team_name} sx={{ my: 0 }} />
                   <ActionButton
-                   
                     aria-label={`Lift the ban on ${ban.team_name}'s manager`}
                     onClick={() => handleUnban(ban)}
-                    sx={{ flex: 'none' }}
                   >
                     Lift ban
                   </ActionButton>
@@ -2112,7 +2107,6 @@ function ScoreCorrectionCard({ leagueId, teams, notify, onRefresh }) {
               sx={{ width: 160 }}
             />
             <ActionButton
-             
               disabled={adjustment === '' || submitting || correctionLocked}
               onClick={handleApply}
             >
@@ -2156,7 +2150,6 @@ function TeamLockList({ leagueId, teams, notify, onRefresh }) {
               checked={!!team.locked}
               onChange={(e) => handleToggle(team, e.target.checked)}
               inputProps={{ 'aria-label': `Lock ${team.name}` }}
-              sx={{ flex: 'none' }}
             />
           </ListItem>
         ))}
