@@ -514,6 +514,7 @@ test('draws a PosTag inside the description for a player with a position, none w
   expect(
     within(within(withPos).getByTestId('txn-desc')).getByText('WR')
   ).toHaveAttribute('data-position', 'wr');
-  const withoutPos = screen.getByTestId('txn-2');
-  expect(within(withoutPos).queryByText('WR')).toBeNull();
+  const withoutPos = within(screen.getByTestId('txn-2')).getByTestId('txn-desc');
+  // eslint-disable-next-line testing-library/no-node-access
+  expect(withoutPos.querySelector('[data-position]')).toBeNull();
 });

@@ -85,7 +85,7 @@ function renderSegments(segments, onOpenPlayer) {
         },
       }}
     />
-    {seg.position && <PosTag position={seg.position} sx={{ ml: '6px' }} />}
+    {seg.position && <Box component="span" sx={{ ml: '6px' }}><PosTag position={seg.position} /></Box>}
     </React.Fragment>
   ) : (
     <React.Fragment key={i}>{seg.value}</React.Fragment>
