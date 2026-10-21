@@ -4,6 +4,7 @@ import { DndContext, KeyboardSensor, PointerSensor, closestCenter, useSensor, us
 import { SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Box, IconButton, List, ListItem, ListItemText } from '@mui/material';
+import { TARGET_SX } from './kit';
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
@@ -13,16 +14,15 @@ function SortableRow({ item, index, total, disabled, onMove }) {
   return (
     <ListItem
       ref={setNodeRef}
-      divider
-      sx={{ transform: CSS.Transform.toString(transform), transition, bgcolor: isDragging ? 'action.selected' : 'background.paper' }}
+      sx={{ transform: CSS.Transform.toString(transform), transition, bgcolor: isDragging ? 'var(--ps-frame-2)' : 'var(--ps-panel)', color: 'var(--ps-ink)', borderBottom: '2px solid var(--ps-dim)' }}
       secondaryAction={(
         <Box sx={{ display: 'flex', alignItems: 'center' }}>
-          <IconButton aria-label={`Move ${item.label} up`} size="small" disabled={disabled || index === 0} onClick={() => onMove(index, index - 1)}><KeyboardArrowUpIcon /></IconButton>
-          <IconButton aria-label={`Move ${item.label} down`} size="small" disabled={disabled || index === total - 1} onClick={() => onMove(index, index + 1)}><KeyboardArrowDownIcon /></IconButton>
+          <IconButton aria-label={`Move ${item.label} up`} sx={TARGET_SX} disabled={disabled || index === 0} onClick={() => onMove(index, index - 1)}><KeyboardArrowUpIcon /></IconButton>
+          <IconButton aria-label={`Move ${item.label} down`} sx={TARGET_SX} disabled={disabled || index === total - 1} onClick={() => onMove(index, index + 1)}><KeyboardArrowDownIcon /></IconButton>
         </Box>
       )}
     >
-      <IconButton aria-label={`Drag ${item.label}`} size="small" disabled={disabled} {...attributes} {...listeners}><DragIndicatorIcon /></IconButton>
+      <IconButton aria-label={`Drag ${item.label}`} sx={TARGET_SX} disabled={disabled} {...attributes} {...listeners}><DragIndicatorIcon /></IconButton>
       <ListItemText primary={`${index + 1}. ${item.label}`} />
     </ListItem>
   );
@@ -49,7 +49,7 @@ export default function SortableTeamList({ items, onChange, disabled = false }) 
   return (
     <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
       <SortableContext items={items.map((item) => String(item.id))} strategy={verticalListSortingStrategy}>
-        <List dense disablePadding sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
+        <List dense disablePadding sx={{ border: '2px solid var(--ps-dim)' }}>
           {items.map((item, index) => <SortableRow key={item.id} item={item} index={index} total={items.length} disabled={disabled} onMove={move} />)}
         </List>
       </SortableContext>

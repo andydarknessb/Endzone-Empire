@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import PropTypes from 'prop-types';
-import { Alert, Box, Button, Stack, Typography } from '@mui/material';
+import { Box, Stack } from '@mui/material';
+import { Dim, Note, PsButton } from './kit';
 import DraftScheduleField from '../common/DraftScheduleField';
 import DraftStartControl from '../DraftBoard/DraftStartControl';
 import { browserTimeZone, utcIsoToZonedWallTime, zonedWallTimeToUtcIso } from '../../lib/draftTimezone';
@@ -69,9 +70,10 @@ export default function SchedulePanel({ league, teamCount, frozen, onSave, onSta
   };
   return (
     <Stack spacing={2}>
-      {frozen && <Alert severity="info">Scheduling is locked after the draft starts.</Alert>}
-      {auctionUnavailable && <Alert severity="info">Live salary-cap auctions are coming soon. Scheduling and immediate start are unavailable.</Alert>}
+      {frozen && <Note>Scheduling is locked after the draft starts.</Note>}
+      {auctionUnavailable && <Note>Live salary-cap auctions are coming soon. Scheduling and immediate start are unavailable.</Note>}
       <DraftScheduleField
+        look="playselect"
         wallTime={draftDate}
         onWallTimeChange={setDraftDate}
         timeZone={timeZone}
@@ -82,9 +84,9 @@ export default function SchedulePanel({ league, teamCount, frozen, onSave, onSta
         minWallTime={utcIsoToZonedWallTime(new Date(), timeZone)}
         error={draftDateError}
       />
-      <Typography variant="caption" color={insufficientTeams ? 'error' : 'text.secondary'}>{teamCount} of {minimumTeams} required teams have joined.</Typography>
+      <Dim style={insufficientTeams ? { color: 'var(--ps-danger)' } : undefined}>{teamCount} of {minimumTeams} required teams have joined.</Dim>
       <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-        <Button variant="contained" disabled={frozen || saving || auctionUnavailable || Boolean(draftDateError) || needsAcknowledgement} onClick={handleSave}>Save schedule</Button>
+        <PsButton disabled={frozen || saving || auctionUnavailable || Boolean(draftDateError) || needsAcknowledgement} onClick={handleSave}>Save schedule</PsButton>
         <DraftStartControl
           teamCount={teamCount}
           minimumTeams={minimumTeams}
@@ -92,7 +94,7 @@ export default function SchedulePanel({ league, teamCount, frozen, onSave, onSta
           market={league.market}
           onStart={onStart}
           label="Start Draft Now"
-          variant="outlined"
+          variant="text"
           disabled={frozen || saving}
           showHints={false}
         />

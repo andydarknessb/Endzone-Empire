@@ -56,14 +56,14 @@ test('offers every round in the draft roster size, including round 19', () => {
 // <Typography variant="h4"> title at DraftSettings.jsx:212, which this
 // standalone panel render does not mount (see #704) - so a bare render must
 // show no stray h6 and a real h5 for each.
-test('gives its three section titles an explicit h5, and no stray h6', () => {
+test('gives its three section titles an h2, and no stray h6', () => {
   renderPanel([
     { id: 1, name: 'Team One', draft_position: 1 },
     { id: 2, name: 'Team Two', draft_position: 2 },
   ]);
 
-  expect(screen.getByRole('heading', { level: 5, name: 'Round 1 order' })).toBeInTheDocument();
-  expect(screen.getByRole('heading', { level: 5, name: 'Rotation preview' })).toBeInTheDocument();
-  expect(screen.getByRole('heading', { level: 5, name: 'Round overrides' })).toBeInTheDocument();
+  expect(screen.getByRole('heading', { level: 2, name: 'Round 1 order' })).toBeInTheDocument();
+  expect(screen.getByRole('heading', { level: 2, name: 'Rotation preview' })).toBeInTheDocument();
+  expect(screen.getByRole('heading', { level: 2, name: 'Round overrides' })).toBeInTheDocument();
   expect(screen.queryAllByRole('heading', { level: 6 })).toHaveLength(0);
 });
