@@ -7,7 +7,7 @@
 const pool = require('../modules/pool');
 const clock = require('../modules/clock');
 const { withTransaction } = require('../modules/withTransaction');
-const { materializeLineup, rowsHeldAsPlayed } = require('./lineup.service');
+const { materializeLineup, rowsHeldAsPlayed, liveStartersHeld, onRosterColumn } = require('./lineup.service');
 const { getDraftRoomBroadcast } = require('../modules/draftRoomBroadcast');
 const { seasonOperationsAvailable, SEASON_BEFORE_DRAFT_MESSAGE } = require('./leaguePhase');
 const { countedRoster } = require('./countedRoster.service');
@@ -245,8 +245,7 @@ async function scoreMatchups({ leagueId, season, week, plays = [], settle = fals
       }
       const r = await client.query(
         `SELECT "lineup_entries"."player_id", "players"."nfl_team", "player_stats"."stats",
-                ${asPlayed ? 'TRUE' : `EXISTS (SELECT 1 FROM "team_players" WHERE "team_players"."team_id" = "lineup_entries"."team_id"
-                  AND "team_players"."player_id" = "lineup_entries"."player_id")`} AS "on_roster"
+                ${asPlayed ? 'TRUE' : onRosterColumn()} AS "on_roster"
          FROM "lineup_entries"
          JOIN "players" ON "players"."id" = "lineup_entries"."player_id"
          LEFT JOIN "player_stats" ON "player_stats"."player_id" = "lineup_entries"."player_id"
@@ -264,10 +263,7 @@ async function scoreMatchups({ leagueId, season, week, plays = [], settle = fals
       // now (#954).
       const rows = asPlayed
         ? await heldRows(r.rows, teamId, true)
-        : [
-          ...r.rows.filter((row) => row.on_roster !== false),
-          ...await heldRows(r.rows.filter((row) => row.on_roster === false), teamId, true),
-        ];
+        : await liveStartersHeld(client, { league, teamId, season, week, rows: r.rows, kickoffCache });
       return countedRoster({ rows, league, price }).teamScore;
     };
     const scored = [];

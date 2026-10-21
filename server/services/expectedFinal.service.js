@@ -2,7 +2,7 @@ const pool = require('../modules/pool');
 const projectionService = require('./projection.service');
 const { computeByeWeeks } = require('./bye.service');
 const { normalizeNflTeam } = require('./nflTeam');
-const { parseLineupSettings, rowsHeldAsPlayed } = require('./lineup.service');
+const { parseLineupSettings, liveStartersHeld } = require('./lineup.service');
 const { optimalLineup } = require('./lineupOptimizer');
 const { gameStateFor } = require('./gameState');
 const { gameFractionRemaining, varianceRemaining } = require('./winProbability');
@@ -141,14 +141,12 @@ async function expectedFinalsForWeek({ league, season, week, teamIds, db = pool,
   // Off-roster rows are the spared starters; only they go through the settle
   // filter, so the live total never counts a row settle takes off (#2391).
   const kickoffCache = new Map();
-  const offRosterHeld = new Set();
+  const kept = new Set();
   for (const teamId of ids) {
-    const off = candidateRows.rows.filter((r) => r.team_id === teamId && r.on_roster === false);
-    if (off.length === 0) continue;
-    const held = await rowsHeldAsPlayed(db, { league, teamId, season, week, rows: off, kickoffCache });
-    for (const r of held) offRosterHeld.add(r);
+    const rows = candidateRows.rows.filter((r) => r.team_id === teamId);
+    for (const r of await liveStartersHeld(db, { league, teamId, season, week, rows, kickoffCache })) kept.add(r);
   }
-  candidateRows.rows = candidateRows.rows.filter((r) => r.on_roster !== false || offRosterHeld.has(r));
+  candidateRows.rows = candidateRows.rows.filter((r) => kept.has(r));
   if (candidateRows.rows.length === 0) return result;
 
   const playerIds = [...new Set(candidateRows.rows.map((r) => r.player_id))];
