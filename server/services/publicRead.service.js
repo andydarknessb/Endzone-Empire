@@ -542,7 +542,8 @@ async function getDraftPool({ includeIdp = false } = {}) {
   // DRAFT_POOL_LIMIT is a safety ceiling, not the rule.
   const mainRows = mainRes.rows
     .filter(bestAvailable.isBestAvailableEligible)
-    .sort(bestAvailable.compareBestAvailable)
+    // Null-team players stay in the pool (draftable by hand) but rank after every team player.
+    .sort((a, b) => (bestAvailable.hasNoNflTeam(a) - bestAvailable.hasNoNflTeam(b)) || bestAvailable.compareBestAvailable(a, b))
     .slice(0, DRAFT_POOL_LIMIT);
 
   let idpRows = [];

@@ -2,7 +2,8 @@
  * Best available (CONTEXT.md glossary): the order players are offered when
  * nobody has expressed a preference. By ADP where the market has one, then
  * by last completed season's fantasy points, then by name. Database id
- * NEVER decides order between two players.
+ * NEVER decides order between two players. A player with no NFL team comes after
+ * every player with one (callers partition on hasNoNflTeam, each side in this order).
  *
  * Shared by the Draft Sim's pool (publicRead.service.js getDraftPool, which
  * also applies the membership rule below) and the real draft's autopick
@@ -20,6 +21,15 @@
 /** Has the market ranked this player (ADP), or did they produce last season? */
 function isBestAvailableEligible(row) {
   return row.adp != null || row.last_season_points != null;
+}
+
+/**
+ * A released free agent or stale duplicate: the roster sync NULLs nfl_team. Only
+ * a literal null counts, so a row from a query that never read the column
+ * (undefined) is treated as team-held and keeps today's order.
+ */
+function hasNoNflTeam(row) {
+  return row.nfl_team === null;
 }
 
 /**
@@ -50,4 +60,4 @@ function selectBestAvailable(rows) {
   return rows.filter(isBestAvailableEligible).sort(compareBestAvailable);
 }
 
-module.exports = { isBestAvailableEligible, compareBestAvailable, selectBestAvailable };
+module.exports = { isBestAvailableEligible, hasNoNflTeam, compareBestAvailable, selectBestAvailable };
