@@ -134,6 +134,7 @@ test('look="playselect" is a ps-root dialog whose Add and drop is the only fille
 
 test('with no look the sheet is the dash sheet: not inside .ps-root, no filled PsButton', () => {
   renderSheet({ look: undefined });
-  expect(screen.getByRole('dialog', { name: 'Add Josh Palmer' }).closest('.ps-root')).toBeNull();
+  const dialog = screen.getByRole('dialog', { name: 'Add Josh Palmer' });
+  expect(dialog.closest('.ps-root')).toBeNull();
   expect(document.querySelectorAll('[data-variant="fill"]')).toHaveLength(0);
 });
