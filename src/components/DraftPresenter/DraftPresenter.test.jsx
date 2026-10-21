@@ -79,7 +79,7 @@ test('renders a public draft board from the presenter token route', async () => 
   expect(boardCalls()[0][0]).toBe('/api/draft/board/share-token');
 });
 
-test('renders the pick clock as "Time remaining:" plus the room\'s m:ss, ticking on its own (#754)', async () => {
+test('renders the pick clock as the room\'s m:ss, ticking on its own (#754)', async () => {
   // The fixture deadline is 12:01:00Z; pin the clock one minute before it.
   jest.useFakeTimers('modern');
   jest.setSystemTime(Date.parse('2099-09-01T12:00:00.000Z'));
@@ -89,25 +89,39 @@ test('renders the pick clock as "Time remaining:" plus the room\'s m:ss, ticking
     await Promise.resolve();
   });
   const clock = screen.getByTestId('draft-clock');
-  expect(clock).toHaveTextContent('Time remaining: 1:00');
+  expect(clock).toHaveTextContent('1:00');
   // The old schedule Countdown spoke this as "1m 00s"; one vocabulary now.
   expect(clock).not.toHaveTextContent('1m 00s');
 
   await act(async () => {
     jest.advanceTimersByTime(3000);
   });
-  expect(screen.getByTestId('draft-clock')).toHaveTextContent('Time remaining: 0:57');
+  expect(screen.getByTestId('draft-clock')).toHaveTextContent('0:57');
 });
 
-test('the shared DraftBoardMatrix keeps this page\'s own (pre-#121) heading level, not the Draft route\'s default H2', async () => {
+test('the page is h1 (league name) then h2 sections, the board\'s own title included', async () => {
+  renderWithProviders(<DraftPresenter />, { path: '/present/:token', route: '/present/share-token' });
+
+  await screen.findByRole('heading', { name: 'Sunday Ballers', level: 1 });
+  expect(screen.getByRole('heading', { name: 'Draft Board', level: 2 })).toBeInTheDocument();
+  expect(screen.getByRole('heading', { name: 'Recent picks', level: 2 })).toBeInTheDocument();
+  expect(screen.getByRole('heading', { name: 'Draft activity', level: 2 })).toBeInTheDocument();
+});
+
+test('the page has no controls and the clock carries data-urgent', async () => {
   renderWithProviders(<DraftPresenter />, { path: '/present/:token', route: '/present/share-token' });
 
   await screen.findByRole('heading', { name: 'Sunday Ballers' });
-  // This page's own hierarchy (h1 the league name, h3 on-the-clock status,
-  // h4 Recent picks) has no h2 in it; DraftBoardMatrix's title stays out of
-  // that chain entirely rather than defaulting into the middle of it.
-  expect(screen.getByRole('heading', { name: 'Draft Board', level: 6 })).toBeInTheDocument();
-  expect(screen.queryByRole('heading', { name: 'Draft Board', level: 2 })).not.toBeInTheDocument();
+  expect(screen.queryAllByRole('button')).toHaveLength(0);
+  expect(screen.getByTestId('draft-clock')).toHaveAttribute('data-urgent', 'false');
+});
+
+test('loading shows Skel blocks, not a spinner or a heading', () => {
+  mockPresenterGet.mockImplementation(() => new Promise(() => {}));
+  renderWithProviders(<DraftPresenter />, { path: '/present/:token', route: '/present/share-token' });
+
+  expect(screen.getByRole('status', { name: 'Loading draft board' })).toBeInTheDocument();
+  expect(screen.queryByRole('heading')).not.toBeInTheDocument();
 });
 
 test('polls both the board and the activity feed every five seconds', async () => {
