@@ -6,7 +6,7 @@
  * Every case runs at 1440 and 390, in both themes, on every one of the tools' six tabs, and asserts:
  *  - two pending requests: one `.cursor` and one `[data-variant="fill"]` outside a dialog (the queue's lead row);
  *  - no pending requests: zero of each;
- *  - no sideways scroll on the document, and every button in the console column (below its header) at least 44px.
+ *  - no sideways scroll on the document, and every button in `main` (the page header's Advance control included) at least 44px.
  *
  * Not covered here: colours (src/theme/tokens.contrast.test.js), the tools' behaviour (CommissionerTools tests).
  */
@@ -36,12 +36,9 @@ async function open(page: Page, viewport: ViewportName, theme: Theme, pending: b
 
 async function probe(page: Page) {
   return page.evaluate(() => {
-    // The console column only: the app header's own search "Open" (28px) and the page header's Advance week control
-    // (31px on desktop) belong to other slices and are not this PR's to move; the queue and the tools are.
-    const column = document.querySelector('[data-testid="commissioner-console-column"]');
-    const header = document.querySelector('[data-testid="commissioner-console-header"]');
-    const small = Array.from(column ? column.querySelectorAll('button, [role="button"]') : [])
-      .filter((el) => !(header && header.contains(el)))
+    // Every button in the routed page (the `main` landmark), page header included. The app shell's Nav sits outside it.
+    const main = document.querySelector('main');
+    const small = Array.from(main ? main.querySelectorAll('button, [role="button"]') : [])
       .map((el) => ({ el, box: el.getBoundingClientRect() }))
       .filter(({ box }) => box.width > 0 && box.height > 0 && (box.width < 43.5 || box.height < 43.5))
       .map(({ el, box }) => `${el.tagName} "${(el.getAttribute('aria-label') || el.textContent || '').trim().slice(0, 30)}" ${Math.round(box.width)}x${Math.round(box.height)}`);
@@ -56,6 +53,10 @@ async function probe(page: Page) {
 }
 
 async function expectFits(page: Page) {
+  const advance = page.getByRole('button', { name: /Advance to Week/ });
+  await expect(advance).toBeVisible();
+  const box = await advance.boundingBox();
+  expect(box?.height ?? 0, `Advance to Week is ${box?.height}px tall, want at least 44`).toBeGreaterThanOrEqual(43.5);
   const p = await probe(page);
   expect(p.scrollWidth, `document scrollWidth ${p.scrollWidth} vs innerWidth ${p.innerWidth}`).toBeLessThanOrEqual(p.innerWidth);
   expect(p.small, 'every button is at least 44px').toEqual([]);
