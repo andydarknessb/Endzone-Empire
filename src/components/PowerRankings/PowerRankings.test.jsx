@@ -217,7 +217,7 @@ describe('sorting', () => {
     apiClient.get.mockResolvedValue({ data: powerRankingsResponse() });
     renderScreen();
     await screen.findByTestId('power-ranking-row-1');
-    const header = (name) => screen.getByRole('columnheader', { name: new RegExp(name, 'i') });
+    const header = (name) => screen.getByRole('columnheader', { name });
     expect(header('Rank')).toHaveAttribute('aria-sort', 'ascending');
     expect(header('Win %')).not.toHaveAttribute('aria-sort');
     fireEvent.click(screen.getByRole('button', { name: /Win %/i }));
@@ -386,9 +386,8 @@ test('updates a mounted ranking immediately when Profile Settings publishes a te
 
   expect(within(aliceRow).getByText('Bandits')).toBeInTheDocument();
   // TeamMark is aria-hidden by design (the team name sits right beside it),
-  // so the image (alt="") is queried by tag rather than pretending it is in
-  // the accessibility tree. See the comment on Avatar in TeamAvatar.jsx
-  // (#327) for why it must stay without an `alt`.
+  // so its image (alt="", role presentation) is queried hidden rather than
+  // pretending it is in the accessibility tree.
   expect(within(aliceRow).getByRole('presentation', { hidden: true })).toHaveAttribute(
     'src',
     'https://cdn.example/bandits.png'
