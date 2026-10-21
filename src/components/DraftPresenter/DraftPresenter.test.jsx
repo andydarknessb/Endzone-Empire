@@ -120,7 +120,7 @@ test('loading shows Skel blocks, not a spinner or a heading', () => {
   mockPresenterGet.mockImplementation(() => new Promise(() => {}));
   renderWithProviders(<DraftPresenter />, { path: '/present/:token', route: '/present/share-token' });
 
-  expect(screen.getByRole('status', { name: 'Loading draft board' })).toBeInTheDocument();
+  expect(screen.getByRole('status')).toHaveTextContent('Loading draft board…');
   expect(screen.queryByRole('heading')).not.toBeInTheDocument();
 });
 

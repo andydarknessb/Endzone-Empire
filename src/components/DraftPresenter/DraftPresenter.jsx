@@ -3,7 +3,7 @@ import axios from 'axios';
 import { useParams } from 'react-router-dom';
 import { Box, Typography } from '@mui/material';
 import {
-  ErrorPanel, Frame, LiveChip, PixelHeading, Skel, pixelSx, psRootSx,
+  ErrorPanel, Frame, LiveChip, PixelHeading, SR_ONLY_SX, Skel, pixelSx, psRootSx,
 } from '../../shared/ui/playselect';
 import DraftBoardMatrix from '../DraftBoard/DraftBoardMatrix';
 import PickClock from '../DraftBoard/PickClock';
@@ -92,7 +92,8 @@ function DraftPresenter() {
   if (!draftState && !error) {
     return (
       <PresenterRoot>
-        <Box role="status" aria-label="Loading draft board" sx={{ display: 'grid', gap: 2 }}>
+        <Box role="status" sx={{ display: 'grid', gap: 2 }}>
+          <Box component="span" sx={SR_ONLY_SX}>Loading draft board…</Box>
           <Skel width="40%" height={40} />
           <Skel width="100%" height={96} />
           <Skel width="100%" height={360} />
@@ -137,15 +138,19 @@ function DraftPresenter() {
           black, a Pixel 24 turn line and the room's PickClock leaf at Pixel 32. */}
       <Box
         component="section"
-        role="status"
-        aria-live="polite"
         sx={{
           p: { xs: 1.5, md: 2.5 }, display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           gap: 2, flexWrap: 'wrap', backgroundColor: 'var(--ps-board)', color: 'var(--ps-board-ink)',
           border: '2px solid', borderColor: isActive ? 'var(--ps-board-live)' : 'var(--ps-board-rule)',
         }}
       >
-        <Box sx={{ ...pixelSx(24), fontSize: { xs: '16px', md: '24px' }, overflowWrap: 'anywhere', minWidth: 0 }}>
+        {/* The live region is the turn text only; the per-second clock stays
+            outside it, as in the room's banner (#445 AC3). */}
+        <Box
+          role="status"
+          aria-live="polite"
+          sx={{ ...pixelSx(24), fontSize: { xs: '16px', md: '24px' }, overflowWrap: 'anywhere', minWidth: 0 }}
+        >
           {onTheClock.team ? `${onTheClock.team.teamName} is on the clock` : league.draft_status}
         </Box>
         {onTheClock.state === 'running' ? (
