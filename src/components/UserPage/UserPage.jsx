@@ -13,7 +13,7 @@ import AlertPrompt from './AlertPrompt';
 import LeagueNews from './LeagueNews';
 import { featuredDraft } from './NextDraftCard';
 import {
-  FirstRunIntro, GreetingHeader, greetingSummary, liveMatchupCount,
+  FirstRunIntro, GreetingHeader, greetingSummary, liveMatchupCount, pickemLive,
 } from './GreetingHeader';
 import { deriveLeaguePhase, LEAGUE_PHASE } from '../../shared/lib/leaguePhase';
 import { usePostgameCutscenes, PostgameCutscenes } from '../../features/postgame-cutscene';
@@ -249,7 +249,7 @@ function UserPage() {
   const currentWeek = sharedCurrentWeek(myLeagues);
   const liveMatchups = liveMatchupCount(myLeagues);
   // Game day: the play frame and live scores only; League news and Columns wait.
-  const gameDay = liveMatchups > 0;
+  const gameDay = liveMatchups > 0 || pickemLive(myLeagues);
   // Recomputed on every render: each load, and each scheduled lock tick, re-renders.
   const nowMs = Date.now();
   const kickoffWindowOpen = [...upcomingLocks(myLeagues), firedLock]

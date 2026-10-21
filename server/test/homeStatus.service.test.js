@@ -340,7 +340,9 @@ test('pickemStatus counts picks made in this slate and locks on the earliest unp
     now: at('2026-10-04T18:00:00.000Z'),
   });
   // BUF|MIA has locked; of the open three, DAL|NYG and GB|MIN are unpicked.
-  assert.deepEqual(status, { made: 2, total: 4, missing: 2, nextLockAt: '2026-10-04T20:25:00.000Z' });
+  assert.deepEqual(status, {
+    made: 2, total: 4, missing: 2, nextLockAt: '2026-10-04T20:25:00.000Z', weekPoints: 0, finals: 0, inProgress: true,
+  });
 });
 
 test('pickemStatus: fully picked (or all locked) has nothing missing and no lock', () => {
@@ -349,9 +351,42 @@ test('pickemStatus: fully picked (or all locked) has nothing missing and no lock
     made: new Set(SLATE.map((g) => g.gameKey)),
     now: at('2026-10-04T12:00:00.000Z'),
   });
-  assert.deepEqual(done, { made: 4, total: 4, missing: 0, nextLockAt: null });
+  assert.deepEqual(done, {
+    made: 4, total: 4, missing: 0, nextLockAt: null, weekPoints: 0, finals: 0, inProgress: false,
+  });
   const over = homeStatus.pickemStatus({ slate: SLATE, made: new Set(), now: at('2026-10-06T00:00:00.000Z') });
-  assert.deepEqual(over, { made: 0, total: 4, missing: 0, nextLockAt: null });
+  assert.deepEqual(over, {
+    made: 0, total: 4, missing: 0, nextLockAt: null, weekPoints: 0, finals: 0, inProgress: false,
+  });
+});
+
+// A final, an in-progress and a scheduled game; the viewer picked all three.
+const SCORED_SLATE = [
+  { gameKey: 'BUF|MIA', kickoffAt: '2026-10-04T17:00:00.000Z', status: 'final', homeTeam: 'BUF', awayTeam: 'MIA', homeScore: 24, awayScore: 17 },
+  { gameKey: 'DAL|NYG', kickoffAt: '2026-10-04T20:25:00.000Z', status: 'in_progress', homeTeam: 'DAL', awayTeam: 'NYG', homeScore: 7, awayScore: 3 },
+  { gameKey: 'GB|MIN', kickoffAt: '2026-10-05T00:20:00.000Z', status: 'scheduled', homeTeam: 'GB', awayTeam: 'MIN', homeScore: null, awayScore: null },
+];
+const SCORED_PICKS = [
+  { userId: 7, gameKey: 'BUF|MIA', pickedTeam: 'BUF', confidence: 3 },
+  { userId: 7, gameKey: 'DAL|NYG', pickedTeam: 'DAL', confidence: 2 },
+  { userId: 7, gameKey: 'GB|MIN', pickedTeam: 'GB', confidence: 1 },
+];
+
+test('pickemStatus scores only final games: confidence pays the pick, straight pays 1', () => {
+  const now = at('2026-10-04T21:00:00.000Z');
+  const confidence = homeStatus.pickemStatus({ slate: SCORED_SLATE, picks: SCORED_PICKS, mode: 'confidence', now });
+  assert.equal(confidence.weekPoints, 3);
+  assert.equal(confidence.finals, 1);
+  assert.equal(confidence.total, 3);
+  const straight = homeStatus.pickemStatus({ slate: SCORED_SLATE, picks: SCORED_PICKS, mode: 'straight', now });
+  assert.equal(straight.weekPoints, 1);
+});
+
+test('pickemStatus.inProgress: a game kicked off and not final; false when all final or none kicked off', () => {
+  const run = (slate, iso) => homeStatus.pickemStatus({ slate, now: at(iso) }).inProgress;
+  assert.equal(run(SCORED_SLATE, '2026-10-04T21:00:00.000Z'), true);
+  assert.equal(run(SCORED_SLATE, '2026-10-04T12:00:00.000Z'), false);
+  assert.equal(run(SCORED_SLATE.map((g) => ({ ...g, status: 'final' })), '2026-10-05T12:00:00.000Z'), false);
 });
 
 // --- leagueStatuses / actionItems over a fake pool -------------------------
@@ -454,4 +489,92 @@ test('isValidTimeZone accepts IANA zones and refuses anything else', () => {
   assert.equal(homeStatus.isValidTimeZone(''), false);
   assert.equal(homeStatus.isValidTimeZone(undefined), false);
   assert.equal(homeStatus.isValidTimeZone(['UTC']), false);
+});
+
+// --- inProgress: a postponed game must not hold Home in game day ----------
+
+test('pickemStatus.inProgress: kicked off 2 h ago and not final is true; 9 h ago and not final is false', () => {
+  const slate = [{ gameKey: 'DAL|NYG', kickoffAt: '2026-10-04T12:00:00.000Z', status: 'scheduled' }];
+  assert.equal(homeStatus.pickemStatus({ slate, now: at('2026-10-04T14:00:00.000Z') }).inProgress, true);
+  assert.equal(homeStatus.pickemStatus({ slate, now: at('2026-10-04T21:00:00.000Z') }).inProgress, false);
+});
+
+// --- loadPickemStandings, read through leagueStatuses ----------------------
+//
+// A confidence pick'em league, viewer 7 ("Picker") 2nd of 3. Week 3 is final
+// (recaps), week 4 has BUF-MIA final (live row, recap) and DAL-NYG pending.
+
+const PICKEM_LEAGUE = {
+  id: 90, name: 'Pool', pickem_only: true, best_ball: false,
+  draft_status: 'pending', season_status: 'regular', current_season: 2026, current_week: 4,
+  max_teams: 20, draft_date: null, draft_timezone: null,
+  my_team_id: 21, my_team_name: 'Picker', team_count: 3, is_owner: false, is_commissioner: false,
+};
+const gameRows = (week, home, away, kickoff) => [
+  { week, nfl_team: home, opponent: away, kickoff_at: kickoff, game_key: `${week}${home}`, roof: null, home_away: 'home' },
+  { week, nfl_team: away, opponent: home, kickoff_at: kickoff, game_key: `${week}${home}`, roof: null, home_away: 'away' },
+];
+const ALL_GAMES = [
+  ...gameRows(3, 'KC', 'LV', '2026-09-27T17:00:00.000Z'),
+  ...gameRows(3, 'GB', 'MIN', '2026-09-27T20:00:00.000Z'),
+  ...gameRows(4, 'BUF', 'MIA', '2026-10-04T12:00:00.000Z'),
+  ...gameRows(4, 'DAL', 'NYG', '2026-10-04T20:25:00.000Z'),
+];
+const recap = (week, home, away, homeScore, awayScore) => ({ week, home_team: home, away_team: away, home_score: homeScore, away_score: awayScore });
+const pick = (userId, week, pair, picked, confidence) => ({
+  league_id: 90, user_id: userId, week, team_pair: pair, picked_team: picked, confidence, mode: 'confidence',
+});
+const SEASON_PICKS = [
+  pick(7, 3, 'KC|LV', 'KC', 5), pick(7, 3, 'GB|MIN', 'GB', 3), pick(7, 4, 'BUF|MIA', 'BUF', 2), pick(7, 4, 'DAL|NYG', 'DAL', 1),
+  pick(8, 3, 'KC|LV', 'KC', 10), pick(8, 3, 'GB|MIN', 'MIN', 8), pick(8, 4, 'BUF|MIA', 'BUF', 4),
+  pick(9, 3, 'KC|LV', 'KC', 1),
+];
+
+function pickemWorld({ picks = SEASON_PICKS, recaps, teamsFail = false } = {}) {
+  return createFakePool([
+    [/fn_normalize_nfl_team\("opponent"\)/, (text, params) => ({ rows: ALL_GAMES.filter((g) => params[1] == null || g.week === params[1]) })],
+    [/FROM "live_game_states"/, () => ({ rows: [{
+      week: 4, tank01_game_id: 'g', home_team: 'BUF', away_team: 'MIA', game_status: 'final', current_score_home: 17, current_score_away: 10,
+    }] })],
+    [/FROM "private"."game_recaps"/, () => ({ rows: recaps || [
+      recap(3, 'KC', 'LV', 24, 10), recap(3, 'GB', 'MIN', 20, 30), recap(4, 'BUF', 'MIA', 17, 10),
+    ] })],
+    [/^SELECT "league_id", "owner_id", "name" FROM "teams"/, () => {
+      if (teamsFail) throw new Error('teams read failed');
+      return { rows: [7, 8, 9].map((owner) => ({ league_id: 90, owner_id: owner, name: { 7: 'Picker', 8: 'Ace', 9: 'Bob' }[owner] })) };
+    }],
+    [/FROM "pickem_picks"/, (text) => ({
+      rows: text.includes('JOIN "teams"') ? picks.filter((p) => p.user_id === 7 && p.week === 4) : picks,
+    })],
+  ]);
+}
+const NOW_4 = new Date('2026-10-04T14:00:00.000Z');
+
+test('season standing: sorted by points desc, leaderPoints is rank 1, lastWeek is the previous week, confidence scores the pick', async () => {
+  const out = await homeStatus.leagueStatuses(pickemWorld(), { userId: 7, leagues: [PICKEM_LEAGUE], now: NOW_4 });
+  const { status } = out.get(90);
+  // Ace 22 (18 + 4), Picker 7 (5 + 2), Bob 1.
+  assert.deepEqual(status.standing, { rank: 2, of: 3 });
+  assert.equal(status.pickem.points, 7);
+  assert.equal(status.pickem.leaderPoints, 22);
+  assert.deepEqual(status.pickem.lastWeek, { week: 3, points: 5 });
+  assert.equal(status.pickem.weekPoints, 2);
+  assert.equal(status.pickem.finals, 1);
+});
+
+test('before any points exist the season figures and the pick\'em-only standing are left out', async () => {
+  const out = await homeStatus.leagueStatuses(pickemWorld({ picks: [], recaps: [] }), { userId: 7, leagues: [PICKEM_LEAGUE], now: NOW_4 });
+  const { status } = out.get(90);
+  assert.equal('standing' in status, false);
+  assert.deepEqual(Object.keys(status.pickem).sort(), ['finals', 'inProgress', 'made', 'missing', 'nextLockAt', 'total', 'weekPoints']);
+});
+
+test('a failed standings read keeps the week figures on a pick\'em-only card', async () => {
+  const out = await homeStatus.leagueStatuses(pickemWorld({ teamsFail: true }), { userId: 7, leagues: [PICKEM_LEAGUE], now: NOW_4 });
+  const { status, statusError } = out.get(90);
+  assert.equal(statusError, false);
+  assert.equal('standing' in status, false);
+  assert.equal(status.pickem.total, 2);
+  assert.equal(status.pickem.weekPoints, 2);
+  assert.equal('points' in status.pickem, false);
 });
