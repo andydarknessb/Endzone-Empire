@@ -343,7 +343,10 @@ function orderAutopickCandidates(rows, { rosterSlots, rosterPositions, currentRo
 
   // Phase 1: the queue, sovereign and never position-filtered.
   const queued = rows.filter((r) => r.queue_rank != null).sort((a, b) => a.queue_rank - b.queue_rank);
-  const rest = rows.filter((r) => r.queue_rank == null);
+  const unqueued = rows.filter((r) => r.queue_rank == null);
+  // Null-team players are the last tail: reached only when nothing else is left (ADR 0026).
+  const rest = unqueued.filter((r) => !bestAvailable.hasNoNflTeam(r));
+  const noTeam = unqueued.filter(bestAvailable.hasNoNflTeam).sort(byBestAvailable);
 
   // Fills-a-need depends only on the candidate's position, so answer it once per
   // distinct position rather than once per candidate.
@@ -385,7 +388,7 @@ function orderAutopickCandidates(rows, { rosterSlots, rosterPositions, currentRo
   // to the raw Best available instead of stalling.
   if (phased.length === 0 && rest.length > 0) phased = [...rest].sort(byBestAvailable);
 
-  return [...queued, ...phased];
+  return [...queued, ...phased, ...noTeam];
 }
 
 /**
@@ -474,6 +477,7 @@ async function autoPick({ leagueId }) {
   const lastSeason = await lastCompletedNflSeason();
   const candidatesRes = await pool.query(
     `SELECT "players"."id", "players"."name", "players"."adp", "players"."position",
+            "players"."nfl_team",
             "draft_queue"."rank" AS "queue_rank",
             "season_points"."fantasy_points" AS "last_season_points"
      FROM "players"

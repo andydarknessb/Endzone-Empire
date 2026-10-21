@@ -763,6 +763,7 @@ by ADP where the market has one, then by last completed season's fantasy
 points, then by name. It is the fallback behind autopick and the order of the
 draft pool, and it is never the database's own ordering: a player the market
 has not ranked but who produced last season comes before one who did neither.
+A player with no NFL team comes after every player with one.
 _Avoid_: default rank (a column, and an empty one), top available, BPA
 
 **Draft pool**:

@@ -89,3 +89,11 @@ test('selectBestAvailable: does not mutate its input array', () => {
   bestAvailable.selectBestAvailable(rows);
   assert.deepEqual(rows, original);
 });
+
+// ---- hasNoNflTeam ----------------------------------------------------------
+
+test('hasNoNflTeam: true only for a NULL nfl_team; a team or an absent key counts as having a team', () => {
+  assert.equal(bestAvailable.hasNoNflTeam({ nfl_team: null }), true);
+  assert.equal(bestAvailable.hasNoNflTeam({ nfl_team: 'KC' }), false);
+  assert.equal(bestAvailable.hasNoNflTeam({}), false);
+});
