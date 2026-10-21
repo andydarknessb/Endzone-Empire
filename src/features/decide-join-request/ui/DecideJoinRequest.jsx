@@ -91,7 +91,12 @@ export default function DecideJoinRequest({ leagueId, requestId, teamName, lead 
           it when it appears. Prefixed with the Team name (see
           docblock) so it is attributable when more than one row is pending. */}
       {error && (
-        <Box role="alert" sx={{ fontSize: '14px' }}>{error}</Box>
+        <Box
+          role="alert"
+          sx={{ fontSize: '14px', padding: '8px 12px', border: '2px solid var(--ps-danger)' }}
+        >
+          {error}
+        </Box>
       )}
     </Box>
   );

@@ -3,7 +3,7 @@ import { Link as RouterLink, Navigate, useParams } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import { Box } from '@mui/material';
 import {
-  ErrorPanel, Frame, LiveChip, PixelHeading, Skel, StatusChip, SR_ONLY_SX, psRootSx,
+  ErrorPanel, Frame, PixelHeading, Skel, StatusChip, SR_ONLY_SX, psRootSx,
 } from '../../shared/ui/playselect';
 import AdvanceWeek from '../../features/advance-week';
 import JoinRequests from '../../widgets/join-requests';
@@ -58,7 +58,6 @@ export default function CommissionerConsolePage() {
     isOwner,
     showAdvance,
     currentWeek,
-    seasonLive,
     phaseChipLabel,
     commissionerCount,
     facts,
@@ -126,7 +125,8 @@ export default function CommissionerConsolePage() {
       >
         <PixelHeading level={1}>Commissioner console</PixelHeading>
         <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-          {phaseChipLabel && (seasonLive ? <LiveChip>{phaseChipLabel}</LiveChip> : <StatusChip>{phaseChipLabel}</StatusChip>)}
+          {/* Neutral always: green is for live games only (RULINGS.md:56). */}
+          {phaseChipLabel && <StatusChip>{phaseChipLabel}</StatusChip>}
           <StatusChip>{`Commissioners · ${commissionerCount}`}</StatusChip>
         </Box>
         {showAdvance && (
