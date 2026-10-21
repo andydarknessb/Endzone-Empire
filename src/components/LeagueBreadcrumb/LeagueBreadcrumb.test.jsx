@@ -6,6 +6,11 @@ import LeagueBreadcrumb from './LeagueBreadcrumb';
 
 const render = (ui) => renderWithProviders(ui, { path: '/league/:leagueId/waivers', route: '/league/9/waivers' });
 
+test('without a league name the link falls back to "League dashboard"', () => {
+  render(<LeagueBreadcrumb />);
+  expect(screen.getByRole('link', { name: 'League dashboard' })).toHaveAttribute('href', '/league/9');
+});
+
 test('it is a Play-select link: no MUI button, no arrow, same destination and name', () => {
   render(<LeagueBreadcrumb name="Thursday Night Regulars" />);
   const link = screen.getByRole('link', { name: 'Thursday Night Regulars' });

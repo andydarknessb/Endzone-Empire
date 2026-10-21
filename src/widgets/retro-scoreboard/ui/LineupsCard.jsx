@@ -14,7 +14,7 @@ import Icon from './icons';
  * Matchup page model hands down, the viewer's team on the left (home for a
  * non-participant; the widget mirrors an away viewer's rows), the PosChip in the
  * middle, the other team mirrored on the right. Each filled side is a 28px PlayerAvatar
- * headshot (the ESPN photo, position-colored initials when there is none) in
+ * headshot (the ESPN photo, Ink initials when there is none) in
  * a 2px ring of its position's `pos-*` color, as the canvas's headshot() draws it
  * and the slot-comparison widget rings its own (so the two lineup renderings
  * share one avatar treatment), the name with his injury designation beside
@@ -110,11 +110,10 @@ function Side({ player, side }) {
         sx={{
           flex: 'none',
           display: 'flex',
-          borderRadius: 'var(--radius-pill)',
           boxShadow: `0 0 0 2px var(--pos-${positionRingKey(player.position)})`,
         }}
       >
-        <PlayerAvatar name={player.name} position={player.position} photoUrl={player.photoUrl} size={28} />
+        <PlayerAvatar name={player.name} photoUrl={player.photoUrl} size={28} />
       </Box>
       <Box
         sx={{

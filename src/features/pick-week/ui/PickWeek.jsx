@@ -16,7 +16,7 @@ import { PixelArrow } from '../../../shared/ui/playselect';
  *   - `onChange`: called with the picked week (a number) or "All".
  *   - `allWeeks`: whether to offer the "All weeks" action (default true). A page whose
  *     week setter cannot take "All" (Pick'em) passes `false`; Game Center and Lineup keep it.
- *   - Play-select (ADR 0067, spec #2334 ruling 3): the picker is on `ps-*` tokens, square 44px controls, no opacity, and ONE tab
+ *   - Look (ADR 0067, spec #2334 ruling 3): the picker is on `ps-*` tokens, square 44px controls, no opacity, and ONE tab
  *     stop for the weeks: the selected week carries it (the strip's roving tabindex; Left/Right/Home/End
  *     move it), while Previous and Next stay pointer targets at tabindex -1. "All weeks" is a different
  *     action and keeps its own stop.
@@ -42,11 +42,7 @@ import { PixelArrow } from '../../../shared/ui/playselect';
  * carries `aria-pressed` so the all-weeks state has a home when no radio is
  * checked.
  *
- * Paints only `dash-*` tokens plus the app's focus ring and transition
- * tokens. Every pairing here is already registered in tokens.contrast.test.js:
- * dim and ink on the card surface / page background, and ink on the accent
- * tint (the pressed "All weeks" button). No new pairing is composed. The
- * chevrons are inline stroke SVG on the canvas's 20px grid, aria-hidden, so
+ * Paints only `ps-*` tokens. The chevrons are inline pixel SVG, aria-hidden, so
  * each icon button's accessible name is its aria-label alone.
  *
  * `ref` forwards to the weeks SegmentedControl's own ref (the

@@ -54,7 +54,7 @@ import { benchOptionsForSlot, movesToStart, startTargetSlots } from '../model/sl
 // Second risk review (accessibility, round 1 fix delta): the bare
 // PlayerQuickView guard let this card's own prev/next handler steal
 // Left/Right from a FOCUSED, horizontally-scrollable region - specifically
-// `WeeklyPointsBars`' own `tabIndex={0}` strip, whose arrow-key scrolling
+// the weekly bars' own `tabIndex={0}` strip, whose arrow-key scrolling
 // was the first risk round's fix for the identical keyboard-trap failure
 // mode. A MUI `Select`'s combobox div needs the same exclusion the
 // `<SELECT>` tag check already gives a plain HTML select.
@@ -74,7 +74,7 @@ import { benchOptionsForSlot, movesToStart, startTargetSlots } from '../model/sl
 // scrolling horizontally (the 390px e2e guard enforces that today, but
 // nothing stops it drifting). An explicit opt-in mark, not CSS inference,
 // is what makes a region "this ticket's own arrow-key scroll strip" rather
-// than "happens to compute auto" - `WeeklyPointsBars` carries it, and nothing
+// than "happens to compute auto" - the weekly bars carry it, and nothing
 // else does.
 function isTypingTarget(el) {
   if (!el) return false;
