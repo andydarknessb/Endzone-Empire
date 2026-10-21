@@ -626,3 +626,25 @@ test('a failed refresh after a create keeps the last good list on screen, throug
   retry.resolve({ data: [league(), league({ id: 2, name: 'Monday Mayhem' })] });
   expect(await screen.findByText('Monday Mayhem')).toBeInTheDocument();
 });
+
+test('every Create league step renders exactly one filled action, its forward action', async () => {
+  await mountEmpty();
+  const dialog = await openCreate();
+  const forward = () => {
+    const fills = within(dialog).getAllByRole('button').filter((b) => b.getAttribute('data-variant') === 'fill');
+    expect(fills).toHaveLength(1);
+    return fills[0].textContent;
+  };
+
+  expect(forward()).toBe('Continue');
+  await next();
+  expect(forward()).toBe('Continue');
+  await fillBasics('Monday Mayhem', 'Squad');
+  await next();
+  expect(forward()).toBe('Continue');
+  await next();
+  expect(forward()).toBe('Continue');
+  await next();
+  expect(heading('Look good?')).toBeInTheDocument();
+  expect(forward()).toBe('Create league');
+});
