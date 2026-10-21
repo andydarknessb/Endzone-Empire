@@ -534,18 +534,27 @@ function PlayerPoolTable({
           renderValue={(selected) => (
             <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, py: 0.5 }}>
               {selected.map((week) => (
-                <Tag key={week}>
+                <Tag
+                  key={week}
+                  // The whole tag stays the mouse target (a tag is a 72 x 28 target, not the 20px
+                  // glyph); mouse down is stopped so the click removes instead of opening the Select.
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={() => onByeWeeksFilterChange(selected.filter((w) => w !== week))}
+                >
                   <span>{`Bye ${week}`}</span>
-                  {/* A real button, so a keyboard user can Tab to it and remove the week. The
-                      Select opens on Enter, Space and the arrows and on mouse down, so the button
-                      keeps those from reaching it. */}
+                  {/* A real button, so a keyboard user can Tab to it and remove the week. The Select
+                      opens on Enter, Space and the arrows, so the button keeps those from reaching it. */}
                   <Box
                     component="button"
                     type="button"
                     aria-label={`Remove Bye ${week}`}
-                    onMouseDown={(e) => e.stopPropagation()}
                     onKeyDown={(e) => e.stopPropagation()}
-                    onClick={() => onByeWeeksFilterChange(selected.filter((w) => w !== week))}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      // The button unmounts with its week; focus goes to the field, not <body>.
+                      e.currentTarget.closest('[role="combobox"]')?.focus();
+                      onByeWeeksFilterChange(selected.filter((w) => w !== week));
+                    }}
                     sx={{
                       border: 0, background: 'none', color: 'inherit', font: 'inherit', padding: 0, ml: '6px', minWidth: '20px', cursor: 'pointer',
                     }}

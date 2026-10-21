@@ -535,6 +535,18 @@ test('a selected Bye week comes off through a real button a keyboard can reach',
   const remove = screen.getByRole('button', { name: 'Remove Bye 6' });
   remove.focus();
   await user.keyboard('{Enter}');
+  expect(props.controls.onByeWeeksFilterChange).toHaveBeenCalledTimes(1);
   expect(props.controls.onByeWeeksFilterChange).toHaveBeenCalledWith([9]);
+  expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+  // The button leaves with its week, so focus lands on the field rather than the page.
+  expect(screen.getByRole('combobox', { name: 'Bye week' })).toHaveFocus();
+});
+
+test('clicking a Bye week tag removes the week once and does not open the menu', async () => {
+  const user = userEvent.setup();
+  const { props } = renderTable({ controls: { byeWeeksFilter: [6, 9] } });
+  await user.click(screen.getByText('Bye 9'));
+  expect(props.controls.onByeWeeksFilterChange).toHaveBeenCalledTimes(1);
+  expect(props.controls.onByeWeeksFilterChange).toHaveBeenCalledWith([6]);
   expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
 });
