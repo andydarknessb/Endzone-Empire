@@ -147,6 +147,23 @@ async function fetchInjuriesForSeason(season) {
   return parseCsv(await fetchCsvText(url));
 }
 
+/**
+ * The `last_updated` value of the `weekly_rosters` release's timestamp.json
+ * (the roster file's own clock), as the string nflverse wrote, or null.
+ */
+async function fetchWeeklyRostersLastUpdated() {
+  const body = JSON.parse(await fetchCsvText(`${NFLVERSE_RELEASE_BASE}/weekly_rosters/timestamp.json`));
+  return body && body.last_updated != null ? String(body.last_updated) : null;
+}
+
+/** One season's weekly rosters (~5.7 MB): one row per player per week;
+ * confirmed columns: season, team, status (ACT/DEV/RES/CUT/INA/..., DEV =
+ * practice squad), full_name, espn_id, week, game_type, status_description_abbr. */
+async function fetchWeeklyRostersForSeason(season) {
+  const url = `${NFLVERSE_RELEASE_BASE}/weekly_rosters/roster_weekly_${season}.csv`;
+  return parseCsv(await fetchCsvText(url));
+}
+
 /** One season's team weekly file — same columns as the player file but
  * aggregated per team side, one row per team per game. The def_* columns are
  * that team's DEFENSE; the offense columns are its own offense (so a team's
@@ -1389,6 +1406,8 @@ module.exports = {
   fetchTeamWeekStatsForSeason,
   fetchInjuriesLastUpdated,
   fetchInjuriesForSeason,
+  fetchWeeklyRostersLastUpdated,
+  fetchWeeklyRostersForSeason,
   fetchGameScoresForSeason,
   fetchIdCrosswalks,
   fetchPlayersCrosswalk,

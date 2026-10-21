@@ -343,7 +343,7 @@ test('runRosterStatusSync: an athlete ESPN reports that we do not roster is skip
   ]).install(t);
 
   const result = await runRosterStatusSync({ transport: rosterTransport() });
-  assert.deepEqual(result, { status: 'ok', results: [{ teamCode: 'NYG', written: 0 }] });
+  assert.deepEqual(result, { status: 'ok', results: [{ teamCode: 'NYG', written: 0, nflversePracticeSquad: 0 }] });
   assert.equal(fake.matching(insert('player_nfl_roster_status')).length, 0);
 });
 
@@ -518,4 +518,123 @@ test('runRosterStatusSync (#2117): an athlete in a roster group we do not map ha
   const written = fake.calls.filter((c) => insert('player_nfl_roster_status').test(c.text)).flatMap((c) => c.params[0]);
   assert.ok(written.length > 0);
   assert.ok(written.every((id) => id === 17733), 'only the mapped-group athlete (16733 + 1000) is written');
+});
+
+// ---------------------------------------------------------------------------
+// #2487: nflverse's weekly roster file as a second opinion, Active -> Practice
+// squad only, and never inside an elevation window its snapshot has not seen.
+// ---------------------------------------------------------------------------
+
+const nflverseSync = require('../services/nflverseSync.service');
+
+const firstIdIn = (position) => Number(teamRosterNygFixture.athletes.find((g) => g.position === position).items[0].id);
+const NYG_OFFENSE_ID = firstIdIn('offense');
+const NYG_DEFENSE_ID = firstIdIn('defense');
+const NYG_RESERVE_ID = firstIdIn('injuredReserveOrOut');
+
+// No test in this file may reach the real nflverse host: the default is a failed fetch.
+test.beforeEach(() => {
+  test.mock.method(nflverseSync, 'fetchWeeklyRostersLastUpdated', async () => { throw new Error('offline'); });
+  test.mock.method(nflverseSync, 'fetchWeeklyRostersForSeason', async () => { throw new Error('offline'); });
+  test.mock.method(console, 'warn', () => {});
+});
+test.afterEach(() => test.mock.restoreAll());
+
+/** nflverse rows: week 6 ACT for everyone, week 7 as `week7` maps espn id -> status. */
+function weeklyRows(week7) {
+  return [
+    ...Object.keys(week7).map((id) => ({ week: '6', status: 'ACT', espn_id: id, team: 'NYG' })),
+    ...Object.entries(week7).map(([id, status]) => ({ week: '7', status, espn_id: id, team: 'NYG' })),
+  ];
+}
+
+/** Runs the NYG roster-status sync with nflverse answering `week7` at `lastUpdated`. */
+async function runWithNflverse(t, { now, lastUpdated, week7, nextKickoff }) {
+  nflverseSync.fetchWeeklyRostersLastUpdated.mock.mockImplementation(async () => lastUpdated);
+  nflverseSync.fetchWeeklyRostersForSeason.mock.mockImplementation(async () => weeklyRows(week7));
+  let written;
+  createFakePool([
+    [/AS "season"/, () => ({ rows: [{ season: 2026 }] })],
+    [/FROM "nfl_games"/, () => ({ rows: nextKickoff ? [{ team_code: 'NYG', kickoff_at: new Date(nextKickoff) }] : [] })],
+    [PLAYERS_BY_EXTERNAL_ID, (text, params) => ({ rows: params[0].map((id) => ({ id: id + 1000, external_id: id })) })],
+    [insert('player_nfl_roster_status'), (text, params) => { written = params; return { rowCount: params[0].length }; }],
+    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
+    [/FROM "leagues"/, () => ({ rows: [] })],
+  ]).install(t);
+  const result = await runRosterStatusSync({ now: new Date(now), transport: rosterTransport() });
+  const [playerIds, , statuses] = written;
+  return { result, statusOf: (id) => statuses[playerIds.indexOf(id + 1000)] };
+}
+
+test('runRosterStatusSync: Jordan case - ESPN active, nflverse latest week DEV, deadline still ahead -> practice_squad', async (t) => {
+  const { result, statusOf } = await runWithNflverse(t, {
+    now: '2026-10-21T14:00:00Z',
+    lastUpdated: '2026-10-21 08:56:32 EDT',
+    week7: { [NYG_OFFENSE_ID]: 'DEV', [NYG_DEFENSE_ID]: 'ACT' },
+    nextKickoff: '2026-10-25T17:00:00Z',
+  });
+  assert.equal(statusOf(NYG_OFFENSE_ID), 'practice_squad');
+  assert.equal(statusOf(NYG_DEFENSE_ID), 'active', 'nflverse ACT changes nothing');
+  assert.equal(result.results[0].nflversePracticeSquad, 1);
+});
+
+test('runRosterStatusSync: #1768 guard - past the Saturday 4pm deadline with a pre-deadline nflverse snapshot, ESPN active stands', async (t) => {
+  const { statusOf } = await runWithNflverse(t, {
+    now: '2026-10-24T21:00:00Z',
+    lastUpdated: '2026-10-24 08:56:00 EDT',
+    week7: { [NYG_OFFENSE_ID]: 'DEV' },
+    nextKickoff: '2026-10-25T17:00:00Z',
+  });
+  assert.equal(statusOf(NYG_OFFENSE_ID), 'active');
+});
+
+test('runRosterStatusSync: a nflverse snapshot newer than the deadline overrides again', async (t) => {
+  const { statusOf } = await runWithNflverse(t, {
+    now: '2026-10-25T14:00:00Z',
+    lastUpdated: '2026-10-25 08:56:00 EDT',
+    week7: { [NYG_OFFENSE_ID]: 'DEV' },
+    nextKickoff: '2026-10-25T17:00:00Z',
+  });
+  assert.equal(statusOf(NYG_OFFENSE_ID), 'practice_squad');
+});
+
+test('runRosterStatusSync: no next kickoff means no window, the override applies', async (t) => {
+  const { statusOf } = await runWithNflverse(t, {
+    now: '2026-10-24T21:00:00Z',
+    lastUpdated: '2026-10-24 08:56:00 EDT',
+    week7: { [NYG_OFFENSE_ID]: 'DEV' },
+  });
+  assert.equal(statusOf(NYG_OFFENSE_ID), 'practice_squad');
+});
+
+test('runRosterStatusSync: an ESPN reserve row is never changed by nflverse DEV', async (t) => {
+  const { statusOf } = await runWithNflverse(t, {
+    now: '2026-10-21T14:00:00Z',
+    lastUpdated: '2026-10-21 08:56:32 EDT',
+    week7: { [NYG_RESERVE_ID]: 'DEV', 4431562: 'ACT' },
+    nextKickoff: '2026-10-25T17:00:00Z',
+  });
+  assert.equal(statusOf(NYG_RESERVE_ID), 'reserve');
+  assert.equal(statusOf(4431562), 'practice_squad', 'ESPN practice squad stays');
+});
+
+test('runRosterStatusSync: a failed nflverse fetch writes ESPN statuses unchanged and the run still succeeds', async (t) => {
+  let written;
+  const fake = rosterPool(t, { onInsert: (text, params) => { written = params; } });
+  const result = await runRosterStatusSync({ now: new Date('2026-10-21T14:00:00Z'), transport: rosterTransport() });
+  const [playerIds, , statuses] = written;
+  assert.equal(statuses[playerIds.indexOf(NYG_OFFENSE_ID + 1000)], 'active');
+  assert.equal(result.status, 'ok');
+  assert.equal(result.results[0].nflversePracticeSquad, 0);
+  assert.equal(dataSyncRuns(fake.calls)[0].params[2], true);
+});
+
+test('runRosterStatusSync: an unparseable nflverse timestamp is a null snapshot', async (t) => {
+  const { statusOf } = await runWithNflverse(t, {
+    now: '2026-10-21T14:00:00Z',
+    lastUpdated: 'yesterday-ish',
+    week7: { [NYG_OFFENSE_ID]: 'DEV' },
+    nextKickoff: '2026-10-25T17:00:00Z',
+  });
+  assert.equal(statusOf(NYG_OFFENSE_ID), 'active');
 });
