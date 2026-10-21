@@ -176,7 +176,7 @@ export default function PlayerPoolPlayselect({
               minWidth: '950px',
               tableLayout: 'fixed',
               // stickyHead: from lg the region stops scrolling (clip, above) and the head sticks to the viewport
-              // top. PlayselectHead takes no sx, so the rule is here; zIndex 2 stacks the head's first cell (already
+              // top. The player-row head takes no sx, so the rule is here; zIndex 2 stacks the head's first cell (already
               // sticky left, zIndex 1) above the body's sticky Player column.
               ...(stickyHead && { '@media (min-width:1200px)': { '& thead th': { position: 'sticky', top: 0, zIndex: 2 } } }),
             }}
