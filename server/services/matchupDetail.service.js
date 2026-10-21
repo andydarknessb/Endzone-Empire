@@ -100,8 +100,7 @@ async function getMatchupDetail({
   const lineupSql = (slotPredicate, join = rosterJoin) => `SELECT "players"."id", "players"."name", "players"."position",
               "players"."nfl_team", "players"."injury_status", "players"."photo_url",
               "lineup_entries"."player_id",
-              ${asPlayed ? 'TRUE' : `EXISTS (SELECT 1 FROM "team_players" WHERE "team_players"."team_id" = "lineup_entries"."team_id"
-                AND "team_players"."player_id" = "lineup_entries"."player_id")`} AS "on_roster",
+              ${asPlayed ? 'TRUE' : lineupService.onRosterColumn()} AS "on_roster",
               "lineup_entries"."slot", "player_stats"."stats"
        FROM "lineup_entries"
        ${join}
@@ -138,10 +137,9 @@ async function getMatchupDetail({
     });
     // A live standard starters read carries off-roster rows (a spared starter,
     // #627); only those go through the settle filter, so live matches settle (#2391).
-    const liveStarters = async (rows) => (leagueRow.best_ball ? rows : [
-      ...rows.filter((row) => row.on_roster !== false),
-      ...await held(rows.filter((row) => row.on_roster === false)),
-    ]);
+    const liveStarters = async (rows) => (leagueRow.best_ball ? rows : lineupService.liveStartersHeld(client, {
+      league: leagueRow, teamId, season: matchup.season, week: matchup.week, rows, kickoffCache,
+    }));
     return {
       starterRows: asPlayed ? await held(starterRows.rows) : await liveStarters(starterRows.rows),
       benchRows: asPlayed ? await held(lineupRows.rows) : lineupRows.rows,
