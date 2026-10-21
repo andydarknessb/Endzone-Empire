@@ -196,3 +196,32 @@ test('membershipEnded reports a socketsLeave failure and resolves { delivered: f
   assert.equal(logged.mock.callCount(), 1);
   assert.equal(captured.mock.callCount(), 1);
 });
+
+test('sessionEnded disconnects every socket in user:<id>', async () => {
+  const calls = [];
+  const transport = {
+    to(room) {
+      return { disconnectSockets() { calls.push({ room, disconnectSockets: true }); } };
+    },
+  };
+  const broadcast = createDraftRoomBroadcast(transport, 'io');
+
+  const result = await broadcast.sessionEnded(7);
+
+  assert.deepEqual(result, { delivered: true, transport: 'io' });
+  assert.deepEqual(calls, [{ room: 'user:7', disconnectSockets: true }]);
+});
+
+test('sessionEnded reports a transport rejection and resolves { delivered: false } without throwing', async (t) => {
+  const boom = new Error('redis down');
+  const transport = { to: () => ({ disconnectSockets: () => Promise.reject(boom) }) };
+  const logged = t.mock.method(logger, 'error', () => {});
+  const captured = t.mock.method(sentry, 'captureError', () => {});
+  const broadcast = createDraftRoomBroadcast(transport, 'io');
+
+  const result = await broadcast.sessionEnded(7);
+
+  assert.deepEqual(result, { delivered: false, transport: 'io', error: boom });
+  assert.equal(logged.mock.callCount(), 1);
+  assert.equal(captured.mock.callCount(), 1);
+});

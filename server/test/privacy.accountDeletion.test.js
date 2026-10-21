@@ -23,6 +23,10 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { createFakePool, insert, remove, select, update } = require('./helpers/fakePool');
 const privacy = require('../services/privacy.service');
+const { registerRecordingBroadcast } = require('./helpers/recordingBroadcast');
+
+// deleteUserAccount ends the account's sockets after commit (#2415).
+const recorder = registerRecordingBroadcast();
 
 const USER = 9;
 const OTHER_USER = 5;
@@ -258,4 +262,27 @@ test('revoking authorization does not delete league history', async (t) => {
     1,
     'the Team is kept, only its avatar is cleared'
   );
+});
+
+test('a committed deletion ends the account sockets once, with the user id (#2415)', async (t) => {
+  const fake = createFakePool(deletionHandlers()).install(t);
+
+  await privacy.deleteUserAccount({ userId: USER, confirmation: 'me' });
+
+  assert.deepEqual(recorder().calls, [{ method: 'sessionEnded', userId: USER }]);
+  assert.ok(fake.calls.some((call) => call.text === 'COMMIT'), 'called after a commit');
+});
+
+test('a rolled-back deletion does not end any socket (#2415)', async (t) => {
+  createFakePool([
+    [update('users'), () => { throw new Error('deadlock detected'); }],
+    ...deletionHandlers(),
+  ]).install(t);
+
+  await assert.rejects(
+    () => privacy.deleteUserAccount({ userId: USER, confirmation: 'me' }),
+    /deadlock detected/
+  );
+
+  assert.deepEqual(recorder().calls, []);
 });

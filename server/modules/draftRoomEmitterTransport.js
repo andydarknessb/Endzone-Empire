@@ -31,7 +31,7 @@ function withTimeout(promise, ms) {
 }
 
 function createEmitterTransport() {
-  // Runs one BroadcastOperator call (`emit` or `socketsLeave`) against a client
+  // Runs one BroadcastOperator call (`emit`, `socketsLeave` or `disconnectSockets`) against a client
   // that captures the publish. The operator calls capturingClient.publish
   // synchronously, setting `publish` to the real publish promise before it
   // returns. If a future emitter version defers, batches, or short-circuits on
@@ -58,6 +58,7 @@ function createEmitterTransport() {
       return {
         emit: (event, payload) => publishOnce(room, (op) => op.emit(event, payload)),
         socketsLeave: (leaveRoom) => publishOnce(room, (op) => op.socketsLeave(leaveRoom)),
+        disconnectSockets: () => publishOnce(room, (op) => op.disconnectSockets()),
       };
     },
   };
