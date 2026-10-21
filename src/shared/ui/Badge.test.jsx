@@ -68,16 +68,16 @@ const ruleFor = (el) => {
 
 // Red-tell (#897): removing the `success` entry from VARIANT_SX keeps the
 // `data-variant` stamp (Badge stamps the prop as given) but paints the chip
-// neutral (dim on surface2), so the rule assertions are what turn this red.
+// neutral (dim on the panel), so the rule assertions are what turn this red.
 test('exposes the success variant (the Final status chip, #897)', () => {
   render(<Badge variant="success">Final</Badge>);
   const badge = screen.getByTestId('badge');
   expect(badge).toHaveAttribute('data-variant', 'success');
   expect(badge).toHaveTextContent('Final');
   const rule = ruleFor(badge);
-  expect(rule).toContain('color: var(--dash-away)');
-  expect(rule).toContain('background-color: var(--dash-away-soft)');
-  expect(rule).toContain('border: 1px solid var(--dash-away)');
+  expect(rule).toContain('color: var(--ps-accent)');
+  expect(rule).toContain('background-color: var(--ps-panel)');
+  expect(rule).toContain('border: 1px solid var(--ps-accent)');
   expect(badge.style.fontSize).toBe('');
 });
 

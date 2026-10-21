@@ -76,8 +76,8 @@ describe('alpha compositing over a backdrop', () => {
 });
 
 describe('sibling tints on one surface (contrastRatio cannot measure this)', () => {
-  // Light-theme dash-accent (#0f6a41) at the heat-strip's h3 (0.85 alpha) and
-  // h4 (opaque) buckets, both sitting on dash-surface (#ffffff) - see #1298,
+  // A light-theme accent (#0f6a41) at the heat-strip's h3 (0.85 alpha) and
+  // h4 (opaque) buckets, both sitting on a white surface (#ffffff) - see #1298,
   // the ticket that hit this trap producing its numbers, and #1299's docblock
   // paragraph above.
   const SURFACE = '#ffffff';
