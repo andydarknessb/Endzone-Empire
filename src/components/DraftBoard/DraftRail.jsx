@@ -243,11 +243,6 @@ function DraftRail({
                 gap: 1,
                 flexWrap: 'wrap',
                 mb: 1,
-                p: 0.5,
-                border: '2px solid transparent',
-                ...(showQuickDraft && !quickDraftUnavailable
-                  ? { borderColor: 'var(--ps-cursor)' }
-                  : {}),
               }}
             >
               <Typography variant="body2" sx={BODY_SX}>
