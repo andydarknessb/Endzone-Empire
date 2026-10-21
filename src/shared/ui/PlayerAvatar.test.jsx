@@ -16,17 +16,8 @@ const own = (el) => {
 
 const avatar = () => screen.getByText('PN');
 
-test('the default look is the round, position-coloured initials avatar', () => {
-  render(<PlayerAvatar name="Puka Nacua" position="WR" />);
-  const el = avatar();
-  expect(el).toHaveTextContent('PN');
-  expect(el).not.toHaveClass('MuiAvatar-square');
-  expect(own(el)).toMatch(/--pos-wr/);
-  expect(own(el)).not.toMatch(/--ps-/);
-});
-
-test('look="playselect" is a neutral square on ps tokens with no position colour', () => {
-  render(<PlayerAvatar name="Puka Nacua" position="WR" size={56} />);
+test('it is a neutral square on ps tokens with no position colour', () => {
+  render(<PlayerAvatar name="Puka Nacua" size={56} />);
   const el = avatar();
   expect(el).toHaveTextContent('PN');
   expect(el).toHaveClass('MuiAvatar-square');

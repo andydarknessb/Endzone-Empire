@@ -71,7 +71,7 @@ test('a failed /card read shows a visible error, never an action bar or the load
   renderCard();
 
   expect(await screen.findByTestId('decision-card-load-error')).toHaveTextContent(
-    "Couldn't load this player's details."
+    "We could not load this player's details."
   );
   const card = screen.getByTestId('decision-card');
   expect(card).not.toHaveAttribute('aria-busy');

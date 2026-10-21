@@ -21,7 +21,7 @@ import { PixelArrow } from './playselect/Icons';
  * option and the single tab stop are always the same button. This holds
  * identically whether the group scrolls or not.
  *
- * `options` are `{ value, label, icon?, describedBy? }` (`describedBy` is an element id the radio
+ * `options` are `{ value, label, describedBy? }` (`describedBy` is an element id the radio
  * is described by, for a count that is not part of its name); `onChange` receives the picked
  * option's value. `fill` stretches the segments to the container (the Standard
  * / Scoreboard view toggle). A `ref` reaches the group element, so a composer

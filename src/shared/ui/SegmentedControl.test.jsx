@@ -48,19 +48,6 @@ test('arrow keys walk from the focused option, carry focus, and wrap', async () 
   expect(screen.getByRole('radio', { name: 'Wk 3' })).toHaveFocus();
 });
 
-test('renders an option icon as decoration beside its label', () => {
-  render(
-    <SegmentedControl
-      aria-label="Matchup view"
-      options={[{ value: 'standard', label: 'Standard', icon: <svg data-testid="icon" /> }]}
-      value="standard"
-      onChange={() => {}}
-    />
-  );
-  expect(screen.getByTestId('icon')).toBeInTheDocument();
-  expect(screen.getByRole('radio', { name: 'Standard' })).toBeChecked();
-});
-
 // Red-tell (#903): dropping the forwardRef (a plain function component) leaves
 // `ref.current` null and turns this red.
 test('forwards a ref to the radio group element, so a composer can reach the checked option', () => {
@@ -227,23 +214,13 @@ test('with an option checked the one tab stop is the checked option', async () =
   expect(screen.getByRole('button', { name: 'After' })).toHaveFocus();
 });
 
-// --- (spec #2334 ruling 3) ---------------------------------
+// --- Play-select paint (spec #2334 ruling 3) ---------------------------------
 
-// The Play-select look is paint only: same radiogroup, same radios and names, same roving focus. The default
-// look is what every dash page renders, so a missing `look` must keep painting dash tokens.
-// Red-tell: painting the default with ps tokens, or the playselect look with dash tokens, turns the pair red.
-describe('look', () => {
+// Red-tell: painting a segment with dash tokens turns the paint cases red.
+describe('Play-select paint', () => {
   const rules = (el) => ruleFor(el);
 
-  test('the default look paints dash tokens and no ps token', () => {
-    render(<SegmentedControl aria-label="Week" options={WEEKS} value={2} onChange={() => {}} />);
-    const group = rules(screen.getByRole('radiogroup', { name: 'Week' }));
-    expect(group).toMatch(/--dash-surface2/);
-    expect(group).not.toMatch(/--ps-/);
-    expect(rules(screen.getByRole('radio', { name: 'Wk 2' }))).toMatch(/--dash-surface/);
-  });
-
-  test('look="playselect" paints ps tokens, square, 44px, with no dash token', () => {
+  test('paints ps tokens, square, 44px, with no dash token', () => {
     render(<SegmentedControl aria-label="Week" options={WEEKS} value={2} onChange={() => {}} />);
     const group = rules(screen.getByRole('radiogroup', { name: 'Week' }));
     expect(group).not.toMatch(/--dash-/);
@@ -295,7 +272,7 @@ describe('look', () => {
     expect(screen.getByRole('radio', { name: 'Wk 1' })).toHaveFocus();
   });
 
-  test('Home and End jump to the first and last option in the playselect look', async () => {
+  test('Home and End jump to the first and last option', async () => {
     const onChange = jest.fn();
     render(<SegmentedControl aria-label="Week" options={WEEKS} value={2} onChange={onChange} />);
     screen.getByRole('radio', { name: 'Wk 2' }).focus();
@@ -307,15 +284,8 @@ describe('look', () => {
     expect(screen.getByRole('radio', { name: 'Wk 1' })).toHaveFocus();
   });
 
-  test('Home and End do nothing in the default look', async () => {
-    const onChange = jest.fn();
-    render(<SegmentedControl aria-label="Week" options={WEEKS} value={2} onChange={onChange} />);
-    screen.getByRole('radio', { name: 'Wk 2' }).focus();
-    await userEvent.keyboard('{End}{Home}');
-    expect(onChange).not.toHaveBeenCalled();
-  });
 
-  test('fill and scrollable keep their layout in the playselect look', () => {
+  test('fill and scrollable keep their layout', () => {
     render(<SegmentedControl aria-label="Week" options={SEASON} value={9} onChange={() => {}} scrollable />);
     expect(rules(screen.getByRole('radiogroup', { name: 'Week' }))).toMatch(/overflow-x: auto/);
     expect(rules(screen.getByRole('radio', { name: 'Wk 9' }))).toMatch(/[^-]flex: 0 0 auto/);

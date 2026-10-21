@@ -32,15 +32,7 @@ const claim = (extra = {}) => ({
   kind: 'button', label: 'Claim', ariaLabel: 'Claim Patrick Mahomes', onClick: () => {}, ...extra,
 });
 
-test('with no look the row is the dash MUI row, its Claim a MUI button, and it carries no cursor', () => {
-  renderRow({ player: player(), action: claim(), cursor: 'cursor' });
-  expect(screen.getByTestId('player-row').className).toMatch(/MuiTableRow-root/);
-  expect(screen.getByRole('button', { name: 'Claim Patrick Mahomes' }).className).toMatch(/MuiButton-contained/);
-  expect(document.querySelector('.cursor')).toBeNull();
-  expect(document.querySelector('[data-variant]')).toBeNull();
-});
-
-test('look="playselect": a ghost Claim by default, the filled one only with action.fill', () => {
+test('a ghost Claim by default, the filled one only with action.fill', () => {
   const { unmount } = renderRow({ player: player(), action: claim() });
   expect(screen.getByRole('button', { name: 'Claim Patrick Mahomes' })).toHaveAttribute('data-variant', 'ghost');
   unmount();
@@ -48,13 +40,13 @@ test('look="playselect": a ghost Claim by default, the filled one only with acti
   expect(screen.getByRole('button', { name: 'Claim Patrick Mahomes' })).toHaveAttribute('data-variant', 'fill');
 });
 
-test('look="playselect": a pending row names its helper as the button description, not its name', () => {
+test('a pending row names its helper as the button description, not its name', () => {
   renderRow({ player: player(), action: claim({ label: 'Claim #2', ariaLabel: 'Claim #2 Patrick Mahomes', helper: 'You already have a pending claim on this player.' }) });
   const button = screen.getByRole('button', { name: 'Claim #2 Patrick Mahomes' });
   expect(button).toHaveAccessibleDescription('You already have a pending claim on this player.');
 });
 
-test('look="playselect": the cursor is one .cursor row, Danger when urgent, and a row without it has none', () => {
+test('the cursor is one .cursor row, Danger when urgent, and a row without it has none', () => {
   const { unmount } = renderRow({ player: player(), cursor: 'cursor' });
   expect(document.querySelectorAll('.cursor')).toHaveLength(1);
   expect(screen.getByTestId('player-row')).toHaveStyle({ borderColor: 'var(--ps-cursor)' });
@@ -66,7 +58,7 @@ test('look="playselect": the cursor is one .cursor row, Danger when urgent, and 
   expect(document.querySelector('.cursor')).toBeNull();
 });
 
-test('look="playselect": an outlined Ink Upgrade badge with its week, an injury code, and Danger only under an hour', () => {
+test('an outlined Ink Upgrade badge with its week, an injury code, and Danger only under an hour', () => {
   const { unmount } = renderRow({ player: player() });
   expect(screen.getByTestId('player-row-upgrade')).toHaveTextContent('+2.4 Wk 5');
   expect(screen.getByTestId('player-row-upgrade')).toHaveStyle({ border: '2px solid var(--ps-ink)' });
@@ -77,12 +69,12 @@ test('look="playselect": an outlined Ink Upgrade badge with its week, an injury 
   expect(screen.getByTestId('player-row-status-detail')).toHaveStyle({ color: 'var(--ps-danger)' });
 });
 
-test('look="playselect": the weeks are one labelled image', () => {
+test('the weeks are one labelled image', () => {
   renderRow({ player: player() });
   expect(screen.getByRole('img', { name: /Projected points by week, weeks 3 to 4: week 3 22.4, week 4 bye/ })).toBeInTheDocument();
 });
 
-test('look="playselect" card variant: the card is the cursor frame and its one action is the filled button', () => {
+test('card variant: the card is the cursor frame and its one action is the filled button', () => {
   renderWithProviders(
     <PlayerRow variant="card" cursor="cursor" player={player()} action={claim({ fill: true })} />,
   );

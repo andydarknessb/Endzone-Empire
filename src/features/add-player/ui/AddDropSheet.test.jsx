@@ -20,8 +20,6 @@ const roster = [
   { id: 22, name: 'Mid Guy', position: 'RB', projected_weekly_points: 9 },
 ];
 
-let look = 'dash';
-
 function renderSheet(props = {}) {
   return render(
     <SnackbarProvider>
@@ -33,16 +31,13 @@ function renderSheet(props = {}) {
         dropSuggestion={null}
         onClose={jest.fn()}
         onAdded={jest.fn()}
-        look={look}
         {...props}
       />
     </SnackbarProvider>,
   );
 }
 
-describe.each(['dash', 'playselect'])('look=%s', (lookName) => {
-  beforeEach(() => { look = lookName; });
-
+describe('the sheet', () => {
   test('titles the sheet for the player and explains the full roster', () => {
     renderSheet();
     expect(screen.getByRole('dialog', { name: 'Add Josh Palmer' })).toBeInTheDocument();
@@ -123,18 +118,11 @@ describe.each(['dash', 'playselect'])('look=%s', (lookName) => {
 });
 
 // ADR 0067 / spec #2453: the Play-select sheet is a ps-root dialog with the modal's one filled action.
-test('look="playselect" is a ps-root dialog whose Add and drop is the only filled action', () => {
-  renderSheet({ });
+test('it is a ps-root dialog whose Add and drop is the only filled action', () => {
+  renderSheet();
   const dialog = screen.getByRole('dialog', { name: 'Add Josh Palmer' });
   expect(dialog.closest('.ps-root')).not.toBeNull();
   expect(screen.getByRole('button', { name: 'Add and drop' })).toHaveAttribute('data-variant', 'fill');
   expect(screen.getByRole('button', { name: 'Cancel' })).toHaveAttribute('data-variant', 'ghost');
   expect(document.querySelectorAll('[data-variant="fill"]')).toHaveLength(1);
-});
-
-test('with no look the sheet is the dash sheet: not inside .ps-root, no filled PsButton', () => {
-  renderSheet({ look: undefined });
-  const dialog = screen.getByRole('dialog', { name: 'Add Josh Palmer' });
-  expect(dialog.closest('.ps-root')).toBeNull();
-  expect(document.querySelectorAll('[data-variant="fill"]')).toHaveLength(0);
 });

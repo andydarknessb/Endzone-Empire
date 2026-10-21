@@ -956,7 +956,7 @@ export default function PlayerDecisionCard(props) {
                 value={selectedSeasonEntry?.season ?? null}
                 onChange={setPickedSeason}
               />
-              Array.isArray(selectedSeasonEntry?.weeks) && selectedSeasonEntry.weeks.length > 0 && (
+              {Array.isArray(selectedSeasonEntry?.weeks) && selectedSeasonEntry.weeks.length > 0 && (
                 <PsSection title="Weekly points" testId="decision-card-weekly-section">
                   <PsWeeklyBars
                     weeks={selectedSeasonEntry.weeks}
@@ -964,7 +964,7 @@ export default function PlayerDecisionCard(props) {
                     seasonEnd={isCurrentSeasonSelected ? card?.seasonEnd : undefined}
                   />
                 </PsSection>
-              )
+              )}
               {/* `card.seasons[i].log` is already the row array
                   `GameLogTable` reads as `log.current` (lead correction on
                   the issue thread) - wrapped here rather than changing

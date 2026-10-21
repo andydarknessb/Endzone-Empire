@@ -301,7 +301,7 @@ test('clicking a player name opens the Decision card', async () => {
   expect(await screen.findByTestId('decision-card')).toBeInTheDocument();
 });
 
-test('opening a player renders the Decision card with', async () => {
+test('opening a player renders the Decision card', async () => {
   mockTransactions([
     txn({ id: 1, type: 'add', team_name: "Bob's Team", player_name: 'Justin Jefferson', detail: { playerId: 1 } }),
   ]);

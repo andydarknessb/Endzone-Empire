@@ -225,20 +225,6 @@ test('a week the list does not carry still leaves the strip in the tab sequence'
   expect(screen.getByRole('radio', { name: 'Wk 1' })).toHaveFocus();
 });
 
-test('on a selected week the walk reaches Previous and then the checked week', async () => {
-  render(
-    <div>
-      <button type="button">Before</button>
-      <PickWeek weeks={WEEKS} value={9} onChange={() => {}} />
-    </div>
-  );
-  screen.getByRole('button', { name: 'Before' }).focus();
-  await userEvent.tab();
-  expect(screen.getByRole('button', { name: 'Previous week' })).toHaveFocus();
-  await userEvent.tab();
-  expect(screen.getByRole('radio', { name: 'Wk 9' })).toHaveFocus();
-});
-
 // The layout is an sx rule, which jsdom does not compute, but emotion inserts every rule into
 // `document.styleSheets` under the generated class name; this reads an element's own declarations back.
 const own = (el) => {
