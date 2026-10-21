@@ -50,15 +50,24 @@ type Moment = {
   queue: typeof QUEUED;
   cursor: number;
   filled: number;
+  /** The one filled action sits on the first queued player's row. */
+  filledOnQueuedRow?: boolean;
+  /** The accessible text of the one filled action, when the table names it. */
+  filledLabel?: string;
+  /** Surfaces this moment shows, so a renamed selector turns the case red instead of measuring nothing. */
+  shows: { banner: boolean; pool: boolean; railButtons: boolean; poolButtons: boolean };
 };
 
 // The filled-action table from the issue (docs/design/league/RULINGS.md, "Wave 4 build").
+// The rail and the Draft controls group are in every moment; the banner only while the draft is active, the pool
+// until it is complete, and the rail holds no button once it is.
+const ROOM = { banner: true, pool: true, railButtons: true, poolButtons: true };
 const MOMENTS: Moment[] = [
-  { name: 'on the clock, with a queue', state: ACTIVE_STATE, picks: ACTIVE_PICKS, queue: QUEUED, cursor: 1, filled: 1 },
-  { name: 'on the clock, empty queue', state: ACTIVE_STATE, picks: ACTIVE_PICKS, queue: [], cursor: 1, filled: 1 },
-  { name: 'drafting, not on the clock', state: ACTIVE_NOT_MY_TURN_STATE, picks: ACTIVE_PICKS, queue: [], cursor: 0, filled: 0 },
-  { name: 'before the draft, viewer not ready', state: PENDING_STATE, picks: [], queue: [], cursor: 0, filled: 1 },
-  { name: 'draft complete', state: COMPLETE_STATE, picks: COMPLETE_PICKS, queue: [], cursor: 0, filled: 0 },
+  { name: 'on the clock, with a queue', state: ACTIVE_STATE, picks: ACTIVE_PICKS, queue: QUEUED, cursor: 1, filled: 1, filledOnQueuedRow: true, shows: ROOM },
+  { name: 'on the clock, empty queue', state: ACTIVE_STATE, picks: ACTIVE_PICKS, queue: [], cursor: 1, filled: 1, shows: ROOM },
+  { name: 'drafting, not on the clock', state: ACTIVE_NOT_MY_TURN_STATE, picks: ACTIVE_PICKS, queue: [], cursor: 0, filled: 0, shows: ROOM },
+  { name: 'before the draft, viewer not ready', state: PENDING_STATE, picks: [], queue: [], cursor: 0, filled: 1, filledLabel: "I'm ready", shows: { ...ROOM, banner: false } },
+  { name: 'draft complete', state: COMPLETE_STATE, picks: COMPLETE_PICKS, queue: [], cursor: 0, filled: 0, shows: { banner: false, pool: false, railButtons: false, poolButtons: false } },
 ];
 
 async function open(page: Page, viewport: ViewportName, theme: ThemeMode, m: Moment) {
@@ -71,48 +80,55 @@ async function open(page: Page, viewport: ViewportName, theme: ThemeMode, m: Mom
   await page.evaluate(() => document.fonts.ready.then(() => true));
 }
 
+type Surface = { found: boolean; measured: number; short: string[] };
 type Probe = {
   cursors: number;
   filled: number;
+  filledLabels: string[];
   filledOnQueuedRow: boolean;
   scrollWidth: number;
   innerWidth: number;
-  shortRail: string[];
-  shortPool: string[];
+  rail: Surface;
+  banner: Surface;
+  controls: Surface;
+  pool: Surface;
   buttonInLiveRegion: string[];
 };
 
 // One pass over what is visible now. Runs in the page; nothing here reads the harness.
-function probe(): Probe {
+function probe(queuedName: string): Probe {
   const visible = (el: Element) => (el as HTMLElement).checkVisibility({ checkVisibilityCSS: true }) && el.getClientRects().length > 0;
   const outsideDialog = (el: Element) => !el.closest('[role="dialog"]');
   const live = (sel: string) => Array.from(document.querySelectorAll(sel)).filter((e) => visible(e) && outsideDialog(e));
   const label = (b: Element) => (b.getAttribute('aria-label') || b.textContent || '').trim().slice(0, 40);
-  const tall = (root: Element | null | undefined, min: number) =>
-    root
-      ? Array.from(root.querySelectorAll('button, [role="button"], a[data-variant]'))
-          .filter(visible)
-          .filter((b) => b.getBoundingClientRect().height < min - 0.5)
-          .map((b) => `${label(b)} ${Math.round(b.getBoundingClientRect().height)}px`)
-      : [];
+  // Measures every visible button under the roots. `measured` counts them, so a surface whose selector matched
+  // nothing (or whose buttons all went missing) is told apart from one that passed.
+  const surface = (roots: Array<Element | null | undefined>, min: number): Surface => {
+    const found = roots.filter((r): r is Element => !!r && visible(r));
+    const buttons = found.flatMap((r) => Array.from(r.querySelectorAll('button, [role="button"], a[data-variant]')).filter(visible));
+    const short = buttons.filter((b) => b.getBoundingClientRect().height < min - 0.5).map((b) => `${label(b)} ${Math.round(b.getBoundingClientRect().height)}px`);
+    return { found: found.length > 0, measured: buttons.length, short };
+  };
 
   const fills = live('[data-variant="fill"]');
-  const rail = document.querySelector('[aria-label="Draft rail"]');
-  // The banner: the on-the-clock readout's parent, plus the status bar's two groups (sound toggle, assistant toggle,
-  // Randomize), which are the buttons that sit with it.
-  const banner = Array.from(document.querySelectorAll('[role="status"]')).find((r) => /clock/i.test(r.textContent || ''))?.parentElement;
-  const statusBar = document.querySelectorAll('[role="group"][aria-label="Draft controls"]');
-  const pools = [document.querySelector('[data-testid="players-scroll-region"]'), document.querySelector('[role="list"][aria-label="Available players"]')];
-  const queuedRow = (el: Element) => /Amon-Ra/.test((el.closest('tr, [role="listitem"]') as HTMLElement | null)?.textContent || '');
+  const poolRoots = [document.querySelector('[data-testid="players-scroll-region"]'), document.querySelector('[role="list"][aria-label="Available players"]')];
+  const inPool = (el: Element) => poolRoots.some((r) => r?.contains(el));
+  const queuedRow = (el: Element) => (el.closest('tr, [role="listitem"]') as HTMLElement | null)?.textContent?.includes(queuedName) === true;
+  // The banner is the on-the-clock readout's parent; it holds no button of its own, so it is found, not measured.
+  const bannerRoot = Array.from(document.querySelectorAll('[role="status"]')).find((r) => /clock|your pick/i.test(r.textContent || ''))?.parentElement;
 
   return {
     cursors: live('.cursor').length,
     filled: fills.length,
-    filledOnQueuedRow: fills.length === 1 && queuedRow(fills[0]),
+    filledLabels: fills.map(label),
+    filledOnQueuedRow: fills.length === 1 && inPool(fills[0]) && queuedRow(fills[0]),
     scrollWidth: document.documentElement.scrollWidth,
     innerWidth: window.innerWidth,
-    shortRail: [...tall(rail, 44), ...tall(banner, 44), ...Array.from(statusBar).flatMap((g) => tall(g, 44))],
-    shortPool: pools.flatMap((p) => tall(p, 36)),
+    // Wide, the rail is its own named section; in tabs it is the panel of the Draft tab.
+    rail: surface([document.querySelector('[aria-label="Draft rail"]'), ...Array.from(document.querySelectorAll('[role="tabpanel"]')).filter((p) => document.getElementById(p.getAttribute('aria-labelledby') || '')?.textContent?.trim() === 'Draft')], 44),
+    banner: surface([bannerRoot], 44),
+    controls: surface(Array.from(document.querySelectorAll('[role="group"][aria-label="Draft controls"]')), 44),
+    pool: surface(poolRoots, 36),
     buttonInLiveRegion: Array.from(document.querySelectorAll('[role="status"], [role="alert"]'))
       .filter((r) => r.querySelector('button, [role="button"], a[data-variant]'))
       .map((r) => `${r.getAttribute('role')}: ${(r.textContent || '').trim().slice(0, 40)}`),
@@ -123,11 +139,11 @@ function probe(): Probe {
 async function probeRoom(page: Page): Promise<Probe[]> {
   const tabs = page.getByRole('tab');
   const count = await tabs.count();
-  if (count === 0) return [await page.evaluate(probe)];
+  if (count === 0) return [await page.evaluate(probe, QUEUED[0].name)];
   const out: Probe[] = [];
   for (let i = 0; i < count; i += 1) {
     await tabs.nth(i).click();
-    out.push(await page.evaluate(probe));
+    out.push(await page.evaluate(probe, QUEUED[0].name));
   }
   return out;
 }
@@ -139,16 +155,31 @@ for (const viewport of Object.keys(VIEWPORTS) as ViewportName[]) {
         await open(page, viewport, theme, m);
         const probes = await probeRoom(page);
         const sum = (f: (p: Probe) => number) => probes.reduce((n, p) => n + f(p), 0);
+        const any = (f: (p: Probe) => boolean) => probes.some(f);
 
         expect(sum((p) => p.cursors), 'cursor count').toBe(m.cursor);
         expect(sum((p) => p.filled), 'filled action count').toBe(m.filled);
-        if (m.name === 'on the clock, with a queue') {
-          expect(probes.some((p) => p.filledOnQueuedRow), 'the filled Draft is on the first queued player').toBe(true);
+        if (m.filledOnQueuedRow) {
+          expect(any((p) => p.filledOnQueuedRow), 'the filled Draft is on the first queued player in the pool').toBe(true);
         }
+        if (m.filledLabel) {
+          expect(probes.flatMap((p) => p.filledLabels), 'the one filled action').toEqual([m.filledLabel]);
+        }
+
+        // A size check that measured nothing proves nothing: every surface the moment shows must be found, and
+        // the ones that hold buttons must have measured at least one.
+        expect(any((p) => p.rail.found), 'the Draft rail is found').toBe(true);
+        expect(any((p) => p.banner.found), 'the on-the-clock banner is found').toBe(m.shows.banner);
+        expect(any((p) => p.controls.found), 'the Draft controls group is found').toBe(true);
+        expect(sum((p) => p.controls.measured), 'Draft controls buttons measured').toBeGreaterThan(0);
+        expect(any((p) => p.pool.found), 'the player pool is found').toBe(m.shows.pool);
+        if (m.shows.railButtons) expect(sum((p) => p.rail.measured), 'rail buttons measured').toBeGreaterThan(0);
+        if (m.shows.poolButtons) expect(sum((p) => p.pool.measured), 'pool buttons measured').toBeGreaterThan(0);
+
         for (const p of probes) {
           expect(p.scrollWidth, `document scrollWidth ${p.scrollWidth} vs innerWidth ${p.innerWidth}`).toBeLessThanOrEqual(p.innerWidth);
-          expect(p.shortRail, 'rail and banner buttons are at least 44px tall').toEqual([]);
-          expect(p.shortPool, 'pool buttons are at least 36px tall').toEqual([]);
+          expect([...p.rail.short, ...p.banner.short, ...p.controls.short], 'rail, banner and status-bar buttons are at least 44px tall').toEqual([]);
+          expect(p.pool.short, 'pool buttons are at least 36px tall').toEqual([]);
           expect(p.buttonInLiveRegion, 'no live region contains a button').toEqual([]);
         }
       });
