@@ -168,3 +168,8 @@ test('Start is the filled action only when the viewer team is ready; a ghost oth
   rerender(<DraftStartControl {...baseProps} ready={false} />);
   expect(screen.getByRole('button', { name: 'Start Draft' })).toHaveAttribute('data-variant', 'ghost');
 });
+
+test('a caller-supplied variant="text" (SchedulePanel) still renders the ghost, never fill', () => {
+  render(<DraftStartControl {...baseProps} variant="text" label="Start Draft Now" showHints={false} />);
+  expect(screen.getByRole('button', { name: 'Start Draft Now' })).toHaveAttribute('data-variant', 'ghost');
+});

@@ -81,8 +81,9 @@ const PS_SEGMENT_SX = {
     backgroundColor: 'var(--ps-play)',
     color: 'var(--ps-play-ink)',
   },
-  // A cue beyond colour for the selected segment (the kit marks it with an arrow).
-  '&.Mui-selected::before': { content: '"\\25B8"', marginRight: '6px' },
+  // A cue beyond colour for the selected segment. An underline, not a glyph: generated
+  // content would join the button's accessible name ("▸ Board").
+  '&.Mui-selected': { textDecoration: 'underline', textUnderlineOffset: '5px' },
 };
 
 // A stable empty-array identity for `league.roster_slots` absent/malformed
@@ -891,8 +892,9 @@ function DraftBoard() {
           )}
         </Frame>
       </Box>
-      <Frame
-        tier="rule"
+      <Frame tier="rule" component="div" sx={{ minWidth: 0, minHeight: 0, height: '100%', overflow: 'hidden' }}>
+      <Box
+        component="section"
         // "Chat", not "League chat", on purpose: this pane wraps the League
         // Chat region that ChatConversation names, and a name containing
         // "League chat" would collide with it under substring accessible-name
@@ -901,14 +903,17 @@ function DraftBoard() {
         sx={{ display: 'flex', flexDirection: 'column', minWidth: 0, minHeight: 0, height: '100%', overflow: 'hidden' }}
       >
         {chatFeed}
+      </Box>
       </Frame>
-      <Frame
-        tier="rule"
+      <Frame tier="rule" component="div" sx={{ minWidth: 0, minHeight: 0, height: '100%', overflow: 'hidden' }}>
+      <Box
+        component="section"
         aria-label="Draft rail"
         tabIndex={0}
         sx={{ minWidth: 0, minHeight: 0, height: '100%', overflowY: 'auto' }}
       >
         <DraftRail {...draftRailProps} queueStickyTop={8} queueMaxHeight="45vh" />
+      </Box>
       </Frame>
     </Box>
   );
@@ -1045,8 +1050,8 @@ function DraftBoard() {
           </Alert>
         )}
 
-        <Box sx={{ mb: 3 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+        <Box sx={{ mb: 1 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
             <Box>
               <Box component="p" sx={{ m: 0, mb: 0.5, fontSize: '15px', fontWeight: 600, color: 'var(--ps-dim)' }}>
                 Draft room
