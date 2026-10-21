@@ -1,32 +1,31 @@
 import React, { useState, useEffect, useCallback, useId } from 'react';
 import {
-  Paper,
   Box,
   Typography,
   Tabs,
   Tab,
   Divider,
   Stack,
-  TextField,
-  Select,
+  TextField as MuiTextField,
+  Select as MuiSelect,
   MenuItem,
-  InputLabel,
+  InputLabel as MuiInputLabel,
   FormControl,
   FormControlLabel,
   Switch,
   RadioGroup,
   Radio,
+  useRadioGroup,
   Autocomplete,
-  Button,
   IconButton,
   Chip,
   Tooltip,
   List,
   ListItem,
   ListItemText,
-  Alert,
+  Alert as MuiAlert,
   CircularProgress,
-  Dialog,
+  Dialog as MuiDialog,
   DialogTitle,
   DialogContent,
   DialogContentText,
@@ -58,7 +57,17 @@ import { teamNameLabel } from '../../shared/lib/teamIdentity';
 import { DEFAULT_ROSTER_SLOTS } from '../../entities/roster';
 import { MIN_TOUCH_TARGET_SX } from '../../shared/lib/a11y';
 import { readHttpFailure } from '../../lib/httpFailure';
-import { Badge, SegmentedControl } from '../../shared/ui';
+import { SegmentedControl } from '../../shared/ui';
+import {
+  Frame, PixelArrow, PsButton, SR_ONLY_SX,
+} from '../../shared/ui/playselect';
+import {
+  FIELD_SX, HINT_SX, MENU_PAPER,
+} from '../../shared/ui/playselect/CardControls';
+
+// Play-select skin (ADR 0067 wave 5, spec #2433). The tools keep MUI's behaviour and roles (Tabs as the
+// tablist, Switch, Radio, number TextField, Dialog) and paint them on `--ps-*` tokens through the local
+// wrappers below. No shared kit file is added: the toggle, radio card, stepper and dialog skins live here.
 
 const PLAYOFF_TEAM_OPTIONS = [4, 6, 8];
 const PLAYOFF_START_WEEK_OPTIONS = [14, 15, 16, 17, 18];
@@ -94,18 +103,203 @@ const fieldWidth = (width) => ({ minWidth: { xs: '100%', sm: width } });
  * centred on the track exactly as MUI's defaults do.
  */
 const TOUCH_FLOOR_SX = {
-  '& .MuiButton-root': { minHeight: MIN_TOUCH_TARGET_SX.minHeight },
-  '& .MuiIconButton-root': MIN_TOUCH_TARGET_SX,
+  color: 'var(--ps-ink)',
+  '& .MuiIconButton-root': { ...MIN_TOUCH_TARGET_SX, color: 'var(--ps-ink)', borderRadius: 0 },
   '& .MuiInputBase-root': { minHeight: MIN_TOUCH_TARGET_SX.minHeight },
-  '& .MuiRadio-root': { p: 1.25 },
+  '& .MuiRadio-root': { p: 1.25, color: 'var(--ps-ink)', '&.Mui-checked': { color: 'var(--ps-ink)' } },
   '& [role="radio"]': { minHeight: MIN_TOUCH_TARGET_SX.minHeight },
+  '& .MuiDivider-root': { borderColor: 'var(--ps-rule)' },
+  // The toggle: a square thumb on a square track, Play blue when on.
   '& .MuiSwitch-root': {
     width: 64,
     height: MIN_TOUCH_TARGET_SX.minHeight,
     p: '15px',
-    '& .MuiSwitch-switchBase': { p: '12px' },
+    '& .MuiSwitch-switchBase': { p: '12px', color: 'var(--ps-ink)' },
+    '& .MuiSwitch-thumb': { borderRadius: 0, boxShadow: 'none', backgroundColor: 'var(--ps-ink)' },
+    '& .MuiSwitch-track': { borderRadius: 0, opacity: 1, backgroundColor: 'transparent', border: '2px solid var(--ps-dim)' },
+    '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
+      opacity: 1, backgroundColor: 'var(--ps-play)', borderColor: 'var(--ps-play)',
+    },
+    '& .MuiSwitch-switchBase.Mui-checked .MuiSwitch-thumb': { backgroundColor: 'var(--ps-play-ink)' },
+    '& .MuiSwitch-switchBase.Mui-disabled + .MuiSwitch-track': { borderColor: 'var(--ps-rule)' },
   },
 };
+
+const LABEL_SX = {
+  color: 'var(--ps-dim)',
+  fontFamily: 'inherit',
+  '&.Mui-focused, &.MuiInputLabel-shrink': { color: 'var(--ps-ink)' },
+  '&.Mui-disabled': { color: 'var(--ps-dim)' },
+  '&:not(.MuiInputLabel-shrink)': { transform: 'translate(14px, 12px) scale(1)' },
+};
+
+// Kit rows: a 2px rule between rows on the page, no filled surface.
+const LIST_SX = {
+  border: '2px solid var(--ps-rule)',
+  '& .MuiListItem-root': { minHeight: '44px', borderBottom: '2px solid var(--ps-rule)' },
+  '& .MuiListItem-root:last-of-type': { borderBottom: 0 },
+};
+
+const DIALOG_PAPER = {
+  className: 'ps-root',
+  sx: {
+    ...MENU_PAPER.sx,
+    '& .MuiDialogTitle-root': { fontFamily: 'inherit', fontWeight: 700 },
+    '& .MuiDialogContentText-root': { color: 'var(--ps-ink)', fontFamily: 'inherit' },
+    '& .MuiDialogActions-root': { gap: 1, p: 2 },
+  },
+};
+
+/** Ghost action on the page; `color="error"` is the same ghost with Danger text. Never a fill. */
+function ActionButton({
+  color, disabled, children, ...rest
+}) {
+  return (
+    <PsButton
+      variant="ghost"
+      disabled={disabled}
+      style={color === 'error' && !disabled ? { color: 'var(--ps-danger)' } : undefined}
+      {...rest}
+    >
+      {children}
+    </PsButton>
+  );
+}
+
+// MUI's own controls on the kit's field skin. The wrappers keep the MUI API, so the panels read as before.
+function TextField({
+  sx, InputProps, InputLabelProps, ...rest
+}) {
+  return (
+    <MuiTextField
+      size="small"
+      {...rest}
+      InputProps={{ ...InputProps, sx: FIELD_SX }}
+      InputLabelProps={{ ...InputLabelProps, sx: LABEL_SX }}
+      sx={{ ...HINT_SX, ...sx }}
+    />
+  );
+}
+
+function InputLabel(props) {
+  return <MuiInputLabel {...props} sx={LABEL_SX} />;
+}
+
+function Select({ MenuProps, ...rest }) {
+  return <MuiSelect {...rest} sx={FIELD_SX} MenuProps={{ ...MenuProps, PaperProps: MENU_PAPER }} />;
+}
+
+function Dialog(props) {
+  return <MuiDialog {...props} PaperProps={DIALOG_PAPER} />;
+}
+
+function Alert({ severity = 'info', sx, ...rest }) {
+  return (
+    <MuiAlert
+      severity={severity}
+      icon={false}
+      {...rest}
+      sx={{
+        borderRadius: 0,
+        backgroundColor: 'var(--ps-panel)',
+        color: 'var(--ps-ink)',
+        border: `2px solid ${severity === 'error' ? 'var(--ps-danger)' : 'var(--ps-frame-2)'}`,
+        fontFamily: 'inherit',
+        ...sx,
+      }}
+    />
+  );
+}
+
+/** A number field with a minus and a plus beside it; the field keeps its own spinbutton semantics. */
+function StepperField({
+  label, value, onChange, min, max, disabled, sx, ...rest
+}) {
+  const step = (delta) => {
+    let next = (Number(value) || 0) + delta;
+    if (min != null) next = Math.max(min, next);
+    if (max != null) next = Math.min(max, next);
+    onChange({ target: { value: String(next) } });
+  };
+  // aria-disabled, not disabled: a native disabled drops focus from the button just pressed at the bound.
+  const atMin = min != null && (Number(value) || 0) <= min;
+  const atMax = max != null && (Number(value) || 0) >= max;
+  const stepSx = {
+    width: '44px', height: '44px', flex: 'none', boxSizing: 'border-box', p: 0, borderRadius: 0, cursor: 'pointer',
+    border: '2px solid var(--ps-ink)', backgroundColor: 'transparent', color: 'var(--ps-ink)', fontFamily: 'inherit', fontSize: '20px',
+    '&[disabled], &[aria-disabled="true"]': { borderColor: 'var(--ps-rule)', color: 'var(--ps-dim)', cursor: 'not-allowed' },
+  };
+  return (
+    <Box sx={{ display: 'inline-flex', alignItems: 'flex-start', gap: '6px', ...sx }}>
+      <Box
+        component="button" type="button" aria-label={`Decrease ${label}`}
+        disabled={disabled} aria-disabled={atMin || undefined} onClick={() => !atMin && step(-1)} sx={stepSx}
+      >
+        &minus;
+      </Box>
+      <TextField
+        label={label} type="number" value={value} onChange={onChange} disabled={disabled}
+        inputProps={{ min, max }} sx={{ width: 110 }} {...rest}
+      />
+      <Box
+        component="button" type="button" aria-label={`Increase ${label}`}
+        disabled={disabled} aria-disabled={atMax || undefined} onClick={() => !atMax && step(1)} sx={stepSx}
+      >
+        +
+      </Box>
+    </Box>
+  );
+}
+
+/** A radio as a bordered card: Play blue edge when chosen. Must sit inside a RadioGroup. */
+function RadioCard({ value, label, hint }) {
+  const group = useRadioGroup();
+  const on = group?.value === value;
+  return (
+    <Box
+      sx={{
+        border: `2px solid ${on ? 'var(--ps-play)' : 'var(--ps-dim)'}`,
+        backgroundColor: 'var(--ps-panel)',
+        px: 1.5,
+        py: 0.5,
+        minWidth: 0,
+        boxSizing: 'border-box',
+      }}
+    >
+      <FormControlLabel value={value} control={<Radio />} label={label} sx={{ m: 0, display: 'flex' }} />
+      {hint && (
+        <Typography variant="caption" color="var(--ps-dim)" sx={{ display: 'block', ml: 4.5, pb: 0.5 }}>
+          {hint}
+        </Typography>
+      )}
+    </Box>
+  );
+}
+
+/** The unsaved marker: a square and screen-reader text, announced as a status. */
+function UnsavedMark() {
+  return (
+    <Box component="span" role="status" sx={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+      <Box
+        component="span"
+        aria-hidden="true"
+        data-testid="unsaved-mark"
+        sx={{ width: '8px', height: '8px', backgroundColor: 'currentColor', flex: 'none' }}
+      />
+      <Box component="span" sx={SR_ONLY_SX}>Unsaved changes</Box>
+    </Box>
+  );
+}
+
+/** A tab's Save: the ghost action, with the unsaved marker repeated beside it while the tab is dirty. */
+function SaveButton({ dirty, children, ...rest }) {
+  return (
+    <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
+      <ActionButton {...rest}>{children}</ActionButton>
+      {dirty && <UnsavedMark />}
+    </Box>
+  );
+}
 
 const fail = (notify) => (err) => {
   const data = err.response?.data;
@@ -347,12 +541,12 @@ function CoCommissionerCard({ leagueId, league, teams, onRefresh, notify }) {
   return (
     <Box>
       <Typography variant="subtitle2" component="h4" sx={{ mb: 0.5 }}>Co-commissioners</Typography>
-      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+      <Typography variant="caption" color="var(--ps-dim)" sx={{ display: 'block', mb: 1 }}>
         Co-commissioners get every commissioner power except deleting the league
         and managing this list.
       </Typography>
       {coCommissioners.length > 0 ? (
-        <List dense sx={{ bgcolor: 'var(--dash-surface2)', borderRadius: 1, mb: 1 }}>
+        <List dense disablePadding sx={{ ...LIST_SX, mb: 1 }}>
           {coCommissioners.map((c, index) => (
             <ListItem
               key={c.user_id}
@@ -376,7 +570,7 @@ function CoCommissionerCard({ leagueId, league, teams, onRefresh, notify }) {
           ))}
         </List>
       ) : (
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+        <Typography variant="body2" color="var(--ps-dim)" sx={{ mb: 1 }}>
           No co-commissioners yet. You&apos;re running this league on your own.
         </Typography>
       )}
@@ -396,12 +590,12 @@ function CoCommissionerCard({ leagueId, league, teams, onRefresh, notify }) {
             ))}
           </Select>
         </FormControl>
-        <Button variant="outlined" size="small" disabled={!promoteId || busy} onClick={handlePromote}>
+        <ActionButton disabled={!promoteId || busy} onClick={handlePromote}>
           Promote
-        </Button>
+        </ActionButton>
       </Box>
       {eligible.length === 0 && coCommissioners.length === 0 && (
-        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+        <Typography variant="caption" color="var(--ps-dim)" sx={{ display: 'block', mt: 1 }}>
           Other managers need to join the league before you can share commissioner duties.
         </Typography>
       )}
@@ -425,8 +619,8 @@ function CoCommissionerCard({ leagueId, league, teams, onRefresh, notify }) {
           </DialogContentText>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setRevokeTarget(null)}>Cancel</Button>
-          <Button color="error" variant="contained" onClick={handleRevoke}>Remove</Button>
+          <ActionButton autoFocus onClick={() => setRevokeTarget(null)}>Cancel</ActionButton>
+          <ActionButton color="error" onClick={handleRevoke}>Remove</ActionButton>
         </DialogActions>
       </Dialog>
     </Box>
@@ -436,10 +630,8 @@ function CoCommissionerCard({ leagueId, league, teams, onRefresh, notify }) {
 /**
  * The region that holds a tab's irreversible action, always rendered last.
  *
- * Its chrome uses only registered pairings (ADR 0010): the danger signal is
- * `Badge variant="danger"`, whose danger-on-danger-tint over a card IS a
- * certified row, rather than danger ink on `dash-surface`, which is not. The
- * border is a hairline in `--dash-line`, a non-text graphic.
+ * The danger signal is a square tag in Danger ink over the panel; the border is
+ * a 2px Rule edge.
  */
 function DangerZone({ children }) {
   const headingId = useId();
@@ -452,12 +644,18 @@ function DangerZone({ children }) {
         display: 'grid',
         gap: 1,
         p: 1.5,
-        border: '1px solid var(--dash-line)',
-        borderRadius: 'var(--dash-radius-sm)',
+        border: '2px solid var(--ps-rule)',
       }}
     >
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-        <Badge variant="danger">Danger zone</Badge>
+        <Box
+          component="span"
+          sx={{
+            border: '2px solid var(--ps-danger)', color: 'var(--ps-danger)', px: 0.75, fontSize: '13px', fontWeight: 700,
+          }}
+        >
+          Danger zone
+        </Box>
         <Typography id={headingId} variant="subtitle2" component="h4">
           Start a new season
         </Typography>
@@ -522,20 +720,16 @@ function StartNewSeason({ leagueId, league, onRefresh, notify, caption }) {
 
   return (
     <Box>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+      <Typography variant="body2" color="var(--ps-dim)" sx={{ mb: 1 }}>
         {consequence}
       </Typography>
-      {/* Outlined error, not the filled `color="secondary"` it used to be:
-          secondary and success resolve to the same hex (tokens.js), so the
-          irreversible button was indistinguishable in hue from Approve on the
-          same tab. It stays on the app palette deliberately - repainting it
-          onto the island would compose dash-on-accent over dash-danger, which
-          is not a registered pairing. */}
-      <Button variant="outlined" color="error" disabled={busy} onClick={() => setOpen(true)}>
+      {/* A ghost with Danger text, never a fill: the irreversible button must not
+          read like the page's one filled action (Approve on the join queue). */}
+      <ActionButton color="error" disabled={busy} onClick={() => setOpen(true)}>
         Start New Season
-      </Button>
+      </ActionButton>
       {caption && (
-        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+        <Typography variant="caption" color="var(--ps-dim)" sx={{ display: 'block', mt: 0.5 }}>
           {caption}
         </Typography>
       )}
@@ -551,10 +745,10 @@ function StartNewSeason({ leagueId, league, onRefresh, notify, caption }) {
           <DialogContentText id={descriptionId}>{consequence}</DialogContentText>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setOpen(false)} disabled={busy}>Cancel</Button>
-          <Button color="error" variant="contained" disabled={busy} onClick={handleConfirm}>
+          <ActionButton autoFocus onClick={() => setOpen(false)} disabled={busy}>Cancel</ActionButton>
+          <ActionButton color="error" disabled={busy} onClick={handleConfirm}>
             Confirm
-          </Button>
+          </ActionButton>
         </DialogActions>
       </Dialog>
     </Box>
@@ -562,7 +756,7 @@ function StartNewSeason({ leagueId, league, onRefresh, notify, caption }) {
 }
 
 function GeneralSettingsPanel({
-  leagueId, league, teams, viewerTeamId, isOwner, draft, setDraft, markSaved, onRefresh, notify,
+  leagueId, league, teams, viewerTeamId, isOwner, draft, setDraft, markSaved, dirty, onRefresh, notify,
 }) {
   const { sizeMin, sizeMax } = draft;
   const [removeTarget, setRemoveTarget] = useState(null);
@@ -730,7 +924,7 @@ function GeneralSettingsPanel({
             control={<Switch checked={!!league.transactions_locked} onChange={handleToggleTransactionsLock} />}
             label="Lock Transactions"
           />
-          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', ml: 4.5 }}>
+          <Typography variant="caption" color="var(--ps-dim)" sx={{ display: 'block', ml: 4.5 }}>
             Applies immediately. Freezes adds, drops, waiver claims, and trades for the entire league.
           </Typography>
         </Box>
@@ -745,8 +939,9 @@ function GeneralSettingsPanel({
             options={NARRATIVE_VOICE_OPTIONS}
             value={league.narrative_voice ?? null}
             onChange={handleChooseVoice}
+            look="playselect"
           />
-          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+          <Typography variant="caption" color="var(--ps-dim)" sx={{ display: 'block', mt: 0.5 }}>
             How the weekly Recap and Matchup write-ups sound. Polk High Legend is a washed-up high school star
             who roasts the week's decisions, never the managers.
           </Typography>
@@ -770,16 +965,16 @@ function GeneralSettingsPanel({
           </Typography>
           <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
             {!pickemOnly && (
-              <TextField
-                label="Min teams" type="number" size="small" inputProps={{ min: MIN_TEAMS, max: maxTeamsCap }}
-                value={sizeMin} onChange={(e) => setDraft({ sizeMin: e.target.value })} sx={{ width: 130 }}
+              <StepperField
+                label="Min teams" min={MIN_TEAMS} max={maxTeamsCap}
+                value={sizeMin} onChange={(e) => setDraft({ sizeMin: e.target.value })}
               />
             )}
-            <TextField
-              label="Max teams" type="number" size="small" inputProps={{ min: MIN_TEAMS, max: maxTeamsCap }}
-              value={sizeMax} onChange={(e) => setDraft({ sizeMax: e.target.value })} sx={{ width: 130 }}
+            <StepperField
+              label="Max teams" min={MIN_TEAMS} max={maxTeamsCap}
+              value={sizeMax} onChange={(e) => setDraft({ sizeMax: e.target.value })}
             />
-            <Button variant="outlined" size="small" onClick={handleSaveLimits}>Save Limits</Button>
+            <SaveButton dirty={dirty} onClick={handleSaveLimits}>Save Limits</SaveButton>
           </Box>
         </Box>
       )}
@@ -791,8 +986,8 @@ function GeneralSettingsPanel({
           overline, the subheading and the list out of the DOM together, so
           someone who used this section last week found no trace of it and no
           reason. The caption below states the rule the list cannot show. */}
-      <Paper variant="outlined" sx={{ p: 2, borderColor: 'error.main' }}>
-        <Typography variant="overline" color="error.main">Destructive actions</Typography>
+      <Frame component="div" tier="rule" sx={{ p: 2, borderColor: 'var(--ps-danger)' }}>
+        <Typography variant="overline" color="var(--ps-danger)">Destructive actions</Typography>
         <Typography variant="subtitle2" component="h4" sx={{ mb: 1 }}>Remove a team</Typography>
         {teamsRemovable ? (
           <>
@@ -801,7 +996,7 @@ function GeneralSettingsPanel({
                 only place the rule was ever stated to a user. Keeping the
                 wording identical means the person who hits it by another route
                 reads the same sentence. */}
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+            <Typography variant="caption" color="var(--ps-dim)" sx={{ display: 'block', mb: 1 }}>
               Your own team and the league creator&apos;s team can&apos;t be removed.
             </Typography>
             {/* The trigger is a labelled Button, not the bare 36px trash glyph
@@ -811,20 +1006,17 @@ function GeneralSettingsPanel({
                 lays the button out as a flex child rather than through
                 `secondaryAction`, whose absolutely-positioned slot reserves a
                 fixed 48px inset that a text button overruns. */}
-            <List dense sx={{ bgcolor: 'var(--dash-surface2)', borderRadius: 1 }}>
+            <List dense disablePadding sx={LIST_SX}>
               {removableTeams.map((team) => (
                 <ListItem key={team.teamId} sx={{ gap: 1, flexWrap: 'wrap' }}>
                   <ListItemText primary={team.name} sx={{ my: 0 }} />
-                  <Button
-                    size="small"
-                    variant="outlined"
+                  <ActionButton
                     color="error"
                     aria-label={`Remove ${team.name}`}
                     onClick={() => setRemoveTarget(team)}
-                    sx={{ flex: 'none' }}
                   >
                     Remove
-                  </Button>
+                  </ActionButton>
                 </ListItem>
               ))}
             </List>
@@ -839,61 +1031,56 @@ function GeneralSettingsPanel({
              409 by another route reads the same sentence; the added context is
              visibly extra, in its own node. */
           <Box data-testid="remove-team-refused">
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+            <Typography variant="caption" color="var(--ps-dim)" sx={{ display: 'block' }}>
               {removeRefusalMessage(removeReason)}
             </Typography>
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+            <Typography variant="caption" color="var(--ps-dim)" sx={{ display: 'block' }}>
               Removing one would rewrite the draft, rosters and schedule.
             </Typography>
           </Box>
         )}
 
         <Typography variant="subtitle2" component="h4" sx={{ mt: 2, mb: 1 }}>Remove &amp; ban a manager</Typography>
-        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+        <Typography variant="caption" color="var(--ps-dim)" sx={{ display: 'block', mb: 1 }}>
           {teamsRemovable
             ? 'The team is removed and its manager can never rejoin this league.'
             : 'The manager is removed and can never rejoin. Their team stays and the CPU sets its lineup for the rest of the season.'}
         </Typography>
-        <List dense sx={{ bgcolor: 'var(--dash-surface2)', borderRadius: 1 }}>
+        <List dense disablePadding sx={LIST_SX}>
           {bannableTeams.map((team) => (
             <ListItem key={team.teamId} sx={{ gap: 1, flexWrap: 'wrap' }}>
               <ListItemText primary={team.name} sx={{ my: 0 }} />
-              <Button
-                size="small"
-                variant="outlined"
+              <ActionButton
                 color="error"
                 aria-label={`Remove and ban ${team.name}`}
                 onClick={() => setBanTarget(team)}
-                sx={{ flex: 'none' }}
               >
                 Remove &amp; ban
-              </Button>
+              </ActionButton>
             </ListItem>
           ))}
         </List>
         {bans.length > 0 && (
           <Box data-testid="league-bans" sx={{ mt: 1 }}>
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+            <Typography variant="caption" color="var(--ps-dim)" sx={{ display: 'block', mb: 0.5 }}>
               Banned (shown by the team name they had):
             </Typography>
             <List dense>
               {bans.map((ban) => (
                 <ListItem key={ban.id} sx={{ gap: 1, flexWrap: 'wrap' }}>
                   <ListItemText primary={ban.team_name} sx={{ my: 0 }} />
-                  <Button
-                    size="small"
+                  <ActionButton
                     aria-label={`Lift the ban on ${ban.team_name}'s manager`}
                     onClick={() => handleUnban(ban)}
-                    sx={{ flex: 'none' }}
                   >
                     Lift ban
-                  </Button>
+                  </ActionButton>
                 </ListItem>
               ))}
             </List>
           </Box>
         )}
-      </Paper>
+      </Frame>
 
       <Dialog open={!!banTarget} onClose={() => setBanTarget(null)}>
         <DialogTitle>Remove &amp; ban {banTarget?.name}&apos;s manager?</DialogTitle>
@@ -906,8 +1093,8 @@ function GeneralSettingsPanel({
           </DialogContentText>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setBanTarget(null)}>Cancel</Button>
-          <Button color="error" variant="contained" onClick={handleBanTeam}>Remove &amp; ban</Button>
+          <ActionButton autoFocus onClick={() => setBanTarget(null)}>Cancel</ActionButton>
+          <ActionButton color="error" onClick={handleBanTeam}>Remove &amp; ban</ActionButton>
         </DialogActions>
       </Dialog>
 
@@ -922,8 +1109,8 @@ function GeneralSettingsPanel({
           </DialogContentText>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setRemoveTarget(null)}>Cancel</Button>
-          <Button color="error" variant="contained" onClick={handleRemoveTeam}>Remove Team</Button>
+          <ActionButton autoFocus onClick={() => setRemoveTarget(null)}>Cancel</ActionButton>
+          <ActionButton color="error" onClick={handleRemoveTeam}>Remove Team</ActionButton>
         </DialogActions>
       </Dialog>
 
@@ -931,13 +1118,19 @@ function GeneralSettingsPanel({
         <Box data-testid="join-requests-section">
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
             <Typography variant="subtitle2" component="h4">Join Requests</Typography>
-            <Chip size="small" label={joinRequests.length} color={joinRequests.length > 0 ? 'primary' : 'default'} />
+            <Chip
+              size="small"
+              label={joinRequests.length}
+              sx={{
+                borderRadius: 0, border: '2px solid var(--ps-ink)', backgroundColor: 'transparent', color: 'var(--ps-ink)', fontWeight: 700,
+              }}
+            />
           </Box>
-          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+          <Typography variant="caption" color="var(--ps-dim)" sx={{ display: 'block', mb: 1 }}>
             Approve and deny decisions apply immediately.
           </Typography>
           {joinRequests.length === 0 ? (
-            <Typography variant="body2" color="text.secondary">No pending join requests</Typography>
+            <Typography variant="body2" color="var(--ps-dim)">No pending join requests</Typography>
           ) : (
             <Stack spacing={1}>
               {joinRequests.map((request) => (
@@ -957,12 +1150,12 @@ function GeneralSettingsPanel({
                   <Typography sx={{ flexGrow: 1 }}>
                     {teamNameLabel(request.team_name)} · {new Date(request.created_at).toLocaleString()}
                   </Typography>
-                  <Button size="small" variant="contained" color="success" onClick={() => handleDecideJoinRequest(request.id, true)}>
+                  <ActionButton onClick={() => handleDecideJoinRequest(request.id, true)}>
                     Approve
-                  </Button>
-                  <Button size="small" variant="outlined" color="error" onClick={() => handleDecideJoinRequest(request.id, false)}>
+                  </ActionButton>
+                  <ActionButton color="error" onClick={() => handleDecideJoinRequest(request.id, false)}>
                     Deny
-                  </Button>
+                  </ActionButton>
                 </Box>
               ))}
             </Stack>
@@ -1025,7 +1218,7 @@ const slotShapeKey = (slots) => (slots || [])
   .map((s) => `${String(s.key).trim().toUpperCase()}:${Number(s.count) || 0}:${(s.eligiblePositions || []).join('/')}`)
   .join('|');
 
-function RosterSettingsPanel({ leagueId, league, draft, setDraft, markSaved, onRefresh, notify }) {
+function RosterSettingsPanel({ leagueId, league, draft, setDraft, markSaved, dirty, onRefresh, notify }) {
   const { slots, benchSlots, irSlots, dpEnabled } = draft;
   const report = fail(notify);
 
@@ -1123,7 +1316,7 @@ function RosterSettingsPanel({ leagueId, league, draft, setDraft, markSaved, onR
             the templates would write is disabled and still on screen. */}
         {!frozen && (
           <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap', mb: 1.5 }}>
-            <Typography variant="caption" color="text.secondary">Templates:</Typography>
+            <Typography variant="caption" color="var(--ps-dim)">Templates:</Typography>
             <SegmentedControl
               aria-label="Starting lineup template"
               data-testid="lineup-template-control"
@@ -1138,6 +1331,7 @@ function RosterSettingsPanel({ leagueId, league, draft, setDraft, markSaved, onR
                 }));
               }}
               scrollable
+              look="playselect"
             />
           </Box>
         )}
@@ -1179,10 +1373,10 @@ function RosterSettingsPanel({ leagueId, league, draft, setDraft, markSaved, onR
             </Box>
           ))}
         </Stack>
-        <Button size="small" sx={{ mt: 1 }} disabled={frozen} onClick={addSlot}>+ Add Slot</Button>
-        <Button size="small" sx={{ mt: 1 }} disabled={frozen} onClick={addIdpFlexSlot}>
+        <ActionButton disabled={frozen} onClick={addSlot}>+ Add Slot</ActionButton>
+        <ActionButton disabled={frozen} onClick={addIdpFlexSlot}>
           + IDP Flex Slot (DL/LB/DB)
-        </Button>
+        </ActionButton>
       </Box>
 
       <Divider />
@@ -1192,7 +1386,7 @@ function RosterSettingsPanel({ leagueId, league, draft, setDraft, markSaved, onR
           control={<Switch checked={dpEnabled} disabled={frozen} onChange={(e) => setDraft({ dpEnabled: e.target.checked })} />}
           label="Enable Defensive Players (IDP)"
         />
-        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', ml: 4.5 }}>
+        <Typography variant="caption" color="var(--ps-dim)" sx={{ display: 'block', ml: 4.5 }}>
           Lets slots target DL/LB/DB position groups (e.g. a "Flex IDP" slot). Combined
           DP-eligible starting slots are capped at 3 (base + up to 2 additional)
           {dpEnabled ? `, currently ${dpStarters}/3.` : '.'}
@@ -1202,19 +1396,15 @@ function RosterSettingsPanel({ leagueId, league, draft, setDraft, markSaved, onR
       <Divider />
 
       <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
-        <TextField
-          label="Bench Slots" type="number" size="small" disabled={frozen}
-          inputProps={{ min: 0, max: 8 }}
+        <StepperField
+          label="Bench Slots" disabled={frozen} min={0} max={8}
           value={benchSlots} onChange={(e) => setDraft({ benchSlots: e.target.value })}
-          sx={{ width: 130 }}
         />
-        <TextField
-          label="IR Slots" type="number" size="small" disabled={frozen}
-          inputProps={{ min: 0, max: 5 }}
+        <StepperField
+          label="IR Slots" disabled={frozen} min={0} max={5}
           value={irSlots} onChange={(e) => setDraft({ irSlots: e.target.value })}
-          sx={{ width: 130 }}
         />
-        <Typography variant="body2" color="text.secondary">
+        <Typography variant="body2" color="var(--ps-dim)">
           {irCount > 0 ? (
             <>
               <strong>{draftSpots}</strong> roster spots + up to {irCount} IR ({starters} starters + {Number(benchSlots) || 0} bench)
@@ -1228,9 +1418,9 @@ function RosterSettingsPanel({ leagueId, league, draft, setDraft, markSaved, onR
       </Box>
 
       <Box>
-        <Button variant="outlined" size="small" disabled={frozen} onClick={handleSave}>
+        <SaveButton dirty={dirty} disabled={frozen} onClick={handleSave}>
           Save Roster Settings
-        </Button>
+        </SaveButton>
       </Box>
     </Stack>
   );
@@ -1244,7 +1434,9 @@ const RECEPTION_PRESETS = [
   { name: 'Full PPR', reception: 1 },
 ];
 
-function ScoringSettingsPanel({ leagueId, league, draft, setDraft, installDraft, markSaved, onRefresh, notify }) {
+function ScoringSettingsPanel({
+  leagueId, league, draft, setDraft, installDraft, markSaved, dirty, onRefresh, notify,
+}) {
   const { defaults, rules } = draft;
   // Two-step reset guard: first click arms, second click actually resets.
   const [confirmReset, setConfirmReset] = useState(false);
@@ -1374,7 +1566,7 @@ function ScoringSettingsPanel({ leagueId, league, draft, setDraft, installDraft,
           templates above are. */}
       {!frozen && (
         <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
-          <Typography variant="caption" color="text.secondary">Quick preset:</Typography>
+          <Typography variant="caption" color="var(--ps-dim)">Quick preset:</Typography>
           <SegmentedControl
             aria-label="Reception scoring preset"
             data-testid="reception-preset-control"
@@ -1382,8 +1574,9 @@ function ScoringSettingsPanel({ leagueId, league, draft, setDraft, installDraft,
             value={activeReception}
             onChange={applyReceptionPreset}
             scrollable
+            look="playselect"
           />
-          <Typography variant="caption" color="text.secondary">
+          <Typography variant="caption" color="var(--ps-dim)">
             Sets the reception rate; every other rule stays as configured.
           </Typography>
         </Stack>
@@ -1419,7 +1612,7 @@ function ScoringSettingsPanel({ leagueId, league, draft, setDraft, installDraft,
             )}
             {tiers.map(([key, tierArray]) => (
               <Box key={key} sx={{ mb: 2 }}>
-                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                <Typography variant="caption" color="var(--ps-dim)" sx={{ display: 'block', mb: 0.5 }}>
                   {TIER_LABELS[key] || key}
                 </Typography>
                 <Stack spacing={1}>
@@ -1459,9 +1652,9 @@ function ScoringSettingsPanel({ leagueId, league, draft, setDraft, installDraft,
                     </Box>
                   ))}
                 </Stack>
-                <Button size="small" sx={{ mt: 0.5 }} disabled={fieldsDisabled} onClick={() => addTier(category, key)}>
+                <ActionButton disabled={fieldsDisabled} onClick={() => addTier(category, key)}>
                   + Add Tier
-                </Button>
+                </ActionButton>
               </Box>
             ))}
           </Box>
@@ -1469,11 +1662,11 @@ function ScoringSettingsPanel({ leagueId, league, draft, setDraft, installDraft,
       })}
 
       <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
-        <Button variant="outlined" size="small" disabled={frozen} onClick={handleSave}>
+        <SaveButton dirty={dirty} disabled={frozen} onClick={handleSave}>
           Save Scoring Settings
-        </Button>
-        <Button
-          size="small" disabled={frozen} color={confirmReset ? 'error' : 'primary'}
+        </SaveButton>
+        <ActionButton
+          disabled={frozen} color={confirmReset ? 'error' : undefined}
           onClick={() => {
             if (!confirmReset) {
               setConfirmReset(true);
@@ -1484,13 +1677,13 @@ function ScoringSettingsPanel({ leagueId, league, draft, setDraft, installDraft,
           }}
         >
           {confirmReset ? 'Click again to confirm reset' : 'Reset Scoring Settings'}
-        </Button>
+        </ActionButton>
       </Box>
     </Stack>
   );
 }
 
-function PlayoffSchedulePanel({ leagueId, league, draft, setDraft, markSaved, onRefresh, notify }) {
+function PlayoffSchedulePanel({ leagueId, league, draft, setDraft, markSaved, dirty, onRefresh, notify }) {
   const { playoffTeams, startWeek, consolation, tradeDeadlineWeek } = draft;
   const report = fail(notify);
 
@@ -1560,9 +1753,9 @@ function PlayoffSchedulePanel({ leagueId, league, draft, setDraft, markSaved, on
           label="Consolation bracket (a loser's bracket for non-playoff teams)"
         />
         <Box sx={{ mt: 1 }}>
-          <Button variant="outlined" size="small" disabled={frozen} onClick={handleSaveStructure}>
+          <SaveButton dirty={dirty} disabled={frozen} onClick={handleSaveStructure}>
             Save Playoff Settings
-          </Button>
+          </SaveButton>
         </Box>
       </Box>
 
@@ -1581,14 +1774,14 @@ function PlayoffSchedulePanel({ leagueId, league, draft, setDraft, markSaved, on
               {WEEK_OPTIONS.map((w) => <MenuItem key={w} value={w}>Week {w}</MenuItem>)}
             </Select>
           </FormControl>
-          <Button variant="outlined" size="small" onClick={handleSaveDeadline}>Save Trade Deadline</Button>
+          <SaveButton dirty={dirty} onClick={handleSaveDeadline}>Save Trade Deadline</SaveButton>
         </Box>
       </Box>
     </Stack>
   );
 }
 
-function WaiverTradePanel({ leagueId, draft, setDraft, markSaved, onRefresh, notify }) {
+function WaiverTradePanel({ leagueId, draft, setDraft, markSaved, dirty, onRefresh, notify }) {
   const { waiverType, continuous, waiverPeriodHours, reviewMode, voteThreshold } = draft;
   const report = fail(notify);
 
@@ -1621,9 +1814,9 @@ function WaiverTradePanel({ leagueId, draft, setDraft, markSaved, onRefresh, not
     <Stack spacing={3}>
       <Box>
         <Typography variant="subtitle2" component="p" id="waiver-system-type-label" sx={{ mb: 1 }}>Waiver System Type</Typography>
-        <RadioGroup row aria-labelledby="waiver-system-type-label" value={waiverType} onChange={(e) => setDraft({ waiverType: e.target.value })}>
-          <FormControlLabel value="faab" control={<Radio />} label="FAAB (Bidding)" />
-          <FormControlLabel value="priority" control={<Radio />} label="Rolling Priority" />
+        <RadioGroup row sx={{ gap: 1 }} aria-labelledby="waiver-system-type-label" value={waiverType} onChange={(e) => setDraft({ waiverType: e.target.value })}>
+          <RadioCard value="faab" label="FAAB (Bidding)" />
+          <RadioCard value="priority" label="Rolling Priority" />
         </RadioGroup>
       </Box>
 
@@ -1649,32 +1842,38 @@ function WaiverTradePanel({ leagueId, draft, setDraft, markSaved, onRefresh, not
 
       <Box>
         <Typography variant="subtitle2" component="p" id="trade-review-system-label" sx={{ mb: 1 }}>Trade Review System</Typography>
-        <RadioGroup aria-labelledby="trade-review-system-label" value={reviewMode} onChange={(e) => setDraft({ reviewMode: e.target.value })}>
-          <FormControlLabel value="commissioner" control={<Radio />} label="Commissioner Veto" />
-          <Typography variant="caption" color="text.secondary" sx={{ ml: 4, mb: 1 }}>
-            Trades sit in a 24-hour review window; only you can step in and veto one.
-          </Typography>
-          <FormControlLabel value="vote" control={<Radio />} label="League Vote" />
-          <Typography variant="caption" color="text.secondary" sx={{ ml: 4, mb: 1 }}>
-            Any other team owner can vote to veto during the review window.
-          </Typography>
-          <FormControlLabel value="instant" control={<Radio />} label="Instant Process" />
-          <Typography variant="caption" color="text.secondary" sx={{ ml: 4 }}>
-            Trades execute immediately, with no review window and no vetoes.
-          </Typography>
+        <RadioGroup
+          sx={{ gap: 1 }}
+          aria-labelledby="trade-review-system-label"
+          value={reviewMode}
+          onChange={(e) => setDraft({ reviewMode: e.target.value })}
+        >
+          <RadioCard
+            value="commissioner"
+            label="Commissioner Veto"
+            hint="Trades sit in a 24-hour review window; only you can step in and veto one."
+          />
+          <RadioCard
+            value="vote"
+            label="League Vote"
+            hint="Any other team owner can vote to veto during the review window."
+          />
+          <RadioCard
+            value="instant"
+            label="Instant Process"
+            hint="Trades execute immediately, with no review window and no vetoes."
+          />
         </RadioGroup>
         {reviewMode === 'vote' && (
-          <TextField
-            label="Votes needed to veto" type="number" size="small"
-            inputProps={{ min: 1, max: 20 }}
+          <StepperField
+            label="Votes needed to veto" min={1} max={20} sx={{ mt: 1 }}
             value={voteThreshold} onChange={(e) => setDraft({ voteThreshold: e.target.value })}
-            sx={{ mt: 1, width: { xs: '100%', sm: 200 } }}
           />
         )}
       </Box>
 
       <Box>
-        <Button variant="outlined" size="small" onClick={handleSave}>Save Waiver Rules</Button>
+        <SaveButton dirty={dirty} onClick={handleSave}>Save Waiver Rules</SaveButton>
       </Box>
     </Stack>
   );
@@ -1708,7 +1907,7 @@ function ForceRosterMoveCard({ leagueId, teams, notify, onRefresh }) {
   return (
     <Box>
       <Typography variant="subtitle2" component="h4" sx={{ mb: 1 }}>Force Roster Move</Typography>
-      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
+      <Typography variant="caption" color="var(--ps-dim)" sx={{ display: 'block', mb: 1.5 }}>
         Add or drop a player on any manager's behalf. Bypasses waivers and roster locks.
       </Typography>
       <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-start', flexWrap: 'wrap' }}>
@@ -1726,12 +1925,12 @@ function ForceRosterMoveCard({ leagueId, teams, notify, onRefresh }) {
           helperText={action === 'drop' ? "Must be on that team's roster" : 'Any player not already rostered'}
           onSelect={setPlayer}
         />
-        <Button
-          variant="contained" color="warning" disabled={!teamId || !player}
+        <ActionButton
+          disabled={!teamId || !player}
           onClick={() => setConfirmOpen(true)}
         >
           Force Transaction
-        </Button>
+        </ActionButton>
       </Box>
       <Dialog open={confirmOpen} onClose={() => setConfirmOpen(false)}>
         <DialogTitle>Force {action === 'add' ? 'add' : 'drop'} {player?.name}?</DialogTitle>
@@ -1742,8 +1941,8 @@ function ForceRosterMoveCard({ leagueId, teams, notify, onRefresh }) {
           </DialogContentText>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setConfirmOpen(false)}>Cancel</Button>
-          <Button color="warning" variant="contained" onClick={handleConfirm}>Force Transaction</Button>
+          <ActionButton autoFocus onClick={() => setConfirmOpen(false)}>Cancel</ActionButton>
+          <ActionButton onClick={handleConfirm}>Force Transaction</ActionButton>
         </DialogActions>
       </Dialog>
     </Box>
@@ -1783,9 +1982,9 @@ function FaabEditorCard({ leagueId, teams, notify, onRefresh }) {
           value={faabValue} onChange={(e) => setFaabValue(e.target.value)}
           disabled={!teamId} sx={{ width: 160 }}
         />
-        <Button variant="outlined" size="small" disabled={!teamId || faabValue === ''} onClick={handleSave}>
+        <ActionButton disabled={!teamId || faabValue === ''} onClick={handleSave}>
           Save FAAB Budget
-        </Button>
+        </ActionButton>
       </Box>
     </Box>
   );
@@ -1899,7 +2098,7 @@ function ScoreCorrectionCard({ leagueId, teams, notify, onRefresh }) {
         <Box>
           {correctionError && <Alert severity="error" sx={{ mb: 1 }}>{correctionError}</Alert>}
           <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
-            <Typography variant="body2" color="text.secondary">
+            <Typography variant="body2" color="var(--ps-dim)">
               Current score: <strong>{currentScore}</strong> vs {opponentName}
             </Typography>
             <TextField
@@ -1907,13 +2106,12 @@ function ScoreCorrectionCard({ leagueId, teams, notify, onRefresh }) {
               value={adjustment} onChange={(e) => setAdjustment(e.target.value)}
               sx={{ width: 160 }}
             />
-            <Button
-              variant="outlined" size="small"
+            <ActionButton
               disabled={adjustment === '' || submitting || correctionLocked}
               onClick={handleApply}
             >
               {submitting ? 'Submitting Correction…' : 'Apply Correction'}
-            </Button>
+            </ActionButton>
           </Box>
         </Box>
       )}
@@ -1937,14 +2135,14 @@ function TeamLockList({ leagueId, teams, notify, onRefresh }) {
   return (
     <Box>
       <Typography variant="subtitle2" component="h4" sx={{ mb: 1 }}>Lock Specific Team</Typography>
-      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+      <Typography variant="caption" color="var(--ps-dim)" sx={{ display: 'block', mb: 1 }}>
         Freezes one manager's adds, drops, waiver claims, and trades without locking the league.
       </Typography>
       {/* The switch is a flex child, not a `secondaryAction`: that slot is
           absolutely positioned against a fixed 48px row inset, and the switch
           is 64px wide once it carries a 44px touch target. As a child the row's
           own padding does the insetting and the two stay aligned. */}
-      <List dense sx={{ bgcolor: 'var(--dash-surface2)', borderRadius: 1 }}>
+      <List dense disablePadding sx={LIST_SX}>
         {teams.map((team) => (
           <ListItem key={team.id} sx={{ gap: 1 }}>
             <ListItemText primary={team.name} sx={{ my: 0 }} />
@@ -1952,7 +2150,6 @@ function TeamLockList({ leagueId, teams, notify, onRefresh }) {
               checked={!!team.locked}
               onChange={(e) => handleToggle(team, e.target.checked)}
               inputProps={{ 'aria-label': `Lock ${team.name}` }}
-              sx={{ flex: 'none' }}
             />
           </ListItem>
         ))}
@@ -2015,7 +2212,7 @@ function MatchupOpsCard({ leagueId, league, notify, onRefresh }) {
   return (
     <Box>
       <Typography variant="subtitle2" component="h4" sx={{ mb: 1 }}>Matchup Scheduling &amp; Scoring</Typography>
-      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+      <Typography variant="caption" color="var(--ps-dim)" sx={{ display: 'block', mb: 1 }}>
         Generate a week&apos;s matchups or force-score a completed week. Both default to this
         league&apos;s current season and week.
       </Typography>
@@ -2028,18 +2225,18 @@ function MatchupOpsCard({ leagueId, league, notify, onRefresh }) {
           label="Week Number" type="number" size="small" sx={{ width: 130 }}
           value={week} onChange={(e) => setWeek(e.target.value)}
         />
-        <Button
-          variant="outlined" size="small" disabled={invalid || busy}
+        <ActionButton
+          disabled={invalid || busy}
           onClick={() => run('matchups', describeGenerate)}
         >
           Generate Matchups
-        </Button>
-        <Button
-          variant="outlined" size="small" disabled={invalid || busy}
+        </ActionButton>
+        <ActionButton
+          disabled={invalid || busy}
           onClick={() => run('score', describeScore)}
         >
           Score Week
-        </Button>
+        </ActionButton>
       </Box>
     </Box>
   );
@@ -2070,7 +2267,7 @@ function PickemSeasonPanel({ leagueId, league, onRefresh, notify }) {
           {league.current_season ? `${league.current_season} season` : 'Season'}
           {league.current_week != null && !complete ? ` · week ${league.current_week}` : ''}
         </Typography>
-        <Typography variant="body2" color="text.secondary">
+        <Typography variant="body2" color="var(--ps-dim)">
           A pick&apos;em season runs on its own: weeks follow the NFL calendar, the season is
           complete once week 18&apos;s games are final, and the pick&apos;em champion is awarded
           then. There is no week to advance.
@@ -2087,7 +2284,7 @@ function PickemSeasonPanel({ leagueId, league, onRefresh, notify }) {
           />
         </DangerZone>
       ) : (
-        <Typography variant="body2" color="text.secondary">
+        <Typography variant="body2" color="var(--ps-dim)">
           Rollover to next season becomes available once this season is complete.
         </Typography>
       )}
@@ -2110,36 +2307,37 @@ const TAB_LABELS = {
 /**
  * A tab's label, plus its unsaved-edit marker when it has one.
  *
- * The marker is a dot AND the word "Unsaved" (WCAG 1.4.1): the dot alone would
- * carry the whole meaning in colour. The dot is `aria-hidden` and the word is
- * what the tab's accessible name gains, so a screen reader hears
- * "Scoring Settings, unsaved" rather than a decorative disc. The word inherits
- * the tab's own colour and composes no new pairing; the dot is a non-text
- * graphic in `--dash-warning`, which is a registered non-text pair over a card.
+ * The selected tab leads with the pixel arrow (Play blue fill, as TradeTabs). The
+ * marker is a square in the tab's own ink plus the screen-reader text "Unsaved
+ * changes" (WCAG 1.4.1: never colour alone), announced as a status.
  */
-function TabLabel({ label, dirty }) {
-  if (!dirty) return label;
+function TabLabel({ label, dirty, selected }) {
   return (
-    <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+    <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+      {selected && <PixelArrow />}
       {label}
-      <Box
-        component="span"
-        aria-hidden="true"
-        data-testid="tab-dirty-dot"
-        sx={{
-          width: 8,
-          height: 8,
-          borderRadius: 'var(--radius-pill)',
-          backgroundColor: 'var(--dash-warning)',
-          flex: 'none',
-        }}
-      />
-      <Box component="span" sx={{ fontSize: '10.5px', fontWeight: 700, letterSpacing: '0.04em' }}>
-        Unsaved
-      </Box>
+      {dirty && <UnsavedMark />}
     </Box>
   );
 }
+
+// The segmented look of TradeTabs on MUI's Tabs: square 2px edges overlapping by 2px, the selected tab Play blue.
+const TAB_SX = {
+  minHeight: '44px',
+  minWidth: 0,
+  textTransform: 'none',
+  fontFamily: 'inherit',
+  fontSize: '15px',
+  fontWeight: 600,
+  color: 'var(--ps-ink)',
+  border: '2px solid var(--ps-ink)',
+  borderRadius: 0,
+  ml: '-2px',
+  '&:first-of-type': { ml: 0 },
+  '&.Mui-selected': {
+    color: 'var(--ps-play-ink)', backgroundColor: 'var(--ps-play)', borderColor: 'var(--ps-play)', position: 'relative', zIndex: 1,
+  },
+};
 
 // `isOwner` defaults to FALSE, not true (#188). It gates the two powers the
 // creator cannot delegate - deleting the league, and managing this league's
@@ -2235,6 +2433,7 @@ function CommissionerTools({ leagueId, league, teams, viewerTeamId, isOwner = fa
     draft: draftOf(key),
     setDraft: (patch) => patchDraft(key, patch),
     markSaved: () => markSaved(key),
+    dirty: isDirty(key),
   });
 
   return (
@@ -2268,13 +2467,17 @@ function CommissionerTools({ leagueId, league, teams, viewerTeamId, isOwner = fa
         sx={{
           px: { xs: 1.5, sm: 2 },
           mt: 1,
-          borderBottom: 1,
-          borderColor: 'divider',
-          '& .MuiTabs-scrollButtons': { width: MIN_TOUCH_TARGET_SX.minWidth },
+          '& .MuiTabs-scrollButtons': { width: MIN_TOUCH_TARGET_SX.minWidth, color: 'var(--ps-ink)' },
         }}
+        TabIndicatorProps={{ sx: { display: 'none' } }}
       >
         {tabs.map((key) => (
-          <Tab key={key} value={key} label={<TabLabel label={TAB_LABELS[key]} dirty={isDirty(key)} />} />
+          <Tab
+            key={key}
+            value={key}
+            sx={TAB_SX}
+            label={<TabLabel label={TAB_LABELS[key]} dirty={isDirty(key)} selected={key === tab} />}
+          />
         ))}
       </Tabs>
 
@@ -2293,12 +2496,12 @@ function CommissionerTools({ leagueId, league, teams, viewerTeamId, isOwner = fa
             flexWrap: 'wrap',
           }}
         >
-          <Typography variant="caption" color="text.secondary">
+          <Typography variant="caption" color="var(--ps-dim)">
             Unsaved changes on this tab. They are kept if you switch tabs or close this panel.
           </Typography>
-          <Button size="small" color="error" onClick={() => setDiscardTarget(tab)}>
+          <ActionButton color="error" onClick={() => setDiscardTarget(tab)}>
             Discard changes
-          </Button>
+          </ActionButton>
         </Box>
       )}
 
@@ -2354,8 +2557,8 @@ function CommissionerTools({ leagueId, league, teams, viewerTeamId, isOwner = fa
           </DialogContentText>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setDiscardTarget(null)}>Keep editing</Button>
-          <Button color="error" variant="contained" onClick={handleDiscard}>Discard</Button>
+          <ActionButton autoFocus onClick={() => setDiscardTarget(null)}>Keep editing</ActionButton>
+          <ActionButton color="error" onClick={handleDiscard}>Discard</ActionButton>
         </DialogActions>
       </Dialog>
     </Box>
