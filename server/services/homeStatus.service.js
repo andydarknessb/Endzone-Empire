@@ -534,6 +534,13 @@ async function loadLineupStatuses(db, { userId, leagues, now }) {
   return out;
 }
 
+/** The teams in draft order and the taken pick indexes of these drafting leagues, one read each. */
+async function loadDraftOrders(db, leagueIds) {
+  const { readTeamsByLeague, readTakenByLeague } = require('./draftRoomSnapshot');
+  const [teams, taken] = await Promise.all([readTeamsByLeague(db, leagueIds), readTakenByLeague(db, leagueIds)]);
+  return { teams, taken };
+}
+
 /**
  * GET /api/league?include=status: Map<leagueId, { status, statusError }> for
  * the caller's league list rows (each a `leagues.*` row plus the list's
@@ -566,13 +573,16 @@ async function leagueStatuses(db, { userId, leagues, now }) {
     const phaseOf = new Map(leagues.map((l) => [l.id, deriveLeaguePhase(l)]));
     const fantasy = leagues.filter((l) => fantasyWeekApplies(l, phaseOf.get(l.id)));
     const fantasyIds = fantasy.map((l) => l.id);
+    const live = leagues.filter((l) => phaseOf.get(l.id) === LEAGUE_PHASE.DRAFTING && l.draft_status === 'active');
     const running = leagues.filter((l) => phaseOf.get(l.id) !== LEAGUE_PHASE.COMPLETE);
 
-    const [pickemIds, teams, matchups, lineups] = await Promise.all([
+    const [pickemIds, teams, matchups, lineups, draftOrders] = await Promise.all([
       settle(loadPickemLeagueIds(db, { userId, leagues: running })),
       settle(fantasy.length ? loadLeagueTeams(db, { userId, leagueIds: fantasyIds }) : Promise.resolve(new Map())),
       settle(fantasy.length ? loadSeasonMatchups(db, { userId, leagueIds: fantasyIds }) : Promise.resolve(new Map())),
       settle(loadLineupStatuses(db, { userId, leagues: fantasy, now })),
+      // Pick order for the drafts on the clock, in the draft room's own order.
+      settle(live.length ? loadDraftOrders(db, live.map((l) => l.id)) : Promise.resolve(null)),
     ]);
     // A league's Pick'em is on for sure when it is pick'em-only; a fantasy
     // league's answer needs the settings read, so a failed read throws here
@@ -643,6 +653,29 @@ async function leagueStatuses(db, { userId, leagues, now }) {
             seatsFilled: Number(league.team_count),
             maxTeams: Number(league.max_teams),
           };
+          if (live.includes(league)) {
+            // Like the pick'em add-on: a failed order read drops only these keys.
+            try {
+              const { onTheClockFrom } = require('./draftRoomSnapshot');
+              const { teamForPick, nextOpenPickNumber } = require('./draftOrder.service');
+              const { draftRounds } = require('./rosterShape');
+              const { teams, taken } = need(draftOrders);
+              const order = teams.get(league.id) || [];
+              const mine = Number(league.my_team_id);
+              const opts = { rotation: league.draft_rotation, overrides: league.draft_order_overrides };
+              const totalPicks = order.length * draftRounds(league);
+              // The viewer's NEXT open pick, by the room's own advance rule.
+              const open = (from) => nextOpenPickNumber(taken.get(league.id), from, totalPicks);
+              let next = open(league.current_pick);
+              while (next !== null && Number(teamForPick(next, order, opts)?.id) !== mine) next = open(next + 1);
+              const round = next === null ? null : Math.floor(next / order.length);
+              status.draft.round = round === null ? null : round + 1;
+              status.draft.slot = round === null ? null : next - round * order.length + 1;
+              status.draft.onTheClock = Number(onTheClockFrom(league, order)?.id) === mine;
+            } catch (error) {
+              console.error('home status: league %s draft slot unavailable', league.id, error);
+            }
+          }
         }
         out.set(league.id, { status, statusError: false });
       } catch (error) {

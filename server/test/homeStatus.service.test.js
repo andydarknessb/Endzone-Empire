@@ -455,3 +455,105 @@ test('isValidTimeZone accepts IANA zones and refuses anything else', () => {
   assert.equal(homeStatus.isValidTimeZone(undefined), false);
   assert.equal(homeStatus.isValidTimeZone(['UTC']), false);
 });
+
+// Draft slot and on the clock (#2316): a live draft carries the viewer's slot
+// in the current round and whether the clock is theirs, in the draft room's order.
+const DRAFTING = {
+  ...HOME_LEAGUE, id: 81, draft_status: 'active', season_status: 'pre',
+  draft_rotation: 'snake', draft_order_overrides: null, current_pick: 0, team_count: 12, draft_rounds: 3,
+};
+const draftOrderFake = (ids, taken = []) => createFakePool([
+  [/FROM "draft_picks" WHERE "league_id" = ANY[(].1[)]/,
+    () => ({ rows: taken.map(([league_id, pick_number]) => ({ league_id, pick_number })) })],
+  [/FROM "teams" WHERE "league_id" = ANY\(\$1\) ORDER BY "draft_position" NULLS LAST, "teams"\."id"/,
+    () => ({ rows: ids.map((id) => ({ id, league_id: 81 })) })],
+]);
+const TWELVE = Array.from({ length: 12 }, (_, i) => 101 + i);
+const draftOf = async (fake, league) => (
+  await homeStatus.leagueStatuses(fake, { userId: 7, leagues: [league], now: HOME_NOW })
+).get(league.id).status.draft;
+
+test('leagueStatuses puts a snake draft\'s second round in reverse: position 7 picks 6th', async () => {
+  const draft = await draftOf(draftOrderFake(TWELVE), { ...DRAFTING, my_team_id: 107, current_pick: 12 });
+  assert.equal(draft.round, 2);
+  assert.equal(draft.slot, 6);
+  assert.equal(draft.onTheClock, false);
+});
+
+test('leagueStatuses reads a linear rotation straight through every round', async () => {
+  const draft = await draftOf(draftOrderFake(TWELVE), {
+    ...DRAFTING, my_team_id: 107, draft_rotation: 'linear', current_pick: 12,
+  });
+  assert.deepEqual([draft.round, draft.slot], [2, 7]);
+});
+
+test('leagueStatuses follows a per-round override', async () => {
+  const draft = await draftOf(draftOrderFake(TWELVE), {
+    ...DRAFTING, my_team_id: 107, current_pick: 12,
+    draft_order_overrides: { 2: [107, ...TWELVE.filter((id) => id !== 107)] },
+  });
+  assert.deepEqual([draft.round, draft.slot, draft.onTheClock], [2, 1, true]);
+});
+
+test('leagueStatuses says onTheClock when the pick on the clock is the viewer\'s', async () => {
+  const draft = await draftOf(draftOrderFake(TWELVE), { ...DRAFTING, my_team_id: 107, current_pick: 6 });
+  assert.deepEqual([draft.round, draft.slot, draft.onTheClock], [1, 7, true]);
+});
+
+test('leagueStatuses gives a viewer with no team a null slot', async () => {
+  const draft = await draftOf(draftOrderFake(TWELVE), { ...DRAFTING, my_team_id: null });
+  assert.equal(draft.slot, null);
+  assert.equal(draft.onTheClock, false);
+});
+
+test('leagueStatuses names the NEXT pick of the viewer: a pick already made this round moves it to the next round', async () => {
+  const fake = draftOrderFake(TWELVE, [[81, 18]]);
+  for (const current of [18, 23]) {
+    // eslint-disable-next-line no-await-in-loop
+    const draft = await draftOf(fake, { ...DRAFTING, my_team_id: 107, current_pick: current });
+    assert.deepEqual([draft.round, draft.slot, draft.onTheClock], [3, 7, false]);
+  }
+});
+
+test('leagueStatuses skips a keeper-filled pick', async () => {
+  // Position 7 picks index 6 (round 1) but a keeper already holds it.
+  const draft = await draftOf(draftOrderFake(TWELVE, [[81, 7]]), { ...DRAFTING, my_team_id: 107, current_pick: 0 });
+  assert.deepEqual([draft.round, draft.slot], [2, 6]);
+});
+
+test('leagueStatuses gives a viewer with no picks left null round and slot', async () => {
+  const draft = await draftOf(draftOrderFake(TWELVE), { ...DRAFTING, my_team_id: 107, current_pick: 31 });
+  assert.deepEqual([draft.round, draft.slot, draft.onTheClock], [null, null, false]);
+});
+
+test('leagueStatuses answers two drafting leagues from one batch of reads', async () => {
+  const fake = createFakePool([
+    [/FROM "draft_picks" WHERE "league_id" = ANY[(].1[)]/, () => ({ rows: [] })],
+    [/ORDER BY "draft_position" NULLS LAST/, () => ({ rows: [
+      ...TWELVE.map((id) => ({ id, league_id: 81 })), ...[1, 2, 3, 4].map((id) => ({ id, league_id: 82 })),
+    ] })],
+    [/FROM "pickem_settings"/, () => ({ rows: [] })],
+  ]);
+  const second = { ...DRAFTING, id: 82, my_team_id: 3, team_count: 4, current_pick: 1 };
+  const out = await homeStatus.leagueStatuses(fake, { userId: 7, leagues: [{ ...DRAFTING, my_team_id: 107 }, second], now: HOME_NOW });
+  assert.deepEqual([out.get(81).status.draft.round, out.get(81).status.draft.slot], [1, 7]);
+  assert.deepEqual([out.get(82).status.draft.round, out.get(82).status.draft.slot], [1, 3]);
+  assert.equal(fake.calls.filter((c) => /ANY[(].1[)]/.test(c.text) && /draft_/.test(c.text)).length, 2);
+});
+
+test('a failed draft-order read drops only round, slot and onTheClock', async () => {
+  const fake = createFakePool([
+    [/FROM "draft_picks"/, () => { throw new Error('picks read failed'); }],
+    [/ORDER BY "draft_position" NULLS LAST/, () => ({ rows: [] })],
+  ]);
+  const { status, statusError } = (await homeStatus.leagueStatuses(fake, { userId: 7, leagues: [{ ...DRAFTING, my_team_id: 107 }], now: HOME_NOW })).get(81);
+  assert.equal(statusError, false);
+  assert.deepEqual(Object.keys(status.draft).sort(), ['date', 'maxTeams', 'seatsFilled', 'timezone']);
+});
+
+test('leagueStatuses leaves round, slot and onTheClock off a pre-draft league', async () => {
+  const fake = draftOrderFake(TWELVE);
+  const pre = await draftOf(fake, { ...DRAFTING, draft_status: 'pending', my_team_id: 107 });
+  assert.deepEqual(Object.keys(pre).sort(), ['date', 'maxTeams', 'seatsFilled', 'timezone']);
+  assert.equal(fake.calls.some((c) => /ORDER BY "draft_position"/.test(c.text)), false);
+});
