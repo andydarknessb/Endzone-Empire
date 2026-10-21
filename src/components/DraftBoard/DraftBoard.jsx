@@ -892,7 +892,7 @@ function DraftBoard() {
           )}
         </Frame>
       </Box>
-      <Frame tier="rule" component="div" sx={{ minWidth: 0, minHeight: 0, height: '100%', overflow: 'hidden' }}>
+      <Frame tier="rule" component="div" sx={{ minWidth: 0, minHeight: 0, height: '100%' }}>
       <Box
         component="section"
         // "Chat", not "League chat", on purpose: this pane wraps the League
@@ -905,7 +905,7 @@ function DraftBoard() {
         {chatFeed}
       </Box>
       </Frame>
-      <Frame tier="rule" component="div" sx={{ minWidth: 0, minHeight: 0, height: '100%', overflow: 'hidden' }}>
+      <Frame tier="rule" component="div" sx={{ minWidth: 0, minHeight: 0, height: '100%' }}>
       <Box
         component="section"
         aria-label="Draft rail"

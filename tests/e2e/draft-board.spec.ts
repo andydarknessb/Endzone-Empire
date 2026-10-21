@@ -892,6 +892,8 @@ test.describe('accessible structure: skip link, landmarks, headings', () => {
     const nameLink = page.getByRole('button', { name: 'Bijan Robinson' }).first();
     await nameLink.focus();
     const nameLinkOutline = await nameLink.evaluate((el) => getComputedStyle(el).outlineColor);
+    // Tabbing must have reached the room, or the per-surface check below proves nothing.
+    expect(kitOutlineColors.size).toBeGreaterThan(0);
     // The pool's name link now sits inside the room's .ps-root, so it wears the kit ring.
     expect(nameLinkOutline).toBe('rgb(255, 255, 255)');
     expect([...kitOutlineColors].every((color) => color === nameLinkOutline)).toBe(true);
