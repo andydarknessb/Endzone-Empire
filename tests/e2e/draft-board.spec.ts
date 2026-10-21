@@ -278,14 +278,14 @@ test.describe('existing draft behavior baseline (active fixture)', () => {
     await page.locator('tr', { hasText: 'Justin Jefferson' }).getByRole('button', { name: 'Queue' }).click();
 
     await expect.poll(() => api.queueWrites.length).toBeGreaterThanOrEqual(2);
-    const queuePanel = page.getByText('My Queue').locator('xpath=ancestor::*[contains(@class, "MuiPaper-root")][1]');
-    await expect(queuePanel.getByRole('button', { name: 'Bijan Robinson' })).toBeVisible();
-    await expect(queuePanel.getByRole('button', { name: 'Justin Jefferson' })).toBeVisible();
+    const queuePanel = page.getByRole('region', { name: 'My Queue' });
+    await expect(queuePanel.getByRole('button', { name: 'Bijan Robinson', exact: true })).toBeVisible();
+    await expect(queuePanel.getByRole('button', { name: 'Justin Jefferson', exact: true })).toBeVisible();
 
-    await page.getByRole('button', { name: 'Move up' }).last().click();
+    await page.getByRole('button', { name: 'Move Justin Jefferson up' }).click();
     await expect.poll(() => api.queueWrites.at(-1)?.playerIds).toEqual([2, 1]);
 
-    await page.getByRole('button', { name: 'Remove from queue' }).first().click();
+    await page.getByRole('button', { name: 'Remove Justin Jefferson from queue' }).click();
     await expect.poll(() => api.queueWrites.at(-1)?.playerIds).toEqual([1]);
   });
 

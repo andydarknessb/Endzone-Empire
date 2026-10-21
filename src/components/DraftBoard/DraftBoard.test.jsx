@@ -1567,7 +1567,7 @@ test('the queue loads on mount and renders players in rank order', async () => {
   await screen.findByRole('button', { name: 'Bijan Robinson' });
   // Queue names are quick-view buttons; assert both are present in rank order.
   const queued = screen
-    .getAllByRole('button', { name: /Bijan Robinson|Justin Jefferson/ })
+    .getAllByRole('button', { name: /^(Bijan Robinson|Justin Jefferson)$/ })
     .map((b) => b.textContent);
   expect(queued).toEqual(['Bijan Robinson', 'Justin Jefferson']);
   expect(apiClient.get).toHaveBeenCalledWith('/api/draft/queue', { params: { leagueId: 1 } });
@@ -1600,7 +1600,7 @@ test('move up and remove reorder the queue and persist it', async () => {
   renderBoard(1);
   await screen.findByRole('button', { name: 'Bijan Robinson' });
 
-  await userEvent.click(screen.getAllByLabelText('Move up')[1]);
+  await userEvent.click(screen.getByLabelText('Move Justin Jefferson up'));
   await waitFor(() =>
     expect(apiClient.put).toHaveBeenCalledWith('/api/draft/queue', {
       leagueId: 1,
@@ -1608,12 +1608,12 @@ test('move up and remove reorder the queue and persist it', async () => {
     })
   );
   const reordered = screen
-    .getAllByRole('button', { name: /Bijan Robinson|Justin Jefferson/ })
+    .getAllByRole('button', { name: /^(Bijan Robinson|Justin Jefferson)$/ })
     .map((b) => b.textContent);
   expect(reordered).toEqual(['Justin Jefferson', 'Bijan Robinson']);
 
   apiClient.put.mockClear();
-  await userEvent.click(screen.getAllByLabelText('Remove from queue')[0]);
+  await userEvent.click(screen.getByLabelText('Remove Justin Jefferson from queue'));
   await waitFor(() =>
     expect(apiClient.put).toHaveBeenCalledWith('/api/draft/queue', {
       leagueId: 1,
@@ -1665,7 +1665,7 @@ test('a failed queue write shows an inline error in the queue panel and never re
       : Promise.resolve(playersPage())));
   apiClient.put.mockRejectedValueOnce(new Error('Could not save queue'));
 
-  await userEvent.click(screen.getAllByLabelText('Move up')[1]);
+  await userEvent.click(screen.getByLabelText('Move Justin Jefferson up'));
 
   // Identity, not presence, while the resync is still pending: a component
   // that unmounted and remounted into a look-alike node would still pass a
@@ -1697,7 +1697,7 @@ test('a failed queue write shows an inline error in the queue panel and never re
   // The failed write resynced from the server (rolling back the optimistic
   // reorder), which the queue's own order confirms happened.
   const queued = screen
-    .getAllByRole('button', { name: /Bijan Robinson|Justin Jefferson/ })
+    .getAllByRole('button', { name: /^(Bijan Robinson|Justin Jefferson)$/ })
     .map((b) => b.textContent);
   expect(queued).toEqual(['Bijan Robinson', 'Justin Jefferson']);
 });

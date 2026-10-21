@@ -2,11 +2,12 @@ import React, {
   createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef,
 } from 'react';
 import {
-  Box, List, ListItem, Paper, Stack, Typography, Tooltip, IconButton,
+  Box, List, ListItem, Stack, Typography, Tooltip, IconButton,
 } from '@mui/material';
 import RecordVoiceOverIcon from '@mui/icons-material/RecordVoiceOver';
 import VoiceOverOffIcon from '@mui/icons-material/VoiceOverOff';
 import PoliteRegion from './PoliteRegion';
+import { Frame, BODY_FONT, pixelSx } from '../../shared/ui/playselect';
 import { useDraftAssistant } from '../../hooks/useDraftAssistant';
 import { MIN_TOUCH_TARGET_SX } from '../../shared/lib/a11y';
 import { miseryStage, SELECTION_COOLDOWN_MS } from '../../lib/draftAssistant';
@@ -366,36 +367,36 @@ export function DraftRoomAssistantPanel() {
   const headingId = useId();
   if (!assistantOn) return null;
   return (
-    <Paper component="section" aria-labelledby={headingId} sx={{ p: 2, mb: 3 }}>
+    <Frame tier="rule" component="section" labelledBy={headingId} sx={{ p: 2, mb: 3 }}>
       <Stack direction="row" alignItems="baseline" justifyContent="space-between" sx={{ mb: 1 }}>
-        <Typography id={headingId} variant="h6" component="h2">
+        <Box component="h2" id={headingId} sx={{ ...pixelSx(16), m: 0 }}>
           Draft assistant
-        </Typography>
+        </Box>
         <Stack direction="row" spacing={0.5} alignItems="baseline">
-          <Typography variant="overline" sx={{ color: 'text.secondary' }}>
+          <Typography variant="overline" sx={{ fontFamily: BODY_FONT, color: 'var(--ps-dim)' }}>
             Misery Meter
           </Typography>
-          <Typography variant="body2" sx={{ color: 'secondary.main', fontWeight: 700 }}>
+          <Typography variant="body2" sx={{ fontFamily: BODY_FONT, color: 'var(--ps-ink)', fontWeight: 700 }}>
             {miseryBand}
           </Typography>
         </Stack>
       </Stack>
       {scrollback.length === 0 ? (
-        <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+        <Typography variant="body2" sx={{ fontFamily: BODY_FONT, color: 'var(--ps-dim)' }}>
           Quiet so far. Make a pick.
         </Typography>
       ) : (
         <List dense disablePadding aria-label="Draft assistant commentary">
           {scrollback.map((entry, index) => (
             <ListItem key={entry.id} disableGutters sx={{ py: 0.5 }}>
-              <Typography variant="body2" sx={{ fontWeight: index === 0 ? 700 : 400 }}>
+              <Typography variant="body2" sx={{ fontFamily: BODY_FONT, fontWeight: index === 0 ? 700 : 400 }}>
                 {entry.text}
               </Typography>
             </ListItem>
           ))}
         </List>
       )}
-    </Paper>
+    </Frame>
   );
 }
 
@@ -408,7 +409,7 @@ export function DraftRoomAssistantBannerLine() {
   if (!assistantOn || !latestLine) return null;
   return (
     <Box sx={{ width: '100%', mt: 1 }}>
-      <Typography variant="body2" sx={{ color: 'text.secondary', fontStyle: 'italic' }}>
+      <Typography variant="body2" sx={{ fontFamily: BODY_FONT, color: 'var(--ps-dim)', fontStyle: 'italic' }}>
         {latestLine}
       </Typography>
     </Box>
