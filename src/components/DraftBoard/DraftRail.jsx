@@ -2,23 +2,19 @@ import React, {
   useId, useState, useRef, useEffect,
 } from 'react';
 import {
-  Paper,
   Box,
   Typography,
-  Button,
-  IconButton,
   Tooltip,
   Accordion,
   AccordionSummary,
   AccordionDetails,
-  LinearProgress,
   Popover,
   Alert,
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
-import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
-import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
-import CloseIcon from '@mui/icons-material/Close';
+import {
+  Frame, PsButton, PixelClose, BODY_FONT, pixelSx,
+} from '../../shared/ui/playselect';
 // Direct file import (#1311, draft-harness-coverage guard), not the
 // entities/player barrel: the barrel's index.js also re-exports
 // `usePlayerCard`, whose module graph reaches `shared/lib/useEndpoint`'s
@@ -35,6 +31,37 @@ import { DraftRoomAssistantPanel } from './DraftRoomAssistant';
 import { MIN_TOUCH_TARGET_SX } from '../../shared/lib/a11y';
 import useFocusRescue from './useFocusRescue';
 import DraftOrderPanel from '../../widgets/draft-order/ui/DraftOrderPanel';
+
+// Rows and copy are Archivo; only the section headings are pixel type.
+const BODY_SX = { fontFamily: BODY_FONT };
+const DIM_SX = { ...BODY_SX, color: 'var(--ps-dim)' };
+const HEADING_SX = { ...pixelSx(16), m: 0 };
+const ACCORDION_SX = {
+  bgcolor: 'transparent', color: 'var(--ps-ink)', borderRadius: 0, '&::before': { display: 'none' },
+};
+const RULE_ITEM_SX = {
+  px: 1, py: 0.5, border: '2px solid var(--ps-rule)', fontVariantNumeric: 'tabular-nums', ...BODY_SX,
+};
+
+// A 16px arrow on the 2px grid (8 cells); the down arrow is the up arrow flipped.
+const ARROW_ROWS = ['...##...', '..####..', '.######.', '...##...', '...##...', '...##...', '...##...', '...##...'];
+const ARROW_PATH = ARROW_ROWS
+  .map((row, y) => [...row].map((c, x) => (c === '#' ? `M${x * 2} ${y * 2}h2v2h-2z` : '')).join(''))
+  .join('');
+function MoveArrow({ down = false }) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      aria-hidden="true"
+      shapeRendering="crispEdges"
+      style={{ flex: 'none', transform: down ? 'scaleY(-1)' : undefined }}
+    >
+      <path d={ARROW_PATH} fill="currentColor" />
+    </svg>
+  );
+}
 
 // The rail's two vanishing controls - the Readiness exception list when the
 // last manager declares ready, and the viewer's picks popover when their last
@@ -161,9 +188,10 @@ function DraftRail({
   }, [hasViewerPicks, allPicksAnchor]);
 
   const queuePanel = (
-    <Paper
+    <Frame
+      tier="rule"
       component="section"
-      aria-labelledby={queueHeadingId}
+      labelledBy={queueHeadingId}
       sx={{
         p: 2,
         mb: 3,
@@ -177,9 +205,9 @@ function DraftRail({
         overflowY: 'auto',
       }}
     >
-      <Typography id={queueHeadingId} variant="h6" component="h2" sx={{ mb: 2 }}>
+      <Box component="h2" id={queueHeadingId} sx={{ ...HEADING_SX, mb: 2 }}>
         My Queue
-      </Typography>
+      </Box>
       {queueError && (
         <Alert severity="error" sx={{ mb: 2 }}>
           {queueError}
@@ -191,7 +219,7 @@ function DraftRail({
         // in (issue #124 acceptance criterion 6): on mobile the pool is behind
         // the Players tab, and on desktop since #122 it is a separate
         // scrolling region beside this one.
-        <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+        <Typography variant="body2" sx={DIM_SX}>
           Queue is empty. Choose Queue on a player to add them here.
         </Typography>
       ) : (
@@ -216,11 +244,11 @@ function DraftRail({
                 flexWrap: 'wrap',
                 mb: 1,
                 ...(showQuickDraft && !quickDraftUnavailable
-                  ? { bgcolor: 'var(--accent-soft)', borderRadius: 1, p: 0.5 }
+                  ? { bgcolor: 'var(--ps-selection)', p: 0.5 }
                   : {}),
               }}
             >
-              <Typography variant="body2">
+              <Typography variant="body2" sx={BODY_SX}>
                 {index + 1}. <PlayerNameLink name={player.name} playerId={player.id} onOpen={onOpenQuickView} sx={MIN_TOUCH_TARGET_SX} /> (
                 {player.position})
               </Typography>
@@ -228,54 +256,48 @@ function DraftRail({
                 {showQuickDraft && (
                   <Tooltip title={quickDraftUnavailable ? pickState.explanation : ''}>
                     <span>
-                      <Button
-                        variant="contained"
-                        color="primary"
-                        size="small"
+                      <PsButton
                         aria-disabled={quickDraftUnavailable || undefined}
                         onClick={() => {
                           if (quickDraftUnavailable) return; // suppressed activation
                           onDraft(player.id);
                         }}
-                        sx={MIN_TOUCH_TARGET_SX}
                       >
                         Draft
-                      </Button>
+                      </PsButton>
                     </span>
                   </Tooltip>
                 )}
-                <IconButton
-                  size="small"
-                  aria-label="Move up"
+                <PsButton
+                  variant="quiet"
+                  ariaLabel={`Move ${player.name} up`}
                   disabled={index === 0}
                   onClick={() => onMoveUp(index)}
-                  sx={MIN_TOUCH_TARGET_SX}
                 >
-                  <ArrowUpwardIcon fontSize="small" />
-                </IconButton>
-                <IconButton
-                  size="small"
-                  aria-label="Move down"
+                  <MoveArrow />
+                </PsButton>
+                <PsButton
+                  variant="quiet"
+                  ariaLabel={`Move ${player.name} down`}
                   disabled={index === queue.length - 1}
                   onClick={() => onMoveDown(index)}
-                  sx={MIN_TOUCH_TARGET_SX}
                 >
-                  <ArrowDownwardIcon fontSize="small" />
-                </IconButton>
-                <IconButton
-                  size="small"
-                  aria-label="Remove from queue"
+                  <MoveArrow down />
+                </PsButton>
+                <Box aria-hidden="true" sx={{ width: '2px', height: '24px', bgcolor: 'var(--ps-rule)', mx: 0.5 }} />
+                <PsButton
+                  variant="quiet"
+                  ariaLabel={`Remove ${player.name} from queue`}
                   onClick={() => onRemoveFromQueue(index)}
-                  sx={MIN_TOUCH_TARGET_SX}
                 >
-                  <CloseIcon fontSize="small" />
-                </IconButton>
+                  <PixelClose />
+                </PsButton>
               </Box>
             </Box>
           );
         })
       )}
-    </Paper>
+    </Frame>
   );
 
   // Readiness: which teams have declared themselves ready, counted against the
@@ -300,42 +322,48 @@ function DraftRail({
   // comes from readinessSummary so the two cannot drift.
   const readinessCountText = readiness.countText;
   const readinessPanel = myTeam ? (
-    <Paper component="section" aria-labelledby={readinessHeadingId} sx={{ p: 2, mb: 3 }}>
+    <Frame tier="rule" component="section" labelledBy={readinessHeadingId} sx={{ p: 2, mb: 3 }}>
       {/* tabIndex -1: not in the tab order, but focusable for the rescue
           above when the exception list is removed while holding focus. */}
-      <Typography
-        id={readinessHeadingId}
-        variant="h6"
+      <Box
         component="h2"
+        id={readinessHeadingId}
         ref={readinessHeadingRef}
         tabIndex={-1}
-        sx={{ mb: 1 }}
+        sx={{ ...HEADING_SX, mb: 1 }}
       >
         Readiness
-      </Typography>
-      <Button
-        variant="contained"
-        fullWidth
-        aria-pressed={!!myTeam.draft_ready}
-        onClick={() => onToggleReady(!myTeam.draft_ready)}
-        sx={{ ...MIN_TOUCH_TARGET_SX, mb: 1 }}
-      >
-        I&apos;m ready
-      </Button>
-      <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', mb: 0.5 }}>
+      </Box>
+      {/* Fill until the viewer is ready, then the selected pressed toggle: #2434's Start draft
+          takes the fill in the opposite case, so at most one is ever filled. */}
+      <Box sx={{ mb: 1, '& > button': { width: '100%' } }}>
+        <PsButton
+          variant={myTeam.draft_ready ? 'selected' : 'fill'}
+          aria-pressed={!!myTeam.draft_ready}
+          onClick={() => onToggleReady(!myTeam.draft_ready)}
+        >
+          I&apos;m ready
+        </PsButton>
+      </Box>
+      <Typography variant="caption" sx={{ ...DIM_SX, display: 'block', mb: 0.5 }}>
         {readinessCountText}
       </Typography>
-      <LinearProgress
-        variant="determinate"
-        value={readiness.percentReady}
+      <Box
+        role="progressbar"
         aria-label="Managers ready"
-        // aria-valuenow is the rounded percentage MUI derives from `value`,
-        // which is the bar's width and not the league's state: 38 does not say
-        // 3 of 8, and at some league sizes two different counts round to the
-        // same percent. valuetext carries the reading itself.
+        aria-valuemin={0}
+        aria-valuemax={100}
+        // aria-valuenow is the rounded percentage, which is the bar's width and not the
+        // league's state: 38 does not say 3 of 8, and at some league sizes two different
+        // counts round to the same percent. valuetext carries the reading itself.
+        aria-valuenow={Math.round(readiness.percentReady)}
         aria-valuetext={readinessCountText}
-        sx={{ height: 8, borderRadius: 'var(--radius-sm)', mb: 1 }}
-      />
+        sx={{
+          height: '12px', border: '2px solid var(--ps-rule)', mb: 1, boxSizing: 'border-box',
+        }}
+      >
+        <Box sx={{ height: '100%', width: `${readiness.percentReady}%`, bgcolor: 'var(--ps-ink)' }} />
+      </Box>
       {hasExceptionList && (
         <Accordion
           {...readinessFocus}
@@ -346,7 +374,7 @@ function DraftRail({
           // hidden content the panel keeps ready, and a collapsed list of
           // fourteen Teams is fourteen nodes of nothing in a live lobby.
           TransitionProps={{ unmountOnExit: true }}
-          sx={{ bgcolor: 'transparent', '&::before': { display: 'none' } }}
+          sx={ACCORDION_SX}
         >
           <AccordionSummary
             id={readinessListId}
@@ -354,7 +382,7 @@ function DraftRail({
             expandIcon={<ExpandMoreIcon />}
             sx={MIN_TOUCH_TARGET_SX}
           >
-            <Typography variant="body2">{readiness.listLabel}</Typography>
+            <Typography variant="body2" sx={BODY_SX}>{readiness.listLabel}</Typography>
           </AccordionSummary>
           {/* No `id` here. MUI already renders the region this names, and puts
               the summary's own `aria-controls` value on it, so repeating that
@@ -367,14 +395,14 @@ function DraftRail({
                 // valid identity (CONTEXT.md: Team) and would collapse into
                 // one row under a name key.
                 <Box component="li" role="listitem" key={team.teamId}>
-                  <Typography variant="body2">{team.teamName}</Typography>
+                  <Typography variant="body2" sx={BODY_SX}>{team.teamName}</Typography>
                 </Box>
               ))}
             </Box>
           </AccordionDetails>
         </Accordion>
       )}
-    </Paper>
+    </Frame>
   ) : null;
 
   // Draft order is a shared widget because the same Team sequence appears in
@@ -429,17 +457,16 @@ function DraftRail({
   // nothing until it is wanted. Its trigger is deliberately not a heading: the
   // composition's H2s are its panels, and this is a control within one.
   const upcomingPanel = teams.length > 0 ? (
-    <Paper component="section" aria-labelledby={upcomingHeadingId} sx={{ p: 2, mb: 3 }}>
-      <Typography
-        id={upcomingHeadingId}
-        variant="h6"
+    <Frame tier="rule" component="section" labelledBy={upcomingHeadingId} sx={{ p: 2, mb: 3 }}>
+      <Box
         component="h2"
+        id={upcomingHeadingId}
         ref={upcomingHeadingRef}
         tabIndex={-1}
-        sx={{ mb: 1 }}
+        sx={{ ...HEADING_SX, mb: 1 }}
       >
         Upcoming
-      </Typography>
+      </Box>
       {upcoming.length === 0 && (
         // The two reasons the strip can be empty - the draft is on its last
         // pick, or the Draft order is not settled enough to read forward from -
@@ -449,7 +476,7 @@ function DraftRail({
         // no `reason` field is passed down, because neither cause is one a
         // manager here can act on, and neutral copy beats a heading standing
         // over a named non-problem.
-        <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+        <Typography variant="body2" sx={DIM_SX}>
           No upcoming picks to show.
         </Typography>
       )}
@@ -466,17 +493,16 @@ function DraftRail({
             role="listitem"
             key={entry.pickNumber}
             sx={{
-              display: 'flex', alignItems: 'center', gap: 0.75,
-              px: 1, py: 0.5, borderRadius: 1, bgcolor: 'action.hover',
+              display: 'flex', alignItems: 'center', gap: 0.75, ...RULE_ITEM_SX,
             }}
           >
-            <Typography component="span" variant="caption" sx={{ color: 'text.secondary', fontVariantNumeric: 'tabular-nums' }}>
+            <Typography component="span" variant="caption" sx={{ ...DIM_SX, fontVariantNumeric: 'tabular-nums' }}>
               {entry.pickLabel}
             </Typography>
             {/* A real space, not just the flex gap: without one the two spans
                 run together into "1.02Harbor Hawks" when read aloud. */}
             {' '}
-            <Typography component="span" variant="body2">
+            <Typography component="span" variant="body2" sx={BODY_SX}>
               {entry.teamName}
             </Typography>
           </Box>
@@ -503,22 +529,21 @@ function DraftRail({
             mt: 1.5, display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap',
           }}
         >
-          <Typography id={myPicksHeadingId} variant="caption" sx={{ color: 'text.secondary' }}>
+          <Typography id={myPicksHeadingId} variant="caption" sx={DIM_SX}>
             My picks
           </Typography>
-          <Typography variant="body2" sx={{ fontVariantNumeric: 'tabular-nums' }}>
+          <Typography variant="body2" sx={{ ...BODY_SX, fontVariantNumeric: 'tabular-nums' }}>
             {viewerPicks.next.map((pick) => pick.pickLabel).join(' · ')}
           </Typography>
-          <Button
-            size="small"
+          <PsButton
+            variant="quiet"
             onClick={(event) => setAllPicksAnchor(event.currentTarget)}
             aria-haspopup="dialog"
-            aria-expanded={allPicksOpen}
-            aria-controls={allPicksOpen ? `${allPicksHeadingId}-popover` : undefined}
-            sx={MIN_TOUCH_TARGET_SX}
+            ariaExpanded={allPicksOpen}
+            ariaControls={allPicksOpen ? `${allPicksHeadingId}-popover` : undefined}
           >
             All {viewerPicks.all.length} of my picks
-          </Button>
+          </PsButton>
           <Popover
             id={`${allPicksHeadingId}-popover`}
             open={allPicksOpen}
@@ -533,13 +558,20 @@ function DraftRail({
               paper: {
                 role: 'dialog',
                 'aria-labelledby': allPicksHeadingId,
-                sx: { p: 2, maxWidth: 280 },
+                sx: {
+                  p: 2,
+                  maxWidth: 280,
+                  borderRadius: 0,
+                  bgcolor: 'var(--ps-panel)',
+                  color: 'var(--ps-ink)',
+                  border: '2px solid var(--ps-frame-2)',
+                },
               },
             }}
           >
-            <Typography id={allPicksHeadingId} variant="subtitle2" component="h3" sx={{ mb: 1 }}>
+            <Box component="h3" id={allPicksHeadingId} sx={{ ...BODY_SX, fontSize: '15px', fontWeight: 700, m: 0, mb: 1 }}>
               All my picks
-            </Typography>
+            </Box>
             <Box
               component="ul"
               role="list"
@@ -552,12 +584,9 @@ function DraftRail({
                   component="li"
                   role="listitem"
                   key={pick.pickNumber}
-                  sx={{
-                    px: 1, py: 0.5, borderRadius: 'var(--radius-sm)', bgcolor: 'action.hover',
-                    fontVariantNumeric: 'tabular-nums',
-                  }}
+                  sx={RULE_ITEM_SX}
                 >
-                  <Typography component="span" variant="body2">{pick.pickLabel}</Typography>
+                  <Typography component="span" variant="body2" sx={BODY_SX}>{pick.pickLabel}</Typography>
                 </Box>
               ))}
             </Box>
@@ -575,7 +604,7 @@ function DraftRail({
         // mounted they are fourteen list items and fourteen controls that
         // assistive technology and keyboard order have to account for.
         TransitionProps={{ unmountOnExit: true }}
-        sx={{ mt: 1, bgcolor: 'transparent', '&::before': { display: 'none' } }}
+        sx={{ ...ACCORDION_SX, mt: 1 }}
       >
         {/* The id is what names the role="region" MUI builds internally: it
             reads the FIRST child's `id` for the region's aria-labelledby.
@@ -591,7 +620,7 @@ function DraftRail({
           expandIcon={<ExpandMoreIcon />}
           sx={MIN_TOUCH_TARGET_SX}
         >
-          <Typography variant="body2">Full Draft order</Typography>
+          <Typography variant="body2" sx={BODY_SX}>Full Draft order</Typography>
         </AccordionSummary>
         {/* Likewise no `id`: MUI's own region already carries the summary's
             aria-controls value (this one came in with #123 and is corrected
@@ -608,7 +637,7 @@ function DraftRail({
           />
         </AccordionDetails>
       </Accordion>
-    </Paper>
+    </Frame>
   ) : null;
 
   const panels = {
@@ -652,7 +681,7 @@ function DraftRail({
   // there would read as a failed load rather than as a finished draft.
   if (composed.length === 0) {
     return (
-      <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+      <Typography variant="body2" sx={DIM_SX}>
         This draft is complete. Open the Board for the full record.
       </Typography>
     );

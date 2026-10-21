@@ -139,13 +139,12 @@ test('Readiness counts ready Teams against the league size', () => {
   // this test used to assert on is what #124 replaced.
 });
 
-test("Readiness makes I'm ready the primary full-width action", async () => {
+test("Readiness makes I'm ready the filled action until pressed, then the selected toggle", async () => {
   const user = userEvent.setup();
   const { rerender } = render(<DraftRail {...baseProps} draftStatus="pending" upcoming={[]} />);
 
   const ready = screen.getByRole('button', { name: "I'm ready" });
-  expect(ready).toHaveClass('MuiButton-contained');
-  expect(ready).toHaveClass('MuiButton-fullWidth');
+  expect(ready).toHaveAttribute('data-variant', 'fill');
   expect(ready).toHaveAttribute('aria-pressed', 'false');
   await user.click(ready);
   expect(baseProps.onToggleReady).toHaveBeenCalledWith(true);
@@ -156,7 +155,36 @@ test("Readiness makes I'm ready the primary full-width action", async () => {
     draftStatus="pending"
     upcoming={[]}
   />);
-  expect(screen.getByRole('button', { name: "I'm ready" })).toHaveAttribute('aria-pressed', 'true');
+  const pressed = screen.getByRole('button', { name: "I'm ready" });
+  expect(pressed).toHaveAttribute('data-variant', 'selected');
+  expect(pressed).toHaveAttribute('aria-pressed', 'true');
+});
+
+test('a 3-player queue renders no filled action while the draft runs', () => {
+  // #2434 fills Start draft in the opposite case; at most one fill is ever on the page.
+  render(<DraftRail
+    {...baseProps}
+    draftStatus="active"
+    queue={[
+      { id: 1, name: 'Bijan Robinson', position: 'RB' },
+      { id: 2, name: 'Ja\'Marr Chase', position: 'WR' },
+      { id: 3, name: 'Puka Nacua', position: 'WR' },
+    ]}
+  />);
+
+  expect(screen.getByRole('button', { name: 'Draft' })).toHaveAttribute('data-variant', 'ghost');
+  expect(screen.getAllByRole('button').filter((b) => b.getAttribute('data-variant') === 'fill')).toHaveLength(0);
+});
+
+test('queue controls name the player they act on', () => {
+  render(<DraftRail
+    {...baseProps}
+    queue={[{ id: 1, name: 'Bijan Robinson', position: 'RB' }, { id: 2, name: 'Puka Nacua', position: 'WR' }]}
+  />);
+
+  expect(screen.getByRole('button', { name: 'Move Puka Nacua up' })).toBeEnabled();
+  expect(screen.getByRole('button', { name: 'Move Bijan Robinson down' })).toBeEnabled();
+  expect(screen.getByRole('button', { name: 'Remove Bijan Robinson from queue' })).toBeInTheDocument();
 });
 
 test('full Pick history is gone from the rail in every status', () => {
