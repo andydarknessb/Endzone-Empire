@@ -11,7 +11,6 @@ import { PICK_UNAVAILABLE_EXPLANATION } from './pickAvailability';
 import { FORMER_MANAGER_LABEL } from '../../shared/lib/teamIdentity';
 import DraftBoard from './DraftBoard';
 import PlayerPoolTableProbe from './PlayerPoolTable';
-import PlayerDecisionCardSpy from '../../widgets/player-decision-card';
 import { railCompositionFor, RAIL_PANELS } from './railComposition';
 import { DRAFT_ASSISTANT_KEY } from '../../lib/draftAssistantPreference';
 import { fillTemplate, TRIGGERS, POLK_HIGH_LEGEND_LINES } from '../../lib/draftAssistant';
@@ -47,20 +46,6 @@ jest.mock('./PlayerPoolTable', () => {
   };
   Probe.renderSpy = renderSpy;
   return { __esModule: true, default: Probe };
-});
-
-// Records the props the room hands the player card (the real card still
-// renders underneath), so the look it is given can be asserted.
-jest.mock('../../widgets/player-decision-card', () => {
-  const actual = jest.requireActual('../../widgets/player-decision-card');
-  const ReactForSpy = jest.requireActual('react');
-  const propsSpy = jest.fn();
-  const Spy = (props) => {
-    propsSpy(props);
-    return ReactForSpy.createElement(actual.default, props);
-  };
-  Spy.propsSpy = propsSpy;
-  return { __esModule: true, ...actual, default: Spy };
 });
 
 // The readiness announcer (#164) is no longer the only role=status region in
@@ -2616,12 +2601,6 @@ describe('accessible structure', () => {
     })));
     await screen.findByText('Sunday Ballers');
   };
-
-  test('the room renders the player card in the Play-select look', async () => {
-    await showFullBoard();
-
-    expect(PlayerDecisionCardSpy.propsSpy).toHaveBeenCalledWith(expect.objectContaining({ look: 'playselect' }));
-  });
 
   test('wraps the page content in one region, named by the league heading', async () => {
     await showFullBoard();

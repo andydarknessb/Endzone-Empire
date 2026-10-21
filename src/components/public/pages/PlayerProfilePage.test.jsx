@@ -21,7 +21,7 @@ jest.mock('../../../api/apiClient', () => ({
   default: { get: jest.fn() },
 }));
 
-// Prop recorder over the real card (spec #2453): the profile passes look="playselect".
+// Prop recorder over the real card (spec #2453): the profile passes.
 const mockCardSpy = jest.fn();
 jest.mock('../../../widgets/player-decision-card', () => {
   const actual = jest.requireActual('../../../widgets/player-decision-card');
@@ -406,7 +406,7 @@ test('clicking the Rostered by line opens the Decision card with that league\'s 
   expect(apiClient.get).toHaveBeenCalledWith(expect.stringContaining('/api/players/42/card?leagueId=12'));
 });
 
-test('renders the Decision card with look="playselect"', async () => {
+test('renders the Decision card', async () => {
   apiClient.get.mockImplementation((url) => {
     if (String(url).includes('/in-your-leagues')) return Promise.resolve({ data: IN_YOUR_LEAGUES_RESPONSE });
     return Promise.reject(new Error(`unexpected apiClient url ${url}`));
@@ -418,7 +418,6 @@ test('renders the Decision card with look="playselect"', async () => {
 
   await screen.findByRole('dialog');
   expect(mockCardSpy).toHaveBeenCalled();
-  mockCardSpy.mock.calls.forEach(([props]) => expect(props.look).toBe('playselect'));
 });
 
 // #1514 ("green for the wrong reason"): the card's action bar has to come

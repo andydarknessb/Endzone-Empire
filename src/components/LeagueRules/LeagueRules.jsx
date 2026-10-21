@@ -207,7 +207,7 @@ export default function LeagueRules() {
   return (
     <Shell>
       <Box>
-        <LeagueBreadcrumb name={league.name} look="playselect" />
+        <LeagueBreadcrumb name={league.name} />
         <PixelHeading level={1}>League Rules</PixelHeading>
         <Dim sx={{ mt: '8px' }}>
           {league.name} · view only. Only the commissioner can change these settings.

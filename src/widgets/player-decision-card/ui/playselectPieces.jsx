@@ -7,7 +7,7 @@ import {
   finite, formatPoints, reasonLabel as sharedReasonLabel, NO_HISTORY_LABEL,
 } from '../../../shared/lib';
 
-// The Player card's playselect look (ADR 0067, spec #2347 ruling 7), drawn from docs/design/league/league-kit-card.js.
+// The Player card's pieces (ADR 0067, spec #2347 ruling 7), drawn from docs/design/league/league-kit-card.js.
 // Every piece keeps the test ids and accessible names of the default piece it stands in for.
 
 /** A tertiary section frame: a 2px edge, a Pixel 16 h3 head over a 2px rule. `pad={false}` lets a table run edge to edge. */

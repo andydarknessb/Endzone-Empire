@@ -281,7 +281,7 @@ function PowerRankings() {
   return (
     <Shell>
       <Box>
-        <LeagueBreadcrumb look="playselect" />
+        <LeagueBreadcrumb />
         <PixelHeading id="power-rankings-table-heading" level={1}>Power Rankings</PixelHeading>
         {payload && (
           <Dim sx={{ mt: '8px' }}>Season {payload.season} · Week {payload.week}</Dim>

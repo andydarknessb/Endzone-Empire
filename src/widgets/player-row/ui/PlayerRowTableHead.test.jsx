@@ -1,6 +1,5 @@
 import React from 'react';
 import { screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
 import { Table, TableBody, TableHead } from '@mui/material';
 import renderWithProviders from '../../../test-utils/renderWithProviders';
 import PlayerRowTableHead, { playerRowColumnCount } from './PlayerRowTableHead';
@@ -16,22 +15,14 @@ function renderHead(props) {
   );
 }
 
-test('renders Upgrade as plain text with no upgradeSort prop', () => {
+test('renders Upgrade as plain text', () => {
   renderHead({});
   expect(screen.getByText('Upgrade')).toBeInTheDocument();
   expect(screen.queryByRole('button', { name: /Upgrade/ })).not.toBeInTheDocument();
 });
 
-test('renders Upgrade as a clickable sort label when upgradeSort is given', async () => {
-  const onClick = jest.fn();
-  renderHead({ upgradeSort: { active: true, direction: 'desc', onClick } });
-
-  await userEvent.click(screen.getByText('Upgrade'));
-  expect(onClick).toHaveBeenCalledTimes(1);
-});
-
 test('hides the Upgrade column entirely for best ball', () => {
-  renderHead({ bestBall: true, upgradeSort: { active: false, direction: 'asc', onClick: jest.fn() } });
+  renderHead({ bestBall: true });
   expect(screen.queryByText('Upgrade')).not.toBeInTheDocument();
 });
 

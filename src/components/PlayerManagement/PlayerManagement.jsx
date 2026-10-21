@@ -383,16 +383,14 @@ function PlayerManagement() {
       )}
       <PlayerPool
         ref={poolRef}
-        look="playselect"
         leagueId={selectedLeague}
         bestBall={bestBall}
         stickyHead
         ready={leaguesLoaded}
         columnCount={playerRowColumnCount(bestBall)}
-        renderTableHead={(headProps) => <PlayerRowTableHead {...headProps} look="playselect" />}
+        renderTableHead={(headProps) => <PlayerRowTableHead {...headProps} />}
         renderRow={(player, variant) => (
           <PlayerRow
-            look="playselect"
             player={player}
             action={actionForPlayer(player)}
             bestBall={bestBall}
@@ -439,7 +437,6 @@ function PlayerManagement() {
       />
 
       <PlayerDecisionCard
-        look="playselect"
         open={quickViewId != null}
         onClose={() => setQuickViewId(null)}
         entry={toDecisionCardEntry(quickViewPlayer)}
@@ -448,7 +445,6 @@ function PlayerManagement() {
       />
 
       <AddDropSheet
-        look="playselect"
         open={addDropPlayer != null}
         player={addDropPlayer}
         leagueId={selectedLeague}
@@ -457,7 +453,7 @@ function PlayerManagement() {
         onClose={() => setAddDropPlayer(null)}
         onAdded={refreshAfterAction}
       />
-      <DropConfirmationDialog look="playselect" entry={dropCandidate} onClose={closeDropConfirmation} onConfirm={confirmDrop} />
+      <DropConfirmationDialog entry={dropCandidate} onClose={closeDropConfirmation} onConfirm={confirmDrop} />
       </Box>
     </Box>
   );

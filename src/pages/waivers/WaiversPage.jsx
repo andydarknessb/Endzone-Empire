@@ -308,7 +308,6 @@ export default function WaiversPage() {
     const inCard = variant === 'card';
     return (
       <PlayerRow
-        look="playselect"
         player={player}
         bestBall={bestBall}
         hideOwnership={!ownershipKnown}
@@ -364,7 +363,7 @@ export default function WaiversPage() {
           display: 'flex', flexDirection: 'column', gap: '4px', minWidth: 0,
         }}
         >
-          <LeagueBreadcrumb look="playselect" />
+          <LeagueBreadcrumb />
           <Box sx={{
             display: 'flex', flexDirection: 'column', gap: '12px', minWidth: 0,
           }}
@@ -420,7 +419,6 @@ export default function WaiversPage() {
           <Box sx={{ display: { xs: 'block', md: 'none' } }}>
             <SegmentedControl
               aria-label="Waivers view"
-              look="playselect"
               options={[
                 TABS[0],
                 {
@@ -460,7 +458,6 @@ export default function WaiversPage() {
             >
               <PlayerPool
                 ref={poolRef}
-                look="playselect"
                 leagueId={leagueId}
                 bestBall={bestBall}
                 ready={!leagueLoading && !!league}
@@ -469,7 +466,7 @@ export default function WaiversPage() {
                 cardsBelow="sm"
                 emptyCopy="No players are on waivers"
                 columnCount={playerRowColumnCount(bestBall, !ownershipKnown)}
-                renderTableHead={(headProps) => <PlayerRowTableHead {...headProps} hideOwnership={!ownershipKnown} look="playselect" />}
+                renderTableHead={(headProps) => <PlayerRowTableHead {...headProps} hideOwnership={!ownershipKnown} />}
                 renderRow={rowFor}
                 onLoaded={handleLoaded}
                 onError={handleError}
@@ -528,7 +525,6 @@ export default function WaiversPage() {
       </Box>
 
       <PlayerDecisionCard
-        look="playselect"
         open={quickViewId != null}
         onClose={() => setQuickViewId(null)}
         entry={toDecisionCardEntry(quickViewPlayer)}
@@ -542,7 +538,6 @@ export default function WaiversPage() {
         })}
       />
       <ClaimSheet
-        look="playselect"
         open={claimId != null}
         player={claimPlayer}
         leagueId={leagueId}
@@ -556,7 +551,6 @@ export default function WaiversPage() {
         }}
       />
       <ClaimSheet
-        look="playselect"
         open={editingClaim != null}
         player={editingClaim ? { id: editingClaim.playerId, name: editingClaim.playerName } : null}
         claim={editingClaim}

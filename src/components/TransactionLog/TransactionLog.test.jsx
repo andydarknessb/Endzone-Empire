@@ -301,7 +301,7 @@ test('clicking a player name opens the Decision card', async () => {
   expect(await screen.findByTestId('decision-card')).toBeInTheDocument();
 });
 
-test('opening a player renders the Decision card with look="playselect"', async () => {
+test('opening a player renders the Decision card', async () => {
   mockTransactions([
     txn({ id: 1, type: 'add', team_name: "Bob's Team", player_name: 'Justin Jefferson', detail: { playerId: 1 } }),
   ]);
@@ -311,7 +311,7 @@ test('opening a player renders the Decision card with look="playselect"', async 
   await userEvent.click(screen.getByRole('button', { name: 'Justin Jefferson' }));
 
   await screen.findByTestId('decision-card');
-  expect(mockCardProps[mockCardProps.length - 1]).toMatchObject({ open: true, look: 'playselect' });
+  expect(mockCardProps[mockCardProps.length - 1]).toMatchObject({ open: true });
 });
 
 // #1311, ADR 0040 ruling (c): TransactionLog has no roster fact of its own

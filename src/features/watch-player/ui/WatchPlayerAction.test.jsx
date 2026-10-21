@@ -45,3 +45,21 @@ test('watching: renders "Watching" and DELETEs on click, reporting watching: fal
   expect(apiClient.delete).toHaveBeenCalledWith('/api/players/9/watch', { params: { leagueId: 4 } });
   expect(onToggled).toHaveBeenCalledWith(false);
 });
+
+test('it is a ghost toggle, and the Play-blue selected state (never fill) while watching', async () => {
+  apiClient.put.mockResolvedValue({});
+  const onToggled = jest.fn();
+  const { unmount } = renderAction({ onToggled });
+
+  const watch = screen.getByRole('button', { name: 'Watch' });
+  expect(watch).toHaveAttribute('data-variant', 'ghost');
+  expect(watch).toHaveAttribute('aria-pressed', 'false');
+  await userEvent.click(watch);
+  expect(onToggled).toHaveBeenCalledWith(true);
+  unmount();
+
+  renderAction({ watching: true });
+  const watching = screen.getByRole('button', { name: 'Watching' });
+  expect(watching).toHaveAttribute('data-variant', 'selected');
+  expect(watching).toHaveAttribute('aria-pressed', 'true');
+});

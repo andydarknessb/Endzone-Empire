@@ -289,7 +289,7 @@ function TransactionLog() {
   return (
     <Shell data-testid="transaction-log">
       <Box>
-        <LeagueBreadcrumb look="playselect" />
+        <LeagueBreadcrumb />
         <PixelHeading level={1}>League Activity</PixelHeading>
       </Box>
       {error && (
@@ -311,7 +311,6 @@ function TransactionLog() {
             }}
           >
             <SegmentedControl
-              look="playselect"
               scrollable
               options={filterOptions}
               value={typeFilter}
@@ -372,7 +371,6 @@ function TransactionLog() {
         onClose={() => setDecisionCardEntry(null)}
         entry={decisionCardEntry}
         leagueId={Number(leagueId)}
-        look="playselect"
         // #1514: TransactionLog's activity segments carry only
         // { playerId, name } (plus a display-only position), no roster fact to classify by, so
         // it defers kind to the fetched card's own Availability (ADR 0040

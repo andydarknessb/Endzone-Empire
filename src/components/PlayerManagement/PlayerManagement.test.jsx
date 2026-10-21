@@ -21,7 +21,7 @@ jest.mock("../../hooks/useLeague", () => ({
   useLeague: jest.fn(),
 }));
 
-// Prop recorders over the real slices (spec #2453): the page must pass look="playselect" to each.
+// Prop recorders over the real slices (spec #2453).
 const mockSpy = { pool: jest.fn(), row: jest.fn(), head: jest.fn(), card: jest.fn() };
 jest.mock("../../widgets/player-pool", () => {
   const actual = jest.requireActual("../../widgets/player-pool");
@@ -1344,7 +1344,7 @@ describe("Play-select look (spec #2453)", () => {
   const myTeamPlayer = player({ id: 3, name: "My Starter", availability: { state: "my_team", teamId: 1, teamName: null, availableAt: null } });
   const propsOf = (spy) => spy.mock.calls.map(([props]) => props);
 
-  test("the page is a Play-select root with a pixel h1 and passes look to every slice", async () => {
+  test("the page is a Play-select root with a pixel h1 and renders every slice", async () => {
     mockBrowser({ players: [player({ id: 8, name: "Free Agent" }), myTeamPlayer] });
     const { container } = renderWithProviders(<PlayerManagement />);
 
@@ -1352,11 +1352,7 @@ describe("Play-select look (spec #2453)", () => {
     expect(container.querySelector(".ps-root")).not.toBeNull();
     await userEvent.click(await screen.findByRole("button", { name: "Free Agent" }));
 
-    expect(propsOf(mockSpy.pool).every((p) => p.look === "playselect")).toBe(true);
     expect(propsOf(mockSpy.row).length).toBeGreaterThan(0);
-    expect(propsOf(mockSpy.row).every((p) => p.look === "playselect")).toBe(true);
-    expect(propsOf(mockSpy.head).every((p) => p.look === "playselect")).toBe(true);
-    expect(propsOf(mockSpy.card).every((p) => p.look === "playselect")).toBe(true);
   });
 
   test("a full roster's Add opens the add and drop sheet in the Play-select look", async () => {

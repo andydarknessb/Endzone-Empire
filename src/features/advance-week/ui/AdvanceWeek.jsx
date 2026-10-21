@@ -1,15 +1,5 @@
 import React, { useState } from 'react';
-import {
-  Alert,
-  Box,
-  Button,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogContentText,
-  DialogTitle,
-  Typography,
-} from '@mui/material';
+import { Box, Dialog } from '@mui/material';
 import apiClient from '../../../api/apiClient';
 import { readHttpFailure } from '../../../lib/httpFailure';
 import { PsButton, PsLinkButton, psRootSx, pixelSx } from '../../../shared/ui/playselect';
@@ -48,17 +38,14 @@ import { PsButton, PsLinkButton, psRootSx, pixelSx } from '../../../shared/ui/pl
  *
  * `disabledReason` (optional, #2330): a sentence that disables the button and is
  * shown beside it, linked with aria-describedby. Unset leaves the control as it
- * was. The caller decides when the week may not advance (see `allWeekSettled`). `onRetry` (playselect
- * look only) adds a "Try again" control to the reason, for a reason that is a failed check.
+ * was. The caller decides when the week may not advance (see `allWeekSettled`). `onRetry` adds a "Try again" control to the reason, for a reason that is a failed check.
  *
- * `look="playselect"` (#2330) is used by the League Dashboard's commissioner strip and by the
- * Commissioner console: the same control, post and refusal handling in the shared Play-select controls.
+ * Used by the League Dashboard's commissioner strip (#2330) and by the Commissioner console, in the shared Play-select controls.
  * The button is a ghost (on the dashboard the page's one filled action is the lead play in Your move, never this),
  * the sentence and the reason are Archivo on the frame, and the confirm dialog is a double-ruled frame.
- * The default look stays for any other caller.
  */
 export default function AdvanceWeek({
-  leagueId, currentWeek, onAdvanced, disabledReason, look, onRetry,
+  leagueId, currentWeek, onAdvanced, disabledReason, onRetry,
 }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -86,152 +73,61 @@ export default function AdvanceWeek({
     }
   };
 
-  if (look === 'playselect') {
-    const sentence = disabledReason
-      || `Advancing closes Week ${currentWeek} matchups and opens Week ${nextWeek}. You'll be asked to confirm.`;
-    return (
-      <Box
-        data-testid="advance-week"
-        sx={{
-          width: '100%', display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '8px 16px',
+  const sentence = disabledReason
+    || `Advancing closes Week ${currentWeek} matchups and opens Week ${nextWeek}. You'll be asked to confirm.`;
+  return (
+    <Box
+      data-testid="advance-week"
+      sx={{
+        width: '100%', display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '8px 16px',
+      }}
+    >
+      <Box sx={{ minWidth: 0 }}>
+        <Box sx={{ fontSize: '15px', fontWeight: 600 }}>Advance week</Box>
+        <Box
+          id={disabledReason ? 'advance-week-disabled-reason' : undefined}
+          sx={{ fontSize: '14px', color: 'var(--ps-dim)', maxWidth: '60ch' }}
+        >
+          {sentence}
+        </Box>
+        {disabledReason && onRetry && (
+          <PsLinkButton onClick={onRetry} aria-label={`Try checking Week ${currentWeek} games again`}>Try again</PsLinkButton>
+        )}
+      </Box>
+      <PsButton
+        variant="ghost"
+        disabled={busy || !!disabledReason}
+        describedBy={disabledReason ? 'advance-week-disabled-reason' : undefined}
+        onClick={() => {
+          setError(null);
+          setOpen(true);
         }}
       >
-        <Box sx={{ minWidth: 0 }}>
-          <Box sx={{ fontSize: '15px', fontWeight: 600 }}>Advance week</Box>
-          <Box
-            id={disabledReason ? 'advance-week-disabled-reason' : undefined}
-            sx={{ fontSize: '14px', color: 'var(--ps-dim)', maxWidth: '60ch' }}
-          >
-            {sentence}
-          </Box>
-          {disabledReason && onRetry && (
-            <PsLinkButton onClick={onRetry} aria-label={`Try checking Week ${currentWeek} games again`}>Try again</PsLinkButton>
-          )}
-        </Box>
-        <PsButton
-          variant="ghost"
-          disabled={busy || !!disabledReason}
-          describedBy={disabledReason ? 'advance-week-disabled-reason' : undefined}
-          onClick={() => {
-            setError(null);
-            setOpen(true);
-          }}
-        >
-          {`Advance to Week ${nextWeek}`}
-        </PsButton>
-        {error && <Box role="alert" sx={{ width: '100%', fontSize: '14px' }}>{error}</Box>}
-        <Dialog
-          open={open}
-          onClose={() => setOpen(false)}
-          aria-labelledby="advance-week-dialog-title"
-          aria-describedby="advance-week-dialog-description"
-          PaperProps={{
-            className: 'ps-root',
-            sx: {
-              ...psRootSx, border: '6px double var(--ps-frame)', borderRadius: 0, backgroundColor: 'var(--ps-panel)', backgroundImage: 'none', boxShadow: 'none',
-            },
-          }}
-        >
-          <Box sx={{ padding: '14px 20px', borderBottom: '2px solid var(--ps-rule)' }}>
-            <Box component="h2" id="advance-week-dialog-title" sx={{ m: 0, ...pixelSx(16) }}>{`Advance to Week ${nextWeek}?`}</Box>
-          </Box>
-          <Box id="advance-week-dialog-description" sx={{ padding: '16px 20px', fontSize: '16px', maxWidth: '60ch' }}>
-            {`This closes Week ${currentWeek} matchups and opens Week ${nextWeek}. Week ${currentWeek} is scored as played, and this cannot be undone from here.`}
-          </Box>
-          <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', padding: '0 20px 16px' }}>
-            <PsButton variant="ghost" onClick={() => setOpen(false)} disabled={busy}>Cancel</PsButton>
-            <PsButton variant="ghost" onClick={handleConfirm} disabled={busy}>Confirm</PsButton>
-          </Box>
-        </Dialog>
-      </Box>
-    );
-  }
-
-  return (
-    <Box data-testid="advance-week" sx={{ display: 'grid', gap: 1.25 }}>
-      <Typography sx={{ fontSize: '13px', lineHeight: 1.4, color: 'var(--dash-dim)' }}>
-        {`Advancing closes Week ${currentWeek} matchups and opens Week ${nextWeek}. You'll be asked to confirm.`}
-      </Typography>
-
-      <Box>
-        <Button
-          type="button"
-          variant="outlined"
-          size="small"
-          disabled={busy || !!disabledReason}
-          aria-describedby={disabledReason ? 'advance-week-disabled-reason' : undefined}
-          onClick={() => {
-            setError(null);
-            setOpen(true);
-          }}
-          // The dashboard island's own tokens (ADR 0020): ink label over the
-          // page card, the accent line on hover, both registered pairings in
-          // tokens.contrast.test.js. No new pairing is composed here.
-          sx={{
-            textTransform: 'none',
-            color: 'var(--dash-ink)',
-            // The 44px touch floor, phone widths only. Breakpoint-scoped
-            // rather than the flat MIN_TOUCH_TARGET_SX because this is a
-            // size="small" outlined control: an unconditional 44 would grow it
-            // by 13px on desktop, where a pointer needs no floor. It measured
-            // 30.75px at every width before this, and it is the control that
-            // advances a whole league's week.
-            minHeight: { xs: 44, md: 'auto' },
-            borderColor: 'var(--dash-line-strong)',
-            borderRadius: 'var(--dash-radius-sm)',
-            fontFamily: 'var(--dash-font-body)',
-            fontWeight: 600,
-            fontSize: '13px',
-            '&:hover': {
-              borderColor: 'var(--dash-accent-line)',
-              backgroundColor: 'transparent',
-            },
-          }}
-        >
-          {`Advance to Week ${nextWeek}`}
-        </Button>
-      </Box>
-
-      {disabledReason && (
-        <Typography id="advance-week-disabled-reason" sx={{ fontSize: '13px', lineHeight: 1.4, color: 'var(--dash-dim)' }}>
-          {disabledReason}
-        </Typography>
-      )}
-
-      {/* The server's refusal. MUI Alert carries role="alert", so a screen
-          reader hears it when it appears; the text is the server's own sentence
-          (read from the failure through readHttpFailure, shown as the server
-          wrote it), or the local fallback when the failure carried none. */}
-      {error && (
-        <Alert severity="error" sx={{ fontSize: '13px' }}>
-          {error}
-        </Alert>
-      )}
-
-      {/* aria-describedby names the consequence sentence, not only the title:
-          MUI moves focus to the first action (Cancel) on open, so without it a
-          screen reader announces the dialog name and the focused button but not
-          the "cannot be undone" warning, and this action is irreversible. */}
+        {`Advance to Week ${nextWeek}`}
+      </PsButton>
+      {error && <Box role="alert" sx={{ width: '100%', fontSize: '14px' }}>{error}</Box>}
       <Dialog
         open={open}
         onClose={() => setOpen(false)}
         aria-labelledby="advance-week-dialog-title"
         aria-describedby="advance-week-dialog-description"
+        PaperProps={{
+          className: 'ps-root',
+          sx: {
+            ...psRootSx, border: '6px double var(--ps-frame)', borderRadius: 0, backgroundColor: 'var(--ps-panel)', backgroundImage: 'none', boxShadow: 'none',
+          },
+        }}
       >
-        <DialogTitle id="advance-week-dialog-title">{`Advance to Week ${nextWeek}?`}</DialogTitle>
-        <DialogContent>
-          <DialogContentText id="advance-week-dialog-description">
-            {`This closes Week ${currentWeek} matchups and opens Week ${nextWeek}. Week ${currentWeek} is scored as played, and this cannot be undone from here.`}
-          </DialogContentText>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setOpen(false)} disabled={busy}>
-            Cancel
-          </Button>
-          <Button onClick={handleConfirm} variant="contained" disabled={busy}>
-            Confirm
-          </Button>
-        </DialogActions>
+        <Box sx={{ padding: '14px 20px', borderBottom: '2px solid var(--ps-rule)' }}>
+          <Box component="h2" id="advance-week-dialog-title" sx={{ m: 0, ...pixelSx(16) }}>{`Advance to Week ${nextWeek}?`}</Box>
+        </Box>
+        <Box id="advance-week-dialog-description" sx={{ padding: '16px 20px', fontSize: '16px', maxWidth: '60ch' }}>
+          {`This closes Week ${currentWeek} matchups and opens Week ${nextWeek}. Week ${currentWeek} is scored as played, and this cannot be undone from here.`}
+        </Box>
+        <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', padding: '0 20px 16px' }}>
+          <PsButton variant="ghost" onClick={() => setOpen(false)} disabled={busy}>Cancel</PsButton>
+          <PsButton variant="ghost" onClick={handleConfirm} disabled={busy}>Confirm</PsButton>
+        </Box>
       </Dialog>
     </Box>
   );

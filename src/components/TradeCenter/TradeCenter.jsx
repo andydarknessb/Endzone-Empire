@@ -520,7 +520,7 @@ function TradeCenter() {
   return (
     <Shell>
       <Box component="section" aria-labelledby="trade-center-title" sx={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: 0 }}>
-        <LeagueBreadcrumb name={league?.name} look="playselect" />
+        <LeagueBreadcrumb name={league?.name} />
         <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', justifyContent: 'space-between', gap: '12px 24px' }}>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: '12px', minWidth: 0 }}>
             <Box
@@ -596,7 +596,6 @@ function TradeCenter() {
       {/* #1515 (T19): `availability` rides inside the built context now (the
           rostered() builder already carries it) - no loose prop beside it. */}
       <PlayerDecisionCard
-        look="playselect"
         open={decisionCardPlayerId != null}
         onClose={() => setDecisionCardPlayerId(null)}
         entry={decisionCardEntry}

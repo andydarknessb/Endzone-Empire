@@ -12,7 +12,7 @@ jest.mock('../../../api/apiClient', () => ({
 }));
 jest.mock('../../../hooks/useLeague', () => ({ useLeague: jest.fn() }));
 
-// ADR 0067 wave 3: `look` defaults to the dash pool; the Waivers page passes "playselect".
+// ADR 0067 wave 3: the Play-select pool.
 const player = {
   id: 1, name: 'Patrick Mahomes', position: 'QB', nfl_team: 'Kansas City Chiefs', availability: { state: 'waivers' }, projWeek: { week: 3, points: 22.4 }, ros: { points: 210.5 }, weeks: [], ownership: null, upgrade: null, watching: false,
 };
@@ -29,24 +29,8 @@ beforeEach(() => {
 });
 afterEach(() => jest.clearAllMocks());
 
-test('with no look the pool is the dash MUI pool: MUI search field, MUI pager, no filled or ghost buttons', async () => {
-  renderWithProviders(
-    <PlayerPool
-      leagueId="1"
-      columnCount={1}
-      renderTableHead={() => <tr><th>Player</th></tr>}
-      renderRow={(p) => <tr><td>{p.name}</td></tr>}
-    />,
-  );
-  await screen.findByText('Patrick Mahomes');
-  expect(document.querySelector('.MuiPagination-root')).not.toBeNull();
-  expect(document.querySelector('.MuiTextField-root')).not.toBeNull();
-  expect(screen.getByRole('table', { name: 'Players' }).className).toMatch(/MuiTable-root/);
-  expect(document.querySelector('[data-variant]')).toBeNull();
-});
-
-test('look="playselect": a Players frame, native labelled controls, a Play-select pager and the same reads', async () => {
-  renderPool({ look: 'playselect', availabilityLock: 'waivers', byeWeekFilter: true });
+test('a Players frame, native labelled controls, a Play-select pager and the same reads', async () => {
+  renderPool({ availabilityLock: 'waivers', byeWeekFilter: true });
   await screen.findByText('Patrick Mahomes');
   expect(screen.getByRole('heading', { name: 'Players' })).toBeInTheDocument();
   expect(screen.getByRole('textbox', { name: 'Search players' })).toBeInTheDocument();
@@ -58,28 +42,28 @@ test('look="playselect": a Players frame, native labelled controls, a Play-selec
   expect(reads()[0][1].params).toMatchObject({ availability: 'waivers', leagueId: 1 });
 });
 
-test('look="playselect": a control writes the URL params the dash controls do', async () => {
-  renderPool({ look: 'playselect' });
+test('a control writes the URL params the dash controls do', async () => {
+  renderPool();
   await screen.findByText('Patrick Mahomes');
   fireEvent.change(screen.getByRole('combobox', { name: 'Position' }), { target: { value: 'QB' } });
   await waitFor(() => expect(reads().at(-1)[1].params).toMatchObject({ position: 'QB', page: 1 }));
 });
 
-test('look="playselect": an empty list says its copy, and the pager still counts', async () => {
+test('an empty list says its copy, and the pager still counts', async () => {
   apiClient.get.mockResolvedValue({ data: { players: [], totalPages: 1, total: 0, context: null } });
-  renderPool({ look: 'playselect', emptyCopy: 'No players are on waivers' });
+  renderPool({ emptyCopy: 'No players are on waivers' });
   expect(await screen.findByText('No players are on waivers')).toBeInTheDocument();
   expect(screen.getByText('0 players')).toBeInTheDocument();
 });
 
 // Spec #2453: the Players page opts into the dash pool's `stickyHead`; Waivers does not.
-test('look="playselect": stickyHead changes the scroll region and the table markup, and without it they are as before', async () => {
-  const { unmount } = renderPool({ look: 'playselect' });
+test('stickyHead changes the scroll region and the table markup, and without it they are as before', async () => {
+  const { unmount } = renderPool();
   await screen.findByText('Patrick Mahomes');
   const plain = { region: screen.getByRole('region', { name: 'Players, scrollable' }).className, table: screen.getByRole('table', { name: 'Players' }).className };
   unmount();
 
-  renderPool({ look: 'playselect', stickyHead: true });
+  renderPool({ stickyHead: true });
   await screen.findByText('Patrick Mahomes');
   expect(screen.getByRole('region', { name: 'Players, scrollable' }).className).not.toBe(plain.region);
   expect(screen.getByRole('table', { name: 'Players' }).className).not.toBe(plain.table);

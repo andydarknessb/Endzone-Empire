@@ -13,7 +13,7 @@ const BYE_OPTIONS = [{ value: '', label: 'Any' }, ...Array.from({ length: 18 }, 
 
 /**
  * The Play-select view of the player pool (ADR 0067 wave 3, boards Waivers and WaiversPhone), drawn
- * by `PlayerPool` when `look="playselect"`. It holds no state of its own: `PlayerPool` owns the reads
+ * by `PlayerPool`. It holds no state of its own: `PlayerPool` owns the reads
  * and the URL params and hands this the values and handlers.
  *
  * Desktop: a primary frame ("Players") with the filter row, the table (sticky Player column, tabular
@@ -60,7 +60,6 @@ export default function PlayerPoolPlayselect({
         {!availabilityLock && (
           <SegmentedControl
             aria-label="Availability"
-            look="playselect"
             options={availabilityOptions}
             value={availabilityFilter}
             onChange={onAvailability}
@@ -177,7 +176,7 @@ export default function PlayerPoolPlayselect({
               minWidth: '950px',
               tableLayout: 'fixed',
               // stickyHead: from lg the region stops scrolling (clip, above) and the head sticks to the viewport
-              // top. PlayselectHead takes no sx, so the rule is here; zIndex 2 stacks the head's first cell (already
+              // top. The player-row head takes no sx, so the rule is here; zIndex 2 stacks the head's first cell (already
               // sticky left, zIndex 1) above the body's sticky Player column.
               ...(stickyHead && { '@media (min-width:1200px)': { '& thead th': { position: 'sticky', top: 0, zIndex: 2 } } }),
             }}

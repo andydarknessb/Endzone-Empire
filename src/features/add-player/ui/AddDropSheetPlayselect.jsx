@@ -3,8 +3,7 @@ import { Box } from '@mui/material';
 import { PsButton, pixelSx } from '../../../shared/ui/playselect';
 
 // The Play-select body of the add and drop sheet (ADR 0067, spec #2453): `AddDropSheetBody` keeps the
-// roster sort, the preselected drop and the submit through `useAddPlayer`, and hands this its values, so
-// the two looks cannot add differently. "Add and drop" is the modal's own filled action.
+// roster sort, the preselected drop and the submit through `useAddPlayer`, and hands this its values. "Add and drop" is the modal's own filled action.
 
 const fmt = (n) => (n == null || Number.isNaN(Number(n)) ? '-' : Number(n).toFixed(1));
 const FOCUS_RING = { outline: '3px solid var(--ps-focus)', boxShadow: '0 0 0 7px var(--ps-halo)' };
