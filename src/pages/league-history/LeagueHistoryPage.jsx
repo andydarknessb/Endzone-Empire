@@ -2,9 +2,9 @@ import React, { useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { Box } from '@mui/material';
 import { visuallyHidden } from '@mui/utils';
-import { AbbreviationTooltip } from '../../shared/ui';
+import { AbbreviationTooltip, SegmentedControl } from '../../shared/ui';
 import {
-  Frame, FrameHead, PixelArrow, PixelHeading, Skel, Tag, TeamMark, psRootSx,
+  Frame, FrameHead, PixelHeading, Skel, Tag, TeamMark, psRootSx,
 } from '../../shared/ui/playselect';
 import { teamStandingFromRow } from '../../entities/standings';
 import { seasonView, useLeagueHistory } from '../../entities/season-archive';
@@ -113,7 +113,16 @@ export default function LeagueHistoryPage() {
 
       {!error && seasons.length > 0 && (
         <>
-          <ViewToggle value={tab} onChange={setTab} />
+          <Box sx={{ alignSelf: 'flex-start' }}>
+            <SegmentedControl
+              look="playselect"
+              options={TAB_OPTIONS}
+              value={tab}
+              onChange={setTab}
+              aria-label="League History view"
+              data-testid="league-history-tabs"
+            />
+          </Box>
 
           {tab === TAB_SEASONS && (
             <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: '16px' }} data-testid="league-history-seasons">
@@ -127,68 +136,6 @@ export default function LeagueHistoryPage() {
         </>
       )}
     </PageShell>
-  );
-}
-
-// The two views as a Play-select segmented radio group (TradeTabs' look). Left/Right move and select.
-function ViewToggle({ value, onChange }) {
-  const move = (event, index) => {
-    const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[event.key];
-    if (!step) return;
-    event.preventDefault();
-    const next = (index + step + TAB_OPTIONS.length) % TAB_OPTIONS.length;
-    event.currentTarget.parentElement.querySelectorAll('[role="radio"]')[next].focus();
-    onChange(TAB_OPTIONS[next].value);
-  };
-  return (
-    <Box
-      role="radiogroup"
-      aria-label="League History view"
-      data-testid="league-history-tabs"
-      sx={{ display: { xs: 'flex', sm: 'inline-flex' }, alignSelf: 'flex-start', width: { xs: '100%', sm: 'auto' }, p: '2px' }}
-    >
-      {TAB_OPTIONS.map((option, index) => {
-        const on = option.value === value;
-        return (
-          <Box
-            key={option.value}
-            component="button"
-            type="button"
-            role="radio"
-            aria-checked={on}
-            tabIndex={on ? 0 : -1}
-            onClick={() => onChange(option.value)}
-            onKeyDown={(event) => move(event, index)}
-            sx={{
-              flex: { xs: '1 1 0', sm: 'none' },
-              minWidth: { sm: '160px' },
-              minHeight: '44px',
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '8px',
-              px: { xs: '8px', sm: '16px' },
-              ml: index ? '-2px' : 0,
-              boxSizing: 'border-box',
-              border: `2px solid ${on ? 'var(--ps-play)' : 'var(--ps-ink)'}`,
-              borderRadius: 0,
-              font: 'inherit',
-              fontSize: '15px',
-              fontWeight: 600,
-              lineHeight: 1,
-              whiteSpace: 'nowrap',
-              cursor: 'pointer',
-              color: on ? 'var(--ps-play-ink)' : 'var(--ps-ink)',
-              backgroundColor: on ? 'var(--ps-play)' : 'transparent',
-              ...(on ? { position: 'relative', zIndex: 1 } : null),
-            }}
-          >
-            {on ? <PixelArrow /> : null}
-            {option.label}
-          </Box>
-        );
-      })}
-    </Box>
   );
 }
 
@@ -268,6 +215,7 @@ function SeasonCard({ season, leagueId }) {
               <SectionHeading id={`season-${season.season}-trophies-heading`}>Trophies</SectionHeading>
               <Box
                 component="ul"
+                role="list"
                 aria-labelledby={`season-${season.season}-trophies-heading`}
                 sx={{ m: 0, p: 0, listStyle: 'none', display: 'grid', gap: '8px' }}
               >
@@ -385,7 +333,7 @@ function DraftGradesTable({ rows, labelledBy }) {
               <BodyCell>{row.rank}</BodyCell>
               <BodyCell asRowHeader>{teamNameLabel(row.name)}</BodyCell>
               <BodyCell align="center">
-                <Tag aria-label={`Grade ${row.grade}`}>{row.grade}</Tag>
+                <Tag>{row.grade}</Tag>
               </BodyCell>
               <BodyCell align="right">
                 {row.rosterValue == null ? <Placeholder /> : row.rosterValue}
