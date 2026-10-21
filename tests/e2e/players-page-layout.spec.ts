@@ -222,6 +222,32 @@ for (const viewport of [DESKTOP, PHONE]) {
   }
 }
 
+// With stickyHead the region stops scrolling from lg (overflow-x: clip), which would hide a column the table
+// overran; the table's painted right edge must stay inside the region's (as tests/e2e/waivers.spec.ts measures).
+for (const width of [1440, 1200]) {
+  test(`${width}: with stickyHead the table's right edge is at or left of the Players, scrollable region's`, async ({ page }) => {
+    await setupPlayersPageLayout(page);
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(PLAYERS_LAYOUT_URL);
+    await expect(page.getByTestId('player-row')).toHaveCount(10);
+    await page.evaluate(() => document.fonts.ready.then(() => true));
+
+    const edges = await page.evaluate(() => {
+      const region = document.querySelector('[aria-label="Players, scrollable"]') as HTMLElement;
+      const table = region.querySelector('table') as HTMLElement;
+      return {
+        overflowX: getComputedStyle(region).overflowX,
+        region: region.getBoundingClientRect().right,
+        table: table.getBoundingClientRect().right,
+      };
+    });
+    // eslint-disable-next-line no-console
+    console.log(`PLAYERS_LAYOUT_STICKY_EDGE ${JSON.stringify({ width, ...edges })}`);
+    expect(edges.overflowX, 'stickyHead clips the region from lg').toBe('clip');
+    expect(edges.table, `table right ${edges.table} vs region right ${edges.region}`).toBeLessThanOrEqual(edges.region + 0.5);
+  });
+}
+
 // Permanent negative control: the probe reports a forced cursor, fill and short button.
 test('negative control: the Play-select probe reports a forced cursor, fill and short button', async ({ page }) => {
   await setupPlayersPageLayout(page);

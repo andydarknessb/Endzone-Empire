@@ -1359,6 +1359,21 @@ describe("Play-select look (spec #2453)", () => {
     expect(propsOf(mockSpy.card).every((p) => p.look === "playselect")).toBe(true);
   });
 
+  test("a full roster's Add opens the add and drop sheet in the Play-select look", async () => {
+    mockBrowser({
+      players: [player({ id: 8, name: "Free Agent" })],
+      context: { leagueName: "Sunday Ballers", rosterCount: 14, rosterCapacity: 14, waiverType: "faab", faabRemaining: 72 },
+      roster: [{ id: 30, name: "Bench Guy", position: "WR", projected_weekly_points: 3.2 }],
+    });
+    renderWithProviders(<PlayerManagement />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "Add Free Agent" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "Add Free Agent" });
+    expect(dialog.closest(".ps-root")).not.toBeNull();
+    expect(within(dialog).getByRole("button", { name: "Add and drop" })).toHaveAttribute("data-variant", "fill");
+  });
+
   test("the page renders no filled action and no cursor outside a dialog", async () => {
     mockBrowser({ players: [player({ id: 8, name: "Free Agent" }), myTeamPlayer] });
     const { container } = renderWithProviders(<PlayerManagement />);

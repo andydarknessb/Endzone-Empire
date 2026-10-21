@@ -71,3 +71,16 @@ test('look="playselect": an empty list says its copy, and the pager still counts
   expect(await screen.findByText('No players are on waivers')).toBeInTheDocument();
   expect(screen.getByText('0 players')).toBeInTheDocument();
 });
+
+// Spec #2453: the Players page opts into the dash pool's `stickyHead`; Waivers does not.
+test('look="playselect": stickyHead changes the scroll region and the table markup, and without it they are as before', async () => {
+  const { unmount } = renderPool({ look: 'playselect' });
+  await screen.findByText('Patrick Mahomes');
+  const plain = { region: screen.getByRole('region', { name: 'Players, scrollable' }).className, table: screen.getByRole('table', { name: 'Players' }).className };
+  unmount();
+
+  renderPool({ look: 'playselect', stickyHead: true });
+  await screen.findByText('Patrick Mahomes');
+  expect(screen.getByRole('region', { name: 'Players, scrollable' }).className).not.toBe(plain.region);
+  expect(screen.getByRole('table', { name: 'Players' }).className).not.toBe(plain.table);
+});

@@ -472,6 +472,7 @@ function PlayerManagement() {
       />
 
       <AddDropSheet
+        look="playselect"
         open={addDropPlayer != null}
         player={addDropPlayer}
         leagueId={selectedLeague}
