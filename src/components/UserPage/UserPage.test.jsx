@@ -474,6 +474,19 @@ describe('before kickoff', () => {
     });
   });
 
+  test('keeps asking every 60 s while one of the leagues is drafting', async () => {
+    const drafting = league({ id: 2, name: 'Night League', draft_status: 'active', status: { phase: 'drafting', draft: { round: 1, slot: 7, onTheClock: false } } });
+    leaguesAnswers(() => [drafting]);
+    renderPage();
+    await screen.findByText('Night League');
+    expect(leagueReads()).toBe(1);
+
+    await act(async () => { jest.advanceTimersByTime(60 * 1000); });
+    expect(leagueReads()).toBe(2);
+    await act(async () => { jest.advanceTimersByTime(60 * 1000); });
+    expect(leagueReads()).toBe(3);
+  });
+
   test("the matchup's own kickoff, earlier than the lineup lock, is where the refresh lands", async () => {
     const withKickoff = (kickoffInMs) => {
       const row = scheduled(60 * 60 * 1000);
