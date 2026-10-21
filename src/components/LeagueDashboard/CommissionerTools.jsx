@@ -228,14 +228,20 @@ function StepperField({
   };
   return (
     <Box sx={{ display: 'inline-flex', alignItems: 'flex-start', gap: '6px', ...sx }}>
-      <Box component="button" type="button" aria-label={`Decrease ${label}`} disabled={disabled} onClick={() => step(-1)} sx={stepSx}>
+      <Box
+        component="button" type="button" aria-label={`Decrease ${label}`}
+        disabled={disabled || (min != null && (Number(value) || 0) <= min)} onClick={() => step(-1)} sx={stepSx}
+      >
         &minus;
       </Box>
       <TextField
         label={label} type="number" value={value} onChange={onChange} disabled={disabled}
         inputProps={{ min, max }} sx={{ width: 110 }} {...rest}
       />
-      <Box component="button" type="button" aria-label={`Increase ${label}`} disabled={disabled} onClick={() => step(1)} sx={stepSx}>
+      <Box
+        component="button" type="button" aria-label={`Increase ${label}`}
+        disabled={disabled || (max != null && (Number(value) || 0) >= max)} onClick={() => step(1)} sx={stepSx}
+      >
         +
       </Box>
     </Box>
@@ -581,7 +587,7 @@ function CoCommissionerCard({ leagueId, league, teams, onRefresh, notify }) {
             ))}
           </Select>
         </FormControl>
-        <ActionButton size="small" disabled={!promoteId || busy} onClick={handlePromote}>
+        <ActionButton disabled={!promoteId || busy} onClick={handlePromote}>
           Promote
         </ActionButton>
       </Box>
@@ -1002,7 +1008,7 @@ function GeneralSettingsPanel({
                 <ListItem key={team.teamId} sx={{ gap: 1, flexWrap: 'wrap' }}>
                   <ListItemText primary={team.name} sx={{ my: 0 }} />
                   <ActionButton
-                    size="small"
+                   
                    
                     color="error"
                     aria-label={`Remove ${team.name}`}
@@ -1045,7 +1051,7 @@ function GeneralSettingsPanel({
             <ListItem key={team.teamId} sx={{ gap: 1, flexWrap: 'wrap' }}>
               <ListItemText primary={team.name} sx={{ my: 0 }} />
               <ActionButton
-                size="small"
+               
                
                 color="error"
                 aria-label={`Remove and ban ${team.name}`}
@@ -1067,7 +1073,7 @@ function GeneralSettingsPanel({
                 <ListItem key={ban.id} sx={{ gap: 1, flexWrap: 'wrap' }}>
                   <ListItemText primary={ban.team_name} sx={{ my: 0 }} />
                   <ActionButton
-                    size="small"
+                   
                     aria-label={`Lift the ban on ${ban.team_name}'s manager`}
                     onClick={() => handleUnban(ban)}
                     sx={{ flex: 'none' }}
@@ -1149,10 +1155,10 @@ function GeneralSettingsPanel({
                   <Typography sx={{ flexGrow: 1 }}>
                     {teamNameLabel(request.team_name)} · {new Date(request.created_at).toLocaleString()}
                   </Typography>
-                  <ActionButton size="small" color="success" onClick={() => handleDecideJoinRequest(request.id, true)}>
+                  <ActionButton onClick={() => handleDecideJoinRequest(request.id, true)}>
                     Approve
                   </ActionButton>
-                  <ActionButton size="small" color="error" onClick={() => handleDecideJoinRequest(request.id, false)}>
+                  <ActionButton color="error" onClick={() => handleDecideJoinRequest(request.id, false)}>
                     Deny
                   </ActionButton>
                 </Box>
@@ -1372,8 +1378,8 @@ function RosterSettingsPanel({ leagueId, league, draft, setDraft, markSaved, dir
             </Box>
           ))}
         </Stack>
-        <ActionButton size="small" sx={{ mt: 1 }} disabled={frozen} onClick={addSlot}>+ Add Slot</ActionButton>
-        <ActionButton size="small" sx={{ mt: 1 }} disabled={frozen} onClick={addIdpFlexSlot}>
+        <ActionButton disabled={frozen} onClick={addSlot}>+ Add Slot</ActionButton>
+        <ActionButton disabled={frozen} onClick={addIdpFlexSlot}>
           + IDP Flex Slot (DL/LB/DB)
         </ActionButton>
       </Box>
@@ -1651,7 +1657,7 @@ function ScoringSettingsPanel({
                     </Box>
                   ))}
                 </Stack>
-                <ActionButton size="small" sx={{ mt: 0.5 }} disabled={fieldsDisabled} onClick={() => addTier(category, key)}>
+                <ActionButton disabled={fieldsDisabled} onClick={() => addTier(category, key)}>
                   + Add Tier
                 </ActionButton>
               </Box>
@@ -1665,7 +1671,7 @@ function ScoringSettingsPanel({
           Save Scoring Settings
         </SaveButton>
         <ActionButton
-          size="small" disabled={frozen} color={confirmReset ? 'error' : 'primary'}
+          disabled={frozen} color={confirmReset ? 'error' : undefined}
           onClick={() => {
             if (!confirmReset) {
               setConfirmReset(true);
@@ -1925,7 +1931,7 @@ function ForceRosterMoveCard({ leagueId, teams, notify, onRefresh }) {
           onSelect={setPlayer}
         />
         <ActionButton
-          color="warning" disabled={!teamId || !player}
+          disabled={!teamId || !player}
           onClick={() => setConfirmOpen(true)}
         >
           Force Transaction
@@ -1981,7 +1987,7 @@ function FaabEditorCard({ leagueId, teams, notify, onRefresh }) {
           value={faabValue} onChange={(e) => setFaabValue(e.target.value)}
           disabled={!teamId} sx={{ width: 160 }}
         />
-        <ActionButton size="small" disabled={!teamId || faabValue === ''} onClick={handleSave}>
+        <ActionButton disabled={!teamId || faabValue === ''} onClick={handleSave}>
           Save FAAB Budget
         </ActionButton>
       </Box>
@@ -2106,7 +2112,7 @@ function ScoreCorrectionCard({ leagueId, teams, notify, onRefresh }) {
               sx={{ width: 160 }}
             />
             <ActionButton
-              size="small"
+             
               disabled={adjustment === '' || submitting || correctionLocked}
               onClick={handleApply}
             >
@@ -2227,13 +2233,13 @@ function MatchupOpsCard({ leagueId, league, notify, onRefresh }) {
           value={week} onChange={(e) => setWeek(e.target.value)}
         />
         <ActionButton
-          size="small" disabled={invalid || busy}
+          disabled={invalid || busy}
           onClick={() => run('matchups', describeGenerate)}
         >
           Generate Matchups
         </ActionButton>
         <ActionButton
-          size="small" disabled={invalid || busy}
+          disabled={invalid || busy}
           onClick={() => run('score', describeScore)}
         >
           Score Week
@@ -2500,7 +2506,7 @@ function CommissionerTools({ leagueId, league, teams, viewerTeamId, isOwner = fa
           <Typography variant="caption" color="var(--ps-dim)">
             Unsaved changes on this tab. They are kept if you switch tabs or close this panel.
           </Typography>
-          <ActionButton size="small" color="error" onClick={() => setDiscardTarget(tab)}>
+          <ActionButton color="error" onClick={() => setDiscardTarget(tab)}>
             Discard changes
           </ActionButton>
         </Box>

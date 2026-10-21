@@ -1842,6 +1842,20 @@ test('editing a Waivers Trades field marks that tab, and its Save, with the text
   statuses.forEach((status) => expect(status).toHaveTextContent('Unsaved changes'));
 });
 
+test('the stepper moves a value by one and stops at its bounds', async () => {
+  renderTools();
+  await userEvent.click(screen.getByRole('tab', { name: 'Roster Settings' }));
+  const ir = screen.getByLabelText('IR Slots');
+  expect(ir).toHaveValue(1);
+
+  await userEvent.click(screen.getByRole('button', { name: 'Increase IR Slots' }));
+  expect(ir).toHaveValue(2);
+  await userEvent.click(screen.getByRole('button', { name: 'Decrease IR Slots' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Decrease IR Slots' }));
+  expect(ir).toHaveValue(0);
+  expect(screen.getByRole('button', { name: 'Decrease IR Slots' })).toBeDisabled();
+});
+
 test('opening the Remove confirm puts focus on Cancel, and Remove is a ghost, not a fill', async () => {
   renderTools({ teams: usernameDistinctTeams, viewerTeamId: 99 });
   await userEvent.click(screen.getByRole('button', { name: 'Remove Gridiron Gurus' }));
