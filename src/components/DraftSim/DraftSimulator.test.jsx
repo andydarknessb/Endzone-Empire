@@ -133,11 +133,12 @@ describe('DraftSimulator', () => {
     // The shared DraftBoardMatrix reads the one On-the-clock value object (#754);
     // the sim engine still speaks the flat wire team, so DraftSimulator adapts it
     // at the call site. Guard both signals the marker carries: the announced cell
-    // label and the column's data-on-clock marker. Without the adapter both vanish.
+    // label and the decorative column marker. Without the adapter both vanish.
     expect(screen.getByLabelText(/on the clock$/)).toBeInTheDocument();
     const clockHeaders = screen
       .getAllByRole('columnheader')
-      .filter((header) => header.getAttribute('data-on-clock') === 'true');
+      .map((header) => header.textContent)
+      .filter((text) => text.endsWith('⏱'));
     expect(clockHeaders).toHaveLength(1);
 
     fireEvent.click(screen.getByRole('tab', { name: 'My team' }));

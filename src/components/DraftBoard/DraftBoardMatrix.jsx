@@ -1,7 +1,7 @@
 import React, { useId, useMemo, useRef, useState, useEffect } from 'react';
-import { Paper, Box, Chip, Typography, Table, TableBody, TableCell, TableContainer, TableHead, TableRow } from '@mui/material';
+import { Box, Typography, Table, TableBody, TableCell, TableContainer, TableHead, TableRow } from '@mui/material';
 import { keyframes } from '@mui/material/styles';
-import { PosTag, PixelArrow } from '../../shared/ui/playselect';
+import { Frame, PosTag, PixelArrow, Tag } from '../../shared/ui/playselect';
 import { MIN_TOUCH_TARGET_SX } from '../../shared/lib/a11y';
 import { isTeamOnTheClock } from '../../shared/lib/onTheClock';
 
@@ -21,10 +21,6 @@ const onClockPulse = keyframes`
 `;
 
 const TEAM_COL_MIN_WIDTH = 110;
-// The frame scrolls sideways, never the page: the grid is at least this many
-// columns wide even for a short league (a 10-team board), so a narrow pane
-// scrolls inside the frame instead of squeezing the cells.
-const MIN_GRID_COLUMNS = 10;
 
 const stickyRoundHeadSx = {
   color: 'var(--ps-panel)',
@@ -118,7 +114,7 @@ function DraftBoardMatrix({
 
   if (teamCount === 0) {
     return (
-      <Paper component="section" aria-labelledby={headingId} sx={{ p: 2, minWidth: 0, bgcolor: 'var(--ps-panel)' }}>
+      <Frame labelledBy={headingId} sx={{ p: 2 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, mb: 1 }}>
           <Typography id={headingId} variant="h6" component={titleComponent}>
             Draft Board
@@ -128,22 +124,27 @@ function DraftBoardMatrix({
         <Typography variant="body2" sx={{ color: 'var(--ps-dim)' }}>
           Draft order isn&apos;t set yet.
         </Typography>
-      </Paper>
+      </Frame>
     );
   }
 
   const rounds = Array.from({ length: totalRounds }, (_, i) => i + 1);
 
   return (
-    <Paper component="section" aria-labelledby={headingId} sx={{ p: 2, minWidth: 0, bgcolor: 'var(--ps-panel)' }}>
+    <Frame labelledBy={headingId} sx={{ p: 2 }}>
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, mb: 2 }}>
         <Typography id={headingId} variant="h6" component={titleComponent}>
           Draft Board
         </Typography>
         {headerAction}
       </Box>
-      <TableContainer tabIndex={0} sx={{ overflowX: 'auto', maxWidth: '100%', border: '2px solid var(--ps-frame)' }}>
-        <Table size="small" aria-labelledby={headingId} sx={{ minWidth: Math.max(teamCount, MIN_GRID_COLUMNS) * TEAM_COL_MIN_WIDTH }}>
+      <TableContainer
+        tabIndex={0}
+        role="group"
+        aria-label="Picks by team and round, scrolls sideways"
+        sx={{ overflowX: 'auto', maxWidth: '100%' }}
+      >
+        <Table size="small" aria-labelledby={headingId}>
           <TableHead>
             <TableRow sx={{ bgcolor: 'var(--ps-ink)' }}>
               <TableCell component="th" scope="col" sx={stickyRoundHeadSx}>
@@ -189,10 +190,10 @@ function DraftBoardMatrix({
                         <Typography variant="body2" noWrap title={pick.name} sx={{ maxWidth: '100%' }}>
                           {pick.name}
                         </Typography>
-                        {pick.is_keeper && <Chip label="Keeper" size="small" color="secondary" />}
+                        {pick.is_keeper && <Tag>Keeper</Tag>}
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
                           <PosTag position={pick.position} />
-                          <Typography component="span" variant="caption" sx={{ color: 'var(--ps-dim)' }}>
+                          <Typography component="span" variant="body2" sx={{ color: 'var(--ps-dim)' }}>
                             Pick {pick.pick_number}
                           </Typography>
                         </Box>
@@ -279,7 +280,7 @@ function DraftBoardMatrix({
           </TableBody>
         </Table>
       </TableContainer>
-    </Paper>
+    </Frame>
   );
 }
 

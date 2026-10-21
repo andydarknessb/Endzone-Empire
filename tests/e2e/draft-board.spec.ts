@@ -314,23 +314,44 @@ test.describe('existing draft behavior baseline (active fixture)', () => {
     await expect(page.getByRole('button', { name: /Round 1 pick 1, Harbor Hawks: Josh Allen/ })).toBeVisible();
   });
 
+  // The grid frame is the named scroll group; the page itself must never scroll sideways.
+  async function measureGrid(page: Page) {
+    const frame = page.getByRole('region', { name: 'Draft Board' }).getByRole('group', { name: /Picks by team and round/ });
+    await expect(frame).toBeVisible();
+    return frame.evaluate((el) => ({
+      frameScrolls: el.scrollWidth > el.clientWidth,
+      pageScrolls: document.documentElement.scrollWidth > window.innerWidth,
+    }));
+  }
+
+  const TEN_TEAMS = Array.from({ length: 10 }, (_, i) => ({
+    teamId: i + 1, teamName: `Team ${i + 1}`, draft_position: i + 1,
+  }));
+
   for (const width of [390, 1024]) {
-    test(`the board grid scrolls inside its frame at ${width} wide, never the page`, async ({ page }) => {
+    test(`a 10-team board scrolls inside its frame at ${width} wide, never the page`, async ({ page }) => {
       await page.setViewportSize({ width, height: 900 });
-      await setupActiveDraft(page);
+      await installDraftSocketHarness(page, { ...ACTIVE_STATE, teams: TEN_TEAMS, onTheClock: TEN_TEAMS[2] });
+      await installDraftRestApi(page, { league: ACTIVE_STATE.league, picks: ACTIVE_PICKS });
+      await gotoDraft(page);
+      await expect(page.getByRole('heading', { name: 'Harness League', level: 1 })).toBeVisible();
       await showBoard(page);
 
-      const grid = page.getByRole('region', { name: 'Draft Board' }).getByRole('table');
-      await expect(grid).toBeVisible();
-      const frame = grid.locator('xpath=..');
-      const { frameOverflows, pageOverflows } = await frame.evaluate((el) => ({
-        frameOverflows: el.scrollWidth > el.clientWidth,
-        pageOverflows: document.documentElement.scrollWidth > window.innerWidth,
-      }));
-      expect(pageOverflows).toBe(false);
-      expect(frameOverflows).toBe(true);
+      const { frameScrolls, pageScrolls } = await measureGrid(page);
+      expect(pageScrolls).toBe(false);
+      expect(frameScrolls).toBe(true);
     });
   }
+
+  test('a 2-team board fits its frame at 1024 wide and does not scroll', async ({ page }) => {
+    await page.setViewportSize({ width: 1024, height: 900 });
+    await setupActiveDraft(page);
+    await showBoard(page);
+
+    const { frameScrolls, pageScrolls } = await measureGrid(page);
+    expect(pageScrolls).toBe(false);
+    expect(frameScrolls).toBe(false);
+  });
 });
 
 // --- Schedule-aware, truthful available-player pool (issue #119, parent #108) ---
