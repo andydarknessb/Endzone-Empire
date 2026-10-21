@@ -51,10 +51,11 @@ import { PsButton, PsLinkButton, psRootSx, pixelSx } from '../../../shared/ui/pl
  * was. The caller decides when the week may not advance (see `allWeekSettled`). `onRetry` (playselect
  * look only) adds a "Try again" control to the reason, for a reason that is a failed check.
  *
- * `look="playselect"` (#2330) is the League Dashboard's commissioner strip: the same control, post and
- * refusal handling in the shared Play-select controls. The button is a ghost (the page's one filled
- * action is the lead play in Your move, never this), the sentence and the reason are Archivo on the
- * frame, and the confirm dialog is a double-ruled frame. The commissioner console keeps the default look.
+ * `look="playselect"` (#2330) is used by the League Dashboard's commissioner strip and by the
+ * Commissioner console: the same control, post and refusal handling in the shared Play-select controls.
+ * The button is a ghost (on the dashboard the page's one filled action is the lead play in Your move, never this),
+ * the sentence and the reason are Archivo on the frame, and the confirm dialog is a double-ruled frame.
+ * The default look stays for any other caller.
  */
 export default function AdvanceWeek({
   leagueId, currentWeek, onAdvanced, disabledReason, look, onRetry,
