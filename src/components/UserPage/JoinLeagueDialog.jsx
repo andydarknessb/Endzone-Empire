@@ -24,7 +24,7 @@ const paperSx = (fullScreen) => ({
   backgroundImage: 'none',
   boxShadow: 'none',
   color: 'var(--ps-ink)',
-  fontFamily: 'inherit',
+  fontFamily: BODY_FONT,
   ...(fullScreen ? { m: 0 } : { width: '100%', maxWidth: '560px', m: '16px' }),
 });
 const TITLE_SX = { ...pixelSx(16), p: { xs: '12px 14px', sm: '14px 20px' }, borderBottom: '2px solid var(--ps-rule)' };
