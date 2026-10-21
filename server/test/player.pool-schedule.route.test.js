@@ -64,6 +64,28 @@ test('GET players?sort=nfl_team orders by team in SQL and keeps a normal LIMIT p
   assert.ok(getSql().includes('LIMIT'), 'a plain column sort keeps the SQL-side page, unlike Bye/pace');
 });
 
+test('GET players?sort=adp&nullTeamLast=true puts null-team rows after every team row, in both directions', async (t) => {
+  const getSql = installMock(t, [{ id: 1, name: 'Alpha', position: 'RB', nfl_team: 'DAL', total_count: '1' }]);
+
+  const asc = await request(app).get('/api/players?sort=adp&nullTeamLast=true').set('Authorization', authHeader);
+  assert.equal(asc.status, 200);
+  assert.match(getSql(), /ORDER BY \("nfl_team" IS NULL\), "adp" ASC NULLS LAST, "id"/);
+  assert.ok(getSql().includes('LIMIT'), 'the adp sort stays SQL-paginated');
+
+  const desc = await request(app).get('/api/players?sort=adp&dir=desc&nullTeamLast=true').set('Authorization', authHeader);
+  assert.equal(desc.status, 200);
+  assert.match(getSql(), /ORDER BY \("nfl_team" IS NULL\), "adp" DESC NULLS LAST, "id"/);
+});
+
+test('GET players?sort=adp without nullTeamLast keeps the plain adp order for the other screens', async (t) => {
+  const getSql = installMock(t, [{ id: 1, name: 'Alpha', position: 'RB', nfl_team: 'DAL', total_count: '1' }]);
+
+  const res = await request(app).get('/api/players?sort=adp').set('Authorization', authHeader);
+  assert.equal(res.status, 200);
+  assert.match(getSql(), /ORDER BY "adp" ASC NULLS LAST, "id"/);
+  assert.ok(!getSql().includes('IS NULL), "adp"'));
+});
+
 test('GET players exposes one canonical row for duplicate source identities before pagination', async (t) => {
   const getSql = installMock(t, [
     { id: 1201, external_id: 16800, name: 'Davante Adams', position: 'WR', nfl_team: 'LAR', adp: '38.60', total_count: '1' },
