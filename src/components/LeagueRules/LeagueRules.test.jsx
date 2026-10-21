@@ -121,6 +121,32 @@ describe('LeagueRules', () => {
     expect(screen.getByText('Customized')).toBeInTheDocument();
   });
 
+  it('moves and activates tabs with the arrow keys, Home and End, on one tab stop', async () => {
+    mockRequests();
+    renderPage();
+
+    await screen.findByRole('region', { name: 'Passing' });
+    const scoring = screen.getByRole('tab', { name: 'Scoring' });
+    expect(scoring).toHaveAttribute('tabindex', '0');
+    // The selected tab is marked by the arrow as well as the fill.
+    expect(scoring.innerHTML).toContain('<svg');
+    expect(screen.getByRole('tab', { name: 'Roster' }).innerHTML).not.toContain('<svg');
+    expect(screen.getByRole('tab', { name: 'Roster' })).toHaveAttribute('tabindex', '-1');
+
+    scoring.focus();
+    await userEvent.keyboard('{ArrowRight}');
+    expect(screen.getByRole('tab', { name: 'Roster' })).toHaveFocus();
+    expect(screen.getByRole('tab', { name: 'Roster' })).toHaveAttribute('aria-selected', 'true');
+    await userEvent.keyboard('{End}');
+    expect(screen.getByRole('tab', { name: 'Playoffs & Season' })).toHaveAttribute('aria-selected', 'true');
+    await userEvent.keyboard('{ArrowRight}');
+    expect(screen.getByRole('tab', { name: 'Scoring' })).toHaveFocus();
+    await userEvent.keyboard('{ArrowLeft}');
+    expect(screen.getByRole('tab', { name: 'Playoffs & Season' })).toHaveFocus();
+    await userEvent.keyboard('{Home}');
+    expect(screen.getByRole('tab', { name: 'Scoring' })).toHaveAttribute('aria-selected', 'true');
+  });
+
   it('switches to the roster, waiver and playoff tabs', async () => {
     mockRequests();
     renderPage();
@@ -208,15 +234,15 @@ describe('LeagueRules', () => {
     mockRequests({ leagueError: { response: { data: { error: 'nope' } } } });
     renderPage();
 
-    expect(await screen.findByText(/Unable to load league rules: nope/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Retry league rules' })).toBeInTheDocument();
+    expect(await screen.findByText('We could not load the league rules.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Try again to load league rules' })).toBeInTheDocument();
   });
 
   it('keeps the other tabs usable when scoring defaults fail to load', async () => {
     mockRequests({ defaultsError: { message: 'offline' } });
     renderPage();
 
-    expect(await screen.findByText(/Unable to load scoring rules: offline/)).toBeInTheDocument();
+    expect(await screen.findByText('We could not load the scoring rules.')).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole('tab', { name: 'Roster' }));
     expect(await screen.findByText('7 roster spots + up to 1 IR')).toBeInTheDocument();

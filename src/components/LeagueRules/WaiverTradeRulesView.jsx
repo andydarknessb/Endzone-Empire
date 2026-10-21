@@ -1,7 +1,8 @@
 import React from 'react';
-import { Alert, Box, Stack, Typography } from '@mui/material';
+import { Box } from '@mui/material';
 import { WAIVER_TYPE_LABELS } from '../../lib/leagueRulesFormat';
 import RuleRow from './RuleRow';
+import { Dim, SectionTitle } from './rulesParts';
 
 // Mirrors the commissioner editor's three-way review mode: instant when the
 // review window is zero, otherwise commissioner-veto or league vote depending
@@ -29,13 +30,13 @@ export default function WaiverTradeRulesView({ league }) {
   const deadline = league.trade_deadline_week;
 
   return (
-    <Stack spacing={4}>
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
       {league.transactions_locked && (
-        <Alert severity="warning">Transactions are currently locked by the commissioner.</Alert>
+        <Dim role="status" sx={{ color: 'var(--ps-ink)', fontWeight: 600 }}>Transactions are currently locked by the commissioner.</Dim>
       )}
 
       <Box>
-        <Typography variant="subtitle1" component="h5" sx={{ fontWeight: 600, mb: 1 }}>Waivers</Typography>
+        <SectionTitle>Waivers</SectionTitle>
         <RuleRow
           label="Waiver system"
           value={WAIVER_TYPE_LABELS[waiverType] || waiverType}
@@ -52,7 +53,7 @@ export default function WaiverTradeRulesView({ league }) {
       </Box>
 
       <Box>
-        <Typography variant="subtitle1" component="h5" sx={{ fontWeight: 600, mb: 1 }}>Trades</Typography>
+        <SectionTitle>Trades</SectionTitle>
         <RuleRow label="Trade review" value={review.value} detail={review.detail} />
         <RuleRow
           label="Trade deadline"
@@ -60,6 +61,6 @@ export default function WaiverTradeRulesView({ league }) {
           detail={deadline ? 'No trades after this week.' : 'Trades stay open all season.'}
         />
       </Box>
-    </Stack>
+    </Box>
   );
 }
