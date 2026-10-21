@@ -3,6 +3,7 @@ const pool = require('../modules/pool');
 const { withTransaction } = require('../modules/withTransaction');
 const encryptLib = require('../modules/encryption');
 const { deleteAvatarObjects } = require('./avatar.service');
+const { settleDepartedTeam } = require('./commissioner.service');
 const { getDraftRoomBroadcast } = require('../modules/draftRoomBroadcast');
 
 class PrivacyError extends Error {
@@ -161,6 +162,24 @@ async function deleteUserAccount({ userId, confirmation }) {
        WHERE "owner_id" = $1`,
       [userId]
     );
+    // A deleted account's teams take a banned manager's fate (#2477, ADR 0068):
+    // deleted while the league is Removable, else CPU-managed. League rows are
+    // locked first, in id order, like banTeam and the draft writes; each team
+    // row is locked only by settleDepartedTeam's own write.
+    const heldLeagues = await client.query(
+      `SELECT "leagues".* FROM "leagues"
+       WHERE "leagues"."id" IN (SELECT "league_id" FROM "teams" WHERE "owner_id" = $1)
+       ORDER BY "leagues"."id" FOR UPDATE OF "leagues"`,
+      [userId]
+    );
+    const heldTeams = await client.query(
+      `SELECT "id", "league_id" FROM "teams" WHERE "owner_id" = $1 ORDER BY "id"`,
+      [userId]
+    );
+    for (const team of heldTeams.rows) {
+      const league = heldLeagues.rows.find((row) => row.id === team.league_id);
+      await settleDepartedTeam(client, { league, teamId: team.id });
+    }
     // Purge the feed positions this account's messages own BEFORE deleting the
     // messages (#436, ADR 0015): the shared registry mirrors positions the
     // record tables still hold, so a removed message's position must go with it,

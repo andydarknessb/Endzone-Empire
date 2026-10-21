@@ -53,3 +53,13 @@ no new join path.
   no account.
 - A ban cannot catch a different inbox. Matching on anything else (device,
   IP address) is out of scope.
+
+## Amendment (2026-10-21): account deletion
+
+Deleting an account (#2417, #2477) gives each team the account holds the same
+fate as a ban, through the same helper (`settleDepartedTeam` in
+`commissioner.service.js`). A team in a Removable league is deleted; any other
+becomes a CPU-managed team, and its open trades and pending claims are
+cancelled. It runs inside the deletion's transaction, so a rollback undoes it.
+Teams already held by deleted accounts are a one-off data step, not part of
+this change.

@@ -974,6 +974,7 @@ test('account deletion wipes pickem_picks', async (t) => {
     [/FROM "users"/, () => ({ rows: [{ id: 9, username: 'me' }] })],
     [/FROM "leagues"/, () => ({ rows: [] })],
     [/SELECT "avatar_url"/, () => ({ rows: [] })],
+    [/^SELECT "id", "league_id" FROM "teams"/, () => ({ rows: [] })],
     [/^UPDATE /, () => ({ rows: [] })],
     [/^DELETE FROM /, () => ({ rows: [] })],
     [/^INSERT INTO "data_privacy_requests"/, () => ({ rows: [] })],
