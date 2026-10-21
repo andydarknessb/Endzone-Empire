@@ -7,6 +7,18 @@ import { useNavigate } from 'react-router-dom';
 import TransactionLog from './TransactionLog';
 import { clearLeagueCache } from '../../hooks/useLeague';
 
+// Records the Decision card's props while rendering the real card (a plain
+// function, so restoreAllMocks in afterEach cannot blank it).
+const mockCardProps = [];
+jest.mock('../../widgets/player-decision-card', () => {
+  const actual = jest.requireActual('../../widgets/player-decision-card');
+  const Recording = (props) => {
+    mockCardProps.push(props);
+    return actual.default(props);
+  };
+  return { ...actual, __esModule: true, default: Recording };
+});
+
 jest.mock('../../api/apiClient', () => ({
   __esModule: true,
   default: { get: jest.fn() },
@@ -111,7 +123,7 @@ test('renders an add transaction row with the team name and player link', async 
 
   const row = await screen.findByTestId('txn-1');
   expect(within(row).getByTestId('txn-desc')).toHaveTextContent("Bob's Team added Justin Jefferson");
-  expect(within(row).getByText('add')).toBeInTheDocument();
+  expect(within(row).getByText('Add')).toBeInTheDocument();
 });
 
 test('renders a drop transaction row', async () => {
@@ -224,7 +236,7 @@ test('filters rows by transaction type', async () => {
   expect(screen.getByTestId('txn-2')).toBeInTheDocument();
   expect(screen.getByTestId('txn-3')).toBeInTheDocument();
 
-  await userEvent.click(screen.getByRole('button', { name: 'Adds' }));
+  await userEvent.click(screen.getByRole('radio', { name: 'Adds' }));
 
   expect(screen.getByTestId('txn-1')).toBeInTheDocument();
   expect(screen.queryByTestId('txn-2')).not.toBeInTheDocument();
@@ -239,9 +251,7 @@ test('filters rows by team', async () => {
   renderScreen();
 
   await screen.findByTestId('txn-1');
-  const teamSelect = screen.getByRole('combobox', { name: 'Team' });
-  await userEvent.click(teamSelect);
-  await userEvent.click(screen.getByRole('option', { name: "Bob's Team" }));
+  await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Team' }), "Bob's Team");
 
   expect(screen.queryByTestId('txn-1')).not.toBeInTheDocument();
   expect(screen.getByTestId('txn-2')).toBeInTheDocument();
@@ -252,7 +262,7 @@ test('shows a filtered-empty message distinct from the true empty state', async 
   renderScreen();
 
   await screen.findByTestId('txn-1');
-  await userEvent.click(screen.getByRole('button', { name: 'Trades' }));
+  await userEvent.click(screen.getByRole('radio', { name: 'Trades' }));
 
   expect(screen.getByText('No activity matches these filters')).toBeInTheDocument();
 });
@@ -289,6 +299,19 @@ test('clicking a player name opens the Decision card', async () => {
   await userEvent.click(screen.getByRole('button', { name: 'Justin Jefferson' }));
 
   expect(await screen.findByTestId('decision-card')).toBeInTheDocument();
+});
+
+test('opening a player renders the Decision card with look="playselect"', async () => {
+  mockTransactions([
+    txn({ id: 1, type: 'add', team_name: "Bob's Team", player_name: 'Justin Jefferson', detail: { playerId: 1 } }),
+  ]);
+  renderScreen();
+
+  await screen.findByTestId('txn-1');
+  await userEvent.click(screen.getByRole('button', { name: 'Justin Jefferson' }));
+
+  await screen.findByTestId('decision-card');
+  expect(mockCardProps[mockCardProps.length - 1]).toMatchObject({ open: true, look: 'playselect' });
 });
 
 // #1311, ADR 0040 ruling (c): TransactionLog has no roster fact of its own
@@ -384,11 +407,11 @@ test("a pick'em-only league gets no Adds/Drops/Waivers/Trades toggles and an hon
 
   expect(await screen.findByText('The league is quiet. Commissioner actions will appear here.')).toBeInTheDocument();
   expect(screen.queryByText(/Recent transactions, trades/)).not.toBeInTheDocument();
-  const group = screen.getByRole('group', { name: 'Filter by transaction type' });
-  expect(within(group).getByRole('button', { name: 'All' })).toBeInTheDocument();
-  expect(within(group).getByRole('button', { name: 'Commissioner' })).toBeInTheDocument();
+  const group = screen.getByRole('radiogroup', { name: 'Filter by transaction type' });
+  expect(within(group).getByRole('radio', { name: 'All' })).toBeInTheDocument();
+  expect(within(group).getByRole('radio', { name: 'Commissioner' })).toBeInTheDocument();
   for (const name of ['Adds', 'Drops', 'Waivers', 'Trades']) {
-    expect(within(group).queryByRole('button', { name })).not.toBeInTheDocument();
+    expect(within(group).queryByRole('radio', { name })).not.toBeInTheDocument();
   }
   // The Team filter still applies (commissioner actions name a team).
   expect(screen.getByLabelText('Team')).toBeInTheDocument();
@@ -403,8 +426,7 @@ test("a pick'em-only league still lists commissioner actions and the Team filter
 
   expect(await screen.findByTestId('txn-1')).toHaveTextContent("Bob's Team commissioner action");
   expect(screen.getByTestId('txn-2')).toBeInTheDocument();
-  await userEvent.click(screen.getByLabelText('Team'));
-  await userEvent.click(await screen.findByRole('option', { name: "Bob's Team" }));
+  await userEvent.selectOptions(screen.getByLabelText('Team'), "Bob's Team");
   expect(screen.getByTestId('txn-1')).toBeInTheDocument();
   expect(screen.queryByTestId('txn-2')).not.toBeInTheDocument();
 });
@@ -416,9 +438,9 @@ test('a fantasy league keeps every type toggle and the fantasy empty state', asy
   expect(
     await screen.findByText('The league is quiet. Recent transactions, trades, and commissioner actions will appear here.')
   ).toBeInTheDocument();
-  const group = screen.getByRole('group', { name: 'Filter by transaction type' });
+  const group = screen.getByRole('radiogroup', { name: 'Filter by transaction type' });
   for (const name of ['All', 'Adds', 'Drops', 'Waivers', 'Trades', 'Commissioner']) {
-    expect(within(group).getByRole('button', { name })).toBeInTheDocument();
+    expect(within(group).getByRole('radio', { name })).toBeInTheDocument();
   }
 });
 
@@ -434,12 +456,12 @@ test("the filter bar waits for the league row, so a pick'em league never flashes
   // Transactions are back but the row is not: still the skeleton, no toggles.
   await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/league/1/transactions'));
   expect(screen.getByTestId('page-skeleton')).toBeInTheDocument();
-  expect(screen.queryByRole('button', { name: 'Adds' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('radio', { name: 'Adds' })).not.toBeInTheDocument();
 
   await act(async () => { resolveLeague({ data: { league: pickemLeague, teams: [] } }); });
 
   expect(await screen.findByText('The league is quiet. Commissioner actions will appear here.')).toBeInTheDocument();
-  expect(screen.queryByRole('button', { name: 'Adds' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('radio', { name: 'Adds' })).not.toBeInTheDocument();
 });
 
 // A hash edit from one league's Activity to another keeps this element
@@ -469,14 +491,14 @@ test('switching leagues in place resets the filters and re-shapes the page for t
     { path: '/league/:leagueId/activity', route: '/league/1/activity' }
   );
   await screen.findByTestId('txn-1');
-  await userEvent.click(screen.getByRole('button', { name: 'Adds' }));
-  expect(screen.getByRole('button', { name: 'Adds' })).toHaveAttribute('aria-pressed', 'true');
+  await userEvent.click(screen.getByRole('radio', { name: 'Adds' }));
+  expect(screen.getByRole('radio', { name: 'Adds' })).toHaveAttribute('aria-checked', 'true');
 
   await userEvent.click(screen.getByRole('button', { name: 'go to league 2' }));
 
   expect(await screen.findByText('The league is quiet. Commissioner actions will appear here.')).toBeInTheDocument();
   expect(screen.queryByTestId('txn-1')).not.toBeInTheDocument(); // league 1's rows are gone
-  expect(screen.queryByRole('button', { name: 'Adds' })).not.toBeInTheDocument();
-  expect(screen.getByRole('button', { name: 'All' })).toHaveAttribute('aria-pressed', 'true');
+  expect(screen.queryByRole('radio', { name: 'Adds' })).not.toBeInTheDocument();
+  expect(screen.getByRole('radio', { name: 'All' })).toHaveAttribute('aria-checked', 'true');
   expect(apiClient.get).toHaveBeenCalledWith('/api/league/2/transactions');
 });
