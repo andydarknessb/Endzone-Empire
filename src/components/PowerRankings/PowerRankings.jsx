@@ -71,7 +71,8 @@ function Move({ change, suffix = '' }) {
     <Box
       component="span"
       data-testid="movement"
-      aria-label={`${up ? 'up' : 'down'} ${n}`}
+      role="img"
+      aria-label={`${up ? 'up' : 'down'} ${n}${suffix}`}
       sx={{ display: 'inline-flex', alignItems: 'center', gap: '6px', color: 'var(--ps-ink)', whiteSpace: 'nowrap' }}
     >
       <Box component="span" data-testid="movement-arrow" aria-hidden="true" sx={{ display: 'inline-flex', transform: `rotate(${up ? -90 : 90}deg)` }}>
@@ -157,7 +158,7 @@ function SortHead({ label, sortKey, orderBy, order, onSort, right }) {
         onClick={() => onSort(sortKey)}
         sx={{
           font: 'inherit', fontWeight: 600, color: active ? 'var(--ps-ink)' : 'var(--ps-dim)', background: 'none',
-          border: 0, padding: 0, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px',
+          border: 0, padding: 0, minHeight: '36px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px',
         }}
       >
         {label}

@@ -213,6 +213,20 @@ describe('sorting', () => {
     ]);
   });
 
+  test('aria-sort marks only the active header and flips on a second click', async () => {
+    apiClient.get.mockResolvedValue({ data: powerRankingsResponse() });
+    renderScreen();
+    await screen.findByTestId('power-ranking-row-1');
+    const header = (name) => screen.getByRole('columnheader', { name: new RegExp(name, 'i') });
+    expect(header('Rank')).toHaveAttribute('aria-sort', 'ascending');
+    expect(header('Win %')).not.toHaveAttribute('aria-sort');
+    fireEvent.click(screen.getByRole('button', { name: /Win %/i }));
+    expect(header('Win %')).toHaveAttribute('aria-sort', 'descending');
+    expect(header('Rank')).not.toHaveAttribute('aria-sort');
+    fireEvent.click(screen.getByRole('button', { name: /Win %/i }));
+    expect(header('Win %')).toHaveAttribute('aria-sort', 'ascending');
+  });
+
   test('clicking Win % sorts descending by win percentage', async () => {
     apiClient.get.mockResolvedValue({ data: powerRankingsResponse() });
     renderScreen();
