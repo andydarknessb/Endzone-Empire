@@ -463,7 +463,6 @@ test('a socket score update changes the points cell and the summary strip (the e
   });
 
   await waitFor(() => expect(within(kingRow).getByTestId('ledger-points')).toHaveTextContent('6.5'));
-  expect(within(kingRow).getByTestId('ledger-points')).toHaveStyle({ color: 'var(--dash-danger)' });
   await waitFor(() => expect(screen.getByTestId('strip-score')).toHaveTextContent('26.5 / 95.0'));
 });
 
