@@ -33,18 +33,18 @@ test('with no look passed it renders the default contained Claim, not the playse
 });
 
 test('look="playselect" is a ghost Claim by default, filled only when told it is in a modal sheet', () => {
-  const { unmount } = renderAction({ look: 'playselect' });
+  const { unmount } = renderAction({ });
   expect(screen.getByTestId('claim-player-submit')).toHaveAttribute('data-variant', 'ghost');
   expect(screen.getByTestId('claim-player-submit')).not.toHaveClass('MuiButton-contained');
   unmount();
 
-  renderAction({ look: 'playselect', filled: true });
+  renderAction({ filled: true });
   expect(screen.getByTestId('claim-player-submit')).toHaveAttribute('data-variant', 'fill');
 });
 
 test('look="playselect" keeps the claim flow: required drop, FAAB bid, and the post', async () => {
   apiClient.post.mockResolvedValue({});
-  renderAction({ look: 'playselect', filled: true });
+  renderAction({ filled: true });
 
   const group = screen.getByRole('group', { name: 'Claim Breece Hall' });
   expect(within(group).getByText('Your roster is full. Choose a player to drop when this claim clears.')).toBeInTheDocument();

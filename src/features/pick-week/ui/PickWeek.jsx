@@ -2,7 +2,6 @@ import React from 'react';
 import { Box, Button, IconButton } from '@mui/material';
 import { SegmentedControl } from '../../../shared/ui';
 import { PixelArrow } from '../../../shared/ui/playselect';
-import { MIN_TOUCH_TARGET_SX } from '../../../shared/lib';
 
 /**
  * pick-week feature (ADR 0031, #896): the week picker from the Game Center
@@ -17,8 +16,7 @@ import { MIN_TOUCH_TARGET_SX } from '../../../shared/lib';
  *   - `onChange`: called with the picked week (a number) or "All".
  *   - `allWeeks`: whether to offer the "All weeks" action (default true). A page whose
  *     week setter cannot take "All" (Pick'em) passes `false`; Game Center and Lineup keep it.
- *   - `look`: `'dash'` (default, every current caller) or `'playselect'` (ADR 0067, spec #2334
- *     ruling 3): the same picker on `ps-*` tokens, square 44px controls, no opacity, and ONE tab
+ *   - Play-select (ADR 0067, spec #2334 ruling 3): the picker is on `ps-*` tokens, square 44px controls, no opacity, and ONE tab
  *     stop for the weeks: the selected week carries it (the strip's roving tabindex; Left/Right/Home/End
  *     move it), while Previous and Next stay pointer targets at tabindex -1. "All weeks" is a different
  *     action and keeps its own stop.
@@ -61,9 +59,8 @@ import { MIN_TOUCH_TARGET_SX } from '../../../shared/lib';
  * leaves focus on an unchecked segment.
  */
 const PickWeek = React.forwardRef(function PickWeek({
-  weeks, value, onChange, fill = false, allWeeks: offerAll = true, look = 'dash',
+  weeks, value, onChange, fill = false, allWeeks: offerAll = true,
 }, ref) {
-  const ps = look === 'playselect';
   const list = Array.isArray(weeks) ? weeks : [];
   const isAll = value === 'All';
   const index = isAll || value == null ? -1 : list.indexOf(Number(value));
@@ -82,9 +79,9 @@ const PickWeek = React.forwardRef(function PickWeek({
         disableElevation
         aria-pressed={isAll}
         onClick={() => onChange?.('All')}
-        sx={ps ? psAllWeeksSx(isAll) : allWeeksSx(fill, isAll)}
+        sx={psAllWeeksSx(isAll)}
       >
-        {ps && isAll ? <PixelArrow /> : null}
+        {isAll ? <PixelArrow /> : null}
         All weeks
       </Button>
     );
@@ -95,11 +92,11 @@ const PickWeek = React.forwardRef(function PickWeek({
       type="button"
       aria-label={label}
       disabled={disabled}
-      tabIndex={ps ? -1 : undefined}
+      tabIndex={-1}
       onClick={() => onChange?.(list[to])}
-      sx={ps ? psIconButtonSx : iconButtonSx(fill)}
+      sx={psIconButtonSx}
     >
-      <Chevron direction={direction} pixel={ps} />
+      <Chevron direction={direction} />
     </IconButton>
   );
 
@@ -133,7 +130,6 @@ const PickWeek = React.forwardRef(function PickWeek({
           aria-label="Week"
           data-testid="pick-week-weeks"
           options={options}
-          look={look}
           value={isAll ? undefined : value}
           onChange={(week) => onChange?.(week)}
           // The strip scrolls at EVERY width (#921). That is what makes the
@@ -160,65 +156,7 @@ const PickWeek = React.forwardRef(function PickWeek({
 
 export default PickWeek;
 
-// The canvas's `.btn.icon`: a 38px square ghost button, hairline border, dim
-// chevron that lifts to ink on hover. Mobile grows it to the 44px touch target.
-function iconButtonSx(fill) {
-  return {
-    ...(fill ? MIN_TOUCH_TARGET_SX : { width: 38, height: 38 }),
-    flex: 'none',
-    p: 0,
-    borderRadius: '9px',
-    border: '1px solid var(--dash-line-strong)',
-    color: 'var(--dash-dim)',
-    backgroundColor: 'transparent',
-    transition: 'color var(--transition-fast) ease, border-color var(--transition-fast) ease',
-    '&:hover': {
-      color: 'var(--dash-ink)',
-      borderColor: 'var(--dash-accent-line)',
-      backgroundColor: 'transparent',
-    },
-    '&.Mui-disabled': {
-      color: 'var(--dash-faint)',
-      borderColor: 'var(--dash-line)',
-      opacity: 0.5,
-    },
-    '&:focus-visible': { outline: '2px solid var(--focus-ring)', outlineOffset: 2 },
-  };
-}
-
-// The canvas's `.btn`: 38px tall, 16px side padding, 13px/600 label, hairline
-// border, dim text on no fill. Pressed (All selected) sits the ink label on
-// the accent tint behind the accent line, a registered pairing. Mobile keeps
-// the label but tightens the side padding, since it now shares the stepper
-// row with the strip, and grows the button to the 44px touch target.
-function allWeeksSx(fill, pressed) {
-  return {
-    ...(fill ? { ...MIN_TOUCH_TARGET_SX, px: '12px' } : { height: 38, minWidth: 0, px: '16px' }),
-    flex: 'none',
-    py: 0,
-    borderRadius: '9px',
-    border: '1px solid',
-    borderColor: pressed ? 'var(--dash-accent-line)' : 'var(--dash-line-strong)',
-    color: pressed ? 'var(--dash-ink)' : 'var(--dash-dim)',
-    backgroundColor: pressed ? 'var(--dash-accent-soft)' : 'transparent',
-    fontFamily: 'var(--dash-font-body)',
-    fontSize: '13px',
-    fontWeight: 600,
-    lineHeight: 1.2,
-    textTransform: 'none',
-    whiteSpace: 'nowrap',
-    transition:
-      'color var(--transition-fast) ease, border-color var(--transition-fast) ease, background-color var(--transition-fast) ease',
-    '&:hover': {
-      color: 'var(--dash-ink)',
-      borderColor: 'var(--dash-accent-line)',
-      backgroundColor: pressed ? 'var(--dash-accent-soft)' : 'transparent',
-    },
-    '&:focus-visible': { outline: '2px solid var(--focus-ring)', outlineOffset: 2 },
-  };
-}
-
-// The Play-select look (docs/design/league, `weekPicker`): a 44px square 2px Ink edge, Ink pixel chevron;
+// Previous/next week (docs/design/league, `weekPicker`): a 44px square 2px Ink edge, Ink pixel chevron;
 // disabled is a Rule edge and Dim glyph, never opacity.
 const psIconButtonSx = {
   minWidth: 44,
@@ -235,7 +173,7 @@ const psIconButtonSx = {
   '&.Mui-disabled': { color: 'var(--ps-dim)', borderColor: 'var(--ps-rule)' },
 };
 
-// All weeks in the Play-select look: a 44px square ghost button; pressed is Play blue with a pixel arrow.
+// All weeks: a 44px square ghost button; pressed is Play blue with a pixel arrow.
 function psAllWeeksSx(pressed) {
   return {
     minWidth: 44,
@@ -258,34 +196,12 @@ function psAllWeeksSx(pressed) {
   };
 }
 
-// The canvas's chevron icons (`icon('chevL')` / `icon('chevR')`): inline
-// stroke SVG on a 20px grid at 18px, currentColor, decorative. `pixel` draws the
-// Play-select 12px stepped chevron instead.
-function Chevron({ direction, pixel = false }) {
-  if (pixel) {
-    const px = direction === 'left' ? 'M7 1h2v10H7zM5 3h2v6H5zM3 5h2v2H3z' : 'M3 1h2v10H3zM5 3h2v6H5zM7 5h2v2H7z';
-    return (
-      <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true" data-testid={`pick-week-chevron-${direction}`} style={{ display: 'block' }}>
-        <path d={px} fill="currentColor" />
-      </svg>
-    );
-  }
-  const d = direction === 'left' ? 'M12.5 4.5 7 10l5.5 5.5' : 'M7.5 4.5 13 10l-5.5 5.5';
+// The Play-select 12px stepped chevron, currentColor, decorative.
+function Chevron({ direction }) {
+  const px = direction === 'left' ? 'M7 1h2v10H7zM5 3h2v6H5zM3 5h2v2H3z' : 'M3 1h2v10H3zM5 3h2v6H5zM7 5h2v2H7z';
   return (
-    <svg
-      width="18"
-      height="18"
-      viewBox="0 0 20 20"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.6"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      data-testid={`pick-week-chevron-${direction}`}
-      style={{ display: 'block' }}
-    >
-      <path d={d} />
+    <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true" data-testid={`pick-week-chevron-${direction}`} style={{ display: 'block' }}>
+      <path d={px} fill="currentColor" />
     </svg>
   );
 }

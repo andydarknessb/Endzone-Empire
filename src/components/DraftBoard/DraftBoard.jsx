@@ -1219,7 +1219,6 @@ function DraftBoard() {
         open={quickViewId != null}
         onClose={() => setQuickViewId(null)}
         entry={quickViewEntry}
-        look="playselect"
         leagueId={Number(leagueId)}
         // #1515 (T19): every field the draft action bar, its pool tiles and
         // its prev/next need now rides inside the built context - no loose

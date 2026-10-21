@@ -939,7 +939,6 @@ function GeneralSettingsPanel({
             options={NARRATIVE_VOICE_OPTIONS}
             value={league.narrative_voice ?? null}
             onChange={handleChooseVoice}
-            look="playselect"
           />
           <Typography variant="caption" color="var(--ps-dim)" sx={{ display: 'block', mt: 0.5 }}>
             How the weekly Recap and Matchup write-ups sound. Polk High Legend is a washed-up high school star
@@ -1331,7 +1330,6 @@ function RosterSettingsPanel({ leagueId, league, draft, setDraft, markSaved, dir
                 }));
               }}
               scrollable
-              look="playselect"
             />
           </Box>
         )}
@@ -1574,7 +1572,6 @@ function ScoringSettingsPanel({
             value={activeReception}
             onChange={applyReceptionPreset}
             scrollable
-            look="playselect"
           />
           <Typography variant="caption" color="var(--ps-dim)">
             Sets the reception rate; every other rule stays as configured.

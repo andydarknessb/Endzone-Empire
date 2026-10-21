@@ -199,7 +199,7 @@ describe('ClaimSheet look', () => {
   });
 
   it('look="playselect" is a Play-select frame with the player name in the title and a filled Submit claim', () => {
-    sheet({ look: 'playselect' });
+    sheet({ });
     const dialog = screen.getByRole('dialog', { name: /Claim Carson Beck/ });
     expect(dialog.closest('.ps-root')).not.toBeNull();
     expect(screen.getByRole('heading', { name: /Claim Carson Beck/ })).toBeInTheDocument();
@@ -210,12 +210,12 @@ describe('ClaimSheet look', () => {
   });
 
   it('look="playselect" opens focus on the first control, the picked drop when there is one', () => {
-    sheet({ look: 'playselect', dropSuggestion: { id: 9, name: 'Roster 9' } });
+    sheet({ dropSuggestion: { id: 9, name: 'Roster 9' } });
     expect(screen.getByRole('radio', { name: /Roster 9/ })).toHaveFocus();
   });
 
   it('look="playselect" keeps the bid rule: an out-of-range bid disables Submit and names the range', () => {
-    sheet({ look: 'playselect' });
+    sheet({ });
     fireEvent.change(screen.getByLabelText('Bid'), { target: { value: '70' } });
     expect(screen.getByText('Enter a whole-dollar bid between $0 and $62')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Submit claim' })).toBeDisabled();

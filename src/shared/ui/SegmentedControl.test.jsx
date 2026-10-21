@@ -227,7 +227,7 @@ test('with an option checked the one tab stop is the checked option', async () =
   expect(screen.getByRole('button', { name: 'After' })).toHaveFocus();
 });
 
-// --- look="playselect" (spec #2334 ruling 3) ---------------------------------
+// --- (spec #2334 ruling 3) ---------------------------------
 
 // The Play-select look is paint only: same radiogroup, same radios and names, same roving focus. The default
 // look is what every dash page renders, so a missing `look` must keep painting dash tokens.
@@ -244,7 +244,7 @@ describe('look', () => {
   });
 
   test('look="playselect" paints ps tokens, square, 44px, with no dash token', () => {
-    render(<SegmentedControl aria-label="Week" options={WEEKS} value={2} onChange={() => {}} look="playselect" />);
+    render(<SegmentedControl aria-label="Week" options={WEEKS} value={2} onChange={() => {}} />);
     const group = rules(screen.getByRole('radiogroup', { name: 'Week' }));
     expect(group).not.toMatch(/--dash-/);
     const checked = rules(screen.getByRole('radio', { name: 'Wk 2' }));
@@ -256,7 +256,7 @@ describe('look', () => {
   });
 
   test('the checked segment sits above its neighbours so its edge is not covered by their -2px overlap', () => {
-    render(<SegmentedControl aria-label="Week" options={WEEKS} value={2} onChange={() => {}} look="playselect" />);
+    render(<SegmentedControl aria-label="Week" options={WEEKS} value={2} onChange={() => {}} />);
     const checked = rules(screen.getByRole('radio', { name: 'Wk 2' }));
     expect(checked).toMatch(/position: relative/);
     expect(checked).toMatch(/z-index: 1/);
@@ -264,14 +264,14 @@ describe('look', () => {
   });
 
   test('a scrollable playselect strip pads itself so the focus ring and its halo are not clipped', () => {
-    const { rerender } = render(<SegmentedControl aria-label="Week" options={SEASON} value={9} onChange={() => {}} scrollable look="playselect" />);
+    const { rerender } = render(<SegmentedControl aria-label="Week" options={SEASON} value={9} onChange={() => {}} scrollable />);
     expect(rules(screen.getByRole('radiogroup', { name: 'Week' }))).toMatch(/padding: 8px/);
-    rerender(<SegmentedControl aria-label="Week" options={SEASON} value={9} onChange={() => {}} look="playselect" />);
+    rerender(<SegmentedControl aria-label="Week" options={SEASON} value={9} onChange={() => {}} />);
     expect(rules(screen.getByRole('radiogroup', { name: 'Week' }))).not.toMatch(/padding: 8px/);
   });
 
   test('the checked option shows an arrow as well as the fill, and its name stays its label', () => {
-    const { container } = render(<SegmentedControl aria-label="Week" options={WEEKS} value={2} onChange={() => {}} look="playselect" />);
+    const { container } = render(<SegmentedControl aria-label="Week" options={WEEKS} value={2} onChange={() => {}} />);
     /* eslint-disable-next-line testing-library/no-container, testing-library/no-node-access */
     expect(container.querySelectorAll('svg[aria-hidden="true"]')).toHaveLength(1);
     expect(within(screen.getByRole('radio', { name: 'Wk 2' })).getByText('Wk 2')).toBeInTheDocument();
@@ -283,7 +283,7 @@ describe('look', () => {
     render(
       <div>
         <button type="button">Before</button>
-        <SegmentedControl aria-label="Week" options={WEEKS} value={3} onChange={onChange} look="playselect" />
+        <SegmentedControl aria-label="Week" options={WEEKS} value={3} onChange={onChange} />
       </div>
     );
     expect(screen.getByRole('radiogroup', { name: 'Week' })).toBeInTheDocument();
@@ -297,7 +297,7 @@ describe('look', () => {
 
   test('Home and End jump to the first and last option in the playselect look', async () => {
     const onChange = jest.fn();
-    render(<SegmentedControl aria-label="Week" options={WEEKS} value={2} onChange={onChange} look="playselect" />);
+    render(<SegmentedControl aria-label="Week" options={WEEKS} value={2} onChange={onChange} />);
     screen.getByRole('radio', { name: 'Wk 2' }).focus();
     await userEvent.keyboard('{End}');
     expect(onChange).toHaveBeenLastCalledWith(3);
@@ -316,7 +316,7 @@ describe('look', () => {
   });
 
   test('fill and scrollable keep their layout in the playselect look', () => {
-    render(<SegmentedControl aria-label="Week" options={SEASON} value={9} onChange={() => {}} scrollable look="playselect" />);
+    render(<SegmentedControl aria-label="Week" options={SEASON} value={9} onChange={() => {}} scrollable />);
     expect(rules(screen.getByRole('radiogroup', { name: 'Week' }))).toMatch(/overflow-x: auto/);
     expect(rules(screen.getByRole('radio', { name: 'Wk 9' }))).toMatch(/[^-]flex: 0 0 auto/);
   });

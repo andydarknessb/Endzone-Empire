@@ -33,18 +33,18 @@ test('with no look passed it renders the default contained Add and drop button',
 });
 
 test('look="playselect" is ghost by default and filled only on the modal sheet', () => {
-  const { unmount } = renderAction({ look: 'playselect' });
+  const { unmount } = renderAction({ });
   expect(screen.getByTestId('add-player-submit')).toHaveAttribute('data-variant', 'ghost');
   unmount();
 
-  renderAction({ look: 'playselect', filled: true });
+  renderAction({ filled: true });
   expect(screen.getByTestId('add-player-submit')).toHaveAttribute('data-variant', 'fill');
 });
 
 test('look="playselect" keeps the required drop and posts it', async () => {
   apiClient.post.mockResolvedValue({});
   apiClient.delete.mockResolvedValue({});
-  renderAction({ look: 'playselect' });
+  renderAction({ });
 
   const submit = screen.getByRole('button', { name: 'Add and drop' });
   expect(submit).toBeDisabled();

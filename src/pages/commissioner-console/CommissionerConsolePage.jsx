@@ -131,7 +131,7 @@ export default function CommissionerConsolePage() {
         </Box>
         {showAdvance && (
           <Box sx={{ flexBasis: '100%' }}>
-            <AdvanceWeek look="playselect" leagueId={leagueId} currentWeek={currentWeek} onAdvanced={refetch} />
+            <AdvanceWeek leagueId={leagueId} currentWeek={currentWeek} onAdvanced={refetch} />
           </Box>
         )}
       </Box>

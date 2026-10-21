@@ -99,7 +99,7 @@ export default function WaiverRowDetail({
       }}
     >
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: '12px', minWidth: 0 }}>
-        <SwapPreview player={player} look="playselect" />
+        <SwapPreview player={player} />
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
           <Box component="span" sx={LABEL_SX}>Rest of season</Box>
           <span>

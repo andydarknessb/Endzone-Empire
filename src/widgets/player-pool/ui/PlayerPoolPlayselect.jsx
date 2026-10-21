@@ -13,7 +13,7 @@ const BYE_OPTIONS = [{ value: '', label: 'Any' }, ...Array.from({ length: 18 }, 
 
 /**
  * The Play-select view of the player pool (ADR 0067 wave 3, boards Waivers and WaiversPhone), drawn
- * by `PlayerPool` when `look="playselect"`. It holds no state of its own: `PlayerPool` owns the reads
+ * by `PlayerPool`. It holds no state of its own: `PlayerPool` owns the reads
  * and the URL params and hands this the values and handlers.
  *
  * Desktop: a primary frame ("Players") with the filter row, the table (sticky Player column, tabular
@@ -60,7 +60,6 @@ export default function PlayerPoolPlayselect({
         {!availabilityLock && (
           <SegmentedControl
             aria-label="Availability"
-            look="playselect"
             options={availabilityOptions}
             value={availabilityFilter}
             onChange={onAvailability}

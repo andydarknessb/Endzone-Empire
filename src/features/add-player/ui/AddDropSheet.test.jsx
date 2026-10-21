@@ -124,7 +124,7 @@ describe.each(['dash', 'playselect'])('look=%s', (lookName) => {
 
 // ADR 0067 / spec #2453: the Play-select sheet is a ps-root dialog with the modal's one filled action.
 test('look="playselect" is a ps-root dialog whose Add and drop is the only filled action', () => {
-  renderSheet({ look: 'playselect' });
+  renderSheet({ });
   const dialog = screen.getByRole('dialog', { name: 'Add Josh Palmer' });
   expect(dialog.closest('.ps-root')).not.toBeNull();
   expect(screen.getByRole('button', { name: 'Add and drop' })).toHaveAttribute('data-variant', 'fill');

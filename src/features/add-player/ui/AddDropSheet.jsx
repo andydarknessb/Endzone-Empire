@@ -1,24 +1,10 @@
 import React, { useState } from 'react';
-import {
-  Box,
-  Button,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  FormControlLabel,
-  Radio,
-  RadioGroup,
-  Typography,
-  useMediaQuery,
-} from '@mui/material';
-import { MIN_TOUCH_TARGET_SX, sortRosterForDrop } from '../../../shared/lib';
+import { Dialog, useMediaQuery } from '@mui/material';
+import { sortRosterForDrop } from '../../../shared/lib';
 import { BODY_FONT } from '../../../shared/ui/playselect';
 import { useAddPlayer } from '../model/useAddPlayer';
 import AddDropSheetPlayselect from './AddDropSheetPlayselect';
 
-const fmt = (n) => (n == null || Number.isNaN(Number(n)) ? '-' : Number(n).toFixed(1));
-const TOUCH = { minHeight: 44, minWidth: 44 };
 // The Play-select sheet's paper, the same as ClaimSheet's: a 6px double frame, square, on the panel fill.
 const PS_PAPER_SX = {
   border: '6px double var(--ps-frame)',
@@ -30,7 +16,7 @@ const PS_PAPER_SX = {
   boxSizing: 'border-box',
 };
 
-function AddDropSheetBody({ player, leagueId, roster, dropSuggestion, onClose, onAdded, look }) {
+function AddDropSheetBody({ player, leagueId, roster, dropSuggestion, onClose, onAdded }) {
   const sortedRoster = sortRosterForDrop(roster);
   // The server's suggested drop (#1912, ADR 0055), the same preselect the
   // claim sheet makes: only when that player is on the list shown.
@@ -44,63 +30,16 @@ function AddDropSheetBody({ player, leagueId, roster, dropSuggestion, onClose, o
     if (result.ok) onClose();
   };
 
-  if (look === 'playselect') {
-    return (
-      <AddDropSheetPlayselect
-        player={player}
-        roster={sortedRoster}
-        dropId={dropId}
-        onDrop={setDropId}
-        pending={pending}
-        onSubmit={submit}
-        onClose={onClose}
-      />
-    );
-  }
-
   return (
-    <>
-      <DialogTitle id="add-drop-sheet-title">{`Add ${player.name}`}</DialogTitle>
-      <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-        <Box>
-          <Typography id="add-drop-sheet-drop-label" sx={{ fontWeight: 700, mb: 0.5 }}>
-            Drop a player
-          </Typography>
-          <Typography id="add-drop-sheet-note" sx={{ fontSize: 12, color: 'var(--dash-dim)' }}>
-            Your roster is full. Choose a player to drop.
-          </Typography>
-          {sortedRoster.length === 0 ? (
-            // A failed roster read leaves nothing to choose; say so rather than an empty list.
-            <Typography sx={{ mt: 1 }}>Couldn't load your roster. Close and try again.</Typography>
-          ) : (
-            <RadioGroup
-              aria-labelledby="add-drop-sheet-drop-label"
-              aria-describedby="add-drop-sheet-note"
-              value={dropId}
-              onChange={(e) => setDropId(e.target.value)}
-            >
-              {sortedRoster.map((p) => (
-                <FormControlLabel
-                  key={p.id}
-                  value={String(p.id)}
-                  control={<Radio />}
-                  label={`${p.name} (${p.position}) · ${fmt(p.projected_weekly_points)} proj`}
-                  sx={{ ...TOUCH, m: 0 }}
-                />
-              ))}
-            </RadioGroup>
-          )}
-        </Box>
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={onClose} sx={MIN_TOUCH_TARGET_SX}>
-          Cancel
-        </Button>
-        <Button variant="contained" disabled={pending || dropId === ''} onClick={submit} sx={MIN_TOUCH_TARGET_SX}>
-          Add and drop
-        </Button>
-      </DialogActions>
-    </>
+    <AddDropSheetPlayselect
+      player={player}
+      roster={sortedRoster}
+      dropId={dropId}
+      onDrop={setDropId}
+      pending={pending}
+      onSubmit={submit}
+      onClose={onClose}
+    />
   );
 }
 
@@ -114,23 +53,22 @@ function AddDropSheetBody({ player, leagueId, roster, dropSuggestion, onClose, o
  * caller's own roster read; `dropSuggestion` is the players read's
  * `context.dropSuggestion` (`{ id, name } | null`), the one drop preselected.
  * `onAdded` runs after a successful add; the sheet then closes.
- * `look` is `'dash'` (default) or `'playselect'` (ADR 0067, spec #2453): the same sheet on `ps-*`
- * tokens (`AddDropSheetPlayselect`), its dialog a `ps-root` so the kit's focus ring and buttons apply.
+ * ADR 0067, spec #2453: the sheet is on `ps-*` tokens (`AddDropSheetPlayselect`), its dialog a
+ * `ps-root` so the kit's focus ring and buttons apply.
  */
-export default function AddDropSheet({ open, player, leagueId, roster, dropSuggestion, onClose, onAdded, look = 'dash' }) {
+export default function AddDropSheet({ open, player, leagueId, roster, dropSuggestion, onClose, onAdded }) {
   const phone = useMediaQuery('(max-width:599.95px)'); // below MUI's sm
   if (!player) return null;
-  const ps = look === 'playselect';
   return (
     <Dialog
       open={open}
       onClose={onClose}
       fullScreen={phone}
       fullWidth
-      maxWidth={ps ? false : 'sm'}
+      maxWidth={false}
       aria-labelledby="add-drop-sheet-title"
-      className={ps ? 'ps-root' : undefined}
-      PaperProps={ps ? { sx: phone ? PS_PAPER_SX : { ...PS_PAPER_SX, maxWidth: '480px' } } : undefined}
+      className="ps-root"
+      PaperProps={{ sx: phone ? PS_PAPER_SX : { ...PS_PAPER_SX, maxWidth: '480px' } }}
     >
       <AddDropSheetBody
         key={player.id}
@@ -140,7 +78,6 @@ export default function AddDropSheet({ open, player, leagueId, roster, dropSugge
         dropSuggestion={dropSuggestion}
         onClose={onClose}
         onAdded={onAdded}
-        look={look}
       />
     </Dialog>
   );

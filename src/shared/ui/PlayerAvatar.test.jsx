@@ -26,7 +26,7 @@ test('the default look is the round, position-coloured initials avatar', () => {
 });
 
 test('look="playselect" is a neutral square on ps tokens with no position colour', () => {
-  render(<PlayerAvatar name="Puka Nacua" position="WR" look="playselect" size={56} />);
+  render(<PlayerAvatar name="Puka Nacua" position="WR" size={56} />);
   const el = avatar();
   expect(el).toHaveTextContent('PN');
   expect(el).toHaveClass('MuiAvatar-square');

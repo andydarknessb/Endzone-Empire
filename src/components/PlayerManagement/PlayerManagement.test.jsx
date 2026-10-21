@@ -21,7 +21,7 @@ jest.mock("../../hooks/useLeague", () => ({
   useLeague: jest.fn(),
 }));
 
-// Prop recorders over the real slices (spec #2453): the page must pass look="playselect" to each.
+// Prop recorders over the real slices (spec #2453): the page must pass to each.
 const mockSpy = { pool: jest.fn(), row: jest.fn(), head: jest.fn(), card: jest.fn() };
 jest.mock("../../widgets/player-pool", () => {
   const actual = jest.requireActual("../../widgets/player-pool");

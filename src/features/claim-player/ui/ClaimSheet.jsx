@@ -1,21 +1,6 @@
 import React, { useState } from 'react';
+import { Box, Dialog, useMediaQuery } from '@mui/material';
 import {
-  Box,
-  Button,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  FormControlLabel,
-  IconButton,
-  Radio,
-  RadioGroup,
-  TextField,
-  Typography,
-  useMediaQuery,
-} from '@mui/material';
-import {
-  MIN_TOUCH_TARGET_SX,
   NO_HISTORY_LABEL,
   hasNoHistory,
   isRosterAtCapacity,
@@ -25,11 +10,10 @@ import {
 import { usePlayerCard } from '../../../entities/player';
 import { BODY_FONT } from '../../../shared/ui/playselect';
 import { useClaimPlayer } from '../model/useClaimPlayer';
-import { bidHelperText, isValidBid } from '../model/bidValidity';
+import { isValidBid } from '../model/bidValidity';
 import ClaimSheetPlayselect from './ClaimSheetPlayselect';
 
 const fmt = (n) => (n == null || Number.isNaN(Number(n)) ? '-' : Number(n).toFixed(1));
-const TOUCH = { minHeight: 44, minWidth: 44 };
 // The Play-select sheet: a 6px double frame, square, on the panel fill, 480px from `sm` (full screen below).
 const PS_PAPER_SX = {
   border: '6px double var(--ps-frame)',
@@ -63,10 +47,9 @@ const PS_PAPER_SX = {
  * `netPending`: a drop is picked and its net has not arrived (loading or
  * errored), so the Upgrade, which is not net of the drop, prints no gain line.
  *
- * `look`: `'dash'` (default) or `'playselect'` (ADR 0067 wave 3): the same lines in a 2px Rule frame
- * on `ps-*` tokens.
+ * ADR 0067 wave 3: the lines sit in a 2px Rule frame on `ps-*` tokens.
  */
-export function SwapPreview({ player, netPending = false, look = 'dash' }) {
+export function SwapPreview({ player, netPending = false }) {
   const upgrade = player.upgrade;
   const swapNet = player.swapNet ?? null;
   if (upgrade == null || upgrade.points == null || (upgrade.overPlayer == null && swapNet == null)) return null;
@@ -86,41 +69,21 @@ export function SwapPreview({ player, netPending = false, look = 'dash' }) {
   // line (#1808): the gain is built from the hidden number. The verdict is the
   // server's, read through `hasNoHistory`, never re-derived here.
   const noHistory = hasNoHistory(player);
-  if (look === 'playselect') {
-    return (
-      <Box data-testid="claim-sheet-swap" sx={{ border: '2px solid var(--ps-rule)', padding: '12px', display: 'flex', flexDirection: 'column', gap: '4px', minWidth: 0 }}>
-        <Box component="span" sx={{ fontSize: '13px', color: 'var(--ps-dim)' }}>{later ? `Wk ${week} swap` : "This week's swap"}</Box>
-        <Box component="span" sx={{ display: 'flex', justifyContent: 'space-between', gap: '12px', fontSize: '15px' }}>
-          <span>{`${player.name} ${noHistory ? NO_HISTORY_LABEL : fmt(mine)}`}</span>
-          {overPlayer && <Box component="span" sx={{ textAlign: 'right' }}>{reason ? `${overPlayer.name} ${reason}` : `${overPlayer.name} ${fmt(theirs)}`}</Box>}
-        </Box>
-        {!noHistory && !netPending && (
-          <Box component="b" sx={{ fontSize: '15px', fontWeight: 700 }}>{`${gain >= 0 ? '+' : ''}${fmt(gain)} ${later ? `Wk ${week}` : 'this week'}`}</Box>
-        )}
-      </Box>
-    );
-  }
   return (
-    <Box data-testid="claim-sheet-swap" sx={{ border: '1px solid var(--dash-line)', borderRadius: 1, p: 1.5 }}>
-      <Typography sx={{ fontSize: 12, color: 'var(--dash-dim)', mb: 0.5 }}>
-        {later ? `Wk ${week} swap` : "This week's swap"}
-      </Typography>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 1 }}>
-        <Typography sx={{ minWidth: 0 }}>{`${player.name} ${noHistory ? NO_HISTORY_LABEL : fmt(mine)}`}</Typography>
-        {overPlayer && (
-          <Typography sx={{ minWidth: 0, textAlign: 'right' }}>
-            {reason ? `${overPlayer.name} ${reason}` : `${overPlayer.name} ${fmt(theirs)}`}
-          </Typography>
-        )}
+    <Box data-testid="claim-sheet-swap" sx={{ border: '2px solid var(--ps-rule)', padding: '12px', display: 'flex', flexDirection: 'column', gap: '4px', minWidth: 0 }}>
+      <Box component="span" sx={{ fontSize: '13px', color: 'var(--ps-dim)' }}>{later ? `Wk ${week} swap` : "This week's swap"}</Box>
+      <Box component="span" sx={{ display: 'flex', justifyContent: 'space-between', gap: '12px', fontSize: '15px' }}>
+        <span>{`${player.name} ${noHistory ? NO_HISTORY_LABEL : fmt(mine)}`}</span>
+        {overPlayer && <Box component="span" sx={{ textAlign: 'right' }}>{reason ? `${overPlayer.name} ${reason}` : `${overPlayer.name} ${fmt(theirs)}`}</Box>}
       </Box>
       {!noHistory && !netPending && (
-        <Typography sx={{ fontWeight: 700 }}>{`${gain >= 0 ? '+' : ''}${fmt(gain)} ${later ? `Wk ${week}` : 'this week'}`}</Typography>
+        <Box component="b" sx={{ fontSize: '15px', fontWeight: 700 }}>{`${gain >= 0 ? '+' : ''}${fmt(gain)} ${later ? `Wk ${week}` : 'this week'}`}</Box>
       )}
     </Box>
   );
 }
 
-function ClaimSheetBody({ player, claim, onSave, leagueId, availability, roster, dropSuggestion, onClose, onClaimed, look }) {
+function ClaimSheetBody({ player, claim, onSave, leagueId, availability, roster, dropSuggestion, onClose, onClaimed }) {
   const sortedRoster = sortRosterForDrop(roster);
   // The server's suggested drop (#1912, ADR 0055): the lowest Rest of season
   // player on a full roster. Never `upgrade.overPlayer`, who is the player the
@@ -170,114 +133,32 @@ function ClaimSheetBody({ player, claim, onSave, leagueId, availability, roster,
     if (result.ok) onClose();
   };
 
-  if (look === 'playselect') {
-    return (
-      <ClaimSheetPlayselect
-        player={player}
-        editing={editing}
-        swap={(
-          <SwapPreview
-            look="playselect"
-            player={swapNet ? { ...player, swapNet } : player}
-            netPending={dropId !== '' && player.upgrade != null && swapNet == null}
-          />
-        )}
-        atCapacity={atCapacity}
-        roster={sortedRoster}
-        dropId={dropId}
-        onDrop={setDropId}
-        isFaab={isFaab}
-        bid={bid}
-        onBid={setBid}
-        bidInvalid={bidInvalid}
-        faabRemaining={faabRemaining}
-        onStep={step}
-        waiverPriority={availability?.waiverPriority}
-        pending={pending}
-        dropMissing={dropMissing}
-        onSubmit={submit}
-        onClose={onClose}
-      />
-    );
-  }
-
   return (
-    <>
-      <DialogTitle id="claim-sheet-title">{editing ? `Edit claim: ${player.name}` : `Claim ${player.name}`}</DialogTitle>
-      <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+    <ClaimSheetPlayselect
+      player={player}
+      editing={editing}
+      swap={(
         <SwapPreview
           player={swapNet ? { ...player, swapNet } : player}
           netPending={dropId !== '' && player.upgrade != null && swapNet == null}
         />
-        <Box>
-          <Typography id="claim-sheet-drop-label" sx={{ fontWeight: 700, mb: 0.5 }}>
-            {atCapacity ? 'Drop a player' : 'Drop a player (optional)'}
-          </Typography>
-          {atCapacity && (
-            <Typography id="claim-sheet-capacity-note" sx={{ fontSize: 12, color: 'var(--dash-dim)' }}>
-              Your roster is full. Choose a player to drop when this claim clears.
-            </Typography>
-          )}
-          <RadioGroup aria-labelledby="claim-sheet-drop-label"
-            aria-describedby={atCapacity ? 'claim-sheet-capacity-note' : undefined}
-            value={dropId} onChange={(e) => setDropId(e.target.value)}>
-            {!atCapacity && (
-              <FormControlLabel value="" control={<Radio />} label="No drop" sx={{ ...TOUCH, m: 0 }} />
-            )}
-            {sortedRoster.map((p) => (
-              <FormControlLabel
-                key={p.id}
-                value={String(p.id)}
-                control={<Radio />}
-                label={`${p.name} (${p.position}) · ${fmt(p.projected_weekly_points)} proj`}
-                sx={{ ...TOUCH, m: 0 }}
-              />
-            ))}
-          </RadioGroup>
-        </Box>
-        {isFaab ? (
-          <Box>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-              <IconButton aria-label="Lower bid" onClick={() => step(-1)} sx={TOUCH}>
-                −
-              </IconButton>
-              <TextField
-                label="Bid"
-                type="number"
-                value={bid}
-                onChange={(e) => setBid(e.target.value)}
-                error={bidInvalid}
-                helperText={bidInvalid ? bidHelperText(faabRemaining) : undefined}
-                inputProps={{ min: 0, max: faabRemaining, step: 1 }}
-                sx={{ width: 110 }}
-              />
-              <IconButton aria-label="Raise bid" onClick={() => step(1)} sx={TOUCH}>
-                +
-              </IconButton>
-              <Button variant="outlined" aria-label="Bid $1" onClick={() => setBid('1')} sx={MIN_TOUCH_TARGET_SX}>
-                $1
-              </Button>
-              <Button variant="outlined" aria-label="Bid max" onClick={() => setBid(String(faabRemaining))} sx={MIN_TOUCH_TARGET_SX}>
-                Max
-              </Button>
-            </Box>
-            <Typography sx={{ fontSize: 12, mt: 0.5, color: 'var(--dash-dim)' }}>{`$${faabRemaining} remaining`}</Typography>
-          </Box>
-        ) : (
-          availability?.waiverPriority != null && (
-            <Typography>{`Waiver priority #${availability.waiverPriority}`}</Typography>
-          )
-        )}
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={onClose} sx={MIN_TOUCH_TARGET_SX}>
-          Cancel
-        </Button>
-        <Button variant="contained" disabled={pending || bidInvalid || dropMissing} onClick={submit} sx={MIN_TOUCH_TARGET_SX}>
-          {editing ? 'Save claim' : 'Submit claim'}
-        </Button>
-      </DialogActions>
-    </>
+      )}
+      atCapacity={atCapacity}
+      roster={sortedRoster}
+      dropId={dropId}
+      onDrop={setDropId}
+      isFaab={isFaab}
+      bid={bid}
+      onBid={setBid}
+      bidInvalid={bidInvalid}
+      faabRemaining={faabRemaining}
+      onStep={step}
+      waiverPriority={availability?.waiverPriority}
+      pending={pending}
+      dropMissing={dropMissing}
+      onSubmit={submit}
+      onClose={onClose}
+    />
   );
 }
 
@@ -295,23 +176,21 @@ function ClaimSheetBody({ player, claim, onSave, leagueId, availability, roster,
  * opens prefilled and saves through `onSave`, never a new submission; the
  * Claim order is the server's to keep.
  *
- * `look`: `'dash'` (default: PlayerManagement and the Decision card's claim bar) or `'playselect'`
- * (ADR 0067 wave 3: the Waivers page): the same sheet, reads and submission on `ps-*` tokens.
+ * ADR 0067 wave 3: the sheet, reads and submission are on `ps-*` tokens.
  */
-export default function ClaimSheet({ open, player, claim, onSave, leagueId, availability, roster, dropSuggestion, onClose, onClaimed, look = 'dash' }) {
+export default function ClaimSheet({ open, player, claim, onSave, leagueId, availability, roster, dropSuggestion, onClose, onClaimed }) {
   const phone = useMediaQuery('(max-width:599.95px)'); // below MUI's sm
   if (!player) return null;
-  const ps = look === 'playselect';
   return (
     <Dialog
       open={open}
       onClose={onClose}
       fullScreen={phone}
       fullWidth
-      maxWidth={ps ? false : 'sm'}
+      maxWidth={false}
       aria-labelledby="claim-sheet-title"
-      className={ps ? 'ps-root' : undefined}
-      PaperProps={ps ? { sx: phone ? PS_PAPER_SX : { ...PS_PAPER_SX, maxWidth: '480px' } } : undefined}
+      className="ps-root"
+      PaperProps={{ sx: phone ? PS_PAPER_SX : { ...PS_PAPER_SX, maxWidth: '480px' } }}
     >
       <ClaimSheetBody
         key={`${player.id}-${claim?.id ?? 'new'}`}
@@ -324,7 +203,6 @@ export default function ClaimSheet({ open, player, claim, onSave, leagueId, avai
         dropSuggestion={dropSuggestion}
         onClose={onClose}
         onClaimed={onClaimed}
-        look={look}
       />
     </Dialog>
   );

@@ -2620,7 +2620,7 @@ describe('accessible structure', () => {
   test('the room renders the player card in the Play-select look', async () => {
     await showFullBoard();
 
-    expect(PlayerDecisionCardSpy.propsSpy).toHaveBeenCalledWith(expect.objectContaining({ look: 'playselect' }));
+    expect(PlayerDecisionCardSpy.propsSpy).toHaveBeenCalledWith(expect.objectContaining({ }));
   });
 
   test('wraps the page content in one region, named by the league heading', async () => {

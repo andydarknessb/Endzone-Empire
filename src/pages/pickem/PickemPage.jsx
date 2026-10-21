@@ -139,7 +139,6 @@ export default function PickemPage() {
               <SegmentedControl
                 aria-label="Pick'em sections"
                 data-testid="pickem-sections"
-                look="playselect"
                 value={tab}
                 onChange={setTab}
                 options={TAB_ITEMS.map(([value, label]) => ({ value, label }))}

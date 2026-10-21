@@ -1,5 +1,5 @@
 import React from 'react';
-import { Box, TableCell, TableRow, TableSortLabel } from '@mui/material';
+import { Box } from '@mui/material';
 
 // The base column count every consumer's desktop table shares: Player, Proj
 // Wk, ROS, Ownership, Weeks, Status, Action - Upgrade adds one more, hidden
@@ -13,64 +13,16 @@ export function playerRowColumnCount(bestBall, hideOwnership = false) {
 }
 
 /**
- * The desktop table header row every `player-row` `variant="row"` consumer
- * shares (#1310): PlayerManagement and WaiverWire's on-waivers table both
- * render this instead of a hand-copied header, so the two tables' columns
- * cannot drift out of step with what PlayerRow itself renders per row.
+ * The desktop table header row every `player-row` `variant="row"` consumer shares (#1310):
+ * PlayerManagement and WaiverWire's on-waivers table both render this instead of a hand-copied
+ * header, so the two tables' columns cannot drift out of step with what PlayerRow itself renders
+ * per row. `hideOwnership` drops the Ownership column while no row carries a share yet (#1308).
  *
- * `upgradeSort` is optional: PlayerManagement has no per-column sort (its
- * Sort dropdown covers it) and omits it, rendering plain text; WaiverWire
- * keeps its own click-to-toggle Upgrade header and passes
- * `{ active, direction, onClick }` to render a `TableSortLabel` instead.
+ * Play-select: fixed column widths (the table is `table-layout: fixed`), the Player column sticky,
+ * labels in 13px Dim caps. A column the row omits (Ownership, Upgrade) is omitted here too, so the
+ * two cannot drift.
  */
-// `hideOwnership` drops the Ownership column while no row carries a share yet
-// (#1308): the Waivers page passes it, the Players page keeps the column.
-export default function PlayerRowTableHead({ bestBall = false, currentWeek, sx, upgradeSort, hideOwnership = false, look = 'dash' }) {
-  if (look === 'playselect') {
-    return <PlayselectHead {...{ bestBall, currentWeek, hideOwnership }} />;
-  }
-  return (
-    <TableRow>
-      <TableCell sx={sx}>Player</TableCell>
-      <TableCell sx={sx} align="right">
-        {currentWeek != null ? `Proj Wk ${currentWeek}` : 'Proj Wk'}
-      </TableCell>
-      <TableCell sx={sx} align="right">
-        ROS
-      </TableCell>
-      {!hideOwnership && (
-        <TableCell sx={sx} align="right">
-          Ownership
-        </TableCell>
-      )}
-      {!bestBall && (
-        <TableCell sx={sx} align="right">
-          {upgradeSort ? (
-            <TableSortLabel
-              active={upgradeSort.active}
-              direction={upgradeSort.direction}
-              onClick={upgradeSort.onClick}
-            >
-              Upgrade
-            </TableSortLabel>
-          ) : (
-            'Upgrade'
-          )}
-        </TableCell>
-      )}
-      <TableCell sx={sx}>{currentWeek != null ? `Weeks ${currentWeek} to 18` : 'Weeks'}</TableCell>
-      <TableCell sx={sx}>Status</TableCell>
-      <TableCell sx={sx} align="right">
-        Action
-      </TableCell>
-    </TableRow>
-  );
-}
-
-// The Play-select head (`look="playselect"`, the Waivers table): fixed column widths (the table is
-// `table-layout: fixed`), the Player column sticky, labels in 13px Dim caps. A column the row omits
-// (Ownership, Upgrade) is omitted here too, so the two cannot drift.
-function PlayselectHead({ bestBall, currentWeek, hideOwnership }) {
+export default function PlayerRowTableHead({ bestBall = false, currentWeek, hideOwnership = false }) {
   const columns = [
     ['Player', 'left', 198],
     [currentWeek != null ? `Proj Wk ${currentWeek}` : 'Proj Wk', 'right', 88],

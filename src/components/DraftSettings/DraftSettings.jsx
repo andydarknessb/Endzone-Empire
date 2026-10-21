@@ -232,7 +232,7 @@ export default function DraftSettings() {
   );
   return (
     <PageRoot>
-      <LeagueBreadcrumb look="playselect" />
+      <LeagueBreadcrumb />
       <PixelHeading id="draft-settings-h1" level={1}>Draft Settings</PixelHeading>
       <Dim sx={{ mb: 3 }}>{league.name}</Dim>
       {refreshError}

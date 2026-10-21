@@ -77,7 +77,7 @@ export default function LeagueHistoryPage() {
   return (
     <PageShell>
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-        <LeagueBreadcrumb look="playselect" />
+        <LeagueBreadcrumb />
         <PixelHeading level={1}>League History</PixelHeading>
       </Box>
 
@@ -115,7 +115,6 @@ export default function LeagueHistoryPage() {
         <>
           <Box sx={{ alignSelf: 'flex-start' }}>
             <SegmentedControl
-              look="playselect"
               options={TAB_OPTIONS}
               value={tab}
               onChange={setTab}

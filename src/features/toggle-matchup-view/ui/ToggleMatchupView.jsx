@@ -36,7 +36,6 @@ const ToggleMatchupView = React.forwardRef(function ToggleMatchupView({ value, o
       ref={ref}
       aria-label="Matchup view"
       data-testid="toggle-matchup-view"
-      look="playselect"
       options={OPTIONS}
       value={value}
       onChange={onChange}

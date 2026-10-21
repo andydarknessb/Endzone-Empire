@@ -66,7 +66,7 @@ function Identity({ player, onOpenPlayer, wrap }) {
   const opponent = player.nfl_opponent ? `vs ${player.nfl_opponent}` : (player.bye_week != null ? `Bye ${player.bye_week}` : null);
   return (
     <Box sx={{ display: 'flex', alignItems: wrap ? 'flex-start' : 'center', gap: '8px', minWidth: 0 }}>
-      <PlayerAvatar name={player.name} position={player.position} photoUrl={player.photo_url} look="playselect" />
+      <PlayerAvatar name={player.name} position={player.position} photoUrl={player.photo_url} />
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: '2px', minWidth: 0 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: wrap ? 'wrap' : 'nowrap', gap: '4px 8px' }}>
           <NameButton player={player} onOpenPlayer={onOpenPlayer} wrap={wrap} />

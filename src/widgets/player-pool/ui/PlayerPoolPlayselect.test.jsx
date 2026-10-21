@@ -46,7 +46,7 @@ test('with no look the pool is the dash MUI pool: MUI search field, MUI pager, n
 });
 
 test('look="playselect": a Players frame, native labelled controls, a Play-select pager and the same reads', async () => {
-  renderPool({ look: 'playselect', availabilityLock: 'waivers', byeWeekFilter: true });
+  renderPool({ availabilityLock: 'waivers', byeWeekFilter: true });
   await screen.findByText('Patrick Mahomes');
   expect(screen.getByRole('heading', { name: 'Players' })).toBeInTheDocument();
   expect(screen.getByRole('textbox', { name: 'Search players' })).toBeInTheDocument();
@@ -59,7 +59,7 @@ test('look="playselect": a Players frame, native labelled controls, a Play-selec
 });
 
 test('look="playselect": a control writes the URL params the dash controls do', async () => {
-  renderPool({ look: 'playselect' });
+  renderPool({ });
   await screen.findByText('Patrick Mahomes');
   fireEvent.change(screen.getByRole('combobox', { name: 'Position' }), { target: { value: 'QB' } });
   await waitFor(() => expect(reads().at(-1)[1].params).toMatchObject({ position: 'QB', page: 1 }));
@@ -67,19 +67,19 @@ test('look="playselect": a control writes the URL params the dash controls do', 
 
 test('look="playselect": an empty list says its copy, and the pager still counts', async () => {
   apiClient.get.mockResolvedValue({ data: { players: [], totalPages: 1, total: 0, context: null } });
-  renderPool({ look: 'playselect', emptyCopy: 'No players are on waivers' });
+  renderPool({ emptyCopy: 'No players are on waivers' });
   expect(await screen.findByText('No players are on waivers')).toBeInTheDocument();
   expect(screen.getByText('0 players')).toBeInTheDocument();
 });
 
 // Spec #2453: the Players page opts into the dash pool's `stickyHead`; Waivers does not.
 test('look="playselect": stickyHead changes the scroll region and the table markup, and without it they are as before', async () => {
-  const { unmount } = renderPool({ look: 'playselect' });
+  const { unmount } = renderPool({ });
   await screen.findByText('Patrick Mahomes');
   const plain = { region: screen.getByRole('region', { name: 'Players, scrollable' }).className, table: screen.getByRole('table', { name: 'Players' }).className };
   unmount();
 
-  renderPool({ look: 'playselect', stickyHead: true });
+  renderPool({ stickyHead: true });
   await screen.findByText('Patrick Mahomes');
   expect(screen.getByRole('region', { name: 'Players, scrollable' }).className).not.toBe(plain.region);
   expect(screen.getByRole('table', { name: 'Players' }).className).not.toBe(plain.table);

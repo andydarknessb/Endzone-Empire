@@ -727,7 +727,6 @@ export default function LineupPage() {
         entry={drop.dropCandidate}
         onClose={drop.closeDropConfirmation}
         onConfirm={drop.confirmDrop}
-        look="playselect"
       />
       {/* #1515 (T19): the managed set (entries/onSwap/onRequestDrop/
           canDropEntry/bestBall/leagueUnsettled) rides inside the built
@@ -741,7 +740,6 @@ export default function LineupPage() {
         entry={decisionCardEntry}
         leagueId={selectedLeagueId}
         week={lineup?.week}
-        look="playselect"
         context={myTeam({
           managed: true,
           onSwap: submit,
