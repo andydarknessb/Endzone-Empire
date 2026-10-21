@@ -1,7 +1,7 @@
 import React, { useId, useMemo, useRef, useState, useEffect } from 'react';
-import { Paper, Box, Chip, Typography, Table, TableBody, TableCell, TableContainer, TableHead, TableRow } from '@mui/material';
+import { Box, Typography, Table, TableBody, TableCell, TableContainer, TableHead, TableRow } from '@mui/material';
 import { keyframes } from '@mui/material/styles';
-import PositionChip from '../../shared/ui/PositionChip';
+import { Frame, PosTag, PixelArrow, Tag } from '../../shared/ui/playselect';
 import { MIN_TOUCH_TARGET_SX } from '../../shared/lib/a11y';
 import { isTeamOnTheClock } from '../../shared/lib/onTheClock';
 
@@ -9,36 +9,42 @@ import { isTeamOnTheClock } from '../../shared/lib/onTheClock';
 // no hard-coded literal) that fades in and back out.
 const pickLandedFlash = keyframes`
   0% { background-color: transparent; }
-  35% { background-color: var(--accent-soft); }
+  35% { background-color: var(--ps-led-dim); }
   100% { background-color: transparent; }
 `;
 
-// Pulsing outline for the next-on-the-clock cell. The outline color itself is
-// set via sx (theme-aware); only the opacity animates here so the keyframe
-// stays theme-agnostic.
+// Pulse for the open on-the-clock cell. Its Play-blue fill is set via sx; only
+// the opacity animates here so the keyframe stays theme-agnostic.
 const onClockPulse = keyframes`
   0%, 100% { opacity: 1; }
   50% { opacity: 0.4; }
 `;
 
 const TEAM_COL_MIN_WIDTH = 110;
+// The sticky Rd column's width; the scroll frame reserves it so a focused cell
+// scrolled into view lands beside the column, not under it.
+const ROUND_COL_WIDTH = 48;
 
 const stickyRoundHeadSx = {
-  color: 'primary.contrastText',
+  color: 'var(--ps-panel)',
   fontWeight: 'bold',
   position: 'sticky',
   left: 0,
-  bgcolor: 'primary.main',
+  width: ROUND_COL_WIDTH,
+  minWidth: ROUND_COL_WIDTH,
+  bgcolor: 'var(--ps-ink)',
   zIndex: 3,
 };
 
 const stickyRoundCellSx = {
   position: 'sticky',
   left: 0,
-  bgcolor: 'inherit',
+  width: ROUND_COL_WIDTH,
+  minWidth: ROUND_COL_WIDTH,
+  bgcolor: 'var(--ps-field)',
   zIndex: 1,
   fontWeight: 'bold',
-  color: 'text.secondary',
+  color: 'var(--ps-dim)',
 };
 
 /** Remounts (via the returned key) whenever `value` changes after the first render, so a CSS animation can replay. */
@@ -115,34 +121,39 @@ function DraftBoardMatrix({
 
   if (teamCount === 0) {
     return (
-      <Paper component="section" aria-labelledby={headingId} sx={{ p: 2 }}>
+      <Frame labelledBy={headingId} sx={{ p: 2 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, mb: 1 }}>
           <Typography id={headingId} variant="h6" component={titleComponent}>
             Draft Board
           </Typography>
           {headerAction}
         </Box>
-        <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+        <Typography variant="body2" sx={{ color: 'var(--ps-dim)' }}>
           Draft order isn&apos;t set yet.
         </Typography>
-      </Paper>
+      </Frame>
     );
   }
 
   const rounds = Array.from({ length: totalRounds }, (_, i) => i + 1);
 
   return (
-    <Paper component="section" aria-labelledby={headingId} sx={{ p: 2 }}>
+    <Frame labelledBy={headingId} sx={{ p: 2 }}>
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, mb: 2 }}>
         <Typography id={headingId} variant="h6" component={titleComponent}>
           Draft Board
         </Typography>
         {headerAction}
       </Box>
-      <TableContainer sx={{ overflowX: 'auto' }}>
+      <TableContainer
+        tabIndex={0}
+        role="group"
+        aria-label="Picks by team and round, scrolls sideways"
+        sx={{ overflowX: 'auto', maxWidth: '100%', scrollPaddingLeft: `${ROUND_COL_WIDTH}px` }}
+      >
         <Table size="small" aria-labelledby={headingId}>
           <TableHead>
-            <TableRow sx={{ bgcolor: 'primary.main' }}>
+            <TableRow sx={{ bgcolor: 'var(--ps-ink)' }}>
               <TableCell component="th" scope="col" sx={stickyRoundHeadSx}>
                 Rd
               </TableCell>
@@ -153,15 +164,16 @@ function DraftBoardMatrix({
                     key={team.teamId}
                     component="th"
                     scope="col"
+                    data-on-clock={isOnClockTeam ? 'true' : undefined}
                     sx={{
-                      color: 'primary.contrastText',
+                      color: isOnClockTeam ? 'var(--ps-play-ink)' : 'var(--ps-panel)',
                       fontWeight: 'bold',
-                      bgcolor: isOnClockTeam ? 'primary.dark' : 'primary.main',
+                      bgcolor: isOnClockTeam ? 'var(--ps-play)' : 'var(--ps-ink)',
                       minWidth: TEAM_COL_MIN_WIDTH,
                     }}
                   >
                     {team.teamName}
-                    {isOnClockTeam && <Box component="span" sx={{ ml: 0.5 }}>⏱</Box>}
+                    {isOnClockTeam && <Box component="span" sx={{ ml: 0.5 }}><PixelArrow /></Box>}
                   </TableCell>
                 );
               })}
@@ -185,8 +197,13 @@ function DraftBoardMatrix({
                         <Typography variant="body2" noWrap title={pick.name} sx={{ maxWidth: '100%' }}>
                           {pick.name}
                         </Typography>
-                        {pick.is_keeper && <Chip label="Keeper" size="small" color="secondary" />}
-                        <PositionChip position={pick.position} size="small" />
+                        {pick.is_keeper && <Tag>Keeper</Tag>}
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                          <PosTag position={pick.position} />
+                          <Typography component="span" variant="body2" sx={{ color: 'var(--ps-dim)' }}>
+                            Pick {pick.pick_number}
+                          </Typography>
+                        </Box>
                       </>
                     );
 
@@ -216,13 +233,14 @@ function DraftBoardMatrix({
                               gap: 0.5, textAlign: 'left', border: 'none', bgcolor: 'transparent', borderRadius: 1,
                               p: 0.75, cursor: 'pointer', font: 'inherit', color: 'inherit',
                               ...MIN_TOUCH_TARGET_SX,
-                              '&:hover': { bgcolor: 'action.hover' },
-                              // Same shared token every other focus-visible ring
-                              // uses (see base.css); the offset is negative
-                              // (inward) rather than the usual +2px so the ring
-                              // stays inside this cell instead of bleeding into
-                              // the next column over.
-                              '&:focus-visible': { outline: '2px solid var(--focus-ring)', outlineOffset: -2 },
+                              // An outline, not a fill: a tinted hover fill drops PosTag text below 4.5:1.
+                              '&:hover': { outline: '2px solid var(--ps-rule)', outlineOffset: -2 },
+                              // ps-ink flips with the theme, so the ring clears 3:1 on
+                              // the panel in light and dark (ps-play does not in dark).
+                              // The offset is negative (inward) so the ring stays
+                              // inside this cell instead of bleeding into the next
+                              // column over.
+                              '&:focus-visible': { outline: '2px solid var(--ps-ink)', outlineOffset: -2 },
                               animation: isFlashing ? `${pickLandedFlash} 1.2s ease-out` : 'none',
                               '@media (prefers-reduced-motion: reduce)': { animation: 'none' },
                             }}
@@ -238,6 +256,7 @@ function DraftBoardMatrix({
                     <TableCell
                       key={team.teamId}
                       sx={{ minWidth: TEAM_COL_MIN_WIDTH }}
+                      data-on-clock={isOnClockCell ? 'true' : undefined}
                       aria-label={
                         isOnClockCell ? `Round ${round}, ${team.teamName}: on the clock` : undefined
                       }
@@ -246,18 +265,21 @@ function DraftBoardMatrix({
                         sx={{
                           height: 40,
                           borderRadius: 1,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
                           ...(isOnClockCell
                             ? {
-                                outline: 2,
-                                outlineStyle: 'solid',
-                                outlineColor: 'primary.main',
-                                outlineOffset: -2,
+                                bgcolor: 'var(--ps-play)',
+                                color: 'var(--ps-play-ink)',
                                 animation: `${onClockPulse} 1.4s ease-in-out infinite`,
                                 '@media (prefers-reduced-motion: reduce)': { animation: 'none' },
                               }
-                            : { bgcolor: 'action.hover' }),
+                            : { bgcolor: 'var(--ps-skel)' }),
                         }}
-                      />
+                      >
+                        {isOnClockCell && <PixelArrow />}
+                      </Box>
                     </TableCell>
                   );
                 })}
@@ -266,7 +288,7 @@ function DraftBoardMatrix({
           </TableBody>
         </Table>
       </TableContainer>
-    </Paper>
+    </Frame>
   );
 }
 

@@ -10,7 +10,7 @@ import SimPlayerPool from './SimPlayerPool';
 import SimPickFeed from './SimPickFeed';
 import SimAssistantPanel from './SimAssistantPanel';
 import SimReport from './SimReport';
-import DraftBoardMatrix from '../DraftBoard/DraftBoardMatrix';
+import DraftBoardMatrix from './SimDraftBoardMatrix';
 import RosterPanel from '../RosterPanel/RosterPanel';
 import RosterNeedsStrip from '../RosterPanel/RosterNeedsStrip';
 import {
