@@ -1126,7 +1126,7 @@ async function rowsHeldAsPlayed(client, { league, teamId, season, week, rows, ki
 
 /**
  * The `on_roster` select column of a live lineup read: whether the player is
- * on the team's current roster. One expression for every live reader (#2428).
+ * on the team's current roster. Shared by the live readers that select it by subquery (#2428); expectedFinal derives it from its own LEFT JOIN.
  */
 function onRosterColumn() {
   return `EXISTS (SELECT 1 FROM "team_players" WHERE "team_players"."team_id" = "lineup_entries"."team_id"
