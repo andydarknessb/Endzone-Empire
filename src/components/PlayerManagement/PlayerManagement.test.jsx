@@ -811,8 +811,7 @@ test("hides the Upgrade column entirely in a best ball league", async () => {
 // Decision card does, so these open the card first.
 async function openCardWatchToggle(name) {
   await userEvent.click(await screen.findByRole("button", { name }));
-  const dialog = await screen.findByRole("dialog");
-  return within(dialog);
+  return screen.findByRole("dialog");
 }
 
 test("the card's Watch toggle PUTs, then re-reads the players list (no optimistic guess)", async () => {
@@ -820,8 +819,8 @@ test("the card's Watch toggle PUTs, then re-reads the players list (no optimisti
   apiClient.put.mockResolvedValue({});
   renderWithProviders(<PlayerManagement />);
 
-  const card = await openCardWatchToggle("Watch Target");
-  const toggle = await card.findByRole("button", { name: /^Watch/ });
+  const dialog = await openCardWatchToggle("Watch Target");
+  const toggle = await within(dialog).findByRole("button", { name: /^Watch/ });
   expect(toggle).toHaveAttribute("aria-pressed", "false");
 
   await userEvent.click(toggle);
@@ -850,8 +849,8 @@ test("a watched player's card renders \"Watching\" and DELETEs on click", async 
   );
   renderWithProviders(<PlayerManagement />);
 
-  const card = await openCardWatchToggle("Watch Target");
-  const toggle = await card.findByRole("button", { name: /^Watching/ });
+  const dialog = await openCardWatchToggle("Watch Target");
+  const toggle = await within(dialog).findByRole("button", { name: /^Watching/ });
   expect(toggle).toHaveAttribute("aria-pressed", "true");
 
   await userEvent.click(toggle);
@@ -1340,6 +1339,7 @@ describe("roster moves from the row (#1974)", () => {
 });
 
 // ADR 0067 / spec #2453: the Players page is on Play-select. No cursor, no filled action outside a modal.
+/* eslint-disable testing-library/no-container, testing-library/no-node-access -- the Play-select look is asserted by its class and data-variant markup, which have no role */
 describe("Play-select look (spec #2453)", () => {
   const myTeamPlayer = player({ id: 3, name: "My Starter", availability: { state: "my_team", teamId: 1, teamName: null, availableAt: null } });
   const propsOf = (spy) => spy.mock.calls.map(([props]) => props);
@@ -1369,3 +1369,4 @@ describe("Play-select look (spec #2453)", () => {
     expect(container.querySelectorAll('[data-variant="ghost"]').length).toBeGreaterThan(0);
   });
 });
+/* eslint-enable testing-library/no-container, testing-library/no-node-access */
