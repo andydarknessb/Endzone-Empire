@@ -6,36 +6,25 @@ import { FIELD_SX, FieldLabel, HINT_SX, MENU_PAPER } from '../../shared/ui/plays
 // spinbuttons); only the skin moves to `--ps-*` tokens.
 
 export { PsButton, ErrorPanel } from '../../shared/ui/playselect';
-export { FIELD_SX, HINT_SX, MENU_PAPER };
+export { FIELD_SX, MENU_PAPER };
 
 /** A panel frame: a tertiary frame holding kit fields. */
 export const PANEL_SX = { minWidth: 0, border: '2px solid var(--ps-frame-2)', backgroundColor: 'var(--ps-panel)', padding: { xs: '12px', sm: '20px' } };
 
 /** Archivo Dim body text under a panel head. */
-export function Dim({ children, ...rest }) {
-  return <Box component="p" sx={{ m: 0, fontSize: '14px', color: 'var(--ps-dim)' }} {...rest}>{children}</Box>;
+export function Dim({ children, sx, ...rest }) {
+  return <Box component="p" {...rest} sx={[{ m: 0, fontSize: '14px', color: 'var(--ps-dim)' }, ...[].concat(sx ?? [])]}>{children}</Box>;
 }
 
-/** An informational note: a rule-edged block in place of a MUI alert. */
-export function Note({ children }) {
-  return <Box sx={{ border: '2px solid var(--ps-dim)', padding: '10px 12px', fontSize: '15px' }}>{children}</Box>;
-}
-
-/** A warning note on the danger edge. */
-export function WarnNote({ children }) {
-  return <Box sx={{ border: '2px solid var(--ps-danger)', padding: '10px 12px', fontSize: '15px' }}>{children}</Box>;
+/** A note: a rule-edged block in place of a MUI alert, announced as one (role=alert) as the alert was. `warn` takes the danger edge. */
+export function Note({ children, warn = false }) {
+  return <Box role="alert" sx={{ border: '2px solid', borderColor: warn ? 'var(--ps-danger)' : 'var(--ps-dim)', padding: '10px 12px', fontSize: '15px' }}>{children}</Box>;
 }
 
 /** Sub-head inside a panel (an h5, as before). */
-export function SubHead({ children, ...rest }) {
-  return <Box component="h5" sx={{ m: 0, fontSize: '16px', fontWeight: 700 }} {...rest}>{children}</Box>;
+export function SubHead({ children, sx, ...rest }) {
+  return <Box component="h5" {...rest} sx={[{ m: 0, fontSize: '16px', fontWeight: 700 }, ...[].concat(sx ?? [])]}>{children}</Box>;
 }
-
-/** Field props for MUI's TextField: 44px square kit skin. */
-export const textFieldProps = { InputProps: { sx: FIELD_SX }, sx: HINT_SX };
-
-/** Select props: kit skin plus the kit menu frame. */
-export const selectProps = { sx: FIELD_SX, MenuProps: { PaperProps: MENU_PAPER } };
 
 /** 44px target for icon buttons and other small controls. */
 export const TARGET_SX = { minWidth: '44px', minHeight: '44px' };
@@ -45,7 +34,7 @@ export function KitTextField({ id, label, helperText, sx, ...rest }) {
   return (
     <Box sx={[{ display: 'flex', flexDirection: 'column', gap: '6px' }, ...(Array.isArray(sx) ? sx : [sx])]}>
       <FieldLabel htmlFor={id}>{label}</FieldLabel>
-      <TextField id={id} helperText={helperText} {...textFieldProps} {...rest} />
+      <TextField id={id} helperText={helperText} sx={HINT_SX} InputProps={{ sx: FIELD_SX }} {...rest} />
     </Box>
   );
 }
@@ -55,7 +44,7 @@ export function KitSelect({ id, label, error, helperText, disabled, children, sx
   return (
     <FormControl error={error} disabled={disabled} sx={{ gap: '6px', ...sx }}>
       <FieldLabel id={`${id}-label`}>{label}</FieldLabel>
-      <Select labelId={`${id}-label`} id={id} {...selectProps} {...rest}>{children}</Select>
+      <Select labelId={`${id}-label`} id={id} sx={FIELD_SX} MenuProps={{ PaperProps: MENU_PAPER }} {...rest}>{children}</Select>
       {helperText && <FormHelperText sx={HINT_SX['& .MuiFormHelperText-root']}>{helperText}</FormHelperText>}
     </FormControl>
   );

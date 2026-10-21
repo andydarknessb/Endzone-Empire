@@ -241,7 +241,7 @@ export default function DraftSettings() {
         <Tabs aria-label="Draft settings sections" value={tab} onChange={(event, value) => changeTab(value)} variant="scrollable" scrollButtons="auto" allowScrollButtonsMobile TabIndicatorProps={{ sx: { display: 'none' } }} sx={{ mb: 2, minHeight: '44px', '& .MuiTab-root': { ...TARGET_SX, borderRadius: 0, border: '2px solid var(--ps-dim)', marginRight: '-2px', color: 'var(--ps-ink)', fontFamily: 'inherit', fontWeight: 600, textTransform: 'none' }, '& .MuiTab-root.Mui-selected': { backgroundColor: 'var(--ps-ink)', color: 'var(--ps-panel)' } }}>
           {TAB_ITEMS.map(([value, label]) => <Tab key={value} value={value} label={label} id={tabId(value)} aria-controls={panelId(value)} />)}
         </Tabs>
-        {activeTabDirty && <Box data-testid="draft-settings-unsaved" sx={{ mb: 2, fontSize: '14px', fontWeight: 600, color: 'var(--ps-ink)' }}>Unsaved changes</Box>}
+        {activeTabDirty && <Box role="status" data-testid="draft-settings-unsaved" sx={{ mb: 2, fontSize: '14px', fontWeight: 600, color: 'var(--ps-ink)' }}>Unsaved changes</Box>}
         <Box role="tabpanel" id={panelId(tab)} aria-labelledby={tabId(tab)}>{content}</Box>
       </Box>
     </PageRoot>

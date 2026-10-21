@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import PropTypes from 'prop-types';
 import { Autocomplete, Box, CircularProgress, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, FormControlLabel, FormHelperText, MenuItem, Radio, RadioGroup, Stack, Switch, TextField } from '@mui/material';
+import { FieldLabel } from '../../shared/ui/playselect/CardControls';
 import { Dim, FIELD_SX, KitSelect, KitTextField, MENU_PAPER, Note, PsButton, RADIO_SX, SubHead, TARGET_SX } from './kit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import IconButton from '@mui/material/IconButton';
@@ -92,7 +93,8 @@ function PlayerPicker({ value, onChange, disabled, rosterPlayers }) {
     : input.trim().length < 2
       ? 'Type at least 2 characters to search'
       : 'No matching players';
-  return <Autocomplete
+  return <Box sx={{ display: 'flex', flexDirection: 'column', gap: '6px' }}><FieldLabel htmlFor="keeper-player">Player</FieldLabel><Autocomplete
+    id="keeper-player"
     sx={{ '& .MuiAutocomplete-endAdornment .MuiIconButton-root': TARGET_SX }}
     componentsProps={{ paper: MENU_PAPER }}
     disabled={disabled}
@@ -117,7 +119,7 @@ function PlayerPicker({ value, onChange, disabled, rosterPlayers }) {
         endAdornment: <>{searchStatus === 'loading' ? <CircularProgress color="inherit" size={16} /> : null}{params.InputProps.endAdornment}</>,
       }}
     />}
-  />;
+  /></Box>;
 }
 
 export default function KeeperPanel({ league, teams, keepers, keeperCandidates, frozen, onSaveLeague, onSaveKeepers, saving, onSettingsDirtyChange, onAssignmentsDirtyChange }) {

@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import PropTypes from 'prop-types';
 import { Box, Stack } from '@mui/material';
-import { Dim, KitTextField, PsButton, WarnNote } from './kit';
+import { Dim, KitTextField, PsButton, Note } from './kit';
 import { positionCapsFeasible } from '../../lib/positionCapsFeasibility';
 import { integerRangeError } from './numericValidation';
 
@@ -17,7 +17,7 @@ export default function PositionLimitsPanel({ league, frozen, onSave, saving, on
   const hasInvalidCap = Object.values(capErrors).some(Boolean);
   const capsForSave = useMemo(() => Object.fromEntries(POSITIONS.filter((position) => caps[position] !== '' && caps[position] !== undefined && caps[position] !== null).map((position) => [position, Number(caps[position])])), [caps]);
   const feasibility = useMemo(() => positionCapsFeasible({ rosterSlots: league.roster_slots || [], benchSlots: league.bench_slots, irSlots: league.ir_slots, positionCaps: capsForSave }), [league, capsForSave]);
-  return <Stack spacing={2}><Dim>Limits apply only while drafting; rosters can change freely afterward.</Dim>{!feasibility.feasible && <WarnNote>{feasibility.errors.join(' ')}</WarnNote>}<Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: 1 }}>{POSITIONS.map((position) => <KitTextField key={position} id={`position-cap-${position}`} label={position} type="number" disabled={frozen} inputProps={{ min: 0, max: 10 }} value={caps[position] ?? ''} error={Boolean(capErrors[position])} helperText={capErrors[position]} onChange={(event) => setCaps((current) => ({ ...current, [position]: event.target.value }))} />)}</Box><Box><PsButton disabled={frozen || saving || hasInvalidCap || !feasibility.feasible} onClick={() => onSave({ positionCaps: capsForSave }, 'Position limits saved')}>Save position limits</PsButton></Box></Stack>;
+  return <Stack spacing={2}><Dim>Limits apply only while drafting; rosters can change freely afterward.</Dim>{!feasibility.feasible && <Note warn>{feasibility.errors.join(' ')}</Note>}<Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: 1 }}>{POSITIONS.map((position) => <KitTextField key={position} id={`position-cap-${position}`} label={position} type="number" disabled={frozen} inputProps={{ min: 0, max: 10 }} value={caps[position] ?? ''} error={Boolean(capErrors[position])} helperText={capErrors[position]} onChange={(event) => setCaps((current) => ({ ...current, [position]: event.target.value }))} />)}</Box><Box><PsButton disabled={frozen || saving || hasInvalidCap || !feasibility.feasible} onClick={() => onSave({ positionCaps: capsForSave }, 'Position limits saved')}>Save position limits</PsButton></Box></Stack>;
 }
 
 PositionLimitsPanel.propTypes = { league: PropTypes.object.isRequired, frozen: PropTypes.bool.isRequired, onSave: PropTypes.func.isRequired, saving: PropTypes.bool, onDirtyChange: PropTypes.func.isRequired };
