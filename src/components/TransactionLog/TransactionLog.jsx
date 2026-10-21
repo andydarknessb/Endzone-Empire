@@ -15,7 +15,7 @@ import {
   ErrorPanel, PsButton, Skel,
 } from '../../shared/ui/playselect/Controls';
 import { Frame, PixelHeading } from '../../shared/ui/playselect/Frame';
-import { Tag, TeamMark } from '../../shared/ui/playselect/Marks';
+import { PosTag, Tag, TeamMark } from '../../shared/ui/playselect/Marks';
 import { psRootSx } from '../../shared/ui/playselect/root';
 import '../../shared/ui/playselect/playselect.css';
 
@@ -68,12 +68,12 @@ function dayLabel(dateLike) {
 // The Activity read model's `segments` in order (see src/entities/activity,
 // #1100/#1112): a PlayerNameLink at each player part and plain text at each
 // text part, so a name is a link because it IS one, never because it matched
-// the flat sentence. The segment carries `playerId` and `name` - the whole
-// entry the card needs (ADR 0040 ruling d).
+// the flat sentence. The segment carries `playerId` and `name` (the whole
+// entry the card needs, ADR 0040 ruling d) and a `position` that draws a PosTag.
 function renderSegments(segments, onOpenPlayer) {
   return segments.map((seg, i) => (seg.type === 'player' ? (
+    <React.Fragment key={`${seg.playerId}-${i}`}>
     <PlayerNameLink
-      key={`${seg.playerId}-${i}`}
       name={seg.name}
       playerId={seg.playerId}
       onOpen={() => onOpenPlayer({ playerId: seg.playerId, name: seg.name })}
@@ -85,6 +85,8 @@ function renderSegments(segments, onOpenPlayer) {
         },
       }}
     />
+    {seg.position && <PosTag position={seg.position} sx={{ ml: '6px' }} />}
+    </React.Fragment>
   ) : (
     <React.Fragment key={i}>{seg.value}</React.Fragment>
   )));
@@ -372,7 +374,7 @@ function TransactionLog() {
         leagueId={Number(leagueId)}
         look="playselect"
         // #1514: TransactionLog's activity segments carry only
-        // { playerId, name }, no roster fact of its own to classify by, so
+        // { playerId, name } (plus a display-only position), no roster fact to classify by, so
         // it defers kind to the fetched card's own Availability (ADR 0040
         // ruling c) via the fromCard() builder.
         context={fromCard()}

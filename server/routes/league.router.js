@@ -536,7 +536,9 @@ router.get('/:id/transactions', async (req, res) => {
               "teams"."avatar_url" AS "team_avatar_url",
               "teams"."avatar_static_url" AS "team_avatar_static_url",
               "players"."name" AS "player_name",
-              "dropped_player"."name" AS "dropped_player_name"
+              "players"."position" AS "player_position",
+              "dropped_player"."name" AS "dropped_player_name",
+              "dropped_player"."position" AS "dropped_player_position"
        FROM "transactions"
        LEFT JOIN "teams" ON "teams"."id" = "transactions"."team_id"
        LEFT JOIN "players" ON "players"."id" = ("transactions"."detail"->>'playerId')::int
@@ -547,6 +549,20 @@ router.get('/:id/transactions', async (req, res) => {
        LIMIT 100`,
       [leagueId]
     );
+    // Stored trade items carry no position, so look every one up at read time.
+    const itemsOf = (row) => (Array.isArray(row.detail?.items) ? row.detail.items : []);
+    const tradeIds = [...new Set(result.rows.flatMap((row) => itemsOf(row).map((i) => i.playerId)))]
+      .filter(Number.isInteger);
+    if (tradeIds.length > 0) {
+      const positions = await pool.query(
+        'SELECT "id", "position" FROM "players" WHERE "id" = ANY($1)',
+        [tradeIds]
+      );
+      const byId = new Map(positions.rows.map((p) => [p.id, p.position]));
+      result.rows.forEach((row) => itemsOf(row).forEach((item) => {
+        item.position = byId.get(item.playerId) ?? null;
+      }));
+    }
     res.json(result.rows);
   } catch (error) {
     console.error('Error fetching transactions', error);

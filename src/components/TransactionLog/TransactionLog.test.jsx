@@ -502,3 +502,18 @@ test('switching leagues in place resets the filters and re-shapes the page for t
   expect(screen.getByRole('radio', { name: 'All' })).toHaveAttribute('aria-checked', 'true');
   expect(apiClient.get).toHaveBeenCalledWith('/api/league/2/transactions');
 });
+
+test('draws a PosTag inside the description for a player with a position, none without (#2463)', async () => {
+  mockTransactions([
+    txn({ id: 1, player_position: 'WR' }),
+    txn({ id: 2 }),
+  ]);
+  renderScreen();
+
+  const withPos = await screen.findByTestId('txn-1');
+  expect(
+    within(within(withPos).getByTestId('txn-desc')).getByText('WR')
+  ).toHaveAttribute('data-position', 'wr');
+  const withoutPos = screen.getByTestId('txn-2');
+  expect(within(withoutPos).queryByText('WR')).toBeNull();
+});
