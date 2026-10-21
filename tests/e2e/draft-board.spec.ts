@@ -406,8 +406,9 @@ test.describe('schedule-aware player pool (issue #119)', () => {
     expect(actions).not.toBeNull();
     expect(firstRow).not.toBeNull();
     expect(adp.x + adp.width).toBeLessThanOrEqual(actions.x);
-    // The 44px row target includes a 1px rendered table border in Chromium.
-    expect(firstRow.height).toBeLessThanOrEqual(45);
+    // The 44px row target includes a 1px rendered table border in Chromium; the cursor row (the first
+    // row when the viewer is on the clock) wears the kit's 3px frame, measured at 46px (spec #2432).
+    expect(firstRow.height).toBeLessThanOrEqual(46);
   });
 
   test('sorts by Bye with deterministic null-last behavior in both directions', async ({ page }) => {
@@ -944,11 +945,13 @@ test.describe('accessible structure: 44x44 minimum interactive targets', () => {
     await setTheme(page, 'light');
   });
 
-  async function expectAtLeast44(locator: Locator, opts: { widthToo?: boolean } = {}) {
+  // `min` is 36 for the pool's own Draft and Queue buttons: ADR 0067's dense-table exception (spec #2432).
+  async function expectAtLeast44(locator: Locator, opts: { widthToo?: boolean; min?: number } = {}) {
+    const min = opts.min ?? 44;
     const box = await locator.boundingBox();
     expect(box).not.toBeNull();
-    expect(box!.height).toBeGreaterThanOrEqual(44);
-    if (opts.widthToo) expect(box!.width).toBeGreaterThanOrEqual(44);
+    expect(box!.height).toBeGreaterThanOrEqual(min);
+    if (opts.widthToo) expect(box!.width).toBeGreaterThanOrEqual(min);
   }
 
   test('desktop: nav chrome, tabs, sortable headers, and row actions all meet the 44px minimum', async ({ page }) => {
@@ -961,8 +964,8 @@ test.describe('accessible structure: 44x44 minimum interactive targets', () => {
     // its equivalent selection control (#444).
     await expectAtLeast44(page.getByRole('button', { name: 'Board', exact: true }));
     await expectAtLeast44(page.getByRole('button', { name: /^Bye:/ }));
-    await expectAtLeast44(page.getByRole('button', { name: 'Draft', exact: true }).first());
-    await expectAtLeast44(page.locator('tr', { hasText: 'Bijan Robinson' }).getByRole('button', { name: 'Queue' }), { widthToo: true });
+    await expectAtLeast44(page.getByRole('button', { name: 'Draft', exact: true }).first(), { min: 36 });
+    await expectAtLeast44(page.locator('tr', { hasText: 'Bijan Robinson' }).getByRole('button', { name: 'Queue' }), { widthToo: true, min: 36 });
     await expectAtLeast44(page.getByRole('button', { name: 'Column guide' }), { widthToo: true });
   });
 
@@ -981,8 +984,8 @@ test.describe('accessible structure: 44x44 minimum interactive targets', () => {
     // inside Bijan Robinson's own card. The pool is behind the Players tab now
     // that the room opens on Chat (#444).
     await showPlayers(page);
-    const card = page.getByRole('button', { name: 'Bijan Robinson' }).locator('xpath=ancestor::*[contains(@class, "MuiPaper-root")][1]');
-    await expectAtLeast44(card.getByRole('button', { name: 'Queue' }), { widthToo: true });
+    const card = page.getByRole('button', { name: 'Bijan Robinson' }).locator('xpath=ancestor::*[@role="listitem"][1]');
+    await expectAtLeast44(card.getByRole('button', { name: 'Queue' }), { widthToo: true, min: 36 });
   });
 });
 
@@ -1173,7 +1176,7 @@ test.describe('mobile/tablet single-scroll tab layout (issue #122 acceptance cri
       await showPlayers(page);
 
       const card = page.getByRole('button', { name: 'Depth Player 1', exact: true })
-        .locator('xpath=ancestor::*[contains(@class, "MuiPaper-root")][1]');
+        .locator('xpath=ancestor::*[@role="listitem"][1]');
       // Labeled, like every other stat here - a card has no column header to
       // supply that context implicitly the way the desktop table row does.
       await expect(card.getByText('NFL Team: FA')).toBeVisible();

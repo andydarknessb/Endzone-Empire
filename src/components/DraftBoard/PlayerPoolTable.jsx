@@ -1,18 +1,11 @@
 import React, { useId, useRef, useCallback, useEffect } from 'react';
 import PropTypes from 'prop-types';
 import {
-  Paper,
   Box,
   Stack,
-  Typography,
-  TextField,
-  IconButton,
   FormControl,
-  InputLabel,
   Select,
   MenuItem,
-  FormControlLabel,
-  Checkbox,
   Table,
   TableBody,
   TableCell,
@@ -21,26 +14,27 @@ import {
   TableRow,
   TableSortLabel,
   Tooltip,
-  Button,
-  Chip,
   CircularProgress,
 } from '@mui/material';
-import CloseIcon from '@mui/icons-material/Close';
 import PlaylistAddIcon from '@mui/icons-material/PlaylistAdd';
 import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
 import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
 import { visuallyHidden } from '@mui/utils';
-import InjuryBadge from '../../shared/ui/InjuryBadge';
+import {
+  Frame, InjuryTag, PixelHeading, PosTag, PsButton, Tag,
+} from '../../shared/ui/playselect';
+import { FieldLabel, FIELD_SX, MENU_PAPER } from '../../shared/ui/playselect/CardControls';
+import { PsCheck, PsField, PsIconButton } from '../../widgets/player-pool/ui/psControls';
 // Direct file import (#1311, draft-harness-coverage guard) - see DraftRail.jsx's
 // identical comment: the entities/player barrel would pull usePlayerCard's
 // non-literal apiClient.get call into the Draft room's import closure.
 import PlayerNameLink from '../../entities/player/ui/PlayerNameLink';
-import PositionChip from '../../shared/ui/PositionChip';
 import { STAT_DEFINITIONS, ABBREVIATION_STYLE } from '../../shared/ui/AbbreviationTooltip';
 import ColumnGuide from './ColumnGuide';
 import { SORT_FIELDS, SORT_FIELDS_BY_KEY, DESKTOP_COLUMNS, DESKTOP_COLUMN_COUNT } from './sortFields';
 import { MIN_TOUCH_TARGET_SX } from '../../shared/lib/a11y';
 import { chipsForRosterSlots } from '../../shared/lib/positionChips';
+import { draftCursorPlayerId } from './draftCursor';
 
 // A caller that doesn't thread `controls.chips` through (an older test double,
 // or a future caller with no roster template of its own) gets the full
@@ -84,16 +78,34 @@ const BYE_WEEK_OPTIONS = Array.from({ length: 18 }, (_, i) => i + 1);
 // each digit's natural width.
 const numericCellSx = { fontVariantNumeric: 'tabular-nums' };
 
-// Muted, dark-mode-friendly header: a step off the surrounding Paper instead
-// of a saturated brand color, with a divider rule to separate it from rows.
+// The pool is a Play-select table: Ink text on the panel, a 2px Ink rule under the head and a 2px
+// Rule under every row, Archivo 15 with tabular figures.
 const headCellSx = {
-  color: 'text.primary',
-  fontWeight: 'bold',
-  bgcolor: 'background.default',
-  borderBottom: '2px solid',
-  borderBottomColor: 'divider',
-  px: 1,
+  color: 'var(--ps-ink)',
+  fontFamily: 'inherit',
+  fontSize: '14px',
+  fontWeight: 700,
+  bgcolor: 'var(--ps-panel)',
+  borderBottom: '2px solid var(--ps-ink)',
+  px: '6px',
 };
+const bodyCellSx = {
+  color: 'var(--ps-ink)', fontFamily: 'inherit', fontSize: '14px', borderBottom: '2px solid var(--ps-rule)',
+};
+const dimSx = { color: 'var(--ps-dim)', fontSize: '14px' };
+
+// Table buttons are 36px: ADR 0067's dense-table exception (the rail keeps 44px). PsButton sets its
+// own 44px, so this wrapper's selector, one class more specific, lowers it.
+const DENSE_ACTIONS_SX = {
+  '& [data-variant]': {
+    minHeight: '36px', minWidth: '36px', padding: '0 8px', fontSize: '14px',
+  },
+  '& [data-variant][aria-label="Queue"]': { padding: 0 },
+};
+
+// The cursor row's frame: a 3px Accent edge the kit's .cursor blink flashes. A row's border only
+// paints with collapsed borders, which MUI's Table sets.
+const CURSOR_SX = { border: '3px solid var(--ps-accent)' };
 
 // Fetch the next page once the scroller is within this many pixels of the
 // bottom, so the next window of rows is ready before the user hits the edge.
@@ -184,7 +196,12 @@ function SortableHeaderCell({ field, sort, dir, onSort }) {
       active={active}
       direction={direction}
       onClick={() => onSort(field.key)}
-      sx={MIN_TOUCH_TARGET_SX}
+      sx={{
+        ...MIN_TOUCH_TARGET_SX,
+        color: 'inherit',
+        '&:hover, &.Mui-active': { color: 'inherit' },
+        '& .MuiTableSortLabel-icon': { color: 'inherit !important' },
+      }}
       {...(alignRight ? { 'aria-label': numericAriaLabel } : {})}
     >
       {alignRight ? (
@@ -222,64 +239,79 @@ function SortableHeaderCell({ field, sort, dir, onSort }) {
  * action cell. The one shared explanation for a temporarily-unavailable Pick
  * arrives as `explanation` from the room's `pickState` (issue #792 ruling 3),
  * so this file no longer imports pickAvailability itself. */
-function PlayerActions({ player, isDrafted, canManualPick, pickUnavailable, explanation, queued, onDraft, onQueue, justify = 'center' }) {
+function PlayerActions({
+  player, isDrafted, canManualPick, pickUnavailable, explanation, queued, onDraft, onQueue, isCursor, justify = 'center',
+}) {
   if (isDrafted) return null;
   return (
-    <Stack direction="row" spacing={1} justifyContent={justify} alignItems="center">
+    <Stack direction="row" spacing={1} justifyContent={justify} alignItems="center" sx={DENSE_ACTIONS_SX}>
       {canManualPick && (
         <Tooltip title={pickUnavailable ? explanation : ''}>
           <span>
-            <Button
-              variant="contained"
-              color="success"
-              size="small"
+            <PsButton
+              variant={isCursor ? 'fill' : 'ghost'}
               aria-disabled={pickUnavailable || undefined}
               onClick={() => {
                 if (pickUnavailable) return; // suppressed activation
                 onDraft(player.id);
               }}
-              sx={MIN_TOUCH_TARGET_SX}
             >
               Draft
-            </Button>
+            </PsButton>
           </span>
         </Tooltip>
       )}
       <Tooltip title="Queue">
         <span>
-          <IconButton
-            aria-label="Queue"
-            size="small"
-            color="default"
-            disabled={queued}
-            onClick={() => onQueue(player)}
-            sx={MIN_TOUCH_TARGET_SX}
-          >
+          <PsButton variant="ghost" ariaLabel="Queue" disabled={queued} onClick={() => onQueue(player)}>
             <PlaylistAddIcon fontSize="small" />
-          </IconButton>
+          </PsButton>
         </span>
       </Tooltip>
     </Stack>
   );
 }
 
+/** Bye-overlap count: a neutral roster fact, so a plain Tag, not a warning. */
+function ByeOverlapTag({ overlap }) {
+  const names = overlap.map((p) => p.name).join(', ');
+  return (
+    <Tooltip title={`Also on your roster with this Bye: ${names}`}>
+      <span>
+        <Tag
+          aria-label={
+            `Bye overlap: ${overlap.length} rostered player${overlap.length === 1 ? '' : 's'} `
+            + `${overlap.length === 1 ? 'shares' : 'share'} this Bye week - ${names}`
+          }
+        >
+          {overlap.length}
+        </Tag>
+      </span>
+    </Tooltip>
+  );
+}
+
 /** One player's card on mobile (issue 122): the desktop facts, including its
  * inline NFL team, stacked into labeled fields plus the same state-gated
  * Draft/Queue actions. */
-function PlayerCard({ player, isDrafted, canManualPick, pickUnavailable, explanation, overlap, queued, onDraft, onQueue, onOpenQuickView }) {
+function PlayerCard({
+  player, isDrafted, canManualPick, pickUnavailable, explanation, overlap, queued, isCursor, onDraft, onQueue, onOpenQuickView,
+}) {
   return (
-    <Paper
+    <Box
       role="listitem"
-      variant="outlined"
-      sx={{ p: 1.5, mb: 1.5, display: 'flex', flexDirection: 'column', gap: 1 }}
+      className={isCursor ? 'cursor' : undefined}
+      sx={{
+        p: 1.5, mb: 1.5, display: 'flex', flexDirection: 'column', gap: 1, border: '2px solid var(--ps-rule)', ...(isCursor ? CURSOR_SX : null),
+      }}
     >
       <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 1 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', minWidth: 0 }}>
           <PlayerNameLink name={player.name} playerId={player.id} onOpen={onOpenQuickView} sx={MIN_TOUCH_TARGET_SX} />
-          <InjuryBadge status={player.injury_status} detail={player.injury_detail} />
-          {isDrafted && <Chip size="small" label="Drafted" color="default" />}
+          <InjuryTag status={player.injury_status} title={player.injury_detail || undefined} />
+          {isDrafted && <Tag>Drafted</Tag>}
         </Box>
-        <PositionChip position={player.position} />
+        <PosTag position={player.position} />
       </Box>
       <Box sx={{ display: 'flex', flexWrap: 'wrap', columnGap: 2, rowGap: 0.5 }}>
         {/* Every stat here is labeled, including NFL Team. The desktop name
@@ -290,33 +322,20 @@ function PlayerCard({ player, isDrafted, canManualPick, pickUnavailable, explana
             once per column header but not repeated per stat per card - the
             Column guide button already covers these abbreviations in one
             reachable place (issue 122). */}
-        <Typography variant="body2" color="text.secondary">NFL Team: {player.nfl_team}</Typography>
-        <Typography variant="body2" sx={numericCellSx}>
+        <Box component="span" sx={{ ...dimSx, fontSize: '15px' }}>NFL Team: {player.nfl_team}</Box>
+        <Box component="span" sx={{ ...numericCellSx, fontSize: '15px' }}>
           Bye: {player.bye_week != null ? player.bye_week : '-'}
-        </Typography>
-        {overlap.length > 0 && (
-          <Tooltip title={`Also on your roster with this Bye: ${overlap.map((p) => p.name).join(', ')}`}>
-            <Chip
-              size="small"
-              variant="outlined"
-              label={overlap.length}
-              aria-label={
-                `Bye overlap: ${overlap.length} rostered player${overlap.length === 1 ? '' : 's'} `
-                + `${overlap.length === 1 ? 'shares' : 'share'} this Bye week - `
-                + overlap.map((p) => p.name).join(', ')
-              }
-            />
-          </Tooltip>
-        )}
-        <Typography variant="body2" sx={numericCellSx}>
+        </Box>
+        {overlap.length > 0 && <ByeOverlapTag overlap={overlap} />}
+        <Box component="span" sx={{ ...numericCellSx, fontSize: '15px' }}>
           ADP: {player.adp != null ? player.adp : '-'}
-        </Typography>
-        <Typography variant="body2" sx={numericCellSx}>
+        </Box>
+        <Box component="span" sx={{ ...numericCellSx, fontSize: '15px' }}>
           Pos rank: {player.position_rank != null ? `#${player.position_rank}` : '-'}
-        </Typography>
-        <Typography variant="body2" sx={numericCellSx}>
+        </Box>
+        <Box component="span" sx={{ ...numericCellSx, fontSize: '15px' }}>
           17-game pace: {player.projected_points != null ? Number(player.projected_points).toFixed(1) : '-'}
-        </Typography>
+        </Box>
       </Box>
       {player.projected_points == null && (
         // Same explanation the desktop table's null-pace tooltip gives (QA
@@ -329,9 +348,9 @@ function PlayerCard({ player, isDrafted, canManualPick, pickUnavailable, explana
         // Plain text sidesteps all of that and reaches every user, sighted
         // or not, without hovering - which is also strictly better than the
         // desktop cell's hover-gated version.
-        <Typography variant="caption" color="text.secondary">
+        <Box component="span" sx={dimSx}>
           17-game pace unavailable: not enough games in the prior completed season to extrapolate a pace.
-        </Typography>
+        </Box>
       )}
       <PlayerActions
         player={player}
@@ -342,9 +361,10 @@ function PlayerCard({ player, isDrafted, canManualPick, pickUnavailable, explana
         queued={queued}
         onDraft={onDraft}
         onQueue={onQueue}
+        isCursor={isCursor}
         justify="flex-start"
       />
-    </Paper>
+    </Box>
   );
 }
 
@@ -354,7 +374,7 @@ function PlayerCard({ player, isDrafted, canManualPick, pickUnavailable, explana
  * horizontal scroll a phone-width screen can't afford. `isMobile` switches
  * both the rendering and how "near the bottom" is measured for pagination,
  * since mobile has no bounded scroll container of its own (the page itself
- * is the one scroll region - see DraftBoard.jsx), while desktop's Paper IS
+ * is the one scroll region - see DraftBoard.jsx), while desktop's Frame IS
  * a bounded, focusable scroll region (issue #122 acceptance criterion 1). */
 function PlayerPoolTable({
   players,
@@ -395,7 +415,16 @@ function PlayerPoolTable({
   // derived once by the room from pickAvailability.js and shared with the queue
   // rail and Quick View (issue #792 ruling 3), so this table no longer imports
   // pickAvailability or takes the four raw draft facts it used to key on.
-  const { canManualPick, pickUnavailable, explanation } = pickState;
+  const {
+    canManualPick, pickUnavailable, explanation, onTheClock,
+  } = pickState;
+  // The room's one cursor (spec #2432): the first queued player still on screen, else the first row.
+  const cursorId = draftCursorPlayerId({
+    onTheClock: !!onTheClock,
+    canPick: !!canManualPick && !pickUnavailable,
+    queue,
+    rows: players.map((p) => ({ id: p.id, isDrafted: draftedIds.has(p.id) })),
+  });
   const scrollRef = useRef(null);
   const headingId = useId();
 
@@ -430,108 +459,60 @@ function PlayerPoolTable({
     : 'Sort direction: descending. Activate to sort ascending.';
 
   const filtersBox = (
-    <Box sx={{ mb: 2, display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap', flexShrink: 0 }}>
-      {headerAction ? (
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, width: '100%' }}>
-          <Stack direction="row" spacing={0.5} alignItems="center">
-            <Typography id={headingId} variant="h6" component="h2">Available Players</Typography>
-            <ColumnGuide />
-          </Stack>
-          {headerAction}
-        </Box>
-      ) : (
+    <Box sx={{ mb: 2, display: 'flex', gap: 2, alignItems: 'flex-end', flexWrap: 'wrap', flexShrink: 0 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, width: '100%' }}>
         <Stack direction="row" spacing={0.5} alignItems="center">
-          <Typography id={headingId} variant="h6" component="h2">Available Players</Typography>
+          <PixelHeading id={headingId} size={16}>Available Players</PixelHeading>
           <ColumnGuide />
         </Stack>
-      )}
-      <TextField
-        size="small"
-        // The pool's own filter, named apart from the Nav bar's global player
-        // search (issue #123 acceptance criterion 6): this narrows the
-        // available players already on screen; that one looks up any player in
-        // the league's world. Two controls named "Search" on one page left the
-        // difference carried by position alone.
+        {headerAction}
+      </Box>
+      {/* The pool's own filter, named apart from the Nav bar's global player search (issue #123
+          acceptance criterion 6): this narrows the available players already on screen; that one
+          looks up any player in the league's world. */}
+      <PsField
         label="Filter available"
         placeholder="Filter by name…"
         value={searchInput}
         onChange={(e) => setSearchInput(e.target.value)}
-        sx={{ minWidth: 200 }}
-        InputProps={{
-          endAdornment: searchInput ? (
-            <IconButton
-              size="small"
-              aria-label="Clear filter"
-              onClick={() => setSearchInput('')}
-              sx={{
-                // Growing this button's own box to 44x44 (like everywhere
-                // else) would grow with it - the small TextField it lives
-                // inside as an endAdornment, taller than the Position/Bye
-                // week Selects sitting next to it in the same filter row.
-                // Keep the visible button MUI's normal small size and
-                // expand only the invisible hit area via ::after instead -
-                // the WCAG-sanctioned "target offset" technique (SC 2.5.8).
-                position: 'relative',
-                '&::after': {
-                  content: '""',
-                  position: 'absolute',
-                  top: '50%',
-                  left: '50%',
-                  transform: 'translate(-50%, -50%)',
-                  width: 44,
-                  height: 44,
-                },
-              }}
-            >
-              <CloseIcon fontSize="small" />
-            </IconButton>
-          ) : null,
-        }}
+        onClear={() => setSearchInput('')}
+        clearLabel="Clear filter"
+        width={190}
       />
-      <FormControl sx={{ minWidth: 120 }}>
-        <InputLabel id="draft-position-filter-label">Position</InputLabel>
+      <FormControl sx={{ width: 100, gap: '6px' }}>
+        <FieldLabel id="draft-position-filter-label">Position</FieldLabel>
         <Select
           labelId="draft-position-filter-label"
           value={positionFilter}
-          label="Position"
           onChange={(e) => onPositionFilterChange(e.target.value)}
-          size="small"
+          sx={FIELD_SX}
+          MenuProps={{ PaperProps: MENU_PAPER }}
         >
-          {/* One entry per distinct starting slot key the draft's own roster
-              template carries, canonical order, with group chips (DL/LB/DB)
-              in place of granular defender codes (#1420) - the same
-              chipsForRosterSlots derivation the Players page chip menu
-              reuses (#1419), never a second hand-kept position list. */}
+          {/* One entry per distinct starting slot key the draft's own roster template carries,
+              canonical order, with group chips (DL/LB/DB) in place of granular defender codes
+              (#1420) - the same chipsForRosterSlots derivation the Players page chip menu reuses
+              (#1419), never a second hand-kept position list. */}
           {chips.map((chip) => (
             <MenuItem key={chip.key} value={chip.key}>{chip.key}</MenuItem>
           ))}
         </Select>
       </FormControl>
-      <FormControl sx={{ minWidth: 220 }}>
-        <InputLabel id="draft-bye-filter-label">Bye week</InputLabel>
+      <FormControl sx={{ width: 160, gap: '6px' }}>
+        <FieldLabel id="draft-bye-filter-label">Bye week</FieldLabel>
         <Select
           labelId="draft-bye-filter-label"
-          label="Bye week"
           multiple
           value={byeWeeksFilter}
           onChange={(e) => {
             const { value } = e.target;
             onByeWeeksFilterChange(typeof value === 'string' ? value.split(',').map(Number) : value);
           }}
-          size="small"
+          sx={FIELD_SX}
+          MenuProps={{ PaperProps: MENU_PAPER }}
           renderValue={(selected) => (
-            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+            <Box sx={{ display: 'flex', flexWrap: 'nowrap', gap: 0.5, overflow: 'hidden' }}>
               {selected.map((week) => (
-                <Chip
-                  key={week}
-                  size="small"
-                  label={`Bye ${week}`}
-                  // Stops the click from also toggling the Select's open
-                  // state, so the delete icon actually removes the chip
-                  // instead of just reopening the dropdown.
-                  onMouseDown={(e) => e.stopPropagation()}
-                  onDelete={() => onByeWeeksFilterChange(selected.filter((w) => w !== week))}
-                />
+                <Tag key={week}>{`Bye ${week}`}</Tag>
               ))}
             </Box>
           )}
@@ -543,29 +524,21 @@ function PlayerPoolTable({
           ))}
         </Select>
       </FormControl>
-      <FormControlLabel
-        sx={MIN_TOUCH_TARGET_SX}
-        control={
-          <Checkbox size="small" checked={hideDrafted} onChange={(e) => setHideDrafted(e.target.checked)} />
-        }
-        label="Hide drafted"
-      />
+      <PsCheck label="Hide drafted" checked={hideDrafted} onChange={(e) => setHideDrafted(e.target.checked)} />
       {isMobile && (
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-          <FormControl sx={{ minWidth: 160 }}>
-            <InputLabel id="draft-sort-field-label">Sort by</InputLabel>
+        <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: 0.5 }}>
+          <FormControl sx={{ minWidth: 160, gap: '6px' }}>
+            <FieldLabel id="draft-sort-field-label">Sort by</FieldLabel>
             <Select
               labelId="draft-sort-field-label"
-              label="Sort by"
-              // No fallback needed here (QA correction to the prior round):
-              // usePlayerPool validates `?sort=` against this same field
-              // list at the source, so `sort` is guaranteed to always name
-              // a real field by the time it reaches this Select - guarding
-              // again at this layer would let the Select display a
-              // DIFFERENT field than what's actually in effect.
+              // No fallback needed here (QA correction to the prior round): usePlayerPool validates
+              // `?sort=` against this same field list at the source, so `sort` is guaranteed to
+              // always name a real field by the time it reaches this Select - guarding again at
+              // this layer would let the Select display a DIFFERENT field than what's in effect.
               value={sort}
               onChange={(e) => onSort(e.target.value)}
-              size="small"
+              sx={FIELD_SX}
+              MenuProps={{ PaperProps: MENU_PAPER }}
             >
               {SORT_FIELDS.map((field) => (
                 <MenuItem key={field.key} value={field.key}>
@@ -574,26 +547,17 @@ function PlayerPoolTable({
               ))}
             </Select>
           </FormControl>
-          {/* One string drives both the visible Tooltip and the accessible
-              name (QA finding: they used to disagree - the label named the
-              CURRENT state while the tooltip described the ACTION, and MUI's
-              Tooltip gives the child's own aria-label precedence anyway, so
-              only the label was ever heard). Deriving both from the same
-              value makes them structurally unable to diverge again. Neither
-              says "tap" - the control is present up to the medium breakpoint,
-              including keyboard/mouse laptop widths, not just touch. */}
+          {/* One string drives both the visible Tooltip and the accessible name (QA finding: they
+              used to disagree), so they cannot diverge again. Neither says "tap" - the control is
+              present up to the medium breakpoint, including keyboard/mouse laptop widths. */}
           <Tooltip title={sortDirectionLabel}>
-            <IconButton
-              aria-label={sortDirectionLabel}
-              size="small"
-              // Re-selecting the SAME field toggles direction (see
-              // usePlayerPool's handleSort) - the same rule the desktop
-              // TableSortLabel headers already rely on.
-              onClick={() => onSort(sort)}
-              sx={MIN_TOUCH_TARGET_SX}
-            >
-              {dir === 'asc' ? <ArrowUpwardIcon fontSize="small" /> : <ArrowDownwardIcon fontSize="small" />}
-            </IconButton>
+            {/* Re-selecting the SAME field toggles direction (see usePlayerPool's handleSort) - the
+                same rule the desktop TableSortLabel headers already rely on. */}
+            <span>
+              <PsIconButton label={sortDirectionLabel} onClick={() => onSort(sort)}>
+                {dir === 'asc' ? <ArrowUpwardIcon fontSize="small" /> : <ArrowDownwardIcon fontSize="small" />}
+              </PsIconButton>
+            </span>
           </Tooltip>
         </Box>
       )}
@@ -602,14 +566,14 @@ function PlayerPoolTable({
 
   if (isMobile) {
     return (
-      <Paper component="section" aria-labelledby={headingId} sx={{ p: 2 }}>
+      <Frame labelledBy={headingId} sx={{ p: 2 }}>
         {filtersBox}
         {players.length === 0 ? (
-          <Typography sx={{ color: 'text.secondary', textAlign: 'center', py: 2 }}>
+          <Box sx={{ ...dimSx, fontSize: '15px', textAlign: 'center', py: 2 }}>
             {search ? `No available players matching “${search}”` : 'No available players'}
-          </Typography>
+          </Box>
         ) : (
-          // A real list, not a bare stack of Papers (QA finding): browse-mode
+          // A real list, not a bare stack of boxes (QA finding): browse-mode
           // screen readers announce a count and each item's position ("N of
           // M") the same way the desktop table's rows did implicitly. role
           // + aria-label rather than a semantic <ul>/<li> (this repo's own
@@ -627,6 +591,7 @@ function PlayerPoolTable({
                   player={player}
                   {...state}
                   explanation={explanation}
+                  isCursor={player.id === cursorId}
                   onDraft={onDraft}
                   onQueue={onQueue}
                   onOpenQuickView={onOpenQuickView}
@@ -637,17 +602,16 @@ function PlayerPoolTable({
         )}
         {loadingMore && (
           <Box sx={{ textAlign: 'center', py: 2 }}>
-            <CircularProgress size={20} />
+            <CircularProgress size={20} sx={{ color: 'var(--ps-ink)' }} />
           </Box>
         )}
-      </Paper>
+      </Frame>
     );
   }
 
   return (
-    <Paper
-      component="section"
-      aria-labelledby={headingId}
+    <Frame
+      labelledBy={headingId}
       // The named landmark for this region (issue #122 acceptance criterion
       // 1); tabIndex makes it directly reachable by keyboard even though the
       // actual scrolling happens on the TableContainer nested inside it.
@@ -667,7 +631,7 @@ function PlayerPoolTable({
           stickyHeader
           size="small"
           aria-labelledby={headingId}
-          sx={{ '& .MuiTableCell-body': { px: 1, py: 0 } }}
+          sx={{ '& .MuiTableCell-body': { px: '6px', py: 0 }, fontVariantNumeric: 'tabular-nums' }}
         >
           <TableHead>
             <TableRow>
@@ -705,7 +669,7 @@ function PlayerPoolTable({
           <TableBody>
             {players.length === 0 && (
               <TableRow>
-                <TableCell colSpan={DESKTOP_COLUMN_COUNT} sx={{ color: 'text.secondary', textAlign: 'center' }}>
+                <TableCell colSpan={DESKTOP_COLUMN_COUNT} sx={{ ...bodyCellSx, color: 'var(--ps-dim)', textAlign: 'center' }}>
                   {search ? `No available players matching “${search}”` : 'No available players'}
                 </TableCell>
               </TableRow>
@@ -715,50 +679,39 @@ function PlayerPoolTable({
                 draftedIds, canManualPickBase: canManualPick, tablePickUnavailable: pickUnavailable, byeOverlapByWeek, queue,
               });
               return (
-                <TableRow key={player.id} sx={{ height: 44 }}>
-                  <TableCell sx={{ whiteSpace: 'nowrap' }}>
+                <TableRow
+                  key={player.id}
+                  className={player.id === cursorId ? 'cursor' : undefined}
+                  sx={{ height: 44, ...(player.id === cursorId ? CURSOR_SX : null) }}
+                >
+                  <TableCell sx={{ ...bodyCellSx, whiteSpace: 'nowrap' }}>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, whiteSpace: 'nowrap' }}>
                       <PlayerNameLink name={player.name} playerId={player.id} onOpen={onOpenQuickView} sx={MIN_TOUCH_TARGET_SX} />
-                      <Typography component="span" variant="caption" color="text.secondary">
+                      <Box component="span" sx={dimSx}>
                         · {player.nfl_team || 'FA'}
-                      </Typography>
-                      <InjuryBadge status={player.injury_status} detail={player.injury_detail} />
-                      {isDrafted && <Chip size="small" label="Drafted" color="default" />}
+                      </Box>
+                      <InjuryTag status={player.injury_status} title={player.injury_detail || undefined} />
+                      {isDrafted && <Tag>Drafted</Tag>}
                     </Box>
                   </TableCell>
-                  <TableCell>
-                    <PositionChip position={player.position} />
+                  <TableCell sx={bodyCellSx}>
+                    <PosTag position={player.position} />
                   </TableCell>
-                  <TableCell align="right" sx={numericCellSx}>
+                  <TableCell align="right" sx={{ ...bodyCellSx, ...numericCellSx }}>
                     {player.bye_week != null ? (
                       <Stack direction="row" spacing={0.5} justifyContent="flex-end" alignItems="center">
                         <span>{player.bye_week}</span>
-                        {overlap.length > 0 && (
-                          <Tooltip
-                            title={`Also on your roster with this Bye: ${overlap.map((p) => p.name).join(', ')}`}
-                          >
-                            <Chip
-                              size="small"
-                              variant="outlined"
-                              label={overlap.length}
-                              aria-label={
-                                `Bye overlap: ${overlap.length} rostered player${overlap.length === 1 ? '' : 's'} `
-                                + `${overlap.length === 1 ? 'shares' : 'share'} this Bye week - `
-                                + overlap.map((p) => p.name).join(', ')
-                              }
-                            />
-                          </Tooltip>
-                        )}
+                        {overlap.length > 0 && <ByeOverlapTag overlap={overlap} />}
                       </Stack>
                     ) : (
                       '-'
                     )}
                   </TableCell>
-                  <TableCell align="right" sx={numericCellSx}>{player.adp != null ? player.adp : '-'}</TableCell>
-                  <TableCell align="right" sx={numericCellSx}>
+                  <TableCell align="right" sx={{ ...bodyCellSx, ...numericCellSx }}>{player.adp != null ? player.adp : '-'}</TableCell>
+                  <TableCell align="right" sx={{ ...bodyCellSx, ...numericCellSx }}>
                     {player.position_rank != null ? `#${player.position_rank}` : '-'}
                   </TableCell>
-                  <TableCell align="right" sx={numericCellSx}>
+                  <TableCell align="right" sx={{ ...bodyCellSx, ...numericCellSx }}>
                     {player.projected_points != null ? (
                       Number(player.projected_points).toFixed(1)
                     ) : (
@@ -769,7 +722,7 @@ function PlayerPoolTable({
                       </Tooltip>
                     )}
                   </TableCell>
-                  <TableCell align="center">
+                  <TableCell align="center" sx={bodyCellSx}>
                     <PlayerActions
                       player={player}
                       isDrafted={isDrafted}
@@ -779,6 +732,7 @@ function PlayerPoolTable({
                       queued={queued}
                       onDraft={onDraft}
                       onQueue={onQueue}
+                      isCursor={player.id === cursorId}
                     />
                   </TableCell>
                 </TableRow>
@@ -786,15 +740,15 @@ function PlayerPoolTable({
             })}
             {loadingMore && (
               <TableRow>
-                <TableCell colSpan={DESKTOP_COLUMN_COUNT} sx={{ textAlign: 'center', py: 2 }}>
-                  <CircularProgress size={20} />
+                <TableCell colSpan={DESKTOP_COLUMN_COUNT} sx={{ ...bodyCellSx, textAlign: 'center', py: 2 }}>
+                  <CircularProgress size={20} sx={{ color: 'var(--ps-ink)' }} />
                 </TableCell>
               </TableRow>
             )}
           </TableBody>
         </Table>
       </TableContainer>
-    </Paper>
+    </Frame>
   );
 }
 
@@ -840,6 +794,8 @@ PlayerPoolTable.propTypes = {
     canManualPick: PropTypes.bool,
     pickUnavailable: PropTypes.bool,
     explanation: PropTypes.string,
+    // The room's isMyTurn: only the viewer's own turn carries the cursor (spec #2432).
+    onTheClock: PropTypes.bool,
   }).isRequired,
   queue: PropTypes.arrayOf(PropTypes.object).isRequired,
   onDraft: PropTypes.func.isRequired,

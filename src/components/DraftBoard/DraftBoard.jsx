@@ -698,6 +698,8 @@ function DraftBoard() {
     canManualPick,
     pickUnavailable: canManualPick && pickTemporarilyUnavailable({ isMyTurn, draftPaused: !!league?.draft_paused }),
     explanation: PICK_UNAVAILABLE_EXPLANATION,
+    // Only the viewer's own turn carries the pool's cursor (spec #2432), so a commissioner picking for another team never gets one.
+    onTheClock: isMyTurn,
   };
 
   // Shared by every PlayerPoolTable render below - built once instead of
