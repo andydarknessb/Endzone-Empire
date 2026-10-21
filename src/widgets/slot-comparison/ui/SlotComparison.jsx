@@ -30,7 +30,9 @@ import { unavailableLabel } from '../../../entities/roster';
  * "on bye") in place of the projection for an Unavailable starter), and, on a wide screen while the
  * matchup is live, his Exp final (the producer's `expected_final`, a dash when it priced none). Before
  * kickoff no row repeats "Yet to play": the head says "Every starter yet to play" once and every figure
- * is a Proj, with no Exp final column (it would equal Proj).
+ * is a Proj, with no Exp final column (it would equal Proj). Once settled (`played` or `final`) every
+ * starter is done: the head says "Every starter final" once in place of the legend and no row draws a
+ * mark or its word (a `final` matchup is never priced, so its rows carry no state anyway, #2429).
  *
  * On a phone a cell is three lines (#2008, #2395): the name and injury tag; the mark (its word screen-reader
  * only) and the figure; the game on its own line, wrapping at spaces inside the half-width cell; each half keeps its side of a
@@ -90,7 +92,9 @@ export default function SlotComparison({
         <FrameHead>
           <PixelHeading id={headingId}>Starters</PixelHeading>
           <Box component="span" sx={{ ...META, ml: 'auto' }}>{count}</Box>
-          {pre ? <Box component="span" sx={{ ...META, flexBasis: { xs: '100%', md: 'auto' } }}>Every starter yet to play</Box> : <Legend />}
+          {pre || phase.settled
+            ? <Box component="span" sx={{ ...META, flexBasis: { xs: '100%', md: 'auto' } }}>{pre ? 'Every starter yet to play' : 'Every starter final'}</Box>
+            : <Legend />}
         </FrameHead>
       )}
     >
@@ -122,6 +126,7 @@ export default function SlotComparison({
                   side={key}
                   right={right}
                   pre={pre}
+                  settled={phase.settled}
                   showExp={showExp}
                   expanded={open(key)}
                   panelId={panelId}
@@ -347,10 +352,11 @@ const FOCUS_RING = { outline: '3px solid var(--ps-focus)', outlineOffset: 0, box
  * the data key ('home' or 'away').
  */
 function SideCell({
-  player, side, right, pre, showExp, expanded, panelId, compact, fillBy, onToggle, onOpenPlayer,
+  player, side, right, pre, settled, showExp, expanded, panelId, compact, fillBy, onToggle, onOpenPlayer,
 }) {
   if (!player) return <EmptyCell side={side} right={right} pre={pre} compact={compact} showExp={showExp} fillBy={fillBy} />;
-  const state = starterStateView(player.game_state);
+  // A settled matchup is never priced, so every game is final and the head says so once; no per-row mark.
+  const state = settled ? null : starterStateView(player.game_state);
   const reason = unavailableLabel(player);
   const notStarted = pre || player.game_state === 'scheduled';
   // "proj x" while his game has not started (the reason in its place for an Unavailable starter);

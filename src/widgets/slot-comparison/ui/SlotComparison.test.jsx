@@ -292,6 +292,38 @@ describe('before kickoff', () => {
   });
 });
 
+describe('once settled', () => {
+  const withState = (game_state) => rows.map((r) => ({
+    ...r,
+    home: r.home && { ...r.home, game_state },
+    away: r.away && { ...r.away, game_state },
+  }));
+  const settled = (status, game_state) => render(<SlotComparison {...baseProps} status={status} rows={withState(game_state)} />);
+
+  test('a final matchup (unpriced rows) says "Every starter final" once, with no legend and no mark', () => {
+    settled('final', null);
+
+    expect(screen.getByText('Every starter final')).toBeInTheDocument();
+    expect(screen.queryByTestId('slot-legend')).not.toBeInTheDocument();
+    expect(screen.queryByTestId(/^state-/)).not.toBeInTheDocument();
+  });
+
+  test('a played matchup (rows final) draws no mark and no "Final" word', () => {
+    settled('played', 'final');
+
+    expect(screen.getByText('Every starter final')).toBeInTheDocument();
+    expect(screen.queryByTestId(/^state-/)).not.toBeInTheDocument();
+    expect(screen.queryByText('Final')).not.toBeInTheDocument();
+  });
+
+  test('a played matchup draws no mark on a phone', () => {
+    phone = true;
+    settled('played', 'final');
+
+    expect(screen.queryByTestId(/^state-/)).not.toBeInTheDocument();
+  });
+});
+
 describe('the controls', () => {
   test('a name button opens the player, and the rest of the cell toggles the stat line', async () => {
     render(<SlotComparison {...baseProps} />);
