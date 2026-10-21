@@ -123,6 +123,21 @@ function createDraftRoomBroadcast(io, transportName = 'local') {
         return { delivered: false, transport: transportName, error };
       }
     },
+    /** A user's login ended (account deleted, password reset). Closes every one
+     *  of their open sockets on every instance through the `user:<id>` room, so
+     *  a connection does not outlive the session that opened it (#2415). The
+     *  client sees `io server disconnect`. Delivered or reported, never thrown. */
+    sessionEnded: async (userId) => {
+      try {
+        const pending = io.to(`user:${userId}`).disconnectSockets();
+        if (pending && typeof pending.then === 'function') await pending;
+        return { delivered: true, transport: transportName };
+      } catch (error) {
+        logger.error({ err: error, event: 'session:ended', userId }, 'draft room broadcast failed');
+        sentry.captureError(error, { event: 'session:ended', userId });
+        return { delivered: false, transport: transportName, error };
+      }
+    },
   };
 }
 

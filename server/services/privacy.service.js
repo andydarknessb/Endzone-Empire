@@ -3,6 +3,7 @@ const pool = require('../modules/pool');
 const { withTransaction } = require('../modules/withTransaction');
 const encryptLib = require('../modules/encryption');
 const { deleteAvatarObjects } = require('./avatar.service');
+const { getDraftRoomBroadcast } = require('../modules/draftRoomBroadcast');
 
 class PrivacyError extends Error {
   constructor(statusCode, code, message, details) {
@@ -215,6 +216,9 @@ async function deleteUserAccount({ userId, confirmation }) {
     { label: 'privacy' }
   );
 
+  // Committed: end the account's open sockets (#2415). Before the avatar
+  // cleanup, which can throw; sessionEnded itself never does.
+  await getDraftRoomBroadcast().sessionEnded(userId);
   await Promise.all(avatars.map((avatar) => deleteAvatarObjects(avatar)));
   return { ok: true };
 }
