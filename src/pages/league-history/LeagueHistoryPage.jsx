@@ -1,12 +1,15 @@
 import React, { useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { Box } from '@mui/material';
-import EmojiEventsOutlined from '@mui/icons-material/EmojiEventsOutlined';
 import { visuallyHidden } from '@mui/utils';
-import { AbbreviationTooltip, Badge, Card, GradeChip, SegmentedControl, Skeleton, TeamAvatar } from '../../shared/ui';
+import { AbbreviationTooltip, SegmentedControl } from '../../shared/ui';
+import {
+  Frame, FrameHead, PixelHeading, Skel, Tag, TeamMark, psRootSx,
+} from '../../shared/ui/playselect';
 import { teamStandingFromRow } from '../../entities/standings';
 import { seasonView, useLeagueHistory } from '../../entities/season-archive';
 import { teamNameLabel, teamRowKey } from '../../shared/lib';
+import LeagueBreadcrumb from '../../components/LeagueBreadcrumb/LeagueBreadcrumb';
 // A page reaching below the island for a presentational component ADR 0031's
 // #1146 amendment does not yet cover (its clause is written for widgets and
 // features; a page reaching below island is already precedent -
@@ -37,24 +40,21 @@ export function logMissingChampionStanding({ leagueId, season, teamId }) {
 
 /**
  * League History page slice (ADR 0020/0029 precedent), on the
- * `/league/:leagueId/history` route in place of the legacy `LeagueHistory`
- * component under `src/components`, which is deleted with its test.
+ * `/league/:leagueId/history` route, painted on Play-select (ADR 0067 wave 5).
  *
  * Composes the Season archive entity's `useLeagueHistory` (one read of
  * `GET /api/league/:leagueId/history`, kept live over Team-profile updates)
  * with the standings entity's `teamStandingFromRow` for the Record rule
  * (CONTEXT.md "Record") - the one place this page reaches for a second
- * entity, which ADR 0029 permits directly at a page. The hardcoded preview
- * podium and its "coming soon" scaffold are gone; the placeholder year tabs
- * are replaced by a real two-way view: "Season History" (every archived
- * season, ported from the legacy Accordion list) beside "All-Time"
- * (championships and all-time Record per Team from `allTime[]`, #1212).
+ * entity, which ADR 0029 permits directly at a page. Two views: "Season
+ * History" (every archived season) beside "All-Time" (championships and
+ * all-time Record per Team from `allTime[]`, #1212).
  *
- * `seasonPresentation` is gone too - the server already decided champions and
- * outcome (`server/services/seasonArchive.service.js`); this page's only
- * client-side work is the standings-shape/pick'em detection and the
- * champion-to-standing join the entity's `seasonView` does, plus formatting
- * the Record or the points/correct caption from whichever row it found.
+ * The server already decided champions and outcome
+ * (`server/services/seasonArchive.service.js`); this page's only client-side
+ * work is the standings-shape/pick'em detection and the champion-to-standing
+ * join the entity's `seasonView` does, plus formatting the Record or the
+ * points/correct caption from whichever row it found.
  */
 export default function LeagueHistoryPage() {
   const { leagueId } = useParams();
@@ -65,9 +65,9 @@ export default function LeagueHistoryPage() {
     return (
       <PageShell>
         <Box data-testid="page-skeleton" aria-busy="true" sx={{ display: 'grid', gap: '16px' }}>
-          <Skeleton variant="text" width={220} height={40} />
+          <Skel width="220px" height={40} />
           {Array.from({ length: 3 }).map((_, i) => (
-            <Skeleton key={i} variant="rounded" height={96} />
+            <Skel key={i} width="100%" height={96} />
           ))}
         </Box>
       </PageShell>
@@ -76,59 +76,46 @@ export default function LeagueHistoryPage() {
 
   return (
     <PageShell>
-      <Box
-        component="h1"
-        sx={{
-          m: 0,
-          mb: 2,
-          fontFamily: 'var(--dash-font-display)',
-          fontSize: { xs: '26px', sm: '32px' },
-          fontWeight: 700,
-          letterSpacing: '0.02em',
-          textTransform: 'uppercase',
-          color: 'var(--dash-ink)',
-        }}
-      >
-        League History
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+        <LeagueBreadcrumb look="playselect" />
+        <PixelHeading level={1}>League History</PixelHeading>
       </Box>
 
       {error && (
-        <Box
+        <Frame
+          tier="rule"
+          tone="danger"
+          component="div"
           role="alert"
           data-testid="league-history-error"
-          sx={{ fontSize: '14px', color: 'var(--dash-ink)', mb: 2 }}
+          sx={{ padding: '16px 20px', fontSize: '16px' }}
         >
           {error}
-        </Box>
+        </Frame>
       )}
 
       {!error && seasons.length === 0 && (
-        <Box
+        <Frame
+          tier="rule"
+          component="div"
           data-testid="history-empty"
           sx={{
-            display: 'grid',
-            justifyItems: 'center',
-            textAlign: 'center',
-            gap: 1.5,
-            minHeight: '50vh',
-            alignContent: 'center',
-            px: 2,
+            display: 'grid', justifyItems: 'center', textAlign: 'center', gap: '12px', padding: '48px 20px',
           }}
         >
-          <EmojiEventsOutlined sx={{ fontSize: 88, color: 'var(--dash-faint)' }} />
-          <Box component="p" sx={{ m: 0, fontSize: '18px', fontWeight: 600, color: 'var(--dash-ink)' }}>
-            The Hall of Fame is empty.
-          </Box>
-          <Box component="p" sx={{ m: 0, fontSize: '14px', color: 'var(--dash-dim)', maxWidth: 420 }}>
+          <Box sx={{ color: 'var(--ps-dim)', display: 'inline-flex' }}><TrophyIcon type="champion" size={88} /></Box>
+          <Box component="p" sx={{ m: 0, fontSize: '18px', fontWeight: 600 }}>The Hall of Fame is empty.</Box>
+          <Box component="p" sx={{ m: 0, fontSize: '16px', color: 'var(--ps-dim)', maxWidth: 420 }}>
             Complete your first season to cement your legacy.
           </Box>
-        </Box>
+        </Frame>
       )}
 
       {!error && seasons.length > 0 && (
         <>
-          <Box sx={{ mb: 2.5 }}>
+          <Box sx={{ alignSelf: 'flex-start' }}>
             <SegmentedControl
+              look="playselect"
               options={TAB_OPTIONS}
               value={tab}
               onChange={setTab}
@@ -138,7 +125,7 @@ export default function LeagueHistoryPage() {
           </Box>
 
           {tab === TAB_SEASONS && (
-            <Box sx={{ display: 'grid', gap: '16px' }} data-testid="league-history-seasons">
+            <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: '16px' }} data-testid="league-history-seasons">
               {seasons.map((season) => (
                 <SeasonCard key={season.season} season={season} leagueId={leagueId} />
               ))}
@@ -157,21 +144,27 @@ function SeasonCard({ season, leagueId }) {
     standings, trophies, draftGrades, champions, pickem, coChampions,
     explicitNoChampion, trophiesErrored, draftGradesErrored,
   } = seasonView(season);
+  const headingId = `season-${season.season}-heading`;
 
   return (
-    <Card title={`Season ${season.season}`} data-testid={`season-panel-${season.season}`}>
-      <Box sx={{ px: 2.25, py: 2 }}>
-        <Box sx={{ mb: 2 }}>
+    <Frame
+      tier="rule"
+      labelledBy={headingId}
+      data-testid={`season-panel-${season.season}`}
+      head={<FrameHead><PixelHeading id={headingId}>{`Season ${season.season}`}</PixelHeading></FrameHead>}
+    >
+      <Box sx={{ p: { xs: '14px', md: '20px' }, display: 'flex', flexDirection: 'column', gap: '24px', minWidth: 0 }}>
+        <Box sx={{ minWidth: 0 }}>
           {champions.length > 0 ? (
-            <Box data-testid={`champion-${season.season}`} sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+            <Box data-testid={`champion-${season.season}`} sx={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
               {champions.map((champion) => (
-                <Badge key={champion.teamId} variant="warning">
+                <Tag key={champion.teamId} full>
                   {`${coChampions ? 'Co-Champion' : 'Champion'}: ${teamNameLabel(champion.name)}`}
-                </Badge>
+                </Tag>
               ))}
             </Box>
           ) : (
-            <Badge variant="neutral">{explicitNoChampion ? 'No champion' : 'No champion recorded'}</Badge>
+            <Tag>{explicitNoChampion ? 'No champion' : 'No champion recorded'}</Tag>
           )}
         </Box>
 
@@ -179,33 +172,26 @@ function SeasonCard({ season, leagueId }) {
           <Box
             data-testid={`champion-banner-${season.season}`}
             sx={{
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 2,
-              mb: 3,
-              p: 2,
-              backgroundColor: 'var(--dash-accent-soft)',
-              borderLeft: '4px solid var(--dash-warning)',
-              borderRadius: 'var(--dash-radius-sm)',
+              display: 'flex', flexDirection: 'column', gap: '16px', p: '16px', border: '2px solid var(--ps-rule)', minWidth: 0,
             }}
           >
-            <Box component="span" sx={{ fontSize: '13px', color: 'var(--dash-ink)' }}>
+            <Box component="span" sx={{ fontSize: '14px', color: 'var(--ps-dim)' }}>
               {coChampions ? 'Season Co-Champions' : 'Season Champion'}
             </Box>
-            <Box sx={{ display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, gap: 2 }}>
+            <Box sx={{ display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, flexWrap: 'wrap', gap: '16px' }}>
               {champions.map((champion) => (
-                <Box key={champion.teamId} sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                  <Box component="span" aria-hidden="true" sx={{ display: 'inline-flex', color: 'var(--dash-warning)' }}>
+                <Box key={champion.teamId} sx={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0 }}>
+                  <Box component="span" aria-hidden="true" sx={{ display: 'inline-flex', color: 'var(--ps-medal-gold)' }}>
                     <TrophyIcon type="champion" size={32} />
                   </Box>
-                  <TeamAvatar
+                  <TeamMark
                     name={champion.name}
                     avatarUrl={champion.avatarUrl}
                     avatarStaticUrl={champion.avatarStaticUrl}
                     size={48}
                   />
-                  <Box>
-                    <Box component="p" sx={{ m: 0, fontSize: '20px', fontWeight: 700, color: 'var(--dash-ink)' }}>
+                  <Box sx={{ minWidth: 0 }}>
+                    <Box component="p" sx={{ m: 0, fontSize: '20px', fontWeight: 700, overflowWrap: 'anywhere' }}>
                       {teamNameLabel(champion.name)}
                     </Box>
                     <ChampionCaption pickem={pickem} champion={champion} leagueId={leagueId} season={season.season} />
@@ -216,25 +202,28 @@ function SeasonCard({ season, leagueId }) {
           </Box>
         )}
 
-        <SectionHeading id={`season-${season.season}-standings-heading`}>Final Standings</SectionHeading>
-        <StandingsTable standings={standings} pickem={pickem} labelledBy={`season-${season.season}-standings-heading`} />
+        <Box sx={{ minWidth: 0 }}>
+          <SectionHeading id={`season-${season.season}-standings-heading`}>Final Standings</SectionHeading>
+          <StandingsTable standings={standings} pickem={pickem} labelledBy={`season-${season.season}-standings-heading`} />
+        </Box>
 
         {trophiesErrored ? (
-          <Box component="p" sx={{ fontSize: '13px', color: 'var(--dash-dim)', fontStyle: 'italic', mt: 2 }}>
-            Couldn't load trophies for this season
-          </Box>
+          <Note>Couldn't load trophies for this season</Note>
         ) : (
           trophies.length > 0 && (
-            <Box sx={{ mt: 3 }}>
+            <Box sx={{ minWidth: 0 }}>
               <SectionHeading id={`season-${season.season}-trophies-heading`}>Trophies</SectionHeading>
-              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+              <Box
+                component="ul"
+                role="list"
+                aria-labelledby={`season-${season.season}-trophies-heading`}
+                sx={{ m: 0, p: 0, listStyle: 'none', display: 'grid', gap: '8px' }}
+              >
                 {trophies.map((trophy) => (
-                  <Badge key={trophy.id} variant="neutral">
-                    <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.75 }}>
-                      <TrophyIcon type={trophy.type} size={18} />
-                      <Box component="span">{`${trophy.label} · ${trophy.team_name}`}</Box>
-                    </Box>
-                  </Badge>
+                  <Box key={trophy.id} component="li" sx={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '15px' }}>
+                    <TrophyIcon type={trophy.type} size={18} />
+                    <Box component="span" sx={{ minWidth: 0, overflowWrap: 'anywhere' }}>{`${trophy.label} · ${trophy.team_name}`}</Box>
+                  </Box>
                 ))}
               </Box>
             </Box>
@@ -242,20 +231,18 @@ function SeasonCard({ season, leagueId }) {
         )}
 
         {draftGradesErrored ? (
-          <Box component="p" sx={{ fontSize: '13px', color: 'var(--dash-dim)', fontStyle: 'italic', mt: 2 }}>
-            Couldn't load draft grades for this season
-          </Box>
+          <Note>Couldn't load draft grades for this season</Note>
         ) : (
           draftGrades
           && draftGrades.length > 0 && (
-            <Box sx={{ mt: 3 }}>
+            <Box sx={{ minWidth: 0 }}>
               <SectionHeading id={`season-${season.season}-draft-grades-heading`}>Draft Grades</SectionHeading>
               <DraftGradesTable rows={draftGrades} labelledBy={`season-${season.season}-draft-grades-heading`} />
             </Box>
           )
         )}
       </Box>
-    </Card>
+    </Frame>
   );
 }
 
@@ -266,7 +253,7 @@ function ChampionCaption({ pickem, champion, leagueId, season }) {
     return null;
   }
   return (
-    <Box component="p" sx={{ m: 0, fontSize: '13px', color: 'var(--dash-dim)' }}>
+    <Box component="p" sx={{ m: 0, fontSize: '14px', color: 'var(--ps-dim)' }}>
       {pickem
         ? `${standing.points} points · ${standing.correct} correct`
         : `${teamStandingFromRow(standing).record} record`}
@@ -276,7 +263,7 @@ function ChampionCaption({ pickem, champion, leagueId, season }) {
 
 function StandingsTable({ standings, pickem, labelledBy }) {
   return (
-    <Box sx={{ overflowX: 'auto' }}>
+    <Box sx={{ position: 'relative', overflowX: 'auto' }}>
       <Box component="table" aria-labelledby={labelledBy} sx={{ width: '100%', borderCollapse: 'collapse' }}>
         <Box component="thead">
           <Box component="tr">
@@ -330,7 +317,7 @@ function StandingsTable({ standings, pickem, labelledBy }) {
 
 function DraftGradesTable({ rows, labelledBy }) {
   return (
-    <Box sx={{ overflowX: 'auto' }}>
+    <Box sx={{ position: 'relative', overflowX: 'auto' }}>
       <Box component="table" aria-labelledby={labelledBy} sx={{ width: '100%', borderCollapse: 'collapse' }}>
         <Box component="thead">
           <Box component="tr">
@@ -346,7 +333,7 @@ function DraftGradesTable({ rows, labelledBy }) {
               <BodyCell>{row.rank}</BodyCell>
               <BodyCell asRowHeader>{teamNameLabel(row.name)}</BodyCell>
               <BodyCell align="center">
-                <GradeChip grade={row.grade} />
+                <Tag>{row.grade}</Tag>
               </BodyCell>
               <BodyCell align="right">
                 {row.rosterValue == null ? <Placeholder /> : row.rosterValue}
@@ -367,8 +354,13 @@ function DraftGradesTable({ rows, labelledBy }) {
 function AllTimeCard({ rows }) {
   const anyRecord = rows.some((row) => row.wins != null);
   return (
-    <Card title="All-Time" data-testid="league-history-all-time">
-      <Box sx={{ px: 2.25, py: 2, overflowX: 'auto' }}>
+    <Frame
+      tier="rule"
+      labelledBy="league-history-all-time-heading"
+      data-testid="league-history-all-time"
+      head={<FrameHead><PixelHeading id="league-history-all-time-heading">All-Time</PixelHeading></FrameHead>}
+    >
+      <Box sx={{ position: 'relative', p: { xs: '14px', md: '20px' }, overflowX: 'auto' }}>
         <Box component="table" aria-label="All-Time Records" sx={{ width: '100%', borderCollapse: 'collapse' }}>
           <Box component="thead">
             <Box component="tr">
@@ -381,8 +373,8 @@ function AllTimeCard({ rows }) {
             {rows.map((row, index) => (
               <Box component="tr" key={teamRowKey(row.teamId, index)}>
                 <BodyCell asRowHeader>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
-                    <TeamAvatar name={row.name} avatarUrl={row.avatarUrl} size={24} />
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <TeamMark name={row.name} avatarUrl={row.avatarUrl} avatarStaticUrl={row.avatarStaticUrl} size={28} />
                     <Box component="span">{teamNameLabel(row.name)}</Box>
                   </Box>
                 </BodyCell>
@@ -397,14 +389,14 @@ function AllTimeCard({ rows }) {
           </Box>
         </Box>
       </Box>
-    </Card>
+    </Frame>
   );
 }
 
 // The medal marks on the standings rows, as inline stroke glyphs (no emoji in
 // product UI): decorative and aria-hidden, the rank number beside them
-// carries the meaning.
-const MEDAL_COLOR = { 1: 'var(--dash-warning)', 2: 'var(--medal-silver)', 3: 'var(--medal-bronze)' };
+// carries the meaning. The three colours are the ps-medal tokens.
+const MEDAL_COLOR = { 1: 'var(--ps-medal-gold)', 2: 'var(--ps-medal-silver)', 3: 'var(--ps-medal-bronze)' };
 
 function MedalIcon({ rank }) {
   const color = MEDAL_COLOR[rank];
@@ -436,8 +428,16 @@ function SectionHeading({ id, children }) {
     <Box
       component="h3"
       id={id}
-      sx={{ m: 0, mb: 1, fontSize: '13px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--dash-faint)' }}
+      sx={{ m: 0, mb: '8px', fontSize: '14px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--ps-dim)' }}
     >
+      {children}
+    </Box>
+  );
+}
+
+function Note({ children }) {
+  return (
+    <Box component="p" sx={{ m: 0, fontSize: '14px', color: 'var(--ps-dim)', fontStyle: 'italic' }}>
       {children}
     </Box>
   );
@@ -448,7 +448,7 @@ function HeadCell({ children, align = 'left' }) {
     <Box
       component="th"
       scope="col"
-      sx={{ textAlign: align, px: 1.25, py: 1, fontSize: '11px', fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase', color: 'var(--dash-faint)', whiteSpace: 'nowrap', borderBottom: '1px solid var(--dash-line)' }}
+      sx={{ textAlign: align, px: '10px', py: '8px', fontSize: '13px', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', color: 'var(--ps-dim)', whiteSpace: 'nowrap', borderBottom: '2px solid var(--ps-rule)' }}
     >
       {children}
     </Box>
@@ -465,14 +465,14 @@ function BodyCell({ children, align = 'left', asRowHeader = false }) {
       {...(asRowHeader ? { scope: 'row' } : {})}
       sx={{
         textAlign: align,
-        px: 1.25,
-        py: 1,
-        fontSize: '13.5px',
+        px: '10px',
+        py: '8px',
+        fontSize: '15px',
         fontWeight: 400,
-        color: 'var(--dash-ink)',
+        color: 'var(--ps-ink)',
         fontVariantNumeric: 'tabular-nums',
         whiteSpace: 'nowrap',
-        borderBottom: '1px solid var(--dash-line)',
+        borderBottom: '1px solid var(--ps-rule)',
       }}
     >
       {children}
@@ -495,8 +495,19 @@ function Placeholder() {
 
 function PageShell({ children }) {
   return (
-    <Box sx={{ backgroundColor: 'var(--dash-bg)', color: 'var(--dash-ink)', fontFamily: 'var(--dash-font-body)', minHeight: '100%' }}>
-      <Box sx={{ maxWidth: 1100, mx: 'auto', px: { xs: 2, sm: 3 }, py: { xs: 2.5, sm: 3.5 } }}>
+    <Box className="ps-root" sx={{ ...psRootSx, minHeight: '100%' }}>
+      <Box
+        data-testid="league-history"
+        sx={{
+          maxWidth: '1100px',
+          marginX: 'auto',
+          boxSizing: 'border-box',
+          padding: { xs: '14px 16px 48px', sm: '24px 32px 64px' },
+          display: 'flex',
+          flexDirection: 'column',
+          gap: { xs: '16px', sm: '24px' },
+        }}
+      >
         {children}
       </Box>
     </Box>

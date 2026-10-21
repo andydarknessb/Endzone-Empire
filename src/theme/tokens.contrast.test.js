@@ -559,6 +559,8 @@ const PAIRINGS = [
   // League pages: the 2px edge of a tertiary frame, on the page and against its own panel fill.
   pairing('ps-frame-2', 'ps-field', DECORATIVE_EDGE, 'tertiary frame edge on the page'),
   pairing('ps-frame-2', 'ps-panel', DECORATIVE_EDGE, 'tertiary frame edge against its own panel fill'),
+  // League History podium medals: non-text marks on a Play-select frame, held to the 3:1 non-text floor.
+  ...['gold', 'silver', 'bronze'].map((m) => pairing(`ps-medal-${m}`, 'ps-panel', AA_LARGE, `the ${m} rank medal on a Play-select frame`)),
   // Position tags on a frame: a data encoding (RULINGS.md), still held to AA text on Panel.
   ...['qb', 'rb', 'wr', 'te', 'k', 'def', 'idp'].map((pos) => pairing(`pos-${pos}`, 'ps-panel', AA_TEXT, `position tag text and edge on a Play-select frame (${pos})`)),
 ];
