@@ -207,6 +207,7 @@ router.get('/', requireAuth, async (req, res) => {
         byeWeeksRaw,
         sortField,
         dir,
+        nullTeamLast: req.query.nullTeamLast === 'true',
       },
       { db: pool },
     );

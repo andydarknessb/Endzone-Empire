@@ -1200,7 +1200,7 @@ test('changing the position filter refetches available players filtered by posit
 
   await waitFor(() =>
     expect(apiClient.get).toHaveBeenCalledWith('/api/players', {
-      params: { page: 1, leagueId: 1, available: true, sort: 'adp', position: 'RB' },
+      params: { page: 1, leagueId: 1, available: true, sort: 'adp', position: 'RB', nullTeamLast: true },
     })
   );
 });
@@ -1227,7 +1227,7 @@ test('#1420: the position filter offers the DL/LB/DB defender GROUP chips, not g
   // single `position: 'LB'`.
   await waitFor(() =>
     expect(apiClient.get).toHaveBeenCalledWith('/api/players', {
-      params: { page: 1, leagueId: 1, available: true, sort: 'adp', positions: 'LB,ILB,OLB' },
+      params: { page: 1, leagueId: 1, available: true, sort: 'adp', positions: 'LB,ILB,OLB', nullTeamLast: true },
     })
   );
 });
