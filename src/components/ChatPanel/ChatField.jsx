@@ -32,7 +32,7 @@ const ChatField = React.forwardRef(({
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: '6px', minWidth: 0, ...sx }}>
       <Box sx={hideLabel ? SR_ONLY_SX : undefined}>
-        <FieldLabel htmlFor={inputId}>{label}{required ? ' *' : ''}</FieldLabel>
+        <FieldLabel htmlFor={inputId}>{label}{required ? <span aria-hidden="true"> *</span> : null}</FieldLabel>
       </Box>
       <Box sx={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
         <Box

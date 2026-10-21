@@ -83,8 +83,8 @@ function PickActivityLine({ entry }) {
     <>
       <Box sx={LINE_SX}>
         <strong>{teamNameLabel(entry.teamName)}</strong> drafted {player.name}
-        {player.position && <PosTag position={player.position} sx={TAG_GAP} />}
-        {entry.isAutopick && <Tag sx={TAG_GAP}>AUTO</Tag>}
+        {' '}{player.position && <Box component="span" sx={TAG_GAP}><PosTag position={player.position} /></Box>}
+        {entry.isAutopick && <Box component="span" sx={TAG_GAP}><Tag>AUTO</Tag></Box>}
       </Box>
       <Box sx={META_SX}>
         {meta} {'·'} {new Date(entry.created_at).toLocaleTimeString()}
@@ -184,7 +184,7 @@ function CorrectionActivityLine({ entry }) {
         <strong>Commissioner correction</strong>
         {' · '}
         reversed {teamNameLabel(entry.teamName)}{"'s pick of "}{player.name}
-        {player.position && <PosTag position={player.position} sx={TAG_GAP} />}
+        {' '}{player.position && <Box component="span" sx={TAG_GAP}><PosTag position={player.position} /></Box>}
       </Box>
       <Box sx={META_SX}>
         {meta} {'·'} {new Date(entry.created_at).toLocaleTimeString()}
