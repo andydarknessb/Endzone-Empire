@@ -313,3 +313,4 @@ Canvas v27 with the 12 wave 3 boards (Lineup, LineupLive, LineupPhone, LineupSta
 - Reset draft confirm: the trigger and the confirm are ghost, Danger text; Cancel is ghost and holds focus when the dialog opens. Neither is filled.
 - Presenter rule: the presenter (`/present/:token`) has no board of its own and no controls; it is built from the room's pieces.
 - Targets: every button in the rail and the banner is at least 44px tall, every button in the pool at least 36px. No `role="status"` or `role="alert"` element contains a button; the on-the-clock toast uses the shared toast kit for that reason.
+- The on-the-clock toast is the shared kit's: one toast at a time, bottom-center, 4s. A kit toast fired right after it (Start draft's "Draft started successfully!") replaces it; the beep and the banner's own status still announce the turn. Accepted.

@@ -98,8 +98,10 @@ function probe(): Probe {
 
   const fills = live('[data-variant="fill"]');
   const rail = document.querySelector('[aria-label="Draft rail"]');
-  // The banner is the room's first role=status region's parent: the countdown and the team badge sit beside it.
+  // The banner: the on-the-clock readout's parent, plus the status bar's two groups (sound toggle, assistant toggle,
+  // Randomize), which are the buttons that sit with it.
   const banner = Array.from(document.querySelectorAll('[role="status"]')).find((r) => /clock/i.test(r.textContent || ''))?.parentElement;
+  const statusBar = document.querySelectorAll('[role="group"][aria-label="Draft controls"]');
   const pools = [document.querySelector('[data-testid="players-scroll-region"]'), document.querySelector('[role="list"][aria-label="Available players"]')];
   const queuedRow = (el: Element) => /Amon-Ra/.test((el.closest('tr, [role="listitem"]') as HTMLElement | null)?.textContent || '');
 
@@ -109,7 +111,7 @@ function probe(): Probe {
     filledOnQueuedRow: fills.length === 1 && queuedRow(fills[0]),
     scrollWidth: document.documentElement.scrollWidth,
     innerWidth: window.innerWidth,
-    shortRail: [...tall(rail, 44), ...tall(banner, 44)],
+    shortRail: [...tall(rail, 44), ...tall(banner, 44), ...Array.from(statusBar).flatMap((g) => tall(g, 44))],
     shortPool: pools.flatMap((p) => tall(p, 36)),
     buttonInLiveRegion: Array.from(document.querySelectorAll('[role="status"], [role="alert"]'))
       .filter((r) => r.querySelector('button, [role="button"], a[data-variant]'))
