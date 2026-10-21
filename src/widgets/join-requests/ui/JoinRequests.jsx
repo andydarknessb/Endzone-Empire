@@ -1,9 +1,10 @@
-import React, { useCallback, useState } from 'react';
-import { Avatar, Box, Typography } from '@mui/material';
-import { visuallyHidden } from '@mui/utils';
-import { Badge, Card, Skeleton } from '../../../shared/ui';
+import React, { useCallback, useId, useState } from 'react';
+import { Box } from '@mui/material';
+import {
+  CountBadge, Frame, FrameHead, PixelHeading, SR_ONLY_SX, Skel, StatusChip,
+} from '../../../shared/ui/playselect';
 import DecideJoinRequest from '../../../features/decide-join-request';
-import { formatTimeSince, initialsFor, teamNameLabel } from '../../../shared/lib';
+import { initialsFor, teamNameLabel } from '../../../shared/lib';
 import useJoinRequests from '../model/useJoinRequests';
 
 /**
@@ -51,6 +52,7 @@ import useJoinRequests from '../model/useJoinRequests';
 export default function JoinRequests({ leagueId }) {
   const { showJoinQueue, status, rows, refetch } = useJoinRequests(leagueId);
   const [announcement, setAnnouncement] = useState('');
+  const headingId = useId();
 
   const handleDecided = useCallback(({ approve, teamName } = {}) => {
     const verb = approve ? 'Approved' : 'Denied';
@@ -61,94 +63,91 @@ export default function JoinRequests({ leagueId }) {
   if (!showJoinQueue) return null;
 
   return (
-    <Card
+    <Frame
       data-testid="join-requests"
-      title="Join requests"
-      count={status === 'ready' ? rows.length : null}
-      tail={status === 'ready' && rows.length > 0 ? <Badge variant="warning">Needs you</Badge> : null}
+      labelledBy={headingId}
       aria-busy={status === 'loading'}
-      sx={{ p: 0 }}
+      head={(
+        <FrameHead>
+          <PixelHeading id={headingId}>Join requests</PixelHeading>
+          {status === 'ready' && <CountBadge n={rows.length} noun="pending" />}
+          {status === 'ready' && rows.length > 0 && <StatusChip>Needs you</StatusChip>}
+        </FrameHead>
+      )}
     >
-      <Box sx={{ px: 2.25, py: 2.25, display: 'grid', gap: 1.5 }}>
+      <Box sx={{ padding: { xs: '14px', sm: '20px' }, display: 'grid', gap: '12px' }}>
         {/* Unconditional - see docblock - so a decision's outcome is
             announced even though the rows it describes are about to
             disappear behind the reload it triggers. */}
-        <Box
-          role="status"
-          data-testid="join-requests-announcement"
-          sx={visuallyHidden}
-        >
+        <Box role="status" data-testid="join-requests-announcement" sx={SR_ONLY_SX}>
           {announcement}
         </Box>
 
         {status === 'loading' && (
           <Box data-testid="join-requests-loading" aria-hidden="true" sx={{ display: 'grid', gap: 1 }}>
-            <Skeleton variant="rounded" height={56} />
-            <Skeleton variant="rounded" height={56} />
+            <Skel height={56} />
+            <Skel height={56} />
           </Box>
         )}
 
         {status === 'error' && (
-          <Typography role="alert" sx={{ fontSize: '13px', color: 'var(--dash-ink)' }}>
+          <Box role="alert" sx={{ fontSize: '15px' }}>
             We could not load join requests right now.
-          </Typography>
+          </Box>
         )}
 
         {status === 'ready' && rows.length === 0 && (
-          <Typography
-            data-testid="join-requests-empty"
-            sx={{ fontSize: '13px', color: 'var(--dash-dim)' }}
-          >
+          <Box data-testid="join-requests-empty" sx={{ fontSize: '15px', color: 'var(--ps-dim)' }}>
             No pending join requests.
-          </Typography>
+          </Box>
         )}
 
         {status === 'ready' && rows.length > 0 && (
-          <Box role="list" sx={{ display: 'grid', gap: 1.5 }}>
-            {rows.map((row) => {
+          <Box role="list" sx={{ display: 'grid', gap: '12px' }}>
+            {rows.map((row, index) => {
               const name = teamNameLabel(row.team_name);
+              // The first pending request is the page's one cursor (and its Approve the one
+              // filled action): it is the request that needs the commissioner first.
+              const lead = index === 0;
               return (
                 <Box
                   key={row.id}
                   role="listitem"
+                  className={lead ? 'cursor' : undefined}
                   data-testid={`join-requests-row-${row.id}`}
                   sx={{
                     display: 'flex',
                     alignItems: 'center',
-                    gap: 1.5,
+                    gap: '12px',
                     flexWrap: 'wrap',
-                    pb: 1.5,
-                    borderBottom: '1px solid var(--dash-line)',
-                    '&:last-child': { borderBottom: 'none', pb: 0 },
+                    padding: '10px',
+                    border: '2px solid',
+                    borderColor: lead ? 'var(--ps-cursor)' : 'var(--ps-rule)',
                   }}
                 >
-                  <Avatar
+                  <Box
                     aria-hidden="true"
                     sx={{
                       width: 36,
                       height: 36,
-                      fontSize: 14,
-                      bgcolor: 'var(--dash-surface2)',
-                      color: 'var(--dash-ink)',
                       flex: 'none',
+                      display: 'grid',
+                      placeItems: 'center',
+                      border: '2px solid var(--ps-ink)',
+                      fontSize: '14px',
+                      fontWeight: 600,
                     }}
                   >
                     {initialsFor(name)}
-                  </Avatar>
-                  <Typography
-                    sx={{
-                      flex: '1 1 200px',
-                      minWidth: 0,
-                      fontSize: '13.5px',
-                      color: 'var(--dash-ink)',
-                    }}
-                  >
-                    {`${name} · requested ${formatTimeSince(row.created_at)}`}
-                  </Typography>
+                  </Box>
+                  <Box sx={{ flex: '1 1 200px', minWidth: 0, fontSize: '15px', fontWeight: 600 }}>
+                    {name}
+                  </Box>
                   <DecideJoinRequest
                     leagueId={leagueId}
                     requestId={row.id}
                     teamName={name}
+                    lead={lead}
                     onDecided={handleDecided}
                   />
                 </Box>
@@ -157,6 +156,6 @@ export default function JoinRequests({ leagueId }) {
           </Box>
         )}
       </Box>
-    </Card>
+    </Frame>
   );
 }

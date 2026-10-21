@@ -1,5 +1,5 @@
 import React from 'react';
-import { act, screen, waitFor } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../../test-utils/renderWithProviders';
 import apiClient from '../../../api/apiClient';
@@ -71,7 +71,7 @@ const pendingRow = (overrides = {}) => ({
   ...overrides,
 });
 
-test('two pending rows render their proposed names and relative times', async () => {
+test('two pending rows render their proposed names and no request time', async () => {
   mockGetByUrl({
     '/api/league/42': leagueResponse({ league: screenedPublicLeague() }),
     '/api/league/42/join-requests': {
@@ -83,9 +83,44 @@ test('two pending rows render their proposed names and relative times', async ()
   });
   renderWidget();
 
-  expect(await screen.findByText(/Gridiron Gang/)).toHaveTextContent('requested 2h ago');
-  expect(screen.getByText(/Sunday Ballers/)).toHaveTextContent('requested 2h ago');
+  expect(await screen.findByText('Gridiron Gang')).toBeInTheDocument();
+  expect(screen.getByText('Sunday Ballers')).toBeInTheDocument();
   expect(screen.getByTestId('join-requests')).toHaveTextContent('Join requests');
+  expect(screen.getByTestId('join-requests')).not.toHaveTextContent('requested');
+});
+
+// RULINGS: at most one cursor and one filled action per page. The first pending request carries both.
+test('two pending requests: one cursor and one filled Approve, both on the first row', async () => {
+  mockGetByUrl({
+    '/api/league/42': leagueResponse({ league: screenedPublicLeague() }),
+    '/api/league/42/join-requests': {
+      data: [
+        pendingRow({ id: 7, team_name: 'Gridiron Gang' }),
+        pendingRow({ id: 8, team_name: 'Sunday Ballers' }),
+      ],
+    },
+  });
+  renderWidget();
+
+  const first = await screen.findByTestId('join-requests-row-7');
+  const second = screen.getByTestId('join-requests-row-8');
+  expect(screen.getAllByRole('listitem').filter((row) => row.classList.contains('cursor'))).toEqual([first]);
+  const fills = screen.getAllByRole('button').filter((button) => button.dataset.variant === 'fill');
+  expect(fills).toEqual([within(first).getByRole('button', { name: /^Approve/ })]);
+  expect(within(second).getByRole('button', { name: /^Approve/ })).toHaveAttribute('data-variant', 'ghost');
+  expect(within(second).getByRole('button', { name: /^Deny/ })).toHaveAttribute('data-variant', 'ghost');
+});
+
+test('no pending requests: no cursor, nothing filled, and the empty sentence', async () => {
+  mockGetByUrl({
+    '/api/league/42': leagueResponse({ league: screenedPublicLeague() }),
+    '/api/league/42/join-requests': { data: [] },
+  });
+  renderWidget();
+
+  expect(await screen.findByText('No pending join requests.')).toBeInTheDocument();
+  expect(screen.queryAllByRole('listitem')).toHaveLength(0);
+  expect(screen.queryAllByRole('button').filter((button) => button.dataset.variant === 'fill')).toHaveLength(0);
 });
 
 // a11y risk review (#1109): a bare "Approve"/"Deny" name would be identical
