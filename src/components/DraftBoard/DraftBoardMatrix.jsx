@@ -21,12 +21,17 @@ const onClockPulse = keyframes`
 `;
 
 const TEAM_COL_MIN_WIDTH = 110;
+// The sticky Rd column's width; the scroll frame reserves it so a focused cell
+// scrolled into view lands beside the column, not under it.
+const ROUND_COL_WIDTH = 48;
 
 const stickyRoundHeadSx = {
   color: 'var(--ps-panel)',
   fontWeight: 'bold',
   position: 'sticky',
   left: 0,
+  width: ROUND_COL_WIDTH,
+  minWidth: ROUND_COL_WIDTH,
   bgcolor: 'var(--ps-ink)',
   zIndex: 3,
 };
@@ -34,6 +39,8 @@ const stickyRoundHeadSx = {
 const stickyRoundCellSx = {
   position: 'sticky',
   left: 0,
+  width: ROUND_COL_WIDTH,
+  minWidth: ROUND_COL_WIDTH,
   bgcolor: 'var(--ps-field)',
   zIndex: 1,
   fontWeight: 'bold',
@@ -142,7 +149,7 @@ function DraftBoardMatrix({
         tabIndex={0}
         role="group"
         aria-label="Picks by team and round, scrolls sideways"
-        sx={{ overflowX: 'auto', maxWidth: '100%' }}
+        sx={{ overflowX: 'auto', maxWidth: '100%', scrollPaddingLeft: `${ROUND_COL_WIDTH}px` }}
       >
         <Table size="small" aria-labelledby={headingId}>
           <TableHead>
@@ -226,7 +233,8 @@ function DraftBoardMatrix({
                               gap: 0.5, textAlign: 'left', border: 'none', bgcolor: 'transparent', borderRadius: 1,
                               p: 0.75, cursor: 'pointer', font: 'inherit', color: 'inherit',
                               ...MIN_TOUCH_TARGET_SX,
-                              '&:hover': { bgcolor: 'var(--ps-skel)' },
+                              // An outline, not a fill: a tinted hover fill drops PosTag text below 4.5:1.
+                              '&:hover': { outline: '2px solid var(--ps-rule)', outlineOffset: -2 },
                               // ps-ink flips with the theme, so the ring clears 3:1 on
                               // the panel in light and dark (ps-play does not in dark).
                               // The offset is negative (inward) so the ring stays
