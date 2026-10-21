@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Box,
@@ -35,6 +35,13 @@ export default function DraftDayControls({ league, picks, onTogglePause, onCorre
   const [reason, setReason] = useState('');
   const [resetOpen, setResetOpen] = useState(false);
   const [resetName, setResetName] = useState('');
+  // MUI's focus trap lands on the dialog container after the transition in
+  // Chromium, so autoFocus alone loses; focus Cancel once it has entered.
+  const cancelRef = useRef(null);
+  // ...but never pull focus out of the League name field once someone is in it.
+  const focusCancelUnlessTyping = () => {
+    if (!document.activeElement?.matches('input, textarea')) cancelRef.current?.focus();
+  };
   const [sharing, setSharing] = useState(false);
   const [shareLink, setShareLink] = useState('');
 
@@ -113,7 +120,12 @@ export default function DraftDayControls({ league, picks, onTogglePause, onCorre
         </DialogActions>
       </Dialog>
 
-      <Dialog open={resetOpen} onClose={() => setResetOpen(false)} {...PS_DIALOG_PROPS}>
+      <Dialog
+        open={resetOpen}
+        onClose={() => setResetOpen(false)}
+        TransitionProps={{ onEntered: focusCancelUnlessTyping }}
+        {...PS_DIALOG_PROPS}
+      >
         <DialogTitle>Reset {league.name} draft?</DialogTitle>
         <DialogContent>
           <DialogContentText sx={PS_DIALOG_TEXT_SX}>This deletes every draft pick and drafted roster entry, clears the schedule, and returns the draft to pending. Type the league name to continue.</DialogContentText>
@@ -121,7 +133,7 @@ export default function DraftDayControls({ league, picks, onTogglePause, onCorre
         </DialogContent>
         <DialogActions>
           {/* Cancel takes initial focus: the destructive confirm is a ghost with Danger text (wave 3 Drop dialog ruling). */}
-          <PsButton autoFocus onClick={() => setResetOpen(false)}>Cancel</PsButton>
+          <PsButton ref={cancelRef} autoFocus onClick={() => setResetOpen(false)}>Cancel</PsButton>
           <PsButton
             disabled={resetName !== league.name}
             style={resetName === league.name ? DANGER_TEXT : undefined}

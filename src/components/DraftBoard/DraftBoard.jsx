@@ -81,6 +81,8 @@ const PS_SEGMENT_SX = {
     backgroundColor: 'var(--ps-play)',
     color: 'var(--ps-play-ink)',
   },
+  // A cue beyond colour for the selected segment (the kit marks it with an arrow).
+  '&.Mui-selected::before': { content: '"\\25B8"', marginRight: '6px' },
 };
 
 // A stable empty-array identity for `league.roster_slots` absent/malformed

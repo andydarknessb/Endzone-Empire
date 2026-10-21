@@ -146,8 +146,7 @@ function LiveDraftBanner({ league, onTheClock, isMyTurn, committedPickCount = nu
         <Typography
           variant="h5"
           component="div"
-          noWrap
-          sx={{ ...pixelSx(24), color: isMyTurn ? 'var(--ps-board-live)' : 'var(--ps-board-ink)' }}
+          sx={{ ...pixelSx(24), fontSize: { xs: '16px', sm: '24px' }, overflowWrap: 'anywhere', color: isMyTurn ? 'var(--ps-board-live)' : 'var(--ps-board-ink)' }}
         >
           {announcement}
         </Typography>

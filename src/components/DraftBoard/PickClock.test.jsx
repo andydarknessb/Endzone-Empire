@@ -202,6 +202,7 @@ describe('PickClock - data-urgent (Play-select danger window)', () => {
     const now = Date.now();
     const { unmount } = renderClock({ deadlineAt: now + 29000 });
     expect(screen.getByTestId('draft-clock')).toHaveAttribute('data-urgent', 'true');
+    expect(screen.getByTestId('draft-clock')).toHaveStyle({ color: 'var(--ps-danger)' });
     unmount();
 
     renderClock({ deadlineAt: now + 30000 });

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import { Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions } from '@mui/material';
 import { PsButton } from '../../shared/ui/playselect';
 
@@ -30,8 +30,15 @@ export const PS_DIALOG_TEXT_SX = { color: 'var(--ps-ink)' };
  * a manager-level post-commit undo (acceptance criterion 4).
  */
 export default function DraftPickConfirmDialog({ open, playerName, onConfirm, onCancel }) {
+  const confirmRef = useRef(null);
   return (
-    <Dialog open={open} onClose={onCancel} aria-labelledby="draft-pick-confirm-title" {...PS_DIALOG_PROPS}>
+    <Dialog
+      open={open}
+      onClose={onCancel}
+      aria-labelledby="draft-pick-confirm-title"
+      TransitionProps={{ onEntered: () => confirmRef.current?.focus() }}
+      {...PS_DIALOG_PROPS}
+    >
       <DialogTitle id="draft-pick-confirm-title">Draft {playerName}?</DialogTitle>
       <DialogContent>
         <DialogContentText sx={PS_DIALOG_TEXT_SX}>
@@ -41,7 +48,7 @@ export default function DraftPickConfirmDialog({ open, playerName, onConfirm, on
       </DialogContent>
       <DialogActions>
         <PsButton onClick={onCancel}>Cancel</PsButton>
-        <PsButton variant="fill" onClick={onConfirm} autoFocus>
+        <PsButton ref={confirmRef} variant="fill" onClick={onConfirm} autoFocus>
           Draft {playerName}
         </PsButton>
       </DialogActions>
