@@ -20,6 +20,9 @@
 const espnAthleteClient = require('./espnAthleteClient');
 const { runSyncJob } = require('./syncRun');
 const cadence = require('./cadence');
+const pool = require('./pool');
+const nflSeason = require('../services/nflSeason.service');
+const nflverseRosterStatus = require('./nflverseRosterStatus');
 
 /** Today's date, local calendar day, `YYYY-MM-DD` - the `captured_date` every
  * row this run writes shares (same `en-CA` stamp the rest of this module
@@ -201,24 +204,34 @@ async function runDepthChartSync({ now = new Date(), transport } = {}) {
  * Saturday run after the 4pm ET elevation deadline exists to record a status
  * an earlier run of the same day saw differently, so DO NOTHING would throw
  * away the very fact it was scheduled to capture. One row per player per day.
+ *
+ * #2487: a unit may carry `nflverse` (see `loadNflverseSnapshot`); an ESPN
+ * Active row it overrides is written as Practice squad and counted in
+ * `nflversePracticeSquad`.
  */
-function applyRosterStatusUnit(capturedDate) {
-  return async function applyUnit(client, { teamCode, rows }) {
+function applyRosterStatusUnit(capturedDate, now = new Date()) {
+  return async function applyUnit(client, { teamCode, rows, nflverse = null }) {
     const idByExternalId = await loadPlayerIdsByExternalId(client, rows.map((r) => r.athleteId));
     const playerIds = [];
     const teamCodes = [];
     const statuses = [];
     const capturedDates = [];
+    let nflversePracticeSquad = 0;
     for (const row of rows) {
       if (!row.rosterStatus) continue; // a group we don't map: on the roster, but no status to record
       const playerId = idByExternalId.get(Number(row.athleteId));
       if (!playerId) continue; // ESPN reports an athlete we don't roster - skip, don't invent a player
+      let status = row.rosterStatus;
+      if (status === 'active' && nflverseRosterStatus.nflverseSaysPracticeSquad(nflverse, { athleteId: row.athleteId, teamCode, now })) {
+        status = 'practice_squad';
+        nflversePracticeSquad += 1;
+      }
       playerIds.push(playerId);
       teamCodes.push(row.teamCode);
-      statuses.push(row.rosterStatus);
+      statuses.push(status);
       capturedDates.push(capturedDate);
     }
-    if (playerIds.length === 0) return { teamCode, written: 0 };
+    if (playerIds.length === 0) return { teamCode, written: 0, nflversePracticeSquad };
     const result = await client.query(
       `INSERT INTO "player_nfl_roster_status" ("player_id", "team_code", "roster_status", "captured_date")
        SELECT * FROM unnest($1::int[], $2::text[], $3::text[], $4::date[])
@@ -230,8 +243,40 @@ function applyRosterStatusUnit(capturedDate) {
                IS DISTINCT FROM (EXCLUDED."roster_status", EXCLUDED."team_code")`,
       [playerIds, teamCodes, statuses, capturedDates]
     );
-    return { teamCode, written: result.rowCount };
+    return { teamCode, written: result.rowCount, nflversePracticeSquad };
   };
+}
+
+/**
+ * nflverse's weekly roster file as the second opinion `applyRosterStatusUnit`
+ * reads (#2487): the ESPN ids it lists DEV at its latest week, the file's own
+ * clock, and each team's next kickoff (the earliest `nfl_games` row from 5 hours
+ * ago on). Fetched once per run, outside any transaction (ADR 0036). Any
+ * failure is logged and resolves `null`: the run then writes ESPN's statuses
+ * exactly as before and never fails over nflverse.
+ */
+async function loadNflverseSnapshot(now) {
+  try {
+    // Required here, not at the top: nflverseSync.service reaches feedSyncRuns.service, which destructures sharedRosterSweep from this module at load.
+    const nflverseSync = require('../services/nflverseSync.service');
+    const season = await nflSeason.upcomingNflSeason();
+    const updatedAt = nflverseRosterStatus.parseLastUpdated(await nflverseSync.fetchWeeklyRostersLastUpdated());
+    if (season == null || !updatedAt) throw new Error('no season or unreadable last_updated');
+    const rows = await nflverseSync.fetchWeeklyRostersForSeason(season);
+    const kickoffs = await pool.query(
+      `SELECT fn_normalize_nfl_team("nfl_team") AS "team_code", MIN("kickoff_at") AS "kickoff_at"
+       FROM "nfl_games" WHERE "kickoff_at" > $1 GROUP BY 1`,
+      [new Date(now.getTime() - 5 * 60 * 60 * 1000)]
+    );
+    return {
+      practiceSquadIds: nflverseRosterStatus.latestWeekPracticeSquadIds(rows),
+      updatedAt,
+      nextKickoffByTeam: new Map(kickoffs.rows.map((r) => [r.team_code, new Date(r.kickoff_at)])),
+    };
+  } catch (err) {
+    console.warn('roster status sync: nflverse weekly rosters unavailable, using ESPN alone:', err.message);
+    return null;
+  }
 }
 
 /**
@@ -263,8 +308,12 @@ async function runRosterStatusSync({ now = new Date(), transport } = {}) {
   const day = cadence.utcDateKey(now);
   const result = await runSyncJob({
     job: 'espn-roster-status',
-    fetch: async () => ({ units: (await sharedRosterSweep({ transport })).units, detail: { day } }),
-    apply: applyRosterStatusUnit(capturedDate),
+    fetch: async () => {
+      const { units } = await sharedRosterSweep({ transport });
+      const nflverse = await loadNflverseSnapshot(now);
+      return { units: units.map((u) => ({ ...u, nflverse })), detail: { day } };
+    },
+    apply: applyRosterStatusUnit(capturedDate, now),
   });
   try {
     const { reconcileAvailability, liveReconcileScope } = require('../services/projection.service');

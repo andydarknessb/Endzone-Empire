@@ -122,3 +122,31 @@ nothing on the card blocks on ESPN.
   Jr. (ATL, 2026-10-13), filed under `defense` while the `suspended` group was
   empty. The injury designation still stays null (ADR 0060 unchanged), and the
   freshness and precedence rules of the #2150 amendment are unchanged.
+
+## Amendment (#2487)
+
+- 2026-10-21. ESPN's team roster doc keeps a practice-squad player in
+  `offense` after a gameday elevation reverts: Jawhar Jordan (HOU) was elevated
+  for his Week 6 game, went back to the practice squad, and ESPN still listed
+  him Active on 2026-10-21. On that day 72 players read Active while nflverse's
+  Week 7 weekly roster file said `DEV` (practice squad), with zero cases the
+  other way. The roster-status Sync run now reads that file
+  (`roster_weekly_<season>.csv` and its `timestamp.json`, once per run, in the
+  fetch step) and writes an ESPN Active row as Practice squad when the athlete
+  (`espn_id`) is `DEV` at the file's latest week on the same team ESPN has
+  him on (a player signed off another club's practice squad keeps ESPN's Active
+  until nflverse lists him on the new club), unless an elevation window is
+  open that the nflverse snapshot has not seen: when the team's next kickoff
+  (the earliest `nfl_games` kickoff after now minus 5 hours) has its deadline,
+  16:00 ET on the ET day before that kickoff's ET date, behind `now` and the
+  file's `last_updated` is before that deadline, ESPN's Active stands, because
+  the elevation may be newer than the snapshot (#1768). No next kickoff means
+  no window. `nfl_games` holds regular-season games only, so in the
+  postseason there is never a window: accepted, since fantasy seasons end by
+  Week 18. Every other ESPN status (Practice squad, Reserve, Suspended) is
+  never changed, and nflverse `ACT` changes nothing. If either nflverse fetch
+  or the timestamp parse fails the run logs a warning and writes ESPN's
+  statuses exactly as before; it never fails over nflverse. This supersedes the
+  #1995 entry's "no source lists elevations" for the reversion side only:
+  nflverse is a second opinion for Active -> Practice squad, with the
+  elevation-window exception, and never a source of any other status.
