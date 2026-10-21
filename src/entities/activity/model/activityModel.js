@@ -39,7 +39,7 @@
  * (the Team filter reads it alone, with no sentence to parse).
  *
  * `players` is the structured form of every player name `sentence` flattens
- * into prose: `{ added: [{ name, playerId }], dropped: [{ name, playerId }] }`.
+ * into prose: `{ added: [{ name, playerId, position }], dropped: [{ name, playerId, position }] }`.
  * `added` is who the row's Team gained (the `add`ed player, a waiver claim's
  * target, a trade's received players); `dropped` is who it gave up (the
  * `drop`ped player, a waiver claim's dropped player, a trade's sent players).
@@ -52,7 +52,7 @@
  *
  * `segments` is `sentence` itself, pre-split into the pieces a caller needs
  * to render it with clickable player names: an ordered list of
- * `{ type: 'text', value }` and `{ type: 'player', name, playerId }` parts
+ * `{ type: 'text', value }` and `{ type: 'player', name, playerId, position }` parts
  * whose `value`/`name`s concatenate back to exactly `sentence`. It exists
  * because matching player names back against the flat `sentence` string is
  * unsound — a suffixed name ("Josh Allen" vs. "Josh Allen Jr.") or a Team
@@ -145,23 +145,25 @@ function sentenceFor(row) {
 
 /**
  * The structured player references `sentence` flattens into prose for this
- * row: `{ added, dropped }`, each a list of `{ name, playerId }` (see the
+ * row: `{ added, dropped }`, each a list of `{ name, playerId, position }` (see the
  * module docblock for which side each transaction type's players land on).
  * Mirrors `sentenceFor`'s own per-type guards exactly, so a name only ever
  * appears here when it also appears in the sentence.
  */
+const playerRef = (name, playerId, position) => ({ name, playerId, position: position ?? null });
+
 function playersFor(row) {
   const detail = row.detail || {};
   switch (row.type) {
     case 'add':
-      return { added: [{ name: row.player_name, playerId: detail.playerId }], dropped: [] };
+      return { added: [playerRef(row.player_name, detail.playerId, row.player_position)], dropped: [] };
     case 'drop':
-      return { added: [], dropped: [{ name: row.player_name, playerId: detail.playerId }] };
+      return { added: [], dropped: [playerRef(row.player_name, detail.playerId, row.player_position)] };
     case 'waiver': {
-      const added = [{ name: row.player_name, playerId: detail.playerId }];
+      const added = [playerRef(row.player_name, detail.playerId, row.player_position)];
       const dropped =
         detail.droppedPlayerId && row.dropped_player_name
-          ? [{ name: row.dropped_player_name, playerId: detail.droppedPlayerId }]
+          ? [playerRef(row.dropped_player_name, detail.droppedPlayerId, row.dropped_player_position)]
           : [];
       return { added, dropped };
     }
@@ -169,7 +171,7 @@ function playersFor(row) {
       const items = Array.isArray(detail.items) ? detail.items : [];
       // Mirrors sentenceFor's own fallback: no rich detail, no names to link.
       if (items.length === 0 || !detail.receivingTeamName) return { added: [], dropped: [] };
-      const ref = (i) => ({ name: i.playerName, playerId: i.playerId });
+      const ref = (i) => playerRef(i.playerName, i.playerId, i.position);
       const sent = items.filter((i) => i.fromTeamId === detail.proposingTeamId);
       const received = items.filter((i) => i.toTeamId === detail.proposingTeamId);
       return { added: received.map(ref), dropped: sent.map(ref) };
@@ -193,7 +195,7 @@ function teamLabelFor(row) {
 }
 
 const text = (value) => ({ type: 'text', value });
-const player = (name, playerId) => ({ type: 'player', name, playerId });
+const player = (name, playerId, position) => ({ type: 'player', ...playerRef(name, playerId, position) });
 
 // A comma-joined run of player parts, exactly as `sentenceFor`'s own
 // `names(list).join(', ')` renders the same list as text.
@@ -201,7 +203,7 @@ function playerListSegments(items) {
   const segs = [];
   items.forEach((item, i) => {
     if (i > 0) segs.push(text(', '));
-    segs.push(player(item.playerName, item.playerId));
+    segs.push(player(item.playerName, item.playerId, item.position));
   });
   return segs;
 }
@@ -216,15 +218,15 @@ function segmentsFor(row) {
   const detail = row.detail || {};
   switch (row.type) {
     case 'add':
-      return [text('added '), player(row.player_name, detail.playerId)];
+      return [text('added '), player(row.player_name, detail.playerId, row.player_position)];
     case 'drop':
-      return [text('dropped '), player(row.player_name, detail.playerId)];
+      return [text('dropped '), player(row.player_name, detail.playerId, row.player_position)];
     case 'waiver': {
       const bidSuffix = typeof detail.bid === 'number' ? ` · $${detail.bid} FAAB` : '';
-      const segs = [text('claimed '), player(row.player_name, detail.playerId)];
+      const segs = [text('claimed '), player(row.player_name, detail.playerId, row.player_position)];
       if (bidSuffix) segs.push(text(bidSuffix));
       if (detail.droppedPlayerId && row.dropped_player_name) {
-        segs.push(text(', dropped '), player(row.dropped_player_name, detail.droppedPlayerId));
+        segs.push(text(', dropped '), player(row.dropped_player_name, detail.droppedPlayerId, row.dropped_player_position));
       }
       return segs;
     }
