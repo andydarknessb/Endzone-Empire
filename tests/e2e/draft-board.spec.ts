@@ -899,7 +899,11 @@ test.describe('accessible structure: skip link, landmarks, headings', () => {
     // enough of them to prove the shared token holds across that stretch
     // without needing to tab all the way into the (much longer) player pool.
     await page.locator('body').click({ position: { x: 5, y: 5 } });
+    // The room is a Play-select surface (.ps-root): its elements wear the kit's one ring
+    // (3px white, playselect.css), everything outside it wears the shared dash token.
+    // Each surface must still be uniform, so the guard holds per surface.
     const outlineColors = new Set<string>();
+    const kitOutlineColors = new Set<string>();
     for (let i = 0; i < 14; i += 1) {
       // eslint-disable-next-line no-await-in-loop
       await page.keyboard.press('Tab');
@@ -908,9 +912,9 @@ test.describe('accessible structure: skip link, landmarks, headings', () => {
         const el = document.activeElement;
         if (!el) return null;
         const cs = getComputedStyle(el);
-        return { outlineStyle: cs.outlineStyle, outlineColor: cs.outlineColor };
+        return { outlineStyle: cs.outlineStyle, outlineColor: cs.outlineColor, kit: !!el.closest('.ps-root') };
       });
-      if (style && style.outlineStyle !== 'none') outlineColors.add(style.outlineColor);
+      if (style && style.outlineStyle !== 'none') (style.kit ? kitOutlineColors : outlineColors).add(style.outlineColor);
     }
 
     expect(outlineColors.size).toBeGreaterThan(0);
@@ -927,7 +931,11 @@ test.describe('accessible structure: skip link, landmarks, headings', () => {
     const nameLink = page.getByRole('button', { name: 'Bijan Robinson' }).first();
     await nameLink.focus();
     const nameLinkOutline = await nameLink.evaluate((el) => getComputedStyle(el).outlineColor);
-    expect(nameLinkOutline).toBe(sharedColor);
+    // Tabbing must have reached the room, or the per-surface check below proves nothing.
+    expect(kitOutlineColors.size).toBeGreaterThan(0);
+    // The pool's name link now sits inside the room's .ps-root, so it wears the kit ring.
+    expect(nameLinkOutline).toBe('rgb(255, 255, 255)');
+    expect([...kitOutlineColors].every((color) => color === nameLinkOutline)).toBe(true);
   });
 });
 

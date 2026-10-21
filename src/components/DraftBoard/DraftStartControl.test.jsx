@@ -160,3 +160,16 @@ test('a thrown refusal carrying a code beside a message shows the message in the
   expect(await within(dialog).findByText('Every team must be ready before the draft starts.')).toBeInTheDocument();
   expect(within(dialog).queryByText('DRAFT_NOT_READY')).not.toBeInTheDocument();
 });
+
+test('Start is the filled action only when the viewer team is ready; a ghost otherwise', () => {
+  const { rerender } = render(<DraftStartControl {...baseProps} ready />);
+  expect(screen.getByRole('button', { name: 'Start Draft' })).toHaveAttribute('data-variant', 'fill');
+
+  rerender(<DraftStartControl {...baseProps} ready={false} />);
+  expect(screen.getByRole('button', { name: 'Start Draft' })).toHaveAttribute('data-variant', 'ghost');
+});
+
+test('a caller-supplied variant="text" (SchedulePanel) still renders the ghost, never fill', () => {
+  render(<DraftStartControl {...baseProps} variant="text" label="Start Draft Now" showHints={false} />);
+  expect(screen.getByRole('button', { name: 'Start Draft Now' })).toHaveAttribute('data-variant', 'ghost');
+});

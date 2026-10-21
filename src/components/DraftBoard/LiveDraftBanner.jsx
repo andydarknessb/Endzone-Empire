@@ -1,6 +1,7 @@
 import React from 'react';
-import { Paper, Box, Avatar, Typography } from '@mui/material';
+import { Box, Typography } from '@mui/material';
 import { visuallyHidden } from '@mui/utils';
+import { pixelSx } from '../../shared/ui/playselect';
 import PickClock from './PickClock';
 import { DraftRoomAssistantBannerLine, useDraftRoomAssistantControls } from './DraftRoomAssistant';
 import { useAnnouncement } from './useAnnouncement';
@@ -97,39 +98,42 @@ function LiveDraftBanner({ league, onTheClock, isMyTurn, committedPickCount = nu
   if (!active) return null;
 
   return (
-    <Paper
-      variant="outlined"
+    <Box
       sx={{
         position: 'sticky',
         top: 0,
         zIndex: 9,
-        mt: 2,
-        mb: 3,
-        p: { xs: 2, sm: 3 },
+        mt: 1,
+        mb: 2,
+        p: { xs: 1.5, sm: 2 },
         display: 'flex',
         alignItems: 'center',
         gap: 2,
         // Wrap so the Draft assistant's latest line (below) drops to its own
         // full-width row under the avatar/status/clock, which stay on one row.
         flexWrap: 'wrap',
-        bgcolor: isMyTurn ? 'action.hover' : 'background.paper',
-        borderColor: isMyTurn ? 'primary.main' : 'divider',
-        borderWidth: isMyTurn ? 2 : 1,
+        // Board black: the room's scoreboard strip (Play-select). The clock and
+        // turn text inherit Board ink from here.
+        backgroundColor: 'var(--ps-board)',
+        color: 'var(--ps-board-ink)',
+        border: '2px solid',
+        borderColor: isMyTurn ? 'var(--ps-board-live)' : 'var(--ps-board-rule)',
       }}
     >
-      <Avatar
+      <Box
+        aria-hidden="true"
         sx={{
           width: 56,
           height: 56,
-          bgcolor: 'primary.main',
-          color: 'primary.contrastText',
-          fontWeight: 'bold',
-          fontSize: '1.25rem',
+          display: 'grid',
+          placeItems: 'center',
+          border: '2px solid var(--ps-board-ink)',
+          ...pixelSx(24),
           flexShrink: 0,
         }}
       >
         {initialsFor(team?.teamName)}
-      </Avatar>
+      </Box>
       {/* aria-live scoped to just who's-on-the-clock, not the whole banner:
           that changes once per pick (worth announcing), while the seconds
           countdown right after this Box changes every second - wrapping
@@ -142,8 +146,7 @@ function LiveDraftBanner({ league, onTheClock, isMyTurn, committedPickCount = nu
         <Typography
           variant="h5"
           component="div"
-          noWrap
-          sx={{ fontWeight: 'bold', color: isMyTurn ? 'primary.main' : 'text.primary' }}
+          sx={{ ...pixelSx(24), fontSize: { xs: '16px', sm: '24px' }, overflowWrap: 'anywhere', color: isMyTurn ? 'var(--ps-board-live)' : 'var(--ps-board-ink)' }}
         >
           {announcement}
         </Typography>
@@ -158,13 +161,18 @@ function LiveDraftBanner({ league, onTheClock, isMyTurn, committedPickCount = nu
         ) : null}
       </Box>
       {state === 'running' ? (
-        <PickClock deadlineAt={onTheClock.deadlineAt} onOverdue={handleOverdue} onUrgent={notifyClockUrgent} />
+        <PickClock
+          deadlineAt={onTheClock.deadlineAt}
+          onOverdue={handleOverdue}
+          onUrgent={notifyClockUrgent}
+          sx={pixelSx(32)}
+        />
       ) : state === 'paused' ? (
-        <Typography variant="h6" component="div" sx={{ color: 'warning.main', flexShrink: 0 }}>
+        <Typography variant="h6" component="div" sx={{ ...pixelSx(16), color: 'var(--ps-board-ink)', flexShrink: 0 }}>
           Draft paused
         </Typography>
       ) : (
-        <Typography variant="h6" component="div" sx={{ color: 'text.secondary', flexShrink: 0 }}>
+        <Typography variant="h6" component="div" sx={{ ...pixelSx(16), color: 'var(--ps-board-dim)', flexShrink: 0 }}>
           No pick clock
         </Typography>
       )}
@@ -173,7 +181,7 @@ function LiveDraftBanner({ league, onTheClock, isMyTurn, committedPickCount = nu
           region lives in the room chrome), so it may show a selection line the
           region does not speak. Renders nothing when the toggle is off. */}
       <DraftRoomAssistantBannerLine />
-    </Paper>
+    </Box>
   );
 }
 
