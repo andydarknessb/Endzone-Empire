@@ -299,7 +299,10 @@ test('a deleted account\'s teams follow the ban fate: removed pre-draft, CPU-man
   // Every team write lands before the users row is anonymized, and the
   // avatar clear (which finds teams by owner_id) comes first of all.
   const index = (re) => fake.calls.findIndex((call) => re.test(call.text));
-  assert.ok(index(/^UPDATE "teams" SET "avatar_url"/) < index(/FOR UPDATE OF "leagues"/));
+  // League locks come before any UPDATE that row-locks a held team (the
+  // avatar clear included): League-first, like banTeam.
+  assert.ok(index(/FOR UPDATE OF "leagues"/) < index(/^UPDATE "teams" SET "avatar_url"/));
+  assert.ok(index(/^UPDATE "teams" SET "avatar_url"/) < index(/^DELETE FROM "teams"/));
   assert.ok(index(/FOR UPDATE OF "leagues"/) < index(/^UPDATE "users"/));
   assert.ok(index(/^UPDATE "trades"/) < index(/^UPDATE "users"/));
   fake.assertClean();
