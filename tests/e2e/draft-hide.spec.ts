@@ -78,6 +78,16 @@ async function deliver(page: Page, event: string, payload: unknown) {
 test.describe('live content moderation in the Draft room (#482)', () => {
   test.use({ viewport: VIEWPORTS.desktop });
 
+  test('a chat message is set in Archivo, never the pixel face (ADR 0067)', async ({ page }) => {
+    await openDraftRoom(page, { isCommissioner: false });
+    await deliver(page, 'chat:message', HELD_MESSAGE);
+    const line = page.getByRole('region', { name: 'League Chat' }).getByText('you are worthless');
+    await expect(line).toBeVisible();
+    const family = await line.evaluate((el) => getComputedStyle(el).fontFamily);
+    expect(family).toContain('Archivo');
+    expect(family).not.toContain('Press Start 2P');
+  });
+
   test('a commissioner hides from the room and both clients live-tombstone it, no navigation', async ({ page, context }) => {
     // Page one is the commissioner; page two is an ordinary member. Each is its
     // own client with its own fake socket in the same league room.

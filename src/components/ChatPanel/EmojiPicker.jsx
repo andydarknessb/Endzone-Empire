@@ -2,8 +2,10 @@ import React, {
   useId, useLayoutEffect, useRef, useState,
 } from 'react';
 import {
-  Box, IconButton, Menu, MenuItem, Tooltip,
+  Box, Menu, MenuItem, Tooltip,
 } from '@mui/material';
+import { PsButton } from '../../shared/ui/playselect';
+import { MENU_PAPER } from '../../shared/ui/playselect/CardControls';
 import { visuallyHidden } from '@mui/utils';
 import EmojiEmotionsOutlinedIcon from '@mui/icons-material/EmojiEmotionsOutlined';
 import { MIN_TOUCH_TARGET_SX } from '../../shared/lib/a11y';
@@ -138,19 +140,18 @@ function EmojiPicker({ onSelect, onChoiceClosed = null }) {
   return (
     <>
       <Tooltip title="Insert emoji">
-        <IconButton
+        <PsButton
           ref={triggerRef}
-          aria-label="Insert emoji"
+          ariaLabel="Insert emoji"
           aria-haspopup="menu"
           // The trigger announces its state (#488): expanded tracks open, and
           // aria-controls names the live menu list only while it exists.
-          aria-expanded={open}
-          aria-controls={open ? menuListId : undefined}
+          ariaExpanded={open}
+          ariaControls={open ? menuListId : undefined}
           onClick={handleOpen}
-          sx={MIN_TOUCH_TARGET_SX}
         >
           <EmojiEmotionsOutlinedIcon />
-        </IconButton>
+        </PsButton>
       </Tooltip>
       <Menu
         anchorEl={anchorEl}
@@ -160,6 +161,7 @@ function EmojiPicker({ onSelect, onChoiceClosed = null }) {
         // The composer claims focus on a choice, so MUI must not also try to
         // restore it to the trigger; dismissal restores focus explicitly above.
         disableRestoreFocus
+        PaperProps={MENU_PAPER}
         TransitionProps={{ onExited: handleExited }}
         // A plain vertical menu (#488): no flex-wrap grid, so ArrowUp/ArrowDown
         // walk the palette one item at a time exactly as a menu is announced to.

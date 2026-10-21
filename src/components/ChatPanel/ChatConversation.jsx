@@ -1,6 +1,10 @@
 import React, { useId, useRef, useState, useEffect, useLayoutEffect, useCallback } from 'react';
-import { Paper, Typography, Box, TextField, Button, Alert, InputAdornment } from '@mui/material';
+import { Box } from '@mui/material';
+import {
+  BODY_FONT, Frame, FrameHead, PixelHeading, PsButton,
+} from '../../shared/ui/playselect';
 import { teamNameLabel, feedEntryKey } from '../../shared/lib/teamIdentity';
+import ChatField from './ChatField';
 import { newClientMsgId } from '../../lib/clientMessageId';
 import useComposerDraft from './useComposerDraft';
 import EmojiPicker from './EmojiPicker';
@@ -344,23 +348,27 @@ function ChatConversation({
   }, [lastKey, messages.length]);
 
   return (
-    <Paper
-      component="section"
-      aria-labelledby={headingId}
+    <Frame
+      labelledBy={headingId}
+      // The drawer already sits in a double frame, so the dashboard's copy takes the quiet edge.
+      tier={fillHeight ? 'primary' : 'rule'}
+      head={<FrameHead><PixelHeading id={headingId}>League Chat</PixelHeading></FrameHead>}
       sx={{
-        p: 2,
+        p: 0,
         mt: fillHeight ? 0 : 3,
+        fontFamily: BODY_FONT,
         ...(fillHeight ? { height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column' } : {}),
+        '& > .chat-body': { p: { xs: '12px 14px', md: '14px 20px' }, ...(fillHeight ? { flex: '1 1 auto', minHeight: 0, display: 'flex', flexDirection: 'column' } : {}) },
       }}
     >
-      <Typography id={headingId} variant="h6" component="h2" sx={{ mb: 2 }}>
-        League Chat
-      </Typography>
-
+      <Box className="chat-body">
       {error && (
-        <Alert severity="error" sx={{ mb: 2 }}>
+        <Box
+          role="alert"
+          sx={{ mb: 2, p: '10px 12px', border: '2px solid var(--ps-danger)', fontSize: '15px' }}
+        >
           {error}
-        </Alert>
+        </Box>
       )}
 
       {/* The feed is a named accessible log (#445 AC1): role="log" names the
@@ -397,13 +405,11 @@ function ChatConversation({
       >
         {hasMore && onLoadOlder && (
           <Box sx={{ textAlign: 'center', mb: 1 }}>
-            <Button size="small" onClick={() => onLoadOlder()}>
-              Load older messages
-            </Button>
+            <PsButton onClick={() => onLoadOlder()}>Load older messages</PsButton>
           </Box>
         )}
         {messages.length === 0 ? (
-          <Typography sx={{ color: 'text.secondary' }}>No messages yet</Typography>
+          <Box sx={{ color: 'var(--ps-dim)', fontSize: '15px' }}>No messages yet</Box>
         ) : (
           // Draft activity (#435) is server-authored and never a manager
           // message: it renders as an event line and is NEVER hideable (AC6) -
@@ -416,10 +422,10 @@ function ChatConversation({
             ) : (
               <Box key={feedEntryKey(m)} sx={{ mb: 1 }}>
                 <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1 }}>
-                  <Typography variant="body2" sx={{ flexGrow: 1 }}>
+                  <Box sx={{ flexGrow: 1, fontSize: '15px', overflowWrap: 'anywhere' }}>
                     <strong>{teamNameLabel(m.teamName)}</strong>{' '}
                     {m.hidden ? (
-                      <em style={{ color: 'inherit', opacity: 0.7 }}>{HIDDEN_TOMBSTONE}</em>
+                      <Box component="em" sx={{ color: 'var(--ps-dim)' }}>{HIDDEN_TOMBSTONE}</Box>
                     ) : (
                       // A GIF message (#446) carries a structured `media` object;
                       // its caption (m.message) renders inside the GifMessage
@@ -429,20 +435,19 @@ function ChatConversation({
                       // tombstone as hidden text, so nothing GIF-shaped renders.
                       m.media ? null : m.message
                     )}
-                  </Typography>
+                  </Box>
                   {/* A commissioner may hide a human message that is not already
                       hidden. Draft activity takes the branch above and never
                       reaches here, so nothing on this surface can hide it (AC6). */}
                   {moderating && !m.hidden && hidingId !== m.id && (
-                    <Button
-                      size="small"
-                      color="warning"
+                    <PsButton
+                      variant="quiet"
                       ref={hideButtonRef(m.id)}
                       onClick={() => startHiding(m.id)}
-                      aria-label={`Hide message from ${teamNameLabel(m.teamName)}`}
+                      ariaLabel={`Hide message from ${teamNameLabel(m.teamName)}`}
                     >
                       Hide
-                    </Button>
+                    </PsButton>
                   )}
                 </Box>
                 {/* A GIF message renders its asset (or the unavailable tile)
@@ -452,37 +457,33 @@ function ChatConversation({
                   <GifMessage media={m.media} caption={m.message} />
                 )}
                 {moderating && hidingId === m.id && (
-                  <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', mt: 0.5, mb: 0.5 }}>
-                    <TextField
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, alignItems: 'flex-start', mt: 0.5, mb: 0.5 }}>
+                    <ChatField
                       label="Reason for hiding"
-                      size="small"
-                      fullWidth
+                      sx={{ flex: '1 1 160px' }}
                       // Focus moves into the reason field as the form opens
                       // (#445 AC4); on close it returns to the Hide button
                       // (Cancel) or the message row (a committed hide).
                       autoFocus
                       value={hideReason}
                       onChange={(e) => setHideReason(e.target.value)}
-                      inputProps={{ maxLength: HIDE_REASON_MAX }}
-                      helperText={`${HIDE_REASON_MIN}-${HIDE_REASON_MAX} characters, kept for review`}
+                      maxLength={HIDE_REASON_MAX}
+                      hint={`${HIDE_REASON_MIN}-${HIDE_REASON_MAX} characters, kept for review`}
                     />
-                    <Button
-                      size="small"
-                      variant="contained"
-                      color="warning"
-                      disabled={hideReason.trim().length < HIDE_REASON_MIN}
-                      onClick={() => confirmHide(m.id)}
-                    >
-                      Confirm hide
-                    </Button>
-                    <Button size="small" onClick={cancelHiding}>
-                      Cancel
-                    </Button>
+                    <Box sx={{ display: 'flex', gap: 1, alignSelf: 'flex-end' }}>
+                      <PsButton
+                        disabled={hideReason.trim().length < HIDE_REASON_MIN}
+                        onClick={() => confirmHide(m.id)}
+                      >
+                        Confirm hide
+                      </PsButton>
+                      <PsButton variant="quiet" onClick={cancelHiding}>Cancel</PsButton>
+                    </Box>
                   </Box>
                 )}
-                <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                <Box component="span" sx={{ color: 'var(--ps-dim)', fontSize: '13px' }}>
                   {new Date(m.created_at).toLocaleTimeString()}
-                </Typography>
+                </Box>
               </Box>
             )
           )
@@ -491,9 +492,9 @@ function ChatConversation({
 
       {newCount > 0 && (
         <Box sx={{ textAlign: 'center', mb: 2 }}>
-          <Button size="small" variant="outlined" onClick={handleJumpToLatest}>
+          <PsButton onClick={handleJumpToLatest}>
             {newCount} new message{newCount === 1 ? '' : 's'}
-          </Button>
+          </PsButton>
         </Box>
       )}
 
@@ -512,13 +513,13 @@ function ChatConversation({
           named "Message composer" would be a second match for the existing
           specs' getByLabel('Message') alongside the message input itself. */}
       <Box role="group" aria-label="Chat composer" sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-        <TextField
+        <ChatField
           id="chat-message-input"
           label="Message"
-          size="small"
-          fullWidth
+          hideLabel
+          sx={{ flex: 1 }}
           value={text}
-          inputRef={inputRef}
+          ref={inputRef}
           // Describe the input with the visible counter (#486) rather than set
           // maxLength: the server is the single enforcement point, so typing
           // and sending past the limit stay possible.
@@ -529,20 +530,10 @@ function ChatConversation({
           // latent, not live, here: this field has neither, so there is nothing
           // for MUI to describe and nothing is lost. If a helperText or error is
           // ever added, merge its id in rather than letting this clobber it.
-          inputProps={{ 'aria-describedby': countId }}
-          // disablePointerEvents so a click on the counter strip falls through to
-          // the input and places the caret (#486). Without it the adornment eats
-          // the click - InputBase focuses only when the click target IS the input
-          // root, and the adornment's spans are descendants - so the right edge
-          // that used to be the input's own padding became a dead strip inside
-          // the field's outline. The counter has no interactivity to lose.
-          InputProps={{
-            endAdornment: (
-              <InputAdornment position="end" disablePointerEvents data-testid="composer-counter-adornment">
-                <ComposerCharacterCount text={text} indicatorId={countId} />
-              </InputAdornment>
-            ),
-          }}
+          describedBy={countId}
+          // The adornment ignores the pointer (ChatField), so a click on the counter strip
+          // falls through to the input and places the caret (#486).
+          adornment={<ComposerCharacterCount text={text} indicatorId={countId} />}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter') {
@@ -552,9 +543,7 @@ function ChatConversation({
           }}
         />
         <EmojiPicker onSelect={insertEmoji} onChoiceClosed={returnFocusToComposer} />
-        <Button variant="contained" onClick={handleSend} disabled={!text.trim()}>
-          Send
-        </Button>
+        <PsButton onClick={handleSend} disabled={!text.trim()}>Send</PsButton>
       </Box>
       {/* The GIF compose affordance (#446), absent unless the capability is
           enabled (AC7); emoji and text above are unaffected. Its compose fields
@@ -592,7 +581,8 @@ function ChatConversation({
         composition={gif}
         onCompositionChange={setGif}
       />
-    </Paper>
+      </Box>
+    </Frame>
   );
 }
 
