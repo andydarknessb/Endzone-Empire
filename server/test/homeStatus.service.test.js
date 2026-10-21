@@ -161,6 +161,18 @@ test('leagueStatuses names a starter the Weekly projection read says is Out, and
   assert.deepEqual(healthy.get(71).status.lineup.problems, ['1 empty FLEX slot']);
 });
 
+// The fake pool never runs the SQL, so the guard is on the query text: a starter
+// spared after kickoff (#627, #2391) keeps his seat only through the LEFT JOIN
+// and the slot OR; an inner join or a dropped OR would silently empty his seat.
+test('loadLineups keeps a lineup row whose roster row is gone unless it sits on BENCH or IR (#2430)', async (t) => {
+  const run = homeWorld(t);
+  await homeStatus.leagueStatuses(run, { userId: 7, leagues: [HOME_LEAGUE], now: HOME_NOW });
+  const [sourceQuery] = run.matching(/FROM "source"/);
+  assert.ok(sourceQuery, 'loadLineups\' query never ran');
+  assert.match(sourceQuery.text, /LEFT JOIN "team_players"/);
+  assert.match(sourceQuery.text, /OR "lineup_entries"\."slot" NOT IN \('BENCH', 'IR'\)/);
+});
+
 test('leagueStatuses names a starter on bye in the run', async (t) => {
   const fake = homeWorld(t, { verdict: unavailable('bye') });
   const statuses = await homeStatus.leagueStatuses(fake, { userId: 7, leagues: [HOME_LEAGUE], now: HOME_NOW });
