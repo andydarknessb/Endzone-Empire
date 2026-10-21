@@ -292,6 +292,28 @@ describe('before kickoff', () => {
   });
 });
 
+describe('once settled', () => {
+  const settled = () => render(<SlotComparison {...baseProps} status="played" />);
+
+  test('the head says "Every starter final" in place of the legend', () => {
+    settled();
+
+    expect(screen.getByText('Every starter final')).toBeInTheDocument();
+    expect(screen.queryByTestId('slot-legend')).not.toBeInTheDocument();
+  });
+
+  test('no row draws a state mark, wide or on a phone', () => {
+    settled();
+    expect(screen.queryByTestId(/^state-/)).not.toBeInTheDocument();
+  });
+
+  test('no row draws a state mark on a phone', () => {
+    phone = true;
+    settled();
+    expect(screen.queryByTestId(/^state-/)).not.toBeInTheDocument();
+  });
+});
+
 describe('the controls', () => {
   test('a name button opens the player, and the rest of the cell toggles the stat line', async () => {
     render(<SlotComparison {...baseProps} />);

@@ -90,7 +90,9 @@ export default function SlotComparison({
         <FrameHead>
           <PixelHeading id={headingId}>Starters</PixelHeading>
           <Box component="span" sx={{ ...META, ml: 'auto' }}>{count}</Box>
-          {pre ? <Box component="span" sx={{ ...META, flexBasis: { xs: '100%', md: 'auto' } }}>Every starter yet to play</Box> : <Legend />}
+          {pre || phase.settled
+            ? <Box component="span" sx={{ ...META, flexBasis: { xs: '100%', md: 'auto' } }}>{pre ? 'Every starter yet to play' : 'Every starter final'}</Box>
+            : <Legend />}
         </FrameHead>
       )}
     >
@@ -122,6 +124,7 @@ export default function SlotComparison({
                   side={key}
                   right={right}
                   pre={pre}
+                  settled={phase.settled}
                   showExp={showExp}
                   expanded={open(key)}
                   panelId={panelId}
@@ -347,10 +350,11 @@ const FOCUS_RING = { outline: '3px solid var(--ps-focus)', outlineOffset: 0, box
  * the data key ('home' or 'away').
  */
 function SideCell({
-  player, side, right, pre, showExp, expanded, panelId, compact, fillBy, onToggle, onOpenPlayer,
+  player, side, right, pre, settled, showExp, expanded, panelId, compact, fillBy, onToggle, onOpenPlayer,
 }) {
   if (!player) return <EmptyCell side={side} right={right} pre={pre} compact={compact} showExp={showExp} fillBy={fillBy} />;
-  const state = starterStateView(player.game_state);
+  // A settled matchup is never priced, so every game is final and the head says so once; no per-row mark.
+  const state = settled ? null : starterStateView(player.game_state);
   const reason = unavailableLabel(player);
   const notStarted = pre || player.game_state === 'scheduled';
   // "proj x" while his game has not started (the reason in its place for an Unavailable starter);
