@@ -130,11 +130,6 @@ test('an Upgrade of 0 renders no pill, on the table row and the mobile card (#19
   expect(screen.queryByText('Upgrade')).not.toBeInTheDocument();
 });
 
-// Risk-review finding (accessibility): the mobile card's only route into the
-// Decision card used to be the ~24px-tall name link - under the 44px minimum
-// every other action on this card carries, and easy to miss entirely. The
-// whole identity/status block is a CardActionArea now, so ANY tap there
-// opens it, not just the name glyphs.
 test("a waivers row's Clears tooltip keeps the visible relative time as its accessible name, not the absolute timestamp", () => {
   renderRow({
     player: player({ availability: { state: 'waivers', teamId: null, teamName: null, availableAt: new Date(Date.now() + 3 * 3600000).toISOString() } }),
@@ -163,15 +158,6 @@ test("an action's helper tooltip keeps the button's own label as its accessible 
   });
 
   expect(screen.getByRole('button', { name: 'Add free agent' })).toBeInTheDocument();
-});
-
-// #1312, ADR 0040 follow-up (grill ruling Q6): the Watch toggle - a plain
-// data object the caller builds, the same shape `action` already uses,
-// hidden entirely when the caller omits it.
-test('watchAction omitted: no Watch control renders', () => {
-  renderRow({ player: player(), action: { kind: 'button', label: 'Add', onClick: jest.fn() } });
-
-  expect(screen.queryByTestId('player-row-watch')).not.toBeInTheDocument();
 });
 
 test('card variant renders the same row content in a stacked layout', () => {

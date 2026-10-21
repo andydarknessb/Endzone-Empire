@@ -4,8 +4,7 @@ import { PixelWarn, PsButton, pixelSx } from '../../../shared/ui/playselect';
 import { bidHelperText } from '../model/bidValidity';
 
 // The Play-select body of the claim sheet (ADR 0067 wave 3, board WaiversStates "Claim sheet"):
-// `ClaimSheetBody` keeps every read, state and submission and hands this its values, so the two looks
-// cannot file a claim differently. The sheet's "Submit claim" / "Save claim" is the modal's own
+// `ClaimSheetBody` keeps every read, state and submission and hands this its values. The sheet's "Submit claim" / "Save claim" is the modal's own
 // filled action.
 
 const fmt = (n) => (n == null || Number.isNaN(Number(n)) ? '-' : Number(n).toFixed(1));

@@ -10,16 +10,17 @@ import { PixelArrow } from '../../../shared/ui/playselect';
  * plus an "All weeks" action. The page keeps owning the week state and its
  * default; this feature only reports a pick through `onChange`.
  *
+ * ADR 0067, spec #2334 ruling 3: the picker is on `ps-*` tokens, square 44px controls, no opacity, and ONE tab
+ * stop for the weeks: the selected week carries it (the strip's roving tabindex; Left/Right/Home/End
+ * move it), while Previous and Next stay pointer targets at tabindex -1. "All weeks" is a different
+ * action and keeps its own stop.
+ *
  * Props:
  *   - `weeks`: the weeks on offer, ascending (number[]).
  *   - `value`: the selected week, or the string "All" for every week.
  *   - `onChange`: called with the picked week (a number) or "All".
  *   - `allWeeks`: whether to offer the "All weeks" action (default true). A page whose
  *     week setter cannot take "All" (Pick'em) passes `false`; Game Center and Lineup keep it.
- *   - Look (ADR 0067, spec #2334 ruling 3): the picker is on `ps-*` tokens, square 44px controls, no opacity, and ONE tab
- *     stop for the weeks: the selected week carries it (the strip's roving tabindex; Left/Right/Home/End
- *     move it), while Previous and Next stay pointer targets at tabindex -1. "All weeks" is a different
- *     action and keeps its own stop.
  *   - `fill`: the mobile layout (below the `sm` breakpoint): the stepper row
  *     stretches to the container and carries every control on one line, the
  *     weeks scroll sideways inside the room left between the chevrons and
