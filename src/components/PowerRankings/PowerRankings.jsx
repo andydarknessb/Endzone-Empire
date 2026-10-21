@@ -1,84 +1,104 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
-import {
-  Container,
-  Paper,
-  Typography,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  TableSortLabel,
-  Alert,
-  Box,
-  Card,
-  CardContent,
-  Chip,
-  LinearProgress,
-  Skeleton,
-  Stack,
-  useMediaQuery,
-} from '@mui/material';
-import { useTheme } from '@mui/material/styles';
-import ArrowDropUpIcon from '@mui/icons-material/ArrowDropUp';
-import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown';
-import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
-import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
-import LeaderboardOutlinedIcon from '@mui/icons-material/LeaderboardOutlined';
+import { Box, useMediaQuery } from '@mui/material';
 import apiClient from '../../api/apiClient';
 import { readHttpFailure } from '../../lib/httpFailure';
 import { applyTeamProfileUpdate, subscribeToTeamProfileUpdates } from '../../lib/teamProfileEvents';
 import { recordsByTeamId } from '../../entities/standings';
 import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
-// Concrete module path, not the shared/ui barrel: a legacy consumer (ADR
-// 0031's #1146 amendment) - the index would pull the whole kit, and
-// shared/lib's useEndpoint through it, into this bundle.
-import TeamAvatar from '../../shared/ui/TeamAvatar';
+import { ErrorPanel, Skel } from '../../shared/ui/playselect/Controls';
+import { Frame, PixelHeading } from '../../shared/ui/playselect/Frame';
+import { PixelArrow } from '../../shared/ui/playselect/Icons';
+import { TeamMark, YouTag } from '../../shared/ui/playselect/Marks';
+import { psRootSx } from '../../shared/ui/playselect/root';
+import '../../shared/ui/playselect/playselect.css';
 
+const PHONE_QUERY = '(max-width:599.95px)';
+
+function Dim({ children, sx, ...rest }) {
+  return (
+    <Box component="p" {...rest} sx={{ m: 0, fontSize: '15px', color: 'var(--ps-dim)', ...sx }}>{children}</Box>
+  );
+}
+
+function Shell({ children }) {
+  return (
+    <Box className="ps-root" sx={{ ...psRootSx, minHeight: '100%' }}>
+      <Box
+        data-testid="power-rankings"
+        sx={{
+          maxWidth: '1280px',
+          marginX: 'auto',
+          boxSizing: 'border-box',
+          padding: { xs: '14px 16px 48px', sm: '24px 32px 64px' },
+          display: 'flex',
+          flexDirection: 'column',
+          gap: { xs: '16px', sm: '24px' },
+        }}
+      >
+        {children}
+      </Box>
+    </Box>
+  );
+}
+
+// Odds read as a bar on a ruled track; the percentage sits beside it.
 function OddsCell({ value, label }) {
   const pct = Math.round((value || 0) * 1000) / 10;
   const clamped = Math.min(100, Math.max(0, pct));
   return (
-    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 140 }}>
-      <Box sx={{ flexGrow: 1 }} aria-label={`${label} ${pct}%`}>
-        <LinearProgress variant="determinate" value={clamped} />
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 140 }}>
+      <Box
+        role="progressbar"
+        aria-label={`${label} ${pct}%`}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={clamped}
+        sx={{ flexGrow: 1, height: '10px', border: '2px solid var(--ps-rule)', boxSizing: 'border-box' }}
+      >
+        <Box sx={{ height: '100%', width: `${clamped}%`, backgroundColor: 'var(--ps-play)' }} />
       </Box>
-      <Typography variant="body2" sx={{ minWidth: 42, textAlign: 'right' }}>
-        {pct}%
-      </Typography>
+      <Box component="span" sx={{ minWidth: 48, textAlign: 'right' }}>{pct}%</Box>
+    </Box>
+  );
+}
+
+// Movement is Ink: a PixelArrow (up or down) and a signed number. The arrow points right, so it turns.
+function Move({ change, suffix = '' }) {
+  const up = change > 0;
+  const n = Math.abs(change);
+  return (
+    <Box
+      component="span"
+      data-testid="movement"
+      role="img"
+      aria-label={`${up ? 'up' : 'down'} ${n}${suffix}`}
+      sx={{ display: 'inline-flex', alignItems: 'center', gap: '6px', color: 'var(--ps-ink)', whiteSpace: 'nowrap' }}
+    >
+      <Box component="span" data-testid="movement-arrow" aria-hidden="true" sx={{ display: 'inline-flex', transform: `rotate(${up ? -90 : 90}deg)` }}>
+        <PixelArrow />
+      </Box>
+      <span>{up ? '+' : '-'}{n}{suffix}</span>
     </Box>
   );
 }
 
 function MovementCell({ change }) {
   if (change === null || change === undefined) {
-    return <Chip size="small" label="NEW" data-testid="movement-new" />;
-  }
-  if (change === 0) {
     return (
-      <Typography variant="body2" sx={{ color: 'text.secondary' }} aria-label="no change">
-        –
-      </Typography>
+      <Box
+        component="span"
+        data-testid="movement-new"
+        sx={{ border: '2px solid var(--ps-rule)', padding: '2px 6px', fontSize: '13px', fontWeight: 700 }}
+      >
+        NEW
+      </Box>
     );
   }
-  const up = change > 0;
-  return (
-    <Box
-      sx={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        color: up ? 'success.main' : 'error.main',
-      }}
-      aria-label={`${up ? 'up' : 'down'} ${Math.abs(change)}`}
-    >
-      {up ? <ArrowDropUpIcon fontSize="small" /> : <ArrowDropDownIcon fontSize="small" />}
-      <Typography variant="body2" component="span">
-        {Math.abs(change)}
-      </Typography>
-    </Box>
-  );
+  if (change === 0) {
+    return <Box component="span" aria-label="no change" sx={{ color: 'var(--ps-dim)' }}>–</Box>;
+  }
+  return <Move change={change} />;
 }
 
 // The Record arrives FORMATTED from the standings entity (src/entities/
@@ -88,36 +108,67 @@ function formatRecord(record) {
   return record || '-';
 }
 
+function TeamName({ team, size, isViewer }) {
+  return (
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+      <TeamMark name={team.name} avatarUrl={team.avatarUrl} avatarStaticUrl={team.avatarStaticUrl} size={size} />
+      <span>{team.name}</span>
+      {isViewer && <YouTag />}
+    </Box>
+  );
+}
+
 function HighlightCard({ label, team, change, up }) {
   return (
-    <Card variant="outlined" sx={{ flex: 1, minWidth: 220 }} data-testid={`highlight-card-${up ? 'mover' : 'faller'}`}>
-      <CardContent>
-        <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1}>
-          <Stack direction="row" alignItems="center" spacing={1.5} sx={{ minWidth: 0 }}>
-            <TeamAvatar name={team.name} avatarUrl={team.avatarUrl} avatarStaticUrl={team.avatarStaticUrl} />
-            <Box sx={{ minWidth: 0 }}>
-              <Typography variant="caption" sx={{ color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                {label}
-              </Typography>
-              <Typography variant="subtitle1" component="p" noWrap sx={{ fontWeight: 600, lineHeight: 1.2 }}>
-                {team.name}
-              </Typography>
+    <Frame
+      component="div"
+      tier="rule"
+      data-testid={`highlight-card-${up ? 'mover' : 'faller'}`}
+      sx={{ flex: 1, minWidth: { sm: 220 }, padding: '14px 16px' }}
+    >
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0 }}>
+          <TeamMark name={team.name} avatarUrl={team.avatarUrl} avatarStaticUrl={team.avatarStaticUrl} />
+          <Box sx={{ minWidth: 0 }}>
+            <Box sx={{ fontSize: '13px', color: 'var(--ps-dim)', textTransform: 'uppercase' }}>{label}</Box>
+            <Box component="p" sx={{ m: 0, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {team.name}
             </Box>
-          </Stack>
-          <Stack
-            direction="row"
-            alignItems="center"
-            spacing={0.25}
-            sx={{ color: up ? 'success.main' : 'error.main', flexShrink: 0, whiteSpace: 'nowrap' }}
-          >
-            {up ? <ArrowUpwardIcon fontSize="small" /> : <ArrowDownwardIcon fontSize="small" />}
-            <Typography variant="h6" sx={{ fontWeight: 700, whiteSpace: 'nowrap' }}>
-              {Math.abs(change)} Spot{Math.abs(change) === 1 ? '' : 's'}
-            </Typography>
-          </Stack>
-        </Stack>
-      </CardContent>
-    </Card>
+          </Box>
+        </Box>
+        <Move change={change} suffix={` Spot${Math.abs(change) === 1 ? '' : 's'}`} />
+      </Box>
+    </Frame>
+  );
+}
+
+const CELL = { padding: '10px 8px', textAlign: 'left', borderBottom: '2px solid var(--ps-rule)', fontSize: '15px' };
+
+function SortHead({ label, sortKey, orderBy, order, onSort, right }) {
+  const active = orderBy === sortKey;
+  return (
+    <th
+      scope="col"
+      aria-sort={active ? (order === 'asc' ? 'ascending' : 'descending') : undefined}
+      className={right ? 'num' : undefined}
+    >
+      <Box
+        component="button"
+        type="button"
+        onClick={() => onSort(sortKey)}
+        sx={{
+          font: 'inherit', fontWeight: 600, color: active ? 'var(--ps-ink)' : 'var(--ps-dim)', background: 'none',
+          border: 0, padding: 0, minHeight: '36px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px',
+        }}
+      >
+        {label}
+        {active && (
+          <Box component="span" aria-hidden="true" sx={{ display: 'inline-flex', transform: `rotate(${order === 'asc' ? -90 : 90}deg)` }}>
+            <PixelArrow />
+          </Box>
+        )}
+      </Box>
+    </th>
   );
 }
 
@@ -132,10 +183,11 @@ function sortRankings(rankings, orderBy, order) {
   return sorted;
 }
 
+const winPct = (team) => Math.round((team.winPct || 0) * 1000) / 10;
+
 function PowerRankings() {
   const { leagueId } = useParams();
-  const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+  const isMobile = useMediaQuery(PHONE_QUERY);
   const [payload, setPayload] = useState(null);
   const [standings, setStandings] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -214,223 +266,159 @@ function PowerRankings() {
 
   if (loading) {
     return (
-      <Container maxWidth="lg" sx={{ py: 4 }} data-testid="page-skeleton">
-        <Skeleton variant="text" width={220} height={48} sx={{ mb: 3 }} />
-        <Skeleton variant="text" width={160} sx={{ mb: 2 }} />
-        {Array.from({ length: 6 }).map((_, i) => (
-          <Skeleton key={i} variant="rectangular" height={44} sx={{ mb: 1, borderRadius: 1 }} />
-        ))}
-      </Container>
+      <Shell>
+        <Box data-testid="page-skeleton" aria-busy="true" sx={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          <Skel width={220} height={36} />
+          <Skel width={160} height={16} />
+          {Array.from({ length: 6 }).map((_, i) => (
+            <Skel key={i} width="100%" height={44} />
+          ))}
+        </Box>
+      </Shell>
     );
   }
 
   return (
-    <Container maxWidth="lg" sx={{ py: 4 }}>
-      <LeagueBreadcrumb />
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
-        <Typography id="power-rankings-table-heading" variant="h4">Power Rankings</Typography>
+    <Shell>
+      <Box>
+        <LeagueBreadcrumb look="playselect" />
+        <PixelHeading id="power-rankings-table-heading" level={1}>Power Rankings</PixelHeading>
         {payload && (
-          <Typography variant="subtitle1" component="p" sx={{ color: 'text.secondary' }}>
-            Season {payload.season} · Week {payload.week}
-          </Typography>
+          <Dim sx={{ mt: '8px' }}>Season {payload.season} · Week {payload.week}</Dim>
         )}
       </Box>
 
       {error && (
-        <Alert severity="error" sx={{ mb: 2 }}>
-          {error}
-        </Alert>
+        <ErrorPanel
+          title="Power rankings"
+          body={error}
+          onRetry={fetchRankings}
+          retryAriaLabel="Try again to load power rankings"
+        />
       )}
 
       {notComputed && (
-        <Stack
-          alignItems="center"
-          justifyContent="center"
-          spacing={1.5}
-          sx={{ minHeight: 320, textAlign: 'center', color: 'text.secondary' }}
+        <Frame
+          component="div"
+          tier="rule"
           data-testid="power-rankings-empty"
+          sx={{ padding: '32px 20px', textAlign: 'center' }}
         >
-          <LeaderboardOutlinedIcon sx={{ fontSize: 64, color: 'text.disabled' }} />
-          <Typography variant="h6" sx={{ color: 'text.primary' }}>
-            No rankings yet
-          </Typography>
-          <Typography variant="body2" sx={{ maxWidth: 360 }}>
-            Rankings appear after the first scored week
-          </Typography>
-        </Stack>
+          <Box component="p" sx={{ m: 0, mb: '8px', fontWeight: 700 }}>No rankings yet</Box>
+          <Dim>Rankings appear after the first scored week</Dim>
+        </Frame>
       )}
 
       {payload && (
         <>
-          <Typography
-            variant="caption"
-            sx={{ color: 'text.secondary', mb: 2, display: 'block' }}
-          >
+          <Dim sx={{ fontSize: '13px' }}>
             Computed {new Date(payload.data.computedAt).toLocaleString()} · {payload.data.runs}{' '}
             simulation runs
-          </Typography>
+          </Dim>
 
           {(biggestMover || biggestFaller) && (
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ mb: 3 }}>
+            <Box sx={{ display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, gap: '16px' }}>
               {biggestMover && (
                 <HighlightCard label="Biggest Mover" team={biggestMover} change={biggestMover.change} up />
               )}
               {biggestFaller && (
                 <HighlightCard label="Biggest Faller" team={biggestFaller} change={biggestFaller.change} up={false} />
               )}
-            </Stack>
+            </Box>
           )}
 
           {isMobile ? (
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               {sortedRankings.map((team) => {
                 const isViewer = viewerTeamId != null && team.teamId === viewerTeamId;
                 return (
-                  <Card
+                  <Frame
                     key={team.teamId}
+                    component="div"
+                    tier="rule"
                     data-testid={`power-ranking-row-${team.teamId}`}
                     data-viewer-team={isViewer || undefined}
-                    variant="outlined"
-                    sx={{
-                      ...(isViewer && {
-                        bgcolor: 'var(--accent-soft)',
-                        borderLeft: '3px solid',
-                        borderLeftColor: 'primary.main',
-                      }),
-                    }}
+                    sx={{ padding: '14px 16px', fontVariantNumeric: 'tabular-nums' }}
                   >
-                    <CardContent>
-                      <Box
-                        sx={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 1,
-                          flexWrap: 'wrap',
-                          mb: 0.5,
-                        }}
-                      >
-                        <TeamAvatar name={team.name} avatarUrl={team.avatarUrl} avatarStaticUrl={team.avatarStaticUrl} size={32} />
-                        <Typography variant="subtitle1" component="p" sx={{ fontWeight: 600 }}>
-                          #{team.rank} {team.name}
-                        </Typography>
-                        <MovementCell change={team.change} />
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', mb: '4px' }}>
+                      <TeamMark name={team.name} avatarUrl={team.avatarUrl} avatarStaticUrl={team.avatarStaticUrl} size={32} />
+                      <Box component="p" sx={{ m: 0, fontWeight: 700 }}>#{team.rank} {team.name}</Box>
+                      {isViewer && <YouTag />}
+                      <MovementCell change={team.change} />
+                    </Box>
+                    <Dim sx={{ mb: '12px' }}>
+                      Win {winPct(team)}% · Avg {team.avgScore} ·{' '}
+                      {formatRecord(recordByTeamId.get(team.teamId))}
+                    </Dim>
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      <Box>
+                        <Dim sx={{ fontSize: '13px' }}>Playoff</Dim>
+                        <OddsCell value={team.playoffOdds} label="Playoff odds" />
                       </Box>
-                      <Typography variant="body2" sx={{ color: 'text.secondary', mb: 1.5 }}>
-                        Win {Math.round((team.winPct || 0) * 1000) / 10}% · Avg {team.avgScore} ·{' '}
-                        {formatRecord(recordByTeamId.get(team.teamId))}
-                      </Typography>
-                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                        <Box>
-                          <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                            Playoff
-                          </Typography>
-                          <OddsCell value={team.playoffOdds} label="Playoff odds" />
-                        </Box>
-                        <Box>
-                          <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                            Title
-                          </Typography>
-                          <OddsCell value={team.titleOdds} label="Title odds" />
-                        </Box>
+                      <Box>
+                        <Dim sx={{ fontSize: '13px' }}>Title</Dim>
+                        <OddsCell value={team.titleOdds} label="Title odds" />
                       </Box>
-                    </CardContent>
-                  </Card>
+                    </Box>
+                  </Frame>
                 );
               })}
             </Box>
           ) : (
-            <TableContainer component={Paper}>
-              <Table aria-labelledby="power-rankings-table-heading">
-                <TableHead>
-                  <TableRow>
-                    <TableCell sortDirection={orderBy === 'rank' ? order : false}>
-                      <TableSortLabel
-                        active={orderBy === 'rank'}
-                        direction={orderBy === 'rank' ? order : 'asc'}
-                        onClick={() => handleSort('rank')}
-                      >
-                        Rank
-                      </TableSortLabel>
-                    </TableCell>
-                    <TableCell>Team</TableCell>
-                    <TableCell>Record</TableCell>
-                    <TableCell>Move</TableCell>
-                    <TableCell align="right" sortDirection={orderBy === 'winPct' ? order : false}>
-                      <TableSortLabel
-                        active={orderBy === 'winPct'}
-                        direction={orderBy === 'winPct' ? order : 'desc'}
-                        onClick={() => handleSort('winPct')}
-                      >
-                        Win %
-                      </TableSortLabel>
-                    </TableCell>
-                    <TableCell
-                      align="right"
-                      sortDirection={orderBy === 'avgScore' ? order : false}
-                    >
-                      <TableSortLabel
-                        active={orderBy === 'avgScore'}
-                        direction={orderBy === 'avgScore' ? order : 'desc'}
-                        onClick={() => handleSort('avgScore')}
-                      >
-                        Avg Score
-                      </TableSortLabel>
-                    </TableCell>
-                    <TableCell>Playoff Odds</TableCell>
-                    <TableCell>Title Odds</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {sortedRankings.map((team) => {
-                    const isViewer = viewerTeamId != null && team.teamId === viewerTeamId;
-                    return (
-                      <TableRow
-                        key={team.teamId}
-                        data-testid={`power-ranking-row-${team.teamId}`}
-                        data-viewer-team={isViewer || undefined}
-                        sx={{
-                          ...(isViewer && {
-                            bgcolor: 'var(--accent-soft)',
-                            borderLeft: '3px solid',
-                            borderLeftColor: 'primary.main',
-                          }),
-                        }}
-                      >
-                        <TableCell>
-                          <Typography variant="body1" sx={{ fontWeight: 700 }}>
-                            {team.rank}
-                          </Typography>
-                        </TableCell>
-                        <TableCell>
-                          <Stack direction="row" alignItems="center" spacing={1}>
-                            <TeamAvatar name={team.name} avatarUrl={team.avatarUrl} avatarStaticUrl={team.avatarStaticUrl} size={28} />
-                            <Typography variant="body2">{team.name}</Typography>
-                          </Stack>
-                        </TableCell>
-                        <TableCell>{formatRecord(recordByTeamId.get(team.teamId))}</TableCell>
-                        <TableCell>
-                          <MovementCell change={team.change} />
-                        </TableCell>
-                        <TableCell align="right">
-                          {Math.round((team.winPct || 0) * 1000) / 10}%
-                        </TableCell>
-                        <TableCell align="right">{team.avgScore}</TableCell>
-                        <TableCell>
-                          <OddsCell value={team.playoffOdds} label="Playoff odds" />
-                        </TableCell>
-                        <TableCell>
-                          <OddsCell value={team.titleOdds} label="Title odds" />
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            </TableContainer>
+            <Frame component="div">
+              <Box sx={{ overflowX: 'auto' }}>
+                <Box
+                  component="table"
+                  aria-labelledby="power-rankings-table-heading"
+                  sx={{
+                    width: '100%', borderCollapse: 'collapse', fontVariantNumeric: 'tabular-nums', color: 'var(--ps-ink)',
+                    '& th': { ...CELL, color: 'var(--ps-dim)', fontWeight: 600 },
+                    '& td': CELL,
+                    '& tr:last-of-type td': { borderBottom: 'none' },
+                    '& .num': { textAlign: 'right' },
+                    '& tr[data-viewer-team] td:first-of-type': { boxShadow: 'inset 4px 0 0 var(--ps-play)' },
+                  }}
+                >
+                  <thead>
+                    <tr>
+                      <SortHead label="Rank" sortKey="rank" orderBy={orderBy} order={order} onSort={handleSort} />
+                      <th scope="col">Team</th>
+                      <th scope="col">Record</th>
+                      <th scope="col">Move</th>
+                      <SortHead label="Win %" sortKey="winPct" orderBy={orderBy} order={order} onSort={handleSort} right />
+                      <SortHead label="Avg Score" sortKey="avgScore" orderBy={orderBy} order={order} onSort={handleSort} right />
+                      <th scope="col">Playoff Odds</th>
+                      <th scope="col">Title Odds</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sortedRankings.map((team) => {
+                      const isViewer = viewerTeamId != null && team.teamId === viewerTeamId;
+                      return (
+                        <tr
+                          key={team.teamId}
+                          data-testid={`power-ranking-row-${team.teamId}`}
+                          data-viewer-team={isViewer || undefined}
+                        >
+                          <td><strong>{team.rank}</strong></td>
+                          <td><TeamName team={team} size={28} isViewer={isViewer} /></td>
+                          <td>{formatRecord(recordByTeamId.get(team.teamId))}</td>
+                          <td><MovementCell change={team.change} /></td>
+                          <td className="num">{winPct(team)}%</td>
+                          <td className="num">{team.avgScore}</td>
+                          <td><OddsCell value={team.playoffOdds} label="Playoff odds" /></td>
+                          <td><OddsCell value={team.titleOdds} label="Title odds" /></td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </Box>
+              </Box>
+            </Frame>
           )}
         </>
       )}
-    </Container>
+    </Shell>
   );
 }
 
