@@ -140,18 +140,38 @@ test('shows a generic error alert on a non-404 failure', async () => {
 });
 
 describe('rank movement', () => {
-  test('renders up movement in success color with an up aria-label', async () => {
+  test('renders up movement with an up aria-label', async () => {
     apiClient.get.mockResolvedValue({ data: powerRankingsResponse() });
     renderScreen();
     const aliceRow = await screen.findByTestId('power-ranking-row-1');
     expect(within(aliceRow).getByLabelText('up 1')).toBeInTheDocument();
   });
 
-  test('renders down movement in error color with a down aria-label', async () => {
+  test('renders down movement with a down aria-label', async () => {
     apiClient.get.mockResolvedValue({ data: powerRankingsResponse() });
     renderScreen();
     const bobRow = await screen.findByTestId('power-ranking-row-2');
     expect(within(bobRow).getByLabelText('down 1')).toBeInTheDocument();
+  });
+
+  test('a team up 3 and a team down 2 each render an arrow and a signed number', async () => {
+    apiClient.get.mockResolvedValue({
+      data: powerRankingsResponse({
+        data: {
+          rankings: [
+            { teamId: 1, name: 'Up', rank: 1, winPct: 0.5, avgScore: 100, playoffOdds: 0.5, titleOdds: 0.1, change: 3 },
+            { teamId: 2, name: 'Down', rank: 2, winPct: 0.5, avgScore: 99, playoffOdds: 0.5, titleOdds: 0.1, change: -2 },
+          ],
+        },
+      }),
+    });
+    renderScreen();
+    const upMove = within(await screen.findByTestId('power-ranking-row-1')).getByTestId('movement');
+    const downMove = within(screen.getByTestId('power-ranking-row-2')).getByTestId('movement');
+    expect(upMove).toHaveTextContent('+3');
+    expect(downMove).toHaveTextContent('-2');
+    expect(within(upMove).getByTestId('movement-arrow')).toBeInTheDocument();
+    expect(within(downMove).getByTestId('movement-arrow')).toBeInTheDocument();
   });
 
   test('renders a muted dash for no change', async () => {
@@ -248,12 +268,12 @@ describe('highlight cards', () => {
     const mover = screen.getByTestId('highlight-card-mover');
     expect(within(mover).getByText('Biggest Mover')).toBeInTheDocument();
     expect(within(mover).getByText("Alice's Team")).toBeInTheDocument();
-    expect(within(mover).getByText('1 Spot')).toBeInTheDocument();
+    expect(within(mover).getByText('+1 Spot')).toBeInTheDocument();
 
     const faller = screen.getByTestId('highlight-card-faller');
     expect(within(faller).getByText('Biggest Faller')).toBeInTheDocument();
     expect(within(faller).getByText("Bob's Team")).toBeInTheDocument();
-    expect(within(faller).getByText('1 Spot')).toBeInTheDocument();
+    expect(within(faller).getByText('-1 Spot')).toBeInTheDocument();
   });
 
   test('omits highlight cards when no team has moved', async () => {
@@ -351,11 +371,11 @@ test('updates a mounted ranking immediately when Profile Settings publishes a te
   }));
 
   expect(within(aliceRow).getByText('Bandits')).toBeInTheDocument();
-  // TeamAvatar is aria-hidden by design (the team name sits right beside it),
-  // so the image is queried with hidden: true rather than pretending it is in
+  // TeamMark is aria-hidden by design (the team name sits right beside it),
+  // so the image (alt="") is queried by tag rather than pretending it is in
   // the accessibility tree. See the comment on Avatar in TeamAvatar.jsx
   // (#327) for why it must stay without an `alt`.
-  expect(within(aliceRow).getByRole('img', { hidden: true })).toHaveAttribute(
+  expect(within(aliceRow).getByRole('presentation', { hidden: true })).toHaveAttribute(
     'src',
     'https://cdn.example/bandits.png'
   );
