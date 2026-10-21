@@ -89,6 +89,26 @@ describe('NextDraftCard states', () => {
     expect(container.textContent).not.toMatch(/you pick/i);
   });
 
+  test("live names the viewer's slot in the round, or that the clock is theirs", () => {
+    const live = (draft) => league({ draft_status: 'active', draft_date: at(-HOUR), status: { phase: 'drafting', draft } });
+    const { unmount } = renderCard(live({ round: 1, slot: 7, onTheClock: false }));
+    const link = screen.getByRole('link', { name: /^Draft room open./ });
+    expect(within(link).getByText('Sunday Ballers · Round 1, you pick 7th')).toBeInTheDocument();
+    expect(link).toHaveAccessibleName(/the draft is live. Round 1, you pick 7th$/);
+    unmount();
+    renderCard(live({ round: 2, slot: 6, onTheClock: true }));
+    const clock = screen.getByRole('link', { name: /^Draft room open./ });
+    expect(within(clock).getByText("Sunday Ballers · You're on the clock")).toBeInTheDocument();
+    expect(clock).toHaveAccessibleName(/You're on the clock$/);
+  });
+
+  test('a live draft whose viewer has no picks left (null round and slot) shows no detail', () => {
+    renderCard(league({ draft_status: 'active', draft_date: at(-HOUR), status: { phase: 'drafting', draft: { round: null, slot: null, onTheClock: false } } }));
+    const link = screen.getByRole('link', { name: /^Draft room open/ });
+    expect(within(link).getByText('Sunday Ballers')).toBeInTheDocument();
+    expect(link).not.toHaveTextContent(/you pick/i);
+  });
+
   test('a card that is not the lead has an outlined foot', () => {
     const { container } = renderCard(league({ draft_status: 'active', draft_date: at(-HOUR) }));
     expect(container.querySelector('[data-filled]')).toBeNull();
