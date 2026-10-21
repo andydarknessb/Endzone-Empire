@@ -73,6 +73,7 @@ export default function SchedulePanel({ league, teamCount, frozen, onSave, onSta
       {frozen && <Note>Scheduling is locked after the draft starts.</Note>}
       {auctionUnavailable && <Note>Live salary-cap auctions are coming soon. Scheduling and immediate start are unavailable.</Note>}
       <DraftScheduleField
+        look="playselect"
         wallTime={draftDate}
         onWallTimeChange={setDraftDate}
         timeZone={timeZone}

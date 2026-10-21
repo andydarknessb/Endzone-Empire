@@ -5,11 +5,8 @@ import { FIELD_SX, FieldLabel, HINT_SX, MENU_PAPER } from '../../shared/ui/plays
 // Draft settings on the Play-select kit (spec #2433, 3/8). The semantics stay MUI's (tabs, radios,
 // spinbuttons); only the skin moves to `--ps-*` tokens.
 
-export { PsButton, ErrorPanel } from '../../shared/ui/playselect';
+export { ErrorPanel, Frame, PsButton, Skel } from '../../shared/ui/playselect';
 export { FIELD_SX, MENU_PAPER };
-
-/** A panel frame: a tertiary frame holding kit fields. */
-export const PANEL_SX = { minWidth: 0, border: '2px solid var(--ps-frame-2)', backgroundColor: 'var(--ps-panel)', padding: { xs: '12px', sm: '20px' } };
 
 /** Archivo Dim body text under a panel head. */
 export function Dim({ children, sx, ...rest }) {
@@ -21,9 +18,9 @@ export function Note({ children, warn = false }) {
   return <Box role="alert" sx={{ border: '2px solid', borderColor: warn ? 'var(--ps-danger)' : 'var(--ps-dim)', padding: '10px 12px', fontSize: '15px' }}>{children}</Box>;
 }
 
-/** Sub-head inside a panel (an h5, as before). */
+/** Section head inside a panel: an h2 under the page's h1. */
 export function SubHead({ children, sx, ...rest }) {
-  return <Box component="h5" {...rest} sx={[{ m: 0, fontSize: '16px', fontWeight: 700 }, ...[].concat(sx ?? [])]}>{children}</Box>;
+  return <Box component="h2" {...rest} sx={[{ m: 0, fontSize: '16px', fontWeight: 700 }, ...[].concat(sx ?? [])]}>{children}</Box>;
 }
 
 /** 44px target for icon buttons and other small controls. */

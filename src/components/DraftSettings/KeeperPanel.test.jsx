@@ -310,8 +310,8 @@ describe('heading levels (#704)', () => {
   test('gives "Keeper assignments" and "Keeper board preview" an explicit h5, and "Keeper lock" a group label, with no stray h6', () => {
     renderPanel();
 
-    expect(screen.getByRole('heading', { level: 5, name: 'Keeper assignments' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { level: 5, name: 'Keeper board preview' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: 'Keeper assignments' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: 'Keeper board preview' })).toBeInTheDocument();
     expect(screen.getByRole('radiogroup', { name: 'Keeper lock' })).toBeInTheDocument();
     expect(screen.queryAllByRole('heading', { level: 6 })).toHaveLength(0);
   });

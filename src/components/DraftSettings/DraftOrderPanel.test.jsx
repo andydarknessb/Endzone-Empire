@@ -62,8 +62,8 @@ test('gives its three section titles an explicit h5, and no stray h6', () => {
     { id: 2, name: 'Team Two', draft_position: 2 },
   ]);
 
-  expect(screen.getByRole('heading', { level: 5, name: 'Round 1 order' })).toBeInTheDocument();
-  expect(screen.getByRole('heading', { level: 5, name: 'Rotation preview' })).toBeInTheDocument();
-  expect(screen.getByRole('heading', { level: 5, name: 'Round overrides' })).toBeInTheDocument();
+  expect(screen.getByRole('heading', { level: 2, name: 'Round 1 order' })).toBeInTheDocument();
+  expect(screen.getByRole('heading', { level: 2, name: 'Rotation preview' })).toBeInTheDocument();
+  expect(screen.getByRole('heading', { level: 2, name: 'Round overrides' })).toBeInTheDocument();
   expect(screen.queryAllByRole('heading', { level: 6 })).toHaveLength(0);
 });
