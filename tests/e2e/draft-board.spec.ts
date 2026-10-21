@@ -407,8 +407,8 @@ test.describe('schedule-aware player pool (issue #119)', () => {
     expect(firstRow).not.toBeNull();
     expect(adp.x + adp.width).toBeLessThanOrEqual(actions.x);
     // The 44px row target includes a 1px rendered table border in Chromium; the cursor row (the first
-    // row when the viewer is on the clock) wears the kit's 3px frame, measured at 46px (spec #2432).
-    expect(firstRow.height).toBeLessThanOrEqual(46);
+    // row when the viewer is on the clock) wears the kit's 3px frame (a 3px edge top and bottom), measured at 50px (spec #2432).
+    expect(firstRow.height).toBeLessThanOrEqual(50);
   });
 
   test('sorts by Bye with deterministic null-last behavior in both directions', async ({ page }) => {

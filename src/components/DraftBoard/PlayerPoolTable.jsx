@@ -21,7 +21,7 @@ import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
 import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
 import { visuallyHidden } from '@mui/utils';
 import {
-  Frame, InjuryTag, PixelHeading, PosTag, PsButton, Tag,
+  Frame, InjuryTag, PixelHeading, PosTag, PsButton, SR_ONLY_SX, Tag,
 } from '../../shared/ui/playselect';
 import { FieldLabel, FIELD_SX, MENU_PAPER } from '../../shared/ui/playselect/CardControls';
 import { PsCheck, PsField, PsIconButton } from '../../widgets/player-pool/ui/psControls';
@@ -87,7 +87,7 @@ const headCellSx = {
   fontWeight: 700,
   bgcolor: 'var(--ps-panel)',
   borderBottom: '2px solid var(--ps-ink)',
-  px: '6px',
+  px: '5px',
 };
 const bodyCellSx = {
   color: 'var(--ps-ink)', fontFamily: 'inherit', fontSize: '14px', borderBottom: '2px solid var(--ps-rule)',
@@ -103,9 +103,21 @@ const DENSE_ACTIONS_SX = {
   '& [data-variant][aria-label="Queue"]': { padding: 0 },
 };
 
-// The cursor row's frame: a 3px Accent edge the kit's .cursor blink flashes. A row's border only
-// paints with collapsed borders, which MUI's Table sets.
+// The cursor's frame: a 3px Accent edge the kit's .cursor blink flashes. A stickyHeader table is
+// border-collapse: separate, where a row's own border never paints, so the row carries only the
+// colour and its cells carry the edges (the Players page's table does the same).
 const CURSOR_SX = { border: '3px solid var(--ps-accent)' };
+const CURSOR_ROW_SX = { borderColor: 'var(--ps-accent)' };
+const CURSOR_NOTE = 'Your next pick: the first player in your queue, or the best available';
+const cursorCellSx = (i, last) => ({
+  borderTop: '3px solid',
+  borderBottom: '3px solid',
+  ...(i === 0 ? { borderLeft: '3px solid' } : null),
+  ...(i === last ? { borderRight: '3px solid' } : null),
+  // After the side shorthands, which would reset their colour.
+  borderColor: 'inherit',
+});
+const cellSx = (isCursor, i, last, extra) => ({ ...bodyCellSx, ...extra, ...(isCursor ? cursorCellSx(i, last) : null) });
 
 // Fetch the next page once the scroller is within this many pixels of the
 // bottom, so the next window of rows is ready before the user hits the edge.
@@ -305,6 +317,7 @@ function PlayerCard({
         p: 1.5, mb: 1.5, display: 'flex', flexDirection: 'column', gap: 1, border: '2px solid var(--ps-rule)', ...(isCursor ? CURSOR_SX : null),
       }}
     >
+      {isCursor && <Box component="span" sx={SR_ONLY_SX}>{CURSOR_NOTE}</Box>}
       <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 1 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', minWidth: 0 }}>
           <PlayerNameLink name={player.name} playerId={player.id} onOpen={onOpenQuickView} sx={MIN_TOUCH_TARGET_SX} />
@@ -497,7 +510,7 @@ function PlayerPoolTable({
           ))}
         </Select>
       </FormControl>
-      <FormControl sx={{ width: 160, gap: '6px' }}>
+      <FormControl sx={{ width: 190, gap: '6px' }}>
         <FieldLabel id="draft-bye-filter-label">Bye week</FieldLabel>
         <Select
           labelId="draft-bye-filter-label"
@@ -507,12 +520,27 @@ function PlayerPoolTable({
             const { value } = e.target;
             onByeWeeksFilterChange(typeof value === 'string' ? value.split(',').map(Number) : value);
           }}
-          sx={FIELD_SX}
+          // Chosen weeks wrap, so the field grows past 44px instead of cutting them off.
+          sx={{
+            ...FIELD_SX,
+            height: 'auto',
+            minHeight: '44px',
+            '& .MuiSelect-select.MuiSelect-select.MuiSelect-select': { ...FIELD_SX['& .MuiSelect-select.MuiSelect-select.MuiSelect-select'], height: 'auto', minHeight: '44px' },
+          }}
           MenuProps={{ PaperProps: MENU_PAPER }}
           renderValue={(selected) => (
-            <Box sx={{ display: 'flex', flexWrap: 'nowrap', gap: 0.5, overflow: 'hidden' }}>
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, py: 0.5 }}>
               {selected.map((week) => (
-                <Tag key={week}>{`Bye ${week}`}</Tag>
+                <Tag
+                  key={week}
+                  title={`Remove Bye ${week}`}
+                  // Stops the click from also toggling the Select's open state, so the tag
+                  // removes its week instead of just reopening the dropdown.
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={() => onByeWeeksFilterChange(selected.filter((w) => w !== week))}
+                >
+                  {`Bye ${week}`}
+                </Tag>
               ))}
             </Box>
           )}
@@ -631,7 +659,7 @@ function PlayerPoolTable({
           stickyHeader
           size="small"
           aria-labelledby={headingId}
-          sx={{ '& .MuiTableCell-body': { px: '6px', py: 0 }, fontVariantNumeric: 'tabular-nums' }}
+          sx={{ '& .MuiTableCell-body': { px: '5px', py: 0 }, fontVariantNumeric: 'tabular-nums' }}
         >
           <TableHead>
             <TableRow>
@@ -682,9 +710,10 @@ function PlayerPoolTable({
                 <TableRow
                   key={player.id}
                   className={player.id === cursorId ? 'cursor' : undefined}
-                  sx={{ height: 44, ...(player.id === cursorId ? CURSOR_SX : null) }}
+                  sx={{ height: 44, ...(player.id === cursorId ? CURSOR_ROW_SX : null) }}
                 >
-                  <TableCell sx={{ ...bodyCellSx, whiteSpace: 'nowrap' }}>
+                  <TableCell sx={cellSx(player.id === cursorId, 0, 6, { whiteSpace: 'nowrap' })}>
+                    {player.id === cursorId && <Box component="span" sx={SR_ONLY_SX}>{CURSOR_NOTE}</Box>}
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, whiteSpace: 'nowrap' }}>
                       <PlayerNameLink name={player.name} playerId={player.id} onOpen={onOpenQuickView} sx={MIN_TOUCH_TARGET_SX} />
                       <Box component="span" sx={dimSx}>
@@ -694,10 +723,10 @@ function PlayerPoolTable({
                       {isDrafted && <Tag>Drafted</Tag>}
                     </Box>
                   </TableCell>
-                  <TableCell sx={bodyCellSx}>
+                  <TableCell sx={cellSx(player.id === cursorId, 1, 6)}>
                     <PosTag position={player.position} />
                   </TableCell>
-                  <TableCell align="right" sx={{ ...bodyCellSx, ...numericCellSx }}>
+                  <TableCell align="right" sx={cellSx(player.id === cursorId, 2, 6, numericCellSx)}>
                     {player.bye_week != null ? (
                       <Stack direction="row" spacing={0.5} justifyContent="flex-end" alignItems="center">
                         <span>{player.bye_week}</span>
@@ -707,11 +736,11 @@ function PlayerPoolTable({
                       '-'
                     )}
                   </TableCell>
-                  <TableCell align="right" sx={{ ...bodyCellSx, ...numericCellSx }}>{player.adp != null ? player.adp : '-'}</TableCell>
-                  <TableCell align="right" sx={{ ...bodyCellSx, ...numericCellSx }}>
+                  <TableCell align="right" sx={cellSx(player.id === cursorId, 3, 6, numericCellSx)}>{player.adp != null ? player.adp : '-'}</TableCell>
+                  <TableCell align="right" sx={cellSx(player.id === cursorId, 4, 6, numericCellSx)}>
                     {player.position_rank != null ? `#${player.position_rank}` : '-'}
                   </TableCell>
-                  <TableCell align="right" sx={{ ...bodyCellSx, ...numericCellSx }}>
+                  <TableCell align="right" sx={cellSx(player.id === cursorId, 5, 6, numericCellSx)}>
                     {player.projected_points != null ? (
                       Number(player.projected_points).toFixed(1)
                     ) : (
@@ -722,7 +751,7 @@ function PlayerPoolTable({
                       </Tooltip>
                     )}
                   </TableCell>
-                  <TableCell align="center" sx={bodyCellSx}>
+                  <TableCell align="center" sx={cellSx(player.id === cursorId, 6, 6)}>
                     <PlayerActions
                       player={player}
                       isDrafted={isDrafted}
