@@ -33,12 +33,10 @@ import { PsButton } from '../../../shared/ui/playselect';
  * Busy uses `aria-disabled`, never the native `disabled` attribute (a11y risk
  * review): disabling a native button the instant it is activated forces the
  * browser to blur it (the HTML "focus fixup" rule), dropping keyboard focus to
- * `<body>` before the request even lands. `aria-disabled` plus `pointerEvents:
- * 'none'` keeps the control focusable and announced as disabled without that
- * blur; the `busy` guard at the top of `decide` is what actually blocks a
- * second submit, since a focused native button still dispatches a `click` on
- * Enter/Space regardless of `pointer-events` (a CSS hit-testing property, not
- * a keyboard gate).
+ * `<body>` before the request even lands. `aria-disabled` keeps the control
+ * focusable and announced as disabled without that blur; the `busy` guard at
+ * the top of `decide` is what actually blocks a second submit, from a pointer
+ * click or from Enter/Space alike, since `aria-disabled` does not stop a click.
  *
  * The refusal is shown as the server wrote it, read through the shared
  * `readHttpFailure` reader (src/lib/httpFailure.js) exactly as `AdvanceWeek`
