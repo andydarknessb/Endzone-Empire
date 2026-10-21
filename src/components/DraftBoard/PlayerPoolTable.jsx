@@ -79,7 +79,7 @@ const BYE_WEEK_OPTIONS = Array.from({ length: 18 }, (_, i) => i + 1);
 const numericCellSx = { fontVariantNumeric: 'tabular-nums' };
 
 // The pool is a Play-select table: Ink text on the panel, a 2px Ink rule under the head and a 2px
-// Rule under every row, Archivo 15 with tabular figures.
+// Rule under every row, Archivo 14 with tabular figures.
 const headCellSx = {
   color: 'var(--ps-ink)',
   fontFamily: 'inherit',
@@ -94,8 +94,9 @@ const bodyCellSx = {
 };
 const dimSx = { color: 'var(--ps-dim)', fontSize: '14px' };
 
-// Table buttons are 36px: ADR 0067's dense-table exception (the rail keeps 44px). PsButton sets its
-// own 44px, so this wrapper's selector, one class more specific, lowers it.
+// Desktop table buttons are 36px: ADR 0067's dense-table exception (the rail and the phone cards
+// keep 44px). PsButton sets its own 44px, so this wrapper's selector, one class more specific,
+// lowers it.
 const DENSE_ACTIONS_SX = {
   '& [data-variant]': {
     minHeight: '36px', minWidth: '36px', padding: '0 8px', fontSize: '14px',
@@ -109,15 +110,17 @@ const DENSE_ACTIONS_SX = {
 const CURSOR_SX = { border: '3px solid var(--ps-accent)' };
 const CURSOR_ROW_SX = { borderColor: 'var(--ps-accent)' };
 const CURSOR_NOTE = 'Your next pick: the first player in your queue, or the best available';
-const cursorCellSx = (i, last) => ({
+const cursorCellSx = (i) => ({
   borderTop: '3px solid',
   borderBottom: '3px solid',
   ...(i === 0 ? { borderLeft: '3px solid' } : null),
-  ...(i === last ? { borderRight: '3px solid' } : null),
+  ...(i === LAST_COLUMN ? { borderRight: '3px solid' } : null),
   // After the side shorthands, which would reset their colour.
   borderColor: 'inherit',
 });
-const cellSx = (isCursor, i, last, extra) => ({ ...bodyCellSx, ...extra, ...(isCursor ? cursorCellSx(i, last) : null) });
+// The Actions cell is the last column; the cursor frame closes its right edge there.
+const LAST_COLUMN = DESKTOP_COLUMN_COUNT - 1;
+const cellSx = (isCursor, i, extra) => ({ ...bodyCellSx, ...extra, ...(isCursor ? cursorCellSx(i) : null) });
 
 // Fetch the next page once the scroller is within this many pixels of the
 // bottom, so the next window of rows is ready before the user hits the edge.
@@ -252,11 +255,11 @@ function SortableHeaderCell({ field, sort, dir, onSort }) {
  * arrives as `explanation` from the room's `pickState` (issue #792 ruling 3),
  * so this file no longer imports pickAvailability itself. */
 function PlayerActions({
-  player, isDrafted, canManualPick, pickUnavailable, explanation, queued, onDraft, onQueue, isCursor, justify = 'center',
+  player, isDrafted, canManualPick, pickUnavailable, explanation, queued, onDraft, onQueue, isCursor, dense = false, justify = 'center',
 }) {
   if (isDrafted) return null;
   return (
-    <Stack direction="row" spacing={1} justifyContent={justify} alignItems="center" sx={DENSE_ACTIONS_SX}>
+    <Stack direction="row" spacing={1} justifyContent={justify} alignItems="center" sx={dense ? DENSE_ACTIONS_SX : undefined}>
       {canManualPick && (
         <Tooltip title={pickUnavailable ? explanation : ''}>
           <span>
@@ -531,15 +534,24 @@ function PlayerPoolTable({
           renderValue={(selected) => (
             <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, py: 0.5 }}>
               {selected.map((week) => (
-                <Tag
-                  key={week}
-                  title={`Remove Bye ${week}`}
-                  // Stops the click from also toggling the Select's open state, so the tag
-                  // removes its week instead of just reopening the dropdown.
-                  onMouseDown={(e) => e.stopPropagation()}
-                  onClick={() => onByeWeeksFilterChange(selected.filter((w) => w !== week))}
-                >
-                  {`Bye ${week}`}
+                <Tag key={week}>
+                  <span>{`Bye ${week}`}</span>
+                  {/* A real button, so a keyboard user can Tab to it and remove the week. The
+                      Select opens on Enter, Space and the arrows and on mouse down, so the button
+                      keeps those from reaching it. */}
+                  <Box
+                    component="button"
+                    type="button"
+                    aria-label={`Remove Bye ${week}`}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onKeyDown={(e) => e.stopPropagation()}
+                    onClick={() => onByeWeeksFilterChange(selected.filter((w) => w !== week))}
+                    sx={{
+                      border: 0, background: 'none', color: 'inherit', font: 'inherit', padding: 0, ml: '6px', minWidth: '20px', cursor: 'pointer',
+                    }}
+                  >
+                    <span aria-hidden="true">×</span>
+                  </Box>
                 </Tag>
               ))}
             </Box>
@@ -706,14 +718,15 @@ function PlayerPoolTable({
               const { isDrafted, canManualPick: rowCanManualPick, pickUnavailable: rowPickUnavailable, overlap, queued } = rowStateFor(player, {
                 draftedIds, canManualPickBase: canManualPick, tablePickUnavailable: pickUnavailable, byeOverlapByWeek, queue,
               });
+              const isCursor = player.id === cursorId;
               return (
                 <TableRow
                   key={player.id}
-                  className={player.id === cursorId ? 'cursor' : undefined}
-                  sx={{ height: 44, ...(player.id === cursorId ? CURSOR_ROW_SX : null) }}
+                  className={isCursor ? 'cursor' : undefined}
+                  sx={{ height: 44, ...(isCursor ? CURSOR_ROW_SX : null) }}
                 >
-                  <TableCell sx={cellSx(player.id === cursorId, 0, 6, { whiteSpace: 'nowrap' })}>
-                    {player.id === cursorId && <Box component="span" sx={SR_ONLY_SX}>{CURSOR_NOTE}</Box>}
+                  <TableCell sx={cellSx(isCursor, 0, { whiteSpace: 'nowrap' })}>
+                    {isCursor && <Box component="span" sx={SR_ONLY_SX}>{CURSOR_NOTE}</Box>}
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, whiteSpace: 'nowrap' }}>
                       <PlayerNameLink name={player.name} playerId={player.id} onOpen={onOpenQuickView} sx={MIN_TOUCH_TARGET_SX} />
                       <Box component="span" sx={dimSx}>
@@ -723,10 +736,10 @@ function PlayerPoolTable({
                       {isDrafted && <Tag>Drafted</Tag>}
                     </Box>
                   </TableCell>
-                  <TableCell sx={cellSx(player.id === cursorId, 1, 6)}>
+                  <TableCell sx={cellSx(isCursor, 1)}>
                     <PosTag position={player.position} />
                   </TableCell>
-                  <TableCell align="right" sx={cellSx(player.id === cursorId, 2, 6, numericCellSx)}>
+                  <TableCell align="right" sx={cellSx(isCursor, 2, numericCellSx)}>
                     {player.bye_week != null ? (
                       <Stack direction="row" spacing={0.5} justifyContent="flex-end" alignItems="center">
                         <span>{player.bye_week}</span>
@@ -736,11 +749,11 @@ function PlayerPoolTable({
                       '-'
                     )}
                   </TableCell>
-                  <TableCell align="right" sx={cellSx(player.id === cursorId, 3, 6, numericCellSx)}>{player.adp != null ? player.adp : '-'}</TableCell>
-                  <TableCell align="right" sx={cellSx(player.id === cursorId, 4, 6, numericCellSx)}>
+                  <TableCell align="right" sx={cellSx(isCursor, 3, numericCellSx)}>{player.adp != null ? player.adp : '-'}</TableCell>
+                  <TableCell align="right" sx={cellSx(isCursor, 4, numericCellSx)}>
                     {player.position_rank != null ? `#${player.position_rank}` : '-'}
                   </TableCell>
-                  <TableCell align="right" sx={cellSx(player.id === cursorId, 5, 6, numericCellSx)}>
+                  <TableCell align="right" sx={cellSx(isCursor, 5, numericCellSx)}>
                     {player.projected_points != null ? (
                       Number(player.projected_points).toFixed(1)
                     ) : (
@@ -751,7 +764,7 @@ function PlayerPoolTable({
                       </Tooltip>
                     )}
                   </TableCell>
-                  <TableCell align="center" sx={cellSx(player.id === cursorId, 6, 6)}>
+                  <TableCell align="center" sx={cellSx(isCursor, 6)}>
                     <PlayerActions
                       player={player}
                       isDrafted={isDrafted}
@@ -761,7 +774,8 @@ function PlayerPoolTable({
                       queued={queued}
                       onDraft={onDraft}
                       onQueue={onQueue}
-                      isCursor={player.id === cursorId}
+                      isCursor={isCursor}
+                      dense
                     />
                   </TableCell>
                 </TableRow>

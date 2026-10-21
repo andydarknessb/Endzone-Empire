@@ -528,3 +528,13 @@ describe('on-the-clock cursor', () => {
     expect(playerCard('Player 7')).toHaveClass('cursor');
   });
 });
+
+test('a selected Bye week comes off through a real button a keyboard can reach', async () => {
+  const user = userEvent.setup();
+  const { props } = renderTable({ controls: { byeWeeksFilter: [6, 9] } });
+  const remove = screen.getByRole('button', { name: 'Remove Bye 6' });
+  remove.focus();
+  await user.keyboard('{Enter}');
+  expect(props.controls.onByeWeeksFilterChange).toHaveBeenCalledWith([9]);
+  expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+});

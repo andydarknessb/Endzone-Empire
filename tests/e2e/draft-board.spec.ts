@@ -985,7 +985,7 @@ test.describe('accessible structure: 44x44 minimum interactive targets', () => {
     // that the room opens on Chat (#444).
     await showPlayers(page);
     const card = page.getByRole('button', { name: 'Bijan Robinson' }).locator('xpath=ancestor::*[@role="listitem"][1]');
-    await expectAtLeast44(card.getByRole('button', { name: 'Queue' }), { widthToo: true, min: 36 });
+    await expectAtLeast44(card.getByRole('button', { name: 'Queue' }), { widthToo: true });
   });
 });
 
