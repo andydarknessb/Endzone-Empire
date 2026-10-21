@@ -307,7 +307,7 @@ describe('zero/one-team empty states', () => {
 // RadioGroup) rather than a heading, in both the draft-lock and custom-lock
 // states. A bare render (no ThemeProvider) must show no stray h6.
 describe('heading levels (#704)', () => {
-  test('gives "Keeper assignments" and "Keeper board preview" an explicit h5, and "Keeper lock" a group label, with no stray h6', () => {
+  test('gives "Keeper assignments" and "Keeper board preview" an h2, and "Keeper lock" a group label, with no stray h6', () => {
     renderPanel();
 
     expect(screen.getByRole('heading', { level: 2, name: 'Keeper assignments' })).toBeInTheDocument();

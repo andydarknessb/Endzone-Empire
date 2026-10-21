@@ -56,7 +56,7 @@ test('offers every round in the draft roster size, including round 19', () => {
 // <Typography variant="h4"> title at DraftSettings.jsx:212, which this
 // standalone panel render does not mount (see #704) - so a bare render must
 // show no stray h6 and a real h5 for each.
-test('gives its three section titles an explicit h5, and no stray h6', () => {
+test('gives its three section titles an h2, and no stray h6', () => {
   renderPanel([
     { id: 1, name: 'Team One', draft_position: 1 },
     { id: 2, name: 'Team Two', draft_position: 2 },

@@ -72,7 +72,7 @@ export default function DraftScheduleField({
       <Typography variant="caption" color={ps ? undefined : 'text.secondary'} sx={ps ? { color: 'var(--ps-dim)', fontSize: '14px' } : undefined}>{utcPreview}</Typography>
       {scheduled && (
         <>
-          {ps && <FieldLabel htmlFor={`${fieldId}-zone`}>Draft time zone</FieldLabel>}
+          {ps && <FieldLabel id={`${fieldId}-zone-label`} htmlFor={`${fieldId}-zone`}>Draft time zone</FieldLabel>}
           <Autocomplete
             id={`${fieldId}-zone`}
             size={ps ? undefined : 'small'}
