@@ -136,7 +136,14 @@ function world(t, { leagues = Object.values(LEAGUES), overrides = [], matchups =
     [/FROM "pickem_settings"/, () => ({ rows: [] })],
     [/fn_normalize_nfl_team\("opponent"\)/, () => ({ rows: SLATE_ROWS })],
     [/FROM "live_game_states"/, () => ({ rows: [] })],
-    [/FROM "pickem_picks"/, () => ({ rows: [{ league_id: 72, team_pair: 'KC|LV' }] })],
+    [/FROM "pickem_picks"/, () => ({ rows: [{ league_id: 72, user_id: USER_ID, week: 4, team_pair: 'KC|LV', picked_team: 'KC', confidence: 1 }] })],
+    // The season standings: the members of each pick'em league, no recaps yet.
+    [/^SELECT "league_id", "owner_id", "name" FROM "teams"/, () => ({ rows: [
+      { league_id: 72, owner_id: USER_ID, name: 'Picker' },
+      { league_id: 72, owner_id: 8, name: 'Rival' },
+      { league_id: 71, owner_id: USER_ID, name: 'Cheese Curds' },
+    ] })],
+    [/FROM "private"."game_recaps"/, () => ({ rows: [] })],
   ]);
   fake.install(t);
   return fake;
@@ -200,10 +207,14 @@ test('a pick\'em-only league carries only its pick\'em week; a pre-draft league 
   world(t);
   const res = await request(app).get('/api/league?include=status').set('Authorization', authed());
   const pickem = res.body.find((l) => l.id === 72);
+  // No points exist yet, so there is no season standing to show (not a rank by Team name).
   assert.deepEqual(pickem.status, {
     phase: 'in-season',
     week: 4,
-    pickem: { made: 1, total: 2, missing: 1, nextLockAt: '2026-10-05T00:20:00.000Z' },
+    pickem: {
+      made: 1, total: 2, missing: 1, nextLockAt: '2026-10-05T00:20:00.000Z',
+      weekPoints: 0, finals: 0, inProgress: false,
+    },
   });
   const preDraft = res.body.find((l) => l.id === 73);
   assert.deepEqual(preDraft.status, {
@@ -222,7 +233,12 @@ test('a fantasy league with pick\'em on carries both; a bye week carries matchup
   const res = await request(app).get('/api/league?include=status').set('Authorization', authed());
   const { status } = res.body[0];
   assert.equal(status.matchup, null);
-  assert.deepEqual(status.pickem, { made: 0, total: 2, missing: 2, nextLockAt: '2026-10-04T17:00:00.000Z' });
+  assert.deepEqual(status.pickem, {
+    made: 0, total: 2, missing: 2, nextLockAt: '2026-10-04T17:00:00.000Z',
+    weekPoints: 0, finals: 0, inProgress: false,
+  });
+  assert.equal('standing' in status, true); // the fantasy standing, untouched by the pick'em rank
+  assert.deepEqual(status.standing, { rank: 2, of: 4 });
   assert.deepEqual(status.record, { wins: 2, losses: 1, ties: 0 });
 });
 
@@ -250,7 +266,10 @@ test('pickem.missing is the to-do list\'s number: a missed game that already loc
   });
   const res = await request(app).get('/api/league?include=status').set('Authorization', authed());
   assert.equal(res.status, 200, JSON.stringify(res.body));
-  assert.deepEqual(res.body[0].status.pickem, { made: 1, total: 2, missing: 0, nextLockAt: null });
+  assert.deepEqual(res.body[0].status.pickem, {
+    made: 1, total: 2, missing: 0, nextLockAt: null,
+    weekPoints: 0, finals: 0, inProgress: true,
+  });
   const todo = await request(app).get('/api/user/action-items').query({ tz: 'America/Chicago' }).set('Authorization', authed());
   assert.equal(todo.status, 200, JSON.stringify(todo.body));
   assert.deepEqual(todo.body.partial, []);
@@ -288,6 +307,26 @@ test('a failed pick\'em settings read drops only pickem: fantasy and draft cards
   const pickem = res.body.find((l) => l.id === 72);
   assert.equal(pickem.statusError, false);
   assert.equal(pickem.status.pickem.total, 2);
+});
+
+test('a failed season-standings read keeps the week figures on a pick\'em-only card and a fantasy card', async (t) => {
+  world(t, {
+    leagues: [LEAGUES.fantasy, LEAGUES.pickem],
+    overrides: [
+      [/FROM "pickem_settings"/, () => ({ rows: [{ league_id: 71, enabled: true }] })],
+      [/^SELECT "league_id", "owner_id", "name" FROM "teams"/, () => { throw new Error('standings teams down'); }],
+    ],
+  });
+  const res = await request(app).get('/api/league?include=status').set('Authorization', authed());
+  const [fantasy, pickem] = [71, 72].map((id) => res.body.find((l) => l.id === id));
+  assert.equal(pickem.statusError, false);
+  assert.equal('standing' in pickem.status, false);
+  assert.deepEqual(pickem.status.pickem, {
+    made: 1, total: 2, missing: 1, nextLockAt: '2026-10-05T00:20:00.000Z', weekPoints: 0, finals: 0, inProgress: false,
+  });
+  assert.equal(fantasy.statusError, false);
+  assert.equal(fantasy.status.pickem.total, 2);
+  assert.equal('points' in fantasy.status.pickem, false);
 });
 
 test('a failed pick\'em week read drops pickem from a fantasy card; a pick\'em-only league takes statusError', async (t) => {

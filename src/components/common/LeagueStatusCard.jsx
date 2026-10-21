@@ -65,6 +65,7 @@ function recordText(record) {
   return record ? teamStandingFromRow(record).record : null;
 }
 
+const pointsText = (n) => `${n} point${n === 1 ? '' : 's'}`;
 const standingText = (standing) => (standing ? `${ordinal(standing.rank)} of ${standing.of}` : null);
 
 const finiteOrNull = (v) => {
@@ -316,9 +317,21 @@ function FantasyBody({ league }) {
   );
 }
 
+// "1st place has 447 points. Week 5 earned you 71.": each sentence only when its figures came.
+function pickemNote({ standing, pickem }) {
+  const leader = finiteOrNull(pickem?.leaderPoints);
+  const lastWeek = pickem?.lastWeek;
+  return [
+    standing?.rank > 1 && leader != null ? `${ordinal(1)} place has ${pointsText(leader)}.` : null,
+    lastWeek ? `Week ${lastWeek.week} earned you ${lastWeek.points}.` : null,
+  ].filter(Boolean).join(' ');
+}
+
 function PickemBody({ league }) {
   const { status } = league;
   const managers = league.team_count != null ? `${league.team_count} managers` : null;
+  const points = finiteOrNull(status.pickem?.points);
+  const note = points != null ? pickemNote(status) : '';
   return (
     <>
       <Box>
@@ -331,9 +344,10 @@ function PickemBody({ league }) {
         }}
         >
           <Box component="span" sx={{ ...pixelSx(24), lineHeight: 1.2 }}>{ordinal(status.standing.rank)}</Box>
-          <Box component="span" sx={{ fontSize: '15px', color: 'var(--ps-dim)' }}>{`of ${status.standing.of}`}</Box>
+          <Box component="span" sx={{ fontSize: '15px', color: 'var(--ps-dim)' }}>{`of ${status.standing.of}${points != null ? ` · ${pointsText(points)}` : ''}`}</Box>
         </Box>
       )}
+      {note && <Box sx={dimLineSx}>{note}</Box>}
       <PicksLine pickem={status.pickem} week={status.week} />
     </>
   );
@@ -441,12 +455,22 @@ function ScoreTileFor({ league, scored }) {
 
 function PickemTileFor({ league }) {
   const { status } = league;
-  const { made, total } = status.pickem;
+  const { made, total, weekPoints, finals } = status.pickem;
   const { standing } = status;
-  const managers = league.team_count != null ? `${league.team_count} managers` : null;
-  const figure = standing ? ordinal(standing.rank) : `${made}/${total}`;
-  const figureLabel = standing ? `of ${standing.of} this season` : 'picks made';
-  const note = standing && total > 0 ? `${made} of ${total} in` : null;
+  let managers = league.team_count != null ? `${league.team_count} managers` : null;
+  let figure = standing ? ordinal(standing.rank) : `${made}/${total}`;
+  let figureLabel = standing ? `of ${standing.of} this season` : 'picks made';
+  let note = standing && total > 0 ? `${made} of ${total} in` : null;
+  let ariaLabel = `${league.name} picks: ${figure} ${figureLabel}${note ? `, ${note}` : ''}`;
+  // The week's points (a payload that has them): the figure, with the standing beside the mode.
+  if (standing && finiteOrNull(weekPoints) != null && finiteOrNull(finals) != null) {
+    managers = `${ordinal(standing.rank)} of ${standing.of} this season`;
+    figure = String(weekPoints);
+    figureLabel = `${weekPoints === 1 ? 'point' : 'points'} this week`;
+    const final = `${finals} of ${total} ${total === 1 ? 'game' : 'games'} final`;
+    note = `${final}.${finals < total ? ' The rest lock as each game kicks off.' : ''}`;
+    ariaLabel = `${league.name} picks: ${figure} ${figureLabel}, ${final}, ${managers}`;
+  }
   return (
     <PickemTile
       league={league.name}
@@ -456,7 +480,7 @@ function PickemTileFor({ league }) {
       figureLabel={figureLabel}
       note={note}
       to={`/league/${league.id}/pickem`}
-      ariaLabel={`${league.name} picks: ${figure} ${figureLabel}${note ? `, ${note}` : ''}`}
+      ariaLabel={ariaLabel}
       links={leagueLinks(league)}
     />
   );

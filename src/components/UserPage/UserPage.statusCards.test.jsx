@@ -1,7 +1,7 @@
 /* eslint-disable testing-library/no-node-access, testing-library/no-container -- the odds-bar blocks, a tile's unnamed article and the stamp's ancestry have no role to query */
 import React from 'react';
 import {
-  act, render, screen, within,
+  act, cleanup, render, screen, within,
 } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
@@ -314,6 +314,49 @@ describe('live', () => {
     // The first is a tile (a score link), the others have no score block.
     expect(within(tileFor('Thursday Night Regulars')).getByText('Up 16.2')).toBeInTheDocument();
     expect(within(panelFor('Office League')).getByText('Projected')).toBeInTheDocument();
+  });
+
+  // The payload with the season and week figures (#2316): 4th of 12 on 412, 1st on 447, week 5 earned 71.
+  const POINTS = {
+    points: 412, leaderPoints: 447, lastWeek: { week: 5, points: 71 }, weekPoints: 23, finals: 2, inProgress: true,
+  };
+
+  test("the pick'em panel leads with the standing and season points, and a note on the leader and last week", () => {
+    renderGrid({ leagues: [pickemLeague(POINTS)] });
+    const panel = panelFor("Sunday Pick'em");
+    expect(within(panel).getByText('4th')).toBeInTheDocument();
+    expect(within(panel).getByText('of 12 · 412 points')).toBeInTheDocument();
+    expect(within(panel).getByText('1st place has 447 points. Week 5 earned you 71.')).toBeInTheDocument();
+  });
+
+  test("the pick'em panel drops the leader sentence at rank 1 and the last-week sentence in week 1", () => {
+    const first = { standing: { rank: 1, of: 12 }, pickem: { made: 9, total: 15, missing: 6, nextLockAt: null, ...POINTS } };
+    renderGrid({ leagues: [pickemLeague({}, { status: { phase: 'in-season', week: 6, ...first } })] });
+    expect(screen.getByText('Week 5 earned you 71.')).toBeInTheDocument();
+    expect(screen.queryByText(/place has/)).toBeNull();
+    cleanup();
+    renderGrid({ leagues: [pickemLeague({ ...POINTS, points: 1, lastWeek: null })] });
+    expect(screen.getByText('of 12 · 1 point')).toBeInTheDocument();
+    expect(screen.getByText('1st place has 447 points.')).toBeInTheDocument();
+  });
+
+  test("a pick'em-only league on game day shows the week's points, games final and the season standing", () => {
+    renderGrid({ leagues: [pickemLeague(POINTS)], live: true });
+    const tile = tileFor("Sunday Pick'em");
+    const link = within(tile).getByRole('link', {
+      name: "Sunday Pick'em picks: 23 points this week, 2 of 15 games final, 4th of 12 this season",
+    });
+    expect(link).toHaveAttribute('href', '/league/5/pickem');
+    expect(within(tile).getByText('23')).toBeInTheDocument();
+    expect(within(tile).getByText('points this week')).toBeInTheDocument();
+    expect(within(tile).getByText("Pick'em · 4th of 12 this season")).toBeInTheDocument();
+    expect(within(tile).getByText('2 of 15 games final. The rest lock as each game kicks off.')).toBeInTheDocument();
+  });
+
+  test('the game-day tile says 1 point and 1 game final, and stops promising locks once every game is final', () => {
+    renderGrid({ leagues: [pickemLeague({ ...POINTS, weekPoints: 1, finals: 1, total: 1 })], live: true });
+    expect(screen.getByText('point this week')).toBeInTheDocument();
+    expect(screen.getByText('1 of 1 game final.')).toBeInTheDocument();
   });
 
   test("a pick'em-only league on game day is a tile with the standing and picks in, and no points", () => {

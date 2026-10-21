@@ -211,14 +211,20 @@ function lineupStatus({ entries, rosterSlots, bestBall, startVerdictFor, kickoff
 }
 
 /**
- * Pure: a manager's Pick'em week, `{ made, total, missing, nextLockAt }`, the
- * one answer behind the league card's pick'em line and the picks_open to-do
- * row. `made` counts the manager's picks among THIS week's slate games (open
- * or locked), `total` is the slate, `missing` the open games still unpicked
- * (the digest's own `missingPicks` over `openGameKeys`), and `nextLockAt` the
- * earliest kickoff among those, or null when nothing is left to pick.
+ * Pure: a manager's Pick'em week, `{ made, total, missing, nextLockAt,
+ * weekPoints, finals, inProgress }`, the one answer behind the league card's
+ * pick'em line and the picks_open to-do row. `made` counts the manager's
+ * picks among THIS week's slate games (open or locked), `total` is the slate,
+ * `missing` the open games still unpicked (the digest's own `missingPicks`
+ * over `openGameKeys`), and `nextLockAt` the earliest kickoff among those, or
+ * null when nothing is left to pick. `weekPoints` is pickem.service's
+ * scorePickemWeek over the manager's `picks` (final games only), `finals`
+ * counts the final games, and `inProgress` is a game kicked off and not final.
  */
-function pickemStatus({ slate, made = new Set(), now }) {
+const IN_PROGRESS_WINDOW_MS = 8 * 60 * 60 * 1000;
+
+function pickemStatus({ slate, made = new Set(), picks = [], mode = 'straight', now }) {
+  const { scorePickemWeek } = require('./pickem.service');
   const missing = new Set(missingPicks(openGameKeys(slate, now), made));
   let next = null;
   for (const game of slate) {
@@ -231,6 +237,12 @@ function pickemStatus({ slate, made = new Set(), now }) {
     total: slate.length,
     missing: missing.size,
     nextLockAt: next === null ? null : iso(next),
+    weekPoints: scorePickemWeek({ games: slate, picks, mode })[0]?.points ?? 0,
+    finals: slate.filter((game) => game.status === 'final').length,
+    // shortcut: an 8 h window after kickoff, because a postponed game (or a final known only from recaps) would
+    // otherwise hold Home in game day until the week advances; upgrade if a game ever runs past 8 h.
+    inProgress: slate.some((game) => game.status !== 'final'
+      && timeOf(game.kickoffAt) <= timeOf(now) && timeOf(now) < timeOf(game.kickoffAt) + IN_PROGRESS_WINDOW_MS),
   };
 }
 
@@ -408,9 +420,11 @@ async function loadPickemWeeks(db, { userId, leagues, now }) {
   const [slates, picks] = await Promise.all([
     Promise.all(weeks.map((w) => pickem.getWeekSlate({ season: w.season, week: w.week, db }))),
     db.query(
-      `SELECT "pickem_picks"."league_id", "pickem_picks"."team_pair"
+      `SELECT "pickem_picks"."league_id", "pickem_picks"."team_pair",
+              "pickem_picks"."picked_team", "pickem_picks"."confidence", "pickem_settings"."mode"
        FROM "pickem_picks"
        JOIN "leagues" ON "leagues"."id" = "pickem_picks"."league_id"
+       LEFT JOIN "pickem_settings" ON "pickem_settings"."league_id" = "pickem_picks"."league_id"
        JOIN "teams" ON "teams"."league_id" = "pickem_picks"."league_id" AND "teams"."owner_id" = $1
        WHERE "pickem_picks"."user_id" = $1 AND "pickem_picks"."league_id" = ANY($2)
          AND "pickem_picks"."season" = "leagues"."current_season"
@@ -420,16 +434,88 @@ async function loadPickemWeeks(db, { userId, leagues, now }) {
   ]);
   const slateByWeek = new Map(weeks.map((w, i) => [weekKey(w.season, w.week), slates[i]]));
   const madeByLeague = new Map();
+  const picksByLeague = new Map();
+  const modeByLeague = new Map();
   for (const row of picks.rows) {
     if (!madeByLeague.has(row.league_id)) madeByLeague.set(row.league_id, new Set());
     madeByLeague.get(row.league_id).add(row.team_pair);
+    if (!picksByLeague.has(row.league_id)) picksByLeague.set(row.league_id, []);
+    picksByLeague.get(row.league_id).push({
+      userId, gameKey: row.team_pair, pickedTeam: row.picked_team, confidence: row.confidence,
+    });
+    modeByLeague.set(row.league_id, row.mode);
   }
   for (const league of leagues) {
     out.set(league.id, pickemStatus({
       slate: slateByWeek.get(weekKey(league.current_season, league.current_week)) || [],
       made: madeByLeague.get(league.id),
+      picks: picksByLeague.get(league.id),
+      mode: modeByLeague.get(league.id),
       now,
     }));
+  }
+  return out;
+}
+
+/**
+ * The viewer's season standing in each of these Pick'em leagues:
+ * Map<leagueId, { rank, of, points, leaderPoints, lastWeek }>. Batched
+ * (one season slate per distinct season, then one read each of the teams and
+ * the season's picks with the league's mode) and scored by pickem.service's own
+ * computePickemStandings, the function behind the league's standings page.
+ */
+async function loadPickemStandings(db, { userId, leagues }) {
+  const out = new Map();
+  if (leagues.length === 0) return out;
+  const pickem = require('./pickem.service');
+  const ids = leagues.map((l) => l.id);
+  const seasons = [...new Set(leagues.map((l) => Number(l.current_season)))];
+  const [slates, teams, picks] = await Promise.all([
+    Promise.all(seasons.map((season) => pickem.getSeasonSlate({ season, db }))),
+    db.query('SELECT "league_id", "owner_id", "name" FROM "teams" WHERE "league_id" = ANY($1)', [ids]),
+    db.query(
+      `SELECT "pickem_picks"."league_id", "pickem_picks"."user_id", "pickem_picks"."week", "pickem_picks"."team_pair",
+              "pickem_picks"."picked_team", "pickem_picks"."confidence", "pickem_settings"."mode"
+       FROM "pickem_picks"
+       JOIN "leagues" ON "leagues"."id" = "pickem_picks"."league_id"
+       LEFT JOIN "pickem_settings" ON "pickem_settings"."league_id" = "pickem_picks"."league_id"
+       WHERE "pickem_picks"."league_id" = ANY($1) AND "pickem_picks"."season" = "leagues"."current_season"`,
+      [ids]
+    ),
+  ]);
+  const slateBySeason = new Map(seasons.map((season, i) => [season, slates[i]]));
+  const by = (rows, pick) => {
+    const map = new Map();
+    for (const row of rows) {
+      if (!map.has(row.league_id)) map.set(row.league_id, []);
+      map.get(row.league_id).push(pick(row));
+    }
+    return map;
+  };
+  const modeByLeague = new Map(picks.rows.map((r) => [r.league_id, r.mode]));
+  const membersByLeague = by(teams.rows, (r) => ({ userId: r.owner_id, teamName: r.name }));
+  const picksByLeague = by(picks.rows, (r) => ({
+    userId: r.user_id, week: Number(r.week), gameKey: r.team_pair, pickedTeam: r.picked_team,
+    confidence: r.confidence == null ? null : Number(r.confidence),
+  }));
+  for (const league of leagues) {
+    const rows = pickem.computePickemStandings({
+      members: membersByLeague.get(league.id) || [],
+      games: slateBySeason.get(Number(league.current_season)),
+      picks: picksByLeague.get(league.id) || [],
+      mode: modeByLeague.get(league.id),
+    });
+    const mine = rows.find((row) => String(row.userId) === String(userId));
+    // Before any points exist the order is Team name: no standing to show.
+    if (!mine || rows[0].points === 0) continue;
+    const lastWeek = Number(league.current_week) - 1;
+    out.set(league.id, {
+      rank: mine.rank,
+      of: rows.length,
+      points: mine.points,
+      leaderPoints: rows[0].points,
+      lastWeek: lastWeek >= 1 ? { week: lastWeek, points: mine.weekly[lastWeek] ?? 0 } : null,
+    });
   }
   return out;
 }
@@ -551,7 +637,10 @@ async function loadDraftOrders(db, leagueIds) {
  * the list never fails because of status. A failed pick'em read (the settings,
  * the slate or the picks) drops only the `pickem` key from a fantasy card whose
  * other keys were built; a pick'em-only league, whose only content is its
- * Pick'em week, reads status null and statusError true.
+ * Pick'em week, reads status null and statusError true. The season standings
+ * (loadPickemStandings: points, leaderPoints, lastWeek, and a pick'em-only
+ * league's standing) are optional: a failed read leaves them out and the
+ * week's figures stand.
  */
 async function leagueStatuses(db, { userId, leagues, now }) {
   const out = new Map();
@@ -582,7 +671,10 @@ async function leagueStatuses(db, { userId, leagues, now }) {
     // and the league's card drops its pickem key (below).
     const pickemOn = (league) => isPickemOnly(league) || need(pickemIds).has(league.id);
     const pickemLeagues = running.filter((l) => isPickemOnly(l) || (pickemIds.ok && pickemIds.value.has(l.id)));
-    const pickemWeeks = await settle(loadPickemWeeks(db, { userId, leagues: pickemLeagues, now }));
+    const [pickemWeeks, pickemStandings] = await Promise.all([
+      settle(loadPickemWeeks(db, { userId, leagues: pickemLeagues, now })),
+      settle(loadPickemStandings(db, { userId, leagues: pickemLeagues })),
+    ]);
 
     // This week's matchup for each fantasy league, decorated in parallel (one
     // expectedFinalsForWeek per league with an open matchup; a final one
@@ -631,8 +723,15 @@ async function leagueStatuses(db, { userId, leagues, now }) {
           // A pick'em-only card has nothing else to show, so it fails whole.
           try {
             if (pickemOn(league)) {
-              const { made, total, missing, nextLockAt } = need(pickemWeeks).get(league.id);
-              status.pickem = { made, total, missing, nextLockAt };
+              status.pickem = { ...need(pickemWeeks).get(league.id) };
+              // The season figures are optional: a failed standings read leaves them out.
+              const season = pickemStandings.ok ? pickemStandings.value.get(league.id) : null;
+              if (pickemStandings.ok === false) console.error("home status: league %s pick'em standings unavailable", league.id, pickemStandings.error);
+              if (season) {
+                const { rank, of, ...seasonFigures } = season;
+                Object.assign(status.pickem, seasonFigures);
+                if (isPickemOnly(league)) status.standing = { rank, of };
+              }
             }
           } catch (error) {
             if (isPickemOnly(league)) throw error;
