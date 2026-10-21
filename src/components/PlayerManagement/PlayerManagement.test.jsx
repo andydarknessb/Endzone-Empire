@@ -21,6 +21,38 @@ jest.mock("../../hooks/useLeague", () => ({
   useLeague: jest.fn(),
 }));
 
+// Prop recorders over the real slices (spec #2453): the page must pass look="playselect" to each.
+const mockSpy = { pool: jest.fn(), row: jest.fn(), head: jest.fn(), card: jest.fn() };
+jest.mock("../../widgets/player-pool", () => {
+  const actual = jest.requireActual("../../widgets/player-pool");
+  const React = require("react");
+  const PlayerPool = React.forwardRef((props, ref) => {
+    mockSpy.pool(props);
+    return <actual.PlayerPool ref={ref} {...props} />;
+  });
+  return { ...actual, PlayerPool };
+});
+jest.mock("../../widgets/player-row", () => {
+  const actual = jest.requireActual("../../widgets/player-row");
+  const PlayerRow = (props) => {
+    mockSpy.row(props);
+    return <actual.default {...props} />;
+  };
+  const PlayerRowTableHead = (props) => {
+    mockSpy.head(props);
+    return <actual.PlayerRowTableHead {...props} />;
+  };
+  return { ...actual, __esModule: true, default: PlayerRow, PlayerRowTableHead };
+});
+jest.mock("../../widgets/player-decision-card", () => {
+  const actual = jest.requireActual("../../widgets/player-decision-card");
+  const PlayerDecisionCard = (props) => {
+    mockSpy.card(props);
+    return <actual.default {...props} />;
+  };
+  return { ...actual, __esModule: true, default: PlayerDecisionCard };
+});
+
 const player = (overrides = {}) => ({
   id: 1,
   name: "Patrick Mahomes",
@@ -161,7 +193,7 @@ test("renders the Players page header without duplicate roster management", asyn
   renderWithProviders(<PlayerManagement />);
 
   expect(
-    await screen.findByRole("heading", { name: "Players" }),
+    await screen.findByRole("heading", { level: 1, name: "Players" }),
   ).toBeInTheDocument();
   expect(
     await screen.findByRole("link", { name: "Manage lineup" }),
@@ -728,11 +760,11 @@ test("a load refusal carrying a code beside a message renders the message, not t
 test("choosing a Sort option sends the matching ?sort= wire name", async () => {
   mockBrowser();
   renderWithProviders(<PlayerManagement />);
-  await screen.findByRole("heading", { name: "Players" });
+  await screen.findByRole("heading", { level: 1, name: "Players" });
 
-  await userEvent.click(screen.getByLabelText("Sort"));
-  expect(await screen.findByRole("option", { name: "Pool projection" })).toBeInTheDocument();
-  await userEvent.click(screen.getByRole("option", { name: "Position rank" }));
+  const sort = screen.getByLabelText("Sort");
+  expect(within(sort).getByRole("option", { name: "Pool projection" })).toBeInTheDocument();
+  await userEvent.selectOptions(sort, "Position rank");
 
   await waitFor(() => {
     const playerCalls = apiClient.get.mock.calls.filter(
@@ -773,18 +805,23 @@ test("hides the Upgrade column entirely in a best ball league", async () => {
   expect(screen.queryByTestId("player-row-upgrade")).not.toBeInTheDocument();
 });
 
-// #1312, ADR 0040 follow-up (grill ruling Q6): the row's own Watch toggle -
-// the button label flips from the row's own `watching` field (the view=cards
-// payload, #1309), no extra fetch.
-test("the row's Watch toggle PUTs, then re-reads the players list (no optimistic guess)", async () => {
+// #1312, ADR 0040 follow-up (grill ruling Q6): the Watch toggle - the label
+// flips from the row's own `watching` field (the view=cards payload, #1309),
+// no extra fetch. On Play-select (spec #2453) the row carries no toggle; the
+// Decision card does, so these open the card first.
+async function openCardWatchToggle(name) {
+  await userEvent.click(await screen.findByRole("button", { name }));
+  const dialog = await screen.findByRole("dialog");
+  return within(dialog);
+}
+
+test("the card's Watch toggle PUTs, then re-reads the players list (no optimistic guess)", async () => {
   mockBrowser({ players: [player({ id: 9, name: "Watch Target", watching: false })] });
   apiClient.put.mockResolvedValue({});
   renderWithProviders(<PlayerManagement />);
 
-  // Risk review (accessibility): the icon-only toggle's accessible name
-  // folds in the player's own name, so a multi-row page never exposes
-  // several identically named controls.
-  const toggle = await screen.findByRole("button", { name: "Watch Watch Target" });
+  const card = await openCardWatchToggle("Watch Target");
+  const toggle = await card.findByRole("button", { name: /^Watch/ });
   expect(toggle).toHaveAttribute("aria-pressed", "false");
 
   await userEvent.click(toggle);
@@ -803,12 +840,18 @@ test("the row's Watch toggle PUTs, then re-reads the players list (no optimistic
   );
 });
 
-test("a watched row renders \"Watching\" and DELETEs on click", async () => {
+test("a watched player's card renders \"Watching\" and DELETEs on click", async () => {
   mockBrowser({ players: [player({ id: 9, name: "Watch Target", watching: true })] });
   apiClient.delete.mockResolvedValue({});
+  // The card states Watching from its own read (`card.watching`), not the row.
+  const listGet = apiClient.get.getMockImplementation();
+  apiClient.get.mockImplementation((url, ...rest) =>
+    url.startsWith("/api/players/9/card") ? Promise.resolve({ data: { watching: true, seasons: [] } }) : listGet(url, ...rest),
+  );
   renderWithProviders(<PlayerManagement />);
 
-  const toggle = await screen.findByRole("button", { name: "Watching Watch Target" });
+  const card = await openCardWatchToggle("Watch Target");
+  const toggle = await card.findByRole("button", { name: /^Watching/ });
   expect(toggle).toHaveAttribute("aria-pressed", "true");
 
   await userEvent.click(toggle);
@@ -924,8 +967,7 @@ test("the Watching toggle, with nothing watched on the page, shows its own empty
 // DE, DT, CB and S directly rather than folding them under DL/DB.
 describe("position chips derived from the roster template (#1419)", () => {
   async function openPositionOptions() {
-    await userEvent.click(screen.getByLabelText("Position"));
-    return screen.findAllByRole("option");
+    return within(screen.getByLabelText("Position")).getAllByRole("option");
   }
 
   test("a non-IDP template renders no defender chips", async () => {
@@ -958,8 +1000,7 @@ describe("position chips derived from the roster template (#1419)", () => {
     renderWithProviders(<PlayerManagement />);
     await screen.findByTestId("player-row");
 
-    await userEvent.click(screen.getByLabelText("Position"));
-    await userEvent.click(await screen.findByRole("option", { name: "FLEX" }));
+    await userEvent.selectOptions(screen.getByLabelText("Position"), "FLEX");
 
     await waitFor(() => {
       const playerCalls = apiClient.get.mock.calls.filter(([url]) => url === "/api/players");
@@ -974,8 +1015,7 @@ describe("position chips derived from the roster template (#1419)", () => {
     renderWithProviders(<PlayerManagement />);
     await screen.findByTestId("player-row");
 
-    await userEvent.click(screen.getByLabelText("Position"));
-    await userEvent.click(await screen.findByRole("option", { name: "SFLX" }));
+    await userEvent.selectOptions(screen.getByLabelText("Position"), "SFLX");
 
     await waitFor(() => {
       const playerCalls = apiClient.get.mock.calls.filter(([url]) => url === "/api/players");
@@ -1296,5 +1336,36 @@ describe("roster moves from the row (#1974)", () => {
     renderWithProviders(<PlayerManagement />);
 
     expect(await screen.findByRole("button", { name: "Drop My Starter" })).toBeDisabled();
+  });
+});
+
+// ADR 0067 / spec #2453: the Players page is on Play-select. No cursor, no filled action outside a modal.
+describe("Play-select look (spec #2453)", () => {
+  const myTeamPlayer = player({ id: 3, name: "My Starter", availability: { state: "my_team", teamId: 1, teamName: null, availableAt: null } });
+  const propsOf = (spy) => spy.mock.calls.map(([props]) => props);
+
+  test("the page is a Play-select root with a pixel h1 and passes look to every slice", async () => {
+    mockBrowser({ players: [player({ id: 8, name: "Free Agent" }), myTeamPlayer] });
+    const { container } = renderWithProviders(<PlayerManagement />);
+
+    expect(await screen.findByRole("heading", { level: 1, name: "Players" })).toBeInTheDocument();
+    expect(container.querySelector(".ps-root")).not.toBeNull();
+    await userEvent.click(await screen.findByRole("button", { name: "Free Agent" }));
+
+    expect(propsOf(mockSpy.pool).every((p) => p.look === "playselect")).toBe(true);
+    expect(propsOf(mockSpy.row).length).toBeGreaterThan(0);
+    expect(propsOf(mockSpy.row).every((p) => p.look === "playselect")).toBe(true);
+    expect(propsOf(mockSpy.head).every((p) => p.look === "playselect")).toBe(true);
+    expect(propsOf(mockSpy.card).every((p) => p.look === "playselect")).toBe(true);
+  });
+
+  test("the page renders no filled action and no cursor outside a dialog", async () => {
+    mockBrowser({ players: [player({ id: 8, name: "Free Agent" }), myTeamPlayer] });
+    const { container } = renderWithProviders(<PlayerManagement />);
+
+    await screen.findByRole("button", { name: "Add Free Agent" });
+    expect(container.querySelectorAll('[data-variant="fill"]')).toHaveLength(0);
+    expect(container.querySelectorAll(".cursor")).toHaveLength(0);
+    expect(container.querySelectorAll('[data-variant="ghost"]').length).toBeGreaterThan(0);
   });
 });
