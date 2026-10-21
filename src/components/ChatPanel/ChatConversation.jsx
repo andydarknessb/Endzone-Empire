@@ -524,12 +524,8 @@ function ChatConversation({
           // maxLength: the server is the single enforcement point, so typing
           // and sending past the limit stay possible.
           //
-          // NOTE: setting aria-describedby through inputProps overrides MUI's own
-          // describedby channel, because InputBase spreads inputProps AFTER the
-          // aria-describedby it would compute from helperText/error. That is
-          // latent, not live, here: this field has neither, so there is nothing
-          // for MUI to describe and nothing is lost. If a helperText or error is
-          // ever added, merge its id in rather than letting this clobber it.
+          // ChatField merges describedBy with the id of any hint it renders, so a
+          // hint added later does not displace the counter.
           describedBy={countId}
           // The adornment ignores the pointer (ChatField), so a click on the counter strip
           // falls through to the input and places the caret (#486).

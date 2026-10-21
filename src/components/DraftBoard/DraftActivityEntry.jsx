@@ -84,6 +84,7 @@ function PickActivityLine({ entry }) {
       <Box sx={LINE_SX}>
         <strong>{teamNameLabel(entry.teamName)}</strong> drafted {player.name}
         {' '}{player.position && <Box component="span" sx={TAG_GAP}><PosTag position={player.position} /></Box>}
+        {' '}
         {entry.isAutopick && <Box component="span" sx={TAG_GAP}><Tag>AUTO</Tag></Box>}
       </Box>
       <Box sx={META_SX}>
