@@ -30,7 +30,7 @@ export default function PickemRulesView({ league }) {
             title="Scoring mode"
             body={`Unable to load the scoring mode: ${error}`}
             onRetry={refetch}
-            retryAriaLabel="Retry"
+            retryAriaLabel="Try again to load the scoring mode"
           />
         ) : !settings ? (
           <Skel width="100%" height={48} />

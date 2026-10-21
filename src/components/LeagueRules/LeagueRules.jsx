@@ -166,7 +166,7 @@ export default function LeagueRules() {
           title="League rules"
           body={`Unable to load league rules: ${error}`}
           onRetry={refetch}
-          retryAriaLabel="Retry league rules"
+          retryAriaLabel="Try again to load league rules"
         />
       </Shell>
     );
@@ -186,7 +186,7 @@ export default function LeagueRules() {
           title="Scoring rules"
           body={`Unable to load scoring rules: ${defaultsError}`}
           onRetry={() => setDefaultsReload((n) => n + 1)}
-          retryAriaLabel="Retry scoring rules"
+          retryAriaLabel="Try again to load scoring rules"
         />
       );
     } else if (!defaults) {
@@ -213,7 +213,7 @@ export default function LeagueRules() {
           title="League rules"
           body={`Unable to refresh league rules: ${error}`}
           onRetry={refetch}
-          retryAriaLabel="Retry league rules"
+          retryAriaLabel="Try again to load league rules"
         />
       )}
       <Frame tier="rule" sx={{ p: { xs: '12px', sm: '20px' } }}>

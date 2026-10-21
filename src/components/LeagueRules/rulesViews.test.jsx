@@ -7,10 +7,10 @@ import PlayoffRulesView from './PlayoffRulesView';
 import PickemRulesView from './PickemRulesView';
 import { clearPickemSettingsCache, setPickemSettings } from '../../entities/pickem-game';
 
-// Each view's section titles are the level below "League Rules" (h4, in
+// Each view's section titles are the level below "League Rules" (h1, in
 // LeagueRules.jsx) since none of these views nest a card or tab heading of
 // their own between the page title and the section titles (#703).
-const SECTION_HEADING_LEVEL = 5;
+const SECTION_HEADING_LEVEL = 2;
 
 const DEFAULTS = {
   passing: { yards: 0.04, touchdowns: 4 },

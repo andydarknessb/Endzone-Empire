@@ -4,10 +4,10 @@ import { pixelSx } from '../../shared/ui/playselect/type';
 
 // Shared Play-select pieces of the read-only rule views. Everything reads `--ps-*` tokens.
 
-// Section titles stay h5: the views nest under the page's h1 and the panel, and the tests pin the level.
+// Section titles are h2, one level below the page's h1.
 export function SectionTitle({ id, children }) {
   return (
-    <Box component="h5" id={id} sx={{ m: 0, mb: '12px', ...pixelSx(16) }}>{children}</Box>
+    <Box component="h2" id={id} sx={{ m: 0, mb: '12px', ...pixelSx(16) }}>{children}</Box>
   );
 }
 
