@@ -1,27 +1,26 @@
 import React from 'react';
-import { Box, Typography } from '@mui/material';
+import { Box } from '@mui/material';
 
-// Label / value row used by the non-tabular rule views.
+// Kit row: the label in Dim, the value in Ink with tabular figures.
 export default function RuleRow({ label, value, detail }) {
   return (
     <Box
       sx={{
         display: 'flex',
         justifyContent: 'space-between',
-        gap: 2,
-        py: 1,
-        borderBottom: '1px solid',
-        borderColor: 'divider',
+        gap: '16px',
+        py: '10px',
+        borderBottom: '2px solid var(--ps-rule)',
         // The group's own heading separates it from the next one, so the last
         // row shouldn't leave a rule hanging under the section.
         '&:last-of-type': { borderBottom: 'none' },
       }}
     >
-      <Box>
-        <Typography variant="body2">{label}</Typography>
-        {detail && <Typography variant="caption" color="text.secondary" component="div">{detail}</Typography>}
+      <Box sx={{ minWidth: 0 }}>
+        <Box sx={{ fontSize: '15px', color: 'var(--ps-dim)' }}>{label}</Box>
+        {detail && <Box sx={{ fontSize: '14px', color: 'var(--ps-dim)', textWrap: 'pretty' }}>{detail}</Box>}
       </Box>
-      <Typography variant="body2" sx={{ fontWeight: 600, textAlign: 'right', whiteSpace: 'nowrap' }}>{value}</Typography>
+      <Box sx={{ fontSize: '15px', fontWeight: 600, color: 'var(--ps-ink)', fontVariantNumeric: 'tabular-nums', textAlign: 'right', whiteSpace: { xs: 'normal', sm: 'nowrap' }, flex: 'none', maxWidth: { xs: '45%', sm: 'none' } }}>{value}</Box>
     </Box>
   );
 }

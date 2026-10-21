@@ -1,6 +1,7 @@
 import React from 'react';
-import { Box, Stack, Typography } from '@mui/material';
+import { Box } from '@mui/material';
 import RuleRow from './RuleRow';
+import { SectionTitle } from './rulesParts';
 import { deriveLeaguePhase, LEAGUE_PHASE_META } from '../../shared/lib/leaguePhase';
 
 export default function PlayoffRulesView({ league }) {
@@ -11,9 +12,9 @@ export default function PlayoffRulesView({ league }) {
   const phaseMeta = LEAGUE_PHASE_META[deriveLeaguePhase(league)];
 
   return (
-    <Stack spacing={4}>
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
       <Box>
-        <Typography variant="subtitle1" component="h5" sx={{ fontWeight: 600, mb: 1 }}>Season shape</Typography>
+        <SectionTitle>Season shape</SectionTitle>
         <RuleRow
           label="Regular season length"
           value={`${regularSeasonWeeks} weeks`}
@@ -38,7 +39,7 @@ export default function PlayoffRulesView({ league }) {
       </Box>
 
       <Box>
-        <Typography variant="subtitle1" component="h5" sx={{ fontWeight: 600, mb: 1 }}>Keepers</Typography>
+        <SectionTitle>Keepers</SectionTitle>
         <RuleRow label="Keepers" value={keepersEnabled ? 'Enabled' : 'Disabled'} />
         {keepersEnabled && (
           <RuleRow
@@ -48,6 +49,6 @@ export default function PlayoffRulesView({ league }) {
           />
         )}
       </Box>
-    </Stack>
+    </Box>
   );
 }

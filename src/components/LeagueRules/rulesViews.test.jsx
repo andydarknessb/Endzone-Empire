@@ -86,11 +86,11 @@ describe('ScoringRulesView', () => {
     expect(screen.getByText('Per yard over min')).toBeInTheDocument();
   });
 
-  it('gives each category title an explicit heading level, one below the page title, and keeps the subtitle1 type scale', () => {
+  it('gives each category title an explicit heading level, one below the page title, and keeps the pixel type scale', () => {
     render(<ScoringRulesView league={{ scoring_preset: 'standard', dp_enabled: true }} defaults={DEFAULTS} />);
     const passingHeading = screen.getByRole('heading', { level: SECTION_HEADING_LEVEL, name: 'Passing' });
     expect(passingHeading).toBeInTheDocument();
-    expect(passingHeading).toHaveClass('MuiTypography-subtitle1');
+    expect(passingHeading).toHaveStyle({ textTransform: 'uppercase', fontSize: '16px' });
     expect(screen.getByRole('heading', { level: SECTION_HEADING_LEVEL, name: 'Individual Defense (IDP)' })).toBeInTheDocument();
     // No stray level-6 heading is left behind now that these are no longer h6.
     expect(screen.queryAllByRole('heading', { level: 6 })).toHaveLength(0);
