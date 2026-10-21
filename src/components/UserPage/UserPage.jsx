@@ -13,7 +13,7 @@ import AlertPrompt from './AlertPrompt';
 import LeagueNews from './LeagueNews';
 import { featuredDraft } from './NextDraftCard';
 import {
-  FirstRunIntro, GreetingHeader, greetingSummary, liveMatchupCount,
+  FirstRunIntro, GreetingHeader, greetingSummary, liveMatchupCount, pickemLive,
 } from './GreetingHeader';
 import { deriveLeaguePhase, LEAGUE_PHASE } from '../../shared/lib/leaguePhase';
 import { usePostgameCutscenes, PostgameCutscenes } from '../../features/postgame-cutscene';
@@ -249,12 +249,14 @@ function UserPage() {
   const currentWeek = sharedCurrentWeek(myLeagues);
   const liveMatchups = liveMatchupCount(myLeagues);
   // Game day: the play frame and live scores only; League news and Columns wait.
-  const gameDay = liveMatchups > 0;
+  const gameDay = liveMatchups > 0 || pickemLive(myLeagues);
   // Recomputed on every render: each load, and each scheduled lock tick, re-renders.
   const nowMs = Date.now();
   const kickoffWindowOpen = [...upcomingLocks(myLeagues), firedLock]
     .some((at) => at !== null && at <= nowMs && nowMs - at <= KICKOFF_WINDOW_MS);
-  const polling = gameDay || kickoffWindowOpen;
+  // A drafting league also polls, so the slot and the clock do not go stale.
+  const drafting = myLeagues.some((l) => deriveLeaguePhase(l) === LEAGUE_PHASE.DRAFTING);
+  const polling = gameDay || kickoffWindowOpen || drafting;
 
   const fetchMyLeagues = async () => {
     try {
@@ -293,7 +295,8 @@ function UserPage() {
 
   // Game day (spec #2315, ruling 5): the leagues list and the Plays reload
   // every minute while a matchup is live (or in the kickoff window after a
-  // lock, before the server calls it live) and the tab is visible.
+  // lock, before the server calls it live, or while a league is drafting) and
+  // the tab is visible.
   useLiveRefresh({ active: polling, onTick: refreshLeagues });
 
   // Before kickoff (spec #2315): the leagues list is read once, so a page opened
@@ -330,7 +333,8 @@ function UserPage() {
   // scheduled draft's countdown runs out the card refetches once, just after
   // (the server has auto-started it, or it is now late); a late one refetches
   // every 30 seconds (2 minutes once auto-start failed) until it goes live. A
-  // live draft needs no timer. All of these are background refetches: no
+  // live draft has no timer of its own: the drafting poll keeps it fresh. All
+  // of these are background refetches: no
   // skeletons, no error alert, and a hidden tab skips its ticks and catches up
   // when it is shown again.
   const featuredId = nextDraft?.id;

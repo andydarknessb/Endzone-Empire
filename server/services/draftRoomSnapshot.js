@@ -144,6 +144,35 @@ async function readTeams(leagueId) {
 }
 
 /**
+ * The same teams in the same order for many leagues at once: Map<leagueId,
+ * teams> (id only), so Home can place the viewer in the pick order in one read.
+ */
+async function readTeamsByLeague(db, leagueIds) {
+  const result = await db.query(
+    `SELECT "teams"."id", "teams"."league_id" FROM "teams"
+     WHERE "league_id" = ANY($1) ORDER BY "draft_position" NULLS LAST, "teams"."id"`,
+    [leagueIds]
+  );
+  const byLeague = new Map();
+  for (const row of result.rows) {
+    if (!byLeague.has(row.league_id)) byLeague.set(row.league_id, []);
+    byLeague.get(row.league_id).push(row);
+  }
+  return byLeague;
+}
+
+/** Taken pick indexes (0-based, keepers included) per league: Map<leagueId, Set>. */
+async function readTakenByLeague(db, leagueIds) {
+  const result = await db.query(
+    `SELECT "league_id", "pick_number" FROM "draft_picks" WHERE "league_id" = ANY($1)`,
+    [leagueIds]
+  );
+  const byLeague = new Map(leagueIds.map((id) => [id, new Set()]));
+  for (const row of result.rows) byLeague.get(row.league_id)?.add(row.pick_number - 1);
+  return byLeague;
+}
+
+/**
  * The picks so far, each carrying the Team that made it by Team identity (a
  * pick's own `name` is the PLAYER's, so the Team needs its own contract fields,
  * #112). Byte-identical to the old socket-module snapshot read.
@@ -263,6 +292,9 @@ async function presenterSnapshot(leagueId) {
 }
 
 module.exports = {
+  onTheClockFrom,
+  readTeamsByLeague,
+  readTakenByLeague,
   memberSnapshot,
   presenterSnapshot,
 };

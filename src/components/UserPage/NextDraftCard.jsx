@@ -3,12 +3,14 @@ import PropTypes from 'prop-types';
 import { deriveLeaguePhase, LEAGUE_PHASE } from '../../shared/lib/leaguePhase';
 import { formatInstant } from '../../shared/lib/instantFormat';
 import { timeUntilWords } from '../../shared/lib/timeUntil';
+import { ordinal } from '../../shared/lib/ordinal';
 import { PlayCard } from '../../shared/ui/playselect';
 
 // The featured draft as a Play-select play card (DESIGN.md "Play card", kind
 // draft). A draft has no lock, so it leads the page only when no timed play
-// exists; ActionQueue decides that and passes `lead`. The draft slot ("you
-// pick 7th") is not on the wire yet (#2316), so it never shows.
+// exists; ActionQueue decides that and passes `lead`. A live draft names the
+// viewer's slot ("Round 1, you pick 7th") or "You're on the clock" from
+// `league.status.draft` (#2316); a status without them shows no detail.
 
 // A pre-draft league past its draft_date is "late" only for this long; an older
 // one is stale (its league card still shows it), not a draft about to start.
@@ -61,12 +63,16 @@ const weekday = (at) => new Intl.DateTimeFormat(undefined, { weekday: 'short' })
 function copy(league, state, now, commissioner) {
   const cta = { label: 'Open draft room', to: `/league/${league.id}/draft` };
   if (state === 'live') {
+    const { round, slot, onTheClock } = league.status?.draft || {};
+    const place = onTheClock === true ? "You're on the clock"
+      : typeof round === 'number' && ordinal(slot) && `Round ${round}, you pick ${ordinal(slot)}`;
     return {
       name: 'Draft room open',
+      detail: place || undefined,
       lockDay: 'Live',
       lockTime: 'now',
       lockNote: 'If your clock runs out, autopick covers your turn.',
-      ariaLabel: `Open the ${league.name} draft room: the draft is live`,
+      ariaLabel: `Open the ${league.name} draft room: the draft is live${place ? `. ${place}` : ''}`,
       cta,
     };
   }
