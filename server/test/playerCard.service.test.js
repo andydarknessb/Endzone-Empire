@@ -143,6 +143,7 @@ function mockServices(t, {
   restOfSeason = { total: 0, perGame: 0 },
   rosterCapacity = 16,
   realUsage = false, // leave loadUsage to the fake pool (the IDP side case)
+  stored = new Map(), // week -> raw entry the Forecast stored for the card player (#2490)
 } = {}) {
   // `getWeekProjections` (the Pool-wide bridge) is not a reader this ticket
   // touches (#1703's Pool-projection carve-out) and playerCard.service.js no
@@ -162,6 +163,9 @@ function mockServices(t, {
       week,
       projections: new Map(playerIds.map((id) => [id, rawEntryFor(weekPoints, weeklyProjection, week, id)])),
     })]),
+  ));
+  t.mock.method(projectionService, 'getStoredProjectionsForWeeks', async ({ weeks, playerIds }) => new Map(
+    weeks.filter((week) => stored.has(week)).map((week) => [week, new Map(playerIds.map((id) => [id, stored.get(week)]))]),
   ));
   t.mock.method(projectionService, 'getRestOfSeason', async (playerIds) => {
     return new Map(playerIds.map((id) => [id, restOfSeason]));
@@ -196,6 +200,54 @@ test('getPlayerCard: a past, non-bye week with no player_stats row ships kind "a
   assert.equal(card.weeks[0].points, null);
   assert.equal(card.weeks[1].kind, 'actual');
   assert.equal(card.weeks[1].points, null);
+});
+
+test('getPlayerCard (#2490): played weeks carry the stored projection and opponent rank, and never generate one', async (t) => {
+  const league = { ...LEAGUE, current_week: 5 };
+  createFakePool(buildHandlers({ league })).install(t);
+  const generate = t.mock.method(projectionService, 'generateProjections', async () => { throw new Error('generated'); });
+  const { weekProjectionCalls } = mockServices(t, {
+    stored: new Map([[3, { mean: 11.5, median: 11.5, factors: { opponent: { rank: 4, of: 32 } } }]]),
+  });
+
+  const card = await getPlayerCard({ leagueId: 3, userId: 7, playerId: PLAYER.id });
+
+  assert.equal(card.weeks[2].kind, 'actual');
+  assert.equal(card.weeks[2].projected, 11.5);
+  assert.deepEqual(card.weeks[2].opponentRankVsPosition, { rank: 4, of: 32 });
+  assert.equal(card.weeks[3].kind, 'actual');
+  assert.equal(card.weeks[3].projected, null);
+  assert.equal(card.weeks[3].opponentRankVsPosition, null);
+  assert.ok(weekProjectionCalls.every((call) => call.week >= 5));
+  assert.equal(generate.mock.callCount(), 0);
+});
+
+test('getPlayerCard (#2490): a stored Unavailable row gives projected null on a played week', async (t) => {
+  const league = { ...LEAGUE, current_week: 3 };
+  createFakePool(buildHandlers({ league })).install(t);
+  mockServices(t, {
+    stored: new Map([[1, { mean: 9, median: 9, factors: { availability: { available: false, reason: 'out' } } }]]),
+  });
+
+  const card = await getPlayerCard({ leagueId: 3, userId: 7, playerId: PLAYER.id });
+  assert.equal(card.weeks[0].projected, null);
+});
+
+test('getStoredProjectionsForWeeks (#2490): the query count does not grow with the weeks asked for', async (t) => {
+  const count = async (weeks) => {
+    const fake = createFakePool([
+      [/FROM "projection_runs"/, () => ({ rows: [] })],
+      [/FROM "player_week_projections"/, () => ({ rows: [] })],
+    ]);
+    await projectionService.getStoredProjectionsForWeeks({
+      season: 2026, weeks, league: projectionService.PUBLIC, playerIds: [PLAYER.id], client: fake,
+    });
+    return fake.calls.length;
+  };
+  const three = await count([1, 2, 3]);
+  const fifteen = await count(Array.from({ length: 15 }, (_, i) => i + 1));
+  assert.equal(three, fifteen);
+  assert.ok(t);
 });
 
 test('getPlayerCard: a player on bye in week N yields weeks[N-1].kind === "bye" with no points', async (t) => {
