@@ -213,6 +213,10 @@ export const colorTokens = {
     // Selection is cursor yellow in both themes; the score flash is a 16% white wash on the board.
     'ps-selection': '#f8d030',
     'ps-flash': 'rgba(255, 255, 255, 0.16)',
+    // Podium medals on a Play-select frame: non-text marks, 3:1 against ps-panel (tokens.contrast.test.js).
+    'ps-medal-gold': '#8a5a00',
+    'ps-medal-silver': '#6e7781',
+    'ps-medal-bronze': '#a0602a',
   },
   dark: {
     'bg-page': '#0f1419',
@@ -381,6 +385,9 @@ export const colorTokens = {
     // Selection is cursor yellow in both themes; the score flash is a 16% white wash on the board.
     'ps-selection': '#f8d030',
     'ps-flash': 'rgba(255, 255, 255, 0.16)',
+    'ps-medal-gold': '#f0b429',
+    'ps-medal-silver': '#b8c0c9',
+    'ps-medal-bronze': '#c98a54',
   },
 };
 
