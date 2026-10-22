@@ -74,7 +74,7 @@ describe('matchupHeroView', () => {
     expect(view.sentence).toBe('Ahead now, projected to trail by 13.4 · you have 4 players remaining, 1 yet to play');
   });
 
-  test('the two percentages always sum to 100, the way the win-probability bar rounds', () => {
+  test('the two percentages always sum to 100, the way TwoSidedOdds rounds', () => {
     const view = matchupHeroView(
       { ...live, home: { ...dock, expectedFinal: '100.25' }, away: { ...frost, expectedFinal: '100.0' } },
       10
