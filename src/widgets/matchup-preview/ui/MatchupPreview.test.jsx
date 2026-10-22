@@ -223,7 +223,7 @@ test('a live matchup demotes each projection to an Expected final line beside "{
   expect(screen.queryByText('PMR')).not.toBeInTheDocument();
 });
 
-// Red-tell (T6): feeding SplitBar a points ratio (82.2 / 159.2 = 52%) instead of
+// Red-tell (T6): feeding the win-probability bar a points ratio (82.2 / 159.2 = 52%) instead of
 // the board's `winProbability` turns this case red. The bar's accessible name is the
 // hard-coded "Win probability" (#872), so a ratio there announces a probability
 // the model never computed - and `projected.value` is a string, so the ratio

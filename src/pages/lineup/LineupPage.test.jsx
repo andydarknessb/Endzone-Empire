@@ -127,7 +127,7 @@ const entryRow = (over = {}) => ({
   slot: 'QB',
   // #1482: `projected_points` is the wire's own Point estimate (CONTEXT.md,
   // The projection engine) - the Ledger row's headline number, and (formal
-  // review round 2) the Decision card's Proj text/RangeBar marker and Bench
+  // review round 2) the Decision card's Proj text/range-bar marker and Bench
   // options number/sort, since this ticket. `projection` is a separate
   // field, the distribution's bare mean, that nothing on the Lineup page
   // reads for display any more. Defaulted equal to `projection` here since
@@ -263,9 +263,9 @@ const adviceSuggestion = (over = {}) => ({
 // conditioned rules (verified: it answers the browser default for every
 // responsive `sx` value regardless of breakpoint), so a responsive `display`
 // toggle can only be proven by reading the generated rule itself, not by
-// asking jsdom what it thinks is visible. Byte-for-byte DashButton.test.jsx's
-// own copy (its own comment names MatchupPreview.test.jsx's copy too), which
-// is why this stays a third small local copy rather than a new shared util.
+// asking jsdom what it thinks is visible. Byte-for-byte MatchupPreview.test.jsx's
+// copy, which is why this stays a small local copy rather than a new shared
+// util.
 const rulesUnder = (el, media = '') => {
   const cls = Array.from(el.classList).find((c) => c.startsWith('css-'));
   const norm = (value) => String(value).replace(/\s+/g, '');
@@ -937,9 +937,9 @@ test('the player name opens the Decision card with the row\'s own fields, and ev
   // The row's own fields (AC1: paints immediately, before the extras load).
   // Formal review round 2 finding r6: this is the one page-level case that
   // must carry a genuinely populated Point estimate (Josh Allen's fixture
-  // projectedPoints is 24.3), not just prove the RangeBar mounted - a
+  // projectedPoints is 24.3), not just prove the range bar mounted - a
   // null-estimate subject would pass this assertion even with the number
-  // broken. (#1482, formal-002-f1: the RangeBar marker reads projectedPoints,
+  // broken. (#1482, formal-002-f1: the range-bar marker reads projectedPoints,
   // not projection; this fixture keeps both equal, so the value is unchanged.)
   expect(within(card).getByTestId('decision-card-range-bar')).toHaveAttribute(
     'aria-label',

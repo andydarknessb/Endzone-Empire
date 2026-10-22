@@ -324,11 +324,11 @@ export function useMatchupPreview(leagueId, { scoreEvent } = {}) {
   // The win probability is the board's (#2142), the same figure Game Center's
   // hero reads, computed from the two scores and the two Expected finals, so
   // the two surfaces cannot disagree. It is never a
-  // points ratio: SplitBar's accessible name is
+  // points ratio: the win-probability bar's accessible name is
   // the hard-coded "Win probability" (#872), and a ratio there would announce a
   // number that is not one. The share is clamped and rounded exactly as
-  // SplitBar rounds its own segments, and it is stated from the VIEWER's side
-  // because the card lays the viewer out on the left where SplitBar paints its
+  // the win-probability bar rounds its own segments, and it is stated from the VIEWER's side
+  // because the card lays the viewer out on the left where the win-probability bar paints its
   // `homeShare` segment.
   let winProbability = null;
   if (status === 'ready' && board.winProbability) {
