@@ -326,9 +326,19 @@ test('the sheet at 390px: Game log shows its section, the panel scrolls alone an
   const width = await page.evaluate(probeWidth, '[data-testid="decision-card"]');
   expect(width.scrollWidth, `sheet scrollWidth=${width.scrollWidth} clientWidth=${width.clientWidth}`).toBeLessThanOrEqual(width.clientWidth + 1);
 
-  await page.evaluate(() => {
-    const scroller = document.querySelector('[role="tabpanel"]:not([hidden])')?.parentElement;
-    if (scroller) scroller.scrollTop = scroller.scrollHeight;
+  // Inactive panels are not rendered at all (an author `display: flex` must not beat `[hidden]`).
+  await expect(page.locator('#decision-card-tabpanel-stats')).toBeHidden();
+
+  const scrolled = await page.evaluate(() => {
+    const scroller = document.querySelector('[role="tabpanel"]:not([hidden])')?.parentElement as HTMLElement | null | undefined;
+    if (!scroller) return null;
+    scroller.scrollTop = scroller.scrollHeight;
+    const sheet = document.querySelector('[data-testid="decision-card"]') as HTMLElement;
+    return { overflowY: getComputedStyle(scroller).overflowY, sheetScrollTop: sheet.scrollTop };
   });
+  expect(scrolled, 'the active tab panel sits in a scroller').not.toBeNull();
+  expect(scrolled?.overflowY).toBe('auto');
+  // Only the panel scrolls: the sheet itself stays put, so header, actions and tabs stay in view.
+  expect(scrolled?.sheetScrollTop).toBe(0);
   await expect(page.getByTestId('decision-card-close')).toBeInViewport();
 });

@@ -566,8 +566,9 @@ export default function PlayerDecisionCard(props) {
           height: isMobile ? '88vh' : '100%',
           borderTopLeftRadius: isMobile ? 16 : 0,
           borderTopRightRadius: isMobile ? 16 : 0,
-          // Header, actions and tabs stay in view; only the tab panel scrolls.
-          overflowY: 'hidden',
+          // On a normal screen only the tab panel scrolls (header, actions and tabs stay in view); on a
+          // sheet shorter than those fixed blocks plus the panel's floor, the whole sheet scrolls.
+          overflowY: 'auto',
           // The primary frame: a 6px double rule on the Panel, square corners; the phone sheet has no bottom edge.
           borderRadius: 0,
           border: '6px double var(--ps-frame)',
@@ -1022,7 +1023,7 @@ function Stack({ children }) {
 }
 
 // The tab panel's scroller: the one region of the card that scrolls (the Drawer paper is a column flexbox).
-const PS_SCROLL_SX = { flex: '1 1 auto', minHeight: 0, overflowY: 'auto', overflowX: 'hidden' };
+const PS_SCROLL_SX = { flex: '1 1 auto', minHeight: '200px', overflowY: 'auto', overflowX: 'hidden' };
 
 const TABS = [
   { key: 'overview', label: 'Overview' },
@@ -1047,7 +1048,7 @@ function PsTabs({ value, onChange }) {
     onChange(TABS[next].key);
   };
   return (
-    <Box role="tablist" aria-label="Player card sections" sx={{ display: 'flex', p: '0 18px 16px 16px', flex: 'none' }}>
+    <Box role="tablist" aria-label="Player card sections" sx={{ display: 'flex', gap: '8px', p: '0 16px 16px', flex: 'none' }}>
       {TABS.map((tab, index) => {
         const on = tab.key === value;
         return (
@@ -1071,7 +1072,6 @@ function PsTabs({ value, onChange }) {
               justifyContent: 'center',
               gap: '6px',
               p: '0 8px',
-              ml: index ? '-2px' : 0,
               boxSizing: 'border-box',
               borderRadius: 0,
               font: 'inherit',
@@ -1081,8 +1081,6 @@ function PsTabs({ value, onChange }) {
               backgroundColor: on ? 'var(--ps-play)' : 'transparent',
               color: on ? 'var(--ps-play-ink)' : 'var(--ps-ink)',
               cursor: 'pointer',
-              // The tabs overlap by 2px; the selected one sits on top so its edge is whole.
-              ...(on ? { position: 'relative', zIndex: 1 } : null),
             }}
           >
             {on ? <PixelArrow /> : null}
@@ -1103,7 +1101,9 @@ function TabPanel({ tab, active, children }) {
       id={`decision-card-tabpanel-${tab}`}
       aria-labelledby={`decision-card-tab-${tab}`}
       hidden={!on}
-      sx={PS_STACK_SX}
+      // The scroller's focus stop for keyboard users; an author `display: flex` would beat `[hidden]`.
+      tabIndex={on ? 0 : undefined}
+      sx={{ ...PS_STACK_SX, ...(on ? null : { display: 'none' }) }}
     >
       {on ? children : null}
     </Box>
