@@ -86,9 +86,8 @@ function winPct(matchup, board) {
   return p == null ? null : Math.round(p * 100);
 }
 
-// `my` is the viewer's side: a private id on it makes the board put it first, whatever its home/away origin.
-const VIEWER = '__viewer__';
-const boardOf = (matchup) => matchupBoard({ status: matchup.status, home: { ...matchup.my, teamId: VIEWER }, away: { ...matchup.opp, teamId: null } }, VIEWER);
+// `my` is the viewer's side and rides as home: with no viewer id the board puts home first.
+const boardOf = (matchup) => matchupBoard({ status: matchup.status, home: matchup.my, away: matchup.opp });
 
 function lineupText(lineup) {
   const problems = Array.isArray(lineup?.problems) ? lineup.problems : [];

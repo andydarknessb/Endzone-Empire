@@ -2069,25 +2069,33 @@ test('leaving the page restores scroll-padding-top and disconnects the scoreboar
   delete window.IntersectionObserver;
 });
 
-// Viewer first (spec #2402): an away viewer's Team leads in the strip, the
-// Slot comparison rows and the Bench card, while a neutral reader sees home first.
-// Red-tell: ordering the sides by hand anywhere on the page puts Team A first here.
+// Viewer first (spec #2402): an away viewer's Team leads in the strip and the Slot
+// comparison, and its bench leads in the Bench card. Red-tell: handing the page's
+// benches over as { first: home, second: away } puts the opponent's bench first here.
 test('an away viewer sees their own Team first on the strip, the Slot comparison and the Bench card', async () => {
   mockApi({
     matchup: matchupResponse({
       viewerTeamId: 2,
-      homeBench: [{ id: 31, name: 'H. Bench', position: 'RB', points: 0 }],
+      homeBench: [{ id: 31, name: 'H. Bench', position: 'RB', points: 0 }, { id: 33, name: 'H. Two', position: 'WR', points: 0 }],
       awayBench: [{ id: 32, name: 'A. Bench', position: 'RB', points: 0 }],
+      away: { name: null },
     }),
   });
   useLeague.mockReturnValue({ league: LEAGUE, viewerTeamId: 2, loading: false, error: null });
   renderPage();
   await screen.findByTestId('slot-comparison');
-  const strip = screen.getByTestId('scoreboard-strip');
-  const sides = within(strip).getAllByTestId(/^scoreboard-side-/);
-  expect(sides[0]).toHaveTextContent('Team B');
+  const sides = within(screen.getByTestId('scoreboard-strip')).getAllByTestId(/^scoreboard-side-/);
+  expect(sides[0].getAttribute('data-testid')).toBe('scoreboard-side-away');
   expect(sides[1]).toHaveTextContent('Team A');
   // Cell test ids follow each side's origin, so an away viewer's left column is the away cell.
   const cells = within(screen.getByTestId('slot-comparison')).getAllByTestId(/^slot-cell-/);
   expect(cells.slice(0, 2).map((c) => c.getAttribute('data-testid'))).toEqual(['slot-cell-away', 'slot-cell-home']);
+  // Bench card: its first column (positional test id) is the viewer's bench, and a missing
+  // name falls back to "Away" because that is the viewer's own side.
+  const card = screen.getByTestId('bench-card');
+  expect(within(card).getByText('Away 1 player, Team A 2 players')).toBeInTheDocument();
+  await userEvent.click(within(card).getByRole('button', { name: 'Show benches' }));
+  const firstBench = within(screen.getByTestId('bench-home'));
+  expect(firstBench.getByText('A. Bench')).toBeInTheDocument();
+  expect(firstBench.queryByText('H. Bench')).not.toBeInTheDocument();
 });
