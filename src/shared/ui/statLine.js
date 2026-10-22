@@ -43,7 +43,7 @@ export const STAT_LABELS = {
 // Offensive and defensive keys never co-occur on one row, so the defensive
 // keys can simply follow. IDP sack/TFL/fumble-return YARDAGE keys are
 // deliberately absent — they're opt-in bonus inputs, not headline stats.
-const STAT_ORDER = [
+export const STAT_ORDER = [
   'rushingYards',
   'rushingTDs',
   'receptions',

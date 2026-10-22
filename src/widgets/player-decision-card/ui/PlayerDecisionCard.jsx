@@ -13,8 +13,9 @@ import {
 import { useTheme } from '@mui/material/styles';
 import { visuallyHidden } from '@mui/utils';
 import {
-  PlayerAvatar, SegmentedControl, statLine,
+  PlayerAvatar, SegmentedControl,
 } from '../../../shared/ui';
+import { STAT_LABELS, STAT_ORDER } from '../../../shared/ui/statLine';
 import {
   BODY_FONT, Frame, InjuryTag as PsInjuryTag, PixelArrow, PixelClose, PosTag, PsButton, Skel,
 } from '../../../shared/ui/playselect';
@@ -24,9 +25,11 @@ import {
   PsWeeklyBars, RowBadge,
 } from './playselectPieces';
 import {
+  finite,
   formatKickoff,
   formatPoints,
   ordinal,
+  reasonLabel,
   hasNoHistory,
   projectionLabel,
   NO_PRACTICE_LABEL,
@@ -45,6 +48,7 @@ import { AddPlayerAction } from '../../../features/add-player';
 import { ClaimPlayerAction } from '../../../features/claim-player';
 import { WatchPlayerAction } from '../../../features/watch-player';
 import { injuryTileView } from '../lib/injuryTile';
+import { gameLogTone } from '../lib/gameLogTone';
 import { benchOptionsForSlot, movesToStart, startTargetSlots } from '../model/slotActions';
 
 // Don't hijack arrow keys while the user is typing or roving a control -
@@ -988,7 +992,12 @@ export default function PlayerDecisionCard(props) {
                   value={selectedSeasonEntry?.season ?? null}
                   onChange={setPickedSeason}
                 />
-                <GameLogSection log={{ current: selectedSeasonEntry?.log ?? [] }} />
+                <GameLogSection
+                  weeks={selectedSeasonEntry?.weeks}
+                  log={selectedSeasonEntry?.log}
+                  position={entry?.position}
+                  currentWeek={selectedSeasonEntry === currentSeasonEntry ? card?.decision?.projWeek?.week : null}
+                />
               </TabPanel>
               <TabPanel tab="stats" active={tab}>
                 <SeasonSummarySection seasons={seasons} />
@@ -1527,45 +1536,61 @@ function DecisionStripSection({ decision, usage, ownership, depth, rosterStatus,
   );
 }
 
-// #1358, CONTEXT.md's Season summary: "One season of a player in five
-// numbers under this league's scoring: games, points per game, season
-// points, position rank and ADP" - one row per `card.seasons` entry, in the
-// payload's own newest-first order. Hidden entirely with no season on
-// record (the card hasn't answered yet); the payload otherwise always
-// carries at least the current season, even for a rookie with no rows on
-// file (#1356 ruling).
+// #1358, CONTEXT.md's Season summary, titled "Season totals" since #2491: one row per `card.seasons` entry, in the
+// payload's own newest-first order, the current season marked "to date". Games, points, points per game, position
+// rank and ADP keep their #1358 values and dash rules; the Game log's stat columns follow, each summed over the
+// season's `log[].statLine`. Hidden entirely with no season on record (the card hasn't answered yet); the payload
+// otherwise always carries at least the current season, even for a rookie with no rows on file (#1356 ruling).
 function SeasonSummarySection({ seasons }) {
   if (!Array.isArray(seasons) || seasons.length === 0) return null;
+  const statCols = statColumns(seasons.flatMap((row) => (row.log ?? []).map((l) => l.statLine)));
   return (
-    <PsSection title="Season summary" testId="decision-card-season-summary-section" pad={false}>
+    <PsSection title="Season totals" testId="decision-card-season-summary-section" pad={false}>
       <PsTable
-        label="Season summary"
+        label="Season totals"
         testId="decision-card-seasons"
-        minWidth={440}
+        minWidth={440 + 64 * statCols.length}
         cols={[
           { label: 'Season' },
           { label: 'G', align: 'right' },
+          { label: 'FPTS', align: 'right' },
           { label: 'FPTS/G', align: 'right' },
-          { label: 'Pts', align: 'right' },
           { label: 'Pos rank', align: 'right' },
           { label: 'ADP', align: 'right' },
+          ...statCols.map((col) => ({ ...col, align: 'right' })),
         ]}
-        rows={seasons.map((row) => ({
+        rows={seasons.map((row, i) => ({
           key: row.season,
           cells: [
-            row.season,
+            <>
+              {row.season}
+              {i === 0 && <Box component="span" sx={{ display: 'block', fontSize: '12px', fontWeight: 400, color: 'var(--ps-dim)' }}>to date</Box>}
+            </>,
             row.games,
-            formatPoints(row.pointsPerGame),
             formatPoints(row.points),
+            formatPoints(row.pointsPerGame),
             row.posRank != null && row.posRankOf != null
               ? `${row.posRank} of ${row.posRankOf}`
               : <DashValue label="no rank on record" />,
             row.adp != null ? formatPoints(row.adp) : <DashValue label="no ADP on record" />,
+            ...statCols.map(({ key }) => (row.log ?? []).reduce((sum, l) => sum + (Number(l.statLine?.[key]) || 0), 0)),
           ],
         }))}
       />
     </PsSection>
   );
+}
+
+// The stat columns the Game log and Season totals share (#2491): carries and targets, then every `STAT_ORDER` key,
+// each only when some row carries a non-zero value for it.
+const STAT_COLS = [
+  { key: 'usageCarries', label: 'Rush Att' },
+  { key: 'usageTargets', label: 'Tgt' },
+  ...STAT_ORDER.map((key) => ({ key, label: STAT_LABELS[key] })),
+];
+
+function statColumns(statLines) {
+  return STAT_COLS.filter(({ key }) => statLines.some((line) => (Number(line?.[key]) || 0) !== 0));
 }
 
 // The null-ADP/null-Pos-rank dash (#1358 issue body): a visible dash plus a
@@ -1634,25 +1659,99 @@ function NewsSection({ news }) {
   );
 }
 
-// #1307, ADR 0040: the game log is part of "every context adds ... the
-// eighteen-week bars" family of additions - restated from
-// `buildPlayerSummary`'s current-season weekly rows, the same producer
-// PlayerQuickView's own current-season table reads. Hidden with no played
-// week yet.
-function GameLogSection({ log }) {
-  if (!Array.isArray(log?.current) || log.current.length === 0) return null;
+// #1307, ADR 0040, rebuilt by #2491: the game log is one row per `weeks[]` entry of the picked season (1 to 18), merged
+// by week with that season's `log[]`. A played week shows its Opp, Proj, FPTS and stat columns, tinted against the
+// player's own average; a bye or unavailable week names why; a week to come shows its Proj. Hidden with no weeks.
+const GAME_LOG_WK_WIDTH = 64;
+const TONE_WORDS = { above: "above this player's average", below: "below this player's average" };
+const points2 = (v) => (finite(v) == null ? '-' : finite(v).toFixed(2));
+
+function GameLogSection({ weeks, log, position, currentWeek }) {
+  if (!Array.isArray(weeks) || weeks.length === 0) return null;
+  const logByWeek = new Map((log ?? []).map((l) => [l.week, l]));
+  const statCols = statColumns((log ?? []).map((l) => l.statLine));
+  const rows = weeks.map((week) => {
+    const logRow = logByWeek.get(week.week);
+    return { week, logRow, played: week.kind === 'actual' || Boolean(logRow) };
+  });
+  const dataCols = [
+    { label: 'FPTS', value: ({ week, logRow, played }) => (played ? finite(logRow?.points ?? week.points) : null) },
+    ...statCols.map((col) => ({
+      ...col,
+      value: ({ logRow }) => (logRow ? Number(logRow.statLine?.[col.key]) || 0 : null),
+    })),
+  ];
+  const columnValues = dataCols.map((col) => rows.map(col.value).filter((v) => v != null));
+  const anyRank = weeks.some((w) => w.opponentRankVsPosition?.rank != null);
   return (
     <PsSection title="Game log" testId="decision-card-gamelog-section" pad={false}>
       <PsTable
         label="Game log"
         testId="decision-card-game-log"
-        minWidth={440}
-        cols={[{ label: 'Week' }, { label: 'Opponent' }, { label: 'Stat line' }, { label: 'FPTS', align: 'right' }]}
-        rows={log.current.map((row) => ({
-          key: row.week,
-          cells: [`Wk ${row.week}`, row.opponent || '-', statLine(row.statLine), formatPoints(row.points)],
-        }))}
+        minWidth={480 + 70 * statCols.length}
+        stickyOffsets={[0, GAME_LOG_WK_WIDTH]}
+        cols={[
+          { label: 'Wk' },
+          { label: 'Opp' },
+          { label: 'Proj', align: 'right' },
+          ...dataCols.map(({ label, key }) => ({ label, key, align: 'right' })),
+        ]}
+        rows={rows.map((row) => {
+          const { week, logRow, played } = row;
+          const wk = (
+            <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+              {week.week === currentWeek && (
+                <Box component="span" role="img" aria-label="Current week" sx={{ display: 'inline-flex', color: 'var(--ps-cursor)' }}>
+                  <PixelArrow />
+                </Box>
+              )}
+              {week.week}
+            </Box>
+          );
+          const empty = dataCols.map(() => '');
+          if (week.kind === 'bye') return { key: week.week, cells: [wk, 'Bye', '', ...empty] };
+          if (week.kind === 'unavailable') {
+            return { key: week.week, cells: [wk, reasonLabel(week.reason) || week.reason, '', ...empty] };
+          }
+          const rank = ordinal(week.opponentRankVsPosition?.rank);
+          const opponent = logRow?.opponent || week.opponent;
+          const tones = [];
+          const cells = dataCols.map((col, i) => {
+            const value = col.value(row);
+            if (!played || value == null) return '-';
+            const tone = gameLogTone(value, columnValues[i]);
+            tones[i + 3] = tone;
+            return (
+              <>
+                {col.key ? value : points2(value)}
+                {TONE_WORDS[tone] && <Box component="span" sx={visuallyHidden}>{TONE_WORDS[tone]}</Box>}
+              </>
+            );
+          });
+          return {
+            key: week.week,
+            tones,
+            cells: [
+              wk,
+              opponent ? `${opponent}${rank ? ` (${rank})` : ''}` : '-',
+              points2(week.kind === 'projected' ? week.points : week.projected),
+              ...cells,
+            ],
+          };
+        })}
       />
+      <Box sx={{ p: '12px 20px 14px', borderTop: '2px solid var(--ps-rule)', display: 'grid', gap: '8px' }}>
+        {anyRank && <Typography sx={DIM_LINE_SX}>{`Opp rank: 1st allows the fewest points to ${position}s`}</Typography>}
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '6px 12px' }}>
+          <Typography sx={DIM_LINE_SX}>Compared to this player's average</Typography>
+          {[['Above', 'ps-cell-above'], ['Typical', 'ps-cell'], ['Below', 'ps-cell-below']].map(([name, token]) => (
+            <Box key={name} component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '14px' }}>
+              <Box component="span" aria-hidden="true" sx={{ width: '16px', height: '16px', border: '2px solid var(--ps-rule)', backgroundColor: `var(--${token})` }} />
+              {name}
+            </Box>
+          ))}
+        </Box>
+      </Box>
     </PsSection>
   );
 }
