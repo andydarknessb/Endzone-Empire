@@ -6,7 +6,6 @@ import LedBoard from './LedBoard';
 import RetroField from './RetroField';
 import LineupsCard from './LineupsCard';
 import GamesTile from './GamesTile';
-import { viewerFirst } from '../model/scoreboardModel';
 
 /**
  * The Scoreboard view of a Matchup (ADR 0031, #902): the LED board, the retro
@@ -28,21 +27,22 @@ import { viewerFirst } from '../model/scoreboardModel';
  *
  * Props:
  *   - `matchup`: the Matchup entity model (entities/matchup): the LED board
- *     reads each side's name, score, Expected final and Players remaining, the
- *     week and the status.
+ *     reads the week and the status from it; each side's name, Expected final
+ *     and Players remaining come from `board`.
  *   - `leagueName`: the league's name for the board's top line.
  *   - `board`: the entity's `matchupBoard(matchup, viewerTeamId)` (#2142): the
  *     LED board prints its score text, Players remaining, result line ("You
  *     won by 6.2", #2007) and Win probability, and the field its sprites'
- *     position. The widget prices, picks and formats none of them.
+ *     position. The widget prices, picks and formats none of them. Its `first` and
+ *     `second` sides are drawn left and right as given.
  *   - `rows`: the paired starter rows the Matchup page model hands down
- *     (`[{ slot, home, away }]`, `pairStartersBySlot` from `entities/roster`;
+ *     (`[{ slot, first, second }]`, `pairStartersBySlot` from `entities/roster`;
  *     #1210 moved the pairing out of `entities/matchup`), rendered as given.
  *     Each side is the Matchup entity's normalised player
  *     (`playerFromDetailRow`, #2147: `playerId`, `nflTeam`, `photoUrl`,
  *     `gameState`, `gameClock`, `projectedPoints`, ...) or null.
  *   - `games`: the live_game_states rows on `model.games`.
- *   - `activePlay`: `{ side, type, isTouchdown, nflTeam, opponent }` or null;
+ *   - `activePlay`: `{ side: 'first' | 'second', type, isTouchdown, nflTeam, opponent }` or null;
  *     a touchdown dashes that side's sprite, a moment play flashes the callout.
  *     The board's `winProbability` is stated once the Matchup has started
  *     (#903 review): before kickoff, or under a status the server could not
@@ -60,22 +60,22 @@ import { viewerFirst } from '../model/scoreboardModel';
  *     (the canvas draws the "Celebrations on" affordance there; it is the
  *     celebrate-touchdown feature's, so the page slots it in).
  *
- * Viewer first (QA ruling #2334): the left team is the viewer's own whichever
- * side they are, and home for a non-participant, as the Standard view does.
- * `viewerFirst` mirrors `matchup`, `board`, `rows` and `activePlay` once here
- * for an away viewer, so the board, field and cards below stay side-blind.
+ * Viewer first (spec #2402): the board's `first` side is the viewer's own Team
+ * (home for a non-participant), and the page hands `rows` and `activePlay`
+ * in that same order. The widget does no ordering of its own: the first slot
+ * is the left one, and the children stay positional.
  *
  * The widget renders nothing without a Matchup. It reads no data of its own:
  * the page owns the entity hook, the score feed, the cutscene queue and the
  * toasts, and hands the widget what it shows.
  */
 export default function RetroScoreboard({
-  matchup: matchupProp,
+  matchup,
   leagueName,
-  board: boardProp,
-  rows: rowsProp,
+  board,
+  rows,
   games,
-  activePlay: activePlayProp,
+  activePlay,
   headingLevel = 2,
   onFullComparison,
   ticker,
@@ -88,15 +88,10 @@ export default function RetroScoreboard({
   // no remount); the mobile geometry starts below `sm`.
   const theme = useTheme();
   const mobile = useMediaQuery(theme.breakpoints.down('sm'));
-  if (!matchupProp) return null;
-
-  // Viewer first (QA ruling #2334): an away viewer's team takes the left.
-  const { matchup, board, rows, activePlay } = viewerFirst({
-    matchup: matchupProp, board: boardProp, rows: rowsProp, activePlay: activePlayProp,
-  });
+  if (!matchup) return null;
 
   const gap = mobile ? '12px' : '16px';
-  const shownProb = board.winProbability?.home ?? null;
+  const shownProb = board.winProbability?.first ?? null;
 
   return (
     <Box
@@ -105,9 +100,9 @@ export default function RetroScoreboard({
     >
       <LedBoard matchup={matchup} board={board} leagueName={leagueName} mobile={mobile} />
       <RetroField
-        homeName={matchup.home?.name}
-        awayName={matchup.away?.name}
-        homeProb={shownProb}
+        firstName={board.first.name}
+        secondName={board.second.name}
+        firstProb={shownProb}
         activePlay={activePlay}
         mobile={mobile}
         tail={fieldTail}

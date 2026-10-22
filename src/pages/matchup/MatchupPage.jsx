@@ -133,9 +133,9 @@ export default function MatchupPage() {
 
   // The lineup note's figures: the lock, the advice and the clock. Every hook sits above the loading
   // return; the advice is read only before kickoff, and only when there is a problem to name.
-  const { viewerSide } = board;
+  const { first, second } = board;
   const actionItems = useActionItems();
-  const slots = useMemo(() => lineupSlots(starterRows, viewerSide), [starterRows, viewerSide]);
+  const slots = useMemo(() => lineupSlots(starterRows, first.isViewer), [starterRows, first.isViewer]);
   const issues = useMemo(() => lineupIssues(slots, games), [slots, games]);
   const started = board.hasStarted === true;
   const noteOpen = canSetLineup && viewerHasRoster && issues.length > 0;
@@ -176,8 +176,10 @@ export default function MatchupPage() {
     );
   }
 
-  const homeName = matchup?.home?.name;
-  const awayName = matchup?.away?.name;
+  // A missing name reads "Home"/"Away" by the side's own origin, wherever the board put it.
+  const nameOf = (side) => side.name || (side.origin === 'home' ? 'Home' : 'Away');
+  const firstName = nameOf(first);
+  const secondName = nameOf(second);
   const lineupHref = `/league/${leagueId}/lineup`;
 
   // The Decision card's entry for whichever player a name link opened
@@ -189,42 +191,30 @@ export default function MatchupPage() {
   // the one WaiverWire and TradeCenter already use for a non-lineup entry.
   // The built context is `myTeam({ managed: false })` only on the viewer's
   // own team's side, `rostered({ ... })` otherwise (#1513).
-  const homePlayers = starterRows.map((row) => row.home).concat(benches.home || []);
-  const awayPlayers = starterRows.map((row) => row.away).concat(benches.away || []);
+  const firstPlayers = starterRows.map((row) => row.first).concat(benches.first || []);
+  const secondPlayers = starterRows.map((row) => row.second).concat(benches.second || []);
+  const findIn = (list) => list.find((p) => p?.id === decisionCardPlayerId) || null;
   const decisionCardSide = decisionCardPlayerId == null
     ? null
-    : homePlayers.some((p) => p?.id === decisionCardPlayerId)
-      ? 'home'
-      : awayPlayers.some((p) => p?.id === decisionCardPlayerId)
-        ? 'away'
-        : null;
-  const decisionCardPlayer = decisionCardSide === 'home'
-    ? homePlayers.find((p) => p?.id === decisionCardPlayerId) || null
-    : decisionCardSide === 'away'
-      ? awayPlayers.find((p) => p?.id === decisionCardPlayerId) || null
-      : null;
+    : findIn(firstPlayers) ? first : findIn(secondPlayers) ? second : null;
+  const decisionCardPlayer = decisionCardSide ? findIn(decisionCardSide === first ? firstPlayers : secondPlayers) : null;
   const decisionCardEntry = toDecisionCardEntry(decisionCardPlayer);
-  const decisionCardTeamId = decisionCardSide === 'home'
-    ? matchup?.home?.teamId
-    : decisionCardSide === 'away'
-      ? matchup?.away?.teamId
-      : null;
+  const decisionCardTeamId = decisionCardSide?.teamId ?? null;
   // #1513, ADR 0040 follow-up: the built context - the viewer's own player
   // read-only (no lineup wiring here, PlayerManagement's own-player case) or
   // rostered by the other side, named when the other side's team name is
-  // known (homeName/awayName, the same names the header already renders).
-  const decisionCardOwnerName = decisionCardSide === 'home' ? homeName : decisionCardSide === 'away' ? awayName : null;
+  // known (the board side's name, the same the header already renders).
+  const decisionCardOwnerName = decisionCardSide?.name ?? null;
   const decisionCardAvailability = decisionCardOwnerName ? { teamName: decisionCardOwnerName } : {};
   const decisionCardBuiltContext = viewerTeamId != null && decisionCardTeamId === viewerTeamId
     ? myTeam({ managed: false })
     : rostered({ availability: decisionCardAvailability });
 
   // The note row: the lineup note while there is something to fix, else the Bench what-if while live.
-  const otherSide = viewerSide === 'home' ? 'away' : 'home';
   const noteView = noteOpen
     ? lineupNote({
       slots,
-      bench: benches[viewerSide],
+      bench: benches.first,
       template,
       gameStates: games,
       started,
@@ -232,7 +222,7 @@ export default function MatchupPage() {
       now,
       advice: advice.status === 'ready' || advice.suggestions.length > 0 ? adviceNote(advice) : null,
       gain: adviceGain(advice),
-      proj: { you: matchup?.[viewerSide]?.expectedFinal, them: matchup?.[otherSide]?.expectedFinal },
+      proj: { you: first.expectedFinal, them: second.expectedFinal },
     })
     : null;
   let noteCard = null;
@@ -301,22 +291,21 @@ export default function MatchupPage() {
               {noteCard}
               <SlotComparison
                 rows={starterRows}
-                homeName={homeName}
-                awayName={awayName}
-                expectedFinal={{ home: matchup.home.expectedFinal, away: matchup.away.expectedFinal }}
-                scoreLabels={{ home: board.home.scoreLabel, away: board.away.scoreLabel }}
+                first={first}
+                second={second}
+                expectedFinal={{ first: matchup[first.origin].expectedFinal, second: matchup[second.origin].expectedFinal }}
+                scoreLabels={{ first: first.scoreLabel, second: second.scoreLabel }}
                 status={matchup.status}
                 onOpenPlayer={openPlayer}
                 expandedId={expandedId}
                 onToggle={toggleRow}
-                viewerSide={viewerSide}
                 fillBy={fillBy}
               />
               <BenchCard
-                homeName={homeName}
-                awayName={awayName}
-                homeBench={benches.home}
-                awayBench={benches.away}
+                firstName={firstName}
+                secondName={secondName}
+                firstBench={benches.first}
+                secondBench={benches.second}
                 open={benchOpen}
                 onToggle={() => setBenchOpen((open) => !open)}
                 onOpenPlayer={openPlayer}

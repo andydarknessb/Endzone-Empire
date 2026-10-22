@@ -31,8 +31,8 @@ describe('aroundLeagueTileView', () => {
   it('shows each side projected total before kickoff', () => {
     const view = aroundLeagueTileView(row());
     expect(view.started).toBe(false);
-    expect(view.home.figure).toBe('108.3');
-    expect(view.away.figure).toBe('111.9');
+    expect(view.first.figure).toBe('108.3');
+    expect(view.second.figure).toBe('111.9');
   });
 
   it('shows each side live score once the matchup has started', () => {
@@ -40,8 +40,8 @@ describe('aroundLeagueTileView', () => {
       row({ status: 'live', home_score: '92.1', away_score: '88.7' })
     );
     expect(view.started).toBe(true);
-    expect(view.home.figure).toBe('92.1');
-    expect(view.away.figure).toBe('88.7');
+    expect(view.first.figure).toBe('92.1');
+    expect(view.second.figure).toBe('88.7');
   });
 
   it('marks isViewer by Team id, never by home/away position', () => {
@@ -59,12 +59,12 @@ describe('aroundLeagueTileView', () => {
 
   it('computes a win probability split even before kickoff, from projections alone', () => {
     const view = aroundLeagueTileView(row());
-    expect(view.homeShare).toBeGreaterThan(0);
-    expect(view.homeShare).toBeLessThan(1);
+    expect(view.firstShare).toBeGreaterThan(0);
+    expect(view.firstShare).toBeLessThan(1);
   });
 
   it('states no split on an unknown status, so the tile draws no bar', () => {
-    expect(aroundLeagueTileView(row({ status: null })).homeShare).toBeNull();
+    expect(aroundLeagueTileView(row({ status: null })).firstShare).toBeNull();
   });
 
   it('reads the score, and is neither started nor scheduled, on an unknown status', () => {
@@ -78,8 +78,8 @@ describe('aroundLeagueTileView', () => {
     );
     expect(view.started).toBe(false);
     expect(view.scheduled).toBe(false);
-    expect(view.home.figure).toBe('92.1');
-    expect(view.away.figure).toBe('88.7');
+    expect(view.first.figure).toBe('92.1');
+    expect(view.second.figure).toBe('88.7');
   });
 
   it('exposes `scheduled` distinctly from `started`, for a caller to label the figure', () => {
@@ -97,7 +97,7 @@ describe('aroundLeagueTileView', () => {
       row({ home_expected_final: null, away_expected_final: null })
     );
     expect(view.scheduled).toBe(true);
-    expect(view.home.figure).toBe('-');
-    expect(view.away.figure).toBe('-');
+    expect(view.first.figure).toBe('-');
+    expect(view.second.figure).toBe('-');
   });
 });

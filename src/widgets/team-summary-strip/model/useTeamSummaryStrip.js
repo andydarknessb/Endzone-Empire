@@ -77,9 +77,9 @@ export function useTeamSummaryStrip({ leagueId, week, viewerTeamId, lineup, scor
     playersRemaining: finite(side?.playersRemaining),
   });
 
-  const opponentSide = board.viewerSide === 'home' ? 'away' : 'home';
-  const viewer = status === 'ready' && board.viewerSide ? sideView(board[board.viewerSide]) : null;
-  const opponent = status === 'ready' && board.viewerSide ? sideView(board[opponentSide]) : null;
+  // Viewer first: the board's first side is the viewer's Team when it plays in this Matchup.
+  const viewer = status === 'ready' && board.first.isViewer ? sideView(board.first) : null;
+  const opponent = status === 'ready' && board.first.isViewer ? sideView(board.second) : null;
 
   // AC4 asks for win probability unconditionally once the matchup is ready
   // (formal review finding ac4-win-probability-gated-on-kickoff), not only
@@ -89,8 +89,7 @@ export function useTeamSummaryStrip({ leagueId, week, viewerTeamId, lineup, scor
   let winProbability = null;
   const shares = board.winProbability ?? board.projectedWinProbability;
   if (status === 'ready' && shares) {
-    const raw = board.viewerSide === 'home' ? shares.home : shares.away;
-    const clamped = Math.max(0, Math.min(1, Number(raw) || 0));
+    const clamped = Math.max(0, Math.min(1, Number(shares.first) || 0));
     winProbability = Math.round(clamped * 100);
   }
 

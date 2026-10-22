@@ -291,9 +291,7 @@ export default function LineupPage() {
   // draws no line even though the server still prices one.
   const board = matchupBoard(viewerMatchup, viewerTeamId);
   const expectedFinals = viewerMatchup
-    ? board.viewerSide === 'home'
-      ? { mine: board.home.expectedFinal, theirs: board.away.expectedFinal }
-      : { mine: board.away.expectedFinal, theirs: board.home.expectedFinal }
+    ? { mine: board.first.expectedFinal, theirs: board.second.expectedFinal }
     : null;
 
   // The Bench what-if swap (#910), read once and resolved against whichever

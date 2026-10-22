@@ -659,24 +659,24 @@ test('the scoreboard gets normalised player rows while the Slot comparison keeps
   const handed = (list) => list[list.length - 1];
   const standardRows = handed(mockHandedRows.comparison);
   expect(standardRows).toHaveLength(2);
-  expect(standardRows[0].home).toMatchObject({
+  expect(standardRows[0].first).toMatchObject({
     id: 5, nfl_team: 'KC', photo_url: 'https://cdn.example/mahomes.png', injury_status: 'Q', points: 24.1,
   });
-  expect(standardRows[0].home).not.toHaveProperty('playerId');
-  expect(standardRows[1].away).toMatchObject({ id: 6, game_state: 'scheduled', points: 0 });
+  expect(standardRows[0].first).not.toHaveProperty('playerId');
+  expect(standardRows[1].second).toMatchObject({ id: 6, game_state: 'scheduled', points: 0 });
 
   const retroRows = handed(mockHandedRows.retro);
   expect(retroRows).toHaveLength(2);
-  expect(retroRows[0].home).toMatchObject({
+  expect(retroRows[0].first).toMatchObject({
     playerId: 5, nflTeam: 'KC', photoUrl: 'https://cdn.example/mahomes.png', injuryStatus: 'Q',
     gameState: 'in_progress', gameClock: 'Q3 7:22', projectedPoints: 21.5, points: 24.1,
   });
-  expect(retroRows[0].home).not.toHaveProperty('photo_url');
-  expect(retroRows[0].home).not.toHaveProperty('id');
+  expect(retroRows[0].first).not.toHaveProperty('photo_url');
+  expect(retroRows[0].first).not.toHaveProperty('id');
   // A side nobody filled stays null, and a scheduled player has no points yet.
-  expect(retroRows[0].away).toBeNull();
-  expect(retroRows[1].home).toBeNull();
-  expect(retroRows[1].away).toMatchObject({ playerId: 6, gameState: 'scheduled', points: null });
+  expect(retroRows[0].second).toBeNull();
+  expect(retroRows[1].first).toBeNull();
+  expect(retroRows[1].second).toMatchObject({ playerId: 6, gameState: 'scheduled', points: null });
 });
 
 // The choice is remembered per VIEWER under the signed-in user's id: a second
@@ -999,7 +999,7 @@ test('the Scoreboard view lists the last touchdown plays by either side, newest 
   });
 
   const plays = screen.getAllByTestId('last-play');
-  expect(plays.map((el) => el.getAttribute('data-side'))).toEqual(['home', 'away']);
+  expect(plays.map((el) => el.getAttribute('data-side'))).toEqual(['first', 'second']);
   // The row's three spans are separated by whitespace, so copied or announced
   // text does not run together, and the points print to one decimal ("+4.0",
   // #903 review). Red-tell: dropping the whitespace nodes reads
@@ -2067,4 +2067,27 @@ test('leaving the page restores scroll-padding-top and disconnects the scoreboar
   expect(disconnect).toHaveBeenCalled();
   document.documentElement.style.scrollPaddingTop = '';
   delete window.IntersectionObserver;
+});
+
+// Viewer first (spec #2402): an away viewer's Team leads in the strip, the
+// Slot comparison rows and the Bench card, while a neutral reader sees home first.
+// Red-tell: ordering the sides by hand anywhere on the page puts Team A first here.
+test('an away viewer sees their own Team first on the strip, the Slot comparison and the Bench card', async () => {
+  mockApi({
+    matchup: matchupResponse({
+      viewerTeamId: 2,
+      homeBench: [{ id: 31, name: 'H. Bench', position: 'RB', points: 0 }],
+      awayBench: [{ id: 32, name: 'A. Bench', position: 'RB', points: 0 }],
+    }),
+  });
+  useLeague.mockReturnValue({ league: LEAGUE, viewerTeamId: 2, loading: false, error: null });
+  renderPage();
+  await screen.findByTestId('slot-comparison');
+  const strip = screen.getByTestId('scoreboard-strip');
+  const sides = within(strip).getAllByTestId(/^scoreboard-side-/);
+  expect(sides[0]).toHaveTextContent('Team B');
+  expect(sides[1]).toHaveTextContent('Team A');
+  // Cell test ids follow each side's origin, so an away viewer's left column is the away cell.
+  const cells = within(screen.getByTestId('slot-comparison')).getAllByTestId(/^slot-cell-/);
+  expect(cells.slice(0, 2).map((c) => c.getAttribute('data-testid'))).toEqual(['slot-cell-away', 'slot-cell-home']);
 });

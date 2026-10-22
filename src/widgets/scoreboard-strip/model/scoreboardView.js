@@ -10,7 +10,7 @@ import { finite } from '../../../shared/lib';
  * when the bar shows, which chip variant a status takes) are table-testable
  * here without a DOM.
  *
- * The win probability, the viewer side and the score and Players remaining
+ * The win probability, the side order (viewer first) and the score and Players remaining
  * text are the board's (#2142); nothing here prices or picks.
  */
 
@@ -37,8 +37,6 @@ function recordFor(records, teamId) {
  */
 export function scoreboardView(matchup, { viewerTeamId, records } = {}) {
   const m = matchup || {};
-  const home = m.home || {};
-  const away = m.away || {};
 
   // Status is the server's fact read through the entity's `matchupBoard` (ADR
   // 0030). A settled (played or final) Matchup states its result instead
@@ -49,50 +47,51 @@ export function scoreboardView(matchup, { viewerTeamId, records } = {}) {
   const result = board.resultLine;
   const probability = result == null ? board.winProbability ?? board.projectedWinProbability : null;
   const showBar = probability != null;
-  const homeShare = Math.max(0, Math.min(1, Number(probability?.home) || 0));
-  // Rounded once, with the away side as the complement, so the two printed
+  const firstShare = Math.max(0, Math.min(1, Number(probability?.first) || 0));
+  // Rounded once, with the second side as the complement, so the two printed
   // percentages always sum to 100 and agree with the bar's own rounding.
-  const homePct = Math.round(homeShare * 100);
+  const firstPct = Math.round(firstShare * 100);
 
   // The figure a side prints big: its score once the matchup has started, else its Proj (the Expected final).
   const started = board.hasStarted === true;
-  const side = (s, key, fallbackName, winPct) => ({
-    teamId: s.teamId ?? null,
-    name: s.name || fallbackName,
-    avatarUrl: s.avatarUrl ?? null,
-    avatarStaticUrl: s.avatarStaticUrl ?? null,
-    isViewer: board.viewerSide === key,
+  const side = (s, winPct) => ({
+    teamId: s.teamId,
+    name: s.name || (s.origin === 'home' ? 'Home' : 'Away'),
+    avatarUrl: s.avatarUrl,
+    avatarStaticUrl: s.avatarStaticUrl,
+    origin: s.origin,
+    isViewer: s.isViewer,
     record: recordFor(records, s.teamId),
-    score: board[key].scoreLabel,
-    figure: started ? board[key].scoreLabel : formatExpectedFinal(s.expectedFinal),
+    score: s.scoreLabel,
+    figure: started ? s.scoreLabel : formatExpectedFinal(s.expectedFinal),
     expectedFinal: formatExpectedFinal(s.expectedFinal),
-    playersRemaining: board[key].playersRemainingLabel,
+    playersRemaining: s.playersRemainingLabel,
     winPct,
   });
-  const homeSide = side(home, 'home', 'Home', homePct);
-  const awaySide = side(away, 'away', 'Away', 100 - homePct);
+  const first = side(board.first, firstPct);
+  const second = side(board.second, 100 - firstPct);
 
-  const gap = homeSide.figure != null && awaySide.figure != null
-    ? Math.round((Number(homeSide.figure) - Number(awaySide.figure)) * 10) / 10
+  const gap = first.figure != null && second.figure != null
+    ? Math.round((Number(first.figure) - Number(second.figure)) * 10) / 10
     : null;
-  const leader = gap == null || gap === 0 ? null : gap > 0 ? 'home' : 'away';
-  const leaderSide = leader === 'home' ? homeSide : awaySide;
+  const leader = gap == null || gap === 0 ? null : gap > 0 ? 'first' : 'second';
+  const leaderSide = leader === 'first' ? first : second;
+
+
 
   return {
-    home: homeSide,
-    away: awaySide,
-    homeShare,
+    first,
+    second,
+    firstShare,
     showBar,
     result,
     started,
     isLive: board.isLive,
-    // 'home', 'away' or null: the side the viewer manages (a participant sees their side first).
-    viewerSide: board.viewerSide,
+    // 'first', 'second' or null.
     leader,
     // "{Leader} by {x}", "Tied" on an even figure, null when a side has no figure.
     marginText: gap == null ? null : leader ? `${leaderSide.name} by ${Math.abs(gap).toFixed(1)}` : 'Tied',
     // The entity's chip: null for an unknown status, never a guessed one.
     chip: board.chip,
   };
-
 }

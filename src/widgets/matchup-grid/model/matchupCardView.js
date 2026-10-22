@@ -34,29 +34,28 @@ const remainingLine = (n, scheduled) => {
   return `${c} ${c === 1 ? 'player' : 'players'} remaining`;
 };
 
-export function matchupCardView(matchup, { records, timeZone, locale } = {}) {
+export function matchupCardView(matchup, { records, timeZone, locale, viewerTeamId } = {}) {
   const m = matchup || {};
-  const home = m.home || {};
-  const away = m.away || {};
-  const board = matchupBoard(m);
+  const board = matchupBoard(m, viewerTeamId);
+  const { first, second } = board;
   const { chip, settled } = board;
   const started = board.hasStarted === true;
   const scheduled = board.hasStarted === false;
   const state = board.isLive ? 'live' : scheduled ? 'scheduled' : board.isFinal ? 'final' : settled ? 'played' : 'unknown';
 
-  const homeScore = Number(home.score) || 0;
-  const awayScore = Number(away.score) || 0;
-  const homeLeads = started && homeScore > awayScore;
-  const awayLeads = started && awayScore > homeScore;
+  const firstScore = Number(first.score) || 0;
+  const secondScore = Number(second.score) || 0;
+  const firstLeads = started && firstScore > secondScore;
+  const secondLeads = started && secondScore > firstScore;
 
   // No bar without both Expected finals: the forecast has nothing to price from (QA ruling, spec #2334).
-  const priced = finite(home.expectedFinal) != null && finite(away.expectedFinal) != null;
+  const priced = finite(first.expectedFinal) != null && finite(second.expectedFinal) != null;
   const probability = !priced || state === 'final' || state === 'played' || state === 'unknown'
     ? null
     : (board.winProbability ?? board.projectedWinProbability);
-  const homePct = probability ? Math.round(probability.home * 100) : null;
-  const awayPct = probability ? 100 - homePct : null;
-  const favourite = probability ? (homePct >= 50 ? 'home' : 'away') : null;
+  const firstPct = probability ? Math.round(probability.first * 100) : null;
+  const secondPct = probability ? 100 - firstPct : null;
+  const favourite = probability ? (firstPct >= 50 ? 'first' : 'second') : null;
 
   const kickoff = scheduled ? formatKickoff(m.firstKickoffAt, { timeZone, locale }) : null;
 
@@ -91,12 +90,12 @@ export function matchupCardView(matchup, { records, timeZone, locale } = {}) {
     scheduled,
     kickoff,
     kickoffAt: scheduled ? (m.firstKickoffAt ?? null) : null,
-    homeShare: probability ? probability.home : null,
-    homePct,
-    awayPct,
+    firstShare: probability ? probability.first : null,
+    firstPct,
+    secondPct,
     favourite,
-    home: side(home, homeLeads),
-    away: side(away, awayLeads),
+    first: side(first, firstLeads),
+    second: side(second, secondLeads),
   };
 }
 

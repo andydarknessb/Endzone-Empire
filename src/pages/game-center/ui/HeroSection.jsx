@@ -82,7 +82,7 @@ function WithLineups({
   } = useMatchup(leagueId, hero.id);
   const games = matchup?.games;
   const board = matchupBoard(hero, viewerTeamId);
-  const side = board.viewerSide;
+  const side = board.first.isViewer ? board.first.origin : null;
   const started = board.hasStarted === true;
 
   const counts = helperCounts && matchup && homeStarters && awayStarters

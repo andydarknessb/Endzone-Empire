@@ -31,11 +31,11 @@ function pluralMatchups(count, rival) {
   return `${count} ${rival ? 'rival ' : ''}matchup${count === 1 ? '' : 's'}`;
 }
 
-const figureWords = (tile) => `${tile.home.figure} to ${tile.away.figure}`;
+const figureWords = (tile) => `${tile.first.figure} to ${tile.second.figure}`;
 
 function tileLabel(tile, pct) {
-  const sides = `${tile.home.name} against ${tile.away.name}`;
-  const prob = pct == null ? '' : `, ${pct}% win probability for ${tile.home.name}`;
+  const sides = `${tile.first.name} against ${tile.second.name}`;
+  const prob = pct == null ? '' : `, ${pct}% win probability for ${tile.first.name}`;
   if (tile.final) return `${sides}, final, ${figureWords(tile)}`;
   if (tile.live) return `${sides}, live, ${figureWords(tile)}${prob}`;
   if (tile.started) return `${sides}, ${figureWords(tile)}${prob}`;
@@ -179,14 +179,14 @@ function WinLine({ pct, name, colors }) {
 }
 
 function Tile({ tile, to }) {
-  const pct = tile.homeShare != null ? Math.round(tile.homeShare * 100) : null;
+  const pct = tile.firstShare != null ? Math.round(tile.firstShare * 100) : null;
   const board = tile.started;
   const colors = board
     ? { ink: 'var(--ps-board-ink)', dim: 'var(--ps-board-dim)' }
     : { ink: 'var(--ps-ink)', dim: 'var(--ps-dim)' };
-  const decided = tile.home.points != null && tile.away.points != null && tile.home.points !== tile.away.points;
-  const leader = decided ? (tile.home.points > tile.away.points ? tile.home : tile.away) : null;
-  const margin = decided ? Math.abs(tile.home.points - tile.away.points).toFixed(1) : null;
+  const decided = tile.first.points != null && tile.second.points != null && tile.first.points !== tile.second.points;
+  const leader = decided ? (tile.first.points > tile.second.points ? tile.first : tile.second) : null;
+  const margin = decided ? Math.abs(tile.first.points - tile.second.points).toFixed(1) : null;
   const figureLabel = tile.scheduled ? 'Projected' : 'Score';
   const leads = (side) => !board || leader == null || leader === side;
 
@@ -220,18 +220,18 @@ function Tile({ tile, to }) {
           {tile.scheduled ? 'Proj' : 'Score'}
         </Box>
       )}
-      <TileRow side={tile.home} testId="around-the-league-tile-home" figureLabel={figureLabel} colors={colors} dim={board && !leads(tile.home)} />
-      <TileRow side={tile.away} testId="around-the-league-tile-away" figureLabel={figureLabel} colors={colors} dim={board && !leads(tile.away)} />
+      <TileRow side={tile.first} testId="around-the-league-tile-home" figureLabel={figureLabel} colors={colors} dim={board && !leads(tile.first)} />
+      <TileRow side={tile.second} testId="around-the-league-tile-away" figureLabel={figureLabel} colors={colors} dim={board && !leads(tile.second)} />
       {pct != null && tile.live && (
         <>
-          <OddsBar pct={pct} live onBoard label={false} name={tile.home.name} />
-          <WinLine pct={pct} name={tile.home.name} colors={colors} />
+          <OddsBar pct={pct} live onBoard label={false} name={tile.first.name} />
+          <WinLine pct={pct} name={tile.first.name} colors={colors} />
         </>
       )}
       {pct != null && !board && (
         <>
-          <OddsBar pct={pct} label={false} name={tile.home.name} />
-          <WinLine pct={pct} name={tile.home.name} colors={colors} />
+          <OddsBar pct={pct} label={false} name={tile.first.name} />
+          <WinLine pct={pct} name={tile.first.name} colors={colors} />
         </>
       )}
       {board && !tile.live && leader && (

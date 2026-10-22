@@ -66,24 +66,24 @@ const starter = (overrides = {}) => ({
 const rows = [
   {
     slot: 'QB',
-    home: starter(),
-    away: starter({
+    first: starter(),
+    second: starter({
       playerId: 11, name: 'J. Allen', nflTeam: 'BUF', points: 24.1, projectedPoints: 22.5,
       photoUrl: 'https://cdn.example/allen.png', injuryStatus: 'Q',
     }),
   },
   {
     slot: 'RB',
-    home: starter({ playerId: 12, name: 'A. Jones', position: 'RB', slot: 'RB', nflTeam: 'GB', points: 14.3, projectedPoints: 13.8, photoUrl: null }),
-    away: null,
+    first: starter({ playerId: 12, name: 'A. Jones', position: 'RB', slot: 'RB', nflTeam: 'GB', points: 14.3, projectedPoints: 13.8, photoUrl: null }),
+    second: null,
   },
   {
     slot: 'DEF',
-    home: starter({
+    first: starter({
       playerId: 13, name: 'Ravens D/ST', position: 'DEF', slot: 'DEF', nflTeam: 'BAL', points: 0, projectedPoints: 0,
       availability: { available: false, reason: 'bye' }, photoUrl: null,
     }),
-    away: starter({ playerId: 14, name: '49ers D/ST', position: 'DEF', slot: 'DEF', nflTeam: 'SF', points: 3, projectedPoints: 6.5, photoUrl: null }),
+    second: starter({ playerId: 14, name: '49ers D/ST', position: 'DEF', slot: 'DEF', nflTeam: 'SF', points: 3, projectedPoints: 6.5, photoUrl: null }),
   },
 ];
 
@@ -98,20 +98,27 @@ const games = [
 // Win probability for a started Matchup, the way the entity would state it;
 // a Matchup that has not started has none, whatever is pinned, as on the real
 // board (the entity's own tests pin that gate).
+// `homeProb` is the HOME Team's chance; the board hands the sides over viewer-first, so the first
+// side's chance is the home one unless the first side is the away Team.
 const boardFor = (m, { homeProb = 0.36, viewerTeamId } = {}) => {
   const board = matchupBoard(m, viewerTeamId);
   if (board.winProbability === null) return board;
-  return { ...board, winProbability: homeProb == null ? null : { home: homeProb, away: 1 - homeProb } };
+  const first = board.first.origin === 'home' ? homeProb : 1 - homeProb;
+  return { ...board, winProbability: homeProb == null ? null : { first, second: 1 - first } };
 };
+
+// The page hands the rows in the board's order: the fixture's are home-first, so an away-first board swaps them.
+const rowsFor = (board) => (board.first.origin === 'home' ? rows : rows.map((r) => ({ slot: r.slot, first: r.second, second: r.first })));
 
 const scoreboard = (props = {}) => {
   const { homeProb, viewerTeamId, matchup: m = matchup(), ...rest } = props;
+  const board = boardFor(m, { homeProb, viewerTeamId });
   return (
     <RetroScoreboard
       matchup={m}
-      board={boardFor(m, { homeProb, viewerTeamId })}
+      board={board}
       leagueName="Northwoods League"
-      rows={rows}
+      rows={rowsFor(board)}
       games={games}
       activePlay={null}
       {...rest}
@@ -327,7 +334,7 @@ test('the field caption carries the sentence and, on its right, whatever the pag
 });
 
 test('a non-touchdown moment play flashes the LED callout on the field as a status', () => {
-  renderBoard({ activePlay: { side: 'away', type: 'sack', isTouchdown: false, nflTeam: 'BUF', opponent: 'KC' } });
+  renderBoard({ activePlay: { side: 'second', type: 'sack', isTouchdown: false, nflTeam: 'BUF', opponent: 'KC' } });
   expect(screen.getByRole('status')).toHaveTextContent('BUF · SACK');
 });
 
@@ -344,7 +351,7 @@ test('no callout renders without an active play, and a touchdown dashes the spri
   expect(within(screen.getByTestId('sprite-away')).getByText('FF')).toBeInTheDocument();
 
   rerender(
-    scoreboard({ activePlay: { side: 'home', type: 'rushing', isTouchdown: true, nflTeam: 'KC', opponent: 'BUF' } })
+    scoreboard({ activePlay: { side: 'first', type: 'rushing', isTouchdown: true, nflTeam: 'KC', opponent: 'BUF' } })
   );
   expect(screen.queryByRole('status')).not.toBeInTheDocument();
   expect(screen.getByRole('img', { name: /Field position/ })).toBeInTheDocument();
@@ -360,7 +367,7 @@ test('under reduced motion the moment callout is still rendered (not gated out b
   // tests); what this guards is that the reduced path keeps the callout in
   // the DOM and announced.
   reducedMotion = true;
-  renderBoard({ activePlay: { side: 'away', type: 'sack', isTouchdown: false, nflTeam: 'BUF', opponent: 'KC' } });
+  renderBoard({ activePlay: { side: 'second', type: 'sack', isTouchdown: false, nflTeam: 'BUF', opponent: 'KC' } });
   expect(screen.getByRole('status')).toHaveTextContent('BUF · SACK');
 });
 
@@ -368,7 +375,7 @@ test('under reduced motion the moment callout dismisses on its own after the fla
   jest.useFakeTimers();
   try {
     reducedMotion = true;
-    renderBoard({ activePlay: { side: 'away', type: 'sack', isTouchdown: false, nflTeam: 'BUF', opponent: 'KC' } });
+    renderBoard({ activePlay: { side: 'second', type: 'sack', isTouchdown: false, nflTeam: 'BUF', opponent: 'KC' } });
     expect(screen.getByRole('status')).toBeInTheDocument();
     act(() => { jest.advanceTimersByTime(1800); });
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
@@ -443,13 +450,13 @@ test('every Lineups headshot wears its position\'s pos-* ring, the treatment the
 const gameRows = [
   {
     slot: 'QB',
-    home: starter({ gameState: 'in_progress', gameClock: 'Q3 7:22', opponent: 'GB' }),
-    away: starter({ playerId: 11, name: 'J. Allen', nflTeam: 'BUF', gameState: 'final', opponent: 'MIA', gameClock: null }),
+    first: starter({ gameState: 'in_progress', gameClock: 'Q3 7:22', opponent: 'GB' }),
+    second: starter({ playerId: 11, name: 'J. Allen', nflTeam: 'BUF', gameState: 'final', opponent: 'MIA', gameClock: null }),
   },
   {
     slot: 'RB',
-    home: starter({ playerId: 12, name: 'A. Jones', position: 'RB', slot: 'RB', gameState: 'scheduled', opponent: 'DET', gameClock: null }),
-    away: starter({ playerId: 15, name: 'No State', position: 'RB', slot: 'RB' }),
+    first: starter({ playerId: 12, name: 'A. Jones', position: 'RB', slot: 'RB', gameState: 'scheduled', opponent: 'DET', gameClock: null }),
+    second: starter({ playerId: 15, name: 'No State', position: 'RB', slot: 'RB' }),
   },
 ];
 
