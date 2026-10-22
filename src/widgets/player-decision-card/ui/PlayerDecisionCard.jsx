@@ -365,6 +365,11 @@ export default function PlayerDecisionCard(props) {
   }, [entry?.playerId]);
   // The open tab: it survives Previous/Next, and a closed card reopens on Overview.
   const [tab, setTab] = useState(TABS[0].key);
+  // A new tab opens at its top, not mid-panel where the last one was scrolled.
+  const scrollerRef = useRef(null);
+  useEffect(() => {
+    if (scrollerRef.current) scrollerRef.current.scrollTop = 0;
+  }, [tab]);
   useEffect(() => {
     if (!isOpen) setTab(TABS[0].key);
   }, [isOpen]);
@@ -864,7 +869,7 @@ export default function PlayerDecisionCard(props) {
             </Box>
           )}
           {!compareEntry && <PsTabs value={tab} onChange={setTab} />}
-          <Box sx={PS_SCROLL_SX}>
+          <Box ref={scrollerRef} sx={PS_SCROLL_SX}>
           {compareEntry ? (
             // AC7: two cards side by side (stacked on a phone). The primary
             // player's own sections render ONCE, inside this grid's left

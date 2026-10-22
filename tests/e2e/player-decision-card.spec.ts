@@ -329,16 +329,32 @@ test('the sheet at 390px: Game log shows its section, the panel scrolls alone an
   // Inactive panels are not rendered at all (an author `display: flex` must not beat `[hidden]`).
   await expect(page.locator('#decision-card-tabpanel-stats')).toBeHidden();
 
+  // Overview is the long panel: it must really overflow, and the write must really scroll it - not the sheet.
+  await page.getByRole('tab', { name: 'Overview' }).click();
+  await expect(page.getByTestId('weekly-points-bars')).toBeAttached();
   const scrolled = await page.evaluate(() => {
     const scroller = document.querySelector('[role="tabpanel"]:not([hidden])')?.parentElement as HTMLElement | null | undefined;
     if (!scroller) return null;
+    const overflow = scroller.scrollHeight - scroller.clientHeight;
     scroller.scrollTop = scroller.scrollHeight;
     const sheet = document.querySelector('[data-testid="decision-card"]') as HTMLElement;
-    return { overflowY: getComputedStyle(scroller).overflowY, sheetScrollTop: sheet.scrollTop };
+    return {
+      overflowY: getComputedStyle(scroller).overflowY, overflow, scrollTop: scroller.scrollTop, sheetScrollTop: sheet.scrollTop,
+    };
   });
   expect(scrolled, 'the active tab panel sits in a scroller').not.toBeNull();
   expect(scrolled?.overflowY).toBe('auto');
+  expect(scrolled?.overflow, 'the Overview panel overflows its scroller').toBeGreaterThan(0);
+  expect(scrolled?.scrollTop, 'the panel scrolled').toBeGreaterThan(0);
   // Only the panel scrolls: the sheet itself stays put, so header, actions and tabs stay in view.
   expect(scrolled?.sheetScrollTop).toBe(0);
   await expect(page.getByTestId('decision-card-close')).toBeInViewport();
+  await expect(page.getByRole('tab', { name: 'Overview' })).toBeInViewport();
+
+  // A new tab opens at its top, not mid-panel.
+  await page.getByRole('tab', { name: 'Game log' }).click();
+  const topAfterSwitch = await page.evaluate(
+    () => (document.querySelector('[role="tabpanel"]:not([hidden])')?.parentElement as HTMLElement).scrollTop
+  );
+  expect(topAfterSwitch).toBe(0);
 });
