@@ -97,6 +97,9 @@ const availabilityEntry = (over = {}) => ({
   ...over,
 });
 
+// The single-player body is split into tabs (#2489): activate one before reading its sections.
+const openTab = async (name) => userEvent.click(await screen.findByRole('tab', { name }));
+
 // Stubs the one card route (`/api/players/:id/card`, #1306/#1331, which also
 // carries `line`/`weather`/`opponents`/`decision.usage`, #1667) and rejects any
 // other URL.
@@ -1049,6 +1052,11 @@ describe('Season summary and Season pick (#1358)', () => {
     mockCardRoute(threeSeasonCard);
     renderCard();
 
+    // The bars are on Overview (the current season); the summary is on Stats; the pick is on Game log.
+    expect(await screen.findByTestId('weekly-bar-4')).toBeInTheDocument();
+    expect(screen.getByTestId('weekly-bar-4-current')).toBeInTheDocument();
+
+    await openTab('Stats');
     const table = await screen.findByTestId('decision-card-seasons');
     const rows = within(table).getAllByRole('row').slice(1); // drop the header row
     // The Season cell is a row header (risk review, accessibility), so it
@@ -1072,11 +1080,9 @@ describe('Season summary and Season pick (#1358)', () => {
     // value of 34.25 renders as the rounded "34.3", not "34.25".
     expect(row2026.getAllByRole('cell')[4]).toHaveTextContent('34.3');
 
+    await openTab('Game log');
     const radiogroup = await screen.findByRole('radiogroup', { name: 'Season' });
     expect(within(radiogroup).getByRole('radio', { name: '2026' })).toHaveAttribute('aria-checked', 'true');
-
-    expect(await screen.findByTestId('weekly-bar-4')).toBeInTheDocument();
-    expect(screen.getByTestId('weekly-bar-4-current')).toBeInTheDocument();
   });
 
   test('clicking the 2025 chip redraws the bars and game log from the 2025 season, with no current marker, no projected bar and no season-end marker; clicking 2026 restores both', async () => {
@@ -1084,25 +1090,24 @@ describe('Season summary and Season pick (#1358)', () => {
     renderCard();
 
     await screen.findByTestId('weekly-bar-4');
+    await openTab('Game log');
     expect(await screen.findByTestId('decision-card-gamelog-section')).toHaveTextContent('KC');
 
     const radiogroup = await screen.findByRole('radiogroup', { name: 'Season' });
     await userEvent.click(within(radiogroup).getByRole('radio', { name: '2025' }));
 
-    expect(await screen.findByTestId('weekly-bar-3')).toBeInTheDocument();
-    // The 2025 season's own weeks (formal-001-f2) deliberately include week
-    // 4 (the current week) and week 17 (seasonEnd), so these two assertions
-    // would fail if the current-season guard were ever reverted
-    // (currentWeek/seasonEnd passed through for a picked past season).
-    expect(screen.queryByTestId('weekly-bar-4-current')).not.toBeInTheDocument(); // no current-week marker
-    expect(screen.getByTestId('weekly-bar-17')).not.toHaveAttribute('data-season-end'); // no season-end marker
+    // The game log follows the pick. Since the tabs split (#2489) the weekly bars no longer do: they sit on
+    // Overview and always draw the current season, so the 2025 pick must leave them (and their current-week
+    // and season-end markers) untouched. The 2025 weeks deliberately include week 4 and week 17.
     expect(screen.getByTestId('decision-card-gamelog-section')).toHaveTextContent('DAL');
     expect(screen.getByTestId('decision-card-gamelog-section')).not.toHaveTextContent('KC');
-
-    await userEvent.click(within(radiogroup).getByRole('radio', { name: '2026' }));
-
+    await openTab('Overview');
     expect(await screen.findByTestId('weekly-bar-4')).toBeInTheDocument();
     expect(screen.getByTestId('weekly-bar-4-current')).toBeInTheDocument();
+    expect(screen.queryByTestId('weekly-bar-3')).not.toBeInTheDocument();
+
+    await openTab('Game log');
+    await userEvent.click(within(await screen.findByRole('radiogroup', { name: 'Season' })).getByRole('radio', { name: '2026' }));
     expect(screen.getByTestId('decision-card-gamelog-section')).toHaveTextContent('KC');
   });
 
@@ -1113,6 +1118,7 @@ describe('Season summary and Season pick (#1358)', () => {
     mockCardRoute(threeSeasonCard);
     renderCard();
 
+    await openTab('Game log');
     const control = await screen.findByTestId('decision-card-season-pick');
     const cls = Array.from(control.classList).find((c) => c.startsWith('css-'));
     let tail = '';
@@ -1129,7 +1135,9 @@ describe('Season summary and Season pick (#1358)', () => {
     mockCardRoute({ seasons: [seasonRow(2026)] });
     renderCard();
 
+    await openTab('Stats');
     await screen.findByTestId('decision-card-seasons');
+    await openTab('Game log');
     expect(screen.queryByRole('radiogroup', { name: 'Season' })).not.toBeInTheDocument();
   });
 
@@ -1146,6 +1154,7 @@ describe('Season summary and Season pick (#1358)', () => {
     const onNavigate = jest.fn();
     renderCard({ playerIds: [1, 2, 3], onNavigate });
 
+    await openTab('Game log');
     const radiogroup = await screen.findByRole('radiogroup', { name: 'Season' });
     within(radiogroup).getByRole('radio', { name: '2026' }).focus();
 
@@ -1204,6 +1213,8 @@ describe('Season summary and Season pick (#1358)', () => {
       />
     );
 
+    // The tab survives Next, so the pick is read back on Game log both before and after.
+    await openTab('Game log');
     const radiogroup = await screen.findByRole('radiogroup', { name: 'Season' });
     await userEvent.click(within(radiogroup).getByRole('radio', { name: '2025' }));
     expect(within(radiogroup).getByRole('radio', { name: '2025' })).toHaveAttribute('aria-checked', 'true');

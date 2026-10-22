@@ -190,18 +190,31 @@ describe('desktop drawer', () => {
 
     expect(await screen.findByRole('table', { name: 'Usage' })).toBeInTheDocument();
     expect(screen.getByTestId('decision-card-usage-table')).toBeInTheDocument();
-    expect(await screen.findByRole('table', { name: 'Season summary' })).toBeInTheDocument();
-    expect(screen.getByRole('table', { name: 'Game log' })).toBeInTheDocument();
     expect(screen.getByRole('list', { name: 'Weekly points, actual and projected' })).toBeInTheDocument();
     expect(screen.getByTestId('weekly-bar-4-fill')).toBeInTheDocument();
     expect(screen.getByTestId('weekly-bar-8-bye')).toBeInTheDocument();
     expect(screen.getByTestId('weekly-bar-7-unavailable')).toBeInTheDocument();
     expect(screen.getByRole('listitem', { name: 'Week 7: out' })).toBeInTheDocument();
     expect(screen.getByTestId('decision-strip-upgrade-pill')).toHaveTextContent('+2.4 Wk 9');
-    expect(screen.getByRole('radiogroup', { name: 'Season' })).toBeInTheDocument();
     expect(screen.getByTestId('decision-card-range-bar')).toHaveAttribute('role', 'img');
     expect(screen.getByRole('heading', { name: 'Bench options' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Swap in Jordan Addison' })).toHaveAttribute('data-variant', 'ghost');
+    // The season sections sit on their own tabs (#2489).
+    await userEvent.click(screen.getByRole('tab', { name: 'Stats' }));
+    expect(await screen.findByRole('table', { name: 'Season summary' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('tab', { name: 'Game log' }));
+    expect(screen.getByRole('table', { name: 'Game log' })).toBeInTheDocument();
+    expect(screen.getByRole('radiogroup', { name: 'Season' })).toBeInTheDocument();
+  });
+
+  test('the header is a Play-blue band, its name in Play ink and its team in Play dim', async () => {
+    mockCardRoute({ ...RICH_CARD });
+    renderCard({ context: lineupContext() });
+    const name = await screen.findByRole('heading', { name: 'Puka Nacua', level: 2 });
+    // eslint-disable-next-line testing-library/no-node-access -- the band is the name's header container
+    const band = name.parentElement.parentElement.parentElement;
+    expect(own(band)).toMatch(/background-color: var\(--ps-play\)/);
+    expect(own(name)).toMatch(/color: var\(--ps-play-ink\)/);
   });
 
   test('the injury tag is the code, with the word for a screen reader', async () => {
