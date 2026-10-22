@@ -116,7 +116,9 @@ test('the Season summary and Season pick render in the free_agent context too, n
   });
   renderCard({ availability: { rosterCount: 14, rosterCapacity: 16 } });
 
+  await userEvent.click(await screen.findByRole('tab', { name: 'Stats' }));
   await screen.findByTestId('decision-card-seasons');
+  await userEvent.click(screen.getByRole('tab', { name: 'Game log' }));
   expect(await screen.findByRole('radiogroup', { name: 'Season' })).toBeInTheDocument();
 });
 

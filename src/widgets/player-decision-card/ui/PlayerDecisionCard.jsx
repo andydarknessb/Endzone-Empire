@@ -16,7 +16,7 @@ import {
   PlayerAvatar, SegmentedControl, statLine,
 } from '../../../shared/ui';
 import {
-  BODY_FONT, Frame, InjuryTag as PsInjuryTag, PixelClose, PosTag, PsButton, Skel,
+  BODY_FONT, Frame, InjuryTag as PsInjuryTag, PixelArrow, PixelClose, PosTag, PsButton, Skel,
 } from '../../../shared/ui/playselect';
 import { MENU_PAPER } from '../../../shared/ui/playselect/CardControls';
 import {
@@ -89,7 +89,8 @@ function isTypingTarget(el) {
   // the same "focused composite widget with its own arrow-key semantics"
   // case the ToggleButtonGroup check above exists for, so a radiogroup gets
   // the identical exemption rather than a SegmentedControl-specific one.
-  return !!(el.closest && el.closest('[role="radiogroup"]'));
+  // The card's own tablist (ARIA tabs: Left/Right move the tab, never the player) is the same case.
+  return !!(el.closest && el.closest('[role="radiogroup"], [role="tablist"]'));
 }
 
 /**
@@ -362,6 +363,11 @@ export default function PlayerDecisionCard(props) {
   useEffect(() => {
     setPickedSeason(null);
   }, [entry?.playerId]);
+  // The open tab: it survives Previous/Next, and a closed card reopens on Overview.
+  const [tab, setTab] = useState(TABS[0].key);
+  useEffect(() => {
+    if (!isOpen) setTab(TABS[0].key);
+  }, [isOpen]);
   // #1312: the Watch toggle's own optimistic display state. `usePlayerCard`
   // (entities/player, ADR 0029's audit surface - outside this ticket's Scope)
   // reads through `shared/lib`'s `useEndpoint`, which only re-fetches on a
@@ -379,9 +385,6 @@ export default function PlayerDecisionCard(props) {
   const currentSeasonEntry = seasons[0] ?? null;
   const selectedSeasonEntry =
     (pickedSeason != null && seasons.find((s) => s.season === pickedSeason)) || currentSeasonEntry;
-  const isCurrentSeasonSelected = Boolean(
-    selectedSeasonEntry && currentSeasonEntry && selectedSeasonEntry.season === currentSeasonEntry.season
-  );
   // #1515 (T19): `context` is always one of the six pure builders' objects
   // (`model/decisionContext.js`) now - the legacy bare string this used to
   // also accept is gone along with the eighteen loose props, since every
@@ -563,7 +566,8 @@ export default function PlayerDecisionCard(props) {
           height: isMobile ? '88vh' : '100%',
           borderTopLeftRadius: isMobile ? 16 : 0,
           borderTopRightRadius: isMobile ? 16 : 0,
-          overflowY: 'auto',
+          // Header, actions and tabs stay in view; only the tab panel scrolls.
+          overflowY: 'hidden',
           // The primary frame: a 6px double rule on the Panel, square corners; the phone sheet has no bottom edge.
           borderRadius: 0,
           border: '6px double var(--ps-frame)',
@@ -858,9 +862,8 @@ export default function PlayerDecisionCard(props) {
               {watchButton}
             </Box>
           )}
-          <Stack>
-          {effectiveContext !== 'my_team' && <NewsSection news={card?.news} />}
-
+          {!compareEntry && <PsTabs value={tab} onChange={setTab} />}
+          <Box sx={PS_SCROLL_SX}>
           {compareEntry ? (
             // AC7: two cards side by side (stacked on a phone). The primary
             // player's own sections render ONCE, inside this grid's left
@@ -885,6 +888,7 @@ export default function PlayerDecisionCard(props) {
             // the compared player would mean managing two different slots
             // from one Compare view, which is new surface no criterion asks
             // for here.
+            <Stack>
             <Box
               data-testid="decision-card-compare"
               sx={{
@@ -928,63 +932,64 @@ export default function PlayerDecisionCard(props) {
                 <UsageSection usage={compareUsage} opponents={compareOpponents} position={compareEntry.position} level="h4" />
               </Box>
             </Box>
+            </Stack>
           ) : (
             <>
-              <InjurySection entry={displayEntry} practice={card?.player?.practice} practiceTestId="decision-card-practice" />
-              {lineupManaged && <GameSection entry={entry} line={line} weather={weather} />}
-              {lineupManaged && <ProjectionSection entry={entry} volatility={card?.decision?.volatility} explanation={card?.explanation} />}
-              <UsageSection usage={usage} opponents={opponents} position={entry?.position} showTable={lineupManaged} />
-              {/* #1307, ADR 0040: "Every context adds the decision strip ...
-                  and the eighteen-week bars" - additive to my_team's own
-                  Game/Projection/Usage sections above, not a replacement. */}
-              <DecisionStripSection
-                decision={card?.decision}
-                usage={card?.decision?.usage}
-                ownership={card?.ownership}
-                depth={card?.depth}
-                rosterStatus={card?.rosterStatus}
-                noHistory={hasNoHistory(entry)}
-              />
-              {/* #1358: Season summary and Season pick, between the strip and
-                  the bars (the body's own section order). The bars and the
-                  game log below now read the PICKED season's own `weeks`/
-                  `log`, never the top-level `card.weeks`/`card.log` fields -
-                  those went away with this ticket. */}
-              <SeasonSummarySection seasons={seasons} />
-              <SeasonPickSection
-                seasons={seasons}
-                value={selectedSeasonEntry?.season ?? null}
-                onChange={setPickedSeason}
-              />
-              {Array.isArray(selectedSeasonEntry?.weeks) && selectedSeasonEntry.weeks.length > 0 && (
-                <PsSection title="Weekly points" testId="decision-card-weekly-section">
-                  <PsWeeklyBars
-                    weeks={selectedSeasonEntry.weeks}
-                    currentWeek={isCurrentSeasonSelected ? card?.decision?.projWeek?.week : undefined}
-                    seasonEnd={isCurrentSeasonSelected ? card?.seasonEnd : undefined}
-                  />
-                </PsSection>
-              )}
-              {/* `card.seasons[i].log` is already the row array
-                  `GameLogTable` reads as `log.current` (lead correction on
-                  the issue thread) - wrapped here rather than changing
-                  GameLogSection/GameLogTable, which live outside this
-                  ticket's reservation. */}
-              <GameLogSection log={{ current: selectedSeasonEntry?.log ?? [] }} />
-              <PsBio bio={card?.bio} />
-              {lineupManaged && (
-                <BenchOptionsSection
-                  entry={entry}
-                  entries={list}
-                  onSwap={onSwap}
-                  hidden={benchOptionsHidden}
-                  bestBall={bestBall}
-                  leagueUnsettled={leagueUnsettled}
+              <TabPanel tab="overview" active={tab}>
+                {effectiveContext !== 'my_team' && <NewsSection news={card?.news} />}
+                <InjurySection entry={displayEntry} practice={card?.player?.practice} practiceTestId="decision-card-practice" />
+                {lineupManaged && <GameSection entry={entry} line={line} weather={weather} />}
+                {lineupManaged && <ProjectionSection entry={entry} volatility={card?.decision?.volatility} explanation={card?.explanation} />}
+                <UsageSection usage={usage} opponents={opponents} position={entry?.position} showTable={lineupManaged} />
+                {/* #1307, ADR 0040: "Every context adds the decision strip ...
+                    and the eighteen-week bars" - additive to my_team's own
+                    Game/Projection/Usage sections above, not a replacement. */}
+                <DecisionStripSection
+                  decision={card?.decision}
+                  usage={card?.decision?.usage}
+                  ownership={card?.ownership}
+                  depth={card?.depth}
+                  rosterStatus={card?.rosterStatus}
+                  noHistory={hasNoHistory(entry)}
                 />
-              )}
+                {/* The bars are always the current season; the Season pick lives on Game log. */}
+                {Array.isArray(currentSeasonEntry?.weeks) && currentSeasonEntry.weeks.length > 0 && (
+                  <PsSection title="Weekly points" testId="decision-card-weekly-section">
+                    <PsWeeklyBars
+                      weeks={currentSeasonEntry.weeks}
+                      currentWeek={card?.decision?.projWeek?.week}
+                      seasonEnd={card?.seasonEnd}
+                    />
+                  </PsSection>
+                )}
+                <PsBio bio={card?.bio} />
+                {lineupManaged && (
+                  <BenchOptionsSection
+                    entry={entry}
+                    entries={list}
+                    onSwap={onSwap}
+                    hidden={benchOptionsHidden}
+                    bestBall={bestBall}
+                    leagueUnsettled={leagueUnsettled}
+                  />
+                )}
+              </TabPanel>
+              <TabPanel tab="log" active={tab}>
+                {/* #1358: the Season pick drives the game log, which reads the PICKED season's own `log`.
+                    `card.seasons[i].log` is already the row array `GameLogTable` reads as `log.current`. */}
+                <SeasonPickSection
+                  seasons={seasons}
+                  value={selectedSeasonEntry?.season ?? null}
+                  onChange={setPickedSeason}
+                />
+                <GameLogSection log={{ current: selectedSeasonEntry?.log ?? [] }} />
+              </TabPanel>
+              <TabPanel tab="stats" active={tab}>
+                <SeasonSummarySection seasons={seasons} />
+              </TabPanel>
             </>
           )}
-          </Stack>
+          </Box>
         </>
       )}
     </Drawer>
@@ -1016,11 +1021,100 @@ function Stack({ children }) {
   return <Box sx={PS_STACK_SX}>{children}</Box>;
 }
 
+// The tab panel's scroller: the one region of the card that scrolls (the Drawer paper is a column flexbox).
+const PS_SCROLL_SX = { flex: '1 1 auto', minHeight: 0, overflowY: 'auto', overflowX: 'hidden' };
+
+const TABS = [
+  { key: 'overview', label: 'Overview' },
+  { key: 'log', label: 'Game log' },
+  { key: 'stats', label: 'Stats' },
+];
+
+// ARIA tabs in the Lineup SectionToggles look: a 2px Ink edge, the selected tab a Play-blue fill with the
+// pixel arrow. Roving tabindex; Left/Right/Home/End move and activate. Those keys never reach the window
+// listener that walks players (`isTypingTarget` exempts the tablist).
+function PsTabs({ value, onChange }) {
+  const onKeyDown = (event, index) => {
+    const last = TABS.length - 1;
+    let next = null;
+    if (event.key === 'ArrowRight') next = index === last ? 0 : index + 1;
+    if (event.key === 'ArrowLeft') next = index === 0 ? last : index - 1;
+    if (event.key === 'Home') next = 0;
+    if (event.key === 'End') next = last;
+    if (next === null) return;
+    event.preventDefault();
+    event.currentTarget.parentElement.querySelectorAll('[role="tab"]')[next].focus();
+    onChange(TABS[next].key);
+  };
+  return (
+    <Box role="tablist" aria-label="Player card sections" sx={{ display: 'flex', p: '0 18px 16px 16px', flex: 'none' }}>
+      {TABS.map((tab, index) => {
+        const on = tab.key === value;
+        return (
+          <Box
+            key={tab.key}
+            component="button"
+            type="button"
+            role="tab"
+            id={`decision-card-tab-${tab.key}`}
+            aria-selected={on}
+            aria-controls={`decision-card-tabpanel-${tab.key}`}
+            tabIndex={on ? 0 : -1}
+            onClick={() => onChange(tab.key)}
+            onKeyDown={(event) => onKeyDown(event, index)}
+            sx={{
+              flex: '1 1 0',
+              minWidth: 0,
+              minHeight: '44px',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '6px',
+              p: '0 8px',
+              ml: index ? '-2px' : 0,
+              boxSizing: 'border-box',
+              borderRadius: 0,
+              font: 'inherit',
+              fontSize: '14px',
+              fontWeight: 600,
+              border: `2px solid ${on ? 'var(--ps-play)' : 'var(--ps-ink)'}`,
+              backgroundColor: on ? 'var(--ps-play)' : 'transparent',
+              color: on ? 'var(--ps-play-ink)' : 'var(--ps-ink)',
+              cursor: 'pointer',
+              // The tabs overlap by 2px; the selected one sits on top so its edge is whole.
+              ...(on ? { position: 'relative', zIndex: 1 } : null),
+            }}
+          >
+            {on ? <PixelArrow /> : null}
+            {tab.label}
+          </Box>
+        );
+      })}
+    </Box>
+  );
+}
+
+// One tab's panel. Every panel is in the DOM so each tab's aria-controls resolves; only the active one has content.
+function TabPanel({ tab, active, children }) {
+  const on = tab === active;
+  return (
+    <Box
+      role="tabpanel"
+      id={`decision-card-tabpanel-${tab}`}
+      aria-labelledby={`decision-card-tab-${tab}`}
+      hidden={!on}
+      sx={PS_STACK_SX}
+    >
+      {on ? children : null}
+    </Box>
+  );
+}
+
 const PS_PANEL_SX = { display: 'flex', flexDirection: 'column', gap: '16px', minWidth: 0 };
 const PS_PANEL_NAME_SX = { m: 0, fontSize: '17px', fontWeight: 700 };
 
 // A 44px square icon button: a transparent 2px edge, Ink glyph.
-function PsIconButton({ label, onClick, disabled, quiet, children, ...rest }) {
+function PsIconButton({ label, onClick, disabled, quiet, onBand, children, ...rest }) {
   return (
     <Box
       component="button"
@@ -1040,9 +1134,9 @@ function PsIconButton({ label, onClick, disabled, quiet, children, ...rest }) {
         borderRadius: 0,
         backgroundColor: 'transparent',
         border: '2px solid transparent',
-        color: quiet ? 'var(--ps-dim)' : 'var(--ps-ink)',
+        color: onBand ? 'var(--ps-play-ink)' : (quiet ? 'var(--ps-dim)' : 'var(--ps-ink)'),
         cursor: 'pointer',
-        '&[disabled]': { color: 'var(--ps-dim)', cursor: 'not-allowed' },
+        '&[disabled]': { color: onBand ? 'var(--ps-play-dim)' : 'var(--ps-dim)', cursor: 'not-allowed' },
       }}
     >
       {children}
@@ -1065,6 +1159,9 @@ const PixelCaret = () => (
   </svg>
 );
 
+// The header band: Play blue, flex 'none' so it stays in view above the scrolling tab panel.
+const BAND_SX = { backgroundColor: 'var(--ps-play)', color: 'var(--ps-play-ink)', flex: 'none', mb: '16px' };
+
 // The header: the player's square avatar, the name in Archivo 24 700 (a name is not pixel type) and the
 // in-row tags; the counter, previous, next and close sit at the right, or on their own row on a phone.
 // `nav` is null with no list to walk. The counter is a polite live region and holds text only.
@@ -1080,20 +1177,20 @@ function PsCardHeader({
               component="span"
               role="status"
               aria-label={`Player ${nav.index + 1} of ${nav.total}`}
-              sx={{ fontSize: '14px', color: 'var(--ps-dim)', whiteSpace: 'nowrap', px: '6px' }}
+              sx={{ fontSize: '14px', color: 'var(--ps-play-dim)', whiteSpace: 'nowrap', px: '6px' }}
             >
               {nav.index + 1} of {nav.total}
             </Box>
           )}
-          <PsIconButton label="Previous player" onClick={nav.goPrev} disabled={!nav.canPrev} data-testid="decision-card-prev">
+          <PsIconButton onBand label="Previous player" onClick={nav.goPrev} disabled={!nav.canPrev} data-testid="decision-card-prev">
             <Chevron dir="prev" />
           </PsIconButton>
-          <PsIconButton label="Next player" onClick={nav.goNext} disabled={!nav.canNext} data-testid="decision-card-next">
+          <PsIconButton onBand label="Next player" onClick={nav.goNext} disabled={!nav.canNext} data-testid="decision-card-next">
             <Chevron dir="next" />
           </PsIconButton>
         </>
       )}
-      <PsIconButton quiet label="Close" onClick={onClose} data-testid="decision-card-close"><PixelClose /></PsIconButton>
+      <PsIconButton onBand label="Close" onClick={onClose} data-testid="decision-card-close"><PixelClose /></PsIconButton>
     </Box>
   );
   const ident = (
@@ -1106,34 +1203,39 @@ function PsCardHeader({
           component="h2"
           // Programmatically focusable for the prev/next effect, never in the tab order.
           tabIndex={-1}
-          sx={{ m: 0, fontFamily: 'inherit', fontSize: '24px', lineHeight: 1.2, fontWeight: 700 }}
+          sx={{ m: 0, fontFamily: 'inherit', fontSize: '24px', lineHeight: 1.2, fontWeight: 700, color: 'var(--ps-play-ink)' }}
           noWrap
         >
           {displayEntry.name}
         </Typography>
-        <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '6px 8px', mt: '6px' }}>
+        <Box
+          sx={{
+            display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '6px 8px', mt: '6px',
+            // The shared position and injury tags keep their own look elsewhere; on the band they are
+            // outlined in Play dim with Play ink text (an Out tag drops its Ink fill).
+            '& [data-position], & [data-status]': {
+              borderColor: 'var(--ps-play-dim)', color: 'var(--ps-play-ink)', backgroundColor: 'transparent',
+            },
+          }}
+        >
           {displayEntry.slot && <PosTag position={displayEntry.slot} />}
           <PsInjuryTag status={displayEntry.injuryStatus} />
-          <NoPracticeNote verdict={verdict} testId="decision-card-no-practice" />
-          <BackupNote verdict={verdict} testId="decision-card-backup" />
-          <Box component="span" sx={{ fontSize: '14px', color: 'var(--ps-dim)' }}>{displayEntry.nflTeam}</Box>
-          {isLocked && (
-            <Box component="span" data-testid="decision-card-locked" sx={{ fontSize: '13px', fontWeight: 700, color: 'var(--ps-dim)' }}>
-              Locked
-            </Box>
-          )}
-          {spentFlag && <RowBadge data-testid="decision-card-spent">Spent</RowBadge>}
+          <NoPracticeNote onBand verdict={verdict} testId="decision-card-no-practice" />
+          <BackupNote onBand verdict={verdict} testId="decision-card-backup" />
+          <Box component="span" sx={{ fontSize: '14px', color: 'var(--ps-play-dim)' }}>{displayEntry.nflTeam}</Box>
+          {isLocked && <RowBadge onBand data-testid="decision-card-locked">Locked</RowBadge>}
+          {spentFlag && <RowBadge onBand data-testid="decision-card-spent">Spent</RowBadge>}
         </Box>
       </Box>
     </Box>
   );
   return phone ? (
-    <Box sx={{ p: '0 8px 12px 16px' }}>
+    <Box sx={{ ...BAND_SX, p: '0 8px 12px 16px' }}>
       <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>{controls}</Box>
       {ident}
     </Box>
   ) : (
-    <Box sx={{ p: '12px 8px 12px 20px', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '8px' }}>
+    <Box sx={{ ...BAND_SX, p: '12px 8px 12px 20px', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '8px' }}>
       {ident}
       {controls}
     </Box>
@@ -1184,18 +1286,18 @@ function Section({ title, testId, level = 'h3', children }) {
  * verdict (`card.startVerdict`, spec #2042), so every surface that opens the
  * card shows it; the verdict reads `no_practice` only for a Questionable player.
  */
-function NoPracticeNote({ verdict, testId }) {
+function NoPracticeNote({ verdict, testId, onBand }) {
   if (verdict?.reason !== 'no_practice') return null;
-  return <RowBadge data-testid={testId}>{NO_PRACTICE_LABEL}</RowBadge>;
+  return <RowBadge data-testid={testId} onBand={onBand}>{NO_PRACTICE_LABEL}</RowBadge>;
 }
 
 /**
  * ADR 0057: "Backup" on a quarterback behind an available teammate, read off
  * the card payload's Start verdict. His number stays printed; this only tags it.
  */
-function BackupNote({ verdict, testId }) {
+function BackupNote({ verdict, testId, onBand }) {
   if (verdict?.reason !== 'backup') return null;
-  return <RowBadge data-testid={testId}>{BACKUP_LABEL}</RowBadge>;
+  return <RowBadge data-testid={testId} onBand={onBand}>{BACKUP_LABEL}</RowBadge>;
 }
 
 // AC2/AC3: the injury designation and the feed's detail, hidden only when the

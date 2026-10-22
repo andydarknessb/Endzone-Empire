@@ -307,3 +307,28 @@ for (const [name, size] of [['drawer at 1440', { width: 1440, height: 900 }], ['
     expect(width.scrollWidth).toBeLessThanOrEqual(width.clientWidth + 1);
   });
 }
+
+// #2489: the sheet's tabs. Header, actions and tabs stay in view and only the tab panel scrolls, so even after
+// the panel is scrolled to its end the close control is still on screen and the sheet still has no sideways scroll.
+test('the sheet at 390px: Game log shows its section, the panel scrolls alone and close stays in view', async ({ page }) => {
+  await setupDecisionCardLayoutGuard(page);
+  await page.setViewportSize({ width: WIDTH, height: HEIGHT });
+  await page.goto(WAIVERS_URL);
+  await page.getByRole('button', { name: new RegExp(`^${PLAYER_NAME}`) }).click();
+  const card = page.getByTestId('decision-card');
+  await expect(card).toHaveAttribute('data-variant', 'sheet');
+  await expect(page.getByTestId('weekly-points-bars')).toBeVisible();
+
+  await page.getByRole('tab', { name: 'Game log' }).click();
+  await expect(page.getByTestId('decision-card-gamelog-section')).toBeVisible();
+  await page.evaluate(() => document.fonts.ready.then(() => true));
+
+  const width = await page.evaluate(probeWidth, '[data-testid="decision-card"]');
+  expect(width.scrollWidth, `sheet scrollWidth=${width.scrollWidth} clientWidth=${width.clientWidth}`).toBeLessThanOrEqual(width.clientWidth + 1);
+
+  await page.evaluate(() => {
+    const scroller = document.querySelector('[role="tabpanel"]:not([hidden])')?.parentElement;
+    if (scroller) scroller.scrollTop = scroller.scrollHeight;
+  });
+  await expect(page.getByTestId('decision-card-close')).toBeInViewport();
+});

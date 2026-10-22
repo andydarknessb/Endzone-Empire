@@ -42,7 +42,7 @@ export const INK_LINE_SX = { fontFamily: 'inherit', fontSize: '15px', m: 0 };
 export const DIM_LINE_SX = { fontFamily: 'inherit', fontSize: '14px', color: 'var(--ps-dim)', m: 0 };
 
 /** An in-row badge: Archivo 13 700 uppercase on a 2px Rule edge (the product's neutral Badge). */
-export function RowBadge({ children, ...rest }) {
+export function RowBadge({ children, onBand = false, ...rest }) {
   return (
     <Box
       component="span"
@@ -53,8 +53,9 @@ export function RowBadge({ children, ...rest }) {
         boxSizing: 'border-box',
         height: '22px',
         padding: '0 6px',
-        border: '2px solid var(--ps-rule)',
-        color: 'var(--ps-ink)',
+        // On the Play-blue header band the edge is Play dim and the text Play ink.
+        border: `2px solid ${onBand ? 'var(--ps-play-dim)' : 'var(--ps-rule)'}`,
+        color: onBand ? 'var(--ps-play-ink)' : 'var(--ps-ink)',
         fontSize: '13px',
         fontWeight: 700,
         letterSpacing: '.04em',
