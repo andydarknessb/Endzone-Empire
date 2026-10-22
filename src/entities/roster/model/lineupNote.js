@@ -30,12 +30,12 @@ function fitsSlot(template, slotKey, position) {
 /**
  * The viewer's starting slots as the note reads them: `[{ slot, player, label? }]`, `player` null for an empty
  * slot. `label` is what the note says for the slot when that differs from the slot key the roster template
- * knows ("WR 2" for the second WR seat); the slot key still decides who may fill it. `rows` are the Matchup page's paired starter rows (`{ slot, home, away }`) and `side` the viewer's
- * side; a caller that holds one lineup already (Game Center) builds the same shape itself.
+ * knows ("WR 2" for the second WR seat); the slot key still decides who may fill it. `rows` are the Matchup page's paired starter rows (`{ slot, first, second }`) and `isViewer` whether
+ * the board's first side is the viewer's Team; a caller that holds one lineup already (Game Center) builds the same shape itself.
  */
-export function lineupSlots(rows, side) {
-  if (side !== 'home' && side !== 'away') return [];
-  return (rows || []).map((row) => ({ slot: row.slot, player: row[side] ?? null }));
+export function lineupSlots(rows, isViewer) {
+  if (!isViewer) return [];
+  return (rows || []).map((row) => ({ slot: row.slot, player: row.first ?? null }));
 }
 
 /**

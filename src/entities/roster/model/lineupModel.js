@@ -181,12 +181,12 @@ export function lineupModel(body) {
  * call up to `pages/matchup/model/useMatchupPage.js`, which reads it from
  * HERE directly.
  */
-export function pairStartersBySlot(homeStarters, awayStarters, slotOrder) {
+export function pairStartersBySlot(firstStarters, secondStarters, slotOrder) {
   const ordered = (slotOrder || []).filter((k) => k != null).map(String);
   if (ordered.length === 0) return [];
 
-  const home = homeStarters || [];
-  const away = awayStarters || [];
+  const first = firstStarters || [];
+  const second = secondStarters || [];
   // Key on the slot as a string on both sides, matching the stringified order
   // above, so a numeric slot key never groups under a value the order can't find.
   const slotKey = (p) => (p.slot == null ? '' : String(p.slot));
@@ -196,8 +196,8 @@ export function pairStartersBySlot(homeStarters, awayStarters, slotOrder) {
     acc.get(key).push(p);
     return acc;
   }, new Map());
-  const homeBySlot = bySlot(home);
-  const awayBySlot = bySlot(away);
+  const firstBySlot = bySlot(first);
+  const secondBySlot = bySlot(second);
 
   const order = [];
   const seen = new Set();
@@ -207,15 +207,15 @@ export function pairStartersBySlot(homeStarters, awayStarters, slotOrder) {
     order.push(key);
   };
   ordered.forEach(add);
-  home.forEach((p) => add(slotKey(p)));
-  away.forEach((p) => add(slotKey(p)));
+  first.forEach((p) => add(slotKey(p)));
+  second.forEach((p) => add(slotKey(p)));
 
   const rows = [];
   for (const slot of order) {
-    const h = homeBySlot.get(slot) || [];
-    const a = awayBySlot.get(slot) || [];
-    const count = Math.max(h.length, a.length);
-    for (let i = 0; i < count; i++) rows.push({ slot, home: h[i] || null, away: a[i] || null });
+    const f = firstBySlot.get(slot) || [];
+    const g = secondBySlot.get(slot) || [];
+    const count = Math.max(f.length, g.length);
+    for (let i = 0; i < count; i++) rows.push({ slot, first: f[i] || null, second: g[i] || null });
   }
   return rows;
 }

@@ -11,11 +11,10 @@ const slotsOf = (players) => players.map((player_, i) => ({ slot: ['WR', 'FLEX']
 const BENCH_OK = [player({ id: 5, name: 'Bench Runner', availability: { available: true, reason: null } })];
 
 describe('lineupSlots', () => {
-  test('reads the viewer side of paired rows, null for an empty slot, nothing for a non-participant', () => {
-    const rows = [{ slot: 'WR', home: player(), away: null }, { slot: 'FLEX', home: null, away: player({ id: 2 }) }];
-    expect(lineupSlots(rows, 'home')).toEqual([{ slot: 'WR', player: rows[0].home }, { slot: 'FLEX', player: null }]);
-    expect(lineupSlots(rows, 'away').map((s) => s.player?.id ?? null)).toEqual([null, 2]);
-    expect(lineupSlots(rows, null)).toEqual([]);
+  test('reads the first side of paired rows when it is the viewer, null for an empty slot, nothing otherwise', () => {
+    const rows = [{ slot: 'WR', first: player(), second: null }, { slot: 'FLEX', first: null, second: player({ id: 2 }) }];
+    expect(lineupSlots(rows, true)).toEqual([{ slot: 'WR', player: rows[0].first }, { slot: 'FLEX', player: null }]);
+    expect(lineupSlots(rows, false)).toEqual([]);
   });
 });
 
