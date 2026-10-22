@@ -714,9 +714,9 @@
       "name": "Live Chip",
       "kind": "chip",
       "refersTo": "chip-live",
-      "description": "Live state chip: a 2px Accent outline with Accent text on a clear fill.",
-      "html": "<span class=\"ds-chip-live\">Live</span>",
-      "css": ".ds-chip-live { display: inline-flex; align-items: center; padding: 2px 10px; border-radius: 0; font: 600 12px 'Archivo', sans-serif; color: var(--ps-accent); background: transparent; border: 2px solid var(--ps-accent); }"
+      "description": "Live state chip: a 2px Accent outline with Accent Pixel 16 text and a square 8px dot.",
+      "html": "<span class=\"ds-chip-live\"><span class=\"ds-chip-live-dot\" aria-hidden=\"true\"></span>Live</span>",
+      "css": ".ds-chip-live { display: inline-flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 0; font: 16px/1 'Press Start 2P', monospace; text-transform: uppercase; color: var(--ps-accent); background: transparent; border: 2px solid var(--ps-accent); } .ds-chip-live-dot { width: 8px; height: 8px; background: var(--ps-accent); }"
     },
     {
       "name": "Scoreboard",
