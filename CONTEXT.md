@@ -939,14 +939,14 @@ card's Watch/Watching action are its two surfaces. Stored in
 _Avoid_: watchlist (in prose and copy), favourite, star, follow
 
 **Season summary**:
-One season of a player in five numbers under this league's scoring: games,
-points per game, season points, position rank and ADP. The Decision card
-lists one per season on record, newest first, as a table of one row per
-season on its Stats tab, so a season in progress reads beside the finished
-ones in the same points. ADP is the draft market's
-number for that season and is not rescored; a season with no ADP on record
-shows none.
-_Avoid_: season stats (the raw stat line), career, totals
+One season of a player under this league's scoring: games, season points,
+points per game, position rank and ADP, then each stat column of its game
+log summed over that season. The Decision card lists one per season on
+record, newest first, as the Season totals table on its Stats tab, one row
+per season, so a season in progress reads beside the finished ones in the
+same points. ADP is the draft market's number for that season and is not
+rescored; a season with no ADP on record shows none.
+_Avoid_: season stats (the raw stat line), career
 
 **Season pick**:
 The season a manager has chosen on the Decision card, from a row of season
