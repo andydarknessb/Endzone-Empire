@@ -703,6 +703,28 @@ test('picking a week filters the grid; All weeks shows every Matchup', async () 
   expect(cards()).toHaveLength(2);
 });
 
+test('for an away viewer the grid names the viewer Team first on its own Matchup card and home first on every other (#2403)', async () => {
+  mockApi({
+    matchups: [
+      viewerRow({ id: 1, week: 1 }),
+      viewerRow({ id: 4, week: 2 }),
+      otherRow({ id: 2, week: 2 }),
+    ],
+    viewerTeamId: 20,
+    league: { id: 1, name: 'Sunday Ballers', current_week: 1 },
+  });
+  renderPage();
+
+  await screen.findByTestId('matchup-hero');
+  await userEvent.click(screen.getByRole('button', { name: 'All weeks' }));
+  // Week 2's own Matchup: the viewer (Rival, seated away) first, the home Team second.
+  expect(within(card(4)).getByTestId('matchup-side-home')).toHaveTextContent('Rival');
+  expect(within(card(4)).getByTestId('matchup-side-away')).toHaveTextContent('My Team');
+  // Another Matchup stays home first.
+  expect(within(card(2)).getByTestId('matchup-side-home')).toHaveTextContent('Other A');
+  expect(within(card(2)).getByTestId('matchup-side-away')).toHaveTextContent('Other B');
+});
+
 // --- the ticker and feed --------------------------------------------------
 
 test('the ticker names the fantasy Team from the rosters read and filters plays by the week on screen', async () => {

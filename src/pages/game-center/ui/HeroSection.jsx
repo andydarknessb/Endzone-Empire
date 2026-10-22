@@ -85,11 +85,11 @@ function WithLineups({
   const side = board.first.isViewer ? board.first.origin : null;
   const started = board.hasStarted === true;
 
+  // In the board's order: the hero reads `counts.first` for the board's first side.
+  const startersOf = { home: homeStarters, away: awayStarters };
+  const countsOf = (s) => ({ remaining: playersRemaining(startersOf[s.origin], games), yet: yetToPlay(startersOf[s.origin], games) });
   const counts = helperCounts && matchup && homeStarters && awayStarters
-    ? {
-      home: { remaining: playersRemaining(homeStarters, games), yet: yetToPlay(homeStarters, games) },
-      away: { remaining: playersRemaining(awayStarters, games), yet: yetToPlay(awayStarters, games) },
-    }
+    ? { first: countsOf(board.first), second: countsOf(board.second) }
     : null;
 
   const starters = side === 'home' ? homeStarters : side === 'away' ? awayStarters : null;

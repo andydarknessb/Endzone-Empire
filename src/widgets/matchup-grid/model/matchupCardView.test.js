@@ -148,3 +148,11 @@ describe('records', () => {
   // the entity's lookup case red. This widget only READS a lookup, which is
   // what the case above pins.
 });
+
+describe('viewer first (#2403)', () => {
+  test('the viewer Team is first on its own card, home first otherwise', () => {
+    expect(matchupCardView(model(), { viewerTeamId: 2 }).first.name).toBe('Away');
+    expect(matchupCardView(model(), { viewerTeamId: 99 }).first.name).toBe('Home');
+    expect(matchupCardView(model()).first.name).toBe('Home');
+  });
+});

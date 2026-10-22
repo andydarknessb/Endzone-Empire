@@ -101,3 +101,13 @@ describe('aroundLeagueTileView', () => {
     expect(view.second.figure).toBe('-');
   });
 });
+
+describe('viewer first (#2403)', () => {
+  test('an away viewer reads first, the home Team second, with the viewer flagged on first', () => {
+    const view = aroundLeagueTileView(row(), { viewerTeamId: 2 });
+    expect(view.first.name).toBe('Mankato Mavericks');
+    expect(view.first.isViewer).toBe(true);
+    expect(view.second.name).toBe('Bemidji Blizzard');
+    expect(view.second.isViewer).toBe(false);
+  });
+});
