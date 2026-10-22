@@ -94,6 +94,10 @@ export const colorTokens = {
     'ps-led': '#ffb547',
     'ps-led-dim': 'rgba(255, 181, 71, 0.28)',
     'ps-skel': '#dde1f0',
+    // Game log cells: typical, above and below the player's own average (ps-ink sits on each).
+    'ps-cell': '#f1f3fb',
+    'ps-cell-above': '#cadfd5',
+    'ps-cell-below': '#f8e3e3',
     // Focus ring and press frame, and the dark halo behind the ring.
     'ps-focus': '#ffffff',
     'ps-halo': '#07080f',
@@ -194,6 +198,9 @@ export const colorTokens = {
     'ps-led': '#ffb547',
     'ps-led-dim': 'rgba(255, 181, 71, 0.28)',
     'ps-skel': '#2a3052',
+    'ps-cell': '#1d202f',
+    'ps-cell-above': '#174335',
+    'ps-cell-below': '#3b2027',
     // Focus ring and press frame, and the dark halo behind the ring.
     'ps-focus': '#ffffff',
     'ps-halo': '#07080f',

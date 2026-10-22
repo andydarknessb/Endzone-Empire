@@ -1038,9 +1038,10 @@ describe('Season summary and Season pick (#1358)', () => {
         // would wrongly mark one of them - a fixture with neither week could
         // never catch that regression.
         weeks: [
-          weekRow(3, { kind: 'actual', points: 18 }),
-          weekRow(4, { kind: 'actual', points: 16 }),
-          weekRow(17, { kind: 'actual', points: 9 }),
+          // Week 3's schedule opponent (PHI) differs from its log row's DAL: the log row's wins (#2491).
+          weekRow(3, { kind: 'actual', points: 18, opponent: 'PHI' }),
+          weekRow(4, { kind: 'actual', points: 16, opponent: 'LV' }),
+          weekRow(17, { kind: 'actual', points: 9, opponent: 'LV' }),
         ],
         log: [logRow(3, { opponent: 'DAL' })],
       }),
@@ -1062,7 +1063,7 @@ describe('Season summary and Season pick (#1358)', () => {
     // The Season cell is a row header (risk review, accessibility), so it
     // reads via `rowheader`, not `cell` - the remaining `cell`s are
     // G/FPTS-per-G/Pts/Pos-rank/ADP, in that order.
-    expect(rows.map((r) => within(r).getByRole('rowheader').textContent)).toEqual(['2026', '2025', '2024']);
+    expect(rows.map((r) => within(r).getByRole('rowheader').textContent)).toEqual(['2026to date', '2025', '2024']);
 
     // Red tell: the 2024 row's ADP cell is a dash, with the reason available
     // to a screen reader, never a bare "-" or a raw null.
@@ -1101,6 +1102,7 @@ describe('Season summary and Season pick (#1358)', () => {
     // and season-end markers) untouched. The 2025 weeks deliberately include week 4 and week 17.
     expect(screen.getByTestId('decision-card-gamelog-section')).toHaveTextContent('DAL');
     expect(screen.getByTestId('decision-card-gamelog-section')).not.toHaveTextContent('KC');
+    expect(screen.getByTestId('decision-card-gamelog-section')).not.toHaveTextContent('PHI');
     await openTab('Overview');
     expect(await screen.findByTestId('weekly-bar-4')).toBeInTheDocument();
     expect(screen.getByTestId('weekly-bar-4-current')).toBeInTheDocument();

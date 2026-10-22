@@ -358,3 +358,30 @@ test('the sheet at 390px: Game log shows its section, the panel scrolls alone an
   );
   expect(topAfterSwitch).toBe(0);
 });
+
+// #2491: the Game log table scrolls sideways inside its own region and keeps Wk fixed; the sheet never scrolls sideways.
+test('the sheet at 390px: the game log region scrolls sideways with Wk fixed and the sheet stays put', async ({ page }) => {
+  await setupDecisionCardLayoutGuard(page);
+  await page.setViewportSize({ width: WIDTH, height: HEIGHT });
+  await page.goto(WAIVERS_URL);
+  await page.getByRole('button', { name: new RegExp(`^${PLAYER_NAME}`) }).click();
+  await expect(page.getByTestId('decision-card')).toHaveAttribute('data-variant', 'sheet');
+  await page.getByRole('tab', { name: 'Game log' }).click();
+  const table = page.getByTestId('decision-card-game-log');
+  await expect(table).toBeVisible();
+  await page.evaluate(() => document.fonts.ready.then(() => true));
+
+  const sheet = await page.evaluate(probeWidth, '[data-testid="decision-card"]');
+  expect(sheet.scrollWidth, `sheet scrollWidth=${sheet.scrollWidth} clientWidth=${sheet.clientWidth}`).toBeLessThanOrEqual(sheet.clientWidth + 1);
+
+  const region = page.getByRole('region', { name: 'Game log table' });
+  const probe = () => region.evaluate((el) => ({ scrollWidth: el.scrollWidth, clientWidth: el.clientWidth }));
+  const size = await probe();
+  expect(size.scrollWidth, `region scrollWidth=${size.scrollWidth} clientWidth=${size.clientWidth}`).toBeGreaterThan(size.clientWidth);
+
+  const wk1 = table.getByRole('rowheader').first();
+  await region.evaluate((el) => { el.scrollLeft = el.scrollWidth; });
+  await expect.poll(() => region.evaluate((el) => el.scrollLeft)).toBeGreaterThan(0);
+  const [wkBox, regionBox] = await Promise.all([wk1.boundingBox(), region.boundingBox()]);
+  expect(Math.abs((wkBox?.x ?? -1) - (regionBox?.x ?? -2)), 'Wk 1 stays at the region\'s left edge').toBeLessThanOrEqual(1);
+});

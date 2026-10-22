@@ -201,7 +201,7 @@ describe('desktop drawer', () => {
     expect(screen.getByRole('button', { name: 'Swap in Jordan Addison' })).toHaveAttribute('data-variant', 'ghost');
     // The season sections sit on their own tabs (#2489).
     await userEvent.click(screen.getByRole('tab', { name: 'Stats' }));
-    expect(await screen.findByRole('table', { name: 'Season summary' })).toBeInTheDocument();
+    expect(await screen.findByRole('table', { name: 'Season totals' })).toBeInTheDocument();
     await userEvent.click(screen.getByRole('tab', { name: 'Game log' }));
     expect(screen.getByRole('table', { name: 'Game log' })).toBeInTheDocument();
     expect(screen.getByRole('radiogroup', { name: 'Season' })).toBeInTheDocument();

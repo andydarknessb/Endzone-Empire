@@ -268,6 +268,7 @@ const PAIRINGS = [
   // darker field band; the board is black in both themes.
   pairing('ps-ink', 'ps-field', AA_TEXT, 'Home body text on the page'),
   pairing('ps-ink', 'ps-panel', AA_TEXT, 'Home body text in a frame'),
+  ...['ps-cell', 'ps-cell-above', 'ps-cell-below'].map((cell) => pairing('ps-ink', cell, AA_TEXT, `game log cell text on ${cell}`)),
   pairing('ps-dim', 'ps-field', AA_TEXT, 'Home muted text on the page'),
   pairing('ps-dim', 'ps-panel', AA_TEXT, 'Home muted text in a frame'),
   pairing('ps-play-ink', 'ps-play', AA_TEXT, 'play card name and foot label on the Play blue'),

@@ -225,3 +225,125 @@ test('each tab controls a tabpanel that is labelled by that tab', async () => {
     expect(panel).toHaveAttribute('aria-labelledby', t.id);
   });
 });
+
+// #2491: the Game log tab's 18-week table and the Stats tab's season totals.
+describe('Game log table and Season totals (#2491)', () => {
+  const RUSH = [35, 64, 74, 48, 52, 76];
+  const PTS = [3.4, 6.5, 9.6, 11.0, 5.2, 7.6];
+  const played = (week) => ({ week, kind: 'actual', points: PTS[week - 1], opponent: 'DEN' });
+  const weeks = Array.from({ length: 18 }, (_, i) => {
+    const week = i + 1;
+    if (week <= 6) {
+      return {
+        ...played(week),
+        ...(week === 1 ? { projected: 9.13 } : null),
+        ...(week === 3 ? { opponentRankVsPosition: { rank: 29, of: 32 } } : null),
+      };
+    }
+    if (week === 9) return { week, kind: 'bye' };
+    if (week === 11) return { week, kind: 'unavailable', reason: 'out' };
+    return { week, kind: 'projected', points: 12, opponent: 'MIA' };
+  });
+  const log = RUSH.map((rushingYards, i) => ({
+    week: i + 1,
+    opponent: i === 1 ? 'LAC' : 'DEN',
+    points: PTS[i],
+    statLine: { rushingYards, usageCarries: 10 + i, usageTargets: 2 },
+  }));
+  const gameLogCard = (over = {}) => ({
+    decision: { projWeek: { week: 7, points: 12 } },
+    seasonEnd: 17,
+    seasons: [season(2026, { weeks, log, ...over })],
+  });
+  const showCard = (card) => {
+    apiClient.get.mockImplementation((url) => (
+      url.includes('/card?') ? Promise.resolve({ data: { ...ESPN_FACTS, ...card } }) : Promise.reject(new Error(url))
+    ));
+    renderCard();
+  };
+  const openLog = async (card) => {
+    showCard(card);
+    await userEvent.click(await screen.findByRole('tab', { name: 'Game log' }));
+    return screen.findByTestId('decision-card-game-log');
+  };
+  const bodyRows = (table) => within(table).getAllByRole('row').slice(1);
+  const headers = (table) => within(table).getAllByRole('columnheader').map((h) => h.textContent);
+  // Wk is the row header, so a column's cell index is one less than its header's.
+  const cell = (table, row, label) => within(row).getAllByRole('cell')[headers(table).indexOf(label) - 1];
+
+  test('draws one row per week, 1 to 18, with the stat columns after FPTS', async () => {
+    const table = await openLog(gameLogCard());
+    expect(headers(table)).toEqual(['Wk', 'Opp', 'Proj', 'FPTS', 'Rush Att', 'Tgt', 'Rush Yds']);
+    const rows = bodyRows(table);
+    expect(rows).toHaveLength(18);
+    expect(rows.map((r) => Number(within(r).getByRole('rowheader').textContent))).toEqual(
+      Array.from({ length: 18 }, (_, i) => i + 1)
+    );
+  });
+
+  test('a bye row reads Bye and an unavailable row its reason label', async () => {
+    const table = await openLog(gameLogCard());
+    const rows = bodyRows(table);
+    expect(cell(table, rows[8], 'Opp')).toHaveTextContent('Bye');
+    expect(cell(table, rows[10], 'Opp')).toHaveTextContent('out');
+  });
+
+  test('Opp prefers the log row, shows the rank, and a line under the table words the rank', async () => {
+    const table = await openLog(gameLogCard());
+    const rows = bodyRows(table);
+    expect(cell(table, rows[1], 'Opp')).toHaveTextContent('LAC');
+    expect(cell(table, rows[2], 'Opp')).toHaveTextContent('DEN (29th)');
+    expect(cell(table, rows[6], 'Opp')).toHaveTextContent('MIA');
+    expect(screen.getByText('Opp rank: 1st allows the fewest points to QBs')).toBeInTheDocument();
+  });
+
+  test('Proj reads projected on an actual row, points on a projected one, and a dash otherwise', async () => {
+    const table = await openLog(gameLogCard());
+    const rows = bodyRows(table);
+    expect(cell(table, rows[0], 'Proj')).toHaveTextContent('9.13');
+    expect(cell(table, rows[1], 'Proj')).toHaveTextContent('-');
+    expect(cell(table, rows[7], 'Proj')).toHaveTextContent('12.00');
+    expect(cell(table, rows[7], 'FPTS')).toHaveTextContent('-');
+  });
+
+  test('Rush Att and Tgt read the usage keys', async () => {
+    const table = await openLog(gameLogCard());
+    expect(cell(table, bodyRows(table)[2], 'Rush Att')).toHaveTextContent('12');
+    expect(cell(table, bodyRows(table)[2], 'Tgt')).toHaveTextContent('2');
+  });
+
+  test('without carries or targets in any row the two columns are left out', async () => {
+    const bare = log.map((l) => ({ ...l, statLine: { rushingYards: l.statLine.rushingYards } }));
+    const table = await openLog(gameLogCard({ log: bare }));
+    expect(headers(table)).toEqual(['Wk', 'Opp', 'Proj', 'FPTS', 'Rush Yds']);
+  });
+
+  test('an above-average cell says so to a screen reader, and the legend renders', async () => {
+    const table = await openLog(gameLogCard());
+    const rows = bodyRows(table);
+    expect(cell(table, rows[2], 'FPTS')).toHaveTextContent("above this player's average");
+    expect(cell(table, rows[0], 'FPTS')).toHaveTextContent("below this player's average");
+    expect(cell(table, rows[1], 'FPTS')).not.toHaveTextContent('average');
+    expect(cell(table, rows[2], 'Proj')).not.toHaveTextContent('average');
+    expect(screen.getByText("Compared to this player's average")).toBeInTheDocument();
+  });
+
+  test('the current week of the current season carries the Current week arrow', async () => {
+    const table = await openLog(gameLogCard());
+    const mark = within(table).getByRole('img', { name: 'Current week' });
+    expect(within(bodyRows(table)[6]).getByRole('rowheader')).toContainElement(mark);
+  });
+
+  test('Season totals sums each stat column over the season\'s log rows', async () => {
+    showCard(gameLogCard({ log: [log[0], log[1]] }));
+    await userEvent.click(await screen.findByRole('tab', { name: 'Stats' }));
+    const table = await screen.findByTestId('decision-card-seasons');
+    expect(screen.getByRole('heading', { name: 'Season totals' })).toBeInTheDocument();
+    expect(headers(table)).toEqual(['Season', 'G', 'FPTS', 'FPTS/G', 'Pos rank', 'ADP', 'Rush Att', 'Tgt', 'Rush Yds']);
+    const row = bodyRows(table)[0];
+    expect(within(row).getByRole('rowheader')).toHaveTextContent('2026to date');
+    expect(cell(table, row, 'Rush Yds')).toHaveTextContent('99');
+    expect(cell(table, row, 'G')).toHaveTextContent('10');
+    expect(cell(table, row, 'FPTS/G')).toHaveTextContent('15.0');
+  });
+});

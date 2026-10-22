@@ -70,17 +70,27 @@ export function RowBadge({ children, onBand = false, ...rest }) {
   );
 }
 
+const TONE_BG = { above: 'var(--ps-cell-above)', typical: 'var(--ps-cell)', below: 'var(--ps-cell-below)' };
+
+function stickySx(i, offsets) {
+  if (i >= offsets.length) return null;
+  const width = i < offsets.length - 1 ? `${offsets[i + 1] - offsets[i]}px` : undefined;
+  return { position: 'sticky', left: `${offsets[i]}px`, zIndex: 1, width, minWidth: width, maxWidth: width };
+}
+
 const CELL = {
   boxSizing: 'border-box', padding: '0 8px', whiteSpace: 'nowrap', backgroundColor: 'var(--ps-panel)',
 };
 
 /**
  * The kit table: a sticky first column, 40px head row and 44px body rows over 2px Rule lines, 8px cell padding.
- * `cols` is `[{ label, align }]`; each row is `{ key, cells }` with the first cell its row header. The region
- * scrolls sideways and is a tab stop, so the card's arrow keys leave it alone (data-arrow-scroll-region).
+ * `cols` is `[{ label, align, key }]` (`key` when two labels repeat); each row is `{ key, cells, tones }` with the first
+ * cell its row header and `tones[i]` the above, typical or below fill of cell i. `stickyOffsets` are the left edges
+ * of the fixed columns, so [0, 56] fixes the first two with the first 56px wide. The region scrolls sideways and is
+ * a tab stop, so the card's arrow keys leave it alone (data-arrow-scroll-region).
  */
 export function PsTable({
-  label, cols, rows, testId, minWidth,
+  label, cols, rows, testId, minWidth, stickyOffsets = [0],
 }) {
   return (
     <Box
@@ -106,7 +116,7 @@ export function PsTable({
           <tr>
             {cols.map((col, i) => (
               <Box
-                key={col.label}
+                key={col.key ?? col.label}
                 component="th"
                 scope="col"
                 sx={{
@@ -119,7 +129,7 @@ export function PsTable({
                   letterSpacing: '.04em',
                   textTransform: 'uppercase',
                   color: 'var(--ps-dim)',
-                  ...(i === 0 ? { position: 'sticky', left: 0, zIndex: 1 } : null),
+                  ...stickySx(i, stickyOffsets),
                 }}
               >
                 {col.label}
@@ -138,10 +148,13 @@ export function PsTable({
                   fontSize: '15px',
                   color: 'var(--ps-ink)',
                   borderBottom: ri === rows.length - 1 ? 0 : '2px solid var(--ps-rule)',
+                  ...stickySx(i, stickyOffsets),
+                  ...(row.tones?.[i] ? { backgroundColor: TONE_BG[row.tones[i]] } : null),
                 };
+                const key = cols[i].key ?? cols[i].label;
                 return i === 0
-                  ? <Box key={cols[i].label} component="th" scope="row" sx={{ ...sx, fontWeight: 600, position: 'sticky', left: 0, zIndex: 1 }}>{cell}</Box>
-                  : <Box key={cols[i].label} component="td" sx={sx}>{cell}</Box>;
+                  ? <Box key={key} component="th" scope="row" sx={{ ...sx, fontWeight: 600 }}>{cell}</Box>
+                  : <Box key={key} component="td" sx={sx}>{cell}</Box>;
               })}
             </tr>
           ))}
