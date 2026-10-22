@@ -22,7 +22,7 @@ C14: Bo Nix (QB, DEN, #278) - SIT - 11.6 a game and 6.2 over the last two (7.9, 
 C15: Tanner McKee (QB, PHI, #479) - SIT - 12.6 in his first start, Philadelphia implied for 20.0; Dallas allows the 5th-most QB points, so he is a 2QB start only
 C16: Baker Mayfield (QB, TB, #297) - SIT - Full practice on the thumb, but Tampa names its starter Friday; 11.7 a game in his three starts
 C16: Jalon Daniels (QB, TB, #221) - SIT - Started Weeks 5 and 6 (13.9, 11.2); loses the job if Mayfield is cleared
-C17: J.J. McCarthy (QB, NYG, #1261) - SIT - Top of the depth chart after 16.3 in relief in Week 6; the Giants are implied for 16.0, the lowest total on the slate
+C17: J.J. McCarthy (QB, NYG, #1261) - SIT - Top of the depth chart after 16.3 in relief in Week 6; the Giants are implied for 16.0, the lowest implied total on the slate
 C17: Jameis Winston (QB, NYG, #546) - SIT - Played 60% of the Week 6 snaps for 6.5; same 16.0 implied total
 C18: Jalen Hurts (QB, PHI, #702) - OUT - On IR with blood clots, out for the season; the engine still projects 18.5
 C19: Jahmyr Gibbs (RB, DET, #1478) - START - 30.7 a game on 21 carries and 6.8 targets; Detroit implied for 28.3
@@ -115,7 +115,7 @@ C96: Dalton Schultz (TE, HOU, #855) - SIT - Did not practice Wednesday (quadrice
 C97: Juwan Johnson (TE, NO, #309) - SIT - 2.8 a game over the last two
 C98: Jake Ferguson (TE, DAL, #833) - SIT - 7.4 a game on a 10% target share
 C99: Minnesota Vikings (DEF, MIN, #6732) - START - 15.2 a game; Indianapolis implied for 17.5
-C100: Houston Texans (DEF, HOU, #6724) - START - The Giants are implied for 16.0, the lowest total on the slate
+C100: Houston Texans (DEF, HOU, #6724) - START - The Giants are implied for 16.0, the lowest implied total on the slate
 C101: Seattle Seahawks (DEF, SEA, #6739) - START - 12.0 a game; Kansas City implied for 19.8
 C102: Cleveland Browns (DEF, CLE, #6720) - START - 13 in each of the last two; Tennessee implied for 18.0
 C103: Denver Broncos (DEF, DEN, #6721) - START - 16 and 12 the last two weeks; Arizona implied for 19.5
