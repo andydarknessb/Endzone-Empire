@@ -1,0 +1,1747 @@
+{
+  "season": 2026,
+  "week": 7,
+  "article": "week7-start-sit-darkness-report",
+  "scoring": "ppr",
+  "cutoffs": {
+    "QB": 12,
+    "RB": 24,
+    "WR": 30,
+    "TE": 12,
+    "DEF": 12
+  },
+  "rankings": {
+    "QB": [
+      {
+        "rank": 1,
+        "name": "Brock Purdy",
+        "team": "SF",
+        "playerId": 861
+      },
+      {
+        "rank": 2,
+        "name": "Drake Maye",
+        "team": "NE",
+        "playerId": 174
+      },
+      {
+        "rank": 3,
+        "name": "Matthew Stafford",
+        "team": "LAR",
+        "playerId": 1052
+      },
+      {
+        "rank": 4,
+        "name": "Jared Goff",
+        "team": "DET",
+        "playerId": 123
+      },
+      {
+        "rank": 5,
+        "name": "Jordan Love",
+        "team": "GB",
+        "playerId": 540
+      },
+      {
+        "rank": 6,
+        "name": "Joe Burrow",
+        "team": "CIN",
+        "playerId": 196
+      },
+      {
+        "rank": 7,
+        "name": "C.J. Stroud",
+        "team": "HOU",
+        "playerId": 1373
+      },
+      {
+        "rank": 8,
+        "name": "Lamar Jackson",
+        "team": "BAL",
+        "playerId": 449
+      },
+      {
+        "rank": 9,
+        "name": "Bryce Young",
+        "team": "CAR",
+        "playerId": 1235
+      },
+      {
+        "rank": 10,
+        "name": "Caleb Williams",
+        "team": "CHI",
+        "playerId": 520
+      },
+      {
+        "rank": 11,
+        "name": "Dak Prescott",
+        "team": "DAL",
+        "playerId": 1142
+      },
+      {
+        "rank": 12,
+        "name": "Kirk Cousins",
+        "team": "LV",
+        "playerId": 714
+      },
+      {
+        "rank": 13,
+        "name": "Patrick Mahomes",
+        "team": "KC",
+        "playerId": 1495
+      },
+      {
+        "rank": 14,
+        "name": "Aaron Rodgers",
+        "team": "PIT",
+        "playerId": 1118
+      }
+    ],
+    "RB": [
+      {
+        "rank": 1,
+        "name": "Jahmyr Gibbs",
+        "team": "DET",
+        "playerId": 1478
+      },
+      {
+        "rank": 2,
+        "name": "Christian McCaffrey",
+        "team": "SF",
+        "playerId": 777
+      },
+      {
+        "rank": 3,
+        "name": "Kenneth Walker III",
+        "team": "KC",
+        "playerId": 34
+      },
+      {
+        "rank": 4,
+        "name": "Bijan Robinson",
+        "team": "ATL",
+        "playerId": 1407
+      },
+      {
+        "rank": 5,
+        "name": "Jaylen Warren",
+        "team": "PIT",
+        "playerId": 793
+      },
+      {
+        "rank": 6,
+        "name": "Kyren Williams",
+        "team": "LAR",
+        "playerId": 667
+      },
+      {
+        "rank": 7,
+        "name": "D'Andre Swift",
+        "team": "CHI",
+        "playerId": 545
+      },
+      {
+        "rank": 8,
+        "name": "Jonathan Taylor",
+        "team": "IND",
+        "playerId": 395
+      },
+      {
+        "rank": 9,
+        "name": "Javonte Williams",
+        "team": "DAL",
+        "playerId": 1006
+      },
+      {
+        "rank": 10,
+        "name": "Derrick Henry",
+        "team": "BAL",
+        "playerId": 568
+      },
+      {
+        "rank": 11,
+        "name": "Chuba Hubbard",
+        "team": "CAR",
+        "playerId": 165
+      },
+      {
+        "rank": 12,
+        "name": "Ashton Jeanty",
+        "team": "LV",
+        "playerId": 151
+      },
+      {
+        "rank": 13,
+        "name": "Aaron Jones Sr.",
+        "team": "MIN",
+        "playerId": 1445
+      },
+      {
+        "rank": 14,
+        "name": "Bucky Irving",
+        "team": "TB",
+        "playerId": 47
+      },
+      {
+        "rank": 15,
+        "name": "Braelon Allen",
+        "team": "NYJ",
+        "playerId": 1485
+      },
+      {
+        "rank": 16,
+        "name": "Woody Marks",
+        "team": "HOU",
+        "playerId": 1436
+      },
+      {
+        "rank": 17,
+        "name": "Chase Brown",
+        "team": "CIN",
+        "playerId": 106
+      },
+      {
+        "rank": 18,
+        "name": "Ollie Gordon II",
+        "team": "MIA",
+        "playerId": 1271
+      },
+      {
+        "rank": 19,
+        "name": "Quinshon Judkins",
+        "team": "CLE",
+        "playerId": 445
+      },
+      {
+        "rank": 20,
+        "name": "Roschon Johnson",
+        "team": "CHI",
+        "playerId": 42
+      },
+      {
+        "rank": 21,
+        "name": "J.K. Dobbins",
+        "team": "DEN",
+        "playerId": 130
+      },
+      {
+        "rank": 22,
+        "name": "RJ Harvey",
+        "team": "DEN",
+        "playerId": 504
+      },
+      {
+        "rank": 23,
+        "name": "Kendre Miller",
+        "team": "NO",
+        "playerId": 105
+      },
+      {
+        "rank": 24,
+        "name": "Tyler Allgeier",
+        "team": "ARI",
+        "playerId": 1379
+      }
+    ],
+    "WR": [
+      {
+        "rank": 1,
+        "name": "Puka Nacua",
+        "team": "LAR",
+        "playerId": 438
+      },
+      {
+        "rank": 2,
+        "name": "Jaxon Smith-Njigba",
+        "team": "SEA",
+        "playerId": 28
+      },
+      {
+        "rank": 3,
+        "name": "Amon-Ra St. Brown",
+        "team": "DET",
+        "playerId": 224
+      },
+      {
+        "rank": 4,
+        "name": "CeeDee Lamb",
+        "team": "DAL",
+        "playerId": 794
+      },
+      {
+        "rank": 5,
+        "name": "Malik Nabers",
+        "team": "NYG",
+        "playerId": 1444
+      },
+      {
+        "rank": 6,
+        "name": "Ja'Marr Chase",
+        "team": "CIN",
+        "playerId": 586
+      },
+      {
+        "rank": 7,
+        "name": "Christian Watson",
+        "team": "GB",
+        "playerId": 213
+      },
+      {
+        "rank": 8,
+        "name": "DeVonta Smith",
+        "team": "PHI",
+        "playerId": 271
+      },
+      {
+        "rank": 9,
+        "name": "Zay Flowers",
+        "team": "BAL",
+        "playerId": 967
+      },
+      {
+        "rank": 10,
+        "name": "George Pickens",
+        "team": "DAL",
+        "playerId": 404
+      },
+      {
+        "rank": 11,
+        "name": "Matthew Golden",
+        "team": "GB",
+        "playerId": 573
+      },
+      {
+        "rank": 12,
+        "name": "Tetairoa McMillan",
+        "team": "CAR",
+        "playerId": 467
+      },
+      {
+        "rank": 13,
+        "name": "Chris Olave",
+        "team": "NO",
+        "playerId": 538
+      },
+      {
+        "rank": 14,
+        "name": "Drake London",
+        "team": "ATL",
+        "playerId": 868
+      },
+      {
+        "rank": 15,
+        "name": "Nico Collins",
+        "team": "HOU",
+        "playerId": 1116
+      },
+      {
+        "rank": 16,
+        "name": "Tee Higgins",
+        "team": "CIN",
+        "playerId": 1139
+      },
+      {
+        "rank": 17,
+        "name": "Justin Jefferson",
+        "team": "MIN",
+        "playerId": 826
+      },
+      {
+        "rank": 18,
+        "name": "Jalen Coker",
+        "team": "CAR",
+        "playerId": 788
+      },
+      {
+        "rank": 19,
+        "name": "DK Metcalf",
+        "team": "PIT",
+        "playerId": 1340
+      },
+      {
+        "rank": 20,
+        "name": "Germie Bernard",
+        "team": "PIT",
+        "playerId": 899
+      },
+      {
+        "rank": 21,
+        "name": "Garrett Wilson",
+        "team": "NYJ",
+        "playerId": 96
+      },
+      {
+        "rank": 22,
+        "name": "Jameson Williams",
+        "team": "DET",
+        "playerId": 148
+      },
+      {
+        "rank": 23,
+        "name": "DeMario Douglas",
+        "team": "NE",
+        "playerId": 303
+      },
+      {
+        "rank": 24,
+        "name": "Luther Burden III",
+        "team": "CHI",
+        "playerId": 819
+      },
+      {
+        "rank": 25,
+        "name": "Emeka Egbuka",
+        "team": "TB",
+        "playerId": 426
+      },
+      {
+        "rank": 26,
+        "name": "Tre Tucker",
+        "team": "LV",
+        "playerId": 172
+      },
+      {
+        "rank": 27,
+        "name": "Michael Wilson",
+        "team": "ARI",
+        "playerId": 1297
+      },
+      {
+        "rank": 28,
+        "name": "A.J. Brown",
+        "team": "NE",
+        "playerId": 103
+      },
+      {
+        "rank": 29,
+        "name": "Keenan Allen",
+        "team": "IND",
+        "playerId": 563
+      },
+      {
+        "rank": 30,
+        "name": "Carnell Tate",
+        "team": "TEN",
+        "playerId": 277
+      }
+    ],
+    "TE": [
+      {
+        "rank": 1,
+        "name": "Trey McBride",
+        "team": "ARI",
+        "playerId": 653
+      },
+      {
+        "rank": 2,
+        "name": "George Kittle",
+        "team": "SF",
+        "playerId": 134
+      },
+      {
+        "rank": 3,
+        "name": "Brock Bowers",
+        "team": "LV",
+        "playerId": 958
+      },
+      {
+        "rank": 4,
+        "name": "Isaiah Likely",
+        "team": "NYG",
+        "playerId": 432
+      },
+      {
+        "rank": 5,
+        "name": "Sam LaPorta",
+        "team": "DET",
+        "playerId": 253
+      },
+      {
+        "rank": 6,
+        "name": "Dallas Goedert",
+        "team": "PHI",
+        "playerId": 987
+      },
+      {
+        "rank": 7,
+        "name": "Tucker Kraft",
+        "team": "GB",
+        "playerId": 1332
+      },
+      {
+        "rank": 8,
+        "name": "Kyle Pitts Sr.",
+        "team": "ATL",
+        "playerId": 161
+      },
+      {
+        "rank": 9,
+        "name": "Pat Freiermuth",
+        "team": "PIT",
+        "playerId": 689
+      },
+      {
+        "rank": 10,
+        "name": "Hunter Henry",
+        "team": "NE",
+        "playerId": 166
+      },
+      {
+        "rank": 11,
+        "name": "Travis Kelce",
+        "team": "KC",
+        "playerId": 1079
+      },
+      {
+        "rank": 12,
+        "name": "Tyler Higbee",
+        "team": "LAR",
+        "playerId": 765
+      },
+      {
+        "rank": 13,
+        "name": "Mike Gesicki",
+        "team": "CIN",
+        "playerId": 1360
+      },
+      {
+        "rank": 14,
+        "name": "Mark Andrews",
+        "team": "BAL",
+        "playerId": 1034
+      }
+    ],
+    "DEF": [
+      {
+        "rank": 1,
+        "name": "Minnesota Vikings",
+        "team": "MIN",
+        "playerId": 6732
+      },
+      {
+        "rank": 2,
+        "name": "Houston Texans",
+        "team": "HOU",
+        "playerId": 6724
+      },
+      {
+        "rank": 3,
+        "name": "Seattle Seahawks",
+        "team": "SEA",
+        "playerId": 6739
+      },
+      {
+        "rank": 4,
+        "name": "Cleveland Browns",
+        "team": "CLE",
+        "playerId": 6720
+      },
+      {
+        "rank": 5,
+        "name": "Denver Broncos",
+        "team": "DEN",
+        "playerId": 6721
+      },
+      {
+        "rank": 6,
+        "name": "New York Jets",
+        "team": "NYJ",
+        "playerId": 6736
+      },
+      {
+        "rank": 7,
+        "name": "Pittsburgh Steelers",
+        "team": "PIT",
+        "playerId": 6738
+      },
+      {
+        "rank": 8,
+        "name": "Kansas City Chiefs",
+        "team": "KC",
+        "playerId": 6727
+      }
+    ]
+  },
+  "calls": [
+    {
+      "id": "C1",
+      "name": "Brock Purdy",
+      "team": "SF",
+      "position": "QB",
+      "playerId": 861,
+      "verdict": "START",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C2",
+      "name": "Drake Maye",
+      "team": "NE",
+      "position": "QB",
+      "playerId": 174,
+      "verdict": "START",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C3",
+      "name": "Matthew Stafford",
+      "team": "LAR",
+      "position": "QB",
+      "playerId": 1052,
+      "verdict": "START",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C4",
+      "name": "Jared Goff",
+      "team": "DET",
+      "position": "QB",
+      "playerId": 123,
+      "verdict": "START",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C5",
+      "name": "Jordan Love",
+      "team": "GB",
+      "position": "QB",
+      "playerId": 540,
+      "verdict": "START",
+      "condition": "if active",
+      "injury": true
+    },
+    {
+      "id": "C6",
+      "name": "Joe Burrow",
+      "team": "CIN",
+      "position": "QB",
+      "playerId": 196,
+      "verdict": "START",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C7",
+      "name": "C.J. Stroud",
+      "team": "HOU",
+      "position": "QB",
+      "playerId": 1373,
+      "verdict": "START",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C8",
+      "name": "Lamar Jackson",
+      "team": "BAL",
+      "position": "QB",
+      "playerId": 449,
+      "verdict": "START",
+      "condition": "if active",
+      "injury": true
+    },
+    {
+      "id": "C8",
+      "name": "Tyler Huntley",
+      "team": "BAL",
+      "position": "QB",
+      "playerId": 719,
+      "verdict": "SIT",
+      "condition": null,
+      "injury": true
+    },
+    {
+      "id": "C9",
+      "name": "Bryce Young",
+      "team": "CAR",
+      "position": "QB",
+      "playerId": 1235,
+      "verdict": "START",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C10",
+      "name": "Caleb Williams",
+      "team": "CHI",
+      "position": "QB",
+      "playerId": 520,
+      "verdict": "START",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C11",
+      "name": "Dak Prescott",
+      "team": "DAL",
+      "position": "QB",
+      "playerId": 1142,
+      "verdict": "START",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C12",
+      "name": "Kirk Cousins",
+      "team": "LV",
+      "position": "QB",
+      "playerId": 714,
+      "verdict": "START",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C13",
+      "name": "Patrick Mahomes",
+      "team": "KC",
+      "position": "QB",
+      "playerId": 1495,
+      "verdict": "SIT",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C14",
+      "name": "Bo Nix",
+      "team": "DEN",
+      "position": "QB",
+      "playerId": 278,
+      "verdict": "SIT",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C15",
+      "name": "Tanner McKee",
+      "team": "PHI",
+      "position": "QB",
+      "playerId": 479,
+      "verdict": "SIT",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C16",
+      "name": "Baker Mayfield",
+      "team": "TB",
+      "position": "QB",
+      "playerId": 297,
+      "verdict": "SIT",
+      "condition": null,
+      "injury": true
+    },
+    {
+      "id": "C16",
+      "name": "Jalon Daniels",
+      "team": "TB",
+      "position": "QB",
+      "playerId": 221,
+      "verdict": "SIT",
+      "condition": null,
+      "injury": true
+    },
+    {
+      "id": "C17",
+      "name": "J.J. McCarthy",
+      "team": "NYG",
+      "position": "QB",
+      "playerId": 1261,
+      "verdict": "SIT",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C17",
+      "name": "Jameis Winston",
+      "team": "NYG",
+      "position": "QB",
+      "playerId": 546,
+      "verdict": "SIT",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C18",
+      "name": "Jalen Hurts",
+      "team": "PHI",
+      "position": "QB",
+      "playerId": 702,
+      "verdict": "OUT",
+      "condition": null,
+      "injury": true
+    },
+    {
+      "id": "C19",
+      "name": "Jahmyr Gibbs",
+      "team": "DET",
+      "position": "RB",
+      "playerId": 1478,
+      "verdict": "START",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C20",
+      "name": "Christian McCaffrey",
+      "team": "SF",
+      "position": "RB",
+      "playerId": 777,
+      "verdict": "START",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C21",
+      "name": "Kenneth Walker III",
+      "team": "KC",
+      "position": "RB",
+      "playerId": 34,
+      "verdict": "START",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C22",
+      "name": "Bijan Robinson",
+      "team": "ATL",
+      "position": "RB",
+      "playerId": 1407,
+      "verdict": "START",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C23",
+      "name": "Jaylen Warren",
+      "team": "PIT",
+      "position": "RB",
+      "playerId": 793,
+      "verdict": "START",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C24",
+      "name": "Kyren Williams",
+      "team": "LAR",
+      "position": "RB",
+      "playerId": 667,
+      "verdict": "START",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C25",
+      "name": "Kyle Monangai",
+      "team": "CHI",
+      "position": "RB",
+      "playerId": 580,
+      "verdict": "OUT",
+      "condition": null,
+      "injury": true
+    },
+    {
+      "id": "C25",
+      "name": "D'Andre Swift",
+      "team": "CHI",
+      "position": "RB",
+      "playerId": 545,
+      "verdict": "START",
+      "condition": null,
+      "injury": true
+    },
+    {
+      "id": "C25",
+      "name": "Roschon Johnson",
+      "team": "CHI",
+      "position": "RB",
+      "playerId": 42,
+      "verdict": "FLEX",
+      "condition": null,
+      "injury": true
+    },
+    {
+      "id": "C26",
+      "name": "Jonathan Taylor",
+      "team": "IND",
+      "position": "RB",
+      "playerId": 395,
+      "verdict": "START",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C27",
+      "name": "Javonte Williams",
+      "team": "DAL",
+      "position": "RB",
+      "playerId": 1006,
+      "verdict": "START",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C28",
+      "name": "Derrick Henry",
+      "team": "BAL",
+      "position": "RB",
+      "playerId": 568,
+      "verdict": "START",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C29",
+      "name": "Chuba Hubbard",
+      "team": "CAR",
+      "position": "RB",
+      "playerId": 165,
+      "verdict": "START",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C30",
+      "name": "Ashton Jeanty",
+      "team": "LV",
+      "position": "RB",
+      "playerId": 151,
+      "verdict": "START",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C31",
+      "name": "Aaron Jones Sr.",
+      "team": "MIN",
+      "position": "RB",
+      "playerId": 1445,
+      "verdict": "FLEX",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C32",
+      "name": "Bucky Irving",
+      "team": "TB",
+      "position": "RB",
+      "playerId": 47,
+      "verdict": "FLEX",
+      "condition": "if active",
+      "injury": true
+    },
+    {
+      "id": "C33",
+      "name": "Breece Hall",
+      "team": "NYJ",
+      "position": "RB",
+      "playerId": 381,
+      "verdict": "SIT",
+      "condition": null,
+      "injury": true
+    },
+    {
+      "id": "C33",
+      "name": "Braelon Allen",
+      "team": "NYJ",
+      "position": "RB",
+      "playerId": 1485,
+      "verdict": "FLEX",
+      "condition": null,
+      "injury": true
+    },
+    {
+      "id": "C34",
+      "name": "David Montgomery",
+      "team": "HOU",
+      "position": "RB",
+      "playerId": 1382,
+      "verdict": "SIT",
+      "condition": null,
+      "injury": true
+    },
+    {
+      "id": "C34",
+      "name": "Woody Marks",
+      "team": "HOU",
+      "position": "RB",
+      "playerId": 1436,
+      "verdict": "FLEX",
+      "condition": null,
+      "injury": true
+    },
+    {
+      "id": "C35",
+      "name": "Chase Brown",
+      "team": "CIN",
+      "position": "RB",
+      "playerId": 106,
+      "verdict": "FLEX",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C36",
+      "name": "Ollie Gordon II",
+      "team": "MIA",
+      "position": "RB",
+      "playerId": 1271,
+      "verdict": "FLEX",
+      "condition": null,
+      "injury": true
+    },
+    {
+      "id": "C37",
+      "name": "Quinshon Judkins",
+      "team": "CLE",
+      "position": "RB",
+      "playerId": 445,
+      "verdict": "FLEX",
+      "condition": "if active",
+      "injury": true
+    },
+    {
+      "id": "C38",
+      "name": "J.K. Dobbins",
+      "team": "DEN",
+      "position": "RB",
+      "playerId": 130,
+      "verdict": "FLEX",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C38",
+      "name": "RJ Harvey",
+      "team": "DEN",
+      "position": "RB",
+      "playerId": 504,
+      "verdict": "FLEX",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C39",
+      "name": "Alvin Kamara",
+      "team": "NO",
+      "position": "RB",
+      "playerId": 266,
+      "verdict": "SIT",
+      "condition": null,
+      "injury": true
+    },
+    {
+      "id": "C39",
+      "name": "Kendre Miller",
+      "team": "NO",
+      "position": "RB",
+      "playerId": 105,
+      "verdict": "FLEX",
+      "condition": null,
+      "injury": true
+    },
+    {
+      "id": "C40",
+      "name": "Jeremiyah Love",
+      "team": "ARI",
+      "position": "RB",
+      "playerId": 516,
+      "verdict": "SIT",
+      "condition": null,
+      "injury": true
+    },
+    {
+      "id": "C40",
+      "name": "Tyler Allgeier",
+      "team": "ARI",
+      "position": "RB",
+      "playerId": 1379,
+      "verdict": "FLEX",
+      "condition": null,
+      "injury": true
+    },
+    {
+      "id": "C41",
+      "name": "Saquon Barkley",
+      "team": "PHI",
+      "position": "RB",
+      "playerId": 824,
+      "verdict": "SIT",
+      "condition": null,
+      "injury": true
+    },
+    {
+      "id": "C41",
+      "name": "Dameon Pierce",
+      "team": "PHI",
+      "position": "RB",
+      "playerId": 1258,
+      "verdict": "SIT",
+      "condition": null,
+      "injury": true
+    },
+    {
+      "id": "C42",
+      "name": "Josh Jacobs",
+      "team": "GB",
+      "position": "RB",
+      "playerId": 152,
+      "verdict": "SIT",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C43",
+      "name": "Rhamondre Stevenson",
+      "team": "NE",
+      "position": "RB",
+      "playerId": 1243,
+      "verdict": "SIT",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C44",
+      "name": "Tony Pollard",
+      "team": "TEN",
+      "position": "RB",
+      "playerId": 996,
+      "verdict": "SIT",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C45",
+      "name": "Emanuel Wilson",
+      "team": "SEA",
+      "position": "RB",
+      "playerId": 363,
+      "verdict": "SIT",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C46",
+      "name": "Puka Nacua",
+      "team": "LAR",
+      "position": "WR",
+      "playerId": 438,
+      "verdict": "START",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C47",
+      "name": "Davante Adams",
+      "team": "LAR",
+      "position": "WR",
+      "playerId": 1201,
+      "verdict": "OUT",
+      "condition": null,
+      "injury": true
+    },
+    {
+      "id": "C48",
+      "name": "Jaxon Smith-Njigba",
+      "team": "SEA",
+      "position": "WR",
+      "playerId": 28,
+      "verdict": "START",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C49",
+      "name": "Amon-Ra St. Brown",
+      "team": "DET",
+      "position": "WR",
+      "playerId": 224,
+      "verdict": "START",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C50",
+      "name": "CeeDee Lamb",
+      "team": "DAL",
+      "position": "WR",
+      "playerId": 794,
+      "verdict": "START",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C51",
+      "name": "Malik Nabers",
+      "team": "NYG",
+      "position": "WR",
+      "playerId": 1444,
+      "verdict": "START",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C52",
+      "name": "Ja'Marr Chase",
+      "team": "CIN",
+      "position": "WR",
+      "playerId": 586,
+      "verdict": "START",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C53",
+      "name": "Christian Watson",
+      "team": "GB",
+      "position": "WR",
+      "playerId": 213,
+      "verdict": "START",
+      "condition": "if active",
+      "injury": true
+    },
+    {
+      "id": "C54",
+      "name": "DeVonta Smith",
+      "team": "PHI",
+      "position": "WR",
+      "playerId": 271,
+      "verdict": "START",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C55",
+      "name": "Zay Flowers",
+      "team": "BAL",
+      "position": "WR",
+      "playerId": 967,
+      "verdict": "START",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C56",
+      "name": "George Pickens",
+      "team": "DAL",
+      "position": "WR",
+      "playerId": 404,
+      "verdict": "START",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C57",
+      "name": "Matthew Golden",
+      "team": "GB",
+      "position": "WR",
+      "playerId": 573,
+      "verdict": "START",
+      "condition": "if active",
+      "injury": true
+    },
+    {
+      "id": "C58",
+      "name": "Tetairoa McMillan",
+      "team": "CAR",
+      "position": "WR",
+      "playerId": 467,
+      "verdict": "START",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C59",
+      "name": "Chris Olave",
+      "team": "NO",
+      "position": "WR",
+      "playerId": 538,
+      "verdict": "START",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C60",
+      "name": "Drake London",
+      "team": "ATL",
+      "position": "WR",
+      "playerId": 868,
+      "verdict": "START",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C61",
+      "name": "Nico Collins",
+      "team": "HOU",
+      "position": "WR",
+      "playerId": 1116,
+      "verdict": "START",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C62",
+      "name": "Tee Higgins",
+      "team": "CIN",
+      "position": "WR",
+      "playerId": 1139,
+      "verdict": "START",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C63",
+      "name": "Justin Jefferson",
+      "team": "MIN",
+      "position": "WR",
+      "playerId": 826,
+      "verdict": "START",
+      "condition": "if active",
+      "injury": true
+    },
+    {
+      "id": "C64",
+      "name": "Jalen Coker",
+      "team": "CAR",
+      "position": "WR",
+      "playerId": 788,
+      "verdict": "START",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C65",
+      "name": "DK Metcalf",
+      "team": "PIT",
+      "position": "WR",
+      "playerId": 1340,
+      "verdict": "FLEX",
+      "condition": null,
+      "injury": true
+    },
+    {
+      "id": "C65",
+      "name": "Germie Bernard",
+      "team": "PIT",
+      "position": "WR",
+      "playerId": 899,
+      "verdict": "FLEX",
+      "condition": null,
+      "injury": true
+    },
+    {
+      "id": "C66",
+      "name": "Garrett Wilson",
+      "team": "NYJ",
+      "position": "WR",
+      "playerId": 96,
+      "verdict": "FLEX",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C67",
+      "name": "Jameson Williams",
+      "team": "DET",
+      "position": "WR",
+      "playerId": 148,
+      "verdict": "FLEX",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C68",
+      "name": "DeMario Douglas",
+      "team": "NE",
+      "position": "WR",
+      "playerId": 303,
+      "verdict": "FLEX",
+      "condition": null,
+      "injury": true
+    },
+    {
+      "id": "C69",
+      "name": "Luther Burden III",
+      "team": "CHI",
+      "position": "WR",
+      "playerId": 819,
+      "verdict": "FLEX",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C70",
+      "name": "Emeka Egbuka",
+      "team": "TB",
+      "position": "WR",
+      "playerId": 426,
+      "verdict": "FLEX",
+      "condition": "if active",
+      "injury": true
+    },
+    {
+      "id": "C71",
+      "name": "Tre Tucker",
+      "team": "LV",
+      "position": "WR",
+      "playerId": 172,
+      "verdict": "FLEX",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C72",
+      "name": "Michael Wilson",
+      "team": "ARI",
+      "position": "WR",
+      "playerId": 1297,
+      "verdict": "FLEX",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C73",
+      "name": "A.J. Brown",
+      "team": "NE",
+      "position": "WR",
+      "playerId": 103,
+      "verdict": "FLEX",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C74",
+      "name": "Keenan Allen",
+      "team": "IND",
+      "position": "WR",
+      "playerId": 563,
+      "verdict": "FLEX",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C75",
+      "name": "Carnell Tate",
+      "team": "TEN",
+      "position": "WR",
+      "playerId": 277,
+      "verdict": "FLEX",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C76",
+      "name": "Mike Evans",
+      "team": "SF",
+      "position": "WR",
+      "playerId": 541,
+      "verdict": "SIT",
+      "condition": null,
+      "injury": true
+    },
+    {
+      "id": "C77",
+      "name": "Deebo Samuel Sr.",
+      "team": "SF",
+      "position": "WR",
+      "playerId": 394,
+      "verdict": "OUT",
+      "condition": null,
+      "injury": true
+    },
+    {
+      "id": "C78",
+      "name": "Rashee Rice",
+      "team": "KC",
+      "position": "WR",
+      "playerId": 108,
+      "verdict": "SIT",
+      "condition": null,
+      "injury": true
+    },
+    {
+      "id": "C79",
+      "name": "Jaylen Waddle",
+      "team": "DEN",
+      "position": "WR",
+      "playerId": 1384,
+      "verdict": "SIT",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C80",
+      "name": "Courtland Sutton",
+      "team": "DEN",
+      "position": "WR",
+      "playerId": 664,
+      "verdict": "SIT",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C81",
+      "name": "Rome Odunze",
+      "team": "CHI",
+      "position": "WR",
+      "playerId": 708,
+      "verdict": "SIT",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C82",
+      "name": "Omar Cooper Jr.",
+      "team": "NYJ",
+      "position": "WR",
+      "playerId": 336,
+      "verdict": "SIT",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C83",
+      "name": "Trey McBride",
+      "team": "ARI",
+      "position": "TE",
+      "playerId": 653,
+      "verdict": "START",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C84",
+      "name": "George Kittle",
+      "team": "SF",
+      "position": "TE",
+      "playerId": 134,
+      "verdict": "START",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C85",
+      "name": "Brock Bowers",
+      "team": "LV",
+      "position": "TE",
+      "playerId": 958,
+      "verdict": "START",
+      "condition": "if active",
+      "injury": true
+    },
+    {
+      "id": "C86",
+      "name": "Isaiah Likely",
+      "team": "NYG",
+      "position": "TE",
+      "playerId": 432,
+      "verdict": "START",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C87",
+      "name": "Sam LaPorta",
+      "team": "DET",
+      "position": "TE",
+      "playerId": 253,
+      "verdict": "START",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C88",
+      "name": "Dallas Goedert",
+      "team": "PHI",
+      "position": "TE",
+      "playerId": 987,
+      "verdict": "START",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C89",
+      "name": "Tucker Kraft",
+      "team": "GB",
+      "position": "TE",
+      "playerId": 1332,
+      "verdict": "START",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C90",
+      "name": "Kyle Pitts Sr.",
+      "team": "ATL",
+      "position": "TE",
+      "playerId": 161,
+      "verdict": "START",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C91",
+      "name": "Pat Freiermuth",
+      "team": "PIT",
+      "position": "TE",
+      "playerId": 689,
+      "verdict": "FLEX",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C92",
+      "name": "Hunter Henry",
+      "team": "NE",
+      "position": "TE",
+      "playerId": 166,
+      "verdict": "FLEX",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C93",
+      "name": "Travis Kelce",
+      "team": "KC",
+      "position": "TE",
+      "playerId": 1079,
+      "verdict": "FLEX",
+      "condition": "if active",
+      "injury": true
+    },
+    {
+      "id": "C94",
+      "name": "Tyler Higbee",
+      "team": "LAR",
+      "position": "TE",
+      "playerId": 765,
+      "verdict": "FLEX",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C95",
+      "name": "Tyler Warren",
+      "team": "IND",
+      "position": "TE",
+      "playerId": 825,
+      "verdict": "SIT",
+      "condition": null,
+      "injury": true
+    },
+    {
+      "id": "C96",
+      "name": "Dalton Schultz",
+      "team": "HOU",
+      "position": "TE",
+      "playerId": 855,
+      "verdict": "SIT",
+      "condition": null,
+      "injury": true
+    },
+    {
+      "id": "C97",
+      "name": "Juwan Johnson",
+      "team": "NO",
+      "position": "TE",
+      "playerId": 309,
+      "verdict": "SIT",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C98",
+      "name": "Jake Ferguson",
+      "team": "DAL",
+      "position": "TE",
+      "playerId": 833,
+      "verdict": "SIT",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C99",
+      "name": "Minnesota Vikings",
+      "team": "MIN",
+      "position": "DEF",
+      "playerId": 6732,
+      "verdict": "START",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C100",
+      "name": "Houston Texans",
+      "team": "HOU",
+      "position": "DEF",
+      "playerId": 6724,
+      "verdict": "START",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C101",
+      "name": "Seattle Seahawks",
+      "team": "SEA",
+      "position": "DEF",
+      "playerId": 6739,
+      "verdict": "START",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C102",
+      "name": "Cleveland Browns",
+      "team": "CLE",
+      "position": "DEF",
+      "playerId": 6720,
+      "verdict": "START",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C103",
+      "name": "Denver Broncos",
+      "team": "DEN",
+      "position": "DEF",
+      "playerId": 6721,
+      "verdict": "START",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C104",
+      "name": "New York Jets",
+      "team": "NYJ",
+      "position": "DEF",
+      "playerId": 6736,
+      "verdict": "START",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C105",
+      "name": "Dallas Cowboys",
+      "team": "DAL",
+      "position": "DEF",
+      "playerId": 26,
+      "verdict": "SIT",
+      "condition": null,
+      "injury": false
+    },
+    {
+      "id": "C106",
+      "name": "Indianapolis Colts",
+      "team": "IND",
+      "position": "DEF",
+      "playerId": 6725,
+      "verdict": "SIT",
+      "condition": null,
+      "injury": false
+    }
+  ]
+}
