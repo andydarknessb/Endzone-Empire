@@ -246,7 +246,7 @@ function GameCard({ g }) {
       <CallList tone="sit" items={g.sit} />
       {g.also ? (
         <Box component="p" sx={{ mt: '14px !important', mb: '0 !important', fontSize: '0.85rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-          <strong>Also sit:</strong> {g.also}
+          <strong>Also:</strong> {g.also}
         </Box>
       ) : null}
     </Box>
@@ -525,7 +525,7 @@ const GAMES = [
     total: 44.5,
     weather: null,
     rain: false,
-    read: 'This one is in Paris and kicks off at 9:30a ET, ahead of every other Sunday game. The inactives drop about 8:00a ET and nothing has played before it, so any swap has to come from a bench player in a later game. I have no forecast for Paris. Pittsburgh is a 3.5-point favorite, implied for 24.0 against 20.5. New Orleans allows the most RB points, so Jaylen Warren is a start, and Pittsburgh allows the 6th-fewest WR points, which makes Chris Olave a lower-end start. With Michael Pittman Jr. and Roman Wilson on IR, DK Metcalf and Germie Bernard are the Steelers receivers.',
+    read: 'This one is in Paris and kicks off at 9:30a ET, ahead of every other Sunday game. The inactives drop about 8:00a ET and nothing has played before it, so any swap has to come from a bench player in a later game. Pittsburgh is a 3.5-point favorite, implied for 24.0 against 20.5. New Orleans allows the most RB points, so Jaylen Warren is a start, and Pittsburgh allows the 6th-fewest WR points, which makes Chris Olave a lower-end start. With Michael Pittman Jr. and Roman Wilson on IR, DK Metcalf and Germie Bernard are the Steelers receivers.',
     fpa: 'PIT offense vs NO D: QB 15, RB 1, WR 15, TE 7 · NO offense vs PIT D: QB 29, RB 19, WR 27, TE 18',
     start: [
       ['Jaylen Warren', 'RB', 'New Orleans allows the most RB points; 14 carries and 5 targets a game.', 'RB5', 'C23'],
@@ -721,7 +721,7 @@ const GAMES = [
     total: 49.5,
     weather: '64F, wind 10, sunny',
     rain: false,
-    read: 'San Francisco is a 2.5-point favorite implied for 26.0 against 23.5, and the offense is thin: Deebo Samuel is out and Mike Evans did not practice Wednesday (ribs, Achilles) and is expected to miss time. That runs more of the offense through Christian McCaffrey and George Kittle. Atlanta allows the 10th-most QB points and the 11th-most RB points, so Brock Purdy and Bijan Robinson are starts, and Drake London and Kyle Pitts are the Falcons plays.',
+    read: 'San Francisco is a 2.5-point favorite implied for 26.0 against 23.5, and the offense is thin: Deebo Samuel is out and Mike Evans did not practice Wednesday (ribs, Achilles) and is expected to miss time. That runs more of the offense through Christian McCaffrey and George Kittle. Atlanta allows the 10th-most QB points and San Francisco allows the 11th-most RB points, so Brock Purdy and Bijan Robinson are starts, and Drake London and Kyle Pitts are the Falcons plays.',
     fpa: 'SF offense vs ATL D: QB 10, RB 10, WR 6, TE 11 · ATL offense vs SF D: QB 24, RB 11, WR 24, TE 28',
     start: [
       ['Brock Purdy', 'QB', '22.3 points a game; San Francisco implied for 26.0 at Atlanta, which allows the 10th-most QB points.', 'QB1', 'C1'],
@@ -924,7 +924,7 @@ const GAMES = [
     total: 44.5,
     weather: '58F, wind 0, mostly clear',
     rain: false,
-    read: 'Monday night is the last window, so there is no later swap. Dallas is a 4.5-point favorite implied for 24.5 against 20.0, and Philadelphia allows the 8th-most QB points and the 4th-most WR points. Update since the Tuesday waiver column, which had Saquon Barkley out: Mike Garafolo reported Thursday that Barkley (hamstring) is in line to play Monday. He is still a sit, because he was 5.8 a game on 32% of the snaps before the injury, and Dameon Pierce is a sit too. Jalen Hurts is on IR with blood clots and out for the season; Tanner McKee is a 2QB start only.',
+    read: 'Monday night is the last window, so there is no later swap. Dallas is a 4.5-point favorite implied for 24.5 against 20.0, and Philadelphia allows the 8th-most QB points and the 4th-most WR points. Update since the Tuesday waiver column, which had Saquon Barkley out: Mike Garafolo has since reported that Barkley (hamstring) is in line to play Monday. He is still a sit, because he was 5.8 a game on 32% of the snaps before the injury, and Dameon Pierce is a sit too. Jalen Hurts is on IR with blood clots and out for the season; Tanner McKee is a 2QB start only.',
     fpa: 'DAL offense vs PHI D: QB 8, RB 16, WR 4, TE 19 · PHI offense vs DAL D: QB 5, RB 11, WR 9, TE 15',
     start: [
       ['Dak Prescott', 'QB', 'Philadelphia allows the 8th-most QB points; 17.5 a game despite 11.8 over the last two.', 'QB11', 'C11'],
@@ -1001,7 +1001,7 @@ const INJ_NIGHT = [
   ['Travis Kelce', 'TE', 'KC', 'Limited Wednesday (ankle). Inactives about 6:50p ET.', 'Flex if active. Dallas Goedert plays Monday.', 'gtd', 'C93'],
   ['Rashee Rice', 'WR', 'KC', 'Did not practice Wednesday (hamstring, knee).', 'None. Sit.', 'sit', 'C78'],
   ['Zach Charbonnet', 'RB', 'SEA', 'Practiced in full Wednesday; the engine\'s 10.7 comes with a 0% active read, ignore it. No ruling on him.', 'Emanuel Wilson is a sit (5.2 last week on 32% of the snaps).', 'gtd', 'C45'],
-  ['Saquon Barkley', 'RB', 'PHI', 'Hamstring. Mike Garafolo reported Thursday that he is in line to play Monday; the Tuesday waiver column had him out. Inactives about 6:45p ET Monday.', 'Dameon Pierce is a sit too. Monday night leaves no pivot.', 'sit', 'C41'],
+  ['Saquon Barkley', 'RB', 'PHI', 'Hamstring. Mike Garafolo has since reported that he is in line to play Monday; the Tuesday waiver column had him out. Inactives about 6:45p ET Monday.', 'Dameon Pierce is a sit too. Monday night leaves no pivot.', 'sit', 'C41'],
 ];
 
 const ALREADY_OUT = ['Michael Pittman Jr. (PIT WR, IR)', 'Roman Wilson (PIT WR, IR)', 'Romeo Doubs (NE WR, IR)', 'Mack Hollins (NE WR, IR)', 'De\'Von Achane (MIA RB, IR)', 'Travis Etienne Jr. (NO RB, IR)', 'James Conner (ARI RB, IR)'];
@@ -1180,7 +1180,7 @@ const SLEEPERS = [
 ];
 
 const FADES = [
-  ['Patrick Mahomes', 'SIT, QB13. Seattle allows the 2nd-fewest QB points, Kansas City is implied for 19.8, and he scored 10.5 last week; QB13.', 'QB'],
+  ['Patrick Mahomes', 'SIT, QB13. Seattle allows the 2nd-fewest QB points, Kansas City is implied for 19.8, and he scored 10.5 last week.', 'QB'],
   ['Bo Nix', 'SIT. 11.6 a game and 6.2 over the last two (7.9, 4.5).', 'QB'],
   ['Rhamondre Stevenson', 'SIT. 3.6 last week; Chicago allows the 3rd-fewest RB points.', 'RB'],
   ['Saquon Barkley', 'SIT. Hamstring; in line to play Monday per Mike Garafolo, but he was 5.8 a game on 32% of the snaps before it.', 'RB'],
@@ -1192,7 +1192,7 @@ const PIVOTS = [
   ['Tampa quarterback', 'Mayfield and Daniels are both sits. Tampa names its starter Friday; check it again at the 1:00p inactives.'],
   ['Irving or Egbuka out', 'Both are flexes only if active. Swap to a flex who kicks off at 4:05p or later.'],
   ['Jefferson out', 'No Minnesota receiver is called. Swap to a receiver who kicks off at 4:05p or later.'],
-  ['Hall out (already)', 'Braelon Allen is a flex, RB15.'],
+  ['Hall out', 'Braelon Allen is a flex, RB15.'],
   ['Montgomery out', 'Woody Marks is a flex, RB16.'],
   ['Monangai out (already)', 'Swift is the start, RB7, and Roschon Johnson is the flex, RB20.'],
   ['Kamara out', 'Kendre Miller is a flex, RB23.'],
@@ -1865,7 +1865,7 @@ const CHECK_THU = [
 ];
 
 const CHECK_PARIS = [
-  ['Rico Dowdle (PIT RB).', 'No ruling. Jaylen Warren is a START as written.'],
+  ['Rico Dowdle (PIT RB).', 'Limited Wednesday (knee). No ruling. Jaylen Warren is a START as written.'],
   ['Alvin Kamara (NO RB).', 'A sit either way. Kendre Miller is the FLEX.'],
   ['Everyone on the card.', 'Paris locks first on Sunday and nothing has played before it. Check about 8:00a ET.'],
 ];
@@ -1915,7 +1915,7 @@ const Body = () => (
       (5:43am CT). Injury notes are the Wednesday practice reports, and no Thursday report was
       published when I wrote this.</strong>{' '}
       Friday&apos;s reports can change any of it. Update on Saquon Barkley: the Tuesday waiver
-      column had him out, and Mike Garafolo reported Thursday that he is in line to play Monday. I
+      column had him out, and Mike Garafolo has since reported that he is in line to play Monday. I
       still call him a sit. Re-check the Friday reports and the inactives before you lock anything.
       Every window below says when the inactives drop, and every time on this page is Eastern
       unless it says CT.
