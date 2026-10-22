@@ -8,11 +8,12 @@ import { matchupResultLine } from './matchupModel';
  * lays it out instead of branching on `status` itself.
  *
  *   { chip: { label, variant, dot } | null,
- *     hasStarted, settled, isLive, isFinal, viewerSide, resultLine,
- *     winProbability: { home, away } | null,
- *     projectedWinProbability: { home, away } | null,
- *     home: { score, scoreLabel, expectedFinal, playersRemaining, playersRemainingLabel, yetToPlay },
- *     away: { ...same } }
+ *     hasStarted, settled, isLive, isFinal, resultLine,
+ *     winProbability: { first, second } | null,
+ *     projectedWinProbability: { first, second } | null,
+ *     first: { isViewer, origin, teamId, name, avatarUrl, avatarStaticUrl, score, scoreLabel,
+ *              expectedFinal, playersRemaining, playersRemainingLabel, yetToPlay },
+ *     second: { ...same } }
  *
  * - `chip` is null for an unknown status (null, absent, unrecognised): "the
  *   server could not say" draws no chip, never a guessed "Scheduled". The
@@ -24,8 +25,10 @@ import { matchupResultLine } from './matchupModel';
  * - `isLive` is the exact live status; `isFinal` is the exact final status,
  *   or, for a status the server did not state (null), the body's own `final`
  *   flag, the only finality fact such a body carries (#912).
- * - `viewerSide` is 'home' or 'away' when the viewer's Team is one of the two
- *   (matched on Team id, never on name or position, #112), else null.
+ * - Viewer first (spec #2402): `first` is the viewer's Team when it is one of the
+ *   two (matched on Team id, never on name or position, #112), else the home
+ *   Team; `second` is the other. `origin` ('home' | 'away') says where a side
+ *   came from and `isViewer` marks the viewer's own. No caller orders the sides.
  * - `winProbability` is the one priced figure, stated once the Matchup has
  *   started (live, played, final): the scores decide a settled week, the
  *   projections price a live one. Null before kickoff and for an unknown
@@ -75,9 +78,15 @@ function finite(value) {
 export function matchupBoard(matchup, viewerTeamId) {
   const m = matchup || {};
   const phase = matchupPhase(m.status);
-  const side = (s = {}) => {
+  const side = (s = {}, origin) => {
     const remaining = finite(s.playersRemaining);
     return {
+      origin,
+      isViewer: viewerTeamId != null && s.teamId != null && s.teamId === viewerTeamId,
+      teamId: s.teamId ?? null,
+      name: s.name ?? null,
+      avatarUrl: s.avatarUrl ?? null,
+      avatarStaticUrl: s.avatarStaticUrl ?? null,
       score: s.score ?? null,
       scoreLabel: matchup ? (finite(s.score) ?? 0).toFixed(1) : null,
       expectedFinal: phase.settled ? null : s.expectedFinal ?? null,
@@ -86,28 +95,27 @@ export function matchupBoard(matchup, viewerTeamId) {
       playersRemainingLabel: remaining == null ? null : String(remaining),
     };
   };
-  const home = side(m.home);
-  const away = side(m.away);
-  const viewerSide =
-    viewerTeamId == null ? null
-      : m.home?.teamId === viewerTeamId ? 'home'
-        : m.away?.teamId === viewerTeamId ? 'away' : null;
+  const home = side(m.home, 'home');
+  const away = side(m.away, 'away');
+  // Viewer first: the viewer's Team leads when it is in the Matchup, else home.
+  const flip = away.isViewer && !home.isViewer;
+  const [first, second] = flip ? [away, home] : [home, away];
+  const keyed = (p) => (p ? (flip ? { first: p.away, second: p.home } : { first: p.home, second: p.away }) : null);
   const price = () =>
-    matchupWinProbability({
+    keyed(matchupWinProbability({
       homeScore: home.score,
       awayScore: away.score,
       homeExpectedFinal: home.expectedFinal,
       awayExpectedFinal: away.expectedFinal,
       status: m.status,
-    });
+    }));
   return {
     ...phase,
     isFinal: phase.isFinal || (m.status == null && !!m.final),
-    viewerSide,
     resultLine: matchupResultLine(m, viewerTeamId),
     winProbability: phase.hasStarted === true ? price() : null,
     projectedWinProbability: phase.hasStarted === false ? price() : null,
-    home,
-    away,
+    first,
+    second,
   };
 }
