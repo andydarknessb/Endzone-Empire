@@ -17,7 +17,7 @@ import { formatPoints } from '../../../shared/lib';
  *     matching matchup-grid's own `scheduled ? ef : score` convention.
  *   - The win probability is the entity board's (#2142), the same figure the
  *     hero and matchup-grid read: before kickoff that is the projections-only
- *     split, once live it moves with the score. The tile's SplitBar
+ *     split, once live it moves with the score. The tile's OddsBar
  *     is never gated on `started`, unlike matchup-grid's hairline-before-
  *     kickoff divider: the design source (docs/design/league-dashboard-v2/
  *     build.mjs, aroundLeague()) paints every tile's bar unconditionally.
@@ -83,7 +83,7 @@ export function aroundLeagueTileView(matchup, { viewerTeamId } = {}) {
     // figure's own VALUE already uses, rather than `!started` - which
     // collapses the unknown-status case into "not started" and would then
     // print a live score under a "Projected" label (a false accessible
-    // name, the same class of defect #872 forbade for SplitBar).
+    // name, the same class of defect #872 forbade for OddsBar).
     scheduled,
     // The tile-level ring (#1103): true when either side is the viewer's.
     isViewer: homeSide.isViewer || awaySide.isViewer,

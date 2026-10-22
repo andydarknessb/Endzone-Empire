@@ -59,7 +59,7 @@ const entry = (over = {}) => ({
   nflTeam: 'BUF',
   slot: 'QB',
   // #1482: `projectedPoints` (the Point estimate, CONTEXT.md's The
-  // projection engine) is what the card's Proj text, RangeBar marker and
+  // projection engine) is what the card's Proj text, range-bar marker and
   // Bench options number/sort read; `projection` (the bare mean) rides
   // alongside since a real entry always carries both. Defaulted equal here
   // since this fixture isn't testing the two statistics diverging (a
@@ -566,11 +566,11 @@ test('bench options list eligible bench players by projectedPoints, and a swap s
 // #1482, formal review round 2 (formal-002-f1): opening a Ledger row's
 // Decision card must not reintroduce the issue's own contradiction one tap
 // later. DK Metcalf's row headlines his projectedPoints (8.21); his card's
-// Proj text and RangeBar marker must read the same number, never his mean
+// Proj text and range-bar marker must read the same number, never his mean
 // (9.03). Terry McLaurin's bench option must show and sort by HIS
 // projectedPoints (10.06), not his lower mean (7.37) - the exact shape the
 // issue's Cause section measured.
-test('the Proj text, RangeBar marker and Bench options read projectedPoints, never the mean, when they disagree (#1482)', async () => {
+test('the Proj text, range-bar marker and Bench options read projectedPoints, never the mean, when they disagree (#1482)', async () => {
   const dk = entry({
     playerId: 1, name: 'DK Metcalf', slot: 'FLEX', projection: 9.03, projectedPoints: 8.21,
     floor: 5, ceiling: 12, eligibleSlots: ['BENCH', 'FLEX'],
@@ -596,14 +596,14 @@ test('the Proj text, RangeBar marker and Bench options read projectedPoints, nev
 
 // #1777 (spec #1774): the card agrees with the Ledger row that opened it. A
 // Position-baseline projection is the position's average, not evidence about
-// the player, so Proj reads "no history", no RangeBar marker renders, and the
+// the player, so Proj reads "no history", no range-bar marker renders, and the
 // Bench options show the same label and sort him after evidenced options.
 describe('a Position-baseline projection (#1777)', () => {
   const baselineStarter = (over = {}) =>
     entry({ playerId: 1, name: 'Rookie Back', slot: 'RB', position: 'RB', projectedPoints: 9.4, projection: 9.4,
       floor: 4, ceiling: 15, eligibleSlots: ['BENCH', 'RB'], startVerdict: { outcome: 'not_recommended', reason: 'no_history', numberTrusted: false }, ...over });
 
-  test('Proj text reads "no history", no number and no RangeBar marker', async () => {
+  test('Proj text reads "no history", no number and no range-bar marker', async () => {
     const rookie = baselineStarter();
     renderCard({ entry: rookie, entries: [rookie] });
 
@@ -1285,12 +1285,12 @@ test('the decision strip shows the Ownership and depth chart tiles in this conte
   expect(screen.getByTestId('decision-strip-depth')).toHaveTextContent('RB1');
 });
 
-// #1849 (spec #1845): the Volatility tag, a Badge beside the RangeBar, from the
+// #1849 (spec #1845): the Volatility tag, a Badge beside the range bar, from the
 // card payload's own decision.volatility; nothing at all for null.
 describe('Volatility tag (#1849)', () => {
   const cardWith = (volatility) => ({ decision: { projWeek: { week: 4, points: 12 }, volatility } });
 
-  test('reads "Steady" beside the RangeBar', async () => {
+  test('reads "Steady" beside the range bar', async () => {
     mockCardRoute(cardWith('steady'));
     renderCard();
     const badge = await screen.findByTestId('decision-card-volatility');

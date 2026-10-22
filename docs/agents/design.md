@@ -37,11 +37,12 @@ elevation; chips are pills at weight 600; table bodies stripe with
 `row-stripe` and hover with `row-hover`.
 
 The FSD island (ADR 0017, 0020, 0029: `src/pages`, `widgets`, `features`,
-`entities`, `shared`) uses the `dash-*` token group in the same file:
-Barlow Condensed for display type and scores, Archivo for body (both
-self-hosted in `src/assets/fonts`), 14px card radius, `dash-surface`
-cards with a `dash-line` hairline, and `shared/ui` Card, Badge and
-Skeleton. New league surfaces are drawn in this generation; the committed
+`entities`, `shared`) uses the Play-select `ps-*` token group in the same
+file (ADR 0067): Press Start 2P for display type and scores, Archivo for
+body (self-hosted in `src/assets/fonts`), square corners, and the double
+`ps-frame` rule on `ps-panel` fills, built from the primitives in
+`src/shared/ui/playselect/`. New league surfaces are drawn in this
+generation; the committed
 `docs/design/dashboard-concept.html` (ADR 0020) and
 `docs/design/league-dashboard-v2/` (ADR 0034) are its reference sources.
 

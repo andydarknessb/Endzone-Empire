@@ -324,12 +324,11 @@ export function useMatchupPreview(leagueId, { scoreEvent } = {}) {
   // The win probability is the board's (#2142), the same figure Game Center's
   // hero reads, computed from the two scores and the two Expected finals, so
   // the two surfaces cannot disagree. It is never a
-  // points ratio: SplitBar's accessible name is
-  // the hard-coded "Win probability" (#872), and a ratio there would announce a
-  // number that is not one. The share is clamped and rounded exactly as
-  // SplitBar rounds its own segments, and it is stated from the VIEWER's side
-  // because the card lays the viewer out on the left where SplitBar paints its
-  // `homeShare` segment.
+  // points ratio: TwoSidedOdds names both teams and shares ("{a} X%, {b} Y% win
+  // probability", #872), and a ratio there would announce a number that is not one.
+  // The share is clamped and rounded as TwoSidedOdds rounds it (0-100, so the two
+  // sides sum to 100), and it is stated from the VIEWER's side because the card
+  // passes the viewer as the odds bar's first side.
   let winProbability = null;
   if (status === 'ready' && board.winProbability) {
     const shares = board.winProbability;

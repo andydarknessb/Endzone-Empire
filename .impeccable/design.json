@@ -682,66 +682,66 @@
       "name": "Primary Button",
       "kind": "button",
       "refersTo": "button-primary",
-      "description": "Island primary action (DashButton primary).",
+      "description": "Play-select primary action: the Accent fill, 44px tall.",
       "html": "<button class=\"ds-btn-primary\">Set lineup</button>",
-      "css": ".ds-btn-primary { font: 600 13px/1.2 var(--dash-font-body); color: var(--dash-on-accent); background: var(--dash-accent); border: 1px solid var(--dash-accent); border-radius: 9px; padding: 0 16px; min-height: 38px; white-space: nowrap; cursor: pointer; transition: filter var(--transition-fast); } .ds-btn-primary:hover { filter: brightness(1.08); } .ds-btn-primary:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; } .ds-btn-primary:disabled { color: var(--dash-dim); background: var(--dash-surface3); border-color: var(--dash-line-strong); }"
+      "css": ".ds-btn-primary { font: 600 15px/1.2 'Archivo', sans-serif; color: var(--ps-on-accent); background: var(--ps-accent); border: 2px solid var(--ps-accent); border-radius: 0; padding: 0 16px; min-height: 44px; white-space: nowrap; cursor: pointer; transition: filter var(--transition-fast); } .ds-btn-primary:hover { filter: brightness(1.08); } .ds-btn-primary:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; } .ds-btn-primary:disabled { color: var(--ps-dim); background: var(--ps-panel); border-color: var(--ps-rule); }"
     },
     {
       "name": "Ghost Button",
       "kind": "button",
       "refersTo": "button-ghost",
-      "description": "Island secondary action (DashButton ghost).",
+      "description": "Play-select secondary action: Ink border and label, 44px tall.",
       "html": "<button class=\"ds-btn-ghost\">View matchup</button>",
-      "css": ".ds-btn-ghost { font: 600 13px/1.2 var(--dash-font-body); color: var(--dash-dim); background: transparent; border: 1px solid var(--dash-line-strong); border-radius: 9px; padding: 0 16px; min-height: 38px; white-space: nowrap; cursor: pointer; } .ds-btn-ghost:hover { color: var(--dash-ink); border-color: var(--dash-accent-line); } .ds-btn-ghost:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }"
+      "css": ".ds-btn-ghost { font: 600 15px/1.2 'Archivo', sans-serif; color: var(--ps-ink); background: transparent; border: 2px solid var(--ps-ink); border-radius: 0; padding: 0 16px; min-height: 44px; white-space: nowrap; cursor: pointer; } .ds-btn-ghost:hover { color: var(--ps-accent); border-color: var(--ps-accent); } .ds-btn-ghost:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }"
     },
     {
       "name": "Card",
       "kind": "card",
       "refersTo": "card",
-      "description": "Flat island card with a hairline header row.",
+      "description": "Play-select panel in the 6px double Frame rule, with a 2px Rule divider under its header row.",
       "html": "<section class=\"ds-card\"><div class=\"ds-card-h\"><h2>Around the league</h2><span class=\"ds-card-count\">6 matchups</span></div><div class=\"ds-card-b\">Card body</div></section>",
-      "css": ".ds-card { background: var(--dash-surface); color: var(--dash-ink); border: 1px solid var(--dash-line); border-radius: var(--dash-radius); font: 15px/1.5 var(--dash-font-body); } .ds-card-h { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 14px 18px; border-bottom: 1px solid var(--dash-line); } .ds-card-h h2 { margin: 0; font: 700 16px/1.2 var(--dash-font-display); letter-spacing: .02em; } .ds-card-count { font-size: 12px; font-weight: 600; color: var(--dash-faint); } .ds-card-b { padding: 16px 18px; }"
+      "css": ".ds-card { background: var(--ps-panel); color: var(--ps-ink); border: 6px double var(--ps-frame); border-radius: 0; font: 15px/1.5 'Archivo', sans-serif; } .ds-card-h { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 14px 18px; border-bottom: 2px solid var(--ps-rule); } .ds-card-h h2 { margin: 0; font: 700 16px/1.2 'Press Start 2P', monospace; letter-spacing: .02em; } .ds-card-count { font-size: 12px; font-weight: 600; color: var(--ps-dim); } .ds-card-b { padding: 16px 18px; }"
     },
     {
       "name": "Stat Tile",
       "kind": "custom",
       "refersTo": "stat-tile",
-      "description": "Uppercase key over a tabular condensed value.",
+      "description": "Uppercase key over a tabular pixel value.",
       "html": "<div class=\"ds-stat\"><div class=\"ds-stat-k\">Draft grade</div><div class=\"ds-stat-v\">A- <small>2nd</small></div></div>",
-      "css": ".ds-stat { background: var(--dash-surface2); border-radius: var(--dash-radius); padding: 12px 16px; } .ds-stat-k { font: 600 11px var(--dash-font-body); letter-spacing: .07em; text-transform: uppercase; color: var(--dash-faint); } .ds-stat-v { font: 700 24px/1.2 var(--dash-font-display); font-variant-numeric: tabular-nums; color: var(--dash-grade-a-text); } .ds-stat-v small { font: 500 13px var(--dash-font-body); color: var(--dash-dim); }"
+      "css": ".ds-stat { background: var(--ps-panel); border-radius: 0; padding: 12px 16px; } .ds-stat-k { font: 600 11px 'Archivo', sans-serif; letter-spacing: .07em; text-transform: uppercase; color: var(--ps-dim); } .ds-stat-v { font: 700 24px/1.2 'Press Start 2P', monospace; font-variant-numeric: tabular-nums; color: var(--ps-ink); } .ds-stat-v small { font: 500 13px 'Archivo', sans-serif; color: var(--ps-dim); }"
     },
     {
       "name": "Live Chip",
       "kind": "chip",
       "refersTo": "chip-live",
-      "description": "Live state pill: accent text on the accent tint.",
+      "description": "Live state chip: a 2px Accent outline with Accent text on a clear fill.",
       "html": "<span class=\"ds-chip-live\">Live</span>",
-      "css": ".ds-chip-live { display: inline-flex; align-items: center; padding: 2px 10px; border-radius: 999px; font: 600 12px var(--dash-font-body); color: var(--dash-accent); background: var(--dash-accent-soft); border: 1px solid var(--dash-accent-line); }"
+      "css": ".ds-chip-live { display: inline-flex; align-items: center; padding: 2px 10px; border-radius: 0; font: 600 12px 'Archivo', sans-serif; color: var(--ps-accent); background: transparent; border: 2px solid var(--ps-accent); }"
     },
     {
       "name": "Scoreboard",
       "kind": "custom",
       "refersTo": "scoreboard",
-      "description": "Amber LED digits on a board that stays dark in both themes.",
+      "description": "White pixel digits on a Board black that stays dark in both themes.",
       "html": "<div class=\"ds-board\"><span>24</span><span class=\"ds-board-sep\">-</span><span>17</span></div>",
-      "css": ".ds-board { display: inline-flex; gap: 12px; align-items: baseline; padding: 12px 20px; border-radius: var(--dash-radius-sm); background: var(--dash-board); color: var(--dash-led); font: 700 30px/1 var(--dash-font-display); font-variant-numeric: tabular-nums; } .ds-board-sep { color: var(--dash-led-dim); }"
+      "css": ".ds-board { display: inline-flex; gap: 12px; align-items: baseline; padding: 12px 20px; border-radius: 0; background: var(--ps-board); color: var(--ps-board-ink); font: 700 30px/1 'Press Start 2P', monospace; font-variant-numeric: tabular-nums; } .ds-board-sep { color: var(--ps-board-dim); }"
     },
     {
       "name": "Text Field",
       "kind": "input",
       "refersTo": "input",
-      "description": "Island input with the 3:1 Field Edge boundary.",
+      "description": "Play-select input in the 6px double Frame rule.",
       "html": "<input class=\"ds-input\" placeholder=\"League code\">",
-      "css": ".ds-input { font: 15px/1.5 var(--dash-font-body); color: var(--dash-ink); background: var(--dash-surface); border: 1px solid var(--dash-field); border-radius: var(--dash-radius-sm); padding: 8px 12px; } .ds-input:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }"
+      "css": ".ds-input { font: 15px/1.5 'Archivo', sans-serif; color: var(--ps-ink); background: var(--ps-panel); border: 6px double var(--ps-frame); border-radius: 0; padding: 8px 12px; } .ds-input:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }"
     }
   ],
   "narrative": {
     "northStar": "The Commissioner's Desk",
-    "overview": "Endzone Empire is where a league gets run, week after week. The everyday surfaces are a working desk: dense, orderly, and quiet enough to make a lineup or waiver decision in seconds. Hairline cards, tabular numbers, and condensed display type keep a lot of data readable at once. Color on the desk is mostly a data encoding (positions, grades, home and away), not decoration.\n\nThe noise lives in the moments. Live games, a final score, a draft grade, a win, a trade landing: these are where the system gets loud and playful, with Endzone Green, Fourth-Quarter Amber on a scoreboard that stays black in both themes, big condensed figures, and the Tecmo-style sprite. A screen earns its loudness from what is happening in the league, never from ornament.\n\nTwo visual generations coexist. The **island** (League Dashboard, Game Center, Matchup Detail, Lineup, Pick'em, Waivers, and Home at `/user`) uses the `dash-*` tokens, Barlow Condensed and Archivo, and is where new league surfaces are drawn. **Legacy** pages under `src/components/` use the app tokens and MUI's Inter ramp. Each generation keeps its own tokens; never mix them on one surface.\n\nThe system rejects the sportsbook look (odds boards, neon promos, betting urgency) and the cluttered legacy-portal look (ad-shaped boxes, tiny type, every widget competing).",
+    "overview": "Endzone Empire is where a league gets run, week after week. The everyday surfaces are a working desk: dense, orderly, and quiet enough to make a lineup or waiver decision in seconds. Framed panels, tabular numbers, and pixel display type keep a lot of data readable at once. Color on the desk is mostly a data encoding (positions, grades, home and away), not decoration.\n\nThe noise lives in the moments. Live games, a final score, a draft grade, a win, a trade landing: these are where the system gets loud and playful, with Endzone Green, white pixel digits on a Board black that stays dark in both themes (Game Center's scoreboard keeps its amber), big pixel figures, and the Tecmo-style sprite. A screen earns its loudness from what is happening in the league, never from ornament.\n\nTwo visual generations coexist. The **island** (League Dashboard, Game Center, Matchup Detail, Lineup, Pick'em, Waivers, and Home at `/user`) uses the Play-select `ps-*` tokens, Press Start 2P and Archivo (ADR 0067), and is where new league surfaces are drawn. **Legacy** pages under `src/components/` use the app tokens and MUI's Inter ramp. Each generation keeps its own tokens; never mix them on one surface.\n\nThe system rejects the sportsbook look (odds boards, neon promos, betting urgency) and the cluttered legacy-portal look (ad-shaped boxes, tiny type, every widget competing).",
     "keyCharacteristics": [
       "Dark-first and light-complete: every screen ships in both themes from the same token names.",
-      "Condensed display type for names, scores, and stat values; tabular numerals on every figure.",
-      "Flat island cards with a hairline edge; depth comes from tonal surface steps.",
+      "Pixel display type (Press Start 2P) for names, scores, and stat values; tabular numerals on every figure.",
+      "Square, flat island panels in a double Frame rule; no radii, no shadows.",
       "Color encodes data first; the accent is reserved for primary action and live state.",
       "Contrast is asserted in tests, not eyeballed."
     ],
@@ -753,7 +753,7 @@
       },
       {
         "name": "The Island Boundary Rule",
-        "body": "Island surfaces use only `dash-*` tokens, and legacy pages and the app shell (Nav, Footer) use only app tokens.",
+        "body": "Island surfaces use only `ps-*` tokens, and legacy pages and the app shell (Nav, Footer) use only app tokens.",
         "section": "colors"
       },
       {
@@ -773,21 +773,21 @@
       },
       {
         "name": "The Flat Island Rule",
-        "body": "Island cards never take a shadow. To lift something, step it to the next surface tone.",
+        "body": "Island panels never take a shadow or a radius; the double Frame rule is the only edge.",
         "section": "elevation"
       }
     ],
     "dos": [
       "Do take every value from `src/theme/tokens.js`, and add a semantic token (and its contrast pairing) when one is missing.",
       "Do ship both themes for every screen, using each theme's own values and never a mix.",
-      "Do set every figure in tabular numerals, with Barlow Condensed for scores and stat values on island surfaces.",
+      "Do set every figure in tabular numerals, with Press Start 2P for scores and stat values on island surfaces.",
       "Do save loudness for live state and big moments: live pills, finals, grades, wins, the scoreboard.",
       "Do keep a visible 2px focus ring and honor the global reduced-motion policy, which makes transitions instant.",
       "Do use inline stroke SVG icons on a 20 or 24px grid."
     ],
     "donts": [
       "Don't hard-code a color literal in CSS, `sx`, or inline styles.",
-      "Don't mix `dash-*` and app tokens on one surface.",
+      "Don't mix `ps-*` and app tokens on one surface.",
       "Don't put a shadow on an island card.",
       "Don't borrow sportsbook visuals: odds boards, neon promos, countdown urgency.",
       "Don't add legacy-portal clutter: ad-shaped boxes, tiny type, widgets competing for attention.",

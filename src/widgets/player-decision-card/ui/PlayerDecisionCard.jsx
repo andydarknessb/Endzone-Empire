@@ -866,7 +866,7 @@ export default function PlayerDecisionCard(props) {
             // player's own sections render ONCE, inside this grid's left
             // column - review finding: an earlier revision also rendered
             // them again above the grid via a second `ComparePlayerPanel`,
-            // duplicating every heading, table and RangeBar. Each panel's
+            // duplicating every heading, table and range bar. Each panel's
             // own name is a heading (`h3`) so a screen reader's heading
             // navigation can tell the two players' Game/Usage/Weekly
             // projection headings apart; the sections nested under it step
@@ -1264,7 +1264,7 @@ function GameSection({ entry, line, weather, level }) {
   );
 }
 
-// AC2: the Point estimate, Floor, Ceiling on the shared RangeBar, and the
+// AC2: the Point estimate, Floor, Ceiling on the range bar, and the
 // largest Factor's explanation. `entry.factorExplanation` (#1281) rides the
 // lineup entry as its own field, independent of the Edge line:
 // `lineup.service.js` sets it from the SAME `factorEdgeText(factors)` call
@@ -1274,7 +1274,7 @@ function GameSection({ entry, line, weather, level }) {
 // tile and his largest Factor's explanation at once. Null when no factor
 // applies.
 //
-// #1482, formal review round 2 (formal-002-f1): the RangeBar marker and the
+// #1482, formal review round 2 (formal-002-f1): the range-bar marker and the
 // "Proj" text read `entry.projectedPoints` (CONTEXT.md's Point estimate),
 // never `entry.projection` (the distribution's bare mean) - the same card
 // opens from a Ledger row, so a mean-headlined "Proj" here would reproduce
@@ -1285,9 +1285,9 @@ function GameSection({ entry, line, weather, level }) {
 // #1777 (spec #1774): a Position-baseline projection reads "no history" here
 // exactly as it does on the Ledger row that opened the card - `projectionLabel`
 // and `hasNoHistory` (`shared/lib`) are the one helper both surfaces call - and
-// the RangeBar marker is withheld (a null projection paints no tick).
+// the range-bar marker is withheld (a null projection paints no tick).
 //
-// #1849 (spec #1845): the Volatility tag sits beside the RangeBar as a Badge,
+// #1849 (spec #1845): the Volatility tag sits beside the range bar as a Badge,
 // from the card payload's `decision.volatility` (`steady` | `boom_or_bust`);
 // anything else (null, absent, a tag this build does not know) renders nothing,
 // never an "unavailable" (ADR 0040).
