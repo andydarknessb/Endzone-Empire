@@ -1715,10 +1715,11 @@ function GameLogSection({ weeks, log, position, currentWeek }) {
           }
           const rank = ordinal(week.opponentRankVsPosition?.rank);
           const opponent = logRow?.opponent || week.opponent;
+          const proj = points2(week.kind === 'projected' ? week.points : week.projected);
           const tones = [];
           const cells = dataCols.map((col, i) => {
             const value = col.value(row);
-            if (!played || value == null) return '-';
+            if (!played || value == null) return <DashValue label="not played" />;
             const tone = gameLogTone(value, columnValues[i]);
             tones[i + 3] = tone;
             return (
@@ -1733,8 +1734,8 @@ function GameLogSection({ weeks, log, position, currentWeek }) {
             tones,
             cells: [
               wk,
-              opponent ? `${opponent}${rank ? ` (${rank})` : ''}` : '-',
-              points2(week.kind === 'projected' ? week.points : week.projected),
+              opponent ? `${opponent}${rank ? ` (${rank})` : ''}` : <DashValue label="no opponent" />,
+              proj === '-' ? <DashValue label="no projection" /> : proj,
               ...cells,
             ],
           };
