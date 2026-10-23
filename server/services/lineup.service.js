@@ -1125,6 +1125,29 @@ async function rowsHeldAsPlayed(client, { league, teamId, season, week, rows, ki
 }
 
 /**
+ * The `on_roster` select column of a live lineup read: whether the player is
+ * on the team's current roster. Shared by the live readers that select it by subquery (#2428); expectedFinal derives it from its own LEFT JOIN.
+ */
+function onRosterColumn() {
+  return `EXISTS (SELECT 1 FROM "team_players" WHERE "team_players"."team_id" = "lineup_entries"."team_id"
+    AND "team_players"."player_id" = "lineup_entries"."player_id")`;
+}
+
+/**
+ * A live standard week's starters as settle will count them (#2391, #2428):
+ * rows whose `on_roster` is not `false` are kept as they are, and only the
+ * `on_roster === false` rows (a starter spared after his kickoff, #627) go
+ * through `rowsHeldAsPlayed`. A row with no `on_roster` field counts as
+ * on-roster. Input order is kept. Same arguments as `rowsHeldAsPlayed`.
+ */
+async function liveStartersHeld(client, { rows, ...rest }) {
+  const offRoster = rows.filter((row) => row.on_roster === false);
+  if (offRoster.length === 0) return rows;
+  const held = new Set(await rowsHeldAsPlayed(client, { ...rest, rows: offRoster }));
+  return rows.filter((row) => row.on_roster !== false || held.has(row));
+}
+
+/**
  * Pure: add schedule-derived lock, bye and opponent metadata to lineup
  * entries.
  *
@@ -1915,6 +1938,8 @@ module.exports = {
   playersNotHeldAtKickoff,
   playersNotHeldAtLastKickoff,
   rowsHeldAsPlayed,
+  liveStartersHeld,
+  onRosterColumn,
   annotateLineupEntries,
   getLineup,
   setLineup,

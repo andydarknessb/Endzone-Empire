@@ -7,7 +7,7 @@
 const pool = require('../modules/pool');
 const clock = require('../modules/clock');
 const { withTransaction } = require('../modules/withTransaction');
-const { materializeLineup, rowsHeldAsPlayed } = require('./lineup.service');
+const { materializeLineup, rowsHeldAsPlayed, liveStartersHeld, onRosterColumn } = require('./lineup.service');
 const { getDraftRoomBroadcast } = require('../modules/draftRoomBroadcast');
 const { seasonOperationsAvailable, SEASON_BEFORE_DRAFT_MESSAGE } = require('./leaguePhase');
 const { countedRoster } = require('./countedRoster.service');
@@ -244,7 +244,8 @@ async function scoreMatchups({ leagueId, season, week, plays = [], settle = fals
         return countedRoster({ rows, league, price }).teamScore;
       }
       const r = await client.query(
-        `SELECT "lineup_entries"."player_id", "players"."nfl_team", "player_stats"."stats"
+        `SELECT "lineup_entries"."player_id", "players"."nfl_team", "player_stats"."stats",
+                ${asPlayed ? 'TRUE' : onRosterColumn()} AS "on_roster"
          FROM "lineup_entries"
          JOIN "players" ON "players"."id" = "lineup_entries"."player_id"
          LEFT JOIN "player_stats" ON "player_stats"."player_id" = "lineup_entries"."player_id"
@@ -255,9 +256,14 @@ async function scoreMatchups({ leagueId, season, week, plays = [], settle = fals
         [teamId, season, week]
       );
       // Standard: the SQL already dropped BENCH and IR, so every row here is a
-      // starter. The started-total sum and the rounding are the counted-roster
-      // module's job now (#954).
-      const rows = await heldRows(r.rows, teamId, asPlayed);
+      // starter. A live week keeps its on-roster starters and puts only the
+      // off-roster ones (a row spared after kickoff, #627) through the settle
+      // filter, so live never counts a row settle then takes off (#2391). The
+      // started-total sum and the rounding are the counted-roster module's job
+      // now (#954).
+      const rows = asPlayed
+        ? await heldRows(r.rows, teamId, true)
+        : await liveStartersHeld(client, { league, teamId, season, week, rows: r.rows, kickoffCache });
       return countedRoster({ rows, league, price }).teamScore;
     };
     const scored = [];

@@ -1,7 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import { useParams } from 'react-router-dom';
-import { Alert, Box, Container, Paper, Stack, Typography } from '@mui/material';
+import { Box, Typography } from '@mui/material';
+import {
+  ErrorPanel, Frame, LiveChip, PixelHeading, SR_ONLY_SX, Skel, pixelSx, psRootSx,
+} from '../../shared/ui/playselect';
 import DraftBoardMatrix from '../DraftBoard/DraftBoardMatrix';
 import PickClock from '../DraftBoard/PickClock';
 import { deriveOnTheClock } from '../../shared/lib/onTheClock';
@@ -16,6 +19,26 @@ const presenterClient = axios.create();
 
 function presenterError(error) {
   return readHttpFailure(error).message || 'Unable to load this draft board.';
+}
+
+// Body text for a TV: 20px at 1920 wide, scaling with the screen. The room's
+// pieces size their own text (14px cells, 15px and 13px activity lines), so the
+// frame below hands them this size from outside rather than forking them.
+const TV_TEXT = 'clamp(16px, 1.05vw, 24px)';
+const TV_SX = {
+  fontSize: TV_TEXT,
+  '& .MuiTableCell-root, & .MuiTypography-body2, & [data-testid="draft-activity"] > div': { fontSize: 'inherit' },
+};
+
+function PresenterRoot({ children }) {
+  return (
+    <Box
+      className="ps-root"
+      sx={{ ...psRootSx, minHeight: '100vh', boxSizing: 'border-box', py: { xs: 2, md: 4 }, px: { xs: 2, md: 4 } }}
+    >
+      <Box sx={{ maxWidth: 1800, mx: 'auto', display: 'grid', gap: { xs: 2, md: 3 } }}>{children}</Box>
+    </Box>
+  );
 }
 
 function DraftPresenter() {
@@ -68,17 +91,22 @@ function DraftPresenter() {
 
   if (!draftState && !error) {
     return (
-      <Container sx={{ py: 6 }}>
-        <Typography variant="h5">Loading draft board…</Typography>
-      </Container>
+      <PresenterRoot>
+        <Box role="status" sx={{ display: 'grid', gap: 2 }}>
+          <Box component="span" sx={SR_ONLY_SX}>Loading draft board…</Box>
+          <Skel width="40%" height={40} />
+          <Skel width="100%" height={96} />
+          <Skel width="100%" height={360} />
+        </Box>
+      </PresenterRoot>
     );
   }
 
   if (!draftState) {
     return (
-      <Container sx={{ py: 6 }}>
-        <Alert severity="error">{error}</Alert>
-      </Container>
+      <PresenterRoot>
+        <ErrorPanel title="Unable to load this draft board" body={error} />
+      </PresenterRoot>
     );
   }
 
@@ -95,107 +123,101 @@ function DraftPresenter() {
   });
 
   return (
-    <Box sx={{ minHeight: '100vh', bgcolor: 'background.default', py: { xs: 2, md: 4 } }}>
-      <Container maxWidth={false} sx={{ maxWidth: 1800 }}>
-        <Stack spacing={{ xs: 2, md: 3 }}>
-          <Box component="header">
-            <Typography variant="overline" sx={{ color: 'text.secondary', fontWeight: 'bold' }}>
-              Draft Presenter
-            </Typography>
-            <Typography variant="h2" component="h1" sx={{ fontSize: { xs: '2rem', md: '3.25rem' }, fontWeight: 'bold' }}>
-              {league.name}
-            </Typography>
+    <PresenterRoot>
+      <Box component="header">
+        <Box component="p" sx={{ m: 0, mb: 0.5, fontSize: '15px', fontWeight: 600, color: 'var(--ps-dim)' }}>
+          Draft Presenter
+        </Box>
+        <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '8px 16px' }}>
+          <PixelHeading level={1}>{league.name}</PixelHeading>
+          {isActive && <LiveChip />}
+        </Box>
+      </Box>
+
+      {/* The room's on-the-clock banner, off this page's polled snapshot: Board
+          black, a Pixel 24 turn line and the room's PickClock leaf at Pixel 32. */}
+      <Box
+        component="section"
+        sx={{
+          p: { xs: 1.5, md: 2.5 }, display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          gap: 2, flexWrap: 'wrap', backgroundColor: 'var(--ps-board)', color: 'var(--ps-board-ink)',
+          border: '2px solid', borderColor: isActive ? 'var(--ps-board-live)' : 'var(--ps-board-rule)',
+        }}
+      >
+        {/* The live region is the turn text only; the per-second clock stays
+            outside it, as in the room's banner (#445 AC3). */}
+        <Box
+          role="status"
+          aria-live="polite"
+          sx={{ ...pixelSx(24), fontSize: { xs: '16px', md: '24px' }, overflowWrap: 'anywhere', minWidth: 0 }}
+        >
+          {onTheClock.team ? `${onTheClock.team.teamName} is on the clock` : league.draft_status}
+        </Box>
+        {onTheClock.state === 'running' ? (
+          // The per-pick clock, not the Draft's schedule Countdown (one m:ss
+          // vocabulary, #754).
+          <PickClock deadlineAt={onTheClock.deadlineAt} sx={pixelSx(32)} />
+        ) : (
+          <Box sx={{ ...pixelSx(16), color: league.draft_paused ? 'var(--ps-board-ink)' : 'var(--ps-board-dim)' }}>
+            {league.draft_paused ? 'Draft paused' : 'No active pick clock'}
           </Box>
+        )}
+      </Box>
 
-          <Paper
-            component="section"
-            role="status"
-            aria-live="polite"
-            sx={{
-              p: { xs: 2, md: 3 }, display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-              gap: 2, flexWrap: 'wrap', border: 2, borderColor: isActive ? 'primary.main' : 'divider',
-            }}
-          >
-            <Box>
-              <Typography variant="overline" sx={{ color: 'text.secondary', fontWeight: 'bold' }}>
-                {isActive ? 'On the clock' : 'Draft status'}
-              </Typography>
-              <Typography variant="h3" sx={{ fontSize: { xs: '1.6rem', md: '2.5rem' }, fontWeight: 'bold' }}>
-                {onTheClock.team ? `${onTheClock.team.teamName} is on the clock` : league.draft_status}
-              </Typography>
-            </Box>
-            {onTheClock.state === 'running' ? (
-              // This is the per-pick clock, not the Draft's own schedule, so
-              // it is the room's PickClock leaf (one m:ss vocabulary, #754),
-              // not the schedule Countdown: no milestone announcer, no
-              // timezone/calendar detail.
-              <PickClock deadlineAt={onTheClock.deadlineAt} prefix="Time remaining:" variant="h6" />
-            ) : (
-              <Typography variant="h6" sx={{ color: league.draft_paused ? 'warning.main' : 'text.secondary' }}>
-                {league.draft_paused ? 'Draft paused' : 'No active pick clock'}
-              </Typography>
-            )}
-          </Paper>
+      <Box sx={TV_SX}>
+        <DraftBoardMatrix
+          teams={teams}
+          picks={picksNewestFirst}
+          onTheClock={onTheClock}
+          draftRounds={draftRounds(league)}
+          readOnly
+        />
+      </Box>
 
-          <DraftBoardMatrix
-            teams={teams}
-            picks={picksNewestFirst}
-            onTheClock={onTheClock}
-            draftRounds={draftRounds(league)}
-            readOnly
-            // This page's own heading order is h1 (above) then h3 (the
-            // on-the-clock status) then h4 ("Recent picks" below) - not
-            // something issue #121 owns fixing. Keep the matrix's title at
-            // its own pre-existing level here (out of the h1-h3-h4 chain
-            // entirely) rather than accepting the default h2, which would
-            // sit awkwardly between the h3 and h4 already on this page.
-            titleComponent="h6"
-          />
-
-          <Paper component="section" aria-labelledby="recent-picks-heading" sx={{ p: { xs: 2, md: 3 } }}>
-            <Typography id="recent-picks-heading" variant="h4" sx={{ fontSize: { xs: '1.4rem', md: '2rem' }, mb: 2 }}>
-              Recent picks
-            </Typography>
-            {picksNewestFirst.length === 0 ? (
-              <Typography sx={{ color: 'text.secondary' }}>No picks have been made.</Typography>
-            ) : (
-              <Stack direction="row" spacing={2} sx={{ overflowX: 'auto', pb: 0.5 }}>
-                {picksNewestFirst.slice(0, 5).map((pick) => (
-                  <Box key={pick.pick_number} sx={{ minWidth: { xs: 180, md: 240 } }}>
-                    <Typography variant="overline" sx={{ color: 'text.secondary' }}>
-                      Pick {pick.pick_number} · {teamNameLabel(pick.teamName)}
-                    </Typography>
-                    <Typography variant="h5" noWrap title={pick.name}>{pick.name}</Typography>
-                    <Typography variant="body1" sx={{ color: 'text.secondary' }}>
-                      {pick.position}{pick.nfl_team ? ` · ${pick.nfl_team}` : ''}{pick.is_keeper ? ' · Keeper' : ''}
-                    </Typography>
-                  </Box>
-                ))}
-              </Stack>
-            )}
-          </Paper>
-
-          <Paper component="section" aria-labelledby="draft-activity-heading" sx={{ p: { xs: 2, md: 3 } }}>
-            <Typography id="draft-activity-heading" variant="h4" sx={{ fontSize: { xs: '1.4rem', md: '2rem' }, mb: 2 }}>
-              Draft activity
-            </Typography>
-            {activityNewestFirst.length === 0 ? (
-              <Typography sx={{ color: 'text.secondary' }}>No draft activity yet.</Typography>
-            ) : (
-              // A live, scrollable log of the authoritative Draft events (#438),
-              // rendered with the SAME event line the Draft room uses so a
-              // presenter and a member read a Pick or a lifecycle change the
-              // same way. It carries no chat, no composer and no moderation.
-              <Box aria-live="polite" sx={{ maxHeight: 420, overflowY: 'auto' }}>
-                {activityNewestFirst.map((entry) => (
-                  <DraftActivityEntry key={feedEntryKey(entry)} entry={entry} />
-                ))}
+      <Frame tier="rule" labelledBy="recent-picks-heading" sx={{ ...TV_SX, p: { xs: 2, md: 3 } }}>
+        <Box sx={{ mb: 2 }}>
+          <PixelHeading id="recent-picks-heading">Recent picks</PixelHeading>
+        </Box>
+        {picksNewestFirst.length === 0 ? (
+          <Typography sx={{ color: 'var(--ps-dim)', fontSize: 'inherit' }}>No picks have been made.</Typography>
+        ) : (
+          <Box sx={{ display: 'flex', gap: 3, overflowX: 'auto', pb: 0.5 }}>
+            {picksNewestFirst.slice(0, 5).map((pick) => (
+              <Box key={pick.pick_number} sx={{ minWidth: { xs: 180, md: 280 } }}>
+                <Box sx={{ color: 'var(--ps-dim)' }}>
+                  Pick {pick.pick_number} · {teamNameLabel(pick.teamName)}
+                </Box>
+                <Box title={pick.name} sx={{ fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {pick.name}
+                </Box>
+                <Box sx={{ color: 'var(--ps-dim)' }}>
+                  {pick.position}{pick.nfl_team ? ` · ${pick.nfl_team}` : ''}{pick.is_keeper ? ' · Keeper' : ''}
+                </Box>
               </Box>
-            )}
-          </Paper>
-        </Stack>
-      </Container>
-    </Box>
+            ))}
+          </Box>
+        )}
+      </Frame>
+
+      <Frame tier="rule" labelledBy="draft-activity-heading" sx={{ ...TV_SX, p: { xs: 2, md: 3 } }}>
+        <Box sx={{ mb: 2 }}>
+          <PixelHeading id="draft-activity-heading">Draft activity</PixelHeading>
+        </Box>
+        {activityNewestFirst.length === 0 ? (
+          <Typography sx={{ color: 'var(--ps-dim)', fontSize: 'inherit' }}>No draft activity yet.</Typography>
+        ) : (
+          // A live, scrollable log of the authoritative Draft events (#438),
+          // rendered with the SAME event line the Draft room uses so a
+          // presenter and a member read a Pick or a lifecycle change the same
+          // way. It carries no chat, no composer and no moderation.
+          <Box aria-live="polite" sx={{ maxHeight: 420, overflowY: 'auto' }}>
+            {activityNewestFirst.map((entry) => (
+              <DraftActivityEntry key={feedEntryKey(entry)} entry={entry} />
+            ))}
+          </Box>
+        )}
+      </Frame>
+    </PresenterRoot>
   );
 }
 

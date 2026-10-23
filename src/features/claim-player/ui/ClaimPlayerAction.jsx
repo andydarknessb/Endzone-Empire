@@ -1,17 +1,15 @@
 import React, { useState } from 'react';
-import { Box, Button, FormControl, InputLabel, MenuItem, Select, TextField, Typography } from '@mui/material';
-import { MIN_TOUCH_TARGET_SX, isRosterAtCapacity, sortRosterForDrop } from '../../../shared/lib';
+import { Box, MenuItem, Select, TextField, Typography } from '@mui/material';
+import { isRosterAtCapacity, sortRosterForDrop } from '../../../shared/lib';
 import { useClaimPlayer } from '../model/useClaimPlayer';
 import { bidHelperText, isValidBid } from '../model/bidValidity';
-// New playselect file, imported by direct path (the look is opt-in, see `look` below).
 import { PsButton } from '../../../shared/ui/playselect';
 import {
   FIELD_SX, FieldLabel, HINT_SX, MENU_PAPER,
 } from '../../../shared/ui/playselect/CardControls';
 
 /**
- * `look` is `'dash'` (default, every current caller) or `'playselect'` (ADR 0067, spec #2347 ruling 7):
- * the same bar on `ps-*` tokens, square 44px controls. Its Claim is a ghost button unless `filled`, which
+ * ADR 0067, spec #2347 ruling 7: the bar on `ps-*` tokens, square 44px controls. Its Claim is a ghost button unless `filled`, which
  * only the modal phone sheet passes: the desktop drawer carries no filled action.
  *
  * The Decision card's waivers action bar (#1307, ADR 0040 CardStates):
@@ -23,7 +21,7 @@ import {
  * `AddPlayerAction` already applies to a free-agent add.
  */
 export default function ClaimPlayerAction({
-  player, leagueId, availability, roster, onClaimed, look = 'dash', filled = false,
+  player, leagueId, availability, roster, onClaimed, filled = false,
 }) {
   const [dropPlayerId, setDropPlayerId] = useState('');
   const [bid, setBid] = useState('');
@@ -46,92 +44,29 @@ export default function ClaimPlayerAction({
     });
   };
 
-  if (look === 'playselect') {
-    const dropLabelId = 'claim-player-drop-label';
-    return (
-      <Box
-        data-testid="claim-player-action"
-        role="group"
-        aria-label={`Claim ${player.name}`}
-        sx={{ display: 'flex', flexDirection: 'column', gap: '14px', px: '16px', pb: '16px' }}
-      >
-        {atCapacity && (
-          <Typography sx={{ fontFamily: 'inherit', fontSize: '14px', color: 'var(--ps-dim)' }} data-testid="claim-player-capacity-note">
-            Your roster is full. Choose a player to drop when this claim clears.
-          </Typography>
-        )}
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: '6px', minWidth: 0 }}>
-          <FieldLabel id={dropLabelId}>{dropLabel}</FieldLabel>
-          <Select
-            labelId={dropLabelId}
-            value={dropPlayerId}
-            displayEmpty
-            fullWidth
-            onChange={(e) => setDropPlayerId(e.target.value)}
-            MenuProps={{ PaperProps: MENU_PAPER }}
-            sx={FIELD_SX}
-            data-testid="claim-player-drop-select"
-          >
-            <MenuItem value="">{atCapacity ? 'Choose a player to drop' : 'No drop'}</MenuItem>
-            {sortedRoster.map((p) => (
-              <MenuItem key={p.id} value={p.id}>
-                {p.name} ({p.position})
-              </MenuItem>
-            ))}
-          </Select>
-        </Box>
-        {isFaab && (
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: '6px', minWidth: 0 }}>
-            <FieldLabel htmlFor="claim-player-bid">Bid</FieldLabel>
-            <TextField
-              id="claim-player-bid"
-              type="number"
-              fullWidth
-              value={bid}
-              onChange={(e) => setBid(e.target.value)}
-              error={bidInvalid}
-              helperText={bidInvalid ? bidHelperText(faabRemaining) : `$${faabRemaining} remaining`}
-              inputProps={{ min: 0, max: faabRemaining, step: 1 }}
-              InputProps={{ sx: FIELD_SX }}
-              sx={HINT_SX}
-            />
-          </Box>
-        )}
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-          <PsButton
-            variant={filled ? 'fill' : 'ghost'}
-            disabled={pending || bidInvalid || dropMissing}
-            onClick={handleClaim}
-            data-testid="claim-player-submit"
-          >
-            Claim
-          </PsButton>
-          {availability?.waiverPriority != null && (
-            <Typography sx={{ fontFamily: 'inherit', fontSize: '14px', color: 'var(--ps-dim)' }}>{`Priority #${availability.waiverPriority}`}</Typography>
-          )}
-        </Box>
-      </Box>
-    );
-  }
-
+  const dropLabelId = 'claim-player-drop-label';
   return (
-    <Box data-testid="claim-player-action" sx={{ display: 'flex', flexDirection: 'column', gap: 1, px: 2, pb: 1.5 }}>
-      {/* Risk-review finding (accessibility): `size="small"` shrinks MUI's
-          OutlinedInput to 40px, under the 44px minimum every Button on this
-          card already carries via MIN_TOUCH_TARGET_SX - default size clears
-          it without one, matching WaiverWire's own analogous claim dialog. */}
+    <Box
+      data-testid="claim-player-action"
+      role="group"
+      aria-label={`Claim ${player.name}`}
+      sx={{ display: 'flex', flexDirection: 'column', gap: '14px', px: '16px', pb: '16px' }}
+    >
       {atCapacity && (
-        <Typography sx={{ fontSize: 12, color: 'var(--text-muted)' }} data-testid="claim-player-capacity-note">
+        <Typography sx={{ fontFamily: 'inherit', fontSize: '14px', color: 'var(--ps-dim)' }} data-testid="claim-player-capacity-note">
           Your roster is full. Choose a player to drop when this claim clears.
         </Typography>
       )}
-      <FormControl fullWidth>
-        <InputLabel id="claim-player-drop-label">{dropLabel}</InputLabel>
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: '6px', minWidth: 0 }}>
+        <FieldLabel id={dropLabelId}>{dropLabel}</FieldLabel>
         <Select
-          labelId="claim-player-drop-label"
-          label={dropLabel}
+          labelId={dropLabelId}
           value={dropPlayerId}
+          displayEmpty
+          fullWidth
           onChange={(e) => setDropPlayerId(e.target.value)}
+          MenuProps={{ PaperProps: MENU_PAPER }}
+          sx={FIELD_SX}
           data-testid="claim-player-drop-select"
         >
           <MenuItem value="">{atCapacity ? 'Choose a player to drop' : 'No drop'}</MenuItem>
@@ -141,32 +76,35 @@ export default function ClaimPlayerAction({
             </MenuItem>
           ))}
         </Select>
-      </FormControl>
+      </Box>
       {isFaab && (
-        <TextField
-          label="Bid"
-          type="number"
-          fullWidth
-          value={bid}
-          onChange={(e) => setBid(e.target.value)}
-          error={bidInvalid}
-          helperText={bidInvalid ? bidHelperText(faabRemaining) : `$${faabRemaining} remaining`}
-          inputProps={{ min: 0, max: faabRemaining, step: 1 }}
-        />
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: '6px', minWidth: 0 }}>
+          <FieldLabel htmlFor="claim-player-bid">Bid</FieldLabel>
+          <TextField
+            id="claim-player-bid"
+            type="number"
+            fullWidth
+            value={bid}
+            onChange={(e) => setBid(e.target.value)}
+            error={bidInvalid}
+            helperText={bidInvalid ? bidHelperText(faabRemaining) : `$${faabRemaining} remaining`}
+            inputProps={{ min: 0, max: faabRemaining, step: 1 }}
+            InputProps={{ sx: FIELD_SX }}
+            sx={HINT_SX}
+          />
+        </Box>
       )}
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-        <Button
-          size="small"
-          variant="contained"
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+        <PsButton
+          variant={filled ? 'fill' : 'ghost'}
           disabled={pending || bidInvalid || dropMissing}
           onClick={handleClaim}
-          sx={MIN_TOUCH_TARGET_SX}
           data-testid="claim-player-submit"
         >
           Claim
-        </Button>
+        </PsButton>
         {availability?.waiverPriority != null && (
-          <Typography sx={{ fontSize: 12, color: 'var(--text-muted)' }}>{`Priority #${availability.waiverPriority}`}</Typography>
+          <Typography sx={{ fontFamily: 'inherit', fontSize: '14px', color: 'var(--ps-dim)' }}>{`Priority #${availability.waiverPriority}`}</Typography>
         )}
       </Box>
     </Box>

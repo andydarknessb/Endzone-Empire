@@ -266,11 +266,11 @@ test('on-the-clock snackbar: instantaneous under reduce with control, open+close
   // POSITIVE CONTROL (ordinary): the alert opens on mount, has a real
   // transition, and dismisses cleanly.
   await openDraft(page, ACTIVE_SEED);
-  const alert = page.getByRole('alert').filter({ hasText: 'on the clock' });
+  const alert = page.locator('.MuiAlert-root').filter({ hasText: 'on the clock' });
   await expect(alert).toBeVisible();
   const ordinary = await motion(alert);
   expect(ordinary.transition, 'ordinary-mode control for snackbar').toBeGreaterThan(0);
-  await alert.getByRole('button').first().click();
+  await alert.getByRole('button', { name: 'Dismiss notification' }).click();
   await expect(alert).toBeHidden();
 
   // REDUCED MOTION: re-fire the alert on the SAME page by driving the socket
@@ -280,11 +280,11 @@ test('on-the-clock snackbar: instantaneous under reduce with control, open+close
   const socketState = { league: ACTIVE_STATE.league, teams: FIXTURE_TEAMS, picks: ACTIVE_PICKS };
   await deliver(page, 'draft:state', { ...socketState, onTheClock: FIXTURE_TEAMS[1] });
   await deliver(page, 'draft:state', { ...socketState, onTheClock: FIXTURE_TEAMS[0] });
-  const alertReduced = page.getByRole('alert').filter({ hasText: 'on the clock' });
+  const alertReduced = page.locator('.MuiAlert-root').filter({ hasText: 'on the clock' });
   await expect(alertReduced).toBeVisible(); // open lifecycle completed under reduce
   const reduced = await motion(alertReduced);
   expect(reduced.transition, 'reduced-motion transition for snackbar').toBe(0);
-  await alertReduced.getByRole('button').first().click();
+  await alertReduced.getByRole('button', { name: 'Dismiss notification' }).click();
   await expect(alertReduced).toBeHidden(); // close lifecycle completed under reduce
 });
 

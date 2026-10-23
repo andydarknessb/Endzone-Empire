@@ -311,7 +311,6 @@ export default function StandingsTable({ leagueId, seasons, title = 'Standings' 
             <SegmentedControl
               aria-label="Season"
               data-testid="pickem-standings-season-switch"
-              look="playselect"
               options={seasonOptions.map((value) => ({ value, label: String(value) }))}
               value={season}
               onChange={onSeasonChange}

@@ -53,3 +53,27 @@ describe('useMatchupPreview lastWeek', () => {
     expect(enabled.every(([, week]) => week === 1)).toBe(true);
   });
 });
+
+describe('useMatchupPreview viewer first', () => {
+  test('an away viewer is the viewer: their figures lead and the home Team is the opponent', () => {
+    useLeague.mockReturnValue({
+      teams: [{ teamId: 3, teamName: 'Home Heroes' }, { teamId: 7, teamName: 'Away Aces' }],
+      viewerTeamId: 7,
+      league: { current_season: 2026, current_week: 3 },
+    });
+    useWeekMatchups.mockImplementation(() => ({
+      matchups: [row(3, {
+        status: 'live',
+        home: { teamId: 3, score: 82.2, expectedFinal: 110.5, playersRemaining: 4 },
+        away: { teamId: 7, score: 77, expectedFinal: 123.9, playersRemaining: 6 },
+      })],
+      loading: false,
+      error: null,
+      refetch: jest.fn(),
+    }));
+    const model = renderHook(() => useMatchupPreview(1)).result.current;
+    expect(model.viewer).toMatchObject({ name: 'Away Aces', score: '77.0', expectedFinal: '123.9', playersRemaining: 6 });
+    expect(model.opponent).toMatchObject({ name: 'Home Heroes', score: '82.2', expectedFinal: '110.5', playersRemaining: 4 });
+    expect(model.game.winProbability.viewerPct).toBeGreaterThan(50);
+  });
+});

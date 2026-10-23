@@ -13,7 +13,7 @@ const BYE_OPTIONS = [{ value: '', label: 'Any' }, ...Array.from({ length: 18 }, 
 
 /**
  * The Play-select view of the player pool (ADR 0067 wave 3, boards Waivers and WaiversPhone), drawn
- * by `PlayerPool` when `look="playselect"`. It holds no state of its own: `PlayerPool` owns the reads
+ * by `PlayerPool`. It holds no state of its own: `PlayerPool` owns the reads
  * and the URL params and hands this the values and handlers.
  *
  * Desktop: a primary frame ("Players") with the filter row, the table (sticky Player column, tabular
@@ -30,7 +30,7 @@ export default function PlayerPoolPlayselect({
   availabilityLock, availabilityFilter, availabilityOptions, onAvailability,
   leadingControl, afterAvailabilityControl,
   visiblePlayers, renderRow, renderTableHead, columnCount, bestBall, currentWeek, emptyCopy,
-  totalPages, pageNumber, onPage, totalPlayers, search,
+  totalPages, pageNumber, onPage, totalPlayers, search, stickyHead = false,
 }) {
   const searchField = (
     <PsField
@@ -60,7 +60,6 @@ export default function PlayerPoolPlayselect({
         {!availabilityLock && (
           <SegmentedControl
             aria-label="Availability"
-            look="playselect"
             options={availabilityOptions}
             value={availabilityFilter}
             onChange={onAvailability}
@@ -161,11 +160,26 @@ export default function PlayerPoolPlayselect({
       {drawer}
       <Frame labelledBy="player-pool-heading" head={<FrameHead><PixelHeading id="player-pool-heading">Players</PixelHeading></FrameHead>}>
         {!isMobile && filterRow}
-        <Box role="region" aria-label="Players, scrollable" tabIndex={0} sx={{ overflowX: 'auto', position: 'relative', containerType: 'inline-size' }}>
+        <Box
+          role="region"
+          aria-label="Players, scrollable"
+          tabIndex={0}
+          sx={{ overflowX: stickyHead ? { xs: 'auto', lg: 'clip' } : 'auto', position: 'relative', containerType: 'inline-size' }}
+        >
           <Box
             component="table"
             aria-label="Players"
-            sx={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, minWidth: '950px', tableLayout: 'fixed' }}
+            sx={{
+              width: '100%',
+              borderCollapse: 'separate',
+              borderSpacing: 0,
+              minWidth: '950px',
+              tableLayout: 'fixed',
+              // stickyHead: from lg the region stops scrolling (clip, above) and the head sticks to the viewport
+              // top. The player-row head takes no sx, so the rule is here; zIndex 2 stacks the head's first cell (already
+              // sticky left, zIndex 1) above the body's sticky Player column.
+              ...(stickyHead && { '@media (min-width:1200px)': { '& thead th': { position: 'sticky', top: 0, zIndex: 2 } } }),
+            }}
           >
             <thead>{renderTableHead({ bestBall, currentWeek })}</thead>
             <tbody>

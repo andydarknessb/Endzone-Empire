@@ -5,16 +5,16 @@ import useMediaQuery from '@mui/material/useMediaQuery';
 import { InjuryTag, PosChip, PlayerAvatar, StateMark } from '../../../shared/ui';
 import RetroCard from './RetroCard';
 import { starterStateView } from '../../../shared/lib';
-import { ledFigure, lineupNoteParts, positionRingKey } from '../model/scoreboardModel';
+import { ledFigure, lineupNoteParts, positionRingKey, SLOT_TEST_ID } from '../model/scoreboardModel';
 import Icon from './icons';
 
 /**
  * The Lineups card from the Scoreboard view (design canvas rosterPreview()):
  * a compact, non-interactive slot-by-slot preview of the paired rows the
- * Matchup page model hands down, the viewer's team on the left (home for a
- * non-participant; the widget mirrors an away viewer's rows), the PosChip in the
+ * Matchup page model hands down, the viewer's team on the left (the rows
+ * arrive in the board's order, `[{ slot, first, second }]`), the PosChip in the
  * middle, the other team mirrored on the right. Each filled side is a 28px PlayerAvatar
- * headshot (the ESPN photo, position-colored initials when there is none) in
+ * headshot (the ESPN photo, Ink initials when there is none) in
  * a 2px ring of its position's `pos-*` color, as the canvas's headshot() draws it
  * and the slot-comparison widget rings its own (so the two lineup renderings
  * share one avatar treatment), the name with his injury designation beside
@@ -82,7 +82,8 @@ function Note({ player }) {
 }
 
 function Side({ player, side }) {
-  const mirrored = side === 'away';
+  const mirrored = side === 'second';
+  const slotId = SLOT_TEST_ID[side];
   // Below md the half-width side cannot hold the name, marker and tag on one
   // line: the marker moves to lead the second line and the name wraps (never
   // an ellipsis), so a phone shows whole names and keeps the clock. `useTheme`
@@ -90,10 +91,10 @@ function Side({ player, side }) {
   const theme = useTheme();
   const compact = useMediaQuery(theme.breakpoints.down('md'));
   const mark = <StateMark view={starterStateView(player?.gameState)} />;
-  if (!player) return <Box data-testid={`lineup-side-${side}`} sx={{ flex: '1 1 0', minWidth: 0 }} />;
+  if (!player) return <Box data-testid={`lineup-side-${slotId}`} sx={{ flex: '1 1 0', minWidth: 0 }} />;
   return (
     <Box
-      data-testid={`lineup-side-${side}`}
+      data-testid={`lineup-side-${slotId}`}
       sx={{
         flex: '1 1 0',
         minWidth: 0,
@@ -105,16 +106,15 @@ function Side({ player, side }) {
       }}
     >
       <Box
-        data-testid={`headshot-${side}`}
+        data-testid={`headshot-${slotId}`}
         data-ring={positionRingKey(player.position)}
         sx={{
           flex: 'none',
           display: 'flex',
-          borderRadius: 'var(--radius-pill)',
           boxShadow: `0 0 0 2px var(--pos-${positionRingKey(player.position)})`,
         }}
       >
-        <PlayerAvatar name={player.name} position={player.position} photoUrl={player.photoUrl} size={28} />
+        <PlayerAvatar name={player.name} photoUrl={player.photoUrl} size={28} />
       </Box>
       <Box
         sx={{
@@ -181,8 +181,8 @@ function Total({ team, side, settled }) {
   const score = <Box component="span" sx={{ ...DISPLAY_NUM, fontSize: '22px' }}>{team?.scoreLabel}</Box>;
   const note = ef != null && ef !== '' ? <Box component="span" data-testid="lineup-exp-final" sx={TOTAL_NOTE}>Exp final {ledFigure(ef)}</Box> : null;
   return (
-    <Box data-testid={`lineup-total-${side}`} sx={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
-      {side === 'home' ? <>{score}{note}</> : <>{note}{score}</>}
+    <Box data-testid={`lineup-total-${SLOT_TEST_ID[side]}`} sx={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+      {side === 'first' ? <>{score}{note}</> : <>{note}{score}</>}
     </Box>
   );
 }
@@ -242,7 +242,7 @@ export default function LineupsCard({ rows, board, headingLevel = 2, onFullCompa
           {list.map((row, i) => (
           <Box
             data-testid="slot-row"
-            key={`${row.slot}-${row.home?.playerId ?? 'x'}-${row.away?.playerId ?? 'x'}-${i}`}
+            key={`${row.slot}-${row.first?.playerId ?? 'x'}-${row.second?.playerId ?? 'x'}-${i}`}
             sx={{
               display: 'flex',
               alignItems: 'center',
@@ -251,9 +251,9 @@ export default function LineupsCard({ rows, board, headingLevel = 2, onFullCompa
               borderTop: i ? '1px solid var(--ps-rule)' : 0,
             }}
           >
-            <Side player={row.home} side="home" />
+            <Side player={row.first} side="first" />
             <PosChip position={row.slot} sx={{ flex: 'none' }} />
-            <Side player={row.away} side="away" />
+            <Side player={row.second} side="second" />
           </Box>
           ))}
           <Box
@@ -269,11 +269,11 @@ export default function LineupsCard({ rows, board, headingLevel = 2, onFullCompa
               borderRadius: 0,
             }}
           >
-            <Total team={board.home} side="home" settled={settled} />
+            <Total team={board.first} side="first" settled={settled} />
             <Box component="span" sx={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--ps-dim)' }}>
               Totals
             </Box>
-            <Total team={board.away} side="away" settled={settled} />
+            <Total team={board.second} side="second" settled={settled} />
           </Box>
         </>
       )}

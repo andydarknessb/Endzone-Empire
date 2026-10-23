@@ -1,5 +1,6 @@
 import React from 'react';
-import { Typography, Box, Chip } from '@mui/material';
+import { Box } from '@mui/material';
+import { BODY_FONT, PosTag, Tag } from '../../shared/ui/playselect';
 import { teamNameLabel } from '../../shared/lib/teamIdentity';
 
 /**
@@ -29,6 +30,11 @@ import { teamNameLabel } from '../../shared/lib/teamIdentity';
  * independent allowlist); this is the defense-in-depth that holds if one ever
  * does not.
  */
+
+// Archivo, never pixel type (ADR 0067): the line reads as a sentence, the meta line sits under it in Dim.
+const LINE_SX = { color: 'var(--ps-ink)', fontFamily: BODY_FONT, fontSize: '15px' };
+const META_SX = { color: 'var(--ps-dim)', fontFamily: BODY_FONT, fontSize: '13px', display: 'block' };
+const TAG_GAP = { ml: 1, verticalAlign: 'middle' };
 
 // The past-tense verb each Draft LIFECYCLE kind reads as (#437). A lifecycle
 // event is attributed to the acting commissioner's Team ("<Team> started the
@@ -70,20 +76,20 @@ function PickActivityLine({ entry }) {
   const player = entry.player || {};
   // House style: middot separators, no em-dashes. Null facts are dropped
   // rather than printed as "null".
-  const meta = [player.position, player.nflTeam, `Round ${entry.round}`, `Pick ${entry.pickNumber}`]
+  const meta = [player.nflTeam, `Round ${entry.round}`, `Pick ${entry.pickNumber}`]
     .filter((part) => part != null && part !== '')
     .join(' · ');
   return (
     <>
-      <Typography component="div" variant="body2" sx={{ color: 'text.secondary' }}>
+      <Box sx={LINE_SX}>
         <strong>{teamNameLabel(entry.teamName)}</strong> drafted {player.name}
-        {entry.isAutopick && (
-          <Chip label="AUTO" size="small" sx={{ ml: 1 }} />
-        )}
-      </Typography>
-      <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+        {' '}{player.position && <Box component="span" sx={TAG_GAP}><PosTag position={player.position} /></Box>}
+        {' '}
+        {entry.isAutopick && <Box component="span" sx={TAG_GAP}><Tag>AUTO</Tag></Box>}
+      </Box>
+      <Box sx={META_SX}>
         {meta} {'·'} {new Date(entry.created_at).toLocaleTimeString()}
-      </Typography>
+      </Box>
     </>
   );
 }
@@ -117,12 +123,10 @@ function LifecycleActivityLine({ entry }) {
   }
   return (
     <>
-      <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-        {text}
-      </Typography>
-      <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+      <Box sx={LINE_SX}>{text}</Box>
+      <Box sx={META_SX}>
         {new Date(entry.created_at).toLocaleTimeString()}
-      </Typography>
+      </Box>
     </>
   );
 }
@@ -150,12 +154,10 @@ function StalledActivityLine({ entry }) {
     : <>The draft is stuck: no draftable player</>;
   return (
     <>
-      <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-        {text}
-      </Typography>
-      <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+      <Box sx={LINE_SX}>{text}</Box>
+      <Box sx={META_SX}>
         A commissioner must resolve and resume {'·'} {new Date(entry.created_at).toLocaleTimeString()}
-      </Typography>
+      </Box>
     </>
   );
 }
@@ -174,23 +176,24 @@ function CorrectionActivityLine({ entry }) {
   const player = entry.player || {};
   // House style: middot separators, no em-dashes. Null facts are dropped rather
   // than printed as "null".
-  const meta = [player.position, player.nflTeam, `Round ${entry.round}`, `Pick ${entry.pickNumber}`]
+  const meta = [player.nflTeam, `Round ${entry.round}`, `Pick ${entry.pickNumber}`]
     .filter((part) => part != null && part !== '')
     .join(' · ');
   return (
     <>
-      <Typography component="div" variant="body2" sx={{ color: 'text.secondary' }}>
+      <Box sx={LINE_SX}>
         <strong>Commissioner correction</strong>
         {' · '}
         reversed {teamNameLabel(entry.teamName)}{"'s pick of "}{player.name}
-      </Typography>
-      <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>
+        {' '}{player.position && <Box component="span" sx={TAG_GAP}><PosTag position={player.position} /></Box>}
+      </Box>
+      <Box sx={META_SX}>
         {meta} {'·'} {new Date(entry.created_at).toLocaleTimeString()}
-      </Typography>
+      </Box>
       {entry.reason ? (
-        <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>
+        <Box sx={META_SX}>
           Reason: {entry.reason}
-        </Typography>
+        </Box>
       ) : null}
     </>
   );

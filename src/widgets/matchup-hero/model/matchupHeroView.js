@@ -9,18 +9,18 @@ import { finite, formatKickoff, initialsFor, teamNameLabel } from '../../../shar
  * answers everything the card paints that is not a straight field read, so
  * the UI stays a presenter:
  *
- *   - which side is the viewer's (`viewerSide`), matched on Team id and never
- *     on home/away (#112: the You tag follows the viewer's Team, the layout
- *     stays home-left / away-right);
+ *   - the two sides in the board's order (`first`, `second`: the viewer's Team first, else
+ *     home; spec #2402), each with `isViewer` matched on Team id (#112: the You tag follows
+ *     the viewer's Team);
  *   - the status chip and `hasStarted`, straight from the entity's `matchupBoard`
  *     (ADR 0030: status is a server fact, never inferred here);
  *   - the per-side win probability percentages, rounded the way TwoSidedOdds rounds them
- *     (`homePct` rounded, `awayPct` its complement), while live and settled (`winProbability`)
+ *     (`firstPct` rounded, `secondPct` its complement), while live and settled (`winProbability`)
  *     and, before kickoff, from the projections alone (`projectedWinProbability`);
  *   - the one plain sentence under the bar: the board's `resultLine` once settled, and while live
  *     Critique 11's (spec #2334): "Ahead now, projected to trail by 7.9 · they have 9 players
  *     remaining, 3 yet to play". The counts are the server's `playersRemaining` and `yetToPlay` on each side of the
- *     Matchup; a page whose payload lacks `yetToPlay` passes `counts` ({ home: { remaining, yet }, away: ... },
+ *     Matchup; a page whose payload lacks `yetToPlay` passes `counts` ({ first: { remaining, yet }, second: ... },
  *     both from the entity helpers over the lineups) and the sentence reads that one source throughout, never
  *     a mix. With neither it stops at the remaining count. The opponent's count leads (the threat to the
  *     lead); with none left of theirs it names the viewer's own;
@@ -38,16 +38,12 @@ const players = (n) => `${n} ${n === 1 ? 'player' : 'players'} remaining`;
 
 const percents = (share) => {
   const clamped = Math.max(0, Math.min(1, Number(share) || 0));
-  const homePct = Math.round(clamped * 100);
-  return { homeShare: clamped, homePct, awayPct: 100 - homePct };
+  const firstPct = Math.round(clamped * 100);
+  return { firstShare: clamped, firstPct, secondPct: 100 - firstPct };
 };
 
 /** "Ahead now, projected to trail by 7.9 · they have 9 players remaining, 3 yet to play". */
-function liveSentence(m, viewerSide, counts, countsPending) {
-  const meKey = viewerSide === 'away' ? 'away' : 'home';
-  const themKey = meKey === 'home' ? 'away' : 'home';
-  const me = m[meKey] || {};
-  const them = m[themKey] || {};
+function liveSentence(me, them, counts, countsPending) {
   const lead = tenth((finite(me.score) ?? 0) - (finite(them.score) ?? 0));
   const now = lead > 0 ? 'Ahead now' : lead < 0 ? 'Behind now' : 'Tied now';
   const myFinal = finite(me.expectedFinal);
@@ -61,8 +57,8 @@ function liveSentence(m, viewerSide, counts, countsPending) {
     else projection = 'projected to finish even';
   }
   const from = (key, side) => (counts ? counts[key] : { remaining: side.playersRemaining, yet: side.yetToPlay });
-  const mine = from(meKey, me);
-  const theirs = from(themKey, them);
+  const mine = from('first', me);
+  const theirs = from('second', them);
   const theirLeft = finite(theirs.remaining) ?? 0;
   const myLeft = finite(mine.remaining) ?? 0;
   let remaining = null;
@@ -76,41 +72,43 @@ function liveSentence(m, viewerSide, counts, countsPending) {
 }
 
 /**
- * The whole view for one hero card. `viewerSide` is 'home' or 'away' when the viewer's Team is one
- * of the two, else null (no tag, and the sentence falls back to the home side's perspective; the
- * page only renders this card for the viewer's own Matchup, so that fallback is a degrade path).
+ * The whole view for one hero card. `first` and `second` are the board's sides (the viewer's Team
+ * first when it is one of the two, else home; the sentence reads from `first`'s perspective, which
+ * for a non-participant is a degrade path: the page only renders this card for the viewer's own Matchup).
  */
 export function matchupHeroView(matchup, viewerTeamId, { counts = null, countsPending = false } = {}) {
   const m = matchup || {};
   const board = matchupBoard(m, viewerTeamId);
-  const { chip, hasStarted, viewerSide } = board;
+  const { chip, hasStarted, first, second } = board;
 
   // The bar is the Endzone Forecast's: with an Expected final missing on either side there is nothing
   // to price it from, so no bar and no credit line rather than a 50/50 the forecast never made.
-  const priced = finite(m.home?.expectedFinal) != null && finite(m.away?.expectedFinal) != null;
+  // (The board nulls a settled side's expectedFinal, so the priced check reads the raw sides.)
+  const firstFinal = finite(m[first.origin]?.expectedFinal);
+  const secondFinal = finite(m[second.origin]?.expectedFinal);
+  const priced = firstFinal != null && secondFinal != null;
   let winProbability = null;
   let sentence = null;
   if (hasStarted === true) {
-    winProbability = priced ? percents(board.winProbability.home) : null;
-    sentence = board.resultLine ?? liveSentence(m, viewerSide, counts, countsPending);
+    winProbability = priced ? percents(board.winProbability.first) : null;
+    sentence = board.resultLine ?? liveSentence(first, second, counts, countsPending);
   }
   const projected = hasStarted === false && priced && board.projectedWinProbability
-    ? percents(board.projectedWinProbability.home)
+    ? percents(board.projectedWinProbability.first)
     : null;
 
-  const homeScore = finite(m.home?.score);
-  const awayScore = finite(m.away?.score);
-  const leadSide = homeScore == null || awayScore == null || homeScore === awayScore
+  const firstScore = finite(first.score);
+  const secondScore = finite(second.score);
+  const leadSide = firstScore == null || secondScore == null || firstScore === secondScore
     ? null
-    : homeScore > awayScore ? 'home' : 'away';
-  const homeFinal = finite(m.home?.expectedFinal);
-  const awayFinal = finite(m.away?.expectedFinal);
-  const margin = homeFinal == null || awayFinal == null ? null : tenth(Math.abs(homeFinal - awayFinal));
-  const projectedLeader = margin == null || margin === 0 ? null : homeFinal > awayFinal ? 'home' : 'away';
+    : firstScore > secondScore ? 'first' : 'second';
+  const margin = firstFinal == null || secondFinal == null ? null : tenth(Math.abs(firstFinal - secondFinal));
+  const projectedLeader = margin == null || margin === 0 ? null : firstFinal > secondFinal ? 'first' : 'second';
 
   return {
-    viewerSide,
-    scoreLabels: { home: board.home.scoreLabel, away: board.away.scoreLabel },
+    first,
+    second,
+    scoreLabels: { first: first.scoreLabel, second: second.scoreLabel },
     hasStarted,
     isLive: board.isLive,
     leadSide,
@@ -136,18 +134,15 @@ export default matchupHeroView;
 export function compactScoreboardView(matchup, viewerTeamId = null) {
   const view = matchupHeroView(matchup, viewerTeamId);
   if (view.hasStarted !== true) return null;
-  // Viewer first, as the hero: the viewer's side is `a` (the left one).
-  const awayFirst = view.viewerSide === 'away';
-  const home = (awayFirst ? matchup.away : matchup.home) || {};
-  const away = (awayFirst ? matchup.home : matchup.away) || {};
-  const [homeKey, awayKey] = awayFirst ? ['away', 'home'] : ['home', 'away'];
-  const side = (s, label) => ({ abbr: initialsFor(s.name), name: teamNameLabel(s.name), score: label });
-  const diff = Math.abs(tenth((finite(home.score) ?? 0) - (finite(away.score) ?? 0)));
-  const leader = view.leadSide === homeKey ? home : away;
+  // The board already puts the viewer's side first: `a` is the left one.
+  const { first, second } = view;
+  const side = (x, label) => ({ abbr: initialsFor(x.name), name: teamNameLabel(x.name), score: label });
+  const diff = Math.abs(tenth((finite(first.score) ?? 0) - (finite(second.score) ?? 0)));
+  const leader = view.leadSide === 'first' ? first : second;
   return {
-    a: side(home, view.scoreLabels[homeKey]),
-    b: side(away, view.scoreLabels[awayKey]),
-    lead: view.leadSide === homeKey ? 'a' : view.leadSide === awayKey ? 'b' : undefined,
+    a: side(first, view.scoreLabels.first),
+    b: side(second, view.scoreLabels.second),
+    lead: view.leadSide === 'first' ? 'a' : view.leadSide === 'second' ? 'b' : undefined,
     marginText: view.leadSide ? `${teamNameLabel(leader.name)} by ${diff.toFixed(1)}` : 'Tied',
     live: view.isLive,
   };

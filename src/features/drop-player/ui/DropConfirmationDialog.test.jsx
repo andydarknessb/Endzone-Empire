@@ -6,16 +6,8 @@ import DropConfirmationDialog from './DropConfirmationDialog';
 const ENTRY = { name: 'Puka Nacua' };
 
 describe('DropConfirmationDialog', () => {
-  test('the default look keeps the contained red Drop button and no Play-select class', () => {
+  test('Cancel holds the default focus and Drop is a ghost with Danger text', async () => {
     render(<DropConfirmationDialog entry={ENTRY} onClose={() => {}} onConfirm={() => {}} />);
-    const drop = screen.getByRole('button', { name: 'Drop' });
-    expect(drop.className).toMatch(/MuiButton-contained/);
-    expect(drop).not.toHaveAttribute('data-variant');
-    expect(document.querySelector('.ps-root')).toBeNull();
-  });
-
-  test('the playselect look: Cancel holds the default focus and Drop is a ghost with Danger text', async () => {
-    render(<DropConfirmationDialog entry={ENTRY} look="playselect" onClose={() => {}} onConfirm={() => {}} />);
     // Focus lands once the dialog has entered: MUI's trap would otherwise leave it on the container.
     await waitFor(() => expect(screen.getByRole('button', { name: 'Cancel' })).toHaveFocus());
     const drop = screen.getByRole('button', { name: 'Drop' });

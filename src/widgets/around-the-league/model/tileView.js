@@ -17,13 +17,13 @@ import { formatPoints } from '../../../shared/lib';
  *     matching matchup-grid's own `scheduled ? ef : score` convention.
  *   - The win probability is the entity board's (#2142), the same figure the
  *     hero and matchup-grid read: before kickoff that is the projections-only
- *     split, once live it moves with the score. The tile's SplitBar
+ *     split, once live it moves with the score. The tile's OddsBar
  *     is never gated on `started`, unlike matchup-grid's hairline-before-
  *     kickoff divider: the design source (docs/design/league-dashboard-v2/
  *     build.mjs, aroundLeague()) paints every tile's bar unconditionally.
  *   - `isViewer` answers "is one side of this Matchup the viewer's own Team"
  *     by comparing each side's Team id against `viewerTeamId` (#112,
- *     CONTEXT.md Team identity) - never by which side (home/away) a Team
+ *     CONTEXT.md Team identity) - never by which side (home/away origin) a Team
  *     happens to sit on, which is the red-tell a home/away shortcut would
  *     fail: a viewer seated away would then never ring. It is computed
  *     per side (each side's own `isViewer`) as well as at the tile level
@@ -36,8 +36,6 @@ import { formatPoints } from '../../../shared/lib';
 
 export function aroundLeagueTileView(matchup, { viewerTeamId } = {}) {
   const m = matchup || {};
-  const home = m.home || {};
-  const away = m.away || {};
   const board = matchupBoard(m, viewerTeamId);
   const { hasStarted } = board;
   const started = hasStarted === true;
@@ -54,7 +52,7 @@ export function aroundLeagueTileView(matchup, { viewerTeamId } = {}) {
   // Per-side, so the UI can name WHICH side is the viewer's own (the "You"
   // pill sits on that side's row, never on both, and never guessed from
   // home/away position - #112).
-  const side = (s, key) => ({
+  const side = (s) => ({
     teamId: s.teamId ?? null,
     name: s.name ?? '',
     avatarUrl: s.avatarUrl ?? null,
@@ -62,11 +60,11 @@ export function aroundLeagueTileView(matchup, { viewerTeamId } = {}) {
     figure: scheduled ? formatPoints(s.expectedFinal) : formatPoints(s.score),
     // The score as a number (null while unknown), for the "won by" margin on a settled tile.
     points: s.score == null || s.score === '' || !Number.isFinite(Number(s.score)) ? null : Number(s.score),
-    isViewer: key === board.viewerSide,
+    isViewer: s.isViewer,
   });
 
-  const homeSide = side(home, 'home');
-  const awaySide = side(away, 'away');
+  const first = side(board.first);
+  const second = side(board.second);
 
   return {
     id: m.id ?? null,
@@ -83,13 +81,13 @@ export function aroundLeagueTileView(matchup, { viewerTeamId } = {}) {
     // figure's own VALUE already uses, rather than `!started` - which
     // collapses the unknown-status case into "not started" and would then
     // print a live score under a "Projected" label (a false accessible
-    // name, the same class of defect #872 forbade for SplitBar).
+    // name, the same class of defect #872 forbade for OddsBar).
     scheduled,
     // The tile-level ring (#1103): true when either side is the viewer's.
-    isViewer: homeSide.isViewer || awaySide.isViewer,
-    homeShare: probability ? probability.home : null,
-    home: homeSide,
-    away: awaySide,
+    isViewer: first.isViewer || second.isViewer,
+    firstShare: probability ? probability.first : null,
+    first,
+    second,
   };
 }
 

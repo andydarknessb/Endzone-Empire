@@ -1630,7 +1630,7 @@ test('the rollover lives in a Danger zone region that is the last thing on the t
 
   const dangerZone = screen.getByTestId('commissioner-danger-zone');
   expect(within(dangerZone).getByRole('button', { name: 'Start New Season' })).toBeInTheDocument();
-  expect(within(dangerZone).getByTestId('badge')).toHaveAttribute('data-variant', 'danger');
+  expect(within(dangerZone).getByText('Danger zone')).toBeInTheDocument();
   // Not nested in the destructive Paper above it, and after it in DOM order.
   const removeSection = screen.getByTestId('remove-team-refused');
   expect(dangerZone.contains(removeSection)).toBe(false);
@@ -1812,19 +1812,72 @@ test('unsaved edits do not cross a league change', async () => {
   expect(screen.getAllByLabelText('Slot Name')).toHaveLength(2);
 });
 
-// WCAG 1.4.1: the marker is a dot AND the word, never the dot alone. The word
-// is what the tab's accessible name gains, so the state is in the accessibility
-// tree and not only in a colour.
-test('a tab with unsaved edits is marked by a dot and by the word Unsaved', async () => {
+// WCAG 1.4.1: the marker is a square AND the words "Unsaved changes", never the
+// square alone. The words are what the tab's accessible name gains, so the state
+// is in the accessibility tree and not only in a colour, and they are announced
+// as a status. The same marker repeats beside that tab's Save.
+test('a tab with unsaved edits is marked by a square and by the text Unsaved changes', async () => {
   renderTools();
   expect(screen.getByRole('tab', { name: 'Roster Settings' })).toBeInTheDocument();
 
   await userEvent.click(screen.getByRole('tab', { name: 'Roster Settings' }));
   await userEvent.click(screen.getByRole('button', { name: '+ Add Slot' }));
 
-  const dirtyTab = screen.getByRole('tab', { name: 'Roster Settings Unsaved' });
-  expect(within(dirtyTab).getByTestId('tab-dirty-dot')).toBeInTheDocument();
+  const dirtyTab = screen.getByRole('tab', { name: 'Roster Settings Unsaved changes' });
+  expect(within(dirtyTab).getByTestId('unsaved-mark')).toBeInTheDocument();
+  expect(within(dirtyTab).getByRole('status')).toHaveTextContent('Unsaved changes');
   expect(screen.getByRole('tab', { name: 'General Settings' })).toBeInTheDocument();
+});
+
+test('editing a Waivers Trades field marks that tab, and its Save, with the text Unsaved changes', async () => {
+  renderTools();
+  await userEvent.click(screen.getByRole('tab', { name: 'Waivers & Trades' }));
+  await userEvent.click(screen.getByRole('radio', { name: 'FAAB (Bidding)' }));
+
+  const dirtyTab = screen.getByRole('tab', { name: 'Waivers & Trades Unsaved changes' });
+  expect(within(dirtyTab).getByText('Unsaved changes')).toBeInTheDocument();
+  // One status in the tab, repeated beside this tab's Save.
+  const statuses = screen.getAllByRole('status');
+  expect(statuses).toHaveLength(2);
+  statuses.forEach((status) => expect(status).toHaveTextContent('Unsaved changes'));
+});
+
+test('the stepper moves a value by one and stops at its bounds', async () => {
+  renderTools();
+  await userEvent.click(screen.getByRole('tab', { name: 'Roster Settings' }));
+  const ir = screen.getByLabelText('IR Slots');
+  expect(ir).toHaveValue(1);
+
+  await userEvent.click(screen.getByRole('button', { name: 'Increase IR Slots' }));
+  expect(ir).toHaveValue(2);
+  await userEvent.click(screen.getByRole('button', { name: 'Decrease IR Slots' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Decrease IR Slots' }));
+  expect(ir).toHaveValue(0);
+  // aria-disabled, not disabled: the button just pressed at the bound keeps focus, and a further press does nothing.
+  const down = screen.getByRole('button', { name: 'Decrease IR Slots' });
+  expect(down).toHaveAttribute('aria-disabled', 'true');
+  expect(down).toHaveFocus();
+  await userEvent.click(down);
+  expect(ir).toHaveValue(0);
+});
+
+test('opening the Remove confirm puts focus on Cancel, and Remove is a ghost, not a fill', async () => {
+  renderTools({ teams: usernameDistinctTeams, viewerTeamId: 99 });
+  await userEvent.click(screen.getByRole('button', { name: 'Remove Gridiron Gurus' }));
+
+  const dialog = await screen.findByRole('dialog');
+  expect(within(dialog).getByRole('button', { name: 'Cancel' })).toHaveFocus();
+  expect(within(dialog).getByRole('button', { name: 'Remove Team' })).toHaveAttribute('data-variant', 'ghost');
+});
+
+test('the tools render no filled action outside a dialog', async () => {
+  renderTools({ league: league({ is_public: true, join_approval: true }) });
+  for (const name of ['General Settings', 'Roster Settings', 'Scoring Settings', 'Playoffs & Schedule', 'Waivers & Trades', 'System Overrides']) {
+    await userEvent.click(screen.getByRole('tab', { name }));
+    // PsButton stamps data-variant on every action; no testing-library query reaches an attribute.
+    // eslint-disable-next-line testing-library/no-node-access
+    expect(document.querySelectorAll('[data-variant="fill"]')).toHaveLength(0);
+  }
 });
 
 // Saving is what clears the marker: the values just posted ARE the settings
@@ -1837,13 +1890,13 @@ test('saving clears the unsaved marker without discarding the values on screen',
   const bench = screen.getByLabelText('Bench Slots');
   await userEvent.clear(bench);
   await userEvent.type(bench, '6');
-  expect(screen.getByRole('tab', { name: 'Roster Settings Unsaved' })).toBeInTheDocument();
+  expect(screen.getByRole('tab', { name: 'Roster Settings Unsaved changes' })).toBeInTheDocument();
 
   await userEvent.click(screen.getByRole('button', { name: 'Save Roster Settings' }));
   expect(await findToast('Roster settings saved')).toBeInTheDocument();
 
   expect(screen.getByRole('tab', { name: 'Roster Settings' })).toBeInTheDocument();
-  expect(screen.queryByTestId('tab-dirty-dot')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('unsaved-mark')).not.toBeInTheDocument();
   expect(screen.getByLabelText('Bench Slots')).toHaveValue(6);
 });
 

@@ -20,16 +20,18 @@ const live = {
 
 describe('matchupHeroView', () => {
   test('carries the board score text, 0.0 when the Matchup has no score yet', () => {
-    expect(matchupHeroView(live, 10).scoreLabels).toEqual({ home: '82.2', away: '77.0' });
+    expect(matchupHeroView(live, 10).scoreLabels).toEqual({ first: '82.2', second: '77.0' });
     const bare = { ...live, status: 'scheduled', home: { ...dock, score: null }, away: { ...frost, score: undefined } };
-    expect(matchupHeroView(bare, 10).scoreLabels).toEqual({ home: '0.0', away: '0.0' });
+    expect(matchupHeroView(bare, 10).scoreLabels).toEqual({ first: '0.0', second: '0.0' });
   });
 
-  test('finds the viewer side by Team id, not by home/away', () => {
-    expect(matchupHeroView(live, 20).viewerSide).toBe('away');
-    expect(matchupHeroView(live, 10).viewerSide).toBe('home');
-    expect(matchupHeroView(live, 99).viewerSide).toBeNull();
-    expect(matchupHeroView(live, null).viewerSide).toBeNull();
+  test('puts the viewer first by Team id, not by home/away', () => {
+    const first = (id) => matchupHeroView(live, id).first;
+    expect(first(20)).toMatchObject({ origin: 'away', isViewer: true, teamId: 20 });
+    expect(first(10)).toMatchObject({ origin: 'home', isViewer: true, teamId: 10 });
+    expect(first(99)).toMatchObject({ origin: 'home', isViewer: false });
+    expect(first(null)).toMatchObject({ origin: 'home', isViewer: false });
+    expect(matchupHeroView(live, 20).second).toMatchObject({ origin: 'home', isViewer: false });
   });
 
   test('a live matchup carries the canvas percentages, the sentence and no kickoff', () => {
@@ -38,7 +40,7 @@ describe('matchupHeroView', () => {
     expect(view.chipLabel).toBe('LIVE');
     expect(view.chipVariant).toBe('danger');
     expect(view.chipDot).toBe(true);
-    expect(view.winProbability).toMatchObject({ homePct: 36, awayPct: 64 });
+    expect(view.winProbability).toMatchObject({ firstPct: 36, secondPct: 64 });
     expect(view.sentence).toBe('Ahead now, projected to trail by 13.4 · they have 6 players remaining');
     expect(view.kickoff).toBeNull();
   });
@@ -64,7 +66,7 @@ describe('matchupHeroView', () => {
   });
 
   test('a page that computed its own counts hands them over and the sentence reads only those', () => {
-    const counts = { home: { remaining: 2, yet: 0 }, away: { remaining: 5, yet: 2 } };
+    const counts = { first: { remaining: 2, yet: 0 }, second: { remaining: 5, yet: 2 } };
     expect(matchupHeroView({ ...live, away: { ...frost, yetToPlay: 9 } }, 10, { counts }).sentence)
       .toBe('Ahead now, projected to trail by 13.4 · they have 5 players remaining, 2 yet to play');
   });
@@ -74,12 +76,12 @@ describe('matchupHeroView', () => {
     expect(view.sentence).toBe('Ahead now, projected to trail by 13.4 · you have 4 players remaining, 1 yet to play');
   });
 
-  test('the two percentages always sum to 100, the way SplitBar rounds', () => {
+  test('the two percentages always sum to 100, the way TwoSidedOdds rounds', () => {
     const view = matchupHeroView(
       { ...live, home: { ...dock, expectedFinal: '100.25' }, away: { ...frost, expectedFinal: '100.0' } },
       10
     );
-    expect(view.winProbability.homePct + view.winProbability.awayPct).toBe(100);
+    expect(view.winProbability.firstPct + view.winProbability.secondPct).toBe(100);
   });
 
   test('a scheduled matchup carries the kickoff line and neither bar nor sentence', () => {

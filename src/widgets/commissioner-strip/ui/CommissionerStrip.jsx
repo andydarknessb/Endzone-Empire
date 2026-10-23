@@ -20,8 +20,8 @@ import useCommissionerStrip from '../model/useCommissionerStrip';
  *     "League administration" link. `invite` is an optional extra row (the page passes the Invite
  *     control here on a phone, where the head has no room for it).
  *
- * Paints only ps-* tokens. The Advance control is the advance-week feature in its `playselect` look
- * (the commissioner console composes the same feature on its own look), a ghost button, never filled.
+ * Paints only ps-* tokens. The Advance control is the advance-week feature (the commissioner console composes
+ * the same feature), a ghost button, never filled.
  * It is disabled with its reason as text ("Opens when every Week 7 game is final") until every game of
  * the current week is final.
  */
@@ -85,7 +85,6 @@ export default function CommissionerStrip({ leagueId, invite, scoreEvent, onAdva
     rows.push(
       <Box key="advance" component="li" sx={rowSx}>
         <AdvanceWeek
-          look="playselect"
           leagueId={leagueId}
           currentWeek={currentWeek}
           onAdvanced={() => {

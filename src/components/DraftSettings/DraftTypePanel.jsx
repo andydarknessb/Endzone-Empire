@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import PropTypes from 'prop-types';
-import { Alert, Box, Button, FormControl, FormControlLabel, Radio, RadioGroup, Stack, ToggleButton, ToggleButtonGroup, Typography } from '@mui/material';
+import { Box, FormControl, FormControlLabel, Radio, RadioGroup, Stack, ToggleButton, ToggleButtonGroup, Typography } from '@mui/material';
+import { Dim, Note, PsButton, RADIO_SX, TARGET_SX } from './kit';
 
 const TYPES = [
   ['snake', 'Snake draft', 'Teams pick in a reversing order each round.'],
@@ -20,25 +21,25 @@ export default function DraftTypePanel({ league, frozen, onSave, saving, onDirty
   }, [draftRotation, draftType, league.draft_rotation, league.draft_type, onDirtyChange]);
   return (
     <Stack spacing={2}>
-      <Typography variant="body2" color="text.secondary">Choose how this draft is conducted. The order format is available for snake, autopick, and offline drafts.</Typography>
-      {frozen && <Alert severity="info">Draft format is locked once the draft starts.</Alert>}
+      <Dim>Choose how this draft is conducted. The order format is available for snake, autopick, and offline drafts.</Dim>
+      {frozen && <Note>Draft format is locked once the draft starts.</Note>}
       <FormControl disabled={frozen}>
         <RadioGroup value={draftType} onChange={(event) => setDraftType(event.target.value)}>
           {TYPES.map(([value, label, description]) => (
-            <Box key={value} sx={{ border: '1px solid', borderColor: draftType === value ? 'primary.main' : 'divider', borderRadius: 1, px: 1, mb: 1 }}>
-              <FormControlLabel value={value} control={<Radio />} label={<><Typography>{label}</Typography><Typography variant="caption" color="text.secondary">{description}</Typography></>} />
+            <Box key={value} sx={{ border: '2px solid', borderColor: draftType === value ? 'var(--ps-ink)' : 'var(--ps-dim)', px: 1, mb: 1 }}>
+              <FormControlLabel value={value} control={<Radio sx={RADIO_SX} />} label={<><Typography>{label}</Typography><Dim>{description}</Dim></>} />
             </Box>
           ))}
         </RadioGroup>
       </FormControl>
-      {draftType === 'auction' && <Alert severity="info">Settings only. Live salary-cap drafts are coming soon. Scheduling and immediate start are unavailable.</Alert>}
+      {draftType === 'auction' && <Note>Settings only. Live salary-cap drafts are coming soon. Scheduling and immediate start are unavailable.</Note>}
       {draftType !== 'auction' && <Box>
         <Typography variant="subtitle2" component="p" id="draft-rotation-label" sx={{ mb: 1 }}>Draft rotation</Typography>
-        <ToggleButtonGroup exclusive value={draftRotation} disabled={frozen} onChange={(event, value) => value && setDraftRotation(value)} size="small" aria-labelledby="draft-rotation-label">
+        <ToggleButtonGroup exclusive value={draftRotation} disabled={frozen} onChange={(event, value) => value && setDraftRotation(value)} sx={{ '& .MuiToggleButton-root': { ...TARGET_SX, borderRadius: 0, borderWidth: '2px', color: 'var(--ps-ink)', fontFamily: 'inherit' } }} aria-labelledby="draft-rotation-label">
           <ToggleButton value="snake">Snake</ToggleButton><ToggleButton value="linear">Linear</ToggleButton>
         </ToggleButtonGroup>
       </Box>}
-      <Box><Button variant="contained" disabled={frozen || saving} onClick={() => onSave(draftType === 'auction' ? { draftType } : { draftType, draftRotation }, 'Draft type saved')}>Save draft type</Button></Box>
+      <Box><PsButton disabled={frozen || saving} onClick={() => onSave(draftType === 'auction' ? { draftType } : { draftType, draftRotation }, 'Draft type saved')}>Save draft type</PsButton></Box>
     </Stack>
   );
 }

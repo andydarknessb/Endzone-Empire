@@ -17,9 +17,10 @@ import { unavailableLabel } from '../../../entities/roster';
  * The Starters frame of Matchup Detail (ADR 0031, #899), drawn as the board's primary frame (ADR
  * 0067 wave 2, spec #2334 ruling 4): both sides on one row with the slot and its position tag in the
  * centre column, a header row naming both Teams, the "Pts / proj" and "Exp final" column labels, and a
- * Totals row. The viewer's side comes first (Critique 4 item 1): a participant's own team is the left
- * column and the opponent's the right one, right-aligned, whichever of home and away they are; a
- * non-participant sees home on the left.
+ * Totals row. The viewer's side comes first (Critique 4 item 1, spec #2402): the page hands the
+ * board's `first` and `second` sides and the rows in that order, and the widget draws them as given,
+ * first on the left and second on the right, right-aligned. A cell's test id keeps the side's `origin`
+ * ('home' or 'away'), so a reader finds a team by what it is.
  *
  * Each filled side is a starter cell: the name (a button that opens the player) with his injury tag,
  * "NFL vs OPP · clock" on line two (the product's text; the product has no per-starter kickoff, so
@@ -30,7 +31,9 @@ import { unavailableLabel } from '../../../entities/roster';
  * "on bye") in place of the projection for an Unavailable starter), and, on a wide screen while the
  * matchup is live, his Exp final (the producer's `expected_final`, a dash when it priced none). Before
  * kickoff no row repeats "Yet to play": the head says "Every starter yet to play" once and every figure
- * is a Proj, with no Exp final column (it would equal Proj).
+ * is a Proj, with no Exp final column (it would equal Proj). Once settled (`played` or `final`) every
+ * starter is done: the head says "Every starter final" once in place of the legend and no row draws a
+ * mark or its word (a `final` matchup is never priced, so its rows carry no state anyway, #2429).
  *
  * On a phone a cell is three lines (#2008, #2395): the name and injury tag; the mark (its word screen-reader
  * only) and the figure; the game on its own line, wrapping at spaces inside the half-width cell; each half keeps its side of a
@@ -43,10 +46,11 @@ import { unavailableLabel } from '../../../entities/roster';
  * The opponent's empty slot, a non-participant's and a best ball league's say nothing about a lock.
  *
  * The Totals row prints each Team's Matchup score (the board's `scoreLabel`, handed down as
- * `scoreLabels`; the widget sums nothing) with its Exp final, or the Proj total before kickoff.
+ * `scoreLabels` `{ first, second }`; the widget sums nothing) with its Exp final, or the Proj total before kickoff.
  *
- * The rows arrive already paired and ordered by the Matchup page model (`pairStartersBySlot`); this
- * widget renders them as given. Two callbacks: `onOpenPlayer(id)` from a starter's name, and
+ * The rows (`[{ slot, first, second }]`) arrive already paired and ordered by the Matchup page model
+ * (`pairStartersBySlot`); this widget renders them as given. `first` and `second` are the board's sides
+ * (`{ name, origin, isViewer }` is all it reads); `expectedFinal` is `{ first, second }`. Two callbacks: `onOpenPlayer(id)` from a starter's name, and
  * `onToggle(id)` from the rest of his cell, which expands the row's stat line (`expandedId` is the
  * open starter). The two are sibling controls, not nested: the expand control is a full-cell button
  * laid under the cell's content, the name a button laid over it.
@@ -55,15 +59,14 @@ import { unavailableLabel } from '../../../entities/roster';
  */
 export default function SlotComparison({
   rows,
-  homeName,
-  awayName,
+  first,
+  second,
   expectedFinal,
   scoreLabels,
   status,
   onOpenPlayer,
   expandedId,
   onToggle,
-  viewerSide,
   fillBy,
 }) {
   const baseId = useId();
@@ -78,9 +81,6 @@ export default function SlotComparison({
   const ef = phase.settled ? {} : expectedFinal || {};
   const count = `${list.length} ${list.length === 1 ? 'slot' : 'slots'}`;
   const headingId = `${baseId}-h`;
-  // Viewer first: the left column is the viewer's team when they play in this matchup, else home.
-  const [leftKey, rightKey] = viewerSide === 'away' ? ['away', 'home'] : ['home', 'away'];
-  const names = { home: homeName, away: awayName };
 
   return (
     <Frame
@@ -90,14 +90,16 @@ export default function SlotComparison({
         <FrameHead>
           <PixelHeading id={headingId}>Starters</PixelHeading>
           <Box component="span" sx={{ ...META, ml: 'auto' }}>{count}</Box>
-          {pre ? <Box component="span" sx={{ ...META, flexBasis: { xs: '100%', md: 'auto' } }}>Every starter yet to play</Box> : <Legend />}
+          {pre || phase.settled
+            ? <Box component="span" sx={{ ...META, flexBasis: { xs: '100%', md: 'auto' } }}>{pre ? 'Every starter yet to play' : 'Every starter final'}</Box>
+            : <Legend />}
         </FrameHead>
       )}
     >
       <Box sx={{ ...COLUMNS, alignItems: 'start', padding: { xs: '12px 14px 8px', md: '14px 20px 8px' }, borderBottom: '2px solid var(--ps-rule)' }}>
-        <TeamHead name={names[leftKey]} you={viewerSide === leftKey} />
+        <TeamHead name={first?.name} you={!!first?.isViewer} />
         <Box component="span" sx={{ ...LABEL, textAlign: 'center' }}>Slot</Box>
-        <TeamHead name={names[rightKey]} you={viewerSide === rightKey} right />
+        <TeamHead name={second?.name} you={!!second?.isViewer} right />
       </Box>
       {!compact && (
         <Box aria-hidden="true" sx={{ ...COLUMNS, padding: '6px 20px', borderBottom: '2px solid var(--ps-rule)', ...LABEL }}>
@@ -114,19 +116,20 @@ export default function SlotComparison({
           <Box component="ul" role="list" sx={{ listStyle: 'none', m: 0, p: 0 }}>
             {list.map((row, i) => {
               const open = (key) => !!(row[key] && expandedId != null && expandedId === row[key].id);
-              const openPlayer = open('home') ? row.home : open('away') ? row.away : null;
+              const openPlayer = open('first') ? row.first : open('second') ? row.second : null;
               const panelId = `${baseId}-row-${i}-panel`;
               const cellFor = (key, right) => (
                 <SideCell
                   player={row[key]}
-                  side={key}
+                  side={(right ? second : first)?.origin}
                   right={right}
                   pre={pre}
+                  settled={phase.settled}
                   showExp={showExp}
                   expanded={open(key)}
                   panelId={panelId}
                   compact={compact}
-                  fillBy={viewerSide === key ? fillBy : undefined}
+                  fillBy={(right ? second : first)?.isViewer ? fillBy : undefined}
                   onToggle={onToggle}
                   onOpenPlayer={onOpenPlayer}
                 />
@@ -135,16 +138,16 @@ export default function SlotComparison({
                 <Box
                   component="li"
                   data-testid="slot-row"
-                  key={`${row.slot}-${row.home?.id ?? 'x'}-${row.away?.id ?? 'x'}-${i}`}
+                  key={`${row.slot}-${row.first?.id ?? 'x'}-${row.second?.id ?? 'x'}-${i}`}
                   sx={{ borderBottom: '2px solid var(--ps-rule)' }}
                 >
                   <Box sx={{ ...COLUMNS, alignItems: 'center', minHeight: '56px', padding: { xs: '6px 14px', md: '6px 20px' } }}>
-                    {cellFor(leftKey, false)}
+                    {cellFor('first', false)}
                     <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
                       <PosTag position={row.slot} />
                       <Box component="span" sx={{ fontSize: '13px', fontWeight: 700, letterSpacing: '.04em', color: 'var(--ps-dim)', whiteSpace: 'nowrap' }}>{row.slot}</Box>
                     </Box>
-                    {cellFor(rightKey, true)}
+                    {cellFor('second', true)}
                   </Box>
                   {openPlayer && <ExpandedStrip id={panelId} player={openPlayer} />}
                 </Box>
@@ -158,9 +161,9 @@ export default function SlotComparison({
               ...COLUMNS, alignItems: 'center', padding: { xs: '12px 14px', md: '12px 20px' }, borderTop: '2px solid var(--ps-frame)', backgroundColor: 'var(--ps-field)',
             }}
           >
-            <Total side={leftKey} now={scoreLabels?.[leftKey]} ef={ef[leftKey]} pre={pre} showExp={showExp} />
+            <Total side={first?.origin} now={scoreLabels?.first} ef={ef.first} pre={pre} showExp={showExp} />
             <Box component="span" sx={{ ...LABEL, textAlign: 'center', fontWeight: 700, color: 'var(--ps-ink)' }}>Totals</Box>
-            <Total side={rightKey} now={scoreLabels?.[rightKey]} ef={ef[rightKey]} pre={pre} showExp={showExp} right />
+            <Total side={second?.origin} now={scoreLabels?.second} ef={ef.second} pre={pre} showExp={showExp} right />
           </Box>
         </>
       )}
@@ -344,13 +347,14 @@ const FOCUS_RING = { outline: '3px solid var(--ps-focus)', outlineOffset: 0, box
  * button with pointer events off so a click anywhere but the name reaches the expand control. The
  * expand button names its panel through `aria-controls` only while the panel is mounted, so the
  * IDREF always resolves. `right` is the visual position (the right column mirrors the left); `side` is
- * the data key ('home' or 'away').
+ * the side's `origin` ('home' or 'away'), used for the test id.
  */
 function SideCell({
-  player, side, right, pre, showExp, expanded, panelId, compact, fillBy, onToggle, onOpenPlayer,
+  player, side, right, pre, settled, showExp, expanded, panelId, compact, fillBy, onToggle, onOpenPlayer,
 }) {
   if (!player) return <EmptyCell side={side} right={right} pre={pre} compact={compact} showExp={showExp} fillBy={fillBy} />;
-  const state = starterStateView(player.game_state);
+  // A settled matchup is never priced, so every game is final and the head says so once; no per-row mark.
+  const state = settled ? null : starterStateView(player.game_state);
   const reason = unavailableLabel(player);
   const notStarted = pre || player.game_state === 'scheduled';
   // "proj x" while his game has not started (the reason in its place for an Unavailable starter);

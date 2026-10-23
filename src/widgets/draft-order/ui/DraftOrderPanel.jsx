@@ -1,8 +1,8 @@
 import React, { useId } from 'react';
+import { Box, Tooltip, Typography } from '@mui/material';
 import {
-  Box, Chip, Paper, Tooltip, Typography,
-} from '@mui/material';
-import AccessTimeIcon from '@mui/icons-material/AccessTime';
+  Frame, Tag, YouTag, PixelClock, BODY_FONT, pixelSx,
+} from '../../../shared/ui/playselect';
 import { teamsInDraftOrder } from '../../../lib/draftTurns';
 import { isTeamOnTheClock } from '../../../shared/lib/onTheClock';
 import AutodraftToggle from '../../../features/autodraft-toggle/ui/AutodraftToggle';
@@ -27,14 +27,19 @@ export default function DraftOrderPanel({
   const content = (
     <>
       {(isCommissioner || viewerTeamId != null) && draftStatus !== 'complete' && (
-        <Typography id={helpId} variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 1 }}>
+        <Typography id={helpId} variant="caption" sx={{
+          fontFamily: BODY_FONT, color: 'var(--ps-dim)', display: 'block', mb: 1,
+        }}
+        >
           Automatic picks use the best available player by ADP. This also turns on after two missed picks.
         </Typography>
       )}
       <Box
         component="ul"
         role="list"
-        sx={{ display: 'flex', flexDirection: 'column', gap: 1, listStyle: 'none', p: 0, m: 0 }}
+        sx={{
+          display: 'flex', flexDirection: 'column', listStyle: 'none', p: 0, m: 0, fontFamily: BODY_FONT,
+        }}
       >
         {orderedTeams.map((team) => {
           const isViewer = viewerTeamId != null && team.teamId === viewerTeamId;
@@ -54,15 +59,10 @@ export default function DraftOrderPanel({
                 minHeight: 44,
                 px: 1,
                 py: 0.5,
-                ...(isViewer ? {
-                  bgcolor: 'var(--accent-soft)',
-                  borderLeft: '3px solid var(--accent)',
-                  borderRadius: 'var(--radius-sm)',
-                  pl: 0.625,
-                } : {}),
+                borderBottom: '2px solid var(--ps-rule)',
               }}
             >
-              <Typography variant="body2" sx={{ color: 'text.secondary', fontVariantNumeric: 'tabular-nums' }}>
+              <Typography variant="body2" sx={{ fontFamily: BODY_FONT, color: 'inherit', fontVariantNumeric: 'tabular-nums' }}>
                 {team.draft_position != null ? `${team.draft_position}.` : '-'}
               </Typography>
               <Box
@@ -77,6 +77,7 @@ export default function DraftOrderPanel({
                     aria-label={team.teamName}
                     tabIndex={0}
                     sx={{
+                      fontFamily: BODY_FONT,
                       minWidth: 0,
                       flex: '1 1 8rem',
                       overflow: 'hidden',
@@ -88,9 +89,13 @@ export default function DraftOrderPanel({
                     {team.teamName}
                   </Typography>
                 </Tooltip>
-                {onClock && <AccessTimeIcon aria-label="On the clock" fontSize="small" sx={{ flex: '0 0 auto' }} />}
-                {isViewer && <Chip size="small" variant="outlined" label="You" />}
-                {team.autodraft && !canToggle && <Chip size="small" color="warning" label="AUTO" />}
+                {onClock && (
+                  <Box component="span" role="img" aria-label="On the clock" sx={{ display: 'inline-flex', flex: '0 0 auto' }}>
+                    <PixelClock />
+                  </Box>
+                )}
+                {isViewer && <YouTag />}
+                {team.autodraft && !canToggle && <Tag>AUTO</Tag>}
               </Box>
               {canToggle && (
                 <AutodraftToggle
@@ -110,11 +115,11 @@ export default function DraftOrderPanel({
   if (embedded) return content;
 
   return (
-    <Paper component="section" aria-labelledby={headingId} sx={{ p: 2, mb: 3 }}>
-      <Typography id={headingId} variant="h6" component="h2" sx={{ mb: 0.5 }}>
+    <Frame tier="rule" component="section" labelledBy={headingId} sx={{ p: 2, mb: 3 }}>
+      <Box component="h2" id={headingId} sx={{ ...pixelSx(16), m: 0, mb: 1 }}>
         Draft order
-      </Typography>
+      </Box>
       {content}
-    </Paper>
+    </Frame>
   );
 }

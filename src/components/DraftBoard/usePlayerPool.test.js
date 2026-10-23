@@ -58,7 +58,7 @@ test('fetches page 1 on mount and clears the initial loading flag', async () => 
   await waitFor(() => expect(result.current.loading).toBe(false));
 
   expect(apiClient.get).toHaveBeenCalledWith('/api/players', {
-    params: { page: 1, leagueId: 1, sort: 'adp', available: true },
+    params: { page: 1, leagueId: 1, sort: 'adp', available: true, nullTeamLast: true },
   });
 });
 
@@ -86,7 +86,7 @@ test('a bogus or legacy ?sort= value falls back to the default (adp) rather than
 
   expect(result.current.controls.sort).toBe('adp');
   expect(apiClient.get).toHaveBeenCalledWith('/api/players', {
-    params: { page: 1, leagueId: 1, sort: 'adp', available: true },
+    params: { page: 1, leagueId: 1, sort: 'adp', available: true, nullTeamLast: true },
   });
   // The mirror effect drops `sort` from the URL once it equals the default,
   // so the bogus value never gets written back either.
@@ -105,6 +105,7 @@ test('maps the projection URL sort to the server global projection sort', async 
       leagueId: 1,
       sort: 'projected_points',
       available: true,
+      nullTeamLast: true,
       dir: 'desc',
     },
   });
@@ -133,7 +134,7 @@ test('debounces the search box 300ms before committing and refetching', async ()
 
   await waitFor(() =>
     expect(apiClient.get).toHaveBeenCalledWith('/api/players', {
-      params: { page: 1, leagueId: 1, sort: 'adp', available: true, search: 'mahomes' },
+      params: { page: 1, leagueId: 1, sort: 'adp', available: true, nullTeamLast: true, search: 'mahomes' },
     })
   );
 });
@@ -169,7 +170,7 @@ test('loadMore appends the next page onto the existing list', async () => {
   await waitFor(() => expect(result.current.availablePlayers).toHaveLength(2));
   expect(result.current.availablePlayers.map((p) => p.id)).toEqual([1, 2]);
   expect(apiClient.get).toHaveBeenLastCalledWith('/api/players', {
-    params: { page: 2, leagueId: 1, sort: 'adp', available: true },
+    params: { page: 2, leagueId: 1, sort: 'adp', available: true, nullTeamLast: true },
   });
   expect(result.current.controls.hasMore).toBe(false);
 });
@@ -184,7 +185,7 @@ test('changing the Bye-weeks filter refetches page 1 with a sorted, deduped byeW
 
   await waitFor(() =>
     expect(apiClient.get).toHaveBeenCalledWith('/api/players', {
-      params: { page: 1, leagueId: 1, sort: 'adp', available: true, byeWeeks: '6,9' },
+      params: { page: 1, leagueId: 1, sort: 'adp', available: true, nullTeamLast: true, byeWeeks: '6,9' },
     })
   );
   expect(result.current.controls.byeWeeksFilter).toEqual([6, 9]);
@@ -198,7 +199,7 @@ test('restores the Bye-weeks filter from the URL on mount', async () => {
 
   expect(result.current.controls.byeWeeksFilter).toEqual([6, 9]);
   expect(apiClient.get).toHaveBeenCalledWith('/api/players', {
-    params: { page: 1, leagueId: 1, sort: 'adp', available: true, byeWeeks: '6,9' },
+    params: { page: 1, leagueId: 1, sort: 'adp', available: true, nullTeamLast: true, byeWeeks: '6,9' },
   });
 });
 
@@ -247,7 +248,7 @@ test('RED before #1420: selecting the FLEX chip queries RB/WR/TE via the multi-p
 
   await waitFor(() =>
     expect(apiClient.get).toHaveBeenCalledWith('/api/players', {
-      params: { page: 1, leagueId: 1, sort: 'adp', available: true, positions: 'RB,WR,TE' },
+      params: { page: 1, leagueId: 1, sort: 'adp', available: true, nullTeamLast: true, positions: 'RB,WR,TE' },
     })
   );
 });

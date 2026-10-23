@@ -7,10 +7,10 @@ import PlayoffRulesView from './PlayoffRulesView';
 import PickemRulesView from './PickemRulesView';
 import { clearPickemSettingsCache, setPickemSettings } from '../../entities/pickem-game';
 
-// Each view's section titles are the level below "League Rules" (h4, in
+// Each view's section titles are the level below "League Rules" (h1, in
 // LeagueRules.jsx) since none of these views nest a card or tab heading of
 // their own between the page title and the section titles (#703).
-const SECTION_HEADING_LEVEL = 5;
+const SECTION_HEADING_LEVEL = 2;
 
 const DEFAULTS = {
   passing: { yards: 0.04, touchdowns: 4 },
@@ -86,11 +86,11 @@ describe('ScoringRulesView', () => {
     expect(screen.getByText('Per yard over min')).toBeInTheDocument();
   });
 
-  it('gives each category title an explicit heading level, one below the page title, and keeps the subtitle1 type scale', () => {
+  it('gives each category title an explicit heading level, one below the page title, and keeps the pixel type scale', () => {
     render(<ScoringRulesView league={{ scoring_preset: 'standard', dp_enabled: true }} defaults={DEFAULTS} />);
     const passingHeading = screen.getByRole('heading', { level: SECTION_HEADING_LEVEL, name: 'Passing' });
     expect(passingHeading).toBeInTheDocument();
-    expect(passingHeading).toHaveClass('MuiTypography-subtitle1');
+    expect(passingHeading).toHaveStyle({ textTransform: 'uppercase', fontSize: '16px' });
     expect(screen.getByRole('heading', { level: SECTION_HEADING_LEVEL, name: 'Individual Defense (IDP)' })).toBeInTheDocument();
     // No stray level-6 heading is left behind now that these are no longer h6.
     expect(screen.queryAllByRole('heading', { level: 6 })).toHaveLength(0);

@@ -1,24 +1,14 @@
 import React from 'react';
 import { Link as RouterLink, Navigate, useParams } from 'react-router-dom';
 import { useSelector } from 'react-redux';
-import { Box, Button, Container, Link, Typography } from '@mui/material';
-import { visuallyHidden } from '@mui/utils';
-import { Badge, Skeleton, StatTile } from '../../shared/ui';
+import { Box } from '@mui/material';
+import {
+  ErrorPanel, Frame, PixelHeading, Skel, StatusChip, SR_ONLY_SX, psRootSx,
+} from '../../shared/ui/playselect';
 import AdvanceWeek from '../../features/advance-week';
 import JoinRequests from '../../widgets/join-requests';
 import CommissionerTools from '../../components/LeagueDashboard/CommissionerTools';
-import { MIN_TOUCH_TARGET_SX } from '../../shared/lib';
 import useCommissionerConsole from './model/useCommissionerConsole';
-
-const H1_SX = {
-  m: 0,
-  fontFamily: 'var(--dash-font-display)',
-  fontSize: { xs: '28px', sm: '34px' },
-  fontWeight: 700,
-  letterSpacing: '0.02em',
-  textTransform: 'uppercase',
-  color: 'var(--dash-ink)',
-};
 
 /**
  * Commissioner console page slice (ADR 0034, #1107), on the
@@ -37,12 +27,11 @@ const H1_SX = {
  * a league (both fantasy-only concepts already gated the same way on the
  * dashboard's commissioner strip).
  *
- * Composes, in the island's `dash-*` shell: a two-crumb breadcrumb (the
+ * Composes, in the Play-select shell: a two-crumb breadcrumb (the
  * league name to the dashboard, then "Commissioner"), the h1 "Commissioner
  * console", the phase chip and the "Commissioners · N" chip, the
  * advance-week control in the header (fantasy, live-week only, the same gate
- * `useCommissionerPanel` states today), a facts strip of `shared/ui`
- * StatTiles from `commissionerFacts` (`shared/lib`, moved here from the
+ * `useCommissionerPanel` states today), a facts strip (a tertiary frame) from `commissionerFacts` (`shared/lib`, moved here from the
  * commissioner-panel widget's model so both surfaces read the one function),
  * and a 720px column mounting the legacy tools with exactly the props the
  * panel hands them today, plus the co-commissioner explainer sentence for a
@@ -69,7 +58,6 @@ export default function CommissionerConsolePage() {
     isOwner,
     showAdvance,
     currentWeek,
-    seasonLive,
     phaseChipLabel,
     commissionerCount,
     facts,
@@ -80,12 +68,12 @@ export default function CommissionerConsolePage() {
     return (
       <Shell>
         <Box data-testid="commissioner-console-loading" aria-busy="true" sx={{ display: 'grid', gap: '16px' }}>
-          <Skeleton variant="text" width={280} height={44} />
+          <Skel width={280} height={44} />
           <Box sx={{ display: 'flex', gap: 1 }}>
-            <Skeleton variant="rounded" width={120} height={26} />
-            <Skeleton variant="rounded" width={140} height={26} />
+            <Skel width={120} height={26} />
+            <Skel width={140} height={26} />
           </Box>
-          <Skeleton variant="rounded" height={320} />
+          <Skel height={320} />
         </Box>
       </Shell>
     );
@@ -94,48 +82,19 @@ export default function CommissionerConsolePage() {
   if (!league) {
     return (
       <Shell>
-        <Box sx={{ display: 'grid', gap: 1.75, justifyItems: 'start' }}>
+        <Box sx={{ display: 'grid', gap: '16px', justifyItems: 'start' }}>
           {/* "Console unavailable", not "Commissioner console": a viewer who
               never got the league row cannot see the surface that heading
               would claim to be showing. Mirrors LeagueDashboardPage's own
-              "League unavailable" for the same failed-read state. */}
-          <Typography component="h1" sx={H1_SX}>Console unavailable</Typography>
-          {/* The fixed sentence, never the raw `error` string: useResource
-              collapses the server's own message and the transport's
-              (`err.message`, e.g. "Network Error") into one value, so
-              showing it here would put an axios internal in front of a
-              commissioner. Matches LeagueDashboardPage's same call. */}
-          <Typography role="alert" sx={{ fontSize: '14px', color: 'var(--dash-ink)' }}>
-            We could not load this league right now.
-          </Typography>
-          <Button
-            type="button"
-            variant="outlined"
-            onClick={() => refetch()}
-            sx={{
-              ...MIN_TOUCH_TARGET_SX,
-              textTransform: 'none',
-              color: 'var(--dash-ink)',
-              borderColor: 'var(--dash-line-strong)',
-              borderRadius: 'var(--dash-radius-sm)',
-              fontFamily: 'var(--dash-font-body)',
-              fontWeight: 600,
-              fontSize: '13px',
-              // Without this, MUI's stock outlined hover paints
-              // palette.primary.main plus a primary-tinted wash - an
-              // unregistered pairing inside the dash shell (ADR 0034).
-              // AppThemeProvider's MuiButton override does not intercept it
-              // (disableElevation/borderRadius/transition only), so this
-              // page has to state it itself, matching LeagueDashboardPage's
-              // same button.
-              '&:hover': {
-                borderColor: 'var(--dash-accent-line)',
-                backgroundColor: 'transparent',
-              },
-            }}
-          >
-            Try again
-          </Button>
+              "League unavailable" for the same failed-read state. The fixed
+              sentence, never the raw `error` string: useResource collapses the
+              server's message and the transport's ("Network Error") into one
+              value, so showing it would put an axios internal in front of a
+              commissioner. */}
+          <PixelHeading level={1}>Console unavailable</PixelHeading>
+          <Box sx={{ width: '100%' }}>
+            <ErrorPanel title="We could not load this league right now." onRetry={() => refetch()} />
+          </Box>
         </Box>
       </Shell>
     );
@@ -159,41 +118,44 @@ export default function CommissionerConsolePage() {
         sx={{
           display: 'flex',
           flexDirection: { xs: 'column', sm: 'row' },
-          alignItems: { xs: 'stretch', sm: 'baseline' },
+          alignItems: { xs: 'stretch', sm: 'center' },
           gap: { xs: '12px', sm: '18px' },
           flexWrap: 'wrap',
         }}
       >
-        <Typography component="h1" sx={H1_SX}>Commissioner console</Typography>
+        <PixelHeading level={1}>Commissioner console</PixelHeading>
         <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-          {phaseChipLabel && <Badge variant={seasonLive ? 'live' : 'neutral'}>{phaseChipLabel}</Badge>}
-          <Badge variant="neutral">{`Commissioners · ${commissionerCount}`}</Badge>
+          {/* Neutral always: green is for live games only (RULINGS.md:56). */}
+          {phaseChipLabel && <StatusChip>{phaseChipLabel}</StatusChip>}
+          <StatusChip>{`Commissioners · ${commissionerCount}`}</StatusChip>
         </Box>
         {showAdvance && (
-          <Box sx={{ ml: { sm: 'auto' } }}>
+          <Box sx={{ flexBasis: '100%' }}>
             <AdvanceWeek leagueId={leagueId} currentWeek={currentWeek} onAdvanced={refetch} />
           </Box>
         )}
       </Box>
 
       {facts.length > 0 && (
-        <Box
-          data-testid="commissioner-console-facts"
-          sx={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
-            gap: 1,
-          }}
-        >
-          {facts.map((fact) => (
-            <StatTile
-              key={fact.key}
-              data-testid={`commissioner-console-fact-${fact.key}`}
-              label={fact.label}
-              value={fact.value}
-            />
-          ))}
-        </Box>
+        <Frame tier="rule" aria-label="League settings" data-testid="commissioner-console-facts">
+          <Box
+            component="dl"
+            sx={{
+              m: 0,
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+              gap: '12px 24px',
+              padding: '14px 20px',
+            }}
+          >
+            {facts.map((fact) => (
+              <Box key={fact.key} data-testid={`commissioner-console-fact-${fact.key}`}>
+                <Box component="dt" sx={{ fontSize: '13px', color: 'var(--ps-dim)' }}>{fact.label}</Box>
+                <Box component="dd" sx={{ m: 0, fontSize: '15px', fontWeight: 600 }}>{fact.value}</Box>
+              </Box>
+            ))}
+          </Box>
+        </Frame>
       )}
 
       {/* The join-requests widget (#1109): mounted above the tools column,
@@ -218,23 +180,17 @@ export default function CommissionerConsolePage() {
             re-parenting it here drops that h2, and this label restores the
             level it was written to nest under without touching the legacy
             component or printing a second visible title above its own. */}
-        <Typography component="h2" sx={visuallyHidden}>League administration</Typography>
+        <Box component="h2" sx={SR_ONLY_SX}>League administration</Box>
         {/* Why the co-commissioner card is missing from the tools below,
             stated only for the reader who cannot see it: the owner sees the
             card itself, so the sentence would be noise for them. */}
         {!isOwner && (
-          <Typography
+          <Box
             data-testid="commissioner-console-co-commissioner-note"
-            sx={{
-              m: 0,
-              mb: 1.5,
-              fontFamily: 'var(--dash-font-body)',
-              fontSize: '12.5px',
-              color: 'var(--dash-dim)',
-            }}
+            sx={{ m: 0, mb: 1.5, fontSize: '14px', color: 'var(--ps-dim)' }}
           >
             Only the league creator can add or remove co-commissioners.
-          </Typography>
+          </Box>
         )}
         <CommissionerTools
           leagueId={leagueId}
@@ -250,10 +206,9 @@ export default function CommissionerConsolePage() {
 }
 
 const CRUMB_LINK_SX = {
-  color: 'var(--dash-faint)',
+  color: 'var(--ps-dim)',
   textDecoration: 'none',
-  '&:hover': { color: 'var(--dash-ink)', textDecoration: 'underline' },
-  '&:focus-visible': { outline: '2px solid var(--focus-ring)', outlineOffset: 2 },
+  '&:hover': { color: 'var(--ps-ink)', textDecoration: 'underline' },
 };
 
 /**
@@ -279,21 +234,21 @@ function Breadcrumb({ leagueId, leagueName }) {
           alignItems: 'center',
           flexWrap: 'wrap',
           gap: '8px',
-          fontSize: '13px',
-          color: 'var(--dash-faint)',
+          fontSize: '14px',
+          color: 'var(--ps-dim)',
         }}
       >
         <Box component="li" sx={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
-          <Link
+          <Box
             component={RouterLink}
             to={`/league/${leagueId}`}
             sx={{ ...CRUMB_LINK_SX, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
           >
             {leagueName}
-          </Link>
+          </Box>
           <Box component="span" aria-hidden="true">/</Box>
         </Box>
-        <Box component="li" aria-current="page" sx={{ color: 'var(--dash-dim)' }}>
+        <Box component="li" aria-current="page" sx={{ color: 'var(--ps-ink)' }}>
           Commissioner
         </Box>
       </Box>
@@ -302,35 +257,26 @@ function Breadcrumb({ leagueId, leagueName }) {
 }
 
 /**
- * The island's page frame: the `dash-*` token context plus the canvas's
- * 1200px column. Every state (loading, error, gated, loaded) renders inside
- * it so the island background is constant, matching GameCenterPage and
- * LeagueDashboardPage.
+ * The Play-select page frame: the `ps-root` token context plus the 1280px column the other league
+ * pages use. Every state (loading, error, gated, loaded) renders inside it so the page field is constant.
  */
 function Shell({ children }) {
   return (
-    <Box
-      sx={{
-        backgroundColor: 'var(--dash-bg)',
-        color: 'var(--dash-ink)',
-        fontFamily: 'var(--dash-font-body)',
-        minHeight: '100%',
-      }}
-    >
-      <Container
-        maxWidth="lg"
+    <Box className="ps-root" sx={{ ...psRootSx, minHeight: '100%' }}>
+      <Box
         data-testid="commissioner-console-column"
         sx={{
+          maxWidth: '1280px',
+          marginX: 'auto',
+          boxSizing: 'border-box',
+          padding: { xs: '24px 16px 48px', sm: '24px 32px 64px' },
           display: 'flex',
           flexDirection: 'column',
-          gap: '18px',
-          px: { xs: '14px', sm: '24px' },
-          pt: { xs: '14px', sm: '24px' },
-          pb: { xs: '32px', sm: '40px' },
+          gap: '24px',
         }}
       >
         {children}
-      </Container>
+      </Box>
     </Box>
   );
 }

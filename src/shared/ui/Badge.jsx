@@ -5,7 +5,7 @@ import { Box, Chip } from '@mui/material';
  * League Dashboard badge: a token-themed MUI Chip in three variants from the
  * mockup, plus three from the Game Center canvas:
  *   - `neutral` (default): the plain `.chip` (surface2 fill, dim text).
- *   - `live`: the `.chip.live` accent state (accent text on the accent tint).
+ *   - `live`: the `.chip.live` accent state (accent text and border on the panel).
  *   - `you`: the small `.you` pill that is the viewer-row marker for the League
  *     Dashboard island (ADR 0020's six widget slices, page `league-dashboard`;
  *     NOT `src/widgets/draft-order`, the older ADR 0017 island in the Draft
@@ -18,23 +18,19 @@ import { Box, Chip } from '@mui/material';
  *     invisible to assistive tech and carries no accessibility guarantee of
  *     its own.
  *   - `danger`: the Game Center canvas's `.chip.live` (ADR 0031, #895): danger
- *     text and border on the danger tint, the broadcast-red "Live" of the
+ *     text and border on the panel, the broadcast-red "Live" of the
  *     scoring strip. Distinct from `live` above, which is the League Dashboard
  *     mockup's accent-toned season chip: the two canvases paint "live"
- *     differently and each keeps its own variant. Its tint is guarded only
- *     over a card (tokens.contrast.test.js), so it belongs on `dash-surface`.
+ *     differently and each keeps its own variant.
  *   - `warning`: the canvas's `.chip.warn` (ADR 0031, #903): warning text and
- *     border on the warning tint, the "may not play" tone of the injury tag
+ *     border on the panel, the "may not play" tone of the injury tag
  *     (InjuryTag) and the Awaiting final status chip on the hero and the
- *     matchup cards (#897). Its tint is guarded over a card and a stat tile
- *     (`dash-surface`, `dash-surface2`, tokens.contrast.test.js), nowhere else.
+ *     matchup cards (#897).
  *   - `success`: the canvas's `.chip.final` (ADR 0031, #897): success text and
- *     border on the success tint, the Final status chip on the hero and the
- *     matchup cards. The island's success pair is the away pair (`dash-away` /
- *     `dash-away-soft`, tokens.js); the tint is guarded only over a card
- *     (tokens.contrast.test.js), so it belongs on `dash-surface`.
+ *     border on the panel, the Final status chip on the hero and the
+ *     matchup cards.
  *
- * Part of `shared/ui` (ADR 0020). Colors come only from `--dash-*` tokens.
+ * Part of `shared/ui` (ADR 0020). Colors come only from `--ps-*` tokens, on a `ps-panel` fill.
  * The label text is whatever `children` holds; the variant is also exposed as
  * a stable `data-variant` attribute so a composing widget (and this kit's own
  * tests) can assert which variant rendered without reaching into class names.
@@ -48,42 +44,39 @@ import { Box, Chip } from '@mui/material';
  */
 const VARIANT_SX = {
   neutral: {
-    backgroundColor: 'var(--dash-surface2)',
-    color: 'var(--dash-dim)',
-    border: '1px solid var(--dash-line)',
+    backgroundColor: 'var(--ps-panel)',
+    color: 'var(--ps-dim)',
+    border: '1px solid var(--ps-rule)',
   },
   live: {
-    backgroundColor: 'var(--dash-accent-soft)',
-    color: 'var(--dash-accent)',
-    border: '1px solid var(--dash-accent-line)',
+    backgroundColor: 'var(--ps-panel)',
+    color: 'var(--ps-accent)',
+    border: '1px solid var(--ps-accent)',
   },
   // The "You" pill shares the accent palette with `live`. Its distinct type
   // (see YOU_TYPE) is what keeps it reading as an identity marker rather than a
   // status chip when the two sit near each other.
   you: {
-    backgroundColor: 'var(--dash-accent-soft)',
-    color: 'var(--dash-accent)',
-    border: '1px solid var(--dash-accent-line)',
+    backgroundColor: 'var(--ps-panel)',
+    color: 'var(--ps-accent)',
+    border: '1px solid var(--ps-accent)',
   },
-  // The canvas's `.chip.live` border is the solid danger color, not a line
-  // tint (there is no `dash-danger-line`).
   danger: {
-    backgroundColor: 'var(--dash-danger-soft)',
-    color: 'var(--dash-danger)',
-    border: '1px solid var(--dash-danger)',
+    backgroundColor: 'var(--ps-panel)',
+    color: 'var(--ps-danger)',
+    border: '1px solid var(--ps-danger)',
   },
-  // Like `danger`, the border is the solid warning color (no `dash-warning-line`).
   warning: {
-    backgroundColor: 'var(--dash-warning-soft)',
-    color: 'var(--dash-warning)',
-    border: '1px solid var(--dash-warning)',
+    backgroundColor: 'var(--ps-panel)',
+    color: 'var(--ps-medal-gold)',
+    border: '1px solid var(--ps-medal-gold)',
   },
   // The canvas's `.chip.final`: the same shape as `danger` and `warning`, on
-  // the island's success pair (the away color; there is no `dash-away-line`).
+  // the accent pair.
   success: {
-    backgroundColor: 'var(--dash-away-soft)',
-    color: 'var(--dash-away)',
-    border: '1px solid var(--dash-away)',
+    backgroundColor: 'var(--ps-panel)',
+    color: 'var(--ps-accent)',
+    border: '1px solid var(--ps-accent)',
   },
 };
 

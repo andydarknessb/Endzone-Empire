@@ -2,7 +2,7 @@ const pool = require('../modules/pool');
 const projectionService = require('./projection.service');
 const { computeByeWeeks } = require('./bye.service');
 const { normalizeNflTeam } = require('./nflTeam');
-const { parseLineupSettings } = require('./lineup.service');
+const { parseLineupSettings, liveStartersHeld } = require('./lineup.service');
 const { optimalLineup } = require('./lineupOptimizer');
 const { gameStateFor } = require('./gameState');
 const { gameFractionRemaining, varianceRemaining } = require('./winProbability');
@@ -120,7 +120,8 @@ async function expectedFinalsForWeek({ league, season, week, teamIds, db = pool,
 
   const candidateRows = await db.query(
     `SELECT "lineup_entries"."team_id", "lineup_entries"."player_id", "lineup_entries"."slot",
-            "players"."position", "players"."nfl_team", "player_stats"."stats"
+            "players"."position", "players"."nfl_team", "player_stats"."stats",
+            ("team_players"."player_id" IS NOT NULL) AS "on_roster"
      FROM "lineup_entries"
      LEFT JOIN "team_players" ON "team_players"."team_id" = "lineup_entries"."team_id"
        AND "team_players"."player_id" = "lineup_entries"."player_id"
@@ -137,6 +138,15 @@ async function expectedFinalsForWeek({ league, season, week, teamIds, db = pool,
     // need the current roster (#2388).
     [ids, season, week, !!league.best_ball]
   );
+  // Off-roster rows are the spared starters; only they go through the settle
+  // filter, so the live total never counts a row settle takes off (#2391).
+  const kickoffCache = new Map();
+  const kept = new Set();
+  for (const teamId of ids) {
+    const rows = candidateRows.rows.filter((r) => r.team_id === teamId);
+    for (const r of await liveStartersHeld(db, { league, teamId, season, week, rows, kickoffCache })) kept.add(r);
+  }
+  candidateRows.rows = candidateRows.rows.filter((r) => kept.has(r));
   if (candidateRows.rows.length === 0) return result;
 
   const playerIds = [...new Set(candidateRows.rows.map((r) => r.player_id))];

@@ -156,11 +156,9 @@ export function useMatchupPreview(leagueId, { scoreEvent } = {}) {
     : null;
   const myMatchup = liveEntry ? applyScoreEvent(listMatchup, liveEntry) : listMatchup;
   const matchupId = myMatchup ? myMatchup.id : null;
-  const opponentId = myMatchup
-    ? myMatchup.home.teamId === viewerTeamId
-      ? myMatchup.away.teamId
-      : myMatchup.home.teamId
-    : null;
+  // Viewer first: the board's first side is the viewer's Team, the second the opponent.
+  const board = matchupBoard(myMatchup, viewerTeamId);
+  const opponentId = myMatchup ? board.second.teamId : null;
 
   // #670: does the list row already answer BOTH sides? A null check, not a
   // truthiness check, so a legitimate 0 counts as present. `!= null` excludes
@@ -180,7 +178,6 @@ export function useMatchupPreview(leagueId, { scoreEvent } = {}) {
   // The Matchup's status, through the entity's `matchupBoard` (ADR 0030: status
   // is a server fact, never inferred here). `hasStarted` is true / false /
   // null, and every branch below tests it against an explicit value.
-  const board = matchupBoard(myMatchup, viewerTeamId);
   const { hasStarted, chip } = board;
 
   // Whether the detail read stands any chance of answering: the list didn't
@@ -242,10 +239,9 @@ export function useMatchupPreview(leagueId, { scoreEvent } = {}) {
     detail.status === 'ready' && detail.data ? matchupFromDetailBody(detail.data) : null;
   const projectedFor = (teamId) => {
     if (listHasBothFinals) {
-      const raw =
-        myMatchup.home.teamId === teamId
-          ? Number(myMatchup.home.expectedFinal)
-          : Number(myMatchup.away.expectedFinal);
+      // The list row's own figure (the board states none once settled), picked by Team id.
+      const listSide = [myMatchup.home, myMatchup.away].find((s) => s.teamId === teamId);
+      const raw = Number(listSide?.expectedFinal);
       return { loading: false, value: Number.isFinite(raw) ? raw.toFixed(1) : null };
     }
     if (!detailCanAnswer) return { loading: false, value: null };
@@ -273,9 +269,7 @@ export function useMatchupPreview(leagueId, { scoreEvent } = {}) {
   // remaining that a started card shows.
   const sideOf = (teamId) => {
     if (myMatchup == null || teamId == null) return null;
-    if (myMatchup.home.teamId === teamId) return myMatchup.home;
-    if (myMatchup.away.teamId === teamId) return myMatchup.away;
-    return null;
+    return [board.first, board.second].find((s) => s.teamId === teamId) ?? null;
   };
 
   // The live score, to one decimal. `home_score` is a NOT NULL decimal and
@@ -298,11 +292,11 @@ export function useMatchupPreview(leagueId, { scoreEvent } = {}) {
   const viewer =
     status === 'ready'
       ? {
-          ...identityFor(viewerTeamId),
-          projected: projectedFor(viewerTeamId),
-          score: scoreFor(viewerTeamId),
-          expectedFinal: expectedFinalFor(viewerTeamId),
-          playersRemaining: finite(sideOf(viewerTeamId)?.playersRemaining),
+          ...identityFor(board.first.teamId),
+          projected: projectedFor(board.first.teamId),
+          score: scoreFor(board.first.teamId),
+          expectedFinal: expectedFinalFor(board.first.teamId),
+          playersRemaining: finite(sideOf(board.first.teamId)?.playersRemaining),
         }
       : null;
   const opponent =
@@ -324,17 +318,15 @@ export function useMatchupPreview(leagueId, { scoreEvent } = {}) {
   // The win probability is the board's (#2142), the same figure Game Center's
   // hero reads, computed from the two scores and the two Expected finals, so
   // the two surfaces cannot disagree. It is never a
-  // points ratio: SplitBar's accessible name is
-  // the hard-coded "Win probability" (#872), and a ratio there would announce a
-  // number that is not one. The share is clamped and rounded exactly as
-  // SplitBar rounds its own segments, and it is stated from the VIEWER's side
-  // because the card lays the viewer out on the left where SplitBar paints its
-  // `homeShare` segment.
+  // points ratio: TwoSidedOdds names both teams and shares ("{a} X%, {b} Y% win
+  // probability", #872), and a ratio there would announce a number that is not one.
+  // The share is clamped and rounded as TwoSidedOdds rounds it (0-100, so the two
+  // sides sum to 100), and it is stated from the VIEWER's side because the card
+  // passes the viewer as the odds bar's first side.
   let winProbability = null;
   if (status === 'ready' && board.winProbability) {
     const shares = board.winProbability;
-    const raw = board.viewerSide === 'home' ? shares.home : shares.away;
-    const clamped = Math.max(0, Math.min(1, Number(raw) || 0));
+    const clamped = Math.max(0, Math.min(1, Number(shares.first) || 0));
     const viewerPct = Math.round(clamped * 100);
     winProbability = { viewerShare: clamped, viewerPct, opponentPct: 100 - viewerPct };
   }
@@ -344,8 +336,7 @@ export function useMatchupPreview(leagueId, { scoreEvent } = {}) {
   let projectedWinProbability = null;
   if (status === 'ready' && board.projectedWinProbability) {
     const shares = board.projectedWinProbability;
-    const raw = board.viewerSide === 'home' ? shares.home : shares.away;
-    projectedWinProbability = { viewerPct: Math.round(Math.max(0, Math.min(1, Number(raw) || 0)) * 100) };
+    projectedWinProbability = { viewerPct: Math.round(Math.max(0, Math.min(1, Number(shares.first) || 0)) * 100) };
   }
 
   // The one caption before kickoff: which way the projections lean and by how
@@ -355,7 +346,7 @@ export function useMatchupPreview(leagueId, { scoreEvent } = {}) {
   // the line rather than inventing a leader.
   let projectedMargin = null;
   if (status === 'ready' && hasStarted === false) {
-    const mine = finite(sideOf(viewerTeamId)?.expectedFinal);
+    const mine = finite(sideOf(board.first.teamId)?.expectedFinal);
     const theirs = finite(sideOf(opponentId)?.expectedFinal);
     if (mine != null && theirs != null) {
       const gap = Math.round((mine - theirs) * 10) / 10;

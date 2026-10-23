@@ -209,7 +209,7 @@ for (const motion of ['no-preference', 'reduce'] as const) {
   });
 }
 
-// The flash is held in state for 1000 ms (LeagueStatusGrid), so the unrelated re-render the same tick triggers
+// The flash is held in state for 1000 ms (LeagueCards), so the unrelated re-render the same tick triggers
 // (the action-items refetch) cannot clear it after one render. The class's own add and remove are timed in the page.
 test('game day: the .scored class holds for the whole flash (>= 900 ms), not one render', async ({ page }) => {
   const { harness, now } = await openGameDay(page);
@@ -231,4 +231,90 @@ test('game day: the .scored class holds for the whole flash (>= 900 ms), not one
   ).not.toBeNull();
   const { on, off } = await page.evaluate(() => (window as unknown as { __flash: { on: number; off: number } }).__flash);
   expect(off - on, 'ms the .scored class was on the tile').toBeGreaterThanOrEqual(900);
+});
+
+// Create league and Join league on the Play-select kit (#2454): each dialog, both widths, both
+// themes. One filled action (its forward action), every button 44px or more, nothing scrolling
+// sideways, and focus back on the opener when the dialog closes.
+const DIALOGS = [
+  { name: 'Create league', opener: /create a league/i },
+  { name: 'Join league', opener: /^Join (a league|with a code)/ },
+] as const;
+
+async function dialogProbe(page: Page) {
+  return page.evaluate(() => {
+    const dialog = document.querySelector('[role="dialog"]') as Element;
+    const small = Array.from(dialog.querySelectorAll('button, a[role="button"]'))
+      .map((el) => ({ label: (el.getAttribute('aria-label') || el.textContent || '').trim(), rect: el.getBoundingClientRect() }))
+      .filter(({ rect }) => rect.width > 0 && (rect.height < 43.5 || rect.width < 43.5))
+      .map(({ label, rect }) => `${label} ${Math.round(rect.width)}x${Math.round(rect.height)}`);
+    return {
+      scrollWidth: document.documentElement.scrollWidth,
+      innerWidth: window.innerWidth,
+      fills: dialog.querySelectorAll('[data-variant="fill"]').length,
+      small,
+    };
+  });
+}
+
+for (const dialog of DIALOGS) {
+  for (const viewport of Object.keys(VIEWPORTS) as ViewportName[]) {
+    for (const theme of THEMES) {
+      test(`${dialog.name} dialog ${viewport} ${theme}: one fill, 44px buttons, no sideways scroll, focus returns`, async ({ page }) => {
+        await openHome(page, 'main', viewport, { theme });
+        const opener = page.getByRole('button', { name: dialog.opener }).first();
+        await opener.click();
+        await expect(page.getByRole('dialog')).toBeVisible();
+        await page.evaluate(() => document.fonts.ready.then(() => true));
+        // Let the open transition finish so the geometry is the resting one.
+        await page.waitForTimeout(400);
+
+        const probe = await dialogProbe(page);
+        expect(probe.scrollWidth, `scrollWidth ${probe.scrollWidth} vs innerWidth ${probe.innerWidth}`).toBeLessThanOrEqual(probe.innerWidth);
+        expect(probe.fills, 'exactly one [data-variant="fill"] in the dialog').toBe(1);
+        expect(probe.small, 'buttons under 44px').toEqual([]);
+
+        await page.keyboard.press('Escape');
+        await expect(page.getByRole('dialog')).toBeHidden();
+        await expect(opener, 'focus returns to the opener').toBeFocused();
+      });
+    }
+  }
+}
+
+// The later Create steps carry the size presets, the stepper and the Edit buttons the first step lacks.
+for (const viewport of Object.keys(VIEWPORTS) as ViewportName[]) {
+  test(`Create league dialog ${viewport}: Rules and Review steps keep one fill and 44px buttons`, async ({ page }) => {
+    await openHome(page, 'main', viewport, { theme: 'light' });
+    await page.getByRole('button', { name: /create a league/i }).first().click();
+    const next = page.getByRole('button', { name: 'Continue' });
+    await next.click();
+    await page.getByLabel(/League name/).fill('Monday Mayhem');
+    await page.getByLabel(/Team name/).fill('Squad');
+    const sized = await dialogProbe(page);
+    expect(sized.small, 'Basics: buttons under 44px').toEqual([]);
+    await next.click();
+    await next.click();
+    await next.click();
+    await expect(page.getByRole('heading', { name: 'Look good?' })).toBeVisible();
+    await page.waitForTimeout(400);
+    const review = await dialogProbe(page);
+    expect(review.fills).toBe(1);
+    expect(review.small, 'Review: buttons under 44px').toEqual([]);
+    expect(review.scrollWidth).toBeLessThanOrEqual(review.innerWidth);
+  });
+}
+
+// Negative control: the probe reports a 20px button planted in the dialog.
+test('negative control: the dialog probe reports a button under 44px', async ({ page }) => {
+  await openHome(page, 'main', 'desktop');
+  await page.getByRole('button', { name: /^Join (a league|with a code)/ }).first().click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await page.evaluate(() => {
+    const b = document.createElement('button');
+    b.textContent = 'tiny';
+    b.style.cssText = 'width:20px;height:20px;padding:0';
+    (document.querySelector('[role="dialog"]') as Element).appendChild(b);
+  });
+  expect((await dialogProbe(page)).small).toContain('tiny 20x20');
 });

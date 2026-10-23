@@ -5,7 +5,7 @@ import useMediaQuery from '@mui/material/useMediaQuery';
 import { Sprite, SPRITE_FIXED as FIXED } from '../../../shared/ui';
 import { FIELD_GREEN, getSpriteColors, initialsFor } from '../../../shared/lib';
 import { playLabel } from '../../../entities/matchup';
-import { homeProbability, spritePositions } from '../model/scoreboardModel';
+import { homeProbability, spritePositions, SLOT_TEST_ID } from '../model/scoreboardModel';
 import { LED_FONT } from './LedBoard';
 
 /**
@@ -94,16 +94,17 @@ const RESTING_KIT = { helmet: FIXED.Y, jersey: 'currentColor', pants: FIXED.Y, a
 // `data-kit` says whether the sprite wears its resting kit or the real NFL
 // kit of a touchdown dash.
 function FieldSprite({ side, x, y, size, kit, frame, label, dashDistance, labelSize }) {
-  const flip = side === 'away';
+  const flip = side === 'second';
+  const slotId = SLOT_TEST_ID[side];
   return (
     <g
-      data-testid={`sprite-${side}`}
-      data-side={side}
+      data-testid={`sprite-${slotId}`}
+      data-side={slotId}
       data-kit={dashDistance != null ? 'nfl' : 'rest'}
       style={{
         transform: `translate(${x.toFixed(1)}px, ${y}px)`,
         transition: 'transform 1.2s ease',
-        color: side === 'home' ? 'var(--ps-play)' : 'var(--ps-board-dim)',
+        color: side === 'first' ? 'var(--ps-play)' : 'var(--ps-board-dim)',
       }}
     >
       <Box
@@ -129,7 +130,7 @@ function FieldSprite({ side, x, y, size, kit, frame, label, dashDistance, labelS
   );
 }
 
-export default function RetroField({ homeName, awayName, homeProb, activePlay, mobile, tail }) {
+export default function RetroField({ firstName, secondName, firstProb, activePlay, mobile, tail }) {
   const g = mobile ? MOBILE : DESKTOP;
   const inner = g.w - g.ez * 2;
   const yard = (i) => g.ez + (inner / 10) * i;
@@ -143,7 +144,7 @@ export default function RetroField({ homeName, awayName, homeProb, activePlay, m
     return () => clearInterval(id);
   }, [prefersReducedMotion]);
 
-  const { value: prob, known: probKnown } = homeProbability(homeProb);
+  const { value: prob, known: probKnown } = homeProbability(firstProb);
   const pos = spritePositions(prob);
   const homeX = g.ez + inner * pos.home;
   const awayX = g.ez + inner * pos.away;
@@ -166,8 +167,8 @@ export default function RetroField({ homeName, awayName, homeProb, activePlay, m
   const dashKit = isTouchdownPlay ? getSpriteColors(activePlay.nflTeam, activePlay.opponent).runner : null;
   // Where each side's dash ends: just inside its end zone, in user units from
   // the sprite's resting spot (negative for the away side, which runs left).
-  const homeDash = dashSide === 'home' ? (g.w - g.ez - g.sprite / 2 - 4) - homeX : null;
-  const awayDash = dashSide === 'away' ? (g.ez + g.sprite / 2 + 4) - awayX : null;
+  const homeDash = dashSide === 'first' ? (g.w - g.ez - g.sprite / 2 - 4) - homeX : null;
+  const awayDash = dashSide === 'second' ? (g.ez + g.sprite / 2 + 4) - awayX : null;
 
   const endzoneLabel = (name) => (mobile ? initialsFor(name) : (name || '').toUpperCase());
   const spriteLabel = (name) => initialsFor(name);
@@ -189,7 +190,7 @@ export default function RetroField({ homeName, awayName, homeProb, activePlay, m
           role="img"
           aria-label={
             probKnown
-              ? `Field position: ${homeName} ${Math.round(prob * 100)}% likely to win`
+              ? `Field position: ${firstName} ${Math.round(prob * 100)}% likely to win`
               : 'Field position: win probability not yet available'
           }
           viewBox={`0 0 ${g.w} ${g.h}`}
@@ -232,7 +233,7 @@ export default function RetroField({ homeName, awayName, homeProb, activePlay, m
             letterSpacing="0.08em"
             style={{ fontFamily: 'inherit', fill: 'var(--ps-play-ink)' }}
           >
-            {endzoneLabel(homeName)}
+            {endzoneLabel(firstName)}
           </text>
           <text
             x={g.w - g.ez / 2}
@@ -244,27 +245,27 @@ export default function RetroField({ homeName, awayName, homeProb, activePlay, m
             letterSpacing="0.08em"
             style={{ fontFamily: 'inherit', fill: 'var(--ps-board)' }}
           >
-            {endzoneLabel(awayName)}
+            {endzoneLabel(secondName)}
           </text>
           <FieldSprite
-            side="home"
+            side="first"
             x={homeX}
             y={g.homeY}
             size={g.sprite}
-            kit={dashSide === 'home' ? dashKit : RESTING_KIT}
+            kit={dashSide === 'first' ? dashKit : RESTING_KIT}
             frame={frame}
-            label={spriteLabel(homeName)}
+            label={spriteLabel(firstName)}
             labelSize={mobile ? 6 : 7}
             dashDistance={homeDash}
           />
           <FieldSprite
-            side="away"
+            side="second"
             x={awayX}
             y={g.awayY}
             size={g.sprite}
-            kit={dashSide === 'away' ? dashKit : RESTING_KIT}
+            kit={dashSide === 'second' ? dashKit : RESTING_KIT}
             frame={frame}
-            label={spriteLabel(awayName)}
+            label={spriteLabel(secondName)}
             labelSize={mobile ? 6 : 7}
             dashDistance={awayDash}
           />

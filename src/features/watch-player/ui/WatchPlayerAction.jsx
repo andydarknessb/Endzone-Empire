@@ -1,8 +1,5 @@
 import React from 'react';
-import { Button } from '@mui/material';
-import { MIN_TOUCH_TARGET_SX } from '../../../shared/lib';
 import { useWatchPlayer } from '../model/useWatchPlayer';
-// New playselect file, imported by direct path (the look is opt-in, see `look` below).
 import { PsButton } from '../../../shared/ui/playselect';
 
 /**
@@ -21,11 +18,11 @@ import { PsButton } from '../../../shared/ui/playselect';
  * only re-reads on a URL change). `onDone` is the same best-effort refresh
  * hook every other action-bar button already takes (`onActionDone`).
  *
- * `look` is `'dash'` (default, every current caller) or `'playselect'` (ADR 0067, spec #2347 ruling 7):
- * a square ghost toggle, and the Play-blue selected state while watching, never the green filled action.
+ * A square ghost toggle (ADR 0067, spec #2347 ruling 7), and the Play-blue selected state while
+ * watching, never the green filled action.
  */
 export default function WatchPlayerAction({
-  playerId, leagueId, watching, onToggled, onDone, look = 'dash',
+  playerId, leagueId, watching, onToggled, onDone,
 }) {
   const { toggleWatch, pending } = useWatchPlayer({ leagueId, onDone });
 
@@ -34,31 +31,15 @@ export default function WatchPlayerAction({
     if (outcome.ok) onToggled?.(outcome.watching);
   };
 
-  if (look === 'playselect') {
-    return (
-      <PsButton
-        variant={watching ? 'selected' : 'ghost'}
-        disabled={pending || playerId == null}
-        onClick={handleClick}
-        aria-pressed={watching}
-        data-testid="watch-player-action"
-      >
-        {watching ? 'Watching' : 'Watch'}
-      </PsButton>
-    );
-  }
-
   return (
-    <Button
-      size="small"
-      variant={watching ? 'contained' : 'outlined'}
+    <PsButton
+      variant={watching ? 'selected' : 'ghost'}
       disabled={pending || playerId == null}
       onClick={handleClick}
       aria-pressed={watching}
-      sx={MIN_TOUCH_TARGET_SX}
       data-testid="watch-player-action"
     >
       {watching ? 'Watching' : 'Watch'}
-    </Button>
+    </PsButton>
   );
 }

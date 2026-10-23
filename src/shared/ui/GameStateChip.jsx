@@ -9,7 +9,7 @@ import Badge from './Badge';
  * each widget inventing its own chip.
  *
  * Built on the kit's Badge (ADR 0020) so it composes only already-registered
- * `dash-*` pairings (tokens.contrast.test.js): `neutral` for `pre`, `danger`
+ * `ps-*` pairings (tokens.contrast.test.js): `neutral` for `pre`, `danger`
  * with a dot for `live`, `success` for `final`, `warning` for `bye` and
  * `unavailable` alike. No new pairing is introduced here.
  *

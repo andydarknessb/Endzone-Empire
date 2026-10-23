@@ -169,30 +169,32 @@ export function useMatchupPage(leagueId, matchupId) {
 
     const detailNow = detailRef.current;
     const viewerTeamId = detailNow?.viewerTeamId ?? null;
-    const homeIds = new Set((detailNow?.home?.starters || []).map((p) => p.id));
-    const awayIds = new Set((detailNow?.away?.starters || []).map((p) => p.id));
-    const iAmHome = matchupBoard(matchupFromDetailBody(detailNow), viewerTeamId).viewerSide === 'home';
-    const myStarterIds = viewerTeamId != null ? (iAmHome ? homeIds : awayIds) : new Set();
-    const oppStarterIds = viewerTeamId != null ? (iAmHome ? awayIds : homeIds) : new Set();
+    // Viewer first: the board says which roster leads, so the sides below are first/second.
+    const { first: firstSide, second: secondSide } = matchupBoard(matchupFromDetailBody(detailNow), viewerTeamId);
+    const idsOf = (side) => new Set((detailNow?.[side.origin]?.starters || []).map((p) => p.id));
+    const firstIds = idsOf(firstSide);
+    const secondIds = idsOf(secondSide);
+    const myStarterIds = firstSide.isViewer ? firstIds : new Set();
+    const oppStarterIds = firstSide.isViewer ? secondIds : new Set();
 
     handlePlays(plays, { myStarterIds, oppStarterIds });
 
     // The ticker: every touchdown by either side of this Matchup, newest first.
     const tickerAdds = plays
-      .filter((p) => p && p.isTouchdown !== false && (homeIds.has(p.playerId) || awayIds.has(p.playerId)))
-      .map((p) => ({ ...p, side: homeIds.has(p.playerId) ? 'home' : 'away' }));
+      .filter((p) => p && p.isTouchdown !== false && (firstIds.has(p.playerId) || secondIds.has(p.playerId)))
+      .map((p) => ({ ...p, side: firstIds.has(p.playerId) ? 'first' : 'second' }));
     if (tickerAdds.length) {
       setTicker((prev) => [...tickerAdds.reverse(), ...prev].slice(0, TICKER_LIMIT));
     }
 
     // The retro field: every play type by either side, the latest one wins.
-    const retroAdds = plays.filter((p) => p && (homeIds.has(p.playerId) || awayIds.has(p.playerId)));
+    const retroAdds = plays.filter((p) => p && (firstIds.has(p.playerId) || secondIds.has(p.playerId)));
     if (retroAdds.length) {
       const latest = retroAdds[retroAdds.length - 1];
       const isTouchdown = latest.isTouchdown !== false;
       if (retroTimeoutRef.current) clearTimeout(retroTimeoutRef.current);
       setRetroActivePlay({
-        side: homeIds.has(latest.playerId) ? 'home' : 'away',
+        side: firstIds.has(latest.playerId) ? 'first' : 'second',
         type: latest.type,
         isTouchdown,
         nflTeam: latest.nflTeam,
@@ -226,14 +228,24 @@ export function useMatchupPage(leagueId, matchupId) {
     };
   }, [readMatchup, homeStarters, awayStarters]);
 
+  const viewerTeamId = detail?.viewerTeamId ?? leagueViewerTeamId ?? null;
+  const board = matchupBoard(matchup, viewerTeamId);
+  // Viewer first: everything below that the page hands a surface is in the board's order.
+  const homeFirst = board.first.origin === 'home';
+  const inOrder = (home, away) => (homeFirst ? { first: home, second: away } : { first: away, second: home });
+
   // Starters arrive from the entity unpaired (#1210); the page model pairs
   // them by slot (entities/roster's fact, ADR 0029) and refuses without the
   // league's slot order exactly as the entity used to, so both lineup views
   // render nothing until the league row arrives rather than pairing against a
   // fantasy-standard default that mis-places IDP starters.
   const starterRows = useMemo(
-    () => pairStartersBySlot(homeStarters, awayStarters, slotOrder),
-    [homeStarters, awayStarters, slotOrder]
+    () => {
+      const { first, second } = inOrder(homeStarters, awayStarters);
+      return pairStartersBySlot(first, second, slotOrder);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `homeFirst` stands for the board's order
+    [homeStarters, awayStarters, slotOrder, homeFirst]
   );
 
   // The retro scoreboard's rows: the same pairs with each player normalised by
@@ -243,8 +255,8 @@ export function useMatchupPage(leagueId, matchupId) {
   const scoreboardRows = useMemo(
     () => starterRows.map((row) => ({
       ...row,
-      home: playerFromDetailRow(row.home),
-      away: playerFromDetailRow(row.away),
+      first: playerFromDetailRow(row.first),
+      second: playerFromDetailRow(row.second),
     })),
     [starterRows]
   );
@@ -261,9 +273,6 @@ export function useMatchupPage(leagueId, matchupId) {
       retroTimeoutRef.current = null;
     }
   }, []);
-
-  const viewerTeamId = detail?.viewerTeamId ?? leagueViewerTeamId ?? null;
-  const board = matchupBoard(matchup, viewerTeamId);
 
   // Final is the MODEL's status, never the fetched body's `final` flag (#912):
   // the score feed moves the status through applyScoreEvent (ADR 0030, status
@@ -322,9 +331,8 @@ export function useMatchupPage(leagueId, matchupId) {
   // Keyed by the user alone (never the Team id): one key, known at first paint.
   const [view, setView] = useMatchupView(userId);
 
-  // The viewer's roster side of the detail body, picked by the board's viewer
-  // side (Team id), the one place that pick lives.
-  const viewerRoster = board.viewerSide && detail ? detail[board.viewerSide] : null;
+  // The viewer's roster side of the detail body: the board's first side when it is the viewer's Team.
+  const viewerRoster = board.first.isViewer && detail ? detail[board.first.origin] : null;
   const viewerHasRoster = !!viewerRoster
     && ((viewerRoster.starters || []).length > 0 || (viewerRoster.bench || []).length > 0);
 
@@ -354,16 +362,13 @@ export function useMatchupPage(leagueId, matchupId) {
     isPlayoff: !!detail?.matchup?.is_playoff,
     board,
     games: matchup?.games || [],
-    benches: {
-      home: detail?.home?.bench || [],
-      away: detail?.away?.bench || [],
-    },
-    benchLeft: { home: homeBenchLeft, away: awayBenchLeft },
+    benches: inOrder(detail?.home?.bench || [], detail?.away?.bench || []),
+    benchLeft: inOrder(homeBenchLeft, awayBenchLeft),
     // Each team's called shot line, once the server shows it (#1857).
-    calledShots: {
-      home: calledShotView(detail?.home?.calledShot, { starters: homeStarters, bench: detail?.home?.bench, deltas: liveDeltas }),
-      away: calledShotView(detail?.away?.calledShot, { starters: awayStarters, bench: detail?.away?.bench, deltas: liveDeltas }),
-    },
+    calledShots: inOrder(
+      calledShotView(detail?.home?.calledShot, { starters: homeStarters, bench: detail?.home?.bench, deltas: liveDeltas }),
+      calledShotView(detail?.away?.calledShot, { starters: awayStarters, bench: detail?.away?.bench, deltas: liveDeltas })
+    ),
     // The line shows only for a final Matchup in a league that sets a lineup
     // (ADR 0023); it waits for the league so a best-ball zero never flashes.
     showBenchLeft: isFinal && !!league && !league.best_ball,

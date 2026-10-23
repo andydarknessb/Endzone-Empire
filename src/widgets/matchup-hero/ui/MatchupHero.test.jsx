@@ -176,7 +176,7 @@ test('the live sentence reads the server yetToPlay, or the page counts when it l
     'they have 6 players remaining, 2 yet to play'
   );
   unmount();
-  renderHero({ counts: { home: { remaining: 3, yet: 1 }, away: { remaining: 5, yet: 4 } } });
+  renderHero({ counts: { first: { remaining: 3, yet: 1 }, second: { remaining: 5, yet: 4 } } });
   expect(screen.getByTestId('matchup-hero-sentence')).toHaveTextContent('they have 5 players remaining, 4 yet to play');
 });
 

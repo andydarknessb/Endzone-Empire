@@ -22,8 +22,7 @@ import Badge from './Badge';
  * Part of `shared/ui` (ADR 0020): the slot-comparison widget's starter cell,
  * the retro-scoreboard widget's Lineups card and the Matchup page's Bench card
  * all compose it (#903), so it sits where all three can reach it. Colors come
- * only from `--dash-*` tokens through Badge; the danger tint is guarded over a
- * card only (tokens.contrast.test.js), so the tag belongs on `dash-surface`.
+ * only from `--ps-*` tokens through Badge, on a `ps-panel` fill.
  */
 const DESIGNATIONS = {
   Q: { name: 'Questionable', variant: 'warning' },

@@ -10,8 +10,7 @@ import {
 import { availabilityEntry, mockCardRoute } from './decisionCardTestFixtures';
 
 /**
- * The card's `look` option (ADR 0067, spec #2347 ruling 7). With no `look` the card renders today's
- * look; `look="playselect"` repaints it, and the desktop drawer carries no contained or filled button
+ * The card (ADR 0067, spec #2347 ruling 7): the desktop drawer carries no contained or filled button
  * while the phone sheet (modal) carries exactly one, the context's Claim or Add.
  */
 jest.mock('../../../api/apiClient', () => ({
@@ -115,7 +114,7 @@ const usageCard = {
   },
 };
 
-function renderCard({ look, context, entry = lineupEntry(), onClose = jest.fn() }) {
+function renderCard({ context, entry = lineupEntry(), onClose = jest.fn() }) {
   return renderWithProviders(
     <PlayerDecisionCard
       open
@@ -124,7 +123,6 @@ function renderCard({ look, context, entry = lineupEntry(), onClose = jest.fn() 
       leagueId={1}
       week={7}
       context={context}
-      {...(look ? { look } : null)}
     />
   );
 }
@@ -140,44 +138,10 @@ const lineupContext = () => myTeam({
 const buttonsIn = (root) => within(root).getAllByRole('button');
 const isFilled = (el) => el.getAttribute('data-variant') === 'fill' || el.classList.contains('MuiButton-contained');
 
-describe('the default look (no look passed)', () => {
-  test('renders today\'s drawer: MUI outlined actions, a contained Claim, no playselect marks', async () => {
-    mockCardRoute({ ...RICH_CARD });
-    renderCard({ context: lineupContext() });
-    const dialog = await screen.findByTestId('decision-card');
-
-    expect(dialog).not.toHaveClass('ps-root');
-    expect(screen.getByTestId('decision-card-bench-action')).toHaveClass('MuiButton-outlined');
-    expect(screen.getByTestId('decision-card-drop')).toHaveClass('MuiButton-outlined');
-    expect(screen.queryByRole('group', { name: 'Player actions' })).not.toBeInTheDocument();
-    // The strip's Upgrade pill is the green dash pill here, an Ink badge in the playselect look.
-    expect(own(screen.getByTestId('decision-strip-upgrade-pill'))).toMatch(/--success/);
-    // A section is the plain bordered Box with a small caps h3, not a double-ruled frame.
-    const heading = await screen.findByRole('heading', { name: 'Decision strip' });
-    expect(own(heading)).not.toMatch(/--ps-|Press Start/);
-    expect(await screen.findByRole('heading', { name: 'Puka Nacua', level: 2 })).toBeInTheDocument();
-  });
-
-  test('the waivers Claim stays contained, and the load error keeps its copy', async () => {
-    mockCardRoute({ ...RICH_CARD });
-    renderCard({
-      context: waivers({ availability: { waiverPriority: 3 }, roster: [] }),
-      entry: availabilityEntry(),
-    });
-    expect(await screen.findByTestId('claim-player-submit')).toHaveClass('MuiButton-contained');
-  });
-
-  test('the load error reads "Couldn\'t load this player\'s details."', async () => {
-    apiClient.get.mockRejectedValue(new Error('boom'));
-    renderCard({ context: fromCard(), entry: { playerId: 7, name: 'Jaylen Warren' } });
-    expect(await screen.findByTestId('decision-card-load-error')).toHaveTextContent("Couldn't load this player's details.");
-  });
-});
-
-describe('look="playselect", desktop drawer', () => {
+describe('desktop drawer', () => {
   test('is a primary frame on playselect tokens with the name in Archivo, not pixel type', async () => {
     mockCardRoute({ ...RICH_CARD });
-    renderCard({ look: 'playselect', context: lineupContext() });
+    renderCard({ context: lineupContext() });
     const dialog = await screen.findByTestId('decision-card');
 
     expect(dialog).toHaveAttribute('data-variant', 'drawer');
@@ -194,7 +158,7 @@ describe('look="playselect", desktop drawer', () => {
 
   test('carries no contained or filled button, and its actions are ghost', async () => {
     mockCardRoute({ ...RICH_CARD });
-    renderCard({ look: 'playselect', context: lineupContext() });
+    renderCard({ context: lineupContext() });
     const dialog = await screen.findByTestId('decision-card');
     await screen.findByTestId('decision-strip');
 
@@ -208,7 +172,7 @@ describe('look="playselect", desktop drawer', () => {
 
   test('prints no legacy token anywhere inside the drawer', async () => {
     mockCardRoute({ ...usageCard });
-    renderCard({ look: 'playselect', context: lineupContext() });
+    renderCard({ context: lineupContext() });
     const dialog = await screen.findByTestId('decision-card');
     await screen.findByTestId('weekly-points-bars');
     await screen.findByTestId('decision-card-usage-table');
@@ -221,28 +185,41 @@ describe('look="playselect", desktop drawer', () => {
 
   test('keeps the test ids and names the existing suites and e2e read', async () => {
     mockCardRoute({ ...usageCard });
-    renderCard({ look: 'playselect', context: lineupContext() });
+    renderCard({ context: lineupContext() });
     await screen.findByTestId('decision-card');
 
     expect(await screen.findByRole('table', { name: 'Usage' })).toBeInTheDocument();
     expect(screen.getByTestId('decision-card-usage-table')).toBeInTheDocument();
-    expect(await screen.findByRole('table', { name: 'Season summary' })).toBeInTheDocument();
-    expect(screen.getByRole('table', { name: 'Game log' })).toBeInTheDocument();
     expect(screen.getByRole('list', { name: 'Weekly points, actual and projected' })).toBeInTheDocument();
     expect(screen.getByTestId('weekly-bar-4-fill')).toBeInTheDocument();
     expect(screen.getByTestId('weekly-bar-8-bye')).toBeInTheDocument();
     expect(screen.getByTestId('weekly-bar-7-unavailable')).toBeInTheDocument();
     expect(screen.getByRole('listitem', { name: 'Week 7: out' })).toBeInTheDocument();
     expect(screen.getByTestId('decision-strip-upgrade-pill')).toHaveTextContent('+2.4 Wk 9');
-    expect(screen.getByRole('radiogroup', { name: 'Season' })).toBeInTheDocument();
     expect(screen.getByTestId('decision-card-range-bar')).toHaveAttribute('role', 'img');
     expect(screen.getByRole('heading', { name: 'Bench options' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Swap in Jordan Addison' })).toHaveAttribute('data-variant', 'ghost');
+    // The season sections sit on their own tabs (#2489).
+    await userEvent.click(screen.getByRole('tab', { name: 'Stats' }));
+    expect(await screen.findByRole('table', { name: 'Season totals' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('tab', { name: 'Game log' }));
+    expect(screen.getByRole('table', { name: 'Game log' })).toBeInTheDocument();
+    expect(screen.getByRole('radiogroup', { name: 'Season' })).toBeInTheDocument();
+  });
+
+  test('the header is a Play-blue band, its name in Play ink and its team in Play dim', async () => {
+    mockCardRoute({ ...RICH_CARD });
+    renderCard({ context: lineupContext() });
+    const name = await screen.findByRole('heading', { name: 'Puka Nacua', level: 2 });
+    // eslint-disable-next-line testing-library/no-node-access -- the band is the name's header container
+    const band = name.parentElement.parentElement.parentElement;
+    expect(own(band)).toMatch(/background-color: var\(--ps-play\)/);
+    expect(own(name)).toMatch(/color: var\(--ps-play-ink\)/);
   });
 
   test('the injury tag is the code, with the word for a screen reader', async () => {
     mockCardRoute({ ...RICH_CARD });
-    renderCard({ look: 'playselect', context: lineupContext() });
+    renderCard({ context: lineupContext() });
     const dialog = await screen.findByTestId('decision-card');
     expect(within(dialog).getByText('Injury status: Out')).toBeInTheDocument();
     expect(within(dialog).getByText('OUT')).toBeInTheDocument();
@@ -250,7 +227,7 @@ describe('look="playselect", desktop drawer', () => {
 
   test('the header avatar is a neutral square, not the jersey colour', async () => {
     mockCardRoute({ ...RICH_CARD });
-    renderCard({ look: 'playselect', context: lineupContext() });
+    renderCard({ context: lineupContext() });
     await screen.findByTestId('decision-card');
     const initials = screen.getByText('PN');
     expect(initials).toHaveClass('MuiAvatar-square');
@@ -260,7 +237,7 @@ describe('look="playselect", desktop drawer', () => {
   test('a rostered open is "Propose trade", "Rostered by {team}" and the Play-blue Watching toggle in one row', async () => {
     mockCardRoute({ ...RICH_CARD, watching: true });
     renderCard({
-      look: 'playselect',
+     
       entry: availabilityEntry({ name: 'Patrick Mahomes', position: 'QB', slot: 'QB', nflTeam: 'KC' }),
       context: rostered({ availability: { teamName: 'Sunday Scaries' } }),
     });
@@ -276,7 +253,7 @@ describe('look="playselect", desktop drawer', () => {
   test('the waivers Claim and the free-agent Add are ghost in the drawer', async () => {
     mockCardRoute({ ...RICH_CARD });
     const { unmount } = renderCard({
-      look: 'playselect',
+     
       entry: availabilityEntry(),
       context: waivers({ availability: { waiverPriority: 3 }, roster: [] }),
     });
@@ -285,7 +262,7 @@ describe('look="playselect", desktop drawer', () => {
     unmount();
 
     renderCard({
-      look: 'playselect',
+     
       entry: availabilityEntry(),
       context: freeAgent({ availability: { rosterCount: 10, rosterCapacity: 16 }, roster: [] }),
     });
@@ -295,7 +272,7 @@ describe('look="playselect", desktop drawer', () => {
 
   test('the load error is the house copy on a Danger edge, and its alert holds no button', async () => {
     apiClient.get.mockRejectedValue(new Error('boom'));
-    renderCard({ look: 'playselect', context: fromCard(), entry: { playerId: 7, name: 'Jaylen Warren' } });
+    renderCard({ context: fromCard(), entry: { playerId: 7, name: 'Jaylen Warren' } });
     const alert = await screen.findByTestId('decision-card-load-error');
 
     expect(alert).toHaveAttribute('role', 'alert');
@@ -308,7 +285,7 @@ describe('look="playselect", desktop drawer', () => {
     mockCardRoute({ ...RICH_CARD });
     const onNavigate = jest.fn();
     renderCard({
-      look: 'playselect',
+     
       context: myTeam({
         managed: true,
         onSwap: jest.fn(),
@@ -327,13 +304,13 @@ describe('look="playselect", desktop drawer', () => {
   });
 });
 
-describe('look="playselect", phone sheet', () => {
+describe('phone sheet', () => {
   beforeEach(() => setViewport(true));
 
   test('the waivers sheet carries exactly one filled button, the Claim, and a square frame with no bottom edge', async () => {
     mockCardRoute({ ...RICH_CARD });
     renderCard({
-      look: 'playselect',
+     
       entry: availabilityEntry({ name: 'Michael Wilson', position: 'WR', slot: 'WR', nflTeam: 'ARI' }),
       context: waivers({ availability: { waiverPriority: 5 }, roster: [] }),
     });
@@ -353,7 +330,7 @@ describe('look="playselect", phone sheet', () => {
   test('the free-agent sheet carries exactly one filled button, the Add', async () => {
     mockCardRoute({ ...RICH_CARD });
     renderCard({
-      look: 'playselect',
+     
       entry: availabilityEntry(),
       context: freeAgent({ availability: { rosterCount: 10, rosterCapacity: 16 }, roster: [] }),
     });
@@ -365,18 +342,18 @@ describe('look="playselect", phone sheet', () => {
 
   test('the lineup sheet has no filled button at all', async () => {
     mockCardRoute({ ...RICH_CARD });
-    renderCard({ look: 'playselect', context: lineupContext() });
+    renderCard({ context: lineupContext() });
     const dialog = await screen.findByTestId('decision-card');
     await screen.findByTestId('decision-strip');
     expect(buttonsIn(dialog).filter(isFilled)).toHaveLength(0);
   });
 });
 
-describe('look="playselect", compare', () => {
+describe('compare', () => {
   test('two panels of tertiary frames, and Clear compare is a 44px icon button', async () => {
     mockCardRoute({ ...RICH_CARD });
     renderCard({
-      look: 'playselect',
+     
       context: myTeam({
         managed: true,
         onSwap: jest.fn(),
@@ -396,10 +373,10 @@ describe('look="playselect", compare', () => {
   });
 });
 
-describe('look="playselect", type', () => {
+describe('type', () => {
   test('body lines take the page font (Archivo), not the theme font MUI Typography would apply', async () => {
     mockCardRoute({ ...RICH_CARD });
-    renderCard({ look: 'playselect', context: lineupContext() });
+    renderCard({ context: lineupContext() });
     const dialog = await screen.findByTestId('decision-card');
     const opponent = await screen.findByTestId('decision-card-opponent');
 

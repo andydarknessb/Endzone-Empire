@@ -297,3 +297,28 @@ Canvas v27 with the 12 wave 3 boards (Lineup, LineupLive, LineupPhone, LineupSta
 - Final: 12px 3x3 pixel checker (checkered flag) in Ink, crisp edges. Yet to play: empty 12px square, 2px Dim outline, no dot. Marks set their own colour; testids unchanged.
 - Phone starter cells are three lines: name and injury tag, mark and figure, game text on its own line (wraps at spaces). Desktop unchanged.
 - A starter with a team and no opponent reads "DET · Bye" on the game line, said once (no "· Bye" when his figure already says "on bye").
+
+## Wave 4 build (Draft room on Play-select; spec #2432, guard #2440; 2026-10-21), binding
+- Cursor selector: the Draft room's only `.cursor` is a pool row (table row or phone card), never the queue rail or the banner. It exists only when the viewer is on the clock and can pick (`draftCursorPlayerId`): the first queued player still open, else the first undrafted row.
+- Filled actions (`[data-variant="fill"]`, outside an open dialog), pinned by tests/e2e/league-wave4-draft.spec.ts at 1440, 1024 and 390, both themes:
+
+  | Moment | `.cursor` | Filled |
+  |---|---|---|
+  | On the clock, with a queue | 1 | 1, on the first queued player's row |
+  | On the clock, empty queue | 1 | 1 |
+  | Drafting, not on the clock | 0 | 0 |
+  | Before the draft, viewer not ready | 0 | 1 ("I'm ready") |
+  | Draft complete | 0 | 0 |
+
+- Reset draft confirm: the trigger and the confirm are ghost, Danger text; Cancel is ghost and holds focus when the dialog opens. Neither is filled.
+- Presenter rule: the presenter (`/present/:token`) has no board of its own and no controls; it is built from the room's pieces.
+- Targets: every button in the rail and the banner is at least 44px tall, every button in the pool at least 36px. No `role="status"` or `role="alert"` element contains a button; the on-the-clock toast uses the shared toast kit for that reason.
+- The on-the-clock toast is the shared kit's: one toast at a time, bottom-center, 4s. A kit toast fired right after it (Start draft's "Draft started successfully!") replaces it; the beep and the banner's own status still announce the turn. Accepted.
+
+## Wave 5 build (commissioner, settings, rules, history, activity, Power rankings on Play-select; spec #2433, 2026-10-21), binding
+- Console cursor: the first pending request in Join requests carries `.cursor` and its Approve is the page's one filled action (`join-requests-row-<id>`). With none pending there is no cursor and no filled action. Pinned by tests/e2e/league-wave5-commissioner.spec.ts.
+- Save is ghost on both settings pages, never filled. A dirty form shows the unsaved marker: Commissioner Tools an 8px square in `currentColor` (`unsaved-mark`) beside that tab's Save and on the tab label; Draft settings the "Unsaved changes" line (`draft-settings-unsaved`). Both sit in a `role="status"` region that holds text only.
+- Destructive confirms are ghost with Danger text, and Cancel holds focus when the dialog opens: remove co-commissioner, remove and ban, remove team, Start New Season and Discard unsaved changes ("Keep editing" is the focused button). None is filled.
+- Power rankings movement is Ink, never green or red: the kit pixel arrow (up or down) with a signed number (`+3`, `-2`), named for screen readers ("up 3"). A team with no prior week reads NEW.
+- Medal tokens `--ps-medal-gold`, `--ps-medal-silver` and `--ps-medal-bronze`, each at 3:1 against `--ps-panel` in both themes (`tokens.contrast.test.js`): light `#8a5a00`, `#6e7781`, `#a0602a`; dark `#f0b429`, `#b8c0c9`, `#c98a54`. League history paints the champion mark and the standings medals with them.
+- Page-head rule for the five pages with no board (Draft settings, League rules, League history, Transaction log, Power rankings): a Play-select `LeagueBreadcrumb`, a pixel page heading (`PixelHeading` level 1), then frames, kit tables and tags. No cursor and no filled action. Pinned at 1440 and 390, both themes, by tests/e2e/league-wave5-*.spec.ts.

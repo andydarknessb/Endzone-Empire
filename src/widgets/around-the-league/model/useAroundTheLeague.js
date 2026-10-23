@@ -79,9 +79,9 @@ export function useAroundTheLeague(leagueId) {
     const mine = position.get(viewerTeamId);
     if (mine == null) return rest.slice(0, RIVAL_TILES);
     const near = (tile) => Math.min(
-      ...[tile.home.teamId, tile.away.teamId].map((id) => (position.has(id) ? Math.abs(position.get(id) - mine) : Infinity)),
+      ...[tile.first.teamId, tile.second.teamId].map((id) => (position.has(id) ? Math.abs(position.get(id) - mine) : Infinity)),
     );
-    const high = (tile) => Math.min(...[tile.home.teamId, tile.away.teamId].map((id) => position.get(id) ?? Infinity));
+    const high = (tile) => Math.min(...[tile.first.teamId, tile.second.teamId].map((id) => position.get(id) ?? Infinity));
     return [...rest].sort((a, b) => near(a) - near(b) || high(a) - high(b)).slice(0, RIVAL_TILES);
   }, [tiles, gameDay, viewerTeamId, standingRows]);
 

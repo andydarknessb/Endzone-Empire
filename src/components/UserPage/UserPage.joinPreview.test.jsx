@@ -398,3 +398,19 @@ test('an action-items answer that lands after the queue unmounted never paints a
   expect(screen.queryByTestId('greeting-summary')).not.toBeInTheDocument();
   expect(screen.queryByText("You're all caught up.")).not.toBeInTheDocument();
 });
+
+test('a refused join (league full) leaves the dialog open with the refusal text inside it, and Join is its one filled action', async () => {
+  mockApi();
+  apiClient.post.mockRejectedValue({ response: { data: { error: 'This league is full.' } } });
+  const dialog = await openJoin();
+
+  const fills = () => within(dialog).getAllByRole('button').filter((b) => b.getAttribute('data-variant') === 'fill');
+  expect(fills()).toHaveLength(1);
+  await userEvent.type(codeField(), 'abcd1234');
+  await userEvent.type(teamField(), 'Joiner FC');
+  await userEvent.click(within(dialog).getByRole('button', { name: 'Join league' }));
+
+  expect(await within(dialog).findByRole('alert')).toHaveTextContent('This league is full.');
+  expect(screen.getByRole('dialog')).toBe(dialog);
+  expect(fills()).toHaveLength(1);
+});

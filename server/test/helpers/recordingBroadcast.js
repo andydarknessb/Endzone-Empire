@@ -29,6 +29,11 @@ function createRecordingBroadcast() {
     rosterChanged: record('rosterChanged'),
     stateChanged: record('stateChanged'),
     scoresUpdated: record('scoresUpdated'),
+    // Keyed by user, not league (#2415): recorded as { method, userId }.
+    sessionEnded: (userId) => {
+      calls.push({ method: 'sessionEnded', userId });
+      return { delivered: true, transport: 'recording' };
+    },
   };
 }
 

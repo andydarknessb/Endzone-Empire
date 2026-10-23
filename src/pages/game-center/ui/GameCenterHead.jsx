@@ -104,7 +104,7 @@ export default function GameCenterHead({
           </Box>
         ) : (
           <Box sx={{ minWidth: 0 }}>
-            <PickWeek weeks={weeks} value={week ?? 'All'} onChange={onWeek} fill={compact} look="playselect" />
+            <PickWeek weeks={weeks} value={week ?? 'All'} onChange={onWeek} fill={compact} />
           </Box>
         )}
       </Box>

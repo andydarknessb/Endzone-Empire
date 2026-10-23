@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Box, Typography, IconButton, Tooltip, useMediaQuery } from '@mui/material';
+import { Box, Tooltip, useMediaQuery } from '@mui/material';
+import { PsButton } from '../../shared/ui/playselect';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import PauseIcon from '@mui/icons-material/Pause';
 import { resolveGifAsset } from '../../lib/gifProvider';
@@ -71,20 +72,19 @@ function GifMessage({ media, caption = null }) {
         sx={{
           mt: 0.5,
           p: 1,
-          borderRadius: 'var(--radius-sm)',
-          bgcolor: 'var(--surface-sunken)',
-          border: '1px solid var(--border-subtle)',
-          color: 'var(--text-primary)',
+          border: '2px solid var(--ps-rule)',
+          color: 'var(--ps-ink)',
+          fontSize: '15px',
         }}
       >
-        <Typography variant="body2" sx={{ fontWeight: 600 }}>{UNAVAILABLE_LABEL}</Typography>
+        <Box sx={{ fontWeight: 600 }}>{UNAVAILABLE_LABEL}</Box>
         {description && (
-          <Typography variant="body2" data-testid="gif-unavailable-description" sx={{ color: 'var(--text-muted)' }}>
+          <Box data-testid="gif-unavailable-description" sx={{ color: 'var(--ps-dim)' }}>
             {description}
-          </Typography>
+          </Box>
         )}
         {caption && (
-          <Typography variant="body2" sx={{ mt: 0.5 }}>{caption}</Typography>
+          <Box sx={{ mt: 0.5, fontSize: '15px' }}>{caption}</Box>
         )}
       </Box>
     );
@@ -110,38 +110,36 @@ function GifMessage({ media, caption = null }) {
           src={imgSrc}
           alt={description}
           data-testid={animating ? 'gif-animated' : 'gif-still'}
-          sx={{ maxWidth: '100%', borderRadius: 'var(--radius-sm)', display: 'block' }}
+          sx={{ maxWidth: '100%', display: 'block' }}
         />
       )}
       {!imgSrc && description && (
         // A still-less animation held for reduced motion: surface the description
         // as visible text so the bubble is never empty and a screen-reader user
         // still learns what the GIF is before choosing to play it.
-        <Typography variant="body2" data-testid="gif-held-description" sx={{ color: 'var(--text-muted)' }}>
+        <Box data-testid="gif-held-description" sx={{ color: 'var(--ps-dim)', fontSize: '15px' }}>
           {description}
-        </Typography>
+        </Box>
       )}
       {hasAnimated && (
         <Tooltip title={MOTION_TOGGLE_LABEL}>
-          <IconButton
-            size="small"
+          <PsButton
             data-testid="gif-play"
-            aria-label={MOTION_TOGGLE_LABEL}
+            ariaLabel={MOTION_TOGGLE_LABEL}
             aria-pressed={animating}
             onClick={() => setMotionOverride(!animating)}
-            sx={{ mt: 0.5 }}
           >
             {animating ? <PauseIcon fontSize="small" /> : <PlayArrowIcon fontSize="small" />}
-          </IconButton>
+          </PsButton>
         </Tooltip>
       )}
       {caption && (
-        <Typography variant="body2" sx={{ mt: 0.5 }}>{caption}</Typography>
+        <Box sx={{ mt: 0.5, fontSize: '15px' }}>{caption}</Box>
       )}
       {rendition.attribution && (rendition.attribution.source || rendition.attribution.creator) && (
-        <Typography variant="caption" data-testid="gif-attribution" sx={{ display: 'block', color: 'var(--text-muted)' }}>
+        <Box data-testid="gif-attribution" sx={{ display: 'block', color: 'var(--ps-dim)', fontSize: '13px' }}>
           {[rendition.attribution.source, rendition.attribution.creator].filter(Boolean).join(' · ')}
-        </Typography>
+        </Box>
       )}
     </Box>
   );

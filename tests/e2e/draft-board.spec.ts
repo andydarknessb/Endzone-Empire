@@ -278,14 +278,14 @@ test.describe('existing draft behavior baseline (active fixture)', () => {
     await page.locator('tr', { hasText: 'Justin Jefferson' }).getByRole('button', { name: 'Queue' }).click();
 
     await expect.poll(() => api.queueWrites.length).toBeGreaterThanOrEqual(2);
-    const queuePanel = page.getByText('My Queue').locator('xpath=ancestor::*[contains(@class, "MuiPaper-root")][1]');
-    await expect(queuePanel.getByRole('button', { name: 'Bijan Robinson' })).toBeVisible();
-    await expect(queuePanel.getByRole('button', { name: 'Justin Jefferson' })).toBeVisible();
+    const queuePanel = page.getByRole('region', { name: 'My Queue' });
+    await expect(queuePanel.getByRole('button', { name: 'Bijan Robinson', exact: true })).toBeVisible();
+    await expect(queuePanel.getByRole('button', { name: 'Justin Jefferson', exact: true })).toBeVisible();
 
-    await page.getByRole('button', { name: 'Move up' }).last().click();
+    await page.getByRole('button', { name: 'Move Justin Jefferson up' }).click();
     await expect.poll(() => api.queueWrites.at(-1)?.playerIds).toEqual([2, 1]);
 
-    await page.getByRole('button', { name: 'Remove from queue' }).first().click();
+    await page.getByRole('button', { name: 'Remove Justin Jefferson from queue' }).click();
     await expect.poll(() => api.queueWrites.at(-1)?.playerIds).toEqual([1]);
   });
 
@@ -312,6 +312,45 @@ test.describe('existing draft behavior baseline (active fixture)', () => {
     await expect(page.getByRole('columnheader', { name: 'Ridge Runners' })).toBeVisible();
     await expect(page.getByRole('columnheader', { name: 'Harbor Hawks' })).toBeVisible();
     await expect(page.getByRole('button', { name: /Round 1 pick 1, Harbor Hawks: Josh Allen/ })).toBeVisible();
+  });
+
+  // The grid frame is the named scroll group; the page itself must never scroll sideways.
+  async function measureGrid(page: Page) {
+    const frame = page.getByRole('region', { name: 'Draft Board' }).getByRole('group', { name: /Picks by team and round/ });
+    await expect(frame).toBeVisible();
+    return frame.evaluate((el) => ({
+      frameScrolls: el.scrollWidth > el.clientWidth,
+      pageScrolls: document.documentElement.scrollWidth > window.innerWidth,
+    }));
+  }
+
+  const TEN_TEAMS = Array.from({ length: 10 }, (_, i) => ({
+    teamId: i + 1, teamName: `Team ${i + 1}`, draft_position: i + 1,
+  }));
+
+  for (const width of [390, 1024]) {
+    test(`a 10-team board scrolls inside its frame at ${width} wide, never the page`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await installDraftSocketHarness(page, { ...ACTIVE_STATE, teams: TEN_TEAMS, onTheClock: TEN_TEAMS[2] });
+      await installDraftRestApi(page, { league: ACTIVE_STATE.league, picks: ACTIVE_PICKS });
+      await gotoDraft(page);
+      await expect(page.getByRole('heading', { name: 'Harness League', level: 1 })).toBeVisible();
+      await showBoard(page);
+
+      const { frameScrolls, pageScrolls } = await measureGrid(page);
+      expect(pageScrolls).toBe(false);
+      expect(frameScrolls).toBe(true);
+    });
+  }
+
+  test('a 2-team board fits its frame at 1024 wide and does not scroll', async ({ page }) => {
+    await page.setViewportSize({ width: 1024, height: 900 });
+    await setupActiveDraft(page);
+    await showBoard(page);
+
+    const { frameScrolls, pageScrolls } = await measureGrid(page);
+    expect(pageScrolls).toBe(false);
+    expect(frameScrolls).toBe(false);
   });
 });
 
@@ -367,8 +406,9 @@ test.describe('schedule-aware player pool (issue #119)', () => {
     expect(actions).not.toBeNull();
     expect(firstRow).not.toBeNull();
     expect(adp.x + adp.width).toBeLessThanOrEqual(actions.x);
-    // The 44px row target includes a 1px rendered table border in Chromium.
-    expect(firstRow.height).toBeLessThanOrEqual(45);
+    // The 44px row target includes a 1px rendered table border in Chromium; the cursor row (the first
+    // row when the viewer is on the clock) wears the kit's 3px frame (a 3px edge top and bottom), measured at 50px (spec #2432).
+    expect(firstRow.height).toBeLessThanOrEqual(50);
   });
 
   test('sorts by Bye with deterministic null-last behavior in both directions', async ({ page }) => {
@@ -860,7 +900,11 @@ test.describe('accessible structure: skip link, landmarks, headings', () => {
     // enough of them to prove the shared token holds across that stretch
     // without needing to tab all the way into the (much longer) player pool.
     await page.locator('body').click({ position: { x: 5, y: 5 } });
+    // The room is a Play-select surface (.ps-root): its elements wear the kit's one ring
+    // (3px white, playselect.css), everything outside it wears the shared dash token.
+    // Each surface must still be uniform, so the guard holds per surface.
     const outlineColors = new Set<string>();
+    const kitOutlineColors = new Set<string>();
     for (let i = 0; i < 14; i += 1) {
       // eslint-disable-next-line no-await-in-loop
       await page.keyboard.press('Tab');
@@ -869,9 +913,9 @@ test.describe('accessible structure: skip link, landmarks, headings', () => {
         const el = document.activeElement;
         if (!el) return null;
         const cs = getComputedStyle(el);
-        return { outlineStyle: cs.outlineStyle, outlineColor: cs.outlineColor };
+        return { outlineStyle: cs.outlineStyle, outlineColor: cs.outlineColor, kit: !!el.closest('.ps-root') };
       });
-      if (style && style.outlineStyle !== 'none') outlineColors.add(style.outlineColor);
+      if (style && style.outlineStyle !== 'none') (style.kit ? kitOutlineColors : outlineColors).add(style.outlineColor);
     }
 
     expect(outlineColors.size).toBeGreaterThan(0);
@@ -888,7 +932,11 @@ test.describe('accessible structure: skip link, landmarks, headings', () => {
     const nameLink = page.getByRole('button', { name: 'Bijan Robinson' }).first();
     await nameLink.focus();
     const nameLinkOutline = await nameLink.evaluate((el) => getComputedStyle(el).outlineColor);
-    expect(nameLinkOutline).toBe(sharedColor);
+    // Tabbing must have reached the room, or the per-surface check below proves nothing.
+    expect(kitOutlineColors.size).toBeGreaterThan(0);
+    // The pool's name link now sits inside the room's .ps-root, so it wears the kit ring.
+    expect(nameLinkOutline).toBe('rgb(255, 255, 255)');
+    expect([...kitOutlineColors].every((color) => color === nameLinkOutline)).toBe(true);
   });
 });
 
@@ -897,11 +945,13 @@ test.describe('accessible structure: 44x44 minimum interactive targets', () => {
     await setTheme(page, 'light');
   });
 
-  async function expectAtLeast44(locator: Locator, opts: { widthToo?: boolean } = {}) {
+  // `min` is 36 for the pool's own Draft and Queue buttons: ADR 0067's dense-table exception (spec #2432).
+  async function expectAtLeast44(locator: Locator, opts: { widthToo?: boolean; min?: number } = {}) {
+    const min = opts.min ?? 44;
     const box = await locator.boundingBox();
     expect(box).not.toBeNull();
-    expect(box!.height).toBeGreaterThanOrEqual(44);
-    if (opts.widthToo) expect(box!.width).toBeGreaterThanOrEqual(44);
+    expect(box!.height).toBeGreaterThanOrEqual(min);
+    if (opts.widthToo) expect(box!.width).toBeGreaterThanOrEqual(min);
   }
 
   test('desktop: nav chrome, tabs, sortable headers, and row actions all meet the 44px minimum', async ({ page }) => {
@@ -914,8 +964,8 @@ test.describe('accessible structure: 44x44 minimum interactive targets', () => {
     // its equivalent selection control (#444).
     await expectAtLeast44(page.getByRole('button', { name: 'Board', exact: true }));
     await expectAtLeast44(page.getByRole('button', { name: /^Bye:/ }));
-    await expectAtLeast44(page.getByRole('button', { name: 'Draft', exact: true }).first());
-    await expectAtLeast44(page.locator('tr', { hasText: 'Bijan Robinson' }).getByRole('button', { name: 'Queue' }), { widthToo: true });
+    await expectAtLeast44(page.getByRole('button', { name: 'Draft', exact: true }).first(), { min: 36 });
+    await expectAtLeast44(page.locator('tr', { hasText: 'Bijan Robinson' }).getByRole('button', { name: 'Queue' }), { widthToo: true, min: 36 });
     await expectAtLeast44(page.getByRole('button', { name: 'Column guide' }), { widthToo: true });
   });
 
@@ -934,7 +984,7 @@ test.describe('accessible structure: 44x44 minimum interactive targets', () => {
     // inside Bijan Robinson's own card. The pool is behind the Players tab now
     // that the room opens on Chat (#444).
     await showPlayers(page);
-    const card = page.getByRole('button', { name: 'Bijan Robinson' }).locator('xpath=ancestor::*[contains(@class, "MuiPaper-root")][1]');
+    const card = page.getByRole('button', { name: 'Bijan Robinson' }).locator('xpath=ancestor::*[@role="listitem"][1]');
     await expectAtLeast44(card.getByRole('button', { name: 'Queue' }), { widthToo: true });
   });
 });
@@ -1126,7 +1176,7 @@ test.describe('mobile/tablet single-scroll tab layout (issue #122 acceptance cri
       await showPlayers(page);
 
       const card = page.getByRole('button', { name: 'Depth Player 1', exact: true })
-        .locator('xpath=ancestor::*[contains(@class, "MuiPaper-root")][1]');
+        .locator('xpath=ancestor::*[@role="listitem"][1]');
       // Labeled, like every other stat here - a card has no column header to
       // supply that context implicitly the way the desktop table row does.
       await expect(card.getByText('NFL Team: FA')).toBeVisible();

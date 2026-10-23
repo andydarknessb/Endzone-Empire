@@ -100,9 +100,8 @@ function WinRow({ percents, mobile }) {
 }
 
 export default function LedBoard({ matchup, board, leagueName, mobile }) {
-  const home = matchup.home || {};
-  const away = matchup.away || {};
-  const percents = ledPercents(board.winProbability?.home);
+  const { first, second } = board;
+  const percents = ledPercents(board.winProbability?.first);
   const result = board.resultLine;
   const showWin = board.hasStarted === true && result == null;
   const status = ledStatus(matchup.status);
@@ -111,10 +110,10 @@ export default function LedBoard({ matchup, board, leagueName, mobile }) {
   const vGap = mobile ? '10px' : '16px';
 
   const figures = [
-    { key: 'home-ef', label: 'EXP FINAL', value: ledFigure(home.expectedFinal, 1), align: 'flex-start' },
-    { key: 'home-pmr', label: 'TO PLAY', value: board.home.playersRemainingLabel ?? '-', align: 'flex-start' },
-    { key: 'away-pmr', label: 'TO PLAY', value: board.away.playersRemainingLabel ?? '-', align: 'flex-end' },
-    { key: 'away-ef', label: 'EXP FINAL', value: ledFigure(away.expectedFinal, 1), align: 'flex-end' },
+    { key: 'home-ef', label: 'EXP FINAL', value: ledFigure(first.expectedFinal, 1), align: 'flex-start' },
+    { key: 'home-pmr', label: 'TO PLAY', value: first.playersRemainingLabel ?? '-', align: 'flex-start' },
+    { key: 'away-pmr', label: 'TO PLAY', value: second.playersRemainingLabel ?? '-', align: 'flex-end' },
+    { key: 'away-ef', label: 'EXP FINAL', value: ledFigure(second.expectedFinal, 1), align: 'flex-end' },
   ];
 
   return (
@@ -144,8 +143,8 @@ export default function LedBoard({ matchup, board, leagueName, mobile }) {
         }}
       >
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: '8px', minWidth: 0 }}>
-          <Small mobile={mobile}>{(home.name || '').toUpperCase()}</Small>
-          <Digit size={scoreSize} testId="led-score-home">{board.home.scoreLabel}</Digit>
+          <Small mobile={mobile}>{(first.name || '').toUpperCase()}</Small>
+          <Digit size={scoreSize} testId="led-score-home">{first.scoreLabel}</Digit>
         </Box>
         {!mobile && (
           // The middle column stays so the grid keeps its three tracks; the
@@ -164,8 +163,8 @@ export default function LedBoard({ matchup, board, leagueName, mobile }) {
           </Box>
         )}
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: '8px', minWidth: 0, alignItems: 'flex-end', textAlign: 'right' }}>
-          <Small mobile={mobile} align="right">{(away.name || '').toUpperCase()}</Small>
-          <Digit size={scoreSize} testId="led-score-away">{board.away.scoreLabel}</Digit>
+          <Small mobile={mobile} align="right">{(second.name || '').toUpperCase()}</Small>
+          <Digit size={scoreSize} testId="led-score-away">{second.scoreLabel}</Digit>
         </Box>
       </Box>
 

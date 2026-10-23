@@ -126,7 +126,8 @@ function fakeWeeklyResult(projections) {
 // #2388: `dropped` is a starter whose row was spared after his kickoff (#627)
 // and who is no longer on team_players: only a starters read that no longer
 // joins the current roster returns him, as the table would.
-function seed(t, { dropped = null, droppedBench = null, bestBall = false } = {}) {
+// `notHeld` is what playersNotHeldAtKickoff's tenure read reports: the ids settle excludes.
+function seed(t, { dropped = null, droppedBench = null, bestBall = false, notHeld = [] } = {}) {
   t.mock.method(clock, 'now', () => new Date(NOW));
   t.mock.method(projectionService, 'getWeeklyProjections', async () => fakeWeeklyResult(PROJECTIONS));
   t.mock.method(lineupService, 'materializeLineup', async () => {});
@@ -150,9 +151,10 @@ function seed(t, { dropped = null, droppedBench = null, bestBall = false } = {})
     })],
     [/"players"\."id", "players"\."name"[\s\S]*"lineup_entries"\."slot" NOT IN/, (text, params) => ({
       rows: params[0] === HOME
-        ? [...HOME_STARTERS, ...(dropped && !/JOIN "team_players"/.test(text) ? [dropped] : [])]
-        : AWAY_STARTERS,
+        ? [...HOME_STARTERS.map((r) => ({ on_roster: true, ...r })), ...(dropped && !/JOIN "team_players"/.test(text) ? [{ ...dropped, on_roster: false }] : [])]
+        : AWAY_STARTERS.map((r) => ({ on_roster: true, ...r })),
     })],
+    [/FROM unnest/, () => ({ rows: notHeld.map((player_id) => ({ player_id })) })],
     [/"lineup_entries"\."team_id", "lineup_entries"\."player_id"/, () => ({ rows: PRODUCER_ROWS })],
   ]).install(t);
 }
@@ -237,6 +239,11 @@ test('a live standard week lists a starter dropped after kickoff at his slot, bu
   assert.equal(row.slot, 'FLEX');
   assert.equal(row.points, 10);
   assert.equal(detail.home.bench.some((b) => b.id === 107), false, 'the bench keeps the roster join');
+});
+
+test('a live standard week drops an off-roster starter that settle would exclude (#2391)', async (t) => {
+  const detail = await liveDetail(t, { dropped: droppedStarter(), notHeld: [106] });
+  assert.equal(detail.home.starters.some((s) => s.id === 106), false, 'live matches settle: not held at his kickoff, not listed');
 });
 
 test('a live best-ball week does not list a starter dropped after kickoff (#2388)', async (t) => {

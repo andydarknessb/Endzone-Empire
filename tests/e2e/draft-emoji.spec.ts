@@ -38,7 +38,8 @@ test.describe('accessible emoji composition (#443)', () => {
 
     const chat = page.getByRole('region', { name: 'League Chat' });
     const input = chat.getByLabel('Message');
-    await input.fill('gg');
+    // Typed, not filled: fill() leaves a native input's caret at 0, and this case is about the caret.
+    await input.pressSequentially('gg');
 
     // Reach and open the picker with the keyboard alone: no pointer.
     const trigger = chat.getByRole('button', { name: 'Insert emoji' });

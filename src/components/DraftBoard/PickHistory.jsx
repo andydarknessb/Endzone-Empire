@@ -1,5 +1,7 @@
 import React, { useId, useMemo } from 'react';
-import { Paper, Box, Typography, Accordion, AccordionSummary, AccordionDetails } from '@mui/material';
+import {
+  Box, Typography, Accordion, AccordionSummary, AccordionDetails,
+} from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 // Direct file import (#1311, draft-harness-coverage guard) - see DraftRail.jsx's
 // identical comment: the entities/player barrel would pull usePlayerCard's
@@ -7,6 +9,10 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import PlayerNameLink from '../../entities/player/ui/PlayerNameLink';
 import { MIN_TOUCH_TARGET_SX } from '../../shared/lib/a11y';
 import { teamNameLabel } from '../../shared/lib/teamIdentity';
+import { Frame, BODY_FONT, pixelSx } from '../../shared/ui/playselect';
+
+const BODY_SX = { fontFamily: BODY_FONT };
+const DIM_SX = { ...BODY_SX, color: 'var(--ps-dim)' };
 
 /**
  * The chronological view of a draft's committed Picks (issue #123 acceptance
@@ -47,29 +53,31 @@ function PickHistory({
   const body = (
     <Box sx={{ maxHeight: '600px', overflowY: 'auto' }}>
       {chronological.length === 0 ? (
-        <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+        <Typography variant="body2" sx={DIM_SX}>
           No picks yet
         </Typography>
       ) : (
         chronological.map((pick) => (
-          <Paper
+          <Frame
             key={`${pick.pick_number}-${pick.player_id}`}
+            tier="rule"
+            component="div"
             data-testid="pick-history-entry"
             data-pick-number={pick.pick_number}
-            sx={{ p: 1.5, mb: 1, bgcolor: 'action.hover' }}
+            sx={{ p: 1.5, mb: 1 }}
           >
-            <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
+            <Typography variant="body2" sx={{ ...BODY_SX, fontWeight: 'bold' }}>
               #{pick.pick_number}
             </Typography>
-            <Typography variant="body2">
+            <Typography variant="body2" sx={BODY_SX}>
               <PlayerNameLink name={pick.name} playerId={pick.player_id} onOpen={onOpenQuickView} sx={MIN_TOUCH_TARGET_SX} /> (
               {pick.position})
             </Typography>
-            <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+            <Typography variant="caption" sx={DIM_SX}>
               {pick.nfl_team}
             </Typography>
             {slotTags && slotTags.has(pick.pick_number) && (
-              <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>
+              <Typography variant="caption" sx={{ ...DIM_SX, display: 'block' }}>
                 → {slotTags.get(pick.pick_number).slotLabel}
               </Typography>
             )}
@@ -80,11 +88,11 @@ function PickHistory({
                 so removing a team removes its picks outright. If that ever
                 changes this renders a former manager instead of a blank
                 line. */}
-            <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>
+            <Typography variant="caption" sx={{ ...DIM_SX, display: 'block' }}>
               by {teamNameLabel(pick.teamName)}
               {pick.auto ? ' · AUTO' : ''}
             </Typography>
-          </Paper>
+          </Frame>
         ))
       )}
     </Box>
@@ -96,13 +104,24 @@ function PickHistory({
     // labelled from the FIRST child's `id` (this wrapping Box, not
     // AccordionSummary) - adding a second one here would nest two identically
     // named "Pick history" regions.
-    <Accordion defaultExpanded={defaultExpanded} sx={{ mt: 2 }}>
+    <Accordion
+      defaultExpanded={defaultExpanded}
+      sx={{
+        mt: 2,
+        borderRadius: 0,
+        bgcolor: 'var(--ps-panel)',
+        color: 'var(--ps-ink)',
+        border: '2px solid var(--ps-frame-2)',
+        boxShadow: 'none',
+        '&::before': { display: 'none' },
+      }}
+    >
       {/* The WAI-ARIA accordion pattern: a heading wraps the trigger button
           rather than sitting inside it, so "Pick history" reads as a real H2
           landmark title even while collapsed. */}
       <Box component="h2" id={headingId} sx={{ m: 0 }}>
         <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-          <Typography variant="h6" component="span">Pick history</Typography>
+          <Box component="span" sx={pixelSx(16)}>Pick history</Box>
         </AccordionSummary>
       </Box>
       <AccordionDetails>{body}</AccordionDetails>

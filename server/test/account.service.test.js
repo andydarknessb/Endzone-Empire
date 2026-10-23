@@ -1,7 +1,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { hashToken, resetPassword, verifyEmail } = require('../services/account.service');
-const { createFakePool, select } = require('./helpers/fakePool');
+const { createFakePool, select, update } = require('./helpers/fakePool');
+const { installRecordingBroadcast } = require('./helpers/recordingBroadcast');
 
 test('hashToken is a stable 64-char hex SHA-256', () => {
   const a = hashToken('some-token');
@@ -81,4 +82,36 @@ test('verifyEmail: a clean ROLLBACK returns the healthy connection to the pool (
   // Error unconditionally) makes this fail.
   assert.equal(world.releaseArgs()[0], undefined, 'a clean ROLLBACK keeps the healthy connection');
   world.assertClean();
+});
+
+// --- sockets end at commit (#2415) ------------------------------------------
+
+const resetWorldHandlers = () => [
+  [select('auth_tokens'), () => ({ rows: [{ id: 4, user_id: 11 }] })],
+  [update('users'), () => ({ rows: [] })],
+  [update('auth_tokens'), () => ({ rows: [] })],
+  [update('refresh_tokens'), () => ({ rows: [] })],
+];
+
+test('resetPassword ends the account sockets once, with the user id, after commit', async (t) => {
+  const recorder = installRecordingBroadcast(t);
+  const world = createFakePool(resetWorldHandlers()).install(t);
+
+  assert.deepEqual(await resetPassword({ token: 'raw', newPassword: 'long-enough-1' }), { ok: true });
+
+  assert.deepEqual(recorder.calls, [{ method: 'sessionEnded', userId: 11 }]);
+  assert.ok(world.calls.some((call) => call.text === 'COMMIT'));
+  world.assertClean();
+});
+
+test('a rolled-back resetPassword ends no sockets', async (t) => {
+  const recorder = installRecordingBroadcast(t);
+  createFakePool([
+    [update('refresh_tokens'), () => { throw new Error('deadlock detected'); }],
+    ...resetWorldHandlers(),
+  ]).install(t);
+
+  await assert.rejects(resetPassword({ token: 'raw', newPassword: 'long-enough-1' }), /deadlock detected/);
+
+  assert.deepEqual(recorder.calls, []);
 });

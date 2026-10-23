@@ -297,6 +297,16 @@ test('the join-requests card is absent for a private league', async () => {
   expect(screen.queryByTestId('mock-join-requests')).not.toBeInTheDocument();
 });
 
+// Acceptance criterion: the console composes AdvanceWeek in its Play-select look, a ghost PsButton.
+test('a live league mounts advance-week in its Play-select look (a ghost button)', async () => {
+  mockGetByUrl({ '/api/league/42': leagueResponse() });
+  renderPage();
+
+  const advance = await screen.findByRole('button', { name: 'Advance to Week 4' });
+  expect(advance).toHaveAttribute('data-variant', 'ghost');
+  expect(screen.getByTestId('advance-week')).toBeInTheDocument();
+});
+
 test("a pick'em-only league renders no advance-week control and no facts", async () => {
   mockGetByUrl({
     '/api/league/42': leagueResponse({ league: { pickem_only: true } }),

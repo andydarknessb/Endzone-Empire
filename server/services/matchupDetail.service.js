@@ -95,10 +95,12 @@ async function getMatchupDetail({
   // player_id, while the serialized row and the producer join key on id.
   // Standard starters are read without the join (#2388): a starter dropped
   // after his kickoff keeps his spared row (#627), which settle will score, so
-  // the live read shows it too. Best ball and the bench keep the join.
+  // the live read shows it too, once rowsHeldAsPlayed agrees (#2391). Best ball
+  // and the bench keep the join.
   const lineupSql = (slotPredicate, join = rosterJoin) => `SELECT "players"."id", "players"."name", "players"."position",
               "players"."nfl_team", "players"."injury_status", "players"."photo_url",
               "lineup_entries"."player_id",
+              ${asPlayed ? 'TRUE' : lineupService.onRosterColumn()} AS "on_roster",
               "lineup_entries"."slot", "player_stats"."stats"
        FROM "lineup_entries"
        ${join}
@@ -130,14 +132,17 @@ async function getMatchupDetail({
     // Fatal, like the two reads it filters. A settled page that fell back to
     // the current roster when this read failed would be this defect again,
     // wearing a `try`.
-    const asPlayedRows = (rows) => (asPlayed
-      ? lineupService.rowsHeldAsPlayed(client, {
-        league: leagueRow, teamId, season: matchup.season, week: matchup.week, rows, kickoffCache,
-      })
-      : rows);
+    const held = (rows) => lineupService.rowsHeldAsPlayed(client, {
+      league: leagueRow, teamId, season: matchup.season, week: matchup.week, rows, kickoffCache,
+    });
+    // A live standard starters read carries off-roster rows (a spared starter,
+    // #627); only those go through the settle filter, so live matches settle (#2391).
+    const liveStarters = async (rows) => (leagueRow.best_ball ? rows : lineupService.liveStartersHeld(client, {
+      league: leagueRow, teamId, season: matchup.season, week: matchup.week, rows, kickoffCache,
+    }));
     return {
-      starterRows: await asPlayedRows(starterRows.rows),
-      benchRows: await asPlayedRows(lineupRows.rows),
+      starterRows: asPlayed ? await held(starterRows.rows) : await liveStarters(starterRows.rows),
+      benchRows: asPlayed ? await held(lineupRows.rows) : lineupRows.rows,
     };
   };
   let homeRaw;

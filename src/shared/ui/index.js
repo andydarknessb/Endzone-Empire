@@ -4,18 +4,9 @@
  * them ONLY from this index, never from the component files directly. This is
  * the bottom of the FSD island and depends on nothing above it.
  */
-export { default as Card } from './Card';
 export { default as Badge } from './Badge';
 // The CPU-managed team marker (ADR 0068), on standings and matchups.
 export { default as CpuBadge } from './CpuBadge';
-export { default as GradeChip } from './GradeChip';
-export { default as Skeleton } from './Skeleton';
-// Game Center / Matchup Detail pieces (ADR 0031, #891).
-export { default as StatTile } from './StatTile';
-export { default as SplitBar } from './SplitBar';
-// The Floor-to-Ceiling band with a mean tick (#1238, ADR 0037 AC1): composed
-// by the Start/sit advice panel, one bar per sit/start player.
-export { default as RangeBar } from './RangeBar';
 export { default as PosChip } from './PosChip';
 export { default as SegmentedControl } from './SegmentedControl';
 // The injury designation tag (ADR 0031, #903): composed by the slot-comparison
@@ -32,10 +23,6 @@ export { Sprite, RefereeSprite, GoalPostSprite, FIXED as SPRITE_FIXED } from './
 // threshold, and moved here as the one canonical implementation island and
 // legacy `src/components` consumers both import.
 export { default as TeamAvatar } from './TeamAvatar';
-// The dashboard button treatment (#1166, ADR 0031's #1146 amendment): the one
-// canonical `.btn` / `.btn.primary` / `.btn.ghost` implementation the five
-// island sites that used to each define their own copy now compose.
-export { default as DashButton } from './DashButton';
 // An abbreviation/stat term with its definition on hover/focus (#1246, ADR
 // 0031's #1146 amendment): reached its second island consumer (League
 // History, alongside the Draft Grades widget) and moved here as the one

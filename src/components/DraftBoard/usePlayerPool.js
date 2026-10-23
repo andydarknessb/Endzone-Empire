@@ -82,6 +82,9 @@ export default function usePlayerPool(leagueId, rosterSlots = []) {
           // than throwing, so this lookup cannot throw inside the try below whose
           // catch is empty and leave the pool silently empty.
           sort: wireSortName(sort),
+          // Players with no NFL team (released veterans) list after every
+          // rostered player, so "Best available #N" ignores them (#2482).
+          nullTeamLast: true,
         };
         // "Hide drafted" (default) keeps the board to available players only.
         if (hideDrafted) params.available = true;

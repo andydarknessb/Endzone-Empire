@@ -2,6 +2,7 @@ import React from 'react';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import DraftStatusBar from './DraftStatusBar';
+import { SnackbarProvider } from '../Snackbar/SnackbarProvider';
 
 // Issue #123 acceptance criterion 6, the copy criterion. DraftStatusBar is
 // provider-free (plain MUI), so a bare render is enough.
@@ -150,4 +151,22 @@ test('a scheduled pending draft replaces the redundant status chip with one sche
   const status = screen.getByRole('group', { name: 'Draft status' });
   expect(within(status).getByText(/Draft in 2d/)).toBeInTheDocument();
   expect(within(status).queryByText('Draft not started')).not.toBeInTheDocument();
+});
+
+// Wave 4 guard (#2440): the on-the-clock toast goes through the shared toast kit, whose live regions hold text
+// only. The old raw Snackbar+Alert was a role="alert" holding a Close button.
+test("the on-the-clock toast is announced once and no alert or status region holds a button", () => {
+  const onCloseOnClockAlert = jest.fn();
+  render(
+    <SnackbarProvider>
+      <DraftStatusBar {...baseProps} league={{ draft_status: 'active' }} onClockAlertOpen onCloseOnClockAlert={onCloseOnClockAlert} />
+    </SnackbarProvider>
+  );
+
+  expect(screen.getByTestId('toast-status')).toHaveTextContent("You're on the clock!");
+  expect(onCloseOnClockAlert).toHaveBeenCalledTimes(1);
+  // The kit's regions carry no ARIA role, so no role=alert or role=status exists to hold a button.
+  expect(screen.queryByRole('alert')).toBeNull();
+  expect(screen.queryByRole('status')).toBeNull();
+  expect(screen.getByRole('button', { name: 'Dismiss notification' })).toBeInTheDocument();
 });

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import PropTypes from 'prop-types';
-import { Alert, Box, Button, FormControl, FormHelperText, InputLabel, MenuItem, Select, Stack, TextField, Typography } from '@mui/material';
+import { Box, MenuItem, Stack } from '@mui/material';
+import { Dim, KitSelect, KitTextField, Note, PsButton } from './kit';
 import { integerRangeError } from './numericValidation';
 
 const CLOCKS = [0, 30, 60, 90, 120, 180, 300];
@@ -17,12 +18,12 @@ export default function TimerPanel({ league, frozen, onSave, onSetClock, saving,
   const hasInvalidTimer = Boolean(clockError || (!active && delayError));
   return (
     <Stack spacing={2}>
-      {active && <Alert severity="info">Clock changes apply from the next pick. Pause and resume to re-arm the clock immediately.</Alert>}
-      {frozen && !active && <Alert severity="info">Timer settings are locked after the draft ends.</Alert>}
-      <FormControl size="small" sx={{ maxWidth: 240 }} disabled={frozen && !active} error={Boolean(clockError)}><InputLabel id="pick-clock-label">Pick clock</InputLabel><Select labelId="pick-clock-label" label="Pick clock" value={clock} onChange={(event) => setClock(Number(event.target.value))}>{CLOCKS.map((seconds) => <MenuItem key={seconds} value={seconds}>{seconds === 0 ? 'Untimed' : `${seconds} seconds`}</MenuItem>)}</Select>{clockError && <FormHelperText>{clockError}</FormHelperText>}</FormControl>
-      <TextField label="Autodraft delay (seconds)" type="number" size="small" sx={{ maxWidth: 240 }} inputProps={{ min: 1, max: 60 }} disabled={frozen} value={delay} error={Boolean(delayError)} helperText={delayError} onChange={(event) => setDelay(event.target.value)} />
-      <Typography variant="caption" color="text.secondary">Autodraft delay applies whenever the on-clock Team is on Autodraft.</Typography>
-      <Box><Button variant="contained" disabled={(frozen && !active) || saving || hasInvalidTimer} onClick={() => active ? onSetClock(Number(clock)) : onSave({ pickTimeSeconds: Number(clock), autodraftDelaySeconds: Number(delay) }, 'Timer saved')}>Save timer</Button></Box>
+      {active && <Note>Clock changes apply from the next pick. Pause and resume to re-arm the clock immediately.</Note>}
+      {frozen && !active && <Note>Timer settings are locked after the draft ends.</Note>}
+      <KitSelect id="pick-clock" label="Pick clock" sx={{ maxWidth: 240 }} disabled={frozen && !active} error={Boolean(clockError)} helperText={clockError} value={clock} onChange={(event) => setClock(Number(event.target.value))}>{CLOCKS.map((seconds) => <MenuItem key={seconds} value={seconds}>{seconds === 0 ? 'Untimed' : `${seconds} seconds`}</MenuItem>)}</KitSelect>
+      <KitTextField id="autodraft-delay" label="Autodraft delay (seconds)" type="number" sx={{ maxWidth: 240 }} inputProps={{ min: 1, max: 60 }} disabled={frozen} value={delay} error={Boolean(delayError)} helperText={delayError} onChange={(event) => setDelay(event.target.value)} />
+      <Dim>Autodraft delay applies whenever the on-clock Team is on Autodraft.</Dim>
+      <Box><PsButton disabled={(frozen && !active) || saving || hasInvalidTimer} onClick={() => active ? onSetClock(Number(clock)) : onSave({ pickTimeSeconds: Number(clock), autodraftDelaySeconds: Number(delay) }, 'Timer saved')}>Save timer</PsButton></Box>
     </Stack>
   );
 }

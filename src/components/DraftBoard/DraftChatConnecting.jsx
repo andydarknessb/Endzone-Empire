@@ -1,5 +1,6 @@
 import React from 'react';
-import { Box, Typography, Skeleton } from '@mui/material';
+import { Box } from '@mui/material';
+import { BODY_FONT, Skel } from '../../shared/ui/playselect';
 
 /**
  * The Draft room's League Chat surface while membership is NOT YET KNOWN (#534,
@@ -21,10 +22,10 @@ import { Box, Typography, Skeleton } from '@mui/material';
 function DraftChatConnecting() {
   return (
     <Box data-testid="draft-chat-connecting" sx={{ p: 2, mt: 3 }}>
-      <Typography color="text.secondary" sx={{ mb: 2 }}>
+      <Box sx={{ mb: 2, color: 'var(--ps-dim)', fontFamily: BODY_FONT, fontSize: '15px' }}>
         Connecting to League chat.
-      </Typography>
-      <Skeleton variant="rounded" height={120} />
+      </Box>
+      <Skel width="100%" height={120} />
     </Box>
   );
 }

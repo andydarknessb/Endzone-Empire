@@ -7,8 +7,6 @@ import { OVERDUE_AFTER_MS } from '../../shared/lib/onTheClock';
 // A concrete theme so the urgent/overdue colours resolve to stable values we
 // can assert against, rather than depending on MUI's ambient default.
 const theme = createTheme();
-const ERROR = theme.palette.error.main;
-const PRIMARY = theme.palette.text.primary;
 
 function renderClock(props) {
   return render(
@@ -37,7 +35,7 @@ describe('PickClock - Expired vs Overdue (#769 AC1)', () => {
     });
     const clock = screen.getByTestId('draft-clock');
     expect(clock).toHaveTextContent('0:00');
-    expect(clock).toHaveStyle({ color: ERROR });
+    expect(clock).toHaveAttribute('data-urgent', 'true');
     // Red tell (#844): the pre-change leaf kept the pulse through 0:00 until
     // the Overdue crossing; this reads the animation as 'none' at 0:00.
     expect(clock).toHaveStyle({ animation: 'none' });
@@ -50,8 +48,7 @@ describe('PickClock - Expired vs Overdue (#769 AC1)', () => {
     });
     expect(clock).toHaveTextContent('0:00');
     expect(screen.getByTestId('draft-clock-overdue')).toHaveTextContent('Waiting on the server');
-    expect(clock).toHaveStyle({ color: PRIMARY });
-    expect(clock).not.toHaveStyle({ color: ERROR });
+    expect(clock).toHaveAttribute('data-urgent', 'false');
     expect(clock).toHaveStyle({ animation: 'none' });
   });
 
@@ -64,7 +61,7 @@ describe('PickClock - Expired vs Overdue (#769 AC1)', () => {
     // 5s left: urgent, pulsing. The animation name is an emotion keyframe, so
     // assert on its shape rather than a literal name.
     expect(clock).toHaveTextContent('0:05');
-    expect(clock).toHaveStyle({ color: ERROR });
+    expect(clock).toHaveAttribute('data-urgent', 'true');
     expect(getComputedStyle(clock).animation).toMatch(/1s ease-in-out infinite/);
 
     // 1s left: still pulsing (the boundary is zero, not the urgent edge).
@@ -75,7 +72,7 @@ describe('PickClock - Expired vs Overdue (#769 AC1)', () => {
     // 0:00: colour stays, pulse gone.
     act(() => { jest.advanceTimersByTime(1000); });
     expect(clock).toHaveTextContent('0:00');
-    expect(clock).toHaveStyle({ color: ERROR });
+    expect(clock).toHaveAttribute('data-urgent', 'true');
     expect(clock).toHaveStyle({ animation: 'none' });
   });
 
@@ -92,7 +89,7 @@ describe('PickClock - Expired vs Overdue (#769 AC1)', () => {
     });
     expect(screen.getByTestId('draft-clock')).toHaveTextContent('0:00');
     expect(screen.queryByTestId('draft-clock-overdue')).not.toBeInTheDocument();
-    expect(screen.getByTestId('draft-clock')).toHaveStyle({ color: ERROR });
+    expect(screen.getByTestId('draft-clock')).toHaveAttribute('data-urgent', 'true');
   });
 
   it('fires onOverdue exactly once, at the crossing', () => {
@@ -120,7 +117,7 @@ describe('PickClock - Expired vs Overdue (#769 AC1)', () => {
     renderClock({ deadlineAt: now + 90000 });
     const clock = screen.getByTestId('draft-clock');
     expect(clock).toHaveTextContent('1:30');
-    expect(clock).toHaveStyle({ color: PRIMARY });
+    expect(clock).toHaveAttribute('data-urgent', 'false');
     expect(screen.queryByTestId('draft-clock-overdue')).not.toBeInTheDocument();
   });
 });
@@ -196,5 +193,19 @@ describe('PickClock - urgent edge (#787 ruling item 2)', () => {
       </ThemeProvider>
     );
     expect(onUrgent).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('PickClock - data-urgent (Play-select danger window)', () => {
+  it('is true at 29 seconds left and false at 30', () => {
+    jest.useFakeTimers();
+    const now = Date.now();
+    const { unmount } = renderClock({ deadlineAt: now + 29000 });
+    expect(screen.getByTestId('draft-clock')).toHaveAttribute('data-urgent', 'true');
+    expect(screen.getByTestId('draft-clock')).toHaveStyle({ color: 'var(--ps-danger)' });
+    unmount();
+
+    renderClock({ deadlineAt: now + 30000 });
+    expect(screen.getByTestId('draft-clock')).toHaveAttribute('data-urgent', 'false');
   });
 });

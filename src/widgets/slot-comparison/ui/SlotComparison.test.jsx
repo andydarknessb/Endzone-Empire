@@ -29,48 +29,62 @@ const starter = (over = {}) => ({
 const rows = [
   {
     slot: 'QB',
-    home: starter(),
-    away: starter({
+    first: starter(),
+    second: starter({
       id: 2, name: 'J. Allen', nfl_team: 'BUF', opponent: 'MIA', points: 24.1, projected: 22.5,
     }),
   },
   {
     slot: 'RB',
-    home: starter({
+    first: starter({
       id: 3, name: 'A. Jones', position: 'RB', nfl_team: 'GB', opponent: 'TB', points: 14.3, projected: 13.8, game_state: 'in_progress', game_clock: 'Q3 6:42', stats: { rushingYards: 71, rushingTDs: 1, receptions: 3, receivingYards: 22 },
     }),
-    away: starter({
+    second: starter({
       id: 4, name: 'S. Barkley', position: 'RB', nfl_team: 'PHI', opponent: 'NO', points: 4.8, projected: 16.4, game_state: 'in_progress', game_clock: 'Q3 11:20', injury_status: 'Q',
     }),
   },
   {
     slot: 'WR',
-    home: starter({
+    first: starter({
       id: 5, name: 'D. Adams', position: 'WR', nfl_team: 'NYJ', opponent: 'CIN', points: 0, projected: 14.2, game_state: 'scheduled', stats: null,
     }),
-    away: starter({
+    second: starter({
       id: 6, name: 'N. Collins', position: 'WR', nfl_team: 'HOU', opponent: 'LAR', points: 0, projected: 13.1, availability: { available: false, reason: 'ir' }, game_state: 'scheduled', stats: null,
     }),
   },
   {
     slot: 'TE',
-    home: starter({
+    first: starter({
       id: 7, name: 'T. Kelce', position: 'TE', nfl_team: 'KC', opponent: 'LAC', points: 9.7, projected: 11.0, game_state: 'in_progress', game_clock: 'Q2 1:05',
     }),
-    away: null,
+    second: null,
   },
 ];
 
+// The page hands the board's sides and the rows in the viewer-first order: first is the left column.
+const homeSide = (isViewer) => ({ name: 'Duluth Dockworkers', origin: 'home', isViewer });
+const awaySide = (isViewer) => ({ name: 'Fargo Frostbite', origin: 'away', isViewer });
+
 const baseProps = {
   rows,
-  homeName: 'Duluth Dockworkers',
-  awayName: 'Fargo Frostbite',
-  expectedFinal: { home: 110.5, away: 123.9 },
-  scoreLabels: { home: '99.9', away: '88.8' },
+  first: homeSide(false),
+  second: awaySide(false),
+  expectedFinal: { first: 110.5, second: 123.9 },
+  scoreLabels: { first: '99.9', second: '88.8' },
   status: 'live',
   onOpenPlayer: jest.fn(),
   expandedId: null,
   onToggle: jest.fn(),
+};
+
+// The away Team is the viewer: the board puts it first, so the rows, figures and sides arrive swapped.
+const awayViewerProps = {
+  ...baseProps,
+  rows: rows.map((r) => ({ slot: r.slot, first: r.second, second: r.first })),
+  first: awaySide(true),
+  second: homeSide(false),
+  expectedFinal: { first: 123.9, second: 110.5 },
+  scoreLabels: { first: '88.8', second: '99.9' },
 };
 
 const rowAt = (i) => screen.getAllByTestId('slot-row')[i];
@@ -112,7 +126,7 @@ test('is the Starters frame: an h2 that labels it, the slot count, both Team nam
 });
 
 test('the viewer side wears the You tag', () => {
-  const { rerender } = render(<SlotComparison {...baseProps} viewerSide="away" />);
+  const { rerender } = render(<SlotComparison {...awayViewerProps} />);
   expect(screen.getAllByText('You')).toHaveLength(1);
   // The tag sits under the name, in the same column box, so it never takes name width (#2363).
   const name = screen.getByText('Fargo Frostbite');
@@ -160,8 +174,8 @@ test('the three marks differ in shape and colour: a blinking red square, a check
 test('a starter with a team and no opponent on bye reads "Bye" on the game line from the server verdict, once', () => {
   const byeRows = [{
     slot: 'K',
-    home: starter({ id: 8, nfl_team: 'DET', opponent: null, game_state: 'final', points: 0, stats: null, availability: { available: false, reason: 'bye' } }),
-    away: starter({ id: 9, nfl_team: 'BUF', opponent: null, game_state: 'scheduled', points: 0, stats: null, availability: { available: false, reason: 'bye' } }),
+    first: starter({ id: 8, nfl_team: 'DET', opponent: null, game_state: 'final', points: 0, stats: null, availability: { available: false, reason: 'bye' } }),
+    second: starter({ id: 9, nfl_team: 'BUF', opponent: null, game_state: 'scheduled', points: 0, stats: null, availability: { available: false, reason: 'bye' } }),
   }];
   render(<SlotComparison {...baseProps} rows={byeRows} />);
   expect(within(cell(0, 'home')).getByTestId('slot-line2')).toHaveTextContent('DET · Bye');
@@ -190,7 +204,7 @@ test('the figure is points once started and "proj x" while the game has not; an 
 });
 
 test('an Unavailable starter with no reason reads the one fallback word, "unavailable"', () => {
-  const odd = [{ slot: 'QB', home: starter({ game_state: 'scheduled', availability: { available: false, reason: null } }), away: null }];
+  const odd = [{ slot: 'QB', first: starter({ game_state: 'scheduled', availability: { available: false, reason: null } }), second: null }];
   render(<SlotComparison {...baseProps} rows={odd} />);
   expect(within(cell(0, 'home')).getByTestId('unavailable-reason')).toHaveTextContent('unavailable');
 });
@@ -207,14 +221,14 @@ test('a flagged starter carries his injury designation; a healthy one carries no
 });
 
 test('a starter with an unknown game state shows no state marker', () => {
-  const unknown = [{ slot: 'QB', home: starter({ game_state: null }), away: null }];
+  const unknown = [{ slot: 'QB', first: starter({ game_state: null }), second: null }];
   render(<SlotComparison {...baseProps} rows={unknown} />);
   expect(within(cell(0, 'home')).queryByTestId(/^state-/)).not.toBeInTheDocument();
 });
 
 describe('an empty slot', () => {
   test('reads "No starter" once started; on the viewer\'s side with a lock the second line is "Empty · next kickoff {lock}", and it offers no link of its own', () => {
-    render(<SlotComparison {...baseProps} viewerSide="away" fillBy="Sun 3:25 PM" />);
+    render(<SlotComparison {...awayViewerProps} fillBy="Sun 3:25 PM" />);
     const empty = cell(3, 'away');
 
     expect(empty).toHaveTextContent('No starter');
@@ -224,16 +238,16 @@ describe('an empty slot', () => {
   });
 
   test('names a lock on the viewer\'s side only: the opponent\'s empty slot, and a viewer with none, say nothing', () => {
-    const { rerender } = render(<SlotComparison {...baseProps} viewerSide="home" fillBy="Sun 3:25 PM" />);
+    const { rerender } = render(<SlotComparison {...baseProps} first={homeSide(true)} fillBy="Sun 3:25 PM" />);
     expect(cell(3, 'away')).not.toHaveTextContent(/Fill by|next kickoff/);
     rerender(<SlotComparison {...baseProps} fillBy="Sun 3:25 PM" />);
     expect(cell(3, 'away')).not.toHaveTextContent(/Fill by|next kickoff/);
-    rerender(<SlotComparison {...baseProps} viewerSide="away" />);
+    rerender(<SlotComparison {...awayViewerProps} />);
     expect(cell(3, 'away')).not.toHaveTextContent(/Fill by|next kickoff/);
   });
 
   test('reads "Empty" over "Fill by {lock}" before kickoff', () => {
-    render(<SlotComparison {...baseProps} status="scheduled" viewerSide="away" fillBy="Sun 12:00 PM" />);
+    render(<SlotComparison {...awayViewerProps} status="scheduled" fillBy="Sun 12:00 PM" />);
     expect(cell(3, 'away')).toHaveTextContent('Empty');
     expect(cell(3, 'away')).toHaveTextContent('Fill by Sun 12:00 PM');
     expect(cell(3, 'away')).not.toHaveTextContent('next kickoff');
@@ -264,13 +278,13 @@ describe('the Totals row', () => {
   });
 
   test('a side with no Expected final prints none', () => {
-    render(<SlotComparison {...baseProps} expectedFinal={{ home: 110.5, away: null }} />);
+    render(<SlotComparison {...baseProps} expectedFinal={{ first: 110.5, second: null }} />);
     expect(screen.getAllByTestId('slot-exp-final')).toHaveLength(1);
   });
 });
 
 describe('before kickoff', () => {
-  const pre = () => render(<SlotComparison {...baseProps} status="scheduled" expectedFinal={{ home: 110.5, away: 123.9 }} />);
+  const pre = () => render(<SlotComparison {...baseProps} status="scheduled" expectedFinal={{ first: 110.5, second: 123.9 }} />);
 
   test('the head says "Every starter yet to play" once, and no row repeats the state word or draws the legend', () => {
     pre();
@@ -289,6 +303,38 @@ describe('before kickoff', () => {
     expect(screen.getByTestId('slot-total-home')).toHaveTextContent('proj 110.5');
     expect(screen.getByTestId('slot-total-away')).toHaveTextContent('proj 123.9');
     expect(screen.queryByTestId('slot-exp-final')).not.toBeInTheDocument();
+  });
+});
+
+describe('once settled', () => {
+  const withState = (game_state) => rows.map((r) => ({
+    ...r,
+    first: r.first && { ...r.first, game_state },
+    second: r.second && { ...r.second, game_state },
+  }));
+  const settled = (status, game_state) => render(<SlotComparison {...baseProps} status={status} rows={withState(game_state)} />);
+
+  test('a final matchup (unpriced rows) says "Every starter final" once, with no legend and no mark', () => {
+    settled('final', null);
+
+    expect(screen.getByText('Every starter final')).toBeInTheDocument();
+    expect(screen.queryByTestId('slot-legend')).not.toBeInTheDocument();
+    expect(screen.queryByTestId(/^state-/)).not.toBeInTheDocument();
+  });
+
+  test('a played matchup (rows final) draws no mark and no "Final" word', () => {
+    settled('played', 'final');
+
+    expect(screen.getByText('Every starter final')).toBeInTheDocument();
+    expect(screen.queryByTestId(/^state-/)).not.toBeInTheDocument();
+    expect(screen.queryByText('Final')).not.toBeInTheDocument();
+  });
+
+  test('a played matchup draws no mark on a phone', () => {
+    phone = true;
+    settled('played', 'final');
+
+    expect(screen.queryByTestId(/^state-/)).not.toBeInTheDocument();
   });
 });
 
@@ -364,7 +410,7 @@ describe('the viewer\'s side comes first', () => {
   const sides = (el) => Array.from(el.querySelectorAll('[data-testid^="slot-cell-"]')).map((n) => n.getAttribute('data-testid'));
 
   test('as the away team he is the left column and the opponent the right one, in the header, the rows and the Totals', () => {
-    render(<SlotComparison {...baseProps} viewerSide="away" />);
+    render(<SlotComparison {...awayViewerProps} />);
 
     expect(sides(rowAt(0))).toEqual(['slot-cell-away', 'slot-cell-home']);
     const totals = screen.getByTestId('slot-totals');
@@ -377,7 +423,7 @@ describe('the viewer\'s side comes first', () => {
   });
 
   test('as the home team, and as a non-participant, home is on the left', () => {
-    const { rerender } = render(<SlotComparison {...baseProps} viewerSide="home" />);
+    const { rerender } = render(<SlotComparison {...baseProps} first={homeSide(true)} />);
     expect(sides(rowAt(0))).toEqual(['slot-cell-home', 'slot-cell-away']);
     rerender(<SlotComparison {...baseProps} />);
     expect(sides(rowAt(0))).toEqual(['slot-cell-home', 'slot-cell-away']);
@@ -387,8 +433,8 @@ describe('the viewer\'s side comes first', () => {
 describe('the Exp final column', () => {
   const withExp = rows.map((row) => ({
     ...row,
-    home: row.home && { ...row.home, expected_final: 21.456 },
-    away: row.away && { ...row.away, expected_final: null },
+    first: row.first && { ...row.first, expected_final: 21.456 },
+    second: row.second && { ...row.second, expected_final: null },
   }));
 
   test('a wide live row prints the producer\'s figure rounded to one decimal, a dash when it priced none, under an Exp final label', () => {
