@@ -1,7 +1,8 @@
 import React from 'react';
 import { screen, within } from '@testing-library/react';
 import { renderWithProviders } from '../../../test-utils/renderWithProviders';
-import { LeagueLinks, PickemTile, ScoreTile } from './index';
+import { LeagueLinks } from './League';
+import { PickemTile, ScoreTile } from './Tiles';
 
 describe('LeagueLinks', () => {
   test('runs Matchup, Lineup, Picks, Waivers, Dashboard whatever order it is given, and drops the rest', () => {

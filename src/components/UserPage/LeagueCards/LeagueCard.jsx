@@ -1,15 +1,16 @@
 import React from 'react';
 import { Box } from '@mui/material';
-import { useSnackbar } from '../Snackbar/SnackbarProvider';
-import { formatViewerLocalSchedule } from '../../lib/draftTimeFormat';
-import { formatInstant } from '../../shared/lib/instantFormat';
-import { deriveLeaguePhase, LEAGUE_PHASE, LEAGUE_PHASE_META } from '../../shared/lib/leaguePhase';
+import { useSnackbar } from '../../Snackbar/SnackbarProvider';
+import { formatViewerLocalSchedule } from '../../../lib/draftTimeFormat';
+import { formatInstant } from '../../../shared/lib/instantFormat';
+import { deriveLeaguePhase, LEAGUE_PHASE, LEAGUE_PHASE_META } from '../../../shared/lib/leaguePhase';
 // The narrow module, not the entity index: this card is in the initial chunk
 // and the index drags the hooks, the supabase client and their lazy routes in.
-import { matchupBoard } from '../../entities/matchup/model/matchupBoard';
-import { teamStandingFromRow } from '../../entities/standings';
-import { PsButton, PsLink, OddsBar, Pictogram, SR_ONLY_SX, pixelSx } from '../../shared/ui/playselect';
-import { LeagueLinks, LeaguePanel, PickemTile, ScoreTile } from '../UserPage/home';
+import { matchupBoard } from '../../../entities/matchup/model/matchupBoard';
+import { teamStandingFromRow } from '../../../entities/standings';
+import { PsButton, PsLink, OddsBar, Pictogram, SR_ONLY_SX, pixelSx } from '../../../shared/ui/playselect';
+import { LeagueLinks, LeaguePanel } from './League';
+import { PickemTile, ScoreTile } from './Tiles';
 
 /**
  * One league on /user, told through its status block (GET /api/league?include=status,
@@ -35,16 +36,16 @@ const LIVE_PHASES = [LEAGUE_PHASE.IN_SEASON, LEAGUE_PHASE.PLAYOFFS];
 // The server copy of deriveLeaguePhase shares the client's hyphenated values;
 // an underscore spelling (the contract's sample reads "in_season") is read as
 // the same phase rather than as an unknown one.
-export function leaguePhaseOf(league) {
+function leaguePhaseOf(league) {
   const phase = league?.status?.phase || deriveLeaguePhase(league);
   return typeof phase === 'string' ? phase.replace(/_/g, '-') : phase;
 }
 
-export function hasStatus(league) {
+function hasStatus(league) {
   return Boolean(league?.status) && league.statusError !== true;
 }
 
-export function statusVariant(league) {
+function statusVariant(league) {
   if (!hasStatus(league)) return 'fallback';
   const { status } = league;
   if (status.draft) return 'draft';
@@ -114,7 +115,7 @@ function leagueLinks(league) {
  * probability (the tile's bar needs one; without it the league stays a panel),
  * 'pickem' for a pick'em-only league on game day, else null.
  */
-export function tileKind(league, live = false) {
+function tileKind(league, live = false) {
   const variant = statusVariant(league);
   if (variant === 'fantasy') {
     const { matchup } = league.status;
@@ -128,7 +129,7 @@ export function tileKind(league, live = false) {
  * The live score as the tile shows it ("87.4|71.2", no figure reads as 0.0), so
  * a refresh that changes what is on screen can be told from one that does not.
  */
-export function scoreSignature(league) {
+function scoreSignature(league) {
   const { my, opp } = league.status.matchup;
   const shown = (score) => (finiteOrNull(score) ?? 0).toFixed(1);
   return `${shown(my?.score)}|${shown(opp?.score)}`;
@@ -488,7 +489,7 @@ function PickemTileFor({ league }) {
 }
 
 /** One league: a tile when `tileKind` says so, else a panel. `scored` flashes a live tile's score block. */
-function LeagueStatusCard({ league, live = false, scored = false }) {
+function LeagueCard({ league, live = false, scored = false }) {
   const kind = tileKind(league, live);
   if (kind === 'score') return <ScoreTileFor league={league} scored={scored} />;
   if (kind === 'pickem') return <PickemTileFor league={league} />;
@@ -525,4 +526,5 @@ function LeagueStatusCard({ league, live = false, scored = false }) {
   );
 }
 
-export default LeagueStatusCard;
+export { tileKind, scoreSignature };
+export default LeagueCard;

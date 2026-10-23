@@ -24,9 +24,6 @@ jest.mock('../../api/apiClient', () => ({
   default: { get: jest.fn(), post: jest.fn(), put: jest.fn() },
 }));
 
-// The leagues section is LeagueStatusGrid's (tested in its own file); the stub
-// renders the grid props this file asserts on (the list, the error, the retry).
-jest.mock('./LeagueStatusGrid', () => ({ __esModule: true, default: require('./homeTestStubs').LeagueStatusGridStub }));
 
 const baseState = {
   user: { id: 1, username: 'alice' },
@@ -616,10 +613,10 @@ test('a failed refresh after a create keeps the last good list on screen, throug
   await userEvent.click(screen.getByRole('button', { name: 'Done' }));
   await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
 
-  expect(await screen.findByText('server exploded')).toBeInTheDocument();
+  expect(await screen.findByText("Couldn't load your leagues")).toBeInTheDocument();
   expect(screen.getByText('Sunday Ballers')).toBeInTheDocument();
 
-  await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Try loading your leagues again' }));
   expect(screen.getByText('Sunday Ballers')).toBeInTheDocument();
   expect(screen.queryAllByTestId('league-skeleton')).toHaveLength(0);
 

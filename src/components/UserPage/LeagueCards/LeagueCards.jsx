@@ -1,9 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Box } from '@mui/material';
-import LeagueStatusCard, { scoreSignature, tileKind } from '../common/LeagueStatusCard';
-import { useNow } from '../../shared/lib/timeUntil';
-import { ErrorPanel, Frame, PixelHeading, Skel } from '../../shared/ui/playselect';
-import { NumbersHelp } from './home';
+import LeagueCard, { scoreSignature, tileKind } from './LeagueCard';
+import { useNow } from '../../../shared/lib/timeUntil';
+import { ErrorPanel, Frame, PixelHeading, Skel } from '../../../shared/ui/playselect';
+import { NumbersHelp } from './NumbersHelp';
 
 // The My leagues section of Home (DESIGN.md "Play-select: Home and league pages"): the
 // whole section, heading to grid. Before kickoff each league is a panel; on
@@ -68,7 +68,7 @@ function SkeletonPanel() {
   );
 }
 
-function LeagueStatusGrid({
+function LeagueCards({
   leagues = [], loading = false, error = null, onRetry, live = false, updatedAt = null,
 }) {
   // Live tiles on game day lead; every other league keeps its order after them.
@@ -151,7 +151,7 @@ function LeagueStatusGrid({
       {ordered.length > 0 && (
         <Box sx={GRID_SX}>
           {ordered.map((league) => (
-            <LeagueStatusCard key={league.id} league={league} live={live} scored={scoredIds.has(league.id)} />
+            <LeagueCard key={league.id} league={league} live={live} scored={scoredIds.has(league.id)} />
           ))}
         </Box>
       )}
@@ -159,4 +159,4 @@ function LeagueStatusGrid({
   );
 }
 
-export default LeagueStatusGrid;
+export default LeagueCards;

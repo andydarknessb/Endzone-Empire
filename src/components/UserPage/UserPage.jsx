@@ -7,7 +7,7 @@ import { ThemeProvider, useTheme } from '@mui/material/styles';
 import apiClient from '../../api/apiClient';
 import { readHttpFailure } from '../../lib/httpFailure';
 import { useNotifications } from '../../hooks/useNotifications';
-import LeagueStatusGrid from './LeagueStatusGrid';
+import LeagueCards from './LeagueCards/LeagueCards';
 import ActionQueue from './ActionQueue';
 import AlertPrompt from './AlertPrompt';
 import LeagueNews from './LeagueNews';
@@ -442,7 +442,7 @@ function UserPage() {
                 refreshKey={refreshKey}
                 onDraftExpire={handleDraftExpire}
               />
-              <LeagueStatusGrid
+              <LeagueCards
                 leagues={myLeagues}
                 loading={loadingLeagues}
                 error={leaguesError}

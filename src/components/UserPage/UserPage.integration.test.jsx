@@ -11,7 +11,7 @@ jest.mock('../../api/apiClient', () => ({
 }));
 
 // The whole Home page with nothing stubbed: the real ActionQueue and
-// LeagueStatusGrid over a mocked apiClient. The per-component files test each
+// LeagueCards over a mocked apiClient. The per-component files test each
 // piece alone; this is where the page-level promises are bound: one cursor and
 // one filled foot on the whole page, the greeting and the badge agreeing, and
 // the game-day refresh reaching both reads.

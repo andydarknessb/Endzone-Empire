@@ -12,7 +12,6 @@ jest.mock('../../api/apiClient', () => ({
 
 // The real ActionQueue renders over the mocked apiClient: it reads the action items and hands the page
 // the body and the plays the greeting counts.
-jest.mock('./LeagueStatusGrid', () => ({ __esModule: true, default: require('./homeTestStubs').LeagueStatusGridStub }));
 
 // The greeting header as build-main.js draws it: the h1, one status line
 // ("Week N · Weekday, Mon D · summary") built from the action items response
@@ -99,7 +98,7 @@ const mockApi = ({ leagues = [fantasyLeague(1, 'Default League', { matchup: null
 const renderPage = () => renderWithProviders(<UserPage />, { state: baseState });
 const header = () => within(screen.getByTestId('dashboard-hero'));
 const summaryLine = () => screen.queryByTestId('greeting-summary');
-const findHeader = () => screen.findByTestId('league-grid');
+const findHeader = () => screen.findByRole('region', { name: /^(My leagues|Live scores)$/ });
 
 const timeFormat = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit' });
 const dateFormat = new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'short', day: 'numeric' });

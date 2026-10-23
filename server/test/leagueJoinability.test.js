@@ -319,7 +319,7 @@ test('POST /join (invite code): an in-season (rolled-over) pick\'em-only league 
 
 // #2274: the joined league row is `SELECT *`, and the anonymous presenter-board
 // credential on it is not for a joining manager. invite_code stays: the joiner
-// just used it, and LeagueStatusCard shows it to members.
+// just used it, and the League card shows it to members.
 test('POST /join (invite code): the response league never carries the draft share token', async (t) => {
   const app = makeApp();
   const row = { ...ROLLED_OVER_PICKEM, invite_code: 'e402e816', draft_share_token: 'secret-token' };
