@@ -209,7 +209,7 @@ for (const motion of ['no-preference', 'reduce'] as const) {
   });
 }
 
-// The flash is held in state for 1000 ms (LeagueStatusGrid), so the unrelated re-render the same tick triggers
+// The flash is held in state for 1000 ms (LeagueCards), so the unrelated re-render the same tick triggers
 // (the action-items refetch) cannot clear it after one render. The class's own add and remove are timed in the page.
 test('game day: the .scored class holds for the whole flash (>= 900 ms), not one render', async ({ page }) => {
   const { harness, now } = await openGameDay(page);

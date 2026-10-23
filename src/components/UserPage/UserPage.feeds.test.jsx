@@ -16,7 +16,6 @@ jest.mock('../../api/apiClient', () => ({
   default: { get: jest.fn(), post: jest.fn(), put: jest.fn() },
 }));
 
-jest.mock('./LeagueStatusGrid', () => ({ __esModule: true, default: require('./homeTestStubs').LeagueStatusGridStub }));
 
 jest.mock('../../utils/push', () => ({
   ...jest.requireActual('../../utils/push'),
@@ -103,7 +102,7 @@ test('with no news the frame is left out', async () => {
   mockFeeds({ notifications: [] });
   renderWithProviders(<UserPage />, { state: baseState });
 
-  await screen.findByTestId('league-grid');
+  await screen.findByRole('region', { name: /^(My leagues|Live scores)$/ });
   await screen.findByRole('heading', { level: 2, name: 'Columns' });
   expect(screen.queryByRole('heading', { name: 'League news' })).not.toBeInTheDocument();
 });

@@ -5,17 +5,17 @@ import {
 } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
-import LeagueStatusGrid from './LeagueStatusGrid';
+import LeagueCards from './LeagueCards/LeagueCards';
 import { formatInstant } from '../../shared/lib/instantFormat';
 
 // The My leagues / Live scores section of Home (#2315 S3), at the component
-// seam: LeagueStatusGrid rendered alone with the rows GET /api/league?include=status
+// seam: LeagueCards rendered alone with the rows GET /api/league?include=status
 // returns (Contract B). No page, no network.
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const future = (ms) => new Date(Date.now() + ms).toISOString();
 
-const renderGrid = (props) => render(<LeagueStatusGrid {...props} />, { wrapper: MemoryRouter });
+const renderCards = (props) => render(<LeagueCards {...props} />, { wrapper: MemoryRouter });
 
 const matchup = (overrides = {}) => ({
   id: 912,
@@ -130,7 +130,7 @@ const declaredStyle = (element) => {
 
 describe('before kickoff', () => {
   test('a scheduled fantasy league is a panel with the status line, projected sides and its links in order', () => {
-    renderGrid({ leagues: [fantasyLeague()] });
+    renderCards({ leagues: [fantasyLeague()] });
     expect(screen.getByRole('heading', { level: 2, name: 'My leagues' })).toBeInTheDocument();
     const panel = panelFor('Thursday Night Regulars');
     expect(within(panel).getByRole('link', { name: 'Thursday Night Regulars' })).toHaveAttribute('href', '/league/71');
@@ -147,15 +147,15 @@ describe('before kickoff', () => {
   test("the kick-off line names the matchup's own kickoff over the lineup lock, and falls back to the lock", () => {
     const kickoffAt = future(DAY_MS / 2);
     const lockAt = future(2 * DAY_MS);
-    const { rerender } = renderGrid({ leagues: [fantasyLeague({ matchup: matchup({ kickoffAt }), lineup: { emptySlots: [], problems: [], nextLockAt: lockAt } })] });
+    const { rerender } = renderCards({ leagues: [fantasyLeague({ matchup: matchup({ kickoffAt }), lineup: { emptySlots: [], problems: [], nextLockAt: lockAt } })] });
     expect(screen.getByText(`vs Gridiron Ghosts · kicks off ${formatInstant(kickoffAt, 'weekdayTime')}`)).toBeInTheDocument();
 
-    rerender(<LeagueStatusGrid leagues={[fantasyLeague({ matchup: matchup({ kickoffAt: null }), lineup: { emptySlots: [], problems: [], nextLockAt: lockAt } })]} />);
+    rerender(<LeagueCards leagues={[fantasyLeague({ matchup: matchup({ kickoffAt: null }), lineup: { emptySlots: [], problems: [], nextLockAt: lockAt } })]} />);
     expect(screen.getByText(`vs Gridiron Ghosts · kicks off ${formatInstant(lockAt, 'weekdayTime')}`)).toBeInTheDocument();
   });
 
   test('the odds bar is 20 blocks in Frame colour, never the live green', () => {
-    const { container } = renderGrid({ leagues: [fantasyLeague()] });
+    const { container } = renderCards({ leagues: [fantasyLeague()] });
     const bar = screen.getByRole('img', { name: /% win probability$/ });
     expect(bar.children).toHaveLength(20);
     const filled = container.querySelectorAll('[data-on="true"]');
@@ -166,14 +166,14 @@ describe('before kickoff', () => {
   });
 
   test("pick'em on a fantasy league adds Picks between Lineup and Waivers, Dashboard comes last, and a progress line", () => {
-    renderGrid({ leagues: [fantasyLeague({ pickem: { made: 3, total: 14, missing: 11, nextLockAt: future(DAY_MS) } })] });
+    renderCards({ leagues: [fantasyLeague({ pickem: { made: 3, total: 14, missing: 11, nextLockAt: future(DAY_MS) } })] });
     const panel = panelFor('Thursday Night Regulars');
     expect(linkNames(within(panel).getByRole('navigation'))).toEqual(['Matchup', 'Lineup', 'Picks', 'Waivers', 'Dashboard']);
     expect(within(panel).getByText('Week 6 picks: 3 of 14 made')).toBeInTheDocument();
   });
 
   test('lineup health names the first problem and counts the rest', () => {
-    renderGrid({
+    renderCards({
       leagues: [fantasyLeague({ lineup: { emptySlots: ['FLEX'], problems: ['1 empty FLEX slot', 'Puka Nacua is Out'], nextLockAt: null } })],
     });
     expect(screen.getByText('1 empty FLEX slot · 1 more')).toBeInTheDocument();
@@ -181,7 +181,7 @@ describe('before kickoff', () => {
   });
 
   test('a bye week says so, draws no odds bar and links no matchup', () => {
-    renderGrid({ leagues: [fantasyLeague({ matchup: null })] });
+    renderCards({ leagues: [fantasyLeague({ matchup: null })] });
     const panel = panelFor('Thursday Night Regulars');
     expect(within(panel).getByText('Bye week')).toBeInTheDocument();
     expect(screen.queryByRole('img', { name: /win probability/ })).toBeNull();
@@ -189,7 +189,7 @@ describe('before kickoff', () => {
   });
 
   test("a pick'em-only league shows the standing and picks progress, and no season points", () => {
-    renderGrid({ leagues: [pickemLeague()] });
+    renderCards({ leagues: [pickemLeague()] });
     const panel = panelFor("Sunday Pick'em");
     expect(within(panel).getByText('12 managers · season standings')).toBeInTheDocument();
     expect(within(panel).getByText('4th')).toBeInTheDocument();
@@ -200,7 +200,7 @@ describe('before kickoff', () => {
   });
 
   test('a pre-draft league shows the draft line, seats, the invite code and the draft room', () => {
-    renderGrid({ leagues: [preDraftLeague()] });
+    renderCards({ leagues: [preDraftLeague()] });
     const panel = panelFor('Dynasty Startup');
     expect(within(panel).getByText(/^Draft [A-Z][a-z]{2} \d{1,2}$/)).toBeInTheDocument();
     expect(within(panel).getByText('9 of 12 seats filled')).toBeInTheDocument();
@@ -210,7 +210,7 @@ describe('before kickoff', () => {
   });
 
   test('a league mid-draft says so, hides the invite code and the settings link', () => {
-    renderGrid({ leagues: [preDraftLeague({}, { draft_status: 'active', status: { phase: 'drafting', draft: { seatsFilled: 12, maxTeams: 12 } } })] });
+    renderCards({ leagues: [preDraftLeague({}, { draft_status: 'active', status: { phase: 'drafting', draft: { seatsFilled: 12, maxTeams: 12 } } })] });
     const panel = panelFor('Dynasty Startup');
     expect(within(panel).getByText('Draft in progress')).toBeInTheDocument();
     expect(within(panel).queryByText('EZ7K4Q92')).toBeNull();
@@ -218,7 +218,7 @@ describe('before kickoff', () => {
   });
 
   test('a full pre-draft league hides the invite code, and a non-commissioner has no draft settings', () => {
-    renderGrid({
+    renderCards({
       leagues: [preDraftLeague({ seatsFilled: 12 }, { is_commissioner: false })],
     });
     const panel = panelFor('Dynasty Startup');
@@ -227,7 +227,7 @@ describe('before kickoff', () => {
   });
 
   test('a row with no status, or a failed one, falls back to its name and a way in', () => {
-    renderGrid({
+    renderCards({
       leagues: [
         fantasyLeague({}, { id: 1, name: 'No Status', status: null }),
         fantasyLeague({}, { id: 2, name: 'Failed Status', statusError: true }),
@@ -243,7 +243,7 @@ describe('before kickoff', () => {
 
 describe('final', () => {
   test('a win shows the result chip in words, the trophy, and the winner in ink', () => {
-    renderGrid({ leagues: [finalLeague(112.6, 97)] });
+    renderCards({ leagues: [finalLeague(112.6, 97)] });
     const panel = panelFor('Thursday Night Regulars');
     expect(within(panel).getByText('Final · You won')).toBeInTheDocument();
     expect(within(panel).getByTestId('trophy')).toBeInTheDocument();
@@ -255,7 +255,7 @@ describe('final', () => {
   });
 
   test('a loss shows the chip alone, no trophy, and dims your score', () => {
-    renderGrid({ leagues: [finalLeague(88.3, 104.6)] });
+    renderCards({ leagues: [finalLeague(88.3, 104.6)] });
     const panel = panelFor('Thursday Night Regulars');
     expect(within(panel).getByText('Final · You lost')).toBeInTheDocument();
     expect(within(panel).queryByTestId('trophy')).toBeNull();
@@ -266,7 +266,7 @@ describe('final', () => {
 
 describe('live', () => {
   test('a live league is a tile whose one score link carries the whole score, with the margin and odds', () => {
-    renderGrid({ leagues: [liveLeague({}, { lineup: { emptySlots: [], problems: ['1 starter Out'], nextLockAt: null } })], live: true });
+    renderCards({ leagues: [liveLeague({}, { lineup: { emptySlots: [], problems: ['1 starter Out'], nextLockAt: null } })], live: true });
     const tile = tileFor('Thursday Night Regulars');
     const score = within(tile).getByRole('link', {
       name: /^Thursday Night Regulars matchup: you lead Gridiron Ghosts 87\.4 to 71\.2, up 16\.2, \d+% win probability\. 4 of your players and 2 of theirs remain\.$/,
@@ -282,7 +282,7 @@ describe('live', () => {
   });
 
   test('a trailing live league reads "Down" and dims your score', () => {
-    renderGrid({
+    renderCards({
       leagues: [liveLeague({ my: { score: 64, expectedFinal: 90, playersRemaining: 6 }, opp: { score: 78.9, expectedFinal: 100, playersRemaining: 3 } })],
     });
     expect(screen.getByText('Down 14.9')).toBeInTheDocument();
@@ -290,7 +290,7 @@ describe('live', () => {
   });
 
   test('the live heading and the updated stamp, plain text and not a live region', () => {
-    renderGrid({ leagues: [liveLeague()], live: true, updatedAt: new Date(Date.now() - 3 * 60000).toISOString() });
+    renderCards({ leagues: [liveLeague()], live: true, updatedAt: new Date(Date.now() - 3 * 60000).toISOString() });
     expect(screen.getByRole('heading', { level: 2, name: 'Live scores' })).toBeInTheDocument();
     const stamp = screen.getByText('updated 3 min ago · refreshes every minute');
     expect(stamp).not.toHaveAttribute('aria-live');
@@ -299,16 +299,16 @@ describe('live', () => {
   });
 
   test('under a minute reads "just now"; with no live mode there is no stamp', () => {
-    const { rerender } = renderGrid({ leagues: [liveLeague()], live: true, updatedAt: Date.now() });
+    const { rerender } = renderCards({ leagues: [liveLeague()], live: true, updatedAt: Date.now() });
     expect(screen.getByText('updated just now · refreshes every minute')).toBeInTheDocument();
-    rerender(<LeagueStatusGrid leagues={[liveLeague()]} updatedAt={Date.now()} />);
+    rerender(<LeagueCards leagues={[liveLeague()]} updatedAt={Date.now()} />);
     expect(screen.queryByText(/refreshes every minute/)).toBeNull();
     expect(screen.getByRole('heading', { level: 2, name: 'My leagues' })).toBeInTheDocument();
   });
 
   test('on game day the live tiles come first and the other leagues stay panels after them', () => {
     const leagues = [preDraftLeague(), fantasyLeague({}, { id: 72, name: 'Office League' }), liveLeague()];
-    renderGrid({ leagues, live: true });
+    renderCards({ leagues, live: true });
     const names = screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent);
     expect(names).toEqual(['Thursday Night Regulars', 'Dynasty Startup', 'Office League']);
     // The first is a tile (a score link), the others have no score block.
@@ -322,7 +322,7 @@ describe('live', () => {
   };
 
   test("the pick'em panel leads with the standing and season points, and a note on the leader and last week", () => {
-    renderGrid({ leagues: [pickemLeague(POINTS)] });
+    renderCards({ leagues: [pickemLeague(POINTS)] });
     const panel = panelFor("Sunday Pick'em");
     expect(within(panel).getByText('4th')).toBeInTheDocument();
     expect(within(panel).getByText('of 12 · 412 points')).toBeInTheDocument();
@@ -331,17 +331,17 @@ describe('live', () => {
 
   test("the pick'em panel drops the leader sentence at rank 1 and the last-week sentence in week 1", () => {
     const first = { standing: { rank: 1, of: 12 }, pickem: { made: 9, total: 15, missing: 6, nextLockAt: null, ...POINTS } };
-    renderGrid({ leagues: [pickemLeague({}, { status: { phase: 'in-season', week: 6, ...first } })] });
+    renderCards({ leagues: [pickemLeague({}, { status: { phase: 'in-season', week: 6, ...first } })] });
     expect(screen.getByText('Week 5 earned you 71.')).toBeInTheDocument();
     expect(screen.queryByText(/place has/)).toBeNull();
     cleanup();
-    renderGrid({ leagues: [pickemLeague({ ...POINTS, points: 1, lastWeek: null })] });
+    renderCards({ leagues: [pickemLeague({ ...POINTS, points: 1, lastWeek: null })] });
     expect(screen.getByText('of 12 · 1 point')).toBeInTheDocument();
     expect(screen.getByText('1st place has 447 points.')).toBeInTheDocument();
   });
 
   test("a pick'em-only league on game day shows the week's points, games final and the season standing", () => {
-    renderGrid({ leagues: [pickemLeague(POINTS)], live: true });
+    renderCards({ leagues: [pickemLeague(POINTS)], live: true });
     const tile = tileFor("Sunday Pick'em");
     const link = within(tile).getByRole('link', {
       name: "Sunday Pick'em picks: 23 points this week, 2 of 15 games final, 4th of 12 this season",
@@ -354,13 +354,13 @@ describe('live', () => {
   });
 
   test('the game-day tile says 1 point and 1 game final, and stops promising locks once every game is final', () => {
-    renderGrid({ leagues: [pickemLeague({ ...POINTS, weekPoints: 1, finals: 1, total: 1 })], live: true });
+    renderCards({ leagues: [pickemLeague({ ...POINTS, weekPoints: 1, finals: 1, total: 1 })], live: true });
     expect(screen.getByText('point this week')).toBeInTheDocument();
     expect(screen.getByText('1 of 1 game final.')).toBeInTheDocument();
   });
 
   test("a pick'em-only league on game day is a tile with the standing and picks in, and no points", () => {
-    renderGrid({ leagues: [pickemLeague()], live: true });
+    renderCards({ leagues: [pickemLeague()], live: true });
     const tile = tileFor("Sunday Pick'em");
     const link = within(tile).getByRole('link', { name: "Sunday Pick'em picks: 4th of 12 this season, 9 of 15 in" });
     expect(link).toHaveAttribute('href', '/league/5/pickem');
@@ -381,7 +381,7 @@ describe('score flash', () => {
   const scoreLinks = () => screen.getAllByRole('link', { name: /matchup: you/ });
 
   test('the first render never flashes', () => {
-    renderGrid({ leagues: tileLeagues(87.4), live: true });
+    renderCards({ leagues: tileLeagues(87.4), live: true });
     scoreLinks().forEach((a) => expect(a).not.toHaveClass('scored'));
   });
 
@@ -390,8 +390,8 @@ describe('score flash', () => {
     afterEach(() => { jest.useRealTimers(); });
 
     test('a refresh that changes one score flashes that tile only; an unrelated re-render inside a second keeps it, and it is gone after one', () => {
-      const { rerender } = renderGrid({ leagues: tileLeagues(87.4), live: true });
-      rerender(<LeagueStatusGrid leagues={tileLeagues(93.1)} live />);
+      const { rerender } = renderCards({ leagues: tileLeagues(87.4), live: true });
+      rerender(<LeagueCards leagues={tileLeagues(93.1)} live />);
       const [first, second] = scoreLinks();
       expect(first).toHaveClass('scored');
       expect(first).toHaveAccessibleName(/93.1/);
@@ -399,7 +399,7 @@ describe('score flash', () => {
 
       // The same scores again (a poll that changed nothing, the stamp ticking): the flash holds.
       act(() => { jest.advanceTimersByTime(400); });
-      rerender(<LeagueStatusGrid leagues={tileLeagues(93.1)} live updatedAt={Date.now()} />);
+      rerender(<LeagueCards leagues={tileLeagues(93.1)} live updatedAt={Date.now()} />);
       expect(scoreLinks()[0]).toHaveClass('scored');
       act(() => { jest.advanceTimersByTime(500); });
       expect(scoreLinks()[0]).toHaveClass('scored');
@@ -408,10 +408,10 @@ describe('score flash', () => {
     });
 
     test('a new change restarts the second', () => {
-      const { rerender } = renderGrid({ leagues: tileLeagues(87.4), live: true });
-      rerender(<LeagueStatusGrid leagues={tileLeagues(93.1)} live />);
+      const { rerender } = renderCards({ leagues: tileLeagues(87.4), live: true });
+      rerender(<LeagueCards leagues={tileLeagues(93.1)} live />);
       act(() => { jest.advanceTimersByTime(800); });
-      rerender(<LeagueStatusGrid leagues={tileLeagues(99.9)} live />);
+      rerender(<LeagueCards leagues={tileLeagues(99.9)} live />);
       act(() => { jest.advanceTimersByTime(800); });
       expect(scoreLinks()[0]).toHaveClass('scored');
       act(() => { jest.advanceTimersByTime(200); });
@@ -419,18 +419,18 @@ describe('score flash', () => {
     });
 
     test('a score with no figure turning to 0 reads the same on screen, so it does not flash', () => {
-      const { rerender } = renderGrid({ leagues: tileLeagues(null), live: true });
-      rerender(<LeagueStatusGrid leagues={tileLeagues(0)} live />);
+      const { rerender } = renderCards({ leagues: tileLeagues(null), live: true });
+      rerender(<LeagueCards leagues={tileLeagues(0)} live />);
       scoreLinks().forEach((a) => expect(a).not.toHaveClass('scored'));
       // Under the displayed decimal: 87.41 to 87.44 is the same label.
-      rerender(<LeagueStatusGrid leagues={tileLeagues(87.41)} live />);
+      rerender(<LeagueCards leagues={tileLeagues(87.41)} live />);
       act(() => { jest.advanceTimersByTime(1100); });
-      rerender(<LeagueStatusGrid leagues={tileLeagues(87.44)} live />);
+      rerender(<LeagueCards leagues={tileLeagues(87.44)} live />);
       scoreLinks().forEach((a) => expect(a).not.toHaveClass('scored'));
     });
 
     test('the updated stamp ages on the minute with no new data', () => {
-      renderGrid({ leagues: [liveLeague()], live: true, updatedAt: new Date(Date.now()).toISOString() });
+      renderCards({ leagues: [liveLeague()], live: true, updatedAt: new Date(Date.now()).toISOString() });
       expect(screen.getByText('updated just now · refreshes every minute')).toBeInTheDocument();
       act(() => { jest.advanceTimersByTime(61 * 1000); });
       expect(screen.getByText('updated 1 min ago · refreshes every minute')).toBeInTheDocument();
@@ -440,7 +440,7 @@ describe('score flash', () => {
     });
 
     test('off game day nothing ticks: the stamp is not shown, so no minute timer runs', () => {
-      renderGrid({ leagues: [fantasyLeague()], updatedAt: new Date(Date.now()).toISOString() });
+      renderCards({ leagues: [fantasyLeague()], updatedAt: new Date(Date.now()).toISOString() });
       expect(jest.getTimerCount()).toBe(0);
       act(() => { jest.advanceTimersByTime(5 * 60 * 1000); });
       expect(jest.getTimerCount()).toBe(0);
@@ -451,7 +451,7 @@ describe('score flash', () => {
 describe('error and loading', () => {
   test('an error with nothing loaded shows the alert and Try again calls onRetry', async () => {
     const onRetry = jest.fn();
-    renderGrid({ leagues: [], error: new Error('Network Error'), onRetry });
+    renderCards({ leagues: [], error: new Error('Network Error'), onRetry });
     const alert = screen.getByRole('alert');
     expect(within(alert).getByText("Couldn't load your leagues")).toBeInTheDocument();
     expect(within(alert).getByText('Check your connection, then try again.')).toBeInTheDocument();
@@ -462,13 +462,13 @@ describe('error and loading', () => {
   });
 
   test('an error keeps the leagues already on screen under it', () => {
-    renderGrid({ leagues: [fantasyLeague()], error: true, onRetry: jest.fn() });
+    renderCards({ leagues: [fantasyLeague()], error: true, onRetry: jest.fn() });
     expect(screen.getByRole('alert')).toBeInTheDocument();
     expect(panelFor('Thursday Night Regulars')).toBeInTheDocument();
   });
 
   test('loading with no leagues shows three skeleton panels and no content', () => {
-    renderGrid({ leagues: [], loading: true });
+    renderCards({ leagues: [], loading: true });
     const skeletons = screen.getAllByLabelText('Loading a league');
     expect(skeletons).toHaveLength(3);
     skeletons.forEach((s) => expect(s).toHaveAttribute('aria-busy', 'true'));
@@ -476,13 +476,13 @@ describe('error and loading', () => {
   });
 
   test('loading with leagues already there keeps showing them', () => {
-    renderGrid({ leagues: [fantasyLeague()], loading: true });
+    renderCards({ leagues: [fantasyLeague()], loading: true });
     expect(screen.queryByLabelText('Loading a league')).toBeNull();
     expect(panelFor('Thursday Night Regulars')).toBeInTheDocument();
   });
 
   test('an empty list with no error renders nothing', () => {
-    const { container } = renderGrid({ leagues: [] });
+    const { container } = renderCards({ leagues: [] });
     expect(container).toBeEmptyDOMElement();
   });
 });
