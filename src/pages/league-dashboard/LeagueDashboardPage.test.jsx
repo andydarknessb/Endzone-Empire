@@ -1293,6 +1293,31 @@ test('matchup card: heading, both Team names from teams[], and each projected to
   expect(within(card).queryByText('Live')).not.toBeInTheDocument();
 });
 
+// Viewer first (spec #2402): an away viewer's Team is drawn first and carries its own figure.
+test('matchup card: an away viewer sees their own Team first, with their own projected total', async () => {
+  mockGetByUrl({
+    '/api/league/1': mpLeague(),
+    [MP_LIST_URL]: mpMatchupsList([{ id: 55, week: 1, season: 2026, home_team_id: 7, away_team_id: 3, final: false }]),
+    [MP_DETAIL_URL]: {
+      data: {
+        viewerTeamId: 3,
+        matchup: { id: 55, week: 1, season: 2026, home_team_id: 7, away_team_id: 3 },
+        home: { teamId: 7, name: 'WRONG home name', expectedFinal: 118.9, starters: [], bench: [] },
+        away: { teamId: 3, name: 'WRONG away name', expectedFinal: 112.4, starters: [], bench: [] },
+      },
+    },
+  });
+  renderPage();
+
+  const card = await screen.findByTestId('matchup-preview');
+  const versus = await within(card).findByTestId('matchup-versus');
+  const names = within(versus).getAllByRole('heading', { level: 3 }).map((h) => h.textContent);
+  expect(names).toEqual(['MyBallsHurts', 'Terrific T']);
+  expect(await within(card).findByText('112.4')).toBeInTheDocument();
+  expect(viewerFigure(card)).toHaveTextContent('112.4');
+  expect(opponentFigure(card)).toHaveTextContent('118.9');
+});
+
 test('matchup card: the Matchup link goes to the matchup detail page and is named for both teams', async () => {
   mockGetByUrl({
     '/api/league/1': mpLeague(),
