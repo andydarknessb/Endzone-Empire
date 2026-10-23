@@ -46,16 +46,16 @@ describe('matchupCardView', () => {
     expect(v.state).toBe('live');
     expect(v.started).toBe(true);
     expect(v.scheduled).toBe(false);
-    expect(v.homePct).toBe(49);
-    expect(v.awayPct).toBe(51);
-    expect(v.favourite).toBe('away');
-    expect(v.home.figure).toBe('92.1');
-    expect(v.home.expectedLine).toBe('Exp final 118.0');
-    expect(v.home.remainingLine).toBe('2 players remaining');
-    expect(v.away.remainingLine).toBe('3 players remaining');
-    expect(v.home.leads).toBe(true);
-    expect(v.away.leads).toBe(false);
-    expect(v.home.winner).toBe(false);
+    expect(v.firstPct).toBe(49);
+    expect(v.secondPct).toBe(51);
+    expect(v.favourite).toBe("second");
+    expect(v.first.figure).toBe('92.1');
+    expect(v.first.expectedLine).toBe('Exp final 118.0');
+    expect(v.first.remainingLine).toBe('2 players remaining');
+    expect(v.second.remainingLine).toBe('3 players remaining');
+    expect(v.first.leads).toBe(true);
+    expect(v.second.leads).toBe(false);
+    expect(v.first.winner).toBe(false);
   });
 
   test('scheduled: Proj figures from the Expected final, starters set to play, the projections-only share, the kickoff', () => {
@@ -66,12 +66,12 @@ describe('matchupCardView', () => {
     expect(v.state).toBe('scheduled');
     expect(v.scheduled).toBe(true);
     expect(v.kickoff).toBe('Sun 7:20 PM');
-    expect(v.home.figure).toBe('118.0');
-    expect(v.home.expectedLine).toBe('');
-    expect(v.home.remainingLine).toBe('1 starter set to play');
-    expect(v.away.remainingLine).toBe('3 starters set to play');
-    expect(v.homePct).not.toBeNull();
-    expect(v.home.leads).toBe(false);
+    expect(v.first.figure).toBe('118.0');
+    expect(v.first.expectedLine).toBe('');
+    expect(v.first.remainingLine).toBe('1 starter set to play');
+    expect(v.second.remainingLine).toBe('3 starters set to play');
+    expect(v.firstPct).not.toBeNull();
+    expect(v.first.leads).toBe(false);
   });
 
   test.each([
@@ -81,15 +81,15 @@ describe('matchupCardView', () => {
   ])('live with %s Expected final: no probability, so no bar', (_name, overrides) => {
     const v = matchupCardView(model(overrides));
     expect(v.state).toBe('live');
-    expect(v.homeShare).toBeNull();
-    expect(v.homePct).toBeNull();
+    expect(v.firstShare).toBeNull();
+    expect(v.firstPct).toBeNull();
     expect(v.favourite).toBeNull();
   });
 
   test('scheduled with one Expected final null: no probability, and the figure shows the dash', () => {
     const v = matchupCardView(model({ status: 'scheduled', away_expected_final: null }));
-    expect(v.homePct).toBeNull();
-    expect(v.away.figure).toBe('-');
+    expect(v.firstPct).toBeNull();
+    expect(v.second.figure).toBe('-');
   });
 
   test('played: awaiting final with no probability and no forecast lines', () => {
@@ -98,21 +98,21 @@ describe('matchupCardView', () => {
       { records: { 1: '2-0', 2: '1-1' } }
     );
     expect(v.state).toBe('played');
-    expect(v.homeShare).toBeNull();
-    expect(v.home.record).toBe('2-0');
-    expect(v.home.expectedLine).toBe('');
-    expect(v.home.remainingLine).toBe('');
+    expect(v.firstShare).toBeNull();
+    expect(v.first.record).toBe('2-0');
+    expect(v.first.expectedLine).toBe('');
+    expect(v.first.remainingLine).toBe('');
     expect(v.chipLabel).toBe('Awaiting final');
-    expect(v.home.winner).toBe(false);
+    expect(v.first.winner).toBe(false);
   });
 
   test('final: the winner in ink, no bar', () => {
     const v = matchupCardView(model({ status: 'final', home_score: '80', away_score: '90' }));
     expect(v.state).toBe('final');
     expect(v.chipLabel).toBe('Final');
-    expect(v.homePct).toBeNull();
-    expect(v.away.winner).toBe(true);
-    expect(v.home.winner).toBe(false);
+    expect(v.firstPct).toBeNull();
+    expect(v.second.winner).toBe(true);
+    expect(v.first.winner).toBe(false);
   });
 
   test('an unknown status asserts neither started nor scheduled and draws no bar', () => {
@@ -121,10 +121,10 @@ describe('matchupCardView', () => {
     expect(v.started).toBe(false);
     expect(v.scheduled).toBe(false);
     expect(v.chipLabel).toBeNull();
-    expect(v.homeShare).toBeNull();
-    expect(v.home.figure).toBe('92.1');
-    expect(v.home.leads).toBe(false);
-    expect(v.home.remainingLine).toBe('');
+    expect(v.firstShare).toBeNull();
+    expect(v.first.figure).toBe('92.1');
+    expect(v.first.leads).toBe(false);
+    expect(v.first.remainingLine).toBe('');
   });
 });
 
@@ -147,4 +147,12 @@ describe('records', () => {
   // own red-tell in this PR - dropping the entity's id-less-row guard turns
   // the entity's lookup case red. This widget only READS a lookup, which is
   // what the case above pins.
+});
+
+describe('viewer first (#2403)', () => {
+  test('the viewer Team is first on its own card, home first otherwise', () => {
+    expect(matchupCardView(model(), { viewerTeamId: 2 }).first.name).toBe('Away');
+    expect(matchupCardView(model(), { viewerTeamId: 99 }).first.name).toBe('Home');
+    expect(matchupCardView(model()).first.name).toBe('Home');
+  });
 });

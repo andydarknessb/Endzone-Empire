@@ -82,10 +82,11 @@ const fmt = (v) => {
 /** 0..100 chance the viewer's side wins: the server's figure once v2 ships, else v1 on the two Expected finals. */
 function winPct(matchup, board) {
   const server = finiteOrNull(matchup.winProbability);
-  const p = server ?? (board.winProbability ?? board.projectedWinProbability)?.home;
+  const p = server ?? (board.winProbability ?? board.projectedWinProbability)?.first;
   return p == null ? null : Math.round(p * 100);
 }
 
+// `my` is the viewer's side and rides as home: with no viewer id the board puts home first.
 const boardOf = (matchup) => matchupBoard({ status: matchup.status, home: matchup.my, away: matchup.opp });
 
 function lineupText(lineup) {
@@ -296,7 +297,7 @@ function FantasyBody({ league }) {
       </>
     );
   }
-  const projected = board.home.expectedFinal != null && board.away.expectedFinal != null;
+  const projected = board.first.expectedFinal != null && board.second.expectedFinal != null;
   const pct = winPct(matchup, board);
   const lineup = status.lineup && (lineupText(status.lineup) || 'Lineup set');
   return (
@@ -304,8 +305,8 @@ function FantasyBody({ league }) {
       <StatusLine league={league} sub={sub} />
       {projected && (
         <PanelSides
-          you={fmt(board.home.expectedFinal)}
-          opp={{ name: opponent, score: fmt(board.away.expectedFinal) }}
+          you={fmt(board.first.expectedFinal)}
+          opp={{ name: opponent, score: fmt(board.second.expectedFinal) }}
           mid="Projected"
         />
       )}
@@ -439,13 +440,13 @@ function ScoreTileFor({ league, scored }) {
     <ScoreTile
       league={league.name}
       status={statusLine}
-      you={{ name: 'You', score: board.home.scoreLabel, note: playersNote(myLeft) }}
-      opp={{ name: opponent, score: board.away.scoreLabel, note: playersNote(theirLeft) }}
+      you={{ name: 'You', score: board.first.scoreLabel, note: playersNote(myLeft) }}
+      opp={{ name: opponent, score: board.second.scoreLabel, note: playersNote(theirLeft) }}
       youLeads={my >= theirs}
       margin={margin}
       pct={pct}
       to={`/league/${league.id}/matchups/${matchup.id}`}
-      ariaLabel={`${league.name} matchup: ${verb} ${opponent} ${board.home.scoreLabel} to ${board.away.scoreLabel}, ${margin.toLowerCase()}, ${pct}% win probability.${left}`}
+      ariaLabel={`${league.name} matchup: ${verb} ${opponent} ${board.first.scoreLabel} to ${board.second.scoreLabel}, ${margin.toLowerCase()}, ${pct}% win probability.${left}`}
       links={leagueLinks(league).filter((l) => l.label !== 'Matchup')}
       extra={pickem && <Box sx={{ fontSize: '14px', color: 'var(--ps-board-dim)' }}>{pickem}</Box>}
       scored={scored}

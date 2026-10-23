@@ -44,7 +44,7 @@ export default function LastPlays({ items, mobile = false }) {
             component="li"
             key={`${item.playerId}-${i}`}
             data-testid="last-play"
-            data-side={item.side === 'away' ? 'away' : 'home'}
+            data-side={item.side === 'second' ? 'second' : 'first'}
             sx={{ display: 'inline-flex', alignItems: 'center', gap: '8px', fontSize: '15px', minHeight: '44px' }}
           >
             <Tag>{item.isTouchdown === false ? 'Play' : 'TD'}</Tag>

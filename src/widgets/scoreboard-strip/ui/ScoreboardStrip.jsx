@@ -95,23 +95,21 @@ export default function ScoreboardStrip({
   const colors = started
     ? { ink: 'var(--ps-board-ink)', dim: 'var(--ps-board-dim)' }
     : { ink: 'var(--ps-ink)', dim: 'var(--ps-dim)' };
-  // Viewer first: the left side is the viewer's team when they play in this matchup, else home.
-  const [leftKey, rightKey] = view.viewerSide === 'away' ? ['away', 'home'] : ['home', 'away'];
-  const left = view[leftKey];
-  const right = view[rightKey];
+  // The board puts the viewer's team first when they play in this matchup, else home.
+  const left = view.first;
+  const right = view.second;
   const sentence = useMemo(
     () => `${left.name} ${left.score}, ${right.name} ${right.score}`,
     [left.name, left.score, right.name, right.score]
   );
 
-  const sideNode = (side, key) => {
-    const isRight = key === rightKey;
+  const sideNode = (side, key, isRight) => {
     const leads = view.leader == null || view.leader === key;
     const label = !started ? 'Proj' : settled ? 'Final score' : 'Live score';
     const you = <YouTag color={colors.ink} />;
     return (
       <Box
-        data-testid={`scoreboard-side-${key}`}
+        data-testid={`scoreboard-side-${side.origin}`}
         data-viewer-team={side.isViewer || undefined}
         sx={{ gridArea: isRight ? 'sr' : 'sl', minWidth: 0, textAlign: isRight ? 'right' : 'left' }}
       >
@@ -157,11 +155,11 @@ export default function ScoreboardStrip({
   };
 
   // A phone sets the figures under the margin, in the two halves.
-  const figuresBelow = (side, key) => (settled || !phone ? null : (
+  const figuresBelow = (side, isRight) => (settled || !phone ? null : (
     <Box
       data-testid="scoreboard-figures-phone"
       sx={{
-        gridArea: key === rightKey ? 'fr' : 'fl', minWidth: 0, textAlign: key === rightKey ? 'right' : 'left', fontSize: '14px', color: colors.dim, fontVariantNumeric: 'tabular-nums',
+        gridArea: isRight ? 'fr' : 'fl', minWidth: 0, textAlign: isRight ? 'right' : 'left', fontSize: '14px', color: colors.dim, fontVariantNumeric: 'tabular-nums',
       }}
     >
       <Figures side={side} started={started} colors={colors} />
@@ -198,11 +196,11 @@ export default function ScoreboardStrip({
           alignItems: 'start',
         }}
       >
-        {sideNode(left, leftKey)}
-        {sideNode(right, rightKey)}
+        {sideNode(left, 'first', false)}
+        {sideNode(right, 'second', true)}
         <Box sx={{ gridArea: 'mg', minWidth: 0 }}>{margin}</Box>
-        {figuresBelow(left, leftKey)}
-        {figuresBelow(right, rightKey)}
+        {figuresBelow(left, false)}
+        {figuresBelow(right, true)}
       </Box>
       {settled && (
         // The bar is gone once settled and the names above truncate (#2364), so the bar's caption slot keeps the full names:
@@ -214,7 +212,7 @@ export default function ScoreboardStrip({
             display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '2px 12px', fontSize: '14px', color: colors.dim,
           }}
         >
-          {[[left, leftKey, false], [right, rightKey, true]].map(([side, key, end]) => (
+          {[[left, 'first', false], [right, 'second', true]].map(([side, key, end]) => (
             <Box
               key={key}
               component="span"
@@ -284,7 +282,7 @@ export default function ScoreboardStrip({
               <CompactScoreboard
                 a={{ abbr: initialsFor(left.name), name: left.name, score: left.figure ?? '-' }}
                 b={{ abbr: initialsFor(right.name), name: right.name, score: right.figure ?? '-' }}
-                lead={view.leader === leftKey ? 'a' : view.leader === rightKey ? 'b' : undefined}
+                lead={view.leader === 'first' ? 'a' : view.leader === 'second' ? 'b' : undefined}
                 marginText={view.marginText}
                 live={live}
               />

@@ -26,7 +26,7 @@ import { matchupCardView } from '../model/matchupCardView';
  * names, the figures, Exp final and players remaining, the two-sided bar's one label naming both teams and both
  * percentages, Details), so what is read is what is drawn (label in name) and nothing is stated twice.
  *
- * Props: `matchups` (entity models), `leagueId`, `records` (a Team id lookup), `more` (the head's
+ * Props: `matchups` (entity models), `leagueId`, `records` (a Team id lookup), `viewerTeamId` (the viewer's Team: its own card names it first; every other card stays home first), `more` (the head's
  * "{n} more" count, when the hero already shows the viewer's own), `empty` (the line to show when there
  * are no matchups; without it an empty list renders nothing). Paints only `ps-*` tokens.
  */
@@ -34,6 +34,7 @@ export default function MatchupGrid({
   matchups,
   leagueId,
   records,
+  viewerTeamId,
   more,
   empty,
   'data-testid': testId = 'matchup-grid',
@@ -45,7 +46,7 @@ export default function MatchupGrid({
   const list = Array.isArray(matchups) ? matchups : [];
   if (list.length === 0 && !empty) return null;
 
-  const views = list.map((matchup) => withCpu(matchupCardView(matchup, { records }), cpuTeamIds));
+  const views = list.map((matchup) => withCpu(matchupCardView(matchup, { records, viewerTeamId }), cpuTeamIds));
   const scheduled = views.filter((view) => view.state === 'scheduled');
   const allScheduled = views.length > 0 && scheduled.length === views.length;
   // RULINGS Critique 10 item 13: before kickoff the head says so once, with the earliest kickoff.
@@ -117,8 +118,8 @@ function withCpu(view, cpuTeamIds) {
   if (cpuTeamIds.size === 0) return view;
   return {
     ...view,
-    home: { ...view.home, isCpu: cpuTeamIds.has(view.home.teamId) },
-    away: { ...view.away, isCpu: cpuTeamIds.has(view.away.teamId) },
+    first: { ...view.first, isCpu: cpuTeamIds.has(view.first.teamId) },
+    second: { ...view.second, isCpu: cpuTeamIds.has(view.second.teamId) },
   };
 }
 
@@ -188,8 +189,8 @@ function MatchupTile({ view, leagueId }) {
     ? { ink: 'var(--ps-board-ink)', dim: 'var(--ps-board-dim)' }
     : { ink: 'var(--ps-ink)', dim: 'var(--ps-dim)' };
   const figureLabel = view.scheduled ? 'Projected' : 'Score';
-  const home = { ...view.home, testId: 'matchup-side-home' };
-  const away = { ...view.away, testId: 'matchup-side-away' };
+  const first = { ...view.first, testId: 'matchup-side-home' };
+  const second = { ...view.second, testId: 'matchup-side-away' };
   let foot = '';
   if (view.state === 'played') foot = 'Waiting on the score of record';
   else if (view.state === 'final') foot = 'Score of record';
@@ -217,11 +218,11 @@ function MatchupTile({ view, leagueId }) {
       {view.scheduled && (
         <Box component="span" aria-hidden="true" sx={{ alignSelf: 'flex-end', margin: '-4px 0 -6px', fontSize: '13px', fontWeight: 600, letterSpacing: '.04em', textTransform: 'uppercase', color: colors.dim }}>Proj</Box>
       )}
-      <TileSide side={home} colors={colors} figureLabel={figureLabel} state={view.state} />
+      <TileSide side={first} colors={colors} figureLabel={figureLabel} state={view.state} />
       <Box aria-hidden="true" data-testid="matchup-rule" sx={{ height: '2px', backgroundColor: board ? 'var(--ps-board-rule)' : 'var(--ps-rule)' }} />
-      <TileSide side={away} colors={colors} figureLabel={figureLabel} state={view.state} />
-      {view.homePct != null && (
-        <TwoSidedOdds a={home.name} b={away.name} pct={view.homePct} live={board} onBoard={board} />
+      <TileSide side={second} colors={colors} figureLabel={figureLabel} state={view.state} />
+      {view.firstPct != null && (
+        <TwoSidedOdds a={first.name} b={second.name} pct={view.firstPct} live={board} onBoard={board} />
       )}
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', fontSize: '13px', color: colors.dim }}>
         <span data-testid="matchup-card-footer">{foot}</span>
@@ -238,7 +239,7 @@ function MatchupRow({ view, leagueId }) {
     ? { ink: 'var(--ps-board-ink)', dim: 'var(--ps-board-dim)' }
     : { ink: 'var(--ps-ink)', dim: 'var(--ps-dim)' };
   const fav = view.favourite ? view[view.favourite] : null;
-  const favPct = view.favourite === 'home' ? view.homePct : view.awayPct;
+  const favPct = view.favourite === 'first' ? view.firstPct : view.secondPct;
   const stateWord = view.state === 'final' ? 'Final' : view.state === 'played' ? 'Awaiting final' : view.scheduled ? 'Proj' : null;
 
   const line = (side, testId) => {
@@ -287,8 +288,8 @@ function MatchupRow({ view, leagueId }) {
       }}
     >
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: '2px', minWidth: 0 }}>
-        {line(view.home, 'matchup-side-home')}
-        {line(view.away, 'matchup-side-away')}
+        {line(view.first, 'matchup-side-home')}
+        {line(view.second, 'matchup-side-away')}
       </Box>
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', minWidth: 0, fontSize: '13px', color: colors.dim }}>
         <Box component="span" sx={{ minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>

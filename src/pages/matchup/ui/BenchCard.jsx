@@ -9,7 +9,7 @@ import { unavailableLabel } from '../../../entities/roster';
  * The Bench frame of the Matchup page (ADR 0031, #903), drawn as the board's primary frame (ADR 0067
  * wave 2, spec #2334 ruling 4): a pixel h2 "Bench" with the two bench counts ("7 players each", or
  * "6 · 7 players" when they differ, #2009) and a Show / Hide ghost button (44px, never filled),
- * collapsed by default. Open, it lists both benches, home on the left and away on the right (stacked
+ * collapsed by default. Open, it lists both benches, the board's first side on the left and second on the right (stacked
  * below sm): each row is the player's position tag, his name (a button that opens the player) with
  * his injury designation beside it when flagged and his NFL team, and his figure on the right.
  *
@@ -32,12 +32,12 @@ const players = (n) => `${n} player${n === 1 ? '' : 's'}`;
 // Equal counts read once and two empty benches print nothing; unequal ones show
 // both, the visible text hidden from assistive tech in favour of a line naming
 // each team (#2009).
-function benchCount(home, away, homeName, awayName) {
-  if (home === away) return home === 0 ? undefined : `${players(home)} each`;
+function benchCount(first, second, firstName, secondName) {
+  if (first === second) return first === 0 ? undefined : `${players(first)} each`;
   return (
     <>
-      <span aria-hidden="true">{`${home} · ${away} players`}</span>
-      <Box component="span" sx={SR_ONLY_SX}>{`${homeName} ${players(home)}, ${awayName} ${players(away)}`}</Box>
+      <span aria-hidden="true">{`${first} · ${second} players`}</span>
+      <Box component="span" sx={SR_ONLY_SX}>{`${firstName} ${players(first)}, ${secondName} ${players(second)}`}</Box>
     </>
   );
 }
@@ -46,10 +46,10 @@ const META = { fontSize: '13px', color: 'var(--ps-dim)' };
 const ELLIPSIS = { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
 
 export default function BenchCard({
-  homeName,
-  awayName,
-  homeBench,
-  awayBench,
+  firstName,
+  secondName,
+  firstBench,
+  secondBench,
   open,
   onToggle,
   onOpenPlayer,
@@ -59,13 +59,13 @@ export default function BenchCard({
 }) {
   const panelId = useId();
   const headingId = useId();
-  const home = homeBench || [];
-  const away = awayBench || [];
-  const count = benchCount(home.length, away.length, homeName || 'Home', awayName || 'Away');
-  const leftHome = showBenchLeft && benchLeft?.home != null ? benchLeft.home : null;
-  const leftAway = showBenchLeft && benchLeft?.away != null ? benchLeft.away : null;
-  const shotHome = calledShots?.home || null;
-  const shotAway = calledShots?.away || null;
+  const first = firstBench || [];
+  const second = secondBench || [];
+  const count = benchCount(first.length, second.length, firstName, secondName);
+  const leftFirst = showBenchLeft && benchLeft?.first != null ? benchLeft.first : null;
+  const leftSecond = showBenchLeft && benchLeft?.second != null ? benchLeft.second : null;
+  const shotFirst = calledShots?.first || null;
+  const shotSecond = calledShots?.second || null;
 
   return (
     <Frame
@@ -104,15 +104,15 @@ export default function BenchCard({
         </FrameHead>
       )}
     >
-      {(leftHome != null || leftAway != null) && (
+      {(leftFirst != null || leftSecond != null) && (
         <Box
           data-testid="bench-left"
           sx={{
             display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '10px', px: { xs: '14px', md: '20px' }, py: '10px', fontSize: '14px', color: 'var(--ps-dim)', borderBottom: open ? '2px solid var(--ps-rule)' : 0,
           }}
         >
-          <BenchLeft name={homeName} value={leftHome} side="home" />
-          <BenchLeft name={awayName} value={leftAway} side="away" align="right" />
+          <BenchLeft name={firstName} value={leftFirst} side="home" />
+          <BenchLeft name={secondName} value={leftSecond} side="away" align="right" />
         </Box>
       )}
 
@@ -124,19 +124,19 @@ export default function BenchCard({
             display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: 'repeat(2, minmax(0, 1fr))' }, gap: { xs: '20px', md: '24px 40px' }, padding: { xs: '14px 14px 16px', md: '16px 20px 20px' },
           }}
         >
-          <BenchColumn name={homeName} players={home} side="home" onOpenPlayer={onOpenPlayer} />
-          <BenchColumn name={awayName} players={away} side="away" onOpenPlayer={onOpenPlayer} />
+          <BenchColumn name={firstName} players={first} side="home" onOpenPlayer={onOpenPlayer} />
+          <BenchColumn name={secondName} players={second} side="away" onOpenPlayer={onOpenPlayer} />
         </Box>
       )}
 
-      {(shotHome || shotAway) && (
+      {(shotFirst || shotSecond) && (
         <Box
           sx={{
             display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '10px 20px', px: { xs: '14px', md: '20px' }, py: '10px', fontSize: '14px', color: 'var(--ps-dim)', borderTop: open ? '2px solid var(--ps-rule)' : 0,
           }}
         >
-          <CalledShot shot={shotHome} side="home" />
-          <CalledShot shot={shotAway} side="away" align="right" />
+          <CalledShot shot={shotFirst} side="home" />
+          <CalledShot shot={shotSecond} side="away" align="right" />
         </Box>
       )}
     </Frame>

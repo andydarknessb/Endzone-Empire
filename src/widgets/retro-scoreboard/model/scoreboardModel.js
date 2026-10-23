@@ -10,6 +10,12 @@ import { formatInstant } from '../../../shared/lib';
  * DOM. Nothing here reads the wire; the entity already spelled the Matchup.
  */
 
+// The widgets are positional (spec #2402): the board and the rows arrive already in viewer-first
+// order, `first` drawn in the left slot and `second` in the right. The test ids keep the names they
+// always had for those two slots, and every "home" below (the probability, the sprite that runs
+// first) means the FIRST slot, whichever side of the Matchup that Team is.
+export const SLOT_TEST_ID = { first: 'home', second: 'away' };
+
 // How far into the field (a 0..1 fraction of the playing surface between the
 // two end zones) each sprite sits at homeProb 0 and 1, transcribed from the
 // design canvas (docs/design/game-center-matchups/build.mjs, retroField()):
@@ -159,26 +165,4 @@ export function gameClock(game) {
 /** How many of the rows are in progress, for the Games tile's count. */
 export function liveCount(games) {
   return (games || []).filter((g) => gameState(g) === 'live').length;
-}
-
-/**
- * Viewer first (QA ruling #2334): a participant's own team reads on the left
- * and the opponent on the right, whichever side they are; a non-participant
- * sees home on the left. The widgets draw the "home" slot on the left, so an
- * away viewer's inputs are mirrored once here and every child stays side-blind.
- * Existing values are swapped, never recomputed.
- */
-export function viewerFirst(inputs) {
-  const { matchup, board, rows, activePlay } = inputs;
-  if (board?.viewerSide !== 'away') return inputs;
-  const swap = (o) => (o ? { ...o, home: o.away, away: o.home } : o);
-  return {
-    matchup: swap(matchup),
-    board: { ...swap(board), viewerSide: 'home',
-      winProbability: swap(board.winProbability),
-      projectedWinProbability: swap(board.projectedWinProbability),
-    },
-    rows: rows?.map(swap),
-    activePlay: activePlay ? { ...activePlay, side: activePlay.side === 'home' ? 'away' : 'home' } : activePlay,
-  };
 }

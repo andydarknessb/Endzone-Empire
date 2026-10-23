@@ -312,7 +312,7 @@ describe('pairStartersBySlot: starters paired by slot, in the league order', () 
     const rows = pairStartersBySlot(shortHome, fullAway, STANDARD);
     // 'D LINE' is a slot only the starters carry, so it is appended after the
     // league order rather than dropped.
-    expect(rows.map((r) => [r.slot, r.home?.name ?? null, r.away?.name ?? null])).toEqual([
+    expect(rows.map((r) => [r.slot, r.first?.name ?? null, r.second?.name ?? null])).toEqual([
       ['QB', null, 'Trevor Lawrence'],
       ['RB', null, 'Jonathan Taylor'],
       ['WR', "Ja'Marr Chase", 'DJ Moore'],
@@ -325,7 +325,7 @@ describe('pairStartersBySlot: starters paired by slot, in the league order', () 
   test('pairs the nth starter of a multi-count slot with the nth on the other side', () => {
     const home = [player({ id: 1, name: 'H RB1', slot: 'RB' }), player({ id: 2, name: 'H RB2', slot: 'RB' })];
     const away = [player({ id: 3, name: 'A RB1', slot: 'RB' })];
-    expect(pairStartersBySlot(home, away, ['RB']).map((r) => [r.slot, r.home?.name ?? null, r.away?.name ?? null])).toEqual([
+    expect(pairStartersBySlot(home, away, ['RB']).map((r) => [r.slot, r.first?.name ?? null, r.second?.name ?? null])).toEqual([
       ['RB', 'H RB1', 'A RB1'],
       ['RB', 'H RB2', null],
     ]);
@@ -354,7 +354,7 @@ describe('pairStartersBySlot: starters paired by slot, in the league order', () 
       player({ id: 6, name: 'Roquan Smith', slot: 'LB', position: 'LB' }),
     ];
     const rows = pairStartersBySlot(home, away, idpOrder);
-    expect(rows.map((r) => [r.slot, r.home?.name ?? null, r.away?.name ?? null])).toEqual([
+    expect(rows.map((r) => [r.slot, r.first?.name ?? null, r.second?.name ?? null])).toEqual([
       ['QB', 'Josh Allen', null],
       ['DL', 'Myles Garrett', 'Micah Parsons'],
       ['LB', 'Fred Warner', 'Roquan Smith'],

@@ -5,11 +5,11 @@ import BenchCard from './BenchCard';
 const bench = (n) => Array.from({ length: n }, (_, i) => ({ id: i + 1, name: `P${i}`, position: 'RB', points: 0 }));
 const renderCard = (home, away, names = {}) => render(
   <BenchCard
-    homeName="Team A"
-    awayName="Team B"
+    firstName="Team A"
+    secondName="Team B"
     {...names}
-    homeBench={bench(home)}
-    awayBench={bench(away)}
+    firstBench={bench(home)}
+    secondBench={bench(away)}
     open={false}
     onToggle={() => {}}
   />,
@@ -37,7 +37,7 @@ test('unequal counts show both, the visible text hidden from assistive tech and 
   expect(screen.getByText('Team A 4 players, Team B 5 players')).not.toHaveAttribute('aria-hidden');
 });
 
-test('the hidden line uses the singular for one player and falls back to Home and Away for a missing name', () => {
-  renderCard(1, 5, { homeName: null, awayName: undefined });
-  expect(screen.getByText('Home 1 player, Away 5 players')).toBeInTheDocument();
+test('the hidden line uses the singular for one player', () => {
+  renderCard(1, 5);
+  expect(screen.getByText('Team A 1 player, Team B 5 players')).toBeInTheDocument();
 });
