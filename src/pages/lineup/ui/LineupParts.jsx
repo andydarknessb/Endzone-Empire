@@ -87,7 +87,7 @@ export function LineupHead({
               },
             }}
           >
-            <PickWeek weeks={weeks} value={week} onChange={onWeek} fill={compact} look="playselect" allWeeks={false} />
+            <PickWeek weeks={weeks} value={week} onChange={onWeek} fill={compact} allWeeks={false} />
           </Box>
         )}
       </Box>

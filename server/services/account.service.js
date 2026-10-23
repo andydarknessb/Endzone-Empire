@@ -3,6 +3,7 @@ const pool = require('../modules/pool');
 const { withTransaction } = require('../modules/withTransaction');
 const encryptLib = require('../modules/encryption');
 const { logger } = require('../modules/logger');
+const { getDraftRoomBroadcast } = require('../modules/draftRoomBroadcast');
 
 class AccountError extends Error {
   constructor(statusCode, message) {
@@ -95,7 +96,7 @@ async function resetPassword({ token, newPassword }) {
   ) {
     throw new AccountError(400, 'password must be between 8 and 128 characters');
   }
-  return withTransaction(
+  const userId = await withTransaction(
     pool,
     async (client) => {
       const tokenResult = await client.query(
@@ -123,10 +124,13 @@ async function resetPassword({ token, newPassword }) {
          WHERE "user_id" = $1 AND "revoked" = false`,
         [row.user_id]
       );
-      return { ok: true };
+      return row.user_id;
     },
     { label: 'password-reset' }
   );
+  // Committed: end the account's open sockets (#2415).
+  await getDraftRoomBroadcast().sessionEnded(userId);
+  return { ok: true };
 }
 
 /** Send (or resend) the email-verification link for a logged-in user. */

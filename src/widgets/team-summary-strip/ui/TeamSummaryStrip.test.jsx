@@ -107,6 +107,19 @@ test('a bench/IR/spent entry never counts toward locked starters', async () => {
   expect(await screen.findByTestId('strip-starters-locked')).toHaveTextContent('1 of 1');
 });
 
+test('an away viewer reads their own figures as the viewer and the home side as the opponent', async () => {
+  mockGetByUrl({
+    [LIST_URL]: {
+      data: [row({ home_expected_final: '95.4', away_expected_final: '88.1', away_players_remaining: 5 })],
+    },
+  });
+  renderStrip({ viewerTeamId: 7, lineup: lineup([]) });
+
+  expect(await screen.findByTestId('strip-score')).toHaveTextContent('88.1');
+  expect(screen.getByTestId('strip-opponent-score')).toHaveTextContent('95.4');
+  expect(screen.getByTestId('strip-starters-remaining')).toHaveTextContent('5 to play');
+});
+
 test('win probability renders once the matchup has started', async () => {
   mockGetByUrl({
     [LIST_URL]: {

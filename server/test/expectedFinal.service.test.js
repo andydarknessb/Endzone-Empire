@@ -130,7 +130,7 @@ for (let w = 1; w <= 18; w++) {
  * `starters` may be an array or a (text, params) => rows function so one
  * fake can answer differently per queried week.
  */
-function weekPool(t, { starters = STARTERS, live = LIVE, schedule = SCHEDULE, projections = PROJECTIONS } = {}) {
+function weekPool(t, { starters = STARTERS, live = LIVE, schedule = SCHEDULE, projections = PROJECTIONS, notHeld = [] } = {}) {
   t.mock.method(projectionService, 'getWeeklyProjections', async () => {
     if (projections instanceof Error) throw projections;
     // A minimal stand-in for the real result object (#1703): just the one
@@ -174,13 +174,15 @@ function weekPool(t, { starters = STARTERS, live = LIVE, schedule = SCHEDULE, pr
     // the #883 WHERE clause change (`!= 'IR'` for every league): restoring the
     // old NOT IN ('BENCH', 'IR') predicate turns the bench cases red.
     [/FROM "lineup_entries"/, (text, params) => {
-      const rows = typeof starters === 'function' ? starters(text, params) : starters;
+      const rows = (typeof starters === 'function' ? starters(text, params) : starters).map((r) => ({ on_roster: true, ...r }));
       const excludesBench = /NOT IN \('BENCH'/.test(text);
       return { rows: excludesBench ? rows.filter((r) => r.slot !== 'BENCH') : rows };
     }],
     [/FROM "nfl_games" "ng"/, () => ({ rows: BYE_ROWS })],
     [/FROM "live_game_states"/, () => ({ rows: live })],
     [/FROM "nfl_games" WHERE/, () => ({ rows: schedule })],
+    // playersNotHeldAtKickoff's tenure read: the ids settle's filter excludes (#2391).
+    [/FROM unnest/, () => ({ rows: notHeld.map((player_id) => ({ player_id })) })],
   ]);
 }
 
@@ -359,6 +361,20 @@ test('bench rows are priced alongside the starters, with the availability rule, 
   // One projection read covers starters and bench together.
   const [call] = projectionService.getWeeklyProjections.mock.calls;
   assert.deepEqual([...call.arguments[0].playerIds].sort(), [1, 2, 3, 4, 5, 6, 7]);
+});
+
+// #2391: an off-roster standard starter (a row spared after kickoff, #627) is counted only when settle's
+// rowsHeldAsPlayed would keep him, so live never counts a row settle takes off.
+test('an off-roster standard starter counts only while settle would hold him (#2391)', async (t) => {
+  const spared = { team_id: 10, player_id: 11, position: 'WR', nfl_team: 'KC', injury_status: null, stats: { receivingYards: 100 }, on_roster: false };
+  const projections = new Map([...PROJECTIONS, [11, { points: 5 }]]);
+  const starterIds = async (notHeld) => {
+    const fake = weekPool(t, { starters: [...STARTERS, spared], projections, notHeld });
+    const byTeam = await expectedFinalsForWeek({ league: LEAGUE, season: SEASON, week: WEEK, teamIds: [10], db: fake, now: NOW });
+    return byTeam.get(10).starters.map((s) => s.playerId);
+  };
+  assert.deepEqual(await starterIds([]), [1, 2, 3, 11]);
+  assert.deepEqual(await starterIds([11]), [1, 2, 3]);
 });
 
 test('the projection run is asked once for the union of every starter under the league', async (t) => {
@@ -645,7 +661,7 @@ test('a failed read states no status, never a false scheduled (F1)', async (t) =
   // the status is unknown; it must not be asserted as scheduled beside a live
   // score (ADR 0030).
   const fake = createFakePool([
-    [/FROM "lineup_entries"/, () => ({ rows: STARTERS })],
+    [/FROM "lineup_entries"/, () => ({ rows: STARTERS.map((r) => ({ on_roster: true, ...r })) })],
     [/FROM "nfl_games" "ng"/, () => ({ rows: BYE_ROWS })],
     [/FROM "live_game_states"/, () => { throw new Error('live table unavailable'); }],
     [/FROM "nfl_games" WHERE/, () => ({ rows: SCHEDULE })],

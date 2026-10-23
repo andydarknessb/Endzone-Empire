@@ -307,3 +307,81 @@ for (const [name, size] of [['drawer at 1440', { width: 1440, height: 900 }], ['
     expect(width.scrollWidth).toBeLessThanOrEqual(width.clientWidth + 1);
   });
 }
+
+// #2489: the sheet's tabs. Header, actions and tabs stay in view and only the tab panel scrolls, so even after
+// the panel is scrolled to its end the close control is still on screen and the sheet still has no sideways scroll.
+test('the sheet at 390px: Game log shows its section, the panel scrolls alone and close stays in view', async ({ page }) => {
+  await setupDecisionCardLayoutGuard(page);
+  await page.setViewportSize({ width: WIDTH, height: HEIGHT });
+  await page.goto(WAIVERS_URL);
+  await page.getByRole('button', { name: new RegExp(`^${PLAYER_NAME}`) }).click();
+  const card = page.getByTestId('decision-card');
+  await expect(card).toHaveAttribute('data-variant', 'sheet');
+  await expect(page.getByTestId('weekly-points-bars')).toBeVisible();
+
+  await page.getByRole('tab', { name: 'Game log' }).click();
+  await expect(page.getByTestId('decision-card-gamelog-section')).toBeVisible();
+  await page.evaluate(() => document.fonts.ready.then(() => true));
+
+  const width = await page.evaluate(probeWidth, '[data-testid="decision-card"]');
+  expect(width.scrollWidth, `sheet scrollWidth=${width.scrollWidth} clientWidth=${width.clientWidth}`).toBeLessThanOrEqual(width.clientWidth + 1);
+
+  // Inactive panels are not rendered at all (an author `display: flex` must not beat `[hidden]`).
+  await expect(page.locator('#decision-card-tabpanel-stats')).toBeHidden();
+
+  // Overview is the long panel: it must really overflow, and the write must really scroll it - not the sheet.
+  await page.getByRole('tab', { name: 'Overview' }).click();
+  await expect(page.getByTestId('weekly-points-bars')).toBeAttached();
+  const scrolled = await page.evaluate(() => {
+    const scroller = document.querySelector('[role="tabpanel"]:not([hidden])')?.parentElement as HTMLElement | null | undefined;
+    if (!scroller) return null;
+    const overflow = scroller.scrollHeight - scroller.clientHeight;
+    scroller.scrollTop = scroller.scrollHeight;
+    const sheet = document.querySelector('[data-testid="decision-card"]') as HTMLElement;
+    return {
+      overflowY: getComputedStyle(scroller).overflowY, overflow, scrollTop: scroller.scrollTop, sheetScrollTop: sheet.scrollTop,
+    };
+  });
+  expect(scrolled, 'the active tab panel sits in a scroller').not.toBeNull();
+  expect(scrolled?.overflowY).toBe('auto');
+  expect(scrolled?.overflow, 'the Overview panel overflows its scroller').toBeGreaterThan(0);
+  expect(scrolled?.scrollTop, 'the panel scrolled').toBeGreaterThan(0);
+  // Only the panel scrolls: the sheet itself stays put, so header, actions and tabs stay in view.
+  expect(scrolled?.sheetScrollTop).toBe(0);
+  await expect(page.getByTestId('decision-card-close')).toBeInViewport();
+  await expect(page.getByRole('tab', { name: 'Overview' })).toBeInViewport();
+
+  // A new tab opens at its top, not mid-panel.
+  await page.getByRole('tab', { name: 'Game log' }).click();
+  const topAfterSwitch = await page.evaluate(
+    () => (document.querySelector('[role="tabpanel"]:not([hidden])')?.parentElement as HTMLElement).scrollTop
+  );
+  expect(topAfterSwitch).toBe(0);
+});
+
+// #2491: the Game log table scrolls sideways inside its own region and keeps Wk fixed; the sheet never scrolls sideways.
+test('the sheet at 390px: the game log region scrolls sideways with Wk fixed and the sheet stays put', async ({ page }) => {
+  await setupDecisionCardLayoutGuard(page);
+  await page.setViewportSize({ width: WIDTH, height: HEIGHT });
+  await page.goto(WAIVERS_URL);
+  await page.getByRole('button', { name: new RegExp(`^${PLAYER_NAME}`) }).click();
+  await expect(page.getByTestId('decision-card')).toHaveAttribute('data-variant', 'sheet');
+  await page.getByRole('tab', { name: 'Game log' }).click();
+  const table = page.getByTestId('decision-card-game-log');
+  await expect(table).toBeVisible();
+  await page.evaluate(() => document.fonts.ready.then(() => true));
+
+  const sheet = await page.evaluate(probeWidth, '[data-testid="decision-card"]');
+  expect(sheet.scrollWidth, `sheet scrollWidth=${sheet.scrollWidth} clientWidth=${sheet.clientWidth}`).toBeLessThanOrEqual(sheet.clientWidth + 1);
+
+  const region = page.getByRole('region', { name: 'Game log table' });
+  const probe = () => region.evaluate((el) => ({ scrollWidth: el.scrollWidth, clientWidth: el.clientWidth }));
+  const size = await probe();
+  expect(size.scrollWidth, `region scrollWidth=${size.scrollWidth} clientWidth=${size.clientWidth}`).toBeGreaterThan(size.clientWidth);
+
+  const wk1 = table.getByRole('rowheader').first();
+  await region.evaluate((el) => { el.scrollLeft = el.scrollWidth; });
+  await expect.poll(() => region.evaluate((el) => el.scrollLeft)).toBeGreaterThan(0);
+  const [wkBox, regionBox] = await Promise.all([wk1.boundingBox(), region.boundingBox()]);
+  expect(Math.abs((wkBox?.x ?? -1) - (regionBox?.x ?? -2)), 'Wk 1 stays at the region\'s left edge').toBeLessThanOrEqual(1);
+});

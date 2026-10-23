@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const pool = require('../modules/pool');
 const pickem = require('../services/pickem.service');
 const privacy = require('../services/privacy.service');
+const { installRecordingBroadcast } = require('./helpers/recordingBroadcast');
 
 const KICKOFF = '2026-09-13T17:00:00.000Z';
 
@@ -967,11 +968,13 @@ test("a data export includes the user's Pick'em picks", async (t) => {
 });
 
 test('account deletion wipes pickem_picks', async (t) => {
+  installRecordingBroadcast(t); // deleteUserAccount ends the account sockets after commit (#2415)
   const calls = mockClient(t, [
     ...TXN,
     [/FROM "users"/, () => ({ rows: [{ id: 9, username: 'me' }] })],
     [/FROM "leagues"/, () => ({ rows: [] })],
     [/SELECT "avatar_url"/, () => ({ rows: [] })],
+    [/^SELECT "id", "league_id" FROM "teams"/, () => ({ rows: [] })],
     [/^UPDATE /, () => ({ rows: [] })],
     [/^DELETE FROM /, () => ({ rows: [] })],
     [/^INSERT INTO "data_privacy_requests"/, () => ({ rows: [] })],

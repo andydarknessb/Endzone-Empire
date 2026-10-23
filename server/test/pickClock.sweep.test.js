@@ -71,7 +71,11 @@ function installSweepPool(
     if (text.includes('FROM "team_players"')) return { rows: rosterPositions.map((p) => ({ position: p })) };
     if (text.includes('FROM "teams"')) return { rows: teams };
     if (text.includes('EXTRACT(MONTH FROM CURRENT_DATE)')) return { rows: [{ season: 2026 }] };
-    if (text.includes('FROM "players"')) return { rows: candidates };
+    if (text.includes('FROM "players"')) {
+      // As the real database would: a column the SELECT never names is absent.
+      const selectsTeam = text.includes('"players"."nfl_team"');
+      return { rows: candidates.map(({ nfl_team, ...row }) => (selectsTeam ? { ...row, nfl_team } : row)) };
+    }
     throw new Error(`Unexpected SQL: ${text}`);
   });
   return broadcast;
@@ -797,4 +801,36 @@ test('escalateNothingDraftable: the future-deadline re-read bail resolves null a
   assert.equal(fake.matching(/INSERT INTO/).length, 0, 'no activity insert on the bail');
   assert.equal(fake.releaseArgs()[0], undefined, 'the healthy connection is returned to the pool bare');
   fake.assertClean();
+});
+
+test('sweep: a null-team player is autopicked only after every team-held player', async (t) => {
+  const released = { id: 1, name: 'Released Vet', adp: '1.0', nfl_team: null, queue_rank: null, last_season_points: null };
+  const held = { id: 2, name: 'Held Back', adp: '50.0', nfl_team: 'KC', queue_rank: null, last_season_points: null };
+  installSweepPool(t, { candidates: [released, held] });
+  const attempts = recordAttempts(t);
+
+  await pickClock.processExpiredPickClocks();
+
+  assert.deepEqual(attempts, [2], 'the team-held player beats a better-ADP null-team player');
+});
+
+test('sweep: a null-team player is autopicked when he is all that remains (ADR 0026)', async (t) => {
+  const released = { id: 1, name: 'Released Vet', adp: '1.0', nfl_team: null, queue_rank: null, last_season_points: null };
+  installSweepPool(t, { candidates: [released] });
+  const attempts = recordAttempts(t);
+
+  await pickClock.processExpiredPickClocks();
+
+  assert.deepEqual(attempts, [1]);
+});
+
+test('sweep: a queued null-team player is autopicked ahead of an unqueued team-held one', async (t) => {
+  const queued = { id: 1, name: 'Queued Vet', adp: null, nfl_team: null, queue_rank: 1, last_season_points: null };
+  const held = { id: 2, name: 'Held Back', adp: '5.0', nfl_team: 'KC', queue_rank: null, last_season_points: null };
+  installSweepPool(t, { candidates: [held, queued] });
+  const attempts = recordAttempts(t);
+
+  await pickClock.processExpiredPickClocks();
+
+  assert.deepEqual(attempts, [1]);
 });

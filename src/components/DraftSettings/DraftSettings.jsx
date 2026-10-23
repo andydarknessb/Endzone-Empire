@@ -1,7 +1,10 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Navigate, useParams } from 'react-router-dom';
 import { useSelector } from 'react-redux';
-import { Alert, Box, Button, Container, Paper, Skeleton, Tab, Tabs, Typography } from '@mui/material';
+import { Box, Tab, Tabs } from '@mui/material';
+import { PixelArrow, PixelHeading, psRootSx } from '../../shared/ui/playselect';
+import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
+import { Dim, ErrorPanel, Frame, Note, PsButton, Skel, TARGET_SX } from './kit';
 import apiClient from '../../api/apiClient';
 import { useLeague } from '../../hooks/useLeague';
 import { useSnackbar } from '../Snackbar/SnackbarProvider';
@@ -27,6 +30,20 @@ const panelId = (value) => `draft-settings-tabpanel-${value}`;
 
 const failure = (notify, error) =>
   notify(readHttpFailure(error).message || error?.message || 'Request failed', { severity: 'error' });
+
+function PageRoot({ children }) {
+  return <Box className="ps-root" sx={{ ...psRootSx, minHeight: '100%', width: '100%', minWidth: 0, boxSizing: 'border-box', padding: { xs: '16px', sm: '24px' }, maxWidth: '1200px', mx: 'auto' }}>{children}</Box>;
+}
+
+// The alert carries no button: Retry is a ghost beside it, outside the alert's role element.
+function LoadError({ title, retry, onRetry }) {
+  return (
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: '12px', alignItems: 'flex-start' }}>
+      <Box sx={{ alignSelf: 'stretch' }}><ErrorPanel title={title} body="Check your connection and try again." /></Box>
+      <PsButton onClick={onRetry}>{retry}</PsButton>
+    </Box>
+  );
+}
 
 export default function DraftSettings() {
   const { leagueId } = useParams();
@@ -189,8 +206,8 @@ export default function DraftSettings() {
     } finally { setSaving(false); }
   };
 
-  if (loading && !league) return <Container maxWidth="lg" sx={{ py: 4 }}><Skeleton height={50} /><Skeleton variant="rounded" height={420} /></Container>;
-  if (error && !league) return <Container maxWidth="lg" sx={{ py: 4 }}><Alert severity="error" action={<Button color="inherit" size="small" onClick={refetch}>Retry league settings</Button>}>Unable to load league settings: {error}</Alert></Container>;
+  if (loading && !league) return <PageRoot><Skel width="100%" height={50} /><Box sx={{ mt: 2 }}><Skel width="100%" height={420} /></Box></PageRoot>;
+  if (error && !league) return <PageRoot><LoadError title="We could not load league settings." retry="Retry league settings" onRetry={refetch} /></PageRoot>;
   if (!league) return null;
   // The same route guard as before, asked through the viewer-relative contract
   // (#113): the league names its creator's Team and the response root names
@@ -206,9 +223,27 @@ export default function DraftSettings() {
   else if (tab === 'schedule') content = <SchedulePanel {...common} teamCount={teams.length} onStart={startNow} />;
   else if (tab === 'timer') content = <TimerPanel {...common} onSetClock={setClock} />;
   else if (tab === 'order') content = <DraftOrderPanel {...common} teams={teams} onSetOrder={setOrder} onRandomize={randomize} />;
-  else if (tab === 'auction') content = league.draft_type === 'auction' ? <AuctionPanel {...common} teams={teams} /> : <Alert severity="info">Select Salary-cap auction under Draft type to edit auction settings.</Alert>;
+  else if (tab === 'auction') content = league.draft_type === 'auction' ? <AuctionPanel {...common} teams={teams} /> : <Note>Select Salary-cap auction under Draft type to edit auction settings.</Note>;
   else if (tab === 'limits') content = <PositionLimitsPanel {...common} />;
-  else if (tab === 'keepers') content = !keeperDataRequested || keeperDataLoading ? <Skeleton variant="rounded" height={260} /> : keeperDataError ? <Alert severity="error" action={<Button color="inherit" size="small" onClick={loadKeeperData}>Retry keeper data</Button>}>Unable to load keeper data: {keeperDataError}</Alert> : <KeeperPanel league={league} teams={teams} keepers={keepers} keeperCandidates={keeperCandidates} frozen={frozen} saving={saving} onSaveLeague={saveKeeperSettings} onSaveKeepers={saveKeepers} onSettingsDirtyChange={setKeeperSettingsDirty} onAssignmentsDirtyChange={setKeeperAssignmentsDirty} />;
+  else if (tab === 'keepers') content = !keeperDataRequested || keeperDataLoading ? <Skel width="100%" height={260} /> : keeperDataError ? <LoadError title="We could not load keeper data." retry="Retry keeper data" onRetry={loadKeeperData} /> :<KeeperPanel league={league} teams={teams} keepers={keepers} keeperCandidates={keeperCandidates} frozen={frozen} saving={saving} onSaveLeague={saveKeeperSettings} onSaveKeepers={saveKeepers} onSettingsDirtyChange={setKeeperSettingsDirty} onAssignmentsDirtyChange={setKeeperAssignmentsDirty} />;
   else content = <ReadinessPanel teams={teams} draftType={league.draft_type} />;
-  return <Container maxWidth="lg" sx={{ py: 4 }}><Typography variant="h4" sx={{ mb: 0.5 }}>Draft Settings</Typography><Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>{league.name}</Typography>{error && <Alert severity="error" sx={{ mb: 2 }} action={<Button color="inherit" size="small" onClick={refetch}>Retry league settings</Button>}>Unable to refresh league settings: {error}</Alert>}{frozen && <Alert severity="info" sx={{ mb: 2 }}>Draft setup is locked after the draft starts. The Timer tab remains available while a draft is active.</Alert>}<Paper sx={{ p: { xs: 1.5, sm: 2.5 } }}><Tabs aria-label="Draft settings sections" value={tab} onChange={(event, value) => changeTab(value)} variant="scrollable" scrollButtons="auto" allowScrollButtonsMobile sx={{ borderBottom: '1px solid', borderColor: 'divider', mb: 3 }}>{TAB_ITEMS.map(([value, label]) => <Tab key={value} value={value} label={label} id={tabId(value)} aria-controls={panelId(value)} />)}</Tabs><Box role="tabpanel" id={panelId(tab)} aria-labelledby={tabId(tab)}>{content}</Box></Paper></Container>;
+  const refreshError = error && (
+    <Box sx={{ mb: 2 }}><LoadError title="We could not refresh league settings." retry="Retry league settings" onRetry={refetch} /></Box>
+  );
+  return (
+    <PageRoot>
+      <LeagueBreadcrumb />
+      <PixelHeading id="draft-settings-h1" level={1}>Draft Settings</PixelHeading>
+      <Dim sx={{ mb: 3 }}>{league.name}</Dim>
+      {refreshError}
+      {frozen && <Box sx={{ mb: 2 }}><Note>Draft setup is locked after the draft starts. The Timer tab remains available while a draft is active.</Note></Box>}
+      <Frame component="div" tier="rule" sx={{ minWidth: 0, padding: { xs: '12px', sm: '20px' } }}>
+        <Tabs aria-label="Draft settings sections" value={tab} onChange={(event, value) => changeTab(value)} variant="scrollable" scrollButtons="auto" allowScrollButtonsMobile TabIndicatorProps={{ sx: { display: 'none' } }} sx={{ mb: 2, minHeight: '44px', '& .MuiTab-root': { ...TARGET_SX, borderRadius: 0, border: '2px solid var(--ps-dim)', marginRight: '-2px', color: 'var(--ps-ink)', fontFamily: 'inherit', fontWeight: 600, textTransform: 'none' }, '& .MuiTab-root.Mui-selected': { backgroundColor: 'var(--ps-play)', color: 'var(--ps-play-ink)', borderColor: 'var(--ps-play)', position: 'relative', zIndex: 1 } }}>
+          {TAB_ITEMS.map(([value, label]) => <Tab key={value} value={value} label={<Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>{value === tab ? <PixelArrow /> : null}{label}</Box>} id={tabId(value)} aria-controls={panelId(value)} />)}
+        </Tabs>
+        {activeTabDirty && <Box role="status" data-testid="draft-settings-unsaved" sx={{ mb: 2, fontSize: '14px', fontWeight: 600, color: 'var(--ps-ink)' }}>Unsaved changes</Box>}
+        <Box role="tabpanel" id={panelId(tab)} aria-labelledby={tabId(tab)}>{content}</Box>
+      </Frame>
+    </PageRoot>
+  );
 }

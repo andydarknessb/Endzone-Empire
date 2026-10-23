@@ -1,7 +1,8 @@
 import React, { useRef } from 'react';
-import {
-  Box, Chip, Stack, Table, TableBody, TableCell, TableHead, TableRow, Typography,
-} from '@mui/material';
+import { Box } from '@mui/material';
+import { Tag } from '../../shared/ui/playselect/Marks';
+import { PsButton } from '../../shared/ui/playselect/Controls';
+import { Dim, RulesTable, SectionTitle, TagRow } from './rulesParts';
 import {
   RULE_CATEGORIES,
   CATEGORY_LABELS,
@@ -22,12 +23,9 @@ function PointsCell({ value }) {
   // Zeros are meaningful here ("receptions score nothing in this league"), so
   // they're de-emphasised rather than dimmed out of contrast range.
   return (
-    <TableCell
-      align="right"
-      sx={{ color: points ? 'text.primary' : 'text.secondary', whiteSpace: 'nowrap' }}
-    >
+    <td className="num" style={{ color: points ? 'var(--ps-ink)' : 'var(--ps-dim)' }}>
       {formatPoints(value)}
-    </TableCell>
+    </td>
   );
 }
 
@@ -35,30 +33,30 @@ function TierTable({ statKey, tiers }) {
   const hasPerYard = tiers.some((t) => t.pointsPerYardOverMin !== undefined);
   const label = TIER_LABELS[statKey] || statKey;
   return (
-    <Box sx={{ mt: 2 }}>
-      <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>{label}</Typography>
-      <Table size="small" aria-label={label}>
-        <TableHead>
-          <TableRow>
-            <TableCell>Range</TableCell>
-            <TableCell align="right">Points</TableCell>
-            {hasPerYard && <TableCell align="right">Per yard over min</TableCell>}
-          </TableRow>
-        </TableHead>
-        <TableBody>
+    <Box sx={{ mt: '16px' }}>
+      <Box sx={{ fontSize: '15px', fontWeight: 600, mb: '4px' }}>{label}</Box>
+      <RulesTable label={label}>
+        <thead>
+          <tr>
+            <th>Range</th>
+            <th className="num">Points</th>
+            {hasPerYard && <th className="num">Per yard over min</th>}
+          </tr>
+        </thead>
+        <tbody>
           {tiers.map((tier, i) => (
-            <TableRow key={`${statKey}-${i}`}>
-              <TableCell>{tierRangeLabel(tier)}</TableCell>
+            <tr key={`${statKey}-${i}`}>
+              <td>{tierRangeLabel(tier)}</td>
               <PointsCell value={tier.points} />
               {hasPerYard && (
-                <TableCell align="right">
+                <td className="num">
                   {tier.pointsPerYardOverMin === undefined ? '-' : formatPoints(tier.pointsPerYardOverMin)}
-                </TableCell>
+                </td>
               )}
-            </TableRow>
+            </tr>
           ))}
-        </TableBody>
-      </Table>
+        </tbody>
+      </RulesTable>
     </Box>
   );
 }
@@ -70,37 +68,35 @@ const CategorySection = React.forwardRef(function CategorySection({ category, va
   const label = CATEGORY_LABELS[category] || category;
 
   return (
-    <Box component="section" ref={ref} aria-labelledby={sectionId(category)} sx={{ mb: 4, scrollMarginTop: 16 }}>
-      <Typography id={sectionId(category)} variant="subtitle1" component="h5" sx={{ fontWeight: 600, mb: 1 }}>
-        {label}
-      </Typography>
+    <Box component="section" ref={ref} aria-labelledby={sectionId(category)} sx={{ mb: '32px', scrollMarginTop: 16 }}>
+      <SectionTitle id={sectionId(category)}>{label}</SectionTitle>
       {scalars.length > 0 && (
-        <Table size="small" aria-label={`${label} scoring`}>
-          <TableHead>
-            <TableRow>
-              <TableCell>Stat</TableCell>
-              <TableCell align="right">Points</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
+        <RulesTable label={`${label} scoring`}>
+          <thead>
+            <tr>
+              <th>Stat</th>
+              <th className="num">Points</th>
+            </tr>
+          </thead>
+          <tbody>
             {scalars.map(([key, value]) => {
               const helper = perYardHelper(key, value);
               return (
-                <TableRow key={key}>
-                  <TableCell>
+                <tr key={key}>
+                  <td>
                     {LEAF_LABELS[key] || key}
                     {helper && (
-                      <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+                      <Box component="span" sx={{ ml: '8px', fontSize: '14px', color: 'var(--ps-dim)' }}>
                         {helper}
-                      </Typography>
+                      </Box>
                     )}
-                  </TableCell>
+                  </td>
                   <PointsCell value={value} />
-                </TableRow>
+                </tr>
               );
             })}
-          </TableBody>
-        </Table>
+          </tbody>
+        </RulesTable>
       )}
       {tiers.map(([key, value]) => <TierTable key={key} statKey={key} tiers={value} />)}
     </Box>
@@ -131,34 +127,21 @@ export default function ScoringRulesView({ league, defaults }) {
 
   return (
     <Box>
-      <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap sx={{ mb: 2 }}>
-        <Typography variant="body2" color="text.secondary">Scoring format:</Typography>
-        <Chip size="small" label={formatLabel} />
-        {customized && <Chip size="small" label="Customized" color="warning" variant="outlined" />}
-        {league.dp_enabled && <Chip size="small" label="IDP enabled" color="primary" variant="outlined" />}
-      </Stack>
+      <TagRow sx={{ mb: '16px' }}>
+        <Dim component="span">Scoring format:</Dim>
+        <Tag>{formatLabel}</Tag>
+        {customized && <Tag>Customized</Tag>}
+        {league.dp_enabled && <Tag>IDP enabled</Tag>}
+      </TagRow>
 
       {categories.length > 1 && (
-        <Stack
-          direction="row"
-          spacing={1}
-          flexWrap="wrap"
-          useFlexGap
-          component="nav"
-          aria-label="Jump to a scoring category"
-          sx={{ mb: 3 }}
-        >
+        <TagRow component="nav" aria-label="Jump to a scoring category" sx={{ mb: '24px' }}>
           {categories.map((category) => (
-            <Chip
-              key={category}
-              size="small"
-              variant="outlined"
-              clickable
-              label={CATEGORY_LABELS[category] || category}
-              onClick={() => jumpTo(category)}
-            />
+            <PsButton key={category} variant="ghost" onClick={() => jumpTo(category)}>
+              {CATEGORY_LABELS[category] || category}
+            </PsButton>
           ))}
-        </Stack>
+        </TagRow>
       )}
 
       {categories.map((category) => (
@@ -171,9 +154,9 @@ export default function ScoringRulesView({ league, defaults }) {
       ))}
 
       {!league.dp_enabled && 'idp' in rules && (
-        <Typography variant="body2" color="text.secondary">
+        <Dim>
           Individual defensive players (IDP) aren&apos;t enabled in this league, so those stats don&apos;t score.
-        </Typography>
+        </Dim>
       )}
     </Box>
   );

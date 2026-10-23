@@ -4,8 +4,8 @@ import { VIEW_SCOREBOARD, VIEW_STANDARD } from '../model/useMatchupView';
 
 /**
  * toggle-matchup-view feature (ADR 0031, #903): the Standard / Scoreboard
- * view toggle from the Matchup Detail canvas, a SegmentedControl in its
- * `playselect` look (ADR 0067 wave 2): square 44px segments, the checked one
+ * view toggle from the Matchup Detail canvas, a SegmentedControl
+ * (ADR 0067 wave 2): square 44px segments, the checked one
  * in Play blue with an arrow, so the state is not colour alone. The page
  * keeps owning the view (through `useMatchupView`, which remembers it per
  * viewer); this control only reports a pick through `onChange`.
@@ -14,8 +14,7 @@ import { VIEW_SCOREBOARD, VIEW_STANDARD } from '../model/useMatchupView';
  *   - `value`: 'standard' or 'scoreboard'.
  *   - `onChange`: called with the picked view.
  *   - `fill`: the mobile layout, where the control stretches to its row and
- *     the two segments share its width (every segment is 44px tall in the
- *     playselect look).
+ *     the two segments share its width (every segment is 44px tall).
  *
  * The control is the kit's radio group ("Matchup view"), so the selected view
  * is a checked radio and an arrow key walks from the focused option, carrying
@@ -36,7 +35,6 @@ const ToggleMatchupView = React.forwardRef(function ToggleMatchupView({ value, o
       ref={ref}
       aria-label="Matchup view"
       data-testid="toggle-matchup-view"
-      look="playselect"
       options={OPTIONS}
       value={value}
       onChange={onChange}

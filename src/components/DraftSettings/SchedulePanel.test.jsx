@@ -3,6 +3,14 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event';
 import SchedulePanel from './SchedulePanel';
 
+// Wraps the real field so a case can read the props SchedulePanel hands it (a plain function: CRA resets jest.fn implementations).
+const mockFieldProps = [];
+jest.mock('../common/DraftScheduleField', () => {
+  const actual = jest.requireActual('../common/DraftScheduleField');
+  const { createElement } = jest.requireActual('react');
+  return { __esModule: true, default: (props) => { mockFieldProps.push(props); return createElement(actual.default, props); } };
+});
+
 function localInputValue(date) {
   const offset = date.getTimezoneOffset() * 60000;
   return new Date(date.getTime() - offset).toISOString().slice(0, 16);
@@ -30,6 +38,12 @@ async function scheduleAndAcknowledge(user, zoneName) {
   await user.click(await screen.findByRole('option', { name: zoneName }));
   await user.click(screen.getByRole('checkbox'));
 }
+
+test('hands DraftScheduleField the Play-select look', () => {
+  renderPanel();
+  expect(mockFieldProps[0].look).toBe('playselect');
+  expect(screen.getByLabelText('Draft date')).toBeInTheDocument();
+});
 
 test('shows an inline error and blocks saving a past draft date', () => {
   const { onSave } = renderPanel();

@@ -24,9 +24,6 @@ jest.mock('../../api/apiClient', () => ({
   default: { get: jest.fn(), post: jest.fn(), put: jest.fn() },
 }));
 
-// The leagues section is LeagueStatusGrid's (tested in its own file); the stub
-// renders the grid props this file asserts on (the list, the error, the retry).
-jest.mock('./LeagueStatusGrid', () => ({ __esModule: true, default: require('./homeTestStubs').LeagueStatusGridStub }));
 
 const baseState = {
   user: { id: 1, username: 'alice' },
@@ -616,13 +613,35 @@ test('a failed refresh after a create keeps the last good list on screen, throug
   await userEvent.click(screen.getByRole('button', { name: 'Done' }));
   await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
 
-  expect(await screen.findByText('server exploded')).toBeInTheDocument();
+  expect(await screen.findByText("Couldn't load your leagues")).toBeInTheDocument();
   expect(screen.getByText('Sunday Ballers')).toBeInTheDocument();
 
-  await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Try loading your leagues again' }));
   expect(screen.getByText('Sunday Ballers')).toBeInTheDocument();
   expect(screen.queryAllByTestId('league-skeleton')).toHaveLength(0);
 
   retry.resolve({ data: [league(), league({ id: 2, name: 'Monday Mayhem' })] });
   expect(await screen.findByText('Monday Mayhem')).toBeInTheDocument();
+});
+
+test('every Create league step renders exactly one filled action, its forward action', async () => {
+  await mountEmpty();
+  const dialog = await openCreate();
+  const forward = () => {
+    const fills = within(dialog).getAllByRole('button').filter((b) => b.getAttribute('data-variant') === 'fill');
+    expect(fills).toHaveLength(1);
+    return fills[0].textContent;
+  };
+
+  expect(forward()).toBe('Continue');
+  await next();
+  expect(forward()).toBe('Continue');
+  await fillBasics('Monday Mayhem', 'Squad');
+  await next();
+  expect(forward()).toBe('Continue');
+  await next();
+  expect(forward()).toBe('Continue');
+  await next();
+  expect(heading('Look good?')).toBeInTheDocument();
+  expect(forward()).toBe('Create league');
 });

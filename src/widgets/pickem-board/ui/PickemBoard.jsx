@@ -27,7 +27,7 @@ const CONFIDENCE_TERM = [
 /**
  * The Pick'em board widget (ADR 0038, Play-select in ADR 0067 wave 2): the Picks section. Its h2
  * row is "Picks" and the one status of where the manager stands; under it the week picker
- * (`pick-week`, the playselect look, no "All weeks": this board's week setter cannot take it), then
+ * (`pick-week`, no "All weeks": this board's week setter cannot take it), then
  * the slate as kickoff-window frames of GameCards, then "What the numbers mean".
  *
  * Picks save the moment they are made, so there is no save bar, no draft and nothing sticky at the
@@ -116,7 +116,7 @@ export default function PickemBoard({ leagueId, onSaved }) {
         </>
       )}
 
-      <PickWeek weeks={weeks} value={week ?? undefined} onChange={setWeek} fill={compact} look="playselect" allWeeks={false} />
+      <PickWeek weeks={weeks} value={week ?? undefined} onChange={setWeek} fill={compact} allWeeks={false} />
 
       {error && (
         <ErrorBox data-testid="pickem-board-error" message="We could not load this week's picks right now." onRetry={reload} />

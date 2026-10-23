@@ -192,6 +192,7 @@ test('shows medal indicators for podium ranks in Final Standings', async () => {
     expect(rule).toMatch(/width:\s*16px/);
     expect(rule).toMatch(/height:\s*16px/);
   });
+  expect(Array.from(medals).map((el) => rulesUnder(el)[''].match(/var\(--ps-medal-(\w+)\)/)?.[1])).toEqual(['gold', 'silver', 'bronze']);
   expect(panel.textContent).not.toMatch(/\p{Extended_Pictographic}/u);
   const table = within(panel).getByRole('table', { name: 'Final Standings' });
   expect(within(table).getByText('4')).toBeInTheDocument();

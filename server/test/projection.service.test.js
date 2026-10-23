@@ -3819,3 +3819,20 @@ test('toWeeklyProjectionResult: startVerdictFor takes a stored Unavailable verdi
   assert.deepEqual(result.startVerdictFor(3), { outcome: 'not_recommended', reason: 'backup', numberTrusted: false });
   assert.deepEqual(result.startVerdictFor(999), { outcome: 'recommendable', reason: null, numberTrusted: true }, 'no entry: basic facts only');
 });
+
+test('getStoredProjectionsForWeeks (#2490): holds only the stored player, issues no INSERT or UPDATE', async () => {
+  const { createFakePool } = require('./helpers/fakePool');
+  const fake = createFakePool([
+    [/FROM "projection_runs"/, () => ({ rows: [{ id: 9, week: 3 }] })],
+    [/FROM "player_week_projections"/, () => ({
+      rows: [{ run_id: 9, player_id: 1, mean: '7.5', median: '7', factors: { opponent: { rank: 2, of: 32 } } }],
+    })],
+  ]);
+  const out = await projection.getStoredProjectionsForWeeks({
+    season: 2026, weeks: [3, 4], league: projection.PUBLIC, playerIds: [1, 2], client: fake,
+  });
+  assert.deepEqual([...out.keys()], [3]);
+  assert.deepEqual([...out.get(3).keys()], [1]);
+  assert.equal(out.get(3).get(1).mean, 7.5);
+  assert.equal(fake.calls.some((c) => /^\s*(INSERT|UPDATE)/i.test(c.text)), false);
+});

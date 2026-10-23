@@ -5,7 +5,7 @@ import {
   useLocation, useNavigate, useParams, useSearchParams,
 } from 'react-router-dom';
 import {
-  Container, Typography, Alert, Box, Skeleton, useMediaQuery, Tabs, Tab,
+  Container, Alert, Box, Skeleton, useMediaQuery, Tabs, Tab,
   ToggleButton, ToggleButtonGroup, IconButton, Tooltip,
 } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
@@ -53,6 +53,9 @@ import { assignRosterSlots } from '../../lib/rosterAssignment';
 import { pickLabelFor } from '../../lib/draftTurns';
 import { draftRounds } from '../../lib/rosterShape';
 import { MIN_TOUCH_TARGET_SX } from '../../shared/lib/a11y';
+import {
+  Frame, LiveChip, PixelHeading, psRootSx,
+} from '../../shared/ui/playselect';
 import { teamNameLabel } from '../../shared/lib/teamIdentity';
 import { readDraftSoundOn, writeDraftSoundOn } from './draftSoundPreference';
 
@@ -62,6 +65,26 @@ import { readDraftSoundOn, writeDraftSoundOn } from './draftSoundPreference';
 // so the skip link's destination exists throughout the page's lifecycle.
 const DRAFT_MAIN_ID = 'draft-main-content';
 const DRAFT_H1_ID = 'draft-league-name';
+
+// The kit's segmented look on the two view switches, keeping their MUI roles
+// (a labelled group of toggles; a tablist with aria-selected): square 44px
+// segments, Ink edges, the selected one in Play blue.
+const PS_SEGMENT_SX = {
+  minHeight: '44px',
+  borderRadius: 0,
+  border: '2px solid var(--ps-ink)',
+  color: 'var(--ps-ink)',
+  backgroundColor: 'transparent',
+  fontWeight: 600,
+  textTransform: 'none',
+  '&.Mui-selected, &.Mui-selected:hover': {
+    backgroundColor: 'var(--ps-play)',
+    color: 'var(--ps-play-ink)',
+  },
+  // A cue beyond colour for the selected segment. An underline, not a glyph: generated
+  // content would join the button's accessible name ("▸ Board").
+  '&.Mui-selected': { textDecoration: 'underline', textUnderlineOffset: '5px' },
+};
 
 // A stable empty-array identity for `league.roster_slots` absent/malformed
 // (#1420): the room passes this straight to usePlayerPool, whose own
@@ -675,6 +698,8 @@ function DraftBoard() {
     canManualPick,
     pickUnavailable: canManualPick && pickTemporarilyUnavailable({ isMyTurn, draftPaused: !!league?.draft_paused }),
     explanation: PICK_UNAVAILABLE_EXPLANATION,
+    // Only the viewer's own turn carries the pool's cursor (spec #2432), so a commissioner picking for another team never gets one.
+    onTheClock: isMyTurn,
   };
 
   // Shared by every PlayerPoolTable render below - built once instead of
@@ -818,9 +843,10 @@ function DraftBoard() {
         chooseView(next);
       }}
       aria-label="Players or Board"
+      sx={{ '& .MuiToggleButtonGroup-grouped': { borderRadius: 0 } }}
     >
-      <ToggleButton value="players" sx={MIN_TOUCH_TARGET_SX}>Players</ToggleButton>
-      <ToggleButton value="board" sx={MIN_TOUCH_TARGET_SX}>Board</ToggleButton>
+      <ToggleButton value="players" sx={PS_SEGMENT_SX}>Players</ToggleButton>
+      <ToggleButton value="board" sx={PS_SEGMENT_SX}>Board</ToggleButton>
     </ToggleButtonGroup>
   );
 
@@ -853,21 +879,24 @@ function DraftBoard() {
         display: 'grid',
         gridTemplateColumns: 'minmax(0, 59fr) minmax(0, 25fr) minmax(0, 16fr)',
         gridTemplateRows: 'minmax(0, 1fr)',
-        gap: 2,
+        // 12px, not 16: each pane's rule Frame spends 2px a side, and the pool's fit
+        // check (draft-board.spec.ts, #119) has no slack to give back.
+        gap: 1.5,
         flex: '1 1 auto',
         height: '100%',
         minHeight: 0,
       }}
     >
       <Box sx={{ display: 'flex', flexDirection: 'column', minWidth: 0, minHeight: 0, height: '100%' }}>
-        <Box sx={{ flex: '1 1 auto', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+        <Frame tier="rule" component="div" sx={{ flex: '1 1 auto', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
           {leftPane === 'board' ? (
             <Box sx={{ flex: '1 1 auto', minHeight: 0, overflowY: 'auto' }}>{boardWithHistory(leftPaneToggle)}</Box>
           ) : (
             <PlayerPoolTable {...playerPoolProps} headerAction={leftPaneToggle} />
           )}
-        </Box>
+        </Frame>
       </Box>
+      <Frame tier="rule" component="div" sx={{ minWidth: 0, minHeight: 0, height: '100%' }}>
       <Box
         component="section"
         // "Chat", not "League chat", on purpose: this pane wraps the League
@@ -879,6 +908,8 @@ function DraftBoard() {
       >
         {chatFeed}
       </Box>
+      </Frame>
+      <Frame tier="rule" component="div" sx={{ minWidth: 0, minHeight: 0, height: '100%' }}>
       <Box
         component="section"
         aria-label="Draft rail"
@@ -887,6 +918,7 @@ function DraftBoard() {
       >
         <DraftRail {...draftRailProps} queueStickyTop={8} queueMaxHeight="45vh" />
       </Box>
+      </Frame>
     </Box>
   );
 
@@ -925,7 +957,9 @@ function DraftBoard() {
       tabIndex={-1}
       aria-labelledby={DRAFT_H1_ID}
       maxWidth="xl"
+      className="ps-root"
       sx={{
+        ...psRootSx,
         py: isNarrow ? 4 : 2,
         // Wide-container viewport-height shell (#444 acceptance criterion 1,
         // carried over from #122): the chrome keeps its natural size
@@ -1020,11 +1054,19 @@ function DraftBoard() {
           </Alert>
         )}
 
-        <Box sx={{ mb: 3 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
-            <Typography id={DRAFT_H1_ID} variant="h4" component="h1">
-              {league?.name || 'Draft Board'}
-            </Typography>
+        <Box sx={{ mb: 1 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+            <Box>
+              <Box component="p" sx={{ m: 0, mb: 0.5, fontSize: '15px', fontWeight: 600, color: 'var(--ps-dim)' }}>
+                Draft room
+              </Box>
+              <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '8px 16px' }}>
+                <PixelHeading id={DRAFT_H1_ID} level={1}>
+                  {league?.name || 'Draft Board'}
+                </PixelHeading>
+                {league?.draft_status === 'active' && <LiveChip />}
+              </Box>
+            </Box>
             {isCommissioner && (league?.draft_status === 'pending' || league?.draft_status === 'active') && (
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                 {league?.draft_status === 'pending' && (
@@ -1034,6 +1076,7 @@ function DraftBoard() {
                     auctionUnavailable={auctionUnavailable}
                     market={leagueDetail?.market}
                     onStart={admin.handleStartDraft}
+                    ready={!!teams.find((team) => team.teamId === viewerTeamId)?.draft_ready}
                   />
                 )}
                 <Tooltip title="Draft settings">
@@ -1132,7 +1175,7 @@ function DraftBoard() {
             value={view}
             onChange={(e, next) => chooseView(next)}
             aria-label="Draft view"
-            sx={{ mb: 3, borderBottom: '1px solid', borderColor: 'divider' }}
+            sx={{ mb: 3, '& .MuiTabs-indicator': { display: 'none' }, '& .MuiTabs-flexContainer': { gap: '8px' } }}
           >
             {tabDefs.map((tab) => (
               <Tab
@@ -1144,7 +1187,7 @@ function DraftBoard() {
                 // on a narrow container, #444), so only the selected tab may point
                 // aria-controls at a panel that exists; the others would dangle.
                 aria-controls={tab.value === view ? draftTabPanelId(tab.value) : undefined}
-                sx={MIN_TOUCH_TARGET_SX}
+                sx={PS_SEGMENT_SX}
               />
             ))}
           </Tabs>
@@ -1159,16 +1202,17 @@ function DraftBoard() {
           container there are no tabs; the three panes are each their own named
           region (panesLayout) and no tabpanel wraps them. */}
       {isNarrow ? (
-        <Box
+        <Frame
           {...regionFocus}
+          tier="rule"
+          component="div"
           role="tabpanel"
           id={draftTabPanelId(view)}
-          aria-labelledby={draftTabId(view)}
+          labelledBy={draftTabId(view)}
           tabIndex={0}
-          sx={{ minWidth: 0 }}
         >
           {narrowRegion}
-        </Box>
+        </Frame>
       ) : panesLayout}
 
       <PlayerDecisionCard

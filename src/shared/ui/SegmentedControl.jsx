@@ -4,11 +4,11 @@ import { PixelArrow } from './playselect/Icons';
 
 /**
  * A segmented control: one selected option among a few, as a radio group on
- * `dash-surface2` with the selected segment raised onto `dash-surface`. The
+ * `ps-*` tokens with the selected segment in Play blue. The
  * week picker and the Standard / Scoreboard view toggle compose this (ADR
  * 0031, #891).
  *
- * Part of `shared/ui` (ADR 0020): paints `dash-*` tokens, or `ps-*` tokens with `look="playselect"` (below). Each option is
+ * Part of `shared/ui` (ADR 0020): paints `ps-*` tokens (below). Each option is
  * a real `role="radio"` button, checked when its value equals `value`, so a
  * screen reader hears the group and its selection.
  *
@@ -21,7 +21,7 @@ import { PixelArrow } from './playselect/Icons';
  * option and the single tab stop are always the same button. This holds
  * identically whether the group scrolls or not.
  *
- * `options` are `{ value, label, icon?, describedBy? }` (`describedBy` is an element id the radio
+ * `options` are `{ value, label, describedBy? }` (`describedBy` is an element id the radio
  * is described by, for a count that is not part of its name); `onChange` receives the picked
  * option's value. `fill` stretches the segments to the container (the Standard
  * / Scoreboard view toggle). A `ref` reaches the group element, so a composer
@@ -38,10 +38,9 @@ import { PixelArrow } from './playselect/Icons';
  * drifted off it, so a change of the checked segment never leaves the focus
  * ring scrolled out of the row.
  *
- * `look="playselect"` (ADR 0067, spec #2334 ruling 3) repaints the same group on `ps-*` tokens: square
+ * ADR 0067, spec #2334 ruling 3: square
  * 44px segments, the checked one in Play blue with an arrow so the state is not colour alone, and Home /
- * End jump to the first / last option. Roles, names, the one tab stop and the arrow keys are unchanged.
- * The default `dash` look is what every dash page renders.
+ * End jump to the first / last option. Roles, names, the one tab stop and the arrow keys follow the radio-group pattern.
  */
 const SegmentedControl = React.forwardRef(function SegmentedControl({
   options,
@@ -50,12 +49,10 @@ const SegmentedControl = React.forwardRef(function SegmentedControl({
   'aria-label': ariaLabel,
   fill = false,
   scrollable = false,
-  look = 'dash',
   sx,
   'data-testid': testId = 'segmented-control',
   ...rest
 }, ref) {
-  const ps = look === 'playselect';
   const groupId = useId();
   const groupRef = useRef(null);
   const items = options || [];
@@ -126,7 +123,7 @@ const SegmentedControl = React.forwardRef(function SegmentedControl({
     onChange?.(items[next].value);
   };
 
-  // Home / End (playselect look): focus the end option, then report it as the pick, as an arrow move does.
+  // Home / End: focus the end option, then report it as the pick, as an arrow move does.
   const jump = (index) => {
     const target = groupRef.current?.querySelectorAll('[role="radio"]')[index];
     if (target) target.focus({ preventScroll: true });
@@ -154,13 +151,8 @@ const SegmentedControl = React.forwardRef(function SegmentedControl({
         scrollbarWidth: scrollable ? 'none' : undefined,
         ...(scrollable ? { '&::-webkit-scrollbar': { display: 'none' } } : null),
         // A scrolling strip clips its own overflow, so it pads by the 7px focus halo plus a pixel.
-        ...(ps ? { gap: 0, p: scrollable ? '8px' : '2px' } : {
-          gap: '2px',
-          p: '3px',
-          backgroundColor: 'var(--dash-surface2)',
-          border: '1px solid var(--dash-line)',
-          borderRadius: '9px',
-        }),
+        gap: 0,
+        p: scrollable ? '8px' : '2px',
         ...sx,
       }}
       {...rest}
@@ -181,10 +173,10 @@ const SegmentedControl = React.forwardRef(function SegmentedControl({
             onKeyDown={(e) => {
               if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); move(index, 1); }
               if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); move(index, -1); }
-              if (ps && e.key === 'Home') { e.preventDefault(); jump(0); }
-              if (ps && e.key === 'End') { e.preventDefault(); jump(items.length - 1); }
+              if (e.key === 'Home') { e.preventDefault(); jump(0); }
+              if (e.key === 'End') { e.preventDefault(); jump(items.length - 1); }
             }}
-            sx={ps ? {
+            sx={{
               flex: scrollable ? '0 0 auto' : (fill ? '1 1 0' : 'none'),
               display: 'inline-flex',
               alignItems: 'center',
@@ -206,30 +198,9 @@ const SegmentedControl = React.forwardRef(function SegmentedControl({
               backgroundColor: checked ? 'var(--ps-play)' : 'transparent',
               // The segments overlap by 2px; the checked one sits on top so its edge is whole.
               ...(checked ? { position: 'relative', zIndex: 1 } : null),
-            } : {
-              flex: scrollable ? '0 0 auto' : (fill ? '1 1 0' : 'none'),
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '6px',
-              height: 30,
-              px: fill && !scrollable ? 0 : '14px',
-              border: 0,
-              borderRadius: '7px',
-              cursor: 'pointer',
-              font: 'inherit',
-              fontSize: '13px',
-              fontWeight: 600,
-              lineHeight: 1,
-              whiteSpace: 'nowrap',
-              color: checked ? 'var(--dash-ink)' : 'var(--dash-dim)',
-              backgroundColor: checked ? 'var(--dash-surface)' : 'transparent',
-              boxShadow: checked ? 'var(--shadow-1)' : 'none',
-              '&:focus-visible': { outline: '2px solid var(--focus-ring)', outlineOffset: 2 },
             }}
           >
-            {ps && checked ? <PixelArrow /> : null}
-            {option.icon && !ps ? <Box component="span" aria-hidden="true" sx={{ display: 'flex' }}>{option.icon}</Box> : null}
+            {checked ? <PixelArrow /> : null}
             <span>{option.label}</span>
           </Box>
         );

@@ -21,6 +21,17 @@ jest.mock('../../../api/apiClient', () => ({
   default: { get: jest.fn() },
 }));
 
+// Prop recorder over the real card (spec #2453): the profile passes.
+const mockCardSpy = jest.fn();
+jest.mock('../../../widgets/player-decision-card', () => {
+  const actual = jest.requireActual('../../../widgets/player-decision-card');
+  const PlayerDecisionCard = (props) => {
+    mockCardSpy(props);
+    return <actual.default {...props} />;
+  };
+  return { ...actual, __esModule: true, default: PlayerDecisionCard };
+});
+
 const COMPLETE_PROFILE = {
   playerId: 42,
   name: 'Alpha Back',
@@ -395,6 +406,20 @@ test('clicking the Rostered by line opens the Decision card with that league\'s 
   expect(apiClient.get).toHaveBeenCalledWith(expect.stringContaining('/api/players/42/card?leagueId=12'));
 });
 
+test('renders the Decision card', async () => {
+  apiClient.get.mockImplementation((url) => {
+    if (String(url).includes('/in-your-leagues')) return Promise.resolve({ data: IN_YOUR_LEAGUES_RESPONSE });
+    return Promise.reject(new Error(`unexpected apiClient url ${url}`));
+  });
+  setSessionHint(true);
+  renderPage('/players/42');
+  await screen.findByRole('heading', { name: 'Alpha Back' });
+  await userEvent.click(await screen.findByText('Rostered by Rival Squad in Beta League'));
+
+  await screen.findByRole('dialog');
+  expect(mockCardSpy).toHaveBeenCalled();
+});
+
 // #1514 ("green for the wrong reason"): the card's action bar has to come
 // from the FETCHED /card payload's own availability.state (context={
 // fromCard()}), never from the "In your leagues" line's own availability -
@@ -421,9 +446,9 @@ test('maps the public profile\'s camelCase fields into the Decision card entry (
   // toDecisionCardEntry (entities/player) reads snake_case (nfl_team,
   // photo_url); the public payload is camelCase (nflTeam, photoUrl). A
   // mapping bug at the call site would leave the card's team label blank
-  // and its headshot on the initials fallback while every OTHER assertion
-  // here (which only checks the dialog heading, i.e. entry.name) stayed
-  // green - this is the test that would actually catch that.
+  // and its photoUrl empty while every OTHER assertion here (which only
+  // checks the dialog heading, i.e. entry.name) stayed green - this is the
+  // test that would actually catch that.
   publicApiClient.get.mockImplementation((url) => {
     if (String(url).includes('/rankings')) return Promise.resolve({ data: { rankings: [] } });
     return Promise.resolve({ data: { ...COMPLETE_PROFILE, photoUrl: 'https://cdn.example/alpha-back.jpg' } });
@@ -440,10 +465,9 @@ test('maps the public profile\'s camelCase fields into the Decision card entry (
   const dialog = await screen.findByRole('dialog');
 
   expect(within(dialog).getByText('KC')).toBeInTheDocument();
-  expect(within(dialog).getByTestId('decision-card-headshot')).toHaveAttribute(
-    'src',
-    'https://cdn.example/alpha-back.jpg'
-  );
+  // The Play-select card (spec #2453) draws no headshot, so the photoUrl
+  // mapping is pinned on the entry the profile hands the card.
+  expect(mockCardSpy.mock.calls.at(-1)[0].entry.photoUrl).toBe('https://cdn.example/alpha-back.jpg');
 });
 
 test('shows an aria-busy loading region for a signed-in viewer before the leagues read resolves', async () => {

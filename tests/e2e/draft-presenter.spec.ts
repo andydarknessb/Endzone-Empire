@@ -218,6 +218,51 @@ presenterTest.describe('presenter session: member surfaces are absent by role qu
   });
 });
 
+// The TV page (#2439): at the two screen sizes it is shown on, in both themes, it
+// never scrolls sideways, holds no button at all, and its clock carries
+// data-urgent. The deadline is 20s out so the clock is inside the danger window
+// (under 30s) and still short of Overdue when the assertions run.
+const TV_SIZES = [
+  { name: '1920x1080', width: 1920, height: 1080 },
+  { name: '1280x720', width: 1280, height: 720 },
+] as const;
+
+for (const size of TV_SIZES) {
+  for (const theme of ['light', 'dark'] as const) {
+    presenterTest(`TV page at ${size.name}, ${theme}: no sideways scroll, no buttons, clock urgent`, async ({ page, expectConsoleError }) => {
+      declarePresenterBootErrors(expectConsoleError);
+      await page.setViewportSize({ width: size.width, height: size.height });
+      await setTheme(page, theme);
+      const board = {
+        ...PRESENTER_BOARD,
+        league: { ...PRESENTER_BOARD.league, pick_deadline_at: new Date(Date.now() + 20_000).toISOString() },
+      };
+      await installPresenterRoutes(page, { board, activity: PRESENTER_ACTIVITY });
+      await gotoPresenter(page, 'share-token-abc');
+
+      await expect(page.getByRole('heading', { name: 'Harness League', level: 1 })).toBeVisible();
+      const clock = page.getByTestId('draft-clock');
+      await expect(clock).toBeVisible();
+      await expect(clock).toHaveAttribute('data-urgent', 'true');
+      await expect(page.getByRole('button')).toHaveCount(0);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    });
+  }
+}
+
+presenterTest('TV page body text is at least 20px at 1920 wide', async ({ page, expectConsoleError }) => {
+  declarePresenterBootErrors(expectConsoleError);
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await setTheme(page, 'light');
+  await installPresenterRoutes(page, { board: PRESENTER_BOARD, activity: PRESENTER_ACTIVITY });
+  await gotoPresenter(page, 'share-token-abc');
+
+  const line = page.getByTestId('draft-activity').first().locator('> div').first();
+  await expect(line).toBeVisible();
+  const px = await line.evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
+  expect(px).toBeGreaterThanOrEqual(20);
+});
+
 test.describe('presenter positive control: the same queries FIND the surfaces in a member session (#447 AC2 control)', () => {
   test.use({ viewport: VIEWPORTS.desktop });
 

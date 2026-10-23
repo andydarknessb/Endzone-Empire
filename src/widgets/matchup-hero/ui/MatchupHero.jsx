@@ -13,7 +13,7 @@ import { matchupHeroView } from '../model/matchupHeroView';
  * The "Your matchup" hero on Game Center (ADR 0067 wave 2, spec #2334 ruling 6): the viewer's Matchup.
  *
  * While live (and once settled) it is the Board-black versus screen: per side the Team mark and name in
- * Pixel 16, the You tag on the viewer's own side (matched on Team id, never on home/away, #112), the record
+ * Pixel 16, the You tag on the viewer's own side (matched on Team id, #112), the record
  * and rank line, the score in Pixel 32 (24 below sm) with the leader in Board ink and the trailer in Board
  * dim, "Expected final {x}" and "{n} players remaining" on separate lines, then one two-sided win
  * probability bar with both team names and the one "Endzone Forecast" credit, the sentence, and a footer
@@ -25,7 +25,7 @@ import { matchupHeroView } from '../model/matchupHeroView';
  *
  * Props: `matchup` (the entity model), `viewerTeamId`, `records` ({ [teamId]: '2-0' } or null), `ranks`
  * ({ [teamId]: 3 } or null), `leagueId` (the two links), `gamesInProgress` (a count or null),
- * `nextKickoffAt` (ISO or null: the live footer's "Next kickoff", dropped before kickoff where the hero says it once), `countsPending` (true while the lineups behind `counts` are still reading: no count line and no count clause yet), `counts` ({ home: { remaining, yet }, away: ... } or null: the sentence source when the payload has no `yetToPlay`, see matchupHeroView).
+ * `nextKickoffAt` (ISO or null: the live footer's "Next kickoff", dropped before kickoff where the hero says it once), `countsPending` (true while the lineups behind `counts` are still reading: no count line and no count clause yet), `counts` ({ first: { remaining, yet }, second: ... } or null, in the board's order: the sentence source when the payload has no `yetToPlay`, see matchupHeroView).
  *
  * Paints only `ps-*` tokens. No cursor and no filled action: a watching page (RULINGS "QA round 1").
  */
@@ -143,16 +143,11 @@ export default function MatchupHero({
   const headingId = useId();
   const cpuTeamIds = useCpuTeamIds(leagueId);
   const view = matchupHeroView(matchup, viewerTeamId, { counts, countsPending });
-  const home = matchup?.home || {};
-  const away = matchup?.away || {};
-  const homeName = teamNameLabel(home.name);
-  const awayName = teamNameLabel(away.name);
   const week = matchup?.week;
-  // Viewer first (RULINGS Critique 4 item 1, as Matchup): the viewer's own side is the left one, whichever of
-  // home or away it is. The test ids stay the real side's, so a reader finds a team by what it is.
-  const order = view.viewerSide === 'away' ? ['away', 'home'] : ['home', 'away'];
-  const [first, second] = order;
-  const names = { home: homeName, away: awayName };
+  // Viewer first (spec #2402): the board hands the sides over in order, the viewer's own first. The side test
+  // ids stay the real side's (`origin`), so a reader finds a team by what it is.
+  const order = ['first', 'second'];
+  const names = { first: teamNameLabel(view.first.name), second: teamNameLabel(view.second.name) };
   const started = view.hasStarted === true;
   const board = started;
   const settled = started && !view.isLive;
@@ -160,8 +155,8 @@ export default function MatchupHero({
   const gamesLine = view.hasStarted === false ? 'No games in progress' : gamesInProgressLabel(gamesInProgress);
 
   const sideProps = (key) => {
-    const s = key === 'home' ? home : away;
-    const name = key === 'home' ? homeName : awayName;
+    const s = view[key];
+    const name = names[key];
     // One source per surface: the server pair, or the page's helper counts when the payload lacks yetToPlay.
     // A settled hero (played or final) has a score, not a forecast or anyone left to play: no lines.
     const left = settled || countsPending ? null : counts ? count(counts[key].remaining) : count(s.playersRemaining);
@@ -183,8 +178,8 @@ export default function MatchupHero({
     return {
       side: s,
       name,
-      right: key === second,
-      viewer: view.viewerSide === key,
+      right: key === 'second',
+      viewer: s.isViewer,
       cpu: cpuTeamIds.has(s.teamId),
       board,
       lead: view.leadSide === key,
@@ -200,12 +195,12 @@ export default function MatchupHero({
     <Box sx={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: { sm: 'auto' }, flexWrap: 'wrap' }}>
       {board ? (
         <>
-          <PsLink to={`/league/${leagueId}/matchups/${matchup?.id}`} ariaLabel={`Matchup, ${names[first]} against ${names[second]}`} onBoard>Matchup</PsLink>
+          <PsLink to={`/league/${leagueId}/matchups/${matchup?.id}`} ariaLabel={`Matchup, ${names.first} against ${names.second}`} onBoard>Matchup</PsLink>
           <BoardGhost to={`/league/${leagueId}/lineup`}>Set lineup</BoardGhost>
         </>
       ) : (
         <>
-          <PsLink to={`/league/${leagueId}/matchups/${matchup?.id}`} ariaLabel={`Matchup, ${names[first]} against ${names[second]}`}>Matchup</PsLink>
+          <PsLink to={`/league/${leagueId}/matchups/${matchup?.id}`} ariaLabel={`Matchup, ${names.first} against ${names.second}`}>Matchup</PsLink>
           <PsButton variant="ghost" to={`/league/${leagueId}/lineup`}>Set lineup</PsButton>
         </>
       )}
@@ -230,7 +225,7 @@ export default function MatchupHero({
   );
 
   if (!started) {
-    const leader = view.projectedLeader === 'home' ? homeName : awayName;
+    const leader = names[view.projectedLeader];
     const probability = view.projectedWinProbability;
     return (
       <Frame
@@ -248,7 +243,7 @@ export default function MatchupHero({
         <Box sx={{ padding: { xs: '14px', md: '24px' }, display: 'flex', flexDirection: 'column', gap: '20px' }}>
           <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: { xs: '12px', md: '24px' }, alignItems: 'start' }}>
             {order.map((key) => (
-              <Box key={key} data-testid={`matchup-hero-side-${key}`} data-viewer-team={view.viewerSide === key || undefined} sx={{ minWidth: 0 }}><Side {...sideProps(key)} /></Box>
+              <Box key={key} data-testid={`matchup-hero-side-${view[key].origin}`} data-viewer-team={view[key].isViewer || undefined} sx={{ minWidth: 0 }}><Side {...sideProps(key)} /></Box>
             ))}
           </Box>
           {probability && (
@@ -260,9 +255,9 @@ export default function MatchupHero({
                 </Box>
               )}
               <TwoSidedOdds
-                a={names[first]}
-                b={names[second]}
-                pct={first === 'home' ? probability.homePct : probability.awayPct}
+                a={names.first}
+                b={names.second}
+                pct={probability.firstPct}
                 caption={<>Win probability · <Box component="span" sx={{ whiteSpace: 'nowrap' }}>Endzone Forecast</Box></>}
               />
             </Box>
@@ -285,7 +280,7 @@ export default function MatchupHero({
   }
 
   const probability = view.winProbability;
-  const sentence = `${names[first]} ${view.scoreLabels[first]}, ${names[second]} ${view.scoreLabels[second]}`;
+  const sentence = `${names.first} ${view.scoreLabels.first}, ${names.second} ${view.scoreLabels.second}`;
   return (
     <Box
       component="section"
@@ -314,15 +309,15 @@ export default function MatchupHero({
       <Box component="p" aria-live="polite" data-testid="matchup-hero-live-region" sx={{ m: 0, ...SR_ONLY_SX }}>{sentence}</Box>
       <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: { xs: '12px', md: '24px' }, alignItems: 'start' }}>
         {order.map((key) => (
-          <Box key={key} data-testid={`matchup-hero-side-${key}`} data-viewer-team={view.viewerSide === key || undefined} sx={{ minWidth: 0 }}><Side {...sideProps(key)} /></Box>
+          <Box key={key} data-testid={`matchup-hero-side-${view[key].origin}`} data-viewer-team={view[key].isViewer || undefined} sx={{ minWidth: 0 }}><Side {...sideProps(key)} /></Box>
         ))}
       </Box>
       <Box data-testid="matchup-hero-win-probability" sx={{ display: 'flex', flexDirection: 'column', gap: { xs: '6px', md: '10px' } }}>
         {probability && (
           <TwoSidedOdds
-            a={names[first]}
-            b={names[second]}
-            pct={first === 'home' ? probability.homePct : probability.awayPct}
+            a={names.first}
+            b={names.second}
+            pct={probability.firstPct}
             live={view.isLive}
             onBoard
             caption={<>Win probability · <Box component="span" sx={{ whiteSpace: 'nowrap' }}>Endzone Forecast</Box></>}

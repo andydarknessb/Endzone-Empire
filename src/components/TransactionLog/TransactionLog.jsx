@@ -1,37 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useId } from 'react';
 import { useParams } from 'react-router-dom';
-import {
-  Container,
-  Paper,
-  Typography,
-  Alert,
-  Chip,
-  Box,
-  Stack,
-  Button,
-  Skeleton,
-  ToggleButtonGroup,
-  ToggleButton,
-  Select,
-  MenuItem,
-  FormControl,
-  InputLabel,
-  Tooltip,
-} from '@mui/material';
-import {
-  Timeline,
-  TimelineItem,
-  TimelineSeparator,
-  TimelineConnector,
-  TimelineContent,
-  TimelineDot,
-} from '@mui/lab';
-import HistoryOutlinedIcon from '@mui/icons-material/HistoryOutlined';
-import AddCircleIcon from '@mui/icons-material/AddCircle';
-import RemoveCircleOutlineIcon from '@mui/icons-material/RemoveCircleOutline';
-import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
-import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
-import RuleIcon from '@mui/icons-material/Rule';
+import { Box } from '@mui/material';
 import apiClient from '../../api/apiClient';
 import { readHttpFailure } from '../../lib/httpFailure';
 import { useLeague } from '../../hooks/useLeague';
@@ -41,30 +10,28 @@ import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
 import PlayerDecisionCard, { fromCard } from '../../widgets/player-decision-card';
 import { PlayerNameLink } from '../../entities/player';
 import { formatTimeSince } from '../../shared/lib/formatTimeSince';
+import SegmentedControl from '../../shared/ui/SegmentedControl';
+import {
+  ErrorPanel, PsButton, Skel,
+} from '../../shared/ui/playselect/Controls';
+import { Frame, PixelHeading } from '../../shared/ui/playselect/Frame';
+import { PosTag, Tag, TeamMark } from '../../shared/ui/playselect/Marks';
+import { psRootSx } from '../../shared/ui/playselect/root';
+import '../../shared/ui/playselect/playselect.css';
 
 const PAGE_SIZE = 30;
 
-const TYPE_COLORS = {
-  add: 'success',
-  drop: 'default',
-  waiver: 'info',
-  trade: 'warning',
-  commissioner: 'secondary',
-  stat_correction: 'error',
+// Kind tag label per transaction type; an unlisted type prints its own word.
+const TYPE_LABEL = {
+  add: 'Add',
+  drop: 'Drop',
+  waiver: 'Waiver',
+  trade: 'Trade',
+  commissioner: 'Settings',
+  stat_correction: 'Stat correction',
+  recap: 'Recap',
 };
-
-// Timeline dot icon + color per transaction type — reuses the theme's
-// semantic palette roles (no hard-coded color literals) rather than the
-// TYPE_COLORS chip mapping above, since the two conventions serve different
-// visual jobs (a filled chip label vs. a small dot icon).
-const TYPE_ICON_META = {
-  add: { Icon: AddCircleIcon, color: 'success' },
-  drop: { Icon: RemoveCircleOutlineIcon, color: 'error' },
-  waiver: { Icon: AddCircleIcon, color: 'info' },
-  trade: { Icon: SwapHorizIcon, color: 'info' },
-  commissioner: { Icon: AdminPanelSettingsIcon, color: 'warning' },
-  stat_correction: { Icon: RuleIcon, color: 'error' },
-};
+const kindLabel = (type) => TYPE_LABEL[type] || (type ? `${type[0].toUpperCase()}${type.slice(1)}` : 'Activity');
 
 // Adds, drops, waivers and trades are roster moves: a pick'em-only league
 // has no roster, so those toggles are trimmed there and only the types that
@@ -98,79 +65,140 @@ function dayLabel(dateLike) {
   });
 }
 
-// The Activity read model's `sentence` (src/entities/activity, #1100) is a
-// flat string, but a player's name inside it has always been a clickable
-// PlayerNameLink that opens the player's Decision card (#1311: PlayerQuickView
-// is gone from here; #1100 escalation: dropping the link entirely cost the
-// app-wide convention and its only test). Matching player names back against
-// the flat sentence text is unsound (a suffixed name, a Team name containing
-// a surname, two same-named players — #1112), so TransactionLog never does
-// that: it renders the model's own `segments` in order, a `PlayerNameLink` at
-// each player part and plain text at each text part, so a name is a link
-// because it IS one, not because it matched. The segment already carries both
-// `playerId` and `name` - the whole entry the card needs (ADR 0040 ruling d) -
-// so `onOpenPlayer` takes the pair directly rather than the id alone
-// PlayerNameLink's own `onOpen(playerId)` callback would otherwise hand back.
+// The Activity read model's `segments` in order (see src/entities/activity,
+// #1100/#1112): a PlayerNameLink at each player part and plain text at each
+// text part, so a name is a link because it IS one, never because it matched
+// the flat sentence. The segment carries `playerId` and `name` (the whole
+// entry the card needs, ADR 0040 ruling d) and a `position` that draws a PosTag.
 function renderSegments(segments, onOpenPlayer) {
-  return segments.map((seg, i) =>
-    seg.type === 'player' ? (
-      <PlayerNameLink
-        key={`${seg.playerId}-${i}`}
-        name={seg.name}
-        playerId={seg.playerId}
-        onOpen={() => onOpenPlayer({ playerId: seg.playerId, name: seg.name })}
-      />
-    ) : (
-      <React.Fragment key={i}>{seg.value}</React.Fragment>
-    )
+  return segments.map((seg, i) => (seg.type === 'player' ? (
+    <React.Fragment key={`${seg.playerId}-${i}`}>
+    <PlayerNameLink
+      name={seg.name}
+      playerId={seg.playerId}
+      onOpen={() => onOpenPlayer({ playerId: seg.playerId, name: seg.name })}
+      sx={{
+        color: 'var(--ps-ink)', textDecoration: 'underline', textUnderlineOffset: '4px', fontWeight: 600, minHeight: 44,
+        // The link brings its own ring; the kit's replaces it.
+        '&:focus-visible, &.MuiLink-focusVisible': {
+          outline: '3px solid var(--ps-focus)', outlineOffset: 0, boxShadow: '0 0 0 7px var(--ps-halo)', borderRadius: 0,
+        },
+      }}
+    />
+    {seg.position && <Box component="span" sx={{ ml: '6px' }}><PosTag position={seg.position} /></Box>}
+    </React.Fragment>
+  ) : (
+    <React.Fragment key={i}>{seg.value}</React.Fragment>
+  )));
+}
+
+// One move: the kind Tag, the team (mark + name) and the model's sentence, with
+// a relative time at the right.
+function ActivityRow({ txn, onOpenPlayer, last }) {
+  const { segments } = activityFromRow(txn);
+  return (
+    <Box
+      component="li"
+      data-testid={`txn-${txn.id}`}
+      data-type={txn.type}
+      sx={{
+        display: 'grid',
+        gridTemplateAreas: { xs: '"tag time" "text text"', sm: '"tag text time"' },
+        gridTemplateColumns: { xs: 'auto 1fr', sm: '120px minmax(0, 1fr) auto' },
+        alignItems: 'start',
+        gap: { xs: '6px 12px', sm: '12px' },
+        minHeight: '44px',
+        boxSizing: 'border-box',
+        padding: { xs: '10px 0', sm: '8px 0' },
+        borderBottom: last ? 0 : '2px solid var(--ps-rule)',
+      }}
+    >
+      <Box component="span" sx={{ gridArea: 'tag', display: 'flex' }}>
+        <Tag data-testid="txn-kind">{kindLabel(txn.type)}</Tag>
+      </Box>
+      <Box
+        data-testid="txn-desc"
+        sx={{
+          gridArea: 'text', minWidth: 0, fontSize: '15px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0 6px',
+        }}
+      >
+        {txn.team_name && (
+          <>
+            <TeamMark
+              name={txn.team_name}
+              avatarUrl={txn.team_avatar_url}
+              avatarStaticUrl={txn.team_avatar_static_url}
+              size={24}
+            />
+            <Box component="span" sx={{ fontWeight: 600 }}>{txn.team_name}</Box>
+            {' '}
+          </>
+        )}
+        <span>{renderSegments(segments, onOpenPlayer)}</span>
+      </Box>
+      <Box
+        component="span"
+        title={new Date(txn.created_at).toLocaleString()}
+        sx={{
+          gridArea: 'time', justifySelf: 'end', whiteSpace: 'nowrap', fontSize: '14px', color: 'var(--ps-dim)', paddingTop: { sm: '5px' },
+        }}
+      >
+        {formatTimeSince(txn.created_at)}
+      </Box>
+    </Box>
   );
 }
 
-// One row of the activity timeline: a colored dot/icon keyed off the
-// transaction type, the team + action description, and a relative
-// timestamp aligned to the right. The description text is the Activity read
-// model's `sentence` (src/entities/activity, #1100): TransactionLog no
-// longer derives it inline, so it cannot drift from another surface reading
-// the same rows; it renders from the model's own `segments` rather than
-// `sentence` so player names inside it stay clickable (see renderSegments
-// above).
-function ActivityFeedItem({ txn, onOpenPlayer, isLast }) {
-  const { Icon, color } = TYPE_ICON_META[txn.type] || { Icon: HistoryOutlinedIcon, color: 'grey' };
-  const { segments } = activityFromRow(txn);
+// A native select on ps tokens, labelled so "Team" is its accessible name.
+function TeamSelect({ value, onChange, names }) {
+  const id = useId();
   return (
-    <TimelineItem data-testid={`txn-${txn.id}`}>
-      <TimelineSeparator>
-        <TimelineDot color={color} variant="outlined">
-          <Icon fontSize="small" />
-        </TimelineDot>
-        {!isLast && <TimelineConnector />}
-      </TimelineSeparator>
-      <TimelineContent sx={{ py: 0, pb: 2 }}>
-        <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 1.5 }}>
-          <Box sx={{ flex: 1, minWidth: 0 }}>
-            <Chip
-              label={txn.type}
-              size="small"
-              color={TYPE_COLORS[txn.type] || 'default'}
-              sx={{ mb: 0.5 }}
-            />
-            <Typography variant="body2" component="div" data-testid="txn-desc">
-              {txn.team_name && (
-                <Box component="span" sx={{ fontWeight: 'bold' }}>
-                  {txn.team_name}{' '}
-                </Box>
-              )}
-              {renderSegments(segments, onOpenPlayer)}
-            </Typography>
-          </Box>
-          <Tooltip title={new Date(txn.created_at).toLocaleString()}>
-            <Typography variant="caption" sx={{ color: 'text.secondary', whiteSpace: 'nowrap' }}>
-              {formatTimeSince(txn.created_at)}
-            </Typography>
-          </Tooltip>
-        </Box>
-      </TimelineContent>
-    </TimelineItem>
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: '6px', minWidth: { sm: 200 } }}>
+      <Box component="label" htmlFor={id} sx={{ fontSize: '14px', fontWeight: 600 }}>Team</Box>
+      <Box
+        component="select"
+        id={id}
+        value={value}
+        onChange={onChange}
+        sx={{
+          boxSizing: 'border-box',
+          height: '44px',
+          borderRadius: 0,
+          backgroundColor: 'var(--ps-field)',
+          color: 'var(--ps-ink)',
+          border: '2px solid var(--ps-dim)',
+          fontFamily: 'inherit',
+          fontSize: '16px',
+          padding: '0 12px',
+          width: '100%',
+          '&:hover, &:focus': { borderColor: 'var(--ps-ink)' },
+        }}
+      >
+        <option value="all">All Teams</option>
+        {names.map((name) => <option key={name} value={name}>{name}</option>)}
+      </Box>
+    </Box>
+  );
+}
+
+function Shell({ children, ...rest }) {
+  return (
+    <Box className="ps-root" sx={{ ...psRootSx, minHeight: '100%' }}>
+      <Box
+        {...rest}
+        sx={{
+          maxWidth: '1280px',
+          marginX: 'auto',
+          boxSizing: 'border-box',
+          padding: { xs: '14px 16px 48px', sm: '24px 32px 64px' },
+          display: 'flex',
+          flexDirection: 'column',
+          gap: { xs: '16px', sm: '24px' },
+        }}
+      >
+        {children}
+      </Box>
+    </Box>
   );
 }
 
@@ -225,15 +253,11 @@ function TransactionLog() {
 
   if ((loading && !transactions) || (!league && leagueLoading)) {
     return (
-      <Container maxWidth="md" sx={{ py: 4 }} data-testid="page-skeleton">
-        <Skeleton variant="text" width={220} height={48} sx={{ mb: 3 }} />
-        <Skeleton variant="rounded" width="100%" height={40} sx={{ mb: 3, borderRadius: 5 }} />
-        {Array.from({ length: 6 }).map((_, i) => (
-          <Box key={i} sx={{ display: 'flex', gap: 2, mb: 1.5 }}>
-            <Skeleton variant="rectangular" height={40} sx={{ flex: 1, borderRadius: 1 }} />
-          </Box>
-        ))}
-      </Container>
+      <Shell data-testid="page-skeleton">
+        <Skel width={220} height={48} />
+        <Skel width="100%" height={44} />
+        <Skel width="100%" height={320} />
+      </Shell>
     );
   }
 
@@ -249,9 +273,8 @@ function TransactionLog() {
   const visible = filtered.slice(0, visibleCount);
   const hasMore = visibleCount < filtered.length;
 
-  // Cluster consecutive same-day rows so each day renders as its own
-  // mini-timeline under a single date heading (assumes `visible` is already
-  // ordered newest-first, same assumption the old flat list relied on).
+  // Cluster consecutive same-day rows under a single date heading (assumes
+  // `visible` is already ordered newest-first).
   const dayGroups = [];
   visible.forEach((t) => {
     const label = dayLabel(t.created_at);
@@ -264,121 +287,81 @@ function TransactionLog() {
   });
 
   return (
-    <Container maxWidth="md" sx={{ py: 4 }}>
-      <LeagueBreadcrumb />
+    <Shell data-testid="transaction-log">
+      <Box>
+        <LeagueBreadcrumb />
+        <PixelHeading level={1}>League Activity</PixelHeading>
+      </Box>
       {error && (
-        <Alert severity="error" sx={{ mb: 2 }}>
-          {error}
-        </Alert>
+        <ErrorPanel
+          title="League activity"
+          body={error}
+        />
       )}
-
-      <Typography variant="h4" sx={{ mb: 3 }}>
-        League Activity
-      </Typography>
 
       {transactions && (
         <>
-          <Stack
-            direction={{ xs: 'column', sm: 'row' }}
-            alignItems={{ xs: 'stretch', sm: 'center' }}
-            justifyContent="space-between"
-            spacing={2}
-            sx={{ mb: 3 }}
+          <Box
+            sx={{
+              display: 'flex',
+              flexDirection: { xs: 'column', sm: 'row' },
+              alignItems: { xs: 'stretch', sm: 'flex-end' },
+              justifyContent: 'space-between',
+              gap: '16px',
+            }}
           >
-            <Box sx={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch', pb: { xs: 0.5, sm: 0 } }}>
-              <ToggleButtonGroup
-                value={typeFilter}
-                exclusive
-                onChange={(e, value) => value && setSelectedType(value)}
-                size="small"
-                color="primary"
-                aria-label="Filter by transaction type"
-                sx={{ flexWrap: { xs: 'nowrap', sm: 'wrap' } }}
-              >
-                {filterOptions.map((opt) => (
-                  <ToggleButton key={opt.value} value={opt.value} sx={{ whiteSpace: 'nowrap' }}>
-                    {opt.label}
-                  </ToggleButton>
-                ))}
-              </ToggleButtonGroup>
-            </Box>
-
-            <FormControl size="small" sx={{ minWidth: 160, alignSelf: { xs: 'stretch', sm: 'center' } }}>
-              <InputLabel id="txn-team-filter-label">Team</InputLabel>
-              <Select
-                labelId="txn-team-filter-label"
-                id="txn-team-filter"
-                value={teamFilter}
-                label="Team"
-                onChange={(e) => setTeamFilter(e.target.value)}
-              >
-                <MenuItem value="all">All Teams</MenuItem>
-                {teamNames.map((name) => (
-                  <MenuItem key={name} value={name}>
-                    {name}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          </Stack>
+            <SegmentedControl
+              scrollable
+              options={filterOptions}
+              value={typeFilter}
+              onChange={setSelectedType}
+              aria-label="Filter by transaction type"
+              data-testid="txn-type-filter"
+            />
+            <TeamSelect value={teamFilter} onChange={(e) => setTeamFilter(e.target.value)} names={teamNames} />
+          </Box>
 
           {filtered.length === 0 ? (
-            transactions.length === 0 ? (
-              <Stack
-                alignItems="center"
-                justifyContent="center"
-                spacing={2}
-                sx={{ py: 8, minHeight: 240 }}
-              >
-                <HistoryOutlinedIcon sx={{ fontSize: 64, color: 'text.disabled' }} />
-                {/* The pick'em copy promises only what can appear today: pick'em
-                    season events get a transactions row only if #31's proposal 2
-                    is ruled in, and the copy widens with it. */}
-                <Typography sx={{ color: 'text.secondary', textAlign: 'center', maxWidth: 380 }}>
-                  {pickemOnly
-                    ? 'The league is quiet. Commissioner actions will appear here.'
-                    : 'The league is quiet. Recent transactions, trades, and commissioner actions will appear here.'}
-                </Typography>
-              </Stack>
-            ) : (
-              <Typography sx={{ color: 'text.secondary' }}>No activity matches these filters</Typography>
-            )
+            <Frame tier="rule" sx={{ p: { xs: '16px', sm: '24px' }, fontSize: '15px' }}>
+              {transactions.length === 0 ? (
+                // The pick'em copy promises only what can appear today: pick'em
+                // season events get a transactions row only if #31's proposal 2
+                // is ruled in, and the copy widens with it.
+                pickemOnly
+                  ? 'The league is quiet. Commissioner actions will appear here.'
+                  : 'The league is quiet. Recent transactions, trades, and commissioner actions will appear here.'
+              ) : 'No activity matches these filters'}
+            </Frame>
           ) : (
-            <Paper sx={{ p: 2 }}>
+            <Frame tier="rule" sx={{ p: { xs: '12px', sm: '20px' } }}>
               {dayGroups.map((group) => (
-                <Box key={`${group.label}-${group.items[0].id}`} sx={{ mb: 1 }}>
-                  <Typography
-                    variant="overline"
-                    sx={{ color: 'text.secondary', pl: 1 }}
+                <Box key={`${group.label}-${group.items[0].id}`} sx={{ mb: '12px' }}>
+                  <Box
                     data-testid="day-header"
-                  >
-                    {group.label}
-                  </Typography>
-                  <Timeline
-                    position="right"
                     sx={{
-                      p: 0,
-                      m: 0,
-                      '& .MuiTimelineItem-root:before': { flex: 0, padding: 0 },
+                      fontSize: '14px', fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--ps-dim)', pb: '4px',
                     }}
                   >
+                    {group.label}
+                  </Box>
+                  <Box component="ul" sx={{ listStyle: 'none', m: 0, p: 0 }}>
                     {group.items.map((txn, i) => (
-                      <ActivityFeedItem
+                      <ActivityRow
                         key={txn.id}
                         txn={txn}
                         onOpenPlayer={setDecisionCardEntry}
-                        isLast={i === group.items.length - 1}
+                        last={i === group.items.length - 1}
                       />
                     ))}
-                  </Timeline>
+                  </Box>
                 </Box>
               ))}
               {hasMore && (
-                <Box sx={{ textAlign: 'center', pt: 2 }}>
-                  <Button onClick={() => setVisibleCount((c) => c + PAGE_SIZE)}>Show more</Button>
+                <Box sx={{ textAlign: 'center', pt: '8px' }}>
+                  <PsButton variant="ghost" onClick={() => setVisibleCount((c) => c + PAGE_SIZE)}>Show more</PsButton>
                 </Box>
               )}
-            </Paper>
+            </Frame>
           )}
         </>
       )}
@@ -389,13 +372,12 @@ function TransactionLog() {
         entry={decisionCardEntry}
         leagueId={Number(leagueId)}
         // #1514: TransactionLog's activity segments carry only
-        // { playerId, name }, no roster fact of its own to classify by, so
+        // { playerId, name } (plus a display-only position), no roster fact to classify by, so
         // it defers kind to the fetched card's own Availability (ADR 0040
-        // ruling c) via the fromCard() builder, replacing the earlier loose
-        // contextFromCard boolean.
+        // ruling c) via the fromCard() builder.
         context={fromCard()}
       />
-    </Container>
+    </Shell>
   );
 }
 

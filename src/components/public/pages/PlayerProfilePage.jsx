@@ -176,7 +176,7 @@ function inYourLeaguesCopy({ leagueName, availability }) {
  * Components stay on the theme's APP tokens throughout (Ruling): `LoadingRows`
  * (already used elsewhere on this page) for the loading line, and a plain
  * `ButtonBase` per row - never a `shared/ui` component scoped to the League
- * Dashboard island's `dash-*` tokens (ADR 0020), the wrong palette for a page
+ * Dashboard island's retired token group (ADR 0020), the wrong palette for a page
  * that runs on the app theme.
  */
 function InYourLeaguesBlock({ player }) {

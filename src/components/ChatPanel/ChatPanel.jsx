@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useSelector } from 'react-redux';
-import { Alert } from '@mui/material';
+import { Box } from '@mui/material';
+import { BODY_FONT } from '../../shared/ui/playselect';
 import { createDraftSocket, onReconnect } from '../../api/socket';
 import useLeagueChat from './useLeagueChat';
 import ChatConversation from './ChatConversation';
@@ -102,7 +103,11 @@ function ChatPanel({ leagueId, open = true, onUnreadChange = null }) {
   }, [unread, onUnreadChange]);
 
   if (removedFrom != null) {
-    return <Alert severity="info" data-testid="chat-removed">{`You were removed from ${removedFrom}`}</Alert>;
+    return (
+      <Box data-testid="chat-removed" sx={{ m: 1, p: '10px 12px', border: '2px solid var(--ps-rule)', fontFamily: BODY_FONT, fontSize: '15px' }}>
+        {`You were removed from ${removedFrom}`}
+      </Box>
+    );
   }
 
   return (

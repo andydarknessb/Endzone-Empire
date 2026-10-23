@@ -56,6 +56,19 @@ test('fetches on mount, and data and loading settle in the same tick', async () 
   expect(Array.from(new Set(seen))).toEqual(['none/loading', 'data/settled']);
 });
 
+test('a later mount on a cached key reports when the entry was fetched, not when it mounted', async () => {
+  apiClient.get.mockResolvedValue({ data: { name: 'first' } });
+  const { result: first } = renderThing(1);
+  await waitFor(() => expect(first.current.loading).toBe(false));
+  const { fetchedAt } = read(['thing', 1]);
+  expect(typeof fetchedAt).toBe('number');
+  expect(first.current.fetchedAt).toBe(fetchedAt);
+
+  jest.spyOn(Date, 'now').mockReturnValue(fetchedAt + 10000);
+  const { result: second } = renderThing(1);
+  expect(second.current.fetchedAt).toBe(fetchedAt);
+});
+
 test('a null key never fetches and never loads', async () => {
   const { result } = renderThing(null);
 

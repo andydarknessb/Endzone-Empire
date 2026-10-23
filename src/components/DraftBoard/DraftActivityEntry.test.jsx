@@ -117,6 +117,17 @@ describe('DraftActivityEntry still renders the known kinds (regression)', () => 
     expect(screen.getByTestId('draft-activity')).toBeInTheDocument();
   });
 
+  it('reads a Pick with its position tag and AUTO flag as separate words', () => {
+    render(
+      <DraftActivityEntry entry={{
+        type: 'draft_activity', kind: 'pick', teamName: 'Sunday Scaries',
+        player: { name: 'Pat Mahomes', position: 'QB', nflTeam: 'KC' },
+        round: 1, pickNumber: 1, isAutopick: true, created_at: '2026-09-01T00:00:00.000Z',
+      }} />
+    );
+    expect(screen.getByTestId('draft-activity')).toHaveTextContent('Sunday Scaries drafted Pat Mahomes QB AUTO');
+  });
+
   it('renders a lifecycle transition attributed to its acting Team', () => {
     render(
       <DraftActivityEntry entry={{

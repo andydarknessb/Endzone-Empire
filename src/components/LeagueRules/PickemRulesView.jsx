@@ -1,7 +1,9 @@
 import React from 'react';
-import { Alert, Box, Button, Skeleton, Stack, Typography } from '@mui/material';
+import { Box } from '@mui/material';
+import { ErrorPanel, Skel } from '../../shared/ui/playselect/Controls';
 import { usePickemSettings } from '../../entities/pickem-game';
 import RuleRow from './RuleRow';
+import { SectionTitle } from './rulesParts';
 import { PICKEM_MODE_OPTIONS } from '../../widgets/pickem-settings';
 
 /**
@@ -20,18 +22,18 @@ export default function PickemRulesView({ league }) {
   const modeName = mode ? mode.label.split(':')[0] : settings?.mode;
 
   return (
-    <Stack spacing={4}>
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
       <Box>
-        <Typography variant="subtitle1" component="h5" sx={{ fontWeight: 600, mb: 1 }}>Scoring</Typography>
+        <SectionTitle>Scoring</SectionTitle>
         {error ? (
-          <Alert
-            severity="error"
-            action={<Button color="inherit" size="small" onClick={refetch}>Retry</Button>}
-          >
-            Unable to load the scoring mode: {error}
-          </Alert>
+          <ErrorPanel
+            title="Scoring mode"
+            body={'We could not load the scoring mode.'}
+            onRetry={refetch}
+            retryAriaLabel="Try again to load the scoring mode"
+          />
         ) : !settings ? (
-          <Skeleton variant="rounded" height={48} />
+          <Skel width="100%" height={48} />
         ) : (
           <RuleRow
             label="Scoring mode"
@@ -47,7 +49,7 @@ export default function PickemRulesView({ league }) {
       </Box>
 
       <Box>
-        <Typography variant="subtitle1" component="h5" sx={{ fontWeight: 600, mb: 1 }}>Picks</Typography>
+        <SectionTitle>Picks</SectionTitle>
         <RuleRow
           label="Picks lock"
           value="At kickoff"
@@ -61,7 +63,7 @@ export default function PickemRulesView({ league }) {
       </Box>
 
       <Box>
-        <Typography variant="subtitle1" component="h5" sx={{ fontWeight: 600, mb: 1 }}>Season</Typography>
+        <SectionTitle>Season</SectionTitle>
         <RuleRow
           label="Standings"
           value="Season-long"
@@ -73,6 +75,6 @@ export default function PickemRulesView({ league }) {
           detail="Most correct picks at the end of the season wins (highest points in confidence mode). Ties make co-champions. No playoffs."
         />
       </Box>
-    </Stack>
+    </Box>
   );
 }

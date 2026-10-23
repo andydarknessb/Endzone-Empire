@@ -891,7 +891,6 @@ async function banTeam({ leagueId, userId, teamId }) {
         throw new CommissionerError(409, 'that team is already managed by the CPU');
       }
       const managerId = team.owner_id;
-      const { removable } = removability(league);
       const userResult = await client.query(`SELECT "email" FROM "users" WHERE "id" = $1`, [managerId]);
       await client.query(
         `INSERT INTO "league_bans" ("league_id", "user_id", "email_hash", "team_name", "banned_by")
@@ -902,26 +901,8 @@ async function banTeam({ leagueId, userId, teamId }) {
         `DELETE FROM "league_commissioners" WHERE "league_id" = $1 AND "user_id" = $2`,
         [leagueId, managerId]
       );
-      if (removable) {
-        await client.query(`DELETE FROM "teams" WHERE "id" = $1`, [teamId]);
-      } else {
-        await client.query(
-          `UPDATE "teams" SET "owner_id" = NULL, "autodraft" = true, "updated_at" = now() WHERE "id" = $1`,
-          [teamId]
-        );
-        await client.query(
-          `UPDATE "trades" SET "status" = 'cancelled', "updated_at" = now()
-           WHERE "league_id" = $1 AND "status" IN ('pending', 'accepted')
-             AND ($2 IN ("proposing_team_id", "receiving_team_id"))`,
-          [leagueId, teamId]
-        );
-        await client.query(
-          `UPDATE "waiver_claims" SET "status" = 'cancelled', "updated_at" = now()
-           WHERE "team_id" = $1 AND "status" = 'pending'`,
-          [teamId]
-        );
-      }
-      const outcome = removable ? 'removed' : 'cpu';
+      const outcome = await settleDepartedTeam(client, { league, teamId });
+      const removable = outcome === 'removed';
       await logTransaction(client, {
         leagueId,
         teamId: removable ? null : teamId,
@@ -941,6 +922,36 @@ async function banTeam({ leagueId, userId, teamId }) {
   );
   await endMembership(leagueId, ended);
   return result;
+}
+
+/**
+ * What becomes of a team whose manager is gone, on the caller's transaction
+ * (ADR 0068): deleted while the league is Removable, otherwise kept as a
+ * CPU-managed team with its open trades and pending claims cancelled. Shared by
+ * banTeam and account deletion. `league` is the full, locked league row.
+ * Returns 'removed' | 'cpu'.
+ */
+async function settleDepartedTeam(client, { league, teamId }) {
+  if (removability(league).removable) {
+    await client.query(`DELETE FROM "teams" WHERE "id" = $1`, [teamId]);
+    return 'removed';
+  }
+  await client.query(
+    `UPDATE "teams" SET "owner_id" = NULL, "autodraft" = true, "updated_at" = now() WHERE "id" = $1`,
+    [teamId]
+  );
+  await client.query(
+    `UPDATE "trades" SET "status" = 'cancelled', "updated_at" = now()
+     WHERE "league_id" = $1 AND "status" IN ('pending', 'accepted')
+       AND ($2 IN ("proposing_team_id", "receiving_team_id"))`,
+    [league.id, teamId]
+  );
+  await client.query(
+    `UPDATE "waiver_claims" SET "status" = 'cancelled', "updated_at" = now()
+     WHERE "team_id" = $1 AND "status" = 'pending'`,
+    [teamId]
+  );
+  return 'cpu';
 }
 
 /**
@@ -982,6 +993,7 @@ module.exports = {
   CommissionerError,
   removeTeam,
   banTeam,
+  settleDepartedTeam,
   listBans,
   unban,
   forceSetLineup,

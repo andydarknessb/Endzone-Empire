@@ -107,7 +107,7 @@ _Avoid_: block (a manager's own mute of another's chat), kick
 
 **CPU-managed team**:
 A team with no manager (owner_id NULL), left behind when its manager was
-banned after the draft. It stays in standings, matchups and the schedule; the
+banned after the draft or deleted their account. It stays in standings, matchups and the schedule; the
 CPU starts its best available lineup each week and it makes no trades or
 waiver claims. It is not a member of anything: it has no account (ADR 0068).
 _Avoid_: bot, ghost team, orphan, abandoned team
@@ -763,6 +763,7 @@ by ADP where the market has one, then by last completed season's fantasy
 points, then by name. It is the fallback behind autopick and the order of the
 draft pool, and it is never the database's own ordering: a player the market
 has not ranked but who produced last season comes before one who did neither.
+A player with no NFL team comes after every player with one.
 _Avoid_: default rank (a column, and an empty one), top available, BPA
 
 **Draft pool**:
@@ -919,8 +920,8 @@ detail, the game with implied team total and weather, the Weekly projection
 with its Floor and Ceiling, its Volatility tag and Threshold probabilities
 (spec #1845), the largest Factor's explanation, Usage, Rest of
 season, Ownership, the Season summary for every season on record, the
-eighteen-week bars and game log for the season the manager picks, and an
-action bar that follows the player's context: bench options with Trade and
+eighteen-week bars for the current season, the game log for the season the
+manager picks, and an action bar that follows the player's context: bench options with Trade and
 Drop on your own player, Add, Claim or Propose trade on anyone else's, and
 Draft with Queue in the Draft room. It replaces the player quick view on
 every surface, the Draft room included (#1313, ADR 0040).
@@ -938,19 +939,21 @@ card's Watch/Watching action are its two surfaces. Stored in
 _Avoid_: watchlist (in prose and copy), favourite, star, follow
 
 **Season summary**:
-One season of a player in five numbers under this league's scoring: games,
-points per game, season points, position rank and ADP. The Decision card
-lists one per season on record, newest first, so a season in progress reads
-beside the finished ones in the same points. ADP is the draft market's
-number for that season and is not rescored; a season with no ADP on record
-shows none.
-_Avoid_: season stats (the raw stat line), career, totals
+One season of a player under this league's scoring: games, season points,
+points per game, position rank and ADP, then each stat column of its game
+log summed over that season. The Decision card lists one per season on
+record, newest first, as the Season totals table on its Stats tab, one row
+per season, so a season in progress reads beside the finished ones in the
+same points. ADP is the draft market's number for that season and is not
+rescored; a season with no ADP on record shows none.
+_Avoid_: season stats (the raw stat line), career
 
 **Season pick**:
 The season a manager has chosen on the Decision card, from a row of season
-chips under the Season summary; the eighteen-week bars and the game log
-follow it. The current season is picked when the card opens. A past season
-has actual weeks only.
+chips on its Game log tab; the chips drive only the game log. The
+eighteen-week bars on the Overview tab always show the current season. The
+card's Overview, Game log and Stats tabs are not a season tab. The current
+season is picked when the card opens. A past season has actual weeks only.
 _Avoid_: season toggle, season tab, year filter
 
 **Usage**:

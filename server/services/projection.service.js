@@ -1546,6 +1546,35 @@ async function getWeeklyProjectionsForWeeks({
 }
 
 /**
+ * Read-only: the stored `player_week_projections` entries for `weeks`, under
+ * the same run key `getWeeklyProjections` looks up (season, week, the league's
+ * scoring hash, the current Model version). Never generates, never completes a
+ * partial run, writes nothing. Two queries however many weeks are asked for.
+ * `Map<week, Map<playerId, entry>>`: a week without a stored run, or a player
+ * without a stored row, is absent. Wrap a week's entries in
+ * `toWeeklyProjectionResult({ projections })` for `classify`/`opponentRankFor`.
+ */
+async function getStoredProjectionsForWeeks({ season, weeks = [], league, playerIds = [], client = pool }) {
+  if (!league) {
+    throw new ProjectionError(500, 'getStoredProjectionsForWeeks requires a league: pass the league row, or PUBLIC for standard scoring');
+  }
+  const ids = [...new Set((playerIds || []).map(Number).filter(Number.isInteger))];
+  const wks = [...new Set((weeks || []).map(Number).filter(Number.isInteger))];
+  const out = new Map();
+  if (wks.length === 0 || ids.length === 0) return out;
+  const rules = league === PUBLIC ? SCORING_RULES : rulesForLeague(league);
+  const runs = await findRuns({ season, weeks: wks, hashValue: model.scoringHash(rules), client });
+  const rowsByRun = await loadCachedRowsForRuns({
+    runIds: [...runs.values()].map((r) => Number(r.id)), playerIds: ids, client,
+  });
+  for (const [week, run] of runs) {
+    const rows = rowsByRun.get(Number(run.id));
+    if (rows) out.set(week, rows);
+  }
+  return out;
+}
+
+/**
  * `free_baseline_v2` rest-of-season totals for a specific set of players in
  * one league: the sum of their already-cached Weekly projections (see
  * `getWeeklyProjections` above) from the league's current week through its
@@ -1969,6 +1998,7 @@ module.exports = {
   // free_baseline_v2
   getWeeklyProjections,
   getWeeklyProjectionsForWeeks,
+  getStoredProjectionsForWeeks,
   getRestOfSeason,
   // Re-exported for playerCard.service.js (#1306 Ruling item 4): `throughWeek`
   // and `seasonEnd` are both the league's last playoff week.

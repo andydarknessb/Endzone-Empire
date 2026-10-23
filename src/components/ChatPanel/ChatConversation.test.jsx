@@ -769,7 +769,7 @@ test('the counter description names the unit, so it does not read as a bare "N s
 test('the counter adornment does not intercept a click meant for the input', () => {
   renderWithProviders(<ChatConversation messages={[]} onSend={noop} />);
 
-  expect(screen.getByTestId('composer-counter-adornment')).toHaveClass('MuiInputAdornment-disablePointerEvents');
+  expect(screen.getByTestId('composer-counter-adornment')).toHaveStyle({ pointerEvents: 'none' });
 });
 
 test('Send stays enabled past the limit: the server is the single enforcement point', () => {

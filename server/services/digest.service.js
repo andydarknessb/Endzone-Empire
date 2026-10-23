@@ -151,13 +151,16 @@ async function sendLineupReminders() {
         // Weekly projection read below (ADR 0061).
         return lineupClient.query(
           `SELECT "lineup_entries"."slot", "lineup_entries"."player_id", "lineup_entries"."ir_attested",
-                  "players"."name", "players"."injury_status", "players"."nfl_team"
+                  "players"."name", "players"."injury_status", "players"."nfl_team",
+                  ("team_players"."player_id" IS NULL) AS "spent"
            FROM "lineup_entries"
-           JOIN "team_players" ON "team_players"."team_id" = "lineup_entries"."team_id"
+           LEFT JOIN "team_players" ON "team_players"."team_id" = "lineup_entries"."team_id"
              AND "team_players"."player_id" = "lineup_entries"."player_id"
            JOIN "players" ON "players"."id" = "lineup_entries"."player_id"
            WHERE "lineup_entries"."team_id" = $1 AND "lineup_entries"."season" = $2
-             AND "lineup_entries"."week" = $3`,
+             AND "lineup_entries"."week" = $3
+             AND ("team_players"."player_id" IS NOT NULL
+               OR "lineup_entries"."slot" NOT IN ('BENCH', 'IR'))`,
           [team.id, season, week]
         );
         },

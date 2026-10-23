@@ -184,6 +184,7 @@ export default function GameCenterPage() {
                   matchups={rest}
                   leagueId={leagueId}
                   records={records}
+                  viewerTeamId={viewerTeamId}
                   more={hero ? rest.length : undefined}
                   empty={hero ? 'No other league matchups this week.' : 'No matchups this week.'}
                 />

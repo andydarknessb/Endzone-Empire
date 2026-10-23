@@ -634,6 +634,14 @@ async function buildWeeklyBars({ league, player, season, currentWeek, opponentBy
   );
   const statsByWeek = new Map(statsResult.rows.map((r) => [Number(r.week), r.stats]));
 
+  // The Forecast's stored number for each played week (read-only, never
+  // generated): two queries however many weeks are played.
+  const playedWeeks = [];
+  for (let wk = 1; wk < currentWeek && wk <= 18; wk++) if (wk !== byeWeek) playedWeeks.push(wk);
+  const storedByWeek = await projectionService.getStoredProjectionsForWeeks({
+    season, weeks: playedWeeks, league, playerIds: [player.id],
+  });
+
   const weeks = [];
   for (let wk = 1; wk <= 18; wk++) {
     const opponent = opponentByWeek.get(wk) ?? null;
@@ -643,11 +651,15 @@ async function buildWeeklyBars({ league, player, season, currentWeek, opponentBy
     }
     if (wk < currentWeek) {
       const stats = statsByWeek.get(wk);
+      const stored = projectionService.toWeeklyProjectionResult({ projections: storedByWeek.get(wk) || new Map() });
+      const classified = stored.classify(player.id);
       weeks.push({
         week: wk,
         opponent,
         kind: 'actual',
         points: stats ? scoringRules.calculateFantasyPoints(stats, rules) : null,
+        projected: classified.unavailable ? null : classified.points,
+        opponentRankVsPosition: stored.opponentRankFor(player.id),
       });
       continue;
     }

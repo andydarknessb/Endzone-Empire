@@ -296,7 +296,10 @@ async function dropSuggestionFor(db, { league, teamId }) {
  * already coerced from strings (see player.router.js's `GET /`):
  *
  *   userId, page, requestedPositions, search, leagueId, availableOnly,
- *   availability, view, byeWeeksFilter, sortField, dir
+ *   availability, view, byeWeeksFilter, sortField, dir, nullTeamLast
+ *
+ * `nullTeamLast` only affects the adp sort: rows with no nfl_team go after all
+ * rows that have one.
  *
  * `{ db }` defaults to the shared pool; a test passes the shared fake-pool
  * helper directly, no module mock required.
@@ -314,6 +317,7 @@ async function readPlayersPage(query, { db = pool } = {}) {
     byeWeeksRaw,
     sortField,
     dir,
+    nullTeamLast,
   } = query;
   const offset = (page - 1) * PAGE_SIZE;
   // `leagueId` arrives as the route's raw (string | null) query value - kept
@@ -431,7 +435,9 @@ async function readPlayersPage(query, { db = pool } = {}) {
   if (sortField === 'name') {
     orderBy = `"name" ${dir}, "id"`;
   } else if (sortField === 'adp') {
-    orderBy = `"adp" ${dir} NULLS LAST, "id"`;
+    // nullTeamLast (the Draft room only): players with no NFL team follow every
+    // player who has one, each group still in ADP order.
+    orderBy = `${nullTeamLast ? '("nfl_team" IS NULL), ' : ''}"adp" ${dir} NULLS LAST, "id"`;
   } else if (sortField === 'position_rank') {
     orderBy = `"position_rank" ${dir} NULLS LAST, "name", "id"`;
   } else if (sortField === 'nfl_team') {

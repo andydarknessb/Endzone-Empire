@@ -96,11 +96,11 @@ test('keeper endpoint failure does not block non-keeper tabs', async () => {
 
   expect(apiClient.get).not.toHaveBeenCalledWith('/api/draft/league/1/keepers');
   await userEvent.click(screen.getByRole('tab', { name: 'Keepers' }));
-  expect(await screen.findByText('Unable to load keeper data: Keeper candidate service unavailable')).toBeInTheDocument();
+  expect(await screen.findByText('We could not load keeper data.')).toBeInTheDocument();
 
   await userEvent.click(screen.getByRole('tab', { name: 'Timer' }));
   expect(screen.getByRole('button', { name: 'Save timer' })).toBeInTheDocument();
-  expect(screen.queryByText(/Unable to load keeper data/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/We could not load keeper data/)).not.toBeInTheDocument();
 });
 
 test('Keepers tab lazy-loads and retries its localized error state', async () => {
@@ -122,12 +122,12 @@ test('Keepers tab lazy-loads and retries its localized error state', async () =>
 
   expect(keeperAttempts).toBe(0);
   await userEvent.click(screen.getByRole('tab', { name: 'Keepers' }));
-  expect(await screen.findByText('Unable to load keeper data: Keeper service unavailable')).toBeInTheDocument();
+  expect(await screen.findByText('We could not load keeper data.')).toBeInTheDocument();
 
   await userEvent.click(screen.getByRole('button', { name: 'Retry keeper data' }));
   expect(await screen.findByRole('checkbox', { name: 'Enable keepers' })).toBeInTheDocument();
   expect(keeperAttempts).toBe(2);
-  expect(screen.queryByText(/Unable to load keeper data/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/We could not load keeper data/)).not.toBeInTheDocument();
 });
 
 test('confirms before discarding unsaved edits when switching tabs', async () => {
@@ -246,6 +246,19 @@ test('saves pending-draft timer and delay through the league settings endpoint',
   await userEvent.click(screen.getByRole('tab', { name: 'Timer' }));
   await userEvent.click(screen.getByRole('button', { name: 'Save timer' }));
   await waitFor(() => expect(apiClient.put).toHaveBeenCalledWith('/api/league/1', { pickTimeSeconds: 60, autodraftDelaySeconds: 10 }));
+});
+
+test('marks an edited field as unsaved and renders no filled action', async () => {
+  mockData();
+  const { container } = renderSettings();
+  await screen.findByText('Sunday Ballers');
+  await userEvent.click(screen.getByRole('tab', { name: 'Timer' }));
+  expect(screen.queryByText('Unsaved changes')).not.toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText('Autodraft delay (seconds)'), { target: { value: '20' } });
+  expect(await screen.findByText('Unsaved changes')).toBeInTheDocument();
+  // data-variant is the kit's marker for a filled action; it has no role or name to query by.
+  // eslint-disable-next-line testing-library/no-container, testing-library/no-node-access
+  expect(container.querySelector('[data-variant="fill"]')).toBeNull();
 });
 
 test('reloads the league exactly once after a save', async () => {

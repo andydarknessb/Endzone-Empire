@@ -2,21 +2,17 @@ import React, {
   useEffect, useId, useRef, useState,
 } from 'react';
 import PropTypes from 'prop-types';
-import { Link as RouterLink } from 'react-router-dom';
 import {
-  Alert, AlertTitle, Box, Button, Checkbox, Dialog, DialogTitle, FormControl, FormControlLabel, FormLabel,
-  IconButton, Radio, RadioGroup, Stack, TextField, Typography, useMediaQuery,
+  Box, Checkbox, Dialog, DialogTitle, FormControl, FormControlLabel, FormLabel,
+  IconButton, Radio, RadioGroup, Stack, Typography, useMediaQuery,
 } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import { visuallyHidden } from '@mui/utils';
 import AddIcon from '@mui/icons-material/Add';
-import CheckIcon from '@mui/icons-material/Check';
-import CloseIcon from '@mui/icons-material/Close';
 import RemoveIcon from '@mui/icons-material/Remove';
 import apiClient from '../../api/apiClient';
 import { readHttpFailure } from '../../lib/httpFailure';
 import { browserTimeZone, zonedWallTimeToUtcIso } from '../../lib/draftTimezone';
-import { MIN_TOUCH_TARGET_SX } from '../../shared/lib/a11y';
 import {
   LEAGUE_TYPE, LEAGUE_TYPE_OPTIONS, MIN_TEAMS, capForType, clampTeamCount, includesFantasy, includesPickem,
   isPickemOnlyType, isValidTeamCount, leagueTypePayload,
@@ -26,9 +22,9 @@ import { joinLink } from '../../features/copy-invite';
 import DraftScheduleField from '../common/DraftScheduleField';
 import { useSnackbar } from '../Snackbar/SnackbarProvider';
 import {
-  DISPLAY_FONT, HAIRLINE, alertSx, choiceControlSx, dialogPaperSx, dimSx, fieldSx, ghostButtonSx,
-  primaryButtonSx, quietButtonSx,
-} from '../common/homeIslandSx';
+  BODY_FONT, Frame, PixelArrow, PixelCheck, PixelClose, PixelWarn, PsButton, pixelSx,
+} from '../../shared/ui/playselect';
+import { Dim, KitTextField, Note } from '../DraftSettings/kit';
 
 /**
  * Create league in five steps (Home v2 slice 4): League type, Basics, Rules,
@@ -168,77 +164,46 @@ function wallTimeParts(wallTime) {
   };
 }
 
-// Painted on the island (ADR 0051). The dialog is a card (`dash-surface`);
-// the rail and the preview are stat tiles (`dash-surface2`). Inputs keep the
-// card's own fill with the `dash-field` edge. The board fills them
-// `dash-surface2`, but MUI floats the label across the input's top edge, and
-// in error that label is danger text half on the fill: danger on
-// `dash-surface2` is not a registered pairing, danger on `dash-surface` is.
-const inputSx = fieldSx('var(--dash-surface)');
-const helpSx = { ...dimSx, fontSize: '13px' };
+// Painted on the Play-select kit (DESIGN.md "Play-select: Home and league pages"). The kit has no dialog,
+// radio card or stepper component, so the MUI controls are skinned here (fleet lead call, #2454): the
+// 6px double frame, square 44px controls with a 2px edge, Play blue for the selected state with the
+// radio dot or check as its mark, and a fill only on the one forward action.
+const helpSx = { color: 'var(--ps-dim)', fontSize: '14px', fontFamily: 'inherit' };
+const SCRIM_SX = { backgroundColor: 'color-mix(in srgb, var(--ps-field) 85%, transparent)' };
+const RULE = '2px solid var(--ps-rule)';
 
-// A choice card: 2px `dash-field` edge when unselected (the 3:1 boundary of
-// a control), the accent edge on the accent tint when selected. Ink and dim
-// on the accent tint over a card are registered.
+// A choice card: 2px Dim edge when unselected, the Play blue with Play ink when selected. The radio dot
+// (or the checkbox tick) is the non-colour mark.
 const optionCardSx = (selected) => ({
   m: 0,
   alignItems: 'flex-start',
-  p: 1.5,
-  borderRadius: 'var(--dash-radius-sm)',
+  p: '8px 12px 8px 4px',
+  minHeight: '44px',
+  borderRadius: 0,
   border: '2px solid',
-  borderColor: selected ? 'var(--dash-accent)' : 'var(--dash-field)',
-  backgroundColor: selected ? 'var(--dash-accent-soft)' : 'transparent',
-  color: 'var(--dash-ink)',
-  '& .MuiRadio-root, & .MuiCheckbox-root': { ...choiceControlSx, mt: -0.75 },
-});
-
-// The shared DraftScheduleField paints app tokens (League settings uses it
-// too), so the stepper repaints it from outside: island fields, a dim UTC
-// line, an ink acknowledgement and its danger error line, all on the card.
-// The board sets the acknowledgement on the warning tint; that is left out
-// here, because the checkbox glyph and its focus ring would then sit on the
-// tint (neither is a registered pairing) and the error line, which the shared
-// field renders outside the label, could not join it.
-const draftScheduleSx = {
-  ...inputSx,
-  '& .MuiTypography-caption': helpSx,
-  '& .MuiCheckbox-root': choiceControlSx,
-  '& .MuiFormControlLabel-label': { color: 'var(--dash-ink)', fontSize: '14px' },
-};
-
-// A size preset: pressed is the accent edge on the accent tint, resting the
-// `dash-field` edge; ink label either way.
-const presetSx = (pressed) => ({
-  ...MIN_TOUCH_TARGET_SX,
-  px: 1.5,
-  textTransform: 'none',
-  fontSize: '14px',
-  fontWeight: 600,
-  boxShadow: 'none',
-  borderRadius: 'var(--dash-radius-sm)',
-  color: 'var(--dash-ink)',
-  border: `1px solid ${pressed ? 'var(--dash-accent)' : 'var(--dash-field)'}`,
-  backgroundColor: pressed ? 'var(--dash-accent-soft)' : 'transparent',
-  '&:hover': {
-    boxShadow: 'none',
-    borderColor: 'var(--dash-accent)',
-    backgroundColor: pressed ? 'var(--dash-accent-soft)' : 'transparent',
+  borderColor: selected ? 'var(--ps-play)' : 'var(--ps-dim)',
+  backgroundColor: selected ? 'var(--ps-play)' : 'transparent',
+  color: selected ? 'var(--ps-play-ink)' : 'var(--ps-ink)',
+  '& .MuiRadio-root, & .MuiCheckbox-root': {
+    p: '10px', color: 'inherit', '&.Mui-checked': { color: 'inherit' },
   },
+  '& .ps-help': { color: selected ? 'var(--ps-play-dim)' : 'var(--ps-dim)' },
+  // The native input is invisible, so the kit ring goes on the whole card.
+  '&:has(input:focus-visible)': { outline: '3px solid var(--ps-focus)', outlineOffset: 0, boxShadow: '0 0 0 7px var(--ps-halo)' },
 });
 
-// The Teams stepper's minus and plus: `dash-field` edged, ink glyph.
-const stepperButtonSx = {
-  ...MIN_TOUCH_TARGET_SX,
-  mt: 0.5,
-  color: 'var(--dash-ink)',
-  border: '1px solid var(--dash-field)',
-  borderRadius: 'var(--dash-radius-sm)',
-  backgroundColor: 'transparent',
-  '&:hover': { backgroundColor: 'var(--dash-surface2)', borderColor: 'var(--dash-accent)' },
-  '&.Mui-disabled': { color: 'var(--dash-dim)', borderColor: 'var(--dash-field)' },
-};
+// A plain checkbox row (no card): Ink glyph, 44px target.
+const checkRowSx = { m: 0, minHeight: '44px', color: 'var(--ps-ink)', '&:has(input:focus-visible)': { outline: '3px solid var(--ps-focus)', outlineOffset: 0, boxShadow: '0 0 0 7px var(--ps-halo)' }, '& .MuiCheckbox-root': { p: '10px', color: 'var(--ps-ink)' } };
 
-const bigButtonSx = { ...MIN_TOUCH_TARGET_SX, minHeight: 48, px: 2.5, fontSize: '15px' };
+// The Teams stepper's minus and plus: square, 2px Ink edge.
+const stepperButtonSx = {
+  minWidth: '44px',
+  minHeight: '44px',
+  borderRadius: 0,
+  color: 'var(--ps-ink)',
+  border: '2px solid var(--ps-ink)',
+  '&.Mui-disabled': { color: 'var(--ps-dim)', borderColor: 'var(--ps-rule)' },
+};
 
 /** A labelled radio group drawn as selectable cards. */
 function ChoiceCards({
@@ -251,7 +216,7 @@ function ChoiceCards({
         component="legend"
         id={legendId}
         sx={hideLegend ? visuallyHidden : {
-          fontWeight: 600, fontSize: '14px', color: 'var(--dash-ink)', mb: 1, '&.Mui-focused': { color: 'var(--dash-ink)' },
+          fontWeight: 600, fontSize: '14px', fontFamily: 'inherit', color: 'var(--ps-ink)', mb: '8px', '&.Mui-focused': { color: 'var(--ps-ink)' },
         }}
       >
         {legend}
@@ -264,7 +229,7 @@ function ChoiceCards({
         sx={{
           display: 'grid',
           gridTemplateColumns: { xs: 'minmax(0, 1fr)', sm: `repeat(${columns}, minmax(0, 1fr))` },
-          gap: 1.25,
+          gap: '10px',
         }}
       >
         {options.map((option) => (
@@ -274,13 +239,13 @@ function ChoiceCards({
             control={<Radio />}
             sx={optionCardSx(value === option.value)}
             label={(
-              <Box>
-                <Typography sx={{ fontSize: '15px', fontWeight: 600 }}>{option.label}</Typography>
+              <Box sx={{ pt: '8px' }}>
+                <Typography sx={{ fontSize: '15px', fontWeight: 700, fontFamily: 'inherit' }}>{option.label}</Typography>
                 {option.help && (
-                  <Typography variant="body2" sx={helpSx}>{option.help}</Typography>
+                  <Typography className="ps-help" sx={{ ...helpSx, color: undefined }}>{option.help}</Typography>
                 )}
                 {option.includes && (
-                  <Typography variant="caption" sx={{ ...dimSx, fontSize: '12px', display: 'block', fontWeight: 600, letterSpacing: '0.04em', mt: 0.5 }}>
+                  <Typography className="ps-help" sx={{ fontSize: '13px', display: 'block', fontWeight: 600, fontFamily: 'inherit', mt: '4px' }}>
                     {option.includes}
                   </Typography>
                 )}
@@ -322,30 +287,20 @@ function StepHeading({ eyebrow, children }) {
   return (
     <Box>
       {eyebrow && (
-        <Typography
-          variant="overline"
-          component="p"
-          sx={{ ...dimSx, fontSize: '12px', fontWeight: 700, letterSpacing: '0.08em', lineHeight: 1.6 }}
-        >
+        <Box component="p" sx={{ ...helpSx, m: 0, mb: '8px', fontSize: '13px', fontWeight: 600 }}>
           {eyebrow}
-        </Typography>
+        </Box>
       )}
-      <Typography
+      <Box
         ref={ref}
-        tabIndex={-1}
-        variant="h5"
         component="h3"
+        tabIndex={-1}
         sx={{
-          fontFamily: DISPLAY_FONT,
-          fontSize: { xs: '28px', sm: '34px' },
-          fontWeight: 700,
-          lineHeight: 1.05,
-          textTransform: 'uppercase',
-          '&:focus:not(:focus-visible)': { outline: 'none' },
+          m: 0, ...pixelSx(24), fontSize: { xs: '16px', sm: '24px' }, overflowWrap: 'anywhere', '&:focus:not(:focus-visible)': { outline: 'none' },
         }}
       >
         {children}
-      </Typography>
+      </Box>
     </Box>
   );
 }
@@ -547,15 +502,18 @@ export default function CreateLeagueStepper({ open, onClose, onCreated }) {
   const inviteCode = created?.invite_code;
   const createdId = created?.id;
 
+  // A field error in the kit's error type: Danger bold on the panel (a registered pairing).
+  const errorText = (message) => (message ? <Box component="span" sx={{ color: 'var(--ps-danger)', fontWeight: 700 }}>{message}</Box> : undefined);
+
   const stepBody = () => {
     if (step === 0) {
       return (
         <>
           <Box key="h0">
             <StepHeading eyebrow={eyebrow}>What kind of league?</StepHeading>
-            <Typography sx={{ ...dimSx, mt: 0.5 }}>
+            <Dim sx={{ mt: '12px', fontSize: '15px' }}>
               You can turn pick&apos;em on later in a fantasy league. A pick&apos;em league can&apos;t add a draft.
-            </Typography>
+            </Dim>
           </Box>
           <ChoiceCards
             legend="League type"
@@ -576,34 +534,32 @@ export default function CreateLeagueStepper({ open, onClose, onCreated }) {
       return (
         <>
           <StepHeading key="h1" eyebrow={eyebrow}>Name it and size it</StepHeading>
-          <TextField
+          <KitTextField
             id="create-league-name"
             inputRef={nameRef}
-            label="League name"
+            label={<>League name<span aria-hidden="true"> *</span></>}
             required
             fullWidth
-            sx={inputSx}
             value={leagueName}
             error={Boolean(shown.leagueName)}
-            helperText={shown.leagueName}
+            helperText={errorText(shown.leagueName)}
             onChange={(event) => update({ leagueName: event.target.value })}
           />
-          <TextField
+          <KitTextField
             id="create-league-team-name"
             inputRef={teamRef}
-            label="Team name"
+            label={<>Team name<span aria-hidden="true"> *</span></>}
             required
             fullWidth
             inputProps={{ maxLength: 120 }}
-            sx={inputSx}
-            value={teamName}
             error={Boolean(shown.teamName)}
-            helperText={shown.teamName
+            helperText={errorText(shown.teamName)
               || "Your team's identity in this league. Other managers never see your account email or username."}
             onChange={(event) => update({ teamName: event.target.value })}
+            value={teamName}
           />
           <Box>
-            <Stack direction="row" spacing={1} alignItems="flex-start" sx={{ flexWrap: 'wrap', rowGap: 1 }}>
+            <Stack direction="row" alignItems="flex-end" sx={{ flexWrap: 'wrap', gap: '8px' }}>
               <IconButton
                 aria-label={pickemOnly ? 'Fewer managers' : 'Fewer teams'}
                 onClick={() => stepTeams(-1)}
@@ -612,7 +568,7 @@ export default function CreateLeagueStepper({ open, onClose, onCreated }) {
               >
                 <RemoveIcon />
               </IconButton>
-              <TextField
+              <KitTextField
                 id="create-league-size"
                 inputRef={countRef}
                 label={pickemOnly ? 'Managers' : 'Teams'}
@@ -620,11 +576,7 @@ export default function CreateLeagueStepper({ open, onClose, onCreated }) {
                 inputProps={{
                   min: MIN_TEAMS, max: cap, step: 1, 'aria-describedby': 'create-league-size-helper-text',
                 }}
-                sx={{
-                  ...inputSx,
-                  width: 120,
-                  '& .MuiInputBase-input': { fontFamily: DISPLAY_FONT, fontSize: '22px', fontWeight: 700, fontVariantNumeric: 'tabular-nums' },
-                }}
+                sx={{ width: 120 }}
                 value={numTeams}
                 error={Boolean(shown.numTeams)}
                 onChange={(event) => update({ numTeams: event.target.value })}
@@ -639,36 +591,32 @@ export default function CreateLeagueStepper({ open, onClose, onCreated }) {
               </IconButton>
               <Stack
                 direction="row"
-                spacing={1}
                 role="group"
                 aria-label={`Common league sizes, in ${sizeNoun}`}
-                sx={{ pl: { sm: 1 }, pt: 0.5 }}
+                sx={{ flexWrap: 'wrap', gap: '8px', pl: { sm: '8px' } }}
               >
                 {presets.map((n) => (
-                  <Button
+                  <PsButton
                     key={n}
-                    type="button"
-                    variant={count === n ? 'contained' : 'outlined'}
+                    variant={count === n ? 'selected' : 'ghost'}
                     aria-pressed={count === n ? 'true' : 'false'}
                     onClick={() => update({ numTeams: n })}
-                    sx={presetSx(count === n)}
                   >
                     {n}
-                  </Button>
+                  </PsButton>
                 ))}
               </Stack>
             </Stack>
             {/* The count's helper sits under the whole row, tied to the
                 number field so its error is read with it. */}
-            <Typography
+            <Dim
               id="create-league-size-helper-text"
-              variant="body2"
-              sx={{ ...helpSx, mt: 1, fontWeight: shown.numTeams ? 600 : 400, ...(shown.numTeams ? { color: 'var(--dash-danger)' } : {}) }}
+              sx={{ mt: '8px', fontWeight: shown.numTeams ? 700 : 400, ...(shown.numTeams ? { color: 'var(--ps-danger)' } : {}) }}
             >
               {shown.numTeams || (pickemOnly
                 ? `${MIN_TEAMS} to ${cap} managers. Pick'em pools have no schedule to balance.`
                 : `${MIN_TEAMS} to ${cap} teams. Even numbers make a cleaner head-to-head schedule.`)}
-            </Typography>
+            </Dim>
           </Box>
         </>
       );
@@ -678,9 +626,9 @@ export default function CreateLeagueStepper({ open, onClose, onCreated }) {
         <>
           <Box key="h2">
             <StepHeading eyebrow={eyebrow}>House rules</StepHeading>
-            <Typography sx={{ ...dimSx, mt: 0.5 }}>
+            <Dim sx={{ mt: '12px', fontSize: '15px' }}>
               All of these can change later in League settings, until the season locks them.
-            </Typography>
+            </Dim>
           </Box>
           {hasFantasy && (
             <>
@@ -696,9 +644,9 @@ export default function CreateLeagueStepper({ open, onClose, onCreated }) {
                 sx={optionCardSx(bestBall)}
                 control={<Checkbox checked={bestBall} onChange={(event) => update({ bestBall: event.target.checked })} />}
                 label={(
-                  <Box>
-                    <Typography sx={{ fontSize: '15px', fontWeight: 600 }}>Best ball</Typography>
-                    <Typography variant="body2" sx={helpSx}>
+                  <Box sx={{ pt: '8px' }}>
+                    <Typography sx={{ fontSize: '15px', fontWeight: 700, fontFamily: 'inherit' }}>Best ball</Typography>
+                    <Typography className="ps-help" sx={{ ...helpSx, color: undefined }}>
                       An optimal lineup is set automatically each week, with no manual lineup edits.
                     </Typography>
                   </Box>
@@ -716,9 +664,9 @@ export default function CreateLeagueStepper({ open, onClose, onCreated }) {
                 options={PICKEM_MODE_OPTIONS.map(({ value, label }) => ({ value, label }))}
                 columns={2}
               />
-              <Typography variant="caption" sx={{ ...dimSx, fontSize: '12px', display: 'block', mt: 0.5 }}>
+              <Dim sx={{ mt: '8px' }}>
                 The mode can only change before the season&apos;s first pick.
-              </Typography>
+              </Dim>
             </Box>
           )}
           <Box>
@@ -732,10 +680,9 @@ export default function CreateLeagueStepper({ open, onClose, onCreated }) {
             />
             {isPublic && (
               <FormControlLabel
-                sx={{ mt: 1, minHeight: 44, color: 'var(--dash-ink)' }}
+                sx={{ ...checkRowSx, mt: '8px' }}
                 control={(
                   <Checkbox
-                    sx={choiceControlSx}
                     checked={joinApproval}
                     onChange={(event) => update({ joinApproval: event.target.checked })}
                   />
@@ -763,26 +710,23 @@ export default function CreateLeagueStepper({ open, onClose, onCreated }) {
                 columns={2}
               />
               {draftMode === 'schedule' && (
-                <Box sx={draftScheduleSx}>
-                  <DraftScheduleField
-                    wallTime={draftDate}
-                    onWallTimeChange={(value) => update({ draftDate: value })}
-                    timeZone={draftTimezone}
-                    onTimeZoneChange={(value) => update({ draftTimezone: value })}
-                    acknowledged={draftAcknowledged}
-                    onAcknowledgedChange={(value) => update({ draftAcknowledged: value })}
-                    error={shown.draftDate}
-                    acknowledgeError={shown.draftAcknowledged}
-                  />
-                </Box>
+                <DraftScheduleField
+                  look="playselect"
+                  wallTime={draftDate}
+                  onWallTimeChange={(value) => update({ draftDate: value })}
+                  timeZone={draftTimezone}
+                  onTimeZoneChange={(value) => update({ draftTimezone: value })}
+                  acknowledged={draftAcknowledged}
+                  onAcknowledgedChange={(value) => update({ draftAcknowledged: value })}
+                  error={shown.draftDate}
+                  acknowledgeError={shown.draftAcknowledged}
+                />
               )}
             </>
           ) : (
-            <Box sx={{ p: 3, borderRadius: 'var(--dash-radius-sm)', backgroundColor: 'var(--dash-surface2)', border: HAIRLINE }}>
-              <Typography sx={{ fontWeight: 600 }}>Pick&apos;em leagues don&apos;t draft.</Typography>
-              <Typography variant="body2" sx={helpSx}>
-                Managers start picking as soon as they join. Continue to review.
-              </Typography>
+            <Box sx={{ p: '16px 20px', border: RULE }}>
+              <Box component="p" sx={{ m: 0, fontWeight: 700 }}>Pick&apos;em leagues don&apos;t draft.</Box>
+              <Dim>Managers start picking as soon as they join. Continue to review.</Dim>
             </Box>
           )}
         </>
@@ -792,14 +736,14 @@ export default function CreateLeagueStepper({ open, onClose, onCreated }) {
       <>
         <StepHeading key="h4" eyebrow={eyebrow}>Look good?</StepHeading>
         {createError && (
-          <Alert severity="error" sx={alertSx('danger', { titleTone: true })}>
-            <AlertTitle>We couldn&apos;t create the league.</AlertTitle>
+          <Note warn>
+            <Box component="p" sx={{ m: 0, fontWeight: 700 }}>We couldn&apos;t create the league.</Box>
             {createError}
             {' '}
             Your answers are still here, so try again in a moment.
-          </Alert>
+          </Note>
         )}
-        <Box component="dl" sx={{ m: 0, border: HAIRLINE, borderRadius: 'var(--dash-radius-sm)', overflow: 'hidden' }}>
+        <Box component="dl" sx={{ m: 0, border: RULE }}>
           {reviewRows.map((row) => (
             <Box
               key={row.key}
@@ -807,37 +751,34 @@ export default function CreateLeagueStepper({ open, onClose, onCreated }) {
                 display: 'grid',
                 gridTemplateColumns: { xs: 'minmax(0, 1fr) auto', sm: '140px minmax(0, 1fr) auto' },
                 alignItems: 'center',
-                columnGap: 2,
-                py: 0.5,
-                pl: 2,
-                pr: 1,
-                borderBottom: HAIRLINE,
+                columnGap: '16px',
+                py: '4px',
+                pl: '16px',
+                pr: '8px',
+                borderBottom: RULE,
                 '&:last-of-type': { borderBottom: 0 },
               }}
             >
-              <Typography component="dt" variant="body2" sx={{ ...dimSx, fontWeight: 600 }}>
+              <Box component="dt" sx={{ ...helpSx, fontWeight: 600 }}>
                 {row.key}
-              </Typography>
-              <Typography
+              </Box>
+              <Box
                 component="dd"
                 sx={{
                   m: 0,
-                  fontWeight: 500,
+                  fontWeight: 600,
                   gridColumn: { xs: '1', sm: 'auto' },
                   gridRow: { xs: '2', sm: 'auto' },
-                  color: row.ok ? 'var(--dash-ink)' : 'var(--dash-danger)',
+                  color: row.ok ? 'var(--ps-ink)' : 'var(--ps-danger)',
                 }}
               >
                 {row.value}
-              </Typography>
-              <Button
-                type="button"
-                aria-label={`Edit ${row.key.toLowerCase()}`}
-                onClick={() => goTo(row.step)}
-                sx={{ ...quietButtonSx, ...MIN_TOUCH_TARGET_SX, gridRow: { xs: '1 / span 2', sm: 'auto' }, gridColumn: { xs: '2', sm: 'auto' } }}
-              >
-                Edit
-              </Button>
+              </Box>
+              <Box sx={{ gridRow: { xs: '1 / span 2', sm: 'auto' }, gridColumn: { xs: '2', sm: 'auto' } }}>
+                <PsButton variant="quiet" ariaLabel={`Edit ${row.key.toLowerCase()}`} onClick={() => goTo(row.step)}>
+                  Edit
+                </PsButton>
+              </Box>
             </Box>
           ))}
         </Box>
@@ -857,50 +798,68 @@ export default function CreateLeagueStepper({ open, onClose, onCreated }) {
       maxWidth="lg"
       fullScreen={fullScreen}
       TransitionProps={{ onExited: handleExited }}
-      PaperProps={{ sx: dialogPaperSx('var(--dash-surface)', { fullScreen }) }}
+      BackdropProps={{ sx: SCRIM_SX }}
+      PaperProps={{
+        className: 'ps-root',
+        sx: {
+          border: '6px double var(--ps-frame)',
+          borderRadius: 0,
+          backgroundColor: 'var(--ps-panel)',
+          backgroundImage: 'none',
+          boxShadow: 'none',
+          color: 'var(--ps-ink)',
+          fontFamily: BODY_FONT,
+          ...(fullScreen ? { m: 0 } : null),
+        },
+      }}
     >
       <Box
         sx={{
           position: 'relative',
           display: 'grid',
-          gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: '220px minmax(0, 1fr) 280px' },
+          gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: '240px minmax(0, 1fr) 280px' },
           minHeight: { md: 640 },
         }}
       >
-        <IconButton
+        <Box
+          component="button"
+          type="button"
           aria-label={done ? 'Close' : 'Close. Your answers are kept.'}
           onClick={handleClose}
-          sx={{ ...MIN_TOUCH_TARGET_SX, position: 'absolute', top: 8, right: 8, zIndex: 1, color: 'var(--dash-dim)' }}
+          sx={{
+            position: 'absolute',
+            top: 8,
+            right: 8,
+            zIndex: 1,
+            display: 'grid',
+            placeItems: 'center',
+            width: '44px',
+            height: '44px',
+            p: 0,
+            border: '2px solid var(--ps-ink)',
+            borderRadius: 0,
+            background: 'var(--ps-panel)',
+            color: 'var(--ps-ink)',
+          }}
         >
-          <CloseIcon />
-        </IconButton>
+          <PixelClose size={16} />
+        </Box>
 
         <Box
           component="nav"
           aria-label="Create league steps"
           sx={{
-            backgroundColor: 'var(--dash-surface2)',
-            borderRight: { md: 1 },
-            borderBottom: { xs: 1, md: 0 },
-            borderColor: 'var(--dash-line)',
-            p: { xs: 2, md: 3 },
-            pr: { xs: 7, md: 2 },
+            backgroundColor: 'var(--ps-field)',
+            borderRight: { md: RULE },
+            borderBottom: { xs: RULE, md: 0 },
+            p: { xs: '14px', md: '20px 16px' },
+            pr: { xs: '64px', md: '16px' },
             display: 'flex',
             flexDirection: 'column',
-            gap: 1,
+            gap: '12px',
           }}
         >
-          <DialogTitle
-            sx={{
-              p: 0,
-              mb: { md: 1.5 },
-              fontFamily: DISPLAY_FONT,
-              fontSize: { xs: '24px', md: '28px' },
-              fontWeight: 700,
-              lineHeight: 1,
-              textTransform: 'uppercase',
-            }}
-          >
+          <DialogTitle sx={{ p: 0, mb: { md: '8px' }, ...pixelSx(16) }}>
             Create a league
           </DialogTitle>
           <Box
@@ -908,11 +867,12 @@ export default function CreateLeagueStepper({ open, onClose, onCreated }) {
             sx={{
               listStyle: 'none',
               m: 0,
-              p: 0,
               display: 'flex',
               flexDirection: { xs: 'row', md: 'column' },
-              gap: 0.5,
+              gap: '6px',
               overflowX: { xs: 'auto', md: 'visible' },
+              // The scroll box clips the 7px focus halo, so keep room around the buttons.
+              p: { xs: '8px', md: 0 },
             }}
           >
             {STEP_LABELS.map((label, i) => {
@@ -928,66 +888,65 @@ export default function CreateLeagueStepper({ open, onClose, onCreated }) {
               let sub = railSubs[i];
               if (i > reached) sub = 'Not started';
               else if (needsFix) sub = 'Needs attention';
+              let mark = i + 1;
+              if (past) mark = <PixelCheck size={14} />;
+              else if (needsFix) mark = <PixelWarn color="var(--ps-danger)" />;
               return (
                 <Box component="li" key={label} sx={{ flexShrink: 0 }}>
-                  <Button
+                  <Box
+                    component="button"
                     type="button"
-                    fullWidth
-                    color="inherit"
                     aria-current={current ? 'step' : undefined}
                     aria-disabled={locked ? 'true' : 'false'}
                     onClick={() => goTo(i)}
-                    // The current step lifts to `dash-surface` (a card), as
-                    // does a hovered one; the rest sit on the rail's stat tile.
+                    // The current step is the Play blue with an arrow as its non-colour mark.
                     sx={{
-                      minHeight: 56,
+                      width: '100%',
+                      minHeight: '56px',
+                      display: 'flex',
+                      alignItems: 'center',
                       justifyContent: 'flex-start',
                       textAlign: 'left',
-                      textTransform: 'none',
-                      gap: 1.5,
-                      px: 1.25,
-                      borderRadius: 'var(--dash-radius-sm)',
-                      color: 'var(--dash-ink)',
-                      backgroundColor: current ? 'var(--dash-surface)' : 'transparent',
+                      gap: '12px',
+                      p: '6px 10px',
+                      borderRadius: 0,
+                      border: '2px solid',
+                      borderColor: current ? 'var(--ps-play)' : 'transparent',
+                      color: current ? 'var(--ps-play-ink)' : 'var(--ps-ink)',
+                      backgroundColor: current ? 'var(--ps-play)' : 'transparent',
                       cursor: locked ? 'not-allowed' : 'pointer',
-                      '&:hover': { backgroundColor: 'var(--dash-surface)' },
+                      fontFamily: 'inherit',
                     }}
                   >
                     <Box
                       component="span"
                       aria-hidden="true"
                       sx={{
-                        width: 28,
-                        height: 28,
+                        width: '28px',
+                        height: '28px',
                         flexShrink: 0,
-                        borderRadius: '50%',
-                        border: 2,
-                        borderColor: current || past ? 'var(--dash-accent)' : (needsFix ? 'var(--dash-warning)' : 'var(--dash-dim)'),
-                        backgroundColor: past ? 'var(--dash-accent)' : 'transparent',
-                        color: past ? 'var(--dash-on-accent)' : (current ? 'var(--dash-accent)' : 'var(--dash-dim)'),
+                        boxSizing: 'border-box',
+                        border: '2px solid currentColor',
                         display: 'grid',
                         placeItems: 'center',
-                        fontSize: 13,
+                        fontSize: '14px',
                         fontWeight: 700,
                       }}
                     >
-                      {past ? <CheckIcon sx={{ fontSize: 16 }} /> : i + 1}
+                      {mark}
                     </Box>
                     <Box component="span" sx={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-                      <Box component="span" sx={{ fontSize: 14, fontWeight: 600 }}>
+                      <Box component="span" sx={{ fontSize: '15px', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
                         {label}
+                        {current && <PixelArrow />}
                         <Box component="span" sx={visuallyHidden}>{srState}</Box>
                       </Box>
                       <Box
                         component="span"
                         sx={{
                           display: { xs: 'none', md: 'block' },
-                          fontSize: 12,
-                          // Needs attention reads in ink, not the warning
-                          // color: warning TEXT is registered on a card, not on
-                          // the rail's stat tile. The ring carries the tone.
-                          color: needsFix ? 'var(--dash-ink)' : 'var(--dash-dim)',
-                          fontWeight: needsFix ? 600 : 400,
+                          fontSize: '13px',
+                          color: current ? 'var(--ps-play-dim)' : 'var(--ps-dim)',
                           whiteSpace: 'nowrap',
                           overflow: 'hidden',
                           textOverflow: 'ellipsis',
@@ -996,14 +955,14 @@ export default function CreateLeagueStepper({ open, onClose, onCreated }) {
                         {sub}
                       </Box>
                     </Box>
-                  </Button>
+                  </Box>
                 </Box>
               );
             })}
           </Box>
-          <Typography variant="caption" sx={{ ...dimSx, fontSize: '12px', mt: 'auto', display: { xs: 'none', md: 'block' } }}>
+          <Dim sx={{ mt: 'auto', fontSize: '13px', display: { xs: 'none', md: 'block' } }}>
             Your answers are kept if you close this and come back.
-          </Typography>
+          </Dim>
         </Box>
 
         <Box
@@ -1017,116 +976,74 @@ export default function CreateLeagueStepper({ open, onClose, onCreated }) {
               spacing={2}
               alignItems="center"
               justifyContent="center"
-              sx={{ flexGrow: 1, textAlign: 'center', px: { xs: 2, sm: 5 }, py: 5 }}
+              sx={{ flexGrow: 1, textAlign: 'center', px: { xs: '14px', sm: '40px' }, py: '40px' }}
             >
               <Box
                 aria-hidden="true"
                 sx={{
-                  width: 72,
-                  height: 72,
-                  borderRadius: '50%',
+                  width: '72px',
+                  height: '72px',
                   display: 'grid',
                   placeItems: 'center',
-                  color: 'var(--dash-accent)',
-                  border: '2px solid var(--dash-accent)',
-                  backgroundColor: 'var(--dash-accent-soft)',
+                  color: 'var(--ps-ink)',
+                  border: '2px solid var(--ps-ink)',
                 }}
               >
-                <CheckIcon sx={{ fontSize: 36 }} />
+                <PixelCheck size={36} />
               </Box>
               <StepHeading key="done">{`${leagueName.trim() || 'Your league'} is ready`}</StepHeading>
               {inviteCode && (
                 <>
-                  <Typography sx={{ ...dimSx, maxWidth: 420 }}>
+                  <Dim sx={{ maxWidth: 420, fontSize: '15px' }}>
                     Share the invite code so managers can join. You&apos;ll see each one land in Activity.
-                  </Typography>
+                  </Dim>
                   <Stack
                     direction={{ xs: 'column', sm: 'row' }}
                     spacing={1.5}
                     alignItems="center"
-                    sx={{ p: 1.25, pl: { sm: 2.5 }, borderRadius: 'var(--dash-radius-sm)', border: HAIRLINE, backgroundColor: 'var(--dash-surface2)' }}
+                    sx={{ p: '10px 12px', border: RULE }}
                   >
                     <Box
                       component="code"
-                      sx={{ fontFamily: 'ui-monospace, SFMono-Regular, Consolas, monospace', fontSize: 22, fontWeight: 700, letterSpacing: '0.08em', color: 'var(--dash-ink)' }}
+                      sx={{ fontFamily: 'ui-monospace, SFMono-Regular, Consolas, monospace', fontSize: '22px', fontWeight: 700, letterSpacing: '0.08em', color: 'var(--ps-ink)' }}
                     >
                       {inviteCode}
                     </Box>
-                    <Button
-                      type="button"
-                      variant="outlined"
-                      aria-label={`Copy invite code ${inviteCode}`}
-                      onClick={() => copy(inviteCode, 'Invite code copied')}
-                      sx={{ ...ghostButtonSx, ...MIN_TOUCH_TARGET_SX }}
-                    >
+                    <PsButton ariaLabel={`Copy invite code ${inviteCode}`} onClick={() => copy(inviteCode, 'Invite code copied')}>
                       Copy
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outlined"
-                      onClick={() => copy(joinLink(inviteCode), 'Invite link copied')}
-                      sx={{ ...ghostButtonSx, ...MIN_TOUCH_TARGET_SX }}
-                    >
+                    </PsButton>
+                    <PsButton onClick={() => copy(joinLink(inviteCode), 'Invite link copied')}>
                       Copy invite link
-                    </Button>
+                    </PsButton>
                   </Stack>
                 </>
               )}
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ pt: 1 }}>
                 {createdId != null && (
-                  <Button
-                    component={RouterLink}
-                    to={`/league/${createdId}`}
-                    variant="contained"
-                    size="large"
-                    onClick={handleClose}
-                    sx={{ ...primaryButtonSx, ...bigButtonSx }}
-                  >
+                  <PsButton variant="fill" to={`/league/${createdId}`} onClick={handleClose}>
                     Go to league
-                  </Button>
+                  </PsButton>
                 )}
-                <Button type="button" variant="outlined" size="large" onClick={handleClose} sx={{ ...ghostButtonSx, ...bigButtonSx }}>
-                  Done
-                </Button>
+                <PsButton onClick={handleClose}>Done</PsButton>
               </Stack>
             </Stack>
           ) : (
             <>
-              <Stack spacing={3} sx={{ flexGrow: 1, px: { xs: 2, sm: 5 }, pt: { xs: 3, sm: 4.5 }, pb: 3 }}>
+              <Stack spacing={3} sx={{ flexGrow: 1, px: { xs: '14px', sm: '40px' }, pt: { xs: '24px', sm: '36px' }, pb: '24px' }}>
                 {stepBody()}
               </Stack>
-              <Box
-                sx={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  flexWrap: 'wrap',
-                  gap: 1.5,
-                  px: { xs: 2, sm: 5 },
-                  py: 2,
-                  borderTop: HAIRLINE,
-                }}
-              >
-                <Typography role="status" variant="body2" sx={{ mr: 'auto', fontWeight: 600, color: 'var(--dash-danger)' }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '12px', p: { xs: '12px 14px', sm: '16px 40px' }, borderTop: RULE }}>
+                <Box role="status" sx={{ mr: 'auto', fontSize: '14px', fontWeight: 700, color: 'var(--ps-danger)' }}>
                   {hint}
-                </Typography>
+                </Box>
                 {step === 0 ? (
-                  <Button type="button" variant="outlined" size="large" onClick={handleClose} sx={{ ...ghostButtonSx, ...bigButtonSx }}>
-                    Cancel
-                  </Button>
+                  <PsButton onClick={handleClose}>Cancel</PsButton>
                 ) : (
-                  <Button type="button" variant="outlined" size="large" onClick={() => goTo(step - 1)} sx={{ ...ghostButtonSx, ...bigButtonSx }}>
-                    Back
-                  </Button>
+                  <PsButton onClick={() => goTo(step - 1)}>Back</PsButton>
                 )}
-                <Button
-                  type="submit"
-                  variant="contained"
-                  size="large"
-                  aria-disabled={pending ? 'true' : undefined}
-                  sx={{ ...primaryButtonSx, ...bigButtonSx }}
-                >
+                <PsButton type="submit" variant="fill" aria-disabled={pending ? 'true' : undefined}>
                   {submitLabel}
-                </Button>
+                </PsButton>
               </Box>
             </>
           )}
@@ -1136,75 +1053,66 @@ export default function CreateLeagueStepper({ open, onClose, onCreated }) {
           component="aside"
           aria-label="League preview"
           sx={{
-            backgroundColor: 'var(--dash-surface2)',
-            borderLeft: { md: 1 },
-            borderTop: { xs: 1, md: 0 },
-            borderColor: 'var(--dash-line)',
-            p: { xs: 2, md: 2.5 },
-            pt: { md: 9 },
+            backgroundColor: 'var(--ps-field)',
+            borderLeft: { md: RULE },
+            borderTop: { xs: RULE, md: 0 },
+            p: { xs: '14px', md: '20px' },
+            pt: { md: '72px' },
             display: 'flex',
             flexDirection: 'column',
-            gap: 2,
+            gap: '16px',
           }}
         >
-          <Typography
-            variant="overline"
-            component="p"
-            sx={{ ...dimSx, fontSize: '12px', fontWeight: 700, letterSpacing: '0.08em', lineHeight: 1.6 }}
-          >
+          <Box component="p" sx={{ ...helpSx, m: 0, fontWeight: 700 }}>
             Preview
-          </Typography>
-          <Box sx={{ backgroundColor: 'var(--dash-surface)', border: HAIRLINE, borderRadius: 'var(--dash-radius)', overflow: 'hidden' }}>
-            <Stack direction="row" spacing={1.25} alignItems="center" sx={{ p: 2, borderBottom: HAIRLINE }}>
+          </Box>
+          <Frame tier="rule" component="div">
+            <Stack direction="row" spacing={1.5} alignItems="center" sx={{ p: '14px', borderBottom: RULE }}>
               <Box
                 aria-hidden="true"
                 sx={{
-                  width: 40,
-                  height: 40,
+                  width: '40px',
+                  height: '40px',
                   flexShrink: 0,
-                  borderRadius: 'var(--dash-radius-sm)',
-                  backgroundColor: 'var(--dash-surface3)',
+                  border: '2px solid var(--ps-ink)',
                   display: 'grid',
                   placeItems: 'center',
-                  fontFamily: DISPLAY_FONT,
-                  fontSize: 20,
-                  fontWeight: 700,
+                  ...pixelSx(16),
                 }}
               >
                 {(leagueName.trim()[0] || '?').toUpperCase()}
               </Box>
               <Box sx={{ minWidth: 0 }}>
-                <Typography noWrap sx={{ fontWeight: 600 }} title={leagueName || undefined}>
+                <Typography noWrap sx={{ fontWeight: 700, fontFamily: 'inherit' }} title={leagueName || undefined}>
                   {leagueName || 'Untitled league'}
                 </Typography>
-                <Typography noWrap variant="caption" component="p" sx={{ ...dimSx, fontSize: '13px' }}>
+                <Typography noWrap component="p" sx={helpSx}>
                   {`${teamName || 'Your team'} · Commissioner`}
                 </Typography>
               </Box>
             </Stack>
-            <Box component="ul" sx={{ listStyle: 'none', m: 0, p: 2, display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
+            <Box component="ul" sx={{ listStyle: 'none', m: 0, p: '14px', display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
               {chips.map((chip) => (
                 <Box
                   component="li"
                   key={chip}
                   sx={{
-                    px: 1.25,
-                    py: 0.25,
-                    borderRadius: 999,
-                    border: '1px solid var(--dash-line-strong)',
-                    fontSize: 12,
+                    px: '10px',
+                    py: '2px',
+                    border: '2px solid var(--ps-dim)',
+                    fontSize: '13px',
                     fontWeight: 600,
-                    color: 'var(--dash-dim)',
+                    color: 'var(--ps-ink)',
                   }}
                 >
                   {chip}
                 </Box>
               ))}
             </Box>
-          </Box>
-          <Typography variant="body2" sx={helpSx}>
+          </Frame>
+          <Dim>
             This is how the league appears on your home screen. You&apos;ll be its commissioner.
-          </Typography>
+          </Dim>
         </Box>
       </Box>
     </Dialog>

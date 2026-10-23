@@ -1,5 +1,7 @@
 import React, { useId, useRef, useState } from 'react';
-import { Box, Button, TextField, Typography } from '@mui/material';
+import { Box } from '@mui/material';
+import { PsButton } from '../../shared/ui/playselect';
+import ChatField from './ChatField';
 import { firstGifProviderId } from '../../lib/gifProvider';
 // One shape and one definition of "empty" for the GIF composition, shared with
 // the hook that stores it (#524), so the composer and the store never drift.
@@ -122,16 +124,16 @@ function GifComposer({ enabled = false, onSendGif, composition, onCompositionCha
 
   return (
     <Box sx={{ mt: 1 }}>
-      <Button
+      <PsButton
         ref={triggerRef}
-        size="small"
+        variant="quiet"
         data-testid="gif-picker-trigger"
-        aria-expanded={open}
-        aria-controls={open ? panelId : undefined}
+        ariaExpanded={open}
+        ariaControls={open ? panelId : undefined}
         onClick={() => setOpen((v) => !v)}
       >
         Add a GIF
-      </Button>
+      </PsButton>
       {open && (
         <Box
           id={panelId}
@@ -140,54 +142,49 @@ function GifComposer({ enabled = false, onSendGif, composition, onCompositionCha
           sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 1 }}
         >
           {!providerId && (
-            <Typography variant="caption" sx={{ color: 'var(--text-muted)' }}>
+            <Box sx={{ fontSize: '14px', color: 'var(--ps-dim)' }}>
               The GIF picker becomes available once a provider is enabled.
-            </Typography>
+            </Box>
           )}
-          <TextField
+          <ChatField
             label="GIF asset id"
-            size="small"
             value={assetId}
             onChange={(e) => updateComposition({ assetId: e.target.value })}
             onKeyDown={onFieldKeyDown}
           />
-          <TextField
+          <ChatField
             label="Description"
-            size="small"
             required
             value={description}
             onChange={(e) => updateComposition({ description: e.target.value })}
             onBlur={() => setDescriptionTouched(true)}
             onKeyDown={onFieldKeyDown}
             error={descriptionError}
-            helperText={descriptionError
+            hint={descriptionError
               ? 'A description is required before this GIF can be sent.'
               : 'A short accessible description of the GIF. Required to send.'}
           />
-          <TextField
+          <ChatField
             label="Caption (optional)"
-            size="small"
             value={caption}
             onChange={(e) => updateComposition({ caption: e.target.value })}
             onKeyDown={onFieldKeyDown}
           />
           <Box sx={{ display: 'flex', gap: 1 }}>
-            <Button
-              size="small"
-              variant="contained"
+            <PsButton
               data-testid="gif-send"
               disabled={!canSend}
               onClick={handleSend}
             >
               Send GIF
-            </Button>
+            </PsButton>
             {/* "Cancel GIF", not a bare "Cancel": the same conversation can show
                 the moderation hide form, whose own Cancel (ChatConversation) would
                 otherwise be a second button with the identical accessible name in
                 one region - ambiguous in a button list and a strict-mode locator
                 hazard. The visible label IS the accessible name (no aria-label),
                 so WCAG 2.5.3 holds. */}
-            <Button size="small" onClick={reset}>Cancel GIF</Button>
+            <PsButton variant="quiet" onClick={reset}>Cancel GIF</PsButton>
           </Box>
         </Box>
       )}

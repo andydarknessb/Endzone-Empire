@@ -1,15 +1,16 @@
 import React from 'react';
 import { Box } from '@mui/material';
-import { useSnackbar } from '../Snackbar/SnackbarProvider';
-import { formatViewerLocalSchedule } from '../../lib/draftTimeFormat';
-import { formatInstant } from '../../shared/lib/instantFormat';
-import { deriveLeaguePhase, LEAGUE_PHASE, LEAGUE_PHASE_META } from '../../shared/lib/leaguePhase';
+import { useSnackbar } from '../../Snackbar/SnackbarProvider';
+import { formatViewerLocalSchedule } from '../../../lib/draftTimeFormat';
+import { formatInstant } from '../../../shared/lib/instantFormat';
+import { deriveLeaguePhase, LEAGUE_PHASE, LEAGUE_PHASE_META } from '../../../shared/lib/leaguePhase';
 // The narrow module, not the entity index: this card is in the initial chunk
 // and the index drags the hooks, the supabase client and their lazy routes in.
-import { matchupBoard } from '../../entities/matchup/model/matchupBoard';
-import { teamStandingFromRow } from '../../entities/standings';
-import { PsButton, PsLink, OddsBar, Pictogram, SR_ONLY_SX, pixelSx } from '../../shared/ui/playselect';
-import { LeagueLinks, LeaguePanel, PickemTile, ScoreTile } from '../UserPage/home';
+import { matchupBoard } from '../../../entities/matchup/model/matchupBoard';
+import { teamStandingFromRow } from '../../../entities/standings';
+import { PsButton, PsLink, OddsBar, Pictogram, SR_ONLY_SX, pixelSx } from '../../../shared/ui/playselect';
+import { LeagueLinks, LeaguePanel } from './League';
+import { PickemTile, ScoreTile } from './Tiles';
 
 /**
  * One league on /user, told through its status block (GET /api/league?include=status,
@@ -35,16 +36,16 @@ const LIVE_PHASES = [LEAGUE_PHASE.IN_SEASON, LEAGUE_PHASE.PLAYOFFS];
 // The server copy of deriveLeaguePhase shares the client's hyphenated values;
 // an underscore spelling (the contract's sample reads "in_season") is read as
 // the same phase rather than as an unknown one.
-export function leaguePhaseOf(league) {
+function leaguePhaseOf(league) {
   const phase = league?.status?.phase || deriveLeaguePhase(league);
   return typeof phase === 'string' ? phase.replace(/_/g, '-') : phase;
 }
 
-export function hasStatus(league) {
+function hasStatus(league) {
   return Boolean(league?.status) && league.statusError !== true;
 }
 
-export function statusVariant(league) {
+function statusVariant(league) {
   if (!hasStatus(league)) return 'fallback';
   const { status } = league;
   if (status.draft) return 'draft';
@@ -82,10 +83,11 @@ const fmt = (v) => {
 /** 0..100 chance the viewer's side wins: the server's figure once v2 ships, else v1 on the two Expected finals. */
 function winPct(matchup, board) {
   const server = finiteOrNull(matchup.winProbability);
-  const p = server ?? (board.winProbability ?? board.projectedWinProbability)?.home;
+  const p = server ?? (board.winProbability ?? board.projectedWinProbability)?.first;
   return p == null ? null : Math.round(p * 100);
 }
 
+// `my` is the viewer's side and rides as home: with no viewer id the board puts home first.
 const boardOf = (matchup) => matchupBoard({ status: matchup.status, home: matchup.my, away: matchup.opp });
 
 function lineupText(lineup) {
@@ -113,7 +115,7 @@ function leagueLinks(league) {
  * probability (the tile's bar needs one; without it the league stays a panel),
  * 'pickem' for a pick'em-only league on game day, else null.
  */
-export function tileKind(league, live = false) {
+function tileKind(league, live = false) {
   const variant = statusVariant(league);
   if (variant === 'fantasy') {
     const { matchup } = league.status;
@@ -127,7 +129,7 @@ export function tileKind(league, live = false) {
  * The live score as the tile shows it ("87.4|71.2", no figure reads as 0.0), so
  * a refresh that changes what is on screen can be told from one that does not.
  */
-export function scoreSignature(league) {
+function scoreSignature(league) {
   const { my, opp } = league.status.matchup;
   const shown = (score) => (finiteOrNull(score) ?? 0).toFixed(1);
   return `${shown(my?.score)}|${shown(opp?.score)}`;
@@ -296,7 +298,7 @@ function FantasyBody({ league }) {
       </>
     );
   }
-  const projected = board.home.expectedFinal != null && board.away.expectedFinal != null;
+  const projected = board.first.expectedFinal != null && board.second.expectedFinal != null;
   const pct = winPct(matchup, board);
   const lineup = status.lineup && (lineupText(status.lineup) || 'Lineup set');
   return (
@@ -304,8 +306,8 @@ function FantasyBody({ league }) {
       <StatusLine league={league} sub={sub} />
       {projected && (
         <PanelSides
-          you={fmt(board.home.expectedFinal)}
-          opp={{ name: opponent, score: fmt(board.away.expectedFinal) }}
+          you={fmt(board.first.expectedFinal)}
+          opp={{ name: opponent, score: fmt(board.second.expectedFinal) }}
           mid="Projected"
         />
       )}
@@ -439,13 +441,13 @@ function ScoreTileFor({ league, scored }) {
     <ScoreTile
       league={league.name}
       status={statusLine}
-      you={{ name: 'You', score: board.home.scoreLabel, note: playersNote(myLeft) }}
-      opp={{ name: opponent, score: board.away.scoreLabel, note: playersNote(theirLeft) }}
+      you={{ name: 'You', score: board.first.scoreLabel, note: playersNote(myLeft) }}
+      opp={{ name: opponent, score: board.second.scoreLabel, note: playersNote(theirLeft) }}
       youLeads={my >= theirs}
       margin={margin}
       pct={pct}
       to={`/league/${league.id}/matchups/${matchup.id}`}
-      ariaLabel={`${league.name} matchup: ${verb} ${opponent} ${board.home.scoreLabel} to ${board.away.scoreLabel}, ${margin.toLowerCase()}, ${pct}% win probability.${left}`}
+      ariaLabel={`${league.name} matchup: ${verb} ${opponent} ${board.first.scoreLabel} to ${board.second.scoreLabel}, ${margin.toLowerCase()}, ${pct}% win probability.${left}`}
       links={leagueLinks(league).filter((l) => l.label !== 'Matchup')}
       extra={pickem && <Box sx={{ fontSize: '14px', color: 'var(--ps-board-dim)' }}>{pickem}</Box>}
       scored={scored}
@@ -487,7 +489,7 @@ function PickemTileFor({ league }) {
 }
 
 /** One league: a tile when `tileKind` says so, else a panel. `scored` flashes a live tile's score block. */
-function LeagueStatusCard({ league, live = false, scored = false }) {
+function LeagueCard({ league, live = false, scored = false }) {
   const kind = tileKind(league, live);
   if (kind === 'score') return <ScoreTileFor league={league} scored={scored} />;
   if (kind === 'pickem') return <PickemTileFor league={league} />;
@@ -524,4 +526,5 @@ function LeagueStatusCard({ league, live = false, scored = false }) {
   );
 }
 
-export default LeagueStatusCard;
+export { tileKind, scoreSignature };
+export default LeagueCard;

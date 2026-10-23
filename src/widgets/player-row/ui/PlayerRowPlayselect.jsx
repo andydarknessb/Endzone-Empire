@@ -13,7 +13,7 @@ import {
 } from './rowParts';
 
 // The Play-select Players row (ADR 0067 wave 3, boards Waivers / WaiversPhone): the same columns and
-// the same `action` / `expansion` data objects as the dash row, drawn from `ps-*` tokens only. The
+// the `action` / `expansion` data objects the caller builds, drawn from `ps-*` tokens only. The
 // table row is sticky in its first column; the card is the phone layout. Nothing here is green or red
 // except the Danger of an under-one-hour Clear and the cursor frame that follows it.
 
@@ -66,7 +66,7 @@ function Identity({ player, onOpenPlayer, wrap }) {
   const opponent = player.nfl_opponent ? `vs ${player.nfl_opponent}` : (player.bye_week != null ? `Bye ${player.bye_week}` : null);
   return (
     <Box sx={{ display: 'flex', alignItems: wrap ? 'flex-start' : 'center', gap: '8px', minWidth: 0 }}>
-      <PlayerAvatar name={player.name} position={player.position} photoUrl={player.photo_url} look="playselect" />
+      <PlayerAvatar name={player.name} photoUrl={player.photo_url} />
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: '2px', minWidth: 0 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: wrap ? 'wrap' : 'nowrap', gap: '4px 8px' }}>
           <NameButton player={player} onOpenPlayer={onOpenPlayer} wrap={wrap} />

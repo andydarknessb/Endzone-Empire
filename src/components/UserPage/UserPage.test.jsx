@@ -16,9 +16,7 @@ jest.mock('../../api/apiClient', () => ({
   default: { get: jest.fn(), post: jest.fn(), put: jest.fn() },
 }));
 
-// LeagueStatusGrid is tested in its own file; here it renders the props UserPage hands it. The real
-// ActionQueue reads the action items over the mocked apiClient.
-jest.mock('./LeagueStatusGrid', () => ({ __esModule: true, default: require('./homeTestStubs').LeagueStatusGridStub }));
+// The real ActionQueue reads the action items over the mocked apiClient.
 
 // Push support is a browser fact jsdom lacks; the Alert prompt tests below turn it on.
 jest.mock('../../utils/push', () => ({
@@ -79,7 +77,7 @@ test('shows the leagues loading state, not first run, while leagues are loading'
   renderWithProviders(<UserPage />, { state: baseState });
   await waitFor(() => expect(apiClient.get).toHaveBeenCalled());
 
-  expect(screen.getByTestId('league-grid')).toHaveTextContent('loading');
+  expect(screen.getAllByLabelText('Loading a league')).toHaveLength(3);
   expect(screen.queryByTestId('leagues-empty-state')).not.toBeInTheDocument();
   expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Welcome back, alice');
 });
@@ -87,7 +85,7 @@ test('shows the leagues loading state, not first run, while leagues are loading'
 test('the root carries the home class and is named by the h1', async () => {
   apiClient.get.mockResolvedValue({ data: [league()] });
   renderPage();
-  await screen.findByTestId('league-grid');
+  await screen.findByRole('region', { name: /^(My leagues|Live scores)$/ });
 
   // the page root is located by id; its role is asserted through the accessible name below
   // eslint-disable-next-line testing-library/no-node-access
@@ -103,8 +101,7 @@ test('fetches the leagues with their status and hands them to the grid and the q
   expect(await screen.findByText('Sunday Ballers')).toBeInTheDocument();
   expect(apiClient.get).toHaveBeenCalledWith('/api/league', { params: { include: 'status' } });
   expect(queue()).toBeInTheDocument();
-  expect(screen.getByTestId('league-grid')).toHaveAttribute('data-live', 'false');
-  expect(screen.getByTestId('league-grid')).toHaveAttribute('data-updated', 'yes');
+  expect(screen.getByRole('region', { name: 'My leagues' })).toBeInTheDocument();
 });
 
 test('a failed leagues fetch keeps "Welcome back" and the play frame, and never claims the user has no leagues', async () => {
@@ -113,7 +110,7 @@ test('a failed leagues fetch keeps "Welcome back" and the play frame, and never 
     : Promise.resolve({ data: [] })));
   renderPage();
 
-  expect(await screen.findByText('server exploded')).toBeInTheDocument();
+  expect(await screen.findByText("Couldn't load your leagues")).toBeInTheDocument();
   expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Welcome back, alice');
   expect(queue()).toBeInTheDocument();
   expect(screen.queryByTestId('leagues-empty-state')).not.toBeInTheDocument();
@@ -141,11 +138,11 @@ test('Try again on a failed leagues fetch reads it again', async () => {
   });
   renderPage();
 
-  expect(await screen.findByText('server exploded')).toBeInTheDocument();
-  await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
+  expect(await screen.findByText("Couldn't load your leagues")).toBeInTheDocument();
+  await userEvent.click(screen.getByRole('button', { name: 'Try loading your leagues again' }));
 
   expect(await screen.findByText('Sunday Ballers')).toBeInTheDocument();
-  expect(screen.queryByText('server exploded')).not.toBeInTheDocument();
+  expect(screen.queryByText("Couldn't load your leagues")).not.toBeInTheDocument();
 });
 
 // --- Join and Create ---------------------------------------------------------
@@ -171,7 +168,7 @@ describe('Join and Create', () => {
     setDesktop();
     apiClient.get.mockResolvedValue({ data: [league()] });
     renderPage();
-    await screen.findByTestId('league-grid');
+    await screen.findByRole('region', { name: /^(My leagues|Live scores)$/ });
 
     const header = within(screen.getByTestId('dashboard-hero'));
     ['Join a league', 'Create a league'].forEach((name) => {
@@ -186,19 +183,19 @@ describe('Join and Create', () => {
   test('on a phone the pair moves to the bottom of the page, once', async () => {
     apiClient.get.mockResolvedValue({ data: [league()] });
     renderPage();
-    await screen.findByTestId('league-grid');
+    await screen.findByRole('region', { name: /^(My leagues|Live scores)$/ });
 
     const header = within(screen.getByTestId('dashboard-hero'));
     expect(header.queryByRole('button', { name: 'Create a league' })).not.toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: 'Join a league' })).toHaveLength(1);
     const create = screen.getByRole('button', { name: 'Create a league' });
-    expect(follows(screen.getByTestId('league-grid'), create)).toBe(true);
+    expect(follows(screen.getByRole('region', { name: /^(My leagues|Live scores)$/ }), create)).toBe(true);
   });
 
   test('both open their dialog', async () => {
     apiClient.get.mockResolvedValue({ data: [league()] });
     renderPage();
-    await screen.findByTestId('league-grid');
+    await screen.findByRole('region', { name: /^(My leagues|Live scores)$/ });
 
     await userEvent.click(screen.getByRole('button', { name: 'Join a league' }));
     expect(await screen.findByRole('dialog')).toBeInTheDocument();
@@ -259,7 +256,7 @@ test('first run has no queue, no leagues, no summary and no League news', async 
   await screen.findByTestId('leagues-empty-state');
   await flushEffects();
   expect(screen.queryByRole('region', { name: /plays$/ })).not.toBeInTheDocument();
-  expect(screen.queryByTestId('league-grid')).not.toBeInTheDocument();
+  expect(screen.queryByRole('region', { name: /^(My leagues|Live scores)$/ })).not.toBeInTheDocument();
   expect(screen.queryByTestId('greeting-summary')).not.toBeInTheDocument();
   expect(screen.queryByRole('heading', { name: 'League news' })).not.toBeInTheDocument();
   expect(await screen.findByRole('heading', { level: 2, name: 'Columns' })).toBeInTheDocument();
@@ -301,7 +298,7 @@ test('game-week order: header, queue, leagues, League news, Columns, Alert promp
   const ordered = [
     screen.getByRole('heading', { level: 1 }),
     queue(),
-    screen.getByTestId('league-grid'),
+    screen.getByRole('region', { name: /^(My leagues|Live scores)$/ }),
     news,
     columns,
     alerts,
@@ -325,7 +322,8 @@ describe('game day', () => {
 
     await screen.findByText('1 matchup live');
     await flushEffects();
-    expect(screen.getByTestId('league-grid')).toHaveAttribute('data-live', 'true');
+    expect(screen.getByRole('region', { name: 'Live scores' })).toBeInTheDocument();
+    expect(screen.getByText(/refreshes every minute/)).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'League news' })).not.toBeInTheDocument();
     expect(screen.queryByText('A trade went through')).not.toBeInTheDocument();
   });
@@ -336,8 +334,8 @@ describe('game day', () => {
 
     expect(await screen.findByRole('heading', { level: 2, name: 'Columns' })).toBeInTheDocument();
     expect(screen.getAllByRole('heading', { level: 2, name: 'Columns' })).toHaveLength(1);
-    // The grid is mocked here; it stands in for the Live scores section.
-    const live = screen.getByTestId('league-grid');
+    // The Live scores section.
+    const live = screen.getByRole('region', { name: /^(My leagues|Live scores)$/ });
     const columns = screen.getByRole('heading', { level: 2, name: 'Columns' });
     expect(live.compareDocumentPosition(columns) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
@@ -576,7 +574,7 @@ describe('before kickoff', () => {
     leaguesAnswers(() => [league({ draft_status: 'pending', draft_date: new Date(Date.now() - 60 * 60 * 1000).toISOString() })]);
     renderPage();
     await screen.findByRole('region', { name: 'Call your plays' });
-    await screen.findByTestId('league-grid');
+    await screen.findByRole('region', { name: /^(My leagues|Live scores)$/ });
     expect(queueReads()).toBe(1);
 
     await act(async () => { jest.advanceTimersByTime(30 * 1000); });
@@ -709,7 +707,7 @@ test('opening Create or Join does not clear a leagues fetch error', async () => 
     ? Promise.reject({ response: { data: { error: 'server exploded' } } })
     : Promise.resolve({ data: [] })));
   renderPage();
-  expect(await screen.findByText('server exploded')).toBeInTheDocument();
+  expect(await screen.findByText("Couldn't load your leagues")).toBeInTheDocument();
 
   await userEvent.click(screen.getByRole('button', { name: 'Create a league' }));
   await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
@@ -718,7 +716,7 @@ test('opening Create or Join does not clear a leagues fetch error', async () => 
   await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
 
   await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
-  expect(screen.getByText('server exploded')).toBeInTheDocument();
+  expect(screen.getByText("Couldn't load your leagues")).toBeInTheDocument();
 });
 
 // --- Postgame cutscene (ADR 0052) ---
@@ -794,7 +792,7 @@ test('the Alert prompt sits after the leagues, in its own row', async () => {
   renderPage();
 
   const prompt = await screen.findByRole('heading', { level: 2, name: 'Get alerts on this device' });
-  expect(follows(screen.getByTestId('league-grid'), prompt)).toBe(true);
+  expect(follows(screen.getByRole('region', { name: /^(My leagues|Live scores)$/ }), prompt)).toBe(true);
 });
 
 test('no Alert prompt when no league row carries a team of the manager', async () => {

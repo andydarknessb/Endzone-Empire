@@ -1,5 +1,5 @@
 import React from 'react';
-import { Box, Typography } from '@mui/material';
+import { Box } from '@mui/material';
 import { visuallyHidden } from '@mui/utils';
 import { MAX_CHAT_CHARS, CHAT_CHARS_WARNING, characterCount } from './chatLimits';
 
@@ -53,9 +53,9 @@ const ANNOUNCEMENT = {
 // The indicator color for a band. Error at or over the limit, warning as it is
 // approached; both derived from the same band as the announcement above.
 const BAND_COLOR = {
-  limit: 'error.main',
-  warning: 'warning.main',
-  clear: 'text.secondary',
+  limit: 'var(--ps-danger)',
+  warning: 'var(--ps-ink)',
+  clear: 'var(--ps-dim)',
 };
 
 function ComposerCharacterCount({ text = '', indicatorId }) {
@@ -80,17 +80,18 @@ function ComposerCharacterCount({ text = '', indicatorId }) {
           glyph lives in its own inner span so it stays exactly "{count} / 500",
           while the whole element's text content - the accessible description - is
           "{count} / 500 characters". */}
-      <Typography
+      <Box
         id={indicatorId}
         component="span"
-        variant="caption"
-        sx={{ color, whiteSpace: 'nowrap' }}
+        sx={{
+          color, whiteSpace: 'nowrap', fontSize: '13px', fontWeight: band === 'clear' ? 400 : 700,
+        }}
       >
         <Box component="span" data-testid="composer-char-count">
           {count} / {MAX_CHAT_CHARS}
         </Box>
         <Box component="span" sx={visuallyHidden}> characters</Box>
-      </Typography>
+      </Box>
       <Box component="span" role="status" aria-live="polite" sx={visuallyHidden}>
         {ANNOUNCEMENT[band]}
       </Box>

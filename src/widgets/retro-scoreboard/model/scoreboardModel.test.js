@@ -11,7 +11,6 @@ import {
   gameLine,
   gameClock,
   liveCount,
-  viewerFirst,
 } from './scoreboardModel';
 
 // Table tests on the widget's pure presentation arithmetic. The sprite
@@ -113,46 +112,4 @@ test('a game row reads as live, final or scheduled with the matching line and cl
 
   expect(liveCount([live, final, scheduled])).toBe(1);
   expect(liveCount(null)).toBe(0);
-});
-
-
-describe('viewerFirst (QA ruling #2334)', () => {
-  const input = () => ({
-    matchup: { home: { name: 'H' }, away: { name: 'A' } },
-    board: {
-      viewerSide: 'away',
-      resultLine: 'You won by 6.2',
-      winProbability: { home: 0.36, away: 0.64 },
-      projectedWinProbability: { home: 0.4, away: 0.6 },
-      home: { scoreLabel: '82.2' },
-      away: { scoreLabel: '77.0' },
-    },
-    rows: [{ slot: 'QB', home: { playerId: 1 }, away: { playerId: 2 } }],
-    activePlay: { side: 'away', isTouchdown: true },
-  });
-
-  test('an away viewer gets every side-keyed input mirrored', () => {
-    const out = viewerFirst(input());
-    expect(out.matchup).toEqual({ home: { name: 'A' }, away: { name: 'H' } });
-    expect(out.board.viewerSide).toBe('home');
-    expect(out.board.resultLine).toBe('You won by 6.2');
-    expect(out.board.winProbability).toEqual({ home: 0.64, away: 0.36 });
-    expect(out.board.projectedWinProbability).toEqual({ home: 0.6, away: 0.4 });
-    expect(out.board.home.scoreLabel).toBe('77.0');
-    expect(out.board.away.scoreLabel).toBe('82.2');
-    expect(out.rows[0]).toEqual({ slot: 'QB', home: { playerId: 2 }, away: { playerId: 1 } });
-    expect(out.activePlay.side).toBe('home');
-  });
-
-  test('a null win probability and a null play stay null', () => {
-    const out = viewerFirst({ ...input(), board: { ...input().board, winProbability: null }, activePlay: null });
-    expect(out.board.winProbability).toBeNull();
-    expect(out.activePlay).toBeNull();
-  });
-
-  test.each(['home', null])('a %s viewer passes through untouched', (viewerSide) => {
-    const base = input();
-    base.board.viewerSide = viewerSide;
-    expect(viewerFirst(base)).toBe(base);
-  });
 });

@@ -477,3 +477,76 @@ test('the Column guide is a keyboard-reachable dialog explaining abbreviations a
   await user.click(within(dialog).getByRole('button', { name: 'Close' }));
   await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
 });
+
+// Spec #2432: the room has one cursor, on the first queued player still on
+// screen when the viewer is on the clock, and it carries the page's one filled
+// action.
+/* eslint-disable testing-library/no-node-access -- the cursor is counted by its .cursor class and the filled action by data-variant, which have no role */
+describe('on-the-clock cursor', () => {
+  const tenPlayers = Array.from({ length: 10 }, (_, i) => ({
+    id: i + 1, name: `Player ${i + 1}`, position: 'RB', nfl_team: 'ATL', adp: i + 1, position_rank: i + 1, projected_points: 100 - i, bye_week: 7,
+  }));
+  const queue = [tenPlayers[6], tenPlayers[2], tenPlayers[8]];
+  const counts = () => ({
+    cursors: document.querySelectorAll('.cursor'),
+    fills: document.querySelectorAll('[data-variant="fill"]'),
+  });
+
+  function renderPool(over = {}) {
+    const { pickState, ...rest } = over;
+    return renderTable({ players: tenPlayers, queue, pickState: { onTheClock: true, ...pickState }, ...rest });
+  }
+
+  test('on the clock: one cursor and one filled action, both on the first queued player', () => {
+    renderPool();
+    const { cursors, fills } = counts();
+    expect(cursors).toHaveLength(1);
+    expect(fills).toHaveLength(1);
+    expect(cursors[0]).toHaveTextContent('Player 7');
+    expect(cursors[0].contains(fills[0])).toBe(true);
+  });
+
+  test('every other Draft button and every Queue button is a ghost', () => {
+    renderPool();
+    const drafts = screen.getAllByRole('button', { name: 'Draft' });
+    expect(drafts.filter((b) => b.dataset.variant === 'ghost')).toHaveLength(9);
+    expect(screen.getAllByRole('button', { name: 'Queue' }).every((b) => b.dataset.variant === 'ghost')).toBe(true);
+  });
+
+  test('not on the clock: no cursor and no filled action', () => {
+    renderPool({ pickState: { onTheClock: false } });
+    const { cursors, fills } = counts();
+    expect(cursors).toHaveLength(0);
+    expect(fills).toHaveLength(0);
+  });
+
+  test('phone cards carry the same cursor', () => {
+    renderPool({ isMobile: true });
+    const { cursors, fills } = counts();
+    expect(cursors).toHaveLength(1);
+    expect(fills).toHaveLength(1);
+    expect(playerCard('Player 7')).toHaveClass('cursor');
+  });
+});
+
+test('a selected Bye week comes off through a real button a keyboard can reach', async () => {
+  const user = userEvent.setup();
+  const { props } = renderTable({ controls: { byeWeeksFilter: [6, 9] } });
+  const remove = screen.getByRole('button', { name: 'Remove Bye 6' });
+  remove.focus();
+  await user.keyboard('{Enter}');
+  expect(props.controls.onByeWeeksFilterChange).toHaveBeenCalledTimes(1);
+  expect(props.controls.onByeWeeksFilterChange).toHaveBeenCalledWith([9]);
+  expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+  // The button leaves with its week, so focus lands on the field rather than the page.
+  expect(screen.getByRole('combobox', { name: 'Bye week' })).toHaveFocus();
+});
+
+test('clicking a Bye week tag removes the week once and does not open the menu', async () => {
+  const user = userEvent.setup();
+  const { props } = renderTable({ controls: { byeWeeksFilter: [6, 9] } });
+  await user.click(screen.getByText('Bye 9'));
+  expect(props.controls.onByeWeeksFilterChange).toHaveBeenCalledTimes(1);
+  expect(props.controls.onByeWeeksFilterChange).toHaveBeenCalledWith([6]);
+  expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+});

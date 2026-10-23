@@ -91,6 +91,9 @@ function lineupEntryFromRow(row) {
     name: row.name,
     injury_status: row.injury_status,
     ir_attested: row.ir_attested,
+    // A starter seat spent by a row the roster no longer holds (a spare after
+    // kickoff, #627): it fills the seat, as spentStartingSlots does on a save (#2391).
+    spent: Boolean(row.spent),
   };
 }
 
@@ -167,6 +170,7 @@ function lineupStatus({ entries, rosterSlots, bestBall, startVerdictFor, kickoff
   const nowMs = timeOf(now);
   const kickoffOf = (e) => (kickoffByTeam && kickoffByTeam.get(normalizeNflTeam(e.nflTeam))) || null;
   const locked = (e) => {
+    if (e.spent) return true;
     const at = timeOf(kickoffOf(e));
     return Number.isFinite(at) && at <= nowMs;
   };
@@ -335,17 +339,20 @@ async function loadLineups(db, { userId, teamIds }) {
        GROUP BY "lineup_entries"."team_id"
      )
      SELECT "lineup_entries"."team_id", "lineup_entries"."player_id", "lineup_entries"."slot", "lineup_entries"."ir_attested",
-            "players"."name", "players"."injury_status", "players"."nfl_team"
+            "players"."name", "players"."injury_status", "players"."nfl_team",
+            ("team_players"."player_id" IS NULL) AS "spent"
      FROM "source"
      JOIN "teams" ON "teams"."id" = "source"."team_id"
      JOIN "leagues" ON "leagues"."id" = "teams"."league_id"
      JOIN "lineup_entries" ON "lineup_entries"."team_id" = "source"."team_id"
        AND "lineup_entries"."season" = "leagues"."current_season"
        AND "lineup_entries"."week" = "source"."week"
-     JOIN "team_players" ON "team_players"."team_id" = "lineup_entries"."team_id"
+     LEFT JOIN "team_players" ON "team_players"."team_id" = "lineup_entries"."team_id"
        AND "team_players"."player_id" = "lineup_entries"."player_id"
      JOIN "players" ON "players"."id" = "lineup_entries"."player_id"
-     WHERE "teams"."owner_id" = $1`,
+     WHERE "teams"."owner_id" = $1
+       AND ("team_players"."player_id" IS NOT NULL
+         OR "lineup_entries"."slot" NOT IN ('BENCH', 'IR'))`,
     [userId, teamIds]
   );
   for (const row of result.rows) {

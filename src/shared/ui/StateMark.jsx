@@ -14,7 +14,7 @@ import { Box } from '@mui/material';
  * implementation, moved here at its second island consumer. `StateGlyph` is
  * the bare decorative glyph (no role, no label) for a caller that prints the
  * state's word beside it, the Starters legend; its in-progress form is the
- * live dot. Ink is `dash-faint` on the card or its surface2 footer, registered
+ * live dot. Ink is `ps-dim` on the panel, registered
  * in tokens.contrast.test.js; the dot is a `--danger` graphic beside text, not
  * a text pairing.
  */
@@ -87,7 +87,7 @@ export default function StateMark({ view }) {
       role="img"
       aria-label={view.label}
       data-testid={`state-${view.kind}`}
-      sx={{ display: 'flex', flex: 'none', color: 'var(--dash-faint)' }}
+      sx={{ display: 'flex', flex: 'none', color: 'var(--ps-dim)' }}
     >
       <StateGlyph kind={view.kind} />
     </Box>

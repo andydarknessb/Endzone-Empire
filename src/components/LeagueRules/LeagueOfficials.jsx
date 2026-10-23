@@ -1,5 +1,7 @@
 import React from 'react';
-import { Chip, Stack, Typography } from '@mui/material';
+import { Tag } from '../../shared/ui/playselect/Marks';
+import { Frame } from '../../shared/ui/playselect/Frame';
+import { Dim, TagRow } from './rulesParts';
 import { teamNameLabel, teamRowKey } from '../../shared/lib/teamIdentity';
 
 /**
@@ -33,12 +35,16 @@ import { teamNameLabel, teamRowKey } from '../../shared/lib/teamIdentity';
  * dropping their chip would leave a league whose rules nobody appears able to
  * change. Dropping one grant of several leaves the page honest.
  */
+// Team names run long: wrap inside the tag rather than push the page sideways on a phone.
+const WRAP = { whiteSpace: 'normal', maxWidth: '100%' };
+
 export default function LeagueOfficials({ league }) {
   const coCommissioners = (league.co_commissioners || []).filter((c) => c.teamId != null);
 
   return (
-    <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap sx={{ mb: 3 }}>
-      <Typography variant="body2" color="text.secondary">Who can change these:</Typography>
+    <Frame tier="rule" component="div" sx={{ padding: { xs: '12px', sm: '16px 20px' } }}>
+      <TagRow>
+      <Dim component="span">Who can change these:</Dim>
       {/* Unconditional, and deliberately NOT on the same terms as the grants
           below: a league always has a creator (leagues.owner_id is NOT NULL)
           and they always hold the role, so the only question is what to call
@@ -48,15 +54,11 @@ export default function LeagueOfficials({ league }) {
           that same position is filtered out just above instead, and the
           asymmetry is the point: dropping the only creator hides the role,
           dropping one grant of several does not. */}
-      <Chip size="small" variant="outlined" label={`${teamNameLabel(league.ownerTeamName)} · commissioner`} />
+      <Tag style={WRAP}>{`${teamNameLabel(league.ownerTeamName)} · commissioner`}</Tag>
       {coCommissioners.map((c, index) => (
-        <Chip
-          key={teamRowKey(c.teamId, index)}
-          size="small"
-          variant="outlined"
-          label={`${teamNameLabel(c.teamName)} · co-commissioner`}
-        />
+        <Tag key={teamRowKey(c.teamId, index)} style={WRAP}>{`${teamNameLabel(c.teamName)} · co-commissioner`}</Tag>
       ))}
-    </Stack>
+      </TagRow>
+    </Frame>
   );
 }

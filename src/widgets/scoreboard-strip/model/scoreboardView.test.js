@@ -17,21 +17,28 @@ const detail = (overrides = {}) => matchupFromDetailBody({
 
 test('prints the board\'s score text: one decimal, and 0.0 for a Matchup with no score rows yet', () => {
   const view = scoreboardView(detail({ matchup: { status: 'scheduled', home_score: null, away_score: undefined } }));
-  expect(view.home.score).toBe('0.0');
-  expect(view.away.score).toBe('0.0');
-  expect(scoreboardView(detail()).home.score).toBe('82.2');
+  expect(view.first.score).toBe('0.0');
+  expect(view.second.score).toBe('0.0');
+  expect(scoreboardView(detail()).first.score).toBe('82.2');
 });
 
 test('prints the board\'s Players remaining text, null when unknown', () => {
   const view = scoreboardView(detail({ home: { playersRemaining: 0 }, away: { playersRemaining: null } }));
-  expect(view.home.playersRemaining).toBe('0');
-  expect(view.away.playersRemaining).toBeNull();
+  expect(view.first.playersRemaining).toBe('0');
+  expect(view.second.playersRemaining).toBeNull();
 });
 
 test('marks the viewer side by Team id, not by name', () => {
   const view = scoreboardView(detail({ away: { name: 'Duluth Dockworkers' } }), { viewerTeamId: 34 });
-  expect(view.away.isViewer).toBe(true);
-  expect(view.home.isViewer).toBe(false);
+  expect(view.first.isViewer).toBe(true);
+  expect(view.second.isViewer).toBe(false);
+});
+
+test('an away viewer leads: first is their Team, keeping its origin, record, win share and Home / Away fallback', () => {
+  const view = scoreboardView(detail({ home: { name: null }, away: { name: null } }), { viewerTeamId: 34, records: { 12: '2-0', 34: '1-1' } });
+  expect(view.first).toMatchObject({ teamId: 34, origin: 'away', name: 'Away', record: '1-1', score: '77.0', winPct: 64 });
+  expect(view.second).toMatchObject({ teamId: 12, origin: 'home', name: 'Home', record: '2-0', score: '82.2', winPct: 36 });
+  expect(view.leader).toBe('second');
 });
 
 test('formats Expected final to one decimal, null when unknown', () => {
@@ -46,14 +53,14 @@ test('formats Expected final to one decimal, null when unknown', () => {
 
 test('derives both sides from the entity model: names, scores, figures and complementary percentages', () => {
   const view = scoreboardView(detail());
-  expect(view.home).toMatchObject({
+  expect(view.first).toMatchObject({
     teamId: 12, name: 'Duluth Dockworkers', score: '82.2', expectedFinal: '110.5', playersRemaining: '4', winPct: 36,
   });
-  expect(view.away).toMatchObject({
+  expect(view.second).toMatchObject({
     teamId: 34, name: 'Fargo Frostbite', score: '77.0', expectedFinal: '123.9', playersRemaining: '6', winPct: 64,
   });
-  expect(view.home.winPct + view.away.winPct).toBe(100);
-  expect(Math.round(view.homeShare * 100)).toBe(view.home.winPct);
+  expect(view.first.winPct + view.second.winPct).toBe(100);
+  expect(Math.round(view.firstShare * 100)).toBe(view.first.winPct);
 });
 
 // The bar prices the scores once started and the projections before kickoff; a status the server
@@ -99,31 +106,31 @@ test.each([
 });
 
 test('marks the viewer side by a strict, null-guarded Team id match', () => {
-  expect(scoreboardView(detail(), { viewerTeamId: 12 }).home.isViewer).toBe(true);
-  expect(scoreboardView(detail(), { viewerTeamId: 12 }).away.isViewer).toBe(false);
-  expect(scoreboardView(detail(), { viewerTeamId: 34 }).away.isViewer).toBe(true);
-  expect(scoreboardView(detail(), { viewerTeamId: 99 }).home.isViewer).toBe(false);
-  expect(scoreboardView(detail(), { viewerTeamId: null }).home.isViewer).toBe(false);
-  expect(scoreboardView(detail()).home.isViewer).toBe(false);
+  expect(scoreboardView(detail(), { viewerTeamId: 12 }).first.isViewer).toBe(true);
+  expect(scoreboardView(detail(), { viewerTeamId: 12 }).second.isViewer).toBe(false);
+  expect(scoreboardView(detail(), { viewerTeamId: 34 }).first.isViewer).toBe(true);
+  expect(scoreboardView(detail(), { viewerTeamId: 99 }).first.isViewer).toBe(false);
+  expect(scoreboardView(detail(), { viewerTeamId: null }).first.isViewer).toBe(false);
+  expect(scoreboardView(detail()).first.isViewer).toBe(false);
 });
 
 test('reads a record through an object lookup or a function, and none without one', () => {
   const byObject = scoreboardView(detail(), { records: { 12: '2-0', 34: '1-1' } });
-  expect(byObject.home.record).toBe('2-0');
-  expect(byObject.away.record).toBe('1-1');
+  expect(byObject.first.record).toBe('2-0');
+  expect(byObject.second.record).toBe('1-1');
   const byFn = scoreboardView(detail(), { records: (teamId) => (teamId === 12 ? '3-0' : null) });
-  expect(byFn.home.record).toBe('3-0');
-  expect(byFn.away.record).toBeNull();
-  expect(scoreboardView(detail()).home.record).toBeNull();
-  expect(scoreboardView(detail(), { records: {} }).home.record).toBeNull();
+  expect(byFn.first.record).toBe('3-0');
+  expect(byFn.second.record).toBeNull();
+  expect(scoreboardView(detail()).first.record).toBeNull();
+  expect(scoreboardView(detail(), { records: {} }).first.record).toBeNull();
 });
 
 test('falls back to Home / Away for a side with no name and survives an empty model', () => {
   const view = scoreboardView(detail({ home: { name: null }, away: { name: '' } }));
-  expect(view.home.name).toBe('Home');
-  expect(view.away.name).toBe('Away');
+  expect(view.first.name).toBe('Home');
+  expect(view.second.name).toBe('Away');
   const empty = scoreboardView(null);
-  expect(empty.home.score).toBe('0.0');
+  expect(empty.first.score).toBe('0.0');
   expect(empty.showBar).toBe(false);
   expect(empty.chip).toBeNull();
 });
@@ -131,9 +138,9 @@ test('falls back to Home / Away for a side with no name and survives an empty mo
 test('once started the big figure is the score, and the margin is the leader by the gap in words', () => {
   const view = scoreboardView(detail());
   expect(view.started).toBe(true);
-  expect(view.home.figure).toBe('82.2');
-  expect(view.away.figure).toBe('77.0');
-  expect(view.leader).toBe('home');
+  expect(view.first.figure).toBe('82.2');
+  expect(view.second.figure).toBe('77.0');
+  expect(view.leader).toBe('first');
   expect(view.marginText).toBe('Duluth Dockworkers by 5.2');
   expect(scoreboardView(detail({ matchup: { home_score: 70, away_score: 77 } })).marginText).toBe('Fargo Frostbite by 7.0');
   expect(scoreboardView(detail({ matchup: { home_score: 77, away_score: 77 } })).marginText).toBe('Tied');
@@ -142,15 +149,15 @@ test('once started the big figure is the score, and the margin is the leader by 
 test('before kickoff the big figure is the Proj (the Expected final), not a 0.0 score, and the margin follows it', () => {
   const view = scoreboardView(detail({ matchup: { status: 'scheduled', home_score: 0, away_score: 0 } }));
   expect(view.started).toBe(false);
-  expect(view.home.figure).toBe('110.5');
-  expect(view.away.figure).toBe('123.9');
-  expect(view.leader).toBe('away');
+  expect(view.first.figure).toBe('110.5');
+  expect(view.second.figure).toBe('123.9');
+  expect(view.leader).toBe('second');
   expect(view.marginText).toBe('Fargo Frostbite by 13.4');
 });
 
 test('with no Proj there is no margin to state', () => {
   const view = scoreboardView(detail({ matchup: { status: 'scheduled' }, home: { expectedFinal: null } }));
-  expect(view.home.figure).toBeNull();
+  expect(view.first.figure).toBeNull();
   expect(view.marginText).toBeNull();
   expect(view.leader).toBeNull();
 });

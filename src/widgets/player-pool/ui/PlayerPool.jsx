@@ -8,39 +8,11 @@ import React, {
   useState,
 } from "react";
 import { useSearchParams } from "react-router-dom";
-import {
-  Button,
-  Checkbox,
-  Drawer,
-  FormControl,
-  FormControlLabel,
-  InputAdornment,
-  InputLabel,
-  MenuItem,
-  Pagination,
-  Paper,
-  Select,
-  Stack,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  TextField,
-  Typography,
-  useMediaQuery,
-  useTheme,
-} from "@mui/material";
-import CloseIcon from "@mui/icons-material/Close";
-import FilterListIcon from "@mui/icons-material/FilterList";
-import SearchIcon from "@mui/icons-material/Search";
-import SwapVertIcon from "@mui/icons-material/SwapVert";
+import { useMediaQuery, useTheme } from "@mui/material";
 import apiClient from "../../../api/apiClient";
 import { readHttpFailure } from "../../../lib/httpFailure";
 import { useLeague } from "../../../hooks/useLeague";
 import { wireSortName } from "../../../components/DraftBoard/sortFields";
-import { SegmentedControl } from "../../../shared/ui";
 import { parseRosterSlots, chipsForRosterSlots } from "../../../shared/lib";
 import { SORT_OPTIONS, DEFAULT_SORT_KEY, sortKeyFromParam } from "../model/sortKeys";
 import PlayerPoolPlayselect from "./PlayerPoolPlayselect";
@@ -54,40 +26,6 @@ const AVAILABILITY_FILTERS = [
   { value: "rostered", label: "Rostered" },
   { value: "my_team", label: "My team" },
 ];
-const BYE_WEEKS = Array.from({ length: 18 }, (_, i) => i + 1);
-// A quiet head on the sunken surface (#1975, P7).
-const headCellSx = {
-  fontSize: 12,
-  fontWeight: 700,
-  textTransform: "uppercase",
-  letterSpacing: "0.04em",
-  color: "var(--text-muted)",
-  bgcolor: "var(--surface-sunken)",
-  borderBottom: "1px solid var(--border-subtle)",
-};
-// `stickyHead` (P8): from `lg` the head sticks to the viewport top. That needs
-// the TableContainer to stop being a scroll container (`overflow-x: clip`, which
-// also keeps the rounded corners), so it is opt-in: a page whose table shares a
-// row with a side panel (Waivers) keeps its horizontal scroll and a static head.
-const stickyHeadCellSx = {
-  ...headCellSx,
-  position: { xs: "static", lg: "sticky" },
-  top: 0,
-  zIndex: 2,
-};
-// The 44px floor for the small-size inputs, selects and pager items this
-// widget renders (the Waivers page's layout guard measures every control).
-const fieldSx = {
-  "& .MuiInputBase-root": { minHeight: 44 },
-  "& .MuiInputBase-input": { boxSizing: "border-box", minHeight: 44 },
-  "& .MuiSelect-select.MuiSelect-select": { boxSizing: "border-box", minHeight: 44, display: "flex", alignItems: "center" },
-};
-const actionSx = {
-  minHeight: 44,
-  minWidth: 104,
-  borderRadius: 2,
-  fontWeight: 800,
-};
 
 /**
  * The player list: search, position chips, Watching toggle, sort, pager and
@@ -116,8 +54,7 @@ const actionSx = {
  * `availabilityLock`: when set, every read sends that Availability and no
  * Availability control renders; the `availability` URL param is ignored.
  *
- * `look`: `"dash"` (default: the Players page) or `"playselect"` (ADR 0067 wave 3, the Waivers
- * page): the same reads, params and callbacks drawn on `ps-*` tokens by `PlayerPoolPlayselect`.
+ * ADR 0067 wave 3: the reads, params and callbacks are drawn on `ps-*` tokens by `PlayerPoolPlayselect`.
  */
 const PlayerPool = forwardRef(function PlayerPool(
   {
@@ -136,7 +73,6 @@ const PlayerPool = forwardRef(function PlayerPool(
     stickyHead = false,
     cardsBelow = "md",
     emptyCopy: emptyCopyOverride,
-    look = "dash",
   },
   ref,
 ) {
@@ -302,310 +238,47 @@ const PlayerPool = forwardRef(function PlayerPool(
     ? `No players matching “${search}”`
     : "No players found";
 
-  if (look === "playselect") {
-    return (
-      <PlayerPoolPlayselect
-        isMobile={isMobile}
-        cardLayout={cardLayout}
-        filtersOpen={filtersOpen}
-        setFiltersOpen={setFiltersOpen}
-        searchInput={searchInput}
-        setSearchInput={setSearchInput}
-        chips={chips}
-        positionKey={selectedChip.key}
-        onPosition={(value) => updateParams({ pos: value === "All" ? "" : value, page: 1 })}
-        byeWeekFilter={byeWeekFilter}
-        byeWeek={byeWeek}
-        onBye={(value) => updateParams({ bye: value, page: 1 })}
-        sort={sort}
-        sortOptions={sortOptions}
-        onSort={(value) => updateParams({ sort: value === contextualDefaultSort ? "" : value, page: 1 })}
-        dir={dir}
-        onDir={() => updateParams({ dir: dir === "asc" ? "desc" : "", page: 1 })}
-        watchingOnly={watchingOnly}
-        onWatching={(checked) => updateParams({ watching: checked || "" })}
-        availabilityLock={availabilityLock}
-        availabilityFilter={availabilityFilter}
-        availabilityOptions={AVAILABILITY_FILTERS}
-        onAvailability={(value) => updateParams({ availability: value, page: 1 })}
-        leadingControl={leadingControl}
-        afterAvailabilityControl={afterAvailabilityControl}
-        visiblePlayers={visiblePlayers}
-        renderRow={renderRow}
-        renderTableHead={renderTableHead}
-        columnCount={columnCount}
-        bestBall={bestBall}
-        currentWeek={currentWeek}
-        emptyCopy={emptyCopy}
-        totalPages={totalPages}
-        pageNumber={pageNumber}
-        onPage={(value) => updateParams({ page: value })}
-        totalPlayers={totalPlayers}
-        search={search}
-      />
-    );
-  }
-
-  // The search field: its own line above the Filters button on a phone, the
-  // first (growing, capped) item of filter row 1 from `md`.
-  const searchField = (
-    <TextField
-      size="small"
-      fullWidth={isMobile}
-      sx={isMobile ? fieldSx : { ...fieldSx, flex: "1 1 220px", minWidth: 200, maxWidth: 360 }}
-      label="Search players"
-      placeholder="Search by name"
-      value={searchInput}
-      onChange={(event) => setSearchInput(event.target.value)}
-      InputProps={{
-        startAdornment: (
-          <InputAdornment position="start">
-            <SearchIcon fontSize="small" />
-          </InputAdornment>
-        ),
-        endAdornment: searchInput ? (
-          <InputAdornment position="end">
-            <Button
-              onClick={() => setSearchInput("")}
-              aria-label="Clear search"
-              sx={{ minWidth: 44, minHeight: 44, p: 0.5 }}
-            >
-              <CloseIcon fontSize="small" />
-            </Button>
-          </InputAdornment>
-        ) : null,
-      }}
-    />
-  );
-
-  // The same filters render twice: stacked inside the mobile Filters drawer,
-  // and as two wrapping rows on desktop (#1975, P6): search, leading control,
-  // Position, Sort and the direction toggle; then Availability, the caller's
-  // slot, Bye and Watching. On desktop the segmented control keeps its natural
-  // width and does not scroll; only the drawer, a touch surface, gets
-  // `scrollable` and 44px segments.
-  const renderControls = (layout) => {
-    const row = layout === "row";
-    const positionControl = (
-      <FormControl size="small" fullWidth={!row} sx={row ? { ...fieldSx, minWidth: 130 } : fieldSx}>
-        <InputLabel id="pm-pos-label">Position</InputLabel>
-        <Select
-          labelId="pm-pos-label"
-          label="Position"
-          value={selectedChip.key}
-          onChange={(event) =>
-            updateParams({
-              pos: event.target.value === "All" ? "" : event.target.value,
-              page: 1,
-            })
-          }
-        >
-          {chips.map((chip) => (
-            <MenuItem key={chip.key} value={chip.key}>
-              {chip.key}
-            </MenuItem>
-          ))}
-        </Select>
-      </FormControl>
-    );
-    const availabilityControl = !availabilityLock && (
-      <SegmentedControl
-        aria-label="Availability"
-        options={AVAILABILITY_FILTERS}
-        value={availabilityFilter}
-        onChange={(value) => updateParams({ availability: value, page: 1 })}
-        scrollable={!row}
-        // The drawer is a touch surface: its segments need the 44px minimum
-        // every other action carries.
-        sx={row ? undefined : { "& [role='radio']": { minHeight: 44 } }}
-      />
-    );
-    const byeControl = byeWeekFilter && (
-      <FormControl size="small" fullWidth={!row} sx={row ? { ...fieldSx, minWidth: 130 } : fieldSx}>
-        <InputLabel id="pm-bye-label">Bye week</InputLabel>
-        <Select
-          labelId="pm-bye-label"
-          label="Bye week"
-          value={byeWeek ? String(byeWeek) : ""}
-          onChange={(event) => updateParams({ bye: event.target.value, page: 1 })}
-        >
-          <MenuItem value="">Any</MenuItem>
-          {BYE_WEEKS.map((week) => (
-            <MenuItem key={week} value={String(week)}>
-              {`Wk ${week}`}
-            </MenuItem>
-          ))}
-        </Select>
-      </FormControl>
-    );
-    const watchingControl = (
-      <FormControlLabel
-        control={
-          <Checkbox
-            checked={watchingOnly}
-            onChange={(event) => updateParams({ watching: event.target.checked || "" })}
-            sx={{ minWidth: 44, minHeight: 44 }}
-          />
-        }
-        label="Watching"
-      />
-    );
-    const sortControl = (
-      <Stack direction="row" spacing={1}>
-        <FormControl size="small" fullWidth={!row} sx={row ? { ...fieldSx, minWidth: 170 } : fieldSx}>
-          <InputLabel id="pm-sort-label">Sort</InputLabel>
-          <Select
-            labelId="pm-sort-label"
-            label="Sort"
-            value={sort}
-            onChange={(event) =>
-              updateParams({
-                sort: event.target.value === contextualDefaultSort ? "" : event.target.value,
-                page: 1,
-              })
-            }
-          >
-            {sortOptions.map((option) => (
-              <MenuItem key={option.key} value={option.key}>
-                {option.label}
-              </MenuItem>
-            ))}
-          </Select>
-        </FormControl>
-        <Button
-          aria-label={`Sort ${dir === "asc" ? "ascending" : "descending"}`}
-          onClick={() => updateParams({ dir: dir === "asc" ? "desc" : "", page: 1 })}
-          sx={{ minWidth: 44, minHeight: 44 }}
-        >
-          <SwapVertIcon />
-        </Button>
-      </Stack>
-    );
-
-    if (row) {
-      return (
-        <Stack spacing={1.25}>
-          <Stack direction="row" spacing={1.5} useFlexGap flexWrap="wrap" alignItems="center">
-            {searchField}
-            {leadingControl?.(layout)}
-            {positionControl}
-            {sortControl}
-          </Stack>
-          <Stack direction="row" spacing={1.5} useFlexGap flexWrap="wrap" alignItems="center">
-            {availabilityControl}
-            {afterAvailabilityControl?.(layout)}
-            {byeControl}
-            {watchingControl}
-          </Stack>
-        </Stack>
-      );
-    }
-    return (
-      <Stack direction="column" spacing={1.5} useFlexGap>
-        {leadingControl?.(layout)}
-        {positionControl}
-        {availabilityControl}
-        {afterAvailabilityControl?.(layout)}
-        {byeControl}
-        {watchingControl}
-        {sortControl}
-      </Stack>
-    );
-  };
-
   return (
-    <>
-      <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 3, mb: 2 }}>
-        {isMobile ? (
-          <Stack spacing={1.25}>
-            {searchField}
-            <Button
-              variant="outlined"
-              startIcon={<FilterListIcon />}
-              onClick={() => setFiltersOpen(true)}
-              sx={{ ...actionSx, whiteSpace: "nowrap" }}
-            >
-              Filters
-            </Button>
-          </Stack>
-        ) : (
-          renderControls("row")
-        )}
-      </Paper>
-      <Drawer
-        anchor="bottom"
-        open={filtersOpen}
-        onClose={() => setFiltersOpen(false)}
-        PaperProps={{
-          sx: { borderTopLeftRadius: 24, borderTopRightRadius: 24, p: 2.5 },
-        }}
-      >
-        <Stack spacing={2}>
-          <Stack direction="row" justifyContent="space-between" alignItems="center">
-            <Typography variant="h6" sx={{ fontWeight: 900 }}>
-              Player filters
-            </Typography>
-            <Button onClick={() => setFiltersOpen(false)} sx={actionSx}>
-              Done
-            </Button>
-          </Stack>
-          {renderControls("column")}
-        </Stack>
-      </Drawer>
-      {!cardLayout && (
-        <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 3, ...(stickyHead && { overflowX: { xs: "auto", lg: "clip" } }) }}>
-          {/* Cell padding at 10px a side rather than MUI's 16px: it is what lets
-              the table fit a 1024px viewport instead of hiding the Action
-              column behind a scrollbar (2026-09-15 report). */}
-          <Table aria-label="Players" sx={{ minWidth: 960, "& th, & td": { px: 1.25 } }}>
-            <TableHead>
-              {renderTableHead({ bestBall, currentWeek, sx: stickyHead ? stickyHeadCellSx : headCellSx })}
-            </TableHead>
-            <TableBody>
-              {visiblePlayers.length === 0 && (
-                <TableRow>
-                  <TableCell
-                    colSpan={columnCount}
-                    align="center"
-                    sx={{ py: 6, color: "text.secondary" }}
-                  >
-                    {emptyCopy}
-                  </TableCell>
-                </TableRow>
-              )}
-              {visiblePlayers.map((player) => (
-                <React.Fragment key={player.id}>{renderRow(player, "row")}</React.Fragment>
-              ))}
-            </TableBody>
-          </Table>
-        </TableContainer>
-      )}
-      {cardLayout && (
-        <Stack spacing={1.25}>
-          {visiblePlayers.length === 0 && (
-            <Paper variant="outlined" sx={{ p: 4, textAlign: "center", borderRadius: 3 }}>
-              <Typography color="text.secondary">{emptyCopy}</Typography>
-            </Paper>
-          )}
-          {visiblePlayers.map((player) => (
-            <React.Fragment key={player.id}>{renderRow(player, "card")}</React.Fragment>
-          ))}
-        </Stack>
-      )}
-      <Stack alignItems="center" spacing={0.75} sx={{ py: 3 }}>
-        <Pagination
-          count={totalPages}
-          page={pageNumber}
-          onChange={(event, value) => updateParams({ page: value })}
-          shape="rounded"
-          sx={{ "& .MuiPaginationItem-root": { minWidth: 44, height: 44 } }}
-        />
-        <Typography variant="caption" color="text.secondary">
-          {totalPlayers} player{totalPlayers === 1 ? "" : "s"}
-          {search ? ` matching “${search}”` : ""}
-        </Typography>
-      </Stack>
-    </>
+    <PlayerPoolPlayselect
+      isMobile={isMobile}
+      cardLayout={cardLayout}
+      filtersOpen={filtersOpen}
+      setFiltersOpen={setFiltersOpen}
+      searchInput={searchInput}
+      setSearchInput={setSearchInput}
+      chips={chips}
+      positionKey={selectedChip.key}
+      onPosition={(value) => updateParams({ pos: value === "All" ? "" : value, page: 1 })}
+      byeWeekFilter={byeWeekFilter}
+      byeWeek={byeWeek}
+      onBye={(value) => updateParams({ bye: value, page: 1 })}
+      sort={sort}
+      sortOptions={sortOptions}
+      onSort={(value) => updateParams({ sort: value === contextualDefaultSort ? "" : value, page: 1 })}
+      dir={dir}
+      onDir={() => updateParams({ dir: dir === "asc" ? "desc" : "", page: 1 })}
+      watchingOnly={watchingOnly}
+      onWatching={(checked) => updateParams({ watching: checked || "" })}
+      availabilityLock={availabilityLock}
+      availabilityFilter={availabilityFilter}
+      availabilityOptions={AVAILABILITY_FILTERS}
+      onAvailability={(value) => updateParams({ availability: value, page: 1 })}
+      leadingControl={leadingControl}
+      afterAvailabilityControl={afterAvailabilityControl}
+      visiblePlayers={visiblePlayers}
+      renderRow={renderRow}
+      renderTableHead={renderTableHead}
+      stickyHead={stickyHead}
+      columnCount={columnCount}
+      bestBall={bestBall}
+      currentWeek={currentWeek}
+      emptyCopy={emptyCopy}
+      totalPages={totalPages}
+      pageNumber={pageNumber}
+      onPage={(value) => updateParams({ page: value })}
+      totalPlayers={totalPlayers}
+      search={search}
+    />
   );
 });
 

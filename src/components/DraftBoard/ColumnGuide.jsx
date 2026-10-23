@@ -1,12 +1,10 @@
 import React, { useState } from 'react';
 import {
-  IconButton,
   Tooltip,
   Dialog,
   DialogTitle,
   DialogContent,
   DialogActions,
-  Button,
   List,
   ListItem,
   ListItemText,
@@ -14,7 +12,8 @@ import {
 import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
 import { STAT_DEFINITIONS } from '../../shared/ui/AbbreviationTooltip';
 import { SORT_FIELDS } from './sortFields';
-import { MIN_TOUCH_TARGET_SX } from '../../shared/lib/a11y';
+import { PsButton } from '../../shared/ui/playselect';
+import { MENU_PAPER } from '../../shared/ui/playselect/CardControls';
 
 // The pool's per-column abbreviation tooltips (see AbbreviationTooltip) are
 // individually keyboard-focusable, but a keyboard/screen-reader user has no
@@ -36,6 +35,8 @@ const STATUS_DEFINITIONS = [
 // entry, so each term here always has a definition to render.
 const COLUMN_TERMS = SORT_FIELDS.filter((field) => field.numeric).map((field) => field.label);
 
+const DIM = { sx: { color: 'var(--ps-dim)' } };
+
 /** A keyboard-accessible "Column guide" button + dialog explaining the pool
  * table's abbreviations (ADP, Pos rank, Bye, 17-game pace) and injury-status
  * vocabulary (Q/D/O/IR) in one place. */
@@ -45,28 +46,30 @@ function ColumnGuide() {
   return (
     <>
       <Tooltip title="Column guide">
-        <IconButton aria-label="Column guide" size="small" onClick={() => setOpen(true)} sx={MIN_TOUCH_TARGET_SX}>
-          <HelpOutlineIcon fontSize="small" />
-        </IconButton>
+        <span>
+          <PsButton variant="quiet" ariaLabel="Column guide" onClick={() => setOpen(true)}>
+            <HelpOutlineIcon fontSize="small" />
+          </PsButton>
+        </span>
       </Tooltip>
-      <Dialog open={open} onClose={() => setOpen(false)} aria-labelledby="column-guide-title">
+      <Dialog open={open} onClose={() => setOpen(false)} aria-labelledby="column-guide-title" PaperProps={MENU_PAPER}>
         <DialogTitle id="column-guide-title">Column guide</DialogTitle>
         <DialogContent>
           <List dense>
             {COLUMN_TERMS.map((term) => (
               <ListItem key={term} disableGutters>
-                <ListItemText primary={term} secondary={STAT_DEFINITIONS[term]} />
+                <ListItemText primary={term} secondary={STAT_DEFINITIONS[term]} secondaryTypographyProps={DIM} />
               </ListItem>
             ))}
             {STATUS_DEFINITIONS.map(({ term, definition }) => (
               <ListItem key={term} disableGutters>
-                <ListItemText primary={term} secondary={definition} />
+                <ListItemText primary={term} secondary={definition} secondaryTypographyProps={DIM} />
               </ListItem>
             ))}
           </List>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setOpen(false)} sx={MIN_TOUCH_TARGET_SX}>Close</Button>
+          <PsButton variant="ghost" onClick={() => setOpen(false)}>Close</PsButton>
         </DialogActions>
       </Dialog>
     </>

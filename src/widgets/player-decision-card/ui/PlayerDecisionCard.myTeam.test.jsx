@@ -59,7 +59,7 @@ const entry = (over = {}) => ({
   nflTeam: 'BUF',
   slot: 'QB',
   // #1482: `projectedPoints` (the Point estimate, CONTEXT.md's The
-  // projection engine) is what the card's Proj text, RangeBar marker and
+  // projection engine) is what the card's Proj text, range-bar marker and
   // Bench options number/sort read; `projection` (the bare mean) rides
   // alongside since a real entry always carries both. Defaulted equal here
   // since this fixture isn't testing the two statistics diverging (a
@@ -96,6 +96,9 @@ const availabilityEntry = (over = {}) => ({
   kickoff: '2026-09-14T17:00:00Z',
   ...over,
 });
+
+// The single-player body is split into tabs (#2489): activate one before reading its sections.
+const openTab = async (name) => userEvent.click(await screen.findByRole('tab', { name }));
 
 // Stubs the one card route (`/api/players/:id/card`, #1306/#1331, which also
 // carries `line`/`weather`/`opponents`/`decision.usage`, #1667) and rejects any
@@ -358,22 +361,6 @@ test('opens with the row\'s own fields immediately, before the context endpoint 
   expect(screen.getByTestId('decision-card-range-bar')).toBeInTheDocument();
 });
 
-// #1317: the header avatar's ink is monogramInk(kit.jersey), not the themed
-// var(--text-inverse) - the same fixed white-or-black rule LedgerRow's
-// PlayerAvatar uses, chosen against the jersey itself rather than the theme.
-// CHI's jersey (#0b162a) clears 4.5:1 against white; CIN's (#fb4f14) does not.
-test('the header avatar ink is white for a jersey that clears 4.5:1 against white (CHI)', async () => {
-  renderCard({ entry: entry({ nflTeam: 'CHI' }) });
-  await screen.findByRole('heading', { name: 'Josh Allen' });
-  expect(screen.getByText('JA')).toHaveStyle({ color: '#ffffff' });
-});
-
-test('the header avatar ink is black for a jersey that fails 4.5:1 against white (CIN)', async () => {
-  renderCard({ entry: entry({ nflTeam: 'CIN' }) });
-  await screen.findByRole('heading', { name: 'Josh Allen' });
-  expect(screen.getByText('JA')).toHaveStyle({ color: '#000000' });
-});
-
 test('a null Line hides the Line and Implied team total tiles; a null weather hides the weather tile', async () => {
   apiClient.get.mockResolvedValue({ data: { line: null, weather: null, usage: null } });
   renderCard();
@@ -437,7 +424,7 @@ test('usage renders the weekly rows and the season average', async () => {
   const [, week3, week2] = within(table).getAllByRole('row');
   expect(within(week3).getByText('58 (87%)')).toBeInTheDocument();
   const snapsCol = within(table).getAllByRole('columnheader').findIndex((h) => h.textContent === 'Snaps');
-  expect(within(week2).getAllByRole('cell')[snapsCol]).toHaveTextContent('-');
+  expect(within(week2).getAllByRole('cell')[snapsCol - 1]).toHaveTextContent('-');
 });
 
 test('the largest Factor\'s explanation renders from factorExplanation, not from the Edge line', async () => {
@@ -496,7 +483,7 @@ test('"No practice this week" shows beside the Questionable tag when the card pa
   renderCard({ entry: entry({ injuryStatus: 'Q' }) });
   const note = await screen.findByTestId('decision-card-no-practice');
   expect(note).toHaveTextContent('No practice this week');
-  expect(screen.getByTestId('injury-tag')).toHaveAttribute('data-status', 'Q');
+  expect(screen.getByText('Q')).toBeInTheDocument();
 });
 
 test.each([
@@ -582,11 +569,11 @@ test('bench options list eligible bench players by projectedPoints, and a swap s
 // #1482, formal review round 2 (formal-002-f1): opening a Ledger row's
 // Decision card must not reintroduce the issue's own contradiction one tap
 // later. DK Metcalf's row headlines his projectedPoints (8.21); his card's
-// Proj text and RangeBar marker must read the same number, never his mean
+// Proj text and range-bar marker must read the same number, never his mean
 // (9.03). Terry McLaurin's bench option must show and sort by HIS
 // projectedPoints (10.06), not his lower mean (7.37) - the exact shape the
 // issue's Cause section measured.
-test('the Proj text, RangeBar marker and Bench options read projectedPoints, never the mean, when they disagree (#1482)', async () => {
+test('the Proj text, range-bar marker and Bench options read projectedPoints, never the mean, when they disagree (#1482)', async () => {
   const dk = entry({
     playerId: 1, name: 'DK Metcalf', slot: 'FLEX', projection: 9.03, projectedPoints: 8.21,
     floor: 5, ceiling: 12, eligibleSlots: ['BENCH', 'FLEX'],
@@ -612,14 +599,14 @@ test('the Proj text, RangeBar marker and Bench options read projectedPoints, nev
 
 // #1777 (spec #1774): the card agrees with the Ledger row that opened it. A
 // Position-baseline projection is the position's average, not evidence about
-// the player, so Proj reads "no history", no RangeBar marker renders, and the
+// the player, so Proj reads "no history", no range-bar marker renders, and the
 // Bench options show the same label and sort him after evidenced options.
 describe('a Position-baseline projection (#1777)', () => {
   const baselineStarter = (over = {}) =>
     entry({ playerId: 1, name: 'Rookie Back', slot: 'RB', position: 'RB', projectedPoints: 9.4, projection: 9.4,
       floor: 4, ceiling: 15, eligibleSlots: ['BENCH', 'RB'], startVerdict: { outcome: 'not_recommended', reason: 'no_history', numberTrusted: false }, ...over });
 
-  test('Proj text reads "no history", no number and no RangeBar marker', async () => {
+  test('Proj text reads "no history", no number and no range-bar marker', async () => {
     const rookie = baselineStarter();
     renderCard({ entry: rookie, entries: [rookie] });
 
@@ -997,13 +984,6 @@ test('an unlocked, unspent player shows neither indicator', async () => {
 
 // The header avatar carries the same headshot the Ledger row does, off the
 // entry's own `photoUrl`, with the jersey-colour monogram as the fallback.
-test('the header avatar renders the headshot when the entry carries a photoUrl', async () => {
-  renderCard({ entry: entry({ photoUrl: 'https://cdn.example/josh-allen.png' }) });
-  await screen.findByRole('heading', { name: 'Josh Allen' });
-  expect(screen.getByTestId('decision-card-headshot')).toHaveAttribute('src', 'https://cdn.example/josh-allen.png');
-  expect(screen.queryByText('JA')).toBeNull();
-});
-
 // #1358: the Season summary table and Season pick chips (CONTEXT.md's Season
 // summary/Season pick), driving the bars and game log off `card.seasons`
 // rather than the top-level `weeks`/`log.current` fields. Lead corrections
@@ -1058,9 +1038,10 @@ describe('Season summary and Season pick (#1358)', () => {
         // would wrongly mark one of them - a fixture with neither week could
         // never catch that regression.
         weeks: [
-          weekRow(3, { kind: 'actual', points: 18 }),
-          weekRow(4, { kind: 'actual', points: 16 }),
-          weekRow(17, { kind: 'actual', points: 9 }),
+          // Week 3's schedule opponent (PHI) differs from its log row's DAL: the log row's wins (#2491).
+          weekRow(3, { kind: 'actual', points: 18, opponent: 'PHI' }),
+          weekRow(4, { kind: 'actual', points: 16, opponent: 'LV' }),
+          weekRow(17, { kind: 'actual', points: 9, opponent: 'LV' }),
         ],
         log: [logRow(3, { opponent: 'DAL' })],
       }),
@@ -1072,12 +1053,17 @@ describe('Season summary and Season pick (#1358)', () => {
     mockCardRoute(threeSeasonCard);
     renderCard();
 
+    // The bars are on Overview (the current season); the summary is on Stats; the pick is on Game log.
+    expect(await screen.findByTestId('weekly-bar-4')).toBeInTheDocument();
+    expect(screen.getByTestId('weekly-bar-4-current')).toBeInTheDocument();
+
+    await openTab('Stats');
     const table = await screen.findByTestId('decision-card-seasons');
     const rows = within(table).getAllByRole('row').slice(1); // drop the header row
     // The Season cell is a row header (risk review, accessibility), so it
     // reads via `rowheader`, not `cell` - the remaining `cell`s are
     // G/FPTS-per-G/Pts/Pos-rank/ADP, in that order.
-    expect(rows.map((r) => within(r).getByRole('rowheader').textContent)).toEqual(['2026', '2025', '2024']);
+    expect(rows.map((r) => within(r).getByRole('rowheader').textContent)).toEqual(['2026to date', '2025', '2024']);
 
     // Red tell: the 2024 row's ADP cell is a dash, with the reason available
     // to a screen reader, never a bare "-" or a raw null.
@@ -1095,11 +1081,9 @@ describe('Season summary and Season pick (#1358)', () => {
     // value of 34.25 renders as the rounded "34.3", not "34.25".
     expect(row2026.getAllByRole('cell')[4]).toHaveTextContent('34.3');
 
+    await openTab('Game log');
     const radiogroup = await screen.findByRole('radiogroup', { name: 'Season' });
     expect(within(radiogroup).getByRole('radio', { name: '2026' })).toHaveAttribute('aria-checked', 'true');
-
-    expect(await screen.findByTestId('weekly-bar-4')).toBeInTheDocument();
-    expect(screen.getByTestId('weekly-bar-4-current')).toBeInTheDocument();
   });
 
   test('clicking the 2025 chip redraws the bars and game log from the 2025 season, with no current marker, no projected bar and no season-end marker; clicking 2026 restores both', async () => {
@@ -1107,25 +1091,25 @@ describe('Season summary and Season pick (#1358)', () => {
     renderCard();
 
     await screen.findByTestId('weekly-bar-4');
+    await openTab('Game log');
     expect(await screen.findByTestId('decision-card-gamelog-section')).toHaveTextContent('KC');
 
     const radiogroup = await screen.findByRole('radiogroup', { name: 'Season' });
     await userEvent.click(within(radiogroup).getByRole('radio', { name: '2025' }));
 
-    expect(await screen.findByTestId('weekly-bar-3')).toBeInTheDocument();
-    // The 2025 season's own weeks (formal-001-f2) deliberately include week
-    // 4 (the current week) and week 17 (seasonEnd), so these two assertions
-    // would fail if the current-season guard were ever reverted
-    // (currentWeek/seasonEnd passed through for a picked past season).
-    expect(screen.queryByTestId('weekly-bar-4-current')).not.toBeInTheDocument(); // no current-week marker
-    expect(screen.getByTestId('weekly-bar-17')).not.toHaveAttribute('data-season-end'); // no season-end marker
+    // The game log follows the pick. Since the tabs split (#2489) the weekly bars no longer do: they sit on
+    // Overview and always draw the current season, so the 2025 pick must leave them (and their current-week
+    // and season-end markers) untouched. The 2025 weeks deliberately include week 4 and week 17.
     expect(screen.getByTestId('decision-card-gamelog-section')).toHaveTextContent('DAL');
     expect(screen.getByTestId('decision-card-gamelog-section')).not.toHaveTextContent('KC');
-
-    await userEvent.click(within(radiogroup).getByRole('radio', { name: '2026' }));
-
+    expect(screen.getByTestId('decision-card-gamelog-section')).not.toHaveTextContent('PHI');
+    await openTab('Overview');
     expect(await screen.findByTestId('weekly-bar-4')).toBeInTheDocument();
     expect(screen.getByTestId('weekly-bar-4-current')).toBeInTheDocument();
+    expect(screen.queryByTestId('weekly-bar-3')).not.toBeInTheDocument();
+
+    await openTab('Game log');
+    await userEvent.click(within(await screen.findByRole('radiogroup', { name: 'Season' })).getByRole('radio', { name: '2026' }));
     expect(screen.getByTestId('decision-card-gamelog-section')).toHaveTextContent('KC');
   });
 
@@ -1136,6 +1120,7 @@ describe('Season summary and Season pick (#1358)', () => {
     mockCardRoute(threeSeasonCard);
     renderCard();
 
+    await openTab('Game log');
     const control = await screen.findByTestId('decision-card-season-pick');
     const cls = Array.from(control.classList).find((c) => c.startsWith('css-'));
     let tail = '';
@@ -1152,7 +1137,9 @@ describe('Season summary and Season pick (#1358)', () => {
     mockCardRoute({ seasons: [seasonRow(2026)] });
     renderCard();
 
+    await openTab('Stats');
     await screen.findByTestId('decision-card-seasons');
+    await openTab('Game log');
     expect(screen.queryByRole('radiogroup', { name: 'Season' })).not.toBeInTheDocument();
   });
 
@@ -1169,6 +1156,7 @@ describe('Season summary and Season pick (#1358)', () => {
     const onNavigate = jest.fn();
     renderCard({ playerIds: [1, 2, 3], onNavigate });
 
+    await openTab('Game log');
     const radiogroup = await screen.findByRole('radiogroup', { name: 'Season' });
     within(radiogroup).getByRole('radio', { name: '2026' }).focus();
 
@@ -1227,6 +1215,8 @@ describe('Season summary and Season pick (#1358)', () => {
       />
     );
 
+    // The tab survives Next, so the pick is read back on Game log both before and after.
+    await openTab('Game log');
     const radiogroup = await screen.findByRole('radiogroup', { name: 'Season' });
     await userEvent.click(within(radiogroup).getByRole('radio', { name: '2025' }));
     expect(within(radiogroup).getByRole('radio', { name: '2025' })).toHaveAttribute('aria-checked', 'true');
@@ -1308,12 +1298,12 @@ test('the decision strip shows the Ownership and depth chart tiles in this conte
   expect(screen.getByTestId('decision-strip-depth')).toHaveTextContent('RB1');
 });
 
-// #1849 (spec #1845): the Volatility tag, a Badge beside the RangeBar, from the
+// #1849 (spec #1845): the Volatility tag, a Badge beside the range bar, from the
 // card payload's own decision.volatility; nothing at all for null.
 describe('Volatility tag (#1849)', () => {
   const cardWith = (volatility) => ({ decision: { projWeek: { week: 4, points: 12 }, volatility } });
 
-  test('reads "Steady" beside the RangeBar', async () => {
+  test('reads "Steady" beside the range bar', async () => {
     mockCardRoute(cardWith('steady'));
     renderCard();
     const badge = await screen.findByTestId('decision-card-volatility');

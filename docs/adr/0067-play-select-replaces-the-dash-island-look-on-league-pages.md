@@ -70,3 +70,32 @@ Consequences:
   pick'em row on a fantasy dashboard, the suggested swap behind the lead card's
   note). The wave specs list each one as a data gap or a scoped read, never as
   invented copy.
+
+## Amendment (2026-10-20, spec #2453): the carve-outs move too, then the dash group goes
+
+Decision 3 deletes the `dash-*` group once no file under `src/` reads it,
+and decision 4 kept some surfaces out of the move. With waves 4 and 5
+specced (#2432, #2433), the only readers left sit outside
+`/league/:leagueId/*`: Home's Create league and Join league dialogs, the
+Players page (`/player`) and the player card it opens, the player card on
+the player profile, and default components in TrophyCase and RecapCard
+that nothing renders. The two decisions could not both hold.
+
+The owner chose to move those readers as well:
+
+1. Home's Create league and Join league dialogs move to Play-select. This
+   is the Home ticket decision 4 waited for.
+2. The Players page moves to Play-select, and the player card opens in the
+   Play-select look everywhere, the public player profile included. The
+   card is a drawer or sheet over its page, so it is its own surface.
+3. Each shared slice's `look` option is removed once every caller passes
+   Play-select. The draft schedule field keeps its option, because
+   `/league` still renders it in the legacy look.
+4. Then the `dash-*` group, its contrast pairs, the dash `shared/ui`
+   pieces and Barlow Condensed are deleted. Archivo stays as the
+   Play-select body face.
+
+Decision 4 now covers only these: the app shell (Nav, Footer) keeps the
+app tokens on every route; Game Center's amber LED stays amber on black;
+the public mock draft (`DraftSim`), `/league` and `/league/join` keep the
+legacy app look. None of them reads the `dash-*` group.

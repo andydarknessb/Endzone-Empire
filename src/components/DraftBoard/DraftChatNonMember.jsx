@@ -1,5 +1,8 @@
 import React from 'react';
-import { Paper, Typography, Alert } from '@mui/material';
+import { Box } from '@mui/material';
+import {
+  BODY_FONT, Frame, FrameHead, PixelHeading,
+} from '../../shared/ui/playselect';
 
 // A fixed id, because only ONE League Chat notice is ever mounted at a time and
 // it is never mounted beside the member feed, so it cannot collide. It is the
@@ -25,31 +28,32 @@ const HEADING_ID = 'draft-chat-non-member-heading';
  *    HERE instead of dropping it to <body> (finding 1), the same standard the
  *    room already holds when a commissioner's Hide button is torn out.
  *
- * role="presentation" on the Alert is deliberate (finding 3, following the #519
- * ruling on this very room): MUI's Alert defaults to an ASSERTIVE live region,
- * and this surface is PERSISTENT - on a narrow container it remounts on every
+ * The notice carries no live-region role, deliberately (finding 3, following the
+ * #519 ruling on this very room): a kit notice is a plain box, where MUI's Alert
+ * used to default to an ASSERTIVE live region, and this surface is PERSISTENT - on a narrow container it remounts on every
  * Chat -> Players -> Chat tab switch, which would re-assert the notice each time.
  * The one-time, POLITE announcement of the transition lives in the chrome
  * (DraftChatMembershipAnnouncer), so this node only needs to be visible and
- * navigable, never a live region of its own. The copy states an availability
+ * navigable, never a live region of its own (role="presentation" keeps it so). The copy states an availability
  * rule (no em-dash, house style) rather than blaming the viewer.
  */
 function DraftChatNonMember({ removedFrom = null }) {
   return (
-    <Paper
-      component="section"
+    <Frame
       id={DRAFT_CHAT_NON_MEMBER_ID}
       tabIndex={-1}
-      aria-labelledby={HEADING_ID}
-      sx={{ p: 2, mt: 3 }}
+      labelledBy={HEADING_ID}
+      sx={{ mt: 3 }}
+      head={<FrameHead><PixelHeading id={HEADING_ID}>League Chat</PixelHeading></FrameHead>}
     >
-      <Typography id={HEADING_ID} variant="h6" component="h2" sx={{ mb: 2 }}>
-        League Chat
-      </Typography>
-      <Alert severity="info" role="presentation" data-testid="draft-chat-non-member">
+      <Box
+        role="presentation"
+        data-testid="draft-chat-non-member"
+        sx={{ m: { xs: '12px 14px', md: '14px 20px' }, p: '10px 12px', border: '2px solid var(--ps-rule)', fontFamily: BODY_FONT, fontSize: '15px' }}
+      >
         {removedFrom == null ? 'League chat is available to league members only.' : `You were removed from ${removedFrom}`}
-      </Alert>
-    </Paper>
+      </Box>
+    </Frame>
   );
 }
 

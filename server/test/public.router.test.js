@@ -1557,3 +1557,16 @@ test('GET /waiver-targets surfaces a failed read as 500', async (t) => {
   assert.deepEqual(res.body, { error: 'failed to fetch waiver targets' });
   assert.equal(errors.length, 1);
 });
+
+test('GET /draft-pool: a null-team player stays in the pool but sorts after every team player', async (t) => {
+  const rows = [
+    { id: 1, name: 'Released Vet', position: 'RB', nfl_team: null, photo_url: null, injury_status: null, adp: '1.0', position_rank: 1, last_season_points: null },
+    { id: 2, name: 'Rostered Back', position: 'RB', nfl_team: 'KC', photo_url: null, injury_status: null, adp: '5.0', position_rank: 2, last_season_points: null },
+  ];
+  installPool(t, draftPoolHandlers({ main: { rows } }));
+
+  const res = await request(makeApp()).get('/api/public/draft-pool');
+
+  assert.equal(res.status, 200);
+  assert.deepEqual(res.body.players.map((p) => p.playerId), [2, 1]);
+});

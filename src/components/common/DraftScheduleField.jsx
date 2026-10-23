@@ -4,6 +4,7 @@ import {
   Autocomplete, Checkbox, FormControlLabel, FormHelperText, Stack, TextField, Typography,
 } from '@mui/material';
 import { listIanaTimeZones, zonedWallTimeToUtcIso } from '../../lib/draftTimezone';
+import { FIELD_SX, FieldLabel, HINT_SX, MENU_PAPER } from '../../shared/ui/playselect/CardControls';
 
 const ZONE_OPTIONS = listIanaTimeZones();
 
@@ -24,11 +25,15 @@ const ZONE_OPTIONS = listIanaTimeZones();
  * acknowledgement checkbox, each tied to its control (aria-invalid plus
  * aria-describedby), for callers that validate on submit instead of
  * disabling their submit button (the stepped create flow).
+ *
+ * `look` is `'default'` (the legacy look, unchanged) or `'playselect'` (the kit field: label above a 44px
+ * square field, Dim preview line). Draft settings passes `'playselect'`; Create league passes it in spec #2453.
  */
 export default function DraftScheduleField({
   wallTime, onWallTimeChange, timeZone, onTimeZoneChange,
-  acknowledged, onAcknowledgedChange, disabled, minWallTime, error, acknowledgeError,
+  acknowledged, onAcknowledgedChange, disabled, minWallTime, error, acknowledgeError, look = 'default',
 }) {
+  const ps = look === 'playselect';
   // An id on the date TextField is what makes MUI link its helper text (the
   // `error`) to the input via aria-describedby.
   const fieldId = useId();
@@ -49,12 +54,14 @@ export default function DraftScheduleField({
 
   return (
     <Stack spacing={1}>
+      {ps && <FieldLabel htmlFor={`${fieldId}-date`}>Draft date</FieldLabel>}
       <TextField
         id={`${fieldId}-date`}
-        label="Draft date"
+        label={ps ? undefined : 'Draft date'}
         type="datetime-local"
         InputLabelProps={{ shrink: true }}
-        sx={(theme) => ({ colorScheme: theme.palette.mode })}
+        InputProps={ps ? { sx: FIELD_SX } : undefined}
+        sx={(theme) => ({ colorScheme: theme.palette.mode, ...(ps ? HINT_SX : null) })}
         value={wallTime}
         disabled={disabled}
         inputProps={minWallTime ? { min: minWallTime } : undefined}
@@ -62,22 +69,27 @@ export default function DraftScheduleField({
         helperText={error}
         onChange={handleWallTimeChange}
       />
-      <Typography variant="caption" color="text.secondary">{utcPreview}</Typography>
+      <Typography variant="caption" color={ps ? undefined : 'text.secondary'} sx={ps ? { color: 'var(--ps-dim)', fontSize: '14px' } : undefined}>{utcPreview}</Typography>
       {scheduled && (
         <>
+          {ps && <FieldLabel id={`${fieldId}-zone-label`} htmlFor={`${fieldId}-zone`}>Draft time zone</FieldLabel>}
           <Autocomplete
-            size="small"
+            id={`${fieldId}-zone`}
+            size={ps ? undefined : 'small'}
+            sx={ps ? { '& .MuiAutocomplete-endAdornment .MuiIconButton-root': { minWidth: '44px', minHeight: '44px' } } : undefined}
+            componentsProps={ps ? { paper: MENU_PAPER } : undefined}
             disabled={disabled}
             options={ZONE_OPTIONS}
             value={timeZone || null}
             disableClearable
             onChange={handleTimeZoneChange}
-            renderInput={(params) => <TextField {...params} label="Draft time zone" />}
+            renderInput={(params) => <TextField {...params} label={ps ? undefined : 'Draft time zone'} InputProps={ps ? { ...params.InputProps, sx: FIELD_SX } : params.InputProps} />}
           />
           <FormControlLabel
             control={
               <Checkbox
                 checked={acknowledged}
+                sx={ps ? { padding: '10px' } : undefined}
                 disabled={disabled}
                 onChange={(event) => onAcknowledgedChange(event.target.checked)}
                 inputProps={acknowledgeError
@@ -107,4 +119,5 @@ DraftScheduleField.propTypes = {
   minWallTime: PropTypes.string,
   error: PropTypes.string,
   acknowledgeError: PropTypes.string,
+  look: PropTypes.oneOf(['default', 'playselect']),
 };

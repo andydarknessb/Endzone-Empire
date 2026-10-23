@@ -45,6 +45,24 @@ test('lineupStatus checks a standard league in full against its roster slots', (
   assert.deepEqual(problems, ['1 empty RB slot', 'Quarterback (QB) is on bye']);
 });
 
+// #2391: a seat spent by a spared off-roster row is filled, as spentStartingSlots treats it on a save.
+test('lineupStatus counts a spent starting seat as filled and never nags its departed player', () => {
+  const entries = [
+    entry('QB', 'Quarterback'),
+    entry('K', 'Spared Kicker', { spent: true, verdict: unavailable('no_team') }),
+  ];
+  const problems = unlockedProblems({ entries, rosterSlots: slots({ QB: 1, K: 1 }), bestBall: false });
+  assert.deepEqual(problems, []);
+  assert.deepEqual(lineupStatus({
+    entries, rosterSlots: slots({ QB: 1, K: 1 }), bestBall: false,
+    kickoffByTeam: new Map(), weekLastKickoff: null, now: new Date('2026-10-04T12:00:00.000Z'),
+  }).emptySlots, []);
+});
+
+test('lineupEntryFromRow carries a spent row (no team_players match) as spent', () => {
+  assert.equal(homeStatus.lineupEntryFromRow({ player_id: 4, slot: 'K', name: 'Kicker', spent: true }).spent, true);
+});
+
 test('lineupStatus gives a best-ball league only its unresolved IR stashes', () => {
   const problems = unlockedProblems({
     entries: [
@@ -143,6 +161,18 @@ test('leagueStatuses names a starter the Weekly projection read says is Out, and
   assert.deepEqual(healthy.get(71).status.lineup.problems, ['1 empty FLEX slot']);
 });
 
+// The fake pool never runs the SQL, so the guard is on the query text: a starter
+// spared after kickoff (#627, #2391) keeps his seat only through the LEFT JOIN
+// and the slot OR; an inner join or a dropped OR would silently empty his seat.
+test('loadLineups keeps a lineup row whose roster row is gone unless it sits on BENCH or IR (#2430)', async (t) => {
+  const run = homeWorld(t);
+  await homeStatus.leagueStatuses(run, { userId: 7, leagues: [HOME_LEAGUE], now: HOME_NOW });
+  const [sourceQuery] = run.matching(/FROM "source"/);
+  assert.ok(sourceQuery, 'loadLineups\' query never ran');
+  assert.match(sourceQuery.text, /LEFT JOIN "team_players"/);
+  assert.match(sourceQuery.text, /OR "lineup_entries"\."slot" NOT IN \('BENCH', 'IR'\)/);
+});
+
 test('leagueStatuses names a starter on bye in the run', async (t) => {
   const fake = homeWorld(t, { verdict: unavailable('bye') });
   const statuses = await homeStatus.leagueStatuses(fake, { userId: 7, leagues: [HOME_LEAGUE], now: HOME_NOW });
@@ -162,7 +192,7 @@ test('lineupStatus resurfaces an unresolved ineligible IR stash but never a comm
 test('lineupEntryFromRow reads the lineup query row into the builder shape', () => {
   assert.deepEqual(
     homeStatus.lineupEntryFromRow({ player_id: 9, slot: 'RB', name: 'Runner', injury_status: 'Q', ir_attested: false, extra: 1 }),
-    { playerId: 9, slot: 'RB', name: 'Runner', injury_status: 'Q', ir_attested: false }
+    { playerId: 9, slot: 'RB', name: 'Runner', injury_status: 'Q', ir_attested: false, spent: false }
   );
 });
 

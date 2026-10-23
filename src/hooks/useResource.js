@@ -13,7 +13,7 @@ import {
 /**
  * Binds one mount to a cached GET (ADR 0004). `key` is an array such as
  * ['league', 7]; a null key never fetches. Returns { data, loading, error,
- * refetch }.
+ * refetch, fetchedAt }.
  *
  * The store handles what is shared between mounts (one entry per key, one
  * in-flight request, the generation guard). This hook handles what is per
@@ -124,7 +124,14 @@ export function useResource(key, url, { ttl } = {}) {
     return load();
   }, [serialized, load]);
 
-  return { data, loading, error, refetch };
+  // When the response this mount shows was fetched. The store has no time while a reload is in flight,
+  // so the last known one for this key stands until the reload lands.
+  const seen = useRef({ key: null, at: null });
+  const live = serialized == null ? null : read(serialized)?.fetchedAt;
+  if (live != null) seen.current = { key: serialized, at: live };
+  const fetchedAt = seen.current.key === serialized ? seen.current.at : null;
+
+  return { data, loading, error, refetch, fetchedAt };
 }
 
 export default useResource;

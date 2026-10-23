@@ -271,7 +271,7 @@ describe('activityFromRow: segments, sentence pre-split for clickable names', ()
     const model = activityFromRow(byType('add'));
     expect(model.segments).toEqual([
       { type: 'text', value: 'added ' },
-      { type: 'player', name: 'Justin Jefferson', playerId: 1 },
+      { type: 'player', name: 'Justin Jefferson', playerId: 1, position: null },
     ]);
   });
 
@@ -291,8 +291,8 @@ describe('activityFromRow: segments, sentence pre-split for clickable names', ()
     expect(model.sentence).toBe('claimed Josh Allen · $5 FAAB, dropped Josh Allen Jr.');
     const playerParts = model.segments.filter((s) => s.type === 'player');
     expect(playerParts).toEqual([
-      { type: 'player', name: 'Josh Allen', playerId: 1 },
-      { type: 'player', name: 'Josh Allen Jr.', playerId: 2 },
+      { type: 'player', name: 'Josh Allen', playerId: 1, position: null },
+      { type: 'player', name: 'Josh Allen Jr.', playerId: 2, position: null },
     ]);
     expect(renderSegments(model.segments)).toBe(model.sentence);
   });
@@ -316,9 +316,9 @@ describe('activityFromRow: segments, sentence pre-split for clickable names', ()
     expect(model.sentence).toBe('traded Allen to Allen Army for Smith');
     expect(model.segments).toEqual([
       { type: 'text', value: 'traded ' },
-      { type: 'player', name: 'Allen', playerId: 5 },
+      { type: 'player', name: 'Allen', playerId: 5, position: null },
       { type: 'text', value: ' to Allen Army for ' },
-      { type: 'player', name: 'Smith', playerId: 6 },
+      { type: 'player', name: 'Smith', playerId: 6, position: null },
     ]);
   });
 
@@ -342,8 +342,8 @@ describe('activityFromRow: segments, sentence pre-split for clickable names', ()
     expect(model.sentence).toBe('traded Foo Bar to Team X for Foo Bar');
     const playerParts = model.segments.filter((s) => s.type === 'player');
     expect(playerParts).toEqual([
-      { type: 'player', name: 'Foo Bar', playerId: 100 },
-      { type: 'player', name: 'Foo Bar', playerId: 200 },
+      { type: 'player', name: 'Foo Bar', playerId: 100, position: null },
+      { type: 'player', name: 'Foo Bar', playerId: 200, position: null },
     ]);
   });
 });
@@ -352,7 +352,7 @@ describe('activityFromRow: players, the structured references sentence flattens'
   test('add: the added player, no dropped side', () => {
     const model = activityFromRow(byType('add'));
     expect(model.players).toEqual({
-      added: [{ name: 'Justin Jefferson', playerId: 1 }],
+      added: [{ name: 'Justin Jefferson', playerId: 1, position: null }],
       dropped: [],
     });
   });
@@ -361,15 +361,15 @@ describe('activityFromRow: players, the structured references sentence flattens'
     const model = activityFromRow(byType('drop'));
     expect(model.players).toEqual({
       added: [],
-      dropped: [{ name: 'Zach Wilson', playerId: 9 }],
+      dropped: [{ name: 'Zach Wilson', playerId: 9, position: null }],
     });
   });
 
   test('waiver: the claimed player and the dropped player stay on distinct sides', () => {
     const model = activityFromRow(byType('waiver'));
     expect(model.players).toEqual({
-      added: [{ name: 'Breece Hall', playerId: 7 }],
-      dropped: [{ name: 'Zach Wilson', playerId: 9 }],
+      added: [{ name: 'Breece Hall', playerId: 7, position: null }],
+      dropped: [{ name: 'Zach Wilson', playerId: 9, position: null }],
     });
   });
 
@@ -383,8 +383,8 @@ describe('activityFromRow: players, the structured references sentence flattens'
       detail: { playerId: 9, droppedPlayerId: 7, bid: 12 },
     });
     expect(swapped.players).toEqual({
-      added: [{ name: 'Zach Wilson', playerId: 9 }],
-      dropped: [{ name: 'Breece Hall', playerId: 7 }],
+      added: [{ name: 'Zach Wilson', playerId: 9, position: null }],
+      dropped: [{ name: 'Breece Hall', playerId: 7, position: null }],
     });
     expect(swapped.players).not.toEqual(activityFromRow(byType('waiver')).players);
   });
@@ -392,8 +392,8 @@ describe('activityFromRow: players, the structured references sentence flattens'
   test('trade: received players land on added, sent players land on dropped', () => {
     const model = activityFromRow(byType('trade'));
     expect(model.players).toEqual({
-      added: [{ name: 'Player B', playerId: 2 }],
-      dropped: [{ name: 'Player A', playerId: 1 }],
+      added: [{ name: 'Player B', playerId: 2, position: null }],
+      dropped: [{ name: 'Player A', playerId: 1, position: null }],
     });
   });
 
@@ -470,5 +470,45 @@ describe('activityFromRow: every server transaction type renders a real sentence
     // happens to end in "activity" would otherwise fail this with no
     // defect present).
     expect(model.sentence).not.toBe(genericSentenceFor(type));
+  });
+});
+
+describe('activityFromRow: player positions (#2463)', () => {
+  test('an add row carries the joined position on its segment and players entry', () => {
+    const model = activityFromRow({
+      type: 'add', player_name: 'X', player_position: 'WR', detail: { playerId: 1 },
+    });
+    expect(model.segments[1]).toEqual({ type: 'player', name: 'X', playerId: 1, position: 'WR' });
+    expect(model.players.added).toEqual([{ name: 'X', playerId: 1, position: 'WR' }]);
+  });
+
+  test('a waiver row carries both the claimed and the dropped position', () => {
+    const model = activityFromRow({
+      type: 'waiver',
+      player_name: 'A',
+      player_position: 'RB',
+      dropped_player_name: 'B',
+      dropped_player_position: 'TE',
+      detail: { playerId: 1, droppedPlayerId: 2 },
+    });
+    expect(model.segments.filter((s) => s.type === 'player').map((s) => s.position)).toEqual(['RB', 'TE']);
+    expect(model.players.dropped[0].position).toBe('TE');
+  });
+
+  test('a trade row carries each item position; a row without one gets null', () => {
+    const model = activityFromRow({
+      type: 'trade',
+      detail: {
+        proposingTeamId: 1,
+        receivingTeamName: 'Bob',
+        items: [
+          { playerId: 5, playerName: 'Sent', fromTeamId: 1, toTeamId: 2, position: 'QB' },
+          { playerId: 6, playerName: 'Got', fromTeamId: 2, toTeamId: 1 },
+        ],
+      },
+    });
+    expect(model.segments.filter((s) => s.type === 'player').map((s) => s.position)).toEqual(['QB', null]);
+    expect(model.players.dropped[0].position).toBe('QB');
+    expect(model.players.added[0].position).toBeNull();
   });
 });

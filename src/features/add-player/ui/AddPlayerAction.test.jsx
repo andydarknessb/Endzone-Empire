@@ -55,3 +55,43 @@ test('at capacity: the drop pick is required, sorted worst projection first, and
   expect(apiClient.delete).toHaveBeenCalledWith('/api/team/roster/21?leagueId=4');
   expect(apiClient.post).toHaveBeenCalledWith('/api/team/roster/9', { leagueId: 4 });
 });
+
+// The Play-select bar (ADR 0067, spec #2347 ruling 7).
+describe('the Play-select bar', () => {
+  const player = { playerId: 9, name: 'Josh Palmer' };
+  const roster = [{ id: 31, name: 'Tyler Allgeier', position: 'RB' }];
+  const full = { rosterCount: 15, rosterCapacity: 15 };
+
+  function renderBar(props = {}) {
+    return render(
+      <SnackbarProvider>
+        <AddPlayerAction player={player} leagueId={4} availability={full} roster={roster} onAdded={jest.fn()} {...props} />
+      </SnackbarProvider>
+    );
+  }
+
+  test('is ghost by default and filled only on the modal sheet', () => {
+    const { unmount } = renderBar({ });
+    expect(screen.getByTestId('add-player-submit')).toHaveAttribute('data-variant', 'ghost');
+    unmount();
+
+    renderBar({ filled: true });
+    expect(screen.getByTestId('add-player-submit')).toHaveAttribute('data-variant', 'fill');
+  });
+
+  test('keeps the required drop and posts it', async () => {
+    apiClient.post.mockResolvedValue({});
+    apiClient.delete.mockResolvedValue({});
+    renderBar({ });
+
+    const submit = screen.getByRole('button', { name: 'Add and drop' });
+    expect(submit).toBeDisabled();
+    expect(screen.getByText('Roster 15 of 15')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('combobox', { name: 'Drop a player' }));
+    await userEvent.click(await screen.findByRole('option', { name: /Tyler Allgeier \(RB\)/ }));
+    await userEvent.click(submit);
+
+    expect(apiClient.delete).toHaveBeenCalledWith('/api/team/roster/31?leagueId=4');
+    expect(apiClient.post).toHaveBeenCalledWith('/api/team/roster/9', { leagueId: 4 });
+  });
+});
