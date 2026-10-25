@@ -1,5 +1,4 @@
 import { matchupFace } from '../../../entities/matchup';
-import { finite } from '../../../shared/lib';
 
 /**
  * The scoreboard strip's view model (widget `scoreboard-strip`, ADR 0031,
@@ -14,12 +13,6 @@ import { finite } from '../../../shared/lib';
  * remaining text and the margin are `matchupFace`'s (entities/matchup, ADR 0029 amendment
  * 2026-10-24); nothing here prices or picks.
  */
-
-/** An Expected final as the strip prints it: one decimal, or null when unknown. */
-export function formatExpectedFinal(value) {
-  const n = finite(value);
-  return n != null ? n.toFixed(1) : null;
-}
 
 /**
  * @param {object} matchup the Matchup entity model (`entities/matchup`)

@@ -84,7 +84,7 @@ const faceOf = (matchup) => matchupFace(
 
 // A settled card states a score of record; a missing one is unknown, not 0.0.
 // The live tile keeps scoreLabel (0.0) because a live game can be scoreless.
-const finalScore = (side) => (side.score == null ? '-' : side.scoreLabel);
+const finalScore = (side) => (finiteOrNull(side.score) == null ? '-' : side.scoreLabel);
 
 function lineupText(lineup) {
   const problems = Array.isArray(lineup?.problems) ? lineup.problems : [];
@@ -421,13 +421,14 @@ function ScoreTileFor({ league, scored }) {
     lineupText(status.lineup),
   ].filter(Boolean).join(', ');
   const pickem = status.pickem?.total > 0 ? `${status.pickem.made} of ${status.pickem.total} picks in` : null;
+  // The tile's result follows the raw scores: a raw win that prints as a tie stays bright.
   return (
     <ScoreTile
       league={league.name}
       status={statusLine}
       you={{ name: 'You', score: first.scoreLabel, note: first.remainingText }}
       opp={{ name: opponent, score: second.scoreLabel, note: second.remainingText }}
-      youLeads={game.leader !== 'second'}
+      youLeads={(finiteOrNull(first.score) ?? 0) >= (finiteOrNull(second.score) ?? 0)}
       margin={margin}
       pct={pct}
       to={`/league/${league.id}/matchups/${matchup.id}`}

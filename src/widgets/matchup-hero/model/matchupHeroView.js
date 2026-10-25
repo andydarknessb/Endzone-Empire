@@ -1,5 +1,5 @@
 import { matchupFace } from '../../../entities/matchup';
-import { finite, initialsFor, teamNameLabel } from '../../../shared/lib';
+import { initialsFor, teamNameLabel } from '../../../shared/lib';
 // ordinal itself is shared/lib's contract now (#1272 Addendum); MatchupHero
 // imports it directly rather than through this view model.
 
@@ -36,9 +36,6 @@ import { finite, initialsFor, teamNameLabel } from '../../../shared/lib';
  * maps the face onto the hero's keys and prices or words nothing itself.
  */
 
-// compactScoreboardView's margin is the raw-score gap; the face's scoreGap reads the printed labels.
-const tenth = (value) => Math.round(value * 10) / 10;
-
 /**
  * The whole view for one hero card. `first` and `second` are the face's sides (the viewer's Team
  * first when it is one of the two, else home; the sentence reads from `first`'s perspective, which
@@ -74,18 +71,16 @@ export default matchupHeroView;
  * ("Darkness Falls by 2.1", "Tied" level). Null before kickoff, when there is no score to pin.
  */
 export function compactScoreboardView(matchup, viewerTeamId = null) {
-  const view = matchupHeroView(matchup, viewerTeamId);
-  if (view.hasStarted !== true) return null;
-  // The board already puts the viewer's side first: `a` is the left one.
-  const { first, second } = view;
-  const side = (x, label) => ({ abbr: initialsFor(x.name), name: teamNameLabel(x.name), score: label });
-  const diff = Math.abs(tenth((finite(first.score) ?? 0) - (finite(second.score) ?? 0)));
-  const leader = view.leadSide === 'first' ? first : second;
+  const { first, second, game } = matchupFace(matchup, { viewerTeamId });
+  if (game.hasStarted !== true) return null;
+  // The face already puts the viewer's side first: `a` is the left one.
+  const side = (s) => ({ abbr: initialsFor(s.name), name: teamNameLabel(s.name), score: s.scoreLabel });
   return {
-    a: side(first, view.scoreLabels.first),
-    b: side(second, view.scoreLabels.second),
-    lead: view.leadSide === 'first' ? 'a' : view.leadSide === 'second' ? 'b' : undefined,
-    marginText: view.leadSide ? `${teamNameLabel(leader.name)} by ${diff.toFixed(1)}` : 'Tied',
-    live: view.isLive,
+    a: side(first),
+    b: side(second),
+    lead: game.scoreLeader === 'first' ? 'a' : game.scoreLeader === 'second' ? 'b' : undefined,
+    // The compact bar keeps its own fallback: a missing raw score still reads Tied, as before the face.
+    marginText: game.rawMarginText ?? 'Tied',
+    live: game.isLive,
   };
 }

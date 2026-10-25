@@ -36,20 +36,19 @@ describe('matchupFace: side order and the viewer', () => {
 });
 
 describe('matchupFace: status', () => {
-  // status -> hasStarted, settled, chip label, figureLabel, winProbability?, projected?, sentence, kickoff?
+  // status -> hasStarted, settled, chip label, winProbability?, projected?, sentence, kickoff?
   it.each([
-    ['scheduled', false, false, 'Scheduled', 'Proj', false, true, null, true],
-    ['live', true, false, 'LIVE', 'Live score', true, false, 'Ahead now, projected to trail by 13.4 · they have 6 players remaining', false],
-    ['played', true, true, 'Awaiting final', 'Final score', true, false, 'Unofficial: You won by 5.2', false],
-    ['final', true, true, 'Final', 'Final score', true, false, 'You won by 5.2', false],
-    [null, null, false, null, 'Proj', false, false, null, false],
-    ['postponed', null, false, null, 'Proj', false, false, null, false],
-  ])('status %p', (status, hasStarted, settled, chipLabel, figureLabel, hasWin, hasProjected, sentence, hasKickoff) => {
-    const { first, game } = matchupFace(at(status), { viewerTeamId: 10 });
+    ['scheduled', false, false, 'Scheduled', false, true, null, true],
+    ['live', true, false, 'LIVE', true, false, 'Ahead now, projected to trail by 13.4 · they have 6 players remaining', false],
+    ['played', true, true, 'Awaiting final', true, false, 'Unofficial: You won by 5.2', false],
+    ['final', true, true, 'Final', true, false, 'You won by 5.2', false],
+    [null, null, false, null, false, false, null, false],
+    ['postponed', null, false, null, false, false, null, false],
+  ])('status %p', (status, hasStarted, settled, chipLabel, hasWin, hasProjected, sentence, hasKickoff) => {
+    const { game } = matchupFace(at(status), { viewerTeamId: 10 });
     expect(game.hasStarted).toBe(hasStarted);
     expect(game.settled).toBe(settled);
     expect(game.chip?.label ?? null).toBe(chipLabel);
-    expect(first.figureLabel).toBe(figureLabel);
     expect(game.winProbability !== null).toBe(hasWin);
     expect(game.projectedWinProbability !== null).toBe(hasProjected);
     expect(game.sentence).toBe(sentence);
@@ -72,7 +71,7 @@ describe('matchupFace: status', () => {
   });
 
   it('a settled Matchup states its result and no Expected final figure', () => {
-    const { first, second, game } = matchupFace(at('final'), { viewerTeamId: 20, expectedFinalFor: () => 99 });
+    const { first, second, game } = matchupFace(at('final'), { viewerTeamId: 20 });
     expect(game.resultLine).toBe('You lost by 5.2');
     expect(game.sentence).toBe('You lost by 5.2');
     expect([first.expectedFinal, first.expectedFinalLabel, second.expectedFinalLabel]).toEqual([null, null, null]);
@@ -87,7 +86,7 @@ describe('matchupFace: status', () => {
 
   it('an empty Matchup survives with no figures', () => {
     const { first, game } = matchupFace(null);
-    expect(first).toMatchObject({ origin: 'home', scoreLabel: null, figure: null, record: null, rank: null, isCpu: false });
+    expect(first).toMatchObject({ origin: 'home', scoreLabel: null, figure: null, record: null });
     expect(game).toMatchObject({ chip: null, hasStarted: null, firstPct: null, marginText: null, sentence: null });
   });
 });
@@ -148,14 +147,18 @@ describe('matchupFace: missing Expected finals', () => {
     expect(first.figure).toBe('110.5');
   });
 
-  it('expectedFinalFor stands in for the board figure before settlement; priced still reads the raw sides', () => {
-    const projected = { 10: '101.0', 20: 98 };
-    const { first, second, game } = matchupFace(
-      at('scheduled', { home: { ...dock, expectedFinal: null }, away: { ...frost, expectedFinal: null } }),
-      { viewerTeamId: 20, expectedFinalFor: (teamId) => projected[teamId] },
-    );
-    expect([first.expectedFinalLabel, second.expectedFinalLabel]).toEqual(['98.0', '101.0']);
-    expect(game).toMatchObject({ priced: false, projectedWinProbability: null, projectedLeader: 'second', projectedMarginText: 'Projected margin · Duluth Dockworkers by 3.0' });
+  it('a half-tenth projection rounds the absolute gap, the same for both viewers', () => {
+    const matchup = at('scheduled', { home: { ...dock, expectedFinal: 100 }, away: { ...frost, expectedFinal: 100.25 } });
+    expect(matchupFace(matchup, { viewerTeamId: 10 }).game.projectedMargin).toBe(0.3);
+    expect(matchupFace(matchup, { viewerTeamId: 20 }).game.projectedMargin).toBe(0.3);
+  });
+
+  it('a projection under a tenth reads Even in the margin and the sentence', () => {
+    const matchup = at('live', { home: { ...dock, expectedFinal: 100.01 }, away: { ...frost, expectedFinal: 100 } });
+    const { game } = matchupFace(matchup, { viewerTeamId: 10 });
+    expect(game.projectedMargin).toBe(0);
+    expect(game.projectedLeader).toBeNull();
+    expect(game.sentence).toMatch(/projected to finish even/);
   });
 });
 
@@ -189,11 +192,10 @@ describe('matchupFace: counts', () => {
     expect(game.sentence).toBe('Ahead now, projected to trail by 13.4');
   });
 
-  it('prints the per-side count lines, null when unknown', () => {
+  it('prints the per-side count line, null when unknown', () => {
     const { first, second } = matchupFace(at('scheduled', { home: { ...dock, playersRemaining: 1 }, away: { ...frost, playersRemaining: null } }));
-    expect(first).toMatchObject({ remainingText: '1 player remaining', setToPlayText: '1 starter set to play' });
-    expect(second).toMatchObject({ remainingText: null, setToPlayText: null });
-    expect(matchupFace(live).second.setToPlayText).toBe('6 starters set to play');
+    expect(first).toMatchObject({ remainingText: '1 player remaining' });
+    expect(second).toMatchObject({ remainingText: null });
   });
 });
 
@@ -207,20 +209,22 @@ describe('matchupFace: page lookups', () => {
     const { first, second } = matchupFace(live, { records });
     expect([first.record, second.record]).toEqual([home, away]);
   });
+});
 
-  it('ranks give the number and the ordinal label; a miss is null', () => {
-    const { first, second } = matchupFace(live, { ranks: { 10: 3 } });
-    expect(first).toMatchObject({ rank: 3, rankLabel: '3rd in league' });
-    expect(second).toMatchObject({ rank: null, rankLabel: null });
-    expect(matchupFace(live, { ranks: { 10: 0 } }).first.rankLabel).toBeNull();
+describe('matchupFace: raw margin', () => {
+  it('reads the raw-score words for the compact bar', () => {
+    const { game } = matchupFace(live, { viewerTeamId: 10 });
+    expect(game).toMatchObject({ scoreLeader: 'first', rawMarginText: 'Duluth Dockworkers by 5.2' });
   });
 
-  it.each([
-    ['Set', new Set([20])],
-    ['array', [20]],
-  ])('CPU Team ids as a %s', (_name, cpuTeamIds) => {
-    const { first, second } = matchupFace(live, { viewerTeamId: 10, cpuTeamIds });
-    expect([first.isCpu, second.isCpu]).toEqual([false, true]);
+  it('a raw tie reads Tied', () => {
+    const { game } = matchupFace(at('live', { home: { ...dock, score: 80 }, away: { ...frost, score: 80 } }), { viewerTeamId: 10 });
+    expect(game).toMatchObject({ scoreLeader: null, rawMarginText: 'Tied' });
+  });
+
+  it('a missing raw score has no raw margin', () => {
+    const { game } = matchupFace(at('live', { home: { ...dock, score: null } }), { viewerTeamId: 10 });
+    expect(game).toMatchObject({ scoreLeader: null, rawMarginText: null });
   });
 });
 
