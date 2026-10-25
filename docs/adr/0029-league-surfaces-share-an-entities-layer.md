@@ -156,3 +156,20 @@ and prices nothing itself. The second instance in the #2048 amendment above
 therefore reads, from #2142, as `matchupBoard.js` importing its sibling
 `./winProbability`, which reaches neither the `shared/lib` index nor the
 entity index. The rule and the first instance are unchanged.
+
+## Amendment (2026-10-24): a pure entry for the Matchup read model
+
+The entity index re-exports hooks that reach the Supabase client and the shared
+resource cache, so a component in the initial chunk cannot import it without
+dragging that graph in. The index remains the full surface for hooks. A second,
+pure entry, `src/entities/matchup/board.js`, exports the model only
+(`matchupBoard`, `matchupPhase`, `matchupFace`) and never a hook. Initial-chunk
+consumers import the pure entry; consumers that need a hook keep importing the
+index. The pure entry is a seam, not a second entity: the index re-exports the
+same model names, and both entries read the same model files.
+
+The 2026-10-09 amendment's third narrow import is now this entry: the Home card
+imports `matchupFace` (and any model helper it needs) from
+`src/entities/matchup/board.js`, and `check:bundle` still guards the initial
+chunk. The justification that amendment asked for is the entry itself: one
+named, pure surface replaces a per-file internal path.

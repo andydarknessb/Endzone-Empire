@@ -39,6 +39,7 @@ export {
   viewerMatchupOf,
 } from './model/matchupModel';
 export { matchupBoard, matchupPhase } from './model/matchupBoard';
+export { matchupFace } from './model/matchupFace';
 export { allWeekSettled } from './model/allWeekSettled';
 export { playersRemaining, yetToPlay } from './model/playersRemaining';
 export {
