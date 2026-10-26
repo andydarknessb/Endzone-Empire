@@ -1,10 +1,11 @@
-import { useEndpoint, formatKickoff, finite, teamNameLabel } from '../../../shared/lib';
+import { useEndpoint, finite, teamNameLabel } from '../../../shared/lib';
 import { useLeague } from '../../../hooks/useLeague';
 import {
   useWeekMatchups,
   viewerMatchupOf,
   matchupFromDetailBody,
   matchupBoard,
+  matchupFace,
   applyScoreEvent,
 } from '../../../entities/matchup';
 
@@ -156,9 +157,8 @@ export function useMatchupPreview(leagueId, { scoreEvent } = {}) {
     : null;
   const myMatchup = liveEntry ? applyScoreEvent(listMatchup, liveEntry) : listMatchup;
   const matchupId = myMatchup ? myMatchup.id : null;
-  // Viewer first: the board's first side is the viewer's Team, the second the opponent.
+  // The board drives the read gates below; the card's figures come from the face (further down).
   const board = matchupBoard(myMatchup, viewerTeamId);
-  const opponentId = myMatchup ? board.second.teamId : null;
 
   // #670: does the list row already answer BOTH sides? A null check, not a
   // truthiness check, so a legitimate 0 counts as present. `!= null` excludes
@@ -178,7 +178,7 @@ export function useMatchupPreview(leagueId, { scoreEvent } = {}) {
   // The Matchup's status, through the entity's `matchupBoard` (ADR 0030: status
   // is a server fact, never inferred here). `hasStarted` is true / false /
   // null, and every branch below tests it against an explicit value.
-  const { hasStarted, chip } = board;
+  const { hasStarted } = board;
 
   // Whether the detail read stands any chance of answering: the list didn't
   // already answer both sides, AND the league isn't best-ball (#688, where
@@ -262,120 +262,48 @@ export function useMatchupPreview(leagueId, { scoreEvent } = {}) {
   else if (!myMatchup) status = 'empty';
   else status = 'ready';
 
-  // The viewer's matchup's per-side object for one Team id, or null. The side
-  // facts below all read the LIST row rather than the detail: once the Matchup
-  // has started the detail read is gated off entirely (see `detailCanAnswer`),
-  // and the list row already carries the score, the status and Players
-  // remaining that a started card shows.
-  const sideOf = (teamId) => {
-    if (myMatchup == null || teamId == null) return null;
-    return [board.first, board.second].find((s) => s.teamId === teamId) ?? null;
+  // The viewer-first face (ADR 0029 amendment, 2026-10-24) owns the card's figures and captions,
+  // read off the LIST row (a started Matchup gates the detail read off, `detailCanAnswer`). Its
+  // sides carry the league cache's names, so the margin caption names the Teams the card shows.
+  // No `expectedFinalFor`: the caption and the live Expected final read the row's raw figures,
+  // never `projected.value`, which is already a formatted string.
+  const named = myMatchup && {
+    ...myMatchup,
+    home: { ...myMatchup.home, name: identityFor(myMatchup.home.teamId).name },
+    away: { ...myMatchup.away, name: identityFor(myMatchup.away.teamId).name },
   };
+  const face = matchupFace(named, { viewerTeamId });
+  const ready = status === 'ready';
 
-  // The live score, to one decimal. `home_score` is a NOT NULL decimal and
-  // node-postgres hands decimals back as STRINGS (matchupModel renames without
-  // retyping), so the coercion is not decoration; the null guard is, because a
-  // fixture or a detail body may omit the column, and `Number(null)` is 0.
-  const scoreFor = (teamId) => {
-    const raw = finite(sideOf(teamId)?.score);
-    return raw != null ? raw.toFixed(1) : null;
-  };
+  // One side of the card. `score` is null when the server sent none (the face's label would read
+  // 0.0); `expectedFinal` is the started Matchup's live figure alone (null once settled).
+  const sideView = (s) => ({
+    ...identityFor(s.teamId),
+    projected: projectedFor(s.teamId),
+    score: finite(s.score) == null ? null : s.scoreLabel,
+    expectedFinal: hasStarted === true ? s.expectedFinalLabel : null,
+    playersRemaining: finite(s.playersRemaining),
+  });
+  const viewer = ready ? sideView(face.first) : null;
+  const opponent = ready ? sideView(face.second) : null;
 
-  // A started Matchup's Expected final, to one decimal: the live screen's per-side figure (the list
-  // row carries it while the week is live; it is null once the Matchup settles, by design).
-  const expectedFinalFor = (teamId) => {
-    if (hasStarted !== true || board.settled) return null;
-    const raw = finite(sideOf(teamId)?.expectedFinal);
-    return raw != null ? raw.toFixed(1) : null;
-  };
-
-  const viewer =
-    status === 'ready'
-      ? {
-          ...identityFor(board.first.teamId),
-          projected: projectedFor(board.first.teamId),
-          score: scoreFor(board.first.teamId),
-          expectedFinal: expectedFinalFor(board.first.teamId),
-          playersRemaining: finite(sideOf(board.first.teamId)?.playersRemaining),
-        }
-      : null;
-  const opponent =
-    status === 'ready'
-      ? {
-          ...identityFor(opponentId),
-          projected: projectedFor(opponentId),
-          score: scoreFor(opponentId),
-          expectedFinal: expectedFinalFor(opponentId),
-          playersRemaining: finite(sideOf(opponentId)?.playersRemaining),
-        }
-      : null;
-
-  // The game view: what the card paints about the Matchup itself rather than
-  // about one side. On an unknown status every claim here drops (no chip, no
-  // bar, no caption), so the card asserts neither state (the entity's
-  // `hasStarted === null` contract).
-  //
-  // The win probability is the board's (#2142), the same figure Game Center's
-  // hero reads, computed from the two scores and the two Expected finals, so
-  // the two surfaces cannot disagree. It is never a
-  // points ratio: TwoSidedOdds names both teams and shares ("{a} X%, {b} Y% win
-  // probability", #872), and a ratio there would announce a number that is not one.
-  // The share is clamped and rounded as TwoSidedOdds rounds it (0-100, so the two
-  // sides sum to 100), and it is stated from the VIEWER's side because the card
-  // passes the viewer as the odds bar's first side.
-  let winProbability = null;
-  if (status === 'ready' && board.winProbability) {
-    const shares = board.winProbability;
-    const clamped = Math.max(0, Math.min(1, Number(shares.first) || 0));
-    const viewerPct = Math.round(clamped * 100);
-    winProbability = { viewerShare: clamped, viewerPct, opponentPct: 100 - viewerPct };
-  }
-
-  // The pre-kickoff win probability (the board's projected one), from the viewer's side, for the
-  // League Dashboard's Play-select versus panel; null once the Matchup has started.
-  let projectedWinProbability = null;
-  if (status === 'ready' && board.projectedWinProbability) {
-    const shares = board.projectedWinProbability;
-    projectedWinProbability = { viewerPct: Math.round(Math.max(0, Math.min(1, Number(shares.first) || 0)) * 100) };
-  }
-
-  // The one caption before kickoff: which way the projections lean and by how
-  // much. Read from the raw Expected finals, never from `projected.value`,
-  // which is already a formatted string. A margin that rounds to zero reads as
-  // even rather than "by 0.0", and a missing projection on either side drops
-  // the line rather than inventing a leader.
-  let projectedMargin = null;
-  if (status === 'ready' && hasStarted === false) {
-    const mine = finite(sideOf(board.first.teamId)?.expectedFinal);
-    const theirs = finite(sideOf(opponentId)?.expectedFinal);
-    if (mine != null && theirs != null) {
-      const gap = Math.round((mine - theirs) * 10) / 10;
-      projectedMargin =
-        gap === 0
-          ? 'Projected margin · Even'
-          : `Projected margin · ${(gap > 0 ? viewer : opponent).name} by ${Math.abs(gap).toFixed(1)}`;
-    }
-  }
-
-  // The kickoff tail (#1102): before the game has started, the header's tail
-  // reads the row's own `first_kickoff_at` (matchupFromListRow already maps
-  // it as `firstKickoffAt`, no new request) rather than the fallback caption.
-  // `hasStarted === false` only, the mirror of `projectedMargin` above: an
-  // unknown status asserts neither state, and a started Matchup keeps its
-  // status chip exactly as it is.
-  const kickoffLabel =
-    hasStarted === false ? formatKickoff(myMatchup?.firstKickoffAt) : null;
-
+  // The game view. On an unknown status every claim drops (no chip, no bar, no caption, no
+  // kickoff). The win probability is the face's (#2142), stated from the VIEWER's side because the
+  // card passes the viewer as the odds bar's first side, and never a points ratio (#872); it is
+  // null unless both Expected finals are present (no 50/50 the forecast never made).
+  const { game: g } = face;
   const game = {
     hasStarted,
-    chipLabel: chip?.label ?? null,
-    chipVariant: chip?.variant ?? 'neutral',
-    chipDot: chip?.dot ?? false,
-    winProbability,
-    projectedWinProbability,
-    projectedMargin,
-    kickoffLabel,
-    isLive: board.isLive,
+    chipLabel: g.chip?.label ?? null,
+    chipVariant: g.chip?.variant ?? 'neutral',
+    chipDot: g.chip?.dot ?? false,
+    winProbability: ready && g.winProbability
+      ? { viewerShare: g.firstShare, viewerPct: g.firstPct, opponentPct: g.secondPct }
+      : null,
+    projectedWinProbability: ready && g.projectedWinProbability ? { viewerPct: g.firstPct } : null,
+    projectedMargin: ready ? g.projectedMarginText : null,
+    kickoffLabel: g.kickoffLabel,
+    isLive: g.isLive,
   };
 
   // aria-busy while a layout-holding read is in flight: the list spine, and

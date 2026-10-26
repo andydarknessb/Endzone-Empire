@@ -262,6 +262,14 @@ describe('final', () => {
     expect(declaredStyle(within(panel).getByText('88.3'))).toContain('var(--ps-dim)');
     expect(declaredStyle(within(panel).getByText('104.6'))).toContain('var(--ps-ink)');
   });
+
+  test('a missing score prints a dash and claims no result', () => {
+    renderCards({ leagues: [finalLeague(null, 104.6)] });
+    const panel = panelFor('Thursday Night Regulars');
+    expect(within(panel).getAllByText('Final').length).toBeGreaterThan(0);
+    expect(within(panel).getByText(/Final: you -, Gridiron Ghosts 104\.6\./)).toBeInTheDocument();
+    expect(within(panel).queryByText(/Final · You (won|lost)/)).toBeNull();
+  });
 });
 
 describe('live', () => {
@@ -287,6 +295,21 @@ describe('live', () => {
     });
     expect(screen.getByText('Down 14.9')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /you trail Gridiron Ghosts 64\.0 to 78\.9, down 14\.9/ })).toBeInTheDocument();
+  });
+
+  test('a raw win that prints as a tie reads Tied but keeps the viewer bright', () => {
+    renderCards({
+      leagues: [liveLeague({
+        my: { score: 100.04, expectedFinal: 118.6, playersRemaining: 4 },
+        opp: { score: 99.96, expectedFinal: 104.1, playersRemaining: 2 },
+      })],
+      live: true,
+    });
+    const tile = tileFor('Thursday Night Regulars');
+    expect(within(tile).getByText('Tied')).toBeInTheDocument();
+    const scores = within(tile).getAllByText('100.0');
+    expect(declaredStyle(scores[0])).toContain('var(--ps-board-ink)');
+    expect(declaredStyle(scores[1])).toContain('var(--ps-board-dim)');
   });
 
   test('the live heading and the updated stamp, plain text and not a live region', () => {

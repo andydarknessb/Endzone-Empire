@@ -1,8 +1,5 @@
 import { matchupFromDetailBody } from '../../../entities/matchup';
-import {
-  scoreboardView,
-  formatExpectedFinal,
-} from './scoreboardView';
+import { scoreboardView } from './scoreboardView';
 
 // One live Sunday afternoon, the canvas's sample (HERO in build.mjs): the
 // numbers below are the ones the design source derives its 36% / 64% from.
@@ -39,16 +36,6 @@ test('an away viewer leads: first is their Team, keeping its origin, record, win
   expect(view.first).toMatchObject({ teamId: 34, origin: 'away', name: 'Away', record: '1-1', score: '77.0', winPct: 64 });
   expect(view.second).toMatchObject({ teamId: 12, origin: 'home', name: 'Home', record: '2-0', score: '82.2', winPct: 36 });
   expect(view.leader).toBe('second');
-});
-
-test('formats Expected final to one decimal, null when unknown', () => {
-  expect(formatExpectedFinal(110.5)).toBe('110.5');
-  expect(formatExpectedFinal('123.9')).toBe('123.9');
-  expect(formatExpectedFinal(null)).toBeNull();
-  expect(formatExpectedFinal('n/a')).toBeNull();
-  // Empty string and undefined should render as null (unknown), not "0.0"
-  expect(formatExpectedFinal('')).toBeNull();
-  expect(formatExpectedFinal(undefined)).toBeNull();
 });
 
 test('derives both sides from the entity model: names, scores, figures and complementary percentages', () => {

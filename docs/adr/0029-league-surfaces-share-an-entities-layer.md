@@ -156,3 +156,26 @@ and prices nothing itself. The second instance in the #2048 amendment above
 therefore reads, from #2142, as `matchupBoard.js` importing its sibling
 `./winProbability`, which reaches neither the `shared/lib` index nor the
 entity index. The rule and the first instance are unchanged.
+
+## Amendment (2026-10-24, #2514): a pure entry for the Matchup read model
+
+The entity index re-exports hooks that reach the Supabase client and the shared
+resource cache, so a component in the initial chunk cannot import it without
+dragging that graph in. The index remains the full surface for hooks. A second,
+pure entry, `src/entities/matchup/board.js`, exports the model only
+(`matchupBoard`, `matchupPhase`, `matchupFace`) and never a hook. Initial-chunk
+consumers import the pure entry; consumers that need a hook keep importing the
+index. The pure entry is a seam, not a second entity: the index re-exports the
+same model names, and both entries read the same model files.
+
+This does not widen the narrow-import rule of the 2026-10-08 (#2048) amendment:
+the Home card stops importing `model/matchupBoard` by its internal path and
+imports `matchupFace` from the named public entry. `matchupFace` reads
+`shared/lib/numeric`, `instantFormat` and `teamIdentity` as leaf modules rather
+than the barrel, because the Home card is in the initial chunk; that is the
+same justification #2048 records for the two existing narrow imports.
+`check:bundle` guards the initial chunk.
+
+The "never a hook" rule is unaudited in the sense of ADR 0010: the boundary
+lint rule ADR 0020 names is the follow-up. The first consumer is the Home card,
+so the convention ships with its consumer.
