@@ -21,7 +21,6 @@ const mockGetByUrl = (overrides = {}) => {
     for (const [key, value] of Object.entries(overrides)) {
       if (url === key || url.endsWith(key)) {
         if (value && value.reject) return Promise.reject(value.reject);
-        if (value && value.pending) return new Promise(() => {}); // never settles
         return Promise.resolve(value);
       }
     }

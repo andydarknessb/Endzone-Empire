@@ -35,7 +35,7 @@ import { DashboardLoading, DashboardUnavailable } from './ui/PageStates';
 import PickemPanel from './ui/PickemPanel';
 import PickemStandings from './ui/PickemStandings';
 import RecapPanel from './ui/RecapPanel';
-import TrophyRoom, { TrophyLink } from './ui/TrophyRoom';
+import { TrophyRoom, TrophyLink } from '../../widgets/trophy-room';
 import VersusPanel from './ui/VersusPanel';
 import YourMove from './ui/YourMove';
 

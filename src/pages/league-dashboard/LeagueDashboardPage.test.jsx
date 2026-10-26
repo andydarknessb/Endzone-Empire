@@ -2642,7 +2642,7 @@ describe('before kickoff the hero is the matchup, My team and the Pick\'em panel
 describe('a completed season', () => {
   const completeLeague = () => inSeasonLeague({ season_status: 'complete' });
   const champion = {
-    id: 9, season: 2026, week: 0, type: 'champion', label: 'League Champion', team_id: 2, team_name: 'Terrific T',
+    id: 9, season: 2026, week: 0, type: 'champion', label: '2026 League Champion', team_id: 2, team_name: 'Terrific T',
   };
   const trophies = () => ({
     data: [
