@@ -11,11 +11,11 @@
     "migrate": "knex --knexfile knexfile.js migrate:latest"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.133.0",
-    "@sentry/node": "^11.7.0",
+    "@anthropic-ai/sdk": "^0.135.0",
+    "@sentry/node": "^11.8.0",
     "@socket.io/redis-adapter": "^8.3.0",
     "@socket.io/redis-emitter": "5.1.0",
-    "@supabase/supabase-js": "^2.117.3",
+    "@supabase/supabase-js": "^2.118.0",
     "axios": "^1.20.0",
     "bcryptjs": "^2.4.3",
     "compression": "^1.8.2",
