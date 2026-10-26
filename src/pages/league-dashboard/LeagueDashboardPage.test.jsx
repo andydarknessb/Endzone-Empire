@@ -1,6 +1,7 @@
 import React from 'react';
 import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { Route } from 'react-router-dom';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
 import { clearLeagueCache } from '../../hooks/useLeague';
@@ -9,6 +10,8 @@ import { publishTeamProfileUpdate } from '../../lib/teamProfileEvents';
 import LeagueDashboardPage from './index';
 import QuickActions from '../../widgets/quick-actions';
 import MyTeamSummary from '../../widgets/my-team-summary';
+import LeagueHistoryPage from '../league-history';
+import LeagueTrophiesPage from '../league-trophies';
 
 // The page reads the league through the shared apiClient (via useLeague ->
 // useResource), so the whole client is mocked and every GET is answered by the
@@ -1737,7 +1740,7 @@ test('quick-actions: in season the Playbook is one link row ending in the trophy
   expect(within(nav).getAllByRole('link').map((link) => link.textContent)).toEqual([
     "Pick'em", 'Power Rankings', 'History', 'League Rules', 'Trophy case (2)',
   ]);
-  expect(within(nav).getByRole('link', { name: 'Trophy case (2)' }).getAttribute('href')).toBe('/league/1/history');
+  expect(within(nav).getByRole('link', { name: 'Trophy case (2)' }).getAttribute('href')).toBe('/league/1/trophies');
   // Dropped: the Draft Room (the draft is over), Set Lineup, Waivers and Trades (My team links them),
   // Game Center (Around the league), Activity (Recent activity).
   ['draft', 'lineup', 'waivers', 'trades', 'game-center', 'activity'].forEach((key) => {
@@ -1746,6 +1749,36 @@ test('quick-actions: in season the Playbook is one link row ending in the trophy
   // The trophy case is not a second row.
   expect(screen.queryByTestId('trophy-link')).not.toBeInTheDocument();
   expect(screen.queryByText('Trophy room')).not.toBeInTheDocument();
+});
+
+// The count above is the live season's `useTrophies` read, so its link has to
+// open a destination that shows that same read. League History is the season
+// archive (CONTEXT.md "Season archive"), and clicking through to it renders
+// "The Hall of Fame is empty." with the weekly awards nowhere on screen.
+test('quick-actions: the trophy link opens the live trophy case, not the empty archive', async () => {
+  mockGetByUrl({
+    '/api/league/1': quickActionsLeague(),
+    '/api/league/1/trophies': quickActionsTrophies(),
+  });
+  renderWithProviders(<LeagueDashboardPage />, {
+    path: '/league/:leagueId',
+    route: '/league/1',
+    routes: (
+      <>
+        <Route path="/league/:leagueId/history" element={<LeagueHistoryPage />} />
+        <Route path="/league/:leagueId/trophies" element={<LeagueTrophiesPage />} />
+      </>
+    ),
+  });
+
+  const nav = await screen.findByRole('navigation', { name: 'Playbook' });
+  await userEvent.click(await within(nav).findByRole('link', { name: 'Trophy case (2)' }));
+
+  expect(await screen.findByTestId('league-trophies')).toBeInTheDocument();
+  const room = await screen.findByTestId('trophy-case');
+  expect(within(room).getByText('Weekly High')).toBeInTheDocument();
+  expect(within(room).getByText('Closest Game')).toBeInTheDocument();
+  expect(screen.queryByText('The Hall of Fame is empty.')).not.toBeInTheDocument();
 });
 
 test('quick-actions: a pre-draft commissioner fixture adds Draft Settings and the League group holds the four league tiles', async () => {
@@ -2165,7 +2198,7 @@ test("cutover: a pick'em-only member shows pick'em standings and the Pick'em act
   // The trophy case is common to both league kinds: a completed pick'em season
   // earns a pickem_champion trophy, so gating it on fantasy would drop it. A
   // pick'em-only league has no Playbook line to fold it into, so it is its own link row.
-  expect(await screen.findByTestId('trophy-link')).toHaveAttribute('href', '/league/1/history');
+  expect(await screen.findByTestId('trophy-link')).toHaveAttribute('href', '/league/1/trophies');
 
   // No fantasy slices, no fantasy layout regions, no recap, no advance control.
   expect(screen.queryByTestId('dashboard-hero')).not.toBeInTheDocument();
@@ -2609,7 +2642,7 @@ describe('before kickoff the hero is the matchup, My team and the Pick\'em panel
 describe('a completed season', () => {
   const completeLeague = () => inSeasonLeague({ season_status: 'complete' });
   const champion = {
-    id: 9, season: 2026, week: 0, type: 'champion', label: 'League Champion', team_id: 2, team_name: 'Terrific T',
+    id: 9, season: 2026, week: 0, type: 'champion', label: '2026 League Champion', team_id: 2, team_name: 'Terrific T',
   };
   const trophies = () => ({
     data: [

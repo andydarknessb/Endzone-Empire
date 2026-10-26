@@ -208,7 +208,7 @@ test('the row variant is one line of links, then the page\'s own trailing links'
       leagueId={1}
       variant="row"
       omit={['draft', 'lineup', 'game-center', 'pickem', 'waivers', 'trades', 'activity']}
-      trailing={[{ key: 'trophies', label: 'Trophy case (6)', to: '/league/1/history' }]}
+      trailing={[{ key: 'trophies', label: 'Trophy case (6)', to: '/league/1/trophies' }]}
     />
   );
 
@@ -217,7 +217,7 @@ test('the row variant is one line of links, then the page\'s own trailing links'
   expect(within(nav).getAllByRole('link').map((link) => link.textContent)).toEqual([
     'Power Rankings', 'History', 'League Rules', 'Trophy case (6)',
   ]);
-  expect(within(nav).getByRole('link', { name: 'Trophy case (6)' })).toHaveAttribute('href', '/league/1/history');
+  expect(within(nav).getByRole('link', { name: 'Trophy case (6)' })).toHaveAttribute('href', '/league/1/trophies');
   expect(within(nav).getByRole('link', { name: 'Power Rankings' })).toHaveAttribute('href', '/league/1/power-rankings');
   // No tiles, no group headings.
   expect(screen.queryByRole('heading')).not.toBeInTheDocument();

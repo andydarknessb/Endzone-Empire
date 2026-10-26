@@ -35,15 +35,16 @@ function Sprite({ kind, scale = 3 }) {
 
 /**
  * Mid-season the trophy room is one link, not a frame ("Trophy case · 6 awards this season"): a
- * tertiary-edge row to the league's history page, where the full case lives. Renders nothing without
- * a trophy.
+ * tertiary-edge row to the league's trophy case page, which reads the same live trophies this count
+ * does. League History reads the season archive and never carries the live season's awards, so it
+ * cannot show them. Renders nothing without a trophy.
  */
 export function TrophyLink({ leagueId, count }) {
   if (!count) return null;
   return (
     <Box
       component={RouterLink}
-      to={`/league/${leagueId}/history`}
+      to={`/league/${leagueId}/trophies`}
       aria-label={`Trophy case, ${count} ${count === 1 ? 'award' : 'awards'} this season`}
       data-testid="trophy-link"
       sx={{
@@ -155,7 +156,8 @@ export default function TrophyRoom({ trophy: state, teams = [] }) {
                 <Sprite kind="cup" scale={8} />
               </Box>
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: '16px', minWidth: 0 }}>
-                <Box component="h3" sx={{ m: 0, ...pixelSx(16) }}>{`${champion.season} ${champion.label}`}</Box>
+                {/* The label already names its season: trophy.service writes "2026 League Champion". */}
+                <Box component="h3" sx={{ m: 0, ...pixelSx(16) }}>{champion.label}</Box>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: '16px', minWidth: 0 }}>
                   <TeamMark name={champion.team_name} avatarUrl={championTeam?.avatar_url} avatarStaticUrl={championTeam?.avatar_static_url} size={48} />
                   <Box component="span" sx={{ ...pixelSx(24), lineHeight: 1.3, overflowWrap: 'anywhere' }}>{champion.team_name}</Box>
