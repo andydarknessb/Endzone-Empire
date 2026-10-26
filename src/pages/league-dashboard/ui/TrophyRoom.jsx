@@ -156,7 +156,11 @@ export default function TrophyRoom({ trophy: state, teams = [] }) {
                 <Sprite kind="cup" scale={8} />
               </Box>
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: '16px', minWidth: 0 }}>
-                <Box component="h3" sx={{ m: 0, ...pixelSx(16) }}>{`${champion.season} ${champion.label}`}</Box>
+                {/* A champion label already names its season ("2026 League Champion"); a legacy
+                    import's may not, so the prefix is a fallback, never a duplicate. */}
+                <Box component="h3" sx={{ m: 0, ...pixelSx(16) }}>
+                  {champion.label.startsWith(String(champion.season)) ? champion.label : `${champion.season} ${champion.label}`}
+                </Box>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: '16px', minWidth: 0 }}>
                   <TeamMark name={champion.team_name} avatarUrl={championTeam?.avatar_url} avatarStaticUrl={championTeam?.avatar_static_url} size={48} />
                   <Box component="span" sx={{ ...pixelSx(24), lineHeight: 1.3, overflowWrap: 'anywhere' }}>{champion.team_name}</Box>
