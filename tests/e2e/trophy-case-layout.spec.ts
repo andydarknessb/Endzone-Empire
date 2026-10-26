@@ -10,7 +10,7 @@
  *
  * Ruling (#2330, ADR 0067): the dashboard's trophy room is the completed season's frame. Collapsed it
  * lists the first rows of the season's awards (COLLAPSED_ROWS) and "Show all N awards" opens the rest, so
- * the frame does not grow with the season. Mid-season the room is one link row to the history page, which
+ * the frame does not grow with the season. Mid-season the room is one link row to the trophy case page, which
  * is not measured here. The per-team tally the old card carried (top five by total, the viewer's row kept)
  * is not part of the trophy room on the boards, so its bound is gone. The 12-team variant (six Teams only
  * the trophies know about) holds the same bounds as the 6-team league.

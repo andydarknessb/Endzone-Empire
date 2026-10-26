@@ -68,6 +68,7 @@ const TradeCenter = lazyWithReload(() => import('../TradeCenter/TradeCenter'));
 const TransactionLog = lazyWithReload(() => import('../TransactionLog/TransactionLog'));
 const PowerRankings = lazyWithReload(() => import('../PowerRankings/PowerRankings'));
 const LeagueHistoryPage = lazyWithReload(() => import('../../pages/league-history'));
+const LeagueTrophiesPage = lazyWithReload(() => import('../../pages/league-trophies'));
 const NotificationPrefs = lazyWithReload(() => import('../NotificationPrefs/NotificationPrefs'));
 const AuthenticatedPlayerProfilePage = lazyWithReload(() => import('../PlayerDetail/AuthenticatedPlayerProfilePage'));
 const AdminDashboard = lazyWithReload(() => import('../AdminDashboard/AdminDashboard'));
@@ -246,6 +247,7 @@ function App() {
           <Route path="/league/:leagueId/activity" element={<ProtectedRoute><TransactionLog /></ProtectedRoute>} />
           <Route path="/league/:leagueId/power-rankings" element={<ProtectedRoute><FantasyOnly><PowerRankings /></FantasyOnly></ProtectedRoute>} />
           <Route path="/league/:leagueId/history" element={<ProtectedRoute><LeagueHistoryPage /></ProtectedRoute>} />
+          <Route path="/league/:leagueId/trophies" element={<ProtectedRoute><LeagueTrophiesPage /></ProtectedRoute>} />
           <Route path="/draft-sim" element={<ProtectedRoute><DraftSimScreen /></ProtectedRoute>} />
           <Route path="/settings/notifications" element={<ProtectedRoute><NotificationPrefs /></ProtectedRoute>} />
           <Route path="/players/:playerId" element={<ProtectedRoute><AuthenticatedPlayerProfilePage /></ProtectedRoute>} />

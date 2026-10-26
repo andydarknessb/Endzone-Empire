@@ -35,15 +35,16 @@ function Sprite({ kind, scale = 3 }) {
 
 /**
  * Mid-season the trophy room is one link, not a frame ("Trophy case · 6 awards this season"): a
- * tertiary-edge row to the league's history page, where the full case lives. Renders nothing without
- * a trophy.
+ * tertiary-edge row to the league's trophy case page, which reads the same live trophies this count
+ * does. League History reads the season archive and never carries the live season's awards, so it
+ * cannot show them. Renders nothing without a trophy.
  */
 export function TrophyLink({ leagueId, count }) {
   if (!count) return null;
   return (
     <Box
       component={RouterLink}
-      to={`/league/${leagueId}/history`}
+      to={`/league/${leagueId}/trophies`}
       aria-label={`Trophy case, ${count} ${count === 1 ? 'award' : 'awards'} this season`}
       data-testid="trophy-link"
       sx={{

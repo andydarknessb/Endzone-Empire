@@ -303,7 +303,7 @@ function DashboardBody({
   }
   const foldPlaybook = fantasy && seasonLive;
   const trailing = foldPlaybook && trophyCount > 0
-    ? [{ key: 'trophies', label: `Trophy case (${trophyCount})`, to: `/league/${leagueId}/history` }]
+    ? [{ key: 'trophies', label: `Trophy case (${trophyCount})`, to: `/league/${leagueId}/trophies` }]
     : undefined;
 
   const commissionerStrip = (
