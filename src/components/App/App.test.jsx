@@ -390,6 +390,17 @@ test('"/league/:leagueId/history" is protected and renders LeagueHistory when lo
   expect(await screen.findByText('League History')).toBeInTheDocument();
 });
 
+test('"/league/:leagueId/trophies" is protected and renders the Trophy case when logged in', async () => {
+  const { unmount } = renderApp('#/league/1/trophies', { user: loggedOut });
+  expect(await screen.findByRole('heading', { name: 'Login' })).toBeInTheDocument();
+  unmount();
+
+  renderApp('#/league/1/trophies', { user: loggedIn }, () => {
+    apiClient.get.mockResolvedValue({ data: [] });
+  });
+  expect(await screen.findByRole('heading', { name: 'Trophy case' })).toBeInTheDocument();
+});
+
 test('"/settings/notifications" is protected and renders NotificationPrefs when logged in', async () => {
   const { unmount } = renderApp('#/settings/notifications', { user: loggedOut });
   expect(await screen.findByRole('heading', { name: 'Login' })).toBeInTheDocument();
