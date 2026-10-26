@@ -5,19 +5,24 @@ import { Frame, PixelHeading, Skel, psRootSx } from '../../shared/ui/playselect'
 import { useTrophies, TrophyIcon } from '../../components/TrophyCase/TrophyCase';
 import { useLeague } from '../../hooks/useLeague';
 import LeagueBreadcrumb from '../../components/LeagueBreadcrumb/LeagueBreadcrumb';
-import TrophyRoom from '../league-dashboard/ui/TrophyRoom';
+import { TrophyRoom } from '../../widgets/trophy-room';
 
 /**
- * The League trophy case page, on `/league/:leagueId/trophies`, painted on
- * Play-select. It holds the same live read the dashboard's trophy count holds
- * (`useTrophies`, GET /api/league/:id/trophies) in the existing TrophyRoom
- * frame. League History is the season archive and never carries the live
- * season's awards (CONTEXT.md "Season archive"), so the count must not link
- * there.
+ * The League trophy case page, on `/league/:leagueId/trophies`, painted on Play-select (the
+ * page-head rule for a page with no board). It holds the same live read the dashboard's trophy
+ * count holds (`useTrophies`, GET /api/league/:id/trophies) in the `trophy-room` widget's frame.
+ * League History is the season archive and never carries the live season's awards (CONTEXT.md
+ * "Season archive"), so the count must not link there.
  *
- * `useLeague` supplies `teams` only, for the champion banner's avatar; a failed
- * league read needs no page state: `teams` stays empty and TrophyRoom falls
- * back to the initials.
+ * BELOW-ISLAND EDGES (ADR 0031 amendment), each named with its reason:
+ *   - `components/TrophyCase`: `useTrophies`, the live read the dashboard's count also holds, and
+ *     `TrophyIcon`, the empty case's glyph. Their second island page consumer fires the promotion
+ *     threshold, but the promotion home would be a trophies entity slice no ADR approves, so the
+ *     edge is held open (#1269's form); `TrophyIcon` is the same held-open page edge League
+ *     History already carries.
+ *   - `hooks/useLeague`: `teams`, for the champion banner's avatar only. A failed read needs no
+ *     page state: `teams` stays empty and the room falls back to initials.
+ *   - `components/LeagueBreadcrumb`: the back-link every league subpage shows.
  */
 export default function LeagueTrophiesPage() {
   const { leagueId } = useParams();

@@ -395,9 +395,7 @@ test('"/league/:leagueId/trophies" is protected and renders the Trophy case when
   expect(await screen.findByRole('heading', { name: 'Login' })).toBeInTheDocument();
   unmount();
 
-  renderApp('#/league/1/trophies', { user: loggedIn }, () => {
-    apiClient.get.mockResolvedValue({ data: [] });
-  });
+  renderApp('#/league/1/trophies', { user: loggedIn });
   expect(await screen.findByRole('heading', { name: 'Trophy case' })).toBeInTheDocument();
 });
 
