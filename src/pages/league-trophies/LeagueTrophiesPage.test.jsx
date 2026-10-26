@@ -2,7 +2,7 @@ import React from 'react';
 import { fireEvent, screen, within } from '@testing-library/react';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
-import LeagueTrophiesPage from './LeagueTrophiesPage';
+import LeagueTrophiesPage from './index';
 
 // The page reads the trophies (useTrophies) and the league row (useLeague,
 // for the champion avatar only) through the shared apiClient, so every GET is
@@ -40,13 +40,15 @@ const leagueResponse = () => ({
   },
 });
 
-// Two seasons: 2026 (the newest, so the default view) and 2025.
+// Two seasons: 2026 (the newest, so the default view) and 2025. Champion labels carry their
+// season, as trophy.service writes them, so a rendering that prefixes the season again would
+// read "2026 2026 League Champion" and fail this file's heading assertions.
 const trophiesResponse = () => ({
   data: [
-    { id: 1, season: 2026, week: 0, type: 'champion', label: 'League Champion', team_id: 2, team_name: 'Terrific T' },
+    { id: 1, season: 2026, week: 0, type: 'champion', label: '2026 League Champion', team_id: 2, team_name: 'Terrific T' },
     { id: 2, season: 2026, week: 3, type: 'weekly_high', label: 'Weekly High', team_id: 2, team_name: 'Terrific T' },
     { id: 3, season: 2026, week: 2, type: 'closest_game', label: 'Closest Game', team_id: 1, team_name: 'Team 1' },
-    { id: 4, season: 2025, week: 0, type: 'champion', label: 'League Champion', team_id: 1, team_name: 'Team 1' },
+    { id: 4, season: 2025, week: 0, type: 'champion', label: '2025 League Champion', team_id: 1, team_name: 'Team 1' },
   ],
 });
 
@@ -86,7 +88,7 @@ test('no trophies leaves a stated empty case rather than a blank page', async ()
 
   const empty = await screen.findByTestId('trophies-empty');
   expect(empty).toHaveTextContent('No trophies yet');
-  expect(empty).toHaveTextContent('Trophy awards appear here once the first week settles.');
+  expect(empty).toHaveTextContent('Trophies appear here once they are awarded.');
   expect(screen.queryByTestId('trophy-case')).not.toBeInTheDocument();
 });
 

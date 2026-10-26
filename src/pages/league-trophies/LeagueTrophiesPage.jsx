@@ -69,7 +69,7 @@ export default function LeagueTrophiesPage() {
           <Box sx={{ color: 'var(--ps-dim)', display: 'inline-flex' }}><TrophyIcon type="champion" size={88} /></Box>
           <Box component="p" sx={{ m: 0, fontSize: '18px', fontWeight: 600 }}>No trophies yet</Box>
           <Box component="p" sx={{ m: 0, fontSize: '16px', color: 'var(--ps-dim)', maxWidth: 420 }}>
-            Trophy awards appear here once the first week settles.
+            Trophies appear here once they are awarded.
           </Box>
         </Frame>
       )}
