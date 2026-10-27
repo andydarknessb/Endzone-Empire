@@ -6,8 +6,9 @@ import {
   matchupBoard, playersRemaining, useMatchup, yetToPlay,
 } from '../../../entities/matchup';
 import {
-  adviceGain, adviceNote, lineupNote, nextKickoff, parseRosterTemplate, useAdvice,
+  adviceGain, adviceNote, lineupNote, nextLockAt, parseRosterTemplate, useAdvice,
 } from '../../../entities/roster';
+import { lineupProblemFor } from '../../../entities/action-item';
 import { parseRosterSlots } from '../../../shared/lib';
 
 /**
@@ -32,20 +33,6 @@ export function viewerSlots(league, starters) {
   });
   taken.forEach((list) => list.forEach((player) => slots.push({ slot: String(player.slot ?? ''), player })));
   return slots;
-}
-
-/**
- * The next lock: the viewer's lineup problem's own deadline (the dashboard's figure for the same moment), else the
- * first kickoff still to come. The item is one week's (its id ends in "{season}-{week}"); a problem for another
- * week says nothing about this matchup's lock.
- */
-function nextLockAt(actionItems, games, leagueId, season, week) {
-  const item = (actionItems || []).find((i) => {
-    const [type, , key] = String(i.id).split(':');
-    return String(i.leagueId) === String(leagueId) && type === 'lineup_problem' && key === `${season}-${week}`;
-  });
-  const fromItem = item?.deadlineAt ? new Date(item.deadlineAt).getTime() : NaN;
-  return Number.isFinite(fromItem) ? fromItem : nextKickoff(games);
 }
 
 const isOutStarter = (p) => p.injury_status === 'O' || p.availability?.reason === 'out';
@@ -94,9 +81,17 @@ function WithLineups({
 
   const starters = side === 'home' ? homeStarters : side === 'away' ? awayStarters : null;
   const slots = useMemo(() => (starters ? viewerSlots(league, starters) : []), [league, starters]);
+  const problem = useMemo(
+    () => lineupProblemFor(actionItems, { leagueId, season: hero.season, week: hero.week }),
+    [actionItems, leagueId, hero.season, hero.week]
+  );
+  const viewerPlayers = useMemo(
+    () => (starters ? starters.concat(detail?.[side]?.bench || []) : []),
+    [starters, detail, side]
+  );
   const lockAt = useMemo(
-    () => nextLockAt(actionItems, games, leagueId, hero.season, hero.week),
-    [actionItems, games, leagueId, hero.season, hero.week]
+    () => nextLockAt(problem?.deadlineAt, viewerPlayers, games),
+    [problem, viewerPlayers, games]
   );
   const template = useMemo(() => parseRosterTemplate(league?.roster_slots), [league?.roster_slots]);
   const open = noteEligible && !!side && !!starters && !league?.best_ball;

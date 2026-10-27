@@ -12,7 +12,7 @@ import RecentActivity from '../../widgets/recent-activity';
 import QuickActions from '../../widgets/quick-actions';
 import { useMatchupPreview } from '../../widgets/matchup-preview';
 import { applyScoreEvent, useLiveScores, useWeekMatchups } from '../../entities/matchup';
-import { useActionItems, playModel } from '../../entities/action-item';
+import { useActionItems, itemType, playModel } from '../../entities/action-item';
 import { adviceNote, useAdvice } from '../../entities/roster';
 import { usePickemSettings } from '../../entities/pickem-game';
 import { useTrophies } from '../../components/TrophyCase/TrophyCase';
@@ -235,7 +235,7 @@ function DashboardBody({
     () => playModel(actions.items, { leagueId, now: clock }),
     [actions.items, leagueId, clock]
   );
-  const isLineup = (item) => String(item.id).split(':')[0] === 'lineup_problem';
+  const isLineup = (item) => itemType(item) === 'lineup_problem';
   const carriesLineup = move.plays.some((play) => play.feet.some(isLineup));
   const leadCarriesLineup = Boolean(move.lead && move.lead.feet.some(isLineup));
   // The lead lineup card names every move the Forecast would make behind its gain ("Two moves · +23.0 pts:

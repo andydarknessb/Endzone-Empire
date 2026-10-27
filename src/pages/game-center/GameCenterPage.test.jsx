@@ -1108,6 +1108,50 @@ describe('Play-select', () => {
     }
   });
 
+  test('an opponent-only game kicking off first never passes the viewer\'s own lock', async () => {
+    jest.useFakeTimers();
+    try {
+      installLiveGames([
+        {
+          tank01_game_id: 'G-OPP', home_team: 'SF', away_team: 'ARI', game_status: 'scheduled', start_time: new Date(Date.now() + 45 * 60000).toISOString(),
+        },
+        {
+          tank01_game_id: 'G-VIEW', home_team: 'BUF', away_team: 'KC', game_status: 'scheduled', start_time: new Date(Date.now() + 120 * 60000).toISOString(),
+        },
+      ]);
+      mockApi({
+        matchups: [viewerRow()],
+        viewerTeamId: 10,
+        league: noteLeague,
+        detail: {
+          ...lineupDetail({
+            bench: [{
+              id: 9, slot: 'BENCH', name: 'Bench Guy', nfl_team: 'KC', game_state: 'scheduled',
+            }],
+            awayStarters: [{ id: 5, slot: 'QB', nfl_team: 'SF', game_state: 'scheduled' }],
+          }),
+          nflGameIds: ['G-OPP', 'G-VIEW'],
+        },
+      });
+      renderPage();
+      expect(await screen.findByTestId('lineup-note')).toBeInTheDocument();
+      const asks = () => apiClient.get.mock.calls.filter(([url]) => url.startsWith('/api/user/action-items')).length;
+      expect(asks()).toBe(1);
+
+      // The opponent-only game kicks off first: not the viewer's lock, so nothing refetches.
+      await act(async () => { jest.advanceTimersByTime(46 * 60000); });
+      expect(screen.getByTestId('lineup-note')).toBeInTheDocument();
+      expect(asks()).toBe(1);
+
+      // The viewer's own kickoff passes: the note goes and the action items are asked for once more.
+      await act(async () => { jest.advanceTimersByTime(75 * 60000); });
+      expect(screen.queryByTestId('lineup-note')).not.toBeInTheDocument();
+      expect(asks()).toBe(2);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   // The fallback path (a payload without yetToPlay, or any server count): the hero's side lines and sentence
   // print the one set of helper numbers from the lineups, and Week at a glance does not add up a total from the
   // other source: with the hero's server counts null it is left out, never a sum of the other tiles alone.

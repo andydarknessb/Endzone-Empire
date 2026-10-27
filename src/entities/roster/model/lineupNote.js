@@ -51,6 +51,28 @@ export function nextKickoff(gameStates) {
 }
 
 /**
+ * The viewer's Next lock (CONTEXT.md), epoch ms, or null: the viewer's Lineup
+ * problem deadline for the week when it has one, else the earliest kickoff still
+ * to come among the games the viewer's own players are in, else null (a viewer
+ * with no Team in the Matchup is named no lock at all). The item is passed in as
+ * its deadline so this entity never reads the Action item entity (ADR 0029).
+ *
+ * @param {string|number|null} deadlineAt the week's `lineup_problem` item's `deadlineAt`
+ * @param {Array} lineup the viewer's own side's players (starters and bench; `nfl_team`/`nflTeam`)
+ * @param {Array} gameStates the Matchup's `live_game_states` rows, both sides'
+ */
+export function nextLockAt(deadlineAt, lineup, gameStates) {
+  const deadline = deadlineAt == null ? NaN : new Date(deadlineAt).getTime();
+  if (Number.isFinite(deadline)) return deadline;
+  const teams = new Set((Array.isArray(lineup) ? lineup : [])
+    .map((p) => code(p?.nfl_team ?? p?.nflTeam))
+    .filter(Boolean));
+  const own = (Array.isArray(gameStates) ? gameStates : [])
+    .filter((g) => g && (teams.has(code(g.away_team)) || teams.has(code(g.home_team))));
+  return nextKickoff(own);
+}
+
+/**
  * The lineup problems that can still be fixed: an empty starting slot, or a starter the feed rules Out
  * whose NFL game has not started (a started Out starter is locked in and nobody can act on him).
  */
