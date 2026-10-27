@@ -2002,6 +2002,7 @@ whatever their stat line: a blocking tight end with no touches made an
 Appearance, a healthy scratch, a bye week and an injured-reserve week did
 not. A stat row alone is not an Appearance; rows exist for rostered players
 who never took the field.
+Until a week's participation is published, its Appearances are not yet known, which is not the same as no Appearance.
 _Avoid_: game played, games (as a count of stat rows), did not play (say "no
 Appearance")
 

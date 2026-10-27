@@ -1033,6 +1033,74 @@ test('MODEL_CONSTANTS (v3.1) still counts rows with no gameTeam as games (#1440)
   assert.equal(production.perGame, 4.84, 'the unlabelled row still drags the mean down');
 });
 
+// #1440 amended 2026-10-27: an Appearance is a `gameTeam` label OR a non-zero
+// stat line. The box writes no gameTeam, so a box row with a real line is a game.
+async function gamesUnderV32(t, stats) {
+  mockPool(t, { players: [player(1, 'RB')], weeklyStats: [weeklyRow(1, 1, stats)] });
+  const generated = await projection.generateProjections({
+    season: SEASON, week: 2, rules: SCORING_RULES, playerIds: [1],
+    hashValue: 'h', weatherService: false, modelConstants: model.MODEL_CONSTANTS_V3_2,
+  });
+  const production = generated.projections.get(1).factors.recentProduction;
+  return production ? production.games : 0; // no counted game leaves no production factor
+}
+
+test('under MODEL_CONSTANTS_V3_2 a row with no gameTeam and a non-zero stat is a game (#1440)', async (t) => {
+  assert.equal(await gamesUnderV32(t, { rushingYards: 30 }), 1);
+});
+
+test('under MODEL_CONSTANTS_V3_2 a row with no gameTeam whose only non-zero stat is snaps is a game (#1440)', async (t) => {
+  assert.equal(await gamesUnderV32(t, { rushingYards: 0, usageOffenseSnaps: 42 }), 1);
+});
+
+test('under MODEL_CONSTANTS_V3_2 an all-zero row is a game only with gameTeam (#1440)', async (t) => {
+  assert.equal(await gamesUnderV32(t, { rushingYards: 0, usageOffenseSnaps: 0 }), 0);
+  assert.equal(await gamesUnderV32(t, { rushingYards: 0, usageOffenseSnaps: 0, gameTeam: 'BUF' }), 1);
+});
+
+// The league scans read the run's constants: an all-zero row with no gameTeam
+// is no Appearance under v3.2 and a game under v3.1, so the baseline and the
+// position floor they seed differ between the two.
+test('the current-season league scan honours the run constants (#1440)', async (t) => {
+  const leagueScan = [
+    { player_id: 2, week: 1, position: 'RB', defense: 'NYJ', home_away: 'home', stats: { rushingYards: 100, gameTeam: 'MIA' } },
+    { player_id: 3, week: 1, position: 'RB', defense: 'NYJ', home_away: 'home', stats: { rushingYards: 0 } },
+  ];
+  const baselineUnder = async (modelConstants) => {
+    mockPool(t, { players: [player(1, 'RB')], leagueScan });
+    const generated = await projection.generateProjections({
+      season: SEASON, week: 2, rules: SCORING_RULES, playerIds: [1],
+      hashValue: 'h', weatherService: false, modelConstants,
+    });
+    return generated.projections.get(1).mean;
+  };
+  const v32 = await baselineUnder(model.MODEL_CONSTANTS_V3_2);
+  const v31 = await baselineUnder(model.MODEL_CONSTANTS);
+  assert.notEqual(v32, v31, 'the zero row counts in v3.1 only, so the position baseline differs');
+});
+
+test('the prior-season league scan honours the run constants (#1440)', async (t) => {
+  mockPool(t, {
+    players: [player(1, 'RB')],
+    // Own history is what makes the engine report a distribution, and with it the floor.
+    weeklyStats: [300, 20, 250, 100, 0].map((y, i) => weeklyRow(1, i + 1, { rushingYards: y, gameTeam: 'BUF' }, SEASON - 1)),
+    priorSeasonScan: [
+      { player_id: 2, week: 1, position: 'RB', defense: 'NYJ', stats: { rushingYards: 100, gameTeam: 'MIA', gameOpponent: 'NYJ' } },
+      { player_id: 3, week: 1, position: 'RB', defense: 'NYJ', stats: { rushingYards: 0, gameOpponent: 'NYJ' } },
+    ],
+    priorDefenseGames: [{ team: 'NYJ', prior_games: 2 }],
+  });
+  const generated = await projection.generateProjections({
+    season: SEASON, week: 1, rules: SCORING_RULES, playerIds: [1],
+    hashValue: 'h', weatherService: false, modelConstants: model.MODEL_CONSTANTS_V3_2,
+  });
+  const floor = calculateFantasyPoints({ rushingYards: 100 }, SCORING_RULES);
+  assert.equal(
+    generated.projections.get(1).factors.dataQuality.positionFloor, floor,
+    'the zero row with no gameTeam is no Appearance, so the floor is the 100-yard game, not 0'
+  );
+});
+
 // ---------------------------------------------------------------------------
 // Opponent / schedule factors through the full engine
 // ---------------------------------------------------------------------------
