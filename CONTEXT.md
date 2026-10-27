@@ -1098,12 +1098,21 @@ does not apply in best ball, where BENCH participates in scoring; every other
 move remains locked. Locks are per player, not per week.
 _Avoid_: roster lock
 
+**Next lock**:
+The earliest Lineup lock still ahead among a lineup's players; none after the
+lineup's last kickoff. Every surface that says when a lineup locks shows the
+viewer's own lineup's Next lock, never a kickoff from a game none of its
+players are in.
+_Avoid_: deadline (the action item's field), kickoff (unqualified)
+
 **Lineup problem**:
 A reason a Team's lineup will not score as its Manager intends that the
 Manager can still act on: an empty starting slot, a starter on bye or Out, an
 IR stash that no longer qualifies. A starter whose game has kicked off is not
 a problem, and after the week's last kickoff there are none; the lineup
-reminder, the league card and the Plays state the same set.
+reminder, the league card and the Plays state the same set. Its deadline is
+the Next lock, else the week's last kickoff, while only a free agent could
+still fix it.
 _Avoid_: lineup issue, lineup warning, invalid lineup
 
 **Roster lock**:
@@ -1114,6 +1123,12 @@ submitting a claim) and completing (an accepted trade, an already-submitted
 claim). The commissioner's own forced transaction is the one explicit
 override. Unrelated to lineup locks.
 _Avoid_: lineup lock
+
+**Roster move**:
+One player joining or leaving one Team's roster: a free agent add, a drop, an
+undo-drop, a waiver award, one side of a trade, a draft pick, or a
+commissioner's forced move. Each Roster move opens or closes a Tenure.
+_Avoid_: transaction, move (unqualified, which is a lineup move)
 
 **Free agent**:
 An unrostered player who can be added immediately: waivers have cleared on
