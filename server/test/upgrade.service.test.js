@@ -141,7 +141,7 @@ const LEAGUE = {
 };
 const game = (nfl_team, week, kickoff_at) => ({ nfl_team, week, kickoff_at: new Date(kickoff_at) });
 
-function world(t, { league = LEAGUE, schedule, waiverRows = [], ownRosterRows = [], identityIds = [CANDIDATE], nflTeam = 'BUF' }) {
+function world(t, { league = LEAGUE, schedule, waiverRows = [], ownRosterRows = [], identitiesById = {}, nflTeam = 'BUF', candidates = [CANDIDATE] }) {
   createFakePool([
     [/^SELECT "nfl_team", "week", "kickoff_at" FROM "nfl_games"/, () => ({ rows: schedule })],
     [/^SELECT "player_id", "available_at" FROM "waiver_players"/, () => ({ rows: waiverRows })],
@@ -150,10 +150,13 @@ function world(t, { league = LEAGUE, schedule, waiverRows = [], ownRosterRows = 
       rows: [{ player_id: 999, slot: 'WR', name: 'Weak Starter', position: 'WR', nfl_team: null }],
     })],
     [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({ rows: [] })],
-    [/^WITH "target" AS \(/, () => ({ rows: identityIds.map((id) => ({ id })) })],
+    // Every players row sharing a candidate's identity: the scalar form for one id, the batch form for many.
+    [/^WITH "target" AS \(/, (text, params) => (text.includes('ANY($1::int[])')
+      ? { rows: params[0].flatMap((id) => (identitiesById[id] || [id]).map((identity_id) => ({ requested_id: id, identity_id }))) }
+      : { rows: (identitiesById[params[0]] || [params[0]]).map((id) => ({ id })) })],
     [/^SELECT "player_id" FROM "team_players" WHERE "team_id" = \$1$/, () => ({ rows: ownRosterRows })],
     [/^SELECT "id", "position", "nfl_team" FROM "players" WHERE "id" = ANY/, () => ({
-      rows: [{ id: CANDIDATE, position: 'WR', nfl_team: nflTeam }],
+      rows: candidates.map((id) => ({ id, position: 'WR', nfl_team: nflTeam })),
     })],
   ]).install(t);
   t.mock.method(lineupService, 'materializeLineup', async () => {});
@@ -185,11 +188,23 @@ test('upgradesFor: a waiver candidate is read in the week his Clear time lands i
 test('upgradesFor: a candidate on the caller\'s roster under a duplicate identity id gets null', async (t) => {
   world(t, {
     schedule: [game('BUF', 1, WK1_AFTER_NOW)],
-    identityIds: [CANDIDATE, 5500],
+    identitiesById: { [CANDIDATE]: [CANDIDATE, 5500] },
     ownRosterRows: [{ player_id: 5500 }],
   });
   const { upgrades } = await read(LEAGUE);
   assert.equal(upgrades.get(CANDIDATE), null);
+});
+
+test('upgradesFor: in a batch, the duplicate-identity candidate gets null and an unrelated one keeps a real Upgrade', async (t) => {
+  world(t, {
+    schedule: [game('BUF', 1, WK1_AFTER_NOW)],
+    candidates: [CANDIDATE, 56],
+    identitiesById: { [CANDIDATE]: [CANDIDATE, 5500] },
+    ownRosterRows: [{ player_id: 5500 }],
+  });
+  const { upgrades } = await read(LEAGUE, [CANDIDATE, 56]);
+  assert.equal(upgrades.get(CANDIDATE), null, 'his sibling identity row is already on the caller\'s roster');
+  assert.equal(upgrades.get(56).points, 9, 'an unrelated candidate still gets his Upgrade (WR 14 over WR 5)');
 });
 
 test('upgradesFor: a best ball league gets null for every candidate', async (t) => {
