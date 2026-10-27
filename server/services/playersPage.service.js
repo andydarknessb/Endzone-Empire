@@ -15,6 +15,7 @@ const { LEAGUE_SCOPED_SORT_FIELDS } = require('./playerSort');
 // cross-module calls - a destructured binding is captured at require time
 // and can no longer be mocked afterwards.
 const playerCardService = require('./playerCard.service');
+const upgradeService = require('./upgrade.service');
 const playerWatchlistService = require('./playerWatchlist');
 
 /**
@@ -684,8 +685,8 @@ async function readPlayersPage(query, { db = pool } = {}) {
   // still computed for ordering only and never returned (item 7). Outside
   // best ball, the full eligible pool's ids go to `upgradesFor` in ONE
   // call; rows sort by upgrade.points descending, nulls last, then the
-  // candidate's own Weekly projection descending (the number `upgradeFor`
-  // got as `candidate.projection`, read from that same call, in his first
+  // candidate's own Weekly projection descending (the number the Upgrade
+  // module read for the candidate, read from that same call, in his first
   // playable week, and used for ordering only), then id - never toggled by
   // `dir`. Rows may mix weeks (#2166): points are points whatever the week.
   const upgradeBestBallFallback = upgradeSort && Boolean(league && league.best_ball);
@@ -693,12 +694,12 @@ async function readPlayersPage(query, { db = pool } = {}) {
     await attachProjectedPoints(db, settled, { projectionRules, currentSeasonYear });
     settled.sort(nullsLastComparator((p) => Number(p.projected_points), -1));
   } else if (upgradeSort) {
-    const { upgrades, pointsFor } = await playerCardService.loadUpgradeContext({
+    const { upgrades, pointsFor } = await upgradeService.upgradesFor({
       league,
       team: memberTeam,
       season: currentSeasonYear,
       week: league.current_week,
-      playerIds: settled.map((p) => p.id),
+      candidateIds: settled.map((p) => p.id),
     });
     for (const p of settled) p.upgrade = upgrades.get(p.id) ?? null;
     settled.sort(nullsLastComparator(
@@ -797,12 +798,12 @@ async function readPlayersPage(query, { db = pool } = {}) {
     if (league.best_ball) {
       for (const p of pagePlayers) p.upgrade = null;
     } else if (!(upgradeSort && !upgradeBestBallFallback)) {
-      const upgrades = await playerCardService.upgradesFor({
+      const { upgrades } = await upgradeService.upgradesFor({
         league,
         team: memberTeam,
         season: currentSeasonYear,
         week: league.current_week,
-        playerIds: pagePlayers.map((p) => p.id),
+        candidateIds: pagePlayers.map((p) => p.id),
       });
       for (const p of pagePlayers) p.upgrade = upgrades.get(p.id) ?? null;
     }

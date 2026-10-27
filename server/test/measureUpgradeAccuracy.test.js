@@ -9,10 +9,13 @@ const {
 // starter he beats, so every expected value below is a subtraction.
 const RB1 = [{ key: 'RB', label: 'RB', count: 1, eligiblePositions: ['RB'] }];
 
-// The week input: the stored lineup without the acquired player. `projection`
-// is what the stored run said, `actual` what the player scored as played.
-const starter = (projection, actual = projection) => ({
-  playerId: 1, name: 'Starter', position: 'RB', slot: 'RB', projection, actual, unavailable: null, kickedOff: false,
+// The week input: the stored lineup without the acquired player, and the
+// stored run that priced it. `actual` is what each player scored as played.
+const run = (points) => ({ pointsFor: (id) => points[id], startVerdictFor: () => ({ outcome: 'recommendable' }) });
+const week = (starterProjection, predicted, actual, starterActual = starterProjection) => ({
+  roster: [{ playerId: 1, name: 'Starter', position: 'RB', slot: 'RB', actual: starterActual, kickedOff: false }],
+  run: run({ 1: starterProjection, 99: predicted }),
+  actual,
 });
 
 const acquisition = (overrides) => ({
@@ -27,8 +30,8 @@ test('(a) a candidate who had kicked off before the claim is a false promise und
     acquiredWeek: 4,
     firstPlayableWeek: 5,
     weeks: {
-      4: { roster: [starter(10)], predicted: 15, actual: 20 },
-      5: { roster: [starter(10)], predicted: 8, actual: 6 },
+      4: week(10, 15, 20),
+      5: week(10, 8, 6),
     },
   })]);
   assert.equal(result.old.positive, 1);
@@ -43,7 +46,7 @@ test('(b) a candidate who realized exactly his prediction contributes zero error
   const result = measureUpgradeAccuracy([acquisition({
     acquiredWeek: 6,
     firstPlayableWeek: 6,
-    weeks: { 6: { roster: [starter(10)], predicted: 14, actual: 14 } },
+    weeks: { 6: week(10, 14, 14) },
   })]);
   assert.equal(result.count, 1);
   assert.equal(result.old.mae, 0);
@@ -56,13 +59,13 @@ test('(c) the mean absolute error over three acquisitions is the hand-computed v
     acquisition({
       acquiredWeek: 3,
       firstPlayableWeek: 3,
-      weeks: { 3: { roster: [starter(10, 9)], predicted: 15, actual: 12 } },
+      weeks: { 3: week(10, 15, 12, 9) },
     }),
     // old = new = 9 - 8 = 1; realized 10 - 11 < 0 so 0; error 1, a false promise.
     acquisition({
       acquiredWeek: 4,
       firstPlayableWeek: 4,
-      weeks: { 4: { roster: [starter(8, 11)], predicted: 9, actual: 10 } },
+      weeks: { 4: week(8, 9, 10, 11) },
     }),
     // old: week 5, 20 - 10 = 10. new: week 6, 13 - 10 = 3. realized 16 - 10 = 6.
     // error 4 under the old rule, 3 under the new.
@@ -70,8 +73,8 @@ test('(c) the mean absolute error over three acquisitions is the hand-computed v
       acquiredWeek: 5,
       firstPlayableWeek: 6,
       weeks: {
-        5: { roster: [starter(10)], predicted: 20, actual: 0 },
-        6: { roster: [starter(10)], predicted: 13, actual: 16 },
+        5: week(10, 20, 0),
+        6: week(10, 13, 16),
       },
     }),
   ]);
@@ -88,7 +91,7 @@ test('a candidate with no playable week left realizes nothing and the new rule p
   const result = measureUpgradeAccuracy([acquisition({
     acquiredWeek: 17,
     firstPlayableWeek: null,
-    weeks: { 17: { roster: [starter(10)], predicted: 15, actual: 0 } },
+    weeks: { 17: week(10, 15, 0) },
   })]);
   assert.equal(result.old.mae, 5);
   assert.equal(result.old.falsePromises, 1);
@@ -214,8 +217,8 @@ test('buildAcquisitions reads the old rule in the claim week and the new rule in
   const [a] = acquisitions;
   assert.equal(a.acquiredWeek, 4);
   assert.equal(a.firstPlayableWeek, 5);
-  assert.equal(a.weeks[4].predicted, 15);
-  assert.equal(a.weeks[5].predicted, 8);
+  assert.equal(a.weeks[4].run.pointsFor(99), 15);
+  assert.equal(a.weeks[5].run.pointsFor(99), 8);
   assert.deepEqual(a.weeks[5].roster.map((r) => r.playerId), [1]); // the pickup is out of his own baseline
   const rules = rulesForLeague(league);
   assert.equal(a.weeks[5].actual, calculateFantasyPoints({ rushingYards: 150 }, rules));
