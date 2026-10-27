@@ -480,6 +480,11 @@ const MODEL_CONSTANTS = {
  *    smoothed path already applies. A translation moves the Interval's
  *    position, never its width. Odd pools are untouched: their median is a
  *    support point already.
+ *  - `baseline.appearancesOnly: true` (#1440). Only rows carrying the stored
+ *    per-week `gameTeam` (an Appearance) count as games in the league-context
+ *    buckets and in a player's recency mean; the live/final box writes an
+ *    all-zero row for a rostered player who never took the field, and under
+ *    v3.1 each one drags a player's average down.
  *  - `opponent.priorSeasonPseudoGames: 4` (#1485). How many games of
  *    evidence the PRIOR season's points-allowed ratio is worth when seeding a
  *    defense's current-season allowance, the same pseudo-game idiom as
@@ -516,6 +521,7 @@ const MODEL_CONSTANTS_V3_2 = (() => {
   v32.simulation.truncateAtPositionFloor = true;
   v32.simulation.centerEvenPoolMedian = true;
   v32.opponent.priorSeasonPseudoGames = 4;
+  v32.baseline.appearancesOnly = true;
   return deepFreeze(v32);
 })();
 

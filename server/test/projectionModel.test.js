@@ -1,6 +1,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const model = require('../services/projectionModel');
+const features = require('../services/projectionFeatures');
+const { SCORING_RULES } = require('../services/scoringRules');
 
 // ---------------------------------------------------------------------------
 // Scoring identity
@@ -1519,7 +1521,7 @@ test('MODEL_CONSTANTS hashes to the holdout study captured v3.1 constants exactl
   assert.equal(model.MODEL_CONSTANTS.simulation.centerEvenPoolMedian, undefined);
 });
 
-test('MODEL_CONSTANTS_V3_2 differs from MODEL_CONSTANTS in exactly the four ticketed keys', () => {
+test('MODEL_CONSTANTS_V3_2 differs from MODEL_CONSTANTS in exactly the five ticketed keys', () => {
   const v31 = model.MODEL_CONSTANTS;
   const v32 = model.MODEL_CONSTANTS_V3_2;
   assert.equal(model.MODEL_VERSION, 'free_baseline_v3.1');
@@ -1528,12 +1530,14 @@ test('MODEL_CONSTANTS_V3_2 differs from MODEL_CONSTANTS in exactly the four tick
   assert.equal(v32.opponent.priorSeasonPseudoGames, 4);
   assert.equal(v32.simulation.truncateAtPositionFloor, true);
   assert.equal(v32.simulation.centerEvenPoolMedian, true);
-  // Everything else is byte-identical: strip the four deltas from a v3.2
+  assert.equal(v32.baseline.appearancesOnly, true);
+  // Everything else is byte-identical: strip the five deltas from a v3.2
   // clone and the two objects must serialize the same.
   const stripped = JSON.parse(JSON.stringify(v32));
   delete stripped.opponent.priorSeasonPseudoGames;
   delete stripped.simulation.truncateAtPositionFloor;
   delete stripped.simulation.centerEvenPoolMedian;
+  delete stripped.baseline.appearancesOnly;
   stripped.decision.lineupRanking = 'median';
   assert.equal(JSON.stringify(stripped), JSON.stringify(v31));
 
@@ -1558,6 +1562,39 @@ test('MODEL_CONSTANTS_V3_2 differs from MODEL_CONSTANTS in exactly the four tick
   assert.ok(Object.isFrozen(v32.decision), 'MODEL_CONSTANTS_V3_2 must be deep-frozen');
   assert.ok(Object.isFrozen(v32.opponent), 'MODEL_CONSTANTS_V3_2 must be deep-frozen');
   assert.ok(Object.isFrozen(v32.simulation), 'MODEL_CONSTANTS_V3_2 must be deep-frozen');
+});
+
+// ---------------------------------------------------------------------------
+// #1440: under v3.2 the league-context buckets count Appearances only. A row
+// with no `gameTeam` is a player the live/final box wrote for a game he never
+// entered, so it adds no game and no points.
+// ---------------------------------------------------------------------------
+
+const appearanceRows = [
+  { player_id: 1, position: 'RB', stats: { rushingYards: 100, gameTeam: 'KC' } },
+  { player_id: 2, position: 'RB', stats: { rushingYards: 0, rushingTDs: 0 } },
+];
+
+test('buildLeagueContext counts only Appearances under MODEL_CONSTANTS_V3_2 (#1440)', () => {
+  const context = features.buildLeagueContext({
+    rows: appearanceRows,
+    rules: SCORING_RULES,
+    defenseGamesByTeam: new Map(),
+    constants: model.MODEL_CONSTANTS_V3_2,
+  }).get('RB');
+  assert.equal(context.playerGames, 1, 'the unlabelled all-zero row adds no game');
+  assert.equal(context.baselinePerGame, 10, 'and no points to the group mean');
+});
+
+test('buildLeagueContext counts every row under MODEL_CONSTANTS (#1440)', () => {
+  const context = features.buildLeagueContext({
+    rows: appearanceRows,
+    rules: SCORING_RULES,
+    defenseGamesByTeam: new Map(),
+    constants: model.MODEL_CONSTANTS,
+  }).get('RB');
+  assert.equal(context.playerGames, 2, 'v3.1 behaviour is unchanged');
+  assert.equal(context.baselinePerGame, 5);
 });
 
 // ---------------------------------------------------------------------------

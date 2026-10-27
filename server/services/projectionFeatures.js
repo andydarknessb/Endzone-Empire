@@ -171,6 +171,16 @@ function usageFromStats(stats) {
   };
 }
 
+/**
+ * Pure: whether a stored stat row is an Appearance (CONTEXT.md) — the player
+ * was active for his team's game, whatever the stat line. Detection is the
+ * per-week `gameTeam` key, which only the nflverse writer sets; the live/final
+ * box writes a row for every rostered player and never sets it (#1440).
+ */
+function isAppearance(row) {
+  return !!row && normalizeTeamKey(row.stats && row.stats.gameTeam) !== null;
+}
+
 // ---------------------------------------------------------------------------
 // Pure builders (no DB) — the DB layer below just hands them rows.
 // ---------------------------------------------------------------------------
@@ -203,9 +213,15 @@ function buildPriorGames({
 }) {
   const crossSeason = !!(constants && constants.versusOpponent && constants.versusOpponent.crossSeason);
   const useStoredHistory = !!(constants && constants.homeAway && constants.homeAway.useStoredHistory);
+  // v3.2 (#1440): only Appearances count as games. The caller's rows are all
+  // strictly before the input cutoff, so a row's missing gameTeam means the
+  // box wrote it for a player who was not active, not that the correction pass
+  // is still to come.
+  const appearancesOnly = !!(constants && constants.baseline && constants.baseline.appearancesOnly);
   const currentTeamKey = normalizeTeamKey(playerTeam);
   const games = [];
   for (const row of statRows || []) {
+    if (appearancesOnly && !isAppearance(row)) continue;
     const points = calculateFantasyPoints(row.stats, rules);
     // Whether this game belongs to the season being projected. Two consumers
     // care: the opponent/orientation fields below, and the model's optional
@@ -262,6 +278,9 @@ function buildPriorGames({
 /**
  * Pure: league-wide positional context from one season-to-date scan.
  *
+ * Under `constants.baseline.appearancesOnly` (v3.2, #1440) a row that is not an
+ * Appearance contributes nothing below.
+ *
  * Returns, per position group:
  *  - `baselinePerGame`: the average a player of that group scores in a game
  *    (the last-resort shrinkage target),
@@ -283,7 +302,10 @@ function buildPriorGames({
  * denominator at all, like K or DEF — reports `null` rather than a ratio
  * assembled out of the rows that happened to have data.
  */
-function buildLeagueContext({ rows, rules, defenseGamesByTeam, depthRankByPlayer = null }) {
+function buildLeagueContext({
+  rows, rules, defenseGamesByTeam, depthRankByPlayer = null, constants = model.MODEL_CONSTANTS,
+}) {
+  const appearancesOnly = !!(constants && constants.baseline && constants.baseline.appearancesOnly);
   const byGroup = new Map();
   const playerTotals = new Map(); // playerId -> { group, points: [] }
 
@@ -310,6 +332,8 @@ function buildLeagueContext({ rows, rules, defenseGamesByTeam, depthRankByPlayer
   };
 
   for (const row of rows || []) {
+    // v3.2 (#1440): a non-Appearance row contributes no game and no points.
+    if (appearancesOnly && !isAppearance(row)) continue;
     const group = model.positionGroup(row.position);
     if (!group) continue;
     const points = calculateFantasyPoints(row.stats, rules);
@@ -718,6 +742,7 @@ async function loadFeatureBundle({
     rows: priorSeasonRows,
     rules,
     defenseGamesByTeam: priorSeasonDefenseGames,
+    constants,
   });
 
   // Defense games must be keyed the same way the scan's `defense` column is.
@@ -773,6 +798,7 @@ async function loadFeatureBundle({
     rules,
     defenseGamesByTeam: normalizedDefenseGames,
     depthRankByPlayer,
+    constants,
   });
 
   const byeByTeam = await computeByeWeeks(
@@ -823,7 +849,9 @@ function emptyCoverage() {
  * schedule, prior-season and bye reads. Both statements stay gated on
  * `week > 1` (no completed week to read before that).
  */
-async function loadLeagueContext({ season, week, rules, positions, client = pool }) {
+async function loadLeagueContext({
+  season, week, rules, positions, client = pool, constants = model.MODEL_CONSTANTS,
+}) {
   let rows = [];
   const defenseGamesByTeam = new Map();
   if (Number(week) > 1 && positions && positions.length > 0) {
@@ -834,7 +862,7 @@ async function loadLeagueContext({ season, week, rules, positions, client = pool
     rows = scan.rows;
     for (const row of games.rows) defenseGamesByTeam.set(row.team, Number(row.games));
   }
-  return buildLeagueContext({ rows, rules, defenseGamesByTeam });
+  return buildLeagueContext({ rows, rules, defenseGamesByTeam, constants });
 }
 
 module.exports = {
