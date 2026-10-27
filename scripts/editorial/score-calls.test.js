@@ -285,3 +285,54 @@ test('seasonLedger.editorialFeed: window, ties dropped, p, unjudged, pass and fa
   assert.equal(m.verdict, 'fail');
   assert.equal(EDITORIAL_FEED.minWeeks, 6);
 });
+
+test('EDITORIAL_FEED: the preregistered values', () => {
+  assert.deepEqual(EDITORIAL_FEED, { weight: 0.5, positions: ['QB', 'TE'], season: 2026, firstWeek: 8, lastWeek: 18, alpha: 0.10, minWeeks: 6 });
+});
+
+test('editorialBlend: a repeated playerId counts once, at its best rank', () => {
+  const dup = [...feedRanking, { rank: 5, name: 'p3', playerId: 3 }];
+  assert.deepEqual([...editorialBlend(dup, feedLedger, new Set(), 1)], [...editorialBlend(feedRanking, feedLedger, new Set(), 1)]);
+});
+
+test('rankingRho: blendedRho is the rho of the blended order (unavailable 0, injury keeps capture estimate)', () => {
+  const led = new Map([
+    [1, { estimate: 20 }], [2, { estimate: 16 }], [3, { estimate: 12 }], [4, { estimate: 8 }],
+    [5, { estimate: 30, unavailable: true }], [6, { estimate: 14 }],
+  ]);
+  const ranking = [3, 1, 4, 2, 5, 6].map((id, i) => ({ rank: i + 1, name: `p${id}`, playerId: id }));
+  const act = new Map([[1, 25], [3, 20], [6, 18], [2, 10], [4, 5]].map(([id, points]) => [id, { points }]));
+  const r = rankingRho(ranking, led, act, new Set([6]));
+  // moved = 3, 1, 4, 2 take points 20, 16, 12, 8 at weight .5; 5 is unavailable (0); 6 keeps 14
+  const blended = new Map([[1, 18], [2, 12], [3, 16], [4, 10], [5, 0], [6, 14]]);
+  const ids = ranking.map((x) => x.playerId);
+  const actual = ids.map((id) => (act.get(id) || { points: 0 }).points);
+  assert.equal(r.blendedRho, spearman(ids.map((id) => blended.get(id)), actual));
+  assert.notEqual(r.blendedRho, r.engineRho);
+  assert.notEqual(r.blendedRho, r.editorialRho);
+});
+
+test('seasonLedger.editorialFeed: n-weighted pooling, out-of-window results ignored, null rho skipped, sign test needs the pooled lead', () => {
+  const res = (season, week, qb, te) => ({
+    season, week, summary: { paired: {}, pairedMethod: {}, pairedInjury: {} }, rankings: { QB: qb, TE: te },
+  });
+  const rho = (n, blendedRho, engineRho) => ({ n, blendedRho, engineRho });
+  const f = seasonLedger([
+    res(2026, 8, rho(10, 0.6, 0.2), rho(30, 0.2, 0.1)),
+    res(2026, 9, rho(10, null, 0.2), rho(20, 0.4, 0)),
+    res(2026, 19, rho(10, -1, 1), rho(10, -1, 1)),
+    res(2025, 9, rho(10, -1, 1), rho(10, -1, 1)),
+  ]).editorialFeed;
+  assert.deepEqual(f.weeks, [8, 9]);
+  assert.equal(f.positionWeeks, 3);
+  assert.ok(Math.abs(f.blendedRho - 20 / 60) < 1e-9); // (6 + 6 + 8) / 60, unweighted would be 0.4
+  assert.ok(Math.abs(f.engineRho - 5 / 60) < 1e-9); // (2 + 3 + 0) / 60
+
+  // 11 of 12 position-weeks favour the blend (p <= alpha) but one huge loss drags the pooled blend below the engine
+  const wins = [8, 9, 10, 11, 12, 13].map((w) => res(2026, w, rho(1, 0.3, 0.2), rho(1, 0.3, 0.2)));
+  wins[0] = res(2026, 8, rho(1000, -0.9, 0.9), rho(1, 0.3, 0.2));
+  const g = seasonLedger(wins).editorialFeed;
+  assert.ok(g.p <= EDITORIAL_FEED.alpha);
+  assert.ok(g.blendedRho < g.engineRho);
+  assert.equal(g.verdict, 'fail');
+});

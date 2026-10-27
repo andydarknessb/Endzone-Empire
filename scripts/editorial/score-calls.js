@@ -81,11 +81,12 @@ function judge({ verdict, condition, finish, cutoff, appeared }) {
  * Pure: `Map<playerId, blended estimate>` for the editorial feed: over the ranked players the feed
  * moves (in ledger, available, finite estimate, not in `injuryIds`) the r-th editorial rank gets the
  * r-th highest estimate in that set as expert points, blended at `weight`. Others are absent.
+ * A repeated playerId counts once, at its best rank.
  */
 function editorialBlend(ranking, ledger, injuryIds, weight) {
-  const moved = [...ranking].sort((a, b) => a.rank - b.rank).filter((r) => {
+  const moved = [...ranking].sort((a, b) => a.rank - b.rank).filter((r, i, all) => {
     const l = ledger.get(r.playerId);
-    return l && !l.unavailable && Number.isFinite(l.estimate) && !injuryIds.has(r.playerId);
+    return all.findIndex((x) => x.playerId === r.playerId) === i && l && !l.unavailable && Number.isFinite(l.estimate) && !injuryIds.has(r.playerId);
   });
   const points = moved.map((r) => ledger.get(r.playerId).estimate).sort((a, b) => b - a);
   return new Map(moved.map((r, i) => [r.playerId, expertConsensusBlend({

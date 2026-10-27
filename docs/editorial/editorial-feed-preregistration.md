@@ -13,7 +13,7 @@ A derived arm, not a capture. It is a pure function of two inputs that are both 
 - the on-time `scheduled` PPR capture for the week (`projection_snapshots`, `capture_kind = 'scheduled'`, `NOT is_late`), the same comparator #1928 used;
 - the week's calls file, `src/content/articles/week<N>-start-sit-darkness-report.calls.json`, its `rankings.QB` and `rankings.TE`.
 
-For each position, the moved set is the ranked players who have a capture row, whom the capture does not hold unavailable, and who carry no `"injury": true` call that week. Within the moved set, the player at editorial rank r receives the r-th highest capture point estimate of that set as his expert points. The blended estimate is `expertConsensusBlend` (`server/services/projectionModel.js`) at blend weight **0.5**, the existing seam's formula `(1 - w) * estimate + w * expertPoints`. Every other player keeps his capture estimate. A player the capture holds unavailable scores 0, as in the engine column.
+For each position, the moved set is the ranked players who have a capture row with a finite point estimate, whom the capture does not hold unavailable, and who carry no `"injury": true` call that week. A player listed twice counts once, at his best rank. Within the moved set, the player at editorial rank r receives the r-th highest capture point estimate of that set as his expert points. The blended estimate is `expertConsensusBlend` (`server/services/projectionModel.js`) at blend weight **0.5**, the existing seam's formula `(1 - w) * estimate + w * expertPoints`. Every other player keeps his capture estimate. A player the capture holds unavailable scores 0, as in the engine column.
 
 The weight is fixed, not fitted: four weeks of 14-player rhos cannot fit it.
 
@@ -21,17 +21,18 @@ Nothing changes in the engine. No Model version, constant, capture, `capture_kin
 
 ## Measurement
 
-`node scripts/editorial/score-calls.js --all`, run after the week 18 games are final. Per week and position, `rankingRho` gives the Spearman rho against actual PPR points over one player set (the editorial ranking's players who have a capture row), for the editorial order, the engine order (`engineRho`) and the blend (`blendedRho`). Actuals and appearance rules are the scorer's, unchanged. The verdict uses the `editorialFeed` block of that output (`EDITORIAL_FEED` in the script).
+One run of `node scripts/editorial/score-calls.js --all` from a clean checkout of `integration`, after the week 18 games are final (no earlier than 2027-01-12, so the Monday stat corrections are in). That single run is the score of record: it reads `player_stats` as of the run, stat corrections included, and no weekly score is kept or substituted. Per week and position, `rankingRho` gives the Spearman rho against actual PPR points over one player set (the editorial ranking's players who have a capture row), for the editorial order, the engine order (`engineRho`) and the blend (`blendedRho`). Actuals and appearance rules are the scorer's, unchanged. The verdict uses the `editorialFeed` block of that output (`EDITORIAL_FEED` in the script).
 
 ## Judged weeks
 
 2026 weeks 8 to 18. A week is judged only if all of these hold:
 
-- its calls file reached origin before that week's first kickoff (`nfl_games.kickoff_at`), checked at verdict time with `git log origin/integration --format=%cI -- <file>` against the merge or push time on GitHub;
-- no commit touched the file after that first kickoff;
-- the scorer did not skip the week (no capture, no stats, games still to play).
+- the merged PR that added its calls file to `integration` has a GitHub `mergedAt` (`gh pr view <n> --json mergedAt`) earlier than that week's first kickoff (`nfl_games.kickoff_at`). The GitHub merge time decides, never a commit's author or committer date;
+- no PR merged after that first kickoff touched the file (`gh pr list --state merged --search "<file name>"`);
+- the scorer did not skip the week (no capture, no stats, games still to play);
+- the week yields at least one position-week (see the pass rule).
 
-A week that fails any of these is removed from the run before the verdict is read. The Tuesday score is the score of record. Later stat corrections are reported, not re-scored (#1928 ruling).
+The provenance checks run before the scoring run. A week that fails them has its calls file deleted from the checkout used for the run, so it never enters the `editorialFeed` block. The weeks removed, and why, are posted with the verdict.
 
 ## Pass rule
 
