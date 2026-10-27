@@ -762,6 +762,7 @@ test('GET /sitemap.xml serves static, player, and recap public URLs', async (t) 
     'week5-start-sit-darkness-report',
     'week6-waiver-wire-darkness-report',
     'week7-waiver-wire-darkness-report',
+    'week8-waiver-wire-darkness-report',
     'week6-start-sit-darkness-report',
     'week7-start-sit-darkness-report',
   ]) {

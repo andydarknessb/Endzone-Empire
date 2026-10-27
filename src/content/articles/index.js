@@ -35,6 +35,7 @@ import week5WaiverWireDarknessReport from './week5-waiver-wire-darkness-report.m
 import week5StartSitDarknessReport from './week5-start-sit-darkness-report.meta';
 import week6WaiverWireDarknessReport from './week6-waiver-wire-darkness-report.meta';
 import week7WaiverWireDarknessReport from './week7-waiver-wire-darkness-report.meta';
+import week8WaiverWireDarknessReport from './week8-waiver-wire-darkness-report.meta';
 import week6StartSitDarknessReport from './week6-start-sit-darkness-report.meta';
 import week7StartSitDarknessReport from './week7-start-sit-darkness-report.meta';
 
@@ -62,6 +63,7 @@ const BODY_LOADERS = {
   'week5-start-sit-darkness-report': () => import('./week5-start-sit-darkness-report'),
   'week6-waiver-wire-darkness-report': () => import('./week6-waiver-wire-darkness-report'),
   'week7-waiver-wire-darkness-report': () => import('./week7-waiver-wire-darkness-report'),
+  'week8-waiver-wire-darkness-report': () => import('./week8-waiver-wire-darkness-report'),
   'week6-start-sit-darkness-report': () => import('./week6-start-sit-darkness-report'),
   'week7-start-sit-darkness-report': () => import('./week7-start-sit-darkness-report'),
 };
@@ -89,6 +91,7 @@ const ARTICLES = [
   week5StartSitDarknessReport,
   week6WaiverWireDarknessReport,
   week7WaiverWireDarknessReport,
+  week8WaiverWireDarknessReport,
   week6StartSitDarknessReport,
   week7StartSitDarknessReport,
 ].sort((a, b) => new Date(b.date) - new Date(a.date));
