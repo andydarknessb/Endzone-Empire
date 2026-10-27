@@ -1,0 +1,191 @@
+/**
+ * Week 8 2026 editorial waiver board, seeded from the Week 8 Darkness Report's
+ * "The Full Board" table (src/content/articles/week8-waiver-wire-darkness-report.jsx),
+ * in the column's order. Bids are percent of a $100 FAAB budget; the `$1` rows
+ * are 1..1. All 25 are kept so the endpoint's cap still fills after the Ownership
+ * cutoff drops some. `playerId` values are the production `players.id` rows from
+ * the editorial rulings for issue #2523.
+ *
+ * @type {import('./index').WaiverBoard}
+ */
+module.exports = {
+  season: 2026,
+  week: 8,
+  entries: [
+    {
+      playerId: 815,
+      name: 'Jonah Coleman',
+      bidMin: 10,
+      bidMax: 16,
+      reason: "54 rushing yards to Dobbins' 23 in his first game off IR.",
+    },
+    {
+      playerId: 1105,
+      name: 'KC Concepcion',
+      bidMin: 7,
+      bidMax: 12,
+      reason: '8 for 129 on a 29% target share; 24% in Weeks 4 and 6.',
+    },
+    {
+      playerId: 336,
+      name: 'Omar Cooper Jr.',
+      bidMin: 6,
+      bidMax: 10,
+      reason: '5 for 115 and a TD. 19.3 and 20.0 in two games off IR.',
+    },
+    {
+      playerId: 1175,
+      name: 'Malik Willis',
+      bidMin: 4,
+      bidMax: 8,
+      reason: '26.0 and 18.9 in his two starts, 111 rushing yards.',
+    },
+    {
+      playerId: 1177,
+      name: 'Antonio Williams',
+      bidMin: 4,
+      bidMax: 7,
+      reason: 'McLaurin out for the season. 67-69% of the snaps before the bye.',
+    },
+    {
+      playerId: 1432,
+      name: 'Makai Lemon',
+      bidMin: 4,
+      bidMax: 7,
+      reason: '7 for 67 and a TD on a 24% share. Smith and Wicks questionable.',
+    },
+    {
+      playerId: 1388,
+      name: 'Keon Coleman',
+      bidMin: 3,
+      bidMax: 6,
+      reason: 'A TD in each of Weeks 4-6. Moore questionable; Bills implied 28.5.',
+    },
+    {
+      playerId: 486,
+      name: 'Jacoby Brissett',
+      bidMin: 3,
+      bidMax: 6,
+      reason: "16.5 points. Arizona implied 24.25 in a 54.5 total, the week's highest.",
+    },
+    {
+      playerId: 679,
+      name: 'Michael Penix Jr.',
+      bidMin: 3,
+      bidMax: 6,
+      reason: '20.4 and 23.1 the last two weeks.',
+    },
+    {
+      playerId: 587,
+      name: 'Greg Dulcich',
+      bidMin: 3,
+      bidMax: 5,
+      reason: '5 for 86 on a 24% target share.',
+    },
+    {
+      playerId: 324,
+      name: 'Geno Smith',
+      bidMin: 2,
+      bidMax: 4,
+      reason: '287 yards and 3 TDs, 23.5 points.',
+    },
+    {
+      playerId: 1269,
+      name: 'Chig Okonkwo',
+      bidMin: 2,
+      bidMax: 4,
+      reason: '26% and 20% target shares before the bye. McLaurin out.',
+    },
+    {
+      playerId: 166,
+      name: 'Hunter Henry',
+      bidMin: 2,
+      bidMax: 4,
+      reason: '7 for 71 on a 23% share. Double digits three straight weeks.',
+    },
+    {
+      playerId: 479,
+      name: 'Tanner McKee',
+      bidMin: 2,
+      bidMax: 4,
+      reason: 'The starter for the season. 12.6 and 10.5 in two starts.',
+    },
+    {
+      playerId: 1258,
+      name: 'Dameon Pierce',
+      bidMin: 2,
+      bidMax: 4,
+      reason: "Barkley's back and hamstring. 47 yards and a TD on Monday.",
+    },
+    {
+      playerId: 1035,
+      name: 'Deshaun Watson',
+      bidMin: 2,
+      bidMax: 3,
+      reason: '308 yards, 18.2 points.',
+    },
+    {
+      playerId: 870,
+      name: 'Tez Johnson',
+      bidMin: 1,
+      bidMax: 3,
+      reason: '18% share, a TD and 14 rushing yards. Egbuka questionable.',
+    },
+    {
+      playerId: 1415,
+      name: 'AJ Barner',
+      bidMin: 1,
+      bidMax: 3,
+      reason: '19% share; Arroyo likely out for the season.',
+    },
+    {
+      playerId: 1173,
+      name: 'Mason Taylor',
+      bidMin: 1,
+      bidMax: 3,
+      reason: '5 for 62 and two TDs on a 21% share.',
+    },
+    {
+      playerId: 589,
+      name: 'Dylan Sampson',
+      bidMin: 1,
+      bidMax: 2,
+      reason: '45 yards and 3 catches behind Judkins.',
+    },
+    {
+      playerId: 327,
+      name: 'Colby Parkinson',
+      bidMin: 1,
+      bidMax: 2,
+      reason: '5 for 48 on a 21% share. Ferguson not expected back next week.',
+    },
+    {
+      playerId: 1004,
+      name: 'Elic Ayomanor',
+      bidMin: 1,
+      bidMax: 2,
+      reason: '23% target share; Tennessee is a 10-point underdog.',
+    },
+    {
+      playerId: 1519,
+      name: 'Ryan Flournoy',
+      bidMin: 1,
+      bidMax: 2,
+      reason: "4 for 70. Dallas implied 30.25, the week's highest.",
+    },
+    {
+      playerId: 1190,
+      name: 'Caleb Douglas',
+      bidMin: 1,
+      bidMax: 1,
+      reason: 'Two TDs on two catches, a 14% share. A rental.',
+    },
+    {
+      playerId: 1307,
+      name: 'Drew Sample',
+      bidMin: 1,
+      bidMax: 1,
+      reason: 'All (knee) left Sunday, Hudson on IR. Bengals implied 28.25.',
+    },
+  ],
+};
