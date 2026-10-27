@@ -278,7 +278,7 @@ const Body = () => (
     <Lead>
       Week 7 left the wire with Terry McLaurin&apos;s season over with a torn patellar tendon, four
       teams on bye, and a report card where four cheap superflex quarterbacks returned 70.6 points
-      on bids that topped out at 7%. Two of the Big Three just came off IR. Let&apos;s spend.
+      on bids that topped out at 7%. Two of the Big Three are back from IR. Let&apos;s spend.
     </Lead>
     <P>
       Every bid below is a percentage of a $100 FAAB budget. The league is half-PPR with one
@@ -423,7 +423,7 @@ const Body = () => (
     <OpponentChart />
     <UL>
       <LI>
-        <strong>Pittsburgh</strong> hosts Cleveland (18.0), the best number on the board. The
+        <strong>Pittsburgh</strong> hosts Cleveland (18.0), tied with Washington for the best number on the board. The
         Pittsburgh D/ST scored 14 and 12 the last two weeks.
       </LI>
       <LI>
@@ -549,7 +549,7 @@ const Body = () => (
       <LI><strong>Lamar Jackson</strong> (BAL QB): ankle. Minter says he is &quot;in a decent spot&quot; to play Sunday at Buffalo. Cut Huntley.</LI>
       <LI><strong>Saquon Barkley</strong> (PHI RB): says the back injury was compensatory after he tweaked his hamstring on his first run Monday. Pierce.</LI>
       <LI><strong>DeVonta Smith</strong> and <strong>Dontayvion Wicks</strong> (PHI WR): questionable. Neither recorded a stat Monday night. Lemon.</LI>
-      <LI><strong>Christian McCaffrey</strong> (SF RB): a mild hamstring strain, not a quadriceps injury, and the 49ers think he is ready after the bye. Cut Kaelon Black. <strong>Mike Evans</strong> (Achilles) and <strong>Deebo Samuel Sr.</strong> (hamstring) are also expected back after the bye.</LI>
+      <LI><strong>Christian McCaffrey</strong> (SF RB): a mild hamstring strain, not a quadriceps injury, and the 49ers think he is ready after the bye. Cut Kaelon Black. <strong>Mike Evans</strong> (Achilles) is expected back after the bye, and <strong>Deebo Samuel Sr.</strong> (hamstring) has a chance to return then.</LI>
       <LI><strong>Jeremiyah Love</strong> (ARI RB): ankle. Mike LaFleur says he practices Wednesday. Bam Knight&apos;s window is closing.</LI>
       <LI><strong>Breece Hall</strong> (NYJ RB): questionable, missed Week 7. Braelon Allen (81.2%) ran for 104.</LI>
       <LI><strong>Amon-Ra St. Brown</strong> (DET WR): tweaked his ankle Sunday and should practice Thursday (Dan Campbell).</LI>
@@ -559,7 +559,7 @@ const Body = () => (
       <LI><strong>Jalen Coker</strong> (CAR WR): shoulder, limited on Monday&apos;s estimated report. Thursday game.</LI>
       <LI><strong>Emeka Egbuka</strong> (TB WR): questionable. Tez Johnson.</LI>
       <LI><strong>DJ Moore</strong> (BUF WR): questionable, shoulder. Keon Coleman.</LI>
-      <LI><strong>Erick All Jr.</strong> (CIN TE): knee, ruled out of Sunday&apos;s game. Drew Sample.</LI>
+      <LI><strong>Erick All Jr.</strong> (CIN TE): knee, left Sunday&apos;s game against Baltimore and did not return; questionable. Drew Sample.</LI>
       <LI><strong>Jaylin Noel</strong> (HOU WR): toe, seen in a walking boot after Sunday&apos;s game, and Houston is on bye. Cut.</LI>
       <LI><strong>Cam Skattebo</strong> (NYG RB): tweaked a hamstring and is expected to be OK (Mike Garafolo). Tyrone Tracy Jr. (hamstring) did not return. The Giants are on bye.</LI>
       <LI><strong>Ladd McConkey</strong> (LAC WR): concussion, no-contact jersey at Monday&apos;s practice. <strong>Rashid Shaheed</strong> (SEA WR): knee, early returns positive.</LI>
