@@ -38,6 +38,10 @@
  * rules and the known gaps). `--all` scores every week's calls file and prints
  * the season ledger.
  *
+ * The rankings table carries a `blend` column: the capture's order with the editorial QB/TE ranks fed
+ * through `expertConsensusBlend` (weight 0.5, ranks become points inside the ranked set). `--all` also
+ * prints the preregistered editorial-feed test (#2524, weeks 8-18): docs/editorial/editorial-feed-preregistration.md.
+ *
  * Calls flagged `"injury": true` turn on a Wed-Fri practice report or game
  * designation the Tuesday capture could not see; the summary reports the
  * paired hit rates split into injury-driven and method calls.
@@ -46,8 +50,15 @@
 const fs = require('fs');
 const path = require('path');
 const { spearman } = require('../backtest/lib/metrics');
+const { binomialUpperTail } = require('../holdout/lib/inference');
+const { expertConsensusBlend, MODEL_CONSTANTS } = require('../../server/services/projectionModel');
 
 const POSITIONS = ['QB', 'RB', 'WR', 'TE', 'DEF'];
+
+// Preregistered in docs/editorial/editorial-feed-preregistration.md (#2524); these values must not change.
+const EDITORIAL_FEED = Object.freeze({
+  weight: 0.5, positions: Object.freeze(['QB', 'TE']), season: 2026, firstWeek: 8, lastWeek: 18, alpha: 0.10, minWeeks: 6,
+});
 
 /** Pure: 1-based rank of `points` in `values` (descending), ties share the best rank. */
 function finishOf(points, values) {
@@ -67,10 +78,30 @@ function judge({ verdict, condition, finish, cutoff, appeared }) {
 }
 
 /**
- * Pure: rho of the editorial order and of the engine's order vs actual points,
+ * Pure: `Map<playerId, blended estimate>` for the editorial feed: over the ranked players the feed
+ * moves (in ledger, available, finite estimate, not in `injuryIds`) the r-th editorial rank gets the
+ * r-th highest estimate in that set as expert points, blended at `weight`. Others are absent.
+ */
+function editorialBlend(ranking, ledger, injuryIds, weight) {
+  const moved = [...ranking].sort((a, b) => a.rank - b.rank).filter((r) => {
+    const l = ledger.get(r.playerId);
+    return l && !l.unavailable && Number.isFinite(l.estimate) && !injuryIds.has(r.playerId);
+  });
+  const points = moved.map((r) => ledger.get(r.playerId).estimate).sort((a, b) => b - a);
+  return new Map(moved.map((r, i) => [r.playerId, expertConsensusBlend({
+    value: ledger.get(r.playerId).estimate,
+    expert: { points: points[i], source: 'editorial' },
+    constants: { ...MODEL_CONSTANTS.expertConsensus, blendWeight: weight },
+  }).value]));
+}
+
+/**
+ * Pure: rho of the editorial order, the engine's order and the editorial-feed blend vs actual points,
  * over the players in both the ranking and the ledger (the same set).
  */
-function rankingRho(ranking, ledger, actuals) {
+function rankingRho(ranking, ledger, actuals, injuryIds = new Set()) {
+  const blend = editorialBlend(ranking, ledger, injuryIds, EDITORIAL_FEED.weight);
+  const blendOrder = (r) => (ledger.get(r.playerId).unavailable ? 0 : blend.get(r.playerId) ?? ledger.get(r.playerId).estimate);
   const rows = ranking.filter((r) => ledger.has(r.playerId));
   const act = (r) => (actuals.get(r.playerId) || { points: 0 }).points;
   return {
@@ -78,6 +109,7 @@ function rankingRho(ranking, ledger, actuals) {
     missing: ranking.filter((r) => !ledger.has(r.playerId)).map((r) => r.name),
     editorialRho: spearman(rows.map((r) => -r.rank), rows.map(act)),
     engineRho: spearman(rows.map((r) => engineOrder(ledger.get(r.playerId))), rows.map(act)),
+    blendedRho: spearman(rows.map(blendOrder), rows.map(act)),
     servedRho: rows.every((r) => ledger.get(r.playerId).served)
       ? spearman(rows.map((r) => servedOrder(ledger.get(r.playerId))), rows.map(act))
       : null,
@@ -151,9 +183,10 @@ function scoreCalls(file, ledger, actuals) {
     engineHits: hits(list, 'engineHit'),
     ...(withServed ? { servedHits: hits(list, 'servedHit') } : {}),
   });
+  const injuryIds = new Set(file.calls.filter((c) => c.injury === true).map((c) => c.playerId));
   const rankings = {};
   for (const pos of POSITIONS) {
-    if (file.rankings[pos]) rankings[pos] = rankingRho(file.rankings[pos], ledger, actuals);
+    if (file.rankings[pos]) rankings[pos] = rankingRho(file.rankings[pos], ledger, actuals, injuryIds);
   }
   return {
     rankings,
@@ -249,7 +282,8 @@ const SUMMARY_LINES = ['paired', 'pairedMethod', 'pairedInjury'];
 /**
  * Pure: season totals from per-week results `[{ week, summary, rankings }]` (scoreCalls output
  * plus the week): hits and n summed per line, and each position's rho as the n-weighted mean of
- * the weekly rhos (a week with no rho for a metric is left out of that mean; n is the total).
+ * the weekly rhos (a week with no rho for a metric is left out of that mean; n is the total), plus the
+ * preregistered `editorialFeed` test over `EDITORIAL_FEED`'s season and weeks (each result needs `season`).
  */
 function seasonLedger(weekResults) {
   const totals = Object.fromEntries(SUMMARY_LINES.map((k) => [k, { n: 0, editorialHits: 0, engineHits: 0, servedHits: 0 }]));
@@ -267,11 +301,25 @@ function seasonLedger(weekResults) {
     };
     rankings[pos] = {
       n: rows.reduce((t, x) => t + x.n, 0),
-      editorialRho: mean('editorialRho'), engineRho: mean('engineRho'), servedRho: mean('servedRho'),
+      editorialRho: mean('editorialRho'), engineRho: mean('engineRho'), blendedRho: mean('blendedRho'), servedRho: mean('servedRho'),
     };
   }
+  const feed = EDITORIAL_FEED;
+  const pw = weekResults.filter((w) => w.season === feed.season && w.week >= feed.firstWeek && w.week <= feed.lastWeek)
+    .flatMap((w) => feed.positions.map((pos) => ({ week: w.week, ...w.rankings[pos] }))
+      .filter((x) => x.n > 0 && x.blendedRho != null && x.engineRho != null));
+  const pooled = (key) => (pw.length ? pw.reduce((t, x) => t + x.n * x[key], 0) / pw.reduce((t, x) => t + x.n, 0) : null);
+  const favorable = pw.filter((x) => x.blendedRho > x.engineRho).length;
+  const unfavorable = pw.filter((x) => x.blendedRho < x.engineRho).length;
+  const judged = [...new Set(pw.map((x) => x.week))].sort((a, b) => a - b);
+  const p = binomialUpperTail(favorable + unfavorable, favorable);
+  const [blendedRho, engineRho] = [pooled('blendedRho'), pooled('engineRho')];
+  const editorialFeed = {
+    weeks: judged, positionWeeks: pw.length, favorable, unfavorable, ties: pw.length - favorable - unfavorable, p, blendedRho, engineRho,
+    verdict: judged.length < feed.minWeeks ? 'unjudged' : blendedRho > engineRho && p <= feed.alpha ? 'pass' : 'fail',
+  };
   const weeks = weekResults.map((w) => ({ week: w.week, ...Object.fromEntries(SUMMARY_LINES.map((k) => [k, w.summary[k]])) }));
-  return { weeks, totals, rankings };
+  return { weeks, totals, rankings, editorialFeed };
 }
 
 /**
@@ -391,7 +439,7 @@ function render(file, capture, r) {
   out.push('Served = the Start verdict rebuilt read-only as of a minute before kickoff (docs/editorial/README.md).');
   out.push('', 'Rankings (Spearman rho vs actual points, same player set)');
   for (const [pos, x] of Object.entries(r.rankings)) {
-    out.push(`  ${pos.padEnd(3)} n=${String(x.n).padEnd(2)} editorial ${f2(x.editorialRho)}  capture ${f2(x.engineRho)}  served (rebuilt) ${f2(x.servedRho)}${x.missing.length ? `  no ledger row: ${x.missing.join(', ')}` : ''}`);
+    out.push(`  ${pos.padEnd(3)} n=${String(x.n).padEnd(2)} editorial ${f2(x.editorialRho)}  capture ${f2(x.engineRho)}  blend ${f2(x.blendedRho)}  served (rebuilt) ${f2(x.servedRho)}${x.missing.length ? `  no ledger row: ${x.missing.join(', ')}` : ''}`);
   }
   out.push('', 'Calls');
   out.push('  id   name                    pos verdict cond      inj actual fin  app  ed    cap-call cap-est cap-rk cap   srv-call srv-why        srv-rk srv');
@@ -434,8 +482,14 @@ function renderLedger(ledger, skipped) {
   out.push(`  injury-driven calls (n=${t.pairedInjury.n}): ${trio(t.pairedInjury)}`);
   out.push('', 'Rankings (n-weighted mean of the weekly Spearman rho)');
   for (const [pos, x] of Object.entries(ledger.rankings)) {
-    out.push(`  ${pos.padEnd(3)} n=${String(x.n).padEnd(3)} editorial ${f2(x.editorialRho)}  capture ${f2(x.engineRho)}  served (rebuilt) ${f2(x.servedRho)}`);
+    out.push(`  ${pos.padEnd(3)} n=${String(x.n).padEnd(3)} editorial ${f2(x.editorialRho)}  capture ${f2(x.engineRho)}  blend ${f2(x.blendedRho)}  served (rebuilt) ${f2(x.servedRho)}`);
   }
+  const e = ledger.editorialFeed;
+  out.push('', 'Editorial feed (#2524, preregistered: docs/editorial/editorial-feed-preregistration.md)');
+  out.push(`  judged weeks (${e.weeks.length}): ${e.weeks.join(', ') || 'none'}; position-weeks ${e.positionWeeks}`);
+  out.push(`  pooled rho (QB+TE, n-weighted): blend ${f2(e.blendedRho)}, capture ${f2(e.engineRho)}`);
+  out.push(`  sign test: blend better ${e.favorable}, worse ${e.unfavorable}, ties ${e.ties}; one-sided p ${f2(e.p)}`);
+  out.push(`  verdict: ${e.verdict}`);
   return out.join('\n');
 }
 
@@ -473,7 +527,7 @@ async function main(argv) {
       const reason = !capture ? 'no on-time scheduled PPR capture'
         : gamesPending ? 'games still to play' : actuals.size === 0 ? 'no player_stats rows yet' : null;
       if (reason) skipped.push({ week, reason });
-      else scored.push({ week, article: file.article, capture, ...scoreCalls(file, ledger, actuals) });
+      else scored.push({ week, season: file.season, article: file.article, capture, ...scoreCalls(file, ledger, actuals) });
     }
     const ledgerOut = seasonLedger(scored);
     console.log(argv.includes('--json')
@@ -492,6 +546,6 @@ if (require.main === module) {
 }
 
 module.exports = {
-  finishOf, judge, rankingRho, scoreCalls, spearman, servedInjuryStatus, servedAsOf, servedVerdictFor, seasonLedger,
+  finishOf, judge, editorialBlend, EDITORIAL_FEED, rankingRho, scoreCalls, spearman, servedInjuryStatus, servedAsOf, servedVerdictFor, seasonLedger,
   observationsAsOf, chartsBefore, captureChartRows,
 };
