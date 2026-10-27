@@ -1622,8 +1622,11 @@ describe('the lineup note (AC 6j)', () => {
   });
 
   test('when no bench player can fill the slot the note says so and links Free agents instead', async () => {
-    liveGameRows = [nflGame({ start_time: inMinutes(120) })];
-    mockApi({ matchup: emptyFlex({ homeBench: [benchPlayer({ game_state: 'in_progress', nfl_team: 'DAL' })] }) });
+    liveGameRows = [
+      nflGame({ tank01_game_id: 'G-DAL', home_team: 'DAL', away_team: 'PHI', game_status: 'in_progress' }),
+      nflGame({ tank01_game_id: 'G-KC', home_team: 'KC', away_team: 'BUF', start_time: inMinutes(120) }),
+    ];
+    mockApi({ matchup: emptyFlex({ homeBench: [benchPlayer({ game_state: 'in_progress', nfl_team: 'DAL' })], nflGameIds: ['G-DAL', 'G-KC'] }) });
     renderPage();
 
     const note = await screen.findByTestId('lineup-note');
@@ -1634,7 +1637,7 @@ describe('the lineup note (AC 6j)', () => {
 
   test('before kickoff it names every move behind its gain, the projected outlook and the lock', async () => {
     const kickoff = inMinutes(600);
-    liveGameRows = [nflGame({ start_time: kickoff })];
+    liveGameRows = [nflGame({ start_time: kickoff, home_team: 'KC', away_team: 'BUF' })];
     mockApi({
       matchup: matchupResponse({
         matchup: { status: 'scheduled', home_score: '0', away_score: '0' },
@@ -1665,6 +1668,31 @@ describe('the lineup note (AC 6j)', () => {
     await waitFor(() => expect(note).toHaveTextContent('Two moves · +23.0 pts: Addison in for P. Mahomes (Out) · Spears into the empty FLEX'));
     expect(note).toHaveTextContent("you'd project 116.8 to 98.6");
     expect(within(note).getByTestId('lineup-note-lock')).toHaveTextContent(`Locks ${weekdayTime(kickoff)}`);
+    expect(within(note).getByRole('link', { name: 'Set lineup' })).toBeInTheDocument();
+  });
+
+  test('the note names the viewer\'s own next kickoff, never an opponent-only game kicking off earlier', async () => {
+    const opponentKickoff = inMinutes(45);
+    const viewerKickoff = inMinutes(120);
+    liveGameRows = [
+      nflGame({ tank01_game_id: 'G-OPP', home_team: 'SF', away_team: 'ARI', start_time: opponentKickoff }),
+      nflGame({ tank01_game_id: 'G-VIEW', home_team: 'MIA', away_team: 'BUF', start_time: viewerKickoff }),
+    ];
+    mockApi({
+      matchup: matchupResponse({
+        homeStarters: [starter({ slot: 'QB', game_state: 'in_progress' })],
+        homeBench: [benchPlayer({ nfl_team: 'BUF' })],
+        awayStarters: [
+          starter({ id: 6, name: 'D. Adams', slot: 'QB', position: 'QB', game_state: 'in_progress' }),
+          starter({ id: 7, name: 'T. Hill', slot: 'FLEX', position: 'WR', game_state: 'in_progress' }),
+        ],
+        nflGameIds: ['G-OPP', 'G-VIEW'],
+      }),
+    });
+    renderPage();
+
+    const note = await screen.findByTestId('lineup-note');
+    expect(note).toHaveTextContent(`FLEX is empty · next kickoff ${weekdayTime(viewerKickoff)}`);
     expect(within(note).getByRole('link', { name: 'Set lineup' })).toBeInTheDocument();
   });
 
@@ -1939,7 +1967,7 @@ describe('"Fill by" is said on the viewer\'s side only, and only while the lineu
 
   test('before kickoff the viewer\'s empty row keeps "Fill by {lock}"', async () => {
     const lock = inMinutes(600);
-    liveGameRows = [nflGame({ start_time: lock })];
+    liveGameRows = [nflGame({ start_time: lock, home_team: 'KC', away_team: 'BUF' })];
     mockApi({
       matchup: matchupResponse({
         matchup: { status: 'scheduled', home_score: '0', away_score: '0' },
