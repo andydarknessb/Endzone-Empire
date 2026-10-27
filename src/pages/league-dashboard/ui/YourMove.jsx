@@ -3,15 +3,15 @@ import { Box } from '@mui/material';
 import {
   CountBadge, Frame, FrameHead, PixelCheck, PixelHeading, PlayCard, pixelSx,
 } from '../../../shared/ui/playselect';
-import { playName } from '../../../entities/action-item';
+import { itemType, playName } from '../../../entities/action-item';
 import { formatInstant, timeUntil, useNow } from '../../../shared/lib';
 
 const MINUTE_MS = 60 * 1000;
 const HOUR_MS = 60 * MINUTE_MS;
 const DAY_MS = 24 * HOUR_MS;
 
-// Item type -> play kind (the pictogram). The type is
-// the first segment of the item's id ("picks_open:4:2026-6"): the wire has no kind field.
+// Item type -> play kind (the pictogram). The Action item entity reads an item's type off its id
+// ("picks_open:4:2026-6"); the wire has no kind field.
 const KIND = {
   picks_open: 'picks',
   lineup_problem: 'lineup',
@@ -24,7 +24,6 @@ const KIND = {
 };
 const FALLBACK_KIND = 'lineup';
 
-const typeOf = (foot) => String(foot.id || '').split(':')[0];
 const timeMs = (value) => {
   const at = value ? new Date(value).getTime() : NaN;
   return Number.isNaN(at) ? null : at;
@@ -75,7 +74,7 @@ function MoveCard({
 
   return (
     <PlayCard
-      kind={KIND[typeOf(first)] || FALLBACK_KIND}
+      kind={KIND[itemType(first)] || FALLBACK_KIND}
       name={name}
       league=""
       detail={multi ? details.join(' · ') : null}
