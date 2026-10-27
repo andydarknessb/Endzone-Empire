@@ -4,6 +4,7 @@ const { normalizeTeamAbbr } = require('./tank01Feed');
 const { computeByeWeeks } = require('./bye.service');
 const model = require('./projectionModel');
 const { isPresentNumber: isNum } = require('./numericPresence');
+const { madeAppearance } = require('./madeAppearance');
 
 /**
  * Feature extraction for the weekly projection engine.
@@ -173,12 +174,14 @@ function usageFromStats(stats) {
 
 /**
  * Pure: whether a stored stat row is an Appearance (CONTEXT.md) — the player
- * was active for his team's game, whatever the stat line. Detection is the
- * per-week `gameTeam` key, which only the nflverse writer sets; the live/final
- * box writes a row for every rostered player and never sets it (#1440).
+ * was active for his team's game, whatever the stat line. Two detections: the
+ * per-week `gameTeam` key, which only the nflverse writer sets (the live/final
+ * box writes a row for every rostered player and never sets it), or a stat line
+ * with a non-zero figure in it (#1440, amended 2026-10-27).
  */
+// shortcut: a zero-touch active player reads as no Appearance until snaps publish for that week, upgrade to a game-level active list if the feed ever carries one.
 function isAppearance(row) {
-  return !!row && normalizeTeamKey(row.stats && row.stats.gameTeam) !== null;
+  return !!row && (normalizeTeamKey(row.stats && row.stats.gameTeam) !== null || madeAppearance(row.stats));
 }
 
 // ---------------------------------------------------------------------------
@@ -850,7 +853,7 @@ function emptyCoverage() {
  * `week > 1` (no completed week to read before that).
  */
 async function loadLeagueContext({
-  season, week, rules, positions, client = pool, constants = model.MODEL_CONSTANTS,
+  season, week, rules, positions, client = pool,
 }) {
   let rows = [];
   const defenseGamesByTeam = new Map();
@@ -862,7 +865,7 @@ async function loadLeagueContext({
     rows = scan.rows;
     for (const row of games.rows) defenseGamesByTeam.set(row.team, Number(row.games));
   }
-  return buildLeagueContext({ rows, rules, defenseGamesByTeam, constants });
+  return buildLeagueContext({ rows, rules, defenseGamesByTeam, constants: model.MODEL_CONSTANTS });
 }
 
 module.exports = {
