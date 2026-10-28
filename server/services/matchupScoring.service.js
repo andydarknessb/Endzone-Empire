@@ -171,46 +171,46 @@ async function scoreMatchupsInTransaction(client, { leagueId, season, week, sett
   // stable within one pass, so a longer-lived cache would be correct until
   // the first time a sync-schedule run landed mid-pass.
   const kickoffCache = new Map();
-    /**
-     * The rows that count when a week is scored AS PLAYED. A lineup row
-     * counts only if a tenure of this team covered its player's kickoff
-     * (#228): the week's card is the record of what was played, and a player
-     * acquired after his game had already been played was not part of it
-     * however he came to have a row.
-     *
-     * ONE exclusion, on BOTH the settle and the final population, which is
-     * the point of #228 and the whole of #190's second escalation. The
-     * predicate reads `roster_tenures`, a fact that is appended and closed
-     * and never rewritten, so it answers the same way at settle time, at
-     * finality, and after any later roster move. Every earlier attempt on
-     * #190 evaluated a proxy over the CURRENT roster, and each died the same
-     * death: cut the excluded pickup a week later, the proxy stops firing and
-     * his points come back on the next correction sweep. Asking a tenure
-     * cannot go that way - cutting him closes the tenure, it does not erase
-     * the one that failed to cover kickoff.
-     *
-     * A LIVE week is the one population this does NOT govern. Best ball
-     * answers a different and correct question by joining the CURRENT
-     * roster, so a dropped player stops scoring immediately mid-week (its
-     * as-played pool excludes him the same way, ADR 0022). A standard week's
-     * live starters carry no join: they are the rows settle will score,
-     * including a starter's row spared after his kickoff (#627), so the live
-     * score never drops points that settle then puts back (#2388).
-     *
-     * Note what is NOT here: no `nfl_games` join. The kickoff question belongs
-     * to the module that owns the schedule and the lineup lock, so #227 has
-     * one place to fix rather than one per consumer.
-     *
-     * Best ball carries a second exclusion on the same two populations
-     * (#635, ADR 0022): of the rows the first kept, the ones a tenure of this
-     * team still covered at the week's LAST kickoff. Same recorded fact, same
-     * append-and-close argument. Never applied to a standard league, whose
-     * pool is bounded by slot occupancy.
-     *
-     * Both live in `rowsHeldAsPlayed`, in lineup.service beside the
-     * predicate, because hindsight reads the same settled week (#736) and a
-     * second population here would be one more thing to keep agreeing.
-     */
+  /**
+   * The rows that count when a week is scored AS PLAYED. A lineup row
+   * counts only if a tenure of this team covered its player's kickoff
+   * (#228): the week's card is the record of what was played, and a player
+   * acquired after his game had already been played was not part of it
+   * however he came to have a row.
+   *
+   * ONE exclusion, on BOTH the settle and the final population, which is
+   * the point of #228 and the whole of #190's second escalation. The
+   * predicate reads `roster_tenures`, a fact that is appended and closed
+   * and never rewritten, so it answers the same way at settle time, at
+   * finality, and after any later roster move. Every earlier attempt on
+   * #190 evaluated a proxy over the CURRENT roster, and each died the same
+   * death: cut the excluded pickup a week later, the proxy stops firing and
+   * his points come back on the next correction sweep. Asking a tenure
+   * cannot go that way - cutting him closes the tenure, it does not erase
+   * the one that failed to cover kickoff.
+   *
+   * A LIVE week is the one population this does NOT govern. Best ball
+   * answers a different and correct question by joining the CURRENT
+   * roster, so a dropped player stops scoring immediately mid-week (its
+   * as-played pool excludes him the same way, ADR 0022). A standard week's
+   * live starters carry no join: they are the rows settle will score,
+   * including a starter's row spared after his kickoff (#627), so the live
+   * score never drops points that settle then puts back (#2388).
+   *
+   * Note what is NOT here: no `nfl_games` join. The kickoff question belongs
+   * to the module that owns the schedule and the lineup lock, so #227 has
+   * one place to fix rather than one per consumer.
+   *
+   * Best ball carries a second exclusion on the same two populations
+   * (#635, ADR 0022): of the rows the first kept, the ones a tenure of this
+   * team still covered at the week's LAST kickoff. Same recorded fact, same
+   * append-and-close argument. Never applied to a standard league, whose
+   * pool is bounded by slot occupancy.
+   *
+   * Both live in `rowsHeldAsPlayed`, in lineup.service beside the
+   * predicate, because hindsight reads the same settled week (#736) and a
+   * second population here would be one more thing to keep agreeing.
+   */
   const heldRows = async (rows, teamId, asPlayed) => {
     if (!asPlayed) return rows;
     return rowsHeldAsPlayed(client, { league, teamId, season, week, rows, kickoffCache });
