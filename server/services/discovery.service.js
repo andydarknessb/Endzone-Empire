@@ -373,8 +373,10 @@ async function previewLeagueByInviteCode({ code, userId }) {
 
 /**
  * Join a public league: either creates the team immediately, or (when the
- * league requires approval) files/refreshes a join_requests row and
- * notifies the owner. Runs inside one transaction with the league row
+ * league requires approval) files/refreshes a join_requests row and notifies
+ * the commissioners -- only when that row is newly filed or resubmitted;
+ * re-sending a request that is already pending returns it silently (#2558).
+ * Runs inside one transaction with the league row
  * locked. Being public is this path's gate; admission and the Team itself
  * are the membership module's (leagueMembership.joinLeague), as on every
  * join path. A required Team name (#111) is validated on both branches: the
@@ -414,6 +416,10 @@ async function joinPublicLeague({ leagueId, userId, username, teamName }) {
           [leagueId, userId, name]
         );
         let joinRequest = upsert.rows[0];
+        // Only a filed or resubmitted request is news (#2558). A re-send while
+        // one is already pending alerts nobody: at up to 300 a minute the
+        // repeats buried the real Trade and waiver alerts.
+        const isFreshRequest = Boolean(joinRequest);
         if (!joinRequest) {
           // Conflict existed but wasn't denied/cancelled (already pending): surface as-is
           const existing = await client.query(
@@ -432,13 +438,15 @@ async function joinPublicLeague({ leagueId, userId, username, teamName }) {
         // filled up. Notifying `league.owner_id` resolved the commissioner role
         // as the creator, which is the narrower rule and not the one that gates
         // the power being alerted about.
-        await notifyCommissioners(client, {
-          leagueId,
-          ownerId: league.owner_id,
-          type: 'join_request',
-          message: `${username} requested to join ${league.name}`,
-          data: { requestId: joinRequest.id, userId },
-        });
+        if (isFreshRequest) {
+          await notifyCommissioners(client, {
+            leagueId,
+            ownerId: league.owner_id,
+            type: 'join_request',
+            message: `${username} requested to join ${league.name}`,
+            data: { requestId: joinRequest.id, userId },
+          });
+        }
         // Returning COMMITs (ADR 0033): the pending branch's writes are the
         // upsert and the notifications above, all committed together.
         return { pending: true, joinRequest };
