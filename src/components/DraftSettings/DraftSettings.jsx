@@ -22,7 +22,7 @@ import { readHttpFailure } from '../../lib/httpFailure';
 
 const TAB_ITEMS = [
   ['type', 'Draft type'], ['schedule', 'Schedule'], ['timer', 'Timer'], ['order', 'Draft order'],
-  ['auction', 'Auction'], ['limits', 'Position limits'], ['keepers', 'Keepers'], ['readiness', 'Readiness'],
+  ['auction', 'Auction'], ['limits', 'Position caps'], ['keepers', 'Keepers'], ['readiness', 'Readiness'],
 ];
 
 const tabId = (value) => `draft-settings-tab-${value}`;

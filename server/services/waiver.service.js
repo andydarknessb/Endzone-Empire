@@ -13,7 +13,9 @@ const lineupService = require('./lineup.service');
 // circular require back into this module (#944; see waiverStatus.js). Kept in
 // this module's exports below so existing importers are untouched.
 const { isOnWaivers } = require('./waiverStatus');
-const { assertRosterWriteAllowed, isLeagueFrozen, ROSTER_GATE } = require('./rosterGate.service');
+const {
+  assertRosterWriteAllowed, isLeagueFrozen, ROSTER_GATE, positionCapGroup, parsePositionCaps, countAtPositionGroup,
+} = require('./rosterGate.service');
 
 class WaiverError extends Error {
   constructor(statusCode, message, code) {
@@ -687,8 +689,8 @@ async function processWaivers({ leagueId }) {
       // transaction rolls back, and every due claim stays pending for the next
       // tick rather than being awarded or permanently invalidated. The team
       // lock and the acquire bundle are bypassed: this batch path enforces its
-      // net capacity through claimFailureReason above and does not enforce the
-      // position cap or the on-waivers gate (a waiver award IS a waiver), and
+      // net capacity and net position cap through claimFailureReason above and
+      // does not enforce the on-waivers gate (a waiver award IS a waiver), and
       // per-team-lock handling on the batch path is a later ticket - so this
       // slice changes only the freeze here (#944 criterion 5).
       await assertRosterWriteAllowed(client, {
@@ -850,11 +852,33 @@ async function claimFailureReason(client, { league, team, claim }) {
     dropValid = Boolean(onTeam.rows[0]);
     if (!dropValid) return 'the player you offered to drop is no longer on your roster';
   }
-  return capacityFailureReason(client, {
-    league,
-    team,
-    dropPlayerId: dropValid ? claim.drop_player_id : null,
-  });
+  const dropPlayerId = dropValid ? claim.drop_player_id : null;
+  // Cap first: a claim that never fit its cap must not read as "roster full
+  // after your #n claim" once a sibling win fills the roster (siblingReason).
+  const capped = await positionCapFailureReason(client, { league, team, claim, dropPlayerId });
+  if (capped) return capped;
+  return capacityFailureReason(client, { league, team, dropPlayerId });
+}
+
+/**
+ * A Position cap holds on every acquisition (#2557), so a claim is checked
+ * net of its own drop, like a Trade: a same-group drop nets zero and passes.
+ * Only a claim that GAINS a player in the group is refused, so a Team already
+ * over a cap keeps its players but cannot claim at that position.
+ */
+async function positionCapFailureReason(client, { league, team, claim, dropPlayerId }) {
+  const caps = parsePositionCaps(league.position_caps);
+  if (!Object.values(caps).some(Number.isInteger)) return null;
+  const ids = dropPlayerId ? [claim.player_id, dropPlayerId] : [claim.player_id];
+  const positions = await client.query(`SELECT "id", "position" FROM "players" WHERE "id" = ANY($1::int[])`, [ids]);
+  const groupOf = (id) => positionCapGroup((positions.rows.find((p) => p.id === id) || {}).position);
+  const group = groupOf(claim.player_id);
+  if (!Number.isInteger(caps[group])) return null;
+  const net = dropPlayerId && groupOf(dropPlayerId) === group ? 0 : 1;
+  if (net > 0 && (await countAtPositionGroup(client, { teamId: team.id, group })) + net > caps[group]) {
+    return `position cap reached: max ${caps[group]} ${group}`;
+  }
+  return null;
 }
 
 /**

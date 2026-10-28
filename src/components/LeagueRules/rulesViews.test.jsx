@@ -133,14 +133,14 @@ describe('RosterRulesView', () => {
     expect(screen.getByText('9 total roster spots')).toBeInTheDocument();
   });
 
-  it('says so when there are no position limits', () => {
+  it('says so when there are no position caps', () => {
     render(<RosterRulesView league={{ ...league, position_caps: {} }} />);
-    expect(screen.getByText(/No position limits/)).toBeInTheDocument();
+    expect(screen.getByText(/No position caps/)).toBeInTheDocument();
   });
 
   it('gives its section title an explicit heading level, one below the page title', () => {
     render(<RosterRulesView league={league} />);
-    expect(screen.getByRole('heading', { level: SECTION_HEADING_LEVEL, name: 'Draft position limits' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: SECTION_HEADING_LEVEL, name: 'Position caps' })).toBeInTheDocument();
     expect(screen.queryAllByRole('heading', { level: 6 })).toHaveLength(0);
   });
 });
