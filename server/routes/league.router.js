@@ -294,15 +294,23 @@ router.get('/discover', async (req, res) => {
 });
 
 // POST /join limits failed joins, so a cheap read-only lookup must not make
-// invite codes enumerable either: 30 previews per caller per 10 minutes covers
-// hand-typing several codes (the client previews each plausible prefix as you
-// type) while keeping a sweep slow. New codes are 16 hex chars; older Leagues
-// keep their 8-character ones.
+// invite codes enumerable either: 30 previews per caller and per IP in 10
+// minutes covers hand-typing several codes (the client previews each plausible
+// prefix as you type) while keeping a sweep slow. New codes are 16 hex chars;
+// older Leagues keep their 8-character ones.
 const previewRateLimiter = createRateLimiter({ windowMs: 10 * 60 * 1000, max: 30 });
+// The per-caller cap alone is free to reset: a fresh account on the same
+// address buys another 30. Keyed by IP so one address sweeps at one pace.
+const previewIpRateLimiter = createRateLimiter({
+  name: 'preview-ip',
+  windowMs: 10 * 60 * 1000,
+  max: 30,
+  keyFn: (req) => req.ip,
+});
 
 // GET /api/league/preview?code= — what an invite link reveals before joining.
 // Registered ahead of /:id so the path is not read as a league id.
-router.get('/preview', previewRateLimiter, async (req, res) => {
+router.get('/preview', previewRateLimiter, previewIpRateLimiter, async (req, res) => {
   const code = typeof req.query.code === 'string' ? req.query.code.trim() : '';
   if (!code) return res.status(400).json({ error: 'code query param is required' });
   try {
