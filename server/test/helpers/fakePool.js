@@ -19,7 +19,8 @@
  *
  * Entries are tried in order (put overrides before defaults, a catch-all
  * last); an unmatched query throws — with one exception: an unmatched
- * BEGIN/COMMIT/ROLLBACK on a checked-out client auto-answers `{ rows: [] }`.
+ * BEGIN/COMMIT/ROLLBACK (or SET TRANSACTION ...) on a checked-out client
+ * auto-answers `{ rows: [] }`.
  * Transactions are enforced either way (COMMIT/ROLLBACK without BEGIN and a
  * double release throw; `assertClean()` proves every client was released and
  * no transaction was left open). Every statement lands in `calls` as
@@ -37,6 +38,8 @@
 const normalize = (sql) => String(sql).replace(/\s+/g, ' ').trim();
 
 const TX = /^(BEGIN|COMMIT|ROLLBACK)$/;
+// The transaction's own mode statement (REPEATABLE READ, READ ONLY): answered like BEGIN.
+const SET_TX = /^SET TRANSACTION /;
 
 function createFakePool(handlers = []) {
   const calls = [];
@@ -54,7 +57,7 @@ function createFakePool(handlers = []) {
     if (matched) {
       const [, handler] = matched;
       result = await handler(text, params);
-    } else if (TX.test(text)) {
+    } else if (TX.test(text) || SET_TX.test(text)) {
       result = { rows: [] };
     } else {
       throw new Error(`unexpected query: ${text}`);

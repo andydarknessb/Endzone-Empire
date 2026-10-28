@@ -1,6 +1,7 @@
 const pool = require('../modules/pool');
 const { teamForPick } = require('./draftOrder.service');
 const { teamIdentityColumns } = require('./teamIdentity');
+const { withTransaction } = require('../modules/withTransaction');
 
 /**
  * The Draft room snapshot, named after the room it feeds (#788). It is the
@@ -116,8 +117,8 @@ function shape(source, fields) {
 }
 
 /** One `leagues` row by id, projecting exactly `columns`, or null. */
-async function readLeague(leagueId, columns) {
-  const result = await pool.query(
+async function readLeague(leagueId, columns, db = pool) {
+  const result = await db.query(
     `SELECT ${columnList(columns)} FROM "leagues" WHERE "id" = $1`,
     [leagueId]
   );
@@ -132,8 +133,8 @@ async function readLeague(leagueId, columns) {
  * team whose owner has left the league still appears - there is no owner join to
  * filter it out.
  */
-async function readTeams(leagueId) {
-  const result = await pool.query(
+async function readTeams(leagueId, db = pool) {
+  const result = await db.query(
     `SELECT "teams"."id", "teams"."name", "teams"."draft_position", "teams"."autodraft",
             "teams"."draft_ready", ${teamIdentityColumns()}
      FROM "teams"
@@ -177,8 +178,8 @@ async function readTakenByLeague(db, leagueIds) {
  * pick's own `name` is the PLAYER's, so the Team needs its own contract fields,
  * #112). Byte-identical to the old socket-module snapshot read.
  */
-async function readPicks(leagueId) {
-  const result = await pool.query(
+async function readPicks(leagueId, db = pool) {
+  const result = await db.query(
     // `adp` rides on every pick so the Draft room's Misery Meter reads a pick's
     // market ADP straight off the pick, not off the windowed player pool (#833):
     // a keeper is pre-filled into draft_picks AND team_players together, so it is
@@ -257,14 +258,31 @@ function onTheClockFrom(league, teams) {
  * MEMBER_LEAGUE_COLUMNS, so `owner_id`, `draft_share_token` and `invite_code`
  * cannot ride the broadcast even if the read later widens. Teams, picks and
  * onTheClock pass through verbatim (they already carry Team identity only).
+ *
+ * The four reads run in ONE read-only REPEATABLE READ transaction (#2609), so a
+ * Pick committed between them cannot show in the picks without its clock move.
+ * `seq` is the League's current feed position (the counter chat and Draft
+ * activity share, read in that same snapshot): a client keeps the highest it has
+ * applied and ignores a draft:state below it, so a join never rolls the board back.
+ * shortcut: an autodraft toggle doesn't advance the feed seq, give the toggle a Draft activity entry if Managers report a wrong clock
  */
 async function memberSnapshot(leagueId) {
-  const league = await readLeague(leagueId, MEMBER_LEAGUE_COLUMNS);
-  if (!league) return null;
-  const teams = await readTeams(leagueId);
-  const picks = await readPicks(leagueId);
-  const onTheClock = onTheClockFrom(league, teams);
-  return { league: shape(league, MEMBER_LEAGUE_COLUMNS), teams, picks, onTheClock };
+  return withTransaction(pool, async (client) => {
+    // First statement of the transaction, as Postgres requires.
+    await client.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY');
+    const league = await readLeague(leagueId, MEMBER_LEAGUE_COLUMNS, client);
+    if (!league) return null;
+    const teams = await readTeams(leagueId, client);
+    const picks = await readPicks(leagueId, client);
+    const feed = await client.query(
+      'SELECT "last_seq" FROM "league_feed_sequences" WHERE "league_id" = $1',
+      [leagueId]
+    );
+    // No row yet means nothing has been written to the feed: position 0.
+    const seq = Number(feed.rows[0]?.last_seq ?? 0);
+    const onTheClock = onTheClockFrom(league, teams);
+    return { league: shape(league, MEMBER_LEAGUE_COLUMNS), teams, picks, onTheClock, seq };
+  }, { label: 'member-snapshot' });
 }
 
 /**

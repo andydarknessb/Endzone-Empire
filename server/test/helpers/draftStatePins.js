@@ -1,7 +1,7 @@
 // The canonical root key set of a memberSnapshot / `draft:state` snapshot,
 // shared so the socketPayloadShape suite's pin and the draftEvents shim test
 // assert the SAME list rather than two copies that can drift (review 751-f7).
-const STATE_ROOT_CLEAN = ['league', 'onTheClock', 'picks', 'teams'];
+const STATE_ROOT_CLEAN = ['league', 'onTheClock', 'picks', 'seq', 'teams'];
 
 // The Draft room snapshot's per-object key sets (#788), kept here as INDEPENDENT
 // literal copies of the field lists in server/services/draftRoomSnapshot.js.

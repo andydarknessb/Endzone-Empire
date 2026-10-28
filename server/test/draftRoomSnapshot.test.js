@@ -36,6 +36,9 @@ const { memberSnapshot, presenterSnapshot } = require('../services/draftRoomSnap
 
 const LEAGUE_ID = 1;
 
+// The League's feed position (#2609): pg returns the bigint as a string.
+const FEED_SEQ = [/FROM "league_feed_sequences"/, () => ({ rows: [{ last_seq: '12' }] })];
+
 // A leagues row wider than either audience: the 19 member columns, the three
 // forbidden fields, the columns the presenter's on-the-clock derivation needs,
 // and a stand-in for a column added next quarter.
@@ -97,10 +100,42 @@ const pickRow = () => ({
 function snapshotPool(leagueOver = {}) {
   return createFakePool([
     [select('leagues'), () => ({ rows: [wideLeagueRow(leagueOver)] })],
+    FEED_SEQ,
     [/FROM "teams"/, () => ({ rows: [teamRow(11, 1), teamRow(12, 2)] })],
     [/FROM "draft_picks"/, () => ({ rows: [pickRow()] })],
   ]);
 }
+
+test('memberSnapshot: every read runs on one client between a REPEATABLE READ, READ ONLY BEGIN and COMMIT, and carries the feed seq (#2609)', async (t) => {
+  const fake = snapshotPool().install(t);
+
+  const snapshot = await memberSnapshot(LEAGUE_ID);
+
+  const reads = fake.calls.map((call) => `${call.via} ${call.text}`);
+  assert.equal(reads.length, 7);
+  assert.equal(reads[0], 'client BEGIN');
+  assert.equal(reads[1], 'client SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY');
+  assert.match(reads[2], /^client SELECT .* FROM "leagues"/);
+  assert.match(reads[3], /^client SELECT .* FROM "teams"/);
+  assert.match(reads[4], /^client SELECT .* FROM "draft_picks"/);
+  assert.match(reads[5], /^client SELECT "last_seq" FROM "league_feed_sequences"/);
+  assert.equal(reads[6], 'client COMMIT');
+  // A bigint comes back from pg as a string; the wire carries a number.
+  assert.strictEqual(snapshot.seq, 12);
+  fake.assertClean();
+});
+
+test('memberSnapshot: a league with no feed row yet is at seq 0 (#2609)', async (t) => {
+  const fake = createFakePool([
+    [select('leagues'), () => ({ rows: [wideLeagueRow()] })],
+    [/FROM "league_feed_sequences"/, () => ({ rows: [] })],
+    [/FROM "teams"/, () => ({ rows: [teamRow(11, 1)] })],
+    [/FROM "draft_picks"/, () => ({ rows: [] })],
+  ]).install(t);
+
+  assert.strictEqual((await memberSnapshot(LEAGUE_ID)).seq, 0);
+  fake.assertClean();
+});
 
 test('memberSnapshot: the league key set equals MEMBER_LEAGUE_FIELDS exactly, no extra and no missing', async (t) => {
   const fake = snapshotPool().install(t);
@@ -139,6 +174,7 @@ test('memberSnapshot: a league row carrying owner_id, draft_share_token and invi
 test('memberSnapshot: each pick carries the player market ADP from the readPicks select (#833 AC2)', async (t) => {
   const fake = createFakePool([
     [select('leagues'), () => ({ rows: [wideLeagueRow()] })],
+    FEED_SEQ,
     [/FROM "teams"/, () => ({ rows: [teamRow(11, 1), teamRow(12, 2)] })],
     [/FROM "draft_picks"/, (text) => {
       const selectsAdp = /"players"\."adp"/.test(text);
@@ -180,6 +216,7 @@ test('memberSnapshot: each pick carries the player market ADP from the readPicks
 test('memberSnapshot: each pick carries the autopick fact from the readPicks select (#949)', async (t) => {
   const fake = createFakePool([
     [select('leagues'), () => ({ rows: [wideLeagueRow()] })],
+    FEED_SEQ,
     [/FROM "teams"/, () => ({ rows: [teamRow(11, 1), teamRow(12, 2)] })],
     [/FROM "draft_picks"/, (text) => {
       const selectsAuto = /AS "auto"/.test(text);
@@ -267,6 +304,7 @@ const memberTeamValues = (id, draftPosition) => {
 test('memberSnapshot: every pick key set equals MEMBER_PICK_FIELDS and every team key set equals MEMBER_TEAM_FIELDS, exactly', async (t) => {
   const fake = createFakePool([
     [select('leagues'), () => ({ rows: [wideLeagueRow()] })],
+    FEED_SEQ,
     [/FROM "teams"/, (text) => ({
       rows: [
         rowFromSelect(text, memberTeamValues(11, 1)),
@@ -306,6 +344,7 @@ test('memberSnapshot: every pick key set equals MEMBER_PICK_FIELDS and every tea
 test('memberSnapshot: the pin entry `auto` is the one readPicks projects (#994)', async (t) => {
   const fake = createFakePool([
     [select('leagues'), () => ({ rows: [wideLeagueRow()] })],
+    FEED_SEQ,
     [/FROM "teams"/, (text) => ({ rows: [rowFromSelect(text, memberTeamValues(11, 1))] })],
     [/FROM "draft_picks"/, (text) => ({ rows: [rowFromSelect(text, { ...pickRow(), adp: 3.2, auto: true })] })],
   ]).install(t);

@@ -345,6 +345,9 @@ async function commitPick({ leagueId, userId, playerId, auto = false, byCommissi
         // The typed Draft-activity entry for the combined feed (#435), so the
         // `draft:picked` broadcast carries it to the room beside the board update.
         activity,
+        // The entry's feed position (#2609): a client orders this Pick against any
+        // draft:state by it, and ignores a state with a lower seq.
+        seq: activity.seq,
         // The completion lifecycle entry (#437), set only on the Pick that ends the
         // draft, else null. landPick delivers it on `draft:activity` so the room's
         // feed shows the draft closing beside the final Pick.

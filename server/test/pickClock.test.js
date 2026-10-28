@@ -295,6 +295,7 @@ test('autoPick: a CLOCK_MOVED landing returns null, tries no other candidate and
     [/FROM "team_players" JOIN "players"/, () => ({ rows: [] })],
     [/FROM "players" LEFT JOIN/, () => ({ rows: [candidate(1), candidate(2)] })],
     [/FROM "draft_picks"/, () => ({ rows: [] })],
+    [/FROM "league_feed_sequences"/, () => ({ rows: [{ last_seq: '1' }] })],
     [/FROM "teams"/, () => ({ rows: [{ id: 55, owner_id: 7, autodraft: false, draft_position: 1 }] })],
   ]).install(t);
   const landed = t.mock.method(pickService, 'landPick', async () => {

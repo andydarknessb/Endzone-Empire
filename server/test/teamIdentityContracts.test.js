@@ -207,6 +207,7 @@ const draftTeamRow = ({ teamId, teamName }, draftPosition) => ({
 function draftStateFake(t) {
   return createFakePool([
     [select('leagues'), () => ({ rows: [{ ...DRAFT_LEAGUE }] })],
+    [/FROM "league_feed_sequences"/, () => ({ rows: [{ last_seq: '1' }] })],
     [/FROM "teams"\s+WHERE/, () => ({
       rows: [draftTeamRow(VIEWER, 1), draftTeamRow(OTHER, 2)],
     })],
