@@ -35,12 +35,11 @@ export function createDraftSocket() {
   // The server checks the token at the handshake only, so a renewed token has to
   // be told to it or the socket keeps the old expiry (#2555). A socket that is
   // not connected skips it: its next connect reads the fresh token anyway.
-  // A socket that will not reconnect (closed here or by the server) stops listening.
+  // A destroyed socket (closed here, by the server, or refused at the handshake)
+  // is no longer `active`; the first refresh after that drops its listener.
   const stopTellingServer = onTokenRefreshed((token) => {
+    if (!socket.active) return stopTellingServer();
     if (socket.connected) socket.emit('auth:refresh', { token });
-  });
-  socket.on('disconnect', (reason) => {
-    if (reason === 'io client disconnect' || reason === 'io server disconnect') stopTellingServer();
   });
 
   // Socket-only screens (draft room, live matchups) may go 15+ minutes with

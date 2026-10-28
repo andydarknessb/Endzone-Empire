@@ -152,7 +152,7 @@ describe('telling the server about a refreshed token', () => {
   beforeEach(() => {
     sockets = [];
     io.mockImplementation(() => {
-      const socket = { connected: true, on: jest.fn(), emit: jest.fn(), disconnect: jest.fn() };
+      const socket = { connected: true, active: true, on: jest.fn(), emit: jest.fn(), disconnect: jest.fn() };
       sockets.push(socket);
       return socket;
     });
@@ -163,9 +163,6 @@ describe('telling the server about a refreshed token', () => {
     clearToken();
     jest.restoreAllMocks();
   });
-
-  const disconnect = (socket, reason) =>
-    socket.on.mock.calls.filter(([event]) => event === 'disconnect').forEach(([, handler]) => handler(reason));
 
   test('a successful refresh makes each live draft socket emit auth:refresh with the new token', async () => {
     createDraftSocket();
@@ -195,27 +192,20 @@ describe('telling the server about a refreshed token', () => {
     expect(sockets[0].emit).not.toHaveBeenCalled();
   });
 
-  test.each(['io client disconnect', 'io server disconnect'])(
-    'a socket closed with "%s" is no longer told',
-    async (reason) => {
-      createDraftSocket();
-      createDraftSocket();
-      disconnect(sockets[0], reason);
-
-      await refreshTokens();
-
-      expect(sockets[0].emit).not.toHaveBeenCalled();
-      expect(sockets[1].emit).toHaveBeenCalledTimes(1);
-    }
-  );
-
-  test('a dropped link that will reconnect keeps the socket listening', async () => {
+  test('a destroyed socket (closed, server-ended or refused at the handshake) is no longer told', async () => {
     createDraftSocket();
-    disconnect(sockets[0], 'transport close');
+    createDraftSocket();
+    sockets[0].active = false;
 
     await refreshTokens();
 
-    expect(sockets[0].emit).toHaveBeenCalledWith('auth:refresh', { token: 'renewed-jwt' });
+    expect(sockets[0].emit).not.toHaveBeenCalled();
+    expect(sockets[1].emit).toHaveBeenCalledTimes(1);
+
+    sockets[0].active = true;
+    sockets[0].connected = true;
+    await refreshTokens();
+    expect(sockets[0].emit).not.toHaveBeenCalled();
   });
 });
 
