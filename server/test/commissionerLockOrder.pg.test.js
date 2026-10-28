@@ -30,8 +30,13 @@
  *        - Reverted: H waits on the write, the write waits on H. Cycle, and one
  *          dies with 40P01.
  *
- * Red-tell: dropping `forUpdate: true` from `setTeamFaab` or `setTeamLocked`
- * in server/services/commissioner.service.js turns the matching case red.
+ * `forceSetLineup` is the third case: it already locked the Team row FOR UPDATE
+ * but read the League unlocked, then reached the League row again through the
+ * log's foreign key, so it inverted the order the same way.
+ *
+ * Red-tell: dropping `forUpdate: true` from `setTeamFaab`, `setTeamLocked` or
+ * `forceSetLineup` in server/services/commissioner.service.js turns the
+ * matching case red.
  *
  * Runs ONLY where a disposable Postgres is available, gated twice: PG_TESTS=1
  * (or COMMISSIONER_LOCK_ORDER_PG_TESTS=1) must be exactly '1', and every
@@ -69,10 +74,11 @@ if (!ENABLED) {
   const commissionerService = require('../services/commissioner.service');
   const modulePool = require('../modules/pool');
 
-  // A season of its own; 2077-2099 are spoken for by other pg suites except this.
+  // Arbitrary: nothing here reads season-scoped rows beyond materializing one lineup.
   const SEASON = 2093;
 
   let leagueId = null;
+  let playerId = null;
   let ownerId = null;
   let teamId = null;
   const seededUserIds = [];
@@ -118,11 +124,26 @@ if (!ENABLED) {
       [leagueId, ownerId]
     );
     teamId = teams.rows[0].id;
+
+    // One rostered player, so forceSetLineup has a lineup to materialize and move.
+    const players = await pool.query(
+      `INSERT INTO "players" ("name", "position", "nfl_team")
+       VALUES ('PG Lock Order Player', 'RB', 'CLO') RETURNING "id"`
+    );
+    playerId = players.rows[0].id;
+    await pool.query(
+      `INSERT INTO "team_players" ("league_id", "team_id", "player_id") VALUES ($1, $2, $3)`,
+      [leagueId, teamId, playerId]
+    );
   });
 
   test.after(async () => {
     if (leagueId != null) {
       await pool.query(`DELETE FROM "leagues" WHERE "id" = $1`, [leagueId]);
+    }
+    // The players table is global; the league CASCADE does not reach it.
+    if (playerId != null) {
+      await pool.query(`DELETE FROM "players" WHERE "id" = $1`, [playerId]);
     }
     if (seededUserIds.length) {
       await pool.query(`DELETE FROM "users" WHERE "id" = ANY($1::int[])`, [seededUserIds]);
@@ -133,9 +154,10 @@ if (!ENABLED) {
 
   // Read at call time: the ids are seeded in test.before, after this file loads.
   function run(name) {
-    return name === 'setTeamFaab'
-      ? commissionerService.setTeamFaab({ leagueId, userId: ownerId, teamId, faabRemaining: 42 })
-      : commissionerService.setTeamLocked({ leagueId, userId: ownerId, teamId, locked: true });
+    const base = { leagueId, userId: ownerId, teamId };
+    if (name === 'setTeamFaab') return commissionerService.setTeamFaab({ ...base, faabRemaining: 42 });
+    if (name === 'setTeamLocked') return commissionerService.setTeamLocked({ ...base, locked: true });
+    return commissionerService.forceSetLineup({ ...base, moves: [{ playerId, slot: 'BENCH' }] });
   }
 
   async function assertNoDeadlock(name) {
@@ -180,4 +202,5 @@ if (!ENABLED) {
 
   test('setTeamFaab against a League-then-Team holder does not deadlock', () => assertNoDeadlock('setTeamFaab'));
   test('setTeamLocked against a League-then-Team holder does not deadlock', () => assertNoDeadlock('setTeamLocked'));
+  test('forceSetLineup against a League-then-Team holder does not deadlock', () => assertNoDeadlock('forceSetLineup'));
 }
