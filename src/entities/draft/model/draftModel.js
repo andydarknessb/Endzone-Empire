@@ -127,6 +127,9 @@ export const emptyDraftModel = Object.freeze({
   // model, and so nothing in the room, re-renders per second.
   onTheClock: deriveOnTheClock(),
   draftComplete: false,
+  // The highest League feed seq applied (#2609); null before any. A draft:state
+  // below it is older than the board and is ignored.
+  seq: null,
 });
 
 /**
@@ -136,9 +139,17 @@ export const emptyDraftModel = Object.freeze({
  * state is not the model's concern and is untouched (it lives in the hook).
  */
 export function applyBoardSnapshot(model, data) {
-  const { league, teams, picks, onTheClock } = data || {};
+  const { league, teams, picks, onTheClock, seq } = data || {};
+  // #2609: a state older than the board would roll the clock and the Picks back
+  // (a Pick committed between the room join and the state read reaches us first).
+  // Equal is applied: an autodraft toggle re-arms the clock on the same seq. A
+  // state with no seq (an older server), or for another League, always applies.
+  if (Number.isFinite(seq) && model.seq != null && seq < model.seq && model.league?.id === league?.id) {
+    return model;
+  }
   return {
     ...model,
+    seq: Number.isFinite(seq) ? seq : model.seq,
     league: league ?? null,
     teams: teams || [],
     picks: (picks || []).map(pickFromSnapshotRow).reverse(),
@@ -187,6 +198,7 @@ export function applyLandedPick(model, data, { now = Date.now } = {}) {
 
   return {
     ...model,
+    seq: Number.isFinite(d.seq) ? Math.max(d.seq, model.seq ?? d.seq) : model.seq,
     picks: [pick, ...model.picks],
     // A completing pick derives `idle` (league is no longer active).
     onTheClock: onTheClockFor(league, nextOnTheClock, deadlineAt),

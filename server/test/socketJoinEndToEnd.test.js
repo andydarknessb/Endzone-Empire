@@ -6,6 +6,7 @@ const { joinAck } = require('../modules/draftSocket');
 const {
   leagueWorld,
   LEAGUE_ID,
+  FEED_SEQ,
   OWNER,
   CO_COMMISSIONER,
   MEMBER,
@@ -280,6 +281,17 @@ test('draft:join answers the ack before it sends the first draft:state', async (
   assert.equal(state.league.id, LEAGUE_ID);
   assert.equal(state.teams.length, 3);
   assert.equal(state.onTheClock, null);
+});
+
+test('draft:state on join carries the League feed position as a numeric seq (#2609)', async (t) => {
+  world(t);
+  const client = await harness.connectAs(MEMBER, t);
+
+  const sawState = harness.nextEvent(client, 'draft:state');
+  await harness.emit(client, 'draft:join', { leagueId: LEAGUE_ID });
+  const state = await sawState;
+
+  assert.strictEqual(state.seq, Number(FEED_SEQ));
 });
 
 test('the draft:state snapshot never carries the league invite code', async (t) => {

@@ -699,6 +699,7 @@ function escalationHandlers(reReadLeague = ESC_LEAGUE) {
     [/FROM "team_players" JOIN "players"/, () => ({ rows: [] })],
     [/FROM "players" LEFT JOIN/, () => ({ rows: [] })],
     [/FROM "draft_picks"/, () => ({ rows: [] })],
+    [/FROM "league_feed_sequences"/, () => ({ rows: [{ last_seq: '1' }] })],
     [/FROM "teams"/, () => ({ rows: [ESC_TEAM] })],
   ];
 }

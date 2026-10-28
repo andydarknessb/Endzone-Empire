@@ -46,6 +46,7 @@ test('each named method reaches to(league:<id>).emit(<wire name>, payload) on th
     [select('leagues'), () => ({ rows: [{ id: 5 }] })],
     [/FROM "teams"/, () => ({ rows: [] })],
     [/FROM "draft_picks"/, () => ({ rows: [] })],
+    [/FROM "league_feed_sequences"/, () => ({ rows: [{ last_seq: '1' }] })],
   ]).install(t);
   const snapshot = await memberSnapshot(5);
 
@@ -62,6 +63,21 @@ test('each named method reaches to(league:<id>).emit(<wire name>, payload) on th
     { room: 'league:5', event: 'roster:changed', payload: { leagueId: 5 } },
     { room: 'league:5', event: 'draft:state', payload: snapshot },
   ]);
+});
+
+test('the draft:state broadcast carries the League feed position as a numeric seq (#2609)', async (t) => {
+  const transport = recordingTransport();
+  const broadcast = createDraftRoomBroadcast(transport, 'io');
+  createFakePool([
+    [select('leagues'), () => ({ rows: [{ id: 5 }] })],
+    [/FROM "teams"/, () => ({ rows: [] })],
+    [/FROM "draft_picks"/, () => ({ rows: [] })],
+    [/FROM "league_feed_sequences"/, () => ({ rows: [{ last_seq: '41' }] })],
+  ]).install(t);
+
+  await broadcast.stateChanged(5);
+
+  assert.strictEqual(transport.emits[0].payload.seq, 41);
 });
 
 test('scoresUpdated reaches to(league:<id>).emit(scores:updated, payload) with the payload unchanged (#765)', async () => {
