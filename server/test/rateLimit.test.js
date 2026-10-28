@@ -87,6 +87,7 @@ function fakeRedis() {
       counts.set(k, (counts.get(k) || 0) + 1);
       return counts.get(k);
     },
+    keys: () => counts.keys(),
     async pExpire() {},
     async pTTL() {
       return 1000;
@@ -143,4 +144,76 @@ test('callerKey: valid tokens key by user, anonymous by IP, forged by IP', () =>
   assert.equal(callerKey(reqWith(forged)), 'ip:2.2.2.2');
   const expired = jwt.sign({ sub: 7 }, secret, { expiresIn: -10 });
   assert.equal(callerKey(reqWith(expired)), 'ip:2.2.2.2');
+});
+
+// --- Credential limits (#2551) ---
+
+const { createCredentialLimiters, accountPart } = require('../modules/rateLimit');
+
+async function runReq(limiter, req) {
+  const res = {
+    code: 200,
+    set() {},
+    status(c) {
+      this.code = c;
+      return this;
+    },
+    json() {},
+  };
+  let passed = false;
+  await limiter({ baseUrl: '/api/auth/x', id: 'r', ...req }, res, () => {
+    passed = true;
+  });
+  return passed ? 200 : res.code;
+}
+
+test('register: the 11th request in an hour from one IP gets 429, whatever the username', async () => {
+  const { registerIp } = createCredentialLimiters();
+  for (let i = 1; i <= 10; i++) {
+    assert.equal(await runReq(registerIp, { ip: '9.9.9.9', body: { username: `u${i}` } }), 200, `request ${i}`);
+  }
+  assert.equal(await runReq(registerIp, { ip: '9.9.9.9', body: { username: 'u11' } }), 429);
+  assert.equal(await runReq(registerIp, { ip: '8.8.8.8', body: { username: 'u11' } }), 200);
+});
+
+test('login: the 101st request in 10 minutes from one IP gets 429 across usernames; the per-account limit still applies', async () => {
+  const { loginIp, account } = createCredentialLimiters();
+  for (let i = 1; i <= 100; i++) {
+    assert.equal(await runReq(loginIp, { ip: '9.9.9.9', body: { username: `u${i}` } }), 200, `request ${i}`);
+  }
+  assert.equal(await runReq(loginIp, { ip: '9.9.9.9', body: { username: 'u101' } }), 429);
+  for (let i = 1; i <= 20; i++) {
+    assert.equal(await runReq(account, { ip: '7.7.7.7', body: { username: 'victim' } }), 200, `account ${i}`);
+  }
+  assert.equal(await runReq(account, { ip: '7.7.7.7', body: { username: 'victim' } }), 429);
+});
+
+test('forgot-password: the 6th request for one email in an hour gets 429, even from different IPs', async () => {
+  const { forgotEmail } = createCredentialLimiters();
+  for (let i = 1; i <= 5; i++) {
+    assert.equal(await runReq(forgotEmail, { ip: `10.0.0.${i}`, body: { email: 'A@x.com' } }), 200, `request ${i}`);
+  }
+  assert.equal(await runReq(forgotEmail, { ip: '10.0.0.99', body: { email: 'a@X.com' } }), 429);
+  assert.equal(await runReq(forgotEmail, { ip: '10.0.0.99', body: { email: 'b@x.com' } }), 200);
+});
+
+test('a 1 MB username yields an account part of at most 254 characters', () => {
+  const part = accountPart({ body: { username: 'A'.repeat(1024 * 1024) } });
+  assert.ok(part.length > 0 && part.length <= 254);
+});
+
+test('redis branch: limiters with different names on one route never share a count', async () => {
+  const original = redisModule.getRedisClient;
+  const redis = fakeRedis();
+  redisModule.getRedisClient = async () => redis;
+  try {
+    const a = createRateLimiter({ name: 'a', windowMs: 60_000, max: 1, keyFn: () => 'same' });
+    const b = createRateLimiter({ name: 'b', windowMs: 60_000, max: 1, keyFn: () => 'same' });
+    assert.equal(await runReq(a, { ip: '1.1.1.1' }), 200);
+    assert.equal(await runReq(b, { ip: '1.1.1.1' }), 200);
+    assert.equal(await runReq(a, { ip: '1.1.1.1' }), 429);
+    assert.ok([...redis.keys()].some((k) => k.includes(':a:')) && [...redis.keys()].some((k) => k.includes(':b:')));
+  } finally {
+    redisModule.getRedisClient = original;
+  }
 });
