@@ -186,6 +186,11 @@ function createSocketHarness({ secret = 'socket-harness-secret' } = {}) {
     );
   }
 
+  /** The server's side of a connected client, for asserting on what the handlers recorded. */
+  function serverSocket(client) {
+    return io.sockets.sockets.get(client.id);
+  }
+
   async function stop() {
     for (const client of clients) {
       client.removeAllListeners();
@@ -217,7 +222,7 @@ function createSocketHarness({ secret = 'socket-harness-secret' } = {}) {
   // Only what a suite calls. `start`, `release` and `stop` are reached from
   // inside this file (by `open`, by `connectAs`'s cleanup, and by the
   // `after` above), so exposing them would be surface with no caller.
-  return { connectAs, connectExpectingRefusal, emit, nextEvent };
+  return { connectAs, connectExpectingRefusal, emit, nextEvent, serverSocket };
 }
 
 module.exports = { createSocketHarness };

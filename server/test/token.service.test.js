@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const {
   classifyRefreshToken,
   rotateRefreshToken,
+  revokeRefreshToken,
   TokenError,
   REFRESH_TTL_DAYS,
   REUSE_GRACE_MS,
@@ -175,4 +176,19 @@ test('rotateRefreshToken (race): ROLLBACKs and throws 401 with the REFRESH_RACE 
   assert.equal(fake.matching(/^ROLLBACK$/).length, 1, 'the read-only transaction is rolled back');
   assert.equal(fake.matching(/^COMMIT$/).length, 0, 'a benign race commits nothing');
   fake.assertClean();
+});
+
+test('revokeRefreshToken names whose session it revoked, and null for an unknown token', async (t) => {
+  const fake = createFakePool([
+    [/^WITH presented AS/, () => ({ rows: [{ user_id: 42 }] })],
+  ]).install(t);
+
+  assert.deepEqual(await revokeRefreshToken({ token: 'raw' }), { ok: true, userId: 42 });
+  assert.equal(fake.matching(/^WITH presented AS/).length, 1, 'one statement revokes the family and reads the owner');
+
+  fake.assertClean();
+  const unknown = createFakePool([[/^WITH presented AS/, () => ({ rows: [] })]]).install(t);
+  assert.deepEqual(await revokeRefreshToken({ token: 'nope' }), { ok: true, userId: null });
+  assert.deepEqual(await revokeRefreshToken({ token: '' }), { ok: true, userId: null });
+  assert.equal(unknown.calls.length, 1, 'a missing token issues no statement');
 });

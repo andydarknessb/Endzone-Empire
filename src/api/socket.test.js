@@ -2,7 +2,7 @@ import { waitFor } from '@testing-library/react';
 import axios from 'axios';
 import { io } from 'socket.io-client';
 import { createDraftSocket, onReconnect } from './socket';
-import { setToken, getToken, clearToken } from './apiClient';
+import { setToken, getToken, clearToken, refreshTokens } from './apiClient';
 
 jest.mock('socket.io-client', () => ({
   io: jest.fn(),
@@ -143,6 +143,79 @@ describe('createDraftSocket', () => {
       expect(expired).toBe(0);
       expect(getToken()).toBe('still-good-jwt');
     });
+  });
+});
+
+describe('telling the server about a refreshed token', () => {
+  let sockets;
+
+  beforeEach(() => {
+    sockets = [];
+    io.mockImplementation(() => {
+      const socket = { connected: true, on: jest.fn(), emit: jest.fn(), disconnect: jest.fn() };
+      sockets.push(socket);
+      return socket;
+    });
+    jest.spyOn(axios, 'post').mockResolvedValue({ data: { token: 'renewed-jwt' } });
+  });
+
+  afterEach(() => {
+    clearToken();
+    jest.restoreAllMocks();
+  });
+
+  const disconnect = (socket, reason) =>
+    socket.on.mock.calls.filter(([event]) => event === 'disconnect').forEach(([, handler]) => handler(reason));
+
+  test('a successful refresh makes each live draft socket emit auth:refresh with the new token', async () => {
+    createDraftSocket();
+    createDraftSocket();
+
+    await refreshTokens();
+
+    expect(sockets).toHaveLength(2);
+    sockets.forEach((socket) => expect(socket.emit).toHaveBeenCalledWith('auth:refresh', { token: 'renewed-jwt' }));
+  });
+
+  test('a refused refresh tells no socket anything', async () => {
+    createDraftSocket();
+    axios.post.mockRejectedValue({ response: { status: 503 } });
+
+    await expect(refreshTokens()).rejects.toBeDefined();
+
+    expect(sockets[0].emit).not.toHaveBeenCalled();
+  });
+
+  test('a socket that is not connected is skipped; its next connect reads the fresh token', async () => {
+    createDraftSocket();
+    sockets[0].connected = false;
+
+    await refreshTokens();
+
+    expect(sockets[0].emit).not.toHaveBeenCalled();
+  });
+
+  test.each(['io client disconnect', 'io server disconnect'])(
+    'a socket closed with "%s" is no longer told',
+    async (reason) => {
+      createDraftSocket();
+      createDraftSocket();
+      disconnect(sockets[0], reason);
+
+      await refreshTokens();
+
+      expect(sockets[0].emit).not.toHaveBeenCalled();
+      expect(sockets[1].emit).toHaveBeenCalledTimes(1);
+    }
+  );
+
+  test('a dropped link that will reconnect keeps the socket listening', async () => {
+    createDraftSocket();
+    disconnect(sockets[0], 'transport close');
+
+    await refreshTokens();
+
+    expect(sockets[0].emit).toHaveBeenCalledWith('auth:refresh', { token: 'renewed-jwt' });
   });
 });
 

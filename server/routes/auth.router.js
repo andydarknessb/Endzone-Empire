@@ -12,6 +12,7 @@ const {
   setRefreshCookie,
 } = require('../modules/refreshCookie');
 const { logger } = require('../modules/logger');
+const { getDraftRoomBroadcast } = require('../modules/draftRoomBroadcast');
 
 const router = express.Router();
 
@@ -172,7 +173,9 @@ router.post('/refresh', requireTrustedOrigin, async (req, res) => {
 
 router.post('/logout', requireTrustedOrigin, async (req, res) => {
   try {
-    await tokens.revokeRefreshToken({ token: getRefreshToken(req) });
+    const { userId } = await tokens.revokeRefreshToken({ token: getRefreshToken(req) });
+    // The login ended, so the user's open draft-room sockets end with it (#2555).
+    if (userId) await getDraftRoomBroadcast().sessionEnded(userId);
   } catch (error) {
     logger.error({ err: error }, 'logout revocation failed');
   }

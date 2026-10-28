@@ -1,5 +1,5 @@
 import { io } from 'socket.io-client';
-import { clearToken, getToken, isSessionRefusal, refreshTokens } from './apiClient';
+import { clearToken, getToken, isSessionRefusal, onTokenRefreshed, refreshTokens } from './apiClient';
 import { getSocketOrigin } from './origins';
 
 // Deterministic browser-test seam: when a harness has installed a socket
@@ -30,6 +30,17 @@ export function createDraftSocket() {
     reconnectionDelayMax: 15000,
     randomizationFactor: 0.5,
     reconnectionAttempts: Infinity,
+  });
+
+  // The server checks the token at the handshake only, so a renewed token has to
+  // be told to it or the socket keeps the old expiry (#2555). A socket that is
+  // not connected skips it: its next connect reads the fresh token anyway.
+  // A socket that will not reconnect (closed here or by the server) stops listening.
+  const stopTellingServer = onTokenRefreshed((token) => {
+    if (socket.connected) socket.emit('auth:refresh', { token });
+  });
+  socket.on('disconnect', (reason) => {
+    if (reason === 'io client disconnect' || reason === 'io server disconnect') stopTellingServer();
   });
 
   // Socket-only screens (draft room, live matchups) may go 15+ minutes with
