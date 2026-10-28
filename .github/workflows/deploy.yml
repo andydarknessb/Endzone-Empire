@@ -52,24 +52,27 @@ jobs:
       # `npm ci` is needed.
       - name: Check out the promoted commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      # #2552: refuse a commit whose CI run failed, is still running, or does
-      # not exist. The checkout above only fetches the script; this runs before
-      # any hook. The runner's preinstalled Node has global fetch, so it does
-      # not wait on setup-node. No approval gate, so release automation keeps
-      # working: a green commit goes straight through.
-      - name: Require a passing CI run for the promoted commit
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: node scripts/ci/check-ci-passed.js --sha "$GITHUB_SHA"
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
+      # #2552: refuse a commit whose CI run failed, is still running, or does
+      # not exist. The checkout above only fetches the script; this runs before
+      # any hook. It also refuses when the provider branch tip is not the
+      # dispatched commit (#2596), and each hook step repeats that tip check
+      # right before its POST. No approval gate, so release automation keeps
+      # working: a green commit at the tip goes straight through.
+      - name: Require a passing CI run for the promoted commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/ci/check-ci-passed.js --sha "$GITHUB_SHA" --branch main
       - name: Trigger production API deploy
         if: ${{ !inputs.worker_only }}
         env:
+          GH_TOKEN: ${{ github.token }}
           RENDER_HOOK: ${{ secrets.RENDER_PRODUCTION_DEPLOY_HOOK }}
         run: |
           test -n "$RENDER_HOOK"
+          node scripts/ci/check-ci-passed.js --sha "$GITHUB_SHA" --branch main
           curl --fail --silent --show-error --request POST "$RENDER_HOOK"
       - name: Wait for production API readiness
         if: ${{ !inputs.worker_only }}
@@ -86,9 +89,11 @@ jobs:
       - name: Trigger production client build
         if: ${{ !inputs.worker_only }}
         env:
+          GH_TOKEN: ${{ github.token }}
           NETLIFY_HOOK: ${{ secrets.NETLIFY_PRODUCTION_BUILD_HOOK }}
         run: |
           test -n "$NETLIFY_HOOK"
+          node scripts/ci/check-ci-passed.js --sha "$GITHUB_SHA" --branch main
           curl --fail --silent --show-error --request POST "$NETLIFY_HOOK"
       - name: Verify production readiness
         env:
@@ -107,6 +112,7 @@ jobs:
         if: ${{ inputs.deploy_worker || inputs.worker_only }}
         env:
           API_URL: ${{ vars.PRODUCTION_API_URL }}
+          GH_TOKEN: ${{ github.token }}
           RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
           RENDER_WEB_SERVICE_ID: ${{ vars.RENDER_WEB_SERVICE_ID }}
           RENDER_WORKER_HOOK: ${{ secrets.RENDER_WORKER_DEPLOY_HOOK }}
@@ -130,6 +136,7 @@ jobs:
             --readyz "$API_URL/api/health/readyz" \
             --ceiling-ms 2700000 \
             --interval-ms 15000
+          node scripts/ci/check-ci-passed.js --sha "$GITHUB_SHA" --branch main
           curl --fail --silent --show-error --request POST "$RENDER_WORKER_HOOK"
       - name: Verify worker release SHA via the Render API
         if: ${{ inputs.deploy_worker || inputs.worker_only }}
