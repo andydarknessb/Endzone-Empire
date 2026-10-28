@@ -40,9 +40,11 @@ function hit(store, key, now, windowMs, max) {
  * `keyFn` override is supplied (e.g. to key auth attempts by IP only,
  * since there's no authenticated user yet on login/register).
  *
- * @param {{ windowMs: number, max: number, keyFn?: (req) => string }} opts
+ * `name` goes into the Redis key so two limiters on one route never share a count.
+ *
+ * @param {{ name?: string, windowMs: number, max: number, keyFn?: (req) => string }} opts
  */
-function createRateLimiter({ windowMs, max, keyFn } = {}) {
+function createRateLimiter({ name, windowMs, max, keyFn } = {}) {
   if (!windowMs || !max) {
     throw new Error('createRateLimiter requires windowMs and max');
   }
@@ -60,8 +62,8 @@ function createRateLimiter({ windowMs, max, keyFn } = {}) {
       const redis = await getRedisClient();
       if (redis) {
         const bucket = Math.floor(now / windowMs);
-        // shortcut: limiters are told apart by req.baseUrl alone, so two limiters mounted in one router share a count; give each limiter a name if a second one is ever added to a router.
-        const redisKey = `rate-limit:${req.baseUrl || 'api'}:${key}:${bucket}`;
+        // Express matches mount paths case-insensitively, so the key must too or /API/auth/register gets a fresh count.
+        const redisKey = `rate-limit:${(req.baseUrl || 'api').toLowerCase()}${name ? `:${name}` : ''}:${key}:${bucket}`;
         const count = await redis.incr(redisKey);
         if (count === 1) await redis.pExpire(redisKey, windowMs);
         const ttl = Math.max(await redis.pTTL(redisKey), 0);
@@ -91,4 +93,35 @@ function createRateLimiter({ windowMs, max, keyFn } = {}) {
   };
 }
 
-module.exports = { createRateLimiter, hit };
+const MAX_ACCOUNT_KEY = 254;
+
+/** Typed username or email, lowercased and cut so a huge body cannot fatten a limiter key. */
+function accountPart(req) {
+  return String(req.body?.username || req.body?.email || '').trim().toLowerCase().slice(0, MAX_ACCOUNT_KEY);
+}
+
+/** Limiters for register, login and forgot-password; each is mounted on its own route(s). */
+function createCredentialLimiters() {
+  const HOUR = 60 * 60 * 1000;
+  return {
+    // Per IP + typed name: stops one account being hammered.
+    account: createRateLimiter({
+      name: 'account',
+      windowMs: 10 * 60 * 1000,
+      max: 20,
+      keyFn: (req) => `${req.ip}:${accountPart(req) || 'unknown'}`,
+    }),
+    // Per IP alone: a new name must not buy a fresh limit (each register costs a bcrypt hash).
+    registerIp: createRateLimiter({ name: 'register-ip', windowMs: HOUR, max: 10, keyFn: (req) => req.ip }),
+    loginIp: createRateLimiter({ name: 'login-ip', windowMs: 10 * 60 * 1000, max: 100, keyFn: (req) => req.ip }),
+    // Per email: a reset mail flood is bounded whatever IPs it comes from.
+    forgotEmail: createRateLimiter({
+      name: 'forgot-email',
+      windowMs: HOUR,
+      max: 5,
+      keyFn: (req) => accountPart({ body: { email: req.body?.email } }) || `ip:${req.ip}`,
+    }),
+  };
+}
+
+module.exports = { createRateLimiter, createCredentialLimiters, accountPart, hit };

@@ -397,7 +397,7 @@ test('no middleware anywhere in the tree is mounted at a path without a decision
   //
   // WHY THIS LIST IS EXACT RATHER THAN FILTERED, since #241 made it reach into
   // routers and a reader meeting a hardcoded list deserves the reason. There
-  // are 33 terminal middlewares in this tree and 16 of them sit at router
+  // are 36 terminal middlewares in this tree and 16 of them sit at router
   // level; every one of the 16 is a guard or a rate limiter, and a harmful
   // mount would look like them in every respect a filter can read - same
   // `use(...)` call, same layer shape, and a name it chooses for itself. So
@@ -431,13 +431,16 @@ test('no middleware anywhere in the tree is mounted at a path without a decision
   // forces at what was added.
   const layers = terminalMiddleware(app);
   const routerLevel = layers.filter((row) => row.level === 'router');
-  assert.equal(layers.length, 33, 'terminal middlewares in the whole tree');
+  assert.equal(layers.length, 36, 'terminal middlewares in the whole tree');
   assert.equal(routerLevel.length, 16, 'of which sit inside a router');
   assert.equal(routerLevel.filter((row) => row.rooted).length, 14, 'of which own no path');
 
   assert.deepEqual(pathMounts(app), [
     '<anonymous> /api',                       // Cache-Control: private, no-store
     'rateLimitMiddleware /api',               // generalApiLimiter
+    'rateLimitMiddleware /api/auth/register',        // registerIp
+    'rateLimitMiddleware /api/auth/login',           // loginIp
+    'rateLimitMiddleware /api/auth/forgot-password', // forgotEmail
     'rateLimitMiddleware /api/auth/login/?(?=/|$)|^/api/auth/register/?(?=/|$)|^/api/auth/forgot-password',
     'rateLimitMiddleware /api/auth/refresh',  // refreshLimiter
     '<anonymous> /api/scoring/league(?:/([^/]+?))',  // requireFantasyLeague(), scoring.router
