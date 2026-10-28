@@ -21,6 +21,22 @@ async function tinyGif(size = 40) {
     .toBuffer();
 }
 
+// A genuinely multi-page GIF. sharp only emits more than one page when
+// pageHeight is given on the raw input, and it then reports metadata.height as
+// every frame stacked (256x256 x 10 frames reads as height 2560, pageHeight
+// 256) — the shape #2559 is about.
+async function animatedGif({ size = 256, frames = 10 } = {}) {
+  const channels = 3;
+  const frameBytes = size * size * channels;
+  const pixels = Buffer.alloc(frameBytes * frames);
+  for (let i = 0; i < frames; i++) {
+    pixels.fill((i * 17) % 255, i * frameBytes, (i + 1) * frameBytes);
+  }
+  return sharp(pixels, { raw: { width: size, height: size * frames, channels, pageHeight: size } })
+    .gif()
+    .toBuffer();
+}
+
 function mockStorage({ uploadError = null } = {}) {
   const uploaded = [];
   const removed = [];
@@ -67,6 +83,29 @@ test('processUpload rejects an image below the minimum dimension', async () => {
   const tiny = await tinyPng(10);
   await assert.rejects(
     () => avatarService.processUpload(tiny),
+    (err) => err.statusCode === 400 && /dimensions/.test(err.message)
+  );
+});
+
+// #2559. An animated GIF's metadata.height is all frames stacked, so measuring
+// it against MAX_DIMENSION rejected ordinary animated avatars (a 256x256
+// 10-frame GIF read as height 2560). One frame's height is what the guard means.
+test('processUpload accepts an animated GIF whose stacked height exceeds the maximum', async () => {
+  const gif = await animatedGif({ size: 256, frames: 10 });
+  const stacked = await sharp(gif, { animated: true }).metadata();
+  assert.equal(stacked.height, 2560, 'fixture must reproduce the stacked-height shape');
+  const result = await avatarService.processUpload(gif);
+  assert.equal(result.ext, 'gif');
+  assert.equal(result.contentType, 'image/gif');
+  assert.ok(Buffer.isBuffer(result.staticBuffer), 'animated GIFs still get a static first frame');
+});
+
+test('processUpload still rejects a single-frame GIF taller than the maximum', async () => {
+  const tall = await sharp({ create: { width: 40, height: 2050, channels: 3, background: { r: 10, g: 200, b: 10 } } })
+    .gif()
+    .toBuffer();
+  await assert.rejects(
+    () => avatarService.processUpload(tall),
     (err) => err.statusCode === 400 && /dimensions/.test(err.message)
   );
 });
