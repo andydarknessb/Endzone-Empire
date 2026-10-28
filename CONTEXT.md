@@ -1018,6 +1018,7 @@ Every surface that asks either question, the Lineup, the Decision card, the
 draft simulator, the Team summary and the Players page, asks the same rule.
 _Avoid_: lineup settings, roster slots (the wire column), slot config,
 position limits
+
 **Position cap**:
 The most players at one position a Team may roster, set by the
 commissioner. It holds all season on every acquisition: a draft Pick, a free
