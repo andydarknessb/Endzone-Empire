@@ -13,8 +13,12 @@
  * reuses the run id, so a stale red cannot linger behind a later green).
  * An API error fails too: passing on nothing is the bug this guards against.
  *
- * Usage: GH_TOKEN=... GITHUB_REPOSITORY=owner/repo node check-ci-passed.js --sha <sha>
- * The token needs `actions: read`.
+ * With `--branch <name>` it also refuses unless that branch's tip is `--sha`
+ * (#2596): the Render and Netlify hooks build the branch tip, so a queued
+ * dispatch, or one from another branch, would otherwise ship an unchecked commit.
+ *
+ * Usage: GH_TOKEN=... GITHUB_REPOSITORY=owner/repo node check-ci-passed.js --sha <sha> [--branch <name>]
+ * The token needs `actions: read`, and `contents: read` for --branch.
  */
 
 const CI_WORKFLOW_FILE = 'ci.yml';
@@ -39,7 +43,35 @@ function decide(runs, sha) {
   return { ok: true, message: `CI passed for ${sha}. ${latest.html_url}` };
 }
 
-async function checkCommit({ sha, repo, token, fetch = (...args) => global.fetch(...args) }) {
+// The Render and Netlify hooks build the provider branch tip, not the dispatched
+// sha, so refuse unless `branch` still points at `sha` (#2596).
+async function checkTip({ sha, branch, repo, token, fetch }) {
+  const url = `https://api.github.com/repos/${repo}/git/ref/heads/${branch}`;
+  try {
+    const res = await fetch(url, {
+      headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json' },
+    });
+    if (!res.ok) {
+      return { ok: false, message: `Refusing to promote ${sha}: the ${branch} tip lookup answered HTTP ${res.status}.` };
+    }
+    const tip = (await res.json()).object?.sha;
+    if (tip !== sha) {
+      return {
+        ok: false,
+        message: `Refusing to promote ${sha}: ${branch} is at ${tip}, and the deploy hooks build the ${branch} tip.`,
+      };
+    }
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, message: `Refusing to promote ${sha}: the ${branch} tip lookup failed (${err.message}).` };
+  }
+}
+
+async function checkCommit({ sha, branch, repo, token, fetch = (...args) => global.fetch(...args) }) {
+  if (branch) {
+    const tip = await checkTip({ sha, branch, repo, token, fetch });
+    if (!tip.ok) return tip;
+  }
   const url =
     `https://api.github.com/repos/${repo}/actions/workflows/${CI_WORKFLOW_FILE}/runs` +
     // event=push: a pull_request run tested the merge ref, not this commit alone.
@@ -63,13 +95,15 @@ async function checkCommit({ sha, repo, token, fetch = (...args) => global.fetch
 async function main({ argv = process.argv.slice(2), env = process.env, fetch, io = console } = {}) {
   const at = argv.indexOf('--sha');
   const sha = at === -1 ? undefined : argv[at + 1];
+  const branchAt = argv.indexOf('--branch');
+  const branch = branchAt === -1 ? undefined : argv[branchAt + 1];
   const repo = env.GITHUB_REPOSITORY;
   const token = env.GH_TOKEN;
-  if (!sha || !repo || !token) {
-    io.error('Usage: GH_TOKEN and GITHUB_REPOSITORY must be set, and --sha <sha> given.');
+  if (!sha || !repo || !token || (branchAt !== -1 && !branch)) {
+    io.error('Usage: GH_TOKEN and GITHUB_REPOSITORY must be set, and --sha <sha> given (--branch <name> optional).');
     return 1;
   }
-  const result = await checkCommit({ sha, repo, token, fetch });
+  const result = await checkCommit({ sha, branch, repo, token, fetch });
   (result.ok ? io.log : io.error)(result.message);
   return result.ok ? 0 : 1;
 }
