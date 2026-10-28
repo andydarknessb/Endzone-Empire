@@ -34,6 +34,7 @@ on:
 
 permissions:
   contents: read
+  actions: read # the CI gate below lists the promoted commit's CI runs (#2552)
 
 concurrency:
   group: deployment
@@ -51,6 +52,15 @@ jobs:
       # `npm ci` is needed.
       - name: Check out the promoted commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # #2552: refuse a commit whose CI run failed, is still running, or does
+      # not exist. The checkout above only fetches the script; this runs before
+      # any hook. The runner's preinstalled Node has global fetch, so it does
+      # not wait on setup-node. No approval gate, so release automation keeps
+      # working: a green commit goes straight through.
+      - name: Require a passing CI run for the promoted commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/ci/check-ci-passed.js --sha "$GITHUB_SHA"
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
