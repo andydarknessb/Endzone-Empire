@@ -427,3 +427,37 @@ test('joinPublicLeague: re-sending while the request is pending re-alerts no com
   assert.deepEqual(fake.matching(/INSERT INTO "notifications"/), []);
   fake.assertClean();
 });
+
+test('joinPublicLeague: a resubmitted denied request still alerts every commissioner once', async (t) => {
+  const fake = createFakePool([
+    [/FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({
+      rows: [{
+        id: 7, name: 'Curated League', owner_id: 100, is_public: true,
+        join_approval: true, max_teams: 10, pickem_only: false,
+        draft_status: 'pending', season_status: 'regular',
+      }],
+    })],
+    [/SELECT 1 FROM "teams"/, () => ({ rows: [] })],
+    [/FROM "league_bans"/, () => ({ rows: [] })],
+    [/SELECT COUNT\(\*\)::int AS n FROM "teams"/, () => ({ rows: [{ n: 3 }] })],
+    // The ON CONFLICT ... DO UPDATE fired: the request was denied or cancelled.
+    [/INSERT INTO "join_requests"/, (_text, params) => ({
+      rows: [{ id: 9, league_id: params[0], user_id: params[1], team_name: params[2], status: 'pending' }],
+    })],
+    [/FROM "league_commissioners"/, () => ({ rows: [{ user_id: 202 }, { user_id: 303 }] })],
+    [/INSERT INTO "notifications"/, () => ({ rows: [] })],
+  ]);
+  fake.install(t);
+
+  const { joinPublicLeague } = require('../services/discovery.service');
+  const result = await joinPublicLeague({
+    leagueId: 7, userId: 5, username: 'eve', teamName: 'Eve Picks',
+  });
+
+  assert.equal(result.pending, true);
+  assert.deepEqual(
+    fake.matching(/INSERT INTO "notifications"/).map((call) => call.params[0]).sort((a, b) => a - b),
+    [100, 202, 303]
+  );
+  fake.assertClean();
+});
