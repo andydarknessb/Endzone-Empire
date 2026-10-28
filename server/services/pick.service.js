@@ -285,16 +285,6 @@ async function commitPick({ leagueId, userId, playerId, auto = false, byCommissi
           [myTeam.id]
         );
       }
-      if (draftComplete) {
-        // The clock flipped draft_status to 'complete' above; the one draft->season
-        // handoff runs on this same transaction (#789): it opens the waiver window,
-        // schedules the season, and appends the actor-less COMPLETE lifecycle entry,
-        // returned here to broadcast after COMMIT.
-        completion = await draftCompletion.completeDraft(client, { leagueId });
-      } else {
-        nextTeamId = nextTeam.id;
-      }
-
       await client.query(
         `INSERT INTO "team_players" ("league_id", "team_id", "player_id")
          VALUES ($1, $2, $3)`,
@@ -305,6 +295,20 @@ async function commitPick({ leagueId, userId, playerId, auto = false, byCommissi
       // 13) - draft picks included, since the lineup screen has no draft guard and
       // a mid-draft drop leaves rows behind like any other.
       await lineupService.benchAcquiredPlayer(client, { league, teamId: myTeam.id, playerId });
+
+      if (draftComplete) {
+        // The clock flipped draft_status to 'complete' above; the one draft->season
+        // handoff runs on this same transaction (#789): it opens the waiver window,
+        // schedules the season, and appends the actor-less COMPLETE lifecycle entry,
+        // returned here to broadcast after COMMIT.
+        // It runs AFTER this Pick's roster row and bench placement (#2548): the
+        // handoff seeds every Team's Lineup from its roster read back off the
+        // database, so a completing Pick that ran first would be missing from its
+        // own Team's seed and start the season benched.
+        completion = await draftCompletion.completeDraft(client, { leagueId });
+      } else {
+        nextTeamId = nextTeam.id;
+      }
 
       // teamName rides beside teamId so the `draft:picked` broadcast built from
       // this outcome can attribute the Pick by Team without a second lookup
