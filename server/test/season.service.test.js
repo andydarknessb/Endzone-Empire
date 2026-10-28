@@ -394,6 +394,29 @@ test('stored byes advance without playing: a 6-Team bracket re-pairs the winners
   world.pool.assertClean();
 });
 
+test('a League already in its playoffs with no stored seeds derives its byes from live standings', async (t) => {
+  t.mock.method(lineupService, 'materializeLineup', async () => {});
+  const world = seedWorld();
+  Object.assign(world.league, { season_status: 'playoffs', current_week: 4, playoff_teams: 6 });
+  world.matchups.forEach((m) => { m.final = true; });
+  // Round 1 as the bracket would have paired it (seeds 3v6 and 4v5), no seed rows stored.
+  [[2, 6], [5, 4]].forEach(([home, away], i) => world.matchups.push({
+    id: 40 + i, league_id: 1, season: 2026, week: 4, home_team_id: home, away_team_id: away,
+    home_score: 100, away_score: 50, final: false, is_playoff: true, playoff_round: 1,
+  }));
+  world.pool.install(t);
+
+  await finalizeWeekAndAdvance({ leagueId: 1 });
+
+  const round2 = world.matchups.filter((m) => m.is_playoff && m.week === 5);
+  assert.deepEqual(
+    round2.map((m) => [m.home_team_id, m.away_team_id]),
+    [[1, 5], [3, 2]],
+    'live-standings seeds 1 and 2 (T1, T3) advance from their bye'
+  );
+  world.pool.assertClean();
+});
+
 test('getPlayoffSeeds reads the stored seeds of the current season', async (t) => {
   createFakePool([
     [select('playoff_seeds'), (text, params) => {
