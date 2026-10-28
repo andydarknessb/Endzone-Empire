@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createFakePool, select, insert, update, remove } = require('./helpers/fakePool');
-const { TradeError, executeTrade, cancelTrade, proposeTrade, counterTrade, vetoTrade, commissionerDecide, processDueTrades, readTradeItems } = require('../services/trade.service');
+const { TradeError, executeTrade, cancelTrade, proposeTrade, respondToTrade, counterTrade, vetoTrade, commissionerDecide, processDueTrades, readTradeItems } = require('../services/trade.service');
 const lineupService = require('../services/lineup.service');
 const { setDraftRoomBroadcast, peekDraftRoomBroadcast } = require('../modules/draftRoomBroadcast');
 
@@ -11,7 +11,7 @@ const { setDraftRoomBroadcast, peekDraftRoomBroadcast } = require('../modules/dr
 // roster limit. The capacity formula itself is tested at the module seam
 // (irPolicy.service.test.js).
 
-const league = { id: 1, roster_limit: 16, ir_slots: 2, current_season: 2026, current_week: 6 };
+const league = { id: 1, draft_status: 'complete', roster_limit: 16, ir_slots: 2, current_season: 2026, current_week: 6 };
 const trade = { id: 9, proposing_team_id: 41, receiving_team_id: 42 };
 const teams = new Map([
   [41, { id: 41, name: 'Sunday Ballers', owner_id: 7 }],
@@ -492,11 +492,14 @@ const originalTrade = { id: 5, status: 'pending', proposing_team_id: 41, receivi
  *   - `roster` is what the replacement's `team_players` read returns; [] makes
  *     the countered-in player belong to neither roster and refuse the offer.
  */
-function counterWorld({ roster }) {
+function counterWorld({ roster, draftStatus = 'complete' }) {
   return [
     [/FROM "leagues" WHERE "id" = \(SELECT "league_id"/, () => ({ rows: [{ id: 1, league_id: 1 }] })],
     [/^SELECT \* FROM "leagues" WHERE "id" = \$1$/, () => ({
-      rows: [{ id: 1, transactions_locked: false, pickem_only: false, trade_deadline_week: null, current_week: 6 }],
+      rows: [{
+        id: 1, draft_status: draftStatus, transactions_locked: false, pickem_only: false,
+        trade_deadline_week: null, current_week: 6,
+      }],
     })],
     [select('trades'), () => ({ rows: [{ ...originalTrade }] })],
     [select('trade_items'), () => ({ rows: [] })],
@@ -727,7 +730,7 @@ test('processDueTrades: a throwing rosterChanged broadcast is contained, the tra
   const world = createFakePool([
     [/FROM "trades" WHERE "status" = 'accepted' AND "review_ends_at"/, () => ({ rows: [{ id: 9 }] })],
     [/FROM "leagues" WHERE "id" = \(SELECT "league_id"/, () => ({
-      rows: [{ id: 1, roster_limit: 16, ir_slots: 0, current_season: 2026, current_week: 6 }],
+      rows: [{ id: 1, draft_status: 'complete', roster_limit: 16, ir_slots: 0, current_season: 2026, current_week: 6 }],
     })],
     [/^SELECT \* FROM "trades" WHERE "id" = \$1/, () => ({
       rows: [{ id: 9, status: 'accepted', proposing_team_id: 41, receiving_team_id: 42, league_id: 1 }],
@@ -784,7 +787,10 @@ function dueExecutingTradeWorld(opts, extraHandlers = []) {
     ...extraHandlers,
     [/FROM "trades" WHERE "status" = 'accepted' AND "review_ends_at"/, () => ({ rows: [{ id: 9 }] })],
     [/FROM "leagues" WHERE "id" = \(SELECT "league_id"/, () => ({
-      rows: [{ id: 1, roster_limit: 16, ir_slots: 2, current_season: 2026, current_week: 6, position_caps: opts.positionCaps || {} }],
+      rows: [{
+        id: 1, draft_status: opts.draftStatus || 'complete', roster_limit: 16, ir_slots: 2,
+        current_season: 2026, current_week: 6, position_caps: opts.positionCaps || {},
+      }],
     })],
     [/^SELECT \* FROM "trades" WHERE "id" = \$1/, () => ({
       rows: [{ id: 9, status: 'accepted', proposing_team_id: 41, receiving_team_id: 42, league_id: 1 }],
@@ -868,7 +874,7 @@ test('processDueTrades: a cancel whose transaction throws is contained and a lat
   const world = createFakePool([
     [/FROM "trades" WHERE "status" = 'accepted' AND "review_ends_at"/, () => ({ rows: [{ id: 5 }, { id: 6 }] })],
     [/FROM "leagues" WHERE "id" = \(SELECT "league_id"/, () => ({
-      rows: [{ id: 1, roster_limit: 16, ir_slots: 0, current_season: 2026, current_week: 6 }],
+      rows: [{ id: 1, draft_status: 'complete', roster_limit: 16, ir_slots: 0, current_season: 2026, current_week: 6 }],
     })],
     // Trade 5 is missing on its execute read (a TradeError) and back for the cancel's reload.
     [/^SELECT \* FROM "trades" WHERE "id" = \$1/, (() => {
@@ -1069,4 +1075,99 @@ test('vetoTrade: a vote before review_ends_at still counts (control)', async (t)
   assert.deepEqual(outcome, { tradeId: 9, votes: 1, votesNeeded: 2, status: 'accepted' });
   assert.equal(world.matching(insert('trade_votes')).length, 1, 'the vote was recorded');
   world.assertClean();
+});
+
+// --- trades open once the draft is complete (spec #2540, 8/22) ---------------
+// A trade before the draft completes fills a roster that is still being
+// picked: a 2-for-1 accepted mid-draft leaves every Autopick candidate on the
+// team's last pick refused as "roster full" and pauses the draft, and a Keeper
+// traded before the draft lands on one roster while the other team's keeper
+// pick still owes him. Propose, accept and execute each refuse; the refusal is
+// a TradeError, so a due trade found in the window is cancelled, not retried.
+
+const DRAFT_NOT_COMPLETE = 'trades open once the draft is complete';
+
+function acceptWorld({ draftStatus }) {
+  return [
+    [/FROM "leagues" WHERE "id" = \(SELECT "league_id"/, () => ({
+      rows: [{
+        id: 1, draft_status: draftStatus, transactions_locked: false, pickem_only: false,
+        trade_deadline_week: null, current_week: 6, trade_veto_votes: 0, trade_review_hours: 0,
+      }],
+    })],
+    [select('trades'), () => ({
+      rows: [{ id: 5, status: 'pending', proposing_team_id: 41, receiving_team_id: 42, league_id: 1 }],
+    })],
+    [select('trade_items'), () => ({ rows: [] })],
+    [/FROM "teams" WHERE "id" IN \(\$1, \$2\)/, () => ({
+      rows: [
+        { id: 41, name: 'Sunday Ballers', owner_id: 7 },
+        { id: 42, name: 'Bob Squad', owner_id: 8 },
+      ],
+    })],
+    [update('trades'), () => ({ rows: [], rowCount: 1 })],
+    [insert('notifications'), () => ({ rows: [] })],
+  ];
+}
+
+const draftRefusal = (error) => {
+  assert.ok(error instanceof TradeError, 'a Trade error, so a due trade is cancelled');
+  assert.equal(error.statusCode, 409);
+  assert.equal(error.message, DRAFT_NOT_COMPLETE);
+  return true;
+};
+
+for (const draftStatus of ['pending', 'active']) {
+  test(`proposeTrade: a league whose draft is ${draftStatus} refuses the offer 409`, async (t) => {
+    const world = createFakePool(counterWorld({ roster: [], draftStatus })).install(t);
+
+    await assert.rejects(
+      proposeTrade({ leagueId: 1, userId: 8, receivingTeamId: 41, playerIds: [55, 66] }),
+      draftRefusal
+    );
+    assert.equal(world.matching(insert('trades')).length, 0, 'no trade row');
+    assert.equal(world.matching(insert('notifications')).length, 0, 'nobody was notified');
+    world.assertClean();
+  });
+
+  test(`respondToTrade: accepting while the draft is ${draftStatus} is refused 409`, async (t) => {
+    const world = createFakePool(acceptWorld({ draftStatus })).install(t);
+
+    await assert.rejects(
+      respondToTrade({ tradeId: 5, userId: 8, action: 'accept' }),
+      draftRefusal
+    );
+    assert.equal(world.matching(update('trades')).length, 0, 'the trade was not accepted');
+    assert.equal(world.matching(insert('notifications')).length, 0, 'nobody was notified');
+    world.assertClean();
+  });
+
+  test(`executeTrade: a league whose draft is ${draftStatus} refuses the swap 409`, async () => {
+    const fake = tradeWorld({
+      counts: new Map([[41, 5], [42, 5]]),
+      stashes: new Map([[41, 0], [42, 0]]),
+    });
+    const client = await fake.connect();
+
+    await assert.rejects(
+      executeTrade(client, { trade, league: { ...league, draft_status: draftStatus }, items, teams }),
+      draftRefusal
+    );
+    client.release();
+
+    assert.equal(fake.matching(remove('team_players')).length, 0, 'no roster row was removed');
+    assert.equal(fake.matching(insert('team_players')).length, 0, 'no roster row was written');
+    fake.assertClean();
+  });
+}
+
+test('processDueTrades: a due trade found before the draft completes is cancelled, not retried', async (t) => {
+  const world = dueExecutingTradeWorld({ draftStatus: 'active' }).install(t);
+  t.mock.method(console, 'error', () => {});
+
+  const outcomes = await processDueTrades();
+
+  assert.deepEqual(outcomes, [{ tradeId: 9, status: 'cancelled', reason: DRAFT_NOT_COMPLETE }]);
+  assert.equal(world.matching(/^UPDATE "trades" SET "status" = 'cancelled'/).length, 1);
+  assert.equal(world.matching(remove('team_players')).length, 0, 'nothing was written');
 });
