@@ -111,22 +111,6 @@ function normalizeTank01Game(entry) {
   return { home: entry.home, away: entry.away, kickoffAt: new Date(epoch * 1000) };
 }
 
-/**
- * Resolve a headshot URL for a Tank01 player entry. Prefer the provider's own
- * `espnHeadshot` URL when present; otherwise build the public ESPN headshot
- * URL from the player's `espnID` (a stable, keyed pattern). Returns null when
- * neither is available, so the UI falls back to an initials avatar.
- */
-function resolveHeadshotUrl(entry) {
-  const provided = entry && entry.espnHeadshot;
-  if (provided && String(provided).startsWith('http')) return String(provided);
-  const espnId = entry && entry.espnID;
-  if (espnId != null && /^\d+$/.test(String(espnId))) {
-    return `https://a.espncdn.com/i/headshots/nfl/players/full/${espnId}.png`;
-  }
-  return null;
-}
-
 module.exports = {
   rapidApiClient,
   tank01Body,
@@ -138,5 +122,4 @@ module.exports = {
   NFL_TEAM_NAME_TO_ABBR,
   buildGameKey,
   normalizeTank01Game,
-  resolveHeadshotUrl,
 };

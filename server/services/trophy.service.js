@@ -807,17 +807,6 @@ async function reconcilePickemChampionTrophies({ client, leagueId, season, champ
   });
 }
 
-/** All trophies a team has earned, newest first. */
-async function getTeamTrophies({ teamId }) {
-  const result = await pool.query(
-    `SELECT "trophies".*, "teams"."name" AS "team_name"
-     FROM "trophies" JOIN "teams" ON "teams"."id" = "trophies"."team_id"
-     WHERE "team_id" = $1 ORDER BY "awarded_at" DESC`,
-    [teamId]
-  );
-  return result.rows;
-}
-
 /** A league's trophies (optionally one season), newest first. */
 async function getLeagueTrophies({ leagueId, season }) {
   const params = [leagueId];
@@ -846,6 +835,5 @@ module.exports = {
   awardPickemChampions,
   reconcilePickemChampionTrophies,
   notifyAwardedOwners,
-  getTeamTrophies,
   getLeagueTrophies,
 };
