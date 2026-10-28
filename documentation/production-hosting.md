@@ -244,8 +244,9 @@ three hook steps repeats that check right before its POST. A dispatch from `inte
 is refused unless `integration` and `main` are the same commit, and a `worker_only`
 recovery is refused once `main` has moved past the dispatched commit. A push to `main`
 in the seconds between a check and its POST can still slip through. Promote has to be
-dispatched from `main`. The workflow then triggers Render, waits for `/api/health/readyz`, then triggers the Netlify build, preserving the
-API-first order. Render and Netlify auto-deploy stay off; this workflow is the only
+dispatched from `main`. The workflow then triggers Render, waits for
+`/api/health/readyz`, then triggers the Netlify build, preserving the API-first
+order. Render and Netlify auto-deploy stay off; this workflow is the only
 automated path.
 
 Before the first run, configure in GitHub:

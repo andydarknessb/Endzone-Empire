@@ -189,8 +189,11 @@ test('deploy.yml: the gate step and every hook step check the main tip right bef
     const end = stepStarts.find((s) => s > i) ?? deployLines.length;
     return deployLines.slice(start, end);
   };
-  const check = /node scripts\/ci\/check-ci-passed\.js --sha "\$GITHUB_SHA" --branch main\s*$/;
-  assert.ok(stepOf(lineOf(GATE_STEP)).some((l) => check.test(l)), 'the gate step passes --branch main');
+  // Anchored so a commented-out or `true ||` line does not count.
+  const check = /^\s*(run: )?node scripts\/ci\/check-ci-passed\.js --sha "\$GITHUB_SHA" --branch main\s*$/;
+  const gateStep = stepOf(lineOf(GATE_STEP));
+  assert.ok(gateStep.some((l) => check.test(l)), 'the gate step passes --branch main');
+  assert.ok(!gateStep.some((l) => /^\s*(if|continue-on-error):/.test(l)), 'the gate step always runs and cannot be waved through');
   const posts = deployLines.flatMap((l, i) => (l.includes('--request POST') ? [i] : []));
   for (const post of posts) {
     const step = stepOf(post);
