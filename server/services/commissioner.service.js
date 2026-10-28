@@ -826,7 +826,7 @@ async function removeTeamAvatar({ leagueId, userId, teamId }) {
   const { priorAvatar } = await withTransaction(
     pool,
     async (client) => {
-      await requireCommissioner(client, { leagueId, userId });
+      await requireCommissioner(client, { leagueId, userId, forUpdate: true });
       const teamResult = await client.query(
         `SELECT "owner_id", "avatar_url", "avatar_static_url" FROM "teams"
          WHERE "id" = $1 AND "league_id" = $2 FOR UPDATE`,
