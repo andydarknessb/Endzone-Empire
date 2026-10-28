@@ -60,6 +60,10 @@ jobs:
       # instance still answers 200. Its tests run here so a regression in the
       # poller cannot merge, in the same job as the close-merged-issues test.
       - run: npm run test:wait-for-render-deploy
+      # The Promote workflow's first step (#2552) refuses a commit whose CI
+      # run did not conclude success. Its tests run here so a regression in
+      # that gate cannot merge.
+      - run: npm run test:check-ci-passed
       # The #1928 editorial-vs-engine scorer and the weekly dump script have
       # node:test suites that the root Jest config (src/ only) never collects.
       # Running them here means a broken scorer or dump cannot merge (#2385).
