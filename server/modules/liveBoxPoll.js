@@ -111,6 +111,7 @@ async function weekMaps({ season, week, now }) {
   if (cached && now - cached.loadedAt < MAPS_TTL_MS) return cached.maps;
   const scoring = require('../services/boxScoreApply.service');
   const maps = await scoring.loadWeekMaps({ season, week });
+  mapsCache.clear(); // one week only: a worker up all season would keep ~20 weeks of player maps
   mapsCache.set(key, { maps, loadedAt: now });
   return maps;
 }
