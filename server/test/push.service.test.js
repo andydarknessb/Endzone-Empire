@@ -109,6 +109,83 @@ test('sendPushToUsers gives every send a 10 s timeout so a hung endpoint cannot 
   assert.equal(webPush.sendNotification.mock.calls[0].arguments[2].timeout, 10000);
 });
 
+// --- Endpoint validation and the ten-per-user cap (#2542) --------------------
+
+// A user's subscriptions as the fake pool holds them: `rows` is the table, so a
+// test can save past the cap and see what is left. Deliverability is not modelled.
+function saveWorld(t, rows = []) {
+  const fake = createFakePool([
+    [/^INSERT INTO "push_subscriptions"/, (text, [userId, endpoint, keys]) => {
+      rows.push({ id: rows.length + 1, user_id: userId, endpoint, keys, created_at: rows.length, updated_at: rows.length });
+      return { rows: [] };
+    }],
+    [/^DELETE FROM "push_subscriptions"/, (text, [userId, limit]) => {
+      const keep = new Set(rows
+        .filter((row) => row.user_id === userId)
+        .sort((a, b) => b.updated_at - a.updated_at || b.id - a.id)
+        .slice(0, limit));
+      for (const row of rows.filter((r) => r.user_id === userId && !keep.has(r))) rows.splice(rows.indexOf(row), 1);
+      return { rows: [] };
+    }],
+  ]).install(t);
+  return { fake, rows };
+}
+
+const keys = { p256dh: 'p', auth: 'a' };
+const fcm = (n) => `https://fcm.googleapis.com/wp/${n}`;
+
+test('saveSubscription rejects http, unlisted, IP-literal and lookalike endpoints with 400 and writes no row', async (t) => {
+  const { fake } = saveWorld(t);
+  const rejected = [
+    'http://fcm.googleapis.com/wp/1',
+    'https://push.evil.example/wp/1',
+    'https://127.0.0.1/wp/1',
+    'https://fcm.googleapis.com.evil.example/wp/1',
+  ];
+
+  for (const endpoint of rejected) {
+    await assert.rejects(
+      push.saveSubscription({ userId: 1, subscription: { endpoint, keys } }),
+      (err) => err.statusCode === 400,
+      endpoint
+    );
+  }
+  assert.equal(fake.matching(/^INSERT INTO "push_subscriptions"/).length, 0);
+});
+
+test('saveSubscription accepts a real-shaped endpoint on each of the four push services', async (t) => {
+  const { fake, rows } = saveWorld(t);
+  const accepted = [
+    'https://fcm.googleapis.com/fcm/send/abc123',
+    'https://updates.push.services.mozilla.com/wpush/v2/gAAAAA',
+    'https://web.push.apple.com/QGVsbG8',
+    'https://wns2-par02p.notify.windows.com/w/?token=abc',
+  ];
+
+  for (const endpoint of accepted) await push.saveSubscription({ userId: 1, subscription: { endpoint, keys } });
+
+  assert.deepEqual(rows.map((row) => row.endpoint), accepted);
+  assert.equal(fake.matching(/^INSERT INTO "push_subscriptions"/).length, 4);
+});
+
+test('an eleventh subscription leaves ten rows and drops the oldest', async (t) => {
+  const { fake, rows } = saveWorld(t);
+  // Another Manager's subscription must not be touched by the prune.
+  await push.saveSubscription({ userId: 2, subscription: { endpoint: fcm(99), keys } });
+
+  for (let n = 1; n <= 11; n += 1) {
+    await push.saveSubscription({ userId: 1, subscription: { endpoint: fcm(n), keys } });
+  }
+
+  const mine = rows.filter((row) => row.user_id === 1).map((row) => row.endpoint);
+  assert.equal(mine.length, 10);
+  assert.deepEqual(mine, Array.from({ length: 10 }, (_, i) => fcm(i + 2)));
+  assert.equal(rows.filter((row) => row.user_id === 2).length, 1);
+  const prunes = fake.matching(/^DELETE FROM "push_subscriptions"/).filter((call) => call.params[0] === 1);
+  assert.equal(prunes.length, 11, 'every save asks for the cap');
+  assert.deepEqual(prunes[0].params, [1, 10]);
+});
+
 test('sendPushToUsers abandons a send that never settles, logs it, and carries on to the next subscription', async (t) => {
   const { delivered } = deliveryWorld(t);
   const webPush = require('web-push');

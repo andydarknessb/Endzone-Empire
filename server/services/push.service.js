@@ -50,6 +50,28 @@ function getPublicKey() {
   return process.env.VAPID_PUBLIC_KEY || null;
 }
 
+// The send POSTs to whatever endpoint is stored, so only a real push service is
+// accepted: an https URL on one of these hosts (any subdomain, for WNS).
+const PUSH_HOSTS = [
+  'fcm.googleapis.com',
+  'updates.push.services.mozilla.com',
+  'web.push.apple.com',
+  'notify.windows.com',
+];
+
+const MAX_SUBSCRIPTIONS_PER_USER = 10;
+
+function isPushServiceEndpoint(endpoint) {
+  let url;
+  try {
+    url = new URL(endpoint);
+  } catch {
+    return false;
+  }
+  if (url.protocol !== 'https:') return false;
+  return PUSH_HOSTS.some((host) => url.hostname === host || url.hostname.endsWith(`.${host}`));
+}
+
 /** Store (or refresh) a browser subscription for a user. */
 async function saveSubscription({ userId, subscription }) {
   if (
@@ -63,6 +85,11 @@ async function saveSubscription({ userId, subscription }) {
     err.statusCode = 400;
     throw err;
   }
+  if (!isPushServiceEndpoint(subscription.endpoint)) {
+    const err = new Error('endpoint must be an https URL on a push service');
+    err.statusCode = 400;
+    throw err;
+  }
   await pool.query(
     `INSERT INTO "push_subscriptions" ("user_id", "endpoint", "keys")
      VALUES ($1, $2, $3)
@@ -70,6 +97,16 @@ async function saveSubscription({ userId, subscription }) {
      DO UPDATE SET "user_id" = EXCLUDED."user_id", "keys" = EXCLUDED."keys",
                    "updated_at" = now()`,
     [userId, subscription.endpoint, JSON.stringify(subscription.keys)]
+  );
+  // Each send is one POST: an unbounded collection of endpoints is a way to
+  // stall the sending path, so a Manager keeps only the ten most recently saved.
+  await pool.query(
+    `DELETE FROM "push_subscriptions"
+     WHERE "user_id" = $1 AND "id" NOT IN (
+       SELECT "id" FROM "push_subscriptions" WHERE "user_id" = $1
+       ORDER BY "updated_at" DESC, "id" DESC LIMIT $2
+     )`,
+    [userId, MAX_SUBSCRIPTIONS_PER_USER]
   );
   return { ok: true };
 }
