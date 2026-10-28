@@ -128,16 +128,22 @@ async function rotateRefreshToken({ token }) {
   };
 }
 
-/** Logout: revoke the presented token's whole family. Succeeds silently on unknown tokens. */
+/** Logout: revoke the presented token's whole family. Succeeds silently on unknown tokens.
+ *  `userId` names whose session it was (null for an unknown token), so logout can end
+ *  that user's sockets too (#2555). */
 async function revokeRefreshToken({ token }) {
-  if (!token || typeof token !== 'string') return { ok: true };
-  await pool.query(
-    `UPDATE "refresh_tokens" SET "revoked" = true, "updated_at" = now()
-     WHERE "family_id" = (SELECT "family_id" FROM "refresh_tokens" WHERE "token_hash" = $1)
-       AND "revoked" = false`,
+  if (!token || typeof token !== 'string') return { ok: true, userId: null };
+  const result = await pool.query(
+    `WITH presented AS (
+       SELECT "family_id", "user_id" FROM "refresh_tokens" WHERE "token_hash" = $1
+     ), revoked AS (
+       UPDATE "refresh_tokens" SET "revoked" = true, "updated_at" = now()
+       WHERE "family_id" IN (SELECT "family_id" FROM presented) AND "revoked" = false
+     )
+     SELECT "user_id" FROM presented`,
     [hashToken(token)]
   );
-  return { ok: true };
+  return { ok: true, userId: result.rows[0]?.user_id ?? null };
 }
 
 /** Kill every session for a user (password reset / commissioner action). */

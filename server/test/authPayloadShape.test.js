@@ -7,6 +7,7 @@ const account = require('../services/account.service');
 const tokens = require('../services/token.service');
 const { createFakePool, insert, update } = require('./helpers/fakePool');
 const { withheld, NEXT_QUARTER } = require('./helpers/payloadShape');
+const { installRecordingBroadcast } = require('./helpers/recordingBroadcast');
 
 /**
  * The payload contract of every unauthenticated /api/auth/* route (#201).
@@ -278,10 +279,31 @@ test('POST /refresh refusals publish exactly an error', async (t) => {
 
 test('POST /logout publishes exactly an acknowledgement', async (t) => {
   stubTokens(t);
+  installRecordingBroadcast(t);
   const res = await request(app).post('/api/auth/logout');
   assert.equal(res.status, 200, JSON.stringify(res.body));
   assert.deepEqual(Object.keys(res.body), ['ok']);
   assert.equal(res.body.ok, true);
+});
+
+test('POST /logout ends the logged-out user\'s draft-room sessions, and only theirs', async (t) => {
+  t.mock.method(tokens, 'revokeRefreshToken', async () => ({ ok: true, userId: 42 }));
+  const recorder = installRecordingBroadcast(t);
+
+  const res = await request(app).post('/api/auth/logout');
+
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.deepEqual(recorder.calls, [{ method: 'sessionEnded', userId: 42 }]);
+});
+
+test('POST /logout for an unknown token ends no sessions and still answers ok', async (t) => {
+  t.mock.method(tokens, 'revokeRefreshToken', async () => ({ ok: true, userId: null }));
+  const recorder = installRecordingBroadcast(t);
+
+  const res = await request(app).post('/api/auth/logout');
+
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.deepEqual(recorder.calls, []);
 });
 
 // ---------------------------------------------------------------------------

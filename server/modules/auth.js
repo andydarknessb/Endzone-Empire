@@ -107,6 +107,25 @@ function requirePlatformAdmin(req, res, next) {
   next();
 }
 
+/**
+ * `auth:refresh` handler: a client that renewed its access token sends the new
+ * one so the socket's recorded expiry follows it (#2555). Only a valid token for
+ * the SAME user counts; anything else is refused and the expiry stays as it was.
+ * Nothing disconnects on expiry yet, so a client that never sends this (an old
+ * bundle held by the service worker) is unaffected.
+ */
+function refreshSocketToken(socket, message, ack) {
+  const reply = typeof ack === 'function' ? ack : () => {};
+  try {
+    const payload = jwt.verify(message && message.token, getSecret());
+    if (String(payload.sub) !== String(socket.user.id)) return reply({ ok: false, error: 'wrong user' });
+    socket.data.tokenExpiresAt = payload.exp * 1000;
+    return reply({ ok: true });
+  } catch (err) {
+    return reply({ ok: false, error: 'unauthorized' });
+  }
+}
+
 /** Socket.io middleware: token comes in the connection handshake auth object. */
 function requireSocketAuth(socket, next) {
   const token = socket.handshake.auth && socket.handshake.auth.token;
@@ -114,6 +133,8 @@ function requireSocketAuth(socket, next) {
   try {
     const payload = jwt.verify(token, getSecret());
     socket.user = { id: payload.sub, username: payload.username };
+    socket.data.tokenExpiresAt = payload.exp * 1000;
+    socket.on('auth:refresh', (message, ack) => refreshSocketToken(socket, message, ack));
     next();
   } catch (err) {
     next(new Error('unauthorized'));
