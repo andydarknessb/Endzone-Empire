@@ -746,6 +746,7 @@ async function assertClockMoved(t, { league, userId }) {
     (err) => err.statusCode === 409 && err.code === 'CLOCK_MOVED'
   );
   assert.equal(fake.matching(insert('draft_picks')).length, 0, 'no Pick is inserted');
+  fake.assertClean();
 }
 
 test('landPick: a CPU-Team Autopick whose expected deadline differs from the locked row is refused CLOCK_MOVED', async (t) => {
@@ -759,10 +760,11 @@ test('landPick: a human back-to-back snake Autopick whose clock moved on is refu
 });
 
 test('landPick: an Autopick whose expected deadline matches the locked row lands', async (t) => {
-  pickPool({ league: { ...BASE_LEAGUE, current_pick: 0, pick_deadline_at: EXPIRED }, picksMade: 1 }).install(t);
+  const fake = pickPool({ league: { ...BASE_LEAGUE, current_pick: 0, pick_deadline_at: EXPIRED }, picksMade: 1 }).install(t);
   const recorder = withRecorder(t);
 
   await landPick({ leagueId: LEAGUE_ID, userId: 7, playerId: 500, auto: true, expectedDeadline: new Date(EXPIRED) });
 
   assert.equal(recorder.calls[0].payload.auto, true);
+  fake.assertClean();
 });

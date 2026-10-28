@@ -754,7 +754,9 @@ fills a Starting need, otherwise the best available. A kicker or defense is
 offered only in the last three rounds, unless the team has no more picks left
 than open Starting needs, in which case it fills them, or nothing else remains
 to draft. Autopick never refuses to pick because the market is thin; that is a
-draft-start concern.
+draft-start concern. An Autopick acts only for the turn whose Pick clock
+expired; a firing whose clock has since been re-armed (by a Pick, an undo, a
+resume or an Autodraft toggle) does nothing.
 _Avoid_: autodraft (that is the standing mode, not the act)
 
 **Best available**:
