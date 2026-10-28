@@ -55,6 +55,9 @@ async function checkTip({ sha, branch, repo, token, fetch }) {
       return { ok: false, message: `Refusing to promote ${sha}: the ${branch} tip lookup answered HTTP ${res.status}.` };
     }
     const tip = (await res.json()).object?.sha;
+    if (!tip) {
+      return { ok: false, message: `Refusing to promote ${sha}: the ${branch} ref response was malformed (no object.sha).` };
+    }
     if (tip !== sha) {
       return {
         ok: false,
