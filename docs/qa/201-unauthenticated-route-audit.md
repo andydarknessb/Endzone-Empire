@@ -40,11 +40,11 @@ sees. **Closed by #241 at every router level, not only the app's**, where it
 originally stopped: the enumeration recurses into mounted routers and records
 each layer's full mount path.
 
-Recursing brings 17 pre-existing router-level layers into view - each router's
+Recursing brings 16 pre-existing router-level layers into view - each router's
 own `requireAuth`, `requirePlatformAdmin`, the public rate limiter and the two
 `requireFantasyLeague()` mounts - so the pins are written to distinguish a
-harmful mount from those 17 by three properties rather than by a pattern over
-their names. Fifteen of the 17 are root-mounted and drop out by position; the
+harmful mount from those 16 by three properties rather than by a pattern over
+their names. Fourteen of the 16 are root-mounted and drop out by position; the
 two `requireFantasyLeague()` mounts own a path and are listed, on the same
 footing as the app-level rate limiters:
 
