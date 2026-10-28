@@ -731,3 +731,38 @@ test('commitPick: an ordinary error keeps its healthy connection (#1063 Ruling 5
   assert.equal(fake.releaseArgs()[0], undefined, 'an ordinary error keeps its healthy connection');
   fake.assertClean();
 });
+
+// --- #2549: an Autopick lands only on the turn whose clock expired ----------
+
+const EXPIRED = '2026-09-01T00:00:00.000Z';
+const REARMED = '2026-09-01T00:01:00.000Z';
+
+async function assertClockMoved(t, { league, userId }) {
+  const fake = pickPool({ league: { ...league, pick_deadline_at: REARMED }, picksMade: 1 }).install(t);
+  withRecorder(t);
+
+  await assert.rejects(
+    landPick({ leagueId: LEAGUE_ID, userId, playerId: 500, auto: true, expectedDeadline: EXPIRED }),
+    (err) => err.statusCode === 409 && err.code === 'CLOCK_MOVED'
+  );
+  assert.equal(fake.matching(insert('draft_picks')).length, 0, 'no Pick is inserted');
+}
+
+test('landPick: a CPU-Team Autopick whose expected deadline differs from the locked row is refused CLOCK_MOVED', async (t) => {
+  await assertClockMoved(t, { league: { ...BASE_LEAGUE, current_pick: 0 }, userId: null });
+});
+
+test('landPick: a human back-to-back snake Autopick whose clock moved on is refused CLOCK_MOVED', async (t) => {
+  // 2 teams, snake: Team Twelve holds picks 1 and 2. It picked at the buzzer on 1, so a stale
+  // firing for that expiry finds Team Twelve on the clock again; the turn check alone passes.
+  await assertClockMoved(t, { league: { ...BASE_LEAGUE, current_pick: 2 }, userId: 8 });
+});
+
+test('landPick: an Autopick whose expected deadline matches the locked row lands', async (t) => {
+  pickPool({ league: { ...BASE_LEAGUE, current_pick: 0, pick_deadline_at: EXPIRED }, picksMade: 1 }).install(t);
+  const recorder = withRecorder(t);
+
+  await landPick({ leagueId: LEAGUE_ID, userId: 7, playerId: 500, auto: true, expectedDeadline: new Date(EXPIRED) });
+
+  assert.equal(recorder.calls[0].payload.auto, true);
+});

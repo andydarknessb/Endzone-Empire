@@ -428,8 +428,9 @@ async function countPicksRemaining({ leagueId, league, teams, teamId, rounds }) 
  * deadline directly; it goes through the same arming policy as every other event.
  *
  * Candidate selection and the pick itself are separate transactions, so a
- * candidate can be sniped in between - landPick's own commit validation catches
- * that (409) and we simply try the next candidate.
+ * candidate can be cap-blocked in between - landPick's own commit validation
+ * catches that (409) and we try the next candidate. A Pick landing in between
+ * moves the clock instead: that is CLOCK_MOVED, and we stop (#2549).
  */
 async function autoPick({ leagueId }) {
   // pick.service requires this module (ADR 0018), so landPick is required at call
@@ -452,8 +453,9 @@ async function autoPick({ leagueId }) {
   // early, committing a second Pick off one expiry. It does NOT cover the
   // CONCURRENT case (two firings that both read this same elapsed deadline
   // before either commits): both pass this check, and the loser is stopped one
-  // level down by pick.service's turn re-check under FOR UPDATE (see autoPick's
-  // 409 handling and fireExpiryTimer). A null deadline (untimed non-autodrafting
+  // level down by pick.service's CLOCK_MOVED check under FOR UPDATE, which
+  // compares this deadline to the locked row's (#2549; see autoPick's CLOCK_MOVED
+  // handling and fireExpiryTimer). A null deadline (untimed non-autodrafting
   // turn, or a completed draft) is likewise not an expiry and never autopicks.
   const deadline = league.pick_deadline_at;
   if (deadline == null || msUntilDeadline(deadline) > 0) return null;
@@ -527,6 +529,9 @@ async function autoPick({ leagueId }) {
         userId: onTheClock.owner_id,
         playerId: candidate.id,
         auto: true,
+        // The expiry this firing saw; the commit refuses CLOCK_MOVED if a re-arm
+        // moved the clock since (#2549).
+        expectedDeadline: deadline,
       });
       // After a genuine timeout, track the streak and flip autodraft on once it
       // crosses the threshold, so a persistently-absent owner stops stalling. The
@@ -544,7 +549,10 @@ async function autoPick({ leagueId }) {
       }
       return outcome;
     } catch (err) {
-      if (err.statusCode === 409) continue; // sniped or cap-blocked - next candidate
+      // A stale firing: the turn it was for is gone, so no candidate fits, no
+      // timeout counts and nothing is stalled (#2549).
+      if (err.code === 'CLOCK_MOVED') return null;
+      if (err.statusCode === 409) continue; // cap-blocked - next candidate
       throw err;
     }
   }
@@ -592,7 +600,7 @@ async function autoPick({ leagueId }) {
  * The still-elapsed re-check covers a second race the pause check alone would
  * miss: a concurrent firing that did NOT hit nothing-draftable but committed a
  * real Pick for this turn (it drafted a candidate this firing could not, or won
- * the landPick FOR UPDATE turn re-check). That firing advanced current_pick
+ * the landPick FOR UPDATE CLOCK_MOVED check). That firing advanced current_pick
  * and armed the next team's fresh clock, so under the lock this firing reads a
  * future-or-null deadline and declines, rather than pausing a Draft that in
  * fact moved on.
@@ -782,10 +790,10 @@ function cancelAllExpiryTimers() {
  * after the turn advanced is declined by autoPick's expiry guard (the next
  * deadline is future or null); two firings that read this same elapsed deadline
  * concurrently BOTH pass that guard, and the loser is stopped by
- * pick.service.landPick's turn re-check under FOR UPDATE, surfacing as the
- * 409 autoPick walks off its remaining candidates to a null outcome. Either way
- * exactly one Pick commits. A null outcome (not due, sniped off every candidate,
- * or nothing draftable) arms nothing.
+ * pick.service.landPick's CLOCK_MOVED check under FOR UPDATE (#2549), which
+ * makes autoPick return a null outcome at once. Either way
+ * exactly one Pick commits. A null outcome (not due, clock moved on, every
+ * candidate blocked, or nothing draftable) arms nothing.
  */
 async function fireExpiryTimer(leagueId, deadline) {
   try {
