@@ -156,21 +156,21 @@ router.post('/', async (req, res) => {
 
 // Guessing codes is the attack, so only a join that finds no League stays counted: 10 per
 // 10 minutes per user and per IP (free accounts multiply a per-user limit). Each limiter
-// reserves a slot up front and the route releases it on any other outcome.
+// reserves a slot up front and the route refunds it on any other outcome.
 const JOIN_FAILURE_WINDOW_MS = 10 * 60 * 1000;
 const joinFailuresByUser = createFailureLimiter({ name: 'join-user', windowMs: JOIN_FAILURE_WINDOW_MS, max: 10, keyFn: (req) => req.user.id });
 const joinFailuresByIp = createFailureLimiter({ name: 'join-ip', windowMs: JOIN_FAILURE_WINDOW_MS, max: 10, keyFn: (req) => req.ip });
 
-const releaseJoinSlots = (req, res, next) => {
+const refundJoinSlots = (req, res, next) => {
   // Registered ahead of the guards so a user slot is handed back when the IP guard refuses.
   res.on('finish', () => {
-    if (!res.locals.unknownCode) Promise.all([joinFailuresByUser.release(req), joinFailuresByIp.release(req)]);
+    if (!res.locals.unknownCode) Promise.all([joinFailuresByUser.refund(req), joinFailuresByIp.refund(req)]);
   });
   next();
 };
 
 // POST /api/league/join — join a league by invite code (creates your team)
-router.post('/join', releaseJoinSlots, joinFailuresByUser.guard, joinFailuresByIp.guard, async (req, res) => {
+router.post('/join', refundJoinSlots, joinFailuresByUser.guard, joinFailuresByIp.guard, async (req, res) => {
   const { inviteCode, teamName } = req.body || {};
   if (!inviteCode) return res.status(400).json({ error: 'inviteCode is required' });
 

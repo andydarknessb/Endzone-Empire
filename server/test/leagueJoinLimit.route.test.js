@@ -129,10 +129,10 @@ test('redis branch: a slot is reserved on entry, expiry is set once, the 429 giv
   const key = [...redis.counts.keys()][0];
   assert.match(key, /^rate-limit:failures:\/api\/league:x:k:\d+$/, 'path case and name are in the key');
   assert.equal(redis.counts.get(key), 2, 'the refused request returned its slot');
-  await limiter.release(first.req);
-  assert.equal(redis.counts.get(key), 1, 'release gives a slot back');
-  await limiter.release(first.req);
-  assert.equal(redis.counts.get(key), 1, 'a second release is a no-op');
+  await limiter.refund(first.req);
+  assert.equal(redis.counts.get(key), 1, 'refund gives a slot back');
+  await limiter.refund(first.req);
+  assert.equal(redis.counts.get(key), 1, 'a second refund is a no-op');
 });
 
 test('a new League gets a 16-hex-character invite code, and an 8-character code still joins', async (t) => {

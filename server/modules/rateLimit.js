@@ -97,7 +97,7 @@ function createRateLimiter({ name, windowMs, max, keyFn } = {}) {
  * A limiter for guessable lookups: only requests the route reports as failed
  * stay counted. `guard` reserves a slot before the work runs (so parallel
  * guesses cannot all pass a read-only check) and answers 429 when none is
- * left; `release(req)` hands the slot back, so the route calls it for every
+ * left; `refund(req)` refunds the slot, so the route calls it for every
  * outcome except the failure being limited. Same store rules as
  * createRateLimiter: Redis fixed window, process-local sliding window in tests
  * and dev, fail closed in production.
@@ -107,7 +107,7 @@ function createRateLimiter({ name, windowMs, max, keyFn } = {}) {
 function createFailureLimiter({ name, windowMs, max, keyFn }) {
   if (!name || !windowMs || !max) throw new Error('createFailureLimiter requires name, windowMs and max');
   const store = new Map();
-  const held = new WeakMap(); // req -> the slot it reserved, so release undoes exactly that
+  const held = new WeakMap(); // req -> the slot it reserved, so refund undoes exactly that
   const getKey = keyFn || ((req) => req.user?.id ?? req.ip);
 
   async function guard(req, res, next) {
@@ -140,12 +140,12 @@ function createFailureLimiter({ name, windowMs, max, keyFn }) {
     }
     held.set(req, slot);
     if (count <= max) return next();
-    await release(req); // a refused request must not extend its own block
+    await refund(req); // a refused request must not extend its own block
     res.set('Retry-After', String(Math.ceil(retryAfterMs / 1000)));
     return res.status(429).json({ code: 'RATE_LIMITED', message: 'Too many requests', requestId: req.id });
   }
 
-  async function release(req) {
+  async function refund(req) {
     const slot = held.get(req);
     if (!slot) return;
     held.delete(req);
@@ -154,7 +154,7 @@ function createFailureLimiter({ name, windowMs, max, keyFn }) {
         const { getRedisClient } = require('./redis');
         await (await getRedisClient()).decr(slot.redisKey);
       } catch (error) {
-        console.error('failure limiter could not release', error); // the slot stays spent: stricter, never looser
+        console.error('failure limiter could not refund', error); // the slot stays spent: stricter, never looser
       }
       return;
     }
@@ -163,7 +163,7 @@ function createFailureLimiter({ name, windowMs, max, keyFn }) {
     if (at !== -1) times.splice(at, 1);
   }
 
-  return { guard, release };
+  return { guard, refund };
 }
 
 const MAX_ACCOUNT_KEY = 254;
