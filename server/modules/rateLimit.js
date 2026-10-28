@@ -94,67 +94,76 @@ function createRateLimiter({ name, windowMs, max, keyFn } = {}) {
 }
 
 /**
- * A limiter that counts only what the route reports as failed. `guard` is
- * middleware that refuses with 429 once `max` failures sit in the window and
- * never counts the request itself; `fail(req)` records one failure. Same
- * store rules as createRateLimiter: Redis fixed window, process-local
- * sliding window in tests and dev, fail closed in production.
+ * A limiter for guessable lookups: only requests the route reports as failed
+ * stay counted. `guard` reserves a slot before the work runs (so parallel
+ * guesses cannot all pass a read-only check) and answers 429 when none is
+ * left; `release(req)` hands the slot back, so the route calls it for every
+ * outcome except the failure being limited. Same store rules as
+ * createRateLimiter: Redis fixed window, process-local sliding window in tests
+ * and dev, fail closed in production.
  *
  * @param {{ name: string, windowMs: number, max: number, keyFn?: (req) => string }} opts
  */
 function createFailureLimiter({ name, windowMs, max, keyFn }) {
   if (!name || !windowMs || !max) throw new Error('createFailureLimiter requires name, windowMs and max');
   const store = new Map();
+  const held = new WeakMap(); // req -> the slot it reserved, so release undoes exactly that
   const getKey = keyFn || ((req) => req.user?.id ?? req.ip);
-  const redisKeyFor = (req, now) =>
-    `rate-limit:failures:${(req.baseUrl || 'api').toLowerCase()}:${name}:${String(getKey(req))}:${Math.floor(now / windowMs)}`;
 
   async function guard(req, res, next) {
     const key = String(getKey(req));
     const now = Date.now();
-    let blocked;
+    let count;
     let retryAfterMs = 0;
+    let slot;
     try {
       const { getRedisClient } = require('./redis');
       const redis = await getRedisClient();
       if (redis) {
-        const redisKey = redisKeyFor(req, now);
-        blocked = Number(await redis.get(redisKey)) >= max;
-        if (blocked) retryAfterMs = Math.max(await redis.pTTL(redisKey), 0);
+        slot = { redisKey: `rate-limit:failures:${(req.baseUrl || 'api').toLowerCase()}:${name}:${key}:${Math.floor(now / windowMs)}` };
+        count = await redis.incr(slot.redisKey);
+        if (count === 1) await redis.pExpire(slot.redisKey, windowMs);
+        if (count > max) retryAfterMs = Math.max(await redis.pTTL(slot.redisKey), 0);
       }
     } catch (error) {
       if (process.env.NODE_ENV === 'production') return next(error);
+      slot = undefined;
+      count = undefined;
     }
-    if (blocked === undefined) {
+    if (count === undefined) {
       const recent = (store.get(key) || []).filter((t) => t > now - windowMs);
+      slot = { key, now };
+      recent.push(now);
       store.set(key, recent);
-      blocked = recent.length >= max;
-      if (blocked) retryAfterMs = Math.max(recent[0] + windowMs - now, 0);
+      count = recent.length;
+      if (count > max) retryAfterMs = Math.max(recent[0] + windowMs - now, 0);
     }
-    if (!blocked) return next();
+    held.set(req, slot);
+    if (count <= max) return next();
+    await release(req); // a refused request must not extend its own block
     res.set('Retry-After', String(Math.ceil(retryAfterMs / 1000)));
     return res.status(429).json({ code: 'RATE_LIMITED', message: 'Too many requests', requestId: req.id });
   }
 
-  async function fail(req) {
-    const key = String(getKey(req));
-    const now = Date.now();
-    try {
-      const { getRedisClient } = require('./redis');
-      const redis = await getRedisClient();
-      if (redis) {
-        const redisKey = redisKeyFor(req, now);
-        if ((await redis.incr(redisKey)) === 1) await redis.pExpire(redisKey, windowMs);
-        return;
+  async function release(req) {
+    const slot = held.get(req);
+    if (!slot) return;
+    held.delete(req);
+    if (slot.redisKey) {
+      try {
+        const { getRedisClient } = require('./redis');
+        await (await getRedisClient()).decr(slot.redisKey);
+      } catch (error) {
+        console.error('failure limiter could not release', error); // the slot stays spent: stricter, never looser
       }
-    } catch (error) {
-      // The guard already fails closed in production; a lost count must not turn a 404 into a 500.
-      console.error('failure limiter could not record', error);
+      return;
     }
-    store.set(key, [...(store.get(key) || []).filter((t) => t > now - windowMs), now]);
+    const times = store.get(slot.key) || [];
+    const at = times.indexOf(slot.now);
+    if (at !== -1) times.splice(at, 1);
   }
 
-  return { guard, fail };
+  return { guard, release };
 }
 
 const MAX_ACCOUNT_KEY = 254;

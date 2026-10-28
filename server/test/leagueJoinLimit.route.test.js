@@ -76,6 +76,65 @@ test('successful joins do not count toward either limit', async (t) => {
   assert.equal((await join(app, 1, 'nope')).status, 429);
 });
 
+test('parallel wrong guesses cannot outrun the cap', async (t) => {
+  const app = makeApp(t);
+  const results = await Promise.all(Array.from({ length: 40 }, (_, i) => join(app, 1, `nope${i}`, `203.0.113.${i + 1}`)));
+  const statuses = results.map((r) => r.status);
+  assert.equal(statuses.filter((s) => s === 404).length, 10);
+  assert.equal(statuses.filter((s) => s === 429).length, 30);
+});
+
+test('an IP refusal hands the user\'s slot back', async (t) => {
+  const app = makeApp(t);
+  for (let user = 1; user <= 10; user++) await join(app, user, 'nope');
+  // The IP is full: user 50 is refused, and must not have spent a user slot doing it.
+  for (let i = 0; i < 12; i++) assert.equal((await join(app, 50, 'nope')).status, 429);
+  assert.equal((await join(app, 50, 'nope', '198.51.100.7')).status, 404);
+});
+
+// The Redis branch, against a fake client holding counters.
+function fakeRedis() {
+  const counts = new Map();
+  const calls = [];
+  return {
+    calls,
+    counts,
+    async incr(k) { calls.push(['incr', k]); counts.set(k, (counts.get(k) || 0) + 1); return counts.get(k); },
+    async decr(k) { calls.push(['decr', k]); counts.set(k, counts.get(k) - 1); },
+    async pExpire(k) { calls.push(['pExpire', k]); },
+    async pTTL() { return 4000; },
+  };
+}
+
+test('redis branch: a slot is reserved on entry, expiry is set once, the 429 gives Retry-After and returns its slot', async (t) => {
+  const redisModule = require('../modules/redis');
+  const redis = fakeRedis();
+  t.mock.method(redisModule, 'getRedisClient', async () => redis);
+  const { createFailureLimiter } = require('../modules/rateLimit');
+  const limiter = createFailureLimiter({ name: 'x', windowMs: 60_000, max: 2, keyFn: () => 'k' });
+  const run = async () => {
+    const req = { baseUrl: '/api/League', ip: '1.1.1.1' };
+    const res = { code: 200, headers: {}, set(k, v) { this.headers[k] = v; }, status(c) { this.code = c; return this; }, json() {} };
+    let passed = false;
+    await limiter.guard(req, res, () => { passed = true; });
+    return { req, res, passed };
+  };
+  const first = await run();
+  const second = await run();
+  const third = await run();
+  assert.deepEqual([first.passed, second.passed, third.passed], [true, true, false]);
+  assert.equal(third.res.code, 429);
+  assert.equal(third.res.headers['Retry-After'], '4');
+  assert.equal(redis.calls.filter(([op]) => op === 'pExpire').length, 1, 'expiry is set only on the first incr');
+  const key = [...redis.counts.keys()][0];
+  assert.match(key, /^rate-limit:failures:\/api\/league:x:k:\d+$/, 'path case and name are in the key');
+  assert.equal(redis.counts.get(key), 2, 'the refused request returned its slot');
+  await limiter.release(first.req);
+  assert.equal(redis.counts.get(key), 1, 'release gives a slot back');
+  await limiter.release(first.req);
+  assert.equal(redis.counts.get(key), 1, 'a second release is a no-op');
+});
+
 test('a new League gets a 16-hex-character invite code, and an 8-character code still joins', async (t) => {
   const app = makeApp(t);
   const created = await request(app).post('/api/league').set('Authorization', authed(2)).send({ name: 'Code Length League' });

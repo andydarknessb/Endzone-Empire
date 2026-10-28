@@ -154,18 +154,26 @@ router.post('/', async (req, res) => {
   }
 });
 
-// Guessing codes is the attack, so only a join that finds no League counts: 10 per
-// 10 minutes per user and per IP (free accounts multiply a per-user limit).
+// Guessing codes is the attack, so only a join that finds no League stays counted: 10 per
+// 10 minutes per user and per IP (free accounts multiply a per-user limit). Each limiter
+// reserves a slot up front and the route releases it on any other outcome.
 const JOIN_FAILURE_WINDOW_MS = 10 * 60 * 1000;
 const joinFailuresByUser = createFailureLimiter({ name: 'join-user', windowMs: JOIN_FAILURE_WINDOW_MS, max: 10, keyFn: (req) => req.user.id });
 const joinFailuresByIp = createFailureLimiter({ name: 'join-ip', windowMs: JOIN_FAILURE_WINDOW_MS, max: 10, keyFn: (req) => req.ip });
 
+const releaseJoinSlots = (req, res, next) => {
+  // Registered ahead of the guards so a user slot is handed back when the IP guard refuses.
+  res.on('finish', () => {
+    if (!res.locals.unknownCode) Promise.all([joinFailuresByUser.release(req), joinFailuresByIp.release(req)]);
+  });
+  next();
+};
+
 // POST /api/league/join — join a league by invite code (creates your team)
-router.post('/join', joinFailuresByUser.guard, joinFailuresByIp.guard, async (req, res) => {
+router.post('/join', releaseJoinSlots, joinFailuresByUser.guard, joinFailuresByIp.guard, async (req, res) => {
   const { inviteCode, teamName } = req.body || {};
   if (!inviteCode) return res.status(400).json({ error: 'inviteCode is required' });
 
-  let unknownCode = false;
   try {
     const { league, team } = await withTransaction(
       pool,
@@ -181,7 +189,7 @@ router.post('/join', joinFailuresByUser.guard, joinFailuresByIp.guard, async (re
         // through serviceErrorBody; the membership module owns the joinLeague
         // write immediately below, so its coded error is the fitting one.
         if (!league) {
-          unknownCode = true;
+          res.locals.unknownCode = true;
           throw new MembershipError(404, 'no league with that invite code');
         }
         // The code is this path's only gate; admission (joinable, not already a
@@ -194,7 +202,6 @@ router.post('/join', joinFailuresByUser.guard, joinFailuresByIp.guard, async (re
     delete league.draft_share_token; // not for a joining manager (#2274)
     res.status(201).json({ league, team });
   } catch (error) {
-    if (unknownCode) await Promise.all([joinFailuresByUser.fail(req), joinFailuresByIp.fail(req)]);
     if (error.statusCode) return res.status(error.statusCode).json(serviceErrorBody(error));
     console.error('Error joining league', error);
     res.status(500).json({ error: 'failed to join league' });
