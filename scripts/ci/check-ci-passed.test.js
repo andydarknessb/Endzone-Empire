@@ -137,6 +137,14 @@ test('checkCommit with a branch refuses when the ref lookup answers an error or 
   assert.match(threw.message, /ref down/);
 });
 
+test('checkCommit with a branch refuses a ref response with no object.sha, naming it malformed', async () => {
+  const empty = routedFetch(() => ({ ok: true, status: 200, async json() { return {}; } }));
+  const result = await checkCommit({ sha: SHA, branch: 'main', repo: 'o/r', token: 't', fetch: empty });
+  assert.equal(result.ok, false);
+  assert.match(result.message, /malformed/);
+  assert.doesNotMatch(result.message, /undefined/);
+});
+
 test('checkCommit with a branch still refuses a red CI run, even when the tip matches', async () => {
   const fetch = async (url) =>
     String(url).includes('/git/ref/')
@@ -199,7 +207,13 @@ test('deploy.yml: the gate step and every hook step check the main tip right bef
     const step = stepOf(post);
     const checkAt = step.findIndex((l) => check.test(l));
     assert.ok(checkAt >= 0, `the step with the POST at line ${post + 1} runs the tip check`);
-    assert.ok(checkAt < step.findIndex((l) => l.includes('--request POST')), 'the check comes before the POST');
+    // Anchored: the line directly before the POST, so no wait or setup line
+    // can push the check earlier and leave the tip stale by the time it fires.
+    assert.equal(
+      checkAt,
+      step.findIndex((l) => l.includes('--request POST')) - 1,
+      `the tip check must be the line directly before the POST at line ${post + 1}`,
+    );
     assert.ok(step.some((l) => /GH_TOKEN: \$\{\{ github\.token \}\}/.test(l)), 'the step passes GH_TOKEN');
   }
 });
