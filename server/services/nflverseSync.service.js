@@ -552,10 +552,11 @@ async function applyNflverseWeekUnit(db, { season, week, defRows, crosswalk }) {
  * `finalizePriorWeeks`'s own try/catch (below) still turns that into a
  * logged skip for one week rather than aborting the whole pass.
  *
- * Selects only leagues already PAST this (season, week) - the same rule
- * resyncPriorWeeks uses. A league still sitting on the week has it open,
- * where a re-score prices the current roster and announces a correction
- * nobody made; another season has no such week (#2543).
+ * Selects every league already PAST this (season, week) - unlike
+ * `resyncPriorWeeks`, which re-scores only `current_week - 1` for each league.
+ * A league still sitting on the week has it open, where a re-score prices the
+ * current roster and announces a correction nobody made; another season has
+ * no such week (#2543).
  */
 async function rescoreLeaguesForWeek({ season, week }) {
   const leaguesResult = await pool.query(
