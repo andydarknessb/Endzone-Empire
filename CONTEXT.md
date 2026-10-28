@@ -1020,6 +1020,16 @@ Every surface that asks either question, the Lineup, the Decision card, the
 draft simulator, the Team summary and the Players page, asks the same rule.
 _Avoid_: lineup settings, roster slots (the wire column), slot config,
 position limits
+
+**Position cap**:
+The most players at one position a Team may roster, set by the
+commissioner. It holds all season on every acquisition: a draft Pick, a free
+agent add, a Waiver claim and a Trade, where a drop at the same position frees
+a place. A Team already over a cap keeps its players but adds none at that
+position until it is under. A commissioner's forced move is not held to it.
+_Avoid_: position limits (that phrasing names the Roster template), positional
+max
+
 **Rosterable position**:
 A position at least one starting slot in the league's roster template
 accepts, once group keys (DL, LB, DB) are expanded to their member codes.
@@ -1083,7 +1093,7 @@ but not IR-eligible), stashable
 An IR stash the commissioner has vouched for because the injury feed is
 wrong about its occupant, recorded on the lineup entry by the force-set
 path and, when an undoable drop interrupts it, copied onto the dropped
-player's waiver hold for the life of that hold so the undo can put it back.
+player's waiver hold so an Undo drop can put it back.
 A waiver-claim drop is not undoable and copies nothing. A stash is
 valid when its occupant is IR-eligible or the entry is attested; a valid
 stash grants capacity, is never flagged or nagged, and carries forward across
@@ -1131,6 +1141,14 @@ One player joining or leaving one Team's roster: a free agent add, a drop, an
 undo-drop, a waiver award, one side of a trade, a draft pick, or a
 commissioner's forced move. Each Roster move opens or closes a Tenure.
 _Avoid_: transaction, move (unqualified, which is a lineup move)
+
+**Undo drop**:
+Putting a just-dropped player back on the Team that dropped him, within two
+minutes of the drop: long enough for the Undo toast and for the rollback of a
+failed add-with-drop. It withdraws every pending Waiver claim on that player.
+After two minutes the player can only be claimed. A waiver-claim drop is never
+undoable.
+_Avoid_: re-add, restore
 
 **Free agent**:
 An unrostered player who can be added immediately: waivers have cleared on
@@ -1186,7 +1204,9 @@ _Avoid_: price, cost, market value, sale price
 
 **Trade**:
 A swap of players between two teams, optionally subject to a review window in
-which uninvolved managers can vote to veto.
+which uninvolved managers can vote to veto. A veto counts only while the
+review window is open. Trades open once the League's draft is complete: no
+Trade is proposed, accepted or executed before then, Keepers included.
 
 **Players page**:
 The surface that lists the player pool for one manager in one league: only
@@ -1393,6 +1413,14 @@ all-time Record is the sum of its archived season Records (see Season
 archive) and renders by the same rule.
 _Avoid_: standings (the ordered table built from every Team's Record, not one
 Team's own tally)
+
+**Playoff seed**:
+A playoff Team's place in its League's bracket, fixed when the bracket is
+created from the final regular-season standings. A later stat correction can
+change a Record but never a Playoff seed: who is in the bracket, who has a bye
+and the seed order stay as created, and later rounds pair Teams by it. The
+standings show the Playoff seed once the bracket exists.
+_Avoid_: rank (a standings position, which can still move), playoff rank
 
 **Scoring rules**:
 The full set of per-stat point values a league scores by.
