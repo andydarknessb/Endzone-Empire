@@ -457,7 +457,7 @@ async function applyNflverseSnapsUnit(db, { season, week, snapRows, pfrCrosswalk
  * Finalize one (season, week): fetch nflverse's defense file + players
  * crosswalk (or take a pre-fetched `crosswalk`), patch the finalization-only fields onto each matched player's
  * already-synced player_stats row (preserving whatever Tank01 already wrote
- * there), and re-score every league sitting on that week — reusing
+ * there), and re-score every league already past that week — reusing
  * correction.service's correctLeagueWeek (the same recompute/notify path
  * Tank01 stat corrections use), not a new scoring code path.
  *
@@ -551,9 +551,19 @@ async function applyNflverseWeekUnit(db, { season, week, defRows, crosswalk }) {
  * this run's data_sync_runs row already recorded ok: true for has committed.
  * `finalizePriorWeeks`'s own try/catch (below) still turns that into a
  * logged skip for one week rather than aborting the whole pass.
+ *
+ * Selects only leagues already PAST this (season, week) - the same rule
+ * resyncPriorWeeks uses. A league still sitting on the week has it open,
+ * where a re-score prices the current roster and announces a correction
+ * nobody made; another season has no such week (#2543).
  */
 async function rescoreLeaguesForWeek({ season, week }) {
-  const leaguesResult = await pool.query(`SELECT "id" FROM "leagues" WHERE ${fantasySeasonLiveWhereSql()}`);
+  const leaguesResult = await pool.query(
+    `SELECT "id" FROM "leagues"
+     WHERE ${fantasySeasonLiveWhereSql()}
+       AND "current_season" = $1 AND "current_week" > $2`,
+    [season, week]
+  );
   let leaguesRescored = 0;
   for (const league of leaguesResult.rows) {
     try {
