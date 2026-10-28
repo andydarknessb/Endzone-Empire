@@ -100,7 +100,7 @@ async function commitPick({ leagueId, userId, playerId, auto = false, byCommissi
         && new Date(expectedDeadline).getTime() !== new Date(league.pick_deadline_at).getTime()) {
         throw new DraftError(409, 'the pick clock moved on', 'CLOCK_MOVED');
       }
-      if (byCommissioner &&!(await isLeagueCommissioner(client, leagueId, userId))) {
+      if (byCommissioner && !(await isLeagueCommissioner(client, leagueId, userId))) {
         throw new DraftError(403, 'only the commissioner can enter picks for this draft');
       }
 

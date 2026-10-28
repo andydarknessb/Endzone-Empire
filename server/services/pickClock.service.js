@@ -428,8 +428,9 @@ async function countPicksRemaining({ leagueId, league, teams, teamId, rounds }) 
  * deadline directly; it goes through the same arming policy as every other event.
  *
  * Candidate selection and the pick itself are separate transactions, so a
- * candidate can be sniped in between - landPick's own commit validation catches
- * that (409) and we simply try the next candidate.
+ * candidate can be cap-blocked in between - landPick's own commit validation
+ * catches that (409) and we try the next candidate. A Pick landing in between
+ * moves the clock instead: that is CLOCK_MOVED, and we stop (#2549).
  */
 async function autoPick({ leagueId }) {
   // pick.service requires this module (ADR 0018), so landPick is required at call
@@ -551,7 +552,7 @@ async function autoPick({ leagueId }) {
       // A stale firing: the turn it was for is gone, so no candidate fits, no
       // timeout counts and nothing is stalled (#2549).
       if (err.code === 'CLOCK_MOVED') return null;
-      if (err.statusCode === 409) continue; // sniped or cap-blocked - next candidate
+      if (err.statusCode === 409) continue; // cap-blocked - next candidate
       throw err;
     }
   }
@@ -791,8 +792,8 @@ function cancelAllExpiryTimers() {
  * concurrently BOTH pass that guard, and the loser is stopped by
  * pick.service.landPick's CLOCK_MOVED check under FOR UPDATE (#2549), which
  * makes autoPick return a null outcome at once. Either way
- * exactly one Pick commits. A null outcome (not due, sniped off every candidate,
- * or nothing draftable) arms nothing.
+ * exactly one Pick commits. A null outcome (not due, clock moved on, every
+ * candidate blocked, or nothing draftable) arms nothing.
  */
 async function fireExpiryTimer(leagueId, deadline) {
   try {
