@@ -859,6 +859,38 @@ test('syncNflverseWeek: a re-score failure for one league logs and does not fail
   assert.equal(out.leaguesRescored, 0);
 });
 
+test('syncNflverseWeek: re-scores only leagues already past the finalized week, in that season (#2543)', async (t) => {
+  stubNflverseWeekFeed(t);
+  // One league advanced past week 3, one still sitting on it, one in another season.
+  const LEAGUES = [
+    { id: 1, current_season: 2025, current_week: 4 },
+    { id: 2, current_season: 2025, current_week: 3 },
+    { id: 3, current_season: 2024, current_week: 4 },
+  ];
+  createFakePool([
+    [/^SELECT "id", "external_id", "position" FROM "players"/, () => ({ rows: [{ id: 42, external_id: '4429795' }] }), 'client'],
+    [/^SELECT "stats" FROM "player_stats"/, () => ({ rows: [] }), 'client'],
+    [insert('player_stats'), () => ({ rows: [] }), 'client'],
+    [insert('data_sync_runs'), () => ({ rows: [] })],
+    // Answers the way Postgres would: the query's own (season, week) params decide.
+    [select('leagues'), (text, params) => ({
+      rows: params
+        ? LEAGUES.filter((l) => l.current_season === params[0] && l.current_week > params[1])
+        : LEAGUES,
+    })],
+  ]).install(t);
+  const rescored = [];
+  t.mock.method(correction, 'correctLeagueWeek', async ({ leagueId }) => {
+    rescored.push(leagueId);
+    return { changes: [{ leagueId }] };
+  });
+
+  const out = await syncNflverseWeek({ season: 2025, week: 3 });
+
+  assert.deepEqual(rescored, [1], 'a league still on the week (open) and one in another season are never re-scored');
+  assert.equal(out.leaguesRescored, 1);
+});
+
 test('syncNflverseWeek: target_share/air_yards_share/wopr/EPA land as new keys on an already-enriched row, with every existing key and the row count unchanged (#1706)', async (t) => {
   t.mock.method(axios, 'get', async (url) => {
     if (url.includes('stats_player_week')) {
