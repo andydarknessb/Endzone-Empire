@@ -1148,6 +1148,23 @@ describe("position chips derived from the roster template (#1419)", () => {
     ).toBe(callsBefore);
   });
 
+  // #2553: a mount with no ?league= used to read the list twice - once
+  // leagueless as soon as the league list landed, then again once the page
+  // redirected to the first league. The two counting tests above measured
+  // between those reads, so they flaked on timing.
+  test("#2553: a mount with no ?league= reads /api/players once, for the first league", async () => {
+    mockBrowser({ players: [player({ id: 1, name: "Settled Guy" })] });
+    renderWithProviders(<PlayerManagement />);
+    await screen.findByText("Settled Guy");
+    // Let the league redirect (and any read it triggers) run to completion.
+    await waitFor(() => expect(screen.getByLabelText("League")).toHaveTextContent("Sunday Ballers"));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const playerCalls = apiClient.get.mock.calls.filter(([url]) => url === "/api/players");
+    expect(playerCalls).toHaveLength(1);
+    expect(playerCalls[0][1].params.leagueId).toBe(1);
+  });
+
   // Formal review f3: the players fetch now holds while the SELECTED
   // league's own template is loading, rather than firing once under the
   // fallback template and again once the real one lands.

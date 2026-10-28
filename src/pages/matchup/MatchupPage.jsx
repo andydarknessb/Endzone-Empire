@@ -17,9 +17,9 @@ import ToggleMatchupView, { VIEW_SCOREBOARD, VIEW_STANDARD } from '../../feature
 import CelebrateTouchdown, { CelebrationsCaption } from '../../features/celebrate-touchdown';
 import PlayerDecisionCard, { myTeam, rostered } from '../../widgets/player-decision-card';
 import { toDecisionCardEntry } from '../../entities/player';
-import { useActionItems } from '../../entities/action-item';
+import { useActionItems, lineupProblemFor } from '../../entities/action-item';
 import {
-  adviceGain, adviceNote, lineupIssues, lineupNote, lineupSlots, nextKickoff, parseRosterTemplate, useAdvice,
+  adviceGain, adviceNote, lineupIssues, lineupNote, lineupSlots, nextLockAt, parseRosterTemplate, useAdvice,
 } from '../../entities/roster';
 import { useMatchupPage } from './model/useMatchupPage';
 import BenchCard from './ui/BenchCard';
@@ -70,18 +70,6 @@ import LastPlays from './ui/LastPlays';
  * (#2009). Headings are explicit (ADR 0021): one h1, then the h2s the widgets and the page render.
  */
 const MINUTE_MS = 60 * 1000;
-
-// The next lock: the viewer's lineup problem's own deadline (the dashboard's figure for the same
-// moment), else the first kickoff still to come among this Matchup's NFL games. The item is one week's
-// (its id ends in "{season}-{week}"); a problem for another week says nothing about this Matchup's lock.
-function nextLockAt(actionItems, games, leagueId, season, week) {
-  const item = actionItems.find((i) => {
-    const [type, , key] = String(i.id).split(':');
-    return String(i.leagueId) === String(leagueId) && type === 'lineup_problem' && key === `${season}-${week}`;
-  });
-  const fromItem = item?.deadlineAt ? new Date(item.deadlineAt).getTime() : NaN;
-  return Number.isFinite(fromItem) ? fromItem : nextKickoff(games);
-}
 
 const NUMBERS_TERMS = [
   ['Proj', "A lineup's points before its games are played, from Endzone Forecast, our projection engine."],
@@ -144,9 +132,19 @@ export default function MatchupPage() {
     week: matchup?.week,
     bestBall: Boolean(league?.best_ball),
   });
+  // The viewer's Next lock (CONTEXT.md): the week's Lineup problem deadline, else a kickoff among the
+  // games the viewer's own players are in. A viewer with no Team in the Matchup is named no lock.
+  const problem = useMemo(
+    () => lineupProblemFor(actionItems.items, { leagueId, season: matchup?.season, week: matchup?.week }),
+    [actionItems.items, leagueId, matchup?.season, matchup?.week]
+  );
+  const viewerPlayers = useMemo(
+    () => (first.isViewer ? slots.map((s) => s.player).filter(Boolean).concat(benches.first || []) : []),
+    [first.isViewer, slots, benches.first]
+  );
   const lockAt = useMemo(
-    () => nextLockAt(actionItems.items, games, leagueId, matchup?.season, matchup?.week),
-    [actionItems.items, games, leagueId, matchup?.season, matchup?.week]
+    () => nextLockAt(problem?.deadlineAt, viewerPlayers, games),
+    [problem, viewerPlayers, games]
   );
   const template = useMemo(() => parseRosterTemplate(league?.roster_slots), [league?.roster_slots]);
   const now = useNow((at) => (lockAt != null && lockAt > at ? Math.min(lockAt, at + MINUTE_MS) : null), lockAt);

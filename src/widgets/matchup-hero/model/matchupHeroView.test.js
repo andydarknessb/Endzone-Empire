@@ -184,6 +184,11 @@ describe('compactScoreboardView', () => {
   test('is null before kickoff', () => {
     expect(compactScoreboardView({ ...live, status: 'scheduled' }, 10)).toBeNull();
   });
+
+  test('keeps its Tied fallback when a raw score is missing', () => {
+    const view = compactScoreboardView({ ...live, home: { ...dock, score: null } }, 10);
+    expect([view.a.score, view.lead, view.marginText]).toEqual(['0.0', undefined, 'Tied']);
+  });
 });
 
 // formatKickoff itself is shared/lib's contract now (src/shared/lib/

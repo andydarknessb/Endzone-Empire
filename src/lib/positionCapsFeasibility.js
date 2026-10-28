@@ -2,7 +2,7 @@
  * Client-side mirror of server/services/draftValidation.service.js's
  * positionCapsFeasible() — kept in sync by hand (no shared module between
  * client/server in this repo). Used to give the commissioner an immediate,
- * non-blocking warning in the Position Limits panel; the server re-validates
+ * non-blocking warning in the Position caps panel; the server re-validates
  * on save regardless.
  */
 const POSITION_KEYS = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF', 'DL', 'LB', 'DB'];

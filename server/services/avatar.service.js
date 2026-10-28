@@ -52,10 +52,13 @@ async function processUpload(buffer) {
   } catch (error) {
     throw new AvatarError(400, 'could not read image dimensions; file may be corrupt');
   }
+  // Animated images report metadata.height as every frame stacked; one frame
+  // is what MAX_DIMENSION bounds (#2559).
+  const height = metadata.pageHeight ?? metadata.height;
   if (
-    !metadata.width || !metadata.height
-    || metadata.width < MIN_DIMENSION || metadata.height < MIN_DIMENSION
-    || metadata.width > MAX_DIMENSION || metadata.height > MAX_DIMENSION
+    !metadata.width || !height
+    || metadata.width < MIN_DIMENSION || height < MIN_DIMENSION
+    || metadata.width > MAX_DIMENSION || height > MAX_DIMENSION
   ) {
     throw new AvatarError(
       400,

@@ -124,7 +124,8 @@ function diffMatchupScores(before, after) {
 /**
  * Re-score one league week (stats must already be synced) and record any
  * changes: a transaction-log entry plus a league-wide notification, and a
- * commissioner alert when a settled playoff result flipped.
+ * commissioner alert when a settled playoff result flipped or, once the
+ * bracket's seeds are stored, when a final regular-season result moved.
  */
 async function correctLeagueWeek({ leagueId, season, week }) {
   const before = await pool.query(
@@ -189,26 +190,50 @@ async function correctLeagueWeek({ leagueId, season, week }) {
         });
 
         const playoffFlips = changes.filter((c) => c.final && c.isPlayoff && c.winnerFlipped);
-        if (playoffFlips.length > 0) {
+        // A final regular-season result moved. Records can change, but the
+        // seeds were fixed at bracket creation (#2547), so mid-playoffs the
+        // commissioners are told nothing in the bracket moved.
+        const seededChanges = changes.filter((c) => c.final && !c.isPlayoff);
+        if (playoffFlips.length > 0 || seededChanges.length > 0) {
           const ownerResult = await client.query(
-            `SELECT "owner_id" FROM "leagues" WHERE "id" = $1`,
+            `SELECT "owner_id", "season_status" FROM "leagues" WHERE "id" = $1`,
             [leagueId]
           );
-          if (ownerResult.rows[0]) {
-            // Every commissioner, not the creator alone (#188). The alert asks its
-            // reader to rebuild the bracket with their commissioner tools, and a
-            // co-commissioner holds exactly those tools, so resolving the role as
-            // `leagues.owner_id` told the wrong (narrower) set of people. Nobody
-            // is in the loop to notice: this runs from the correction scheduler.
+          const league = ownerResult.rows[0];
+          // Every commissioner, not the creator alone (#188). The alert asks its
+          // reader to rebuild the bracket with their commissioner tools, and a
+          // co-commissioner holds exactly those tools, so resolving the role as
+          // `leagues.owner_id` told the wrong (narrower) set of people. Nobody
+          // is in the loop to notice: this runs from the correction scheduler.
+          if (league && playoffFlips.length > 0) {
             await notifyCommissioners(client, {
               leagueId,
-              ownerId: ownerResult.rows[0].owner_id,
+              ownerId: league.owner_id,
               type: 'stat_correction',
               message:
                 `A stat correction flipped the result of ${playoffFlips.length} settled playoff ` +
                 `matchup(s) in week ${week}. Later rounds were NOT changed automatically. ` +
                 `Review the bracket with your commissioner tools.`,
               data: { season, week, matchupIds: playoffFlips.map((c) => c.matchupId) },
+            });
+          }
+          // Only a bracket with stored seeds is locked; a League already in its
+          // playoffs before seeds were stored still derives them from standings.
+          const locked = league && league.season_status === 'playoffs' && seededChanges.length > 0 &&
+            (await client.query(
+              `SELECT 1 FROM "playoff_seeds" WHERE "league_id" = $1 AND "season" = $2 LIMIT 1`,
+              [leagueId, season]
+            )).rows.length > 0;
+          if (locked) {
+            await notifyCommissioners(client, {
+              leagueId,
+              ownerId: league.owner_id,
+              type: 'stat_correction',
+              message:
+                `A stat correction changed ${seededChanges.length} final regular-season ` +
+                `matchup(s) in week ${week}. Records may have moved, but the playoff seeds are locked: ` +
+                `the bracket, the byes and the seed order did not change.`,
+              data: { season, week, matchupIds: seededChanges.map((c) => c.matchupId) },
             });
           }
         }

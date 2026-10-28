@@ -326,9 +326,16 @@ router.get('/league/:id/standings', async (req, res) => {
     if (!leagueResult.rows[0]) return res.status(404).json({ error: 'league not found' });
     const standings = await season.getStandings({ leagueId });
     const playoffTeams = leagueResult.rows[0].playoff_teams;
+    // Once the bracket exists its seeds are fixed (#2547); until then the seed
+    // is the live rank.
+    const seeds = await season.getPlayoffSeeds({ leagueId });
+    const playoffSeed = (s) => {
+      if (seeds.size > 0) return seeds.get(s.teamId) ?? null;
+      return s.rank <= playoffTeams ? s.rank : null;
+    };
     res.json({
       league: leagueResult.rows[0],
-      standings: standings.map((s) => ({ ...s, playoffSeed: s.rank <= playoffTeams ? s.rank : null })),
+      standings: standings.map((s) => ({ ...s, playoffSeed: playoffSeed(s) })),
     });
   } catch (error) {
     if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });

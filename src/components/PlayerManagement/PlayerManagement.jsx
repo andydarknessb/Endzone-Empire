@@ -386,7 +386,9 @@ function PlayerManagement() {
         leagueId={selectedLeague}
         bestBall={bestBall}
         stickyHead
-        ready={leaguesLoaded}
+        // #2553: with leagues but none selected yet, the redirect to the first
+        // one is pending; reading now would be a throwaway leagueless fetch.
+        ready={leaguesLoaded && (leagues.length === 0 || !!activeLeague)}
         columnCount={playerRowColumnCount(bestBall)}
         renderTableHead={(headProps) => <PlayerRowTableHead {...headProps} />}
         renderRow={(player, variant) => (

@@ -21,6 +21,8 @@ import LeagueTrophiesPage from '../league-trophies';
 jest.mock('../../api/apiClient', () => ({
   __esModule: true,
   default: { get: jest.fn(), post: jest.fn(), put: jest.fn(), delete: jest.fn() },
+  // createDraftSocket (reached through the real chat panel's socket.js) subscribes to token refreshes.
+  onTokenRefreshed: jest.fn(),
 }));
 
 // The legacy chat panel the cutover (#645) composes "as-is" is a lightweight

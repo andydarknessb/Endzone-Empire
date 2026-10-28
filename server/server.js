@@ -50,7 +50,7 @@ const pool = require('./modules/pool');
 const { attachDraftSocket, closeDraftSocket } = require('./modules/draftSocket');
 const { startScheduler, stopScheduler } = require('./modules/scheduler');
 const { startLiveGameEngine, stopLiveGameEngine } = require('./modules/liveGameEngine');
-const { createRateLimiter } = require('./modules/rateLimit');
+const { createRateLimiter, createCredentialLimiters } = require('./modules/rateLimit');
 const { callerKey } = require('./modules/auth');
 const { requestLogMiddleware } = require('./modules/requestLog');
 const { getClientOrigins, getCorsOptions } = require('./modules/clientOrigins');
@@ -115,14 +115,7 @@ const generalApiLimiter = createRateLimiter({
   max: 300,
   keyFn: callerKey,
 });
-const credentialLimiter = createRateLimiter({
-  windowMs: 10 * 60 * 1000,
-  max: 20,
-  keyFn: (req) => {
-    const account = String(req.body?.username || req.body?.email || '').trim().toLowerCase();
-    return `${req.ip}:${account || 'unknown'}`;
-  },
-});
+const { account: credentialLimiter, registerIp, loginIp, forgotEmail } = createCredentialLimiters();
 const refreshLimiter = createRateLimiter({
   windowMs: 60 * 1000,
   max: 60,
@@ -130,6 +123,9 @@ const refreshLimiter = createRateLimiter({
 });
 
 app.use('/api', generalApiLimiter);
+app.use('/api/auth/register', registerIp);
+app.use('/api/auth/login', loginIp);
+app.use('/api/auth/forgot-password', forgotEmail);
 app.use(
   ['/api/auth/login', '/api/auth/register', '/api/auth/forgot-password'],
   credentialLimiter

@@ -38,6 +38,14 @@ apiClient.interceptors.request.use((config) => {
 
 let refreshPromise = null;
 
+// Who wants the new access token after every successful refresh (a live draft
+// socket tells its server). Returns the unsubscribe.
+const refreshListeners = new Set();
+export function onTokenRefreshed(listener) {
+  refreshListeners.add(listener);
+  return () => refreshListeners.delete(listener);
+}
+
 // The refresh endpoint answers 204 with no body when the browser sent no refresh
 // cookie: an anonymous visitor has no session to restore. That is a refusal
 // every caller must treat like a 401 (the cookie is httpOnly, so only the
@@ -60,6 +68,7 @@ function storeRotatedAccessToken(response) {
     throw error;
   }
   setToken(token);
+  refreshListeners.forEach((listener) => listener(token));
   return token;
 }
 

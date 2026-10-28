@@ -792,9 +792,9 @@ test('a week-1 bundle exposes the prior season allowance by defense from stored 
     // (fn_normalize_nfl_team applied to the STORED "gameOpponent" key), since
     // the mock returns fixture rows verbatim rather than executing SQL.
     priorSeasonScan: [
-      { player_id: 10, week: 1, position: 'WR', defense: 'NE', stats: { receivingYards: 90, receptions: 6, gameOpponent: 'NE' } },
-      { player_id: 10, week: 2, position: 'WR', defense: 'MIA', stats: { receivingYards: 70, receptions: 5, gameOpponent: 'MIA' } },
-      { player_id: 11, week: 1, position: 'WR', defense: 'NE', stats: { receivingYards: 110, receptions: 8, gameOpponent: 'NE' } },
+      { player_id: 10, week: 1, position: 'WR', defense: 'NE', stats: { receivingYards: 90, receptions: 6, gameTeam: 'BUF', gameOpponent: 'NE' } },
+      { player_id: 10, week: 2, position: 'WR', defense: 'MIA', stats: { receivingYards: 70, receptions: 5, gameTeam: 'BUF', gameOpponent: 'MIA' } },
+      { player_id: 11, week: 1, position: 'WR', defense: 'NE', stats: { receivingYards: 110, receptions: 8, gameTeam: 'BUF', gameOpponent: 'NE' } },
     ],
     priorDefenseGames: [{ team: 'NE', prior_games: 2 }, { team: 'MIA', prior_games: 1 }],
   });
@@ -823,10 +823,10 @@ test('a week-1 run seeds the opponent factor from the prior season, with no rank
     }],
     targetSchedule: target,
     priorSeasonScan: [
-      { player_id: 20, week: 1, position: 'WR', defense: 'NE', stats: { receivingYards: 120, receptions: 9, gameOpponent: 'NE' } },
-      { player_id: 20, week: 2, position: 'WR', defense: 'NE', stats: { receivingYards: 110, receptions: 8, gameOpponent: 'NE' } },
-      { player_id: 21, week: 1, position: 'WR', defense: 'MIA', stats: { receivingYards: 40, receptions: 3, gameOpponent: 'MIA' } },
-      { player_id: 21, week: 2, position: 'WR', defense: 'MIA', stats: { receivingYards: 30, receptions: 2, gameOpponent: 'MIA' } },
+      { player_id: 20, week: 1, position: 'WR', defense: 'NE', stats: { receivingYards: 120, receptions: 9, gameTeam: 'BUF', gameOpponent: 'NE' } },
+      { player_id: 20, week: 2, position: 'WR', defense: 'NE', stats: { receivingYards: 110, receptions: 8, gameTeam: 'BUF', gameOpponent: 'NE' } },
+      { player_id: 21, week: 1, position: 'WR', defense: 'MIA', stats: { receivingYards: 40, receptions: 3, gameTeam: 'BUF', gameOpponent: 'MIA' } },
+      { player_id: 21, week: 2, position: 'WR', defense: 'MIA', stats: { receivingYards: 30, receptions: 2, gameTeam: 'BUF', gameOpponent: 'MIA' } },
     ],
     priorDefenseGames: [{ team: 'NE', prior_games: 2 }, { team: 'MIA', prior_games: 2 }],
   });
@@ -890,8 +890,8 @@ test('a week-1 run truncates p10 at the prior-season position floor (#1483)', as
   // `priorSeasonContext.minObservedPoints`. Player 30's -4 (0 rushing yards,
   // two fumbles lost) is the group minimum; player 31's 20 is well above it.
   const priorSeasonScan = [
-    { player_id: 30, week: 1, position: 'WR', defense: 'NE', stats: { rushingYards: 0, fumbles: 2, gameOpponent: 'NE' } },
-    { player_id: 31, week: 1, position: 'WR', defense: 'MIA', stats: { rushingYards: 200, gameOpponent: 'MIA' } },
+    { player_id: 30, week: 1, position: 'WR', defense: 'NE', stats: { rushingYards: 0, fumbles: 2, gameTeam: 'BUF', gameOpponent: 'NE' } },
+    { player_id: 31, week: 1, position: 'WR', defense: 'MIA', stats: { rushingYards: 200, gameTeam: 'BUF', gameOpponent: 'MIA' } },
   ];
   const priorDefenseGames = [{ team: 'NE', prior_games: 1 }, { team: 'MIA', prior_games: 1 }];
   // Player 1's OWN history (a prior season, since week 1 has no in-season
@@ -899,14 +899,14 @@ test('a week-1 run truncates p10 at the prior-season position floor (#1483)', as
   // this is what proves the truncation actually fires, not merely that the
   // floor was computed.
   const weeklyStats = [
-    weeklyRow(1, 1, { rushingYards: 300 }, SEASON - 1),
-    weeklyRow(1, 2, { rushingYards: 20 }, SEASON - 1),
-    weeklyRow(1, 3, { rushingYards: 250 }, SEASON - 1),
-    weeklyRow(1, 4, { rushingYards: 100 }, SEASON - 1),
+    weeklyRow(1, 1, { rushingYards: 300, gameTeam: 'BUF' }, SEASON - 1),
+    weeklyRow(1, 2, { rushingYards: 20, gameTeam: 'BUF' }, SEASON - 1),
+    weeklyRow(1, 3, { rushingYards: 250, gameTeam: 'BUF' }, SEASON - 1),
+    weeklyRow(1, 4, { rushingYards: 100, gameTeam: 'BUF' }, SEASON - 1),
     // A fifth game keeps the pool ODD: under v3.2 an even pool is re-centred on
     // its median residual (#1769), which lifts this fixture's p10 clear of the
     // floor and stops it proving the truncation fires.
-    weeklyRow(1, 5, { rushingYards: 0 }, SEASON - 1),
+    weeklyRow(1, 5, { rushingYards: 0, gameTeam: 'BUF' }, SEASON - 1),
   ];
 
   mockPool(t, {
@@ -938,8 +938,8 @@ test('an even own-residual pool is re-centred on its median residual, then trunc
   // well ABOVE where the widened, re-centred p10 lands: the truncation still
   // fires after the re-centring, which is the order this pins end to end.
   const priorSeasonScan = [
-    { player_id: 30, week: 1, position: 'WR', defense: 'NE', stats: { rushingYards: 100, gameOpponent: 'NE' } },
-    { player_id: 31, week: 1, position: 'WR', defense: 'MIA', stats: { rushingYards: 200, gameOpponent: 'MIA' } },
+    { player_id: 30, week: 1, position: 'WR', defense: 'NE', stats: { rushingYards: 100, gameTeam: 'BUF', gameOpponent: 'NE' } },
+    { player_id: 31, week: 1, position: 'WR', defense: 'MIA', stats: { rushingYards: 200, gameTeam: 'BUF', gameOpponent: 'MIA' } },
   ];
   const priorDefenseGames = [{ team: 'NE', prior_games: 1 }, { team: 'MIA', prior_games: 1 }];
   const floor = calculateFantasyPoints({ rushingYards: 100 }, SCORING_RULES);
@@ -947,7 +947,7 @@ test('an even own-residual pool is re-centred on its median residual, then trunc
   // FOUR own games: an EVEN pool whose two middle values differ, so the two
   // middle support points sit far apart and re-centring is observable.
   const yards = [300, 20, 250, 100];
-  const weeklyStats = yards.map((y, i) => weeklyRow(1, i + 1, { rushingYards: y }, SEASON - 1));
+  const weeklyStats = yards.map((y, i) => weeklyRow(1, i + 1, { rushingYards: y, gameTeam: 'BUF' }, SEASON - 1));
   const points = yards.map((y) => calculateFantasyPoints({ rushingYards: y }, SCORING_RULES));
   // playerResidualsFrom: per-game points around their unweighted mean.
   const pointsMean = points.reduce((s, p) => s + p, 0) / points.length;
@@ -970,6 +970,134 @@ test('an even own-residual pool is re-centred on its median residual, then trunc
   assert.ok(
     Math.abs(result.median - (result.mean + medianResidual)) <= 0.011,
     `median ${result.median} sits at mean ${result.mean} + median residual ${medianResidual}`
+  );
+});
+
+// ---------------------------------------------------------------------------
+// #1440: under v3.2, production averages over Appearances only. An Appearance
+// is a row carrying `gameTeam` (the nflverse writer's key), whatever the stat
+// line; the live/final box writes a row for every rostered player with no
+// gameTeam, and those rows are not games.
+// ---------------------------------------------------------------------------
+
+test('under MODEL_CONSTANTS_V3_2 a row with no gameTeam leaves the recency mean (#1440)', async (t) => {
+  mockPool(t, {
+    players: [player(1, 'RB')],
+    weeklyStats: [
+      weeklyRow(1, 1, { rushingYards: 100, gameTeam: 'BUF' }),
+      weeklyRow(1, 2, { rushingYards: 0, rushingTDs: 0 }),
+    ],
+  });
+  const generated = await projection.generateProjections({
+    season: SEASON, week: 3, rules: SCORING_RULES, playerIds: [1],
+    hashValue: 'h', weatherService: false, modelConstants: model.MODEL_CONSTANTS_V3_2,
+  });
+  const production = generated.projections.get(1).factors.recentProduction;
+  assert.equal(production.games, 1, 'the unlabelled all-zero row is not a game');
+  assert.equal(production.perGame, 10, 'the mean is the 100-yard game alone');
+});
+
+test('under MODEL_CONSTANTS_V3_2 a zero-stat row with gameTeam is still an Appearance (#1440)', async (t) => {
+  mockPool(t, {
+    players: [player(1, 'RB')],
+    weeklyStats: [
+      weeklyRow(1, 1, { rushingYards: 100, gameTeam: 'BUF' }),
+      weeklyRow(1, 2, { rushingYards: 0, rushingTDs: 0, gameTeam: 'BUF' }),
+    ],
+  });
+  const generated = await projection.generateProjections({
+    season: SEASON, week: 3, rules: SCORING_RULES, playerIds: [1],
+    hashValue: 'h', weatherService: false, modelConstants: model.MODEL_CONSTANTS_V3_2,
+  });
+  const production = generated.projections.get(1).factors.recentProduction;
+  assert.equal(production.games, 2, 'he dressed and scored zero: a real game');
+  // 4.84: the zero counts. Recency-weighted mean of 10 (two weeks back) and 0
+  // (one week back), blended 25% with the flat mean, is 4.837, not 10.
+  assert.equal(production.perGame, 4.84);
+});
+
+test('MODEL_CONSTANTS (v3.1) still counts rows with no gameTeam as games (#1440)', async (t) => {
+  mockPool(t, {
+    players: [player(1, 'RB')],
+    weeklyStats: [
+      weeklyRow(1, 1, { rushingYards: 100, gameTeam: 'BUF' }),
+      weeklyRow(1, 2, { rushingYards: 0, rushingTDs: 0 }),
+    ],
+  });
+  const generated = await projection.generateProjections({
+    season: SEASON, week: 3, rules: SCORING_RULES, playerIds: [1],
+    hashValue: 'h', weatherService: false, modelConstants: model.MODEL_CONSTANTS,
+  });
+  const production = generated.projections.get(1).factors.recentProduction;
+  assert.equal(production.games, 2, 'the shipped version is unchanged');
+  assert.equal(production.perGame, 4.84, 'the unlabelled row still drags the mean down');
+});
+
+// #1440 amended 2026-10-27: an Appearance is a `gameTeam` label OR a non-zero
+// stat line. The box writes no gameTeam, so a box row with a real line is a game.
+async function gamesUnderV32(t, stats) {
+  mockPool(t, { players: [player(1, 'RB')], weeklyStats: [weeklyRow(1, 1, stats)] });
+  const generated = await projection.generateProjections({
+    season: SEASON, week: 2, rules: SCORING_RULES, playerIds: [1],
+    hashValue: 'h', weatherService: false, modelConstants: model.MODEL_CONSTANTS_V3_2,
+  });
+  const production = generated.projections.get(1).factors.recentProduction;
+  return production ? production.games : 0; // no counted game leaves no production factor
+}
+
+test('under MODEL_CONSTANTS_V3_2 a row with no gameTeam and a non-zero stat is a game (#1440)', async (t) => {
+  assert.equal(await gamesUnderV32(t, { rushingYards: 30 }), 1);
+});
+
+test('under MODEL_CONSTANTS_V3_2 a row with no gameTeam whose only non-zero stat is snaps is a game (#1440)', async (t) => {
+  assert.equal(await gamesUnderV32(t, { rushingYards: 0, usageOffenseSnaps: 42 }), 1);
+});
+
+test('under MODEL_CONSTANTS_V3_2 an all-zero row is a game only with gameTeam (#1440)', async (t) => {
+  assert.equal(await gamesUnderV32(t, { rushingYards: 0, usageOffenseSnaps: 0 }), 0);
+  assert.equal(await gamesUnderV32(t, { rushingYards: 0, usageOffenseSnaps: 0, gameTeam: 'BUF' }), 1);
+});
+
+// The league scans read the run's constants: an all-zero row with no gameTeam
+// is no Appearance under v3.2 and a game under v3.1, so the baseline and the
+// position floor they seed differ between the two.
+test('the current-season league scan honours the run constants (#1440)', async (t) => {
+  const leagueScan = [
+    { player_id: 2, week: 1, position: 'RB', defense: 'NYJ', home_away: 'home', stats: { rushingYards: 100, gameTeam: 'MIA' } },
+    { player_id: 3, week: 1, position: 'RB', defense: 'NYJ', home_away: 'home', stats: { rushingYards: 0 } },
+  ];
+  const baselineUnder = async (modelConstants) => {
+    mockPool(t, { players: [player(1, 'RB')], leagueScan });
+    const generated = await projection.generateProjections({
+      season: SEASON, week: 2, rules: SCORING_RULES, playerIds: [1],
+      hashValue: 'h', weatherService: false, modelConstants,
+    });
+    return generated.projections.get(1).mean;
+  };
+  const v32 = await baselineUnder(model.MODEL_CONSTANTS_V3_2);
+  const v31 = await baselineUnder(model.MODEL_CONSTANTS);
+  assert.notEqual(v32, v31, 'the zero row counts in v3.1 only, so the position baseline differs');
+});
+
+test('the prior-season league scan honours the run constants (#1440)', async (t) => {
+  mockPool(t, {
+    players: [player(1, 'RB')],
+    // Own history is what makes the engine report a distribution, and with it the floor.
+    weeklyStats: [300, 20, 250, 100, 0].map((y, i) => weeklyRow(1, i + 1, { rushingYards: y, gameTeam: 'BUF' }, SEASON - 1)),
+    priorSeasonScan: [
+      { player_id: 2, week: 1, position: 'RB', defense: 'NYJ', stats: { rushingYards: 100, gameTeam: 'MIA', gameOpponent: 'NYJ' } },
+      { player_id: 3, week: 1, position: 'RB', defense: 'NYJ', stats: { rushingYards: 0, gameOpponent: 'NYJ' } },
+    ],
+    priorDefenseGames: [{ team: 'NYJ', prior_games: 2 }],
+  });
+  const generated = await projection.generateProjections({
+    season: SEASON, week: 1, rules: SCORING_RULES, playerIds: [1],
+    hashValue: 'h', weatherService: false, modelConstants: model.MODEL_CONSTANTS_V3_2,
+  });
+  const floor = calculateFantasyPoints({ rushingYards: 100 }, SCORING_RULES);
+  assert.equal(
+    generated.projections.get(1).factors.dataQuality.positionFloor, floor,
+    'the zero row with no gameTeam is no Appearance, so the floor is the 100-yard game, not 0'
   );
 });
 
@@ -3419,8 +3547,8 @@ test('toWeeklyProjectionResult: weatherAppliedFor and marketAppliedFor read the 
 
 const DEPTH_CHALLENGER = model.constantsForVersion('free_baseline_v3.2+depth');
 const depthScan = [
-  { player_id: 10, week: 1, position: 'WR', defense: 'NE', stats: { receivingYards: 100 } },
-  { player_id: 11, week: 1, position: 'WR', defense: 'NE', stats: { receivingYards: 20 } },
+  { player_id: 10, week: 1, position: 'WR', defense: 'NE', stats: { receivingYards: 100, gameTeam: 'BUF' } },
+  { player_id: 11, week: 1, position: 'WR', defense: 'NE', stats: { receivingYards: 20, gameTeam: 'BUF' } },
 ];
 const depthRows = [
   { player_id: 1, rank: 1 }, { player_id: 2, rank: 2 }, { player_id: 10, rank: 1 }, { player_id: 11, rank: 3 },

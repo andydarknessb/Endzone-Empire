@@ -480,6 +480,11 @@ const MODEL_CONSTANTS = {
  *    smoothed path already applies. A translation moves the Interval's
  *    position, never its width. Odd pools are untouched: their median is a
  *    support point already.
+ *  - `baseline.appearancesOnly: true` (#1440). Only an Appearance counts as a
+ *    game in the league-context buckets and in a player's recency mean: a row
+ *    carrying the stored per-week `gameTeam`, or one with a non-zero stat. The
+ *    live/final box writes an all-zero row for a rostered player who never took
+ *    the field, and under v3.1 each one drags a player's average down.
  *  - `opponent.priorSeasonPseudoGames: 4` (#1485). How many games of
  *    evidence the PRIOR season's points-allowed ratio is worth when seeding a
  *    defense's current-season allowance, the same pseudo-game idiom as
@@ -491,9 +496,10 @@ const MODEL_CONSTANTS = {
  *    "insufficient opponent sample" while the card prints the matchup as if
  *    it mattered. The cap and the shrinkage toward neutral are untouched.
  *
- * All four are DEFAULTS, not fitted values, preregistered once and judged
- * on the 2026 holdout ledger through #1439 with the rest of v3.2; no sweep
- * on that ledger.
+ * Of the five keys above, four are DEFAULTS, not fitted values, and
+ * `baseline.appearancesOnly` is an on/off switch, not a default value; all five
+ * are preregistered once and judged on the 2026 holdout ledger through #1439
+ * with the rest of v3.2; no sweep on that ledger.
  */
 function cloneConstants(value) {
   if (Array.isArray(value)) return value.map(cloneConstants);
@@ -516,6 +522,7 @@ const MODEL_CONSTANTS_V3_2 = (() => {
   v32.simulation.truncateAtPositionFloor = true;
   v32.simulation.centerEvenPoolMedian = true;
   v32.opponent.priorSeasonPseudoGames = 4;
+  v32.baseline.appearancesOnly = true;
   return deepFreeze(v32);
 })();
 

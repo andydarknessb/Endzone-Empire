@@ -4,9 +4,9 @@ import { useSnackbar } from '../../Snackbar/SnackbarProvider';
 import { formatViewerLocalSchedule } from '../../../lib/draftTimeFormat';
 import { formatInstant } from '../../../shared/lib/instantFormat';
 import { deriveLeaguePhase, LEAGUE_PHASE, LEAGUE_PHASE_META } from '../../../shared/lib/leaguePhase';
-// The narrow module, not the entity index: this card is in the initial chunk
+// The pure entry, not the entity index: this card is in the initial chunk
 // and the index drags the hooks, the supabase client and their lazy routes in.
-import { matchupBoard } from '../../../entities/matchup/model/matchupBoard';
+import { matchupFace } from '../../../entities/matchup/board';
 import { teamStandingFromRow } from '../../../entities/standings';
 import { PsButton, PsLink, OddsBar, Pictogram, SR_ONLY_SX, pixelSx } from '../../../shared/ui/playselect';
 import { LeagueLinks, LeaguePanel } from './League';
@@ -75,20 +75,16 @@ const finiteOrNull = (v) => {
   return Number.isFinite(n) ? n : null;
 };
 
-const fmt = (v) => {
-  const n = finiteOrNull(v);
-  return n == null ? '-' : n.toFixed(1);
-};
+// `my` is the viewer's side and rides as home: with no viewer id the face puts home first.
+// `game.firstPct` is the viewer's 0..100 chance: the server's figure once v2 ships, else v1 on the two Expected finals.
+const faceOf = (matchup) => matchupFace(
+  { status: matchup.status, home: matchup.my, away: matchup.opp },
+  { serverWinProbability: finiteOrNull(matchup.winProbability) },
+);
 
-/** 0..100 chance the viewer's side wins: the server's figure once v2 ships, else v1 on the two Expected finals. */
-function winPct(matchup, board) {
-  const server = finiteOrNull(matchup.winProbability);
-  const p = server ?? (board.winProbability ?? board.projectedWinProbability)?.first;
-  return p == null ? null : Math.round(p * 100);
-}
-
-// `my` is the viewer's side and rides as home: with no viewer id the board puts home first.
-const boardOf = (matchup) => matchupBoard({ status: matchup.status, home: matchup.my, away: matchup.opp });
+// A settled card states a score of record; a missing one is unknown, not 0.0.
+// The live tile keeps scoreLabel (0.0) because a live game can be scoreless.
+const finalScore = (side) => (finiteOrNull(side.score) == null ? '-' : side.scoreLabel);
 
 function lineupText(lineup) {
   const problems = Array.isArray(lineup?.problems) ? lineup.problems : [];
@@ -120,7 +116,7 @@ function tileKind(league, live = false) {
   if (variant === 'fantasy') {
     const { matchup } = league.status;
     if (matchup?.status !== 'live') return null;
-    return winPct(matchup, boardOf(matchup)) == null ? null : 'score';
+    return faceOf(matchup).game.firstPct == null ? null : 'score';
   }
   return live && variant === 'pickem' && LIVE_PHASES.includes(leaguePhaseOf(league)) ? 'pickem' : null;
 }
@@ -201,23 +197,17 @@ function PanelNav({ league, links }) {
   );
 }
 
-function resultOf(matchup) {
-  const my = finiteOrNull(matchup.my?.score);
-  const opp = finiteOrNull(matchup.opp?.score);
-  if (my == null || opp == null) return null;
-  if (my > opp) return 'won';
-  if (my < opp) return 'lost';
-  return 'tied';
-}
-
 const RESULT_WORDS = { won: 'You won', lost: 'You lost', tied: 'Tied' };
 
 function FinalBody({ league }) {
   const { status } = league;
   const { matchup } = status;
-  const result = resultOf(matchup);
-  const opp = { name: matchup.opponent?.name || 'Opponent', score: fmt(matchup.opp?.score) };
-  const you = fmt(matchup.my?.score);
+  const { first, second, game } = faceOf(matchup);
+  // The raw scores decide (100.04 v 99.96 is a win, not the tie the printed figures show); no result
+  // line means a score is missing, and no result is invented from it.
+  const result = game.resultLine == null ? null : { first: 'won', second: 'lost' }[game.scoreLeader] || 'tied';
+  const opp = { name: matchup.opponent?.name || 'Opponent', score: finalScore(second) };
+  const you = finalScore(first);
   const record = recordText(status.record);
   const standing = standingText(status.standing);
   const now = record ? `Now ${record}${standing ? `, ${standing}` : ''}.` : null;
@@ -277,9 +267,9 @@ function FantasyBody({ league }) {
       </>
     );
   }
-  // A settled week states no Expected final (#2048); the board nulls it.
-  const board = boardOf(matchup);
-  if (board.isFinal) return <FinalBody league={league} />;
+  // A settled week states no Expected final (#2048); the face nulls it.
+  const { first, second, game } = faceOf(matchup);
+  if (game.isFinal) return <FinalBody league={league} />;
   const opponent = matchup.opponent?.name || 'Opponent';
   // The matchup's own first kickoff when the server sent it, else the lineup's next lock.
   const kickoffAt = matchup.kickoffAt || status.lineup?.nextLockAt;
@@ -287,32 +277,31 @@ function FantasyBody({ league }) {
     ? formatInstant(kickoffAt, 'weekdayTime')
     : null;
   const sub = [`vs ${opponent}`, kickoff && `kicks off ${kickoff}`].filter(Boolean).join(' · ');
-  if (board.settled) {
+  if (game.settled) {
     // Played, awaiting the final: the scores stand, no projection and no odds.
     return (
       <>
         <StatusLine league={league} sub={sub} />
-        <PanelSides you={fmt(matchup.my?.score)} opp={{ name: opponent, score: fmt(matchup.opp?.score) }} mid="Played" />
+        <PanelSides you={finalScore(first)} opp={{ name: opponent, score: finalScore(second) }} mid="Played" />
         <Box sx={dimLineSx}>Awaiting final scores.</Box>
         <PicksLine pickem={status.pickem} week={status.week} />
       </>
     );
   }
-  const projected = board.first.expectedFinal != null && board.second.expectedFinal != null;
-  const pct = winPct(matchup, board);
+  const projected = first.expectedFinalLabel != null && second.expectedFinalLabel != null;
   const lineup = status.lineup && (lineupText(status.lineup) || 'Lineup set');
   return (
     <>
       <StatusLine league={league} sub={sub} />
       {projected && (
         <PanelSides
-          you={fmt(board.first.expectedFinal)}
-          opp={{ name: opponent, score: fmt(board.second.expectedFinal) }}
+          you={first.expectedFinalLabel}
+          opp={{ name: opponent, score: second.expectedFinalLabel }}
           mid="Projected"
         />
       )}
       {/* Frame colour, never green: green is live state only. */}
-      {pct != null && <OddsBar pct={pct} live={false} />}
+      {game.firstPct != null && <OddsBar pct={game.firstPct} live={false} />}
       {lineup && <Box sx={{ fontSize: '15px' }}>{lineup}</Box>}
       <PicksLine pickem={status.pickem} week={status.week} />
     </>
@@ -409,45 +398,41 @@ function BasicBody({ league }) {
   );
 }
 
-const playersNote = (n) => (n == null ? null : `${n} ${n === 1 ? 'player' : 'players'} remaining`);
-
 function ScoreTileFor({ league, scored }) {
   const { status } = league;
   const { matchup } = status;
-  const board = boardOf(matchup);
-  const my = finiteOrNull(matchup.my?.score) ?? 0;
-  const theirs = finiteOrNull(matchup.opp?.score) ?? 0;
-  const diff = Math.round(Math.abs(my - theirs) * 10) / 10;
+  const { first, second, game } = faceOf(matchup);
   let margin = 'Tied';
   let verb = 'you are tied with';
-  if (diff > 0 && my > theirs) {
-    margin = `Up ${diff.toFixed(1)}`;
+  if (game.leader === 'first') {
+    margin = `Up ${game.scoreGap.toFixed(1)}`;
     verb = 'you lead';
-  } else if (diff > 0) {
-    margin = `Down ${diff.toFixed(1)}`;
+  } else if (game.leader === 'second') {
+    margin = `Down ${game.scoreGap.toFixed(1)}`;
     verb = 'you trail';
   }
-  const pct = winPct(matchup, board);
+  const pct = game.firstPct;
   const opponent = matchup.opponent?.name || 'Opponent';
-  const myLeft = finiteOrNull(matchup.my?.playersRemaining);
-  const theirLeft = finiteOrNull(matchup.opp?.playersRemaining);
+  const myLeft = first.playersRemainingLabel;
+  const theirLeft = second.playersRemainingLabel;
   const left = myLeft != null && theirLeft != null ? ` ${myLeft} of your players and ${theirLeft} of theirs remain.` : '';
   const statusLine = [
     [recordText(status.record), standingText(status.standing)].filter(Boolean).join(' · '),
     lineupText(status.lineup),
   ].filter(Boolean).join(', ');
   const pickem = status.pickem?.total > 0 ? `${status.pickem.made} of ${status.pickem.total} picks in` : null;
+  // The tile's result follows the raw scores: a raw win that prints as a tie stays bright.
   return (
     <ScoreTile
       league={league.name}
       status={statusLine}
-      you={{ name: 'You', score: board.first.scoreLabel, note: playersNote(myLeft) }}
-      opp={{ name: opponent, score: board.second.scoreLabel, note: playersNote(theirLeft) }}
-      youLeads={my >= theirs}
+      you={{ name: 'You', score: first.scoreLabel, note: first.remainingText }}
+      opp={{ name: opponent, score: second.scoreLabel, note: second.remainingText }}
+      youLeads={(finiteOrNull(first.score) ?? 0) >= (finiteOrNull(second.score) ?? 0)}
       margin={margin}
       pct={pct}
       to={`/league/${league.id}/matchups/${matchup.id}`}
-      ariaLabel={`${league.name} matchup: ${verb} ${opponent} ${board.first.scoreLabel} to ${board.second.scoreLabel}, ${margin.toLowerCase()}, ${pct}% win probability.${left}`}
+      ariaLabel={`${league.name} matchup: ${verb} ${opponent} ${first.scoreLabel} to ${second.scoreLabel}, ${margin.toLowerCase()}, ${pct}% win probability.${left}`}
       links={leagueLinks(league).filter((l) => l.label !== 'Matchup')}
       extra={pickem && <Box sx={{ fontSize: '14px', color: 'var(--ps-board-dim)' }}>{pickem}</Box>}
       scored={scored}

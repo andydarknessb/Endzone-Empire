@@ -58,6 +58,11 @@ const { assertRosterWriteAllowed, ROSTER_GATE } = require('./rosterGate.service'
  * own team, and skips the team-lock check (an offline draft is entirely
  * commissioner-driven).
  *
+ * `expectedDeadline` is set only by an Autopick: the deadline its firing saw
+ * expire. Every re-arm moves pick_deadline_at, so a value that differs from the
+ * locked row means the firing is stale and this Pick is refused with a 409
+ * `CLOCK_MOVED` and no Pick is inserted (#2549).
+ *
  * Exported as the fan-out-free commit seam. `landPick` is the one export a caller
  * reaches for (ruling 1); `commitPick` is exported because two kinds of test need
  * the commit WITHOUT the room fan-out, not merely to mock it: the autopick and
@@ -67,7 +72,7 @@ const { assertRosterWriteAllowed, ROSTER_GATE } = require('./rosterGate.service'
  * scaffold Pick must not broadcast) or need a broadcast the harness never
  * registered. landPick invokes it through the module exports so the mock is seen.
  */
-async function commitPick({ leagueId, userId, playerId, auto = false, byCommissioner = false }) {
+async function commitPick({ leagueId, userId, playerId, auto = false, byCommissioner = false, expectedDeadline }) {
   // withTransaction owns connect, BEGIN, COMMIT-or-guarded-ROLLBACK and the
   // release rule (ADR 0033). The 23505 -> DraftError mapping that used to sit in
   // this transaction's own catch now sits in a catch around the wrapper (#1063
@@ -91,6 +96,14 @@ async function commitPick({ leagueId, userId, playerId, auto = false, byCommissi
       // free agency (draft.service.addFreeAgent), never a Pick (#782 ruling 2).
       if (league.draft_status !== 'active') {
         throw new DraftError(409, 'the draft is not active');
+      }
+      // An Autopick carries the deadline it saw expire. Every re-arm (a Pick, undo,
+      // resume, autodraft toggle) moves pick_deadline_at, so a differing locked value
+      // means this firing is stale. The turn check below cannot tell: a CPU Team is
+      // resolved from the clock, and a back-to-back snake Team is on it again (#2549).
+      if (expectedDeadline != null
+        && new Date(expectedDeadline).getTime() !== new Date(league.pick_deadline_at).getTime()) {
+        throw new DraftError(409, 'the pick clock moved on', 'CLOCK_MOVED');
       }
       if (byCommissioner && !(await isLeagueCommissioner(client, leagueId, userId))) {
         throw new DraftError(403, 'only the commissioner can enter picks for this draft');
@@ -285,16 +298,6 @@ async function commitPick({ leagueId, userId, playerId, auto = false, byCommissi
           [myTeam.id]
         );
       }
-      if (draftComplete) {
-        // The clock flipped draft_status to 'complete' above; the one draft->season
-        // handoff runs on this same transaction (#789): it opens the waiver window,
-        // schedules the season, and appends the actor-less COMPLETE lifecycle entry,
-        // returned here to broadcast after COMMIT.
-        completion = await draftCompletion.completeDraft(client, { leagueId });
-      } else {
-        nextTeamId = nextTeam.id;
-      }
-
       await client.query(
         `INSERT INTO "team_players" ("league_id", "team_id", "player_id")
          VALUES ($1, $2, $3)`,
@@ -305,6 +308,20 @@ async function commitPick({ leagueId, userId, playerId, auto = false, byCommissi
       // 13) - draft picks included, since the lineup screen has no draft guard and
       // a mid-draft drop leaves rows behind like any other.
       await lineupService.benchAcquiredPlayer(client, { league, teamId: myTeam.id, playerId });
+
+      if (draftComplete) {
+        // The clock flipped draft_status to 'complete' above; the one draft->season
+        // handoff runs on this same transaction (#789): it opens the waiver window,
+        // schedules the season, and appends the actor-less COMPLETE lifecycle entry,
+        // returned here to broadcast after COMMIT.
+        // It runs AFTER this Pick's roster row and bench placement (#2548): the
+        // handoff seeds every Team's Lineup from its roster read back off the
+        // database, so a completing Pick that ran first would be missing from its
+        // own Team's seed and start the season benched.
+        completion = await draftCompletion.completeDraft(client, { leagueId });
+      } else {
+        nextTeamId = nextTeam.id;
+      }
 
       // teamName rides beside teamId so the `draft:picked` broadcast built from
       // this outcome can attribute the Pick by Team without a second lookup
@@ -366,9 +383,13 @@ async function commitPick({ leagueId, userId, playerId, auto = false, byCommissi
  *
  * commitPick is invoked through the module exports so a test can mock the commit
  * and observe the real fan-out.
+ *
+ * `expectedDeadline` is passed straight through to commitPick: an Autopick whose
+ * firing saw a deadline that the locked row since moved past is refused with a
+ * 409 `CLOCK_MOVED` and no Pick lands (#2549).
  */
-async function landPick({ leagueId, userId, playerId, auto = false, byCommissioner = false }) {
-  const outcome = await module.exports.commitPick({ leagueId, userId, playerId, auto, byCommissioner });
+async function landPick({ leagueId, userId, playerId, auto = false, byCommissioner = false, expectedDeadline }) {
+  const outcome = await module.exports.commitPick({ leagueId, userId, playerId, auto, byCommissioner, expectedDeadline });
   try {
     const broadcast = getDraftRoomBroadcast();
     await broadcast.pickLanded(leagueId, { ...outcome, auto });

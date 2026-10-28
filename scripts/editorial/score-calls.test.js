@@ -1,9 +1,10 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
-  finishOf, judge, rankingRho, scoreCalls, spearman, servedInjuryStatus, servedAsOf, servedVerdictFor, seasonLedger,
+  finishOf, judge, editorialBlend, EDITORIAL_FEED, rankingRho, scoreCalls, spearman, servedInjuryStatus, servedAsOf, servedVerdictFor, seasonLedger,
   observationsAsOf, chartsBefore, captureChartRows,
 } = require('./score-calls');
+const { binomialUpperTail } = require('../holdout/lib/inference');
 
 test('spearman: perfect, reversed, ties, undefined', () => {
   assert.equal(spearman([1, 2, 3], [10, 20, 30]), 1);
@@ -239,4 +240,99 @@ test('captureChartRows: team and status come from the capture, a chart player wi
     { player_id: 1, rank: 1, team_code: 'KC', captured_date: '2026-10-17', nfl_team: 'DEN', injury_status: 'IR' },
     { player_id: 2, rank: 2, team_code: 'KC', captured_date: '2026-10-17', nfl_team: 'KC', injury_status: null },
   ]);
+});
+
+// Editorial feed (#2524)
+const feedLedger = new Map([[1, { estimate: 20 }], [2, { estimate: 16 }], [3, { estimate: 12 }], [4, { estimate: 8 }]]);
+const feedRanking = [3, 1, 2, 4].map((id, i) => ({ rank: i + 1, name: `p${id}`, playerId: id })); // editorial order: 3, 1, 2, 4
+
+test('editorialBlend: weight 1 gives each player the estimate at his editorial rank, weight 0 changes nothing', () => {
+  assert.deepEqual([...editorialBlend(feedRanking, feedLedger, new Set(), 1)], [[3, 20], [1, 16], [2, 12], [4, 8]]);
+  assert.deepEqual([...editorialBlend(feedRanking, feedLedger, new Set(), 0)], [[3, 12], [1, 20], [2, 16], [4, 8]]);
+});
+
+test('editorialBlend: injury-flagged and unavailable players are absent and the rest re-rank among themselves', () => {
+  const led = new Map([...feedLedger, [2, { estimate: 16, unavailable: true }]]);
+  assert.deepEqual([...editorialBlend(feedRanking, led, new Set([1]), 1)], [[3, 12], [4, 8]]); // points are only 12 and 8
+});
+
+test('rankingRho: blendedRho on the same n as engineRho', () => {
+  const ranking = [1, 2, 3, 4, 7].map((id, i) => ({ rank: i + 1, name: `p${id}`, playerId: id }));
+  const r = rankingRho(ranking, ledger, actuals, new Set([2]));
+  assert.equal(r.n, 4);
+  assert.ok(r.blendedRho != null);
+});
+
+test('seasonLedger.editorialFeed: window, ties dropped, p, unjudged, pass and fail', () => {
+  const wk = (week, qb, te) => ({
+    week, season: 2026, summary: { paired: {}, pairedMethod: {}, pairedInjury: {} },
+    rankings: { QB: { n: 10, blendedRho: qb[0], engineRho: qb[1] }, TE: { n: 10, blendedRho: te[0], engineRho: te[1] } },
+  });
+  const win = (week) => wk(week, [0.6, 0.2], [0.5, 0.1]);
+  const early = [4, 5, 6, 7].map(win);
+  assert.deepEqual(seasonLedger([...early, win(8)]).editorialFeed.weeks, [8]); // weeks 4-7 ignored
+  assert.equal(seasonLedger([...early, ...[8, 9, 10, 11, 12].map(win)]).editorialFeed.verdict, 'unjudged'); // 5 judged weeks
+  const six = [8, 9, 10, 11, 12].map(win).concat(wk(13, [0.6, 0.2], [0.3, 0.3])); // one tie
+  const f = seasonLedger(six).editorialFeed;
+  assert.deepEqual([f.positionWeeks, f.favorable, f.unfavorable, f.ties], [12, 11, 0, 1]);
+  assert.equal(f.p, binomialUpperTail(11, 11));
+  assert.equal(f.verdict, 'pass');
+  // pooled blend higher, but only 6 of 12 sign-test wins: p > alpha
+  const mixed = [8, 9, 10].map((w) => wk(w, [0.9, 0.1], [0.9, 0.1])).concat([11, 12, 13].map((w) => wk(w, [0.2, 0.3], [0.2, 0.3])));
+  const m = seasonLedger(mixed).editorialFeed;
+  assert.ok(m.blendedRho > m.engineRho);
+  assert.equal(m.p, binomialUpperTail(12, 6));
+  assert.equal(m.verdict, 'fail');
+  assert.equal(EDITORIAL_FEED.minWeeks, 6);
+});
+
+test('EDITORIAL_FEED: the preregistered values', () => {
+  assert.deepEqual(EDITORIAL_FEED, { weight: 0.5, positions: ['QB', 'TE'], season: 2026, firstWeek: 8, lastWeek: 18, alpha: 0.10, minWeeks: 6 });
+});
+
+test('editorialBlend: a repeated playerId counts once, at its best rank', () => {
+  const dup = [...feedRanking, { rank: 5, name: 'p3', playerId: 3 }];
+  assert.deepEqual([...editorialBlend(dup, feedLedger, new Set(), 1)], [...editorialBlend(feedRanking, feedLedger, new Set(), 1)]);
+});
+
+test('rankingRho: blendedRho is the rho of the blended order (unavailable 0, injury keeps capture estimate)', () => {
+  const led = new Map([
+    [1, { estimate: 20 }], [2, { estimate: 16 }], [3, { estimate: 12 }], [4, { estimate: 8 }],
+    [5, { estimate: 30, unavailable: true }], [6, { estimate: 14 }],
+  ]);
+  const ranking = [3, 1, 4, 2, 5, 6].map((id, i) => ({ rank: i + 1, name: `p${id}`, playerId: id }));
+  const act = new Map([[1, 25], [3, 20], [6, 18], [2, 10], [4, 5]].map(([id, points]) => [id, { points }]));
+  const r = rankingRho(ranking, led, act, new Set([6]));
+  // moved = 3, 1, 4, 2 take points 20, 16, 12, 8 at weight .5; 5 is unavailable (0); 6 keeps 14
+  const blended = new Map([[1, 18], [2, 12], [3, 16], [4, 10], [5, 0], [6, 14]]);
+  const ids = ranking.map((x) => x.playerId);
+  const actual = ids.map((id) => (act.get(id) || { points: 0 }).points);
+  assert.equal(r.blendedRho, spearman(ids.map((id) => blended.get(id)), actual));
+  assert.notEqual(r.blendedRho, r.engineRho);
+  assert.notEqual(r.blendedRho, r.editorialRho);
+});
+
+test('seasonLedger.editorialFeed: n-weighted pooling, out-of-window results ignored, null rho skipped, sign test needs the pooled lead', () => {
+  const res = (season, week, qb, te) => ({
+    season, week, summary: { paired: {}, pairedMethod: {}, pairedInjury: {} }, rankings: { QB: qb, TE: te },
+  });
+  const rho = (n, blendedRho, engineRho) => ({ n, blendedRho, engineRho });
+  const f = seasonLedger([
+    res(2026, 8, rho(10, 0.6, 0.2), rho(30, 0.2, 0.1)),
+    res(2026, 9, rho(10, null, 0.2), rho(20, 0.4, 0)),
+    res(2026, 19, rho(10, -1, 1), rho(10, -1, 1)),
+    res(2025, 9, rho(10, -1, 1), rho(10, -1, 1)),
+  ]).editorialFeed;
+  assert.deepEqual(f.weeks, [8, 9]);
+  assert.equal(f.positionWeeks, 3);
+  assert.ok(Math.abs(f.blendedRho - 20 / 60) < 1e-9); // (6 + 6 + 8) / 60, unweighted would be 0.4
+  assert.ok(Math.abs(f.engineRho - 5 / 60) < 1e-9); // (2 + 3 + 0) / 60
+
+  // 11 of 12 position-weeks favour the blend (p <= alpha) but one huge loss drags the pooled blend below the engine
+  const wins = [8, 9, 10, 11, 12, 13].map((w) => res(2026, w, rho(1, 0.3, 0.2), rho(1, 0.3, 0.2)));
+  wins[0] = res(2026, 8, rho(1000, -0.9, 0.9), rho(1, 0.3, 0.2));
+  const g = seasonLedger(wins).editorialFeed;
+  assert.ok(g.p <= EDITORIAL_FEED.alpha);
+  assert.ok(g.blendedRho < g.engineRho);
+  assert.equal(g.verdict, 'fail');
 });

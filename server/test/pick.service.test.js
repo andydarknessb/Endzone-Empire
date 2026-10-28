@@ -504,6 +504,35 @@ test('landPick: the completing pick reaches completeDraft after the status flip 
   fake.assertClean();
 });
 
+// #2548: the handoff seeds every Team's Lineup from the roster it reads back
+// off the database (lineup.service.seedDraftedLineups), so the final Pick must
+// be on the roster - and benched - before completeDraft runs. Run first, the
+// seed misses the last player; the last pick is usually a K or DEF, so that
+// Team starts with an empty slot and every later week copies it forward.
+test('landPick: the completing Pick is rostered and benched before the draft-completion handoff (#2548)', async (t) => {
+  const fake = pickPool({ league: BASE_LEAGUE, picksMade: 4 }).install(t);
+  installRecordingBroadcast(t);
+  const order = [];
+  t.mock.method(lineupService, 'benchAcquiredPlayer', async () => { order.push('bench'); });
+  t.mock.method(lineupService, 'seedDraftedLineups', async () => {});
+  let handoffAt = null;
+  t.mock.method(draftCompletion, 'completeDraft', async () => {
+    handoffAt = fake.calls.length;
+    order.push('handoff');
+    return { kind: 'complete', id: 78 };
+  });
+
+  const outcome = await landPick({ leagueId: LEAGUE_ID, userId: 7, playerId: 500 });
+
+  assert.equal(outcome.draftComplete, true);
+  const insertAt = fake.calls.findIndex((c) => /^INSERT INTO "team_players"/.test(c.text));
+  assert.ok(insertAt >= 0, 'the Pick recorded its roster row');
+  assert.notEqual(handoffAt, null, 'the handoff ran');
+  assert.ok(insertAt < handoffAt, "the final player's roster insert precedes the handoff that reads the roster back");
+  assert.deepEqual(order, ['bench', 'handoff'], 'bench placement precedes the handoff too, so the seed sees a settled roster');
+  fake.assertClean();
+});
+
 // --- the Pick commit runs through the write gate (#965) ----------------------
 //
 // THE RULING: a commissioner freeze does NOT refuse a Pick during an active
@@ -700,5 +729,42 @@ test('commitPick: an ordinary error keeps its healthy connection (#1063 Ruling 5
   // (release(new Error(...)) on every path) reddens this releaseArgs()[0] check -
   // a clean ROLLBACK returns the healthy connection to the pool bare.
   assert.equal(fake.releaseArgs()[0], undefined, 'an ordinary error keeps its healthy connection');
+  fake.assertClean();
+});
+
+// --- #2549: an Autopick lands only on the turn whose clock expired ----------
+
+const EXPIRED = '2026-09-01T00:00:00.000Z';
+const REARMED = '2026-09-01T00:01:00.000Z';
+
+async function assertClockMoved(t, { league, userId }) {
+  const fake = pickPool({ league: { ...league, pick_deadline_at: REARMED }, picksMade: 1 }).install(t);
+  withRecorder(t);
+
+  await assert.rejects(
+    landPick({ leagueId: LEAGUE_ID, userId, playerId: 500, auto: true, expectedDeadline: EXPIRED }),
+    (err) => err.statusCode === 409 && err.code === 'CLOCK_MOVED'
+  );
+  assert.equal(fake.matching(insert('draft_picks')).length, 0, 'no Pick is inserted');
+  fake.assertClean();
+}
+
+test('landPick: a CPU-Team Autopick whose expected deadline differs from the locked row is refused CLOCK_MOVED', async (t) => {
+  await assertClockMoved(t, { league: { ...BASE_LEAGUE, current_pick: 0 }, userId: null });
+});
+
+test('landPick: a human back-to-back snake Autopick whose clock moved on is refused CLOCK_MOVED', async (t) => {
+  // 2 teams, snake: Team Twelve holds picks 1 and 2. It picked at the buzzer on 1, so a stale
+  // firing for that expiry finds Team Twelve on the clock again; the turn check alone passes.
+  await assertClockMoved(t, { league: { ...BASE_LEAGUE, current_pick: 2 }, userId: 8 });
+});
+
+test('landPick: an Autopick whose expected deadline matches the locked row lands', async (t) => {
+  const fake = pickPool({ league: { ...BASE_LEAGUE, current_pick: 0, pick_deadline_at: EXPIRED }, picksMade: 1 }).install(t);
+  const recorder = withRecorder(t);
+
+  await landPick({ leagueId: LEAGUE_ID, userId: 7, playerId: 500, auto: true, expectedDeadline: new Date(EXPIRED) });
+
+  assert.equal(recorder.calls[0].payload.auto, true);
   fake.assertClean();
 });

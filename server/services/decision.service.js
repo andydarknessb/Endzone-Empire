@@ -4,6 +4,7 @@ const pool = require('../modules/pool');
 // require time and cannot be mocked afterwards.
 const projectionService = require('./projection.service');
 const lineupService = require('./lineup.service');
+const { madeAppearance } = require('./madeAppearance');
 const {
   getTradeProjectionMetrics,
 } = require('./projection.service');
@@ -743,20 +744,6 @@ async function pointsLeftStanding(db, { leagueId, season, teamId, throughWeek })
   const total = totals.get(Number(teamId));
   if (total === undefined) return null;
   return { total, rank: 1 + [...totals.values()].filter((v) => v < total).length, teams: totals.size };
-}
-
-/**
- * Pure: did this player-week's stat line record an Appearance (CONTEXT.md
- * "Appearance"; #1860)? A stat row alone is not one: rows exist for rostered
- * players who never took the field, and the box writes its zeros. An Appearance
- * is a snap (nflverse snap_counts, offense or defense) or any non-zero figure in
- * the line. ponytail: the box and snap feed are the only participation data
- * there is (no active/inactive flag), so a blocking tight end whose snaps have
- * not been published yet reads as no Appearance; upgrade to a game-level active
- * list if the feed ever carries one.
- */
-function madeAppearance(stats) {
-  return Object.values(stats || {}).some((v) => typeof v === 'number' && Number.isFinite(v) && v !== 0);
 }
 
 /**

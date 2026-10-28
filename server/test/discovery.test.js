@@ -7,6 +7,7 @@ const {
   VALID_DISCOVER_TYPES,
 } = require('../services/discovery.service');
 const { joinableWhereSql } = require('../services/leaguePhase');
+const { createFakePool } = require('./helpers/fakePool');
 
 // ---------------------------------------------------------------------------
 // validateCreateOptions
@@ -386,4 +387,95 @@ test("previewLeagueByInviteCode: selects draft/season status and pickem_only und
   assert.equal('season_status' in preview, false);
   assert.equal('pickem_only' in preview, false);
   assert.equal(preview.pickemOnly, true);
+});
+
+// ---------------------------------------------------------------------------
+// joinPublicLeague (#2558)
+// ---------------------------------------------------------------------------
+
+/**
+ * What Postgres needs from the upsert for the `DO UPDATE` to fire: only a
+ * denied or cancelled request is resubmitted, a pending one is left alone.
+ * The fakes below answer the conflict FROM this filter rather than hardcoding
+ * a row, so dropping the WHERE from the service turns both tests red instead
+ * of silently re-notifying commissioners (#2558's exact regression).
+ */
+const REQUESTS_A_DENIED_OR_CANCELLED_ROW = /WHERE "join_requests"\."status" IN \('denied', 'cancelled'\)/;
+
+test('joinPublicLeague: re-sending while the request is pending re-alerts no commissioner', async (t) => {
+  const fake = createFakePool([
+    [/FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({
+      rows: [{
+        id: 7, name: 'Curated League', owner_id: 100, is_public: true,
+        join_approval: true, max_teams: 10, pickem_only: false,
+        draft_status: 'pending', season_status: 'regular',
+      }],
+    })],
+    [/SELECT 1 FROM "teams"/, () => ({ rows: [] })],
+    [/FROM "league_bans"/, () => ({ rows: [] })],
+    [/SELECT COUNT\(\*\)::int AS n FROM "teams"/, () => ({ rows: [{ n: 3 }] })],
+    // The row already stands at 'pending'. With the filter the conflict is
+    // left alone (no row); without it Postgres would hand the pending row
+    // back, which the service would read as a fresh request.
+    [/INSERT INTO "join_requests"/, (text) => ({
+      rows: REQUESTS_A_DENIED_OR_CANCELLED_ROW.test(text)
+        ? []
+        : [{ id: 9, league_id: 7, user_id: 5, team_name: 'Eve Picks', status: 'pending' }],
+    })],
+    [/SELECT \* FROM "join_requests"/, () => ({
+      rows: [{ id: 9, league_id: 7, user_id: 5, team_name: 'Eve Picks', status: 'pending' }],
+    })],
+    [/FROM "league_commissioners"/, () => ({ rows: [{ user_id: 202 }] })],
+    [/INSERT INTO "notifications"/, () => ({ rows: [] })],
+  ]);
+  fake.install(t);
+
+  const { joinPublicLeague } = require('../services/discovery.service');
+  const result = await joinPublicLeague({
+    leagueId: 7, userId: 5, username: 'eve', teamName: 'Eve Picks',
+  });
+
+  assert.equal(result.pending, true);
+  assert.equal(result.joinRequest.id, 9);
+  // A re-send is not news: alerting every commissioner again buried the real
+  // Trade and waiver alerts (up to 300 a minute).
+  assert.deepEqual(fake.matching(/INSERT INTO "notifications"/), []);
+  fake.assertClean();
+});
+
+test('joinPublicLeague: a resubmitted denied request still alerts every commissioner once', async (t) => {
+  const fake = createFakePool([
+    [/FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({
+      rows: [{
+        id: 7, name: 'Curated League', owner_id: 100, is_public: true,
+        join_approval: true, max_teams: 10, pickem_only: false,
+        draft_status: 'pending', season_status: 'regular',
+      }],
+    })],
+    [/SELECT 1 FROM "teams"/, () => ({ rows: [] })],
+    [/FROM "league_bans"/, () => ({ rows: [] })],
+    [/SELECT COUNT\(\*\)::int AS n FROM "teams"/, () => ({ rows: [{ n: 3 }] })],
+    // The row stands at 'denied': the filter lets the conflict flip it to
+    // 'pending' and RETURNING hands it back.
+    [/INSERT INTO "join_requests"/, (text, params) => ({
+      rows: REQUESTS_A_DENIED_OR_CANCELLED_ROW.test(text)
+        ? [{ id: 9, league_id: params[0], user_id: params[1], team_name: params[2], status: 'pending' }]
+        : [],
+    })],
+    [/FROM "league_commissioners"/, () => ({ rows: [{ user_id: 202 }, { user_id: 303 }] })],
+    [/INSERT INTO "notifications"/, () => ({ rows: [] })],
+  ]);
+  fake.install(t);
+
+  const { joinPublicLeague } = require('../services/discovery.service');
+  const result = await joinPublicLeague({
+    leagueId: 7, userId: 5, username: 'eve', teamName: 'Eve Picks',
+  });
+
+  assert.equal(result.pending, true);
+  assert.deepEqual(
+    fake.matching(/INSERT INTO "notifications"/).map((call) => call.params[0]).sort((a, b) => a - b),
+    [100, 202, 303]
+  );
+  fake.assertClean();
 });
