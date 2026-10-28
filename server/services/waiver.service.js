@@ -853,10 +853,11 @@ async function claimFailureReason(client, { league, team, claim }) {
     if (!dropValid) return 'the player you offered to drop is no longer on your roster';
   }
   const dropPlayerId = dropValid ? claim.drop_player_id : null;
-  // Capacity first: the sibling notes read a 'roster capacity' failure as such.
-  const full = await capacityFailureReason(client, { league, team, dropPlayerId });
-  if (full) return full;
-  return positionCapFailureReason(client, { league, team, claim, dropPlayerId });
+  // Cap first: a claim that never fit its cap must not read as "roster full
+  // after your #n claim" once a sibling win fills the roster (siblingReason).
+  const capped = await positionCapFailureReason(client, { league, team, claim, dropPlayerId });
+  if (capped) return capped;
+  return capacityFailureReason(client, { league, team, dropPlayerId });
 }
 
 /**

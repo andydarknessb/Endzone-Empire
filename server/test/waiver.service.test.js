@@ -364,6 +364,44 @@ test('processWaivers: a Team over a cap keeps its players; a claim at that posit
   assert.equal(fake.matching(/^DELETE FROM "team_players"/).length, 0);
 });
 
+test('processWaivers: a claim that never fit its cap keeps the cap reason when a sibling win fills the roster', async (t) => {
+  // Capacity is 14 (limit 16 less 2 IR). The team has 13: claim 2 (RB) fails
+  // the cap from the start, then claim 1 (WR) fills the roster to 14.
+  const league = {
+    id: 1, transactions_locked: false, waiver_type: 'priority', roster_limit: 16, ir_slots: 2,
+    current_season: 2026, current_week: 6, waiver_period_hours: 24, position_caps: { RB: 2 },
+  };
+  const claims = [
+    { id: 1, league_id: 1, team_id: 31, player_id: 501, drop_player_id: null, bid: 0, status: 'pending', claim_order: 1, created_at: '2026-07-11T00:00:00Z' },
+    { id: 2, league_id: 1, team_id: 31, player_id: 500, drop_player_id: null, bid: 0, status: 'pending', claim_order: 2, created_at: '2026-07-11T00:01:00Z' },
+  ];
+  const fake = createFakePool([
+    [select('leagues'), () => ({ rows: [league] })],
+    [update('leagues'), () => ({ rows: [], rowCount: 0 })],
+    [select('waiver_claims'), () => ({ rows: claims })],
+    [select('teams'), () => ({ rows: [{ id: 31, league_id: 1, owner_id: 8, user_id: 8, waiver_priority: 1 }] })],
+    [/^SELECT 1 FROM "team_players" WHERE "league_id"/, () => ({ rows: [] })],
+    [/^SELECT COUNT\(\*\)::int AS n FROM "team_players" JOIN "players"/, (text, params) => ({ rows: [{ n: params[1].includes('RB') ? 2 : 0 }] })],
+    [/^SELECT COUNT\(\*\)::int AS n FROM "team_players"/, () => ({ rows: [{ n: 13 + fake.matching(/^INSERT INTO "team_players"/).length }] })],
+    [select('players'), () => ({ rows: [{ id: 500, position: 'RB' }, { id: 501, position: 'WR' }] })],
+    [select('lineup_entries'), () => ({ rows: [{ n: 0 }] })],
+    [insert('team_players'), () => ({ rows: [], rowCount: 1 })],
+    [update('teams'), () => ({ rows: [], rowCount: 1 })],
+    [update('waiver_claims'), () => ({ rows: [], rowCount: 1 })],
+    [insert('transactions'), () => ({ rows: [] })],
+    [insert('notifications'), () => ({ rows: [] })],
+    [remove('waiver_players'), () => ({ rows: [] })],
+  ]).install(t);
+  t.mock.method(lineupService, 'benchAcquiredPlayer', async () => {});
+
+  const { results } = await processWaivers({ leagueId: 1 });
+
+  assert.deepEqual(results, [
+    { claimId: 1, playerId: 501, status: 'won', teamId: 31 },
+    { claimId: 2, playerId: 500, status: 'invalid', reason: 'position cap reached: max 2 RB' },
+  ]);
+});
+
 // --- a won claim lands the player on the bench (#94 user story 13) ----------
 // Thin: proves the execution site benches the acquired player after the roster
 // insert. The bench step itself is tested at the lineup seam.
