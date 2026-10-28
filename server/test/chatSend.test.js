@@ -27,7 +27,16 @@ const GIF_OK = {
  * distinct leagues never share flood capacity and the tests do not interfere.
  */
 
-const harness = createSocketHarness({ secret: 'chat-send-hardening-secret' });
+// Ten seconds pass between events: this suite is about chat content, and the
+// per-user event bucket (#2605) counts events across the WHOLE file because it
+// is keyed by user, not by league like the flood store. A clock that always
+// refills keeps it out of the way, exactly as a real client sending a few
+// messages an hour would.
+let clock = 0;
+const harness = createSocketHarness({
+  secret: 'chat-send-hardening-secret',
+  now: () => (clock += 10_000),
+});
 
 const A = { userId: 7, username: 'author' };
 const B = { userId: 8, username: 'blocker' };
