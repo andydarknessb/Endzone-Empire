@@ -177,6 +177,15 @@ test('a Pick applied from draft:picked with seq 12 survives a join state with se
   expect(afterJoin.league.current_pick).toBe(12);
 });
 
+test('a Pick landed before the first join state survives a join state with a lower seq', () => {
+  const picked = applyLandedPick(emptyDraftModel, pickedEvent({ seq: 12 }));
+
+  const afterJoin = applyBoardSnapshot(picked, stateAt(11));
+
+  expect(afterJoin).toBe(picked);
+  expect(afterJoin.picks).toHaveLength(1);
+});
+
 test('a draft state with no seq (an older server) is always applied', () => {
   const at12 = applyBoardSnapshot(emptyDraftModel, stateAt(12));
 

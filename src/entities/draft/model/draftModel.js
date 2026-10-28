@@ -143,8 +143,11 @@ export function applyBoardSnapshot(model, data) {
   // #2609: a state older than the board would roll the clock and the Picks back
   // (a Pick committed between the room join and the state read reaches us first).
   // Equal is applied: an autodraft toggle re-arms the clock on the same seq. A
-  // state with no seq (an older server), or for another League, always applies.
-  if (Number.isFinite(seq) && model.seq != null && seq < model.seq && model.league?.id === league?.id) {
+  // state with no seq (an older server), or for a different League than the
+  // board holds, always applies. A board with no League yet (a Pick landed
+  // before the join state) is compared by seq alone.
+  const otherLeague = model.league && model.league.id !== league?.id;
+  if (Number.isFinite(seq) && model.seq != null && seq < model.seq && !otherLeague) {
     return model;
   }
   return {
