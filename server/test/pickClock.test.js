@@ -2,6 +2,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { createFakePool, select, update } = require('./helpers/fakePool');
 const pickClock = require('../services/pickClock.service');
+const { DraftError } = require('../services/draftError');
 
 /**
  * The Pick clock module owns arming (#599, ADR 0018): every named event arms by
@@ -274,4 +275,37 @@ test('pick undone: an offline draft arms no clock on rewind', async (t) => {
     pickClock.onPickUndone(client, { leagueId: LEAGUE_ID, newCurrentPick: 2, onClockAutodraft: false }));
 
   assert.equal(deadline, null, 'an offline draft never arms a clock');
+});
+
+// --- #2549: autoPick stops when the clock moved on --------------------------
+
+test('autoPick: a CLOCK_MOVED landing returns null, tries no other candidate and counts no timeout', async (t) => {
+  const pickService = require('../services/pick.service');
+  const deadline = new Date('2000-01-01T00:00:00.000Z');
+  const league = {
+    id: LEAGUE_ID, draft_status: 'active', draft_paused: false, current_pick: 0,
+    draft_rotation: 'snake', draft_order_overrides: null, draft_rounds: 15,
+    draft_type: 'snake', roster_slots: null, position_caps: null, bench_slots: 5, ir_slots: 1,
+    pick_deadline_at: deadline,
+  };
+  const candidate = (id) => ({ id, name: `P${id}`, adp: id, position: 'RB', nfl_team: 'KC' });
+  const fake = createFakePool([
+    [/FROM "leagues" WHERE "id" = \$1/, () => ({ rows: [league] })],
+    [/EXTRACT\(MONTH FROM CURRENT_DATE\)/, () => ({ rows: [{ season: 2026 }] })],
+    [/FROM "team_players" JOIN "players"/, () => ({ rows: [] })],
+    [/FROM "players" LEFT JOIN/, () => ({ rows: [candidate(1), candidate(2)] })],
+    [/FROM "draft_picks"/, () => ({ rows: [] })],
+    [/FROM "teams"/, () => ({ rows: [{ id: 55, owner_id: 7, autodraft: false, draft_position: 1 }] })],
+  ]).install(t);
+  const landed = t.mock.method(pickService, 'landPick', async () => {
+    throw new DraftError(409, 'the pick clock moved on', 'CLOCK_MOVED');
+  });
+
+  const outcome = await pickClock.autoPick({ leagueId: LEAGUE_ID });
+
+  assert.equal(outcome, null);
+  assert.equal(landed.mock.callCount(), 1, 'no second candidate is tried');
+  assert.equal(landed.mock.calls[0].arguments[0].expectedDeadline, deadline, 'the deadline it read rides to the commit');
+  assert.equal(fake.matching(/consecutive_timeouts/).length, 0, 'no timeout is counted');
+  assert.equal(fake.matching(/draft_paused/).length, 0, 'no stall escalation either');
 });
