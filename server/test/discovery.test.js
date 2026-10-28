@@ -393,6 +393,15 @@ test("previewLeagueByInviteCode: selects draft/season status and pickem_only und
 // joinPublicLeague (#2558)
 // ---------------------------------------------------------------------------
 
+/**
+ * What Postgres needs from the upsert for the `DO UPDATE` to fire: only a
+ * denied or cancelled request is resubmitted, a pending one is left alone.
+ * The fakes below answer the conflict FROM this filter rather than hardcoding
+ * a row, so dropping the WHERE from the service turns both tests red instead
+ * of silently re-notifying commissioners (#2558's exact regression).
+ */
+const REQUESTS_A_DENIED_OR_CANCELLED_ROW = /WHERE "join_requests"\."status" IN \('denied', 'cancelled'\)/;
+
 test('joinPublicLeague: re-sending while the request is pending re-alerts no commissioner', async (t) => {
   const fake = createFakePool([
     [/FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({
@@ -405,8 +414,14 @@ test('joinPublicLeague: re-sending while the request is pending re-alerts no com
     [/SELECT 1 FROM "teams"/, () => ({ rows: [] })],
     [/FROM "league_bans"/, () => ({ rows: [] })],
     [/SELECT COUNT\(\*\)::int AS n FROM "teams"/, () => ({ rows: [{ n: 3 }] })],
-    // The ON CONFLICT ... DO UPDATE ... WHERE does not fire: one is already pending.
-    [/INSERT INTO "join_requests"/, () => ({ rows: [] })],
+    // The row already stands at 'pending'. With the filter the conflict is
+    // left alone (no row); without it Postgres would hand the pending row
+    // back, which the service would read as a fresh request.
+    [/INSERT INTO "join_requests"/, (text) => ({
+      rows: REQUESTS_A_DENIED_OR_CANCELLED_ROW.test(text)
+        ? []
+        : [{ id: 9, league_id: 7, user_id: 5, team_name: 'Eve Picks', status: 'pending' }],
+    })],
     [/SELECT \* FROM "join_requests"/, () => ({
       rows: [{ id: 9, league_id: 7, user_id: 5, team_name: 'Eve Picks', status: 'pending' }],
     })],
@@ -440,9 +455,12 @@ test('joinPublicLeague: a resubmitted denied request still alerts every commissi
     [/SELECT 1 FROM "teams"/, () => ({ rows: [] })],
     [/FROM "league_bans"/, () => ({ rows: [] })],
     [/SELECT COUNT\(\*\)::int AS n FROM "teams"/, () => ({ rows: [{ n: 3 }] })],
-    // The ON CONFLICT ... DO UPDATE fired: the request was denied or cancelled.
-    [/INSERT INTO "join_requests"/, (_text, params) => ({
-      rows: [{ id: 9, league_id: params[0], user_id: params[1], team_name: params[2], status: 'pending' }],
+    // The row stands at 'denied': the filter lets the conflict flip it to
+    // 'pending' and RETURNING hands it back.
+    [/INSERT INTO "join_requests"/, (text, params) => ({
+      rows: REQUESTS_A_DENIED_OR_CANCELLED_ROW.test(text)
+        ? [{ id: 9, league_id: params[0], user_id: params[1], team_name: params[2], status: 'pending' }]
+        : [],
     })],
     [/FROM "league_commissioners"/, () => ({ rows: [{ user_id: 202 }, { user_id: 303 }] })],
     [/INSERT INTO "notifications"/, () => ({ rows: [] })],
