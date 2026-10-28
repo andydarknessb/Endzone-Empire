@@ -7,7 +7,7 @@ const { registerRecordingBroadcast } = require('./helpers/recordingBroadcast');
 const recordingBroadcast = registerRecordingBroadcast();
 const {
   claimFailureReason, claimTarget, orderClaims, processWaivers, submitClaim,
-  placeOnWaivers, holdKickedOffPlayers, editClaim,
+  placeOnWaivers, placeOnWaiversForPlayers, holdKickedOffPlayers, editClaim,
 } = require('../services/waiver.service');
 const { createFakePool, select, insert, update, remove } = require('./helpers/fakePool');
 const lineupService = require('../services/lineup.service');
@@ -1020,6 +1020,23 @@ test('holdKickedOffPlayers: keeps the week clear when it is later than a drop cl
 
   assert.equal(table.rows[0].available_at, '2026-09-16T23:15:00.000Z', 'the later week clear wins');
   assert.equal(table.rows[0].dropped_by_team_id, 7, 'the dropping team is never touched by the tick');
+});
+
+test('placeOnWaiversForPlayers: a repeated player id is one write, as the per-player loop was', async (t) => {
+  // One INSERT cannot name the same conflict target twice ("ON CONFLICT DO
+  // UPDATE command cannot affect row a second time"), so the array form
+  // collapses repeats rather than aborting (#2606 risk review).
+  const table = waiverPlayersTable();
+  const fake = createFakePool([[insert('waiver_players'), table.insertHandler]]).install(t);
+  const client = await fake.connect();
+
+  const written = await placeOnWaiversForPlayers(client, {
+    leagueId: 1, playerIds: [500, 500], waiverPeriodHours: 24,
+    availableAt: new Date('2026-09-16T23:15:00.000Z'),
+  });
+
+  assert.equal(written, 1);
+  assert.equal(table.rows.length, 1);
 });
 
 test('placeOnWaivers on conflict: the clear time moves to the greater of existing and new, either direction', async (t) => {

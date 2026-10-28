@@ -116,11 +116,15 @@ async function placeOnWaiversForPlayers(client, {
   interruptedIrAttested = false,
 }) {
   if (playerIds.length === 0) return 0;
+  // A repeated id would abort the one statement ("ON CONFLICT DO UPDATE
+  // cannot affect row a second time"), which the per-player loop never did:
+  // one write per distinct player is the behaviour both forms keep (#2606).
+  const ids = [...new Set(playerIds)];
   await client.query(PLACE_ON_WAIVERS_SQL, [
-    leagueId, playerIds, availableAt, waiverPeriodHours,
+    leagueId, ids, availableAt, waiverPeriodHours,
     droppedByTeamId, interruptedSlot, interruptedIrAttested,
   ]);
-  return playerIds.length;
+  return ids.length;
 }
 
 async function placeOnWaivers(client, { playerId, ...hold }) {
