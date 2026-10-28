@@ -34,8 +34,11 @@
  * but read the League unlocked, then reached the League row again through the
  * log's foreign key, so it inverted the order the same way.
  *
- * Red-tell: dropping `forUpdate: true` from `setTeamFaab`, `setTeamLocked` or
- * `forceSetLineup` in server/services/commissioner.service.js turns the
+ * `removeTeamAvatar` is the fourth case, with the same shape: Team row FOR
+ * UPDATE, League read unlocked, League row reached through the log's foreign key.
+ *
+ * Red-tell: dropping `forUpdate: true` from `setTeamFaab`, `setTeamLocked`,
+ * `forceSetLineup` or `removeTeamAvatar` in server/services/commissioner.service.js turns the
  * matching case red.
  *
  * Runs ONLY where a disposable Postgres is available, gated twice: PG_TESTS=1
@@ -75,7 +78,8 @@ if (!ENABLED) {
   const modulePool = require('../modules/pool');
 
   // Arbitrary: nothing here reads season-scoped rows beyond materializing one lineup.
-  const SEASON = 2093;
+  // No other *.pg.test.js uses it: they share one disposable database.
+  const SEASON = 2089;
 
   let leagueId = null;
   let playerId = null;
@@ -157,6 +161,7 @@ if (!ENABLED) {
     const base = { leagueId, userId: ownerId, teamId };
     if (name === 'setTeamFaab') return commissionerService.setTeamFaab({ ...base, faabRemaining: 42 });
     if (name === 'setTeamLocked') return commissionerService.setTeamLocked({ ...base, locked: true });
+    if (name === 'removeTeamAvatar') return commissionerService.removeTeamAvatar(base);
     return commissionerService.forceSetLineup({ ...base, moves: [{ playerId, slot: 'BENCH' }] });
   }
 
@@ -165,6 +170,7 @@ if (!ENABLED) {
     let holderOpen = false;
     let holderError = null;
     let settled;
+    let writeError;
     try {
       // 1. The holder (a stand-in for the waiver run) takes the League row.
       await holder.query('BEGIN');
@@ -188,8 +194,10 @@ if (!ENABLED) {
     } finally {
       if (holderOpen) await holder.query('ROLLBACK').catch(() => {});
       holder.release();
+      // Awaited here so it also runs when the setup above threw: the write must
+      // not outlive the test and run against rows test.after deletes.
+      writeError = await settled;
     }
-    const writeError = await settled;
 
     const errors = [holderError, writeError].filter(Boolean);
     assert.deepEqual(
@@ -203,4 +211,5 @@ if (!ENABLED) {
   test('setTeamFaab against a League-then-Team holder does not deadlock', () => assertNoDeadlock('setTeamFaab'));
   test('setTeamLocked against a League-then-Team holder does not deadlock', () => assertNoDeadlock('setTeamLocked'));
   test('forceSetLineup against a League-then-Team holder does not deadlock', () => assertNoDeadlock('forceSetLineup'));
+  test('removeTeamAvatar against a League-then-Team holder does not deadlock', () => assertNoDeadlock('removeTeamAvatar'));
 }
