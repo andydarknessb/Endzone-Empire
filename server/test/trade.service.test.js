@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createFakePool, select, insert, update, remove } = require('./helpers/fakePool');
-const { TradeError, executeTrade, cancelTrade, proposeTrade, counterTrade, commissionerDecide, processDueTrades, readTradeItems } = require('../services/trade.service');
+const { TradeError, executeTrade, cancelTrade, proposeTrade, counterTrade, vetoTrade, commissionerDecide, processDueTrades, readTradeItems } = require('../services/trade.service');
 const lineupService = require('../services/lineup.service');
 const { setDraftRoomBroadcast, peekDraftRoomBroadcast } = require('../modules/draftRoomBroadcast');
 
@@ -1010,5 +1010,63 @@ test('commissionerDecide: a commissioner outside the trade still vetoes it (cont
   const outcome = await commissionerDecide({ tradeId: 9, userId: 99, approve: false });
   assert.deepEqual(outcome, { tradeId: 9, status: 'vetoed' });
   assert.equal(world.matching(update('trades')).length, 1);
+  world.assertClean();
+});
+
+// --- vetoTrade: the review window closes even before the trade executes (spec #2540, 4/22)
+// A vote is only worth accepting inside the window. Between an accepted
+// trade's review_ends_at and the next processDueTrades tick - and for much
+// longer while a frozen League keeps the trade waiting - the trade is still
+// 'accepted' but its review is over.
+
+/**
+ * The veto vote's world: an accepted trade in review whose window ends at
+ * `reviewEndsAt`, and a voter holding Team 43, in neither side of the trade.
+ * `trade_veto_votes: 2` keeps one vote short of the veto so the control
+ * exercises the acceptance path rather than the veto write.
+ */
+function vetoWorld(reviewEndsAt) {
+  return createFakePool([
+    [/FROM "leagues" WHERE "id" = \(SELECT "league_id"/, () => ({ rows: [{ id: 1, trade_veto_votes: 2 }] })],
+    [select('trades'), () => ({
+      rows: [{
+        id: 9,
+        league_id: 1,
+        status: 'accepted',
+        proposing_team_id: 41,
+        receiving_team_id: 42,
+        review_ends_at: reviewEndsAt,
+      }],
+    })],
+    [select('trade_items'), () => ({ rows: [] })],
+    // The voter's own Team: 43, in neither side of the trade. Registered before
+    // the general teams matcher, which also matches this query's shape.
+    [/^SELECT \* FROM "teams" WHERE "league_id" = \$1 AND "owner_id" = \$2/, () => ({
+      rows: [{ id: 43, league_id: 1, owner_id: 99 }],
+    })],
+    [select('teams'), () => ({ rows: [{ id: 41, owner_id: 7 }, { id: 42, owner_id: 8 }] })],
+    [insert('trade_votes'), () => ({ rows: [], rowCount: 1 })],
+    [select('trade_votes'), () => ({ rows: [{ n: 1 }] })],
+  ]);
+}
+
+test('vetoTrade: a vote after review_ends_at is refused 409 "the review window has closed" and records no vote', async (t) => {
+  const world = vetoWorld(new Date(Date.now() - 60_000)).install(t);
+
+  await assert.rejects(vetoTrade({ tradeId: 9, userId: 99 }), {
+    statusCode: 409,
+    message: 'the review window has closed',
+  });
+  assert.equal(world.matching(insert('trade_votes')).length, 0, 'no vote was recorded');
+  world.assertClean();
+});
+
+test('vetoTrade: a vote before review_ends_at still counts (control)', async (t) => {
+  const world = vetoWorld(new Date(Date.now() + 60_000)).install(t);
+
+  const outcome = await vetoTrade({ tradeId: 9, userId: 99 });
+
+  assert.deepEqual(outcome, { tradeId: 9, votes: 1, votesNeeded: 2, status: 'accepted' });
+  assert.equal(world.matching(insert('trade_votes')).length, 1, 'the vote was recorded');
   world.assertClean();
 });

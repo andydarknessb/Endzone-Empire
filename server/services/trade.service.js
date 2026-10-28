@@ -365,6 +365,12 @@ async function vetoTrade({ tradeId, userId }) {
       if (voter.id === trade.proposing_team_id || voter.id === trade.receiving_team_id) {
         throw new TradeError(403, 'teams in the trade cannot vote on it');
       }
+      // The window, not the trade's status, ends the review (#2544): the trade
+      // stays 'accepted' until processDueTrades executes it, which a frozen
+      // League can delay for days. The row is in hand, so no clock round-trip.
+      if (trade.review_ends_at && new Date(trade.review_ends_at) <= new Date()) {
+        throw new TradeError(409, 'the review window has closed');
+      }
       await client.query(
         `INSERT INTO "trade_votes" ("trade_id", "team_id") VALUES ($1, $2)
          ON CONFLICT ("trade_id", "team_id") DO NOTHING`,
