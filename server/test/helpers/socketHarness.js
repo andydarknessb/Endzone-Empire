@@ -63,7 +63,7 @@ function withDeadline(promise, message, ms = SETTLE_MS) {
   return Promise.race([promise, deadline]).finally(() => clearTimeout(timer));
 }
 
-function createSocketHarness({ secret = 'socket-harness-secret' } = {}) {
+function createSocketHarness({ secret = 'socket-harness-secret', now } = {}) {
   const priorSecret = process.env.JWT_SECRET;
   const priorRedisUrl = process.env.REDIS_URL;
   process.env.JWT_SECRET = secret;
@@ -93,8 +93,11 @@ function createSocketHarness({ secret = 'socket-harness-secret' } = {}) {
         server.once('error', reject);
         server.listen(0, '127.0.0.1', resolve);
       });
-      // Production wiring, called exactly as server.js calls it.
-      io = attachDraftSocket(server);
+      // Production wiring, called exactly as server.js calls it. `now` is the
+      // one optional seam: a suite that drives the per-user event bucket (#2605)
+      // at a fixed instant passes a clock here rather than mocking the global
+      // Date the socket server's own timers run on.
+      io = attachDraftSocket(server, { now });
       return `http://127.0.0.1:${server.address().port}`;
     })();
     return starting;

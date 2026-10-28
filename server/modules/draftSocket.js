@@ -18,6 +18,7 @@ const {
 } = require('../services/teamIdentity');
 const { feedEntryOf, isBlockableFeedType, listBlockersOf } = require('../services/leagueFeed');
 const { checkChatSend } = require('./chatFlood');
+const { socketEventLimiter, refuseExtraSockets } = require('./socketRateLimit');
 const { MAX_CHAT_CHARS } = require('./chatLimits');
 const { TEXT, GIF, validateGifSend } = require('./gifMessage');
 const { isGifMessagesEnabled } = require('./gifCapability');
@@ -39,7 +40,7 @@ const { createRedisSubscriber, getRedisClient } = require('./redis');
  * The code is the discriminator, never the message text; joinError below says
  * why, and which single code a client may act on.
  */
-function attachDraftSocket(httpServer) {
+function attachDraftSocket(httpServer, { now = Date.now } = {}) {
   const io = new Server(httpServer, {
     cors: getCorsOptions(),
   });
@@ -51,6 +52,9 @@ function attachDraftSocket(httpServer) {
     io.redisSubscriber = subscriber;
   })();
   io.use(requireSocketAuth);
+  // #2605: after auth (it needs the user id), before any handler. A user
+  // already holding the maximum is refused rather than the oldest evicted.
+  io.use(refuseExtraSockets(io));
   setIo(io); // let scoring/scheduler broadcast without a circular require
   // Construct the one Draft room broadcast (#745) over this process's `io` and
   // register it, so pickClock, draftStart and the draft router emit room-wide
@@ -65,6 +69,11 @@ function attachDraftSocket(httpServer) {
   // sends; this mirrors modules/rateLimit.js's local fallback.
   const chatFloodStore = new Map();
 
+  // Per-user event budget (#2605), the same process-local trade as the flood
+  // store above: it is a load guard, not a billing counter.
+  // shortcut: with N API instances a user gets N times the budget, move the bucket to Redis if one instance is ever not enough
+  const socketEventStore = new Map();
+
   io.on('connection', (socket) => {
     // Expose the authenticated user id on socket.data so a per-recipient chat
     // broadcast can identify a REMOTE socket (one on another instance behind the
@@ -73,6 +82,10 @@ function attachDraftSocket(httpServer) {
     // Addressable by user (membershipEnded): a removed manager's sockets are
     // reached here even though they joined the league room on their own.
     socket.join(`user:${socket.user.id}`);
+    // #2605: every client event (`auth:refresh` too, which requireSocketAuth
+    // registered above) passes this before its handler, drawing on the ONE
+    // bucket this user holds across all their sockets.
+    socket.use(socketEventLimiter(socketEventStore, socket.user.id, now));
 
     // Generic league room join (live scores, chat) — no draft state attached
     socket.on('league:join', async ({ leagueId } = {}, ack) => {
