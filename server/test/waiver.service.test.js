@@ -265,6 +265,105 @@ test('claimFailureReason: a team over capacity (stash occupant recovered) is rej
   fake.assertClean();
 });
 
+// --- position caps hold on waiver Claims (#2557) ----------------------------
+// `atPosition` is how many players the team already rosters in the cap group;
+// `positions` is what the players table answers for the claimed/dropped ids.
+
+const capLeague = { id: 1, waiver_type: 'priority', roster_limit: 16, ir_slots: 2, position_caps: { RB: 2 } };
+
+function capWorld({ positions, atPosition }) {
+  return createFakePool([
+    [/^SELECT 1 FROM "team_players" WHERE "league_id"/, () => ({ rows: [] })],
+    [/^SELECT 1 FROM "team_players" WHERE "team_id"/, () => ({ rows: [{ 1: 1 }] })],
+    [/^SELECT COUNT\(\*\)::int AS n FROM "team_players" JOIN "players"/, () => ({ rows: [{ n: atPosition }] })],
+    [/^SELECT COUNT\(\*\)::int AS n FROM "team_players"/, () => ({ rows: [{ n: 10 }] })],
+    [select('players'), () => ({ rows: positions })],
+    [select('lineup_entries'), () => ({ rows: [{ n: 0 }] })],
+  ]);
+}
+
+async function capReason({ positions, atPosition, dropPlayerId = null, league = capLeague }) {
+  const fake = capWorld({ positions, atPosition });
+  const client = await fake.connect();
+  const reason = await claimFailureReason(client, {
+    league,
+    team: { id: 31 },
+    claim: { player_id: 500, drop_player_id: dropPlayerId, bid: 0 },
+  });
+  client.release();
+  fake.assertClean();
+  return reason;
+}
+
+test('claimFailureReason: a claim that would exceed a position cap names the cap', async () => {
+  const reason = await capReason({ positions: [{ id: 500, position: 'RB' }], atPosition: 2 });
+  assert.equal(reason, 'position cap reached: max 2 RB');
+});
+
+test('claimFailureReason: a claim under the cap passes', async () => {
+  const reason = await capReason({ positions: [{ id: 500, position: 'RB' }], atPosition: 1 });
+  assert.equal(reason, null);
+});
+
+test('claimFailureReason: at the cap, a drop at the same position nets zero and passes', async () => {
+  const reason = await capReason({
+    positions: [{ id: 500, position: 'RB' }, { id: 77, position: 'RB' }], atPosition: 2, dropPlayerId: 77,
+  });
+  assert.equal(reason, null);
+});
+
+test('claimFailureReason: at the cap, a drop at another position does not free the cap', async () => {
+  const reason = await capReason({
+    positions: [{ id: 500, position: 'RB' }, { id: 77, position: 'WR' }], atPosition: 2, dropPlayerId: 77,
+  });
+  assert.equal(reason, 'position cap reached: max 2 RB');
+});
+
+test('claimFailureReason: the IDP group key is the cap, not the literal position', async () => {
+  const reason = await capReason({
+    positions: [{ id: 500, position: 'CB' }], atPosition: 1, league: { ...capLeague, position_caps: { DB: 1 } },
+  });
+  assert.equal(reason, 'position cap reached: max 1 DB');
+});
+
+test('processWaivers: a Team over a cap keeps its players; a claim at that position fails, another position wins', async (t) => {
+  const league = {
+    id: 1, transactions_locked: false, waiver_type: 'priority', roster_limit: 16, ir_slots: 2,
+    current_season: 2026, current_week: 6, waiver_period_hours: 24, position_caps: { RB: 2 },
+  };
+  const claims = [
+    { id: 1, league_id: 1, team_id: 31, player_id: 500, drop_player_id: null, bid: 0, status: 'pending', claim_order: 1, created_at: '2026-07-11T00:00:00Z' },
+    { id: 2, league_id: 1, team_id: 31, player_id: 501, drop_player_id: null, bid: 0, status: 'pending', claim_order: 2, created_at: '2026-07-11T00:01:00Z' },
+  ];
+  const fake = createFakePool([
+    [select('leagues'), () => ({ rows: [league] })],
+    [update('leagues'), () => ({ rows: [], rowCount: 0 })],
+    [select('waiver_claims'), () => ({ rows: claims })],
+    [select('teams'), () => ({ rows: [{ id: 31, league_id: 1, owner_id: 8, user_id: 8, waiver_priority: 1 }] })],
+    [/^SELECT 1 FROM "team_players" WHERE "league_id"/, () => ({ rows: [] })],
+    // Three RBs on a cap of 2: over the cap, and nothing is taken away.
+    [/^SELECT COUNT\(\*\)::int AS n FROM "team_players" JOIN "players"/, (text, params) => ({ rows: [{ n: params[1].includes('RB') ? 3 : 0 }] })],
+    [/^SELECT COUNT\(\*\)::int AS n FROM "team_players"/, () => ({ rows: [{ n: 10 }] })],
+    [select('players'), () => ({ rows: [{ id: 500, position: 'RB' }, { id: 501, position: 'WR' }] })],
+    [select('lineup_entries'), () => ({ rows: [{ n: 0 }] })],
+    [insert('team_players'), () => ({ rows: [], rowCount: 1 })],
+    [update('teams'), () => ({ rows: [], rowCount: 1 })],
+    [update('waiver_claims'), () => ({ rows: [], rowCount: 1 })],
+    [insert('transactions'), () => ({ rows: [] })],
+    [insert('notifications'), () => ({ rows: [] })],
+    [remove('waiver_players'), () => ({ rows: [] })],
+  ]).install(t);
+  t.mock.method(lineupService, 'benchAcquiredPlayer', async () => {});
+
+  const { results } = await processWaivers({ leagueId: 1 });
+
+  assert.deepEqual(results, [
+    { claimId: 1, playerId: 500, status: 'invalid', reason: 'position cap reached: max 2 RB' },
+    { claimId: 2, playerId: 501, status: 'won', teamId: 31 },
+  ]);
+  assert.equal(fake.matching(/^DELETE FROM "team_players"/).length, 0);
+});
+
 // --- a won claim lands the player on the bench (#94 user story 13) ----------
 // Thin: proves the execution site benches the acquired player after the roster
 // insert. The bench step itself is tested at the lineup seam.

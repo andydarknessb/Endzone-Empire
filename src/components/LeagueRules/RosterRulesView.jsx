@@ -57,12 +57,12 @@ export default function RosterRulesView({ league }) {
       </Box>
 
       <Box>
-        <SectionTitle>Draft position limits</SectionTitle>
+        <SectionTitle>Position caps</SectionTitle>
         {cappedPositions.length === 0 ? (
-          <Dim>No position limits. You can draft any mix of positions.</Dim>
+          <Dim>No position caps. You can roster any mix of positions.</Dim>
         ) : (
           <>
-            <Dim sx={{ mb: '12px' }}>Limits apply only while drafting; rosters can change freely afterward.</Dim>
+            <Dim sx={{ mb: '12px' }}>Caps apply to every add: draft picks, free-agent adds, waiver claims and trades.</Dim>
             <TagRow>
               {cappedPositions.map((p) => (
                 <Tag key={p}>{`${p}: max ${caps[p]}`}</Tag>
