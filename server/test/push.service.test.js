@@ -134,13 +134,14 @@ function saveWorld(t, rows = []) {
 const keys = { p256dh: 'p', auth: 'a' };
 const fcm = (n) => `https://fcm.googleapis.com/wp/${n}`;
 
-test('saveSubscription rejects http, unlisted, IP-literal and lookalike endpoints with 400 and writes no row', async (t) => {
+test('saveSubscription rejects http, unlisted, IP-literal, lookalike and off-spec subdomain endpoints with 400 and writes no row', async (t) => {
   const { fake } = saveWorld(t);
   const rejected = [
     'http://fcm.googleapis.com/wp/1',
     'https://push.evil.example/wp/1',
     'https://127.0.0.1/wp/1',
     'https://fcm.googleapis.com.evil.example/wp/1',
+    'https://evil.fcm.googleapis.com/wp/1', // subdomains are allowed for WNS only
   ];
 
   for (const endpoint of rejected) {
@@ -184,6 +185,13 @@ test('an eleventh subscription leaves ten rows and drops the oldest', async (t) 
   const prunes = fake.matching(/^DELETE FROM "push_subscriptions"/).filter((call) => call.params[0] === 1);
   assert.equal(prunes.length, 11, 'every save asks for the cap');
   assert.deepEqual(prunes[0].params, [1, 10]);
+  // The world above keeps the newest ten itself, so pin the statement's own
+  // scoping and ordering: a wrong direction or a missing user filter would
+  // delete the wrong Manager's rows and the row assertions would not notice.
+  assert.match(
+    prunes[0].text,
+    /^DELETE FROM "push_subscriptions" WHERE "user_id" = \$1 AND "id" NOT IN \( SELECT "id" FROM "push_subscriptions" WHERE "user_id" = \$1 ORDER BY "updated_at" DESC, "id" DESC LIMIT \$2 \)$/
+  );
 });
 
 test('sendPushToUsers abandons a send that never settles, logs it, and carries on to the next subscription', async (t) => {

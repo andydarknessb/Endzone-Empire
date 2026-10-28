@@ -51,13 +51,14 @@ function getPublicKey() {
 }
 
 // The send POSTs to whatever endpoint is stored, so only a real push service is
-// accepted: an https URL on one of these hosts (any subdomain, for WNS).
+// accepted: an https URL on one of these hosts.
 const PUSH_HOSTS = [
   'fcm.googleapis.com',
   'updates.push.services.mozilla.com',
   'web.push.apple.com',
-  'notify.windows.com',
 ];
+// WNS gives each device its own hostname, e.g. wns2-par02p.notify.windows.com.
+const WNS_HOST = 'notify.windows.com';
 
 const MAX_SUBSCRIPTIONS_PER_USER = 10;
 
@@ -69,7 +70,9 @@ function isPushServiceEndpoint(endpoint) {
     return false;
   }
   if (url.protocol !== 'https:') return false;
-  return PUSH_HOSTS.some((host) => url.hostname === host || url.hostname.endsWith(`.${host}`));
+  return PUSH_HOSTS.includes(url.hostname)
+    || url.hostname === WNS_HOST
+    || url.hostname.endsWith(`.${WNS_HOST}`);
 }
 
 /** Store (or refresh) a browser subscription for a user. */
