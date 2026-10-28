@@ -1418,8 +1418,11 @@ Team's own tally)
 A playoff Team's place in its League's bracket, fixed when the bracket is
 created from the final regular-season standings. A later stat correction can
 change a Record but never a Playoff seed: who is in the bracket, who has a bye
-and the seed order stay as created, and later rounds pair Teams by it. The
-standings show the Playoff seed once the bracket exists.
+(a seeded Team skipping round one, not a Bye week, which is an NFL team's off
+week) and the seed order stay as created. The seed is stored per League and
+season, bye Teams included, and later rounds, the bye check and the standings
+show read the stored seed, so the standings show the Playoff seed once the
+bracket exists.
 _Avoid_: rank (a standings position, which can still move), playoff rank
 
 **Scoring rules**:
@@ -2271,12 +2274,3 @@ _Avoid_: release, tag
 The preregistered tie-break that chooses among passing cells by how little each
 one changes, never by how well it scored.
 _Avoid_: ranking, best
-
-**Playoff seed**:
-A playoff Team's place in the championship bracket, fixed once when the bracket is
-created and stored per League and season, bye Teams included. Later rounds, the
-bye check and the standings' `playoffSeed` read the stored seed, so a stat
-correction to a regular-season week can change records but never who is in the
-bracket, who has a bye, or the seed order. Distinct from rank, which is the live
-standing and keeps moving.
-_Avoid_: bracket position, live seed

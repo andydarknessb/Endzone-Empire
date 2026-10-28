@@ -1313,4 +1313,6 @@ test('#2547: a League in its playoffs with no stored seeds gets no locked-seeds 
   await correctionSvc.correctLeagueWeek({ leagueId: 7, season: 2026, week: 14 });
 
   assert.deepEqual(lockedSeedAlerts(fake), []);
+  assert.equal(fake.matching(/SELECT 1 FROM "playoff_seeds"/).length, 1, 'the probe ran and found no seeds');
+  fake.assertClean();
 });
