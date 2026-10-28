@@ -374,6 +374,7 @@ test('commissioner drop: a post-kickoff drop keeps the current-week row', async 
 
 const tradeLeague = {
   id: 5,
+  draft_status: 'complete',
   roster_limit: 16,
   ir_slots: 1,
   current_season: CURRENT_SEASON,
