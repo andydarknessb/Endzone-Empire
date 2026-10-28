@@ -504,6 +504,35 @@ test('landPick: the completing pick reaches completeDraft after the status flip 
   fake.assertClean();
 });
 
+// #2548: the handoff seeds every Team's Lineup from the roster it reads back
+// off the database (lineup.service.seedDraftedLineups), so the final Pick must
+// be on the roster - and benched - before completeDraft runs. Run first, the
+// seed misses the last player; the last pick is usually a K or DEF, so that
+// Team starts with an empty slot and every later week copies it forward.
+test('landPick: the completing Pick is rostered and benched before the draft-completion handoff (#2548)', async (t) => {
+  const fake = pickPool({ league: BASE_LEAGUE, picksMade: 4 }).install(t);
+  installRecordingBroadcast(t);
+  const order = [];
+  t.mock.method(lineupService, 'benchAcquiredPlayer', async () => { order.push('bench'); });
+  t.mock.method(lineupService, 'seedDraftedLineups', async () => {});
+  let handoffAt = null;
+  t.mock.method(draftCompletion, 'completeDraft', async () => {
+    handoffAt = fake.calls.length;
+    order.push('handoff');
+    return { kind: 'complete', id: 78 };
+  });
+
+  const outcome = await landPick({ leagueId: LEAGUE_ID, userId: 7, playerId: 500 });
+
+  assert.equal(outcome.draftComplete, true);
+  const insertAt = fake.calls.findIndex((c) => /^INSERT INTO "team_players"/.test(c.text));
+  assert.ok(insertAt >= 0, 'the Pick recorded its roster row');
+  assert.notEqual(handoffAt, null, 'the handoff ran');
+  assert.ok(insertAt < handoffAt, "the final player's roster insert precedes the handoff that reads the roster back");
+  assert.deepEqual(order, ['bench', 'handoff'], 'bench placement precedes the handoff too, so the seed sees a settled roster');
+  fake.assertClean();
+});
+
 // --- the Pick commit runs through the write gate (#965) ----------------------
 //
 // THE RULING: a commissioner freeze does NOT refuse a Pick during an active
