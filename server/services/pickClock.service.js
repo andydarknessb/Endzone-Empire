@@ -33,7 +33,8 @@ const { appendLifecycleActivity, STALLED } = require('./draftActivity');
  * The module also OWNS EXPIRY (#600): the sweep entry point below is the only
  * thing that concludes a clock expired, and the Autopick act it drives (the
  * queue first, then Best available among players who fill a Starting need, then
- * Best available among everyone else, with the snipe retry - ADR 0026) and the
+ * Best available among everyone else, with the candidate walk past a code-less
+ * 409 - ADR 0026) and the
  * consecutive-timeout streak live here too. The clock re-arm on a committed autopick still rides the
  * pick-landed event through pick.service.landPick, so expiry and arming
  * share the one policy. pick.service is required lazily inside autoPick because
@@ -43,7 +44,7 @@ const { appendLifecycleActivity, STALLED } = require('./draftActivity');
 
 const AUTODRAFT_DELAY_FLOOR = 1;
 
-// Defensive bound on landPick() attempts after a snipe - not a ranking cutoff.
+// Defensive bound on landPick() attempts across 409-blocked candidates - not a ranking cutoff.
 const AUTOPICK_CANDIDATE_LIMIT = 25;
 
 /**
@@ -329,9 +330,11 @@ async function armInPlace(client, { leagueId, clockSeconds }) {
  * every remaining pick must fill a need, so K/DEF join the need phase and it
  * leads. A data problem (thin ADP) never refuses here - the phases fall through
  * to points then name, and the full board always follows as a fallback tail so
- * a sniped or cap-blocked candidate degrades to a pick rather than stalling
- * (#602, ADR 0026): even the must-fill path keeps that tail, so losing its one
- * or two K/DEF rows between here and the pick does not walk into escalation.
+ * a cap-blocked candidate (a code-less 409) degrades to a pick rather than
+ * stalling (#602, ADR 0026): even the must-fill path keeps that tail, so losing
+ * its one or two K/DEF rows between here and the pick does not walk into
+ * escalation. The tail does not cover CLOCK_MOVED: a candidate taken by another
+ * Team's Pick moves the clock and the firing returns null instead (#2549).
  *
  * Internal to this module: the ordering contracts are exercised through the
  * sweep interface (server/test/pickClock.sweep.test.js), not a test-only export
@@ -373,9 +376,11 @@ function orderAutopickCandidates(rows, { rosterSlots, rosterPositions, currentRo
   if (mustFill) {
     // Every remaining pick must fill a need, so the need phase includes K/DEF
     // and leads. The normal phases follow as a fallback tail (deduped): if the
-    // must-fillers are sniped or cap-blocked (409) between here and the pick,
+    // must-fillers are cap-blocked (a code-less 409) between here and the pick,
     // autopick still degrades to a draftable player instead of escalating with
-    // players left on the board (ADR 0026). Never an early return.
+    // players left on the board (ADR 0026). CLOCK_MOVED is not covered here: a
+    // candidate taken by another Team's Pick moves the clock and autoPick stops.
+    // Never an early return.
     const mustFillers = rest.filter((r) => fills(r.position)).sort(byBestAvailable);
     const seen = new Set(mustFillers);
     phased = [...mustFillers, ...needFillers.filter((r) => !seen.has(r)), ...bench.filter((r) => !seen.has(r))];
@@ -557,7 +562,7 @@ async function autoPick({ leagueId }) {
     }
   }
   // Nothing draftable for this expired turn (empty pool, full roster, or every
-  // candidate sniped away): escalate instead of spinning silently (#602). The
+  // candidate cap-blocked): escalate instead of spinning silently (#602). The
   // pause is idempotent across the timer and the backstop sweep - see
   // escalateNothingDraftable - so a firing that loses the race pauses nothing
   // and appends nothing. autoPick still returns null either way, so neither fire

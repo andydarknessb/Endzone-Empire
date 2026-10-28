@@ -58,6 +58,11 @@ const { assertRosterWriteAllowed, ROSTER_GATE } = require('./rosterGate.service'
  * own team, and skips the team-lock check (an offline draft is entirely
  * commissioner-driven).
  *
+ * `expectedDeadline` is set only by an Autopick: the deadline its firing saw
+ * expire. Every re-arm moves pick_deadline_at, so a value that differs from the
+ * locked row means the firing is stale and this Pick is refused with a 409
+ * `CLOCK_MOVED` and no Pick is inserted (#2549).
+ *
  * Exported as the fan-out-free commit seam. `landPick` is the one export a caller
  * reaches for (ruling 1); `commitPick` is exported because two kinds of test need
  * the commit WITHOUT the room fan-out, not merely to mock it: the autopick and
@@ -378,6 +383,10 @@ async function commitPick({ leagueId, userId, playerId, auto = false, byCommissi
  *
  * commitPick is invoked through the module exports so a test can mock the commit
  * and observe the real fan-out.
+ *
+ * `expectedDeadline` is passed straight through to commitPick: an Autopick whose
+ * firing saw a deadline that the locked row since moved past is refused with a
+ * 409 `CLOCK_MOVED` and no Pick lands (#2549).
  */
 async function landPick({ leagueId, userId, playerId, auto = false, byCommissioner = false, expectedDeadline }) {
   const outcome = await module.exports.commitPick({ leagueId, userId, playerId, auto, byCommissioner, expectedDeadline });
