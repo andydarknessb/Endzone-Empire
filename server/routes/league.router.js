@@ -4,7 +4,7 @@ const pool = require('../modules/pool');
 const { withTransaction } = require('../modules/withTransaction');
 const clock = require('../modules/clock');
 const { requireAuth } = require('../modules/auth');
-const { createRateLimiter } = require('../modules/rateLimit');
+const { createRateLimiter, createFailureLimiter } = require('../modules/rateLimit');
 const projectionService = require('../services/projection.service');
 const { poolPointsFor } = require('../services/poolProjection');
 const {
@@ -82,7 +82,8 @@ router.post('/', async (req, res) => {
   // defaults here (a standard 9-starter/5-bench/1-IR roster, summing to the
   // roster_limit default) — a commissioner customizes roster construction via
   // the Roster Settings tab after creation, any time before the draft starts.
-  const inviteCode = crypto.randomBytes(4).toString('hex');
+  // 16 hex chars (#2554); 8-character codes from older Leagues still match by exact lookup.
+  const inviteCode = crypto.randomBytes(8).toString('hex');
   try {
     const league = await withTransaction(
       pool,
@@ -153,8 +154,23 @@ router.post('/', async (req, res) => {
   }
 });
 
+// Guessing codes is the attack, so only a join that finds no League stays counted: 10 per
+// 10 minutes per user and per IP (free accounts multiply a per-user limit). Each limiter
+// reserves a slot up front and the route refunds it on any other outcome.
+const JOIN_FAILURE_WINDOW_MS = 10 * 60 * 1000;
+const joinFailuresByUser = createFailureLimiter({ name: 'join-user', windowMs: JOIN_FAILURE_WINDOW_MS, max: 10, keyFn: (req) => req.user.id });
+const joinFailuresByIp = createFailureLimiter({ name: 'join-ip', windowMs: JOIN_FAILURE_WINDOW_MS, max: 10, keyFn: (req) => req.ip });
+
+const refundJoinSlots = (req, res, next) => {
+  // Registered ahead of the guards so a user slot is handed back when the IP guard refuses.
+  res.on('finish', () => {
+    if (!res.locals.unknownCode) Promise.all([joinFailuresByUser.refund(req), joinFailuresByIp.refund(req)]);
+  });
+  next();
+};
+
 // POST /api/league/join — join a league by invite code (creates your team)
-router.post('/join', async (req, res) => {
+router.post('/join', refundJoinSlots, joinFailuresByUser.guard, joinFailuresByIp.guard, async (req, res) => {
   const { inviteCode, teamName } = req.body || {};
   if (!inviteCode) return res.status(400).json({ error: 'inviteCode is required' });
 
@@ -172,7 +188,10 @@ router.post('/join', async (req, res) => {
         // #1065 Ruling 2). MembershipError carries the 404 the catch maps
         // through serviceErrorBody; the membership module owns the joinLeague
         // write immediately below, so its coded error is the fitting one.
-        if (!league) throw new MembershipError(404, 'no league with that invite code');
+        if (!league) {
+          res.locals.unknownCode = true;
+          throw new MembershipError(404, 'no league with that invite code');
+        }
         // The code is this path's only gate; admission (joinable, not already a
         // member, not full) and the Team write belong to the membership module.
         const { team } = await joinLeague(client, { leagueId: league.id, userId: req.user.id, teamName });
@@ -274,10 +293,11 @@ router.get('/discover', async (req, res) => {
   }
 });
 
-// Invite codes are 8 hex chars and POST /join has no limiter of its own, so
-// a cheap read-only lookup must not make them enumerable: 30 previews per
-// caller per 10 minutes covers hand-typing several codes (the client previews
-// each plausible prefix as you type) while making a sweep pointless.
+// POST /join limits failed joins, so a cheap read-only lookup must not make
+// invite codes enumerable either: 30 previews per caller per 10 minutes covers
+// hand-typing several codes (the client previews each plausible prefix as you
+// type) while keeping a sweep slow. New codes are 16 hex chars; older Leagues
+// keep their 8-character ones.
 const previewRateLimiter = createRateLimiter({ windowMs: 10 * 60 * 1000, max: 30 });
 
 // GET /api/league/preview?code= — what an invite link reveals before joining.

@@ -93,6 +93,79 @@ function createRateLimiter({ name, windowMs, max, keyFn } = {}) {
   };
 }
 
+/**
+ * A limiter for guessable lookups: only requests the route reports as failed
+ * stay counted. `guard` reserves a slot before the work runs (so parallel
+ * guesses cannot all pass a read-only check) and answers 429 when none is
+ * left; `refund(req)` refunds the slot, so the route calls it for every
+ * outcome except the failure being limited. Same store rules as
+ * createRateLimiter: Redis fixed window, process-local sliding window in tests
+ * and dev, fail closed in production.
+ *
+ * @param {{ name: string, windowMs: number, max: number, keyFn?: (req) => string }} opts
+ */
+function createFailureLimiter({ name, windowMs, max, keyFn }) {
+  if (!name || !windowMs || !max) throw new Error('createFailureLimiter requires name, windowMs and max');
+  const store = new Map();
+  const held = new WeakMap(); // req -> the slot it reserved, so refund undoes exactly that
+  const getKey = keyFn || ((req) => req.user?.id ?? req.ip);
+
+  async function guard(req, res, next) {
+    const key = String(getKey(req));
+    const now = Date.now();
+    let count;
+    let retryAfterMs = 0;
+    let slot;
+    try {
+      const { getRedisClient } = require('./redis');
+      const redis = await getRedisClient();
+      if (redis) {
+        slot = { redisKey: `rate-limit:failures:${(req.baseUrl || 'api').toLowerCase()}:${name}:${key}:${Math.floor(now / windowMs)}` };
+        count = await redis.incr(slot.redisKey);
+        if (count === 1) await redis.pExpire(slot.redisKey, windowMs);
+        if (count > max) retryAfterMs = Math.max(await redis.pTTL(slot.redisKey), 0);
+      }
+    } catch (error) {
+      if (process.env.NODE_ENV === 'production') return next(error);
+      slot = undefined;
+      count = undefined;
+    }
+    if (count === undefined) {
+      const recent = (store.get(key) || []).filter((t) => t > now - windowMs);
+      slot = { key, now };
+      recent.push(now);
+      store.set(key, recent);
+      count = recent.length;
+      if (count > max) retryAfterMs = Math.max(recent[0] + windowMs - now, 0);
+    }
+    held.set(req, slot);
+    if (count <= max) return next();
+    await refund(req); // a refused request must not extend its own block
+    res.set('Retry-After', String(Math.ceil(retryAfterMs / 1000)));
+    return res.status(429).json({ code: 'RATE_LIMITED', message: 'Too many requests', requestId: req.id });
+  }
+
+  async function refund(req) {
+    const slot = held.get(req);
+    if (!slot) return;
+    held.delete(req);
+    if (slot.redisKey) {
+      try {
+        const { getRedisClient } = require('./redis');
+        await (await getRedisClient()).decr(slot.redisKey);
+      } catch (error) {
+        console.error('failure limiter could not refund', error); // the slot stays spent: stricter, never looser
+      }
+      return;
+    }
+    const times = store.get(slot.key) || [];
+    const at = times.indexOf(slot.now);
+    if (at !== -1) times.splice(at, 1);
+  }
+
+  return { guard, refund };
+}
+
 const MAX_ACCOUNT_KEY = 254;
 
 /** Typed username or email, lowercased and cut so a huge body cannot fatten a limiter key. */
@@ -124,4 +197,4 @@ function createCredentialLimiters() {
   };
 }
 
-module.exports = { createRateLimiter, createCredentialLimiters, accountPart, hit };
+module.exports = { createRateLimiter, createFailureLimiter, createCredentialLimiters, accountPart, hit };
