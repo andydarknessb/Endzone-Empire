@@ -103,3 +103,29 @@ test('previews are rate limited per caller so invite codes cannot be enumerated 
   assert.ok(statuses.includes(429), `expected a 429 within 40 probes, got ${statuses.join(',')}`);
   assert.ok(statuses.filter((s) => s === 404).length >= 10, 'ordinary use is not throttled');
 });
+
+test('previews are also rate limited per IP, so free accounts on one address cannot widen the sweep', async (t) => {
+  const limited = makeApp();
+  limited.set('trust proxy', true); // as server.js does, so req.ip is the caller's address
+  fakeDb(t, { row: null });
+  const statuses = [];
+  for (let i = 0; i < 40; i++) {
+    const res = await request(limited)
+      .get(`/api/league/preview?code=${i.toString(16).padStart(8, '0')}`)
+      .set('Authorization', authed(100 + i)) // a new account each time: the per-caller cap never fires
+      .set('X-Forwarded-For', '203.0.113.1');
+    statuses.push(res.status);
+    if (res.status === 429) {
+      assert.ok(res.headers['retry-after'], 'a 429 says when to retry');
+      break;
+    }
+  }
+  assert.ok(statuses.includes(429), `expected a 429 within 40 probes from one IP, got ${statuses.join(',')}`);
+  assert.ok(statuses.filter((s) => s === 404).length >= 10, 'ordinary use is not throttled');
+
+  const elsewhere = await request(limited)
+    .get('/api/league/preview?code=deadbeef')
+    .set('Authorization', authed(200))
+    .set('X-Forwarded-For', '203.0.113.2');
+  assert.equal(elsewhere.status, 404, 'another address keeps its own count');
+});
