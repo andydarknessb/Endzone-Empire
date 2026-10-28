@@ -124,13 +124,15 @@ test('kickoff waiver hold seam: the scheduler tick, then readPlayersPage, agains
       rows: players.map((p) => ({ id: p.id, nfl_team: p.nfl_team })),
     })],
     [/^INSERT INTO "waiver_players"/, (text, params) => {
-      const [leagueId, playerId, availableAt] = params;
+      const [leagueId, playerIds, availableAt] = params;
       const resolved = new Date(availableAt).toISOString();
-      const existing = waiverRows.find((r) => r.league_id === leagueId && r.player_id === playerId);
-      if (existing) {
-        if (new Date(resolved) > new Date(existing.available_at)) existing.available_at = resolved;
-      } else {
-        waiverRows.push({ league_id: leagueId, player_id: playerId, available_at: resolved });
+      for (const playerId of playerIds) {
+        const existing = waiverRows.find((r) => r.league_id === leagueId && r.player_id === playerId);
+        if (existing) {
+          if (new Date(resolved) > new Date(existing.available_at)) existing.available_at = resolved;
+        } else {
+          waiverRows.push({ league_id: leagueId, player_id: playerId, available_at: resolved });
+        }
       }
       return { rows: [] };
     }],
