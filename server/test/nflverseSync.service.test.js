@@ -867,7 +867,7 @@ test('syncNflverseWeek: re-scores only leagues already past the finalized week, 
     { id: 2, current_season: 2025, current_week: 3 },
     { id: 3, current_season: 2024, current_week: 4 },
   ];
-  createFakePool([
+  const fake = createFakePool([
     [/^SELECT "id", "external_id", "position" FROM "players"/, () => ({ rows: [{ id: 42, external_id: '4429795' }] }), 'client'],
     [/^SELECT "stats" FROM "player_stats"/, () => ({ rows: [] }), 'client'],
     [insert('player_stats'), () => ({ rows: [] }), 'client'],
@@ -878,7 +878,8 @@ test('syncNflverseWeek: re-scores only leagues already past the finalized week, 
         ? LEAGUES.filter((l) => l.current_season === params[0] && l.current_week > params[1])
         : LEAGUES,
     })],
-  ]).install(t);
+  ]);
+  fake.install(t);
   const rescored = [];
   t.mock.method(correction, 'correctLeagueWeek', async ({ leagueId }) => {
     rescored.push(leagueId);
@@ -889,6 +890,10 @@ test('syncNflverseWeek: re-scores only leagues already past the finalized week, 
 
   assert.deepEqual(rescored, [1], 'a league still on the week (open) and one in another season are never re-scored');
   assert.equal(out.leaguesRescored, 1);
+  // The fake answers from the params, so only the query text can prove which
+  // leagues the SELECT asks for (#2571).
+  const [leaguesCall] = fake.matching(select('leagues'));
+  assert.match(leaguesCall.text, /"current_season" = \$1 AND "current_week" > \$2/);
 });
 
 test('syncNflverseWeek: target_share/air_yards_share/wopr/EPA land as new keys on an already-enriched row, with every existing key and the row count unchanged (#1706)', async (t) => {
@@ -1548,8 +1553,10 @@ function stubFinalizeWorld(t, { snapsFail = false } = {}) {
     [/^SELECT "player_id", "stats" FROM "player_stats"/, () => ({ rows: [] }), 'client'],
     [insert('player_stats'), () => ({ rows: [] }), 'client'],
     [insert('data_sync_runs'), () => ({ rows: [] })],
-    [select('leagues'), (text) => ({
-      rows: text.includes('"current_season"') ? [{ id: 7, current_season: 2025, current_week: 2 }] : [{ id: 7 }],
+    // Only the re-score SELECT passes params; the finalize list query needs the
+    // week columns, the re-score loop reads only id (#2571).
+    [select('leagues'), (text, params) => ({
+      rows: params ? [{ id: 7 }] : [{ id: 7, current_season: 2025, current_week: 2 }],
     })],
   ]).install(t);
   t.mock.method(correction, 'correctLeagueWeek', async () => ({ changes: [] }));
