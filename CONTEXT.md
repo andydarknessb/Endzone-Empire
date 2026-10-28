@@ -2241,3 +2241,12 @@ _Avoid_: release, tag
 The preregistered tie-break that chooses among passing cells by how little each
 one changes, never by how well it scored.
 _Avoid_: ranking, best
+
+**Playoff seed**:
+A playoff Team's place in the championship bracket, fixed once when the bracket is
+created and stored per League and season, bye Teams included. Later rounds, the
+bye check and the standings' `playoffSeed` read the stored seed, so a stat
+correction to a regular-season week can change records but never who is in the
+bracket, who has a bye, or the seed order. Distinct from rank, which is the live
+standing and keeps moving.
+_Avoid_: bracket position, live seed

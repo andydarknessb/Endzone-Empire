@@ -330,6 +330,23 @@ async function getStandings({ leagueId }) {
 }
 
 /**
+ * The current season's stored Playoff seeds as Map(teamId -> seed). Empty
+ * until the bracket is created (and for a League already in its playoffs
+ * before seeds were stored).
+ */
+async function getPlayoffSeeds({ leagueId }) {
+  const result = await pool.query(
+    `SELECT "playoff_seeds"."team_id", "playoff_seeds"."seed"
+     FROM "playoff_seeds"
+     JOIN "leagues" ON "leagues"."id" = "playoff_seeds"."league_id"
+     WHERE "playoff_seeds"."league_id" = $1
+       AND "playoff_seeds"."season" = "leagues"."current_season"`,
+    [leagueId]
+  );
+  return new Map(result.rows.map((r) => [r.team_id, r.seed]));
+}
+
+/**
  * Give every team in a matchup of the week that just opened its lineup rows
  * now, rather than at the first score sync or the first lineup view. Until
  * this ran, a team nobody had touched had no starters to sum, so its Game
@@ -456,6 +473,17 @@ async function finalizeWeekAndAdvance({ leagueId, week: expectedWeek }) {
         playoffTeams: league.playoff_teams,
         consolationEnabled: league.playoff_consolation,
       });
+      // Seeds are fixed here (#2547): later rounds, the bye check and the
+      // standings route read these rows, never the live standings again.
+      const seeded = standings.slice(0, Math.min(Number(league.playoff_teams) || 0, standings.length));
+      if (seeded.length > 0) {
+        await client.query(
+          `INSERT INTO "playoff_seeds" ("league_id", "season", "team_id", "seed")
+           SELECT $1, $2, "s"."team_id", "s"."seed"
+           FROM unnest($3::int[], $4::int[]) AS "s"("team_id", "seed")`,
+          [leagueId, season, seeded.map((s) => s.teamId), seeded.map((s) => s.rank)]
+        );
+      }
       for (const game of brackets.playoff.games) {
         await client.query(
           `INSERT INTO "matchups" ("league_id", "season", "week", "home_team_id", "away_team_id",
@@ -491,18 +519,23 @@ async function finalizeWeekAndAdvance({ leagueId, week: expectedWeek }) {
       const winners = thisRound.map((m) =>
         Number(m.home_score) >= Number(m.away_score) ? m.home_team_id : m.away_team_id
       );
-      // Byes: playoff teams that didn't play this round advance automatically
-      const seededStandings = computeStandings(teams, allMatchups.rows);
-      const seedOf = new Map(seededStandings.map((s, i) => [s.teamId, i + 1]));
-      const playedIds = new Set(thisRound.flatMap((m) => [m.home_team_id, m.away_team_id]));
-      const priorQualifiers = new Set(
-        allMatchups.rows
-          .filter((m) => m.is_playoff && !m.is_consolation)
-          .flatMap((m) => [m.home_team_id, m.away_team_id])
+      // Byes: seeded playoff teams that didn't play this round advance automatically
+      const storedSeeds = await client.query(
+        `SELECT "team_id", "seed" FROM "playoff_seeds"
+         WHERE "league_id" = $1 AND "season" = $2 ORDER BY "seed"`,
+        [leagueId, season]
       );
-      const byeTeams = seededStandings
-        .slice(0, league.playoff_teams)
-        .map((s) => s.teamId)
+      // shortcut: a League already in its playoffs before playoff_seeds shipped has
+      // no rows and derives seeds from live standings, drop when those seasons end.
+      const seedOf = storedSeeds.rows.length > 0
+        ? new Map(storedSeeds.rows.map((r) => [r.team_id, r.seed]))
+        : new Map(
+          computeStandings(teams, allMatchups.rows)
+            .slice(0, league.playoff_teams)
+            .map((s, i) => [s.teamId, i + 1])
+        );
+      const playedIds = new Set(thisRound.flatMap((m) => [m.home_team_id, m.away_team_id]));
+      const byeTeams = [...seedOf.keys()]
         .filter((id) => !playedIds.has(id) && !eliminatedBefore(allMatchups.rows, id, week));
       const advancing = [...new Set([...winners, ...byeTeams])];
 
@@ -536,7 +569,6 @@ async function finalizeWeekAndAdvance({ leagueId, week: expectedWeek }) {
         );
         outcome = { advancedTo: nextWeek, seasonStatus: 'playoffs', playoffRound: (roundNumber || 1) + 1 };
       }
-      void priorQualifiers;
     } else {
       // Plain regular-season week: schedule already exists, just move forward
       await client.query(
@@ -575,6 +607,7 @@ module.exports = {
   buildOpeningBrackets,
   generateRegularSeason,
   getStandings,
+  getPlayoffSeeds,
   finalizeWeekAndAdvance,
   playoffRounds,
   lastPlayoffWeek,

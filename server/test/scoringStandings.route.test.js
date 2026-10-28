@@ -47,7 +47,7 @@ const leakyTeamRow = (over = {}) => ({
   ...over,
 });
 
-function standingsFake(t) {
+function standingsFake(t, seedRows = []) {
   return createFakePool([
     [/^SELECT \* FROM "teams" WHERE "league_id" = \$1 AND "owner_id" = \$2/, () => ({
       rows: [{ id: VIEWER.teamId, league_id: 1, owner_id: VIEWER.userId }],
@@ -55,6 +55,7 @@ function standingsFake(t) {
     [/^SELECT "playoff_teams", "regular_season_weeks", "season_status", "current_week" FROM "leagues"/, () => ({
       rows: [{ playoff_teams: 4, regular_season_weeks: 13, season_status: 'regular', current_week: 3 }],
     })],
+    [/FROM "playoff_seeds"/, () => ({ rows: seedRows })],
     [/FROM "matchups"/, () => ({
       rows: [{
         week: 1,
@@ -93,4 +94,29 @@ test('GET standings: a served row carries the exact key set, no account fields',
     assert.equal('owner_id' in row, false);
     assert.equal('email' in row, false);
   }
+});
+
+test('GET standings: once the bracket exists playoffSeed comes from the stored seeds, not the live rank', async (t) => {
+  // Rank says Gridiron Ghosts (11) leads; the seeds locked at bracket creation say Sunday Scaries (12) was seed 1.
+  standingsFake(t, [{ team_id: 12, seed: 1 }, { team_id: 11, seed: 2 }]);
+
+  const res = await request(app)
+    .get('/api/scoring/league/1/standings')
+    .set('Authorization', authed);
+
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  const seedOf = Object.fromEntries(res.body.standings.map((s) => [s.teamId, s.playoffSeed]));
+  assert.deepEqual(seedOf, { 11: 2, 12: 1 });
+});
+
+test('GET standings: with no stored seeds playoffSeed is the live rank inside the playoff field', async (t) => {
+  standingsFake(t);
+
+  const res = await request(app)
+    .get('/api/scoring/league/1/standings')
+    .set('Authorization', authed);
+
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  const seedOf = Object.fromEntries(res.body.standings.map((s) => [s.teamId, s.playoffSeed]));
+  assert.deepEqual(seedOf, { 11: 1, 12: 2 });
 });
