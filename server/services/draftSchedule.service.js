@@ -222,10 +222,13 @@ async function runStartAction(league) {
     // Can't start right now (race lost to a concurrent change, stale
     // overrides/keepers, etc.) — flag it so the scheduler doesn't spin on it
     // every tick, and let the commissioner intervene.
-    await pool.query(
+    const flagged = await pool.query(
       `UPDATE "leagues" SET "draft_autostart_failed" = true WHERE "id" = $1 AND "draft_status" = 'pending'`,
       [league.id]
     );
+    // No pending row matched: someone started the draft by hand since the tick
+    // read it, so the 409 is stale and its notice would land mid-draft (#2607).
+    if (flagged.rowCount === 0) return;
     await notifyCommissioners(pool, {
       leagueId: league.id,
       ownerId: league.owner_id,
