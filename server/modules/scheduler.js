@@ -582,8 +582,18 @@ async function runWeatherSnapshotSync({ now }) {
   }
 }
 
-async function tick() {
-  return withAdvisoryLock(23001, 'league-scheduler', tickUnlocked);
+async function tick(jobs = TICK_JOBS) {
+  // The lock acquisition itself (the pool connect and the try-lock query) runs
+  // before tickUnlocked, so a database blip there used to reach setInterval as
+  // an unhandled rejection and exit the worker (processHandlers.js, #2541).
+  // Same guard the draft-clock tick has held since #600.
+  try {
+    return await withAdvisoryLock(23001, 'league-scheduler', () => tickUnlocked(jobs));
+  } catch (err) {
+    console.error('scheduler tick failed to acquire its lock:', err.message);
+    lastTickError = err.message;
+    return undefined;
+  }
 }
 
 /**
