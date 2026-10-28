@@ -62,7 +62,8 @@ function createRateLimiter({ name, windowMs, max, keyFn } = {}) {
       const redis = await getRedisClient();
       if (redis) {
         const bucket = Math.floor(now / windowMs);
-        const redisKey = `rate-limit:${req.baseUrl || 'api'}${name ? `:${name}` : ''}:${key}:${bucket}`;
+        // Express matches mount paths case-insensitively, so the key must too or /API/auth/register gets a fresh count.
+        const redisKey = `rate-limit:${(req.baseUrl || 'api').toLowerCase()}${name ? `:${name}` : ''}:${key}:${bucket}`;
         const count = await redis.incr(redisKey);
         if (count === 1) await redis.pExpire(redisKey, windowMs);
         const ttl = Math.max(await redis.pTTL(redisKey), 0);

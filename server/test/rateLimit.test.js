@@ -217,3 +217,16 @@ test('redis branch: limiters with different names on one route never share a cou
     redisModule.getRedisClient = original;
   }
 });
+
+test('redis branch: the path case a client types does not buy a fresh count', async () => {
+  const original = redisModule.getRedisClient;
+  const redis = fakeRedis();
+  redisModule.getRedisClient = async () => redis;
+  try {
+    const limiter = createRateLimiter({ name: 'n', windowMs: 60_000, max: 1, keyFn: () => 'same' });
+    assert.equal(await runReq(limiter, { baseUrl: '/api/auth/register' }), 200);
+    assert.equal(await runReq(limiter, { baseUrl: '/API/Auth/REGISTER' }), 429);
+  } finally {
+    redisModule.getRedisClient = original;
+  }
+});
