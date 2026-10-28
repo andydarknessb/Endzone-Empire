@@ -94,7 +94,9 @@ function socketEventLimiter(store, userId, now = Date.now) {
  * authorization gate, and a Redis blip must not lock every member out.
  */
 function refuseExtraSockets(io, { max = MAX_SOCKETS_PER_USER } = {}) {
-  return (socket, next) => {
+  // Named, not anonymous: the unauthenticated-route inventory reads namespace
+  // middleware by fn.name, and an anonymous second guard reads as a stranger.
+  return function refuseSocketBeyondCap(socket, next) {
     io.in(`user:${socket.user.id}`).fetchSockets()
       .then((held) => (held.length >= max ? next(new Error('TOO_MANY_SOCKETS')) : next()))
       .catch((error) => {
