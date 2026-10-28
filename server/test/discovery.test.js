@@ -7,6 +7,7 @@ const {
   VALID_DISCOVER_TYPES,
 } = require('../services/discovery.service');
 const { joinableWhereSql } = require('../services/leaguePhase');
+const { createFakePool } = require('./helpers/fakePool');
 
 // ---------------------------------------------------------------------------
 // validateCreateOptions
@@ -386,4 +387,43 @@ test("previewLeagueByInviteCode: selects draft/season status and pickem_only und
   assert.equal('season_status' in preview, false);
   assert.equal('pickem_only' in preview, false);
   assert.equal(preview.pickemOnly, true);
+});
+
+// ---------------------------------------------------------------------------
+// joinPublicLeague (#2558)
+// ---------------------------------------------------------------------------
+
+test('joinPublicLeague: re-sending while the request is pending re-alerts no commissioner', async (t) => {
+  const fake = createFakePool([
+    [/FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({
+      rows: [{
+        id: 7, name: 'Curated League', owner_id: 100, is_public: true,
+        join_approval: true, max_teams: 10, pickem_only: false,
+        draft_status: 'pending', season_status: 'regular',
+      }],
+    })],
+    [/SELECT 1 FROM "teams"/, () => ({ rows: [] })],
+    [/FROM "league_bans"/, () => ({ rows: [] })],
+    [/SELECT COUNT\(\*\)::int AS n FROM "teams"/, () => ({ rows: [{ n: 3 }] })],
+    // The ON CONFLICT ... DO UPDATE ... WHERE does not fire: one is already pending.
+    [/INSERT INTO "join_requests"/, () => ({ rows: [] })],
+    [/SELECT \* FROM "join_requests"/, () => ({
+      rows: [{ id: 9, league_id: 7, user_id: 5, team_name: 'Eve Picks', status: 'pending' }],
+    })],
+    [/FROM "league_commissioners"/, () => ({ rows: [{ user_id: 202 }] })],
+    [/INSERT INTO "notifications"/, () => ({ rows: [] })],
+  ]);
+  fake.install(t);
+
+  const { joinPublicLeague } = require('../services/discovery.service');
+  const result = await joinPublicLeague({
+    leagueId: 7, userId: 5, username: 'eve', teamName: 'Eve Picks',
+  });
+
+  assert.equal(result.pending, true);
+  assert.equal(result.joinRequest.id, 9);
+  // A re-send is not news: alerting every commissioner again buried the real
+  // Trade and waiver alerts (up to 300 a minute).
+  assert.deepEqual(fake.matching(/INSERT INTO "notifications"/), []);
+  fake.assertClean();
 });
