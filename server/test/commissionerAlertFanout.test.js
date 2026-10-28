@@ -82,7 +82,9 @@ test('a playoff-flipping stat correction alerts every commissioner, not the crea
     })],
     [/INSERT INTO "transactions"|INSERT INTO "activity"/, () => ({ rows: [] })],
     [/SELECT DISTINCT "owner_id" FROM "teams"/, () => ({ rows: [] })],
-    [/SELECT "owner_id" FROM "leagues"/, () => ({ rows: [{ owner_id: OWNER_ID }] })],
+    [/SELECT "owner_id", "season_status" FROM "leagues"/, () => ({
+      rows: [{ owner_id: OWNER_ID, season_status: 'playoffs' }],
+    })],
     [/FROM "league_commissioners"/, () => ({
       rows: [{ user_id: CO_COMMISSIONER_ID, username: 'deputy', teamId: 42, teamName: 'Deputy FC' }],
     })],

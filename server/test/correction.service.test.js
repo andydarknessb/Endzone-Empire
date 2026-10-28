@@ -420,6 +420,7 @@ test('a failure in one corrected week does not skip cache maintenance for the ne
 function correctionRecapWorld({ beforeHome, beforeAway, afterHome, afterAway, final = true, isPlayoff = false }) {
   let matchupsJoinCalls = 0;
   return createFakePool([
+    [/^SELECT "owner_id", "season_status" FROM "leagues"/, () => ({ rows: [{ owner_id: 101, season_status: 'regular' }] })],
     [/^SELECT "id", "week", "final", "is_playoff", "home_score", "away_score"/, () => ({
       rows: [{ id: 1, week: 5, final, is_playoff: isPlayoff, home_score: beforeHome, away_score: beforeAway }],
     })],
@@ -514,6 +515,7 @@ test('#1409: a recap rebuild still runs when the log/notify transaction itself t
   // notify step must not also lose the rebuild.
   const beforeHome = 90; const beforeAway = 80; const afterHome = 115; const afterAway = 80;
   const fake = createFakePool([
+    [/^SELECT "owner_id", "season_status" FROM "leagues"/, () => ({ rows: [{ owner_id: 101, season_status: 'regular' }] })],
     [/^SELECT "id", "week", "final", "is_playoff", "home_score", "away_score"/, () => ({
       rows: [{ id: 1, week: 5, final: true, is_playoff: false, home_score: beforeHome, away_score: beforeAway }],
     })],
@@ -552,6 +554,7 @@ test('#1409: a recap rebuild still runs when the log/notify transaction itself t
 
 test('#1409: a correction that changes nothing leaves the stored recap untouched, including its generated-at stamp', async (t) => {
   const fake = createFakePool([
+    [/^SELECT "owner_id", "season_status" FROM "leagues"/, () => ({ rows: [{ owner_id: 101, season_status: 'regular' }] })],
     [/^SELECT "id", "week", "final", "is_playoff", "home_score", "away_score"/, () => ({
       rows: [{ id: 1, week: 5, final: true, is_playoff: false, home_score: 90, away_score: 80 }],
     })],
@@ -575,6 +578,7 @@ test('#1409: a correction that changes nothing leaves the stored recap untouched
 
 test('#1409: a correction on a matchup that was not yet final never touches the recap', async (t) => {
   const fake = createFakePool([
+    [/^SELECT "owner_id", "season_status" FROM "leagues"/, () => ({ rows: [{ owner_id: 101, season_status: 'regular' }] })],
     [/^SELECT "id", "week", "final", "is_playoff", "home_score", "away_score"/, () => ({
       rows: [{ id: 1, week: 5, final: false, is_playoff: false, home_score: 90, away_score: 80 }],
     })],
@@ -641,6 +645,7 @@ function correctionPowerRankingsWorld({ beforeHome, beforeAway, afterHome, after
   let matchupsJoinCalls = 0;
   const rankingsInserts = [];
   const fake = createFakePool([
+    [/^SELECT "owner_id", "season_status" FROM "leagues"/, () => ({ rows: [{ owner_id: 101, season_status: 'regular' }] })],
     [/^SELECT "id", "week", "final", "is_playoff", "home_score", "away_score"/, () => ({
       rows: [{ id: 1, week: 5, final: true, is_playoff: false, home_score: beforeHome, away_score: beforeAway }],
     })],
@@ -773,6 +778,7 @@ test('#1410: a power-rankings recompute failure is logged and never blocks the r
 
 test('#1410: a correction that changes no scores never recomputes power rankings', async (t) => {
   const fake = createFakePool([
+    [/^SELECT "owner_id", "season_status" FROM "leagues"/, () => ({ rows: [{ owner_id: 101, season_status: 'regular' }] })],
     [/^SELECT "id", "week", "final", "is_playoff", "home_score", "away_score"/, () => ({
       rows: [{ id: 1, week: 5, final: true, is_playoff: false, home_score: 90, away_score: 80 }],
     })],
@@ -817,6 +823,7 @@ function trophyReconcileWorld({
   const trophyRows = seedTrophies.map((row) => ({ ...row }));
   let nextId = Math.max(0, ...trophyRows.map((row) => row.id)) + 1;
   const fake = createFakePool([
+    [/^SELECT "owner_id", "season_status" FROM "leagues"/, () => ({ rows: [{ owner_id: 101, season_status: 'regular' }] })],
     [/^SELECT "id", "week", "final", "is_playoff", "home_score", "away_score"/, () => ({
       rows: [{ id: 1, week: 5, final: true, is_playoff: false, home_score: beforeHome, away_score: beforeAway }],
     })],
@@ -940,6 +947,7 @@ function trophyDecisionWorld({ matchupId, beforeHome, beforeAway, afterHome, aft
   const deleteCalls = [];
   const insertCalls = [];
   const fake = createFakePool([
+    [/^SELECT "owner_id", "season_status" FROM "leagues"/, () => ({ rows: [{ owner_id: 101, season_status: 'regular' }] })],
     [/^SELECT "id", "week", "final", "is_playoff", "home_score", "away_score"/, () => ({
       rows: [{ id: matchupId, week: 5, final: true, is_playoff: false, home_score: beforeHome, away_score: beforeAway }],
     })],
@@ -1101,6 +1109,7 @@ test('#1411 (formal-001 f2): a team\'s week score is its highest single matchup 
 
 test('#1411: a correction that changes no scores leaves the trophies table untouched', async (t) => {
   const fake = createFakePool([
+    [/^SELECT "owner_id", "season_status" FROM "leagues"/, () => ({ rows: [{ owner_id: 101, season_status: 'regular' }] })],
     [/^SELECT "id", "week", "final", "is_playoff", "home_score", "away_score"/, () => ({
       rows: [{ id: 1, week: 5, final: true, is_playoff: false, home_score: 90, away_score: 80 }],
     })],
@@ -1242,4 +1251,66 @@ test('runStatCorrections returns the partial result, with a write_failed row, wh
   assert.equal(runs[0].ok, false);
   assert.equal(runs[0].detail.reason, 'write_failed');
   assert.deepEqual(runs[0].detail.failedWeeks, failedWeeks);
+});
+
+// ---- #2547: seeds are locked, so a regular-season correction mid-playoffs is told, not applied --
+
+/** One final regular-season matchup whose score moves; the League's phase is the variable. */
+function seededBracketCorrectionWorld(seasonStatus, seeded = true) {
+  return createFakePool([
+    [/^SELECT "id", "week", "final", "is_playoff", "home_score", "away_score"/, () => ({
+      rows: [{ id: 1, week: 14, final: true, is_playoff: false, home_score: 90, away_score: 80 }],
+    })],
+    [/^SELECT "id", "home_score", "away_score" FROM "matchups"/, () => ({
+      rows: [{ id: 1, home_score: 70, away_score: 80 }],
+    })],
+    [/^SELECT DISTINCT "owner_id" FROM "teams"/, () => ({ rows: [] })],
+    [/^SELECT "owner_id", "season_status" FROM "leagues"/, () => ({
+      rows: [{ owner_id: 100, season_status: seasonStatus }],
+    })],
+    [/^SELECT 1 FROM "playoff_seeds"/, () => ({ rows: seeded ? [{ '?column?': 1 }] : [] })],
+    [/FROM "league_commissioners"/, () => ({
+      rows: [{ user_id: 202, username: 'deputy', teamId: 42, teamName: 'Deputy FC' }],
+    })],
+    [/^INSERT INTO "(transactions|notifications)"/, () => ({ rows: [] })],
+  ]);
+}
+
+const lockedSeedAlerts = (fake) => fake.matching(/INSERT INTO "notifications"/)
+  .filter((c) => /seeds are locked/.test(c.params[3]))
+  .map((c) => c.params[0]);
+
+test('#2547: a final regular-season correction during the playoffs alerts every commissioner', async (t) => {
+  const fake = seededBracketCorrectionWorld('playoffs');
+  fake.install(t);
+  t.mock.method(matchupScoring, 'scoreMatchups', async () => ({}));
+  t.mock.method(settleFollowUpSvc, 'settleFollowUp', async () => {});
+
+  await correctionSvc.correctLeagueWeek({ leagueId: 7, season: 2026, week: 14 });
+
+  assert.deepEqual(lockedSeedAlerts(fake).sort((a, b) => a - b), [100, 202]);
+  fake.assertClean();
+});
+
+test('#2547: the same correction before the bracket exists sends no seed alert', async (t) => {
+  const fake = seededBracketCorrectionWorld('regular');
+  fake.install(t);
+  t.mock.method(matchupScoring, 'scoreMatchups', async () => ({}));
+  t.mock.method(settleFollowUpSvc, 'settleFollowUp', async () => {});
+
+  await correctionSvc.correctLeagueWeek({ leagueId: 7, season: 2026, week: 14 });
+
+  assert.deepEqual(lockedSeedAlerts(fake), []);
+  fake.assertClean();
+});
+
+test('#2547: a League in its playoffs with no stored seeds gets no locked-seeds alert', async (t) => {
+  const fake = seededBracketCorrectionWorld('playoffs', false);
+  fake.install(t);
+  t.mock.method(matchupScoring, 'scoreMatchups', async () => ({}));
+  t.mock.method(settleFollowUpSvc, 'settleFollowUp', async () => {});
+
+  await correctionSvc.correctLeagueWeek({ leagueId: 7, season: 2026, week: 14 });
+
+  assert.deepEqual(lockedSeedAlerts(fake), []);
 });

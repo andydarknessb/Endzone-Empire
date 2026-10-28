@@ -399,6 +399,8 @@ function createWorld({
     // The finalize resets waiver priority to reverse standings; this suite
     // does not read it, so the write only needs an answer.
     [/^UPDATE "teams" SET "waiver_priority"/, () => ({ rows: [] })],
+    // Bracket creation stores the seeds (#2547); this suite reads the games, not the seeds.
+    [/^INSERT INTO "playoff_seeds"/, () => ({ rows: [] })],
     [/^INSERT INTO "matchups"/, (text, [leagueId, season, week, home, away, round]) => {
       state.matchups.push({
         id: 900 + state.matchups.length,
