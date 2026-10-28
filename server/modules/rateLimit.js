@@ -40,7 +40,11 @@ function hit(store, key, now, windowMs, max) {
  * `keyFn` override is supplied (e.g. to key auth attempts by IP only,
  * since there's no authenticated user yet on login/register).
  *
- * `name` goes into the Redis key so two limiters on one route never share a count.
+ * `name` goes into the Redis key, so two named limiters under one mount path do
+ * not share a count. It also names the returned function (Express copies
+ * `fn.name` into `layer.name`), which is what the route inventory reads. Unnamed
+ * limiters under one mount path DO share a count: their key is only the mount
+ * path, the caller and the window bucket.
  *
  * @param {{ name?: string, windowMs: number, max: number, keyFn?: (req) => string }} opts
  */
@@ -51,7 +55,8 @@ function createRateLimiter({ name, windowMs, max, keyFn } = {}) {
   const store = new Map();
   const getKey = keyFn || ((req) => req.user?.id ?? req.ip);
 
-  return async function rateLimitMiddleware(req, res, next) {
+  // Set `.name` without touching the declared parameters: the arity pin reads them.
+  return Object.defineProperty(async function rateLimitMiddleware(req, res, next) {
     const key = String(getKey(req));
     const now = Date.now();
     let allowed;
@@ -90,7 +95,7 @@ function createRateLimiter({ name, windowMs, max, keyFn } = {}) {
       });
     }
     next();
-  };
+  }, 'name', { value: name ? `rateLimit:${name}` : 'rateLimitMiddleware' });
 }
 
 /**
