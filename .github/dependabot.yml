@@ -52,8 +52,6 @@ updates:
         update-types: ["version-update:semver-major"]
       - dependency-name: "@mui/icons-material"
         update-types: ["version-update:semver-major"]
-      - dependency-name: "@mui/lab"
-        update-types: ["version-update:semver-major"]
       - dependency-name: "@testing-library/react"
         update-types: ["version-update:semver-major"]
       - dependency-name: express
