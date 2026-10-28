@@ -42,7 +42,8 @@ function decide(runs, sha) {
 async function checkCommit({ sha, repo, token, fetch = (...args) => global.fetch(...args) }) {
   const url =
     `https://api.github.com/repos/${repo}/actions/workflows/${CI_WORKFLOW_FILE}/runs` +
-    `?head_sha=${encodeURIComponent(sha)}&per_page=100`;
+    // event=push: a pull_request run tested the merge ref, not this commit alone.
+    `?head_sha=${encodeURIComponent(sha)}&event=push&per_page=100`;
   try {
     const res = await fetch(url, {
       headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json' },

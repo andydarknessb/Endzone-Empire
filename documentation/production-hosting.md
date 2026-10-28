@@ -236,8 +236,10 @@ down path and current data.
 `workflow_dispatch` only — Actions > Promote deployment > Run workflow, with
 `promote_production` checked — so nothing deploys on a push to `main`. Its first step
 (`scripts/ci/check-ci-passed.js`, #2552) fails unless the `CI` workflow concluded
-`success` for the exact commit being promoted; a failed, still-running or missing CI run
-stops the deploy before any hook fires, with no human approval needed. It then triggers
+`success` for the dispatched commit (its push-event run); a failed, still-running or
+missing CI run stops the deploy before any hook fires, with no human approval needed.
+It checks the dispatched SHA, not the branch tip the Render and Netlify hooks build, so a
+dispatch queued behind another deploy can still ship a newer, unchecked tip. It then triggers
 Render, waits for `/api/health/readyz`, then triggers the Netlify build, preserving the
 API-first order. Render and Netlify auto-deploy stay off; this workflow is the only
 automated path.

@@ -76,6 +76,7 @@ test('checkCommit asks the CI workflow for runs of exactly this sha', async () =
   const { url, init } = okFetch.last;
   assert.match(url, /\/repos\/o\/r\/actions\/workflows\/ci\.yml\/runs\?/);
   assert.match(url, new RegExp(`head_sha=${SHA}`));
+  assert.match(url, /event=push/);
   assert.equal(init.headers.authorization, 'Bearer t0k');
 });
 
