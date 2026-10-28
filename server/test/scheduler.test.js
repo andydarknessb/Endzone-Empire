@@ -176,6 +176,53 @@ test('the draft-clock interval contains a failure in the advisory-lock acquisiti
   assert.ok(errors.some((line) => /draft clock tick failed to acquire its lock/.test(line) && /pool exhausted/.test(line)));
 });
 
+// ---- the 5-minute tick's own containment (#2541) ---------------------------
+// Same gap #600 closed on the draft clock, on the league-scheduler lock:
+// withAdvisoryLock's acquisition (the pool connect and the try-lock query) runs
+// before tickUnlocked, so a rejection there used to reach setInterval unhandled
+// and exit the worker (processHandlers.js settles an unhandled rejection by
+// exiting 1).
+
+test('the 5-minute tick records a failed lock acquisition as its last tick error, and the next tick runs its work (#2541)', async (t) => {
+  const errors = [];
+  t.mock.method(console, 'error', (...args) => { errors.push(args.join(' ')); });
+  const client = {
+    query: async (sql) => {
+      const text = String(sql);
+      if (text.includes('pg_try_advisory_xact_lock')) return { rows: [{ locked: true }] };
+      if (/^(BEGIN|COMMIT|ROLLBACK)$/.test(text)) return { rows: [] };
+      throw new Error(`unexpected: ${text}`);
+    },
+    release: () => {},
+  };
+  let connectFails = true;
+  t.mock.method(pool, 'connect', async () => {
+    if (connectFails) throw new Error('pool exhausted acquiring the league-scheduler lock');
+    return client;
+  });
+  // getSchedulerStatus reads every feed job's last run; nothing has run here.
+  t.mock.method(pool, 'query', async () => ({ rows: [] }));
+
+  const ran = [];
+  const row = { name: 'test-duty', gate: ALWAYS_DUE, run: async () => { ran.push('ran'); return 'ok'; } };
+
+  // Red tell: remove tick's try/catch and this await rejects (the worker's exit).
+  await scheduler.tick([row]);
+  assert.deepEqual(ran, [], 'the work never ran');
+  assert.ok(
+    errors.some((line) => /scheduler tick failed to acquire its lock/.test(line) && /pool exhausted/.test(line)),
+    'the failure is logged'
+  );
+  const failed = await scheduler.getSchedulerStatus();
+  assert.match(failed.lastTickError, /pool exhausted acquiring the league-scheduler lock/, 'and recorded as the last tick error');
+
+  // The following tick takes the lock and runs its work normally.
+  connectFails = false;
+  await scheduler.tick([row]);
+  assert.deepEqual(ran, ['ran'], 'the following tick runs its work');
+  assert.equal((await scheduler.getSchedulerStatus()).lastTickError, null, 'and a clean tick clears the error');
+});
+
 test('stopScheduler tears down armed Pick-clock timers so none fire after a stop (#601)', (t) => {
   // Timers are torn down with the scheduler: after a stop, no armed in-process
   // expiry timer may fire, so a test run or a shutdown cannot leak a late
