@@ -187,7 +187,8 @@ async function forceSetLineup({ leagueId, userId, teamId, week, moves }) {
   return withTransaction(
     pool,
     async (client) => {
-      const league = await requireCommissioner(client, { leagueId, userId });
+      // League row first, then Team (#2545).
+      const league = await requireCommissioner(client, { leagueId, userId, forUpdate: true });
       const teamResult = await client.query(
         `SELECT * FROM "teams" WHERE "id" = $1 AND "league_id" = $2 FOR UPDATE`,
         [teamId, leagueId]
@@ -633,7 +634,8 @@ async function setTeamLocked({ leagueId, userId, teamId, locked }) {
   return withTransaction(
     pool,
     async (client) => {
-      await requireCommissioner(client, { leagueId, userId });
+      // League row first, then Team (#2545).
+      await requireCommissioner(client, { leagueId, userId, forUpdate: true });
       const result = await client.query(
         `UPDATE "teams" SET "locked" = $1, "updated_at" = now()
          WHERE "id" = $2 AND "league_id" = $3 RETURNING "id", "owner_id"`,
@@ -665,7 +667,8 @@ async function setTeamFaab({ leagueId, userId, teamId, faabRemaining }) {
   return withTransaction(
     pool,
     async (client) => {
-      await requireCommissioner(client, { leagueId, userId });
+      // League row first, then Team: the order the waiver run takes them (#2545).
+      await requireCommissioner(client, { leagueId, userId, forUpdate: true });
       const result = await client.query(
         `UPDATE "teams" SET "faab_remaining" = $1, "updated_at" = now()
          WHERE "id" = $2 AND "league_id" = $3 RETURNING "id"`,
