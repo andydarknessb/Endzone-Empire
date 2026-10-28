@@ -145,10 +145,20 @@ const nflverse = require('../services/nflverseSync.service');
 const recapSvc = require('../services/recap.service');
 const montecarlo = require('../services/montecarlo.service');
 const trophySvc = require('../services/trophy.service');
-const matchupNarrative = require('../services/matchupNarrative.service');
 const settleFollowUpSvc = require('../services/settleFollowUp.service');
 const { createFakePool } = require('./helpers/fakePool');
-const { failOnSettleFollowUpErrors } = require('./helpers/noSettleFollowUpFailure');
+const { installRecordingBroadcast } = require('./helpers/recordingBroadcast');
+
+/**
+ * The scoring seam's two halves, stubbed: a test whose subject is the
+ * correction's own work does not drive the re-score itself (spec #2602).
+ */
+function stubScoring(t) {
+  t.mock.method(matchupScoring, 'scoreMatchupsInTransaction', async () => ({
+    league: null, scored: [], openMatchups: [],
+  }));
+  t.mock.method(matchupScoring, 'announceScored', async () => {});
+}
 
 function stubOneInSeasonLeague(t) {
   t.mock.method(poolModule, 'query', async (sql) => {
@@ -238,12 +248,16 @@ const projectionSvc = require('../services/projection.service');
  */
 function stubLeagues(t, leagues) {
   const correctedLeagueIds = [];
-  t.mock.method(poolModule, 'query', async (sql, params) => {
+  async function dispatch(sql, params) {
     const text = String(sql);
     if (text.includes('FROM "leagues"')) return { rows: leagues };
     if (text.includes('FROM "matchups"')) correctedLeagueIds.push(params[0]);
     return { rows: [] };
-  });
+  }
+  t.mock.method(poolModule, 'query', dispatch);
+  // #2602: the re-score now shares the caller's transaction, so the
+  // short-circuiting matchup read arrives on a client, not the pool.
+  t.mock.method(poolModule, 'connect', async () => ({ query: dispatch, release: () => {} }));
   return correctedLeagueIds;
 }
 
@@ -450,7 +464,7 @@ function correctionRecapWorld({ beforeHome, beforeAway, afterHome, afterAway, fi
 test('#1409: a correction rebuilds the stored recap from the corrected scores, with no second announcement', async (t) => {
   const fake = correctionRecapWorld({ beforeHome: 90, beforeAway: 80, afterHome: 115, afterAway: 80 });
   fake.install(t);
-  t.mock.method(matchupScoring, 'scoreMatchups', async () => ({}));
+  stubScoring(t);
 
   // Seed: the advance-week path already computed, stored AND announced the
   // recap from the pre-correction score - exactly what production looks like
@@ -494,7 +508,7 @@ test('#1409: the recap rebuild runs AFTER the stat_correction log/notify, not be
   // first.
   const fake = correctionRecapWorld({ beforeHome: 90, beforeAway: 80, afterHome: 115, afterAway: 80 });
   fake.install(t);
-  t.mock.method(matchupScoring, 'scoreMatchups', async () => ({}));
+  stubScoring(t);
 
   await correctionSvc.correctLeagueWeek({ leagueId: 7, season: 2026, week: 5 });
 
@@ -510,9 +524,11 @@ test('#1409: the recap rebuild runs AFTER the stat_correction log/notify, not be
   );
 });
 
-test('#1409: a recap rebuild still runs when the log/notify transaction itself throws', async (t) => {
-  // formal-001-f1: the scores are committed either way, so losing the log/
-  // notify step must not also lose the rebuild.
+test('#2602: a correction whose log/notify step throws rebuilds nothing, because no score committed', async (t) => {
+  // #1409 formal-001-f1 had the rebuild run even when the log/notify step
+  // failed, because the scores were already committed by then. Since spec
+  // #2602 the re-score commits WITH the log/notify, so that failure rolls the
+  // scores back and there is nothing left to recap.
   const beforeHome = 90; const beforeAway = 80; const afterHome = 115; const afterAway = 80;
   const fake = createFakePool([
     [/^SELECT "owner_id", "season_status" FROM "leagues"/, () => ({ rows: [{ owner_id: 101, season_status: 'regular' }] })],
@@ -535,20 +551,19 @@ test('#1409: a recap rebuild still runs when the log/notify transaction itself t
     [/^SELECT DISTINCT "owner_id" FROM "teams"/, () => { throw new Error('owner lookup exploded'); }],
   ]);
   fake.install(t);
-  t.mock.method(matchupScoring, 'scoreMatchups', async () => ({}));
-  // The other follow-up steps are not this test's subject; the real recap rebuild is.
-  t.mock.method(montecarlo, 'computeLeagueOdds', async () => ({}));
-  t.mock.method(trophySvc, 'reconcileWeeklyHighScoreTrophy', async () => ({}));
-  t.mock.method(matchupNarrative, 'writePostgames', async () => {});
-  failOnSettleFollowUpErrors(t);
+  stubScoring(t);
 
   await assert.rejects(
     correctionSvc.correctLeagueWeek({ leagueId: 7, season: 2026, week: 5 }),
     /owner lookup exploded/
   );
 
-  const stored = fake.matching(/INSERT INTO "league_analytics"/);
-  assert.equal(stored.length, 1, 'the recap is still rebuilt even though the log/notify transaction failed');
+  assert.equal(
+    fake.matching(/INSERT INTO "league_analytics"/).length,
+    0,
+    'no score reached the database, so no recap is rebuilt from one'
+  );
+  assert.equal(fake.calls.filter((c) => c.text === 'COMMIT').length, 0, 'the correction rolled back');
   fake.assertClean();
 });
 
@@ -563,7 +578,7 @@ test('#1409: a correction that changes nothing leaves the stored recap untouched
     })],
   ]);
   fake.install(t);
-  t.mock.method(matchupScoring, 'scoreMatchups', async () => ({}));
+  stubScoring(t);
 
   const outcome = await correctionSvc.correctLeagueWeek({ leagueId: 7, season: 2026, week: 5 });
 
@@ -589,7 +604,7 @@ test('#1409: a correction on a matchup that was not yet final never touches the 
     [/^SELECT DISTINCT "owner_id" FROM "teams"/, () => ({ rows: [] })],
   ]);
   fake.install(t);
-  t.mock.method(matchupScoring, 'scoreMatchups', async () => ({}));
+  stubScoring(t);
 
   const outcome = await correctionSvc.correctLeagueWeek({ leagueId: 7, season: 2026, week: 5 });
 
@@ -605,7 +620,7 @@ test('#1409: a correction on a matchup that was not yet final never touches the 
 test('#1409: a recap rebuild failure is logged and never blocks the correction pass', async (t) => {
   const fake = correctionRecapWorld({ beforeHome: 90, beforeAway: 80, afterHome: 115, afterAway: 80 });
   fake.install(t);
-  t.mock.method(matchupScoring, 'scoreMatchups', async () => ({}));
+  stubScoring(t);
   t.mock.method(recapSvc, 'computeAndStoreWeeklyRecap', async () => { throw new Error('recap boom'); });
   const logs = [];
   t.mock.method(console, 'error', (...args) => { logs.push(args); });
@@ -684,7 +699,7 @@ function correctionPowerRankingsWorld({ beforeHome, beforeAway, afterHome, after
 test('#1410: a correction recomputes power rankings and the rebuilt recap reads the fresh row, not the pre-correction one', async (t) => {
   const fake = correctionPowerRankingsWorld({ beforeHome: 90, beforeAway: 80, afterHome: 115, afterAway: 80 });
   fake.install(t);
-  t.mock.method(matchupScoring, 'scoreMatchups', async () => ({}));
+  stubScoring(t);
 
   // Seed: a power rankings row already on the books, same as production
   // before Tuesday's correction runs.
@@ -739,7 +754,7 @@ test('#1410: a correction recomputes power rankings and the rebuilt recap reads 
 test('#1410: a final-score correction hands the week to the Settle follow-up in correction mode, after the log/notify', async (t) => {
   const fake = correctionRecapWorld({ beforeHome: 90, beforeAway: 80, afterHome: 115, afterAway: 80 });
   fake.install(t);
-  t.mock.method(matchupScoring, 'scoreMatchups', async () => ({}));
+  stubScoring(t);
   const followUp = t.mock.method(settleFollowUpSvc, 'settleFollowUp', async () => {
     assert.ok(
       fake.calls.some((c) => /INSERT INTO "transactions"/.test(c.text) && c.params[2] === 'stat_correction'),
@@ -757,7 +772,7 @@ test('#1410: a final-score correction hands the week to the Settle follow-up in 
 test('#1410: a power-rankings recompute failure is logged and never blocks the recap rebuild or the correction pass', async (t) => {
   const fake = correctionRecapWorld({ beforeHome: 90, beforeAway: 80, afterHome: 115, afterAway: 80 });
   fake.install(t);
-  t.mock.method(matchupScoring, 'scoreMatchups', async () => ({}));
+  stubScoring(t);
   t.mock.method(montecarlo, 'computeLeagueOdds', async () => { throw new Error('power rankings boom'); });
   const logs = [];
   t.mock.method(console, 'error', (...args) => { logs.push(args); });
@@ -787,7 +802,7 @@ test('#1410: a correction that changes no scores never recomputes power rankings
     })],
   ]);
   fake.install(t);
-  t.mock.method(matchupScoring, 'scoreMatchups', async () => ({}));
+  stubScoring(t);
   const mc = t.mock.method(montecarlo, 'computeLeagueOdds', async () => {
     throw new Error('must not be called for a no-op correction');
   });
@@ -880,7 +895,7 @@ test('#1411: a correction that moves the weekly high score removes the previous 
     ],
   });
   fake.install(t);
-  t.mock.method(matchupScoring, 'scoreMatchups', async () => ({}));
+  stubScoring(t);
   t.mock.method(montecarlo, 'computeLeagueOdds', async () => ({}));
   t.mock.method(recapSvc, 'computeAndStoreWeeklyRecap', async () => ({}));
 
@@ -904,7 +919,7 @@ test('#1411: a correction that raises the leader\'s total without changing the l
     ],
   });
   fake.install(t);
-  t.mock.method(matchupScoring, 'scoreMatchups', async () => ({}));
+  stubScoring(t);
   t.mock.method(montecarlo, 'computeLeagueOdds', async () => ({}));
   t.mock.method(recapSvc, 'computeAndStoreWeeklyRecap', async () => ({}));
 
@@ -1017,7 +1032,7 @@ test('#1411: an exact tie for the week high score never moves the trophy off its
     ],
   });
   fake.install(t);
-  t.mock.method(matchupScoring, 'scoreMatchups', async () => ({}));
+  stubScoring(t);
   t.mock.method(montecarlo, 'computeLeagueOdds', async () => ({}));
   t.mock.method(recapSvc, 'computeAndStoreWeeklyRecap', async () => ({}));
 
@@ -1048,7 +1063,7 @@ test('#1411 (formal-001 f1): the mirror case - an incumbent at the HIGHER team_i
     ],
   });
   fake.install(t);
-  t.mock.method(matchupScoring, 'scoreMatchups', async () => ({}));
+  stubScoring(t);
   t.mock.method(montecarlo, 'computeLeagueOdds', async () => ({}));
   t.mock.method(recapSvc, 'computeAndStoreWeeklyRecap', async () => ({}));
 
@@ -1083,7 +1098,7 @@ test('#1411 (formal-001 f2): a team\'s week score is its highest single matchup 
     ],
   });
   fake.install(t);
-  t.mock.method(matchupScoring, 'scoreMatchups', async () => ({}));
+  stubScoring(t);
   t.mock.method(montecarlo, 'computeLeagueOdds', async () => ({}));
   t.mock.method(recapSvc, 'computeAndStoreWeeklyRecap', async () => ({}));
 
@@ -1118,7 +1133,7 @@ test('#1411: a correction that changes no scores leaves the trophies table untou
     })],
   ]);
   fake.install(t);
-  t.mock.method(matchupScoring, 'scoreMatchups', async () => ({}));
+  stubScoring(t);
   const reconcile = t.mock.method(trophySvc, 'reconcileWeeklyHighScoreTrophy', async () => {
     throw new Error('must not be called for a no-op correction');
   });
@@ -1141,7 +1156,7 @@ test('#1411: season-level trophies for the league are unchanged by a weekly high
     ],
   });
   fake.install(t);
-  t.mock.method(matchupScoring, 'scoreMatchups', async () => ({}));
+  stubScoring(t);
   t.mock.method(montecarlo, 'computeLeagueOdds', async () => ({}));
   t.mock.method(recapSvc, 'computeAndStoreWeeklyRecap', async () => ({}));
 
@@ -1155,7 +1170,7 @@ test('#1411: season-level trophies for the league are unchanged by a weekly high
 test('#1411: a weekly high score trophy reconcile failure is logged and never blocks the correction pass', async (t) => {
   const fake = correctionRecapWorld({ beforeHome: 90, beforeAway: 80, afterHome: 115, afterAway: 80 });
   fake.install(t);
-  t.mock.method(matchupScoring, 'scoreMatchups', async () => ({}));
+  stubScoring(t);
   t.mock.method(trophySvc, 'reconcileWeeklyHighScoreTrophy', async () => { throw new Error('trophy reconcile boom'); });
   const logs = [];
   t.mock.method(console, 'error', (...args) => { logs.push(args); });
@@ -1283,7 +1298,7 @@ const lockedSeedAlerts = (fake) => fake.matching(/INSERT INTO "notifications"/)
 test('#2547: a final regular-season correction during the playoffs alerts every commissioner', async (t) => {
   const fake = seededBracketCorrectionWorld('playoffs');
   fake.install(t);
-  t.mock.method(matchupScoring, 'scoreMatchups', async () => ({}));
+  stubScoring(t);
   t.mock.method(settleFollowUpSvc, 'settleFollowUp', async () => {});
 
   await correctionSvc.correctLeagueWeek({ leagueId: 7, season: 2026, week: 14 });
@@ -1295,7 +1310,7 @@ test('#2547: a final regular-season correction during the playoffs alerts every 
 test('#2547: the same correction before the bracket exists sends no seed alert', async (t) => {
   const fake = seededBracketCorrectionWorld('regular');
   fake.install(t);
-  t.mock.method(matchupScoring, 'scoreMatchups', async () => ({}));
+  stubScoring(t);
   t.mock.method(settleFollowUpSvc, 'settleFollowUp', async () => {});
 
   await correctionSvc.correctLeagueWeek({ leagueId: 7, season: 2026, week: 14 });
@@ -1307,12 +1322,149 @@ test('#2547: the same correction before the bracket exists sends no seed alert',
 test('#2547: a League in its playoffs with no stored seeds gets no locked-seeds alert', async (t) => {
   const fake = seededBracketCorrectionWorld('playoffs', false);
   fake.install(t);
-  t.mock.method(matchupScoring, 'scoreMatchups', async () => ({}));
+  stubScoring(t);
   t.mock.method(settleFollowUpSvc, 'settleFollowUp', async () => {});
 
   await correctionSvc.correctLeagueWeek({ leagueId: 7, season: 2026, week: 14 });
 
   assert.deepEqual(lockedSeedAlerts(fake), []);
   assert.equal(fake.matching(/SELECT 1 FROM "playoff_seeds"/).length, 1, 'the probe ran and found no seeds');
+  fake.assertClean();
+});
+
+// ---- #2602: a Stat correction commits with its notice ----------------------
+//
+// The re-score, the stat_correction feed entry, the League notice and the
+// commissioner alerts are ONE transaction, or none of them. These tests drive
+// the REAL scoring seam - nothing here stubs scoreMatchupsInTransaction - so
+// the Matchup score UPDATEs land in the same call log as the log/notice writes
+// and a test can tell which transaction each one belongs to.
+
+/**
+ * One final matchup scored for real: empty lineups price both sides at 0, so
+ * the re-score moves the before-snapshot's 90 to 0. `logInsert` is the
+ * stat_correction feed write, so a test can make it throw and watch the whole
+ * correction roll back.
+ */
+function correctionTransactionWorld({ before = 90, logInsert = () => ({ rows: [] }) } = {}) {
+  return createFakePool([
+    // The before snapshot: FOR UPDATE on the week's Matchup rows.
+    [/^SELECT "id", "week", "final", "is_playoff", "home_score", "away_score"/, () => ({
+      rows: [{ id: 1, week: 5, final: true, is_playoff: false, home_score: before, away_score: 80 }],
+    })],
+    // --- scoreMatchupsInTransaction ---------------------------------------
+    [/^SELECT \* FROM "leagues" WHERE "id" = \$1/, () => ({
+      rows: [{ id: 7, scoring_preset: 'half_ppr', best_ball: false, roster_positions: null }],
+    })],
+    [/^SELECT \* FROM "matchups"/, () => ({
+      rows: [{
+        id: 1, league_id: 7, season: 2026, week: 5, final: true,
+        home_team_id: 1, away_team_id: 2, home_score: '90', away_score: '80', score_overridden: false,
+      }],
+    })],
+    [/FROM "lineup_entries"/, () => ({ rows: [] })],
+    [/^UPDATE "matchups" SET "home_score"/, () => ({ rows: [] })],
+    // --- the after snapshot ------------------------------------------------
+    [/^SELECT "id", "home_score", "away_score" FROM "matchups"/, () => ({
+      rows: [{ id: 1, home_score: 0, away_score: 80 }],
+    })],
+    // --- the correction's own record ---------------------------------------
+    [/^INSERT INTO "transactions"/, logInsert],
+    [/^SELECT DISTINCT "owner_id" FROM "teams"/, () => ({ rows: [{ owner_id: 101 }] })],
+    [/^SELECT "owner_id", "season_status" FROM "leagues"/, () => ({
+      rows: [{ owner_id: 101, season_status: 'regular' }],
+    })],
+    [/^INSERT INTO "notifications"/, () => ({ rows: [] })],
+  ]);
+}
+
+/** The calls between the first BEGIN and the statement that closes it. */
+function openTransaction(fake) {
+  const begin = fake.calls.findIndex((call) => call.text === 'BEGIN');
+  const end = fake.calls.findIndex((call, index) => index > begin && /^(COMMIT|ROLLBACK)$/.test(call.text));
+  return { begin, end, closing: fake.calls[end] ? fake.calls[end].text : null, inside: fake.calls.slice(begin + 1, end) };
+}
+
+test('#2602: a failed stat_correction log INSERT rolls the re-scored Matchups back with it', async (t) => {
+  const fake = correctionTransactionWorld({ logInsert: () => { throw new Error('log insert failed'); } });
+  fake.install(t);
+  t.mock.method(settleFollowUpSvc, 'settleFollowUp', async () => {});
+  installRecordingBroadcast(t);
+
+  await assert.rejects(
+    correctionSvc.correctLeagueWeek({ leagueId: 7, season: 2026, week: 5 }),
+    /log insert failed/
+  );
+
+  const { begin, closing, inside } = openTransaction(fake);
+  assert.ok(begin >= 0, 'the correction runs in a transaction');
+  assert.equal(closing, 'ROLLBACK', 'the failed correction rolls back, never commits');
+  assert.equal(fake.calls.filter((c) => c.text === 'COMMIT').length, 0, 'no COMMIT anywhere');
+  assert.equal(
+    fake.calls.filter((c) => c.text === 'BEGIN').length,
+    1,
+    'one BEGIN: the re-score shares the correction transaction'
+  );
+
+  const scoreWrites = inside.filter((c) => /^UPDATE "matchups" SET "home_score"/.test(c.text));
+  const logWrites = inside.filter((c) => /^INSERT INTO "transactions"/.test(c.text));
+  assert.equal(scoreWrites.length, 1, 'the Matchup score UPDATE is inside that transaction');
+  assert.equal(logWrites.length, 1, 'and so is the failed log INSERT');
+  assert.deepEqual(
+    [...scoreWrites, ...logWrites].map((c) => c.via),
+    ['client', 'client'],
+    'both ride the transaction client'
+  );
+  fake.assertClean();
+});
+
+test('#2602: a committed correction writes the scores, the log and the notice in one transaction, and announces only after the COMMIT', async (t) => {
+  const fake = correctionTransactionWorld();
+  fake.install(t);
+  t.mock.method(settleFollowUpSvc, 'settleFollowUp', async () => {});
+  const recorder = installRecordingBroadcast(t);
+  const record = recorder.scoresUpdated;
+  let announcedAt = -1;
+  recorder.scoresUpdated = (leagueId, payload) => {
+    announcedAt = fake.calls.length;
+    return record(leagueId, payload);
+  };
+
+  const outcome = await correctionSvc.correctLeagueWeek({ leagueId: 7, season: 2026, week: 5 });
+
+  assert.equal(outcome.changes.length, 1, 'the moved score is reported');
+  const { begin, end, closing, inside } = openTransaction(fake);
+  assert.ok(begin >= 0, 'the correction runs in a transaction');
+  assert.equal(closing, 'COMMIT');
+  assert.equal(fake.calls.filter((c) => c.text === 'BEGIN').length, 1, 'one BEGIN for the whole correction');
+  assert.equal(fake.calls.filter((c) => c.text === 'COMMIT').length, 1, 'one COMMIT for the whole correction');
+
+  const written = (re) => inside.filter((c) => re.test(c.text));
+  assert.equal(written(/^UPDATE "matchups" SET "home_score"/).length, 1, 'the re-scored Matchup is inside it');
+  assert.equal(written(/^INSERT INTO "transactions"/).length, 1, 'so is the stat_correction feed entry');
+  assert.equal(written(/^INSERT INTO "notifications"/).length, 1, 'and the League notice');
+  assert.ok(
+    [...written(/^UPDATE "matchups" SET "home_score"/), ...written(/^INSERT INTO "transactions"/), ...written(/^INSERT INTO "notifications"/)]
+      .every((c) => c.via === 'client'),
+    'all three ride the transaction client'
+  );
+  assert.ok(announcedAt > end, 'the scores:updated announcement waits for the COMMIT, never rides the transaction');
+  assert.equal(recorder.calls.filter((c) => c.method === 'scoresUpdated').length, 1, 'exactly one announcement');
+  fake.assertClean();
+});
+
+test('#2602: the before read takes FOR UPDATE on the week\'s Matchup rows inside that transaction', async (t) => {
+  const fake = correctionTransactionWorld();
+  fake.install(t);
+  t.mock.method(settleFollowUpSvc, 'settleFollowUp', async () => {});
+  installRecordingBroadcast(t);
+
+  await correctionSvc.correctLeagueWeek({ leagueId: 7, season: 2026, week: 5 });
+
+  const { inside } = openTransaction(fake);
+  const beforeRead = inside.find((c) => /^SELECT "id", "week", "final", "is_playoff", "home_score", "away_score"/.test(c.text));
+  assert.ok(beforeRead, 'the snapshot is taken inside the transaction');
+  assert.equal(beforeRead.via, 'client', 'on the transaction client, not the pool');
+  assert.match(beforeRead.text, /FROM "matchups".*FOR UPDATE$/, 'and it row-locks the week so a live re-score cannot slip in behind it');
   fake.assertClean();
 });

@@ -126,57 +126,46 @@ function diffMatchupScores(before, after) {
  * changes: a transaction-log entry plus a league-wide notification, and a
  * commissioner alert when a settled playoff result flipped or, once the
  * bracket's seeds are stored, when a final regular-season result moved.
+ *
+ * ONE transaction (spec #2602). The re-scored Matchups, the log entry, the
+ * League notice and the commissioner alerts commit together or not at all, so
+ * a correction can never leave scores of record that nothing explains - and a
+ * failure, or a process death before the COMMIT, leaves the old scores in
+ * place for the next run to find again. The "before" read takes FOR UPDATE on
+ * the week's Matchup rows, so a live re-score cannot land between it and this
+ * transaction's own re-score. The `scores:updated` announcement and the
+ * Settle follow-up (recap rebuild, power rankings, weekly high score - #1409,
+ * #1410, #1411) run after the commit, on the pool.
  */
 async function correctLeagueWeek({ leagueId, season, week }) {
-  const before = await pool.query(
-    `SELECT "id", "week", "final", "is_playoff", "home_score", "away_score"
-     FROM "matchups" WHERE "league_id" = $1 AND "season" = $2 AND "week" = $3`,
-    [leagueId, season, week]
-  );
-  if (before.rows.length === 0) return { leagueId, changes: [] };
-
-  await matchupScoring.scoreMatchups({ leagueId, season, week });
-
-  let after;
+  // Read in the catch below: once the transaction has rolled the scores back,
+  // the server log is the only trace of what the correction would have done.
+  let changes = [];
+  let committed;
   try {
-    after = await pool.query(
-      `SELECT "id", "home_score", "away_score" FROM "matchups"
-       WHERE "league_id" = $1 AND "season" = $2 AND "week" = $3`,
-      [leagueId, season, week]
-    );
-  } catch (error) {
-    // Scores have committed. Retrying the whole correction would replace the
-    // original before-snapshot and could hide a correction from the audit log.
-    error.retrySafe = false;
-    throw error;
-  }
-  const changes = diffMatchupScores(before.rows, after.rows);
-  if (changes.length === 0) return { leagueId, changes };
-
-  // A changed FINAL matchup means the week's scores of record moved, so the
-  // stored weekly recap (built from those scores) is stale and gets rebuilt
-  // below - AFTER the log/notify transaction, not before (#1409 formal-001-
-  // f1). The scores are already committed by this point either way, so the
-  // transaction-log row and the "scores were updated" notice are the only
-  // record of the correction; if the process died during the rebuild first
-  // (several pool queries, then an un-timed-out llmNarrative call) that
-  // record would never be written, and on the manual route the HTTP response
-  // would wait on it for nothing. Running the log/notify first means a crash
-  // during the rebuild still leaves the correction logged and announced, and
-  // a later run's "before" snapshot (already post-correction) will not
-  // re-detect the change to retry it.
-  const hasFinalChange = changes.some((c) => c.final);
-
-  let failure = null;
-  try {
-    // withTransaction owns connect, BEGIN, COMMIT-or-guarded-ROLLBACK and the
-    // release rule (ADR 0033). The connect try is gone: the wrapper propagates a
-    // pool.connect() failure untouched (no client to ROLLBACK or release), so
-    // this one catch now tags retrySafe=false for BOTH the connect failure and
-    // any in-transaction failure — exactly as the two catches did before.
-    await withTransaction(
+    committed = await withTransaction(
       pool,
       async (client) => {
+        const before = await client.query(
+          `SELECT "id", "week", "final", "is_playoff", "home_score", "away_score"
+           FROM "matchups" WHERE "league_id" = $1 AND "season" = $2 AND "week" = $3
+           FOR UPDATE`,
+          [leagueId, season, week]
+        );
+        if (before.rows.length === 0) return null;
+
+        // The re-score runs on THIS transaction, so it commits with the log and
+        // notices below or not at all (#2602).
+        const scoring = await matchupScoring.scoreMatchupsInTransaction(client, { leagueId, season, week });
+
+        const after = await client.query(
+          `SELECT "id", "home_score", "away_score" FROM "matchups"
+           WHERE "league_id" = $1 AND "season" = $2 AND "week" = $3`,
+          [leagueId, season, week]
+        );
+        changes = diffMatchupScores(before.rows, after.rows);
+        if (changes.length === 0) return { scoring };
+
         await logTransaction(client, {
           leagueId,
           type: 'stat_correction',
@@ -237,36 +226,35 @@ async function correctLeagueWeek({ leagueId, season, week }) {
             });
           }
         }
+        return { scoring };
       },
       { label: 'correction' }
     );
   } catch (error) {
-    // Scores already committed above; replaying would replace the
-    // before-snapshot and could hide a correction from the audit log, so the
-    // whole correction is not retry-safe. On a rejecting ROLLBACK the wrapper
-    // has already attached error.rollbackError under that same name.
-    error.retrySafe = false;
-    // The corrected scores are already committed and a later run won't
-    // re-detect them (its "before" snapshot is post-correction) — dump the
-    // full change set to the server log so the record isn't lost entirely.
+    // Every write rolled back with the failed statement, so no score moved and
+    // the next run's "before" read still holds the old scores: the correction
+    // is safe to retry, so nothing tags retrySafe=false here. The change set
+    // the rollback discarded is the part worth keeping, so it goes to the
+    // server log. The wrapper has already attached error.rollbackError when the
+    // ROLLBACK itself failed.
     console.error(
-      'stat correction: league %s week %s scores changed but logging failed;',
+      'stat correction: league %s week %s rolled back, nothing committed:',
       leagueId,
       week,
       JSON.stringify(changes)
     );
-    // The scores are committed regardless of whether the log/notify above
-    // succeeded, so the recap rebuild still runs before this rethrows
-    // (#1409 formal-001-f1). Power rankings go first on this path too (#1410),
-    // and the weekly trophy reconcile follows the recap rebuild here too
-    // (#1411), in the Settle follow-up's order. The one follow-up call below
-    // serves both paths; the rethrow waits for it.
-    failure = error;
+    throw error;
   }
-  if (hasFinalChange) {
+
+  if (!committed) return { leagueId, changes: [] };
+
+  // Post-commit, on the pool: announce the fresh scores, then rebuild what the
+  // new scores of record made stale (#1409, #1410, #1411). Both are past the
+  // point where a crash could cost the correction its log or notice.
+  await matchupScoring.announceScored({ leagueId, season, week, ...committed.scoring });
+  if (changes.some((c) => c.final)) {
     await settleFollowUpSvc.settleFollowUp({ leagueId, season, week, mode: 'correction' });
   }
-  if (failure) throw failure;
   return { leagueId, changes };
 }
 
