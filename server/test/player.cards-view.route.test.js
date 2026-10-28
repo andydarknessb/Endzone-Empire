@@ -2,7 +2,7 @@
 // Decision-card-shaped per-row fields on the paginated list, and the new
 // `upgrade` sort key.
 //
-// Most tests below mock `playerCardService.availabilityForMany`/`.upgradesFor`
+// Most tests below mock `playerCardService.availabilityForMany` and `upgradeService.upgradesFor`
 // wholesale (kept-whole cross-module requires, the same test seam convention
 // the router's own comments document) to pin the ROUTER's wiring - which
 // field goes where, the sort order, the leagueId gate - without needing the
@@ -30,7 +30,7 @@ const playerCardService = require('../services/playerCard.service');
 const projectionService = require('../services/projection.service');
 const irPolicy = require('../services/irPolicy.service');
 const lineupService = require('../services/lineup.service');
-const decisionService = require('../services/decision.service');
+const upgradeService = require('../services/upgrade.service');
 const { createFakePool } = require('./helpers/fakePool');
 
 const previousSecret = process.env.JWT_SECRET;
@@ -110,15 +110,10 @@ function mockCardServices(t, {
   t.mock.method(irPolicy, 'rosterCapacity', async () => rosterCapacity);
   t.mock.method(playerCardService, 'availabilityForMany', async () => availability);
   const upgradesForCalls = [];
-  t.mock.method(playerCardService, 'upgradesFor', async (options) => {
+  // #1911: the sort=upgrade read also takes `pointsFor` (the tie-break); no tie-break values here.
+  t.mock.method(upgradeService, 'upgradesFor', async (options) => {
     upgradesForCalls.push(options);
-    return upgrades;
-  });
-  // #1911: the sort=upgrade page read takes the context (upgrades plus the
-  // Weekly projection tie-break) rather than `upgradesFor`; same map, no tie-break values.
-  t.mock.method(playerCardService, 'loadUpgradeContext', async (options) => {
-    upgradesForCalls.push(options);
-    return { upgrades, projections: { pointsFor: () => null } };
+    return { upgrades, swapNets: new Map(), pointsFor: () => null, run: null };
   });
   // #1403: the page's Weekly projections arrive through ONE multi-week read.
   // #1703: `getWeeklyProjectionsForWeeks` itself now returns the result
@@ -314,7 +309,7 @@ test('sort=upgrade: rows sort by upgrade.points descending, nulls last', async (
 });
 
 // #1793 (Ruling option B): overPlayer's new `points`/`unavailable` fields
-// ride `playerCardService.upgradesFor`'s return value straight to the wire
+// ride `upgradeService.upgradesFor`'s return value straight to the wire
 // under view=cards - nothing between here and the response re-shapes
 // `player.upgrade` (unlike the plain, non-cards `upgrade` field itself,
 // which IS stripped below, per item 7/ADR 0040).
@@ -423,7 +418,7 @@ test('view=cards + sort=upgrade in a best_ball league: still never returns proje
 
 /** Every query `availabilityForMany`/`upgradesFor` can issue over this
  * fixture's players, none of whom are rostered, on waivers, or a starter -
- * so `upgrade` resolves through `decisionService.upgradeFor` (mocked) for
+ * so `upgrade` resolves through the real Upgrade core (no roster slots) for
  * every one of them, and the identity/roster/waiver reads all come back
  * empty. Built for COUNTING calls, not for asserting particular values. */
 function realProducerHandlers({ league, players }) {
@@ -465,7 +460,6 @@ function mockRealProducerServices(t, { seasonEnd = 17 } = {}) {
   t.mock.method(irPolicy, 'rosterCapacity', async () => 16);
   t.mock.method(lineupService, 'materializeLineup', async () => {});
   t.mock.method(lineupService, 'parseLineupSettings', () => ({ rosterSlots: [] }));
-  t.mock.method(decisionService, 'upgradeFor', () => ({ points: 1, overPlayer: { id: 9, name: 'Bench' }, slot: 'RB' }));
   t.mock.method(projectionService, 'getWeekProjections', async () => new Map());
   t.mock.method(projectionService, 'getWeeklyProjections', async ({ playerIds }) => projectionService.toWeeklyProjectionResult({
     projections: new Map(playerIds.map((id) => [id, { median: 5, factors: { availability: { available: true } } }])),
@@ -582,56 +576,6 @@ test('formal-1309-f2: availabilityForMany over [p] and over [p, q, r] return the
   const expected = { state: 'rostered', teamId: 55, teamName: 'Other Team', availableAt: null };
   assert.deepEqual(single.get(1), expected, 'the N=1 SQL shape resolves the duplicate identity row');
   assert.deepEqual(batch.get(1), expected, 'the batch SQL shape resolves the SAME duplicate identity row the same way');
-});
-
-test('upgradesFor nulls a player with No NFL team (nfl_team null) and keeps a real value for a candidate on a team', async (t) => {
-  const league = makeLeague();
-  const handlers = [
-    [/^SELECT "id", "position"(, "nfl_team")? FROM "players" WHERE "id" = ANY/, (text, params) => ({
-      rows: params[0].map((id) => ({ id, position: 'RB', nfl_team: id === 2 ? null : 'SF' })),
-    })],
-    ...duplicateIdentityHandlers(),
-  ];
-  createFakePool(handlers).install(t);
-  t.mock.method(lineupService, 'materializeLineup', async () => {});
-  t.mock.method(lineupService, 'parseLineupSettings', () => ({ rosterSlots: [] }));
-  t.mock.method(decisionService, 'upgradeFor', () => ({ points: 9, overPlayer: { id: 5, name: 'Starter' }, slot: 'RB' }));
-  t.mock.method(projectionService, 'getWeeklyProjections', async () => projectionService.toWeeklyProjectionResult({
-    projections: new Map(),
-  }));
-
-  const upgrades = await playerCardService.upgradesFor({
-    league, team: TEAM, season: 2026, week: 2, playerIds: [2, 3],
-  });
-
-  assert.equal(upgrades.get(2), null, 'a player with No NFL team has no Upgrade: he cannot improve any lineup');
-  assert.deepEqual(upgrades.get(3), { points: 9, overPlayer: { id: 5, name: 'Starter' }, slot: 'RB', week: 2 });
-});
-
-test('formal-1309-f2: upgradesFor nulls a player whose duplicate identity row is on the caller\'s own roster, in the batch form', async (t) => {
-  const league = makeLeague();
-  // Same identity table as above, but player 1's sibling identity (101) is
-  // on the CALLER's own roster this time - the own-roster handler goes FIRST
-  // so it overrides duplicateIdentityHandlers()'s empty-rows default (fakePool
-  // tries handlers in order and takes the first pattern match).
-  const handlers = [
-    [/^SELECT "player_id" FROM "team_players" WHERE "team_id" = \$1$/, () => ({ rows: [{ player_id: 101 }] })],
-    ...duplicateIdentityHandlers(),
-  ];
-  createFakePool(handlers).install(t);
-  t.mock.method(lineupService, 'materializeLineup', async () => {});
-  t.mock.method(lineupService, 'parseLineupSettings', () => ({ rosterSlots: [] }));
-  t.mock.method(decisionService, 'upgradeFor', () => ({ points: 9, overPlayer: { id: 5, name: 'Starter' }, slot: 'RB' }));
-  t.mock.method(projectionService, 'getWeeklyProjections', async () => projectionService.toWeeklyProjectionResult({
-    projections: new Map(),
-  }));
-
-  const upgrades = await playerCardService.upgradesFor({
-    league, team: TEAM, season: 2026, week: 1, playerIds: [1, 2, 3],
-  });
-
-  assert.equal(upgrades.get(1), null, 'player 1 is already on the caller\'s roster via its duplicate identity row 101');
-  assert.notEqual(upgrades.get(2), null, 'an unrelated candidate still gets a real Upgrade value');
 });
 
 // #1778 (spec #1774): the Proj Wk column's "no history" is the server's verdict,
