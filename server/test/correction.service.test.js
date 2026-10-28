@@ -1256,7 +1256,7 @@ test('runStatCorrections returns the partial result, with a write_failed row, wh
 // ---- #2547: seeds are locked, so a regular-season correction mid-playoffs is told, not applied --
 
 /** One final regular-season matchup whose score moves; the League's phase is the variable. */
-function seededBracketCorrectionWorld(seasonStatus) {
+function seededBracketCorrectionWorld(seasonStatus, seeded = true) {
   return createFakePool([
     [/^SELECT "id", "week", "final", "is_playoff", "home_score", "away_score"/, () => ({
       rows: [{ id: 1, week: 14, final: true, is_playoff: false, home_score: 90, away_score: 80 }],
@@ -1268,6 +1268,7 @@ function seededBracketCorrectionWorld(seasonStatus) {
     [/^SELECT "owner_id", "season_status" FROM "leagues"/, () => ({
       rows: [{ owner_id: 100, season_status: seasonStatus }],
     })],
+    [/^SELECT 1 FROM "playoff_seeds"/, () => ({ rows: seeded ? [{ '?column?': 1 }] : [] })],
     [/FROM "league_commissioners"/, () => ({
       rows: [{ user_id: 202, username: 'deputy', teamId: 42, teamName: 'Deputy FC' }],
     })],
@@ -1301,4 +1302,15 @@ test('#2547: the same correction before the bracket exists sends no seed alert',
 
   assert.deepEqual(lockedSeedAlerts(fake), []);
   fake.assertClean();
+});
+
+test('#2547: a League in its playoffs with no stored seeds gets no locked-seeds alert', async (t) => {
+  const fake = seededBracketCorrectionWorld('playoffs', false);
+  fake.install(t);
+  t.mock.method(matchupScoring, 'scoreMatchups', async () => ({}));
+  t.mock.method(settleFollowUpSvc, 'settleFollowUp', async () => {});
+
+  await correctionSvc.correctLeagueWeek({ leagueId: 7, season: 2026, week: 14 });
+
+  assert.deepEqual(lockedSeedAlerts(fake), []);
 });

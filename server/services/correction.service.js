@@ -124,7 +124,8 @@ function diffMatchupScores(before, after) {
 /**
  * Re-score one league week (stats must already be synced) and record any
  * changes: a transaction-log entry plus a league-wide notification, and a
- * commissioner alert when a settled playoff result flipped.
+ * commissioner alert when a settled playoff result flipped or, once the
+ * bracket's seeds are stored, when a final regular-season result moved.
  */
 async function correctLeagueWeek({ leagueId, season, week }) {
   const before = await pool.query(
@@ -216,7 +217,14 @@ async function correctLeagueWeek({ leagueId, season, week }) {
               data: { season, week, matchupIds: playoffFlips.map((c) => c.matchupId) },
             });
           }
-          if (league && league.season_status === 'playoffs' && seededChanges.length > 0) {
+          // Only a bracket with stored seeds is locked; a League already in its
+          // playoffs before seeds were stored still derives them from standings.
+          const locked = league && league.season_status === 'playoffs' && seededChanges.length > 0 &&
+            (await client.query(
+              `SELECT 1 FROM "playoff_seeds" WHERE "league_id" = $1 AND "season" = $2 LIMIT 1`,
+              [leagueId, season]
+            )).rows.length > 0;
+          if (locked) {
             await notifyCommissioners(client, {
               leagueId,
               ownerId: league.owner_id,

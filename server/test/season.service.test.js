@@ -377,6 +377,23 @@ test('a regular-season correction after seeding never changes who advances', asy
   world.pool.assertClean();
 });
 
+test('stored byes advance without playing: a 6-Team bracket re-pairs the winners with seeds 1 and 2', async (t) => {
+  t.mock.method(lineupService, 'materializeLineup', async () => {});
+  const world = seedWorld();
+  world.league.playoff_teams = 6;
+  world.pool.install(t);
+
+  await finalizeWeekAndAdvance({ leagueId: 1 });
+  const round1 = world.matchups.filter((m) => m.is_playoff && m.week === 4);
+  assert.deepEqual(round1.map((m) => [m.home_team_id, m.away_team_id]), [[2, 6], [5, 4]], 'seeds 1 and 2 are on the bye');
+  round1.forEach((m) => { m.home_score = 100; m.away_score = 50; });
+  await finalizeWeekAndAdvance({ leagueId: 1 });
+
+  const round2 = world.matchups.filter((m) => m.is_playoff && m.week === 5);
+  assert.deepEqual(round2.map((m) => [m.home_team_id, m.away_team_id]), [[1, 5], [3, 2]]);
+  world.pool.assertClean();
+});
+
 test('getPlayoffSeeds reads the stored seeds of the current season', async (t) => {
   createFakePool([
     [select('playoff_seeds'), (text, params) => {
