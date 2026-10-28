@@ -185,6 +185,19 @@ test('pollChangedGames: a skipped fetch (below the failure threshold, or cadence
   assert.deepEqual(w.scored, []);
 });
 
+test('pollChangedGames: the maps cache keeps only the live week, so going back a week reloads it', async (t) => {
+  const w = pollWorld(t, { fetch: async () => jsnBox(1), leaguesByPlayer: () => [] });
+  const mapLoads = () => w.fake.matching(/FROM "players" WHERE "external_id"/).length;
+  const game = { gameId: 'g1', espnEventId: '401', status: 'in_progress' };
+  const poll = (week, now) => liveBoxPoll.pollChangedGames({ season: 2026, week, now, games: [game], finalSyncedGameIds: new Set() });
+  await poll(1, 1_000);
+  assert.equal(mapLoads(), 1);
+  await poll(2, 2_000);
+  assert.equal(mapLoads(), 2);
+  await poll(1, 3_000);
+  assert.equal(mapLoads(), 3, 'week 1 is not kept alongside week 2: its maps load again');
+});
+
 // --- refresh: a game that stops moving is still re-read once a minute --------
 // ESPN finishes a box a beat after its scoreboard moves (Jake Bates' extra
 // point, 2026-09-27) and revises tackles at the half. Keyed on movement alone,
