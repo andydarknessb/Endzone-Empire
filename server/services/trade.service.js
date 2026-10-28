@@ -85,12 +85,27 @@ async function loadTrade(client, tradeId, { forUpdate = true } = {}) {
 
 /**
  * The trade-window gate every offer and answer runs through: no trades at all
- * in a pick'em-only league, and none past the deadline.
+ * in a pick'em-only league, none until the draft is complete, and none past
+ * the deadline.
  */
 function assertBeforeDeadline(league) {
   assertFantasyLeagueRow(league);
+  assertDraftComplete(league);
   if (league.trade_deadline_week != null && league.current_week > league.trade_deadline_week) {
     throw new TradeError(409, `the trade deadline (week ${league.trade_deadline_week}) has passed`);
+  }
+}
+
+/**
+ * Trades open only once the League's draft is complete (#2550). Before then a
+ * trade fills a roster that is still being picked (a 2-for-1 mid-draft pauses
+ * the draft at the team's last pick), and a Keeper traded before the draft
+ * lands on one roster while the other team's keeper pick still owes him.
+ * A TradeError, so a due trade found in this window is cancelled, not retried.
+ */
+function assertDraftComplete(league) {
+  if (league.draft_status !== 'complete') {
+    throw new TradeError(409, 'trades open once the draft is complete');
   }
 }
 
@@ -471,6 +486,10 @@ async function commissionerDecide({ tradeId, userId, approve }) {
  * ROSTER_GATE.CAPACITY bypassed, which is precisely how the path behaves today.
  */
 async function executeTrade(client, { trade, league, items, teams, byCommissioner = false }) {
+  // Execution refuses on its own (#2550), never trusting the offer/answer that
+  // preceded it: a trade whose review window ends mid-draft is a due trade
+  // here, and executeTrade is the write that would fill a half-built roster.
+  assertDraftComplete(league);
   const delta = new Map([[trade.proposing_team_id, 0], [trade.receiving_team_id, 0]]);
   for (const item of items) {
     const owned = await client.query(

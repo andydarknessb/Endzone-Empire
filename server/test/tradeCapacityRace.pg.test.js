@@ -132,11 +132,12 @@ if (!ENABLED) {
     // trade_veto_votes 0 disables the review window, so an accept executes the
     // trade in the same transaction (respondToTrade's reviewed === false path);
     // trade_deadline_week null means no deadline; ir_slots 0 pins capacity to 3.
+    // draft_status 'complete' is what opens the trade window at all (#2550).
     const league = await pool.query(
       `INSERT INTO "leagues"
          ("name", "owner_id", "invite_code", "current_season", "current_week",
-          "roster_limit", "ir_slots", "trade_veto_votes")
-       VALUES ('PG Trade Capacity Race', $1, 'tcr001', $2, $3, $4, 0, 0)
+          "roster_limit", "ir_slots", "trade_veto_votes", "draft_status")
+       VALUES ('PG Trade Capacity Race', $1, 'tcr001', $2, $3, $4, 0, 0, 'complete')
        RETURNING "id"`,
       [ownerAId, SEASON, CURRENT_WEEK, ROSTER_LIMIT]
     );
