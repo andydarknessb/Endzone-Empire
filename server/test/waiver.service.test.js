@@ -558,10 +558,10 @@ test('processWaivers: the claim drop records no undo, unlike the two undoable dr
   // undoDrop's `dropped_by_team_id` check finds nothing to undo. Asserted on
   // the three undo-carrying fields alone rather than the whole parameter
   // list, so this test does not also pin placeOnWaivers' unrelated defaults.
-  const [, droppedPlayerId, , , droppedByTeamId, interruptedSlot, interruptedIrAttested] = holdParams;
+  const [, droppedPlayerIds, , , droppedByTeamId, interruptedSlot, interruptedIrAttested] = holdParams;
   assert.deepEqual(
-    { droppedPlayerId, droppedByTeamId, interruptedSlot, interruptedIrAttested },
-    { droppedPlayerId: 77, droppedByTeamId: null, interruptedSlot: null, interruptedIrAttested: false },
+    { droppedPlayerIds, droppedByTeamId, interruptedSlot, interruptedIrAttested },
+    { droppedPlayerIds: [77], droppedByTeamId: null, interruptedSlot: null, interruptedIrAttested: false },
     'claim drop must write a bare hold: no dropper, no interrupted slot, not attested'
   );
   // And it never even asks what the row held - that read only exists to feed
@@ -735,19 +735,24 @@ function waiverPlayersTable(seed = []) {
   return {
     rows,
     insertHandler: (text, params) => {
-      const [leagueId, playerId, availableAt, waiverPeriodHours, droppedByTeamId, interruptedSlot, interruptedIrAttested] = params;
+      const [leagueId, playerIds, availableAt, waiverPeriodHours, droppedByTeamId, interruptedSlot, interruptedIrAttested] = params;
       const resolved = availableAt
         ? new Date(availableAt).toISOString()
         : new Date(Date.now() + Number(waiverPeriodHours) * 60 * 60 * 1000).toISOString();
-      const existing = rows.find((r) => r.league_id === leagueId && r.player_id === playerId);
-      if (existing) {
-        if (new Date(resolved) > new Date(existing.available_at)) existing.available_at = resolved;
-      } else {
-        rows.push({
-          league_id: leagueId, player_id: playerId, available_at: resolved,
-          dropped_by_team_id: droppedByTeamId, interrupted_slot: interruptedSlot,
-          interrupted_ir_attested: interruptedIrAttested,
-        });
+      // One statement may carry many players (the tick's array form), so the
+      // second parameter is an id list; a single-player call passes a one-item
+      // list through the same text.
+      for (const playerId of playerIds) {
+        const existing = rows.find((r) => r.league_id === leagueId && r.player_id === playerId);
+        if (existing) {
+          if (new Date(resolved) > new Date(existing.available_at)) existing.available_at = resolved;
+        } else {
+          rows.push({
+            league_id: leagueId, player_id: playerId, available_at: resolved,
+            dropped_by_team_id: droppedByTeamId, interrupted_slot: interruptedSlot,
+            interrupted_ir_attested: interruptedIrAttested,
+          });
+        }
       }
       return { rows: [] };
     },
@@ -831,6 +836,51 @@ test('holdKickedOffPlayers: an unrostered player on a kicked-off team is held un
   assert.equal(table.rows[0].player_id, 500);
   assert.equal(table.rows[0].dropped_by_team_id, null, 'the hold names no dropping team');
   assert.equal(table.rows[0].available_at, '2026-09-17T23:15:00.000Z', "the week's last kickoff plus 48 hours");
+});
+
+test('holdKickedOffPlayers: every kicked-off candidate in a league goes in one INSERT (spec #2602)', async (t) => {
+  const league = { id: 1, current_season: 2026, current_week: 2, waiver_period_hours: 24 };
+  const nflGames = [
+    { season: 2026, week: 2, nfl_team: 'KC', kickoff_at: '2026-09-14T17:00:00.000Z' },
+    { season: 2026, week: 2, nfl_team: 'DAL', kickoff_at: '2026-09-15T23:15:00.000Z' },
+  ];
+  const players = [
+    { id: 500, nfl_team: 'KC' },
+    { id: 501, nfl_team: 'KC' },
+    { id: 502, nfl_team: 'KC' },
+  ];
+  const table = waiverPlayersTable();
+  const fake = kickoffHoldPool({ league, nflGames, players, waiverTable: table });
+  fake.install(t);
+
+  const held = await holdKickedOffPlayers({ now: new Date('2026-09-14T18:00:00.000Z') });
+
+  const writes = fake.matching(insert('waiver_players'));
+  assert.equal(held, 3);
+  assert.equal(writes.length, 1, 'one statement per league, not one per player');
+  assert.deepEqual(writes[0].params[1], [500, 501, 502], 'the one statement carries every candidate id');
+  assert.deepEqual(table.rows.map((r) => r.player_id).sort(), [500, 501, 502]);
+});
+
+test('holdKickedOffPlayers: a candidate whose team has not kicked off is not in that INSERT', async (t) => {
+  const league = { id: 1, current_season: 2026, current_week: 2, waiver_period_hours: 24 };
+  const nflGames = [
+    { season: 2026, week: 2, nfl_team: 'KC', kickoff_at: '2026-09-14T17:00:00.000Z' },
+    { season: 2026, week: 2, nfl_team: 'DAL', kickoff_at: '2026-09-15T23:15:00.000Z' }, // not yet
+  ];
+  const players = [
+    { id: 500, nfl_team: 'KC' },
+    { id: 501, nfl_team: 'DAL' },
+  ];
+  const table = waiverPlayersTable();
+  const fake = kickoffHoldPool({ league, nflGames, players, waiverTable: table });
+  fake.install(t);
+
+  await holdKickedOffPlayers({ now: new Date('2026-09-14T18:00:00.000Z') });
+
+  const writes = fake.matching(insert('waiver_players'));
+  assert.equal(writes.length, 1);
+  assert.deepEqual(writes[0].params[1], [500], 'only the kicked-off team\'s player');
 });
 
 test('holdKickedOffPlayers: a player whose team has not kicked off, or has no game this week, is left alone', async (t) => {
