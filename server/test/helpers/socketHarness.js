@@ -194,6 +194,11 @@ function createSocketHarness({ secret = 'socket-harness-secret', now } = {}) {
     return io.sockets.sockets.get(client.id);
   }
 
+  /** Run the token-expiry sweep now, on the clock `now` gave the socket server. */
+  function sweepExpiredSockets() {
+    io.sweepExpiredSockets();
+  }
+
   async function stop() {
     for (const client of clients) {
       client.removeAllListeners();
@@ -225,7 +230,7 @@ function createSocketHarness({ secret = 'socket-harness-secret', now } = {}) {
   // Only what a suite calls. `start`, `release` and `stop` are reached from
   // inside this file (by `open`, by `connectAs`'s cleanup, and by the
   // `after` above), so exposing them would be surface with no caller.
-  return { connectAs, connectExpectingRefusal, emit, nextEvent, serverSocket };
+  return { connectAs, connectExpectingRefusal, emit, nextEvent, serverSocket, sweepExpiredSockets };
 }
 
 module.exports = { createSocketHarness };

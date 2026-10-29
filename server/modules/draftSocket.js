@@ -27,6 +27,9 @@ const { getCorsOptions } = require('./clientOrigins');
 const { createAdapter } = require('@socket.io/redis-adapter');
 const { createRedisSubscriber, getRedisClient } = require('./redis');
 
+const TOKEN_EXPIRY_GRACE_MS = 60_000;
+const TOKEN_EXPIRY_SWEEP_MS = 15_000;
+
 /**
  * Real-time draft room. Clients connect with { auth: { token } }, then:
  *   emit 'draft:join'  { leagueId }            -> joins room, receives 'draft:state'
@@ -337,11 +340,25 @@ function attachDraftSocket(httpServer, { now = Date.now } = {}) {
     });
   });
 
+  // #2556: a socket is only authenticated at the handshake, so one whose token
+  // expired (recorded at the handshake, moved by `auth:refresh`) and was never
+  // renewed is dropped once the grace has passed. The client refreshes and
+  // reconnects. Each instance sweeps its own sockets; none are shared.
+  io.sweepExpiredSockets = () => {
+    const cutoff = now() - TOKEN_EXPIRY_GRACE_MS;
+    for (const socket of io.sockets.sockets.values()) {
+      if (socket.data.tokenExpiresAt < cutoff) socket.disconnect(true);
+    }
+  };
+  io.expirySweepTimer = setInterval(io.sweepExpiredSockets, TOKEN_EXPIRY_SWEEP_MS);
+  io.expirySweepTimer.unref();
+
   return io;
 }
 
 async function closeDraftSocket(io) {
   if (!io) return;
+  clearInterval(io.expirySweepTimer);
   await new Promise((resolve) => io.close(resolve));
   if (io.redisSubscriber?.isOpen) await io.redisSubscriber.quit();
 }
