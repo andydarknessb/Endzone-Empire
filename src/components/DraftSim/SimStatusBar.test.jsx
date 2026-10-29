@@ -74,8 +74,8 @@ describe('SimStatusBar (#805)', () => {
   it('renders no headings: the page owns its one h1 (#2635)', () => {
     renderStatusBar();
     expect(screen.queryAllByRole('heading')).toHaveLength(0);
-    expect(screen.getByText('/ 15').parentElement).toHaveTextContent('1 / 15');
-    expect(screen.getByText('/ 150').parentElement).toHaveTextContent('1 / 150');
+    expect(screen.getByText((_, el) => el.tagName === 'P' && el.textContent === '1 / 15')).toBeInTheDocument();
+    expect(screen.getByText((_, el) => el.tagName === 'P' && el.textContent === '1 / 150')).toBeInTheDocument();
     expect(screen.getByText(formatRemaining(45))).toBeInTheDocument();
     expect(screen.getByText('You')).toBeInTheDocument();
     expect(screen.getByText('Time left')).toBeInTheDocument();
