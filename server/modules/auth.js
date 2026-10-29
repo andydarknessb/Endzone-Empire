@@ -111,8 +111,9 @@ function requirePlatformAdmin(req, res, next) {
  * `auth:refresh` handler: a client that renewed its access token sends the new
  * one so the socket's recorded expiry follows it (#2555). Only a valid token for
  * the SAME user counts; anything else is refused and the expiry stays as it was.
- * Nothing disconnects on expiry yet, so a client that never sends this (an old
- * bundle held by the service worker) is unaffected.
+ * The draft socket sweep disconnects a socket 60 s past this expiry (#2556), so
+ * a client that never sends this (an old bundle held by the service worker) is
+ * dropped once its handshake token is that old, then reconnects with a fresh one.
  */
 function refreshSocketToken(socket, message, ack) {
   const reply = typeof ack === 'function' ? ack : () => {};

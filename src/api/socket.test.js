@@ -209,6 +209,83 @@ describe('telling the server about a refreshed token', () => {
   });
 });
 
+describe('recovering from a server-initiated disconnect (#2556)', () => {
+  let socket;
+  const handlerFor = (event) => socket.on.mock.calls.find(([name]) => name === event)[1];
+
+  beforeEach(() => {
+    io.mockImplementation(() => {
+      socket = { connected: true, active: true, on: jest.fn(), emit: jest.fn(), connect: jest.fn(), disconnect: jest.fn() };
+      return socket;
+    });
+    jest.spyOn(axios, 'post').mockResolvedValue({ data: { token: 'renewed-jwt' } });
+  });
+
+  afterEach(() => {
+    clearToken();
+    jest.restoreAllMocks();
+  });
+
+  test('refreshes the token, then reconnects, and keeps telling the server about later refreshes', async () => {
+    setToken('stale-jwt');
+    createDraftSocket();
+    socket.active = false; // socket.io does not reconnect after a server disconnect
+
+    handlerFor('disconnect')('io server disconnect');
+
+    await waitFor(() => expect(socket.connect).toHaveBeenCalledTimes(1));
+    expect(getToken()).toBe('renewed-jwt');
+
+    socket.active = true;
+    axios.post.mockResolvedValue({ data: { token: 'renewed-again' } });
+    await refreshTokens();
+    expect(socket.emit).toHaveBeenCalledWith('auth:refresh', { token: 'renewed-again' });
+  });
+
+  test('does not reconnect a socket this client closed, or one that dropped (socket.io retries those)', async () => {
+    createDraftSocket();
+
+    handlerFor('disconnect')('io client disconnect');
+    handlerFor('disconnect')('transport close');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(axios.post).not.toHaveBeenCalled();
+    expect(socket.connect).not.toHaveBeenCalled();
+  });
+
+  test('a refused refresh (401) ends the session instead of reconnecting', async () => {
+    const onExpired = jest.fn();
+    window.addEventListener('auth:session-expired', onExpired);
+    setToken('revoked-jwt');
+    axios.post.mockRejectedValue({ response: { status: 401 } });
+    createDraftSocket();
+
+    handlerFor('disconnect')('io server disconnect');
+
+    await waitFor(() => expect(onExpired).toHaveBeenCalledTimes(1));
+    window.removeEventListener('auth:session-expired', onExpired);
+    expect(socket.connect).not.toHaveBeenCalled();
+  });
+
+  test('on connect it re-sends the current token, covering a refresh that landed before the socket was connected', () => {
+    createDraftSocket();
+    setToken('renewed-while-connecting');
+
+    handlerFor('connect')();
+
+    expect(socket.emit).toHaveBeenCalledWith('auth:refresh', { token: 'renewed-while-connecting' });
+  });
+
+  test('on connect it sends nothing when there is no token', () => {
+    clearToken();
+    createDraftSocket();
+
+    handlerFor('connect')();
+
+    expect(socket.emit).not.toHaveBeenCalled();
+  });
+});
+
 describe('createDraftSocket with a test harness installed', () => {
   beforeEach(() => {
     io.mockImplementation(() => ({ on: jest.fn(), emit: jest.fn(), disconnect: jest.fn() }));
