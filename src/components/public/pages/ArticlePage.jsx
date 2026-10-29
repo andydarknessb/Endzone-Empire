@@ -1,7 +1,7 @@
 import React, { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link as RouterLink, useParams } from 'react-router-dom';
 import {
-  Box, Breadcrumbs, Card, CardContent, Chip, Divider, LinearProgress, Link,
+  Box, Breadcrumbs, Button, Card, CardContent, Chip, Divider, LinearProgress, Link,
   Skeleton, Stack, Typography,
 } from '@mui/material';
 import Grid from '@mui/material/Unstable_Grid2';
@@ -80,6 +80,7 @@ function ReadingProgress({ articleRef }) {
 // empties instead of listing the previous article's (about-to-vanish) ids.
 function ArticleToc({ articleRef, slug, renderedSlug }) {
   const [headings, setHeadings] = useState([]);
+  const [open, setOpen] = useState(false);
 
   useEffect(() => {
     if (renderedSlug !== slug) {
@@ -94,8 +95,18 @@ function ArticleToc({ articleRef, slug, renderedSlug }) {
   return (
     <Card component="nav" variant="outlined" aria-label="Table of contents" sx={{ position: { md: 'sticky' }, top: { md: 88 } }}>
       <CardContent>
-        <Typography variant="overline" sx={{ color: 'text.secondary', fontWeight: 800 }}>On this page</Typography>
-        <Stack spacing={1.25} sx={{ mt: 1 }}>
+        {/* Below md the links collapse behind a 44px toggle; from md up they sit open in the sidebar. */}
+        <Button
+          fullWidth
+          onClick={() => setOpen((value) => !value)}
+          aria-expanded={open}
+          aria-controls="article-toc-links"
+          sx={{ display: { md: 'none' }, minHeight: 44, justifyContent: 'space-between', fontWeight: 800 }}
+        >
+          Contents ({headings.length})
+        </Button>
+        <Typography variant="overline" sx={{ display: { xs: 'none', md: 'block' }, color: 'text.secondary', fontWeight: 800 }}>On this page</Typography>
+        <Stack id="article-toc-links" spacing={1.25} sx={{ mt: 1, display: { xs: open ? 'flex' : 'none', md: 'flex' } }}>
           {headings.map((heading) => (
             <Link key={heading.id} href={`#${heading.id}`} underline="hover" sx={{ color: 'text.secondary', fontSize: '0.875rem', fontWeight: 600 }}>
               {heading.title}
@@ -166,10 +177,10 @@ function ArticlePage() {
       </Breadcrumbs>
 
       <Grid container spacing={4} alignItems="flex-start">
-        <Grid xs={12} md={3} sx={{ order: { xs: 2, md: 1 } }}>
+        <Grid xs={12} md={3}>
           <ArticleToc articleRef={articleRef} slug={slug} renderedSlug={renderedSlug} />
         </Grid>
-        <Grid xs={12} md={9} sx={{ order: { xs: 1, md: 2 } }}>
+        <Grid xs={12} md={9}>
           <Box component="article" ref={articleRef} sx={{ maxWidth: 720 }}>
             <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 2 }}>
               {category && <Chip label={category} size="small" color="primary" variant="outlined" />}
