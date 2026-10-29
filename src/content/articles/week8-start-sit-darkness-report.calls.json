@@ -966,7 +966,7 @@
       "playerId": 1271,
       "verdict": "FLEX",
       "condition": null,
-      "injury": false
+      "injury": true
     },
     {
       "id": "C44",
@@ -975,7 +975,7 @@
       "playerId": 682,
       "verdict": "FLEX",
       "condition": null,
-      "injury": false
+      "injury": true
     },
     {
       "id": "C45",
@@ -1263,7 +1263,7 @@
       "playerId": 1340,
       "verdict": "FLEX",
       "condition": null,
-      "injury": false
+      "injury": true
     },
     {
       "id": "C76",
@@ -1398,7 +1398,7 @@
       "playerId": 409,
       "verdict": "START",
       "condition": null,
-      "injury": false
+      "injury": true
     },
     {
       "id": "C91",
