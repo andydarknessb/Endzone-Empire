@@ -1,5 +1,5 @@
 import React from 'react';
-import { screen, waitFor } from '@testing-library/react';
+import { act, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
@@ -97,6 +97,40 @@ test('shows "No notifications" when there are none', async () => {
   await userEvent.click(screen.getByRole('button', { name: /notifications/i }));
 
   expect(await screen.findByText('No notifications')).toBeInTheDocument();
+});
+
+describe('polling follows the tab (#2638)', () => {
+  const setHidden = (hidden) => {
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden });
+  };
+  const fireVisibility = () => {
+    act(() => { document.dispatchEvent(new Event('visibilitychange')); });
+  };
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    setHidden(false);
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+    setHidden(false);
+  });
+
+  test('a hidden tab polls nothing and showing it again refreshes once', async () => {
+    apiClient.get.mockResolvedValue({ data: notificationsResponse() });
+    renderWithProviders(<NotificationBell />);
+    await act(async () => { await Promise.resolve(); });
+    expect(apiClient.get).toHaveBeenCalledTimes(1);
+
+    setHidden(true);
+    act(() => { jest.advanceTimersByTime(120 * 1000); });
+    expect(apiClient.get).toHaveBeenCalledTimes(1);
+
+    setHidden(false);
+    await act(async () => { fireVisibility(); await Promise.resolve(); });
+    expect(apiClient.get).toHaveBeenCalledTimes(2);
+  });
 });
 
 test('fetch errors fail silently and do not crash', async () => {
