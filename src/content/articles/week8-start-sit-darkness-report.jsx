@@ -657,7 +657,7 @@ const GAMES = [
     total: 46.5,
     weather: '74F, wind 15, 59% showers and thunderstorms likely',
     rain: true,
-    read: 'The worst weather on the slate: 15 mph of wind with showers and thunderstorms likely. Jacksonville is a 10-point favorite implied for 28.3 against Indianapolis at 18.3, so Trevor Lawrence, Bhayshul Tuten, Parker Washington and the Jaguars D/ST are starts. Jacksonville allows the 2nd-fewest RB points, which makes Jonathan Taylor a volume start (20 carries a game). Keenan Allen is a flex against the 5th-most WR points allowed, with Alec Pierce on IR. Tyler Warren is back at practice, limited on the groin after missing Weeks 6 and 7, and is a start if active. Brenton Strange is a sit.',
+    read: 'The most wind on the slate: 15 mph of wind with showers and thunderstorms likely. Jacksonville is a 10-point favorite implied for 28.3 against Indianapolis at 18.3, so Trevor Lawrence, Bhayshul Tuten, Parker Washington and the Jaguars D/ST are starts. Jacksonville allows the 2nd-fewest RB points, which makes Jonathan Taylor a volume start (20 carries a game). Keenan Allen is a flex against the 5th-most WR points allowed, with Alec Pierce on IR. Tyler Warren is back at practice, limited on the groin after missing Weeks 6 and 7, and is a start if active. Brenton Strange is a sit.',
     fpa: 'IND offense vs JAX D: QB 20, RB 31, WR 5, TE 22 · JAX offense vs IND D: QB 12, RB 15, WR 25, TE 14',
     start: [
       ['Trevor Lawrence', 'QB', '27.3 before the bye; Jacksonville implied for 28.3 as a 10-point favorite.', 'QB7', 'C7'],
@@ -828,7 +828,7 @@ const GAMES = [
     total: 40.5,
     weather: '63F, wind 6, mostly cloudy',
     rain: false,
-    read: 'The tightest game on the board: Kansas City is a 1.5-point favorite implied for 21.0 against Denver at 19.5 in a 40.5 total. Kenneth Walker III is a start at 24.6 a game on 20 carries into the 10th-most RB points allowed, and Travis Kelce is a start (full practice) against the 8th-most TE points allowed. Everyone else is hard to trust. Patrick Mahomes scored 10.5 and 6.0 the last two weeks, Bo Nix scored 26.2 last week after 4.5 and faces the 3rd-fewest QB points allowed, and Jaylen Waddle did not practice Wednesday (chest) against the 2nd-fewest WR points allowed. RJ Harvey is a flex.',
+    read: 'Tied for the tightest line on the board: Kansas City is a 1.5-point favorite implied for 21.0 against Denver at 19.5 in a 40.5 total. Kenneth Walker III is a start at 24.6 a game on 20 carries into the 10th-most RB points allowed, and Travis Kelce is a start (full practice) against the 8th-most TE points allowed. Everyone else is hard to trust. Patrick Mahomes scored 10.5 and 6.0 the last two weeks, Bo Nix scored 26.2 last week after 4.5 and faces the 3rd-fewest QB points allowed, and Jaylen Waddle did not practice Wednesday (chest) against the 2nd-fewest WR points allowed. RJ Harvey is a flex.',
     fpa: 'KC offense vs DEN D: QB 24, RB 10, WR 27, TE 8 · DEN offense vs KC D: QB 30, RB 25, WR 31, TE 5',
     start: [
       ['Kenneth Walker III', 'RB', '24.6 a game on 20 carries; Denver allows the 10th-most RB points.', 'RB1', 'C23'],
@@ -894,7 +894,7 @@ const GAMES = [
     total: 40.5,
     weather: '56F, wind 3, mostly cloudy',
     rain: false,
-    read: 'Sunday night in Washington, a 6-point favorite implied for 23.3 against Philadelphia at 17.3, the lowest implied total on the slate. Philadelphia allows the 9th-most QB points, the 2nd-most WR points and the 2nd-most TE points, so Jayden Daniels and Dallas Goedert are starts. Tanner McKee scored 12.6 and 10.5 in his two starts and sits. Jalen Hurts is on IR with a calf injury and out for the season. Terry McLaurin went on IR Wednesday, and so did Dameon Pierce. Stefon Diggs (did not practice) and DeVonta Smith and Saquon Barkley (both missed Wednesday\'s walkthrough) all turn on the inactives.',
+    read: 'Sunday night in Washington, a 6-point favorite implied for 23.3 against Philadelphia at 17.3, the lowest implied total on the slate. Philadelphia allows the 9th-most QB points and the 2nd-most WR points, and Washington allows the 2nd-most TE points, so Jayden Daniels and Dallas Goedert are starts. Tanner McKee scored 12.6 and 10.5 in his two starts and sits. Jalen Hurts is on IR with a calf injury and expected to miss the season. Terry McLaurin went on IR Wednesday, and so did Dameon Pierce. Stefon Diggs (did not practice) and DeVonta Smith and Saquon Barkley (both missed Wednesday\'s walkthrough) all turn on the inactives.',
     fpa: 'PHI offense vs WAS D: QB 3, RB 26, WR 7, TE 2 · WAS offense vs PHI D: QB 9, RB 16, WR 2, TE 28',
     start: [
       ['Jayden Daniels', 'QB', '21.4 a game in four starts with 6.3 carries, full practice (elbow); Philadelphia allows the 9th-most QB points.', 'QB5', 'C5'],
@@ -1716,14 +1716,13 @@ const DST_TIER_NEXT = 'Every D/ST in the top eight has a ruling. Kansas City, Cl
 // Statuses are the Wednesday practice reports; no Thursday report existed when this was written.
 
 const INJ_OUT = [
-  ['Jalen Hurts', 'QB', 'PHI', 'On IR (calf), expected to miss the season. The engine still projects 18.5; ignore it.', 'Tanner McKee is a sit and a 2QB start only.', 'out', 'C22'],
+  ['Jalen Hurts', 'QB', 'PHI', 'On IR (calf), expected to miss the season. The engine still projects 18.5; ignore it.', 'Tanner McKee is a sit.', 'out', 'C22'],
   ['Davante Adams', 'WR', 'LAR', 'On IR after hamstring surgery (6 to 10 weeks). The engine still projects 15.0; ignore it.', 'Puka Nacua (START, WR2).', 'out', 'C84'],
   ['Terry McLaurin', 'WR', 'WAS', 'Placed on IR Wednesday (knee). The engine still projects 11.0; ignore it.', 'Stefon Diggs (FLEX if active, WR19) is the Washington receiver call.', 'out', 'C85'],
 ];
 
 const INJ_THU = [
   ['Matthew Golden', 'WR', 'GB', 'Questionable Thursday (shoulder, foot), limited Wednesday; 9.9 targets a game.', 'Flex only if active. Christian Watson (START, WR13) is the other Green Bay receiver. Thursday has no pivot cover.', 'gtd', 'C73'],
-  ['Josh Jacobs', 'RB', 'GB', '20.1 in his first game back (11 carries, 7 targets).', 'Start him. Pierre Strong Jr. and MarShawn Lloyd have no ruling.', 'likely', 'C24'],
 ];
 
 const INJ_ONE = [
@@ -1887,7 +1886,7 @@ const Body = () => (
       Fourteen games, Thursday through Monday, and four teams on bye. Carolina at Green Bay kicks
       off Thursday night, Philadelphia at Washington is Sunday night, and Chicago at Seattle closes
       it Monday. Lamar Jackson practiced in full Wednesday, Jahmyr Gibbs and Amon-Ra St. Brown did
-      not practice, and three games carry weather. Every call is here. Set your Thursday lineup
+      not practice, and three games carry wind and storms. Every call is here. Set your Thursday lineup
       first, and set your pivots before you go to bed Saturday.
     </Lead>
 
@@ -1948,7 +1947,7 @@ const Body = () => (
       color="var(--warning)"
       items={[
         ['"If active" calls', 'are void if the player does not appear. Every call that turns on a practice report, his or his teammate\'s, carries the injury on its card.'],
-        ['Engine placeholders', 'never rank anyone. Hurts, Adams, McLaurin, Achane, Conner, Pierce, Charbonnet and Monangai all carry a projection and none of them is a call.'],
+        ['Engine placeholders', 'never rank anyone. Hurts, Adams, McLaurin, Achane, Conner, Alec Pierce, Charbonnet and Monangai all carry a projection and none of them is a call.'],
         ['A swap only works', 'if your bench player kicks off at or after the player he replaces. Thursday players have no cover at all.'],
         ['Byes', 'Houston, New Orleans, the Giants and San Francisco: nobody is ranked or called.'],
       ]}
