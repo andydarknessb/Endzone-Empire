@@ -11,7 +11,7 @@ const VARIANTS = [
 /**
  * Home's theme (ADR 0051): the app theme with its type set in Home's body face
  * (Archivo, `BODY_FONT`). Each MUI Typography variant carries its own
- * `fontFamily` (the app's Inter stack, which nothing loads: the audit's finding
+ * `fontFamily` (the app's system stack, Roboto, Helvetica and Arial; the audit's finding
  * m4), so a page root's `font-family` alone never reaches a Typography, a
  * Button or an input. Re-basing every variant on `BODY_FONT` here is what lets
  * Home render Archivo everywhere, dialogs included (they portal out of the page

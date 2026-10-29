@@ -43,7 +43,7 @@ body {
   margin: 0;
   background: var(--bg-page, #f4f6f8);
   color: var(--text-primary, #1a2129);
-  font-family: 'Inter', 'Roboto', 'Helvetica', 'Arial', sans-serif;
+  font-family: 'Roboto', 'Helvetica', 'Arial', sans-serif;
   transition: background-color var(--transition-base, 200ms) ease,
     color var(--transition-base, 200ms) ease;
 }

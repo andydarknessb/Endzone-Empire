@@ -48,7 +48,7 @@ typography:
     fontWeight: 600
     letterSpacing: "0.1em"
   app-headline:
-    fontFamily: "\"Inter\", \"Roboto\", \"Helvetica\", \"Arial\", sans-serif"
+    fontFamily: "\"Roboto\", \"Helvetica\", \"Arial\", sans-serif"
     fontSize: "2.5rem"
     fontWeight: 800
     lineHeight: 1.15
@@ -141,7 +141,7 @@ Endzone Empire is where a league gets run, week after week. The everyday surface
 
 The noise lives in the moments. Live games, a final score, a draft grade, a win, a trade landing: these are where the system gets loud and playful, with the Tecmo-style sprite and a scoreboard that stays black in both themes. A screen earns its loudness from what is happening in the league, never from ornament.
 
-Home at `/user` and every league page (`/league/:leagueId/*`) are moving to the Tecmo play-select world in its own section below (owner decisions, 2026-10-15; ADR 0067). Home has shipped; the league pages moved in five waves, and all five have landed: every `/league/:leagueId/*` route is on Play-select. Two generations remain. The island's `dash-*` token group and Barlow Condensed were retired under ADR 0067's amendment (spec #2453, 2026-10-21); Archivo stays as the Play-select body face. **Legacy** pages under `src/components/` use the app tokens and MUI's Inter ramp. Each generation keeps its own tokens; never mix them on one surface.
+Home at `/user` and every league page (`/league/:leagueId/*`) are moving to the Tecmo play-select world in its own section below (owner decisions, 2026-10-15; ADR 0067). Home has shipped; the league pages moved in five waves, and all five have landed: every `/league/:leagueId/*` route is on Play-select. Two generations remain. The island's `dash-*` token group and Barlow Condensed were retired under ADR 0067's amendment (spec #2453, 2026-10-21); Archivo stays as the Play-select body face. **Legacy** pages under `src/components/` use the app tokens and MUI's ramp on the system font stack. Each generation keeps its own tokens; never mix them on one surface.
 
 The system rejects the sportsbook look (odds boards, neon promos, betting urgency) and the cluttered legacy-portal look (ad-shaped boxes, tiny type, every widget competing).
 
@@ -170,24 +170,26 @@ Position colors (`pos-qb` red, `pos-rb` green, `pos-wr` blue, `pos-te` orange, `
 ## Typography
 
 **Body Font:** Archivo (with Helvetica Neue, Arial, sans-serif)
-**Legacy Font:** Inter (with Roboto, Helvetica, Arial), on legacy pages only
+**Legacy Font:** the system stack (Roboto, Helvetica, Arial, sans-serif), on legacy pages only. No legacy face is loaded, so Android renders Roboto, Apple devices Helvetica and Windows Arial.
 
 **Character:** Archivo is self-hosted woff2 and never fetched from Google Fonts at runtime. Play-select display type is Press Start 2P (see its section below).
 
 ### Hierarchy
 - **Code** (ui-monospace, SFMono-Regular, Consolas, monospace, 600, 0.1em tracking): the invite-code input and the league-code display and input; the size follows the field.
-- **Legacy ramp** (Inter): h1 2.5rem/800 down to h6 1rem/600; buttons 600 with no text transform; the `stat` variant (tabular numerals, 600) for any score or points figure.
+- **Legacy ramp** (system stack): h1 2.5rem/800 down to h6 1rem/600; buttons 600 with no text transform; the `stat` variant (tabular numerals, 600) for any score or points figure.
 
 ### Named Rules
 **The Tabular Figures Rule.** Every score, point total, projection, and stat is set in tabular numerals so columns line up.
 
 **The Copy House Style Rule.** No em dashes in user-visible copy; use middot separators, hyphen scores, and en-dash ranges (ADR 0016, enforced by `npm run guards`).
 
+**The 13px Floor Rule.** No text in new UI is set below 13px, on Play-select, on legacy pages and in articles alike. Older legacy text below 13px is raised when that code is next touched.
+
 ## Layout
 
 The spacing scale runs in 4px steps up to 16px, then 24, 32, 48, and 64px (`space-1` to `space-8`). 
 
-Breakpoints are MUI's defaults (sm 600px, md 900px, lg 1200px, xl 1536px). Below md, interactive targets grow to 44px.
+Breakpoints are MUI's defaults (sm 600px, md 900px, lg 1200px, xl 1536px). Below md, interactive targets are at least 44px. Each component opts in with the shared touch-target style (`MIN_TOUCH_TARGET_SX`); nothing in the theme enforces it, so a smaller control is its component's bug.
 
 Density is high by design: a commissioner's desk shows a lot at once. Compact rows, striped tables, and opaque sticky columns keep scanning fast without crowding.
 
@@ -202,7 +204,7 @@ Legacy MUI cards carry a light shadow at rest, and Paper elevation maps onto thr
 
 ## Shapes
 
-Corners are consistent per generation: legacy cards at 16px, legacy buttons and inputs at 10px, and small elements at 6px; Play-select is square. Chips, badges, pills, and scrollbar thumbs are full pills (999px).
+Corners are consistent per generation: legacy cards at 16px, legacy buttons and inputs at 10px, and small elements at 6px; Play-select is square. On legacy pages, chips, badges, pills and scrollbar thumbs are full pills (999px); on Play-select they are square like everything else.
 
 ## Components
 
@@ -210,7 +212,7 @@ Corners are consistent per generation: legacy cards at 16px, legacy buttons and 
 - **Legacy:** MUI buttons at 10px radius, weight 600, no elevation, transitions on background, border, and shadow over 150ms.
 
 ### Chips
-- **Style:** full pills at weight 600, painted from `ps-*` tokens on a panel fill.
+- **Style:** weight 600. Legacy chips are full pills on app tokens; Play-select chips are square, painted from `ps-*` tokens on a panel fill.
 - **Data chips:** position chips are filled with their encoding color and carry the fixed AA label.
 
 ### Inputs / Fields
@@ -239,7 +241,7 @@ Home (`/user`) is a play-call screen: a near-black field, NES-blue play cards wi
 Press Start 2P (display) is set at 16, 24, and 32px only, on an 8px grid, uppercase, line height 1.5 (1.3 on the 32px h1). 32px is the desktop h1 and big scores, 24px is the phone h1, phone scores, and the desktop h2, and 16px is the phone h2, play-card names, tile titles, lock times, and chip and badge text. Anything the pixel face is asked to set smaller snaps up to 16px; there are no other sizes. Archivo is the body at 16px, with 15px (600) for button and link labels, 14px for league lines, lock notes, and captions, and 13px for design notes and small meta. Pixel type is for headings, scores, card names, and lock times; anything read as a sentence stays Archivo.
 
 ### Frame
-The one frame is a 6px double rule in Frame color with square corners and Panel fill, with a 2px solid Rule divider under its header (header padding 14px by 20px, 12px by 14px on phones). The scoreboard tile and the error panel use the same 6px double rule, in Board dim and Danger. There are no radii and no shadows on Home.
+The one frame is a 6px double rule in Frame color with square corners and Panel fill, with a 2px solid Rule divider under its header (header padding 14px by 20px, 12px by 14px on phones). The scoreboard tile and the error panel use the same 6px double rule, in Board dim and Danger. There are no radii and no shadows on Home other than the focus halo.
 
 ### Play card
 The signature: a column of an optional urgent strip, the field band, the body, and the foot.
@@ -259,7 +261,7 @@ A live matchup or pick'em league on Board black with the 6px double rule in Boar
 Buttons are square, 44px tall, 2px bordered, Archivo 600 at 15px with a pixel arrow: Fill (Accent), Ghost (Ink border and label), and Quiet (transparent border, Dim label). Links are 44px targets in Ink with a 2px Dim underline offset 5px. The Live chip is a 2px Accent outline with Accent Pixel 16 text and a square 8px dot. Count badges are 28px squares with a 2px Ink border.
 
 ### Focus and motion
-- **Focus ring:** a 3px solid white outline with no offset and a 7px halo in the dark Field color (`box-shadow: 0 0 0 7px`), on every focusable control in both themes. Text selection is cursor yellow on dark Field.
+- **Focus ring:** a 3px solid white outline with no offset and a 7px halo in the dark Field color (`box-shadow: 0 0 0 7px`), on every focusable control in both themes. Text selection is cursor yellow on dark Field. The halo is the one box-shadow allowed on Play-select (see The Square Rule).
 - **Cursor blink:** the cursor frame's border blinks off and on three times (0.5s, stepped), then rests lit. Under `prefers-reduced-motion: reduce` the blink is off. Hover brightens a button or link by 12% (`filter: brightness(1.12)`).
 - **Cursor move:** hover (on pointer devices) or keyboard focus inside a play card moves the cursor frame to that card at once, in the lead's colour if it is the lead and in Cursor yellow otherwise, and clears the frame from the lead. When the pointer or focus leaves, the cursor goes back to the lead.
 - **Press:** while a play card is pressed its frame turns white and its content drops 2px. Under reduced motion the frame still turns white but the content does not move.
@@ -290,7 +292,7 @@ The canvas at https://claude.ai/artifact/PrJq3Dhr94dkYbkG4hw2Vj (version 12, wor
 
 **The Shared Lock Rule.** Plays that share a lock are one card, not several (picks and a lineup locking at the same kickoff are one card with a foot each). One play across several leagues is a single card with one foot link per league.
 
-**The Square Rule.** Play-select surfaces have no corner radius and no drop shadow. Depth is the double rule and the Play-blue fill against the Field.
+**The Square Rule.** Nothing on a Play-select surface has a corner radius: frames, buttons, chips, badges, tags, status dots, and radio and checkbox dots are all square. No Play-select surface has a drop shadow, an inset shadow or a stripe drawn with a shadow; the focus halo is the one box-shadow allowed, because it is a ring and not depth. Depth is the double rule and the Play-blue fill against the Field.
 
 ## Do's and Don'ts
 
@@ -305,7 +307,7 @@ The canvas at https://claude.ai/artifact/PrJq3Dhr94dkYbkG4hw2Vj (version 12, wor
 ### Don't:
 - **Don't** hard-code a color literal in CSS, `sx`, or inline styles.
 - **Don't** mix Play-select and app tokens on one surface.
-- **Don't** put a shadow on a Play-select surface.
+- **Don't** put a shadow on a Play-select surface; the focus halo is the only exception.
 - **Don't** borrow sportsbook visuals: odds boards, neon promos, countdown urgency.
 - **Don't** add legacy-portal clutter: ad-shaped boxes, tiny type, widgets competing for attention.
 - **Don't** use emoji in the product, or em dashes in its copy.
