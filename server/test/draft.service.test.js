@@ -448,6 +448,10 @@ test('undoDrop: a kickoff re-upsert of the same hold cannot reopen the window (#
   const conflict = fake.calls[0].text.slice(fake.calls[0].text.indexOf('ON CONFLICT'));
   assert.match(conflict, /DO UPDATE SET "available_at" = GREATEST/);
   assert.doesNotMatch(conflict, /"created_at"|"dropped_by_team_id"/);
+  // The first write is the write instant, not the transaction's start (#2546
+  // review f1): a drop that waited on the league lock must not arrive expired.
+  assert.match(fake.calls[0].text, /"interrupted_ir_attested", "created_at"\)/);
+  assert.match(fake.calls[0].text, /clock_timestamp\(\)/);
   fake.assertClean();
 });
 
