@@ -177,7 +177,7 @@ function ArticlePage() {
       </Breadcrumbs>
 
       <Grid container spacing={4} alignItems="flex-start">
-        <Grid xs={12} md={3}>
+        <Grid xs={12} md={3} sx={{ alignSelf: { md: 'stretch' } }}>
           <ArticleToc articleRef={articleRef} slug={slug} renderedSlug={renderedSlug} />
         </Grid>
         <Grid xs={12} md={9}>
