@@ -395,6 +395,8 @@ test('the Lineups card renders the paired rows in the given order with a headsho
   expect(slotRows).toHaveLength(3);
   // The rows are rendered as given (the entity's order), each with its PosChip.
   expect(slotRows.map((row) => within(row).getByTestId('pos-chip').textContent)).toEqual(['QB', 'RB', 'D/ST']);
+  // The Play-select PosTag (the Square Rule, #2634): a 28px outlined tag, where the old PosChip was a filled chip.
+  expect(within(slotRows[0]).getByTestId('pos-chip')).toHaveStyle({ height: '28px' });
 
   // Row one: a headshot per side, each the player's ESPN photo, and the
   // "points · proj" note under each name.
@@ -596,6 +598,16 @@ test('the Games tile lists every game row with a live dot or a clock glyph and i
   // The dot is the design's danger red, as the slot comparison paints its
   // own live marker; the tone is declared where jsdom can read it.
   expect(live.getByTestId('live-dot')).toHaveAttribute('data-tone', 'danger');
+  // The Square Rule (#2634): a square dot on the Play-select danger ink.
+  const dot = live.getByTestId('live-dot');
+  expect(dot).toHaveStyle({ borderRadius: '0' });
+  /* eslint-disable testing-library/no-node-access -- emotion's rule for the dot is only reachable through its class */
+  const emotionClass = [...dot.classList].find((c) => c.startsWith('css-'));
+  const rule = [...document.querySelectorAll('style')]
+    .flatMap((el) => [...(el.sheet?.cssRules ?? [])])
+    .find((r) => r.selectorText === `.${emotionClass}`);
+  /* eslint-enable testing-library/no-node-access */
+  expect(rule.cssText).toContain('var(--ps-danger)');
   expect(live.getByText('Live')).toBeInTheDocument();
   expect(live.queryByTestId('clock-glyph')).not.toBeInTheDocument();
   expect(live.getByText('DEN 10 - 17 KC')).toBeInTheDocument();

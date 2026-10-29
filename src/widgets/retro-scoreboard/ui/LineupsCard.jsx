@@ -13,8 +13,8 @@ import Icon from './icons';
  * The Lineups card from the Scoreboard view (design canvas rosterPreview()):
  * a compact, non-interactive slot-by-slot preview of the paired rows the
  * Matchup page model hands down, the viewer's team on the left (the rows
- * arrive in the board's order, `[{ slot, first, second }]`), the PosChip in the
- * middle, the other team mirrored on the right. Each filled side is a 28px PlayerAvatar
+ * arrive in the board's order, `[{ slot, first, second }]`), the Play-select
+ * PosTag in the middle, the other team mirrored on the right. Each filled side is a 28px PlayerAvatar
  * headshot (the ESPN photo, Ink initials when there is none) in
  * a 2px ring of its position's `pos-*` color, as the canvas's headshot() draws it
  * and the slot-comparison widget rings its own (so the two lineup renderings
@@ -40,7 +40,7 @@ import Icon from './icons';
  * to prove the two lineup renderings agree slot for slot.
  *
  * Composes `shared/ui` (ADR 0020) and paints only registered pairings: ink,
- * dim and faint on the card surface, and PosChip's own position fills; the
+ * dim and faint on the card surface, and the PosTag's 2px border and text in the position colour on the panel; the
  * headshot ring is a `pos-*` graphic beside text, not a text pairing, and its
  * key is declared as `data-ring` where a test can read it (jsdom drops a
  * var() color from computed style). The one control, the optional "Full

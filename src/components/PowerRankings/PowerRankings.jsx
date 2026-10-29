@@ -43,7 +43,7 @@ function Shell({ children }) {
 }
 
 // Odds read as a bar on a ruled track; the percentage sits beside it.
-function OddsCell({ value, label }) {
+function OddsCell({ value, label, me }) {
   const pct = Math.round((value || 0) * 1000) / 10;
   const clamped = Math.min(100, Math.max(0, pct));
   return (
@@ -54,9 +54,9 @@ function OddsCell({ value, label }) {
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={clamped}
-        sx={{ flexGrow: 1, height: '10px', border: '2px solid var(--ps-rule)', boxSizing: 'border-box' }}
+        sx={{ flexGrow: 1, height: '10px', border: '2px solid var(--ps-rule)', boxSizing: 'border-box', ...(me && { borderColor: 'var(--ps-play-dim)', backgroundColor: 'var(--ps-play-field)' }) }}
       >
-        <Box sx={{ height: '100%', width: `${clamped}%`, backgroundColor: 'var(--ps-play)' }} />
+        <Box sx={{ height: '100%', width: `${clamped}%`, backgroundColor: me ? 'var(--ps-play-ink)' : 'var(--ps-play)' }} />
       </Box>
       <Box component="span" sx={{ minWidth: 48, textAlign: 'right' }}>{pct}%</Box>
     </Box>
@@ -64,7 +64,7 @@ function OddsCell({ value, label }) {
 }
 
 // Movement is Ink: a PixelArrow (up or down) and a signed number. The arrow points right, so it turns.
-function Move({ change, suffix = '' }) {
+function Move({ change, suffix = '', me }) {
   const up = change > 0;
   const n = Math.abs(change);
   return (
@@ -73,7 +73,7 @@ function Move({ change, suffix = '' }) {
       data-testid="movement"
       role="img"
       aria-label={`${up ? 'up' : 'down'} ${n}${suffix}`}
-      sx={{ display: 'inline-flex', alignItems: 'center', gap: '6px', color: 'var(--ps-ink)', whiteSpace: 'nowrap' }}
+      sx={{ display: 'inline-flex', alignItems: 'center', gap: '6px', color: me ? 'var(--ps-play-ink)' : 'var(--ps-ink)', whiteSpace: 'nowrap' }}
     >
       <Box component="span" data-testid="movement-arrow" aria-hidden="true" sx={{ display: 'inline-flex', transform: `rotate(${up ? -90 : 90}deg)` }}>
         <PixelArrow />
@@ -83,7 +83,7 @@ function Move({ change, suffix = '' }) {
   );
 }
 
-function MovementCell({ change }) {
+function MovementCell({ change, me }) {
   if (change === null || change === undefined) {
     return (
       <Box
@@ -96,9 +96,9 @@ function MovementCell({ change }) {
     );
   }
   if (change === 0) {
-    return <Box component="span" aria-label="no change" sx={{ color: 'var(--ps-dim)' }}>–</Box>;
+    return <Box component="span" aria-label="no change" sx={{ color: me ? 'var(--ps-play-dim)' : 'var(--ps-dim)' }}>–</Box>;
   }
-  return <Move change={change} />;
+  return <Move change={change} me={me} />;
 }
 
 // The Record arrives FORMATTED from the standings entity (src/entities/
@@ -404,11 +404,11 @@ function PowerRankings() {
                           <td><strong>{team.rank}</strong></td>
                           <td><TeamName team={team} size={28} isViewer={isViewer} /></td>
                           <td>{formatRecord(recordByTeamId.get(team.teamId))}</td>
-                          <td><MovementCell change={team.change} /></td>
+                          <td><MovementCell change={team.change} me={isViewer} /></td>
                           <td className="num">{winPct(team)}%</td>
                           <td className="num">{team.avgScore}</td>
-                          <td><OddsCell value={team.playoffOdds} label="Playoff odds" /></td>
-                          <td><OddsCell value={team.titleOdds} label="Title odds" /></td>
+                          <td><OddsCell value={team.playoffOdds} label="Playoff odds" me={isViewer} /></td>
+                          <td><OddsCell value={team.titleOdds} label="Title odds" me={isViewer} /></td>
                         </tr>
                       );
                     })}

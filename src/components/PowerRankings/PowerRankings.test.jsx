@@ -203,6 +203,48 @@ test("highlights the viewer's own team row", async () => {
   expect(within(bobRow).getAllByRole('cell')[0]).not.toHaveStyle({ boxShadow: 'inset 4px 0 0 var(--ps-play)' });
 });
 
+// jsdom drops a var() colour from computed style, so read the rule emotion injected for the element's class.
+/* eslint-disable testing-library/no-node-access -- emotion's rule is only reachable through its class */
+const ruleOf = (el) => {
+  const emotionClass = [...el.classList].find((c) => c.startsWith('css-'));
+  return [...document.querySelectorAll('style')]
+    .flatMap((s) => [...(s.sheet?.cssRules ?? [])])
+    .find((r) => r.selectorText === `.${emotionClass}`).cssText;
+};
+/* eslint-enable testing-library/no-node-access */
+
+describe('the viewer row paints its cells in the Play-blue inks', () => {
+  const load = async (viewerTeamId) => {
+    apiClient.get.mockResolvedValue({ data: powerRankingsResponse({ viewerTeamId }) });
+    renderScreen();
+    await screen.findByTestId('power-ranking-row-1');
+  };
+  const bar = (row) => within(row).getAllByRole('progressbar')[0];
+
+  test('movement and the odds bar use play-ink, the track play-field', async () => {
+    await load(2);
+    const row = screen.getByTestId('power-ranking-row-2');
+    expect(ruleOf(within(row).getByTestId('movement'))).toContain('var(--ps-play-ink)');
+    expect(ruleOf(bar(row).firstChild)).toContain('var(--ps-play-ink)'); // eslint-disable-line testing-library/no-node-access
+    expect(ruleOf(bar(row))).toContain('var(--ps-play-field)');
+    const other = screen.getByTestId('power-ranking-row-1');
+    expect(ruleOf(within(other).getByTestId('movement'))).toContain('var(--ps-ink)');
+    expect(ruleOf(bar(other).firstChild)).toContain('var(--ps-play)'); // eslint-disable-line testing-library/no-node-access
+    expect(ruleOf(bar(other).firstChild)).not.toContain('var(--ps-play-ink)'); // eslint-disable-line testing-library/no-node-access
+  });
+
+  test('the no-change dash uses play-dim, and page dim on another row', async () => {
+    await load(3);
+    expect(ruleOf(within(screen.getByTestId('power-ranking-row-3')).getByLabelText('no change'))).toContain('var(--ps-play-dim)');
+    expect(ruleOf(within(screen.getByTestId('power-ranking-row-1')).getByTestId('movement'))).not.toContain('var(--ps-play-ink)');
+  });
+
+  test('a non-viewer dash keeps the page dim', async () => {
+    await load(1);
+    expect(ruleOf(within(screen.getByTestId('power-ranking-row-3')).getByLabelText('no change'))).toContain('var(--ps-dim)');
+  });
+});
+
 describe('sorting', () => {
   test('defaults to ascending rank order', async () => {
     apiClient.get.mockResolvedValue({ data: powerRankingsResponse() });
