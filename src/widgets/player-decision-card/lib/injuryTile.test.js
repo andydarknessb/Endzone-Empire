@@ -18,3 +18,8 @@ test('the designation name alone when the Edge line is showing a different kind'
 test('the designation name alone when there is no edge at all', () => {
   expect(injuryTileView({ injuryStatus: 'O', edge: null })).toEqual({ name: 'Out', detail: null });
 });
+
+test('a lowercase or padded code reads as its designation; an unknown code is no tile', () => {
+  expect(injuryTileView({ injuryStatus: ' ir ', edge: null })).toEqual({ name: 'Injured reserve', detail: null });
+  expect(injuryTileView({ injuryStatus: 'SUS', edge: null })).toBeNull();
+});

@@ -111,6 +111,7 @@ function formatRecord(record) {
 function TeamName({ team, size, isViewer }) {
   return (
     <Box sx={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+      {isViewer && <Box component="span" aria-hidden="true" data-testid="viewer-arrow" sx={{ width: '12px', flex: 'none', display: 'inline-flex' }}><PixelArrow /></Box>}
       <TeamMark name={team.name} avatarUrl={team.avatarUrl} avatarStaticUrl={team.avatarStaticUrl} size={size} />
       <span>{team.name}</span>
       {isViewer && <YouTag />}
@@ -376,7 +377,7 @@ function PowerRankings() {
                     '& td': CELL,
                     '& tr:last-of-type td': { borderBottom: 'none' },
                     '& .num': { textAlign: 'right' },
-                    '& tr[data-viewer-team] td:first-of-type': { boxShadow: 'inset 4px 0 0 var(--ps-play)' },
+                    '& tr[data-viewer-team] td': { backgroundColor: 'var(--ps-play)', color: 'var(--ps-play-ink)', borderBottom: '2px solid var(--ps-play-field)' },
                   }}
                 >
                   <thead>

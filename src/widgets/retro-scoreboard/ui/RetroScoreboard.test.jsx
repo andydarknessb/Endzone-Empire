@@ -412,6 +412,8 @@ test('the Lineups card renders the paired rows in the given order with a headsho
   expect(allen.getByText('Injury status: Questionable')).toBeInTheDocument();
   expect(within(qb.getByTestId('lineup-side-home')).queryByTestId('injury-tag')).not.toBeInTheDocument();
   expect(card.getAllByTestId('injury-tag')).toHaveLength(1);
+  // The Play-select InjuryTag, not the shared Badge-based one (the Square Rule, #2634): that one stamps a data-variant.
+  expect(allen.getByTestId('injury-tag')).not.toHaveAttribute('data-variant');
 
   // Row two: only the home side is filled; the row keeps its empty away side.
   const rb = within(slotRows[1]);

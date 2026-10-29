@@ -197,6 +197,10 @@ test("highlights the viewer's own team row", async () => {
   expect(bobRow).toHaveAttribute('data-viewer-team', 'true');
   const aliceRow = screen.getByTestId('power-ranking-row-1');
   expect(aliceRow).not.toHaveAttribute('data-viewer-team');
+  // The Standings treatment (Play-blue row, pixel arrow), not an inset stripe.
+  expect(within(bobRow).getByTestId('viewer-arrow')).toHaveAttribute('aria-hidden', 'true');
+  expect(within(aliceRow).queryByTestId('viewer-arrow')).not.toBeInTheDocument();
+  expect(within(bobRow).getAllByRole('cell')[0]).not.toHaveStyle({ boxShadow: 'inset 4px 0 0 var(--ps-play)' });
 });
 
 describe('sorting', () => {

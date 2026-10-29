@@ -1,10 +1,13 @@
-import { injuryView } from '../../../shared/ui';
+// The wire's four injury codes (irPolicy.service.js) and their full names; any other code is no tile.
+const DESIGNATION_NAMES = {
+  Q: 'Questionable', D: 'Doubtful', O: 'Out', IR: 'Injured reserve',
+};
 
 /**
  * The Decision card's injury tile (#1240 AC2: "the injury designation and
  * the feed's detail"). The designation's full name (Questionable/Doubtful/
- * Out/Injured reserve) is the same code-to-name map `InjuryTag` already
- * paints; the feed's own free-text detail is client-reachable in exactly one
+ * Out/Injured reserve) is the same code-to-name map the Play-select
+ * `InjuryTag` speaks; the feed's own free-text detail is client-reachable in exactly one
  * place - the Ledger row's own Edge line, when its `kind` is `'injury'`
  * (CONTEXT.md's Edge line, priority 1: "the injury designation with its
  * detail"). Researched before writing this: the Decision card read
@@ -21,10 +24,10 @@ import { injuryView } from '../../../shared/ui';
  * healthy player with entries shows the section though this returns null.
  */
 export function injuryTileView(entry) {
-  const view = entry ? injuryView(entry.injuryStatus) : null;
-  if (!view) return null;
+  const name = entry ? DESIGNATION_NAMES[String(entry.injuryStatus || '').trim().toUpperCase()] : null;
+  if (!name) return null;
   const detail = entry.edge && entry.edge.kind === 'injury' ? entry.edge.text : null;
-  return { name: view.name, detail };
+  return { name, detail };
 }
 
 export default injuryTileView;

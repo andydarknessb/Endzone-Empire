@@ -2,7 +2,8 @@ import React from 'react';
 import { Box } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import useMediaQuery from '@mui/material/useMediaQuery';
-import { InjuryTag, PosChip, PlayerAvatar, StateMark } from '../../../shared/ui';
+import { PlayerAvatar, StateMark } from '../../../shared/ui';
+import { InjuryTag, PosTag } from '../../../shared/ui/playselect';
 import RetroCard from './RetroCard';
 import { starterStateView } from '../../../shared/lib';
 import { ledFigure, lineupNoteParts, positionRingKey, SLOT_TEST_ID } from '../model/scoreboardModel';
@@ -151,7 +152,7 @@ function Side({ player, side }) {
             {player.name}
           </Box>
           {!compact && mark}
-          <InjuryTag status={player.injuryStatus} />
+          <InjuryTag status={player.injuryStatus} data-testid="injury-tag" />
         </Box>
         <Box
           data-testid="lineup-line2"
@@ -222,9 +223,7 @@ export default function LineupsCard({ rows, board, headingLevel = 2, onFullCompa
               font: 'inherit',
               fontSize: '13px',
               color: 'var(--ps-dim)',
-              borderRadius: 'var(--radius-sm)',
               '&:hover': { color: 'var(--ps-ink)' },
-              '&:focus-visible': { outline: '2px solid var(--focus-ring)', outlineOffset: 2 },
             }}
           >
             Full comparison
@@ -252,7 +251,7 @@ export default function LineupsCard({ rows, board, headingLevel = 2, onFullCompa
             }}
           >
             <Side player={row.first} side="first" />
-            <PosChip position={row.slot} sx={{ flex: 'none' }} />
+            <PosTag position={row.slot} data-testid="pos-chip" />
             <Side player={row.second} side="second" />
           </Box>
           ))}
