@@ -216,10 +216,9 @@ function buildPriorGames({
 }) {
   const crossSeason = !!(constants && constants.versusOpponent && constants.versusOpponent.crossSeason);
   const useStoredHistory = !!(constants && constants.homeAway && constants.homeAway.useStoredHistory);
-  // v3.2 (#1440): only Appearances count as games. The caller's rows are all
-  // strictly before the input cutoff, so a row's missing gameTeam means the
-  // box wrote it for a player who was not active, not that the correction pass
-  // is still to come.
+  // v3.2 (#1440, amended): only Appearances count as games. A missing gameTeam
+  // alone does not drop a row: the correction pass leaves some active players
+  // unlabelled (#2629), and their non-zero stat line still counts them.
   const appearancesOnly = !!(constants && constants.baseline && constants.baseline.appearancesOnly);
   const currentTeamKey = normalizeTeamKey(playerTeam);
   const games = [];
