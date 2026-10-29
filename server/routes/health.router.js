@@ -81,9 +81,10 @@ async function holdoutStatus() {
 
 /**
  * player_stats integrity (week 1 2026 audit): open anomalies from the nightly
- * scan plus when it last ran. Unhealthy on any open anomaly, on a scan that
- * has never finished, and when the tables cannot be read. Fields are named so
- * the key set stays pinned; the raw error goes to the server log only.
+ * scan plus when it last ran. Unhealthy on an open points-mismatch anomaly, on
+ * a scan that has never finished, and when the tables cannot be read.
+ * `unlabelled` is reported, never paged (#2629). Fields are named so the key
+ * set stays pinned; the raw error goes to the server log only.
  */
 async function statsIntegrityStatus() {
   try {
@@ -92,12 +93,13 @@ async function statsIntegrityStatus() {
     return {
       ok: status.ok,
       open: status.open,
+      unlabelled: status.unlabelled,
       lastScanAt: status.lastScanAt,
       stale: status.stale,
     };
   } catch (error) {
     console.error('player_stats integrity status failed:', error.message);
-    return { ok: false, open: null, lastScanAt: null, stale: true, unavailable: true };
+    return { ok: false, open: null, unlabelled: null, lastScanAt: null, stale: true, unavailable: true };
   }
 }
 
@@ -263,8 +265,9 @@ router.get('/worker', async (req, res) => {
   res.status(worker.ok ? 200 : 503).json(worker);
 });
 
-// The alertable stats-integrity signal: 503 while any anomaly is open. The
-// composite carries the same section as context without failing the app.
+// The alertable stats-integrity signal: 503 while a points-mismatch anomaly is
+// open, a scan is stale or the tables are unreadable. The composite carries the
+// same section as context without failing the app.
 router.get('/stats-integrity', async (req, res) => {
   const statsIntegrity = await statsIntegrityStatus();
   res.status(statsIntegrity.ok ? 200 : 503).json(statsIntegrity);
