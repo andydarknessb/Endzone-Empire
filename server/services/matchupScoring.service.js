@@ -75,7 +75,12 @@ async function generateMatchups({ leagueId, season, week }) {
 /**
  * Score every matchup for a league week: each team's score is the sum of its
  * STARTERS' fantasy points for that week (bench and IR don't count), computed
- * from raw stats under the LEAGUE'S scoring rules. Transactional per league.
+ * from raw stats under the LEAGUE'S scoring rules.
+ *
+ * Split in two (spec #2602): `scoreMatchupsInTransaction` is everything that
+ * must commit with a stat correction, and it RETURNS what `announceScored`
+ * needs. `scoreMatchups` composes the two and keeps its own behaviour, so the
+ * live tick and the manual re-score route do not change.
  *
  * Materializing first - so a team that never touched its lineup still gets a
  * carried-forward or default-bench one - is the LIVE population's behaviour
@@ -140,180 +145,186 @@ async function generateMatchups({ leagueId, season, week }) {
  * each churn cycle handed `optimalLineup` one more body than a roster seat
  * can field, never one fewer. The live path already scores the current roster, so this makes
  * the score of record agree with what the manager watched on Sunday.
+ *
+ * Runs on the CALLER'S open transaction: a stat correction needs the re-score
+ * to commit with its own log and notices or not at all (spec #2602), so the
+ * caller owns the client and the close. Never query the ambient pool here.
  */
-async function scoreMatchups({ leagueId, season, week, plays = [], settle = false }) {
-  // withTransaction owns connect, BEGIN, COMMIT-or-guarded-ROLLBACK and the
-  // release rule (ADR 0033). The callback returns exactly what the post-commit
-  // work below needs (league, scored, openMatchups), and that work runs AFTER
-  // the connection is back in the pool - never inside the transaction (#1060
-  // Ruling 5).
-  const { league, scored, openMatchups } = await withTransaction(pool, async (client) => {
-    const leagueResult = await client.query(
-      `SELECT * FROM "leagues" WHERE "id" = $1`,
-      [leagueId]
-    );
-    const league = leagueResult.rows[0];
-    const rules = rulesForLeague(league);
-    // The counted-roster module owns the summing rule but not the pricer, so
-    // this module (which imports the pricer from scoringRules.js) hands it
-    // in. Keeps counted-roster free of a require back into this file.
-    const price = (stats) => calculateFantasyPoints(stats, rules);
-    const matchupsResult = await client.query(
-      `SELECT * FROM "matchups" WHERE "league_id" = $1 AND "season" = $2 AND "week" = $3 FOR UPDATE`,
-      [leagueId, season, week]
-    );
-    // The week's schedule is one answer shared by every team in this pass, so
-    // it is fetched once and memoised here rather than once per team per
-    // matchup (#261). Scoped to this call deliberately: the schedule is only
-    // stable within one pass, so a longer-lived cache would be correct until
-    // the first time a sync-schedule run landed mid-pass.
-    const kickoffCache = new Map();
-    /**
-     * The rows that count when a week is scored AS PLAYED. A lineup row
-     * counts only if a tenure of this team covered its player's kickoff
-     * (#228): the week's card is the record of what was played, and a player
-     * acquired after his game had already been played was not part of it
-     * however he came to have a row.
-     *
-     * ONE exclusion, on BOTH the settle and the final population, which is
-     * the point of #228 and the whole of #190's second escalation. The
-     * predicate reads `roster_tenures`, a fact that is appended and closed
-     * and never rewritten, so it answers the same way at settle time, at
-     * finality, and after any later roster move. Every earlier attempt on
-     * #190 evaluated a proxy over the CURRENT roster, and each died the same
-     * death: cut the excluded pickup a week later, the proxy stops firing and
-     * his points come back on the next correction sweep. Asking a tenure
-     * cannot go that way - cutting him closes the tenure, it does not erase
-     * the one that failed to cover kickoff.
-     *
-     * A LIVE week is the one population this does NOT govern. Best ball
-     * answers a different and correct question by joining the CURRENT
-     * roster, so a dropped player stops scoring immediately mid-week (its
-     * as-played pool excludes him the same way, ADR 0022). A standard week's
-     * live starters carry no join: they are the rows settle will score,
-     * including a starter's row spared after his kickoff (#627), so the live
-     * score never drops points that settle then puts back (#2388).
-     *
-     * Note what is NOT here: no `nfl_games` join. The kickoff question belongs
-     * to the module that owns the schedule and the lineup lock, so #227 has
-     * one place to fix rather than one per consumer.
-     *
-     * Best ball carries a second exclusion on the same two populations
-     * (#635, ADR 0022): of the rows the first kept, the ones a tenure of this
-     * team still covered at the week's LAST kickoff. Same recorded fact, same
-     * append-and-close argument. Never applied to a standard league, whose
-     * pool is bounded by slot occupancy.
-     *
-     * Both live in `rowsHeldAsPlayed`, in lineup.service beside the
-     * predicate, because hindsight reads the same settled week (#736) and a
-     * second population here would be one more thing to keep agreeing.
-     */
-    const heldRows = async (rows, teamId, asPlayed) => {
-      if (!asPlayed) return rows;
-      return rowsHeldAsPlayed(client, { league, teamId, season, week, rows, kickoffCache });
-    };
+async function scoreMatchupsInTransaction(client, { leagueId, season, week, settle = false }) {
+  const leagueResult = await client.query(
+    `SELECT * FROM "leagues" WHERE "id" = $1`,
+    [leagueId]
+  );
+  const league = leagueResult.rows[0];
+  const rules = rulesForLeague(league);
+  // The counted-roster module owns the summing rule but not the pricer, so
+  // this module (which imports the pricer from scoringRules.js) hands it
+  // in. Keeps counted-roster free of a require back into this file.
+  const price = (stats) => calculateFantasyPoints(stats, rules);
+  const matchupsResult = await client.query(
+    `SELECT * FROM "matchups" WHERE "league_id" = $1 AND "season" = $2 AND "week" = $3 FOR UPDATE`,
+    [leagueId, season, week]
+  );
+  // The week's schedule is one answer shared by every team in this pass, so
+  // it is fetched once and memoised here rather than once per team per
+  // matchup (#261). Scoped to this call deliberately: the schedule is only
+  // stable within one pass, so a longer-lived cache would be correct until
+  // the first time a sync-schedule run landed mid-pass.
+  const kickoffCache = new Map();
+  /**
+   * The rows that count when a week is scored AS PLAYED. A lineup row
+   * counts only if a tenure of this team covered its player's kickoff
+   * (#228): the week's card is the record of what was played, and a player
+   * acquired after his game had already been played was not part of it
+   * however he came to have a row.
+   *
+   * ONE exclusion, on BOTH the settle and the final population, which is
+   * the point of #228 and the whole of #190's second escalation. The
+   * predicate reads `roster_tenures`, a fact that is appended and closed
+   * and never rewritten, so it answers the same way at settle time, at
+   * finality, and after any later roster move. Every earlier attempt on
+   * #190 evaluated a proxy over the CURRENT roster, and each died the same
+   * death: cut the excluded pickup a week later, the proxy stops firing and
+   * his points come back on the next correction sweep. Asking a tenure
+   * cannot go that way - cutting him closes the tenure, it does not erase
+   * the one that failed to cover kickoff.
+   *
+   * A LIVE week is the one population this does NOT govern. Best ball
+   * answers a different and correct question by joining the CURRENT
+   * roster, so a dropped player stops scoring immediately mid-week (its
+   * as-played pool excludes him the same way, ADR 0022). A standard week's
+   * live starters carry no join: they are the rows settle will score,
+   * including a starter's row spared after his kickoff (#627), so the live
+   * score never drops points that settle then puts back (#2388).
+   *
+   * Note what is NOT here: no `nfl_games` join. The kickoff question belongs
+   * to the module that owns the schedule and the lineup lock, so #227 has
+   * one place to fix rather than one per consumer.
+   *
+   * Best ball carries a second exclusion on the same two populations
+   * (#635, ADR 0022): of the rows the first kept, the ones a tenure of this
+   * team still covered at the week's LAST kickoff. Same recorded fact, same
+   * append-and-close argument. Never applied to a standard league, whose
+   * pool is bounded by slot occupancy.
+   *
+   * Both live in `rowsHeldAsPlayed`, in lineup.service beside the
+   * predicate, because hindsight reads the same settled week (#736) and a
+   * second population here would be one more thing to keep agreeing.
+   */
+  const heldRows = async (rows, teamId, asPlayed) => {
+    if (!asPlayed) return rows;
+    return rowsHeldAsPlayed(client, { league, teamId, season, week, rows, kickoffCache });
+  };
 
-    const teamScore = async (teamId, asPlayed) => {
-      if (!asPlayed) {
-        await materializeLineup(client, { leagueId, teamId, season, week, league });
-      }
-      const currentRosterJoin = asPlayed
-        ? ''
-        : `JOIN "team_players" ON "team_players"."team_id" = "lineup_entries"."team_id"
-           AND "team_players"."player_id" = "lineup_entries"."player_id"`;
-      if (league.best_ball) {
-        // Best ball: every player held through the week counts as a candidate
-        // (as played: held at his own kickoff AND at the week's last, #635);
-        // IR occupants remain stashed and do not participate in scoring.
-        const r = await client.query(
-          `SELECT "lineup_entries"."player_id", "lineup_entries"."slot",
-                  "players"."position", "players"."nfl_team", "player_stats"."stats"
-           FROM "lineup_entries"
-           ${currentRosterJoin}
-           JOIN "players" ON "players"."id" = "lineup_entries"."player_id"
-           LEFT JOIN "player_stats" ON "player_stats"."player_id" = "lineup_entries"."player_id"
-             AND "player_stats"."season" = $2 AND "player_stats"."week" = $3
-           WHERE "lineup_entries"."team_id" = $1 AND "lineup_entries"."season" = $2
-             AND "lineup_entries"."week" = $3`,
-          [teamId, season, week]
-        );
-        // IR drop, pricing and the optimal-lineup total are the counted-roster
-        // module's job now (#954); the row set (every slot, LEFT JOIN) is what
-        // this branch owns.
-        const rows = await heldRows(r.rows, teamId, asPlayed);
-        return countedRoster({ rows, league, price }).teamScore;
-      }
+  const teamScore = async (teamId, asPlayed) => {
+    if (!asPlayed) {
+      await materializeLineup(client, { leagueId, teamId, season, week, league });
+    }
+    const currentRosterJoin = asPlayed
+      ? ''
+      : `JOIN "team_players" ON "team_players"."team_id" = "lineup_entries"."team_id"
+         AND "team_players"."player_id" = "lineup_entries"."player_id"`;
+    if (league.best_ball) {
+      // Best ball: every player held through the week counts as a candidate
+      // (as played: held at his own kickoff AND at the week's last, #635);
+      // IR occupants remain stashed and do not participate in scoring.
       const r = await client.query(
-        `SELECT "lineup_entries"."player_id", "players"."nfl_team", "player_stats"."stats",
-                ${asPlayed ? 'TRUE' : onRosterColumn()} AS "on_roster"
+        `SELECT "lineup_entries"."player_id", "lineup_entries"."slot",
+                "players"."position", "players"."nfl_team", "player_stats"."stats"
          FROM "lineup_entries"
+         ${currentRosterJoin}
          JOIN "players" ON "players"."id" = "lineup_entries"."player_id"
          LEFT JOIN "player_stats" ON "player_stats"."player_id" = "lineup_entries"."player_id"
            AND "player_stats"."season" = $2 AND "player_stats"."week" = $3
          WHERE "lineup_entries"."team_id" = $1 AND "lineup_entries"."season" = $2
-           AND "lineup_entries"."week" = $3
-           AND "lineup_entries"."slot" NOT IN ('BENCH', 'IR')`,
+           AND "lineup_entries"."week" = $3`,
         [teamId, season, week]
       );
-      // Standard: the SQL already dropped BENCH and IR, so every row here is a
-      // starter. A live week keeps its on-roster starters and puts only the
-      // off-roster ones (a row spared after kickoff, #627) through the settle
-      // filter, so live never counts a row settle then takes off (#2391). The
-      // started-total sum and the rounding are the counted-roster module's job
-      // now (#954).
-      const rows = asPlayed
-        ? await heldRows(r.rows, teamId, true)
-        : await liveStartersHeld(client, { league, teamId, season, week, rows: r.rows, kickoffCache });
+      // IR drop, pricing and the optimal-lineup total are the counted-roster
+      // module's job now (#954); the row set (every slot, LEFT JOIN) is what
+      // this branch owns.
+      const rows = await heldRows(r.rows, teamId, asPlayed);
       return countedRoster({ rows, league, price }).teamScore;
-    };
-    const scored = [];
-    for (const matchup of matchupsResult.rows) {
-      if (matchup.score_overridden) {
-        // A commissioner's override is the score of record; report it, never recompute it (#2274).
-        scored.push({
-          matchupId: matchup.id,
-          homeTeamId: matchup.home_team_id,
-          awayTeamId: matchup.away_team_id,
-          homeScore: Number(matchup.home_score),
-          awayScore: Number(matchup.away_score),
-        });
-        continue;
-      }
-      // The ONE place the population is chosen. A settled week and a final
-      // week are the same population - the week as played - so `settle` and
-      // finality select it together rather than through two branches that
-      // have to be kept agreeing (#190, #228).
-      const asPlayed = settle || matchup.final;
-      const homeScore = await teamScore(matchup.home_team_id, asPlayed);
-      const awayScore = await teamScore(matchup.away_team_id, asPlayed);
-      await client.query(
-        `UPDATE "matchups" SET "home_score" = $1, "away_score" = $2 WHERE "id" = $3`,
-        [homeScore, awayScore, matchup.id]
-      );
+    }
+    const r = await client.query(
+      `SELECT "lineup_entries"."player_id", "players"."nfl_team", "player_stats"."stats",
+              ${asPlayed ? 'TRUE' : onRosterColumn()} AS "on_roster"
+       FROM "lineup_entries"
+       JOIN "players" ON "players"."id" = "lineup_entries"."player_id"
+       LEFT JOIN "player_stats" ON "player_stats"."player_id" = "lineup_entries"."player_id"
+         AND "player_stats"."season" = $2 AND "player_stats"."week" = $3
+       WHERE "lineup_entries"."team_id" = $1 AND "lineup_entries"."season" = $2
+         AND "lineup_entries"."week" = $3
+         AND "lineup_entries"."slot" NOT IN ('BENCH', 'IR')`,
+      [teamId, season, week]
+    );
+    // Standard: the SQL already dropped BENCH and IR, so every row here is a
+    // starter. A live week keeps its on-roster starters and puts only the
+    // off-roster ones (a row spared after kickoff, #627) through the settle
+    // filter, so live never counts a row settle then takes off (#2391). The
+    // started-total sum and the rounding are the counted-roster module's job
+    // now (#954).
+    const rows = asPlayed
+      ? await heldRows(r.rows, teamId, true)
+      : await liveStartersHeld(client, { league, teamId, season, week, rows: r.rows, kickoffCache });
+    return countedRoster({ rows, league, price }).teamScore;
+  };
+  const scored = [];
+  for (const matchup of matchupsResult.rows) {
+    if (matchup.score_overridden) {
+      // A commissioner's override is the score of record; report it, never recompute it (#2274).
       scored.push({
         matchupId: matchup.id,
         homeTeamId: matchup.home_team_id,
         awayTeamId: matchup.away_team_id,
-        homeScore,
-        awayScore,
+        homeScore: Number(matchup.home_score),
+        awayScore: Number(matchup.away_score),
       });
+      continue;
     }
-    // Computed here, before the wrapper's COMMIT, but purely from the
-    // in-memory matchup rows - the same set the old post-COMMIT filter read.
-    const openMatchups = matchupsResult.rows.filter((m) => !(settle || m.final));
-    return { league, scored, openMatchups };
-  }, { label: 'scoring' });
+    // The ONE place the population is chosen. A settled week and a final
+    // week are the same population - the week as played - so `settle` and
+    // finality select it together rather than through two branches that
+    // have to be kept agreeing (#190, #228).
+    const asPlayed = settle || matchup.final;
+    const homeScore = await teamScore(matchup.home_team_id, asPlayed);
+    const awayScore = await teamScore(matchup.away_team_id, asPlayed);
+    await client.query(
+      `UPDATE "matchups" SET "home_score" = $1, "away_score" = $2 WHERE "id" = $3`,
+      [homeScore, awayScore, matchup.id]
+    );
+    scored.push({
+      matchupId: matchup.id,
+      homeTeamId: matchup.home_team_id,
+      awayTeamId: matchup.away_team_id,
+      homeScore,
+      awayScore,
+    });
+  }
+  // The same set the old post-COMMIT filter read, taken here from the
+  // in-memory matchup rows so the announcement needs no second read.
+  const openMatchups = matchupsResult.rows.filter((m) => !(settle || m.final));
+  return { league, scored, openMatchups };
+}
 
-  // Each side's status, expected final and players remaining ride the same
-  // emit as the fresh scores, so a card can never show a new score against a
-  // stale forecast or phase. The one decorator (expectedFinal.service) maps
-  // them onto each `scored` entry, computed once the pass has committed AND
-  // its connection is back in the pool (the producer reads on the pool;
-  // holding a second connection per pass would let concurrent re-scores
-  // starve it), from the stats this pass just wrote, only for matchups still
-  // open (a final one's result is its score), and best-effort: a miss leaves
-  // the fields null. Required lazily: expectedFinal.service reads this
-  // module's rules.
+/**
+ * The post-commit half of scoring, given what `scoreMatchupsInTransaction`
+ * returned: the Expected-final decorations, the `scores:updated` emit and the
+ * win-probability shadow. Runs only once the transaction that wrote the scores
+ * has COMMITted, never inside it (#1060 Ruling 5).
+ *
+ * Each side's status, expected final and players remaining ride the same
+ * emit as the fresh scores, so a card can never show a new score against a
+ * stale forecast or phase. The one decorator (expectedFinal.service) maps
+ * them onto each `scored` entry, computed once the pass has committed AND
+ * its connection is back in the pool (the producer reads on the pool;
+ * holding a second connection per pass would let concurrent re-scores
+ * starve it), from the stats this pass just wrote, only for matchups still
+ * open (a final one's result is its score), and best-effort: a miss leaves
+ * the fields null. Required lazily: expectedFinal.service reads this
+ * module's rules.
+ */
+async function announceScored({ leagueId, season, week, plays = [], league, scored, openMatchups }) {
   const { attachScoredExpectedFinals, decorateOpenMatchups } = require('./expectedFinal.service');
   const decorations = await decorateOpenMatchups(openMatchups, { league, now: clock.now() });
   await attachScoredExpectedFinals(scored, { openMatchups, league, decorations });
@@ -341,10 +352,30 @@ async function scoreMatchups({ leagueId, season, week, plays = [], settle = fals
   const { recordWinProbabilityShadow } = require('./winProbabilityShadow.service');
   recordWinProbabilityShadow({ leagueId, season, week, scored, decorations, now: clock.now() })
     .catch((err) => console.error('win probability shadow: record failed', err.message));
-  return { scored };
+}
+
+/**
+ * Score a league week and announce it: the in-transaction half on its own
+ * pooled transaction, then the post-commit half. A caller that must commit
+ * something else beside the re-score (the stat correction, spec #2602) calls
+ * the two halves itself instead.
+ */
+async function scoreMatchups({ leagueId, season, week, plays = [], settle = false }) {
+  // withTransaction owns connect, BEGIN, COMMIT-or-guarded-ROLLBACK and the
+  // release rule (ADR 0033). It returns exactly what the announcement below
+  // needs, and that work runs AFTER the connection is back in the pool.
+  const result = await withTransaction(
+    pool,
+    (client) => scoreMatchupsInTransaction(client, { leagueId, season, week, settle }),
+    { label: 'scoring' }
+  );
+  await announceScored({ leagueId, season, week, plays, ...result });
+  return { scored: result.scored };
 }
 
 module.exports = {
   generateMatchups,
   scoreMatchups,
+  scoreMatchupsInTransaction,
+  announceScored,
 };
