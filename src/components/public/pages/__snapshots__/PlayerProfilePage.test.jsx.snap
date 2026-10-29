@@ -12,7 +12,7 @@ exports[`renders the same anonymous hero and stat grid as before the In your lea
       class="MuiStack-root css-1bri955-MuiStack-root"
     >
       <div
-        class="MuiAvatar-root MuiAvatar-circular MuiAvatar-colorDefault css-1pwbxy8-MuiAvatar-root"
+        class="MuiAvatar-root MuiAvatar-circular MuiAvatar-colorDefault css-12ljxmt-MuiAvatar-root"
       >
         A
       </div>
@@ -20,7 +20,7 @@ exports[`renders the same anonymous hero and stat grid as before the In your lea
         class="MuiBox-root css-i9gxme"
       >
         <h1
-          class="MuiTypography-root MuiTypography-h3 css-zdtj6h-MuiTypography-root"
+          class="MuiTypography-root MuiTypography-h3 css-18nk80c-MuiTypography-root"
         >
           Alpha Back
         </h1>
@@ -28,7 +28,7 @@ exports[`renders the same anonymous hero and stat grid as before the In your lea
           class="MuiStack-root css-1dwv3yg-MuiStack-root"
         >
           <div
-            class="MuiChip-root MuiChip-filled MuiChip-sizeSmall MuiChip-colorDefault MuiChip-filledDefault css-1pf4pj5-MuiChip-root"
+            class="MuiChip-root MuiChip-filled MuiChip-sizeSmall MuiChip-colorDefault MuiChip-filledDefault css-1h28m9i-MuiChip-root"
           >
             <span
               class="MuiChip-label MuiChip-labelSmall css-t3ycia-MuiChip-label"
@@ -37,7 +37,7 @@ exports[`renders the same anonymous hero and stat grid as before the In your lea
             </span>
           </div>
           <div
-            class="MuiChip-root MuiChip-outlined MuiChip-sizeSmall MuiChip-colorDefault MuiChip-outlinedDefault css-1ueax8x-MuiChip-root"
+            class="MuiChip-root MuiChip-outlined MuiChip-sizeSmall MuiChip-colorDefault MuiChip-outlinedDefault css-5yqxi7-MuiChip-root"
           >
             <span
               class="MuiChip-label MuiChip-labelSmall css-gbf2tt-MuiChip-label"
@@ -56,7 +56,7 @@ exports[`renders the same anonymous hero and stat grid as before the In your lea
           340
         </div>
         <span
-          class="MuiTypography-root MuiTypography-caption css-1nvey0x-MuiTypography-root"
+          class="MuiTypography-root MuiTypography-caption css-qaard6-MuiTypography-root"
         >
           2025
            fantasy points
@@ -91,7 +91,7 @@ exports[`renders the same anonymous hero and stat grid as before the In your lea
           class="MuiStack-root css-a8cmkq-MuiStack-root"
         >
           <span
-            class="MuiTypography-root MuiTypography-caption css-1nvey0x-MuiTypography-root"
+            class="MuiTypography-root MuiTypography-caption css-qaard6-MuiTypography-root"
           >
             Games
           </span>
@@ -117,7 +117,7 @@ exports[`renders the same anonymous hero and stat grid as before the In your lea
           class="MuiStack-root css-a8cmkq-MuiStack-root"
         >
           <span
-            class="MuiTypography-root MuiTypography-caption css-1nvey0x-MuiTypography-root"
+            class="MuiTypography-root MuiTypography-caption css-qaard6-MuiTypography-root"
           >
             FPTS/G
           </span>
@@ -157,7 +157,7 @@ exports[`renders the same anonymous hero and stat grid as before the In your lea
           class="MuiStack-root css-a8cmkq-MuiStack-root"
         >
           <span
-            class="MuiTypography-root MuiTypography-caption css-1nvey0x-MuiTypography-root"
+            class="MuiTypography-root MuiTypography-caption css-qaard6-MuiTypography-root"
           >
             Season points
           </span>
@@ -184,7 +184,7 @@ exports[`renders the same anonymous hero and stat grid as before the In your lea
           class="MuiStack-root css-a8cmkq-MuiStack-root"
         >
           <span
-            class="MuiTypography-root MuiTypography-caption css-1nvey0x-MuiTypography-root"
+            class="MuiTypography-root MuiTypography-caption css-qaard6-MuiTypography-root"
           >
             Pos rank
           </span>
@@ -225,7 +225,7 @@ exports[`renders the same anonymous hero and stat grid as before the In your lea
           class="MuiStack-root css-a8cmkq-MuiStack-root"
         >
           <span
-            class="MuiTypography-root MuiTypography-caption css-1nvey0x-MuiTypography-root"
+            class="MuiTypography-root MuiTypography-caption css-qaard6-MuiTypography-root"
           >
             ADP
           </span>
