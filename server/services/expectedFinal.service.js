@@ -6,6 +6,7 @@ const { parseLineupSettings, liveStartersHeld } = require('./lineup.service');
 const { optimalLineup } = require('./lineupOptimizer');
 const { gameStateFor } = require('./gameState');
 const { gameFractionRemaining, varianceRemaining } = require('./winProbability');
+const { round2 } = require('./scoringRules');
 
 /**
  * Expected final (CONTEXT.md, Scoring and the week): a starter's, or a
@@ -50,8 +51,6 @@ const { gameFractionRemaining, varianceRemaining } = require('./winProbability')
  *    from actual points alone would read as a forecast of zero for every
  *    starter yet to kick off, which is worse than a dash.
  */
-
-const round2 = (x) => Math.round(x * 100) / 100;
 
 // A starter the availability verdict has not ruled out. No verdict (availability null) rules nobody out.
 const stillInPlay = (starter) => !starter.availability || starter.availability.available !== false;

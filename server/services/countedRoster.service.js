@@ -1,5 +1,6 @@
 const { parseLineupSettings } = require('./lineup.service');
 const { optimalLineup } = require('./lineupOptimizer');
+const { round2 } = require('./scoringRules');
 
 /*
  * The FORMAT and the SUMMING RULE for a week's counted roster.
@@ -67,10 +68,6 @@ const { optimalLineup } = require('./lineupOptimizer');
 
 const IR = 'IR';
 const BENCH = 'BENCH';
-
-function round2(x) {
-  return Math.round(Number(x) * 100) / 100;
-}
 
 /**
  * Price and summarise a team's counted roster for one week.

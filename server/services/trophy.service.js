@@ -5,6 +5,7 @@ const { computeStandings } = require('./season.service');
 const { notify } = require('./activity.service');
 const { LEAGUE_PHASE, deriveLeaguePhase } = require('./leaguePhase');
 const { slotEligible, parseLineupSettings } = require('./lineup.service');
+const { round2 } = require('./scoringRules');
 
 /**
  * Trophies: automatic awards written after weekly scoring (and, once the
@@ -266,8 +267,6 @@ async function awardWeeklyTrophies({ leagueId, season, week, seasonComplete }) {
   await notifyAwardedOwners({ leagueId, awarded });
   return awarded;
 }
-
-const round2 = (x) => Math.round(Number(x) * 100) / 100;
 
 /**
  * Pure: the one bench move that would have beaten `margin` by the most, or

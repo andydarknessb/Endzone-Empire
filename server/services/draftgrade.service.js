@@ -3,6 +3,7 @@ const { getWeekProjections } = require('./projection.service');
 const { poolPointsMap } = require('./poolProjection');
 const { parseLineupSettings } = require('./lineup.service');
 const { optimalLineup } = require('./lineupOptimizer');
+const { round2 } = require('./scoringRules');
 
 /**
  * Draft grades: A–F per team, computed lazily on first request after the
@@ -60,10 +61,6 @@ function gradeTeams(teamValues) {
   });
   rows.sort((a, b) => b.rosterValue - a.rosterValue || a.teamId - b.teamId);
   return rows.map((row, i) => ({ ...row, rank: i + 1 }));
-}
-
-function round2(value) {
-  return Math.round(value * 100) / 100;
 }
 
 /** Pure: missing/non-numeric market ADP is neutral at the actual pick. */

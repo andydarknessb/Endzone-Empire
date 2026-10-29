@@ -1,6 +1,7 @@
 const crypto = require('crypto');
 const { isPresentNumber: isNum } = require('./numericPresence');
 const { unavailableFor: availabilityFor } = require('./unavailable');
+const { round2 } = require('./scoringRules');
 
 /**
  * `free_baseline_v2` — the pure math behind the weekly start/sit projection
@@ -632,10 +633,6 @@ function mulberry32(seed) {
 // ---------------------------------------------------------------------------
 // Small numeric helpers
 // ---------------------------------------------------------------------------
-
-function round2(x) {
-  return Math.round(Number(x) * 100) / 100;
-}
 
 function clamp(value, limit) {
   return Math.max(-limit, Math.min(limit, value));

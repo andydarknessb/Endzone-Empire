@@ -364,6 +364,15 @@ function hasTeamDefenseTiers(stats) {
     && ('pointsAllowed' in stats || 'yardsAllowed' in stats);
 }
 
+/**
+ * The one two-decimal rounding every points surface reads (#2562): the formula
+ * `calculateFantasyPoints` already rounds its own answer with. Services import
+ * it from here instead of copying it.
+ */
+function round2(x) {
+  return Math.round(Number(x) * 100) / 100;
+}
+
 module.exports = {
   SCORING_RULES,
   SCORING_PRESETS,
@@ -372,4 +381,5 @@ module.exports = {
   calculateFantasyPoints,
   hasTeamDefenseTiers,
   IDP_STAT_KEYS,
+  round2,
 };

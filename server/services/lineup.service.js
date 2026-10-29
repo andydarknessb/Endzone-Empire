@@ -13,6 +13,7 @@ const { gameStateFor } = require('./gameState');
 const { nflRosterStatusColumn } = require('./nflRosterStatus');
 const { getVegasOddsProvider, impliedTeamPoints } = require('./vegasOdds.provider');
 const { isIndoorGame, isWeatherFresh } = require('./nwsWeather.service');
+const { round2 } = require('./scoringRules');
 
 class LineupError extends Error {
   constructor(statusCode, message, code = null) {
@@ -1182,8 +1183,6 @@ async function loadLeagueAndTeam(client, { leagueId, userId, forUpdate = false, 
   const team = await requireMember(client, { leagueId, userId, forUpdate });
   return { league, team };
 }
-
-const round2 = (x) => Math.round(x * 100) / 100;
 
 /**
  * The Edge line's `factor` kind (CONTEXT.md, Edge line; #1235): the

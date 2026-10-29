@@ -1,7 +1,7 @@
 const pool = require('../modules/pool');
 const { impliedTeamPoints } = require('./vegasOdds.provider');
 const { isIndoorGame, isWeatherFresh } = require('./nwsWeather.service');
-const { calculateFantasyPoints } = require('./scoringRules');
+const { calculateFantasyPoints, round2 } = require('./scoringRules');
 const { normalizeNflTeam } = require('./nflTeam');
 const { isPresentNumber: isNum } = require('./numericPresence');
 const { positionGroup } = require('./projectionModel');
@@ -33,10 +33,6 @@ const projectionFeatures = require('./projectionFeatures');
  * under `rulesForLeague(league)` (#739, ADR 0024), never the stored
  * default-rules `fantasy_points` column.
  */
-
-function round2(x) {
-  return Math.round(Number(x) * 100) / 100;
-}
 
 function round4(x) {
   return Math.round(Number(x) * 10000) / 10000;
