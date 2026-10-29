@@ -452,10 +452,6 @@ router.post('/league/:id/undo', async (req, res) => {
       if (undoError) throw new DraftError(409, undoError);
       const targetRows = picksResult.rows.filter((p) => targets.includes(p.pick_number));
       for (const row of targetRows) {
-        await client.query(
-          `DELETE FROM "draft_picks" WHERE "league_id" = $1 AND "pick_number" = $2`,
-          [leagueId, row.pick_number]
-        );
         // The roster row goes through the one Roster move writer (#2535), once
         // per undone pick. It also takes the lineup rows back (#197): the pick
         // benched him when it was made, so undoing it removes that row too.
@@ -480,6 +476,10 @@ router.post('/league/:id/undo', async (req, res) => {
           undoable: false,
           bypass: [ROSTER_GATE.FREEZE, ROSTER_GATE.TEAM_LOCK],
         });
+        await client.query(
+          `DELETE FROM "draft_picks" WHERE "league_id" = $1 AND "pick_number" = $2`,
+          [leagueId, row.pick_number]
+        );
       }
       // The earliest undone pick's own slot was itself open (a live pick, never
       // a keeper) before it was made, so rewinding current_pick straight to it

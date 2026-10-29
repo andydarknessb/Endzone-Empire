@@ -220,9 +220,15 @@ async function dropPlayer({ leagueId, userId, playerId }) {
     // League-then-Team order, so the drop is no less serialized than it was.
     const team = await requireMember(client, { leagueId, userId });
 
+    // Read under the lock, not before it: `current_week` is what the hold
+    // records and what `removeLineupEntries` prunes against, and a week advance
+    // committing between an unlocked read and the gate's lock would leave the
+    // drop running against last week - deleting the as-played row and recording
+    // a stash for a week that has passed. This takes the League lock first, the
+    // order #962 holds; the gate inside `drop` re-takes it and then the Team.
     const leagueResult = await client.query(
       `SELECT "id", "waiver_period_hours", "current_season", "current_week"
-         FROM "leagues" WHERE "id" = $1`,
+         FROM "leagues" WHERE "id" = $1 FOR UPDATE`,
       [leagueId]
     );
     const league = leagueResult.rows[0];

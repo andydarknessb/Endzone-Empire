@@ -22,14 +22,17 @@
  * Reads are not scanned at all: only the two write forms below.
  *
  * WHAT COUNTS AS A HIT, and its blind spot: the SQL text
- * `INSERT INTO "team_players"` or `DELETE FROM "team_players"`, found by a
- * string scan of the source. A write built by concatenating the table name from
- * a variable would not be seen; no such site exists, and the alternative (an
- * AST pass matching string literals) sees exactly the same set, because the
- * statement is always written as a literal or a template with no interpolation
- * in its head. The issue prescribes the same sweep as its acceptance check
- * (`git grep` for these two strings), so the guard and the check agree by
- * construction.
+ * `INSERT INTO "team_players"`, `DELETE FROM "team_players"` or
+ * `UPDATE "team_players"`, found by a string scan of the source. The UPDATE form
+ * is scanned even though no site uses it: `UPDATE ... SET "team_id"` is a roster
+ * move too (trade.service.js names it as the wrong way to move a player, #197),
+ * so leaving it out would be a hole a future site walks through. A write built
+ * by concatenating the table name from a variable would not be seen; no such
+ * site exists, and the alternative (an AST pass matching string literals) sees
+ * exactly the same set, because the statement is always written as a literal or
+ * a template with no interpolation in its head. The issue prescribes the first
+ * two forms as its acceptance check (`git grep`), so the guard and the check
+ * agree on those by construction; the UPDATE form is the guard's own addition.
  *
  * A NOTE ON COUNTING (ADR 0010's file-content collision): this script names the
  * two forbidden strings in the comments above. The scan reads `server/` only,
@@ -56,7 +59,7 @@ const EXCLUDED_PREFIXES = Object.freeze(['server/test/', 'server/db/']);
 // The module that owns the write. It may write both ways; that is its job.
 const OWNER_FILE = 'server/services/rosterMove.service.js';
 
-const WRITE_PATTERN = /(INSERT INTO "team_players"|DELETE FROM "team_players")/g;
+const WRITE_PATTERN = /((?:INSERT INTO|DELETE FROM|UPDATE) "team_players")/g;
 
 /**
  * The four bulk writes that stay outside the module, and why each is bulk.

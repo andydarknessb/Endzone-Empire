@@ -56,6 +56,18 @@ test('an INSERT in an unlisted file is reported', () => {
   assert.match(unlisted[0], /INSERT INTO "team_players"/);
 });
 
+test('an UPDATE that moves a player is reported too', () => {
+  // `UPDATE ... SET "team_id"` is a roster move the codebase refuses on purpose
+  // (#197: it keeps the giving team's created_at), so a site that reached for it
+  // must not slip past the guard.
+  const { unlisted } = analyze([{
+    file: 'server/services/trade.service.js',
+    source: 'client.query(`UPDATE "team_players" SET "team_id" = $1 WHERE "player_id" = $2`)',
+  }]);
+  assert.equal(unlisted.length, 1);
+  assert.match(unlisted[0], /UPDATE "team_players"/);
+});
+
 test('the module itself is exempt', () => {
   const { unlisted } = analyze([{
     file: OWNER_FILE,
