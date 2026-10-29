@@ -1,5 +1,5 @@
 import React, {
-  useState, useEffect, useRef, useCallback,
+  useState, useEffect, useRef, useCallback, useMemo,
 } from 'react';
 import {
   useLocation, useNavigate, useParams, useSearchParams,
@@ -583,6 +583,27 @@ function DraftBoard() {
     );
   }, [loading, location.pathname, location.search, navigate]);
 
+  // The Draft order, windowed once at the current pick (issue #793): who picks
+  // next, which of those picks are the viewer's own, and the viewer's turn
+  // facts. One ordering and one settled-guard for the whole room, so My Roster
+  // and the Upcoming strip cannot read the order differently.
+  //
+  // Derived once per change rather than once per render (#2638), which puts
+  // these hooks above the loading early-return below - they still run, in the
+  // same order, on every render.
+  const draftWindow = useMemo(
+    () => draftOrderWindowFor({ league, teams, picks, viewerTeamId }),
+    [league, teams, picks, viewerTeamId]
+  );
+  // My Roster's panel, with myPicks derived here off draftWindow's viewer turn
+  // facts.
+  const rosterView = useMemo(
+    () => rosterViewFor({ league, teams, picks, viewerTeamId, viewerTurn: draftWindow.viewerTurn }),
+    [league, teams, picks, viewerTeamId, draftWindow]
+  );
+  // The drafted-player set the pool and Quick View read to mark a player taken.
+  const draftedIds = useMemo(() => new Set(picks.map((p) => p.player_id)), [picks]);
+
   // The app shell's <main> (App.jsx AppLayout) is the page's one main
   // landmark, so this container is a plain element that keeps the skip-link id.
   if (loading) {
@@ -622,14 +643,6 @@ function DraftBoard() {
     );
   }
 
-  // The Draft order, windowed once at the current pick (issue #793): who picks
-  // next, which of those picks are the viewer's own, and the viewer's turn
-  // facts. One ordering and one settled-guard for the whole room, so My Roster
-  // and the Upcoming strip cannot read the order differently.
-  const draftWindow = draftOrderWindowFor({ league, teams, picks, viewerTeamId });
-  const rosterView = rosterViewFor({
-    league, teams, picks, viewerTeamId, viewerTurn: draftWindow.viewerTurn,
-  });
   // Draft rounds (ADR 0005): derived while pending, the frozen snapshot once
   // the draft is active or complete. One call, shared by everything below
   // that needs to know how long this draft is.
@@ -645,7 +658,6 @@ function DraftBoard() {
   const quickViewPick = quickViewId != null ? picks.find((p) => p.player_id === quickViewId) : null;
   const quickViewDraftedBy = quickViewPick ? teamNameLabel(quickViewPick.teamName) : null;
 
-  const draftedIds = new Set(picks.map((p) => p.player_id));
   // The room reads the available list itself only to feed the pool table and
   // the Quick View's navigation set; it never touches the filter/sort/search/
   // paging state, which rides through the pool's `controls` object untouched

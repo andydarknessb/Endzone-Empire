@@ -170,3 +170,13 @@ test('shows the error state with retry, keeps the guides and key terms, and reco
   expect(await screen.findByText('Braelon Allen')).toBeInTheDocument();
   expect(screen.getByRole('heading', { name: 'Week 4 Waiver Targets' })).toBeInTheDocument();
 });
+
+test('lazy-loads target headshots (#2638)', async () => {
+  publicApiClient.get.mockResolvedValue({
+    data: { ...PAYLOAD, targets: [{ ...TARGET, photoUrl: 'https://example.com/allen.png' }] },
+  });
+  renderPage();
+
+  expect(await screen.findByText('Braelon Allen')).toBeInTheDocument();
+  expect(screen.getByRole('presentation', { hidden: true })).toHaveAttribute('loading', 'lazy');
+});

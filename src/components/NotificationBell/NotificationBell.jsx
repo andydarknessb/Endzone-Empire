@@ -13,6 +13,7 @@ import {
 import NotificationsActiveIcon from '@mui/icons-material/NotificationsActive';
 import { MIN_TOUCH_TARGET_SX } from '../../shared/lib/a11y';
 import { markAllNotificationsRead, useNotifications } from '../../hooks/useNotifications';
+import { useLiveRefresh } from '../UserPage/useLiveRefresh';
 
 const POLL_INTERVAL_MS = 60000;
 
@@ -28,10 +29,8 @@ function NotificationBell() {
     if (error) console.error(error);
   }, [error]);
 
-  useEffect(() => {
-    const interval = setInterval(refetch, POLL_INTERVAL_MS);
-    return () => clearInterval(interval);
-  }, [refetch]);
+  // A hidden tab skips its polls and catches up on the way back, like Home.
+  useLiveRefresh({ active: true, intervalMs: POLL_INTERVAL_MS, onTick: refetch });
 
   const markAllRead = async () => {
     try {
