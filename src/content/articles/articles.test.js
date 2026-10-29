@@ -103,9 +103,13 @@ describe('kit guard', () => {
 
   it('finds no local declaration in any article file', () => {
     const dir = __dirname;
-    const sources = fs.readdirSync(dir)
-      .filter((file) => file.endsWith('.jsx'))
-      .map((file) => ({ file, violations: findLocalKitDeclarations(file, fs.readFileSync(path.join(dir, file), 'utf8')) }));
+    const files = fs.readdirSync(dir).filter((file) => file.endsWith('.jsx'));
+    const sources = files.map((file) => {
+      // readdirSync returns bare names, so this join cannot leave the directory.
+      // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal -- readdirSync names cannot contain a path separator
+      const source = fs.readFileSync(path.join(dir, file), 'utf8');
+      return { file, violations: findLocalKitDeclarations(file, source) };
+    });
     expect(sources).not.toHaveLength(0);
     expect(sources.filter((s) => s.violations.length > 0)).toEqual([]);
   });
