@@ -16,6 +16,8 @@ const { isOnWaivers } = require('./waiverStatus');
 const {
   assertRosterWriteAllowed, isLeagueFrozen, ROSTER_GATE, positionCapGroup, parsePositionCaps, countAtPositionGroup,
 } = require('./rosterGate.service');
+// The one writer of a single-player Roster move (#2535).
+const rosterMove = require('./rosterMove.service');
 
 class WaiverError extends Error {
   constructor(statusCode, message, code) {
@@ -132,39 +134,29 @@ async function placeOnWaivers(client, { playerId, ...hold }) {
 }
 
 /**
- * `placeOnWaivers` plus everything an undo will need: what the dropped
- * player's current-week lineup row held, recorded on the hold before the row
- * is deleted, and the team that may replay it.
+ * `placeOnWaivers` for an undoable drop: names the team that may undo it, and
+ * records what the drop interrupted on the hold.
  *
- * Named for what it does, which is not the whole drop. The caller still owns
- * the roster row: delete it first, then call this inside the same
- * transaction. Both callers do exactly that.
- *
- * The order is the point, and it is why this is one function rather than
- * three calls repeated at each site: `currentWeekEntry` has to run before
- * `removeLineupEntries` takes the row away, and both have to run before the
- * hold is written, or the hold records nothing and the undo silently
- * benches him (#197).
+ * The interrupted stash is not read here. It comes from the roster move module
+ * (#2535), which reads his current-week row BEFORE it removes the entries and
+ * hands the record back as `stash` - the one place that ordering has to be
+ * right, so it is written once there rather than repeated at each drop site.
  *
  * **Two callers, and a third that must not become one.** `draft.service`'s
  * manager drop and `commissioner.service`'s forced drop are both undoable
  * and both belong here. The waiver-claim drop in `processWaivers` below is
  * not: a claim's drop leaves no undo to offer, so it records no interrupted
  * stash and names no dropping team, and it calls `placeOnWaivers` directly.
- * That is a deliberate difference, not an oversight - hence the name. If a
- * fourth drop path appears, the question to answer before reaching for this
- * helper is whether it is undoable; if it is not, it does not want the
- * record and passing it would offer an undo that cannot work.
+ * That is a deliberate difference, not an oversight - hence the name.
  */
-async function placeOnWaiversUndoable(client, { league, teamId, playerId }) {
-  const interrupted = await lineupService.currentWeekEntry(client, { league, teamId, playerId });
-  await lineupService.removeLineupEntries(client, { league, teamId, playerId });
+async function placeOnWaiversUndoable(client, { league, teamId, playerId, stash }) {
   await placeOnWaivers(client, {
     leagueId: league.id,
     playerId,
     waiverPeriodHours: league.waiver_period_hours,
     droppedByTeamId: teamId,
-    ...lineupService.interruptedStashFields(interrupted),
+    interruptedSlot: stash ? stash.slot : null,
+    interruptedIrAttested: stash ? stash.irAttested : false,
   });
 }
 
@@ -708,43 +700,29 @@ async function processWaivers({ leagueId }) {
         }
       }
 
-      // The write-time roster gate (#944), once per claim immediately before
-      // this claim's write: a claim submitted before a freeze must not land
-      // during it (#940 story 4). The gate reads the freeze off the League row
-      // it re-locks FOR UPDATE (the League is already held from the top of
-      // processWaivers, League-first order); a frozen League throws, the
-      // transaction rolls back, and every due claim stays pending for the next
-      // tick rather than being awarded or permanently invalidated. The team
-      // lock and the acquire bundle are bypassed: this batch path enforces its
-      // net capacity and net position cap through claimFailureReason above and
-      // does not enforce the on-waivers gate (a waiver award IS a waiver), and
-      // per-team-lock handling on the batch path is a later ticket - so this
+      // The write-time roster gate (#944) now runs inside `add` below, once per
+      // claim immediately before this claim's write: a claim submitted before a
+      // freeze must not land during it (#940 story 4). A frozen League throws,
+      // the transaction rolls back, and every due claim stays pending for the
+      // next tick rather than being awarded or permanently invalidated. The team
+      // lock and the acquire bundle are bypassed there: this batch path enforces
+      // its net capacity and net position cap through claimFailureReason above
+      // and does not enforce the on-waivers gate (a waiver award IS a waiver),
+      // and per-team-lock handling on the batch path is a later ticket - so this
       // slice changes only the freeze here (#944 criterion 5).
-      await assertRosterWriteAllowed(client, {
-        leagueId,
-        teamId: team.id,
-        direction: 'acquire',
-        playerId,
-        bypass: [ROSTER_GATE.TEAM_LOCK, ROSTER_GATE.CAPACITY, ROSTER_GATE.POSITION_CAP, ROSTER_GATE.WAIVER_HOLD],
-      });
 
-      // Execute: optional drop (dropped player goes on waivers), then add
+      // Execute: optional drop (dropped player goes on waivers), then add.
       if (claim.drop_player_id) {
-        await client.query(
-          `DELETE FROM "team_players" WHERE "team_id" = $1 AND "player_id" = $2`,
-          [team.id, claim.drop_player_id]
-        );
-        // The lineup follows the roster (#197). No interrupted-stash
-        // record here: a waiver-claim drop is not undoable, so there is
-        // nothing for an undo to replay.
-        //
-        // This is the third drop-to-waivers sequence and the one that
-        // deliberately stays open-coded: `placeOnWaiversUndoable` above
-        // exists for the two that ARE undoable, and routing this one
-        // through it would write a hold advertising an undo no route
-        // offers (#222). The omission is the behaviour, not a shortcut.
-        await lineupService.removeLineupEntries(client, {
-          league, teamId: team.id, playerId: claim.drop_player_id,
+        // Not undoable, so nothing is recorded on the hold and no dropping team
+        // is named; the module removes the lineup entries with the roster row
+        // (#197, #2535). Team lock is bypassed for the same reason the award
+        // bypasses it: the batch path's per-team-lock handling is a later ticket.
+        await rosterMove.drop(client, {
+          league,
+          teamId: team.id,
+          playerId: claim.drop_player_id,
+          undoable: false,
+          bypass: [ROSTER_GATE.TEAM_LOCK],
         });
         await placeOnWaivers(client, {
           leagueId,
@@ -752,12 +730,13 @@ async function processWaivers({ leagueId }) {
           waiverPeriodHours: league.waiver_period_hours,
         });
       }
-      await client.query(
-        `INSERT INTO "team_players" ("league_id", "team_id", "player_id") VALUES ($1, $2, $3)`,
-        [leagueId, team.id, playerId]
-      );
       // A won claim lands on the bench, never back in an old stash (#94).
-      await lineupService.benchAcquiredPlayer(client, { league, teamId: team.id, playerId });
+      await rosterMove.add(client, {
+        league,
+        teamId: team.id,
+        playerId,
+        bypass: [ROSTER_GATE.TEAM_LOCK, ROSTER_GATE.CAPACITY, ROSTER_GATE.POSITION_CAP, ROSTER_GATE.WAIVER_HOLD],
+      });
       if (league.waiver_type === 'faab' && claim.bid > 0) {
         await client.query(
           `UPDATE "teams" SET "faab_remaining" = "faab_remaining" - $1, "updated_at" = now() WHERE "id" = $2`,

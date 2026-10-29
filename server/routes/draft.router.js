@@ -24,7 +24,8 @@ const { landPick } = require('../services/pick.service');
 const pickClock = require('../services/pickClock.service');
 const { validateKeepers, undoTargets } = require('../services/draftValidation.service');
 const { draftRosterSize } = require('../services/rosterShape');
-const { removeLineupEntries } = require('../services/lineup.service');
+// The one writer of a single-player Roster move (#2535).
+const rosterMove = require('../services/rosterMove.service');
 const { isLeagueCommissioner, commissionerPredicate } = require('../services/leagueRole.service');
 const { requireMember } = require('../services/leagueMembership.service');
 // The one write-time roster gate (#940). The undo and reset handlers below both
@@ -451,9 +452,15 @@ router.post('/league/:id/undo', async (req, res) => {
       if (undoError) throw new DraftError(409, undoError);
       const targetRows = picksResult.rows.filter((p) => targets.includes(p.pick_number));
       for (const row of targetRows) {
-        // The write gate, once per undone pick, immediately before that pick's
-        // roster row goes (#965). Both release-direction gates are bypassed, and
-        // both are decisions:
+        await client.query(
+          `DELETE FROM "draft_picks" WHERE "league_id" = $1 AND "pick_number" = $2`,
+          [leagueId, row.pick_number]
+        );
+        // The roster row goes through the one Roster move writer (#2535), once
+        // per undone pick. It also takes the lineup rows back (#197): the pick
+        // benched him when it was made, so undoing it removes that row too.
+        //
+        // Both release-direction gates are bypassed, and both are decisions:
         //
         // - FREEZE. Same reading as the Pick commit: a commissioner freeze is the
         //   transaction lock and does not govern a draft-phase roster write. This
@@ -466,24 +473,13 @@ router.post('/league/:id/undo', async (req, res) => {
         // So the call refuses nothing today. It is here so this write inherits a
         // release rule the module gains later by a stated decision rather than by
         // an omission - which is the failure #940 exists to end.
-        await assertRosterWriteAllowed(client, {
-          leagueId,
+        await rosterMove.drop(client, {
+          league,
           teamId: row.team_id,
-          direction: 'release',
           playerId: row.player_id,
+          undoable: false,
           bypass: [ROSTER_GATE.FREEZE, ROSTER_GATE.TEAM_LOCK],
         });
-        await client.query(
-          `DELETE FROM "draft_picks" WHERE "league_id" = $1 AND "pick_number" = $2`,
-          [leagueId, row.pick_number]
-        );
-        await client.query(
-          `DELETE FROM "team_players" WHERE "league_id" = $1 AND "team_id" = $2 AND "player_id" = $3`,
-          [leagueId, row.team_id, row.player_id]
-        );
-        // The lineup follows the roster (#197): the pick benched him when it
-        // was made, so undoing it takes that row back too.
-        await removeLineupEntries(client, { league, teamId: row.team_id, playerId: row.player_id });
       }
       // The earliest undone pick's own slot was itself open (a live pick, never
       // a keeper) before it was made, so rewinding current_pick straight to it

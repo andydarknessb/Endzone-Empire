@@ -15,8 +15,8 @@ const {
   assertRosterWriteAllowed, isLeagueFrozen, ROSTER_GATE, positionCapGroup, parsePositionCaps, countAtPositionGroup,
 } = require('./rosterGate.service');
 const { getDraftRoomBroadcast } = require('../modules/draftRoomBroadcast');
-// Module object, not destructured: the seam tests mock benchAcquiredPlayer.
-const lineupService = require('./lineup.service');
+// The one writer of a single-player Roster move (#2535).
+const rosterMove = require('./rosterMove.service');
 const { getWeekOpponents } = require('./nflWeekOpponents');
 const { normalizeNflTeam } = require('./nflTeam');
 
@@ -558,26 +558,21 @@ async function executeTrade(client, { trade, league, items, teams, byCommissione
     // post-kickoff exclusion has to read. The delete comes first: the unique
     // constraint on (league_id, player_id) would refuse the insert otherwise.
     //
-    // The giving side's release gate: the freeze and the giving Team's lock.
-    // Capacity, the position cap and the waiver hold are acquire-only and are
-    // never evaluated on a release, so nothing is bypassed here.
-    await assertRosterWriteAllowed(client, {
-      leagueId: league.id,
-      teamId: item.from_team_id,
-      direction: 'release',
-      playerId: item.player_id,
-      bypass: [],
-    });
     // The receiving side's acquire gate, before this player's own delete and
-    // insert: the freeze, the receiving Team's lock and the waiver hold. It runs BEFORE the give-side delete because the waiver
-    // hold reads an unrostered player as on waivers while the post-draft
-    // blanket window is open (isOnWaivers), and once the delete has run every
-    // traded player looks unrostered, so every trade in that window was
-    // refused (#2274). Capacity and the position cap are bypassed - the trade
-    // enforces both NET, above - and KICKOFF_HOLD is bypassed because a
-    // trade moves an already-rostered player, never a Free agent (ADR 0043;
-    // lead ruling on issue #1376). The existing waiver-row check (WAIVER_HOLD)
-    // is untouched and still runs.
+    // insert: the freeze, the receiving Team's lock and the waiver hold. It runs
+    // BEFORE the give-side delete because the waiver hold reads an unrostered
+    // player as on waivers while the post-draft blanket window is open
+    // (isOnWaivers), and once the delete has run every traded player looks
+    // unrostered, so every trade in that window was refused (#2274). Capacity
+    // and the position cap are bypassed - the trade enforces both NET, above -
+    // and KICKOFF_HOLD is bypassed because a trade moves an already-rostered
+    // player, never a Free agent (ADR 0043; lead ruling on issue #1376). The
+    // existing waiver-row check (WAIVER_HOLD) is untouched and still runs.
+    //
+    // This is the one acquire gate the roster move module does not own (#2535):
+    // it has to run while the player is still the giving team's. The module's
+    // own acquire gate bypasses WAIVER_HOLD for that reason - the check above is
+    // the one that made it - and nothing else it asks changes between the two.
     await assertRosterWriteAllowed(client, {
       leagueId: league.id,
       teamId: item.to_team_id,
@@ -586,22 +581,22 @@ async function executeTrade(client, { trade, league, items, teams, byCommissione
       position: (tradedPlayerById.get(item.player_id) || {}).position,
       bypass: [ROSTER_GATE.CAPACITY, ROSTER_GATE.POSITION_CAP, ROSTER_GATE.KICKOFF_HOLD],
     });
-    await client.query(
-      `DELETE FROM "team_players" WHERE "team_id" = $1 AND "player_id" = $2`,
-      [item.from_team_id, item.player_id]
-    );
-    // The giving side's lineup follows its roster, and it is settled before
-    // the receiving side is touched: benchAcquiredPlayer materializes the
-    // receiving team's week, and these two must not interleave.
-    await lineupService.removeLineupEntries(client, {
-      league, teamId: item.from_team_id, playerId: item.player_id,
+    // The giving side's release and lineup step, then the receiving side's
+    // roster row and bench (#2535). Not undoable, so no stash is recorded.
+    // Nothing is bypassed on the release: capacity, the position cap and the
+    // waiver hold are acquire-only.
+    await rosterMove.drop(client, {
+      league, teamId: item.from_team_id, playerId: item.player_id, undoable: false,
     });
-    await client.query(
-      `INSERT INTO "team_players" ("league_id", "team_id", "player_id") VALUES ($1, $2, $3)`,
-      [league.id, item.to_team_id, item.player_id]
-    );
-    // Acquired by trade: bench, never directly into IR (#94, user story 13).
-    await lineupService.benchAcquiredPlayer(client, { league, teamId: item.to_team_id, playerId: item.player_id });
+    await rosterMove.add(client, {
+      league,
+      teamId: item.to_team_id,
+      playerId: item.player_id,
+      position: (tradedPlayerById.get(item.player_id) || {}).position,
+      bypass: [
+        ROSTER_GATE.CAPACITY, ROSTER_GATE.POSITION_CAP, ROSTER_GATE.KICKOFF_HOLD, ROSTER_GATE.WAIVER_HOLD,
+      ],
+    });
   }
   await client.query(
     `UPDATE "trades" SET "status" = 'executed', "updated_at" = now() WHERE "id" = $1`,

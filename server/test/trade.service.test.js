@@ -360,11 +360,12 @@ test('executeTrade: the gate runs per item, immediately around each write', asyn
   await executeTrade(client, { trade, league, items: swap, teams });
   client.release();
 
-  // Two items, each gated twice (release before its delete, acquire before its
-  // insert): four gate League reads, not one. A hoisted batch-level call would
-  // read the League once.
+  // Two items, each gated three times: the receiving side's acquire gate before
+  // its delete (#2274), then the roster move module's own release gate beside the
+  // delete and acquire gate beside the insert (#2535). Six gate League reads, not
+  // one. A hoisted batch-level call would read the League once.
   const gateReads = fake.calls.filter((c) => /^SELECT "id", "transactions_locked".*FOR UPDATE/.test(c.text));
-  assert.equal(gateReads.length, 4, 'four gate calls: one per direction per item');
+  assert.equal(gateReads.length, 6, 'three gate calls per item: acquire, release, acquire');
 
   // Each gate League read is immediately followed by its Team lock, League then
   // Team, so this path introduces no lock-order inversion.
@@ -373,15 +374,16 @@ test('executeTrade: the gate runs per item, immediately around each write', asyn
     assert.match(fake.calls[at + 1].text, /^SELECT "id", "locked" FROM "teams"/);
   }
 
-  // Per item the order is release gate, acquire gate, DELETE, INSERT: the
-  // acquire gate runs before the give-side delete (#2274), so a rostered
-  // player is never judged as an unrostered one.
+  // Per item the order is receiving gate, release gate, DELETE, acquire gate,
+  // INSERT: the receiving gate runs before the give-side delete (#2274), so a
+  // rostered player is never judged as an unrostered one, and each module gate
+  // sits immediately beside the write it guards.
   const steps = fake.calls
     .map((c) => (/^SELECT "id", "transactions_locked"/.test(c.text) ? 'gate'
       : /^DELETE FROM "team_players"/.test(c.text) ? 'delete'
         : /^INSERT INTO "team_players"/.test(c.text) ? 'insert' : null))
     .filter(Boolean);
-  assert.deepEqual(steps, ['gate', 'gate', 'delete', 'insert', 'gate', 'gate', 'delete', 'insert']);
+  assert.deepEqual(steps, ['gate', 'gate', 'delete', 'gate', 'insert', 'gate', 'gate', 'delete', 'gate', 'insert']);
   fake.assertClean();
 });
 

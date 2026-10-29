@@ -532,18 +532,6 @@ async function currentWeekEntry(client, { league, teamId, playerId }) {
 }
 
 /**
- * A `currentWeekEntry` result as the waiver hold's interrupted-stash fields
- * (#197). One mapping, shared by the two drops that are undoable, so "he had
- * no current-week entry" is spelled the same way at both.
- */
-function interruptedStashFields(entry) {
-  return {
-    interruptedSlot: entry ? entry.slot : null,
-    interruptedIrAttested: Boolean(entry && entry.ir_attested),
-  };
-}
-
-/**
  * Undoing a drop puts the player back in the slot the drop interrupted,
  * recorded on his waiver hold at drop time (#197). The row itself is gone -
  * the drop deleted it - so the undo recreates it rather than finding it.
@@ -1913,7 +1901,6 @@ module.exports = {
   removeLineupEntries,
   spentStartingSlots,
   currentWeekEntry,
-  interruptedStashFields,
   restoreInterruptedStash,
   lockedPlayerIds,
   kickedOffTeams,
