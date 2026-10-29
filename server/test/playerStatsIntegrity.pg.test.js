@@ -2,7 +2,10 @@
  * Disposable-Postgres test for the player_stats integrity guard: a row
  * written from OUTSIDE the write funnel with points its stats do not support
  * (the 2026-09-15 audit's fixture shape) is recorded by the scan, and the
- * anomaly resolves once the row is rewritten through the funnel.
+ * anomaly resolves once the row is rewritten through the funnel. A third case
+ * covers `unlabelled-appearance` (#2629) against a real `data_sync_runs`
+ * frontier: a row on a week the correction pass settled, flagged then resolved
+ * once the row carries a `gameTeam`.
  *
  * Runs only in the CI migration-smoke job (PG_TESTS=1, PG* connection vars,
  * every DATABASE_URL* absent), through server/modules/pool.js like
@@ -34,6 +37,7 @@ if (!ENABLED) {
 
   const SEASON = 2098;
   const FIXTURE = { receptions: 4, receivingYards: 40, receivingTDs: 1 };
+  const UNLABELLED = { soloTackle: 1 };
   let playerId;
 
   test.before(async () => {
@@ -44,6 +48,10 @@ if (!ENABLED) {
   });
 
   test.after(async () => {
+    await pool.query(
+      `DELETE FROM "data_sync_runs" WHERE "job" = 'nflverse-correction' AND "detail"->>'season' = $1`,
+      [String(SEASON)]
+    );
     await pool.query(`DELETE FROM "player_stats_anomalies" WHERE "season" = $1`, [SEASON]);
     await pool.query(`DELETE FROM "player_stats" WHERE "season" = $1`, [SEASON]);
     await pool.query(`DELETE FROM "players" WHERE "id" = $1`, [playerId]);
@@ -99,5 +107,40 @@ if (!ENABLED) {
     const after = await integrity.scanPlayerStats({ seasons: [SEASON] });
     assert.equal(after.open, 0);
     assert.equal(after.resolved, 1, 'the incident fix (deleting the fabricated row) clears its anomaly');
+  });
+
+  test('an unlabelled non-zero row on a week the correction pass settled is flagged, then resolved once labelled', async () => {
+    await pool.query(
+      `INSERT INTO "data_sync_runs" ("job", "started_at", "ok", "detail")
+       VALUES ('nflverse-correction', now(), true, $1::jsonb)`,
+      [JSON.stringify({ season: SEASON, week: 3, gamesInFile: 16, games: [] })]
+    );
+    await pool.query(
+      `INSERT INTO "player_stats" ("player_id", "season", "week", "stats", "fantasy_points") VALUES ($1, $2, 3, $3, 0)`,
+      [playerId, SEASON, JSON.stringify(UNLABELLED)]
+    );
+
+    await integrity.scanPlayerStats({ seasons: [SEASON] });
+    const flagged = await pool.query(
+      `SELECT "kind", "resolved_at" FROM "player_stats_anomalies"
+        WHERE "player_id" = $1 AND "season" = $2 AND "week" = 3 AND "kind" = 'unlabelled-appearance'`,
+      [playerId, SEASON]
+    );
+    assert.equal(flagged.rows.length, 1);
+    assert.equal(flagged.rows[0].resolved_at, null);
+
+    await pool.query(
+      `UPDATE "player_stats" SET "stats" = $3 WHERE "player_id" = $1 AND "season" = $2 AND "week" = 3`,
+      [playerId, SEASON, JSON.stringify({ ...UNLABELLED, gameTeam: 'IND' })]
+    );
+    const second = await integrity.scanPlayerStats({ seasons: [SEASON] });
+    assert.ok(second.resolved >= 1);
+
+    const resolved = await pool.query(
+      `SELECT "resolved_at" FROM "player_stats_anomalies"
+        WHERE "player_id" = $1 AND "season" = $2 AND "week" = 3 AND "kind" = 'unlabelled-appearance'`,
+      [playerId, SEASON]
+    );
+    assert.ok(resolved.rows[0].resolved_at, 'the anomaly resolves in place once the row is labelled');
   });
 }

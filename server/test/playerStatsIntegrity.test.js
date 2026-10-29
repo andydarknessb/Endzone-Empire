@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const pool = require('../modules/pool');
 const integrity = require('../services/playerStatsIntegrity.service');
+const { calculateFantasyPoints } = require('../services/scoringRules');
 const { createFakePool } = require('./helpers/fakePool');
 
 // 4 rec / 40 yds / 1 TD = 12.0 under default rules. Stored with 0.00, this is the
@@ -12,12 +13,17 @@ const ALL_ZERO = { receptions: 0, rushingYards: 0, receivingYards: 0 };
 const row = (id, playerId, season, week, stats, fantasyPoints) => ({
   id, player_id: playerId, season, week, stats, fantasy_points: String(fantasyPoints),
 });
+/** A row whose stored score is right, so the only anomaly it can raise is the one under test. */
+const scored = (id, playerId, season, week, stats) => row(id, playerId, season, week, stats, calculateFantasyPoints(stats));
 
 /**
  * Dispatch pool.query by SQL fragment: the scan's page reads, the anomaly
- * upsert, the open-anomaly read and resolve, and lastRun's data_sync_runs read.
+ * upsert, the open-anomaly read and resolve, the settled-week frontier and
+ * lastRun's data_sync_runs read.
  */
-function mockPool(t, { rows = [], openAnomalies = [], openCount = 0, lastOkRun = null } = {}) {
+function mockPool(t, {
+  rows = [], openAnomalies = [], openCount = 0, unlabelledCount = 0, lastOkRun = null, correction = null,
+} = {}) {
   const writes = { anomalies: [], resolved: [], pages: [] };
   t.mock.method(pool, 'query', async (sql, params) => {
     const text = String(sql);
@@ -35,7 +41,7 @@ function mockPool(t, { rows = [], openAnomalies = [], openCount = 0, lastOkRun =
       return { rows: [] };
     }
     if (text.includes('count(*)') && text.includes('FROM "player_stats_anomalies"')) {
-      return { rows: [{ open: openCount }] };
+      return { rows: [{ open: openCount, unlabelled: unlabelledCount }] };
     }
     if (text.includes('FROM "player_stats_anomalies"') && text.includes('"resolved_at" IS NULL')) {
       const [seasons] = params;
@@ -45,6 +51,11 @@ function mockPool(t, { rows = [], openAnomalies = [], openCount = 0, lastOkRun =
       writes.resolved.push(params[0]);
       return { rows: [] };
     }
+    // The settled-week frontier: the latest ok nflverse-correction run whose
+    // detail names a season and week with games in the file.
+    if (text.includes('FROM "data_sync_runs"') && text.includes('gamesInFile')) {
+      return { rows: correction ? [{ detail: correction }] : [] };
+    }
     if (text.includes('FROM "data_sync_runs"')) {
       return { rows: [{ latest: lastOkRun, latestOk: lastOkRun }] };
     }
@@ -52,6 +63,9 @@ function mockPool(t, { rows = [], openAnomalies = [], openCount = 0, lastOkRun =
   });
   return writes;
 }
+
+/** The kinds recorded by the scan, in write order. */
+const kindsOf = (writes) => writes.anomalies.map(([, , , kind]) => kind);
 
 test('a stored score that disagrees with its stats is recorded as a points-mismatch anomaly', async (t) => {
   const writes = mockPool(t, {
@@ -119,12 +133,93 @@ test('a sub-cent rounding difference is not an anomaly', async (t) => {
   assert.equal(writes.anomalies.length, 0);
 });
 
+// ---------------------------------------------------------------------------
+// unlabelled-appearance (#2629): a row on a settled week with no stats.gameTeam
+// that is an Appearance by madeAppearance. Report-only: it never reaches `ok`.
+// ---------------------------------------------------------------------------
+
+// The latest (season, week) an ok nflverse-correction run names, games in file.
+const SETTLED = { season: 2026, week: 7, gamesInFile: 2, games: ['2026_07_KC_BUF'] };
+const UNLABELLED = { soloTackle: 1 };
+
+test('(a) an unlabelled non-zero row on a settled week is recorded as unlabelled-appearance', async (t) => {
+  const writes = mockPool(t, { rows: [scored(900, 70, 2026, 7, UNLABELLED)], correction: SETTLED });
+
+  await integrity.scanPlayerStats({ seasons: [2026] });
+
+  assert.deepEqual(kindsOf(writes), ['unlabelled-appearance']);
+  const [playerId, season, week, kind, detail] = writes.anomalies[0];
+  assert.deepEqual([playerId, season, week, kind], [70, 2026, 7, 'unlabelled-appearance']);
+  assert.deepEqual(JSON.parse(detail), { playerStatsId: 900 });
+});
+
+test('(b) the same row carrying a gameTeam is not an unlabelled-appearance', async (t) => {
+  const writes = mockPool(t, {
+    rows: [scored(900, 70, 2026, 7, { gameTeam: 'KC', soloTackle: 1 })],
+    correction: SETTLED,
+  });
+
+  await integrity.scanPlayerStats({ seasons: [2026] });
+
+  assert.deepEqual(kindsOf(writes), []);
+});
+
+test('(c) an all-zero unlabelled row is a rostered player who never took the field, not an anomaly', async (t) => {
+  const writes = mockPool(t, { rows: [row(900, 70, 2026, 7, ALL_ZERO, 0)], correction: SETTLED });
+
+  await integrity.scanPlayerStats({ seasons: [2026] });
+
+  assert.deepEqual(kindsOf(writes), []);
+});
+
+test('(d) a week after the frontier is not settled; every week of an earlier season is', async (t) => {
+  const writes = mockPool(t, {
+    rows: [scored(900, 70, 2026, 8, UNLABELLED), scored(901, 71, 2025, 9, UNLABELLED)],
+    correction: SETTLED,
+  });
+
+  await integrity.scanPlayerStats({ seasons: [2025, 2026] });
+
+  assert.deepEqual(writes.anomalies.map(([playerId]) => playerId), [71], 'only the 2025 row is flagged');
+});
+
+test('(e) with no nflverse-correction run at all nothing is settled, so nothing is flagged', async (t) => {
+  const writes = mockPool(t, { rows: [scored(900, 70, 2026, 7, UNLABELLED)] });
+
+  await integrity.scanPlayerStats({ seasons: [2026] });
+
+  assert.deepEqual(kindsOf(writes), []);
+});
+
+test('(f) an open unlabelled-appearance anomaly resolves once the row carries a gameTeam', async (t) => {
+  const writes = mockPool(t, {
+    rows: [scored(900, 70, 2026, 7, { gameTeam: 'KC', soloTackle: 1 })],
+    openAnomalies: [{ id: 9, player_id: 70, season: 2026, week: 7, kind: 'unlabelled-appearance' }],
+    correction: SETTLED,
+  });
+
+  const result = await integrity.scanPlayerStats({ seasons: [2026] });
+
+  assert.deepEqual(writes.resolved, [[9]]);
+  assert.equal(result.resolved, 1);
+});
+
+test('getIntegrityStatus counts unlabelled-appearance apart from the anomalies that page', async (t) => {
+  const now = new Date('2026-09-17T12:00:00Z');
+  const fresh = { id: 1, finished_at: '2026-09-17T09:05:00Z', ok: true, detail: {} };
+  mockPool(t, { openCount: 0, unlabelledCount: 1, lastOkRun: fresh });
+
+  assert.deepEqual(await integrity.getIntegrityStatus({ now }), {
+    ok: true, open: 0, unlabelled: 1, lastScanAt: new Date(fresh.finished_at), stale: false,
+  });
+});
+
 test('getIntegrityStatus is ok only with nothing open and a fresh successful scan', async (t) => {
   const now = new Date('2026-09-17T12:00:00Z');
   const fresh = { id: 1, finished_at: '2026-09-17T09:05:00Z', ok: true, detail: { scanned: 220000, open: 0 } };
   mockPool(t, { openCount: 0, lastOkRun: fresh });
   assert.deepEqual(await integrity.getIntegrityStatus({ now }), {
-    ok: true, open: 0, lastScanAt: new Date(fresh.finished_at), stale: false,
+    ok: true, open: 0, unlabelled: 0, lastScanAt: new Date(fresh.finished_at), stale: false,
   });
 });
 
@@ -137,7 +232,7 @@ test('getIntegrityStatus is not ok when the last successful scan is older than 3
 
   mockPool(t, { openCount: 0, lastOkRun: null });
   const never = await integrity.getIntegrityStatus({ now });
-  assert.deepEqual(never, { ok: false, open: 0, lastScanAt: null, stale: true });
+  assert.deepEqual(never, { ok: false, open: 0, unlabelled: 0, lastScanAt: null, stale: true });
 });
 
 test('getIntegrityStatus is not ok while any anomaly is open, however fresh the scan', async (t) => {
