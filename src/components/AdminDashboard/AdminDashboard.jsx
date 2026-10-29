@@ -80,7 +80,7 @@ function StatTile({ label, value, caption, tone, testId }) {
         <Typography variant="body2" sx={{ opacity: 0.8 }}>
           {label}
         </Typography>
-        <Typography variant="h4">{value}</Typography>
+        <Typography variant="h4" component="p">{value}</Typography>
         {caption && (
           <Typography variant="caption" sx={{ display: 'block', opacity: 0.85 }}>
             {caption}
@@ -205,7 +205,7 @@ function AdminDashboard() {
 
   return (
     <Container maxWidth="lg" sx={{ py: 4 }}>
-      <Typography variant="h4" sx={{ mb: 3 }}>
+      <Typography variant="h4" component="h1" sx={{ mb: 3 }}>
         Admin Dashboard
       </Typography>
 
@@ -235,7 +235,7 @@ function AdminDashboard() {
       </Grid>
 
       <Paper sx={{ p: 2, mb: 3 }} data-testid="leagues-panel">
-        <Typography id="admin-leagues-table-heading" variant="h6" sx={{ mb: 2 }}>
+        <Typography id="admin-leagues-table-heading" variant="h6" component="h2" sx={{ mb: 2 }}>
           Leagues
         </Typography>
         {leagues.length === 0 ? (
@@ -267,7 +267,7 @@ function AdminDashboard() {
       </Paper>
 
       <Paper sx={{ p: 2, mb: 3 }} data-testid="sync-health-card">
-        <Typography variant="h6" sx={{ mb: 2 }}>
+        <Typography variant="h6" component="h2" sx={{ mb: 2 }}>
           Sync Health
         </Typography>
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
@@ -339,7 +339,7 @@ function AdminDashboard() {
       </Paper>
 
       <Paper sx={{ p: 2, mb: 3 }} data-testid="recent-signups-panel">
-        <Typography id="admin-recent-signups-table-heading" variant="h6" sx={{ mb: 2 }}>
+        <Typography id="admin-recent-signups-table-heading" variant="h6" component="h2" sx={{ mb: 2 }}>
           Recent Signups
         </Typography>
         {recentSignups.length === 0 ? (
@@ -367,7 +367,7 @@ function AdminDashboard() {
       </Paper>
 
       <Paper sx={{ p: 2 }} data-testid="manual-sync-card">
-        <Typography variant="h6" sx={{ mb: 2 }}>
+        <Typography variant="h6" component="h2" sx={{ mb: 2 }}>
           Manual Sync
         </Typography>
 
@@ -432,7 +432,7 @@ function AdminDashboard() {
       </Paper>
 
       <Paper sx={{ p: 2, mt: 3 }} data-testid="data-enrichment-card">
-        <Typography variant="h6" sx={{ mb: 1 }}>
+        <Typography variant="h6" component="h2" sx={{ mb: 1 }}>
           Data Enrichment
         </Typography>
         <Typography variant="body2" sx={{ color: 'text.secondary', mb: 2 }}>

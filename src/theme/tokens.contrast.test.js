@@ -41,7 +41,7 @@ const HOVER_DELTA = 1.3;
 // heading and label text rather than body copy over `overlay`. Nothing
 // enforces that today because nothing renders `on-overlay` on `overlay` at
 // all - `--overlay` has no textual reference in the app. The closest thing,
-// UserPage.css, pairs `on-overlay` with `scrim`, not `overlay`, and that file
+// the retired UserPage stylesheet, pairs `on-overlay` with `scrim`, not `overlay`, and that file
 // is dead besides (imported by no component - UserPage.jsx loads no
 // stylesheet). Reviving it would not turn this suite's premise into a live
 // failure: `.user-page:before` and `.container` both paint `--scrim`, so
@@ -227,7 +227,7 @@ const PAIRINGS = [
   //   - LandingPage.css's own `accent-soft` consumer, the `landing-cta-pulse`
   //     keyframe, scales and fades an `::after` ring behind a button (transform and
   //     opacity only); no text sits on it.
-  //   - UserPage's banner (UserPage.css `.user-page:before`/`.container`,
+  //   - UserPage's banner (the retired UserPage stylesheet `.user-page:before`/`.container`,
   //     `--scrim` over the background photo) is exactly the `on-overlay` /
   //     `scrim` row below, already measured comfortably clear (#238) - and the
   //     file is unused today (see the #238 comment above BRIGHTEST_BACKDROP).

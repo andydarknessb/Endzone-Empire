@@ -69,4 +69,13 @@ describe('SimStatusBar (#805)', () => {
     renderStatusBar();
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
+
+  it('renders no headings: the page owns its one h1 (#2635)', () => {
+    renderStatusBar();
+    expect(screen.queryAllByRole('heading')).toHaveLength(0);
+    expect(screen.getByText('Round')).toBeInTheDocument();
+    expect(screen.getByText('Pick')).toBeInTheDocument();
+    expect(screen.getByText('You')).toBeInTheDocument();
+    expect(screen.getByText('Time left')).toBeInTheDocument();
+  });
 });

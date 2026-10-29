@@ -34,7 +34,7 @@ function SimStatusBar({
             <Typography variant="overline" sx={{ color: 'text.secondary', display: 'block', lineHeight: 1.2 }}>
               Round
             </Typography>
-            <Typography variant="h6" sx={{ fontWeight: 800 }}>
+            <Typography variant="h6" component="p" sx={{ fontWeight: 800 }}>
               {round} <Box component="span" sx={{ color: 'text.secondary', fontWeight: 400 }}>/ {rounds}</Box>
             </Typography>
           </Box>
@@ -42,7 +42,7 @@ function SimStatusBar({
             <Typography variant="overline" sx={{ color: 'text.secondary', display: 'block', lineHeight: 1.2 }}>
               Pick
             </Typography>
-            <Typography variant="h6" sx={{ fontWeight: 800 }}>
+            <Typography variant="h6" component="p" sx={{ fontWeight: 800 }}>
               {pickNumber} <Box component="span" sx={{ color: 'text.secondary', fontWeight: 400 }}>/ {totalPicks}</Box>
             </Typography>
           </Box>
@@ -51,7 +51,7 @@ function SimStatusBar({
               On the clock
             </Typography>
             <Stack direction="row" spacing={1} alignItems="center">
-              <Typography variant="h6" sx={{ fontWeight: 800 }}>
+              <Typography variant="h6" component="p" sx={{ fontWeight: 800 }}>
                 {onTheClockName || '-'}
               </Typography>
               {myTurn && <Chip size="small" color="primary" label="You're up" />}
@@ -73,6 +73,7 @@ function SimStatusBar({
               </Typography>
               <Typography
                 variant="h6"
+                component="p"
                 sx={{ fontWeight: 800, color: urgent ? 'error.main' : 'text.primary' }}
               >
                 {formatRemaining(secondsLeft)}
@@ -84,7 +85,7 @@ function SimStatusBar({
               <Typography variant="overline" sx={{ color: 'text.secondary', display: 'block', lineHeight: 1.2 }}>
                 Clock
               </Typography>
-              <Typography variant="h6" sx={{ fontWeight: 400, color: 'text.secondary' }}>
+              <Typography variant="h6" component="p" sx={{ fontWeight: 400, color: 'text.secondary' }}>
                 {clockSeconds}s
               </Typography>
             </Box>
