@@ -250,10 +250,16 @@ async function correctLeagueWeek({ leagueId, season, week }) {
 
   // Post-commit, on the pool: announce the fresh scores, then rebuild what the
   // new scores of record made stale (#1409, #1410, #1411). Both are past the
-  // point where a crash could cost the correction its log or notice.
-  await matchupScoring.announceScored({ leagueId, season, week, ...committed.scoring });
-  if (changes.some((c) => c.final)) {
-    await settleFollowUpSvc.settleFollowUp({ leagueId, season, week, mode: 'correction' });
+  // point where a crash could cost the correction its log or notice. The
+  // announce goes first so the Monte Carlo run does not delay the live score
+  // push, but the follow-up must still run when it throws: the week is already
+  // committed, and a retry sees no change and rebuilds nothing (#2616).
+  try {
+    await matchupScoring.announceScored({ leagueId, season, week, ...committed.scoring });
+  } finally {
+    if (changes.some((c) => c.final)) {
+      await settleFollowUpSvc.settleFollowUp({ leagueId, season, week, mode: 'correction' });
+    }
   }
   return { leagueId, changes };
 }
