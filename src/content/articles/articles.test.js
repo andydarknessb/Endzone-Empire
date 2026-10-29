@@ -1,4 +1,7 @@
+import fs from 'fs';
+import path from 'path';
 import { listArticles, getArticle, featuredArticles, relatedArticles } from './index';
+import { findLocalKitDeclarations } from './kitGuard';
 
 describe('articles content module', () => {
   it('lists metadata for every article, newest first, without a Body', () => {
@@ -81,5 +84,29 @@ describe('articles content module', () => {
     const related = relatedArticles(slug, 3);
     expect(related.length).toBeLessThanOrEqual(3);
     expect(related.map((r) => r.slug)).not.toContain(slug);
+  });
+});
+
+// The four article decorations live in the public kit now. A local copy in a
+// new article drifts from it silently, and the published weeks 3 to 8 are
+// frozen with theirs, so the guard starts at week 9.
+describe('kit guard', () => {
+  it('reports a locally declared Pill in a week 9 article', () => {
+    expect(findLocalKitDeclarations('week9-start-sit-darkness-report.jsx', 'const Pill = () => null;\n'))
+      .toEqual([{ name: 'Pill', line: 1 }]);
+  });
+
+  it('exempts the published weeks 3 to 8 by week number', () => {
+    expect(findLocalKitDeclarations('week8-waiver-wire-darkness-report.jsx', 'const Tag = () => null;')).toEqual([]);
+    expect(findLocalKitDeclarations('week3-start-sit-darkness-report.jsx', 'const Pill = () => null;')).toEqual([]);
+  });
+
+  it('finds no local declaration in any article file', () => {
+    const dir = __dirname;
+    const sources = fs.readdirSync(dir)
+      .filter((file) => file.endsWith('.jsx'))
+      .map((file) => ({ file, violations: findLocalKitDeclarations(file, fs.readFileSync(path.join(dir, file), 'utf8')) }));
+    expect(sources).not.toHaveLength(0);
+    expect(sources.filter((s) => s.violations.length > 0)).toEqual([]);
   });
 });
