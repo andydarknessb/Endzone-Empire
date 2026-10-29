@@ -1,12 +1,12 @@
 const pool = require('../modules/pool');
-const matchupScoring = require('./matchupScoring.service');
 const season = require('./season.service');
 const settleFollowUpSvc = require('./settleFollowUp.service');
 const { seasonOperationsAvailable, SEASON_BEFORE_DRAFT_MESSAGE } = require('./leaguePhase');
 
 /**
- * Advance week, in its one order (ADR 0054): score the week, then finalize and
- * advance, then start the Settle follow-up.
+ * Advance week, in its one order (ADR 0054): settle and finalize the week in
+ * one transaction, announce and seed after its commit, then start the Settle
+ * follow-up.
  *
  * Returns `{ scored, advance, followUp }`. `followUp` is the follow-up's promise,
  * never awaited here: it is display data, never worth failing (or delaying) the
@@ -17,10 +17,9 @@ const { seasonOperationsAvailable, SEASON_BEFORE_DRAFT_MESSAGE } = require('./le
  * `expectedWeek` is the week the commissioner saw when confirming; a league that
  * has moved on since is refused 409 before scoring (absent: old bundles, no check).
  *
- * Throws a SeasonError (409) for a league whose draft is not finished, BEFORE
- * the week is scored (#194): finalizeWeekAndAdvance refuses too, but it runs
- * second, so a gate only there would answer 409 with a full week of scores
- * already written.
+ * Throws a SeasonError (409) for a league whose draft is not finished, before
+ * the transaction opens (#194); finalizeWeekAndAdvance refuses it again under
+ * the League lock, before any scoring.
  */
 async function advanceWeek({ leagueId, expectedWeek }) {
   const leagueResult = await pool.query(
@@ -37,18 +36,16 @@ async function advanceWeek({ leagueId, expectedWeek }) {
   }
   // The score of record, so SETTLE semantics rather than the live path (#190):
   // the week as played, with no re-materialization and no join to whatever the
-  // roster looks like now. Pinned to the (season, week) read above, never to
-  // current_week afterwards - finalizeWeekAndAdvance moves it. Score still
-  // comes BEFORE finalize: finalize seeds the playoff bracket from
-  // computeStandings over these very scores.
-  const { scored } = await matchupScoring.scoreMatchups({
+  // roster looks like now. Settled inside finalize's own transaction, under the
+  // League lock, so a live re-score can never become the score of record (spec
+  // #2602); it still scores BEFORE the final flag, since the playoff bracket is
+  // seeded from computeStandings over these very scores.
+  // week: a double click, retry or stale confirm is refused 409 under the lock, before any scoring.
+  const { scored, ...advance } = await season.finalizeWeekAndAdvance({
     leagueId,
-    season: current_season,
-    week: current_week,
+    week: expectedWeek ?? current_week,
     settle: true,
   });
-  // week: a double click, retry or stale confirm must not finalize week N+1 with no games played.
-  const advance = await season.finalizeWeekAndAdvance({ leagueId, week: expectedWeek ?? current_week });
   const followUp = settleFollowUpSvc.settleFollowUp({
     leagueId,
     season: current_season,

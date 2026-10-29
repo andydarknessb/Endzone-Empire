@@ -400,15 +400,24 @@ async function materializeNewWeekLineups({ leagueId, season, week, league }) {
  * league is no longer on it the call is refused 409 (idempotent per week).
  * Once committed, the new week's lineups are seeded
  * (materializeNewWeekLineups), best-effort.
+ *
+ * `settle` (Advance week, ADR 0054): the settle pass runs inside this same
+ * transaction, after the League lock and the week and season checks and before
+ * the final flag, so a live re-score waiting on the Matchup rows reads them as
+ * final once this commits and can never become the score of record (spec
+ * #2602). The `scores:updated` announcement follows the commit, ahead of the
+ * lineup seed, and the result then also carries `scored`.
  */
-async function finalizeWeekAndAdvance({ leagueId, week: expectedWeek }) {
+async function finalizeWeekAndAdvance({ leagueId, week: expectedWeek, settle = false }) {
+  // Lazy: matchupScoring.service requires this module at load.
+  const matchupScoring = require('./matchupScoring.service');
   // withTransaction owns connect/BEGIN/COMMIT-or-guarded-ROLLBACK and the
   // release rule (ADR 0033). Every refusal here throws a SeasonError inside
   // work, so the wrapper rolls back and rethrows it untouched - no catch-side
   // mapping to move outward. The post-commit lineup seed is best-effort work
   // that must run after the connection is back in the pool, so it stays after
   // the call, driven by the values work returns.
-  const { outcome, season, nextWeek, league } = await withTransaction(
+  const { outcome, season, week, nextWeek, league, settled } = await withTransaction(
     pool,
     async (client) => {
     const leagueResult = await client.query(
@@ -425,6 +434,11 @@ async function finalizeWeekAndAdvance({ leagueId, week: expectedWeek }) {
     if (expectedWeek != null && Number(expectedWeek) !== Number(week)) {
       throw new SeasonError(409, `week ${expectedWeek} was already advanced`);
     }
+
+    // Before the matchups are read: the playoff winners below come from these scores.
+    const settled = settle
+      ? await matchupScoring.scoreMatchupsInTransaction(client, { leagueId, season, week, settle: true })
+      : null;
 
     const weekMatchups = await client.query(
       `SELECT * FROM "matchups" WHERE "league_id" = $1 AND "season" = $2 AND "week" = $3`,
@@ -577,12 +591,13 @@ async function finalizeWeekAndAdvance({ leagueId, week: expectedWeek }) {
       );
     }
 
-    return { outcome, season, nextWeek, league };
+    return { outcome, season, week, nextWeek, league, settled };
     },
     { label: 'season' }
   );
+  if (settled) await matchupScoring.announceScored({ leagueId, season, week, ...settled });
   await materializeNewWeekLineups({ leagueId, season, week: nextWeek, league });
-  return outcome;
+  return settled ? { ...outcome, scored: settled.scored } : outcome;
 }
 
 /** Did this team already lose a (non-consolation) playoff game before `week`? */

@@ -94,10 +94,11 @@ for (const draftStatus of ['pending', 'active']) {
 
 test('advance-week: a league whose draft is complete scores and advances as before', async (t) => {
   const fake = routerPool(league({ draft_status: 'complete' })).install(t);
-  const scored = spy(t, scoring, 'scoreMatchups', async () => ({ scored: 2 }));
+  const scored = spy(t, scoring, 'scoreMatchups');
   const finalized = spy(t, season, 'finalizeWeekAndAdvance', async () => ({
     advancedTo: 2,
     seasonStatus: 'regular',
+    scored: 2,
   }));
   // The Settle follow-up is fire-and-forget: a promise that never settles
   // proves the route does not await it (the response below still arrives).
@@ -106,10 +107,11 @@ test('advance-week: a league whose draft is complete scores and advances as befo
   const res = await request(app).post('/api/scoring/league/1/advance-week').set('Authorization', authed);
 
   assert.equal(res.status, 200);
-  assert.equal(scored.length, 1);
+  assert.equal(scored.length, 0, 'the settle pass rides finalize, not a separate scoreMatchups transaction');
   assert.equal(finalized.length, 1);
-  assert.equal(scored[0][0].season, 2026);
-  assert.equal(scored[0][0].week, 1);
+  assert.equal(finalized[0][0].settle, true);
+  assert.equal(finalized[0][0].week, 1);
+  assert.equal(res.body.scored, 2);
   assert.deepEqual(followUp, [[{ leagueId: 1, season: 2026, week: 1, mode: 'advance' }]]);
   fake.assertClean();
 });
