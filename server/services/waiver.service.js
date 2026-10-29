@@ -68,8 +68,8 @@ function orderClaims(claims, priorities, waiverType) {
  * at the moment he was dropped (#197). The undo replays that record rather
  * than reading a leftover lineup row, because the drop deletes the row. The
  * hold is the right home for it: it already names the dropping team, it
- * already gates undo, and it is cleared when the hold clears, which is
- * exactly when the undo stops being offered.
+ * already gates undo, and its `created_at` is the instant the two-minute undo
+ * window is measured from (#2546) - the ON CONFLICT rule below never moves it.
  *
  * `availableAt` (#1375, ADR 0043) is an absolute-instant override for a
  * caller that already knows the clear time itself - the kickoff hold job,
@@ -90,13 +90,19 @@ function orderClaims(claims, priorities, waiverType) {
  * (`placeOnWaiversForPlayers`, #2602): the player list is an array either
  * way, so the conflict rule above is written once and cannot drift between
  * the two forms.
+ *
+ * `created_at` is written explicitly as `clock_timestamp()`, not left to its
+ * column default: the default is `now()`, which is the TRANSACTION's start, and
+ * a drop that waited on the league lock before inserting would then carry a
+ * first write older than the write itself. The two-minute undo window is
+ * measured from this column (#2546), so it must be the instant of the write.
  */
 const PLACE_ON_WAIVERS_SQL = `
   INSERT INTO "waiver_players" ("league_id", "player_id", "available_at", "dropped_by_team_id",
-                                "interrupted_slot", "interrupted_ir_attested")
+                                "interrupted_slot", "interrupted_ir_attested", "created_at")
   SELECT $1::int, "held"."player_id",
          COALESCE($3::timestamptz, now() + make_interval(hours => $4::int)),
-         $5::int, $6::text, $7::boolean
+         $5::int, $6::text, $7::boolean, clock_timestamp()
   FROM unnest($2::int[]) AS "held"("player_id")
   ON CONFLICT ("league_id", "player_id")
   DO UPDATE SET "available_at" = GREATEST("waiver_players"."available_at", EXCLUDED."available_at"),

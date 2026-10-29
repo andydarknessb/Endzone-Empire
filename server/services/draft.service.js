@@ -260,10 +260,19 @@ async function dropPlayer({ leagueId, userId, playerId }) {
 }
 
 /**
+ * How long an Undo drop stays open: two minutes, from the waiver hold's FIRST
+ * write (#2546, spec #2540). Long enough for the 20-second Undo toast and for
+ * the rollback of an add-with-drop, and no longer, because an undo withdraws
+ * every other Team's pending Waiver claim on him (#2296).
+ */
+const UNDO_DROP_WINDOW_SECONDS = 120;
+
+/**
  * Undo the caller's own recent drop: only valid while the player's waiver
  * hold still names this team as the dropper (see `placeOnWaivers`'s
- * `droppedByTeamId`). This is what powers the drop snackbar's "Undo" button —
- * a normal free-agent add (addFreeAgent) would be rejected by the waiver-hold check.
+ * `droppedByTeamId`) and is younger than UNDO_DROP_WINDOW_SECONDS. This is what
+ * powers the drop snackbar's "Undo" button — a normal free-agent add
+ * (addFreeAgent) would be rejected by the waiver-hold check.
  *
  * Undo is the one acquisition that does not bench: it returns the player to
  * the stash his drop interrupted, from the record the drop wrote on that
@@ -302,10 +311,14 @@ async function undoDrop({ leagueId, userId, playerId }) {
         bypass: [ROSTER_GATE.CAPACITY, ROSTER_GATE.POSITION_CAP, ROSTER_GATE.WAIVER_HOLD],
       });
 
+      // `created_at` is the hold's first write: a kickoff re-upsert of the same
+      // hold moves only `available_at`/`updated_at` (waiver.service's ON
+      // CONFLICT), so it cannot reopen an undo that has already expired.
       const holdResult = await client.query(
         `SELECT 1 FROM "waiver_players"
-         WHERE "league_id" = $1 AND "player_id" = $2 AND "dropped_by_team_id" = $3`,
-        [leagueId, playerId, team.id]
+         WHERE "league_id" = $1 AND "player_id" = $2 AND "dropped_by_team_id" = $3
+           AND "created_at" > now() - make_interval(secs => $4)`,
+        [leagueId, playerId, team.id, UNDO_DROP_WINDOW_SECONDS]
       );
       if (!holdResult.rows[0]) {
         throw new DraftError(409, 'too late to undo; submit a waiver claim instead');
