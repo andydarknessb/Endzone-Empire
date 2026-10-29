@@ -114,13 +114,25 @@ function anomalyKey(playerId, season, week, kind) {
  * The correction pass is what writes `stats.gameTeam`, so a week it has not
  * reached yet cannot be judged unlabelled - the current week's box rows would
  * all be flagged.
+ *
+ * The detail shape read here (season, week, gamesInFile) is the one written at
+ * nflverseSync.service.js:1207.
+ *
+ * Ordered by (season, week), NOT by when the run finished: a backfill or a
+ * per-league pass can finish later for an older week, and taking that run would
+ * move the frontier backwards - the kind would stop firing and the resolve step
+ * would close the anomalies above it as gone.
  */
 async function settledFrontier(db) {
   const res = await db.query(
     `SELECT "detail" FROM "data_sync_runs"
      WHERE "job" = $1 AND "ok" = true
-       AND COALESCE(("detail"->>'gamesInFile')::numeric, 0) > 0
-     ORDER BY "finished_at" DESC, "id" DESC LIMIT 1`,
+       AND jsonb_typeof("detail"->'season') = 'number'
+       AND jsonb_typeof("detail"->'week') = 'number'
+       AND jsonb_typeof("detail"->'gamesInFile') = 'number'
+       AND ("detail"->>'gamesInFile')::numeric > 0
+     ORDER BY ("detail"->>'season')::int DESC, ("detail"->>'week')::int DESC
+     LIMIT 1`,
     [CORRECTION_JOB]
   );
   const detail = res.rows[0] && res.rows[0].detail;

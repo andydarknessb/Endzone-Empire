@@ -109,12 +109,16 @@ if (!ENABLED) {
     assert.equal(after.resolved, 1, 'the incident fix (deleting the fabricated row) clears its anomaly');
   });
 
+  // finished_at is explicit so the ordering case below can finish a run for an
+  // older week later than one for a newer week.
+  const insertCorrectionRun = (week, finishedAt) => pool.query(
+    `INSERT INTO "data_sync_runs" ("job", "started_at", "ok", "finished_at", "detail")
+     VALUES ('nflverse-correction', $1, true, $1, $2::jsonb)`,
+    [finishedAt, JSON.stringify({ season: SEASON, week, gamesInFile: 16, games: [] })]
+  );
+
   test('an unlabelled non-zero row on a week the correction pass settled is flagged, then resolved once labelled', async () => {
-    await pool.query(
-      `INSERT INTO "data_sync_runs" ("job", "started_at", "ok", "detail")
-       VALUES ('nflverse-correction', now(), true, $1::jsonb)`,
-      [JSON.stringify({ season: SEASON, week: 3, gamesInFile: 16, games: [] })]
-    );
+    await insertCorrectionRun(3, '2026-10-01T02:00:00Z');
     await pool.query(
       `INSERT INTO "player_stats" ("player_id", "season", "week", "stats", "fantasy_points") VALUES ($1, $2, 3, $3, 0)`,
       [playerId, SEASON, JSON.stringify(UNLABELLED)]
@@ -142,5 +146,24 @@ if (!ENABLED) {
       [playerId, SEASON]
     );
     assert.ok(resolved.rows[0].resolved_at, 'the anomaly resolves in place once the row is labelled');
+  });
+
+  test('a run that finished later for an older week does not move the settled frontier backwards', async () => {
+    await insertCorrectionRun(4, '2026-10-02T00:00:00Z');
+    await insertCorrectionRun(3, '2026-10-03T00:00:00Z'); // finishes last, names the older week
+    await pool.query(
+      `INSERT INTO "player_stats" ("player_id", "season", "week", "stats", "fantasy_points") VALUES ($1, $2, 4, $3, 0)`,
+      [playerId, SEASON, JSON.stringify(UNLABELLED)]
+    );
+
+    await integrity.scanPlayerStats({ seasons: [SEASON] });
+
+    const flagged = await pool.query(
+      `SELECT "resolved_at" FROM "player_stats_anomalies"
+        WHERE "player_id" = $1 AND "season" = $2 AND "week" = 4 AND "kind" = 'unlabelled-appearance'`,
+      [playerId, SEASON]
+    );
+    assert.equal(flagged.rows.length, 1, 'week 4 stays settled although week 3 finished later');
+    assert.equal(flagged.rows[0].resolved_at, null);
   });
 }
