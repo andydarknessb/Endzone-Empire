@@ -10,6 +10,7 @@ import { visuallyHidden } from '@mui/utils';
 import Countdown from '../Countdown/Countdown';
 import { deriveLeaguePhase, LEAGUE_PHASE, LEAGUE_PHASE_META } from '../../shared/lib/leaguePhase';
 import { isPickemOnly } from '../../shared/lib/leagueType';
+import { MIN_TOUCH_TARGET_SX } from '../../shared/lib/a11y';
 
 function LeagueCard({ league, onDelete, compact = false, titleComponent = 'h6' }) {
   const [anchorEl, setAnchorEl] = useState(null);
@@ -83,7 +84,7 @@ function LeagueCard({ league, onDelete, compact = false, titleComponent = 'h6' }
           <Stack direction="row" alignItems="flex-start">
             <Box sx={{ flexGrow: 1, minWidth: 0 }}>{content}</Box>
             {isOwner && onDelete && (
-              <IconButton aria-label={`League actions for ${league.name}`} size="small" onClick={(event) => setAnchorEl(event.currentTarget)} sx={{ m: 1 }}>
+              <IconButton aria-label={`League actions for ${league.name}`} size="small" onClick={(event) => setAnchorEl(event.currentTarget)} sx={{ m: 1, ...MIN_TOUCH_TARGET_SX }}>
                 <MoreVertIcon />
               </IconButton>
             )}
