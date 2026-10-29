@@ -239,6 +239,7 @@ function Nav() {
                 size="small"
                 sx={{
                   minWidth: 0,
+                  minHeight: MIN_TOUCH_TARGET_SX.minHeight,
                   px: { xs: 1, sm: 2 },
                   color: 'var(--text-muted)',
                   '&:hover': { color: 'var(--accent)' },
@@ -251,7 +252,7 @@ function Nav() {
                 to="/registration"
                 variant="outlined"
                 size="small"
-                sx={{ minWidth: 0, px: { xs: 1.25, sm: 2 } }}
+                sx={{ minWidth: 0, minHeight: MIN_TOUCH_TARGET_SX.minHeight, px: { xs: 1.25, sm: 2 } }}
               >
                 Register
               </Button>

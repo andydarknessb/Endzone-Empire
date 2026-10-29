@@ -77,6 +77,15 @@ test('names the league in the actions button, so a list of cards is navigable', 
   expect(screen.getByRole('button', { name: 'League actions for Sunday Ballers' })).toBeInTheDocument();
 });
 
+test('gives the league actions button a 44px touch target (#2637)', () => {
+  renderWithProviders(
+    <LeagueCard league={{ ...league, is_owner: true }} onDelete={jest.fn()} />
+  );
+
+  expect(screen.getByRole('button', { name: 'League actions for Sunday Ballers' }))
+    .toHaveStyle({ minHeight: '44px', minWidth: '44px' });
+});
+
 test('offers the delete action to the creator only', async () => {
   const onDelete = jest.fn();
   const { unmount } = renderWithProviders(
