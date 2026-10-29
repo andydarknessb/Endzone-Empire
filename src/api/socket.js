@@ -76,12 +76,20 @@ export function createDraftSocket() {
 
   // The server drops a socket whose token expired unrenewed (#2556), and
   // socket.io does not reconnect after a server disconnect: refresh, then
-  // connect again so a Manager whose refresh failed briefly recovers unaided.
+  // connect again so a Manager whose refresh failed earlier recovers unaided.
+  // If this refresh fails too the socket stays down until its component remounts.
+  // shortcut: a component that unmounts while the refresh is in flight leaves a
+  // revived socket nobody closes, move to a closed flag if that window ever bites
   socket.on('disconnect', (reason) => {
     if (reason !== 'io server disconnect') return;
     reviving = true;
     refreshTokens()
-      .then(() => socket.connect())
+      .then(() => {
+        // connect() skips the manager's 'reconnect' event, which is what the rooms
+        // and feeds (onReconnect) rejoin and resync on, so raise it once connected.
+        socket.once('connect', () => socket.io.emit('reconnect', 0));
+        socket.connect();
+      })
       .catch(endSessionIfRefused)
       .finally(() => { reviving = false; });
   });

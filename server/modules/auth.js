@@ -113,7 +113,8 @@ function requirePlatformAdmin(req, res, next) {
  * the SAME user counts; anything else is refused and the expiry stays as it was.
  * The draft socket sweep disconnects a socket 60 s past this expiry (#2556), so
  * a client that never sends this (an old bundle held by the service worker) is
- * dropped once its handshake token is that old, then reconnects with a fresh one.
+ * dropped once its handshake token is that old and, having no reconnect handler
+ * for a server disconnect, stays down until the page reloads.
  */
 function refreshSocketToken(socket, message, ack) {
   const reply = typeof ack === 'function' ? ack : () => {};

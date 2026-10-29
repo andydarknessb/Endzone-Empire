@@ -215,7 +215,10 @@ describe('recovering from a server-initiated disconnect (#2556)', () => {
 
   beforeEach(() => {
     io.mockImplementation(() => {
-      socket = { connected: true, active: true, on: jest.fn(), emit: jest.fn(), connect: jest.fn(), disconnect: jest.fn() };
+      socket = {
+        connected: true, active: true, on: jest.fn(), once: jest.fn(), emit: jest.fn(), connect: jest.fn(),
+        disconnect: jest.fn(), io: { emit: jest.fn() },
+      };
       return socket;
     });
     jest.spyOn(axios, 'post').mockResolvedValue({ data: { token: 'renewed-jwt' } });
@@ -235,6 +238,12 @@ describe('recovering from a server-initiated disconnect (#2556)', () => {
 
     await waitFor(() => expect(socket.connect).toHaveBeenCalledTimes(1));
     expect(getToken()).toBe('renewed-jwt');
+
+    // socket.connect() skips the manager's 'reconnect', so rooms and feeds that
+    // rejoin on onReconnect hear it once the socket is back.
+    expect(socket.io.emit).not.toHaveBeenCalled();
+    socket.once.mock.calls.find(([name]) => name === 'connect')[1]();
+    expect(socket.io.emit).toHaveBeenCalledWith('reconnect', 0);
 
     socket.active = true;
     axios.post.mockResolvedValue({ data: { token: 'renewed-again' } });
