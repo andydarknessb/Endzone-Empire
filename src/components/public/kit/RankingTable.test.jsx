@@ -117,6 +117,11 @@ describe('RankingTable states', () => {
       .toHaveStyle({ minHeight: '44px', minWidth: '44px' });
   });
 
+  it('loads player photos lazily (#2638)', () => {
+    renderTable({ rows: [{ ...ROWS[0], photoUrl: 'https://example.com/back.png' }], loading: false });
+    expect(screen.getByRole('presentation', { hidden: true })).toHaveAttribute('loading', 'lazy');
+  });
+
   it('uses stacked ranking cards instead of a table below md', () => {
     mockMatchMedia(true);
     renderTable({ rows: ROWS, loading: false });

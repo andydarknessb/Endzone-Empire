@@ -16,6 +16,11 @@ const own = (el) => {
 
 const avatar = () => screen.getByText('PN');
 
+test('the headshot loads lazily (#2638)', () => {
+  render(<PlayerAvatar name="Puka Nacua" photoUrl="https://example.com/puka.png" />);
+  expect(screen.getByRole('img', { hidden: true })).toHaveAttribute('loading', 'lazy');
+});
+
 test('it is a neutral square on ps tokens with no position colour', () => {
   render(<PlayerAvatar name="Puka Nacua" size={56} />);
   const el = avatar();

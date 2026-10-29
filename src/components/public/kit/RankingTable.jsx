@@ -37,6 +37,7 @@ function PlayerIdentity({ row }) {
       <Avatar
         src={row.photoUrl || undefined}
         alt=""
+        imgProps={{ loading: 'lazy' }}
         sx={{ width: 38, height: 38, bgcolor: 'var(--surface-sunken)', color: 'text.primary', fontSize: 13 }}
       >
         {String(row.name || '').slice(0, 1)}
