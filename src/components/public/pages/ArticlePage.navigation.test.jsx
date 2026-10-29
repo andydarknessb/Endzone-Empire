@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { HelmetProvider } from 'react-helmet-async';
@@ -77,4 +77,29 @@ test('navigating to a related article loads its body and rebuilds the table of c
     expect(screen.getByRole('navigation', { name: 'Table of contents' })).toHaveTextContent('Beta section two');
   });
   expect(screen.getByRole('navigation', { name: 'Table of contents' })).not.toHaveTextContent('Alpha section one');
+});
+
+test('the table of contents leads the article and a Contents toggle opens its links (phone layout)', async () => {
+  const user = userEvent.setup();
+  render(
+    <AppThemeProvider>
+      <HelmetProvider>
+        <MemoryRouter initialEntries={['/strategy/alpha-guide']}>
+          <Routes>
+            <Route path="/strategy/:slug" element={<ArticlePage />} />
+          </Routes>
+        </MemoryRouter>
+      </HelmetProvider>
+    </AppThemeProvider>
+  );
+  const toc = await screen.findByRole('navigation', { name: 'Table of contents' });
+  const article = await screen.findByRole('article');
+  expect(toc.compareDocumentPosition(article) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+  const toggle = within(toc).getByRole('button', { name: /Contents/ });
+  expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  await user.click(toggle);
+  expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  // eslint-disable-next-line testing-library/no-node-access -- aria-controls names an id, so the id is the contract
+  expect(document.getElementById(toggle.getAttribute('aria-controls'))).toHaveTextContent('Alpha section two');
 });
