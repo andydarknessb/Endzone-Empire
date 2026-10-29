@@ -31,13 +31,13 @@ test('GET /api/health/stats-integrity answers 200 while only unlabelled-appearan
   assert.equal(response.body.unlabelled, 1);
 });
 
-test('GET /api/health/stats-integrity returns 503 while any anomaly is open', async (t) => {
+test('GET /api/health/stats-integrity returns 503 while a points-mismatch anomaly is open', async (t) => {
   t.mock.method(integrity, 'getIntegrityStatus', async () => ({
     ok: false, open: 23, unlabelled: 0, lastScanAt: new Date('2026-09-16T09:05:00.000Z'), stale: false,
   }));
 
   const response = await request(app).get('/api/health/stats-integrity');
-  assert.equal(response.status, 503, 'an open anomaly is an alert, not an anecdote');
+  assert.equal(response.status, 503, 'an open points-mismatch is an alert, not an anecdote');
   assert.equal(response.body.open, 23);
 });
 

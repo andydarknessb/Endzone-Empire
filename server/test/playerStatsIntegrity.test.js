@@ -235,7 +235,7 @@ test('getIntegrityStatus is not ok when the last successful scan is older than 3
   assert.deepEqual(never, { ok: false, open: 0, unlabelled: 0, lastScanAt: null, stale: true });
 });
 
-test('getIntegrityStatus is not ok while any anomaly is open, however fresh the scan', async (t) => {
+test('getIntegrityStatus is not ok while a points-mismatch anomaly is open, however fresh the scan', async (t) => {
   const now = new Date('2026-09-17T12:00:00Z');
   mockPool(t, { openCount: 23, lastOkRun: { id: 1, finished_at: '2026-09-17T09:05:00Z', ok: true, detail: {} } });
   const status = await integrity.getIntegrityStatus({ now });
