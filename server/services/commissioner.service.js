@@ -18,8 +18,9 @@ const { isIrEligible } = require('./irPolicy.service');
 // The one write-time roster gate (#940). forceTransaction runs through it with
 // COMMISSIONER_OVERRIDE, the explicit bypass set that reproduces exactly what
 // this path did before it had a gate (#964).
-const { assertRosterWriteAllowed, COMMISSIONER_OVERRIDE } = require('./rosterGate.service');
-// Module object, not destructured: the seam tests mock benchAcquiredPlayer.
+const { COMMISSIONER_OVERRIDE } = require('./rosterGate.service');
+// The one writer of a single-player Roster move (#2535).
+const rosterMove = require('./rosterMove.service');
 const lineupService = require('./lineup.service');
 const { isPickemOnly } = require('./leagueType');
 const { removability, removeRefusalMessage } = require('./leaguePhase');
@@ -736,31 +737,25 @@ async function forceTransaction({ leagueId, userId, teamId, action, playerId }) 
       const playerName = playerResult.rows[0].name;
 
       if (action === 'add') {
-        // The write gate with the explicit commissioner override. Capacity is
-        // the one gate it does NOT bypass, so this call is also what enforces
-        // the roster limit that used to be checked inline right here - same
-        // question, same 409, same message, now asked by the module that owns it.
-        await assertRosterWriteAllowed(client, {
-          leagueId,
-          teamId,
-          direction: 'acquire',
-          playerId,
-          position: playerResult.rows[0].position,
-          bypass: COMMISSIONER_OVERRIDE,
-        });
+        // The one Roster move writer with the explicit commissioner override
+        // (#2535). Capacity is the one gate it does NOT bypass, so this call is
+        // also what enforces the roster limit that used to be checked inline
+        // right here - same question, same 409, same message, now asked by the
+        // module that owns it.
         try {
-          await client.query(
-            `INSERT INTO "team_players" ("league_id", "team_id", "player_id") VALUES ($1, $2, $3)`,
-            [leagueId, teamId, playerId]
-          );
+          await rosterMove.add(client, {
+            league,
+            teamId,
+            playerId,
+            position: playerResult.rows[0].position,
+            bypass: COMMISSIONER_OVERRIDE,
+          });
         } catch (error) {
           if (error.code === '23505') {
             throw new CommissionerError(409, 'player is already rostered in this league; drop them first');
           }
           throw error;
         }
-        // A forced add is still an add: bench, never back into a stash (#94).
-        await lineupService.benchAcquiredPlayer(client, { league, teamId, playerId });
         await client.query(
           `DELETE FROM "waiver_players" WHERE "league_id" = $1 AND "player_id" = $2`,
           [leagueId, playerId]
@@ -771,28 +766,19 @@ async function forceTransaction({ leagueId, userId, teamId, action, playerId }) 
           [leagueId, playerId]
         );
       } else {
-        // The release side runs through the same gate with the same explicit
+        // The release side runs through the same module with the same explicit
         // override. Every release-direction gate (the freeze and the Team lock)
         // is in that set, so this call refuses nothing today - and that is the
         // point: the override is stated in code rather than being the absence of
         // a check, and a release rule added to the module later is inherited here
         // by a deliberate decision instead of by an omission nobody notices.
-        await assertRosterWriteAllowed(client, {
-          leagueId,
-          teamId,
-          direction: 'release',
-          playerId,
-          bypass: COMMISSIONER_OVERRIDE,
+        // A forced drop is undoable on the same hold as a manager drop, so the
+        // module hands back what it interrupted and the hold records it (#197).
+        const { stash, removed } = await rosterMove.drop(client, {
+          league, teamId, playerId, undoable: true, bypass: COMMISSIONER_OVERRIDE,
         });
-        const deleted = await client.query(
-          `DELETE FROM "team_players" WHERE "team_id" = $1 AND "player_id" = $2 RETURNING "id"`,
-          [teamId, playerId]
-        );
-        if (deleted.rowCount === 0) throw new CommissionerError(404, 'player is not on that roster');
-        // A forced drop is still a drop: the lineup follows the roster, and
-        // the hold records what it interrupted so the undo can replay it
-        // (#197). It is undoable on the same hold as a manager drop.
-        await placeOnWaiversUndoable(client, { league, teamId, playerId });
+        if (removed === 0) throw new CommissionerError(404, 'player is not on that roster');
+        await placeOnWaiversUndoable(client, { league, teamId, playerId, stash });
       }
 
       await logTransaction(client, {

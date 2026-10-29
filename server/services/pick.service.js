@@ -1,8 +1,6 @@
 const pool = require('../modules/pool');
 const { withTransaction } = require('../modules/withTransaction');
 const { teamForPick, nextOpenPickNumber } = require('./draftOrder.service');
-// Module object, not destructured: the seam tests mock benchAcquiredPlayer.
-const lineupService = require('./lineup.service');
 const { isLeagueCommissioner } = require('./leagueRole.service');
 const { teamIdentityOf } = require('./teamIdentity');
 const { appendPickActivity } = require('./draftActivity');
@@ -23,10 +21,11 @@ const sentry = require('../modules/sentry');
 // checks are shared with draft.service.addFreeAgent (#782 ruling 2). draft.service
 // never requires this module back, so this top-level require closes no cycle.
 const { DraftError } = require('./draftError');
-// The one write-time roster gate (#940). A Pick is a roster acquisition like
-// any other, so it asks the same module (#965) rather than calling the acquire
-// bundle directly.
-const { assertRosterWriteAllowed, ROSTER_GATE } = require('./rosterGate.service');
+// The one writer of a single-player Roster move (#2535). A Pick is a roster
+// acquisition like any other, so it asks the same module (#965) rather than
+// writing the roster row and the bench step itself.
+const rosterMove = require('./rosterMove.service');
+const { ROSTER_GATE } = require('./rosterGate.service');
 
 /**
  * A Pick lands in one place (#782, ADR 0025 amendment). `landPick` is the ONE
@@ -160,7 +159,8 @@ async function commitPick({ leagueId, userId, playerId, auto = false, byCommissi
       const position = playerResult.rows[0].position;
 
       // Roster capacity, position caps and the on-waivers gate, shared with the
-      // free-agent add path through the one write gate (#782 ruling 2, #965). For
+      // free-agent add path through the one Roster move module (#782 ruling 2,
+      // #965, #2535): the gate, the roster row and the bench, in that order. For
       // an active draft the waiver gate is a no-op (it fires only for a completed
       // draft), and it is left in the evaluated set rather than bypassed so this
       // call stays the same question the free-agent add asks.
@@ -181,10 +181,16 @@ async function commitPick({ leagueId, userId, playerId, auto = false, byCommissi
       // commissioner entering picks for an offline draft is deliberately not
       // stopped by a team lock, and moving that check into the gate would refuse
       // those. The inline check keeps both branches exactly as they were.
-      await assertRosterWriteAllowed(client, {
-        leagueId,
+      //
+      // The roster move runs HERE, and not beside the clock advance that follows
+      // it: the completing Pick's roster row and bench must precede the
+      // draft->season handoff (#2548), but that handoff runs after the clock has
+      // flipped draft_status to 'complete', which would make the waiver gate fire
+      // for a Pick made while the draft was still active. Asking at this moment is
+      // what keeps the Pick's refusals exactly as they were.
+      await rosterMove.add(client, {
+        league,
         teamId: myTeam.id,
-        direction: 'acquire',
         playerId,
         position,
         bypass: [ROSTER_GATE.FREEZE, ROSTER_GATE.TEAM_LOCK],
@@ -298,17 +304,6 @@ async function commitPick({ leagueId, userId, playerId, auto = false, byCommissi
           [myTeam.id]
         );
       }
-      await client.query(
-        `INSERT INTO "team_players" ("league_id", "team_id", "player_id")
-         VALUES ($1, $2, $3)`,
-        [leagueId, myTeam.id, playerId]
-      );
-
-      // Every add lands on the bench, never back in an old stash (#94, user story
-      // 13) - draft picks included, since the lineup screen has no draft guard and
-      // a mid-draft drop leaves rows behind like any other.
-      await lineupService.benchAcquiredPlayer(client, { league, teamId: myTeam.id, playerId });
-
       if (draftComplete) {
         // The clock flipped draft_status to 'complete' above; the one draft->season
         // handoff runs on this same transaction (#789): it opens the waiver window,
