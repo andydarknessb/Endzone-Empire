@@ -106,6 +106,22 @@ describe('RankingTable states', () => {
     expect(screen.queryByText(/^(QB|RB|WR).*Tier \d+$/)).not.toBeInTheDocument();
   });
 
+  it('gives the trend help and sort order icon buttons a 44px touch target (#2637)', () => {
+    window.matchMedia = jest.fn().mockImplementation((query) => ({
+      matches: true,
+      media: query,
+      addEventListener: jest.fn(),
+      removeEventListener: jest.fn(),
+      addListener: jest.fn(),
+      removeListener: jest.fn(),
+    }));
+    renderTable({ rows: ROWS, loading: false });
+    expect(screen.getByRole('button', { name: 'About ranking trends' }))
+      .toHaveStyle({ minHeight: '44px', minWidth: '44px' });
+    expect(screen.getByRole('button', { name: 'Sort descending' }))
+      .toHaveStyle({ minHeight: '44px', minWidth: '44px' });
+  });
+
   it('uses stacked ranking cards instead of a table below md', () => {
     window.matchMedia = jest.fn().mockImplementation((query) => ({
       matches: true,
