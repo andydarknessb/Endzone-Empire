@@ -68,8 +68,8 @@ function orderClaims(claims, priorities, waiverType) {
  * at the moment he was dropped (#197). The undo replays that record rather
  * than reading a leftover lineup row, because the drop deletes the row. The
  * hold is the right home for it: it already names the dropping team, it
- * already gates undo, and it is cleared when the hold clears, which is
- * exactly when the undo stops being offered.
+ * already gates undo, and its `created_at` is the instant the two-minute undo
+ * window is measured from (#2546) - the ON CONFLICT rule below never moves it.
  *
  * `availableAt` (#1375, ADR 0043) is an absolute-instant override for a
  * caller that already knows the clear time itself - the kickoff hold job,

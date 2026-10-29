@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const { teamIndexForPick, addFreeAgent, undoDrop, dropPlayer } = require('../services/draft.service');
 const lineupService = require('../services/lineup.service');
 const { isOnWaivers } = require('../services/waiverStatus');
+const { placeOnWaivers } = require('../services/waiver.service');
 const { createFakePool, select, insert, update, remove } = require('./helpers/fakePool');
 const { installRecordingBroadcast } = require('./helpers/recordingBroadcast');
 
@@ -402,6 +403,53 @@ test('undoDrop: a locked team is refused, the lock this path used to skip (#944)
   fake.assertClean();
 });
 
+
+test('undoDrop: past the two-minute window it refuses and leaves pending claims untouched (#2546)', async (t) => {
+  // An expired hold reads exactly like no hold: the window is part of the hold
+  // read itself, so the undo stops before it withdraws anything. This is the
+  // test that goes red if that predicate leaves the statement.
+  let holdParams;
+  const fake = createFakePool([
+    [select('leagues'), () => ({ rows: [undoLeague] })],
+    [select('teams'), () => ({ rows: [{ id: 11, owner_id: 7, locked: false }] })],
+    [select('waiver_players'), (text, params) => { holdParams = params; return { rows: [] }; }],
+  ]).install(t);
+
+  await assert.rejects(
+    undoDrop({ leagueId: 1, userId: 7, playerId: 500 }),
+    { statusCode: 409, message: 'too late to undo; submit a waiver claim instead' }
+  );
+  const hold = fake.matching(select('waiver_players'))[0];
+  assert.match(hold.text, /"created_at" > now\(\) - make_interval\(secs => \$4\)/,
+    'the window is measured from the hold\'s first write');
+  assert.deepEqual(holdParams, [1, 500, 11, 120], 'two minutes travels with the hold read');
+  assert.equal(fake.matching(update('waiver_claims')).length, 0, 'no pending claim was withdrawn');
+  assert.equal(fake.matching(remove('waiver_players')).length, 0, 'the hold survived');
+  assert.equal(fake.matching(insert('team_players')).length, 0, 'the player was not re-rostered');
+  fake.assertClean();
+});
+
+test('undoDrop: a kickoff re-upsert of the same hold cannot reopen the window (#2546)', async (t) => {
+  // The window reads created_at; the hold write's ON CONFLICT moves only the
+  // clear time, so a re-upsert leaves the first write - and the window - alone.
+  const fake = createFakePool([
+    [insert('waiver_players'), () => ({ rows: [] })],
+  ]).install(t);
+  const client = await fake.connect();
+  await placeOnWaivers(client, {
+    leagueId: 1,
+    playerId: 500,
+    waiverPeriodHours: 24,
+    availableAt: new Date('2026-10-29T18:00:00Z'),
+    droppedByTeamId: 11,
+  });
+  client.release();
+
+  const conflict = fake.calls[0].text.slice(fake.calls[0].text.indexOf('ON CONFLICT'));
+  assert.match(conflict, /DO UPDATE SET "available_at" = GREATEST/);
+  assert.doesNotMatch(conflict, /"created_at"|"dropped_by_team_id"/);
+  fake.assertClean();
+});
 
 test('undoDrop: consults roster capacity, not the static roster limit', async (t) => {
   const fake = createFakePool([
