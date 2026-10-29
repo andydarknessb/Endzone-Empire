@@ -135,11 +135,11 @@ async function settledFrontier(db) {
      LIMIT 1`,
     [CORRECTION_JOB]
   );
+  // The WHERE above guarantees both keys are JSON numbers on the row it
+  // returns, so the only null case is no matching run at all.
   const detail = res.rows[0] && res.rows[0].detail;
   if (!detail) return null;
-  const season = Number(detail.season);
-  const week = Number(detail.week);
-  return Number.isFinite(season) && Number.isFinite(week) ? { season, week } : null;
+  return { season: Number(detail.season), week: Number(detail.week) };
 }
 
 /** A (season, week) is settled at or before the frontier; earlier seasons always. */
