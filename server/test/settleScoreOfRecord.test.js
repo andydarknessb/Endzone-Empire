@@ -441,18 +441,13 @@ function createWorld({
 }
 
 /**
- * The real advance-week sequence, in the route's order: read (season, week)
- * BEFORE anything moves, score the closing week with settle semantics, then
- * finalize. The read is pinned here for the same reason the route pins it -
- * finalize advances current_week, so a pass keyed to current_week afterwards
- * would settle the wrong week.
+ * The real advance-week sequence: finalize with the settle pass inside its one
+ * transaction (spec #2602), which settles the week it read under the League
+ * lock before current_week moves.
  */
-async function advanceWeek(state) {
-  const season = state.league.current_season;
-  const week = state.league.current_week;
-  const scored = await scoreMatchups({ leagueId: LEAGUE_ID, season, week, settle: true });
-  const advance = await finalizeWeekAndAdvance({ leagueId: LEAGUE_ID });
-  return { scored, advance };
+async function advanceWeek() {
+  const { scored, ...advance } = await finalizeWeekAndAdvance({ leagueId: LEAGUE_ID, settle: true });
+  return { scored: { scored }, advance };
 }
 
 /**
@@ -1387,8 +1382,8 @@ test('#190 advance-week asks for settle semantics, pinned to the week it is clos
   });
   const finalizeCalls = [];
   t.mock.method(season, 'finalizeWeekAndAdvance', async (args) => {
-    finalizeCalls.push({ args, scoredBefore: scoreCalls.length });
-    return { advancedTo: WEEK + 1, seasonStatus: 'regular' };
+    finalizeCalls.push(args);
+    return { advancedTo: WEEK + 1, seasonStatus: 'regular', scored: [] };
   });
   // The post-week analytics chain is fire-and-forget display data; keep it
   // out of this test's way rather than letting it reach the mocked pool.
@@ -1401,13 +1396,10 @@ test('#190 advance-week asks for settle semantics, pinned to the week it is clos
     .send({});
 
   assert.equal(res.status, 200, JSON.stringify(res.body));
-  assert.equal(scoreCalls.length, 1, 'the closing week is scored exactly once');
-  assert.equal(scoreCalls[0].settle, true, 'and with settle semantics, not the live path');
-  assert.equal(scoreCalls[0].season, SEASON);
-  assert.equal(scoreCalls[0].week, WEEK, 'pinned to the week being closed');
+  assert.equal(scoreCalls.length, 0, 'no separate scoring transaction: the settle pass rides finalize (spec #2602)');
   assert.equal(finalizeCalls.length, 1);
-  assert.equal(finalizeCalls[0].scoredBefore, 1,
-    'score THEN finalize: the bracket is seeded from scores that already exist');
+  assert.equal(finalizeCalls[0].settle, true, 'with settle semantics, not the live path');
+  assert.equal(finalizeCalls[0].week, WEEK, 'pinned to the week being closed');
 });
 
 /* ------------------------------------------------------------------ *

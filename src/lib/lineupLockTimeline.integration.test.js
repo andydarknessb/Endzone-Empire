@@ -183,7 +183,8 @@ function createDatabaseFixture() {
         return { rowCount: 0, rows: [] };
       }
       if (sql.includes('INSERT INTO "waiver_players"')) {
-        state.waiverPlayers.add(values[1]);
+        // #2602: the second parameter is an id list, one for a drop.
+        for (const playerId of values[1]) state.waiverPlayers.add(playerId);
         return { rowCount: 1, rows: [] };
       }
       if (sql.includes('INSERT INTO "transactions"')) {

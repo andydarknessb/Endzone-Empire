@@ -22,7 +22,7 @@
  * inputs, so the logic is tested without a database.
  */
 
-const { upgradeFor } = require('../services/decision.service');
+const { upgradeOver } = require('../services/upgrade.service');
 
 const USAGE = `Usage: node server/scripts/measure-upgrade-accuracy.js --league <id> --season <year> [--from-week <n>] [--to-week <n>]
 
@@ -60,8 +60,15 @@ function parseArgs(argv) {
   return args;
 }
 
-/** The week's roster priced by what each player scored: nothing is held, nobody is Unavailable. */
-const asPlayed = (roster) => roster.map((r) => ({ ...r, projection: r.actual, unavailable: null, kickedOff: false }));
+/** The week read as played: every row priced by what it scored, nothing held, nobody Unavailable or refused. */
+function playedWeek(w, candidateId) {
+  const points = new Map(w.roster.map((r) => [r.playerId, r.actual]));
+  points.set(candidateId, w.actual);
+  return {
+    roster: w.roster.map((r) => ({ ...r, kickedOff: false })),
+    run: { pointsFor: (id) => points.get(id), startVerdictFor: () => ({ outcome: 'start' }) },
+  };
+}
 
 function summarize(predictions, realized) {
   if (predictions.length === 0) return { mae: null, positive: 0, falsePromises: 0, falsePromiseShare: null };
@@ -79,15 +86,15 @@ function summarize(predictions, realized) {
 /**
  * Pure. `acquisitions` is one entry per acquired player:
  *
- *   { position, rosterSlots, acquiredWeek, firstPlayableWeek (null: none left),
- *     weeks: { [week]: { roster, predicted, actual } } }
+ *   { playerId, position, rosterSlots, acquiredWeek, firstPlayableWeek (null: none left),
+ *     weeks: { [week]: { roster, run, actual } } }
  *
  * `weeks` holds the acquisition week and the first playable week. `roster` is
  * the team's stored lineup that week without the acquired player, IR excluded,
- * rows as `upgradeFor` takes them plus `actual` (what the row scored);
- * `predicted` and `actual` are the candidate's stored projection and realized
- * points. A player with no playable week left realizes 0 and the new rule
- * promises him nothing.
+ * rows as `upgradeOver` takes them plus `actual` (what the row scored); `run`
+ * is the stored Weekly projection read, which `upgradeOver` zeroes and refuses
+ * by; `actual` is the candidate's realized points. A player with no playable
+ * week left realizes 0 and the new rule promises him nothing.
  *
  * Returns `{ count, old, new }`, each rule `{ mae, positive, falsePromises,
  * falsePromiseShare }`: the mean absolute error of its Upgrade against the
@@ -97,15 +104,18 @@ function measureUpgradeAccuracy(acquisitions) {
   const predicted = { old: [], new: [] };
   const realized = [];
   for (const a of acquisitions) {
-    const gain = (week, field) => {
+    const gain = (week, asPlayed) => {
       const w = a.weeks[week];
-      const roster = field === 'actual' ? asPlayed(w.roster) : w.roster;
-      return upgradeFor({ position: a.position, projection: w[field] }, roster, a.rosterSlots).points;
+      const { roster, run } = asPlayed ? playedWeek(w, a.playerId) : w;
+      const { upgrade } = upgradeOver({
+        roster, candidate: { id: a.playerId, position: a.position }, run, rosterSlots: a.rosterSlots,
+      });
+      return upgrade ? upgrade.points : 0;
     };
     const playable = a.firstPlayableWeek !== null;
-    predicted.old.push(gain(a.acquiredWeek, 'predicted'));
-    predicted.new.push(playable ? gain(a.firstPlayableWeek, 'predicted') : 0);
-    realized.push(playable ? gain(a.firstPlayableWeek, 'actual') : 0);
+    predicted.old.push(gain(a.acquiredWeek, false));
+    predicted.new.push(playable ? gain(a.firstPlayableWeek, false) : 0);
+    realized.push(playable ? gain(a.firstPlayableWeek, true) : 0);
   }
   return {
     count: acquisitions.length,
@@ -138,11 +148,10 @@ function acquisitionsOf(transactions) {
 /**
  * The first week from `fromWeek` through `lastWeek` whose game for the player's
  * NFL team kicks off after `joinAt`, or null. The rule of
- * `playerCard.service`'s `firstPlayableWeeks` (#2166) with the acquisition's own
+ * Upgrade module's first-playable-week rule (#2166) with the acquisition's own
  * time as the join time; a team with no game row anywhere keeps `fromWeek`, as
- * there. ponytail: that function reads `now` and the live waiver state, so the
- * loop is repeated here rather than exported from a file this ticket does not
- * own; fold the two once they can share one pure helper.
+ * there. ponytail: the module's version reads `now` and the live waiver state,
+ * so the loop is repeated here; fold the two once they can share one pure helper.
  */
 function firstPlayableWeek(kickoffs, fromWeek, lastWeek, joinAt) {
   if (!kickoffs) return fromWeek;
@@ -286,31 +295,18 @@ async function buildAcquisitions(pool, { league, season, fromWeek, toWeek }) {
     })).map((r) => r.player_id));
 
     const roster = rows.map((r) => {
-      const verdict = run.startVerdictFor(r.player_id);
-      // The same zeroing `loadUpgradeContext` applies to a rostered player.
-      const zeroed = verdict.outcome === 'unavailable' || verdict.reason === 'backup';
       const kickoff = (kickoffsByTeam.get(normalizeNflTeam(r.nfl_team)) || new Map()).get(week);
       return {
         playerId: r.player_id,
         name: r.name,
         position: r.position,
         slot: r.slot,
-        projection: zeroed ? 0 : run.pointsFor(r.player_id),
-        unavailable: zeroed ? (verdict.reason || 'out') : null,
         kickedOff: !!kickoff && kickoff <= joinAt,
         // A player the team did not hold at his kickoff could not have started.
         actual: held.has(r.player_id) ? (price.get(r.player_id) || 0) : 0,
       };
     });
-    // The candidate's own refusals (CONTEXT.md Start verdict): no Upgrade is shown.
-    const verdict = run.startVerdictFor(candidate.id);
-    const refused = verdict.outcome === 'unavailable'
-      || (verdict.outcome === 'not_recommended' && !verdict.numberTrusted);
-    return {
-      roster,
-      predicted: refused ? 0 : (run.pointsFor(candidate.id) || 0),
-      actual: price.get(candidate.id) || 0,
-    };
+    return { roster, run, actual: price.get(candidate.id) || 0 };
   }
 
   const acquisitions = [];

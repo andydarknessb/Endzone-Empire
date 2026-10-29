@@ -93,7 +93,11 @@ test('a playoff-flipping stat correction alerts every commissioner, not the crea
   fake.install(t);
 
   const scoring = require('../services/matchupScoring.service');
-  t.mock.method(scoring, 'scoreMatchups', async () => ({}));
+  // #2602: the correction drives the scoring seam in its own transaction.
+  t.mock.method(scoring, 'scoreMatchupsInTransaction', async () => ({
+    league: null, scored: [], openMatchups: [],
+  }));
+  t.mock.method(scoring, 'announceScored', async () => {});
 
   const { correctLeagueWeek } = require('../services/correction.service');
   await correctLeagueWeek({ leagueId: 7, season: 2025, week: 15 });

@@ -121,24 +121,6 @@ function normalizeLiveGameEntry(entry, { season, week }) {
 }
 
 /**
- * Season/weeks worth polling right now: nfl_games' kickoff-window heuristic
- * (same coarse gate scheduler.js already uses) UNIONed with any
- * live_game_states row still marked in_progress — a safety net so a game
- * that runs long (weather delay, overtime) keeps polling even after its
- * kickoff-window has aged out.
- */
-async function findLiveWindowSeasonWeeks() {
-  const result = await pool.query(`
-    SELECT DISTINCT "season", "week" FROM "nfl_games"
-     WHERE "kickoff_at" BETWEEN now() - interval '8 hours' AND now()
-    UNION
-    SELECT DISTINCT "season", "week" FROM "live_game_states"
-     WHERE "game_status" = 'in_progress'
-  `);
-  return result.rows.map((r) => ({ season: r.season, week: r.week }));
-}
-
-/**
  * Everything `nextPollPlan` needs, in one round trip: the active (season, week)
  * windows, the current status + kickoff of every game in those windows, and the
  * next kickoff still in the future. An idle tick is exactly this one query.
@@ -688,7 +670,6 @@ module.exports = {
   tick,
   normalizeLiveGameEntry,
   mapTank01Status,
-  findLiveWindowSeasonWeeks,
   readPollState,
   nextPollPlan,
   fetchTank01Rows,

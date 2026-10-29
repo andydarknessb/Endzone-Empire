@@ -75,6 +75,7 @@ function startWorld(t) {
     }],
     [select('teams'), () => ({ rows: START_TEAMS })],
     [/FROM "draft_picks"/, () => ({ rows: [] })],
+    [/FROM "league_feed_sequences"/, () => ({ rows: [{ last_seq: '1' }] })],
     [insert('draft_activity'), (() => { let s = 1; return () => ({ rows: [{ id: s, feed_seq: String(s++), created_at: '2026-09-01T00:00:00.000Z' }], rowCount: 1 }); })()],
   ]).install(t);
   return fake;
@@ -178,6 +179,7 @@ function draftStateReads(leagueRow) {
     [select('leagues'), () => ({ rows: [{ ...leagueRow }] })],
     [select('teams'), () => ({ rows: START_TEAMS })],
     [/FROM "draft_picks"/, () => ({ rows: [] })],
+    [/FROM "league_feed_sequences"/, () => ({ rows: [{ last_seq: '1' }] })],
   ];
 }
 

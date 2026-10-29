@@ -18,6 +18,7 @@ const {
 const { optimalLineup, buildSwapSuggestions } = require('./lineupOptimizer');
 const projectionModel = require('./projectionModel');
 const { verdictBand } = require('./intervalReading');
+const { round2 } = require('./scoringRules');
 const { normalizeNflTeam } = require('./nflTeam');
 // The schedule read start/sit advice pairs with getPositionDefense below;
 // shared with the Players page rather than copied (#1574, #1136).
@@ -47,10 +48,6 @@ class DecisionError extends Error {
 
 const BENCH = 'BENCH';
 const IR = 'IR';
-
-function round2(x) {
-  return Math.round(Number(x) * 100) / 100;
-}
 
 // The advice wire's per-player verdict fields (spec #2042): the availability
 // facts (probability, status, lock) without `reason`, and the one
@@ -1151,79 +1148,6 @@ async function analyzeTrade({ leagueId, proposingTeamId, receivingTeamId, offere
   };
 }
 
-// ---------------------------------------------------------------------------
-// 4. Upgrade (player card)
-// ---------------------------------------------------------------------------
-
-const UPGRADE_CANDIDATE = Symbol('upgrade-candidate');
-
-/**
- * The optimal assignment over `roster` (sorted by `playerId`), with
- * `candidate` (`{ position, projection }`) added when given. A kicked-off
- * starter is pinned to his slot and a kicked-off bench player is no candidate.
- */
-function bestLineup(roster, rosterSlots, candidate = null) {
-  const pointsFor = new Map(roster.map((r) => [r.playerId, Number(r.projection) || 0]));
-  const { pinned, candidates: pool } = heldLineup(roster.map((r) => ({ ...r, locked: r.kickedOff })));
-  if (candidate) {
-    pointsFor.set(UPGRADE_CANDIDATE, Number(candidate.projection) || 0);
-    pool.push({ playerId: UPGRADE_CANDIDATE, position: candidate.position });
-  }
-  return optimalLineup({ rosterSlots, candidates: pool, pointsFor, pinned });
-}
-
-/**
- * Pure: the Upgrade (ADR 0055) - how much `candidate` (`{ position, projection }`)
- * adds to the caller's optimal lineup for the week: the optimal total with him
- * on the roster minus the optimal total without him, never below 0.
- *
- * `roster` is the team's starters and bench, IR excluded:
- * `[{ playerId, name, position, slot, projection, unavailable, kickedOff }]`
- * (`playerCard.service.js`'s `loadUpgradeContext` builds it). An Unavailable
- * player arrives with `projection` 0 and his reason in `unavailable`. A
- * kicked-off starter is pinned to his slot and a kicked-off bench player is no
- * lineup candidate, as in `buildSuggestions`.
- *
- * `overPlayer` is the roster player in the optimal lineup without the
- * candidate who is not in the one with him (`points` is his own effective
- * projection), null when the candidate fills an empty slot or gains nothing;
- * `slot` is the slot the candidate takes (null when he takes none).
- *
- * Order-invariant: the optimizer is deterministic only for a fixed input
- * order, and the roster read has no ORDER BY, so `roster` is sorted by
- * `playerId` here. Without it, which of two tied players `overPlayer` names
- * would change between page loads.
- */
-function upgradeFor(candidate, unsortedRoster, rosterSlots) {
-  const roster = [...unsortedRoster].sort((a, b) => a.playerId - b.playerId);
-  const without = bestLineup(roster, rosterSlots);
-  const withHim = bestLineup(roster, rosterSlots, candidate);
-  const points = Math.max(0, round2(withHim.total - without.total));
-  const out = points > 0
-    ? roster.find((r) => without.byPlayer.has(r.playerId) && !withHim.byPlayer.has(r.playerId))
-    : null;
-  return {
-    points,
-    overPlayer: out
-      ? { id: out.playerId, name: out.name ?? null, points: round2(Number(out.projection) || 0), unavailable: out.unavailable ?? null }
-      : null,
-    slot: withHim.byPlayer.get(UPGRADE_CANDIDATE) ?? null,
-  };
-}
-
-/**
- * Pure: what claiming `candidate` nets once the manager's pick `dropPlayerId`
- * leaves the roster (ADR 0062): the optimal lineup with him in and the drop
- * out, minus the optimal lineup `roster` fields now. Signed, so it goes
- * negative when the drop is worth more than the candidate. `roster` and
- * `candidate` are `upgradeFor`'s; the Upgrade itself never takes the drop.
- */
-function swapNetFor(candidate, unsortedRoster, rosterSlots, dropPlayerId) {
-  const roster = [...unsortedRoster].sort((a, b) => a.playerId - b.playerId);
-  const kept = roster.filter((r) => r.playerId !== Number(dropPlayerId));
-  return round2(bestLineup(kept, rosterSlots, candidate).total - bestLineup(roster, rosterSlots).total);
-}
-
 module.exports = {
   DecisionError,
   buildSuggestions,
@@ -1240,6 +1164,4 @@ module.exports = {
   tradeVerdict,
   tradeFairnessSummary,
   analyzeTrade,
-  upgradeFor,
-  swapNetFor,
 };

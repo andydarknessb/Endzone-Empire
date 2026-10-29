@@ -18,6 +18,7 @@ const {
 } = require('../services/teamIdentity');
 const { feedEntryOf, isBlockableFeedType, listBlockersOf } = require('../services/leagueFeed');
 const { checkChatSend } = require('./chatFlood');
+const { socketEventLimiter, refuseExtraSockets } = require('./socketRateLimit');
 const { MAX_CHAT_CHARS } = require('./chatLimits');
 const { TEXT, GIF, validateGifSend } = require('./gifMessage');
 const { isGifMessagesEnabled } = require('./gifCapability');
@@ -25,6 +26,9 @@ const { isLeagueCommissioner } = require('../services/leagueRole.service');
 const { getCorsOptions } = require('./clientOrigins');
 const { createAdapter } = require('@socket.io/redis-adapter');
 const { createRedisSubscriber, getRedisClient } = require('./redis');
+
+const TOKEN_EXPIRY_GRACE_MS = 60_000;
+const TOKEN_EXPIRY_SWEEP_MS = 15_000;
 
 /**
  * Real-time draft room. Clients connect with { auth: { token } }, then:
@@ -39,7 +43,7 @@ const { createRedisSubscriber, getRedisClient } = require('./redis');
  * The code is the discriminator, never the message text; joinError below says
  * why, and which single code a client may act on.
  */
-function attachDraftSocket(httpServer) {
+function attachDraftSocket(httpServer, { now = Date.now } = {}) {
   const io = new Server(httpServer, {
     cors: getCorsOptions(),
   });
@@ -51,6 +55,9 @@ function attachDraftSocket(httpServer) {
     io.redisSubscriber = subscriber;
   })();
   io.use(requireSocketAuth);
+  // #2605: after auth (it needs the user id), before any handler. A user
+  // already holding the maximum is refused rather than the oldest evicted.
+  io.use(refuseExtraSockets(io));
   setIo(io); // let scoring/scheduler broadcast without a circular require
   // Construct the one Draft room broadcast (#745) over this process's `io` and
   // register it, so pickClock, draftStart and the draft router emit room-wide
@@ -65,6 +72,11 @@ function attachDraftSocket(httpServer) {
   // sends; this mirrors modules/rateLimit.js's local fallback.
   const chatFloodStore = new Map();
 
+  // Per-user event budget (#2605), the same process-local trade as the flood
+  // store above: it is a load guard, not a billing counter.
+  // shortcut: with N API instances a user gets N times the budget, move the bucket to Redis if one instance is ever not enough
+  const socketEventStore = new Map();
+
   io.on('connection', (socket) => {
     // Expose the authenticated user id on socket.data so a per-recipient chat
     // broadcast can identify a REMOTE socket (one on another instance behind the
@@ -73,6 +85,10 @@ function attachDraftSocket(httpServer) {
     // Addressable by user (membershipEnded): a removed manager's sockets are
     // reached here even though they joined the league room on their own.
     socket.join(`user:${socket.user.id}`);
+    // #2605: every client event (`auth:refresh` too, which requireSocketAuth
+    // registered above) passes this before its handler, drawing on the ONE
+    // bucket this user holds across all their sockets.
+    socket.use(socketEventLimiter(socketEventStore, socket.user.id, now));
 
     // Generic league room join (live scores, chat) — no draft state attached
     socket.on('league:join', async ({ leagueId } = {}, ack) => {
@@ -324,11 +340,25 @@ function attachDraftSocket(httpServer) {
     });
   });
 
+  // #2556: a socket is only authenticated at the handshake, so one whose token
+  // expired (recorded at the handshake, moved by `auth:refresh`) and was never
+  // renewed is dropped once the grace has passed. The client refreshes and
+  // reconnects. Each instance sweeps its own sockets; none are shared.
+  io.sweepExpiredSockets = () => {
+    const cutoff = now() - TOKEN_EXPIRY_GRACE_MS;
+    for (const socket of io.sockets.sockets.values()) {
+      if (socket.data.tokenExpiresAt < cutoff) socket.disconnect(true);
+    }
+  };
+  io.expirySweepTimer = setInterval(io.sweepExpiredSockets, TOKEN_EXPIRY_SWEEP_MS);
+  io.expirySweepTimer.unref();
+
   return io;
 }
 
 async function closeDraftSocket(io) {
   if (!io) return;
+  clearInterval(io.expirySweepTimer);
   await new Promise((resolve) => io.close(resolve));
   if (io.redisSubscriber?.isOpen) await io.redisSubscriber.quit();
 }

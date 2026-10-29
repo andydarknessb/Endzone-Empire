@@ -146,16 +146,6 @@ async function revokeRefreshToken({ token }) {
   return { ok: true, userId: result.rows[0]?.user_id ?? null };
 }
 
-/** Kill every session for a user (password reset / commissioner action). */
-async function revokeAllForUser({ userId }, client = pool) {
-  await client.query(
-    `UPDATE "refresh_tokens" SET "revoked" = true, "updated_at" = now()
-     WHERE "user_id" = $1 AND "revoked" = false`,
-    [userId]
-  );
-  return { ok: true };
-}
-
 module.exports = {
   TokenError,
   REFRESH_TTL_DAYS,
@@ -164,5 +154,4 @@ module.exports = {
   issueRefreshToken,
   rotateRefreshToken,
   revokeRefreshToken,
-  revokeAllForUser,
 };

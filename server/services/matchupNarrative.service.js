@@ -7,7 +7,7 @@ const lineup = require('./lineup.service');
 const expectedFinal = require('./expectedFinal.service');
 const { computeStandings } = require('./season.service');
 const { countedRoster } = require('./countedRoster.service');
-const { rulesForLeague, calculateFantasyPoints } = require('./scoringRules');
+const { rulesForLeague, calculateFantasyPoints, round2 } = require('./scoringRules');
 
 /**
  * Matchup narrative (ADR 0063, CONTEXT.md): per Matchup a preview (once the
@@ -34,7 +34,6 @@ const PREVIEW_SYSTEM = `${SYSTEM} This is a preview before kickoff: state the pr
 const POSTGAME_SYSTEM = `${SYSTEM} This is a postgame note: you may state the final score and a top scorer's points exactly as given, and no other number.`;
 
 const token = (teamId) => `[[team:${teamId}]]`;
-const round2 = (n) => Math.round(Number(n) * 100) / 100;
 const record = (s) => `${s.wins}-${s.losses}${s.ties ? `-${s.ties}` : ''}`;
 
 /** Pure: the preview template. Tokens name the Teams; no number is stated. */

@@ -22,15 +22,6 @@ const logger = pino({
   },
 });
 
-function errorFields(error) {
-  if (!(error instanceof Error)) return { error };
-  return {
-    err: error,
-    errorName: error.name,
-    errorMessage: error.message,
-  };
-}
-
 function installConsoleBridge() {
   if (global.__ENDZONE_CONSOLE_BRIDGED__) return;
   global.__ENDZONE_CONSOLE_BRIDGED__ = true;
@@ -57,4 +48,4 @@ function installConsoleBridge() {
   console.debug = (...args) => write('debug', args);
 }
 
-module.exports = { errorFields, installConsoleBridge, logger };
+module.exports = { installConsoleBridge, logger };

@@ -5,6 +5,7 @@ const { computeStandings } = require('./season.service');
 const { notify } = require('./activity.service');
 const { LEAGUE_PHASE, deriveLeaguePhase } = require('./leaguePhase');
 const { slotEligible, parseLineupSettings } = require('./lineup.service');
+const { round2 } = require('./scoringRules');
 
 /**
  * Trophies: automatic awards written after weekly scoring (and, once the
@@ -266,8 +267,6 @@ async function awardWeeklyTrophies({ leagueId, season, week, seasonComplete }) {
   await notifyAwardedOwners({ leagueId, awarded });
   return awarded;
 }
-
-const round2 = (x) => Math.round(Number(x) * 100) / 100;
 
 /**
  * Pure: the one bench move that would have beaten `margin` by the most, or
@@ -807,17 +806,6 @@ async function reconcilePickemChampionTrophies({ client, leagueId, season, champ
   });
 }
 
-/** All trophies a team has earned, newest first. */
-async function getTeamTrophies({ teamId }) {
-  const result = await pool.query(
-    `SELECT "trophies".*, "teams"."name" AS "team_name"
-     FROM "trophies" JOIN "teams" ON "teams"."id" = "trophies"."team_id"
-     WHERE "team_id" = $1 ORDER BY "awarded_at" DESC`,
-    [teamId]
-  );
-  return result.rows;
-}
-
 /** A league's trophies (optionally one season), newest first. */
 async function getLeagueTrophies({ leagueId, season }) {
   const params = [leagueId];
@@ -846,6 +834,5 @@ module.exports = {
   awardPickemChampions,
   reconcilePickemChampionTrophies,
   notifyAwardedOwners,
-  getTeamTrophies,
   getLeagueTrophies,
 };

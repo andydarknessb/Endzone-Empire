@@ -105,6 +105,7 @@ function escalationWorld() {
     [/FROM "players"/, () => ({ rows: [] })],
     [/FROM "team_players"/, () => ({ rows: [] })],
     [/FROM "draft_picks"/, () => ({ rows: [] })],
+    [/FROM "league_feed_sequences"/, () => ({ rows: [{ last_seq: '1' }] })],
     // escalateNothingDraftable's named-team read and autoPick's rotation read.
     [/FROM "teams"/, () => ({ rows: [STUCK_TEAM] })],
     [update('leagues'), () => ({ rows: [], rowCount: 1 })],

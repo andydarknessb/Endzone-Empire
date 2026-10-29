@@ -16,6 +16,8 @@ const { isOnWaivers } = require('./waiverStatus');
 const {
   assertRosterWriteAllowed, isLeagueFrozen, ROSTER_GATE, positionCapGroup, parsePositionCaps, countAtPositionGroup,
 } = require('./rosterGate.service');
+// The one writer of a single-player Roster move (#2535).
+const rosterMove = require('./rosterMove.service');
 
 class WaiverError extends Error {
   constructor(statusCode, message, code) {
@@ -66,8 +68,8 @@ function orderClaims(claims, priorities, waiverType) {
  * at the moment he was dropped (#197). The undo replays that record rather
  * than reading a leftover lineup row, because the drop deletes the row. The
  * hold is the right home for it: it already names the dropping team, it
- * already gates undo, and it is cleared when the hold clears, which is
- * exactly when the undo stops being offered.
+ * already gates undo, and its `created_at` is the instant the two-minute undo
+ * window is measured from (#2546) - the ON CONFLICT rule below never moves it.
  *
  * `availableAt` (#1375, ADR 0043) is an absolute-instant override for a
  * caller that already knows the clear time itself - the kickoff hold job,
@@ -83,61 +85,84 @@ function orderClaims(claims, priorities, waiverType) {
  * never touches them regardless of which caller loses the race: a kickoff
  * hold's null dropping team can never blank a real drop's record, and the
  * columns otherwise remain exactly what the row's first write set them to.
+ *
+ * One statement text serves one player and a whole league's pool
+ * (`placeOnWaiversForPlayers`, #2602): the player list is an array either
+ * way, so the conflict rule above is written once and cannot drift between
+ * the two forms.
+ *
+ * `created_at` is written explicitly as `clock_timestamp()`, not left to its
+ * column default: the default is `now()`, which is the TRANSACTION's start, and
+ * a drop that waited on the league lock before inserting would then carry a
+ * first write older than the write itself. The two-minute undo window is
+ * measured from this column (#2546), so it must be the instant of the write.
  */
-async function placeOnWaivers(client, {
+const PLACE_ON_WAIVERS_SQL = `
+  INSERT INTO "waiver_players" ("league_id", "player_id", "available_at", "dropped_by_team_id",
+                                "interrupted_slot", "interrupted_ir_attested", "created_at")
+  SELECT $1::int, "held"."player_id",
+         COALESCE($3::timestamptz, now() + make_interval(hours => $4::int)),
+         $5::int, $6::text, $7::boolean, clock_timestamp()
+  FROM unnest($2::int[]) AS "held"("player_id")
+  ON CONFLICT ("league_id", "player_id")
+  DO UPDATE SET "available_at" = GREATEST("waiver_players"."available_at", EXCLUDED."available_at"),
+                "updated_at" = now()`;
+
+/**
+ * The array form of a hold: one statement for the whole list. The kickoff
+ * tick uses it for a league's kicked-off pool (~900 players at a Sunday
+ * early window) so it issues one round trip instead of one per player.
+ * Returns how many rows were asked for, not how many changed.
+ */
+async function placeOnWaiversForPlayers(client, {
   leagueId,
-  playerId,
+  playerIds,
   waiverPeriodHours,
   availableAt = null,
   droppedByTeamId = null,
   interruptedSlot = null,
   interruptedIrAttested = false,
 }) {
-  await client.query(
-    `INSERT INTO "waiver_players" ("league_id", "player_id", "available_at", "dropped_by_team_id",
-                                   "interrupted_slot", "interrupted_ir_attested")
-     VALUES ($1, $2, COALESCE($3::timestamptz, now() + make_interval(hours => $4::int)), $5, $6, $7)
-     ON CONFLICT ("league_id", "player_id")
-     DO UPDATE SET "available_at" = GREATEST("waiver_players"."available_at", EXCLUDED."available_at"),
-                   "updated_at" = now()`,
-    [leagueId, playerId, availableAt, waiverPeriodHours, droppedByTeamId, interruptedSlot, interruptedIrAttested]
-  );
+  if (playerIds.length === 0) return 0;
+  // A repeated id would abort the one statement ("ON CONFLICT DO UPDATE
+  // cannot affect row a second time"), which the per-player loop never did:
+  // one write per distinct player is the behaviour both forms keep (#2606).
+  const ids = [...new Set(playerIds)];
+  await client.query(PLACE_ON_WAIVERS_SQL, [
+    leagueId, ids, availableAt, waiverPeriodHours,
+    droppedByTeamId, interruptedSlot, interruptedIrAttested,
+  ]);
+  return ids.length;
+}
+
+async function placeOnWaivers(client, { playerId, ...hold }) {
+  await placeOnWaiversForPlayers(client, { ...hold, playerIds: [playerId] });
 }
 
 /**
- * `placeOnWaivers` plus everything an undo will need: what the dropped
- * player's current-week lineup row held, recorded on the hold before the row
- * is deleted, and the team that may replay it.
+ * `placeOnWaivers` for an undoable drop: names the team that may undo it, and
+ * records what the drop interrupted on the hold.
  *
- * Named for what it does, which is not the whole drop. The caller still owns
- * the roster row: delete it first, then call this inside the same
- * transaction. Both callers do exactly that.
- *
- * The order is the point, and it is why this is one function rather than
- * three calls repeated at each site: `currentWeekEntry` has to run before
- * `removeLineupEntries` takes the row away, and both have to run before the
- * hold is written, or the hold records nothing and the undo silently
- * benches him (#197).
+ * The interrupted stash is not read here. It comes from the roster move module
+ * (#2535), which reads his current-week row BEFORE it removes the entries and
+ * hands the record back as `stash` - the one place that ordering has to be
+ * right, so it is written once there rather than repeated at each drop site.
  *
  * **Two callers, and a third that must not become one.** `draft.service`'s
  * manager drop and `commissioner.service`'s forced drop are both undoable
  * and both belong here. The waiver-claim drop in `processWaivers` below is
  * not: a claim's drop leaves no undo to offer, so it records no interrupted
  * stash and names no dropping team, and it calls `placeOnWaivers` directly.
- * That is a deliberate difference, not an oversight - hence the name. If a
- * fourth drop path appears, the question to answer before reaching for this
- * helper is whether it is undoable; if it is not, it does not want the
- * record and passing it would offer an undo that cannot work.
+ * That is a deliberate difference, not an oversight - hence the name.
  */
-async function placeOnWaiversUndoable(client, { league, teamId, playerId }) {
-  const interrupted = await lineupService.currentWeekEntry(client, { league, teamId, playerId });
-  await lineupService.removeLineupEntries(client, { league, teamId, playerId });
+async function placeOnWaiversUndoable(client, { league, teamId, playerId, stash }) {
   await placeOnWaivers(client, {
     leagueId: league.id,
     playerId,
     waiverPeriodHours: league.waiver_period_hours,
     droppedByTeamId: teamId,
-    ...lineupService.interruptedStashFields(interrupted),
+    interruptedSlot: stash ? stash.slot : null,
+    interruptedIrAttested: stash ? stash.irAttested : false,
   });
 }
 
@@ -681,43 +706,29 @@ async function processWaivers({ leagueId }) {
         }
       }
 
-      // The write-time roster gate (#944), once per claim immediately before
-      // this claim's write: a claim submitted before a freeze must not land
-      // during it (#940 story 4). The gate reads the freeze off the League row
-      // it re-locks FOR UPDATE (the League is already held from the top of
-      // processWaivers, League-first order); a frozen League throws, the
-      // transaction rolls back, and every due claim stays pending for the next
-      // tick rather than being awarded or permanently invalidated. The team
-      // lock and the acquire bundle are bypassed: this batch path enforces its
-      // net capacity and net position cap through claimFailureReason above and
-      // does not enforce the on-waivers gate (a waiver award IS a waiver), and
-      // per-team-lock handling on the batch path is a later ticket - so this
+      // The write-time roster gate (#944) now runs inside `add` below, once per
+      // claim immediately before this claim's write: a claim submitted before a
+      // freeze must not land during it (#940 story 4). A frozen League throws,
+      // the transaction rolls back, and every due claim stays pending for the
+      // next tick rather than being awarded or permanently invalidated. The team
+      // lock and the acquire bundle are bypassed there: this batch path enforces
+      // its net capacity and net position cap through claimFailureReason above
+      // and does not enforce the on-waivers gate (a waiver award IS a waiver),
+      // and per-team-lock handling on the batch path is a later ticket - so this
       // slice changes only the freeze here (#944 criterion 5).
-      await assertRosterWriteAllowed(client, {
-        leagueId,
-        teamId: team.id,
-        direction: 'acquire',
-        playerId,
-        bypass: [ROSTER_GATE.TEAM_LOCK, ROSTER_GATE.CAPACITY, ROSTER_GATE.POSITION_CAP, ROSTER_GATE.WAIVER_HOLD],
-      });
 
-      // Execute: optional drop (dropped player goes on waivers), then add
+      // Execute: optional drop (dropped player goes on waivers), then add.
       if (claim.drop_player_id) {
-        await client.query(
-          `DELETE FROM "team_players" WHERE "team_id" = $1 AND "player_id" = $2`,
-          [team.id, claim.drop_player_id]
-        );
-        // The lineup follows the roster (#197). No interrupted-stash
-        // record here: a waiver-claim drop is not undoable, so there is
-        // nothing for an undo to replay.
-        //
-        // This is the third drop-to-waivers sequence and the one that
-        // deliberately stays open-coded: `placeOnWaiversUndoable` above
-        // exists for the two that ARE undoable, and routing this one
-        // through it would write a hold advertising an undo no route
-        // offers (#222). The omission is the behaviour, not a shortcut.
-        await lineupService.removeLineupEntries(client, {
-          league, teamId: team.id, playerId: claim.drop_player_id,
+        // Not undoable, so nothing is recorded on the hold and no dropping team
+        // is named; the module removes the lineup entries with the roster row
+        // (#197, #2535). Team lock is bypassed for the same reason the award
+        // bypasses it: the batch path's per-team-lock handling is a later ticket.
+        await rosterMove.drop(client, {
+          league,
+          teamId: team.id,
+          playerId: claim.drop_player_id,
+          undoable: false,
+          bypass: [ROSTER_GATE.TEAM_LOCK],
         });
         await placeOnWaivers(client, {
           leagueId,
@@ -725,12 +736,13 @@ async function processWaivers({ leagueId }) {
           waiverPeriodHours: league.waiver_period_hours,
         });
       }
-      await client.query(
-        `INSERT INTO "team_players" ("league_id", "team_id", "player_id") VALUES ($1, $2, $3)`,
-        [leagueId, team.id, playerId]
-      );
       // A won claim lands on the bench, never back in an old stash (#94).
-      await lineupService.benchAcquiredPlayer(client, { league, teamId: team.id, playerId });
+      await rosterMove.add(client, {
+        league,
+        teamId: team.id,
+        playerId,
+        bypass: [ROSTER_GATE.TEAM_LOCK, ROSTER_GATE.CAPACITY, ROSTER_GATE.POSITION_CAP, ROSTER_GATE.WAIVER_HOLD],
+      });
       if (league.waiver_type === 'faab' && claim.bid > 0) {
         await client.query(
           `UPDATE "teams" SET "faab_remaining" = "faab_remaining" - $1, "updated_at" = now() WHERE "id" = $2`,
@@ -901,10 +913,13 @@ async function positionCapFailureReason(client, { league, team, claim, dropPlaye
  * variant code (the WSH/WAS class) still matches the kicked-off set the
  * schedule side already normalised.
  *
- * The write is `placeOnWaivers` unmodified for this caller: greater-of on
- * conflict, dropping team and interrupted-stash columns never touched, so a
- * row a drop already wrote survives a tick untouched apart from its clear
- * time, and a tick's row survives a later drop the same way.
+ * The write is `placeOnWaiversForPlayers` with this caller's clear time
+ * (#2602): the same statement every drop writes, given the whole league's
+ * kicked-off pool at once - ~900 players at a Sunday early window, one
+ * round trip instead of 900 inside the worker tick. Greater-of on conflict,
+ * dropping team and interrupted-stash columns never touched, so a row a
+ * drop already wrote survives a tick untouched apart from its clear time,
+ * and a tick's row survives a later drop the same way.
  *
  * A league with no kicked-off team this tick, or no schedule for its current
  * week, is skipped with no query against `players` - the common case on
@@ -913,14 +928,15 @@ async function positionCapFailureReason(client, { league, team, claim, dropPlaye
  *
  * The candidate query also excludes a player already held at or past this
  * week's clear (#1375 review f2): without it, every already-held player on a
- * kicked-off team gets a `placeOnWaivers` round trip - a no-op ON CONFLICT
- * write that still stamps `updated_at` - on EVERY tick from the week's first
- * kickoff until the week advances, across every complete-draft league. The
- * exclusion is a read filter, not a second copy of the conflict rule:
- * `placeOnWaivers` stays the one place greater-of and the untouched columns
- * are decided; this only decides which players are worth asking it about.
+ * kicked-off team is written back by the tick's statement - a no-op ON
+ * CONFLICT write that still stamps `updated_at` - on EVERY tick from the
+ * week's first kickoff until the week advances, across every complete-draft
+ * league. The exclusion is a read filter, not a second copy of the conflict
+ * rule: the placement statement stays the one place greater-of and the
+ * untouched columns are decided; this only decides which players are worth
+ * asking it about.
  *
- * The candidate SELECT and the per-player upserts are separate statements
+ * The candidate SELECT and the league-wide upsert are separate statements
  * with no shared lock (#1375 review f3): a player rostered between the two
  * - a commissioner force, or a manager Add in the moment before his team's
  * kickoff - can end up with a waiver hold row while rostered. That row is
@@ -931,13 +947,13 @@ async function positionCapFailureReason(client, { league, team, claim, dropPlaye
  * player-keyed and does not itself check current roster status, so a stray
  * row can refuse a trade for this player as "on waivers" until the row
  * clears. Left as a documented, narrow race rather than guarded: closing it
- * needs either an all-candidates single-transaction pass (which would hold
- * the whole league's unrostered pool locked for the write) or a re-check
- * inside `placeOnWaivers` itself (which would make the drop path pay for a
- * check only this caller needs) - both a larger change than this fix. The
- * window runs from the league's candidate SELECT to that player's own
- * upsert, and the upserts run one by one, so for the last candidate it spans
- * up to that whole league's per-player pass, not the whole tick.
+ * needs either an all-candidates single-transaction pass (an actual
+ * transaction, which is what holds the whole league's unrostered pool
+ * locked for the write) or a re-check inside the placement itself (which
+ * would make the drop path pay for a check only this caller needs) - both a
+ * larger change than this fix. The window runs from the league's candidate
+ * SELECT to its one upsert statement, so it spans that statement's round
+ * trip, not the whole tick.
  */
 async function holdKickedOffPlayers({ now = new Date() } = {}) {
   const leaguesResult = await pool.query(
@@ -996,13 +1012,11 @@ async function holdKickedOffPlayersForLeague(league, now) {
     [leagueId, availableAt]
   );
 
-  let held = 0;
+  const playerIds = [];
   for (const row of candidatesResult.rows) {
-    if (!kickedOff.has(normalizeNflTeam(row.nfl_team))) continue;
-    await placeOnWaivers(pool, { leagueId, playerId: row.id, waiverPeriodHours, availableAt });
-    held += 1;
+    if (kickedOff.has(normalizeNflTeam(row.nfl_team))) playerIds.push(row.id);
   }
-  return held;
+  return placeOnWaiversForPlayers(pool, { leagueId, playerIds, waiverPeriodHours, availableAt });
 }
 
 /** Scheduler entry point: process every league whose waiver availability changed. */
@@ -1037,6 +1051,7 @@ module.exports = {
   claimFailureReason,
   orderClaims,
   placeOnWaivers,
+  placeOnWaiversForPlayers,
   placeOnWaiversUndoable,
   isOnWaivers,
   submitClaim,

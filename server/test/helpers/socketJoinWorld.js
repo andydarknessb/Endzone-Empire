@@ -45,6 +45,8 @@
 const { createFakePool, select } = require('./fakePool');
 
 const LEAGUE_ID = 1;
+/** The League's feed position, as pg returns a bigint: a string (#2609). */
+const FEED_SEQ = '7';
 
 const OWNER = { userId: 7, username: 'commish', teamId: 71, teamName: 'Founding Fathers' };
 const CO_COMMISSIONER = { userId: 8, username: 'second', teamId: 81, teamName: 'Second Chair' };
@@ -122,6 +124,8 @@ function leagueWorld({ coCommissioners = [] } = {}) {
       rows: leagueId === LEAGUE_ID ? [{ ...LEAGUE_ROW }] : [],
     })],
 
+    [/FROM "league_feed_sequences"/, () => ({ rows: [{ last_seq: FEED_SEQ }] })],
+
     [/FROM "draft_picks" JOIN "players"/, () => ({ rows: [] })],
   ]);
 }
@@ -129,6 +133,7 @@ function leagueWorld({ coCommissioners = [] } = {}) {
 module.exports = {
   leagueWorld,
   LEAGUE_ID,
+  FEED_SEQ,
   OWNER,
   CO_COMMISSIONER,
   MEMBER,

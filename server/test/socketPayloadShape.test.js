@@ -245,7 +245,7 @@ async function capturePicked(t) {
 // sites share this set), so both carry it; deleting it from the outcome turns
 // the pick-handler capture red against this exact-key guard.
 const PICKED_ROOT_CLEAN = [
-  'activity', 'completion', 'auto', 'draftComplete', 'leagueId', 'nextPickIndex', 'nextTeamId', 'pickDeadlineAt', 'pickNumber', 'player', TEAM_ID, TEAM_NAME,
+  'activity', 'completion', 'auto', 'draftComplete', 'leagueId', 'nextPickIndex', 'nextTeamId', 'pickDeadlineAt', 'pickNumber', 'player', 'seq', TEAM_ID, TEAM_NAME,
 ];
 
 // The Draft-activity entry now rides on a room broadcast, so it is bound by the
@@ -271,6 +271,14 @@ test('draft:picked names the picker by Team at the root, with no by account obje
   assert.equal(picked.activity.type, 'draft_activity');
   assert.equal(picked.activity.kind, 'pick');
   assert.equal(picked.activity.isAutopick, false);
+});
+
+// #2609: the Pick carries its Draft activity entry's feed position, so a client
+// orders it against any draft:state by seq.
+test('draft:picked carries the seq of its Draft activity entry (#2609)', async (t) => {
+  const picked = await capturePicked(t);
+  assert.strictEqual(picked.seq, 2);
+  assert.strictEqual(picked.seq, picked.activity.seq);
 });
 
 // The SECOND draft:picked emit site (the Pick clock module's autoPick,
@@ -304,6 +312,7 @@ async function captureAutopickPicked(t) {
       player: { id: 500, name: 'Pick Me', position: 'RB', nflTeam: 'KC' },
       round: 1, pickNumber: 1, isAutopick: true, isLegacy: false, created_at: '2026-09-01T00:00:00.000Z',
     },
+    seq: 2, // the activity entry's feed position (#2609)
     // This pick did not end the draft, so no completion lifecycle entry (#437).
     completion: null,
   }));
@@ -419,6 +428,7 @@ const draftStateTeamRow = ({ teamId, teamName }, draftPosition) => ({
 function draftStateFake(t) {
   return createFakePool([
     [select('leagues'), () => ({ rows: [{ ...DRAFT_STATE_LEAGUE }] })],
+    [/FROM "league_feed_sequences"/, () => ({ rows: [{ last_seq: '5' }] })],
     [/FROM "teams"\s+WHERE/, () => ({
       rows: [draftStateTeamRow(VIEWER, 1), draftStateTeamRow(OTHER, 2)],
     })],

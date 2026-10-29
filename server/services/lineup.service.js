@@ -13,6 +13,7 @@ const { gameStateFor } = require('./gameState');
 const { nflRosterStatusColumn } = require('./nflRosterStatus');
 const { getVegasOddsProvider, impliedTeamPoints } = require('./vegasOdds.provider');
 const { isIndoorGame, isWeatherFresh } = require('./nwsWeather.service');
+const { round2 } = require('./scoringRules');
 
 class LineupError extends Error {
   constructor(statusCode, message, code = null) {
@@ -93,22 +94,6 @@ function slotEligible(slotKey, position, rosterSlots = DEFAULT_ROSTER_SLOTS) {
   const slot = rosterSlots.find((s) => s.key === slotKey);
   if (!slot) return false;
   return expandEligibility(slot.eligiblePositions).has(position);
-}
-
-/**
- * Pure: the roster slots (FLEX included) a position is eligible to start in,
- * given `rosterSlots`. A count-0 slot seats nobody, so it is excluded even
- * when the position would otherwise be eligible for it. Folded in from
- * decision.service's own local copy (#1503): decision.service.upgradeFor is
- * the only caller (serving the player-card/cards-view Upgrade via
- * playerCard.service.js), but the mapping is a `slotEligible` question over
- * every starting slot, so it lives beside `slotEligible` rather than
- * duplicated at the call site.
- */
-function eligibleSlotsFor(position, rosterSlots) {
-  return rosterSlots
-    .filter((s) => s.count > 0 && slotEligible(s.key, position, rosterSlots))
-    .map((s) => s.key);
 }
 
 /**
@@ -545,18 +530,6 @@ async function currentWeekEntry(client, { league, teamId, playerId }) {
     [teamId, playerId, league.current_season, league.current_week]
   );
   return result.rows[0] || null;
-}
-
-/**
- * A `currentWeekEntry` result as the waiver hold's interrupted-stash fields
- * (#197). One mapping, shared by the two drops that are undoable, so "he had
- * no current-week entry" is spelled the same way at both.
- */
-function interruptedStashFields(entry) {
-  return {
-    interruptedSlot: entry ? entry.slot : null,
-    interruptedIrAttested: Boolean(entry && entry.ir_attested),
-  };
 }
 
 /**
@@ -1210,8 +1183,6 @@ async function loadLeagueAndTeam(client, { leagueId, userId, forUpdate = false, 
   const team = await requireMember(client, { leagueId, userId, forUpdate });
   return { league, team };
 }
-
-const round2 = (x) => Math.round(x * 100) / 100;
 
 /**
  * The Edge line's `factor` kind (CONTEXT.md, Edge line; #1235): the
@@ -1920,7 +1891,6 @@ module.exports = {
   expandEligibility,
   rosterablePositions,
   slotEligible,
-  eligibleSlotsFor,
   parseLineupSettings,
   validateLineup,
   entriesForLineupValidation,
@@ -1930,7 +1900,6 @@ module.exports = {
   removeLineupEntries,
   spentStartingSlots,
   currentWeekEntry,
-  interruptedStashFields,
   restoreInterruptedStash,
   lockedPlayerIds,
   kickedOffTeams,

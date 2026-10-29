@@ -113,7 +113,7 @@ const FRESH_ROW = (over = {}) => ({
   min_teams: 8, draft_reminder_stage: 0, draft_autostart_failed: false, team_count: 5, ...over,
 });
 
-function scheduleFakePool({ league, fresh, coCommissioners = [], market = 500 } = {}) {
+function scheduleFakePool({ league, fresh, coCommissioners = [], market = 500, flagRowCount = 1 } = {}) {
   // `market` is either a fixed count or a function called per query, so a test
   // can make the count change between the tick's read and the locked re-read
   // (#882: a concurrent ADP sync landing during the FOR UPDATE wait).
@@ -125,7 +125,7 @@ function scheduleFakePool({ league, fresh, coCommissioners = [], market = 500 } 
     // tick. Default clears MARKET_FLOOR so the pre-#747 cases are unaffected.
     [/FROM "players" WHERE "adp" IS NOT NULL/, () => ({ rows: [{ n: marketFn() }] })],
     [/^UPDATE "leagues" SET "draft_autostart_failed" = true WHERE "id" = \$1$/, () => ({ rows: [], rowCount: 1 })],
-    [/^UPDATE "leagues" SET "draft_autostart_failed" = true WHERE "id" = \$1 AND "draft_status" = 'pending'$/, () => ({ rows: [], rowCount: 1 })],
+    [/^UPDATE "leagues" SET "draft_autostart_failed" = true WHERE "id" = \$1 AND "draft_status" = 'pending'$/, () => ({ rows: [], rowCount: flagRowCount })],
     [/FROM "league_commissioners"/, () => ({ rows: coCommissioners.map((user_id) => ({ user_id, username: `co${user_id}` })) })],
     [/^INSERT INTO "notifications"/, () => ({ rows: [] })],
   ]);
@@ -283,7 +283,9 @@ test('understaffed issues no market re-read: only actions that could show a stal
 test('a scheduled start that fails to auto-start notifies the owner AND every co-commissioner', async (t) => {
   const league = LEAGUE_ROW({ min_teams: 2, team_count: 5 }); // enough teams: the action is 'start'
   const fresh = FRESH_ROW({ min_teams: 2, team_count: 5 });
-  const fake = scheduleFakePool({ league, fresh, coCommissioners: [CO_COMMISSIONER] });
+  // The draft is still pending, so the flag UPDATE matches its row (#2607): the
+  // failure is real and the commissioners hear about it.
+  const fake = scheduleFakePool({ league, fresh, coCommissioners: [CO_COMMISSIONER], flagRowCount: 1 });
   fake.install(t);
 
   const draftStartService = require('../services/draftStart.service');
@@ -293,6 +295,7 @@ test('a scheduled start that fails to auto-start notifies the owner AND every co
   const actions = await processScheduledDrafts({ now: NOW });
   assert.deepEqual(actions, [{ leagueId: LEAGUE_ID, action: 'start' }]);
 
+  assert.equal(fake.matching(/SET "draft_autostart_failed" = true/).length, 1, 'the flag UPDATE ran');
   const notifications = fake.matching(/^INSERT INTO "notifications"/);
   assert.equal(notifications.length, 2, 'one notification per current commissioner');
   const notifiedUserIds = notifications.map((c) => c.params[0]).sort();
@@ -300,6 +303,27 @@ test('a scheduled start that fails to auto-start notifies the owner AND every co
   for (const call of notifications) {
     assert.match(call.params[3], /couldn't auto-start: keepers are stale, resave them first/);
   }
+});
+
+test('a failed start against a draft already started (flag UPDATE matches no pending row) notifies nobody (#2607)', async (t) => {
+  // A commissioner started the draft by hand between the tick's read and the
+  // scheduled start, so startDraft refuses 409 'draft already started' and the
+  // flag UPDATE matches no pending row. The draft is running: the failure is not
+  // news, and a "couldn't auto-start" card mid-draft is pure noise.
+  const league = LEAGUE_ROW({ min_teams: 2, team_count: 5 });
+  const fresh = FRESH_ROW({ min_teams: 2, team_count: 5 });
+  const fake = scheduleFakePool({ league, fresh, coCommissioners: [CO_COMMISSIONER], flagRowCount: 0 });
+  fake.install(t);
+
+  const draftStartService = require('../services/draftStart.service');
+  const boom = Object.assign(new Error('draft already started'), { statusCode: 409 });
+  t.mock.method(draftStartService, 'startDraft', async () => { throw boom; });
+
+  const actions = await processScheduledDrafts({ now: NOW });
+  assert.deepEqual(actions, [{ leagueId: LEAGUE_ID, action: 'start' }]);
+
+  assert.equal(fake.matching(/SET "draft_autostart_failed" = true/).length, 1, 'the flag UPDATE still runs');
+  assert.equal(fake.matching(/^INSERT INTO "notifications"/).length, 0, 'no notice for a draft that is already running');
 });
 
 test('the row-locked recheck bails when the locked row changed under it (concurrent sweep already sent the 1h reminder)', async (t) => {

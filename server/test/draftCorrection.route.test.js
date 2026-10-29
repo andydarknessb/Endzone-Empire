@@ -59,15 +59,19 @@ function correctionPool({
   isCommissioner = true,
   picks = [{ pick_number: 3, team_id: CORRECTED_TEAM.id, player_id: CORRECTED_PLAYER.id, is_keeper: false }],
   currentPick = 3,
+  transactionsLocked = false,
 } = {}) {
   return createFakePool([
     // requireFantasyLeague middleware: a pick'em-only league has no draft.
     [/SELECT "pickem_only" FROM "leagues"/, () => ({ rows: [{ pickem_only: false }] })],
     // The league, locked for update by id (no predicate, so the route can name
-    // distinct refusals for not-commissioner vs not-active).
+    // distinct refusals for not-commissioner vs not-active). The roster move
+    // module's gate reads the same row for the freeze, so `transactionsLocked`
+    // rides it too.
     [/FROM "leagues"[\s\S]*FOR UPDATE/, () => ({
       rows: [{
         id: LEAGUE_ID, draft_status: status, current_pick: currentPick, draft_paused: false,
+        transactions_locked: transactionsLocked,
         current_season: SEASON, current_week: WEEK, draft_rotation: 'snake', draft_order_overrides: null,
       }],
     })],
@@ -122,6 +126,22 @@ test('POST correct-pick: pauses, reverses the latest non-keeper Pick, appends a 
   assert.ok(appended[0].params.includes(REASON), 'the reason is stored');
   assert.equal(fake.matching(/^DELETE FROM "draft_activity"/).length, 0, 'append-only: no activity deleted');
 
+  assert.equal(fake.matching(/^COMMIT$/).length, 1);
+  fake.assertClean();
+});
+
+test('POST correct-pick: a frozen league still corrects, the correction passing the commissioner override (#2535)', async (t) => {
+  // The correction's reversal goes through the same Roster move module as every
+  // other single-player write, which is where the freeze is enforced. It passes
+  // COMMISSIONER_OVERRIDE, so a freeze neither refuses a correction nor its
+  // roster write: a commissioner correcting a mispick is fixing the draft a
+  // freeze is holding, not transacting in it.
+  const fake = correctionPool({ transactionsLocked: true }).install(t);
+
+  const res = await correct({ pickNumber: 3, reason: REASON });
+
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.equal(fake.matching(remove('team_players')).length, 1, 'the roster row came back');
   assert.equal(fake.matching(/^COMMIT$/).length, 1);
   fake.assertClean();
 });

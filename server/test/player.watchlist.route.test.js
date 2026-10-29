@@ -14,6 +14,7 @@ const pool = require('../modules/pool');
 const { signToken } = require('../modules/auth');
 const playerRouter = require('../routes/player.router');
 const playerCardService = require('../services/playerCard.service');
+const upgradeService = require('../services/upgrade.service');
 const projectionService = require('../services/projection.service');
 const irPolicy = require('../services/irPolicy.service');
 const { createFakePool } = require('./helpers/fakePool');
@@ -205,7 +206,7 @@ function mockCardServices(t) {
   t.mock.method(playerCardService, 'availabilityForMany', async (opts) => new Map(
     opts.players.map((p) => [p.id, { state: 'free_agent', teamId: null, teamName: null, availableAt: null }]),
   ));
-  t.mock.method(playerCardService, 'upgradesFor', async () => new Map());
+  t.mock.method(upgradeService, 'upgradesFor', async () => ({ upgrades: new Map() }));
   t.mock.method(projectionService, 'getWeeklyProjections', async ({ playerIds }) => projectionService.toWeeklyProjectionResult({
     projections: new Map(playerIds.map((id) => [id, { median: 5, factors: { availability: { available: true } } }])),
   }));

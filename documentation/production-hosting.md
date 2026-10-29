@@ -234,15 +234,30 @@ down path and current data.
 
 `.github/workflows/deploy.yml` runs the release described above. It is
 `workflow_dispatch` only — Actions > Promote deployment > Run workflow, with
-`promote_production` checked — so nothing deploys on a push to `main`. Its first step
-(`scripts/ci/check-ci-passed.js`, #2552) fails unless the `CI` workflow concluded
+`promote_production` checked — so nothing deploys on a push to `main`. A step before any
+hook (`scripts/ci/check-ci-passed.js`, #2552) fails unless the `CI` workflow concluded
 `success` for the dispatched commit (its push-event run); a failed, still-running or
 missing CI run stops the deploy before any hook fires, with no human approval needed.
-It checks the dispatched SHA, not the branch tip the Render and Netlify hooks build, so a
-dispatch queued behind another deploy can still ship a newer, unchecked tip. It then triggers
-Render, waits for `/api/health/readyz`, then triggers the Netlify build, preserving the
-API-first order. Render and Netlify auto-deploy stay off; this workflow is the only
-automated path.
+The Render and Netlify hooks build the tip of `main`, not the dispatched SHA, so the same
+script also refuses unless `main` points at the dispatched commit (#2596), and each of the
+three hook steps repeats that check right before its POST. A push to `main` in the
+seconds between a check and its POST can still slip through. Promote has to be
+dispatched from `main`. A dispatch from `integration` is refused unless `integration`
+and `main` are the same commit, and a `worker_only` recovery is refused once `main` has
+moved past the dispatched commit.
+
+If `main` moves after the Render API hook fires, a later tip check refuses and leaves a
+split release. When `main` moves before the Netlify check, the run stops there: the API
+is rebuilt from the new `main`, while the client and the worker stay on the previous
+release, since the worker step never runs. When `main` moves later, while the worker
+step waits on the web deploy, only the worker stays on the previous release; the API and
+client are on the dispatched commit. In both states, dispatch Promote again from the new
+`main` once its CI run is green, with `deploy_worker` checked if the worker was part of
+the run; `worker_only` is refused because `main` moved.
+
+The workflow then triggers Render, waits for `/api/health/readyz`, then triggers the
+Netlify build, preserving the API-first order. Render and Netlify auto-deploy stay off;
+this workflow is the only automated path.
 
 Before the first run, configure in GitHub:
 
@@ -263,8 +278,8 @@ Required reviewers could not be enabled: GitHub rejects environment protection r
 a private repository under this billing plan (HTTP 422). The `production` environment
 therefore has no approval gate. The `workflow_dispatch`-only trigger, the
 `promote_production` checkbox and the passing-CI check on the promoted commit are
-currently the only things standing between a click and a production deploy. Enable required reviewers if the repo moves to a plan that
-supports them, or make it public.
+currently the only things standing between a click and a production deploy. Enable
+required reviewers if the repo moves to a plan that supports them, or make it public.
 
 The apex certificate issued on 2026-07-24, so the final step's `$WEB_URL/` curl now
 passes. One risk remains: the readiness steps curl `$API_URL`, which is subject to the

@@ -7,7 +7,14 @@ const byeService = require('../services/bye.service');
 const decisionCardContextService = require('../services/decisionCardContext.service');
 const irPolicy = require('../services/irPolicy.service');
 const practiceParticipation = require('../services/practiceParticipation.service');
-const { getPlayerCard, upgradesFor } = require('../services/playerCard.service');
+const { getPlayerCard } = require('../services/playerCard.service');
+const upgradeService = require('../services/upgrade.service');
+
+// The Upgrade cases below read through the live read over this file's fake
+// pool; the module's own pure cases are in upgrade.service.test.js.
+const upgradesFor = async ({ playerIds, ...options }) => (
+  await upgradeService.upgradesFor({ ...options, candidateIds: playerIds })
+).upgrades;
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -68,7 +75,7 @@ function buildHandlers({
   rosterCount = 0,
   identityIds = [player.id], // every players row loadIdentityIds resolves for this player
   ownRosterRows = [], // rows for the caller's OWN team_players (own-roster Upgrade check)
-  starterRows = [], // loadUpgradeContext's own lineup rows, starters and bench ({ player_id, slot, name, position?, nfl_team? })
+  starterRows = [], // the Upgrade read's own lineup rows, starters and bench ({ player_id, slot, name, position?, nfl_team? })
   kickedOffTeams = [], // nfl_team codes whose game has kicked off (the lock predicate's read)
   schedule = [], // { nfl_team, week, kickoff_at } rows: the first-playable-week read (#2166); none = unsynced schedule
   waiverRows = [], // { player_id, available_at } rows: the clear times the first-playable-week read compares with `now`
@@ -305,12 +312,16 @@ test('getPlayerCard: seasonEnd equals the league\'s last playoff week', async (t
 
 test('getPlayerCard: projWeek.points comes from getWeeklyProjections for the current week, under the league\'s own scoring', async (t) => {
   // A current starter (999) alongside the card's own player (55) makes
-  // `loadUpgradeContext`'s ONE combined-ids call (Ruling item 2) distinguishable
+  // the Upgrade read's ONE combined-ids call (Ruling item 2) distinguishable
   // from `buildWeeklyBars`'s own per-week calls, which only ever ask for the
   // card player alone (#1703 formal review f3).
-  createFakePool(buildHandlers({
-    starterRows: [{ player_id: 999, slot: 'RB', name: 'Other Starter' }],
-  })).install(t);
+  createFakePool([
+    // On an NFL team, so his Upgrade is read rather than refused.
+    [/^SELECT "id", "position", "nfl_team" FROM "players" WHERE "id" = ANY/, () => ({
+      rows: [{ id: PLAYER.id, position: PLAYER.position, nfl_team: PLAYER.nfl_team }],
+    })],
+    ...buildHandlers({ starterRows: [{ player_id: 999, slot: 'RB', name: 'Other Starter' }] }),
+  ]).install(t);
   const { weekProjectionCalls } = mockServices(t, { weekPoints: new Map([[PLAYER.id, 14.5]]) });
 
   const card = await getPlayerCard({ leagueId: 3, userId: 7, playerId: PLAYER.id });
@@ -318,7 +329,7 @@ test('getPlayerCard: projWeek.points comes from getWeeklyProjections for the cur
   const combinedIdsCalls = weekProjectionCalls.filter(
     (call) => call.playerIds.includes(999) && call.playerIds.includes(PLAYER.id)
   );
-  assert.equal(combinedIdsCalls.length, 1, 'loadUpgradeContext makes exactly ONE combined-ids call');
+  assert.equal(combinedIdsCalls.length, 1, 'the Upgrade read makes exactly ONE combined-ids call');
   assert.equal(combinedIdsCalls[0].season, LEAGUE.current_season);
   assert.equal(combinedIdsCalls[0].week, LEAGUE.current_week);
   // formal review f2: the ticket exists because the legacy pool-projection
@@ -329,6 +340,9 @@ test('getPlayerCard: projWeek.points comes from getWeeklyProjections for the cur
   assert.equal(combinedIdsCalls[0].league, LEAGUE);
   assert.equal(card.decision.projWeek.week, LEAGUE.current_week);
   assert.equal(card.decision.projWeek.points, 14.5);
+  // The card's Upgrade is read off that same call (the one combined-ids call
+  // asserted above): the 14.5 that is projWeek.points fills his empty WR slot.
+  assert.equal(card.decision.upgrade.points, 14.5);
 });
 
 // #1765: the Decision strip reads the same Unavailable verdict as the weekly

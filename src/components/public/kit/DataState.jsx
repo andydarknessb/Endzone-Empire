@@ -1,5 +1,5 @@
 import React from 'react';
-import { Box, Stack, Typography, Button, Skeleton } from '@mui/material';
+import { Stack, Typography, Button, Skeleton } from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
 import InboxIcon from '@mui/icons-material/Inbox';
@@ -52,24 +52,4 @@ export function ErrorState({ message = 'Something went wrong loading this.', onR
       )}
     </Stack>
   );
-}
-
-/**
- * Convenience wrapper: pick the right state for a { loading, error, isEmpty }
- * triple, else render children. Keeps pages declarative.
- */
-export function AsyncBoundary({
-  loading,
-  error,
-  isEmpty,
-  onRetry,
-  loadingFallback,
-  emptyMessage,
-  emptyHint,
-  children,
-}) {
-  if (loading) return loadingFallback || <LoadingRows />;
-  if (error) return <ErrorState onRetry={onRetry} />;
-  if (isEmpty) return <EmptyState message={emptyMessage} hint={emptyHint} />;
-  return <Box>{children}</Box>;
 }

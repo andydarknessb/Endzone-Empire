@@ -506,10 +506,16 @@ test('the draft socket admits no unauthenticated connection', async () => {
   const io = attachDraftSocket(httpServer);
   try {
     await io.redisReady;
+    // The second guard is the per-user socket cap (#2605). It is listed
+    // because every handshake middleware on this namespace has to be
+    // accounted for, and it is placed after the auth guard for the same
+    // reason it cannot admit anyone: it reads `socket.user`, which only
+    // `requireSocketAuth` sets, and the auth guard never calls `next()` on a
+    // missing or unverifiable token, so this one is never reached without it.
     assert.deepEqual(
       namespaceGuards(io),
-      [{ name: '/', middleware: ['requireSocketAuth'] }],
-      'one namespace, carrying the connection guard and nothing else'
+      [{ name: '/', middleware: ['requireSocketAuth', 'refuseSocketBeyondCap'] }],
+      'one namespace, carrying the connection guard and the socket cap, and nothing else'
     );
 
     // Namespaces named by a regexp or a function are held in `parentNsps`

@@ -124,13 +124,15 @@ test('kickoff waiver hold seam: the scheduler tick, then readPlayersPage, agains
       rows: players.map((p) => ({ id: p.id, nfl_team: p.nfl_team })),
     })],
     [/^INSERT INTO "waiver_players"/, (text, params) => {
-      const [leagueId, playerId, availableAt] = params;
+      const [leagueId, playerIds, availableAt] = params;
       const resolved = new Date(availableAt).toISOString();
-      const existing = waiverRows.find((r) => r.league_id === leagueId && r.player_id === playerId);
-      if (existing) {
-        if (new Date(resolved) > new Date(existing.available_at)) existing.available_at = resolved;
-      } else {
-        waiverRows.push({ league_id: leagueId, player_id: playerId, available_at: resolved });
+      for (const playerId of playerIds) {
+        const existing = waiverRows.find((r) => r.league_id === leagueId && r.player_id === playerId);
+        if (existing) {
+          if (new Date(resolved) > new Date(existing.available_at)) existing.available_at = resolved;
+        } else {
+          waiverRows.push({ league_id: leagueId, player_id: playerId, available_at: resolved });
+        }
       }
       return { rows: [] };
     }],
@@ -610,8 +612,8 @@ test('sort=upgrade: a Position-baseline candidate sorts after an evidenced one w
 });
 
 // #1911 (#1800 Ruling item 2): equal Upgrades tie-break on the candidate's own
-// Weekly projection descending (the number `loadUpgradeContext` hands
-// `upgradeFor`), then id; a null Upgrade stays last whatever it projects.
+// Weekly projection descending (the number the Upgrade module reads
+// for the candidate), then id; a null Upgrade stays last whatever it projects.
 test('sort=upgrade: equal Upgrades order by the candidate\'s Weekly projection, a null Upgrade stays last (#1911)', async (t) => {
   const lineupService = require('../services/lineup.service');
   const playerCardService = require('../services/playerCard.service');
@@ -780,7 +782,7 @@ async function readDropSuggestionContext(t, { rosterCount, rosterRows, ros }) {
   t.mock.method(projectionService, 'getRestOfSeason', ros);
   t.mock.method(playerCardService, 'availabilityForMany', async () => new Map());
   t.mock.method(playerCardService, 'buildWeeksForPage', async () => new Map());
-  t.mock.method(playerCardService, 'upgradesFor', async () => new Map());
+  t.mock.method(require('../services/upgrade.service'), 'upgradesFor', async () => ({ upgrades: new Map() }));
   const result = await readPlayersPage(baseQuery({ leagueId: '1', view: 'cards' }), { db: fake });
   return { context: result.context, fake };
 }
