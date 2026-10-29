@@ -153,11 +153,11 @@ const { installRecordingBroadcast } = require('./helpers/recordingBroadcast');
  * The scoring seam's two halves, stubbed: a test whose subject is the
  * correction's own work does not drive the re-score itself (spec #2602).
  */
-function stubScoring(t) {
+function stubScoring(t, { announce = async () => {} } = {}) {
   t.mock.method(matchupScoring, 'scoreMatchupsInTransaction', async () => ({
     league: null, scored: [], openMatchups: [],
   }));
-  t.mock.method(matchupScoring, 'announceScored', async () => {});
+  t.mock.method(matchupScoring, 'announceScored', announce);
 }
 
 function stubOneInSeasonLeague(t) {
@@ -763,6 +763,27 @@ test('#1410: a final-score correction hands the week to the Settle follow-up in 
   });
 
   await correctionSvc.correctLeagueWeek({ leagueId: 7, season: 2026, week: 5 });
+
+  assert.deepEqual(followUp.mock.calls.map((c) => c.arguments[0]), [
+    { leagueId: 7, season: 2026, week: 5, mode: 'correction' },
+  ]);
+});
+
+// #2616: the announce runs first so the live score push is not queued behind
+// the Monte Carlo run, but a throwing announce must not swallow the follow-up:
+// the correction is already committed and a retry sees no change to rebuild.
+test('#2616: a throwing scores:updated announce still hands a final-score correction to the Settle follow-up', async (t) => {
+  const fake = correctionRecapWorld({ beforeHome: 90, beforeAway: 80, afterHome: 115, afterAway: 80 });
+  fake.install(t);
+  const announceError = new Error('draft room broadcast is not initialised for this process');
+  stubScoring(t, { announce: async () => { throw announceError; } });
+  const followUp = t.mock.method(settleFollowUpSvc, 'settleFollowUp', async () => {});
+
+  await assert.rejects(
+    correctionSvc.correctLeagueWeek({ leagueId: 7, season: 2026, week: 5 }),
+    (error) => error === announceError,
+    'the announce failure still propagates'
+  );
 
   assert.deepEqual(followUp.mock.calls.map((c) => c.arguments[0]), [
     { leagueId: 7, season: 2026, week: 5, mode: 'correction' },
