@@ -300,7 +300,7 @@ The canvas at https://claude.ai/artifact/PrJq3Dhr94dkYbkG4hw2Vj (version 12, wor
 - **Do** take every value from `src/theme/tokens.js`, and add a semantic token (and its contrast pairing) when one is missing.
 - **Do** ship both themes for every screen, using each theme's own values and never a mix.
 - **Do** set every figure in tabular numerals.
-- **Do** save loudness for live state and big moments: live pills, finals, grades, wins, the scoreboard.
+- **Do** save loudness for live state and big moments: live chips, finals, grades, wins, the scoreboard.
 - **Do** keep a visible 2px focus ring and honor the global reduced-motion policy, which makes transitions instant.
 - **Do** use inline stroke SVG icons on a 20 or 24px grid.
 
