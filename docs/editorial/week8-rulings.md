@@ -16,7 +16,7 @@ C8: Jordan Love (QB, GB, #540) - START - 18.3 a game; Green Bay implied for 25.5
 C9: Caleb Williams (QB, CHI, #520) - START - 20.9 a game with 6 carries, 22.1 last week; Seattle allows the 2nd-fewest QB points, so a low-end QB1
 C10: Jared Goff (QB, DET, #123) - START - 22.2 a game; Minnesota allows the fewest QB points, and Gibbs and St. Brown did not practice Wednesday
 C11: Matthew Stafford (QB, LAR, #1052) - START - 17.6 a game, Los Angeles implied for 26.0; Puka Nacua carries the passing game with Davante Adams on IR
-C12: Kirk Cousins (QB, LV, #714) - START - 18.8 a game, 18.5 and 20.4 the last two; the Jets allow the 5th-most QB points; QB12
+C12: Kirk Cousins (QB, LV, #714) - START - 18.8 a game, 18.5 and 20.4 the last two; the Jets allow the 16th-fewest QB points; QB12
 C13: Michael Penix Jr. (QB, ATL, #679) - SIT - 23.1 and 20.4 the last two, but Tampa allows the 6th-fewest QB points and Atlanta is implied for 21.0; QB13
 C14: Kyler Murray (QB, MIN, #1282) - SIT - Detroit allows the most QB points (25.6 a game), but he scored 13.9 last week; a streamer, not a QB1
 C15: Bryce Young (QB, CAR, #1235) - SIT - 5.4 last week; Green Bay allows the 5th-fewest QB points
@@ -46,7 +46,7 @@ C38: Chase Brown (RB, CIN, #106) - START - 5.5 targets a game; Cincinnati implie
 C39: Bhayshul Tuten (RB, JAX, #190) - START - 15.7 carries a game, 24.7 before the bye; Jacksonville implied for 28.3 as a 10-point favorite
 C40: Tony Pollard (RB, TEN, #996) - FLEX - 36.5 last week on 16 carries a game; Cincinnati allows the 4th-fewest RB points and Tennessee is implied for 18.3
 C41: Quinshon Judkins (RB, CLE, #445) - FLEX - 23.4 last week, 15 carries a game
-C42: Breece Hall (RB, NYJ, #381) - SIT - Limited Wednesday (quadriceps) after missing Weeks 6 and 7; three games played
+C42: Breece Hall (RB, NYJ, #381) - SIT - Limited Wednesday (quadriceps) after missing Weeks 4 to 7; three games played
 C42: Braelon Allen (RB, NYJ, #1485) - FLEX if active - Limited Wednesday (ankle); 19.4 last week on 17 carries and 7 targets; Las Vegas allows the 5th-most RB points
 C43: Ollie Gordon II (RB, MIA, #1271) - FLEX - 14.4 carries a game and 17.3 last week; De'Von Achane is on IR
 C44: Rachaad White (RB, WAS, #682) - FLEX - The lead back with Jacory Croskey-Merritt on IR; 15.7 in Week 6 before the bye, and Washington is a 6-point favorite
@@ -117,7 +117,7 @@ C107: Washington Commanders (DEF, WAS, #6742) - START - Philadelphia implied for
 
 ## Injury flags
 
-C6, C22, C25, C42, C46, C47, C48, C49, C55, C57, C59, C67, C69, C70, C73, C77, C81, C82, C83, C84, C85, C87, C93
+C6, C22, C25, C42, C43, C44, C46, C47, C48, C49, C55, C57, C59, C67, C69, C70, C73, C75, C77, C81, C82, C83, C84, C85, C87, C90, C93
 
 ## Tiers
 
@@ -237,5 +237,5 @@ Article-only material for the writer. Nothing here becomes a call.
 - **Sleepers:** Omar Cooper Jr., Jordan Mason, Caleb Douglas, Kyler Murray against Detroit's league-worst QB defense, Mason Taylor. **Fades:** Patrick Mahomes at Denver, Saquon Barkley, A.J. Brown at Miami, Tanner McKee, Jake Ferguson.
 - **Weather:** wind and storms in three Florida-area games: IND at JAX 15 mph with showers and thunderstorms likely, ATL at TB 12 mph with a chance of storms, NE at MIA 13 mph with storms. Everywhere else is calm (7 mph or less). Indoors: MIN at DET, LAC at LAR. The DB records no roof for AT&T Stadium (ARI at DAL), so say nothing about a roof there.
 - **Lines** are the DB snapshot as of 2026-10-29 13:08Z (home line: negative = home favored). Use the DB numbers. Highest totals: ARI at DAL and BAL at BUF (54.5). Lowest: CLE at PIT (39.5). Highest implied team: Dallas (30.8); lowest: Philadelphia (17.3).
-- **News since the waiver column (#2525, Tuesday):** Washington put Terry McLaurin on IR Wednesday; Philadelphia put Dameon Pierce on IR Wednesday; the Rams said Davante Adams had hamstring surgery (6 to 10 weeks); Cincinnati lost TE Erick All to a torn ACL; Minnesota's Aaron Jones aggravated the knee and did not practice. Say these as updates, not corrections.
+- **News since the waiver column (#2525, Tuesday):** Washington put Terry McLaurin on IR Wednesday; Philadelphia put Dameon Pierce on IR Wednesday; the Rams said Davante Adams had hamstring surgery (6 to 10 weeks); Cincinnati lost TE Erick All to a torn ACL; Minnesota's Aaron Jones aggravated the knee and did not practice; Jalen Coker, limited on Monday's estimated report, practiced in full Wednesday. Say these as updates, not corrections.
 - **Inactives checklist:** Matthew Golden (Thursday 8:15pm ET, Green Bay); then Sunday 1pm ET: Lamar Jackson, Jahmyr Gibbs, Amon-Ra St. Brown, Ja'Marr Chase, George Pickens, Michael Wilson, Jeremiyah Love, Braelon Allen, Breece Hall, Brock Bowers, Tyler Warren, Emeka Egbuka, Aaron Jones Sr.; Sunday 4:25pm ET: Jaylen Waddle and Rashee Rice (KC at DEN), A.J. Brown (NE at MIA); Sunday night: DeVonta Smith, Stefon Diggs, Saquon Barkley (PHI at WAS); Monday night: Kyle Monangai and Zach Charbonnet (CHI at SEA), with no pivot left. Daylight saving ends Sunday 11-01, so Sunday and Monday times are EST.
