@@ -4,7 +4,7 @@ const { logTransaction, notifyLeague } = require('./activity.service');
 // The ONE pricer the settle pass uses. The waiver steal is priced under the
 // league's rules, the identical formula the score of record uses, not the
 // stored default-rules `fantasy_points` column (#739, ADR 0024).
-const { calculateFantasyPoints, rulesForLeague } = require('./scoringRules');
+const { calculateFantasyPoints, rulesForLeague, round2 } = require('./scoringRules');
 const { CALLED_SHOT_BOLD_PROBABILITY } = require('./trophy.service');
 const claude = require('./claude');
 const { logger } = require('../modules/logger');
@@ -20,10 +20,6 @@ const { voiceBlockFor, withVoice, deniedTerm } = require('./narrativeVoice');
  * budget is not spent (ADR 0063); otherwise a clean templated version renders
  * from the same data, so the feature never depends on the LLM being available.
  */
-
-function round2(x) {
-  return Math.round(Number(x) * 100) / 100;
-}
 
 /**
  * Pure: distill a finalized week's matchup rows (+ optional extras) into the

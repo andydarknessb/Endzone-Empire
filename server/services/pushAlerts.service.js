@@ -2,6 +2,7 @@ const pool = require('../modules/pool');
 const clock = require('../modules/clock');
 const prefs = require('./prefs.service');
 const { banterFor, SITUATIONS } = require('./pushBanter');
+const { round2 } = require('./scoringRules');
 
 /**
  * Push alerts (CONTEXT.md, ADR 0064): every Push alert is sent through
@@ -110,7 +111,6 @@ async function bigPlayRecipients({ leagueId, season, week, scored, plays }, db) 
   const rules = rulesForLeague(league);
   // A play carries its event `type` but not the stat key it was detected from.
   const statKeyOf = (type) => Object.keys(PLAY_STAT_EVENTS).find((k) => PLAY_STAT_EVENTS[k].type === type);
-  const round2 = (n) => Math.round(n * 100) / 100;
   // One sync's plays for a player share a stat line pair: group on it, price
   // the group's whole change under league rules, split it across the group.
   const groups = new Map();

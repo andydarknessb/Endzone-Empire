@@ -2,6 +2,7 @@ const pool = require('../modules/pool');
 const { withTransaction } = require('../modules/withTransaction');
 const { notifyLeague } = require('./activity.service');
 const { seasonOperationsAvailable, SEASON_BEFORE_DRAFT_MESSAGE } = require('./leaguePhase');
+const { round2 } = require('./scoringRules');
 
 class SeasonError extends Error {
   constructor(statusCode, message) {
@@ -203,10 +204,6 @@ function buildOpeningBrackets({ standings, playoffTeams, consolationEnabled }) {
       ? pairBySeed(seed(standings.slice(playoffCount)))
       : emptyBracket,
   };
-}
-
-function round2(x) {
-  return Math.round(x * 100) / 100;
 }
 
 /**

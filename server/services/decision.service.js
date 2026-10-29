@@ -18,6 +18,7 @@ const {
 const { optimalLineup, buildSwapSuggestions } = require('./lineupOptimizer');
 const projectionModel = require('./projectionModel');
 const { verdictBand } = require('./intervalReading');
+const { round2 } = require('./scoringRules');
 const { normalizeNflTeam } = require('./nflTeam');
 // The schedule read start/sit advice pairs with getPositionDefense below;
 // shared with the Players page rather than copied (#1574, #1136).
@@ -47,10 +48,6 @@ class DecisionError extends Error {
 
 const BENCH = 'BENCH';
 const IR = 'IR';
-
-function round2(x) {
-  return Math.round(Number(x) * 100) / 100;
-}
 
 // The advice wire's per-player verdict fields (spec #2042): the availability
 // facts (probability, status, lock) without `reason`, and the one

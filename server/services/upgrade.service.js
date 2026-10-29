@@ -7,6 +7,7 @@ const lineupService = require('./lineup.service');
 const { optimalLineup } = require('./lineupOptimizer');
 const { loadIdentityIdsFor } = require('./playerIdentity.service');
 const { normalizeNflTeam } = require('./nflTeam');
+const { round2 } = require('./scoringRules');
 
 /**
  * The Upgrade and the Swap net (CONTEXT.md), one module for every caller: the
@@ -16,8 +17,6 @@ const { normalizeNflTeam } = require('./nflTeam');
  * produces none (ADR 0061); a Free agent's or waiver player's Upgrade is read
  * in his first playable week (#2166, ADR 0062).
  */
-
-const round2 = (x) => Math.round(x * 100) / 100;
 
 const UPGRADE_CANDIDATE = Symbol('upgrade-candidate');
 
