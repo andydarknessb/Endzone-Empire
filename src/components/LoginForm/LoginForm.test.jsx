@@ -79,5 +79,5 @@ test('submitting with empty fields dispatches LOGIN_INPUT_ERROR instead', () => 
 test('the error alert is not a heading (#2635)', () => {
   renderWithProviders(<LoginForm />, { state: { errors: { loginMessage: 'Nope' } } });
   expect(screen.getByRole('alert')).toHaveTextContent('Nope');
-  expect(screen.queryByRole('heading', { level: 3 })).toBeNull();
+  expect(screen.getByRole('alert').tagName).toBe('P');
 });

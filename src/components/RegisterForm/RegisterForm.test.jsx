@@ -52,5 +52,5 @@ test('submitting the filled form dispatches REGISTER with username, email, and p
 test('the error alert is not a heading (#2635)', () => {
   renderWithProviders(<RegisterForm />, { state: { errors: { registrationMessage: 'Nope' } } });
   expect(screen.getByRole('alert')).toHaveTextContent('Nope');
-  expect(screen.queryByRole('heading', { level: 3 })).toBeNull();
+  expect(screen.getByRole('alert').tagName).toBe('P');
 });

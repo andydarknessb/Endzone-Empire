@@ -1,6 +1,7 @@
 import React from 'react';
 import { render, screen } from '@testing-library/react';
 import SimStatusBar from './SimStatusBar';
+import { formatRemaining } from '../../shared/lib/onTheClock';
 
 function renderStatusBar(overrides = {}) {
   return render(
@@ -73,8 +74,9 @@ describe('SimStatusBar (#805)', () => {
   it('renders no headings: the page owns its one h1 (#2635)', () => {
     renderStatusBar();
     expect(screen.queryAllByRole('heading')).toHaveLength(0);
-    expect(screen.getByText('Round')).toBeInTheDocument();
-    expect(screen.getByText('Pick')).toBeInTheDocument();
+    expect(screen.getByText('/ 15').parentElement).toHaveTextContent('1 / 15');
+    expect(screen.getByText('/ 150').parentElement).toHaveTextContent('1 / 150');
+    expect(screen.getByText(formatRemaining(45))).toBeInTheDocument();
     expect(screen.getByText('You')).toBeInTheDocument();
     expect(screen.getByText('Time left')).toBeInTheDocument();
   });

@@ -51,7 +51,6 @@ Register Form
   --------------------- */
   .alert {
     width: 100%;
-    font-size: 1.17em; /* was an h3 */
     font-weight: bold;
     padding: 15px;
     margin-top: 20px;
