@@ -142,6 +142,46 @@ test('polls both the board and the activity feed every five seconds', async () =
   expect(activityCalls()).toHaveLength(2);
 });
 
+test('a hidden tab polls nothing and showing it again refreshes once (#2638)', async () => {
+  jest.useFakeTimers();
+  const setHidden = (hidden) => {
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden });
+  };
+  setHidden(false);
+  renderWithProviders(<DraftPresenter />, { path: '/present/:token', route: '/present/share-token' });
+
+  await act(async () => {
+    await Promise.resolve();
+  });
+  expect(boardCalls()).toHaveLength(1);
+  expect(activityCalls()).toHaveLength(1);
+
+  setHidden(true);
+  await act(async () => {
+    jest.advanceTimersByTime(10 * 1000);
+  });
+  expect(boardCalls()).toHaveLength(1);
+  expect(activityCalls()).toHaveLength(1);
+
+  // The shared hook skips its catch-up refresh when the tab comes back within
+  // 30 s of the last one, so a long absence is what earns the refresh below.
+  await act(async () => {
+    jest.advanceTimersByTime(30 * 1000);
+  });
+  expect(boardCalls()).toHaveLength(1);
+  expect(activityCalls()).toHaveLength(1);
+
+  setHidden(false);
+  await act(async () => {
+    document.dispatchEvent(new Event('visibilitychange'));
+    await Promise.resolve();
+  });
+  expect(boardCalls()).toHaveLength(2);
+  expect(activityCalls()).toHaveLength(2);
+
+  setHidden(false);
+});
+
 test('renders the presenter-safe Draft activity feed (Pick and lifecycle lines)', async () => {
   renderWithProviders(<DraftPresenter />, { path: '/present/:token', route: '/present/share-token' });
 

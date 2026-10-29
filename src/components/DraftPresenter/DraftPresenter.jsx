@@ -8,6 +8,7 @@ import {
 import DraftBoardMatrix from '../DraftBoard/DraftBoardMatrix';
 import PickClock from '../DraftBoard/PickClock';
 import { deriveOnTheClock } from '../../shared/lib/onTheClock';
+import { useLiveRefresh } from '../UserPage/useLiveRefresh';
 import DraftActivityEntry from '../DraftBoard/DraftActivityEntry';
 import { draftRounds } from '../../lib/rosterShape';
 import { teamNameLabel, feedEntryKey } from '../../shared/lib/teamIdentity';
@@ -73,12 +74,17 @@ function DraftPresenter() {
   useEffect(() => {
     loadBoard();
     loadActivity();
-    const poll = window.setInterval(() => {
+  }, [loadBoard, loadActivity]);
+
+  // The five-second poll a TV board wants, paused while nobody is looking.
+  useLiveRefresh({
+    active: true,
+    intervalMs: 5000,
+    onTick: () => {
       loadBoard();
       loadActivity();
-    }, 5000);
-    return () => window.clearInterval(poll);
-  }, [loadBoard, loadActivity]);
+    },
+  });
 
   // Newest-first for a live glance board: the endpoint returns oldest-first
   // (the same ascending chronology the Draft room reads), so reverse a copy.
