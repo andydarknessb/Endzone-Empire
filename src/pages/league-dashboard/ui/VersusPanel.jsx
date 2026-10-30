@@ -14,8 +14,8 @@ import { formatInstant } from '../../../shared/lib';
  * model (`useMatchupPreview`, exported from the widget's index) in the new one.
  *
  * Before kickoff it is a framed versus panel: both team names in Pixel 16, projected figures in Pixel
- * 32 (24 on a phone), the odds bar in Frame colour, the projected margin, the stored narrative and a
- * "Matchup" link. Once the matchup has started it is the Board-black scoreboard scaled up: the score
+ * 32 (24 on a phone), pivoting on a pixel VS in Ink on the figures' baseline, the odds bar in Frame
+ * colour, the projected margin, the stored narrative and a "Matchup" link. Once the matchup has started it is the Board-black scoreboard scaled up: the score
  * block is one link to the matchup, the leader white and the trailer dim, the margin under the
  * viewer's score, the Expected final and players remaining per side, a full-width odds bar (green
  * only while live) and, under the LIVE chip, "As of {time}" when the page knows one. A visually hidden
@@ -93,11 +93,11 @@ function PreKickoffBody({ leagueId, model }) {
         <Box
           data-testid="matchup-versus"
           sx={{
-            display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', sm: 'minmax(0, 1fr) auto minmax(0, 1fr)' }, gap: '16px', alignItems: 'end',
+            display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', sm: 'minmax(0, 1fr) auto minmax(0, 1fr)' }, gap: '16px 8px', alignItems: 'end',
           }}
         >
           <Side side={viewer} you lead colors={colors} label="Proj" figure={figure(viewer.projected)} />
-          <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' }, paddingBottom: '8px', fontSize: '15px', fontWeight: 600, color: colors.dim }}>vs</Box>
+          <Box component="span" data-testid="matchup-vs" sx={{ ...pixelSx(32), fontSize: { xs: '24px', md: '32px' }, lineHeight: 1.2, color: colors.ink }}>vs</Box>
           <Side side={opponent} right lead colors={colors} label="Proj" figure={figure(opponent.projected)} />
         </Box>
         {pct != null && <OddsBar pct={pct} name={viewer.name} />}
