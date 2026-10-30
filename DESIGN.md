@@ -29,8 +29,8 @@ colors:
   ps-board-dim: "#a8adc8"
   ps-board-rule: "#3a4170"
   ps-skel: "#2a3052"
-  ps-home-panel: "#121c4c"
-  ps-home-skel: "#2e3c7a"
+  ps-menu-panel: "#121c4c"
+  ps-menu-skel: "#2e3c7a"
   ps-field-light: "#eceef8"
   ps-panel-light: "#ffffff"
   ps-frame-light: "#1830b8"
@@ -44,8 +44,8 @@ colors:
   ps-danger-light: "#c62828"
   ps-on-danger-light: "#ffffff"
   ps-skel-light: "#dde1f0"
-  ps-home-panel-light: "#ffffff"
-  ps-home-skel-light: "#dde1f0"
+  ps-menu-panel-light: "#ffffff"
+  ps-menu-skel-light: "#dde1f0"
 typography:
   code:
     fontFamily: "ui-monospace, SFMono-Regular, Consolas, monospace"
@@ -233,7 +233,7 @@ Home (`/user`) is a play-call screen: a near-black field, NES-blue play cards wi
 
 ### Palette (both themes)
 - **Field** (ps-field): the page ground, near-black in dark and pale lavender-white in light. **Panel** (ps-panel): the fill inside frames.
-- **Home panel** (ps-home-panel, ps-home-skel): on Home and its Create and Join dialogs only, the panel is NES navy in dark so frames read as play-select menus on the black Field and a live Board stands apart from quiet frames; light keeps the white Panel. Home's root remaps Panel and Skel to these; league pages keep ps-panel (#2652, owner 2026-10-30).
+- **Menu panel** (ps-menu-panel, ps-menu-skel): on Home with its Create and Join dialogs, and on the league dashboard with its chat drawer, the panel is NES navy in dark so frames read as play-select menus on the black Field and a live Board stands apart; light keeps the white Panel. Other league pages keep ps-panel (#2652, #2660, owner 2026-10-30).
 - **Frame** (ps-frame): the double rule, pale periwinkle in dark and the play blue in light. **Rule** (ps-rule): the 2px inner dividers. **Frame 2** (ps-frame-2): the 2px edge of a tertiary frame, the Rule colour on the dark Field and the Frame colour on the lavender one.
 - **Ink** and **Dim** (ps-ink, ps-dim): text tiers on the page and panels.
 - **Play, Play field, Play ink, Play dim**: the card's NES-blue fill, its darker field band, the white diagram and name, and the pale blue for league lines and hash marks. **Play accent** with **On play accent** is the field green of the filled foot and the Live lock line on the card. Fixed in both themes, like the scoreboard.

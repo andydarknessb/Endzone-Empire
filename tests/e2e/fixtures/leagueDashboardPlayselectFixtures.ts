@@ -249,6 +249,8 @@ export async function setupDashboard(
   await page.route('**/api/**', async (route: Route) => {
     const request = route.request();
     const { pathname } = new URL(request.url());
+    // The chat drawer marks the league read on open (a POST).
+    if (request.method() === 'POST' && pathname === `/api/league/${LEAGUE_ID}/chat/read`) return json(route, 200, {});
     if (request.method() !== 'GET') return route.fallback();
     if (pathname === `/api/league/${LEAGUE_ID}`) {
       return json(route, 200, { league: leagueRow(state), teams, viewerTeamId: VIEWER_TEAM_ID });

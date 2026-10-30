@@ -73,7 +73,7 @@ export const EMOJI_CHOICES = [
   { char: '\u{1F3C8}', name: 'american football' },
 ];
 
-function EmojiPicker({ onSelect, onChoiceClosed = null }) {
+function EmojiPicker({ onSelect, onChoiceClosed = null, menuPaperSx }) {
   const [anchorEl, setAnchorEl] = useState(null);
   const triggerRef = useRef(null);
   // The Popover's imperative handle, used to reposition on open (see below).
@@ -161,7 +161,7 @@ function EmojiPicker({ onSelect, onChoiceClosed = null }) {
         // The composer claims focus on a choice, so MUI must not also try to
         // restore it to the trigger; dismissal restores focus explicitly above.
         disableRestoreFocus
-        PaperProps={MENU_PAPER}
+        PaperProps={menuPaperSx ? { ...MENU_PAPER, sx: { ...MENU_PAPER.sx, ...menuPaperSx } } : MENU_PAPER}
         TransitionProps={{ onExited: handleExited }}
         // A plain vertical menu (#488): no flex-wrap grid, so ArrowUp/ArrowDown
         // walk the palette one item at a time exactly as a menu is announced to.

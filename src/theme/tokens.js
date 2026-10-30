@@ -63,11 +63,12 @@ export const colorTokens = {
     // Pairings: tokens.contrast.test.js.
     'ps-field': '#eceef8',
     'ps-panel': '#ffffff',
-    // Home's panel and skeleton (owner, 2026-10-30, #2652): NES navy in dark so Home's frames read as
-    // play-select menus on the black Field and the black Board stands apart. Home's root and its Join and
-    // Create dialogs remap --ps-panel and --ps-skel to these (homeTheme.js HOME_PANEL_VARS); league pages keep ps-panel.
-    'ps-home-panel': '#ffffff',
-    'ps-home-skel': '#dde1f0',
+    // Menu panel and skeleton (owner, 2026-10-30, #2652, #2660): NES navy in dark so frames read as play-select
+    // menus on the black Field and the black Board stands apart. Home, its Join and Create dialogs, and the league
+    // dashboard (its root and chat drawer) remap --ps-panel and --ps-skel to these via MENU_PANEL_VARS
+    // (shared/ui/playselect/root.js); other league pages keep ps-panel.
+    'ps-menu-panel': '#ffffff',
+    'ps-menu-skel': '#dde1f0',
     'ps-frame': '#1830b8',
     'ps-rule': '#b4bce0',
     // The 2px edge of a tertiary frame (Recap, Around the league, Recent activity, Pick'em,
@@ -174,8 +175,8 @@ export const colorTokens = {
     // Pairings: tokens.contrast.test.js.
     'ps-field': '#07080f',
     'ps-panel': '#10131f',
-    'ps-home-panel': '#121c4c',
-    'ps-home-skel': '#2e3c7a',
+    'ps-menu-panel': '#121c4c',
+    'ps-menu-skel': '#2e3c7a',
     'ps-frame': '#c8d0ff',
     'ps-rule': '#3a4170',
     'ps-frame-2': '#3a4170',

@@ -22,10 +22,9 @@ import { joinLink } from '../../features/copy-invite';
 import DraftScheduleField from '../common/DraftScheduleField';
 import { useSnackbar } from '../Snackbar/SnackbarProvider';
 import {
-  BODY_FONT, Frame, PixelArrow, PixelCheck, PixelClose, PixelWarn, PsButton, pixelSx,
+  BODY_FONT, Frame, MENU_PANEL_VARS, PixelArrow, PixelCheck, PixelClose, PixelWarn, PsButton, pixelSx,
 } from '../../shared/ui/playselect';
 import { Dim, KitTextField, Note } from '../DraftSettings/kit';
-import { HOME_PANEL_VARS } from './homeTheme';
 
 /**
  * Create league in five steps (Home v2 slice 4): League type, Basics, Rules,
@@ -713,7 +712,7 @@ export default function CreateLeagueStepper({ open, onClose, onCreated }) {
               {draftMode === 'schedule' && (
                 <DraftScheduleField
                   look="playselect"
-                  menuPaperSx={HOME_PANEL_VARS}
+                  menuPaperSx={MENU_PANEL_VARS}
                   wallTime={draftDate}
                   onWallTimeChange={(value) => update({ draftDate: value })}
                   timeZone={draftTimezone}
@@ -804,7 +803,7 @@ export default function CreateLeagueStepper({ open, onClose, onCreated }) {
       PaperProps={{
         className: 'ps-root',
         sx: {
-          ...HOME_PANEL_VARS,
+          ...MENU_PANEL_VARS,
           border: '6px double var(--ps-frame)',
           borderRadius: 0,
           backgroundColor: 'var(--ps-panel)',

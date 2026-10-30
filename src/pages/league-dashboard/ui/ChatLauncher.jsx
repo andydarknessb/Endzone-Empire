@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Box, Drawer, useMediaQuery, useTheme } from '@mui/material';
 import ChatPanel from '../../../components/ChatPanel/ChatPanel';
 import {
-  PixelClose, PixelSpeech, pixelSx, psRootSx,
+  MENU_PANEL_VARS, PixelClose, PixelSpeech, pixelSx, psRootSx,
 } from '../../../shared/ui/playselect';
 
 /**
@@ -108,6 +108,7 @@ export default function ChatLauncher({ leagueId }) {
           '&.MuiDrawer-docked': { display: 'contents' },
           '& .MuiDrawer-paper': {
             ...psRootSx,
+            ...MENU_PANEL_VARS,
             width: { xs: '100vw', sm: 380 },
             boxSizing: 'border-box',
             backgroundColor: 'var(--ps-panel)',
