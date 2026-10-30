@@ -79,6 +79,8 @@ for (const state of STATES) {
           clientWidth: document.documentElement.clientWidth,
           bodyScrollWidth: document.body.scrollWidth,
           innerWidth: window.innerWidth,
+          // The first double-ruled frame that is not the black live Board: its fill is the dashboard's menu panel (#2660).
+          panel: getComputedStyle([...document.querySelectorAll('.ps-root *')].find((el) => getComputedStyle(el).borderTopStyle === 'double' && getComputedStyle(el).backgroundColor !== 'rgb(0, 0, 0)') as Element).backgroundColor,
         }));
         // eslint-disable-next-line no-console
         console.log(`LEAGUE_DASHBOARD_PLAYSELECT ${state}-${viewport}-${theme} ${JSON.stringify(probe)}`);
@@ -88,6 +90,7 @@ for (const state of STATES) {
 
         expect(probe.cursors, 'never more than one .cursor').toBeLessThanOrEqual(1);
         expect(probe.cursors, `${state} carries ${EXPECTED_CURSORS[state]} cursor(s)`).toBe(EXPECTED_CURSORS[state]);
+        expect(probe.panel, 'dashboard frames paint the menu panel').toBe(theme === 'dark' ? 'rgb(18, 28, 76)' : 'rgb(255, 255, 255)');
         expect(probe.scrollWidth, `document scrollWidth ${probe.scrollWidth} vs innerWidth ${probe.innerWidth}`).toBeLessThanOrEqual(probe.innerWidth);
         expect(probe.bodyScrollWidth, `body scrollWidth ${probe.bodyScrollWidth} vs innerWidth ${probe.innerWidth}`).toBeLessThanOrEqual(probe.innerWidth);
       });
@@ -157,6 +160,25 @@ for (const state of ['inseason', 'gamedayUrgent', 'complete', 'predraft', 'picke
       expect(last.reserve, `the shell reserves ${last.reserve}px below the last frame; the launcher needs 88`).toBeGreaterThanOrEqual(88);
     });
   }
+}
+
+// The chat drawer and its emoji menu portal out of the page root, so each paper must take the menu panel itself (#2660).
+for (const theme of THEMES) {
+  test(`inseason desktop ${theme}: the league chat drawer and its emoji menu paint the menu panel`, async ({ page }) => {
+    await openDashboard(page, 'inseason', 'desktop', theme);
+    await page.getByRole('button', { name: /^Open league chat/ }).click();
+    const paper = page.locator('.MuiDrawer-paper');
+    await expect(paper).toBeVisible();
+    const background = await paper.evaluate((el) => getComputedStyle(el).backgroundColor);
+    expect(background, 'chat drawer paper paints the menu panel').toBe(theme === 'dark' ? 'rgb(18, 28, 76)' : 'rgb(255, 255, 255)');
+
+    await page.getByRole('button', { name: 'Insert emoji' }).click();
+    const menu = page.getByRole('menu', { name: 'Emoji' });
+    await expect(menu).toBeVisible();
+    const menuPaper = page.locator('.MuiMenu-paper').filter({ has: menu });
+    const menuBackground = await menuPaper.evaluate((el) => getComputedStyle(el).backgroundColor);
+    expect(menuBackground, 'emoji menu paper paints the menu panel').toBe(theme === 'dark' ? 'rgb(18, 28, 76)' : 'rgb(255, 255, 255)');
+  });
 }
 
 test('desktop standings: all twelve teams, no fold control', async ({ page }) => {

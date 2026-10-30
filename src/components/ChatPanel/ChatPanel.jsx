@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useSelector } from 'react-redux';
 import { Box } from '@mui/material';
-import { BODY_FONT } from '../../shared/ui/playselect';
+import { BODY_FONT, MENU_PANEL_VARS } from '../../shared/ui/playselect';
 import { createDraftSocket, onReconnect } from '../../api/socket';
 import useLeagueChat from './useLeagueChat';
 import ChatConversation from './ChatConversation';
@@ -123,6 +123,8 @@ function ChatPanel({ leagueId, open = true, onUnreadChange = null }) {
       viewerUserId={viewerUserId}
       gifEnabled={gifEnabled}
       onSendGif={sendGif}
+      // The emoji menu portals out of the drawer, so it takes the drawer's panel remap itself (#2660).
+      menuPaperSx={MENU_PANEL_VARS}
     />
   );
 }
