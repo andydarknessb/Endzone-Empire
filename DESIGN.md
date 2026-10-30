@@ -265,7 +265,8 @@ Buttons are square, 44px tall, 2px bordered, Archivo 600 at 15px with a pixel ar
 - **Cursor blink:** the cursor frame's border blinks off and on three times (0.5s, stepped), then rests lit. Under `prefers-reduced-motion: reduce` the blink is off. Hover brightens a button or link by 12% (`filter: brightness(1.12)`).
 - **Cursor move:** hover (on pointer devices) or keyboard focus inside a play card moves the cursor frame to that card at once, in the lead's colour if it is the lead and in Cursor yellow otherwise, and clears the frame from the lead. When the pointer or focus leaves, the cursor goes back to the lead.
 - **Press:** while a play card is pressed its frame turns white and its content drops 2px. Under reduced motion the frame still turns white but the content does not move.
-- **Score flash:** when a refresh changes a live score, the score block flashes a 16% white wash three times (0.3s, stepped), then holds. Under reduced motion it holds the wash steadily for 1s instead. Nothing else on Home animates.
+- **Score flash:** when a refresh changes a live score, the score block flashes a 16% white wash three times (0.3s, stepped), then holds. Under reduced motion it holds the wash steadily for 1s instead.
+- **Huddle break:** when nothing needs the manager, the Call your plays frame shows a pixel huddle on a Play field band that steps once through three frames (0.4s each: the huddle, halfway out, the formation set on the line), then holds the set formation, over "All plays called". Under reduced motion it shows the set formation only. No cursor and no filled action. Nothing else on Home animates.
 
 ### League pages
 The canvas at https://claude.ai/artifact/PrJq3Dhr94dkYbkG4hw2Vj (version 12, working files and the full rulings log in `docs/design/league/`) is the spec for every league page; ADR 0067 sets the waves. The pieces below extend Home's.

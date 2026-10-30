@@ -5,7 +5,7 @@ import { formatInstant } from '../../shared/lib/instantFormat';
 import { timeUntil, timeUntilWords, useNow } from '../../shared/lib/timeUntil';
 import NextDraftCard, { featuredDraft } from './NextDraftCard';
 import {
-  CountBadge, ErrorPanel, Frame, FrameHead, PsButton, PsLink, PixelHeading, PlayCard, Skel, SR_ONLY_SX, pixelSx,
+  CountBadge, ErrorPanel, Frame, FrameHead, HuddleBreak, PsButton, PsLink, PixelHeading, PlayCard, Skel, SR_ONLY_SX, pixelSx,
 } from '../../shared/ui/playselect';
 
 // "Call your plays" (Home Play-select, DESIGN.md "Play-select"): every open
@@ -282,8 +282,8 @@ function ActionQueue({
   const {
     items, partial, loading, error, fetchedAt, reload,
   } = useActionItems();
-  // Loading with items present is loaded (a refetch keeps the plays); an error with none is a failure.
-  const pending = loading && items.length === 0 && !error;
+  // Loading before the first answer is pending; a refetch keeps what is shown (plays, or the empty huddle).
+  const pending = loading && items.length === 0 && !error && updatedAt == null;
   const failed = !pending && Boolean(error) && items.length === 0;
   const loaded = !pending && !failed;
   // Lock text ("in 1h 12m"), the urgent strip and the stamp repaint exactly
@@ -363,7 +363,35 @@ function ActionQueue({
   if (specs.length === 0) {
     return (
       <Frame labelledBy="action-queue-heading" head={head}>
-        <Box sx={{ padding: '20px', ...pixelSx(16) }}>Nothing needs you right now.</Box>
+        <Box
+          sx={{
+            display: 'flex',
+            flexDirection: { xs: 'column', sm: 'row' },
+            alignItems: { xs: 'flex-start', sm: 'center' },
+            gap: { xs: '12px', sm: '20px' },
+            padding: '20px',
+          }}
+        >
+          <Box
+            sx={{
+              display: 'grid',
+              placeItems: 'center',
+              flex: 'none',
+              padding: { xs: '10px 0', md: '14px 0' },
+              backgroundColor: 'var(--ps-play-field)',
+              borderTop: '2px dashed var(--ps-play-dim)',
+              borderBottom: '2px dashed var(--ps-play-dim)',
+            }}
+          >
+            <Box sx={{ width: { xs: '96px', md: '144px' } }}>
+              <HuddleBreak width="100%" />
+            </Box>
+          </Box>
+          <Box sx={{ minWidth: 0 }}>
+            <Box component="p" sx={{ m: 0, ...pixelSx(16), color: 'var(--ps-ink)' }}>All plays called</Box>
+            <Box component="p" sx={{ m: '8px 0 0', fontSize: '16px', color: 'var(--ps-dim)' }}>Nothing needs you right now.</Box>
+          </Box>
+        </Box>
         {sideline.length > 0 && (
           <Box sx={{ padding: '0 20px 4px', borderTop: RULE }}>
             <Box component="h3" sx={{ ...sidelineHeadSx, margin: '12px 0 0' }}>On the sideline</Box>

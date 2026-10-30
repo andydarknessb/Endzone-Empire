@@ -11,7 +11,7 @@ export {
   Frame, FrameHead, PixelHeading, CountBadge,
 } from './Frame';
 export {
-  Pictogram, PixelArrow, PixelCheck, PixelClock, PixelClose, PixelSpeech, PixelWarn,
+  HuddleBreak, Pictogram, PixelArrow, PixelCheck, PixelClock, PixelClose, PixelSpeech, PixelWarn,
 } from './Icons';
 export {
   CpuTag, InjuryTag, PosTag, StatusChip, Tag, TeamMark, YouTag,
