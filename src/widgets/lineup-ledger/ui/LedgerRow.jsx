@@ -1,3 +1,4 @@
+import { headshotSrc } from '../../../shared/lib/headshot';
 import React, { useState } from 'react';
 import { Box, useMediaQuery, useTheme } from '@mui/material';
 import {
@@ -160,7 +161,7 @@ function PlayerAvatar({ name, photoUrl, size, color }) {
       {photoUrl && !broken ? (
         <Box
           component="img"
-          src={photoUrl}
+          src={headshotSrc(photoUrl, size)}
           alt=""
           loading="lazy"
           data-testid="ledger-headshot"

@@ -1,3 +1,4 @@
+import { headshotSrc } from '../../../shared/lib/headshot';
 import React, { Fragment, useMemo, useState } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import {
@@ -35,7 +36,7 @@ function PlayerIdentity({ row }) {
   return (
     <Stack direction="row" spacing={1.25} alignItems="center" sx={{ minWidth: 0 }}>
       <Avatar
-        src={row.photoUrl || undefined}
+        src={headshotSrc(row.photoUrl, 38) || undefined}
         alt=""
         imgProps={{ loading: 'lazy' }}
         sx={{ width: 38, height: 38, bgcolor: 'var(--surface-sunken)', color: 'text.primary', fontSize: 13 }}
