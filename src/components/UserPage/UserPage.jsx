@@ -17,7 +17,7 @@ import {
 } from './GreetingHeader';
 import { deriveLeaguePhase, LEAGUE_PHASE } from '../../shared/lib/leaguePhase';
 import { usePostgameCutscenes, PostgameCutscenes } from '../../features/postgame-cutscene';
-import homeTheme from './homeTheme';
+import homeTheme, { HOME_PANEL_VARS } from './homeTheme';
 import {
   Frame, FrameHead, PsButton, PsLink, PixelHeading, PlayCard, pixelSx, psRootSx,
 } from '../../shared/ui/playselect';
@@ -403,7 +403,7 @@ function UserPage() {
         tabIndex={-1}
         aria-labelledby="user-page-heading"
         sx={{
-          ...psRootSx, display: 'flex', flexDirection: 'column', flexGrow: 1, mt: `-${NAV_GAP}`, mb: `-${FOOTER_GAP}`,
+          ...psRootSx, ...HOME_PANEL_VARS, display: 'flex', flexDirection: 'column', flexGrow: 1, mt: `-${NAV_GAP}`, mb: `-${FOOTER_GAP}`,
         }}
       >
         <Box

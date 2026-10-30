@@ -78,6 +78,8 @@ for (const state of STATES) {
           clientWidth: document.documentElement.clientWidth,
           bodyScrollWidth: document.body.scrollWidth,
           background: getComputedStyle(document.querySelector('.ps-root') as Element).backgroundColor,
+          // The Columns frame: Home's own panel, the nearest section above its heading that is not the page root.
+          panel: getComputedStyle(([...document.querySelectorAll('h2')].find((h) => h.textContent?.trim() === 'Columns') as Element).closest('section:not(.ps-root)') as Element).backgroundColor,
           // The seam: Home's field starts at the Nav's bottom edge and ends at the footer's top edge.
           navGap: Math.round((document.querySelector('.ps-root') as Element).getBoundingClientRect().top - (document.querySelector('header') as Element).getBoundingClientRect().bottom),
           footerGap: Math.round((document.querySelector('footer') as Element).getBoundingClientRect().top - (document.querySelector('.ps-root') as Element).getBoundingClientRect().bottom),
@@ -92,6 +94,7 @@ for (const state of STATES) {
         expect(probe.footerGap, 'no band of page colour between Home and the footer').toBe(0);
         expect(probe.cursors, 'exactly one .cursor').toBe(1);
         expect(probe.filled, 'exactly one data-filled="true" foot').toBe(1);
+        expect(probe.panel, 'Home frames paint the Home panel').toBe(theme === 'dark' ? 'rgb(18, 28, 76)' : 'rgb(255, 255, 255)');
         expect(probe.scrollWidth, `document scrollWidth ${probe.scrollWidth} vs clientWidth ${probe.clientWidth}`).toBeLessThanOrEqual(probe.clientWidth);
         expect(probe.bodyScrollWidth, `body scrollWidth ${probe.bodyScrollWidth} vs clientWidth ${probe.clientWidth}`).toBeLessThanOrEqual(probe.clientWidth);
       });

@@ -300,6 +300,14 @@ const PAIRINGS = [
   // League pages: the 2px edge of a tertiary frame, on the page and against its own panel fill.
   pairing('ps-frame-2', 'ps-field', DECORATIVE_EDGE, 'tertiary frame edge on the page'),
   pairing('ps-frame-2', 'ps-panel', DECORATIVE_EDGE, 'tertiary frame edge against its own panel fill'),
+  // Home panel (#2652)
+  pairing('ps-ink', 'ps-home-panel', AA_TEXT, 'Home body text in a frame on the Home panel'),
+  pairing('ps-dim', 'ps-home-panel', AA_TEXT, 'Home muted text in a frame on the Home panel'),
+  pairing('ps-accent', 'ps-home-panel', AA_TEXT, 'live chip text and outline in a Home frame'),
+  pairing('ps-danger', 'ps-home-panel', AA_TEXT, 'Home danger text in a frame on the Home panel'),
+  pairing('ps-cursor', 'ps-home-panel', AA_LARGE, 'Home cursor frame on the Home panel'),
+  pairing('ps-frame', 'ps-home-panel', AA_LARGE, 'Home frame double rule on the Home panel'),
+  pairing('ps-frame-2', 'ps-home-panel', DECORATIVE_EDGE, 'Home tertiary frame edge on the Home panel'),
   // League History podium medals: non-text marks on a Play-select frame, held to the 3:1 non-text floor.
   ...['gold', 'silver', 'bronze'].map((m) => pairing(`ps-medal-${m}`, 'ps-panel', AA_LARGE, `the ${m} rank medal on a Play-select frame`)),
   // Position tags on a frame: a data encoding (RULINGS.md), still held to AA text on Panel.

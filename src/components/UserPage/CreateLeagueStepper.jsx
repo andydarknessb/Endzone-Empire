@@ -25,6 +25,7 @@ import {
   BODY_FONT, Frame, PixelArrow, PixelCheck, PixelClose, PixelWarn, PsButton, pixelSx,
 } from '../../shared/ui/playselect';
 import { Dim, KitTextField, Note } from '../DraftSettings/kit';
+import { HOME_PANEL_VARS } from './homeTheme';
 
 /**
  * Create league in five steps (Home v2 slice 4): League type, Basics, Rules,
@@ -802,6 +803,7 @@ export default function CreateLeagueStepper({ open, onClose, onCreated }) {
       PaperProps={{
         className: 'ps-root',
         sx: {
+          ...HOME_PANEL_VARS,
           border: '6px double var(--ps-frame)',
           borderRadius: 0,
           backgroundColor: 'var(--ps-panel)',
