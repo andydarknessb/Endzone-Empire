@@ -1,7 +1,7 @@
 import React, { useId, useState } from 'react';
 import { Box, useMediaQuery, useTheme } from '@mui/material';
 import {
-  CpuTag, ErrorPanel, Frame, FrameHead, PixelArrow, PixelHeading, Skel, SR_ONLY_SX, TeamMark, YouTag,
+  CpuTag, ErrorPanel, Frame, FrameHead, PixelArrow, PixelHeading, pixelSx, Skel, SR_ONLY_SX, TeamMark, YouTag,
 } from '../../../shared/ui/playselect';
 import useStandingsTable from '../model/useStandingsTable';
 
@@ -10,7 +10,7 @@ const FOLD_SPAN = 2;
 
 // The first two columns stay in view while PF, PA and STRK scroll (phone), so their widths are
 // fixed. `xs` is the phone width, `md` the desktop one.
-const RANK_W = { xs: 44, md: 64 };
+const RANK_W = { xs: 48, md: 64 };
 const CELL_PAD = { xs: '0 8px', md: '0 12px' };
 
 const cellSx = (align = 'left', extra = null) => ({
@@ -45,7 +45,8 @@ const headCellSx = (align = 'left', extra = null) => ({
  * Tecmo ranking screen. Rank, Team (avatar, name, a "You" tag on the viewer's own row), W-L-T, PF,
  * PA and the trailing streak in tabular figures on 44px rows with 2px Rule dividers and no zebra.
  * The viewer's row is Play blue with a pixel arrow before the name (it is not a cursor: the one
- * cursor belongs to Your move); a dashed Frame rule marks the playoff line.
+ * cursor belongs to Your move); the rank figure is Pixel 16, and a dashed Frame rule marks the
+ * playoff line.
  *
  * Paints only `ps-*` tokens (DESIGN.md "Play-select: Home and league pages"). Below `sm` the table
  * folds to the viewer's row with two teams either side and the playoff line, then a "Full standings"
@@ -238,7 +239,7 @@ function StandingsRow({ row, preseason, lastBeforeBreak }) {
       <Box
         component="td"
         sx={cellSx('left', {
-          ...base, position: 'sticky', left: 0, zIndex: 1, width: RANK_W, minWidth: RANK_W, fontWeight: 600,
+          ...base, position: 'sticky', left: 0, zIndex: 1, width: RANK_W, minWidth: RANK_W, ...pixelSx(16),
         })}
       >
         {row.rank}
