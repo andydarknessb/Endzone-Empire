@@ -308,6 +308,7 @@ const PAIRINGS = [
   pairing('ps-cursor', 'ps-home-panel', AA_LARGE, 'Home cursor frame on the Home panel'),
   pairing('ps-frame', 'ps-home-panel', AA_LARGE, 'Home frame double rule on the Home panel'),
   pairing('ps-frame-2', 'ps-home-panel', DECORATIVE_EDGE, 'Home tertiary frame edge on the Home panel'),
+  pairing('ps-rule', 'ps-home-panel', DECORATIVE_EDGE, 'Home frame dividers on the Home panel'),
   // League History podium medals: non-text marks on a Play-select frame, held to the 3:1 non-text floor.
   ...['gold', 'silver', 'bronze'].map((m) => pairing(`ps-medal-${m}`, 'ps-panel', AA_LARGE, `the ${m} rank medal on a Play-select frame`)),
   // Position tags on a frame: a data encoding (RULINGS.md), still held to AA text on Panel.

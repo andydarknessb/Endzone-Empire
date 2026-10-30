@@ -713,6 +713,7 @@ export default function CreateLeagueStepper({ open, onClose, onCreated }) {
               {draftMode === 'schedule' && (
                 <DraftScheduleField
                   look="playselect"
+                  menuPaperSx={HOME_PANEL_VARS}
                   wallTime={draftDate}
                   onWallTimeChange={(value) => update({ draftDate: value })}
                   timeZone={draftTimezone}
