@@ -51,6 +51,7 @@ Register Form
   --------------------- */
   .alert {
     width: 100%;
+    font-weight: bold;
     padding: 15px;
     margin-top: 20px;
     background-color: var(--danger);
