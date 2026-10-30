@@ -402,7 +402,7 @@ describe('empty, loading and error', () => {
 
   test('no items at all: the huddle breaks, all plays called', async () => {
     mockItems(body([]));
-    renderWithProviders(<ActionQueue leagues={[]} />);
+    const { container } = renderWithProviders(<ActionQueue leagues={[]} />);
 
     const region = await frame();
     expect(within(region).getByText('All plays called')).toBeInTheDocument();
@@ -413,6 +413,8 @@ describe('empty, loading and error', () => {
     // eslint-disable-next-line testing-library/no-node-access
     expect(huddle.querySelectorAll('path')).toHaveLength(3);
     expect(within(region).queryByRole('heading', { level: 3 })).not.toBeInTheDocument();
+    expect(cursors(container)).toHaveLength(0);
+    expect(filled(container)).toHaveLength(0);
   });
 
   test('shows a skeleton in the card shape until the list arrives', async () => {
@@ -480,6 +482,22 @@ describe('refreshKey', () => {
     expect(screen.queryByTestId('action-queue-skeleton')).not.toBeInTheDocument();
     expect(await screen.findByRole('link', { name: /New play/ })).toBeInTheDocument();
     expect(apiClient.get).toHaveBeenCalledTimes(2);
+  });
+
+  test('a refetch keeps the empty state mounted, so the huddle does not replay', async () => {
+    mockItems(body([]));
+    const { container } = renderWithProviders(<Harness />);
+
+    await screen.findByText('All plays called');
+    // eslint-disable-next-line testing-library/no-node-access, testing-library/no-container
+    const huddle = container.querySelector('svg.huddle-break');
+    mockItems('pending');
+    await userEvent.click(screen.getByRole('button', { name: 'refresh' }));
+    expect(apiClient.get).toHaveBeenCalledTimes(2);
+    expect(screen.queryByText('Loading your plays')).not.toBeInTheDocument();
+    expect(screen.getByText('All plays called')).toBeInTheDocument();
+    // eslint-disable-next-line testing-library/no-node-access, testing-library/no-container
+    expect(container.querySelector('svg.huddle-break')).toBe(huddle);
   });
 
   test('a failed refetch keeps the old plays and shows no error', async () => {

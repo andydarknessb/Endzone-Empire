@@ -282,8 +282,8 @@ function ActionQueue({
   const {
     items, partial, loading, error, fetchedAt, reload,
   } = useActionItems();
-  // Loading with items present is loaded (a refetch keeps the plays); an error with none is a failure.
-  const pending = loading && items.length === 0 && !error;
+  // Loading before the first answer is pending; a refetch keeps what is shown (plays, or the empty huddle).
+  const pending = loading && items.length === 0 && !error && updatedAt == null;
   const failed = !pending && Boolean(error) && items.length === 0;
   const loaded = !pending && !failed;
   // Lock text ("in 1h 12m"), the urgent strip and the stamp repaint exactly
