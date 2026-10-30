@@ -78,6 +78,8 @@ for (const state of STATES) {
           clientWidth: document.documentElement.clientWidth,
           bodyScrollWidth: document.body.scrollWidth,
           background: getComputedStyle(document.querySelector('.ps-root') as Element).backgroundColor,
+          // The Columns frame: Home's own panel, the nearest section above its heading that is not the page root.
+          panel: getComputedStyle(([...document.querySelectorAll('h2')].find((h) => h.textContent?.trim() === 'Columns') as Element).closest('section:not(.ps-root)') as Element).backgroundColor,
           // The seam: Home's field starts at the Nav's bottom edge and ends at the footer's top edge.
           navGap: Math.round((document.querySelector('.ps-root') as Element).getBoundingClientRect().top - (document.querySelector('header') as Element).getBoundingClientRect().bottom),
           footerGap: Math.round((document.querySelector('footer') as Element).getBoundingClientRect().top - (document.querySelector('.ps-root') as Element).getBoundingClientRect().bottom),
@@ -92,6 +94,7 @@ for (const state of STATES) {
         expect(probe.footerGap, 'no band of page colour between Home and the footer').toBe(0);
         expect(probe.cursors, 'exactly one .cursor').toBe(1);
         expect(probe.filled, 'exactly one data-filled="true" foot').toBe(1);
+        expect(probe.panel, 'Home frames paint the Home panel').toBe(theme === 'dark' ? 'rgb(18, 28, 76)' : 'rgb(255, 255, 255)');
         expect(probe.scrollWidth, `document scrollWidth ${probe.scrollWidth} vs clientWidth ${probe.clientWidth}`).toBeLessThanOrEqual(probe.clientWidth);
         expect(probe.bodyScrollWidth, `body scrollWidth ${probe.bodyScrollWidth} vs clientWidth ${probe.clientWidth}`).toBeLessThanOrEqual(probe.clientWidth);
       });
@@ -265,6 +268,9 @@ for (const dialog of DIALOGS) {
         const opener = page.getByRole('button', { name: dialog.opener }).first();
         await opener.click();
         await expect(page.getByRole('dialog')).toBeVisible();
+        // role="dialog" sits on MUI's Paper, the element that paints the surface.
+        const surface = await page.evaluate(() => getComputedStyle(document.querySelector('[role="dialog"]') as Element).backgroundColor);
+        expect(surface, 'dialog paper on the Home panel').toBe(theme === 'dark' ? 'rgb(18, 28, 76)' : 'rgb(255, 255, 255)');
         await page.evaluate(() => document.fonts.ready.then(() => true));
         // Let the open transition finish so the geometry is the resting one.
         await page.waitForTimeout(400);
@@ -304,6 +310,27 @@ for (const viewport of Object.keys(VIEWPORTS) as ViewportName[]) {
     expect(review.scrollWidth).toBeLessThanOrEqual(review.innerWidth);
   });
 }
+
+// The Draft time zone menu portals to <body>, outside the dialog paper, so it must take the Home panel itself (#2652).
+test('Create league draft time zone menu paints the Home panel (dark)', async ({ page }) => {
+  await openHome(page, 'main', 'desktop', { theme: 'dark' });
+  await page.getByRole('button', { name: /create a league/i }).first().click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+  const next = page.getByRole('button', { name: 'Continue' });
+  await next.click();
+  await page.getByLabel(/League name/).fill('Monday Mayhem');
+  await page.getByLabel(/Team name/).fill('Squad');
+  await next.click();
+  await next.click();
+  await expect(page.getByRole('heading', { name: 'Draft day' })).toBeVisible();
+  await page.getByText('Pick a date and time', { exact: true }).click();
+  await page.getByLabel('Draft date').fill('2026-11-15T19:00');
+  await page.getByLabel('Draft time zone').click();
+  const listbox = page.getByRole('listbox');
+  await expect(listbox).toBeVisible();
+  const menu = await listbox.evaluate((el) => getComputedStyle(el.closest('.MuiAutocomplete-paper') as Element).backgroundColor);
+  expect(menu, 'time zone menu paper on the Home panel').toBe('rgb(18, 28, 76)');
+});
 
 // Negative control: the probe reports a 20px button planted in the dialog.
 test('negative control: the dialog probe reports a button under 44px', async ({ page }) => {
