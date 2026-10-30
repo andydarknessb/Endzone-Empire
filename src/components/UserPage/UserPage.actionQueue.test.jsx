@@ -400,12 +400,18 @@ describe('empty, loading and error', () => {
     expect(filled(container)).toHaveLength(0);
   });
 
-  test('no items at all: the empty line alone', async () => {
+  test('no items at all: the huddle breaks, all plays called', async () => {
     mockItems(body([]));
     renderWithProviders(<ActionQueue leagues={[]} />);
 
     const region = await frame();
+    expect(within(region).getByText('All plays called')).toBeInTheDocument();
     expect(within(region).getByText('Nothing needs you right now.')).toBeInTheDocument();
+    // eslint-disable-next-line testing-library/no-node-access, testing-library/no-container
+    const huddle = region.querySelector('svg.huddle-break');
+    expect(huddle).toHaveAttribute('aria-hidden', 'true');
+    // eslint-disable-next-line testing-library/no-node-access
+    expect(huddle.querySelectorAll('path')).toHaveLength(3);
     expect(within(region).queryByRole('heading', { level: 3 })).not.toBeInTheDocument();
   });
 

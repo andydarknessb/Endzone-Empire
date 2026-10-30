@@ -129,3 +129,27 @@ export function Pictogram({ kind, width = 96 }) {
     </svg>
   );
 }
+
+// the huddle breaks: three frames from the huddle to the line
+const HUDDLE = [
+  O(26, 30) + O(30, 14) + O(48, 8) + O(66, 14) + O(70, 30) + O(48, 32),
+  O(20, 26) + O(32, 18) + O(48, 16) + O(64, 18) + O(76, 26) + O(48, 36),
+  dashH(4, 92, 8) + O(16, 22) + O(32, 22) + O(48, 22) + O(64, 22) + O(80, 22) + O(48, 38),
+];
+
+/** The Call your plays empty frame's pixel huddle: frames `huddle-1` to `huddle-3`, stepped by playselect.css. */
+export function HuddleBreak({ width = 96 }) {
+  return (
+    <svg
+      width={width}
+      height={typeof width === 'number' ? width / 2 : undefined}
+      viewBox="0 0 96 48"
+      aria-hidden="true"
+      shapeRendering="crispEdges"
+      className="huddle-break"
+      style={{ display: 'block', color: 'var(--ps-play-ink)' }}
+    >
+      {HUDDLE.map((d, i) => <path key={i} className={`huddle-${i + 1}`} d={d} fill="currentColor" />)}
+    </svg>
+  );
+}

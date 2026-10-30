@@ -100,7 +100,41 @@
   }
 }
 
+/* Huddle break: frames 1 and 2 show once for 0.4s each, then frame 3 (the set formation) holds. */
+.ps-root .huddle-1,
+.ps-root .huddle-2 {
+  visibility: hidden;
+}
+
+.ps-root .huddle-1 {
+  animation: huddle-show 0.4s steps(1) 1;
+}
+
+.ps-root .huddle-2 {
+  animation: huddle-show 0.4s steps(1) 0.4s 1;
+}
+
+.ps-root .huddle-3 {
+  animation: huddle-wait 0.8s steps(1) 1;
+}
+
+@keyframes huddle-show {
+  0% {
+    visibility: visible;
+  }
+}
+
+@keyframes huddle-wait {
+  0% {
+    visibility: hidden;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .ps-root .huddle-break path {
+    animation: none;
+  }
+
   .ps-root .live-light {
     animation: none;
   }
