@@ -31,9 +31,9 @@ function LoginForm() {
     <form className="formPanel" onSubmit={login}>
       <h2>Login</h2>
       {errors.loginMessage && (
-        <h3 className="alert" role="alert">
+        <p className="alert" role="alert">
           {errors.loginMessage}
-        </h3>
+        </p>
       )}
       <div>
         <label htmlFor="username">

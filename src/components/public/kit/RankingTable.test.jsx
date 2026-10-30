@@ -19,16 +19,18 @@ const MIXED_ROWS = [
   { rank: 8, playerId: 'wr-4', name: 'WR Four', position: 'WR', nflTeam: 'LAR', projectedPoints: 15, seasonPoints: 42, trend: 'down' },
 ];
 
-beforeEach(() => {
+const mockMatchMedia = (matches) => {
   window.matchMedia = jest.fn().mockImplementation((query) => ({
-    matches: false,
+    matches,
     media: query,
     addEventListener: jest.fn(),
     removeEventListener: jest.fn(),
     addListener: jest.fn(),
     removeListener: jest.fn(),
   }));
-});
+};
+
+beforeEach(() => mockMatchMedia(false));
 
 const renderTable = (props) =>
   render(
@@ -106,15 +108,22 @@ describe('RankingTable states', () => {
     expect(screen.queryByText(/^(QB|RB|WR).*Tier \d+$/)).not.toBeInTheDocument();
   });
 
+  it('gives the trend help and sort order icon buttons a 44px touch target (#2637)', () => {
+    mockMatchMedia(true);
+    renderTable({ rows: ROWS, loading: false });
+    expect(screen.getByRole('button', { name: 'About ranking trends' }))
+      .toHaveStyle({ minHeight: '44px', minWidth: '44px' });
+    expect(screen.getByRole('button', { name: 'Sort descending' }))
+      .toHaveStyle({ minHeight: '44px', minWidth: '44px' });
+  });
+
+  it('loads player photos lazily (#2638)', () => {
+    renderTable({ rows: [{ ...ROWS[0], photoUrl: 'https://example.com/back.png' }], loading: false });
+    expect(screen.getByRole('presentation', { hidden: true })).toHaveAttribute('loading', 'lazy');
+  });
+
   it('uses stacked ranking cards instead of a table below md', () => {
-    window.matchMedia = jest.fn().mockImplementation((query) => ({
-      matches: true,
-      media: query,
-      addEventListener: jest.fn(),
-      removeEventListener: jest.fn(),
-      addListener: jest.fn(),
-      removeListener: jest.fn(),
-    }));
+    mockMatchMedia(true);
     renderTable({ rows: ROWS, loading: false });
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
     expect(screen.getByRole('list', { name: 'NFL player rankings' })).toBeInTheDocument();

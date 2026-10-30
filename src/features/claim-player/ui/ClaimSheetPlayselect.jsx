@@ -36,10 +36,10 @@ function RadioRow({
         component="span"
         aria-hidden="true"
         sx={{
-          width: '20px', height: '20px', flex: 'none', boxSizing: 'border-box', border: '2px solid var(--ps-ink)', borderRadius: '50%', display: 'grid', placeItems: 'center',
+          width: '20px', height: '20px', flex: 'none', boxSizing: 'border-box', border: '2px solid var(--ps-ink)', display: 'grid', placeItems: 'center', borderRadius: 0,
         }}
       >
-        {checked ? <Box component="span" sx={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'var(--ps-ink)' }} /> : null}
+        {checked ? <Box component="span" sx={{ width: '8px', height: '8px', borderRadius: 0, backgroundColor: 'var(--ps-ink)' }} /> : null}
       </Box>
       <Box component="span" sx={{ fontWeight: checked ? 700 : 400 }}>{label}</Box>
     </Box>

@@ -34,7 +34,7 @@ function Glyph({ state }) {
           data-testid="live-dot"
           data-tone="danger"
           aria-hidden="true"
-          sx={{ width: 8, height: 8, borderRadius: 'var(--radius-pill)', backgroundColor: 'var(--danger)', flex: 'none' }}
+          sx={{ width: 8, height: 8, borderRadius: 0, backgroundColor: 'var(--ps-danger)', flex: 'none' }}
         />
         <Box component="span" sx={visuallyHidden}>Live</Box>
       </>

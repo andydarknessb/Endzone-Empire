@@ -71,6 +71,13 @@ describe('the sheet', () => {
     expect(screen.getAllByRole('radio').some((r) => r.checked)).toBe(false);
   });
 
+  test('the drop checkbox box and dot are square (the Square Rule)', () => {
+    renderSheet({ dropSuggestion: { id: 22 } });
+    const box = screen.getByRole('radio', { name: /Mid Guy/ }).nextElementSibling;
+    expect(box).toHaveStyle({ borderRadius: '0' });
+    expect(box.firstElementChild).toHaveStyle({ borderRadius: '0' });
+  });
+
   test('Add and drop is disabled until a player is chosen, then deletes the drop and posts the add', async () => {
     apiClient.delete.mockResolvedValue({});
     apiClient.post.mockResolvedValue({});

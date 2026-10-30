@@ -15,7 +15,7 @@ import { Box } from '@mui/material';
  * the bare decorative glyph (no role, no label) for a caller that prints the
  * state's word beside it, the Starters legend; its in-progress form is the
  * live dot. Ink is `ps-dim` on the panel, registered
- * in tokens.contrast.test.js; the dot is a `--danger` graphic beside text, not
+ * in tokens.contrast.test.js; the dot is a `--ps-danger` graphic beside text, not
  * a text pairing.
  */
 
@@ -51,11 +51,10 @@ function Icon({ name, size }) {
   );
 }
 
-// The design's `.dot` in the in-progress color: an 8px disc painted `--danger`
-// (an app token defined in both themes), so the live marker stays red beside
-// the pace bar's green at-or-ahead fill. `data-tone` declares that paint where
-// a test can read it (jsdom drops a var() color from computed and inline style
-// alike), as Badge's `data-variant` does.
+// The design's `.dot` in the in-progress color: an 8px square (the Square Rule)
+// painted `--ps-danger`, so the live marker stays red beside the pace bar's
+// green at-or-ahead fill. `data-tone` declares that paint where a test can
+// read it.
 function LiveDot() {
   return (
     <Box
@@ -66,8 +65,8 @@ function LiveDot() {
       sx={{
         width: 8,
         height: 8,
-        borderRadius: 'var(--radius-pill)',
-        backgroundColor: 'var(--danger)',
+        borderRadius: 0,
+        backgroundColor: 'var(--ps-danger)',
         flex: 'none',
       }}
     />

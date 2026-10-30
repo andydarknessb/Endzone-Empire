@@ -10,6 +10,7 @@
 }
 
 .alert {
+  font-weight: bold; /* was an h3 */
   box-sizing: border-box;
   padding: 15px 10px;
   margin: 15px 0;

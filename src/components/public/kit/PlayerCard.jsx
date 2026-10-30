@@ -1,3 +1,4 @@
+import { headshotSrc } from '../../../shared/lib/headshot';
 import React from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import { Card, CardActionArea, Avatar, Box, Chip, Stack, Typography } from '@mui/material';
@@ -27,7 +28,7 @@ function PlayerCard({ player, stat, statLabel = 'pts', subtitle }) {
     <Card variant="outlined" sx={{ height: '100%' }}>
       <CardActionArea component={RouterLink} to={`/players/${playerId}`} sx={{ p: 1.5, height: '100%' }}>
         <Stack direction="row" spacing={1.5} alignItems="center">
-          <Avatar src={photoUrl || undefined} alt="" sx={{ width: 48, height: 48, bgcolor: 'var(--surface-sunken)', color: 'text.primary' }}>
+          <Avatar src={headshotSrc(photoUrl, 48) || undefined} alt="" imgProps={{ loading: 'lazy' }} sx={{ width: 48, height: 48, bgcolor: 'var(--surface-sunken)', color: 'text.primary' }}>
             {initials(name)}
           </Avatar>
           <Box sx={{ minWidth: 0, flexGrow: 1 }}>

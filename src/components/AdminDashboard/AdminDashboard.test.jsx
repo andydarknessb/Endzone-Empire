@@ -316,3 +316,13 @@ test("the leagues table names each row's league type, so pick'em-only leagues st
   expect(within(rows[2]).getByText('Fantasy')).toBeInTheDocument();
   expect(within(rows[2]).getByText('2')).toBeInTheDocument();
 });
+
+test('the page has one h1 and a stat value is not a heading (#2635)', async () => {
+  apiClient.get.mockResolvedValue({ data: overviewResponse() });
+  renderScreen();
+  await screen.findByRole('heading', { name: 'Admin Dashboard' });
+  const h1s = screen.getAllByRole('heading', { level: 1 });
+  expect(h1s).toHaveLength(1);
+  expect(h1s[0]).toHaveTextContent('Admin Dashboard');
+  expect(screen.queryByRole('heading', { name: '42' })).toBeNull();
+});

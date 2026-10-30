@@ -13,6 +13,14 @@ const LONG_NAME = 'Christian Kirk-Cousins-Longname III';
 const renderCard = (player) =>
   renderWithProviders(<PlayerCard player={player} />, { path: '/', route: '/' });
 
+describe('PlayerCard headshot', () => {
+  test('loads lazily (#2638)', () => {
+    renderCard({ playerId: 7, name: 'Puka Nacua', position: 'WR', nflTeam: 'LAR', photoUrl: 'https://example.com/puka.png' });
+
+    expect(screen.getByRole('presentation', { hidden: true })).toHaveAttribute('loading', 'lazy');
+  });
+});
+
 describe('PlayerCard name truncation', () => {
   test('renders the name as a non-heading block element that noWrap can truncate', () => {
     renderCard({ playerId: 7, name: LONG_NAME, position: 'WR', nflTeam: 'JAX' });

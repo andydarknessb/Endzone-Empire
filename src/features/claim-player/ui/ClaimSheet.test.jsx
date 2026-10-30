@@ -124,6 +124,14 @@ describe('ClaimSheet drop preselect', () => {
     <ClaimSheet open player={player} leagueId={1} availability={{ rosterCount: 2, rosterCapacity: 3 }} roster={roster} onClose={() => {}} {...props} />,
   );
   const checked = () => screen.getAllByRole('radio').find((r) => r.checked);
+  it('draws the drop checkbox box and dot square (the Square Rule)', () => {
+    sheet({ dropSuggestion: { id: 9, name: 'Roster 9' } });
+    /* eslint-disable testing-library/no-node-access -- the box is an aria-hidden sibling of the radio */
+    const box = checked().nextElementSibling;
+    expect(box).toHaveStyle({ borderRadius: '0' });
+    expect(box.firstElementChild).toHaveStyle({ borderRadius: '0' });
+    /* eslint-enable testing-library/no-node-access */
+  });
   // The app's jest config resets mock implementations between tests.
   beforeEach(() => usePlayerCard.mockReturnValue({ status: 'loading', card: null }));
 

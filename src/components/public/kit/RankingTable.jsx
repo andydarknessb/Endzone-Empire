@@ -1,3 +1,4 @@
+import { headshotSrc } from '../../../shared/lib/headshot';
 import React, { Fragment, useMemo, useState } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import {
@@ -15,6 +16,7 @@ import { positionColorVar } from './positionColor';
 import { LoadingRows, EmptyState, ErrorState } from './DataState';
 import { deriveRankingTiers, orderRowsByPosition } from './rankingTiers';
 import AbbreviationTooltip from '../../../shared/ui/AbbreviationTooltip';
+import { MIN_TOUCH_TARGET_SX } from '../../../shared/lib/a11y';
 
 const TREND_VALUES = { down: -1, flat: 0, up: 1 };
 
@@ -34,8 +36,9 @@ function PlayerIdentity({ row }) {
   return (
     <Stack direction="row" spacing={1.25} alignItems="center" sx={{ minWidth: 0 }}>
       <Avatar
-        src={row.photoUrl || undefined}
+        src={headshotSrc(row.photoUrl, 38) || undefined}
         alt=""
+        imgProps={{ loading: 'lazy' }}
         sx={{ width: 38, height: 38, bgcolor: 'var(--surface-sunken)', color: 'text.primary', fontSize: 13 }}
       >
         {String(row.name || '').slice(0, 1)}
@@ -67,7 +70,7 @@ function TrendLegend() {
     <Stack direction="row" spacing={0.5} alignItems="center" justifyContent="flex-end" sx={{ mb: 1 }}>
       <Typography variant="caption" sx={{ color: 'text.secondary' }}>Trend: last two played weeks</Typography>
       <Tooltip title="Up or down compares a player's fantasy points in their two most recent played weeks.">
-        <IconButton size="small" aria-label="About ranking trends"><HelpOutlineIcon fontSize="inherit" /></IconButton>
+        <IconButton size="small" aria-label="About ranking trends" sx={MIN_TOUCH_TARGET_SX}><HelpOutlineIcon fontSize="inherit" /></IconButton>
       </Tooltip>
     </Stack>
   );
@@ -89,7 +92,7 @@ function MobileRankings({ rows, tiers, showTierBands, orderBy, order, sortHandle
           </Button>
         ))}
         <Tooltip title={`Sort ${order === 'asc' ? 'descending' : 'ascending'}`}>
-          <IconButton size="small" aria-label={`Sort ${order === 'asc' ? 'descending' : 'ascending'}`} onClick={toggleOrder}>
+          <IconButton size="small" aria-label={`Sort ${order === 'asc' ? 'descending' : 'ascending'}`} onClick={toggleOrder} sx={MIN_TOUCH_TARGET_SX}>
             <SwapVertIcon fontSize="small" />
           </IconButton>
         </Tooltip>

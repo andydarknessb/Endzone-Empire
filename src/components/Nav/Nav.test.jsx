@@ -29,6 +29,13 @@ test('shows separate "Log In" and "Register" links when no user is logged in', (
   expect(screen.queryByRole('button', { name: 'Log Out' })).not.toBeInTheDocument();
 });
 
+test('the logged-out Log In and Register buttons are at least 44px tall (#2637)', () => {
+  renderWithProviders(<Nav />, { state: { user: {} } });
+
+  expect(screen.getByRole('link', { name: 'Log In' })).toHaveStyle({ minHeight: '44px' });
+  expect(screen.getByRole('link', { name: 'Register' })).toHaveStyle({ minHeight: '44px' });
+});
+
 test('shows the full authenticated nav when a user is logged in', async () => {
   renderWithProviders(<Nav />, { state: { user: { id: 1, username: 'alice' } } });
   // See the comment on the notification-bell tests below: let

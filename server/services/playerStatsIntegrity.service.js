@@ -20,6 +20,11 @@ const cadence = require('../modules/cadence');
  */
 const JOB = 'player-stats-integrity';
 const KIND_POINTS_MISMATCH = 'points-mismatch';
+// A row on a settled week that is an Appearance but carries no stats.gameTeam:
+// the nflverse correction pass never labelled it (#2629). Report-only, so it
+// never reaches `ok` - about 105 such rows open on the first scan.
+const KIND_UNLABELLED_APPEARANCE = 'unlabelled-appearance';
+const CORRECTION_JOB = 'nflverse-correction';
 const POINTS_TOLERANCE = 0.005;
 const DEFAULT_PAGE_SIZE = 5000;
 // A scan that has not finished inside this window is stale: the duty runs
@@ -33,6 +38,9 @@ const STALE_MS = 36 * 60 * 60 * 1000;
  */
 async function scanPlayerStats({ seasons = null, pageSize = DEFAULT_PAGE_SIZE, db = pool } = {}) {
   const { calculateFantasyPoints } = require('./scoringRules');
+  const { madeAppearance } = require('./madeAppearance');
+  const { normalizeTeamKey } = require('./projectionFeatures');
+  const frontier = await settledFrontier(db);
   const found = new Map();
   let scanned = 0;
   let afterId = 0;
@@ -53,6 +61,15 @@ async function scanPlayerStats({ seasons = null, pageSize = DEFAULT_PAGE_SIZE, d
         found.set(anomalyKey(row.player_id, row.season, row.week, KIND_POINTS_MISMATCH), {
           playerId: row.player_id, season: row.season, week: row.week, kind: KIND_POINTS_MISMATCH,
           detail: { stored, computed },
+        });
+      }
+      // Checked last, cheapest rejects first: most rows sit in unsettled weeks.
+      if (isSettled(row.season, row.week, frontier)
+        && normalizeTeamKey(row.stats && row.stats.gameTeam) === null
+        && madeAppearance(row.stats)) {
+        found.set(anomalyKey(row.player_id, row.season, row.week, KIND_UNLABELLED_APPEARANCE), {
+          playerId: row.player_id, season: row.season, week: row.week, kind: KIND_UNLABELLED_APPEARANCE,
+          detail: { playerStatsId: row.id },
         });
       }
     }
@@ -92,22 +109,71 @@ function anomalyKey(playerId, season, week, kind) {
 }
 
 /**
+ * The settled frontier: the latest (season, week) an ok `nflverse-correction`
+ * Sync run with games in its file names, or null when no such run exists.
+ * The correction pass is what writes `stats.gameTeam`, so a week it has not
+ * reached yet cannot be judged unlabelled - the current week's box rows would
+ * all be flagged.
+ *
+ * The detail shape read here (season, week, gamesInFile) is the one written at
+ * nflverseSync.service.js:1207.
+ *
+ * Ordered by (season, week), NOT by when the run finished: a backfill or a
+ * per-league pass can finish later for an older week, and taking that run would
+ * move the frontier backwards - the kind would stop firing and the resolve step
+ * would close the anomalies above it as gone.
+ */
+async function settledFrontier(db) {
+  const res = await db.query(
+    `SELECT "detail" FROM "data_sync_runs"
+     WHERE "job" = $1 AND "ok" = true
+       AND jsonb_typeof("detail"->'season') = 'number'
+       AND jsonb_typeof("detail"->'week') = 'number'
+       AND jsonb_typeof("detail"->'gamesInFile') = 'number'
+       AND ("detail"->>'gamesInFile')::numeric > 0
+     ORDER BY ("detail"->>'season')::int DESC, ("detail"->>'week')::int DESC
+     LIMIT 1`,
+    [CORRECTION_JOB]
+  );
+  // The WHERE above guarantees both keys are JSON numbers on the row it
+  // returns, so the only null case is no matching run at all.
+  const detail = res.rows[0] && res.rows[0].detail;
+  if (!detail) return null;
+  return { season: Number(detail.season), week: Number(detail.week) };
+}
+
+/** A (season, week) is settled at or before the frontier; earlier seasons always. */
+function isSettled(season, week, frontier) {
+  if (!frontier) return false;
+  if (season !== frontier.season) return season < frontier.season;
+  return week <= frontier.week;
+}
+
+/**
  * What the health route publishes: open anomalies across every season and
- * the last successful scan. `ok` needs zero open anomalies AND a scan that
- * finished inside STALE_MS: a scan that has stopped running is not clean, it
- * is unobserved, and "never checked" reads the same way.
+ * the last successful scan. `ok` needs zero open points-mismatch anomalies AND
+ * a scan that finished inside STALE_MS: a scan that has stopped running is not
+ * clean, it is unobserved, and "never checked" reads the same way.
+ * `unlabelled-appearance` anomalies are counted apart and never reach `ok`
+ * (#2629, report-only): there are about a hundred of them and they do not page.
  */
 async function getIntegrityStatus({ now = new Date() } = {}) {
-  const [open, runs] = await Promise.all([
-    pool.query(`SELECT count(*)::int AS "open" FROM "player_stats_anomalies" WHERE "resolved_at" IS NULL`),
+  const [counts, runs] = await Promise.all([
+    pool.query(
+      `SELECT count(*) FILTER (WHERE "kind" = $1)::int AS "open",
+              count(*) FILTER (WHERE "kind" = $2)::int AS "unlabelled"
+         FROM "player_stats_anomalies" WHERE "resolved_at" IS NULL`,
+      [KIND_POINTS_MISMATCH, KIND_UNLABELLED_APPEARANCE]
+    ),
     lastRun(JOB),
   ]);
-  const openCount = open.rows[0].open;
+  const { open: openCount, unlabelled } = counts.rows[0];
   const finishedAt = runs.latestOk ? runs.latestOk.finishedAt : null;
   const stale = !finishedAt || now.getTime() - finishedAt.getTime() > STALE_MS;
   return {
     ok: openCount === 0 && !stale,
     open: openCount,
+    unlabelled,
     lastScanAt: finishedAt,
     stale,
   };
@@ -135,4 +201,7 @@ async function runIntegrityScan({ now = new Date() } = {}) {
   return result;
 }
 
-module.exports = { scanPlayerStats, runIntegrityScan, getIntegrityStatus, JOB, KIND_POINTS_MISMATCH, STALE_MS };
+module.exports = {
+  scanPlayerStats, runIntegrityScan, getIntegrityStatus,
+  JOB, KIND_POINTS_MISMATCH, KIND_UNLABELLED_APPEARANCE, STALE_MS,
+};

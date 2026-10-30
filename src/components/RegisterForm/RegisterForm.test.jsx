@@ -48,3 +48,9 @@ test('submitting the filled form dispatches REGISTER with username, email, and p
     payload: { username: 'bob', email: 'bob@test.local', password: 'pw123456' },
   });
 });
+
+test('the error alert is not a heading (#2635)', () => {
+  renderWithProviders(<RegisterForm />, { state: { errors: { registrationMessage: 'Nope' } } });
+  expect(screen.getByRole('alert')).toHaveTextContent('Nope');
+  expect(screen.getByRole('alert').tagName).toBe('P');
+});
