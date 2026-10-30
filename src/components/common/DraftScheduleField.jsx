@@ -28,10 +28,11 @@ const ZONE_OPTIONS = listIanaTimeZones();
  *
  * `look` is `'default'` (the legacy look, unchanged) or `'playselect'` (the kit field: label above a 44px
  * square field, Dim preview line). Draft settings passes `'playselect'`; Create league passes it in spec #2453.
+ * A caller may pass `menuPaperSx` to add sx to the playselect menu paper (Home passes its panel remap, #2652).
  */
 export default function DraftScheduleField({
   wallTime, onWallTimeChange, timeZone, onTimeZoneChange,
-  acknowledged, onAcknowledgedChange, disabled, minWallTime, error, acknowledgeError, look = 'default',
+  acknowledged, onAcknowledgedChange, disabled, minWallTime, error, acknowledgeError, look = 'default', menuPaperSx,
 }) {
   const ps = look === 'playselect';
   // An id on the date TextField is what makes MUI link its helper text (the
@@ -77,7 +78,7 @@ export default function DraftScheduleField({
             id={`${fieldId}-zone`}
             size={ps ? undefined : 'small'}
             sx={ps ? { '& .MuiAutocomplete-endAdornment .MuiIconButton-root': { minWidth: '44px', minHeight: '44px' } } : undefined}
-            componentsProps={ps ? { paper: MENU_PAPER } : undefined}
+            componentsProps={ps ? { paper: menuPaperSx ? { ...MENU_PAPER, sx: { ...MENU_PAPER.sx, ...menuPaperSx } } : MENU_PAPER } : undefined}
             disabled={disabled}
             options={ZONE_OPTIONS}
             value={timeZone || null}
@@ -120,4 +121,5 @@ DraftScheduleField.propTypes = {
   error: PropTypes.string,
   acknowledgeError: PropTypes.string,
   look: PropTypes.oneOf(['default', 'playselect']),
+  menuPaperSx: PropTypes.object,
 };
