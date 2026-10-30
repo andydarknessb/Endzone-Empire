@@ -300,15 +300,19 @@ const PAIRINGS = [
   // League pages: the 2px edge of a tertiary frame, on the page and against its own panel fill.
   pairing('ps-frame-2', 'ps-field', DECORATIVE_EDGE, 'tertiary frame edge on the page'),
   pairing('ps-frame-2', 'ps-panel', DECORATIVE_EDGE, 'tertiary frame edge against its own panel fill'),
-  // Home panel (#2652)
-  pairing('ps-ink', 'ps-home-panel', AA_TEXT, 'Home body text in a frame on the Home panel'),
-  pairing('ps-dim', 'ps-home-panel', AA_TEXT, 'Home muted text in a frame on the Home panel'),
-  pairing('ps-accent', 'ps-home-panel', AA_TEXT, 'live chip text and outline in a Home frame'),
-  pairing('ps-danger', 'ps-home-panel', AA_TEXT, 'Home danger text in a frame on the Home panel'),
-  pairing('ps-cursor', 'ps-home-panel', AA_LARGE, 'Home cursor frame on the Home panel'),
-  pairing('ps-frame', 'ps-home-panel', AA_LARGE, 'Home frame double rule on the Home panel'),
-  pairing('ps-frame-2', 'ps-home-panel', DECORATIVE_EDGE, 'Home tertiary frame edge on the Home panel'),
-  pairing('ps-rule', 'ps-home-panel', DECORATIVE_EDGE, 'Home frame dividers on the Home panel'),
+  // Menu panel (#2652 Home, #2660 league dashboard): NES navy in dark, white in light.
+  pairing('ps-ink', 'ps-menu-panel', AA_TEXT, 'body text in a frame on the menu panel'),
+  pairing('ps-dim', 'ps-menu-panel', AA_TEXT, 'muted text in a frame on the menu panel'),
+  pairing('ps-accent', 'ps-menu-panel', AA_TEXT, 'live chip text and outline in a frame on the menu panel'),
+  pairing('ps-danger', 'ps-menu-panel', AA_TEXT, 'danger text in a frame on the menu panel'),
+  pairing('ps-cursor', 'ps-menu-panel', AA_LARGE, 'cursor frame on the menu panel'),
+  pairing('ps-frame', 'ps-menu-panel', AA_LARGE, 'frame double rule on the menu panel'),
+  pairing('ps-frame-2', 'ps-menu-panel', DECORATIVE_EDGE, 'tertiary frame edge on the menu panel'),
+  pairing('ps-rule', 'ps-menu-panel', DECORATIVE_EDGE, 'frame dividers on the menu panel'),
+  // The league dashboard adds the gold badge, the rank medals and the position tags on the menu panel.
+  pairing('ps-medal-gold', 'ps-menu-panel', AA_TEXT, 'gold rank medal and badge warning text on the league dashboard menu panel'),
+  ...['gold', 'silver', 'bronze'].map((m) => pairing(`ps-medal-${m}`, 'ps-menu-panel', AA_LARGE, `the ${m} rank medal on the league dashboard menu panel`)),
+  ...['qb', 'rb', 'wr', 'te', 'k', 'def', 'idp'].map((pos) => pairing(`pos-${pos}`, 'ps-menu-panel', AA_TEXT, `position tag text and edge on the league dashboard menu panel (${pos})`)),
   // League History podium medals: non-text marks on a Play-select frame, held to the 3:1 non-text floor.
   ...['gold', 'silver', 'bronze'].map((m) => pairing(`ps-medal-${m}`, 'ps-panel', AA_LARGE, `the ${m} rank medal on a Play-select frame`)),
   // Position tags on a frame: a data encoding (RULINGS.md), still held to AA text on Panel.

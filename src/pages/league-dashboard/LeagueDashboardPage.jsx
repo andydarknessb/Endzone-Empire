@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { Box, useMediaQuery, useTheme } from '@mui/material';
 import { useLeague } from '../../hooks/useLeague';
-import { ErrorPanel, psRootSx } from '../../shared/ui/playselect';
+import { ErrorPanel, MENU_PANEL_VARS, psRootSx } from '../../shared/ui/playselect';
 import CopyInvite from '../../features/copy-invite';
 import MyTeamSummary from '../../widgets/my-team-summary';
 import StandingsTable from '../../widgets/standings-table';
@@ -485,7 +485,7 @@ function DashboardBody({
  */
 function Shell({ children, chatLauncher = false }) {
   return (
-    <Box className="ps-root" sx={{ ...psRootSx, minHeight: '100%' }}>
+    <Box className="ps-root" sx={{ ...psRootSx, ...MENU_PANEL_VARS, minHeight: '100%' }}>
       {/* A column flex container, NOT a grid. A grid has one implicit `auto` track, so the widest
           min-content anywhere inside sets the document's width and a wide table inside a narrow
           viewport pushes every frame sideways. In a column flex container the automatic minimum

@@ -8,9 +8,6 @@ const VARIANTS = [
   'body1', 'body2', 'button', 'caption', 'overline', 'stat',
 ];
 
-/** Home's surface remap (#2652): Frames, panels and skeletons inside Home paint the Home panel tokens. */
-export const HOME_PANEL_VARS = { '--ps-panel': 'var(--ps-home-panel)', '--ps-skel': 'var(--ps-home-skel)' };
-
 /**
  * Home's theme (ADR 0051): the app theme with its type set in Home's body face
  * (Archivo, `BODY_FONT`). Each MUI Typography variant carries its own

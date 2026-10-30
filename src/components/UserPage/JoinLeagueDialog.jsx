@@ -7,19 +7,20 @@ import { readHttpFailure } from '../../lib/httpFailure';
 import { SCORING_PRESET_LABELS } from '../../lib/leagueRulesFormat';
 import { JOIN_REFUSAL_REASON } from '../../shared/lib/leaguePhase';
 import { isPickemOnly, shortLeagueTypeLabel } from '../../shared/lib/leagueType';
-import { BODY_FONT, Frame, PsButton, pixelSx } from '../../shared/ui/playselect';
+import {
+  BODY_FONT, Frame, MENU_PANEL_VARS, PsButton, pixelSx,
+} from '../../shared/ui/playselect';
 import { useSnackbar } from '../Snackbar/SnackbarProvider';
 import {
   Dim, KitTextField, Note,
 } from '../DraftSettings/kit';
-import { HOME_PANEL_VARS } from './homeTheme';
 
 // The Play-select dialog (DESIGN.md "Play-select: Home and league pages"): the 6px double frame on the
 // Field scrim, a pixel title over a 2px rule, the one forward action a fill. The dialog portals outside
 // the Home root, so its paper carries `ps-root` for the focus ring and hover rules.
 const SCRIM_SX = { backgroundColor: 'color-mix(in srgb, var(--ps-field) 85%, transparent)' };
 const paperSx = (fullScreen) => ({
-  ...HOME_PANEL_VARS,
+  ...MENU_PANEL_VARS,
   border: '6px double var(--ps-frame)',
   borderRadius: 0,
   backgroundColor: 'var(--ps-panel)',

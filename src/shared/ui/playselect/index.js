@@ -6,7 +6,7 @@ import './playselect.css';
 export {
   PIXEL_FONT, BODY_FONT, pixelSx, SR_ONLY_SX,
 } from './type';
-export { psRootSx } from './root';
+export { psRootSx, MENU_PANEL_VARS } from './root';
 export {
   Frame, FrameHead, PixelHeading, CountBadge,
 } from './Frame';

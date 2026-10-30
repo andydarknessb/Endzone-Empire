@@ -72,6 +72,7 @@ function ChatConversation({
   gifEnabled = false,
   onSendGif = null,
   fillHeight = false,
+  menuPaperSx,
 }) {
   // The composer draft is preserved (#442 AC5/AC6, extended by #524): scoped per
   // league and account, cleared on send, logout or account change. The hook owns
@@ -538,7 +539,7 @@ function ChatConversation({
             }
           }}
         />
-        <EmojiPicker onSelect={insertEmoji} onChoiceClosed={returnFocusToComposer} />
+        <EmojiPicker onSelect={insertEmoji} onChoiceClosed={returnFocusToComposer} menuPaperSx={menuPaperSx} />
         <PsButton onClick={handleSend} disabled={!text.trim()}>Send</PsButton>
       </Box>
       {/* The GIF compose affordance (#446), absent unless the capability is
