@@ -1,3 +1,4 @@
+import { headshotSrc } from '../lib/headshot';
 import React from 'react';
 import { Avatar } from '@mui/material';
 // Concrete module path, not the shared/lib barrel: the same reason
@@ -19,7 +20,7 @@ function PlayerAvatar({ name, photoUrl, size = 32 }) {
     <Avatar
       aria-hidden="true"
       variant="square"
-      src={photoUrl || undefined}
+      src={headshotSrc(photoUrl, size) || undefined}
       imgProps={{ loading: 'lazy' }}
       sx={{
         width: size,

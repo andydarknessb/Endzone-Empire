@@ -1,3 +1,4 @@
+import { headshotSrc } from '../../../shared/lib/headshot';
 import React from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import { Avatar, Card, CardActionArea, CardContent, Box, Chip, Stack, Typography } from '@mui/material';
@@ -46,7 +47,7 @@ function RecapCard({ recap }) {
           )}
           {topPerformer && (
             <Stack direction="row" spacing={1} alignItems="center" sx={{ pt: 1, mt: 'auto', borderTop: '1px solid var(--border-subtle)' }}>
-              <Avatar src={topPerformer.photoUrl || undefined} alt="" imgProps={{ loading: 'lazy' }} sx={{ width: 30, height: 30, bgcolor: 'var(--surface-sunken)', color: 'text.primary', fontSize: 12 }}>
+              <Avatar src={headshotSrc(topPerformer.photoUrl, 30) || undefined} alt="" imgProps={{ loading: 'lazy' }} sx={{ width: 30, height: 30, bgcolor: 'var(--surface-sunken)', color: 'text.primary', fontSize: 12 }}>
                 {String(topPerformer.name || '').slice(0, 1)}
               </Avatar>
               <Box sx={{ minWidth: 0, flexGrow: 1 }}>

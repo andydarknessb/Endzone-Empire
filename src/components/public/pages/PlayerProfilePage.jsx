@@ -1,3 +1,4 @@
+import { headshotSrc } from '../../../shared/lib/headshot';
 import React, { useEffect, useState } from 'react';
 import { Link as RouterLink, useParams, useSearchParams } from 'react-router-dom';
 import {
@@ -106,7 +107,7 @@ function PeerLinks({ player, navigation }) {
               to={`/players/${peer.playerId}${navigation?.search || ''}`}
               state={navigation?.state}
               clickable
-              avatar={<Avatar src={peer.photoUrl || undefined} alt="" />}
+              avatar={<Avatar src={headshotSrc(peer.photoUrl, 24) || undefined} alt="" imgProps={{ loading: 'lazy' }} />}
               label={`${peer.name} · ${peer.projectedPoints ?? '-'} proj`}
               variant="outlined"
             />
@@ -376,7 +377,7 @@ export function ProfileBody({
       <Card variant="outlined" sx={{ mb: 3 }} data-testid="profile-hero">
         <CardContent>
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={3} alignItems={{ xs: 'flex-start', sm: 'center' }}>
-            <Avatar src={player.photoUrl || undefined} alt="" sx={{ width: 96, height: 96, bgcolor: 'var(--surface-sunken)', color: 'text.primary', fontSize: 32 }}>
+            <Avatar src={headshotSrc(player.photoUrl, 96) || undefined} alt="" sx={{ width: 96, height: 96, bgcolor: 'var(--surface-sunken)', color: 'text.primary', fontSize: 32 }}>
               {String(player.name || '').slice(0, 1)}
             </Avatar>
             <Box sx={{ flexGrow: 1 }}>
