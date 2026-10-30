@@ -4,15 +4,7 @@
  * them ONLY from this index, never from the component files directly. This is
  * the bottom of the FSD island and depends on nothing above it.
  */
-export { default as Badge } from './Badge';
-// The CPU-managed team marker (ADR 0068), on standings and matchups.
-export { default as CpuBadge } from './CpuBadge';
-export { default as PosChip } from './PosChip';
 export { default as SegmentedControl } from './SegmentedControl';
-// The injury designation tag (ADR 0031, #903): composed by the slot-comparison
-// starter cell, the retro-scoreboard Lineups card and the Matchup page's Bench
-// card, so it sits here where all three can reach it.
-export { default as InjuryTag, injuryView } from './InjuryTag';
 // The Tecmo pixel sprites (ADR 0031, #903): composed by the retro-scoreboard
 // widget's field and the celebrate-touchdown feature's cutscene, so they sit
 // here where both can reach them. `SPRITE_FIXED` is the kit-free palette the
@@ -30,9 +22,6 @@ export { default as TeamAvatar } from './TeamAvatar';
 // exported only from the concrete module - no island consumer needs them
 // through the barrel yet.
 export { default as AbbreviationTooltip } from './AbbreviationTooltip';
-// A player's Game cell state (#1237, ADR 0037): pre-kickoff, live, final or
-// bye, on the kit's Badge. Composed by the Lineup page's lineup-ledger widget.
-export { default as GameStateChip } from './GameStateChip';
 // PositionChip, PlayerAvatar, InjuryBadge and statLine (#1304, ADR 0031/0040
 // slice 1): the full-profile / quick-view player kit, moved here from
 // `src/components/PlayerQuickView` and `src/components/InjuryBadge` alongside
