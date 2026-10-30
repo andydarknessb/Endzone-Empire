@@ -165,3 +165,38 @@ test('desktop standings: all twelve teams, no fold control', async ({ page }) =>
   await expect(table.locator('tbody tr')).toHaveCount(12);
   await expect(table.getByTestId('standings-table-full')).toHaveCount(0);
 });
+
+for (const viewport of Object.keys(VIEWPORTS) as ViewportName[]) {
+  test(`inseason ${viewport}: the matchup pivots on a pixel VS and every standings rank is pixel type inside its column`, async ({ page }) => {
+    await openDashboard(page, 'inseason', viewport);
+    const vs = page.getByTestId('matchup-vs');
+    await expect(vs).toBeVisible();
+    await expect(vs).toHaveCSS('font-size', viewport === 'phone' ? '24px' : '32px');
+    expect(await vs.evaluate((el) => getComputedStyle(el).fontFamily)).toContain('Press Start 2P');
+    // The VS takes width from both sides; the fixture's 13-glyph word ("CHATTAHOOCHEE") must still sit on one line.
+    const longestWordLines = await page.getByTestId('matchup-side-viewer').locator('h3').evaluate((h3) => {
+      const text = h3.firstChild as Text;
+      const start = text.data.indexOf('Chattahoochee');
+      const range = document.createRange();
+      range.setStart(text, start);
+      range.setEnd(text, start + 'Chattahoochee'.length);
+      return new Set(Array.from(range.getClientRects(), (rect) => Math.round(rect.top))).size;
+    });
+    expect(longestWordLines).toBe(1);
+    // The phone folds to five rows; open it so the two-digit ranks (10-12) are measured too.
+    if (viewport === 'phone') await page.getByTestId('standings-table-full').click();
+    const cells = await page.getByTestId('standings-table')
+      .locator('tbody tr:not([data-cut-line]) td:first-child')
+      .evaluateAll((tds) => tds.map((td) => ({
+        family: getComputedStyle(td).fontFamily,
+        width: Math.round(td.getBoundingClientRect().width),
+        fits: td.scrollWidth <= td.clientWidth,
+      })));
+    expect(cells).toHaveLength(12);
+    for (const cell of cells) {
+      expect(cell.family).toContain('Press Start 2P');
+      expect(cell.width).toBe(viewport === 'phone' ? 48 : 64);
+      expect(cell.fits).toBe(true);
+    }
+  });
+}
