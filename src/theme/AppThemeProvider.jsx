@@ -42,7 +42,7 @@ export function buildTheme(mode) {
     shape: { borderRadius: BORDER_RADIUS },
     // One consistent type hierarchy: sizes, weights, and line-heights.
     typography: {
-      fontFamily: '"Inter", "Roboto", "Helvetica", "Arial", sans-serif',
+      fontFamily: '"Roboto", "Helvetica", "Arial", sans-serif',
       h1: { fontWeight: 800, fontSize: '2.5rem', lineHeight: 1.15 },
       h2: { fontWeight: 800, fontSize: '2rem', lineHeight: 1.2 },
       h3: { fontWeight: 700, fontSize: '1.5rem', lineHeight: 1.25 },
