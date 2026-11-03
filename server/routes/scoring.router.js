@@ -99,6 +99,17 @@ router.post('/league/:id/score', async (req, res) => {
   const leagueId = Number(req.params.id);
   try {
     if (!(await requireLeagueCommissioner(req, res, leagueId))) return;
+    // A final week's Score of record moves only through a stat correction or a
+    // manual correction (CONTEXT.md, Score of record), never a plain re-score.
+    const final = await pool.query(
+      `SELECT 1 FROM "matchups" WHERE "league_id" = $1 AND "season" = $2 AND "week" = $3 AND "final" = true LIMIT 1`,
+      [leagueId, sw.season, sw.week]
+    );
+    if (final.rows[0]) {
+      return res.status(409).json({
+        error: `Week ${sw.week} is final. Its scores change only through a stat correction or a manual score correction.`,
+      });
+    }
     const result = await matchupScoring.scoreMatchups({ leagueId, ...sw });
     res.json(result);
   } catch (error) {

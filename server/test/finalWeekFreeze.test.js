@@ -350,7 +350,8 @@ test('#106 best ball: a player acquired after a final week never joins its re-sc
   assert.equal(awayScoreOf(world.state), asPlayed, 'a correction must not move a settled score');
   assert.deepEqual(correction.changes, [], 'and must not report one');
 
-  // Path 2: the manual POST /league/:id/score path.
+  // Path 2: a direct scoreMatchups call. POST /league/:id/score refuses a final
+  // week before it reaches here (scoreFinalWeek.router.test.js); the service still re-scores.
   await scoreMatchups({ leagueId: LEAGUE_ID, season: SEASON, week: 8 });
   assert.equal(awayScoreOf(world.state), asPlayed, 'a manual re-score must not move it either');
 
