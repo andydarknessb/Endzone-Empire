@@ -16,7 +16,8 @@ test('shows a message when notify is called', async () => {
     </SnackbarProvider>
   );
   await userEvent.click(screen.getByRole('button', { name: 'fire' }));
-  expect(await screen.findByText('Hello there')).toBeInTheDocument();
+  // Two copies by design: the toast and the status live region.
+  expect(await screen.findAllByText('Hello there')).toHaveLength(2);
 });
 
 test('renders an Undo action button and invokes onAction when clicked', async () => {
