@@ -342,3 +342,75 @@ test('every Week 8 entry carries a non-empty reason', () => {
     assert.ok(e.reason.trim().length > 0, `${e.name} reason`);
   }
 });
+
+// The article's "The Full Board" table order (Week 9 2026 Darkness Report).
+const WEEK9_NAMES = [
+  'Tyler Allgeier',
+  'Chris Rodriguez Jr.',
+  'Adonai Mitchell',
+  'Sam Darnold',
+  'Antonio Williams',
+  'Kirk Cousins',
+  'Devin Singletary',
+  'Mike Washington Jr.',
+  'Mike Gesicki',
+  'Geno Smith',
+  'Keenan Allen',
+  'Emmett Johnson',
+  'Michael Mayer',
+  'Ryan Flournoy',
+  'Gardner Minshew II',
+  'Michael Penix Jr.',
+  'Treylon Burks',
+  'Efton Chism III',
+  'Eli Raridon',
+  'Dylan Sampson',
+  'Malik Willis',
+  'Chris Bell',
+  'Jahan Dotson',
+  'Sione Vaki',
+  'Austin Ekeler',
+];
+
+test('getBoard(2026, 9) lists the 25 Darkness Report players in the column order', () => {
+  const board = waiverBoards.getBoard(2026, 9);
+  assert.ok(board, 'Week 9 2026 board is listed');
+  assert.equal(board.season, 2026);
+  assert.equal(board.week, 9);
+  assert.equal(board.entries.length, 25);
+  assert.deepEqual(
+    board.entries.map((e) => e.name),
+    WEEK9_NAMES
+  );
+  assert.equal(board.entries[0].name, 'Tyler Allgeier');
+  assert.equal(board.entries[0].playerId, 1379);
+  assert.equal(board.entries[0].bidMin, 12);
+  assert.equal(board.entries[0].bidMax, 18);
+  assert.equal(board.entries[24].name, 'Austin Ekeler');
+});
+
+test('every Week 9 entry has a distinct positive integer playerId', () => {
+  const { entries } = waiverBoards.getBoard(2026, 9);
+  for (const e of entries) {
+    assert.ok(Number.isInteger(e.playerId) && e.playerId > 0, `${e.name} playerId`);
+  }
+  assert.equal(new Set(entries.map((e) => e.playerId)).size, entries.length);
+});
+
+test('every Week 9 entry has an integer bid range 1..100 with bidMin <= bidMax', () => {
+  const { entries } = waiverBoards.getBoard(2026, 9);
+  for (const e of entries) {
+    for (const bid of [e.bidMin, e.bidMax]) {
+      assert.ok(Number.isInteger(bid) && bid >= 1 && bid <= 100, `${e.name} bid ${bid}`);
+    }
+    assert.ok(e.bidMin <= e.bidMax, `${e.name} bidMin <= bidMax`);
+  }
+});
+
+test('every Week 9 entry carries a non-empty reason', () => {
+  const { entries } = waiverBoards.getBoard(2026, 9);
+  for (const e of entries) {
+    assert.equal(typeof e.reason, 'string');
+    assert.ok(e.reason.trim().length > 0, `${e.name} reason`);
+  }
+});

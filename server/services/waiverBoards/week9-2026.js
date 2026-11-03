@@ -1,0 +1,191 @@
+/**
+ * Week 9 2026 editorial waiver board, seeded from the Week 9 Darkness Report's
+ * "The Full Board" table (src/content/articles/week9-waiver-wire-darkness-report.jsx),
+ * in the column's order. Bids are percent of a $100 FAAB budget. All 25 are kept
+ * so the endpoint's cap still fills after the Ownership cutoff drops some.
+ * `playerId` values are the production `players.id` rows from the editorial
+ * rulings for issue #2668.
+ *
+ * @type {import('./index').WaiverBoard}
+ */
+module.exports = {
+  season: 2026,
+  week: 9,
+  entries: [
+    {
+      playerId: 1379,
+      name: 'Tyler Allgeier',
+      bidMin: 12,
+      bidMax: 18,
+      reason: '147 yards on 11 carries, 5 catches, two TDs. Love and Knight are hurt.',
+    },
+    {
+      playerId: 319,
+      name: 'Chris Rodriguez Jr.',
+      bidMin: 8,
+      bidMax: 12,
+      reason: "41 yards and a TD on 6 carries. Tuten missed Monday's walkthrough.",
+    },
+    {
+      playerId: 1337,
+      name: 'Adonai Mitchell',
+      bidMin: 6,
+      bidMax: 10,
+      reason: '7 for 142 and a TD on a 29% target share. Cooper was not in the box score.',
+    },
+    {
+      playerId: 1434,
+      name: 'Sam Darnold',
+      bidMin: 5,
+      bidMax: 8,
+      reason: '11.0, 14.0 and 17.5 the last three weeks. Seattle implied 28.0.',
+    },
+    {
+      playerId: 1177,
+      name: 'Antonio Williams',
+      bidMin: 5,
+      bidMax: 8,
+      reason: '5 for 54 on a 26% share in his first game without McLaurin.',
+    },
+    {
+      playerId: 714,
+      name: 'Kirk Cousins',
+      bidMin: 4,
+      bidMax: 8,
+      reason: '18.5, 20.4 and 28.2 the last three weeks. Three TD passes and a TD run.',
+    },
+    {
+      playerId: 222,
+      name: 'Devin Singletary',
+      bidMin: 4,
+      bidMax: 7,
+      reason: 'Skattebo is day-to-day with a hamstring and Tracy is on IR. 13.0 in Week 7.',
+    },
+    {
+      playerId: 163,
+      name: 'Mike Washington Jr.',
+      bidMin: 3,
+      bidMax: 6,
+      reason: '83 yards on 25 carries. Jeanty had 2 carries in a reduced role.',
+    },
+    {
+      playerId: 1360,
+      name: 'Mike Gesicki',
+      bidMin: 3,
+      bidMax: 6,
+      reason: '4 for 76 and a TD in a 43-36 game. Erick All is out for the season.',
+    },
+    {
+      playerId: 324,
+      name: 'Geno Smith',
+      bidMin: 3,
+      bidMax: 5,
+      reason: '290 yards and 2 TDs, 18.0 points after 23.5.',
+    },
+    {
+      playerId: 563,
+      name: 'Keenan Allen',
+      bidMin: 3,
+      bidMax: 5,
+      reason: '7 for 67 on a 23% share. Dallas game, 51.5 total.',
+    },
+    {
+      playerId: 957,
+      name: 'Emmett Johnson',
+      bidMin: 2,
+      bidMax: 4,
+      reason: '5 for 128 and a TD on a 13% share, and one carry. Chiefs implied 28.0.',
+    },
+    {
+      playerId: 965,
+      name: 'Michael Mayer',
+      bidMin: 2,
+      bidMax: 4,
+      reason: '5 for 53 on a 24% share, after 23% two weeks ago.',
+    },
+    {
+      playerId: 1519,
+      name: 'Ryan Flournoy',
+      bidMin: 2,
+      bidMax: 4,
+      reason: '13.5, 9.0 and 11.6 the last three weeks. Dallas implied 28.75.',
+    },
+    {
+      playerId: 125,
+      name: 'Gardner Minshew II',
+      bidMin: 2,
+      bidMax: 4,
+      reason: "188 yards and 3 TDs in relief of Brissett. First on Arizona's chart.",
+    },
+    {
+      playerId: 679,
+      name: 'Michael Penix Jr.',
+      bidMin: 2,
+      bidMax: 4,
+      reason: 'Four picks in the rain, after 23.1 and 20.4. 52.5 total.',
+    },
+    {
+      playerId: 188,
+      name: 'Treylon Burks',
+      bidMin: 2,
+      bidMax: 4,
+      reason: '3 for 81 on a 19% share, 17% in Week 6.',
+    },
+    {
+      playerId: 638,
+      name: 'Efton Chism III',
+      bidMin: 2,
+      bidMax: 4,
+      reason: '5 for 37 on a 26% share with A.J. Brown out.',
+    },
+    {
+      playerId: 676,
+      name: 'Eli Raridon',
+      bidMin: 2,
+      bidMax: 4,
+      reason: '21% share; Henry left with a foot injury in the second quarter.',
+    },
+    {
+      playerId: 589,
+      name: 'Dylan Sampson',
+      bidMin: 2,
+      bidMax: 3,
+      reason: '6 for 62 on a 20% share behind Judkins.',
+    },
+    {
+      playerId: 1175,
+      name: 'Malik Willis',
+      bidMin: 2,
+      bidMax: 3,
+      reason: '211 yards and 2 TDs, 14.6 points after 26.0.',
+    },
+    {
+      playerId: 927,
+      name: 'Chris Bell',
+      bidMin: 1,
+      bidMax: 3,
+      reason: '4 for 31 on a 17% share, 19% the week before.',
+    },
+    {
+      playerId: 1344,
+      name: 'Jahan Dotson',
+      bidMin: 1,
+      bidMax: 3,
+      reason: '2 for 95 on a 22% share.',
+    },
+    {
+      playerId: 695,
+      name: 'Sione Vaki',
+      bidMin: 1,
+      bidMax: 2,
+      reason: '65 yards on 11 carries. Saylors (neck) is not expected to practice Wednesday.',
+    },
+    {
+      playerId: 1054,
+      name: 'Austin Ekeler',
+      bidMin: 1,
+      bidMax: 2,
+      reason: '36 yards on 8 carries. McNichols is expected to miss months.',
+    },
+  ],
+};
