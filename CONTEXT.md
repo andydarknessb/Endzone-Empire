@@ -1445,9 +1445,20 @@ _Avoid_: preset
 **Score of record**:
 The score a week is settled with: written once when the commissioner advances
 the week, never recomputed from a later roster, and returned unchanged by every
-later re-score of that week. A commissioner's manual correction replaces it for
-one matchup, and no later re-score of that week changes the corrected score.
+later re-score of that week except a Stat correction. A commissioner's manual
+correction replaces it for one matchup, and no later re-score of that week
+changes the corrected score.
 _Avoid_: final score (a matchup's NFL-style total), official score
+
+**Stat correction**:
+A change to a final week's Score of record, made because the Stat lines it was
+scored on were revised after Advance week. It re-scores the week as played,
+never from a later roster, and leaves a commissioner's manual correction alone.
+Every Manager in the League is told which Matchup scores moved, and the notice
+is kept with the change: a Stat correction is never applied without its notice.
+A revision that moves no score sends nothing.
+_Avoid_: correction (alone: a Commissioner correction reverses a draft Pick),
+rescore, stat fix
 
 **Settle pass**:
 The scoring run that produces the score of record. It counts the week's lineup
