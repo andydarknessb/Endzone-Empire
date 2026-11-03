@@ -251,7 +251,7 @@ const Body = () => (
       Week 8 took Lamar Jackson on Baltimore&apos;s first snap and Tyler Huntley in the second
       quarter, and Tampa Bay won 16-0 without completing a pass. Tyler Allgeier scored 33.6 points
       in Dallas and is still on the wire in more than half of leagues. Last week&apos;s Big Three
-      went one hit, one miss and one scratch. Let&apos;s spend.
+      went one hit, one miss and one blank. Let&apos;s spend.
     </Lead>
     <P>
       Every bid below is a percentage of a $100 FAAB budget. The league is half-PPR with one
@@ -317,7 +317,7 @@ const Body = () => (
         <TR><TD>12</TD><TD><strong>Emmett Johnson</strong></TD><TD>RB</TD><TD>KC</TD><TD>5 for 128 and a TD on a 13% share, and one carry. Chiefs implied 28.0.</TD><TD>vs NYJ</TD><TD>Stream</TD><TD>2&ndash;4%</TD><TD>11.8%</TD></TR>
         <TR><TD>13</TD><TD><strong>Michael Mayer</strong></TD><TD>TE</TD><TD>LV</TD><TD>5 for 53 on a 24% share, after 23% two weeks ago.</TD><TD>at SF</TD><TD>Season</TD><TD>2&ndash;4%</TD><TD>22.9%</TD></TR>
         <TR><TD>14</TD><TD><strong>Ryan Flournoy</strong></TD><TD>WR</TD><TD>DAL</TD><TD>13.5, 9.0 and 11.6 the last three weeks. Dallas implied 28.75.</TD><TD>at IND</TD><TD>Stream</TD><TD>2&ndash;4%</TD><TD>22.1%</TD></TR>
-        <TR><TD>15</TD><TD><strong>Gardner Minshew II</strong></TD><TD>QB</TD><TD>ARI</TD><TD>188 yards and 3 TDs in relief of Brissett. First on Arizona&apos;s chart.</TD><TD>at SEA</TD><TD>If he starts</TD><TD>2&ndash;4%</TD><TD>0.0%</TD></TR>
+        <TR><TD>15</TD><TD><strong>Gardner Minshew II</strong></TD><TD>QB</TD><TD>ARI</TD><TD>188 yards and 3 TDs in relief of Brissett. Named the starter Monday.</TD><TD>at SEA</TD><TD>As the starter</TD><TD>2&ndash;4%</TD><TD>0.0%</TD></TR>
         <TR><TD>16</TD><TD><strong>Michael Penix Jr.</strong></TD><TD>QB</TD><TD>ATL</TD><TD>Four picks in the rain, after 23.1 and 20.4. 52.5 total.</TD><TD>vs CIN (Madrid)</TD><TD>Superflex stream</TD><TD>2&ndash;4%</TD><TD>18.6%</TD></TR>
         <TR><TD>17</TD><TD><strong>Treylon Burks</strong></TD><TD>WR</TD><TD>WSH</TD><TD>3 for 81 on a 19% share, 17% in Week 6.</TD><TD>vs LAR</TD><TD>Season</TD><TD>2&ndash;4%</TD><TD>6.5%</TD></TR>
         <TR><TD>18</TD><TD><strong>Efton Chism III</strong></TD><TD>WR</TD><TD>NE</TD><TD>5 for 37 on a 26% share with A.J. Brown out.</TD><TD>vs GB</TD><TD>If Brown sits</TD><TD>2&ndash;4%</TD><TD>2.8%</TD></TR>
@@ -331,9 +331,7 @@ const Body = () => (
       </TBody>
     </Table>
     <P>
-      Several of these bids hang on an injury report. Allgeier needs Love out, Rodriguez needs Tuten
-      out, Singletary needs Skattebo out, Chism needs Brown out and Raridon needs Henry out. That is
-      why only Allgeier tops 12%.
+      Several of these bids hang on an injury report. Allgeier needs Love out, Rodriguez needs Tuten out, Mitchell needs Cooper out, Singletary needs Skattebo out, Chism needs Brown out and Raridon needs Henry out. Only Allgeier tops 12%.
     </P>
     <P>
       Off the board, for a dollar if your wire is thin: Elijah Mitchell (PHI RB, 3.1%), with Dameon
@@ -364,8 +362,7 @@ const Body = () => (
       </LI>
       <LI>
         <strong>Gardner Minshew II</strong> (ARI, 0.0%) scored 19.5 in relief, 17 of 23 for 188 yards
-        and 3 TDs. He is first on Arizona&apos;s chart, but LaFleur would not get into who his starter
-        is. Arizona is implied for 16.5.
+        and 3 TDs. The Cardinals named him their starter Monday and moved Brissett to third on the chart. Arizona is implied for 16.5.
       </LI>
       <LI>
         <strong>Michael Penix Jr.</strong> (ATL, 18.6%) scored -1.9, 8 of 24 with four interceptions
@@ -382,8 +379,7 @@ const Body = () => (
       </LI>
       <LI>
         <strong>J.J. McCarthy</strong> (NYG, 15.4%) comes off the bye as a road favorite, with the
-        Giants implied for 22.0. He scored 16.3 and 10.2 before it. <strong>Tanner McKee</strong> (PHI,
-        4.3%) scored 7.0, and Philadelphia is implied for 18.5.
+        Giants implied for 22.0. He scored 16.3 and 10.2 before it. <strong>Tanner McKee</strong> (PHI, 4.4%) scored 7.0, and Philadelphia is implied for 18.5.
       </LI>
       <LI>
         <strong>Hold, do not cut:</strong> Bo Nix (55.8%) scored 19.3 and is at Carolina, with Denver
@@ -423,33 +419,31 @@ const Body = () => (
     <OpponentChart />
     <UL>
       <LI>
-        <strong>Seattle</strong> hosts Arizona (16.5), the best number on the board, with the
-        Cardinals&apos; starter unsettled and Love, Knight and Michael Wilson (two broken ribs) all
-        questionable. Seattle scored 10, 14 and 2 the last three weeks.
+        <strong>Seattle</strong> hosts Arizona (16.5), the best number on the board, with Minshew newly named the starter and Love, Knight and Michael Wilson (two broken ribs) all
+        questionable. The Seattle D/ST scored 10, 14 and 2 the last three weeks.
       </LI>
       <LI>
-        <strong>Jacksonville</strong> at Baltimore (17.0) on Thursday. The Jaguars scored 24.5 last
-        week and face a Ravens team without Jackson, with Huntley unlikely and Fagnano limited.
+        <strong>Jacksonville</strong> at Baltimore (17.0) on Thursday. The Jaguars D/ST scored 24.5 last week and faces a Ravens team without Jackson, with Huntley unlikely and Fagnano limited.
       </LI>
       <LI>
         <strong>Houston</strong> at the Chargers (18.0) comes off a bye, against an 0-7 team and a
-        quarterback with no TDs and 2 interceptions last week. Houston scored 0 and 2 before the bye,
+        quarterback with no TDs and 2 interceptions last week. The Houston D/ST scored 0 and 2 before the bye,
         so this is about the opponent.
       </LI>
       <LI>
-        <strong>Kansas City</strong> hosts the Jets (18.5) and scored 19, 2 and 4.{' '}
-        <strong>The Giants</strong> at Philadelphia (18.5) come off a bye and scored 2 and 5 before it.
+        <strong>Kansas City</strong> hosts the Jets (18.5), and its D/ST scored 19, 2 and 4.{' '}
+        <strong>The Giants</strong> at Philadelphia (18.5) come off a bye, and their D/ST scored 2 and 5 before it.
       </LI>
       <LI>
-        <strong>Denver</strong> at Carolina (20.25) scored 12, 4 and 2.{' '}
-        <strong>Chicago</strong> hosts Tampa Bay (20.25) on Sunday night and scored 15, 4 and 12.
+        <strong>Denver</strong> at Carolina (20.25) has a D/ST that scored 12, 4 and 2.{' '}
+        <strong>Chicago</strong> hosts Tampa Bay (20.25) on Sunday night, and its D/ST scored 15, 4 and 12.
       </LI>
     </UL>
     <P>
       <strong>Avoid:</strong> Las Vegas (faces San Francisco, 30.75), Indianapolis (faces Dallas,
       28.75), Miami (faces Detroit, 28.75), Arizona and the Jets (both face 28.0), Atlanta (faces
       Cincinnati, 27.75), Washington (faces the Rams, 26.5) and Baltimore (faces Jacksonville, 25.5).
-      The grey bars above are those defenses. Tampa Bay scored 29 and 22 the last two weeks and faces
+      The grey bars above are those defenses. The Tampa Bay D/ST scored 29 and 22 the last two weeks and faces
       Chicago at 26.25, so do not chase it.
     </P>
 
@@ -570,7 +564,7 @@ const Body = () => (
       <LI><strong>DJ Moore</strong> (BUF WR) says he is okay after a late knee exit, and <strong>Christian Watson</strong> (GB WR) is sore with ribs but &quot;doing great.&quot;</LI>
       <LI><strong>Christian McCaffrey</strong>, <strong>Mike Evans</strong> and <strong>Deebo Samuel Sr.</strong> (SF): still questionable coming off the bye, with no new report in our data. Cut Kaelon Black once McCaffrey practices.</LI>
       <LI><strong>Jacob Saylors</strong> (DET RB): neck, not expected to practice Wednesday. Vaki.</LI>
-      <LI><strong>Kyle Monangai</strong> (CHI RB), <strong>TreVeyon Henderson</strong> (NE RB), <strong>Emeka Egbuka</strong> (TB WR), <strong>DeVonta Smith</strong> and <strong>Dontayvion Wicks</strong> (PHI WR), <strong>Rashid Shaheed</strong> (SEA WR), <strong>Colby Parkinson</strong> (LAR TE) and <strong>Brian Robinson Jr.</strong> (ATL RB): questionable, no new detail. None of them played in Week 8.</LI>
+      <LI><strong>Kyle Monangai</strong> (CHI RB), <strong>TreVeyon Henderson</strong> (NE RB), <strong>Emeka Egbuka</strong> (TB WR), <strong>DeVonta Smith</strong> and <strong>Dontayvion Wicks</strong> (PHI WR), <strong>Rashid Shaheed</strong> (SEA WR), <strong>Colby Parkinson</strong> (LAR TE) and <strong>Brian Robinson Jr.</strong> (ATL RB): questionable, no new detail. None of them recorded a stat in Week 8.</LI>
     </UL>
 
     <H2>Receipts: Grading Week 8</H2>
@@ -615,10 +609,10 @@ const Body = () => (
         <TR><TD><strong>Keon Coleman</strong></TD><TD>0.9</TD><TD>3&ndash;6%</TD><TD>1 for 4.</TD></TR>
         <TR><TD><strong>Tez Johnson</strong></TD><TD>0.0</TD><TD>1&ndash;3%</TD><TD>Tampa Bay completed no passes.</TD></TR>
         <TR><TD><strong>Michael Penix Jr.</strong></TD><TD>-1.9</TD><TD>3&ndash;6%</TD><TD>8 of 24, four interceptions.</TD></TR>
-        <TR><TD><strong>Omar Cooper Jr.</strong></TD><TD>DNP</TD><TD>6&ndash;10%</TD><TD>Did not play.</TD></TR>
+        <TR><TD><strong>Omar Cooper Jr.</strong></TD><TD>No line</TD><TD>6&ndash;10%</TD><TD>No stat line.</TD></TR>
         <TR><TD><strong>Dameon Pierce</strong></TD><TD>DNP</TD><TD>2&ndash;4%</TD><TD>Went on IR.</TD></TR>
-        <TR><TD><strong>Colby Parkinson</strong></TD><TD>DNP</TD><TD>1&ndash;2%</TD><TD>Did not play.</TD></TR>
-        <TR><TD><strong>Drew Sample</strong></TD><TD>DNP</TD><TD>$1</TD><TD>Did not play.</TD></TR>
+        <TR><TD><strong>Colby Parkinson</strong></TD><TD>No line</TD><TD>1&ndash;2%</TD><TD>No stat line.</TD></TR>
+        <TR><TD><strong>Drew Sample</strong></TD><TD>No line</TD><TD>$1</TD><TD>No stat line.</TD></TR>
       </TBody>
     </Table>
     <P>
@@ -630,7 +624,7 @@ const Body = () => (
     </P>
     <H3>The lesson</H3>
     <P>
-      The Big Three went one hit, one miss and one scratch. Six cheap superflex quarterbacks returned
+      The Big Three went one hit, one miss and one blank. Six cheap superflex quarterbacks returned
       52.4 points on bids that topped out at 8%, down from last week&apos;s 70.6 on four, because
       Penix and Brissett combined for 1.6. The defenses were the week&apos;s best buy: five of the
       seven streamers scored 12 or more (Jacksonville 24.5, Pittsburgh 20, Washington 17, the Rams 14,
@@ -640,7 +634,7 @@ const Body = () => (
     </P>
     <H3>Where the market went</H3>
     <UL>
-      <LI><strong>Omar Cooper Jr.</strong>: 34.7% to 69.6%, and then he did not play.</LI>
+      <LI><strong>Omar Cooper Jr.</strong>: 34.7% to 69.6%, and then he had no stat line.</LI>
       <LI><strong>Jonah Coleman</strong>: 24.2% to 52.3%.</LI>
       <LI><strong>Hunter Henry</strong>: 47.2% to 73.1%, on 4.5.</LI>
       <LI><strong>Geno Smith</strong>: 13.1% to 32.8%.</LI>

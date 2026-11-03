@@ -115,7 +115,7 @@ module.exports = {
       name: 'Gardner Minshew II',
       bidMin: 2,
       bidMax: 4,
-      reason: "188 yards and 3 TDs in relief of Brissett. First on Arizona's chart.",
+      reason: '188 yards and 3 TDs in relief of Brissett. Named the starter Monday.',
     },
     {
       playerId: 679,
