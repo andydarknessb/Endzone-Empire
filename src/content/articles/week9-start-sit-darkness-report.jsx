@@ -38,9 +38,8 @@ function HeroBanner() {
       <title id="wk9ss-hero-title">Week 9 Start/Sit: The Darkness Report</title>
       <desc id="wk9ss-hero-desc">
         A night stadium seen from one end: floodlight towers on both sides throw cones of light onto a
-        field with yard lines that narrows to a far end line, with a goalpost in the middle. A football
-        sits on the turf, and a dotted kick path rises toward the uprights. The headline Week 9
-        Start/Sit sits in a panel across the bottom.
+        field whose yard lines narrow to a far end line, with a goalpost in the middle. A football
+        sits on the turf, and a dotted kick path rises toward the uprights. The headline Week 9 Start/Sit is set in a panel across the bottom.
       </desc>
       <defs>
         <linearGradient id="wk9ss-sky" x1="0" y1="0" x2="0" y2="1">
@@ -1885,7 +1884,7 @@ const INJ_OUT = [
 ];
 
 const INJ_THU = [
-  ['Bhayshul Tuten', 'RB', 'JAX', 'Questionable Thursday (ankle, foot) after not practicing; 24.7 and 29.9 the last two, and Jacksonville is implied for 24.75.', 'Chris Rodriguez Jr. takes the lead job. He is a sit on the record and a pivot if you need a back. Make any swap before the 8:15p ET kickoff.', 'gtd', 'C41'],
+  ['Bhayshul Tuten', 'RB', 'JAX', 'Questionable Thursday (ankle, foot) after not practicing; 24.7 and 29.9 the last two, and Jacksonville is implied for 24.75.', 'Chris Rodriguez Jr. takes the lead job. He is a sit on the record. Make any swap before the 8:15p ET kickoff.', 'gtd', 'C41'],
 ];
 
 const INJ_MADRID = [];
@@ -1928,7 +1927,7 @@ const INJ_NIGHT = [
 ];
 
 const INJ_MNF = [
-  ['Kyler Murray', 'QB', 'MIN', 'Sore hamstring and a full evaluation this week; Carson Wentz is next, and Murray has 12.3 a game.', 'Carson Wentz is next, with no ruling and no call.', 'sit', 'C23'],
+  ['Kyler Murray', 'QB', 'MIN', 'Sore hamstring and a full evaluation this week; Carson Wentz is next, and Murray has 12.3 a game.', 'Wentz has no ruling and no call.', 'sit', 'C23'],
 ];
 
 const ALREADY_OUT = ['Jacory Croskey-Merritt (WAS RB, IR)', 'Jeremy McNichols (WAS RB, out for months)', 'Jaylin Noel (HOU WR, IR)', 'David Montgomery (HOU RB, out)', 'Erick All Jr. (CIN TE, IR)', 'Zachariah Branch (ATL WR, out for Madrid)', 'Dameon Pierce (PHI RB, IR)', 'Tank Bigsby (PHI RB, IR)', 'Will Shipley (PHI RB, IR)'];
@@ -1997,7 +1996,7 @@ const FADES = [
 ];
 
 const PIVOTS = [
-  ['Tuten out', 'Chris Rodriguez Jr. takes the lead job. He is a sit on the record and a pivot if you need a back. Make any swap between the 6:45p ET inactives and the 8:15p ET kickoff.'],
+  ['Tuten out', 'Chris Rodriguez Jr. takes the lead job. He is a sit on the record. Make any swap between the 6:45p ET inactives and the 8:15p ET kickoff.'],
   ['Lamar and Huntley out (already)', 'Joe Fagnano is next up and a sit. Zay Flowers and Derrick Henry are sits too.'],
   ['Darnold out (already)', 'Drew Lock is slated to start and is a sit. Jaxon Smith-Njigba stays a START if active, WR1.'],
   ['Love out (already)', 'Tyler Allgeier is a FLEX, RB17.'],
@@ -2007,7 +2006,7 @@ const PIVOTS = [
   ['Pickens out', 'CeeDee Lamb stays a START, WR5, and Ryan Flournoy is a FLEX, WR28.'],
   ['Keenan Allen out', 'Josh Downs is a FLEX, WR26.'],
   ['Skattebo out', 'Devin Singletary takes the lead job and is a sit on the record. Swap to a flex who kicks off at 4:05p or later if you have one.'],
-  ['Kamara, Diggs or Rice out', 'No teammate has a call. Swap to a flex who kicks off at 4:05p or later.'],
+  ['Kamara, Diggs or Rice out', 'No other Saints back, Washington receiver or Kansas City receiver has a call. Swap to a flex who kicks off at 4:05p or later.'],
   ['Kelce out', 'Carry a later tight end: Bowers, McBride or Kittle at 4:25p, Loveland on Sunday night or Hockenson on Monday.'],
   ['McCaffrey out', 'Kaelon Black takes the work and is a sit on the record. Carry a later back: Swift or Irving on Sunday night, Cook on Monday.'],
   ['Evans out', 'Deebo Samuel Sr. is a sit. Swap to a receiver who kicks off Sunday night or Monday.'],
@@ -2017,7 +2016,7 @@ const PIVOTS = [
 ];
 
 const CHECK_THU = [
-  ['Bhayshul Tuten (JAX RB).', 'Active: START. Out: Chris Rodriguez Jr. has the lead job and is a pivot; his ruling stays a sit.'],
+  ['Bhayshul Tuten (JAX RB).', 'Active: START. Out: Chris Rodriguez Jr. takes the lead job; his ruling stays a sit.'],
   ['Baltimore at quarterback.', 'Jackson and Huntley are out. Fagnano is a sit either way.'],
   ['Everyone else on the card.', 'Thursday locks first: make any swap between the 6:45p ET inactives and the 8:15p ET kickoff.'],
 ];
@@ -2130,7 +2129,7 @@ const Body = () => (
       color="var(--warning)"
       items={[
         ['"If active" calls', 'are void if the player does not appear. A call that turns on a practice report carries that injury on its card.'],
-        ['Engine placeholders', 'Hurts, Darnold, Adams, Pierce, Doubs, McLaurin, Harvey, Achane, Etienne and Lamar Jackson carry a projection. Each has an OUT ruling, so the projection is a placeholder.'],
+        ['Engine placeholders', 'Hurts, Darnold, Adams, Pierce, Doubs, McLaurin, Harvey, Achane, Etienne, Love and Lamar Jackson carry a projection. Each has an OUT ruling, so the projection is a placeholder.'],
         ['Byes', 'Pittsburgh and Tennessee: nobody is ranked or called.'],
       ]}
     />

@@ -6,7 +6,7 @@ const meta = {
   author: 'Andy Darkness',
   excerpt:
     'All 15 games from Thursday night through Monday night, one card each, including the Sunday morning game in Madrid: start, flex and sit calls, game-time decision callouts, a slate board of lines and implied points, an injury board with inactive windows, a handcuff board, D/ST and IDP streamers, position tiers, the Darkness Rulings and the inactives checklist.',
-  readMinutes: 45,
+  readMinutes: 60,
   date: '2026-11-05',
 };
 
