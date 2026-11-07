@@ -1,5 +1,5 @@
 const pool = require('../modules/pool');
-const { withTransaction } = require('../modules/withTransaction');
+const { leagueWrite } = require('../modules/leagueWrite');
 const { getDraftRoomBroadcast } = require('../modules/draftRoomBroadcast');
 const { logTransaction, notify, notifyLeague } = require('./activity.service');
 const {
@@ -41,12 +41,14 @@ class CommissionerError extends Error {
  * The commissioner gate for every commissioner-only operation: the league
  * owner, or anyone the owner made a co-commissioner. New commissioner powers
  * should route through here (or leagueRole.service directly) rather than
- * comparing owner_id, so co-commissioners aren't silently excluded.
+ * comparing owner_id, so co-commissioners aren't silently excluded. It runs on a
+ * League write's client (leagueWrite, ADR 0070), which already holds the League
+ * row, so it takes no lock of its own.
  */
-async function requireCommissioner(client, { leagueId, userId, forUpdate = false }) {
+async function requireCommissioner(client, { leagueId, userId }) {
   const result = await client.query(
     `SELECT *, ${commissionerPredicate(2)} AS "is_commissioner"
-       FROM "leagues" WHERE "id" = $1${forUpdate ? ' FOR NO KEY UPDATE' : ''}`,
+       FROM "leagues" WHERE "id" = $1`,
     [leagueId, userId]
   );
   const league = result.rows[0];
@@ -124,10 +126,10 @@ async function loadTeamToRemove(client, { league, userId, teamId }) {
 
 async function removeTeam({ leagueId, userId, teamId }) {
   let ended = null;
-  const result = await withTransaction(
-    pool,
-    async (client) => {
-      const league = await requireCommissioner(client, { leagueId, userId, forUpdate: true });
+  const result = await leagueWrite(
+    { leagueId, label: 'removeTeam' },
+    async ({ client }) => {
+      const league = await requireCommissioner(client, { leagueId, userId });
       const { removable, reason } = removability(league);
       if (!removable) {
         throw new CommissionerError(409, removeRefusalMessage(reason));
@@ -153,8 +155,7 @@ async function removeTeam({ leagueId, userId, teamId }) {
       });
       ended = { managerId: team.owner_id, leagueName: league.name };
       return { leagueId, removedTeamId: teamId };
-    },
-    { label: 'removeTeam' }
+    }
   );
   // After COMMIT, never inside the transaction: a rollback must not evict anyone.
   await endMembership(leagueId, ended);
@@ -185,11 +186,11 @@ async function forceSetLineup({ leagueId, userId, teamId, week, moves }) {
   if (!Array.isArray(moves) || moves.length === 0) {
     throw new CommissionerError(400, 'moves must be a non-empty array of { playerId, slot }');
   }
-  return withTransaction(
-    pool,
-    async (client) => {
+  return leagueWrite(
+    { leagueId, label: 'forceSetLineup' },
+    async ({ client }) => {
       // League row first, then Team (#2545).
-      const league = await requireCommissioner(client, { leagueId, userId, forUpdate: true });
+      const league = await requireCommissioner(client, { leagueId, userId });
       const teamResult = await client.query(
         `SELECT * FROM "teams" WHERE "id" = $1 AND "league_id" = $2 FOR UPDATE`,
         [teamId, leagueId]
@@ -295,17 +296,16 @@ async function forceSetLineup({ leagueId, userId, teamId, week, moves }) {
         detail: { action: 'force_set_lineup', teamId, week: targetWeek, updated: changed.length },
       });
       return { leagueId, teamId, week: targetWeek, updated: changed.length };
-    },
-    { label: 'forceSetLineup' }
+    }
   );
 }
 
 /** Manually override a matchup's scores (logged to the transaction log). */
 async function adjustMatchupScore({ leagueId, userId, matchupId, homeScore, awayScore }) {
-  return withTransaction(
-    pool,
-    async (client) => {
-      const league = await requireCommissioner(client, { leagueId, userId, forUpdate: true });
+  return leagueWrite(
+    { leagueId, label: 'adjustMatchupScore' },
+    async ({ client }) => {
+      const league = await requireCommissioner(client, { leagueId, userId });
       const matchupResult = await client.query(
         `SELECT "season", "week" FROM "matchups"
          WHERE "id" = $1 AND "league_id" = $2 FOR UPDATE`,
@@ -332,16 +332,15 @@ async function adjustMatchupScore({ leagueId, userId, matchupId, homeScore, away
         detail: { action: 'adjust_score', matchupId, homeScore, awayScore },
       });
       return result.rows[0];
-    },
-    { label: 'adjustMatchupScore' }
+    }
   );
 }
 
 /** Freeze or unfreeze all roster transactions (adds, drops, waivers, trades). */
 async function setTransactionsLocked({ leagueId, userId, locked }) {
-  return withTransaction(
-    pool,
-    async (client) => {
+  return leagueWrite(
+    { leagueId, label: 'setTransactionsLocked' },
+    async ({ client }) => {
       await requireCommissioner(client, { leagueId, userId });
       await client.query(
         `UPDATE "leagues" SET "transactions_locked" = $1, "updated_at" = now() WHERE "id" = $2`,
@@ -354,8 +353,7 @@ async function setTransactionsLocked({ leagueId, userId, locked }) {
         detail: { action: locked ? 'lock_transactions' : 'unlock_transactions' },
       });
       return { leagueId, transactionsLocked: locked };
-    },
-    { label: 'setTransactionsLocked' }
+    }
   );
 }
 
@@ -367,10 +365,10 @@ async function setTransactionsLocked({ leagueId, userId, locked }) {
  * matchups, lineups, and stats stay (they're keyed by season).
  */
 async function rolloverSeason({ leagueId, userId, keepers = [] }) {
-  return withTransaction(
-    pool,
-    async (client) => {
-      const league = await requireCommissioner(client, { leagueId, userId, forUpdate: true });
+  return leagueWrite(
+    { leagueId, label: 'rolloverSeason' },
+    async ({ client }) => {
+      const league = await requireCommissioner(client, { leagueId, userId });
       if (league.season_status !== 'complete') {
         throw new CommissionerError(409, 'the season must be complete before rolling over');
       }
@@ -625,18 +623,17 @@ async function rolloverSeason({ leagueId, userId, keepers = [] }) {
           : `A new season has begun! ${keeperPairs.length > 0 ? 'Keepers are locked in and ' : ''}the draft is open to be scheduled.`,
       });
       return { leagueId, archivedSeason: league.current_season, newSeason, championTeamId, championUserId };
-    },
-    { label: 'rolloverSeason' }
+    }
   );
 }
 
 /** Freeze or unfreeze a single team's roster moves (adds, drops, waivers, trades). */
 async function setTeamLocked({ leagueId, userId, teamId, locked }) {
-  return withTransaction(
-    pool,
-    async (client) => {
+  return leagueWrite(
+    { leagueId, label: 'setTeamLocked' },
+    async ({ client }) => {
       // League row first, then Team (#2545).
-      await requireCommissioner(client, { leagueId, userId, forUpdate: true });
+      await requireCommissioner(client, { leagueId, userId });
       const result = await client.query(
         `UPDATE "teams" SET "locked" = $1, "updated_at" = now()
          WHERE "id" = $2 AND "league_id" = $3 RETURNING "id", "owner_id"`,
@@ -658,18 +655,17 @@ async function setTeamLocked({ leagueId, userId, teamId, locked }) {
           : 'Your team was unlocked by the commissioner',
       });
       return { leagueId, teamId, locked };
-    },
-    { label: 'setTeamLocked' }
+    }
   );
 }
 
 /** Directly set a team's remaining FAAB budget (bypasses the normal only-decreases-on-win path). */
 async function setTeamFaab({ leagueId, userId, teamId, faabRemaining }) {
-  return withTransaction(
-    pool,
-    async (client) => {
+  return leagueWrite(
+    { leagueId, label: 'setTeamFaab' },
+    async ({ client }) => {
       // League row first, then Team: the order the waiver run takes them (#2545).
-      await requireCommissioner(client, { leagueId, userId, forUpdate: true });
+      await requireCommissioner(client, { leagueId, userId });
       const result = await client.query(
         `UPDATE "teams" SET "faab_remaining" = $1, "updated_at" = now()
          WHERE "id" = $2 AND "league_id" = $3 RETURNING "id"`,
@@ -683,8 +679,7 @@ async function setTeamFaab({ leagueId, userId, teamId, faabRemaining }) {
         detail: { action: 'set_faab', faabRemaining },
       });
       return { leagueId, teamId, faabRemaining };
-    },
-    { label: 'setTeamFaab' }
+    }
   );
 }
 
@@ -707,17 +702,17 @@ async function setTeamFaab({ leagueId, userId, teamId, faabRemaining }) {
  * so it can't be won out from under the new roster spot.
  *
  * Lock order is League then Team, the one order on every roster path:
- * requireCommissioner takes the League row FOR UPDATE, the teams read takes the
- * Team row, and the gate's own re-locks of both are no-ops in that same order.
+ * the League write takes the League row FOR NO KEY UPDATE, the teams read takes
+ * the Team row, and the gate's own re-check reads the row the write already holds.
  */
 async function forceTransaction({ leagueId, userId, teamId, action, playerId }) {
   if (action !== 'add' && action !== 'drop') {
     throw new CommissionerError(400, "action must be 'add' or 'drop'");
   }
-  return withTransaction(
-    pool,
-    async (client) => {
-      const league = await requireCommissioner(client, { leagueId, userId, forUpdate: true });
+  return leagueWrite(
+    { leagueId, label: 'forceTransaction' },
+    async ({ client }) => {
+      const league = await requireCommissioner(client, { leagueId, userId });
       const teamResult = await client.query(
         `SELECT * FROM "teams" WHERE "id" = $1 AND "league_id" = $2 FOR UPDATE`,
         [teamId, leagueId]
@@ -796,8 +791,7 @@ async function forceTransaction({ leagueId, userId, teamId, action, playerId }) 
           : `The commissioner dropped ${playerName} from your roster`,
       });
       return { leagueId, teamId, action, playerId, playerName };
-    },
-    { label: 'forceTransaction' }
+    }
   );
 }
 
@@ -809,10 +803,10 @@ async function forceTransaction({ leagueId, userId, teamId, action, playerId }) 
  * the moderation action to the whole league).
  */
 async function removeTeamAvatar({ leagueId, userId, teamId }) {
-  const { priorAvatar } = await withTransaction(
-    pool,
-    async (client) => {
-      await requireCommissioner(client, { leagueId, userId, forUpdate: true });
+  const { priorAvatar } = await leagueWrite(
+    { leagueId, label: 'removeTeamAvatar' },
+    async ({ client }) => {
+      await requireCommissioner(client, { leagueId, userId });
       const teamResult = await client.query(
         `SELECT "owner_id", "avatar_url", "avatar_static_url" FROM "teams"
          WHERE "id" = $1 AND "league_id" = $2 FOR UPDATE`,
@@ -839,10 +833,9 @@ async function removeTeamAvatar({ leagueId, userId, teamId }) {
         message: 'Your team avatar was removed by the commissioner',
       });
       return { priorAvatar };
-    },
-    { label: 'removeTeamAvatar' }
+    }
   );
-  // Storage-object cleanup runs AFTER withTransaction resolves, so the
+  // Storage-object cleanup runs AFTER leagueWrite resolves, so the
   // connection is already back in the pool (Ruling 3).
   void deleteAvatarObjects(priorAvatar);
   return { leagueId, teamId };
@@ -871,10 +864,10 @@ async function removeTeamAvatar({ leagueId, userId, teamId }) {
  */
 async function banTeam({ leagueId, userId, teamId }) {
   let ended = null;
-  const result = await withTransaction(
-    pool,
-    async (client) => {
-      const league = await requireCommissioner(client, { leagueId, userId, forUpdate: true });
+  const result = await leagueWrite(
+    { leagueId, label: 'banTeam' },
+    async ({ client }) => {
+      const league = await requireCommissioner(client, { leagueId, userId });
       const team = await loadTeamToRemove(client, { league, userId, teamId });
       if (team.owner_id == null) {
         throw new CommissionerError(409, 'that team is already managed by the CPU');
@@ -906,8 +899,7 @@ async function banTeam({ leagueId, userId, teamId }) {
       });
       ended = { managerId, leagueName: league.name };
       return { leagueId, teamId, outcome };
-    },
-    { label: 'banTeam' }
+    }
   );
   await endMembership(leagueId, ended);
   return result;

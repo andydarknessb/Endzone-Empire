@@ -1,5 +1,4 @@
-const pool = require('../modules/pool');
-const { withTransaction } = require('../modules/withTransaction');
+const { leagueWrite } = require('../modules/leagueWrite');
 const { lookupTeam } = require('./teamIdentity');
 const { getDraftRoomBroadcast } = require('../modules/draftRoomBroadcast');
 const { logger } = require('../modules/logger');
@@ -33,8 +32,8 @@ const BOARD_FACTS = new Set(['stateChanged', 'rosterChanged']);
  * The shape it enforces, and the four properties draftAct.service.test.js pins
  * at this interface:
  *
- *  1. THE LOCK PRECEDES ANY MUTATION. runDraftAct takes `SELECT ... FOR UPDATE`
- *     on the League row as the first statement after BEGIN, before it loads
+ *  1. THE LOCK PRECEDES ANY MUTATION. leagueWrite takes `SELECT ... FOR NO KEY
+ *     UPDATE` on the League row as the first statement after BEGIN, before runDraftAct loads
  *     Teams, resolves the acting Team, or hands the client to the act body. The
  *     body's first write is therefore always behind the lock.
  *  2. A THROWN REFUSAL ROLLS BACK AND EMITS NOTHING. Any throw from the body (a
@@ -69,34 +68,22 @@ const BOARD_FACTS = new Set(['stateChanged', 'rosterChanged']);
  * only place it surfaces. (Cited by function, not line, so a later edit cannot
  * silently misdirect the reference.)
  *
- * NO "ALREADY INSIDE AN ACT" MODE (load-bearing for the followers, #938). This
- * module always opens its own connection and takes its own lock; it offers no
- * way to run a body against a client that already holds the League lock. So a
- * caller that is already inside an act must NOT call runDraftAct - it would take
- * the same League-row lock on a second connection and self-deadlock. This is why
- * draftSchedule.service.js returns early before pool.connect() so the Draft
- * start's own lock is not nested. A later slice that needs a nested act must add
- * an injected-client escape hatch here (accept an optional live client and skip
- * BEGIN/lock/COMMIT when given one); it does not exist yet because no converted
- * handler needs it.
+ * NESTING (#938). A caller already inside an act does not call runDraftAct: it
+ * would take the same League-row lock on a second connection and self-deadlock.
+ * A nested act runs through leagueWrite's `within` (the League write module,
+ * ADR 0070), which issues no BEGIN, lock or COMMIT of its own.
  */
 async function runDraftAct({ leagueId, userId }, actBody) {
-  // withTransaction owns connect, BEGIN, COMMIT-or-guarded-ROLLBACK and the
-  // release rule (ADR 0033). runDraftAct is otherwise unchanged as its callers
-  // and tests see it: the work takes the League lock, loads Teams, resolves the
-  // acting Team, runs the caller's actBody, and validates the requested board
-  // facts before the wrapper COMMITs; runFanout stays AFTER the call, so the
-  // commit-then-fan-out ordering (F3) is preserved. A thrown refusal still rolls
-  // back and emits nothing (F2), now through the wrapper.
-  const { response, activity, broadcasts } = await withTransaction(pool, async (client) => {
-    // 1. The serializing lock on the League row, before any mutation. Generic on
-    // purpose: the module does not know a given act's authorization rule, so it
-    // locks the row and hands it to the body, which authorizes against it.
-    const leagueResult = await client.query(
-      `SELECT * FROM "leagues" WHERE "id" = $1 FOR NO KEY UPDATE`,
-      [leagueId]
-    );
-    const league = leagueResult.rows[0] || null;
+  // leagueWrite owns connect, BEGIN, the League-row lock, COMMIT-or-guarded-
+  // ROLLBACK and the release rule (ADR 0033). The body takes the lock it is
+  // handed, loads Teams, resolves the acting Team, runs the caller's actBody, and
+  // validates the requested board facts before the COMMIT. The narration-first
+  // fan-out is queued as after-commit work, so it runs only after COMMIT (F3). A
+  // thrown refusal still rolls back and emits nothing (F2).
+  return leagueWrite({ leagueId, label: 'draftAct' }, async ({ client, league, afterCommit }) => {
+    // 1. The League row is locked by leagueWrite before this body runs, so the
+    // body's first write is always behind the lock. The body authorizes against
+    // the row it is handed; the module does not know a given act's rule.
     // 2. Teams in rotation order (draft_position seed order, the same order the
     // rest of the draft rotates through), for a body that resolves the on-clock
     // team or rewrites the order. INVARIANT: this snapshot takes NO per-row lock,
@@ -137,15 +124,13 @@ async function runDraftAct({ leagueId, userId }, actBody) {
         );
       }
     }
-    // 5. Return the act's outcome; the wrapper COMMITs on return. From here the
-    // act is durable. A pre-commit throw (a refusal, or the board-fact typo
-    // check above) unwinds through the wrapper's ROLLBACK instead, and never
-    // reaches the fan-out.
-    return { response, activity, broadcasts };
-  }, { label: 'draftAct' });
-  // 6. Fan out, after commit, in the one order, contained.
-  await runFanout({ leagueId, activity, broadcasts });
-  return response;
+    // 5. Queue the fan-out as after-commit work, then return the act's response.
+    // leagueWrite COMMITs on return; from there the act is durable and the queued
+    // fan-out runs. A pre-commit throw (a refusal, or the board-fact typo check
+    // above) unwinds through the ROLLBACK instead, and the queue never runs.
+    afterCommit(() => runFanout({ leagueId, activity, broadcasts }));
+    return response;
+  });
 }
 
 /**

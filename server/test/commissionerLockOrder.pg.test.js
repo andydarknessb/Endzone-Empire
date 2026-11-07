@@ -37,9 +37,9 @@
  * `removeTeamAvatar` is the fourth case, with the same shape: Team row FOR
  * UPDATE, League read unlocked, League row reached through the log's foreign key.
  *
- * Red-tell: dropping `forUpdate: true` from `setTeamFaab`, `setTeamLocked`,
- * `forceSetLineup` or `removeTeamAvatar` in server/services/commissioner.service.js turns the
- * matching case red.
+ * Red-tell: dropping the League row lock that leagueWrite takes (its FOR NO KEY
+ * UPDATE, server/modules/leagueWrite.js) turns the matching case red for
+ * `setTeamFaab`, `setTeamLocked`, `forceSetLineup` and `removeTeamAvatar`.
  *
  * Runs ONLY where a disposable Postgres is available, gated twice: PG_TESTS=1
  * (or COMMISSIONER_LOCK_ORDER_PG_TESTS=1) must be exactly '1', and every
