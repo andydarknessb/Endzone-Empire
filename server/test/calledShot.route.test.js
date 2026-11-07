@@ -71,6 +71,7 @@ function mountWorld(t, {
   const fake = createFakePool([
     ...extra,
     [/^SELECT \* FROM "leagues"/, () => ({ rows: [league] })],
+    [/^SELECT "id" FROM "leagues"/, () => ({ rows: [{ id: league.id }] })],
     [/^SELECT "id" FROM "teams"/, () => ({ rows: team ? [team] : [] })],
     [/^SELECT "id", "nfl_team" FROM "players"/, (text, params) => ({
       rows: entries.filter((e) => params[0].includes(e.id)).map((e) => ({ id: e.id, nfl_team: e.nfl_team })),
