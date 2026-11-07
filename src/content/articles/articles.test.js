@@ -53,7 +53,11 @@ describe('articles content module', () => {
   it('names a series on every Darkness Report', () => {
     const reports = listArticles().filter((meta) => meta.slug.endsWith('-darkness-report'));
     expect(reports.length).toBeGreaterThan(0);
-    for (const meta of reports) expect(['waiver-wire', 'start-sit']).toContain(meta.series);
+    for (const meta of reports) {
+      expect(['waiver-wire', 'start-sit']).toContain(meta.series);
+      // A meta copied from the other series keeps its tag; the slug catches it.
+      expect(meta.slug).toContain(meta.series);
+    }
   });
 
   // No slugs here: a new report every week would otherwise mean a test edit every week.
