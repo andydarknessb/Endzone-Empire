@@ -16,7 +16,6 @@
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const path = require('node:path');
 
 const ENABLED = process.env.PG_TESTS === '1' || process.env.PICK_CLOCK_TURNAROUND_PG_TESTS === '1';
 const URL_VARS = ['DATABASE_URL', 'DATABASE_URL_RUNTIME', 'DATABASE_URL_MIGRATIONS'];
@@ -30,37 +29,15 @@ if (!ENABLED) {
   });
 } else {
   // autoPick uses the module-level pool singleton; with DATABASE_URL* absent it
-  // reads the standard PG* variables - the disposable database.
+  // reads the standard PG* variables - the disposable database. CI migrates before
+  // test:pg, so this file does not migrate.
   const pool = require('../modules/pool');
   const { autoPick } = require('../services/pickClock.service');
   const { teamForPick } = require('../services/draftOrder.service');
-  const draftRoomBroadcast = require('../modules/draftRoomBroadcast');
-  const connection = {
-    host: process.env.PGHOST || '127.0.0.1',
-    port: Number(process.env.PGPORT) || 5432,
-    database: process.env.PGDATABASE,
-    user: process.env.PGUSER,
-    password: process.env.PGPASSWORD,
-  };
-  const knex = require('knex')({
-    client: 'pg',
-    connection,
-    migrations: { directory: path.join(__dirname, '..', 'db', 'migrations') },
-  });
-  const REASON_MIGRATION = '20260826000007_draft_activity_correction_reason.js';
-
-  // The room adapter records every fan-out in order, so each test can read what a
-  // real Draft room would have heard after the Autopick's pickLanded.
-  let events = [];
-  const recordingBroadcast = {
-    activityAppended: async () => { events.push('activityAppended'); return { delivered: true }; },
-    stateChanged: async () => { events.push('stateChanged'); return { delivered: true }; },
-    rosterChanged: async () => { events.push('rosterChanged'); return { delivered: true }; },
-    draftCompleted: async () => { events.push('draftCompleted'); return { delivered: true }; },
-    pickLanded: async () => { events.push('pickLanded'); return { delivered: true }; },
-    scoresUpdated: async () => { events.push('scoresUpdated'); return { delivered: true }; },
-  };
-  let priorBroadcast;
+  const { registerRecordingBroadcast } = require('./helpers/recordingBroadcast');
+  // Each test reads the room fan-out in order, so it can check what a real Draft
+  // room heard after the Autopick's pickLanded.
+  const room = registerRecordingBroadcast();
 
   let ownerA = null;
   let ownerB = null;
@@ -128,30 +105,21 @@ if (!ENABLED) {
 
   // The Draft room hears exactly one stateChanged after the Autopick's pickLanded.
   function assertOneStateChangedAfterPickLanded() {
-    const landed = events.indexOf('pickLanded');
-    assert.ok(landed >= 0, `the Autopick fanned out pickLanded, heard: ${events.join(', ')}`);
-    const after = events.slice(landed + 1).filter((name) => name === 'stateChanged').length;
-    assert.equal(after, 1, `exactly one stateChanged after pickLanded, heard: ${events.join(', ')}`);
+    const heard = room().calls.map((call) => call.method);
+    const landed = heard.indexOf('pickLanded');
+    assert.ok(landed >= 0, `the Autopick fanned out pickLanded, heard: ${heard.join(', ')}`);
+    const after = heard.slice(landed + 1).filter((method) => method === 'stateChanged').length;
+    assert.equal(after, 1, `exactly one stateChanged after pickLanded, heard: ${heard.join(', ')}`);
   }
 
   test.before(async () => {
-    // In migration-smoke the schema is already at latest, so this is a no-op;
-    // a standalone local run brings the disposable DB up to date first.
-    const applied = await knex('knex_migrations').where({ name: REASON_MIGRATION }).first();
-    if (!applied) await knex.migrate.latest();
-
-    priorBroadcast = draftRoomBroadcast.peekDraftRoomBroadcast();
-    draftRoomBroadcast.setDraftRoomBroadcast(recordingBroadcast);
-
     ownerA = await seedUser('pick_clock_turn_a');
     ownerB = await seedUser('pick_clock_turn_b');
-    for (const name of ['Turnaround One', 'Turnaround Two', 'Turnaround Three']) {
-      const res = await pool.query(
-        `INSERT INTO "players" ("name", "position", "nfl_team", "adp") VALUES ($1, 'RB', 'KC', 10) RETURNING "id"`,
-        [name]
-      );
-      playerIds.push(res.rows[0].id);
-    }
+    // One unrostered player serves each League's single Autopick.
+    const res = await pool.query(
+      `INSERT INTO "players" ("name", "position", "nfl_team", "adp") VALUES ('Turnaround Player', 'RB', 'KC', 10) RETURNING "id"`
+    );
+    playerIds.push(res.rows[0].id);
   });
 
   test.after(async () => {
@@ -160,8 +128,6 @@ if (!ENABLED) {
     for (const playerId of playerIds) await pool.query('DELETE FROM "players" WHERE "id" = $1', [playerId]);
     if (ownerA) await pool.query('DELETE FROM "users" WHERE "id" = $1', [ownerA]);
     if (ownerB) await pool.query('DELETE FROM "users" WHERE "id" = $1', [ownerB]);
-    draftRoomBroadcast.setDraftRoomBroadcast(priorBroadcast);
-    await knex.destroy();
     await pool.end();
   });
 
@@ -169,7 +135,6 @@ if (!ENABLED) {
     // Round 1, pick index 1: Bravo picks last in the round and times out. Round 2
     // (index 2) is Bravo's turn again under the snake.
     const { leagueId, teamIds } = await seedLeague({ currentPick: 1, onClockPosition: 2 });
-    events = [];
 
     const outcome = await autoPick({ leagueId });
     const returnedAt = Date.now();
@@ -188,6 +153,13 @@ if (!ENABLED) {
       secondsToDeadline <= 7,
       `the next turn is armed on the Autodraft delay (5s), not the 90s pick clock; deadline was ${secondsToDeadline.toFixed(1)}s after the call returned`
     );
+    // The expiry timer is armed from this return, so it must agree with the stored
+    // deadline, or the turn fires on the 90s value rather than the 5s delay.
+    assert.equal(
+      new Date(outcome.pickDeadlineAt).getTime(),
+      new Date(league.pick_deadline_at).getTime(),
+      'the returned deadline is the one the turn is armed with'
+    );
     assertOneStateChangedAfterPickLanded();
   });
 
@@ -195,7 +167,6 @@ if (!ENABLED) {
     // Round 1, pick index 0: Alpha picks first and times out. The next turn (index 1)
     // belongs to Bravo, who is not in Autodraft, so the move must not re-arm it.
     const { leagueId, teamIds } = await seedLeague({ currentPick: 0, onClockPosition: 1 });
-    events = [];
 
     const outcome = await autoPick({ leagueId });
 

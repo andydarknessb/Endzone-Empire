@@ -263,10 +263,12 @@ async function onAutodraftToggled(client, { leagueId }) {
  * flag and any re-arm commit together under the League lock. At a snake turnaround
  * the Team just placed in Autodraft can hold the next turn, and that turn is armed
  * on the short delay through onAutodraftToggled on the held client. The act names
- * stateChanged, the one board fact, and nothing else.
+ * stateChanged, the one board fact, and nothing else. Resolves to whether the turn
+ * was re-armed and the deadline the clock now holds, so the caller's timer agrees
+ * with the stored deadline.
  */
 async function enableAutodraftAfterTimeouts({ leagueId, teamId }) {
-  await runDraftAct({ leagueId, userId: null }, async ({ client, league, teams }) => {
+  return runDraftAct({ leagueId, userId: null }, async ({ client, league, teams }) => {
     await client.query(
       `UPDATE "teams" SET "autodraft" = true, "updated_at" = now() WHERE "id" = $1`,
       [teamId]
@@ -277,10 +279,13 @@ async function enableAutodraftAfterTimeouts({ leagueId, teamId }) {
     });
     // A completed draft has no turn to arm (its current_pick is past the last slot),
     // and a paused draft holds its clock until resume.
+    let rearmed = false;
+    let pickDeadlineAt = null;
     if (onClock && onClock.id === teamId && league.draft_status === 'active' && !league.draft_paused) {
-      await onAutodraftToggled(client, { leagueId });
+      pickDeadlineAt = await onAutodraftToggled(client, { leagueId });
+      rearmed = true;
     }
-    return { broadcasts: ['stateChanged'] };
+    return { response: { rearmed, pickDeadlineAt }, broadcasts: ['stateChanged'] };
   });
 }
 
@@ -559,7 +564,7 @@ async function autoPick({ leagueId }) {
       // rosterChanged, draftCompleted) through the one Draft room adapter (#745).
       // The clock no longer re-derives that fan-out here - the socket handler and
       // the offline route reach the same seam.
-      const outcome = await landPick({
+      let outcome = await landPick({
         leagueId,
         userId: onTheClock.owner_id,
         playerId: candidate.id,
@@ -579,7 +584,10 @@ async function autoPick({ leagueId }) {
           [onTheClock.id]
         );
         if (shouldAutoEnableAutodraft(bumped.rows[0].consecutive_timeouts)) {
-          await enableAutodraftAfterTimeouts({ leagueId, teamId: onTheClock.id });
+          const flip = await enableAutodraftAfterTimeouts({ leagueId, teamId: onTheClock.id });
+          // The expiry timer arms from this return, so hand it the deadline the turn
+          // now holds, not the one landPick armed before the move (#2684).
+          if (flip.rearmed) outcome = { ...outcome, pickDeadlineAt: flip.pickDeadlineAt };
         }
       }
       return outcome;
