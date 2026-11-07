@@ -240,8 +240,9 @@ async function declareCalledShot({ leagueId, userId, week, starterId, benchedId,
     await withTransaction(
       pool,
       async (client) => {
-        // League before Team, the order every writer takes: the INSERT's foreign key
-        // takes this key share anyway, so it is taken first, not after the Team lock.
+        // League before Team, as the League-locking writers (drop, waiver, trade,
+        // commissioner) take them: the INSERT's foreign key takes this key share
+        // anyway, so it is taken first, not after the Team lock.
         await client.query(`SELECT "id" FROM "leagues" WHERE "id" = $1 FOR KEY SHARE`, [leagueId]);
         // The Team row lock a lineup save also takes (ADR 0058): a save that benches
         // the starter either commits first, and the re-read refuses, or waits behind
@@ -278,7 +279,7 @@ async function declareCalledShot({ leagueId, userId, week, starterId, benchedId,
       { label: 'declare-called-shot' }
     );
   } catch (error) {
-    // The Team lock serializes two declares for one team-week, so this should not
+    // The Team row lock serializes two declares for one team-week, so this should not
     // fire; the partial unique index still refuses a second called row if it does.
     if (error && error.code === '23505') {
       throw new CalledShotError(409, 'another shot was called for this week at the same moment; try again');

@@ -113,6 +113,7 @@ if (!ENABLED) {
       await pool.query(`DELETE FROM "players" WHERE "id" = ANY($1::int[])`, [seeded.players]);
       await pool.query(`DELETE FROM "users" WHERE "id" = ANY($1::int[])`, [seeded.users]);
     } finally {
+      await require('../modules/pool').end(); // the service's own pool, opened by the declaration cases
       await pool.end();
     }
   });
@@ -194,10 +195,10 @@ if (!ENABLED) {
     assert.equal(left.rows[0].n, 0);
   });
 
-  // #2688: a declaration takes the Team row lock before it stores the pair, so a
-  // lineup save that benches the starter (and holds that lock) is waited for, and
-  // the declaration then refuses against the lineup that committed.
-  test('a Called shot declared behind a save that benches its starter waits for the Team lock, then refuses 409 and stores nothing', async () => {
+  // #2688: a Called shot declared behind a lineup save waits for the Team row lock
+  // the save holds, then refuses against the lineup that save committed.
+  // `save` is the slot the save commits for the starter and for the benched player.
+  async function refusedBehindSave(save) {
     const { declareCalledShot } = require('../services/lineupOverride.service');
     const owner = await seedUser('lo_lock');
     const leagueId = await seedLeague(owner, 'lk');
@@ -219,14 +220,15 @@ if (!ENABLED) {
     try {
       await a.query('BEGIN');
       await a.query(`SELECT "id" FROM "teams" WHERE "id" = $1 FOR UPDATE`, [teamId]);
-      await a.query(`UPDATE "lineup_entries" SET "slot" = 'BENCH' WHERE "team_id" = $1 AND "player_id" = $2`, [teamId, starter]);
+      await a.query(`UPDATE "lineup_entries" SET "slot" = $3 WHERE "team_id" = $1 AND "player_id" = $2`, [teamId, starter, save.starter]);
+      await a.query(`UPDATE "lineup_entries" SET "slot" = $3 WHERE "team_id" = $1 AND "player_id" = $2`, [teamId, benched, save.benched]);
 
       const declaring = declareCalledShot({ leagueId, userId: owner, week: 6, starterId: starter, benchedId: benched, loadAdvice });
       declaring.catch(() => {});
       let settled = false;
       declaring.then(() => { settled = true; }, () => { settled = true; });
       await new Promise((resolve) => setTimeout(resolve, 300));
-      assert.equal(settled, false, 'the declaration waits on the Team lock while the save is open');
+      assert.equal(settled, false, 'the declaration waits on the Team row lock while the save is open');
 
       await a.query('COMMIT');
       await assert.rejects(declaring, (error) => error.statusCode === 409);
@@ -239,6 +241,73 @@ if (!ENABLED) {
     } finally {
       await a.query('ROLLBACK').catch(() => {}); // a no-op once committed
       a.release();
+    }
+  }
+
+  test('a Called shot declared behind a save that benches its starter waits for the Team row lock, then refuses 409 and stores nothing', async () => {
+    await refusedBehindSave({ starter: 'BENCH', benched: 'BENCH' });
+  });
+
+  test('a Called shot declared behind a save that starts its benched player waits for the Team row lock, then refuses 409 and stores nothing', async () => {
+    await refusedBehindSave({ starter: 'RB', benched: 'RB' });
+  });
+
+  // #2688: a declaration takes the League row's key share before the Team row lock,
+  // so a League-locking writer that holds the League row is waited for while the
+  // declaration holds no Team lock: another client can still lock the Team row.
+  async function waitForLockWait() {
+    for (let i = 0; i < 200; i += 1) {
+      const waiting = await pool.query(
+        `SELECT 1 FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND datname = current_database()`
+      );
+      if (waiting.rows.length > 0) return;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    assert.fail('the declaration never parked on a lock');
+  }
+
+  test('a Called shot declaration takes the League key share before the Team row lock, so a League-locking writer cannot deadlock it', async () => {
+    const { declareCalledShot } = require('../services/lineupOverride.service');
+    const owner = await seedUser('lo_order');
+    const leagueId = await seedLeague(owner, 'lo2');
+    await pool.query(`UPDATE "leagues" SET "current_season" = 2026, "current_week" = 6 WHERE "id" = $1`, [leagueId]);
+    const teamId = await seedTeam(leagueId, owner);
+    const starter = await seedPlayer('lo2 starter');
+    const benched = await seedPlayer('lo2 benched');
+    await pool.query(
+      `INSERT INTO "lineup_entries" ("league_id", "team_id", "player_id", "season", "week", "slot")
+       VALUES ($1, $2, $3, 2026, 6, 'RB'), ($1, $2, $4, 2026, 6, 'BENCH')`,
+      [leagueId, teamId, starter, benched]
+    );
+    const loadAdvice = async () => ({ season: 2026, week: 6, suggestions: [{
+      slot: 'RB', current: { playerId: starter, projection: 6 }, suggested: { playerId: benched, projection: 18 },
+      probabilityBetter: 0.92, verdict: 'start',
+    }] });
+
+    const writer = await pool.connect(); // a drop or waiver run: the League row first, then the Team
+    try {
+      await writer.query('BEGIN');
+      await writer.query(`SELECT "id" FROM "leagues" WHERE "id" = $1 FOR UPDATE`, [leagueId]);
+      const declaring = declareCalledShot({ leagueId, userId: owner, week: 6, starterId: starter, benchedId: benched, loadAdvice });
+      declaring.catch(() => {});
+      await waitForLockWait();
+
+      const probe = await pool.connect();
+      try {
+        await probe.query('BEGIN');
+        const locked = await probe.query(`SELECT "id" FROM "teams" WHERE "id" = $1 FOR UPDATE NOWAIT`, [teamId]);
+        assert.equal(locked.rows.length, 1);
+        await probe.query('ROLLBACK');
+      } finally {
+        probe.release();
+      }
+
+      await writer.query('COMMIT');
+      const shot = await declaring;
+      assert.equal(shot.status, 'pending');
+    } finally {
+      await writer.query('ROLLBACK').catch(() => {}); // a no-op once committed
+      writer.release();
     }
   });
 }
