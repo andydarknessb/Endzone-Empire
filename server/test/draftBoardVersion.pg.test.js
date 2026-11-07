@@ -36,6 +36,10 @@ if (!ENABLED) {
   // The writers reach the database through the module-level pool singleton; with
   // DATABASE_URL* absent it reads the standard PG* variables - the disposable database.
   const pool = require('../modules/pool');
+  // signToken and requireAuth read JWT_SECRET on each call; set it for this file only.
+  const previousSecret = process.env.JWT_SECRET;
+  process.env.JWT_SECRET = 'draft-board-version-pg-test-secret';
+  const { signToken } = require('../modules/auth');
   const express = require('express');
   const draftRouter = require('../routes/draft.router');
   const { commitPick } = require('../services/pick.service');
@@ -78,7 +82,6 @@ if (!ENABLED) {
   };
   let priorBroadcast = null;
 
-  let currentUserId = null;
   let server = null;
   let baseUrl = null;
 
@@ -140,12 +143,15 @@ if (!ENABLED) {
     return states[states.length - 1].payload;
   }
 
-  // POST a JSON body to the mounted router as `userId`; resolves to { status, body }.
+  // POST a JSON body to the mounted router as `userId`, with a real bearer token
+  // (the router's requireAuth verifies it); resolves to { status, body }.
   async function call(method, urlPath, userId, body) {
-    currentUserId = userId;
     const res = await fetch(`${baseUrl}${urlPath}`, {
       method,
-      headers: { 'content-type': 'application/json' },
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${signToken({ id: userId, username: `board_version_pg_${userId}` })}`,
+      },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
     return { status: res.status, body: await res.json().catch(() => null) };
@@ -154,7 +160,6 @@ if (!ENABLED) {
   let ownerA = null;
   let ownerB = null;
   let activeLeague = null;
-  let teamA = null;
   let teamB = null;
   let pendingLeague = null;
   let pendingTeamA = null;
@@ -179,7 +184,7 @@ if (!ENABLED) {
 
     // Active League: Alpha (position 1) is on the clock at index 0; Bravo at index 1.
     activeLeague = await seedLeague({ name: 'Board Version PG Active', inviteCode: 'bvactive1', owner: ownerA, status: 'active', currentPick: 0 });
-    teamA = await seedTeam(activeLeague, ownerA, 'Alpha', 1);
+    await seedTeam(activeLeague, ownerA, 'Alpha', 1);
     teamB = await seedTeam(activeLeague, ownerB, 'Bravo', 2);
 
     // Pending League for the clock, readiness, order, keepers and start writers.
@@ -187,13 +192,9 @@ if (!ENABLED) {
     pendingTeamA = await seedTeam(pendingLeague, ownerA, 'Alpha', 1);
     pendingTeamB = await seedTeam(pendingLeague, ownerB, 'Bravo', 2);
 
-    // The mounted router, with the viewer set per call.
+    // The mounted router: its own requireAuth reads the bearer token each call sends.
     const app = express();
     app.use(express.json());
-    app.use((req, res, next) => {
-      req.user = { id: currentUserId };
-      next();
-    });
     app.use('/api/draft', draftRouter);
     await new Promise((resolve) => {
       server = http.createServer(app).listen(0, '127.0.0.1', resolve);
@@ -204,6 +205,8 @@ if (!ENABLED) {
   test.after(async () => {
     if (server) await new Promise((resolve) => server.close(resolve));
     setDraftRoomBroadcast(priorBroadcast);
+    if (previousSecret === undefined) delete process.env.JWT_SECRET;
+    else process.env.JWT_SECRET = previousSecret;
     // Leagues cascade their teams, picks, activity and keepers; users and players
     // carry no league_id, so they are removed by id here.
     for (const id of createdLeagues) await pool.query('DELETE FROM "leagues" WHERE "id" = $1', [id]);
