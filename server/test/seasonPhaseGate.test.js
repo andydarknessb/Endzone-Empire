@@ -33,6 +33,7 @@ const TEAMS = [{ id: 11 }, { id: 12 }];
 function seasonPool(leagueRow, extra = []) {
   return createFakePool([
     ...extra,
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: leagueRow ? [leagueRow] : [] })],
     [select('leagues'), () => ({ rows: leagueRow ? [leagueRow] : [] })],
     [select('teams'), () => ({ rows: TEAMS })],
     [select('matchups'), () => ({ rows: [] })],
@@ -100,7 +101,9 @@ test('generateRegularSeason: the gate reads the league row through the CALLER\'S
   const inTransaction = league({ draft_status: 'complete' }); // what the caller wrote
 
   const fake = createFakePool([
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [committed] }), 'pool'],
     [select('leagues'), () => ({ rows: [committed] }), 'pool'],
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [inTransaction] }), 'client'],
     [select('leagues'), () => ({ rows: [inTransaction] }), 'client'],
     [select('teams'), () => ({ rows: TEAMS })],
     [select('matchups'), () => ({ rows: [] })],
@@ -137,6 +140,7 @@ test('generateRegularSeason: a missing league is still a 404, not a phase refusa
 
 test('generateRegularSeason: a rejecting ROLLBACK destroys the connection and the original error survives (#1073 Ruling 4)', async (t) => {
   const fake = createFakePool([
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [league({ draft_status: 'pending' })] })],
     [select('leagues'), () => ({ rows: [league({ draft_status: 'pending' })] })],
     [/^ROLLBACK$/, () => { throw new Error('rollback rejected'); }, 'client'],
   ]).install(t);
@@ -163,6 +167,7 @@ test('generateRegularSeason: a rejecting ROLLBACK destroys the connection and th
 
 test('generateRegularSeason: a clean ROLLBACK returns the healthy connection to the pool (control)', async (t) => {
   const fake = createFakePool([
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [league({ draft_status: 'pending' })] })],
     [select('leagues'), () => ({ rows: [league({ draft_status: 'pending' })] })],
   ]).install(t);
 
@@ -198,7 +203,7 @@ for (const draft_status of ['pending', 'active']) {
 
     // Nothing marked final, and current_week / season_status untouched.
     assert.equal(fake.matching(update('matchups')).length, 0, 'no matchup marked final');
-    assert.equal(fake.matching(update('leagues')).length, 0, 'current_week / season_status unchanged');
+    assert.equal(fake.matching(update('leagues')).filter((c) => !c.text.includes('"board_version"')).length, 0, 'current_week / season_status unchanged');
     assert.equal(fake.matching(/^COMMIT$/).length, 0);
     assert.equal(fake.matching(/^ROLLBACK$/).length, 1);
     fake.assertClean();
@@ -225,7 +230,7 @@ test('finalizeWeekAndAdvance: a complete season is still refused with its own me
     (error) => error.statusCode === 409 && /season is complete/.test(error.message)
   );
   assert.equal(fake.matching(update('matchups')).length, 0, 'no matchup marked final');
-  assert.equal(fake.matching(update('leagues')).length, 0, 'current_week / season_status unchanged');
+  assert.equal(fake.matching(update('leagues')).filter((c) => !c.text.includes('"board_version"')).length, 0, 'current_week / season_status unchanged');
   fake.assertClean();
 });
 
@@ -242,6 +247,6 @@ test('finalizeWeekAndAdvance: a replay for a week already advanced is refused 40
     (error) => error instanceof SeasonError && error.statusCode === 409 && /week 1 was already advanced/.test(error.message)
   );
   assert.equal(fake.matching(update('matchups')).length, 0, 'no matchup marked final');
-  assert.equal(fake.matching(update('leagues')).length, 0, 'current_week unchanged');
+  assert.equal(fake.matching(update('leagues')).filter((c) => !c.text.includes('"board_version"')).length, 0, 'current_week unchanged');
   fake.assertClean();
 });

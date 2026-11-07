@@ -35,6 +35,7 @@ const WEEK_4 = [
 
 function advancePool() {
   return createFakePool([
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [{ ...LEAGUE }] })],
     [select('leagues'), () => ({ rows: [{ ...LEAGUE }] })],
     [select('teams'), () => ({ rows: TEAMS })],
     [select('matchups'), (text, params) => {
@@ -103,6 +104,7 @@ test('a new week with no matchups (nothing scheduled) opens no transaction and m
     materialized.push(args.teamId);
   });
   const fake = createFakePool([
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [{ ...LEAGUE }] })],
     [select('leagues'), () => ({ rows: [{ ...LEAGUE }] })],
     [select('teams'), () => ({ rows: TEAMS })],
     [select('matchups'), (text, params) => {
