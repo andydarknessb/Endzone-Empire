@@ -1248,8 +1248,8 @@ async function correctWeekFromNflverse({
   const corrected = [];
   for (const league of leaguesResult.rows) {
     try {
-      // No-ops instantly for a league with no matchup rows at this
-      // (season, week) — safe to call broadly rather than pre-filtering.
+      // A league with no matchup rows for this (season, week) takes the League lock and
+      // returns at once, so it is safe to call broadly rather than pre-filtering.
       const outcome = await correction.correctLeagueWeek({ leagueId: league.id, season, week });
       if (outcome.changes.length > 0) corrected.push(outcome);
     } catch (err) {

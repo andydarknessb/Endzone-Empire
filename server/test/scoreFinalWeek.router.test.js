@@ -40,12 +40,15 @@ function setup(t, { commissioner, finalRows }) {
   const fake = createFakePool([
     [/^SELECT "pickem_only" FROM "leagues"/, () => ({ rows: [{ pickem_only: false }] })],
     [/^SELECT 1 FROM "leagues"/, () => ({ rows: commissioner ? [{ '?column?': 1 }] : [] })],
+    [/FOR NO KEY UPDATE/, () => ({ rows: [{ id: 1 }] }), 'client'], // the League write's lock (spec #2693)
     [FINALITY_READ, () => ({ rows: finalRows })],
   ]).install(t);
   const scored = [];
-  t.mock.method(scoring, 'scoreMatchups', async (...args) => {
+  // The route re-scores through settle.rescoreLive, which runs the in-transaction half on its League write.
+  t.mock.method(scoring, 'announceScored', async () => {});
+  t.mock.method(scoring, 'scoreMatchupsInTransaction', async (...args) => {
     scored.push(args);
-    return {};
+    return { league: null, scored: {}, openMatchups: [] };
   });
   return { fake, scored };
 }
@@ -72,7 +75,7 @@ test('score: a commissioner re-scoring a week with no final matchup still re-sco
   const res = await post();
 
   assert.equal(res.status, 200);
-  assert.equal(scored.length, 1, 'the baseline reaches scoreMatchups, so the spy can go non-zero');
+  assert.equal(scored.length, 1, 'the baseline reaches the re-score, so the spy can go non-zero');
   fake.assertClean();
 });
 

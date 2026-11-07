@@ -1351,7 +1351,7 @@ test.after(() => {
 
 test('#190 advance-week asks for settle semantics, pinned to the week it is closing', async (t) => {
   const scoring = require('../services/matchupScoring.service');
-  const season = require('../services/season.service');
+  const settle = require('../services/settle.service');
   const montecarlo = require('../services/montecarlo.service');
 
   const app = express();
@@ -1381,9 +1381,9 @@ test('#190 advance-week asks for settle semantics, pinned to the week it is clos
     return { scored: [] };
   });
   const finalizeCalls = [];
-  t.mock.method(season, 'finalizeWeekAndAdvance', async (args) => {
+  t.mock.method(settle, 'settleWeek', async (args) => {
     finalizeCalls.push(args);
-    return { advancedTo: WEEK + 1, seasonStatus: 'regular', scored: [] };
+    return { scored: [], advance: { advancedTo: WEEK + 1, seasonStatus: 'regular' }, followUp: Promise.resolve() };
   });
   // The post-week analytics chain is fire-and-forget display data; keep it
   // out of this test's way rather than letting it reach the mocked pool.
@@ -1398,8 +1398,7 @@ test('#190 advance-week asks for settle semantics, pinned to the week it is clos
   assert.equal(res.status, 200, JSON.stringify(res.body));
   assert.equal(scoreCalls.length, 0, 'no separate scoring transaction: the settle pass rides finalize (spec #2602)');
   assert.equal(finalizeCalls.length, 1);
-  assert.equal(finalizeCalls[0].settle, true, 'with settle semantics, not the live path');
-  assert.equal(finalizeCalls[0].week, WEEK, 'pinned to the week being closed');
+  assert.equal(finalizeCalls[0].expectedWeek, WEEK, 'pinned to the week being closed, read before the lock');
 });
 
 /* ------------------------------------------------------------------ *
