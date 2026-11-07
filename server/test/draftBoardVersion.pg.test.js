@@ -315,6 +315,13 @@ if (!ENABLED) {
 
   // --- Draft router writers: clock, readiness, order, keepers ---------------------
 
+  test('a readiness change refused for a League that is not pending leaves the board version unchanged', async () => {
+    const before = await boardVersion(activeLeague);
+    const res = await call('POST', `/api/draft/league/${activeLeague}/ready`, ownerB, { ready: true });
+    assert.equal(res.status, 403, JSON.stringify(res.body));
+    assert.equal(await boardVersion(activeLeague), before, 'the refused toggle rolls its version advance back');
+  });
+
   test('a clock change advances the board version and the draft:state it sends carries it', async () => {
     const before = await boardVersion(pendingLeague);
     emits.length = 0;

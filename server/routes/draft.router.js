@@ -197,8 +197,8 @@ router.post('/league/:id/order', async (req, res) => {
   try {
     // Each early refusal throws a DraftError (ADR 0008) - the shape #967 already
     // converted this router's ROLLBACK-and-return pairs to. Every refusal reads
-    // only (the FOR NO KEY UPDATE read included) before it throws, so withTransaction
-    // rolls the read-only transaction back - freeing the same lock a COMMIT would
+    // only (the League lock included, its version advance undone with it) before it
+    // throws, so withTransaction rolls the transaction back - freeing the same lock a COMMIT would
     // - and rethrows the DraftError, which the outer catch maps via
     // isDraftRefusal exactly as /queue does. The success response is sent after
     // the wrapper resolves.
@@ -684,7 +684,12 @@ router.post('/league/:id/ready', async (req, res) => {
     return res.status(400).json({ error: 'ready (boolean) is required' });
   }
   try {
-    const result = await withTransaction(pool, async (client) => {
+    await withTransaction(pool, async (client) => {
+      // The League row first, then the Team row: the one lock order every path takes
+      // (rosterGate.service), so a readiness toggle cannot deadlock a Draft start. The
+      // lock advances the board version (ADR 0025, 2026-11-06); a refusal throws, so
+      // the rollback undoes that bump with the toggle.
+      await lockLeague(client, leagueId);
       const toggled = await client.query(
         `UPDATE "teams" SET "draft_ready" = $1, "updated_at" = now()
          FROM "leagues"
@@ -694,19 +699,14 @@ router.post('/league/:id/ready', async (req, res) => {
          RETURNING "teams"."id"`,
         [ready, leagueId, req.user.id]
       );
-      // A toggle that changed a row is a Draft-state change: it advances the board
-      // version in the same transaction (ADR 0025, 2026-11-06). A refusal bumps nothing.
-      if (toggled.rows[0]) {
-        await lockLeague(client, leagueId);
+      if (!toggled.rows[0]) {
+        throw new DraftError(403, 'not a member of this league, or the draft is not pending');
       }
-      return toggled;
     }, { label: 'draft-ready' });
-    if (!result.rows[0]) {
-      return res.status(403).json({ error: 'not a member of this league, or the draft is not pending' });
-    }
     await getDraftRoomBroadcast().stateChanged(leagueId);
     res.json({ leagueId, ready });
   } catch (error) {
+    if (isDraftRefusal(error)) return res.status(error.statusCode).json({ error: error.message });
     console.error('Error updating draft readiness', error);
     res.status(500).json({ error: 'failed to update readiness' });
   }
@@ -770,9 +770,9 @@ router.put('/league/:id/keepers', async (req, res) => {
   }
   try {
     // The four early refusals throw a DraftError (ADR 0008) - the shape #967
-    // converted this router's ROLLBACK-and-return pairs to. Each reads only (the
-    // FOR NO KEY UPDATE read, teams, rosters) and validates in memory before it throws,
-    // so withTransaction rolls the read-only transaction back - freeing the same
+    // converted this router's ROLLBACK-and-return pairs to. Each reads (the League lock,
+    // teams, rosters) and validates in memory before it throws, so withTransaction
+    // rolls the transaction back, undoing the lock's version advance - freeing the same
     // lock a COMMIT would - and rethrows the DraftError for the outer catch to map
     // via isDraftRefusal. The DELETE/INSERT replace-all runs only past the last
     // refusal; the success response is sent after the wrapper resolves.
