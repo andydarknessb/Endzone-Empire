@@ -106,6 +106,8 @@ function pickPool({
       }
       return { rows: [], rowCount: 1 };
     }],
+    // An Autopick's timeout streak (onTimeout, #2694) reads its bumped count back.
+    [/^UPDATE "teams" SET "consecutive_timeouts" = "consecutive_timeouts" \+ 1/, () => ({ rows: [{ consecutive_timeouts: 1 }] })],
     [update('teams'), () => ({ rows: [], rowCount: 1 })]
   );
   return createFakePool(handlers);

@@ -320,11 +320,23 @@ async function commitPick({ leagueId, by, playerId, expiredTurn }) {
       } else {
         nextTeamId = nextTeam.id;
       }
+      // An Autopick's expiry consequences commit with it (#2694): a failure after the
+      // insert rolls the Pick and the streak back together.
+      let autodraftMoved = false;
+      if (auto) {
+        const timeout = await pickClock.onTimeout(client, {
+          leagueId, team: myTeam, nextTeamId, draftActive: !draftComplete,
+        });
+        if (timeout) {
+          autodraftMoved = true;
+          if (timeout.pickDeadlineAt !== undefined) pickDeadlineAt = timeout.pickDeadlineAt;
+        }
+      }
 
       // teamName rides beside teamId so the `draft:picked` broadcast built from
       // this outcome can attribute the Pick by Team without a second lookup
       // (#112, parent #108).
-      return {
+      const committed = {
         leagueId,
         ...teamIdentityOf(myTeam),
         player: playerResult.rows[0],
@@ -354,6 +366,9 @@ async function commitPick({ leagueId, by, playerId, expiredTurn }) {
         // feed shows the draft closing beside the final Pick.
         completion,
       };
+      // Only a timeout that moved the Team into Autodraft carries the flag; landPick
+      // then tells the room (stateChanged) after pickLanded (#2694).
+      return autodraftMoved ? { ...committed, autodraftMoved } : committed;
     }, { label: 'commit-pick' });
   } catch (error) {
     if (error.code === '23505') {
@@ -393,9 +408,11 @@ async function commitPick({ leagueId, by, playerId, expiredTurn }) {
  */
 async function landPick({ leagueId, by, playerId, expiredTurn }) {
   const outcome = await module.exports.commitPick({ leagueId, by, playerId, expiredTurn });
+  // autodraftMoved is the commit's own fact for the room below, not a Pick field.
+  const { autodraftMoved, ...pick } = outcome;
   try {
     const broadcast = getDraftRoomBroadcast();
-    await broadcast.pickLanded(leagueId, { ...outcome, auto: by.kind === 'autopick' });
+    await broadcast.pickLanded(leagueId, { ...pick, auto: by.kind === 'autopick' });
     if (outcome.draftComplete) {
       // The Pick that ended the draft also appended a completion lifecycle entry
       // (#437); deliver it to the room's combined feed on draft:activity beside the
@@ -404,6 +421,8 @@ async function landPick({ leagueId, by, playerId, expiredTurn }) {
       if (outcome.completion) await broadcast.activityAppended(leagueId, outcome.completion);
       await broadcast.draftCompleted(leagueId);
     }
+    // The timeout moved the Team into Autodraft: the board's state changed after the Pick (#2684).
+    if (autodraftMoved) await broadcast.stateChanged(leagueId);
   } catch (error) {
     // The commit already succeeded; report the fan-out failure and return the
     // outcome rather than throwing a durable Pick's success away.
