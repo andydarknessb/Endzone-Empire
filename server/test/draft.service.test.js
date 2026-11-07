@@ -274,7 +274,7 @@ test('addFreeAgent: a league row that cannot answer the freeze fails closed (#94
 // The drop was the ONE roster write that locked the Team row FOR UPDATE and
 // then read the League unlocked. requireMember's lock is demoted to a plain
 // read and the gate takes both rows, League then Team, matching
-// forceTransaction (requireCommissioner forUpdate, then the teams row FOR
+// forceTransaction (the League write's lock, then the teams row FOR
 // UPDATE) - so a drop and a forced transaction on the same league and team can
 // no longer form an AB/BA pair. The concurrency half of that claim is
 // rosterDropLockOrder.pg.test.js; what these prove is the refusal and the

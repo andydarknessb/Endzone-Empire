@@ -20,8 +20,8 @@
  *
  *   1. Holder H opens a transaction and takes the League row FOR UPDATE.
  *   2. The commissioner write starts.
- *        - League-then-Team (fixed): requireCommissioner asks for the League
- *          row FOR UPDATE and blocks there, holding nothing.
+ *        - League-then-Team (fixed): the League write asks for the League
+ *          row FOR NO KEY UPDATE and blocks there, holding nothing.
  *        - Team-then-League (the revert): the League read is unlocked, the
  *          UPDATE takes the Team row, and the log insert blocks on the League
  *          row behind H, now HOLDING the Team row.

@@ -120,10 +120,14 @@ if (!ENABLED) {
     const second = leagueWrite({ leagueId, label: 'lw-pg-second' }, async () => {}).then(() => {
       secondDone = true;
     });
-    await waitForBlocked(1, 'the second League write parked behind the first');
-    assert.equal(secondDone, false, 'the second write has not run while the first holds the League row');
-
-    release.open();
+    // Release in finally: if the lock is missing nothing parks, and the first write
+    // must still close, or modulePool.end() in test.after waits on it forever.
+    try {
+      await waitForBlocked(1, 'the second League write parked behind the first');
+      assert.equal(secondDone, false, 'the second write has not run while the first holds the League row');
+    } finally {
+      release.open();
+    }
     await first;
     await second;
     assert.equal(secondDone, true, 'the second write runs once the first commits');

@@ -11,7 +11,7 @@
  * anything. Adopting the #944 write gate is what makes the order matter: the
  * gate takes League FOR UPDATE and then Team FOR UPDATE, so a drop that kept
  * the Team-first membership lock would run Team -> League while
- * `forceTransaction` runs League -> Team (requireCommissioner with forUpdate,
+ * `forceTransaction` runs League -> Team (the League write's lock,
  * then `SELECT * FROM "teams" ... FOR UPDATE`). That is an AB/BA pair, and
  * Postgres resolves it by killing one transaction with SQLSTATE 40P01.
  *

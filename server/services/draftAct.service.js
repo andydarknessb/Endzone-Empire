@@ -1,8 +1,6 @@
 const { leagueWrite } = require('../modules/leagueWrite');
 const { lookupTeam } = require('./teamIdentity');
 const { getDraftRoomBroadcast } = require('../modules/draftRoomBroadcast');
-const { logger } = require('../modules/logger');
-const sentry = require('../modules/sentry');
 
 // The board-fact methods a Draft act (CONTEXT.md) may legitimately name in its
 // `broadcasts` set. runDraftAct validates requested names against this set
@@ -108,8 +106,8 @@ async function runDraftAct({ leagueId, userId }, actBody) {
     const outcome = (await actBody({ client, league, teams, actingTeam })) || {};
     const { response, activity = [], broadcasts = [] } = outcome;
     // Validate the requested board-fact names BEFORE commit, so a typo throws onto
-    // the rollback path (visible) instead of vanishing into runFanout's deliberate
-    // swallow, where a bad name would be a silent no-op the room never hears (F3).
+    // the rollback path (visible) instead of vanishing into the after-commit
+    // containment, where a bad name would be a silent no-op the room never hears (F3).
     // Checked against a static allowlist rather than the live adapter on purpose:
     // resolving getDraftRoomBroadcast() here would move the "no transport
     // registered" throw (#765) onto the rollback path too, which contradicts the
@@ -136,22 +134,17 @@ async function runDraftAct({ leagueId, userId }, actBody) {
 /**
  * The one fan-out order (see the module header). Narration first: each activity
  * entry through `activityAppended`, then the named board-fact methods in order.
- * Contained exactly like pick.service.landPick: the COMMIT already made the act
+ * Contained by leagueWrite's after-commit queue: the COMMIT already made the act
  * durable, so a broadcast failure is reported once, never thrown, and never
  * turns a committed act into a 500.
  */
 async function runFanout({ leagueId, activity, broadcasts }) {
-  try {
-    const broadcast = getDraftRoomBroadcast();
-    for (const entry of activity) {
-      await broadcast.activityAppended(leagueId, entry);
-    }
-    for (const method of broadcasts) {
-      await broadcast[method](leagueId);
-    }
-  } catch (error) {
-    logger.error({ err: error, leagueId }, 'Draft act committed but room fan-out failed');
-    sentry.captureError(error, { leagueId });
+  const broadcast = getDraftRoomBroadcast();
+  for (const entry of activity) {
+    await broadcast.activityAppended(leagueId, entry);
+  }
+  for (const method of broadcasts) {
+    await broadcast[method](leagueId);
   }
 }
 
