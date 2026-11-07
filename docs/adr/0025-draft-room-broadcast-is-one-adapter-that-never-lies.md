@@ -200,10 +200,10 @@ Three changes to the adapter's interface, decided in spec #2681:
 
 - `rosterChanged` retires. No client has listened for `roster:changed` since
   #593 removed the listener, so its ten callers tell no one anything. POST
-  /undo, the act that removed picks outside a Commissioner correction, retires
-  with it. Every other act that changes rosters reaches the room through
-  `stateChanged`, and the room refetches the player pool and the viewer's
-  roster on every `draft:state`. A Draft act may therefore name only
+  /undo, the act that removed the most recent picks, retires with it. Every
+  Draft act and the Commissioner correction reach the room through
+  `stateChanged`, and with spec #2681 the room refetches the player pool and
+  the viewer's roster on every `draft:state`. A Draft act may therefore name only
   `stateChanged`, and the 2026-09-07 amendment's ownership list keeps its
   other four entries.
 - `draft:presence` retires too. The join handler sends it outside the adapter
@@ -212,6 +212,6 @@ Three changes to the adapter's interface, decided in spec #2681:
   (CONTEXT.md). It advances in the same transaction as every change to Draft
   state, so a client keeps the highest it has applied and ignores an older
   state. The
-  Draft activity `seq` keeps ordering narration only. It does not move when a
-  change writes no Draft activity (an Autodraft toggle, a clock change), so it
-  could not order those.
+  League feed `seq`, which Draft activity and chat share, keeps ordering the
+  feed. It does not move when a change writes neither (an Autodraft toggle, a
+  clock change), so it could not order those.

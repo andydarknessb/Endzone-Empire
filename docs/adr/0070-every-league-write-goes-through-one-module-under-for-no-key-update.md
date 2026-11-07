@@ -2,10 +2,10 @@
 
 Status: accepted (2026-11-06)
 
-Twenty-nine writes serialize on a League by locking its row themselves
-(`SELECT ... FOR UPDATE` on `leagues`), five of them behind opt-in flags
-(`forUpdate`, `lock`, `rowLockSettingsProvided`). Each carries the League,
-then Team, then Matchup order in a comment, and each fix to one caller came
+Twenty-nine lock statements in twenty files serialize writes on a League by
+locking its row themselves (`SELECT ... FOR UPDATE` on `leagues`), five of
+them behind opt-in flags (`forUpdate`, `lock`, `rowLockSettingsProvided`).
+Several carry the League, then Team, then Matchup order in a comment, and each fix to one caller came
 with its own Postgres test (#946, #962, #2545, #2573). Two pairs can still
 deadlock, by reading: a waiver run holds the League and then wants a Team that
 a lineup save holds, while the save's insert into `lineup_entries` waits on the
@@ -28,8 +28,8 @@ We decide:
 2. **The lock is `FOR NO KEY UPDATE`.** It conflicts with itself, so League
    writes still queue behind each other, but it does not block `FOR KEY SHARE`.
    An insert into a `league_id` table therefore never waits on a held League
-   write. That removes both deadlock pairs, and lineup saves, the most frequent
-   write, never touch the League row. The audit behind this ruling found about
+   write. That removes both deadlock pairs, and a lineup save, the most frequent
+   write, never waits on a League write. The audit behind this ruling found about
    25 write paths that insert into those tables without the League lock. None
    depends on the old wait, which only delayed an insert whose values had
    already been read.
@@ -61,9 +61,12 @@ We decide:
   the reason sits beside the decision. `FOR NO KEY UPDATE` keeps what the
   League lock is for, two League writes never interleave, and drops only the
   wait both deadlocks need.
-- **Nesting is a parameter.** `runDraftAct` refused nesting outright, which
-  forced the Draft start to return before it connected and other callers to
-  skip the lock with a flag. A handle the caller passes shows in the code and
+- **Nesting is a parameter.** Nothing offers a nested mode today. `runDraftAct`
+  has none, so a caller already holding the lock must not call it. The
+  scheduled start hands off to `startDraft` before it connects, so the two
+  never lock the same row twice, and Draft completion reads the League with
+  `forUpdate: false` because it runs inside the Pick's or the Draft start's
+  transaction. A handle the caller passes shows in the code and
   in a test which mode ran, where an ambient transaction would hide it.
 
 ## Considered and rejected
@@ -78,10 +81,12 @@ We decide:
 
 - The opt-in lock flags go. `requireCommissioner` authorizes against the
   League row the write already holds.
-- Trade propose and counter, schedule generation (`generateMatchups`), the
-  League-wide Roster lock toggle, pick'em settings and all three Settle entry
-  points become League writes. None takes the League lock today. A Stat
-  correction then locks the League before its Matchups.
+- Trade propose, schedule generation (`generateMatchups`), the League-wide
+  Roster lock toggle, pick'em settings, a Stat correction and the
+  Commissioner's live re-score become League writes. None takes the League
+  lock today. A Stat correction then locks the League before its Matchups.
+  Trade counter and Advance week's Settle pass already lock the League row
+  and move onto the module with the other lockers.
 - Chat, reports, read receipts, analytics and recap caches, Trophy awards
   (their own advisory lock) and the kickoff waiver hold (no lock on purpose)
   stay outside.

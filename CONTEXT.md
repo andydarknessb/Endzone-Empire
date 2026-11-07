@@ -675,9 +675,9 @@ The order of Draft state as the room hears it. Every Draft state broadcast
 carries one; it advances on every change to Draft state (a Pick, a pause or
 resume, an Autodraft toggle, a reset, a Commissioner correction), and a
 client never applies an older Draft state over a newer one. It is distinct
-from the Draft activity sequence, which orders narration only and does not
-move when a change writes no Draft activity.
-_Avoid_: seq (the Draft activity sequence), revision
+from the League feed sequence, which Draft activity and chat share and which
+does not move when a change writes neither.
+_Avoid_: seq (the League feed sequence), revision
 
 **Presenter**:
 This term carries two senses, numbered below. A reader tells them apart by
