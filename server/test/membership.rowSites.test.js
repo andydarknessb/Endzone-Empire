@@ -220,9 +220,12 @@ test('draft router: PUT /queue locks the member Team row while rewriting the que
 
 // #274, documented exemption (no write count applies here, and asserting one
 // would be WRONG): this refusal is produced BY the mutation rather than by a
-// guard above it. The route issues exactly one UPDATE whose WHERE clause IS
-// the membership test, and the 403 is triggered by that statement matching no
-// row. The UPDATE always runs, so there is no work a guard could sink below.
+// guard above it. The readiness route has two refusals, each a statement that
+// matches no row: the League advance refuses a caller who owns no Team in a
+// pending League, and the Team UPDATE refuses a Team removed after the advance
+// (the advance's EXISTS runs on its own snapshot, so it can still pass). Both
+// throw, so the rollback undoes the advance. This test pins the advance's
+// predicate; the Team-removed case has its own test below.
 //
 // What the test needed instead: the override answers { rows: [] } for ANY
 // params, so the 403 was manufactured by the fixture, not by the statement's
@@ -240,6 +243,21 @@ test('draft router: POST /league/:id/ready refuses a non-member without the rost
   assert.match(advance[0].text, /"draft_status" = 'pending'/, 'and to a pending draft');
   const ready = writes(calls).filter((c) => /^UPDATE "teams" SET "draft_ready"/.test(c.text));
   assert.equal(ready.length, 0, 'a refused caller reaches no Team write');
+});
+
+test('draft router: a Team removed after the advance refuses, and the advance rolls back', async (t) => {
+  const calls = fakeDb(t, {
+    overrides: [
+      [/UPDATE "leagues" SET "board_version"/, () => ({ rows: [{ id: 3 }] })],
+      [/^UPDATE "teams" SET "draft_ready"/, () => ({ rows: [] })],
+    ],
+  });
+  const res = await request(routes)
+    .post('/api/draft/league/3/ready').set('Authorization', authed()).send({ ready: true });
+  assert.equal(res.status, 403, JSON.stringify(res.body));
+  assert.equal(res.body.error, `${REFUSAL}, or the draft is not pending`);
+  assert.ok(calls.some((c) => c.text === 'ROLLBACK'), 'the transaction rolled back, undoing the advance');
+  assert.ok(!calls.some((c) => c.text === 'COMMIT'), 'nothing committed');
 });
 
 // --- trades router ----------------------------------------------------------

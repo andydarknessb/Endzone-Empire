@@ -325,7 +325,7 @@ if (!ENABLED) {
     assert.equal(await boardVersion(activeLeague), before, 'a refused toggle never advances the version');
   });
 
-  test('a readiness change by a caller who owns no Team in a pending League advances nothing and writes no Team', async () => {
+  test('a readiness change by a caller who owns no Team in a pending League is refused and advances nothing', async () => {
     const outsider = await seedUser('board_version_pg_c');
     const before = await boardVersion(pendingLeague);
     const readyBefore = await pool.query(
