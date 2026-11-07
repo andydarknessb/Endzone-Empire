@@ -31,6 +31,9 @@ const num = (value) => (value == null ? null : Number(value));
 /** A suggestion with a start/sit probability above the tossup line (ADR 0054 ruling 4): the one rule a Called shot and an Override share. */
 const aboveTossupLine = (suggestion) => suggestion.probabilityBetter != null && suggestion.verdict !== 'tossup';
 
+// shortcut: mirrors lineup.service's isStartingSlot (not exported there), export that once lineup.service is next touched
+const isStartingSlot = (slot) => slot != null && slot !== 'BENCH' && slot !== 'IR';
+
 const SHOT_COLUMNS = `"lineup_overrides"."id", "lineup_overrides"."team_id", "lineup_overrides"."season",
   "lineup_overrides"."week", "lineup_overrides"."slot",
   "lineup_overrides"."starter_player_id", "lineup_overrides"."benched_player_id",
@@ -237,6 +240,20 @@ async function declareCalledShot({ leagueId, userId, week, starterId, benchedId,
     await withTransaction(
       pool,
       async (client) => {
+        // The Team row lock a lineup save also takes (ADR 0058): a save that benches
+        // the starter either commits first, and the re-read refuses, or waits behind
+        // this declaration and voids the shot it finds there.
+        await client.query(`SELECT "id" FROM "teams" WHERE "id" = $1 FOR UPDATE`, [team.id]);
+        const slots = await client.query(
+          `SELECT "player_id", "slot" FROM "lineup_entries"
+           WHERE "team_id" = $1 AND "season" = $2 AND "week" = $3 AND "player_id" = ANY($4::int[])`,
+          [team.id, advice.season, advice.week, [starterId, benchedId]]
+        );
+        const slotOf = new Map(slots.rows.map((r) => [r.player_id, r.slot]));
+        // The save's holds rule: the starter still starts and the benched player does not.
+        if (!isStartingSlot(slotOf.get(starterId)) || isStartingSlot(slotOf.get(benchedId))) {
+          throw new CalledShotError(409, 'the saved lineup no longer matches that pair, so there is no shot to call');
+        }
         await client.query(
           `DELETE FROM "lineup_overrides"
            WHERE "league_id" = $1 AND "season" = $2 AND "week" = $3 AND "team_id" = $4 AND "called"
