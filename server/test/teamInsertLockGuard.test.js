@@ -101,6 +101,12 @@ test('a lock before the insert in the same function is NOT a violation', () => {
   assert.deepEqual(unlockedTeamInserts(src), []);
 });
 
+test('a FOR NO KEY UPDATE League lock before the insert is NOT a violation (#2683)', () => {
+  const noKey = 'SELECT * FROM "leagues" WHERE "id" = $1 FOR NO KEY UPDATE';
+  const src = `async function join(client, { leagueId }) {\n  ${q(noKey)}\n  ${q(TEAM_INSERT)}\n}\n`;
+  assert.deepEqual(unlockedTeamInserts(src), []);
+});
+
 test('an insert with no lock at all is a violation', () => {
   const src = `async function addTeam(client, { leagueId }) {\n  ${q(TEAM_INSERT)}\n}\n`;
   assert.deepEqual(unlockedTeamInserts(src), [{ line: 2 }]);

@@ -179,7 +179,7 @@ router.post('/join', refundJoinSlots, joinFailuresByUser.guard, joinFailuresByIp
       pool,
       async (client) => {
         const leagueResult = await client.query(
-          `SELECT * FROM "leagues" WHERE "invite_code" = $1 FOR UPDATE`,
+          `SELECT * FROM "leagues" WHERE "invite_code" = $1 FOR NO KEY UPDATE`,
           [inviteCode]
         );
         const league = leagueResult.rows[0];

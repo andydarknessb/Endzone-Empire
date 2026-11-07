@@ -550,7 +550,7 @@ async function updateLeagueSettings(db, { leagueId, userId, patch }) {
                 "roster_slots", "bench_slots", "ir_slots", "position_caps", "roster_limit",
                 "keepers_enabled", "keeper_count", "pickem_only", "season_status", "dp_enabled",
                 (SELECT COUNT(*)::int FROM "teams" WHERE "teams"."league_id" = "leagues"."id") AS "team_count"
-         FROM "leagues" WHERE "id" = $1 AND ${commissionerPredicate(2)}${rowLockSettingsProvided ? ' FOR UPDATE' : ''}`,
+         FROM "leagues" WHERE "id" = $1 AND ${commissionerPredicate(2)}${rowLockSettingsProvided ? ' FOR NO KEY UPDATE' : ''}`,
         [leagueId, userId]
       );
       const current = statusResult.rows[0];

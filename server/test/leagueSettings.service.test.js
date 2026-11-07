@@ -145,7 +145,7 @@ test('keeper clear: connects, BEGINs, reads FOR UPDATE, DELETEs the assignments,
   assert.deepEqual(row, UPDATED_ROW);
   assert.deepEqual(db.firstWord(), ['BEGIN', 'SELECT', 'SELECT', 'DELETE', 'UPDATE', 'COMMIT']);
   assert.ok(db.calls.every((c) => c.via === 'client'), 'every statement runs on the connected client');
-  assert.match(db.calls[1].text, / FOR UPDATE$/);
+  assert.match(db.calls[1].text, / FOR NO KEY UPDATE$/);
   assert.deepEqual(db.calls[1].params, [LEAGUE_ID, USER_ID]);
   assert.equal(db.calls[3].text, 'DELETE FROM "keepers" WHERE "league_id" = $1');
   assert.equal(db.released(), 1);
@@ -172,7 +172,7 @@ test('auction custom order that is not a permutation of the teams: 400 under FOR
   assert.equal(error.statusCode, 400);
   assert.equal(error.message, 'nominationCustomOrder must list every current team exactly once');
   assert.deepEqual(db.firstWord(), ['BEGIN', 'SELECT', 'SELECT', 'ROLLBACK']);
-  assert.match(db.calls[1].text, / FOR UPDATE$/);
+  assert.match(db.calls[1].text, / FOR NO KEY UPDATE$/);
   assert.equal(db.calls[2].text, 'SELECT "id" FROM "teams" WHERE "league_id" = $1');
   assert.equal(db.released(), 1);
 });
@@ -185,7 +185,7 @@ test('frozen pre-check: an active-draft league 409s naming only the locked (draf
   assert.equal(error.code, undefined);
   assert.deepEqual(db.firstWord(), ['SELECT']);
   assert.equal(db.calls[0].via, 'pool');
-  assert.doesNotMatch(db.calls[0].text, /FOR UPDATE/);
+  assert.doesNotMatch(db.calls[0].text, /FOR (NO KEY )?UPDATE/);
   assert.equal(db.connected(), 0, 'no client is connected on the non-transaction path');
   assert.equal(db.released(), 0);
 });

@@ -41,7 +41,7 @@ function pauseLikeBody() {
 
 function baseWorld(t, extraHandlers = []) {
   const fake = createFakePool([
-    [/^SELECT \* FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: [{ id: LEAGUE_ID, draft_status: 'active' }] })],
+    [/^SELECT \* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/, () => ({ rows: [{ id: LEAGUE_ID, draft_status: 'active' }] })],
     [/^SELECT "id", "owner_id", "autodraft", "draft_position" FROM "teams"/, () => ({ rows: [{ id: 11, owner_id: USER_ID, autodraft: false, draft_position: 1 }] })],
     [/^SELECT "id", "name" FROM "teams"/, () => ({ rows: [{ id: 11, name: 'Acting FC' }] })],
     [/^UPDATE "leagues" SET "draft_paused"/, () => ({ rows: [{ id: LEAGUE_ID, draft_paused: true }] })],
@@ -82,7 +82,7 @@ test('property 1: the lock precedes any mutation', async (t) => {
 
   await runDraftAct({ leagueId: LEAGUE_ID, userId: USER_ID }, pauseLikeBody());
 
-  const lockIdx = firstIndex(fake, /FOR UPDATE/);
+  const lockIdx = firstIndex(fake, /FOR (NO KEY )?UPDATE/);
   const firstMutationIdx = firstIndex(fake, /^(UPDATE|INSERT|DELETE)/);
   assert.ok(lockIdx >= 0, 'the League row is locked');
   assert.ok(firstMutationIdx >= 0, 'a mutation ran');

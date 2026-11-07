@@ -55,7 +55,7 @@ function tradeWorldHandlers({
   rosteredNow = () => true,
 }) {
   return [
-    [/^SELECT "id", "transactions_locked",.* FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({
+    [/^SELECT "id", "transactions_locked",.* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/, () => ({
       rows: [{
         id: 1,
         transactions_locked: frozen,
@@ -364,7 +364,7 @@ test('executeTrade: the gate runs per item, immediately around each write', asyn
   // its delete (#2274), then the roster move module's own release gate beside the
   // delete and acquire gate beside the insert (#2535). Six gate League reads, not
   // one. A hoisted batch-level call would read the League once.
-  const gateReads = fake.calls.filter((c) => /^SELECT "id", "transactions_locked".*FOR UPDATE/.test(c.text));
+  const gateReads = fake.calls.filter((c) => /^SELECT "id", "transactions_locked".*FOR NO KEY UPDATE/.test(c.text));
   assert.equal(gateReads.length, 6, 'three gate calls per item: acquire, release, acquire');
 
   // Each gate League read is immediately followed by its Team lock, League then

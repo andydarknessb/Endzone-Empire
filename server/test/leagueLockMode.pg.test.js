@@ -73,6 +73,7 @@ if (!ENABLED) {
   const lineupService = require('../services/lineup.service');
   const correctionService = require('../services/correction.service');
   const modulePool = require('../modules/pool');
+  const { createDraftRoomBroadcast, setDraftRoomBroadcast } = require('../modules/draftRoomBroadcast');
 
   // Arbitrary: no other *.pg.test.js seeds this season's league rows.
   const SEASON = 2097;
@@ -84,6 +85,7 @@ if (!ENABLED) {
   let teamId = null;
   let matchupId = null;
   const seededUserIds = [];
+  let priorBroadcast;
 
   /** Wait until a backend is blocked on a lock, or the write has finished, so the next step runs once the write has reached its lock or completed. */
   async function waitForBlockedOrDone(isDone, what) {
@@ -103,6 +105,10 @@ if (!ENABLED) {
   }
 
   test.before(async () => {
+    // correctLeagueWeek announces its scores after commit through the draft-room
+    // broadcast; a no-op adapter keeps that out of this file's assertions.
+    priorBroadcast = setDraftRoomBroadcast(createDraftRoomBroadcast({ to: () => ({ emit: () => {} }) }, 'test'));
+
     const users = await pool.query(
       `INSERT INTO "users" ("username", "email", "password")
        VALUES ('lklm_owner', 'lklm-owner@example.invalid', 'x')
@@ -165,6 +171,7 @@ if (!ENABLED) {
     if (seededUserIds.length) {
       await pool.query(`DELETE FROM "users" WHERE "id" = ANY($1::int[])`, [seededUserIds]);
     }
+    setDraftRoomBroadcast(priorBroadcast);
     await pool.end();
     await modulePool.end();
   });

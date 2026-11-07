@@ -693,7 +693,7 @@ const ESC_TEAM = { id: 55, owner_id: 7, name: 'Stuck Team', autodraft: false, dr
 // differently (some fail it, the bail tests never reach it).
 function escalationHandlers(reReadLeague = ESC_LEAGUE) {
   return [
-    [/FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: [reReadLeague] })],
+    [/FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/, () => ({ rows: [reReadLeague] })],
     [/FROM "leagues" WHERE "id" = \$1/, () => ({ rows: [ESC_LEAGUE] })],
     [/EXTRACT\(MONTH FROM CURRENT_DATE\)/, () => ({ rows: [{ season: 2026 }] })],
     [/FROM "team_players" JOIN "players"/, () => ({ rows: [] })],

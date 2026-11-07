@@ -80,7 +80,7 @@ async function commitPick({ leagueId, userId, playerId, auto = false, byCommissi
   try {
     return await withTransaction(pool, async (client) => {
       const leagueResult = await client.query(
-        `SELECT * FROM "leagues" WHERE "id" = $1 FOR UPDATE`,
+        `SELECT * FROM "leagues" WHERE "id" = $1 FOR NO KEY UPDATE`,
         [leagueId]
       );
       const league = leagueResult.rows[0];

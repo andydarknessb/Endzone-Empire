@@ -203,7 +203,7 @@ router.post('/league/:id/order', async (req, res) => {
     // the wrapper resolves.
     const finalOrder = await withTransaction(pool, async (client) => {
       const leagueResult = await client.query(
-        `SELECT * FROM "leagues" WHERE "id" = $1 AND ${commissionerPredicate(2)} FOR UPDATE`,
+        `SELECT * FROM "leagues" WHERE "id" = $1 AND ${commissionerPredicate(2)} FOR NO KEY UPDATE`,
         [leagueId, req.user.id]
       );
       if (!leagueResult.rows[0]) {
@@ -771,7 +771,7 @@ router.put('/league/:id/keepers', async (req, res) => {
       const leagueResult = await client.query(
         `SELECT "draft_status", "roster_limit", "ir_slots", "keeper_count", "keeper_lock_at", "draft_date",
                 ${commissionerPredicate(2)} AS "is_commissioner"
-         FROM "leagues" WHERE "id" = $1 FOR UPDATE`,
+         FROM "leagues" WHERE "id" = $1 FOR NO KEY UPDATE`,
         [leagueId, req.user.id]
       );
       const league = leagueResult.rows[0];

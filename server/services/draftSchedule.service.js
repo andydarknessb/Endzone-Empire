@@ -111,7 +111,7 @@ async function runAction(league, action, marketCount = Infinity, now = new Date(
       `SELECT "draft_status", "draft_date", "draft_type", "min_teams", "draft_reminder_stage",
               "draft_autostart_failed",
               (SELECT COUNT(*)::int FROM "teams" WHERE "teams"."league_id" = "leagues"."id") AS "team_count"
-       FROM "leagues" WHERE "id" = $1 FOR UPDATE`,
+       FROM "leagues" WHERE "id" = $1 FOR NO KEY UPDATE`,
       [league.id]
     );
     const row = fresh.rows[0];

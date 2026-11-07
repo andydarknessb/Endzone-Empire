@@ -257,7 +257,7 @@ test('trades router: GET / and POST /analyze refuse a non-member with the standa
 // The gate's own reads (#962), as overrides: explicit column lists that the
 // substring defaults above would otherwise answer with the wrong rows.
 const dropGateHandlers = ({ frozen = false, locked = false } = {}) => [
-  [/^SELECT "id", "transactions_locked",.* FROM "leagues" WHERE "id" = \$1 FOR UPDATE/,
+  [/^SELECT "id", "transactions_locked",.* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/,
     () => ({ rows: [{ id: 3, transactions_locked: frozen }] })],
   [/^SELECT "id", "locked" FROM "teams" WHERE "id" = \$1 FOR UPDATE/,
     () => ({ rows: [{ id: TEAM.id, locked }] })],
@@ -288,7 +288,7 @@ test('draft service: dropPlayer refuses a non-member, and no longer locks the Te
   assert.doesNotMatch(teamLookups(calls)[0].text, /FOR UPDATE$/, 'the membership read takes no row lock');
   // The refusal moved from an inline check into the gate, keeping its message
   // and gaining the TEAM_LOCKED code. It still sits above every write.
-  const leagueLockAt = calls.findIndex((c) => /^SELECT "id", "transactions_locked".*FOR UPDATE$/.test(c.text));
+  const leagueLockAt = calls.findIndex((c) => /^SELECT "id", "transactions_locked".*FOR NO KEY UPDATE$/.test(c.text));
   const teamLockAt = calls.findIndex((c) => /^SELECT "id", "locked" FROM "teams".*FOR UPDATE$/.test(c.text));
   assert.ok(leagueLockAt >= 0 && teamLockAt >= 0, 'the gate locked both rows');
   assert.ok(leagueLockAt < teamLockAt, 'League before Team, the one order on every path');

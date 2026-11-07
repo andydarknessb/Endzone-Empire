@@ -50,7 +50,7 @@ function pausePool({ paused, active = true, commissioner = true, hasActorTeam = 
     [/SELECT "pickem_only" FROM "leagues"/, () => ({ rows: [{ pickem_only: false }] })],
     // The act module's serializing lock on the League row. `active: null` models
     // a missing league (empty lock result).
-    [/^SELECT \* FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({
+    [/^SELECT \* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/, () => ({
       rows: active === null ? [] : [{ id: LEAGUE_ID, draft_status: active ? 'active' : 'pending' }],
     })],
     // The act module loads Teams in rotation order (draft_position seed order).

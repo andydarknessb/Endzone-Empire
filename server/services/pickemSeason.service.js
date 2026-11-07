@@ -368,7 +368,7 @@ async function completeOnePickemSeason({ league, season, seasonGames }) {
   // path returns the outcome object as before.
   const outcome = await withTransaction(pool, async (client) => {
     const locked = await client.query(
-      `SELECT "id", "current_season", "season_status" FROM "leagues" WHERE "id" = $1 FOR UPDATE`,
+      `SELECT "id", "current_season", "season_status" FROM "leagues" WHERE "id" = $1 FOR NO KEY UPDATE`,
       [league.id]
     );
     const row = locked.rows[0];

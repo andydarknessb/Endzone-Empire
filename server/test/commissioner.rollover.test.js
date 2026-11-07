@@ -39,7 +39,7 @@ test("rolloverSeason archives every declared Pick'em co-champion without consult
   };
   const calls = mockClient(t, [
     ...TXN,
-    [/FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: [league] })],
+    [/FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/, () => ({ rows: [league] })],
     [/SELECT "id", "name", "owner_id" FROM "teams" WHERE "league_id"/, () => ({
       rows: [
         { id: 10, name: 'Sunday Ballers', owner_id: 100 },
@@ -181,7 +181,7 @@ test("rolloverSeason refuses a missing Pick'em result before deriving or mutatin
   };
   const calls = mockClient(t, [
     ...TXN,
-    [/FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: [league] })],
+    [/FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/, () => ({ rows: [league] })],
     [/FROM "pickem_season_results"/, () => ({ rows: [] })],
   ]);
 
@@ -208,7 +208,7 @@ test("rolloverSeason archives an explicit Pick'em no-champion result", async (t)
   };
   const calls = mockClient(t, [
     ...TXN,
-    [/FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: [league] })],
+    [/FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/, () => ({ rows: [league] })],
     [/FROM "pickem_season_results"/, () => ({ rows: [{
       league_id: 5,
       season: 2026,
@@ -260,7 +260,7 @@ test("rolloverSeason refuses keepers for a pick'em-only league before touching a
   };
   const calls = mockClient(t, [
     ...TXN,
-    [/FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: [league] })],
+    [/FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/, () => ({ rows: [league] })],
   ]);
   await assert.rejects(
     () => commissioner.rolloverSeason({ leagueId: 5, userId: 100, keepers: [{ teamId: 10, playerIds: [1] }] }),

@@ -351,7 +351,7 @@ test('the row-locked recheck bails when the locked row changed under it (concurr
   // the guard broken and the reminder to proceed, that UPDATE (which no matcher
   // answers) would still land in the call log as an attempted query.
   assert.equal(fake.matching(/SET "draft_reminder_stage"/).length, 0, 'no reminder-stage UPDATE on a bail');
-  assert.equal(fake.matching(/FOR UPDATE/).length, 1, 'the row was locked and re-read exactly once');
+  assert.equal(fake.matching(/FOR NO KEY UPDATE/).length, 1, 'the row was locked and re-read exactly once');
 });
 
 test('a recompute disagreement on a remind_24h tick pushes no reminder (#1071 didWrite gate)', async (t) => {
@@ -402,7 +402,7 @@ test('a recompute disagreement on a remind_24h tick pushes no reminder (#1071 di
   );
   assert.equal(sent.length, 0, 'no reminder push fired on the bail');
   // The bail still took the lock and wrote nothing.
-  assert.equal(fake.matching(/FOR UPDATE/).length, 1, 'the row was locked and re-read once');
+  assert.equal(fake.matching(/FOR NO KEY UPDATE/).length, 1, 'the row was locked and re-read once');
   assert.equal(fake.matching(/SET "draft_reminder_stage"/).length, 0, 'no reminder-stage UPDATE on a bail');
 });
 

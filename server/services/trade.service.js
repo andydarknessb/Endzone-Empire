@@ -65,7 +65,7 @@ async function loadTrade(client, tradeId, { forUpdate = true } = {}) {
   // the trades row second. forceTransaction and the gate are League-first too,
   // so this introduces no lock-order inversion on any path.
   const leagueResult = await client.query(
-    `SELECT * FROM "leagues" WHERE "id" = (SELECT "league_id" FROM "trades" WHERE "id" = $1) FOR UPDATE`,
+    `SELECT * FROM "leagues" WHERE "id" = (SELECT "league_id" FROM "trades" WHERE "id" = $1) FOR NO KEY UPDATE`,
     [tradeId]
   );
   const tradeResult = await client.query(

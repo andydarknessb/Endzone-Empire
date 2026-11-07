@@ -102,7 +102,7 @@ const PICKEM_IN_SEASON = {
 const PICKEM_COMPLETE = { ...PICKEM_IN_SEASON, season_status: 'complete' };
 
 const COUNT_TEAMS = /^SELECT COUNT\(\*\)::int AS n FROM "teams" WHERE "league_id" = \$1$/;
-const LOCK_LEAGUE = /^SELECT \* FROM "leagues" WHERE "id" = \$1 FOR UPDATE$/;
+const LOCK_LEAGUE = /^SELECT \* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE$/;
 const TX = /^(BEGIN|COMMIT|ROLLBACK)$/;
 
 /**

@@ -46,7 +46,7 @@ class CommissionerError extends Error {
 async function requireCommissioner(client, { leagueId, userId, forUpdate = false }) {
   const result = await client.query(
     `SELECT *, ${commissionerPredicate(2)} AS "is_commissioner"
-       FROM "leagues" WHERE "id" = $1${forUpdate ? ' FOR UPDATE' : ''}`,
+       FROM "leagues" WHERE "id" = $1${forUpdate ? ' FOR NO KEY UPDATE' : ''}`,
     [leagueId, userId]
   );
   const league = result.rows[0];

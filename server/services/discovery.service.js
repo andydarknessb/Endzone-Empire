@@ -389,7 +389,7 @@ async function joinPublicLeague({ leagueId, userId, username, teamName }) {
   return withTransaction(
     pool,
     async (client) => {
-      const leagueResult = await client.query(`SELECT * FROM "leagues" WHERE "id" = $1 FOR UPDATE`, [leagueId]);
+      const leagueResult = await client.query(`SELECT * FROM "leagues" WHERE "id" = $1 FOR NO KEY UPDATE`, [leagueId]);
       const league = leagueResult.rows[0];
       if (!league) throw new DiscoveryError(404, 'league not found');
       if (!league.is_public) throw new DiscoveryError(403, 'this league is not open for public join');
@@ -495,7 +495,7 @@ async function decideJoinRequest({ leagueId, ownerId, requestId, approve }) {
     pool,
     async (client) => {
       const leagueResult = await client.query(
-        `SELECT * FROM "leagues" WHERE "id" = $1 AND ${commissionerPredicate(2)} FOR UPDATE`,
+        `SELECT * FROM "leagues" WHERE "id" = $1 AND ${commissionerPredicate(2)} FOR NO KEY UPDATE`,
         [leagueId, ownerId]
       );
       const league = leagueResult.rows[0];

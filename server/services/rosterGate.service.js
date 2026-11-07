@@ -82,7 +82,7 @@ const asBypassSet = (bypass) => {
 const LEAGUE_GATE_SELECT =
   `SELECT "id", "transactions_locked", "draft_status", "roster_limit", "ir_slots",
           "position_caps", "waivers_clear_at", "current_season", "current_week"
-     FROM "leagues" WHERE "id" = $1 FOR UPDATE`;
+     FROM "leagues" WHERE "id" = $1 FOR NO KEY UPDATE`;
 
 /**
  * Position caps are keyed at the same granularity as positionCapsFeasible's

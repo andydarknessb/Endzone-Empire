@@ -83,7 +83,7 @@ function transactionHarness(state) {
       }
       // requireCommissioner selects the league plus an is_commissioner flag
       // (owner or co-commissioner) — the caller here is the owner.
-      if (normalized.includes('FROM "leagues"') && normalized.includes('FOR UPDATE')) {
+      if (normalized.includes('FROM "leagues"') && normalized.includes('FOR NO KEY UPDATE')) {
         return { rows: [{ ...state.league, is_commissioner: true }] };
       }
       if (normalized.includes('SELECT "id", "name", "owner_id" FROM "teams"')) {

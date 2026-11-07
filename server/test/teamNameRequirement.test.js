@@ -55,7 +55,7 @@ const APPROVAL_LEAGUE = {
 test('joinPublicLeague (join_approval): validates and trims the Team name, then upserts a pending request', async (t) => {
   const fake = installFake(t, [
     ...COMMISSIONER_ALERT,
-    [/FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: [APPROVAL_LEAGUE] })],
+    [/FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/, () => ({ rows: [APPROVAL_LEAGUE] })],
     [/SELECT 1 FROM "teams"/, () => ({ rows: [] })],
     [/FROM "league_bans"/, () => ({ rows: [] })], // nobody is banned
     [/SELECT COUNT\(\*\)::int AS n FROM "teams"/, () => ({ rows: [{ n: 3 }] })],
@@ -76,7 +76,7 @@ test('joinPublicLeague (join_approval): refuses a missing, blank or whitespace-o
   for (const teamName of [undefined, null, '', '   ']) {
     const fake = installFake(t, [
       ...COMMISSIONER_ALERT,
-      [/FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: [APPROVAL_LEAGUE] })],
+      [/FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/, () => ({ rows: [APPROVAL_LEAGUE] })],
       [/SELECT 1 FROM "teams"/, () => ({ rows: [] })],
       [/FROM "league_bans"/, () => ({ rows: [] })], // nobody is banned
       [/SELECT COUNT\(\*\)::int AS n FROM "teams"/, () => ({ rows: [{ n: 3 }] })],
@@ -98,7 +98,7 @@ test('joinPublicLeague (join_approval): refuses a missing, blank or whitespace-o
 test('joinPublicLeague (join_approval): refuses a Team name over 120 characters, before any upsert', async (t) => {
   const fake = installFake(t, [
     ...COMMISSIONER_ALERT,
-    [/FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: [APPROVAL_LEAGUE] })],
+    [/FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/, () => ({ rows: [APPROVAL_LEAGUE] })],
     [/SELECT 1 FROM "teams"/, () => ({ rows: [] })],
     [/FROM "league_bans"/, () => ({ rows: [] })], // nobody is banned
     [/SELECT COUNT\(\*\)::int AS n FROM "teams"/, () => ({ rows: [{ n: 3 }] })],
@@ -122,7 +122,7 @@ for (const priorStatus of ['denied', 'cancelled']) {
     // status is one this path is meant to resurrect from.
     const fake = installFake(t, [
       ...COMMISSIONER_ALERT,
-      [/FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: [APPROVAL_LEAGUE] })],
+      [/FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/, () => ({ rows: [APPROVAL_LEAGUE] })],
       [/SELECT 1 FROM "teams"/, () => ({ rows: [] })],
       [/FROM "league_bans"/, () => ({ rows: [] })], // nobody is banned
       [/SELECT COUNT\(\*\)::int AS n FROM "teams"/, () => ({ rows: [{ n: 3 }] })],
@@ -145,7 +145,7 @@ test('joinPublicLeague (join_approval): a still-pending request is surfaced as-i
   const existingPending = { id: 9, league_id: 7, user_id: 5, team_name: 'Already Filed', status: 'pending' };
   const fake = installFake(t, [
     ...COMMISSIONER_ALERT,
-    [/FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: [APPROVAL_LEAGUE] })],
+    [/FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/, () => ({ rows: [APPROVAL_LEAGUE] })],
     [/SELECT 1 FROM "teams"/, () => ({ rows: [] })],
     [/FROM "league_bans"/, () => ({ rows: [] })], // nobody is banned
     [/SELECT COUNT\(\*\)::int AS n FROM "teams"/, () => ({ rows: [{ n: 3 }] })],
@@ -164,8 +164,8 @@ test('joinPublicLeague (join_approval): a still-pending request is surfaced as-i
 test('decideJoinRequest (approve): a nameless join request cannot slip through -- joinLeague refuses it with the same 400', async (t) => {
   const fake = installFake(t, [
     ...COMMISSIONER_ALERT,
-    [/FROM "leagues" WHERE "id" = \$1 AND .*FOR UPDATE/, () => ({ rows: [APPROVAL_LEAGUE] })],
-    [/FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: [APPROVAL_LEAGUE] })],
+    [/FROM "leagues" WHERE "id" = \$1 AND .*FOR NO KEY UPDATE/, () => ({ rows: [APPROVAL_LEAGUE] })],
+    [/FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/, () => ({ rows: [APPROVAL_LEAGUE] })],
     [/FROM "join_requests" JOIN "users"/, () => ({
       rows: [{ id: 3, user_id: 5, username: 'eve', team_name: null, status: 'pending' }],
     })],

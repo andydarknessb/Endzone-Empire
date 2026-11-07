@@ -116,7 +116,7 @@ const WEEK_5 = [{
 function realWorld(t, { lockedLeague = LEAGUE_ROW } = {}) {
   const fake = createFakePool([
     // The League row lock reads the locked row; the advance's first read is the plain SELECT.
-    [/^SELECT \* FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: [{ ...lockedLeague }] })],
+    [/^SELECT \* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/, () => ({ rows: [{ ...lockedLeague }] })],
     [select('leagues'), () => ({ rows: [{ ...LEAGUE_ROW }] })],
     [select('teams'), () => ({ rows: TEAMS })],
     [select('matchups'), () => ({ rows: WEEK_5 })],
@@ -148,7 +148,7 @@ test('advanceWeek: the settle pass and the final flag fall inside one transactio
 
   const { calls } = fake;
   const begin = indexOf(calls, /^BEGIN$/);
-  const lock = indexOf(calls, /FROM "leagues" WHERE "id" = \$1 FOR UPDATE/);
+  const lock = indexOf(calls, /FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/);
   const scoreUpdate = indexOf(calls, /^UPDATE "matchups" SET "home_score"/);
   const finalUpdate = indexOf(calls, /^UPDATE "matchups" SET "final" = true/);
   const commit = indexOf(calls, /^COMMIT$/);

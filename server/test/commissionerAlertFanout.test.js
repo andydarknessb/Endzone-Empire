@@ -31,7 +31,7 @@ const notified = (fake) =>
 
 test('a join request alerts every commissioner, not the creator alone', async (t) => {
   const fake = createFakePool([
-    [/FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({
+    [/FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/, () => ({
       rows: [{
         id: 7, name: 'Curated League', owner_id: OWNER_ID, is_public: true,
         join_approval: true, max_teams: 10, pickem_only: false,

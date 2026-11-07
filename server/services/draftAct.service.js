@@ -93,7 +93,7 @@ async function runDraftAct({ leagueId, userId }, actBody) {
     // purpose: the module does not know a given act's authorization rule, so it
     // locks the row and hands it to the body, which authorizes against it.
     const leagueResult = await client.query(
-      `SELECT * FROM "leagues" WHERE "id" = $1 FOR UPDATE`,
+      `SELECT * FROM "leagues" WHERE "id" = $1 FOR NO KEY UPDATE`,
       [leagueId]
     );
     const league = leagueResult.rows[0] || null;

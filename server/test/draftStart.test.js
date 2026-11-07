@@ -346,7 +346,7 @@ test('startDraft: each keeper pre-fill calls the gate, and its bypass set is exa
   // Two keepers, so two gate calls: the League row and then the Team row, in
   // that order, once per keeper. A gate hoisted out of the loop would read the
   // League once.
-  const gateLeagueReads = fake.calls.filter((c) => /^SELECT "id", "transactions_locked".*FOR UPDATE/.test(c.text));
+  const gateLeagueReads = fake.calls.filter((c) => /^SELECT "id", "transactions_locked".*FOR NO KEY UPDATE/.test(c.text));
   const gateTeamReads = fake.calls.filter((c) => /^SELECT "id", "locked" FROM "teams".*FOR UPDATE/.test(c.text));
   assert.equal(gateLeagueReads.length, 2, 'one gate call per keeper');
   assert.equal(gateTeamReads.length, 2, 'each with its Team lock, League first');

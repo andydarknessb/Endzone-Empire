@@ -117,7 +117,9 @@ const TEAM_INSERT_SOURCE = 'INSERT\\s+INTO\\s+"?teams"?';
 const TEAM_INSERT = new RegExp(TEAM_INSERT_SOURCE, 'gi');
 const hasTeamInsert = (source) => new RegExp(TEAM_INSERT_SOURCE, 'i').test(source);
 
-// A League-row lock, WITHIN ONE SQL statement: `FROM "leagues" ... FOR UPDATE`.
+// A League-row lock, WITHIN ONE SQL statement: `FROM "leagues" ... FOR UPDATE`,
+// or `FOR NO KEY UPDATE` (#2683): it still conflicts with every other League
+// locker, so a Team insert behind it serializes exactly as before.
 // It is only ever tested against a single statement (see sqlStatements /
 // containsLeagueLock), never against a raw source span - an earlier version
 // tested a `[^`]*?` span and could match a `FROM "leagues"` read in one
@@ -126,7 +128,7 @@ const hasTeamInsert = (source) => new RegExp(TEAM_INSERT_SOURCE, 'i').test(sourc
 // Matches every real variant: the bare `WHERE "id" = $1 FOR UPDATE`, the
 // commissionerPredicate form, and the `... AND "draft_status" = 'active' FOR
 // UPDATE` reset form, single- or multi-line.
-const LEAGUE_LOCK = /FROM\s+"leagues"[\s\S]*?FOR\s+UPDATE/i;
+const LEAGUE_LOCK = /FROM\s+"leagues"[\s\S]*?FOR\s+(?:NO\s+KEY\s+)?UPDATE/i;
 
 /**
  * A copy of comment-stripped source with the BODY of every string, single- and

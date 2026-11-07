@@ -326,7 +326,7 @@ test("league: POST start-draft 409s PICKEM_ONLY_LEAGUE for a pick'em-only league
 test('league: POST start-draft passes through for a fantasy league (reaches startDraft)', async (t) => {
   mockPool(t, {
     pickemOnly: false,
-    overrides: [[/SELECT \* FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () =>
+    overrides: [[/SELECT \* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/, () =>
       ({ rows: [{ id: 3, owner_id: 1, draft_status: 'pending', pickem_only: false }] })]],
   });
   const res = await request(routes).post('/api/league/3/start-draft').set('Authorization', authed()).send({});
@@ -467,7 +467,7 @@ const PICKEM_LEAGUE_ROW = {
 test("startDraft refuses a pick'em-only league under its row lock, even for the scheduler (userId null)", async (t) => {
   const { startDraft } = require('../services/draftStart.service');
   const tx = txClient([
-    [/SELECT \* FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: [PICKEM_LEAGUE_ROW] })],
+    [/SELECT \* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/, () => ({ rows: [PICKEM_LEAGUE_ROW] })],
   ]);
   t.mock.method(pool, 'connect', async () => tx.client);
   await assert.rejects(() => startDraft({ leagueId: 3, userId: null }), expectPickemOnlyError);
@@ -562,7 +562,7 @@ const LEAGUE_ROW_SQL = /SELECT \* FROM "leagues" WHERE "id" = \$1/;
 // than passing blind. LEAGUE_ROW_SQL stays as-is for the five paths whose league
 // read really is `"id" = $1` (proposeTrade, submitClaim, setLineup, addFreeAgent,
 // and the waiver path).
-const LOAD_TRADE_LEAGUE_SQL = /SELECT \* FROM "leagues" WHERE "id" = \(SELECT "league_id" FROM "trades" WHERE "id" = \$1\) FOR UPDATE/;
+const LOAD_TRADE_LEAGUE_SQL = /SELECT \* FROM "leagues" WHERE "id" = \(SELECT "league_id" FROM "trades" WHERE "id" = \$1\) FOR NO KEY UPDATE/;
 const TEAM_ROW = { id: 41, league_id: 3, owner_id: CALLER, locked: false, faab_remaining: 100 };
 
 test("submitClaim (waivers) refuses a pick'em-only league before any claim row exists", async (t) => {

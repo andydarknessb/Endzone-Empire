@@ -33,7 +33,7 @@ const toggle = (actorId, enabled) => request(app)
   .send({ enabled });
 
 // The Draft act module's serializing lock on the League row (#967). It replaces
-// this suite's private `/FROM "leagues"[\s\S]*FOR UPDATE/` matcher, which was,
+// this suite's private `/FROM "leagues"[\s\S]*FOR NO KEY UPDATE/` matcher, which was,
 // until this PR, the only thing here binding that the autodraft toggle locked
 // the League row before it wrote a Team. That ordering is now structural -
 // runDraftAct takes the lock as its first statement after BEGIN, and
@@ -41,7 +41,7 @@ const toggle = (actorId, enabled) => request(app)
 // owns it - so the private matcher is deleted rather than restated. This
 // matcher is still load-bearing in THIS suite: drop it and the module's lock
 // read hits the fake pool's unregistered-query throw and every test reddens.
-const ACT_LOCK = /^SELECT \* FROM "leagues" WHERE "id" = \$1 FOR UPDATE$/;
+const ACT_LOCK = /^SELECT \* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE$/;
 // The act module loads Teams in rotation order and the body picks the target
 // Team out of that list, so the route no longer issues its own
 // `SELECT "id", "owner_id" FROM "teams" WHERE "id" = $1 AND "league_id" = $2`.

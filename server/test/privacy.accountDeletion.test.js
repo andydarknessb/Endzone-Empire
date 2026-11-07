@@ -272,7 +272,7 @@ const PRE_DRAFT = { id: 1, name: 'Early', draft_status: 'pending' };
 const DRAFTED = { id: 2, name: 'Late', draft_status: 'complete', season_status: 'regular' };
 
 const heldWorld = () => [
-  [/FOR UPDATE OF "leagues"/, () => ({ rows: [PRE_DRAFT, DRAFTED] })],
+  [/FOR NO KEY UPDATE OF "leagues"/, () => ({ rows: [PRE_DRAFT, DRAFTED] })],
   [/^SELECT "id", "league_id" FROM "teams"/, () => ({
     rows: [{ id: 5, league_id: 1 }, { id: 6, league_id: 2 }],
   })],
@@ -283,9 +283,9 @@ test('a deleted account\'s teams follow the ban fate: removed pre-draft, CPU-man
 
   await privacy.deleteUserAccount({ userId: USER, confirmation: 'me' });
 
-  const heldRead = fake.calls.find((call) => /FOR UPDATE OF "leagues"/.test(call.text));
+  const heldRead = fake.calls.find((call) => /FOR NO KEY UPDATE OF "leagues"/.test(call.text));
   assert.ok(heldRead, 'the held leagues are read and locked');
-  assert.match(heldRead.text, /ORDER BY "leagues"\."id" FOR UPDATE OF "leagues"$/);
+  assert.match(heldRead.text, /ORDER BY "leagues"\."id" FOR NO KEY UPDATE OF "leagues"$/);
   assert.deepEqual(
     fake.matching(remove('teams')).map((call) => call.params),
     [[5]],
@@ -301,9 +301,9 @@ test('a deleted account\'s teams follow the ban fate: removed pre-draft, CPU-man
   const index = (re) => fake.calls.findIndex((call) => re.test(call.text));
   // League locks come before any UPDATE that row-locks a held team (the
   // avatar clear included): League-first, like banTeam.
-  assert.ok(index(/FOR UPDATE OF "leagues"/) < index(/^UPDATE "teams" SET "avatar_url"/));
+  assert.ok(index(/FOR NO KEY UPDATE OF "leagues"/) < index(/^UPDATE "teams" SET "avatar_url"/));
   assert.ok(index(/^UPDATE "teams" SET "avatar_url"/) < index(/^DELETE FROM "teams"/));
-  assert.ok(index(/FOR UPDATE OF "leagues"/) < index(/^UPDATE "users"/));
+  assert.ok(index(/FOR NO KEY UPDATE OF "leagues"/) < index(/^UPDATE "users"/));
   assert.ok(index(/^UPDATE "trades"/) < index(/^UPDATE "users"/));
   fake.assertClean();
 });

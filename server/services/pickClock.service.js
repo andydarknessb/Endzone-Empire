@@ -620,7 +620,7 @@ async function escalateNothingDraftable({ leagueId }) {
   // the write path still returns { activity } as before.
   return withTransaction(pool, async (client) => {
     const leagueResult = await client.query(
-      `SELECT * FROM "leagues" WHERE "id" = $1 FOR UPDATE`,
+      `SELECT * FROM "leagues" WHERE "id" = $1 FOR NO KEY UPDATE`,
       [leagueId]
     );
     const league = leagueResult.rows[0];

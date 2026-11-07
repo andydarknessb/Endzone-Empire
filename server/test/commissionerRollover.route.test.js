@@ -19,7 +19,7 @@ app.use('/api/commissioner', commissionerRouter);
 
 test("POST rollover exposes the Pick'em missing-result integrity response without a candidate", async (t) => {
   const db = createFakePool([
-    [/FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: [{
+    [/FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/, () => ({ rows: [{
       id: 5,
       owner_id: 100,
       is_commissioner: true,
