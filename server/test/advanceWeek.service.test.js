@@ -151,7 +151,7 @@ test('advanceWeek: the settle pass and the final flag fall inside one transactio
 
   const { calls } = fake;
   const begin = indexOf(calls, /^BEGIN$/);
-  const lock = indexOf(calls, /FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/);
+  const lock = indexOf(calls, /(?:FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE|UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1)/);
   const scoreUpdate = indexOf(calls, /^UPDATE "matchups" SET "home_score"/);
   const finalUpdate = indexOf(calls, /^UPDATE "matchups" SET "final" = true/);
   const commit = indexOf(calls, /^COMMIT$/);

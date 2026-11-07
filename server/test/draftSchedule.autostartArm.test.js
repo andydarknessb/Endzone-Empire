@@ -137,6 +137,7 @@ test('the worker scheduled start emits the state refresh and the draft_start act
   t.mock.method(prefs, 'usersWanting', async () => []); // quiet the best-effort push
   const row = { ...manualBaseLeague };
   createFakePool([
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [{ ...row }] })],
     [select('leagues'), () => ({ rows: [{ ...row }] })],
     // The market gate's count (#747): a loaded market so the start is not refused.
     [select('players'), () => ({ rows: [{ n: 500 }] })],
@@ -248,6 +249,7 @@ function realStartPool(t, { league = manualBaseLeague, teams = manualTeams, keep
   // worker-path case to read.
   const broadcast = installRecordingBroadcast(t);
   const fake = createFakePool([
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [{ ...row }] })],
     [select('leagues'), () => ({ rows: [{ ...row }] })],
     [/^SELECT 1 FROM "leagues"/, () => ({ rows: [{ '?column?': 1 }] })],
     // The market gate's count (#747): a loaded market so start is not refused.

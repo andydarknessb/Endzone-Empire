@@ -1398,7 +1398,7 @@ function pickemSeasonWorld(t, { league, teams, picks, live, games }) {
     }, 'client'],
     [/FROM "leagues" WHERE "pickem_only" = true AND "season_status" <> 'complete'/, () =>
       ({ rows: state.league.season_status === 'complete' ? [] : [state.league] })],
-    [/FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/, () => ({ rows: [state.league] })],
+    [/(?:FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE|UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1)/, () => ({ rows: [state.league] })],
     [/SELECT DISTINCT "week", "kickoff_at" FROM "nfl_games"/, () => ({
       rows: nflGames.map((g) => ({ week: g.week, kickoff_at: g.kickoff_at })),
     })],
@@ -1690,7 +1690,7 @@ test('zombie guard: a league with no picks this season, or created after week 18
   // still writes nothing (no season_status UPDATE); the close is now a COMMIT.
   assert.ok(noPicks.calls.some((c) => c.text === 'BEGIN'), 'the guard runs inside a transaction');
   assert.ok(
-    noPicks.calls.some((c) => /FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/.test(c.text)),
+    noPicks.calls.some((c) => /(?:FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE|UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1)/.test(c.text)),
     'the row is locked FOR UPDATE before the guard fires'
   );
   assert.ok(

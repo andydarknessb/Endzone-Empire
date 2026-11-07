@@ -37,7 +37,7 @@ function banWorld(t, leagueOverrides = {}) {
     transactions: [],
   };
   const fake = createFakePool([
-    [/FROM "leagues" WHERE "id" = \$1/, (text, params) => ({
+    [/(?:FROM "leagues" WHERE "id" = \$1|UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1)/, (text, params) => ({
       rows: [{
         ...state.league,
         is_commissioner: params[1] === state.league.owner_id || state.grants.includes(params[1]),
@@ -172,7 +172,7 @@ for (const [name, userId, teamId, statusCode, message] of [
 
 test('listBans serves id, Team name and date only, never the account or email hash', async (t) => {
   const fake = createFakePool([
-    [/FROM "leagues" WHERE "id" = \$1/, () => ({ rows: [{ id: 5, owner_id: CREATOR, is_commissioner: true }] })],
+    [/(?:FROM "leagues" WHERE "id" = \$1|UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1)/, () => ({ rows: [{ id: 5, owner_id: CREATOR, is_commissioner: true }] })],
     [select('league_bans'), () => ({
       rows: [{ id: 7, team_name: 'Rank and File', created_at: 'then', user_id: MEMBER, email_hash: 'f'.repeat(64), banned_by: CREATOR }],
     })],
@@ -187,7 +187,7 @@ test('listBans serves id, Team name and date only, never the account or email ha
 test('unban deletes the row and logs it; an unknown ban is a 404', async (t) => {
   const deleted = [];
   const fake = createFakePool([
-    [/FROM "leagues" WHERE "id" = \$1/, () => ({ rows: [{ id: 5, owner_id: CREATOR, is_commissioner: true }] })],
+    [/(?:FROM "leagues" WHERE "id" = \$1|UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1)/, () => ({ rows: [{ id: 5, owner_id: CREATOR, is_commissioner: true }] })],
     [remove('league_bans'), (text, [banId]) => {
       if (banId !== 7) return { rows: [] };
       deleted.push(banId);

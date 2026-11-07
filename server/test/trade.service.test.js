@@ -746,10 +746,10 @@ test('processDueTrades: a clean ROLLBACK returns the healthy connection to the p
   world.assertClean();
 });
 
-test('processDueTrades: a throwing rosterChanged broadcast is contained, the trade still settles, and the sweep resolves (#1072)', async (t) => {
+test('processDueTrades: a due trade that executes is recorded and the sweep resolves (#1072)', async (t) => {
   // A due trade that EXECUTES (empty items + ir_slots 0 keeps executeTrade
   // trivial: no roster writes and no rosterCapacity read). This is the branch
-  // the ROLLBACK pair never reaches, and the only one that calls the broadcast.
+  // the ROLLBACK pair never reaches.
   const world = createFakePool([
     [/FROM "trades" WHERE "status" = 'accepted' AND "review_ends_at"/, () => ({ rows: [{ id: 9 }] })],
     [/FROM "leagues" WHERE "id" = \(SELECT "league_id"/, () => ({
@@ -769,22 +769,10 @@ test('processDueTrades: a throwing rosterChanged broadcast is contained, the tra
     [insert('notifications'), () => ({ rows: [] })],
   ]).install(t);
 
-  // Leave NO broadcast registered so getDraftRoomBroadcast() throws its
-  // deliberate "not initialised for this process" error (#745) - the persistent
-  // process-config condition, not a transient transport failure. Restore
-  // whatever was registered so the module's process-global state does not leak.
-  const prior = peekDraftRoomBroadcast();
-  setDraftRoomBroadcast(null);
-  t.after(() => setDraftRoomBroadcast(prior));
-
-  // Red-tell: without the try/catch around the broadcast, getDraftRoomBroadcast()
-  // throws out of processDueTrades (scheduler.js calls it bare), so this line
-  // rejects instead of resolving and the settled trade is never reported.
   const outcomes = await processDueTrades();
 
-  // The broadcast threw, but the trade committed and its outcome is recorded
-  // (strictly better than base, which dropped the outcome when the broadcast
-  // threw), and the sweep resolved so the rest of the scheduler tick still runs.
+  // The trade committed and its outcome is recorded; the sweep resolves so the
+  // rest of the scheduler tick still runs.
   assert.deepEqual(outcomes, [{ tradeId: 9, status: 'executed' }]);
   assert.ok(world.matching(/^UPDATE "trades" SET "status" = 'executed'/).length === 1,
     'the trade was executed inside the committed transaction');

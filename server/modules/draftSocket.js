@@ -127,7 +127,6 @@ function attachDraftSocket(httpServer, { now = Date.now } = {}) {
         // any Team identity or draft state to apply either answer to.
         ack && ack(joinAck(viewer));
         socket.emit('draft:state', state);
-        socket.to(`league:${leagueId}`).emit('draft:presence', presencePayload(socket.user, viewer.viewerTeam));
       } catch (error) {
         console.error('draft:join failed', error);
         ack && ack(joinError({ code: 'JOIN_FAILED', message: 'failed to join draft room' }));
@@ -310,7 +309,7 @@ function attachDraftSocket(httpServer, { now = Date.now } = {}) {
       try {
         // A manual Pick: landPick commits it and fans it out to the room -
         // `pickLanded` with `{ ...outcome, auto: false }`, and on the Pick that
-        // ends the draft the completion activity, rosterChanged and draftCompleted
+        // ends the draft the completion activity and draftCompleted
         // (#782 ruling 1). The room events are decided in landPick, the one seam
         // the clock and the offline route reach too, not re-derived here.
         const outcome = await landPick({ leagueId, userId: socket.user.id, playerId });
@@ -366,7 +365,7 @@ async function closeDraftSocket(io) {
 /**
  * The acknowledgement to `league:join` and `draft:join`. It is answered to
  * one socket, so it is where this room's viewer-relative field lives: every
- * `draft:state`, `draft:picked`, `draft:presence` and `chat:message` payload
+ * `draft:state`, `draft:picked` and `chat:message` payload
  * after it is broadcast to the whole league room and cannot say anything
  * true about one recipient (#112, parent #108). A client holds this
  * `viewerTeamId` and compares it against the `teamId` on everything that
@@ -446,19 +445,6 @@ async function viewerContext(db, { leagueId, userId } = {}) {
   const viewerTeam = await lookupTeam(db, { leagueId, userId });
   if (!viewerTeam) return null;
   return { viewerTeam, isCommissioner: await isLeagueCommissioner(db, leagueId, userId) };
-}
-
-/**
- * The `draft:presence` payload: who joined the room, by Team and nothing about
- * their account (#344, #115 child C). A broadcast reaches the whole league
- * room, so it names the joining manager by their Team only; the room's one
- * per-viewer channel is the join ack (`viewerTeamId` / `isCommissioner`). The
- * `user` argument is no longer read - the account id and username it carried
- * left the wire here - but the signature is kept so the emit call site and the
- * contract tests do not have to change shape.
- */
-function presencePayload(user, team) {
-  return { ...teamIdentityOf(team), joined: true };
 }
 
 /**
@@ -595,7 +581,6 @@ module.exports = {
   viewerContext,
   joinAck,
   joinError,
-  presencePayload,
   chatMessagePayload,
   deliverFeedEntry,
   normalizeClientMsgId,

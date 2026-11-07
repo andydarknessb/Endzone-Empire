@@ -65,6 +65,7 @@ function startWorld(t) {
   const row = { ...START_LEAGUE };
   const fake = createFakePool([
     ...identityReads(),
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [{ ...row }] })],
     [select('leagues'), () => ({ rows: [{ ...row }] })],
     // The market gate on start (#747): a loaded market so start is not refused.
     [select('players'), () => ({ rows: [{ n: 500 }] })],
@@ -120,6 +121,7 @@ function completingPickWorld(t) {
   const row = { ...COMPLETING_LEAGUE };
   const fake = createFakePool([
     ...identityReads(),
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [{ ...row }] })],
     [select('leagues'), () => ({ rows: [{ ...row }] })],
     [select('teams'), () => ({ rows: START_TEAMS })],
     [select('players'), () => ({ rows: [{ id: 500, name: 'Last Pick', position: 'RB', nfl_team: 'KC' }] })],
@@ -176,6 +178,7 @@ const commishAuth = () => `Bearer ${signToken({ id: COMMISH.userId, username: CO
 // The reads memberSnapshot runs for the post-change draft:state broadcast.
 function draftStateReads(leagueRow) {
   return [
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [{ ...leagueRow }] })],
     [select('leagues'), () => ({ rows: [{ ...leagueRow }] })],
     [select('teams'), () => ({ rows: START_TEAMS })],
     [/FROM "draft_picks"/, () => ({ rows: [] })],
@@ -195,6 +198,7 @@ for (const { paused, kind } of [{ paused: true, kind: 'pause' }, { paused: false
   test(`POST /pause { paused: ${paused} } broadcasts a ${kind} lifecycle entry to the room`, async (t) => {
     createFakePool([
       [/SELECT "pickem_only" FROM "leagues"/, () => ({ rows: [{ pickem_only: false }] })],
+      [/^UPDATE "leagues" SET "board_version"/, () => ({ rows: [{ ...START_LEAGUE, draft_status: 'active', draft_paused: !paused }] })],
       [update('leagues'), () => ({ rows: [{ id: LEAGUE_ID, draft_paused: paused, pick_deadline_at: null }], rowCount: 1 })],
       ...identityReads(), // lookupTeam -> COMMISH team
       [insert('draft_activity'), () => ({ rows: [{ id: 9, feed_seq: '30', created_at: 'now' }], rowCount: 1 })],
@@ -220,7 +224,7 @@ test('POST /reset broadcasts a reset lifecycle entry to the room', async (t) => 
     // The Draft act module (#967) owns the reset's transaction now: it locks the
     // League row generically, loads Teams in rotation order and resolves the
     // acting Team, and the body authorizes against the locked row.
-    [/^SELECT \* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE$/, () => ({
+    [/^(?:SELECT \* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE|UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*)$/, () => ({
       rows: [{ id: LEAGUE_ID, current_season: 2026, draft_status: 'active' }],
     })],
     [/^SELECT "id", "owner_id", "autodraft", "draft_position" FROM "teams"/, () => ({ rows: START_TEAMS })],

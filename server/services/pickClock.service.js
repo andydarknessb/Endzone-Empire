@@ -1,5 +1,6 @@
 const pool = require('../modules/pool');
 const { withTransaction } = require('../modules/withTransaction');
+const { lockLeague } = require('../modules/leagueWrite');
 // Required as a module object (not destructured at load) so captureError stays a
 // mockable seam for the overdue-alarm and catch-routing tests (#768).
 const sentry = require('../modules/sentry');
@@ -561,7 +562,7 @@ async function autoPick({ leagueId }) {
     try {
       // A Pick lands in one place (#782): landPick commits the autopick AND fans
       // it out to the room (pickLanded, and on completion the completion activity,
-      // rosterChanged, draftCompleted) through the one Draft room adapter (#745).
+      // draftCompleted) through the one Draft room adapter (#745).
       // The clock no longer re-derives that fan-out here - the socket handler and
       // the offline route reach the same seam.
       let outcome = await landPick({
@@ -657,11 +658,8 @@ async function escalateNothingDraftable({ leagueId }) {
   // transaction and releases the row lock exactly as the old bare ROLLBACK did;
   // the write path still returns { activity } as before.
   return withTransaction(pool, async (client) => {
-    const leagueResult = await client.query(
-      `SELECT * FROM "leagues" WHERE "id" = $1 FOR NO KEY UPDATE`,
-      [leagueId]
-    );
-    const league = leagueResult.rows[0];
+    // The lock advances the board version: the escalation pauses the Draft (ADR 0025, 2026-11-06).
+    const league = await lockLeague(client, leagueId);
     // A concurrent firing may have already paused (another escalation) or
     // advanced the turn and re-armed (a committed Pick). Decline in either case.
     if (!league || league.draft_status !== 'active' || league.draft_paused) {

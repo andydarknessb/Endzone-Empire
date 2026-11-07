@@ -41,7 +41,7 @@ function pauseLikeBody() {
 
 function baseWorld(t, extraHandlers = []) {
   const fake = createFakePool([
-    [/^SELECT \* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/, () => ({ rows: [{ id: LEAGUE_ID, draft_status: 'active' }] })],
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*/, () => ({ rows: [{ id: LEAGUE_ID, draft_status: 'active' }] })],
     [/^SELECT "id", "owner_id", "autodraft", "draft_position" FROM "teams"/, () => ({ rows: [{ id: 11, owner_id: USER_ID, autodraft: false, draft_position: 1 }] })],
     [/^SELECT "id", "name" FROM "teams"/, () => ({ rows: [{ id: 11, name: 'Acting FC' }] })],
     [/^UPDATE "leagues" SET "draft_paused"/, () => ({ rows: [{ id: LEAGUE_ID, draft_paused: true }] })],
@@ -65,7 +65,6 @@ function installActBroadcast(t, fake, { failOn } = {}) {
   draftRoomBroadcast.setDraftRoomBroadcast({
     activityAppended: record('activityAppended'),
     stateChanged: record('stateChanged'),
-    rosterChanged: record('rosterChanged'),
     draftCompleted: record('draftCompleted'),
     pickLanded: record('pickLanded'),
     scoresUpdated: record('scoresUpdated'),
@@ -82,8 +81,8 @@ test('property 1: the lock precedes any mutation', async (t) => {
 
   await runDraftAct({ leagueId: LEAGUE_ID, userId: USER_ID }, pauseLikeBody());
 
-  const lockIdx = firstIndex(fake, /FOR (NO KEY )?UPDATE/);
-  const firstMutationIdx = firstIndex(fake, /^(UPDATE|INSERT|DELETE)/);
+  const lockIdx = firstIndex(fake, /"board_version" = "board_version" \+ 1/);
+  const firstMutationIdx = firstIndex(fake, /^(UPDATE|INSERT|DELETE)(?! "leagues" SET "board_version")/);
   assert.ok(lockIdx >= 0, 'the League row is locked');
   assert.ok(firstMutationIdx >= 0, 'a mutation ran');
   // NAMED (red-tell 1: moving the lock after the first mutation reddens this).
@@ -191,6 +190,26 @@ test('a reserved adapter method (pickLanded) is rejected even though the adapter
 
   assert.equal(fake.matching(/^COMMIT$/).length, 0, 'a reserved name never commits');
   assert.equal(fake.matching(/^ROLLBACK$/).length, 1, 'it rolls back');
+  assert.equal(rec.calls.length, 0, 'and emits nothing');
+  fake.assertClean();
+});
+
+test('a Draft act may name only stateChanged: rosterChanged is retired (ADR 0025, 2026-11-06)', async (t) => {
+  const fake = baseWorld(t);
+  const rec = installActBroadcast(t, fake);
+
+  await assert.rejects(
+    runDraftAct({ leagueId: LEAGUE_ID, userId: USER_ID }, async ({ client }) => {
+      await client.query(
+        `UPDATE "leagues" SET "draft_paused" = $1 WHERE "id" = $2 RETURNING "id"`,
+        [true, LEAGUE_ID]
+      );
+      return { response: {}, activity: [], broadcasts: ['rosterChanged'] };
+    }),
+    /is not a board-fact broadcast/
+  );
+
+  assert.equal(fake.matching(/^COMMIT$/).length, 0, 'a retired name never commits');
   assert.equal(rec.calls.length, 0, 'and emits nothing');
   fake.assertClean();
 });
