@@ -193,4 +193,52 @@ if (!ENABLED) {
     const left = await pool.query(`SELECT count(*)::int AS n FROM "lineup_overrides" WHERE "team_id" = $1`, [world.otherTeamId]);
     assert.equal(left.rows[0].n, 0);
   });
+
+  // #2688: a declaration takes the Team row lock before it stores the pair, so a
+  // lineup save that benches the starter (and holds that lock) is waited for, and
+  // the declaration then refuses against the lineup that committed.
+  test('a Called shot declared behind a save that benches its starter waits for the Team lock, then refuses 409 and stores nothing', async () => {
+    const { declareCalledShot } = require('../services/lineupOverride.service');
+    const owner = await seedUser('lo_lock');
+    const leagueId = await seedLeague(owner, 'lk');
+    await pool.query(`UPDATE "leagues" SET "current_season" = 2026, "current_week" = 6 WHERE "id" = $1`, [leagueId]);
+    const teamId = await seedTeam(leagueId, owner);
+    const starter = await seedPlayer('lk starter');
+    const benched = await seedPlayer('lk benched');
+    await pool.query(
+      `INSERT INTO "lineup_entries" ("league_id", "team_id", "player_id", "season", "week", "slot")
+       VALUES ($1, $2, $3, 2026, 6, 'RB'), ($1, $2, $4, 2026, 6, 'BENCH')`,
+      [leagueId, teamId, starter, benched]
+    );
+    const loadAdvice = async () => ({ season: 2026, week: 6, suggestions: [{
+      slot: 'RB', current: { playerId: starter, projection: 6 }, suggested: { playerId: benched, projection: 18 },
+      probabilityBetter: 0.92, verdict: 'start',
+    }] });
+
+    const a = await pool.connect();
+    try {
+      await a.query('BEGIN');
+      await a.query(`SELECT "id" FROM "teams" WHERE "id" = $1 FOR UPDATE`, [teamId]);
+      await a.query(`UPDATE "lineup_entries" SET "slot" = 'BENCH' WHERE "team_id" = $1 AND "player_id" = $2`, [teamId, starter]);
+
+      const declaring = declareCalledShot({ leagueId, userId: owner, week: 6, starterId: starter, benchedId: benched, loadAdvice });
+      declaring.catch(() => {});
+      let settled = false;
+      declaring.then(() => { settled = true; }, () => { settled = true; });
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      assert.equal(settled, false, 'the declaration waits on the Team lock while the save is open');
+
+      await a.query('COMMIT');
+      await assert.rejects(declaring, (error) => error.statusCode === 409);
+      const pending = await pool.query(
+        `SELECT count(*)::int AS n FROM "lineup_overrides"
+         WHERE "team_id" = $1 AND "week" = 6 AND "called" AND "outcome" = 'pending'`,
+        [teamId]
+      );
+      assert.equal(pending.rows[0].n, 0);
+    } finally {
+      await a.query('ROLLBACK').catch(() => {}); // a no-op once committed
+      a.release();
+    }
+  });
 }
