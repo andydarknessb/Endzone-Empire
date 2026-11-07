@@ -265,10 +265,9 @@ const TXN_STATEMENT = /^\s*(BEGIN|COMMIT|ROLLBACK(?!\s+TO\b))\b/i;
  * Name the unit a hit lives in: the OUTERMOST enclosing function that has a
  * derivable identity - the module-level function, or the route handler that a
  * `router.<method>('/path', ...)` call registers. Outermost, not innermost,
- * because that is the granularity the allowlist is written at: #1067 ruled
- * `updateLeagueSettings` a sanctioned hand-rolled transaction even though a
- * nested `rejectUpdate` closure owns one of its ROLLBACKs, and both belong to
- * the one function the ruling names. A nested named helper's hit is therefore
+ * because that is the granularity the allowlist is written at: a nested helper
+ * closure (a `rejectUpdate`-style refusal) can own a ROLLBACK that belongs to
+ * the function the rule names. A nested named helper's hit is therefore
  * attributed to the public function that contains it, and an anonymous
  * `.catch(() => ...)` callback is transparent the same way. Returns null only
  * for a hit at module top level, which no allowlist entry can name and which is

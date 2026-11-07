@@ -201,8 +201,8 @@ test('a hit in a nested .catch callback is attributed to the owning function', (
 });
 
 test('a ROLLBACK inside a nested closure is attributed to the named function that owns it', () => {
-  // The closure-resolution subject once supplied by updateLeagueSettings'
-  // rejectUpdate helper, now that the real tree has no nested-closure site.
+  // Keeps the closure-resolution check covered: the real tree has no
+  // nested-closure site, so this fixture is its only subject.
   const source = [
     'async function owner(pool){',
     '  const client = await pool.connect();',

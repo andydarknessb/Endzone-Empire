@@ -478,25 +478,27 @@ class LeagueSettingsError extends Error {
 }
 
 /**
- * The state half of PUT /api/league/:id: read the league's status (FOR
+ * The state half of PUT /api/league/:id: read the league's status (FOR NO KEY
  * UPDATE when the patch carries keeper or auction settings), run the
  * post-read guards (the keeper plan included), clear keepers when the plan
- * says so, write the UPDATE with its two spliced WHERE guards, disambiguate
- * a zero-row result, COMMIT, and only then notify the league of a
- * (re)scheduled draft.
+ * says so, and write the UPDATE with its two spliced WHERE guards; a zero-row
+ * result is disambiguated into a refusal. Once the write has returned, notify
+ * the league of a (re)scheduled draft.
  *
  * `db` is the pool (duck-typed `query` + `connect`). Transaction rule: when
- * patch.rowLockSettingsProvided, `connect()` a client, BEGIN, and run every
- * statement on it; otherwise every statement runs on `db` directly and there
- * is no BEGIN/COMMIT at all. Either way the statements are the same text in
- * the same order (the status read gains FOR UPDATE on the transaction path,
+ * patch.rowLockSettingsProvided, the read and the write run through
+ * withTransaction (ADR 0033), which owns BEGIN, COMMIT, the ROLLBACK and the
+ * release; otherwise every statement runs on `db` directly and there is no
+ * BEGIN/COMMIT at all. Either way the statements are the same text in the same
+ * order (the status read gains FOR NO KEY UPDATE on the transaction path,
  * nothing else differs), so a fake pool observes one sequence per patch.
  *
- * Thrown-error contract: refuses by throwing LeagueSettingsError (after
- * ROLLBACK when a transaction is open); any other error ROLLBACKs the same
- * way and propagates as-is. Call it only where the surrounding catch renders
- * `error.statusCode` (the rule leagueMembership.requireMember states); a caller
- * that maps every error to 500 would turn a 409 into a 500.
+ * Thrown-error contract: refuses by throwing LeagueSettingsError from inside
+ * the write; the wrapper rolls back and rethrows it unchanged, and any other
+ * error takes the same path and propagates as-is. Call it only where the
+ * surrounding catch renders `error.statusCode` (the rule leagueMembership
+ * .requireMember states); a caller that maps every error to 500 would turn a
+ * 409 into a 500.
  *
  * Resolves with the updated `leagues` row (RETURNING *).
  */

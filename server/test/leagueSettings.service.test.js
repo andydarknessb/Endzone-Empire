@@ -232,6 +232,15 @@ test('403 fallthrough: a name-only patch skips the status read; zero rows from t
   assert.equal(db.released(), 0);
 });
 
+test('a non-commissioner on the locking path: no status row, the guarded UPDATE matches none, 403 after a ROLLBACK, client released once (ADR 0033)', async () => {
+  const db = fakeDb({ status: null, updateRows: [] });
+  const error = await refusal(db, { keeperCount: 1 });
+  assert.equal(error.statusCode, 403);
+  assert.equal(error.message, 'league not found or you are not the commissioner');
+  assert.deepEqual(db.firstWord(), ['BEGIN', 'SELECT', 'UPDATE', 'ROLLBACK']);
+  assert.equal(db.released(), 1);
+});
+
 test('a name-only patch on a commissioner league resolves with the row and never touches the keeper/team tables', async () => {
   const db = fakeDb();
   const row = await run(db, { name: 'Renamed' });
