@@ -87,7 +87,7 @@ async function runDraftAct({ leagueId, userId }, actBody) {
     // team or rewrites the order. INVARIANT: this snapshot takes NO per-row lock,
     // so a body that gates or deletes per Team (reset, undo) is complete for the
     // whole act only because every Team-insert serializes behind this same League
-    // lock (joinLeague locks the League row FOR UPDATE before its INSERT); a Team
+    // lock (joinLeague locks the League row FOR NO KEY UPDATE before its INSERT); a Team
     // created mid-act would be neither gated nor wiped. server/test/
     // teamInsertLockGuard.test.js guards that (#1043) so a new join or add-team
     // path cannot silently reopen the gap.

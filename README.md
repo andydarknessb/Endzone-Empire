@@ -141,5 +141,5 @@ Connect with `io('/', { auth: { token } })`, then:
 - Passwords are bcrypt-hashed; JWTs expire after 7 days.
 - A player can be rostered by only one team per league (database unique constraint,
   not just application logic).
-- Draft picks lock the league row (`SELECT … FOR UPDATE`) so simultaneous picks
+- Draft picks lock the league row (`SELECT … FOR NO KEY UPDATE`) so simultaneous picks
   can't double-draft or skip turns.

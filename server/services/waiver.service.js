@@ -216,8 +216,7 @@ async function submitClaim({ leagueId, userId, playerId, dropPlayerId, bid = 0 }
     // The league row lock serialises max(claim_order)+1 per league and matches
     // processWaivers' lock order (league row first, team rows after). Not the
     // team row alone: processWaivers holds the league row then updates team
-    // rows, and this insert's foreign key check share-locks the league row, so
-    // a team-first lock would invert the order. No advisory lock (#839).
+    // rows, so a team-first lock would invert the order. No advisory lock (#839).
     const leagueResult = await client.query(`SELECT * FROM "leagues" WHERE "id" = $1 FOR NO KEY UPDATE`, [leagueId]);
     const league = leagueResult.rows[0];
     if (!league) throw new WaiverError(404, 'league not found');
@@ -459,7 +458,7 @@ async function reorderClaims({ leagueId, userId, claimIds }) {
  * NULLing it changes no read model. Guarded on `<= now()` because a
  * commissioner may trigger processing while the window is still open, and an
  * open window must survive that. Runs inside the caller's transaction, after
- * the league row's FOR UPDATE lock.
+ * the league row's FOR NO KEY UPDATE lock.
  */
 async function spendExpiredBlanketWindow(client, leagueId) {
   await client.query(
@@ -475,7 +474,7 @@ async function spendExpiredBlanketWindow(client, leagueId) {
  * ONE spelling of that write (#789 ruling 3): column-based, so the interval
  * reads `waiver_period_hours` off the league row itself and binds no hours
  * parameter. Runs inside the caller's transaction (draftCompletion.completeDraft),
- * after the draft_status flip and under the league row's FOR UPDATE lock. The
+ * after the draft_status flip and under the league row's FOR NO KEY UPDATE lock. The
  * counterpart that spends the window is spendExpiredBlanketWindow above.
  */
 async function openPostDraftWaiverWindow(client, { leagueId }) {
@@ -580,7 +579,7 @@ async function processWaivers({ leagueId }) {
     // `claimFailureReason` used to destroy those claims inside the very
     // window the league was supposed to be standing still. Gating the helper
     // rather than the one `invalid` call site means a terminal status added
-    // later inherits the refusal too. The League row is held FOR UPDATE from
+    // later inherits the refusal too. The League row is held FOR NO KEY UPDATE from
     // the top of this transaction, so the gate's League read is a re-lock of
     // a row we already own and the answer is the same at every point in the
     // loop - which is what lets the gate be asked here, per claim, with no
