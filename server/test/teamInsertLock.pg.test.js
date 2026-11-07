@@ -103,8 +103,9 @@ if (!ENABLED) {
 
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-  // Wait until a backend is blocked on a lock while running a `FOR UPDATE` read,
-  // which is B waiting on A's held League row. Returns true once seen. Scoped to
+  // Wait until a backend is blocked on a lock while running a row-lock read
+  // (`FOR UPDATE`, or `FOR NO KEY UPDATE` since #2683), which is B waiting on
+  // A's held League row. Returns true once seen. Scoped to
   // THIS database and to backends other than the poller's own, so an unrelated
   // connection elsewhere cannot satisfy it (belt-and-braces: the runner already
   // serialises pg files with --test-concurrency=1).
@@ -113,7 +114,8 @@ if (!ENABLED) {
     while (Date.now() < deadline) {
       const res = await pool.query(
         `SELECT count(*)::int AS n FROM pg_stat_activity
-          WHERE wait_event_type = 'Lock' AND query ILIKE '%FOR UPDATE%'
+          WHERE wait_event_type = 'Lock'
+            AND (query ILIKE '%FOR UPDATE%' OR query ILIKE '%FOR NO KEY UPDATE%')
             AND datname = current_database() AND pid <> pg_backend_pid()`
       );
       if (res.rows[0].n > 0) return true;
@@ -172,7 +174,7 @@ if (!ENABLED) {
     let settled = null;
     try {
       await actClient.query('BEGIN');
-      await actClient.query(`SELECT * FROM "leagues" WHERE "id" = $1 FOR UPDATE`, [league.id]);
+      await actClient.query(`SELECT * FROM "leagues" WHERE "id" = $1 FOR NO KEY UPDATE`, [league.id]);
 
       // B: a real join, on its own connection and transaction. Launched, not
       // awaited, so we can observe it block.

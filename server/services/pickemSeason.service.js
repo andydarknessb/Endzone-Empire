@@ -362,7 +362,7 @@ async function completeOnePickemSeason({ league, season, seasonGames }) {
   // withTransaction owns connect/BEGIN/COMMIT-or-guarded-ROLLBACK and the
   // release rule (ADR 0033). Nothing ran between the old checkout and BEGIN, so
   // no statement newly reaches the wrapper's catch. Both early bails precede
-  // every write (the FOR UPDATE re-read and the has-picks SELECT are the only
+  // every write (the FOR NO KEY UPDATE re-read and the has-picks SELECT are the only
   // statements before them), so returning null COMMITs a read-only transaction
   // and releases the row lock exactly as the old bare ROLLBACK did; the write
   // path returns the outcome object as before.

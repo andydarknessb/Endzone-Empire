@@ -38,7 +38,7 @@ test('every Team-insert in the online server dirs takes a League row lock first'
   assert.deepEqual(
     violationSites,
     [],
-    'A Team is inserted without a SELECT ... FROM "leagues" ... FOR UPDATE earlier in the same '
+    'A Team is inserted without a SELECT ... FROM "leagues" ... FOR UPDATE or FOR NO KEY UPDATE earlier in the same '
     + 'function. A Draft act reads the Teams into an unlocked snapshot and gates/deletes per Team '
     + 'from it (draftAct.service.js); a Team created without serializing behind the League lock '
     + 'could be neither gated nor wiped (#1043). Lock the League row before the insert, or bring '

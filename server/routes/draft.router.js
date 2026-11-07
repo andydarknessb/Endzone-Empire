@@ -196,7 +196,7 @@ router.post('/league/:id/order', async (req, res) => {
   try {
     // Each early refusal throws a DraftError (ADR 0008) - the shape #967 already
     // converted this router's ROLLBACK-and-return pairs to. Every refusal reads
-    // only (the FOR UPDATE read included) before it throws, so withTransaction
+    // only (the FOR NO KEY UPDATE read included) before it throws, so withTransaction
     // rolls the read-only transaction back - freeing the same lock a COMMIT would
     // - and rethrows the DraftError, which the outer catch maps via
     // isDraftRefusal exactly as /queue does. The success response is sent after
@@ -762,7 +762,7 @@ router.put('/league/:id/keepers', async (req, res) => {
   try {
     // The four early refusals throw a DraftError (ADR 0008) - the shape #967
     // converted this router's ROLLBACK-and-return pairs to. Each reads only (the
-    // FOR UPDATE read, teams, rosters) and validates in memory before it throws,
+    // FOR NO KEY UPDATE read, teams, rosters) and validates in memory before it throws,
     // so withTransaction rolls the read-only transaction back - freeing the same
     // lock a COMMIT would - and rethrows the DraftError for the outer catch to map
     // via isDraftRefusal. The DELETE/INSERT replace-all runs only past the last

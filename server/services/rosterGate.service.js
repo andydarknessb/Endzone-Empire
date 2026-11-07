@@ -75,7 +75,7 @@ const asBypassSet = (bypass) => {
   return set;
 };
 
-// The gate reads its own League row FOR UPDATE (#944 rule 1): every column the
+// The gate reads its own League row FOR NO KEY UPDATE (#944 rule 1): every column the
 // freeze check and the acquire bundle need, listed so a caller cannot starve
 // the gate of the freeze fact by handing it a row that never selected it.
 // current_season/current_week are the kicked-off check's week (#1376, ADR 0043).

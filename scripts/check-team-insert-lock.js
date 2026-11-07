@@ -497,7 +497,7 @@ function main() {
   }
   console.error(
     `\n❌ ${violationSites.length} Team-insert(s) with no League row lock (SELECT ... FROM "leagues" `
-    + '... FOR UPDATE) earlier in the same function:\n\n'
+    + '... FOR UPDATE or FOR NO KEY UPDATE) earlier in the same function:\n\n'
     + '  A Draft act reads the Teams into an unlocked snapshot and gates/deletes per Team\n'
     + '  from it (draftAct.service.js). A Team created without serializing behind the\n'
     + '  League lock could be neither gated nor wiped (#1043). Either lock the League row\n'

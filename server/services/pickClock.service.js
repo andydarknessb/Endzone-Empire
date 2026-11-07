@@ -615,7 +615,7 @@ async function escalateNothingDraftable({ leagueId }) {
   // release rule (ADR 0033) - the close this #839-class lock-holder must get
   // right. Nothing ran between the old checkout and BEGIN, so no statement newly
   // reaches the wrapper's catch. Both early bails precede every write (only the
-  // FOR UPDATE re-read runs before them), so returning null COMMITs a read-only
+  // FOR NO KEY UPDATE re-read runs before them), so returning null COMMITs a read-only
   // transaction and releases the row lock exactly as the old bare ROLLBACK did;
   // the write path still returns { activity } as before.
   return withTransaction(pool, async (client) => {

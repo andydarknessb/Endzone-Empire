@@ -100,7 +100,7 @@ async function runAction(league, action, marketCount = Infinity, now = new Date(
   // release rule (ADR 0033). Nothing ran between the old checkout and BEGIN, so
   // no statement newly reaches the wrapper's catch. The recompute-disagreement
   // early return becomes a plain `return` inside `work`: it precedes every write
-  // (only the FOR UPDATE re-read and the no_market re-read run before it), so
+  // (only the FOR NO KEY UPDATE re-read and the no_market re-read run before it), so
   // COMMITting the read-only transaction releases the row lock exactly as the
   // old bare ROLLBACK did. `work` reports whether it took the write path so the
   // post-commit push stays gated to that path, the way the old early `return`
