@@ -308,6 +308,7 @@ const commissionerLeague = {
 
 function commissionerDropWorld({ kickedOff = [], interrupted = null, removals = [], holds = [] } = {}) {
   return createFakePool([
+    [/^SELECT \* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE$/, () => ({ rows: [commissionerLeague] })],
     [/^SELECT \*, .* AS "is_commissioner"/, () => ({ rows: [commissionerLeague] })],
     // The #964 write gate's own reads, League then Team, with explicit column
     // lists of their own. Every gate a release evaluates is in
@@ -644,7 +645,7 @@ const rolloverLeague = {
 
 function rolloverWorld({ kickedOff = [], removals = [] } = {}) {
   return createFakePool([
-    [/FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/, () => ({ rows: [rolloverLeague] })],
+    [/FROM "leagues" WHERE "id" = \$1( FOR NO KEY UPDATE)?$/, () => ({ rows: [rolloverLeague] })],
     [/^SELECT "id", "name", "owner_id" FROM "teams"/, () => ({
       rows: [{ id: 10, name: 'Sunday Ballers', owner_id: 7 }],
     })],

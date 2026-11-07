@@ -20,8 +20,8 @@
  *
  *   1. Holder H opens a transaction and takes the League row FOR UPDATE.
  *   2. The commissioner write starts.
- *        - League-then-Team (fixed): requireCommissioner asks for the League
- *          row FOR UPDATE and blocks there, holding nothing.
+ *        - League-then-Team (fixed): the League write asks for the League
+ *          row FOR NO KEY UPDATE and blocks there, holding nothing.
  *        - Team-then-League (the revert): the League read is unlocked, the
  *          UPDATE takes the Team row, and the log insert blocks on the League
  *          row behind H, now HOLDING the Team row.
@@ -37,9 +37,9 @@
  * `removeTeamAvatar` is the fourth case, with the same shape: Team row FOR
  * UPDATE, League read unlocked, League row reached through the log's foreign key.
  *
- * Red-tell: dropping `forUpdate: true` from `setTeamFaab`, `setTeamLocked`,
- * `forceSetLineup` or `removeTeamAvatar` in server/services/commissioner.service.js turns the
- * matching case red.
+ * Red-tell: dropping the League row lock that leagueWrite takes (its FOR NO KEY
+ * UPDATE, server/modules/leagueWrite.js) turns the matching case red for
+ * `setTeamFaab`, `setTeamLocked`, `forceSetLineup` and `removeTeamAvatar`.
  *
  * Runs ONLY where a disposable Postgres is available, gated twice: PG_TESTS=1
  * (or COMMISSIONER_LOCK_ORDER_PG_TESTS=1) must be exactly '1', and every

@@ -81,9 +81,9 @@ function transactionHarness(state) {
         state.rolledBack = true;
         return { rows: [] };
       }
-      // requireCommissioner selects the league plus an is_commissioner flag
-      // (owner or co-commissioner) — the caller here is the owner.
-      if (normalized.includes('FROM "leagues"') && normalized.includes('FOR NO KEY UPDATE')) {
+      // The League write's lock (a bare league read) and requireCommissioner's
+      // is_commissioner read (owner or co-commissioner; the caller here is the owner).
+      if (/^SELECT (\*|\*, \(.*\) AS "is_commissioner") FROM "leagues" WHERE "id" = \$1( FOR NO KEY UPDATE)?$/.test(normalized)) {
         return { rows: [{ ...state.league, is_commissioner: true }] };
       }
       if (normalized.includes('SELECT "id", "name", "owner_id" FROM "teams"')) {

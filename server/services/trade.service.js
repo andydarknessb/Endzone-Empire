@@ -56,7 +56,7 @@ async function loadTrade(client, tradeId, { forUpdate = true } = {}) {
   // limit -- the race this ticket fixes.
   //
   // League-BEFORE-trades is the lock ORDER, not just the addition of a lock:
-  // rolloverSeason locks the League row (requireCommissioner, forUpdate) and
+  // rolloverSeason locks the League row (the League write's lock) and
   // then row-locks this league's trades (`UPDATE "trades" ... WHERE
   // "league_id" = $1 ...`), i.e. League -> trades. Locking the trades row first
   // here would invert that into an AB/BA deadlock pair, so the League row is
