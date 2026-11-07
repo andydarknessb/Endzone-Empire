@@ -306,7 +306,7 @@ test('autoPick: a CLOCK_MOVED landing returns null, tries no other candidate and
 
   assert.equal(outcome, null);
   assert.equal(landed.mock.callCount(), 1, 'no second candidate is tried');
-  assert.equal(landed.mock.calls[0].arguments[0].expectedDeadline, deadline, 'the deadline it read rides to the commit');
+  assert.equal(landed.mock.calls[0].arguments[0].expiredTurn.deadline, deadline, 'the deadline it read rides to the commit');
   assert.equal(fake.matching(/consecutive_timeouts/).length, 0, 'no timeout is counted');
   assert.equal(fake.matching(/draft_paused/).length, 0, 'no stall escalation either');
 });

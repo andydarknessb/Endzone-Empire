@@ -312,7 +312,7 @@ function attachDraftSocket(httpServer, { now = Date.now } = {}) {
         // ends the draft the completion activity and draftCompleted
         // (#782 ruling 1). The room events are decided in landPick, the one seam
         // the clock and the offline route reach too, not re-derived here.
-        const outcome = await landPick({ leagueId, userId: socket.user.id, playerId });
+        const outcome = await landPick({ leagueId, by: { kind: 'manager', userId: socket.user.id }, playerId });
         ack && ack({ ok: true, outcome });
       } catch (error) {
         if (isDraftRefusal(error)) {

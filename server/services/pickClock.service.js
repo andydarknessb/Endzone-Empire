@@ -567,12 +567,11 @@ async function autoPick({ leagueId }) {
       // the offline route reach the same seam.
       let outcome = await landPick({
         leagueId,
-        userId: onTheClock.owner_id,
+        by: { kind: 'autopick' },
         playerId: candidate.id,
-        auto: true,
-        // The expiry this firing saw; the commit refuses CLOCK_MOVED if a re-arm
-        // moved the clock since (#2549).
-        expectedDeadline: deadline,
+        // The turn this firing saw expire; the commit refuses CLOCK_MOVED if the
+        // turn or its deadline moved since (#2549).
+        expiredTurn: { pickNumber: league.current_pick + 1, deadline },
       });
       // After a genuine timeout, track the streak and flip autodraft on once it
       // crosses the threshold, so a persistently-absent owner stops stalling. The

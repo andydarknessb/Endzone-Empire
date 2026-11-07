@@ -641,7 +641,7 @@ describe('live snake-draft expiry and autopick integration', () => {
     await database.candidateRead.promise;
     const manual = commitPick({
       leagueId: LEAGUE_ID,
-      userId: TEAM_A.owner_id,
+      by: { kind: 'manager', userId: TEAM_A.owner_id },
       playerId: 302,
     });
     await database.firstLockAcquired.promise;
@@ -704,7 +704,7 @@ describe('live snake-draft expiry and autopick integration', () => {
         } else {
           const outcome = await commitPick({
             leagueId: LEAGUE_ID,
-            userId: team.owner_id,
+            by: { kind: 'manager', userId: team.owner_id },
             playerId: available.id,
           });
           observed = { teamId: outcome.teamId, draftComplete: outcome.draftComplete };
