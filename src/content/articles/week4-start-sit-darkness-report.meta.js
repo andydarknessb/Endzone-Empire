@@ -3,6 +3,7 @@ const meta = {
   slug: 'week4-start-sit-darkness-report',
   title: 'Week 4 Start/Sit: The Darkness Report',
   category: 'Streaming',
+  series: 'start-sit',
   author: 'Andy Darkness',
   excerpt:
     'All 15 Sunday and Monday games, one card each: start, flex and sit calls, game-time decision callouts, plus a slate board of lines and implied points, an injury board with inactive windows, position tiers, sleepers, the Darkness Rulings and the inactives checklist.',

@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { listArticles, getArticle, featuredArticles, relatedArticles } from './index';
+import { listArticles, getArticle, featuredArticles, relatedArticles, currentReport } from './index';
 import { findLocalKitDeclarations } from './kitGuard';
 
 describe('articles content module', () => {
@@ -48,6 +48,18 @@ describe('articles content module', () => {
 
   it('returns null for an unknown slug', () => {
     expect(getArticle('does-not-exist')).toBeNull();
+  });
+
+  it('names a series on every Darkness Report', () => {
+    const reports = listArticles().filter((meta) => meta.slug.endsWith('-darkness-report'));
+    expect(reports.length).toBeGreaterThan(0);
+    for (const meta of reports) expect(['waiver-wire', 'start-sit']).toContain(meta.series);
+  });
+
+  it('currentReport returns the newest Darkness Report of a series, or null', () => {
+    expect(currentReport('waiver-wire').slug).toBe('week9-waiver-wire-darkness-report');
+    expect(currentReport('start-sit').slug).toBe('week9-start-sit-darkness-report');
+    expect(currentReport('nonsense')).toBeNull();
   });
 
   it('registers the Week 2 recap with the requested byline and a lazy body', async () => {

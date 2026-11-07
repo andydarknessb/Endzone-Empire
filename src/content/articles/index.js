@@ -12,7 +12,7 @@
  * import, and a listing (landing band, UserPage highlights, strategy index)
  * puts no article prose in the initial bundle.
  *
- * Article shape: { slug, title, category, excerpt, readMinutes, date, author?, loadBody }.
+ * Article shape: { slug, title, category, excerpt, readMinutes, date, author?, series?, loadBody }.
  */
 import draftByTiers from './draft-by-tiers.meta';
 import waiverPriorityVsFaab from './waiver-priority-vs-faab.meta';
@@ -105,7 +105,7 @@ const ARTICLES = [
   week9StartSitDarknessReport,
 ].sort((a, b) => new Date(b.date) - new Date(a.date));
 
-const META_KEYS = ['slug', 'title', 'category', 'excerpt', 'readMinutes', 'date', 'author'];
+const META_KEYS = ['slug', 'title', 'category', 'excerpt', 'readMinutes', 'date', 'author', 'series'];
 
 /** Metadata-only view (no Body) for cards and listings. */
 function toMeta(article) {
@@ -117,6 +117,12 @@ function toMeta(article) {
 /** All articles as metadata, newest first. */
 export function listArticles() {
   return ARTICLES.map(toMeta);
+}
+
+/** The newest Darkness Report of a series ('waiver-wire' or 'start-sit') as metadata, or null. */
+export function currentReport(series) {
+  const newest = ARTICLES.find((a) => a.series === series);
+  return newest ? toMeta(newest) : null;
 }
 
 /**

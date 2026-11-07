@@ -3,6 +3,7 @@ const meta = {
   slug: 'week3-waiver-wire-darkness-report',
   title: 'Week 3 Waiver Wire: The Darkness Report',
   category: 'Waivers',
+  series: 'waiver-wire',
   author: 'Andy Darkness',
   excerpt: 'Thirty ranked Week 3 pickups led by Denzel Boston and Jonah Coleman, a ten-deep D/ST streaming board, an IDP board, the injury ledger, and the Darkness Doctrine for spending FAAB.',
   readMinutes: 16,
