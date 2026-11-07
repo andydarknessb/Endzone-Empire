@@ -1,7 +1,7 @@
 /**
  * Disposable-Postgres test for the commissioner Team writes' lock order (#2545).
  *
- * The claim: `setTeamFaab` and `setTeamLocked` take the League row FOR UPDATE
+ * The claim: `setTeamFaab` and `setTeamLocked` take the League row FOR NO KEY UPDATE
  * before the Team row, the League-then-Team order every roster writer uses
  * (see rosterDropLockOrder.pg.test.js, #962). They used to call
  * `requireCommissioner` without `forUpdate`, UPDATE the Team row, and only then
@@ -18,17 +18,18 @@
  *
  * The interleaving is forced, not hoped for:
  *
- *   1. Holder H opens a transaction and takes the League row FOR UPDATE.
+ *   1. Holder H opens a transaction and takes the League row FOR NO KEY UPDATE.
  *   2. The commissioner write starts.
  *        - League-then-Team (fixed): the League write asks for the League
  *          row FOR NO KEY UPDATE and blocks there, holding nothing.
  *        - Team-then-League (the revert): the League read is unlocked, the
- *          UPDATE takes the Team row, and the log insert blocks on the League
- *          row behind H, now HOLDING the Team row.
+ *          UPDATE takes the Team row, and the log insert's foreign key check
+ *          takes a FOR KEY SHARE on the League row. H's FOR NO KEY UPDATE does
+ *          not conflict with that, so the write never parks; it finishes.
  *   3. H asks for the Team row.
  *        - Fixed: nothing holds it, H gets it and commits; the write then runs.
- *        - Reverted: H waits on the write, the write waits on H. Cycle, and one
- *          dies with 40P01.
+ *        - Reverted: H never gets here. Nothing parks, so the wait in step 2
+ *          times out (waitForBlocked, 10 s) and the case goes red.
  *
  * `forceSetLineup` is the third case: it already locked the Team row FOR UPDATE
  * but read the League unlocked, then reached the League row again through the
@@ -175,14 +176,14 @@ if (!ENABLED) {
       // 1. The holder (a stand-in for the waiver run) takes the League row.
       await holder.query('BEGIN');
       holderOpen = true;
-      await holder.query(`SELECT "id" FROM "leagues" WHERE "id" = $1 FOR UPDATE`, [leagueId]);
+      await holder.query(`SELECT "id" FROM "leagues" WHERE "id" = $1 FOR NO KEY UPDATE`, [leagueId]);
 
       // 2. The write starts and parks on a lock behind the holder.
       settled = run(name).then(() => null, (error) => error);
       await waitForBlocked(1, `${name} parked behind the league row`);
 
       // 3. The holder asks for the Team row. Fixed: free, so it commits.
-      //    Reverted: the write holds it, so this closes the cycle.
+      //    Reverted: not reached, since step 2 has already thrown.
       try {
         await holder.query(`SELECT "id" FROM "teams" WHERE "id" = $1 FOR UPDATE`, [teamId]);
         await holder.query('COMMIT');

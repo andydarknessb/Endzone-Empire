@@ -139,7 +139,7 @@ async function requireMember(db, { leagueId, userId, forUpdate = false }) {
  * refusal carries its `reason`), then banned (a 403: a commissioner's Remove &
  * ban, league_bans), then already-a-member, then full. Throws
  * the 409 refusal, or returns `{ teamCount }` so the caller need not count
- * again. `league` is the row the caller already holds FOR UPDATE; `client`
+ * again. `league` is the row the caller already holds FOR NO KEY UPDATE; `client`
  * is the same transaction, so the reads see what the lock protects.
  */
 async function assertAdmissible(client, league, userId) {

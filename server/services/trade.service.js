@@ -127,8 +127,8 @@ function validatePlayerIds(playerIds) {
  * counterTrade calls this on the SAME client that already marked the original
  * 'countered', so the countered update and this new offer commit or roll back
  * together (#1077). It is self-contained on purpose: it re-reads the League row
- * unlocked, which is fine on a connection that already holds the FOR UPDATE
- * lock from loadTrade - do not pass the locked row in to skip the read, or the
+ * unlocked, which is fine on a connection that already holds the row
+ * locks from loadTrade - do not pass the locked row in to skip the read, or the
  * two entry points stop sharing one code path.
  */
 async function proposeTradeWith(client, { leagueId, userId, receivingTeamId, playerIds, counterOf = null }) {
@@ -346,7 +346,7 @@ async function counterTrade({ tradeId, userId, playerIds }) {
         [tradeId]
       );
       // Self-contained: proposeTradeWith re-reads the League row unlocked on
-      // this same connection, which already holds loadTrade's FOR UPDATE lock.
+      // this same connection, which already holds loadTrade's row locks.
       // Lock order is unchanged - League before trades - because these reads
       // happen after loadTrade's on the one connection.
       return proposeTradeWith(client, {
@@ -647,8 +647,7 @@ async function processDueTrades() {
           await withTransaction(
             pool,
             async (client) => {
-              // League lock first via loadTrade, the house order (#946): the
-              // notifications FK takes a share lock on the League row, so locking
+              // League lock first via loadTrade, the house order (#946): locking
               // trades first would invert it against a vote or commissioner decide.
               const { trade, league, teams } = await loadTrade(client, row.id);
               // A trade settled elsewhere since the failed attempt is not ours to cancel or announce.

@@ -92,7 +92,7 @@ function shouldAutoEnableAutodraft(consecutiveTimeouts) {
  * fans out only `rosterChanged` (the availability read model changed). It refuses
  * unless the draft is complete; a Pick, conversely, refuses unless it is active.
  *
- * The transaction locks the league row FOR UPDATE, exactly as a Pick does, so the
+ * The transaction locks the league row FOR NO KEY UPDATE, exactly as a Pick does, so the
  * capacity read cannot race a concurrent add; the (league_id, player_id) unique
  * constraint is the double-add backstop. addFreeAgent below wraps this commit with
  * the post-COMMIT `rosterChanged` fan-out.
@@ -136,7 +136,7 @@ async function commitFreeAgentAdd({ leagueId, userId, playerId }) {
       if (!playerResult.rows[0]) throw new DraftError(404, 'player not found');
 
       // The one Roster move writer (#2535): the acquire gate - which reads the
-      // freeze off the League row it re-locks FOR UPDATE, the League already held
+      // freeze off the League row it re-locks FOR NO KEY UPDATE, the League already held
       // from the SELECT above - then the roster row, then the bench. Team lock is
       // bypassed because this path already refused a locked team above
       // (myTeam.locked), which fails earlier and keeps that refusal's ordering
@@ -360,7 +360,7 @@ async function undoDrop({ leagueId, userId, playerId }) {
     //
     // The two reads can disagree on one axis, and it is worth being precise
     // about which: the recorded slot and attestation cannot move (the hold is
-    // this transaction's own row and the league is held FOR UPDATE), but
+    // this transaction's own row and the league is held FOR NO KEY UPDATE), but
     // validity also joins live `players.injury_status`, which the injury sync
     // updates under its own lock with no league lock. Every ordering is
     // benign: a designation that clears between the reads spends the credit
@@ -444,7 +444,7 @@ async function undoDrop({ leagueId, userId, playerId }) {
  * is the separate administrative act the Pick definition defers to - not a
  * manager undo, and not the general N-pick undo route.
  *
- * The league row is locked FOR UPDATE, exactly as a Pick commit (pick.service.commitPick) locks it, so a
+ * The league row is locked FOR NO KEY UPDATE, exactly as a Pick commit (pick.service.commitPick) locks it, so a
  * correction and a concurrent Pick (a manager's or an autopick) serialize on
  * the same lock and cannot interleave. `expectedPickNumber` is the Pick the
  * commissioner confirmed; if a newer Pick has landed since, the request is

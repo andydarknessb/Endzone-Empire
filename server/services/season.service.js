@@ -150,7 +150,7 @@ function waiverPrioritiesFromStandings(standings) {
 
 /**
  * Reset every team's waiver_priority to reverse standings, in one statement.
- * Runs inside the caller's transaction, under the league row's FOR UPDATE
+ * Runs inside the caller's transaction, under the league row's FOR NO KEY UPDATE
  * lock. The one time-based writer of waiver_priority: the other writer is
  * processWaivers (waiver.service.js), which sends a claim winner to the back
  * of the order; that rotation lasts only until the next reset here.
@@ -232,7 +232,7 @@ function lastPlayoffWeek(league) {
  * The schedule work itself, on a caller-supplied client. Owns no transaction:
  * the exported generateRegularSeason decides which client this runs on and who
  * BEGINs/COMMITs around it. `forUpdate` selects the league read text - the two
- * texts that existed before #1073, unchanged: WITH `FOR UPDATE` when this owns
+ * texts that existed before #1073, unchanged: WITH `FOR NO KEY UPDATE` when this owns
  * the transaction (nothing else holds the row), WITHOUT it when nested inside a
  * caller's transaction that already wrote and holds the league row.
  */
@@ -279,11 +279,11 @@ async function generateRegularSeasonInner(client, { leagueId }, { forUpdate }) {
  * transaction unless a client is supplied.
  *
  * With no client it owns the transaction through withTransaction (ADR 0033)
- * and reads the league row FOR UPDATE. draftCompletion passes its own
+ * and reads the league row FOR NO KEY UPDATE. draftCompletion passes its own
  * draft-completion client; the inner then runs on that client directly - NOT a
  * nested withTransaction (the wrapper opens an independent transaction, not a
  * savepoint, so nesting on one pool is forbidden), and the league read drops
- * FOR UPDATE exactly as before. The exported signature is unchanged.
+ * FOR NO KEY UPDATE exactly as before. The exported signature is unchanged.
  */
 async function generateRegularSeason({ leagueId }, existingClient = null) {
   if (existingClient) {

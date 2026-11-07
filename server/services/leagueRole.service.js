@@ -69,7 +69,7 @@ async function notifyCommissioners(db, { leagueId, ownerId, type, message, data 
  * SQL predicate — true when user $n is the owner or a co-commissioner of the
  * `leagues` row in scope. Takes the parameter index so a call site can drop it
  * into an existing query without renumbering its other parameters. Written as
- * an EXISTS subquery rather than a join so it stays legal under FOR UPDATE.
+ * an EXISTS subquery rather than a join so it stays legal under FOR NO KEY UPDATE.
  */
 function commissionerPredicate(n) {
   return `("leagues"."owner_id" = $${n} OR EXISTS (

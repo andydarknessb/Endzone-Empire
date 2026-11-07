@@ -91,7 +91,7 @@ async function processScheduledDrafts({ now = new Date() } = {}) {
 
 async function runAction(league, action, marketCount = Infinity, now = new Date()) {
   // 'start' delegates entirely to draftStart.service's startDraft(), which
-  // does its own fresh SELECT ... FOR UPDATE + re-validation — running that
+  // does its own fresh SELECT ... FOR NO KEY UPDATE + re-validation — running that
   // under this function's own lock too would have the two connections
   // deadlock on the same league row.
   if (action === 'start') return runStartAction(league);
@@ -119,7 +119,7 @@ async function runAction(league, action, marketCount = Infinity, now = new Date(
     // that value into every league's decision - the default that stays. The one
     // exception is 'no_market' (#882): its value is about to be shown to a human
     // as the reason the draft did not start, and an ADP sync landing during the
-    // FOR UPDATE lock wait can have loaded the market since the tick read. So for
+    // FOR NO KEY UPDATE lock wait can have loaded the market since the tick read. So for
     // that action only, re-read the count on the locked client before the
     // recheck; every other action carries the tick's value and issues no extra
     // query. The recheck and the notification copy below both use this value.
@@ -131,7 +131,7 @@ async function runAction(league, action, marketCount = Infinity, now = new Date(
       effectiveMarketCount = freshMarket.rows[0].n;
     }
     // Recompute against the locked row; bail if the situation changed. The clock
-    // is the tick's own `now`, not a fresh read: the FOR UPDATE re-read of the row
+    // is the tick's own `now`, not a fresh read: the FOR NO KEY UPDATE re-read of the row
     // (status, date, type, staffing, reminder stage, autostart flag) is what
     // catches a concurrent join/start/reschedule; time elapsed during the lock
     // wait must not flip the action across a bucket edge (#880). If the re-read

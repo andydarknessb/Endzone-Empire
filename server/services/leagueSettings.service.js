@@ -356,7 +356,7 @@ const FANTASY_ONLY_SETTING_KEYS = Object.freeze([
  *     'auction' clears the date, so neither needs the guard),
  *     keeperSettingsProvided, auctionSettingsProvided and
  *     rowLockSettingsProvided (keeper or auction settings present: the write
- *     path reads the row FOR UPDATE inside a transaction).
+ *     path reads the row FOR NO KEY UPDATE inside a transaction).
  */
 function parseSettingsPatch(body) {
   // One read per key, like the handler's single destructure used to be: a

@@ -26,7 +26,7 @@ const { appendLifecycleActivity, STALLED } = require('./draftActivity');
  * This module is the only writer of `leagues.pick_deadline_at` and, for the
  * turn-advancing events, of `leagues.current_pick`. A direct UPDATE of either
  * column outside it is a defect (ADR 0018). Every event takes the caller's own
- * transaction `client` (the league row already locked FOR UPDATE by the caller)
+ * transaction `client` (the league row already locked FOR NO KEY UPDATE by the caller)
  * and performs its turn-advance and clock-arm as a single atomic statement, so
  * an observer never sees a new turn without its clock.
  *
@@ -108,7 +108,7 @@ function clockSecondsFor({ draftComplete, onClockAutodraft, league }) {
  * than trusting a caller to have SELECTed the exact columns. The obligation used
  * to live only in a comment: a caller that dropped draft_type silently disarmed
  * the offline rule and armed a clock on an offline draft. Every event that reads
- * through here already holds the League row FOR UPDATE in its caller's
+ * through here already holds the League row FOR NO KEY UPDATE in its caller's
  * transaction, and nothing writes the Leagues table between that lock and the
  * event, so this re-read returns a provably identical row - not a second fact to
  * keep consistent, the same fact read where it is needed.
@@ -458,7 +458,7 @@ async function autoPick({ leagueId }) {
   // early, committing a second Pick off one expiry. It does NOT cover the
   // CONCURRENT case (two firings that both read this same elapsed deadline
   // before either commits): both pass this check, and the loser is stopped one
-  // level down by pick.service's CLOCK_MOVED check under FOR UPDATE, which
+  // level down by pick.service's CLOCK_MOVED check under FOR NO KEY UPDATE, which
   // compares this deadline to the locked row's (#2549; see autoPick's CLOCK_MOVED
   // handling and fireExpiryTimer). A null deadline (untimed non-autodrafting
   // turn, or a completed draft) is likewise not an expiry and never autopicks.
@@ -595,7 +595,7 @@ async function autoPick({ leagueId }) {
  * reach a nothing-draftable turn. autoPick's own draft_paused check at its top
  * does NOT prevent that: both firings read draft_paused=false before either
  * pauses, so both pass it. The guarantee is made HERE instead, under the league
- * row's FOR UPDATE lock. The two firings serialize on that lock; the winner
+ * row's FOR NO KEY UPDATE lock. The two firings serialize on that lock; the winner
  * pauses and appends, and the loser - re-reading draft_paused already true (and
  * the deadline already cleared) inside the lock - commits nothing and appends
  * no second entry. The invariant is NOT "only one firing reaches here" (both
@@ -605,7 +605,7 @@ async function autoPick({ leagueId }) {
  * The still-elapsed re-check covers a second race the pause check alone would
  * miss: a concurrent firing that did NOT hit nothing-draftable but committed a
  * real Pick for this turn (it drafted a candidate this firing could not, or won
- * the landPick FOR UPDATE CLOCK_MOVED check). That firing advanced current_pick
+ * the landPick FOR NO KEY UPDATE CLOCK_MOVED check). That firing advanced current_pick
  * and armed the next team's fresh clock, so under the lock this firing reads a
  * future-or-null deadline and declines, rather than pausing a Draft that in
  * fact moved on.
@@ -795,7 +795,7 @@ function cancelAllExpiryTimers() {
  * after the turn advanced is declined by autoPick's expiry guard (the next
  * deadline is future or null); two firings that read this same elapsed deadline
  * concurrently BOTH pass that guard, and the loser is stopped by
- * pick.service.landPick's CLOCK_MOVED check under FOR UPDATE (#2549), which
+ * pick.service.landPick's CLOCK_MOVED check under FOR NO KEY UPDATE (#2549), which
  * makes autoPick return a null outcome at once. Either way
  * exactly one Pick commits. A null outcome (not due, clock moved on, every
  * candidate blocked, or nothing draftable) arms nothing.

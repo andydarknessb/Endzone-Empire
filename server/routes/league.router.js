@@ -184,7 +184,7 @@ router.post('/join', refundJoinSlots, joinFailuresByUser.guard, joinFailuresByIp
         );
         const league = leagueResult.rows[0];
         // Read-only refusal before the membership write: throw so the wrapper
-        // rolls the FOR UPDATE read back instead of committing it (ADR 0033,
+        // rolls the FOR NO KEY UPDATE read back instead of committing it (ADR 0033,
         // #1065 Ruling 2). MembershipError carries the 404 the catch maps
         // through serviceErrorBody; the membership module owns the joinLeague
         // write immediately below, so its coded error is the fitting one.

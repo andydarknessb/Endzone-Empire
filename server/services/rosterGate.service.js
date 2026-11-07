@@ -199,7 +199,7 @@ function isLeagueFrozen(league) {
  * and an exact-set bypass list, so a seventeenth roster write inherits every
  * rule (#940 story 14).
  *
- * Rule 1 - the gate reads the freeze itself. It re-reads the League row FOR
+ * Rule 1 - the gate reads the freeze itself. It re-reads the League row FOR NO KEY
  * UPDATE (a no-op re-lock when the caller already holds it, per this spec's
  * League-first order) rather than trusting a caller-supplied league object, so
  * no caller can starve it of the freeze fact by passing a row that never

@@ -4,7 +4,7 @@
  *
  * The whole ticket rests on ONE mechanism: a correction and a pick serialize on
  * the league row lock, so a correction "cannot race a manager or autopick".
- * commitPick takes `SELECT * FROM "leagues" WHERE "id" = $1 FOR UPDATE` before
+ * commitPick takes `SELECT * FROM "leagues" WHERE "id" = $1 FOR NO KEY UPDATE` before
  * touching draft_picks; correctLatestPick takes the identical lock on the same
  * row. The fast suites assert both paths ISSUE that lock (a check on the code);
  * only a real Postgres can show that two real transactions actually SERIALIZE on
@@ -26,7 +26,7 @@
  * proven in draftCorrection.route.test.js and .socket.test.js.
  *
  * WHAT THIS DOES NOT COVER, and where its sibling does. This proves a claim
- * about POSTGRES: given that SOME transaction holds the league row FOR UPDATE,
+ * about POSTGRES: given that SOME transaction holds the league row FOR NO KEY UPDATE,
  * the real commitPick blocks and then observes the committed state. It does NOT
  * prove that correctLatestPick is the code that takes that lock - it replays the
  * statements rather than calling the service. The static half,
@@ -174,10 +174,10 @@ if (!ENABLED) {
     // correctLatestPick does, and hold it open.
     const correction = await pool.connect();
     await correction.query('BEGIN');
-    await correction.query('SELECT * FROM "leagues" WHERE "id" = $1 FOR UPDATE', [leagueId]);
+    await correction.query('SELECT * FROM "leagues" WHERE "id" = $1 FOR NO KEY UPDATE', [leagueId]);
 
     // The pick, the REAL commitPick, for the team on the clock. Its first
-    // statement after BEGIN is the same SELECT ... FOR UPDATE, so it blocks on
+    // statement after BEGIN is the same SELECT ... FOR NO KEY UPDATE, so it blocks on
     // the row the correction holds.
     const pickOutcome = commitPick({ leagueId, userId: ownerB, playerId: playerNext }).then(
       (value) => ({ status: 'fulfilled', value }),
