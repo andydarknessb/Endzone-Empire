@@ -496,6 +496,12 @@ async function executeTrade(client, { trade, league, items, teams, byCommissione
     delta.set(item.from_team_id, delta.get(item.from_team_id) - 1);
     delta.set(item.to_team_id, delta.get(item.to_team_id) + 1);
   }
+  // The traded players' names (for the transaction detail) and positions (for the fit), in one read.
+  const tradedPlayersResult = await client.query(
+    `SELECT "id", "name", "position" FROM "players" WHERE "id" = ANY($1::int[])`,
+    [items.map((i) => i.player_id)]
+  );
+  const knownPositions = new Map(tradedPlayersResult.rows.map((p) => [p.id, p.position]));
   // A TradeError, so a due trade that can never fit is cancelled. Each receiving
   // Team's fit is one net question over the whole swap, asked before any write.
   for (const teamId of delta.keys()) {
@@ -504,15 +510,10 @@ async function executeTrade(client, { trade, league, items, teams, byCommissione
       teamId,
       adds: items.filter((item) => item.to_team_id === teamId).map((item) => item.player_id),
       drops: items.filter((item) => item.from_team_id === teamId).map((item) => item.player_id),
+      knownPositions,
     });
     if (refusal) throw new TradeError(409, refusal);
   }
-  // The names the transaction detail bakes in later, read in one statement before the loop.
-  const tradedPlayersResult = await client.query(
-    `SELECT "id", "name", "position" FROM "players" WHERE "id" = ANY($1::int[])`,
-    [items.map((i) => i.player_id)]
-  );
-
   for (const item of items) {
     // Delete-and-insert rather than UPDATE ... SET team_id (#197). Moving the
     // row keeps the GIVING team's created_at, so "when this team acquired

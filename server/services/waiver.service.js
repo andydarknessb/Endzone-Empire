@@ -694,11 +694,11 @@ async function processWaivers({ leagueId }) {
       // freeze must not land during it (#940 story 4). A frozen League throws,
       // the transaction rolls back, and every due claim stays pending for the
       // next tick rather than being awarded or permanently invalidated. The team
-      // lock and the waiver hold are bypassed there: the add checks capacity and
-      // the position cap after this claim's own drop, the same net question
-      // claimFailureReason asked above, and a waiver award IS a waiver, so the
-      // on-waivers gate does not apply. Per-team-lock handling on the batch path is
-      // a later ticket - so this slice changes only the freeze here (#944 criterion 5).
+      // lock and the waiver hold are bypassed there, and the add passes an empty move
+      // set: claimFailureReason already asked the claim's net fit (its drop netted in)
+      // before any write above, so the add has nothing left to fit. A waiver award IS
+      // a waiver, so the on-waivers gate does not apply. Per-team-lock handling on the
+      // batch path is a later ticket - so this slice changes only the freeze here (#944 criterion 5).
 
       // Execute: optional drop (dropped player goes on waivers), then add.
       if (claim.drop_player_id) {
@@ -725,6 +725,7 @@ async function processWaivers({ leagueId }) {
         teamId: team.id,
         playerId,
         bypass: [ROSTER_GATE.TEAM_LOCK, ROSTER_GATE.WAIVER_HOLD],
+        moves: { adds: [], drops: [] },
       });
       if (league.waiver_type === 'faab' && claim.bid > 0) {
         await client.query(
