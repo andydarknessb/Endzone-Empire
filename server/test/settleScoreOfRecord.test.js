@@ -10,8 +10,7 @@ const {
   materializeLineup,
 } = require('../services/lineup.service');
 const { scoreMatchups } = require('../services/matchupScoring.service');
-const { finalizeWeekAndAdvance } = require('../services/season.service');
-const { correctLeagueWeek } = require('../services/correction.service');
+const { correctWeek, settleWeek } = require('../services/settle.service');
 const { registerRecordingBroadcast } = require('./helpers/recordingBroadcast');
 
 // scoreMatchups now emits through getDraftRoomBroadcast(), which THROWS when no
@@ -367,7 +366,7 @@ function createWorld({
       return { rows: [] };
     }],
 
-    // --- correctLeagueWeek's before/after snapshots (on the POOL) ----------
+    // --- correctWeek's before/after snapshots (on the POOL) ----------
     [/^SELECT "id", "week", "final", "is_playoff", "home_score", "away_score" FROM "matchups"/,
       (text, [leagueId, season, week]) => ({
         rows: state.matchups
@@ -386,7 +385,7 @@ function createWorld({
       return { rows: [] };
     }],
 
-    // --- finalizeWeekAndAdvance -------------------------------------------
+    // --- settleWeek -------------------------------------------
     [/^SELECT "id", "name", "owner_id" FROM "teams"/, () => ({
       rows: state.teams.map((t) => ({ ...t })),
     })],
@@ -441,12 +440,12 @@ function createWorld({
 }
 
 /**
- * The real advance-week sequence: finalize with the settle pass inside its one
+ * The real advance-week sequence: settleWeek with the settle pass inside its one
  * transaction (spec #2602), which settles the week it read under the League
  * lock before current_week moves.
  */
 async function advanceWeek() {
-  const { scored, ...advance } = await finalizeWeekAndAdvance({ leagueId: LEAGUE_ID, settle: true });
+  const { scored, advance } = await settleWeek({ leagueId: LEAGUE_ID });
   return { scored: { scored }, advance };
 }
 
@@ -776,7 +775,7 @@ test('#635 the bound is one rule on both populations: the settled score survives
   assert.equal(world.state.matchups[0].final, true, 'and the week is final');
 
   await acquire(world.fake, world.state, { playerId: THURSDAY_MAN, at: LATER_STILL });
-  const correction = await correctLeagueWeek({ leagueId: LEAGUE_ID, season: SEASON, week: WEEK });
+  const correction = await correctWeek({ leagueId: LEAGUE_ID, season: SEASON, week: WEEK });
 
   assert.equal(awayScoreOf(world.state), 30, 'the re-add reopened a tenure that began after the last kickoff');
   assert.deepEqual(correction.changes, [], 'nothing to announce');
@@ -1045,7 +1044,7 @@ test('#190 the settled score survives the next stat-correction sweep', async (t)
   assert.equal(awayScoreOf(world.state), 10, 'settled without the post-game pickup');
   assert.equal(world.state.matchups[0].final, true, 'and the week is final');
 
-  const correction = await correctLeagueWeek({ leagueId: LEAGUE_ID, season: SEASON, week: WEEK });
+  const correction = await correctWeek({ leagueId: LEAGUE_ID, season: SEASON, week: WEEK });
 
   assert.equal(awayScoreOf(world.state), 10,
     'the score of record is the score of record: re-scoring a settled week returns it');
@@ -1088,7 +1087,7 @@ test('#190 the settled score survives a re-score after the excluded pickup is CU
     'and his week-8 row is still there to be counted: a settled week is never written into (#106)'
   );
 
-  const correction = await correctLeagueWeek({ leagueId: LEAGUE_ID, season: SEASON, week: WEEK });
+  const correction = await correctWeek({ leagueId: LEAGUE_ID, season: SEASON, week: WEEK });
 
   assert.equal(awayScoreOf(world.state), 10,
     'still the settled score, with the roster row that a proxy would have needed long gone');
@@ -1364,7 +1363,8 @@ test('#190 advance-week asks for settle semantics, pinned to the week it is clos
     // The handler also selects the phase columns now (#194); this league is
     // mid-season with its draft done, which is the only state in which
     // advance-week does anything at all.
-    [/"current_season", "current_week"/, () => ({
+    // Answers the route's phase read and its advance-week pre-read (which selects only current_week).
+    [/"current_week"/, () => ({
       rows: [{
         current_season: SEASON,
         current_week: WEEK,

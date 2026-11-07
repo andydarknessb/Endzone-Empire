@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const { createFakePool } = require('./helpers/fakePool');
 const { tenureHandlers, tenure } = require('./helpers/tenureFakes');
 const { scoreMatchups } = require('../services/matchupScoring.service');
-const { correctLeagueWeek } = require('../services/correction.service');
+const { correctWeek } = require('../services/settle.service');
 const { registerRecordingBroadcast } = require('./helpers/recordingBroadcast');
 
 // scoreMatchups now emits through getDraftRoomBroadcast(), which THROWS when no
@@ -222,7 +222,7 @@ function createWorld({
       return { rows: [] };
     }],
 
-    // correctLeagueWeek's before/after snapshots and its announcement path.
+    // correctWeek's before/after snapshots and its announcement path.
     [/^SELECT "id", "week", "final", "is_playoff"/, (text, [leagueId, season, week]) => ({
       rows: state.matchups
         .filter((m) => m.league_id === leagueId && m.season === season && m.week === week)
@@ -422,7 +422,7 @@ test('the settled score survives the excluded pickup being CUT (idempotence, #19
   const tenure = state.tenures.find((x) => x.playerId === 2);
   tenure.releasedAt = AFTER_SUN;
 
-  const outcome = await correctLeagueWeek({ leagueId: LEAGUE_ID, season: SEASON, week: WEEK });
+  const outcome = await correctWeek({ leagueId: LEAGUE_ID, season: SEASON, week: WEEK });
 
   assert.equal(state.matchups[0].home_score, settled, 're-scoring after the cut returns the same score');
   assert.deepEqual(outcome.changes, [], 'and reports no change, so nothing is announced to the league');

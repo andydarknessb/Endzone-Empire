@@ -139,6 +139,7 @@ test('manual correction fails closed for cross-season, week-one, and ambiguous t
 
 const poolModule = require('../modules/pool');
 const correctionSvc = require('../services/correction.service');
+const settleSvc = require('../services/settle.service');
 const feedSyncRuns = require('../services/feedSyncRuns.service');
 const matchupScoring = require('../services/matchupScoring.service');
 const nflverse = require('../services/nflverseSync.service');
@@ -181,7 +182,7 @@ test('resyncPriorWeeks defaults to nflverse and never calls Tank01', async (t) =
     nflverseArgs = args;
     return { playersUpdated: 10 };
   });
-  t.mock.method(correctionSvc, 'correctLeagueWeek', async () => ({ leagueId: 42, changes: [] }));
+  t.mock.method(settleSvc, 'correctWeek', async () => ({ leagueId: 42, changes: [] }));
 
   await correctionSvc.resyncPriorWeeks();
 
@@ -198,7 +199,7 @@ test('resyncPriorWeeks can still be asked for the Tank01 source explicitly', asy
     tankArgs = args;
     return { plays: [] };
   });
-  t.mock.method(correctionSvc, 'correctLeagueWeek', async () => ({ leagueId: 42, changes: [] }));
+  t.mock.method(settleSvc, 'correctWeek', async () => ({ leagueId: 42, changes: [] }));
 
   const prevKey = process.env.RAPID_API_KEY;
   const prevHost = process.env.RAPID_API_HOST;
@@ -241,8 +242,7 @@ const projectionSvc = require('../services/projection.service');
 /**
  * Stubs the pool and records the per-league matchup reads.
  *
- * `correctLeagueWeek` is called through a module-local binding, so it cannot be
- * mocked from outside; it is left to run for real and short-circuits on the
+ * `correctWeek` is not mocked here: it runs for real and short-circuits on the
  * empty `matchups` read. That read is therefore the honest observation point
  * for "the per-league loop was still entered".
  */
@@ -413,7 +413,7 @@ test('a failure in one corrected week does not skip cache maintenance for the ne
 
 // ---- #1409: a stat correction rebuilds the stored weekly recap --------------
 //
-// correctLeagueWeek is the one place BOTH the scheduled Tuesday/Wednesday
+// correctWeek is the one place BOTH the scheduled Tuesday/Wednesday
 // pass and the manual commissioner correction route (scoring.router.js'
 // POST /league/:id/correct-week) land, so a rebuild wired in here covers both
 // with no separate code path. The recap is rebuilt SILENTLY: only
@@ -423,7 +423,7 @@ test('a failure in one corrected week does not skip cache maintenance for the ne
 /**
  * A one-matchup, two-team world wired for: an initial `generateWeeklyRecap`
  * seed (the advance-week path, pre-correction score), then
- * correctLeagueWeek's own before/after snapshots and
+ * correctWeek's own before/after snapshots and
  * computeAndStoreWeeklyRecap's rebuild queries. `scoring.scoreMatchups` is
  * mocked to a no-op (as commissionerAlertFanout.test.js does) and the
  * "after" snapshot rows stand in for what it would have written. The
@@ -472,7 +472,7 @@ test('#1409: a correction rebuilds the stored recap from the corrected scores, w
   // right before Tuesday's correction runs.
   await recapSvc.generateWeeklyRecap({ leagueId: 7, season: 2026, week: 5 });
 
-  const outcome = await correctionSvc.correctLeagueWeek({ leagueId: 7, season: 2026, week: 5 });
+  const outcome = await settleSvc.correctWeek({ leagueId: 7, season: 2026, week: 5 });
 
   assert.equal(outcome.changes.length, 1);
   const stored = fake.matching(/INSERT INTO "league_analytics"/);
@@ -511,7 +511,7 @@ test('#1409: the recap rebuild runs AFTER the stat_correction log/notify, not be
   fake.install(t);
   stubScoring(t);
 
-  await correctionSvc.correctLeagueWeek({ leagueId: 7, season: 2026, week: 5 });
+  await settleSvc.correctWeek({ leagueId: 7, season: 2026, week: 5 });
 
   const statCorrectionIdx = fake.calls.findIndex(
     (c) => /INSERT INTO "transactions"/.test(c.text) && c.params[2] === 'stat_correction'
@@ -556,7 +556,7 @@ test('#2602: a correction whose log/notify step throws rebuilds nothing, because
   stubScoring(t);
 
   await assert.rejects(
-    correctionSvc.correctLeagueWeek({ leagueId: 7, season: 2026, week: 5 }),
+    settleSvc.correctWeek({ leagueId: 7, season: 2026, week: 5 }),
     /owner lookup exploded/
   );
 
@@ -583,7 +583,7 @@ test('#1409: a correction that changes nothing leaves the stored recap untouched
   fake.install(t);
   stubScoring(t);
 
-  const outcome = await correctionSvc.correctLeagueWeek({ leagueId: 7, season: 2026, week: 5 });
+  const outcome = await settleSvc.correctWeek({ leagueId: 7, season: 2026, week: 5 });
 
   assert.deepEqual(outcome.changes, []);
   assert.equal(
@@ -610,7 +610,7 @@ test('#1409: a correction on a matchup that was not yet final never touches the 
   fake.install(t);
   stubScoring(t);
 
-  const outcome = await correctionSvc.correctLeagueWeek({ leagueId: 7, season: 2026, week: 5 });
+  const outcome = await settleSvc.correctWeek({ leagueId: 7, season: 2026, week: 5 });
 
   assert.equal(outcome.changes.length, 1, 'the score change is still logged');
   assert.equal(
@@ -629,7 +629,7 @@ test('#1409: a recap rebuild failure is logged and never blocks the correction p
   const logs = [];
   t.mock.method(console, 'error', (...args) => { logs.push(args); });
 
-  const outcome = await correctionSvc.correctLeagueWeek({ leagueId: 7, season: 2026, week: 5 });
+  const outcome = await settleSvc.correctWeek({ leagueId: 7, season: 2026, week: 5 });
 
   assert.equal(outcome.changes.length, 1, 'the correction pass still records its changes');
   assert.equal(
@@ -730,7 +730,7 @@ test('#1410: a correction recomputes power rankings and the rebuilt recap reads 
   // right before Tuesday's correction runs (mirrors #1409's own seed step).
   await recapSvc.generateWeeklyRecap({ leagueId: 7, season: 2026, week: 5 });
 
-  const outcome = await correctionSvc.correctLeagueWeek({ leagueId: 7, season: 2026, week: 5 });
+  const outcome = await settleSvc.correctWeek({ leagueId: 7, season: 2026, week: 5 });
 
   assert.equal(outcome.changes.length, 1);
   assert.equal(mc.mock.calls.length, 1, 'power rankings are recomputed exactly once');
@@ -767,7 +767,7 @@ test('#1410: a final-score correction hands the week to the Settle follow-up in 
     );
   });
 
-  await correctionSvc.correctLeagueWeek({ leagueId: 7, season: 2026, week: 5 });
+  await settleSvc.correctWeek({ leagueId: 7, season: 2026, week: 5 });
 
   assert.deepEqual(followUp.mock.calls.map((c) => c.arguments[0]), [
     { leagueId: 7, season: 2026, week: 5, mode: 'correction' },
@@ -785,7 +785,7 @@ test('#2616: a throwing scores:updated announce still hands a final-score correc
   const followUp = t.mock.method(settleFollowUpSvc, 'settleFollowUp', async () => {});
 
   // Contained (spec #2693): the announce failure is reported once and the call resolves.
-  await correctionSvc.correctLeagueWeek({ leagueId: 7, season: 2026, week: 5 });
+  await settleSvc.correctWeek({ leagueId: 7, season: 2026, week: 5 });
 
   assert.deepEqual(followUp.mock.calls.map((c) => c.arguments[0]), [
     { leagueId: 7, season: 2026, week: 5, mode: 'correction' },
@@ -800,7 +800,7 @@ test('#1410: a power-rankings recompute failure is logged and never blocks the r
   const logs = [];
   t.mock.method(console, 'error', (...args) => { logs.push(args); });
 
-  const outcome = await correctionSvc.correctLeagueWeek({ leagueId: 7, season: 2026, week: 5 });
+  const outcome = await settleSvc.correctWeek({ leagueId: 7, season: 2026, week: 5 });
 
   assert.equal(outcome.changes.length, 1, 'the correction pass still completes');
   const stored = fake.matching(/INSERT INTO "league_analytics"/);
@@ -831,7 +831,7 @@ test('#1410: a correction that changes no scores never recomputes power rankings
     throw new Error('must not be called for a no-op correction');
   });
 
-  const outcome = await correctionSvc.correctLeagueWeek({ leagueId: 7, season: 2026, week: 5 });
+  const outcome = await settleSvc.correctWeek({ leagueId: 7, season: 2026, week: 5 });
 
   assert.deepEqual(outcome.changes, []);
   assert.equal(mc.mock.calls.length, 0, 'no score movement means no power-rankings recompute');
@@ -924,7 +924,7 @@ test('#1411: a correction that moves the weekly high score removes the previous 
   t.mock.method(montecarlo, 'computeLeagueOdds', async () => ({}));
   t.mock.method(recapSvc, 'computeAndStoreWeeklyRecap', async () => ({}));
 
-  await correctionSvc.correctLeagueWeek({ leagueId: 7, season: 2026, week: 5 });
+  await settleSvc.correctWeek({ leagueId: 7, season: 2026, week: 5 });
 
   const topScorers = fake.trophyRows.filter((row) => row.type === 'top_scorer');
   assert.equal(topScorers.length, 1, 'exactly one team holds the weekly high score trophy');
@@ -948,7 +948,7 @@ test('#1411: a correction that raises the leader\'s total without changing the l
   t.mock.method(montecarlo, 'computeLeagueOdds', async () => ({}));
   t.mock.method(recapSvc, 'computeAndStoreWeeklyRecap', async () => ({}));
 
-  await correctionSvc.correctLeagueWeek({ leagueId: 7, season: 2026, week: 5 });
+  await settleSvc.correctWeek({ leagueId: 7, season: 2026, week: 5 });
 
   const topScorers = fake.trophyRows.filter((row) => row.type === 'top_scorer');
   assert.equal(topScorers.length, 1, 'still exactly one trophy for the week');
@@ -1062,7 +1062,7 @@ test('#1411: an exact tie for the week high score never moves the trophy off its
   t.mock.method(montecarlo, 'computeLeagueOdds', async () => ({}));
   t.mock.method(recapSvc, 'computeAndStoreWeeklyRecap', async () => ({}));
 
-  await correctionSvc.correctLeagueWeek({ leagueId: 7, season: 2026, week: 5 });
+  await settleSvc.correctWeek({ leagueId: 7, season: 2026, week: 5 });
 
   assert.equal(fake.deleteCalls.length, 0, 'the tied, already-correct leader must never be deleted');
   const topScorers = fake.trophyRows.filter((row) => row.type === 'top_scorer');
@@ -1093,7 +1093,7 @@ test('#1411 (formal-001 f1): the mirror case - an incumbent at the HIGHER team_i
   t.mock.method(montecarlo, 'computeLeagueOdds', async () => ({}));
   t.mock.method(recapSvc, 'computeAndStoreWeeklyRecap', async () => ({}));
 
-  await correctionSvc.correctLeagueWeek({ leagueId: 7, season: 2026, week: 5 });
+  await settleSvc.correctWeek({ leagueId: 7, season: 2026, week: 5 });
 
   assert.equal(fake.deleteCalls.length, 0, 'the tied, already-correct leader must never be deleted');
   const topScorers = fake.trophyRows.filter((row) => row.type === 'top_scorer');
@@ -1128,7 +1128,7 @@ test('#1411 (formal-001 f2): a team\'s week score is its highest single matchup 
   t.mock.method(montecarlo, 'computeLeagueOdds', async () => ({}));
   t.mock.method(recapSvc, 'computeAndStoreWeeklyRecap', async () => ({}));
 
-  await correctionSvc.correctLeagueWeek({ leagueId: 7, season: 2026, week: 5 });
+  await settleSvc.correctWeek({ leagueId: 7, season: 2026, week: 5 });
 
   // Unlike the tie tests (152 seeded -> 150 asserted, which only passes if
   // the UPDATE actually ran), this test's seed already equals every
@@ -1165,7 +1165,7 @@ test('#1411: a correction that changes no scores leaves the trophies table untou
     throw new Error('must not be called for a no-op correction');
   });
 
-  const outcome = await correctionSvc.correctLeagueWeek({ leagueId: 7, season: 2026, week: 5 });
+  const outcome = await settleSvc.correctWeek({ leagueId: 7, season: 2026, week: 5 });
 
   assert.deepEqual(outcome.changes, []);
   assert.equal(reconcile.mock.calls.length, 0, 'no score movement means no trophy reconcile');
@@ -1187,7 +1187,7 @@ test('#1411: season-level trophies for the league are unchanged by a weekly high
   t.mock.method(montecarlo, 'computeLeagueOdds', async () => ({}));
   t.mock.method(recapSvc, 'computeAndStoreWeeklyRecap', async () => ({}));
 
-  await correctionSvc.correctLeagueWeek({ leagueId: 7, season: 2026, week: 5 });
+  await settleSvc.correctWeek({ leagueId: 7, season: 2026, week: 5 });
 
   const stillThere = fake.trophyRows.find((row) => row.id === 900);
   assert.ok(stillThere, 'the season-level trophy row was never deleted');
@@ -1202,7 +1202,7 @@ test('#1411: a weekly high score trophy reconcile failure is logged and never bl
   const logs = [];
   t.mock.method(console, 'error', (...args) => { logs.push(args); });
 
-  const outcome = await correctionSvc.correctLeagueWeek({ leagueId: 7, season: 2026, week: 5 });
+  const outcome = await settleSvc.correctWeek({ leagueId: 7, season: 2026, week: 5 });
 
   assert.equal(outcome.changes.length, 1, 'the correction pass still completes');
   assert.equal(
@@ -1329,7 +1329,7 @@ test('#2547: a final regular-season correction during the playoffs alerts every 
   stubScoring(t);
   t.mock.method(settleFollowUpSvc, 'settleFollowUp', async () => {});
 
-  await correctionSvc.correctLeagueWeek({ leagueId: 7, season: 2026, week: 14 });
+  await settleSvc.correctWeek({ leagueId: 7, season: 2026, week: 14 });
 
   assert.deepEqual(lockedSeedAlerts(fake).sort((a, b) => a - b), [100, 202]);
   fake.assertClean();
@@ -1341,7 +1341,7 @@ test('#2547: the same correction before the bracket exists sends no seed alert',
   stubScoring(t);
   t.mock.method(settleFollowUpSvc, 'settleFollowUp', async () => {});
 
-  await correctionSvc.correctLeagueWeek({ leagueId: 7, season: 2026, week: 14 });
+  await settleSvc.correctWeek({ leagueId: 7, season: 2026, week: 14 });
 
   assert.deepEqual(lockedSeedAlerts(fake), []);
   fake.assertClean();
@@ -1353,7 +1353,7 @@ test('#2547: a League in its playoffs with no stored seeds gets no locked-seeds 
   stubScoring(t);
   t.mock.method(settleFollowUpSvc, 'settleFollowUp', async () => {});
 
-  await correctionSvc.correctLeagueWeek({ leagueId: 7, season: 2026, week: 14 });
+  await settleSvc.correctWeek({ leagueId: 7, season: 2026, week: 14 });
 
   assert.deepEqual(lockedSeedAlerts(fake), []);
   assert.equal(fake.matching(/SELECT 1 FROM "playoff_seeds"/).length, 1, 'the probe ran and found no seeds');
@@ -1421,7 +1421,7 @@ test('#2602: a failed stat_correction log INSERT rolls the re-scored Matchups ba
   installRecordingBroadcast(t);
 
   await assert.rejects(
-    correctionSvc.correctLeagueWeek({ leagueId: 7, season: 2026, week: 5 }),
+    settleSvc.correctWeek({ leagueId: 7, season: 2026, week: 5 }),
     /log insert failed/
   );
 
@@ -1459,7 +1459,7 @@ test('#2602: a committed correction writes the scores, the log and the notice in
     return record(leagueId, payload);
   };
 
-  const outcome = await correctionSvc.correctLeagueWeek({ leagueId: 7, season: 2026, week: 5 });
+  const outcome = await settleSvc.correctWeek({ leagueId: 7, season: 2026, week: 5 });
 
   assert.equal(outcome.changes.length, 1, 'the moved score is reported');
   const { begin, end, closing, inside } = openTransaction(fake);
@@ -1488,7 +1488,7 @@ test('#2602: the before read takes FOR UPDATE on the week\'s Matchup rows inside
   t.mock.method(settleFollowUpSvc, 'settleFollowUp', async () => {});
   installRecordingBroadcast(t);
 
-  await correctionSvc.correctLeagueWeek({ leagueId: 7, season: 2026, week: 5 });
+  await settleSvc.correctWeek({ leagueId: 7, season: 2026, week: 5 });
 
   const { inside } = openTransaction(fake);
   const beforeRead = inside.find((c) => /^SELECT "id", "week", "final", "is_playoff", "home_score", "away_score"/.test(c.text));

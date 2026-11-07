@@ -1,7 +1,8 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { createFakePool, select, update } = require('./helpers/fakePool');
-const { finalizeWeekAndAdvance } = require('../services/season.service');
+const { settleWeek } = require('../services/settle.service');
+const { stubSettlePasses } = require('./helpers/settlePasses');
 const lineupService = require('../services/lineup.service');
 
 /**
@@ -52,6 +53,7 @@ function advancePool() {
 }
 
 test('advancing a regular-season week materializes every team in a matchup of the new week, in its own transaction', async (t) => {
+  stubSettlePasses(t);
   const materialized = [];
   t.mock.method(lineupService, 'materializeLineup', async (client, args) => {
     materialized.push({ teamId: args.teamId, week: args.week, season: args.season, bestBall: args.league.best_ball });
@@ -59,7 +61,7 @@ test('advancing a regular-season week materializes every team in a matchup of th
   });
   const fake = advancePool().install(t);
 
-  const outcome = await finalizeWeekAndAdvance({ leagueId: 1 });
+  const { advance: outcome } = await settleWeek({ leagueId: 1 });
 
   assert.equal(outcome.advancedTo, 4);
   assert.deepEqual(
@@ -80,13 +82,14 @@ test('advancing a regular-season week materializes every team in a matchup of th
 });
 
 test('a materialization failure is logged and the advance still succeeds', async (t) => {
+  stubSettlePasses(t);
   t.mock.method(lineupService, 'materializeLineup', async () => {
     throw new Error('roster read failed');
   });
   t.mock.method(console, 'error', () => {});
   const fake = advancePool().install(t);
 
-  const outcome = await finalizeWeekAndAdvance({ leagueId: 1 });
+  const { advance: outcome } = await settleWeek({ leagueId: 1 });
 
   assert.equal(outcome.advancedTo, 4);
   const commits = fake.calls.filter((c) => /^COMMIT/.test(c.text));
@@ -98,6 +101,7 @@ test('a materialization failure is logged and the advance still succeeds', async
 });
 
 test('a new week with no matchups (nothing scheduled) opens no transaction and materializes nobody', async (t) => {
+  stubSettlePasses(t);
   const materialized = [];
   t.mock.method(lineupService, 'materializeLineup', async (client, args) => {
     materialized.push(args.teamId);
@@ -118,7 +122,7 @@ test('a new week with no matchups (nothing scheduled) opens no transaction and m
     [update('leagues'), () => ({ rows: [], rowCount: 1 })],
   ]).install(t);
 
-  const outcome = await finalizeWeekAndAdvance({ leagueId: 1 });
+  const { advance: outcome } = await settleWeek({ leagueId: 1 });
 
   assert.equal(outcome.advancedTo, 4);
   assert.deepEqual(materialized, []);
@@ -127,6 +131,7 @@ test('a new week with no matchups (nothing scheduled) opens no transaction and m
 });
 
 test('a pool that cannot hand out a second connection still leaves the advance committed', async (t) => {
+  stubSettlePasses(t);
   t.mock.method(console, 'error', () => {});
   const fake = advancePool().install(t);
   // install() patched the pool module's connect; wrap that patched version
@@ -141,7 +146,7 @@ test('a pool that cannot hand out a second connection still leaves the advance c
     return installedConnect(...args);
   };
 
-  const outcome = await finalizeWeekAndAdvance({ leagueId: 1 });
+  const { advance: outcome } = await settleWeek({ leagueId: 1 });
 
   assert.equal(outcome.advancedTo, 4);
   assert.equal(fake.calls.filter((c) => /^COMMIT/.test(c.text)).length, 1);

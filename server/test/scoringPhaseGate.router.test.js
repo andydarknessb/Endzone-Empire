@@ -4,7 +4,7 @@
  *
  * The advance-week route is the reason this check exists at the route and not
  * only in the season service: it scores the week first and finalizes second,
- * so a refusal that fired only inside finalizeWeekAndAdvance would answer 409
+ * so a refusal that fired only inside settleWeek would answer 409
  * with a full week of scores already written. These tests assert that absence
  * directly rather than inferring it from the status code.
  */
@@ -16,6 +16,7 @@ const { createFakePool, insert, update } = require('./helpers/fakePool');
 const { signToken } = require('../modules/auth');
 const scoring = require('../services/matchupScoring.service');
 const season = require('../services/season.service');
+const settle = require('../services/settle.service');
 const { SEASON_BEFORE_DRAFT_MESSAGE } = require('../services/leaguePhase');
 const { PICKEM_ONLY_CODE } = require('../services/leagueType');
 
@@ -77,14 +78,12 @@ for (const draftStatus of ['pending', 'active']) {
   test(`advance-week: refuses a league whose draft is ${draftStatus} without scoring the week`, async (t) => {
     const fake = routerPool(league({ draft_status: draftStatus })).install(t);
     const scored = spy(t, scoring, 'scoreMatchups');
-    const finalized = spy(t, season, 'finalizeWeekAndAdvance');
 
     const res = await request(app).post('/api/scoring/league/1/advance-week').set('Authorization', authed);
 
     assert.equal(res.status, 409);
     assert.equal(res.body.error, SEASON_BEFORE_DRAFT_MESSAGE);
     assert.equal(scored.length, 0, 'no scores were written');
-    assert.equal(finalized.length, 0, 'the week was never finalized');
     assert.equal(fake.matching(update('matchups')).length, 0);
     assert.equal(fake.matching(update('leagues')).length, 0);
     fake.assertClean();
@@ -92,7 +91,6 @@ for (const draftStatus of ['pending', 'active']) {
 }
 
 test('advance-week: a league whose draft is complete scores and advances as before', async (t) => {
-  const settle = require('../services/settle.service');
   const fake = routerPool(league({ draft_status: 'complete' })).install(t);
   const scored = spy(t, scoring, 'scoreMatchups');
   // The route calls settleWeek (spec #2693), which owns the score, the finalize and the follow-up.
@@ -108,6 +106,22 @@ test('advance-week: a league whose draft is complete scores and advances as befo
   assert.equal(scored.length, 0, 'the settle pass scores inside its own League write, not a separate scoreMatchups transaction');
   assert.equal(finalized.length, 1);
   assert.equal(res.body.scored, 2);
+  fake.assertClean();
+});
+
+test('advance-week: with no body week, settleWeek is pinned to the current week read before the lock', async (t) => {
+  const fake = routerPool(league({ draft_status: 'complete', current_week: 3 })).install(t);
+  const finalized = spy(t, settle, 'settleWeek', async () => ({
+    scored: 2,
+    advance: { advancedTo: 4, seasonStatus: 'regular' },
+    followUp: new Promise(() => {}),
+  }));
+
+  const res = await request(app).post('/api/scoring/league/1/advance-week').set('Authorization', authed);
+
+  assert.equal(res.status, 200);
+  assert.equal(finalized.length, 1);
+  assert.equal(finalized[0][0].expectedWeek, 3, 'the replay guard gets the week the League showed, not league id or undefined');
   fake.assertClean();
 });
 
@@ -198,14 +212,14 @@ for (const route of ['advance-week', 'schedule', 'matchups']) {
     // scoring.router.js issues no INSERT, UPDATE or DELETE of its own - every
     // write on all three routes happens inside scoring.scoreMatchups,
     // scoring.generateMatchups, season.generateRegularSeason or
-    // season.finalizeWeekAndAdvance. Since all four are stubbed below, no code
+    // settle.settleWeek. Since all four are stubbed below, no code
     // path downstream of them can dispatch SQL at all, which means a
     // fake.matching(insert('matchups')) count here would be pinned at 0 in the
     // correct build AND in a mutated one. That is the unfalsifiable assertion
     // this ticket exists to remove, so it is deliberately not written.
     const fake = routerPool(league({ pickem_only: true, draft_status: 'pending' })).install(t);
     const scored = spy(t, scoring, 'scoreMatchups');
-    const finalized = spy(t, season, 'finalizeWeekAndAdvance');
+    const finalized = spy(t, settle, 'settleWeek');
     const scheduled = spy(t, season, 'generateRegularSeason');
     const generated = spy(t, scoring, 'generateMatchups');
 
@@ -253,13 +267,11 @@ test('advance-week: a body week that only coerces to a positive integer is refus
 test('advance-week: a body week that is no longer the current week is refused 409 without scoring', async (t) => {
   const fake = routerPool(league({ draft_status: 'complete', current_week: 2 })).install(t);
   const scored = spy(t, scoring, 'scoreMatchups');
-  const finalized = spy(t, season, 'finalizeWeekAndAdvance');
 
   const res = await request(app).post('/api/scoring/league/1/advance-week').set('Authorization', authed).send({ week: 1 });
 
   assert.equal(res.status, 409);
   assert.equal(res.body.error, 'week 1 was already advanced');
   assert.equal(scored.length, 0);
-  assert.equal(finalized.length, 0);
   fake.assertClean();
 });

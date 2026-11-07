@@ -7,10 +7,11 @@ const {
   pairBySeed,
   getStandings,
   getPlayoffSeeds,
-  finalizeWeekAndAdvance,
   playoffRounds,
   lastPlayoffWeek,
 } = require('../services/season.service');
+const { settleWeek } = require('../services/settle.service');
+const { stubSettlePasses } = require('./helpers/settlePasses');
 const lineupService = require('../services/lineup.service');
 const { createFakePool, select, insert, update } = require('./helpers/fakePool');
 
@@ -332,11 +333,12 @@ function seedWorld() {
 
 test('bracket creation stores one seed per playoff Team, byes included', async (t) => {
   t.mock.method(lineupService, 'materializeLineup', async () => {});
+  stubSettlePasses(t);
   const world = seedWorld();
   world.league.playoff_teams = 6;
   world.pool.install(t);
 
-  await finalizeWeekAndAdvance({ leagueId: 1 });
+  await settleWeek({ leagueId: 1 });
 
   assert.deepEqual(
     [...world.seeds].sort((a, b) => a.seed - b.seed),
@@ -348,10 +350,11 @@ test('bracket creation stores one seed per playoff Team, byes included', async (
 
 test('a regular-season correction after seeding never changes who advances', async (t) => {
   t.mock.method(lineupService, 'materializeLineup', async () => {});
+  stubSettlePasses(t);
   const world = seedWorld();
   world.pool.install(t);
 
-  await finalizeWeekAndAdvance({ leagueId: 1 });
+  await settleWeek({ leagueId: 1 });
   assert.equal(world.league.season_status, 'playoffs');
   const round1 = world.matchups.filter((m) => m.is_playoff && m.week === 4);
   assert.deepEqual(round1.map((m) => [m.home_team_id, m.away_team_id]), [[1, 5], [3, 2]]);
@@ -365,7 +368,7 @@ test('a regular-season correction after seeding never changes who advances', asy
 
   // The higher seeds win round 1.
   round1.forEach((m) => { m.home_score = 100; m.away_score = 50; });
-  const outcome = await finalizeWeekAndAdvance({ leagueId: 1 });
+  const { advance: outcome } = await settleWeek({ leagueId: 1 });
 
   const round2 = world.matchups.filter((m) => m.is_playoff && m.week === 5);
   assert.deepEqual(
@@ -379,15 +382,16 @@ test('a regular-season correction after seeding never changes who advances', asy
 
 test('stored byes advance without playing: a 6-Team bracket re-pairs the winners with seeds 1 and 2', async (t) => {
   t.mock.method(lineupService, 'materializeLineup', async () => {});
+  stubSettlePasses(t);
   const world = seedWorld();
   world.league.playoff_teams = 6;
   world.pool.install(t);
 
-  await finalizeWeekAndAdvance({ leagueId: 1 });
+  await settleWeek({ leagueId: 1 });
   const round1 = world.matchups.filter((m) => m.is_playoff && m.week === 4);
   assert.deepEqual(round1.map((m) => [m.home_team_id, m.away_team_id]), [[2, 6], [5, 4]], 'seeds 1 and 2 are on the bye');
   round1.forEach((m) => { m.home_score = 100; m.away_score = 50; });
-  await finalizeWeekAndAdvance({ leagueId: 1 });
+  await settleWeek({ leagueId: 1 });
 
   const round2 = world.matchups.filter((m) => m.is_playoff && m.week === 5);
   assert.deepEqual(round2.map((m) => [m.home_team_id, m.away_team_id]), [[1, 5], [3, 2]]);
@@ -396,6 +400,7 @@ test('stored byes advance without playing: a 6-Team bracket re-pairs the winners
 
 test('a League already in its playoffs with no stored seeds derives its byes from live standings', async (t) => {
   t.mock.method(lineupService, 'materializeLineup', async () => {});
+  stubSettlePasses(t);
   const world = seedWorld();
   Object.assign(world.league, { season_status: 'playoffs', current_week: 4, playoff_teams: 6 });
   world.matchups.forEach((m) => { m.final = true; });
@@ -406,7 +411,7 @@ test('a League already in its playoffs with no stored seeds derives its byes fro
   }));
   world.pool.install(t);
 
-  await finalizeWeekAndAdvance({ leagueId: 1 });
+  await settleWeek({ leagueId: 1 });
 
   const round2 = world.matchups.filter((m) => m.is_playoff && m.week === 5);
   assert.deepEqual(

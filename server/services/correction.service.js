@@ -117,15 +117,6 @@ function diffMatchupScores(before, after) {
 }
 
 /**
- * Re-score one league week and record any changes (spec #2602). The League write
- * lives in the Settle module (ADR 0070); this delegates to its correctWeek, so the
- * nflverse pass and the Commissioner's correction route share one write.
- */
-async function correctLeagueWeek(args) {
-  return require('./settle.service').correctWeek(args);
-}
-
-/**
  * Scheduler entry point: re-sync last week's stats and re-score it for every
  * in-season league. Groups leagues by (season, prior week) so each week's
  * stats are pulled once.
@@ -170,7 +161,7 @@ async function resyncPriorWeeks({ source = 'nflverse' } = {}) {
         // Lazy require: nflverseSync requires this module at load time.
         const nflverseSync = require('./nflverseSync.service');
         // League re-scoring happens per-league below, through the same
-        // correctLeagueWeek path, so skip its own re-score loop.
+        // correctWeek path, so skip its own re-score loop.
         await nflverseSync.correctWeekFromNflverse({ season, week, rescoreLeagues: false });
       } else {
         await feedSyncRuns.syncWeekStats({ season, week });
@@ -231,7 +222,7 @@ async function resyncPriorWeeks({ source = 'nflverse' } = {}) {
     }
     for (const leagueId of leagueIds) {
       try {
-        const outcome = await correctLeagueWeek({ leagueId, season, week });
+        const outcome = await require('./settle.service').correctWeek({ leagueId, season, week });
         if (outcome.changes.length > 0) results.push(outcome);
       } catch (err) {
         console.error('stat correction failed for league %s:', leagueId, err.message);
@@ -264,7 +255,7 @@ async function resyncPriorWeeks({ source = 'nflverse' } = {}) {
 /**
  * The stat-correction pass as a Sync run (ADR 0036) with one unit and
  * `transaction: false`: a BEGIN'd client sitting idle for the minutes this
- * pass takes - while `correctLeagueWeek` opens its own transaction per league
+ * pass takes - while `correctWeek` opens its own transaction per league
  * on other clients, beside the tick's session-level advisory lock - is the
  * idle-in-transaction shape #839 already bit this repo with under the pooler.
  * The row carries the UTC `day` the pass ran for. A thrown pass (including the
@@ -332,7 +323,6 @@ module.exports = {
   isCorrectionDay,
   assertManualCorrectionWindow,
   diffMatchupScores,
-  correctLeagueWeek,
   resyncPriorWeeks,
   runStatCorrections,
 };

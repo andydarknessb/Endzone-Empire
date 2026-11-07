@@ -12,9 +12,9 @@ const assert = require('node:assert/strict');
 const { createFakePool, select, insert, update } = require('./helpers/fakePool');
 const {
   generateRegularSeason,
-  finalizeWeekAndAdvance,
   SeasonError,
 } = require('../services/season.service');
+const { settleWeek } = require('../services/settle.service');
 const { SEASON_BEFORE_DRAFT_MESSAGE } = require('../services/leaguePhase');
 
 const league = (over = {}) => ({
@@ -179,15 +179,15 @@ test('generateRegularSeason: a clean ROLLBACK returns the healthy connection to 
 });
 
 /* ------------------------------------------------------------------ *
- * finalizeWeekAndAdvance                                              *
+ * settleWeek                                              *
  * ------------------------------------------------------------------ */
 
 for (const draft_status of ['pending', 'active']) {
-  test(`finalizeWeekAndAdvance: refuses a fantasy league whose draft is ${draft_status}, changing nothing`, async (t) => {
+  test(`settleWeek: refuses a fantasy league whose draft is ${draft_status}, changing nothing`, async (t) => {
     const fake = seasonPool(league({ draft_status })).install(t);
 
     await assert.rejects(
-      () => finalizeWeekAndAdvance({ leagueId: 1 }),
+      () => settleWeek({ leagueId: 1 }),
       (error) => {
         assert.ok(error instanceof SeasonError);
         assert.equal(error.statusCode, 409);
@@ -205,7 +205,7 @@ for (const draft_status of ['pending', 'active']) {
   });
 }
 
-test('finalizeWeekAndAdvance: a complete season is still refused with its own message', async (t) => {
+test('settleWeek: a complete season is still refused with its own message', async (t) => {
   // Phase COMPLETE passes the new gate; what a finished season refuses is
   // season operations' own rule and must be unchanged.
   //
@@ -221,7 +221,7 @@ test('finalizeWeekAndAdvance: a complete season is still refused with its own me
   ]).install(t);
 
   await assert.rejects(
-    () => finalizeWeekAndAdvance({ leagueId: 1 }),
+    () => settleWeek({ leagueId: 1 }),
     (error) => error.statusCode === 409 && /season is complete/.test(error.message)
   );
   assert.equal(fake.matching(update('matchups')).length, 0, 'no matchup marked final');
@@ -229,7 +229,7 @@ test('finalizeWeekAndAdvance: a complete season is still refused with its own me
   fake.assertClean();
 });
 
-test('finalizeWeekAndAdvance: a replay for a week already advanced is refused 409, writing nothing', async (t) => {
+test('settleWeek: a replay for a week already advanced is refused 409, writing nothing', async (t) => {
   // Double click / retry: advanceWeek read week 1, but the first call already
   // moved the league to week 2. The matchups row exists, so only the week
   // check stands between this call and the UPDATE.
@@ -238,7 +238,7 @@ test('finalizeWeekAndAdvance: a replay for a week already advanced is refused 40
   ]).install(t);
 
   await assert.rejects(
-    () => finalizeWeekAndAdvance({ leagueId: 1, week: 1 }),
+    () => settleWeek({ leagueId: 1, expectedWeek: 1 }),
     (error) => error instanceof SeasonError && error.statusCode === 409 && /week 1 was already advanced/.test(error.message)
   );
   assert.equal(fake.matching(update('matchups')).length, 0, 'no matchup marked final');
