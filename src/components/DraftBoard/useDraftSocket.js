@@ -73,7 +73,7 @@ function reducer(state, action) {
  * codes and no code included - leaves them standing (#230, the codes renamed
  * to SCREAMING_SNAKE in #265, and the join handler below for why).
  */
-export default function useDraftSocket(leagueId, { onPickLanded, onDraftActivity } = {}) {
+export default function useDraftSocket(leagueId, { onPickLanded, onDraftActivity, onDraftState } = {}) {
   const [state, dispatch] = useReducer(reducer, initialState);
   const [error, setError] = useState(null);
   const [viewerTeamId, setViewerTeamId] = useState(null);
@@ -120,6 +120,10 @@ export default function useDraftSocket(leagueId, { onPickLanded, onDraftActivity
   // the client on draft:state and the feed's REST fetch, never here) cannot be
   // replayed as a live freeze.
   const onDraftActivityRef = useRef(onDraftActivity);
+  // The same ref idiom for the draft:state seam: every snapshot (join, reconnect,
+  // pause, resume, reset, correction, undo) is a state the room's pool and roster
+  // read, so the room hears each one through a callback that is never stale.
+  const onDraftStateRef = useRef(onDraftState);
 
   useEffect(() => {
     onPickLandedRef.current = onPickLanded;
@@ -128,6 +132,10 @@ export default function useDraftSocket(leagueId, { onPickLanded, onDraftActivity
   useEffect(() => {
     onDraftActivityRef.current = onDraftActivity;
   }, [onDraftActivity]);
+
+  useEffect(() => {
+    onDraftStateRef.current = onDraftState;
+  }, [onDraftState]);
 
   useEffect(() => {
     // Which Team the viewer holds is a fact about THIS league, so it is torn
@@ -233,6 +241,7 @@ export default function useDraftSocket(leagueId, { onPickLanded, onDraftActivity
 
     newSocket.on('draft:state', (data) => {
       dispatch({ type: 'state', data });
+      onDraftStateRef.current?.(data);
     });
 
     newSocket.on('draft:picked', (data) => {
