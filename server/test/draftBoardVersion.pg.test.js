@@ -318,11 +318,28 @@ if (!ENABLED) {
 
   // --- Draft router writers: clock, readiness, order, keepers ---------------------
 
-  test('a readiness change refused for a League that is not pending leaves the board version unchanged', async () => {
+  test('a readiness change refused for a League that is not pending advances nothing', async () => {
     const before = await boardVersion(activeLeague);
     const res = await call('POST', `/api/draft/league/${activeLeague}/ready`, ownerB, { ready: true });
     assert.equal(res.status, 403, JSON.stringify(res.body));
-    assert.equal(await boardVersion(activeLeague), before, 'the refused toggle rolls its version advance back');
+    assert.equal(await boardVersion(activeLeague), before, 'a refused toggle never advances the version');
+  });
+
+  test('a readiness change by a caller who owns no Team in a pending League advances nothing and writes no Team', async () => {
+    const outsider = await seedUser('board_version_pg_c');
+    const before = await boardVersion(pendingLeague);
+    const readyBefore = await pool.query(
+      'SELECT "owner_id", "draft_ready" FROM "teams" WHERE "league_id" = $1 ORDER BY "id"',
+      [pendingLeague]
+    );
+    const res = await call('POST', `/api/draft/league/${pendingLeague}/ready`, outsider, { ready: true });
+    assert.equal(res.status, 403, JSON.stringify(res.body));
+    assert.equal(await boardVersion(pendingLeague), before, 'the membership guard refuses before any advance');
+    const readyAfter = await pool.query(
+      'SELECT "owner_id", "draft_ready" FROM "teams" WHERE "league_id" = $1 ORDER BY "id"',
+      [pendingLeague]
+    );
+    assert.deepEqual(readyAfter.rows, readyBefore.rows, 'no Team row changed');
   });
 
   test('a clock change advances the board version and the draft:state it sends carries it', async () => {

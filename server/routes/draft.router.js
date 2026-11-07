@@ -698,11 +698,18 @@ router.post('/league/:id/ready', async (req, res) => {
       if (!advanced.rows[0]) {
         throw new DraftError(403, 'not a member of this league, or the draft is not pending');
       }
-      await client.query(
+      // The advance's EXISTS ran on the statement's snapshot, so a Team removed while the
+      // advance waited on the League lock can still pass it. This write takes a fresh
+      // snapshot: no row means the refusal stands, and the rollback undoes the advance.
+      const toggled = await client.query(
         `UPDATE "teams" SET "draft_ready" = $1, "updated_at" = now()
-         WHERE "league_id" = $2 AND "owner_id" = $3`,
+         WHERE "league_id" = $2 AND "owner_id" = $3
+         RETURNING "id"`,
         [ready, leagueId, req.user.id]
       );
+      if (!toggled.rows[0]) {
+        throw new DraftError(403, 'not a member of this league, or the draft is not pending');
+      }
     }, { label: 'draft-ready' });
     await getDraftRoomBroadcast().stateChanged(leagueId);
     res.json({ leagueId, ready });
