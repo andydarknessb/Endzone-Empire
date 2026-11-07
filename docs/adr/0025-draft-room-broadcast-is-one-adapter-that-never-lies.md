@@ -193,3 +193,25 @@ A Draft act may therefore emit only `stateChanged` and `rosterChanged`: the
 other three are each some other module's fact to report, not a gap in the
 act module's coverage. See CONTEXT.md's Draft act and board fact entries for
 the glossary wording this amendment backs.
+
+## Amendment (2026-11-06, #2681): roster changed and presence retire, and Draft state carries a board version
+
+Three changes to the adapter's interface, decided in spec #2681:
+
+- `rosterChanged` retires. No client has listened for `roster:changed` since
+  #593 removed the listener, so its ten callers tell no one anything. POST
+  /undo, the act that removed picks outside a Commissioner correction, retires
+  with it. Every other act that changes rosters reaches the room through
+  `stateChanged`, and the room refetches the player pool and the viewer's
+  roster on every `draft:state`. A Draft act may therefore name only
+  `stateChanged`, and the 2026-09-07 amendment's ownership list keeps its
+  other four entries.
+- `draft:presence` retires too. The join handler sends it outside the adapter
+  (Consequences, above), and nothing listens for it.
+- Every `draft:state` and `draft:picked` carries the League's board version
+  (CONTEXT.md). It advances in the same transaction as every change to Draft
+  state, so a client keeps the highest it has applied and ignores an older
+  state. The
+  Draft activity `seq` keeps ordering narration only. It does not move when a
+  change writes no Draft activity (an Autodraft toggle, a clock change), so it
+  could not order those.

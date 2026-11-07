@@ -22,6 +22,17 @@ includes fantasy football it owns its own scoring rules, roster shape, schedule
 and playoff structure; a pick'em league owns none of those.
 _Avoid_: pool, group, room
 
+**League write**:
+A change to one League that is ordered against every other change to the
+same League: two League writes never interleave, and nothing hears of one
+before it commits. Every League write goes through one module, never a lock a
+caller takes itself, and a League write started inside another runs within it
+rather than ordering itself again (ADR 0070). A change confined to one Team
+(its lineup, its Queue, its Called shot) is not a League write: it is ordered
+against other changes to that Team instead. A Pick, a Draft act and a
+Commissioner correction are each a League write, under their own names.
+_Avoid_: League transaction, locked write
+
 **League dashboard**:
 One league's home page: its standings, this week's matchups and the league's
 activity. Links to it are labelled Dashboard.
@@ -621,6 +632,8 @@ advances the shared draft state and cannot be undone by the manager who made
 it; commissioner correction is a separate administrative act. A Pick is made
 only while the draft is active: a player added after the draft completes is a
 Free agent acquisition, not a Pick, and it is never part of the Draft record.
+A Pick is made by the Team's Manager, by Autopick, or by a Commissioner
+entering an offline draft's picks for whichever Team is on the clock.
 _Avoid_: selection, reversible pick, free-agent add (a post-draft acquisition,
 not a Pick)
 
@@ -635,12 +648,13 @@ _Avoid_: system message, chat message, Pick history (which is Pick-only and
 lives in the Draft board)
 
 **Draft act**:
-A lifecycle operation on a Draft that serializes on the League row, runs the
+A lifecycle operation on a Draft, made as a League write that also narrates to
+the Draft room: it serializes on the League row, runs the
 caller's mutations on that locked client, commits, and only then fans out to
 the room in one order. `runDraftAct` (`server/services/draftAct.service.js`)
 is the only way to perform one; a caller supplies an act body and never opens
 its own connection, takes its own lock, or chooses the fan-out order. Pause,
-resume, autodraft toggle, undo and reset are Draft acts; a Pick is not one
+resume, autodraft toggle and reset are Draft acts; a Pick is not one
 (pick.service.js owns landing a Pick on its own commit-and-fan-out, ADR 0025).
 _Avoid_: administrative act (Pick correction is that, not a Draft act),
 transaction (the lock and commit are how it works, not what it is)
@@ -651,11 +665,19 @@ method on the Draft room broadcast adapter (ADR 0025) that a Draft act may
 list in its `broadcasts`, as opposed to narration, which travels through the
 act's `activity` and is always emitted as `activityAppended`. Which module
 owns which board fact is a standing ownership ruling, not a matter of what a
-given caller happens to request; see ADR 0025's 2026-09-07 amendment for the
-full list and reasons. A Draft act may only emit `stateChanged` and
-`rosterChanged`.
+given caller happens to request; see ADR 0025's amendments for the
+full list and reasons. A Draft act may only emit `stateChanged`.
 _Avoid_: event, broadcast (unqualified; the adapter has other room traffic),
 domain event
+
+**board version**:
+The order of Draft state as the room hears it. Every Draft state broadcast
+carries one; it advances on every change to Draft state (a Pick, a pause or
+resume, an Autodraft toggle, a reset, a Commissioner correction), and a
+client never applies an older Draft state over a newer one. It is distinct
+from the Draft activity sequence, which orders narration only and does not
+move when a change writes no Draft activity.
+_Avoid_: seq (the Draft activity sequence), revision
 
 **Presenter**:
 This term carries two senses, numbered below. A reader tells them apart by
@@ -1025,8 +1047,10 @@ position limits
 The most players at one position a Team may roster, set by the
 commissioner. It holds all season on every acquisition: a draft Pick, a free
 agent add, a Waiver claim and a Trade, where a drop at the same position frees
-a place. A Team already over a cap keeps its players but adds none at that
-position until it is under. A commissioner's forced move is not held to it.
+a place. A Waiver claim that would break it is refused when it is made or
+edited, and checked again when claims process. A Team already over a cap keeps
+its players but adds none at that position until it is under. A commissioner's
+forced move is not held to it.
 _Avoid_: position limits (that phrasing names the Roster template), positional
 max
 
@@ -1076,6 +1100,14 @@ full a roster is names this number, never the roster limit: the league detail
 payload carries it per team as roster_capacity beside roster_count, and the
 Players list context as rosterCapacity beside rosterCount (#1475).
 _Avoid_: roster limit, effective limit
+
+**Roster fit**:
+Whether a Team's roster stays within its Roster capacity and every Position
+cap after a set of adds and drops, the drops counted first. One answer serves
+every acquisition the Position cap holds on: a draft Pick, a free agent add, a
+Waiver claim when it is made, edited and processed, and a Trade when it
+executes. A commissioner's forced move is not held to it.
+_Avoid_: roster check, capacity check (Roster capacity is one half of it)
 
 **IR-eligible**:
 A player whose current injury designation (out or injured reserve) qualifies
@@ -1456,6 +1488,8 @@ scored on were revised after Advance week. It re-scores the week as played,
 never from a later roster, and leaves a commissioner's manual correction alone.
 Every Manager in the League is told which Matchup scores moved, and the notice
 is kept with the change: a Stat correction is never applied without its notice.
+The live score announcement to open pages is different: it is best-effort,
+and its failure never holds back the change or its Settle follow-up.
 A revision that moves no score sends nothing.
 _Avoid_: correction (alone: a Commissioner correction reverses a draft Pick),
 rescore, stat fix
@@ -1481,13 +1515,14 @@ _Avoid_: final scoring, finalize (the step that follows it)
 
 **Advance week**:
 The commissioner action that closes out the current week: finalizes scores,
-settles standings, awards trophies and opens the next week. One function,
-`advanceWeek`, owns the order: the week is scored, then finalized and
-advanced, then the Settle follow-up is started and not awaited (a failure
-there is logged with league and week, and the next Advance week re-judges any
-pending Called shot; the Advance that completes the season has no next one, so
-`advanceWeek` tells the judging the season is complete and it settles every
-shot at once).
+settles standings, awards trophies and opens the next week, always in one
+order: the week is scored as played (the Settle pass), finalized and
+advanced, the next week's lineups are seeded, and the Settle follow-up is
+started and not awaited. A failed live score announcement skips none of those
+steps. A failure in the follow-up is logged with league and week, and the next
+Advance week re-judges any pending Called shot; the Advance that completes the
+season has no next one, so it tells the judging the season is complete and it
+settles every shot at once.
 
 **Settle follow-up**:
 The work that follows a Settle pass, in one fixed order: power rankings
@@ -2227,6 +2262,14 @@ never served, judged against the Champion only at the preregistered
 checkpoints. Unlike a Candidate, it is a whole Model version rather than one
 constant flip, and its mean is expected to differ.
 _Avoid_: candidate (a Candidate is a sealed study's constant flip), variant
+
+**Darkness Report**:
+The site's weekly editorial article, in two series: the waiver wire report,
+published after the week's games, and the start/sit report, published before
+the next week's Kickoff. The current report of a series is its newest one,
+and a page that features this week's report reads it that way rather than
+naming a week.
+_Avoid_: blog post, newsletter
 
 **Editorial call**:
 The author's verdict on one player for one week, published in a Darkness

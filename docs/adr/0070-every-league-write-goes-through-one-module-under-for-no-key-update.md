@@ -1,0 +1,91 @@
+# Every League write goes through one module, under FOR NO KEY UPDATE
+
+Status: accepted (2026-11-06)
+
+Twenty-nine writes serialize on a League by locking its row themselves
+(`SELECT ... FOR UPDATE` on `leagues`), five of them behind opt-in flags
+(`forUpdate`, `lock`, `rowLockSettingsProvided`). Each carries the League,
+then Team, then Matchup order in a comment, and each fix to one caller came
+with its own Postgres test (#946, #962, #2545, #2573). Two pairs can still
+deadlock, by reading: a waiver run holds the League and then wants a Team that
+a lineup save holds, while the save's insert into `lineup_entries` waits on the
+League row; a manual score holds the League and then wants a Matchup that a
+Stat correction holds, while the correction's transaction-log insert waits on
+the League row. Both waits are the foreign-key check. An insert into any of the
+31 tables with a `league_id` foreign key takes `FOR KEY SHARE` on the League
+row, and `FOR UPDATE` blocks it.
+
+We decide:
+
+1. **One module owns the League write** (CONTEXT.md, League write). It
+   generalizes the Draft act module's `runDraftAct` (#947) and sits beside
+   `withTransaction` in `server/modules/`. It is the only code that takes a
+   League row lock. It locks the row as its first statement, runs the caller's
+   body on the held client, and commits through `withTransaction` (ADR 0033).
+   Only then does it run the caller's after-commit work, each piece contained:
+   reported once and never rethrown, so a committed write is never reported as
+   failed. A caller never writes its own League lock.
+2. **The lock is `FOR NO KEY UPDATE`.** It conflicts with itself, so League
+   writes still queue behind each other, but it does not block `FOR KEY SHARE`.
+   An insert into a `league_id` table therefore never waits on a held League
+   write. That removes both deadlock pairs, and lineup saves, the most frequent
+   write, never touch the League row. The audit behind this ruling found about
+   25 write paths that insert into those tables without the League lock. None
+   depends on the old wait, which only delayed an insert whose values had
+   already been read.
+3. **A nested League write runs on the held client.** A League write started
+   inside another receives the outer write's handle as an explicit parameter.
+   The module then takes no lock and opens no transaction, and it queues the
+   nested write's after-commit work behind the outer commit. This replaces
+   `forUpdate: false`, `proposeTradeWith`'s unlocked re-read and the roster
+   gate's no-op re-lock.
+4. **Changes confined to one Team stay outside.** A lineup save, the Queue and
+   a Called shot declaration are ordered by the Team row lock, not the
+   League's. Called shot declaration starts taking that lock, since ADR 0058's
+   rule (a save and the shot it contradicts never disagree) depends on it.
+5. **CI holds the rule.** A guard fails when server code outside the module
+   takes a League row lock, the way the Roster move guard holds roster writes
+   (#2535). Account deletion is its one standing exception. It settles the
+   departing user's Teams across several Leagues in one transaction and locks
+   those rows itself, in id order.
+
+## Why
+
+- **One module, not per-caller locks.** Per-caller locks were the alternative,
+  and they are what the code has today. Every new caller re-learns the order
+  from a comment, and every fix lands one caller at a time. The Draft act
+  module already proved the shape for lifecycle acts: lock first, body on the
+  held client, commit, then fan out.
+- **The lock mode needs its reason written down.** `FOR UPDATE` is the usual
+  way to say "serialize on this row", and a later edit will put it back unless
+  the reason sits beside the decision. `FOR NO KEY UPDATE` keeps what the
+  League lock is for, two League writes never interleave, and drops only the
+  wait both deadlocks need.
+- **Nesting is a parameter.** `runDraftAct` refused nesting outright, which
+  forced the Draft start to return before it connected and other callers to
+  skip the lock with a flag. A handle the caller passes shows in the code and
+  in a test which mode ran, where an ambient transaction would hide it.
+
+## Considered and rejected
+
+- **Keep per-caller locks and fix the two pairs.** Each pair is a small fix.
+  The next pair would be found the same way: by reading, or in production.
+- **Advisory locks keyed by League.** They serialize writers without touching
+  the row, but every child insert still takes `FOR KEY SHARE` on the row, and
+  a second lock namespace is one more order to keep.
+
+## Consequences
+
+- The opt-in lock flags go. `requireCommissioner` authorizes against the
+  League row the write already holds.
+- Trade propose and counter, schedule generation (`generateMatchups`), the
+  League-wide Roster lock toggle, pick'em settings and all three Settle entry
+  points become League writes. None takes the League lock today. A Stat
+  correction then locks the League before its Matchups.
+- Chat, reports, read receipts, analytics and recap caches, Trophy awards
+  (their own advisory lock) and the kickoff waiver hold (no lock on purpose)
+  stay outside.
+- Rollout is spec #2681: the lock-mode switch ships first as the deadlock fix,
+  then the module, its callers and the guard.
+
+Refs: #2681, #947, #946, #962, #2535, #2545, #2573, ADR 0033, ADR 0058.
