@@ -208,7 +208,7 @@ function buildOpeningBrackets({ standings, playoffTeams, consolationEnabled }) {
 /**
  * Pure: the number of playoff rounds needed to reduce `playoffTeams` entrants
  * to one champion — the same halving `pairBySeed` performs bracket round by
- * bracket round, and `finalizeWeekAndAdvance` plays out one round per week:
+ * bracket round, and Advance week plays out one round per week:
  * `ceil(log2(n))`. Fewer than two entrants means no bracket is ever played.
  */
 function playoffRounds(playoffTeams) {
@@ -387,18 +387,6 @@ async function materializeNewWeekLineups({ leagueId, season, week, league }) {
   }
 }
 
-/**
- * Close out the league's current week and advance: marks the week final, moves
- * the league on and seeds the next week's lineups. The League write lives in the
- * Settle module (ADR 0070); this delegates to it. "settle" is Advance week's
- * Settle pass (ADR 0054).
- */
-async function finalizeWeekAndAdvance({ leagueId, week, settle = false }) {
-  const { settleWeek } = require('./settle.service');
-  const { scored, advance } = await settleWeek({ leagueId, expectedWeek: week, settle });
-  return settle ? { ...advance, scored } : advance;
-}
-
 module.exports = {
   SeasonError,
   roundRobinPairings,
@@ -410,7 +398,6 @@ module.exports = {
   generateRegularSeason,
   getStandings,
   getPlayoffSeeds,
-  finalizeWeekAndAdvance,
   materializeNewWeekLineups,
   playoffRounds,
   lastPlayoffWeek,

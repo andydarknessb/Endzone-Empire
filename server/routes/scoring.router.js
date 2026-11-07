@@ -162,7 +162,7 @@ router.post('/league/:id/correct-week', async (req, res) => {
       return res.json(result);
     }
     // No stat re-pull: the scheduled Tue/Wed nflverse pass (correction.service resyncPriorWeeks) keeps stats fresh; this re-scores the league from them (#2274).
-    const result = await withDatabaseRetry(() => correction.correctLeagueWeek(correctionRequest));
+    const result = await withDatabaseRetry(() => settleSvc.correctWeek(correctionRequest));
     res.json(result);
   } catch (error) {
     if (error instanceof correction.CorrectionWindowError) {
@@ -505,7 +505,7 @@ router.post('/league/:id/advance-week', async (req, res) => {
     // An older bundle sends no week: the week the League showed before the lock is the
     // expected week, so a replay that read the same week is refused under the lock.
     const expectedWeek = bodyWeek === undefined
-      ? (await pool.query(`SELECT "current_season", "current_week" FROM "leagues" WHERE "id" = $1`, [leagueId])).rows[0]?.current_week
+      ? (await pool.query(`SELECT "current_week" FROM "leagues" WHERE "id" = $1`, [leagueId])).rows[0]?.current_week
       : bodyWeek;
     const { scored, advance } = await settleSvc.settleWeek({ leagueId, expectedWeek });
     res.json({ scored, ...advance });

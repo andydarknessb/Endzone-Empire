@@ -11,7 +11,7 @@
  *      asks for the claiming Team row (the roster gate). setLineup locks the
  *      Team row, then materializeLineup inserts lineup_entries with league_id.
  *   2. Manual score vs stat correction. adjustMatchupScore holds the League row,
- *      then asks for the Matchup row. correctLeagueWeek locks the week's
+ *      then asks for the Matchup row. correctWeek locks the week's
  *      Matchups, then writes its transactions row with league_id.
  *
  * The holder stands in for the first transaction. It takes the League row with
@@ -71,7 +71,7 @@ if (!ENABLED) {
   // the same PG* variables when no DATABASE_URL is set.
   const { requireOwner } = require('../services/leagueRole.service');
   const lineupService = require('../services/lineup.service');
-  const correctionService = require('../services/correction.service');
+  const settleService = require('../services/settle.service');
   const modulePool = require('../modules/pool');
   const { createDraftRoomBroadcast, setDraftRoomBroadcast } = require('../modules/draftRoomBroadcast');
 
@@ -105,7 +105,7 @@ if (!ENABLED) {
   }
 
   test.before(async () => {
-    // correctLeagueWeek announces its scores after commit through the draft-room
+    // correctWeek announces its scores after commit through the draft-room
     // broadcast; a no-op adapter keeps that out of this file's assertions.
     priorBroadcast = setDraftRoomBroadcast(createDraftRoomBroadcast({ to: () => ({ emit: () => {} }) }, 'test'));
 
@@ -145,7 +145,7 @@ if (!ENABLED) {
       [leagueId, teamId, playerId]
     );
 
-    // A stored score the re-score cannot match, so correctLeagueWeek finds a
+    // A stored score the re-score cannot match, so correctWeek finds a
     // change and writes its transactions row, which is the insert under test.
     // Not final: a final matchup locks the week's lineup, and setLineup must
     // reach its lineup_entries insert.
@@ -192,8 +192,8 @@ if (!ENABLED) {
         params: () => [teamId],
       },
     },
-    correctLeagueWeek: {
-      run: () => correctionService.correctLeagueWeek({ leagueId, season: SEASON, week: WEEK }),
+    correctWeek: {
+      run: () => settleService.correctWeek({ leagueId, season: SEASON, week: WEEK }),
       // adjustMatchupScore's second lock: the Matchup row.
       secondLock: {
         sql: `SELECT "id" FROM "matchups" WHERE "id" = $1 AND "league_id" = $2 FOR UPDATE`,
@@ -250,5 +250,5 @@ if (!ENABLED) {
   }
 
   test('setLineup against a waiver-run League holder does not deadlock', () => assertNoDeadlock('setLineup'));
-  test('correctLeagueWeek against an adjustMatchupScore League holder does not deadlock', () => assertNoDeadlock('correctLeagueWeek'));
+  test('correctWeek against an adjustMatchupScore League holder does not deadlock', () => assertNoDeadlock('correctWeek'));
 }

@@ -18,10 +18,8 @@ const { seasonOperationsAvailable, SEASON_BEFORE_DRAFT_MESSAGE } = require('./le
 /**
  * Advance week's Settle pass. Returns `{ scored, advance, followUp }`; `followUp` is
  * never awaited here (display data, never worth failing the advance over).
- * `settle: false` is the finalize-without-scoring variant the season delegate uses:
- * no score, no announcement, no follow-up; the lineup seed still runs.
  */
-async function settleWeek({ leagueId, expectedWeek, settle = true }) {
+async function settleWeek({ leagueId, expectedWeek }) {
   let followUp;
   const { scored, outcome } = await leagueWrite({ leagueId, label: 'season' }, async ({ client, league, afterCommit }) => {
     if (!league) throw new seasonSvc.SeasonError(404, 'league not found');
@@ -34,9 +32,7 @@ async function settleWeek({ leagueId, expectedWeek, settle = true }) {
     }
 
     // Before the matchups are read: the playoff winners below come from these scores.
-    const settled = settle
-      ? await matchupScoring.scoreMatchupsInTransaction(client, { leagueId, season, week, settle: true })
-      : null;
+    const settled = await matchupScoring.scoreMatchupsInTransaction(client, { leagueId, season, week, settle: true });
 
     const weekMatchups = await client.query(
       `SELECT * FROM "matchups" WHERE "league_id" = $1 AND "season" = $2 AND "week" = $3`,
@@ -185,20 +181,18 @@ async function settleWeek({ leagueId, expectedWeek, settle = true }) {
     // the follow-up, started and not awaited (ADR 0054, ticket 2686).
     if (settled) afterCommit(() => matchupScoring.announceScored({ leagueId, season, week, ...settled }));
     afterCommit(() => seasonSvc.materializeNewWeekLineups({ leagueId, season, week: nextWeek, league }));
-    if (settle) {
-      afterCommit(() => {
-        followUp = settleFollowUpSvc.settleFollowUp({
-          leagueId,
-          season,
-          week, // the week just finalized
-          mode: 'advance',
-          // The one decider of season completion (ADR 0054).
-          ...(outcome.seasonStatus === 'complete' && { seasonComplete: true }),
-        }).catch((err) => {
-          console.error('settle follow-up failed for league %s week %s:', leagueId, week, err.message);
-        });
+    afterCommit(() => {
+      followUp = settleFollowUpSvc.settleFollowUp({
+        leagueId,
+        season,
+        week, // the week just finalized
+        mode: 'advance',
+        // The one decider of season completion (ADR 0054).
+        ...(outcome.seasonStatus === 'complete' && { seasonComplete: true }),
+      }).catch((err) => {
+        console.error('settle follow-up failed for league %s week %s:', leagueId, week, err.message);
       });
-    }
+    });
     return { scored: settled?.scored, outcome };
   });
   return { scored, advance: outcome, followUp };
