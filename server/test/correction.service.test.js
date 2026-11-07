@@ -434,6 +434,7 @@ test('a failure in one corrected week does not skip cache maintenance for the ne
 function correctionRecapWorld({ beforeHome, beforeAway, afterHome, afterAway, final = true, isPlayoff = false }) {
   let matchupsJoinCalls = 0;
   return createFakePool([
+    [/FOR NO KEY UPDATE|"board_version" = "board_version" \+ 1/, () => ({ rows: [{ id: 7 }] }), 'client'],
     [/^SELECT "owner_id", "season_status" FROM "leagues"/, () => ({ rows: [{ owner_id: 101, season_status: 'regular' }] })],
     [/^SELECT "id", "week", "final", "is_playoff", "home_score", "away_score"/, () => ({
       rows: [{ id: 1, week: 5, final, is_playoff: isPlayoff, home_score: beforeHome, away_score: beforeAway }],
@@ -531,6 +532,7 @@ test('#2602: a correction whose log/notify step throws rebuilds nothing, because
   // scores back and there is nothing left to recap.
   const beforeHome = 90; const beforeAway = 80; const afterHome = 115; const afterAway = 80;
   const fake = createFakePool([
+    [/FOR NO KEY UPDATE|"board_version" = "board_version" \+ 1/, () => ({ rows: [{ id: 7 }] }), 'client'],
     [/^SELECT "owner_id", "season_status" FROM "leagues"/, () => ({ rows: [{ owner_id: 101, season_status: 'regular' }] })],
     [/^SELECT "id", "week", "final", "is_playoff", "home_score", "away_score"/, () => ({
       rows: [{ id: 1, week: 5, final: true, is_playoff: false, home_score: beforeHome, away_score: beforeAway }],
@@ -569,6 +571,7 @@ test('#2602: a correction whose log/notify step throws rebuilds nothing, because
 
 test('#1409: a correction that changes nothing leaves the stored recap untouched, including its generated-at stamp', async (t) => {
   const fake = createFakePool([
+    [/FOR NO KEY UPDATE|"board_version" = "board_version" \+ 1/, () => ({ rows: [{ id: 7 }] }), 'client'],
     [/^SELECT "owner_id", "season_status" FROM "leagues"/, () => ({ rows: [{ owner_id: 101, season_status: 'regular' }] })],
     [/^SELECT "id", "week", "final", "is_playoff", "home_score", "away_score"/, () => ({
       rows: [{ id: 1, week: 5, final: true, is_playoff: false, home_score: 90, away_score: 80 }],
@@ -593,6 +596,7 @@ test('#1409: a correction that changes nothing leaves the stored recap untouched
 
 test('#1409: a correction on a matchup that was not yet final never touches the recap', async (t) => {
   const fake = createFakePool([
+    [/FOR NO KEY UPDATE|"board_version" = "board_version" \+ 1/, () => ({ rows: [{ id: 7 }] }), 'client'],
     [/^SELECT "owner_id", "season_status" FROM "leagues"/, () => ({ rows: [{ owner_id: 101, season_status: 'regular' }] })],
     [/^SELECT "id", "week", "final", "is_playoff", "home_score", "away_score"/, () => ({
       rows: [{ id: 1, week: 5, final: false, is_playoff: false, home_score: 90, away_score: 80 }],
@@ -610,7 +614,7 @@ test('#1409: a correction on a matchup that was not yet final never touches the 
 
   assert.equal(outcome.changes.length, 1, 'the score change is still logged');
   assert.equal(
-    fake.calls.some((c) => /league_analytics|FROM "leagues"/.test(c.text)),
+    fake.calls.some((c) => /league_analytics|FROM "leagues"(?! WHERE "id" = \$1 FOR NO KEY UPDATE)/.test(c.text)),
     false,
     'a non-final matchup change never rebuilds a recap - there is nothing finalized to recap yet'
   );
@@ -639,7 +643,7 @@ test('#1409: a recap rebuild failure is logged and never blocks the correction p
 
 // ---- #1410: power rankings recompute before the post-correction recap rebuild --
 //
-// The advance-week chain (advanceWeek.service.js) runs
+// The Settle follow-up (settleFollowUp.service.js) runs
 // montecarlo.computeLeagueOdds before building the recap, "odds first so the
 // recap reads fresh playoff numbers" - the recap reads the latest stored
 // `power_rankings` league_analytics row directly (recap.service.js), so odds
@@ -660,6 +664,7 @@ function correctionPowerRankingsWorld({ beforeHome, beforeAway, afterHome, after
   let matchupsJoinCalls = 0;
   const rankingsInserts = [];
   const fake = createFakePool([
+    [/FOR NO KEY UPDATE|"board_version" = "board_version" \+ 1/, () => ({ rows: [{ id: 7 }] }), 'client'],
     [/^SELECT "owner_id", "season_status" FROM "leagues"/, () => ({ rows: [{ owner_id: 101, season_status: 'regular' }] })],
     [/^SELECT "id", "week", "final", "is_playoff", "home_score", "away_score"/, () => ({
       rows: [{ id: 1, week: 5, final: true, is_playoff: false, home_score: beforeHome, away_score: beforeAway }],
@@ -779,11 +784,8 @@ test('#2616: a throwing scores:updated announce still hands a final-score correc
   stubScoring(t, { announce: async () => { throw announceError; } });
   const followUp = t.mock.method(settleFollowUpSvc, 'settleFollowUp', async () => {});
 
-  await assert.rejects(
-    correctionSvc.correctLeagueWeek({ leagueId: 7, season: 2026, week: 5 }),
-    (error) => error === announceError,
-    'the announce failure still propagates'
-  );
+  // Contained (spec #2693): the announce failure is reported once and the call resolves.
+  await correctionSvc.correctLeagueWeek({ leagueId: 7, season: 2026, week: 5 });
 
   assert.deepEqual(followUp.mock.calls.map((c) => c.arguments[0]), [
     { leagueId: 7, season: 2026, week: 5, mode: 'correction' },
@@ -814,6 +816,7 @@ test('#1410: a power-rankings recompute failure is logged and never blocks the r
 
 test('#1410: a correction that changes no scores never recomputes power rankings', async (t) => {
   const fake = createFakePool([
+    [/FOR NO KEY UPDATE|"board_version" = "board_version" \+ 1/, () => ({ rows: [{ id: 7 }] }), 'client'],
     [/^SELECT "owner_id", "season_status" FROM "leagues"/, () => ({ rows: [{ owner_id: 101, season_status: 'regular' }] })],
     [/^SELECT "id", "week", "final", "is_playoff", "home_score", "away_score"/, () => ({
       rows: [{ id: 1, week: 5, final: true, is_playoff: false, home_score: 90, away_score: 80 }],
@@ -859,6 +862,7 @@ function trophyReconcileWorld({
   const trophyRows = seedTrophies.map((row) => ({ ...row }));
   let nextId = Math.max(0, ...trophyRows.map((row) => row.id)) + 1;
   const fake = createFakePool([
+    [/FOR NO KEY UPDATE|"board_version" = "board_version" \+ 1/, () => ({ rows: [{ id: 7 }] }), 'client'],
     [/^SELECT "owner_id", "season_status" FROM "leagues"/, () => ({ rows: [{ owner_id: 101, season_status: 'regular' }] })],
     [/^SELECT "id", "week", "final", "is_playoff", "home_score", "away_score"/, () => ({
       rows: [{ id: 1, week: 5, final: true, is_playoff: false, home_score: beforeHome, away_score: beforeAway }],
@@ -983,6 +987,7 @@ function trophyDecisionWorld({ matchupId, beforeHome, beforeAway, afterHome, aft
   const deleteCalls = [];
   const insertCalls = [];
   const fake = createFakePool([
+    [/FOR NO KEY UPDATE|"board_version" = "board_version" \+ 1/, () => ({ rows: [{ id: 7 }] }), 'client'],
     [/^SELECT "owner_id", "season_status" FROM "leagues"/, () => ({ rows: [{ owner_id: 101, season_status: 'regular' }] })],
     [/^SELECT "id", "week", "final", "is_playoff", "home_score", "away_score"/, () => ({
       rows: [{ id: matchupId, week: 5, final: true, is_playoff: false, home_score: beforeHome, away_score: beforeAway }],
@@ -1145,6 +1150,7 @@ test('#1411 (formal-001 f2): a team\'s week score is its highest single matchup 
 
 test('#1411: a correction that changes no scores leaves the trophies table untouched', async (t) => {
   const fake = createFakePool([
+    [/FOR NO KEY UPDATE|"board_version" = "board_version" \+ 1/, () => ({ rows: [{ id: 7 }] }), 'client'],
     [/^SELECT "owner_id", "season_status" FROM "leagues"/, () => ({ rows: [{ owner_id: 101, season_status: 'regular' }] })],
     [/^SELECT "id", "week", "final", "is_playoff", "home_score", "away_score"/, () => ({
       rows: [{ id: 1, week: 5, final: true, is_playoff: false, home_score: 90, away_score: 80 }],
@@ -1301,6 +1307,7 @@ function seededBracketCorrectionWorld(seasonStatus, seeded = true) {
       rows: [{ id: 1, home_score: 70, away_score: 80 }],
     })],
     [/^SELECT DISTINCT "owner_id" FROM "teams"/, () => ({ rows: [] })],
+    [/FOR NO KEY UPDATE|"board_version" = "board_version" \+ 1/, () => ({ rows: [{ id: 7 }] }), 'client'],
     [/^SELECT "owner_id", "season_status" FROM "leagues"/, () => ({
       rows: [{ owner_id: 100, season_status: seasonStatus }],
     })],
@@ -1392,6 +1399,7 @@ function correctionTransactionWorld({ before = 90, logInsert = () => ({ rows: []
     // --- the correction's own record ---------------------------------------
     [/^INSERT INTO "transactions"/, logInsert],
     [/^SELECT DISTINCT "owner_id" FROM "teams"/, () => ({ rows: [{ owner_id: 101 }] })],
+    [/FOR NO KEY UPDATE|"board_version" = "board_version" \+ 1/, () => ({ rows: [{ id: 7 }] }), 'client'],
     [/^SELECT "owner_id", "season_status" FROM "leagues"/, () => ({
       rows: [{ owner_id: 101, season_status: 'regular' }],
     })],

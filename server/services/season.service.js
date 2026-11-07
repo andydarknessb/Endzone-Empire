@@ -1,8 +1,5 @@
 const pool = require('../modules/pool');
 const { withTransaction } = require('../modules/withTransaction');
-const { logger } = require('../modules/logger');
-const sentry = require('../modules/sentry');
-const { notifyLeague } = require('./activity.service');
 const { seasonOperationsAvailable, SEASON_BEFORE_DRAFT_MESSAGE } = require('./leaguePhase');
 const { round2 } = require('./scoringRules');
 
@@ -391,233 +388,15 @@ async function materializeNewWeekLineups({ leagueId, season, week, league }) {
 }
 
 /**
- * Close out the league's current week and advance: mark the week's matchups
- * final, then either schedule the next playoff round (regular season over),
- * advance the bracket, or crown a champion. Scores must already be computed
- * (scoring.service) before calling this. Transactional; commissioner- or
- * scheduler-driven. An optional `week` is the week the caller scored; if the
- * league is no longer on it the call is refused 409 (idempotent per week).
- * Once committed, the new week's lineups are seeded
- * (materializeNewWeekLineups), best-effort.
- *
- * `settle` (Advance week, ADR 0054): the settle pass runs inside this same
- * transaction, after the League lock and the week and season checks and before
- * the final flag, so a live re-score waiting on the Matchup rows reads them as
- * final once this commits and can never become the score of record (spec
- * #2602). The `scores:updated` announcement follows the commit, ahead of the
- * lineup seed, and the result then also carries `scored`.
+ * Close out the league's current week and advance: marks the week final, moves
+ * the league on and seeds the next week's lineups. The League write lives in the
+ * Settle module (ADR 0070); this delegates to it. "settle" is Advance week's
+ * Settle pass (ADR 0054).
  */
-async function finalizeWeekAndAdvance({ leagueId, week: expectedWeek, settle = false }) {
-  // Lazy: matchupScoring.service requires this module at load.
-  const matchupScoring = require('./matchupScoring.service');
-  // withTransaction owns connect/BEGIN/COMMIT-or-guarded-ROLLBACK and the
-  // release rule (ADR 0033). Every refusal here throws a SeasonError inside
-  // work, so the wrapper rolls back and rethrows it untouched - no catch-side
-  // mapping to move outward. The post-commit lineup seed is best-effort work
-  // that must run after the connection is back in the pool, so it stays after
-  // the call, driven by the values work returns.
-  const { outcome, season, week, nextWeek, league, settled } = await withTransaction(
-    pool,
-    async (client) => {
-    const leagueResult = await client.query(
-      `SELECT * FROM "leagues" WHERE "id" = $1 FOR NO KEY UPDATE`,
-      [leagueId]
-    );
-    const league = leagueResult.rows[0];
-    if (!league) throw new SeasonError(404, 'league not found');
-    // Phase first, before anything is marked final or advanced (#194).
-    if (!seasonOperationsAvailable(league)) throw new SeasonError(409, SEASON_BEFORE_DRAFT_MESSAGE);
-    if (league.season_status === 'complete') throw new SeasonError(409, 'season is complete');
-    const { current_season: season, current_week: week } = league;
-    // The caller scored expectedWeek; a replay arrives after the league has moved on.
-    if (expectedWeek != null && Number(expectedWeek) !== Number(week)) {
-      throw new SeasonError(409, `week ${expectedWeek} was already advanced`);
-    }
-
-    // Before the matchups are read: the playoff winners below come from these scores.
-    const settled = settle
-      ? await matchupScoring.scoreMatchupsInTransaction(client, { leagueId, season, week, settle: true })
-      : null;
-
-    const weekMatchups = await client.query(
-      `SELECT * FROM "matchups" WHERE "league_id" = $1 AND "season" = $2 AND "week" = $3`,
-      [leagueId, season, week]
-    );
-    if (weekMatchups.rows.length === 0) {
-      throw new SeasonError(409, `no matchups exist for week ${week}; generate the schedule first`);
-    }
-    await client.query(
-      `UPDATE "matchups" SET "final" = true WHERE "league_id" = $1 AND "season" = $2 AND "week" = $3`,
-      [leagueId, season, week]
-    );
-
-    const allMatchups = await client.query(
-      `SELECT * FROM "matchups" WHERE "league_id" = $1 AND "season" = $2`,
-      [leagueId, season]
-    );
-    const teamsResult = await client.query(
-      `SELECT "id", "name", "owner_id" FROM "teams" WHERE "league_id" = $1`,
-      [leagueId]
-    );
-    const teams = teamsResult.rows;
-    const nextWeek = week + 1;
-    let outcome = { advancedTo: nextWeek, seasonStatus: league.season_status };
-
-    // Waiver priority resets to reverse standings every time a week is
-    // finalized, the app's Tuesday morning: whoever sits last once this
-    // week's results are final claims first for the coming week. Without
-    // this the post-draft seed only ever rotated claim winners to the back
-    // and never followed the standings. Standings count regular-season
-    // results only, so a playoff-week finalize re-asserts the final
-    // regular-season order rather than freezing the claim rotation. Same
-    // transaction as the matchups' `final` flip above, so a claim processed
-    // after this commit already sees the new order and one processed before
-    // it never sees a half-written one.
-    await resetWaiverPriorities(client, {
-      leagueId,
-      standings: computeStandings(teams, allMatchups.rows),
-    });
-
-    if (league.season_status === 'regular' && week >= league.regular_season_weeks) {
-      // Seed the playoff bracket from final standings
-      const standings = computeStandings(teams, allMatchups.rows);
-      const brackets = buildOpeningBrackets({
-        standings,
-        playoffTeams: league.playoff_teams,
-        consolationEnabled: league.playoff_consolation,
-      });
-      // Seeds are fixed here (#2547): later rounds, the bye check and the
-      // standings route read these rows, never the live standings again.
-      const seeded = standings.slice(0, Math.min(Number(league.playoff_teams) || 0, standings.length));
-      if (seeded.length > 0) {
-        await client.query(
-          `INSERT INTO "playoff_seeds" ("league_id", "season", "team_id", "seed")
-           SELECT $1, $2, "s"."team_id", "s"."seed"
-           FROM unnest($3::int[], $4::int[]) AS "s"("team_id", "seed")`,
-          [leagueId, season, seeded.map((s) => s.teamId), seeded.map((s) => s.rank)]
-        );
-      }
-      for (const game of brackets.playoff.games) {
-        await client.query(
-          `INSERT INTO "matchups" ("league_id", "season", "week", "home_team_id", "away_team_id",
-                                   "is_playoff", "playoff_round")
-           VALUES ($1, $2, $3, $4, $5, true, 1)`,
-          [leagueId, season, nextWeek, game.home, game.away]
-        );
-      }
-      if (league.playoff_consolation) {
-        for (const game of brackets.consolation.games) {
-          await client.query(
-            `INSERT INTO "matchups" ("league_id", "season", "week", "home_team_id", "away_team_id",
-                                     "is_playoff", "playoff_round", "is_consolation")
-             VALUES ($1, $2, $3, $4, $5, true, 1, true)`,
-            [leagueId, season, nextWeek, game.home, game.away]
-          );
-        }
-      }
-      await client.query(
-        `UPDATE "leagues" SET "season_status" = 'playoffs', "current_week" = $1, "updated_at" = now()
-         WHERE "id" = $2`,
-        [nextWeek, leagueId]
-      );
-      await notifyLeague(client, {
-        leagueId,
-        type: 'season',
-        message: 'The regular season is over. Playoffs start this week!',
-      });
-      outcome = { advancedTo: nextWeek, seasonStatus: 'playoffs', playoffRound: 1 };
-    } else if (league.season_status === 'playoffs') {
-      const thisRound = weekMatchups.rows.filter((m) => m.is_playoff && !m.is_consolation);
-      const roundNumber = thisRound[0] ? thisRound[0].playoff_round : null;
-      const winners = thisRound.map((m) =>
-        Number(m.home_score) >= Number(m.away_score) ? m.home_team_id : m.away_team_id
-      );
-      // Byes: seeded playoff teams that didn't play this round advance automatically
-      const storedSeeds = await client.query(
-        `SELECT "team_id", "seed" FROM "playoff_seeds"
-         WHERE "league_id" = $1 AND "season" = $2 ORDER BY "seed"`,
-        [leagueId, season]
-      );
-      // shortcut: a League already in its playoffs before playoff_seeds shipped has
-      // no rows and derives seeds from live standings, drop when those seasons end.
-      const seedOf = storedSeeds.rows.length > 0
-        ? new Map(storedSeeds.rows.map((r) => [r.team_id, r.seed]))
-        : new Map(
-          computeStandings(teams, allMatchups.rows)
-            .slice(0, league.playoff_teams)
-            .map((s, i) => [s.teamId, i + 1])
-        );
-      const playedIds = new Set(thisRound.flatMap((m) => [m.home_team_id, m.away_team_id]));
-      const byeTeams = [...seedOf.keys()]
-        .filter((id) => !playedIds.has(id) && !eliminatedBefore(allMatchups.rows, id, week));
-      const advancing = [...new Set([...winners, ...byeTeams])];
-
-      if (advancing.length <= 1) {
-        const champion = teams.find((t) => t.id === winners[0]);
-        await client.query(
-          `UPDATE "leagues" SET "season_status" = 'complete', "current_week" = $1, "updated_at" = now()
-           WHERE "id" = $2`,
-          [nextWeek, leagueId]
-        );
-        await notifyLeague(client, {
-          leagueId,
-          type: 'season',
-          message: `${champion ? champion.name : 'A champion'} has won the league championship!`,
-          data: { championTeamId: winners[0] },
-        });
-        outcome = { advancedTo: nextWeek, seasonStatus: 'complete', championTeamId: winners[0] };
-      } else {
-        const entrants = advancing.map((teamId) => ({ teamId, seed: seedOf.get(teamId) || 99 }));
-        for (const game of pairBySeed(entrants).games) {
-          await client.query(
-            `INSERT INTO "matchups" ("league_id", "season", "week", "home_team_id", "away_team_id",
-                                     "is_playoff", "playoff_round")
-             VALUES ($1, $2, $3, $4, $5, true, $6)`,
-            [leagueId, season, nextWeek, game.home, game.away, (roundNumber || 1) + 1]
-          );
-        }
-        await client.query(
-          `UPDATE "leagues" SET "current_week" = $1, "updated_at" = now() WHERE "id" = $2`,
-          [nextWeek, leagueId]
-        );
-        outcome = { advancedTo: nextWeek, seasonStatus: 'playoffs', playoffRound: (roundNumber || 1) + 1 };
-      }
-    } else {
-      // Plain regular-season week: schedule already exists, just move forward
-      await client.query(
-        `UPDATE "leagues" SET "current_week" = $1, "updated_at" = now() WHERE "id" = $2`,
-        [nextWeek, leagueId]
-      );
-    }
-
-    return { outcome, season, week, nextWeek, league, settled };
-    },
-    { label: 'season' }
-  );
-  // The week is committed: a failed live score announcement is reported once and
-  // swallowed, so the seed and the Settle follow-up still run (CONTEXT.md, Advance week).
-  if (settled) {
-    try {
-      await matchupScoring.announceScored({ leagueId, season, week, ...settled });
-    } catch (error) {
-      logger.error({ err: error, leagueId, season, week }, 'live score announcement failed after the week committed');
-      sentry.captureError(error, { leagueId, season, week });
-    }
-  }
-  await materializeNewWeekLineups({ leagueId, season, week: nextWeek, league });
-  return settled ? { ...outcome, scored: settled.scored } : outcome;
-}
-
-/** Did this team already lose a (non-consolation) playoff game before `week`? */
-function eliminatedBefore(matchups, teamId, week) {
-  return matchups.some((m) => {
-    if (!m.is_playoff || m.is_consolation || !m.final || m.week >= week) return false;
-    if (m.home_team_id !== teamId && m.away_team_id !== teamId) return false;
-    const hs = Number(m.home_score);
-    const as = Number(m.away_score);
-    const won = m.home_team_id === teamId ? hs >= as : as > hs;
-    return !won;
-  });
+async function finalizeWeekAndAdvance({ leagueId, week, settle = false }) {
+  const { settleWeek } = require('./settle.service');
+  const { scored, advance } = await settleWeek({ leagueId, expectedWeek: week, settle });
+  return settle ? { ...advance, scored } : advance;
 }
 
 module.exports = {
@@ -632,6 +411,7 @@ module.exports = {
   getStandings,
   getPlayoffSeeds,
   finalizeWeekAndAdvance,
+  materializeNewWeekLineups,
   playoffRounds,
   lastPlayoffWeek,
 };

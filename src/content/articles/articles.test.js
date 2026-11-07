@@ -53,12 +53,21 @@ describe('articles content module', () => {
   it('names a series on every Darkness Report', () => {
     const reports = listArticles().filter((meta) => meta.slug.endsWith('-darkness-report'));
     expect(reports.length).toBeGreaterThan(0);
-    for (const meta of reports) expect(['waiver-wire', 'start-sit']).toContain(meta.series);
+    for (const meta of reports) {
+      expect(['waiver-wire', 'start-sit']).toContain(meta.series);
+      // A meta copied from the other series keeps its tag; the slug catches it.
+      expect(meta.slug).toContain(meta.series);
+    }
   });
 
+  // No slugs here: a new report every week would otherwise mean a test edit every week.
   it('currentReport returns the newest Darkness Report of a series, or null', () => {
-    expect(currentReport('waiver-wire').slug).toBe('week9-waiver-wire-darkness-report');
-    expect(currentReport('start-sit').slug).toBe('week9-start-sit-darkness-report');
+    for (const series of ['waiver-wire', 'start-sit']) {
+      const current = currentReport(series);
+      const reports = listArticles().filter((meta) => meta.series === series);
+      expect(reports).toContainEqual(current);
+      for (const meta of reports) expect(Date.parse(meta.date)).toBeLessThanOrEqual(Date.parse(current.date));
+    }
     expect(currentReport('nonsense')).toBeNull();
   });
 

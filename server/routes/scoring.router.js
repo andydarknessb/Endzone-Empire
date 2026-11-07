@@ -14,7 +14,7 @@ const correction = require('../services/correction.service');
 const nflverseSync = require('../services/nflverseSync.service');
 const commissioner = require('../services/commissioner.service');
 const montecarlo = require('../services/montecarlo.service');
-const advanceWeekSvc = require('../services/advanceWeek.service');
+const settleSvc = require('../services/settle.service');
 const {
   isLeagueCommissioner,
   commissionerPredicate,
@@ -100,19 +100,12 @@ router.post('/league/:id/score', async (req, res) => {
   try {
     if (!(await requireLeagueCommissioner(req, res, leagueId))) return;
     // A final week's Score of record moves only through a stat correction or a
-    // manual correction (CONTEXT.md, Score of record), never a plain re-score.
-    const final = await pool.query(
-      `SELECT 1 FROM "matchups" WHERE "league_id" = $1 AND "season" = $2 AND "week" = $3 AND "final" = true LIMIT 1`,
-      [leagueId, sw.season, sw.week]
-    );
-    if (final.rows[0]) {
-      return res.status(409).json({
-        error: `Week ${sw.week} is final. Its scores change only through a stat correction or a manual score correction.`,
-      });
-    }
-    const result = await matchupScoring.scoreMatchups({ leagueId, ...sw });
+    // manual correction (CONTEXT.md, Score of record): settle refuses it under the
+    // League lock (rescoreLive), never on an unlocked read here.
+    const result = await settleSvc.rescoreLive({ leagueId, season: sw.season, week: sw.week });
     res.json(result);
   } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
     console.error('Matchup scoring failed:', error);
     res.status(500).json({ error: 'matchup scoring failed' });
   }
@@ -502,17 +495,19 @@ router.post('/league/:id/advance-week', async (req, res) => {
     return res.status(400).json({ error: 'league id must be a positive integer' });
   }
   const leagueId = Number(req.params.id);
-  // The week the commissioner saw; absent from older bundles, which keep the unguarded read.
+  // The week the commissioner saw; absent from older bundles, which get the week the League showed before the lock.
   const bodyWeek = req.body && req.body.week;
   if (!(bodyWeek === undefined || (Number.isInteger(bodyWeek) && bodyWeek >= 1))) {
     return res.status(400).json({ error: 'week must be a positive integer' });
   }
   try {
     if (!(await requireLeagueCommissioner(req, res, leagueId))) return;
-    const { scored, advance } = await advanceWeekSvc.advanceWeek({
-      leagueId,
-      expectedWeek: bodyWeek,
-    });
+    // An older bundle sends no week: the week the League showed before the lock is the
+    // expected week, so a replay that read the same week is refused under the lock.
+    const expectedWeek = bodyWeek === undefined
+      ? (await pool.query(`SELECT "current_season", "current_week" FROM "leagues" WHERE "id" = $1`, [leagueId])).rows[0]?.current_week
+      : bodyWeek;
+    const { scored, advance } = await settleSvc.settleWeek({ leagueId, expectedWeek });
     res.json({ scored, ...advance });
   } catch (error) {
     if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
