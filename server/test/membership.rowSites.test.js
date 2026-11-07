@@ -229,15 +229,17 @@ test('draft router: PUT /queue locks the member Team row while rewriting the que
 // scoping. Dropping either conjunct from the production SQL could not fail
 // this test. Pin the predicate instead of the count.
 test('draft router: POST /league/:id/ready refuses a non-member without the roster-shaped wording', async (t) => {
-  const calls = fakeDb(t, { overrides: [[/UPDATE "teams" SET "draft_ready"/, () => ({ rows: [] })]] });
+  const calls = fakeDb(t, { overrides: [[/UPDATE "leagues" SET "board_version"/, () => ({ rows: [] })]] });
   const res = await request(routes)
     .post('/api/draft/league/3/ready').set('Authorization', authed()).send({ ready: true });
   assert.equal(res.status, 403, JSON.stringify(res.body));
   assert.equal(res.body.error, `${REFUSAL}, or the draft is not pending`);
+  const advance = writes(calls).filter((c) => /^UPDATE "leagues" SET "board_version"/.test(c.text));
+  assert.equal(advance.length, 1, 'the scoped League advance is the refusal mechanism');
+  assert.match(advance[0].text, /EXISTS \(SELECT 1 FROM "teams"[^)]*"owner_id" = \$2/, 'scoped to a Team the caller owns, which is the membership test');
+  assert.match(advance[0].text, /"draft_status" = 'pending'/, 'and to a pending draft');
   const ready = writes(calls).filter((c) => /^UPDATE "teams" SET "draft_ready"/.test(c.text));
-  assert.equal(ready.length, 1, 'the single scoped UPDATE is the refusal mechanism');
-  assert.match(ready[0].text, /"owner_id" = \$3/, 'scoped to the caller, which is the membership test');
-  assert.match(ready[0].text, /"draft_status" = 'pending'/, 'and to a pending draft');
+  assert.equal(ready.length, 0, 'a refused caller reaches no Team write');
 });
 
 // --- trades router ----------------------------------------------------------

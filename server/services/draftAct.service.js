@@ -30,8 +30,9 @@ const BOARD_FACTS = new Set(['stateChanged']);
  * The shape it enforces, and the four properties draftAct.service.test.js pins
  * at this interface:
  *
- *  1. THE LOCK PRECEDES ANY MUTATION. leagueWrite takes `SELECT ... FOR NO KEY
- *     UPDATE` on the League row as the first statement after BEGIN, before runDraftAct loads
+ *  1. THE LOCK PRECEDES ANY MUTATION. leagueWrite takes FOR NO KEY UPDATE on the
+ *     League row (an UPDATE that advances its board version) as the first statement
+ *     after BEGIN, before runDraftAct loads
  *     Teams, resolves the acting Team, or hands the client to the act body. The
  *     body's first write is therefore always behind the lock.
  *  2. A THROWN REFUSAL ROLLS BACK AND EMITS NOTHING. Any throw from the body (a

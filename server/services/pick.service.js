@@ -45,7 +45,7 @@ const { ROSTER_GATE } = require('./rosterGate.service');
 
 /**
  * Commit a Pick onto a team inside a single database transaction. The league row
- * is locked (SELECT ... FOR NO KEY UPDATE) so concurrent picks in the same league
+ * is locked (the board-version UPDATE, FOR NO KEY UPDATE) so concurrent picks in the same league
  * serialize; unique constraints on (league_id, player_id) are the backstop
  * against double-drafting.
  *
@@ -286,8 +286,9 @@ async function commitPick({ leagueId, userId, playerId, auto = false, byCommissi
       // completion, and the completion side effects below depend on 'complete'
       // being set first (#194).
       // The Pick clock reads the offline rule and clock settings from the locked
-      // league row itself (#948); this transaction holds it FOR NO KEY UPDATE and writes
-      // no Leagues column before this call, so the re-read is the same row.
+      // league row itself (#948); this transaction holds it FOR NO KEY UPDATE, and the
+      // lock's board-version advance is the only Leagues write before this call, so the
+      // re-read is the same row.
       pickDeadlineAt = await pickClock.onPickLanded(client, {
         leagueId,
         nextPick: committedPickIndex,

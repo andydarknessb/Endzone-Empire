@@ -4,7 +4,6 @@ const pool = require('../modules/pool');
 // A pooled transaction closes in one place (ADR 0033): these handlers open no
 // BEGIN/COMMIT/ROLLBACK and release no client of their own.
 const { withTransaction } = require('../modules/withTransaction');
-const { lockLeague } = require('../modules/leagueWrite');
 const { requireAuth } = require('../modules/auth');
 // The anonymous presenter board reads its own narrow snapshot (#788), so this
 // route no longer imports anything from the Socket.IO attach module.
@@ -371,8 +370,8 @@ router.post('/league/:id/teams/:teamId/autodraft', async (req, res) => {
           // The team now on the clock is autodrafting: arm the short delay through
           // the Pick clock module (ADR 0018), the only writer of the deadline. It
           // reads the offline rule and clock settings from the locked row itself
-          // (#948); the act module holds that row under its serializing lock
-          // and this body writes no Leagues column before this call.
+          // (#948); the act module holds that row under its serializing lock,
+          // and that lock's board-version advance is the only Leagues write before this call.
           await pickClock.onAutodraftToggled(client, { leagueId });
         }
       }
@@ -498,7 +497,7 @@ router.post('/league/:id/undo', async (req, res) => {
       // through the Pick clock module (ADR 0018): the only writer of current_pick
       // and the deadline. It reads the offline rule and clock settings from the
       // locked row itself (#948); the act module holds the league under its
-      // serializing lock and this body writes no Leagues column before it.
+      // serializing lock, whose board-version advance is the only Leagues write before it.
       await pickClock.onPickUndone(client, {
         leagueId,
         newCurrentPick,
@@ -687,21 +686,23 @@ router.post('/league/:id/ready', async (req, res) => {
     await withTransaction(pool, async (client) => {
       // The League row first, then the Team row: the one lock order every path takes
       // (rosterGate.service), so a readiness toggle cannot deadlock a Draft start. The
-      // lock advances the board version (ADR 0025, 2026-11-06); a refusal throws, so
-      // the rollback undoes that bump with the toggle.
-      await lockLeague(client, leagueId);
-      const toggled = await client.query(
-        `UPDATE "teams" SET "draft_ready" = $1, "updated_at" = now()
-         FROM "leagues"
-         WHERE "teams"."league_id" = "leagues"."id"
-           AND "teams"."league_id" = $2 AND "teams"."owner_id" = $3
-           AND "leagues"."draft_status" = 'pending'
-         RETURNING "teams"."id"`,
-        [ready, leagueId, req.user.id]
+      // guard is in the advance itself (ADR 0025, 2026-11-06): a caller who owns no Team
+      // in a pending League takes no lock and is refused before any write.
+      const advanced = await client.query(
+        `UPDATE "leagues" SET "board_version" = "board_version" + 1
+         WHERE "id" = $1 AND "draft_status" = 'pending'
+           AND EXISTS (SELECT 1 FROM "teams" WHERE "league_id" = $1 AND "owner_id" = $2)
+         RETURNING "id"`,
+        [leagueId, req.user.id]
       );
-      if (!toggled.rows[0]) {
+      if (!advanced.rows[0]) {
         throw new DraftError(403, 'not a member of this league, or the draft is not pending');
       }
+      await client.query(
+        `UPDATE "teams" SET "draft_ready" = $1, "updated_at" = now()
+         WHERE "league_id" = $2 AND "owner_id" = $3`,
+        [ready, leagueId, req.user.id]
+      );
     }, { label: 'draft-ready' });
     await getDraftRoomBroadcast().stateChanged(leagueId);
     res.json({ leagueId, ready });
