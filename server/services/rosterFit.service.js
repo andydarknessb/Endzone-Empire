@@ -46,14 +46,23 @@ async function countAtPositionGroup(client, { teamId, group }) {
   return countResult.rows[0].n;
 }
 
+/** Each player's position: the caller's known ones, and the players table for the rest. */
+async function positionsFor(client, { ids, known }) {
+  const positionOf = new Map(known);
+  const missing = ids.filter((id) => !positionOf.has(id));
+  if (missing.length > 0) {
+    const result = await client.query(
+      `SELECT "id", "position" FROM "players" WHERE "id" = ANY($1::int[])`,
+      [missing]
+    );
+    for (const p of result.rows) positionOf.set(p.id, p.position);
+  }
+  return positionOf;
+}
+
 /** Net change per cap group: +1 for each add, -1 for each drop, keyed by the player's group. */
-async function netChangeByGroup(client, { adds, drops }) {
-  const ids = [...adds, ...drops];
-  const result = await client.query(
-    `SELECT "id", "position" FROM "players" WHERE "id" = ANY($1::int[])`,
-    [ids]
-  );
-  const positionOf = new Map(result.rows.map((p) => [p.id, p.position]));
+async function netChangeByGroup(client, { adds, drops, known }) {
+  const positionOf = await positionsFor(client, { ids: [...adds, ...drops], known });
   const net = new Map();
   const bump = (id, delta) => {
     const group = positionCapGroup(positionOf.get(id));
@@ -64,10 +73,10 @@ async function netChangeByGroup(client, { adds, drops }) {
   return net;
 }
 
-async function positionCapRefusal(client, { league, teamId, adds, drops }) {
+async function positionCapRefusal(client, { league, teamId, adds, drops, knownPositions }) {
   const caps = parsePositionCaps(league.position_caps);
   if (adds.length === 0 || !Object.values(caps).some(Number.isInteger)) return null;
-  const net = await netChangeByGroup(client, { adds, drops });
+  const net = await netChangeByGroup(client, { adds, drops, known: knownPositions });
   for (const [group, change] of net) {
     const cap = caps[group];
     if (!Number.isInteger(cap) || change <= 0) continue;
@@ -98,10 +107,10 @@ async function capacityRefusal(client, { league, teamId, adds, drops }) {
  * other caller checks both.
  */
 async function rosterFit(client, {
-  league, teamId, adds = [], drops = [], checkCapacity = true, checkPositionCap = true,
+  league, teamId, adds = [], drops = [], checkCapacity = true, checkPositionCap = true, knownPositions = new Map(),
 }) {
   if (checkPositionCap) {
-    const capped = await positionCapRefusal(client, { league, teamId, adds, drops });
+    const capped = await positionCapRefusal(client, { league, teamId, adds, drops, knownPositions });
     if (capped) return capped;
   }
   if (checkCapacity) {

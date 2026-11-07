@@ -134,11 +134,12 @@ async function isPlayersTeamKickedOff(client, { league, playerId }) {
  * spot beyond the draft roster size (#97). The added player himself earns no
  * restored credit - an add benches him (undoDrop is the one restore).
  */
-async function assertRosterAcquisitionAllowed(client, { league, teamId, playerId, bypass, moves }) {
+async function assertRosterAcquisitionAllowed(client, { league, teamId, playerId, position, bypass, moves }) {
   const skip = asBypassSet(bypass);
 
   // One fit answer (rosterFit). `moves` is the Team's pending move set when a caller
   // writes several moves in turn (a trade leg); without it, the one add is the whole move.
+  // The caller's position for the add spares rosterFit a players-table read.
   const refusal = await rosterFit(client, {
     league,
     teamId,
@@ -146,6 +147,7 @@ async function assertRosterAcquisitionAllowed(client, { league, teamId, playerId
     drops: moves ? moves.drops : [],
     checkCapacity: !skip.has(ROSTER_GATE.CAPACITY),
     checkPositionCap: !skip.has(ROSTER_GATE.POSITION_CAP),
+    knownPositions: new Map(position === undefined ? [] : [[playerId, position]]),
   });
   if (refusal) throw new DraftError(409, refusal);
 
@@ -218,7 +220,7 @@ function isLeagueFrozen(league) {
  * Lock order is League then Team: the gate locks the League row, then the Team
  * row, matching every wired caller, so adopting it introduces no AB/BA deadlock.
  */
-async function assertRosterWriteAllowed(client, { leagueId, teamId, direction, playerId, bypass, moves }) {
+async function assertRosterWriteAllowed(client, { leagueId, teamId, direction, playerId, position, bypass, moves }) {
   if (direction !== DIRECTION.ACQUIRE && direction !== DIRECTION.RELEASE) {
     throw new DraftError(500, `roster gate: unknown direction "${direction}"; refusing`, 'ROSTER_GATE_INDETERMINATE');
   }
@@ -260,7 +262,7 @@ async function assertRosterWriteAllowed(client, { leagueId, teamId, direction, p
   // reads its OWN league row here too, so the acquire bundle is never fed a
   // caller-supplied object either.
   if (direction === DIRECTION.ACQUIRE) {
-    await assertRosterAcquisitionAllowed(client, { league, teamId, playerId, bypass: skip, moves });
+    await assertRosterAcquisitionAllowed(client, { league, teamId, playerId, position, bypass: skip, moves });
   }
 }
 
