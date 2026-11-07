@@ -68,6 +68,7 @@ function gateWorld({
     [/^SELECT COUNT\(\*\)::int AS n FROM "team_players" JOIN "players"/, () => ({ rows: [{ n: positionCount }] })],
     [/^SELECT 1 FROM "waiver_players"/, () => ({ rows: onWaivers ? [{ 1: 1 }] : [] })],
     [/^SELECT 1 FROM "team_players" WHERE "league_id"/, () => ({ rows: [] })],
+    [/^SELECT "id", "position" FROM "players"/, () => ({ rows: [{ id: 500, position: 'RB' }] })],
     [/^SELECT "nfl_team" FROM "players" WHERE "id" = \$1/, () => ({ rows: [{ nfl_team: playerTeam }] })],
     [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({ rows: kickedOffTeams.map((nflTeam) => ({ nfl_team: nflTeam })) })],
   ]);

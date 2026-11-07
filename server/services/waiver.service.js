@@ -4,7 +4,6 @@ const { assertFantasyLeagueRow } = require('./leagueType');
 const { requireMember } = require('./leagueMembership.service');
 const { logTransaction, notify } = require('./activity.service');
 const { getDraftRoomBroadcast } = require('../modules/draftRoomBroadcast');
-const { rosterCapacity } = require('./irPolicy.service');
 const { fantasySeasonLiveWhereSql } = require('./leaguePhase');
 const { normalizeNflTeam } = require('./nflTeam');
 // Module object, not destructured: the seam tests mock benchAcquiredPlayer.
@@ -13,9 +12,8 @@ const lineupService = require('./lineup.service');
 // circular require back into this module (#944; see waiverStatus.js). Kept in
 // this module's exports below so existing importers are untouched.
 const { isOnWaivers } = require('./waiverStatus');
-const {
-  assertRosterWriteAllowed, isLeagueFrozen, ROSTER_GATE, positionCapGroup, parsePositionCaps, countAtPositionGroup,
-} = require('./rosterGate.service');
+const { assertRosterWriteAllowed, isLeagueFrozen, ROSTER_GATE } = require('./rosterGate.service');
+const { rosterFit } = require('./rosterFit.service');
 // The one writer of a single-player Roster move (#2535).
 const rosterMove = require('./rosterMove.service');
 
@@ -206,29 +204,6 @@ async function claimTarget({ leagueId, userId, playerId }) {
   return player;
 }
 
-/**
- * Why a claim would overflow the roster, or null when it fits. Shared by
- * submit time and process time so a manager hears "choose a drop" when the
- * claim is built, not days later when it silently fails to execute.
- */
-async function capacityFailureReason(client, { league, team, dropPlayerId }) {
-  const count = await client.query(
-    `SELECT COUNT(*)::int AS n FROM "team_players" WHERE "team_id" = $1`,
-    [team.id]
-  );
-  const effective = count.rows[0].n - (dropPlayerId ? 1 : 0);
-  // Roster capacity, not the static roster limit: an eligible IR stash grants
-  // a spot, and a dropped player's own stash grants nothing (#97). The claimed
-  // player gets no restored credit either - a won claim benches him.
-  const capacity = await rosterCapacity(client, {
-    league,
-    teamId: team.id,
-    excludePlayerIds: dropPlayerId ? [dropPlayerId] : [],
-  });
-  if (effective >= capacity) return `roster capacity of ${capacity} reached`;
-  return null;
-}
-
 /** Submit a waiver claim (optionally dropping a player, optionally a FAAB bid). */
 async function submitClaim({ leagueId, userId, playerId, dropPlayerId, bid = 0 }) {
   // withTransaction owns connect/BEGIN/COMMIT-or-guarded-ROLLBACK and the
@@ -281,7 +256,10 @@ async function submitClaim({ leagueId, userId, playerId, dropPlayerId, bid = 0 }
       if (!onMyTeam.rows[0]) throw new WaiverError(404, 'drop player is not on your roster');
     }
 
-    const overflow = await capacityFailureReason(client, { league, team, dropPlayerId });
+    // Submit and processing ask the same fit question, so a manager hears "choose a drop" now.
+    const overflow = await rosterFit(client, {
+      league, teamId: team.id, adds: [playerId], drops: dropPlayerId ? [dropPlayerId] : [],
+    });
     if (overflow) throw new WaiverError(409, `${overflow}; choose a player to drop`);
 
     const dupe = await client.query(
@@ -381,7 +359,9 @@ async function editClaim({ userId, claimId, bid, dropPlayerId }) {
         }
         // A different drop (an IR stash grants no credit) or a cleared one can
         // leave no room, and the roster may have grown since submit.
-        const overflow = await capacityFailureReason(client, { league, team, dropPlayerId: nextDrop });
+        const overflow = await rosterFit(client, {
+          league, teamId: team.id, adds: [current.player_id], drops: nextDrop ? [nextDrop] : [],
+        });
         if (overflow) throw new WaiverError(409, `${overflow}; choose a player to drop`);
       }
 
@@ -620,7 +600,10 @@ async function processWaivers({ leagueId }) {
         teamId: claim.team_id,
         direction: 'acquire',
         playerId: claim.player_id,
-        bypass: [ROSTER_GATE.TEAM_LOCK, ROSTER_GATE.CAPACITY, ROSTER_GATE.POSITION_CAP, ROSTER_GATE.WAIVER_HOLD],
+        bypass: [ROSTER_GATE.TEAM_LOCK, ROSTER_GATE.WAIVER_HOLD],
+        // A terminal status is no roster move: a win's add already happened, and a
+        // lost or invalid claim never adds, so there is no pending move to fit-check.
+        moves: { adds: [], drops: [] },
       });
       return client.query(
         `UPDATE "waiver_claims" SET "status" = $1, "note" = $2,
@@ -711,11 +694,11 @@ async function processWaivers({ leagueId }) {
       // freeze must not land during it (#940 story 4). A frozen League throws,
       // the transaction rolls back, and every due claim stays pending for the
       // next tick rather than being awarded or permanently invalidated. The team
-      // lock and the acquire bundle are bypassed there: this batch path enforces
-      // its net capacity and net position cap through claimFailureReason above
-      // and does not enforce the on-waivers gate (a waiver award IS a waiver),
-      // and per-team-lock handling on the batch path is a later ticket - so this
-      // slice changes only the freeze here (#944 criterion 5).
+      // lock and the waiver hold are bypassed there: the add checks capacity and
+      // the position cap after this claim's own drop, the same net question
+      // claimFailureReason asked above, and a waiver award IS a waiver, so the
+      // on-waivers gate does not apply. Per-team-lock handling on the batch path is
+      // a later ticket - so this slice changes only the freeze here (#944 criterion 5).
 
       // Execute: optional drop (dropped player goes on waivers), then add.
       if (claim.drop_player_id) {
@@ -741,7 +724,7 @@ async function processWaivers({ leagueId }) {
         league,
         teamId: team.id,
         playerId,
-        bypass: [ROSTER_GATE.TEAM_LOCK, ROSTER_GATE.CAPACITY, ROSTER_GATE.POSITION_CAP, ROSTER_GATE.WAIVER_HOLD],
+        bypass: [ROSTER_GATE.TEAM_LOCK, ROSTER_GATE.WAIVER_HOLD],
       });
       if (league.waiver_type === 'faab' && claim.bid > 0) {
         await client.query(
@@ -865,32 +848,11 @@ async function claimFailureReason(client, { league, team, claim }) {
     if (!dropValid) return 'the player you offered to drop is no longer on your roster';
   }
   const dropPlayerId = dropValid ? claim.drop_player_id : null;
-  // Cap first: a claim that never fit its cap must not read as "roster full
-  // after your #n claim" once a sibling win fills the roster (siblingReason).
-  const capped = await positionCapFailureReason(client, { league, team, claim, dropPlayerId });
-  if (capped) return capped;
-  return capacityFailureReason(client, { league, team, dropPlayerId });
-}
-
-/**
- * A Position cap holds on every acquisition (#2557), so a claim is checked
- * net of its own drop, like a Trade: a same-group drop nets zero and passes.
- * Only a claim that GAINS a player in the group is refused, so a Team already
- * over a cap keeps its players but cannot claim at that position.
- */
-async function positionCapFailureReason(client, { league, team, claim, dropPlayerId }) {
-  const caps = parsePositionCaps(league.position_caps);
-  if (!Object.values(caps).some(Number.isInteger)) return null;
-  const ids = dropPlayerId ? [claim.player_id, dropPlayerId] : [claim.player_id];
-  const positions = await client.query(`SELECT "id", "position" FROM "players" WHERE "id" = ANY($1::int[])`, [ids]);
-  const groupOf = (id) => positionCapGroup((positions.rows.find((p) => p.id === id) || {}).position);
-  const group = groupOf(claim.player_id);
-  if (!Number.isInteger(caps[group])) return null;
-  const net = dropPlayerId && groupOf(dropPlayerId) === group ? 0 : 1;
-  if (net > 0 && (await countAtPositionGroup(client, { teamId: team.id, group })) + net > caps[group]) {
-    return `position cap reached: max ${caps[group]} ${group}`;
-  }
-  return null;
+  // rosterFit checks the Position cap before capacity, so a claim that never fit
+  // its cap does not read as "roster full after your #n claim" (siblingReason).
+  return rosterFit(client, {
+    league, teamId: team.id, adds: [claim.player_id], drops: dropPlayerId ? [dropPlayerId] : [],
+  });
 }
 
 /**

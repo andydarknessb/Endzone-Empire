@@ -32,17 +32,17 @@ const lineupService = require('./lineup.service');
  * passes what `interruptedStash` resolved, so "the stash stopped qualifying
  * while he was on waivers" is already a null here.
  *
- * `position` feeds the gate's position cap; a caller that bypasses POSITION_CAP
- * may leave it out.
+ * `moves` is the Team's pending move set when the caller writes several moves in
+ * turn (a trade leg); the gate checks fit against it, not this one add alone.
  */
-async function add(client, { league, teamId, playerId, position, stash = null, bypass }) {
+async function add(client, { league, teamId, playerId, stash = null, bypass, moves }) {
   await assertRosterWriteAllowed(client, {
     leagueId: league.id,
     teamId,
     direction: DIRECTION.ACQUIRE,
     playerId,
-    position,
     bypass,
+    moves,
   });
   await client.query(
     `INSERT INTO "team_players" ("league_id", "team_id", "player_id") VALUES ($1, $2, $3)`,
