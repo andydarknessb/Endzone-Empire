@@ -100,8 +100,8 @@ test('a playoff-flipping stat correction alerts every commissioner, not the crea
   }));
   t.mock.method(scoring, 'announceScored', async () => {});
 
-  const { correctLeagueWeek } = require('../services/correction.service');
-  await correctLeagueWeek({ leagueId: 7, season: 2025, week: 15 });
+  const { correctWeek } = require('../services/settle.service');
+  await correctWeek({ leagueId: 7, season: 2025, week: 15 });
 
   // The bracket alert only; notifyLeague's own fan-out has no team rows here.
   const bracketAlerts = notified(fake).filter((a) => /commissioner tools/.test(a.message));

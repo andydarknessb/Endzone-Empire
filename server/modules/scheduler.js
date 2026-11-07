@@ -699,7 +699,7 @@ async function runNightlyStatsIntegrityScan({ now }) {
  * so this pass costs no quota and needs no credentials.
  *
  * A Sync run (ADR 0036) with one unit, `transaction: false`: a BEGIN'd client
- * sitting idle for the minutes this pass takes - while `correctLeagueWeek`
+ * sitting idle for the minutes this pass takes - while `correctWeek`
  * opens its own transaction per league on other clients, beside the tick's
  * session-level advisory lock - is the idle-in-transaction shape #839 already
  * bit this repo with under the pooler. The row carries the UTC `day` the pass

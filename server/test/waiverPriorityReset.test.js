@@ -1,11 +1,13 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { createFakePool, select, update } = require('./helpers/fakePool');
+const matchupScoring = require('../services/matchupScoring.service');
+const settleFollowUpSvc = require('../services/settleFollowUp.service');
 const {
-  finalizeWeekAndAdvance,
   waiverPrioritiesFromStandings,
   computeStandings,
 } = require('../services/season.service');
+const { settleWeek } = require('../services/settle.service');
 const lineupService = require('../services/lineup.service');
 
 /**
@@ -87,9 +89,11 @@ test('waiverPrioritiesFromStandings: an empty table yields no order', () => {
 
 test('finalizing a week resets waiver priority to reverse standings, inside the advance transaction', async (t) => {
   t.mock.method(lineupService, 'materializeLineup', async () => {});
+  t.mock.method(matchupScoring, 'scoreMatchupsInTransaction', async () => null);
+  t.mock.method(settleFollowUpSvc, 'settleFollowUp', async () => {});
   const fake = advancePool().install(t);
 
-  const outcome = await finalizeWeekAndAdvance({ leagueId: 1 });
+  const { advance: outcome } = await settleWeek({ leagueId: 1 });
   assert.equal(outcome.advancedTo, 4);
 
   const resets = fake.matching(update('teams'));
@@ -116,7 +120,7 @@ test('a refused finalize writes no waiver priority', async (t) => {
     [update('teams'), () => ({ rows: [], rowCount: 4 })],
   ]).install(t);
 
-  await assert.rejects(finalizeWeekAndAdvance({ leagueId: 1 }), { statusCode: 409 });
+  await assert.rejects(settleWeek({ leagueId: 1 }), { statusCode: 409 });
   assert.equal(fake.matching(update('teams')).length, 0);
   fake.assertClean();
 });
