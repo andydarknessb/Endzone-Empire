@@ -1,13 +1,8 @@
 const pool = require('../modules/pool');
 const cadence = require('../modules/cadence');
 const { runSyncJob } = require('../modules/syncRun');
-const { withTransaction } = require('../modules/withTransaction');
 const feedSyncRuns = require('./feedSyncRuns.service');
-const matchupScoring = require('./matchupScoring.service');
-const { logTransaction, notifyLeague } = require('./activity.service');
-const { notifyCommissioners } = require('./leagueRole.service');
 const { fantasySeasonLiveWhereSql } = require('./leaguePhase');
-const settleFollowUpSvc = require('./settleFollowUp.service');
 
 /**
  * Stat corrections: the NFL routinely adjusts box scores on Tuesday/Wednesday
@@ -122,146 +117,12 @@ function diffMatchupScores(before, after) {
 }
 
 /**
- * Re-score one league week (stats must already be synced) and record any
- * changes: a transaction-log entry plus a league-wide notification, and a
- * commissioner alert when a settled playoff result flipped or, once the
- * bracket's seeds are stored, when a final regular-season result moved.
- *
- * ONE transaction (spec #2602). The re-scored Matchups, the log entry, the
- * League notice and the commissioner alerts commit together or not at all, so
- * a correction can never leave scores of record that nothing explains - and a
- * failure, or a process death before the COMMIT, leaves the old scores in
- * place for the next run to find again. The "before" read takes FOR UPDATE on
- * the week's Matchup rows, so a live re-score cannot land between it and this
- * transaction's own re-score. The `scores:updated` announcement and the
- * Settle follow-up (recap rebuild, power rankings, weekly high score - #1409,
- * #1410, #1411) run after the commit, on the pool.
+ * Re-score one league week and record any changes (spec #2602). The League write
+ * lives in the Settle module (ADR 0070); this delegates to its correctWeek, so the
+ * nflverse pass and the Commissioner's correction route share one write.
  */
-async function correctLeagueWeek({ leagueId, season, week }) {
-  // Read in the catch below: once the transaction has rolled the scores back,
-  // the server log is the only trace of what the correction would have done.
-  let changes = [];
-  let committed;
-  try {
-    committed = await withTransaction(
-      pool,
-      async (client) => {
-        const before = await client.query(
-          `SELECT "id", "week", "final", "is_playoff", "home_score", "away_score"
-           FROM "matchups" WHERE "league_id" = $1 AND "season" = $2 AND "week" = $3
-           FOR UPDATE`,
-          [leagueId, season, week]
-        );
-        if (before.rows.length === 0) return null;
-
-        // The re-score runs on THIS transaction, so it commits with the log and
-        // notices below or not at all (#2602).
-        const scoring = await matchupScoring.scoreMatchupsInTransaction(client, { leagueId, season, week });
-
-        const after = await client.query(
-          `SELECT "id", "home_score", "away_score" FROM "matchups"
-           WHERE "league_id" = $1 AND "season" = $2 AND "week" = $3`,
-          [leagueId, season, week]
-        );
-        changes = diffMatchupScores(before.rows, after.rows);
-        if (changes.length === 0) return { scoring };
-
-        await logTransaction(client, {
-          leagueId,
-          type: 'stat_correction',
-          detail: { season, week, changes },
-        });
-        await notifyLeague(client, {
-          leagueId,
-          type: 'stat_correction',
-          message: `Week ${week} scores were updated after an NFL stat correction.`,
-          data: { season, week, matchupIds: changes.map((c) => c.matchupId) },
-        });
-
-        const playoffFlips = changes.filter((c) => c.final && c.isPlayoff && c.winnerFlipped);
-        // A final regular-season result moved. Records can change, but the
-        // seeds were fixed at bracket creation (#2547), so mid-playoffs the
-        // commissioners are told nothing in the bracket moved.
-        const seededChanges = changes.filter((c) => c.final && !c.isPlayoff);
-        if (playoffFlips.length > 0 || seededChanges.length > 0) {
-          const ownerResult = await client.query(
-            `SELECT "owner_id", "season_status" FROM "leagues" WHERE "id" = $1`,
-            [leagueId]
-          );
-          const league = ownerResult.rows[0];
-          // Every commissioner, not the creator alone (#188). The alert asks its
-          // reader to rebuild the bracket with their commissioner tools, and a
-          // co-commissioner holds exactly those tools, so resolving the role as
-          // `leagues.owner_id` told the wrong (narrower) set of people. Nobody
-          // is in the loop to notice: this runs from the correction scheduler.
-          if (league && playoffFlips.length > 0) {
-            await notifyCommissioners(client, {
-              leagueId,
-              ownerId: league.owner_id,
-              type: 'stat_correction',
-              message:
-                `A stat correction flipped the result of ${playoffFlips.length} settled playoff ` +
-                `matchup(s) in week ${week}. Later rounds were NOT changed automatically. ` +
-                `Review the bracket with your commissioner tools.`,
-              data: { season, week, matchupIds: playoffFlips.map((c) => c.matchupId) },
-            });
-          }
-          // Only a bracket with stored seeds is locked; a League already in its
-          // playoffs before seeds were stored still derives them from standings.
-          const locked = league && league.season_status === 'playoffs' && seededChanges.length > 0 &&
-            (await client.query(
-              `SELECT 1 FROM "playoff_seeds" WHERE "league_id" = $1 AND "season" = $2 LIMIT 1`,
-              [leagueId, season]
-            )).rows.length > 0;
-          if (locked) {
-            await notifyCommissioners(client, {
-              leagueId,
-              ownerId: league.owner_id,
-              type: 'stat_correction',
-              message:
-                `A stat correction changed ${seededChanges.length} final regular-season ` +
-                `matchup(s) in week ${week}. Records may have moved, but the playoff seeds are locked: ` +
-                `the bracket, the byes and the seed order did not change.`,
-              data: { season, week, matchupIds: seededChanges.map((c) => c.matchupId) },
-            });
-          }
-        }
-        return { scoring };
-      },
-      { label: 'correction' }
-    );
-  } catch (error) {
-    // Every write rolled back with the failed statement, so no score moved and
-    // the next run's "before" read still holds the old scores: the correction
-    // is safe to retry, so nothing tags retrySafe=false here. The change set
-    // the rollback discarded is the part worth keeping, so it goes to the
-    // server log. The wrapper has already attached error.rollbackError when the
-    // ROLLBACK itself failed.
-    console.error(
-      'stat correction: league %s week %s rolled back, nothing committed:',
-      leagueId,
-      week,
-      JSON.stringify(changes)
-    );
-    throw error;
-  }
-
-  if (!committed) return { leagueId, changes: [] };
-
-  // Post-commit, on the pool: announce the fresh scores, then rebuild what the
-  // new scores of record made stale (#1409, #1410, #1411). Both are past the
-  // point where a crash could cost the correction its log or notice. The
-  // announce goes first so the Monte Carlo run does not delay the live score
-  // push, but the follow-up must still run when it throws: the week is already
-  // committed, and a retry sees no change and rebuilds nothing (#2616).
-  try {
-    await matchupScoring.announceScored({ leagueId, season, week, ...committed.scoring });
-  } finally {
-    if (changes.some((c) => c.final)) {
-      await settleFollowUpSvc.settleFollowUp({ leagueId, season, week, mode: 'correction' });
-    }
-  }
-  return { leagueId, changes };
+async function correctLeagueWeek(args) {
+  return require('./settle.service').correctWeek(args);
 }
 
 /**

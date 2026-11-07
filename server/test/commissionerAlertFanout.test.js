@@ -82,6 +82,7 @@ test('a playoff-flipping stat correction alerts every commissioner, not the crea
     })],
     [/INSERT INTO "transactions"|INSERT INTO "activity"/, () => ({ rows: [] })],
     [/SELECT DISTINCT "owner_id" FROM "teams"/, () => ({ rows: [] })],
+    [/FOR NO KEY UPDATE/, () => ({ rows: [{ id: 7 }] }), 'client'],
     [/SELECT "owner_id", "season_status" FROM "leagues"/, () => ({
       rows: [{ owner_id: OWNER_ID, season_status: 'playoffs' }],
     })],

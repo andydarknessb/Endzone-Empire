@@ -260,7 +260,7 @@ async function awardWeeklyTrophies({ leagueId, season, week, seasonComplete }) {
   // narrates them. Same post-commit footing as the lineup trophies.
   awarded.push(...(await judgeCalledShots({
     leagueId, season, week,
-    // advanceWeek.service.js is the one decider; absent means false.
+    // settle.service.js (settleWeek) is the one decider; absent means false.
     seasonComplete: seasonComplete === true,
   })));
 

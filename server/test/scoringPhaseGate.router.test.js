@@ -16,7 +16,6 @@ const { createFakePool, insert, update } = require('./helpers/fakePool');
 const { signToken } = require('../modules/auth');
 const scoring = require('../services/matchupScoring.service');
 const season = require('../services/season.service');
-const settleFollowUpSvc = require('../services/settleFollowUp.service');
 const { SEASON_BEFORE_DRAFT_MESSAGE } = require('../services/leaguePhase');
 const { PICKEM_ONLY_CODE } = require('../services/leagueType');
 
@@ -93,26 +92,22 @@ for (const draftStatus of ['pending', 'active']) {
 }
 
 test('advance-week: a league whose draft is complete scores and advances as before', async (t) => {
+  const settle = require('../services/settle.service');
   const fake = routerPool(league({ draft_status: 'complete' })).install(t);
   const scored = spy(t, scoring, 'scoreMatchups');
-  const finalized = spy(t, season, 'finalizeWeekAndAdvance', async () => ({
-    advancedTo: 2,
-    seasonStatus: 'regular',
+  // The route calls settleWeek (spec #2693), which owns the score, the finalize and the follow-up.
+  const finalized = spy(t, settle, 'settleWeek', async () => ({
     scored: 2,
+    advance: { advancedTo: 2, seasonStatus: 'regular' },
+    followUp: new Promise(() => {}), // never settles: the route must not await it
   }));
-  // The Settle follow-up is fire-and-forget: a promise that never settles
-  // proves the route does not await it (the response below still arrives).
-  const followUp = spy(t, settleFollowUpSvc, 'settleFollowUp', () => new Promise(() => {}));
 
   const res = await request(app).post('/api/scoring/league/1/advance-week').set('Authorization', authed);
 
   assert.equal(res.status, 200);
-  assert.equal(scored.length, 0, 'the settle pass rides finalize, not a separate scoreMatchups transaction');
+  assert.equal(scored.length, 0, 'the settle pass scores inside its own League write, not a separate scoreMatchups transaction');
   assert.equal(finalized.length, 1);
-  assert.equal(finalized[0][0].settle, true);
-  assert.equal(finalized[0][0].week, 1);
   assert.equal(res.body.scored, 2);
-  assert.deepEqual(followUp, [[{ leagueId: 1, season: 2026, week: 1, mode: 'advance' }]]);
   fake.assertClean();
 });
 

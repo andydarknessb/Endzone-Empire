@@ -14,7 +14,7 @@ const correction = require('../services/correction.service');
 const nflverseSync = require('../services/nflverseSync.service');
 const commissioner = require('../services/commissioner.service');
 const montecarlo = require('../services/montecarlo.service');
-const advanceWeekSvc = require('../services/advanceWeek.service');
+const settleSvc = require('../services/settle.service');
 const {
   isLeagueCommissioner,
   commissionerPredicate,
@@ -100,19 +100,12 @@ router.post('/league/:id/score', async (req, res) => {
   try {
     if (!(await requireLeagueCommissioner(req, res, leagueId))) return;
     // A final week's Score of record moves only through a stat correction or a
-    // manual correction (CONTEXT.md, Score of record), never a plain re-score.
-    const final = await pool.query(
-      `SELECT 1 FROM "matchups" WHERE "league_id" = $1 AND "season" = $2 AND "week" = $3 AND "final" = true LIMIT 1`,
-      [leagueId, sw.season, sw.week]
-    );
-    if (final.rows[0]) {
-      return res.status(409).json({
-        error: `Week ${sw.week} is final. Its scores change only through a stat correction or a manual score correction.`,
-      });
-    }
-    const result = await matchupScoring.scoreMatchups({ leagueId, ...sw });
+    // manual correction (CONTEXT.md, Score of record): settle refuses it under the
+    // League lock (rescoreLive), never on an unlocked read here.
+    const result = await settleSvc.rescoreLive({ leagueId, season: sw.season, week: sw.week });
     res.json(result);
   } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
     console.error('Matchup scoring failed:', error);
     res.status(500).json({ error: 'matchup scoring failed' });
   }
@@ -509,7 +502,7 @@ router.post('/league/:id/advance-week', async (req, res) => {
   }
   try {
     if (!(await requireLeagueCommissioner(req, res, leagueId))) return;
-    const { scored, advance } = await advanceWeekSvc.advanceWeek({
+    const { scored, advance } = await settleSvc.settleWeek({
       leagueId,
       expectedWeek: bodyWeek,
     });
