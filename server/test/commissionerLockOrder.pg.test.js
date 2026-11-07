@@ -7,7 +7,9 @@
  * `requireCommissioner` without `forUpdate`, UPDATE the Team row, and only then
  * reach the League row, through the transactions log's foreign key (a FOR KEY
  * SHARE lock). A waiver run holds the League row and then asks for the Team
- * row, so the pair is AB/BA and Postgres kills one with SQLSTATE 40P01. The
+ * row, so the pair was AB/BA: under the old FOR UPDATE League lock, Postgres
+ * killed one with SQLSTATE 40P01. Since #2683 the revert no longer parks (see
+ * the steps below). The
  * same inversion lets a FAAB edit land between the waiver run's FAAB read and
  * its Team lock.
  *
