@@ -173,7 +173,7 @@ test('addFreeAgent: a complete league with the player on waivers gets the existi
   fake.assertClean();
 });
 
-test('addFreeAgent: a complete league with a free player records exactly one rosterChanged and no pickLanded', async (t) => {
+test('addFreeAgent: a complete league with a free player reaches no room (rosterChanged retired)', async (t) => {
   const fake = freeAgencyPool({ rostered: 0, stashed: 0 }).install(t);
   const recorder = installRecordingBroadcast(t);
   recordBenching(t, fake);
@@ -182,8 +182,7 @@ test('addFreeAgent: a complete league with a free player records exactly one ros
 
   assert.equal(outcome.player.id, 500);
   assert.equal(outcome.teamId, 11);
-  assert.deepEqual(recorder.calls.map((c) => c.method), ['rosterChanged'], 'exactly one rosterChanged, and no pickLanded');
-  assert.equal(recorder.calls[0].leagueId, 1);
+  assert.deepEqual(recorder.calls.map((c) => c.method), [], 'no room fan-out, and no pickLanded');
   fake.assertClean();
 });
 

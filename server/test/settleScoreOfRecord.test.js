@@ -326,7 +326,7 @@ function createWorld({
     }],
 
     // --- scoreMatchups -----------------------------------------------------
-    [/^SELECT \* FROM "leagues"/, () => ({ rows: [{ ...state.league }] })],
+    [/^(?:SELECT \* FROM "leagues"|UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*)/, () => ({ rows: [{ ...state.league }] })],
     [/^SELECT \* FROM "matchups"/, (text, params) => {
       const [leagueId, season, week] = params;
       return {

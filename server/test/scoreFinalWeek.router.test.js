@@ -40,7 +40,7 @@ function setup(t, { commissioner, finalRows }) {
   const fake = createFakePool([
     [/^SELECT "pickem_only" FROM "leagues"/, () => ({ rows: [{ pickem_only: false }] })],
     [/^SELECT 1 FROM "leagues"/, () => ({ rows: commissioner ? [{ '?column?': 1 }] : [] })],
-    [/FOR NO KEY UPDATE/, () => ({ rows: [{ id: 1 }] }), 'client'], // the League write's lock (spec #2693)
+    [/FOR NO KEY UPDATE|"board_version" = "board_version" \+ 1/, () => ({ rows: [{ id: 1 }] }), 'client'], // the League write's lock (spec #2693)
     [FINALITY_READ, () => ({ rows: finalRows })],
   ]).install(t);
   const scored = [];

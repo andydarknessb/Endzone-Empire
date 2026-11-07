@@ -1,5 +1,6 @@
 const pool = require('../modules/pool');
 const { withTransaction } = require('../modules/withTransaction');
+const { lockLeague } = require('../modules/leagueWrite');
 const { meetsMinimum } = require('./leagueSize');
 const { DraftError } = require('./draftError');
 const { startPlan } = require('./draftValidation.service');
@@ -50,11 +51,8 @@ async function startDraft({ leagueId, userId = null }) {
     // production no timer registry exists (ADR 0018).
     let pickDeadlineAt = null;
 
-    const leagueResult = await client.query(
-      `SELECT * FROM "leagues" WHERE "id" = $1 FOR NO KEY UPDATE`,
-      [leagueId]
-    );
-    const league = leagueResult.rows[0];
+    // The lock advances the board version: the Draft start is a Draft-state change (ADR 0025, 2026-11-06).
+    const league = await lockLeague(client, leagueId);
     if (!league) throw new DraftError(404, 'league not found');
     // A pick'em-only league has no draft. Checked here, under the lock, so
     // the socket start event and the scheduler cannot bypass the route guard.

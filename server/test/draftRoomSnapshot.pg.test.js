@@ -227,6 +227,14 @@ if (!ENABLED) {
     assert.equal(snapshot.picks.length, 2);
   });
 
+  test('memberSnapshot carries the board version of its own read, equal to the row (ADR 0025, 2026-11-06)', async () => {
+    await pool.query('UPDATE "leagues" SET "board_version" = 7 WHERE "id" = $1', [leagueId]);
+    const snapshot = await memberSnapshot(leagueId);
+    const row = await pool.query('SELECT "board_version" FROM "leagues" WHERE "id" = $1', [leagueId]);
+    assert.equal(snapshot.boardVersion, 7);
+    assert.equal(snapshot.boardVersion, Number(row.rows[0].board_version));
+  });
+
   test('an autopicked slot whose activity row matches by identity reads auto = true (control)', async () => {
     // A second league where slot 1 was autopicked and left as-is: the activity
     // row's source_pick_id IS the current draft_picks id, so the join reads true.

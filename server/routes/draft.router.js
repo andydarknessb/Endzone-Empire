@@ -4,6 +4,7 @@ const pool = require('../modules/pool');
 // A pooled transaction closes in one place (ADR 0033): these handlers open no
 // BEGIN/COMMIT/ROLLBACK and release no client of their own.
 const { withTransaction } = require('../modules/withTransaction');
+const { lockLeague } = require('../modules/leagueWrite');
 const { requireAuth } = require('../modules/auth');
 // The anonymous presenter board reads its own narrow snapshot (#788), so this
 // route no longer imports anything from the Socket.IO attach module.
@@ -196,14 +197,16 @@ router.post('/league/:id/order', async (req, res) => {
   try {
     // Each early refusal throws a DraftError (ADR 0008) - the shape #967 already
     // converted this router's ROLLBACK-and-return pairs to. Every refusal reads
-    // only (the FOR NO KEY UPDATE read included) before it throws, so withTransaction
-    // rolls the read-only transaction back - freeing the same lock a COMMIT would
+    // only (the League lock included, its version advance undone with it) before it
+    // throws, so withTransaction rolls the transaction back - freeing the same lock a COMMIT would
     // - and rethrows the DraftError, which the outer catch maps via
     // isDraftRefusal exactly as /queue does. The success response is sent after
     // the wrapper resolves.
     const finalOrder = await withTransaction(pool, async (client) => {
+      // The lock advances the board version: a new draft order is a Draft-state change (ADR 0025, 2026-11-06).
       const leagueResult = await client.query(
-        `SELECT * FROM "leagues" WHERE "id" = $1 AND ${commissionerPredicate(2)} FOR NO KEY UPDATE`,
+        `UPDATE "leagues" SET "board_version" = "board_version" + 1
+          WHERE "id" = $1 AND ${commissionerPredicate(2)} RETURNING *`,
         [leagueId, req.user.id]
       );
       if (!leagueResult.rows[0]) {
@@ -401,7 +404,8 @@ router.post('/league/:id/clock', async (req, res) => {
   }
   try {
     const result = await pool.query(
-      `UPDATE "leagues" SET "pick_time_seconds" = $1, "updated_at" = now()
+      `UPDATE "leagues" SET "pick_time_seconds" = $1, "updated_at" = now(),
+              "board_version" = "board_version" + 1
        WHERE "id" = $2 AND ${commissionerPredicate(3)} AND "draft_status" IN ('pending', 'active')
        RETURNING "id"`,
       [pickTimeSeconds, leagueId, req.user.id]
@@ -500,11 +504,10 @@ router.post('/league/:id/undo', async (req, res) => {
         newCurrentPick,
         onClockAutodraft: onClock ? onClock.autodraft : false,
       });
-      // No narration on an undo, so the fan-out is the two board facts in the
-      // order this route has always emitted them: rosters, then state.
+      // No narration on an undo, so the one board fact is the state refresh.
       return {
         response: { leagueId, undone: targets.length, currentPick: newCurrentPick },
-        broadcasts: ['rosterChanged', 'stateChanged'],
+        broadcasts: ['stateChanged'],
       };
     });
     res.json(response);
@@ -655,10 +658,8 @@ router.post('/league/:id/reset', async (req, res) => {
       // commissioner's Team comes from the act module (actingTeam) rather than a
       // second lookupTeam.
       const entry = await appendLifecycleActivity(client, { leagueId, kind: RESET, team: actingTeam });
-      // The reset wipes every roster in the league but names only stateChanged:
-      // rosterChanged sits on the module's BOARD_FACTS allowlist and is
-      // deliberately not requested here, preserving this route's shipped emit set
-      // (#947's inherited note).
+      // The reset wipes every roster in the league and names only stateChanged,
+      // the one board fact a Draft act may name (ADR 0025, 2026-11-06).
       return {
         response: { leagueId, reset: true },
         activity: [entry],
@@ -683,21 +684,29 @@ router.post('/league/:id/ready', async (req, res) => {
     return res.status(400).json({ error: 'ready (boolean) is required' });
   }
   try {
-    const result = await pool.query(
-      `UPDATE "teams" SET "draft_ready" = $1, "updated_at" = now()
-       FROM "leagues"
-       WHERE "teams"."league_id" = "leagues"."id"
-         AND "teams"."league_id" = $2 AND "teams"."owner_id" = $3
-         AND "leagues"."draft_status" = 'pending'
-       RETURNING "teams"."id"`,
-      [ready, leagueId, req.user.id]
-    );
-    if (!result.rows[0]) {
-      return res.status(403).json({ error: 'not a member of this league, or the draft is not pending' });
-    }
+    await withTransaction(pool, async (client) => {
+      // The League row first, then the Team row: the one lock order every path takes
+      // (rosterGate.service), so a readiness toggle cannot deadlock a Draft start. The
+      // lock advances the board version (ADR 0025, 2026-11-06); a refusal throws, so
+      // the rollback undoes that bump with the toggle.
+      await lockLeague(client, leagueId);
+      const toggled = await client.query(
+        `UPDATE "teams" SET "draft_ready" = $1, "updated_at" = now()
+         FROM "leagues"
+         WHERE "teams"."league_id" = "leagues"."id"
+           AND "teams"."league_id" = $2 AND "teams"."owner_id" = $3
+           AND "leagues"."draft_status" = 'pending'
+         RETURNING "teams"."id"`,
+        [ready, leagueId, req.user.id]
+      );
+      if (!toggled.rows[0]) {
+        throw new DraftError(403, 'not a member of this league, or the draft is not pending');
+      }
+    }, { label: 'draft-ready' });
     await getDraftRoomBroadcast().stateChanged(leagueId);
     res.json({ leagueId, ready });
   } catch (error) {
+    if (isDraftRefusal(error)) return res.status(error.statusCode).json({ error: error.message });
     console.error('Error updating draft readiness', error);
     res.status(500).json({ error: 'failed to update readiness' });
   }
@@ -761,17 +770,18 @@ router.put('/league/:id/keepers', async (req, res) => {
   }
   try {
     // The four early refusals throw a DraftError (ADR 0008) - the shape #967
-    // converted this router's ROLLBACK-and-return pairs to. Each reads only (the
-    // FOR NO KEY UPDATE read, teams, rosters) and validates in memory before it throws,
-    // so withTransaction rolls the read-only transaction back - freeing the same
+    // converted this router's ROLLBACK-and-return pairs to. Each reads (the League lock,
+    // teams, rosters) and validates in memory before it throws, so withTransaction
+    // rolls the transaction back, undoing the lock's version advance - freeing the same
     // lock a COMMIT would - and rethrows the DraftError for the outer catch to map
     // via isDraftRefusal. The DELETE/INSERT replace-all runs only past the last
     // refusal; the success response is sent after the wrapper resolves.
     const savedCount = await withTransaction(pool, async (client) => {
+      // The lock advances the board version: a keeper save is a Draft-state change (ADR 0025, 2026-11-06).
       const leagueResult = await client.query(
-        `SELECT "draft_status", "roster_limit", "ir_slots", "keeper_count", "keeper_lock_at", "draft_date",
-                ${commissionerPredicate(2)} AS "is_commissioner"
-         FROM "leagues" WHERE "id" = $1 FOR NO KEY UPDATE`,
+        `UPDATE "leagues" SET "board_version" = "board_version" + 1 WHERE "id" = $1
+         RETURNING "draft_status", "roster_limit", "ir_slots", "keeper_count", "keeper_lock_at", "draft_date",
+                ${commissionerPredicate(2)} AS "is_commissioner"`,
         [leagueId, req.user.id]
       );
       const league = leagueResult.rows[0];
@@ -863,8 +873,7 @@ router.post('/league/:id/offline-picks', async (req, res) => {
       try {
         // Each committed offline Pick fans out exactly like a live one through
         // landPick (#782 ruling 3): a `pickLanded` per Pick, and the final Pick's
-        // own draftCompleted / rosterChanged cover completion. The route no longer
-        // emits a closing stateChanged / rosterChanged of its own.
+        // own draftCompleted covers completion. The route emits no closing state.
         await landPick({ leagueId, userId: req.user.id, playerId: playerIds[i], byCommissioner: true });
         applied++;
       } catch (error) {

@@ -81,7 +81,6 @@ if (!ENABLED) {
     draftRoomBroadcast.setDraftRoomBroadcast({
       activityAppended: async () => ({ delivered: true }),
       stateChanged: async () => ({ delivered: true }),
-      rosterChanged: async () => ({ delivered: true }),
       draftCompleted: async () => ({ delivered: true }),
       pickLanded: async () => ({ delivered: true }),
       scoresUpdated: async () => ({ delivered: true }),
@@ -130,7 +129,7 @@ if (!ENABLED) {
     await holder.query('SELECT * FROM "leagues" WHERE "id" = $1 FOR NO KEY UPDATE', [leagueId]);
 
     // The REAL act: a pause body that flips draft_paused. runDraftAct's first
-    // statement after BEGIN is the same SELECT ... FOR NO KEY UPDATE, so it blocks on the
+    // statement after BEGIN is the same FOR NO KEY UPDATE row lock (an UPDATE now), so it blocks on the
     // row the holder holds.
     const actResult = runDraftAct({ leagueId, userId: owner }, async ({ client, league }) => {
       assert.equal(league.draft_status, 'active');

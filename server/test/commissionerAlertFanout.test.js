@@ -31,7 +31,7 @@ const notified = (fake) =>
 
 test('a join request alerts every commissioner, not the creator alone', async (t) => {
   const fake = createFakePool([
-    [/FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/, () => ({
+    [/(?:FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE|UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1)/, () => ({
       rows: [{
         id: 7, name: 'Curated League', owner_id: OWNER_ID, is_public: true,
         join_approval: true, max_teams: 10, pickem_only: false,
@@ -82,7 +82,7 @@ test('a playoff-flipping stat correction alerts every commissioner, not the crea
     })],
     [/INSERT INTO "transactions"|INSERT INTO "activity"/, () => ({ rows: [] })],
     [/SELECT DISTINCT "owner_id" FROM "teams"/, () => ({ rows: [] })],
-    [/FOR NO KEY UPDATE/, () => ({ rows: [{ id: 7 }] }), 'client'],
+    [/FOR NO KEY UPDATE|"board_version" = "board_version" \+ 1/, () => ({ rows: [{ id: 7 }] }), 'client'],
     [/SELECT "owner_id", "season_status" FROM "leagues"/, () => ({
       rows: [{ owner_id: OWNER_ID, season_status: 'playoffs' }],
     })],

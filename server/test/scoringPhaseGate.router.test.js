@@ -55,7 +55,7 @@ function routerPool(row, extra = []) {
     ...extra,
     [/^SELECT "pickem_only" FROM "leagues"/, () => ({ rows: [{ pickem_only: row.pickem_only }] })],
     [/^SELECT 1 FROM "leagues"/, () => ({ rows: [{ '?column?': 1 }] })],
-    [/^SELECT .* FROM "leagues"/, () => ({ rows: [row] })],
+    [/^(?:SELECT .* FROM "leagues"|UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*)/, () => ({ rows: [row] })],
   ]);
 }
 
@@ -86,7 +86,7 @@ for (const draftStatus of ['pending', 'active']) {
     assert.equal(scored.length, 0, 'no scores were written');
     assert.equal(finalized.length, 0, 'the week was never finalized');
     assert.equal(fake.matching(update('matchups')).length, 0);
-    assert.equal(fake.matching(update('leagues')).length, 0);
+    assert.equal(fake.matching(update('leagues')).filter((c) => !c.text.includes('"board_version"')).length, 0);
     fake.assertClean();
   });
 }

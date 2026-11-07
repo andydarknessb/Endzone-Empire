@@ -19,7 +19,7 @@ app.use('/api/commissioner', commissionerRouter);
 
 test("POST rollover exposes the Pick'em missing-result integrity response without a candidate", async (t) => {
   const db = createFakePool([
-    [/FROM "leagues" WHERE "id" = \$1( FOR NO KEY UPDATE)?$/, () => ({ rows: [{
+    [/(?:FROM "leagues" WHERE "id" = \$1( FOR NO KEY UPDATE)?$|UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$)/, () => ({ rows: [{
       id: 5,
       owner_id: 100,
       is_commissioner: true,
@@ -65,7 +65,7 @@ test("POST rollover exposes the Pick'em missing-result integrity response withou
   // strictly weaker even than the no-COMMIT check the convention already rules
   // insufficient. These are the assertions that can fail on a misplaced guard.
   assert.equal(db.matching(insert('league_history')).length, 0, 'no season was archived');
-  assert.equal(db.matching(update('leagues')).length, 0, 'the season did not roll over');
+  assert.equal(db.matching(update('leagues')).filter((c) => !c.text.includes('"board_version"')).length, 0, 'the season did not roll over');
   assert.equal(db.matching(/^COMMIT$/).length, 0); // complementary only
   db.assertClean();
 });

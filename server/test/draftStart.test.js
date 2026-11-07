@@ -65,6 +65,7 @@ function draftStartPool({
     // Handlers a single test needs in FRONT of the defaults; handlers are tried
     // in order, so this is where a narrower matcher goes.
     ...extra,
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [{ ...row }] })],
     [select('leagues'), () => ({ rows: [{ ...row }] })],
     // isLeagueCommissioner's owner-or-co-commissioner probe.
     [/^SELECT 1 FROM "leagues"/, () => ({ rows: [{ '?column?': 1 }] })],
@@ -156,7 +157,7 @@ test('startDraft rolls back without writes when keepers exceed the current per-t
 
   assert.equal(fake.matching(/^ROLLBACK$/).length, 1);
   assert.equal(fake.matching(/^COMMIT$/).length, 0);
-  assert.equal(fake.matching(update('leagues')).length, 0);
+  assert.equal(fake.matching(update('leagues')).filter((c) => !c.text.includes('"board_version"')).length, 0);
   assert.equal(fake.matching(insert('draft_picks')).length, 0);
   assert.equal(fake.matching(insert('team_players')).length, 0);
   // #274: the service's fourth write site, UPDATE "teams" SET "autodraft", is
@@ -257,7 +258,7 @@ test('startDraft refuses when the player market has not loaded, with the 409 cop
   // Refused under the lock: rolled back, and nothing was written or started.
   assert.equal(fake.matching(/^ROLLBACK$/).length, 1);
   assert.equal(fake.matching(/^COMMIT$/).length, 0);
-  assert.equal(fake.matching(update('leagues')).length, 0);
+  assert.equal(fake.matching(update('leagues')).filter((c) => !c.text.includes('"board_version"')).length, 0);
   assert.equal(fake.matching(insert('draft_activity')).length, 0);
   fake.assertClean();
 });

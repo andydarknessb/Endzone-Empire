@@ -1,5 +1,6 @@
 const pool = require('../modules/pool');
 const { withTransaction } = require('../modules/withTransaction');
+const { lockLeague } = require('../modules/leagueWrite');
 const { placeOnWaiversUndoable } = require('./waiver.service');
 const { logTransaction, notify } = require('./activity.service');
 const { isLeagueCommissioner } = require('./leagueRole.service');
@@ -11,11 +12,6 @@ const { appendCorrectionActivity } = require('./draftActivity');
 // and draft-order modules at load time).
 const { assertFantasyLeagueRow } = require('./leagueType');
 const { rosterCapacity, interruptedStash } = require('./irPolicy.service');
-// Every room-wide emit here rides the one Draft room adapter (#745); addFreeAgent
-// resolves it at call time (ADR 0025), the same way pick.service and the routes do.
-const { getDraftRoomBroadcast } = require('../modules/draftRoomBroadcast');
-const { logger } = require('../modules/logger');
-const sentry = require('../modules/sentry');
 // #943: the acquire gate (roster capacity, the per-position cap, the waiver
 // hold) now lives in rosterGate.service.js; this re-exports
 // assertRosterAcquisitionAllowed below for pick.service.js and its own tests,
@@ -89,15 +85,15 @@ function shouldAutoEnableAutodraft(consecutiveTimeouts) {
  * takes the Pick path's roster-acquisition checks through the shared helper
  * (assertRosterAcquisitionAllowed, re-exported from rosterGate.service.js),
  * but it commits no draft_pick, appends no Draft activity, arms no clock, and
- * fans out only `rosterChanged` (the availability read model changed). It refuses
- * unless the draft is complete; a Pick, conversely, refuses unless it is active.
+ * reaches no room (a post-draft acquisition changes no Draft state, ADR 0025,
+ * 2026-11-06). It refuses unless the draft is complete; a Pick, conversely, refuses
+ * unless it is active. This is the free-agent add the team router calls (#782 ruling 2).
  *
  * The transaction locks the league row FOR NO KEY UPDATE, exactly as a Pick does, so the
  * capacity read cannot race a concurrent add; the (league_id, player_id) unique
- * constraint is the double-add backstop. addFreeAgent below wraps this commit with
- * the post-COMMIT `rosterChanged` fan-out.
+ * constraint is the double-add backstop.
  */
-async function commitFreeAgentAdd({ leagueId, userId, playerId }) {
+async function addFreeAgent({ leagueId, userId, playerId }) {
   // withTransaction owns connect, BEGIN, COMMIT-or-guarded-ROLLBACK and the
   // release rule (ADR 0033). The 23505 -> DraftError mapping that used to sit in
   // this transaction's own catch now sits in a catch around the wrapper (#1063
@@ -168,28 +164,6 @@ async function commitFreeAgentAdd({ leagueId, userId, playerId }) {
     }
     throw error;
   }
-}
-
-/**
- * The post-draft free-agent add the team router calls (#782 ruling 2). Commits the
- * add (commitFreeAgentAdd) and, after COMMIT, fans out ONLY `rosterChanged`
- * through the one Draft room adapter (#745). A post-draft acquisition is never a
- * Pick, so it emits no `pickLanded` and no Draft activity.
- *
- * The commit is authoritative, the same rule landPick follows (ADR 0025): the add
- * is durable the moment commitFreeAgentAdd returns, so a room fan-out failure is
- * not a failure of the add. The fan-out is contained so a post-COMMIT
- * getDraftRoomBroadcast throw (#765) cannot surface a committed add as a 500.
- */
-async function addFreeAgent({ leagueId, userId, playerId }) {
-  const outcome = await commitFreeAgentAdd({ leagueId, userId, playerId });
-  try {
-    await getDraftRoomBroadcast().rosterChanged(leagueId);
-  } catch (error) {
-    logger.error({ err: error, event: 'roster:changed', leagueId }, 'free-agent add committed but room fan-out failed');
-    sentry.captureError(error, { event: 'roster:changed', leagueId });
-  }
-  return outcome;
 }
 
 /**
@@ -468,11 +442,7 @@ async function correctLatestPick({ leagueId, userId, expectedPickNumber = null, 
   // release rule (ADR 0033). No catch-side mapping here (the old catch only
   // rolled back and rethrew), so the wrapper is the whole transaction.
   return withTransaction(pool, async (client) => {
-    const leagueResult = await client.query(
-      `SELECT * FROM "leagues" WHERE "id" = $1 FOR NO KEY UPDATE`,
-      [leagueId]
-    );
-    const league = leagueResult.rows[0];
+    const league = await lockLeague(client, leagueId);
     if (!league) throw new DraftError(404, 'league not found', 'LEAGUE_NOT_FOUND');
 
     // Authority is a distinct question from status, so it gets a distinct code

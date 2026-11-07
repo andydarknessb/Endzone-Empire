@@ -53,14 +53,12 @@ test('each named method reaches to(league:<id>).emit(<wire name>, payload) on th
   assert.deepEqual(await broadcast.pickLanded(5, pickPayload), { delivered: true, transport: 'io' });
   await broadcast.activityAppended(5, activityEntry);
   await broadcast.draftCompleted(5);
-  await broadcast.rosterChanged(5);
   await broadcast.stateChanged(5);
 
   assert.deepEqual(transport.emits, [
     { room: 'league:5', event: 'draft:picked', payload: pickPayload },
     { room: 'league:5', event: 'draft:activity', payload: activityEntry },
     { room: 'league:5', event: 'draft:complete', payload: { leagueId: 5 } },
-    { room: 'league:5', event: 'roster:changed', payload: { leagueId: 5 } },
     { room: 'league:5', event: 'draft:state', payload: snapshot },
   ]);
 });

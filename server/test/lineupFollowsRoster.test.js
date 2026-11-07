@@ -308,7 +308,7 @@ const commissionerLeague = {
 
 function commissionerDropWorld({ kickedOff = [], interrupted = null, removals = [], holds = [] } = {}) {
   return createFakePool([
-    [/^SELECT \* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE$/, () => ({ rows: [commissionerLeague] })],
+    [/^(?:SELECT \* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE|UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*)$/, () => ({ rows: [commissionerLeague] })],
     [/^SELECT \*, .* AS "is_commissioner"/, () => ({ rows: [commissionerLeague] })],
     // The #964 write gate's own reads, League then Team, with explicit column
     // lists of their own. Every gate a release evaluates is in
@@ -527,7 +527,7 @@ function undoPickWorld({ kickedOff = [], removals = [] } = {}) {
     // rather than restated. This matcher is still load-bearing HERE: drop it and
     // the module's lock read hits the fake pool's unregistered-query throw and
     // both undo tests redden.
-    [/^SELECT \* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE$/, () => ({ rows: [undoRouteLeague] })],
+    [/^(?:SELECT \* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE|UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*)$/, () => ({ rows: [undoRouteLeague] })],
     // onPickUndone's policy read (#948): a second SELECT ... FROM "leagues", no
     // FOR UPDATE, that the event issues before it re-arms.
     [/^SELECT "current_pick", "draft_type".* FROM "leagues"/, () => ({ rows: [undoRouteLeague] })],
@@ -645,7 +645,7 @@ const rolloverLeague = {
 
 function rolloverWorld({ kickedOff = [], removals = [] } = {}) {
   return createFakePool([
-    [/FROM "leagues" WHERE "id" = \$1( FOR NO KEY UPDATE)?$/, () => ({ rows: [rolloverLeague] })],
+    [/(?:FROM "leagues" WHERE "id" = \$1( FOR NO KEY UPDATE)?$|UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$)/, () => ({ rows: [rolloverLeague] })],
     [/^SELECT "id", "name", "owner_id" FROM "teams"/, () => ({
       rows: [{ id: 10, name: 'Sunday Ballers', owner_id: 7 }],
     })],

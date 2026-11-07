@@ -61,7 +61,7 @@ app.use('/api/draft', require('../routes/draft.router'));
 // matcher is still load-bearing in THIS suite: drop it and the module's lock
 // read hits the fake pool's unregistered-query throw and every test below
 // reddens.
-const ACT_LOCK = /^SELECT \* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE$/;
+const ACT_LOCK = /^(?:SELECT \* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE|UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*)$/;
 
 const doReset = () => request(app)
   .post(`/api/draft/league/${LEAGUE_ID}/reset`)
@@ -134,7 +134,7 @@ test('POST reset: a final matchup in the current season refuses with 409 and iss
     0,
     `no delete was issued, saw: ${fake.calls.map((c) => c.text).join(' | ')}`
   );
-  assert.equal(fake.matching(/^UPDATE/).length, 0, 'no update was issued either');
+  assert.equal(fake.matching(/^UPDATE/).filter((c) => !c.text.includes('"board_version"')).length, 0, 'no update was issued either');
   fake.assertClean();
 });
 

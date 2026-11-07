@@ -1,5 +1,6 @@
 const pool = require('../modules/pool');
 const { withTransaction } = require('../modules/withTransaction');
+const { lockLeague } = require('../modules/leagueWrite');
 const { teamForPick, nextOpenPickNumber } = require('./draftOrder.service');
 const { isLeagueCommissioner } = require('./leagueRole.service');
 const { teamIdentityOf } = require('./teamIdentity');
@@ -79,11 +80,8 @@ async function commitPick({ leagueId, userId, playerId, auto = false, byCommissi
   // post-COMMIT room fan-out stays in landPick, after this returns.
   try {
     return await withTransaction(pool, async (client) => {
-      const leagueResult = await client.query(
-        `SELECT * FROM "leagues" WHERE "id" = $1 FOR NO KEY UPDATE`,
-        [leagueId]
-      );
-      const league = leagueResult.rows[0];
+      // The lock advances the board version, so every Pick moves it (ADR 0025, 2026-11-06).
+      const league = await lockLeague(client, leagueId);
       if (!league) throw new DraftError(404, 'league not found');
       // A pick'em-only league has no draft and no rosters; say so rather than
       // "draft has not started" (its draft_status is 'pending' forever).
@@ -343,6 +341,9 @@ async function commitPick({ leagueId, userId, playerId, auto = false, byCommissi
         // The entry's feed position (#2609): a client orders this Pick against any
         // draft:state by it, and ignores a state with a lower seq.
         seq: activity.seq,
+        // The board version this commit advanced to (ADR 0025, 2026-11-06): landPick
+        // carries it on `draft:picked`, so a Pick orders against draft:state.
+        boardVersion: Number(league.board_version),
         // The completion lifecycle entry (#437), set only on the Pick that ends the
         // draft, else null. landPick delivers it on `draft:activity` so the room's
         // feed shows the draft closing beside the final Pick.
@@ -362,8 +363,7 @@ async function commitPick({ leagueId, userId, playerId, auto = false, byCommissi
  * (commitPick) and, after COMMIT, fans the outcome out to the room through the
  * one Draft room adapter (#745): `pickLanded` with the payload it builds
  * (`{ ...outcome, auto }`), then - only on the Pick that ended the draft - the
- * completion `activityAppended` (when present), `rosterChanged`, and
- * `draftCompleted`, in that order. The adapter is resolved through
+ * completion `activityAppended` (when present) and `draftCompleted`, in that order. The adapter is resolved through
  * getDraftRoomBroadcast() at call time (ADR 0025), the same way the socket
  * handler and the clock resolve it; a test installs a recording broadcast.
  *
@@ -397,7 +397,6 @@ async function landPick({ leagueId, userId, playerId, auto = false, byCommission
       // draft:complete board signal. A pick that completes without a completion
       // entry (defensive) emits no empty activity.
       if (outcome.completion) await broadcast.activityAppended(leagueId, outcome.completion);
-      await broadcast.rosterChanged(leagueId);
       await broadcast.draftCompleted(leagueId);
     }
   } catch (error) {

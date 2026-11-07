@@ -60,6 +60,7 @@ function manualPickWorld(t) {
         : [],
     })],
     [/^SELECT 1 FROM "leagues"/, () => ({ rows: [] })],
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [{ ...PICKED_LEAGUE }] })],
     [select('leagues'), () => ({ rows: [{ ...PICKED_LEAGUE }] })],
     [select('teams'), () => ({ rows: [
       { id: PICKER.teamId, name: PICKER.teamName, owner_id: PICKER.userId, draft_position: 1, autodraft: false, locked: false },

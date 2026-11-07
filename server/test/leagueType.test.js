@@ -202,7 +202,7 @@ function mockPool(t, { pickemOnly, overrides = [] }) {
     [/^(BEGIN|COMMIT|ROLLBACK)$/, () => ({ rows: [] })],
     [/SELECT "pickem_only" FROM "leagues" WHERE "id" = \$1/, () => ({ rows: [{ pickem_only: pickemOnly }] })],
     [/SELECT 1 FROM "leagues"/, () => ({ rows: [] })], // not a commissioner
-    [/^SELECT \* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE$/, () => ({ rows: [{ id: 3, pickem_only: pickemOnly, is_commissioner: false }] })],
+    [/^(?:SELECT \* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE|UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*)$/, () => ({ rows: [{ id: 3, pickem_only: pickemOnly, is_commissioner: false }] })],
     [/AS "is_commissioner" FROM "leagues"/, () => // commissioner.service's probe: not a commissioner
       ({ rows: [{ id: 3, pickem_only: pickemOnly, is_commissioner: false }] })],
     [/FROM "teams" WHERE "league_id"/, () => ({ rows: [{ id: 41, owner_id: CALLER, locked: false }] })],
@@ -327,7 +327,7 @@ test("league: POST start-draft 409s PICKEM_ONLY_LEAGUE for a pick'em-only league
 test('league: POST start-draft passes through for a fantasy league (reaches startDraft)', async (t) => {
   mockPool(t, {
     pickemOnly: false,
-    overrides: [[/SELECT \* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/, () =>
+    overrides: [[/(?:SELECT \* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE|UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1)/, () =>
       ({ rows: [{ id: 3, owner_id: 1, draft_status: 'pending', pickem_only: false }] })]],
   });
   const res = await request(routes).post('/api/league/3/start-draft').set('Authorization', authed()).send({});
@@ -468,12 +468,12 @@ const PICKEM_LEAGUE_ROW = {
 test("startDraft refuses a pick'em-only league under its row lock, even for the scheduler (userId null)", async (t) => {
   const { startDraft } = require('../services/draftStart.service');
   const tx = txClient([
-    [/SELECT \* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/, () => ({ rows: [PICKEM_LEAGUE_ROW] })],
+    [/(?:SELECT \* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE|UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1)/, () => ({ rows: [PICKEM_LEAGUE_ROW] })],
   ]);
   t.mock.method(pool, 'connect', async () => tx.client);
   await assert.rejects(() => startDraft({ leagueId: 3, userId: null }), expectPickemOnlyError);
   assert.ok(tx.calls.includes('ROLLBACK'));
-  assert.ok(!tx.calls.some((sql) => /^(INSERT|UPDATE)/.test(sql)), 'nothing was written');
+  assert.ok(!tx.calls.some((sql) => /^(INSERT|UPDATE)/.test(sql) && !sql.includes('"board_version"')), 'nothing was written');
 });
 
 test("processScheduledDrafts never scans pick'em-only leagues (a set draft_date must not open a draft room)", async (t) => {
