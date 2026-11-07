@@ -527,11 +527,8 @@ test('processWaivers clears an expired empty waiver window and refreshes league 
   const result = await processWaivers({ leagueId: 1 });
 
   assert.deepEqual(result, { processed: 0, results: [] });
-  // The empty-window path refreshes league availability through the one Draft
-  // room adapter (#745): exactly one rosterChanged for this league.
-  assert.deepEqual(recordingBroadcast().calls, [
-    { method: 'rosterChanged', leagueId: 1, payload: undefined },
-  ]);
+  // Waivers change no Draft state, so the empty-window path reaches no room.
+  assert.deepEqual(recordingBroadcast().calls, []);
   // The expired blanket window is spent inside the same transaction, guarded
   // so an open window survives a manual commissioner trigger. Without this the
   // league is "due" on every tick and the digest re-runs each time.

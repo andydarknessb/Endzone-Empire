@@ -53,7 +53,7 @@
  *    `viewerTeamId` rides only on per-viewer channels: a REST response, or
  *    the acknowledgement to `league:join` / `draft:join`. It deliberately
  *    never rides on a broadcast Socket.IO payload, because one `draft:state`,
- *    `draft:picked`, `draft:presence` or `chat:message` payload is sent to
+ *    `draft:picked` or `chat:message` payload is sent to
  *    the whole league room and cannot be true for every recipient at once. A
  *    broadcast carries Team identity only, and the client compares it against
  *    the `viewerTeamId` it was given on the per-viewer channel.

@@ -131,7 +131,7 @@ function createWorld({
   const nflTeamOf = (playerId) => teams[playerId] || SUN_TEAM;
 
   const handlers = [
-    [/^SELECT \* FROM "leagues"/, () => ({
+    [/^(?:SELECT \* FROM "leagues"|UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*)/, () => ({
       rows: [{
         id: LEAGUE_ID,
         current_season: SEASON,

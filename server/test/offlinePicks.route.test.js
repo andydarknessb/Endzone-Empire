@@ -18,9 +18,9 @@ const { DraftError } = require('../services/draft.service');
  * POST /api/draft/league/:id/offline-picks - the commissioner bulk-enters an
  * active offline draft's Picks (#782 ruling 3). Each committed offline Pick fans
  * out exactly like a live one through landPick: a `pickLanded` per Pick. The
- * route's old closing `stateChanged` / `rosterChanged` emits are GONE - a
- * completing offline draft's final Pick carries its own `draftCompleted` /
- * `rosterChanged` now, and a non-completing run needs neither.
+ * route's old closing `stateChanged` emit is GONE - a completing offline
+ * draft's final Pick carries its own `draftCompleted`, and a non-completing run
+ * needs neither.
  *
  * This is the sibling of draftReset.test.js: same supertest-over-fakePool harness,
  * one route over. What it pins is the fan-out (AC3): two posted ids produce two
@@ -86,6 +86,7 @@ function offlinePicksPool() {
     // commitPick's byCommissioner authority probe (isLeagueCommissioner).
     [/^SELECT 1 FROM "leagues"/, () => ({ rows: [{ '?column?': 1 }] })],
     // commitPick's own SELECT * ... FOR UPDATE.
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [{ ...OFFLINE_LEAGUE }] })],
     [select('leagues'), () => ({ rows: [{ ...OFFLINE_LEAGUE }] })],
     [select('teams'), () => ({ rows: TEAMS.map((t) => ({ ...t })) })],
     [select('players'), (text, params) => ({ rows: [{ id: params[0], name: `Player ${params[0]}`, position: 'RB', nfl_team: 'KC' }] })],
@@ -122,10 +123,9 @@ test('POST offline-picks: two posted ids produce two pickLanded and no stateChan
     assert.equal(call.leagueId, LEAGUE_ID);
     assert.equal(call.payload.auto, false, 'a commissioner-entered offline Pick is not an autopick');
   }
-  // The route no longer emits a closing stateChanged (nor a closing rosterChanged);
-  // a non-completing run fans out nothing but the per-Pick pickLanded.
+  // The route emits no closing stateChanged; a non-completing run fans out
+  // nothing but the per-Pick pickLanded.
   assert.equal(recorder.calls.some((c) => c.method === 'stateChanged'), false, 'no closing stateChanged');
-  assert.equal(recorder.calls.some((c) => c.method === 'rosterChanged'), false, 'no closing rosterChanged either');
   fake.assertClean();
 });
 

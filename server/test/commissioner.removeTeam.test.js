@@ -51,7 +51,7 @@ function removeTeamWorld(t, leagueOverrides = {}) {
   const fake = createFakePool([
     // requireCommissioner's SELECT carries commissionerPredicate, whose EXISTS
     // subquery has its own FROM, so this needs a raw regex, not select().
-    [/FROM "leagues" WHERE "id" = \$1/, (text, params) => ({
+    [/(?:FROM "leagues" WHERE "id" = \$1|UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1)/, (text, params) => ({
       rows: [{
         ...state.league,
         // What commissionerPredicate computes: owner OR a grant row.

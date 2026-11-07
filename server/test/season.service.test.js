@@ -297,6 +297,7 @@ function seedWorld() {
   world.pool = createFakePool([
     [/^SELECT DISTINCT "owner_id" FROM "teams"/, () => ({ rows: [] })],
     [/^INSERT INTO "(transactions|notifications)"/, () => ({ rows: [] })],
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [{ ...world.league }] })],
     [select('leagues'), () => ({ rows: [{ ...world.league }] })],
     [select('teams'), () => ({ rows: SEED_TEAMS })],
     [select('matchups'), (text, params) => {

@@ -91,7 +91,7 @@ async function processScheduledDrafts({ now = new Date() } = {}) {
 
 async function runAction(league, action, marketCount = Infinity, now = new Date()) {
   // 'start' delegates entirely to draftStart.service's startDraft(), which
-  // does its own fresh SELECT ... FOR NO KEY UPDATE + re-validation — running that
+  // does its own fresh League-lock read (lockLeague) + re-validation — running that
   // under this function's own lock too would have the two connections
   // deadlock on the same league row.
   if (action === 'start') return runStartAction(league);

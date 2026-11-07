@@ -351,7 +351,10 @@ class FakeDraftDatabase {
       const team = state.teams.find((entry) => entry.id === values[0]);
       return { rows: team ? [{ id: team.id, locked: team.locked ?? false }] : [] };
     }
-    if (sql.includes('SELECT * FROM "leagues"') && sql.includes('FOR NO KEY UPDATE')) {
+    // The League lock is the board-version UPDATE (ADR 0025, 2026-11-06), which takes
+    // the same FOR NO KEY UPDATE row lock a SELECT would.
+    if ((sql.includes('SELECT * FROM "leagues"') && sql.includes('FOR NO KEY UPDATE'))
+      || sql.includes('"board_version" = "board_version" + 1')) {
       await this.acquireLeagueLock(client);
       return { rows: values[0] === state.league.id ? [{ ...state.league }] : [] };
     }

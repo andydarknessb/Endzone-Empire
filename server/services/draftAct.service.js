@@ -11,10 +11,10 @@ const { getDraftRoomBroadcast } = require('../modules/draftRoomBroadcast');
 // whether a converted body happens to request it yet (only pause is converted
 // so far, and it requests just stateChanged; that a name is unused today does
 // not make it dead permission). Full ownership list and reasons, for all five
-// board facts: ADR 0025's 2026-09-07 amendment. In short: a Draft act owns
-// stateChanged and rosterChanged; pickLanded and draftCompleted are the Pick
-// module's, and scoresUpdated is the scoring service's.
-const BOARD_FACTS = new Set(['stateChanged', 'rosterChanged']);
+// board facts: ADR 0025's amendments. In short: a Draft act owns stateChanged
+// alone (rosterChanged retired 2026-11-06); pickLanded and draftCompleted are the
+// Pick module's, and scoresUpdated is the scoring service's.
+const BOARD_FACTS = new Set(['stateChanged']);
 
 /**
  * The Draft act module (#947, part of #938; see CONTEXT.md's Draft act
@@ -30,8 +30,9 @@ const BOARD_FACTS = new Set(['stateChanged', 'rosterChanged']);
  * The shape it enforces, and the four properties draftAct.service.test.js pins
  * at this interface:
  *
- *  1. THE LOCK PRECEDES ANY MUTATION. leagueWrite takes `SELECT ... FOR NO KEY
- *     UPDATE` on the League row as the first statement after BEGIN, before runDraftAct loads
+ *  1. THE LOCK PRECEDES ANY MUTATION. leagueWrite takes FOR NO KEY UPDATE on the
+ *     League row (an UPDATE that advances its board version) as the first statement
+ *     after BEGIN, before runDraftAct loads
  *     Teams, resolves the acting Team, or hands the client to the act body. The
  *     body's first write is therefore always behind the lock.
  *  2. A THROWN REFUSAL ROLLS BACK AND EMITS NOTHING. Any throw from the body (a
@@ -54,7 +55,7 @@ const BOARD_FACTS = new Set(['stateChanged', 'rosterChanged']);
  * autoPick escalation branch (the activityAppended-then-stateChanged emit right
  * after escalateNothingDraftable) already emits this exact pair narration-first,
  * and pick.service.js's landPick leads its completion group with the narration
- * too (activityAppended ahead of rosterChanged/draftCompleted). #947 converted
+ * too (activityAppended ahead of draftCompleted). #947 converted
  * pause/resume to that narration-first order and #967 finished the lifecycle set
  * (the autodraft toggle, undo and reset), which is what FLIPPED reset: it used
  * to emit stateChanged before activityAppended, and the module's order is now

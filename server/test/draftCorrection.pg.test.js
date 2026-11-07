@@ -177,7 +177,7 @@ if (!ENABLED) {
     await correction.query('SELECT * FROM "leagues" WHERE "id" = $1 FOR NO KEY UPDATE', [leagueId]);
 
     // The pick, the REAL commitPick, for the team on the clock. Its first
-    // statement after BEGIN is the same SELECT ... FOR NO KEY UPDATE, so it blocks on
+    // statement after BEGIN is the same FOR NO KEY UPDATE League lock, so it blocks on
     // the row the correction holds.
     const pickOutcome = commitPick({ leagueId, userId: ownerB, playerId: playerNext }).then(
       (value) => ({ status: 'fulfilled', value }),

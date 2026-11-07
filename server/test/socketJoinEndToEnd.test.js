@@ -137,6 +137,20 @@ test('the payload on the wire is the one joinAck builds, not merely the same sha
   }));
 });
 
+test('a join emits no draft:presence to the room (retired, ADR 0025 2026-11-06)', async (t) => {
+  world(t);
+  const stayer = await harness.connectAs(OWNER, t);
+  await harness.emit(stayer, 'draft:join', { leagueId: LEAGUE_ID });
+  const heard = [];
+  stayer.onAny((event) => heard.push(event));
+  const joiner = await harness.connectAs(MEMBER, t);
+  await harness.emit(joiner, 'draft:join', { leagueId: LEAGUE_ID });
+  // The stayer's own ack is queued after anything the joiner's join sent it, so
+  // once it arrives the room has been heard in full.
+  await harness.emit(stayer, 'draft:join', { leagueId: LEAGUE_ID });
+  assert.equal(heard.includes('draft:presence'), false);
+});
+
 test('the handshake also succeeds on the default transports, not just websocket', async (t) => {
   // The suite pins `websocket` for speed and determinism, which would skip
   // the polling handshake entirely. The real browser client opens on polling

@@ -52,7 +52,7 @@ const assertNoAvatarWrite = (fake) => {
 
 test('DELETE .../teams/:teamId/avatar requires the commissioner', async (t) => {
   const fake = createFakePool([
-    [/^SELECT \* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE$/, () => ({ rows: [{ id: 1, current_season: 2026, current_week: 1 }] })],
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [{ id: 1, current_season: 2026, current_week: 1 }] })],
     [
       /^SELECT \*, \("leagues"\."owner_id" = \$2 OR EXISTS/,
       () => ({ rows: [{ id: 1, owner_id: 999, is_commissioner: false, current_season: 2026, current_week: 1 }] }),
@@ -76,7 +76,7 @@ test('DELETE .../teams/:teamId/avatar clears the avatar and privately notifies t
   supabaseAdminModule.supabaseAdmin = null; // storage cleanup is best-effort; irrelevant to this assertion
   const notifyInserts = [];
   const fake = createFakePool([
-    [/^SELECT \* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE$/, () => ({ rows: [{ id: 1, current_season: 2026, current_week: 1 }] })],
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [{ id: 1, current_season: 2026, current_week: 1 }] })],
     [
       /^SELECT \*, \("leagues"\."owner_id" = \$2 OR EXISTS/,
       () => ({ rows: [{ id: 1, owner_id: 7, is_commissioner: true, current_season: 2026, current_week: 1 }] }),
@@ -120,7 +120,7 @@ test('DELETE .../teams/:teamId/avatar clears the avatar and privately notifies t
 
 test('DELETE .../teams/:teamId/avatar 404s when the team is not in that league', async (t) => {
   const fake = createFakePool([
-    [/^SELECT \* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE$/, () => ({ rows: [{ id: 1, current_season: 2026, current_week: 1 }] })],
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [{ id: 1, current_season: 2026, current_week: 1 }] })],
     [
       /^SELECT \*, \("leagues"\."owner_id" = \$2 OR EXISTS/,
       () => ({ rows: [{ id: 1, owner_id: 7, is_commissioner: true, current_season: 2026, current_week: 1 }] }),

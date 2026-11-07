@@ -25,9 +25,9 @@ test('sessionEnded disconnects that user and leaves the other member in the leag
   assert.equal(result.delivered, true);
   assert.equal(await reason, 'io server disconnect');
 
-  const stayerHeard = harness.nextEvent(stayer, 'roster:changed');
-  await getDraftRoomBroadcast().rosterChanged(LEAGUE_ID);
-  assert.deepEqual(await stayerHeard, { leagueId: LEAGUE_ID });
+  const stayerHeard = harness.nextEvent(stayer, 'draft:activity');
+  await getDraftRoomBroadcast().activityAppended(LEAGUE_ID, { id: 'probe' });
+  assert.deepEqual(await stayerHeard, { id: 'probe' });
   assert.equal(stayer.connected, true, 'the other member stays connected');
   assert.equal(ended.connected, false);
 });

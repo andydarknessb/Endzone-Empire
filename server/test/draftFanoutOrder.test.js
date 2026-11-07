@@ -65,7 +65,6 @@ function installRecorder(t) {
   draftRoomBroadcast.setDraftRoomBroadcast({
     activityAppended: record('activityAppended'),
     stateChanged: record('stateChanged'),
-    rosterChanged: record('rosterChanged'),
     draftCompleted: record('draftCompleted'),
     pickLanded: record('pickLanded'),
     scoresUpdated: record('scoresUpdated'),
@@ -97,8 +96,8 @@ const ESCALATION_LEAGUE = {
 function escalationWorld() {
   return createFakePool([
     // escalateNothingDraftable's own locked read, ahead of autoPick's unlocked
-    // one: both are SELECT * FROM "leagues" WHERE "id" = $1.
-    [/^SELECT \* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE$/, () => ({ rows: [ESCALATION_LEAGUE] })],
+    // one: the lock is the board-version UPDATE, the unlocked read a SELECT.
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [ESCALATION_LEAGUE] })],
     [/^SELECT \* FROM "leagues" WHERE "id" = \$1$/, () => ({ rows: [ESCALATION_LEAGUE] })],
     [/EXTRACT\(MONTH FROM CURRENT_DATE\)/, () => ({ rows: [{ season: 2025 }] })],
     // The candidate query, answered EMPTY: nothing is draftable.
@@ -123,7 +122,7 @@ function escalationWorld() {
 function resetWorld() {
   return createFakePool([
     [/SELECT "pickem_only" FROM "leagues"/, () => ({ rows: [{ pickem_only: false }] })],
-    [/^SELECT \* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE$/, () => ({
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({
       rows: [{ id: LEAGUE_ID, current_season: SEASON, draft_status: 'active' }],
     })],
     [/^SELECT "id", "owner_id", "autodraft", "draft_position" FROM "teams"/, () => ({

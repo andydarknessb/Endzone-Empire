@@ -264,13 +264,16 @@ function onTheClockFrom(league, teams) {
  * `seq` is the League's current feed position (the counter chat and Draft
  * activity share, read in that same snapshot): a client keeps the highest it has
  * applied and ignores a draft:state below it, so a join never rolls the board back.
- * shortcut: an autodraft toggle doesn't advance the feed seq, give the toggle a Draft activity entry if Managers report a wrong clock
+ * `boardVersion` is the League's board version in the same snapshot (ADR 0025,
+ * 2026-11-06): it advances on every Draft-state change, so a client orders
+ * draft:state by it, and a toggle or clock change orders even when no feed entry
+ * was written.
  */
 async function memberSnapshot(leagueId) {
   return withTransaction(pool, async (client) => {
     // First statement of the transaction, as Postgres requires.
     await client.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY');
-    const league = await readLeague(leagueId, MEMBER_LEAGUE_COLUMNS, client);
+    const league = await readLeague(leagueId, [...MEMBER_LEAGUE_COLUMNS, 'board_version'], client);
     if (!league) return null;
     const teams = await readTeams(leagueId, client);
     const picks = await readPicks(leagueId, client);
@@ -281,7 +284,14 @@ async function memberSnapshot(leagueId) {
     // No row yet means nothing has been written to the feed: position 0.
     const seq = Number(feed.rows[0]?.last_seq ?? 0);
     const onTheClock = onTheClockFrom(league, teams);
-    return { league: shape(league, MEMBER_LEAGUE_COLUMNS), teams, picks, onTheClock, seq };
+    return {
+      league: shape(league, MEMBER_LEAGUE_COLUMNS),
+      teams,
+      picks,
+      onTheClock,
+      seq,
+      boardVersion: Number(league.board_version),
+    };
   }, { label: 'member-snapshot' });
 }
 

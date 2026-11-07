@@ -14,7 +14,9 @@ const sentry = require('../modules/sentry');
 // had been sent yet, so ordering is read from evidence.
 
 const LEAGUE_ID = 1;
-const LOCK = /^SELECT \* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE$/;
+// The lock is an UPDATE that advances the board version in the same statement
+// (ADR 0025, 2026-11-06 amendment): it takes the FOR NO KEY UPDATE row lock.
+const LOCK = /^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/;
 
 function world(t, extra = [], { league = { id: LEAGUE_ID, name: 'Lakers' } } = {}) {
   const fake = createFakePool([
@@ -26,7 +28,7 @@ function world(t, extra = [], { league = { id: LEAGUE_ID, name: 'Lakers' } } = {
 
 const committed = (fake) => fake.calls.some((c) => c.text === 'COMMIT');
 
-test('the League row is locked FOR NO KEY UPDATE as the first statement after BEGIN', async (t) => {
+test('the League row is locked FOR NO KEY UPDATE, advancing its board version, as the first statement after BEGIN', async (t) => {
   const fake = world(t, [[/^UPDATE "leagues"/, () => ({ rows: [] }), 'client']]);
   await leagueWrite({ leagueId: LEAGUE_ID, label: 'test' }, async ({ client }) => {
     await client.query('UPDATE "leagues" SET "name" = $1 WHERE "id" = $2', ['x', LEAGUE_ID]);

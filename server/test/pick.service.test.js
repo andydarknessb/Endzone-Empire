@@ -76,6 +76,7 @@ function pickPool({
     [/^SELECT "id", "locked" FROM "teams" WHERE "id" = \$1 FOR UPDATE/, (text, params) => ({
       rows: [{ id: params[0], locked: teamLocked }],
     })],
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [{ ...row }] })],
     [select('leagues'), () => ({ rows: [{ ...row }] })],
     [select('teams'), () => ({ rows: TEAMS.map((t) => ({ ...t, locked: t.id === 11 && teamRowLocked })) })],
     // #833: the player read now names `adp`, which rides on the draft:picked
@@ -159,7 +160,7 @@ test('landPick: a byCommissioner Pick records the same fan-out as a manual one',
   fake.assertClean();
 });
 
-test('landPick: the Pick that completes the draft fans out pickLanded, activityAppended, rosterChanged, draftCompleted in order', async (t) => {
+test('landPick: the Pick that completes the draft fans out pickLanded, activityAppended, draftCompleted in order', async (t) => {
   const fake = pickPool({ league: BASE_LEAGUE, picksMade: 4 }).install(t);
   const recorder = withRecorder(t);
   t.mock.method(seasonService, 'generateRegularSeason', async () => ({}));
@@ -169,16 +170,13 @@ test('landPick: the Pick that completes the draft fans out pickLanded, activityA
   assert.equal(outcome.draftComplete, true);
   assert.deepEqual(
     recorder.calls.map((c) => c.method),
-    ['pickLanded', 'activityAppended', 'rosterChanged', 'draftCompleted'],
-    'the completing Pick fans all four out, in order'
+    ['pickLanded', 'activityAppended', 'draftCompleted'],
+    'the completing Pick fans out pickLanded, the completion activity, then draftCompleted'
   );
   // The activityAppended payload is the completion lifecycle entry.
   const appended = recorder.calls.find((c) => c.method === 'activityAppended');
   assert.equal(appended.payload.kind, 'complete');
   assert.equal(appended.payload, outcome.completion);
-  // rosterChanged sits BETWEEN the completion activity and draftCompleted: the red
-  // tell for AC1 is removing this call, which drops it from the sequence above.
-  assert.equal(recorder.calls[2].method, 'rosterChanged');
   fake.assertClean();
 });
 
@@ -231,6 +229,7 @@ test('landPick: the outcome ADP is null when the player has no market ADP (#833 
 
 test('landPick: a completed draft is a 409, not a Pick (free agency is addFreeAgent)', async (t) => {
   const fake = createFakePool([
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [{ ...BASE_LEAGUE, draft_status: 'complete' }] })],
     [select('leagues'), () => ({ rows: [{ ...BASE_LEAGUE, draft_status: 'complete' }] })],
   ]).install(t);
   // No broadcast is registered on purpose: a refusal never reaches the fan-out,
@@ -333,6 +332,7 @@ test('landPick: one pick short of the draft roster size keeps the draft active',
 test('landPick: rejects a manual (non-auto) pick in an active autopick-type draft', async (t) => {
   const league = { ...BASE_LEAGUE, current_pick: 0, draft_type: 'autopick' };
   const fake = createFakePool([
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [league] })],
     [select('leagues'), () => ({ rows: [league] })],
     [select('teams'), () => ({ rows: [
       { id: 11, owner_id: 7, draft_position: 1, autodraft: true, locked: false },
@@ -688,6 +688,7 @@ test('landPick: the acquire bundle is still evaluated - a full roster is refused
 test('commitPick: a rejecting ROLLBACK destroys the connection and keeps the original error (#1063 Ruling 5)', async (t) => {
   const errorLog = t.mock.method(console, 'error', () => {});
   const fake = createFakePool([
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => { throw new Error('boom'); }, 'client'],
     [select('leagues'), () => { throw new Error('boom'); }, 'client'],
     [/^ROLLBACK$/, () => { throw new Error('rollback boom'); }, 'client'],
   ]).install(t);
@@ -713,6 +714,7 @@ test('commitPick: a rejecting ROLLBACK destroys the connection and keeps the ori
 
 test('commitPick: an ordinary error keeps its healthy connection (#1063 Ruling 5 control)', async (t) => {
   const fake = createFakePool([
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => { throw new Error('boom'); }, 'client'],
     [select('leagues'), () => { throw new Error('boom'); }, 'client'],
   ]).install(t);
 

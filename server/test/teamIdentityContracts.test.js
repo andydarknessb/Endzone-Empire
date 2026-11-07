@@ -10,7 +10,6 @@ const leagueRouter = require('../routes/league.router');
 const {
   joinAck,
   joinError,
-  presencePayload,
   chatMessagePayload,
 } = require('../modules/draftSocket');
 const { memberSnapshot } = require('../services/draftRoomSnapshot');
@@ -206,6 +205,7 @@ const draftTeamRow = ({ teamId, teamName }, draftPosition) => ({
 
 function draftStateFake(t) {
   return createFakePool([
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [{ ...DRAFT_LEAGUE }] })],
     [select('leagues'), () => ({ rows: [{ ...DRAFT_LEAGUE }] })],
     [/FROM "league_feed_sequences"/, () => ({ rows: [{ last_seq: '1' }] })],
     [/FROM "teams"\s+WHERE/, () => ({
@@ -295,6 +295,7 @@ test('draft:picked: the Pick outcome names the Team that made it', async (t) => 
     waiver_period_hours: 24,
   };
   const fake = createFakePool([
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [league] })],
     [select('leagues'), () => ({ rows: [league] })],
     [select('teams'), () => ({ rows: [
       { id: VIEWER.teamId, name: VIEWER.teamName, owner_id: VIEWER.userId, draft_position: 1, autodraft: false, locked: false },
@@ -400,25 +401,6 @@ test('every join refusal code the handlers emit is one of the three, spelled SCR
     // error code this app emits is upper snake, HTTP body and socket ack alike.
     assert.match(code, /^[A-Z][A-Z0-9_]*$/, `${code} is not SCREAMING_SNAKE`);
   }
-});
-
-test('draft:presence names the joining manager by Team and nothing about their account', () => {
-  assert.deepEqual(
-    presencePayload({ id: VIEWER.userId, username: 'u42' }, { id: VIEWER.teamId, name: VIEWER.teamName }),
-    { teamId: VIEWER.teamId, teamName: VIEWER.teamName, joined: true }
-  );
-});
-
-test('a broadcast Draft payload never carries a viewer-relative field', () => {
-  // One draft:presence payload reaches the whole league room, so no field on
-  // it can be true for every recipient. viewerTeamId lives on the join ack,
-  // which is answered to one socket.
-  const payload = presencePayload(
-    { id: VIEWER.userId, username: 'u42' },
-    { id: VIEWER.teamId, name: VIEWER.teamName }
-  );
-  assert.equal('viewerTeamId' in payload, false);
-  assert.equal('isViewer' in payload, false);
 });
 
 // ------------------------------------------------------------------------ chat

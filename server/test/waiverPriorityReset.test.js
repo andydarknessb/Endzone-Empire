@@ -58,6 +58,7 @@ function advancePool() {
   // whole-season read by hand so the standings computed after it count week 3.
   let week3Final = false;
   return createFakePool([
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [{ ...LEAGUE }] })],
     [select('leagues'), () => ({ rows: [{ ...LEAGUE }] })],
     [select('teams'), () => ({ rows: TEAMS })],
     [select('matchups'), (text, params) => {
@@ -116,6 +117,7 @@ test('finalizing a week resets waiver priority to reverse standings, inside the 
 
 test('a refused finalize writes no waiver priority', async (t) => {
   const fake = createFakePool([
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [{ ...LEAGUE, season_status: 'complete' }] })],
     [select('leagues'), () => ({ rows: [{ ...LEAGUE, season_status: 'complete' }] })],
     [update('teams'), () => ({ rows: [], rowCount: 4 })],
   ]).install(t);

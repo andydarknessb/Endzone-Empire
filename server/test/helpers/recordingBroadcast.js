@@ -26,7 +26,6 @@ function createRecordingBroadcast() {
     pickLanded: record('pickLanded'),
     activityAppended: record('activityAppended'),
     draftCompleted: record('draftCompleted'),
-    rosterChanged: record('rosterChanged'),
     stateChanged: record('stateChanged'),
     scoresUpdated: record('scoresUpdated'),
     // Keyed by user, not league (#2415): recorded as { method, userId }.

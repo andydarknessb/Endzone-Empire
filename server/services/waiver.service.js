@@ -3,7 +3,6 @@ const { withTransaction } = require('../modules/withTransaction');
 const { assertFantasyLeagueRow } = require('./leagueType');
 const { requireMember } = require('./leagueMembership.service');
 const { logTransaction, notify } = require('./activity.service');
-const { getDraftRoomBroadcast } = require('../modules/draftRoomBroadcast');
 const { fantasySeasonLiveWhereSql } = require('./leaguePhase');
 const { normalizeNflTeam } = require('./nflTeam');
 // Module object, not destructured: the seam tests mock benchAcquiredPlayer.
@@ -514,10 +513,8 @@ async function processWaivers({ leagueId }) {
   // which COMMITs: it returns AFTER real writes (clearing expired
   // waiver_players and the blanket window), exactly as the hand-rolled early
   // COMMIT did - a committing early return, not a ROLLBACK-before-write, so
-  // it is untouched by Ruling 2. Both that branch and the full path broadcast
-  // rosterChanged after the commit, identically, so that one post-commit
-  // broadcast is hoisted below the call. Refusals (a frozen league from the
-  // roster gate) throw and the wrapper rolls back; no catch-side mapping.
+  // it is untouched by Ruling 2. Refusals (a frozen league from the roster gate)
+  // throw and the wrapper rolls back; no catch-side mapping.
   const result = await withTransaction(
     pool,
     async (client) => {
@@ -790,7 +787,6 @@ async function processWaivers({ leagueId }) {
     },
     { label: 'waiver-process' }
   );
-  await getDraftRoomBroadcast().rosterChanged(leagueId);
   return result;
 }
 
