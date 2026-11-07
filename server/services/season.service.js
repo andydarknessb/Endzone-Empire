@@ -1,5 +1,7 @@
 const pool = require('../modules/pool');
 const { withTransaction } = require('../modules/withTransaction');
+const { logger } = require('../modules/logger');
+const sentry = require('../modules/sentry');
 const { notifyLeague } = require('./activity.service');
 const { seasonOperationsAvailable, SEASON_BEFORE_DRAFT_MESSAGE } = require('./leaguePhase');
 const { round2 } = require('./scoringRules');
@@ -592,7 +594,16 @@ async function finalizeWeekAndAdvance({ leagueId, week: expectedWeek, settle = f
     },
     { label: 'season' }
   );
-  if (settled) await matchupScoring.announceScored({ leagueId, season, week, ...settled });
+  // The week is committed: a failed live score announcement is reported once and
+  // swallowed, so the seed and the Settle follow-up still run (CONTEXT.md, Advance week).
+  if (settled) {
+    try {
+      await matchupScoring.announceScored({ leagueId, season, week, ...settled });
+    } catch (error) {
+      logger.error({ err: error, leagueId, season, week }, 'live score announcement failed after the week committed');
+      sentry.captureError(error, { leagueId, season, week });
+    }
+  }
   await materializeNewWeekLineups({ leagueId, season, week: nextWeek, league });
   return settled ? { ...outcome, scored: settled.scored } : outcome;
 }

@@ -8,6 +8,8 @@ const lineupService = require('../services/lineup.service');
 const settleFollowUpSvc = require('../services/settleFollowUp.service');
 const { SEASON_BEFORE_DRAFT_MESSAGE } = require('../services/leaguePhase');
 const { advanceWeek } = require('../services/advanceWeek.service');
+const { logger } = require('../modules/logger');
+const sentry = require('../modules/sentry');
 
 const league = (over = {}) => ({
   current_season: 2026, current_week: 5, pickem_only: false,
@@ -113,7 +115,7 @@ const WEEK_5 = [{
   home_score: '0', away_score: '0', final: false, is_playoff: false,
 }];
 
-function realWorld(t, { lockedLeague = LEAGUE_ROW } = {}) {
+function realWorld(t, { lockedLeague = LEAGUE_ROW, announceError } = {}) {
   const fake = createFakePool([
     // The League row lock reads the locked row; the advance's first read is the plain SELECT.
     [/^SELECT \* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/, () => ({ rows: [{ ...lockedLeague }] })],
@@ -132,10 +134,11 @@ function realWorld(t, { lockedLeague = LEAGUE_ROW } = {}) {
     await client.query(`UPDATE "matchups" SET "home_score" = $1, "away_score" = $2 WHERE "id" = $3`, [90, 80, 51]);
     return { league: LEAGUE_ROW, scored: [{ matchupId: 51 }], openMatchups: [] };
   });
-  t.mock.method(matchupScoring, 'announceScored', async () => { stamp('announce'); });
+  const followUps = [];
+  t.mock.method(matchupScoring, 'announceScored', async () => { stamp('announce'); if (announceError) throw announceError; });
   t.mock.method(lineupService, 'materializeLineup', async () => { stamp('seed'); });
-  t.mock.method(settleFollowUpSvc, 'settleFollowUp', async () => { stamp('followUp'); });
-  return { fake, stamps, settleCalls };
+  t.mock.method(settleFollowUpSvc, 'settleFollowUp', async (arg) => { stamp('followUp'); followUps.push(arg); });
+  return { fake, stamps, settleCalls, followUps };
 }
 
 const indexOf = (calls, re, from = 0) => calls.findIndex((c, i) => i >= from && re.test(c.text));
@@ -189,4 +192,21 @@ test('advanceWeek: a week already advanced under the lock is refused 409 and no 
   assert.equal(fake.matching(/^ROLLBACK$/).length, 1);
   assert.equal(stamps.length, 0);
   fake.assertClean();
+});
+
+test('advanceWeek: a live score announcement that throws after the commit is reported once, and the seed and the follow-up still run', async (t) => {
+  const logged = [];
+  t.mock.method(logger, 'error', (...args) => { logged.push(args); });
+  const captured = [];
+  t.mock.method(sentry, 'captureError', (error) => { captured.push(error); });
+  const { stamps, followUps } = realWorld(t, { announceError: new Error('no Draft room broadcast registered') });
+
+  const result = await advanceWeek({ leagueId: 7, expectedWeek: 5 });
+  await result.followUp;
+
+  assert.equal(result.advance.advancedTo, 6, 'the committed advance still resolves');
+  assert.ok(stamps.some((s) => s.step === 'seed'), 'next week lineups are seeded');
+  assert.deepEqual(followUps, [{ leagueId: 7, season: 2026, week: 5, mode: 'advance' }]);
+  assert.equal(logged.length, 1, 'the failure is reported once through the logger');
+  assert.equal(captured.length, 1, 'and once to Sentry');
 });
