@@ -137,18 +137,18 @@ test('a board refresh over a model holding an autopicked pick preserves the auto
   // it was before #949 - every autopick silently un-marked on the first refresh.
 });
 
-// --- #2609: a draft state older than the board never rolls it back ---
+// --- #2696: the League's board version orders Draft state; seq orders the feed ---
 
-const stateAt = (seq, over = {}) => ({
-  league: activeLeague({ id: 1, current_pick: seq }),
+const stateAt = (boardVersion, over = {}) => ({
+  league: activeLeague({ id: 1, current_pick: boardVersion }),
   teams: [],
   picks: [],
   onTheClock: null,
-  seq,
+  boardVersion,
   ...over,
 });
 
-test('a board that applied seq 12 ignores a draft state with seq 11', () => {
+test('a board that applied boardVersion 12 ignores a draft state with boardVersion 11', () => {
   const at12 = applyBoardSnapshot(emptyDraftModel, stateAt(12));
 
   const next = applyBoardSnapshot(at12, stateAt(11));
@@ -157,7 +157,7 @@ test('a board that applied seq 12 ignores a draft state with seq 11', () => {
   expect(next.league.current_pick).toBe(12);
 });
 
-test('a board that applied seq 12 applies a draft state with seq 12 or 13', () => {
+test('a board that applied boardVersion 12 applies a draft state at 12 or 13', () => {
   const at12 = applyBoardSnapshot(emptyDraftModel, stateAt(12));
 
   const equal = applyBoardSnapshot(at12, stateAt(12, { picks: [snapshotRow()] }));
@@ -167,9 +167,18 @@ test('a board that applied seq 12 applies a draft state with seq 12 or 13', () =
   expect(newer.league.current_pick).toBe(13);
 });
 
-test('a Pick applied from draft:picked with seq 12 survives a join state with seq 11', () => {
+test('an Autodraft toggle with the same seq and a higher boardVersion is applied', () => {
+  const at12 = applyBoardSnapshot(emptyDraftModel, stateAt(12, { seq: 7 }));
+
+  const toggled = applyBoardSnapshot(at12, stateAt(13, { seq: 7 }));
+
+  expect(toggled).not.toBe(at12);
+  expect(toggled.boardVersion).toBe(13);
+});
+
+test('a Pick applied from draft:picked at boardVersion 12 survives a join state at 11', () => {
   const at11 = applyBoardSnapshot(emptyDraftModel, stateAt(11));
-  const picked = applyLandedPick(at11, pickedEvent({ seq: 12, nextPickIndex: 12 }));
+  const picked = applyLandedPick(at11, pickedEvent({ boardVersion: 12, nextPickIndex: 12 }));
 
   const afterJoin = applyBoardSnapshot(picked, stateAt(11));
 
@@ -177,8 +186,8 @@ test('a Pick applied from draft:picked with seq 12 survives a join state with se
   expect(afterJoin.league.current_pick).toBe(12);
 });
 
-test('a Pick landed before the first join state survives a join state with a lower seq', () => {
-  const picked = applyLandedPick(emptyDraftModel, pickedEvent({ seq: 12 }));
+test('a Pick landed before the first join state survives a join state with a lower boardVersion', () => {
+  const picked = applyLandedPick(emptyDraftModel, pickedEvent({ boardVersion: 12 }));
 
   const afterJoin = applyBoardSnapshot(picked, stateAt(11));
 
@@ -186,7 +195,15 @@ test('a Pick landed before the first join state survives a join state with a low
   expect(afterJoin.picks).toHaveLength(1);
 });
 
-test('a draft state with no seq (an older server) is always applied', () => {
+test('a Pick at a lower boardVersion than the board holds is ignored', () => {
+  const at12 = applyBoardSnapshot(emptyDraftModel, stateAt(12));
+
+  const stale = applyLandedPick(at12, pickedEvent({ boardVersion: 11 }));
+
+  expect(stale).toBe(at12);
+});
+
+test('a draft state with no boardVersion (an older server) is always applied', () => {
   const at12 = applyBoardSnapshot(emptyDraftModel, stateAt(12));
 
   const next = applyBoardSnapshot(at12, stateAt(undefined, { league: activeLeague({ id: 1, current_pick: 3 }) }));
@@ -194,7 +211,7 @@ test('a draft state with no seq (an older server) is always applied', () => {
   expect(next.league.current_pick).toBe(3);
 });
 
-test('a draft state for another league is applied whatever seq the last league reached', () => {
+test('a draft state for another league is applied whatever boardVersion the last league reached', () => {
   const at500 = applyBoardSnapshot(emptyDraftModel, stateAt(500));
 
   const other = applyBoardSnapshot(at500, stateAt(2, { league: activeLeague({ id: 2, current_pick: 2 }) }));

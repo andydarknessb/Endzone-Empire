@@ -103,6 +103,8 @@ export default function useDraftQueue(leagueId, { onError } = {}) {
     loading,
     isRefetching,
     writeError,
+    // The room's resync reads the Queue on every join and draft:state (#2696).
+    refetch: fetchQueue,
     handleQueuePlayer,
     handleMoveUp,
     handleMoveDown,

@@ -7,18 +7,18 @@ jest.mock('../../api/socket', () => ({
   onReconnect: jest.fn(),
 }));
 
-/** A controllable fake socket: captures .on() handlers so tests can fire them. */
+/** A controllable fake socket: captures every .on() handler so tests can fire them. */
 function makeFakeSocket() {
   const handlers = {};
   return {
     on: jest.fn((event, cb) => {
-      handlers[event] = cb;
+      handlers[event] = [...(handlers[event] || []), cb];
     }),
     io: { on: jest.fn() },
     emit: jest.fn(),
     disconnect: jest.fn(),
     trigger(event, payload) {
-      handlers[event]?.(payload);
+      (handlers[event] || []).forEach((cb) => cb(payload));
     },
   };
 }
@@ -136,15 +136,14 @@ test('calls onPickLanded (fresh callback, no stale closure) whenever a pick land
   expect(laterCallback).toHaveBeenCalledTimes(1);
 });
 
-test('calls onDraftState once with the payload of each draft:state', () => {
-  const onDraftState = jest.fn();
-  renderHook(() => useDraftSocket(1, { onDraftState }));
+test('each draft:state refreshes the board reads once, through the room session (#2696)', () => {
+  const onRefreshReads = jest.fn();
+  renderHook(() => useDraftSocket(1, { onRefreshReads }));
 
   const snapshot = { league: { name: 'Sunday Ballers', draft_status: 'active' }, teams: [teamA, teamB], picks: [], onTheClock: teamA };
   act(() => fakeSocket.trigger('draft:state', snapshot));
 
-  expect(onDraftState).toHaveBeenCalledTimes(1);
-  expect(onDraftState).toHaveBeenCalledWith(snapshot);
+  expect(onRefreshReads).toHaveBeenCalledTimes(1);
 });
 
 test('a landed pick enters history attributed by Team, carrying no account identity', () => {

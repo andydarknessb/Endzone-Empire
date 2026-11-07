@@ -217,7 +217,7 @@ describe('recovering from a server-initiated disconnect (#2556)', () => {
     io.mockImplementation(() => {
       socket = {
         connected: true, active: true, on: jest.fn(), once: jest.fn(), emit: jest.fn(), connect: jest.fn(),
-        disconnect: jest.fn(), io: { emit: jest.fn() },
+        disconnect: jest.fn(), io: { emit: jest.fn(), on: jest.fn(), off: jest.fn() },
       };
       return socket;
     });
@@ -240,10 +240,15 @@ describe('recovering from a server-initiated disconnect (#2556)', () => {
     expect(getToken()).toBe('renewed-jwt');
 
     // socket.connect() skips the manager's 'reconnect', so rooms and feeds that
-    // rejoin on onReconnect hear it once the socket is back.
+    // rejoin on onReconnect hear it once the socket is back: their handlers run here.
     expect(socket.io.emit).not.toHaveBeenCalled();
+    expect(socket.io.on).not.toHaveBeenCalled();
+    const revived = jest.fn();
+    onReconnect(socket, revived);
+    expect(revived).not.toHaveBeenCalled();
     socket.once.mock.calls.find(([name]) => name === 'connect')[1]();
-    expect(socket.io.emit).toHaveBeenCalledWith('reconnect', 0);
+    expect(revived).toHaveBeenCalledTimes(1);
+    expect(socket.io.emit).not.toHaveBeenCalled();
 
     socket.active = true;
     axios.post.mockResolvedValue({ data: { token: 'renewed-again' } });

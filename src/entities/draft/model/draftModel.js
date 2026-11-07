@@ -127,10 +127,19 @@ export const emptyDraftModel = Object.freeze({
   // model, and so nothing in the room, re-renders per second.
   onTheClock: deriveOnTheClock(),
   draftComplete: false,
-  // The highest League feed seq applied (#2609); null before any. A draft:state
-  // below it is older than the board and is ignored.
+  // The highest League feed seq applied (#2609). It orders the feed, not the board.
   seq: null,
+  // The League's board version (ADR 0025, 2026-11-06 amendment), the highest applied;
+  // null before any. A draft:state or draft:picked below it is older than the board
+  // and is ignored. An equal one is applied, so an Autodraft toggle re-arms the clock.
+  boardVersion: null,
 });
+
+// True when a payload's board version is older than the model's (#2696). A payload
+// with no version (an older server), or a model with none yet, is never stale.
+function isStaleBoard(model, data) {
+  return Number.isFinite(data?.boardVersion) && model.boardVersion != null && data.boardVersion < model.boardVersion;
+}
 
 /**
  * Rebuild the model from a `draft:state` board snapshot. The pick list is
@@ -139,20 +148,20 @@ export const emptyDraftModel = Object.freeze({
  * state is not the model's concern and is untouched (it lives in the hook).
  */
 export function applyBoardSnapshot(model, data) {
-  const { league, teams, picks, onTheClock, seq } = data || {};
-  // #2609: a state older than the board would roll the clock and the Picks back
-  // (a Pick committed between the room join and the state read reaches us first).
-  // Equal is applied: an autodraft toggle re-arms the clock on the same seq. A
-  // state with no seq (an older server), or for a different League than the
-  // board holds, always applies. A board with no League yet (a Pick landed
-  // before the join state) is compared by seq alone.
+  const { league, teams, picks, onTheClock, seq, boardVersion } = data || {};
+  // A state older than the board would roll the clock and the Picks back (a Pick
+  // committed between the room join and the state read reaches us first). The
+  // board version orders Draft state (#2696); seq orders the feed only. Equal is
+  // applied: an autodraft toggle re-arms the clock on the same version. A state
+  // for a different League than the board holds always applies.
   const otherLeague = model.league && model.league.id !== league?.id;
-  if (Number.isFinite(seq) && model.seq != null && seq < model.seq && !otherLeague) {
+  if (isStaleBoard(model, data) && !otherLeague) {
     return model;
   }
   return {
     ...model,
     seq: Number.isFinite(seq) ? seq : model.seq,
+    boardVersion: Number.isFinite(boardVersion) ? boardVersion : model.boardVersion,
     league: league ?? null,
     teams: teams || [],
     picks: (picks || []).map(pickFromSnapshotRow).reverse(),
@@ -176,6 +185,8 @@ export function applyBoardSnapshot(model, data) {
  */
 export function applyLandedPick(model, data, { now = Date.now } = {}) {
   const d = data || {};
+  // A Pick the board already holds (a snapshot newer than this event) is not applied twice.
+  if (isStaleBoard(model, d)) return model;
   const pick = pickFromPickedEvent(d);
   const nextOnTheClock = d.nextTeamId
     ? model.teams.find((t) => t.teamId === d.nextTeamId) || null
@@ -202,6 +213,7 @@ export function applyLandedPick(model, data, { now = Date.now } = {}) {
   return {
     ...model,
     seq: Number.isFinite(d.seq) ? Math.max(d.seq, model.seq ?? d.seq) : model.seq,
+    boardVersion: Number.isFinite(d.boardVersion) ? Math.max(d.boardVersion, model.boardVersion ?? d.boardVersion) : model.boardVersion,
     picks: [pick, ...model.picks],
     // A completing pick derives `idle` (league is no longer active).
     onTheClock: onTheClockFor(league, nextOnTheClock, deadlineAt),
