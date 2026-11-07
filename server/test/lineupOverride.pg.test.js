@@ -198,14 +198,15 @@ if (!ENABLED) {
   // #2688: a Called shot declared behind a lineup save waits for the Team row lock
   // the save holds, then refuses against the lineup that save committed.
   // `save` is the slot the save commits for the starter and for the benched player.
-  async function refusedBehindSave(save) {
+  // `tag` keeps this call's usernames, invite code and player names unique in the shared DB.
+  async function refusedBehindSave(tag, save) {
     const { declareCalledShot } = require('../services/lineupOverride.service');
-    const owner = await seedUser('lo_lock');
-    const leagueId = await seedLeague(owner, 'lk');
+    const owner = await seedUser(`lo_${tag}`);
+    const leagueId = await seedLeague(owner, tag);
     await pool.query(`UPDATE "leagues" SET "current_season" = 2026, "current_week" = 6 WHERE "id" = $1`, [leagueId]);
     const teamId = await seedTeam(leagueId, owner);
-    const starter = await seedPlayer('lk starter');
-    const benched = await seedPlayer('lk benched');
+    const starter = await seedPlayer(`${tag} starter`);
+    const benched = await seedPlayer(`${tag} benched`);
     await pool.query(
       `INSERT INTO "lineup_entries" ("league_id", "team_id", "player_id", "season", "week", "slot")
        VALUES ($1, $2, $3, 2026, 6, 'RB'), ($1, $2, $4, 2026, 6, 'BENCH')`,
@@ -245,11 +246,11 @@ if (!ENABLED) {
   }
 
   test('a Called shot declared behind a save that benches its starter waits for the Team row lock, then refuses 409 and stores nothing', async () => {
-    await refusedBehindSave({ starter: 'BENCH', benched: 'BENCH' });
+    await refusedBehindSave('lkbench', { starter: 'BENCH', benched: 'BENCH' });
   });
 
   test('a Called shot declared behind a save that starts its benched player waits for the Team row lock, then refuses 409 and stores nothing', async () => {
-    await refusedBehindSave({ starter: 'RB', benched: 'RB' });
+    await refusedBehindSave('lkstart', { starter: 'RB', benched: 'RB' });
   });
 
   // #2688: a declaration takes the League row's key share before the Team row lock,
