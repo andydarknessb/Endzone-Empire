@@ -136,6 +136,17 @@ test('calls onPickLanded (fresh callback, no stale closure) whenever a pick land
   expect(laterCallback).toHaveBeenCalledTimes(1);
 });
 
+test('calls onDraftState once with the payload of each draft:state', () => {
+  const onDraftState = jest.fn();
+  renderHook(() => useDraftSocket(1, { onDraftState }));
+
+  const snapshot = { league: { name: 'Sunday Ballers', draft_status: 'active' }, teams: [teamA, teamB], picks: [], onTheClock: teamA };
+  act(() => fakeSocket.trigger('draft:state', snapshot));
+
+  expect(onDraftState).toHaveBeenCalledTimes(1);
+  expect(onDraftState).toHaveBeenCalledWith(snapshot);
+});
+
 test('a landed pick enters history attributed by Team, carrying no account identity', () => {
   const { result } = renderHook(() => useDraftSocket(1));
 
