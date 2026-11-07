@@ -5,6 +5,7 @@ import { HelmetProvider } from 'react-helmet-async';
 import AppThemeProvider from '../../../theme/AppThemeProvider';
 import publicApiClient from '../../../api/publicApiClient';
 import WaiverWirePage from './WaiverWirePage';
+import { currentReport } from '../../../content/articles';
 
 jest.mock('../../../api/publicApiClient', () => ({
   __esModule: true,
@@ -179,4 +180,14 @@ test('lazy-loads target headshots (#2638)', async () => {
 
   expect(await screen.findByText('Braelon Allen')).toBeInTheDocument();
   expect(screen.getByRole('presentation', { hidden: true })).toHaveAttribute('loading', 'lazy');
+});
+
+test('the two Darkness Report cards link the newest report of each series', async () => {
+  renderPage();
+
+  await screen.findByText('Braelon Allen');
+  const hrefs = screen.getAllByRole('link').map((link) => link.getAttribute('href'));
+  for (const series of ['waiver-wire', 'start-sit']) {
+    expect(hrefs).toContain(`/strategy/${currentReport(series).slug}`);
+  }
 });

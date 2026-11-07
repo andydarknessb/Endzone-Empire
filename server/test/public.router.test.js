@@ -4,6 +4,7 @@ const express = require('express');
 const path = require('path');
 const request = require('supertest');
 const pool = require('../modules/pool');
+const { SITE_ORIGIN, STATIC_PUBLIC_PATHS } = require('../services/publicSitemap.service');
 
 function makeApp() {
   // Require the router fresh per app so each test gets its own rate-limiter
@@ -739,39 +740,13 @@ test('GET /sitemap.xml serves static, player, and recap public URLs', async (t) 
   assert.equal(res.headers['cache-control'], 'public, max-age=300, s-maxage=3600');
   assert.match(res.text, /https:\/\/endzoneempire\.gg\/rankings/);
   assert.match(res.text, /https:\/\/endzoneempire\.gg\/draft-simulator/);
-  // Every strategy slug, not just one. The list is duplicated from the client
-  // content module (see #75 for deriving it), and asserting only the first entry
-  // is how /strategy/preseason-week-1-recap shipped on 2026-08-18 and stayed out
-  // of the sitemap unnoticed. A missing slug is now a red test, not an SEO hole.
-  for (const slug of [
-    'draft-by-tiers',
-    'waiver-priority-vs-faab',
-    'reading-trade-value',
-    'streaming-defense-and-kicker',
-    'playoff-prep',
-    'preseason-week-1-recap',
-    'preseason-week-2-recap',
-    'preseason-week-3-recap',
-    'rookie-draft-round-guide',
-    'week2-waiver-wire-priority-board',
-    'week3-waiver-wire-darkness-report',
-    'week3-start-sit-darkness-report',
-    'week4-waiver-wire-darkness-report',
-    'week4-start-sit-darkness-report',
-    'week5-waiver-wire-darkness-report',
-    'week5-start-sit-darkness-report',
-    'week6-waiver-wire-darkness-report',
-    'week7-waiver-wire-darkness-report',
-    'week8-waiver-wire-darkness-report',
-    'week9-waiver-wire-darkness-report',
-    'week6-start-sit-darkness-report',
-    'week7-start-sit-darkness-report',
-    'week8-start-sit-darkness-report',
-    'week9-start-sit-darkness-report',
-  ]) {
+  // Every static path the service lists, not just one. Asserting only the first
+  // entry is how /strategy/preseason-week-1-recap shipped on 2026-08-18 and stayed
+  // out of the sitemap unnoticed. A missing path is a red test, not an SEO hole.
+  for (const staticPath of STATIC_PUBLIC_PATHS) {
     assert.ok(
-      res.text.includes(`<loc>https://endzoneempire.gg/strategy/${slug}</loc>`),
-      `sitemap is missing /strategy/${slug}`
+      res.text.includes(`<loc>${SITE_ORIGIN}${staticPath}</loc>`),
+      `sitemap is missing ${staticPath}`
     );
   }
   assert.match(res.text, /https:\/\/endzoneempire\.gg\/players\/42/);
