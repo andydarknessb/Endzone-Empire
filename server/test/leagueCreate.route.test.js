@@ -48,7 +48,7 @@ function mockClient(t, overrides = []) {
       };
       return { rows: [created] };
     }],
-    [/^SELECT \* FROM "leagues" WHERE "id" = \$1 FOR UPDATE$/, (text, params) => ({
+    [/^SELECT \* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE$/, (text, params) => ({
       rows: created && created.id === params[0] ? [created] : [],
     })],
     [/^SELECT 1 FROM "teams"/, () => ({ rows: [] })],

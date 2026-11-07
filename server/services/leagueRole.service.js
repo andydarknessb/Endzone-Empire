@@ -204,7 +204,7 @@ function coCommissionerTeamIds(rows) {
 /** Owner-only: load the league for a mutation, or throw 403/404. */
 async function requireOwner(client, { leagueId, userId, forUpdate = false }) {
   const result = await client.query(
-    `SELECT * FROM "leagues" WHERE "id" = $1${forUpdate ? ' FOR UPDATE' : ''}`,
+    `SELECT * FROM "leagues" WHERE "id" = $1${forUpdate ? ' FOR NO KEY UPDATE' : ''}`,
     [leagueId]
   );
   const league = result.rows[0];

@@ -75,14 +75,14 @@ const asBypassSet = (bypass) => {
   return set;
 };
 
-// The gate reads its own League row FOR UPDATE (#944 rule 1): every column the
+// The gate reads its own League row FOR NO KEY UPDATE (#944 rule 1): every column the
 // freeze check and the acquire bundle need, listed so a caller cannot starve
 // the gate of the freeze fact by handing it a row that never selected it.
 // current_season/current_week are the kicked-off check's week (#1376, ADR 0043).
 const LEAGUE_GATE_SELECT =
   `SELECT "id", "transactions_locked", "draft_status", "roster_limit", "ir_slots",
           "position_caps", "waivers_clear_at", "current_season", "current_week"
-     FROM "leagues" WHERE "id" = $1 FOR UPDATE`;
+     FROM "leagues" WHERE "id" = $1 FOR NO KEY UPDATE`;
 
 /**
  * Position caps are keyed at the same granularity as positionCapsFeasible's

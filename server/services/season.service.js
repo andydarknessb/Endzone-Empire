@@ -238,7 +238,7 @@ function lastPlayoffWeek(league) {
  */
 async function generateRegularSeasonInner(client, { leagueId }, { forUpdate }) {
   const leagueResult = await client.query(
-    `SELECT * FROM "leagues" WHERE "id" = $1${forUpdate ? ' FOR UPDATE' : ''}`,
+    `SELECT * FROM "leagues" WHERE "id" = $1${forUpdate ? ' FOR NO KEY UPDATE' : ''}`,
     [leagueId]
   );
   const league = leagueResult.rows[0];
@@ -418,7 +418,7 @@ async function finalizeWeekAndAdvance({ leagueId, week: expectedWeek, settle = f
     pool,
     async (client) => {
     const leagueResult = await client.query(
-      `SELECT * FROM "leagues" WHERE "id" = $1 FOR UPDATE`,
+      `SELECT * FROM "leagues" WHERE "id" = $1 FOR NO KEY UPDATE`,
       [leagueId]
     );
     const league = leagueResult.rows[0];

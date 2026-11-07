@@ -281,7 +281,7 @@ function operatorResult({ leagueId, season, proposed, provenance, declaredAt = n
 
 async function requirePickemLeague({ db, leagueId, lock = false }) {
   const league = await db.query(
-    `SELECT "id", "pickem_only" FROM "leagues" WHERE "id" = $1${lock ? ' FOR UPDATE' : ''}`,
+    `SELECT "id", "pickem_only" FROM "leagues" WHERE "id" = $1${lock ? ' FOR NO KEY UPDATE' : ''}`,
     [leagueId]
   );
   if (!league.rows[0]) {

@@ -46,7 +46,7 @@ function keeperPool(over) {
     [/SELECT "pickem_only" FROM "leagues"/, () => ({ rows: [{ pickem_only: false }] })],
     // Raw regex: the commissioner predicate subquery puts a FROM ahead of the
     // statement's own FROM "leagues", which the select() shape matcher cannot cross.
-    [/FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: [league(over)] })],
+    [/FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/, () => ({ rows: [league(over)] })],
     [select('teams'), () => ({ rows: [{ id: 11 }, { id: 12 }] })],
     [select('team_players'), () => ({ rows: [] })],
     [remove('keepers'), () => ({ rows: [], rowCount: 0 })],
@@ -106,7 +106,7 @@ test('PUT keepers: a zero-IR league still keeps through its whole roster limit',
 function keeperPoolInsertFails(rollbackThrows) {
   const handlers = [
     [/SELECT "pickem_only" FROM "leagues"/, () => ({ rows: [{ pickem_only: false }] })],
-    [/FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: [league()] })],
+    [/FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/, () => ({ rows: [league()] })],
     [select('teams'), () => ({ rows: [{ id: 11 }, { id: 12 }] })],
     [select('team_players'), () => ({ rows: [] })],
     [remove('keepers'), () => ({ rows: [], rowCount: 0 })],

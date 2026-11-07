@@ -220,12 +220,12 @@ test('POST /reset broadcasts a reset lifecycle entry to the room', async (t) => 
     // The Draft act module (#967) owns the reset's transaction now: it locks the
     // League row generically, loads Teams in rotation order and resolves the
     // acting Team, and the body authorizes against the locked row.
-    [/^SELECT \* FROM "leagues" WHERE "id" = \$1 FOR UPDATE$/, () => ({
+    [/^SELECT \* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE$/, () => ({
       rows: [{ id: LEAGUE_ID, current_season: 2026, draft_status: 'active' }],
     })],
     [/^SELECT "id", "owner_id", "autodraft", "draft_position" FROM "teams"/, () => ({ rows: START_TEAMS })],
     // The #965 write gate, once per team, ahead of the wipe.
-    [/^SELECT "id", "transactions_locked",.* FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({
+    [/^SELECT "id", "transactions_locked",.* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/, () => ({
       rows: [{ id: LEAGUE_ID, transactions_locked: false }],
     })],
     [/^SELECT "id", "locked" FROM "teams" WHERE "id" = \$1 FOR UPDATE/, (text, params) => ({

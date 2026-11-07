@@ -243,7 +243,7 @@ async function submitClaim({ leagueId, userId, playerId, dropPlayerId, bid = 0 }
     // team row alone: processWaivers holds the league row then updates team
     // rows, and this insert's foreign key check share-locks the league row, so
     // a team-first lock would invert the order. No advisory lock (#839).
-    const leagueResult = await client.query(`SELECT * FROM "leagues" WHERE "id" = $1 FOR UPDATE`, [leagueId]);
+    const leagueResult = await client.query(`SELECT * FROM "leagues" WHERE "id" = $1 FOR NO KEY UPDATE`, [leagueId]);
     const league = leagueResult.rows[0];
     if (!league) throw new WaiverError(404, 'league not found');
     assertFantasyLeagueRow(league); // no waivers in a pick'em-only league
@@ -334,7 +334,7 @@ async function editClaim({ userId, claimId, bid, dropPlayerId }) {
       if (!found.rows[0]) throw new WaiverError(404, 'pending claim not found');
       const leagueId = found.rows[0].league_id;
 
-      const leagueResult = await client.query(`SELECT * FROM "leagues" WHERE "id" = $1 FOR UPDATE`, [leagueId]);
+      const leagueResult = await client.query(`SELECT * FROM "leagues" WHERE "id" = $1 FOR NO KEY UPDATE`, [leagueId]);
       const league = leagueResult.rows[0];
       if (!league) throw new WaiverError(404, 'league not found');
       assertFantasyLeagueRow(league);
@@ -423,7 +423,7 @@ async function reorderClaims({ leagueId, userId, claimIds }) {
   return withTransaction(
     pool,
     async (client) => {
-      const leagueResult = await client.query(`SELECT * FROM "leagues" WHERE "id" = $1 FOR UPDATE`, [leagueId]);
+      const leagueResult = await client.query(`SELECT * FROM "leagues" WHERE "id" = $1 FOR NO KEY UPDATE`, [leagueId]);
       const league = leagueResult.rows[0];
       if (!league) throw new WaiverError(404, 'league not found');
       assertFantasyLeagueRow(league);
@@ -543,7 +543,7 @@ async function processWaivers({ leagueId }) {
     pool,
     async (client) => {
     const leagueResult = await client.query(
-      `SELECT * FROM "leagues" WHERE "id" = $1 FOR UPDATE`,
+      `SELECT * FROM "leagues" WHERE "id" = $1 FOR NO KEY UPDATE`,
       [leagueId]
     );
     const league = leagueResult.rows[0];

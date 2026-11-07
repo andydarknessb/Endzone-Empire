@@ -106,7 +106,7 @@ async function commitFreeAgentAdd({ leagueId, userId, playerId }) {
   try {
     return await withTransaction(pool, async (client) => {
       const leagueResult = await client.query(
-        `SELECT * FROM "leagues" WHERE "id" = $1 FOR UPDATE`,
+        `SELECT * FROM "leagues" WHERE "id" = $1 FOR NO KEY UPDATE`,
         [leagueId]
       );
       const league = leagueResult.rows[0];
@@ -228,7 +228,7 @@ async function dropPlayer({ leagueId, userId, playerId }) {
     // order #962 holds; the gate inside `drop` re-takes it and then the Team.
     const leagueResult = await client.query(
       `SELECT "id", "waiver_period_hours", "current_season", "current_week"
-         FROM "leagues" WHERE "id" = $1 FOR UPDATE`,
+         FROM "leagues" WHERE "id" = $1 FOR NO KEY UPDATE`,
       [leagueId]
     );
     const league = leagueResult.rows[0];
@@ -288,7 +288,7 @@ async function undoDrop({ leagueId, userId, playerId }) {
     return await withTransaction(pool, async (client) => {
       const leagueResult = await client.query(
         `SELECT "id", "roster_limit", "ir_slots", "position_caps", "current_season", "current_week"
-           FROM "leagues" WHERE "id" = $1 FOR UPDATE`,
+           FROM "leagues" WHERE "id" = $1 FOR NO KEY UPDATE`,
         [leagueId]
       );
       const league = leagueResult.rows[0];
@@ -469,7 +469,7 @@ async function correctLatestPick({ leagueId, userId, expectedPickNumber = null, 
   // rolled back and rethrew), so the wrapper is the whole transaction.
   return withTransaction(pool, async (client) => {
     const leagueResult = await client.query(
-      `SELECT * FROM "leagues" WHERE "id" = $1 FOR UPDATE`,
+      `SELECT * FROM "leagues" WHERE "id" = $1 FOR NO KEY UPDATE`,
       [leagueId]
     );
     const league = leagueResult.rows[0];

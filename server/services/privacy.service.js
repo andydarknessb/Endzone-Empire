@@ -165,7 +165,7 @@ async function deleteUserAccount({ userId, confirmation }) {
     const heldLeagues = await client.query(
       `SELECT "leagues".* FROM "leagues"
        WHERE "leagues"."id" = ANY($1)
-       ORDER BY "leagues"."id" FOR UPDATE OF "leagues"`,
+       ORDER BY "leagues"."id" FOR NO KEY UPDATE OF "leagues"`,
       [[...new Set(heldTeams.rows.map((team) => team.league_id))]]
     );
 

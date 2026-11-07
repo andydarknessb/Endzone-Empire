@@ -298,7 +298,7 @@ function dropWorld({ frozen = false, teamLocked = false, leagueRow } = {}) {
     ? { id: 1, transactions_locked: frozen }
     : leagueRow;
   return createFakePool([
-    [/^SELECT "id", "transactions_locked",.* FROM "leagues" WHERE "id" = \$1 FOR UPDATE/,
+    [/^SELECT "id", "transactions_locked",.* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/,
       () => ({ rows: [gateLeague] })],
     [/^SELECT "id", "locked" FROM "teams" WHERE "id" = \$1 FOR UPDATE/,
       () => ({ rows: [{ id: 11, locked: teamLocked }] })],
@@ -365,7 +365,7 @@ test('dropPlayer: an unfrozen league still drops, and locks League before Team (
   const teamsForUpdate = fake.calls.filter((c) => /^SELECT \* FROM "teams".*FOR UPDATE/.test(c.text));
   assert.equal(teamsForUpdate.length, 0, 'the membership read is no longer FOR UPDATE');
 
-  const leagueLockAt = fake.calls.findIndex((c) => /^SELECT "id", "transactions_locked".*FOR UPDATE/.test(c.text));
+  const leagueLockAt = fake.calls.findIndex((c) => /^SELECT "id", "transactions_locked".*FOR NO KEY UPDATE/.test(c.text));
   const teamLockAt = fake.calls.findIndex((c) => /FROM "teams".*FOR UPDATE/.test(c.text));
   assert.ok(leagueLockAt >= 0 && teamLockAt >= 0, 'both rows are locked');
   assert.ok(leagueLockAt < teamLockAt, 'League is locked before Team, the one order on every path');

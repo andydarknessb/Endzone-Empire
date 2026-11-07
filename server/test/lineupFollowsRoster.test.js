@@ -115,7 +115,7 @@ function managerDropWorld({
     // select list, so it would hand the gate a row that cannot answer the
     // freeze and the gate would fail closed. Registered FIRST, since handlers
     // are tried in order.
-    [/^SELECT "id", "transactions_locked",.* FROM "leagues" WHERE "id" = \$1 FOR UPDATE/,
+    [/^SELECT "id", "transactions_locked",.* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/,
       () => ({ rows: [{ id: 5, transactions_locked: false }] })],
     [/^SELECT "id", "locked" FROM "teams" WHERE "id" = \$1 FOR UPDATE/,
       () => ({ rows: [{ id: 10, locked: false }] })],
@@ -312,7 +312,7 @@ function commissionerDropWorld({ kickedOff = [], interrupted = null, removals = 
     // The #964 write gate's own reads, League then Team, with explicit column
     // lists of their own. Every gate a release evaluates is in
     // COMMISSIONER_OVERRIDE, so these rows only have to exist.
-    [/^SELECT "id", "transactions_locked",.* FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({
+    [/^SELECT "id", "transactions_locked",.* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/, () => ({
       rows: [{ id: 5, transactions_locked: true }],
     })],
     [/^SELECT "id", "locked" FROM "teams" WHERE "id" = \$1 FOR UPDATE/, (text, params) => ({
@@ -390,7 +390,7 @@ function tradeWorld({ kickedOff = [], removals = [] } = {}) {
     // handlers are tried in order, and given their own rows: a matcher blind to
     // a select list would hand the gate a League row that cannot answer the
     // freeze, which the gate refuses rather than reading as "not frozen".
-    [/^SELECT "id", "transactions_locked",.* FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({
+    [/^SELECT "id", "transactions_locked",.* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/, () => ({
       rows: [{
         id: 5,
         transactions_locked: false,
@@ -517,7 +517,7 @@ function undoPickWorld({ kickedOff = [], removals = [] } = {}) {
     [/^SELECT 1 FROM "leagues" WHERE "id" = \$1 AND/, () => ({ rows: [{ '?column?': 1 }] })],
     // The Draft act module's serializing lock on the League row (#967). It
     // replaces this suite's private
-    // `/FROM "leagues" WHERE "id" = $1 AND .* FOR UPDATE/` matcher, which was,
+    // `/FROM "leagues" WHERE "id" = $1 AND .* FOR NO KEY UPDATE/` matcher, which was,
     // until this PR, the only thing in the repo binding that POST
     // /league/:id/undo took the League lock before it deleted anything. That
     // ordering is now structural - runDraftAct takes the lock as its first
@@ -526,7 +526,7 @@ function undoPickWorld({ kickedOff = [], removals = [] } = {}) {
     // rather than restated. This matcher is still load-bearing HERE: drop it and
     // the module's lock read hits the fake pool's unregistered-query throw and
     // both undo tests redden.
-    [/^SELECT \* FROM "leagues" WHERE "id" = \$1 FOR UPDATE$/, () => ({ rows: [undoRouteLeague] })],
+    [/^SELECT \* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE$/, () => ({ rows: [undoRouteLeague] })],
     // onPickUndone's policy read (#948): a second SELECT ... FROM "leagues", no
     // FOR UPDATE, that the event issues before it re-arms.
     [/^SELECT "current_pick", "draft_type".* FROM "leagues"/, () => ({ rows: [undoRouteLeague] })],
@@ -551,7 +551,7 @@ function undoPickWorld({ kickedOff = [], removals = [] } = {}) {
     // The #965 write gate, once per undone pick, with both release gates
     // bypassed. Its League and Team reads carry explicit column lists, so they
     // need their own handlers rather than being answered by the ones above.
-    [/^SELECT "id", "transactions_locked",.* FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({
+    [/^SELECT "id", "transactions_locked",.* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/, () => ({
       rows: [{ id: 3, transactions_locked: false }],
     })],
     [/^SELECT "id", "locked" FROM "teams" WHERE "id" = \$1 FOR UPDATE/, (text, params) => ({
@@ -585,7 +585,7 @@ test('undone draft pick: the undone player loses the current-week row the pick g
   // {FREEZE, TEAM_LOCK} - a commissioner tool on an active draft - so it
   // refuses nothing here; what this pins is that the call exists and sits
   // ahead of the write, which is what makes a later release rule reach it.
-  const gateLeagueAt = fake.calls.findIndex((c) => /^SELECT "id", "transactions_locked".*FOR UPDATE/.test(c.text));
+  const gateLeagueAt = fake.calls.findIndex((c) => /^SELECT "id", "transactions_locked".*FOR NO KEY UPDATE/.test(c.text));
   const gateTeamAt = fake.calls.findIndex((c) => /^SELECT "id", "locked" FROM "teams".*FOR UPDATE/.test(c.text));
   const rosterDeleteAt = fake.calls.findIndex((c) => /^DELETE FROM "team_players"/.test(c.text));
   assert.ok(gateLeagueAt >= 0 && gateTeamAt >= 0, 'the undo asks the gate');
@@ -644,7 +644,7 @@ const rolloverLeague = {
 
 function rolloverWorld({ kickedOff = [], removals = [] } = {}) {
   return createFakePool([
-    [/FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: [rolloverLeague] })],
+    [/FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/, () => ({ rows: [rolloverLeague] })],
     [/^SELECT "id", "name", "owner_id" FROM "teams"/, () => ({
       rows: [{ id: 10, name: 'Sunday Ballers', owner_id: 7 }],
     })],

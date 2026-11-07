@@ -252,7 +252,7 @@ class FakeDraftDatabase {
       const active = l.draft_status === 'active' && !l.draft_paused && l.pick_deadline_at != null;
       return { rows: active ? [{ id: l.id, pick_deadline_at: l.pick_deadline_at }] : [] };
     }
-    if (sql.includes('SELECT * FROM "leagues"') && !sql.includes('FOR UPDATE')) {
+    if (sql.includes('SELECT * FROM "leagues"') && !sql.includes('FOR NO KEY UPDATE')) {
       return { rows: values[0] === state.league.id ? [{ ...state.league }] : [] };
     }
     if (sql.includes('FROM "teams"') && sql.includes('ORDER BY "draft_position"')) {
@@ -351,7 +351,7 @@ class FakeDraftDatabase {
       const team = state.teams.find((entry) => entry.id === values[0]);
       return { rows: team ? [{ id: team.id, locked: team.locked ?? false }] : [] };
     }
-    if (sql.includes('SELECT * FROM "leagues"') && sql.includes('FOR UPDATE')) {
+    if (sql.includes('SELECT * FROM "leagues"') && sql.includes('FOR NO KEY UPDATE')) {
       await this.acquireLeagueLock(client);
       return { rows: values[0] === state.league.id ? [{ ...state.league }] : [] };
     }
@@ -657,7 +657,7 @@ describe('live snake-draft expiry and autopick integration', () => {
       { leagueId: LEAGUE_ID, teamId: TEAM_A.id, playerId: 302 },
     ]);
     expect(state.league.current_pick).toBe(1);
-    expect(database.sql.filter((sql) => sql.includes('FOR UPDATE')).length).toBeGreaterThanOrEqual(2);
+    expect(database.sql.filter((sql) => /FOR (NO KEY )?UPDATE/.test(sql)).length).toBeGreaterThanOrEqual(2);
     expect(database.maxLockWaiters).toBe(1);
   });
 

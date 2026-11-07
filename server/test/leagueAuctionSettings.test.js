@@ -83,7 +83,7 @@ for (const [name, order] of [
 
     assert.equal(response.status, 400);
     assert.match(response.body.error, /must list every current team exactly once/);
-    assert.ok(tx.calls.some((sql) => sql.includes('FOR UPDATE')));
+    assert.ok(tx.calls.some((sql) => sql.includes('FOR NO KEY UPDATE')));
     assert.ok(tx.calls.includes('ROLLBACK'));
     assert.ok(!tx.calls.some((sql) => sql.startsWith('UPDATE "leagues"')));
   });

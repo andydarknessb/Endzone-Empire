@@ -196,14 +196,14 @@ router.post('/league/:id/order', async (req, res) => {
   try {
     // Each early refusal throws a DraftError (ADR 0008) - the shape #967 already
     // converted this router's ROLLBACK-and-return pairs to. Every refusal reads
-    // only (the FOR UPDATE read included) before it throws, so withTransaction
+    // only (the FOR NO KEY UPDATE read included) before it throws, so withTransaction
     // rolls the read-only transaction back - freeing the same lock a COMMIT would
     // - and rethrows the DraftError, which the outer catch maps via
     // isDraftRefusal exactly as /queue does. The success response is sent after
     // the wrapper resolves.
     const finalOrder = await withTransaction(pool, async (client) => {
       const leagueResult = await client.query(
-        `SELECT * FROM "leagues" WHERE "id" = $1 AND ${commissionerPredicate(2)} FOR UPDATE`,
+        `SELECT * FROM "leagues" WHERE "id" = $1 AND ${commissionerPredicate(2)} FOR NO KEY UPDATE`,
         [leagueId, req.user.id]
       );
       if (!leagueResult.rows[0]) {
@@ -762,7 +762,7 @@ router.put('/league/:id/keepers', async (req, res) => {
   try {
     // The four early refusals throw a DraftError (ADR 0008) - the shape #967
     // converted this router's ROLLBACK-and-return pairs to. Each reads only (the
-    // FOR UPDATE read, teams, rosters) and validates in memory before it throws,
+    // FOR NO KEY UPDATE read, teams, rosters) and validates in memory before it throws,
     // so withTransaction rolls the read-only transaction back - freeing the same
     // lock a COMMIT would - and rethrows the DraftError for the outer catch to map
     // via isDraftRefusal. The DELETE/INSERT replace-all runs only past the last
@@ -771,7 +771,7 @@ router.put('/league/:id/keepers', async (req, res) => {
       const leagueResult = await client.query(
         `SELECT "draft_status", "roster_limit", "ir_slots", "keeper_count", "keeper_lock_at", "draft_date",
                 ${commissionerPredicate(2)} AS "is_commissioner"
-         FROM "leagues" WHERE "id" = $1 FOR UPDATE`,
+         FROM "leagues" WHERE "id" = $1 FOR NO KEY UPDATE`,
         [leagueId, req.user.id]
       );
       const league = leagueResult.rows[0];

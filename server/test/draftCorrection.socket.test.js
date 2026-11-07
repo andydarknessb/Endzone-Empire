@@ -44,7 +44,7 @@ function correctionWorld(t) {
     // requireFantasyLeague middleware.
     [/SELECT "pickem_only" FROM "leagues"/, () => ({ rows: [{ pickem_only: false }] })],
     // The correction's own league lock.
-    [/FROM "leagues"[\s\S]*FOR UPDATE/, () => ({
+    [/FROM "leagues"[\s\S]*FOR NO KEY UPDATE/, () => ({
       rows: [{
         id: LEAGUE_ID, draft_status: 'active', current_pick: 3, draft_paused: false,
         current_season: 2026, current_week: 1, draft_rotation: 'snake', draft_order_overrides: null,

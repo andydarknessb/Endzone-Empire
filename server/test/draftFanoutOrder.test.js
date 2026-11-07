@@ -98,7 +98,7 @@ function escalationWorld() {
   return createFakePool([
     // escalateNothingDraftable's own locked read, ahead of autoPick's unlocked
     // one: both are SELECT * FROM "leagues" WHERE "id" = $1.
-    [/^SELECT \* FROM "leagues" WHERE "id" = \$1 FOR UPDATE$/, () => ({ rows: [ESCALATION_LEAGUE] })],
+    [/^SELECT \* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE$/, () => ({ rows: [ESCALATION_LEAGUE] })],
     [/^SELECT \* FROM "leagues" WHERE "id" = \$1$/, () => ({ rows: [ESCALATION_LEAGUE] })],
     [/EXTRACT\(MONTH FROM CURRENT_DATE\)/, () => ({ rows: [{ season: 2025 }] })],
     // The candidate query, answered EMPTY: nothing is draftable.
@@ -123,7 +123,7 @@ function escalationWorld() {
 function resetWorld() {
   return createFakePool([
     [/SELECT "pickem_only" FROM "leagues"/, () => ({ rows: [{ pickem_only: false }] })],
-    [/^SELECT \* FROM "leagues" WHERE "id" = \$1 FOR UPDATE$/, () => ({
+    [/^SELECT \* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE$/, () => ({
       rows: [{ id: LEAGUE_ID, current_season: SEASON, draft_status: 'active' }],
     })],
     [/^SELECT "id", "owner_id", "autodraft", "draft_position" FROM "teams"/, () => ({
@@ -132,7 +132,7 @@ function resetWorld() {
     [/^SELECT "id", "name" FROM "teams"/, () => ({ rows: [ACTOR_TEAM] })],
     [/^SELECT 1 FROM "leagues"/, () => ({ rows: [{ '?column?': 1 }] })],
     [select('matchups'), () => ({ rows: [] })],
-    [/^SELECT "id", "transactions_locked",.* FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({
+    [/^SELECT "id", "transactions_locked",.* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/, () => ({
       rows: [{ id: LEAGUE_ID, transactions_locked: false }],
     })],
     [/^SELECT "id", "locked" FROM "teams" WHERE "id" = \$1 FOR UPDATE/, (text, params) => ({

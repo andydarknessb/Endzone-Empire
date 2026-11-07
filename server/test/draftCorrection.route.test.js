@@ -68,7 +68,7 @@ function correctionPool({
     // distinct refusals for not-commissioner vs not-active). The roster move
     // module's gate reads the same row for the freeze, so `transactionsLocked`
     // rides it too.
-    [/FROM "leagues"[\s\S]*FOR UPDATE/, () => ({
+    [/FROM "leagues"[\s\S]*FOR NO KEY UPDATE/, () => ({
       rows: [{
         id: LEAGUE_ID, draft_status: status, current_pick: currentPick, draft_paused: false,
         transactions_locked: transactionsLocked,
@@ -163,7 +163,7 @@ test('POST correct-pick: locks the league FOR UPDATE before any mutation, serial
   assert.equal(res.status, 200, JSON.stringify(res.body));
 
   const order = fake.calls.map((c) => c.text);
-  const lockIdx = order.findIndex((t2) => /FROM "leagues"[\s\S]*FOR UPDATE/.test(t2));
+  const lockIdx = order.findIndex((t2) => /FROM "leagues"[\s\S]*FOR NO KEY UPDATE/.test(t2));
   const firstMutationIdx = order.findIndex((t2) => /^DELETE|^UPDATE/.test(t2));
   assert.ok(lockIdx >= 0, 'the league is locked FOR UPDATE');
   assert.ok(firstMutationIdx > lockIdx, 'the lock is taken before any DELETE/UPDATE');

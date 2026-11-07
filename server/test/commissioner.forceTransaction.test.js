@@ -17,7 +17,7 @@ const league = {
 
 function forceAddWorld({ rostered, stashed, stashQueries }) {
   return createFakePool([
-    [/FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: [league] })],
+    [/FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/, () => ({ rows: [league] })],
     [select('teams'), () => ({ rows: [{ id: 31, league_id: 1, owner_id: 8 }] })],
     [select('players'), () => ({ rows: [{ id: 500, name: 'Pick Me' }] })],
     [/^SELECT COUNT\(\*\)::int AS n FROM "team_players"/, () => ({ rows: [{ n: rostered }] })],
@@ -117,14 +117,14 @@ function overrideWorld({ rostered = 0, stashed = 0, positionCount = 1 } = {}) {
   return createFakePool([
     // The gate's own reads, with their own explicit column lists. Registered
     // first, since handlers are tried in order.
-    [/^SELECT "id", "transactions_locked",.* FROM "leagues" WHERE "id" = \$1 FOR UPDATE/,
+    [/^SELECT "id", "transactions_locked",.* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/,
       () => ({ rows: [overrideLeague] })],
     [/^SELECT "id", "locked" FROM "teams" WHERE "id" = \$1 FOR UPDATE/,
       () => ({ rows: [{ id: 31, locked: true }] })],
     [/^SELECT COUNT\(\*\)::int AS n FROM "team_players" JOIN "players"/,
       () => ({ rows: [{ n: positionCount }] })],
     [/^SELECT 1 FROM "waiver_players"/, () => ({ rows: [{ 1: 1 }] })],
-    [/FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: [overrideLeague] })],
+    [/FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/, () => ({ rows: [overrideLeague] })],
     [select('teams'), () => ({ rows: [{ id: 31, league_id: 1, owner_id: 8, locked: true }] })],
     [select('players'), () => ({ rows: [{ id: 500, name: 'Pick Me', position: 'RB' }] })],
     [/^SELECT COUNT\(\*\)::int AS n FROM "team_players"/, () => ({ rows: [{ n: rostered }] })],
@@ -163,12 +163,12 @@ test('forceTransaction add: the FREEZE bypass is what carries it past a frozen l
   // One assertion per override entry. Each isolates its gate by leaving the
   // other three clear, so a set that lost this entry fails here and only here.
   const fake = createFakePool([
-    [/^SELECT "id", "transactions_locked",.* FROM "leagues" WHERE "id" = \$1 FOR UPDATE/,
+    [/^SELECT "id", "transactions_locked",.* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/,
       () => ({ rows: [{ ...overrideLeague, position_caps: {} }] })],
     [/^SELECT "id", "locked" FROM "teams" WHERE "id" = \$1 FOR UPDATE/,
       () => ({ rows: [{ id: 31, locked: false }] })],
     [/^SELECT 1 FROM "waiver_players"/, () => ({ rows: [] })],
-    [/FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: [overrideLeague] })],
+    [/FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/, () => ({ rows: [overrideLeague] })],
     [select('teams'), () => ({ rows: [{ id: 31, league_id: 1, owner_id: 8, locked: false }] })],
     [select('players'), () => ({ rows: [{ id: 500, name: 'Pick Me', position: 'RB' }] })],
     [/^SELECT COUNT\(\*\)::int AS n FROM "team_players"/, () => ({ rows: [{ n: 0 }] })],
@@ -188,12 +188,12 @@ test('forceTransaction add: the FREEZE bypass is what carries it past a frozen l
 
 test('forceTransaction add: the TEAM_LOCK bypass is what carries it past a locked team', async (t) => {
   const fake = createFakePool([
-    [/^SELECT "id", "transactions_locked",.* FROM "leagues" WHERE "id" = \$1 FOR UPDATE/,
+    [/^SELECT "id", "transactions_locked",.* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/,
       () => ({ rows: [{ ...overrideLeague, transactions_locked: false, position_caps: {} }] })],
     [/^SELECT "id", "locked" FROM "teams" WHERE "id" = \$1 FOR UPDATE/,
       () => ({ rows: [{ id: 31, locked: true }] })],
     [/^SELECT 1 FROM "waiver_players"/, () => ({ rows: [] })],
-    [/FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: [overrideLeague] })],
+    [/FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/, () => ({ rows: [overrideLeague] })],
     [select('teams'), () => ({ rows: [{ id: 31, league_id: 1, owner_id: 8, locked: true }] })],
     [select('players'), () => ({ rows: [{ id: 500, name: 'Pick Me', position: 'RB' }] })],
     [/^SELECT COUNT\(\*\)::int AS n FROM "team_players"/, () => ({ rows: [{ n: 0 }] })],
@@ -213,12 +213,12 @@ test('forceTransaction add: the TEAM_LOCK bypass is what carries it past a locke
 
 test('forceTransaction add: the WAIVER_HOLD bypass is what carries it past a player on waivers', async (t) => {
   const fake = createFakePool([
-    [/^SELECT "id", "transactions_locked",.* FROM "leagues" WHERE "id" = \$1 FOR UPDATE/,
+    [/^SELECT "id", "transactions_locked",.* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/,
       () => ({ rows: [{ ...overrideLeague, transactions_locked: false, position_caps: {} }] })],
     [/^SELECT "id", "locked" FROM "teams" WHERE "id" = \$1 FOR UPDATE/,
       () => ({ rows: [{ id: 31, locked: false }] })],
     [/^SELECT 1 FROM "waiver_players"/, () => ({ rows: [{ 1: 1 }] })],
-    [/FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: [overrideLeague] })],
+    [/FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/, () => ({ rows: [overrideLeague] })],
     [select('teams'), () => ({ rows: [{ id: 31, league_id: 1, owner_id: 8, locked: false }] })],
     [select('players'), () => ({ rows: [{ id: 500, name: 'Pick Me', position: 'RB' }] })],
     [/^SELECT COUNT\(\*\)::int AS n FROM "team_players"/, () => ({ rows: [{ n: 0 }] })],
@@ -242,13 +242,13 @@ test('forceTransaction add: the POSITION_CAP bypass, the entry the old comment d
   // reproducing the comment would have added a position cap this path has
   // never enforced. A met cap of one RB must still let a forced add through.
   const fake = createFakePool([
-    [/^SELECT "id", "transactions_locked",.* FROM "leagues" WHERE "id" = \$1 FOR UPDATE/,
+    [/^SELECT "id", "transactions_locked",.* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/,
       () => ({ rows: [{ ...overrideLeague, transactions_locked: false }] })],
     [/^SELECT "id", "locked" FROM "teams" WHERE "id" = \$1 FOR UPDATE/,
       () => ({ rows: [{ id: 31, locked: false }] })],
     [/^SELECT COUNT\(\*\)::int AS n FROM "team_players" JOIN "players"/, () => ({ rows: [{ n: 1 }] })],
     [/^SELECT 1 FROM "waiver_players"/, () => ({ rows: [] })],
-    [/FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: [overrideLeague] })],
+    [/FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/, () => ({ rows: [overrideLeague] })],
     [select('teams'), () => ({ rows: [{ id: 31, league_id: 1, owner_id: 8, locked: false }] })],
     [select('players'), () => ({ rows: [{ id: 500, name: 'Pick Me', position: 'RB' }] })],
     [/^SELECT COUNT\(\*\)::int AS n FROM "team_players"/, () => ({ rows: [{ n: 0 }] })],

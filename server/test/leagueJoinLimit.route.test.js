@@ -29,7 +29,7 @@ function makeApp(t) {
     team: { id: 900 + userId, league_id: leagueId, owner_id: userId },
   }));
   createFakePool([
-    [/^SELECT \* FROM "leagues" WHERE "invite_code" = \$1 FOR UPDATE$/, (text, [code]) => ({
+    [/^SELECT \* FROM "leagues" WHERE "invite_code" = \$1 FOR NO KEY UPDATE$/, (text, [code]) => ({
       rows: code === LEGACY_CODE ? [{ id: 7, invite_code: code }] : [],
     })],
     [/^INSERT INTO "leagues"/, (text, params) => ({ rows: [{ id: 8, invite_code: params[2] }] })],

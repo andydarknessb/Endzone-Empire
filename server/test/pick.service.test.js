@@ -70,7 +70,7 @@ function pickPool({
     // below, which are blind to a select list and would otherwise answer them.
     // `frozen` and `teamLocked` are the two gates a Pick bypasses, so seeding
     // them true is how a test proves the bypass rather than a lucky pass.
-    [/^SELECT "id", "transactions_locked",.* FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({
+    [/^SELECT "id", "transactions_locked",.* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/, () => ({
       rows: [{ ...row, transactions_locked: frozen }],
     })],
     [/^SELECT "id", "locked" FROM "teams" WHERE "id" = \$1 FOR UPDATE/, (text, params) => ({
@@ -639,11 +639,11 @@ test('landPick: exactly one gate call, and it precedes the roster write it guard
 
   await landPick({ leagueId: LEAGUE_ID, userId: 7, playerId: 500 });
 
-  const gateAt = fake.calls.findIndex((c) => /^SELECT "id", "transactions_locked".*FOR UPDATE/.test(c.text));
+  const gateAt = fake.calls.findIndex((c) => /^SELECT "id", "transactions_locked".*FOR NO KEY UPDATE/.test(c.text));
   const teamLockAt = fake.calls.findIndex((c) => /^SELECT "id", "locked" FROM "teams".*FOR UPDATE/.test(c.text));
   const insertAt = fake.calls.findIndex((c) => /^INSERT INTO "team_players"/.test(c.text));
   assert.equal(
-    fake.calls.filter((c) => /^SELECT "id", "transactions_locked".*FOR UPDATE/.test(c.text)).length,
+    fake.calls.filter((c) => /^SELECT "id", "transactions_locked".*FOR NO KEY UPDATE/.test(c.text)).length,
     1,
     'one Pick, one gate call'
   );
@@ -679,7 +679,7 @@ test('landPick: the acquire bundle is still evaluated - a full roster is refused
 // #1053/#1055 pair. It proves commitPick actually routes its transaction through
 // withTransaction (ADR 0033) rather than hand-rolling the close - the wrapper's
 // own exhaustive close tests live in withTransaction.test.js. commitPick's first
-// statement after BEGIN is SELECT ... FROM "leagues" ... FOR UPDATE, so a
+// statement after BEGIN is SELECT ... FROM "leagues" ... FOR NO KEY UPDATE, so a
 // throwing client-side select('leagues') reaches the wrapper's catch. The plain
 // Error carries no `code`, so commitPick's 23505 catch passes it through
 // untouched, which is what lets the wrapper's attach-and-rethrow-original be

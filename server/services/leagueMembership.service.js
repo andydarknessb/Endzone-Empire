@@ -169,7 +169,7 @@ async function assertAdmissible(client, league, userId) {
  */
 async function joinLeague(client, { leagueId, userId, teamName }) {
   const leagueResult = await client.query(
-    `SELECT * FROM "leagues" WHERE "id" = $1 FOR UPDATE`,
+    `SELECT * FROM "leagues" WHERE "id" = $1 FOR NO KEY UPDATE`,
     [leagueId]
   );
   const league = leagueResult.rows[0];
