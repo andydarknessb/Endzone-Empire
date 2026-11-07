@@ -189,7 +189,7 @@ function adjustMatchupPool({ currentSeason, currentWeek, matchupSeason, matchupW
       () => ({ rows: [{ current_season: currentSeason, current_week: currentWeek, is_commissioner: true }] }),
     ],
     [
-      /^SELECT \*, .* AS "is_commissioner" FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/,
+      /^SELECT \*(, .* AS "is_commissioner")? FROM "leagues" WHERE "id" = \$1( FOR NO KEY UPDATE)?$/,
       () => ({ rows: [{ id: 1, current_season: currentSeason, current_week: currentWeek, is_commissioner: true }] }),
     ],
     [

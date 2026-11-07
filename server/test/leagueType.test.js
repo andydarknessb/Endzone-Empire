@@ -202,6 +202,7 @@ function mockPool(t, { pickemOnly, overrides = [] }) {
     [/^(BEGIN|COMMIT|ROLLBACK)$/, () => ({ rows: [] })],
     [/SELECT "pickem_only" FROM "leagues" WHERE "id" = \$1/, () => ({ rows: [{ pickem_only: pickemOnly }] })],
     [/SELECT 1 FROM "leagues"/, () => ({ rows: [] })], // not a commissioner
+    [/^SELECT \* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE$/, () => ({ rows: [{ id: 3, pickem_only: pickemOnly, is_commissioner: false }] })],
     [/AS "is_commissioner" FROM "leagues"/, () => // commissioner.service's probe: not a commissioner
       ({ rows: [{ id: 3, pickem_only: pickemOnly, is_commissioner: false }] })],
     [/FROM "teams" WHERE "league_id"/, () => ({ rows: [{ id: 41, owner_id: CALLER, locked: false }] })],
