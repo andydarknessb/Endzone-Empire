@@ -512,6 +512,9 @@ async function executeTrade(client, { trade, league, items, teams, byCommissione
       drops: items.filter((item) => item.from_team_id === teamId).map((item) => item.player_id),
       knownPositions,
     });
+    // ponytail: matches rosterFit's capacity wording (rosterFit.service.js:100); a moved string fails the trade tests, upgrade to a structured refusal if rosterFit gains more reasons.
+    const capacity = /^roster capacity of (\d+) reached$/.exec(refusal ?? '');
+    if (capacity) throw new TradeError(409, `trade would put ${teams.get(teamId).name} over its roster capacity of ${capacity[1]}`);
     if (refusal) throw new TradeError(409, refusal);
   }
   for (const item of items) {

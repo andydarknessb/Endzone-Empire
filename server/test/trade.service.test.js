@@ -122,7 +122,7 @@ test('executeTrade: a full receiving team with no stash rejects at the draft ros
     executeTrade(client, { trade, league, items, teams }),
     (error) => {
       assert.ok(error instanceof TradeError);
-      assert.equal(error.message, 'roster capacity of 14 reached');
+      assert.equal(error.message, 'trade would put Bob Squad over its roster capacity of 14');
       return true;
     }
   );
@@ -137,6 +137,27 @@ test('executeTrade: a full receiving team with no stash rejects at the draft ros
   // anything toward the trade. No restored ids means no fourth parameter.
   assert.deepEqual(stashQueries[1][0], 42);
   assert.equal(stashQueries[1].length, 3);
+  fake.assertClean();
+});
+
+// The same full-roster fixture with its one item reversed: now team 41 is the
+// Team whose fit fails, so the refusal must name it, not the trade's receiver.
+test('executeTrade: the refusal names the Team whose roster is over, not the receiver', async () => {
+  const fake = tradeWorld({
+    counts: new Map([[41, 14], [42, 14]]),
+    stashes: new Map([[41, 0], [42, 0]]),
+  });
+  const client = await fake.connect();
+
+  await assert.rejects(
+    executeTrade(client, { trade, league, items: [{ from_team_id: 42, to_team_id: 41, player_id: 21 }], teams }),
+    (error) => {
+      assert.ok(error instanceof TradeError);
+      assert.equal(error.message, 'trade would put Sunday Ballers over its roster capacity of 14');
+      return true;
+    }
+  );
+  client.release();
   fake.assertClean();
 });
 
