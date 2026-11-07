@@ -364,6 +364,51 @@ test('processWaivers: a Team over a cap keeps its players; a claim at that posit
   assert.equal(fake.matching(/^DELETE FROM "team_players"/).length, 0);
 });
 
+// A Team already over its cap (two RBs, cap one) swaps one RB for another. The
+// claim nets to zero, so claimFailureReason passes it; the award's add then runs
+// after the drop, and must not re-check the cap against the already-netted roster.
+test('processWaivers: an over-cap Team swaps within the cap group and wins', async (t) => {
+  const league = {
+    id: 1, transactions_locked: false, waiver_type: 'priority', roster_limit: 16, ir_slots: 2,
+    current_season: 2026, current_week: 6, waiver_period_hours: 24, position_caps: { RB: 1 },
+  };
+  const claims = [
+    { id: 1, league_id: 1, team_id: 31, player_id: 500, drop_player_id: 600, bid: 0, status: 'pending', claim_order: 1, created_at: '2026-07-11T00:00:00Z' },
+  ];
+  let rbOnRoster = 2;
+  const fake = createFakePool([
+    [select('leagues'), () => ({ rows: [league] })],
+    [update('leagues'), () => ({ rows: [], rowCount: 0 })],
+    [select('waiver_claims'), () => ({ rows: claims })],
+    [select('teams'), () => ({ rows: [{ id: 31, league_id: 1, owner_id: 8, user_id: 8, waiver_priority: 1 }] })],
+    [/^SELECT 1 FROM "team_players" WHERE "league_id"/, () => ({ rows: [] })],
+    [/^SELECT 1 FROM "team_players" WHERE "team_id"/, () => ({ rows: [{ 1: 1 }] })],
+    [/^SELECT COUNT\(\*\)::int AS n FROM "team_players" JOIN "players"/, () => ({ rows: [{ n: rbOnRoster }] })],
+    [/^SELECT COUNT\(\*\)::int AS n FROM "team_players"/, () => ({ rows: [{ n: 10 }] })],
+    [select('players'), () => ({ rows: [{ id: 500, position: 'RB' }, { id: 600, position: 'RB' }] })],
+    [select('lineup_entries'), () => ({ rows: [{ n: 0 }] })],
+    [remove('team_players'), (text, params) => {
+      if (params[1] === 600) rbOnRoster -= 1;
+      return { rows: [{ id: 1 }], rowCount: 1 };
+    }],
+    [insert('team_players'), () => { rbOnRoster += 1; return { rows: [], rowCount: 1 }; }],
+    [/^INSERT INTO "waiver_players"/, () => ({ rows: [], rowCount: 1 })],
+    [update('teams'), () => ({ rows: [], rowCount: 1 })],
+    [update('waiver_claims'), () => ({ rows: [], rowCount: 1 })],
+    [insert('transactions'), () => ({ rows: [] })],
+    [insert('notifications'), () => ({ rows: [] })],
+    [remove('waiver_players'), () => ({ rows: [] })],
+  ]).install(t);
+  t.mock.method(lineupService, 'benchAcquiredPlayer', async () => {});
+  t.mock.method(lineupService, 'removeLineupEntries', async () => {});
+
+  const { results } = await processWaivers({ leagueId: 1 });
+
+  assert.deepEqual(results, [{ claimId: 1, playerId: 500, status: 'won', teamId: 31 }]);
+  assert.equal(fake.matching(/^DELETE FROM "team_players"/).length, 1, 'the drop was written');
+  fake.assertClean();
+});
+
 test('processWaivers: a claim that never fit its cap keeps the cap reason when a sibling win fills the roster', async (t) => {
   // Capacity is 14 (limit 16 less 2 IR). The team has 13: claim 2 (RB) fails
   // the cap from the start, then claim 1 (WR) fills the roster to 14.
@@ -1183,6 +1228,49 @@ test('kickoff hold, then claim-target, submit-claim and processing, all through 
   assert.equal(table.rows.length, 0, 'the clear DELETE removed the row');
 });
 
+// Position caps hold at submit too (spec #2681): a claim that would break a cap
+// is refused now, not accepted and invalidated at processing.
+const submitCapWorld = (t, { atPosition, positions }) => createFakePool([
+  [/^SELECT \* FROM "leagues"/, () => ({
+    rows: [{
+      id: 1, pickem_only: false, waiver_type: 'priority', transactions_locked: false,
+      waivers_clear_at: null, roster_limit: 16, ir_slots: 0, position_caps: { RB: 2 },
+    }],
+  })],
+  [/^SELECT \* FROM "teams"/, () => ({ rows: [{ id: 31, league_id: 1, owner_id: 8, locked: false }] })],
+  [/^SELECT 1 FROM "team_players" WHERE "league_id"/, () => ({ rows: [] })],
+  [select('waiver_players'), () => ({ rows: [{ 1: 1 }] })],
+  [/^SELECT 1 FROM "team_players" WHERE "team_id"/, () => ({ rows: [{ 1: 1 }] })],
+  [/^SELECT COUNT\(\*\)::int AS n FROM "team_players" JOIN "players"/, () => ({ rows: [{ n: atPosition }] })],
+  [/^SELECT COUNT\(\*\)::int AS n FROM "team_players"/, () => ({ rows: [{ n: 10 }] })],
+  [select('players'), () => ({ rows: positions })],
+  [/^SELECT COALESCE/, () => ({ rows: [{ next: 1 }] })],
+  [select('waiver_claims'), () => ({ rows: [] })],
+  [insert('waiver_claims'), () => ({ rows: [{ id: 1, status: 'pending' }] })],
+]).install(t);
+
+test('submitClaim refuses a claim that would break a position cap, naming the cap and the drop', async (t) => {
+  const fake = submitCapWorld(t, {
+    atPosition: 2, positions: [{ id: 500, position: 'RB' }],
+  });
+  await assert.rejects(
+    () => submitClaim({ leagueId: 1, userId: 8, playerId: 500, dropPlayerId: null, bid: 0 }),
+    { statusCode: 409, message: 'position cap reached: max 2 RB; choose a player to drop' }
+  );
+  assert.equal(fake.matching(insert('waiver_claims')).length, 0);
+  fake.assertClean();
+});
+
+test('submitClaim accepts the same claim when its drop is in the same cap group', async (t) => {
+  const fake = submitCapWorld(t, {
+    atPosition: 2, positions: [{ id: 500, position: 'RB' }, { id: 77, position: 'RB' }],
+  });
+  const claim = await submitClaim({ leagueId: 1, userId: 8, playerId: 500, dropPlayerId: 77, bid: 0 });
+  assert.equal(claim.status, 'pending');
+  assert.equal(fake.matching(insert('waiver_claims')).length, 1);
+  fake.assertClean();
+});
+
 test('submitClaim refuses a no-drop claim when the roster is already at capacity', async (t) => {
   const fake = createFakePool([
     [/^SELECT \* FROM "leagues"/, () => ({
@@ -1207,7 +1295,10 @@ test('submitClaim refuses a no-drop claim when the roster is already at capacity
 });
 
 // #1580: edit a pending claim's bid and drop player in place.
-const editWorld = ({ waiverType = 'faab', faab = 50, claimRow, dropOnRoster = true, rosterCount = 10 } = {}) => {
+const editWorld = ({
+  waiverType = 'faab', faab = 50, claimRow, dropOnRoster = true, rosterCount = 10,
+  positionCaps, atPosition = 0, positions = [],
+} = {}) => {
   const row = claimRow || {
     id: 900, league_id: 1, team_id: 31, player_id: 500, drop_player_id: null, bid: 10,
     claim_order: 2, status: 'pending', created_at: '2026-07-11T00:00:00Z',
@@ -1217,10 +1308,12 @@ const editWorld = ({ waiverType = 'faab', faab = 50, claimRow, dropOnRoster = tr
     [/^SELECT \* FROM "leagues"/, () => ({
       rows: [{
         id: 1, pickem_only: false, waiver_type: waiverType, transactions_locked: false,
-        waivers_clear_at: null, roster_limit: 16, ir_slots: 0,
+        waivers_clear_at: null, roster_limit: 16, ir_slots: 0, position_caps: positionCaps,
       }],
     })],
+    [/^SELECT COUNT\(\*\)::int AS n FROM "team_players" JOIN "players"/, () => ({ rows: [{ n: atPosition }] })],
     [/^SELECT COUNT\(\*\)::int AS n FROM "team_players"/, () => ({ rows: [{ n: rosterCount }] })],
+    [select('players'), () => ({ rows: positions })],
     [/^SELECT \* FROM "teams"/, () => ({
       rows: [{ id: 31, league_id: 1, owner_id: 8, locked: false, faab_remaining: faab }],
     })],
@@ -1289,6 +1382,32 @@ test('editClaim refuses a drop change that leaves a full roster over capacity', 
     { statusCode: 409, message: /roster capacity of 16 reached/ }
   );
   assert.equal(fake.matching(update('waiver_claims')).length, 0);
+  fake.assertClean();
+});
+
+test('editClaim refuses a drop change that breaks a position cap, naming the cap and the drop', async (t) => {
+  const fake = editWorld({
+    positionCaps: { RB: 2 }, atPosition: 2, positions: [{ id: 500, position: 'RB' }, { id: 77, position: 'RB' }],
+    claimRow: {
+      id: 900, league_id: 1, team_id: 31, player_id: 500, drop_player_id: 77, bid: 10,
+      claim_order: 2, status: 'pending', created_at: '2026-07-11T00:00:00Z',
+    },
+  }).install(t);
+  await assert.rejects(
+    () => editClaim({ userId: 8, claimId: 900, dropPlayerId: null }),
+    { statusCode: 409, message: 'position cap reached: max 2 RB; choose a player to drop' }
+  );
+  assert.equal(fake.matching(update('waiver_claims')).length, 0);
+  fake.assertClean();
+});
+
+test('editClaim accepts a drop change within the same cap group', async (t) => {
+  const fake = editWorld({
+    positionCaps: { RB: 2 }, atPosition: 2, positions: [{ id: 500, position: 'RB' }, { id: 77, position: 'RB' }],
+  }).install(t);
+  const result = await editClaim({ userId: 8, claimId: 900, dropPlayerId: 77 });
+  assert.equal(result.drop_player_id, 77);
+  assert.equal(fake.matching(update('waiver_claims')).length, 1);
   fake.assertClean();
 });
 

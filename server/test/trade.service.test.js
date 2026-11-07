@@ -122,7 +122,7 @@ test('executeTrade: a full receiving team with no stash rejects at the draft ros
     executeTrade(client, { trade, league, items, teams }),
     (error) => {
       assert.ok(error instanceof TradeError);
-      assert.equal(error.message, 'trade would put Bob Squad over its roster capacity of 14');
+      assert.equal(error.message, 'roster capacity of 14 reached');
       return true;
     }
   );
