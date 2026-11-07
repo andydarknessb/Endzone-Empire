@@ -643,7 +643,7 @@ test('#1409: a recap rebuild failure is logged and never blocks the correction p
 
 // ---- #1410: power rankings recompute before the post-correction recap rebuild --
 //
-// The advance-week chain (settle.service.js, settleWeek) runs
+// The Settle follow-up (settleFollowUp.service.js) runs
 // montecarlo.computeLeagueOdds before building the recap, "odds first so the
 // recap reads fresh playoff numbers" - the recap reads the latest stored
 // `power_rankings` league_analytics row directly (recap.service.js), so odds

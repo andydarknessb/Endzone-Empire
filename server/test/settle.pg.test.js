@@ -67,6 +67,7 @@ if (!ENABLED) {
   let nextSeason = FIRST_SEASON;
   let codeSeq = 0;
   let ownerId = null;
+  let awayOwnerId = null;
   let playerId = null;
   const leagueIds = [];
 
@@ -77,6 +78,13 @@ if (!ENABLED) {
        RETURNING "id"`
     );
     ownerId = users.rows[0].id;
+    // teams carry UNIQUE (league_id, owner_id), so the away Team needs its own owner.
+    const awayUsers = await pool.query(
+      `INSERT INTO "users" ("username", "email", "password")
+       VALUES ('settle_pg_away', 'settle-pg-away@example.invalid', 'x')
+       RETURNING "id"`
+    );
+    awayOwnerId = awayUsers.rows[0].id;
     const players = await pool.query(
       `INSERT INTO "players" ("name", "position", "nfl_team")
        VALUES ('Settle PG Player', 'RB', 'STL') RETURNING "id"`
@@ -91,6 +99,7 @@ if (!ENABLED) {
     // The players table is global; the league CASCADE does not reach it.
     if (playerId != null) await pool.query(`DELETE FROM "players" WHERE "id" = $1`, [playerId]);
     if (ownerId != null) await pool.query(`DELETE FROM "users" WHERE "id" = $1`, [ownerId]);
+    if (awayOwnerId != null) await pool.query(`DELETE FROM "users" WHERE "id" = $1`, [awayOwnerId]);
     await pool.end();
     await modulePool.end();
   });
@@ -123,7 +132,7 @@ if (!ENABLED) {
     const awayTeam = await pool.query(
       `INSERT INTO "teams" ("league_id", "owner_id", "name")
        VALUES ($1, $2, 'Settle Away') RETURNING "id"`,
-      [leagueId, ownerId]
+      [leagueId, awayOwnerId]
     );
     const homeId = homeTeam.rows[0].id;
     const awayId = awayTeam.rows[0].id;
@@ -245,7 +254,7 @@ if (!ENABLED) {
     assert.equal(followUpMock.mock.calls.length, 0);
   });
 
-  test('an Advance without a week refuses a replay that read the week before the first Advance committed', async (t) => {
+  test('an Advance whose pre-lock read saw week 1 is refused under the lock once the first Advance moved past it', async (t) => {
     const lg = await seedLeague();
     stubAfterCommit(t);
     const holder = await pool.connect();
@@ -256,8 +265,9 @@ if (!ENABLED) {
       await holder.query('SELECT * FROM "leagues" WHERE "id" = $1 FOR NO KEY UPDATE', [lg.leagueId]);
       await holder.query('UPDATE "leagues" SET "current_week" = 2 WHERE "id" = $1', [lg.leagueId]);
 
-      // The replay's pre-lock read sees the committed week 1, then waits on the lock.
-      const pending = settle.settleWeek({ leagueId: lg.leagueId }).then(() => null, (error) => error);
+      // The replay carries the week its pre-lock read saw (1). The holder's uncommitted move
+      // to week 2 makes it wait on the lock; once the holder commits, the replay compares under the lock.
+      const pending = settle.settleWeek({ leagueId: lg.leagueId, expectedWeek: 1 }).then(() => null, (error) => error);
       await waitForBlocked();
       await holder.query('COMMIT');
 
