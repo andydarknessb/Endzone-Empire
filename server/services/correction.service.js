@@ -158,7 +158,7 @@ async function resyncPriorWeeks({ source = 'nflverse' } = {}) {
   for (const { season, week, leagueIds } of weeks.values()) {
     try {
       if (source === 'nflverse') {
-        // Lazy require: nflverseSync requires this module at load time.
+        // Lazy require: nflverse loads only when its source runs.
         const nflverseSync = require('./nflverseSync.service');
         // League re-scoring happens per-league below, through the same
         // correctWeek path, so skip its own re-score loop.

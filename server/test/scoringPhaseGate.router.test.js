@@ -3,10 +3,9 @@
  * has not finished, BEFORE they do any work.
  *
  * The advance-week route is the reason this check exists at the route and not
- * only in the season service: it scores the week first and finalizes second,
- * so a refusal that fired only inside settleWeek would answer 409
- * with a full week of scores already written. These tests assert that absence
- * directly rather than inferring it from the status code.
+ * only in the settle service: a pre-draft league must be refused before the route
+ * reaches settleWeek, so no scoring transaction is ever opened for it. These
+ * tests assert that absence directly rather than inferring it from the status code.
  */
 const { after, test } = require('node:test');
 const assert = require('node:assert/strict');

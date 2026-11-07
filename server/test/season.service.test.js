@@ -11,7 +11,8 @@ const {
   lastPlayoffWeek,
 } = require('../services/season.service');
 const { settleWeek } = require('../services/settle.service');
-const { stubSettlePasses } = require('./helpers/settlePasses');
+const matchupScoring = require('../services/matchupScoring.service');
+const settleFollowUpSvc = require('../services/settleFollowUp.service');
 const lineupService = require('../services/lineup.service');
 const { createFakePool, select, insert, update } = require('./helpers/fakePool');
 
@@ -333,7 +334,8 @@ function seedWorld() {
 
 test('bracket creation stores one seed per playoff Team, byes included', async (t) => {
   t.mock.method(lineupService, 'materializeLineup', async () => {});
-  stubSettlePasses(t);
+  t.mock.method(matchupScoring, 'scoreMatchupsInTransaction', async () => null);
+  t.mock.method(settleFollowUpSvc, 'settleFollowUp', async () => {});
   const world = seedWorld();
   world.league.playoff_teams = 6;
   world.pool.install(t);
@@ -350,7 +352,8 @@ test('bracket creation stores one seed per playoff Team, byes included', async (
 
 test('a regular-season correction after seeding never changes who advances', async (t) => {
   t.mock.method(lineupService, 'materializeLineup', async () => {});
-  stubSettlePasses(t);
+  t.mock.method(matchupScoring, 'scoreMatchupsInTransaction', async () => null);
+  t.mock.method(settleFollowUpSvc, 'settleFollowUp', async () => {});
   const world = seedWorld();
   world.pool.install(t);
 
@@ -382,7 +385,8 @@ test('a regular-season correction after seeding never changes who advances', asy
 
 test('stored byes advance without playing: a 6-Team bracket re-pairs the winners with seeds 1 and 2', async (t) => {
   t.mock.method(lineupService, 'materializeLineup', async () => {});
-  stubSettlePasses(t);
+  t.mock.method(matchupScoring, 'scoreMatchupsInTransaction', async () => null);
+  t.mock.method(settleFollowUpSvc, 'settleFollowUp', async () => {});
   const world = seedWorld();
   world.league.playoff_teams = 6;
   world.pool.install(t);
@@ -400,7 +404,8 @@ test('stored byes advance without playing: a 6-Team bracket re-pairs the winners
 
 test('a League already in its playoffs with no stored seeds derives its byes from live standings', async (t) => {
   t.mock.method(lineupService, 'materializeLineup', async () => {});
-  stubSettlePasses(t);
+  t.mock.method(matchupScoring, 'scoreMatchupsInTransaction', async () => null);
+  t.mock.method(settleFollowUpSvc, 'settleFollowUp', async () => {});
   const world = seedWorld();
   Object.assign(world.league, { season_status: 'playoffs', current_week: 4, playoff_teams: 6 });
   world.matchups.forEach((m) => { m.final = true; });

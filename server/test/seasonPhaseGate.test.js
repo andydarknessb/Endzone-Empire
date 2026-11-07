@@ -179,7 +179,7 @@ test('generateRegularSeason: a clean ROLLBACK returns the healthy connection to 
 });
 
 /* ------------------------------------------------------------------ *
- * settleWeek                                              *
+ * settleWeek                                                         *
  * ------------------------------------------------------------------ */
 
 for (const draft_status of ['pending', 'active']) {

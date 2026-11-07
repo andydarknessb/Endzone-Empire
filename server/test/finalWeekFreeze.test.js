@@ -8,7 +8,8 @@ const {
 } = require('../services/lineup.service');
 const { scoreMatchups } = require('../services/matchupScoring.service');
 const { correctWeek, settleWeek } = require('../services/settle.service');
-const { stubSettlePasses } = require('./helpers/settlePasses');
+const matchupScoring = require('../services/matchupScoring.service');
+const settleFollowUpSvc = require('../services/settleFollowUp.service');
 const { registerRecordingBroadcast } = require('./helpers/recordingBroadcast');
 
 // scoreMatchups now emits through getDraftRoomBroadcast(), which THROWS when no
@@ -313,7 +314,7 @@ const awayScoreOf = (state) => Number(state.matchups.find((m) => m.id === 90).aw
 
 /**
  * Both follow the same reachable sequence. `matchups.final` has exactly one
- * writer, season.service's settleWeek, and it advances
+ * writer, settle.service's settleWeek, and it advances
  * current_week in the same transaction, so a FINAL week is always a PAST
  * week: the freeze can only ever be exercised by something reaching back to
  * a week that is already closed, never by the current week's own traffic.
@@ -338,7 +339,8 @@ test('#106 best ball: a player acquired after a final week never joins its re-sc
   const asPlayed = awayScoreOf(world.state);
   assert.equal(asPlayed, 10, 'baseline: team B played week 8 with its QB alone');
 
-  const scoring = stubSettlePasses(t);
+  const scoring = t.mock.method(matchupScoring, 'scoreMatchupsInTransaction', async () => null);
+  t.mock.method(settleFollowUpSvc, 'settleFollowUp', async () => {});
   await settleWeek({ leagueId: LEAGUE_ID });
   scoring.mock.restore(); // the correction below must re-score for real
   assert.equal(world.state.matchups[0].final, true, 'week 8 is closed');
@@ -394,7 +396,8 @@ test('#106 standard: a copied-forward starting slot cannot re-score a final week
   const asPlayed = awayScoreOf(world.state);
   assert.equal(asPlayed, 10);
 
-  const scoring = stubSettlePasses(t);
+  const scoring = t.mock.method(matchupScoring, 'scoreMatchupsInTransaction', async () => null);
+  t.mock.method(settleFollowUpSvc, 'settleFollowUp', async () => {});
   await settleWeek({ leagueId: LEAGUE_ID });
   scoring.mock.restore(); // the correction below must re-score for real
   assert.equal(world.state.matchups[0].final, true);
@@ -577,7 +580,8 @@ test('#106 a non-final matchup still materializes', async (t) => {
 test('#106 after settleWeek the acquired player is on the new week bench', async (t) => {
   const world = createWorld({ bestBall: false, week8Final: false });
   world.fake.install(t);
-  stubSettlePasses(t);
+  t.mock.method(matchupScoring, 'scoreMatchupsInTransaction', async () => null);
+  t.mock.method(settleFollowUpSvc, 'settleFollowUp', async () => {});
 
   await acquire(world.fake, world.state);
   // Week 8 is live at acquisition time, so he lands on its bench as #97 wants.
@@ -619,7 +623,8 @@ test('#106 a frozen week is not a copy-forward source that benches the roster', 
     ],
   });
   world.fake.install(t);
-  stubSettlePasses(t);
+  t.mock.method(matchupScoring, 'scoreMatchupsInTransaction', async () => null);
+  t.mock.method(settleFollowUpSvc, 'settleFollowUp', async () => {});
 
   await settleWeek({ leagueId: LEAGUE_ID });
   await acquire(world.fake, world.state);
