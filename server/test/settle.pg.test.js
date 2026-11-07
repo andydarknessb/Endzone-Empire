@@ -30,12 +30,21 @@ const assert = require('node:assert/strict');
 const ENABLED = process.env.PG_TESTS === '1' || process.env.SETTLE_PG_TESTS === '1';
 const URL_VARS = ['DATABASE_URL', 'DATABASE_URL_RUNTIME', 'DATABASE_URL_MIGRATIONS'];
 const urlLeak = URL_VARS.filter((k) => process.env[k]);
+// The target must be a named, loopback database: never a remote host, never the default name.
+const PG_HOST = process.env.PGHOST || '127.0.0.1';
+const badTarget = !['127.0.0.1', 'localhost', '::1'].includes(PG_HOST)
+  ? `PGHOST=${PG_HOST} is not loopback`
+  : (!process.env.PGDATABASE ? 'PGDATABASE is unset' : null);
 
 if (!ENABLED) {
   test('settle PG test (skipped: set PG_TESTS=1 or SETTLE_PG_TESTS=1; CI migration-smoke runs these)', { skip: true }, () => {});
 } else if (urlLeak.length > 0) {
   test('settle PG test refuses to run with DATABASE_URL* set', () => {
     assert.fail(`unset ${urlLeak.join(', ')} - these tests must only ever see a disposable PG* database`);
+  });
+} else if (badTarget) {
+  test('settle PG test refuses a target that is not a named loopback database', () => {
+    assert.fail(`${badTarget} - these tests must only ever see a disposable loopback PG* database`);
   });
 } else {
   const pg = require('pg');
@@ -234,6 +243,33 @@ if (!ENABLED) {
     assert.equal(Number(week.home_score), 999, 'nothing is scored');
     assert.equal(announceMock.mock.calls.length, 0);
     assert.equal(followUpMock.mock.calls.length, 0);
+  });
+
+  test('an Advance without a week refuses a replay that read the week before the first Advance committed', async (t) => {
+    const lg = await seedLeague();
+    stubAfterCommit(t);
+    const holder = await pool.connect();
+    try {
+      // The holder stands in for the first Advance's League write: it moves current_week on
+      // and holds the League lock until COMMIT.
+      await holder.query('BEGIN');
+      await holder.query('SELECT * FROM "leagues" WHERE "id" = $1 FOR NO KEY UPDATE', [lg.leagueId]);
+      await holder.query('UPDATE "leagues" SET "current_week" = 2 WHERE "id" = $1', [lg.leagueId]);
+
+      // The replay's pre-lock read sees the committed week 1, then waits on the lock.
+      const pending = settle.settleWeek({ leagueId: lg.leagueId }).then(() => null, (error) => error);
+      await waitForBlocked();
+      await holder.query('COMMIT');
+
+      const error = await pending;
+      assert.equal(error && error.statusCode, 409, 'the replay is refused under the lock');
+    } finally {
+      await holder.query('ROLLBACK').catch(() => {});
+      holder.release();
+    }
+    const week = await matchupOf(lg.matchupId);
+    assert.equal(week.final, false, 'nothing is finalized');
+    assert.equal(Number(week.home_score), 999, 'nothing is scored');
   });
 
   test('an Advance whose announcement throws still seeds lineups and starts the follow-up', async (t) => {

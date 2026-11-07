@@ -1398,7 +1398,7 @@ test('#190 advance-week asks for settle semantics, pinned to the week it is clos
   assert.equal(res.status, 200, JSON.stringify(res.body));
   assert.equal(scoreCalls.length, 0, 'no separate scoring transaction: the settle pass rides finalize (spec #2602)');
   assert.equal(finalizeCalls.length, 1);
-  assert.equal(finalizeCalls[0].expectedWeek, undefined, 'no expected week sent: the settle pass closes the current week under the lock');
+  assert.equal(finalizeCalls[0].expectedWeek, WEEK, 'pinned to the week being closed, read before the lock');
 });
 
 /* ------------------------------------------------------------------ *

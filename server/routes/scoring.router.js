@@ -495,17 +495,19 @@ router.post('/league/:id/advance-week', async (req, res) => {
     return res.status(400).json({ error: 'league id must be a positive integer' });
   }
   const leagueId = Number(req.params.id);
-  // The week the commissioner saw; absent from older bundles, which keep the unguarded read.
+  // The week the commissioner saw; absent from older bundles, which settleWeek pins to the week the League showed before its lock.
   const bodyWeek = req.body && req.body.week;
   if (!(bodyWeek === undefined || (Number.isInteger(bodyWeek) && bodyWeek >= 1))) {
     return res.status(400).json({ error: 'week must be a positive integer' });
   }
   try {
     if (!(await requireLeagueCommissioner(req, res, leagueId))) return;
-    const { scored, advance } = await settleSvc.settleWeek({
-      leagueId,
-      expectedWeek: bodyWeek,
-    });
+    // An older bundle sends no week: the week the League showed before the lock is the
+    // expected week (advanceWeek's pre-read, kept), so a replay that read the same week is refused under the lock.
+    const expectedWeek = bodyWeek === undefined
+      ? (await pool.query(`SELECT "current_season", "current_week" FROM "leagues" WHERE "id" = $1`, [leagueId])).rows[0]?.current_week
+      : bodyWeek;
+    const { scored, advance } = await settleSvc.settleWeek({ leagueId, expectedWeek });
     res.json({ scored, ...advance });
   } catch (error) {
     if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
