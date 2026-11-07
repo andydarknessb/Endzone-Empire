@@ -27,18 +27,20 @@
  *
  * updateLeagueSettings takes that { value } as `patch` and owns the state
  * half: the status read, the post-read guards, the keeper clear, the UPDATE
- * and the after-commit notification. Transaction rule: it connect()s a client
- * and runs BEGIN only when the patch carries keeper or auction settings
- * (patch.rowLockSettingsProvided, the FOR UPDATE read); otherwise every
- * statement runs on the pool directly with no transaction. Thrown-error
- * contract: it refuses by throwing LeagueSettingsError (statusCode, message,
- * and code only for the pick'em refusal) after rolling back, so call it only
- * where the surrounding catch renders `error.statusCode`, the same rule
- * leagueMembership.requireMember states; anything else propagates after the same
- * rollback and release.
+ * and the after-commit notification. Transaction rule: when the patch carries
+ * keeper or auction settings (patch.rowLockSettingsProvided, the FOR NO KEY
+ * UPDATE read) the write runs through withTransaction (ADR 0033), which owns
+ * BEGIN, COMMIT, the ROLLBACK and the release; otherwise every statement runs
+ * on the pool directly with no transaction. Thrown-error contract: it refuses
+ * by throwing LeagueSettingsError (statusCode, message, and code only for the
+ * pick'em refusal) from inside that write, so the wrapper rolls back and
+ * rethrows it unchanged. Call it only where the surrounding catch renders
+ * `error.statusCode`, the same rule leagueMembership.requireMember states;
+ * anything else propagates unchanged after the same rollback and release.
  */
 
 const { DRAFT_FROZEN_SETTING_KEYS, frozenSettingKeys, settingsUnfrozenWhereSql } = require('./leaguePhase');
+const { withTransaction } = require('../modules/withTransaction');
 const {
   POSITION_KEYS, validateAuctionSettings, keeperSettingsPlan, positionCapsFeasible,
 } = require('./draftValidation.service');
@@ -516,29 +518,13 @@ async function updateLeagueSettings(db, { leagueId, userId, patch }) {
     frozenRequested, frozenRequestedNames, fantasyOnlyRequested, rosterCompositionChanged, schedulingNonAuction,
   } = patch;
   let previousDraftDate = null;
-  let transactionClient = null;
-  let transactionOpen = false;
-  let client = db;
+  // A refusal throws from inside the transaction's work; withTransaction rolls
+  // the read back and rethrows it unchanged, as account.service.js does
+  // (ADR 0033, Ruling 2).
   const rejectUpdate = async (status, error, extra = {}) => {
-    if (transactionOpen) {
-      // Guarded like the unexpected-error path below (#68): if the ROLLBACK
-      // itself fails (connection dropped mid-transaction), the refusal the
-      // caller earned must still reach them, not turn into a 500. The
-      // connection's death rolls the transaction back anyway.
-      transactionOpen = false;
-      await transactionClient.query('ROLLBACK').catch((rollbackError) => {
-        console.error('Failed to roll back a refused league settings update', rollbackError);
-      });
-    }
     throw new LeagueSettingsError(status, error, extra);
   };
-  try {
-    if (rowLockSettingsProvided) {
-      transactionClient = await db.connect();
-      client = transactionClient;
-      await transactionClient.query('BEGIN');
-      transactionOpen = true;
-    }
+  const apply = async (client) => {
     let derivedRosterLimit = null;
     let pendingStatusVerified = false;
     // The status read is also the league-type read: any fantasy-only field
@@ -869,51 +855,33 @@ async function updateLeagueSettings(db, { leagueId, userId, patch }) {
       }
       return await rejectUpdate(403, 'league not found or you are not the commissioner');
     }
-    const changed = draftDateProvided &&
-      String(previousDraftDate ? new Date(previousDraftDate).toISOString() : null) !== String(draftDateValue);
-    if (transactionOpen) {
-      await transactionClient.query('COMMIT');
-      transactionOpen = false;
-    }
-    // The settings update is the source of truth. Activity delivery happens
-    // after commit, on the pool (never the released client), and is
-    // best-effort so a notification outage cannot turn a persisted schedule
-    // into an HTTP 500 response.
-    if (changed && draftDateValue) {
-      const verb = previousDraftDate ? 'rescheduled' : 'scheduled';
-      try {
-        void activityService.notifyLeague(db, {
-          leagueId,
-          type: 'draft_scheduled',
-          message: `${result.rows[0].name}'s draft has been ${verb}.`,
-          data: { url: `/#/league/${leagueId}`, draftDate: draftDateValue },
-        }).catch((notificationError) => {
-          console.error('Failed to send draft schedule notification', notificationError);
-        });
-      } catch (notificationError) {
-        console.error('Failed to send draft schedule notification', notificationError);
-      }
-    }
     return result.rows[0];
-  } catch (error) {
-    if (transactionOpen) {
-      await transactionClient.query('ROLLBACK').catch(() => {});
-      transactionOpen = false;
-    }
-    throw error;
-  } finally {
-    // The result (or the refusal) is already decided by here; a failing
-    // release must not replace it. The handler used to release after it had
-    // sent the response, so a throw here surfaced only as an unhandled
-    // rejection; now the service runs first, so swallow and log instead.
-    if (transactionClient) {
-      try {
-        transactionClient.release();
-      } catch (releaseError) {
-        console.error('Failed to release the league settings client', releaseError);
-      }
+  };
+  const updated = rowLockSettingsProvided
+    ? await withTransaction(db, apply, { label: 'league-settings-update' })
+    : await apply(db);
+  const changed = draftDateProvided &&
+    String(previousDraftDate ? new Date(previousDraftDate).toISOString() : null) !== String(draftDateValue);
+  // The settings update is the source of truth. Activity delivery happens
+  // after commit, on the pool (never the released client), and is
+  // best-effort so a notification outage cannot turn a persisted schedule
+  // into an HTTP 500 response.
+  if (changed && draftDateValue) {
+    const verb = previousDraftDate ? 'rescheduled' : 'scheduled';
+    try {
+      void activityService.notifyLeague(db, {
+        leagueId,
+        type: 'draft_scheduled',
+        message: `${updated.name}'s draft has been ${verb}.`,
+        data: { url: `/#/league/${leagueId}`, draftDate: draftDateValue },
+      }).catch((notificationError) => {
+        console.error('Failed to send draft schedule notification', notificationError);
+      });
+    } catch (notificationError) {
+      console.error('Failed to send draft schedule notification', notificationError);
     }
   }
+  return updated;
 }
 
 module.exports = {

@@ -128,23 +128,15 @@ const EXEMPT_FILES = Object.freeze(new Set([
  * line numbers churn on every unrelated edit and an allowlist that needs
  * re-deriving after each one is one people stop reading.
  *
- * The contents are exactly what #1067 (the misfit child of spec #1061) ruled
- * `allowlist`, and nothing else. Its rulings comment is the source of record;
+ * The entries are what #1067 (the misfit child of spec #1061) ruled `allowlist`,
+ * less updateLeagueSettings, which closes through withTransaction since #2687.
+ * Its rulings comment is the source of record;
  * all twelve other functions it surveyed were reshaped onto `withTransaction`
  * by #1070/#1071/#1072/#1073 and carry no hand-rolled transaction any more.
  *
  * `rule` is the whole point of the entry: an empty rule fails the guard.
  */
 const ALLOWLIST = [
-  {
-    file: 'server/services/leagueSettings.service.js',
-    function: 'updateLeagueSettings',
-    rule:
-      'The transaction is optional by patch shape - opened only when a row-locked '
-      + 'setting is in the patch - and rejectUpdate owns its ROLLBACK, so the function '
-      + 'is its own transaction wrapper over an injected `db`; the #68 guarded-release '
-      + 'contract stands. Module closed 2026-08-20 (#1067 ruling 1).',
-  },
   {
     file: 'server/routes/league.router.js',
     function: 'GET /:id/matchups/:matchupId',
