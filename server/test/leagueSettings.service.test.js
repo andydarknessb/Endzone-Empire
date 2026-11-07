@@ -232,6 +232,15 @@ test('403 fallthrough: a name-only patch skips the status read; zero rows from t
   assert.equal(db.released(), 0);
 });
 
+test('a non-commissioner on the locking path: no status row, the guarded UPDATE matches none, 403 after a ROLLBACK, client released once (ADR 0033)', async () => {
+  const db = fakeDb({ status: null, updateRows: [] });
+  const error = await refusal(db, { keeperCount: 1 });
+  assert.equal(error.statusCode, 403);
+  assert.equal(error.message, 'league not found or you are not the commissioner');
+  assert.deepEqual(db.firstWord(), ['BEGIN', 'SELECT', 'UPDATE', 'ROLLBACK']);
+  assert.equal(db.released(), 1);
+});
+
 test('a name-only patch on a commissioner league resolves with the row and never touches the keeper/team tables', async () => {
   const db = fakeDb();
   const row = await run(db, { name: 'Renamed' });
@@ -330,7 +339,7 @@ test('a throwing client.release() does not replace a committed result: the row i
   const row = await run(db, { keeperCount: 3 });
   assert.deepEqual(row, UPDATED_ROW);
   assert.equal(db.firstWord().at(-1), 'COMMIT');
-  assert.ok(logged.mock.calls.some((c) => c.arguments[0] === 'Failed to release the league settings client'));
+  assert.ok(logged.mock.calls.some((c) => String(c.arguments[0]).startsWith('[league-settings-update] client.release failed')));
 });
 
 test('a throwing client.release() does not replace a refusal either: the 409 still surfaces as a LeagueSettingsError', async (t) => {
@@ -356,6 +365,24 @@ test('a refusal whose ROLLBACK throws still surfaces the intended 4xx, not a 500
   assert.equal(db.released(), 1);
   assertNoSettingsWrite(db);
 });
+test('a refused locking patch whose ROLLBACK rejects releases the client with an Error, destroying the connection (ADR 0033, #2687)', async (t) => {
+  const db = fakeDb({ status: statusRow({ draft_status: 'active' }) });
+  const releases = [];
+  db.client.release = (destroy) => { releases.push(destroy); };
+  const originalQuery = db.client.query;
+  db.client.query = (sql, params) => {
+    if (String(sql) === 'ROLLBACK') { db.calls.push({ via: 'client', text: 'ROLLBACK' }); return Promise.reject(new Error('connection terminated')); }
+    return originalQuery(sql, params);
+  };
+  t.mock.method(console, 'error', () => {});
+  const error = await refusal(db, { playoffTeams: 4, keeperCount: 1 });
+  assert.equal(error.statusCode, 409);
+  assert.equal(error.message, 'these settings are locked once the draft starts: playoffTeams, keeperCount');
+  assert.equal(releases.length, 1);
+  assert.ok(releases[0] instanceof Error, `a failed ROLLBACK must destroy the connection; released with ${String(releases[0])}`);
+  assertNoSettingsWrite(db);
+});
+
 test('a post-draft bare-preset save is refused naming scoringPreset, what was sent, not the materialized scoringRules (#70)', async () => {
   const db = fakeDb({ status: statusRow({ draft_status: 'active' }) });
   const error = await refusal(db, { scoringPreset: 'ppr' });
