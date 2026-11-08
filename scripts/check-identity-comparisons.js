@@ -206,18 +206,17 @@ const ALLOWLIST = [
     rule: 'caller: viewerTeamIdOf picks the viewer\'s own Team out of rows the caller already holds - this is the function every per-viewer response uses INSTEAD of shipping account ids',
   },
   {
-    file: 'server/services/trade.service.js',
+    file: 'server/services/tradeTransitions.js',
     code: 'receiving.owner_id !== userId',
-    count: 2,
     rule: 'caller: only the receiving team\'s own manager may respond to or counter a trade',
   },
   {
-    file: 'server/services/trade.service.js',
+    file: 'server/services/tradeTransitions.js',
     code: 'teams.get(trade.proposing_team_id).owner_id !== userId',
     rule: 'caller: only the proposing team\'s own manager may cancel their proposal',
   },
   {
-    file: 'server/services/trade.service.js',
+    file: 'server/services/tradeTransitions.js',
     code: 'teams.get(id)?.owner_id === userId',
     rule: 'caller: a commissioner cannot force-approve or veto a trade their OWN team is in (wave 3); it compares the trade\'s teams against the CALLER, never against the league owner',
   },
