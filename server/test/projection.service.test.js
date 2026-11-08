@@ -2424,7 +2424,7 @@ test('toWeeklyProjectionResult: factorsFor is the factors object as the engine p
   assert.equal(result.factorsFor(999), null, 'no entry for the player at all');
 });
 
-test('toWeeklyProjectionResult: positionBaselineFor is true only when the stored reasons contain `position baseline`', () => {
+test('toWeeklyProjectionResult: positionBaselineFor, on rows with no game count, is true only when the stored reasons contain `position baseline`', () => {
   const dq = (reasons) => ({ dataQuality: { level: 'low', reasons } });
   const result = projection.toWeeklyProjectionResult({
     modelVersion: model.MODEL_VERSION,
@@ -2441,6 +2441,77 @@ test('toWeeklyProjectionResult: positionBaselineFor is true only when the stored
   assert.equal(result.positionBaselineFor(3), false, 'no dataQuality at all');
   assert.equal(result.positionBaselineFor(4), false, 'the no-evidence row has `reason`, not `reasons`');
   assert.equal(result.positionBaselineFor(999), false, 'no entry for the player at all');
+});
+
+// ADR 0053 as amended 2026-11-08: a Thin-history projection, read off the stored
+// row's game count and its recency weight (`effectiveGames`, rounded to 2 places).
+const NO_HISTORY_VERDICT = { outcome: 'not_recommended', reason: 'no_history', numberTrusted: false };
+const RECOMMENDABLE_VERDICT = { outcome: 'recommendable', reason: null, numberTrusted: true };
+const storedGames = (games, effectiveGames) => ({
+  mean: 9, median: 9,
+  factors: {
+    availability: { available: true },
+    dataQuality: { level: 'low', reasons: ['small sample'] },
+    recentProduction: { games, effectiveGames },
+  },
+});
+const readWeek = (week, entry) => projection.toWeeklyProjectionResult({ week, projections: new Map([[1, entry]]) });
+
+test('toWeeklyProjectionResult: one or two old games and none this season read as no history', () => {
+  for (const entry of [storedGames(1, 0.21), storedGames(2, 0.4)]) {
+    const result = readWeek(9, entry);
+    assert.deepEqual(result.startVerdictFor(1), NO_HISTORY_VERDICT);
+    assert.equal(result.positionBaselineFor(1), true, 'sorts with the Position-baseline rows');
+    assert.equal(result.pointsFor(1), 9, 'the stored number is untouched');
+    assert.equal(projection.isPositionBaselineEntry(entry), false, 'the backtests and holdout read the marker alone');
+  }
+});
+
+test('toWeeklyProjectionResult: a third old game keeps the number', () => {
+  // Weeks 1 to 3 of last season, as old as a game gets, so only the count keeps him out.
+  assert.deepEqual(readWeek(9, storedGames(3, 0.17)).startVerdictFor(1), RECOMMENDABLE_VERDICT);
+});
+
+test('toWeeklyProjectionResult: a game this season keeps the number, even the oldest one a season can hold', () => {
+  // A week 1 game weighs 0.5^((week - 1) / 8). Week 11 is the trap: its exact
+  // weight 0.42045 is stored rounded down to 0.42.
+  for (const [week, games, effectiveGames] of [[2, 1, 0.92], [9, 2, 0.71], [11, 1, 0.42], [18, 1, 0.23]]) {
+    assert.deepEqual(readWeek(week, storedGames(games, effectiveGames)).startVerdictFor(1), RECOMMENDABLE_VERDICT, `week ${week}`);
+  }
+});
+
+test('toWeeklyProjectionResult: the two heaviest old games still read as no history at either end of the season', () => {
+  // Weeks 17 and 18 of last season, 26 recency weeks to a season.
+  for (const [week, effectiveGames] of [[2, 0.81], [9, 0.44], [18, 0.2]]) {
+    assert.deepEqual(readWeek(week, storedGames(2, effectiveGames)).startVerdictFor(1), NO_HISTORY_VERDICT, `week ${week}`);
+  }
+});
+
+test('toWeeklyProjectionResult: a run with no week keeps the number, because "none this season" cannot be read', () => {
+  // playerCard and the test helpers build runs with no `week`, and recencyWeight
+  // reads a missing gap as 0, a threshold of 1 that one recent game falls under.
+  assert.deepEqual(readWeek(undefined, storedGames(1, 0.92)).startVerdictFor(1), RECOMMENDABLE_VERDICT);
+});
+
+test('toWeeklyProjectionResult: the engine\'s own weights land on the right side of the line every week', () => {
+  // The read rests on the engine's half-life, season span and rounding, so a
+  // change to any of them has to fail here.
+  const engineWeight = (week, games) => model.baselineProduction({
+    priorGames: games.map(([gameSeason, gameWeek]) => ({
+      points: 5,
+      weeksAgo: features.weeksAgo({ gameSeason, gameWeek, season: 2026, week }),
+    })),
+    positionBaselinePerGame: 5,
+  }).effectiveGames;
+
+  for (let week = 1; week <= 18; week += 1) {
+    const twoHeaviestOld = engineWeight(week, [[2025, 17], [2025, 18]]);
+    assert.deepEqual(readWeek(week, storedGames(2, twoHeaviestOld)).startVerdictFor(1), NO_HISTORY_VERDICT, `old games, week ${week}`);
+    if (week > 1) {
+      const lightestThisSeason = engineWeight(week, [[2026, 1]]);
+      assert.deepEqual(readWeek(week, storedGames(1, lightestThisSeason)).startVerdictFor(1), RECOMMENDABLE_VERDICT, `this season, week ${week}`);
+    }
+  }
 });
 
 // #1775: the read attaches the Position-baseline verdict to a marked row; any
