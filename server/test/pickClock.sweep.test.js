@@ -787,8 +787,9 @@ test('escalateNothingDraftable: the draft_paused re-read bail resolves null and 
 test('escalateNothingDraftable: the future-deadline re-read bail resolves null and COMMITs the read-only transaction (#1071)', async (t) => {
   // A concurrent firing committed a real pick and re-armed the next turn while
   // this firing waited on the lock: escalate's FOR UPDATE re-read shows a future
-  // deadline, so the second bail returns null before any write. (autoPick's own
-  // read still shows the elapsed deadline that got it here.)
+  // deadline. The turn fence (#2720) sees the moved deadline first and declines
+  // before any write; the elapsed re-check behind it is the direct-caller guard.
+  // (autoPick's own read still shows the elapsed deadline that got it here.)
   const rearmed = { ...ESC_LEAGUE, pick_deadline_at: new Date(Date.now() + 60 * 60 * 1000) };
   const fake = createFakePool(escalationHandlers(rearmed)).install(t);
 
