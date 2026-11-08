@@ -166,8 +166,8 @@ const ALLOWLIST = [
 
   // --- Caller identity: is this row the signed-in manager's own? ---------
   {
-    file: 'server/routes/draft.router.js',
-    code: 'team.owner_id === req.user.id',
+    file: 'server/services/draftAct.service.js',
+    code: 'team.owner_id === userId',
     rule: 'caller: a manager may toggle Autodraft for their own Team; commissioners may toggle any Team through the separate isLeagueCommissioner gate',
   },
   {

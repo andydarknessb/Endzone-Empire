@@ -56,6 +56,8 @@ function fakeDb(t, { member = null, overrides = [] } = {}) {
     // The League write's lock (UPDATE ... RETURNING *, ADR 0070) reads the same row.
     [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [LEAGUE] })],
     [/FROM "teams" WHERE "league_id" = \$1 AND "owner_id" = \$2/, () => ({ rows: member ? [member] : [] })],
+    // The Draft act's Teams snapshot, read under the League lock (draftAct.service.js).
+    [/^SELECT "id", "owner_id", "autodraft", "draft_position" FROM "teams"/, () => ({ rows: member ? [member] : [] })],
     [/FROM "trades" WHERE "id" = \$1/, () => ({
       rows: [{ id: 77, league_id: 3, status: 'accepted', proposing_team_id: 51, receiving_team_id: 52 }],
     })],
@@ -229,36 +231,32 @@ test('draft router: PUT /queue locks the member Team row while rewriting the que
 });
 
 // #274, documented exemption (no write count applies here, and asserting one
-// would be WRONG): this refusal is produced BY the mutation rather than by a
-// guard above it. The readiness route has two refusals, each a statement that
-// matches no row: the League advance refuses a caller who owns no Team in a
-// pending League, and the Team UPDATE refuses a Team removed after the advance
-// (the advance's EXISTS runs on its own snapshot, so it can still pass). Both
-// throw, so the rollback undoes the advance. This test pins the advance's
-// predicate; the Team-removed case has its own test below.
-//
-// What the test needed instead: the override answers { rows: [] } for ANY
-// params, so the 403 was manufactured by the fixture, not by the statement's
-// scoping. Dropping either conjunct from the production SQL could not fail
-// this test. Pin the predicate instead of the count.
+// would be WRONG): this refusal is produced BY the statement rather than by a
+// guard above it. The readiness act takes the League lock first, then refuses a
+// caller who owns no Team in a pending League: the Team UPDATE is scoped to the
+// caller's own Team and matches no row for a non-member. The refusal throws, so
+// the rollback undoes the lock's board-version advance. This test pins that
+// scoping; the Team-removed case has its own test below.
 test('draft router: POST /league/:id/ready refuses a non-member without the roster-shaped wording', async (t) => {
-  const calls = fakeDb(t, { overrides: [[/UPDATE "leagues" SET "board_version"/, () => ({ rows: [] })]] });
+  const calls = fakeDb(t, {
+    overrides: [[/^UPDATE "leagues" SET "board_version"/, () => ({ rows: [{ ...LEAGUE, draft_status: 'pending' }] })]],
+  });
   const res = await request(routes)
     .post('/api/draft/league/3/ready').set('Authorization', authed()).send({ ready: true });
   assert.equal(res.status, 403, JSON.stringify(res.body));
   assert.equal(res.body.error, `${REFUSAL}, or the draft is not pending`);
-  const advance = writes(calls).filter((c) => /^UPDATE "leagues" SET "board_version"/.test(c.text));
-  assert.equal(advance.length, 1, 'the scoped League advance is the refusal mechanism');
-  assert.match(advance[0].text, /EXISTS \(SELECT 1 FROM "teams"[^)]*"owner_id" = \$2/, 'scoped to a Team the caller owns, which is the membership test');
-  assert.match(advance[0].text, /"draft_status" = 'pending'/, 'and to a pending draft');
-  const ready = writes(calls).filter((c) => /^UPDATE "teams" SET "draft_ready"/.test(c.text));
-  assert.equal(ready.length, 0, 'a refused caller reaches no Team write');
+  const toggle = writes(calls).filter((c) => /^UPDATE "teams" SET "draft_ready"/.test(c.text));
+  assert.equal(toggle.length, 1, 'one Team write, scoped to the caller');
+  assert.match(toggle[0].text, /"owner_id" = \$3/, 'scoped to a Team the caller owns, which is the membership test');
+  assert.deepEqual(toggle[0].params, [true, 3, CALLER]);
+  assert.ok(calls.some((c) => c.text === 'ROLLBACK'), 'the refusal rolled the lock back');
+  assert.ok(!calls.some((c) => c.text === 'COMMIT'), 'nothing committed');
 });
 
-test('draft router: a Team removed after the advance refuses, and the advance rolls back', async (t) => {
+test('draft router: a Team removed after the lock refuses, and the lock rolls back', async (t) => {
   const calls = fakeDb(t, {
     overrides: [
-      [/UPDATE "leagues" SET "board_version"/, () => ({ rows: [{ id: 3 }] })],
+      [/^UPDATE "leagues" SET "board_version"/, () => ({ rows: [{ ...LEAGUE, draft_status: 'pending' }] })],
       [/^UPDATE "teams" SET "draft_ready"/, () => ({ rows: [] })],
     ],
   });
@@ -266,7 +264,7 @@ test('draft router: a Team removed after the advance refuses, and the advance ro
     .post('/api/draft/league/3/ready').set('Authorization', authed()).send({ ready: true });
   assert.equal(res.status, 403, JSON.stringify(res.body));
   assert.equal(res.body.error, `${REFUSAL}, or the draft is not pending`);
-  assert.ok(calls.some((c) => c.text === 'ROLLBACK'), 'the transaction rolled back, undoing the advance');
+  assert.ok(calls.some((c) => c.text === 'ROLLBACK'), 'the transaction rolled back, undoing the lock');
   assert.ok(!calls.some((c) => c.text === 'COMMIT'), 'nothing committed');
 });
 

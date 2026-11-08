@@ -214,8 +214,9 @@ async function reset({ leagueId, userId }) {
     if (finalMatchup.rows[0]) {
       throw new DraftError(409, 'the draft cannot be reset because weeks of this season are already settled');
     }
-    // The write gate, asked once per Team (#965). Bypasses are the undo's old
-    // ones, for the same two reasons: a reset must reach a locked team's roster.
+    // The write gate, asked once per Team (#965). Both bypasses are decisions:
+    // FREEZE, because a commissioner freeze does not govern a draft-phase roster
+    // write, and TEAM_LOCK, because a reset must reach a locked team's roster.
     const wipeTeams = [...teams].sort((a, b) => a.id - b.id);
     for (const team of wipeTeams) {
       await assertRosterWriteAllowed(client, {
@@ -363,6 +364,12 @@ async function saveKeepers({ leagueId, userId, keepers }) {
   });
 }
 
+const CORRECTION_MESSAGES = {
+  NO_PICK_TO_CORRECT: 'there is no live pick to correct yet',
+  KEEPER_UNCORRECTABLE: 'a keeper pick cannot be corrected',
+  LATEST_PICK_CHANGED: 'the latest pick changed; refresh the draft and try again',
+};
+
 /**
  * Commissioner correction (#439): pause an active Draft and reverse ONLY its
  * latest non-keeper Pick as one atomic act, recording the commissioner's reason,
@@ -375,12 +382,6 @@ async function saveKeepers({ leagueId, userId, keepers }) {
  * DraftError with a stable SCREAMING_SNAKE code (ADR 0008); the transaction rolls
  * back on any of them.
  */
-const CORRECTION_MESSAGES = {
-  NO_PICK_TO_CORRECT: 'there is no live pick to correct yet',
-  KEEPER_UNCORRECTABLE: 'a keeper pick cannot be corrected',
-  LATEST_PICK_CHANGED: 'the latest pick changed; refresh the draft and try again',
-};
-
 async function correctLatestPick({ leagueId, userId, expectedPickNumber = null, reason }) {
   // Validate the reason before opening a transaction (#439 AC4). Trim so
   // whitespace cannot pad the bound.
