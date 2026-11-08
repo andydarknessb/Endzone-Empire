@@ -141,7 +141,7 @@ function createDraftRoomBroadcast(io, transportName = 'local') {
 
 // The process-wide broadcast, registered once at boot: the API in
 // attachDraftSocket, the worker in startWorker. Services (pickClock, draftStart)
-// and the draft router read it through getDraftRoomBroadcast() rather than
+// and the Draft act module read it through getDraftRoomBroadcast() rather than
 // reaching for a transport themselves; a test swaps in a recording broadcast.
 let current = null;
 

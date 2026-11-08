@@ -320,7 +320,7 @@ async function appendLifecycleActivity(client, { leagueId, kind, team = null }) 
  * the caller's transaction `client`, and return the typed feed entry for the
  * live broadcast.
  *
- * Called from draft.service.correctLatestPick in the SAME transaction that
+ * Called from draftAct.service.correctLatestPick in the SAME transaction that
  * pauses the Draft and reverses the latest non-keeper Pick, so the correction
  * record and the reversal are one atomic act (#439): a rolled-back correction
  * leaves no orphan activity, and a committed one always has its entry.

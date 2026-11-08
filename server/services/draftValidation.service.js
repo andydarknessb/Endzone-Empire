@@ -221,7 +221,7 @@ function undoTargets(picks, count = 1) {
  * `currentPick` is the league's 0-based pick-on-the-clock index; a Pick counts
  * as reached only when its 1-based `pick_number` is at or below it, so a keeper
  * pre-filled far ahead of live play never poses as the latest Pick (the same
- * `pick_number <= current_pick` filter the undo route applies).
+ * `pick_number <= current_pick` filter the undo route applied before 2697).
  *
  * `expectedPickNumber` is the Pick the commissioner is looking at when they
  * confirm. When provided it must still be the latest reached Pick; if a manager

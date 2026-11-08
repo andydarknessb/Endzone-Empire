@@ -24,7 +24,6 @@ const assert = require('node:assert/strict');
 const { registerRecordingBroadcast } = require('./helpers/recordingBroadcast');
 registerRecordingBroadcast();
 const express = require('express');
-const request = require('supertest');
 const { createFakePool, select } = require('./helpers/fakePool');
 const { tenureHandlers } = require('./helpers/tenureFakes');
 
@@ -40,9 +39,6 @@ test.after(() => {
   else process.env.JWT_SECRET = previousSecret;
 });
 
-const COMMISSIONER = 7;
-const { signToken } = require('../modules/auth');
-const authed = () => `Bearer ${signToken({ id: COMMISSIONER, username: 'commish' })}`;
 
 const app = express();
 app.use(express.json());
@@ -496,142 +492,6 @@ test('trade: the giving side is settled before the receiving side is benched', a
   const benchedAt = fake.calls.findIndex((call) => /^UPDATE "lineup_entries"/.test(call.text));
   assert.ok(removedAt >= 0);
   assert.ok(benchedAt > removedAt);
-  fake.assertClean();
-});
-
-// --- 5. the undone draft pick ------------------------------------------------
-
-const undoRouteLeague = {
-  id: 3,
-  draft_status: 'active',
-  draft_type: 'online',
-  draft_rotation: 'snake',
-  draft_order_overrides: null,
-  pick_time_seconds: 60,
-  autodraft_delay_seconds: 10,
-  current_pick: 2,
-  current_season: CURRENT_SEASON,
-  current_week: CURRENT_WEEK,
-};
-
-function undoPickWorld({ kickedOff = [], removals = [] } = {}) {
-  return createFakePool([
-    [/^SELECT "pickem_only" FROM "leagues"/, () => ({ rows: [{ pickem_only: false }] })],
-    // isLeagueCommissioner's probe, the JS twin of the commissionerPredicate the
-    // route's own locked SELECT used to carry in its WHERE clause (#967). Kept
-    // ahead of the two leagues matchers below: all three read FROM "leagues".
-    [/^SELECT 1 FROM "leagues" WHERE "id" = \$1 AND/, () => ({ rows: [{ '?column?': 1 }] })],
-    // The Draft act module's serializing lock on the League row (#967). It
-    // replaces this suite's private
-    // `/FROM "leagues" WHERE "id" = $1 AND .* FOR NO KEY UPDATE/` matcher, which was,
-    // until this PR, the only thing in the repo binding that POST
-    // /league/:id/undo took the League lock before it deleted anything. That
-    // ordering is now structural - runDraftAct takes the lock as its first
-    // statement after BEGIN, and draftAct.service.test.js's "the FOR UPDATE lock
-    // precedes the first mutation" owns it - so the private matcher is deleted
-    // rather than restated. This matcher is still load-bearing HERE: drop it and
-    // the module's lock read hits the fake pool's unregistered-query throw and
-    // both undo tests redden.
-    [/^(?:(?:SELECT \* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE|UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*)|UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*)$/, () => ({ rows: [undoRouteLeague] })],
-    // onPickUndone's policy read (#948): a second SELECT ... FROM "leagues", no
-    // FOR UPDATE, that the event issues before it re-arms.
-    [/^SELECT "current_pick", "draft_type".* FROM "leagues"/, () => ({ rows: [undoRouteLeague] })],
-    // The act module loads Teams in rotation order, carrying `autodraft`. That
-    // is exactly the list the undo's on-clock resolution needs, so the route's
-    // own `SELECT "id", "autodraft" FROM "teams"` read is gone.
-    [/^SELECT "id", "owner_id", "autodraft", "draft_position" FROM "teams"/, () => ({
-      rows: [
-        { id: 10, owner_id: 1, autodraft: false, draft_position: 1 },
-        { id: 11, owner_id: 2, autodraft: false, draft_position: 2 },
-      ],
-    })],
-    // lookupTeam, the act module's acting-Team read. An undo appends no
-    // narration, but the module resolves the acting Team for every act.
-    [/^SELECT "id", "name" FROM "teams"/, () => ({ rows: [] })],
-    [/^SELECT "pick_number", "team_id", "player_id", "is_keeper" FROM "draft_picks"/, () => ({
-      rows: [
-        { pick_number: 1, team_id: 10, player_id: 20, is_keeper: false },
-        { pick_number: 2, team_id: 11, player_id: 21, is_keeper: false },
-      ],
-    })],
-    // The #965 write gate, once per undone pick, with both release gates
-    // bypassed. Its League and Team reads carry explicit column lists, so they
-    // need their own handlers rather than being answered by the ones above.
-    [/^SELECT "id", "transactions_locked",.* FROM "leagues" WHERE "id" = \$1$/, () => ({
-      rows: [{ id: 3, transactions_locked: false }],
-    })],
-    [/^SELECT "id", "locked" FROM "teams" WHERE "id" = \$1 FOR UPDATE/, (text, params) => ({
-      rows: [{ id: params[0], locked: false }],
-    })],
-    [/^DELETE FROM "draft_picks"/, () => ({ rows: [], rowCount: 1 })],
-    [/^DELETE FROM "team_players"/, () => ({ rows: [], rowCount: 1 })],
-    ...removalHandlers({ kickedOff, removals }),
-    [/^UPDATE "leagues"/, () => ({ rows: [] })],
-  ]);
-}
-
-test('undone draft pick: the undone player loses the current-week row the pick gave him', async (t) => {
-  const removals = [];
-  const fake = undoPickWorld({ kickedOff: [], removals }).install(t);
-
-  const response = await request(app)
-    .post('/api/draft/league/3/undo')
-    .set('Authorization', authed())
-    .send({ count: 1 });
-
-  assert.equal(response.status, 200, JSON.stringify(response.body));
-  assert.equal(response.body.undone, 1);
-  // The pick benched him when it was made; undoing it has to take that row
-  // back, or the next reader sees a player on a lineup card for a team that
-  // never drafted him.
-  assert.equal(removals.length, 1);
-  assertRemoval(removals[0], { teamId: 11, playerId: 21, currentWeekToo: true });
-  // The #965 write gate, once per undone pick, immediately before that pick's
-  // roster row goes, League then Team. Its bypass set on this route is
-  // {FREEZE, TEAM_LOCK} - a commissioner tool on an active draft - so it
-  // refuses nothing here; what this pins is that the call exists and sits
-  // ahead of the write, which is what makes a later release rule reach it.
-  const gateLeagueAt = fake.calls.findIndex((c) => /^SELECT "id", "transactions_locked".*FROM "leagues"/.test(c.text));
-  const gateTeamAt = fake.calls.findIndex((c) => /^SELECT "id", "locked" FROM "teams".*FOR UPDATE/.test(c.text));
-  const rosterDeleteAt = fake.calls.findIndex((c) => /^DELETE FROM "team_players"/.test(c.text));
-  assert.ok(gateLeagueAt >= 0 && gateTeamAt >= 0, 'the undo asks the gate');
-  assert.ok(gateLeagueAt < gateTeamAt, 'League is locked before Team');
-  assert.ok(gateTeamAt < rosterDeleteAt, 'the gate precedes the roster row it guards');
-  fake.assertClean();
-});
-
-test('undone draft pick: every undone pick is cleaned up, not just the last', async (t) => {
-  const removals = [];
-  const fake = undoPickWorld({ kickedOff: [], removals }).install(t);
-
-  const response = await request(app)
-    .post('/api/draft/league/3/undo')
-    .set('Authorization', authed())
-    .send({ count: 2 });
-
-  assert.equal(response.status, 200, JSON.stringify(response.body));
-  assert.deepEqual(
-    removals.map((removal) => removal.params.slice(0, 2)),
-    [[10, 20], [11, 21]]
-  );
-  fake.assertClean();
-});
-
-// The undo's own refusal, preserved across the act-module conversion (#967):
-// undoTargets' complaint used to be a ROLLBACK-and-return 409 in the handler and
-// is now a DraftError the module rolls back. Same status, same body, no write.
-test('undo: an impossible count is a 409 that deletes nothing', async (t) => {
-  const fake = undoPickWorld().install(t);
-
-  const response = await request(app)
-    .post('/api/draft/league/3/undo')
-    .set('Authorization', authed())
-    .send({ count: 3 });
-
-  assert.equal(response.status, 409, JSON.stringify(response.body));
-  assert.ok(response.body.error, 'the refusal names a reason');
-  assert.equal(fake.matching(/^DELETE/).length, 0, 'a refused undo deletes nothing');
-  assert.equal(fake.matching(/^COMMIT$/).length, 0, 'a refusal never commits');
   fake.assertClean();
 });
 
