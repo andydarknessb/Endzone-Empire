@@ -75,14 +75,6 @@ function blankComments(source) {
  */
 const ALLOWLIST = [
   {
-    file: 'server/services/draftSchedule.service.js',
-    count: 1,
-    ticket: '#2694',
-    rule:
-      'The scheduled start re-reads its League row FOR NO KEY UPDATE before it hands the '
-      + 'start to startDraft. Ticket 2694 moves the scheduled start onto the League write.',
-  },
-  {
     file: 'server/routes/draft.router.js',
     count: 4,
     ticket: '#2697',
