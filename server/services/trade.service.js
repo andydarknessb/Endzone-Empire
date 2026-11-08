@@ -1,5 +1,6 @@
 const pool = require('../modules/pool');
 const { withTransaction } = require('../modules/withTransaction');
+const { leagueWrite, lockLeague } = require('../modules/leagueWrite');
 const { logTransaction, notify, notifyLeague } = require('./activity.service');
 const { isLeagueCommissioner } = require('./leagueRole.service');
 const { requireMember } = require('./leagueMembership.service');
@@ -61,10 +62,11 @@ async function loadTrade(client, tradeId, { forUpdate = true } = {}) {
   // unlocked MVCC subquery that never blocks on a held trades-row lock -- and
   // the trades row second. forceTransaction and the gate are League-first too,
   // so this introduces no lock-order inversion on any path.
-  const leagueResult = await client.query(
-    `SELECT * FROM "leagues" WHERE "id" = (SELECT "league_id" FROM "trades" WHERE "id" = $1) FOR NO KEY UPDATE`,
-    [tradeId]
-  );
+  // The trade's League is read unlocked (its league_id never changes), then locked
+  // through the League write module (ADR 0070) before the trades row is touched.
+  const leagueIdResult = await client.query(`SELECT "league_id" FROM "trades" WHERE "id" = $1`, [tradeId]);
+  const leagueId = leagueIdResult.rows[0] ? leagueIdResult.rows[0].league_id : null;
+  const league = leagueId == null ? null : await lockLeague(client, leagueId);
   const tradeResult = await client.query(
     `SELECT * FROM "trades" WHERE "id" = $1${forUpdate ? ' FOR UPDATE' : ''}`,
     [tradeId]
@@ -77,7 +79,7 @@ async function loadTrade(client, tradeId, { forUpdate = true } = {}) {
     [trade.proposing_team_id, trade.receiving_team_id]
   );
   const teams = new Map(teamsResult.rows.map((t) => [t.id, t]));
-  return { trade, league: leagueResult.rows[0], items: itemsResult.rows, teams };
+  return { trade, league, items: itemsResult.rows, teams };
 }
 
 /**
@@ -125,15 +127,13 @@ function validatePlayerIds(playerIds) {
  *
  * counterTrade calls this on the SAME client that already marked the original
  * 'countered', so the countered update and this new offer commit or roll back
- * together (#1077). It is self-contained on purpose: it re-reads the League row
- * unlocked, which is fine on a connection that already holds the row
- * locks from loadTrade - do not pass the locked row in to skip the read, or the
- * two entry points stop sharing one code path.
+ * together (#1077). It takes the League row its caller holds (the League write,
+ * ADR 0070), so the freeze, draft-complete and deadline gates read the locked row
+ * on the propose path and the counter's path alike. Do not re-read it unlocked here.
  */
-async function proposeTradeWith(client, { leagueId, userId, receivingTeamId, playerIds, counterOf = null }) {
-  const leagueResult = await client.query(`SELECT * FROM "leagues" WHERE "id" = $1`, [leagueId]);
-  const league = leagueResult.rows[0];
+async function proposeTradeWith(client, { league, userId, receivingTeamId, playerIds, counterOf = null }) {
   if (!league) throw new TradeError(404, 'league not found');
+  const leagueId = league.id;
   // An entry gate: tells the proposer before he fills in an offer. Execution
   // still runs the write-time gate below (executeTrade); this delegates to
   // the gate's fail-closed freeze read (#966) so the two cannot drift on
@@ -224,10 +224,9 @@ async function sendTradeOfferPush({ otherTeamOwnerId, myTeamName, leagueId }) {
  */
 async function proposeTrade({ leagueId, userId, receivingTeamId, playerIds, counterOf = null }) {
   validatePlayerIds(playerIds);
-  const { trade, otherTeamOwnerId, myTeamName } = await withTransaction(
-    pool,
-    (client) => proposeTradeWith(client, { leagueId, userId, receivingTeamId, playerIds, counterOf }),
-    { label: 'proposeTrade' }
+  const { trade, otherTeamOwnerId, myTeamName } = await leagueWrite(
+    { leagueId, label: 'proposeTrade' },
+    ({ client, league }) => proposeTradeWith(client, { league, userId, receivingTeamId, playerIds, counterOf })
   );
   await sendTradeOfferPush({ otherTeamOwnerId, myTeamName, leagueId });
   return trade;
@@ -331,7 +330,7 @@ async function counterTrade({ tradeId, userId, playerIds }) {
   const { trade, otherTeamOwnerId, myTeamName } = await withTransaction(
     pool,
     async (client) => {
-      const { trade, teams } = await loadTrade(client, tradeId);
+      const { trade, teams, league } = await loadTrade(client, tradeId);
       if (trade.status !== 'pending') throw new TradeError(409, `trade is ${trade.status}, not pending`);
       const receiving = teams.get(trade.receiving_team_id);
       if (receiving.owner_id !== userId) throw new TradeError(403, 'only the receiving owner can counter');
@@ -339,12 +338,10 @@ async function counterTrade({ tradeId, userId, playerIds }) {
         `UPDATE "trades" SET "status" = 'countered', "updated_at" = now() WHERE "id" = $1`,
         [tradeId]
       );
-      // Self-contained: proposeTradeWith re-reads the League row unlocked on
-      // this same connection, which already holds loadTrade's row locks.
-      // Lock order is unchanged - League before trades - because these reads
-      // happen after loadTrade's on the one connection.
+      // proposeTradeWith takes the League row loadTrade already locked, so the
+      // counter's gates read the held row. Lock order is unchanged: League before trades.
       return proposeTradeWith(client, {
-        leagueId: trade.league_id,
+        league,
         userId,
         receivingTeamId: trade.proposing_team_id,
         playerIds,

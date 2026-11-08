@@ -104,7 +104,7 @@ function fakeDb({
  * the statements that ran instead of only counting them.
  */
 const assertNoSettingsWrite = (db) => assert.deepEqual(
-  db.texts().filter((t) => /^(UPDATE "leagues"|DELETE FROM "keepers")/.test(t)),
+  db.texts().filter((t) => /^(UPDATE "leagues" SET (?!"board_version")|DELETE FROM "keepers")/.test(t)),
   [],
   'the refusal wrote nothing'
 );
@@ -143,11 +143,12 @@ test('keeper clear: connects, BEGINs, reads FOR UPDATE, DELETEs the assignments,
   const db = fakeDb({ assignmentCounts: [{ team_id: 11, count: 2 }] });
   const row = await run(db, { keepersEnabled: false });
   assert.deepEqual(row, UPDATED_ROW);
-  assert.deepEqual(db.firstWord(), ['BEGIN', 'SELECT', 'SELECT', 'DELETE', 'UPDATE', 'COMMIT']);
+  // The League write's lock and board-version advance (ADR 0070) come before the reads.
+  assert.deepEqual(db.firstWord(), ['BEGIN', 'UPDATE', 'SELECT', 'SELECT', 'DELETE', 'UPDATE', 'COMMIT']);
   assert.ok(db.calls.every((c) => c.via === 'client'), 'every statement runs on the connected client');
-  assert.match(db.calls[1].text, / FOR NO KEY UPDATE$/);
-  assert.deepEqual(db.calls[1].params, [LEAGUE_ID, USER_ID]);
-  assert.equal(db.calls[3].text, 'DELETE FROM "keepers" WHERE "league_id" = $1');
+  assert.match(db.calls[1].text, / RETURNING \*$/);
+  assert.deepEqual(db.calls[1].params, [LEAGUE_ID]);
+  assert.equal(db.calls[4].text, 'DELETE FROM "keepers" WHERE "league_id" = $1');
   assert.equal(db.released(), 1);
 });
 
@@ -157,7 +158,7 @@ test('keeper conflict: 409 naming the team, ROLLBACK, no UPDATE, client released
   assert.equal(error.statusCode, 409);
   assert.equal(error.message, 'keeperCount cannot be set to 1: team 11 has 2 existing keeper assignment(s); remove assignments first or disable keepers');
   assert.equal(error.code, undefined);
-  assert.deepEqual(db.firstWord(), ['BEGIN', 'SELECT', 'SELECT', 'ROLLBACK']);
+  assert.deepEqual(db.firstWord(), ['BEGIN', 'UPDATE', 'SELECT', 'SELECT', 'ROLLBACK']);
   assert.equal(db.released(), 1);
 });
 
@@ -171,9 +172,9 @@ test('auction custom order that is not a permutation of the teams: 400 under FOR
   });
   assert.equal(error.statusCode, 400);
   assert.equal(error.message, 'nominationCustomOrder must list every current team exactly once');
-  assert.deepEqual(db.firstWord(), ['BEGIN', 'SELECT', 'SELECT', 'ROLLBACK']);
-  assert.match(db.calls[1].text, / FOR NO KEY UPDATE$/);
-  assert.equal(db.calls[2].text, 'SELECT "id" FROM "teams" WHERE "league_id" = $1');
+  assert.deepEqual(db.firstWord(), ['BEGIN', 'UPDATE', 'SELECT', 'SELECT', 'ROLLBACK']);
+  assert.match(db.calls[1].text, / RETURNING \*$/);
+  assert.equal(db.calls[3].text, 'SELECT "id" FROM "teams" WHERE "league_id" = $1');
   assert.equal(db.released(), 1);
 });
 
@@ -206,7 +207,7 @@ test("pick'em refusal: 409 carrying code PICKEM_ONLY_CODE, naming what was sent,
   assert.equal(error.statusCode, 409);
   assert.equal(error.code, PICKEM_ONLY_CODE);
   assert.equal(error.message, "these settings do not apply to a pick'em league: keepersEnabled, waiverType");
-  assert.deepEqual(db.firstWord(), ['BEGIN', 'SELECT', 'ROLLBACK']);
+  assert.deepEqual(db.firstWord(), ['BEGIN', 'UPDATE', 'SELECT', 'ROLLBACK']);
   assert.equal(db.released(), 1);
 });
 
@@ -237,7 +238,7 @@ test('a non-commissioner on the locking path: no status row, the guarded UPDATE 
   const error = await refusal(db, { keeperCount: 1 });
   assert.equal(error.statusCode, 403);
   assert.equal(error.message, 'league not found or you are not the commissioner');
-  assert.deepEqual(db.firstWord(), ['BEGIN', 'SELECT', 'UPDATE', 'ROLLBACK']);
+  assert.deepEqual(db.firstWord(), ['BEGIN', 'UPDATE', 'SELECT', 'UPDATE', 'ROLLBACK']);
   assert.equal(db.released(), 1);
 });
 
@@ -328,7 +329,7 @@ test('an unexpected database error on the transaction path ROLLBACKs, releases, 
     return original(sql, params);
   };
   await assert.rejects(run(db, { keepersEnabled: false }), (error) => error === boom);
-  assert.deepEqual(db.firstWord(), ['BEGIN', 'SELECT', 'SELECT', 'DELETE', 'ROLLBACK']);
+  assert.deepEqual(db.firstWord(), ['BEGIN', 'UPDATE', 'SELECT', 'SELECT', 'DELETE', 'ROLLBACK']);
   assert.equal(db.released(), 1);
 });
 

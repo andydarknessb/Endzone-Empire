@@ -83,7 +83,7 @@ test('reducing keeper count below existing assignments rolls back with a clear c
   // by construction. It is here to catch a future refactor that decouples
   // them, not to catch a moved guard.
   assert.deepEqual(
-    tx.calls.filter((sql) => /^(UPDATE "leagues"|DELETE FROM "keepers")/.test(sql)),
+    tx.calls.filter((sql) => /^(UPDATE "leagues" SET (?!"board_version")|DELETE FROM "keepers")/.test(sql)),
     [],
     'the settings write did not run (and no keeper wipe, which this branch cannot reach)'
   );

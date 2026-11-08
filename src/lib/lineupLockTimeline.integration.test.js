@@ -73,7 +73,8 @@ function createDatabaseFixture() {
           }],
         };
       }
-      if (sql.includes('SELECT * FROM "leagues"')) {
+      // The League write's lock (UPDATE ... RETURNING *, ADR 0070) reads the same row.
+      if (sql.includes('SELECT * FROM "leagues"') || sql.includes('UPDATE "leagues" SET "board_version"')) {
         return {
           rows: [{
             id: league.id,

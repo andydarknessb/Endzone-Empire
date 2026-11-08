@@ -40,6 +40,10 @@ const normalize = (sql) => String(sql).replace(/\s+/g, ' ').trim();
 const TX = /^(BEGIN|COMMIT|ROLLBACK)$/;
 // The transaction's own mode statement (REPEATABLE READ, READ ONLY): answered like BEGIN.
 const SET_TX = /^SET TRANSACTION /;
+// The League write's lock (UPDATE ... RETURNING *, server/modules/leagueWrite.js) and a
+// League read that selects its gate columns without a lock both read the League row.
+const LEAGUE_ROW_READ = /^(?:UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*|SELECT "id", "transactions_locked"[\s\S]*FROM "leagues" WHERE "id" = \$1|SELECT "season_status", "current_season" FROM "leagues" WHERE "id" = \$1)$/;
+const LEAGUE_LOCK_SQL = 'SELECT * FROM "leagues" WHERE "id" = $1 FOR NO KEY UPDATE';
 
 function createFakePool(handlers = []) {
   const calls = [];
@@ -59,6 +63,11 @@ function createFakePool(handlers = []) {
       result = await handler(text, params);
     } else if (TX.test(text) || SET_TX.test(text)) {
       result = { rows: [] };
+    } else if (LEAGUE_ROW_READ.test(text)) {
+      // A League row read in the module's own shapes (the League write's lock, an
+      // unlocked gate read) answers from the suite's League handler, not a repeat of it.
+      const league = handlers.find(([pattern, , side]) => (!side || side === via) && pattern.test(LEAGUE_LOCK_SQL));
+      result = league ? await league[1](LEAGUE_LOCK_SQL, [params[0]]) : { rows: [] };
     } else {
       throw new Error(`unexpected query: ${text}`);
     }

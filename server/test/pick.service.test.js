@@ -639,11 +639,11 @@ test('landPick: exactly one gate call, and it precedes the roster write it guard
 
   await landPick({ leagueId: LEAGUE_ID, userId: 7, playerId: 500 });
 
-  const gateAt = fake.calls.findIndex((c) => /^SELECT "id", "transactions_locked".*FOR NO KEY UPDATE/.test(c.text));
+  const gateAt = fake.calls.findIndex((c) => /^UPDATE "leagues" SET "board_version"/.test(c.text));
   const teamLockAt = fake.calls.findIndex((c) => /^SELECT "id", "locked" FROM "teams".*FOR UPDATE/.test(c.text));
   const insertAt = fake.calls.findIndex((c) => /^INSERT INTO "team_players"/.test(c.text));
   assert.equal(
-    fake.calls.filter((c) => /^SELECT "id", "transactions_locked".*FOR NO KEY UPDATE/.test(c.text)).length,
+    fake.calls.filter((c) => /^SELECT "id", "transactions_locked".*FROM "leagues"/.test(c.text)).length,
     1,
     'one Pick, one gate call'
   );

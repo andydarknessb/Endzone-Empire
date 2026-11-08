@@ -7,6 +7,7 @@
 const pool = require('../modules/pool');
 const clock = require('../modules/clock');
 const { withTransaction } = require('../modules/withTransaction');
+const { leagueWrite } = require('../modules/leagueWrite');
 const { materializeLineup, rowsHeldAsPlayed, liveStartersHeld, onRosterColumn } = require('./lineup.service');
 const { getDraftRoomBroadcast } = require('../modules/draftRoomBroadcast');
 const { seasonOperationsAvailable, SEASON_BEFORE_DRAFT_MESSAGE } = require('./leaguePhase');
@@ -24,9 +25,9 @@ async function generateMatchups({ leagueId, season, week }) {
   // wrapper that COMMITs a read-only transaction, which is harmless and releases
   // the same locks a ROLLBACK would (#1060 Ruling 3, superseding #1055 Ruling 3
   // for this site). The 409 refusal throws, and the wrapper rolls it back.
-  return withTransaction(
-    pool,
-    async (client) => {
+  return leagueWrite(
+    { leagueId, label: 'matchups' },
+    async ({ client }) => {
       // #194: this is the third path that inserts matchups, so it carries the
       // same phase refusal as season operations' own two entry points. Read
       // through this transaction's client for the same reason they do.
@@ -67,8 +68,7 @@ async function generateMatchups({ leagueId, season, week }) {
         );
       }
       return { created: pairings.length };
-    },
-    { label: 'matchups' }
+    }
   );
 }
 

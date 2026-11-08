@@ -102,7 +102,7 @@ const PICKEM_IN_SEASON = {
 const PICKEM_COMPLETE = { ...PICKEM_IN_SEASON, season_status: 'complete' };
 
 const COUNT_TEAMS = /^SELECT COUNT\(\*\)::int AS n FROM "teams" WHERE "league_id" = \$1$/;
-const LOCK_LEAGUE = /^(?:SELECT \* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE|UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*)$/;
+const LOCK_LEAGUE = /^(?:(?:SELECT \* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE|UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*)|UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*)$/;
 const TX = /^(BEGIN|COMMIT|ROLLBACK)$/;
 
 /**

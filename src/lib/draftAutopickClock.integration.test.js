@@ -660,7 +660,8 @@ describe('live snake-draft expiry and autopick integration', () => {
       { leagueId: LEAGUE_ID, teamId: TEAM_A.id, playerId: 302 },
     ]);
     expect(state.league.current_pick).toBe(1);
-    expect(database.sql.filter((sql) => /FOR (NO KEY )?UPDATE/.test(sql)).length).toBeGreaterThanOrEqual(2);
+    // Each Pick path takes the League row: a FOR UPDATE lock, or the League write's board-version advance (ADR 0070).
+    expect(database.sql.filter((sql) => /FOR (NO KEY )?UPDATE|"board_version" = "board_version" \+ 1/.test(sql)).length).toBeGreaterThanOrEqual(2);
     expect(database.maxLockWaiters).toBe(1);
   });
 

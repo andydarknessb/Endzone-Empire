@@ -129,6 +129,8 @@ const hasTeamInsert = (source) => new RegExp(TEAM_INSERT_SOURCE, 'i').test(sourc
 // commissionerPredicate form, and the `... AND "draft_status" = 'active' FOR
 // UPDATE` reset form, single- or multi-line.
 const LEAGUE_LOCK = /FROM\s+"leagues"[\s\S]*?FOR\s+(?:NO\s+KEY\s+)?UPDATE/i;
+// The League write module's lock (ADR 0070): a call, not SQL, so it is named here.
+const LOCK_CALL = /\blockLeague\s*\(/;
 
 /**
  * A copy of comment-stripped source with the BODY of every string, single- and
@@ -236,6 +238,7 @@ const QUERY_CALL_ARG = /\.query\s*\(\s*([A-Za-z_$][\w$]*)/g;
  * then inserts has taken no lock.
  */
 function containsLeagueLock(scopeSource, lockNames) {
+  if (LOCK_CALL.test(scopeSource)) return true;
   if (sqlStatements(scopeSource).some((statement) => LEAGUE_LOCK.test(statement))) return true;
   if (lockNames && lockNames.size) {
     for (const match of scopeSource.matchAll(QUERY_CALL_ARG)) {

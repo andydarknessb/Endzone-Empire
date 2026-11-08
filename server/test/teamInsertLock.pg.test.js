@@ -115,7 +115,7 @@ if (!ENABLED) {
       const res = await pool.query(
         `SELECT count(*)::int AS n FROM pg_stat_activity
           WHERE wait_event_type = 'Lock'
-            AND (query ILIKE '%FOR UPDATE%' OR query ILIKE '%FOR NO KEY UPDATE%')
+            AND (query ILIKE '%FOR UPDATE%' OR query ILIKE '%FOR NO KEY UPDATE%' OR query ILIKE '%"board_version"%')
             AND datname = current_database() AND pid <> pg_backend_pid()`
       );
       if (res.rows[0].n > 0) return true;

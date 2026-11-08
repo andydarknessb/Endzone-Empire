@@ -149,7 +149,7 @@ test('joinPublicLeague accepts a team into a rolled-over public pick\'em-only le
 test('approving a pending join request into a completed pick\'em-only league is refused with 409 season-complete', async (t) => {
   const calls = mockClient(t, [
     ...TXN,
-    [/FROM "leagues" WHERE "id" = \$1 AND .*FOR NO KEY UPDATE/, () => ({ rows: [{ ...COMPLETED_PICKEM, join_approval: true }] })],
+    [/FROM "leagues" WHERE "id" = \$1 AND /,() => ({ rows: [{ ...COMPLETED_PICKEM, join_approval: true }] })],
     [/(?:FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE|UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1)/, () => ({ rows: [{ ...COMPLETED_PICKEM, join_approval: true }] })],
     [/FROM "join_requests" JOIN "users"/, () => ({ rows: [{ id: 3, user_id: 5, username: 'eve', team_name: null, status: 'pending' }] })],
   ]);
@@ -167,7 +167,9 @@ test('approving a pending join request into a completed pick\'em-only league is 
 test('denying a join request never consults joinability (a closed league can still clear its queue)', async (t) => {
   const calls = mockClient(t, [
     ...TXN,
-    [/FROM "leagues" WHERE "id" = \$1 AND .*FOR NO KEY UPDATE/, () => ({ rows: [{ ...COMPLETED_PICKEM, join_approval: true }] })],
+    [/^(?:SELECT \* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE|UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*)$/, () => ({ rows: [{ ...COMPLETED_PICKEM, join_approval: true }] })],
+    [/^UPDATE "leagues" SET "board_version"/, () => ({ rows: [] })],
+    [/FROM "leagues" WHERE "id" = \$1 AND /,() => ({ rows: [{ ...COMPLETED_PICKEM, join_approval: true }] })],
     [/FROM "join_requests" JOIN "users"/, () => ({ rows: [{ id: 3, user_id: 5, username: 'eve', team_name: null, status: 'pending' }] })],
     [/UPDATE "join_requests" SET "status" = 'denied'/, () => ({ rows: [] })],
     [/INSERT INTO "notifications"|INSERT INTO "activity"|notif/i, () => ({ rows: [{ id: 1 }] })],
@@ -266,7 +268,8 @@ test('POST /join (invite code): a completed pick\'em-only league is refused 409 
   const app = makeApp();
   const calls = mockClient(t, [
     ...TXN,
-    [/FROM "leagues" WHERE "invite_code" = \$1 FOR NO KEY UPDATE/, () => ({ rows: [{ ...COMPLETED_PICKEM, invite_code: 'e402e816' }] })],
+    [/^SELECT "id" FROM "leagues" WHERE "invite_code" = \$1$/, () => ({ rows: [{ id: ({ ...COMPLETED_PICKEM, invite_code: 'e402e816' }).id }] })],
+    [/^(?:SELECT \* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE|UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*)$/, () => ({ rows: [{ ...COMPLETED_PICKEM, invite_code: 'e402e816' }] })],
     [/(?:FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE|UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1)/, () => ({ rows: [COMPLETED_PICKEM] })],
   ]);
   const res = await request(app).post('/api/league/join').set('Authorization', authed()).send({ inviteCode: 'e402e816' });
@@ -281,7 +284,8 @@ test('POST /join (invite code): a fantasy league past pre-draft is refused 409 d
   const app = makeApp();
   const calls = mockClient(t, [
     ...TXN,
-    [/FROM "leagues" WHERE "invite_code" = \$1 FOR NO KEY UPDATE/, () => ({ rows: [{ ...FANTASY_DRAFTED, invite_code: 'abcdef01' }] })],
+    [/^SELECT "id" FROM "leagues" WHERE "invite_code" = \$1$/, () => ({ rows: [{ id: ({ ...FANTASY_DRAFTED, invite_code: 'abcdef01' }).id }] })],
+    [/^(?:SELECT \* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE|UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*)$/, () => ({ rows: [{ ...FANTASY_DRAFTED, invite_code: 'abcdef01' }] })],
     [/(?:FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE|UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1)/, () => ({ rows: [FANTASY_DRAFTED] })],
     // #274: the reads and the write a join would need past this guard, so the
     // count below is an observation and not this fake's unexpected-query throw
@@ -302,7 +306,8 @@ test('POST /join (invite code): an in-season (rolled-over) pick\'em-only league 
   const app = makeApp();
   const calls = mockClient(t, [
     ...TXN,
-    [/FROM "leagues" WHERE "invite_code" = \$1 FOR NO KEY UPDATE/, () => ({ rows: [{ ...ROLLED_OVER_PICKEM, invite_code: 'e402e816' }] })],
+    [/^SELECT "id" FROM "leagues" WHERE "invite_code" = \$1$/, () => ({ rows: [{ id: ({ ...ROLLED_OVER_PICKEM, invite_code: 'e402e816' }).id }] })],
+    [/^(?:SELECT \* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE|UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*)$/, () => ({ rows: [{ ...ROLLED_OVER_PICKEM, invite_code: 'e402e816' }] })],
     [/(?:FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE|UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1)/, () => ({ rows: [ROLLED_OVER_PICKEM] })],
     [/SELECT 1 FROM "teams"/, () => ({ rows: [] })],
     [/FROM "league_bans"/, () => ({ rows: [] })], // nobody is banned
@@ -325,7 +330,8 @@ test('POST /join (invite code): the response league never carries the draft shar
   const row = { ...ROLLED_OVER_PICKEM, invite_code: 'e402e816', draft_share_token: 'secret-token' };
   mockClient(t, [
     ...TXN,
-    [/FROM "leagues" WHERE "invite_code" = \$1 FOR NO KEY UPDATE/, () => ({ rows: [row] })],
+    [/^SELECT "id" FROM "leagues" WHERE "invite_code" = \$1$/, () => ({ rows: [{ id: (row).id }] })],
+    [/^(?:SELECT \* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE|UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*)$/, () => ({ rows: [row] })],
     [/(?:FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE|UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1)/, () => ({ rows: [row] })],
     [/SELECT 1 FROM "teams"/, () => ({ rows: [] })],
     [/FROM "league_bans"/, () => ({ rows: [] })], // nobody is banned

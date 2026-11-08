@@ -75,14 +75,14 @@ const asBypassSet = (bypass) => {
   return set;
 };
 
-// The gate reads its own League row FOR NO KEY UPDATE (#944 rule 1): every column the
-// freeze check and the acquire bundle need, listed so a caller cannot starve
-// the gate of the freeze fact by handing it a row that never selected it.
+// The gate's League read takes no lock: every caller holds the League row through its
+// League write (ADR 0070), so nothing can change it under this read. It carries every
+// column the freeze check and the acquire bundle need, so a caller cannot starve the gate.
 // current_season/current_week are the kicked-off check's week (#1376, ADR 0043).
 const LEAGUE_GATE_SELECT =
   `SELECT "id", "transactions_locked", "draft_status", "roster_limit", "ir_slots",
           "position_caps", "waivers_clear_at", "current_season", "current_week"
-     FROM "leagues" WHERE "id" = $1 FOR NO KEY UPDATE`;
+     FROM "leagues" WHERE "id" = $1`;
 
 /** Enforce a team's per-position draft cap (if the league sets one for this player's cap group). Throws DraftError(409) when full. */
 async function assertPositionCapNotReached(client, { teamId, positionCaps, position }) {
@@ -199,11 +199,10 @@ function isLeagueFrozen(league) {
  * and an exact-set bypass list, so a seventeenth roster write inherits every
  * rule (#940 story 14).
  *
- * Rule 1 - the gate reads the freeze itself. It re-reads the League row FOR NO KEY
- * UPDATE (a no-op re-lock when the caller already holds it, per this spec's
- * League-first order) rather than trusting a caller-supplied league object, so
- * no caller can starve it of the freeze fact by passing a row that never
- * carried the column (#940 story 15).
+ * Rule 1 - the gate reads the freeze off the League row its caller holds. The
+ * League write (ADR 0070) locks that row and hands it over, so the gate takes
+ * no League lock of its own, and a row without the freeze column is refused by
+ * rule 2 (#940 story 15).
  *
  * Rule 2 - the gate fails closed on a gate-input column the row cannot answer.
  * Reading the row is not enough: the fake pool's matcher keys on verb + leading
@@ -217,8 +216,8 @@ function isLeagueFrozen(league) {
  * freeze refusal that looked like one would destroy every accepted trade whose
  * review window ended during a freeze (#940).
  *
- * Lock order is League then Team: the gate locks the League row, then the Team
- * row, matching every wired caller, so adopting it introduces no AB/BA deadlock.
+ * Lock order is League then Team: the caller's League write has locked the
+ * League row, and the gate locks the Team row, so no AB/BA deadlock.
  */
 async function assertRosterWriteAllowed(client, { leagueId, teamId, direction, playerId, position, bypass, moves }) {
   if (direction !== DIRECTION.ACQUIRE && direction !== DIRECTION.RELEASE) {
@@ -226,9 +225,8 @@ async function assertRosterWriteAllowed(client, { leagueId, teamId, direction, p
   }
   const skip = asBypassSet(bypass);
 
-  // Lock the League row first, then the Team row: one order on every path, so
-  // adopting the gate introduces no AB/BA deadlock (#940 story 18). Both are
-  // re-locks when the caller already holds them.
+  // The caller's League write holds the row (ADR 0070), so this read needs no lock of
+  // its own and the gate locks only the Team row below.
   const leagueResult = await client.query(LEAGUE_GATE_SELECT, [leagueId]);
   const league = leagueResult.rows[0];
   if (!league) throw new DraftError(404, 'league not found');

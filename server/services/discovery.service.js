@@ -4,7 +4,7 @@
  * functions so they can be unit tested without a database.
  */
 const pool = require('../modules/pool');
-const { withTransaction } = require('../modules/withTransaction');
+const { leagueWrite } = require('../modules/leagueWrite');
 const { notify } = require('./activity.service');
 const { SCORING_PRESETS } = require('./scoringRules');
 const { MODES: PICKEM_MODES } = require('./pickem.service');
@@ -386,11 +386,9 @@ async function previewLeagueByInviteCode({ code, userId }) {
  * get that far with an invalid one).
  */
 async function joinPublicLeague({ leagueId, userId, username, teamName }) {
-  return withTransaction(
-    pool,
-    async (client) => {
-      const leagueResult = await client.query(`SELECT * FROM "leagues" WHERE "id" = $1 FOR NO KEY UPDATE`, [leagueId]);
-      const league = leagueResult.rows[0];
+  return leagueWrite(
+    { leagueId, label: 'public-join' },
+    async ({ client, league }) => {
       if (!league) throw new DiscoveryError(404, 'league not found');
       if (!league.is_public) throw new DiscoveryError(403, 'this league is not open for public join');
 
@@ -452,10 +450,9 @@ async function joinPublicLeague({ leagueId, userId, username, teamName }) {
         return { pending: true, joinRequest };
       }
 
-      const { team } = await joinLeague(client, { leagueId, userId, teamName });
+      const { team } = await joinLeague(client, { league, userId, teamName });
       return { pending: false, league, team };
-    },
-    { label: 'public-join' }
+    }
   );
 }
 
@@ -491,15 +488,16 @@ async function listJoinRequests({ leagueId, ownerId }) {
 
 /** Commissioner approves or denies a pending join request, transactionally. */
 async function decideJoinRequest({ leagueId, ownerId, requestId, approve }) {
-  return withTransaction(
-    pool,
-    async (client) => {
-      const leagueResult = await client.query(
-        `SELECT * FROM "leagues" WHERE "id" = $1 AND ${commissionerPredicate(2)} FOR NO KEY UPDATE`,
+  return leagueWrite(
+    { leagueId, label: 'join-request' },
+    async ({ client, league }) => {
+      // The League write locks the row first; the commissioner check then reads
+      // under that lock, and anyone else is refused and rolled back.
+      const commissioner = league && (await client.query(
+        `SELECT 1 FROM "leagues" WHERE "id" = $1 AND ${commissionerPredicate(2)}`,
         [leagueId, ownerId]
-      );
-      const league = leagueResult.rows[0];
-      if (!league) throw new DiscoveryError(403, 'league not found or you are not the commissioner');
+      )).rows[0];
+      if (!commissioner) throw new DiscoveryError(403, 'league not found or you are not the commissioner');
 
       const requestResult = await client.query(
         `SELECT "join_requests".*, "users"."username" FROM "join_requests"
@@ -531,7 +529,7 @@ async function decideJoinRequest({ leagueId, ownerId, requestId, approve }) {
       // request was filed: a pending request cannot slip a team into a league
       // that has since stopped being joinable or filled up, nor a second Team
       // to a requester who joined another way meanwhile.
-      await joinLeague(client, { leagueId, userId: joinRequest.user_id, teamName: joinRequest.team_name });
+      await joinLeague(client, { league, userId: joinRequest.user_id, teamName: joinRequest.team_name });
       await client.query(
         `UPDATE "join_requests" SET "status" = 'approved', "updated_at" = now() WHERE "id" = $1`,
         [joinRequest.id]
@@ -544,8 +542,7 @@ async function decideJoinRequest({ leagueId, ownerId, requestId, approve }) {
         data: { requestId: joinRequest.id },
       });
       return { status: 'approved' };
-    },
-    { label: 'join-request' }
+    }
   );
 }
 

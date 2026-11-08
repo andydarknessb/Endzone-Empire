@@ -1,5 +1,6 @@
 const pool = require('../modules/pool');
 const { withTransaction } = require('../modules/withTransaction');
+const { lockLeague } = require('../modules/leagueWrite');
 const {
   REG_SEASON_WEEKS,
   winnerOf,
@@ -367,11 +368,15 @@ async function completeOnePickemSeason({ league, season, seasonGames }) {
   // and releases the row lock exactly as the old bare ROLLBACK did; the write
   // path returns the outcome object as before.
   const outcome = await withTransaction(pool, async (client) => {
-    const locked = await client.query(
-      `SELECT "id", "current_season", "season_status" FROM "leagues" WHERE "id" = $1 FOR NO KEY UPDATE`,
+    // A league already complete, or in another season, is answered from a plain
+    // read: taking the League lock would move its board version for nothing.
+    const peek = await client.query(
+      `SELECT "season_status", "current_season" FROM "leagues" WHERE "id" = $1`,
       [league.id]
     );
-    const row = locked.rows[0];
+    const peeked = peek.rows[0];
+    if (!peeked || peeked.season_status === 'complete' || Number(peeked.current_season) !== season) return null;
+    const row = await lockLeague(client, league.id);
     if (!row || row.season_status === 'complete' || Number(row.current_season) !== season) {
       // Read-only so far: a plain return null COMMITs the empty transaction and
       // releases the lock, the same release the bare ROLLBACK gave.

@@ -130,6 +130,11 @@ test('a lock in a DIFFERENT function is a violation (scope matters)', () => {
   assert.deepEqual(unlockedTeamInserts(src), [{ line: 5 }]);
 });
 
+test('a lockLeague call (the League write module\'s lock, ADR 0070) before the insert is NOT a violation', () => {
+  const src = `async function join(client, { leagueId }) {\n  const league = await lockLeague(client, leagueId);\n  ${q(TEAM_INSERT)}\n}\n`;
+  assert.deepEqual(unlockedTeamInserts(src), []);
+});
+
 test('a teams lock (not a leagues lock) does not satisfy the rule', () => {
   const teamsLock = 'SELECT * FROM "teams" WHERE "id" = $1 FOR UPDATE';
   const src = `async function bad(client, id) {\n  ${q(teamsLock)}\n  ${q(TEAM_INSERT)}\n}\n`;

@@ -1,6 +1,6 @@
 const pool = require('../modules/pool');
 const { withTransaction } = require('../modules/withTransaction');
-const { lockLeague } = require('../modules/leagueWrite');
+const { leagueWrite, lockLeague } = require('../modules/leagueWrite');
 const { placeOnWaiversUndoable } = require('./waiver.service');
 const { logTransaction, notify } = require('./activity.service');
 const { isLeagueCommissioner } = require('./leagueRole.service');
@@ -89,23 +89,18 @@ function shouldAutoEnableAutodraft(consecutiveTimeouts) {
  * 2026-11-06). It refuses unless the draft is complete; a Pick, conversely, refuses
  * unless it is active. This is the free-agent add the team router calls (#782 ruling 2).
  *
- * The transaction locks the league row FOR NO KEY UPDATE, exactly as a Pick does, so the
+ * The League write locks the league row FOR NO KEY UPDATE, exactly as a Pick does, so the
  * capacity read cannot race a concurrent add; the (league_id, player_id) unique
  * constraint is the double-add backstop.
  */
 async function addFreeAgent({ leagueId, userId, playerId }) {
-  // withTransaction owns connect, BEGIN, COMMIT-or-guarded-ROLLBACK and the
+  // leagueWrite owns connect, BEGIN, the League lock, COMMIT-or-guarded-ROLLBACK and the
   // release rule (ADR 0033). The 23505 -> DraftError mapping that used to sit in
   // this transaction's own catch now sits in a catch around the wrapper (#1063
   // Ruling 3): the wrapper rethrows the ORIGINAL driver error untouched, so this
   // is a move, not a rewrite.
   try {
-    return await withTransaction(pool, async (client) => {
-      const leagueResult = await client.query(
-        `SELECT * FROM "leagues" WHERE "id" = $1 FOR NO KEY UPDATE`,
-        [leagueId]
-      );
-      const league = leagueResult.rows[0];
+    return await leagueWrite({ leagueId, label: 'free-agent-add' }, async ({ client, league }) => {
       if (!league) throw new DraftError(404, 'league not found');
       // A pick'em-only league has no draft and no rosters; say so rather than the
       // generic "draft is not complete" (its draft_status is 'pending' forever).
@@ -157,7 +152,7 @@ async function addFreeAgent({ leagueId, userId, playerId }) {
         ...teamIdentityOf(myTeam),
         player: playerResult.rows[0],
       };
-    }, { label: 'free-agent-add' });
+    });
   } catch (error) {
     if (error.code === '23505') {
       throw new DraftError(409, 'player is already rostered in this league');
@@ -185,27 +180,18 @@ async function addFreeAgent({ leagueId, userId, playerId }) {
  * all), and the gate inside `drop` is what takes both rows, League first.
  */
 async function dropPlayer({ leagueId, userId, playerId }) {
-  // withTransaction owns connect, BEGIN, COMMIT-or-guarded-ROLLBACK and the
+  // leagueWrite owns connect, BEGIN, the League lock, COMMIT-or-guarded-ROLLBACK and the
   // release rule (ADR 0033). No catch-side mapping here (the old catch only
   // rolled back and rethrew), so the wrapper is the whole transaction.
-  return withTransaction(pool, async (client) => {
+  return leagueWrite({ leagueId, label: 'drop-player' }, async ({ client, league }) => {
     // Demoted from FOR UPDATE (#962): see the lock-order note above. The Team
     // row is still locked a statement later, by the gate inside `drop`, in
     // League-then-Team order, so the drop is no less serialized than it was.
     const team = await requireMember(client, { leagueId, userId });
 
-    // Read under the lock, not before it: `current_week` is what the hold
-    // records and what `removeLineupEntries` prunes against, and a week advance
-    // committing between an unlocked read and the gate's lock would leave the
-    // drop running against last week - deleting the as-played row and recording
-    // a stash for a week that has passed. This takes the League lock first, the
-    // order #962 holds; the gate inside `drop` re-takes it and then the Team.
-    const leagueResult = await client.query(
-      `SELECT "id", "waiver_period_hours", "current_season", "current_week"
-         FROM "leagues" WHERE "id" = $1 FOR NO KEY UPDATE`,
-      [leagueId]
-    );
-    const league = leagueResult.rows[0];
+    // The League write holds the row before this body runs, so `current_week`
+    // (what the hold records and `removeLineupEntries` prunes against) cannot
+    // move under the drop, and the gate inside `drop` works on that same row.
     if (!league) throw new DraftError(404, 'league not found');
 
     // A manager drop is undoable, so the module hands back what it interrupted;
@@ -230,7 +216,7 @@ async function dropPlayer({ leagueId, userId, playerId }) {
     });
 
     return { leagueId, teamId: team.id, playerId };
-  }, { label: 'drop-player' });
+  });
 }
 
 /**
@@ -254,18 +240,12 @@ const UNDO_DROP_WINDOW_SECONDS = 120;
  * undo needs is therefore read before the hold is deleted.
  */
 async function undoDrop({ leagueId, userId, playerId }) {
-  // withTransaction owns connect, BEGIN, COMMIT-or-guarded-ROLLBACK and the
+  // leagueWrite owns connect, BEGIN, the League lock, COMMIT-or-guarded-ROLLBACK and the
   // release rule (ADR 0033). The 23505 -> DraftError mapping that used to sit in
   // this transaction's own catch now sits in a catch around the wrapper (#1063
   // Ruling 3); the wrapper rethrows the ORIGINAL driver error untouched.
   try {
-    return await withTransaction(pool, async (client) => {
-      const leagueResult = await client.query(
-        `SELECT "id", "roster_limit", "ir_slots", "position_caps", "current_season", "current_week"
-           FROM "leagues" WHERE "id" = $1 FOR NO KEY UPDATE`,
-        [leagueId]
-      );
-      const league = leagueResult.rows[0];
+    return await leagueWrite({ leagueId, label: 'undo-drop' }, async ({ client, league }) => {
       if (!league) throw new DraftError(404, 'league not found');
 
       const team = await requireMember(client, { leagueId, userId });
@@ -402,7 +382,7 @@ async function undoDrop({ leagueId, userId, playerId }) {
       });
 
       return { leagueId, teamId: team.id, player: playerResult.rows[0] };
-    }, { label: 'undo-drop' });
+    });
   } catch (error) {
     if (error.code === '23505') {
       throw new DraftError(409, 'player is already rostered in this league');

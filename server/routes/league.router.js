@@ -2,6 +2,7 @@ const express = require('express');
 const crypto = require('crypto');
 const pool = require('../modules/pool');
 const { withTransaction } = require('../modules/withTransaction');
+const { leagueWrite } = require('../modules/leagueWrite');
 const clock = require('../modules/clock');
 const { requireAuth } = require('../modules/auth');
 const { createRateLimiter, createFailureLimiter } = require('../modules/rateLimit');
@@ -175,29 +176,27 @@ router.post('/join', refundJoinSlots, joinFailuresByUser.guard, joinFailuresByIp
   if (!inviteCode) return res.status(400).json({ error: 'inviteCode is required' });
 
   try {
-    const { league, team } = await withTransaction(
-      pool,
-      async (client) => {
-        const leagueResult = await client.query(
-          `SELECT * FROM "leagues" WHERE "invite_code" = $1 FOR NO KEY UPDATE`,
-          [inviteCode]
-        );
-        const league = leagueResult.rows[0];
-        // Read-only refusal before the membership write: throw so the wrapper
-        // rolls the FOR NO KEY UPDATE read back instead of committing it (ADR 0033,
-        // #1065 Ruling 2). MembershipError carries the 404 the catch maps
-        // through serviceErrorBody; the membership module owns the joinLeague
-        // write immediately below, so its coded error is the fitting one.
-        if (!league) {
+    // The code names the League; the League write locks its row, and the code is
+    // checked again under that lock, so a code regenerated mid-request refuses. An
+    // unknown code throws before the write (MembershipError carries the 404 the catch
+    // maps through serviceErrorBody), and the write's own refusal rolls back the same way.
+    const found = await pool.query(`SELECT "id" FROM "leagues" WHERE "invite_code" = $1`, [inviteCode]);
+    if (!found.rows[0]) {
+      res.locals.unknownCode = true;
+      throw new MembershipError(404, 'no league with that invite code');
+    }
+    const { league, team } = await leagueWrite(
+      { leagueId: found.rows[0].id, label: 'league-join' },
+      async ({ client, league: held }) => {
+        if (!held || held.invite_code !== inviteCode) {
           res.locals.unknownCode = true;
           throw new MembershipError(404, 'no league with that invite code');
         }
         // The code is this path's only gate; admission (joinable, not already a
         // member, not full) and the Team write belong to the membership module.
-        const { team } = await joinLeague(client, { leagueId: league.id, userId: req.user.id, teamName });
-        return { league, team };
-      },
-      { label: 'league-join' }
+        const { team } = await joinLeague(client, { league: held, userId: req.user.id, teamName });
+        return { league: held, team };
+      }
     );
     delete league.draft_share_token; // not for a joining manager (#2274)
     res.status(201).json({ league, team });

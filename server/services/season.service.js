@@ -1,5 +1,6 @@
 const pool = require('../modules/pool');
 const { withTransaction } = require('../modules/withTransaction');
+const { leagueWrite } = require('../modules/leagueWrite');
 const { seasonOperationsAvailable, SEASON_BEFORE_DRAFT_MESSAGE } = require('./leaguePhase');
 const { round2 } = require('./scoringRules');
 
@@ -235,11 +236,8 @@ function lastPlayoffWeek(league) {
  * the transaction (nothing else holds the row), WITHOUT it when nested inside a
  * caller's transaction that already wrote and holds the league row.
  */
-async function generateRegularSeasonInner(client, { leagueId }, { forUpdate }) {
-  const leagueResult = await client.query(
-    `SELECT * FROM "leagues" WHERE "id" = $1${forUpdate ? ' FOR NO KEY UPDATE' : ''}`,
-    [leagueId]
-  );
+async function generateRegularSeasonInner(client, { leagueId }) {
+  const leagueResult = await client.query(`SELECT * FROM "leagues" WHERE "id" = $1`, [leagueId]);
   const league = leagueResult.rows[0];
   if (!league) throw new SeasonError(404, 'league not found');
   // #194: season operations refuse a league still pre-draft or drafting (league
@@ -277,21 +275,19 @@ async function generateRegularSeasonInner(client, { leagueId }, { forUpdate }) {
  * week: weeks that already have matchups are skipped). Runs in its own
  * transaction unless a client is supplied.
  *
- * With no client it owns the transaction through withTransaction (ADR 0033)
- * and reads the league row FOR NO KEY UPDATE. draftCompletion passes its own
- * draft-completion client; the inner then runs on that client directly - NOT a
- * nested withTransaction (the wrapper opens an independent transaction, not a
- * savepoint, so nesting on one pool is forbidden), and the league read drops
- * FOR NO KEY UPDATE exactly as before. The exported signature is unchanged.
+ * With no client it owns the transaction through leagueWrite (ADR 0070), which
+ * takes the League row lock. draftCompletion passes its own draft-completion
+ * client; the inner then runs on that client directly and takes no League lock,
+ * because the caller's transaction already holds the row. The exported signature
+ * is unchanged.
  */
 async function generateRegularSeason({ leagueId }, existingClient = null) {
   if (existingClient) {
-    return generateRegularSeasonInner(existingClient, { leagueId }, { forUpdate: false });
+    return generateRegularSeasonInner(existingClient, { leagueId });
   }
-  return withTransaction(
-    pool,
-    (client) => generateRegularSeasonInner(client, { leagueId }, { forUpdate: true }),
-    { label: 'generateRegularSeason' }
+  return leagueWrite(
+    { leagueId, label: 'generateRegularSeason' },
+    ({ client }) => generateRegularSeasonInner(client, { leagueId })
   );
 }
 
