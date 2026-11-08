@@ -251,6 +251,14 @@ test('a name-only patch on a commissioner league resolves with the row and never
   assert.deepEqual(db.firstWord(), ['UPDATE']);
 });
 
+test('a settings save advances board_version in the same guarded UPDATE, so a rename is Draft state too (#2717)', async () => {
+  const db = fakeDb();
+  await run(db, { name: 'Renamed' });
+  const update = db.calls.find((c) => c.text.startsWith('UPDATE "leagues"'));
+  assert.match(update.text, /"board_version" = "board_version" \+ 1,/);
+  assert.deepEqual(db.firstWord(), ['UPDATE']);
+});
+
 test('the UPDATE parameters: roster_limit is derived from the merged roster shape (starters + bench + IR), absent keys are null', async () => {
   const db = fakeDb({ status: statusRow({ roster_slots: [{ key: 'QB', count: 1, eligiblePositions: ['QB'] }, { key: 'RB', count: 2, eligiblePositions: ['RB'] }], bench_slots: 4, ir_slots: 1 }) });
   await run(db, { name: 'Renamed', benchSlots: 6, positionCaps: { QB: 3, RB: 5 } });

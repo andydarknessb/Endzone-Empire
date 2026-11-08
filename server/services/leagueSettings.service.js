@@ -794,6 +794,8 @@ async function updateLeagueSettings(db, { leagueId, userId, patch }) {
            "keeper_lock_at" = CASE WHEN $35::boolean THEN $36::timestamptz ELSE "keeper_lock_at" END,
            -- Tri-state: null is a deliberate clear back to the neutral Voice.
            "narrative_voice" = CASE WHEN $40::boolean THEN $41::text ELSE "narrative_voice" END,
+           -- Every League write advances the board version (#2681), in this guarded UPDATE so a refused save advances nothing.
+           "board_version" = "board_version" + 1,
            "updated_at" = now()
        WHERE "id" = $17 AND ${commissionerPredicate(18)}
          ${frozenRequested.length > 0 ? `AND ${settingsUnfrozenWhereSql()}` : ''}
