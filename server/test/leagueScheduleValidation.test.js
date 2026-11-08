@@ -17,6 +17,23 @@ after(() => {
 const app = express();
 app.use(express.json());
 app.use('/api/league', leagueRouter);
+
+// Every settings save is a transaction (ADR 0033, #2717): BEGIN/COMMIT/ROLLBACK,
+// the commissioner's SELECT 1 (a row for user 7) and the League lock are answered
+// here; every other statement reaches the test's pool.query mock.
+const SETTINGS_LOCK_SQL = 'UPDATE "leagues" SET "board_version" = "board_version" + 1 WHERE "id" = $1 RETURNING *';
+function mockConnect(t) {
+  t.mock.method(pool, 'connect', async () => ({
+    query: (sql, params) => {
+      const text = String(sql).replace(/\s+/g, ' ').trim();
+      if (text === 'BEGIN' || text === 'COMMIT' || text === 'ROLLBACK') return { rows: [] };
+      if (text.startsWith('SELECT 1 FROM "leagues"')) return { rows: params[1] === 7 ? [{ '?column?': 1 }] : [] };
+      if (text === SETTINGS_LOCK_SQL) return { rows: [{ id: 1 }] };
+      return pool.query(sql, params);
+    },
+    release: () => {},
+  }));
+}
 const authorization = () => `Bearer ${signToken({ id: 7, username: 'commissioner' })}`;
 
 // --- roster slot validation (no DB needed — all reject before any query) ----
@@ -24,6 +41,7 @@ const authorization = () => `Bearer ${signToken({ id: 7, username: 'commissioner
 const SLOT = (key, eligiblePositions, count = 1) => ({ key, count, eligiblePositions });
 
 test('roster slots: an "IDP FLEX" slot with a space in the name and DL/LB/DB eligibility validates', async (t) => {
+  mockConnect(t);
   t.mock.method(pool, 'query', async (sql) => {
     const text = String(sql);
     if (text.includes('SELECT "draft_status"')) {
@@ -47,6 +65,7 @@ test('roster slots: an "IDP FLEX" slot with a space in the name and DL/LB/DB eli
 });
 
 test('roster slots: each failure mode gets a specific message, not the generic catch-all', async (t) => {
+  mockConnect(t);
   t.mock.method(pool, 'query', async () => {
     throw new Error('validation failures must not reach the database');
   });
@@ -84,6 +103,7 @@ test('roster slots: each failure mode gets a specific message, not the generic c
 
 test('rejects past and current draft schedules before querying the database', async (t) => {
   let queryCount = 0;
+  mockConnect(t);
   t.mock.method(pool, 'query', async () => {
     queryCount++;
     throw new Error('database should not be queried');
@@ -107,6 +127,7 @@ test('rejects past and current draft schedules before querying the database', as
 
 test('accepts a near-future draft schedule', async (t) => {
   const draftDate = new Date(Date.now() + 60000).toISOString();
+  mockConnect(t);
   t.mock.method(pool, 'query', async (sql) => {
     const text = String(sql);
     if (text.includes('SELECT "draft_status"')) {
@@ -137,6 +158,7 @@ test('accepts a near-future draft schedule', async (t) => {
 test('returns the persisted schedule when activity notification delivery fails', async (t) => {
   const draftDate = new Date(Date.now() + 60000).toISOString();
   let persistedDraftDate = null;
+  mockConnect(t);
   t.mock.method(pool, 'query', async (sql) => {
     const text = String(sql);
     if (text.includes('SELECT "draft_status"')) {
@@ -172,6 +194,7 @@ test('returns the persisted schedule when activity notification delivery fails',
 test('switching a scheduled league to auction clears the schedule in the same update', async (t) => {
   const existingDraftDate = new Date(Date.now() + 3600000).toISOString();
   let updateQuery = null;
+  mockConnect(t);
   t.mock.method(pool, 'query', async (sql) => {
     const text = String(sql);
     if (text.includes('SELECT "draft_status"')) {
@@ -205,6 +228,7 @@ test('switching a scheduled league to auction clears the schedule in the same up
 test('rejects a direct attempt to schedule an existing auction league', async (t) => {
   const draftDate = new Date(Date.now() + 60000).toISOString();
   let updateCalled = false;
+  mockConnect(t);
   t.mock.method(pool, 'query', async (sql) => {
     const text = String(sql);
     if (text.includes('SELECT "draft_status"')) {
@@ -244,6 +268,7 @@ test('rejects a schedule when the league is converted to auction between the rea
     team_count: 2,
   };
   let updateCalled = false;
+  mockConnect(t);
   t.mock.method(pool, 'query', async (sql) => {
     const text = String(sql);
     if (text.startsWith('UPDATE "leagues"')) {
@@ -282,6 +307,7 @@ test('rejects a schedule when the league is converted to auction between the rea
 
 test('does not delay the schedule response while activity notification is pending', async (t) => {
   const draftDate = new Date(Date.now() + 60000).toISOString();
+  mockConnect(t);
   t.mock.method(pool, 'query', async (sql) => {
     const text = String(sql);
     if (text.includes('SELECT "draft_status"')) {
@@ -340,6 +366,7 @@ const PENDING_ROW = (over = {}) => ({
 
 test('rejects an unrecognized draftTimezone before querying the database', async (t) => {
   let queryCount = 0;
+  mockConnect(t);
   t.mock.method(pool, 'query', async () => { queryCount++; throw new Error('database should not be queried'); });
 
   const response = await request(app)
@@ -354,6 +381,7 @@ test('rejects an unrecognized draftTimezone before querying the database', async
 
 test('draftTimezone alone is refused when the league has no draft date scheduled (#116 AC2)', async (t) => {
   let updateCalled = false;
+  mockConnect(t);
   t.mock.method(pool, 'query', async (sql) => {
     const text = String(sql);
     if (text.includes('SELECT "draft_status"')) return { rows: [PENDING_ROW()] };
@@ -373,6 +401,7 @@ test('draftTimezone alone is refused when the league has no draft date scheduled
 
 test('draftTimezone is accepted alongside a draftTimezone-less league when draftDate arrives in the same request', async (t) => {
   const draftDate = new Date(Date.now() + 60000).toISOString();
+  mockConnect(t);
   t.mock.method(pool, 'query', async (sql) => {
     const text = String(sql);
     if (text.includes('SELECT "draft_status"')) return { rows: [PENDING_ROW()] };
@@ -395,6 +424,7 @@ test('draftTimezone is accepted alongside a draftTimezone-less league when draft
 test('draftTimezone alone is accepted when the league already has a draftDate on file', async (t) => {
   const existingDraftDate = new Date(Date.now() + 3600000).toISOString();
   let updateParams = null;
+  mockConnect(t);
   t.mock.method(pool, 'query', async (sql, params) => {
     const text = String(sql);
     if (text.includes('SELECT "draft_status"')) return { rows: [PENDING_ROW({ draft_date: existingDraftDate })] };
@@ -421,6 +451,7 @@ test('clearing draftDate clears an existing draftTimezone in the same UPDATE (#1
   const existingDraftDate = new Date(Date.now() + 3600000).toISOString();
   let updateQuery = null;
   let updateParams = null;
+  mockConnect(t);
   t.mock.method(pool, 'query', async (sql, params) => {
     const text = String(sql);
     if (text.includes('SELECT "draft_status"')) {
@@ -450,6 +481,7 @@ test('clearing draftDate clears an existing draftTimezone in the same UPDATE (#1
 
 test('a request that clears draftDate while also setting a non-null draftTimezone is refused before querying the database', async (t) => {
   let queryCount = 0;
+  mockConnect(t);
   t.mock.method(pool, 'query', async () => { queryCount++; throw new Error('database should not be queried'); });
 
   const response = await request(app)
