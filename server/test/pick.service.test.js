@@ -413,16 +413,19 @@ test('landPick: an active league with a null draft_rounds falls back to the live
 // --- #854: the outcome carries nextPickIndex, the value written to the clock --
 // The room reducer follows league.current_pick to this field, so it must be the
 // EXACT value the Pick clock was handed as `nextPick` in this same commit, never
-// a re-derivation. Each case mocks onPickLanded to capture that argument and
+// a re-derivation. Each case mocks onSlotTaken to capture that argument and
 // asserts the outcome's nextPickIndex equals it.
 
 test('landPick: the outcome nextPickIndex equals the clock nextPick on an ordinary pick', async (t) => {
   const fake = pickPool({ league: { ...BASE_LEAGUE, current_pick: 0 }, picksMade: 1 }).install(t);
   withRecorder(t);
   let clockNextPick;
-  t.mock.method(pickClock, 'onPickLanded', async (client, { nextPick }) => {
-    clockNextPick = nextPick;
-    return null;
+  // Wrap the real step so the value it wrote to current_pick is what the test reads.
+  const realSlot = pickClock.onSlotTaken;
+  t.mock.method(pickClock, 'onSlotTaken', async (client, args) => {
+    const result = await realSlot(client, args);
+    clockNextPick = result.nextPickIndex;
+    return result;
   });
 
   const outcome = await landPick({ leagueId: LEAGUE_ID, by: { kind: 'manager', userId: 7 }, playerId: 500 });
@@ -444,9 +447,12 @@ test('landPick: the outcome nextPickIndex is the next OPEN index when a keeper o
   }).install(t);
   withRecorder(t);
   let clockNextPick;
-  t.mock.method(pickClock, 'onPickLanded', async (client, { nextPick }) => {
-    clockNextPick = nextPick;
-    return null;
+  // Wrap the real step so the value it wrote to current_pick is what the test reads.
+  const realSlot = pickClock.onSlotTaken;
+  t.mock.method(pickClock, 'onSlotTaken', async (client, args) => {
+    const result = await realSlot(client, args);
+    clockNextPick = result.nextPickIndex;
+    return result;
   });
 
   const outcome = await landPick({ leagueId: LEAGUE_ID, by: { kind: 'manager', userId: 7 }, playerId: 500 });
@@ -462,9 +468,12 @@ test('landPick: the completing pick nextPickIndex is the completing pick number,
   const fake = pickPool({ league: BASE_LEAGUE, picksMade: 4 }).install(t);
   withRecorder(t);
   let clockNextPick;
-  t.mock.method(pickClock, 'onPickLanded', async (client, { nextPick }) => {
-    clockNextPick = nextPick;
-    return null;
+  // Wrap the real step so the value it wrote to current_pick is what the test reads.
+  const realSlot = pickClock.onSlotTaken;
+  t.mock.method(pickClock, 'onSlotTaken', async (client, args) => {
+    const result = await realSlot(client, args);
+    clockNextPick = result.nextPickIndex;
+    return result;
   });
   t.mock.method(draftCompletion, 'completeDraft', async () => ({ kind: 'complete', id: 78, seq: 6 }));
 

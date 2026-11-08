@@ -459,6 +459,16 @@ class FakeDraftDatabase {
         : new Date(Date.now() + clockSeconds * 1000);
       return { rows: [{ pick_deadline_at: state.league.pick_deadline_at }] };
     }
+    // An Autopick's timeout consequences commit inside its transaction (#2694).
+    if (sql.includes('SET "consecutive_timeouts" = "consecutive_timeouts" + 1')) {
+      const team = state.teams.find((entry) => entry.id === values[0]);
+      team.consecutive_timeouts += 1;
+      return { rows: [{ consecutive_timeouts: team.consecutive_timeouts }] };
+    }
+    if (sql.includes('SET "autodraft" = true')) {
+      state.teams.find((entry) => entry.id === values[0]).autodraft = true;
+      return { rows: [] };
+    }
     if (sql.includes('SET "waivers_clear_at"')) return { rows: [] };
     if (sql.includes('SET "consecutive_timeouts" = 0')) {
       state.teams.find((entry) => entry.id === values[0]).consecutive_timeouts = 0;

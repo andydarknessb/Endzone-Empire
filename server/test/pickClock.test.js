@@ -43,7 +43,7 @@ const leagueUpdate = (fake) => fake.matching(update('leagues'))[0];
 
 /**
  * The world for the events that now read their own policy from the locked row
- * (#948): onPickLanded, onAutodraftToggled and onPickUndone no longer take a
+ * (#948): onSlotTaken, onAutodraftToggled and onPickUndone no longer take a
  * `league` argument, so each issues onResumed's policy SELECT before it arms.
  * This fake answers that SELECT with `league` (over the shared defaults) and the
  * arming UPDATE with the deadline it binds. Deleting `draft_type` from an offline
@@ -76,7 +76,7 @@ test('draft started: the active branch arms the first pick clock and fixes draft
   const fake = createFakePool([armingLeagueUpdate()]).install(t);
 
   const deadline = await withClient(fake, (client) =>
-    pickClock.onDraftStarted(client, { leagueId: LEAGUE_ID, complete: false, currentPick: 0, clockSeconds: 60, rounds: 15 }));
+    pickClock.onDraftStarted(client, { leagueId: LEAGUE_ID, currentPick: 0, clockSeconds: 60, rounds: 15 }));
 
   assert.equal(deadline, armedAt(60), 'the start arms the plan clock');
   const call = leagueUpdate(fake);
@@ -85,72 +85,109 @@ test('draft started: the active branch arms the first pick clock and fixes draft
   assert.equal(call.params[1], 0, 'current_pick advances to the first open pick');
 });
 
-test('draft started: an all-keeper completion arms no clock', async (t) => {
+test('draft started: the active branch arms the first pick clock and fixes draft_rounds', async (t) => {
   const fake = createFakePool([armingLeagueUpdate()]).install(t);
 
   const deadline = await withClient(fake, (client) =>
-    pickClock.onDraftStarted(client, { leagueId: LEAGUE_ID, complete: true, currentPick: 30, rounds: 15 }));
+    pickClock.onDraftStarted(client, { leagueId: LEAGUE_ID, currentPick: 0, clockSeconds: 60, rounds: 15 }));
 
-  assert.equal(deadline, null, 'a draft that completes on keepers never arms a clock');
-  assert.match(leagueUpdate(fake).text, /"draft_status" = 'complete'/);
+  assert.equal(deadline, armedAt(60), 'the start arms the plan clock');
+  const call = leagueUpdate(fake);
+  assert.match(call.text, /"draft_status" = 'active'/);
+  assert.match(call.text, /"draft_rounds" = \$/);
+  assert.equal(call.params[1], 0, 'current_pick advances to the first open pick');
 });
 
-// --- pick landed ------------------------------------------------------------
+// --- a slot was taken (onSlotTaken, #2694) ----------------------------------
+
+const draftCompletion = require('../services/draftCompletion');
+
+/** Two Teams in a snake draft; with 3 rounds the open slot after taken [1..4] (index 4) is Team 11. */
+const teamsWithAutodraft = (autodraft) => [
+  { id: 11, autodraft, draft_position: 1 },
+  { id: 12, autodraft: false, draft_position: 2 },
+];
+
+/** The Pick clock step's own reads: the locked policy row, the draft_picks count and taken set. */
+function slotWorld(league, { takenPickNumbers = [], picksMade }) {
+  return createFakePool([
+    [select('leagues'), () => ({ rows: [{
+      current_pick: 3, draft_rotation: 'snake', draft_order_overrides: null,
+      draft_type: 'snake', pick_time_seconds: 90, autodraft_delay_seconds: 10, ...league,
+    }] })],
+    [/^SELECT COUNT\(\*\)::int AS n FROM "draft_picks"/, () => ({ rows: [{ n: picksMade }] })],
+    [/^SELECT "pick_number" FROM "draft_picks"/, () => ({ rows: takenPickNumbers.map((pick_number) => ({ pick_number })) })],
+    armingLeagueUpdate(),
+  ]);
+}
+
+const slot = (client, { teams, fromInclusive, rounds = null }) => pickClock.onSlotTaken(client, {
+  leagueId: LEAGUE_ID, league: { draft_rounds: 3 }, teams,
+  rotationOpts: { rotation: 'snake', overrides: null }, fromInclusive, rounds,
+});
 
 test('pick landed: a timed next team gets the full pick clock; the turn advances', async (t) => {
-  const fake = policyWorld({ draft_type: 'snake', pick_time_seconds: 90, autodraft_delay_seconds: 10 }).install(t);
+  const fake = slotWorld({ draft_type: 'snake', pick_time_seconds: 90, autodraft_delay_seconds: 10 },
+    { takenPickNumbers: [1, 2, 3, 4], picksMade: 4 }).install(t);
 
-  const deadline = await withClient(fake, (client) =>
-    pickClock.onPickLanded(client, {
-      leagueId: LEAGUE_ID, nextPick: 4, draftStatus: 'active', draftComplete: false,
-      nextTeam: { id: 12, autodraft: false },
-    }));
+  const outcome = await withClient(fake, (client) => slot(client, { teams: teamsWithAutodraft(false), fromInclusive: 4 }));
 
-  assert.equal(deadline, armedAt(90));
+  assert.equal(outcome.draftComplete, false);
+  assert.equal(outcome.nextTeam.id, 11, 'the next open slot belongs to Team 11');
+  assert.equal(outcome.pickDeadlineAt, armedAt(90));
   const call = leagueUpdate(fake);
-  assert.equal(call.params[0], 4, 'current_pick advances');
+  assert.equal(call.params[0], 4, 'current_pick advances to the next open slot');
   assert.equal(call.params[1], 'active');
 });
 
 test('pick landed: an autodrafting next team gets the short delay, not the full clock', async (t) => {
-  const fake = policyWorld({ draft_type: 'snake', pick_time_seconds: 90, autodraft_delay_seconds: 10 }).install(t);
+  const fake = slotWorld({ draft_type: 'snake', pick_time_seconds: 90, autodraft_delay_seconds: 10 },
+    { takenPickNumbers: [1, 2, 3, 4], picksMade: 4 }).install(t);
 
-  const deadline = await withClient(fake, (client) =>
-    pickClock.onPickLanded(client, {
-      leagueId: LEAGUE_ID, nextPick: 4, draftStatus: 'active', draftComplete: false,
-      nextTeam: { id: 12, autodraft: true },
-    }));
+  const outcome = await withClient(fake, (client) => slot(client, { teams: teamsWithAutodraft(true), fromInclusive: 4 }));
 
-  assert.equal(deadline, armedAt(10));
+  assert.equal(outcome.pickDeadlineAt, armedAt(10));
 });
 
-test('pick landed: the completing pick arms no clock', async (t) => {
-  const fake = policyWorld({ draft_type: 'snake', pick_time_seconds: 90, autodraft_delay_seconds: 10 }).install(t);
+test('pick landed: the completing pick arms no clock and hands off completion', async (t) => {
+  const fake = slotWorld({ draft_type: 'snake', pick_time_seconds: 90, autodraft_delay_seconds: 10 },
+    { takenPickNumbers: [1, 2, 3, 4, 5, 6], picksMade: 6 }).install(t);
+  const completion = { kind: 'complete', id: 200 };
+  let handedOff = false;
+  t.mock.method(draftCompletion, 'completeDraft', async () => { handedOff = true; return completion; });
 
-  const deadline = await withClient(fake, (client) =>
-    pickClock.onPickLanded(client, {
-      leagueId: LEAGUE_ID, nextPick: 30, draftStatus: 'complete', draftComplete: true,
-      nextTeam: null,
-    }));
+  const outcome = await withClient(fake, (client) => slot(client, { teams: teamsWithAutodraft(false), fromInclusive: 6 }));
 
-  assert.equal(deadline, null);
+  assert.equal(outcome.draftComplete, true);
+  assert.equal(outcome.pickDeadlineAt, null);
+  assert.equal(outcome.nextTeam, null);
+  assert.equal(outcome.completion, completion);
+  assert.equal(handedOff, true, 'completion is handed off by the step');
+  assert.equal(leagueUpdate(fake).params[1], 'complete');
+});
+
+test('draft start: a keeper-complete start completes through the same step and arms no clock', async (t) => {
+  const fake = slotWorld({ draft_type: 'snake', pick_time_seconds: 90, autodraft_delay_seconds: 10 },
+    { takenPickNumbers: [1, 2, 3, 4], picksMade: 4 }).install(t);
+  t.mock.method(draftCompletion, 'completeDraft', async () => ({ kind: 'complete', id: 201 }));
+
+  const outcome = await withClient(fake, (client) => slot(client, { teams: teamsWithAutodraft(false), fromInclusive: 0, rounds: 2 }));
+
+  assert.equal(outcome.draftComplete, true);
+  assert.equal(outcome.pickDeadlineAt, null, 'a keeper-complete draft never arms a clock');
+  assert.equal(leagueUpdate(fake).params[4], 2, 'the start fixes draft_rounds');
 });
 
 test('pick landed: an offline draft arms no clock for the next team', async (t) => {
-  // #948 coverage: onPickLanded had no offline case. It reads draft_type from
-  // the locked row now, so an offline draft arms nothing even for a next team
-  // that would otherwise take the clock. Red tell: default the policy read's
-  // missing/other draft_type to a timed value (drop the offline branch in
-  // clockSecondsFor) and this arms the full 90s clock instead of null.
-  const fake = policyWorld({ draft_type: 'offline', pick_time_seconds: 90, autodraft_delay_seconds: 10 }).install(t);
+  // #948 coverage: the step reads draft_type from the locked row, so an offline draft arms
+  // nothing even for a next team that would otherwise take the clock. Red tell: drop the
+  // offline branch in clockSecondsFor and this arms the full 90s clock instead of null.
+  const fake = slotWorld({ draft_type: 'offline', pick_time_seconds: 90, autodraft_delay_seconds: 10 },
+    { takenPickNumbers: [1, 2, 3, 4], picksMade: 4 }).install(t);
 
-  const deadline = await withClient(fake, (client) =>
-    pickClock.onPickLanded(client, {
-      leagueId: LEAGUE_ID, nextPick: 4, draftStatus: 'active', draftComplete: false,
-      nextTeam: { id: 12, autodraft: false },
-    }));
+  const outcome = await withClient(fake, (client) => slot(client, { teams: teamsWithAutodraft(false), fromInclusive: 4 }));
 
-  assert.equal(deadline, null, 'an offline draft never arms a clock');
+  assert.equal(outcome.pickDeadlineAt, null, 'an offline draft never arms a clock');
 });
 
 // --- paused -----------------------------------------------------------------

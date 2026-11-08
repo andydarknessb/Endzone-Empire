@@ -72,6 +72,13 @@ function draftStartPool({
     // The market gate's count of players carrying an ADP (#747). Default clears
     // MARKET_FLOOR so every unrelated start test is unaffected.
     [select('players'), () => ({ rows: [{ n: market }] })],
+    // The Pick clock step's turn advance (onSlotTaken): the status rides as a parameter,
+    // so the fake reads it from there and answers the RETURNING deadline.
+    [/^UPDATE "leagues" SET "current_pick" = \$1, "draft_status" = \$2/, (text, params) => {
+      row.current_pick = params[0];
+      row.draft_status = params[1];
+      return { rows: [{ pick_deadline_at: null }] };
+    }],
     [update('leagues'), (text) => {
       if (/'complete'/.test(text)) row.draft_status = 'complete';
       else if (/'active'/.test(text)) row.draft_status = 'active';
@@ -86,6 +93,9 @@ function draftStartPool({
     // completes immediately (every slot pre-filled by keepers).
     [select('matchups'), () => ({ rows: [] })],
     [insert('matchups'), () => ({ rows: [], rowCount: 1 })],
+    // The Pick clock step counts the League's draft_picks rows: an all-keeper start
+    // completes when the keepers fill every slot.
+    [/^SELECT COUNT\(\*\)::int AS n FROM "draft_picks"/, () => ({ rows: [{ n: keepers.length }] })],
     [insert('draft_picks'), () => ({ rows: [], rowCount: 1 })],
     [insert('team_players'), () => ({ rows: [], rowCount: 1 })],
     // completeDraft's lineup seed (#1569), also run inline on an all-keeper
@@ -135,9 +145,10 @@ test('startDraft fixes draft_rounds even when every roster slot is pre-filled by
 
   await startDraft({ leagueId: 1, userId: 7 });
 
-  const updateCall = texts(fake).find((sql) => update('leagues').test(sql) && sql.includes("'complete'"));
+  // The status rides as a bound parameter (the Pick clock step), so match the call's params.
+  const updateCall = fake.calls.find((c) => update('leagues').test(c.text) && c.params.includes('complete'))?.text;
   assert.ok(updateCall, 'expected an UPDATE ... SET draft_status = complete');
-  assert.match(updateCall, /"draft_rounds"\s*=\s*\$/);
+  assert.match(updateCall, /"draft_rounds" = COALESCE\(\$5/);
   fake.assertClean();
 });
 
@@ -191,7 +202,7 @@ test('startDraft reaches completeDraft after it marks the draft complete (#194, 
 
   await startDraft({ leagueId: 1, userId: 7 });
 
-  const completedAt = texts(fake).findIndex((s) => update('leagues').test(s) && s.includes("'complete'"));
+  const completedAt = fake.calls.findIndex((c) => update('leagues').test(c.text) && c.params.includes('complete'));
   assert.notEqual(completedAt, -1, 'the draft was marked complete');
   assert.notEqual(callsAtHandoff, null, 'completeDraft was reached');
   assert.ok(completedAt < callsAtHandoff, 'the flip precedes the completeDraft handoff');
@@ -295,7 +306,7 @@ test('startDraft that completes on keeper pre-fill appends draft_start then reac
   assert.equal(appended[0].params[1], 'draft_start');
   assert.deepEqual([appended[0].params[2], appended[0].params[3]], [11, 'Team Eleven']);
   // The handoff runs after the status flip.
-  const completedAt = texts(fake).findIndex((s) => update('leagues').test(s) && s.includes("'complete'"));
+  const completedAt = fake.calls.findIndex((c) => update('leagues').test(c.text) && c.params.includes('complete'));
   assert.notEqual(completedAt, -1, 'the draft was marked complete');
   assert.notEqual(callsAtHandoff, null, 'completeDraft was reached');
   assert.ok(completedAt < callsAtHandoff, 'the flip precedes the completeDraft handoff');
