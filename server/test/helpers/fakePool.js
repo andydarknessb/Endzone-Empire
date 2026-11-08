@@ -67,7 +67,8 @@ function createFakePool(handlers = []) {
       // A League row read in the module's own shapes (the League write's lock, an
       // unlocked gate read) answers from the suite's League handler, not a repeat of it.
       const league = handlers.find(([pattern, , side]) => (!side || side === via) && pattern.test(LEAGUE_LOCK_SQL));
-      result = league ? await league[1](LEAGUE_LOCK_SQL, [params[0]]) : { rows: [] };
+      // The handler sees the statement the code actually sent, so its text assertions hold.
+      result = league ? await league[1](text, params) : { rows: [] };
     } else {
       throw new Error(`unexpected query: ${text}`);
     }

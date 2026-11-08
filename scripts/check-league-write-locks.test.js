@@ -124,3 +124,18 @@ test('the real tree, with the allowlist emptied, holds exactly the sites the all
 test('the real tree passes the shipped allowlist', () => {
   assert.deepEqual(check(), { unlisted: [], overCount: [], stale: [], ruleless: [] });
 });
+
+// Lower-case SQL locks the same row, so it is a hit too.
+test('a lower-case row lock is a hit', () => {
+  const hits = findLeagueLocks('await c.query(`select * from "leagues" where "id" = $1 for no key update`);');
+  assert.equal(hits.length, 1);
+});
+
+// A backtick in a comment must not open a literal that hides the real lock after it.
+test('a backtick inside a comment does not hide a lock on the next line', () => {
+  const hits = findLeagueLocks(
+    '// a lone ` backtick in a comment\nawait c.query(`SELECT * FROM "leagues" WHERE "id" = $1 FOR UPDATE`);'
+  );
+  assert.equal(hits.length, 1);
+  assert.equal(hits[0].line, 2);
+});

@@ -20,22 +20,17 @@ const { roundRobinPairings } = require('./season.service');
  * skips if matchups already exist). Odd team counts give one team a bye.
  */
 async function generateMatchups({ leagueId, season, week }) {
-  // withTransaction owns connect, BEGIN, COMMIT-or-guarded-ROLLBACK and the
-  // release rule (ADR 0033). The two early-out paths return a value: inside the
-  // wrapper that COMMITs a read-only transaction, which is harmless and releases
-  // the same locks a ROLLBACK would (#1060 Ruling 3, superseding #1055 Ruling 3
-  // for this site). The 409 refusal throws, and the wrapper rolls it back.
+  // leagueWrite owns connect, BEGIN, the League lock, COMMIT-or-guarded-ROLLBACK
+  // (ADR 0033, 0070). The two early-out paths return a value, which COMMITs the
+  // League write, its board-version advance included. The 409 refusal throws, and
+  // the write rolls it back.
   return leagueWrite(
     { leagueId, label: 'matchups' },
-    async ({ client }) => {
+    async ({ client, league }) => {
       // #194: this is the third path that inserts matchups, so it carries the
-      // same phase refusal as season operations' own two entry points. Read
-      // through this transaction's client for the same reason they do.
-      const leagueResult = await client.query(
-        `SELECT "pickem_only", "draft_status", "season_status" FROM "leagues" WHERE "id" = $1`,
-        [leagueId]
-      );
-      if (!seasonOperationsAvailable(leagueResult.rows[0])) {
+      // same phase refusal as season operations' own two entry points. The League
+      // row is the one this write holds, so the refusal reads it directly.
+      if (!seasonOperationsAvailable(league)) {
         // Thrown so withTransaction rolls the (read-only) transaction back and
         // rethrows this 409 untouched.
         const err = new Error(SEASON_BEFORE_DRAFT_MESSAGE);

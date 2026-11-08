@@ -168,7 +168,6 @@ test('denying a join request never consults joinability (a closed league can sti
   const calls = mockClient(t, [
     ...TXN,
     [/^(?:SELECT \* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE|UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*)$/, () => ({ rows: [{ ...COMPLETED_PICKEM, join_approval: true }] })],
-    [/^UPDATE "leagues" SET "board_version"/, () => ({ rows: [] })],
     [/FROM "leagues" WHERE "id" = \$1 AND /,() => ({ rows: [{ ...COMPLETED_PICKEM, join_approval: true }] })],
     [/FROM "join_requests" JOIN "users"/, () => ({ rows: [{ id: 3, user_id: 5, username: 'eve', team_name: null, status: 'pending' }] })],
     [/UPDATE "join_requests" SET "status" = 'denied'/, () => ({ rows: [] })],

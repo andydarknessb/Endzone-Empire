@@ -165,13 +165,19 @@ const rejectsAsNonMember = (promise) => assert.rejects(promise, (error) => {
  * suite's verb sweep.
  */
 const writes = (calls) => calls.filter((c) => /^(INSERT INTO|UPDATE|DELETE FROM) /.test(c.text));
-// The League write's board-version advance is taken before a refusal and rolled back
-// with it (ADR 0070), so it is not a write the refused caller made.
-const assertNoWrites = (calls, label) => assert.deepEqual(
-  writes(calls).filter((c) => !/^UPDATE "leagues" SET "board_version"/.test(c.text)).map((c) => c.text),
-  [],
-  `${label}: a refused caller wrote nothing`
-);
+// The League write's board-version advance is taken before a refusal, and it must be
+// rolled back with it (ADR 0070): a refusal that commits the advance is a write.
+const assertNoWrites = (calls, label) => {
+  assert.deepEqual(
+    writes(calls).filter((c) => !/^UPDATE "leagues" SET "board_version"/.test(c.text)).map((c) => c.text),
+    [],
+    `${label}: a refused caller wrote nothing`
+  );
+  assert.ok(
+    !(calls.some((c) => c.text === 'COMMIT') && calls.some((c) => /"board_version"/.test(c.text))),
+    `${label}: a refusal does not commit the League advance`
+  );
+};
 
 // --- draft router -----------------------------------------------------------
 

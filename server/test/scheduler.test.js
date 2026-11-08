@@ -1683,15 +1683,13 @@ test('zombie guard: a league with no picks this season, or created after week 18
   assert.deepEqual(await runRow(t, 'pickem-season-completion', '2027-01-11T06:00:00Z'), []);
   assert.equal(noPicks.league.season_status, 'regular');
   assert.equal(noPicks.trophies.length, 0);
-  // The zombie-guard bail is a read-only early return now (#1071): it opens the
-  // transaction, takes the row lock, then returns null - which COMMITs the empty
-  // transaction and releases the lock exactly as the old bare ROLLBACK did. The
-  // guard is still checked under the row lock (BEGIN + FOR UPDATE precede it) and
-  // still writes nothing (no season_status UPDATE); the close is now a COMMIT.
+  // The zombie guard is answered before the League lock (ADR 0070): it opens the
+  // transaction, reads that the league has no picks, and returns null, which COMMITs
+  // the empty transaction. No board version moves, because no lock was taken.
   assert.ok(noPicks.calls.some((c) => c.text === 'BEGIN'), 'the guard runs inside a transaction');
   assert.ok(
-    noPicks.calls.some((c) => /(?:FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE|UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1)/.test(c.text)),
-    'the row is locked FOR UPDATE before the guard fires'
+    !noPicks.calls.some((c) => /"board_version" = "board_version" \+ 1/.test(c.text)),
+    'the guard bails before the League lock, so no board version moves'
   );
   assert.ok(
     !noPicks.calls.some((c) => /UPDATE "leagues" SET "season_status"/.test(c.text)),

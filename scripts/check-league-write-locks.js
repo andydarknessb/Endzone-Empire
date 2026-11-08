@@ -52,9 +52,18 @@ const LITERAL = /`(?:\\[\s\S]|[^`\\])*`|'(?:\\.|[^'\\\n])*'|"(?:\\.|[^"\\\n])*"/
 
 // `FOR UPDATE` or `FOR NO KEY UPDATE`, with the optional `OF <table>` that
 // narrows which table the lock lands on.
-const ROW_LOCK = /\bFOR\s+(?:NO\s+KEY\s+)?UPDATE\b(?:\s+OF\s+("?[\w]+"?))?/g;
-const LEAGUES_NAMED = /"leagues"/;
-const BOARD_ADVANCE = /\bUPDATE\s+"leagues"[\s\S]*?"board_version"\s*=\s*"board_version"\s*\+/;
+// Keywords match in any case: SQL written lower-case locks the same row.
+const ROW_LOCK = /\bFOR\s+(?:NO\s+KEY\s+)?UPDATE\b(?:\s+OF\s+("?[\w]+"?))?/gi;
+const LEAGUES_NAMED = /"leagues"/i;
+const BOARD_ADVANCE = /\bUPDATE\s+"leagues"[\s\S]*?"board_version"\s*=\s*"board_version"\s*\+/i;
+
+// Comments are blanked, newlines kept, so a backtick inside a comment cannot open a
+// literal that swallows the real statement after it. Line numbers stay true.
+function blankComments(source) {
+  return source
+    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '))
+    .replace(/(^|\s)\/\/.*$/gm, (m) => ' '.repeat(m.length));
+}
 
 /**
  * The allowlist of hand-written League locks the tree still holds.
@@ -127,7 +136,8 @@ function labelOf(text) {
  * Every League lock or board advance in one file's source, as `{ line, code }`.
  * Pure: a test hands it a fixture string with no disk.
  */
-function findLeagueLocks(source) {
+function findLeagueLocks(rawSource) {
+  const source = blankComments(rawSource);
   const hits = [];
   for (const literal of source.matchAll(LITERAL)) {
     const text = literal[0];

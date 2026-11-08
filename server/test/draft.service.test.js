@@ -465,8 +465,9 @@ test('undoDrop: consults roster capacity, not the static roster limit', async (t
   const fake = createFakePool([
     [select('leagues'), (text) => {
       // The League write reads the whole row under its lock (ir_slots among them).
-      // The League write reads the whole row under its lock (ir_slots among them).
-      assert.match(text, /^(?:SELECT \* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE|UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*)$|^SELECT "id", "transactions_locked"/);
+      // A League read carries ir_slots: the League write's lock returns the whole row
+      // (RETURNING *), and the gate's own read names ir_slots in its column list.
+      assert.match(text, /RETURNING \*$|"ir_slots"/);
       return { rows: [{ id: 1, transactions_locked: false, roster_limit: 3, ir_slots: 1, position_caps: {} }] };
     }],
     [select('teams'), () => ({ rows: [{ id: 11, owner_id: 7, locked: false }] })],
