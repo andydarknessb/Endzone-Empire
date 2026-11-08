@@ -662,8 +662,7 @@ test('overdue: the outer sweep catch has no league and passes path sweep only', 
 
 // --- escalateNothingDraftable under withTransaction (#1071 Ruling 4) ---------
 // escalateNothingDraftable is the representative site this child gives the
-// #1053/#1055 wrapper pair. It is not exported, so the pair drives it through
-// the exported autoPick: an expired clock with an empty candidate pool escalates
+// #1053/#1055 wrapper pair. The pair drives it through the exported autoPick: an expired clock with an empty candidate pool escalates
 // into it, and the pause+clear UPDATE is made to throw so the transaction takes
 // its error path. The two tests differ only in whether the ROLLBACK itself
 // rejects, isolating the wrapper's destroy-vs-return-bare decision (#839).
@@ -788,8 +787,9 @@ test('escalateNothingDraftable: the draft_paused re-read bail resolves null and 
 test('escalateNothingDraftable: the future-deadline re-read bail resolves null and COMMITs the read-only transaction (#1071)', async (t) => {
   // A concurrent firing committed a real pick and re-armed the next turn while
   // this firing waited on the lock: escalate's FOR UPDATE re-read shows a future
-  // deadline, so the second bail returns null before any write. (autoPick's own
-  // read still shows the elapsed deadline that got it here.)
+  // deadline. The turn fence (#2720) sees the moved deadline first and declines
+  // before any write; the elapsed re-check behind it is the direct-caller guard.
+  // (autoPick's own read still shows the elapsed deadline that got it here.)
   const rearmed = { ...ESC_LEAGUE, pick_deadline_at: new Date(Date.now() + 60 * 60 * 1000) };
   const fake = createFakePool(escalationHandlers(rearmed)).install(t);
 
@@ -800,6 +800,45 @@ test('escalateNothingDraftable: the future-deadline re-read bail resolves null a
   assert.equal(fake.matching(/^ROLLBACK$/).length, 0, 'no ROLLBACK: the conversion replaced it with a COMMIT');
   assert.equal(fake.matching(/UPDATE "leagues" SET "draft_paused" = true/).length, 0, 'no pause write on the bail');
   assert.equal(fake.matching(/INSERT INTO/).length, 0, 'no activity insert on the bail');
+  assert.equal(fake.releaseArgs()[0], undefined, 'the healthy connection is returned to the pool bare');
+  fake.assertClean();
+});
+
+// The turn fence (#2720). autoPick expired turn 1 (current_pick 0, pickNumber 1)
+// and found nothing draftable. The FOR NO KEY UPDATE re-read shows a DIFFERENT
+// state from the same lock window: each case moves one half of the fence, so each
+// binds one comparison. The deadline is still elapsed, so only the fence declines.
+
+test('escalateNothingDraftable: a locked turn that moved on declines and pauses nothing (#2720)', async (t) => {
+  // Turn 1 expired, but the locked row is on turn 2 with the same elapsed deadline
+  // instant: a Pick committed on turn 1 first. Only the turn half of the fence sees it.
+  const movedTurn = { ...ESC_LEAGUE, current_pick: 1 };
+  const fake = createFakePool(escalationHandlers(movedTurn)).install(t);
+
+  const outcome = await pickClock.autoPick({ leagueId: LEAGUE_ID });
+
+  assert.equal(outcome, null, 'a turn that moved on escalates to nothing');
+  assert.equal(fake.matching(/^COMMIT$/).length, 1, 'the declined escalation closes with COMMIT');
+  assert.equal(fake.matching(/^ROLLBACK$/).length, 0, 'no ROLLBACK on a fenced decline');
+  assert.equal(fake.matching(/UPDATE "leagues" SET "draft_paused" = true/).length, 0, 'no pause write on a stale turn');
+  assert.equal(fake.matching(/INSERT INTO/).length, 0, 'no STALLED activity on a stale turn');
+  assert.equal(fake.releaseArgs()[0], undefined, 'the healthy connection is returned to the pool bare');
+  fake.assertClean();
+});
+
+test('escalateNothingDraftable: the same turn re-armed to another elapsed deadline declines and pauses nothing (#2720)', async (t) => {
+  // Still turn 1, but the locked row carries a different elapsed deadline instant: the
+  // turn was re-armed in the lock window. Only the deadline half of the fence sees it.
+  const rearmed = { ...ESC_LEAGUE, pick_deadline_at: new Date('2000-01-02T00:00:00.000Z') };
+  const fake = createFakePool(escalationHandlers(rearmed)).install(t);
+
+  const outcome = await pickClock.autoPick({ leagueId: LEAGUE_ID });
+
+  assert.equal(outcome, null, 'a re-armed deadline escalates to nothing');
+  assert.equal(fake.matching(/^COMMIT$/).length, 1, 'the declined escalation closes with COMMIT');
+  assert.equal(fake.matching(/^ROLLBACK$/).length, 0, 'no ROLLBACK on a fenced decline');
+  assert.equal(fake.matching(/UPDATE "leagues" SET "draft_paused" = true/).length, 0, 'no pause write on a moved deadline');
+  assert.equal(fake.matching(/INSERT INTO/).length, 0, 'no STALLED activity on a moved deadline');
   assert.equal(fake.releaseArgs()[0], undefined, 'the healthy connection is returned to the pool bare');
   fake.assertClean();
 });

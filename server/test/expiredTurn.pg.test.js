@@ -33,7 +33,7 @@ if (!ENABLED) {
   // migrates before test:pg, so this file does not migrate.
   const pool = require('../modules/pool');
   const { landPick } = require('../services/pick.service');
-  const { autoPick } = require('../services/pickClock.service');
+  const { autoPick, escalateNothingDraftable } = require('../services/pickClock.service');
   const { teamForPick } = require('../services/draftOrder.service');
   const { registerRecordingBroadcast } = require('./helpers/recordingBroadcast');
   registerRecordingBroadcast();
@@ -235,5 +235,47 @@ if (!ENABLED) {
       new Date(league.pick_deadline_at).getTime(),
       'the returned deadline is the one the turn is armed with'
     );
+  });
+
+  // The escalation's turn fence (#2720). The firing expired turn 1; a Pick took it,
+  // so turn 2 is on the clock with its own elapsed deadline. The stale escalation
+  // declines under the lock and pauses nothing; the control, on the locked turn,
+  // pauses once.
+  async function countStalled(leagueId) {
+    const res = await pool.query(
+      `SELECT COUNT(*)::int AS n FROM "draft_activity" WHERE "league_id" = $1 AND "kind" = 'stalled'`,
+      [leagueId]
+    );
+    return res.rows[0].n;
+  }
+
+  test('a stale escalation for a turn a Pick already took pauses nothing (#2720)', async () => {
+    const { leagueId } = await seedLeague({ currentPick: 1, onClockPosition: 2, onClockTimeouts: 0 });
+    const locked = await readLeague(leagueId);
+    const stale = { pickNumber: 1, deadline: new Date('2000-01-01T00:00:00.000Z') };
+
+    assert.equal(await escalateNothingDraftable({ leagueId, expiredTurn: stale }), null, 'the stale firing declines');
+    const after = await readLeague(leagueId);
+    assert.equal(after.draft_paused, false, 'the Draft is not paused');
+    assert.equal(
+      new Date(after.pick_deadline_at).getTime(),
+      new Date(locked.pick_deadline_at).getTime(),
+      'the locked turn keeps its deadline'
+    );
+    assert.equal(await countStalled(leagueId), 0, 'no STALLED entry is appended');
+  });
+
+  test('the escalation on the locked turn pauses once with one STALLED entry (#2720 control)', async () => {
+    const { leagueId } = await seedLeague({ currentPick: 1, onClockPosition: 2, onClockTimeouts: 0 });
+    const locked = await readLeague(leagueId);
+    const current = expiredTurnOf(locked);
+
+    const outcome = await escalateNothingDraftable({ leagueId, expiredTurn: current });
+
+    assert.ok(outcome && outcome.activity, 'the matching turn escalates');
+    const after = await readLeague(leagueId);
+    assert.equal(after.draft_paused, true, 'the Draft is paused');
+    assert.equal(after.pick_deadline_at, null, 'the clock is cleared');
+    assert.equal(await countStalled(leagueId), 1, 'one STALLED entry is appended');
   });
 }
