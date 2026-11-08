@@ -127,8 +127,8 @@ async function addFreeAgent({ leagueId, userId, playerId }) {
       if (!playerResult.rows[0]) throw new DraftError(404, 'player not found');
 
       // The one Roster move writer (#2535): the acquire gate - which reads the
-      // freeze off the League row it re-locks FOR NO KEY UPDATE, the League already held
-      // from the SELECT above - then the roster row, then the bench. Team lock is
+      // freeze off the League row this write holds, with no lock of its own - then the
+      // roster row, then the bench. Team lock is
       // bypassed because this path already refused a locked team above
       // (myTeam.locked), which fails earlier and keeps that refusal's ordering
       // unchanged.
@@ -177,7 +177,8 @@ async function addFreeAgent({ leagueId, userId, playerId }) {
  * write gate here without demoting that locking read would have shipped an
  * AB/BA pair between a drop and a forced transaction on the same league and
  * team. So the membership read is now a plain SELECT (it takes no row lock at
- * all), and the gate inside `drop` is what takes both rows, League first.
+ * all); the League row is held by the write this runs in, and the gate inside `drop`
+ * takes the Team row after it.
  */
 async function dropPlayer({ leagueId, userId, playerId }) {
   // leagueWrite owns connect, BEGIN, the League lock, COMMIT-or-guarded-ROLLBACK and the
@@ -185,13 +186,13 @@ async function dropPlayer({ leagueId, userId, playerId }) {
   // rolled back and rethrew), so the wrapper is the whole transaction.
   return leagueWrite({ leagueId, label: 'drop-player' }, async ({ client, league }) => {
     // Demoted from FOR UPDATE (#962): see the lock-order note above. The Team
-    // row is still locked a statement later, by the gate inside `drop`, in
-    // League-then-Team order, so the drop is no less serialized than it was.
+    // row is still locked a statement later, by the gate inside `drop`, after
+    // the League write has locked the League row, so the order is League-then-Team.
     const team = await requireMember(client, { leagueId, userId });
 
     // The League write holds the row before this body runs, so `current_week`
     // (what the hold records and `removeLineupEntries` prunes against) cannot
-    // move under the drop, and the gate inside `drop` works on that same row.
+    // move under the drop, and the gate inside `drop` reads that same row.
     if (!league) throw new DraftError(404, 'league not found');
 
     // A manager drop is undoable, so the module hands back what it interrupted;

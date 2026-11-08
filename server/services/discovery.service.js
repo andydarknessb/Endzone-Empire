@@ -4,7 +4,8 @@
  * functions so they can be unit tested without a database.
  */
 const pool = require('../modules/pool');
-const { leagueWrite } = require('../modules/leagueWrite');
+const { leagueWrite, lockLeague } = require('../modules/leagueWrite');
+const { withTransaction } = require('../modules/withTransaction');
 const { notify } = require('./activity.service');
 const { SCORING_PRESETS } = require('./scoringRules');
 const { MODES: PICKEM_MODES } = require('./pickem.service');
@@ -488,16 +489,23 @@ async function listJoinRequests({ leagueId, ownerId }) {
 
 /** Commissioner approves or denies a pending join request, transactionally. */
 async function decideJoinRequest({ leagueId, ownerId, requestId, approve }) {
-  return leagueWrite(
-    { leagueId, label: 'join-request' },
-    async ({ client, league }) => {
-      // The League write locks the row first; the commissioner check then reads
-      // under that lock, and anyone else is refused and rolled back.
-      const commissioner = league && (await client.query(
+  return withTransaction(
+    pool,
+    async (client) => {
+      // Authorize before the lock (ADR 0070): a caller who runs no such League takes no
+      // lock and moves no board version. The League row is locked once the check passes.
+      const commissioner = (await client.query(
         `SELECT 1 FROM "leagues" WHERE "id" = $1 AND ${commissionerPredicate(2)}`,
         [leagueId, ownerId]
       )).rows[0];
       if (!commissioner) throw new DiscoveryError(403, 'league not found or you are not the commissioner');
+      const league = await lockLeague(client, leagueId);
+      // Re-checked under the lock: a change of commissioner between the check and the lock still refuses.
+      const stillCommissioner = league && (await client.query(
+        `SELECT 1 FROM "leagues" WHERE "id" = $1 AND ${commissionerPredicate(2)}`,
+        [leagueId, ownerId]
+      )).rows[0];
+      if (!stillCommissioner) throw new DiscoveryError(403, 'league not found or you are not the commissioner');
 
       const requestResult = await client.query(
         `SELECT "join_requests".*, "users"."username" FROM "join_requests"
@@ -542,7 +550,8 @@ async function decideJoinRequest({ leagueId, ownerId, requestId, approve }) {
         data: { requestId: joinRequest.id },
       });
       return { status: 'approved' };
-    }
+    },
+    { label: 'join-request' }
   );
 }
 

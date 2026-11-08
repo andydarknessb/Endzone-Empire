@@ -38,6 +38,7 @@ function transactionClient({ currentCount = 2, assignmentCounts = [] } = {}) {
       if (text.includes('COUNT(*)::int AS "count"')) return { rows: assignmentCounts };
       if (text.startsWith('DELETE FROM "keepers"')) return { rows: [], rowCount: assignmentCounts.length };
       if (text.startsWith('UPDATE "leagues"')) return { rows: [{ id: 1, owner_id: 7, draft_status: 'pending' }] };
+      if (text.startsWith('SELECT 1 FROM "leagues"')) return { rows: [{ '?column?': 1 }] };
       throw new Error(`Unexpected SQL: ${text}`);
     },
   };

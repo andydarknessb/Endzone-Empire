@@ -534,8 +534,12 @@ async function updateLeagueSettings(db, { leagueId, userId, patch }) {
     // forces it so a pick'em-only league can be refused, even for keys (like
     // waiverType) that are never draft-frozen.
     if (frozenRequested.length > 0 || fantasyOnlyRequested.length > 0) {
-      // A patch that carries row-locked settings takes the League row lock first (ADR 0070).
-      if (rowLockSettingsProvided) await lockLeague(client, leagueId);
+      // A patch that carries row-locked settings takes the League row lock (ADR 0070), but
+      // only for the commissioner: anyone else takes no lock, and the guarded reads below refuse them.
+      if (rowLockSettingsProvided && (await client.query(
+        `SELECT 1 FROM "leagues" WHERE "id" = $1 AND ${commissionerPredicate(2)}`,
+        [leagueId, userId]
+      )).rows[0]) await lockLeague(client, leagueId);
       const statusResult = await client.query(
         `SELECT "draft_status", "draft_type", "min_teams", "max_teams", "draft_date",
                 "roster_slots", "bench_slots", "ir_slots", "position_caps", "roster_limit",

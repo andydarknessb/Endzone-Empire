@@ -48,6 +48,7 @@ function transactionClient() {
       if (text.startsWith('UPDATE "leagues"')) {
         return { rows: [{ id: 1, owner_id: 7, draft_status: 'pending' }] };
       }
+      if (text.startsWith('SELECT 1 FROM "leagues"')) return { rows: [{ '?column?': 1 }] };
       throw new Error(`Unexpected SQL: ${text}`);
     },
   };

@@ -561,8 +561,8 @@ async function processWaivers({ leagueId }) {
     // window the league was supposed to be standing still. Gating the helper
     // rather than the one `invalid` call site means a terminal status added
     // later inherits the refusal too. The League row is held FOR NO KEY UPDATE from
-    // the top of this transaction, so the gate's League read is a re-lock of
-    // a row we already own and the answer is the same at every point in the
+    // the top of this transaction, so the gate's League read sees the row we
+    // already own, and the answer is the same at every point in the
     // loop - which is what lets the gate be asked here, per claim, with no
     // second read of the freeze and no batch-level check. Team id and player
     // id come off the claim row rather than the in-memory teams map, and the
