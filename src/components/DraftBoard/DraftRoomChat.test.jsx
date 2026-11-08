@@ -251,16 +251,17 @@ test('takes back its own listener on unmount and never ends the shared session',
   expect(socket).not.toHaveProperty('disconnect');
 });
 
-test('re-syncs chat history when the draft session reconnects', async () => {
+test('re-syncs chat history when the draft session resumes it', async () => {
   // The Draft surface's own reconnection coverage (issue #433: tests cover
-  // "both surfaces and reconnection"). The draft room re-joins on reconnect
-  // over in useDraftSocket; here we prove the chat riding that session pulls a
+  // "both surfaces and reconnection"). The room's session resumes this feed on
+  // every join (#2696); here we prove the chat riding that session pulls a
   // fresh history so anything sent while offline appears.
-  renderWithProviders(<DraftRoomChat socket={socket} leagueId={3} viewerTeamId={11} />);
+  const resumeRef = { current: null };
+  renderWithProviders(<DraftRoomChat socket={socket} leagueId={3} viewerTeamId={11} resumeRef={resumeRef} />);
   await screen.findByText('No messages yet');
 
   apiClient.get.mockResolvedValue({ data: [chatMessage({ id: 5, message: 'missed while offline' })] });
-  act(() => reconnectHandlers.forEach((cb) => cb()));
+  act(() => resumeRef.current());
 
   expect(await screen.findByText('missed while offline')).toBeInTheDocument();
   expect(apiClient.get).toHaveBeenCalledWith('/api/league/3/draft-feed');

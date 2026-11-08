@@ -51,8 +51,9 @@ import FeedAnnouncer from './FeedAnnouncer';
  */
 function DraftRoomChat({
   socket, leagueId, viewerTeamId = null, canModerate = false, gifEnabled = false, onMembershipRevoked = null,
+  resumeRef = null,
 }) {
-  const { entries, error, sendMessage, sendGif, loadOlder, hasMore, hideMessage } = useDraftRoomFeed({
+  const { entries, error, sendMessage, sendGif, loadOlder, hasMore, hideMessage, resumeFeed } = useDraftRoomFeed({
     socket,
     leagueId,
     viewerTeamId,
@@ -60,6 +61,12 @@ function DraftRoomChat({
     // NOT_A_MEMBER chat:send ack and a 403 from the member-only feed, and hands
     // the result up to the room, which unmounts this whole subtree in place.
     onMembershipRevoked,
+  });
+  // The room's session resumes this feed on every join (#2696). It reaches the feed
+  // through this ref, the same idiom the room uses for its other seams, because the
+  // session is attached once per socket, not per render.
+  React.useEffect(() => {
+    if (resumeRef) resumeRef.current = resumeFeed;
   });
   // The account scopes the composer draft (#442 AC5/AC6); Team identity stays
   // the actor on the wire, the account id never leaves the client.
