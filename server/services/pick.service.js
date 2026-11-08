@@ -1,20 +1,12 @@
-const pool = require('../modules/pool');
-const { withTransaction } = require('../modules/withTransaction');
-const { lockLeague } = require('../modules/leagueWrite');
-const { teamForPick, nextOpenPickNumber } = require('./draftOrder.service');
+const { leagueWrite } = require('../modules/leagueWrite');
+const { teamForPick } = require('./draftOrder.service');
 const { isLeagueCommissioner } = require('./leagueRole.service');
 const { teamIdentityOf } = require('./teamIdentity');
 const { appendPickActivity } = require('./draftActivity');
 const { assertFantasyLeagueRow } = require('./leagueType');
-const { draftRounds } = require('./rosterShape');
 // The Pick clock module owns arming: the only writer of the deadline and the
-// current pick (ADR 0018). commitPick advances the turn through its named
-// pick-landed event.
+// current pick (ADR 0018). commitPick advances the turn through onSlotTaken.
 const pickClock = require('./pickClock.service');
-// The one draft->season handoff (#789). Required as a module object so the
-// completing-Pick suite can mock completeDraft to observe the handoff without
-// its side effects; it never requires this module back.
-const draftCompletion = require('./draftCompletion');
 const { getDraftRoomBroadcast } = require('../modules/draftRoomBroadcast');
 const { logger } = require('../modules/logger');
 const sentry = require('../modules/sentry');
@@ -53,15 +45,16 @@ const { ROSTER_GATE } = require('./rosterGate.service');
  * not started, and a completed draft's roster adds are free agency
  * (draft.service.addFreeAgent), not Picks.
  *
- * `byCommissioner` is set by the offline-draft bulk-entry endpoint: the league
- * owner applies the pick to whichever team is on the clock rather than to their
- * own team, and skips the team-lock check (an offline draft is entirely
- * commissioner-driven).
+ * `by` says who made the Pick (CONTEXT.md, Pick): `{ kind: 'manager', userId }`,
+ * `{ kind: 'autopick' }`, or `{ kind: 'commissioner', userId }`. A commissioner
+ * entry (the offline-draft bulk endpoint) applies the pick to whichever team is
+ * on the clock rather than to their own, and skips the team-lock check (an
+ * offline draft is entirely commissioner-driven).
  *
- * `expectedDeadline` is set only by an Autopick: the deadline its firing saw
- * expire. Every re-arm moves pick_deadline_at, so a value that differs from the
- * locked row means the firing is stale and this Pick is refused with a 409
- * `CLOCK_MOVED` and no Pick is inserted (#2549).
+ * `expiredTurn` is set only by an Autopick: `{ pickNumber, deadline }`, the turn
+ * its firing saw expire. Under the lock, a turn that has moved on, or a deadline
+ * that differs from the locked row (every re-arm moves it), refuses the Pick with
+ * a 409 `CLOCK_MOVED` and no Pick is inserted (#2549).
  *
  * Exported as the fan-out-free commit seam. `landPick` is the one export a caller
  * reaches for (ruling 1); `commitPick` is exported because two kinds of test need
@@ -72,16 +65,17 @@ const { ROSTER_GATE } = require('./rosterGate.service');
  * scaffold Pick must not broadcast) or need a broadcast the harness never
  * registered. landPick invokes it through the module exports so the mock is seen.
  */
-async function commitPick({ leagueId, userId, playerId, auto = false, byCommissioner = false, expectedDeadline }) {
-  // withTransaction owns connect, BEGIN, COMMIT-or-guarded-ROLLBACK and the
-  // release rule (ADR 0033). The 23505 -> DraftError mapping that used to sit in
-  // this transaction's own catch now sits in a catch around the wrapper (#1063
+async function commitPick({ leagueId, by, playerId, expiredTurn }) {
+  const auto = by.kind === 'autopick';
+  const commissioner = by.kind === 'commissioner';
+  const userId = by.userId ?? null;
+  // leagueWrite owns the League lock, the transaction and its close (ADR 0033,
+  // ADR 0070). The 23505 -> DraftError mapping sits in a catch around it (#1063
   // Ruling 3); the wrapper rethrows the ORIGINAL driver error untouched, and the
   // post-COMMIT room fan-out stays in landPick, after this returns.
   try {
-    return await withTransaction(pool, async (client) => {
-      // The lock advances the board version, so every Pick moves it (ADR 0025, 2026-11-06).
-      const league = await lockLeague(client, leagueId);
+    return await leagueWrite({ leagueId, label: 'commit-pick' }, async ({ client, league }) => {
+      // leagueWrite took the League lock and advanced the board version (ADR 0070).
       if (!league) throw new DraftError(404, 'league not found');
       // A pick'em-only league has no draft and no rosters; say so rather than
       // "draft has not started" (its draft_status is 'pending' forever).
@@ -98,11 +92,11 @@ async function commitPick({ leagueId, userId, playerId, auto = false, byCommissi
       // resume, autodraft toggle) moves pick_deadline_at, so a differing locked value
       // means this firing is stale. The turn check below cannot tell: a CPU Team is
       // resolved from the clock, and a back-to-back snake Team is on it again (#2549).
-      if (expectedDeadline != null
-        && new Date(expectedDeadline).getTime() !== new Date(league.pick_deadline_at).getTime()) {
+      if (expiredTurn && (league.current_pick + 1 !== expiredTurn.pickNumber
+        || new Date(expiredTurn.deadline).getTime() !== new Date(league.pick_deadline_at).getTime())) {
         throw new DraftError(409, 'the pick clock moved on', 'CLOCK_MOVED');
       }
-      if (byCommissioner && !(await isLeagueCommissioner(client, leagueId, userId))) {
+      if (commissioner && !(await isLeagueCommissioner(client, leagueId, userId))) {
         throw new DraftError(403, 'only the commissioner can enter picks for this draft');
       }
 
@@ -118,7 +112,7 @@ async function commitPick({ leagueId, userId, playerId, auto = false, byCommissi
       // A CPU-managed team (owner_id NULL) only ever drafts by autopick, and
       // there may be more than one, so its pick is found by the clock, the way
       // a commissioner's is, never by a null owner id.
-      if (byCommissioner || (auto && userId == null)) {
+      if (commissioner || auto) {
         myTeam = teamForPick(league.current_pick, teams, rotationOpts);
         if (!myTeam) throw new DraftError(409, 'no team is currently on the clock');
       } else {
@@ -128,17 +122,15 @@ async function commitPick({ leagueId, userId, playerId, auto = false, byCommissi
         // and it authorizes through isLeagueCommissioner.
         myTeam = teams.find((t) => t.owner_id === userId);
         if (!myTeam) throw new DraftError(403, 'not a member of this league');
-        // The lock bars the manager, not the clock: an autopick must land or the
-        // draft stalls on this team. The commissioner's force-add bypasses it too.
-        if (myTeam.locked && !auto) throw new DraftError(409, 'your team is locked by the commissioner');
+        // The lock bars the manager's own pick. An Autopick never reaches this branch.
+        if (myTeam.locked) throw new DraftError(409, 'your team is locked by the commissioner');
         if (league.draft_type === 'offline') {
           throw new DraftError(409, 'this is an offline draft; the commissioner enters every pick');
         }
-        // Autopick-type drafts resolve every pick server-side (the Pick clock
-        // module's autoPick calls in here with auto: true); a manager has no manual
+        // Autopick-type drafts resolve every pick server-side; a manager has no manual
         // Pick control for one (issue #120) and this is the server-side half of
         // that guarantee, not just a client-side hidden button.
-        if (!auto && league.draft_type === 'autopick') {
+        if (league.draft_type === 'autopick') {
           throw new DraftError(409, 'this is an autopick draft; picks are made automatically');
         }
       }
@@ -242,60 +234,17 @@ async function commitPick({ leagueId, userId, playerId, auto = false, byCommissi
         sourcePickId,
       });
 
-      // Rounds are draftRounds(league): fixed once when the draft went active
-      // (ADR 0005), NOT a live draftRosterSize() recomputation. Goes through the
-      // same helper every other consumer uses so a legacy row the one-time backfill
-      // migration hasn't reached yet falls back to the live derivation instead of
-      // silently coercing `teams.length * null` to 0.
-      const totalPicks = teams.length * draftRounds(league);
-      // Keeper picks are pre-inserted at draft start and can occupy any slot, so
-      // completion is a count of all picks made, not a comparison against this
-      // pick's own (possibly non-terminal) pick_number.
-      const pickCountResult = await client.query(
-        `SELECT COUNT(*)::int AS n FROM "draft_picks" WHERE "league_id" = $1`,
-        [leagueId]
-      );
-      draftComplete = pickCountResult.rows[0].n >= totalPicks;
-
-      let nextTeam = null;
-      let nextPickIndex = null;
-      if (!draftComplete) {
-        const takenResult = await client.query(
-          `SELECT "pick_number" FROM "draft_picks" WHERE "league_id" = $1`,
-          [leagueId]
-        );
-        const takenSet = new Set(takenResult.rows.map((r) => r.pick_number - 1));
-        nextPickIndex = nextOpenPickNumber(takenSet, league.current_pick + 1, totalPicks);
-        nextTeam = nextPickIndex === null ? null : teamForPick(nextPickIndex, teams, rotationOpts);
-      }
-      // The value the Pick clock writes to leagues.current_pick in this commit.
-      // On an ordinary pick it is the next OPEN slot: a 0-based index with keepers
-      // skipped. On the COMPLETING pick it is `pickNumber`, which is 1-based
-      // (draft_picks.pick_number; draftTurns.js documents the 0/1-based split).
-      // That is intentional and correct here, not a mixed convention: the last
-      // pick number equals totalPicks, which is exactly the one-past-the-end
-      // sentinel current_pick holds once the draft is done. Computed once here and
-      // handed to the clock as `nextPick`; it also rides out on the outcome (#854)
-      // as `nextPickIndex` so every room reader of league.current_pick advances
-      // with the exact value the server wrote, never a client-side re-derivation
-      // that a keeper slot would silently make wrong.
-      const committedPickIndex = draftComplete ? pickNumber : nextPickIndex;
-      // Advance the turn and arm the next team's clock through the Pick clock
-      // module (ADR 0018): the only writer of current_pick and the deadline.
-      // draft_status rides that statement because the final pick's advance IS the
-      // completion, and the completion side effects below depend on 'complete'
-      // being set first (#194).
-      // The Pick clock reads the offline rule and clock settings from the locked
-      // league row itself (#948); this transaction holds it FOR NO KEY UPDATE, and the
-      // lock's board-version advance is the only Leagues write before this call, so the
-      // re-read is the same row.
-      pickDeadlineAt = await pickClock.onPickLanded(client, {
-        leagueId,
-        nextPick: committedPickIndex,
-        draftStatus: draftComplete ? 'complete' : 'active',
-        draftComplete,
-        nextTeam,
+      // The Pick clock finds the next open slot and its Team, sets the Draft status,
+      // arms the clock and hands off completion (ADR 0018, 2026-11-06): the one place a
+      // turn advances. It reads the offline rule and clock settings from the locked
+      // row itself (#948), and this transaction holds that row's lock.
+      const slot = await pickClock.onSlotTaken(client, {
+        leagueId, league, teams, rotationOpts, fromInclusive: league.current_pick + 1,
       });
+      draftComplete = slot.draftComplete;
+      pickDeadlineAt = slot.pickDeadlineAt;
+      completion = slot.completion;
+      nextTeamId = slot.nextTeam ? slot.nextTeam.id : null;
       // A present owner making their own pick clears any timeout streak.
       if (!auto) {
         await client.query(
@@ -303,24 +252,23 @@ async function commitPick({ leagueId, userId, playerId, auto = false, byCommissi
           [myTeam.id]
         );
       }
-      if (draftComplete) {
-        // The clock flipped draft_status to 'complete' above; the one draft->season
-        // handoff runs on this same transaction (#789): it opens the waiver window,
-        // schedules the season, and appends the actor-less COMPLETE lifecycle entry,
-        // returned here to broadcast after COMMIT.
-        // It runs AFTER this Pick's roster row and bench placement (#2548): the
-        // handoff seeds every Team's Lineup from its roster read back off the
-        // database, so a completing Pick that ran first would be missing from its
-        // own Team's seed and start the season benched.
-        completion = await draftCompletion.completeDraft(client, { leagueId });
-      } else {
-        nextTeamId = nextTeam.id;
+      // An Autopick's expiry consequences commit with it (#2694): a failure after the
+      // insert rolls the Pick and the streak back together.
+      let autodraftMoved = false;
+      if (auto) {
+        const timeout = await pickClock.onTimeout(client, {
+          leagueId, team: myTeam, nextTeamId, draftActive: !draftComplete,
+        });
+        if (timeout) {
+          autodraftMoved = true;
+          if (timeout.pickDeadlineAt !== undefined) pickDeadlineAt = timeout.pickDeadlineAt;
+        }
       }
 
       // teamName rides beside teamId so the `draft:picked` broadcast built from
       // this outcome can attribute the Pick by Team without a second lookup
       // (#112, parent #108).
-      return {
+      const committed = {
         leagueId,
         ...teamIdentityOf(myTeam),
         player: playerResult.rows[0],
@@ -330,10 +278,10 @@ async function commitPick({ leagueId, userId, playerId, auto = false, byCommissi
         // commit (#854): the 0-based next open index on an ordinary pick (keepers
         // skipped), or the completing pick's 1-based number on the last pick, which
         // equals totalPicks and so is the correct one-past-the-end sentinel (see
-        // committedPickIndex above). The room reducer follows league.current_pick
+        // the Pick clock's slot step). The room reducer follows league.current_pick
         // to it so the Draft assistant, the Upcoming strip and the correction
         // target stop reading a frozen snapshot.
-        nextPickIndex: committedPickIndex,
+        nextPickIndex: slot.nextPickIndex,
         draftComplete,
         pickDeadlineAt,
         // The typed Draft-activity entry for the combined feed (#435), so the
@@ -350,7 +298,10 @@ async function commitPick({ leagueId, userId, playerId, auto = false, byCommissi
         // feed shows the draft closing beside the final Pick.
         completion,
       };
-    }, { label: 'commit-pick' });
+      // Only a timeout that moved the Team into Autodraft carries the flag; landPick
+      // then tells the room (stateChanged) after pickLanded (#2694).
+      return autodraftMoved ? { ...committed, autodraftMoved } : committed;
+    });
   } catch (error) {
     if (error.code === '23505') {
       throw new DraftError(409, 'player is already rostered in this league');
@@ -383,15 +334,17 @@ async function commitPick({ leagueId, userId, playerId, auto = false, byCommissi
  * commitPick is invoked through the module exports so a test can mock the commit
  * and observe the real fan-out.
  *
- * `expectedDeadline` is passed straight through to commitPick: an Autopick whose
- * firing saw a deadline that the locked row since moved past is refused with a
+ * `expiredTurn` is passed straight through to commitPick: an Autopick whose firing
+ * saw a turn or deadline that the locked row has since moved past is refused with a
  * 409 `CLOCK_MOVED` and no Pick lands (#2549).
  */
-async function landPick({ leagueId, userId, playerId, auto = false, byCommissioner = false, expectedDeadline }) {
-  const outcome = await module.exports.commitPick({ leagueId, userId, playerId, auto, byCommissioner, expectedDeadline });
+async function landPick({ leagueId, by, playerId, expiredTurn }) {
+  const outcome = await module.exports.commitPick({ leagueId, by, playerId, expiredTurn });
+  // autodraftMoved is the commit's own fact for the room below, not a Pick field.
+  const { autodraftMoved, ...pick } = outcome;
   try {
     const broadcast = getDraftRoomBroadcast();
-    await broadcast.pickLanded(leagueId, { ...outcome, auto });
+    await broadcast.pickLanded(leagueId, { ...pick, auto: by.kind === 'autopick' });
     if (outcome.draftComplete) {
       // The Pick that ended the draft also appended a completion lifecycle entry
       // (#437); deliver it to the room's combined feed on draft:activity beside the
@@ -400,6 +353,8 @@ async function landPick({ leagueId, userId, playerId, auto = false, byCommission
       if (outcome.completion) await broadcast.activityAppended(leagueId, outcome.completion);
       await broadcast.draftCompleted(leagueId);
     }
+    // The timeout moved the Team into Autodraft: the board's state changed after the Pick (#2684).
+    if (autodraftMoved) await broadcast.stateChanged(leagueId);
   } catch (error) {
     // The commit already succeeded; report the fan-out failure and return the
     // outcome rather than throwing a durable Pick's success away.

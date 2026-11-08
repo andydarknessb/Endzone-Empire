@@ -94,3 +94,12 @@ We decide:
   then the module, its callers and the guard.
 
 Refs: #2681, #947, #946, #962, #2535, #2545, #2573, ADR 0033, ADR 0058.
+
+## Amendment (2026-11-07, #2694): the scheduled start is a League write of its own
+
+Rule 3's "the scheduled start hands off to `startDraft` before it connects" no longer
+describes the code. The scheduled tick's start opens its own League write
+(`runStartAction`), and `startDraft` nests inside it through `within`, so a scheduled
+start locks the League row once. The reminder and flag actions are League writes too.
+The Pick, the nothing-draftable pause and the Draft start are League writes through
+`leagueWrite`, not `withTransaction` plus `lockLeague`. The decision above stands.
