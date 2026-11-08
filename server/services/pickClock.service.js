@@ -491,9 +491,10 @@ async function autoPick({ leagueId }) {
   if (!league || league.draft_status !== 'active' || league.draft_paused) return null;
   // Expiry check (#601, ADR 0018): only an actually-elapsed clock autopicks. A null
   // deadline (untimed non-autodrafting turn, or a completed draft) is not an expiry.
-  // Which turn this firing expired is not re-derived here: the commit fences it
-  // under the League lock (expiredTurn, #2694), so a sequenced or concurrent second
-  // firing is refused CLOCK_MOVED there, and autoPick returns null.
+  // Which turn this firing expired is not re-derived here: the commit and the
+  // escalation fence it under the League lock (expiredTurn, #2694, #2720), so a
+  // sequenced or concurrent second firing is refused CLOCK_MOVED there or declined
+  // by the escalation, and autoPick returns null.
   const deadline = league.pick_deadline_at;
   if (deadline == null || msUntilDeadline(deadline) > 0) return null;
 
@@ -551,6 +552,8 @@ async function autoPick({ leagueId }) {
     rosterSlots, rosterPositions, currentRound, draftRounds: rounds, picksRemaining,
   }).slice(0, AUTOPICK_CANDIDATE_LIMIT);
 
+  // The turn this firing saw expire, built once for every candidate and the escalation.
+  const expiredTurn = { pickNumber: league.current_pick + 1, deadline };
   for (const candidate of candidates) {
     try {
       // A Pick lands in one place (#782): landPick commits the autopick AND fans
@@ -564,9 +567,8 @@ async function autoPick({ leagueId }) {
         leagueId,
         by: { kind: 'autopick' },
         playerId: candidate.id,
-        // The turn this firing saw expire; the commit refuses CLOCK_MOVED if the
-        // turn or its deadline moved since (#2549).
-        expiredTurn: { pickNumber: league.current_pick + 1, deadline },
+        // The commit refuses CLOCK_MOVED if the turn or its deadline moved since (#2549).
+        expiredTurn,
       });
     } catch (err) {
       // A stale firing: the turn it was for is gone, so no candidate fits, no
@@ -582,7 +584,7 @@ async function autoPick({ leagueId }) {
   // escalateNothingDraftable - so a firing that loses the race pauses nothing
   // and appends nothing. autoPick still returns null either way, so neither fire
   // path commits a Pick or arms a clock for the now-paused draft.
-  const escalation = await escalateNothingDraftable({ leagueId });
+  const escalation = await escalateNothingDraftable({ leagueId, expiredTurn });
   if (escalation) {
     // Both ride the one Draft room adapter (#745). In the worker they publish
     // over the Redis emitter transport (the escalation runs there); stateChanged
@@ -615,7 +617,7 @@ async function autoPick({ leagueId }) {
  * the deadline already cleared) inside the lock - commits nothing and appends
  * no second entry. The invariant is NOT "only one firing reaches here" (both
  * do); it is "only the firing that still sees an active, unpaused draft on this
- * same elapsed deadline acts".
+ * same elapsed deadline and this same turn acts".
  *
  * The still-elapsed re-check covers a second race the pause check alone would
  * miss: a concurrent firing that did NOT hit nothing-draftable but committed a
@@ -624,12 +626,18 @@ async function autoPick({ leagueId }) {
  * and armed the next team's fresh clock, so under the lock this firing reads a
  * future-or-null deadline and declines, rather than pausing a Draft that in
  * fact moved on.
+ *
+ * The turn fence (#2720) covers the race the deadline re-check misses: a Pick
+ * landed on this expired turn, and the next turn's deadline has also elapsed, so
+ * the locked row is still elapsed but on a later turn. The firing declines unless
+ * the locked row is still this turn and deadline (expiredTurn), the same fence
+ * commitPick applies.
  */
-async function escalateNothingDraftable({ leagueId }) {
+async function escalateNothingDraftable({ leagueId, expiredTurn }) {
   // leagueWrite owns connect/BEGIN/the lock/COMMIT-or-guarded-ROLLBACK and the
   // release rule (ADR 0033, ADR 0070) - the close this #839-class lock-holder must get
   // right. Nothing ran between the old checkout and BEGIN, so no statement newly
-  // reaches the wrapper's catch. Both early bails write no Draft state: the lock's
+  // reaches the wrapper's catch. The early bails write no Draft state: the lock's
   // board-version advance is the only write before them, and returning null COMMITs
   // it, which the ticket allows (a version that moves without a Draft-state change is
   // harmless). The write path still returns { activity } as before.
@@ -640,6 +648,12 @@ async function escalateNothingDraftable({ leagueId }) {
     if (!league || league.draft_status !== 'active' || league.draft_paused) {
       // Nothing written but the lock's version advance: a plain return null COMMITs
       // it and releases the lock.
+      return null;
+    }
+    // The turn fence (#2720): a Pick landed on this expired turn, so the locked row is
+    // on a later turn or re-armed. Same comparison commitPick makes (#2549).
+    if (league.current_pick + 1 !== expiredTurn.pickNumber
+      || new Date(expiredTurn.deadline).getTime() !== new Date(league.pick_deadline_at).getTime()) {
       return null;
     }
     const deadline = league.pick_deadline_at;
@@ -908,6 +922,7 @@ module.exports = {
   onPickUndone,
   clearClock,
   autoPick,
+  escalateNothingDraftable,
   processExpiredPickClocks,
   armExpiryTimer,
   fireExpiryTimer,
