@@ -694,7 +694,7 @@ const dueTradeWorldHandlers = () => [
   // (the race a dead trade takes), so loadTrade throws TradeError(404, 'trade
   // not found'). The cancel then reloads the trade in its own transaction (#2295),
   // where it is back and still accepted.
-  [/^SELECT "league_id" FROM "trades" WHERE "id" = \$1$/, () => ({ rows: [{ league_id: 1 }] })], [/^SELECT \* FROM "trades" WHERE "id" = \$1/, (() => {
+  [/^SELECT "league_id" FROM "trades" WHERE "id" = \$1$/, () => ({ rows: [{ league_id: 1 }] })], [/^SELECT \*, \("review_ends_at" <= now\(\)\) AS "review_closed" FROM "trades" WHERE "id" = \$1/, (() => {
     let reads = 0;
     return () => ({
       rows: reads++ === 0 ? [] : [{ id: 5, status: 'accepted', proposing_team_id: 41, receiving_team_id: 42, league_id: 1 }],
@@ -760,8 +760,8 @@ test('processDueTrades: a due trade that executes is recorded and the sweep reso
     [/FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/, () => ({
       rows: [{ id: 1, draft_status: 'complete', roster_limit: 16, ir_slots: 0, current_season: 2026, current_week: 6 }],
     })],
-    [/^SELECT "league_id" FROM "trades" WHERE "id" = \$1$/, () => ({ rows: [{ league_id: 1 }] })], [/^SELECT \* FROM "trades" WHERE "id" = \$1/, () => ({
-      rows: [{ id: 9, status: 'accepted', proposing_team_id: 41, receiving_team_id: 42, league_id: 1 }],
+    [/^SELECT "league_id" FROM "trades" WHERE "id" = \$1$/, () => ({ rows: [{ league_id: 1 }] })], [/^SELECT \*, \("review_ends_at" <= now\(\)\) AS "review_closed" FROM "trades" WHERE "id" = \$1/, () => ({
+      rows: [{ id: 9, status: 'accepted', review_closed: true, proposing_team_id: 41, receiving_team_id: 42, league_id: 1 }],
     })],
     [select('trade_items'), () => ({ rows: [] })],
     [/FROM "teams" WHERE "id" IN \(\$1, \$2\)/, () => ({
@@ -808,8 +808,8 @@ function dueExecutingTradeWorld(opts, extraHandlers = []) {
         current_season: 2026, current_week: 6, position_caps: opts.positionCaps || {},
       }],
     })],
-    [/^SELECT "league_id" FROM "trades" WHERE "id" = \$1$/, () => ({ rows: [{ league_id: 1 }] })], [/^SELECT \* FROM "trades" WHERE "id" = \$1/, () => ({
-      rows: [{ id: 9, status: 'accepted', proposing_team_id: 41, receiving_team_id: 42, league_id: 1 }],
+    [/^SELECT "league_id" FROM "trades" WHERE "id" = \$1$/, () => ({ rows: [{ league_id: 1 }] })], [/^SELECT \*, \("review_ends_at" <= now\(\)\) AS "review_closed" FROM "trades" WHERE "id" = \$1/, () => ({
+      rows: [{ id: 9, status: 'accepted', review_closed: true, proposing_team_id: 41, receiving_team_id: 42, league_id: 1 }],
     })],
     [select('trade_items'), () => ({ rows: [{ trade_id: 9, from_team_id: 41, to_team_id: 42, player_id: 21 }] })],
     [/FROM "teams" WHERE "id" IN \(\$1, \$2\)/, ownerLookup],
@@ -871,7 +871,7 @@ test('processDueTrades: a trade already settled elsewhere is not cancelled and n
   const world = dueExecutingTradeWorld({
     positionCaps: { RB: 1 },
     positionCounts: () => 1,
-  }, [[/^SELECT "league_id" FROM "trades" WHERE "id" = \$1$/, () => ({ rows: [{ league_id: 1 }] })], [/^SELECT \* FROM "trades" WHERE "id" = \$1/, (() => {
+  }, [[/^SELECT "league_id" FROM "trades" WHERE "id" = \$1$/, () => ({ rows: [{ league_id: 1 }] })], [/^SELECT \*, \("review_ends_at" <= now\(\)\) AS "review_closed" FROM "trades" WHERE "id" = \$1/, (() => {
     // Accepted for the execute attempt, vetoed by the time the cancel reloads it.
     let reads = 0;
     return () => ({
@@ -893,12 +893,12 @@ test('processDueTrades: a cancel whose transaction throws is contained and a lat
       rows: [{ id: 1, draft_status: 'complete', roster_limit: 16, ir_slots: 0, current_season: 2026, current_week: 6 }],
     })],
     // Trade 5 is missing on its execute read (a TradeError) and back for the cancel's reload.
-    [/^SELECT "league_id" FROM "trades" WHERE "id" = \$1$/, () => ({ rows: [{ league_id: 1 }] })], [/^SELECT \* FROM "trades" WHERE "id" = \$1/, (() => {
+    [/^SELECT "league_id" FROM "trades" WHERE "id" = \$1$/, () => ({ rows: [{ league_id: 1 }] })], [/^SELECT \*, \("review_ends_at" <= now\(\)\) AS "review_closed" FROM "trades" WHERE "id" = \$1/, (() => {
       let reads5 = 0;
       return (text, params) => ({
         rows: params[0] === 5 && reads5++ === 0
           ? []
-          : [{ id: params[0], status: 'accepted', proposing_team_id: 41, receiving_team_id: 42, league_id: 1 }],
+          : [{ id: params[0], status: 'accepted', review_closed: true, proposing_team_id: 41, receiving_team_id: 42, league_id: 1 }],
       });
     })()],
     [select('trade_items'), () => ({ rows: [] })],
@@ -1058,6 +1058,9 @@ function vetoWorld(reviewEndsAt) {
         proposing_team_id: 41,
         receiving_team_id: 42,
         review_ends_at: reviewEndsAt,
+        // The database's clock answers this (review_ends_at <= now()); the fake
+        // stands in for it with the same comparison at the moment of the read.
+        review_closed: reviewEndsAt <= new Date(),
       }],
     })],
     [select('trade_items'), () => ({ rows: [] })],
