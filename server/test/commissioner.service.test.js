@@ -11,7 +11,7 @@ const commissioner = require('../services/commissioner.service');
 
 const LEAGUE_ID = 1;
 const USER_ID = 7;
-const LOCK = /^(?:SELECT \* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE|UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*)$/;
+const LOCK = /^(?:(?:SELECT \* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE|UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*)|UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*)$/;
 const COMMISSIONER_CHECK = /^SELECT \*, .* AS "is_commissioner" FROM "leagues" WHERE "id" = \$1$/;
 
 test('setTransactionsLocked takes the League lock before its commissioner check and its write', async (t) => {

@@ -1232,7 +1232,7 @@ test('a full roster resolves by dropping a bench player before activating the st
     // The #962 write gate on the drop, League then Team, with its own explicit
     // column lists. Neither shape matcher below is blind enough to answer them
     // correctly - the gate refuses a League row that cannot answer the freeze.
-    [/^SELECT "id", "transactions_locked",.* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/, () => ({
+    [/^SELECT "id", "transactions_locked",.* FROM "leagues" WHERE "id" = \$1$/, () => ({
       rows: [{ id: 5, transactions_locked: false }],
     })],
     [/^SELECT "id", "locked" FROM "teams" WHERE "id" = \$1 FOR UPDATE/, () => ({

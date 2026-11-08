@@ -164,7 +164,7 @@ test('joinPublicLeague (join_approval): a still-pending request is surfaced as-i
 test('decideJoinRequest (approve): a nameless join request cannot slip through -- joinLeague refuses it with the same 400', async (t) => {
   const fake = installFake(t, [
     ...COMMISSIONER_ALERT,
-    [/FROM "leagues" WHERE "id" = \$1 AND .*FOR NO KEY UPDATE/, () => ({ rows: [APPROVAL_LEAGUE] })],
+    [/FROM "leagues" WHERE "id" = \$1 AND /, () => ({ rows: [APPROVAL_LEAGUE] })],
     [/(?:FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE|UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1)/, () => ({ rows: [APPROVAL_LEAGUE] })],
     [/FROM "join_requests" JOIN "users"/, () => ({
       rows: [{ id: 3, user_id: 5, username: 'eve', team_name: null, status: 'pending' }],

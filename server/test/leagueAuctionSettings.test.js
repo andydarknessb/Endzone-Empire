@@ -48,6 +48,7 @@ function transactionClient() {
       if (text.startsWith('UPDATE "leagues"')) {
         return { rows: [{ id: 1, owner_id: 7, draft_status: 'pending' }] };
       }
+      if (text.startsWith('SELECT 1 FROM "leagues"')) return { rows: [{ '?column?': 1 }] };
       throw new Error(`Unexpected SQL: ${text}`);
     },
   };
@@ -83,8 +84,9 @@ for (const [name, order] of [
 
     assert.equal(response.status, 400);
     assert.match(response.body.error, /must list every current team exactly once/);
-    assert.ok(tx.calls.some((sql) => sql.includes('FOR NO KEY UPDATE')));
+    // The League write's lock is its board-version advance, UPDATE ... RETURNING (ADR 0070).
+    assert.ok(tx.calls.some((sql) => sql.includes('"board_version" = "board_version" + 1')));
     assert.ok(tx.calls.includes('ROLLBACK'));
-    assert.ok(!tx.calls.some((sql) => sql.startsWith('UPDATE "leagues"')));
+    assert.ok(!tx.calls.some((sql) => sql.startsWith('UPDATE "leagues"') && !sql.includes('"board_version"')));
   });
 }

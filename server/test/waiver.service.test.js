@@ -140,6 +140,7 @@ test('claimTarget and processWaivers agree on the same frozen league row (#966)'
 
   const entryFake = createFakePool([
     [/^SELECT \* FROM "leagues"/, () => ({ rows: [frozenLeague] })],
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [frozenLeague] })],
   ]).install(t);
   let entryRejection;
   try {
@@ -152,6 +153,7 @@ test('claimTarget and processWaivers agree on the same frozen league row (#966)'
 
   const writeFake = createFakePool([
     [select('leagues'), () => ({ rows: [frozenLeague] })],
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [frozenLeague] })],
     [select('waiver_claims'), () => ({ rows: [
       { id: 9, league_id: 1, team_id: 31, player_id: 500, drop_player_id: null, bid: 0, status: 'pending', created_at: '2026-07-11T00:00:00Z' },
     ] })],
@@ -337,6 +339,7 @@ test('processWaivers: a Team over a cap keeps its players; a claim at that posit
   ];
   const fake = createFakePool([
     [select('leagues'), () => ({ rows: [league] })],
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [league] })],
     [update('leagues'), () => ({ rows: [], rowCount: 0 })],
     [select('waiver_claims'), () => ({ rows: claims })],
     [select('teams'), () => ({ rows: [{ id: 31, league_id: 1, owner_id: 8, user_id: 8, waiver_priority: 1 }] })],
@@ -378,6 +381,7 @@ test('processWaivers: an over-cap Team swaps within the cap group and wins', asy
   let rbOnRoster = 2;
   const fake = createFakePool([
     [select('leagues'), () => ({ rows: [league] })],
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [league] })],
     [update('leagues'), () => ({ rows: [], rowCount: 0 })],
     [select('waiver_claims'), () => ({ rows: claims })],
     [select('teams'), () => ({ rows: [{ id: 31, league_id: 1, owner_id: 8, user_id: 8, waiver_priority: 1 }] })],
@@ -422,6 +426,7 @@ test('processWaivers: a claim that never fit its cap keeps the cap reason when a
   ];
   const fake = createFakePool([
     [select('leagues'), () => ({ rows: [league] })],
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [league] })],
     [update('leagues'), () => ({ rows: [], rowCount: 0 })],
     [select('waiver_claims'), () => ({ rows: claims })],
     [select('teams'), () => ({ rows: [{ id: 31, league_id: 1, owner_id: 8, user_id: 8, waiver_priority: 1 }] })],
@@ -460,6 +465,7 @@ test('processWaivers: the winning claim benches the acquired player', async (t) 
     // Shape matcher (blind to the select list) so it answers both processWaivers'
     // own SELECT * and the roster gate's explicit-column read (#944).
     [select('leagues'), () => ({ rows: [league] })],
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [league] })],
     [update('leagues'), () => ({ rows: [], rowCount: 0 })],
     [select('waiver_claims'), () => ({ rows: [
       { id: 9, league_id: 1, team_id: 31, player_id: 500, drop_player_id: null, bid: 0, status: 'pending', created_at: '2026-07-11T00:00:00Z' },
@@ -499,6 +505,7 @@ test('processWaivers: a frozen league awards nothing; the claims stay pending (#
   };
   const fake = createFakePool([
     [select('leagues'), () => ({ rows: [league] })],
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [league] })],
     [select('waiver_claims'), () => ({ rows: [
       { id: 9, league_id: 1, team_id: 31, player_id: 500, drop_player_id: null, bid: 0, status: 'pending', created_at: '2026-07-11T00:00:00Z' },
     ] })],
@@ -520,6 +527,7 @@ test('processWaivers: a frozen league awards nothing; the claims stay pending (#
 test('processWaivers clears an expired empty waiver window and refreshes league availability', async (t) => {
   const fake = createFakePool([
     [/^SELECT \* FROM "leagues"/, () => ({ rows: [{ id: 1, waiver_type: 'priority' }] })],
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [{ id: 1, waiver_type: 'priority' }] })],
     [select('waiver_claims'), () => ({ rows: [] })],
     [remove('waiver_players'), () => ({ rows: [], rowCount: 1 })],
     [update('leagues'), () => ({ rows: [], rowCount: 1 })],
@@ -541,6 +549,7 @@ test('processWaivers clears an expired empty waiver window and refreshes league 
 test('processWaivers locks the due claims it reads, so a cancel cannot be overwritten (#2274)', async (t) => {
   const fake = createFakePool([
     [/^SELECT \* FROM "leagues"/, () => ({ rows: [{ id: 1, waiver_type: 'priority' }] })],
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [{ id: 1, waiver_type: 'priority' }] })],
     [select('waiver_claims'), () => ({ rows: [] })],
     [remove('waiver_players'), () => ({ rows: [], rowCount: 1 })],
     [update('leagues'), () => ({ rows: [], rowCount: 1 })],
@@ -568,6 +577,7 @@ test('processWaivers: the claim drop records no undo, unlike the two undoable dr
   let holdParams;
   const fake = createFakePool([
     [select('leagues'), () => ({ rows: [league] })],
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [league] })],
     [update('leagues'), () => ({ rows: [], rowCount: 0 })],
     [select('waiver_claims'), () => ({ rows: [
       { id: 9, league_id: 1, team_id: 31, player_id: 500, drop_player_id: 77, bid: 0, status: 'pending', created_at: '2026-07-11T00:00:00Z' },
@@ -638,6 +648,7 @@ test('processWaivers: a frozen league finishes nothing invalid either (#990)', a
     // Shape matcher (blind to the select list) so it answers both processWaivers'
     // own SELECT * and the gate's explicit-column read.
     [select('leagues'), () => ({ rows: [allInvalidLeague(true)] })],
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [allInvalidLeague(true)] })],
     [select('waiver_claims'), () => ({ rows: frozenAllInvalidClaims })],
     [select('teams'), () => ({ rows: frozenAllInvalidTeams })],
     // Both claimed players are already rostered, so every claim fails
@@ -672,6 +683,7 @@ test('processWaivers: the freeze refusal is the gate\'s own read, not a second o
   const fake = createFakePool([
     [/^SELECT "id", "transactions_locked"/, () => ({ rows: [{ id: 1, waiver_type: 'priority' }] })],
     [/^SELECT \* FROM "leagues"/, () => ({ rows: [allInvalidLeague(true)] })],
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [allInvalidLeague(true)] })],
     [select('waiver_claims'), () => ({ rows: frozenAllInvalidClaims })],
     [select('teams'), () => ({ rows: frozenAllInvalidTeams })],
     [/^SELECT 1 FROM "team_players" WHERE "league_id"/, () => ({ rows: [{ '?column?': 1 }] })],
@@ -696,6 +708,7 @@ test('processWaivers: an unfrozen league still finishes an unawardable batch inv
   // path rather than skipped.
   const fake = createFakePool([
     [select('leagues'), () => ({ rows: [allInvalidLeague(false)] })],
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [allInvalidLeague(false)] })],
     [select('waiver_claims'), () => ({ rows: frozenAllInvalidClaims })],
     [select('teams'), () => ({ rows: frozenAllInvalidTeams })],
     [/^SELECT 1 FROM "team_players" WHERE "league_id"/, () => ({ rows: [{ '?column?': 1 }] })],
@@ -721,6 +734,7 @@ test('processWaivers: an unfrozen league still finishes an unawardable batch inv
 // any of its own business logic; the wrapper's own tests carry the rest.
 const submitClaimEarlyThrowHandlers = () => [
   [/^SELECT \* FROM "leagues"/, () => ({ rows: [] })],
+  [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [] })],
 ];
 
 test('submitClaim: a rejecting ROLLBACK destroys the connection and the original error survives (#1066 Ruling 5)', async (t) => {
@@ -1161,6 +1175,7 @@ test('kickoff hold, then claim-target, submit-claim and processing, all through 
 
     // claimTarget / submitClaim / processWaivers, sharing the same world.
     [select('leagues'), () => ({ rows: [league] })],
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [league] })],
     [select('teams'), () => ({ rows: [team] })],
     [/^SELECT "id", "name", "position", "nfl_team" FROM "players"/, () => ({ rows: [player] })],
     [/^SELECT 1 FROM "team_players" WHERE "league_id"/, () => ({ rows: [] })], // never rostered before the award
@@ -1446,6 +1461,7 @@ const contestedWorld = (t, { waiverType, claims, faabRemaining = 100 }) => {
   }));
   const fake = createFakePool([
     [select('leagues'), () => ({ rows: [league] })],
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [league] })],
     [update('leagues'), () => ({ rows: [], rowCount: 0 })],
     [select('waiver_claims'), () => ({ rows })],
     [select('teams'), () => ({ rows: [31, 32, 33].map((id, i) => ({

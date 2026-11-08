@@ -29,8 +29,11 @@ function makeApp(t) {
     team: { id: 900 + userId, league_id: leagueId, owner_id: userId },
   }));
   createFakePool([
-    [/^SELECT \* FROM "leagues" WHERE "invite_code" = \$1 FOR NO KEY UPDATE$/, (text, [code]) => ({
-      rows: code === LEGACY_CODE ? [{ id: 7, invite_code: code }] : [],
+    [/^SELECT "id" FROM "leagues" WHERE "invite_code" = \$1$/, (text, [code]) => ({
+      rows: code === LEGACY_CODE ? [{ id: 7 }] : [],
+    })],
+    [/^(?:SELECT \* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE|UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*)$/, (text, [id]) => ({
+      rows: [{ id, invite_code: LEGACY_CODE }],
     })],
     [/^INSERT INTO "leagues"/, (text, params) => ({ rows: [{ id: 8, invite_code: params[2] }] })],
   ]).install(t);

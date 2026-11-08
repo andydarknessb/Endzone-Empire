@@ -1,6 +1,7 @@
 const crypto = require('node:crypto');
 const pool = require('../modules/pool');
 const { withTransaction } = require('../modules/withTransaction');
+const { lockLeague } = require('../modules/leagueWrite');
 const { awardPickemChampions, reconcilePickemChampionTrophies } = require('./trophy.service');
 
 const OUTCOME = Object.freeze({
@@ -280,10 +281,10 @@ function operatorResult({ leagueId, season, proposed, provenance, declaredAt = n
 }
 
 async function requirePickemLeague({ db, leagueId, lock = false }) {
-  const league = await db.query(
-    `SELECT "id", "pickem_only" FROM "leagues" WHERE "id" = $1${lock ? ' FOR NO KEY UPDATE' : ''}`,
-    [leagueId]
-  );
+  // lock takes the League row through lockLeague (ADR 0070), on the caller's transaction.
+  const league = lock
+    ? { rows: [await lockLeague(db, leagueId)] }
+    : await db.query(`SELECT "id", "pickem_only" FROM "leagues" WHERE "id" = $1`, [leagueId]);
   if (!league.rows[0]) {
     throw new PickemSeasonResultError(404, 'PICKEM_SEASON_RESULT_LEAGUE_NOT_FOUND', 'League not found');
   }

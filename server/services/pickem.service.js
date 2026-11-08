@@ -1,5 +1,6 @@
 const pool = require('../modules/pool');
 const { withTransaction } = require('../modules/withTransaction');
+const { leagueWrite } = require('../modules/leagueWrite');
 const { logTransaction } = require('./activity.service');
 const { RECAPS_TABLE_SQL, isMissingRecapStorage } = require('../modules/recapStorage');
 const { isPickemOnly } = require('./leagueType');
@@ -773,9 +774,9 @@ async function putSettings({ leagueId, enabled, mode }) {
   // release rule (ADR 0033). Refusals throw a PickemError inside work and the
   // wrapper rolls back and rethrows untouched, so no catch-side mapping moves
   // outward. The bad-mode check above is pre-transaction and stays before it.
-  return withTransaction(
-    pool,
-    async (client) => {
+  return leagueWrite(
+    { leagueId, label: 'pickem-settings' },
+    async ({ client }) => {
     const league = await loadLeague(client, leagueId);
     if (isPickemOnly(league) && enabled === false) {
       throw new PickemError(
@@ -817,8 +818,7 @@ async function putSettings({ leagueId, enabled, mode }) {
       detail: { action: 'pickem_settings', enabled: nextEnabled, mode: nextMode },
     });
     return { enabled: nextEnabled, mode: nextMode };
-    },
-    { label: 'pickem-settings' }
+    }
   );
 }
 

@@ -1,5 +1,6 @@
 const pool = require('../modules/pool');
 const { withTransaction } = require('../modules/withTransaction');
+const { lockLeague } = require('../modules/leagueWrite');
 const {
   REG_SEASON_WEEKS,
   winnerOf,
@@ -360,29 +361,25 @@ async function syncPickemOnlyWeeks({ now = new Date(), db = pool } = {}) {
  */
 async function completeOnePickemSeason({ league, season, seasonGames }) {
   // withTransaction owns connect/BEGIN/COMMIT-or-guarded-ROLLBACK and the
-  // release rule (ADR 0033). Nothing ran between the old checkout and BEGIN, so
-  // no statement newly reaches the wrapper's catch. Both early bails precede
-  // every write (the FOR NO KEY UPDATE re-read and the has-picks SELECT are the only
-  // statements before them), so returning null COMMITs a read-only transaction
-  // and releases the row lock exactly as the old bare ROLLBACK did; the write
-  // path returns the outcome object as before.
+  // release rule (ADR 0033). The early bails come before the League lock, so they
+  // move no board version: the peek and the has-picks check are plain reads. A bail
+  // after the lock (a race with a completion or a rollover) commits the bump the
+  // lock made, as any League write does (ADR 0070).
   const outcome = await withTransaction(pool, async (client) => {
-    const locked = await client.query(
-      `SELECT "id", "current_season", "season_status" FROM "leagues" WHERE "id" = $1 FOR NO KEY UPDATE`,
+    // A league already complete, or in another season, and a league nobody has
+    // picked in (the zombie guard: created into a finished season, or abandoned)
+    // are both answered here, from plain reads, so their board version never moves.
+    const peek = await client.query(
+      `SELECT "season_status", "current_season" FROM "leagues" WHERE "id" = $1`,
       [league.id]
     );
-    const row = locked.rows[0];
-    if (!row || row.season_status === 'complete' || Number(row.current_season) !== season) {
-      // Read-only so far: a plain return null COMMITs the empty transaction and
-      // releases the lock, the same release the bare ROLLBACK gave.
-      return null;
-    }
-    if (!(await hasPicksThisSeason(client, league.id, season))) {
-      // Zombie guard: a league nobody ever picked in (created into a finished
-      // season, or simply abandoned) never completes and never crowns anyone.
-      // Still read-only: same read-only COMMIT-and-release as the bail above.
-      return null;
-    }
+    const peeked = peek.rows[0];
+    if (!peeked || peeked.season_status === 'complete' || Number(peeked.current_season) !== season) return null;
+    if (!(await hasPicksThisSeason(client, league.id, season))) return null;
+    const row = await lockLeague(client, league.id);
+    if (!row || row.season_status === 'complete' || Number(row.current_season) !== season) return null;
+    // Re-checked under the lock: the zombie guard decides on the row the write holds.
+    if (!(await hasPicksThisSeason(client, league.id, season))) return null;
     const { standings, mode } = await getCompletionStandings({
       leagueId: league.id, season, db: client, games: seasonGames,
     });

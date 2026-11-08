@@ -58,6 +58,7 @@ function processWorld(t, { league, teams, rosters, claims, pending = claims, nam
   };
   const fake = createFakePool([
     [select('leagues'), () => ({ rows: [league] })],
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [league] })],
     [update('leagues'), () => ({ rows: [], rowCount: 0 })],
     // The league's pending claims, due or not (ranks in notes); the due read has a LEFT JOIN.
     [/^SELECT "waiver_claims".* FROM "waiver_claims" WHERE/, () => ({ rows: pending })],
@@ -208,7 +209,7 @@ test('processWaivers: budget spent by an earlier claim of the same team names th
 function reorderWorld(t, { pending, teamId = 31 }) {
   const written = [];
   const fake = createFakePool([
-    [/^SELECT \* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/, () => ({ rows: [{ id: 1, pickem_only: false }] })],
+    [/^(?:SELECT \* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE|UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*)/, () => ({ rows: [{ id: 1, pickem_only: false }] })],
     [/^SELECT \* FROM "teams"/, () => ({ rows: [{ id: teamId, league_id: 1, owner_id: 8 }] })],
     [/^SELECT "id" FROM "waiver_claims"/, () => ({ rows: pending.map((id) => ({ id })) })],
     [update('waiver_claims'), (text, params) => { written.push(params); return { rows: [], rowCount: 1 }; }],
@@ -257,7 +258,7 @@ test('reorderClaims accepts a permutation and writes 1..N in the given sequence'
 test('submitClaim locks the league row and takes max(claim_order)+1 for the team', async (t) => {
   let insertParams;
   const fake = createFakePool([
-    [/^SELECT \* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/, () => ({
+    [/^(?:SELECT \* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE|UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*)/, () => ({
       rows: [{ id: 1, pickem_only: false, waiver_type: 'priority', transactions_locked: false, waivers_clear_at: null, roster_limit: 16, ir_slots: 2 }],
     })],
     [/^SELECT \* FROM "teams"/, () => ({ rows: [{ id: 31, league_id: 1, owner_id: 8, locked: false }] })],

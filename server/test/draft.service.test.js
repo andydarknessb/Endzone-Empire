@@ -118,6 +118,7 @@ const freeAgencyLeague = {
 function freeAgencyPool({ rostered, stashed, stashQueries, onWaivers = false }) {
   return createFakePool([
     [select('leagues'), () => ({ rows: [freeAgencyLeague] })],
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [freeAgencyLeague] })],
     [select('teams'), () => ({ rows: [
       { id: 11, name: 'Team Eleven', owner_id: 7, draft_position: 1, autodraft: false, locked: false },
     ] })],
@@ -148,6 +149,7 @@ function recordBenching(t, fake) {
 test('addFreeAgent: an active draft is a 409 - a Pick is not a free-agent add (#782 ruling 2)', async (t) => {
   const fake = createFakePool([
     [select('leagues'), () => ({ rows: [{ ...freeAgencyLeague, draft_status: 'active' }] })],
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [{ ...freeAgencyLeague, draft_status: 'active' }] })],
   ]).install(t);
   const recorder = installRecordingBroadcast(t);
 
@@ -228,6 +230,7 @@ test('addFreeAgent: a frozen league is refused before any roster write (#944)', 
   // into the free-agent-add fixture is exactly the red-tell criterion 3 names.
   const fake = createFakePool([
     [select('leagues'), () => ({ rows: [{ ...freeAgencyLeague, transactions_locked: true }] })],
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [{ ...freeAgencyLeague, transactions_locked: true }] })],
     [select('teams'), () => ({ rows: [
       { id: 11, name: 'Team Eleven', owner_id: 7, draft_position: 1, autodraft: false, locked: false },
     ] })],
@@ -252,6 +255,7 @@ test('addFreeAgent: a league row that cannot answer the freeze fails closed (#94
   const { transactions_locked, ...leagueWithoutFreeze } = freeAgencyLeague;
   const fake = createFakePool([
     [select('leagues'), () => ({ rows: [leagueWithoutFreeze] })],
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [leagueWithoutFreeze] })],
     [select('teams'), () => ({ rows: [
       { id: 11, name: 'Team Eleven', owner_id: 7, draft_position: 1, autodraft: false, locked: false },
     ] })],
@@ -297,12 +301,12 @@ function dropWorld({ frozen = false, teamLocked = false, leagueRow } = {}) {
     ? { id: 1, transactions_locked: frozen }
     : leagueRow;
   return createFakePool([
-    [/^SELECT "id", "transactions_locked",.* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/,
+    [/^SELECT "id", "transactions_locked",.* FROM "leagues" WHERE "id" = \$1$/,
       () => ({ rows: [gateLeague] })],
     [/^SELECT "id", "locked" FROM "teams" WHERE "id" = \$1 FOR UPDATE/,
       () => ({ rows: [{ id: 11, locked: teamLocked }] })],
     [/^SELECT \* FROM "teams"/, () => ({ rows: [{ id: 11, owner_id: 7, locked: teamLocked }] })],
-    [/^SELECT "id", "waiver_period_hours"/, () => ({ rows: [dropLeagueRow] })],
+    [/^(?:SELECT \* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE|UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*)/, () => ({ rows: [dropLeagueRow] })],
     [remove('team_players'), () => ({ rows: [{ id: 99 }], rowCount: 1 })],
     [/^SELECT "slot", "ir_attested" FROM "lineup_entries"/, () => ({ rows: [] })],
     [/^SELECT 1 FROM "matchups"/, () => ({ rows: [] })],
@@ -364,7 +368,7 @@ test('dropPlayer: an unfrozen league still drops, and locks League before Team (
   const teamsForUpdate = fake.calls.filter((c) => /^SELECT \* FROM "teams".*FOR UPDATE/.test(c.text));
   assert.equal(teamsForUpdate.length, 0, 'the membership read is no longer FOR UPDATE');
 
-  const leagueLockAt = fake.calls.findIndex((c) => /^SELECT "id", "transactions_locked".*FOR NO KEY UPDATE/.test(c.text));
+  const leagueLockAt = fake.calls.findIndex((c) => /UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*/.test(c.text));
   const teamLockAt = fake.calls.findIndex((c) => /FROM "teams".*FOR UPDATE/.test(c.text));
   assert.ok(leagueLockAt >= 0 && teamLockAt >= 0, 'both rows are locked');
   assert.ok(leagueLockAt < teamLockAt, 'League is locked before Team, the one order on every path');
@@ -376,6 +380,7 @@ test('dropPlayer: an unfrozen league still drops, and locks League before Team (
 test('undoDrop: a frozen league is refused before the hold is read or deleted (#944)', async (t) => {
   const fake = createFakePool([
     [select('leagues'), () => ({ rows: [{ ...undoLeague, transactions_locked: true }] })],
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [{ ...undoLeague, transactions_locked: true }] })],
     [select('teams'), () => ({ rows: [{ id: 11, owner_id: 7, locked: false }] })],
   ]).install(t);
 
@@ -391,6 +396,7 @@ test('undoDrop: a frozen league is refused before the hold is read or deleted (#
 test('undoDrop: a locked team is refused, the lock this path used to skip (#944)', async (t) => {
   const fake = createFakePool([
     [select('leagues'), () => ({ rows: [undoLeague] })],
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [undoLeague] })],
     [select('teams'), () => ({ rows: [{ id: 11, owner_id: 7, locked: true }] })],
   ]).install(t);
 
@@ -410,6 +416,7 @@ test('undoDrop: past the two-minute window it refuses and leaves pending claims 
   let holdParams;
   const fake = createFakePool([
     [select('leagues'), () => ({ rows: [undoLeague] })],
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [undoLeague] })],
     [select('teams'), () => ({ rows: [{ id: 11, owner_id: 7, locked: false }] })],
     [select('waiver_players'), (text, params) => { holdParams = params; return { rows: [] }; }],
   ]).install(t);
@@ -457,7 +464,10 @@ test('undoDrop: a kickoff re-upsert of the same hold cannot reopen the window (#
 test('undoDrop: consults roster capacity, not the static roster limit', async (t) => {
   const fake = createFakePool([
     [select('leagues'), (text) => {
-      assert.match(text, /"ir_slots"/);
+      // The League write reads the whole row under its lock (ir_slots among them).
+      // A League read carries ir_slots: the League write's lock returns the whole row
+      // (RETURNING *), and the gate's own read names ir_slots in its column list.
+      assert.match(text, /RETURNING \*$|"ir_slots"/);
       return { rows: [{ id: 1, transactions_locked: false, roster_limit: 3, ir_slots: 1, position_caps: {} }] };
     }],
     [select('teams'), () => ({ rows: [{ id: 11, owner_id: 7, locked: false }] })],
@@ -490,6 +500,7 @@ function undoWorld({ rostered = 2, stashed, interrupted = null, onStashQuery, ex
   return createFakePool([
     ...extra,
     [select('leagues'), () => ({ rows: [undoLeague] })],
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [undoLeague] })],
     [select('teams'), () => ({ rows: [{ id: 11, owner_id: 7, locked: false }] })],
     [/^SELECT 1 FROM "waiver_players"/, () => ({ rows: [{ 1: 1 }] })],
     [/^SELECT "waiver_players"\."interrupted_slot"/, () => ({

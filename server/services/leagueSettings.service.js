@@ -41,6 +41,7 @@
 
 const { DRAFT_FROZEN_SETTING_KEYS, frozenSettingKeys, settingsUnfrozenWhereSql } = require('./leaguePhase');
 const { withTransaction } = require('../modules/withTransaction');
+const { lockLeague } = require('../modules/leagueWrite');
 const {
   POSITION_KEYS, validateAuctionSettings, keeperSettingsPlan, positionCapsFeasible,
 } = require('./draftValidation.service');
@@ -533,12 +534,18 @@ async function updateLeagueSettings(db, { leagueId, userId, patch }) {
     // forces it so a pick'em-only league can be refused, even for keys (like
     // waiverType) that are never draft-frozen.
     if (frozenRequested.length > 0 || fantasyOnlyRequested.length > 0) {
+      // A patch that carries row-locked settings takes the League row lock (ADR 0070), but
+      // only for the commissioner: anyone else takes no lock, and the guarded reads below refuse them.
+      if (rowLockSettingsProvided && (await client.query(
+        `SELECT 1 FROM "leagues" WHERE "id" = $1 AND ${commissionerPredicate(2)}`,
+        [leagueId, userId]
+      )).rows[0]) await lockLeague(client, leagueId);
       const statusResult = await client.query(
         `SELECT "draft_status", "draft_type", "min_teams", "max_teams", "draft_date",
                 "roster_slots", "bench_slots", "ir_slots", "position_caps", "roster_limit",
                 "keepers_enabled", "keeper_count", "pickem_only", "season_status", "dp_enabled",
                 (SELECT COUNT(*)::int FROM "teams" WHERE "teams"."league_id" = "leagues"."id") AS "team_count"
-         FROM "leagues" WHERE "id" = $1 AND ${commissionerPredicate(2)}${rowLockSettingsProvided ? ' FOR NO KEY UPDATE' : ''}`,
+         FROM "leagues" WHERE "id" = $1 AND ${commissionerPredicate(2)}`,
         [leagueId, userId]
       );
       const current = statusResult.rows[0];

@@ -43,8 +43,8 @@ function correctionWorld(t) {
     [/SELECT 1 FROM "leagues" WHERE "id" = \$1 AND/, () => ({ rows: [{ ok: 1 }] })],
     // requireFantasyLeague middleware.
     [/SELECT "pickem_only" FROM "leagues"/, () => ({ rows: [{ pickem_only: false }] })],
-    // The correction's own league lock.
-    [/(?:FROM "leagues"[\s\S]*FOR NO KEY UPDATE|UPDATE "leagues" SET "board_version" = "board_version" \+ 1)/, () => ({
+    // The correction's own league lock, and the gate's unlocked read of the same row (ADR 0070).
+    [/(?:FROM "leagues"|UPDATE "leagues" SET "board_version" = "board_version" \+ 1)/, () => ({
       rows: [{
         id: LEAGUE_ID, draft_status: 'active', current_pick: 3, draft_paused: false,
         current_season: 2026, current_week: 1, draft_rotation: 'snake', draft_order_overrides: null,

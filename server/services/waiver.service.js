@@ -1,5 +1,5 @@
 const pool = require('../modules/pool');
-const { withTransaction } = require('../modules/withTransaction');
+const { leagueWrite } = require('../modules/leagueWrite');
 const { assertFantasyLeagueRow } = require('./leagueType');
 const { requireMember } = require('./leagueMembership.service');
 const { logTransaction, notify } = require('./activity.service');
@@ -205,19 +205,17 @@ async function claimTarget({ leagueId, userId, playerId }) {
 
 /** Submit a waiver claim (optionally dropping a player, optionally a FAAB bid). */
 async function submitClaim({ leagueId, userId, playerId, dropPlayerId, bid = 0 }) {
-  // withTransaction owns connect/BEGIN/COMMIT-or-guarded-ROLLBACK and the
-  // release rule (ADR 0033). Every refusal throws a WaiverError inside work,
+  // leagueWrite owns connect/BEGIN/the League lock/COMMIT-or-guarded-ROLLBACK
+  // (ADR 0033, 0070). Every refusal throws a WaiverError inside work,
   // which the wrapper rolls back and rethrows untouched, so there is no
   // catch-side mapping to move outward.
-  return withTransaction(
-    pool,
-    async (client) => {
-    // The league row lock serialises max(claim_order)+1 per league and matches
-    // processWaivers' lock order (league row first, team rows after). Not the
-    // team row alone: processWaivers holds the league row then updates team
-    // rows, so a team-first lock would invert the order. No advisory lock (#839).
-    const leagueResult = await client.query(`SELECT * FROM "leagues" WHERE "id" = $1 FOR NO KEY UPDATE`, [leagueId]);
-    const league = leagueResult.rows[0];
+  return leagueWrite(
+    { leagueId, label: 'waiver-claim' },
+    async ({ client, league }) => {
+    // The League write locks the row first, which serialises max(claim_order)+1
+    // per league and matches processWaivers' lock order (league row first, team
+    // rows after). Not the team row alone: processWaivers holds the league row then
+    // updates team rows, so a team-first lock would invert the order. No advisory lock (#839).
     if (!league) throw new WaiverError(404, 'league not found');
     assertFantasyLeagueRow(league); // no waivers in a pick'em-only league
     // An entry gate (#966): the award itself runs through processWaivers's
@@ -279,8 +277,7 @@ async function submitClaim({ leagueId, userId, playerId, dropPlayerId, bid = 0 }
       [leagueId, team.id, playerId, dropPlayerId || null, league.waiver_type === 'faab' ? bid : 0, nextOrder.rows[0].next]
     );
     return claimResult.rows[0];
-    },
-    { label: 'waiver-claim' }
+    }
   );
 }
 
@@ -294,24 +291,21 @@ async function submitClaim({ leagueId, userId, playerId, dropPlayerId, bid = 0 }
  * only the claim id), and its row lock is taken like every other claim write.
  */
 async function editClaim({ userId, claimId, bid, dropPlayerId }) {
-  return withTransaction(
-    pool,
-    async (client) => {
-      // Ownership rides the first read, so every refusal for a claim that is not
-      // the caller's own pending one is the same 404 (as cancelClaim); nothing
-      // about another user's claim or league leaks through a different code.
-      const found = await client.query(
+  // Ownership rides the first read, so every refusal for a claim that is not
+  // the caller's own pending one is the same 404 (as cancelClaim); nothing
+  // about another user's claim or league leaks through a different code. It runs
+  // before the League write, which needs the claim's League to take its lock; the
+  // body re-reads the claim under that lock (FOR UPDATE), so a race is refused there.
+  const found = await pool.query(
         `SELECT "waiver_claims"."league_id" FROM "waiver_claims"
          JOIN "teams" ON "teams"."id" = "waiver_claims"."team_id"
          WHERE "waiver_claims"."id" = $1 AND "waiver_claims"."status" = 'pending'
            AND "teams"."owner_id" = $2`,
         [claimId, userId]
-      );
-      if (!found.rows[0]) throw new WaiverError(404, 'pending claim not found');
-      const leagueId = found.rows[0].league_id;
-
-      const leagueResult = await client.query(`SELECT * FROM "leagues" WHERE "id" = $1 FOR NO KEY UPDATE`, [leagueId]);
-      const league = leagueResult.rows[0];
+  );
+  if (!found.rows[0]) throw new WaiverError(404, 'pending claim not found');
+  const leagueId = found.rows[0].league_id;
+  return leagueWrite({ leagueId, label: 'waiver-claim-edit' }, async ({ client, league }) => {
       if (!league) throw new WaiverError(404, 'league not found');
       assertFantasyLeagueRow(league);
       if (isLeagueFrozen(league)) throw new WaiverError(409, 'transactions are locked by the commissioner');
@@ -369,9 +363,7 @@ async function editClaim({ userId, claimId, bid, dropPlayerId }) {
         [nextBid, nextDrop, claimId]
       );
       return updated.rows[0];
-    },
-    { label: 'waiver-claim-edit' }
-  );
+    });
 }
 
 /** Cancel one of the caller's pending claims. */
@@ -398,11 +390,9 @@ async function cancelClaim({ leagueId, userId, claimId }) {
  * reorder cannot interleave with either.
  */
 async function reorderClaims({ leagueId, userId, claimIds }) {
-  return withTransaction(
-    pool,
-    async (client) => {
-      const leagueResult = await client.query(`SELECT * FROM "leagues" WHERE "id" = $1 FOR NO KEY UPDATE`, [leagueId]);
-      const league = leagueResult.rows[0];
+  return leagueWrite(
+    { leagueId, label: 'waiver-claim-order' },
+    async ({ client, league }) => {
       if (!league) throw new WaiverError(404, 'league not found');
       assertFantasyLeagueRow(league);
       const team = await requireMember(client, { leagueId, userId });
@@ -431,8 +421,7 @@ async function reorderClaims({ leagueId, userId, claimIds }) {
         );
       }
       return { claimIds };
-    },
-    { label: 'waiver-claim-order' }
+    }
   );
 }
 
@@ -508,21 +497,16 @@ async function seedWaiverPriorityFromDraftOrder(client, { leagueId }) {
 }
 
 async function processWaivers({ leagueId }) {
-  // withTransaction owns connect/BEGIN/COMMIT-or-guarded-ROLLBACK and the
-  // release rule (ADR 0033). The no-due-claims branch returns inside work,
+  // leagueWrite owns connect/BEGIN/the League lock/COMMIT-or-guarded-ROLLBACK
+  // (ADR 0033, 0070). The no-due-claims branch returns inside work,
   // which COMMITs: it returns AFTER real writes (clearing expired
   // waiver_players and the blanket window), exactly as the hand-rolled early
   // COMMIT did - a committing early return, not a ROLLBACK-before-write, so
   // it is untouched by Ruling 2. Refusals (a frozen league from the roster gate)
   // throw and the wrapper rolls back; no catch-side mapping.
-  const result = await withTransaction(
-    pool,
-    async (client) => {
-    const leagueResult = await client.query(
-      `SELECT * FROM "leagues" WHERE "id" = $1 FOR NO KEY UPDATE`,
-      [leagueId]
-    );
-    const league = leagueResult.rows[0];
+  const result = await leagueWrite(
+    { leagueId, label: 'waiver-process' },
+    async ({ client, league }) => {
     if (!league) throw new WaiverError(404, 'league not found');
 
     // Due = the player's individual window expired, or he has no individual
@@ -577,8 +561,8 @@ async function processWaivers({ leagueId }) {
     // window the league was supposed to be standing still. Gating the helper
     // rather than the one `invalid` call site means a terminal status added
     // later inherits the refusal too. The League row is held FOR NO KEY UPDATE from
-    // the top of this transaction, so the gate's League read is a re-lock of
-    // a row we already own and the answer is the same at every point in the
+    // the top of this transaction, so the gate's League read sees the row we
+    // already own, and the answer is the same at every point in the
     // loop - which is what lets the gate be asked here, per claim, with no
     // second read of the freeze and no batch-level check. Team id and player
     // id come off the claim row rather than the in-memory teams map, and the
@@ -784,8 +768,7 @@ async function processWaivers({ leagueId }) {
     await spendExpiredBlanketWindow(client, leagueId);
 
     return { processed: dueResult.rows.length, results };
-    },
-    { label: 'waiver-process' }
+    }
   );
   return result;
 }

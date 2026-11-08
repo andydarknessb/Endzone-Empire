@@ -55,7 +55,7 @@ function tradeWorldHandlers({
   rosteredNow = () => true,
 }) {
   return [
-    [/^SELECT "id", "transactions_locked",.* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/, () => ({
+    [/^SELECT "id", "transactions_locked",.* FROM "leagues" WHERE "id" = \$1$/, () => ({
       rows: [{
         id: 1,
         transactions_locked: frozen,
@@ -385,7 +385,7 @@ test('executeTrade: the gate runs per item, immediately around each write', asyn
   // its delete (#2274), then the roster move module's own release gate beside the
   // delete and acquire gate beside the insert (#2535). Six gate League reads, not
   // one. A hoisted batch-level call would read the League once.
-  const gateReads = fake.calls.filter((c) => /^SELECT "id", "transactions_locked".*FOR NO KEY UPDATE/.test(c.text));
+  const gateReads = fake.calls.filter((c) => /^SELECT "id", "transactions_locked".*FROM "leagues"/.test(c.text));
   assert.equal(gateReads.length, 6, 'three gate calls per item: acquire, release, acquire');
 
   // Each gate League read is immediately followed by its Team lock, League then
@@ -437,7 +437,7 @@ test('executeTrade: a rostered player trades during the post-draft blanket waive
 // whether the ROLLBACK that follows succeeds.
 
 const cancelTradeWorldHandlers = () => [
-  [/FROM "leagues" WHERE "id" = \(SELECT "league_id"/, () => ({ rows: [{ id: 1 }] })],
+  [/FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/, () => ({ rows: [{ id: 1 }] })],
   [select('trades'), () => ({ rows: [{ id: 5, status: 'executed', proposing_team_id: 41, league_id: 1 }] })],
   [select('trade_items'), () => ({ rows: [] })],
   [select('teams'), () => ({ rows: [{ id: 41, owner_id: 99 }] })],
@@ -517,8 +517,13 @@ const originalTrade = { id: 5, status: 'pending', proposing_team_id: 41, receivi
  */
 function counterWorld({ roster, draftStatus = 'complete' }) {
   return [
-    [/FROM "leagues" WHERE "id" = \(SELECT "league_id"/, () => ({ rows: [{ id: 1, league_id: 1 }] })],
-    [/^SELECT \* FROM "leagues" WHERE "id" = \$1$/, () => ({
+    [/FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/, () => ({
+      rows: [{
+        id: 1, league_id: 1, draft_status: draftStatus, transactions_locked: false, pickem_only: false,
+        trade_deadline_week: null, current_week: 6,
+      }],
+    })],
+    [/^SELECT \* FROM "leagues" WHERE "id" = \$1( FOR NO KEY UPDATE)?$/, () => ({
       rows: [{
         id: 1, draft_status: draftStatus, transactions_locked: false, pickem_only: false,
         trade_deadline_week: null, current_week: 6,
@@ -684,12 +689,12 @@ const ownerLookup = (text, params) => ({
 
 const dueTradeWorldHandlers = () => [
   [/FROM "trades" WHERE "status" = 'accepted'/, () => ({ rows: [{ id: 5 }] })],
-  [/FROM "leagues" WHERE "id" = \(SELECT "league_id"/, () => ({ rows: [{ id: 1 }] })],
+  [/FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/, () => ({ rows: [{ id: 1 }] })],
   // Empty on the first read: the due row is gone by the time loadTrade locks it
   // (the race a dead trade takes), so loadTrade throws TradeError(404, 'trade
   // not found'). The cancel then reloads the trade in its own transaction (#2295),
   // where it is back and still accepted.
-  [/^SELECT \* FROM "trades" WHERE "id" = \$1/, (() => {
+  [/^SELECT "league_id" FROM "trades" WHERE "id" = \$1$/, () => ({ rows: [{ league_id: 1 }] })], [/^SELECT \* FROM "trades" WHERE "id" = \$1/, (() => {
     let reads = 0;
     return () => ({
       rows: reads++ === 0 ? [] : [{ id: 5, status: 'accepted', proposing_team_id: 41, receiving_team_id: 42, league_id: 1 }],
@@ -752,10 +757,10 @@ test('processDueTrades: a due trade that executes is recorded and the sweep reso
   // the ROLLBACK pair never reaches.
   const world = createFakePool([
     [/FROM "trades" WHERE "status" = 'accepted' AND "review_ends_at"/, () => ({ rows: [{ id: 9 }] })],
-    [/FROM "leagues" WHERE "id" = \(SELECT "league_id"/, () => ({
+    [/FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/, () => ({
       rows: [{ id: 1, draft_status: 'complete', roster_limit: 16, ir_slots: 0, current_season: 2026, current_week: 6 }],
     })],
-    [/^SELECT \* FROM "trades" WHERE "id" = \$1/, () => ({
+    [/^SELECT "league_id" FROM "trades" WHERE "id" = \$1$/, () => ({ rows: [{ league_id: 1 }] })], [/^SELECT \* FROM "trades" WHERE "id" = \$1/, () => ({
       rows: [{ id: 9, status: 'accepted', proposing_team_id: 41, receiving_team_id: 42, league_id: 1 }],
     })],
     [select('trade_items'), () => ({ rows: [] })],
@@ -797,13 +802,13 @@ function dueExecutingTradeWorld(opts, extraHandlers = []) {
   return createFakePool([
     ...extraHandlers,
     [/FROM "trades" WHERE "status" = 'accepted' AND "review_ends_at"/, () => ({ rows: [{ id: 9 }] })],
-    [/FROM "leagues" WHERE "id" = \(SELECT "league_id"/, () => ({
+    [/FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/, () => ({
       rows: [{
         id: 1, draft_status: opts.draftStatus || 'complete', roster_limit: 16, ir_slots: 2,
         current_season: 2026, current_week: 6, position_caps: opts.positionCaps || {},
       }],
     })],
-    [/^SELECT \* FROM "trades" WHERE "id" = \$1/, () => ({
+    [/^SELECT "league_id" FROM "trades" WHERE "id" = \$1$/, () => ({ rows: [{ league_id: 1 }] })], [/^SELECT \* FROM "trades" WHERE "id" = \$1/, () => ({
       rows: [{ id: 9, status: 'accepted', proposing_team_id: 41, receiving_team_id: 42, league_id: 1 }],
     })],
     [select('trade_items'), () => ({ rows: [{ trade_id: 9, from_team_id: 41, to_team_id: 42, player_id: 21 }] })],
@@ -866,7 +871,7 @@ test('processDueTrades: a trade already settled elsewhere is not cancelled and n
   const world = dueExecutingTradeWorld({
     positionCaps: { RB: 1 },
     positionCounts: () => 1,
-  }, [[/^SELECT \* FROM "trades" WHERE "id" = \$1/, (() => {
+  }, [[/^SELECT "league_id" FROM "trades" WHERE "id" = \$1$/, () => ({ rows: [{ league_id: 1 }] })], [/^SELECT \* FROM "trades" WHERE "id" = \$1/, (() => {
     // Accepted for the execute attempt, vetoed by the time the cancel reloads it.
     let reads = 0;
     return () => ({
@@ -884,11 +889,11 @@ test('processDueTrades: a trade already settled elsewhere is not cancelled and n
 test('processDueTrades: a cancel whose transaction throws is contained and a later due trade still executes (#2295)', async (t) => {
   const world = createFakePool([
     [/FROM "trades" WHERE "status" = 'accepted' AND "review_ends_at"/, () => ({ rows: [{ id: 5 }, { id: 6 }] })],
-    [/FROM "leagues" WHERE "id" = \(SELECT "league_id"/, () => ({
+    [/FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/, () => ({
       rows: [{ id: 1, draft_status: 'complete', roster_limit: 16, ir_slots: 0, current_season: 2026, current_week: 6 }],
     })],
     // Trade 5 is missing on its execute read (a TradeError) and back for the cancel's reload.
-    [/^SELECT \* FROM "trades" WHERE "id" = \$1/, (() => {
+    [/^SELECT "league_id" FROM "trades" WHERE "id" = \$1$/, () => ({ rows: [{ league_id: 1 }] })], [/^SELECT \* FROM "trades" WHERE "id" = \$1/, (() => {
       let reads5 = 0;
       return (text, params) => ({
         rows: params[0] === 5 && reads5++ === 0
@@ -997,7 +1002,7 @@ test('proposeTrade: an offer to a CPU-managed team (owner_id NULL) is refused 40
 // --- commissionerDecide: a commissioner cannot decide their own trade (wave 3, ruling 6)
 
 const commissionerDecideWorld = () => [
-  [/FROM "leagues" WHERE "id" = \(SELECT "league_id"/, () => ({ rows: [{ id: 1 }] })],
+  [/FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/, () => ({ rows: [{ id: 1 }] })],
   [select('trades'), () => ({ rows: [{ id: 9, league_id: 1, status: 'pending', proposing_team_id: 41, receiving_team_id: 42 }] })],
   [select('trade_items'), () => ({ rows: [] })],
   [select('teams'), () => ({ rows: [{ id: 41, owner_id: 7 }, { id: 42, owner_id: 8 }] })],
@@ -1044,7 +1049,7 @@ test('commissionerDecide: a commissioner outside the trade still vetoes it (cont
  */
 function vetoWorld(reviewEndsAt) {
   return createFakePool([
-    [/FROM "leagues" WHERE "id" = \(SELECT "league_id"/, () => ({ rows: [{ id: 1, trade_veto_votes: 2 }] })],
+    [/FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/, () => ({ rows: [{ id: 1, trade_veto_votes: 2 }] })],
     [select('trades'), () => ({
       rows: [{
         id: 9,
@@ -1100,7 +1105,7 @@ const DRAFT_NOT_COMPLETE = 'trades open once the draft is complete';
 
 function acceptWorld({ draftStatus }) {
   return [
-    [/FROM "leagues" WHERE "id" = \(SELECT "league_id"/, () => ({
+    [/FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/, () => ({
       rows: [{
         id: 1, draft_status: draftStatus, transactions_locked: false, pickem_only: false,
         trade_deadline_week: null, current_week: 6, trade_veto_votes: 0, trade_review_hours: 0,
