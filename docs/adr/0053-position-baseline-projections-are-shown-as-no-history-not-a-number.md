@@ -56,3 +56,50 @@ the verdict and its presentation, the shape #1589 used for No NFL team:
   evidence, because the marker is written only for zero-evidence rows.
   Nothing has to be switched off when v3.2 ships.
 - Spec #1774, tickets #1775 to #1778.
+
+## Amendment (2026-11-08): one or two old games and none this season also read as no history
+
+Rule 5 refused a games-count threshold because none had been measured. One old
+game got a player past it. Ricky Barber, a practice-squad DT whose only stat
+line was one 2025 game, carried no Position-baseline marker, and that game
+also counted as his whole 2025 pace (`priorSeasonPerGame` has no minimum), so
+he projected 9.77 in 2026 week 9. A Saturday elevation made him available and
+he was listed as an Upgrade for 5 of 12 teams in one league.
+
+It has now been measured, over 2026 weeks 2 to 8 for available players in one
+league's projection runs, with actual points in default scoring:
+
+| Evidence behind the projection | Player-weeks | Had a stat line | Average actual points |
+| --- | --- | --- | --- |
+| No games (Position-baseline) | 458 | 9.4% | 0.17 |
+| 1 old game, none in 2026 | 62 | 25.8% | 0.20 |
+| 2 old games, none in 2026 | 30 | 20.0% | 0.36 |
+| 3 to 5 old games, none in 2026 | 98 | 11.2% | 0.27 |
+| 6 or more old games, none in 2026 | 455 | 31.6% | 0.79 |
+| Played earlier in 2026 | 4,732 | 84.6% | 4.81 |
+
+Across the 92 player-weeks with one or two old games, the best game was 7.0.
+
+So rule 5 is replaced:
+
+1. A Weekly projection is a Thin-history projection when the engine's stored
+   row counts one or two games in its lookback and none is from this season.
+2. The Weekly projection read treats a Thin-history projection as a
+   Position-baseline projection, so rules 2, 3 and 4 apply to it. Rule 1 still
+   defines the marker; the engine does not write the marker for these rows.
+3. Two is a judgment, the narrowest cut that catches this case. "None this
+   season" alone would catch returning starters (Micah Parsons has 27 games in
+   the lookback). The 3 to 5 row scored as little, but its best games were not
+   checked, so it keeps its number until they are.
+
+Consequences:
+
+- ADR 0044 holds. The read derives this from the stored row; the engine, the
+  stored rows and every capture are unchanged.
+- The backtests, the holdout and editorial scoring keep reading the marker
+  alone, so their measurements do not move and they do not model this rule.
+- Advice gives up a player with one or two career games who really does start,
+  until he plays this season. A manager can still start him.
+- The "retires by itself" consequence above does not cover this rule, because
+  it reads the row's game count and recency weight and not a marker. It has to
+  be removed or replaced when v3.2 ships (#1438).

@@ -1876,6 +1876,15 @@ insists but never recommended, and counts at his number once started (ADR
 _Avoid_: fallback, default projection, no-history projection (the reason
 text "no history" is fine as copy)
 
+**Thin-history projection**:
+A Weekly projection whose only player evidence is one or two games from
+earlier seasons, with none this season. It reads as a Position-baseline
+projection does: "no history" in place of its Point estimate, sorted after
+every projection with evidence, startable if a manager insists but never
+recommended (ADR 0053 as amended 2026-11-08).
+_Avoid_: small sample (a Weekly projection can have a small sample and still
+have games from this season)
+
 **Factor**:
 One named adjustment a weekly projection applies (usage blend, opponent,
 head-to-head), each shrunk toward no effect and capped. Factors are what the

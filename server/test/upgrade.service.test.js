@@ -73,6 +73,26 @@ test('upgradeOver: an Unavailable, Position-baseline or Backup candidate is refu
   assert.equal(doubtful.swapNet, 10);
 });
 
+// Ricky Barber's row in 2026 week 9: one game, from 2025, so the engine wrote no
+// Position-baseline marker and that game is most of his number (ADR 0053 as amended).
+test('upgradeOver: a candidate whose only evidence is one old game is refused, through the real Weekly projection read', () => {
+  const stored = (median, recentProduction) => ({
+    mean: median, median,
+    factors: { availability: { available: true }, dataQuality: { reasons: ['small sample'] }, recentProduction },
+  });
+  const run = projectionService.toWeeklyProjectionResult({
+    week: 9,
+    projections: new Map([
+      [1, stored(6.85, { games: 30, effectiveGames: 9.4 })],
+      [99, stored(9.77, { games: 1, effectiveGames: 0.21 })],
+    ]),
+  });
+  assert.deepEqual(
+    upgradeOver({ roster: [row(1, 'RB', 'RB')], candidate: { id: 99, position: 'RB' }, rosterSlots: RB1, run }),
+    { upgrade: null, swapNet: null },
+  );
+});
+
 test('upgradeOver: a Swap net goes negative when the drop is worth more than the candidate, and is null with no drop', () => {
   const roster = [row(1, 'RB', 'RB'), row(2, 'RB', 'BENCH')];
   const run = stubRun({ 1: { points: 20 }, 2: { points: 5 }, 99: { points: 8 } });
