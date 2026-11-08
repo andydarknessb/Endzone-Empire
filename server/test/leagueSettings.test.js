@@ -241,7 +241,6 @@ test('a JSON body carrying a "__proto__" key is inert, as it was for the handler
   assert.equal(error, undefined);
   assert.equal(value.name, undefined);
   assert.equal(value.keeperCount, undefined);
-  assert.equal(value.rowLockSettingsProvided, false);
   assert.deepEqual(value.frozenRequested, []);
   assert.deepEqual(value.fantasyOnlyRequested, []);
   assert.equal(Object.getPrototypeOf(value), Object.prototype);
@@ -254,7 +253,6 @@ test('absent keys are not validated, and an empty, missing or non-object body is
     assert.equal(value.name, undefined);
     assert.deepEqual(value.frozenRequested, []);
     assert.deepEqual(value.fantasyOnlyRequested, []);
-    assert.equal(value.rowLockSettingsProvided, false);
   }
 });
 
@@ -269,7 +267,6 @@ test('name only: an administrative, non-fantasy setting touches no frozen or fan
   assert.deepEqual(value.fantasyOnlyRequested, []);
   assert.equal(value.rosterCompositionChanged, false);
   assert.equal(value.schedulingNonAuction, false);
-  assert.equal(value.rowLockSettingsProvided, false);
 });
 
 test('size limits are draft-frozen but not fantasy-only, and arrive coerced as newMin / newMax', () => {
@@ -430,7 +427,7 @@ test('tri-state objects: provided flags for draftOrderOverrides, auctionSettings
   assert.equal(cleared.auctionSettings, null);
 });
 
-test('the write path switches: roster composition, non-auction scheduling guard, keeper and row-lock triggers', () => {
+test('the write path switches: roster composition, non-auction scheduling guard, keeper trigger', () => {
   assert.equal(parseSettingsPatch({ benchSlots: 5 }).value.rosterCompositionChanged, true);
   assert.equal(parseSettingsPatch({ irSlots: 1 }).value.rosterCompositionChanged, true);
   assert.equal(parseSettingsPatch({ rosterSlots: [QB] }).value.rosterCompositionChanged, true);
@@ -441,9 +438,6 @@ test('the write path switches: roster composition, non-auction scheduling guard,
   assert.equal(parseSettingsPatch({ draftDate: null }).value.schedulingNonAuction, false);
 
   assert.equal(parseSettingsPatch({ keepersEnabled: false }).value.keeperSettingsProvided, true);
-  assert.equal(parseSettingsPatch({ keeperCount: 2 }).value.rowLockSettingsProvided, true);
-  assert.equal(parseSettingsPatch({ auctionSettings: null }).value.rowLockSettingsProvided, true);
-  assert.equal(parseSettingsPatch({ draftDate: FUTURE, name: 'x', maxTeams: 10 }).value.rowLockSettingsProvided, false);
 });
 
 test('every pass-through setting reaches value unchanged, and the body is read once', () => {

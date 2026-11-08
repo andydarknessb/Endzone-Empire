@@ -353,9 +353,7 @@ const FANTASY_ONLY_SETTING_KEYS = Object.freeze([
  *     converts the league to auction, so the UPDATE re-checks the type
  *     atomically. An explicit draftType wins outright, and draftType ===
  *     'auction' clears the date, so neither needs the guard),
- *     keeperSettingsProvided, auctionSettingsProvided and
- *     rowLockSettingsProvided (keeper or auction settings present; no reader
- *     since #2717, which locks every save, so removal is a follow-up).
+ *     keeperSettingsProvided and auctionSettingsProvided.
  */
 function parseSettingsPatch(body) {
   // One read per key, like the handler's single destructure used to be: a
@@ -453,7 +451,6 @@ function parseSettingsPatch(body) {
       keeperSettingsProvided,
       auctionSettingsProvided,
       draftOrderOverridesProvided,
-      rowLockSettingsProvided: keeperSettingsProvided || auctionSettingsProvided,
     },
   };
 }
