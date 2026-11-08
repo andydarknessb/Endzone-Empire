@@ -179,7 +179,7 @@ if (!ENABLED) {
     // The pick, the REAL commitPick, for the team on the clock. Its first
     // statement after BEGIN is the same FOR NO KEY UPDATE League lock, so it blocks on
     // the row the correction holds.
-    const pickOutcome = commitPick({ leagueId, userId: ownerB, playerId: playerNext }).then(
+    const pickOutcome = commitPick({ leagueId, by: { kind: 'manager', userId: ownerB }, playerId: playerNext }).then(
       (value) => ({ status: 'fulfilled', value }),
       (reason) => ({ status: 'rejected', reason })
     );

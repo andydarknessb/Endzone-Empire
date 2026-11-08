@@ -152,7 +152,7 @@ test('re-syncs the whole feed on reconnect when nothing is held yet', async () =
   await waitFor(() => expect(result.current.entries).toEqual([]));
 
   apiClient.get.mockResolvedValue({ data: [pickEntry({ seq: 9 })] });
-  act(() => reconnectHandlers.forEach((cb) => cb()));
+  act(() => result.current.resumeFeed());
 
   await waitFor(() => expect(result.current.entries).toHaveLength(1));
   expect(apiClient.get).toHaveBeenLastCalledWith('/api/league/3/draft-feed');
@@ -167,7 +167,7 @@ test('reconnect resumes AFTER the last held seq and keeps one order (#442)', asy
 
   // On reconnect it asks only for entries newer than seq 7, not the whole feed.
   apiClient.get.mockResolvedValue({ data: [chatEntry({ id: 3, seq: 8, message: 'missed' })] });
-  act(() => reconnectHandlers.forEach((cb) => cb()));
+  act(() => result.current.resumeFeed());
 
   await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/league/3/draft-feed?after=7'));
   await waitFor(() => expect(result.current.entries.map((e) => e.seq)).toEqual([6, 7, 8]));
@@ -188,7 +188,7 @@ test('reconnect falls back to a full read when more than a page accrued offline 
       ? Promise.resolve({ data: fullPage })
       : Promise.resolve({ data: [pickEntry({ id: 900, seq: 900 })] })
   );
-  act(() => reconnectHandlers.forEach((cb) => cb()));
+  act(() => result.current.resumeFeed());
 
   await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/league/3/draft-feed?after=7'));
   await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/league/3/draft-feed'));

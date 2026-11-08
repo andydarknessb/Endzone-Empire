@@ -1,14 +1,10 @@
 const pool = require('../modules/pool');
-const { withTransaction } = require('../modules/withTransaction');
-const { lockLeague } = require('../modules/leagueWrite');
+const { leagueWrite } = require('../modules/leagueWrite');
 // Required as a module object (not destructured at load) so captureError stays a
 // mockable seam for the overdue-alarm and catch-routing tests (#768).
 const sentry = require('../modules/sentry');
-const { teamForPick } = require('./draftOrder.service');
+const { teamForPick, nextOpenPickNumber } = require('./draftOrder.service');
 const { getDraftRoomBroadcast } = require('../modules/draftRoomBroadcast');
-// The Autodraft move after a timeout streak is a Draft act, so its re-arm commits
-// with the flag under the League lock (#2684). draftAct requires no clock module.
-const { runDraftAct } = require('./draftAct.service');
 const { lastCompletedNflSeason } = require('./nflSeason.service');
 const bestAvailable = require('./bestAvailable.service');
 const startingNeed = require('./startingNeed');
@@ -18,6 +14,7 @@ const { draftRounds } = require('./rosterShape');
 // module (unlike pick.service, required lazily in autoPick): a top-level
 // require is safe.
 const { appendLifecycleActivity, STALLED } = require('./draftActivity');
+const draftCompletion = require('./draftCompletion');
 
 /**
  * The Pick clock (CONTEXT.md), one owner. Every way a turn begins or a Pick
@@ -39,8 +36,8 @@ const { appendLifecycleActivity, STALLED } = require('./draftActivity');
  * queue first, then Best available among players who fill a Starting need, then
  * Best available among everyone else, with the candidate walk past a code-less
  * 409 - ADR 0026) and the
- * consecutive-timeout streak live here too. The clock re-arm on a committed autopick still rides the
- * pick-landed event through pick.service.landPick, so expiry and arming
+ * consecutive-timeout streak live here too. The clock re-arm on a committed autopick rides the
+ * slot step through pick.service.landPick, so expiry and arming
  * share the one policy. pick.service is required lazily inside autoPick because
  * it requires this module in turn (ADR 0018, #782 ruling 6); a top-level require
  * would capture its partial exports during the cycle.
@@ -128,29 +125,12 @@ async function readClockPolicy(client, leagueId) {
 }
 
 /**
- * Draft started: the pending -> active (or, on an all-keeper start, pending ->
- * complete) transition. Fixes draft_rounds at this instant (ADR 0005) and, on
- * the active branch, arms the first open pick's clock from the policy seconds
- * the start plan resolved. This is the one statement that advances current_pick
- * and arms the deadline together for the start event.
+ * Draft started: the pending -> active transition with a first open pick. Fixes
+ * draft_rounds at this instant (ADR 0005) and arms the first open pick's clock from
+ * the policy seconds the start plan resolved, in one statement. A start whose Keepers
+ * fill every slot completes through onSlotTaken instead.
  */
-async function onDraftStarted(client, { leagueId, complete, currentPick, clockSeconds, rounds }) {
-  if (complete) {
-    // Every roster slot was pre-filled by keepers: no live pick is possible, so
-    // the draft is complete before it began. This statement flips the status and
-    // clears the clock; the waiver window and the rest of the draft->season
-    // handoff are draftCompletion.completeDraft's, called by draftStart next on
-    // this same transaction (#789).
-    await client.query(
-      `UPDATE "leagues"
-         SET "draft_status" = 'complete', "current_pick" = $2, "updated_at" = now(),
-             "draft_autostart_failed" = false, "pick_deadline_at" = NULL,
-             "draft_rounds" = $3
-       WHERE "id" = $1`,
-      [leagueId, currentPick, rounds]
-    );
-    return null;
-  }
+async function onDraftStarted(client, { leagueId, currentPick, clockSeconds, rounds }) {
   const result = await client.query(
     `UPDATE "leagues"
        SET "draft_status" = 'active', "current_pick" = $2, "updated_at" = now(),
@@ -168,34 +148,62 @@ async function onDraftStarted(client, { leagueId, complete, currentPick, clockSe
 }
 
 /**
- * Pick landed: advance the turn to the next open pick (or, on the final pick,
- * to the completed state) and arm the next team's clock, in one statement so
- * the turn advance and clock arm stay atomic (ADR 0018). draft_status rides the
- * same statement because the final pick's advance IS the completion; the
- * completion side effects the caller runs afterward depend on that status being
- * set first (#194). `nextTeam` is the resolved team now on the clock (null once
- * the draft completes); the clock settings are read from the locked row here
- * (#948), not passed in.
+ * A slot was taken (#2694, ADR 0018 2026-11-06): after a Pick, and at a Draft start
+ * whose Keepers fill every slot, find the next open slot and its Team from the
+ * League's draft_picks rows (Keeper pre-fills included), set the Draft status, arm the
+ * clock and hand off completion. The one place a turn advances. `rounds` is passed only
+ * by a Draft start, which fixes draft_rounds (ADR 0005). Resolves to the value written
+ * to current_pick, the Team now on the clock, whether the draft completed, the deadline
+ * the clock holds and the completion entry (null unless the draft completed).
  */
-async function onPickLanded(client, { leagueId, nextPick, draftStatus, draftComplete, nextTeam }) {
-  const league = await readClockPolicy(client, leagueId);
+async function onSlotTaken(client, { leagueId, league, teams, rotationOpts, fromInclusive, rounds = null }) {
+  const totalPicks = teams.length * (rounds ?? draftRounds(league));
+  // Keeper picks are pre-inserted and can occupy any slot, so completion is a count
+  // of every pick made, not a comparison against one pick's own number.
+  const count = await client.query(
+    `SELECT COUNT(*)::int AS n FROM "draft_picks" WHERE "league_id" = $1`,
+    [leagueId]
+  );
+  const draftComplete = count.rows[0].n >= totalPicks;
+  let nextPick = null;
+  let nextTeam = null;
+  if (!draftComplete) {
+    const taken = await client.query(
+      `SELECT "pick_number" FROM "draft_picks" WHERE "league_id" = $1`,
+      [leagueId]
+    );
+    const takenSet = new Set(taken.rows.map((r) => r.pick_number - 1));
+    nextPick = nextOpenPickNumber(takenSet, fromInclusive, totalPicks);
+    nextTeam = nextPick === null ? null : teamForPick(nextPick, teams, rotationOpts);
+  }
+  // A completed draft holds totalPicks, the one-past-the-end sentinel (1-based last slot).
+  const nextPickIndex = draftComplete ? totalPicks : nextPick;
+  // The clock settings come from the locked row (#948), not from the caller.
+  const policy = await readClockPolicy(client, leagueId);
   const clockSeconds = clockSecondsFor({
     draftComplete,
     onClockAutodraft: nextTeam ? nextTeam.autodraft : false,
-    league,
+    league: policy,
   });
   const result = await client.query(
     `UPDATE "leagues"
        SET "current_pick" = $1, "draft_status" = $2, "updated_at" = now(),
+           "draft_autostart_failed" = false,
+           "draft_rounds" = COALESCE($5::int, "draft_rounds"),
            "pick_deadline_at" = CASE
              WHEN $4::int IS NULL THEN NULL
              ELSE now() + make_interval(secs => $4::int)
            END
      WHERE "id" = $3
      RETURNING "pick_deadline_at"`,
-    [nextPick, draftStatus, leagueId, clockSeconds]
+    [nextPickIndex, draftComplete ? 'complete' : 'active', leagueId, clockSeconds, rounds]
   );
-  return result.rows[0].pick_deadline_at;
+  const pickDeadlineAt = result.rows[0].pick_deadline_at;
+  // The one draft->season handoff (#789), on this same transaction, after the status flip.
+  const completion = draftComplete
+    ? await draftCompletion.completeDraft(client, { leagueId })
+    : null;
+  return { nextPickIndex, nextTeam, draftComplete, pickDeadlineAt, completion };
 }
 
 /** Paused: the draft is paused, so the clock is cleared. Pausing forgives elapsed time. */
@@ -240,7 +248,7 @@ async function onResumed(client, { leagueId }) {
  * Autodraft toggled on for the team on the clock: arm the short autodraft delay
  * right away, so an absent owner's pick fires promptly. The team is autodrafting
  * by definition here (the callers, the Autodraft toggle act and
- * enableAutodraftAfterTimeouts, reach this only for enabling on the on-clock
+ * the Autopick's timeout consequences (onTimeout), reach this only for enabling on the on-clock
  * team of an active, unpaused draft), so the policy resolves to the delay. The
  * clock settings are read from the locked row here (#948), not passed in.
  */
@@ -260,34 +268,33 @@ async function onAutodraftToggled(client, { leagueId }) {
 }
 
 /**
- * The Autodraft move after a timeout streak (#2684), as one Draft act: the Team's
- * flag and any re-arm commit together under the League lock. At a snake turnaround
- * the Team just placed in Autodraft can hold the next turn, and that turn is armed
- * on the short delay through onAutodraftToggled on the held client. The act names
- * stateChanged, the one board fact, and nothing else. Resolves to whether the turn
- * was re-armed and the deadline the clock now holds, so the caller's timer agrees
- * with the stored deadline.
+ * The consequences of a genuine timeout (#2694, ADR 0018 2026-11-06), run inside the
+ * Autopick's own transaction on the held client: the streak bump, the move into
+ * Autodraft at the threshold, and the re-arm when that move lands on the Team now
+ * holding the next turn (a snake turnaround), armed on the short delay. A failure
+ * here rolls back the Pick too. Resolves to null when nothing moved, else
+ * { pickDeadlineAt } where pickDeadlineAt is the deadline the re-arm set, or
+ * undefined when no re-arm was needed.
  */
-async function enableAutodraftAfterTimeouts({ leagueId, teamId }) {
-  return runDraftAct({ leagueId, userId: null }, async ({ client, league, teams }) => {
-    await client.query(
-      `UPDATE "teams" SET "autodraft" = true, "updated_at" = now() WHERE "id" = $1`,
-      [teamId]
-    );
-    const onClock = teamForPick(league.current_pick, teams, {
-      rotation: league.draft_rotation,
-      overrides: league.draft_order_overrides,
-    });
-    // A completed draft has no turn to arm (its current_pick is past the last slot),
-    // and a paused draft holds its clock until resume.
-    let rearmed = false;
-    let pickDeadlineAt = null;
-    if (onClock && onClock.id === teamId && league.draft_status === 'active' && !league.draft_paused) {
-      pickDeadlineAt = await onAutodraftToggled(client, { leagueId });
-      rearmed = true;
-    }
-    return { response: { rearmed, pickDeadlineAt }, broadcasts: ['stateChanged'] };
-  });
+async function onTimeout(client, { leagueId, team, nextTeamId, draftActive }) {
+  // A Team already in Autodraft is not timing out, so its pick is no streak.
+  if (team.autodraft) return null;
+  const bumped = await client.query(
+    `UPDATE "teams" SET "consecutive_timeouts" = "consecutive_timeouts" + 1
+     WHERE "id" = $1 RETURNING "consecutive_timeouts"`,
+    [team.id]
+  );
+  // Lazy: the threshold lives in draft.service, which a top-level require would
+  // load into the pick.service cycle (as autoPick does, ADR 0018).
+  const { shouldAutoEnableAutodraft } = require('./draft.service');
+  if (!shouldAutoEnableAutodraft(bumped.rows[0].consecutive_timeouts)) return null;
+  await client.query(
+    `UPDATE "teams" SET "autodraft" = true, "updated_at" = now() WHERE "id" = $1`,
+    [team.id]
+  );
+  // A completed draft has no turn to arm, and a paused draft holds its clock until resume.
+  if (!draftActive || nextTeamId !== team.id) return { pickDeadlineAt: undefined };
+  return { pickDeadlineAt: await onAutodraftToggled(client, { leagueId }) };
 }
 
 /**
@@ -465,7 +472,7 @@ async function countPicksRemaining({ leagueId, league, teams, teamId, rounds }) 
  * the queue first, then Best available among players who fill a Starting need,
  * then Best available among everyone else (see orderAutopickCandidates). The
  * committed pick re-arms the next team's clock
- * through pick.service.landPick -> onPickLanded, so expiry never writes the
+ * through pick.service.landPick -> onSlotTaken, so expiry never writes the
  * deadline directly; it goes through the same arming policy as every other event.
  *
  * Candidate selection and the pick itself are separate transactions, so a
@@ -476,28 +483,18 @@ async function countPicksRemaining({ leagueId, league, teams, teamId, rounds }) 
 async function autoPick({ leagueId }) {
   // pick.service requires this module (ADR 0018), so landPick is required at call
   // time rather than at module load to avoid capturing its partial exports
-  // mid-cycle (#782 ruling 6). shouldAutoEnableAutodraft (the streak/flip
-  // decision, ruling 4) stays in draft.service and is required lazily beside it;
-  // draft.service no longer requires this module, so it closes no cycle either.
+  // mid-cycle (#782 ruling 6).
   const { landPick } = require('./pick.service');
-  const { shouldAutoEnableAutodraft } = require('./draft.service');
 
   const leagueResult = await pool.query(`SELECT * FROM "leagues" WHERE "id" = $1`, [leagueId]);
   const league = leagueResult.rows[0];
   if (!league || league.draft_status !== 'active' || league.draft_paused) return null;
-  // Expiry guard (#601, ADR 0018): only an actually-elapsed clock autopicks.
-  // This is one half of the timer-vs-sweep dedupe, and it covers exactly the
-  // SEQUENCED case: a second firing (a re-armed timer, or a backstop straggler)
-  // that arrives AFTER an earlier firing already advanced the turn reads the
-  // next team's freshly-armed clock, which is null or still in the future, and
-  // declines here. Without it that second firing would autopick the next team
-  // early, committing a second Pick off one expiry. It does NOT cover the
-  // CONCURRENT case (two firings that both read this same elapsed deadline
-  // before either commits): both pass this check, and the loser is stopped one
-  // level down by pick.service's CLOCK_MOVED check under FOR NO KEY UPDATE, which
-  // compares this deadline to the locked row's (#2549; see autoPick's CLOCK_MOVED
-  // handling and fireExpiryTimer). A null deadline (untimed non-autodrafting
-  // turn, or a completed draft) is likewise not an expiry and never autopicks.
+  // Expiry check (#601, ADR 0018): only an actually-elapsed clock autopicks. A null
+  // deadline (untimed non-autodrafting turn, or a completed draft) is not an expiry.
+  // Which turn this firing expired is not re-derived here: the commit and the
+  // escalation fence it under the League lock (expiredTurn, #2694, #2720), so a
+  // sequenced or concurrent second firing is refused CLOCK_MOVED there or declined
+  // by the escalation, and autoPick returns null.
   const deadline = league.pick_deadline_at;
   if (deadline == null || msUntilDeadline(deadline) > 0) return null;
 
@@ -513,9 +510,6 @@ async function autoPick({ leagueId }) {
     overrides: league.draft_order_overrides,
   });
   if (!onTheClock) return null;
-  // A pick fired by an expired clock is a "timeout" only when the team isn't
-  // already autodrafting on purpose.
-  const wasTimeout = !onTheClock.autodraft;
 
   const lastSeason = await lastCompletedNflSeason();
   const candidatesRes = await pool.query(
@@ -558,6 +552,8 @@ async function autoPick({ leagueId }) {
     rosterSlots, rosterPositions, currentRound, draftRounds: rounds, picksRemaining,
   }).slice(0, AUTOPICK_CANDIDATE_LIMIT);
 
+  // The turn this firing saw expire, built once for every candidate and the escalation.
+  const expiredTurn = { pickNumber: league.current_pick + 1, deadline };
   for (const candidate of candidates) {
     try {
       // A Pick lands in one place (#782): landPick commits the autopick AND fans
@@ -565,33 +561,15 @@ async function autoPick({ leagueId }) {
       // draftCompleted) through the one Draft room adapter (#745).
       // The clock no longer re-derives that fan-out here - the socket handler and
       // the offline route reach the same seam.
-      let outcome = await landPick({
+      // The streak, the move into Autodraft and any re-arm commit with this Pick
+      // (onTimeout, #2694); the room hears them from landPick after commit.
+      return await landPick({
         leagueId,
-        userId: onTheClock.owner_id,
+        by: { kind: 'autopick' },
         playerId: candidate.id,
-        auto: true,
-        // The expiry this firing saw; the commit refuses CLOCK_MOVED if a re-arm
-        // moved the clock since (#2549).
-        expectedDeadline: deadline,
+        // The commit refuses CLOCK_MOVED if the turn or its deadline moved since (#2549).
+        expiredTurn,
       });
-      // After a genuine timeout, track the streak and flip autodraft on once it
-      // crosses the threshold, so a persistently-absent owner stops stalling. The
-      // streak/flip stays with the clock (ADR 0018, ruling 4); the flip is a Draft
-      // act, so a re-arm at a turnaround commits with it (#2684).
-      if (wasTimeout) {
-        const bumped = await pool.query(
-          `UPDATE "teams" SET "consecutive_timeouts" = "consecutive_timeouts" + 1
-           WHERE "id" = $1 RETURNING "consecutive_timeouts"`,
-          [onTheClock.id]
-        );
-        if (shouldAutoEnableAutodraft(bumped.rows[0].consecutive_timeouts)) {
-          const flip = await enableAutodraftAfterTimeouts({ leagueId, teamId: onTheClock.id });
-          // The expiry timer arms from this return, so hand it the deadline the turn
-          // now holds, not the one landPick armed before the move (#2684).
-          if (flip.rearmed) outcome = { ...outcome, pickDeadlineAt: flip.pickDeadlineAt };
-        }
-      }
-      return outcome;
     } catch (err) {
       // A stale firing: the turn it was for is gone, so no candidate fits, no
       // timeout counts and nothing is stalled (#2549).
@@ -606,7 +584,7 @@ async function autoPick({ leagueId }) {
   // escalateNothingDraftable - so a firing that loses the race pauses nothing
   // and appends nothing. autoPick still returns null either way, so neither fire
   // path commits a Pick or arms a clock for the now-paused draft.
-  const escalation = await escalateNothingDraftable({ leagueId });
+  const escalation = await escalateNothingDraftable({ leagueId, expiredTurn });
   if (escalation) {
     // Both ride the one Draft room adapter (#745). In the worker they publish
     // over the Redis emitter transport (the escalation runs there); stateChanged
@@ -639,7 +617,7 @@ async function autoPick({ leagueId }) {
  * the deadline already cleared) inside the lock - commits nothing and appends
  * no second entry. The invariant is NOT "only one firing reaches here" (both
  * do); it is "only the firing that still sees an active, unpaused draft on this
- * same elapsed deadline acts".
+ * same elapsed deadline and this same turn acts".
  *
  * The still-elapsed re-check covers a second race the pause check alone would
  * miss: a concurrent firing that did NOT hit nothing-draftable but committed a
@@ -648,23 +626,34 @@ async function autoPick({ leagueId }) {
  * and armed the next team's fresh clock, so under the lock this firing reads a
  * future-or-null deadline and declines, rather than pausing a Draft that in
  * fact moved on.
+ *
+ * The turn fence (#2720) covers the race the deadline re-check misses: a Pick
+ * landed on this expired turn, and the next turn's deadline has also elapsed, so
+ * the locked row is still elapsed but on a later turn. The firing declines unless
+ * the locked row is still this turn and deadline (expiredTurn), the same fence
+ * commitPick applies.
  */
-async function escalateNothingDraftable({ leagueId }) {
-  // withTransaction owns connect/BEGIN/COMMIT-or-guarded-ROLLBACK and the
-  // release rule (ADR 0033) - the close this #839-class lock-holder must get
+async function escalateNothingDraftable({ leagueId, expiredTurn }) {
+  // leagueWrite owns connect/BEGIN/the lock/COMMIT-or-guarded-ROLLBACK and the
+  // release rule (ADR 0033, ADR 0070) - the close this #839-class lock-holder must get
   // right. Nothing ran between the old checkout and BEGIN, so no statement newly
-  // reaches the wrapper's catch. Both early bails write no Draft state: the lock's
+  // reaches the wrapper's catch. The early bails write no Draft state: the lock's
   // board-version advance is the only write before them, and returning null COMMITs
   // it, which the ticket allows (a version that moves without a Draft-state change is
   // harmless). The write path still returns { activity } as before.
-  return withTransaction(pool, async (client) => {
-    // The lock advances the board version: the escalation pauses the Draft (ADR 0025, 2026-11-06).
-    const league = await lockLeague(client, leagueId);
+  return leagueWrite({ leagueId, label: 'draft-stall-escalation' }, async ({ client, league }) => {
+    // leagueWrite took the League lock: the escalation pauses the Draft (ADR 0070).
     // A concurrent firing may have already paused (another escalation) or
     // advanced the turn and re-armed (a committed Pick). Decline in either case.
     if (!league || league.draft_status !== 'active' || league.draft_paused) {
       // Nothing written but the lock's version advance: a plain return null COMMITs
       // it and releases the lock.
+      return null;
+    }
+    // The turn fence (#2720): a Pick landed on this expired turn, so the locked row is
+    // on a later turn or re-armed. Same comparison commitPick makes (#2549).
+    if (league.current_pick + 1 !== expiredTurn.pickNumber
+      || new Date(expiredTurn.deadline).getTime() !== new Date(league.pick_deadline_at).getTime()) {
       return null;
     }
     const deadline = league.pick_deadline_at;
@@ -699,7 +688,7 @@ async function escalateNothingDraftable({ leagueId }) {
       team: stuckTeam ? { id: stuckTeam.id, name: stuckTeam.name } : null,
     });
     return { activity };
-  }, { label: 'draft-stall-escalation' });
+  });
 }
 
 // --- Hybrid expiry: in-process timers beside the stored deadline (#601) -------
@@ -925,13 +914,15 @@ module.exports = {
   nextPickClockSeconds,
   clockSecondsFor,
   onDraftStarted,
-  onPickLanded,
+  onSlotTaken,
   onPaused,
   onResumed,
   onAutodraftToggled,
+  onTimeout,
   onPickUndone,
   clearClock,
   autoPick,
+  escalateNothingDraftable,
   processExpiredPickClocks,
   armExpiryTimer,
   fireExpiryTimer,

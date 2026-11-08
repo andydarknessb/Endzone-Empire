@@ -1,10 +1,11 @@
 const pool = require('../modules/pool');
-const { withTransaction } = require('../modules/withTransaction');
+const { leagueWrite } = require('../modules/leagueWrite');
 const { notifyLeague } = require('./activity.service');
 const { notifyCommissioners } = require('./leagueRole.service');
 const { fantasySideWhereSql } = require('./leagueType');
 const { MARKET_FLOOR } = require('./adp.service');
 const pickClock = require('./pickClock.service');
+const { DraftError } = require('./draftError');
 
 const HOUR_MS = 60 * 60 * 1000;
 
@@ -90,28 +91,25 @@ async function processScheduledDrafts({ now = new Date() } = {}) {
 }
 
 async function runAction(league, action, marketCount = Infinity, now = new Date()) {
-  // 'start' delegates entirely to draftStart.service's startDraft(), which
-  // does its own fresh League-lock read (lockLeague) + re-validation — running that
-  // under this function's own lock too would have the two connections
-  // deadlock on the same league row.
+  // 'start' hands to runStartAction, which opens the start's own League write first
+  // and nests startDraft inside it (ADR 0070): one lock, taken once.
   if (action === 'start') return runStartAction(league);
 
-  // withTransaction owns connect/BEGIN/COMMIT-or-guarded-ROLLBACK and the
-  // release rule (ADR 0033). Nothing ran between the old checkout and BEGIN, so
-  // no statement newly reaches the wrapper's catch. The recompute-disagreement
+  // leagueWrite owns connect, BEGIN, the League lock, COMMIT-or-guarded-ROLLBACK and
+  // the release rule (ADR 0033, ADR 0070). The recompute-disagreement
   // early return becomes a plain `return` inside `work`: it precedes every write
-  // (only the FOR NO KEY UPDATE re-read and the no_market re-read run before it), so
+  // (only the League-lock re-read and the no_market re-read run before it), so
   // COMMITting the read-only transaction releases the row lock exactly as the
   // old bare ROLLBACK did. `work` reports whether it took the write path so the
   // post-commit push stays gated to that path, the way the old early `return`
   // (which exited the function) never reached the push block.
-  const didWrite = await withTransaction(pool, async (client) => {
-    // Re-read under a row lock so a concurrent join/start/reschedule can't race us.
+  const didWrite = await leagueWrite({ leagueId: league.id, label: 'draft-schedule-tick' }, async ({ client }) => {
+    // Re-read under the League lock so a concurrent join/start/reschedule can't race us.
     const fresh = await client.query(
       `SELECT "draft_status", "draft_date", "draft_type", "min_teams", "draft_reminder_stage",
               "draft_autostart_failed",
               (SELECT COUNT(*)::int FROM "teams" WHERE "teams"."league_id" = "leagues"."id") AS "team_count"
-       FROM "leagues" WHERE "id" = $1 FOR NO KEY UPDATE`,
+       FROM "leagues" WHERE "id" = $1`,
       [league.id]
     );
     const row = fresh.rows[0];
@@ -119,7 +117,7 @@ async function runAction(league, action, marketCount = Infinity, now = new Date(
     // that value into every league's decision - the default that stays. The one
     // exception is 'no_market' (#882): its value is about to be shown to a human
     // as the reason the draft did not start, and an ADP sync landing during the
-    // FOR NO KEY UPDATE lock wait can have loaded the market since the tick read. So for
+    // League lock wait can have loaded the market since the tick read. So for
     // that action only, re-read the count on the locked client before the
     // recheck; every other action carries the tick's value and issues no extra
     // query. The recheck and the notification copy below both use this value.
@@ -131,7 +129,7 @@ async function runAction(league, action, marketCount = Infinity, now = new Date(
       effectiveMarketCount = freshMarket.rows[0].n;
     }
     // Recompute against the locked row; bail if the situation changed. The clock
-    // is the tick's own `now`, not a fresh read: the FOR NO KEY UPDATE re-read of the row
+    // is the tick's own `now`, not a fresh read: the League-lock re-read of the row
     // (status, date, type, staffing, reminder stage, autostart flag) is what
     // catches a concurrent join/start/reschedule; time elapsed during the lock
     // wait must not flip the action across a bucket edge (#880). If the re-read
@@ -201,7 +199,7 @@ async function runAction(league, action, marketCount = Infinity, now = new Date(
       });
     }
     return true;
-  }, { label: 'draft-schedule-tick' });
+  });
 
   // Push happens after commit (best-effort, off the critical path). Only on the
   // write path: on a recompute-disagreement the old code returned before ever
@@ -214,9 +212,15 @@ async function runAction(league, action, marketCount = Infinity, now = new Date(
 /** The 'start' scheduled action: start the draft, or flag+notify if it can't start right now. */
 async function runStartAction(league) {
   const { startDraft } = require('./draftStart.service');
+  // The scheduled start is a League write of its own (ADR 0070) and startDraft nests
+  // inside it through `within`, so the League row locks once for the whole start.
   let started;
   try {
-    started = await startDraft({ leagueId: league.id, userId: null });
+    started = await leagueWrite({ leagueId: league.id, label: 'draft-schedule-start' }, ({ client, league: locked, afterCommit }) => {
+      // A League deleted since the tick is a 404 refusal, flagged quietly below.
+      if (!locked) throw new DraftError(404, 'league not found');
+      return startDraft({ leagueId: league.id, userId: null, within: { client, league: locked, afterCommit } });
+    });
   } catch (err) {
     if (!err.statusCode) throw err;
     // Can't start right now (race lost to a concurrent change, stale

@@ -315,7 +315,7 @@ test('draft:picked: the Pick outcome names the Team that made it', async (t) => 
   ]).install(t);
   t.mock.method(lineupService, 'benchAcquiredPlayer', async () => {});
 
-  const outcome = await commitPick({ leagueId: LEAGUE_ID, userId: VIEWER.userId, playerId: 500 });
+  const outcome = await commitPick({ leagueId: LEAGUE_ID, by: { kind: 'manager', userId: VIEWER.userId }, playerId: 500 });
 
   assert.equal(outcome.teamId, VIEWER.teamId, 'the legacy Team id field survives');
   assert.equal(outcome.teamName, VIEWER.teamName);

@@ -86,8 +86,9 @@ export function createDraftSocket() {
     refreshTokens()
       .then(() => {
         // connect() skips the manager's 'reconnect' event, which is what the rooms
-        // and feeds (onReconnect) rejoin and resync on, so raise it once connected.
-        socket.once('connect', () => socket.io.emit('reconnect', 0));
+        // and feeds (onReconnect) rejoin and resync on, so run their handlers
+        // ourselves once the revived socket is connected (#2696).
+        socket.once('connect', () => runReconnectHandlers(socket));
         socket.connect();
       })
       .catch(endSessionIfRefused)
@@ -107,7 +108,20 @@ export function createDraftSocket() {
  * listener lives on the manager, which socket.io caches beyond the socket's
  * own lifetime, so component cleanup should call it alongside disconnect().
  */
+// Per-socket onReconnect handlers, so a revive (which never fires the manager's
+// 'reconnect') can run them too.
+const reconnectHandlers = new WeakMap();
+
 export function onReconnect(socket, handler) {
   socket.io.on('reconnect', handler);
-  return () => socket.io.off('reconnect', handler);
+  if (!reconnectHandlers.has(socket)) reconnectHandlers.set(socket, new Set());
+  reconnectHandlers.get(socket).add(handler);
+  return () => {
+    socket.io.off('reconnect', handler);
+    reconnectHandlers.get(socket)?.delete(handler);
+  };
+}
+
+function runReconnectHandlers(socket) {
+  for (const handler of [...(reconnectHandlers.get(socket) ?? [])]) handler();
 }

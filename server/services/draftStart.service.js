@@ -1,6 +1,4 @@
-const pool = require('../modules/pool');
-const { withTransaction } = require('../modules/withTransaction');
-const { lockLeague } = require('../modules/leagueWrite');
+const { leagueWrite } = require('../modules/leagueWrite');
 const { meetsMinimum } = require('./leagueSize');
 const { DraftError } = require('./draftError');
 const { startPlan } = require('./draftValidation.service');
@@ -20,9 +18,6 @@ const { getDraftRoomBroadcast } = require('../modules/draftRoomBroadcast');
 // The Pick clock module owns arming (ADR 0018): the draft-started event fixes
 // draft_rounds and arms the first open pick's clock in one statement.
 const pickClock = require('./pickClock.service');
-// The one draft->season handoff (#789), shared with the completing-Pick path.
-// Module object so the all-keeper-start suite can mock completeDraft.
-const draftCompletion = require('./draftCompletion');
 
 /**
  * Start a league's draft — the single entry point for every "start" trigger
@@ -35,15 +30,11 @@ const draftCompletion = require('./draftCompletion');
  * order-overrides/keepers both 409), pre-inserts any keeper picks, and arms
  * the first open pick's clock. Broadcasts the resulting draft:state on success.
  */
-async function startDraft({ leagueId, userId = null }) {
-  // withTransaction owns connect, BEGIN, COMMIT-or-guarded-ROLLBACK and the
-  // release rule (ADR 0033). The post-COMMIT broadcast reads the committed
-  // lifecycle entries and the armed deadline from the callback's RETURN value
-  // rather than from `let`s set inside a try, exactly as scoreMatchups does
-  // (#1060). The old swallowed `ROLLBACK().catch(() => {})` is gone: the wrapper
-  // rolls back on a throw, and a rejecting ROLLBACK now surfaces (attached as
-  // error.rollbackError, the connection destroyed) rather than vanishing.
-  const { activities, pickDeadlineAt } = await withTransaction(pool, async (client) => {
+async function startDraft({ leagueId, userId = null, within }) {
+  // leagueWrite owns the League lock, the transaction close and the after-commit
+  // queue (ADR 0070). `within` is the scheduled start's own League write: the start
+  // then runs on that client and locks nothing itself, so the League row locks once.
+  const { pickDeadlineAt } = await leagueWrite({ leagueId, label: 'draft-start', within }, async ({ client, league, afterCommit }) => {
     // The deadline the start armed, carried out to the caller (null for a
     // keeper-complete or untimed start). The WORKER's scheduled-autostart caller
     // arms an in-process expiry timer for it (#615); it is deliberately NOT armed
@@ -51,8 +42,6 @@ async function startDraft({ leagueId, userId = null }) {
     // production no timer registry exists (ADR 0018).
     let pickDeadlineAt = null;
 
-    // The lock advances the board version: the Draft start is a Draft-state change (ADR 0025, 2026-11-06).
-    const league = await lockLeague(client, leagueId);
     if (!league) throw new DraftError(404, 'league not found');
     // A pick'em-only league has no draft. Checked here, under the lock, so
     // the socket start event and the scheduler cannot bypass the route guard.
@@ -182,44 +171,43 @@ async function startDraft({ leagueId, userId = null }) {
     activities.push(await appendLifecycleActivity(client, { leagueId, kind: DRAFT_START, team: actorTeam }));
 
     if (plan.firstOpenPick === null) {
-      // Every roster slot was pre-filled by keepers — the draft is over before
-      // a single live pick, so run the same completion side effects commitPick
-      // would have on the final pick. draft_rounds is fixed here too (ADR
-      // 0005): a draft that completes without a live pick is still "active or
-      // completed" for every later read, so it must not fall through to a
-      // live draftRosterSize() recomputation either.
-      pickDeadlineAt = await pickClock.onDraftStarted(client, {
-        leagueId, complete: true, currentPick: plan.totalPicks, rounds: plan.rounds,
+      // Every roster slot was pre-filled by keepers, so the draft is over before a
+      // single live pick. The Pick clock step completes it (ADR 0018), the same step a
+      // Pick ends on, and fixes draft_rounds too (ADR 0005).
+      const slot = await pickClock.onSlotTaken(client, {
+        leagueId,
+        league,
+        teams,
+        rotationOpts: { rotation: league.draft_rotation, overrides: league.draft_order_overrides },
+        fromInclusive: 0,
+        rounds: plan.rounds,
       });
-      // The clock flipped draft_status to 'complete' above; the one draft->season
-      // handoff runs on this same transaction (#789), opening the waiver window,
-      // scheduling the season, and appending the actor-less COMPLETE entry after
-      // the start (#437 AC4, AC5). Collected for the post-COMMIT broadcast.
-      activities.push(await draftCompletion.completeDraft(client, { leagueId }));
+      pickDeadlineAt = slot.pickDeadlineAt;
+      // The completion entry rides the start's activities, after the draft_start entry.
+      activities.push(slot.completion);
     } else {
       // Fix draft_rounds once, from Draft roster size at this instant (ADR
       // 0005). commitPick's completion check and every other active/completed
       // read use this stored value from here on; none of them call
       // draftRosterSize() again for this league.
       pickDeadlineAt = await pickClock.onDraftStarted(client, {
-        leagueId, complete: false, currentPick: plan.firstOpenPick,
+        leagueId, currentPick: plan.firstOpenPick,
         clockSeconds: plan.firstClockSeconds, rounds: plan.rounds,
       });
     }
 
+    // Broadcast only after COMMIT (queued on the write), through the one Draft room
+    // adapter (#745), so the WORKER's scheduled autostart publishes these too. The
+    // adapter reports its own failures and never throws, so a post-commit transport
+    // blip cannot undo a started draft.
+    afterCommit(async () => {
+      const broadcast = getDraftRoomBroadcast();
+      await broadcast.stateChanged(leagueId);
+      for (const entry of activities) await broadcast.activityAppended(leagueId, entry);
+    });
     return { activities, pickDeadlineAt };
-  }, { label: 'draft-start' });
+  });
 
-  // Only after a successful COMMIT, and through the one Draft room adapter
-  // (#745), so the WORKER's scheduled autostart publishes these rather than
-  // dropping them. stateChanged refreshes the board; each committed lifecycle
-  // entry (the start, and on a keeper-filled start the completion) then rides to
-  // the combined feed on draft:activity (#437). The adapter reports its own
-  // failures and never throws here, so a post-commit transport blip cannot undo
-  // a started draft.
-  const broadcast = getDraftRoomBroadcast();
-  await broadcast.stateChanged(leagueId);
-  for (const entry of activities) await broadcast.activityAppended(leagueId, entry);
   return { leagueId, pickDeadlineAt };
 }
 

@@ -882,7 +882,7 @@ router.post('/league/:id/offline-picks', async (req, res) => {
         // Each committed offline Pick fans out exactly like a live one through
         // landPick (#782 ruling 3): a `pickLanded` per Pick, and the final Pick's
         // own draftCompleted covers completion. The route emits no closing state.
-        await landPick({ leagueId, userId: req.user.id, playerId: playerIds[i], byCommissioner: true });
+        await landPick({ leagueId, by: { kind: 'commissioner', userId: req.user.id }, playerId: playerIds[i] });
         applied++;
       } catch (error) {
         // A refusal below 500 is copy the commissioner reads (which pick failed

@@ -222,7 +222,7 @@ if (!ENABLED) {
 
   test('a manual Pick advances the board version and the draft:picked payload carries it', async () => {
     const before = await boardVersion(activeLeague);
-    const outcome = await commitPick({ leagueId: activeLeague, userId: ownerA, playerId: playerIds[0] });
+    const outcome = await commitPick({ leagueId: activeLeague, by: { kind: 'manager', userId: ownerA }, playerId: playerIds[0] });
     const after = await boardVersion(activeLeague);
     assert.ok(after > before, `board_version ${after} must exceed ${before}`);
     assert.equal(outcome.boardVersion, after, 'commitPick returns the version its transaction wrote');
@@ -233,7 +233,7 @@ if (!ENABLED) {
     const before = await boardVersion(activeLeague);
     // Bravo is on the clock at index 1 after Alpha's Pick; the Autopick is the Pick
     // the clock lands for it, so it runs with auto set.
-    const outcome = await commitPick({ leagueId: activeLeague, userId: ownerB, playerId: playerIds[1], auto: true });
+    const outcome = await commitPick({ leagueId: activeLeague, by: { kind: 'autopick' }, playerId: playerIds[1] });
     const after = await boardVersion(activeLeague);
     assert.ok(after > before, `board_version ${after} must exceed ${before}`);
     assert.equal(outcome.boardVersion, after);
