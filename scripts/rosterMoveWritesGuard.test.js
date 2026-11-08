@@ -106,7 +106,7 @@ test('an entry whose write is gone is stale', () => {
 
 test('an allowlist entry with no rule is reported', () => {
   const { ruleless } = analyze([], {
-    allowlist: [{ file: 'server/routes/draft.router.js', count: 1, rule: '  ' }],
+    allowlist: [{ file: 'server/services/draftAct.service.js', count: 1, rule: '  ' }],
   });
   assert.equal(ruleless.length, 1);
   assert.match(ruleless[0], /no rule/);

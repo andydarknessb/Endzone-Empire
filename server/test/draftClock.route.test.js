@@ -14,10 +14,10 @@ const { createFakePool } = require('./helpers/fakePool');
  *
  * The commissioner and draft-status refusal is decided in the Draft act body,
  * on the locked League row, before the pick_time_seconds write. Each refusal is
- * pinned twice: its status and message, and the zero count of pick clock writes
- * (docs/agents/refusal-tests.md: a refusal that protects a mutation asserts the
- * forbidden write did not run). The success path is the baseline that proves the
- * count can see the write.
+ * pinned twice, as separate tests: its status and message (the old assertions,
+ * which a misplaced guard leaves green), and the zero count of pick clock writes
+ * with the rollback (docs/agents/refusal-tests.md). The success paths are the
+ * baseline that proves the count can see the write.
  */
 
 const previousSecret = process.env.JWT_SECRET;
@@ -40,14 +40,15 @@ const REFUSAL = 'league not found, not commissioner, or the draft has already fi
 
 /**
  * `status` is the League's draft_status on the locked row; `isCommissioner`
- * whether the caller passes the commissioner probe.
+ * whether the caller passes the commissioner probe; `unknownLeague` whether the
+ * lock finds no row at all.
  */
-function clockPool({ status = 'active', isCommissioner = true } = {}) {
+function clockPool({ status = 'active', isCommissioner = true, unknownLeague = false } = {}) {
   return createFakePool([
     [/SELECT "pickem_only" FROM "leagues"/, () => ({ rows: [{ pickem_only: false }] })],
     // The League write's lock (ADR 0070) returns the row the body authorizes against.
     [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({
-      rows: [{
+      rows: unknownLeague ? [] : [{
         id: LEAGUE_ID, draft_status: status, draft_paused: false, current_pick: 1,
         current_season: 2026, draft_rotation: 'snake', draft_order_overrides: null,
       }],
@@ -67,6 +68,8 @@ const setClock = (user) => request(app)
 
 const clockWrites = (fake) => fake.matching(/^UPDATE "leagues" SET "pick_time_seconds"/);
 
+// --- success paths: the baseline -------------------------------------------
+
 test('POST clock: the commissioner of an active draft sets the clock (success baseline)', async (t) => {
   const fake = clockPool().install(t);
 
@@ -79,13 +82,27 @@ test('POST clock: the commissioner of an active draft sets the clock (success ba
   fake.assertClean();
 });
 
+test('POST clock: the commissioner of a pending draft sets the clock', async (t) => {
+  const fake = clockPool({ status: 'pending' }).install(t);
+
+  const res = await setClock(COMMISSIONER);
+
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.equal(clockWrites(fake).length, 1);
+  fake.assertClean();
+});
+
+// --- non-commissioner -------------------------------------------------------
+
 test('POST clock: a non-commissioner is refused with 403 and the refusal message', async (t) => {
-  clockPool({ isCommissioner: false }).install(t);
+  const fake = clockPool({ isCommissioner: false }).install(t);
 
   const res = await setClock(OUTSIDER);
 
   assert.equal(res.status, 403, JSON.stringify(res.body));
   assert.equal(res.body.error, REFUSAL);
+  // The probe is asked about this caller and this League, not some other pair.
+  assert.deepEqual(fake.matching(/^SELECT 1 FROM "leagues" WHERE "id" = \$1 AND/)[0].params, [LEAGUE_ID, OUTSIDER]);
 });
 
 test('POST clock: a non-commissioner refusal writes no pick clock', async (t) => {
@@ -99,6 +116,8 @@ test('POST clock: a non-commissioner refusal writes no pick clock', async (t) =>
   assert.equal(fake.matching(/^ROLLBACK$/).length, 1, 'the lock is rolled back');
   fake.assertClean();
 });
+
+// --- completed draft --------------------------------------------------------
 
 test('POST clock: a completed draft is refused with 403 and the refusal message', async (t) => {
   clockPool({ status: 'complete' }).install(t);
@@ -117,5 +136,28 @@ test('POST clock: a completed draft refusal writes no pick clock', async (t) => 
   assert.equal(res.status, 403, JSON.stringify(res.body));
   assert.equal(clockWrites(fake).length, 0, 'a finished draft takes no clock write');
   assert.equal(fake.matching(/^COMMIT$/).length, 0, 'nothing committed');
+  assert.equal(fake.matching(/^ROLLBACK$/).length, 1, 'the lock is rolled back');
+  fake.assertClean();
+});
+
+// --- unknown League ---------------------------------------------------------
+
+test('POST clock: an unknown League is refused with 403 and the refusal message', async (t) => {
+  clockPool({ unknownLeague: true }).install(t);
+
+  const res = await setClock(COMMISSIONER);
+
+  assert.equal(res.status, 403, JSON.stringify(res.body));
+  assert.equal(res.body.error, REFUSAL);
+});
+
+test('POST clock: an unknown League refusal writes no pick clock', async (t) => {
+  const fake = clockPool({ unknownLeague: true }).install(t);
+
+  const res = await setClock(COMMISSIONER);
+
+  assert.equal(res.status, 403, JSON.stringify(res.body));
+  assert.equal(clockWrites(fake).length, 0, 'no League row, so no clock write');
+  assert.equal(fake.matching(/^ROLLBACK$/).length, 1, 'the lock is rolled back');
   fake.assertClean();
 });
