@@ -2,45 +2,19 @@ const pool = require('../modules/pool');
 const { withTransaction } = require('../modules/withTransaction');
 const { leagueWrite, lockLeague } = require('../modules/leagueWrite');
 const { logTransaction, notify, notifyLeague } = require('./activity.service');
-const { isLeagueCommissioner } = require('./leagueRole.service');
-const { requireMember } = require('./leagueMembership.service');
-const { assertFantasyLeagueRow } = require('./leagueType');
+const { TradeError, TRANSITIONS, assertTransition, transitionRefusal, assertDraftComplete } = require('./tradeTransitions');
 // The write-time roster gate (#940). Its error type is DraftError, which does
 // NOT extend TradeError - and that is load-bearing here, not incidental:
 // processDueTrades permanently CANCELS a trade when it catches a TradeError, so
 // a freeze refusal shaped like one would destroy every accepted trade whose
 // review window ended during a freeze. As a DraftError it falls to the "log and
 // retry next tick" branch, and the trade stays accepted.
-const { assertRosterWriteAllowed, isLeagueFrozen, ROSTER_GATE } = require('./rosterGate.service');
+const { assertRosterWriteAllowed, ROSTER_GATE } = require('./rosterGate.service');
 const { rosterFit } = require('./rosterFit.service');
 // The one writer of a single-player Roster move (#2535).
 const rosterMove = require('./rosterMove.service');
 const { getWeekOpponents } = require('./nflWeekOpponents');
 const { normalizeNflTeam } = require('./nflTeam');
-
-/**
- * Who may act on a trade (#188, recorded here rather than beside each check).
- *
- * Every `owner_id !== userId` in this module is a CALLER comparison and never
- * a role one: `owner_id` here is a `teams` row's, so it asks "is this team the
- * signed-in manager's own", and the error message beside each one states the
- * rule it enforces. Only the two managers in a trade may move it, and which of
- * them may do what is the whole of the rule: the receiving manager responds
- * and counters, the proposing manager cancels.
- *
- * Being a commissioner grants nothing here. The one commissioner-shaped power
- * over a trade is commissionerDecide's force-approve/veto, which authorizes
- * through isLeagueCommissioner like every other commissioner-gated action, so
- * a co-commissioner holds it. A commissioner has no standing to accept a trade
- * on a manager's behalf, and nothing in here should acquire one by comparing
- * against `leagues.owner_id`.
- */
-class TradeError extends Error {
-  constructor(statusCode, message) {
-    super(message);
-    this.statusCode = statusCode;
-  }
-}
 
 /** Load a trade with its league, both teams, and items; lock the trade row. */
 async function loadTrade(client, tradeId, { forUpdate = true } = {}) {
@@ -67,8 +41,11 @@ async function loadTrade(client, tradeId, { forUpdate = true } = {}) {
   const leagueIdResult = await client.query(`SELECT "league_id" FROM "trades" WHERE "id" = $1`, [tradeId]);
   const leagueId = leagueIdResult.rows[0] ? leagueIdResult.rows[0].league_id : null;
   const league = leagueId == null ? null : await lockLeague(client, leagueId);
+  // review_closed is read on the database's clock after the League lock is granted,
+  // not at transaction start: a veto that queued behind the lock must see the window
+  // as it is when it writes. processDueTrades' predicate is review_ends_at <= now().
   const tradeResult = await client.query(
-    `SELECT * FROM "trades" WHERE "id" = $1${forUpdate ? ' FOR UPDATE' : ''}`,
+    `SELECT *, ("review_ends_at" <= clock_timestamp()) AS "review_closed" FROM "trades" WHERE "id" = $1${forUpdate ? ' FOR UPDATE' : ''}`,
     [tradeId]
   );
   const trade = tradeResult.rows[0];
@@ -80,32 +57,6 @@ async function loadTrade(client, tradeId, { forUpdate = true } = {}) {
   );
   const teams = new Map(teamsResult.rows.map((t) => [t.id, t]));
   return { trade, league, items: itemsResult.rows, teams };
-}
-
-/**
- * The trade-window gate every offer and answer runs through: no trades at all
- * in a pick'em-only league, none until the draft is complete, and none past
- * the deadline.
- */
-function assertBeforeDeadline(league) {
-  assertFantasyLeagueRow(league);
-  assertDraftComplete(league);
-  if (league.trade_deadline_week != null && league.current_week > league.trade_deadline_week) {
-    throw new TradeError(409, `the trade deadline (week ${league.trade_deadline_week}) has passed`);
-  }
-}
-
-/**
- * Trades open only once the League's draft is complete (#2550). Before then a
- * trade fills a roster that is still being picked (a 2-for-1 mid-draft pauses
- * the draft at the team's last pick), and a Keeper traded before the draft
- * lands on one roster while the other team's keeper pick still owes him.
- * A TradeError, so a due trade found in this window is cancelled, not retried.
- */
-function assertDraftComplete(league) {
-  if (league.draft_status !== 'complete') {
-    throw new TradeError(409, 'trades open once the draft is complete');
-  }
 }
 
 function validatePlayerIds(playerIds) {
@@ -134,18 +85,12 @@ function validatePlayerIds(playerIds) {
 async function proposeTradeWith(client, { league, userId, receivingTeamId, playerIds, counterOf = null }) {
   if (!league) throw new TradeError(404, 'league not found');
   const leagueId = league.id;
-  // An entry gate: tells the proposer before he fills in an offer. Execution
-  // still runs the write-time gate below (executeTrade); this delegates to
-  // the gate's fail-closed freeze read (#966) so the two cannot drift on
-  // what the column means.
-  if (isLeagueFrozen(league)) {
-    throw new TradeError(409, 'transactions are locked by the commissioner');
-  }
-  assertBeforeDeadline(league);
-
-  const myTeam = await requireMember(client, { leagueId, userId });
-  if (myTeam.locked) throw new TradeError(409, 'your team is locked by the commissioner');
-  if (myTeam.id === receivingTeamId) throw new TradeError(400, 'cannot trade with yourself');
+  // The propose transition (tradeTransitions.js): the freeze and the deadline as
+  // entry gates, then the member's own checks. Execution still runs the write-time
+  // gate (executeTrade).
+  const ctx = { client, league, userId, receivingTeamId, trade: null };
+  await assertTransition('propose', ctx);
+  const { myTeam } = ctx;
 
   const otherResult = await client.query(
     `SELECT * FROM "teams" WHERE "id" = $1 AND "league_id" = $2`,
@@ -242,12 +187,11 @@ async function respondToTrade({ tradeId, userId, action }) {
     pool,
     async (client) => {
       const { trade, league, items, teams } = await loadTrade(client, tradeId);
-      if (trade.status !== 'pending') throw new TradeError(409, `trade is ${trade.status}, not pending`);
+      const to = await assertTransition(action, { client, trade, league, items, teams, userId });
       const receiving = teams.get(trade.receiving_team_id);
-      if (receiving.owner_id !== userId) throw new TradeError(403, 'only the receiving owner can respond');
       const proposing = teams.get(trade.proposing_team_id);
 
-      if (action === 'reject') {
+      if (to === 'rejected') {
         await client.query(
           `UPDATE "trades" SET "status" = 'rejected', "updated_at" = now() WHERE "id" = $1`,
           [tradeId]
@@ -262,9 +206,7 @@ async function respondToTrade({ tradeId, userId, action }) {
         return { tradeId, status: 'rejected' };
       }
 
-      assertBeforeDeadline(league);
-      const reviewed = league.trade_veto_votes > 0 && league.trade_review_hours > 0;
-      if (reviewed) {
+      if (to === 'accepted') {
         await client.query(
           `UPDATE "trades" SET "status" = 'accepted', "updated_at" = now(),
            "review_ends_at" = now() + make_interval(hours => $2)
@@ -301,11 +243,8 @@ async function cancelTrade({ tradeId, userId }) {
   return withTransaction(
     pool,
     async (client) => {
-      const { trade, teams } = await loadTrade(client, tradeId);
-      if (trade.status !== 'pending') throw new TradeError(409, `trade is ${trade.status}, not pending`);
-      if (teams.get(trade.proposing_team_id).owner_id !== userId) {
-        throw new TradeError(403, 'only the proposer can cancel');
-      }
+      const { trade, league, teams } = await loadTrade(client, tradeId);
+      await assertTransition('cancel', { client, trade, league, teams, userId });
       await client.query(
         `UPDATE "trades" SET "status" = 'cancelled', "updated_at" = now() WHERE "id" = $1`,
         [tradeId]
@@ -331,9 +270,7 @@ async function counterTrade({ tradeId, userId, playerIds }) {
     pool,
     async (client) => {
       const { trade, teams, league } = await loadTrade(client, tradeId);
-      if (trade.status !== 'pending') throw new TradeError(409, `trade is ${trade.status}, not pending`);
-      const receiving = teams.get(trade.receiving_team_id);
-      if (receiving.owner_id !== userId) throw new TradeError(403, 'only the receiving owner can counter');
+      await assertTransition('counter', { client, trade, league, teams, userId });
       await client.query(
         `UPDATE "trades" SET "status" = 'countered', "updated_at" = now() WHERE "id" = $1`,
         [tradeId]
@@ -362,31 +299,22 @@ async function vetoTrade({ tradeId, userId }) {
     pool,
     async (client) => {
       const { trade, league, teams } = await loadTrade(client, tradeId);
-      if (trade.status !== 'accepted') throw new TradeError(409, 'trade is not in league review');
-      if (league.trade_veto_votes < 1) throw new TradeError(409, 'vetoes are disabled in this league');
-
-      const voter = await requireMember(client, { leagueId: league.id, userId });
-      if (voter.id === trade.proposing_team_id || voter.id === trade.receiving_team_id) {
-        throw new TradeError(403, 'teams in the trade cannot vote on it');
-      }
       // The window, not the trade's status, ends the review (#2544): the trade
       // stays 'accepted' until processDueTrades executes it, which a frozen
-      // League can delay for days. The row is in hand, so no clock round-trip.
-      if (trade.review_ends_at && new Date(trade.review_ends_at) <= new Date()) {
-        throw new TradeError(409, 'the review window has closed');
-      }
+      // League can delay for days. review_closed is the database's clock.
+      const ctx = { client, trade, league, teams, userId };
+      await assertTransition('veto', ctx);
       await client.query(
         `INSERT INTO "trade_votes" ("trade_id", "team_id") VALUES ($1, $2)
          ON CONFLICT ("trade_id", "team_id") DO NOTHING`,
-        [tradeId, voter.id]
+        [tradeId, ctx.voter.id]
       );
       const votes = await client.query(
         `SELECT COUNT(*)::int AS n FROM "trade_votes" WHERE "trade_id" = $1`,
         [tradeId]
       );
-      let status = 'accepted';
-      if (votes.rows[0].n >= league.trade_veto_votes) {
-        status = 'vetoed';
+      const status = TRANSITIONS.veto.to({ votes: votes.rows[0].n, league });
+      if (status === 'vetoed') {
         await client.query(
           `UPDATE "trades" SET "status" = 'vetoed', "updated_at" = now() WHERE "id" = $1`,
           [tradeId]
@@ -413,17 +341,8 @@ async function commissionerDecide({ tradeId, userId, approve }) {
     pool,
     async (client) => {
       const { trade, league, items, teams } = await loadTrade(client, tradeId);
-      if (!(await isLeagueCommissioner(client, league.id, userId))) {
-        throw new TradeError(403, 'only the commissioner can do this');
-      }
-      // Integrity: the override is never theirs to use on a trade their own team is in.
-      if ([trade.proposing_team_id, trade.receiving_team_id].some((id) => teams.get(id)?.owner_id === userId)) {
-        throw new TradeError(403, "a commissioner can't decide a trade their own team is in");
-      }
-      if (!['pending', 'accepted'].includes(trade.status)) {
-        throw new TradeError(409, `trade is ${trade.status}`);
-      }
-      if (approve) {
+      const to = await assertTransition(approve ? 'approve' : 'deny', { client, trade, league, items, teams, userId });
+      if (to === 'executed') {
         await executeTrade(client, { trade, league, items, teams, byCommissioner: true });
         return { tradeId, status: 'executed', leagueId: league.id };
       }
@@ -606,11 +525,10 @@ async function processDueTrades() {
         pool,
         async (client) => {
           const { trade, league, items, teams } = await loadTrade(client, row.id);
-          if (trade.status === 'accepted') {
-            await executeTrade(client, { trade, league, items, teams });
-            return { status: 'executed', leagueId: league.id };
-          }
-          return { status: trade.status };
+          // Not a refusal to cancel: a trade that is no longer due is left for its own run.
+          if (await transitionRefusal('execute', { trade, league })) return { status: trade.status };
+          await executeTrade(client, { trade, league, items, teams });
+          return { status: 'executed', leagueId: league.id };
         },
         { label: 'processDueTrades' }
       );
