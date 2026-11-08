@@ -180,17 +180,18 @@ test('auction custom order that is not a permutation of the teams: 400 under FOR
   assert.equal(db.released(), 1);
 });
 
-test('frozen pre-check: an active-draft league 409s naming only the locked (draft-frozen) keys, no transaction, no UPDATE', async () => {
+test('frozen pre-check: an active-draft league 409s naming only the locked (draft-frozen) keys, after the lock, inside a rolled-back transaction, nothing written', async () => {
   const db = fakeDb({ status: statusRow({ draft_status: 'active' }) });
   const error = await refusal(db, { waiverType: 'faab', draftType: 'snake', playoffTeams: 4 });
   assert.equal(error.statusCode, 409);
   assert.equal(error.message, 'these settings are locked once the draft starts: playoffTeams, draftType');
   assert.equal(error.code, undefined);
-  assert.deepEqual(db.firstWord(), ['SELECT']);
-  assert.equal(db.calls[0].via, 'pool');
-  assert.doesNotMatch(db.calls[0].text, /FOR (NO KEY )?UPDATE/);
-  assert.equal(db.connected(), 0, 'no client is connected on the non-transaction path');
-  assert.equal(db.released(), 0);
+  assert.deepEqual(db.firstWord(), ['BEGIN', 'SELECT', 'UPDATE', 'SELECT', 'ROLLBACK']);
+  assert.equal(db.calls[3].via, 'client');
+  assert.doesNotMatch(db.calls[3].text, /FOR (NO KEY )?UPDATE/);
+  assertNoSettingsWrite(db);
+  assert.equal(db.connected(), 1);
+  assert.equal(db.released(), 1);
 });
 
 test('race loser: the status read said pre-draft, the guarded UPDATE hit zero rows, so 409 naming every frozen key requested', async () => {
@@ -198,9 +199,9 @@ test('race loser: the status read said pre-draft, the guarded UPDATE hit zero ro
   const error = await refusal(db, { playoffTeams: 4, draftType: 'snake' });
   assert.equal(error.statusCode, 409);
   assert.equal(error.message, 'these settings are locked once the draft starts: playoffTeams, draftType');
-  assert.deepEqual(db.firstWord(), ['SELECT', 'UPDATE']);
-  assert.match(db.calls[1].text, /AND \("pickem_only" = true OR "draft_status" = 'pending'\)/);
-  assert.equal(db.released(), 0);
+  assert.deepEqual(db.firstWord(), ['BEGIN', 'SELECT', 'UPDATE', 'SELECT', 'UPDATE', 'ROLLBACK']);
+  assert.match(db.calls[4].text, /AND \("pickem_only" = true OR "draft_status" = 'pending'\)/);
+  assert.equal(db.released(), 1);
 });
 
 test("pick'em refusal: 409 carrying code PICKEM_ONLY_CODE, naming what was sent, and on the transaction path it ROLLBACKs", async () => {
@@ -218,7 +219,8 @@ test('size limit: maxTeams below the live team count is a 400 from the size rule
   const error = await refusal(db, { maxTeams: 4 });
   assert.equal(error.statusCode, 400);
   assert.equal(error.message, 'maxTeams cannot be below the 5 team(s) already in the league');
-  assert.deepEqual(db.firstWord(), ['SELECT']);
+  assert.deepEqual(db.firstWord(), ['BEGIN', 'SELECT', 'UPDATE', 'SELECT', 'ROLLBACK']);
+  assertNoSettingsWrite(db);
 });
 
 test('403 fallthrough: a name-only patch skips the status read; zero rows from the UPDATE means not found / not the commissioner', async () => {
@@ -226,13 +228,13 @@ test('403 fallthrough: a name-only patch skips the status read; zero rows from t
   const error = await refusal(db, { name: 'Renamed' });
   assert.equal(error.statusCode, 403);
   assert.equal(error.message, 'league not found or you are not the commissioner');
-  assert.deepEqual(db.firstWord(), ['UPDATE']);
-  assert.equal(db.calls[0].via, 'pool');
-  assert.equal(db.calls[0].params[0], 'Renamed');
-  assert.equal(db.calls[0].params[16], LEAGUE_ID);
-  assert.equal(db.calls[0].params[17], USER_ID);
-  assert.equal(db.connected(), 0);
-  assert.equal(db.released(), 0);
+  assert.deepEqual(db.firstWord(), ['BEGIN', 'SELECT', 'UPDATE', 'UPDATE', 'ROLLBACK']);
+  assert.equal(db.calls[3].via, 'client');
+  assert.equal(db.calls[3].params[0], 'Renamed');
+  assert.equal(db.calls[3].params[16], LEAGUE_ID);
+  assert.equal(db.calls[3].params[17], USER_ID);
+  assert.equal(db.connected(), 1);
+  assert.equal(db.released(), 1);
 });
 
 test('a non-commissioner on the locking path: no status row, the guarded UPDATE matches none, 403 after a ROLLBACK, client released once (ADR 0033)', async () => {
@@ -248,21 +250,73 @@ test('a name-only patch on a commissioner league resolves with the row and never
   const db = fakeDb();
   const row = await run(db, { name: 'Renamed' });
   assert.deepEqual(row, UPDATED_ROW);
-  assert.deepEqual(db.firstWord(), ['UPDATE']);
+  assert.deepEqual(db.firstWord(), ['BEGIN', 'SELECT', 'UPDATE', 'UPDATE', 'COMMIT']);
 });
 
-test('a settings save advances board_version in the same guarded UPDATE, so a rename is Draft state too (#2717)', async () => {
-  const db = fakeDb();
-  await run(db, { name: 'Renamed' });
-  const update = db.calls.find((c) => c.text.startsWith('UPDATE "leagues"'));
-  assert.match(update.text, /"board_version" = "board_version" \+ 1,/);
-  assert.deepEqual(db.firstWord(), ['UPDATE']);
+// #2717: every save takes the League row lock as the commissioner, inside one
+// transaction. The lock is lockLeague's advancing UPDATE; no other statement
+// moves board_version, so a refused save rolls the advance back with the rest.
+const LOCK_SQL = 'UPDATE "leagues" SET "board_version" = "board_version" + 1 WHERE "id" = $1 RETURNING *';
+const isSettingsUpdate = (text) => text.startsWith('UPDATE "leagues" SET "name"');
+
+test('every commissioner save: BEGIN, the commissioner SELECT 1, the lock UPDATE, the settings UPDATE, COMMIT; the settings UPDATE carries no board_version (#2717)', async (t) => {
+  t.mock.method(activityService, 'notifyLeague', async () => {});
+  const future = new Date(Date.now() + 86_400_000).toISOString();
+  const patches = [
+    { name: 'Renamed' },
+    { rosterSlots: [{ key: 'QB', count: 1, eligiblePositions: ['QB'] }] },
+    { benchSlots: 4 },
+    { irSlots: 1 },
+    { pickTimeSeconds: 90 },
+    { autodraftDelaySeconds: 5 },
+    { draftType: 'snake' },
+    { draftRotation: 'linear' },
+    { draftOrderOverrides: null },
+    { minTeams: 2 },
+    { draftDate: future },
+    { draftTimezone: 'America/New_York', draftDate: future },
+    { waiverType: 'faab' },
+    { tradeDeadlineWeek: 5 },
+  ];
+  for (const body of patches) {
+    const db = fakeDb();
+    await run(db, body);
+    const label = JSON.stringify(body);
+    assert.equal(db.connected(), 1, label);
+    assert.deepEqual([...new Set(db.calls.map((c) => c.via))], ['client'], label);
+    assert.equal(db.texts()[0], 'BEGIN', label);
+    assert.match(db.texts()[1], /^SELECT 1 FROM "leagues"/, label);
+    assert.equal(db.texts()[2], LOCK_SQL, label);
+    assert.deepEqual(db.calls[2].params, [LEAGUE_ID], label);
+    assert.equal(db.texts().at(-1), 'COMMIT', label);
+    assert.equal(db.released(), 1, label);
+    const settings = db.calls.filter((c) => isSettingsUpdate(c.text));
+    assert.equal(settings.length, 1, label);
+    assert.doesNotMatch(settings[0].text, /board_version/, label);
+  }
+});
+
+test('a non-commissioner save takes no lock: the commissioner SELECT finds no row, the guarded UPDATE matches none, 403 after a ROLLBACK, no board_version anywhere (#2717)', async () => {
+  const db = fakeDb({ status: null, updateRows: [] });
+  const error = await refusal(db, { name: 'Renamed' });
+  assert.equal(error.statusCode, 403);
+  assert.deepEqual(db.firstWord(), ['BEGIN', 'SELECT', 'UPDATE', 'ROLLBACK']);
+  assert.equal(db.texts().some((text) => text.includes('board_version')), false);
+});
+
+test('a refusal after the lock advances nothing: the frozen pre-check ends in ROLLBACK with no COMMIT after the lock UPDATE (#2717)', async () => {
+  const db = fakeDb({ status: statusRow({ draft_status: 'active' }) });
+  const error = await refusal(db, { waiverType: 'faab', draftType: 'snake', playoffTeams: 4 });
+  assert.equal(error.statusCode, 409);
+  assert.equal(db.texts()[2], LOCK_SQL);
+  assert.equal(db.texts().at(-1), 'ROLLBACK');
+  assert.equal(db.texts().includes('COMMIT'), false);
 });
 
 test('the UPDATE parameters: roster_limit is derived from the merged roster shape (starters + bench + IR), absent keys are null', async () => {
   const db = fakeDb({ status: statusRow({ roster_slots: [{ key: 'QB', count: 1, eligiblePositions: ['QB'] }, { key: 'RB', count: 2, eligiblePositions: ['RB'] }], bench_slots: 4, ir_slots: 1 }) });
   await run(db, { name: 'Renamed', benchSlots: 6, positionCaps: { QB: 3, RB: 5 } });
-  const update = db.calls.find((c) => c.text.startsWith('UPDATE "leagues"'));
+  const update = db.calls.find((c) => isSettingsUpdate(c.text));
   // 41, not 39: the Voice (ADR 0069) appended narrativeVoiceProvided/narrativeVoice as $40/$41.
   assert.equal(update.params.length, 41);
   // An empty name is a parse-time 400 since #66, so the write path's || null
@@ -416,14 +470,14 @@ test('the race-loser 409 names keys as sent too, matching the pre-check (#70)', 
   // statement's scoping, and DELETING `AND ${settingsUnfrozenWhereSql()}` from
   // the production UPDATE - which is exactly what would let a frozen save land
   // - left this test green. Pin the predicate, since that is the guard.
-  assert.deepEqual(db.firstWord(), ['SELECT', 'UPDATE']);
-  assert.match(db.calls[1].text, /AND \("pickem_only" = true OR "draft_status" = 'pending'\)/);
+  assert.deepEqual(db.firstWord(), ['BEGIN', 'SELECT', 'UPDATE', 'SELECT', 'UPDATE', 'ROLLBACK']);
+  assert.match(db.calls[4].text, /AND \("pickem_only" = true OR "draft_status" = 'pending'\)/);
 });
 
 test('the status read includes season_status, the column deriveLeaguePhase declares it reads (#70)', async () => {
   const db = fakeDb();
   await run(db, { playoffTeams: 4 });
-  assert.match(db.calls[0].text, /"season_status"/);
+  assert.match(db.calls.find((c) => c.text.startsWith('SELECT "draft_status"')).text, /"season_status"/);
 });
 
 test('a null stored roster_limit falls back to the limit the current shape derives (#70)', async () => {
@@ -504,7 +558,7 @@ test('a roster-shape shrink is refused when an existing keeper sits past the cor
   assert.equal(error.statusCode, 409);
   assert.match(error.message, /team 11 round 4/);
   assert.match(error.message, /corrected draft roster size of 2/);
-  assert.equal(db.texts().some((t) => t.startsWith('UPDATE "leagues"')), false);
+  assertNoSettingsWrite(db);
 });
 
 test('a roster-shape shrink names every offending keeper, not just the first (AC4)', async () => {
@@ -606,7 +660,7 @@ test('disabling dpEnabled while DP-only roster slots exist is refused, naming bo
   const error = await refusal(db, { dpEnabled: false });
   assert.equal(error.statusCode, 400);
   assert.equal(error.message, 'rosterSlots include defensive-player-only slots but dpEnabled is off; enable dpEnabled or remove those slots (one request may change both)');
-  assert.equal(db.texts().some((t) => t.startsWith('UPDATE')), false);
+  assertNoSettingsWrite(db);
 });
 
 test('adding DP-only slots while dpEnabled is off is refused the same way (#70 item 3, the mirror direction)', async () => {
@@ -665,7 +719,7 @@ test('the reminder/autostart reset is change-gated: the SQL resets only when the
   const db = fakeDb();
   const future = new Date(Date.now() + 86_400_000).toISOString();
   await run(db, { draftDate: future });
-  const update = db.calls.find((c) => c.text.startsWith('UPDATE "leagues"')).text;
+  const update = db.calls.find((c) => isSettingsUpdate(c.text)).text;
   assert.match(update, /"draft_reminder_stage" = CASE WHEN \(\$22 AND "draft_date" IS DISTINCT FROM \$23::timestamptz\) OR \$27::text = \x27auction\x27 THEN 0 ELSE "draft_reminder_stage" END/);
   assert.match(update, /"draft_autostart_failed" = CASE WHEN \(\$22 AND "draft_date" IS DISTINCT FROM \$23::timestamptz\) OR \$27::text = \x27auction\x27 THEN false ELSE "draft_autostart_failed" END/);
 });
@@ -676,25 +730,25 @@ test('the auction conversion race: zero rows + a re-read saying auction is the d
   const error = await refusal(db, { draftDate: future });
   assert.equal(error.statusCode, 409);
   assert.equal(error.message, 'this league was converted to a salary-cap auction; auction drafts cannot be scheduled');
-  assert.deepEqual(db.firstWord(), ['SELECT', 'UPDATE', 'SELECT']);
-  assert.match(db.calls[1].text, /AND "draft_type" <> 'auction'/);
+  assert.deepEqual(db.firstWord(), ['BEGIN', 'SELECT', 'UPDATE', 'SELECT', 'UPDATE', 'SELECT', 'ROLLBACK']);
+  assert.match(db.calls[4].text, /AND "draft_type" <> 'auction'/);
 });
 
 test('narrativeVoice (ADR 0069) writes tri-state: sent sets or clears the Voice, absent leaves it, and a league past the draft still accepts it', async () => {
   const set = fakeDb({ status: statusRow({ draft_status: 'completed' }) });
   assert.deepEqual(await run(set, { narrativeVoice: 'polk_high_legend' }), UPDATED_ROW);
-  const update = set.calls.find((c) => c.text.startsWith('UPDATE "leagues"'));
+  const update = set.calls.find((c) => isSettingsUpdate(c.text));
   assert.match(update.text, /"narrative_voice" = CASE WHEN \$40::boolean THEN \$41::text ELSE "narrative_voice" END/);
   assert.deepEqual(update.params.slice(39), [true, 'polk_high_legend']);
   assert.doesNotMatch(update.text, /draft_status. = .pending./, 'no draft-freeze guard rides a Voice-only edit');
 
   const clear = fakeDb();
   await run(clear, { narrativeVoice: null });
-  assert.deepEqual(clear.calls.find((c) => c.text.startsWith('UPDATE "leagues"')).params.slice(39), [true, null]);
+  assert.deepEqual(clear.calls.find((c) => isSettingsUpdate(c.text)).params.slice(39), [true, null]);
 
   const absent = fakeDb();
   await run(absent, { name: 'Ballers' });
-  assert.deepEqual(absent.calls.find((c) => c.text.startsWith('UPDATE "leagues"')).params.slice(39), [false, null]);
+  assert.deepEqual(absent.calls.find((c) => isSettingsUpdate(c.text)).params.slice(39), [false, null]);
 });
 
 test("narrativeVoice is refused for a pick'em-only league like every fantasy-only setting", async () => {

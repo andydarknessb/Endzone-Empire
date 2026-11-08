@@ -27,11 +27,9 @@
  *
  * updateLeagueSettings takes that { value } as `patch` and owns the state
  * half: the status read, the post-read guards, the keeper clear, the UPDATE
- * and the after-commit notification. Transaction rule: when the patch carries
- * keeper or auction settings (patch.rowLockSettingsProvided, the FOR NO KEY
- * UPDATE read) the write runs through withTransaction (ADR 0033), which owns
- * BEGIN, COMMIT, the ROLLBACK and the release; otherwise every statement runs
- * on the pool directly with no transaction. Thrown-error contract: it refuses
+ * and the after-commit notification. Every save runs through withTransaction
+ * (ADR 0033), which owns BEGIN, COMMIT, the ROLLBACK and the release, and takes
+ * the League row lock as the commissioner (ADR 0070). Thrown-error contract: it refuses
  * by throwing LeagueSettingsError (statusCode, message, and code only for the
  * pick'em refusal) from inside that write, so the wrapper rolls back and
  * rethrows it unchanged. Call it only where the surrounding catch renders
@@ -356,8 +354,8 @@ const FANTASY_ONLY_SETTING_KEYS = Object.freeze([
  *     atomically. An explicit draftType wins outright, and draftType ===
  *     'auction' clears the date, so neither needs the guard),
  *     keeperSettingsProvided, auctionSettingsProvided and
- *     rowLockSettingsProvided (keeper or auction settings present: the write
- *     path reads the row FOR NO KEY UPDATE inside a transaction).
+ *     rowLockSettingsProvided (keeper or auction settings present; no reader
+ *     since #2717, which locks every save, so removal is a follow-up).
  */
 function parseSettingsPatch(body) {
   // One read per key, like the handler's single destructure used to be: a
@@ -486,13 +484,11 @@ class LeagueSettingsError extends Error {
  * result is disambiguated into a refusal. Once the write has returned, notify
  * the league of a (re)scheduled draft.
  *
- * `db` is the pool (duck-typed `query` + `connect`). Transaction rule: when
- * patch.rowLockSettingsProvided, the read and the write run through
+ * `db` is the pool (duck-typed `query` + `connect`). Every save runs through
  * withTransaction (ADR 0033), which owns BEGIN, COMMIT, the ROLLBACK and the
- * release; otherwise every statement runs on `db` directly and there is no
- * BEGIN/COMMIT at all. Either way the statements are the same text in the same
- * order (the status read gains FOR NO KEY UPDATE on the transaction path,
- * nothing else differs), so a fake pool observes one sequence per patch.
+ * release. Inside it the commissioner's SELECT 1 runs first, and on a row
+ * lockLeague takes the League row lock and advances board_version (ADR 0070);
+ * a non-commissioner takes no lock.
  *
  * Thrown-error contract: refuses by throwing LeagueSettingsError from inside
  * the write; the wrapper rolls back and rethrows it unchanged, and any other
@@ -516,7 +512,6 @@ async function updateLeagueSettings(db, { leagueId, userId, patch }) {
     draftDateProvided, draftDateValue, draftTimezoneProvided, draftTimezone,
     keeperLockAtProvided, keeperLockAtValue,
     draftOrderOverridesProvided, auctionSettingsProvided, keeperSettingsProvided,
-    rowLockSettingsProvided,
     newMin, newMax, effectiveRules, effectivePreset,
     frozenRequested, frozenRequestedNames, fantasyOnlyRequested, rosterCompositionChanged, schedulingNonAuction,
   } = patch;
@@ -530,16 +525,16 @@ async function updateLeagueSettings(db, { leagueId, userId, patch }) {
   const apply = async (client) => {
     let derivedRosterLimit = null;
     let pendingStatusVerified = false;
+    // Every save takes the League row lock (ADR 0070) before anything else, but only as the
+    // commissioner: anyone else takes no lock, and the guarded statements below refuse them.
+    if ((await client.query(
+      `SELECT 1 FROM "leagues" WHERE "id" = $1 AND ${commissionerPredicate(2)}`,
+      [leagueId, userId]
+    )).rows[0]) await lockLeague(client, leagueId);
     // The status read is also the league-type read: any fantasy-only field
     // forces it so a pick'em-only league can be refused, even for keys (like
     // waiverType) that are never draft-frozen.
     if (frozenRequested.length > 0 || fantasyOnlyRequested.length > 0) {
-      // A patch that carries row-locked settings takes the League row lock (ADR 0070), but
-      // only for the commissioner: anyone else takes no lock, and the guarded reads below refuse them.
-      if (rowLockSettingsProvided && (await client.query(
-        `SELECT 1 FROM "leagues" WHERE "id" = $1 AND ${commissionerPredicate(2)}`,
-        [leagueId, userId]
-      )).rows[0]) await lockLeague(client, leagueId);
       const statusResult = await client.query(
         `SELECT "draft_status", "draft_type", "min_teams", "max_teams", "draft_date",
                 "roster_slots", "bench_slots", "ir_slots", "position_caps", "roster_limit",
@@ -794,8 +789,6 @@ async function updateLeagueSettings(db, { leagueId, userId, patch }) {
            "keeper_lock_at" = CASE WHEN $35::boolean THEN $36::timestamptz ELSE "keeper_lock_at" END,
            -- Tri-state: null is a deliberate clear back to the neutral Voice.
            "narrative_voice" = CASE WHEN $40::boolean THEN $41::text ELSE "narrative_voice" END,
-           -- Every League write advances the board version (#2681), in this guarded UPDATE so a refused save advances nothing.
-           "board_version" = "board_version" + 1,
            "updated_at" = now()
        WHERE "id" = $17 AND ${commissionerPredicate(18)}
          ${frozenRequested.length > 0 ? `AND ${settingsUnfrozenWhereSql()}` : ''}
@@ -868,9 +861,7 @@ async function updateLeagueSettings(db, { leagueId, userId, patch }) {
     }
     return result.rows[0];
   };
-  const updated = rowLockSettingsProvided
-    ? await withTransaction(db, apply, { label: 'league-settings-update' })
-    : await apply(db);
+  const updated = await withTransaction(db, apply, { label: 'league-settings-update' });
   const changed = draftDateProvided &&
     String(previousDraftDate ? new Date(previousDraftDate).toISOString() : null) !== String(draftDateValue);
   // The settings update is the source of truth. Activity delivery happens

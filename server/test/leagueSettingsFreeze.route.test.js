@@ -26,6 +26,23 @@ const app = express();
 app.use(express.json());
 app.use('/api/league', leagueRouter);
 
+// Every settings save is a transaction (ADR 0033, #2717): BEGIN/COMMIT/ROLLBACK,
+// the commissioner's SELECT 1 (a row for user 7) and the League lock are answered
+// here; every other statement reaches the file's pool.query mock.
+const SETTINGS_LOCK_SQL = 'UPDATE "leagues" SET "board_version" = "board_version" + 1 WHERE "id" = $1 RETURNING *';
+function mockConnect(t) {
+  t.mock.method(pool, 'connect', async () => ({
+    query: (sql, params) => {
+      const text = String(sql).replace(/\s+/g, ' ').trim();
+      if (text === 'BEGIN' || text === 'COMMIT' || text === 'ROLLBACK') return { rows: [] };
+      if (text.startsWith('SELECT 1 FROM "leagues"')) return { rows: params[1] === 7 ? [{ '?column?': 1 }] : [] };
+      if (text === SETTINGS_LOCK_SQL) return { rows: [{ id: 1 }] };
+      return pool.query(sql, params);
+    },
+    release: () => {},
+  }));
+}
+
 const COMMISSIONER = 7;
 const authed = () => `Bearer ${signToken({ id: COMMISSIONER, username: 'commissioner' })}`;
 
@@ -38,6 +55,7 @@ const statusRow = (over = {}) => ({
 /** Mock the pool: the status read answers with `status`, the UPDATE succeeds. */
 function mockPool(t, status) {
   const calls = [];
+  mockConnect(t);
   t.mock.method(pool, 'query', async (sql, params) => {
     const text = String(sql).replace(/\s+/g, ' ').trim();
     calls.push({ text, params });
