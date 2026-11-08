@@ -4,14 +4,15 @@ const { requireMember } = require('./leagueMembership.service');
 const { isLeagueCommissioner } = require('./leagueRole.service');
 
 /**
- * The Trade transition table (CONTEXT.md, Trade). Every Trade action checks its
- * transition here, inside its League write: the statuses it may leave, the
- * actors allowed, the gates that apply and the status it lands in. A refusal
- * keeps today's status code and message.
+ * The Trade transition table: every Trade action checks its transition here,
+ * inside its League write: the statuses it may leave, the actors allowed, the
+ * gates that apply and the status it lands in. A refusal keeps today's status
+ * code and message.
  *
  * The review window is the database's clock. loadTrade reads `review_closed`
- * (review_ends_at <= now()), the predicate processDueTrades selects by, so the
- * veto and the due run cannot disagree at the boundary. Nothing here reads the
+ * (review_ends_at <= clock_timestamp()) after the League lock is granted, so a
+ * veto that queued behind the lock judges the window as it stands when it writes.
+ * processDueTrades selects by review_ends_at <= now(). Nothing here reads the
  * app's clock.
  *
  * A TradeError is a refusal that cancels a due trade; a DraftError (the roster
@@ -48,6 +49,21 @@ const reviewed = (league) => league.trade_veto_votes > 0 && league.trade_review_
 const pendingRefusal = (status) => `trade is ${status}, not pending`;
 const statusRefusal = (status) => `trade is ${status}`;
 
+/*
+ * Who may act on a trade (#188, recorded beside each check rather than in the caller).
+ *
+ * Every owner check here is a CALLER comparison and never a role one: `owner_id`
+ * is a `teams` row's, so it asks "is this team the signed-in manager's own", and
+ * the refusal beside each one states the rule it enforces. Only the two managers
+ * in a trade may move it: the receiving manager responds and counters, the
+ * proposing manager cancels.
+ *
+ * Being a commissioner grants nothing here. The one commissioner-shaped power over
+ * a trade is approve/deny, which authorizes through the commissioner check, so a
+ * co-commissioner holds it. A commissioner has no standing to accept a trade on a
+ * manager's behalf, and nothing here should acquire one by comparing against
+ * `leagues.owner_id`.
+ */
 // Each check throws a TradeError, or does nothing. ctx carries the trade, the
 // League, the teams, the caller and a client for the member and commissioner reads.
 const CHECKS = {
@@ -187,5 +203,4 @@ module.exports = {
   assertTransition,
   transitionRefusal,
   assertDraftComplete,
-  assertBeforeDeadline,
 };

@@ -172,6 +172,9 @@ if (!ENABLED) {
       'a veto past review_ends_at is refused by the database clock'
     );
 
+    // Set the open window right before its veto, so the one second is spent on the
+    // veto and the due run only, not on the setup above.
+    await pool.query(`UPDATE "trades" SET "review_ends_at" = now() + interval '1 second' WHERE "id" = $1`, [openTradeId]);
     const outcome = await tradeService.vetoTrade({ tradeId: openTradeId, userId: ownerCId });
     assert.deepEqual(outcome, { tradeId: openTradeId, votes: 1, votesNeeded: 2, status: 'accepted' });
 

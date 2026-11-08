@@ -596,7 +596,7 @@ test("respondToTrade (accept) refuses a pick'em-only league too: the check lives
   // puts the guard in/beside assertBeforeDeadline so every trade answer shares it.
   const { respondToTrade } = require('../services/trade.service');
   const tx = txClient([
-    [/SELECT \*, \("review_ends_at" <= now\(\)\) AS "review_closed" FROM "trades" WHERE "id" = \$1 FOR UPDATE/, () =>
+    [/SELECT \*, \("review_ends_at" <= clock_timestamp\(\)\) AS "review_closed" FROM "trades" WHERE "id" = \$1 FOR UPDATE/, () =>
       ({ rows: [{ id: 5, league_id: 3, status: 'pending', proposing_team_id: 42, receiving_team_id: 41 }] })],
     [LOAD_TRADE_LEAGUE_SQL, () => ({ rows: [PICKEM_LEAGUE_ROW] })],
     [/FROM "trade_items"/, () => ({ rows: [] })],

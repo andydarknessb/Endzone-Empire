@@ -94,10 +94,14 @@ const ROWS = [
   // execute: an accepted trade whose window has closed is due
   { action: 'execute', name: 'an accepted trade is due', over: { trade: pending({ status: 'accepted', review_closed: true }) }, to: 'executed' },
   { action: 'execute', name: 'a pending trade is never due', refuse: [409, 'trade is pending'] },
+  { action: 'execute', name: 'an accepted trade whose window is still open is not yet due', over: { trade: pending({ status: 'accepted', review_closed: false }) }, refuse: [409, 'the review window is still open'] },
 
   // propose: a new offer, with the freeze and deadline gates and the member's own checks
   { action: 'propose', name: 'a member proposes to another team', over: { trade: null, userId: 7, receivingTeamId: 42, team: { id: 41, league_id: 1, owner_id: 7 } }, to: 'pending' },
   { action: 'propose', name: 'a frozen League refuses a proposal', over: { trade: null, userId: 7, receivingTeamId: 42, team: { id: 41, league_id: 1, owner_id: 7 }, league: league({ transactions_locked: true }) }, refuse: [409, 'transactions are locked by the commissioner'] },
+  { action: 'propose', name: 'a locked team cannot propose', over: { trade: null, userId: 7, receivingTeamId: 42, team: { id: 41, league_id: 1, owner_id: 7, locked: true } }, refuse: [409, 'your team is locked by the commissioner'] },
+  { action: 'propose', name: 'a team cannot trade with itself', over: { trade: null, userId: 7, receivingTeamId: 41, team: { id: 41, league_id: 1, owner_id: 7 } }, refuse: [400, 'cannot trade with yourself'] },
+  { action: 'propose', name: 'a proposal past the deadline week is refused', over: { trade: null, userId: 7, receivingTeamId: 42, team: { id: 41, league_id: 1, owner_id: 7 }, league: league({ trade_deadline_week: 5 }) }, refuse: [409, 'the trade deadline (week 5) has passed'] },
 ];
 
 for (const row of ROWS) {

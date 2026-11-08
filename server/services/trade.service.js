@@ -16,23 +16,6 @@ const rosterMove = require('./rosterMove.service');
 const { getWeekOpponents } = require('./nflWeekOpponents');
 const { normalizeNflTeam } = require('./nflTeam');
 
-/**
- * Who may act on a trade (#188, recorded here rather than beside each check).
- *
- * Every owner check in the Trade transition table (tradeTransitions.js) is a
- * CALLER comparison and never a role one: `owner_id` here is a `teams` row's,
- * so it asks "is this team the signed-in manager's own", and the refusal beside
- * each one states the rule it enforces. Only the two managers in a trade may move it, and which of
- * them may do what is the whole of the rule: the receiving manager responds
- * and counters, the proposing manager cancels.
- *
- * Being a commissioner grants nothing here. The one commissioner-shaped power
- * over a trade is commissionerDecide's force-approve/veto, which authorizes
- * through the transition table's commissioner check (tradeTransitions.js), so
- * a co-commissioner holds it. A commissioner has no standing to accept a trade
- * on a manager's behalf, and nothing in here should acquire one by comparing
- * against `leagues.owner_id`.
- */
 /** Load a trade with its league, both teams, and items; lock the trade row. */
 async function loadTrade(client, tradeId, { forUpdate = true } = {}) {
   // Lock the League row BEFORE the trades row (#946). executeTrade's roster
@@ -58,10 +41,11 @@ async function loadTrade(client, tradeId, { forUpdate = true } = {}) {
   const leagueIdResult = await client.query(`SELECT "league_id" FROM "trades" WHERE "id" = $1`, [tradeId]);
   const leagueId = leagueIdResult.rows[0] ? leagueIdResult.rows[0].league_id : null;
   const league = leagueId == null ? null : await lockLeague(client, leagueId);
-  // review_closed is the database's clock (review_ends_at <= now()), the predicate
-  // processDueTrades selects by, read once in this transaction.
+  // review_closed is read on the database's clock after the League lock is granted,
+  // not at transaction start: a veto that queued behind the lock must see the window
+  // as it is when it writes. processDueTrades' predicate is review_ends_at <= now().
   const tradeResult = await client.query(
-    `SELECT *, ("review_ends_at" <= now()) AS "review_closed" FROM "trades" WHERE "id" = $1${forUpdate ? ' FOR UPDATE' : ''}`,
+    `SELECT *, ("review_ends_at" <= clock_timestamp()) AS "review_closed" FROM "trades" WHERE "id" = $1${forUpdate ? ' FOR UPDATE' : ''}`,
     [tradeId]
   );
   const trade = tradeResult.rows[0];
