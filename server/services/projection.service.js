@@ -1796,14 +1796,15 @@ async function loadBackupQuarterbackIds({ client, playerIds, now }) {
   return degradingRead({
     client, savepoint: 'backup_chart', label: 'QB depth chart', fallback: new Set(),
     read: async () => {
+      // ARRAY(), not IN: statistics lag these newest dates, and IN then plans a re-scan per row (~600ms).
       const result = await client.query(
         `SELECT "dc"."player_id", "dc"."rank", "dc"."team_code", "dc"."captured_date"::text AS "captured_date",
                 "p"."nfl_team", "p"."injury_status"
          FROM "player_depth_chart" "dc" JOIN "players" "p" ON "p"."id" = "dc"."player_id"
          WHERE "dc"."position_group" = 'QB' AND "p"."position" = 'QB' AND "dc"."captured_date" >= $2::date - 3
-           AND "dc"."team_code" IN (
+           AND "dc"."team_code" = ANY(ARRAY(
              SELECT "team_code" FROM "player_depth_chart"
-             WHERE "player_id" = ANY($1::int[]) AND "position_group" = 'QB' AND "captured_date" >= $2::date - 3)`,
+             WHERE "player_id" = ANY($1::int[]) AND "position_group" = 'QB' AND "captured_date" >= $2::date - 3))`,
         [playerIds, new Date(now).toISOString().slice(0, 10)]
       );
       return backupQuarterbackIds(result.rows, now);
@@ -2016,5 +2017,6 @@ module.exports = {
   pointEstimateFor,
   isPositionBaselineEntry,
   backupQuarterbackIds,
+  loadBackupQuarterbackIds,
   toWeeklyProjectionResult,
 };
