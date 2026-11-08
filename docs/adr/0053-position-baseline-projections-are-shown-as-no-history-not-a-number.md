@@ -85,9 +85,11 @@ So rule 5 is replaced:
 1. A Weekly projection is a Thin-history projection when the engine's stored
    row counts one or two games in its lookback and none is from this season.
 2. The Weekly projection read treats a Thin-history projection as a
-   Position-baseline projection, so rules 2, 3 and 4 apply to it. Rule 1 still
-   defines the marker; the engine does not write the marker for these rows.
-3. Two is a judgment, the narrowest cut that catches this case. "None this
+   Position-baseline projection, so the original rules 2, 3 and 4 apply to it.
+   The original rule 1 still defines the marker; the engine does not write the
+   marker for these rows.
+3. Two is a judgment. One game would catch this case too, but two old games
+   scored as little, and the best game across both rows was 7.0. "None this
    season" alone would catch returning starters (Micah Parsons has 27 games in
    the lookback). The 3 to 5 row scored as little, but its best games were not
    checked, so it keeps its number until they are.
@@ -98,8 +100,9 @@ Consequences:
   stored rows and every capture are unchanged.
 - The backtests, the holdout and editorial scoring keep reading the marker
   alone, so their measurements do not move and they do not model this rule.
-- Advice gives up a player with one or two career games who really does start,
-  until he plays this season. A manager can still start him.
+- Advice gives up a player with one or two games in the lookback who really
+  does start, until a game this season shows up. A manager can still start the
+  player.
 - The "retires by itself" consequence above does not cover this rule, because
   it reads the row's game count and recency weight and not a marker. It has to
   be removed or replaced when v3.2 ships (#1438).

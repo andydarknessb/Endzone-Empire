@@ -2487,6 +2487,33 @@ test('toWeeklyProjectionResult: the two heaviest old games still read as no hist
   }
 });
 
+test('toWeeklyProjectionResult: a run with no week keeps the number, because "none this season" cannot be read', () => {
+  // playerCard and the test helpers build runs with no `week`, and recencyWeight
+  // reads a missing gap as 0, a threshold of 1 that one recent game falls under.
+  assert.deepEqual(readWeek(undefined, storedGames(1, 0.92)).startVerdictFor(1), RECOMMENDABLE_VERDICT);
+});
+
+test('toWeeklyProjectionResult: the engine\'s own weights land on the right side of the line every week', () => {
+  // The read rests on the engine's half-life, season span and rounding, so a
+  // change to any of them has to fail here.
+  const engineWeight = (week, games) => model.baselineProduction({
+    priorGames: games.map(([gameSeason, gameWeek]) => ({
+      points: 5,
+      weeksAgo: features.weeksAgo({ gameSeason, gameWeek, season: 2026, week }),
+    })),
+    positionBaselinePerGame: 5,
+  }).effectiveGames;
+
+  for (let week = 1; week <= 18; week += 1) {
+    const twoHeaviestOld = engineWeight(week, [[2025, 17], [2025, 18]]);
+    assert.deepEqual(readWeek(week, storedGames(2, twoHeaviestOld)).startVerdictFor(1), NO_HISTORY_VERDICT, `old games, week ${week}`);
+    if (week > 1) {
+      const lightestThisSeason = engineWeight(week, [[2026, 1]]);
+      assert.deepEqual(readWeek(week, storedGames(1, lightestThisSeason)).startVerdictFor(1), RECOMMENDABLE_VERDICT, `this season, week ${week}`);
+    }
+  }
+});
+
 // #1775: the read attaches the Position-baseline verdict to a marked row; any
 // stored Unavailable verdict (bye, No NFL team, Practice squad, Out, IR) wins.
 test('toWeeklyProjectionResult: startVerdictFor returns the no_history verdict for a marked row, over its own stored facts', () => {

@@ -1736,8 +1736,9 @@ const THIN_HISTORY_MAX_GAMES = 2;
  * `POSITION_BASELINE_REASON`. The one definition of the marker: production's
  * `positionBaselineFor` and the backtest drivers (which inject it, because
  * nothing in `scripts/backtest` may require `server/services`) both use it.
- * Anything that is not an entry carrying the reasons (null, a bare number)
- * reads false.
+ * Production also reads a Thin-history projection as no history; the drivers
+ * do not. Anything that is not an entry carrying the reasons (null, a bare
+ * number) reads false.
  */
 function isPositionBaselineEntry(entry) {
   const dataQuality = entry && entry.factors ? entry.factors.dataQuality : null;
@@ -1749,16 +1750,18 @@ function isPositionBaselineEntry(entry) {
 /**
  * Pure: true when a stored row is a Thin-history projection (ADR 0053 as
  * amended 2026-11-08): one or two games behind it, none from this season. The
- * row's recency weight answers "none this season": any game this season weighs
- * more than `recencyWeight(week)` and two from an earlier season weigh less,
- * with room for `effectiveGames` being stored to 2 places. Kept apart from
- * `isPositionBaselineEntry` because the backtests and the holdout read that
- * marker alone, and their measurements must not move.
+ * row's recency weight answers "none this season": in weeks 1 to 18, any game
+ * this season weighs more than `recencyWeight(week)` and two from an earlier
+ * season weigh less, with room for `effectiveGames` being stored to 2 places.
+ * A run with no week reads false, because the weight means nothing without one.
+ * Kept apart from `isPositionBaselineEntry` because the backtests and the
+ * holdout read that marker alone, and their measurements must not move.
  * shortcut: inferred because v3.1 stores no this-season game count, remove when v3.2 ships (#1438).
  */
 function isThinHistoryEntry(entry, week) {
   const recent = entry && entry.factors ? entry.factors.recentProduction : null;
   return !!(recent
+    && Number(week) >= 1
     && recent.games >= 1
     && recent.games <= THIN_HISTORY_MAX_GAMES
     && recent.effectiveGames < model.recencyWeight(week));
