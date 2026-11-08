@@ -188,40 +188,14 @@ function keeperSettingsPlan({ currentEnabled, currentCount, keepersEnabled, keep
 }
 
 /**
- * Pure: which draft_picks rows an undo of `count` picks would remove. Undo
- * only ever touches the most recent live picks (highest pick_number) and
- * refuses outright if a keeper pick (pre-inserted at draft start) is among
- * them — keepers are configuration, not something "undo" can retract.
- */
-function undoTargets(picks, count = 1) {
-  if (!Number.isInteger(count) || count < 1) {
-    return { targets: [], error: 'count must be a positive integer' };
-  }
-  const sorted = [...picks].sort((a, b) => b.pick_number - a.pick_number);
-  if (sorted.length === 0) {
-    return { targets: [], error: 'no picks to undo' };
-  }
-  if (sorted.length < count) {
-    return { targets: [], error: `only ${sorted.length} pick(s) have been made` };
-  }
-  const slice = sorted.slice(0, count);
-  const keeperHit = slice.find((p) => p.is_keeper);
-  if (keeperHit) {
-    return { targets: [], error: `pick ${keeperHit.pick_number} is a keeper selection and cannot be undone` };
-  }
-  return { targets: slice.map((p) => p.pick_number), error: null };
-}
-
-/**
  * Pure: the single Pick a Commissioner correction (#439) reverses, or a stable
- * SCREAMING_SNAKE code (ADR 0008) naming exactly why it cannot. A correction is
- * not the general N-pick undo above: it reverses ONLY the latest live-reached
- * non-keeper Pick, as one atomic act, so this returns at most one target.
+ * SCREAMING_SNAKE code (ADR 0008) naming exactly why it cannot. A correction
+ * reverses ONLY the latest live-reached non-keeper Pick, as one atomic act, so
+ * this returns at most one target.
  *
  * `currentPick` is the league's 0-based pick-on-the-clock index; a Pick counts
  * as reached only when its 1-based `pick_number` is at or below it, so a keeper
- * pre-filled far ahead of live play never poses as the latest Pick (the same
- * `pick_number <= current_pick` filter the undo route applies).
+ * pre-filled far ahead of live play never poses as the latest Pick.
  *
  * `expectedPickNumber` is the Pick the commissioner is looking at when they
  * confirm. When provided it must still be the latest reached Pick; if a manager
@@ -326,7 +300,6 @@ module.exports = {
   validateAuctionSettings,
   validateKeepers,
   keeperSettingsPlan,
-  undoTargets,
   correctionTarget,
   startPlan,
 };

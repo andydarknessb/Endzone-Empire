@@ -298,30 +298,6 @@ async function onTimeout(client, { leagueId, team, nextTeamId, draftActive }) {
 }
 
 /**
- * Pick undone (commissioner undo): rewind current_pick to the earliest undone
- * pick's own slot and re-arm the team now on the clock by the policy, in one
- * statement. `onClockAutodraft` is that team's autodraft flag, resolved by the
- * caller from the rewound pick; the clock settings are read from the locked row
- * here (#948), not passed in.
- */
-async function onPickUndone(client, { leagueId, newCurrentPick, onClockAutodraft }) {
-  const league = await readClockPolicy(client, leagueId);
-  const clockSeconds = clockSecondsFor({ draftComplete: false, onClockAutodraft, league });
-  const result = await client.query(
-    `UPDATE "leagues"
-       SET "current_pick" = $1, "updated_at" = now(),
-           "pick_deadline_at" = CASE
-             WHEN $3::int IS NULL THEN NULL
-             ELSE now() + make_interval(secs => $3::int)
-           END
-     WHERE "id" = $2
-     RETURNING "pick_deadline_at"`,
-    [newCurrentPick, leagueId, clockSeconds]
-  );
-  return result.rows[0] ? result.rows[0].pick_deadline_at : null;
-}
-
-/**
  * Clear the clock without advancing the turn: a destructive reset back to
  * pending has no team on the clock and no deadline. (Commissioner correction
  * clears its own clock inside draft.service.js and is deliberately left
@@ -919,7 +895,6 @@ module.exports = {
   onResumed,
   onAutodraftToggled,
   onTimeout,
-  onPickUndone,
   clearClock,
   autoPick,
   escalateNothingDraftable,

@@ -75,14 +75,6 @@ function blankComments(source) {
  */
 const ALLOWLIST = [
   {
-    file: 'server/routes/draft.router.js',
-    count: 4,
-    ticket: '#2697',
-    rule:
-      'The order, clock, readiness and keepers routes advance the board version in their own '
-      + 'SQL. Ticket 2697 moves each route onto the League write.',
-  },
-  {
     file: 'server/services/privacy.service.js',
     count: 1,
     ticket: 'standing',

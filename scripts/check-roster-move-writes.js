@@ -75,7 +75,7 @@ const WRITE_PATTERN = /((?:INSERT INTO|DELETE FROM|UPDATE) "team_players")/g;
  */
 const ALLOWLIST = [
   {
-    file: 'server/routes/draft.router.js',
+    file: 'server/services/draftAct.service.js',
     count: 1,
     rule:
       'Resetting a draft wipes the whole roster for the league in one statement, then '
