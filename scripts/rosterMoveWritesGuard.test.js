@@ -24,9 +24,9 @@ test('the real tree has exactly the four bulk writes beside the module', () => {
     .map((line) => line.split(' outside ')[0].replace(/:\d+: (INSERT INTO|DELETE FROM) "team_players"/, ''))
     .sort();
   assert.deepEqual(sites, [
-    'server/routes/draft.router.js',
     'server/services/commissioner.service.js',
     'server/services/commissioner.service.js',
+    'server/services/draftAct.service.js',
     'server/services/draftStart.service.js',
   ]);
 });
@@ -88,7 +88,7 @@ test('tests and migrations are out of scope', () => {
 // new single-player site riding on a bulk entry's exemption.
 test('a listed file writing more than its count is reported', () => {
   const { overCount } = analyze(
-    [{ file: 'server/routes/draft.router.js', source: 'DELETE FROM "team_players"\nDELETE FROM "team_players"' }],
+    [{ file: 'server/services/draftAct.service.js', source: 'DELETE FROM "team_players"\nDELETE FROM "team_players"' }],
     { allowlist: ALLOWLIST }
   );
   assert.equal(overCount.length, 1);
@@ -97,7 +97,7 @@ test('a listed file writing more than its count is reported', () => {
 
 test('an entry whose write is gone is stale', () => {
   const { stale } = analyze(
-    [{ file: 'server/routes/draft.router.js', source: 'SELECT 1' }],
+    [{ file: 'server/services/draftAct.service.js', source: 'SELECT 1' }],
     { allowlist: [ALLOWLIST[0]] }
   );
   assert.equal(stale.length, 1);
