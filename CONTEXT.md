@@ -654,8 +654,9 @@ caller's mutations on that locked client, commits, and only then fans out to
 the room in one order. `runDraftAct` (`server/services/draftAct.service.js`)
 is the only way to perform one; a caller supplies an act body and never opens
 its own connection, takes its own lock, or chooses the fan-out order. Pause,
-resume, autodraft toggle and reset are Draft acts; a Pick is not one
-(pick.service.js owns landing a Pick on its own commit-and-fan-out, ADR 0025).
+resume, autodraft toggle, reset, the clock change, readiness, the draft order
+and the keepers save are each a named operation of that module; a Pick is not
+one (pick.service.js owns landing a Pick on its own commit-and-fan-out, ADR 0025).
 _Avoid_: administrative act (Pick correction is that, not a Draft act),
 transaction (the lock and commit are how it works, not what it is)
 

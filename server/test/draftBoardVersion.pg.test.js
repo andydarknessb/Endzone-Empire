@@ -43,9 +43,8 @@ if (!ENABLED) {
   const express = require('express');
   const draftRouter = require('../routes/draft.router');
   const { commitPick } = require('../services/pick.service');
-  const { correctLatestPick } = require('../services/draft.service');
   const { startDraft } = require('../services/draftStart.service');
-  const { runDraftAct } = require('../services/draftAct.service');
+  const { runDraftAct, correctLatestPick } = require('../services/draftAct.service');
   const {
     createDraftRoomBroadcast,
     setDraftRoomBroadcast,
