@@ -122,17 +122,15 @@ async function commitPick({ leagueId, by, playerId, expiredTurn }) {
         // and it authorizes through isLeagueCommissioner.
         myTeam = teams.find((t) => t.owner_id === userId);
         if (!myTeam) throw new DraftError(403, 'not a member of this league');
-        // The lock bars the manager, not the clock: an autopick must land or the
-        // draft stalls on this team. The commissioner's force-add bypasses it too.
-        if (myTeam.locked && !auto) throw new DraftError(409, 'your team is locked by the commissioner');
+        // The lock bars the manager's own pick. An Autopick never reaches this branch.
+        if (myTeam.locked) throw new DraftError(409, 'your team is locked by the commissioner');
         if (league.draft_type === 'offline') {
           throw new DraftError(409, 'this is an offline draft; the commissioner enters every pick');
         }
-        // Autopick-type drafts resolve every pick server-side (the Pick clock
-        // module's autoPick calls in here with auto: true); a manager has no manual
+        // Autopick-type drafts resolve every pick server-side; a manager has no manual
         // Pick control for one (issue #120) and this is the server-side half of
         // that guarantee, not just a client-side hidden button.
-        if (!auto && league.draft_type === 'autopick') {
+        if (league.draft_type === 'autopick') {
           throw new DraftError(409, 'this is an autopick draft; picks are made automatically');
         }
       }

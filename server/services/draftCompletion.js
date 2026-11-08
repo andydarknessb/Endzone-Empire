@@ -15,7 +15,7 @@ const { DraftError } = require('./draftError');
  * before this, it now runs in one place on the caller's transaction.
  *
  * The Pick clock keeps the status flip (ADR 0018): `onSlotTaken` (the final
- * live Pick) and `onDraftStarted` (an all-keeper start) set
+ * live Pick, and an all-keeper start) sets
  * `draft_status = 'complete'` and clear the deadline in their atomic statements
  * BEFORE calling here. completeDraft verifies that flip first and refuses with a
  * DraftError(500) if it is missing - the enforcement that replaced the warning

@@ -139,7 +139,7 @@ test('the worker scheduled start emits the state refresh and the draft_start act
   t.mock.method(pickClock, 'armExpiryTimer', () => {}); // no real in-process timer
   t.mock.method(prefs, 'usersWanting', async () => []); // quiet the best-effort push
   const row = { ...manualBaseLeague };
-  createFakePool([
+  const fake = createFakePool([
     [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [{ ...row }] })],
     [select('leagues'), () => ({ rows: [{ ...row }] })],
     // The market gate's count (#747): a loaded market so the start is not refused.
@@ -160,6 +160,10 @@ test('the worker scheduled start emits the state refresh and the draft_start act
   ]).install(t);
 
   await runStartAction({ id: LEAGUE_ID, name: 'Ballers', owner_id: OWNER });
+
+  // The scheduled start is one League write (ADR 0070): one lock, one transaction.
+  assert.equal(fake.matching(/SET "board_version" = "board_version" \+ 1/).length, 1, 'the League row locks once');
+  assert.equal(fake.matching(/^BEGIN$/).length, 1, 'one transaction');
 
   assert.deepEqual(
     broadcast.calls.map((c) => ({ method: c.method, leagueId: c.leagueId })),

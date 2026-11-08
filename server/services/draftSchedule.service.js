@@ -5,6 +5,7 @@ const { notifyCommissioners } = require('./leagueRole.service');
 const { fantasySideWhereSql } = require('./leagueType');
 const { MARKET_FLOOR } = require('./adp.service');
 const pickClock = require('./pickClock.service');
+const { DraftError } = require('./draftError');
 
 const HOUR_MS = 60 * 60 * 1000;
 
@@ -215,8 +216,11 @@ async function runStartAction(league) {
   // inside it through `within`, so the League row locks once for the whole start.
   let started;
   try {
-    started = await leagueWrite({ leagueId: league.id, label: 'draft-schedule-start' }, ({ client, league: locked, afterCommit }) =>
-      startDraft({ leagueId: league.id, userId: null, within: { client, league: locked, afterCommit } }));
+    started = await leagueWrite({ leagueId: league.id, label: 'draft-schedule-start' }, ({ client, league: locked, afterCommit }) => {
+      // A League deleted since the tick is a 404 refusal, flagged quietly below.
+      if (!locked) throw new DraftError(404, 'league not found');
+      return startDraft({ leagueId: league.id, userId: null, within: { client, league: locked, afterCommit } });
+    });
   } catch (err) {
     if (!err.statusCode) throw err;
     // Can't start right now (race lost to a concurrent change, stale

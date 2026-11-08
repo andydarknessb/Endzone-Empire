@@ -188,7 +188,7 @@ if (!ENABLED) {
     );
     await pool.query(
       `CREATE TRIGGER expired_turn_flip_fails BEFORE UPDATE OF "autodraft" ON "teams"
-       FOR EACH ROW WHEN (NEW."autodraft" AND NOT OLD."autodraft")
+       FOR EACH ROW WHEN (NEW."id" = ${Number(teamIds.Alpha)} AND NEW."autodraft" AND NOT OLD."autodraft")
        EXECUTE FUNCTION expired_turn_flip_fails()`
     );
     try {

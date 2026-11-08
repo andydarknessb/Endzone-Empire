@@ -85,19 +85,6 @@ test('draft started: the active branch arms the first pick clock and fixes draft
   assert.equal(call.params[1], 0, 'current_pick advances to the first open pick');
 });
 
-test('draft started: the active branch arms the first pick clock and fixes draft_rounds', async (t) => {
-  const fake = createFakePool([armingLeagueUpdate()]).install(t);
-
-  const deadline = await withClient(fake, (client) =>
-    pickClock.onDraftStarted(client, { leagueId: LEAGUE_ID, currentPick: 0, clockSeconds: 60, rounds: 15 }));
-
-  assert.equal(deadline, armedAt(60), 'the start arms the plan clock');
-  const call = leagueUpdate(fake);
-  assert.match(call.text, /"draft_status" = 'active'/);
-  assert.match(call.text, /"draft_rounds" = \$/);
-  assert.equal(call.params[1], 0, 'current_pick advances to the first open pick');
-});
-
 // --- a slot was taken (onSlotTaken, #2694) ----------------------------------
 
 const draftCompletion = require('../services/draftCompletion');
@@ -188,6 +175,33 @@ test('pick landed: an offline draft arms no clock for the next team', async (t) 
   const outcome = await withClient(fake, (client) => slot(client, { teams: teamsWithAutodraft(false), fromInclusive: 4 }));
 
   assert.equal(outcome.pickDeadlineAt, null, 'an offline draft never arms a clock');
+});
+
+// --- an Autopick's timeout consequences (onTimeout, #2694) -----------------
+
+test('a Team already in Autodraft is not timing out: no streak, no flip, no query', async (t) => {
+  const fake = createFakePool([]).install(t);
+
+  const moved = await withClient(fake, (client) => pickClock.onTimeout(client, {
+    leagueId: LEAGUE_ID, team: { id: 11, autodraft: true }, nextTeamId: 11, draftActive: true,
+  }));
+
+  assert.equal(moved, null);
+  assert.equal(fake.calls.length, 0, 'nothing is written for a Team already on Autodraft');
+});
+
+test('a timeout that moves the Team into Autodraft on a completing Pick arms nothing', async (t) => {
+  const fake = createFakePool([
+    [/^UPDATE "teams" SET "consecutive_timeouts" = "consecutive_timeouts" \+ 1/, () => ({ rows: [{ consecutive_timeouts: 2 }] })],
+    [/^UPDATE "teams" SET "autodraft" = true/, () => ({ rows: [], rowCount: 1 })],
+  ]).install(t);
+
+  const moved = await withClient(fake, (client) => pickClock.onTimeout(client, {
+    leagueId: LEAGUE_ID, team: { id: 11, autodraft: false }, nextTeamId: null, draftActive: false,
+  }));
+
+  assert.deepEqual(moved, { pickDeadlineAt: undefined }, 'the flip is reported with no re-arm');
+  assert.equal(fake.matching(update('leagues')).length, 0, 'no clock is armed on a completed draft');
 });
 
 // --- paused -----------------------------------------------------------------

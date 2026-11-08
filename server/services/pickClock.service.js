@@ -14,6 +14,7 @@ const { draftRounds } = require('./rosterShape');
 // module (unlike pick.service, required lazily in autoPick): a top-level
 // require is safe.
 const { appendLifecycleActivity, STALLED } = require('./draftActivity');
+const draftCompletion = require('./draftCompletion');
 
 /**
  * The Pick clock (CONTEXT.md), one owner. Every way a turn begins or a Pick
@@ -35,8 +36,8 @@ const { appendLifecycleActivity, STALLED } = require('./draftActivity');
  * queue first, then Best available among players who fill a Starting need, then
  * Best available among everyone else, with the candidate walk past a code-less
  * 409 - ADR 0026) and the
- * consecutive-timeout streak live here too. The clock re-arm on a committed autopick still rides the
- * pick-landed event through pick.service.landPick, so expiry and arming
+ * consecutive-timeout streak live here too. The clock re-arm on a committed autopick rides the
+ * slot step through pick.service.landPick, so expiry and arming
  * share the one policy. pick.service is required lazily inside autoPick because
  * it requires this module in turn (ADR 0018, #782 ruling 6); a top-level require
  * would capture its partial exports during the cycle.
@@ -200,7 +201,7 @@ async function onSlotTaken(client, { leagueId, league, teams, rotationOpts, from
   const pickDeadlineAt = result.rows[0].pick_deadline_at;
   // The one draft->season handoff (#789), on this same transaction, after the status flip.
   const completion = draftComplete
-    ? await require('./draftCompletion').completeDraft(client, { leagueId })
+    ? await draftCompletion.completeDraft(client, { leagueId })
     : null;
   return { nextPickIndex, nextTeam, draftComplete, pickDeadlineAt, completion };
 }
