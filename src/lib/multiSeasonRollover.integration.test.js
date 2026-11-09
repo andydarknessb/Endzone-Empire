@@ -195,7 +195,6 @@ describe('multi-season rollover transaction', () => {
     result = await rolloverSeason({
       leagueId: LEAGUE_ID,
       userId: COMMISSIONER_USER_ID,
-      keepers: [],
     });
   });
 

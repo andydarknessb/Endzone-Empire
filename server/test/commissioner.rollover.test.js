@@ -93,7 +93,7 @@ test("rolloverSeason archives every declared Pick'em co-champion without consult
     })],
     [/INSERT INTO "league_history"/, () => ({ rows: [] })],
     // ADR 0002: roster-shaped writes against a pick'em-only league are bugs.
-    [/DELETE FROM "team_players"|DELETE FROM "draft_picks"|DELETE FROM "waiver_players"|UPDATE "waiver_claims"|UPDATE "trades"|UPDATE "teams" SET "faab_remaining"/,
+    [/DELETE FROM "team_players"|DELETE FROM "draft_picks"|DELETE FROM "draft_queue"|DELETE FROM "keepers"|DELETE FROM "waiver_players"|UPDATE "waiver_claims"|UPDATE "trades"|UPDATE "teams" SET "faab_remaining"/,
       (text) => { throw new Error(`roster-shaped write against a pick'em-only league: ${text}`); }],
     [/UPDATE "leagues" SET "current_season"/, () => ({ rows: [] })],
     [/INSERT INTO "transactions"/, () => ({ rows: [] })],
@@ -253,23 +253,59 @@ test("rolloverSeason archives an explicit Pick'em no-champion result", async (t)
   });
 });
 
-test("rolloverSeason refuses keepers for a pick'em-only league before touching anything", async (t) => {
+test("rolloverSeason clears the draft, keepers and queues, and resets Teams for a new season", async (t) => {
   const league = {
-    id: 5, owner_id: 100, is_commissioner: true, pickem_only: true,
+    id: 5, owner_id: 100, is_commissioner: true, pickem_only: false,
     season_status: 'complete', current_season: 2026, current_week: 18, faab_budget: 100,
   };
   const calls = mockClient(t, [
     ...TXN,
     [/(?:FROM "leagues" WHERE "id" = \$1( FOR NO KEY UPDATE)?$|UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$)/, () => ({ rows: [league] })],
+    [/^SELECT "id", "name", "owner_id" FROM "teams"/, () => ({
+      rows: [
+        { id: 10, name: 'Sunday Ballers', owner_id: 100 },
+        { id: 11, name: 'CPU Squad', owner_id: null },
+      ],
+    })],
+    [/^SELECT \* FROM "matchups"/, () => ({ rows: [] })],
+    [/^SELECT "team_players"\."team_id"/, () => ({ rows: [] })],
+    [/"trophies"/, () => ({ rows: [] })],
+    [/^INSERT INTO "league_history"/, () => ({ rows: [] })],
+    [/^DELETE FROM "(team_players|draft_picks|draft_queue|keepers|waiver_players)"|^UPDATE "(waiver_claims|trades)"/, () => ({ rows: [] })],
+    [/^UPDATE "teams" SET "faab_remaining"/, () => ({ rows: [] })],
+    [/^UPDATE "leagues" SET "current_season"/, () => ({ rows: [] })],
+    [/^INSERT INTO "transactions"/, () => ({ rows: [] })],
+    [/^SELECT DISTINCT "owner_id" FROM "teams"/, () => ({ rows: [{ owner_id: 100 }] })],
+    [/^INSERT INTO "notifications"/, () => ({ rows: [] })],
   ]);
-  await assert.rejects(
-    () => commissioner.rolloverSeason({ leagueId: 5, userId: 100, keepers: [{ teamId: 10, playerIds: [1] }] }),
-    (error) => {
-      assert.equal(error.statusCode, 409);
-      assert.match(error.message, /pick'em league/);
-      return true;
-    }
-  );
-  assert.ok(calls.some((c) => c.text === 'ROLLBACK'));
-  assert.equal(statementsMatching(calls, /INSERT INTO "league_history"/).length, 0);
+
+  await commissioner.rolloverSeason({ leagueId: 5, userId: 100 });
+
+  const statement = (pattern) => statementsMatching(calls, pattern)[0];
+  const leagueReset = statement(/UPDATE "leagues" SET "current_season"/);
+  for (const clause of [
+    '"draft_date" = NULL', '"draft_timezone" = NULL', '"keeper_lock_at" = NULL',
+    '"draft_order_overrides" = NULL', '"draft_reminder_stage" = 0', '"draft_autostart_failed" = false',
+  ]) {
+    assert.ok(leagueReset.text.includes(clause), `the league reset writes ${clause}`);
+  }
+  // The mock cannot run SQL, so this pins the CASE that leaves a CPU-managed
+  // team (owner_id NULL) its Autodraft and turns it off for a Manager's team.
+  const teamReset = statement(/UPDATE "teams" SET "faab_remaining"/);
+  assert.match(teamReset.text, /"autodraft" = CASE WHEN "owner_id" IS NULL THEN "autodraft" ELSE false END/);
+  assert.match(teamReset.text, /"draft_ready" = false, "consecutive_timeouts" = 0/);
+  for (const table of ['team_players', 'draft_picks', 'draft_queue', 'keepers']) {
+    assert.deepEqual(statement(new RegExp(`^DELETE FROM "${table}"`)).params, [5], `${table} rows are deleted`);
+  }
+
+  // The scheduler starts any pending League whose date has passed. The row the
+  // rollover leaves has no date, so the tick has nothing to start.
+  const { scheduledDraftAction } = require('../services/draftSchedule.service');
+  const now = new Date('2026-11-10T00:00:00Z');
+  const armed = {
+    draft_status: 'pending', draft_date: '2026-09-01T00:00:00Z', draft_type: 'snake',
+    min_teams: 2, draft_reminder_stage: 2, draft_autostart_failed: false,
+  };
+  assert.equal(scheduledDraftAction(armed, 8, now), 'start');
+  assert.equal(scheduledDraftAction({ ...armed, draft_date: null, draft_reminder_stage: 0 }, 8, now), null);
 });

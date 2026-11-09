@@ -677,10 +677,11 @@ function DangerZone({ children }) {
  *
  * `rolloverSeason` (server/services/commissioner.service.js) archives the
  * season's standings, rosters and awards into league_history and then, for a
- * fantasy league, DELETEs every `team_players` row, every `draft_picks` row and
- * the whole `waiver_players` wire, cancels pending waiver claims and pending or
- * accepted trades, resets every team's `faab_remaining` to the league budget,
- * and moves the league to the next season at week 1 with the draft reopened.
+ * fantasy league, DELETEs every `team_players` row, `draft_picks` row, keeper and
+ * draft-queue row and the whole `waiver_players` wire, cancels pending waiver
+ * claims and pending or accepted trades, resets every team's `faab_remaining` to
+ * the league budget, turns Autodraft off on managed teams, clears the draft date,
+ * and moves the league to the next season at week 1 with the draft unscheduled.
  * A pick'em-only league has none of the roster half (ADR 0002), so it gets its
  * own sentence rather than a list of things that do not exist in it.
  *
@@ -706,8 +707,9 @@ function StartNewSeason({ leagueId, league, onRefresh, notify, caption }) {
     ? `This archives ${seasonLabel} standings to League History and opens ${nextLabel} for picks at week 1. `
       + 'This cannot be undone.'
     : `This archives ${seasonLabel} to League History, then clears every team's roster, deletes all draft `
-      + "picks, empties the waiver wire, cancels pending waiver claims and trades, and resets every team's "
-      + `FAAB budget. The league moves to ${nextLabel} at week 1 with the draft reopened. This cannot be undone.`;
+      + "picks, keepers and draft queues, empties the waiver wire, cancels pending waiver claims and trades, "
+      + "turns Autodraft off for managed teams, and resets every team's "
+      + `FAAB budget. The league moves to ${nextLabel} at week 1 with the draft unscheduled. This cannot be undone.`;
 
   const handleConfirm = async () => {
     setBusy(true);
