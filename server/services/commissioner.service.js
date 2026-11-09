@@ -12,6 +12,7 @@ const {
 const { computeStandings } = require('./season.service');
 const { placeOnWaiversUndoable } = require('./waiver.service');
 const { assertManualCorrectionWindow } = require('./correction.service');
+const settleFollowUpSvc = require('./settleFollowUp.service');
 const { deleteAvatarObjects } = require('./avatar.service');
 const { commissionerPredicate } = require('./leagueRole.service');
 const { isIrEligible } = require('./irPolicy.service');
@@ -304,7 +305,7 @@ async function forceSetLineup({ leagueId, userId, teamId, week, moves }) {
 async function adjustMatchupScore({ leagueId, userId, matchupId, homeScore, awayScore }) {
   return leagueWrite(
     { leagueId, label: 'adjustMatchupScore' },
-    async ({ client }) => {
+    async ({ client, afterCommit }) => {
       const league = await requireCommissioner(client, { leagueId, userId });
       const matchupResult = await client.query(
         `SELECT "season", "week" FROM "matchups"
@@ -331,6 +332,10 @@ async function adjustMatchupScore({ leagueId, userId, matchupId, homeScore, away
         type: 'commissioner',
         detail: { action: 'adjust_score', matchupId, homeScore, awayScore },
       });
+      // The weekly high score and the Recap follow a corrected final week, so queue them once the score has committed (#2750).
+      afterCommit(() => settleFollowUpSvc.settleFollowUp({
+        leagueId, season: matchup.season, week: matchup.week, mode: 'correction',
+      }));
       return result.rows[0];
     }
   );
