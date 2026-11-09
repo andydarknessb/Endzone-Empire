@@ -80,6 +80,7 @@ function createDatabaseFixture() {
             id: league.id,
             current_season: league.season,
             current_week: league.week,
+            draft_status: 'complete',
             best_ball: false,
             roster_slots: [{ key: 'FLEX', count: 1, eligiblePositions: ['RB', 'WR', 'TE'] }],
             bench_slots: 1,

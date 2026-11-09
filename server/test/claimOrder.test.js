@@ -259,7 +259,7 @@ test('submitClaim locks the league row and takes max(claim_order)+1 for the team
   let insertParams;
   const fake = createFakePool([
     [/^(?:SELECT \* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE|UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*)/, () => ({
-      rows: [{ id: 1, pickem_only: false, waiver_type: 'priority', transactions_locked: false, waivers_clear_at: null, roster_limit: 16, ir_slots: 2 }],
+      rows: [{ id: 1, pickem_only: false, waiver_type: 'priority', transactions_locked: false, waivers_clear_at: null, roster_limit: 16, ir_slots: 2, draft_status: 'complete' }],
     })],
     [/^SELECT \* FROM "teams"/, () => ({ rows: [{ id: 31, league_id: 1, owner_id: 8, locked: false }] })],
     [/^SELECT 1 FROM "team_players" WHERE "league_id"/, () => ({ rows: [] })],

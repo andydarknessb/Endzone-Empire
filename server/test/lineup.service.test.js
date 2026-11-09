@@ -1302,6 +1302,7 @@ test('a full roster resolves by dropping a bench player before activating the st
         id: 5,
         current_season: 2026,
         current_week: 8,
+        draft_status: 'complete',
         roster_slots: [],
         bench_slots: 1,
         ir_slots: 1,

@@ -296,7 +296,7 @@ const dropLeagueRow = {
  * list, and a shape matcher blind to the select list would hand it a row that
  * cannot answer the freeze.
  */
-function dropWorld({ frozen = false, teamLocked = false, leagueRow } = {}) {
+function dropWorld({ frozen = false, teamLocked = false, leagueRow, draftStatus = 'complete' } = {}) {
   const gateLeague = leagueRow === undefined
     ? { id: 1, transactions_locked: frozen }
     : leagueRow;
@@ -306,7 +306,7 @@ function dropWorld({ frozen = false, teamLocked = false, leagueRow } = {}) {
     [/^SELECT "id", "locked" FROM "teams" WHERE "id" = \$1 FOR UPDATE/,
       () => ({ rows: [{ id: 11, locked: teamLocked }] })],
     [/^SELECT \* FROM "teams"/, () => ({ rows: [{ id: 11, owner_id: 7, locked: teamLocked }] })],
-    [/^(?:SELECT \* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE|UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*)/, () => ({ rows: [dropLeagueRow] })],
+    [/^(?:SELECT \* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE|UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*)/, () => ({ rows: [{ ...dropLeagueRow, draft_status: draftStatus }] })],
     [remove('team_players'), () => ({ rows: [{ id: 99 }], rowCount: 1 })],
     [/^SELECT "slot", "ir_attested" FROM "lineup_entries"/, () => ({ rows: [] })],
     [/^SELECT 1 FROM "matchups"/, () => ({ rows: [] })],
@@ -374,6 +374,39 @@ test('dropPlayer: an unfrozen league still drops, and locks League before Team (
   assert.ok(leagueLockAt < teamLockAt, 'League is locked before Team, the one order on every path');
   fake.assertClean();
 });
+
+// --- the draft gate (#2748): a drop and an undo are Roster moves, so they wait for the draft ---
+
+for (const draftStatus of ['pending', 'active']) {
+  test(`dropPlayer: refused while the draft is ${draftStatus}, the roster row survives (#2748)`, async (t) => {
+    const fake = dropWorld({ draftStatus }).install(t);
+
+    await assert.rejects(
+      dropPlayer({ leagueId: 1, userId: 7, playerId: 500 }),
+      { statusCode: 409, message: 'the draft is not complete' }
+    );
+    assert.equal(fake.matching(remove('team_players')).length, 0, 'the roster row survived');
+    assert.equal(fake.matching(insert('waiver_players')).length, 0, 'no waiver hold was written');
+    fake.assertClean();
+  });
+
+  test(`undoDrop: refused while the draft is ${draftStatus}, the hold is never read (#2748)`, async (t) => {
+    const fake = createFakePool([
+      [select('leagues'), () => ({ rows: [{ ...undoLeague, draft_status: draftStatus }] })],
+      [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [{ ...undoLeague, draft_status: draftStatus }] })],
+      [select('teams'), () => ({ rows: [{ id: 11, owner_id: 7, locked: false }] })],
+    ]).install(t);
+
+    await assert.rejects(
+      undoDrop({ leagueId: 1, userId: 7, playerId: 500 }),
+      { statusCode: 409, message: 'the draft is not complete' }
+    );
+    assert.equal(fake.matching(/^SELECT 1 FROM "waiver_players"/).length, 0, 'the hold was not read');
+    assert.equal(fake.matching(remove('waiver_players')).length, 0, 'the hold was not deleted');
+    assert.equal(fake.matching(insert('team_players')).length, 0, 'nobody was rostered');
+    fake.assertClean();
+  });
+}
 
 // --- undoDrop ----------------------------------------------------------------
 
@@ -468,7 +501,7 @@ test('undoDrop: consults roster capacity, not the static roster limit', async (t
       // A League read carries ir_slots: the League write's lock returns the whole row
       // (RETURNING *), and the gate's own read names ir_slots in its column list.
       assert.match(text, /RETURNING \*$|"ir_slots"/);
-      return { rows: [{ id: 1, transactions_locked: false, roster_limit: 3, ir_slots: 1, position_caps: {} }] };
+      return { rows: [{ id: 1, transactions_locked: false, draft_status: 'complete', roster_limit: 3, ir_slots: 1, position_caps: {} }] };
     }],
     [select('teams'), () => ({ rows: [{ id: 11, owner_id: 7, locked: false }] })],
     [select('waiver_players'), () => ({ rows: [{ 1: 1 }] })],
@@ -486,7 +519,7 @@ test('undoDrop: consults roster capacity, not the static roster limit', async (t
 });
 
 const undoLeague = {
-  id: 1, transactions_locked: false, roster_limit: 3, ir_slots: 1, position_caps: {},
+  id: 1, transactions_locked: false, draft_status: 'complete', roster_limit: 3, ir_slots: 1, position_caps: {},
   current_season: 2026, current_week: 4,
 };
 

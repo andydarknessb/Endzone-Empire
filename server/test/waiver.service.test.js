@@ -75,7 +75,7 @@ test('orderClaims does not mutate its input', () => {
 test('submitClaim refuses a player who is already a free agent', async (t) => {
   const fake = createFakePool([
     [/^SELECT \* FROM "leagues"/, () => ({
-      rows: [{ id: 1, pickem_only: false, waiver_type: 'priority', transactions_locked: false, waivers_clear_at: null }],
+      rows: [{ id: 1, pickem_only: false, waiver_type: 'priority', transactions_locked: false, waivers_clear_at: null, draft_status: 'complete' }],
     })],
     [/^SELECT \* FROM "teams"/, () => ({ rows: [{ id: 31, league_id: 1, owner_id: 8, locked: false }] })],
     [/^SELECT 1 FROM "team_players" WHERE "league_id"/, () => ({ rows: [] })],
@@ -89,6 +89,26 @@ test('submitClaim refuses a player who is already a free agent', async (t) => {
   assert.equal(fake.matching(insert('waiver_claims')).length, 0);
   fake.assertClean();
 });
+
+// --- the draft gate (#2748): a claim is a Roster move, so it waits for the draft ---
+
+for (const draftStatus of ['pending', 'active']) {
+  test(`submitClaim refuses while the draft is ${draftStatus}, nothing is written (#2748)`, async (t) => {
+    const fake = createFakePool([
+      [/^SELECT \* FROM "leagues"/, () => ({
+        rows: [{ id: 1, pickem_only: false, waiver_type: 'priority', transactions_locked: false, waivers_clear_at: null, draft_status: draftStatus }],
+      })],
+      [/^SELECT \* FROM "teams"/, () => ({ rows: [{ id: 31, league_id: 1, owner_id: 8, locked: false }] })],
+    ]).install(t);
+
+    await assert.rejects(
+      () => submitClaim({ leagueId: 1, userId: 8, playerId: 500, dropPlayerId: null, bid: 0 }),
+      { statusCode: 409, message: 'the draft is not complete' }
+    );
+    assert.equal(fake.matching(insert('waiver_claims')).length, 0);
+    fake.assertClean();
+  });
+}
 
 test('claimTarget admits an unrostered player during the blanket waiver window', async (t) => {
   const fake = createFakePool([
@@ -1263,7 +1283,7 @@ test('placeOnWaivers on conflict: never touches the dropping team or interrupted
 
 test('kickoff hold, then claim-target, submit-claim and processing, all through one stateful world (#1375)', async (t) => {
   const league = {
-    id: 1, waiver_type: 'priority', transactions_locked: false, roster_limit: 16, ir_slots: 0,
+    id: 1, waiver_type: 'priority', transactions_locked: false, roster_limit: 16, ir_slots: 0, draft_status: 'complete',
     current_season: 2026, current_week: 2, waiver_period_hours: 24, waivers_clear_at: null,
   };
   const nflGames = [
@@ -1373,7 +1393,7 @@ const submitCapWorld = (t, { atPosition, positions }) => createFakePool([
   [/^SELECT \* FROM "leagues"/, () => ({
     rows: [{
       id: 1, pickem_only: false, waiver_type: 'priority', transactions_locked: false,
-      waivers_clear_at: null, roster_limit: 16, ir_slots: 0, position_caps: { RB: 2 },
+      waivers_clear_at: null, roster_limit: 16, ir_slots: 0, position_caps: { RB: 2 }, draft_status: 'complete',
     }],
   })],
   [/^SELECT \* FROM "teams"/, () => ({ rows: [{ id: 31, league_id: 1, owner_id: 8, locked: false }] })],
@@ -1415,7 +1435,7 @@ test('submitClaim refuses a no-drop claim when the roster is already at capacity
     [/^SELECT \* FROM "leagues"/, () => ({
       rows: [{
         id: 1, pickem_only: false, waiver_type: 'priority', transactions_locked: false,
-        waivers_clear_at: null, roster_limit: 14, ir_slots: 0,
+        waivers_clear_at: null, roster_limit: 14, ir_slots: 0, draft_status: 'complete',
       }],
     })],
     [/^SELECT \* FROM "teams"/, () => ({ rows: [{ id: 31, league_id: 1, owner_id: 8, locked: false }] })],

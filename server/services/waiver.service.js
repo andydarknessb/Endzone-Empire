@@ -226,6 +226,7 @@ async function submitClaim({ leagueId, userId, playerId, dropPlayerId, bid = 0 }
     }
 
     const team = await requireMember(client, { leagueId, userId });
+    if (league.draft_status !== 'complete') throw new WaiverError(409, 'the draft is not complete');
     if (team.locked) throw new WaiverError(409, 'your team is locked by the commissioner');
 
     if (league.waiver_type === 'faab') {
