@@ -1,5 +1,5 @@
 const { isOnWaivers } = require('./waiverStatus');
-const { lockedPlayerIds } = require('./lineup.service');
+const { lockedPlayerIds, weekLastKickoff } = require('./lineup.service');
 const { DraftError } = require('./draftError');
 const { rosterFit, positionCapGroup, parsePositionCaps, countAtPositionGroup } = require('./rosterFit.service');
 
@@ -78,10 +78,11 @@ const asBypassSet = (bypass) => {
 // The gate's League read takes no lock: every caller holds the League row through its
 // League write (ADR 0070), so nothing can change it under this read. It carries every
 // column the freeze check and the acquire bundle need, so a caller cannot starve the gate.
-// current_season/current_week are the kicked-off check's week (#1376, ADR 0043).
+// current_season/current_week are the kicked-off check's week (#1376, ADR 0043);
+// waiver_period_hours puts its week clear.
 const LEAGUE_GATE_SELECT =
   `SELECT "id", "transactions_locked", "draft_status", "roster_limit", "ir_slots",
-          "position_caps", "waivers_clear_at", "current_season", "current_week"
+          "position_caps", "waivers_clear_at", "waiver_period_hours", "current_season", "current_week"
      FROM "leagues" WHERE "id" = $1`;
 
 /** Enforce a team's per-position draft cap (if the league sets one for this player's cap group). Throws DraftError(409) when full. */
@@ -106,6 +107,10 @@ async function assertPositionCapNotReached(client, { teamId, positionCaps, posit
  * Defers the actual schedule comparison to the lineup lock's own predicate,
  * `lockedPlayerIds` (lineup.service.js), rather than re-deriving it a second
  * way: one kicked-off answer for the whole app, not two that can drift.
+ *
+ * The hold ends at the week clear (ADR 0043, 2026-11-09 amendment): the week's
+ * last kickoff plus the League's waiver period. From then on a kicked-off
+ * unrostered Player is a Free agent, whether or not the week has advanced.
  */
 async function isPlayersTeamKickedOff(client, { league, playerId }) {
   const playerResult = await client.query(
@@ -118,7 +123,14 @@ async function isPlayersTeamKickedOff(client, { league, playerId }) {
     week: league.current_week,
     players: [{ id: playerId, nflTeam }],
   });
-  return locked.has(playerId);
+  if (!locked.has(playerId)) return false;
+
+  const lastKickoff = await weekLastKickoff(client, { season: league.current_season, week: league.current_week });
+  if (!lastKickoff) return true;
+  if (!Number.isFinite(league.waiver_period_hours)) {
+    throw new DraftError(500, 'roster gate cannot read the waiver period; refusing', 'ROSTER_GATE_INDETERMINATE');
+  }
+  return Date.now() < lastKickoff.getTime() + league.waiver_period_hours * 60 * 60 * 1000;
 }
 
 /**
