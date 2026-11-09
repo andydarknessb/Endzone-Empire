@@ -38,6 +38,7 @@ const clearLeague = () => ({
   ir_slots: 0,
   position_caps: {},
   waivers_clear_at: null,
+  waiver_period_hours: 24,
   current_season: 2026,
   current_week: 4,
 });
@@ -58,6 +59,7 @@ function gateWorld({
   onWaivers = false,
   playerTeam = null,
   kickedOffTeams = [],
+  kickoffAt = new Date(),
 } = {}) {
   const leagueRow = { ...clearLeague(), ...league };
   const teamRow = { ...clearTeam(), ...team };
@@ -70,6 +72,10 @@ function gateWorld({
     [/^SELECT 1 FROM "team_players" WHERE "league_id"/, () => ({ rows: [] })],
     [/^SELECT "nfl_team" FROM "players" WHERE "id" = \$1/, () => ({ rows: [{ nfl_team: playerTeam }] })],
     [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({ rows: kickedOffTeams.map((nflTeam) => ({ nfl_team: nflTeam })) })],
+    // The week's kickoffs, for the week clear (weekLastKickoff): each kicked-off team at kickoffAt.
+    [/^SELECT "nfl_team", "kickoff_at" FROM "nfl_games"/, () => ({
+      rows: kickedOffTeams.map((nflTeam) => ({ nfl_team: nflTeam, kickoff_at: kickoffAt })),
+    })],
   ]);
 }
 
@@ -152,6 +158,37 @@ test('acquire: a player whose team has kicked off is refused, with no waiver hol
   await assert.rejects(
     assertRosterWriteAllowed(client, { ...ACQUIRE }),
     { statusCode: 409, message: 'player is on waivers; submit a waiver claim instead' }
+  );
+});
+
+// The hold ends at the week clear (ADR 0043, 2026-11-09 amendment), whether or not the
+// League's week has advanced: the schedule still says the team kicked off, but its clear
+// (the week's last kickoff plus the League's waiver period, here 24 hours) has passed or not.
+const beforeOrAfterClear = (msFromClear) => ({
+  league: { waiver_period_hours: 24 },
+  playerTeam: 'KC',
+  kickedOffTeams: ['KC'],
+  kickoffAt: new Date(Date.now() + msFromClear - 24 * 60 * 60 * 1000),
+});
+
+test('acquire: a kicked-off player is refused one minute before the week clear (week not advanced)', async () => {
+  const client = await gateWorld(beforeOrAfterClear(60_000)).connect();
+  await assert.rejects(
+    assertRosterWriteAllowed(client, { ...ACQUIRE }),
+    { statusCode: 409, message: 'player is on waivers; submit a waiver claim instead' }
+  );
+});
+
+test('acquire: a kicked-off player is allowed one minute after the week clear (week not advanced)', async () => {
+  const client = await gateWorld(beforeOrAfterClear(-60_000)).connect();
+  await assert.doesNotReject(assertRosterWriteAllowed(client, { ...ACQUIRE }));
+});
+
+test('the week clear fails closed when the League row gives no waiver period', async () => {
+  const client = await gateWorld({ league: { waiver_period_hours: undefined }, playerTeam: 'KC', kickedOffTeams: ['KC'] }).connect();
+  await assert.rejects(
+    assertRosterWriteAllowed(client, { ...ACQUIRE }),
+    { statusCode: 500, code: 'ROSTER_GATE_INDETERMINATE' }
   );
 });
 

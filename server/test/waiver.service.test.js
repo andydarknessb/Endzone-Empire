@@ -998,6 +998,44 @@ test('holdKickedOffPlayers: a week with no schedule rows writes nothing', async 
   assert.equal(table.rows.length, 0);
 });
 
+test('holdKickedOffPlayers: a 0-hour league writes its row before the week clear and none at it (the last kickoff)', async (t) => {
+  const league = { id: 1, current_season: 2026, current_week: 2, waiver_period_hours: 0 };
+  const nflGames = [
+    { season: 2026, week: 2, nfl_team: 'KC', kickoff_at: '2026-09-14T17:00:00.000Z' },
+    { season: 2026, week: 2, nfl_team: 'DAL', kickoff_at: '2026-09-15T23:15:00.000Z' }, // the last kickoff: the clear itself
+  ];
+  const players = [{ id: 500, nfl_team: 'KC' }];
+  const table = waiverPlayersTable();
+  const fake = kickoffHoldPool({ league, nflGames, players, waiverTable: table });
+  fake.install(t);
+
+  const before = await holdKickedOffPlayers({ now: new Date('2026-09-15T23:14:59.000Z') });
+  const atClear = await holdKickedOffPlayers({ now: new Date('2026-09-15T23:15:00.000Z') });
+
+  assert.equal(before, 1);
+  assert.equal(table.rows[0].available_at, '2026-09-15T23:15:00.000Z');
+  assert.equal(atClear, 0, 'no row once the clear has passed');
+  assert.equal(fake.matching(insert('waiver_players')).length, 1, 'the clear tick issues no write');
+});
+
+test('holdKickedOffPlayers: writes no row after the week clear of a 24-hour league', async (t) => {
+  const league = { id: 1, current_season: 2026, current_week: 2, waiver_period_hours: 24 };
+  const nflGames = [
+    { season: 2026, week: 2, nfl_team: 'KC', kickoff_at: '2026-09-14T17:00:00.000Z' },
+    { season: 2026, week: 2, nfl_team: 'DAL', kickoff_at: '2026-09-15T23:15:00.000Z' }, // clear: 2026-09-16T23:15:00Z
+  ];
+  const players = [{ id: 500, nfl_team: 'KC' }];
+  const table = waiverPlayersTable();
+  const fake = kickoffHoldPool({ league, nflGames, players, waiverTable: table });
+  fake.install(t);
+
+  const held = await holdKickedOffPlayers({ now: new Date('2026-09-17T09:00:00.000Z') });
+
+  assert.equal(held, 0);
+  assert.equal(table.rows.length, 0);
+  assert.equal(fake.matching(insert('waiver_players')).length, 0, 'no statement at all after the clear');
+});
+
 test('holdKickedOffPlayers: a second tick in the same week writes no new row and changes no clear time', async (t) => {
   const league = { id: 1, current_season: 2026, current_week: 2, waiver_period_hours: 24 };
   const nflGames = [

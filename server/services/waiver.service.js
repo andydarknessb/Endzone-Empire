@@ -838,8 +838,9 @@ async function claimFailureReason(client, { league, team, claim }) {
  * Kickoff hold (#1375, ADR 0043): the scheduler's kickoff tick. Writes the
  * same `waiver_players` row a drop writes, with no dropping team, for every
  * unrostered player on every kicked-off NFL team, in every league whose
- * draft is complete - the same `fantasySeasonLiveWhereSql` eligibility the
- * other weekly jobs already use, so a league still drafting or a
+ * draft is complete, until the week clear (nothing is written after it). It
+ * uses the same `fantasySeasonLiveWhereSql` eligibility the other weekly
+ * jobs already use, so a league still drafting or a
  * pick'em-only league (which never satisfies that fragment) sees nothing.
  * Runs once per scheduler tick, before claim processing, so a claim
  * submitted this tick already sees the hold.
@@ -871,7 +872,7 @@ async function claimFailureReason(client, { league, team, claim }) {
  * week's clear (#1375 review f2): without it, every already-held player on a
  * kicked-off team is written back by the tick's statement - a no-op ON
  * CONFLICT write that still stamps `updated_at` - on EVERY tick from the
- * week's first kickoff until the week advances, across every complete-draft
+ * week's first kickoff until the week clear, across every complete-draft
  * league. The exclusion is a read filter, not a second copy of the conflict
  * rule: the placement statement stays the one place greater-of and the
  * untouched columns are decided; this only decides which players are worth
@@ -929,12 +930,14 @@ async function holdKickedOffPlayersForLeague(league, now) {
   if (!lastKickoff) return 0; // no schedule rows for this week
 
   const availableAt = new Date(lastKickoff.getTime() + waiverPeriodHours * 60 * 60 * 1000);
+  // Past the week clear the hold is over: a kicked-off player is a Free agent (ADR 0043 amendment).
+  if (now >= availableAt) return 0;
 
   // A player already held at or past this week's clear (an earlier tick's own
   // write, or a drop's clear that is later still, per the greater-of rule)
   // needs no write this tick: `placeOnWaivers` would take the ON CONFLICT
   // branch and touch `updated_at` for no change, on every one of these per
-  // league until the week advances (#1375 review f2). Excluding them here
+  // league until the week clear (#1375 review f2). Excluding them here
   // keeps `placeOnWaivers` the one place the conflict rule lives - this is a
   // candidate filter, not a second copy of it.
   const candidatesResult = await pool.query(
