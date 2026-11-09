@@ -196,6 +196,28 @@ test('matchups: a complete draft still generates the week exactly as before', as
   fake.assertClean();
 });
 
+for (const [label, body] of [
+  ['a week past the regular season', { season: 2026, week: 15 }],
+  ['another season', { season: 2025, week: 1 }],
+]) {
+  test(`matchups (#2750): ${label} answers 409 and inserts nothing`, async (t) => {
+    const fake = routerPool(league({ draft_status: 'complete', regular_season_weeks: 14 }), [
+      [/^SELECT 1 FROM "matchups"/, () => ({ rows: [] })],
+      [/FROM "teams"/, () => ({ rows: [{ id: 11 }, { id: 12 }] })],
+      [insert('matchups'), () => ({ rows: [], rowCount: 1 })],
+    ]).install(t);
+
+    const res = await request(app)
+      .post('/api/scoring/league/1/matchups')
+      .set('Authorization', authed)
+      .send(body);
+
+    assert.equal(res.status, 409);
+    assert.equal(fake.matching(insert('matchups')).length, 0, 'no matchup was inserted');
+    fake.assertClean();
+  });
+}
+
 /* ------------------------------------------------------------------ *
  * Pick'em-only leagues: refused UPSTREAM, not by this gate            *
  * ------------------------------------------------------------------ */

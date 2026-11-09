@@ -37,6 +37,12 @@ async function generateMatchups({ leagueId, season, week }) {
         err.statusCode = 409;
         throw err;
       }
+      // Pairings exist only for this season's regular-season weeks (#2750): a later week's rows block Advance week's unique index on every retry.
+      if (season !== league.current_season || week > league.regular_season_weeks) {
+        const err = new Error(`Week ${week} of ${season} is not a regular-season week of this League.`);
+        err.statusCode = 409;
+        throw err;
+      }
       const existing = await client.query(
         `SELECT 1 FROM "matchups" WHERE "league_id" = $1 AND "season" = $2 AND "week" = $3 LIMIT 1`,
         [leagueId, season, week]
@@ -145,7 +151,7 @@ async function generateMatchups({ leagueId, season, week }) {
  * to commit with its own log and notices or not at all (spec #2602), so the
  * caller owns the client and the close. Never query the ambient pool here.
  */
-async function scoreMatchupsInTransaction(client, { leagueId, season, week, settle = false }) {
+async function scoreMatchupsInTransaction(client, { leagueId, season, week, settle = false, live = false }) {
   const leagueResult = await client.query(
     `SELECT * FROM "leagues" WHERE "id" = $1`,
     [leagueId]
@@ -266,8 +272,9 @@ async function scoreMatchupsInTransaction(client, { leagueId, season, week, sett
   };
   const scored = [];
   for (const matchup of matchupsResult.rows) {
-    if (matchup.score_overridden) {
+    if (matchup.score_overridden || (live && matchup.final)) {
       // A commissioner's override is the score of record; report it, never recompute it (#2274).
+      // A live tick reads the League before Advance week, so it can reach a week that went final: only a stat correction re-prices one (#2750).
       scored.push({
         matchupId: matchup.id,
         homeTeamId: matchup.home_team_id,
@@ -361,7 +368,7 @@ async function scoreMatchups({ leagueId, season, week, plays = [], settle = fals
   // needs, and that work runs AFTER the connection is back in the pool.
   const result = await withTransaction(
     pool,
-    (client) => scoreMatchupsInTransaction(client, { leagueId, season, week, settle }),
+    (client) => scoreMatchupsInTransaction(client, { leagueId, season, week, settle, live: true }),
     { label: 'scoring' }
   );
   await announceScored({ leagueId, season, week, plays, ...result });
