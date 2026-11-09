@@ -1392,11 +1392,13 @@ async function getLineup({ leagueId, userId, week, now = new Date(), league: hel
       // The Weekly projection result object (#1703): `getWeeklyProjections`
       // handles an empty player set on its own (a valid all-null result), so
       // there is no separate bare-Map fallback to keep byte-identical here.
+      // On the transaction's client: a pool read here borrows a second connection while this one is held.
       const weeklyResult = await projectionService.getWeeklyProjections({
         season,
         week: targetWeek,
         league,
         playerIds,
+        client,
       });
       // One entry per player: the mean/Floor(p10)/Ceiling(p90) that back the
       // Ledger row's Weekly projection (CONTEXT.md, Lineup entry; #1235,
@@ -1426,7 +1428,7 @@ async function getLineup({ leagueId, userId, week, now = new Date(), league: hel
         now,
         players: entries.map((row) => ({ id: row.id, nflTeam: row.nfl_team })),
       });
-      const byeByTeam = await computeByeWeeks(entries.map((row) => row.nfl_team), season);
+      const byeByTeam = await computeByeWeeks(entries.map((row) => row.nfl_team), season, { client });
       // The opponent join (#1132, widened by #1235 for kickoff/game key): one
       // read of the week's schedule, covering both `entries` and `spent` rows
       // since it is keyed by team rather than by roster membership, unlike
