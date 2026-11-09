@@ -36,7 +36,7 @@ const pool = runtimeDatabaseUrl
 // A pooled client can take a socket error at any time (the pooler closing a
 // connection, a TLS read failing). pg-pool detaches its idle listener when a
 // client is checked out, so a connection that drops mid-query needs this
-// listener to exist for the client's whole life or Node throws the 'error' and
+// listener on every client from connect onward or Node throws the 'error' and
 // takes the process down (#1535, 2026-09-16). The query in flight still rejects
 // as before; this listener only logs what the client heard. The worker's fatal
 // handler is the second line of defence for errors pg raises outside this path.

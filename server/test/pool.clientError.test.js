@@ -19,3 +19,10 @@ test('a client announced through the connect event can emit error without throwi
   assert.match(String(logged.mock.calls[0].arguments[0]), /postgres client error/);
   assert.equal(logged.mock.calls[0].arguments[1], dropped.message);
 });
+
+// pg-pool re-emits an idle client's error on the pool; with no pool listener
+// that re-emit throws even though the client listener above already logged it.
+test('an idle client error re-emitted on the pool does not throw', (t) => {
+  t.mock.method(console, 'error', () => {});
+  assert.doesNotThrow(() => pool.emit('error', new Error('idle drop'), new EventEmitter()));
+});
