@@ -1,4 +1,6 @@
 const pool = require('../modules/pool');
+const clock = require('../modules/clock');
+const { REG_SEASON_WEEKS } = require('./bye.service');
 
 /**
  * The current NFL season by calendar, resolved in SQL to stay on DB time:
@@ -28,4 +30,14 @@ async function lastCompletedNflSeason() {
   return upcoming == null ? null : upcoming - 1;
 }
 
-module.exports = { upcomingNflSeason, lastCompletedNflSeason };
+/** Pure: a week number an NFL regular season has. */
+function isNflWeek(week) {
+  return Number.isInteger(week) && week >= 1 && week <= REG_SEASON_WEEKS;
+}
+
+/** A season that can be on file: 2000 through next year. */
+function isNflSeason(season) {
+  return Number.isInteger(season) && season >= 2000 && season <= clock.now().getFullYear() + 1;
+}
+
+module.exports = { upcomingNflSeason, lastCompletedNflSeason, isNflWeek, isNflSeason, REG_SEASON_WEEKS };

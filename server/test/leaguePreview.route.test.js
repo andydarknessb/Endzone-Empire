@@ -106,7 +106,7 @@ test('previews are rate limited per caller so invite codes cannot be enumerated 
 
 test('previews are also rate limited per IP, so free accounts on one address cannot widen the sweep', async (t) => {
   const limited = makeApp();
-  limited.set('trust proxy', true); // as server.js does, so req.ip is the caller's address
+  limited.set('trust proxy', true); // so req.ip is the caller's address
   fakeDb(t, { row: null });
   const statuses = [];
   for (let i = 0; i < 40; i++) {

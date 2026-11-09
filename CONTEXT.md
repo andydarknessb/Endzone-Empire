@@ -114,7 +114,7 @@ commissioners by the Team name it was made against, never by account or email. M
 with Remove & ban: while the league is Removable the team is deleted;
 afterwards the team stays and becomes a CPU-managed team. Lifting a ban lets
 the account join again and never hands a team back (ADR 0068).
-_Avoid_: block (a manager's own mute of another's chat), kick
+_Avoid_: block, kick
 
 **CPU-managed team**:
 A team with no manager (owner_id NULL), left behind when its manager was
@@ -163,6 +163,13 @@ Grouped under one name because league phase governs all three with a single
 rule, and because a pick'em-only league has no draft to wait for and so is
 never held back by it.
 _Avoid_: season engine (engine is the projection engine), season progression
+
+**Opening week**:
+The first NFL week a fantasy League plays: the earliest week with no kickoff
+yet when its draft completes, in the NFL season in progress or next to start.
+A League with no regular-season week left has no Opening week, and its draft
+cannot start.
+_Avoid_: start week, week one (a League may open later)
 
 **Draft status**:
 Where a draft sits in its own lifecycle: pending (not yet started), active
@@ -474,8 +481,8 @@ game to score in), even though his Weekly projection still reads his old
 per-game pace until the next engine version (ADR 0044); his Game status is
 hard-unavailable (`no_team`) like a bye, so the Optimizer never starts him. Distinct from Free
 agent, below, which is about league Availability — a player can have no NFL
-team while rostered on a fantasy team, and a true Free agent (waivers clear,
-game not kicked off) almost always still carries an NFL team.
+team while rostered on a fantasy team, and a true Free agent (no waiver hold
+open) almost always still carries an NFL team.
 _Avoid_: free agent (the league-availability term, below; `FA` is fine as
 badge copy, never as the concept in code or docs), released, retired,
 dropped (a fantasy-roster word, ambiguous here)
@@ -1107,7 +1114,8 @@ Whether a Team's roster stays within its Roster capacity and every Position
 cap after a set of adds and drops, the drops counted first. One answer serves
 every acquisition the Position cap holds on: a draft Pick, a free agent add, a
 Waiver claim when it is made, edited and processed, and a Trade when it
-executes. A commissioner's forced move is not held to it.
+executes. A commissioner's forced move skips the Position caps but must still
+fit Roster capacity.
 _Avoid_: roster check, capacity check (Roster capacity is one half of it)
 
 **IR-eligible**:
@@ -1172,7 +1180,9 @@ _Avoid_: lineup lock
 **Roster move**:
 One player joining or leaving one Team's roster: a free agent add, a drop, an
 undo-drop, a waiver award, one side of a trade, a draft pick, or a
-commissioner's forced move. Each Roster move opens or closes a Tenure.
+commissioner's forced move. Each Roster move opens or closes a Tenure. Until a
+League's draft completes, a draft pick and the correction of one are the only
+Roster moves it takes.
 _Avoid_: transaction, move (unqualified, which is a lineup move)
 
 **Undo drop**:
@@ -1184,9 +1194,11 @@ undoable.
 _Avoid_: re-add, restore
 
 **Free agent**:
-An unrostered player who can be added immediately: waivers have cleared on
-him and his NFL game for the current week has not kicked off. Kickoff puts
-him on waivers until the week clears, the same hold a drop puts him under.
+An unrostered player who can be added immediately: no waiver hold is open on
+him and no Waiver claim is waiting on him. Kickoff puts him on waivers until
+his Clear time, the same hold a drop puts him under, and once any claims on
+him have resolved he is a Free agent again, even if the commissioner has not
+run Advance week.
 Distinct from No NFL team, above, which is an NFL-employment fact and no
 judge of league Availability at all.
 _Avoid_: nfl_team null (that is No NFL team, above — a different fact)
@@ -1458,6 +1470,12 @@ show read the stored seed, so the standings show the Playoff seed once the
 bracket exists.
 _Avoid_: rank (a standings position, which can still move), playoff rank
 
+**Consolation bracket**:
+An optional single-elimination bracket for the Teams that miss the playoffs,
+played in the playoff weeks. Winners advance until one Team is left. It never
+affects the champion.
+_Avoid_: toilet bowl, placement games
+
 **Scoring rules**:
 The full set of per-stat point values a league scores by.
 _Avoid_: settings, scoring system
@@ -1489,6 +1507,9 @@ scored on were revised after Advance week. It re-scores the week as played,
 never from a later roster, and leaves a commissioner's manual correction alone.
 Every Manager in the League is told which Matchup scores moved, and the notice
 is kept with the change: a Stat correction is never applied without its notice.
+It never changes which Teams reached a later playoff round: later rounds stand
+as Advance week built them, even when the corrected score now shows the other
+Team ahead.
 The live score announcement to open pages is different: it is best-effort,
 and its failure never holds back the change or its Settle follow-up.
 A revision that moves no score sends nothing.
