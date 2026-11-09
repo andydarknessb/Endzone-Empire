@@ -96,6 +96,7 @@ function assertRemoval(removal, { teamId, playerId, currentWeekToo, week = CURRE
 
 const dropLeague = {
   id: 5,
+  draft_status: 'complete',
   waiver_period_hours: 24,
   current_season: CURRENT_SEASON,
   current_week: CURRENT_WEEK,
@@ -300,6 +301,7 @@ test('waiver-claim drop: a dropped player whose game kicked off keeps his curren
 const commissionerLeague = {
   id: 5,
   is_commissioner: true,
+  draft_status: 'complete',
   roster_limit: 16,
   ir_slots: 1,
   waiver_period_hours: 24,

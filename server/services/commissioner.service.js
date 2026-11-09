@@ -706,6 +706,8 @@ async function forceTransaction({ leagueId, userId, teamId, action, playerId }) 
     { leagueId, label: 'forceTransaction' },
     async ({ client }) => {
       const league = await requireCommissioner(client, { leagueId, userId });
+      // A forced move is a Roster move too: it waits for the draft (CONTEXT.md, #2748).
+      if (league.draft_status !== 'complete') throw new CommissionerError(409, 'the draft is not complete');
       const teamResult = await client.query(
         `SELECT * FROM "teams" WHERE "id" = $1 AND "league_id" = $2 FOR UPDATE`,
         [teamId, leagueId]
@@ -748,11 +750,25 @@ async function forceTransaction({ leagueId, userId, teamId, action, playerId }) 
           `DELETE FROM "waiver_players" WHERE "league_id" = $1 AND "player_id" = $2`,
           [leagueId, playerId]
         );
-        await client.query(
+        const withdrawn = await client.query(
           `UPDATE "waiver_claims" SET "status" = 'cancelled', "updated_at" = now()
-           WHERE "league_id" = $1 AND "player_id" = $2 AND "status" = 'pending'`,
+           FROM "teams"
+           WHERE "teams"."id" = "waiver_claims"."team_id"
+             AND "waiver_claims"."league_id" = $1 AND "waiver_claims"."player_id" = $2
+             AND "waiver_claims"."status" = 'pending'
+           RETURNING "waiver_claims"."id", "teams"."owner_id"`,
           [leagueId, playerId]
         );
+        // The same notice an Undo drop gives: a claimant hears why his claim is gone.
+        for (const claim of withdrawn.rows) {
+          await notify(client, {
+            userId: claim.owner_id,
+            leagueId,
+            type: 'waiver_result',
+            message: 'Your waiver claim was withdrawn: the commissioner added the player to a roster.',
+            data: { claimId: claim.id, playerId },
+          });
+        }
       } else {
         // The release side runs through the same module with the same explicit
         // override. Every release-direction gate (the freeze and the Team lock)
