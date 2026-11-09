@@ -86,7 +86,7 @@ export default function MatchupPage() {
   const compact = useMediaQuery(theme.breakpoints.down('sm'), { noSsr: true });
   const {
     matchup, league, starterRows, scoreboardRows, loading, error, refetch, leagueName, viewerTeamId, records,
-    statusChip, isLive, canSetLineup, isPlayoff, board, games, benches, benchLeft, showBenchLeft, calledShots,
+    statusChip, isLive, canSetLineup, isPlayoff, isConsolation, board, games, benches, benchLeft, showBenchLeft, calledShots,
     whatIf, viewerHasRoster, ticker, retroActivePlay, celebration, view, setView,
   } = useMatchupPage(leagueId, matchupId);
   const [expandedId, setExpandedId] = useState(null);
@@ -258,6 +258,7 @@ export default function MatchupPage() {
             leagueName={leagueName}
             week={matchup.week}
             isPlayoff={isPlayoff}
+            isConsolation={isConsolation}
             statusChip={statusChip}
             isLive={isLive}
             view={view}
@@ -369,7 +370,7 @@ function Shell({ children }) {
  * header element: a top-level header maps to the banner landmark the app bar owns.
  */
 function Head({
-  leagueId, leagueName, week, isPlayoff, statusChip, isLive, view, onViewChange, toggleRef, titleRef, lineupHref, compact,
+  leagueId, leagueName, week, isPlayoff, isConsolation, statusChip, isLive, view, onViewChange, toggleRef, titleRef, lineupHref, compact,
 }) {
   const zone = formatInstant(new Date(), 'zone') || 'your time zone';
   return (
@@ -393,7 +394,8 @@ function Head({
             >
               {`Week ${week} Matchup`}
             </Box>
-            {isPlayoff && <Box component="span" data-testid="matchup-playoff-chip"><StatusChip>Playoff</StatusChip></Box>}
+            {isPlayoff && !isConsolation && <Box component="span" data-testid="matchup-playoff-chip"><StatusChip>Playoff</StatusChip></Box>}
+            {isConsolation && <Box component="span" data-testid="matchup-consolation-chip"><StatusChip>Consolation</StatusChip></Box>}
             {statusChip && (
               <Box component="span" data-testid="matchup-status-chip" data-variant={statusChip.variant}>
                 {isLive ? <LiveChip>Live</LiveChip> : <StatusChip>{statusChip.label}</StatusChip>}

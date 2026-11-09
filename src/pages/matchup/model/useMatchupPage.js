@@ -360,6 +360,7 @@ export function useMatchupPage(leagueId, matchupId) {
     isLive,
     isFinal,
     isPlayoff: !!detail?.matchup?.is_playoff,
+    isConsolation: !!detail?.matchup?.is_consolation,
     board,
     games: matchup?.games || [],
     benches: inOrder(detail?.home?.bench || [], detail?.away?.bench || []),
