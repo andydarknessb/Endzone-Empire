@@ -79,7 +79,7 @@ describe('createDraftSocket', () => {
     expect(result).toBe(io.mock.results[0].value);
   });
 
-  test('listens for connect_error so an expired JWT can be refreshed for the next attempt', () => {
+  test('listens for connect_error so an expired JWT is refreshed and the socket revived', () => {
     const socket = createDraftSocket();
 
     const registered = socket.on.mock.calls.find(([event]) => event === 'connect_error');

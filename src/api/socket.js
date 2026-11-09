@@ -67,6 +67,10 @@ export function createDraftSocket() {
   // socket down until its component remounts.
   // shortcut: a component that unmounts while the refresh is in flight leaves a
   // revived socket nobody closes, move to a closed flag if that window ever bites
+  // shortcut: a handshake refused right after a revive revives again, capped only
+  // by the server's refresh limiter (60/min per IP), and the handlers run again on
+  // that connect (the manager already ran them on transport open); add a
+  // one-revive-in-flight guard if a loop or a double resync shows up
   const reviveWithFreshToken = () => {
     reviving = true;
     refreshTokens()
