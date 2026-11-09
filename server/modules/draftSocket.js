@@ -95,7 +95,7 @@ function attachDraftSocket(httpServer, { now = Date.now } = {}) {
     // unhandledRejection, which exits this process (processHandlers.js).
     const on = (event, handler) => socket.on(event, (payload, ack) => (
       handler(payload ?? {}, typeof ack === 'function' ? ack : undefined)
-        .catch((error) => console.error(`${event} failed`, error))
+        .catch((error) => console.error('socket event failed:', event, error))
     ));
 
     // Generic league room join (live scores, chat) — no draft state attached
