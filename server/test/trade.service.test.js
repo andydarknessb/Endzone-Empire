@@ -758,7 +758,7 @@ test('processDueTrades: a due trade that executes is recorded and the sweep reso
   const world = createFakePool([
     [/FROM "trades" WHERE "status" = 'accepted' AND "review_ends_at"/, () => ({ rows: [{ id: 9 }] })],
     [/FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/, () => ({
-      rows: [{ id: 1, draft_status: 'complete', roster_limit: 16, ir_slots: 0, current_season: 2026, current_week: 6 }],
+      rows: [{ id: 1, draft_status: 'complete', roster_limit: 16, ir_slots: 0, current_season: 2026, current_week: 6, transactions_locked: false }],
     })],
     [/^SELECT "league_id" FROM "trades" WHERE "id" = \$1$/, () => ({ rows: [{ league_id: 1 }] })], [/^SELECT \*, \("review_ends_at" <= clock_timestamp\(\)\) AS "review_closed" FROM "trades" WHERE "id" = \$1/, () => ({
       rows: [{ id: 9, status: 'accepted', review_closed: true, proposing_team_id: 41, receiving_team_id: 42, league_id: 1 }],
@@ -806,6 +806,7 @@ function dueExecutingTradeWorld(opts, extraHandlers = []) {
       rows: [{
         id: 1, draft_status: opts.draftStatus || 'complete', roster_limit: 16, ir_slots: 2,
         current_season: 2026, current_week: 6, position_caps: opts.positionCaps || {},
+        transactions_locked: Boolean(opts.frozen),
       }],
     })],
     [/^SELECT "league_id" FROM "trades" WHERE "id" = \$1$/, () => ({ rows: [{ league_id: 1 }] })], [/^SELECT \*, \("review_ends_at" <= clock_timestamp\(\)\) AS "review_closed" FROM "trades" WHERE "id" = \$1/, () => ({
@@ -890,7 +891,7 @@ test('processDueTrades: a cancel whose transaction throws is contained and a lat
   const world = createFakePool([
     [/FROM "trades" WHERE "status" = 'accepted' AND "review_ends_at"/, () => ({ rows: [{ id: 5 }, { id: 6 }] })],
     [/FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/, () => ({
-      rows: [{ id: 1, draft_status: 'complete', roster_limit: 16, ir_slots: 0, current_season: 2026, current_week: 6 }],
+      rows: [{ id: 1, draft_status: 'complete', roster_limit: 16, ir_slots: 0, current_season: 2026, current_week: 6, transactions_locked: false }],
     })],
     // Trade 5 is missing on its execute read (a TradeError) and back for the cancel's reload.
     [/^SELECT "league_id" FROM "trades" WHERE "id" = \$1$/, () => ({ rows: [{ league_id: 1 }] })], [/^SELECT \*, \("review_ends_at" <= clock_timestamp\(\)\) AS "review_closed" FROM "trades" WHERE "id" = \$1/, (() => {
@@ -934,11 +935,63 @@ test('processDueTrades: a freeze refusal stays accepted and keeps waiting (#2274
 
   const outcomes = await processDueTrades();
 
-  assert.deepEqual(outcomes, []);
+  // The due run holds a frozen trade at its transition: left accepted, nothing written or logged.
+  assert.deepEqual(outcomes, [{ tradeId: 9, status: 'accepted' }]);
   assert.equal(world.matching(/^UPDATE "trades" SET "status" = 'cancelled'/).length, 0);
-  assert.equal(logged.length, 1, 'logged and left for the next tick');
+  assert.equal(logged.length, 0, 'held, not failed');
   assert.equal(world.matching(insert('notifications')).length, 0, 'a held trade notifies no one (#2295)');
 });
+
+test('processDueTrades: a due trade that no longer fits in a frozen League stays accepted (Roster lock)', async (t) => {
+  // Team 42 is at capacity (16 less 2 IR), so the 1-for-0 trade does not fit. The
+  // freeze holds the trade; the fit refusal must not cancel it.
+  const world = dueExecutingTradeWorld({ frozen: true, counts: new Map([[41, 5], [42, 14]]) }).install(t);
+  const logged = [];
+  t.mock.method(console, 'error', (...args) => { logged.push(args); });
+
+  const outcomes = await processDueTrades();
+
+  assert.deepEqual(outcomes, [{ tradeId: 9, status: 'accepted' }]);
+  assert.equal(world.matching(/^UPDATE "trades" SET "status" = 'cancelled'/).length, 0, 'not cancelled');
+  assert.equal(logged.length, 0);
+});
+
+// The receiving owner's accept runs the same transition table: a frozen League or
+// a locked receiving Team refuses it, before any write.
+function respondWorld({ frozen = false, receivingLocked = false } = {}) {
+  return createFakePool([
+    [/FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/, () => ({
+      rows: [{
+        id: 1, pickem_only: false, draft_status: 'complete', transactions_locked: frozen,
+        trade_veto_votes: 2, trade_review_hours: 24, current_week: 6, trade_deadline_week: null,
+      }],
+    })],
+    [/^SELECT "league_id" FROM "trades" WHERE "id" = \$1$/, () => ({ rows: [{ league_id: 1 }] })],
+    [/^SELECT \*, \("review_ends_at" <= clock_timestamp\(\)\) AS "review_closed" FROM "trades" WHERE "id" = \$1/, () => ({
+      rows: [{ id: 9, status: 'pending', proposing_team_id: 41, receiving_team_id: 42, league_id: 1, review_closed: false }],
+    })],
+    [select('trade_items'), () => ({ rows: [] })],
+    [/FROM "teams" WHERE "id" IN \(\$1, \$2\)/, () => ({
+      rows: [
+        { id: 41, name: 'Sunday Ballers', owner_id: 7, locked: false },
+        { id: 42, name: 'Bob Squad', owner_id: 8, locked: receivingLocked },
+      ],
+    })],
+  ]);
+}
+
+for (const [name, opts, message] of [
+  ['a frozen League', { frozen: true }, 'transactions are locked by the commissioner'],
+  ['a locked receiving team', { receivingLocked: true }, 'your team is locked by the commissioner'],
+]) {
+  test(`respondToTrade: accepting in ${name} is refused and writes nothing (Roster lock)`, async (t) => {
+    const world = respondWorld(opts).install(t);
+
+    await assert.rejects(respondToTrade({ tradeId: 9, userId: 8, action: 'accept' }), { statusCode: 409, message });
+    assert.equal(world.matching(update('trades')).length, 0);
+    world.assertClean();
+  });
+}
 
 // --- the week's NFL opponent on every trade item (#1585) --------------------
 

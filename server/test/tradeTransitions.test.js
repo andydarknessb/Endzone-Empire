@@ -61,6 +61,8 @@ const ROWS = [
   { action: 'accept', name: 'the proposing owner cannot respond', over: { userId: 7 }, refuse: [403, 'only the receiving owner can respond'] },
   { action: 'accept', name: 'a trade before the draft completes is refused', over: { league: league({ draft_status: 'active' }) }, refuse: [409, 'trades open once the draft is complete'] },
   { action: 'accept', name: 'a trade past the deadline week is refused', over: { league: league({ trade_deadline_week: 5 }) }, refuse: [409, 'the trade deadline (week 5) has passed'] },
+  { action: 'accept', name: 'a frozen League refuses the acceptance', over: { league: league({ transactions_locked: true }) }, refuse: [409, 'transactions are locked by the commissioner'] },
+  { action: 'accept', name: 'a locked receiving team refuses the acceptance', over: { teams: new Map([[41, { id: 41, owner_id: 7 }], [42, { id: 42, owner_id: 8, locked: true }]]) }, refuse: [409, 'your team is locked by the commissioner'] },
 
   // reject: no deadline gate of its own
   { action: 'reject', name: 'the receiving owner rejects', to: 'rejected' },
@@ -95,6 +97,9 @@ const ROWS = [
   { action: 'execute', name: 'an accepted trade is due', over: { trade: pending({ status: 'accepted', review_closed: true }) }, to: 'executed' },
   { action: 'execute', name: 'a pending trade is never due', refuse: [409, 'trade is pending'] },
   { action: 'execute', name: 'an accepted trade whose window is still open is not yet due', over: { trade: pending({ status: 'accepted', review_closed: false }) }, refuse: [409, 'the review window is still open'] },
+  // A freeze or a Team lock holds a due trade for its own run; the fit check never cancels it.
+  { action: 'execute', name: 'a frozen League holds a due trade', over: { trade: pending({ status: 'accepted', review_closed: true }), league: league({ transactions_locked: true }) }, refuse: [409, 'transactions are locked by the commissioner'] },
+  { action: 'execute', name: 'a locked team holds a due trade', over: { trade: pending({ status: 'accepted', review_closed: true }), teams: new Map([[41, { id: 41, owner_id: 7, locked: true }], [42, { id: 42, owner_id: 8 }]]) }, refuse: [409, 'a team in this trade is locked by the commissioner'] },
 
   // propose: a new offer, with the freeze and deadline gates and the member's own checks
   { action: 'propose', name: 'a member proposes to another team', over: { trade: null, userId: 7, receivingTeamId: 42, team: { id: 41, league_id: 1, owner_id: 7 } }, to: 'pending' },
