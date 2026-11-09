@@ -872,7 +872,7 @@ async function claimFailureReason(client, { league, team, claim }) {
  * week's clear (#1375 review f2): without it, every already-held player on a
  * kicked-off team is written back by the tick's statement - a no-op ON
  * CONFLICT write that still stamps `updated_at` - on EVERY tick from the
- * week's first kickoff until the week advances, across every complete-draft
+ * week's first kickoff until the week clear, across every complete-draft
  * league. The exclusion is a read filter, not a second copy of the conflict
  * rule: the placement statement stays the one place greater-of and the
  * untouched columns are decided; this only decides which players are worth
@@ -937,7 +937,7 @@ async function holdKickedOffPlayersForLeague(league, now) {
   // write, or a drop's clear that is later still, per the greater-of rule)
   // needs no write this tick: `placeOnWaivers` would take the ON CONFLICT
   // branch and touch `updated_at` for no change, on every one of these per
-  // league until the week advances (#1375 review f2). Excluding them here
+  // league until the week clear (#1375 review f2). Excluding them here
   // keeps `placeOnWaivers` the one place the conflict rule lives - this is a
   // candidate filter, not a second copy of it.
   const candidatesResult = await pool.query(
