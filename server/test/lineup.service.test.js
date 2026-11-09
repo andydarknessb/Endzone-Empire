@@ -132,6 +132,45 @@ test('#2144 getLineup handed the league row reads no league of its own and price
   assert.equal(projectionCalls[0].league, held);
 });
 
+test('getLineup runs its projection and bye reads on the transaction connection, not a second pooled one', async (t) => {
+  const entries = [
+    { id: 1, name: 'Projected Player', position: 'RB', nfl_team: 'MIN', injury_status: null, slot: 'RB', ir_attested: false },
+  ];
+  const held = { id: 5, current_season: 2026, current_week: 8 };
+  const projectionCalls = [];
+  t.mock.method(projectionService, 'getWeeklyProjections', async (options) => {
+    projectionCalls.push(options);
+    return projectionService.toWeeklyProjectionResult({
+      projections: new Map([[1, { mean: 10, median: 10, factors: {} }]]),
+    });
+  });
+  const fake = createFakePool([
+    [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
+    [/^SELECT .*FROM "lineup_overrides"/, () => ({ rows: [] })],
+    [/^SELECT \* FROM "teams"/, () => ({ rows: [{ id: 10 }] })],
+    [/^SELECT "team_players"\."player_id"/, () => ({
+      rows: entries.map(({ id, position }) => ({ player_id: id, position })),
+    })],
+    [/^SELECT "player_id" FROM "lineup_entries"/, () => ({ rows: entries.map(({ id }) => ({ player_id: id })) })],
+    [/^SELECT "players"\."id"/, () => ({ rows: entries })],
+    [/^SELECT "players"\."position"/, () => ({ rows: [] })],
+    [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({ rows: [] })],
+    [/^SELECT "nfl_team", "opponent", "kickoff_at", "game_key", "roof", "home_away" FROM "nfl_games"/, () => ({ rows: [] })],
+    [/^SELECT "home_team", "away_team", "game_status" FROM "live_game_states"/, () => ({ rows: [] })],
+    [/unnest\(\$2::text\[\]\)/, () => ({ rows: [] })], // computeByeWeeks
+  ]).install(t);
+
+  await getLineup({ leagueId: 5, userId: 7, week: 8, league: held });
+
+  // A checked-out client carries release(); the pool's default would not be handed in.
+  assert.equal(typeof projectionCalls[0].client?.release, 'function', 'the projection read gets the transaction client');
+  const byeReads = fake.matching(/unnest\(\$2::text\[\]\)/);
+  assert.equal(byeReads.length, 1);
+  assert.equal(byeReads[0].via, 'client', 'the bye read runs on the transaction, not a second pooled connection');
+  assert.deepEqual(fake.calls.filter((call) => call.via === 'pool'), [], 'getLineup borrows no connection outside its transaction');
+  fake.assertClean();
+});
+
 test('getLineup returns league-scored current-week projections and preserves unavailable values', async (t) => {
   const entries = [
     { id: 1, name: 'Projected Player', position: 'RB', nfl_team: null, injury_status: null, slot: 'RB', ir_attested: false },
@@ -191,6 +230,7 @@ test('getLineup returns league-scored current-week projections and preserves una
     week: 8,
     league: { id: 5, current_season: 2026, current_week: 8 },
     playerIds: [1, 2, 3, 44],
+    client: projectionCalls[0].client, // the transaction's client, asserted by the case below
   }]);
   assert.equal(lineup.entries[0].projected_points, 16.25);
   assert.equal(lineup.entries[1].projected_points, 0);
