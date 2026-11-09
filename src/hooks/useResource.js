@@ -87,13 +87,15 @@ export function useResource(key, url, { ttl } = {}) {
 
   useEffect(() => {
     if (serialized == null) return;
+    // The first commit showed the store as of render. A write or a session drop
+    // since then reached no subscription (the one below starts after this), so
+    // the state catches up here.
     const entry = read(serialized);
+    setData(entry?.data ?? null);
     if (isFresh(entry, ttl)) {
-      // A fresh entry answers the mount outright. The render above has usually
-      // shown it already; this covers one written since, which the subscription
-      // below is not yet listening for.
+      // A fresh entry answers the mount outright, and it supersedes a request
+      // of this mount's still on the wire for this key.
       requestSeq.current += 1;
-      setData(entry.data);
       setError(null);
       setLoading(false);
       return;

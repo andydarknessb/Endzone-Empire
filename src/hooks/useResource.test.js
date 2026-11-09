@@ -106,17 +106,39 @@ test('a fresh entry answers a later mount with no request at all', async () => {
   expect(apiClient.get).not.toHaveBeenCalled();
 });
 
-// Effects run in call order, so this write lands after the hook's render read
-// and before its subscription exists: only its load effect can see it.
+// Effects run in call order, so `change` lands after the hook's render read and
+// before its subscription exists: only its load effect can see it.
+const renderWithChangeInMountCommit = (change, options) => renderHook(() => {
+  useEffect(change, []);
+  return useResource(['thing', 1], '/api/thing/1', options);
+});
+
 test('an entry written in the commit that mounts the hook answers it with no request', () => {
-  const { result } = renderHook(() => {
-    useEffect(() => { setResource(['thing', 1], 'written in this commit'); }, []);
-    return useResource(['thing', 1], '/api/thing/1', { ttl: TTL });
-  });
+  const { result } = renderWithChangeInMountCommit(() => { setResource(['thing', 1], 'written in this commit'); }, { ttl: TTL });
 
   expect(result.current.data).toBe('written in this commit');
   expect(result.current.loading).toBe(false);
   expect(apiClient.get).not.toHaveBeenCalled();
+});
+
+test('with no ttl, an entry written in the commit that mounts the hook shows while its load runs', () => {
+  apiClient.get.mockReturnValue(new Promise(() => {}));
+
+  const { result } = renderWithChangeInMountCommit(() => { setResource(['thing', 1], 'written in this commit'); });
+
+  expect(result.current.data).toBe('written in this commit');
+  expect(result.current.loading).toBe(true);
+  expect(apiClient.get).toHaveBeenCalledTimes(1);
+});
+
+test('a session drop in the commit that mounts the hook clears the row its render showed', () => {
+  setResource(['thing', 1], 'the previous account row');
+  apiClient.get.mockReturnValue(new Promise(() => {}));
+
+  const { result } = renderWithChangeInMountCommit(() => { invalidate(undefined, { reload: false }); }, { ttl: TTL });
+
+  expect(result.current.data).toBeNull();
+  expect(result.current.loading).toBe(true);
 });
 
 test('an entry past its ttl is fetched again', async () => {
@@ -270,6 +292,22 @@ test('moving to no key with a request in flight stops loading, and the response 
   await act(async () => { late.resolve({ data: 'one, far too late' }); });
 
   expect(result.current.data).toBeNull();
+  expect(result.current.loading).toBe(false);
+});
+
+test('a fresh entry on returning to a key supersedes the request still on the wire for it', async () => {
+  const late = pending();
+  apiClient.get.mockReturnValue(late.promise);
+  const { result, rerender } = renderThing(1);
+
+  rerender({ id: null });
+  act(() => { setResource(['thing', 1], 'newer'); });
+  rerender({ id: 1 });
+  expect(result.current.data).toBe('newer');
+
+  await act(async () => { late.resolve({ data: 'older' }); });
+
+  expect(result.current.data).toBe('newer');
   expect(result.current.loading).toBe(false);
 });
 
