@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { hashToken, resetPassword, verifyEmail } = require('../services/account.service');
+const { hashToken, resetPassword, verifyEmail, deliverEmail } = require('../services/account.service');
 const { createFakePool, select, update } = require('./helpers/fakePool');
 const { installRecordingBroadcast } = require('./helpers/recordingBroadcast');
 
@@ -114,6 +114,32 @@ test('a rolled-back resetPassword ends no sockets', async (t) => {
   await assert.rejects(resetPassword({ token: 'raw', newPassword: 'long-enough-1' }), /deadlock detected/);
 
   assert.deepEqual(recorder.calls, []);
+});
+
+// --- SMTP waits are bounded (#2758) -----------------------------------------
+
+test('account email transport is created with 10-second connection, greeting and socket limits', async (t) => {
+  const nodemailer = require('nodemailer');
+  const previousUrl = process.env.SMTP_URL;
+  process.env.SMTP_URL = 'smtps://user:pass@smtp.example.com';
+  t.after(() => {
+    if (previousUrl === undefined) delete process.env.SMTP_URL;
+    else process.env.SMTP_URL = previousUrl;
+  });
+  const created = [];
+  t.mock.method(nodemailer, 'createTransport', (options) => {
+    created.push(options);
+    return { sendMail: async () => ({ messageId: 'delivery-1' }) };
+  });
+
+  assert.deepEqual(await deliverEmail({ to: 'a@example.com', subject: 's', text: 't' }), { delivered: 'smtp' });
+
+  assert.deepEqual(created, [{
+    url: 'smtps://user:pass@smtp.example.com',
+    connectionTimeout: 10000,
+    greetingTimeout: 10000,
+    socketTimeout: 10000,
+  }]);
 });
 
 // --- one completed reset ends every outstanding reset link ------------------

@@ -75,3 +75,12 @@ test('readDraftSweepLiveness fails open: Redis unconfigured or erroring is unkno
   t.mock.method(redis, 'getRedisClient', async () => { throw new Error('connect ECONNREFUSED'); });
   assert.deepEqual(await liveness.readDraftSweepLiveness(), { lastDraftSweepAt: null, draftSweepStale: false });
 });
+
+// #2758: boot and the sweep both await the stamp, so a Redis call that never
+// settles must come back false at the limit instead of holding the scheduler.
+test('recordDraftSweep resolves false at its limit when the Redis call never settles', { timeout: 10_000 }, async (t) => {
+  t.mock.method(redis, 'getRedisClient', () => new Promise(() => {}));
+
+  assert.equal(await liveness.recordDraftSweep(), false);
+  assert.equal(liveness.DRAFT_SWEEP_STAMP_LIMIT_MS, 2000);
+});
