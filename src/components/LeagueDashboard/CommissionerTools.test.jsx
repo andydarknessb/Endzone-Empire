@@ -795,6 +795,39 @@ test('Save Playoff Settings sends the playoff-teams/start-week/consolation paylo
   expect(onRefresh).toHaveBeenCalled();
 });
 
+// #2743: a bracket of n Teams plays ceil(log2(n)) weeks, so its start week stops where the last round lands on week 18.
+test.each([
+  [4, ['Week 14', 'Week 15', 'Week 16', 'Week 17']],
+  [6, ['Week 14', 'Week 15', 'Week 16']],
+  [8, ['Week 14', 'Week 15', 'Week 16']],
+])('with %i playoff Teams the start-week choices are only the weeks the bracket can finish by week 18', async (teams, expected) => {
+  renderTools({ league: league({ playoff_teams: teams }) });
+  await userEvent.click(screen.getByRole('tab', { name: 'Playoffs & Schedule' }));
+
+  await userEvent.click(screen.getByLabelText('Playoff Start Week'));
+
+  const options = await screen.findAllByRole('option');
+  expect(options.map((option) => option.textContent)).toEqual(expected);
+});
+
+test('picking more playoff Teams moves a start week the bracket can no longer finish to the latest one that fits', async () => {
+  apiClient.put.mockResolvedValue({});
+  renderTools({ league: league({ playoff_teams: 4, regular_season_weeks: 16 }) });
+  await userEvent.click(screen.getByRole('tab', { name: 'Playoffs & Schedule' }));
+
+  await userEvent.click(screen.getByLabelText('Playoff Teams'));
+  await userEvent.click(await screen.findByRole('option', { name: '8 teams' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Save Playoff Settings' }));
+
+  await waitFor(() =>
+    expect(apiClient.put).toHaveBeenCalledWith('/api/league/1', {
+      playoffTeams: 8,
+      regularSeasonWeeks: 15,
+      playoffConsolation: false,
+    })
+  );
+});
+
 test('Save Trade Deadline sends the selected week', async () => {
   apiClient.put.mockResolvedValue({});
   renderTools();
