@@ -501,7 +501,7 @@ test('#2750 a live score of a final week leaves its Score of record alone and re
   world.state.matchups[0].away_score = 10;
   WEEK_8_STATS.set(QB_B, { passingYards: 1000 }); // 40.0 points: the revised stat line
   try {
-    const { scored } = await scoreMatchups({ leagueId: LEAGUE_ID, season: SEASON, week: 8 });
+    const { scored } = await scoreMatchups({ leagueId: LEAGUE_ID, season: SEASON, week: 8, live: true });
 
     assert.equal(awayScoreOf(world.state), 10, 'the stored score stands');
     assert.equal(scored[0].awayScore, 10, 'the live score reports the stored score');
