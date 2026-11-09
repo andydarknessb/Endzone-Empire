@@ -79,7 +79,7 @@ describe('createDraftSocket', () => {
     expect(result).toBe(io.mock.results[0].value);
   });
 
-  test('listens for connect_error so an expired JWT can be refreshed for the next attempt', () => {
+  test('listens for connect_error so an expired JWT is refreshed and the socket revived', () => {
     const socket = createDraftSocket();
 
     const registered = socket.on.mock.calls.find(([event]) => event === 'connect_error');
@@ -297,6 +297,75 @@ describe('recovering from a server-initiated disconnect (#2556)', () => {
     handlerFor('connect')();
 
     expect(socket.emit).not.toHaveBeenCalled();
+  });
+});
+
+describe('recovering from a handshake refused as unauthorized (#2740)', () => {
+  let socket;
+  const handlerFor = (event) => socket.on.mock.calls.find(([name]) => name === event)[1];
+
+  beforeEach(() => {
+    io.mockImplementation(() => {
+      socket = {
+        connected: false, active: true, on: jest.fn(), once: jest.fn(), emit: jest.fn(), connect: jest.fn(),
+        disconnect: jest.fn(), io: { emit: jest.fn(), on: jest.fn(), off: jest.fn() },
+      };
+      return socket;
+    });
+    jest.spyOn(axios, 'post').mockResolvedValue({ data: { token: 'renewed-jwt' } });
+  });
+
+  afterEach(() => {
+    clearToken();
+    jest.restoreAllMocks();
+  });
+
+  test('after a successful refresh it connects once, and runs the onReconnect handlers on the next connect', async () => {
+    setToken('stale-jwt');
+    createDraftSocket();
+    socket.active = false; // socket.io destroys a socket refused at the handshake
+
+    handlerFor('connect_error')(new Error('unauthorized'));
+
+    await waitFor(() => expect(socket.connect).toHaveBeenCalledTimes(1));
+    expect(getToken()).toBe('renewed-jwt');
+
+    const revived = jest.fn();
+    onReconnect(socket, revived);
+    expect(revived).not.toHaveBeenCalled();
+    socket.once.mock.calls.find(([name]) => name === 'connect')[1]();
+    expect(revived).toHaveBeenCalledTimes(1);
+  });
+
+  test('keeps telling the server about later refreshes once it is back', async () => {
+    setToken('stale-jwt');
+    createDraftSocket();
+    socket.active = false;
+
+    handlerFor('connect_error')(new Error('unauthorized'));
+    await waitFor(() => expect(socket.connect).toHaveBeenCalledTimes(1));
+
+    socket.active = true;
+    socket.connected = true;
+    axios.post.mockResolvedValue({ data: { token: 'renewed-again' } });
+    await refreshTokens();
+    expect(socket.emit).toHaveBeenCalledWith('auth:refresh', { token: 'renewed-again' });
+  });
+
+  test('a refused refresh (401) ends the session instead of connecting', async () => {
+    const onExpired = jest.fn();
+    window.addEventListener('auth:session-expired', onExpired);
+    setToken('revoked-jwt');
+    axios.post.mockRejectedValue({ response: { status: 401 } });
+    createDraftSocket();
+    socket.active = false;
+
+    handlerFor('connect_error')(new Error('unauthorized'));
+
+    await waitFor(() => expect(onExpired).toHaveBeenCalledTimes(1));
+    window.removeEventListener('auth:session-expired', onExpired);
+    expect(getToken()).toBeNull();
+    expect(socket.connect).not.toHaveBeenCalled();
   });
 });
 
