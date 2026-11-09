@@ -2,11 +2,10 @@ import React, { useEffect, useState } from 'react';
 import { Box, Alert } from '@mui/material';
 
 /**
- * Slim, fixed banner that tells the user they've lost connectivity and any
- * league data on screen may be a cached (stale) copy served by the service
- * worker rather than a live fetch. Plain conditional render (no
- * Snackbar/transition) so it appears and disappears in lockstep with the
- * online/offline events, with nothing lingering mid-exit-animation.
+ * Slim, fixed banner that tells the user they've lost connectivity. It claims
+ * no cached data: the service worker has no fetch handler (ADR 0059). Plain
+ * conditional render (no Snackbar/transition) so it appears and disappears in
+ * lockstep with the online/offline events, with nothing lingering mid-exit-animation.
  */
 function OfflineBanner() {
   const [offline, setOffline] = useState(() => typeof navigator !== 'undefined' && navigator.onLine === false);
@@ -29,7 +28,7 @@ function OfflineBanner() {
   return (
     <Box sx={{ position: 'fixed', top: 0, left: 0, right: 0, zIndex: (theme) => theme.zIndex.snackbar }}>
       <Alert severity="warning" variant="filled" square>
-        You&apos;re offline, showing cached data
+        You&apos;re offline
       </Alert>
     </Box>
   );
