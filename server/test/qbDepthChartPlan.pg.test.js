@@ -159,25 +159,25 @@ if (!ENABLED) {
       teams: [],
     },
     {
-      shape: 'a starter with a NULL team row beside a real one',
+      shape: 'a starter with a NULL team row inside the window',
       playerIds: () => [starterOf('BUF').id],
       seed: (client) => client.query(
-        `INSERT INTO "player_depth_chart" ("player_id", "team_code", "position_group", "rank", "captured_date")
-         VALUES ($1, NULL, 'QB', 1, '2091-06-16')`,
+        `UPDATE "player_depth_chart" SET "team_code" = NULL WHERE "player_id" = $1 AND "captured_date" = '2091-06-14'`,
         [starterOf('BUF').id],
       ),
       teams: ['BUF'],
+      nullRows: 1,
     },
   ];
 
-  for (const { shape, playerIds, seed, teams } of INPUT_SHAPES) {
+  for (const { shape, playerIds, seed, teams, nullRows = 0 } of INPUT_SHAPES) {
     test(`the QB depth read answers only for the requested teams given ${shape}`, async () => {
       await withRecordedRead({ playerIds: playerIds(), seed }, async ({ client, read, backups }) => {
         // A failed read degrades to "nobody is a Backup", which would pass for
         // the empty answers here, so the statement runs again where it can throw.
         const { rows } = await client.query(read.text, read.params);
         assert.deepEqual([...new Set(rows.map((r) => r.team_code))], teams);
-        assert.equal(rows.length, teams.length * QBS_PER_TEAM * WINDOW_DAYS);
+        assert.equal(rows.length, teams.length * QBS_PER_TEAM * WINDOW_DAYS - nullRows);
         assert.deepEqual(ascending(backups), ascending(backupsOf(teams)));
       });
     });
