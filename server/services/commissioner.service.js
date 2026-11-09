@@ -359,12 +359,12 @@ async function setTransactionsLocked({ leagueId, userId, locked }) {
 
 /**
  * Season rollover: archive final standings and the champion into
- * league_history, then reset the league for a new season. Optional keepers
- * ([{ teamId, playerIds }]) survive the roster wipe; everything else —
- * draft picks, waivers, pending claims and trades — is cleared. Historical
- * matchups, lineups, and stats stay (they're keyed by season).
+ * league_history, then reset the league for a new season. Rosters, draft picks,
+ * draft queues, keepers, waivers, pending claims, trades and the draft schedule
+ * all go; a new season opens with no draft date, so the scheduler cannot start
+ * an empty draft. Historical matchups, lineups, and stats stay (keyed by season).
  */
-async function rolloverSeason({ leagueId, userId, keepers = [] }) {
+async function rolloverSeason({ leagueId, userId }) {
   return leagueWrite(
     { leagueId, label: 'rolloverSeason' },
     async ({ client }) => {
@@ -373,11 +373,6 @@ async function rolloverSeason({ leagueId, userId, keepers = [] }) {
         throw new CommissionerError(409, 'the season must be complete before rolling over');
       }
       const pickemOnly = isPickemOnly(league);
-      if (pickemOnly && keepers.length > 0) {
-        // ADR 0002: roster-shaped writes against a pick'em-only league fail
-        // closed. There is no roster to keep anything from.
-        throw new CommissionerError(409, "this is a pick'em league; it has no rosters or keepers");
-      }
       const pickemResult = pickemOnly
         ? await pickemSeasonResultOf({ db: client, leagueId, season: league.current_season })
         : null;
@@ -527,14 +522,14 @@ async function rolloverSeason({ leagueId, userId, keepers = [] }) {
         ]
       );
 
-      // Roster wipe with keeper exceptions, plus the rest of the fantasy reset.
+      // Roster wipe plus the rest of the fantasy reset.
       // A pick'em-only league has none of it (ADR 0002: no roster-shaped writes).
       //
       // EXEMPT from the write gate, deliberately (#964). The gate answers "may
       // this Team acquire or release this player right now" - a question about
       // one Team and one player. The rollover's roster write is a single
       // league-wide statement that ends one season and begins another, not a
-      // roster move by anybody: it deletes every non-keeper row in the league in
+      // roster move by anybody: it deletes every roster row in the league in
       // one DELETE, with no per-player decision to gate. Every gate the release
       // direction has would also have to be bypassed to preserve today's
       // behaviour - the freeze most of all, since this same UPDATE clears
@@ -544,24 +539,8 @@ async function rolloverSeason({ leagueId, userId, keepers = [] }) {
       // changing behaviour or adding a call that checks nothing, per player, over
       // a whole league's rosters. Neither is worth it, so this stays outside the
       // gate and the reason is recorded here rather than left as an omission.
-      const keeperPairs = [];
       if (!pickemOnly) {
-        for (const k of keepers) {
-          if (!Number.isInteger(k.teamId) || !Array.isArray(k.playerIds)) {
-            throw new CommissionerError(400, 'keepers must be [{ teamId, playerIds }]');
-          }
-          for (const pid of k.playerIds) keeperPairs.push([k.teamId, pid]);
-        }
-        if (keeperPairs.length > 0) {
-          await client.query(
-            `DELETE FROM "team_players"
-             WHERE "league_id" = $1 AND ("team_id", "player_id") NOT IN
-               (${keeperPairs.map((_, i) => `(${i * 2 + 2}, ${i * 2 + 3})`).join(', ')})`,
-            [leagueId, ...keeperPairs.flat()]
-          );
-        } else {
-          await client.query(`DELETE FROM "team_players" WHERE "league_id" = $1`, [leagueId]);
-        }
+        await client.query(`DELETE FROM "team_players" WHERE "league_id" = $1`, [leagueId]);
 
         // The lineup follows the roster (#197). This is the one removal path
         // that prunes in a single bulk statement rather than player by player,
@@ -573,15 +552,15 @@ async function rolloverSeason({ leagueId, userId, keepers = [] }) {
         // pre-rollover), which is the season those rows belong to. In practice
         // it removes little: a completed season's current week has played, so
         // the kickoff guard keeps its rows, and there is rarely a later week.
-        const keptPairs = new Set(keeperPairs.map(([teamId, playerId]) => `${teamId}:${playerId}`));
         for (const row of rosters) {
-          if (keptPairs.has(`${row.team_id}:${row.player_id}`)) continue;
           await lineupService.removeLineupEntries(client, {
             league, teamId: row.team_id, playerId: row.player_id,
           });
         }
 
         await client.query(`DELETE FROM "draft_picks" WHERE "league_id" = $1`, [leagueId]);
+        await client.query(`DELETE FROM "draft_queue" WHERE "league_id" = $1`, [leagueId]);
+        await client.query(`DELETE FROM "keepers" WHERE "league_id" = $1`, [leagueId]);
         await client.query(`DELETE FROM "waiver_players" WHERE "league_id" = $1`, [leagueId]);
         await client.query(
           `UPDATE "waiver_claims" SET "status" = 'cancelled', "updated_at" = now()
@@ -593,8 +572,13 @@ async function rolloverSeason({ leagueId, userId, keepers = [] }) {
            WHERE "league_id" = $1 AND "status" IN ('pending', 'accepted')`,
           [leagueId]
         );
+        // Autodraft is a manager's setting and goes with the manager; a CPU-managed
+        // team (owner_id NULL) keeps it. Ready and the timeout streak reset for all.
         await client.query(
-          `UPDATE "teams" SET "faab_remaining" = $1, "updated_at" = now()
+          `UPDATE "teams"
+           SET "faab_remaining" = $1, "draft_ready" = false, "consecutive_timeouts" = 0,
+               "autodraft" = CASE WHEN "owner_id" IS NULL THEN "autodraft" ELSE false END,
+               "updated_at" = now()
            WHERE "league_id" = $2`,
           [league.faab_budget, leagueId]
         );
@@ -605,7 +589,9 @@ async function rolloverSeason({ leagueId, userId, keepers = [] }) {
          SET "current_season" = $1, "current_week" = 1, "season_status" = 'regular',
              "draft_status" = 'pending', "current_pick" = 0, "draft_paused" = false,
              "pick_deadline_at" = NULL, "waivers_clear_at" = NULL,
-             "transactions_locked" = false, "updated_at" = now()
+             "transactions_locked" = false, "draft_date" = NULL, "draft_timezone" = NULL,
+             "keeper_lock_at" = NULL, "draft_order_overrides" = NULL, "draft_reminder_stage" = 0,
+             "draft_autostart_failed" = false, "updated_at" = now()
          WHERE "id" = $2`,
         [newSeason, leagueId]
       );
@@ -620,7 +606,7 @@ async function rolloverSeason({ leagueId, userId, keepers = [] }) {
         type: 'season',
         message: pickemOnly
           ? "A new season has begun! Pick'em opens with the new NFL schedule."
-          : `A new season has begun! ${keeperPairs.length > 0 ? 'Keepers are locked in and ' : ''}the draft is open to be scheduled.`,
+          : 'A new season has begun! the draft is open to be scheduled.',
       });
       return { leagueId, archivedSeason: league.current_season, newSeason, championTeamId, championUserId };
     }

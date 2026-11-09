@@ -155,16 +155,11 @@ router.put('/league/:id/transactions-lock', fantasyOnly, async (req, res) => {
 });
 
 // POST /api/commissioner/league/:id/rollover — archive season and reset
-// { keepers?: [{ teamId, playerIds: [] }] }
 router.post('/league/:id/rollover', async (req, res) => {
   const leagueId = intOrNull(req.params.id);
   if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
-  const { keepers } = req.body || {};
-  if (keepers !== undefined && !Array.isArray(keepers)) {
-    return res.status(400).json({ error: 'keepers must be an array of { teamId, playerIds }' });
-  }
   try {
-    res.json(await commissioner.rolloverSeason({ leagueId, userId: req.user.id, keepers: keepers || [] }));
+    res.json(await commissioner.rolloverSeason({ leagueId, userId: req.user.id }));
   } catch (error) {
     handle(res, error, 'failed to roll over season');
   }

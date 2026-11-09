@@ -671,10 +671,11 @@ function DangerZone({ children }) {
  *
  * `rolloverSeason` (server/services/commissioner.service.js) archives the
  * season's standings, rosters and awards into league_history and then, for a
- * fantasy league, DELETEs every `team_players` row, every `draft_picks` row and
- * the whole `waiver_players` wire, cancels pending waiver claims and pending or
- * accepted trades, resets every team's `faab_remaining` to the league budget,
- * and moves the league to the next season at week 1 with the draft reopened.
+ * fantasy league, DELETEs every `team_players` row, `draft_picks` row, keeper and
+ * draft-queue row and the whole `waiver_players` wire, cancels pending waiver
+ * claims and pending or accepted trades, resets every team's `faab_remaining` to
+ * the league budget, turns Autodraft off on managed teams, clears the draft date,
+ * and moves the league to the next season at week 1 with the draft unscheduled.
  * A pick'em-only league has none of the roster half (ADR 0002), so it gets its
  * own sentence rather than a list of things that do not exist in it.
  *
