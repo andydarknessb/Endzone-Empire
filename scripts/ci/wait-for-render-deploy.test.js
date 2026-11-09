@@ -415,5 +415,5 @@ test('#2763: the client build hook posts only after the web deploy wait at this 
   const hook = step.indexOf('--request POST "$NETLIFY_HOOK"');
   assert.notEqual(hook, -1, 'the client build step posts $NETLIFY_HOOK');
   assert.ok(wait < hook, 'the wait finishes before the Netlify hook is posted');
-  assert.ok(step.includes('if: ${{ !inputs.worker_only }}'), 'worker_only runs still skip the client build');
+  assert.match(step, /if: \$\{\{ !inputs\.worker_only \}\}/, 'worker_only runs still skip the client build');
 });

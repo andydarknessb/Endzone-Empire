@@ -255,8 +255,9 @@ client are on the dispatched commit. In both states, dispatch Promote again from
 `main` once its CI run is green, with `deploy_worker` checked if the worker was part of
 the run; `worker_only` is refused because `main` moved.
 
-The workflow then triggers Render, waits for `/api/health/readyz`, then triggers the
-Netlify build, preserving the API-first order. Render and Netlify auto-deploy stay off;
+The workflow then triggers Render and waits for the web deploy at this commit to be live
+with `/api/health/readyz` reporting its SHA, then triggers the Netlify build, preserving
+the API-first order. Render and Netlify auto-deploy stay off;
 this workflow is the only automated path.
 
 Before the first run, configure in GitHub:
@@ -287,10 +288,10 @@ passes. One risk remains: the readiness steps curl `$API_URL`, which is subject 
 and the job even though the service is healthy, so treat a readiness timeout as a
 suspected DNS result until the resolved IP is checked.
 
-The workflow is production-only because no staging environment exists. Its readiness
+The workflow is production-only because no staging environment exists. Its API readiness
 wait can pass against the still-running old instance, so it proves the API is up, not
-that the new commit is live — confirm the deployed commit in Render before signing off
-a release. When staging is stood up, restore a `staging` job with its own hooks and
+that the new commit is live. The client build and the worker wait for the web deploy at
+the commit instead, so confirm the deployed commit in Render before signing off a release. When staging is stood up, restore a `staging` job with its own hooks and
 variables and gate production behind `needs: staging`.
 
 ## Provider references
