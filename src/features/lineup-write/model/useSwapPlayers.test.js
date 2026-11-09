@@ -18,6 +18,7 @@ jest.mock('../../../components/Snackbar/SnackbarProvider', () => ({
 afterEach(() => {
   jest.clearAllMocks();
   window.localStorage.removeItem(PENDING_LINEUP_MUTATIONS_KEY);
+  Object.defineProperty(window.navigator, 'onLine', { configurable: true, value: true });
 });
 
 const entry = (overrides = {}) => ({
@@ -408,11 +409,10 @@ test('leagueUnsettled commits to nothing: no selection, no quick pick, no notify
   expect(mockNotify).not.toHaveBeenCalled();
 });
 
-// AC9 coverage gap: the offline queue - a save that fails for connectivity
-// (not a server refusal) queues locally and reports it as saved offline,
-// rather than as an error.
-test('a connectivity failure queues the move locally and notifies "saved offline", not an error', async () => {
-  apiClient.put.mockRejectedValue({ message: 'Network Error', code: 'ERR_NETWORK' });
+// AC9 coverage gap: the offline queue - a save made while the browser reports
+// offline queues locally and is reported as saved offline, rather than as an error.
+test('a save made while the browser is offline queues the move locally and notifies "saved offline", not an error', async () => {
+  Object.defineProperty(window.navigator, 'onLine', { configurable: true, value: false });
   const bench = entry({ playerId: 2, slot: 'BENCH', eligibleSlots: ['BENCH', 'QB'] });
   const { result } = setup({ entries: [entry(), bench] });
 

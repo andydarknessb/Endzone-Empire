@@ -14,10 +14,6 @@ function browserIsOnline() {
   return typeof navigator === 'undefined' || navigator.onLine !== false;
 }
 
-function isConnectivityFailure(error) {
-  return !error?.response || ['ERR_NETWORK', 'ECONNABORTED', 'ETIMEDOUT'].includes(error?.code);
-}
-
 function signalOffline() {
   if (typeof window !== 'undefined') window.dispatchEvent(new Event('offline'));
 }
@@ -25,19 +21,14 @@ function signalOffline() {
 export default function useResilientLineupMutation({ onReplaySuccess, onReplayRejected } = {}) {
   const [online, setOnline] = useState(browserIsOnline);
   const [pendingCount, setPendingCount] = useState(() => readPendingLineupMutations().length);
-  const onlineRef = useRef(online);
   const replaySuccessRef = useRef(onReplaySuccess);
   replaySuccessRef.current = onReplaySuccess;
   const replayRejectedRef = useRef(onReplayRejected);
   replayRejectedRef.current = onReplayRejected;
 
   useEffect(() => {
-    const handleOffline = () => {
-      onlineRef.current = false;
-      setOnline(false);
-    };
+    const handleOffline = () => setOnline(false);
     const handleOnline = () => {
-      onlineRef.current = true;
       setOnline(true);
       void replayPendingLineupMutations();
     };
@@ -70,8 +61,8 @@ export default function useResilientLineupMutation({ onReplaySuccess, onReplayRe
   }, []);
 
   const saveLineup = useCallback(async (payload) => {
+    // Queue only while the browser reports offline; any other failure is the normal save error.
     const queue = () => {
-      onlineRef.current = false;
       setOnline(false);
       signalOffline();
       const intent = enqueuePendingLineupMutation({
@@ -82,12 +73,12 @@ export default function useResilientLineupMutation({ onReplaySuccess, onReplayRe
       return { queued: true, intent };
     };
 
-    if (!onlineRef.current || !browserIsOnline()) return queue();
+    if (!browserIsOnline()) return queue();
     try {
       const response = await apiClient.put('/api/team/lineup', payload);
       return { queued: false, response };
     } catch (error) {
-      if (isConnectivityFailure(error)) return queue();
+      if (!browserIsOnline()) return queue();
       throw error;
     }
   }, []);
