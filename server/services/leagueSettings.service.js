@@ -55,6 +55,7 @@ const activityService = require('./activity.service');
 const { POSITION_GROUPS } = require('./lineup.service');
 const { SCORING_PRESETS, SCORING_RULES, isValidTierArray } = require('./scoringRules');
 const { VOICE_KEYS } = require('./narrativeVoice');
+const { lastPlayoffWeek } = require('./season.service');
 
 /* ------------------------------------------------------------------ *
  * Shared rules and constants                                          *
@@ -71,6 +72,9 @@ const RESERVED_SLOT_KEYS = Object.freeze(['BENCH', 'IR']);
 
 const VALID_DRAFT_TYPES = Object.freeze(['snake', 'auction', 'autopick', 'offline']);
 const VALID_DRAFT_ROTATIONS = Object.freeze(['snake', 'linear']);
+
+// The playoff bracket must finish by this week (#2743).
+const LAST_NFL_WEEK = 18;
 
 const intInRange = (v, lo, hi) => Number.isInteger(v) && v >= lo && v <= hi;
 
@@ -513,6 +517,7 @@ async function updateLeagueSettings(db, { leagueId, userId, patch }) {
     frozenRequested, frozenRequestedNames, fantasyOnlyRequested, rosterCompositionChanged, schedulingNonAuction,
   } = patch;
   let previousDraftDate = null;
+  let faabTeamReset = false;
   // A refusal throws from inside the transaction's work; withTransaction rolls
   // the read back and rethrows it unchanged, as account.service.js does
   // (ADR 0033, Ruling 2).
@@ -536,12 +541,15 @@ async function updateLeagueSettings(db, { leagueId, userId, patch }) {
         `SELECT "draft_status", "draft_type", "min_teams", "max_teams", "draft_date",
                 "roster_slots", "bench_slots", "ir_slots", "position_caps", "roster_limit",
                 "keepers_enabled", "keeper_count", "pickem_only", "season_status", "dp_enabled",
+                "faab_budget", "regular_season_weeks", "playoff_teams",
                 (SELECT COUNT(*)::int FROM "teams" WHERE "teams"."league_id" = "leagues"."id") AS "team_count"
          FROM "leagues" WHERE "id" = $1 AND ${commissionerPredicate(2)}`,
         [leagueId, userId]
       );
       const current = statusResult.rows[0];
       previousDraftDate = current ? current.draft_date : null;
+      faabTeamReset = Boolean(current) && faabBudget !== undefined
+        && current.draft_status !== 'complete' && current.faab_budget !== faabBudget;
       if (current && rosterCompositionChanged) {
         const effectiveSlots = rosterSlots !== undefined ? rosterSlots : current.roster_slots;
         const effectiveBench = benchSlots !== undefined ? benchSlots : current.bench_slots;
@@ -564,6 +572,19 @@ async function updateLeagueSettings(db, { leagueId, userId, patch }) {
         const lockedRequested = frozenRequestedNames.filter((name, i) => frozenNow.has(frozenRequested[i]));
         if (lockedRequested.length > 0) {
           return await rejectUpdate(409, `these settings are locked once the draft starts: ${lockedRequested.join(', ')}`);
+        }
+      }
+      // The bracket must finish by NFL week 18 (#2743). A key the save omits is
+      // checked at its stored value.
+      if (current && (regularSeasonWeeks !== undefined || playoffTeams !== undefined)) {
+        const weeks = regularSeasonWeeks !== undefined ? regularSeasonWeeks : current.regular_season_weeks;
+        const teams = playoffTeams !== undefined ? playoffTeams : current.playoff_teams;
+        const lastWeek = lastPlayoffWeek({ regular_season_weeks: weeks, playoff_teams: teams });
+        if (lastWeek > LAST_NFL_WEEK) {
+          return await rejectUpdate(
+            400,
+            `regular-season weeks plus playoff rounds must end by NFL week ${LAST_NFL_WEEK}: ${weeks} weeks and ${lastWeek - weeks} playoff rounds for ${teams} teams end at week ${lastWeek}`
+          );
         }
       }
       if (current && draftDateValue && (draftType ?? current.draft_type) === 'auction') {
@@ -855,6 +876,10 @@ async function updateLeagueSettings(db, { leagueId, userId, patch }) {
         return await rejectUpdate(409, `these settings are locked once the draft starts: ${frozenRequestedNames.join(', ')}`);
       }
       return await rejectUpdate(403, 'league not found or you are not the commissioner');
+    }
+    // A budget change before the draft completes reaches every Team's balance (#2743).
+    if (faabTeamReset) {
+      await client.query(`UPDATE "teams" SET "faab_remaining" = $2 WHERE "league_id" = $1`, [leagueId, faabBudget]);
     }
     return result.rows[0];
   };
