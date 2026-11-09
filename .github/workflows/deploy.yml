@@ -89,10 +89,22 @@ jobs:
       - name: Trigger production client build
         if: ${{ !inputs.worker_only }}
         env:
+          API_URL: ${{ vars.PRODUCTION_API_URL }}
           GH_TOKEN: ${{ github.token }}
           NETLIFY_HOOK: ${{ secrets.NETLIFY_PRODUCTION_BUILD_HOOK }}
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_WEB_SERVICE_ID: ${{ vars.RENDER_WEB_SERVICE_ID }}
         run: |
           test -n "$NETLIFY_HOOK"
+          test -n "$RENDER_API_KEY"
+          test -n "$RENDER_WEB_SERVICE_ID"
+          # readyz alone is answered by the old API instance too: wait for the web deploy at this commit.
+          node scripts/ci/wait-for-render-deploy.js \
+            --service "$RENDER_WEB_SERVICE_ID" \
+            --sha "$GITHUB_SHA" \
+            --readyz "$API_URL/api/health/readyz" \
+            --ceiling-ms 2700000 \
+            --interval-ms 15000
           node scripts/ci/check-ci-passed.js --sha "$GITHUB_SHA" --branch main
           curl --fail --silent --show-error --request POST "$NETLIFY_HOOK"
       - name: Verify production readiness

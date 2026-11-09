@@ -1,5 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const {
   selectDeploy,
   classifyStatus,
@@ -394,4 +396,24 @@ test('main: a non-positive --interval-ms is rejected', async () => {
     main({ argv: ['--service', 'srv', '--sha', WANT, '--no-readyz', '--interval-ms', '0'], env: { RENDER_API_KEY: 'k' } }),
     /interval-ms must be positive/,
   );
+});
+
+// #2763: the client build hook must not post until the web deploy for this
+// commit is live and readyz reports it (readyz alone is answered by the old API
+// instance too). Guard on the workflow text: no YAML parser is a dependency.
+test('#2763: the client build hook posts only after the web deploy wait at this commit', () => {
+  const yml = fs.readFileSync(path.join(__dirname, '..', '..', '.github', 'workflows', 'deploy.yml'), 'utf8');
+  const start = yml.indexOf('- name: Trigger production client build');
+  const end = yml.indexOf('- name: Verify production readiness', start);
+  assert.notEqual(start, -1, 'deploy.yml has the client build step');
+  const step = yml.slice(start, end);
+  const wait = step.indexOf('node scripts/ci/wait-for-render-deploy.js');
+  assert.notEqual(wait, -1, 'the client build step runs wait-for-render-deploy.js');
+  assert.ok(step.indexOf('--service "$RENDER_WEB_SERVICE_ID"', wait) > wait, 'wait names the web service');
+  assert.ok(step.indexOf('--sha "$GITHUB_SHA"', wait) > wait, 'wait names the deployed commit');
+  assert.ok(step.indexOf('--readyz "$API_URL/api/health/readyz"', wait) > wait, 'wait gates on readyz');
+  const hook = step.indexOf('--request POST "$NETLIFY_HOOK"');
+  assert.notEqual(hook, -1, 'the client build step posts $NETLIFY_HOOK');
+  assert.ok(wait < hook, 'the wait finishes before the Netlify hook is posted');
+  assert.ok(step.includes('if: ${{ !inputs.worker_only }}'), 'worker_only runs still skip the client build');
 });
