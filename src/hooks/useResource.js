@@ -23,9 +23,14 @@ import {
 export function useResource(key, url, { ttl } = {}) {
   const serialized = key == null ? null : serializeKey(key);
   const initial = serialized == null ? undefined : read(serialized);
+  // What a key shows in its first commit, on mount and on a key change alike:
+  // never the previous key's data, but a stale entry for this key, which is at
+  // least the right resource.
+  const initialData = initial?.data ?? null;
+  const initialLoading = serialized != null && !isFresh(initial, ttl);
 
-  const [data, setData] = useState(initial?.data ?? null);
-  const [loading, setLoading] = useState(serialized != null && !isFresh(initial, ttl));
+  const [data, setData] = useState(initialData);
+  const [loading, setLoading] = useState(initialLoading);
   const [error, setError] = useState(null);
 
   // The key the state above describes. A new key resets it here, during render,
@@ -34,8 +39,8 @@ export function useResource(key, url, { ttl } = {}) {
   const [stateKey, setStateKey] = useState(serialized);
   if (stateKey !== serialized) {
     setStateKey(serialized);
-    setData(initial?.data ?? null);
-    setLoading(serialized != null && !isFresh(initial, ttl));
+    setData(initialData);
+    setLoading(initialLoading);
     setError(null);
   }
 
@@ -82,20 +87,19 @@ export function useResource(key, url, { ttl } = {}) {
 
   useEffect(() => {
     if (serialized == null) return;
+    // The first commit showed the store as of render. A write or a session drop
+    // since then reached no subscription (the one below starts after this), so
+    // the state catches up here.
     const entry = read(serialized);
+    setData(entry?.data ?? null);
     if (isFresh(entry, ttl)) {
-      // A fresh entry answers the mount outright, and it clears an error left
-      // over from the key this mount was showing before.
+      // A fresh entry answers the mount outright, and it supersedes a request
+      // of this mount's still on the wire for this key.
       requestSeq.current += 1;
-      setData(entry.data);
       setError(null);
       setLoading(false);
       return;
     }
-    // Switching keys: never keep serving the previous key's data while the new
-    // one loads. A stale entry for the NEW key is still shown, as on first
-    // mount, since it is at least the right resource.
-    setData(entry?.data ?? null);
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [serialized]);
