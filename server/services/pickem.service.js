@@ -108,8 +108,11 @@ function slotKey(week, gameKey) {
  * @returns {Array} games sorted by week, then kickoff, then key
  */
 function deriveSlateFromRows(gameRows, lgsRows) {
+  // Oldest first, so the map keeps the newest row for a game: a moved game
+  // leaves an orphan row behind (#2751).
   const liveByKey = new Map();
-  for (const row of lgsRows || []) {
+  const ageOf = (row) => new Date(row.last_updated).getTime() || 0;
+  for (const row of [...(lgsRows || [])].sort((a, b) => ageOf(a) - ageOf(b))) {
     const key = pairKey(row.home_team, row.away_team);
     if (!key) continue;
     liveByKey.set(slotKey(row.week == null ? null : Number(row.week), key), row);
@@ -684,7 +687,7 @@ const SLATE_LIVE_SQL = `
          "quarter", "time_remaining",
          "venue_name", "venue_city", "is_indoor", "is_neutral_site", "broadcast",
          "home_record", "away_record", "home_win_probability", "linescores", "headline",
-         "possession", "down_distance", "is_red_zone", "last_play"
+         "possession", "down_distance", "is_red_zone", "last_play", "last_updated"
     FROM "live_game_states"
    WHERE "season" = $1`;
 
