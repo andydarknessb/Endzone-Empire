@@ -652,18 +652,19 @@ async function syncAndScoreLiveWeeks() {
       console.error('live stat sync failed for %s week %s:', season, week, err.message);
     }
 
-    try {
-      for (const leagueId of leagueIds) {
+    for (const leagueId of leagueIds) {
+      // One League's throw must not skip the rest of the week (#2750): each is isolated, as liveBoxPoll does.
+      try {
         const { scored } = await matchupScoring.scoreMatchups({ leagueId, season, week, plays }); // emits scores:updated
         await sendAlert({ kind: 'close-matchup', leagueId, week, scored });
         await sendAlert({ kind: 'score-lead', leagueId, season, week, scored });
         await sendAlert({ kind: 'score-played', leagueId, season, week, scored });
         await sendAlert({ kind: 'big-play', leagueId, season, week, scored, plays });
+      } catch (err) {
+        console.error('live scoring failed for league %s, %s week %s:', leagueId, season, week, err.message);
       }
-      console.log(`scheduler: live-scored ${leagueIds.length} league(s) for ${season} week ${week}`);
-    } catch (err) {
-      console.error('live scoring failed for %s week %s:', season, week, err.message);
     }
+    console.log(`scheduler: live-scored ${leagueIds.length} league(s) for ${season} week ${week}`);
   }
   if (ranAny) lastSyncAt = new Date().toISOString();
   return ranAny;
