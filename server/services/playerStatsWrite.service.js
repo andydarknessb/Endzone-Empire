@@ -102,7 +102,7 @@ const CORRECTION_KEYS = [
   'fumbles', 'fieldGoal', 'fieldGoalMissed', 'fieldGoalDistances', 'extraPoint', 'extraPointMissed',
   'returnTDs', 'puntReturns', 'puntReturnYards', 'kickReturns', 'kickReturnYards',
   'soloTackle', 'assistedTackle', 'idpSack', 'idpInterception', 'forcedFumble', 'idpFumbleRecovery',
-  'passDeflection', 'qbHit', 'tacklesForLoss', 'idpDefensiveTD', 'twoPointReturn',
+  'passDeflection', 'qbHit', 'tacklesForLoss', 'idpDefensiveTD',
   'idpSackYards', 'idpTacklesForLossYards', 'idpFumbleReturnYards', 'idpInterceptionReturnYards', 'idpSafety',
   ...WEEK_SHARE_EPA_KEYS,
   ...BOX_TEAM_DEFENSE_KEYS,
