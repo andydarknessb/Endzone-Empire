@@ -17,6 +17,9 @@ const { OVERDUE_AFTER_MS } = require('../services/pickClock.service');
 
 const router = express.Router();
 const WORKER_STALE_MS = Number(process.env.WORKER_STALE_MS || 15 * 60 * 1000);
+// The tick stamps lastTickAt when it returns. The heartbeat timer runs apart from
+// it, so a stuck tick leaves the row fresh while lastTickAt ages (#2758).
+const SCHEDULER_TICK_STALE_MS = 15 * 60 * 1000;
 
 function withTimeout(promise, timeoutMs, message) {
   let timer;
@@ -161,7 +164,7 @@ async function workerStatus({ includeJobStatus = false } = {}) {
     }));
     const jobs = result.rows.find((row) => row.worker_name === 'jobs');
     let jobStatus = null;
-    if (includeJobStatus && jobs?.job_status) {
+    if (jobs?.job_status) {
       try {
         jobStatus = typeof jobs.job_status === 'string'
           ? JSON.parse(jobs.job_status)
@@ -170,14 +173,18 @@ async function workerStatus({ includeJobStatus = false } = {}) {
         jobStatus = null;
       }
     }
+    const tickStale = Boolean(jobStatus?.scheduler?.lastTickAt)
+      && now - new Date(jobStatus.scheduler.lastTickAt).getTime() > SCHEDULER_TICK_STALE_MS;
     return {
       // #768, ruling 2: an Overdue clock fails THIS section (so /worker answers
       // 503). The composite / carries the section but keeps its own ok rule, so
-      // a stuck clock never flips the whole API to unhealthy.
+      // a stuck clock never flips the whole API to unhealthy. #2758: a stale
+      // scheduler tick fails it the same way.
       ok: workers.length > 0
         && workers.every((worker) => !worker.stale && !worker.lastError)
         && overdue.length === 0
-        && !sweep.draftSweepStale,
+        && !sweep.draftSweepStale
+        && !tickStale,
       workers,
       overdueClocks: overdue,
       lastDraftSweepAt: sweep.lastDraftSweepAt,

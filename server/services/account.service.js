@@ -31,7 +31,16 @@ async function deliverEmail({ to, subject, text }) {
       // Optional dependency — only required when SMTP is actually configured
       // eslint-disable-next-line global-require
       const nodemailer = require('nodemailer');
-      if (!transporter) transporter = nodemailer.createTransport(process.env.SMTP_URL);
+      // Limits ride in the options object: a URL plus options as two arguments
+      // would set message defaults, and nodemailer's own waits run to 10 minutes (#2758).
+      if (!transporter) {
+        transporter = nodemailer.createTransport({
+          url: process.env.SMTP_URL,
+          connectionTimeout: 10 * 1000,
+          greetingTimeout: 10 * 1000,
+          socketTimeout: 10 * 1000,
+        });
+      }
       const delivery = await transporter.sendMail({
         from: process.env.SMTP_FROM || 'no-reply@endzoneempire.gg',
         to,
