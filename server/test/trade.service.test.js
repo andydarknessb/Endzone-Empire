@@ -935,8 +935,8 @@ test('processDueTrades: a freeze refusal stays accepted and keeps waiting (#2274
 
   const outcomes = await processDueTrades();
 
-  // The due run holds a frozen trade at its transition: left accepted, nothing written or logged.
-  assert.deepEqual(outcomes, [{ tradeId: 9, status: 'accepted' }]);
+  // The due run holds a frozen trade at its transition: left accepted, nothing written, reported or logged.
+  assert.deepEqual(outcomes, []);
   assert.equal(world.matching(/^UPDATE "trades" SET "status" = 'cancelled'/).length, 0);
   assert.equal(logged.length, 0, 'held, not failed');
   assert.equal(world.matching(insert('notifications')).length, 0, 'a held trade notifies no one (#2295)');
@@ -951,7 +951,7 @@ test('processDueTrades: a due trade that no longer fits in a frozen League stays
 
   const outcomes = await processDueTrades();
 
-  assert.deepEqual(outcomes, [{ tradeId: 9, status: 'accepted' }]);
+  assert.deepEqual(outcomes, []);
   assert.equal(world.matching(/^UPDATE "trades" SET "status" = 'cancelled'/).length, 0, 'not cancelled');
   assert.equal(logged.length, 0);
 });

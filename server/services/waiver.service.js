@@ -620,7 +620,8 @@ async function processWaivers({ leagueId }) {
     // move to the back of the Waiver priority order (below) is seen by the
     // claims still to come, as it always was.
     // A locked Team's due claim is left pending, unfinished and unspent, for the first run after the lock lifts (CONTEXT.md, Roster lock).
-    const remaining = dueResult.rows.filter((c) => !teams.get(c.team_id)?.locked);
+    const due = dueResult.rows.filter((c) => !teams.get(c.team_id)?.locked);
+    const remaining = [...due];
     // claim id -> was roster capacity already what blocked it before this team's
     // first win of the run? Read once, just before that first win, so a
     // capacity note can be causal (see siblingReason).
@@ -766,7 +767,7 @@ async function processWaivers({ leagueId }) {
     );
     await spendExpiredBlanketWindow(client, leagueId);
 
-    return { processed: dueResult.rows.length, results };
+    return { processed: due.length, results };
     }
   );
   return result;

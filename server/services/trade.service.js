@@ -518,7 +518,7 @@ async function processDueTrades() {
   const outcomes = [];
   for (const row of due.rows) {
     // withTransaction owns connect/BEGIN/COMMIT-or-guarded-ROLLBACK and the release
-    // rule (ADR 0033); the outcome list is built from what it returns.
+    // rule (ADR 0033); the outcome list is built from what it returns. A held trade returns null: no outcome, no log.
     let result;
     try {
       result = await withTransaction(
@@ -526,7 +526,7 @@ async function processDueTrades() {
         async (client) => {
           const { trade, league, items, teams } = await loadTrade(client, row.id);
           // Not a refusal to cancel: a trade that is not due, or is held by a freeze or a Team lock, is left for its own run.
-          if (await transitionRefusal('execute', { trade, league, teams })) return { status: trade.status };
+          if (await transitionRefusal('execute', { trade, league, teams })) return null;
           await executeTrade(client, { trade, league, items, teams });
           return { status: 'executed', leagueId: league.id };
         },
@@ -578,7 +578,7 @@ async function processDueTrades() {
       }
       continue;
     }
-    outcomes.push({ tradeId: row.id, status: result.status });
+    if (result) outcomes.push({ tradeId: row.id, status: result.status });
   }
   return outcomes;
 }

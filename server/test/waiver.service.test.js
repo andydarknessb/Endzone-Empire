@@ -622,6 +622,50 @@ test('processWaivers: the claim drop records no undo, unlike the two undoable dr
   fake.assertClean();
 });
 
+// The Roster lock (CONTEXT.md): a locked Team's higher due claim cannot beat an
+// unlocked Team's lower one on the same player: the unlocked claim wins, and the
+// locked claim stays pending.
+test('processWaivers: a locked Team\'s higher bid does not beat another Team\'s lower bid, and the locked claim stays pending', async (t) => {
+  const league = {
+    id: 1, transactions_locked: false, waiver_type: 'faab', roster_limit: 16, ir_slots: 2,
+    current_season: 2026, current_week: 6, waiver_period_hours: 24, position_caps: {},
+  };
+  const claims = [
+    { id: 1, league_id: 1, team_id: 31, player_id: 500, drop_player_id: null, bid: 50, status: 'pending', claim_order: 1, created_at: '2026-07-11T00:00:00Z' },
+    { id: 2, league_id: 1, team_id: 32, player_id: 500, drop_player_id: null, bid: 10, status: 'pending', claim_order: 1, created_at: '2026-07-11T00:01:00Z' },
+  ];
+  const fake = createFakePool([
+    [select('leagues'), () => ({ rows: [league] })],
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [league] })],
+    [update('leagues'), () => ({ rows: [], rowCount: 0 })],
+    [select('waiver_claims'), () => ({ rows: claims })],
+    [select('teams'), () => ({
+      rows: [
+        { id: 31, league_id: 1, owner_id: 8, user_id: 8, waiver_priority: 1, faab_remaining: 100, locked: true },
+        { id: 32, league_id: 1, owner_id: 9, user_id: 9, waiver_priority: 2, faab_remaining: 100, locked: false },
+      ],
+    })],
+    [/^SELECT 1 FROM "team_players" WHERE "league_id"/, () => ({ rows: [] })],
+    [/^SELECT COUNT\(\*\)::int AS n FROM "team_players"/, () => ({ rows: [{ n: 10 }] })],
+    [select('players'), () => ({ rows: [{ id: 500, position: 'RB' }] })],
+    [select('lineup_entries'), () => ({ rows: [{ n: 0 }] })],
+    [insert('team_players'), () => ({ rows: [], rowCount: 1 })],
+    [update('teams'), () => ({ rows: [], rowCount: 1 })],
+    [update('waiver_claims'), () => ({ rows: [], rowCount: 1 })],
+    [insert('transactions'), () => ({ rows: [] })],
+    [insert('notifications'), () => ({ rows: [] })],
+    [remove('waiver_players'), () => ({ rows: [] })],
+  ]).install(t);
+  t.mock.method(lineupService, 'benchAcquiredPlayer', async () => {});
+
+  const { results, processed } = await processWaivers({ leagueId: 1 });
+
+  assert.deepEqual(results, [{ claimId: 2, playerId: 500, status: 'won', teamId: 32 }]);
+  assert.deepEqual(fake.matching(/^UPDATE "waiver_claims"/).map((c) => c.params[4]), [2], 'only the unlocked claim is finished');
+  assert.equal(processed, 1, 'the skipped locked claim is not counted as processed');
+  fake.assertClean();
+});
+
 // The Roster lock (CONTEXT.md): a locked Team's due claim is skipped and left
 // pending with its FAAB untouched, then resolves on the first run after the lock lifts.
 test('processWaivers: a locked Team\'s due claim stays pending with its FAAB untouched, and resolves after the lock lifts', async (t) => {
