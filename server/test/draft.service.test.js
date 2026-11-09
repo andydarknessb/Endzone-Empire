@@ -426,6 +426,22 @@ test('dropPlayer: a pick-em-only league is refused by its own answer, not the dr
   fake.assertClean();
 });
 
+test('undoDrop: a pick-em-only league is refused by its own answer, the hold is never read (#2748)', async (t) => {
+  const pickemLeague = { ...undoLeague, pickem_only: true, draft_status: 'pending' };
+  const fake = createFakePool([
+    [select('leagues'), () => ({ rows: [pickemLeague] })],
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [pickemLeague] })],
+    [select('teams'), () => ({ rows: [{ id: 11, owner_id: 7, locked: false }] })],
+  ]).install(t);
+
+  await assert.rejects(
+    undoDrop({ leagueId: 1, userId: 7, playerId: 500 }),
+    (error) => error instanceof PickemOnlyLeagueError
+  );
+  assert.equal(fake.matching(/^SELECT 1 FROM "waiver_players"/).length, 0, 'the hold was not read');
+  fake.assertClean();
+});
+
 // --- undoDrop ----------------------------------------------------------------
 
 test('undoDrop: a frozen league is refused before the hold is read or deleted (#944)', async (t) => {

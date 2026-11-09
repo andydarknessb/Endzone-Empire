@@ -332,6 +332,6 @@ test('forceTransaction add: notifies each claimant it cancelled once, and the ma
   // dropped league predicate would withdraw and notify other leagues' claimants on this player.
   const [cancel] = fake.matching(update('waiver_claims'));
   assert.deepEqual(cancel.params, [1, 500], 'scoped to this league and this player');
-  assert.match(cancel.text, /"waiver_claims"\."league_id" = \$1 AND "waiver_claims"\."player_id" = \$2/);
+  assert.match(cancel.text, /"waiver_claims"\."league_id" = \$1 AND "waiver_claims"\."player_id" = \$2 AND "waiver_claims"\."status" = 'pending'/);
   fake.assertClean();
 });
