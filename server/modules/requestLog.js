@@ -35,6 +35,15 @@ function formatLine(info, status, ms) {
   });
 }
 
+/**
+ * The path a log line names. Read from req.originalUrl: a mounted router trims
+ * req.path, so on finish it has lost /api. The query string is dropped, and the
+ * presenter share token (the only credential in a URL) is replaced.
+ */
+function loggedPath(originalUrl) {
+  return (originalUrl || '').split('?')[0].replace(/^(\/api\/draft\/board\/)[^/]+/, '$1:token');
+}
+
 /** Express middleware: logs one JSON line per /api request on finish. */
 function requestLogMiddleware(req, res, next) {
   const suppliedId = req.get('x-request-id');
@@ -44,7 +53,7 @@ function requestLogMiddleware(req, res, next) {
   res.set('X-Request-ID', req.id);
   const startedAt = process.hrtime.bigint();
   res.on('finish', () => {
-    const path = req.path;
+    const path = loggedPath(req.originalUrl);
     if (!shouldLog(path)) return;
     const ms = Number(process.hrtime.bigint() - startedAt) / 1e6;
     const line = formatLine(
