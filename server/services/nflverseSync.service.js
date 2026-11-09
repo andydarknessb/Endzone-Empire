@@ -898,7 +898,8 @@ async function applyScheduleFromNflverseUnit(client, { season, scheduleRows }) {
  *   both idpInterception and idpDefensiveTD (ruling, issue #1386 —
  *   CONTEXT.md **IDP**). Individual blocked-kick-return TDs aren't
  *   separately attributed, same as the other two writers.
- * - twoPointReturn has no nflverse weekly column; 0.
+ * - twoPointReturn has no nflverse weekly column, so no key: a correction keeps
+ *   the stored box value (#2751).
  * - The TD-length bonus arrays (passingTDLengths etc.) need play-by-play
  *   and are omitted — they score 0 points under default rules, and no
  *   league has scored matchups on backfilled seasons.
@@ -970,7 +971,6 @@ function normalizeNflversePlayerStats(row) {
     qbHit: num(row.def_qb_hits),
     tacklesForLoss: num(row.def_tackles_for_loss),
     idpDefensiveTD: num(row.def_tds) + num(row.fumble_recovery_tds),
-    twoPointReturn: 0,
     idpSackYards: num(row.def_sack_yards),
     idpTacklesForLossYards: num(row.def_tackles_for_loss_yards),
     idpFumbleReturnYards: num(row.fumble_recovery_yards_opp),

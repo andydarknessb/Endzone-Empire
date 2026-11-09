@@ -92,3 +92,12 @@ test('upsertPlayerStats writes when the line moved', async () => {
   assert.equal(db.calls.length, 1);
   assert.equal(result.written, true);
 });
+
+test('a nflverse correction keeps a stored two-point return, a key it does not own (#2751)', async () => {
+  const db = captureDb();
+  const result = await upsertPlayerStats(db, {
+    playerId: 7, season: 2025, week: 1, source: 'nflverse-correction', fresh: FOUR_FORTY_ONE,
+    prior: { twoPointReturn: 2, receptions: 4, receivingYards: 40, receivingTDs: 1 }, position: 'LB',
+  });
+  assert.equal(result.stats.twoPointReturn, 2, 'the box value survives the correction');
+});
