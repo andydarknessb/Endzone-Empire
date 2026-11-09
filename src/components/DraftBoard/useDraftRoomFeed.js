@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import apiClient from '../../api/apiClient';
-import { onReconnect } from '../../api/socket';
 import { feedEntryKey } from '../../shared/lib/teamIdentity';
 import { newClientMsgId } from '../../lib/clientMessageId';
 import { applyHiddenEntry, hidePost } from '../../lib/chatModeration';
@@ -127,6 +126,36 @@ export default function useDraftRoomFeed({
     Promise.resolve(apiClient.post(`/api/league/${leagueId}/chat/read`)).catch(() => {});
   }, [leagueId]);
 
+  // Resumes from the last acknowledged seq (#442), called by the room's session on
+  // each join (#2696). Nothing held yet falls back to a full latest-page read.
+  const resumeFeed = useCallback(() => {
+    const seqs = entriesRef.current
+      .map((e) => (e ? e.seq : null))
+      .filter((s) => Number.isFinite(s));
+    if (seqs.length === 0) {
+      fetchHistory();
+      return;
+    }
+    const lastSeq = Math.max(...seqs);
+    Promise.resolve(apiClient.get(`/api/league/${leagueId}/draft-feed?after=${lastSeq}`))
+      .then((res) => {
+        const newer = Array.isArray(res?.data) ? res.data : [];
+        if (newer.length === 0) return;
+        if (newer.length >= FEED_PAGE) {
+          // More than a page accrued while offline: a single resume page would
+          // leave the newest entries unfetched. Snap to the latest window
+          // instead; the gap behind it is reachable through loadOlder.
+          fetchHistory();
+          return;
+        }
+        setEntries((prev) => newer.reduce((acc, entry) => mergeEntry(acc, entry), prev));
+        // The draft room shows chat live; a resumed human message keeps the
+        // unread badge honest, the same as a live arrival.
+        markRead();
+      })
+      .catch(handleFeedError);
+  }, [leagueId, fetchHistory, markRead, handleFeedError]);
+
   useEffect(() => {
     fetchHistory();
   }, [fetchHistory]);
@@ -170,47 +199,13 @@ export default function useDraftRoomFeed({
     socket.on('draft:picked', onPicked);
     socket.on('draft:activity', onActivity);
 
-    // Reconnect RESUMES from the last acknowledged cursor (#442): the max seq
-    // held is what the client last saw, so it asks only for entries newer than
-    // it and merges them into their seq position, reproducing the one shared
-    // order without refetching the whole feed. Nothing held yet means no cursor
-    // to resume from, so it falls back to a full latest-page read.
-    const offReconnect = onReconnect(socket, () => {
-      const seqs = entriesRef.current
-        .map((e) => (e ? e.seq : null))
-        .filter((s) => Number.isFinite(s));
-      if (seqs.length === 0) {
-        fetchHistory();
-        return;
-      }
-      const lastSeq = Math.max(...seqs);
-      Promise.resolve(apiClient.get(`/api/league/${leagueId}/draft-feed?after=${lastSeq}`))
-        .then((res) => {
-          const newer = Array.isArray(res?.data) ? res.data : [];
-          if (newer.length === 0) return;
-          if (newer.length >= FEED_PAGE) {
-            // More than a page accrued while offline: a single resume page would
-            // leave the newest entries unfetched. Snap to the latest window
-            // instead; the gap behind it is reachable through loadOlder.
-            fetchHistory();
-            return;
-          }
-          setEntries((prev) => newer.reduce((acc, entry) => mergeEntry(acc, entry), prev));
-          // The draft room shows chat live; a resumed human message keeps the
-          // unread badge honest, the same as a live arrival.
-          markRead();
-        })
-        .catch(handleFeedError);
-    });
-
     return () => {
-      offReconnect?.();
       socket.off?.('chat:message', onChatMessage);
       socket.off?.('chat:hidden', onChatHidden);
       socket.off?.('draft:picked', onPicked);
       socket.off?.('draft:activity', onActivity);
     };
-  }, [socket, leagueId, fetchHistory, markRead, handleFeedError]);
+  }, [socket, leagueId, markRead]);
 
   const sendMessage = useCallback(
     (raw, clientMsgId) => {
@@ -357,5 +352,5 @@ export default function useDraftRoomFeed({
     [leagueId]
   );
 
-  return { entries, error, sendMessage, sendGif, loadOlder, hasMore, hideMessage };
+  return { entries, error, sendMessage, sendGif, loadOlder, hasMore, hideMessage, resumeFeed };
 }

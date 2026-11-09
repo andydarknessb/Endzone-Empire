@@ -117,7 +117,9 @@ const TEAM_INSERT_SOURCE = 'INSERT\\s+INTO\\s+"?teams"?';
 const TEAM_INSERT = new RegExp(TEAM_INSERT_SOURCE, 'gi');
 const hasTeamInsert = (source) => new RegExp(TEAM_INSERT_SOURCE, 'i').test(source);
 
-// A League-row lock, WITHIN ONE SQL statement: `FROM "leagues" ... FOR UPDATE`.
+// A League-row lock, WITHIN ONE SQL statement: `FROM "leagues" ... FOR UPDATE`,
+// or `FOR NO KEY UPDATE` (#2683): it still conflicts with every other League
+// locker, so a Team insert behind it serializes exactly as before.
 // It is only ever tested against a single statement (see sqlStatements /
 // containsLeagueLock), never against a raw source span - an earlier version
 // tested a `[^`]*?` span and could match a `FROM "leagues"` read in one
@@ -126,7 +128,9 @@ const hasTeamInsert = (source) => new RegExp(TEAM_INSERT_SOURCE, 'i').test(sourc
 // Matches every real variant: the bare `WHERE "id" = $1 FOR UPDATE`, the
 // commissionerPredicate form, and the `... AND "draft_status" = 'active' FOR
 // UPDATE` reset form, single- or multi-line.
-const LEAGUE_LOCK = /FROM\s+"leagues"[\s\S]*?FOR\s+UPDATE/i;
+const LEAGUE_LOCK = /FROM\s+"leagues"[\s\S]*?FOR\s+(?:NO\s+KEY\s+)?UPDATE/i;
+// The League write module's lock (ADR 0070): a call, not SQL, so it is named here.
+const LOCK_CALL = /\blockLeague\s*\(/;
 
 /**
  * A copy of comment-stripped source with the BODY of every string, single- and
@@ -234,6 +238,7 @@ const QUERY_CALL_ARG = /\.query\s*\(\s*([A-Za-z_$][\w$]*)/g;
  * then inserts has taken no lock.
  */
 function containsLeagueLock(scopeSource, lockNames) {
+  if (LOCK_CALL.test(scopeSource)) return true;
   if (sqlStatements(scopeSource).some((statement) => LEAGUE_LOCK.test(statement))) return true;
   if (lockNames && lockNames.size) {
     for (const match of scopeSource.matchAll(QUERY_CALL_ARG)) {
@@ -495,7 +500,7 @@ function main() {
   }
   console.error(
     `\n❌ ${violationSites.length} Team-insert(s) with no League row lock (SELECT ... FROM "leagues" `
-    + '... FOR UPDATE) earlier in the same function:\n\n'
+    + '... FOR UPDATE or FOR NO KEY UPDATE) earlier in the same function:\n\n'
     + '  A Draft act reads the Teams into an unlocked snapshot and gates/deletes per Team\n'
     + '  from it (draftAct.service.js). A Team created without serializing behind the\n'
     + '  League lock could be neither gated nor wiped (#1043). Either lock the League row\n'

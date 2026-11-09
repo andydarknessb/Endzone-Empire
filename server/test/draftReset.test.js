@@ -61,7 +61,7 @@ app.use('/api/draft', require('../routes/draft.router'));
 // matcher is still load-bearing in THIS suite: drop it and the module's lock
 // read hits the fake pool's unregistered-query throw and every test below
 // reddens.
-const ACT_LOCK = /^SELECT \* FROM "leagues" WHERE "id" = \$1 FOR UPDATE$/;
+const ACT_LOCK = /^(?:(?:SELECT \* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE|UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*)|UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*)$/;
 
 const doReset = () => request(app)
   .post(`/api/draft/league/${LEAGUE_ID}/reset`)
@@ -96,7 +96,7 @@ function resetPool(finalSeasons = {}, wipeTeamIds = [30, 31], { commissioner = t
     // gate inputs are the League and the Team and nothing on that side
     // accumulates. Its own explicit column lists keep it disjoint from the act
     // module's two teams reads above.
-    [/^SELECT "id", "transactions_locked",.* FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({
+    [/^SELECT "id", "transactions_locked",.* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/, () => ({
       // Frozen and locked on purpose: this route bypasses both, and a fixture
       // that left them clear could not tell a bypass from a lucky pass.
       rows: [{ id: LEAGUE_ID, transactions_locked: true }],
@@ -134,7 +134,7 @@ test('POST reset: a final matchup in the current season refuses with 409 and iss
     0,
     `no delete was issued, saw: ${fake.calls.map((c) => c.text).join(' | ')}`
   );
-  assert.equal(fake.matching(/^UPDATE/).length, 0, 'no update was issued either');
+  assert.equal(fake.matching(/^UPDATE/).filter((c) => !c.text.includes('"board_version"')).length, 0, 'no update was issued either');
   fake.assertClean();
 });
 
@@ -203,7 +203,7 @@ test('POST reset: the gate is asked once per team, before the wipe, and a frozen
   const res = await doReset();
   assert.equal(res.status, 200, JSON.stringify(res.body));
 
-  const gateLeagueReads = fake.calls.filter((c) => /^SELECT "id", "transactions_locked".*FOR UPDATE/.test(c.text));
+  const gateLeagueReads = fake.calls.filter((c) => /^SELECT "id", "transactions_locked".*FROM "leagues"/.test(c.text));
   const gateTeamReads = fake.calls.filter((c) => /^SELECT "id", "locked" FROM "teams".*FOR UPDATE/.test(c.text));
   assert.equal(gateLeagueReads.length, 3, 'one gate call per team in the league');
   assert.deepEqual(gateTeamReads.map((c) => c.params[0]), [30, 31, 32], 'each team answered for itself');
@@ -225,7 +225,7 @@ test('POST reset: a refused reset never reaches the gate, because it never reach
   const res = await doReset();
   assert.equal(res.status, 409);
   assert.equal(
-    fake.calls.filter((c) => /^SELECT "id", "transactions_locked".*FOR UPDATE/.test(c.text)).length,
+    fake.calls.filter((c) => /^SELECT "id", "transactions_locked".*FROM "leagues"/.test(c.text)).length,
     0,
     'the gate is not consulted for a write that never happens'
   );

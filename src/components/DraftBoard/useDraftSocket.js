@@ -1,6 +1,7 @@
 import { useEffect, useReducer, useRef, useState, useCallback } from 'react';
-import { createDraftSocket, onReconnect } from '../../api/socket';
+import { createDraftSocket } from '../../api/socket';
 import { MEMBERSHIP_UNKNOWN, MEMBERSHIP_NON_MEMBER, membershipAfterJoinAck } from './draftMembership';
+import { openDraftRoomSession } from './useDraftRoomSession';
 import { isTeamOnTheClock } from '../../shared/lib/onTheClock';
 import {
   emptyDraftModel,
@@ -73,7 +74,7 @@ function reducer(state, action) {
  * codes and no code included - leaves them standing (#230, the codes renamed
  * to SCREAMING_SNAKE in #265, and the join handler below for why).
  */
-export default function useDraftSocket(leagueId, { onPickLanded, onDraftActivity } = {}) {
+export default function useDraftSocket(leagueId, { onPickLanded, onDraftActivity, onRefreshFeed, onRefreshReads } = {}) {
   const [state, dispatch] = useReducer(reducer, initialState);
   const [error, setError] = useState(null);
   const [viewerTeamId, setViewerTeamId] = useState(null);
@@ -120,6 +121,9 @@ export default function useDraftSocket(leagueId, { onPickLanded, onDraftActivity
   // the client on draft:state and the feed's REST fetch, never here) cannot be
   // replayed as a live freeze.
   const onDraftActivityRef = useRef(onDraftActivity);
+  // The session's resync seams (#2696), ref-held like the ones above.
+  const onRefreshFeedRef = useRef(onRefreshFeed);
+  const onRefreshReadsRef = useRef(onRefreshReads);
 
   useEffect(() => {
     onPickLandedRef.current = onPickLanded;
@@ -128,6 +132,14 @@ export default function useDraftSocket(leagueId, { onPickLanded, onDraftActivity
   useEffect(() => {
     onDraftActivityRef.current = onDraftActivity;
   }, [onDraftActivity]);
+
+  useEffect(() => {
+    onRefreshFeedRef.current = onRefreshFeed;
+  }, [onRefreshFeed]);
+
+  useEffect(() => {
+    onRefreshReadsRef.current = onRefreshReads;
+  }, [onRefreshReads]);
 
   useEffect(() => {
     // Which Team the viewer holds is a fact about THIS league, so it is torn
@@ -151,9 +163,8 @@ export default function useDraftSocket(leagueId, { onPickLanded, onDraftActivity
     socketRef.current = newSocket;
     setSocket(newSocket);
 
-    // Shared by the initial connect and every reconnect: re-joins the draft
-    // room, which also makes the server push a fresh 'draft:state' snapshot
-    // (the resync mechanism for whatever happened while we were offline).
+    // Emits draft:join, which also makes the server push a fresh 'draft:state'
+    // snapshot. Run once per resync by useDraftRoomSession, never from here.
     const joinDraftRoom = () => {
       newSocket.emit('draft:join', { leagueId: Number(leagueId) }, (resp) => {
         // Membership follows the same code-authoritative rule as the two values
@@ -208,17 +219,18 @@ export default function useDraftSocket(leagueId, { onPickLanded, onDraftActivity
 
     newSocket.on('connect', () => {
       setReconnecting(false);
-      joinDraftRoom();
     });
 
     newSocket.on('disconnect', () => {
       setReconnecting(true);
     });
 
-    // Manager-level: fires after socket.io has re-established a dropped
-    // connection (e.g. a phone locking mid-draft). Re-join so we don't miss
-    // picks that happened while disconnected.
-    const offReconnect = onReconnect(newSocket, joinDraftRoom);
+    // Joining, and the resync that follows every join, belong to the session (#2696).
+    const closeSession = openDraftRoomSession(newSocket, {
+      join: joinDraftRoom,
+      refreshFeed: () => onRefreshFeedRef.current?.(),
+      refreshReads: () => onRefreshReadsRef.current?.(),
+    });
 
     // The same non-member state a NOT_A_MEMBER join ack produces, reached live.
     // An event for another league changes nothing.
@@ -261,7 +273,7 @@ export default function useDraftSocket(leagueId, { onPickLanded, onDraftActivity
     });
 
     return () => {
-      offReconnect?.(); // reconnect listener lives on the manager, which outlives the socket
+      closeSession(); // its reconnect listener lives on the manager, which outlives the socket
       newSocket.disconnect();
       socketRef.current = null;
       // Re-run on a league change (this cleanup, then a fresh effect) swaps the

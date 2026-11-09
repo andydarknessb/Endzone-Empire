@@ -41,14 +41,14 @@ test('the real tree is clean under the shipped allowlist', () => {
 
 // The clean test above passes trivially if the scan reached nothing. This one
 // pins it from the other side: with an empty allowlist the scan must surface
-// the two ruled hand-rolled sites, resolved to the exact units the allowlist
-// names - the module-level function and the route.
-test('with an empty allowlist the scan reaches both ruled sites', () => {
+// the ruled hand-rolled sites, resolved to the exact units the allowlist
+// names - the matchup detail read and the matchup route.
+test('with an empty allowlist the scan reaches the ruled sites', () => {
   const { unlisted } = check(SCAN_ROOTS, { allowlist: [] });
   assert.ok(unlisted.length >= 4, `empty allowlist must report every hit; got ${unlisted.length}`);
   assert.ok(
-    unlisted.some((v) => v.includes('server/services/leagueSettings.service.js') && v.includes('updateLeagueSettings')),
-    'the leagueSettings hits must resolve to updateLeagueSettings, not to the nested rejectUpdate closure'
+    unlisted.some((v) => v.includes('server/services/matchupDetail.service.js') && v.includes('getMatchupDetail')),
+    'the matchupDetail hits must resolve to getMatchupDetail'
   );
   assert.ok(
     unlisted.some((v) => v.includes('server/routes/league.router.js') && v.includes('GET /:id/matchups/:matchupId')),
@@ -195,6 +195,22 @@ test('a control statement built from a non-literal is out of scope', () => {
 
 test('a hit in a nested .catch callback is attributed to the owning function', () => {
   const source = 'async function owner(c){ await c.query(\'ROLLBACK\').catch(() => {}); }';
+  const hits = findHits(source);
+  assert.equal(hits.length, 1);
+  assert.equal(hits[0].unit, 'owner');
+});
+
+test('a ROLLBACK inside a nested closure is attributed to the named function that owns it', () => {
+  // Keeps the closure-resolution check covered: the real tree has no
+  // nested-closure site, so this fixture is its only subject.
+  const source = [
+    'async function owner(pool){',
+    '  const client = await pool.connect();',
+    '  const reject = async () => { await client.query(\'ROLLBACK\'); };',
+    '  await reject();',
+    '}',
+    '',
+  ].join('\n');
   const hits = findHits(source);
   assert.equal(hits.length, 1);
   assert.equal(hits[0].unit, 'owner');

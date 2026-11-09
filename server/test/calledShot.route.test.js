@@ -71,9 +71,13 @@ function mountWorld(t, {
   const fake = createFakePool([
     ...extra,
     [/^SELECT \* FROM "leagues"/, () => ({ rows: [league] })],
+    [/^SELECT "id" FROM "leagues"/, () => ({ rows: [{ id: league.id }] })],
     [/^SELECT "id" FROM "teams"/, () => ({ rows: team ? [team] : [] })],
     [/^SELECT "id", "nfl_team" FROM "players"/, (text, params) => ({
       rows: entries.filter((e) => params[0].includes(e.id)).map((e) => ({ id: e.id, nfl_team: e.nfl_team })),
+    })],
+    [/^SELECT "player_id", "slot" FROM "lineup_entries"/, (text, params) => ({
+      rows: entries.filter((e) => params[3].includes(e.id)).map((e) => ({ player_id: e.id, slot: e.slot })),
     })],
     [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({ rows: kickedOff.map((nfl_team) => ({ nfl_team })) })],
     [/^SELECT .*FROM "lineup_overrides"/, () => ({ rows: world.calledRow ? [world.calledRow] : [] })],

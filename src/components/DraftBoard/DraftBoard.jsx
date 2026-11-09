@@ -360,6 +360,11 @@ function DraftBoard() {
   // holds the actual logic, refreshed every render below, while the function
   // passed into the hook itself never changes.
   const pickLandedRef = useRef(() => {});
+  // The room's resync seams (#2696): the session calls these on every join and on
+  // every draft:state. The feed's resume is registered by DraftRoomChat, which only
+  // mounts for a member; the reads (pool, roster, Queue) are registered below.
+  const refreshReadsRef = useRef(() => {});
+  const feedResumeRef = useRef(() => {});
   // The newest live committed Pick, for the room-level Pick announcer (#513).
   // Set from the live-only onPickLanded seam below, never from draft:state, so
   // initial Pick history and reconnect snapshots are not spoken as new Picks.
@@ -416,6 +421,8 @@ function DraftBoard() {
     error: socketError,
   } = useDraftSocket(leagueId, {
     onPickLanded: (data) => pickLandedRef.current(data),
+    onRefreshFeed: () => feedResumeRef.current(),
+    onRefreshReads: () => refreshReadsRef.current(),
     // The live-only Draft-activity seam (#648): record the newest STALL-RELEVANT
     // lifecycle entry for the room-level announcer - both edges of the stuck
     // state, the `stalled` entry and an exit (resume/reset/complete), so the
@@ -502,7 +509,19 @@ function DraftBoard() {
     handleMoveUp,
     handleMoveDown,
     handleRemoveFromQueue,
+    refetch: refetchQueue,
   } = useDraftQueue(leagueId, { onError: setError });
+
+  // The reads a join or a draft:state refreshes (#2696): the pool, the viewer's
+  // roster and the Queue. Assigned every render so the session always reaches the
+  // current ones.
+  useEffect(() => {
+    refreshReadsRef.current = () => {
+      pool.refetch();
+      myRoster.refetchRoster();
+      refetchQueue();
+    };
+  });
   const admin = useDraftAdmin(leagueId, league, { onError: setError });
   const minimumTeams = Number.isInteger(Number(league?.min_teams)) ? Number(league.min_teams) : 2;
   const auctionUnavailable = league?.draft_type === 'auction';
@@ -791,6 +810,7 @@ function DraftBoard() {
       canModerate={isCommissioner}
       gifEnabled={gifMessagesEnabled}
       onMembershipRevoked={revokeMembership}
+      resumeRef={feedResumeRef}
     />
   ) : membership === MEMBERSHIP_NON_MEMBER ? (
     <DraftChatNonMember removedFrom={removedFrom} />

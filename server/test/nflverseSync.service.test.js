@@ -24,7 +24,7 @@ const {
   syncNflverseWeek,
 } = require('../services/nflverseSync.service');
 const scoring = { ...require('../services/scoringRules'), ...require('../services/boxScoreApply.service') };
-const correction = require('../services/correction.service');
+const settleSvc = require('../services/settle.service');
 
 // --- parseCsv ------------------------------------------------------------
 
@@ -825,21 +825,21 @@ function fakeNflverseWeekPool(t, dataSyncRunHandler) {
   ]).install(t);
 }
 
-test('syncNflverseWeek: the nflverse-week run row is recorded before the first correctLeagueWeek call', async (t) => {
+test('syncNflverseWeek: the nflverse-week run row is recorded before the first correctWeek call', async (t) => {
   stubNflverseWeekFeed(t);
   const events = [];
   const fake = fakeNflverseWeekPool(t, () => {
     events.push('data_sync_runs');
     return { rows: [] };
   });
-  t.mock.method(correction, 'correctLeagueWeek', async () => {
-    events.push('correctLeagueWeek');
+  t.mock.method(settleSvc, 'correctWeek', async () => {
+    events.push('correctWeek');
     return { changes: [] };
   });
 
   const out = await syncNflverseWeek({ season: 2025, week: 3 });
 
-  assert.deepEqual(events, ['data_sync_runs', 'correctLeagueWeek'],
+  assert.deepEqual(events, ['data_sync_runs', 'correctWeek'],
     'the run row commits (inside runSyncJob) before the re-score loop, which runs after runSyncJob resolves');
   assert.equal(out.playersUpdated, 1);
   assert.equal(out.leaguesRescored, 0);
@@ -849,7 +849,7 @@ test('syncNflverseWeek: the nflverse-week run row is recorded before the first c
 test('syncNflverseWeek: a re-score failure for one league logs and does not fail the run or change playersUpdated', async (t) => {
   stubNflverseWeekFeed(t);
   fakeNflverseWeekPool(t);
-  t.mock.method(correction, 'correctLeagueWeek', async () => {
+  t.mock.method(settleSvc, 'correctWeek', async () => {
     throw new Error('re-score exploded');
   });
   t.mock.method(console, 'error', () => {});
@@ -881,7 +881,7 @@ test('syncNflverseWeek: re-scores only leagues already past the finalized week, 
   ]);
   fake.install(t);
   const rescored = [];
-  t.mock.method(correction, 'correctLeagueWeek', async ({ leagueId }) => {
+  t.mock.method(settleSvc, 'correctWeek', async ({ leagueId }) => {
     rescored.push(leagueId);
     return { changes: [{ leagueId }] };
   });
@@ -918,7 +918,7 @@ test('syncNflverseWeek: target_share/air_yards_share/wopr/EPA land as new keys o
     [insert('data_sync_runs'), () => ({ rows: [] })],
     [select('leagues'), () => ({ rows: [] })],
   ]).install(t);
-  t.mock.method(correction, 'correctLeagueWeek', async () => ({ changes: [] }));
+  t.mock.method(settleSvc, 'correctWeek', async () => ({ changes: [] }));
 
   const out = await syncNflverseWeek({ season: 2025, week: 3 });
   assert.equal(out.playersUpdated, 1);
@@ -960,7 +960,7 @@ test('syncNflverseWeek: a share/EPA-only row with no idp yardage never creates a
     [insert('data_sync_runs'), () => ({ rows: [] })],
     [select('leagues'), () => ({ rows: [] })],
   ]).install(t);
-  t.mock.method(correction, 'correctLeagueWeek', async () => ({ changes: [] }));
+  t.mock.method(settleSvc, 'correctWeek', async () => ({ changes: [] }));
 
   const out = await syncNflverseWeek({ season: 2025, week: 3 });
   assert.equal(out.playersUpdated, 0, 'no row existed, and share/EPA data alone must not create one');
@@ -977,7 +977,7 @@ test('syncNflverseWeek: a non-zero per-defender yardage value creates the line w
     [insert('data_sync_runs'), () => ({ rows: [] })],
     [select('leagues'), () => ({ rows: [] })],
   ]).install(t);
-  t.mock.method(correction, 'correctLeagueWeek', async () => ({ changes: [] }));
+  t.mock.method(settleSvc, 'correctWeek', async () => ({ changes: [] }));
 
   const out = await syncNflverseWeek({ season: 2025, week: 3 });
   assert.equal(out.playersUpdated, 1);
@@ -1078,7 +1078,7 @@ test('patchCurrentWeeks patches each league\'s CURRENT week once, records the nf
   const matchupScoring = require('../services/matchupScoring.service');
   let rescores = 0;
   t.mock.method(matchupScoring, 'scoreMatchups', async () => { rescores += 1; return { scored: [] }; });
-  t.mock.method(correction, 'correctLeagueWeek', async () => { rescores += 1; return { changes: [] }; });
+  t.mock.method(settleSvc, 'correctWeek', async () => { rescores += 1; return { changes: [] }; });
 
   const out = await nflverseSync.patchCurrentWeeks();
 
@@ -1559,7 +1559,7 @@ function stubFinalizeWorld(t, { snapsFail = false } = {}) {
       rows: params ? [{ id: 7 }] : [{ id: 7, current_season: 2025, current_week: 2 }],
     })],
   ]).install(t);
-  t.mock.method(correction, 'correctLeagueWeek', async () => ({ changes: [] }));
+  t.mock.method(settleSvc, 'correctWeek', async () => ({ changes: [] }));
   return urls;
 }
 

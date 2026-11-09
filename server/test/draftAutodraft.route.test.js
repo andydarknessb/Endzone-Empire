@@ -33,7 +33,7 @@ const toggle = (actorId, enabled) => request(app)
   .send({ enabled });
 
 // The Draft act module's serializing lock on the League row (#967). It replaces
-// this suite's private `/FROM "leagues"[\s\S]*FOR UPDATE/` matcher, which was,
+// this suite's private `/(?:FROM "leagues"[\s\S]*FOR NO KEY UPDATE|UPDATE "leagues" SET "board_version" = "board_version" \+ 1)/` matcher, which was,
 // until this PR, the only thing here binding that the autodraft toggle locked
 // the League row before it wrote a Team. That ordering is now structural -
 // runDraftAct takes the lock as its first statement after BEGIN, and
@@ -41,7 +41,7 @@ const toggle = (actorId, enabled) => request(app)
 // owns it - so the private matcher is deleted rather than restated. This
 // matcher is still load-bearing in THIS suite: drop it and the module's lock
 // read hits the fake pool's unregistered-query throw and every test reddens.
-const ACT_LOCK = /^SELECT \* FROM "leagues" WHERE "id" = \$1 FOR UPDATE$/;
+const ACT_LOCK = /^(?:SELECT \* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE|UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*)$/;
 // The act module loads Teams in rotation order and the body picks the target
 // Team out of that list, so the route no longer issues its own
 // `SELECT "id", "owner_id" FROM "teams" WHERE "id" = $1 AND "league_id" = $2`.
@@ -89,6 +89,20 @@ function autodraftPool({ isCommissioner, teamOwnerId = MANAGER_ID, league = true
  * decision.
  */
 function onClockPool({ draftType }) {
+  const leagueRow = () => ({
+    rows: [{
+      id: LEAGUE_ID,
+      owner_id: COMMISSIONER_ID,
+      draft_status: 'active',
+      draft_type: draftType,
+      current_pick: 0,
+      draft_paused: false,
+      pick_time_seconds: 90,
+      autodraft_delay_seconds: 8,
+      draft_rotation: 'snake',
+      draft_order_overrides: null,
+    }],
+  });
   const armed = [];
   const fake = createFakePool([
     [/SELECT "pickem_only" FROM "leagues"/, () => ({ rows: [{ pickem_only: false }] })],
@@ -96,20 +110,10 @@ function onClockPool({ draftType }) {
     [/^SELECT 1 FROM "leagues" WHERE "id" = \$1 AND/, () => ({ rows: [] })],
     // The act module's lock read and onAutodraftToggled's policy read are both
     // SELECT ... FROM "leagues"; one full row answers both (#948).
-    [select('leagues'), () => ({
-      rows: [{
-        id: LEAGUE_ID,
-        owner_id: COMMISSIONER_ID,
-        draft_status: 'active',
-        draft_type: draftType,
-        current_pick: 0,
-        draft_paused: false,
-        pick_time_seconds: 90,
-        autodraft_delay_seconds: 8,
-        draft_rotation: 'snake',
-        draft_order_overrides: null,
-      }],
-    })],
+    // The act module's lock is the board-version UPDATE (ADR 0025, 2026-11-06); it
+    // and the policy read answer with the same full row.
+    [/^UPDATE "leagues" SET "board_version"/, leagueRow],
+    [select('leagues'), leagueRow],
     // The act module's rotation-order Teams read, which is now also the on-clock
     // resolution list: TEAM_ID holds pick 0, so it is on the clock.
     [ACT_TEAMS, () => ({
@@ -118,7 +122,7 @@ function onClockPool({ draftType }) {
     [ACT_ACTING_TEAM, () => ({ rows: [] })],
     [update('teams'), () => ({ rows: [], rowCount: 1 })],
     [update('leagues'), (text, params) => {
-      armed.push(params);
+      if (!text.includes('"board_version"')) armed.push(params);
       return { rows: [{ pick_deadline_at: null }] };
     }],
   ]);

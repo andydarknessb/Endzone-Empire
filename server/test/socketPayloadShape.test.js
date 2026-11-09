@@ -6,7 +6,6 @@ const { createSocketHarness } = require('./helpers/socketHarness');
 const { installRecordingBroadcast } = require('./helpers/recordingBroadcast');
 const { TEAM_IDENTITY_FIELDS } = require('../services/teamIdentity');
 const {
-  presencePayload,
   chatMessagePayload,
   joinAck,
 } = require('../modules/draftSocket');
@@ -98,24 +97,6 @@ function assertForbidden(obj, fields) {
   }
 }
 
-// ============================================================ draft:presence
-// presencePayload(user, team) -> { teamId, teamName, joined }
-// (the `user` argument is no longer read; the signature is kept, see the module)
-
-const presence = () => presencePayload(
-  { id: VIEWER.userId, username: VIEWER.username },
-  { id: VIEWER.teamId, name: VIEWER.teamName }
-);
-const PRESENCE_CLEAN = [TEAM_ID, TEAM_NAME, 'joined'];
-
-test('draft:presence never carries a viewer-relative field', () => {
-  assertForbidden(presence(), VIEWER_RELATIVE);
-});
-
-test('draft:presence is the joining manager\'s Team and nothing about their account', () => {
-  assertExactKeys(presence(), PRESENCE_CLEAN);
-});
-
 // =============================================================== chat:message
 // chatMessagePayload(...) ->
 //   { type, id, seq, leagueId, teamId, teamName, message, created_at }
@@ -190,6 +171,7 @@ function pickWorld(t) {
         : [],
     })],
     [/^SELECT 1 FROM "leagues"/, () => ({ rows: [] })],
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [{ ...PICKED_LEAGUE }] })],
     [select('leagues'), () => ({ rows: [{ ...PICKED_LEAGUE }] })],
     [select('teams'), () => ({ rows: [
       { id: VIEWER.teamId, name: VIEWER.teamName, owner_id: VIEWER.userId, draft_position: 1, autodraft: false, locked: false },
@@ -245,7 +227,7 @@ async function capturePicked(t) {
 // sites share this set), so both carry it; deleting it from the outcome turns
 // the pick-handler capture red against this exact-key guard.
 const PICKED_ROOT_CLEAN = [
-  'activity', 'completion', 'auto', 'draftComplete', 'leagueId', 'nextPickIndex', 'nextTeamId', 'pickDeadlineAt', 'pickNumber', 'player', 'seq', TEAM_ID, TEAM_NAME,
+  'activity', 'boardVersion', 'completion', 'auto', 'draftComplete', 'leagueId', 'nextPickIndex', 'nextTeamId', 'pickDeadlineAt', 'pickNumber', 'player', 'seq', TEAM_ID, TEAM_NAME,
 ];
 
 // The Draft-activity entry now rides on a room broadcast, so it is bound by the
@@ -302,6 +284,7 @@ async function captureAutopickPicked(t) {
     // The next open index the clock wrote this commit (#854); a root key on
     // every outcome, so the autopick emit carries it too.
     nextPickIndex: 1,
+    boardVersion: 4,
     draftComplete: false,
     pickDeadlineAt: null,
     // commitPick returns the typed activity entry; the autopick emit spreads it
@@ -427,6 +410,7 @@ const draftStateTeamRow = ({ teamId, teamName }, draftPosition) => ({
 
 function draftStateFake(t) {
   return createFakePool([
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [{ ...DRAFT_STATE_LEAGUE }] })],
     [select('leagues'), () => ({ rows: [{ ...DRAFT_STATE_LEAGUE }] })],
     [/FROM "league_feed_sequences"/, () => ({ rows: [{ last_seq: '5' }] })],
     [/FROM "teams"\s+WHERE/, () => ({

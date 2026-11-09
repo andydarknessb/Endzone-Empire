@@ -68,7 +68,7 @@ function correctionPool({
     // distinct refusals for not-commissioner vs not-active). The roster move
     // module's gate reads the same row for the freeze, so `transactionsLocked`
     // rides it too.
-    [/FROM "leagues"[\s\S]*FOR UPDATE/, () => ({
+    [/(?:FROM "leagues"[\s\S]*FOR NO KEY UPDATE|UPDATE "leagues" SET "board_version" = "board_version" \+ 1)/, () => ({
       rows: [{
         id: LEAGUE_ID, draft_status: status, current_pick: currentPick, draft_paused: false,
         transactions_locked: transactionsLocked,
@@ -114,7 +114,7 @@ test('POST correct-pick: pauses, reverses the latest non-keeper Pick, appends a 
   assert.equal(fake.matching(remove('lineup_entries')).length, 1);
 
   // The league UPDATE pauses and rewinds in the same transaction.
-  const leagueUpdate = fake.matching(update('leagues'));
+  const leagueUpdate = fake.matching(update('leagues')).filter((c) => !c.text.includes('"board_version"'));
   assert.equal(leagueUpdate.length, 1);
   assert.match(leagueUpdate[0].text, /"draft_paused" = true/);
   assert.match(leagueUpdate[0].text, /"pick_deadline_at" = NULL/);
@@ -163,8 +163,8 @@ test('POST correct-pick: locks the league FOR UPDATE before any mutation, serial
   assert.equal(res.status, 200, JSON.stringify(res.body));
 
   const order = fake.calls.map((c) => c.text);
-  const lockIdx = order.findIndex((t2) => /FROM "leagues"[\s\S]*FOR UPDATE/.test(t2));
-  const firstMutationIdx = order.findIndex((t2) => /^DELETE|^UPDATE/.test(t2));
+  const lockIdx = order.findIndex((t2) => /(?:FROM "leagues"[\s\S]*FOR NO KEY UPDATE|UPDATE "leagues" SET "board_version" = "board_version" \+ 1)/.test(t2));
+  const firstMutationIdx = order.findIndex((t2) => /^DELETE|^UPDATE/.test(t2) && !t2.includes('"board_version"'));
   assert.ok(lockIdx >= 0, 'the league is locked FOR UPDATE');
   assert.ok(firstMutationIdx > lockIdx, 'the lock is taken before any DELETE/UPDATE');
 });

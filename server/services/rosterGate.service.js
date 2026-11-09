@@ -1,7 +1,7 @@
 const { isOnWaivers } = require('./waiverStatus');
-const { rosterCapacity } = require('./irPolicy.service');
-const { POSITION_GROUPS, lockedPlayerIds } = require('./lineup.service');
+const { lockedPlayerIds } = require('./lineup.service');
 const { DraftError } = require('./draftError');
+const { rosterFit, positionCapGroup, parsePositionCaps, countAtPositionGroup } = require('./rosterFit.service');
 
 /**
  * A roster write's direction. The freeze and the Team lock apply to both;
@@ -75,41 +75,14 @@ const asBypassSet = (bypass) => {
   return set;
 };
 
-// The gate reads its own League row FOR UPDATE (#944 rule 1): every column the
-// freeze check and the acquire bundle need, listed so a caller cannot starve
-// the gate of the freeze fact by handing it a row that never selected it.
+// The gate's League read takes no lock: every caller holds the League row through its
+// League write (ADR 0070), so nothing can change it under this read. It carries every
+// column the freeze check and the acquire bundle need, so a caller cannot starve the gate.
 // current_season/current_week are the kicked-off check's week (#1376, ADR 0043).
 const LEAGUE_GATE_SELECT =
   `SELECT "id", "transactions_locked", "draft_status", "roster_limit", "ir_slots",
           "position_caps", "waivers_clear_at", "current_season", "current_week"
-     FROM "leagues" WHERE "id" = $1 FOR UPDATE`;
-
-/**
- * Position caps are keyed at the same granularity as positionCapsFeasible's
- * POSITION_KEYS: literal offense positions plus the three IDP group keys
- * (DL/LB/DB) rather than every specific position Tank01 reports. A 'CB' must
- * therefore be checked (and counted) against the 'DB' cap, not a literal
- * 'CB' cap that would never be set.
- */
-function positionCapGroup(position) {
-  return Object.keys(POSITION_GROUPS).find((key) => POSITION_GROUPS[key].includes(position)) || position;
-}
-
-/** A league's position_caps column as an object (it may arrive as a JSON string). */
-const parsePositionCaps = (positionCaps) => (
-  typeof positionCaps === 'string' ? JSON.parse(positionCaps) : positionCaps || {}
-);
-
-/** How many players a team rosters in one cap group (the group key is the position itself when it is not a group). */
-async function countAtPositionGroup(client, { teamId, group }) {
-  const countResult = await client.query(
-    `SELECT COUNT(*)::int AS n FROM "team_players"
-     JOIN "players" ON "players"."id" = "team_players"."player_id"
-     WHERE "team_players"."team_id" = $1 AND "players"."position" = ANY($2::text[])`,
-    [teamId, POSITION_GROUPS[group] || [group]]
-  );
-  return countResult.rows[0].n;
-}
+     FROM "leagues" WHERE "id" = $1`;
 
 /** Enforce a team's per-position draft cap (if the league sets one for this player's cap group). Throws DraftError(409) when full. */
 async function assertPositionCapNotReached(client, { teamId, positionCaps, position }) {
@@ -161,23 +134,22 @@ async function isPlayersTeamKickedOff(client, { league, playerId }) {
  * spot beyond the draft roster size (#97). The added player himself earns no
  * restored credit - an add benches him (undoDrop is the one restore).
  */
-async function assertRosterAcquisitionAllowed(client, { league, teamId, playerId, position, bypass }) {
+async function assertRosterAcquisitionAllowed(client, { league, teamId, playerId, position, bypass, moves }) {
   const skip = asBypassSet(bypass);
 
-  if (!skip.has(ROSTER_GATE.CAPACITY)) {
-    const rosterCountResult = await client.query(
-      `SELECT COUNT(*)::int AS n FROM "team_players" WHERE "team_id" = $1`,
-      [teamId]
-    );
-    const capacity = await rosterCapacity(client, { league, teamId });
-    if (rosterCountResult.rows[0].n >= capacity) {
-      throw new DraftError(409, `roster capacity of ${capacity} reached`);
-    }
-  }
-
-  if (!skip.has(ROSTER_GATE.POSITION_CAP)) {
-    await assertPositionCapNotReached(client, { teamId, positionCaps: league.position_caps, position });
-  }
+  // One fit answer (rosterFit). `moves` is the Team's pending move set when a caller
+  // writes several moves in turn (a trade leg); without it, the one add is the whole move.
+  // The caller's position for the add spares rosterFit a players-table read.
+  const refusal = await rosterFit(client, {
+    league,
+    teamId,
+    adds: moves ? moves.adds : [playerId],
+    drops: moves ? moves.drops : [],
+    checkCapacity: !skip.has(ROSTER_GATE.CAPACITY),
+    checkPositionCap: !skip.has(ROSTER_GATE.POSITION_CAP),
+    knownPositions: new Map(position === undefined ? [] : [[playerId, position]]),
+  });
+  if (refusal) throw new DraftError(409, refusal);
 
   // Post-draft pickups are free agency: players still on waivers must be claimed
   // through the waiver process instead. An active draft never reaches this branch
@@ -227,11 +199,10 @@ function isLeagueFrozen(league) {
  * and an exact-set bypass list, so a seventeenth roster write inherits every
  * rule (#940 story 14).
  *
- * Rule 1 - the gate reads the freeze itself. It re-reads the League row FOR
- * UPDATE (a no-op re-lock when the caller already holds it, per this spec's
- * League-first order) rather than trusting a caller-supplied league object, so
- * no caller can starve it of the freeze fact by passing a row that never
- * carried the column (#940 story 15).
+ * Rule 1 - the gate reads the freeze off the League row its caller holds. The
+ * League write (ADR 0070) locks that row and hands it over, so the gate takes
+ * no League lock of its own, and a row without the freeze column is refused by
+ * rule 2 (#940 story 15).
  *
  * Rule 2 - the gate fails closed on a gate-input column the row cannot answer.
  * Reading the row is not enough: the fake pool's matcher keys on verb + leading
@@ -245,18 +216,17 @@ function isLeagueFrozen(league) {
  * freeze refusal that looked like one would destroy every accepted trade whose
  * review window ended during a freeze (#940).
  *
- * Lock order is League then Team: the gate locks the League row, then the Team
- * row, matching every wired caller, so adopting it introduces no AB/BA deadlock.
+ * Lock order is League then Team: the caller's League write has locked the
+ * League row, and the gate locks the Team row, so no AB/BA deadlock.
  */
-async function assertRosterWriteAllowed(client, { leagueId, teamId, direction, playerId, position, bypass }) {
+async function assertRosterWriteAllowed(client, { leagueId, teamId, direction, playerId, position, bypass, moves }) {
   if (direction !== DIRECTION.ACQUIRE && direction !== DIRECTION.RELEASE) {
     throw new DraftError(500, `roster gate: unknown direction "${direction}"; refusing`, 'ROSTER_GATE_INDETERMINATE');
   }
   const skip = asBypassSet(bypass);
 
-  // Lock the League row first, then the Team row: one order on every path, so
-  // adopting the gate introduces no AB/BA deadlock (#940 story 18). Both are
-  // re-locks when the caller already holds them.
+  // The caller's League write holds the row (ADR 0070), so this read needs no lock of
+  // its own and the gate locks only the Team row below.
   const leagueResult = await client.query(LEAGUE_GATE_SELECT, [leagueId]);
   const league = leagueResult.rows[0];
   if (!league) throw new DraftError(404, 'league not found');
@@ -290,7 +260,7 @@ async function assertRosterWriteAllowed(client, { leagueId, teamId, direction, p
   // reads its OWN league row here too, so the acquire bundle is never fed a
   // caller-supplied object either.
   if (direction === DIRECTION.ACQUIRE) {
-    await assertRosterAcquisitionAllowed(client, { league, teamId, playerId, position, bypass: skip });
+    await assertRosterAcquisitionAllowed(client, { league, teamId, playerId, position, bypass: skip, moves });
   }
 }
 
@@ -298,9 +268,6 @@ module.exports = {
   assertRosterWriteAllowed,
   assertRosterAcquisitionAllowed,
   assertPositionCapNotReached,
-  positionCapGroup,
-  parsePositionCaps,
-  countAtPositionGroup,
   isLeagueFrozen,
   DIRECTION,
   ROSTER_GATE,

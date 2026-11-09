@@ -53,7 +53,11 @@ function fakeDb(t, { member = null, overrides = [] } = {}) {
     [/^(BEGIN|COMMIT|ROLLBACK)$/, () => ({ rows: [] })],
     [/SELECT "pickem_only" FROM "leagues"/, () => ({ rows: [{ pickem_only: false }] })],
     [/FROM "leagues" WHERE "id" = \$1/, () => ({ rows: [LEAGUE] })],
+    // The League write's lock (UPDATE ... RETURNING *, ADR 0070) reads the same row.
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [LEAGUE] })],
     [/FROM "teams" WHERE "league_id" = \$1 AND "owner_id" = \$2/, () => ({ rows: member ? [member] : [] })],
+    // The Draft act's Teams snapshot, read under the League lock (draftAct.service.js).
+    [/^SELECT "id", "owner_id", "autodraft", "draft_position" FROM "teams"/, () => ({ rows: member ? [member] : [] })],
     [/FROM "trades" WHERE "id" = \$1/, () => ({
       rows: [{ id: 77, league_id: 3, status: 'accepted', proposing_team_id: 51, receiving_team_id: 52 }],
     })],
@@ -163,11 +167,19 @@ const rejectsAsNonMember = (promise) => assert.rejects(promise, (error) => {
  * suite's verb sweep.
  */
 const writes = (calls) => calls.filter((c) => /^(INSERT INTO|UPDATE|DELETE FROM) /.test(c.text));
-const assertNoWrites = (calls, label) => assert.deepEqual(
-  writes(calls).map((c) => c.text),
-  [],
-  `${label}: a refused caller wrote nothing`
-);
+// The League write's board-version advance is taken before a refusal, and it must be
+// rolled back with it (ADR 0070): a refusal that commits the advance is a write.
+const assertNoWrites = (calls, label) => {
+  assert.deepEqual(
+    writes(calls).filter((c) => !/^UPDATE "leagues" SET "board_version"/.test(c.text)).map((c) => c.text),
+    [],
+    `${label}: a refused caller wrote nothing`
+  );
+  assert.ok(
+    !(calls.some((c) => c.text === 'COMMIT') && calls.some((c) => /"board_version"/.test(c.text))),
+    `${label}: a refusal does not commit the League advance`
+  );
+};
 
 // --- draft router -----------------------------------------------------------
 
@@ -219,25 +231,41 @@ test('draft router: PUT /queue locks the member Team row while rewriting the que
 });
 
 // #274, documented exemption (no write count applies here, and asserting one
-// would be WRONG): this refusal is produced BY the mutation rather than by a
-// guard above it. The route issues exactly one UPDATE whose WHERE clause IS
-// the membership test, and the 403 is triggered by that statement matching no
-// row. The UPDATE always runs, so there is no work a guard could sink below.
-//
-// What the test needed instead: the override answers { rows: [] } for ANY
-// params, so the 403 was manufactured by the fixture, not by the statement's
-// scoping. Dropping either conjunct from the production SQL could not fail
-// this test. Pin the predicate instead of the count.
+// would be WRONG): this refusal is produced BY the statement rather than by a
+// guard above it. The readiness act takes the League lock first, then refuses a
+// caller who owns no Team in a pending League: the Team UPDATE is scoped to the
+// caller's own Team and matches no row for a non-member. The refusal throws, so
+// the rollback undoes the lock's board-version advance. This test pins that
+// scoping; the Team-removed case has its own test below.
 test('draft router: POST /league/:id/ready refuses a non-member without the roster-shaped wording', async (t) => {
-  const calls = fakeDb(t, { overrides: [[/UPDATE "teams" SET "draft_ready"/, () => ({ rows: [] })]] });
+  const calls = fakeDb(t, {
+    overrides: [[/^UPDATE "leagues" SET "board_version"/, () => ({ rows: [{ ...LEAGUE, draft_status: 'pending' }] })]],
+  });
   const res = await request(routes)
     .post('/api/draft/league/3/ready').set('Authorization', authed()).send({ ready: true });
   assert.equal(res.status, 403, JSON.stringify(res.body));
   assert.equal(res.body.error, `${REFUSAL}, or the draft is not pending`);
-  const ready = writes(calls).filter((c) => /^UPDATE "teams" SET "draft_ready"/.test(c.text));
-  assert.equal(ready.length, 1, 'the single scoped UPDATE is the refusal mechanism');
-  assert.match(ready[0].text, /"owner_id" = \$3/, 'scoped to the caller, which is the membership test');
-  assert.match(ready[0].text, /"draft_status" = 'pending'/, 'and to a pending draft');
+  const toggle = writes(calls).filter((c) => /^UPDATE "teams" SET "draft_ready"/.test(c.text));
+  assert.equal(toggle.length, 1, 'one Team write, scoped to the caller');
+  assert.match(toggle[0].text, /"owner_id" = \$3/, 'scoped to a Team the caller owns, which is the membership test');
+  assert.deepEqual(toggle[0].params, [true, 3, CALLER]);
+  assert.ok(calls.some((c) => c.text === 'ROLLBACK'), 'the refusal rolled the lock back');
+  assert.ok(!calls.some((c) => c.text === 'COMMIT'), 'nothing committed');
+});
+
+test('draft router: a Team removed after the lock refuses, and the lock rolls back', async (t) => {
+  const calls = fakeDb(t, {
+    overrides: [
+      [/^UPDATE "leagues" SET "board_version"/, () => ({ rows: [{ ...LEAGUE, draft_status: 'pending' }] })],
+      [/^UPDATE "teams" SET "draft_ready"/, () => ({ rows: [] })],
+    ],
+  });
+  const res = await request(routes)
+    .post('/api/draft/league/3/ready').set('Authorization', authed()).send({ ready: true });
+  assert.equal(res.status, 403, JSON.stringify(res.body));
+  assert.equal(res.body.error, `${REFUSAL}, or the draft is not pending`);
+  assert.ok(calls.some((c) => c.text === 'ROLLBACK'), 'the transaction rolled back, undoing the lock');
+  assert.ok(!calls.some((c) => c.text === 'COMMIT'), 'nothing committed');
 });
 
 // --- trades router ----------------------------------------------------------
@@ -257,7 +285,7 @@ test('trades router: GET / and POST /analyze refuse a non-member with the standa
 // The gate's own reads (#962), as overrides: explicit column lists that the
 // substring defaults above would otherwise answer with the wrong rows.
 const dropGateHandlers = ({ frozen = false, locked = false } = {}) => [
-  [/^SELECT "id", "transactions_locked",.* FROM "leagues" WHERE "id" = \$1 FOR UPDATE/,
+  [/^SELECT "id", "transactions_locked",.* FROM "leagues" WHERE "id" = \$1$/,
     () => ({ rows: [{ id: 3, transactions_locked: frozen }] })],
   [/^SELECT "id", "locked" FROM "teams" WHERE "id" = \$1 FOR UPDATE/,
     () => ({ rows: [{ id: TEAM.id, locked }] })],
@@ -288,9 +316,9 @@ test('draft service: dropPlayer refuses a non-member, and no longer locks the Te
   assert.doesNotMatch(teamLookups(calls)[0].text, /FOR UPDATE$/, 'the membership read takes no row lock');
   // The refusal moved from an inline check into the gate, keeping its message
   // and gaining the TEAM_LOCKED code. It still sits above every write.
-  const leagueLockAt = calls.findIndex((c) => /^SELECT "id", "transactions_locked".*FOR UPDATE$/.test(c.text));
+  const leagueLockAt = calls.findIndex((c) => /^(?:SELECT \* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE|UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*)$/.test(c.text));
   const teamLockAt = calls.findIndex((c) => /^SELECT "id", "locked" FROM "teams".*FOR UPDATE$/.test(c.text));
-  assert.ok(leagueLockAt >= 0 && teamLockAt >= 0, 'the gate locked both rows');
+  assert.ok(leagueLockAt >= 0 && teamLockAt >= 0, 'the League write and the gate locked both rows');
   assert.ok(leagueLockAt < teamLockAt, 'League before Team, the one order on every path');
   assertNoWrites(calls, 'dropPlayer locked team');
 });

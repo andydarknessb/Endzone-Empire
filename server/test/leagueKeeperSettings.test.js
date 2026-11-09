@@ -38,6 +38,7 @@ function transactionClient({ currentCount = 2, assignmentCounts = [] } = {}) {
       if (text.includes('COUNT(*)::int AS "count"')) return { rows: assignmentCounts };
       if (text.startsWith('DELETE FROM "keepers"')) return { rows: [], rowCount: assignmentCounts.length };
       if (text.startsWith('UPDATE "leagues"')) return { rows: [{ id: 1, owner_id: 7, draft_status: 'pending' }] };
+      if (text.startsWith('SELECT 1 FROM "leagues"')) return { rows: [{ '?column?': 1 }] };
       throw new Error(`Unexpected SQL: ${text}`);
     },
   };
@@ -83,7 +84,7 @@ test('reducing keeper count below existing assignments rolls back with a clear c
   // by construction. It is here to catch a future refactor that decouples
   // them, not to catch a moved guard.
   assert.deepEqual(
-    tx.calls.filter((sql) => /^(UPDATE "leagues"|DELETE FROM "keepers")/.test(sql)),
+    tx.calls.filter((sql) => /^(UPDATE "leagues" SET (?!"board_version")|DELETE FROM "keepers")/.test(sql)),
     [],
     'the settings write did not run (and no keeper wipe, which this branch cannot reach)'
   );

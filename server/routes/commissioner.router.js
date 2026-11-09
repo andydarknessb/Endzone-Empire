@@ -1,7 +1,6 @@
 const express = require('express');
 const { requireAuth } = require('../modules/auth');
 const commissioner = require('../services/commissioner.service');
-const { getDraftRoomBroadcast } = require('../modules/draftRoomBroadcast');
 const { requireFantasyLeague } = require('../services/leagueType');
 
 const router = express.Router();
@@ -223,7 +222,6 @@ router.post('/league/:id/force-transaction', fantasyOnly, async (req, res) => {
   }
   try {
     const outcome = await commissioner.forceTransaction({ leagueId, userId: req.user.id, teamId, action, playerId });
-    await getDraftRoomBroadcast().rosterChanged(leagueId);
     res.json(outcome);
   } catch (error) {
     handle(res, error, 'failed to force transaction');

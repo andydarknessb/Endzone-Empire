@@ -81,9 +81,10 @@ function transactionHarness(state) {
         state.rolledBack = true;
         return { rows: [] };
       }
-      // requireCommissioner selects the league plus an is_commissioner flag
-      // (owner or co-commissioner) — the caller here is the owner.
-      if (normalized.includes('FROM "leagues"') && normalized.includes('FOR UPDATE')) {
+      // The League write's lock (a bare league read) and requireCommissioner's
+      // is_commissioner read (owner or co-commissioner; the caller here is the owner).
+      if (/^SELECT (\*|\*, \(.*\) AS "is_commissioner") FROM "leagues" WHERE "id" = \$1( FOR NO KEY UPDATE)?$/.test(normalized)
+        || /^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/.test(normalized)) {
         return { rows: [{ ...state.league, is_commissioner: true }] };
       }
       if (normalized.includes('SELECT "id", "name", "owner_id" FROM "teams"')) {
@@ -208,7 +209,7 @@ describe('multi-season rollover transaction', () => {
     const trophyWriteIndex = queryLog.findIndex(({ sql }) => sql.startsWith('INSERT INTO "trophies"'));
     const historyWriteIndex = queryLog.findIndex(({ sql }) => sql.startsWith('INSERT INTO "league_history"'));
     const rosterResetIndex = queryLog.findIndex(({ sql }) => sql.startsWith('DELETE FROM "team_players"'));
-    const leagueResetIndex = queryLog.findIndex(({ sql }) => sql.startsWith('UPDATE "leagues"'));
+    const leagueResetIndex = queryLog.findIndex(({ sql }) => sql.startsWith('UPDATE "leagues"') && !sql.includes('"board_version"'));
 
     expect(trophyWriteIndex).toBeGreaterThan(-1);
     expect(historyWriteIndex).toBeGreaterThan(trophyWriteIndex);

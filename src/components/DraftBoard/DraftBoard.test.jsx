@@ -859,6 +859,19 @@ test('a pick landing refetches the caller\'s own roster only when THAT pick is t
   );
 });
 
+test('once joined, every draft:state re-fetches the player pool and the viewer\'s roster once more', async () => {
+  renderBoard(1);
+  await screen.findByText('Patrick Mahomes');
+  connectAsTeam(1);
+  apiClient.get.mockClear();
+
+  act(() => fakeSocket.trigger('draft:state', stateEvent(activeLeague())));
+
+  expect(apiClient.get.mock.calls.filter(([url]) => url === '/api/players')).toHaveLength(1);
+  expect(apiClient.get).toHaveBeenCalledWith('/api/team/roster', { params: { leagueId: 1 } });
+  expect(apiClient.get.mock.calls.filter(([url]) => url === '/api/team/roster')).toHaveLength(1);
+});
+
 test('a draft:picked event with draftComplete shows the completion banner and marks the league complete', async () => {
   renderBoard(1);
   await screen.findByText('Patrick Mahomes');

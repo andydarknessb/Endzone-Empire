@@ -1,11 +1,13 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { createFakePool, select, update } = require('./helpers/fakePool');
+const matchupScoring = require('../services/matchupScoring.service');
+const settleFollowUpSvc = require('../services/settleFollowUp.service');
 const {
-  finalizeWeekAndAdvance,
   waiverPrioritiesFromStandings,
   computeStandings,
 } = require('../services/season.service');
+const { settleWeek } = require('../services/settle.service');
 const lineupService = require('../services/lineup.service');
 
 /**
@@ -56,6 +58,7 @@ function advancePool() {
   // whole-season read by hand so the standings computed after it count week 3.
   let week3Final = false;
   return createFakePool([
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [{ ...LEAGUE }] })],
     [select('leagues'), () => ({ rows: [{ ...LEAGUE }] })],
     [select('teams'), () => ({ rows: TEAMS })],
     [select('matchups'), (text, params) => {
@@ -87,9 +90,11 @@ test('waiverPrioritiesFromStandings: an empty table yields no order', () => {
 
 test('finalizing a week resets waiver priority to reverse standings, inside the advance transaction', async (t) => {
   t.mock.method(lineupService, 'materializeLineup', async () => {});
+  t.mock.method(matchupScoring, 'scoreMatchupsInTransaction', async () => null);
+  t.mock.method(settleFollowUpSvc, 'settleFollowUp', async () => {});
   const fake = advancePool().install(t);
 
-  const outcome = await finalizeWeekAndAdvance({ leagueId: 1 });
+  const { advance: outcome } = await settleWeek({ leagueId: 1 });
   assert.equal(outcome.advancedTo, 4);
 
   const resets = fake.matching(update('teams'));
@@ -112,11 +117,12 @@ test('finalizing a week resets waiver priority to reverse standings, inside the 
 
 test('a refused finalize writes no waiver priority', async (t) => {
   const fake = createFakePool([
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [{ ...LEAGUE, season_status: 'complete' }] })],
     [select('leagues'), () => ({ rows: [{ ...LEAGUE, season_status: 'complete' }] })],
     [update('teams'), () => ({ rows: [], rowCount: 4 })],
   ]).install(t);
 
-  await assert.rejects(finalizeWeekAndAdvance({ leagueId: 1 }), { statusCode: 409 });
+  await assert.rejects(settleWeek({ leagueId: 1 }), { statusCode: 409 });
   assert.equal(fake.matching(update('teams')).length, 0);
   fake.assertClean();
 });

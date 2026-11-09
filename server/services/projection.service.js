@@ -1729,20 +1729,42 @@ function classifyProjectionEntry(projection) {
 // The data-quality reason the engine (projectionModel.confidenceFor) attaches to
 // a Position-baseline projection. Named once so the read path and its tests agree.
 const POSITION_BASELINE_REASON = 'position baseline';
+const THIN_HISTORY_MAX_GAMES = 2;
 
 /**
  * Pure: true exactly when a projection entry's data-quality reasons contain
  * `POSITION_BASELINE_REASON`. The one definition of the marker: production's
  * `positionBaselineFor` and the backtest drivers (which inject it, because
  * nothing in `scripts/backtest` may require `server/services`) both use it.
- * Anything that is not an entry carrying the reasons (null, a bare number)
- * reads false.
+ * Production also reads a Thin-history projection as no history; the drivers
+ * do not. Anything that is not an entry carrying the reasons (null, a bare
+ * number) reads false.
  */
 function isPositionBaselineEntry(entry) {
   const dataQuality = entry && entry.factors ? entry.factors.dataQuality : null;
   return !!(dataQuality
     && Array.isArray(dataQuality.reasons)
     && dataQuality.reasons.includes(POSITION_BASELINE_REASON));
+}
+
+/**
+ * Pure: true when a stored row is a Thin-history projection (ADR 0053 as
+ * amended 2026-11-08): one or two games behind it, none from this season. The
+ * row's recency weight answers "none this season": in weeks 1 to 18, any game
+ * this season weighs more than `recencyWeight(week)` and two from an earlier
+ * season weigh less, with room for `effectiveGames` being stored to 2 places.
+ * A run with no week reads false, because the weight means nothing without one.
+ * Kept apart from `isPositionBaselineEntry` because the backtests and the
+ * holdout read that marker alone, and their measurements must not move.
+ * shortcut: inferred because v3.1 stores no this-season game count, remove when v3.2 ships (#1438).
+ */
+function isThinHistoryEntry(entry, week) {
+  const recent = entry && entry.factors ? entry.factors.recentProduction : null;
+  return !!(recent
+    && Number(week) >= 1
+    && recent.games >= 1
+    && recent.games <= THIN_HISTORY_MAX_GAMES
+    && recent.effectiveGames < model.recencyWeight(week));
 }
 
 const BACKUP_CHART_FRESH_MS = 48 * 60 * 60 * 1000;
@@ -1867,7 +1889,8 @@ async function loadPracticeFacts({ client, season, week, playerIds }) {
  */
 function toWeeklyProjectionResult(run) {
   const entryFor = (playerId) => run.projections.get(playerId) || null;
-  const isPositionBaseline = (playerId) => isPositionBaselineEntry(entryFor(playerId));
+  const readsNoHistory = (playerId) => isPositionBaselineEntry(entryFor(playerId))
+    || isThinHistoryEntry(entryFor(playerId), run.week);
   // ADR 0057: the loaders attach the read's chart verdict as `run.backupIds`.
   const isBackup = (playerId) => !!(run.backupIds && run.backupIds.has(Number(playerId)));
 
@@ -1940,14 +1963,15 @@ function toWeeklyProjectionResult(run) {
     },
 
     /**
-     * True when the stored row is a Position-baseline projection: its
-     * data-quality reasons contain `position baseline` (#1775), which the
-     * engine adds for every row built on the position average alone (no games,
-     * no prior season). Read-path only: feed it to `unavailableFor` as
+     * True when the stored row reads as no history: a Position-baseline
+     * projection, whose data-quality reasons contain `position baseline`
+     * (#1775), which the engine adds for every row built on the position
+     * average alone (no games, no prior season), or a Thin-history projection
+     * (`isThinHistoryEntry`). Read-path only: feed it to `unavailableFor` as
      * `positionBaseline`. The stored row and the engine are untouched.
      */
     positionBaselineFor(playerId) {
-      return isPositionBaseline(playerId);
+      return readsNoHistory(playerId);
     },
 
     /**
@@ -1970,7 +1994,7 @@ function toWeeklyProjectionResult(run) {
       if (stored.available === false) return startVerdictOf(stored);
       return startVerdictOf(unavailableFor({
         injuryStatus: stored.status || null,
-        positionBaseline: isPositionBaseline(playerId),
+        positionBaseline: readsNoHistory(playerId),
         backup: isBackup(playerId),
         practice: (run.practiceById && run.practiceById.get(Number(playerId))) || null,
       }));

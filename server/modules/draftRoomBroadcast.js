@@ -77,8 +77,6 @@ function createDraftRoomBroadcast(io, transportName = 'local') {
     activityAppended: (leagueId, entry) => send(leagueId, 'draft:activity', entry),
     /** The board signal that the draft finished. */
     draftCompleted: (leagueId) => send(leagueId, 'draft:complete', { leagueId }),
-    /** The availability read model changed; clients refetch the Player list. */
-    rosterChanged: (leagueId) => send(leagueId, 'roster:changed', { leagueId }),
     /** The whole-board refresh. The snapshot is computed in-process from the
      *  committed database, in EITHER process, so the worker ships the same
      *  `draft:state` the API would (ADR 0025). A failure to read it is reported
@@ -143,7 +141,7 @@ function createDraftRoomBroadcast(io, transportName = 'local') {
 
 // The process-wide broadcast, registered once at boot: the API in
 // attachDraftSocket, the worker in startWorker. Services (pickClock, draftStart)
-// and the draft router read it through getDraftRoomBroadcast() rather than
+// and the Draft act module read it through getDraftRoomBroadcast() rather than
 // reaching for a transport themselves; a test swaps in a recording broadcast.
 let current = null;
 

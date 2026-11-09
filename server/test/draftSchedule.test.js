@@ -120,6 +120,8 @@ function scheduleFakePool({ league, fresh, coCommissioners = [], market = 500, f
   const marketFn = typeof market === 'function' ? market : () => market;
   return createFakePool([
     [/^SELECT "id", "name", "owner_id"/, () => ({ rows: [league] })],
+    // The tick's League write takes the League lock (ADR 0070) and advances the board version.
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [league] })],
     [/^SELECT "draft_status", "draft_date", "draft_type", "min_teams", "draft_reminder_stage"/, () => ({ rows: [fresh] })],
     // The market gate's count of players carrying an ADP (#747), read once per
     // tick. Default clears MARKET_FLOOR so the pre-#747 cases are unaffected.
@@ -351,7 +353,7 @@ test('the row-locked recheck bails when the locked row changed under it (concurr
   // the guard broken and the reminder to proceed, that UPDATE (which no matcher
   // answers) would still land in the call log as an attempted query.
   assert.equal(fake.matching(/SET "draft_reminder_stage"/).length, 0, 'no reminder-stage UPDATE on a bail');
-  assert.equal(fake.matching(/FOR UPDATE/).length, 1, 'the row was locked and re-read exactly once');
+  assert.equal(fake.matching(/SET "board_version" = "board_version" \+ 1/).length, 1, 'the row was locked and re-read exactly once');
 });
 
 test('a recompute disagreement on a remind_24h tick pushes no reminder (#1071 didWrite gate)', async (t) => {
@@ -377,6 +379,8 @@ test('a recompute disagreement on a remind_24h tick pushes no reminder (#1071 di
   const fresh = FRESH_ROW({ draft_date: tenHoursOut, draft_reminder_stage: 1, min_teams: 2, team_count: 5 });
   const fake = createFakePool([
     [/^SELECT "id", "name", "owner_id"/, () => ({ rows: [league] })],
+    // The tick's League write takes the League lock (ADR 0070) and advances the board version.
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [league] })],
     [/^SELECT "draft_status", "draft_date", "draft_type", "min_teams", "draft_reminder_stage"/, () => ({ rows: [fresh] })],
     [/FROM "players" WHERE "adp" IS NOT NULL/, () => ({ rows: [{ n: 500 }] })],
     // Present so the mutant's push block runs to completion instead of throwing
@@ -402,7 +406,7 @@ test('a recompute disagreement on a remind_24h tick pushes no reminder (#1071 di
   );
   assert.equal(sent.length, 0, 'no reminder push fired on the bail');
   // The bail still took the lock and wrote nothing.
-  assert.equal(fake.matching(/FOR UPDATE/).length, 1, 'the row was locked and re-read once');
+  assert.equal(fake.matching(/SET "board_version" = "board_version" \+ 1/).length, 1, 'the row was locked and re-read once');
   assert.equal(fake.matching(/SET "draft_reminder_stage"/).length, 0, 'no reminder-stage UPDATE on a bail');
 });
 
@@ -414,6 +418,8 @@ test('a recompute disagreement on a remind_24h tick pushes no reminder (#1071 di
 function banterPool(t, { league, fresh }) {
   createFakePool([
     [/^SELECT "id", "name", "owner_id"/, () => ({ rows: [league] })],
+    // The tick's League write takes the League lock (ADR 0070) and advances the board version.
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [league] })],
     [/^SELECT "draft_status", "draft_date", "draft_type", "min_teams", "draft_reminder_stage"/, () => ({ rows: [fresh] })],
     [/FROM "players" WHERE "adp" IS NOT NULL/, () => ({ rows: [{ n: 500 }] })],
     [/^UPDATE "leagues" SET "draft_reminder_stage"/, () => ({ rows: [], rowCount: 1 })],

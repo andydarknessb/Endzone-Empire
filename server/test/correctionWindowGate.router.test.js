@@ -10,7 +10,7 @@
  *  - `POST /league/:id/correct-week` (scoring.router.js) calls the guard once,
  *    BEFORE it reads whether the request is a manual score override or a
  *    re-sync. A rejection there must stop both branches: the re-sync branch
- *    (correction.correctLeagueWeek, no stat re-pull) and the manual
+ *    (settle.correctWeek, no stat re-pull) and the manual
  *    branch (commissioner.adjustMatchupScore).
  *  - `commissioner.service.js`'s `adjustMatchupScore` calls the guard AGAIN,
  *    against the actual matchup row it fetched (`FOR UPDATE`) rather than the
@@ -32,6 +32,7 @@ const { signToken } = require('../modules/auth');
 const scoring = require('../services/feedSyncRuns.service');
 const nflverseSync = require('../services/nflverseSync.service');
 const correction = require('../services/correction.service');
+const settleSvc = require('../services/settle.service');
 const commissioner = require('../services/commissioner.service');
 const { CORRECTION_WINDOW_ERROR } = correction;
 
@@ -100,7 +101,7 @@ test('correct-week: refuses a re-sync outside the window and never re-syncs or r
   const fake = routerPool({ currentSeason: 2026, currentWeek: 5 }).install(t);
   const synced = spy(t, nflverseSync, 'correctWeekFromNflverse');
   const tankSynced = spy(t, scoring, 'syncWeekStats');
-  const corrected = spy(t, correction, 'correctLeagueWeek');
+  const corrected = spy(t, settleSvc, 'correctWeek');
 
   const res = await request(app)
     .post('/api/scoring/league/1/correct-week')
@@ -148,7 +149,7 @@ test('correct-week: baseline, inside the window, a re-score request re-scores fr
   const fake = routerPool({ currentSeason: 2026, currentWeek: 9 }).install(t);
   const synced = spy(t, nflverseSync, 'correctWeekFromNflverse', async () => ({}));
   const tankSynced = spy(t, scoring, 'syncWeekStats', async () => ({ plays: [] }));
-  const corrected = spy(t, correction, 'correctLeagueWeek', async () => ({ leagueId: 1, changes: [] }));
+  const corrected = spy(t, settleSvc, 'correctWeek', async () => ({ leagueId: 1, changes: [] }));
 
   const res = await request(app)
     .post('/api/scoring/league/1/correct-week')
@@ -189,7 +190,7 @@ function adjustMatchupPool({ currentSeason, currentWeek, matchupSeason, matchupW
       () => ({ rows: [{ current_season: currentSeason, current_week: currentWeek, is_commissioner: true }] }),
     ],
     [
-      /^SELECT \*, .* AS "is_commissioner" FROM "leagues" WHERE "id" = \$1 FOR UPDATE/,
+      /^(?:SELECT \*(, .* AS "is_commissioner")? FROM "leagues" WHERE "id" = \$1( FOR NO KEY UPDATE)?|UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*)$/,
       () => ({ rows: [{ id: 1, current_season: currentSeason, current_week: currentWeek, is_commissioner: true }] }),
     ],
     [

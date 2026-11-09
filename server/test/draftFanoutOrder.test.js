@@ -65,7 +65,6 @@ function installRecorder(t) {
   draftRoomBroadcast.setDraftRoomBroadcast({
     activityAppended: record('activityAppended'),
     stateChanged: record('stateChanged'),
-    rosterChanged: record('rosterChanged'),
     draftCompleted: record('draftCompleted'),
     pickLanded: record('pickLanded'),
     scoresUpdated: record('scoresUpdated'),
@@ -97,8 +96,8 @@ const ESCALATION_LEAGUE = {
 function escalationWorld() {
   return createFakePool([
     // escalateNothingDraftable's own locked read, ahead of autoPick's unlocked
-    // one: both are SELECT * FROM "leagues" WHERE "id" = $1.
-    [/^SELECT \* FROM "leagues" WHERE "id" = \$1 FOR UPDATE$/, () => ({ rows: [ESCALATION_LEAGUE] })],
+    // one: the lock is the board-version UPDATE, the unlocked read a SELECT.
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [ESCALATION_LEAGUE] })],
     [/^SELECT \* FROM "leagues" WHERE "id" = \$1$/, () => ({ rows: [ESCALATION_LEAGUE] })],
     [/EXTRACT\(MONTH FROM CURRENT_DATE\)/, () => ({ rows: [{ season: 2025 }] })],
     // The candidate query, answered EMPTY: nothing is draftable.
@@ -123,7 +122,7 @@ function escalationWorld() {
 function resetWorld() {
   return createFakePool([
     [/SELECT "pickem_only" FROM "leagues"/, () => ({ rows: [{ pickem_only: false }] })],
-    [/^SELECT \* FROM "leagues" WHERE "id" = \$1 FOR UPDATE$/, () => ({
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({
       rows: [{ id: LEAGUE_ID, current_season: SEASON, draft_status: 'active' }],
     })],
     [/^SELECT "id", "owner_id", "autodraft", "draft_position" FROM "teams"/, () => ({
@@ -132,7 +131,7 @@ function resetWorld() {
     [/^SELECT "id", "name" FROM "teams"/, () => ({ rows: [ACTOR_TEAM] })],
     [/^SELECT 1 FROM "leagues"/, () => ({ rows: [{ '?column?': 1 }] })],
     [select('matchups'), () => ({ rows: [] })],
-    [/^SELECT "id", "transactions_locked",.* FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({
+    [/^SELECT "id", "transactions_locked",.* FROM "leagues" WHERE "id" = \$1$/, () => ({
       rows: [{ id: LEAGUE_ID, transactions_locked: false }],
     })],
     [/^SELECT "id", "locked" FROM "teams" WHERE "id" = \$1 FOR UPDATE/, (text, params) => ({
@@ -191,4 +190,47 @@ test('and that shared order is the one ADR 0025 assigns: narration ahead of the 
   // check. Flipping both emitters together would pass that one and fail this.
   const escalation = await escalationOrder(t);
   assert.deepEqual(escalation, ['activityAppended', 'stateChanged']);
+});
+
+// --- the Commissioner correction (POST /correct-pick, ticket 2697) -----------
+
+/**
+ * POST /league/:id/correct-pick reverses the latest Pick. It is a League write,
+ * not a Draft act, and it used to fan stateChanged out before its activity entry.
+ * It must now fan out in the same narration-first order as every act.
+ */
+function correctionWorld() {
+  return createFakePool([
+    [/SELECT "pickem_only" FROM "leagues"/, () => ({ rows: [{ pickem_only: false }] })],
+    [/(?:FROM "leagues"[\s\S]*FOR NO KEY UPDATE|UPDATE "leagues" SET "board_version" = "board_version" \+ 1)/, () => ({
+      rows: [{
+        id: LEAGUE_ID, draft_status: 'active', current_pick: 3, draft_paused: false,
+        transactions_locked: false, current_season: SEASON, current_week: 1,
+        draft_rotation: 'snake', draft_order_overrides: null,
+      }],
+    })],
+    [/SELECT 1 FROM "leagues" WHERE "id" = \$1 AND/, () => ({ rows: [{ ok: 1 }] })],
+    [select('teams'), () => ({ rows: [{ ...ACTOR_TEAM, owner_id: 77, draft_position: 1, autodraft: false }] })],
+    [select('draft_picks'), () => ({ rows: [{ pick_number: 3, team_id: ACTOR_TEAM.id, player_id: 500, is_keeper: false }] })],
+    [select('players'), () => ({ rows: [{ id: 500, name: 'Wrong Guy', position: 'RB', nfl_team: 'KC' }] })],
+    [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({ rows: [] })],
+    [select('matchups'), () => ({ rows: [] })],
+    [remove('draft_picks'), () => ({ rows: [], rowCount: 1 })],
+    [remove('team_players'), () => ({ rows: [], rowCount: 1 })],
+    [remove('lineup_entries'), () => ({ rows: [], rowCount: 1 })],
+    [update('leagues'), () => ({ rows: [{ id: LEAGUE_ID }], rowCount: 1 })],
+    [insert('draft_activity'), () => ({ rows: [{ id: 30, feed_seq: '18', created_at: '2026-09-01T00:00:00.000Z' }], rowCount: 1 })],
+  ]);
+}
+
+test('POST /correct-pick emits activityAppended before stateChanged', async (t) => {
+  const fake = correctionWorld().install(t);
+  const calls = installRecorder(t);
+  const res = await request(app)
+    .post(`/api/draft/league/${LEAGUE_ID}/correct-pick`)
+    .set('Authorization', `Bearer ${signToken({ id: COMMISSIONER, username: 'commish' })}`)
+    .send({ pickNumber: 3, reason: 'entered against the wrong team; correcting this now' });
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  fake.assertClean();
+  assert.deepEqual(calls, ['activityAppended', 'stateChanged']);
 });

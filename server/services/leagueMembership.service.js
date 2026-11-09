@@ -43,6 +43,7 @@
 const { joinability, joinRefusalMessage } = require('./leaguePhase');
 const { isFull } = require('./leagueSize');
 const { validateTeamName } = require('./teamName');
+const { lockLeague } = require('../modules/leagueWrite');
 
 class MembershipError extends Error {
   constructor(statusCode, message, { reason } = {}) {
@@ -139,7 +140,7 @@ async function requireMember(db, { leagueId, userId, forUpdate = false }) {
  * refusal carries its `reason`), then banned (a 403: a commissioner's Remove &
  * ban, league_bans), then already-a-member, then full. Throws
  * the 409 refusal, or returns `{ teamCount }` so the caller need not count
- * again. `league` is the row the caller already holds FOR UPDATE; `client`
+ * again. `league` is the row the caller already holds FOR NO KEY UPDATE; `client`
  * is the same transaction, so the reads see what the lock protects.
  */
 async function assertAdmissible(client, league, userId) {
@@ -159,22 +160,18 @@ async function assertAdmissible(client, league, userId) {
 }
 
 /**
- * The membership write: `userId` joins `leagueId` with a Team named
- * `teamName`, a required trimmed 1-120 character name (validateTeamName).
- * Locks the league row (a no-op when the caller's transaction already holds
- * it), checks admission, validates the name, and inserts the Team at the
- * next arrival position. A unique violation from the insert is the
+ * The membership write: `userId` joins the League with a Team named `teamName`, a
+ * required trimmed 1-120 character name (validateTeamName). A caller that holds the
+ * League write passes its row as `league`; otherwise this takes the League lock
+ * itself (lockLeague, ADR 0070). It checks admission, validates the name, and
+ * inserts the Team at the next arrival position. A unique violation from the insert is the
  * already-a-member refusal: a racing join got there first. Returns
- * `{ league, team }`. The caller owns BEGIN/COMMIT/ROLLBACK.
+ * `{ league, team }`. The caller owns the League write and its COMMIT.
  */
-async function joinLeague(client, { leagueId, userId, teamName }) {
-  const leagueResult = await client.query(
-    `SELECT * FROM "leagues" WHERE "id" = $1 FOR UPDATE`,
-    [leagueId]
-  );
-  const league = leagueResult.rows[0];
-  if (!league) throw new MembershipError(404, 'league not found');
-  const { teamCount } = await assertAdmissible(client, league, userId);
+async function joinLeague(client, { leagueId, league = null, userId, teamName }) {
+  const held = league || (await lockLeague(client, leagueId));
+  if (!held) throw new MembershipError(404, 'league not found');
+  const { teamCount } = await assertAdmissible(client, held, userId);
 
   const { value: name, error: nameError } = validateTeamName(teamName);
   if (nameError) throw new MembershipError(400, nameError);
@@ -184,13 +181,13 @@ async function joinLeague(client, { leagueId, userId, teamName }) {
     teamResult = await client.query(
       `INSERT INTO "teams" ("league_id", "owner_id", "name", "draft_position")
        VALUES ($1, $2, $3, $4) RETURNING *`,
-      [leagueId, userId, name, teamCount + 1]
+      [held.id, userId, name, teamCount + 1]
     );
   } catch (error) {
     if (error.code === '23505') throw new MembershipError(409, ALREADY_A_MEMBER);
     throw error;
   }
-  return { league, team: teamResult.rows[0] };
+  return { league: held, team: teamResult.rows[0] };
 }
 
 module.exports = {

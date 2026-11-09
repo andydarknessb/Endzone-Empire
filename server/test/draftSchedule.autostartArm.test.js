@@ -53,6 +53,9 @@ const dueStartLeagueRow = (over = {}) => ({
 function workerStartPool(t, { leagueRow = dueStartLeagueRow(), onAutoPickRead } = {}) {
   const fake = createFakePool([
     [/^SELECT "id", "name", "owner_id", "draft_status", "draft_date"/, () => ({ rows: [leagueRow] })],
+    // The scheduled start's League write locks the row once (ADR 0070); the Pick clock step counts draft_picks.
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [leagueRow] })],
+    [/^SELECT COUNT\(\*\)::int AS n FROM "draft_picks"/, () => ({ rows: [{ n: 0 }] })],
     // The market gate's count (#747): a loaded market so the action stays 'start'.
     [/FROM "players" WHERE "adp" IS NOT NULL/, () => ({ rows: [{ n: 500 }] })],
     [/^SELECT DISTINCT "owner_id" FROM "teams"/, () => ({ rows: [] })],
@@ -136,7 +139,8 @@ test('the worker scheduled start emits the state refresh and the draft_start act
   t.mock.method(pickClock, 'armExpiryTimer', () => {}); // no real in-process timer
   t.mock.method(prefs, 'usersWanting', async () => []); // quiet the best-effort push
   const row = { ...manualBaseLeague };
-  createFakePool([
+  const fake = createFakePool([
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [{ ...row }] })],
     [select('leagues'), () => ({ rows: [{ ...row }] })],
     // The market gate's count (#747): a loaded market so the start is not refused.
     [select('players'), () => ({ rows: [{ n: 500 }] })],
@@ -156,6 +160,10 @@ test('the worker scheduled start emits the state refresh and the draft_start act
   ]).install(t);
 
   await runStartAction({ id: LEAGUE_ID, name: 'Ballers', owner_id: OWNER });
+
+  // The scheduled start is one League write (ADR 0070): one lock, one transaction.
+  assert.equal(fake.matching(/SET "board_version" = "board_version" \+ 1/).length, 1, 'the League row locks once');
+  assert.equal(fake.matching(/^BEGIN$/).length, 1, 'one transaction');
 
   assert.deepEqual(
     broadcast.calls.map((c) => ({ method: c.method, leagueId: c.leagueId })),
@@ -248,18 +256,21 @@ function realStartPool(t, { league = manualBaseLeague, teams = manualTeams, keep
   // worker-path case to read.
   const broadcast = installRecordingBroadcast(t);
   const fake = createFakePool([
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [{ ...row }] })],
     [select('leagues'), () => ({ rows: [{ ...row }] })],
     [/^SELECT 1 FROM "leagues"/, () => ({ rows: [{ '?column?': 1 }] })],
     // The market gate's count (#747): a loaded market so start is not refused.
     [select('players'), () => ({ rows: [{ n: 500 }] })],
     [update('leagues'), (text, params) => {
-      if (/'complete'/.test(text)) row.draft_status = 'complete';
+      if (/'complete'/.test(text) || params.includes('complete')) row.draft_status = 'complete';
       else if (/'active'/.test(text)) row.draft_status = 'active';
       const m = text.match(/make_interval\(secs => \$(\d+)::int\)/);
       const secs = m ? params[Number(m[1]) - 1] : null;
       const deadline = secs == null ? null : new Date(BASE + secs * 1000).toISOString();
       return { rows: [{ pick_deadline_at: deadline }], rowCount: 1 };
     }],
+    // The Pick clock step counts the League's draft_picks: keepers fill every slot on a keeper-complete start.
+    [/^SELECT COUNT\(\*\)::int AS n FROM "draft_picks"/, () => ({ rows: [{ n: keepers.length }] })],
     [select('teams'), () => ({ rows: teams })],
     // completeDraft's waiver-priority seed on a keeper-complete start.
     [update('teams'), () => ({ rows: [], rowCount: teams.length })],
@@ -309,7 +320,7 @@ test('startDraft contract: a keeper-complete start returns a null deadline', asy
   const result = await startDraftDirect({ leagueId: LEAGUE_ID, userId: OWNER });
 
   assert.equal(result.pickDeadlineAt, null, 'a draft complete on keepers never arms a clock');
-  assert.equal(fake.matching(/"draft_status" = 'complete'/).length, 1, 'the start completed the draft');
+  assert.equal(fake.calls.filter((c) => /^UPDATE "leagues"/.test(c.text) && c.params.includes('complete')).length, 1, 'the start completed the draft');
   fake.assertClean();
 });
 

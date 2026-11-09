@@ -1,21 +1,10 @@
-const pool = require('../modules/pool');
-const { withTransaction } = require('../modules/withTransaction');
+const { leagueWrite } = require('../modules/leagueWrite');
 const { placeOnWaiversUndoable } = require('./waiver.service');
 const { logTransaction, notify } = require('./activity.service');
-const { isLeagueCommissioner } = require('./leagueRole.service');
 const { requireMember } = require('./leagueMembership.service');
 const { teamIdentityOf } = require('./teamIdentity');
-const { appendCorrectionActivity } = require('./draftActivity');
-// correctionTarget is required lazily inside correctLatestPick, kept lazy to
-// avoid any load-order coupling with draftValidation (which pulls in the roster
-// and draft-order modules at load time).
 const { assertFantasyLeagueRow } = require('./leagueType');
 const { rosterCapacity, interruptedStash } = require('./irPolicy.service');
-// Every room-wide emit here rides the one Draft room adapter (#745); addFreeAgent
-// resolves it at call time (ADR 0025), the same way pick.service and the routes do.
-const { getDraftRoomBroadcast } = require('../modules/draftRoomBroadcast');
-const { logger } = require('../modules/logger');
-const sentry = require('../modules/sentry');
 // #943: the acquire gate (roster capacity, the per-position cap, the waiver
 // hold) now lives in rosterGate.service.js; this re-exports
 // assertRosterAcquisitionAllowed below for pick.service.js and its own tests,
@@ -24,7 +13,6 @@ const {
   assertRosterAcquisitionAllowed,
   assertRosterWriteAllowed,
   assertPositionCapNotReached,
-  COMMISSIONER_OVERRIDE,
   ROSTER_GATE,
 } = require('./rosterGate.service');
 // The one writer of a single-player Roster move (#2535): the gate, the
@@ -57,17 +45,6 @@ function isDraftRefusal(error) {
   return !!error && typeof error.statusCode === 'number' && error.statusCode < 500;
 }
 
-/**
- * The human copy behind each Commissioner-correction refusal code (#439). The
- * CODE is the contract a client branches on (ADR 0008); this is the message it
- * shows if it has nothing better. correctionTarget emits the three pick-shaped
- * codes; the service adds the authority and lifecycle ones.
- */
-const CORRECTION_MESSAGES = {
-  NO_PICK_TO_CORRECT: 'there is no live pick to correct yet',
-  KEEPER_UNCORRECTABLE: 'a keeper pick cannot be corrected',
-  LATEST_PICK_CHANGED: 'the latest pick changed; refresh the draft and try again',
-};
 
 /** Snake-draft order: which team index picks at pick number n (0-based). */
 function teamIndexForPick(pickNumber, teamCount) {
@@ -89,27 +66,22 @@ function shouldAutoEnableAutodraft(consecutiveTimeouts) {
  * takes the Pick path's roster-acquisition checks through the shared helper
  * (assertRosterAcquisitionAllowed, re-exported from rosterGate.service.js),
  * but it commits no draft_pick, appends no Draft activity, arms no clock, and
- * fans out only `rosterChanged` (the availability read model changed). It refuses
- * unless the draft is complete; a Pick, conversely, refuses unless it is active.
+ * reaches no room (a post-draft acquisition changes no Draft state, ADR 0025,
+ * 2026-11-06). It refuses unless the draft is complete; a Pick, conversely, refuses
+ * unless it is active. This is the free-agent add the team router calls (#782 ruling 2).
  *
- * The transaction locks the league row FOR UPDATE, exactly as a Pick does, so the
+ * The League write locks the league row FOR NO KEY UPDATE, exactly as a Pick does, so the
  * capacity read cannot race a concurrent add; the (league_id, player_id) unique
- * constraint is the double-add backstop. addFreeAgent below wraps this commit with
- * the post-COMMIT `rosterChanged` fan-out.
+ * constraint is the double-add backstop.
  */
-async function commitFreeAgentAdd({ leagueId, userId, playerId }) {
-  // withTransaction owns connect, BEGIN, COMMIT-or-guarded-ROLLBACK and the
+async function addFreeAgent({ leagueId, userId, playerId }) {
+  // leagueWrite owns connect, BEGIN, the League lock, COMMIT-or-guarded-ROLLBACK and the
   // release rule (ADR 0033). The 23505 -> DraftError mapping that used to sit in
   // this transaction's own catch now sits in a catch around the wrapper (#1063
   // Ruling 3): the wrapper rethrows the ORIGINAL driver error untouched, so this
   // is a move, not a rewrite.
   try {
-    return await withTransaction(pool, async (client) => {
-      const leagueResult = await client.query(
-        `SELECT * FROM "leagues" WHERE "id" = $1 FOR UPDATE`,
-        [leagueId]
-      );
-      const league = leagueResult.rows[0];
+    return await leagueWrite({ leagueId, label: 'free-agent-add' }, async ({ client, league }) => {
       if (!league) throw new DraftError(404, 'league not found');
       // A pick'em-only league has no draft and no rosters; say so rather than the
       // generic "draft is not complete" (its draft_status is 'pending' forever).
@@ -136,8 +108,8 @@ async function commitFreeAgentAdd({ leagueId, userId, playerId }) {
       if (!playerResult.rows[0]) throw new DraftError(404, 'player not found');
 
       // The one Roster move writer (#2535): the acquire gate - which reads the
-      // freeze off the League row it re-locks FOR UPDATE, the League already held
-      // from the SELECT above - then the roster row, then the bench. Team lock is
+      // freeze off the League row this write holds, with no lock of its own - then the
+      // roster row, then the bench. Team lock is
       // bypassed because this path already refused a locked team above
       // (myTeam.locked), which fails earlier and keeps that refusal's ordering
       // unchanged.
@@ -161,35 +133,13 @@ async function commitFreeAgentAdd({ leagueId, userId, playerId }) {
         ...teamIdentityOf(myTeam),
         player: playerResult.rows[0],
       };
-    }, { label: 'free-agent-add' });
+    });
   } catch (error) {
     if (error.code === '23505') {
       throw new DraftError(409, 'player is already rostered in this league');
     }
     throw error;
   }
-}
-
-/**
- * The post-draft free-agent add the team router calls (#782 ruling 2). Commits the
- * add (commitFreeAgentAdd) and, after COMMIT, fans out ONLY `rosterChanged`
- * through the one Draft room adapter (#745). A post-draft acquisition is never a
- * Pick, so it emits no `pickLanded` and no Draft activity.
- *
- * The commit is authoritative, the same rule landPick follows (ADR 0025): the add
- * is durable the moment commitFreeAgentAdd returns, so a room fan-out failure is
- * not a failure of the add. The fan-out is contained so a post-COMMIT
- * getDraftRoomBroadcast throw (#765) cannot surface a committed add as a 500.
- */
-async function addFreeAgent({ leagueId, userId, playerId }) {
-  const outcome = await commitFreeAgentAdd({ leagueId, userId, playerId });
-  try {
-    await getDraftRoomBroadcast().rosterChanged(leagueId);
-  } catch (error) {
-    logger.error({ err: error, event: 'roster:changed', leagueId }, 'free-agent add committed but room fan-out failed');
-    sentry.captureError(error, { event: 'roster:changed', leagueId });
-  }
-  return outcome;
 }
 
 /**
@@ -208,30 +158,22 @@ async function addFreeAgent({ leagueId, userId, playerId }) {
  * write gate here without demoting that locking read would have shipped an
  * AB/BA pair between a drop and a forced transaction on the same league and
  * team. So the membership read is now a plain SELECT (it takes no row lock at
- * all), and the gate inside `drop` is what takes both rows, League first.
+ * all); the League row is held by the write this runs in, and the gate inside `drop`
+ * takes the Team row after it.
  */
 async function dropPlayer({ leagueId, userId, playerId }) {
-  // withTransaction owns connect, BEGIN, COMMIT-or-guarded-ROLLBACK and the
+  // leagueWrite owns connect, BEGIN, the League lock, COMMIT-or-guarded-ROLLBACK and the
   // release rule (ADR 0033). No catch-side mapping here (the old catch only
   // rolled back and rethrew), so the wrapper is the whole transaction.
-  return withTransaction(pool, async (client) => {
+  return leagueWrite({ leagueId, label: 'drop-player' }, async ({ client, league }) => {
     // Demoted from FOR UPDATE (#962): see the lock-order note above. The Team
-    // row is still locked a statement later, by the gate inside `drop`, in
-    // League-then-Team order, so the drop is no less serialized than it was.
+    // row is still locked a statement later, by the gate inside `drop`, after
+    // the League write has locked the League row, so the order is League-then-Team.
     const team = await requireMember(client, { leagueId, userId });
 
-    // Read under the lock, not before it: `current_week` is what the hold
-    // records and what `removeLineupEntries` prunes against, and a week advance
-    // committing between an unlocked read and the gate's lock would leave the
-    // drop running against last week - deleting the as-played row and recording
-    // a stash for a week that has passed. This takes the League lock first, the
-    // order #962 holds; the gate inside `drop` re-takes it and then the Team.
-    const leagueResult = await client.query(
-      `SELECT "id", "waiver_period_hours", "current_season", "current_week"
-         FROM "leagues" WHERE "id" = $1 FOR UPDATE`,
-      [leagueId]
-    );
-    const league = leagueResult.rows[0];
+    // The League write holds the row before this body runs, so `current_week`
+    // (what the hold records and `removeLineupEntries` prunes against) cannot
+    // move under the drop, and the gate inside `drop` reads that same row.
     if (!league) throw new DraftError(404, 'league not found');
 
     // A manager drop is undoable, so the module hands back what it interrupted;
@@ -256,7 +198,7 @@ async function dropPlayer({ leagueId, userId, playerId }) {
     });
 
     return { leagueId, teamId: team.id, playerId };
-  }, { label: 'drop-player' });
+  });
 }
 
 /**
@@ -280,18 +222,12 @@ const UNDO_DROP_WINDOW_SECONDS = 120;
  * undo needs is therefore read before the hold is deleted.
  */
 async function undoDrop({ leagueId, userId, playerId }) {
-  // withTransaction owns connect, BEGIN, COMMIT-or-guarded-ROLLBACK and the
+  // leagueWrite owns connect, BEGIN, the League lock, COMMIT-or-guarded-ROLLBACK and the
   // release rule (ADR 0033). The 23505 -> DraftError mapping that used to sit in
   // this transaction's own catch now sits in a catch around the wrapper (#1063
   // Ruling 3); the wrapper rethrows the ORIGINAL driver error untouched.
   try {
-    return await withTransaction(pool, async (client) => {
-      const leagueResult = await client.query(
-        `SELECT "id", "roster_limit", "ir_slots", "position_caps", "current_season", "current_week"
-           FROM "leagues" WHERE "id" = $1 FOR UPDATE`,
-        [leagueId]
-      );
-      const league = leagueResult.rows[0];
+    return await leagueWrite({ leagueId, label: 'undo-drop' }, async ({ client, league }) => {
       if (!league) throw new DraftError(404, 'league not found');
 
       const team = await requireMember(client, { leagueId, userId });
@@ -360,7 +296,7 @@ async function undoDrop({ leagueId, userId, playerId }) {
     //
     // The two reads can disagree on one axis, and it is worth being precise
     // about which: the recorded slot and attestation cannot move (the hold is
-    // this transaction's own row and the league is held FOR UPDATE), but
+    // this transaction's own row and the league is held FOR NO KEY UPDATE), but
     // validity also joins live `players.injury_status`, which the injury sync
     // updates under its own lock with no league lock. Every ordering is
     // benign: a designation that clears between the reads spends the credit
@@ -428,7 +364,7 @@ async function undoDrop({ leagueId, userId, playerId }) {
       });
 
       return { leagueId, teamId: team.id, player: playerResult.rows[0] };
-    }, { label: 'undo-drop' });
+    });
   } catch (error) {
     if (error.code === '23505') {
       throw new DraftError(409, 'player is already rostered in this league');
@@ -437,146 +373,12 @@ async function undoDrop({ leagueId, userId, playerId }) {
   }
 }
 
-/**
- * Commissioner correction (#439): pause an active Draft and reverse ONLY its
- * latest non-keeper Pick as one atomic act, recording the commissioner's
- * reason, and leave the Draft paused (CONTEXT.md: Commissioner correction). It
- * is the separate administrative act the Pick definition defers to - not a
- * manager undo, and not the general N-pick undo route.
- *
- * The league row is locked FOR UPDATE, exactly as a Pick commit (pick.service.commitPick) locks it, so a
- * correction and a concurrent Pick (a manager's or an autopick) serialize on
- * the same lock and cannot interleave. `expectedPickNumber` is the Pick the
- * commissioner confirmed; if a newer Pick has landed since, the request is
- * stale (LATEST_PICK_CHANGED) rather than reversing a different Pick than the
- * one confirmed - the second half of "cannot race a manager or autopick".
- *
- * Every refusal is a DraftError carrying a stable SCREAMING_SNAKE code (ADR
- * 0008); the transaction rolls back on any of them, so a rejected correction
- * changes no Draft state.
- */
-async function correctLatestPick({ leagueId, userId, expectedPickNumber = null, reason }) {
-  // Validate the reason before opening a transaction: an invalid reason never
-  // touches the database (#439 AC4). Trim so whitespace cannot pad the bound.
-  const trimmedReason = typeof reason === 'string' ? reason.trim() : '';
-  if (trimmedReason.length < 10 || trimmedReason.length > 200) {
-    throw new DraftError(400, 'a correction reason of 10 to 200 characters is required', 'CORRECTION_REASON_INVALID');
-  }
-
-  const { correctionTarget } = require('./draftValidation.service');
-  // withTransaction owns connect, BEGIN, COMMIT-or-guarded-ROLLBACK and the
-  // release rule (ADR 0033). No catch-side mapping here (the old catch only
-  // rolled back and rethrew), so the wrapper is the whole transaction.
-  return withTransaction(pool, async (client) => {
-    const leagueResult = await client.query(
-      `SELECT * FROM "leagues" WHERE "id" = $1 FOR UPDATE`,
-      [leagueId]
-    );
-    const league = leagueResult.rows[0];
-    if (!league) throw new DraftError(404, 'league not found', 'LEAGUE_NOT_FOUND');
-
-    // Authority is a distinct question from status, so it gets a distinct code
-    // and predicate (co-commissioners included, #439 AC3), not the combined
-    // "not found, not commissioner, or not active" the older routes share.
-    if (!(await isLeagueCommissioner(client, leagueId, userId))) {
-      throw new DraftError(403, 'only the commissioner can correct a pick', 'NOT_COMMISSIONER');
-    }
-    // A completed Draft's final Pick is not correctable under this feature
-    // (#439 AC6, spec #429); a pending Draft has nothing to correct.
-    if (league.draft_status === 'complete') {
-      throw new DraftError(409, 'the draft is complete; its final pick is not correctable', 'DRAFT_ALREADY_COMPLETE');
-    }
-    if (league.draft_status !== 'active') {
-      throw new DraftError(409, 'the draft is not active', 'DRAFT_NOT_ACTIVE');
-    }
-
-    const teamsResult = await client.query(
-      `SELECT "id", "name", "owner_id", "draft_position", "autodraft" FROM "teams"
-       WHERE "league_id" = $1 ORDER BY "draft_position" NULLS LAST, "id"`,
-      [leagueId]
-    );
-    const teams = teamsResult.rows;
-    const picksResult = await client.query(
-      `SELECT "pick_number", "team_id", "player_id", "is_keeper" FROM "draft_picks" WHERE "league_id" = $1`,
-      [leagueId]
-    );
-
-    const { target, code } = correctionTarget(picksResult.rows, league.current_pick, expectedPickNumber);
-    if (code) {
-      throw new DraftError(409, CORRECTION_MESSAGES[code], code);
-    }
-
-    // The reversed Pick's facts, snapshotted onto the correction activity so the
-    // append-only feed self-describes what was corrected (#439). The player row
-    // may be gone in theory (ON DELETE SET NULL); the snapshot then carries what
-    // is known.
-    const playerResult = await client.query(
-      `SELECT "id", "name", "position", "nfl_team" FROM "players" WHERE "id" = $1`,
-      [target.player_id]
-    );
-    const player = playerResult.rows[0] || { id: target.player_id, name: null, position: null, nfl_team: null };
-    const team = teams.find((tm) => tm.id === target.team_id) || { id: target.team_id, name: null };
-
-    // Reverse exactly the latest non-keeper Pick: its draft_picks row, its
-    // roster row, and the lineup rows the Pick benched (the lineup follows the
-    // roster, #197 - the module removes them, so a settled week is still
-    // spared). A correction runs no gate of its own: it is a commissioner act
-    // on a Draft that is about to rewind, so it passes the commissioner
-    // override and must succeed even during a Roster lock (#2535).
-    await client.query(
-      `DELETE FROM "draft_picks" WHERE "league_id" = $1 AND "pick_number" = $2`,
-      [leagueId, target.pick_number]
-    );
-    await rosterMove.drop(client, {
-      league,
-      teamId: target.team_id,
-      playerId: target.player_id,
-      undoable: false,
-      bypass: COMMISSIONER_OVERRIDE,
-    });
-
-    // The corrected slot was itself open before the Pick was made (a live pick,
-    // never a keeper), so rewinding current_pick straight to it reproduces the
-    // pre-pick state - and the Draft is LEFT PAUSED with no armed clock, so the
-    // same team is on the clock again only when a commissioner resumes.
-    const newCurrentPick = target.pick_number - 1;
-    await client.query(
-      `UPDATE "leagues"
-       SET "draft_paused" = true, "current_pick" = $2, "pick_deadline_at" = NULL, "updated_at" = now()
-       WHERE "id" = $1`,
-      [leagueId, newCurrentPick]
-    );
-
-    const round = Math.floor((target.pick_number - 1) / teams.length) + 1;
-    const activity = await appendCorrectionActivity(client, {
-      leagueId,
-      team,
-      player,
-      round,
-      pickNumber: target.pick_number,
-      reason: trimmedReason,
-    });
-
-    return {
-      leagueId,
-      pickNumber: target.pick_number,
-      ...teamIdentityOf(team),
-      player,
-      currentPick: newCurrentPick,
-      paused: true,
-      // The typed correction entry for the combined feed, so the route can
-      // broadcast it to the room beside the paused draft:state.
-      activity,
-    };
-  }, { label: 'correct-pick' });
-}
 
 module.exports = {
   addFreeAgent,
   assertRosterAcquisitionAllowed,
   dropPlayer,
   undoDrop,
-  correctLatestPick,
   teamIndexForPick,
   shouldAutoEnableAutodraft,
   AUTO_ENABLE_TIMEOUTS,

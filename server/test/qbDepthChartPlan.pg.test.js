@@ -97,11 +97,14 @@ if (!ENABLED) {
     return (node.Plans || []).reduce((total, child) => total + depthRowsVisited(child), own);
   }
 
-  test('with statistics blind to its window, the QB depth read does not re-scan the table per row', async () => {
+  // Runs the read in a transaction that is rolled back, and hands `check` the
+  // verdict and the statement the read sent.
+  async function withRecordedRead({ playerIds, seed }, check) {
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
       await client.query('SET LOCAL max_parallel_workers_per_gather = 0');
+      if (seed) await seed(client);
       const reads = [];
       const recording = {
         query: (text, params) => {
@@ -109,25 +112,74 @@ if (!ENABLED) {
           return client.query(text, params);
         },
       };
-      // A Players page asks about many players at once; two teams stay unrequested.
-      const requested = TEAMS.slice(2);
-      const starters = roster.filter((r) => requested.includes(r.team) && r.group === 'QB' && r.rank === 1);
 
-      const backups = await projection.loadBackupQuarterbackIds({ client: recording, playerIds: starters.map((r) => r.id), now: NOW });
+      const backups = await projection.loadBackupQuarterbackIds({ client: recording, playerIds, now: NOW });
 
       assert.equal(reads.length, 1);
-      const explained = await client.query(`EXPLAIN (ANALYZE, FORMAT JSON) ${reads[0].text}`, reads[0].params);
+      await check({ client, read: reads[0], backups });
+    } finally {
+      await client.query('ROLLBACK');
+      client.release();
+    }
+  }
+
+  const ascending = (ids) => [...ids].sort((a, b) => a - b);
+  const starterOf = (team) => roster.find((r) => r.team === team && r.group === 'QB' && r.rank === 1);
+  const backupsOf = (teams) => roster.filter((r) => teams.includes(r.team) && r.group === 'QB' && r.rank > 1).map((r) => r.id);
+
+  test('with statistics blind to its window, the QB depth read does not re-scan the table per row', async () => {
+    // A Players page asks about many players at once; two teams stay unrequested.
+    const requested = TEAMS.slice(2);
+    await withRecordedRead({ playerIds: requested.map((team) => starterOf(team).id) }, async ({ client, read, backups }) => {
+      const explained = await client.query(`EXPLAIN (ANALYZE, FORMAT JSON) ${read.text}`, read.params);
       const visited = depthRowsVisited(explained.rows[0]['QUERY PLAN'][0].Plan);
       assert.ok(
         visited <= WINDOW_ROWS * 3,
         `visited ${visited} depth rows for a ${WINDOW_ROWS}-row window: the plan is re-scanning the table per row`,
       );
-
-      const expected = roster.filter((r) => requested.includes(r.team) && r.group === 'QB' && r.rank > 1).map((r) => r.id);
-      assert.deepEqual([...backups].sort((a, b) => a - b), expected.sort((a, b) => a - b));
-    } finally {
-      await client.query('ROLLBACK');
-      client.release();
-    }
+      assert.deepEqual(ascending(backups), ascending(backupsOf(requested)));
+    });
   });
+
+  const INPUT_SHAPES = [
+    { shape: 'no players', playerIds: () => [], teams: [] },
+    { shape: 'one starter', playerIds: () => [starterOf('BUF').id], teams: ['BUF'] },
+    {
+      shape: 'a player charted at another position',
+      playerIds: () => [roster.find((r) => r.team === 'BUF' && r.group === 'WR').id],
+      teams: [],
+    },
+    {
+      shape: 'a starter charted only before the window',
+      playerIds: () => [starterOf('BUF').id],
+      seed: (client) => client.query(
+        `DELETE FROM "player_depth_chart" WHERE "player_id" = $1 AND "captured_date" >= '2091-06-12'`,
+        [starterOf('BUF').id],
+      ),
+      teams: [],
+    },
+    {
+      shape: 'a starter with a NULL team row inside the window',
+      playerIds: () => [starterOf('BUF').id],
+      seed: (client) => client.query(
+        `UPDATE "player_depth_chart" SET "team_code" = NULL WHERE "player_id" = $1 AND "captured_date" = '2091-06-14'`,
+        [starterOf('BUF').id],
+      ),
+      teams: ['BUF'],
+      nullRows: 1,
+    },
+  ];
+
+  for (const { shape, playerIds, seed, teams, nullRows = 0 } of INPUT_SHAPES) {
+    test(`the QB depth read answers only for the requested teams given ${shape}`, async () => {
+      await withRecordedRead({ playerIds: playerIds(), seed }, async ({ client, read, backups }) => {
+        // A failed read degrades to "nobody is a Backup", which would pass for
+        // the empty answers here, so the statement runs again where it can throw.
+        const { rows } = await client.query(read.text, read.params);
+        assert.deepEqual([...new Set(rows.map((r) => r.team_code))], teams);
+        assert.equal(rows.length, teams.length * QBS_PER_TEAM * WINDOW_DAYS - nullRows);
+        assert.deepEqual(ascending(backups), ascending(backupsOf(teams)));
+      });
+    });
+  }
 }

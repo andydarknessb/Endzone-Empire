@@ -62,7 +62,7 @@ function gateWorld({
   const leagueRow = { ...clearLeague(), ...league };
   const teamRow = { ...clearTeam(), ...team };
   return createFakePool([
-    [/^SELECT .* FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: leagueRow ? [leagueRow] : [] })],
+    [/^SELECT .* FROM "leagues" WHERE "id" = \$1$/, () => ({ rows: leagueRow ? [leagueRow] : [] })],
     [/^SELECT .* FROM "teams" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: teamRow ? [teamRow] : [] })],
     [/^SELECT COUNT\(\*\)::int AS n FROM "team_players" WHERE "team_id"/, () => ({ rows: [{ n: rosterCount }] })],
     [/^SELECT COUNT\(\*\)::int AS n FROM "team_players" JOIN "players"/, () => ({ rows: [{ n: positionCount }] })],
@@ -249,7 +249,7 @@ test('red-tell (b): with the freeze column deleted the gate fails closed, distin
   const leagueRow = clearLeague();
   delete leagueRow.transactions_locked;
   const fake = createFakePool([
-    [/^SELECT .* FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: [leagueRow] })],
+    [/^SELECT .* FROM "leagues" WHERE "id" = \$1$/, () => ({ rows: [leagueRow] })],
     [/^SELECT .* FROM "teams" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: [clearTeam()] })],
   ]);
   await assert.rejects(
@@ -267,7 +267,7 @@ test('fails closed when the team row cannot answer the lock question', async () 
   const teamRow = clearTeam();
   delete teamRow.locked;
   const fake = createFakePool([
-    [/^SELECT .* FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: [clearLeague()] })],
+    [/^SELECT .* FROM "leagues" WHERE "id" = \$1$/, () => ({ rows: [clearLeague()] })],
     [/^SELECT .* FROM "teams" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: [teamRow] })],
   ]);
   await assert.rejects(
@@ -278,7 +278,7 @@ test('fails closed when the team row cannot answer the lock question', async () 
 
 test('a missing league row is a 404, not a silent pass', async () => {
   const fake = createFakePool([
-    [/^SELECT .* FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: [] })],
+    [/^SELECT .* FROM "leagues" WHERE "id" = \$1$/, () => ({ rows: [] })],
   ]);
   await assert.rejects(
     assertRosterWriteAllowed(await fake.connect(), { ...ACQUIRE }),

@@ -8,7 +8,7 @@
  * mutation genuinely cannot land, and lands only once the holder releases. So
  * this gets a real database.
  *
- * The scenario: a holder transaction takes `SELECT ... FOR UPDATE` on the League
+ * The scenario: a holder transaction takes `SELECT ... FOR NO KEY UPDATE` on the League
  * row and keeps it open. The REAL runDraftAct is invoked with a body that flips
  * draft_paused. Its own first statement after BEGIN is the same lock, so it
  * BLOCKS: the flip does not happen while the holder holds the row. When the
@@ -81,7 +81,6 @@ if (!ENABLED) {
     draftRoomBroadcast.setDraftRoomBroadcast({
       activityAppended: async () => ({ delivered: true }),
       stateChanged: async () => ({ delivered: true }),
-      rosterChanged: async () => ({ delivered: true }),
       draftCompleted: async () => ({ delivered: true }),
       pickLanded: async () => ({ delivered: true }),
       scoresUpdated: async () => ({ delivered: true }),
@@ -127,10 +126,10 @@ if (!ENABLED) {
     // keeps it open.
     const holder = await pool.connect();
     await holder.query('BEGIN');
-    await holder.query('SELECT * FROM "leagues" WHERE "id" = $1 FOR UPDATE', [leagueId]);
+    await holder.query('SELECT * FROM "leagues" WHERE "id" = $1 FOR NO KEY UPDATE', [leagueId]);
 
     // The REAL act: a pause body that flips draft_paused. runDraftAct's first
-    // statement after BEGIN is the same SELECT ... FOR UPDATE, so it blocks on the
+    // statement after BEGIN is the same FOR NO KEY UPDATE row lock (an UPDATE now), so it blocks on the
     // row the holder holds.
     const actResult = runDraftAct({ leagueId, userId: owner }, async ({ client, league }) => {
       assert.equal(league.draft_status, 'active');

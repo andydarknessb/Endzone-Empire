@@ -27,11 +27,11 @@ test('after membershipEnded the removed manager gets league:removed and misses l
   assert.deepEqual(await removedEvent, { leagueId: LEAGUE_ID, leagueName: 'Minneapple League' });
 
   let removedHeard = false;
-  removed.on('roster:changed', () => { removedHeard = true; });
-  const stayerHeard = harness.nextEvent(stayer, 'roster:changed');
-  await getDraftRoomBroadcast().rosterChanged(LEAGUE_ID);
+  removed.on('draft:activity', () => { removedHeard = true; });
+  const stayerHeard = harness.nextEvent(stayer, 'draft:activity');
+  await getDraftRoomBroadcast().activityAppended(LEAGUE_ID, { id: 'probe' });
 
-  assert.deepEqual(await stayerHeard, { leagueId: LEAGUE_ID });
+  assert.deepEqual(await stayerHeard, { id: 'probe' });
   // The stayer's copy has arrived; give the removed socket one more turn.
   await new Promise((resolve) => setTimeout(resolve, 50));
   assert.equal(removedHeard, false, 'the removed manager no longer hears the league room');

@@ -202,6 +202,7 @@ function mockPool(t, { pickemOnly, overrides = [] }) {
     [/^(BEGIN|COMMIT|ROLLBACK)$/, () => ({ rows: [] })],
     [/SELECT "pickem_only" FROM "leagues" WHERE "id" = \$1/, () => ({ rows: [{ pickem_only: pickemOnly }] })],
     [/SELECT 1 FROM "leagues"/, () => ({ rows: [] })], // not a commissioner
+    [/^(?:(?:SELECT \* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE|UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*)|UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*)$/, () => ({ rows: [{ id: 3, pickem_only: pickemOnly, is_commissioner: false }] })],
     [/AS "is_commissioner" FROM "leagues"/, () => // commissioner.service's probe: not a commissioner
       ({ rows: [{ id: 3, pickem_only: pickemOnly, is_commissioner: false }] })],
     [/FROM "teams" WHERE "league_id"/, () => ({ rows: [{ id: 41, owner_id: CALLER, locked: false }] })],
@@ -326,7 +327,7 @@ test("league: POST start-draft 409s PICKEM_ONLY_LEAGUE for a pick'em-only league
 test('league: POST start-draft passes through for a fantasy league (reaches startDraft)', async (t) => {
   mockPool(t, {
     pickemOnly: false,
-    overrides: [[/SELECT \* FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () =>
+    overrides: [[/(?:(?:SELECT \* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE|UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*)|UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1)/, () =>
       ({ rows: [{ id: 3, owner_id: 1, draft_status: 'pending', pickem_only: false }] })]],
   });
   const res = await request(routes).post('/api/league/3/start-draft').set('Authorization', authed()).send({});
@@ -359,7 +360,7 @@ test("league: PUT with draftDate 409s naming the field for a pick'em-only league
   assert.equal(res.status, 409, JSON.stringify(res.body));
   assert.equal(res.body.code, 'PICKEM_ONLY_LEAGUE');
   assert.equal(res.body.error, "these settings do not apply to a pick'em league: draftDate");
-  assert.ok(!calls.some((c) => c.text.startsWith('UPDATE "leagues"')), 'no UPDATE ran');
+  assert.ok(!calls.some((c) => c.text.startsWith('UPDATE "leagues"') && !c.text.includes('"board_version"')), 'no UPDATE ran');
 });
 
 test("league: PUT with always-editable fantasy settings (waivers/trades) is refused too for a pick'em-only league", async (t) => {
@@ -371,7 +372,7 @@ test("league: PUT with always-editable fantasy settings (waivers/trades) is refu
   assert.equal(res.status, 409, JSON.stringify(res.body));
   assert.equal(res.body.code, 'PICKEM_ONLY_LEAGUE');
   assert.equal(res.body.error, "these settings do not apply to a pick'em league: waiverType, tradeVetoVotes");
-  assert.ok(!calls.some((c) => c.text.startsWith('UPDATE "leagues"')), 'no UPDATE ran');
+  assert.ok(!calls.some((c) => c.text.startsWith('UPDATE "leagues"') && !c.text.includes('"board_version"')), 'no UPDATE ran');
 });
 
 test("league: PUT with a keeper setting (the transactional FOR UPDATE path) rolls back and 409s for a pick'em-only league", async (t) => {
@@ -383,7 +384,7 @@ test("league: PUT with a keeper setting (the transactional FOR UPDATE path) roll
   assert.ok(calls.some((c) => c.text === 'BEGIN'), 'the transaction opened');
   assert.ok(calls.some((c) => c.text === 'ROLLBACK'), 'the transaction rolled back');
   assert.ok(!calls.some((c) => c.text === 'COMMIT'));
-  assert.ok(!calls.some((c) => c.text.startsWith('UPDATE "leagues"')), 'no UPDATE ran');
+  assert.ok(!calls.some((c) => c.text.startsWith('UPDATE "leagues"') && !c.text.includes('"board_version"')), 'no UPDATE ran');
 });
 
 test("league: PUT with a scoring preset names scoringPreset (what was sent), not the derived scoringRules", async (t) => {
@@ -452,6 +453,8 @@ function txClient(handlers) {
       for (const [pattern, handler] of handlers) {
         if (pattern.test(text)) return handler(text, params);
       }
+      // loadTrade reads its trade's League before locking it (ADR 0070).
+      if (/^SELECT "league_id" FROM "trades" WHERE "id" = \$1$/.test(text)) return { rows: [{ league_id: 3 }] };
       throw new Error(`unexpected query: ${text}`);
     },
   };
@@ -467,12 +470,12 @@ const PICKEM_LEAGUE_ROW = {
 test("startDraft refuses a pick'em-only league under its row lock, even for the scheduler (userId null)", async (t) => {
   const { startDraft } = require('../services/draftStart.service');
   const tx = txClient([
-    [/SELECT \* FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: [PICKEM_LEAGUE_ROW] })],
+    [/(?:(?:SELECT \* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE|UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*)|UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1)/, () => ({ rows: [PICKEM_LEAGUE_ROW] })],
   ]);
   t.mock.method(pool, 'connect', async () => tx.client);
   await assert.rejects(() => startDraft({ leagueId: 3, userId: null }), expectPickemOnlyError);
   assert.ok(tx.calls.includes('ROLLBACK'));
-  assert.ok(!tx.calls.some((sql) => /^(INSERT|UPDATE)/.test(sql)), 'nothing was written');
+  assert.ok(!tx.calls.some((sql) => /^(INSERT|UPDATE)/.test(sql) && !sql.includes('"board_version"')), 'nothing was written');
 });
 
 test("processScheduledDrafts never scans pick'em-only leagues (a set draft_date must not open a draft room)", async (t) => {
@@ -553,7 +556,8 @@ test("commissioner: rollover, remove member and avatar moderation stay open for 
 
 // --- service one-liners: no orphaned fantasy rows ---------------------------
 
-const LEAGUE_ROW_SQL = /SELECT \* FROM "leagues" WHERE "id" = \$1/;
+// The League write's lock is UPDATE ... RETURNING * (ADR 0070); the plain read is the same row.
+const LEAGUE_ROW_SQL = /(?:SELECT \* FROM "leagues" WHERE "id" = \$1|UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*)/;
 // loadTrade takes the League lock FIRST, by the trade's immutable league_id via
 // an MVCC subquery, then locks the trades row (#946). Its league read is not the
 // `"id" = $1` shape LEAGUE_ROW_SQL matches, so respondToTrade needs its own
@@ -562,7 +566,7 @@ const LEAGUE_ROW_SQL = /SELECT \* FROM "leagues" WHERE "id" = \$1/;
 // than passing blind. LEAGUE_ROW_SQL stays as-is for the five paths whose league
 // read really is `"id" = $1` (proposeTrade, submitClaim, setLineup, addFreeAgent,
 // and the waiver path).
-const LOAD_TRADE_LEAGUE_SQL = /SELECT \* FROM "leagues" WHERE "id" = \(SELECT "league_id" FROM "trades" WHERE "id" = \$1\) FOR UPDATE/;
+const LOAD_TRADE_LEAGUE_SQL = /UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*/;
 const TEAM_ROW = { id: 41, league_id: 3, owner_id: CALLER, locked: false, faab_remaining: 100 };
 
 test("submitClaim (waivers) refuses a pick'em-only league before any claim row exists", async (t) => {
@@ -592,7 +596,7 @@ test("respondToTrade (accept) refuses a pick'em-only league too: the check lives
   // puts the guard in/beside assertBeforeDeadline so every trade answer shares it.
   const { respondToTrade } = require('../services/trade.service');
   const tx = txClient([
-    [/SELECT \* FROM "trades" WHERE "id" = \$1 FOR UPDATE/, () =>
+    [/SELECT \*, \("review_ends_at" <= clock_timestamp\(\)\) AS "review_closed" FROM "trades" WHERE "id" = \$1 FOR UPDATE/, () =>
       ({ rows: [{ id: 5, league_id: 3, status: 'pending', proposing_team_id: 42, receiving_team_id: 41 }] })],
     [LOAD_TRADE_LEAGUE_SQL, () => ({ rows: [PICKEM_LEAGUE_ROW] })],
     [/FROM "trade_items"/, () => ({ rows: [] })],
@@ -604,7 +608,7 @@ test("respondToTrade (accept) refuses a pick'em-only league too: the check lives
     () => respondToTrade({ tradeId: 5, userId: CALLER, action: 'accept' }),
     expectPickemOnlyError
   );
-  assert.ok(!tx.calls.some((sql) => /^(INSERT|UPDATE|DELETE)/.test(sql)), 'nothing was written');
+  assert.ok(!tx.calls.some((sql) => /^(INSERT|UPDATE|DELETE)/.test(sql) && !sql.includes('"board_version"')), 'nothing was written');
 });
 
 test("setLineup refuses a pick'em-only league before materializing a lineup", async (t) => {
@@ -625,7 +629,7 @@ test("setLineup refuses a pick'em-only league before materializing a lineup", as
       return true;
     }
   );
-  assert.ok(!tx.calls.some((sql) => /^(INSERT|UPDATE|DELETE)/.test(sql)), 'nothing was written');
+  assert.ok(!tx.calls.some((sql) => /^(INSERT|UPDATE|DELETE)/.test(sql) && !sql.includes('"board_version"')), 'nothing was written');
 });
 
 test("addFreeAgent refuses a pick'em-only league with the league-type error, not the generic 'the draft is not complete'", async (t) => {
@@ -636,7 +640,7 @@ test("addFreeAgent refuses a pick'em-only league with the league-type error, not
     () => addFreeAgent({ leagueId: 3, userId: CALLER, playerId: 1 }),
     expectPickemOnlyError
   );
-  assert.ok(!tx.calls.some((sql) => /^(INSERT|UPDATE|DELETE)/.test(sql)), 'nothing was written');
+  assert.ok(!tx.calls.some((sql) => /^(INSERT|UPDATE|DELETE)/.test(sql) && !sql.includes('"board_version"')), 'nothing was written');
 });
 
 // --- pickem.router: a pick'em league always has pick'em -----------------------

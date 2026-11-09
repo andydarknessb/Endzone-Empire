@@ -1,5 +1,6 @@
 const pool = require('../modules/pool');
 const { withTransaction } = require('../modules/withTransaction');
+const { lockLeague } = require('../modules/leagueWrite');
 const { logTransaction, notify } = require('./activity.service');
 const { MembershipError, requireMember } = require('./leagueMembership.service');
 const { teamIdentityColumns, teamIdentityJoin } = require('./teamIdentity');
@@ -69,7 +70,7 @@ async function notifyCommissioners(db, { leagueId, ownerId, type, message, data 
  * SQL predicate — true when user $n is the owner or a co-commissioner of the
  * `leagues` row in scope. Takes the parameter index so a call site can drop it
  * into an existing query without renumbering its other parameters. Written as
- * an EXISTS subquery rather than a join so it stays legal under FOR UPDATE.
+ * an EXISTS subquery rather than a join so it stays legal under FOR NO KEY UPDATE.
  */
 function commissionerPredicate(n) {
   return `("leagues"."owner_id" = $${n} OR EXISTS (
@@ -203,11 +204,10 @@ function coCommissionerTeamIds(rows) {
 
 /** Owner-only: load the league for a mutation, or throw 403/404. */
 async function requireOwner(client, { leagueId, userId, forUpdate = false }) {
-  const result = await client.query(
-    `SELECT * FROM "leagues" WHERE "id" = $1${forUpdate ? ' FOR UPDATE' : ''}`,
-    [leagueId]
-  );
-  const league = result.rows[0];
+  // forUpdate takes the League row lock through lockLeague (ADR 0070).
+  const league = forUpdate
+    ? await lockLeague(client, leagueId)
+    : (await client.query(`SELECT * FROM "leagues" WHERE "id" = $1`, [leagueId])).rows[0];
   if (!league) throw new MembershipError(404, 'league not found');
   if (league.owner_id !== userId) {
     throw new MembershipError(403, 'only the league owner can manage co-commissioners');

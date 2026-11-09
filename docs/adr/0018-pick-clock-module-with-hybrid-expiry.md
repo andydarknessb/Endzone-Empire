@@ -111,3 +111,21 @@ Overdue string stays in its polite region for the one announcement but is
 no longer displayed; the leaf's line under the digits is the one visible
 Overdue text. Neither change touches the server, the tolerance, or the
 Overdue definition in CONTEXT.md.
+
+## Amendment (2026-11-06, #2681): expiry consequences commit with the Autopick, and the clock owns a taken slot
+
+Two changes, decided in spec #2681. The ownership ruling above stands.
+
+- **Expiry consequences commit inside the Autopick's transaction.** The
+  firing's expired turn travels into the Pick as one value. The check that the
+  firing is still that turn, the timeout streak, the move into Autodraft and
+  the re-arm all commit with the Pick. Today the streak and the move into
+  Autodraft run on the pool after the Pick commits, and nothing re-arms, so at
+  a snake turnaround a Team just placed in Autodraft keeps the full pick clock
+  that was armed before the move. The Pick clock still owns every one of these
+  consequences (Why, last bullet); only the transaction they run in changes.
+- **The Pick clock owns "a slot was taken".** After every Pick, and at a Draft
+  start where Keepers fill every slot, the Pick clock finds the next open slot
+  and its Team (skipping Keepers), sets the Draft status, arms the clock and
+  hands off completion, so completion is announced one way. The client's copy
+  of the turn order keeps its parity test against the server's.

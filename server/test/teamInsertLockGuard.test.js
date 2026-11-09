@@ -38,7 +38,7 @@ test('every Team-insert in the online server dirs takes a League row lock first'
   assert.deepEqual(
     violationSites,
     [],
-    'A Team is inserted without a SELECT ... FROM "leagues" ... FOR UPDATE earlier in the same '
+    'A Team is inserted without a SELECT ... FROM "leagues" ... FOR UPDATE or FOR NO KEY UPDATE earlier in the same '
     + 'function. A Draft act reads the Teams into an unlocked snapshot and gates/deletes per Team '
     + 'from it (draftAct.service.js); a Team created without serializing behind the League lock '
     + 'could be neither gated nor wiped (#1043). Lock the League row before the insert, or bring '
@@ -101,6 +101,12 @@ test('a lock before the insert in the same function is NOT a violation', () => {
   assert.deepEqual(unlockedTeamInserts(src), []);
 });
 
+test('a FOR NO KEY UPDATE League lock before the insert is NOT a violation (#2683)', () => {
+  const noKey = 'SELECT * FROM "leagues" WHERE "id" = $1 FOR NO KEY UPDATE';
+  const src = `async function join(client, { leagueId }) {\n  ${q(noKey)}\n  ${q(TEAM_INSERT)}\n}\n`;
+  assert.deepEqual(unlockedTeamInserts(src), []);
+});
+
 test('an insert with no lock at all is a violation', () => {
   const src = `async function addTeam(client, { leagueId }) {\n  ${q(TEAM_INSERT)}\n}\n`;
   assert.deepEqual(unlockedTeamInserts(src), [{ line: 2 }]);
@@ -122,6 +128,11 @@ test('a lock in a DIFFERENT function is a violation (scope matters)', () => {
     '',
   ].join('\n');
   assert.deepEqual(unlockedTeamInserts(src), [{ line: 5 }]);
+});
+
+test('a lockLeague call (the League write module\'s lock, ADR 0070) before the insert is NOT a violation', () => {
+  const src = `async function join(client, { leagueId }) {\n  const league = await lockLeague(client, leagueId);\n  ${q(TEAM_INSERT)}\n}\n`;
+  assert.deepEqual(unlockedTeamInserts(src), []);
 });
 
 test('a teams lock (not a leagues lock) does not satisfy the rule', () => {

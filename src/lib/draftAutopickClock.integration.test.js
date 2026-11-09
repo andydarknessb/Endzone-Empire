@@ -252,7 +252,7 @@ class FakeDraftDatabase {
       const active = l.draft_status === 'active' && !l.draft_paused && l.pick_deadline_at != null;
       return { rows: active ? [{ id: l.id, pick_deadline_at: l.pick_deadline_at }] : [] };
     }
-    if (sql.includes('SELECT * FROM "leagues"') && !sql.includes('FOR UPDATE')) {
+    if (sql.includes('SELECT * FROM "leagues"') && !sql.includes('FOR NO KEY UPDATE')) {
       return { rows: values[0] === state.league.id ? [{ ...state.league }] : [] };
     }
     if (sql.includes('FROM "teams"') && sql.includes('ORDER BY "draft_position"')) {
@@ -351,7 +351,10 @@ class FakeDraftDatabase {
       const team = state.teams.find((entry) => entry.id === values[0]);
       return { rows: team ? [{ id: team.id, locked: team.locked ?? false }] : [] };
     }
-    if (sql.includes('SELECT * FROM "leagues"') && sql.includes('FOR UPDATE')) {
+    // The League lock is the board-version UPDATE (ADR 0025, 2026-11-06), which takes
+    // the same FOR NO KEY UPDATE row lock a SELECT would.
+    if ((sql.includes('SELECT * FROM "leagues"') && sql.includes('FOR NO KEY UPDATE'))
+      || sql.includes('"board_version" = "board_version" + 1')) {
       await this.acquireLeagueLock(client);
       return { rows: values[0] === state.league.id ? [{ ...state.league }] : [] };
     }
@@ -455,6 +458,16 @@ class FakeDraftDatabase {
         ? null
         : new Date(Date.now() + clockSeconds * 1000);
       return { rows: [{ pick_deadline_at: state.league.pick_deadline_at }] };
+    }
+    // An Autopick's timeout consequences commit inside its transaction (#2694).
+    if (sql.includes('SET "consecutive_timeouts" = "consecutive_timeouts" + 1')) {
+      const team = state.teams.find((entry) => entry.id === values[0]);
+      team.consecutive_timeouts += 1;
+      return { rows: [{ consecutive_timeouts: team.consecutive_timeouts }] };
+    }
+    if (sql.includes('SET "autodraft" = true')) {
+      state.teams.find((entry) => entry.id === values[0]).autodraft = true;
+      return { rows: [] };
     }
     if (sql.includes('SET "waivers_clear_at"')) return { rows: [] };
     if (sql.includes('SET "consecutive_timeouts" = 0')) {
@@ -638,7 +651,7 @@ describe('live snake-draft expiry and autopick integration', () => {
     await database.candidateRead.promise;
     const manual = commitPick({
       leagueId: LEAGUE_ID,
-      userId: TEAM_A.owner_id,
+      by: { kind: 'manager', userId: TEAM_A.owner_id },
       playerId: 302,
     });
     await database.firstLockAcquired.promise;
@@ -657,7 +670,8 @@ describe('live snake-draft expiry and autopick integration', () => {
       { leagueId: LEAGUE_ID, teamId: TEAM_A.id, playerId: 302 },
     ]);
     expect(state.league.current_pick).toBe(1);
-    expect(database.sql.filter((sql) => sql.includes('FOR UPDATE')).length).toBeGreaterThanOrEqual(2);
+    // Each Pick path takes the League row: a FOR UPDATE lock, or the League write's board-version advance (ADR 0070).
+    expect(database.sql.filter((sql) => /FOR (NO KEY )?UPDATE|"board_version" = "board_version" \+ 1/.test(sql)).length).toBeGreaterThanOrEqual(2);
     expect(database.maxLockWaiters).toBe(1);
   });
 
@@ -701,7 +715,7 @@ describe('live snake-draft expiry and autopick integration', () => {
         } else {
           const outcome = await commitPick({
             leagueId: LEAGUE_ID,
-            userId: team.owner_id,
+            by: { kind: 'manager', userId: team.owner_id },
             playerId: available.id,
           });
           observed = { teamId: outcome.teamId, draftComplete: outcome.draftComplete };

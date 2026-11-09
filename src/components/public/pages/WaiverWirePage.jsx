@@ -14,12 +14,13 @@ import Prose, { P } from '../kit/Prose';
 import { LoadingRows, EmptyState, ErrorState } from '../kit/DataState';
 import { positionColorVar } from '../kit/positionColor';
 import { usePublicResource } from '../kit/usePublicResource';
-import { getArticle } from '../../../content/articles';
+import { currentReport, getArticle } from '../../../content/articles';
 import publicApiClient from '../../../api/publicApiClient';
 
+// A series card takes the catalog's newest Darkness Report for that series.
 const CARDS = [
-  { slug: 'week9-waiver-wire-darkness-report', Icon: LeaderboardIcon },
-  { slug: 'week9-start-sit-darkness-report', Icon: SportsFootballIcon },
+  { series: 'waiver-wire', Icon: LeaderboardIcon },
+  { series: 'start-sit', Icon: SportsFootballIcon },
   { slug: 'waiver-priority-vs-faab', Icon: PriorityHighIcon },
   { slug: 'streaming-defense-and-kicker', Icon: ShieldIcon },
 ];
@@ -140,7 +141,9 @@ function WaiverTargets() {
 }
 
 function WaiverWirePage() {
-  const cards = CARDS.map((card) => ({ ...card, article: getArticle(card.slug) })).filter((card) => card.article);
+  const cards = CARDS
+    .map((card) => ({ ...card, article: card.series ? currentReport(card.series) : getArticle(card.slug) }))
+    .filter((card) => card.article);
 
   return (
     <PublicLayout ctaContext="waiver">
@@ -188,8 +191,8 @@ function WaiverWirePage() {
 
       <Typography variant="h4" component="h2" sx={{ fontWeight: 800, mb: 2.5 }}>Waiver strategy guides</Typography>
       <Grid container spacing={3}>
-        {cards.map(({ slug, Icon, article }) => (
-          <Grid xs={12} md={6} key={slug}>
+        {cards.map(({ Icon, article }) => (
+          <Grid xs={12} md={6} key={article.slug}>
             <ArticleCard article={article} Icon={Icon} />
           </Grid>
         ))}

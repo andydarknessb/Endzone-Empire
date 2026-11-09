@@ -33,6 +33,8 @@ function withMockClient(t, overrides = []) {
     [/^COMMIT$/, () => ({ rows: [] })],
     [/^ROLLBACK$/, () => ({ rows: [] })],
     [/^SELECT \* FROM "leagues"/, () => ({ rows: [{ id: 1, owner_id: OWNER_ID, name: 'Sunday Ballers' }] })],
+    // The League write's lock (UPDATE ... RETURNING *, ADR 0070) reads the same row.
+    [/^UPDATE "leagues" SET "board_version"/, () => ({ rows: [{ id: 1, owner_id: OWNER_ID, name: 'Sunday Ballers' }] })],
     // Grant resolves the target Team to the account behind it (#343): the
     // client sends teamId, the server reads the team's owner_id here.
     [/FROM "teams" JOIN "users"/, () => ({ rows: [{ owner_id: 42, username: 'alice' }] })],

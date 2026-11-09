@@ -7,8 +7,9 @@ const {
   benchAcquiredPlayer,
 } = require('../services/lineup.service');
 const { scoreMatchups } = require('../services/matchupScoring.service');
-const { correctLeagueWeek } = require('../services/correction.service');
-const { finalizeWeekAndAdvance } = require('../services/season.service');
+const { correctWeek, settleWeek } = require('../services/settle.service');
+const matchupScoring = require('../services/matchupScoring.service');
+const settleFollowUpSvc = require('../services/settleFollowUp.service');
 const { registerRecordingBroadcast } = require('./helpers/recordingBroadcast');
 
 // scoreMatchups now emits through getDraftRoomBroadcast(), which THROWS when no
@@ -188,7 +189,7 @@ function createWorld({
     }],
 
     // --- scoreMatchups -----------------------------------------------------
-    [/^SELECT \* FROM "leagues"/, () => ({ rows: [{ ...state.league }] })],
+    [/^(?:SELECT \* FROM "leagues"|UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*)/, () => ({ rows: [{ ...state.league }] })],
     [/^SELECT \* FROM "matchups"/, (text, params) => {
       const [leagueId, season, week] = params;
       return {
@@ -240,7 +241,7 @@ function createWorld({
       return { rows: [] };
     }],
 
-    // --- correctLeagueWeek -------------------------------------------------
+    // --- correctWeek -------------------------------------------------
     [/^SELECT "id", "week", "final", "is_playoff"/, (text, [leagueId, season, week]) => ({
       rows: state.matchups
         .filter((m) => m.league_id === leagueId && m.season === season && m.week === week)
@@ -265,7 +266,7 @@ function createWorld({
     })],
     [/^SELECT "owner_id" FROM "leagues"/, () => ({ rows: [{ owner_id: state.league.owner_id }] })],
 
-    // --- finalizeWeekAndAdvance -------------------------------------------
+    // --- settleWeek -------------------------------------------
     [/^SELECT "id", "name", "owner_id" FROM "teams"/, () => ({
       rows: state.teams.map((t) => ({ ...t })),
     })],
@@ -313,7 +314,7 @@ const awayScoreOf = (state) => Number(state.matchups.find((m) => m.id === 90).aw
 
 /**
  * Both follow the same reachable sequence. `matchups.final` has exactly one
- * writer, season.service's finalizeWeekAndAdvance, and it advances
+ * writer, settle.service's settleWeek, and it advances
  * current_week in the same transaction, so a FINAL week is always a PAST
  * week: the freeze can only ever be exercised by something reaching back to
  * a week that is already closed, never by the current week's own traffic.
@@ -338,7 +339,10 @@ test('#106 best ball: a player acquired after a final week never joins its re-sc
   const asPlayed = awayScoreOf(world.state);
   assert.equal(asPlayed, 10, 'baseline: team B played week 8 with its QB alone');
 
-  await finalizeWeekAndAdvance({ leagueId: LEAGUE_ID });
+  const scoring = t.mock.method(matchupScoring, 'scoreMatchupsInTransaction', async () => null);
+  t.mock.method(settleFollowUpSvc, 'settleFollowUp', async () => {});
+  await settleWeek({ leagueId: LEAGUE_ID });
+  scoring.mock.restore(); // the correction below must re-score for real
   assert.equal(world.state.matchups[0].final, true, 'week 8 is closed');
   assert.equal(world.state.league.current_week, 9, 'and the league has moved on');
 
@@ -346,11 +350,12 @@ test('#106 best ball: a player acquired after a final week never joins its re-sc
   await touchWeek(world.fake, 8);
 
   // Path 1: the stat-correction re-score.
-  const correction = await correctLeagueWeek({ leagueId: LEAGUE_ID, season: SEASON, week: 8 });
+  const correction = await correctWeek({ leagueId: LEAGUE_ID, season: SEASON, week: 8 });
   assert.equal(awayScoreOf(world.state), asPlayed, 'a correction must not move a settled score');
   assert.deepEqual(correction.changes, [], 'and must not report one');
 
-  // Path 2: the manual POST /league/:id/score path.
+  // Path 2: a direct scoreMatchups call. POST /league/:id/score refuses a final
+  // week before it reaches here (scoreFinalWeek.router.test.js); the service still re-scores.
   await scoreMatchups({ leagueId: LEAGUE_ID, season: SEASON, week: 8 });
   assert.equal(awayScoreOf(world.state), asPlayed, 'a manual re-score must not move it either');
 
@@ -391,14 +396,17 @@ test('#106 standard: a copied-forward starting slot cannot re-score a final week
   const asPlayed = awayScoreOf(world.state);
   assert.equal(asPlayed, 10);
 
-  await finalizeWeekAndAdvance({ leagueId: LEAGUE_ID });
+  const scoring = t.mock.method(matchupScoring, 'scoreMatchupsInTransaction', async () => null);
+  t.mock.method(settleFollowUpSvc, 'settleFollowUp', async () => {});
+  await settleWeek({ leagueId: LEAGUE_ID });
+  scoring.mock.restore(); // the correction below must re-score for real
   assert.equal(world.state.matchups[0].final, true);
   assert.equal(world.state.league.current_week, 9);
 
   await acquire(world.fake, world.state);
   await touchWeek(world.fake, 8);
 
-  const correction = await correctLeagueWeek({ leagueId: LEAGUE_ID, season: SEASON, week: 8 });
+  const correction = await correctWeek({ leagueId: LEAGUE_ID, season: SEASON, week: 8 });
   assert.equal(awayScoreOf(world.state), asPlayed, 'a correction must not move a settled score');
   assert.deepEqual(correction.changes, [], 'and must not report one');
 
@@ -569,9 +577,11 @@ test('#106 a non-final matchup still materializes', async (t) => {
 
 // --- #97 / PR #102 bench-on-acquisition survives the freeze ------------------
 
-test('#106 after finalizeWeekAndAdvance the acquired player is on the new week bench', async (t) => {
+test('#106 after settleWeek the acquired player is on the new week bench', async (t) => {
   const world = createWorld({ bestBall: false, week8Final: false });
   world.fake.install(t);
+  t.mock.method(matchupScoring, 'scoreMatchupsInTransaction', async () => null);
+  t.mock.method(settleFollowUpSvc, 'settleFollowUp', async () => {});
 
   await acquire(world.fake, world.state);
   // Week 8 is live at acquisition time, so he lands on its bench as #97 wants.
@@ -580,7 +590,7 @@ test('#106 after finalizeWeekAndAdvance the acquired player is on the new week b
     'BENCH'
   );
 
-  const outcome = await finalizeWeekAndAdvance({ leagueId: LEAGUE_ID });
+  const { advance: outcome } = await settleWeek({ leagueId: LEAGUE_ID });
   assert.equal(outcome.advancedTo, 9);
   assert.equal(world.state.league.current_week, 9);
   assert.equal(world.state.matchups[0].final, true);
@@ -613,8 +623,10 @@ test('#106 a frozen week is not a copy-forward source that benches the roster', 
     ],
   });
   world.fake.install(t);
+  t.mock.method(matchupScoring, 'scoreMatchupsInTransaction', async () => null);
+  t.mock.method(settleFollowUpSvc, 'settleFollowUp', async () => {});
 
-  await finalizeWeekAndAdvance({ leagueId: LEAGUE_ID });
+  await settleWeek({ leagueId: LEAGUE_ID });
   await acquire(world.fake, world.state);
   await touchWeek(world.fake, 8);
   await touchWeek(world.fake, 9);

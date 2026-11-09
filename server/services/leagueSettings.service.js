@@ -27,18 +27,19 @@
  *
  * updateLeagueSettings takes that { value } as `patch` and owns the state
  * half: the status read, the post-read guards, the keeper clear, the UPDATE
- * and the after-commit notification. Transaction rule: it connect()s a client
- * and runs BEGIN only when the patch carries keeper or auction settings
- * (patch.rowLockSettingsProvided, the FOR UPDATE read); otherwise every
- * statement runs on the pool directly with no transaction. Thrown-error
- * contract: it refuses by throwing LeagueSettingsError (statusCode, message,
- * and code only for the pick'em refusal) after rolling back, so call it only
- * where the surrounding catch renders `error.statusCode`, the same rule
- * leagueMembership.requireMember states; anything else propagates after the same
- * rollback and release.
+ * and the after-commit notification. Every save runs through withTransaction
+ * (ADR 0033), which owns BEGIN, COMMIT, the ROLLBACK and the release, and takes
+ * the League row lock as the commissioner (ADR 0070). Thrown-error contract: it refuses
+ * by throwing LeagueSettingsError (statusCode, message, and code only for the
+ * pick'em refusal) from inside that write, so the wrapper rolls back and
+ * rethrows it unchanged. Call it only where the surrounding catch renders
+ * `error.statusCode`, the same rule leagueMembership.requireMember states;
+ * anything else propagates unchanged after the same rollback and release.
  */
 
 const { DRAFT_FROZEN_SETTING_KEYS, frozenSettingKeys, settingsUnfrozenWhereSql } = require('./leaguePhase');
+const { withTransaction } = require('../modules/withTransaction');
+const { lockLeague } = require('../modules/leagueWrite');
 const {
   POSITION_KEYS, validateAuctionSettings, keeperSettingsPlan, positionCapsFeasible,
 } = require('./draftValidation.service');
@@ -352,9 +353,7 @@ const FANTASY_ONLY_SETTING_KEYS = Object.freeze([
  *     converts the league to auction, so the UPDATE re-checks the type
  *     atomically. An explicit draftType wins outright, and draftType ===
  *     'auction' clears the date, so neither needs the guard),
- *     keeperSettingsProvided, auctionSettingsProvided and
- *     rowLockSettingsProvided (keeper or auction settings present: the write
- *     path reads the row FOR UPDATE inside a transaction).
+ *     keeperSettingsProvided and auctionSettingsProvided.
  */
 function parseSettingsPatch(body) {
   // One read per key, like the handler's single destructure used to be: a
@@ -452,7 +451,6 @@ function parseSettingsPatch(body) {
       keeperSettingsProvided,
       auctionSettingsProvided,
       draftOrderOverridesProvided,
-      rowLockSettingsProvided: keeperSettingsProvided || auctionSettingsProvided,
     },
   };
 }
@@ -476,25 +474,25 @@ class LeagueSettingsError extends Error {
 }
 
 /**
- * The state half of PUT /api/league/:id: read the league's status (FOR
+ * The state half of PUT /api/league/:id: read the league's status (FOR NO KEY
  * UPDATE when the patch carries keeper or auction settings), run the
  * post-read guards (the keeper plan included), clear keepers when the plan
- * says so, write the UPDATE with its two spliced WHERE guards, disambiguate
- * a zero-row result, COMMIT, and only then notify the league of a
- * (re)scheduled draft.
+ * says so, and write the UPDATE with its two spliced WHERE guards; a zero-row
+ * result is disambiguated into a refusal. Once the write has returned, notify
+ * the league of a (re)scheduled draft.
  *
- * `db` is the pool (duck-typed `query` + `connect`). Transaction rule: when
- * patch.rowLockSettingsProvided, `connect()` a client, BEGIN, and run every
- * statement on it; otherwise every statement runs on `db` directly and there
- * is no BEGIN/COMMIT at all. Either way the statements are the same text in
- * the same order (the status read gains FOR UPDATE on the transaction path,
- * nothing else differs), so a fake pool observes one sequence per patch.
+ * `db` is the pool (duck-typed `query` + `connect`). Every save runs through
+ * withTransaction (ADR 0033), which owns BEGIN, COMMIT, the ROLLBACK and the
+ * release. Inside it the commissioner's SELECT 1 runs first, and on a row
+ * lockLeague takes the League row lock and advances board_version (ADR 0070);
+ * a non-commissioner takes no lock.
  *
- * Thrown-error contract: refuses by throwing LeagueSettingsError (after
- * ROLLBACK when a transaction is open); any other error ROLLBACKs the same
- * way and propagates as-is. Call it only where the surrounding catch renders
- * `error.statusCode` (the rule leagueMembership.requireMember states); a caller
- * that maps every error to 500 would turn a 409 into a 500.
+ * Thrown-error contract: refuses by throwing LeagueSettingsError from inside
+ * the write; the wrapper rolls back and rethrows it unchanged, and any other
+ * error takes the same path and propagates as-is. Call it only where the
+ * surrounding catch renders `error.statusCode` (the rule leagueMembership
+ * .requireMember states); a caller that maps every error to 500 would turn a
+ * 409 into a 500.
  *
  * Resolves with the updated `leagues` row (RETURNING *).
  */
@@ -511,36 +509,25 @@ async function updateLeagueSettings(db, { leagueId, userId, patch }) {
     draftDateProvided, draftDateValue, draftTimezoneProvided, draftTimezone,
     keeperLockAtProvided, keeperLockAtValue,
     draftOrderOverridesProvided, auctionSettingsProvided, keeperSettingsProvided,
-    rowLockSettingsProvided,
     newMin, newMax, effectiveRules, effectivePreset,
     frozenRequested, frozenRequestedNames, fantasyOnlyRequested, rosterCompositionChanged, schedulingNonAuction,
   } = patch;
   let previousDraftDate = null;
-  let transactionClient = null;
-  let transactionOpen = false;
-  let client = db;
+  // A refusal throws from inside the transaction's work; withTransaction rolls
+  // the read back and rethrows it unchanged, as account.service.js does
+  // (ADR 0033, Ruling 2).
   const rejectUpdate = async (status, error, extra = {}) => {
-    if (transactionOpen) {
-      // Guarded like the unexpected-error path below (#68): if the ROLLBACK
-      // itself fails (connection dropped mid-transaction), the refusal the
-      // caller earned must still reach them, not turn into a 500. The
-      // connection's death rolls the transaction back anyway.
-      transactionOpen = false;
-      await transactionClient.query('ROLLBACK').catch((rollbackError) => {
-        console.error('Failed to roll back a refused league settings update', rollbackError);
-      });
-    }
     throw new LeagueSettingsError(status, error, extra);
   };
-  try {
-    if (rowLockSettingsProvided) {
-      transactionClient = await db.connect();
-      client = transactionClient;
-      await transactionClient.query('BEGIN');
-      transactionOpen = true;
-    }
+  const apply = async (client) => {
     let derivedRosterLimit = null;
     let pendingStatusVerified = false;
+    // Every save takes the League row lock (ADR 0070) before anything else, but only as the
+    // commissioner: anyone else takes no lock, and the guarded statements below refuse them.
+    if ((await client.query(
+      `SELECT 1 FROM "leagues" WHERE "id" = $1 AND ${commissionerPredicate(2)}`,
+      [leagueId, userId]
+    )).rows[0]) await lockLeague(client, leagueId);
     // The status read is also the league-type read: any fantasy-only field
     // forces it so a pick'em-only league can be refused, even for keys (like
     // waiverType) that are never draft-frozen.
@@ -550,7 +537,7 @@ async function updateLeagueSettings(db, { leagueId, userId, patch }) {
                 "roster_slots", "bench_slots", "ir_slots", "position_caps", "roster_limit",
                 "keepers_enabled", "keeper_count", "pickem_only", "season_status", "dp_enabled",
                 (SELECT COUNT(*)::int FROM "teams" WHERE "teams"."league_id" = "leagues"."id") AS "team_count"
-         FROM "leagues" WHERE "id" = $1 AND ${commissionerPredicate(2)}${rowLockSettingsProvided ? ' FOR UPDATE' : ''}`,
+         FROM "leagues" WHERE "id" = $1 AND ${commissionerPredicate(2)}`,
         [leagueId, userId]
       );
       const current = statusResult.rows[0];
@@ -869,51 +856,31 @@ async function updateLeagueSettings(db, { leagueId, userId, patch }) {
       }
       return await rejectUpdate(403, 'league not found or you are not the commissioner');
     }
-    const changed = draftDateProvided &&
-      String(previousDraftDate ? new Date(previousDraftDate).toISOString() : null) !== String(draftDateValue);
-    if (transactionOpen) {
-      await transactionClient.query('COMMIT');
-      transactionOpen = false;
-    }
-    // The settings update is the source of truth. Activity delivery happens
-    // after commit, on the pool (never the released client), and is
-    // best-effort so a notification outage cannot turn a persisted schedule
-    // into an HTTP 500 response.
-    if (changed && draftDateValue) {
-      const verb = previousDraftDate ? 'rescheduled' : 'scheduled';
-      try {
-        void activityService.notifyLeague(db, {
-          leagueId,
-          type: 'draft_scheduled',
-          message: `${result.rows[0].name}'s draft has been ${verb}.`,
-          data: { url: `/#/league/${leagueId}`, draftDate: draftDateValue },
-        }).catch((notificationError) => {
-          console.error('Failed to send draft schedule notification', notificationError);
-        });
-      } catch (notificationError) {
-        console.error('Failed to send draft schedule notification', notificationError);
-      }
-    }
     return result.rows[0];
-  } catch (error) {
-    if (transactionOpen) {
-      await transactionClient.query('ROLLBACK').catch(() => {});
-      transactionOpen = false;
-    }
-    throw error;
-  } finally {
-    // The result (or the refusal) is already decided by here; a failing
-    // release must not replace it. The handler used to release after it had
-    // sent the response, so a throw here surfaced only as an unhandled
-    // rejection; now the service runs first, so swallow and log instead.
-    if (transactionClient) {
-      try {
-        transactionClient.release();
-      } catch (releaseError) {
-        console.error('Failed to release the league settings client', releaseError);
-      }
+  };
+  const updated = await withTransaction(db, apply, { label: 'league-settings-update' });
+  const changed = draftDateProvided &&
+    String(previousDraftDate ? new Date(previousDraftDate).toISOString() : null) !== String(draftDateValue);
+  // The settings update is the source of truth. Activity delivery happens
+  // after commit, on the pool (never the released client), and is
+  // best-effort so a notification outage cannot turn a persisted schedule
+  // into an HTTP 500 response.
+  if (changed && draftDateValue) {
+    const verb = previousDraftDate ? 'rescheduled' : 'scheduled';
+    try {
+      void activityService.notifyLeague(db, {
+        leagueId,
+        type: 'draft_scheduled',
+        message: `${updated.name}'s draft has been ${verb}.`,
+        data: { url: `/#/league/${leagueId}`, draftDate: draftDateValue },
+      }).catch((notificationError) => {
+        console.error('Failed to send draft schedule notification', notificationError);
+      });
+    } catch (notificationError) {
+      console.error('Failed to send draft schedule notification', notificationError);
     }
   }
+  return updated;
 }
 
 module.exports = {

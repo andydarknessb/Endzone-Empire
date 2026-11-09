@@ -18,7 +18,7 @@ function forceSetWorld(t, { entries, spentRows = [], leagueOverrides = {} }) {
   const fake = createFakePool([
     // #106: every world here is a LIVE week, so nothing is frozen.
     [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
-    [/FROM "leagues" WHERE "id" = \$1/, () => ({
+    [/(?:FROM "leagues" WHERE "id" = \$1|UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1)/, () => ({
       rows: [{
         id: 5,
         is_commissioner: true,
@@ -239,7 +239,7 @@ function settledWeekWorld(t, { currentWeek = 9 } = {}) {
   const updates = [];
   const inserts = [];
   const fake = createFakePool([
-    [/FROM "leagues" WHERE "id" = \$1/, () => ({
+    [/(?:FROM "leagues" WHERE "id" = \$1|UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1)/, () => ({
       rows: [{
         id: 5,
         is_commissioner: true,

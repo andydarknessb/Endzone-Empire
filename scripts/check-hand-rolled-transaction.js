@@ -128,23 +128,15 @@ const EXEMPT_FILES = Object.freeze(new Set([
  * line numbers churn on every unrelated edit and an allowlist that needs
  * re-deriving after each one is one people stop reading.
  *
- * The contents are exactly what #1067 (the misfit child of spec #1061) ruled
- * `allowlist`, and nothing else. Its rulings comment is the source of record;
+ * The entries are what #1067 (the misfit child of spec #1061) ruled `allowlist`,
+ * less updateLeagueSettings, which closes through withTransaction since #2687.
+ * Its rulings comment is the source of record;
  * all twelve other functions it surveyed were reshaped onto `withTransaction`
  * by #1070/#1071/#1072/#1073 and carry no hand-rolled transaction any more.
  *
  * `rule` is the whole point of the entry: an empty rule fails the guard.
  */
 const ALLOWLIST = [
-  {
-    file: 'server/services/leagueSettings.service.js',
-    function: 'updateLeagueSettings',
-    rule:
-      'The transaction is optional by patch shape - opened only when a row-locked '
-      + 'setting is in the patch - and rejectUpdate owns its ROLLBACK, so the function '
-      + 'is its own transaction wrapper over an injected `db`; the #68 guarded-release '
-      + 'contract stands. Module closed 2026-08-20 (#1067 ruling 1).',
-  },
   {
     file: 'server/routes/league.router.js',
     function: 'GET /:id/matchups/:matchupId',
@@ -273,10 +265,9 @@ const TXN_STATEMENT = /^\s*(BEGIN|COMMIT|ROLLBACK(?!\s+TO\b))\b/i;
  * Name the unit a hit lives in: the OUTERMOST enclosing function that has a
  * derivable identity - the module-level function, or the route handler that a
  * `router.<method>('/path', ...)` call registers. Outermost, not innermost,
- * because that is the granularity the allowlist is written at: #1067 ruled
- * `updateLeagueSettings` a sanctioned hand-rolled transaction even though a
- * nested `rejectUpdate` closure owns one of its ROLLBACKs, and both belong to
- * the one function the ruling names. A nested named helper's hit is therefore
+ * because that is the granularity the allowlist is written at: a nested helper
+ * closure (a `rejectUpdate`-style refusal) can own a ROLLBACK that belongs to
+ * the function the rule names. A nested named helper's hit is therefore
  * attributed to the public function that contains it, and an anonymous
  * `.catch(() => ...)` callback is transparent the same way. Returns null only
  * for a hit at module top level, which no allowlist entry can name and which is

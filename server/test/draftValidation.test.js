@@ -5,7 +5,6 @@ const {
   validateAuctionSettings,
   validateKeepers,
   keeperSettingsPlan,
-  undoTargets,
   correctionTarget,
   startPlan,
 } = require('../services/draftValidation.service');
@@ -217,29 +216,6 @@ test('startPlan: a draft order override past the last drafted round is stale', (
   assert.match(plan.error.message, /must be 1-19/);
 });
 
-// --- undoTargets --------------------------------------------------------
-
-test('undoTargets: undoes the most recent N picks', () => {
-  const picks = [
-    { pick_number: 1, is_keeper: false },
-    { pick_number: 2, is_keeper: false },
-    { pick_number: 3, is_keeper: false },
-  ];
-  const result = undoTargets(picks, 2);
-  assert.deepEqual(result.targets, [3, 2]);
-  assert.equal(result.error, null);
-});
-
-test('undoTargets: refuses to cross a keeper pick', () => {
-  const picks = [
-    { pick_number: 1, is_keeper: true },
-    { pick_number: 2, is_keeper: false },
-  ];
-  const result = undoTargets(picks, 2);
-  assert.deepEqual(result.targets, []);
-  assert.match(result.error, /keeper selection/);
-});
-
 // --- correctionTarget ---------------------------------------------------
 // The pure decision behind Commissioner correction (#439): which single
 // live-reached Pick a correction reverses, or a stable SCREAMING_SNAKE code
@@ -293,11 +269,6 @@ test('correctionTarget: a null expected pick number skips the staleness check', 
   const result = correctionTarget(picks, 1, null);
   assert.equal(result.code, null);
   assert.equal(result.target.pick_number, 1);
-});
-
-test('undoTargets: errors when fewer picks exist than requested', () => {
-  const result = undoTargets([{ pick_number: 1, is_keeper: false }], 3);
-  assert.match(result.error, /only 1/);
 });
 
 // --- startPlan ------------------------------------------------------------

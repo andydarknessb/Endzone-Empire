@@ -3,6 +3,7 @@ const meta = {
   slug: 'week9-start-sit-darkness-report',
   title: 'Week 9 Start/Sit: The Darkness Report',
   category: 'Streaming',
+  series: 'start-sit',
   author: 'Andy Darkness',
   excerpt:
     'All 15 games from Thursday night through Monday night, one card each, including the Sunday morning game in Madrid: start, flex and sit calls, game-time decision callouts, a slate board of lines and implied points, an injury board with inactive windows, a handcuff board, D/ST and IDP streamers, position tiers, the Darkness Rulings and the inactives checklist.',

@@ -2,7 +2,6 @@ const axios = require('axios');
 const pool = require('../modules/pool');
 const tank01Feed = require('./tank01Feed');
 const boxScoreApply = require('./boxScoreApply.service');
-const correction = require('./correction.service');
 const { fantasySeasonLiveWhereSql } = require('./leaguePhase');
 const { normalizeNflTeam } = require('./nflTeam');
 const { NFL_GAMES_BULK_WRITE_LOCK } = require('../modules/advisoryLock');
@@ -458,7 +457,7 @@ async function applyNflverseSnapsUnit(db, { season, week, snapRows, pfrCrosswalk
  * crosswalk (or take a pre-fetched `crosswalk`), patch the finalization-only fields onto each matched player's
  * already-synced player_stats row (preserving whatever Tank01 already wrote
  * there), and re-score every league already past that week — reusing
- * correction.service's correctLeagueWeek (the same recompute/notify path
+ * settle.service's correctWeek (the same recompute/notify path
  * Tank01 stat corrections use), not a new scoring code path.
  *
  * Sync run module (ADR 0036): runSyncJob owns fetch/apply, the transaction
@@ -568,7 +567,7 @@ async function rescoreLeaguesForWeek({ season, week }) {
   let leaguesRescored = 0;
   for (const league of leaguesResult.rows) {
     try {
-      const outcome = await correction.correctLeagueWeek({ leagueId: league.id, season, week });
+      const outcome = await require('./settle.service').correctWeek({ leagueId: league.id, season, week });
       if (outcome.changes.length > 0) leaguesRescored += 1;
     } catch (err) {
       console.error('nflverse finalization: re-score failed for league %s:', league.id, err.message);
@@ -1221,7 +1220,7 @@ async function syncNflverseCorrection({
  * The free replacement for a Tank01 stat-correction re-sync: rebuild one
  * (season, week) wholesale from nflverse's published CSVs — offense, IDP,
  * kicking and team-DST — then re-score every affected league through
- * correction.service's existing correctLeagueWeek path.
+ * settle.service's existing correctWeek path.
  *
  * This is what takes the Tue/Wed correction pass from ~34 Tank01 calls a week
  * to zero. nflverse is also the more accurate source by then: it's the same
@@ -1248,9 +1247,9 @@ async function correctWeekFromNflverse({
   const corrected = [];
   for (const league of leaguesResult.rows) {
     try {
-      // No-ops instantly for a league with no matchup rows at this
-      // (season, week) — safe to call broadly rather than pre-filtering.
-      const outcome = await correction.correctLeagueWeek({ leagueId: league.id, season, week });
+      // A league with no matchup rows for this (season, week) takes the League lock and
+      // returns at once, so it is safe to call broadly rather than pre-filtering.
+      const outcome = await require('./settle.service').correctWeek({ leagueId: league.id, season, week });
       if (outcome.changes.length > 0) corrected.push(outcome);
     } catch (err) {
       console.error('nflverse correction: re-score failed for league %s:', league.id, err.message);

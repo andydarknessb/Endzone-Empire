@@ -70,12 +70,13 @@ function pickPool({
     // below, which are blind to a select list and would otherwise answer them.
     // `frozen` and `teamLocked` are the two gates a Pick bypasses, so seeding
     // them true is how a test proves the bypass rather than a lucky pass.
-    [/^SELECT "id", "transactions_locked",.* FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({
+    [/^SELECT "id", "transactions_locked",.* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/, () => ({
       rows: [{ ...row, transactions_locked: frozen }],
     })],
     [/^SELECT "id", "locked" FROM "teams" WHERE "id" = \$1 FOR UPDATE/, (text, params) => ({
       rows: [{ id: params[0], locked: teamLocked }],
     })],
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [{ ...row }] })],
     [select('leagues'), () => ({ rows: [{ ...row }] })],
     [select('teams'), () => ({ rows: TEAMS.map((t) => ({ ...t, locked: t.id === 11 && teamRowLocked })) })],
     // #833: the player read now names `adp`, which rides on the draft:picked
@@ -105,6 +106,8 @@ function pickPool({
       }
       return { rows: [], rowCount: 1 };
     }],
+    // An Autopick's timeout streak (onTimeout, #2694) reads its bumped count back.
+    [/^UPDATE "teams" SET "consecutive_timeouts" = "consecutive_timeouts" \+ 1/, () => ({ rows: [{ consecutive_timeouts: 1 }] })],
     [update('teams'), () => ({ rows: [], rowCount: 1 })]
   );
   return createFakePool(handlers);
@@ -124,7 +127,7 @@ test('landPick: a manual Pick records exactly pickLanded with auto:false', async
   const fake = pickPool({ league: { ...BASE_LEAGUE, current_pick: 0 }, picksMade: 1 }).install(t);
   const recorder = withRecorder(t);
 
-  const outcome = await landPick({ leagueId: LEAGUE_ID, userId: 7, playerId: 500 });
+  const outcome = await landPick({ leagueId: LEAGUE_ID, by: { kind: 'manager', userId: 7 }, playerId: 500 });
 
   assert.equal(recorder.calls.length, 1, 'exactly one adapter call');
   assert.equal(recorder.calls[0].method, 'pickLanded');
@@ -138,7 +141,7 @@ test('landPick: an auto:true Pick records pickLanded with auto:true', async (t) 
   const fake = pickPool({ league: { ...BASE_LEAGUE, current_pick: 0 }, picksMade: 1 }).install(t);
   const recorder = withRecorder(t);
 
-  await landPick({ leagueId: LEAGUE_ID, userId: 7, playerId: 500, auto: true });
+  await landPick({ leagueId: LEAGUE_ID, by: { kind: 'autopick' }, playerId: 500 });
 
   assert.deepEqual(recorder.calls.map((c) => c.method), ['pickLanded']);
   assert.equal(recorder.calls[0].payload.auto, true, 'the broadcast marks the pick auto');
@@ -151,7 +154,7 @@ test('landPick: a byCommissioner Pick records the same fan-out as a manual one',
 
   // userId 999 is the commissioner but owns neither team; the Pick lands on the
   // team the clock resolves, not the caller's team.
-  await landPick({ leagueId: LEAGUE_ID, userId: 999, playerId: 500, byCommissioner: true });
+  await landPick({ leagueId: LEAGUE_ID, by: { kind: 'commissioner', userId: 999 }, playerId: 500 });
 
   assert.deepEqual(recorder.calls.map((c) => c.method), ['pickLanded']);
   assert.equal(recorder.calls[0].payload.auto, false, 'a commissioner-entered pick is not an autopick');
@@ -159,26 +162,23 @@ test('landPick: a byCommissioner Pick records the same fan-out as a manual one',
   fake.assertClean();
 });
 
-test('landPick: the Pick that completes the draft fans out pickLanded, activityAppended, rosterChanged, draftCompleted in order', async (t) => {
+test('landPick: the Pick that completes the draft fans out pickLanded, activityAppended, draftCompleted in order', async (t) => {
   const fake = pickPool({ league: BASE_LEAGUE, picksMade: 4 }).install(t);
   const recorder = withRecorder(t);
   t.mock.method(seasonService, 'generateRegularSeason', async () => ({}));
 
-  const outcome = await landPick({ leagueId: LEAGUE_ID, userId: 7, playerId: 500 });
+  const outcome = await landPick({ leagueId: LEAGUE_ID, by: { kind: 'manager', userId: 7 }, playerId: 500 });
 
   assert.equal(outcome.draftComplete, true);
   assert.deepEqual(
     recorder.calls.map((c) => c.method),
-    ['pickLanded', 'activityAppended', 'rosterChanged', 'draftCompleted'],
-    'the completing Pick fans all four out, in order'
+    ['pickLanded', 'activityAppended', 'draftCompleted'],
+    'the completing Pick fans out pickLanded, the completion activity, then draftCompleted'
   );
   // The activityAppended payload is the completion lifecycle entry.
   const appended = recorder.calls.find((c) => c.method === 'activityAppended');
   assert.equal(appended.payload.kind, 'complete');
   assert.equal(appended.payload, outcome.completion);
-  // rosterChanged sits BETWEEN the completion activity and draftCompleted: the red
-  // tell for AC1 is removing this call, which drops it from the sequence above.
-  assert.equal(recorder.calls[2].method, 'rosterChanged');
   fake.assertClean();
 });
 
@@ -198,7 +198,7 @@ test('landPick: a post-COMMIT room fan-out failure never throws the committed Pi
   draftRoomBroadcast.setDraftRoomBroadcast(null);
   t.after(() => draftRoomBroadcast.setDraftRoomBroadcast(prior));
 
-  const result = await landPick({ leagueId: LEAGUE_ID, userId: 7, playerId: 500 });
+  const result = await landPick({ leagueId: LEAGUE_ID, by: { kind: 'manager', userId: 7 }, playerId: 500 });
 
   assert.equal(result, outcome, 'landPick resolved with the committed outcome despite the fan-out failure');
 });
@@ -209,7 +209,7 @@ test('landPick: the committed outcome carries the player market ADP (#833 AC2)',
   const fake = pickPool({ league: { ...BASE_LEAGUE, current_pick: 0 }, picksMade: 1, playerAdp: 3.2 }).install(t);
   withRecorder(t);
 
-  const outcome = await landPick({ leagueId: LEAGUE_ID, userId: 7, playerId: 500 });
+  const outcome = await landPick({ leagueId: LEAGUE_ID, by: { kind: 'manager', userId: 7 }, playerId: 500 });
 
   // Present and equal to players.adp. Red-tell: drop `"adp"` from the players
   // SELECT in pick.service.js and outcome.player.adp is undefined, not 3.2.
@@ -221,7 +221,7 @@ test('landPick: the outcome ADP is null when the player has no market ADP (#833 
   const fake = pickPool({ league: { ...BASE_LEAGUE, current_pick: 0 }, picksMade: 1, playerAdp: null }).install(t);
   withRecorder(t);
 
-  const outcome = await landPick({ leagueId: LEAGUE_ID, userId: 7, playerId: 500 });
+  const outcome = await landPick({ leagueId: LEAGUE_ID, by: { kind: 'manager', userId: 7 }, playerId: 500 });
 
   assert.strictEqual(outcome.player.adp, null);
   fake.assertClean();
@@ -231,12 +231,13 @@ test('landPick: the outcome ADP is null when the player has no market ADP (#833 
 
 test('landPick: a completed draft is a 409, not a Pick (free agency is addFreeAgent)', async (t) => {
   const fake = createFakePool([
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [{ ...BASE_LEAGUE, draft_status: 'complete' }] })],
     [select('leagues'), () => ({ rows: [{ ...BASE_LEAGUE, draft_status: 'complete' }] })],
   ]).install(t);
   // No broadcast is registered on purpose: a refusal never reaches the fan-out,
   // so getDraftRoomBroadcast() is never called.
   await assert.rejects(
-    () => landPick({ leagueId: LEAGUE_ID, userId: 7, playerId: 500 }),
+    () => landPick({ leagueId: LEAGUE_ID, by: { kind: 'manager', userId: 7 }, playerId: 500 }),
     { statusCode: 409, message: 'the draft is not active' }
   );
   fake.assertClean();
@@ -249,7 +250,7 @@ test('landPick: the draft completes at teams x draft roster size, not x roster_l
   withRecorder(t);
   t.mock.method(seasonService, 'generateRegularSeason', async () => ({}));
 
-  const result = await landPick({ leagueId: LEAGUE_ID, userId: 7, playerId: 500 });
+  const result = await landPick({ leagueId: LEAGUE_ID, by: { kind: 'manager', userId: 7 }, playerId: 500 });
 
   assert.equal(result.draftComplete, true);
   assert.equal(result.nextTeamId, null);
@@ -262,7 +263,7 @@ test('landPick: a committed Pick appends its Draft-activity entry in the same tr
   const fake = pickPool({ league: { ...BASE_LEAGUE, current_pick: 0 }, picksMade: 1 }).install(t);
   withRecorder(t);
 
-  const result = await landPick({ leagueId: LEAGUE_ID, userId: 7, playerId: 500 });
+  const result = await landPick({ leagueId: LEAGUE_ID, by: { kind: 'manager', userId: 7 }, playerId: 500 });
 
   assert.equal(fake.matching(insert('draft_picks')).length, 1, 'one pick recorded');
   assert.equal(fake.matching(insert('draft_activity')).length, 1, 'one activity appended');
@@ -281,7 +282,7 @@ test('landPick: an autopick labels its activity isAutopick (#435 AC3)', async (t
   const fake = pickPool({ league: { ...BASE_LEAGUE, current_pick: 0 }, picksMade: 1 }).install(t);
   withRecorder(t);
 
-  const result = await landPick({ leagueId: LEAGUE_ID, userId: 7, playerId: 500, auto: true });
+  const result = await landPick({ leagueId: LEAGUE_ID, by: { kind: 'autopick' }, playerId: 500 });
 
   assert.equal(result.activity.isAutopick, true, 'the write knew this pick was an autopick');
   fake.assertClean();
@@ -292,7 +293,7 @@ test('landPick: the final Pick appends an actor-less completion lifecycle entry 
   withRecorder(t);
   t.mock.method(seasonService, 'generateRegularSeason', async () => ({}));
 
-  const result = await landPick({ leagueId: LEAGUE_ID, userId: 7, playerId: 500 });
+  const result = await landPick({ leagueId: LEAGUE_ID, by: { kind: 'manager', userId: 7 }, playerId: 500 });
 
   assert.equal(result.draftComplete, true);
   assert.equal(fake.matching(insert('draft_activity')).length, 2, 'pick + completion appended');
@@ -310,7 +311,7 @@ test('landPick: a non-final Pick carries no completion entry', async (t) => {
   const fake = pickPool({ league: { ...BASE_LEAGUE, current_pick: 0 }, picksMade: 1 }).install(t);
   withRecorder(t);
 
-  const result = await landPick({ leagueId: LEAGUE_ID, userId: 7, playerId: 500 });
+  const result = await landPick({ leagueId: LEAGUE_ID, by: { kind: 'manager', userId: 7 }, playerId: 500 });
 
   assert.equal(result.draftComplete, false);
   assert.equal(result.completion, null, 'no completion entry until the draft actually completes');
@@ -322,7 +323,7 @@ test('landPick: one pick short of the draft roster size keeps the draft active',
   const fake = pickPool({ league: { ...BASE_LEAGUE, current_pick: 2 }, picksMade: 3 }).install(t);
   withRecorder(t);
 
-  const result = await landPick({ leagueId: LEAGUE_ID, userId: 8, playerId: 500 });
+  const result = await landPick({ leagueId: LEAGUE_ID, by: { kind: 'manager', userId: 8 }, playerId: 500 });
 
   assert.equal(result.draftComplete, false);
   const leagueUpdate = fake.matching(/^UPDATE "leagues" SET "current_pick"/)[0];
@@ -333,6 +334,7 @@ test('landPick: one pick short of the draft roster size keeps the draft active',
 test('landPick: rejects a manual (non-auto) pick in an active autopick-type draft', async (t) => {
   const league = { ...BASE_LEAGUE, current_pick: 0, draft_type: 'autopick' };
   const fake = createFakePool([
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [league] })],
     [select('leagues'), () => ({ rows: [league] })],
     [select('teams'), () => ({ rows: [
       { id: 11, owner_id: 7, draft_position: 1, autodraft: true, locked: false },
@@ -346,7 +348,7 @@ test('landPick: rejects a manual (non-auto) pick in an active autopick-type draf
   ]).install(t);
 
   await assert.rejects(
-    () => landPick({ leagueId: LEAGUE_ID, userId: 7, playerId: 500 }),
+    () => landPick({ leagueId: LEAGUE_ID, by: { kind: 'manager', userId: 7 }, playerId: 500 }),
     (error) => {
       assert.equal(error.statusCode, 409);
       assert.match(error.message, /autopick draft/);
@@ -364,7 +366,7 @@ test("landPick: still accepts the Pick clock module's own auto:true pick in an a
   withRecorder(t);
   t.mock.method(seasonService, 'generateRegularSeason', async () => ({}));
 
-  const result = await landPick({ leagueId: LEAGUE_ID, userId: 7, playerId: 500, auto: true });
+  const result = await landPick({ leagueId: LEAGUE_ID, by: { kind: 'autopick' }, playerId: 500 });
 
   assert.equal(result.draftComplete, true);
   fake.assertClean();
@@ -376,7 +378,7 @@ test('landPick: completion uses the fixed draft_rounds even when roster_limit/ir
   withRecorder(t);
   t.mock.method(seasonService, 'generateRegularSeason', async () => ({}));
 
-  const result = await landPick({ leagueId: LEAGUE_ID, userId: 7, playerId: 500 });
+  const result = await landPick({ leagueId: LEAGUE_ID, by: { kind: 'manager', userId: 7 }, playerId: 500 });
 
   assert.equal(result.draftComplete, true);
   fake.assertClean();
@@ -387,12 +389,12 @@ test('landPick: a zero-IR league still drafts every roster_limit round', async (
   withRecorder(t);
   // 2 teams x 3 rounds = 6 picks. The 4th pick ends a 1-IR league but not this one.
   const midDraft = pickPool({ league, picksMade: 4 }).install(t);
-  assert.equal((await landPick({ leagueId: LEAGUE_ID, userId: 7, playerId: 500 })).draftComplete, false);
+  assert.equal((await landPick({ leagueId: LEAGUE_ID, by: { kind: 'manager', userId: 7 }, playerId: 500 })).draftComplete, false);
   midDraft.assertClean();
 
   const fake = pickPool({ league, picksMade: 6 }).install(t);
   t.mock.method(seasonService, 'generateRegularSeason', async () => ({}));
-  assert.equal((await landPick({ leagueId: LEAGUE_ID, userId: 7, playerId: 500 })).draftComplete, true);
+  assert.equal((await landPick({ leagueId: LEAGUE_ID, by: { kind: 'manager', userId: 7 }, playerId: 500 })).draftComplete, true);
   fake.assertClean();
 });
 
@@ -401,7 +403,7 @@ test('landPick: an active league with a null draft_rounds falls back to the live
   const fake = pickPool({ league, picksMade: 3 }).install(t);
   withRecorder(t);
 
-  const result = await landPick({ leagueId: LEAGUE_ID, userId: 8, playerId: 500 });
+  const result = await landPick({ leagueId: LEAGUE_ID, by: { kind: 'manager', userId: 8 }, playerId: 500 });
 
   // roster_limit 3 - ir_slots 1 = 2 rounds x 2 teams = 4 totalPicks; 3 < 4.
   assert.equal(result.draftComplete, false);
@@ -411,19 +413,22 @@ test('landPick: an active league with a null draft_rounds falls back to the live
 // --- #854: the outcome carries nextPickIndex, the value written to the clock --
 // The room reducer follows league.current_pick to this field, so it must be the
 // EXACT value the Pick clock was handed as `nextPick` in this same commit, never
-// a re-derivation. Each case mocks onPickLanded to capture that argument and
+// a re-derivation. Each case mocks onSlotTaken to capture that argument and
 // asserts the outcome's nextPickIndex equals it.
 
 test('landPick: the outcome nextPickIndex equals the clock nextPick on an ordinary pick', async (t) => {
   const fake = pickPool({ league: { ...BASE_LEAGUE, current_pick: 0 }, picksMade: 1 }).install(t);
   withRecorder(t);
   let clockNextPick;
-  t.mock.method(pickClock, 'onPickLanded', async (client, { nextPick }) => {
-    clockNextPick = nextPick;
-    return null;
+  // Wrap the real step so the value it wrote to current_pick is what the test reads.
+  const realSlot = pickClock.onSlotTaken;
+  t.mock.method(pickClock, 'onSlotTaken', async (client, args) => {
+    const result = await realSlot(client, args);
+    clockNextPick = result.nextPickIndex;
+    return result;
   });
 
-  const outcome = await landPick({ leagueId: LEAGUE_ID, userId: 7, playerId: 500 });
+  const outcome = await landPick({ leagueId: LEAGUE_ID, by: { kind: 'manager', userId: 7 }, playerId: 500 });
 
   // No keepers taken, so the next open index is current_pick + 1 = 1.
   assert.equal(clockNextPick, 1, 'the clock was advanced to the next open index');
@@ -442,12 +447,15 @@ test('landPick: the outcome nextPickIndex is the next OPEN index when a keeper o
   }).install(t);
   withRecorder(t);
   let clockNextPick;
-  t.mock.method(pickClock, 'onPickLanded', async (client, { nextPick }) => {
-    clockNextPick = nextPick;
-    return null;
+  // Wrap the real step so the value it wrote to current_pick is what the test reads.
+  const realSlot = pickClock.onSlotTaken;
+  t.mock.method(pickClock, 'onSlotTaken', async (client, args) => {
+    const result = await realSlot(client, args);
+    clockNextPick = result.nextPickIndex;
+    return result;
   });
 
-  const outcome = await landPick({ leagueId: LEAGUE_ID, userId: 7, playerId: 500 });
+  const outcome = await landPick({ leagueId: LEAGUE_ID, by: { kind: 'manager', userId: 7 }, playerId: 500 });
 
   assert.equal(clockNextPick, 2, 'the clock skipped the keeper slot to index 2');
   assert.equal(outcome.nextPickIndex, 2, 'the outcome carries the keeper-skipped index, never current_pick + 1');
@@ -460,13 +468,16 @@ test('landPick: the completing pick nextPickIndex is the completing pick number,
   const fake = pickPool({ league: BASE_LEAGUE, picksMade: 4 }).install(t);
   withRecorder(t);
   let clockNextPick;
-  t.mock.method(pickClock, 'onPickLanded', async (client, { nextPick }) => {
-    clockNextPick = nextPick;
-    return null;
+  // Wrap the real step so the value it wrote to current_pick is what the test reads.
+  const realSlot = pickClock.onSlotTaken;
+  t.mock.method(pickClock, 'onSlotTaken', async (client, args) => {
+    const result = await realSlot(client, args);
+    clockNextPick = result.nextPickIndex;
+    return result;
   });
   t.mock.method(draftCompletion, 'completeDraft', async () => ({ kind: 'complete', id: 78, seq: 6 }));
 
-  const outcome = await landPick({ leagueId: LEAGUE_ID, userId: 7, playerId: 500 });
+  const outcome = await landPick({ leagueId: LEAGUE_ID, by: { kind: 'manager', userId: 7 }, playerId: 500 });
 
   assert.equal(outcome.draftComplete, true);
   // On the last pick the clock is handed the completing pick's own number (4),
@@ -491,7 +502,7 @@ test('landPick: the completing pick reaches completeDraft after the status flip 
     return { kind: 'complete', id: 78 };
   });
 
-  const result = await landPick({ leagueId: LEAGUE_ID, userId: 7, playerId: 500 });
+  const result = await landPick({ leagueId: LEAGUE_ID, by: { kind: 'manager', userId: 7 }, playerId: 500 });
 
   assert.equal(result.draftComplete, true);
   assert.equal(result.completion.kind, 'complete', 'the returned handoff entry rode out on the outcome');
@@ -522,7 +533,7 @@ test('landPick: the completing Pick is rostered and benched before the draft-com
     return { kind: 'complete', id: 78 };
   });
 
-  const outcome = await landPick({ leagueId: LEAGUE_ID, userId: 7, playerId: 500 });
+  const outcome = await landPick({ leagueId: LEAGUE_ID, by: { kind: 'manager', userId: 7 }, playerId: 500 });
 
   assert.equal(outcome.draftComplete, true);
   const insertAt = fake.calls.findIndex((c) => /^INSERT INTO "team_players"/.test(c.text));
@@ -566,7 +577,7 @@ test('landPick: a frozen league does NOT refuse a Pick during an active draft (#
   }).install(t);
   const recorder = withRecorder(t);
 
-  const outcome = await landPick({ leagueId: LEAGUE_ID, userId: 7, playerId: 500 });
+  const outcome = await landPick({ leagueId: LEAGUE_ID, by: { kind: 'manager', userId: 7 }, playerId: 500 });
 
   assert.equal(outcome.player.id, 500);
   assert.equal(fake.matching(insert('team_players')).length, 1, 'the Pick still rosters the player');
@@ -588,7 +599,7 @@ test('landPick: a team the GATE reads as locked still picks, because TEAM_LOCK i
   }).install(t);
   const recorder = withRecorder(t);
 
-  await landPick({ leagueId: LEAGUE_ID, userId: 7, playerId: 500 });
+  await landPick({ leagueId: LEAGUE_ID, by: { kind: 'manager', userId: 7 }, playerId: 500 });
 
   assert.equal(fake.matching(insert('team_players')).length, 1);
   assert.deepEqual(recorder.calls.map((c) => c.method), ['pickLanded']);
@@ -604,7 +615,7 @@ test('landPick: a manual Pick by a team the commissioner locked is refused', asy
   const recorder = withRecorder(t);
 
   await assert.rejects(
-    () => landPick({ leagueId: LEAGUE_ID, userId: 7, playerId: 500 }),
+    () => landPick({ leagueId: LEAGUE_ID, by: { kind: 'manager', userId: 7 }, playerId: 500 }),
     (error) => {
       assert.equal(error.statusCode, 409);
       assert.equal(error.message, 'your team is locked by the commissioner');
@@ -626,7 +637,7 @@ test('landPick: an autopick for a locked team on the clock still lands', async (
   }).install(t);
   const recorder = withRecorder(t);
 
-  await landPick({ leagueId: LEAGUE_ID, userId: 7, playerId: 500, auto: true });
+  await landPick({ leagueId: LEAGUE_ID, by: { kind: 'autopick' }, playerId: 500 });
 
   assert.equal(fake.matching(insert('team_players')).length, 1);
   assert.deepEqual(recorder.calls.map((c) => c.method), ['pickLanded']);
@@ -637,13 +648,13 @@ test('landPick: exactly one gate call, and it precedes the roster write it guard
   const fake = pickPool({ league: { ...BASE_LEAGUE, current_pick: 0 }, picksMade: 1 }).install(t);
   withRecorder(t);
 
-  await landPick({ leagueId: LEAGUE_ID, userId: 7, playerId: 500 });
+  await landPick({ leagueId: LEAGUE_ID, by: { kind: 'manager', userId: 7 }, playerId: 500 });
 
-  const gateAt = fake.calls.findIndex((c) => /^SELECT "id", "transactions_locked".*FOR UPDATE/.test(c.text));
+  const gateAt = fake.calls.findIndex((c) => /^UPDATE "leagues" SET "board_version"/.test(c.text));
   const teamLockAt = fake.calls.findIndex((c) => /^SELECT "id", "locked" FROM "teams".*FOR UPDATE/.test(c.text));
   const insertAt = fake.calls.findIndex((c) => /^INSERT INTO "team_players"/.test(c.text));
   assert.equal(
-    fake.calls.filter((c) => /^SELECT "id", "transactions_locked".*FOR UPDATE/.test(c.text)).length,
+    fake.calls.filter((c) => /^SELECT "id", "transactions_locked".*FROM "leagues"/.test(c.text)).length,
     1,
     'one Pick, one gate call'
   );
@@ -667,7 +678,7 @@ test('landPick: the acquire bundle is still evaluated - a full roster is refused
   const recorder = withRecorder(t);
 
   await assert.rejects(
-    landPick({ leagueId: LEAGUE_ID, userId: 7, playerId: 500 }),
+    landPick({ leagueId: LEAGUE_ID, by: { kind: 'manager', userId: 7 }, playerId: 500 }),
     { statusCode: 409, message: 'roster capacity of 2 reached' }
   );
   assert.equal(fake.matching(insert('team_players')).length, 0, 'nothing was rostered');
@@ -679,7 +690,7 @@ test('landPick: the acquire bundle is still evaluated - a full roster is refused
 // #1053/#1055 pair. It proves commitPick actually routes its transaction through
 // withTransaction (ADR 0033) rather than hand-rolling the close - the wrapper's
 // own exhaustive close tests live in withTransaction.test.js. commitPick's first
-// statement after BEGIN is SELECT ... FROM "leagues" ... FOR UPDATE, so a
+// statement after BEGIN is SELECT ... FROM "leagues" ... FOR NO KEY UPDATE, so a
 // throwing client-side select('leagues') reaches the wrapper's catch. The plain
 // Error carries no `code`, so commitPick's 23505 catch passes it through
 // untouched, which is what lets the wrapper's attach-and-rethrow-original be
@@ -688,6 +699,7 @@ test('landPick: the acquire bundle is still evaluated - a full roster is refused
 test('commitPick: a rejecting ROLLBACK destroys the connection and keeps the original error (#1063 Ruling 5)', async (t) => {
   const errorLog = t.mock.method(console, 'error', () => {});
   const fake = createFakePool([
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => { throw new Error('boom'); }, 'client'],
     [select('leagues'), () => { throw new Error('boom'); }, 'client'],
     [/^ROLLBACK$/, () => { throw new Error('rollback boom'); }, 'client'],
   ]).install(t);
@@ -698,7 +710,7 @@ test('commitPick: a rejecting ROLLBACK destroys the connection and keeps the ori
   // reddens fake.assertClean() on 'transaction left open', and lets the rollback
   // rejection replace the original, reddening the err.message check.
   await assert.rejects(
-    pickService.commitPick({ leagueId: LEAGUE_ID, userId: 7, playerId: 500 }),
+    pickService.commitPick({ leagueId: LEAGUE_ID, by: { kind: 'manager', userId: 7 }, playerId: 500 }),
     (err) => {
       assert.equal(err.message, 'boom', 'the original error surfaces, not the rollback failure');
       assert.equal(err.rollbackError.message, 'rollback boom', 'the rollback failure is attached to the original error');
@@ -713,11 +725,12 @@ test('commitPick: a rejecting ROLLBACK destroys the connection and keeps the ori
 
 test('commitPick: an ordinary error keeps its healthy connection (#1063 Ruling 5 control)', async (t) => {
   const fake = createFakePool([
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => { throw new Error('boom'); }, 'client'],
     [select('leagues'), () => { throw new Error('boom'); }, 'client'],
   ]).install(t);
 
   await assert.rejects(
-    pickService.commitPick({ leagueId: LEAGUE_ID, userId: 7, playerId: 500 }),
+    pickService.commitPick({ leagueId: LEAGUE_ID, by: { kind: 'manager', userId: 7 }, playerId: 500 }),
     (err) => {
       assert.equal(err.message, 'boom');
       assert.equal(err.rollbackError, undefined, 'a clean ROLLBACK attaches no rollbackError');
@@ -737,33 +750,40 @@ test('commitPick: an ordinary error keeps its healthy connection (#1063 Ruling 5
 const EXPIRED = '2026-09-01T00:00:00.000Z';
 const REARMED = '2026-09-01T00:01:00.000Z';
 
-async function assertClockMoved(t, { league, userId }) {
-  const fake = pickPool({ league: { ...league, pick_deadline_at: REARMED }, picksMade: 1 }).install(t);
+async function assertClockMoved(t, { league, expiredTurn }) {
+  const fake = pickPool({ league, picksMade: 1 }).install(t);
   withRecorder(t);
 
   await assert.rejects(
-    landPick({ leagueId: LEAGUE_ID, userId, playerId: 500, auto: true, expectedDeadline: EXPIRED }),
+    landPick({ leagueId: LEAGUE_ID, by: { kind: 'autopick' }, playerId: 500, expiredTurn }),
     (err) => err.statusCode === 409 && err.code === 'CLOCK_MOVED'
   );
   assert.equal(fake.matching(insert('draft_picks')).length, 0, 'no Pick is inserted');
   fake.assertClean();
 }
 
-test('landPick: a CPU-Team Autopick whose expected deadline differs from the locked row is refused CLOCK_MOVED', async (t) => {
-  await assertClockMoved(t, { league: { ...BASE_LEAGUE, current_pick: 0 }, userId: null });
+test('landPick: a CPU-Team Autopick whose expired deadline differs from the locked row is refused CLOCK_MOVED', async (t) => {
+  await assertClockMoved(t, {
+    league: { ...BASE_LEAGUE, current_pick: 0, pick_deadline_at: REARMED },
+    expiredTurn: { pickNumber: 1, deadline: EXPIRED },
+  });
 });
 
-test('landPick: a human back-to-back snake Autopick whose clock moved on is refused CLOCK_MOVED', async (t) => {
+test('landPick: a human back-to-back snake Autopick whose turn moved on is refused CLOCK_MOVED', async (t) => {
   // 2 teams, snake: Team Twelve holds picks 1 and 2. It picked at the buzzer on 1, so a stale
-  // firing for that expiry finds Team Twelve on the clock again; the turn check alone passes.
-  await assertClockMoved(t, { league: { ...BASE_LEAGUE, current_pick: 2 }, userId: 8 });
+  // firing for that expiry finds Team Twelve on the clock again. The deadline still matches
+  // here; only the turn differs, so the turn check is what refuses it.
+  await assertClockMoved(t, {
+    league: { ...BASE_LEAGUE, current_pick: 2, pick_deadline_at: EXPIRED },
+    expiredTurn: { pickNumber: 2, deadline: EXPIRED },
+  });
 });
 
-test('landPick: an Autopick whose expected deadline matches the locked row lands', async (t) => {
+test('landPick: an Autopick whose expired turn and deadline match the locked row lands', async (t) => {
   const fake = pickPool({ league: { ...BASE_LEAGUE, current_pick: 0, pick_deadline_at: EXPIRED }, picksMade: 1 }).install(t);
   const recorder = withRecorder(t);
 
-  await landPick({ leagueId: LEAGUE_ID, userId: 7, playerId: 500, auto: true, expectedDeadline: new Date(EXPIRED) });
+  await landPick({ leagueId: LEAGUE_ID, by: { kind: 'autopick' }, playerId: 500, expiredTurn: { pickNumber: 1, deadline: new Date(EXPIRED) } });
 
   assert.equal(recorder.calls[0].payload.auto, true);
   fake.assertClean();

@@ -1,10 +1,8 @@
 const pool = require('../modules/pool');
-const { withTransaction } = require('../modules/withTransaction');
+const { leagueWrite } = require('../modules/leagueWrite');
 const { assertFantasyLeagueRow } = require('./leagueType');
 const { requireMember } = require('./leagueMembership.service');
 const { logTransaction, notify } = require('./activity.service');
-const { getDraftRoomBroadcast } = require('../modules/draftRoomBroadcast');
-const { rosterCapacity } = require('./irPolicy.service');
 const { fantasySeasonLiveWhereSql } = require('./leaguePhase');
 const { normalizeNflTeam } = require('./nflTeam');
 // Module object, not destructured: the seam tests mock benchAcquiredPlayer.
@@ -13,9 +11,8 @@ const lineupService = require('./lineup.service');
 // circular require back into this module (#944; see waiverStatus.js). Kept in
 // this module's exports below so existing importers are untouched.
 const { isOnWaivers } = require('./waiverStatus');
-const {
-  assertRosterWriteAllowed, isLeagueFrozen, ROSTER_GATE, positionCapGroup, parsePositionCaps, countAtPositionGroup,
-} = require('./rosterGate.service');
+const { assertRosterWriteAllowed, isLeagueFrozen, ROSTER_GATE } = require('./rosterGate.service');
+const { rosterFit } = require('./rosterFit.service');
 // The one writer of a single-player Roster move (#2535).
 const rosterMove = require('./rosterMove.service');
 
@@ -206,45 +203,19 @@ async function claimTarget({ leagueId, userId, playerId }) {
   return player;
 }
 
-/**
- * Why a claim would overflow the roster, or null when it fits. Shared by
- * submit time and process time so a manager hears "choose a drop" when the
- * claim is built, not days later when it silently fails to execute.
- */
-async function capacityFailureReason(client, { league, team, dropPlayerId }) {
-  const count = await client.query(
-    `SELECT COUNT(*)::int AS n FROM "team_players" WHERE "team_id" = $1`,
-    [team.id]
-  );
-  const effective = count.rows[0].n - (dropPlayerId ? 1 : 0);
-  // Roster capacity, not the static roster limit: an eligible IR stash grants
-  // a spot, and a dropped player's own stash grants nothing (#97). The claimed
-  // player gets no restored credit either - a won claim benches him.
-  const capacity = await rosterCapacity(client, {
-    league,
-    teamId: team.id,
-    excludePlayerIds: dropPlayerId ? [dropPlayerId] : [],
-  });
-  if (effective >= capacity) return `roster capacity of ${capacity} reached`;
-  return null;
-}
-
 /** Submit a waiver claim (optionally dropping a player, optionally a FAAB bid). */
 async function submitClaim({ leagueId, userId, playerId, dropPlayerId, bid = 0 }) {
-  // withTransaction owns connect/BEGIN/COMMIT-or-guarded-ROLLBACK and the
-  // release rule (ADR 0033). Every refusal throws a WaiverError inside work,
+  // leagueWrite owns connect/BEGIN/the League lock/COMMIT-or-guarded-ROLLBACK
+  // (ADR 0033, 0070). Every refusal throws a WaiverError inside work,
   // which the wrapper rolls back and rethrows untouched, so there is no
   // catch-side mapping to move outward.
-  return withTransaction(
-    pool,
-    async (client) => {
-    // The league row lock serialises max(claim_order)+1 per league and matches
-    // processWaivers' lock order (league row first, team rows after). Not the
-    // team row alone: processWaivers holds the league row then updates team
-    // rows, and this insert's foreign key check share-locks the league row, so
-    // a team-first lock would invert the order. No advisory lock (#839).
-    const leagueResult = await client.query(`SELECT * FROM "leagues" WHERE "id" = $1 FOR UPDATE`, [leagueId]);
-    const league = leagueResult.rows[0];
+  return leagueWrite(
+    { leagueId, label: 'waiver-claim' },
+    async ({ client, league }) => {
+    // The League write locks the row first, which serialises max(claim_order)+1
+    // per league and matches processWaivers' lock order (league row first, team
+    // rows after). Not the team row alone: processWaivers holds the league row then
+    // updates team rows, so a team-first lock would invert the order. No advisory lock (#839).
     if (!league) throw new WaiverError(404, 'league not found');
     assertFantasyLeagueRow(league); // no waivers in a pick'em-only league
     // An entry gate (#966): the award itself runs through processWaivers's
@@ -281,7 +252,10 @@ async function submitClaim({ leagueId, userId, playerId, dropPlayerId, bid = 0 }
       if (!onMyTeam.rows[0]) throw new WaiverError(404, 'drop player is not on your roster');
     }
 
-    const overflow = await capacityFailureReason(client, { league, team, dropPlayerId });
+    // Submit and processing ask the same fit question, so a manager hears "choose a drop" now.
+    const overflow = await rosterFit(client, {
+      league, teamId: team.id, adds: [playerId], drops: dropPlayerId ? [dropPlayerId] : [],
+    });
     if (overflow) throw new WaiverError(409, `${overflow}; choose a player to drop`);
 
     const dupe = await client.query(
@@ -303,8 +277,7 @@ async function submitClaim({ leagueId, userId, playerId, dropPlayerId, bid = 0 }
       [leagueId, team.id, playerId, dropPlayerId || null, league.waiver_type === 'faab' ? bid : 0, nextOrder.rows[0].next]
     );
     return claimResult.rows[0];
-    },
-    { label: 'waiver-claim' }
+    }
   );
 }
 
@@ -318,24 +291,21 @@ async function submitClaim({ leagueId, userId, playerId, dropPlayerId, bid = 0 }
  * only the claim id), and its row lock is taken like every other claim write.
  */
 async function editClaim({ userId, claimId, bid, dropPlayerId }) {
-  return withTransaction(
-    pool,
-    async (client) => {
-      // Ownership rides the first read, so every refusal for a claim that is not
-      // the caller's own pending one is the same 404 (as cancelClaim); nothing
-      // about another user's claim or league leaks through a different code.
-      const found = await client.query(
+  // Ownership rides the first read, so every refusal for a claim that is not
+  // the caller's own pending one is the same 404 (as cancelClaim); nothing
+  // about another user's claim or league leaks through a different code. It runs
+  // before the League write, which needs the claim's League to take its lock; the
+  // body re-reads the claim under that lock (FOR UPDATE), so a race is refused there.
+  const found = await pool.query(
         `SELECT "waiver_claims"."league_id" FROM "waiver_claims"
          JOIN "teams" ON "teams"."id" = "waiver_claims"."team_id"
          WHERE "waiver_claims"."id" = $1 AND "waiver_claims"."status" = 'pending'
            AND "teams"."owner_id" = $2`,
         [claimId, userId]
-      );
-      if (!found.rows[0]) throw new WaiverError(404, 'pending claim not found');
-      const leagueId = found.rows[0].league_id;
-
-      const leagueResult = await client.query(`SELECT * FROM "leagues" WHERE "id" = $1 FOR UPDATE`, [leagueId]);
-      const league = leagueResult.rows[0];
+  );
+  if (!found.rows[0]) throw new WaiverError(404, 'pending claim not found');
+  const leagueId = found.rows[0].league_id;
+  return leagueWrite({ leagueId, label: 'waiver-claim-edit' }, async ({ client, league }) => {
       if (!league) throw new WaiverError(404, 'league not found');
       assertFantasyLeagueRow(league);
       if (isLeagueFrozen(league)) throw new WaiverError(409, 'transactions are locked by the commissioner');
@@ -381,7 +351,9 @@ async function editClaim({ userId, claimId, bid, dropPlayerId }) {
         }
         // A different drop (an IR stash grants no credit) or a cleared one can
         // leave no room, and the roster may have grown since submit.
-        const overflow = await capacityFailureReason(client, { league, team, dropPlayerId: nextDrop });
+        const overflow = await rosterFit(client, {
+          league, teamId: team.id, adds: [current.player_id], drops: nextDrop ? [nextDrop] : [],
+        });
         if (overflow) throw new WaiverError(409, `${overflow}; choose a player to drop`);
       }
 
@@ -391,9 +363,7 @@ async function editClaim({ userId, claimId, bid, dropPlayerId }) {
         [nextBid, nextDrop, claimId]
       );
       return updated.rows[0];
-    },
-    { label: 'waiver-claim-edit' }
-  );
+    });
 }
 
 /** Cancel one of the caller's pending claims. */
@@ -420,11 +390,9 @@ async function cancelClaim({ leagueId, userId, claimId }) {
  * reorder cannot interleave with either.
  */
 async function reorderClaims({ leagueId, userId, claimIds }) {
-  return withTransaction(
-    pool,
-    async (client) => {
-      const leagueResult = await client.query(`SELECT * FROM "leagues" WHERE "id" = $1 FOR UPDATE`, [leagueId]);
-      const league = leagueResult.rows[0];
+  return leagueWrite(
+    { leagueId, label: 'waiver-claim-order' },
+    async ({ client, league }) => {
       if (!league) throw new WaiverError(404, 'league not found');
       assertFantasyLeagueRow(league);
       const team = await requireMember(client, { leagueId, userId });
@@ -453,8 +421,7 @@ async function reorderClaims({ leagueId, userId, claimIds }) {
         );
       }
       return { claimIds };
-    },
-    { label: 'waiver-claim-order' }
+    }
   );
 }
 
@@ -479,7 +446,7 @@ async function reorderClaims({ leagueId, userId, claimIds }) {
  * NULLing it changes no read model. Guarded on `<= now()` because a
  * commissioner may trigger processing while the window is still open, and an
  * open window must survive that. Runs inside the caller's transaction, after
- * the league row's FOR UPDATE lock.
+ * the league row's FOR NO KEY UPDATE lock.
  */
 async function spendExpiredBlanketWindow(client, leagueId) {
   await client.query(
@@ -495,7 +462,7 @@ async function spendExpiredBlanketWindow(client, leagueId) {
  * ONE spelling of that write (#789 ruling 3): column-based, so the interval
  * reads `waiver_period_hours` off the league row itself and binds no hours
  * parameter. Runs inside the caller's transaction (draftCompletion.completeDraft),
- * after the draft_status flip and under the league row's FOR UPDATE lock. The
+ * after the draft_status flip and under the league row's FOR NO KEY UPDATE lock. The
  * counterpart that spends the window is spendExpiredBlanketWindow above.
  */
 async function openPostDraftWaiverWindow(client, { leagueId }) {
@@ -530,23 +497,16 @@ async function seedWaiverPriorityFromDraftOrder(client, { leagueId }) {
 }
 
 async function processWaivers({ leagueId }) {
-  // withTransaction owns connect/BEGIN/COMMIT-or-guarded-ROLLBACK and the
-  // release rule (ADR 0033). The no-due-claims branch returns inside work,
+  // leagueWrite owns connect/BEGIN/the League lock/COMMIT-or-guarded-ROLLBACK
+  // (ADR 0033, 0070). The no-due-claims branch returns inside work,
   // which COMMITs: it returns AFTER real writes (clearing expired
   // waiver_players and the blanket window), exactly as the hand-rolled early
   // COMMIT did - a committing early return, not a ROLLBACK-before-write, so
-  // it is untouched by Ruling 2. Both that branch and the full path broadcast
-  // rosterChanged after the commit, identically, so that one post-commit
-  // broadcast is hoisted below the call. Refusals (a frozen league from the
-  // roster gate) throw and the wrapper rolls back; no catch-side mapping.
-  const result = await withTransaction(
-    pool,
-    async (client) => {
-    const leagueResult = await client.query(
-      `SELECT * FROM "leagues" WHERE "id" = $1 FOR UPDATE`,
-      [leagueId]
-    );
-    const league = leagueResult.rows[0];
+  // it is untouched by Ruling 2. Refusals (a frozen league from the roster gate)
+  // throw and the wrapper rolls back; no catch-side mapping.
+  const result = await leagueWrite(
+    { leagueId, label: 'waiver-process' },
+    async ({ client, league }) => {
     if (!league) throw new WaiverError(404, 'league not found');
 
     // Due = the player's individual window expired, or he has no individual
@@ -600,9 +560,9 @@ async function processWaivers({ leagueId }) {
     // `claimFailureReason` used to destroy those claims inside the very
     // window the league was supposed to be standing still. Gating the helper
     // rather than the one `invalid` call site means a terminal status added
-    // later inherits the refusal too. The League row is held FOR UPDATE from
-    // the top of this transaction, so the gate's League read is a re-lock of
-    // a row we already own and the answer is the same at every point in the
+    // later inherits the refusal too. The League row is held FOR NO KEY UPDATE from
+    // the top of this transaction, so the gate's League read sees the row we
+    // already own, and the answer is the same at every point in the
     // loop - which is what lets the gate be asked here, per claim, with no
     // second read of the freeze and no batch-level check. Team id and player
     // id come off the claim row rather than the in-memory teams map, and the
@@ -620,7 +580,10 @@ async function processWaivers({ leagueId }) {
         teamId: claim.team_id,
         direction: 'acquire',
         playerId: claim.player_id,
-        bypass: [ROSTER_GATE.TEAM_LOCK, ROSTER_GATE.CAPACITY, ROSTER_GATE.POSITION_CAP, ROSTER_GATE.WAIVER_HOLD],
+        bypass: [ROSTER_GATE.TEAM_LOCK, ROSTER_GATE.WAIVER_HOLD],
+        // A terminal status is no roster move: a win's add already happened, and a
+        // lost or invalid claim never adds, so there is no pending move to fit-check.
+        moves: { adds: [], drops: [] },
       });
       return client.query(
         `UPDATE "waiver_claims" SET "status" = $1, "note" = $2,
@@ -711,11 +674,11 @@ async function processWaivers({ leagueId }) {
       // freeze must not land during it (#940 story 4). A frozen League throws,
       // the transaction rolls back, and every due claim stays pending for the
       // next tick rather than being awarded or permanently invalidated. The team
-      // lock and the acquire bundle are bypassed there: this batch path enforces
-      // its net capacity and net position cap through claimFailureReason above
-      // and does not enforce the on-waivers gate (a waiver award IS a waiver),
-      // and per-team-lock handling on the batch path is a later ticket - so this
-      // slice changes only the freeze here (#944 criterion 5).
+      // lock and the waiver hold are bypassed there, and the add passes an empty move
+      // set: claimFailureReason already asked the claim's net fit (its drop netted in)
+      // before any write above, so the add has nothing left to fit. A waiver award IS
+      // a waiver, so the on-waivers gate does not apply. Per-team-lock handling on the
+      // batch path is a later ticket - so this slice changes only the freeze here (#944 criterion 5).
 
       // Execute: optional drop (dropped player goes on waivers), then add.
       if (claim.drop_player_id) {
@@ -741,7 +704,8 @@ async function processWaivers({ leagueId }) {
         league,
         teamId: team.id,
         playerId,
-        bypass: [ROSTER_GATE.TEAM_LOCK, ROSTER_GATE.CAPACITY, ROSTER_GATE.POSITION_CAP, ROSTER_GATE.WAIVER_HOLD],
+        bypass: [ROSTER_GATE.TEAM_LOCK, ROSTER_GATE.WAIVER_HOLD],
+        moves: { adds: [], drops: [] },
       });
       if (league.waiver_type === 'faab' && claim.bid > 0) {
         await client.query(
@@ -804,10 +768,8 @@ async function processWaivers({ leagueId }) {
     await spendExpiredBlanketWindow(client, leagueId);
 
     return { processed: dueResult.rows.length, results };
-    },
-    { label: 'waiver-process' }
+    }
   );
-  await getDraftRoomBroadcast().rosterChanged(leagueId);
   return result;
 }
 
@@ -865,32 +827,11 @@ async function claimFailureReason(client, { league, team, claim }) {
     if (!dropValid) return 'the player you offered to drop is no longer on your roster';
   }
   const dropPlayerId = dropValid ? claim.drop_player_id : null;
-  // Cap first: a claim that never fit its cap must not read as "roster full
-  // after your #n claim" once a sibling win fills the roster (siblingReason).
-  const capped = await positionCapFailureReason(client, { league, team, claim, dropPlayerId });
-  if (capped) return capped;
-  return capacityFailureReason(client, { league, team, dropPlayerId });
-}
-
-/**
- * A Position cap holds on every acquisition (#2557), so a claim is checked
- * net of its own drop, like a Trade: a same-group drop nets zero and passes.
- * Only a claim that GAINS a player in the group is refused, so a Team already
- * over a cap keeps its players but cannot claim at that position.
- */
-async function positionCapFailureReason(client, { league, team, claim, dropPlayerId }) {
-  const caps = parsePositionCaps(league.position_caps);
-  if (!Object.values(caps).some(Number.isInteger)) return null;
-  const ids = dropPlayerId ? [claim.player_id, dropPlayerId] : [claim.player_id];
-  const positions = await client.query(`SELECT "id", "position" FROM "players" WHERE "id" = ANY($1::int[])`, [ids]);
-  const groupOf = (id) => positionCapGroup((positions.rows.find((p) => p.id === id) || {}).position);
-  const group = groupOf(claim.player_id);
-  if (!Number.isInteger(caps[group])) return null;
-  const net = dropPlayerId && groupOf(dropPlayerId) === group ? 0 : 1;
-  if (net > 0 && (await countAtPositionGroup(client, { teamId: team.id, group })) + net > caps[group]) {
-    return `position cap reached: max ${caps[group]} ${group}`;
-  }
-  return null;
+  // rosterFit checks the Position cap before capacity, so a claim that never fit
+  // its cap does not read as "roster full after your #n claim" (siblingReason).
+  return rosterFit(client, {
+    league, teamId: team.id, adds: [claim.player_id], drops: dropPlayerId ? [dropPlayerId] : [],
+  });
 }
 
 /**

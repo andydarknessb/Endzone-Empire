@@ -4,7 +4,7 @@
  *
  * The whole ticket rests on ONE mechanism: a correction and a pick serialize on
  * the league row lock, so a correction "cannot race a manager or autopick".
- * commitPick takes `SELECT * FROM "leagues" WHERE "id" = $1 FOR UPDATE` before
+ * commitPick takes `SELECT * FROM "leagues" WHERE "id" = $1 FOR NO KEY UPDATE` before
  * touching draft_picks; correctLatestPick takes the identical lock on the same
  * row. The fast suites assert both paths ISSUE that lock (a check on the code);
  * only a real Postgres can show that two real transactions actually SERIALIZE on
@@ -26,7 +26,7 @@
  * proven in draftCorrection.route.test.js and .socket.test.js.
  *
  * WHAT THIS DOES NOT COVER, and where its sibling does. This proves a claim
- * about POSTGRES: given that SOME transaction holds the league row FOR UPDATE,
+ * about POSTGRES: given that SOME transaction holds the league row FOR NO KEY UPDATE,
  * the real commitPick blocks and then observes the committed state. It does NOT
  * prove that correctLatestPick is the code that takes that lock - it replays the
  * statements rather than calling the service. The static half,
@@ -34,10 +34,10 @@
  * mutation" test, proves correctLatestPick issues the same lock commitPick
  * does. Neither is sufficient alone: this one is blind to the service issuing the
  * lock; that one is blind to Postgres actually serialising on it. The residual
- * gap is precise and left open on purpose - if correctLatestPick's statements
- * DRIFT from what this file replays, neither test catches it. Closing it would
- * mean refactoring correctLatestPick to accept an injected client; that is a
- * design change, not a test fix. (The same static/runtime split #474's guards
+ * gap was precise: if correctLatestPick's statements DRIFT from what the first
+ * test replays, neither test caught it. Ticket 2697 closes it: the correction is a
+ * League write now, so the second test below drives the REAL correctLatestPick
+ * against a held lock. (The same static/runtime split #474's guards
  * use: one half proves the code says the right thing, the other that the system
  * does it.)
  *
@@ -69,6 +69,8 @@ if (!ENABLED) {
   const pool = require('../modules/pool');
   const { commitPick } = require('../services/pick.service');
   const { appendCorrectionActivity } = require('../services/draftActivity');
+  const { correctLatestPick } = require('../services/draftAct.service');
+  const { lockLeague } = require('../modules/leagueWrite');
   const connection = {
     host: process.env.PGHOST || '127.0.0.1',
     port: Number(process.env.PGPORT) || 5432,
@@ -174,12 +176,12 @@ if (!ENABLED) {
     // correctLatestPick does, and hold it open.
     const correction = await pool.connect();
     await correction.query('BEGIN');
-    await correction.query('SELECT * FROM "leagues" WHERE "id" = $1 FOR UPDATE', [leagueId]);
+    await correction.query('SELECT * FROM "leagues" WHERE "id" = $1 FOR NO KEY UPDATE', [leagueId]);
 
     // The pick, the REAL commitPick, for the team on the clock. Its first
-    // statement after BEGIN is the same SELECT ... FOR UPDATE, so it blocks on
+    // statement after BEGIN is the same FOR NO KEY UPDATE League lock, so it blocks on
     // the row the correction holds.
-    const pickOutcome = commitPick({ leagueId, userId: ownerB, playerId: playerNext }).then(
+    const pickOutcome = commitPick({ leagueId, by: { kind: 'manager', userId: ownerB }, playerId: playerNext }).then(
       (value) => ({ status: 'fulfilled', value }),
       (reason) => ({ status: 'rejected', reason })
     );
@@ -225,5 +227,47 @@ if (!ENABLED) {
     const corrections = await pool.query(`SELECT "reason" FROM "draft_activity" WHERE "league_id" = $1 AND "kind" = 'correction'`, [leagueId]);
     assert.equal(corrections.rows.length, 1, 'one append-only correction entry');
     assert.equal(corrections.rows[0].reason, REASON);
+  });
+
+  test('a correction waits on a League write that holds the row, then applies', async () => {
+    // Reseed the live Pick the first test reversed, so the correction has one to reverse.
+    await pool.query(
+      `UPDATE "leagues" SET "draft_status" = 'active', "draft_paused" = false, "current_pick" = 1 WHERE "id" = $1`,
+      [leagueId]
+    );
+    await pool.query(
+      `INSERT INTO "draft_picks" ("league_id", "team_id", "player_id", "pick_number") VALUES ($1, $2, $3, 1)`,
+      [leagueId, teamA, playerCorrected]
+    );
+    await pool.query(
+      `INSERT INTO "team_players" ("league_id", "team_id", "player_id") VALUES ($1, $2, $3)`,
+      [leagueId, teamA, playerCorrected]
+    );
+    const countCorrections = async () => (await pool.query(
+      `SELECT count(*)::int AS "n" FROM "draft_activity" WHERE "league_id" = $1 AND "kind" = 'correction'`,
+      [leagueId]
+    )).rows[0].n;
+    const before = await countCorrections();
+
+    // Another League write holds the row: the same lock every League write takes.
+    const holder = await pool.connect();
+    await holder.query('BEGIN');
+    await lockLeague(holder, leagueId);
+
+    const correction = correctLatestPick({ leagueId, userId: ownerA, expectedPickNumber: 1, reason: REASON }).then(
+      (value) => ({ status: 'fulfilled', value }),
+      (reason) => ({ status: 'rejected', reason })
+    );
+    const whileBlocked = await Promise.race([correction, delay(500).then(() => ({ status: 'blocked' }))]);
+    assert.equal(whileBlocked.status, 'blocked', 'the correction waits while another League write holds the row');
+
+    await holder.query('COMMIT');
+    holder.release();
+
+    const settled = await correction;
+    assert.equal(settled.status, 'fulfilled', 'the correction applies once the row is free');
+    assert.equal(settled.value.paused, true, 'the draft is left paused');
+    assert.equal(settled.value.currentPick, 0, 'the clock rewinds to the corrected slot');
+    assert.equal(await countCorrections(), before + 1, 'one correction entry appended');
   });
 }

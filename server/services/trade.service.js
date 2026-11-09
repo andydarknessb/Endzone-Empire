@@ -1,48 +1,20 @@
 const pool = require('../modules/pool');
 const { withTransaction } = require('../modules/withTransaction');
+const { leagueWrite, lockLeague } = require('../modules/leagueWrite');
 const { logTransaction, notify, notifyLeague } = require('./activity.service');
-const { isLeagueCommissioner } = require('./leagueRole.service');
-const { requireMember } = require('./leagueMembership.service');
-const { assertFantasyLeagueRow } = require('./leagueType');
-const { rosterCapacity } = require('./irPolicy.service');
+const { TradeError, TRANSITIONS, assertTransition, transitionRefusal, assertDraftComplete } = require('./tradeTransitions');
 // The write-time roster gate (#940). Its error type is DraftError, which does
 // NOT extend TradeError - and that is load-bearing here, not incidental:
 // processDueTrades permanently CANCELS a trade when it catches a TradeError, so
 // a freeze refusal shaped like one would destroy every accepted trade whose
 // review window ended during a freeze. As a DraftError it falls to the "log and
 // retry next tick" branch, and the trade stays accepted.
-const {
-  assertRosterWriteAllowed, isLeagueFrozen, ROSTER_GATE, positionCapGroup, parsePositionCaps, countAtPositionGroup,
-} = require('./rosterGate.service');
-const { getDraftRoomBroadcast } = require('../modules/draftRoomBroadcast');
+const { assertRosterWriteAllowed, ROSTER_GATE } = require('./rosterGate.service');
+const { rosterFit } = require('./rosterFit.service');
 // The one writer of a single-player Roster move (#2535).
 const rosterMove = require('./rosterMove.service');
 const { getWeekOpponents } = require('./nflWeekOpponents');
 const { normalizeNflTeam } = require('./nflTeam');
-
-/**
- * Who may act on a trade (#188, recorded here rather than beside each check).
- *
- * Every `owner_id !== userId` in this module is a CALLER comparison and never
- * a role one: `owner_id` here is a `teams` row's, so it asks "is this team the
- * signed-in manager's own", and the error message beside each one states the
- * rule it enforces. Only the two managers in a trade may move it, and which of
- * them may do what is the whole of the rule: the receiving manager responds
- * and counters, the proposing manager cancels.
- *
- * Being a commissioner grants nothing here. The one commissioner-shaped power
- * over a trade is commissionerDecide's force-approve/veto, which authorizes
- * through isLeagueCommissioner like every other commissioner-gated action, so
- * a co-commissioner holds it. A commissioner has no standing to accept a trade
- * on a manager's behalf, and nothing in here should acquire one by comparing
- * against `leagues.owner_id`.
- */
-class TradeError extends Error {
-  constructor(statusCode, message) {
-    super(message);
-    this.statusCode = statusCode;
-  }
-}
 
 /** Load a trade with its league, both teams, and items; lock the trade row. */
 async function loadTrade(client, tradeId, { forUpdate = true } = {}) {
@@ -56,7 +28,7 @@ async function loadTrade(client, tradeId, { forUpdate = true } = {}) {
   // limit -- the race this ticket fixes.
   //
   // League-BEFORE-trades is the lock ORDER, not just the addition of a lock:
-  // rolloverSeason locks the League row (requireCommissioner, forUpdate) and
+  // rolloverSeason locks the League row (the League write's lock) and
   // then row-locks this league's trades (`UPDATE "trades" ... WHERE
   // "league_id" = $1 ...`), i.e. League -> trades. Locking the trades row first
   // here would invert that into an AB/BA deadlock pair, so the League row is
@@ -64,12 +36,16 @@ async function loadTrade(client, tradeId, { forUpdate = true } = {}) {
   // unlocked MVCC subquery that never blocks on a held trades-row lock -- and
   // the trades row second. forceTransaction and the gate are League-first too,
   // so this introduces no lock-order inversion on any path.
-  const leagueResult = await client.query(
-    `SELECT * FROM "leagues" WHERE "id" = (SELECT "league_id" FROM "trades" WHERE "id" = $1) FOR UPDATE`,
-    [tradeId]
-  );
+  // The trade's League is read unlocked (its league_id never changes), then locked
+  // through the League write module (ADR 0070) before the trades row is touched.
+  const leagueIdResult = await client.query(`SELECT "league_id" FROM "trades" WHERE "id" = $1`, [tradeId]);
+  const leagueId = leagueIdResult.rows[0] ? leagueIdResult.rows[0].league_id : null;
+  const league = leagueId == null ? null : await lockLeague(client, leagueId);
+  // review_closed is read on the database's clock after the League lock is granted,
+  // not at transaction start: a veto that queued behind the lock must see the window
+  // as it is when it writes. processDueTrades' predicate is review_ends_at <= now().
   const tradeResult = await client.query(
-    `SELECT * FROM "trades" WHERE "id" = $1${forUpdate ? ' FOR UPDATE' : ''}`,
+    `SELECT *, ("review_ends_at" <= clock_timestamp()) AS "review_closed" FROM "trades" WHERE "id" = $1${forUpdate ? ' FOR UPDATE' : ''}`,
     [tradeId]
   );
   const trade = tradeResult.rows[0];
@@ -80,33 +56,7 @@ async function loadTrade(client, tradeId, { forUpdate = true } = {}) {
     [trade.proposing_team_id, trade.receiving_team_id]
   );
   const teams = new Map(teamsResult.rows.map((t) => [t.id, t]));
-  return { trade, league: leagueResult.rows[0], items: itemsResult.rows, teams };
-}
-
-/**
- * The trade-window gate every offer and answer runs through: no trades at all
- * in a pick'em-only league, none until the draft is complete, and none past
- * the deadline.
- */
-function assertBeforeDeadline(league) {
-  assertFantasyLeagueRow(league);
-  assertDraftComplete(league);
-  if (league.trade_deadline_week != null && league.current_week > league.trade_deadline_week) {
-    throw new TradeError(409, `the trade deadline (week ${league.trade_deadline_week}) has passed`);
-  }
-}
-
-/**
- * Trades open only once the League's draft is complete (#2550). Before then a
- * trade fills a roster that is still being picked (a 2-for-1 mid-draft pauses
- * the draft at the team's last pick), and a Keeper traded before the draft
- * lands on one roster while the other team's keeper pick still owes him.
- * A TradeError, so a due trade found in this window is cancelled, not retried.
- */
-function assertDraftComplete(league) {
-  if (league.draft_status !== 'complete') {
-    throw new TradeError(409, 'trades open once the draft is complete');
-  }
+  return { trade, league, items: itemsResult.rows, teams };
 }
 
 function validatePlayerIds(playerIds) {
@@ -128,27 +78,19 @@ function validatePlayerIds(playerIds) {
  *
  * counterTrade calls this on the SAME client that already marked the original
  * 'countered', so the countered update and this new offer commit or roll back
- * together (#1077). It is self-contained on purpose: it re-reads the League row
- * unlocked, which is fine on a connection that already holds the FOR UPDATE
- * lock from loadTrade - do not pass the locked row in to skip the read, or the
- * two entry points stop sharing one code path.
+ * together (#1077). It takes the League row its caller holds (the League write,
+ * ADR 0070), so the freeze, draft-complete and deadline gates read the locked row
+ * on the propose path and the counter's path alike. Do not re-read it unlocked here.
  */
-async function proposeTradeWith(client, { leagueId, userId, receivingTeamId, playerIds, counterOf = null }) {
-  const leagueResult = await client.query(`SELECT * FROM "leagues" WHERE "id" = $1`, [leagueId]);
-  const league = leagueResult.rows[0];
+async function proposeTradeWith(client, { league, userId, receivingTeamId, playerIds, counterOf = null }) {
   if (!league) throw new TradeError(404, 'league not found');
-  // An entry gate: tells the proposer before he fills in an offer. Execution
-  // still runs the write-time gate below (executeTrade); this delegates to
-  // the gate's fail-closed freeze read (#966) so the two cannot drift on
-  // what the column means.
-  if (isLeagueFrozen(league)) {
-    throw new TradeError(409, 'transactions are locked by the commissioner');
-  }
-  assertBeforeDeadline(league);
-
-  const myTeam = await requireMember(client, { leagueId, userId });
-  if (myTeam.locked) throw new TradeError(409, 'your team is locked by the commissioner');
-  if (myTeam.id === receivingTeamId) throw new TradeError(400, 'cannot trade with yourself');
+  const leagueId = league.id;
+  // The propose transition (tradeTransitions.js): the freeze and the deadline as
+  // entry gates, then the member's own checks. Execution still runs the write-time
+  // gate (executeTrade).
+  const ctx = { client, league, userId, receivingTeamId, trade: null };
+  await assertTransition('propose', ctx);
+  const { myTeam } = ctx;
 
   const otherResult = await client.query(
     `SELECT * FROM "teams" WHERE "id" = $1 AND "league_id" = $2`,
@@ -227,10 +169,9 @@ async function sendTradeOfferPush({ otherTeamOwnerId, myTeamName, leagueId }) {
  */
 async function proposeTrade({ leagueId, userId, receivingTeamId, playerIds, counterOf = null }) {
   validatePlayerIds(playerIds);
-  const { trade, otherTeamOwnerId, myTeamName } = await withTransaction(
-    pool,
-    (client) => proposeTradeWith(client, { leagueId, userId, receivingTeamId, playerIds, counterOf }),
-    { label: 'proposeTrade' }
+  const { trade, otherTeamOwnerId, myTeamName } = await leagueWrite(
+    { leagueId, label: 'proposeTrade' },
+    ({ client, league }) => proposeTradeWith(client, { league, userId, receivingTeamId, playerIds, counterOf })
   );
   await sendTradeOfferPush({ otherTeamOwnerId, myTeamName, leagueId });
   return trade;
@@ -246,12 +187,11 @@ async function respondToTrade({ tradeId, userId, action }) {
     pool,
     async (client) => {
       const { trade, league, items, teams } = await loadTrade(client, tradeId);
-      if (trade.status !== 'pending') throw new TradeError(409, `trade is ${trade.status}, not pending`);
+      const to = await assertTransition(action, { client, trade, league, items, teams, userId });
       const receiving = teams.get(trade.receiving_team_id);
-      if (receiving.owner_id !== userId) throw new TradeError(403, 'only the receiving owner can respond');
       const proposing = teams.get(trade.proposing_team_id);
 
-      if (action === 'reject') {
+      if (to === 'rejected') {
         await client.query(
           `UPDATE "trades" SET "status" = 'rejected', "updated_at" = now() WHERE "id" = $1`,
           [tradeId]
@@ -266,9 +206,7 @@ async function respondToTrade({ tradeId, userId, action }) {
         return { tradeId, status: 'rejected' };
       }
 
-      assertBeforeDeadline(league);
-      const reviewed = league.trade_veto_votes > 0 && league.trade_review_hours > 0;
-      if (reviewed) {
+      if (to === 'accepted') {
         await client.query(
           `UPDATE "trades" SET "status" = 'accepted', "updated_at" = now(),
            "review_ends_at" = now() + make_interval(hours => $2)
@@ -297,11 +235,6 @@ async function respondToTrade({ tradeId, userId, action }) {
     },
     { label: 'respondToTrade' }
   );
-  // Broadcast runs AFTER withTransaction resolves, so the connection is
-  // already back in the pool (Ruling 3).
-  if (result.status === 'executed') {
-    await getDraftRoomBroadcast().rosterChanged(result.leagueId);
-  }
   return { tradeId: result.tradeId, status: result.status };
 }
 
@@ -310,11 +243,8 @@ async function cancelTrade({ tradeId, userId }) {
   return withTransaction(
     pool,
     async (client) => {
-      const { trade, teams } = await loadTrade(client, tradeId);
-      if (trade.status !== 'pending') throw new TradeError(409, `trade is ${trade.status}, not pending`);
-      if (teams.get(trade.proposing_team_id).owner_id !== userId) {
-        throw new TradeError(403, 'only the proposer can cancel');
-      }
+      const { trade, league, teams } = await loadTrade(client, tradeId);
+      await assertTransition('cancel', { client, trade, league, teams, userId });
       await client.query(
         `UPDATE "trades" SET "status" = 'cancelled', "updated_at" = now() WHERE "id" = $1`,
         [tradeId]
@@ -339,20 +269,16 @@ async function counterTrade({ tradeId, userId, playerIds }) {
   const { trade, otherTeamOwnerId, myTeamName } = await withTransaction(
     pool,
     async (client) => {
-      const { trade, teams } = await loadTrade(client, tradeId);
-      if (trade.status !== 'pending') throw new TradeError(409, `trade is ${trade.status}, not pending`);
-      const receiving = teams.get(trade.receiving_team_id);
-      if (receiving.owner_id !== userId) throw new TradeError(403, 'only the receiving owner can counter');
+      const { trade, teams, league } = await loadTrade(client, tradeId);
+      await assertTransition('counter', { client, trade, league, teams, userId });
       await client.query(
         `UPDATE "trades" SET "status" = 'countered', "updated_at" = now() WHERE "id" = $1`,
         [tradeId]
       );
-      // Self-contained: proposeTradeWith re-reads the League row unlocked on
-      // this same connection, which already holds loadTrade's FOR UPDATE lock.
-      // Lock order is unchanged - League before trades - because these reads
-      // happen after loadTrade's on the one connection.
+      // proposeTradeWith takes the League row loadTrade already locked, so the
+      // counter's gates read the held row. Lock order is unchanged: League before trades.
       return proposeTradeWith(client, {
-        leagueId: trade.league_id,
+        league,
         userId,
         receivingTeamId: trade.proposing_team_id,
         playerIds,
@@ -373,31 +299,22 @@ async function vetoTrade({ tradeId, userId }) {
     pool,
     async (client) => {
       const { trade, league, teams } = await loadTrade(client, tradeId);
-      if (trade.status !== 'accepted') throw new TradeError(409, 'trade is not in league review');
-      if (league.trade_veto_votes < 1) throw new TradeError(409, 'vetoes are disabled in this league');
-
-      const voter = await requireMember(client, { leagueId: league.id, userId });
-      if (voter.id === trade.proposing_team_id || voter.id === trade.receiving_team_id) {
-        throw new TradeError(403, 'teams in the trade cannot vote on it');
-      }
       // The window, not the trade's status, ends the review (#2544): the trade
       // stays 'accepted' until processDueTrades executes it, which a frozen
-      // League can delay for days. The row is in hand, so no clock round-trip.
-      if (trade.review_ends_at && new Date(trade.review_ends_at) <= new Date()) {
-        throw new TradeError(409, 'the review window has closed');
-      }
+      // League can delay for days. review_closed is the database's clock.
+      const ctx = { client, trade, league, teams, userId };
+      await assertTransition('veto', ctx);
       await client.query(
         `INSERT INTO "trade_votes" ("trade_id", "team_id") VALUES ($1, $2)
          ON CONFLICT ("trade_id", "team_id") DO NOTHING`,
-        [tradeId, voter.id]
+        [tradeId, ctx.voter.id]
       );
       const votes = await client.query(
         `SELECT COUNT(*)::int AS n FROM "trade_votes" WHERE "trade_id" = $1`,
         [tradeId]
       );
-      let status = 'accepted';
-      if (votes.rows[0].n >= league.trade_veto_votes) {
-        status = 'vetoed';
+      const status = TRANSITIONS.veto.to({ votes: votes.rows[0].n, league });
+      if (status === 'vetoed') {
         await client.query(
           `UPDATE "trades" SET "status" = 'vetoed', "updated_at" = now() WHERE "id" = $1`,
           [tradeId]
@@ -424,17 +341,8 @@ async function commissionerDecide({ tradeId, userId, approve }) {
     pool,
     async (client) => {
       const { trade, league, items, teams } = await loadTrade(client, tradeId);
-      if (!(await isLeagueCommissioner(client, league.id, userId))) {
-        throw new TradeError(403, 'only the commissioner can do this');
-      }
-      // Integrity: the override is never theirs to use on a trade their own team is in.
-      if ([trade.proposing_team_id, trade.receiving_team_id].some((id) => teams.get(id)?.owner_id === userId)) {
-        throw new TradeError(403, "a commissioner can't decide a trade their own team is in");
-      }
-      if (!['pending', 'accepted'].includes(trade.status)) {
-        throw new TradeError(409, `trade is ${trade.status}`);
-      }
-      if (approve) {
+      const to = await assertTransition(approve ? 'approve' : 'deny', { client, trade, league, items, teams, userId });
+      if (to === 'executed') {
         await executeTrade(client, { trade, league, items, teams, byCommissioner: true });
         return { tradeId, status: 'executed', leagueId: league.id };
       }
@@ -455,11 +363,6 @@ async function commissionerDecide({ tradeId, userId, approve }) {
     },
     { label: 'commissionerDecide' }
   );
-  // Broadcast runs AFTER withTransaction resolves, so the connection is
-  // already back in the pool (Ruling 3).
-  if (result.status === 'executed') {
-    await getDraftRoomBroadcast().rosterChanged(result.leagueId);
-  }
   return { tradeId: result.tradeId, status: result.status };
 }
 
@@ -474,16 +377,12 @@ async function commissionerDecide({ tradeId, userId, approve }) {
  * trade answer for the freeze and for their own Team lock - and the Team lock
  * is new here, since this path checked neither manager's before.
  *
- * Capacity and the position cap are the exceptions, and are bypassed on the
- * per-item call rather than dropped; the position cap is checked NET, after
- * capacity (#2274).
- *
- * On capacity: every add asks a per-player question; a trade asks a NET
- * question over a swap that may transiently exceed - a team at capacity that
- * sends one player and receives one is legal, but its incoming insert happens
- * while the count is still full. So the net question stays exactly where it is,
- * in the delta loop below, and the per-item gate is invoked with
- * ROSTER_GATE.CAPACITY bypassed, which is precisely how the path behaves today.
+ * Capacity and the position cap are NET questions over the whole swap, not
+ * per-item ones (#2274): a team at capacity that sends one player and receives
+ * one is legal, though its incoming insert runs while the count is still full.
+ * Each receiving Team's fit is asked once, before any write, with its incoming
+ * players as adds and its outgoing players as drops (rosterFit). Each leg's
+ * acquire then has nothing left to fit and passes an empty move set.
  */
 async function executeTrade(client, { trade, league, items, teams, byCommissioner = false }) {
   // Execution refuses on its own (#2550), never trusting the offer/answer that
@@ -502,54 +401,27 @@ async function executeTrade(client, { trade, league, items, teams, byCommissione
     delta.set(item.from_team_id, delta.get(item.from_team_id) - 1);
     delta.set(item.to_team_id, delta.get(item.to_team_id) + 1);
   }
-  for (const [teamId, change] of delta) {
-    const count = await client.query(
-      `SELECT COUNT(*)::int AS n FROM "team_players" WHERE "team_id" = $1`,
-      [teamId]
-    );
-    // Roster capacity, not the static roster limit (#97). Outgoing players
-    // are excluded from the stash count: trading away your stashed player
-    // takes his granted spot with him. Incoming players earn nothing: they
-    // land on the bench, whatever old lineup rows of theirs survive here.
-    const capacity = await rosterCapacity(client, {
-      league,
-      teamId,
-      excludePlayerIds: items
-        .filter((item) => item.from_team_id === teamId)
-        .map((item) => item.player_id),
-    });
-    if (count.rows[0].n + change > capacity) {
-      throw new TradeError(409, `trade would put ${teams.get(teamId).name} over its roster capacity of ${capacity}`);
-    }
-  }
-  // Positions for the net position-cap question below, and the names the
-  // transaction detail bakes in later, read in one statement before the loop.
+  // The traded players' names (for the transaction detail) and positions (for the fit), in one read.
   const tradedPlayersResult = await client.query(
     `SELECT "id", "name", "position" FROM "players" WHERE "id" = ANY($1::int[])`,
     [items.map((i) => i.player_id)]
   );
-  const tradedPlayerById = new Map(tradedPlayersResult.rows.map((p) => [p.id, p]));
-  // The position cap is a NET question too, like capacity (#2274): a per-item
-  // check refuses a like-for-like swap at the cap whenever the incoming insert
-  // runs before the outgoing delete. A TradeError, so a due trade that can
-  // never fit is cancelled. Only a team that GAINS players in a group is
-  // checked; one that swaps like for like or sheds players is never refused.
-  const caps = parsePositionCaps(league.position_caps);
+  const knownPositions = new Map(tradedPlayersResult.rows.map((p) => [p.id, p.position]));
+  // A TradeError, so a due trade that can never fit is cancelled. Each receiving
+  // Team's fit is one net question over the whole swap, asked before any write.
   for (const teamId of delta.keys()) {
-    const change = new Map();
-    for (const item of items) {
-      const group = positionCapGroup((tradedPlayerById.get(item.player_id) || {}).position);
-      if (!Number.isInteger(caps[group])) continue;
-      if (item.to_team_id === teamId) change.set(group, (change.get(group) || 0) + 1);
-      if (item.from_team_id === teamId) change.set(group, (change.get(group) || 0) - 1);
-    }
-    for (const [group, net] of change) {
-      if (net > 0 && (await countAtPositionGroup(client, { teamId, group })) + net > caps[group]) {
-        throw new TradeError(409, `position cap reached: max ${caps[group]} ${group}`);
-      }
-    }
+    const refusal = await rosterFit(client, {
+      league,
+      teamId,
+      adds: items.filter((item) => item.to_team_id === teamId).map((item) => item.player_id),
+      drops: items.filter((item) => item.from_team_id === teamId).map((item) => item.player_id),
+      knownPositions,
+    });
+    // ponytail: matches rosterFit's capacity wording (rosterFit.service.js:100); a moved string fails the trade tests, upgrade to a structured refusal if rosterFit gains more reasons.
+    const capacity = /^roster capacity of (\d+) reached$/.exec(refusal ?? '');
+    if (capacity) throw new TradeError(409, `trade would put ${teams.get(teamId).name} over its roster capacity of ${capacity[1]}`);
+    if (refusal) throw new TradeError(409, refusal);
   }
-
   for (const item of items) {
     // Delete-and-insert rather than UPDATE ... SET team_id (#197). Moving the
     // row keeps the GIVING team's created_at, so "when this team acquired
@@ -563,23 +435,26 @@ async function executeTrade(client, { trade, league, items, teams, byCommissione
     // BEFORE the give-side delete because the waiver hold reads an unrostered
     // player as on waivers while the post-draft blanket window is open
     // (isOnWaivers), and once the delete has run every traded player looks
-    // unrostered, so every trade in that window was refused (#2274). Capacity
-    // and the position cap are bypassed - the trade enforces both NET, above -
-    // and KICKOFF_HOLD is bypassed because a trade moves an already-rostered
-    // player, never a Free agent (ADR 0043; lead ruling on issue #1376). The
-    // existing waiver-row check (WAIVER_HOLD) is untouched and still runs.
+    // unrostered, so every trade in that window was refused (#2274). KICKOFF_HOLD
+    // is bypassed because a trade moves an already-rostered player, never a Free
+    // agent (ADR 0043; lead ruling on issue #1376). The existing waiver-row check
+    // (WAIVER_HOLD) is untouched and still runs.
     //
     // This is the one acquire gate the roster move module does not own (#2535):
     // it has to run while the player is still the giving team's. The module's
     // own acquire gate bypasses WAIVER_HOLD for that reason - the check above is
     // the one that made it - and nothing else it asks changes between the two.
+    // The swap's fit was settled above, before any write, so a leg has no move left
+    // to fit: an empty move set. A team may sit transiently over capacity between
+    // legs (#2274); the net answer on the final roster is what the trade enforces.
+    const settled = { adds: [], drops: [] };
     await assertRosterWriteAllowed(client, {
       leagueId: league.id,
       teamId: item.to_team_id,
       direction: 'acquire',
       playerId: item.player_id,
-      position: (tradedPlayerById.get(item.player_id) || {}).position,
-      bypass: [ROSTER_GATE.CAPACITY, ROSTER_GATE.POSITION_CAP, ROSTER_GATE.KICKOFF_HOLD],
+      bypass: [ROSTER_GATE.KICKOFF_HOLD],
+      moves: settled,
     });
     // The giving side's release and lineup step, then the receiving side's
     // roster row and bench (#2535). Not undoable, so no stash is recorded.
@@ -592,10 +467,8 @@ async function executeTrade(client, { trade, league, items, teams, byCommissione
       league,
       teamId: item.to_team_id,
       playerId: item.player_id,
-      position: (tradedPlayerById.get(item.player_id) || {}).position,
-      bypass: [
-        ROSTER_GATE.CAPACITY, ROSTER_GATE.POSITION_CAP, ROSTER_GATE.KICKOFF_HOLD, ROSTER_GATE.WAIVER_HOLD,
-      ],
+      bypass: [ROSTER_GATE.KICKOFF_HOLD, ROSTER_GATE.WAIVER_HOLD],
+      moves: settled,
     });
   }
   await client.query(
@@ -644,27 +517,18 @@ async function processDueTrades() {
   );
   const outcomes = [];
   for (const row of due.rows) {
-    // The swallow sits here at the call site: withTransaction owns
-    // connect/BEGIN/COMMIT-or-guarded-ROLLBACK and the release rule (ADR 0033),
-    // and `work` returns which path it took so the outcome list is built the
-    // same way. The rosterChanged broadcast runs AFTER the wrapper resolves so
-    // it never holds the pooled connection open, matching respondToTrade and
-    // commissionerDecide. That is a hold-time/consistency move, NOT a Ruling 3
-    // requirement: the base broadcast already ran after COMMIT. The move does
-    // change one thing Ruling 3 otherwise forbids - it puts the broadcast on a
-    // path that can throw where the base's in-try broadcast was caught - so it
-    // is contained below (see the executed branch) rather than left to escape.
+    // withTransaction owns connect/BEGIN/COMMIT-or-guarded-ROLLBACK and the release
+    // rule (ADR 0033); the outcome list is built from what it returns.
     let result;
     try {
       result = await withTransaction(
         pool,
         async (client) => {
           const { trade, league, items, teams } = await loadTrade(client, row.id);
-          if (trade.status === 'accepted') {
-            await executeTrade(client, { trade, league, items, teams });
-            return { status: 'executed', leagueId: league.id };
-          }
-          return { status: trade.status };
+          // Not a refusal to cancel: a trade that is no longer due is left for its own run.
+          if (await transitionRefusal('execute', { trade, league })) return { status: trade.status };
+          await executeTrade(client, { trade, league, items, teams });
+          return { status: 'executed', leagueId: league.id };
         },
         { label: 'processDueTrades' }
       );
@@ -682,8 +546,7 @@ async function processDueTrades() {
           await withTransaction(
             pool,
             async (client) => {
-              // League lock first via loadTrade, the house order (#946): the
-              // notifications FK takes a share lock on the League row, so locking
+              // League lock first via loadTrade, the house order (#946): locking
               // trades first would invert it against a vote or commissioner decide.
               const { trade, league, teams } = await loadTrade(client, row.id);
               // A trade settled elsewhere since the failed attempt is not ours to cancel or announce.
@@ -715,26 +578,7 @@ async function processDueTrades() {
       }
       continue;
     }
-    if (result.status === 'executed') {
-      // Record the settled trade FIRST, regardless of the broadcast. Base pushed
-      // this outcome only after a successful broadcast, so a broadcast failure
-      // silently dropped the record for a trade it had already committed.
-      outcomes.push({ tradeId: row.id, status: 'executed' });
-      // Contained: getDraftRoomBroadcast() throws by design when no broadcast is
-      // registered in this process (a persistent process-config condition, #745;
-      // transport failures do NOT throw - the adapter swallows those and returns
-      // delivered:false). Base ran this inside the per-trade try and continued
-      // the loop on a throw; letting it escape here would abort the rest of the
-      // scheduler tick (processScheduledDrafts, syncAndScoreLiveWeeks,
-      // runRetention all run after processDueTrades), so it stays contained.
-      try {
-        await getDraftRoomBroadcast().rosterChanged(result.leagueId);
-      } catch (err) {
-        console.error('roster broadcast failed after executing trade %s:', row.id, err.message);
-      }
-    } else {
-      outcomes.push({ tradeId: row.id, status: result.status });
-    }
+    outcomes.push({ tradeId: row.id, status: result.status });
   }
   return outcomes;
 }

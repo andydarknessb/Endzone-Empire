@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { listArticles, getArticle, featuredArticles, relatedArticles } from './index';
+import { listArticles, getArticle, featuredArticles, relatedArticles, currentReport } from './index';
 import { findLocalKitDeclarations } from './kitGuard';
 
 describe('articles content module', () => {
@@ -48,6 +48,27 @@ describe('articles content module', () => {
 
   it('returns null for an unknown slug', () => {
     expect(getArticle('does-not-exist')).toBeNull();
+  });
+
+  it('names a series on every Darkness Report', () => {
+    const reports = listArticles().filter((meta) => meta.slug.endsWith('-darkness-report'));
+    expect(reports.length).toBeGreaterThan(0);
+    for (const meta of reports) {
+      expect(['waiver-wire', 'start-sit']).toContain(meta.series);
+      // A meta copied from the other series keeps its tag; the slug catches it.
+      expect(meta.slug).toContain(meta.series);
+    }
+  });
+
+  // No slugs here: a new report every week would otherwise mean a test edit every week.
+  it('currentReport returns the newest Darkness Report of a series, or null', () => {
+    for (const series of ['waiver-wire', 'start-sit']) {
+      const current = currentReport(series);
+      const reports = listArticles().filter((meta) => meta.series === series);
+      expect(reports).toContainEqual(current);
+      for (const meta of reports) expect(Date.parse(meta.date)).toBeLessThanOrEqual(Date.parse(current.date));
+    }
+    expect(currentReport('nonsense')).toBeNull();
   });
 
   it('registers the Week 2 recap with the requested byline and a lazy body', async () => {

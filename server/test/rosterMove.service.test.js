@@ -49,7 +49,7 @@ function moveWorld({
   const schedule = Object.fromEntries(kickedOff.map((team) => [team, KICKED_OFF_AT]));
   if (!schedule[nflTeam]) schedule[nflTeam] = NOT_YET_AT;
   return createFakePool([
-    [/^SELECT "id", "transactions_locked",.* FROM "leagues" WHERE "id" = \$1 FOR UPDATE/,
+    [/^SELECT "id", "transactions_locked",.* FROM "leagues" WHERE "id" = \$1$/,
       () => ({
         rows: [{
           id: 5,

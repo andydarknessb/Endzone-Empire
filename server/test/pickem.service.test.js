@@ -781,6 +781,7 @@ test('putSettings refuses a mode change once the season has picks', async (t) =>
   const calls = mockClient(t, [
     ...TXN,
     [/FROM "leagues"/, () => ({ rows: [{ id: 3, name: 'Ballers', current_season: 2026, current_week: 4 }] })],
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [{ id: 3, name: 'Ballers', current_season: 2026, current_week: 4 }] })],
     [/FROM "pickem_settings"/, () => ({ rows: [{ enabled: true, mode: 'straight' }] })],
     [/SELECT 1 FROM "pickem_picks"/, () => ({ rows: [{ '?column?': 1 }] })],
   ]);
@@ -813,6 +814,7 @@ test('putSettings toggles enabled without touching the mode, and logs it', async
   const calls = mockClient(t, [
     ...TXN,
     [/FROM "leagues"/, () => ({ rows: [{ id: 3, name: 'Ballers', current_season: 2026, current_week: 4 }] })],
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [{ id: 3, name: 'Ballers', current_season: 2026, current_week: 4 }] })],
     [/FROM "pickem_settings"/, () => ({ rows: [{ enabled: false, mode: 'confidence' }] })],
     [/INSERT INTO "pickem_settings"/, () => ({ rows: [] })],
     [/INSERT INTO "transactions"/, () => ({ rows: [] })],
@@ -973,6 +975,7 @@ test('account deletion wipes pickem_picks', async (t) => {
     ...TXN,
     [/FROM "users"/, () => ({ rows: [{ id: 9, username: 'me' }] })],
     [/FROM "leagues"/, () => ({ rows: [] })],
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [] })],
     [/SELECT "avatar_url"/, () => ({ rows: [] })],
     [/^SELECT "id", "league_id" FROM "teams"/, () => ({ rows: [] })],
     [/^UPDATE /, () => ({ rows: [] })],
