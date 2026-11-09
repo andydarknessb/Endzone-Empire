@@ -201,7 +201,7 @@ async function pollChangedGames({ season, week, games, finalSyncedGameIds, quota
     const { sendAlert } = require('../services/pushAlerts.service');
     for (const { leagueId, plays: leaguePlays } of due) {
       try {
-        const { scored } = await matchupScoring.scoreMatchups({ leagueId, season, week, plays: leaguePlays });
+        const { scored } = await matchupScoring.scoreMatchups({ leagueId, season, week, plays: leaguePlays, live: true });
         gate.markRan(leagueId, now);
         rescored.push(leagueId);
         await sendAlert({ kind: 'close-matchup', leagueId, week, scored });
