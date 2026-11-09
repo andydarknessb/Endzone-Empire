@@ -45,3 +45,16 @@ the clear DELETE) reads the one table it already read.
   the week's first kickoff sees no kickoff rows until then.
 - Bye-week teams and players with no NFL team are never kicked off and stay
   Free agents.
+
+## Amendment (2026-11-09): the hold ends at the week clear
+
+The roster gate's schedule check has no end. After the week clear a kicked-off
+player is refused as on waivers, and refused as a claim because no unexpired
+hold row is left on him, until the commissioner runs Advance week. League 138,
+on a 0-hour waiver period, sat in that gap for about 16 to 71 hours in each of
+weeks 1 to 8 of 2026.
+
+We decide that the schedule check applies only until the week clear, and that
+the kickoff job writes no row once the clear has passed. A kicked-off
+unrostered player is a Free agent from the week clear, whether or not the week
+has advanced.

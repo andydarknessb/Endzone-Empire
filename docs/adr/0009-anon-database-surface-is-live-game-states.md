@@ -71,3 +71,19 @@ afterwards:
 
 Refs #240, #201 (the route audit this is the database-side companion to),
 #242 (the same principle applied to the health payload).
+
+## Amendment (2026-11-09): the guard test was never built
+
+This ADR relies on a catalog-backed guard test from #240, and none exists in
+the tree. We decide that a scheduled probe takes its place: the uptime workflow
+`holdout-uptime.yml` calls PostgREST with the public key and fails if `users`
+or `refresh_tokens` stop answering 401. That probe is not built as of this
+amendment.
+
+The catalog was re-read on 2026-11-09. `live_game_states` is still the only
+relation the browser roles can read, the `supabase_realtime` publication
+carries only that table, and `team-avatars` is the only bucket. One statement
+above did not hold as written: nine trigger helper functions in `public` hold
+EXECUTE for both browser roles. `docs/qa/240-supabase-anon-access-audit.md`
+records that PostgREST does not expose them. That file is the record the
+Consequences section above names as `docs/qa/240-anon-supabase-surface.md`.
