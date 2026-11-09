@@ -513,3 +513,32 @@ test('GET /api/team/lineup hides a weather snapshot fetched 72h ago: fields-null
   });
   fake.assertClean();
 });
+
+test('the lineup routes refuse a week or season that cannot exist', async (t) => {
+  createFakePool([]).install(t);
+  const authorization = `Bearer ${signToken({ id: 7, username: 'member' })}`;
+  const nextYear = new Date().getFullYear() + 1;
+  const write = { leagueId: 1, week: 22, moves: [] };
+  const cases = [
+    ['get', '/api/team/lineup?leagueId=1&week=22'],
+    ['put', '/api/team/lineup', write],
+    ['post', '/api/team/lineup', write],
+    ['get', '/api/team/lineup/advice?leagueId=1&week=22'],
+    ['get', '/api/team/lineup/advice?leagueId=1&season=1999'],
+    ['get', `/api/team/lineup/advice?leagueId=1&season=${nextYear + 1}`],
+    ['post', '/api/team/lineup/called-shot', { leagueId: 1, week: 22, starterId: 1, benchedId: 2 }],
+  ];
+  for (const [method, url, body] of cases) {
+    const res = await request(app)[method](url).set('Authorization', authorization).send(body);
+    assert.equal(res.status, 400, `${method} ${url}`);
+  }
+});
+
+test('the lineup routes still take week 21, the furthest a League can reach', async (t) => {
+  // A completed League rests one week past its last playoff round, and Home asks for that week.
+  createFakePool([]).install(t);
+  const res = await request(app)
+    .get('/api/team/lineup?leagueId=1&week=21')
+    .set('Authorization', `Bearer ${signToken({ id: 7, username: 'member' })}`);
+  assert.notEqual(res.status, 400);
+});

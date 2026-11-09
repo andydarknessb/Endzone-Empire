@@ -69,7 +69,9 @@ const {
 // /api/auth, SameSite=Lax, and gated by requireTrustedOrigin — see
 // server/modules/refreshCookie.js.
 const app = express(); // nosemgrep: javascript.express.security.audit.express-check-csurf-middleware-usage.express-check-csurf-middleware-usage
-if (process.env.NODE_ENV === 'production') app.set('trust proxy', 1);
+// Cloudflare, then Render's proxy, sit in front of this process. Two hops, so
+// req.ip is the visitor and not the Cloudflare server that carried the request.
+if (process.env.NODE_ENV === 'production') app.set('trust proxy', 2);
 app.disable('x-powered-by');
 
 const connectSources = ["'self'", ...getClientOrigins()];

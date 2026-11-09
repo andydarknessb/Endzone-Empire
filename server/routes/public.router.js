@@ -25,6 +25,7 @@ const {
   getRecap,
 } = require('../services/publicRead.service');
 const { getWaiverTargets } = require('../services/waiverTargets.service');
+const { isNflWeek, isNflSeason, REG_SEASON_WEEKS } = require('../services/nflSeason.service');
 const {
   getSitemapEntries,
   buildSitemapXml,
@@ -104,6 +105,13 @@ router.get('/rankings', async (req, res) => {
   if (!week.ok) return res.status(400).json({ error: 'week must be a positive integer' });
   const limit = optionalInt(req.query.limit);
   if (!limit.ok) return res.status(400).json({ error: 'limit must be a positive integer' });
+  // The read below caches one row per player for its week, so a week that cannot exist stops here.
+  if (season.value !== undefined && !isNflSeason(season.value)) {
+    return res.status(400).json({ error: 'season must be a year from 2000 through next year' });
+  }
+  if (week.value !== undefined && !isNflWeek(week.value)) {
+    return res.status(400).json({ error: `week must be between 1 and ${REG_SEASON_WEEKS}` });
+  }
 
   const cacheKey = `${position}|${season.value ?? ''}|${week.value ?? ''}|${limit.value ?? ''}`;
   const cached = rankingsCacheGet(cacheKey);

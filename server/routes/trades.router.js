@@ -117,6 +117,10 @@ router.post('/analyze', async (req, res) => {
   if (!Array.isArray(requestedPlayerIds) || requestedPlayerIds.some((id) => !Number.isInteger(id))) {
     return res.status(400).json({ error: 'requestedPlayerIds must be an array of integers' });
   }
+  // analyzeTrade compares the two lists pairwise, so their length is a cost the caller picks.
+  if (offeredPlayerIds.length > 30 || requestedPlayerIds.length > 30) {
+    return res.status(400).json({ error: 'a trade can have at most 30 players on each side' });
+  }
   try {
     const myTeam = await requireMember(pool, { leagueId, userId: req.user.id });
 

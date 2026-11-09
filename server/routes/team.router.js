@@ -9,11 +9,17 @@ const { startSitAdvice, weekHindsight, seasonHindsight } = require('../services/
 const { declareCalledShot, withdrawCalledShot } = require('../services/lineupOverride.service');
 const { uploadTeamAvatar, removeTeamAvatar, MAX_UPLOAD_BYTES } = require('../services/avatar.service');
 const { computeByeWeeks } = require('../services/bye.service');
+const { isNflSeason } = require('../services/nflSeason.service');
 const { requireMember } = require('../services/leagueMembership.service');
 const projectionService = require('../services/projection.service');
 
 const router = express.Router();
 router.use(requireAuth);
+
+// 17 regular weeks + 3 playoff rounds + the week a completed League rests on.
+const MAX_LEAGUE_WEEK = 21;
+const isLeagueWeek = (week) => Number.isInteger(week) && week >= 1 && week <= MAX_LEAGUE_WEEK;
+const WEEK_RANGE_ERROR = `week must be between 1 and ${MAX_LEAGUE_WEEK}`;
 
 const avatarUpload = multer({
   storage: multer.memoryStorage(),
@@ -158,8 +164,8 @@ router.get('/lineup', async (req, res) => {
     return res.status(400).json({ error: 'leagueId query param (integer) is required' });
   }
   const week = req.query.week === undefined ? undefined : req.query.week;
-  if (week !== undefined && !/^\d+$/.test(String(week))) {
-    return res.status(400).json({ error: 'week must be a positive integer' });
+  if (week !== undefined && (!/^\d+$/.test(String(week)) || !isLeagueWeek(Number(week)))) {
+    return res.status(400).json({ error: WEEK_RANGE_ERROR });
   }
   try {
     const lineup = await getLineup({
@@ -182,8 +188,8 @@ async function updateLineup(req, res) {
   if (!Number.isInteger(leagueId) || leagueId < 1) {
     return res.status(400).json({ error: 'leagueId (integer) is required in the body' });
   }
-  if (week !== undefined && (!Number.isInteger(week) || week < 1)) {
-    return res.status(400).json({ error: 'week must be a positive integer' });
+  if (week !== undefined && !isLeagueWeek(week)) {
+    return res.status(400).json({ error: WEEK_RANGE_ERROR });
   }
   try {
     // A save that contradicts the team's open called shot voids it in the same
@@ -211,12 +217,12 @@ router.get('/lineup/advice', async (req, res) => {
     return res.status(400).json({ error: 'leagueId query param (integer) is required' });
   }
   const season = req.query.season === undefined ? undefined : req.query.season;
-  if (season !== undefined && !/^\d+$/.test(String(season))) {
-    return res.status(400).json({ error: 'season must be a positive integer' });
+  if (season !== undefined && (!/^\d+$/.test(String(season)) || !isNflSeason(Number(season)))) {
+    return res.status(400).json({ error: 'season must be a year from 2000 through next year' });
   }
   const week = req.query.week === undefined ? undefined : req.query.week;
-  if (week !== undefined && !/^\d+$/.test(String(week))) {
-    return res.status(400).json({ error: 'week must be a positive integer' });
+  if (week !== undefined && (!/^\d+$/.test(String(week)) || !isLeagueWeek(Number(week)))) {
+    return res.status(400).json({ error: WEEK_RANGE_ERROR });
   }
   try {
     const advice = await startSitAdvice({
@@ -240,8 +246,8 @@ router.post('/lineup/called-shot', async (req, res) => {
   if (!Number.isInteger(leagueId) || leagueId < 1) {
     return res.status(400).json({ error: 'leagueId (integer) is required in the body' });
   }
-  if (week !== undefined && (!Number.isInteger(week) || week < 1)) {
-    return res.status(400).json({ error: 'week must be a positive integer' });
+  if (week !== undefined && !isLeagueWeek(week)) {
+    return res.status(400).json({ error: WEEK_RANGE_ERROR });
   }
   try {
     const calledShot = await declareCalledShot({
