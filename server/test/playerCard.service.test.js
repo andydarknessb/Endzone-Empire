@@ -862,6 +862,27 @@ test('getPlayerCard: posRank ranks a seeded position of three players by the RES
   assert.equal(y2025.posRankOf, 3);
 });
 
+test('getPlayerCard (#2749): a kicker count rollup ranks by its stored season total, not a re-score of its count', async (t) => {
+  // Myers' rollup holds a made-FG count and no distances: re-scored it is 48
+  // (XP only), stored it is 171. Ranking him 1st needs the stored total; the
+  // re-score would put him 2nd behind the 60-point kicker.
+  const league = { ...LEAGUE, current_season: 2026, current_week: 1 };
+  const kicker = { ...PLAYER, id: 55, name: 'Jason Myers', position: 'K' };
+  const myers = { season: 2025, games_played: 17, stats: { fieldGoal: 41, extraPoint: 48 }, fantasy_points: 171 };
+  const positionSeasonRows = [
+    { player_id: 55, position: 'K', season: 2025, stats: myers.stats, fantasy_points: 171 },
+    { player_id: 56, position: 'K', season: 2025, stats: { extraPoint: 60 }, fantasy_points: 60 },
+  ];
+  createFakePool(buildSeasonHandlers({ league, player: kicker, seasonRows: [myers], positionSeasonRows })).install(t);
+  mockServices(t);
+
+  const card = await getPlayerCard({ leagueId: 3, userId: 7, playerId: kicker.id });
+
+  const y2025 = card.seasons.find((s) => s.season === 2025);
+  assert.equal(y2025.posRank, 1);
+  assert.equal(y2025.posRankOf, 2);
+});
+
 test('getPlayerCard: a rookie with only the current season returns one seasons entry', async (t) => {
   const league = { ...LEAGUE, current_season: 2026, current_week: 2 };
   const weeklyRows = [{ season: 2026, week: 1, stats: receivingStats(3, 30) }];

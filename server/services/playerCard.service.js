@@ -339,12 +339,13 @@ async function buildWeeklyBars({ league, player, season, currentWeek, opponentBy
  * group is empty - the same "hide rather than guess" rule
  * `decision.ros.posRank` already applies.
  *
- * A DEF rollup rescores its STORED `fantasy_points` rather than the
- * aggregate `stats` blob (`hasTeamDefenseTiers`): the teamDefense
+ * A DEF rollup, or a kicker count rollup (#2749), rescores its STORED
+ * `fantasy_points` rather than the aggregate `stats` blob
+ * (`seasonSummary.usesStoredSeasonTotal`): the teamDefense
  * pointsAllowed/yardsAllowed rules are per-game tiers, so tier-matching a
- * season AGGREGATE once would misprice it - the same accepted deviation
- * `projectSeasonPoints` documents (custom league DEF tiers don't move this
- * number).
+ * season AGGREGATE once would misprice it, and a kicker count drops its field
+ * goals - the same accepted deviation `projectSeasonPoints` documents (custom
+ * league DEF and kicking rules don't move this number).
  */
 async function getRescoredPositionRank({ playerId, position, season, rules }) {
   if (!position || !Number.isInteger(Number(season))) return null;
@@ -357,7 +358,7 @@ async function getRescoredPositionRank({ playerId, position, season, rules }) {
   );
   const scored = result.rows.map((row) => ({
     playerId: row.player_id,
-    points: scoringRules.hasTeamDefenseTiers(row.stats)
+    points: seasonSummary.usesStoredSeasonTotal(row.stats)
       ? Number(row.fantasy_points)
       : scoringRules.calculateFantasyPoints(row.stats, rules),
   }));
