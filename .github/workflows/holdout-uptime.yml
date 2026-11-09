@@ -47,7 +47,9 @@ name: Holdout uptime
 # runs scripts/ci/check-anon-surface.js, which asks PostgREST with the public
 # key whether users and refresh_tokens still refuse and live_game_states still
 # answers. It reads SUPABASE_URL and SUPABASE_ANON_KEY from repository
-# variables and warns and skips until both are set. It runs after the
+# variables and warns and skips until both are set. SUPABASE_ANON_KEY must be
+# the public anon/publishable key only, never the service_role key: the
+# variable value prints in this job's log. It runs after the
 # heartbeat, so a failure reds this run by email and never sends Sentry
 # ?status=error or withholds the heartbeat (as stats-integrity does).
 
@@ -151,6 +153,8 @@ jobs:
       - name: Checkout the probe script
         if: always()
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Probe the anonymous database surface (ADR 0009)
         if: always()

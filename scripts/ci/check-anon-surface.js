@@ -50,4 +50,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { EXPECTED, checkAnonSurface, main };
+module.exports = { checkAnonSurface, main };
