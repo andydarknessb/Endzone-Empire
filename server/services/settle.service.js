@@ -119,7 +119,8 @@ async function settleWeek({ leagueId, expectedWeek }) {
       const winners = thisRound.map((m) =>
         Number(m.home_score) >= Number(m.away_score) ? m.home_team_id : m.away_team_id
       );
-      // Byes: seeded playoff teams that didn't play this round advance automatically
+      // Byes: a seeded team that is out of this round and has no earlier playoff game
+      // skips round one. Who played is structural; no score decides it (#2742).
       const storedSeeds = await client.query(
         `SELECT "team_id", "seed" FROM "playoff_seeds"
          WHERE "league_id" = $1 AND "season" = $2 ORDER BY "seed"`,
@@ -136,7 +137,7 @@ async function settleWeek({ leagueId, expectedWeek }) {
         );
       const playedIds = new Set(thisRound.flatMap((m) => [m.home_team_id, m.away_team_id]));
       const byeTeams = [...seedOf.keys()]
-        .filter((id) => !playedIds.has(id) && !eliminatedBefore(allMatchups.rows, id, week));
+        .filter((id) => !playedIds.has(id) && !playedEarlierPlayoff(allMatchups.rows, id, week));
       const advancing = [...new Set([...winners, ...byeTeams])];
 
       if (advancing.length <= 1) {
@@ -333,16 +334,16 @@ async function rescoreLive({ leagueId, season, week }) {
   });
 }
 
-/** Did this team already lose a (non-consolation) playoff game before `week`? */
-function eliminatedBefore(matchups, teamId, week) {
-  return matchups.some((m) => {
-    if (!m.is_playoff || m.is_consolation || !m.final || m.week >= week) return false;
-    if (m.home_team_id !== teamId && m.away_team_id !== teamId) return false;
-    const hs = Number(m.home_score);
-    const as = Number(m.away_score);
-    const won = m.home_team_id === teamId ? hs >= as : as > hs;
-    return !won;
-  });
+/**
+ * Did this team play a (non-consolation) playoff game before `week`? Reads who
+ * played, never the scores: a Stat correction flips a finished round's score but
+ * never who reached the next one (CONTEXT.md, Stat correction, Playoff seed).
+ */
+function playedEarlierPlayoff(matchups, teamId, week) {
+  return matchups.some((m) =>
+    m.is_playoff && !m.is_consolation && m.week < week &&
+    (m.home_team_id === teamId || m.away_team_id === teamId)
+  );
 }
 
 module.exports = { settleWeek, correctWeek, rescoreLive };
