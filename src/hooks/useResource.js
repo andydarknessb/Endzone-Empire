@@ -28,6 +28,17 @@ export function useResource(key, url, { ttl } = {}) {
   const [loading, setLoading] = useState(serialized != null && !isFresh(initial, ttl));
   const [error, setError] = useState(null);
 
+  // The key the state above describes. A new key resets it here, during render,
+  // because a reader's effects run in the first commit on that key and must not
+  // act on the previous key's data or loading flag.
+  const [stateKey, setStateKey] = useState(serialized);
+  if (stateKey !== serialized) {
+    setStateKey(serialized);
+    setData(initial?.data ?? null);
+    setLoading(serialized != null && !isFresh(initial, ttl));
+    setError(null);
+  }
+
   // The key this mount is currently showing. A response for a key the hook has
   // since navigated away from must not land as the current one: the route
   // guards in front of the league pages read this data for their verdict, so a

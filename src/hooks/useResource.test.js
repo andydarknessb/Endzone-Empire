@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import apiClient from '../api/apiClient';
 import { invalidate, read, setResource } from '../lib/resourceCache';
@@ -187,6 +188,37 @@ test('switching keys never leaves the data of the key just left on screen', asyn
 
   expect(result.current.data).toBeNull();
   expect(result.current.loading).toBe(true);
+});
+
+// The test above reads after effects flush, so it cannot see this: a reader's
+// own effects run in the first commit on a new key, and act on what it reports
+// there (the Players page read /api/players twice from that one commit).
+test.each([
+  ['no key to an uncached key', null, 2, { data: null, loading: true, error: null }],
+  ['a loaded key to an uncached key', 1, 2, { data: null, loading: true, error: null }],
+  ['a loaded key to a fresh cached key', 1, 3, { data: 'three', loading: false, error: null }],
+  ['a failed key to an uncached key', 4, 2, { data: null, loading: true, error: null }],
+])('the first commit after switching from %s reports the new key', async (_label, fromId, toId, want) => {
+  setResource(['thing', 3], 'three');
+  apiClient.get.mockImplementation((url) => {
+    if (url.endsWith('/1')) return Promise.resolve({ data: 'one' });
+    if (url.endsWith('/4')) return Promise.reject(new Error('boom'));
+    return new Promise(() => {});
+  });
+  const commits = [];
+  const { result, rerender } = renderHook(
+    ({ id }) => {
+      const value = useResource(id == null ? null : ['thing', id], `/api/thing/${id}`, { ttl: TTL });
+      useEffect(() => { commits.push({ id, data: value.data, loading: value.loading, error: value.error }); });
+      return value;
+    },
+    { initialProps: { id: fromId } }
+  );
+  await waitFor(() => expect(result.current.loading).toBe(false));
+
+  rerender({ id: toId });
+
+  expect(commits.find((commit) => commit.id === toId)).toEqual({ id: toId, ...want });
 });
 
 test('a response for a key the mount has left never lands', async () => {
