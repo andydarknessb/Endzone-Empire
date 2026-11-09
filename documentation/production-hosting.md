@@ -269,6 +269,8 @@ Before the first run, configure in GitHub:
 | Variable | `PRODUCTION_WEB_URL` | `https://endzoneempire.gg` | Set |
 | Secret | `RENDER_PRODUCTION_DEPLOY_HOOK` | Render > `endzone-empire-api` > Settings > Deploy Hook | **Outstanding** |
 | Secret | `NETLIFY_PRODUCTION_BUILD_HOOK` | Netlify > Build & deploy > Build hooks | **Outstanding** |
+| Secret | `RENDER_API_KEY` | Render account API key | Required on every promote (the client build waits on the web deploy) |
+| Variable | `RENDER_WEB_SERVICE_ID` | Render service id of the web API (`srv-...`) | Required on every promote (the client build waits on the web deploy) |
 
 Scope both secrets to the `production` environment, not the repository. Each hook URL is
 itself the credential — anyone holding it can trigger a deploy — so copy them straight

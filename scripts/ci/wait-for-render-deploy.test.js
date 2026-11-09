@@ -406,14 +406,16 @@ test('#2763: the client build hook posts only after the web deploy wait at this 
   const start = yml.indexOf('- name: Trigger production client build');
   const end = yml.indexOf('- name: Verify production readiness', start);
   assert.notEqual(start, -1, 'deploy.yml has the client build step');
-  const step = yml.slice(start, end);
-  const wait = step.indexOf('node scripts/ci/wait-for-render-deploy.js');
+  const lines = yml.slice(start, end).split('\n');
+  // Anchored to live lines: a commented-out wait or gate must not satisfy the guard.
+  const at = (re) => lines.findIndex((line) => re.test(line));
+  const wait = at(/^\s*node scripts\/ci\/wait-for-render-deploy\.js/);
   assert.notEqual(wait, -1, 'the client build step runs wait-for-render-deploy.js');
-  assert.ok(step.indexOf('--service "$RENDER_WEB_SERVICE_ID"', wait) > wait, 'wait names the web service');
-  assert.ok(step.indexOf('--sha "$GITHUB_SHA"', wait) > wait, 'wait names the deployed commit');
-  assert.ok(step.indexOf('--readyz "$API_URL/api/health/readyz"', wait) > wait, 'wait gates on readyz');
-  const hook = step.indexOf('--request POST "$NETLIFY_HOOK"');
+  assert.ok(at(/^\s*--service "\$RENDER_WEB_SERVICE_ID"/) > wait, 'wait names the web service');
+  assert.ok(at(/^\s*--sha "\$GITHUB_SHA"/) > wait, 'wait names the deployed commit');
+  assert.ok(at(/^\s*--readyz "\$API_URL\/api\/health\/readyz"/) > wait, 'wait gates on readyz');
+  const hook = at(/^\s*curl .*--request POST "\$NETLIFY_HOOK"/);
   assert.notEqual(hook, -1, 'the client build step posts $NETLIFY_HOOK');
   assert.ok(wait < hook, 'the wait finishes before the Netlify hook is posted');
-  assert.match(step, /if: \$\{\{ !inputs\.worker_only \}\}/, 'worker_only runs still skip the client build');
+  assert.ok(lines.some((line) => /^\s*if: \$\{\{ !inputs\.worker_only \}\}\s*$/.test(line)), 'worker_only runs still skip the client build');
 });
