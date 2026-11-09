@@ -5,6 +5,7 @@ const lineupService = require('../services/lineup.service');
 const { isOnWaivers } = require('../services/waiverStatus');
 const { placeOnWaivers } = require('../services/waiver.service');
 const { createFakePool, select, insert, update, remove } = require('./helpers/fakePool');
+const { PickemOnlyLeagueError } = require('../services/leagueType');
 const { installRecordingBroadcast } = require('./helpers/recordingBroadcast');
 
 /**
@@ -407,6 +408,23 @@ for (const draftStatus of ['pending', 'active']) {
     fake.assertClean();
   });
 }
+
+test('dropPlayer: a pick-em-only league is refused by its own answer, not the draft gate (#2748)', async (t) => {
+  // A pick-em league never completes a draft, so the draft message would be a refusal no draft can fix.
+  const fake = createFakePool([
+    [/^(?:SELECT \* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE|UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*)/, () => ({
+      rows: [{ ...dropLeagueRow, pickem_only: true, draft_status: 'pending' }],
+    })],
+    [select('teams'), () => ({ rows: [{ id: 11, owner_id: 7, locked: false }] })],
+  ]).install(t);
+
+  await assert.rejects(
+    dropPlayer({ leagueId: 1, userId: 7, playerId: 500 }),
+    (error) => error instanceof PickemOnlyLeagueError
+  );
+  assert.equal(fake.matching(remove('team_players')).length, 0, 'the roster row survived');
+  fake.assertClean();
+});
 
 // --- undoDrop ----------------------------------------------------------------
 

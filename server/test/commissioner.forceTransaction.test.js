@@ -328,5 +328,10 @@ test('forceTransaction add: notifies each claimant it cancelled once, and the ma
 
   const told = fake.matching(insert('notifications')).map((c) => c.params[0]).sort((a, b) => a - b);
   assert.deepEqual(told, [8, 9, 10], 'each claimant once, and the manager whose roster changed');
+  // The fake answers any SQL with the same rows, so pin the scope of the cancel itself: a
+  // dropped league predicate would withdraw and notify other leagues' claimants on this player.
+  const [cancel] = fake.matching(update('waiver_claims'));
+  assert.deepEqual(cancel.params, [1, 500], 'scoped to this league and this player');
+  assert.match(cancel.text, /"waiver_claims"\."league_id" = \$1 AND "waiver_claims"\."player_id" = \$2/);
   fake.assertClean();
 });
