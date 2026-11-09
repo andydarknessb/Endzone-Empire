@@ -42,6 +42,14 @@ name: Holdout uptime
 # monitor's config lives in scripts/setup-sentry-cron-monitor.sh - the
 # hourly pings can never (re)configure it. If the heartbeat cannot be sent
 # at all, the run goes red so the GitHub email covers Sentry's own outage.
+#
+# Anonymous database surface (ADR 0009, 2026-11-09 amendment): the last step
+# runs scripts/ci/check-anon-surface.js, which asks PostgREST with the public
+# key whether users and refresh_tokens still refuse and live_game_states still
+# answers. It reads SUPABASE_URL and SUPABASE_ANON_KEY from repository
+# variables and warns and skips until both are set. It runs after the
+# heartbeat, so a failure reds this run by email and never sends Sentry
+# ?status=error or withholds the heartbeat (as stats-integrity does).
 
 on:
   schedule:
@@ -139,3 +147,19 @@ jobs:
           done
           echo "::error::health checks passed but the Sentry heartbeat could not be sent - see attempts above"
           exit 1
+
+      - name: Checkout the probe script
+        if: always()
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Probe the anonymous database surface (ADR 0009)
+        if: always()
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
+        run: |
+          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_ANON_KEY" ]; then
+            echo "::warning::SUPABASE_URL and SUPABASE_ANON_KEY repository variables are not set - the anon-surface probe is skipped"
+            exit 0
+          fi
+          node scripts/ci/check-anon-surface.js
