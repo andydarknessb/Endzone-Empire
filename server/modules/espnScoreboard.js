@@ -96,7 +96,13 @@ function mapEspnStatus(status) {
   const type = (status && status.type) || {};
   const state = String(type.state || '').toLowerCase();
   if (state === 'pre') return 'scheduled';
-  if (state === 'post') return 'final';
+  // A canceled or postponed game also reports `post`, with `completed: false`.
+  // Only a canceled one is final (a tie credits nobody in pick'em, #2751); a
+  // missing flag keeps the old reading.
+  if (state === 'post') {
+    if (type.completed === false && type.name !== 'STATUS_CANCELED') return 'scheduled';
+    return 'final';
+  }
   if (state === 'in') return 'in_progress';
   // Unknown state: err toward polling more, not less (same bias as
   // liveGameEngine.mapTank01Status).
