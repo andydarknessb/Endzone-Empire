@@ -1549,3 +1549,21 @@ test('GET /draft-pool: a null-team player stays in the pool but sorts after ever
   assert.equal(res.status, 200);
   assert.deepEqual(res.body.players.map((p) => p.playerId), [2, 1]);
 });
+
+// An anonymous rankings read caches one row per player for its week, so a week
+// that cannot exist must be refused before it reaches that write.
+test('GET /rankings refuses a week or season that cannot exist, before any read', async (t) => {
+  installPool(t, []);
+  const nextYear = new Date().getFullYear() + 1;
+  for (const query of ['week=19', 'week=100', 'season=1999', `season=${nextYear + 1}`]) {
+    const res = await request(makeApp()).get(`/api/public/rankings?${query}`);
+    assert.equal(res.status, 400, query);
+  }
+});
+
+test('GET /rankings still serves week 18 of next season', async (t) => {
+  installPool(t, RANKINGS_HANDLERS);
+  const nextYear = new Date().getFullYear() + 1;
+  const res = await request(makeApp()).get(`/api/public/rankings?season=${nextYear}&week=18`);
+  assert.equal(res.status, 200);
+});

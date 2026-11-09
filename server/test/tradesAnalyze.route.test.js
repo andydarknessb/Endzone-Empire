@@ -109,3 +109,23 @@ test('without a tradeId the viewer is still the proposer (compose behaviour unch
     leagueId: 1, proposingTeamId: 41, receivingTeamId: 99, offeredPlayerIds: [1], requestedPlayerIds: [2],
   }]);
 });
+
+const ids = (length) => Array.from({ length }, (_, i) => i + 1);
+
+test('more than 30 players on a side is refused before anything is analyzed', async (t) => {
+  const analyzed = [];
+  world(t, { analyzed });
+  for (const side of ['offeredPlayerIds', 'requestedPlayerIds']) {
+    const res = await request(app).post('/api/trades/analyze').set('Authorization', bearer(7)).send(body({ [side]: ids(31) }));
+    assert.equal(res.status, 400, side);
+  }
+  assert.equal(analyzed.length, 0);
+});
+
+test('30 players on a side is still analyzed', async (t) => {
+  const analyzed = [];
+  world(t, { analyzed });
+  const res = await request(app).post('/api/trades/analyze').set('Authorization', bearer(7)).send(body({ offeredPlayerIds: ids(30) }));
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.equal(analyzed.length, 1);
+});

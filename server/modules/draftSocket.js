@@ -90,8 +90,16 @@ function attachDraftSocket(httpServer, { now = Date.now } = {}) {
     // bucket this user holds across all their sockets.
     socket.use(socketEventLimiter(socketEventStore, socket.user.id, now));
 
+    // A client's payload and ack are untrusted. `null` defeats a destructuring
+    // default and a rejection here has no holder, so either would reach
+    // unhandledRejection, which exits this process (processHandlers.js).
+    const on = (event, handler) => socket.on(event, (payload, ack) => (
+      handler(payload ?? {}, typeof ack === 'function' ? ack : undefined)
+        .catch((error) => console.error(`${event} failed`, error))
+    ));
+
     // Generic league room join (live scores, chat) — no draft state attached
-    socket.on('league:join', async ({ leagueId } = {}, ack) => {
+    on('league:join', async ({ leagueId }, ack) => {
       if (!Number.isInteger(leagueId)) {
         return ack && ack(joinError({ code: 'INVALID_REQUEST', message: 'leagueId (integer) required' }));
       }
@@ -108,7 +116,7 @@ function attachDraftSocket(httpServer, { now = Date.now } = {}) {
       }
     });
 
-    socket.on('draft:join', async ({ leagueId } = {}, ack) => {
+    on('draft:join', async ({ leagueId }, ack) => {
       if (!Number.isInteger(leagueId)) {
         return ack && ack(joinError({ code: 'INVALID_REQUEST', message: 'leagueId (integer) required' }));
       }
@@ -153,7 +161,7 @@ function attachDraftSocket(httpServer, { now = Date.now } = {}) {
     // is counted in Unicode code points (Array.from(text).length), the same
     // unit MAX_CHAT_CHARS, the chat_messages.message column and the client's
     // composer counter all agree on (#443).
-    socket.on('chat:send', async ({ leagueId, message, clientMsgId, gif } = {}, ack) => {
+    on('chat:send', async ({ leagueId, message, clientMsgId, gif }, ack) => {
       // A GIF message (#446) is a chat_messages row like any other; it differs
       // only in what it carries. A text send still requires a non-empty message;
       // a GIF send does not, because its `message` is only the OPTIONAL caption
@@ -302,7 +310,7 @@ function attachDraftSocket(httpServer, { now = Date.now } = {}) {
       }
     });
 
-    socket.on('draft:pick', async ({ leagueId, playerId } = {}, ack) => {
+    on('draft:pick', async ({ leagueId, playerId }, ack) => {
       if (!Number.isInteger(leagueId) || !Number.isInteger(playerId)) {
         return ack && ack({ error: 'leagueId and playerId (integers) required' });
       }
@@ -323,7 +331,7 @@ function attachDraftSocket(httpServer, { now = Date.now } = {}) {
       }
     });
 
-    socket.on('draft:start', async ({ leagueId } = {}, ack) => {
+    on('draft:start', async ({ leagueId }, ack) => {
       if (!Number.isInteger(leagueId)) {
         return ack && ack({ error: 'leagueId (integer) required' });
       }
