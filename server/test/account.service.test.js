@@ -115,3 +115,21 @@ test('a rolled-back resetPassword ends no sockets', async (t) => {
 
   assert.deepEqual(recorder.calls, []);
 });
+
+// --- one completed reset ends every outstanding reset link ------------------
+
+test('a completed reset marks every outstanding reset token of the account used, not only the presented one', async (t) => {
+  installRecordingBroadcast(t);
+  const world = createFakePool(resetWorldHandlers()).install(t);
+
+  await resetPassword({ token: 'raw', newPassword: 'long-enough-1' });
+
+  const marks = world.matching(update('auth_tokens'));
+  assert.equal(marks.length, 1, 'one statement covers the account\'s outstanding reset links');
+  assert.deepEqual(marks[0].params, [11], 'keyed on the account, not on the presented token row');
+  assert.match(
+    marks[0].text,
+    /^UPDATE "auth_tokens" SET "used" = true, "updated_at" = now\(\) WHERE "user_id" = \$1 AND "type" = 'reset' AND "used" = false$/,
+    'every unused reset token of the account, and only reset tokens (verify links stay live)'
+  );
+});

@@ -114,9 +114,12 @@ async function resetPassword({ token, newPassword }) {
         `UPDATE "users" SET "password" = $1, "updated_at" = now() WHERE "id" = $2`,
         [await encryptLib.encryptPassword(newPassword), row.user_id]
       );
+      // Every outstanding reset link dies with the reset, not only the presented
+      // one: a link mailed earlier would otherwise stay live for its two hours.
       await client.query(
-        `UPDATE "auth_tokens" SET "used" = true, "updated_at" = now() WHERE "id" = $1`,
-        [row.id]
+        `UPDATE "auth_tokens" SET "used" = true, "updated_at" = now()
+         WHERE "user_id" = $1 AND "type" = 'reset' AND "used" = false`,
+        [row.user_id]
       );
       // A password reset invalidates every refresh session for the account
       await client.query(
