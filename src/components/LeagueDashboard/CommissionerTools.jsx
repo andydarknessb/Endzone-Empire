@@ -701,8 +701,9 @@ function StartNewSeason({ leagueId, league, onRefresh, notify, caption }) {
     ? `This archives ${seasonLabel} standings to League History and opens ${nextLabel} for picks at week 1. `
       + 'This cannot be undone.'
     : `This archives ${seasonLabel} to League History, then clears every team's roster, deletes all draft `
-      + "picks, empties the waiver wire, cancels pending waiver claims and trades, and resets every team's "
-      + `FAAB budget. The league moves to ${nextLabel} at week 1 with the draft reopened. This cannot be undone.`;
+      + "picks, keepers and draft queues, empties the waiver wire, cancels pending waiver claims and trades, "
+      + "turns Autodraft off for managed teams, and resets every team's "
+      + `FAAB budget. The league moves to ${nextLabel} at week 1 with the draft unscheduled. This cannot be undone.`;
 
   const handleConfirm = async () => {
     setBusy(true);

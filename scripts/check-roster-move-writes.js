@@ -13,7 +13,7 @@
  *
  * THE RULE: under `server/`, the only statements that write a single
  * `team_players` row live in `server/services/rosterMove.service.js`, and the
- * only other `team_players` writes are the four bulk sites named in ALLOWLIST.
+ * only other `team_players` writes are the three bulk sites named in ALLOWLIST.
  *
  * WHAT IS SCANNED: every `.js` file under `server/` except `server/test/**` and
  * `server/db/**`. Tests are out of scope (the issue says so: a fixture that
@@ -62,7 +62,7 @@ const OWNER_FILE = 'server/services/rosterMove.service.js';
 const WRITE_PATTERN = /((?:INSERT INTO|DELETE FROM|UPDATE) "team_players")/g;
 
 /**
- * The four bulk writes that stay outside the module, and why each is bulk.
+ * The three bulk writes that stay outside the module, and why each is bulk.
  *
  * Keyed by `file` with an expected `count`, NOT by line: line numbers churn and
  * an allowlist that needs re-deriving after every edit is one people stop
@@ -84,12 +84,11 @@ const ALLOWLIST = [
   },
   {
     file: 'server/services/commissioner.service.js',
-    count: 2,
+    count: 1,
     rule:
-      'Rollover prunes each roster to its keepers: one DELETE with the keeper pairs in '
-      + 'NOT IN, plus the empty-keeper-list fallback that deletes the league roster. It '
-      + 'runs inside the act that unfreezes the season, so gating it would gate the '
-      + 'write that lifts the freeze.',
+      'Rollover clears the league roster in one DELETE: a league-wide statement that ends '
+      + 'one season and begins the next, not a roster move. It runs inside the act that '
+      + 'unfreezes the season, so gating it would gate the write that lifts the freeze.',
   },
   {
     file: 'server/services/draftStart.service.js',
@@ -197,7 +196,7 @@ function main() {
   const { unlisted, overCount, stale, ruleless } = check();
   const clean = !unlisted.length && !overCount.length && !stale.length && !ruleless.length;
   if (clean) {
-    console.log('✅ Every single-player Roster write goes through rosterMove.service.js, or is one of the four ruled bulk writes.');
+    console.log('✅ Every single-player Roster write goes through rosterMove.service.js, or is one of the three ruled bulk writes.');
     return;
   }
   if (unlisted.length) {

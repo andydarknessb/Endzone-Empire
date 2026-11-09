@@ -12,10 +12,10 @@ const {
 } = require('./check-roster-move-writes');
 
 // The issue's acceptance sweep, run through the same analyzer the guard uses:
-// with the allowlist emptied, the real tree must report exactly the four bulk
-// writes, nothing else. If a fifth site appears, or one of the four moves out
+// with the allowlist emptied, the real tree must report exactly the three bulk
+// writes, nothing else. If a new site appears, or one of the three moves out
 // from under its entry, this goes red before the guard's own message does.
-test('the real tree has exactly the four bulk writes beside the module', () => {
+test('the real tree has exactly the three bulk writes beside the module', () => {
   const { unlisted, stale, overCount, ruleless } = check({ allowlist: [] });
   assert.deepEqual(stale, []);
   assert.deepEqual(overCount, []);
@@ -24,7 +24,6 @@ test('the real tree has exactly the four bulk writes beside the module', () => {
     .map((line) => line.split(' outside ')[0].replace(/:\d+: (INSERT INTO|DELETE FROM) "team_players"/, ''))
     .sort();
   assert.deepEqual(sites, [
-    'server/services/commissioner.service.js',
     'server/services/commissioner.service.js',
     'server/services/draftAct.service.js',
     'server/services/draftStart.service.js',

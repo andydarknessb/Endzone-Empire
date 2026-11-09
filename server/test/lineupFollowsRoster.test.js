@@ -495,7 +495,7 @@ test('trade: the giving side is settled before the receiving side is benched', a
   fake.assertClean();
 });
 
-// --- 6. the keeper-pruning season rollover -----------------------------------
+// --- 6. the season rollover ---------------------------------------------------
 
 const rolloverLeague = {
   id: 5,

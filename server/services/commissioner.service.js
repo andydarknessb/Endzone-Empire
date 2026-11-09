@@ -558,6 +558,18 @@ async function rolloverSeason({ leagueId, userId }) {
           });
         }
 
+        // Teams lock before draft_queue rows, the order the queue save takes them
+        // (PUT /api/draft/queue), so the two cannot deadlock. Autodraft is a
+        // manager's setting and goes with the manager; a CPU-managed team
+        // (owner_id NULL) keeps it. Ready and the timeout streak reset for all.
+        await client.query(
+          `UPDATE "teams"
+           SET "faab_remaining" = $1, "draft_ready" = false, "consecutive_timeouts" = 0,
+               "autodraft" = CASE WHEN "owner_id" IS NULL THEN "autodraft" ELSE false END,
+               "updated_at" = now()
+           WHERE "league_id" = $2`,
+          [league.faab_budget, leagueId]
+        );
         await client.query(`DELETE FROM "draft_picks" WHERE "league_id" = $1`, [leagueId]);
         await client.query(`DELETE FROM "draft_queue" WHERE "league_id" = $1`, [leagueId]);
         await client.query(`DELETE FROM "keepers" WHERE "league_id" = $1`, [leagueId]);
@@ -571,16 +583,6 @@ async function rolloverSeason({ leagueId, userId }) {
           `UPDATE "trades" SET "status" = 'cancelled', "updated_at" = now()
            WHERE "league_id" = $1 AND "status" IN ('pending', 'accepted')`,
           [leagueId]
-        );
-        // Autodraft is a manager's setting and goes with the manager; a CPU-managed
-        // team (owner_id NULL) keeps it. Ready and the timeout streak reset for all.
-        await client.query(
-          `UPDATE "teams"
-           SET "faab_remaining" = $1, "draft_ready" = false, "consecutive_timeouts" = 0,
-               "autodraft" = CASE WHEN "owner_id" IS NULL THEN "autodraft" ELSE false END,
-               "updated_at" = now()
-           WHERE "league_id" = $2`,
-          [league.faab_budget, leagueId]
         );
       }
       const newSeason = league.current_season + 1;
