@@ -71,6 +71,12 @@ import {
 
 const PLAYOFF_TEAM_OPTIONS = [4, 6, 8];
 const PLAYOFF_START_WEEK_OPTIONS = [14, 15, 16, 17, 18];
+// A bracket of n Teams plays ceil(log2(n)) rounds, one per week (season.service playoffRounds),
+// so its start week is the latest one that leaves the last round on week 18 (#2743).
+const LAST_NFL_WEEK = 18;
+const latestStartWeek = (playoffTeams) => LAST_NFL_WEEK + 1 - Math.ceil(Math.log2(playoffTeams));
+const startWeekOptions = (playoffTeams) =>
+  PLAYOFF_START_WEEK_OPTIONS.filter((w) => w <= latestStartWeek(playoffTeams));
 const WEEK_OPTIONS = Array.from({ length: 18 }, (_, i) => i + 1);
 const WAIVER_PERIOD_OPTIONS = [
   { hours: 24, label: '24 hours after a drop' },
@@ -1729,7 +1735,11 @@ function PlayoffSchedulePanel({ leagueId, league, draft, setDraft, markSaved, di
             <InputLabel id="playoff-teams-label">Playoff Teams</InputLabel>
             <Select
               labelId="playoff-teams-label" label="Playoff Teams"
-              value={playoffTeams} onChange={(e) => setDraft({ playoffTeams: e.target.value })}
+              value={playoffTeams}
+              onChange={(e) => setDraft({
+                playoffTeams: e.target.value,
+                startWeek: Math.min(startWeek, latestStartWeek(Number(e.target.value))),
+              })}
             >
               {PLAYOFF_TEAM_OPTIONS.map((n) => <MenuItem key={n} value={n}>{n} teams</MenuItem>)}
             </Select>
@@ -1740,7 +1750,7 @@ function PlayoffSchedulePanel({ leagueId, league, draft, setDraft, markSaved, di
               labelId="playoff-start-label" label="Playoff Start Week"
               value={startWeek} onChange={(e) => setDraft({ startWeek: e.target.value })}
             >
-              {PLAYOFF_START_WEEK_OPTIONS.map((w) => <MenuItem key={w} value={w}>Week {w}</MenuItem>)}
+              {startWeekOptions(Number(playoffTeams)).map((w) => <MenuItem key={w} value={w}>Week {w}</MenuItem>)}
             </Select>
           </FormControl>
         </Box>
