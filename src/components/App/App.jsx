@@ -48,7 +48,6 @@ const LoginPage = lazyWithReload(() => import('../LoginPage/LoginPage'));
 const RegisterPage = lazyWithReload(() => import('../RegisterPage/RegisterPage'));
 const ForgotPassword = lazyWithReload(() => import('../ForgotPassword/ForgotPassword'));
 const ResetPassword = lazyWithReload(() => import('../ResetPassword/ResetPassword'));
-const VerifyEmail = lazyWithReload(() => import('../VerifyEmail/VerifyEmail'));
 const NotFound = lazyWithReload(() => import('../NotFound/NotFound'));
 const LeagueManagement = lazyWithReload(() => import('../LeagueManagement/LeagueManagement'));
 const LeagueDiscovery = lazyWithReload(() => import('../LeagueDiscovery/LeagueDiscovery'));
@@ -254,7 +253,6 @@ function App() {
           <Route path="/admin" element={<ProtectedRoute><AdminDashboard /></ProtectedRoute>} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/reset-password" element={<ResetPassword />} />
-          <Route path="/verify-email" element={<VerifyEmail />} />
           {/* Visiting localhost:3000 will redirect to localhost:3000/home */}
           <Route path="/" element={<Navigate to="/home" replace />} />
 

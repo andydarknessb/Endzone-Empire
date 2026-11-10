@@ -12,7 +12,7 @@ class AccountError extends Error {
   }
 }
 
-const TOKEN_TTL_HOURS = { reset: 2, verify: 48 };
+const TOKEN_TTL_HOURS = { reset: 2 };
 
 function hashToken(token) {
   return crypto.createHash('sha256').update(token).digest('hex');
@@ -145,62 +145,10 @@ async function resetPassword({ token, newPassword }) {
   return { ok: true };
 }
 
-/** Send (or resend) the email-verification link for a logged-in user. */
-async function requestEmailVerification({ userId, appOrigin }) {
-  const result = await pool.query(
-    `SELECT "id", "email", "username", "email_verified" FROM "users"
-     WHERE "id" = $1 AND "deleted_at" IS NULL`,
-    [userId]
-  );
-  const user = result.rows[0];
-  if (!user) throw new AccountError(404, 'user not found');
-  if (user.email_verified) return { ok: true, alreadyVerified: true };
-  const token = await issueToken({ userId: user.id, type: 'verify' });
-  const link = `${appOrigin || 'http://localhost:3000'}/#/verify-email?token=${token}`;
-  await deliverEmail({
-    to: user.email,
-    subject: 'Verify your Endzone Empire email',
-    text: `Hi ${user.username},\n\nVerify your email here (valid for ${TOKEN_TTL_HOURS.verify} hours):\n${link}`,
-  });
-  return { ok: true };
-}
-
-/** Complete email verification. */
-async function verifyEmail({ token }) {
-  if (!token || typeof token !== 'string') throw new AccountError(400, 'token is required');
-  return withTransaction(
-    pool,
-    async (client) => {
-      const tokenResult = await client.query(
-        `SELECT * FROM "auth_tokens"
-         WHERE "token_hash" = $1 AND "type" = 'verify' AND "used" = false AND "expires_at" > now()
-         FOR UPDATE`,
-        [hashToken(token)]
-      );
-      const row = tokenResult.rows[0];
-      // Read-only refusal before any write: throw so the wrapper rolls the
-      // FOR UPDATE read back rather than committing it (ADR 0033, Ruling 2).
-      if (!row) throw new AccountError(400, 'invalid or expired verification token');
-      await client.query(
-        `UPDATE "users" SET "email_verified" = true, "updated_at" = now() WHERE "id" = $1`,
-        [row.user_id]
-      );
-      await client.query(
-        `UPDATE "auth_tokens" SET "used" = true, "updated_at" = now() WHERE "id" = $1`,
-        [row.id]
-      );
-      return { ok: true };
-    },
-    { label: 'email-verify' }
-  );
-}
-
 module.exports = {
   AccountError,
   hashToken,
   deliverEmail,
   requestPasswordReset,
   resetPassword,
-  requestEmailVerification,
-  verifyEmail,
 };
