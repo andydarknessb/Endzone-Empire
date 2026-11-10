@@ -403,6 +403,7 @@ async function rolloverSeason({ leagueId, userId }) {
       let rosters;
       let championTeamId;
       let championUserId;
+      let championAwarded = false;
       if (pickemOnly) {
         // A pick'em-only league has no matchups or rosters. Its current table is
         // archived as standings, while the immutable season result supplies the
@@ -464,24 +465,37 @@ async function rolloverSeason({ leagueId, userId }) {
         );
         rosters = rostersResult.rows;
 
-        // Champion: winner of the last final, non-consolation playoff game
-        const playoffFinals = matchupsResult.rows
-          .filter((m) => m.is_playoff && !m.is_consolation && m.final)
-          .sort((a, b) => b.week - a.week);
-        const decider = playoffFinals[0];
-        championTeamId = decider
-          ? (Number(decider.home_score) >= Number(decider.away_score)
-            ? decider.home_team_id
-            : decider.away_team_id)
-          : (standings[0] ? standings[0].teamId : null);
+        // The champion stands once Advance week settles the final: the champion
+        // Trophy its follow-up awarded is the season's record, and rollover keeps
+        // it. Only a season whose follow-up never ran decides from the final.
+        const awardedChampion = await client.query(
+          `SELECT "team_id" FROM "trophies"
+           WHERE "league_id" = $1 AND "season" = $2 AND "week" = 0 AND "type" = 'champion'`,
+          [leagueId, league.current_season]
+        );
+        if (awardedChampion.rows[0]) {
+          championAwarded = true;
+          championTeamId = Number(awardedChampion.rows[0].team_id);
+        } else {
+          // Champion: winner of the last final, non-consolation playoff game
+          const playoffFinals = matchupsResult.rows
+            .filter((m) => m.is_playoff && !m.is_consolation && m.final)
+            .sort((a, b) => b.week - a.week);
+          const decider = playoffFinals[0];
+          championTeamId = decider
+            ? (Number(decider.home_score) >= Number(decider.away_score)
+              ? decider.home_team_id
+              : decider.away_team_id)
+            : (standings[0] ? standings[0].teamId : null);
+        }
         championUserId =
           teamsResult.rows.find((team) => team.id === championTeamId)?.owner_id || null;
       }
 
       // The fantasy champion trophy is singular; pick'em champions are
       // multi-recipient rows already written by season completion, so they are
-      // left exactly as they are.
-      if (championTeamId && !pickemOnly) {
+      // left exactly as they are. An awarded champion Trophy already stands.
+      if (championTeamId && !pickemOnly && !championAwarded) {
         // The weekly trophy index is team-aware so both closest-game teams can
         // share a type. Champion remains singular, so replace any stale winner
         // explicitly before inserting the authoritative season result.
