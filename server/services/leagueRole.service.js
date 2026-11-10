@@ -227,17 +227,17 @@ async function grantCoCommissioner({ leagueId, userId, targetTeamId }) {
     pool,
     async (client) => {
       const league = await requireOwner(client, { leagueId, userId, forUpdate: true });
-      // Resolve the Team to the account behind it, privately. The username rides
-      // into the activity-log detail (the same projection the notification
-      // fan-out reads), never onto a shared payload.
+      // Resolve the Team to the account behind it, privately. The JOIN refuses a
+      // Team with no manager (a CPU team) rather than granting to a null account.
+      // The activity log names the Team only (#2752).
       const member = await client.query(
-        `SELECT "teams"."owner_id", "users"."username"
+        `SELECT "teams"."owner_id"
            FROM "teams" JOIN "users" ON "users"."id" = "teams"."owner_id"
           WHERE "teams"."league_id" = $1 AND "teams"."id" = $2`,
         [leagueId, targetTeamId]
       );
       if (!member.rows[0]) throw new MembershipError(400, 'that team is not a member of this league');
-      const { owner_id: targetUserId, username } = member.rows[0];
+      const targetUserId = member.rows[0].owner_id;
       // Sanctioned direct owner_id comparison, the second of the three in the
       // header: granting the role. The creator already holds it, so they can
       // never be a grantee, and the comparison genuinely is about the owner
@@ -258,7 +258,7 @@ async function grantCoCommissioner({ leagueId, userId, targetTeamId }) {
         leagueId,
         teamId: targetTeamId,
         type: 'commissioner',
-        detail: { action: 'grant_co_commissioner', userId: targetUserId, username },
+        detail: { action: 'grant_co_commissioner' },
       });
       await notify(client, {
         userId: targetUserId,
@@ -301,7 +301,7 @@ async function revokeCoCommissioner({ leagueId, userId, targetUserId }) {
         leagueId,
         teamId: team.id,
         type: 'commissioner',
-        detail: { action: 'revoke_co_commissioner', userId: targetUserId },
+        detail: { action: 'revoke_co_commissioner' },
       });
       await notify(client, {
         userId: targetUserId,

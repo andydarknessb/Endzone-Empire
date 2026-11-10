@@ -217,7 +217,7 @@ router.post('/:id/join-public', async (req, res) => {
   const { teamName } = req.body || {};
   try {
     const result = await joinPublicLeague({
-      leagueId, userId: req.user.id, username: req.user.username, teamName,
+      leagueId, userId: req.user.id, teamName,
     });
     if (result.pending) return res.status(202).json({ status: 'pending' });
     delete result.league.draft_share_token; // not for a joining manager (#2274)
@@ -590,6 +590,10 @@ router.get('/:id/transactions', async (req, res) => {
       result.rows.forEach((row) => itemsOf(row).forEach((item) => {
         item.position = byId.get(item.playerId) ?? null;
       }));
+    }
+    // Rows written before #2752 still hold the account id and username; a member reads this log.
+    for (const row of result.rows) {
+      if (row.detail) { delete row.detail.userId; delete row.detail.username; }
     }
     res.json(result.rows);
   } catch (error) {

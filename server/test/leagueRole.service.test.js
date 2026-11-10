@@ -199,3 +199,53 @@ test('notifyCommissioners inserts one notification per current commissioner, add
     assert.equal(call.params[4], JSON.stringify({ url: '/x' }));
   }
 });
+
+// #2752: the activity log is read by every member, so a grant or revoke logs
+// the Team it moved and never the account behind it.
+const COMMISSIONER_LEAGUE_LOCK = [
+  /FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE|UPDATE "leagues" SET "board_version"/,
+  () => ({ rows: [{ id: 1, name: 'Harbor League', owner_id: 7 }] }),
+];
+
+test('grantCoCommissioner logs the grant with no account id or username', async (t) => {
+  const fake = createFakePool([
+    COMMISSIONER_LEAGUE_LOCK,
+    [/FROM "teams" JOIN "users"/, () => ({ rows: [{ owner_id: 42, username: 'alice' }] })],
+    [/^INSERT INTO "league_commissioners"/, () => ({ rows: [{ user_id: 42 }] })],
+    [/FROM "league_commissioners" JOIN "users"/, () => ({ rows: [] })],
+    [/^INSERT INTO "transactions"/, () => ({ rows: [] })],
+    [/^INSERT INTO "notifications"/, () => ({ rows: [] })],
+  ]);
+  fake.install(t);
+
+  const { grantCoCommissioner } = require('../services/leagueRole.service');
+  await grantCoCommissioner({ leagueId: 1, userId: 7, targetTeamId: 11 });
+
+  // The grant itself still names the account; only the log stops carrying it.
+  assert.equal(fake.matching(/^INSERT INTO "league_commissioners"/)[0].params[1], 42);
+  const [log] = fake.matching(/^INSERT INTO "transactions"/);
+  assert.equal(log.params[1], 11, 'the log still names the Team');
+  assert.deepEqual(JSON.parse(log.params[3]), { action: 'grant_co_commissioner' });
+  fake.assertClean();
+});
+
+test('revokeCoCommissioner logs the revoke with no account id', async (t) => {
+  const fake = createFakePool([
+    COMMISSIONER_LEAGUE_LOCK,
+    [/^DELETE FROM "league_commissioners"/, () => ({ rows: [{ user_id: 42 }] })],
+    [/^SELECT \* FROM "teams" WHERE "league_id"/, () => ({ rows: [{ id: 11, league_id: 1, owner_id: 42 }] })],
+    [/FROM "league_commissioners" JOIN "users"/, () => ({ rows: [] })],
+    [/^INSERT INTO "transactions"/, () => ({ rows: [] })],
+    [/^INSERT INTO "notifications"/, () => ({ rows: [] })],
+  ]);
+  fake.install(t);
+
+  const { revokeCoCommissioner } = require('../services/leagueRole.service');
+  await revokeCoCommissioner({ leagueId: 1, userId: 7, targetUserId: 42 });
+
+  assert.equal(fake.matching(/^DELETE FROM "league_commissioners"/)[0].params[1], 42);
+  const [log] = fake.matching(/^INSERT INTO "transactions"/);
+  assert.equal(log.params[1], 11, 'the log still names the Team');
+  assert.deepEqual(JSON.parse(log.params[3]), { action: 'revoke_co_commissioner' });
+  fake.assertClean();
+});
