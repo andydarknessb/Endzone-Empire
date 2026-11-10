@@ -367,6 +367,79 @@ describe('recovering from a handshake refused as unauthorized (#2740)', () => {
     expect(getToken()).toBeNull();
     expect(socket.connect).not.toHaveBeenCalled();
   });
+
+  test('a handshake refused as unauthorized right after a revive does not revive again', async () => {
+    setToken('stale-jwt');
+    createDraftSocket();
+    socket.active = false;
+    handlerFor('connect_error')(new Error('unauthorized'));
+    await waitFor(() => expect(socket.connect).toHaveBeenCalledTimes(1));
+
+    handlerFor('connect_error')(new Error('unauthorized'));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(axios.post).toHaveBeenCalledTimes(1);
+    expect(socket.connect).toHaveBeenCalledTimes(1);
+  });
+
+  test('handlers the manager reconnect already ran are not run again by the revive connect', async () => {
+    setToken('stale-jwt');
+    createDraftSocket();
+    const handler = jest.fn();
+    onReconnect(socket, handler);
+    socket.io.on.mock.calls
+      .filter(([name]) => name === 'reconnect')
+      .forEach(([, listener]) => listener());
+    expect(handler).toHaveBeenCalledTimes(1);
+
+    socket.active = false;
+    handlerFor('connect_error')(new Error('unauthorized'));
+    await waitFor(() => expect(socket.connect).toHaveBeenCalledTimes(1));
+
+    socket.once.mock.calls.find(([name]) => name === 'connect')[1]();
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  test('a connect_error that is not unauthorized neither refreshes nor connects', async () => {
+    setToken('stale-jwt');
+    createDraftSocket();
+
+    handlerFor('connect_error')(new Error('xhr poll error'));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(axios.post).not.toHaveBeenCalled();
+    expect(socket.connect).not.toHaveBeenCalled();
+  });
+
+  test('once the revived socket has connected, a later unauthorized refusal refreshes again', async () => {
+    setToken('stale-jwt');
+    createDraftSocket();
+    socket.active = false;
+    handlerFor('connect_error')(new Error('unauthorized'));
+    await waitFor(() => expect(socket.connect).toHaveBeenCalledTimes(1));
+    socket.once.mock.calls.find(([name]) => name === 'connect')[1]();
+
+    socket.active = false;
+    handlerFor('connect_error')(new Error('unauthorized'));
+    await waitFor(() => expect(axios.post).toHaveBeenCalledTimes(2));
+  });
+
+  test('a manager reconnect that a normal connect already delivered does not suppress a later revive', async () => {
+    setToken('stale-jwt');
+    createDraftSocket();
+    const handler = jest.fn();
+    onReconnect(socket, handler);
+    socket.io.on.mock.calls
+      .filter(([name]) => name === 'reconnect')
+      .forEach(([, listener]) => listener());
+    handlerFor('connect')();
+
+    socket.active = false;
+    handlerFor('disconnect')('io server disconnect');
+    await waitFor(() => expect(socket.connect).toHaveBeenCalledTimes(1));
+    socket.once.mock.calls.find(([name]) => name === 'connect')[1]();
+    expect(handler).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe('createDraftSocket with a test harness installed', () => {
