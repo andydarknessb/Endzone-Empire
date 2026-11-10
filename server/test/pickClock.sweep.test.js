@@ -880,15 +880,32 @@ test('sweep: a queued null-team player is autopicked ahead of an unqueued team-h
 // MinneApple without a DEF starting slot: DEF is a position this league cannot roster.
 const NO_DEF_ROSTER_SLOTS = MINNEAPPLE_ROSTER_SLOTS.filter((slot) => slot.key !== 'DEF');
 
+// Late in round 14 of 15 (one team): the K/DEF window is open, two picks remain, and every
+// starting slot is filled. Nothing fills a need, so both candidates land in the bench phase,
+// where raw ADP decides unless the rosterable split puts the unrosterable one last.
+const BENCH_LEAGUE = { ...SWEEP_LEAGUE, current_pick: 13, draft_rounds: 15, roster_slots: NO_DEF_ROSTER_SLOTS };
+const BENCH_ROSTER = ['QB', 'RB', 'RB', 'WR', 'WR', 'TE', 'RB', 'K'];
+
 test('sweep: a rosterable player beats an unrosterable one with a better ADP (#2764)', async (t) => {
   const deff = { id: 500, name: 'Top DEF', adp: '1.0', nfl_team: 'KC', position: 'DEF', queue_rank: null, last_season_points: null };
   const wr = { id: 501, name: 'Bench WR', adp: '40.0', nfl_team: 'KC', position: 'WR', queue_rank: null, last_season_points: null };
-  installSweepPool(t, { candidates: [deff, wr], league: { ...SWEEP_LEAGUE, roster_slots: NO_DEF_ROSTER_SLOTS } });
+  installSweepPool(t, { candidates: [deff, wr], league: BENCH_LEAGUE, rosterPositions: BENCH_ROSTER, takenPicks: [14, 15] });
   const attempts = recordAttempts(t);
 
   await pickClock.processExpiredPickClocks();
 
   assert.deepEqual(attempts, [501], 'the WR the league can roster goes before the DEF it cannot');
+});
+
+test('sweep: an unrosterable player comes after a null-team rosterable one (#2764)', async (t) => {
+  const deff = { id: 500, name: 'Top DEF', adp: '1.0', nfl_team: 'KC', position: 'DEF', queue_rank: null, last_season_points: null };
+  const released = { id: 510, name: 'Released WR', adp: '1.0', nfl_team: null, position: 'WR', queue_rank: null, last_season_points: null };
+  installSweepPool(t, { candidates: [deff, released], league: BENCH_LEAGUE, rosterPositions: BENCH_ROSTER, takenPicks: [14, 15] });
+  const attempts = recordAttempts(t, { snipe: [510] }); // the released WR is cap-blocked, so the walk reaches the tail
+
+  await pickClock.processExpiredPickClocks();
+
+  assert.deepEqual(attempts, [510, 500], 'the null-team WR is tried before the DEF the league cannot roster');
 });
 
 test('sweep: an unrosterable player is autopicked when nothing else is left (#2764)', async (t) => {

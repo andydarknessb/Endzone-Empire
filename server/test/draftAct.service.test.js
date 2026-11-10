@@ -359,6 +359,20 @@ test('correcting an Autopick of a CPU-managed Team leaves it on Autodraft (#2764
   fake.assertClean();
 });
 
+test('correcting an Autopick by an Autodraft Team below the threshold leaves it on Autodraft (#2764)', async (t) => {
+  const fake = correctionWorld(t, { autopick: true, autodraft: true, streak: 1 });
+  installActBroadcast(t, fake);
+
+  await correctLatestPick({ leagueId: LEAGUE_ID, userId: USER_ID, reason: 'an autopick below the threshold' });
+
+  assert.equal(
+    fake.matching(/^UPDATE "teams" SET "autodraft" = false, "consecutive_timeouts" = 0/).length,
+    0,
+    'one timeout is not a trip: the Team keeps Autodraft and its streak'
+  );
+  fake.assertClean();
+});
+
 test('correcting a hand-made Pick leaves its Team on Autodraft and streak alone (#2764)', async (t) => {
   const fake = correctionWorld(t, { autopick: false, autodraft: true, streak: 2 });
   installActBroadcast(t, fake);

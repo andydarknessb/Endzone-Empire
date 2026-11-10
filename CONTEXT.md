@@ -621,7 +621,8 @@ Autopick when it expires. One rule arms it everywhere, resume included: an
 Autodraft team gets the short delay, a timed team gets the full pick time,
 an untimed team gets no clock. Pausing forgives elapsed time rather than
 preserving it. Repeated consecutive expiries are its consequence too: they
-are what places a team into Autodraft.
+are what places a team into Autodraft. A team that departs while on the clock
+of an active, unpaused draft re-arms it on the Autodraft delay.
 _Avoid_: countdown (the display), deadline (the stored instant, not the
 concept), pick timer
 
@@ -786,7 +787,10 @@ than open Starting needs, in which case it fills them, or nothing else remains
 to draft. Autopick never refuses to pick because the market is thin; that is a
 draft-start concern. An Autopick acts only for the turn whose Pick clock
 expired; a firing whose clock has since been re-armed (by a Pick, an undo, a
-resume or an Autodraft toggle) does nothing.
+resume or an Autodraft toggle) does nothing. A position the League cannot roster
+(no starting slot takes it) comes after every rosterable player, null-team
+players included. The team's queue is not bounded by the candidate limit: a
+cap-blocked queue entry does not use up the board's.
 _Avoid_: autodraft (that is the standing mode, not the act)
 
 **Best available**:
@@ -809,7 +813,9 @@ _Avoid_: player pool, top N, the board (that is the Draft board, committed picks
 
 **Autodraft**:
 A standing mode a team can be placed in so that every remaining pick is made by
-autopick immediately, without waiting out the clock.
+autopick immediately, without waiting out the clock. An autopick draft cannot
+switch it off. A reset leaves a CPU-managed team on it. Correcting the Autopick
+that tripped its team into it clears it, with the timeout streak.
 _Avoid_: autopick
 
 **Queue**:
