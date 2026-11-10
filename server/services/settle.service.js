@@ -84,6 +84,20 @@ async function settleWeek({ leagueId, expectedWeek }) {
           [leagueId, season, seeded.map((s) => s.teamId), seeded.map((s) => s.rank)]
         );
       }
+      // Consolation seeds, when the field has any, are fixed in the same step (#2744).
+      if (brackets.consolationSeeds.length > 0) {
+        await client.query(
+          `INSERT INTO "consolation_seeds" ("league_id", "season", "team_id", "seed")
+           SELECT $1, $2, "s"."team_id", "s"."seed"
+           FROM unnest($3::int[], $4::int[]) AS "s"("team_id", "seed")`,
+          [
+            leagueId,
+            season,
+            brackets.consolationSeeds.map((s) => s.teamId),
+            brackets.consolationSeeds.map((s) => s.seed),
+          ]
+        );
+      }
       for (const game of brackets.playoff.games) {
         await client.query(
           `INSERT INTO "matchups" ("league_id", "season", "week", "home_team_id", "away_team_id",
@@ -116,9 +130,6 @@ async function settleWeek({ leagueId, expectedWeek }) {
     } else if (league.season_status === 'playoffs') {
       const thisRound = weekMatchups.rows.filter((m) => m.is_playoff && !m.is_consolation);
       const roundNumber = thisRound[0] ? thisRound[0].playoff_round : null;
-      const winners = thisRound.map((m) =>
-        Number(m.home_score) >= Number(m.away_score) ? m.home_team_id : m.away_team_id
-      );
       // Byes: a seeded team that is out of this round and has no earlier playoff game
       // skips round one. Who played is structural; no score decides it (#2742).
       const storedSeeds = await client.query(
@@ -135,10 +146,9 @@ async function settleWeek({ leagueId, expectedWeek }) {
             .slice(0, league.playoff_teams)
             .map((s, i) => [s.teamId, i + 1])
         );
-      const playedIds = new Set(thisRound.flatMap((m) => [m.home_team_id, m.away_team_id]));
-      const byeTeams = [...seedOf.keys()]
-        .filter((id) => !playedIds.has(id) && !playedEarlierPlayoff(allMatchups.rows, id, week));
-      const advancing = [...new Set([...winners, ...byeTeams])];
+      const { winners, advancing } = bracketAdvancing({
+        games: thisRound, seedOf, matchups: allMatchups.rows, week, consolation: false,
+      });
 
       if (advancing.length <= 1) {
         const champion = teams.find((t) => t.id === winners[0]);
@@ -169,6 +179,36 @@ async function settleWeek({ leagueId, expectedWeek }) {
           [nextWeek, leagueId]
         );
         outcome = { advancedTo: nextWeek, seasonStatus: 'playoffs', playoffRound: (roundNumber || 1) + 1 };
+      }
+
+      // The Consolation bracket plays its own rounds beside the championship and never
+      // decides it. Its field is capped at the championship's rounds (buildOpeningBrackets),
+      // so its final is never after the championship final: the season still completes above.
+      const consolationGames = league.playoff_consolation
+        ? weekMatchups.rows.filter((m) => m.is_consolation)
+        : [];
+      if (consolationGames.length > 0) {
+        const storedConsolation = await client.query(
+          `SELECT "team_id", "seed" FROM "consolation_seeds"
+           WHERE "league_id" = $1 AND "season" = $2 ORDER BY "seed"`,
+          [leagueId, season]
+        );
+        const consolationSeedOf = new Map(storedConsolation.rows.map((r) => [r.team_id, r.seed]));
+        const consolation = bracketAdvancing({
+          games: consolationGames, seedOf: consolationSeedOf, matchups: allMatchups.rows, week, consolation: true,
+        });
+        if (consolation.advancing.length > 1) {
+          const consolationRound = consolationGames[0].playoff_round + 1;
+          const entrants = consolation.advancing.map((teamId) => ({ teamId, seed: consolationSeedOf.get(teamId) || 99 }));
+          for (const game of seasonSvc.pairBySeed(entrants).games) {
+            await client.query(
+              `INSERT INTO "matchups" ("league_id", "season", "week", "home_team_id", "away_team_id",
+                                       "is_playoff", "playoff_round", "is_consolation")
+               VALUES ($1, $2, $3, $4, $5, true, $6, true)`,
+              [leagueId, season, nextWeek, game.home, game.away, consolationRound]
+            );
+          }
+        }
       }
     } else {
       // Plain regular-season week: schedule already exists, just move forward
@@ -335,13 +375,29 @@ async function rescoreLive({ leagueId, season, week }) {
 }
 
 /**
- * Did this team play a (non-consolation) playoff game before `week`? Reads who
- * played, never the scores: a Stat correction flips a finished round's score but
- * never who reached the next one (CONTEXT.md, Stat correction, Playoff seed).
+ * One bracket's next round (#2744). `winners` are the settled games' winners;
+ * `advancing` adds the byes: a seeded Team out of this round with no earlier game in
+ * the same bracket. Who played is structural; no score decides it (#2742).
  */
-function playedEarlierPlayoff(matchups, teamId, week) {
+function bracketAdvancing({ games, seedOf, matchups, week, consolation }) {
+  const winners = games.map((m) =>
+    Number(m.home_score) >= Number(m.away_score) ? m.home_team_id : m.away_team_id
+  );
+  const playedIds = new Set(games.flatMap((m) => [m.home_team_id, m.away_team_id]));
+  const byeTeams = [...seedOf.keys()]
+    .filter((id) => !playedIds.has(id) && !playedEarlierPlayoff(matchups, id, week, consolation));
+  return { winners, advancing: [...new Set([...winners, ...byeTeams])] };
+}
+
+/**
+ * Did this team play a playoff game in the given bracket (`consolation` picks which)
+ * before `week`? Reads who played, never the scores: a Stat correction flips a
+ * finished round's score but never who reached the next one (CONTEXT.md, Stat
+ * correction, Playoff seed).
+ */
+function playedEarlierPlayoff(matchups, teamId, week, consolation = false) {
   return matchups.some((m) =>
-    m.is_playoff && !m.is_consolation && m.week < week &&
+    m.is_playoff && Boolean(m.is_consolation) === consolation && m.week < week &&
     (m.home_team_id === teamId || m.away_team_id === teamId)
   );
 }

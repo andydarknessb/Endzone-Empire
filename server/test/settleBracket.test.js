@@ -13,7 +13,7 @@ const { createFakePool } = require('./helpers/fakePool');
 const LEAGUE_ID = 7;
 const SEASON = 2026;
 
-const league = ({ playoffTeams, currentWeek }) => ({
+const league = ({ playoffTeams, currentWeek, consolation = false }) => ({
   id: LEAGUE_ID,
   current_season: SEASON,
   current_week: currentWeek,
@@ -21,7 +21,7 @@ const league = ({ playoffTeams, currentWeek }) => ({
   draft_status: 'complete',
   regular_season_weeks: 14,
   playoff_teams: playoffTeams,
-  playoff_consolation: false,
+  playoff_consolation: consolation,
 });
 
 const game = (id, week, round, home, away, homeScore, awayScore, final) => ({
@@ -37,6 +37,8 @@ const game = (id, week, round, home, away, homeScore, awayScore, final) => ({
   final,
 });
 
+const consolationGame = (...args) => ({ ...game(...args), is_consolation: true });
+
 const seeded = (count) =>
   Array.from({ length: count }, (_, i) => ({ team_id: i + 1, seed: i + 1 }));
 
@@ -44,7 +46,7 @@ const teamsFor = (count) =>
   Array.from({ length: count }, (_, i) => ({ id: i + 1, name: `Team ${i + 1}`, owner_id: null }));
 
 /** Runs Advance week for `lg` and reports what it wrote. */
-async function advance(t, { lg, teams, seeds, matchups }) {
+async function advance(t, { lg, teams, seeds, consolationSeeds = [], matchups }) {
   const inserted = [];
   const leagueUpdates = [];
   const fake = createFakePool([
@@ -56,9 +58,10 @@ async function advance(t, { lg, teams, seeds, matchups }) {
     [/^UPDATE "matchups" SET "final" = true/, () => ({ rows: [] })],
     [/^SELECT "id", "name", "owner_id" FROM "teams"/, () => ({ rows: teams })],
     [/^SELECT "team_id", "seed" FROM "playoff_seeds"/, () => ({ rows: seeds })],
+    [/^SELECT "team_id", "seed" FROM "consolation_seeds"/, () => ({ rows: consolationSeeds })],
     [/^SELECT DISTINCT "owner_id" FROM "teams"/, () => ({ rows: [] })],
-    [/^INSERT INTO "matchups"/, (_text, params) => {
-      inserted.push({ home: params[3], away: params[4], round: params[5] });
+    [/^INSERT INTO "matchups"/, (text, params) => {
+      inserted.push({ home: params[3], away: params[4], round: params[5], consolation: /"is_consolation"/.test(text) });
       return { rows: [] };
     }],
     [/^UPDATE "leagues" SET "(?:season_status|current_week)"/, (text, params) => {
@@ -125,4 +128,81 @@ test('6-Team bracket: the top two seeds skip round one and play round two', asyn
     [[1, 5], [2, 3]]
   );
   assert.ok(r.inserted.every((g) => g.round === 2));
+});
+
+const pairs = (games) => games.map((g) => [g.home, g.away, g.round]);
+
+test('4-Team Consolation bracket: round-one winners meet in round two; the championship is unchanged', async (t) => {
+  const matchups = [
+    game(301, 15, 1, 1, 4, 100, 90, true),
+    game(302, 15, 1, 2, 3, 95, 80, true),
+    consolationGame(303, 15, 1, 5, 8, 100, 90, true),
+    consolationGame(304, 15, 1, 6, 7, 99, 98, true),
+  ];
+  const r = await advance(t, {
+    lg: league({ playoffTeams: 4, currentWeek: 15, consolation: true }),
+    teams: teamsFor(8),
+    seeds: seeded(4),
+    consolationSeeds: [5, 6, 7, 8].map((team_id, i) => ({ team_id, seed: i + 1 })),
+    matchups,
+  });
+
+  assert.deepEqual(pairs(r.inserted.filter((g) => g.consolation)), [[5, 6, 2]]);
+  assert.deepEqual(pairs(r.inserted.filter((g) => !g.consolation)), [[1, 2, 2]]);
+});
+
+test('6-Team Consolation bracket: byes join round two, and round three is the final', async (t) => {
+  // Championship: 5 playoff Teams, Team 4 beats Team 5; seeds 1-3 bye.
+  // Consolation: seeds 1 and 2 (Teams 6, 7) bye; 3v6 and 4v5 are round one.
+  const weekOne = [
+    game(401, 15, 1, 4, 5, 100, 90, false),
+    consolationGame(402, 15, 1, 8, 11, 100, 90, false),
+    consolationGame(403, 15, 1, 9, 10, 100, 90, false),
+  ];
+  const weekTwo = [
+    game(501, 16, 2, 1, 4, 100, 90, false),
+    game(502, 16, 2, 2, 3, 100, 90, false),
+    consolationGame(503, 16, 2, 6, 9, 100, 90, false),
+    consolationGame(504, 16, 2, 7, 8, 100, 90, false),
+  ];
+  const consolationSeeds = [6, 7, 8, 9, 10, 11].map((team_id, i) => ({ team_id, seed: i + 1 }));
+  const args = { teams: teamsFor(11), seeds: seeded(5), consolationSeeds };
+
+  const roundTwo = await advance(t, {
+    ...args,
+    lg: league({ playoffTeams: 5, currentWeek: 15, consolation: true }),
+    matchups: weekOne,
+  });
+  assert.deepEqual(pairs(roundTwo.inserted.filter((g) => g.consolation)), [[6, 9, 2], [7, 8, 2]]);
+  assert.deepEqual(pairs(roundTwo.inserted.filter((g) => !g.consolation)), [[1, 4, 2], [2, 3, 2]]);
+
+  const roundThree = await advance(t, {
+    ...args,
+    lg: league({ playoffTeams: 5, currentWeek: 16, consolation: true }),
+    matchups: weekOne.concat(weekTwo),
+  });
+  assert.deepEqual(pairs(roundThree.inserted.filter((g) => g.consolation)), [[6, 7, 3]]);
+  assert.deepEqual(pairs(roundThree.inserted.filter((g) => !g.consolation)), [[1, 2, 3]]);
+});
+
+test('the consolation final in the championship final week: the season completes once, on the championship winner', async (t) => {
+  const matchups = [
+    game(601, 15, 1, 1, 4, 100, 90, true),
+    game(602, 15, 1, 2, 3, 95, 80, true),
+    consolationGame(603, 15, 1, 5, 8, 100, 90, true),
+    consolationGame(604, 15, 1, 6, 7, 99, 98, true),
+    game(605, 16, 2, 1, 2, 100, 90, true),
+    consolationGame(606, 16, 2, 5, 6, 80, 90, true),
+  ];
+  const r = await advance(t, {
+    lg: league({ playoffTeams: 4, currentWeek: 16, consolation: true }),
+    teams: teamsFor(8),
+    seeds: seeded(4),
+    consolationSeeds: [5, 6, 7, 8].map((team_id, i) => ({ team_id, seed: i + 1 })),
+    matchups,
+  });
+
+  assert.equal(r.outcome.seasonStatus, 'complete');
+  assert.equal(r.outcome.championTeamId, 1);
+  assert.deepEqual(r.inserted, []);
 });

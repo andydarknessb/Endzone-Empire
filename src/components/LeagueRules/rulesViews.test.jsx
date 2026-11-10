@@ -177,7 +177,7 @@ describe('PlayoffRulesView', () => {
     render(<PlayoffRulesView league={{
       regular_season_weeks: 13, playoff_teams: 4, playoff_consolation: true,
     }} />);
-    expect(screen.getByText('Teams that miss the playoffs play their own bracket.')).toBeInTheDocument();
+    expect(screen.getByText('The top Teams that miss the playoffs play their own bracket.')).toBeInTheDocument();
     expect(screen.queryByText(/placement/)).not.toBeInTheDocument();
   });
 

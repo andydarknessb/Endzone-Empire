@@ -1471,9 +1471,11 @@ bracket exists.
 _Avoid_: rank (a standings position, which can still move), playoff rank
 
 **Consolation bracket**:
-An optional single-elimination bracket for the Teams that miss the playoffs,
-played in the playoff weeks. Winners advance until one Team is left. It never
-affects the champion.
+An optional single-elimination bracket for the top Teams that miss the playoffs,
+no more than the championship's rounds can play down to one, played in the
+playoff weeks. Its seeds are fixed when the bracket is created and stored per
+League and season. Winners advance until one Team is left. It never affects the
+champion.
 _Avoid_: toilet bowl, placement games
 
 **Scoring rules**:
