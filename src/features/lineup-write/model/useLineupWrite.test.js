@@ -471,3 +471,34 @@ describe('Undo on the Lineup saved toast (#1964)', () => {
     expect(mockNotify).toHaveBeenCalledWith(expect.stringContaining('saved offline'), { severity: 'info' });
   });
 });
+
+// #2823: the try covers the save only. A throw after a landed save must not roll
+// it back or toast a failed save.
+describe('a landed save whose follow-up throws (#2823)', () => {
+  test('a throwing success toast keeps the landed lineup, with no failure toast', async () => {
+    apiClient.put.mockResolvedValue({ data: {} });
+    mockNotify.mockImplementationOnce(() => {
+      throw new Error('toast');
+    });
+    const { result, getRaw } = setup();
+
+    await act(async () => {
+      await result.current.submit(MOVES).catch(() => {});
+    });
+
+    expect(getRaw().entries).toEqual([{ id: 1, slot: 'WR' }, { id: 2, slot: 'BENCH' }]);
+    expect(mockNotify).not.toHaveBeenCalledWith("Couldn't save your lineup. Try again.", { severity: 'error' });
+  });
+
+  test('a describeOutcome that throws on the body keeps the landed lineup, with no failure toast', async () => {
+    apiClient.put.mockResolvedValue({ data: { irreversible: 1 } });
+    const { result, getRaw } = setup();
+
+    await act(async () => {
+      await result.current.submit(MOVES).catch(() => {});
+    });
+
+    expect(getRaw().entries).toEqual([{ id: 1, slot: 'WR' }, { id: 2, slot: 'BENCH' }]);
+    expect(mockNotify).not.toHaveBeenCalledWith("Couldn't save your lineup. Try again.", { severity: 'error' });
+  });
+});
