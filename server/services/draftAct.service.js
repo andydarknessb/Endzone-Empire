@@ -147,6 +147,10 @@ async function setAutodraft({ leagueId, userId, teamId, enabled }) {
     if (!isTeamManager && !isCommissioner) {
       throw new DraftError(403, 'only the team manager or a commissioner can change autodraft');
     }
+    // An autopick draft makes every pick at once, so Autodraft cannot be switched off there (#2764).
+    if (!enabled && league.draft_type === 'autopick') {
+      throw new DraftError(409, 'autodraft cannot be turned off in an autopick draft');
+    }
     // Turning autodraft off clears any timeout streak.
     await client.query(
       `UPDATE "teams" SET "autodraft" = $1,
@@ -234,8 +238,10 @@ async function reset({ leagueId, userId }) {
       [leagueId, league.current_season]
     );
     await client.query(`DELETE FROM "draft_picks" WHERE "league_id" = $1`, [leagueId]);
+    // A CPU-managed Team (owner_id NULL) keeps its Autodraft: nobody is left to turn it back on (#2764).
     await client.query(
-      `UPDATE "teams" SET "autodraft" = false, "draft_ready" = false, "consecutive_timeouts" = 0, "updated_at" = now()
+      `UPDATE "teams" SET "autodraft" = CASE WHEN "owner_id" IS NULL THEN "autodraft" ELSE false END,
+              "draft_ready" = false, "consecutive_timeouts" = 0, "updated_at" = now()
        WHERE "league_id" = $1`,
       [leagueId]
     );
@@ -364,6 +370,27 @@ async function saveKeepers({ leagueId, userId, keepers }) {
   });
 }
 
+/**
+ * True when the Pick being corrected is the Autopick that tripped its Team into
+ * Autodraft (#2764): an autopick by a Team now on Autodraft at or past the timeout
+ * threshold. No Pick records the trip, so it is inferred from the Team's streak.
+ * shortcut: a later Autopick by a Team that already tripped matches too; upgrade:
+ * record the tripping Pick.
+ */
+async function isTrippedAutopick(client, { leagueId, team, pickNumber }) {
+  // Lazy: draft.service owns the threshold and loads this module (the pickClock pattern).
+  const { shouldAutoEnableAutodraft } = require('./draft.service');
+  // A CPU-managed Team (owner_id NULL) stays on Autodraft: correcting its Autopick never clears it (#2764).
+  if (team.owner_id == null || !team.autodraft || !shouldAutoEnableAutodraft(team.consecutive_timeouts)) return false;
+  const autopick = await client.query(
+    `SELECT 1 FROM "draft_activity" "da"
+       JOIN "draft_picks" "dp" ON "dp"."id" = "da"."source_pick_id"
+      WHERE "dp"."league_id" = $1 AND "dp"."pick_number" = $2 AND "da"."is_autopick"`,
+    [leagueId, pickNumber]
+  );
+  return autopick.rows.length > 0;
+}
+
 const CORRECTION_MESSAGES = {
   NO_PICK_TO_CORRECT: 'there is no live pick to correct yet',
   KEEPER_UNCORRECTABLE: 'a keeper pick cannot be corrected',
@@ -404,7 +431,7 @@ async function correctLatestPick({ leagueId, userId, expectedPickNumber = null, 
     }
 
     const teamsResult = await client.query(
-      `SELECT "id", "name", "owner_id", "draft_position", "autodraft" FROM "teams"
+      `SELECT "id", "name", "owner_id", "draft_position", "autodraft", "consecutive_timeouts" FROM "teams"
        WHERE "league_id" = $1 ORDER BY "draft_position" NULLS LAST, "id"`,
       [leagueId]
     );
@@ -427,6 +454,8 @@ async function correctLatestPick({ leagueId, userId, expectedPickNumber = null, 
     );
     const player = playerResult.rows[0] || { id: target.player_id, name: null, position: null, nfl_team: null };
     const team = teams.find((tm) => tm.id === target.team_id) || { id: target.team_id, name: null };
+    // Read before the Pick row goes: the autopick flag hangs off it (#2764).
+    const trippedAutopick = await isTrippedAutopick(client, { leagueId, team, pickNumber: target.pick_number });
 
     // Reverse exactly the latest non-keeper Pick: its draft_picks row, its roster
     // row, and the lineup rows the Pick benched (#197). A correction runs no gate
@@ -443,6 +472,15 @@ async function correctLatestPick({ leagueId, userId, expectedPickNumber = null, 
       undoable: false,
       bypass: COMMISSIONER_OVERRIDE,
     });
+    // The Autopick that tripped its Team into Autodraft: correcting it clears that Team's
+    // Autodraft and streak, the same reset setAutodraft's off-switch makes (#2764).
+    if (trippedAutopick) {
+      await client.query(
+        `UPDATE "teams" SET "autodraft" = false, "consecutive_timeouts" = 0, "updated_at" = now()
+         WHERE "id" = $1`,
+        [target.team_id]
+      );
+    }
 
     // The Draft is LEFT PAUSED with no armed clock: the same team is on the clock
     // again only when a commissioner resumes.
