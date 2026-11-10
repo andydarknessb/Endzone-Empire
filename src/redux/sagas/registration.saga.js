@@ -1,5 +1,5 @@
 import { put, takeLatest } from 'redux-saga/effects';
-import apiClient, { setToken } from '../../api/apiClient';
+import apiClient, { startSession } from '../../api/apiClient';
 import { dropSessionCaches } from '../../sessionCaches';
 
 // worker Saga: fired on "REGISTER" actions
@@ -9,7 +9,7 @@ export function* registerUser(action) {
 
     // Registration returns a JWT immediately — no separate login round trip
     const response = yield apiClient.post('/api/auth/register', action.payload);
-    setToken(response.data.token);
+    startSession(response.data.token);
 
     // A new account on this device is a session change like a login: drop
     // every session cache so the new user is never served the previous

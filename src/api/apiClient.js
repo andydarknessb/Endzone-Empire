@@ -31,6 +31,13 @@ export function clearToken() {
   setToken(null);
 }
 
+// A login or registration is a new session: a refresh on the wire for the session
+// before it must not install its token over this one.
+export function startSession(token) {
+  clearToken();
+  setToken(token);
+}
+
 const apiClient = axios.create({
   baseURL: getApiOrigin() || undefined,
   withCredentials: true,

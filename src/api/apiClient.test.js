@@ -8,6 +8,7 @@ import apiClient, {
   onTokenRefreshed,
   refreshTokens,
   setToken,
+  startSession,
 } from './apiClient';
 import { hasSessionHint } from '../lib/sessionHint';
 
@@ -263,6 +264,27 @@ describe('cookie-backed refresh', () => {
     window.removeEventListener('auth:session-expired', expired);
   });
 
+  // A login starts a new session generation: an anonymous refresh (a hard load)
+  // answered 200 after it must not install its account's token over the login.
+  test('a refresh started anonymously and answered after startSession leaves the new session in place', async () => {
+    let onWire;
+    const sent = new Promise((resolve) => { onWire = resolve; });
+    let answer;
+    axiosMock.onPost('/api/auth/refresh?optional=1').reply(() => new Promise((release) => {
+      answer = () => release([200, { token: 'a-late-jwt', user: { id: 1 } }]);
+      onWire();
+    }));
+
+    const refresh = refreshTokens().catch((e) => e);
+    await sent;
+    startSession('b-jwt'); // the login lands while the anonymous refresh is on the wire
+    answer();
+
+    expect(await refresh).toBeInstanceOf(Error);
+    expect(getToken()).toBe('b-jwt');
+    expect(hasSessionHint()).toBe(true);
+  });
+
   test('a refresh answered 204 after a logout and re-login leaves the new session in place', async () => {
     setToken('a-jwt');
     const expired = jest.fn();
@@ -317,6 +339,19 @@ describe('cookie-backed refresh', () => {
     clearToken(); // logout: the refresh in flight belongs to the old session
     const newSession = refreshTokens().catch((e) => e);
     await Promise.all([oldSession, newSession]);
+
+    expect(axiosMock.history.post).toHaveLength(2);
+  });
+
+  // The anonymous refresh's 204 belongs to the session before the login: the login
+  // must start a refresh of its own rather than join it.
+  test('after startSession a refresh starts its own request, not the one from the anonymous session', async () => {
+    axiosMock.onPost('/api/auth/refresh?optional=1').reply(204, '');
+
+    const anonymous = refreshTokens().catch((e) => e);
+    startSession('b-jwt'); // the login: the refresh in flight belongs to the session before it
+    const loggedIn = refreshTokens().catch((e) => e);
+    await Promise.all([anonymous, loggedIn]);
 
     expect(axiosMock.history.post).toHaveLength(2);
   });

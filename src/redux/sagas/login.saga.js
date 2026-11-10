@@ -1,6 +1,6 @@
 import { put, takeLatest } from 'redux-saga/effects';
 import apiClient, {
-  setToken,
+  startSession,
   clearToken,
 } from '../../api/apiClient';
 import { dropSessionCaches } from '../../sessionCaches';
@@ -19,7 +19,7 @@ export function* loginUser(action) {
 
     // Persist both tokens; the access JWT rides every request, the refresh
     // token silently renews it when it expires (~15 min)
-    setToken(response.data.token);
+    startSession(response.data.token);
 
     yield put({ type: 'SET_USER', payload: response.data.user });
   } catch (error) {
