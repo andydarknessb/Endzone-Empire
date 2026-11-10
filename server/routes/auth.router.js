@@ -154,7 +154,6 @@ router.post('/refresh', requireTrustedOrigin, async (req, res) => {
     );
     const row = result.rows[0];
     if (!row) {
-      clearRefreshCookie(res);
       return res.status(401).json({ error: 'invalid refresh token' });
     }
     const user = publicUser(row);
@@ -164,7 +163,7 @@ router.post('/refresh', requireTrustedOrigin, async (req, res) => {
       user,
     });
   } catch (error) {
-    if (error.code !== 'REFRESH_RACE') clearRefreshCookie(res);
+    // No clear on a refusal: a late one would delete the cookie a newer login set (#2835).
     if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
     logger.error({ err: error }, 'token refresh failed');
     return res.status(500).json({ error: 'token refresh failed' });
