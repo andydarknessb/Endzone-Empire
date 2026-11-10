@@ -41,7 +41,7 @@ function formatLine(info, status, ms) {
  * presenter share token (the only credential in a URL) is replaced.
  */
 function loggedPath(originalUrl) {
-  return (originalUrl || '').split('?')[0].replace(/^(\/api\/draft\/board\/)[^/]+/, '$1:token');
+  return (originalUrl || '').split('?')[0].replace(/^(\/api\/draft\/board\/)[^/]+/i, '$1:token');
 }
 
 /** Express middleware: logs one JSON line per /api request on finish. */
