@@ -77,7 +77,7 @@ test("GET /api/team/lineup carries each entry's week opponent on the wire (#1132
     [/^SELECT "nfl_team", "opponent", "kickoff_at", "game_key", "roof", "home_away" FROM "nfl_games"/, () => ({
       rows: [{ nfl_team: 'MIN', opponent: 'GB', kickoff_at: '2026-11-01T18:00:00Z', game_key: 'MIN-GB' }],
     })],
-    [/^SELECT "home_team", "away_team", "game_status" FROM "live_game_states"/, () => ({ rows: [] })], // #1235
+    [/^SELECT "home_team", "away_team", "game_status", "last_updated" FROM "live_game_states"/, () => ({ rows: [] })], // #1235
     // #1329: no odds provider installed here, so only weekWeather reaches the
     // db, for MIN-GB (the only entry with a game this week).
     [/^SELECT DISTINCT ON \("game_key"\).*FROM "game_weather_snapshots"/, () => ({ rows: [] })],
@@ -186,7 +186,7 @@ test('GET /api/team/lineup reaches every Edge line kind (#1235)', async (t) => {
         { nfl_team: 'NE', opponent: 'MIA', kickoff_at: '2026-11-01T13:00:00Z', game_key: 'NE-MIA' },
       ],
     })],
-    [/^SELECT "home_team", "away_team", "game_status" FROM "live_game_states"/, () => ({
+    [/^SELECT "home_team", "away_team", "game_status", "last_updated" FROM "live_game_states"/, () => ({
       rows: [
         { home_team: 'BUF', away_team: 'NYG', game_status: 'in_progress' },
         { home_team: 'GB', away_team: 'MIN', game_status: 'final' },
@@ -289,7 +289,7 @@ test('GET /api/team/lineup: pace and result Edge lines follow the Point estimate
         { nfl_team: 'SEA', opponent: 'ARI', kickoff_at: '2026-11-01T13:00:00Z', game_key: 'SEA-ARI' },
       ],
     })],
-    [/^SELECT "home_team", "away_team", "game_status" FROM "live_game_states"/, () => ({
+    [/^SELECT "home_team", "away_team", "game_status", "last_updated" FROM "live_game_states"/, () => ({
       rows: [
         { home_team: 'LAC', away_team: 'LV', game_status: 'in_progress' },
         { home_team: 'SEA', away_team: 'ARI', game_status: 'final' },
@@ -362,7 +362,7 @@ test('GET /api/team/lineup: with no live_game_states row, the Edge line falls ba
     })],
     // No live row for either game: the poller has not (yet, or ever) upserted
     // one, which is exactly the gap #1235's f1 finding was about.
-    [/^SELECT "home_team", "away_team", "game_status" FROM "live_game_states"/, () => ({ rows: [] })],
+    [/^SELECT "home_team", "away_team", "game_status", "last_updated" FROM "live_game_states"/, () => ({ rows: [] })],
     // #1329: no odds provider installed here, so only weekWeather reaches the
     // db, for the two game keys above.
     [/^SELECT DISTINCT ON \("game_key"\).*FROM "game_weather_snapshots"/, () => ({ rows: [] })],
@@ -439,7 +439,7 @@ test('GET /api/team/lineup carries Line and weather per entry: both, neither, an
         { nfl_team: 'MIA', opponent: 'NE', kickoff_at: '2026-11-01T18:00:00Z', game_key: 'MIA-NE', roof: 'dome', home_away: 'away' },
       ],
     })],
-    [/^SELECT "home_team", "away_team", "game_status" FROM "live_game_states"/, () => ({ rows: [] })],
+    [/^SELECT "home_team", "away_team", "game_status", "last_updated" FROM "live_game_states"/, () => ({ rows: [] })],
     [/^SELECT DISTINCT ON \("game_key"\).*FROM "game_weather_snapshots"/, () => ({
       rows: [
         { game_key: 'KC-DEN', temperature_f: 58, wind_speed_mph: 12, wind_gust_mph: 20, precipitation_probability: 60, short_forecast: 'Light Rain', fetched_at: new Date() },
@@ -494,7 +494,7 @@ test('GET /api/team/lineup hides a weather snapshot fetched 72h ago: fields-null
     [/^SELECT "nfl_team", "opponent", "kickoff_at", "game_key", "roof", "home_away" FROM "nfl_games"/, () => ({
       rows: [{ nfl_team: 'KC', opponent: 'DEN', kickoff_at: '2026-11-01T18:00:00Z', game_key: 'KC-DEN', roof: 'outdoor', home_away: 'home' }],
     })],
-    [/^SELECT "home_team", "away_team", "game_status" FROM "live_game_states"/, () => ({ rows: [] })],
+    [/^SELECT "home_team", "away_team", "game_status", "last_updated" FROM "live_game_states"/, () => ({ rows: [] })],
     [/^SELECT DISTINCT ON \("game_key"\).*FROM "game_weather_snapshots"/, () => ({
       rows: [
         { game_key: 'KC-DEN', temperature_f: 58, wind_speed_mph: 12, wind_gust_mph: 20, precipitation_probability: 60, short_forecast: 'Light Rain', fetched_at: new Date(Date.now() - 72 * 3600 * 1000) },

@@ -791,11 +791,13 @@ async function weekOpponents(client, { season, week }) {
  */
 async function weekLiveGameStates(client, { season, week }) {
   const result = await client.query(
-    `SELECT "home_team", "away_team", "game_status" FROM "live_game_states" WHERE "season" = $1 AND "week" = $2`,
+    `SELECT "home_team", "away_team", "game_status", "last_updated" FROM "live_game_states" WHERE "season" = $1 AND "week" = $2`,
     [season, week]
   );
+  // Oldest first, so the map keeps each team's newest row (#2751, #2789).
+  const ageOf = (row) => new Date(row.last_updated).getTime() || 0;
   const byTeam = new Map();
-  for (const row of result.rows) {
+  for (const row of [...result.rows].sort((a, b) => ageOf(a) - ageOf(b))) {
     for (const rawTeam of [row.home_team, row.away_team]) {
       const team = normalizeNflTeam(rawTeam);
       if (team !== null) byTeam.set(team, row.game_status);
@@ -1916,4 +1918,5 @@ module.exports = {
   setLineup,
   planLineupSave,
   heldLineup,
+  weekLiveGameStates,
 };

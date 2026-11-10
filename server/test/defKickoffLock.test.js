@@ -102,7 +102,7 @@ function lineupWorld({ entries, kickedOff }) {
     })],
     [/FROM "nfl_games" "ng"/, () => ({ rows: [] })], // computeByeWeeks
     [/^SELECT "nfl_team", "opponent", "kickoff_at", "game_key", "roof", "home_away" FROM "nfl_games"/, () => ({ rows: [] })], // weekOpponents (#1132, #1235)
-    [/^SELECT "home_team", "away_team", "game_status" FROM "live_game_states"/, () => ({ rows: [] })], // #1235
+    [/^SELECT "home_team", "away_team", "game_status", "last_updated" FROM "live_game_states"/, () => ({ rows: [] })], // #1235
     [/^UPDATE "lineup_entries"/, () => ({ rows: [] })],
   ]);
 }
