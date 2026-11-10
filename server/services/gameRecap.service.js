@@ -377,8 +377,8 @@ async function generateForGame(tank01GameId, { api, client } = {}) {
 // Both the live-transition trigger AND the reconciliation sweep enqueue here,
 // so the total box-score fan-out is bounded and deduped by tank01_game_id.
 // A rate-limit (429) response backs the whole queue off (honoring Retry-After)
-// and requeues the game rather than losing it; anything the queue still drops
-// is healed later by the sweep.
+// and requeues the game rather than losing it. A game the queue drops is held
+// for an hour (see createRecapQueue) and the sweep re-heals it after that.
 
 const RECAP_QUEUE_CONCURRENCY = Number(process.env.RECAP_QUEUE_CONCURRENCY) || 2;
 const RECAP_MAX_RETRIES = 4;
@@ -396,8 +396,12 @@ const RECAP_FAILED_RETRY_MS = 60 * 60 * 1000;
  * In-process work queue with a hard concurrency cap and dedupe by game id.
  * The `worker` is injectable so tests can exercise the concurrency bound,
  * dedupe, and backoff without touching the network. Fire-and-forget:
- * `enqueue` returns whether the id was newly accepted (false = already
- * queued/in-flight).
+ * `enqueue` returns whether the id was newly accepted. It returns false while
+ * the id is queued or in flight, and while a game is held after a non-retriable
+ * worker throw or exhausted retries (`RECAP_FAILED_RETRY_MS`); the sweep
+ * re-heals it once the hold passes. The hold covers any non-retriable throw,
+ * including one after the Tank01 fetch (the top-performers read, the upsert),
+ * which would otherwise spend the quota again on each retry.
  */
 function createRecapQueue({
   worker,

@@ -40,7 +40,7 @@ const CATEGORY_ENUM = new Set(Object.values(ERROR_CATEGORIES));
 const healthRouter = require('../routes/health.router');
 
 // The composite's 30s holdout/integrity memo is module state: drop it between tests.
-beforeEach(() => healthRouter.resetCompositeContext());
+beforeEach(() => healthRouter.__resetCompositeContext());
 
 const app = express();
 app.use('/api/health', healthRouter);
@@ -278,6 +278,24 @@ test('GET /holdout adds exactly one key when reconciliation cannot run, and no e
   assert.ok(!JSON.stringify(res.body).includes('permission denied'));
 });
 
+test('GET /holdout and GET /stats-integrity read on every hit, not from the composite memo', async (t) => {
+  // Each route runs its own read, so two hits are two reads.
+  const integrity = require('../services/playerStatsIntegrity.service');
+  const holdoutRead = t.mock.method(holdout, 'reconcileObligations', async () => ({ ok: true, obligations: [] }));
+  const integrityRead = t.mock.method(integrity, 'getIntegrityStatus', async () => ({
+    ok: true, open: 0, unlabelled: 0, lastScanAt: null, stale: false,
+  }));
+
+  await request(app).get('/api/health/holdout');
+  await request(app).get('/api/health/holdout');
+  await request(app).get('/api/health/stats-integrity');
+  await request(app).get('/api/health/stats-integrity');
+
+  // Red tell: point either route at compositeContextStatus() and its count drops to 1.
+  assert.equal(holdoutRead.mock.callCount(), 2);
+  assert.equal(integrityRead.mock.callCount(), 2);
+});
+
 test('an obligation publishes exactly the fields holdout.service names, and no database row', async (t) => {
   // Driven through the REAL reconcileObligations, because the route does no
   // filtering of its own: the service's object literal IS the public
@@ -382,6 +400,31 @@ test('GET / answers two hits within 30 seconds from one holdout and integrity re
 
   assert.equal(holdoutRead.mock.callCount(), 1);
   assert.equal(integrityRead.mock.callCount(), 1);
+  fake.assertClean();
+});
+
+test('GET / reuses the holdout and integrity read for 30 seconds, then reads again', async (t) => {
+  delete process.env.REDIS_URL;
+  const fake = healthPool().install(t);
+  const integrity = require('../services/playerStatsIntegrity.service');
+  const holdoutRead = t.mock.method(holdout, 'reconcileObligations', async () => ({ ok: true, obligations: [] }));
+  const integrityRead = t.mock.method(integrity, 'getIntegrityStatus', async () => ({
+    ok: true, open: 0, unlabelled: 0, lastScanAt: null, stale: false,
+  }));
+  let clock = Date.now();
+  t.mock.method(Date, 'now', () => clock);
+
+  await request(app).get('/api/health');
+  clock += 30 * 1000 - 1;
+  await request(app).get('/api/health');
+  assert.equal(holdoutRead.mock.callCount(), 1, 'one read serves every hit inside the memo');
+  assert.equal(integrityRead.mock.callCount(), 1);
+
+  clock += 1;
+  await request(app).get('/api/health');
+  // Red tell: COMPOSITE_CONTEXT_TTL_MS set to 0 fails the count above; doubled fails this one.
+  assert.equal(holdoutRead.mock.callCount(), 2, 'the memo expires at exactly 30s');
+  assert.equal(integrityRead.mock.callCount(), 2);
   fake.assertClean();
 });
 
