@@ -215,3 +215,24 @@ first reading stands until the Tue/Wed nflverse correction, which is the only
 retraction. Emitting 0 for every box player would retract it sooner, but a
 name the Live box fails to resolve would then erase a Tank01 fallback credit
 mid-game.
+
+## Amendment (2026-11-10, #2790)
+
+The #2244 amendment's sentence that defensive two-point returns are unchanged
+still holds for how ESPN reads them. The write rules for `twoPointReturn`
+changed in #2790:
+
+(1) `twoPointReturn` joined `BOX_KEEP_IF_ABSENT` (`server/services/playerStatsWrite.service.js`):
+a box line that omits the key keeps the stored credit, and a line that carries
+it, even 0, wins. The Tank01 Final box omits `twoPointReturn` for a defender
+whose line has no `twoPointConversionReturn`, so that write keeps the stored
+credit. The ESPN Live box carries the key for every box player, 0 included
+(`IDP_ZERO_KEYS` and `createRoster` in `server/services/espnBoxSource.js`), so an
+ESPN write always wins, and a later ESPN read that no longer finds the return
+writes 0 over the stored credit. nflverse never writes the key, so no Tue/Wed
+correction retracts or restores it.
+
+(2) The Tank01 IDP normalizer (`normalizeTank01IdpStats` in
+`server/services/tank01Normalizers.js`) emits `twoPointReturn` only when
+`twoPointConversionReturn` is non-blank. It used to write 0 for a defender with
+no conversion return.
