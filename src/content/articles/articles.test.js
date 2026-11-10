@@ -129,6 +129,11 @@ describe('local declaration guard', () => {
       .toEqual([{ name: 'SplitBar', line: 1 }]);
   });
 
+  it('reports an exported shared part declared in a future week', () => {
+    expect(findLocalDeclarations('week10-start-sit-darkness-report.jsx', 'export function SplitBar() {\n  return null;\n}\n'))
+      .toEqual([{ name: 'SplitBar', line: 1 }]);
+  });
+
   it('exempts weeks 3 to 9 from the shared parts', () => {
     expect(findLocalDeclarations('week9-waiver-wire-darkness-report.jsx', 'function BidTrack() {}')).toEqual([]);
     expect(findLocalDeclarations('week3-start-sit-darkness-report.jsx', 'function SplitBar() {}')).toEqual([]);

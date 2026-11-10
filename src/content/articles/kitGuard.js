@@ -24,7 +24,7 @@ export function findLocalDeclarations(fileName, source) {
   const names = GUARDS.filter((guard) => week >= guard.fromWeek).flatMap((guard) => guard.names);
   if (!names.length) return [];
 
-  const declaration = new RegExp(`^(?:const|function) (${names.join('|')})\\b`);
+  const declaration = new RegExp(`^(?:export )?(?:const|function) (${names.join('|')})\\b`);
   const found = [];
   String(source).split('\n').forEach((line, i) => {
     const match = declaration.exec(line);
