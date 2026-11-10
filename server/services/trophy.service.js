@@ -602,9 +602,7 @@ async function notifyAwardedOwners({ leagueId, awarded }) {
  *     race) is DELETEd.
  *   - no existing holder is (tied for) the week's high score: whichever
  *     holder existed is DELETEd and the new leader - the tied team with the
- *     lowest team_id when more than one ties for it, matching the retired
- *     `award_weekly_trophies` SQL engine's `ORDER BY points DESC, team_id ASC`
- *     (2026-07-20-weekly-trophy-engine.sql) - is awarded fresh, through
+ *     lowest team_id when more than one ties for it - is awarded fresh, through
  *     `award()` so it notifies the same way any first award does (best-effort,
  *     post-commit, via `notifyAwardedOwners`); a displaced previous recipient
  *     gets no notification.

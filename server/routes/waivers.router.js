@@ -25,13 +25,6 @@ router.get('/', async (req, res) => {
        FROM "leagues" WHERE "id" = $1`,
       [leagueId]
     );
-    const onWaiversResult = await pool.query(
-      `SELECT "players".*, "waiver_players"."available_at"
-       FROM "waiver_players" JOIN "players" ON "players"."id" = "waiver_players"."player_id"
-       WHERE "waiver_players"."league_id" = $1 AND "waiver_players"."available_at" > now()
-       ORDER BY "waiver_players"."available_at", "players"."name"`,
-      [leagueId]
-    );
     const claimsResult = await pool.query(
       `SELECT "waiver_claims".*,
               "add"."name" AS "player_name", "add"."position" AS "player_position",
@@ -67,7 +60,6 @@ router.get('/', async (req, res) => {
     res.json({
       league: leagueResult.rows[0],
       myTeam: team,
-      onWaivers: onWaiversResult.rows,
       myClaims,
     });
   } catch (error) {
