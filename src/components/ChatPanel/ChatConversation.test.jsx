@@ -105,6 +105,22 @@ test('sending trims the text, calls onSend, and clears the input on success', as
   expect(input).toHaveValue('');
 });
 
+test('a send that resolves after the manager kept typing leaves the newer text in the box', async () => {
+  let resolveSend;
+  const onSend = jest.fn(() => new Promise((resolve) => { resolveSend = resolve; }));
+  renderWithProviders(<ChatConversation messages={[]} onSend={onSend} />);
+  const input = screen.getByLabelText('Message');
+
+  await userEvent.type(input, 'hi');
+  await userEvent.click(screen.getByRole('button', { name: 'Send' }));
+  await waitFor(() => expect(onSend).toHaveBeenCalledWith('hi', expect.any(String)));
+
+  await userEvent.type(input, ' there');
+  await act(async () => { resolveSend(true); });
+
+  expect(input).toHaveValue('hi there');
+});
+
 test('a retry of the same text reuses the idempotency key; editing mints a new one', async () => {
   const onSend = jest.fn().mockResolvedValue(false); // fail so the text stays to retry
   renderWithProviders(<ChatConversation messages={[]} onSend={onSend} />);
