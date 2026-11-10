@@ -235,3 +235,49 @@ test('getPlayerProfile returns null for a missing player', async (t) => {
   t.mock.method(pool, 'query', async () => ({ rows: [] }));
   assert.equal(await svc.getPlayerProfile(123), null);
 });
+
+// ---- getPlayerProfile season summary (stubbed pool) -------------------------
+
+function kickerProfilePool(rollup) {
+  return async (sql) => {
+    const text = String(sql);
+    if (text.includes('FROM "players" WHERE')) {
+      return { rows: [{ id: 9, name: 'Kicker', position: 'K', nfl_team: 'KC', photo_url: null,
+        jersey_number: null, injury_status: null, injury_detail: null, news: null, adp: null }] };
+    }
+    if (text.includes('UNION SELECT DISTINCT')) return { rows: [{ season: 2025 }] };
+    if (text.includes('EXTRACT(YEAR FROM CURRENT_DATE)')) return { rows: [{ season: 2026 }] };
+    if (text.includes('"games_played"')) return { rows: [rollup] };
+    if (text.includes('RANK() OVER')) return { rows: [] };
+    if (text.includes('COUNT(*)::int')) return { rows: [{ n: 17 }] };
+    if (text.includes('"ng"."opponent"')) return { rows: [] };
+    throw new Error(`Unexpected SQL: ${text}`);
+  };
+}
+
+test('getPlayerProfile prices a kicker count rollup at its stored season total in every format', async (t) => {
+  t.mock.method(pool, 'query', kickerProfilePool({
+    games_played: 17, stats: { fieldGoal: 41, extraPoint: 48 }, fantasy_points: '171.00',
+  }));
+  const profile = await svc.getPlayerProfile(9, { season: 2025 });
+  assert.deepEqual(profile.seasonSummary.points, { standard: 171, halfPpr: 171, ppr: 171 });
+  assert.equal(profile.seasonSummary.fantasyPoints, 171);
+  assert.deepEqual(profile.seasonSummary.pointsPerGame, { standard: 10.1, halfPpr: 10.1, ppr: 10.1 });
+});
+
+test('getPlayerProfile still re-scores a kicker rollup that carries fieldGoalDistances', async (t) => {
+  t.mock.method(pool, 'query', kickerProfilePool({
+    games_played: 17, stats: { fieldGoalDistances: [45, 30], fieldGoal: 2, extraPoint: 2 }, fantasy_points: '999.00',
+  }));
+  const profile = await svc.getPlayerProfile(9, { season: 2025 });
+  assert.deepEqual(profile.seasonSummary.points, { standard: 9, halfPpr: 9, ppr: 9 });
+  assert.equal(profile.seasonSummary.fantasyPoints, 9);
+});
+
+test('getPlayerProfile re-scores a kicker count rollup with no stored total', async (t) => {
+  t.mock.method(pool, 'query', kickerProfilePool({
+    games_played: 17, stats: { fieldGoal: 41, extraPoint: 48 }, fantasy_points: null,
+  }));
+  const profile = await svc.getPlayerProfile(9, { season: 2025 });
+  assert.deepEqual(profile.seasonSummary.points, { standard: 48, halfPpr: 48, ppr: 48 });
+});
