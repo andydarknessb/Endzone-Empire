@@ -162,7 +162,8 @@ function buildPlayerSummary({
     previousSeasonYear: lastCompleted ? lastCompleted.season : null,
     previousSeasonTotal: lastCompleted ? lastCompleted.points : null,
     projectionSeason: currentYear,
-    projectedPoints: canProject ? Math.round(lastCompleted.perGame * 17 * 10) / 10 : null,
+    // Unrounded per-game pace, as projectSeasonPoints does: rounding perGame first drifts the projection.
+    projectedPoints: canProject ? Math.round((lastCompleted.points / lastCompleted.games) * 17 * 10) / 10 : null,
   };
 
   return {
