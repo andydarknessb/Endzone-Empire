@@ -1444,7 +1444,9 @@ async function completeRun({
   });
   const effectiveRun = saved || run;
   try {
-    await saveProjections({ runId: effectiveRun.id, projections: generated.projections, client });
+    // The savepoint keeps a failed INSERT from aborting a caller's transaction (25P02).
+    await withOptionalSavepoint(client, 'projection_cache_write', () =>
+      saveProjections({ runId: effectiveRun.id, projections: generated.projections, client }));
   } catch (err) {
     // A cache write failure must not deny the caller a projection it already
     // computed; the next request simply regenerates.
