@@ -1,10 +1,9 @@
-const { after, test } = require('node:test');
+const { after, beforeEach, test } = require('node:test');
 const assert = require('node:assert/strict');
 const express = require('express');
 const request = require('supertest');
 const { signToken } = require('../modules/auth');
 const { createFakePool } = require('./helpers/fakePool');
-const leagueRouter = require('../routes/league.router');
 
 const previousSecret = process.env.JWT_SECRET;
 process.env.JWT_SECRET = 'league-create-route-test-secret';
@@ -13,9 +12,14 @@ after(() => {
   else process.env.JWT_SECRET = previousSecret;
 });
 
-const app = express();
-app.use(express.json());
-app.use('/api/league', leagueRouter);
+// A fresh router per test: the create limiter (10 an hour per user) keeps its store in the module instance, and this file creates far more than 10 Leagues as one user (as leagueJoinLimit.route.test.js does).
+let app;
+beforeEach(() => {
+  delete require.cache[require.resolve('../routes/league.router')];
+  app = express();
+  app.use(express.json());
+  app.use('/api/league', require('../routes/league.router'));
+});
 
 const CREATOR = 5;
 const authed = () => `Bearer ${signToken({ id: CREATOR, username: 'commish' })}`;

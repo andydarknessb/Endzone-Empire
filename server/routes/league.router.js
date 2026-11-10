@@ -56,7 +56,8 @@ function serviceErrorBody(error) {
 }
 
 // POST /api/league — create a private league (plus the owner's team) atomically
-router.post('/', async (req, res) => {
+const leagueCreateLimiter = createRateLimiter({ name: 'league-create', windowMs: 60 * 60 * 1000, max: 10 });
+router.post('/', leagueCreateLimiter, async (req, res) => {
   const {
     name, maxTeams, minTeams, teamName,
     isPublic, joinApproval, bestBall, scoringPreset, draftDate, draftTimezone,
