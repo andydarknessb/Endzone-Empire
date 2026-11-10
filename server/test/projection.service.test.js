@@ -4072,3 +4072,15 @@ test('getStoredProjectionsForWeeks (#2490): holds only the stored player, issues
   assert.equal(out.get(3).get(1).mean, 7.5);
   assert.equal(fake.calls.some((c) => /^\s*(INSERT|UPDATE)/i.test(c.text)), false);
 });
+
+// #2805: a count-only kicker rollup (no fieldGoalDistances) carries its field
+// goals only in the stored fantasy_points, the same total the Player card reads.
+test('priorSeasonPerGame prices a count-only kicker rollup at its stored season total (#2805)', () => {
+  const rows = [{ season: 2025, games_played: 17, stats: { fieldGoal: 41, extraPoint: 48 }, fantasy_points: '171.00' }];
+  assert.equal(projection.priorSeasonPerGame(rows, SCORING_RULES, SEASON), 171 / 17);
+});
+
+test('priorSeasonPerGame still re-scores a kicker rollup that carries fieldGoalDistances (#2805 control)', () => {
+  const rows = [{ season: 2025, games_played: 17, stats: { fieldGoalDistances: [45, 30], fieldGoal: 2, extraPoint: 2 }, fantasy_points: '999.00' }];
+  assert.equal(projection.priorSeasonPerGame(rows, SCORING_RULES, SEASON), 9 / 17);
+});
