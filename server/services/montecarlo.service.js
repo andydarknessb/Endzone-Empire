@@ -155,6 +155,29 @@ function simulateBracketFrom({ aliveEntrants, fixedGames, models, rng }) {
 }
 
 /**
+ * Pure: who is still in a playoff bracket, read from who played, never from
+ * scores: a Stat correction flips a finished round's score but never who
+ * advanced (CONTEXT.md, Stat correction). `seeds`: [{ teamId, seed }] from
+ * playoff_seeds. A seeded Team is alive if it is in a pending Matchup, or has
+ * played no playoff Matchup yet (a round-one bye). Consolation rows never count.
+ */
+function playoffAliveEntrants({ seeds, playoffRows }) {
+  const bracket = playoffRows.filter((m) => !m.is_consolation);
+  const pending = bracket.filter((m) => !m.final);
+  const pendingTeams = new Set(pending.flatMap((m) => [m.home_team_id, m.away_team_id]));
+  const playedTeams = new Set(bracket.flatMap((m) => [m.home_team_id, m.away_team_id]));
+  const aliveEntrants = seeds
+    .filter((s) => pendingTeams.has(s.teamId) || !playedTeams.has(s.teamId))
+    .map((s) => ({ teamId: s.teamId, seed: s.seed }))
+    .sort((a, b) => a.seed - b.seed);
+  return {
+    qualifiers: new Set(seeds.map((s) => s.teamId)),
+    aliveEntrants,
+    fixedGames: pending.map((m) => ({ home: m.home_team_id, away: m.away_team_id })),
+  };
+}
+
+/**
  * Pure: aggregate `runs` simulations into per-team odds.
  * Returns Map teamId -> { playoffOdds, titleOdds } with values in [0, 1].
  */
@@ -292,24 +315,21 @@ async function computeLeagueOdds({ leagueId, runs = DEFAULT_RUNS, seed }) {
     // The regular season is decided: playoff odds are historical fact, and
     // title odds come from continuing the REAL bracket — alive teams only,
     // this round's pending pairings fixed, later rounds re-seeded.
-    const playoffRows = matchupsResult.rows.filter((m) => m.is_playoff && !m.is_consolation);
-    const qualifiers = new Set(
-      standings.slice(0, Math.min(league.playoff_teams, teams.length)).map((s) => s.teamId)
+    // Seeds are the stored bracket (#2547), never the live standings again.
+    const storedSeeds = await pool.query(
+      `SELECT "team_id", "seed" FROM "playoff_seeds" WHERE "league_id" = $1 AND "season" = $2`,
+      [leagueId, season]
     );
-    const eliminated = new Set();
-    for (const m of playoffRows.filter((r) => r.final)) {
-      const loser =
-        Number(m.home_score) >= Number(m.away_score) ? m.away_team_id : m.home_team_id;
-      eliminated.add(loser);
-    }
-    const seedByTeam = new Map(standings.map((s, i) => [s.teamId, i + 1]));
-    const aliveEntrants = [...qualifiers]
-      .filter((teamId) => !eliminated.has(teamId))
-      .map((teamId) => ({ teamId, seed: seedByTeam.get(teamId) ?? 99 }))
-      .sort((a, b) => a.seed - b.seed);
-    const fixedGames = playoffRows
-      .filter((m) => !m.final)
-      .map((m) => ({ home: m.home_team_id, away: m.away_team_id }));
+    // shortcut: a League already in its playoffs before playoff_seeds shipped has no rows
+    // and derives seeds from live standings, drop when those seasons end.
+    const seeds = storedSeeds.rows.length > 0
+      ? storedSeeds.rows.map((r) => ({ teamId: r.team_id, seed: r.seed }))
+      : standings.slice(0, Math.min(league.playoff_teams, teams.length))
+        .map((s, i) => ({ teamId: s.teamId, seed: i + 1 }));
+    const { qualifiers, aliveEntrants, fixedGames } = playoffAliveEntrants({
+      seeds,
+      playoffRows: matchupsResult.rows.filter((m) => m.is_playoff),
+    });
 
     const rng = mulberry32(effectiveSeed);
     const titleCounts = new Map();
@@ -390,6 +410,7 @@ module.exports = {
   buildTeamModel,
   simulateOnce,
   simulateBracketFrom,
+  playoffAliveEntrants,
   runSimulation,
   powerRankings,
   withRankChange,
