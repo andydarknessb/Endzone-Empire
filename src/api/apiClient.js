@@ -113,6 +113,9 @@ export async function refreshTokens() {
   if (!refreshPromise) {
     const generation = sessionGeneration;
     const pending = requestRefresh()
+      // The retry covers the two-tab rotation race (a just-rotated token whose cookie another
+      // tab already replaced). The 401 carries no code, so a dead cookie looks the same and is
+      // refused twice on every cold load: one extra POST and the 75 ms wait.
       .catch(async (error) => {
         if (error.response?.status !== 401) throw error;
         await new Promise((resolve) => setTimeout(resolve, 75));
