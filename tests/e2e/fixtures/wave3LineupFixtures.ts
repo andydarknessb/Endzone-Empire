@@ -213,7 +213,7 @@ export async function setupWave3Lineup(page: Page, moment: Moment, theme: 'light
       if (url.pathname === '/api/team/lineup/advice') return json(route, 200, adviceBody(moment));
       if (url.pathname === '/api/waivers') {
         return json(route, 200, {
-          league: { waiver_type: 'faab', waivers_clear_at: new Date(now + 3 * 24 * HOUR).toISOString() }, myTeam: { id: TEAM_ID }, onWaivers: [], myClaims: [],
+          league: { waiver_type: 'faab', waivers_clear_at: new Date(now + 3 * 24 * HOUR).toISOString() }, myTeam: { id: TEAM_ID }, myClaims: [],
         });
       }
       if (url.pathname === '/api/team/roster') return json(route, 200, []);

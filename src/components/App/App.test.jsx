@@ -312,7 +312,6 @@ test('"/league/:leagueId/waivers" is protected and renders the Waivers page when
           data: {
             league: { waiver_type: 'priority', waiver_period_hours: 24, faab_budget: 100 },
             myTeam: { id: 10, waiver_priority: 1, faab_remaining: 100 },
-            onWaivers: [],
             myClaims: [],
           },
         });
