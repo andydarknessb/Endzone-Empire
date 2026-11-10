@@ -281,6 +281,31 @@ describe('recovering from a server-initiated disconnect (#2556)', () => {
     expect(socket.connect).not.toHaveBeenCalled();
   });
 
+  test('a revive refused after a logout and re-login leaves the new session in place', async () => {
+    const onExpired = jest.fn();
+    window.addEventListener('auth:session-expired', onExpired);
+    setToken('a-jwt');
+    const refusal = { response: { status: 401 } };
+    let refuseFirst;
+    axios.post
+      .mockImplementationOnce(() => new Promise((_resolve, reject) => { refuseFirst = () => reject(refusal); }))
+      .mockRejectedValueOnce(refusal);
+    createDraftSocket();
+    socket.active = false;
+
+    handlerFor('disconnect')('io server disconnect');
+    await waitFor(() => expect(axios.post).toHaveBeenCalledTimes(1));
+    clearToken(); // logout while the revive's refresh is on the wire
+    setToken('b-jwt'); // the same browser logs in again
+    refuseFirst(); // the POST is refused, and so is the 75 ms retry
+
+    await waitFor(() => expect(axios.post).toHaveBeenCalledTimes(2));
+    await new Promise((resolve) => setTimeout(resolve, 0)); // let the retry's refusal settle
+    expect(getToken()).toBe('b-jwt');
+    expect(onExpired).not.toHaveBeenCalled();
+    window.removeEventListener('auth:session-expired', onExpired);
+  });
+
   test('on connect it re-sends the current token, covering a refresh that landed before the socket was connected', () => {
     createDraftSocket();
     setToken('renewed-while-connecting');

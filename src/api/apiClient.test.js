@@ -4,6 +4,7 @@ import apiClient, {
   clearToken,
   getToken,
   isSessionRefusal,
+  isStaleSessionRefusal,
   onTokenRefreshed,
   refreshTokens,
   setToken,
@@ -226,6 +227,67 @@ describe('cookie-backed refresh', () => {
     expect(outcome.response.status).toBe(401);
     expect(getToken()).toBe('b-jwt');
     expect(hasSessionHint()).toBe(true);
+  });
+
+  // A refusal answers the session the refresh started under. After a logout and re-login
+  // it answers the session that ended, so it must not clear the one now in place.
+  test('a refresh refused on its POST and its retry after a logout and re-login leaves the new session in place', async () => {
+    setToken('a-jwt');
+    const expired = jest.fn();
+    window.addEventListener('auth:session-expired', expired);
+    let onWire;
+    const sent = new Promise((resolve) => { onWire = resolve; });
+    let refuse;
+    axiosMock
+      .onPost('/api/auth/refresh?optional=1')
+      .replyOnce(() => new Promise((release) => {
+        refuse = () => release([401]);
+        onWire();
+      }))
+      .onPost('/api/auth/refresh?optional=1')
+      .replyOnce(401);
+    apiMock.onGet('/api/team').reply(401);
+
+    const request = apiClient.get('/api/team').catch((e) => e);
+    await sent;
+    clearToken(); // logout while the refresh is on the wire
+    setToken('b-jwt'); // the same browser logs in again
+    refuse(); // the POST is refused, and so is the 75 ms retry
+
+    const outcome = await request;
+    expect(isStaleSessionRefusal(outcome)).toBe(true);
+    expect(outcome.response.status).toBe(401);
+    expect(getToken()).toBe('b-jwt');
+    expect(hasSessionHint()).toBe(true);
+    expect(expired).not.toHaveBeenCalled();
+    window.removeEventListener('auth:session-expired', expired);
+  });
+
+  test('a refresh answered 204 after a logout and re-login leaves the new session in place', async () => {
+    setToken('a-jwt');
+    const expired = jest.fn();
+    window.addEventListener('auth:session-expired', expired);
+    let onWire;
+    const sent = new Promise((resolve) => { onWire = resolve; });
+    let answer;
+    axiosMock.onPost('/api/auth/refresh?optional=1').reply(() => new Promise((release) => {
+      answer = () => release([204, '']);
+      onWire();
+    }));
+    apiMock.onGet('/api/team').reply(401);
+
+    const request = apiClient.get('/api/team').catch((e) => e);
+    await sent;
+    clearToken(); // logout while the refresh is on the wire
+    setToken('b-jwt'); // the same browser logs in again
+    answer();
+
+    const outcome = await request;
+    expect(isStaleSessionRefusal(outcome)).toBe(true);
+    expect(getToken()).toBe('b-jwt');
+    expect(hasSessionHint()).toBe(true);
+    expect(expired).not.toHaveBeenCalled();
+    window.removeEventListener('auth:session-expired', expired);
   });
 
   test('a 401 on a request sent before a logout is not refreshed once the logout has happened', async () => {
