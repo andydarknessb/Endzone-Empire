@@ -192,17 +192,19 @@ function pairBySeed(entrants) {
  * Pure: split final regular-season standings into the opening championship
  * and consolation brackets. Each bracket is seeded independently, preserving
  * standings order while allowing pairBySeed to assign any required byes.
+ * The consolation field is the best 2 ** playoffRounds Teams that missed the
+ * playoffs, so it never has more rounds than the championship (#2744); the
+ * rest get no game and no seed.
  */
 function buildOpeningBrackets({ standings, playoffTeams, consolationEnabled }) {
   const playoffCount = Math.min(Math.max(Number(playoffTeams) || 0, 0), standings.length);
   const seed = (rows) => rows.map((row, index) => ({ teamId: row.teamId, seed: index + 1 }));
-  const emptyBracket = { games: [], byes: [] };
+  const field = standings.slice(playoffCount, playoffCount + 2 ** playoffRounds(playoffCount));
 
   return {
     playoff: pairBySeed(seed(standings.slice(0, playoffCount))),
-    consolation: consolationEnabled
-      ? pairBySeed(seed(standings.slice(playoffCount)))
-      : emptyBracket,
+    consolation: consolationEnabled ? pairBySeed(seed(field)) : { games: [], byes: [] },
+    consolationSeeds: consolationEnabled ? seed(field) : [],
   };
 }
 

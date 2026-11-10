@@ -9,12 +9,35 @@ const {
   getPlayoffSeeds,
   playoffRounds,
   lastPlayoffWeek,
+  buildOpeningBrackets,
 } = require('../services/season.service');
 const { settleWeek } = require('../services/settle.service');
 const matchupScoring = require('../services/matchupScoring.service');
 const settleFollowUpSvc = require('../services/settleFollowUp.service');
 const lineupService = require('../services/lineup.service');
 const { createFakePool, select, insert, update } = require('./helpers/fakePool');
+
+// --- buildOpeningBrackets: the consolation field is capped at the championship's rounds (#2744) ---
+const ranked = (count) => Array.from({ length: count }, (_, i) => ({ teamId: i + 1 }));
+
+test('consolation field is the best 2 ** playoffRounds Teams that missed the playoffs', () => {
+  // 10 Teams, 4 playoff Teams: the championship has 2 rounds, so only Teams 5-8 play down.
+  const b = buildOpeningBrackets({ standings: ranked(10), playoffTeams: 4, consolationEnabled: true });
+  assert.deepEqual(b.consolationSeeds, [5, 6, 7, 8].map((teamId, i) => ({ teamId, seed: i + 1 })));
+  assert.deepEqual(b.consolation.games.map((g) => [g.home, g.away]), [[5, 8], [6, 7]]);
+});
+
+test('12 Teams, 8 playoff Teams: all four Teams that missed play down, two rounds', () => {
+  const b = buildOpeningBrackets({ standings: ranked(12), playoffTeams: 8, consolationEnabled: true });
+  assert.equal(b.consolationSeeds.length, 4);
+  assert.equal(b.consolation.games.length, 2);
+});
+
+test('consolation off: no consolation seeds and no consolation games', () => {
+  const b = buildOpeningBrackets({ standings: ranked(10), playoffTeams: 4, consolationEnabled: false });
+  assert.deepEqual(b.consolationSeeds, []);
+  assert.deepEqual(b.consolation.games, []);
+});
 
 // --- playoffRounds / lastPlayoffWeek (#1305) ---
 

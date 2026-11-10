@@ -173,6 +173,14 @@ describe('WaiverTradeRulesView', () => {
 });
 
 describe('PlayoffRulesView', () => {
+  it('says a consolation bracket plays its own bracket, not placement games', () => {
+    render(<PlayoffRulesView league={{
+      regular_season_weeks: 13, playoff_teams: 4, playoff_consolation: true,
+    }} />);
+    expect(screen.getByText('The top Teams that miss the playoffs play their own bracket.')).toBeInTheDocument();
+    expect(screen.queryByText(/placement/)).not.toBeInTheDocument();
+  });
+
   it('reports the playoff start week and keeper count', () => {
     render(<PlayoffRulesView league={{
       regular_season_weeks: 13, playoff_teams: 8, playoff_consolation: false,

@@ -25,7 +25,7 @@ export default function PlayoffRulesView({ league }) {
           label="Consolation bracket"
           value={league.playoff_consolation ? 'Yes' : 'No'}
           detail={league.playoff_consolation
-            ? 'Teams that miss the playoffs keep playing for placement.'
+            ? 'The top Teams that miss the playoffs play their own bracket.'
             : 'Eliminated teams are done for the season.'}
         />
         {phaseMeta && <RuleRow label="Current phase" value={phaseMeta.label} />}
