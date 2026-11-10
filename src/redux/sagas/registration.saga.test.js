@@ -1,7 +1,9 @@
 import { put } from 'redux-saga/effects';
 import MockAdapter from 'axios-mock-adapter';
+import axios from 'axios';
 import registrationSaga, { registerUser } from './registration.saga';
-import apiClient, { getToken, clearToken } from '../../api/apiClient';
+import apiClient, { getToken, clearToken, isStaleSessionRefusal } from '../../api/apiClient';
+import { hasSessionHint } from '../../lib/sessionHint';
 import { renderHook } from '@testing-library/react';
 import { useLeague, clearLeagueCache } from '../../hooks/useLeague';
 import { setResource } from '../../lib/resourceCache';
@@ -64,6 +66,42 @@ describe('registerUser (worker) — failure path', () => {
 
     expect(result.value).toEqual(put({ type: 'REGISTRATION_FAILED' }));
     expect(gen.next().done).toBe(true);
+  });
+});
+
+// A hard-load refresh started before the registration (no token held) must not clear
+// the session the registration just stored when it is refused after the registration.
+describe('registerUser during an anonymous refresh', () => {
+  let axiosMock;
+  beforeEach(() => { axiosMock = new MockAdapter(axios); });
+  afterEach(() => { axiosMock.restore(); clearToken(); });
+
+  test('a 204 from that refresh after the registration leaves the new session in place', async () => {
+    mock.onGet('/api/team').reply(401);
+    let onWire;
+    const sent = new Promise((resolve) => { onWire = resolve; });
+    let answer;
+    axiosMock.onPost('/api/auth/refresh?optional=1').reply(() => new Promise((release) => {
+      answer = () => release([204, '']);
+      onWire();
+    }));
+    const expired = jest.fn();
+    window.addEventListener('auth:session-expired', expired);
+
+    const request = apiClient.get('/api/team').catch((e) => e);
+    await sent;
+    const gen = registerUser({ type: 'REGISTER', payload: { username: 'bob', email: 'bob@test.local', password: 'pw123456' } });
+    gen.next(); // CLEAR_REGISTRATION_ERROR
+    gen.next(); // the register request
+    gen.next({ data: { token: 'jwt-new', user: { id: 9, username: 'bob' } } }); // token stored, SET_USER
+    answer(); // the anonymous refresh answers 204 after the registration
+
+    const outcome = await request;
+    expect(isStaleSessionRefusal(outcome)).toBe(true);
+    expect(getToken()).toBe('jwt-new');
+    expect(hasSessionHint()).toBe(true);
+    expect(expired).not.toHaveBeenCalled();
+    window.removeEventListener('auth:session-expired', expired);
   });
 });
 

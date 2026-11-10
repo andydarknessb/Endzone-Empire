@@ -1,7 +1,9 @@
 import { put } from 'redux-saga/effects';
 import MockAdapter from 'axios-mock-adapter';
+import axios from 'axios';
 import loginSaga, { loginUser, logoutUser } from './login.saga';
-import apiClient, { getToken, clearToken } from '../../api/apiClient';
+import apiClient, { getToken, clearToken, isStaleSessionRefusal } from '../../api/apiClient';
+import { hasSessionHint } from '../../lib/sessionHint';
 import { renderHook, waitFor } from '@testing-library/react';
 import { useLeague, clearLeagueCache } from '../../hooks/useLeague';
 import { usePickemStandings, clearPickemStandingsCache } from '../../entities/pickem-standings';
@@ -67,6 +69,46 @@ describe('loginUser (worker) — success path', () => {
     expect(getToken()).toBe('jwt-abc');
     expect(setUserStep.value).toEqual(put({ type: 'SET_USER', payload: fakeResponse.data.user }));
     expect(gen.next().done).toBe(true);
+  });
+});
+
+// A hard-load refresh started before the login (no token held) must not clear the
+// session the login just stored when it is refused after the login.
+describe('loginUser during an anonymous refresh', () => {
+  let axiosMock;
+  beforeEach(() => { axiosMock = new MockAdapter(axios); });
+  afterEach(() => axiosMock.restore());
+
+  test('a refusal of that refresh after the login leaves the new session in place', async () => {
+    mock.onGet('/api/team').reply(401);
+    let onWire;
+    const sent = new Promise((resolve) => { onWire = resolve; });
+    let refuse;
+    axiosMock
+      .onPost('/api/auth/refresh?optional=1')
+      .replyOnce(() => new Promise((release) => {
+        refuse = () => release([401]);
+        onWire();
+      }))
+      .onPost('/api/auth/refresh?optional=1')
+      .replyOnce(401);
+    const expired = jest.fn();
+    window.addEventListener('auth:session-expired', expired);
+
+    const request = apiClient.get('/api/team').catch((e) => e);
+    await sent;
+    const gen = loginUser({ type: 'LOGIN', payload: { username: 'b', password: 'x' } });
+    gen.next(); // CLEAR_LOGIN_ERROR
+    gen.next(); // the login request
+    gen.next({ data: { token: 'jwt-abc', user: { id: 1, username: 'alice' } } }); // token stored, SET_USER
+    refuse(); // the anonymous refresh is refused, and so is its 75 ms retry
+
+    const outcome = await request;
+    expect(isStaleSessionRefusal(outcome)).toBe(true);
+    expect(getToken()).toBe('jwt-abc');
+    expect(hasSessionHint()).toBe(true);
+    expect(expired).not.toHaveBeenCalled();
+    window.removeEventListener('auth:session-expired', expired);
   });
 });
 
