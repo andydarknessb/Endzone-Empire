@@ -6,14 +6,16 @@ const { createRateLimiter } = require('../modules/rateLimit');
 const router = express.Router();
 router.use(requireAuth);
 
-// A join alert stored before #2752 names the requester's account in `message`
-// and carries `data.userId`. Every join alert is served by its proposed Team,
-// read from the join request, or by the league alone once that request is gone.
-// The stored row is left as written.
+// A commissioner's join alert stored before #2752 names the requester's account
+// in `message` and carries `data.userId`. Only those rows are rewritten, by the
+// proposed Team, read from the join request, or by the league alone once that
+// request is gone. The requester's own approved and denied notices share the
+// type but carry no userId, so they are served as stored. No row is changed.
+const isLegacyJoinAlert = (row) => row.type === 'join_request' && 'userId' in (row.data || {});
+
 async function servedJoinAlerts(rows) {
-  const requestIds = rows
-    .filter((row) => row.type === 'join_request' && Number.isInteger(row.data?.requestId))
-    .map((row) => row.data.requestId);
+  const legacy = new Set(rows.filter(isLegacyJoinAlert));
+  const requestIds = [...legacy].map((row) => row.data.requestId).filter(Number.isInteger);
   const teamNames = new Map();
   if (requestIds.length > 0) {
     const requests = await pool.query(
@@ -23,7 +25,7 @@ async function servedJoinAlerts(rows) {
     for (const request of requests.rows) teamNames.set(request.id, request.team_name);
   }
   return rows.map((row) => {
-    if (row.type !== 'join_request') return row;
+    if (!legacy.has(row)) return row;
     const requestId = row.data?.requestId ?? null;
     const team = teamNames.get(requestId);
     return {

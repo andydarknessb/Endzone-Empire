@@ -56,3 +56,39 @@ test('GET notifications serves legacy join alerts by Team, with no account name 
   assert.equal(gone.message, 'A join request is waiting in Curated League');
   assert.deepEqual(gone.data, { requestId: 42 });
 });
+
+// The requester's own approved and denied notices share the type and carry the
+// same requestId, but no userId and no commissioner wording: served as stored,
+// even though request 41 resolves to a Team.
+test('GET notifications serves the requester\'s approved and denied notices untouched', async (t) => {
+  const own = [
+    {
+      id: 5, user_id: 9, league_id: 7, league_name: 'Curated League', type: 'join_request',
+      message: 'Your request to join Curated League was approved!', data: { requestId: 41 },
+      read: false, created_at: '2026-11-02T10:00:00Z',
+    },
+    {
+      id: 6, user_id: 9, league_id: 7, league_name: 'Curated League', type: 'join_request',
+      message: 'Your request to join Curated League was denied.', data: { requestId: 42 },
+      read: false, created_at: '2026-11-02T09:00:00Z',
+    },
+  ];
+  t.mock.method(pool, 'query', async (sql, params) => {
+    const text = String(sql);
+    if (text.includes('FROM "notifications"') && text.includes('LIMIT 50')) return { rows: own };
+    if (text.includes('COUNT(*)')) return { rows: [{ n: 2 }] };
+    if (text.includes('FROM "join_requests"')) {
+      return { rows: [{ id: 41, team_name: 'Eve Picks' }].filter((row) => params[0].includes(row.id)) };
+    }
+    throw new Error(`unexpected query: ${text}`);
+  });
+
+  const res = await request(app).get('/api/notifications').set('Authorization', authed());
+
+  assert.equal(res.status, 200);
+  const [approved, denied] = res.body.notifications;
+  assert.equal(approved.message, 'Your request to join Curated League was approved!');
+  assert.deepEqual(approved.data, { requestId: 41 });
+  assert.equal(denied.message, 'Your request to join Curated League was denied.');
+  assert.deepEqual(denied.data, { requestId: 42 });
+});
