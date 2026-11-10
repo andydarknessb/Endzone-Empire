@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const axios = require('axios');
 const { createFakePool, select, insert } = require('./helpers/fakePool');
+const { calculateFantasyPoints } = require('../services/scoringRules');
 const {
   mapSleeperStats,
   normalizeSleeperEntry,
@@ -95,6 +96,53 @@ test('syncSeasonStats: upsertSeasonStats issues BEGIN, the advisory lock, one bu
   assert.ok(clientCalls[2].text.startsWith('INSERT INTO "player_season_stats"'));
   assert.equal(clientCalls[3].text, 'COMMIT');
   fake.assertClean();
+});
+
+// Runs one Sleeper row through syncSeasonStats and returns the stored stats JSON
+// and fantasy_points the bulk INSERT wrote for it.
+async function syncOneStatsRow(t, { meta, stats, player }) {
+  stubSleeper(t, { meta, stats });
+  const fake = createFakePool([
+    [select('players'), () => ({ rows: [player] }), 'pool'],
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
+    [insert('player_season_stats'), () => ({ rows: [] }), 'client'],
+  ]).install(t);
+
+  const result = await syncSeasonStats({ seasons: [2025] });
+  assert.equal(result.seasons[0].playersUpserted, 1);
+  fake.assertClean();
+
+  const insertCall = fake.calls.find((c) => c.text.startsWith('INSERT INTO "player_season_stats"'));
+  const [, , , statsJson, points] = insertCall.params;
+  return { stats: statsJson[0], points: points[0] };
+}
+
+test('syncSeasonStats: a kicker total prices the made-kick distance buckets under the default tiers, plus the extra points', async (t) => {
+  const row = await syncOneStatsRow(t, {
+    meta: { s2: { full_name: 'Jason Myers', position: 'K' } },
+    stats: { s2: { gp: 17, fgm: 41, xpm: 48, fgm_20_29: 5, fgm_30_39: 14, fgm_40_49: 13, fgm_50p: 9 } },
+    player: { id: 7, name: 'Jason Myers', position: 'K' },
+  });
+  assert.equal(row.stats, '{"fieldGoal":41,"extraPoint":48}', 'stored stats stay count-only');
+  assert.equal(row.points, 202); // 5 + 14 at 3, 13 at 4, 9 at 5, plus 48 extra points
+});
+
+test('syncSeasonStats: a kicker row with no distance buckets keeps the extra-points-only total', async (t) => {
+  const row = await syncOneStatsRow(t, {
+    meta: { s2: { full_name: 'Jason Myers', position: 'K' } },
+    stats: { s2: { gp: 17, fgm: 41, xpm: 48 } },
+    player: { id: 7, name: 'Jason Myers', position: 'K' },
+  });
+  assert.equal(row.points, 48);
+});
+
+test('syncSeasonStats: a non-kicker row keeps the default-rules total', async (t) => {
+  const row = await syncOneStatsRow(t, {
+    meta: SLEEPER_META,
+    stats: SLEEPER_STATS,
+    player: { id: 5, name: 'Justin Jefferson', position: 'WR' },
+  });
+  assert.equal(row.points, calculateFantasyPoints({ receptions: 100, receivingYards: 1533, receivingTDs: 10 }));
 });
 
 test('syncSeasonStats: a failing bulk upsert rolls back and is captured per-season instead of rejecting the run', async (t) => {
