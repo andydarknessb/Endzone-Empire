@@ -300,14 +300,29 @@ async function quotaStatus() {
   }
 }
 
+// The anonymous composite carries holdout and integrity as context, and a monitor
+// polling it re-ran both reads per hit (#2762). Memoized 30s; the promise is shared,
+// so concurrent hits wait on one read. Neither read rejects (each catches its own).
+const COMPOSITE_CONTEXT_TTL_MS = 30 * 1000;
+let compositeContext = null; // { expiresAt, promise }
+
+function compositeContextStatus() {
+  if (!compositeContext || Date.now() >= compositeContext.expiresAt) {
+    compositeContext = {
+      expiresAt: Date.now() + COMPOSITE_CONTEXT_TTL_MS,
+      promise: Promise.all([holdoutStatus(), statsIntegrityStatus()]),
+    };
+  }
+  return compositeContext.promise;
+}
+
 router.get('/', async (req, res) => {
-  const [db, redis, workerResult, quota, holdout, statsIntegrity] = await Promise.all([
+  const [db, redis, workerResult, quota, [holdout, statsIntegrity]] = await Promise.all([
     databaseStatus(),
     redisStatus(),
     workerStatus({ includeJobStatus: true }),
     quotaStatus(),
-    holdoutStatus(),
-    statsIntegrityStatus(),
+    compositeContextStatus(),
   ]);
   const { jobStatus, ...worker } = workerResult;
   const runtime = getRuntimeState();
@@ -331,5 +346,10 @@ router.get('/', async (req, res) => {
     release: process.env.RENDER_GIT_COMMIT || process.env.APP_RELEASE || null,
   });
 });
+
+// Test seam: drop the composite's memoized holdout/integrity read.
+router.resetCompositeContext = () => {
+  compositeContext = null;
+};
 
 module.exports = router;

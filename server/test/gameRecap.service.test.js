@@ -284,6 +284,26 @@ test('recap queue backs off on a 429 and retries the game, keeping it deduped', 
   assert.equal(q.stats().tracked, 0, 'cleared after eventual success');
 });
 
+test('a game whose fetch failed is not re-enqueued for an hour, and is afterwards', async (t) => {
+  let clock = 1_000_000;
+  t.mock.method(Date, 'now', () => clock);
+  let calls = 0;
+  const worker = async () => {
+    calls += 1;
+    if (calls === 1) throw new Error('tank01 box score unavailable'); // no response: not a 429, so dropped
+  };
+  const q = svc.createRecapQueue({ worker, concurrency: 1 });
+  assert.equal(q.enqueue('g1'), true);
+  await flush();
+  assert.equal(q.has('g1'), false, 'the failed game is dropped, not queued');
+  clock += 59 * 60_000;
+  assert.equal(q.enqueue('g1'), false, 'refused inside the hour');
+  clock += 60_000;
+  assert.equal(q.enqueue('g1'), true, 'accepted once the hour has passed');
+  await flush();
+  assert.equal(calls, 2, 'the retried game ran');
+});
+
 test('retryAfterMs honors Retry-After only for 429s', () => {
   assert.equal(svc.retryAfterMs({ response: { status: 429, headers: { 'retry-after': '5' } } }), 5000);
   assert.equal(svc.retryAfterMs({ response: { status: 429, headers: {} } }), 30000); // default

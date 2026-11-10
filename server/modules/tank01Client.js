@@ -271,12 +271,14 @@ function createTank01Client({ store = pgStore, transport, now = () => new Date()
       store.readSnapshot(PROVIDER).catch(() => null),
     ]);
     let headerUsed = null;
+    // A snapshot from the previous cycle describes that cycle's spend, not this one's.
     if (
       snapshot &&
       Number.isFinite(snapshot.limit) &&
       Number.isFinite(snapshot.remaining) &&
       snapshot.seenAt &&
-      at.getTime() - snapshot.seenAt.getTime() < SNAPSHOT_FRESH_MS
+      at.getTime() - snapshot.seenAt.getTime() < SNAPSHOT_FRESH_MS &&
+      snapshot.seenAt.getTime() >= cycleStart(at, cfg.anchorDay).getTime()
     ) {
       headerUsed = Math.max(snapshot.limit - snapshot.remaining, 0);
     }
