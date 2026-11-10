@@ -1,7 +1,8 @@
 import fs from 'fs';
 import path from 'path';
 import { listArticles, getArticle, featuredArticles, relatedArticles, currentReport } from './index';
-import { findLocalKitDeclarations } from './kitGuard';
+import { findLocalDeclarations, SHARED_PART_NAMES } from './kitGuard';
+import * as parts from './darkness-report-parts';
 
 describe('articles content module', () => {
   it('lists metadata for every article, newest first, without a Body', () => {
@@ -108,18 +109,38 @@ describe('articles content module', () => {
   });
 });
 
-// The four article decorations live in the public kit now. A local copy in a
-// new article drifts from it silently, and the published weeks 3 to 8 are
-// frozen with theirs, so the guard starts at week 9.
-describe('kit guard', () => {
+// The four article decorations live in the public kit now, and the shared
+// layout parts live in darkness-report-parts.jsx. A local copy in a new article
+// drifts from them silently, and the published weeks 3 to 9 are frozen, so the
+// kit names are guarded from week 9 and the shared parts from week 10.
+describe('local declaration guard', () => {
   it('reports a locally declared Pill in a week 9 article', () => {
-    expect(findLocalKitDeclarations('week9-start-sit-darkness-report.jsx', 'const Pill = () => null;\n'))
+    expect(findLocalDeclarations('week9-start-sit-darkness-report.jsx', 'const Pill = () => null;\n'))
       .toEqual([{ name: 'Pill', line: 1 }]);
   });
 
   it('exempts the published weeks 3 to 8 by week number', () => {
-    expect(findLocalKitDeclarations('week8-waiver-wire-darkness-report.jsx', 'const Tag = () => null;')).toEqual([]);
-    expect(findLocalKitDeclarations('week3-start-sit-darkness-report.jsx', 'const Pill = () => null;')).toEqual([]);
+    expect(findLocalDeclarations('week8-waiver-wire-darkness-report.jsx', 'const Tag = () => null;')).toEqual([]);
+    expect(findLocalDeclarations('week3-start-sit-darkness-report.jsx', 'const Pill = () => null;')).toEqual([]);
+  });
+
+  it('reports a shared part declared in a future week', () => {
+    expect(findLocalDeclarations('week10-start-sit-darkness-report.jsx', 'function SplitBar() {\n  return null;\n}\n'))
+      .toEqual([{ name: 'SplitBar', line: 1 }]);
+  });
+
+  it('reports an exported shared part declared in a future week', () => {
+    expect(findLocalDeclarations('week10-start-sit-darkness-report.jsx', 'export function SplitBar() {\n  return null;\n}\n'))
+      .toEqual([{ name: 'SplitBar', line: 1 }]);
+  });
+
+  it('exempts weeks 3 to 9 from the shared parts', () => {
+    expect(findLocalDeclarations('week9-waiver-wire-darkness-report.jsx', 'function BidTrack() {}')).toEqual([]);
+    expect(findLocalDeclarations('week3-start-sit-darkness-report.jsx', 'function SplitBar() {}')).toEqual([]);
+  });
+
+  it('guards every export of the shared parts module', () => {
+    expect(Object.keys(parts).sort()).toEqual([...SHARED_PART_NAMES].sort());
   });
 
   it('finds no local declaration in any article file', () => {
@@ -129,7 +150,7 @@ describe('kit guard', () => {
       // readdirSync returns bare names, so this join cannot leave the directory.
       // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal -- readdirSync names cannot contain a path separator
       const source = fs.readFileSync(path.join(dir, file), 'utf8');
-      return { file, violations: findLocalKitDeclarations(file, source) };
+      return { file, violations: findLocalDeclarations(file, source) };
     });
     expect(sources).not.toHaveLength(0);
     expect(sources.filter((s) => s.violations.length > 0)).toEqual([]);
