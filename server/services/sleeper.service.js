@@ -53,10 +53,8 @@ const SLEEPER_FG_BUCKET_YARDS = {
 /** Pure: a Sleeper kicker stat row -> one pricing yardage per made field goal ([] without buckets). */
 function mapSleeperFieldGoalDistances(raw) {
   const out = [];
-  if (!raw || typeof raw !== 'object') return out;
   for (const [key, yards] of Object.entries(SLEEPER_FG_BUCKET_YARDS)) {
-    const n = Number(raw[key]);
-    if (Number.isFinite(n)) for (let i = 0; i < n; i++) out.push(yards);
+    for (let i = 0; i < Number(raw[key]); i++) out.push(yards);
   }
   return out;
 }
@@ -96,7 +94,8 @@ function normalizeSleeperEntry(meta, statRow) {
 /**
  * Pure matching: our players ([{id, name, position}]) x normalized Sleeper
  * entries -> season-stat rows to upsert ([{ playerId, season, games, stats }]).
- * Match by name key; disambiguate same-named players by position.
+ * Match by name key; disambiguate same-named players by position. Each update
+ * carries fieldGoalDistances when the matched entry has one (kickers).
  */
 function buildSeasonStatUpdates(players, entries, season) {
   const byNameKey = new Map();
