@@ -497,8 +497,8 @@ async function rolloverSeason({ leagueId, userId }) {
       // left exactly as they are. An awarded champion Trophy already stands.
       if (championTeamId && !pickemOnly && !championAwarded) {
         // The weekly trophy index is team-aware so both closest-game teams can
-        // share a type. Champion remains singular, so replace any stale winner
-        // explicitly before inserting the authoritative season result.
+        // share a type. Champion remains singular: reached only with no champion
+        // Trophy awarded, so this clears only a row a concurrent award wrote.
         await client.query(
           `DELETE FROM "trophies"
            WHERE "league_id" = $1 AND "season" = $2 AND "week" = 0 AND "type" = 'champion'`,
