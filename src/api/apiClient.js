@@ -112,6 +112,13 @@ export async function refreshTokens() {
         return requestRefresh();
       })
       .then((response) => storeRotatedAccessToken(response, generation))
+      .catch((error) => {
+        // A refusal that settles after a logout answers the session that ended: it must not clear the one in place.
+        if (generation === sessionGeneration || !isSessionRefusal(error)) throw error;
+        const ended = new Error('session ended while refreshing');
+        ended.code = SESSION_ENDED;
+        throw ended;
+      })
       .finally(() => {
         // A superseded refresh settling must not clear the newer one a logout started.
         if (refreshPromise === pending) refreshPromise = null;
