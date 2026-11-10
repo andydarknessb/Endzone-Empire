@@ -1,6 +1,7 @@
 const express = require('express');
 const pool = require('../modules/pool');
 const { requireAuth } = require('../modules/auth');
+const { createRateLimiter } = require('../modules/rateLimit');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -83,7 +84,8 @@ router.delete('/push-subscribe', async (req, res) => {
 });
 
 // POST /api/notifications/push-test — a Test alert to the caller's own devices
-router.post('/push-test', async (req, res) => {
+const pushTestLimiter = createRateLimiter({ name: 'push-test', windowMs: 60 * 1000, max: 5 });
+router.post('/push-test', pushTestLimiter, async (req, res) => {
   try {
     res.json(await require('../services/pushAlerts.service').sendAlert({ kind: 'test', userId: req.user.id }));
   } catch (error) {

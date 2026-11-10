@@ -21,6 +21,7 @@ const {
 } = require('../services/leagueRole.service');
 const { isMember, requireMember } = require('../services/leagueMembership.service');
 const { requireFantasyLeague } = require('../services/leagueType');
+const { createRateLimiter } = require('../modules/rateLimit');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -401,6 +402,17 @@ router.get('/league/:id/recap', async (req, res) => {
   }
 });
 
+// Each rebuild is a paid Claude call, so the budget is per League. It counts
+// only after the commissioner check, so a member's refused attempt cannot
+// spend the commissioner's rebuilds.
+const recapRebuildLimiter = createRateLimiter({
+  name: 'recap-rebuild',
+  windowMs: 60 * 60 * 1000,
+  max: 5,
+  // Keyed on the parsed id: the route takes any digit string, so 7, 07 and 007 are one League.
+  keyFn: (req) => `league:${Number(req.params.id)}`,
+});
+
 // POST /api/scoring/league/:id/recap — commissioner rebuilds the stored
 // recap for a finalized week of the current season, on demand. Calls the
 // silent compute-and-store path (#1409) directly, never generateWeeklyRecap:
@@ -433,6 +445,10 @@ router.post('/league/:id/recap', async (req, res) => {
   }
   try {
     if (!(await requireLeagueCommissioner(req, res, leagueId))) return;
+    let admitted = false;
+    // A Redis error in production calls next(error): rethrow it so the catch below answers 500, never a rebuild.
+    await recapRebuildLimiter(req, res, (error) => { if (error) throw error; admitted = true; });
+    if (!admitted) return;
     const leagueResult = await pool.query(
       `SELECT "current_season" FROM "leagues" WHERE "id" = $1`,
       [leagueId]
@@ -454,7 +470,8 @@ router.post('/league/:id/recap', async (req, res) => {
 });
 
 // POST /api/scoring/league/:id/power-rankings — owner recomputes on demand
-router.post('/league/:id/power-rankings', async (req, res) => {
+const powerRankingsLimiter = createRateLimiter({ name: 'power-rankings', windowMs: 60 * 1000, max: 5 });
+router.post('/league/:id/power-rankings', powerRankingsLimiter, async (req, res) => {
   if (!/^\d+$/.test(req.params.id)) {
     return res.status(400).json({ error: 'league id must be a positive integer' });
   }
