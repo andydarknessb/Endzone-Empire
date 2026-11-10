@@ -158,6 +158,6 @@ test('a completed reset marks every outstanding reset token of the account used,
   assert.match(
     marks[0].text,
     /^UPDATE "auth_tokens" SET "used" = true, "updated_at" = now\(\) WHERE "user_id" = \$1 AND "type" = 'reset' AND "used" = false$/,
-    'every unused reset token of the account, and only reset tokens (verify links stay live)'
+    'every unused reset token of the account, and only reset tokens'
   );
 });

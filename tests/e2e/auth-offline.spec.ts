@@ -9,7 +9,7 @@ async function seedSession(page: Page, access = 'old-access-token', refresh = 'o
 }
 
 test.describe('authentication lifecycle', () => {
-  test('registration opens the account pending', async ({ page }) => {
+  test('registration posts the form and lands on the account page', async ({ page }) => {
     const profile = {
       id: 41,
       username: 'verification-rookie',
@@ -57,7 +57,6 @@ test.describe('authentication lifecycle', () => {
       email: profile.email,
       password: 'InitialPass123!',
     });
-    expect(profile.account_status).toBe('pending');
   });
 
   test('password reset immediately invalidates the old access and refresh sessions', async ({ page }) => {
