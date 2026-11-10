@@ -4,8 +4,8 @@ import {
   Lead, P, H2, H3, UL, OL, LI, Quote,
   Table, THead, TBody, TR, TH, TD,
 } from '../../components/public/kit/Prose';
-import { positionColorVar } from '../../components/public/kit/positionColor';
-import { Pill, Chip, Tag } from '../../components/public/kit/ArticleBits';
+import { Tag } from '../../components/public/kit/ArticleBits';
+import { PriorityCard, FaabLadder, OpponentChart } from './darkness-report-parts';
 
 // Body only: the frontmatter lives in week9-waiver-wire-darkness-report.meta.js so listings can be
 // built without loading this prose; content/articles/index.js loads it on demand.
@@ -74,69 +74,6 @@ function HeroBanner() {
   );
 }
 
-// A bid range drawn on a 0 to 20% track, so every card and the ladder read on the same scale.
-const TRACK_MAX = 20;
-function BidTrack({ min, max, highlight }) {
-  return (
-    <Box aria-hidden="true" sx={{ position: 'relative', height: 10, borderRadius: 'var(--radius-pill, 999px)', bgcolor: 'var(--surface-sunken)', overflow: 'hidden' }}>
-      <Box
-        sx={{
-          position: 'absolute', top: 0, bottom: 0,
-          left: `${(min / TRACK_MAX) * 100}%`,
-          width: `${Math.max(((max - min) / TRACK_MAX) * 100, 2)}%`,
-          borderRadius: 'var(--radius-pill, 999px)',
-          bgcolor: highlight ? 'var(--accent)' : 'var(--border-strong)',
-        }}
-      />
-    </Box>
-  );
-}
-
-function PriorityCard({ p }) {
-  return (
-    <Box
-      component="section"
-      aria-labelledby={`pick-${p.id}`}
-      sx={{
-        my: 3, p: { xs: 2, sm: 3 }, borderRadius: 'var(--radius-md, 10px)',
-        bgcolor: 'var(--surface-raised)', border: '1px solid var(--border-subtle)', boxShadow: 'var(--shadow-2, none)',
-        borderLeft: '5px solid', borderLeftColor: positionColorVar(p.pos),
-      }}
-    >
-      <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1.5, flexWrap: 'wrap' }}>
-        <Box component="span" aria-hidden="true" sx={{ fontSize: '2.2rem', fontWeight: 900, lineHeight: 1, color: 'var(--accent)', fontVariantNumeric: 'tabular-nums' }}>
-          {p.rank}
-        </Box>
-        <Box component="h3" id={`pick-${p.id}`} sx={{ m: '0 !important', fontSize: { xs: '1.3rem !important', sm: '1.5rem !important' } }}>
-          {p.name}
-        </Box>
-        <Box sx={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-muted)' }}>
-          <Pill color={positionColorVar(p.pos)}>{p.pos}</Pill>{p.team} &middot; {p.matchup}
-        </Box>
-      </Box>
-      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 1.5 }}>
-        <Chip tone="var(--accent)">Bid {p.min}&ndash;{p.max}%</Chip>
-        <Chip tone="var(--text-muted)">{p.rostered}</Chip>
-        <Chip tone={p.windowTone}>{p.window}</Chip>
-      </Box>
-      <Box sx={{ mt: 1.5 }}>
-        <BidTrack min={p.min} max={p.max} highlight />
-      </Box>
-      <Box component="p" sx={{ mt: '16px !important', mb: '0 !important' }}>{p.take}</Box>
-      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 1.5, mt: 2 }}>
-        <Box sx={{ pl: 1.25, borderLeft: '3px solid var(--success)' }}>
-          <Box sx={{ fontSize: '0.72rem', fontWeight: 800, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--success)' }}>The case</Box>
-          <Box sx={{ fontSize: '0.92rem', lineHeight: 1.5 }}>{p.pro}</Box>
-        </Box>
-        <Box sx={{ pl: 1.25, borderLeft: '3px solid var(--danger)' }}>
-          <Box sx={{ fontSize: '0.72rem', fontWeight: 800, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--danger)' }}>The risk</Box>
-          <Box sx={{ fontSize: '0.92rem', lineHeight: 1.5 }}>{p.con}</Box>
-        </Box>
-      </Box>
-    </Box>
-  );
-}
-
 const BIG_THREE = [
   {
     id: 'tyler-allgeier', rank: 1, name: 'Tyler Allgeier', pos: 'RB', team: 'ARI', matchup: 'at SEA',
@@ -175,29 +112,6 @@ const LADDER = [
   ['Geno Smith', 'QB', 3, 5, false],
 ];
 
-function FaabLadder() {
-  const summary = LADDER.map(([name, , min, max]) => `${name} ${min} to ${max}%`).join(', ');
-  return (
-    <Box role="img" aria-label={`Recommended bids as a percent of budget: ${summary}`} sx={{ my: 3, display: 'grid', rowGap: 0.9 }}>
-      {LADDER.map(([name, pos, min, max, top]) => (
-        <Box key={name} aria-hidden="true" sx={{ display: 'grid', gridTemplateColumns: { xs: '8.5em 1fr 3.6em', sm: '11em 1fr 4em' }, alignItems: 'center', gap: 1, fontSize: '0.85rem' }}>
-          <Box component="span" sx={{ fontWeight: top ? 800 : 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-            <Box component="span" sx={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', bgcolor: positionColorVar(pos), mr: 0.75 }} />
-            {name}
-          </Box>
-          <BidTrack min={min} max={max} highlight={top} />
-          <Box component="span" sx={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--text-muted)' }}>{min}&ndash;{max}%</Box>
-        </Box>
-      ))}
-      <Box aria-hidden="true" sx={{ display: 'grid', gridTemplateColumns: { xs: '8.5em 1fr 3.6em', sm: '11em 1fr 4em' }, gap: 1, fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-        <span />
-        <Box sx={{ display: 'flex', justifyContent: 'space-between' }}><span>0%</span><span>10%</span><span>20%</span></Box>
-        <span />
-      </Box>
-    </Box>
-  );
-}
-
 // Implied points for the offense each defense faces. Lower is better for the defense.
 const DST_TARGETS = [
   { def: 'SEA', opp: 'ARI', pts: 16.5, kind: 'stream' },
@@ -216,33 +130,6 @@ const DST_TARGETS = [
   { def: 'MIA', opp: 'DET', pts: 28.75, kind: 'avoid' },
   { def: 'LV', opp: 'SF', pts: 30.75, kind: 'avoid' },
 ];
-
-function OpponentChart() {
-  const max = 32;
-  const summary = DST_TARGETS.map((r) => `${r.def} defense faces ${r.opp} at ${r.pts}`).join(', ');
-  return (
-    <Box sx={{ my: 3 }}>
-      <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-muted)', mb: 1.25 }}>
-        <Box component="span"><Box component="span" sx={{ display: 'inline-block', width: 10, height: 10, borderRadius: '3px', bgcolor: 'var(--accent)', mr: 0.75 }} />Stream</Box>
-        <Box component="span"><Box component="span" sx={{ display: 'inline-block', width: 10, height: 10, borderRadius: '3px', bgcolor: 'var(--border-strong)', mr: 0.75 }} />Avoid</Box>
-      </Box>
-      <Box role="img" aria-label={`Opponent implied points: ${summary}`} sx={{ display: 'grid', rowGap: 0.7 }}>
-        {DST_TARGETS.map((r) => (
-          <Box key={r.def} aria-hidden="true" sx={{ display: 'grid', gridTemplateColumns: '6.4em 1fr 3.4em', alignItems: 'center', gap: 1, fontSize: '0.85rem' }}>
-            <Box component="span" sx={{ fontWeight: 800 }}>
-              {r.def} <Box component="span" sx={{ fontWeight: 600, color: 'var(--text-muted)' }}>v {r.opp}</Box>
-            </Box>
-            <Box sx={{ height: 12, borderRadius: 'var(--radius-pill, 999px)', bgcolor: 'var(--surface-sunken)', overflow: 'hidden' }}>
-              <Box sx={{ width: `${(r.pts / max) * 100}%`, height: '100%', bgcolor: r.kind === 'stream' ? 'var(--accent)' : 'var(--border-strong)' }} />
-            </Box>
-            <Box component="span" sx={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--text-muted)' }}>{r.pts}</Box>
-          </Box>
-        ))}
-      </Box>
-    </Box>
-  );
-}
-
 
 const Body = () => (
   <>
@@ -288,7 +175,7 @@ const Body = () => (
       tops out at 8% or less is a cheap bid: pick a number in the range and don&apos;t lose sleep.
       Singletary is the one to watch, because his whole value is a Friday injury report.
     </P>
-    <FaabLadder />
+    <FaabLadder ladder={LADDER} />
 
     <H2>The Full Board</H2>
     <P>
@@ -416,7 +303,7 @@ const Body = () => (
       happy defense. D/ST rostered percentages are not in our snapshot, so check your own wire
       before you plan around a name.
     </P>
-    <OpponentChart />
+    <OpponentChart targets={DST_TARGETS} />
     <UL>
       <LI>
         <strong>Seattle</strong> hosts Arizona (16.5), the best number on the board, with Minshew newly named the starter and Love, Knight and Michael Wilson (two broken ribs) all
