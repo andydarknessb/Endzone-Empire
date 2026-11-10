@@ -65,8 +65,8 @@ const BOX_PLAYER_KEYS = [
 // none, so those writes leave a stored count (an earlier box, or the nflverse
 // correction) alone, while a box line that carries one, even 0, wins. The
 // cost: a box never takes back a credit it gave; the nflverse correction does.
-// twoPointReturn (#2790) the same way: the Tank01 IDP line omits it for a
-// defender with none, so a Final box keeps the Live box's credit.
+// twoPointReturn (#2790) is kept the same way, but nflverse never writes it,
+// so only a later ESPN write changes a stored credit.
 const BOX_KEEP_IF_ABSENT = [
   'idpInterceptionReturnYards', 'idpFumbleRecovery', 'passingTwoPt', 'rushingTwoPt', 'receivingTwoPt',
   'twoPointReturn',

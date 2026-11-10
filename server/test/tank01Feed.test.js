@@ -154,7 +154,7 @@ test('normalizeTank01IdpStats: a present twoPointConversionReturn is a real coun
   assert.equal(normalizeTank01IdpStats({ Defense: { twoPointConversionReturn: '0' } }).twoPointReturn, 0);
 });
 
-test('normalizeTank01IdpStats: missing/empty Defense category is all-zero', () => {
+test('normalizeTank01IdpStats: missing/empty Defense category is all-zero, with no twoPointReturn key (#2790)', () => {
   assert.deepEqual(normalizeTank01IdpStats({}), {
     soloTackle: 0, assistedTackle: 0, idpSack: 0, idpInterception: 0, forcedFumble: 0,
     passDeflection: 0, qbHit: 0, tacklesForLoss: 0, idpDefensiveTD: 0,
