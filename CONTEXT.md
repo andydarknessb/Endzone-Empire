@@ -1519,7 +1519,9 @@ Every Manager in the League is told which Matchup scores moved, and the notice
 is kept with the change: a Stat correction is never applied without its notice.
 It never changes which Teams reached a later playoff round: later rounds stand
 as Advance week built them, even when the corrected score now shows the other
-Team ahead.
+Team ahead. Nor does it change the champion: once the final is settled, the
+champion stands as Advance week settled it, even when the corrected score now
+shows the other Team ahead.
 The live score announcement to open pages is different: it is best-effort,
 and its failure never holds back the change or its Settle follow-up.
 A revision that moves no score sends nothing.

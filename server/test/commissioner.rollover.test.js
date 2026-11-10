@@ -253,6 +253,80 @@ test("rolloverSeason archives an explicit Pick'em no-champion result", async (t)
   });
 });
 
+const FANTASY_LEAGUE = {
+  id: 5, owner_id: 100, is_commissioner: true, pickem_only: false,
+  season_status: 'complete', current_season: 2026, current_week: 18, faab_budget: 100,
+};
+
+// A fantasy rollover over one final, Sunday Ballers (10) at home against Bob
+// Squad (11). `championRows` is the champion Trophy settle's follow-up left for
+// the season, or none when that follow-up never ran. `finalScores` is [home, away].
+function fantasyFinalRollover(t, { championRows, finalScores }) {
+  return mockClient(t, [
+    ...TXN,
+    [/(?:FROM "leagues" WHERE "id" = \$1( FOR NO KEY UPDATE)?$|UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$)/, () => ({ rows: [{ ...FANTASY_LEAGUE }] })],
+    [/^SELECT "id", "name", "owner_id" FROM "teams"/, () => ({
+      rows: [
+        { id: 10, name: 'Sunday Ballers', owner_id: 100 },
+        { id: 11, name: 'Bob Squad', owner_id: 101 },
+      ],
+    })],
+    [/^SELECT \* FROM "matchups"/, () => ({
+      rows: [{
+        id: 1, league_id: 5, season: 2026, week: 18, is_playoff: true, is_consolation: false, final: true,
+        home_team_id: 10, away_team_id: 11, home_score: finalScores[0], away_score: finalScores[1],
+      }],
+    })],
+    [/^SELECT "team_players"\."team_id"/, () => ({ rows: [] })],
+    [/SELECT "team_id" FROM "trophies"/, () => ({ rows: championRows })],
+    [/"trophies"/, () => ({ rows: [] })],
+    [/^INSERT INTO "league_history"/, () => ({ rows: [] })],
+    [/^DELETE FROM "(team_players|draft_picks|draft_queue|keepers|waiver_players)"|^UPDATE "(waiver_claims|trades)"/, () => ({ rows: [] })],
+    [/^UPDATE "teams" SET "faab_remaining"/, () => ({ rows: [] })],
+    [/^UPDATE "leagues" SET "current_season"/, () => ({ rows: [] })],
+    [/^INSERT INTO "transactions"/, () => ({ rows: [] })],
+    [/^SELECT DISTINCT "owner_id" FROM "teams"/, () => ({ rows: [{ owner_id: 100 }, { owner_id: 101 }] })],
+    [/^INSERT INTO "notifications"/, () => ({ rows: [] })],
+  ]);
+}
+
+test("rolloverSeason keeps the champion Trophy Advance week awarded, even when the final's stored score now favours the other Team", async (t) => {
+  // Advance week settled the final for Sunday Ballers and awarded the champion
+  // Trophy from it; a Stat correction has since moved the final to Bob Squad.
+  const calls = fantasyFinalRollover(t, {
+    championRows: [{ team_id: 10 }],
+    finalScores: [90, 120],
+  });
+
+  const result = await commissioner.rolloverSeason({ leagueId: 5, userId: 100 });
+
+  assert.equal(result.championTeamId, 10);
+  assert.equal(result.championUserId, 100);
+  const history = statementsMatching(calls, /INSERT INTO "league_history"/)[0];
+  assert.equal(history.params[2], 10, 'the archive takes the Trophy\'s Team');
+  assert.equal(history.params[3], 100);
+  assert.equal(statementsMatching(calls, /DELETE FROM "trophies"/).length, 0, 'the awarded champion Trophy is kept, not replaced');
+  assert.equal(statementsMatching(calls, /INSERT INTO "trophies"/).length, 0);
+});
+
+test("rolloverSeason decides the champion from the final's score when no champion Trophy was awarded", async (t) => {
+  // Advance week's follow-up never ran, so no champion Trophy exists yet.
+  const calls = fantasyFinalRollover(t, {
+    championRows: [],
+    finalScores: [100, 130],
+  });
+
+  const result = await commissioner.rolloverSeason({ leagueId: 5, userId: 100 });
+
+  assert.equal(result.championTeamId, 11);
+  assert.equal(result.championUserId, 101);
+  const history = statementsMatching(calls, /INSERT INTO "league_history"/)[0];
+  assert.equal(history.params[2], 11);
+  const written = statementsMatching(calls, /^INSERT INTO "trophies"/);
+  assert.equal(written.length, 1, 'the champion Trophy is written from the final');
+  assert.equal(written[0].params[1], 11);
+});
+
 test("rolloverSeason clears the draft, keepers and queues, and resets Teams for a new season", async (t) => {
   const league = {
     id: 5, owner_id: 100, is_commissioner: true, pickem_only: false,
