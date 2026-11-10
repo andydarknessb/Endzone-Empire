@@ -39,10 +39,11 @@ export function useLineupData({ leagueId, week }) {
   const requestSeq = useRef(0);
 
   const fetchLineup = useCallback(async ({ silent = false } = {}) => {
-    if (leagueId == null) return;
+    // Bumped before the null-league return, so a load still in flight for the old league writes nothing.
     const seq = requestSeq.current + 1;
     requestSeq.current = seq;
     const current = () => requestSeq.current === seq;
+    if (leagueId == null) return;
     try {
       if (!silent) setLoading(true);
       setError(null);
