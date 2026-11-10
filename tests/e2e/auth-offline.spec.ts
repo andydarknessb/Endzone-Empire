@@ -38,7 +38,6 @@ test.describe('authentication lifecycle', () => {
         return json(route, 401, { error: 'signed out' });
       }
       if (request.method() === 'GET' && path === '/api/league') return json(route, 200, []);
-      if (request.method() === 'GET' && path === '/api/news') return json(route, 200, []);
       if (request.method() === 'GET' && path === '/api/notifications') {
         return json(route, 200, { notifications: [] });
       }

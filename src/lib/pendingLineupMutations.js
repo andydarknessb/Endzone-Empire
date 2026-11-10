@@ -8,10 +8,7 @@ export const LINEUP_REJECTED_CHANNEL = 'lineup:mutation-rejected';
 const LINEUP_REPLAY_LOCK = 'pending-lineup-mutations-replay';
 
 const ALLOWED_METHODS = new Set(['POST', 'PUT', 'PATCH']);
-const ALLOWED_ENDPOINTS = [
-  /^\/api\/team\/lineup$/,
-  /^\/api\/scoring\/league\/\d+\/correct-week$/,
-];
+const ALLOWED_ENDPOINTS = [/^\/api\/team\/lineup$/];
 let replayPromise = null;
 
 function browserStorage() {
@@ -91,17 +88,6 @@ export function enqueuePendingLineupMutation({ endpoint, method, payload }) {
   queue.push(intent);
   writeQueue(queue);
   return intent;
-}
-
-export function enqueueScoreCorrection({ leagueId, payload }) {
-  if (!Number.isInteger(Number(leagueId)) || Number(leagueId) < 1) {
-    throw new TypeError('leagueId must be a positive integer');
-  }
-  return enqueuePendingLineupMutation({
-    endpoint: `/api/scoring/league/${Number(leagueId)}/correct-week`,
-    method: 'POST',
-    payload,
-  });
 }
 
 function removeIntent(id) {

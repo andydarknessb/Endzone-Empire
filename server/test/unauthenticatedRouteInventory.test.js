@@ -68,11 +68,11 @@ const {
  * that answers.
  *
  * Until #241 this read `app._router.stack` alone, and the same middleware
- * inside a router escaped every assertion in this file. Recursing brings 16
+ * inside a router escaped every assertion in this file. Recursing brings 15
  * existing router-level layers into view - the routers' own `requireAuth`,
  * `requirePlatformAdmin`, the rate limiters, the two `requireFantasyLeague()`
  * mounts - so the three pins below are written to separate a harmful mount
- * from those 16 rather than to list them.
+ * from those 15 rather than to list them.
  *
  * SCOPE. Two things still escape. A middleware attached to a Router that is
  * never mounted is not in this tree and is not reachable either. And a
@@ -396,15 +396,15 @@ test('no middleware anywhere in the tree is mounted at a path without a decision
   //
   // WHY THIS LIST IS EXACT RATHER THAN FILTERED, since #241 made it reach into
   // routers and a reader meeting a hardcoded list deserves the reason. There
-  // are 36 terminal middlewares in this tree and 16 of them sit at router
-  // level; every one of the 16 is a guard or a rate limiter, and a harmful
+  // are 35 terminal middlewares in this tree and 15 of them sit at router
+  // level; every one of the 15 is a guard or a rate limiter, and a harmful
   // mount would look like them in every respect a filter can read - same
   // `use(...)` call, same layer shape, and a name it chooses for itself. So
-  // there is no pattern that excludes the benign 16 and is guaranteed to keep
-  // the harmful 17th. What separates them is not a name but a POSITION: these
+  // there is no pattern that excludes the benign 15 and is guaranteed to keep
+  // the harmful 16th. What separates them is not a name but a POSITION: these
   // are the mounts that own a path.
   //
-  // That splits the 16 rather than excluding them. FOURTEEN are root-mounted
+  // That splits the 15 rather than excluding them. THIRTEEN are root-mounted
   // and drop out by the rule this assertion already used at app level -
   // root-mounted middleware runs for everything below it and owns no path of
   // its own. The other TWO own a path, so they are here, on the two lines
@@ -415,8 +415,9 @@ test('no middleware anywhere in the tree is mounted at a path without a decision
   //
   // This list is therefore EXPECTED to change when the app legitimately adds a
   // path-mounted middleware. Adding the new line is the decision; the failure
-  // is the prompt to make it deliberately. (The counts last moved in #2551,
-  // which added the credential limiters; before that #884 deleted the games
+  // is the prompt to make it deliberately. (The counts last moved in #2767,
+  // which deleted the news router and its root-mounted requireAuth, 36 to 35;
+  // before that #2551 added the credential limiters, and #884 deleted the games
   // router and its root-mounted requireAuth.)
   const { app } = require('../server');
 
@@ -431,9 +432,9 @@ test('no middleware anywhere in the tree is mounted at a path without a decision
   // forces at what was added.
   const layers = terminalMiddleware(app);
   const routerLevel = layers.filter((row) => row.level === 'router');
-  assert.equal(layers.length, 36, 'terminal middlewares in the whole tree');
-  assert.equal(routerLevel.length, 16, 'of which sit inside a router');
-  assert.equal(routerLevel.filter((row) => row.rooted).length, 14, 'of which own no path');
+  assert.equal(layers.length, 35, 'terminal middlewares in the whole tree');
+  assert.equal(routerLevel.length, 15, 'of which sit inside a router');
+  assert.equal(routerLevel.filter((row) => row.rooted).length, 13, 'of which own no path');
 
   assert.deepEqual(pathMounts(app), [
     '<anonymous> /api',                       // Cache-Control: private, no-store
@@ -459,16 +460,16 @@ test('only one middleware in the tree answers a request rather than passing it o
   // where the path pin will not look.
   //
   // "Answers" is read as "does not declare a `next` parameter, so it cannot
-  // call one" - see canContinue. That is one-directional: the 35 layers not
+  // call one" - see canContinue. That is one-directional: the 34 layers not
   // listed here all COULD hand the request on, which is not the same as
   // proving they do. `requireAuth` is itself an example of one that answers
   // sometimes, and that is the residue this pin does not cover: a
   // three-argument middleware that responds anyway is invisible to it.
   //
   // That residue has one net, and it is a weak one: the three pins here name 12
-  // of the tree's 36 terminal layers between them (the API 404 shows in both
+  // of the tree's 35 terminal layers between them (the API 404 shows in both
   // the path pin and this one), and the count pinned in the assertion above is
-  // all that stands under the other 24. It says "something was added", never
+  // all that stands under the other 23. It says "something was added", never
   // "something is wrong" - which is the honest limit of what a mounted stack
   // can be asked about a function's behaviour.
   const { app } = require('../server');

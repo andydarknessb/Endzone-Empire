@@ -1,7 +1,6 @@
 import apiClient from '../api/apiClient';
 import {
   enqueuePendingLineupMutation,
-  enqueueScoreCorrection,
   LINEUP_MUTATION_REJECTED_EVENT,
   LINEUP_MUTATION_REPLAYED_EVENT,
   PENDING_LINEUP_MUTATIONS_KEY,
@@ -50,16 +49,12 @@ test('stores multiple offline intents in insertion order', () => {
   expect(JSON.parse(localStorage.getItem(PENDING_LINEUP_MUTATIONS_KEY))).toHaveLength(2);
 });
 
-test('builds an allow-listed correction endpoint without accepting arbitrary URLs', () => {
-  enqueueScoreCorrection({ leagueId: 7, payload: { week: 4 } });
-
-  expect(readPendingLineupMutations()[0]).toMatchObject({
-    endpoint: '/api/scoring/league/7/correct-week',
-    method: 'POST',
-    payload: { week: 4 },
-  });
+test('refuses any endpoint outside the lineup allowlist', () => {
   expect(() =>
     enqueuePendingLineupMutation({ endpoint: 'https://example.test', method: 'POST', payload: {} })
+  ).toThrow('invalid pending lineup mutation');
+  expect(() =>
+    enqueuePendingLineupMutation({ endpoint: '/api/scoring/league/7/correct-week', method: 'POST', payload: {} })
   ).toThrow('invalid pending lineup mutation');
 });
 

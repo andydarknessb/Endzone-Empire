@@ -62,10 +62,9 @@ const sentry = require('./sentry');
  * holdout.service.js (pg_advisory_xact_lock(hashtext(id))),
  * whose key is a hash of the capture identity, not a small fixed integer - it
  * will not collide with 23001-23005 in practice, but a new FIXED id must still be
- * chosen from this block. The weekly-trophy-engine SQL
- * (server/db/sql/2026-07-20-weekly-trophy-engine.sql) uses the TWO-key
- * (int4, int4) form, which Postgres keeps in a separate keyspace from the
- * single-key form, so it cannot collide with anything here.
+ * chosen from this block. The TWO-key (int4, int4) form (lockTwoKeyXact below)
+ * is kept in a separate keyspace from the single-key form, so it cannot collide
+ * with anything here.
  */
 const PLAYERS_BULK_WRITE_LOCK = 23004;
 const NFL_GAMES_BULK_WRITE_LOCK = 23005;
@@ -178,9 +177,8 @@ async function withAdvisoryLock(lockId, name, work) {
  * collide with 23001-23005 or holdout.service.js's hashed single key.
  *
  * First caller: trophy.service.js's reconcileWeeklyHighScoreTrophy, keyed
- * (leagueId, season*100+week) - the same two-key formula
- * 2026-07-20-weekly-trophy-engine.sql's `award_weekly_trophies` uses to
- * "serialize duplicate cron workers for the same league/season/week" (#1411).
+ * (leagueId, season*100+week) to serialize duplicate cron workers for the same
+ * league/season/week (#1411).
  * Routed through here (rather than a raw query at the call site) because
  * ADR 0036/#1206 confines every `pg_advisory_xact_lock` call to this small,
  * documented set of files (guards: check:hand-rolled-sync-run).
