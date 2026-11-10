@@ -68,11 +68,11 @@ const {
  * that answers.
  *
  * Until #241 this read `app._router.stack` alone, and the same middleware
- * inside a router escaped every assertion in this file. Recursing brings 16
+ * inside a router escaped every assertion in this file. Recursing brings 15
  * existing router-level layers into view - the routers' own `requireAuth`,
  * `requirePlatformAdmin`, the rate limiters, the two `requireFantasyLeague()`
  * mounts - so the three pins below are written to separate a harmful mount
- * from those 16 rather than to list them.
+ * from those 15 rather than to list them.
  *
  * SCOPE. Two things still escape. A middleware attached to a Router that is
  * never mounted is not in this tree and is not reachable either. And a
