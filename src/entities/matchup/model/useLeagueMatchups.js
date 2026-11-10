@@ -50,17 +50,23 @@ export function useLeagueMatchups(leagueId, { onScores } = {}) {
   // resync (a reconnect refetch) must NOT, or every reconnect would blank the
   // live scoreboard until the fetch resolves. A silent refresh replaces the
   // models in place and leaves the rendered scoreboard on screen.
+  // Each load supersedes the one before it (the useResource guard): a slower,
+  // older answer must not replace the list a later load already showed.
+  const requestSeq = useRef(0);
   const loadMatchups = useCallback(async ({ silent = false } = {}) => {
+    const seq = requestSeq.current + 1;
+    requestSeq.current = seq;
+    const current = () => requestSeq.current === seq;
     try {
       if (!silent) setLoading(true);
       setError(null);
       const res = await apiClient.get(`/api/league/${leagueId}/matchups`);
       const rows = Array.isArray(res.data) ? res.data : [];
-      setMatchups(rows.map(matchupFromListRow));
+      if (current()) setMatchups(rows.map(matchupFromListRow));
     } catch (err) {
-      setError(readHttpFailure(err).message || err.message);
+      if (current()) setError(readHttpFailure(err).message || err.message);
     } finally {
-      if (!silent) setLoading(false);
+      if (current()) setLoading(false);
     }
   }, [leagueId]);
 

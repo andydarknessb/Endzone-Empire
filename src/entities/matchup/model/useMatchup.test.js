@@ -115,6 +115,29 @@ test('a reconnect resync refetches the detail body', async () => {
   expect(apiClient.get).toHaveBeenLastCalledWith('/api/league/1/matchups/9');
 });
 
+test('when an earlier detail answers last, the later one stays on screen', async () => {
+  const deferred = () => {
+    let resolve;
+    const promise = new Promise((r) => { resolve = r; });
+    return { promise, resolve };
+  };
+  const detailScored = (homeScore) => ({
+    data: { ...detailBody().data, matchup: { ...detailBody().data.matchup, home_score: homeScore } },
+  });
+  const earlier = deferred();
+  const later = deferred();
+  apiClient.get.mockReturnValueOnce(earlier.promise).mockReturnValueOnce(later.promise);
+
+  const { result } = renderHook(() => useMatchup(1, 9));
+  await act(async () => { result.current.refetch(); });
+
+  await act(async () => { later.resolve(detailScored(55.9)); });
+  await waitFor(() => expect(result.current.matchup.home.score).toBe(55.9));
+
+  await act(async () => { earlier.resolve(detailScored(7)); });
+  expect(result.current.matchup.home.score).toBe(55.9);
+});
+
 // A detail body carrying real starters, so the paired-row behaviour has
 // something to pair.
 const detailWithStarters = () => ({

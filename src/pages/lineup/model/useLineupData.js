@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import apiClient from '../../../api/apiClient';
 import { readHttpFailure } from '../../../lib/httpFailure';
 import { lineupEntries } from '../../../entities/roster';
@@ -34,19 +34,26 @@ export function useLineupData({ leagueId, week }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  // Each load supersedes the one before it (the useResource guard): a slower,
+  // older answer for another week must not land over the week on screen.
+  const requestSeq = useRef(0);
+
   const fetchLineup = useCallback(async ({ silent = false } = {}) => {
     if (leagueId == null) return;
+    const seq = requestSeq.current + 1;
+    requestSeq.current = seq;
+    const current = () => requestSeq.current === seq;
     try {
       if (!silent) setLoading(true);
       setError(null);
       let url = `/api/team/lineup?leagueId=${leagueId}`;
       if (week != null) url += `&week=${week}`;
       const res = await apiClient.get(url);
-      setRaw(res.data);
+      if (current()) setRaw(res.data);
     } catch (err) {
-      setError(readHttpFailure(err).message || err.message);
+      if (current()) setError(readHttpFailure(err).message || err.message);
     } finally {
-      if (!silent) setLoading(false);
+      if (current()) setLoading(false);
     }
   }, [leagueId, week]);
 
