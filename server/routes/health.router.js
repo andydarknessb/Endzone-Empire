@@ -348,7 +348,7 @@ router.get('/', async (req, res) => {
 });
 
 // Test seam: drop the composite's memoized holdout/integrity read.
-router.resetCompositeContext = () => {
+router.__resetCompositeContext = () => {
   compositeContext = null;
 };
 
