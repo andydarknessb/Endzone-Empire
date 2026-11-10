@@ -94,6 +94,10 @@ function normalizeTank01Stats(entry) {
  * interception-return touchdown counts as both `idpInterception` and
  * `idpDefensiveTD`, the same convention the team DEF row already uses for
  * the same play (ruling, issue #1386 — CONTEXT.md **IDP**).
+ * `twoPointReturn` is emitted only when `twoPointConversionReturn` is present
+ * and non-blank: Tank01 omits the field for a defender with no conversion
+ * return, so the key is absent then and the box write keeps the stored credit
+ * (#2790).
  */
 function normalizeTank01IdpStats(entry) {
   const num = (value) => {
