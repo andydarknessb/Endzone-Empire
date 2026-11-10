@@ -47,7 +47,7 @@ owner, evidence link, completion date, and independent reviewer.
 - [ ] Unit, server, security, E2E, migration up/down/up, strict production
   build, bundle budget, production dependency audit, CORS, and Socket.IO checks
   pass for the exact release commit.
-- [ ] Password reset and verification emails arrive without address, token, or
+- [ ] Password reset emails arrive without address, token, or
   link content appearing in logs.
 - [ ] Account export, recent-auth deletion, ownership conflict, avatar cleanup,
   user block/report, retention, and worker-heartbeat paths pass in staging.

@@ -84,7 +84,6 @@ between that and the response.
 | `POST /api/auth/logout` | as above | route literal `{ ok }` | n/a - no row involved | authPayloadShape |
 | `POST /api/auth/forgot-password` | as above | route literal `{ ok, message }` | n/a | authPayloadShape |
 | `POST /api/auth/reset-password` | as above | service literal `{ ok }`; the service reads `SELECT * FROM "auth_tokens"` and publishes nothing from it | n/a | authPayloadShape |
-| `POST /api/auth/verify-email` | as above | service literal `{ ok }`; same `SELECT *`, same non-publication | n/a | authPayloadShape |
 | `GET /api/draft/board/:token` | registered at draft.router.js:53, ahead of `router.use(requireAuth)` at :107 | `presenterSnapshot` (draftRoomSnapshot.js) selects only the published league/team/pick fields | **named-column query** since #788 (formerly an allowlist over a star-select, #199) | draftPresenterBoard (#199, #788) |
 | `GET /api/health/livez` | health.router has no guard at all | route literal | allowlist | healthPayloadShape |
 | `GET /api/health/readyz` | as above | route literal over two probe helpers | allowlist | healthPayloadShape |
@@ -210,10 +209,10 @@ Worth recording, because two of them read like public surfaces:
   a router with `router.use(requireAuth)`. Method lists and path existence
   only, no row data. The inventory keys on declared methods, so `OPTIONS` sits
   in neither column.
-- **Three `SELECT *` reads sit in the anonymous-reachable call chain** and none
-  of them reaches a response: `account.service` reads `auth_tokens` twice
-  (reset and verify) and `token.service.rotateRefreshToken` reads
-  `refresh_tokens`. All three consume the row field by field and return a named
+- **Two `SELECT *` reads sit in the anonymous-reachable call chain** and neither
+  reaches a response: `account.service` reads `auth_tokens` (reset) and
+  `token.service.rotateRefreshToken` reads `refresh_tokens`. Both consume the row
+  field by field and return a named
   literal. Named here because `rotateRefreshToken` is one edit from returning
   its row on `/api/auth/refresh`, and that row carries `token_hash`. The
   refresh key-set test is what would catch it.

@@ -335,7 +335,6 @@ const PUBLIC_ROUTES = [
   'POST /api/auth/refresh',
   'POST /api/auth/register',
   'POST /api/auth/reset-password',
-  'POST /api/auth/verify-email',
   'GET /api/draft/board/:token',
   'GET /api/draft/board/:token/activity',
   'GET /api/health/',

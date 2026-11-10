@@ -2,7 +2,7 @@ const express = require('express');
 const pool = require('../modules/pool');
 const { withTransaction } = require('../modules/withTransaction');
 const encryptLib = require('../modules/encryption');
-const { signToken, requireAuth } = require('../modules/auth');
+const { signToken } = require('../modules/auth');
 const account = require('../services/account.service');
 const tokens = require('../services/token.service');
 const {
@@ -208,32 +208,6 @@ router.post('/reset-password', async (req, res) => {
     if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
     logger.error({ err: error }, 'password reset failed');
     return res.status(500).json({ error: 'password reset failed' });
-  }
-});
-
-router.post('/send-verification', requireAuth, async (req, res) => {
-  try {
-    const result = await account.requestEmailVerification({
-      userId: req.user.id,
-      appOrigin: appOrigin(req),
-    });
-    return res.json(result);
-  } catch (error) {
-    if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
-    logger.error({ err: error }, 'send verification failed');
-    return res.status(500).json({ error: 'failed to send verification email' });
-  }
-});
-
-router.post('/verify-email', async (req, res) => {
-  const { token } = req.body || {};
-  try {
-    const result = await account.verifyEmail({ token });
-    return res.json(result);
-  } catch (error) {
-    if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
-    logger.error({ err: error }, 'email verification failed');
-    return res.status(500).json({ error: 'email verification failed' });
   }
 });
 

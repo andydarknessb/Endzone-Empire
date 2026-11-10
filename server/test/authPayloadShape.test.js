@@ -351,22 +351,3 @@ test('POST /reset-password publishes exactly an acknowledgement, and its refusal
   assert.equal(done.status, 200, JSON.stringify(done.body));
   assert.deepEqual(Object.keys(done.body), ['ok']);
 });
-
-test('POST /verify-email publishes exactly an acknowledgement, and its refusal exactly an error', async (t) => {
-  // #274, same shape as reset-password above: the refusal guards
-  // UPDATE "users" SET "email_verified" = true and the auth-token burn.
-  const refusalPool = createFakePool([
-    [/^SELECT .* FROM "auth_tokens"/, () => ({ rows: [] })],
-    [update('users'), () => ({ rows: [], rowCount: 1 })],
-    [update('auth_tokens'), () => ({ rows: [], rowCount: 1 })],
-  ]).install(t);
-  const refused = await request(app).post('/api/auth/verify-email').send({});
-  assert.equal(refused.status, 400, JSON.stringify(refused.body));
-  assert.deepEqual(Object.keys(refused.body), ['error']);
-  assert.deepEqual(refusalPool.calls, [], 'no address was marked verified');
-
-  t.mock.method(account, 'verifyEmail', async () => ({ ok: true }));
-  const done = await request(app).post('/api/auth/verify-email').send({ token: 't' });
-  assert.equal(done.status, 200, JSON.stringify(done.body));
-  assert.deepEqual(Object.keys(done.body), ['ok']);
-});
