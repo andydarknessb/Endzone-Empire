@@ -20,7 +20,9 @@ const { DraftError } = require('./draftError');
  * `draft_status = 'complete'` and clear the deadline in their atomic statements
  * BEFORE calling here. completeDraft verifies that flip first and refuses with a
  * DraftError(500) if it is missing - the enforcement that replaced the warning
- * comment in season.service (#789 ruling 2). Then, in order (#789 ruling 1): it
+ * comment in season.service (#789 ruling 2). First, it writes the League's Opening
+ * week (ADR 0071): current_season and current_week, so the steps below read the
+ * opened week. Then, in order (#789 ruling 1): it
  * opens the post-draft blanket waiver window (one spelling, in the waiver
  * module), seeds every team's waiver priority from reverse draft order (the
  * order the blanket window's claims resolve in; without it the season starts

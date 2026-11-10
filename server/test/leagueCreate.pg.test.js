@@ -57,13 +57,13 @@ if (!ENABLED) {
   });
 
   test.after(async () => {
+    if (previousSecret === undefined) delete process.env.JWT_SECRET;
+    else process.env.JWT_SECRET = previousSecret;
     for (const id of createdLeagues) await pool.query('DELETE FROM "leagues" WHERE "id" = $1', [id]);
     for (const id of createdPlayers) await pool.query('DELETE FROM "players" WHERE "id" = $1', [id]);
     for (const id of createdUsers) await pool.query('DELETE FROM "users" WHERE "id" = $1', [id]);
     await knex.destroy();
     await pool.end();
-    if (previousSecret === undefined) delete process.env.JWT_SECRET;
-    else process.env.JWT_SECRET = previousSecret;
   });
 
   async function seedUser(username) {

@@ -7,7 +7,7 @@
  * and its draft cannot start. A draft that started before the League's last
  * regular-season week kicked off and completes after it opens that week anyway.
  */
-const NFL_WEEKS = 18;
+const { REG_SEASON_WEEKS: NFL_WEEKS } = require('./bye.service');
 
 async function openingWeek(client, { regularSeasonWeeks, now = new Date() }) {
   const result = await client.query(
@@ -18,11 +18,7 @@ async function openingWeek(client, { regularSeasonWeeks, now = new Date() }) {
      GROUP BY "season", "week"`,
     [NFL_WEEKS]
   );
-  return openingWeekOf(result.rows, { regularSeasonWeeks, now });
-}
-
-/** Pure: the Opening week for the one season's weeks in `rows`. */
-function openingWeekOf(rows, { regularSeasonWeeks, now }) {
+  const rows = result.rows;
   if (rows.length === 0) return { season: now.getUTCFullYear(), week: 1, open: true };
 
   const season = Number(rows[0].season);

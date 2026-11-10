@@ -22,14 +22,6 @@ exports.up = async function (knex) {
   });
 };
 
-exports.down = async function (knex) {
-  await knex.schema.alterTable('leagues', (t) => {
-    t.string('invite_code', 12).notNullable().alter();
-  });
-  await knex.schema.alterTable('lineup_entries', (t) => {
-    t.string('slot', 10).notNullable().defaultTo('BENCH').alter();
-  });
-  await knex.schema.alterTable('waiver_players', (t) => {
-    t.string('interrupted_slot', 10).nullable().alter();
-  });
-};
+// No undo: narrowing would cast 16- and 20-character values down silently
+// (a `::varchar(12)` cast truncates), corrupting invite codes and slot keys.
+exports.down = async function () {};
