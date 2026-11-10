@@ -4,6 +4,7 @@ import apiClient, {
   clearToken,
   getToken,
   isSessionRefusal,
+  onTokenRefreshed,
   refreshTokens,
   setToken,
 } from './apiClient';
@@ -178,6 +179,30 @@ describe('cookie-backed refresh', () => {
       expect(axiosMock.history.post).toHaveLength(1);
       window.removeEventListener('auth:session-expired', expired);
     });
+  });
+
+  test('a refresh answered after logout does not re-install the token', async () => {
+    const refreshed = jest.fn();
+    const unsubscribe = onTokenRefreshed(refreshed);
+    let onWire;
+    const sent = new Promise((resolve) => { onWire = resolve; });
+    let answer;
+    axiosMock.onPost('/api/auth/refresh?optional=1').reply(() => new Promise((release) => {
+      answer = () => release([200, { token: 'late-jwt', user: { id: 1 } }]);
+      onWire();
+    }));
+
+    const pending = refreshTokens().catch((e) => e);
+    await sent;
+    clearToken(); // the Manager logs out while the refresh is on the wire
+    answer();
+
+    const outcome = await pending;
+    expect(isSessionRefusal(outcome)).toBe(true);
+    expect(getToken()).toBeNull();
+    expect(hasSessionHint()).toBe(false);
+    expect(refreshed).not.toHaveBeenCalled();
+    unsubscribe();
   });
 
   test('isSessionRefusal is true for a 401 and false for a network or server failure', () => {

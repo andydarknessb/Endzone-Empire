@@ -21,7 +21,11 @@ export function setToken(token) {
   setSessionHint(accessToken);
 }
 
+// Bumped on every logout: a refresh that was on the wire then answers for the
+// session that just ended, and must not install its token.
+let sessionGeneration = 0;
 export function clearToken() {
+  sessionGeneration += 1;
   setToken(null);
 }
 
@@ -60,9 +64,10 @@ export function isSessionRefusal(error) {
   return error?.response?.status === 401 || error?.code === NO_SESSION;
 }
 
-function storeRotatedAccessToken(response) {
+function storeRotatedAccessToken(response, generation) {
   const token = response.data?.token;
-  if (!token) {
+  // A token answered after a logout is refused like a 204: there is no session to restore.
+  if (!token || generation !== sessionGeneration) {
     const error = new Error('no session to restore');
     error.code = NO_SESSION;
     throw error;
@@ -81,13 +86,14 @@ function requestRefresh() {
 
 export async function refreshTokens() {
   if (!refreshPromise) {
+    const generation = sessionGeneration;
     refreshPromise = requestRefresh()
       .catch(async (error) => {
         if (error.response?.status !== 401) throw error;
         await new Promise((resolve) => setTimeout(resolve, 75));
         return requestRefresh();
       })
-      .then(storeRotatedAccessToken)
+      .then((response) => storeRotatedAccessToken(response, generation))
       .finally(() => {
         refreshPromise = null;
       });
