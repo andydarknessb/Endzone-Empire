@@ -119,6 +119,15 @@ function transactionHarness(state) {
         state.trophies.push(champion);
         return { rows: [], rowCount: 1 };
       }
+      // The rollover's champion read filters on type and week; answer it as
+      // Postgres would, not with every trophy of the season.
+      if (normalized.startsWith('SELECT "team_id" FROM "trophies"') && normalized.includes(`"type" = 'champion'`)) {
+        return {
+          rows: state.trophies
+            .filter((trophy) => trophy.season === values[1] && trophy.week === 0 && trophy.type === 'champion')
+            .map((trophy) => ({ team_id: trophy.team_id })),
+        };
+      }
       if (normalized.includes('FROM "trophies" WHERE')) {
         return {
           rows: state.trophies
