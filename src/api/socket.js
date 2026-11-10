@@ -40,6 +40,9 @@ export function createDraftSocket() {
   // While a revive (below) refreshes, the socket is inactive but about to be
   // revived, so its listener must not drop out (#2556, #2740).
   let reviving = false;
+  // Held from a revive's start until its socket connects: one revive at a time,
+  // so a handshake refused as unauthorized right after a revive does not revive again.
+  let reviveHeld = false;
   const stopTellingServer = onTokenRefreshed((token) => {
     if (reviving) return;
     if (!socket.active) return stopTellingServer();
@@ -50,6 +53,8 @@ export function createDraftSocket() {
   // the socket is connected, and is then skipped above. Sending the current
   // token on every connect corrects the expiry the handshake recorded (#2556).
   socket.on('connect', () => {
+    // A revive's own connect reads the manager mark before it clears it, so only other connects clear it here.
+    if (!reviveHeld) reconnectedSinceConnect.delete(socket);
     const token = getToken();
     if (token) socket.emit('auth:refresh', { token });
   });
@@ -67,18 +72,23 @@ export function createDraftSocket() {
   // socket down until its component remounts.
   // shortcut: a component that unmounts while the refresh is in flight leaves a
   // revived socket nobody closes, move to a closed flag if that window ever bites
-  // shortcut: a handshake refused right after a revive revives again, capped only
-  // by the server's refresh limiter (60/min per IP), and the handlers run again on
-  // that connect (the manager already ran them on transport open); add a
-  // one-revive-in-flight guard if a loop or a double resync shows up
+  // A refresh that fails leaves reviveHeld set, so the socket stays down as above.
   const reviveWithFreshToken = () => {
+    if (reviveHeld) return;
+    reviveHeld = true;
     reviving = true;
     refreshTokens()
       .then(() => {
         // connect() skips the manager's 'reconnect' event, which is what the rooms
         // and feeds (onReconnect) rejoin and resync on, so run their handlers
-        // ourselves once the revived socket is connected (#2696).
-        socket.once('connect', () => runReconnectHandlers(socket));
+        // ourselves once the revived socket is connected (#2696), unless the manager
+        // already ran them since the last connect (its emits are buffered for this one).
+        socket.once('connect', () => {
+          const alreadyRan = reconnectedSinceConnect.has(socket);
+          reconnectedSinceConnect.delete(socket);
+          reviveHeld = false;
+          if (!alreadyRan) runReconnectHandlers(socket);
+        });
         socket.connect();
       })
       .catch(endSessionIfRefused)
@@ -117,14 +127,28 @@ export function createDraftSocket() {
 // Per-socket onReconnect handlers, so a revive (which never fires the manager's
 // 'reconnect') can run them too.
 const reconnectHandlers = new WeakMap();
+// Sockets whose manager 'reconnect' has run since they last connected: their
+// onReconnect handlers already ran then, buffering their emits for the next connect.
+const reconnectedSinceConnect = new WeakSet();
+// The mark listener is on the manager while the socket has handlers, so an
+// unsubscribe that leaves none leaves no listener behind.
+const reconnectMarks = new WeakMap();
 
 export function onReconnect(socket, handler) {
-  socket.io.on('reconnect', handler);
   if (!reconnectHandlers.has(socket)) reconnectHandlers.set(socket, new Set());
-  reconnectHandlers.get(socket).add(handler);
+  const handlers = reconnectHandlers.get(socket);
+  // The mark registers before the handler: a listener map that keeps one callback per event keeps the handler.
+  if (handlers.size === 0) {
+    const mark = () => reconnectedSinceConnect.add(socket);
+    reconnectMarks.set(socket, mark);
+    socket.io.on('reconnect', mark);
+  }
+  socket.io.on('reconnect', handler);
+  handlers.add(handler);
   return () => {
     socket.io.off('reconnect', handler);
-    reconnectHandlers.get(socket)?.delete(handler);
+    handlers.delete(handler);
+    if (handlers.size === 0) socket.io.off('reconnect', reconnectMarks.get(socket));
   };
 }
 
