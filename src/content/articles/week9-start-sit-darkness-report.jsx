@@ -4,8 +4,10 @@ import {
   Lead, P, H2, H3, Quote,
   Table, THead, TBody, TR, TH, TD,
 } from '../../components/public/kit/Prose';
-import { Note, Pill, Chip } from '../../components/public/kit/ArticleBits';
-import { positionColorVar } from '../../components/public/kit/positionColor';
+import { Note, Chip } from '../../components/public/kit/ArticleBits';
+import {
+  GameCard, InjuryGroup, JumpGrid, RailList, RulingCard, SlateBoard, TierBoard, WindowChecklist,
+} from './darkness-report-parts';
 
 // Body only: the frontmatter lives in week9-start-sit-darkness-report.meta.js so listings can be
 // built without loading this prose; content/articles/index.js loads it on demand.
@@ -15,13 +17,6 @@ import { positionColorVar } from '../../components/public/kit/positionColor';
 //
 // Reading key (also printed in the article): FPA rank: 1 = most points allowed (good matchup for the
 // opposing position), 32 = fewest (tough). Weeks 1 to 8. Times are Eastern. Verdicts come from docs/editorial/week9-rulings.md.
-
-const TONE = {
-  start: { label: 'Start', color: 'var(--success)' },
-  flex: { label: 'Flex', color: 'var(--accent)' },
-  sit: { label: 'Sit', color: 'var(--danger)' },
-  watch: { label: 'Game-time decisions', color: 'var(--warning)' },
-};
 
 function HeroBanner() {
   // Yard lines in perspective: t runs from 0 at the near edge to 1 at the far end line.
@@ -87,326 +82,6 @@ function HeroBanner() {
       <rect x="110" y="216" width="580" height="68" rx="14" fill="#030814" fillOpacity="0.84" stroke="#7eaaff" strokeOpacity="0.25" />
       <text x="400" y="246" textAnchor="middle" fill="#ffffff" fontFamily="system-ui, sans-serif" fontWeight="850" fontSize="24" letterSpacing="1">WEEK 9 START/SIT</text>
       <text x="400" y="270" textAnchor="middle" fill="#8badc9" fontFamily="system-ui, sans-serif" fontWeight="600" fontSize="12" letterSpacing="2">WEEK 9 | THURSDAY TO MONDAY | 15 GAMES</text>
-    </Box>
-  );
-}
-
-// Implied points for both sides as one split bar: the filled side is the favorite.
-function SplitBar({ away, home, awayPts, homePts }) {
-  const awayPct = (awayPts / (awayPts + homePts)) * 100;
-  return (
-    <Box sx={{ mt: 1.75 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8125rem', fontWeight: 700, color: 'var(--text-muted)', mb: 0.5, fontVariantNumeric: 'tabular-nums' }}>
-        <span>{away} {awayPts}</span>
-        <span>implied points</span>
-        <span>{homePts} {home}</span>
-      </Box>
-      <Box aria-hidden="true" sx={{ display: 'flex', height: 10, borderRadius: 'var(--radius-pill, 999px)', overflow: 'hidden', bgcolor: 'var(--surface-sunken)' }}>
-        <Box sx={{ width: `${awayPct}%`, bgcolor: awayPts > homePts ? 'var(--accent)' : 'var(--border-strong)' }} />
-        <Box sx={{ width: '3px', bgcolor: 'var(--surface-raised)' }} />
-        <Box sx={{ flex: 1, bgcolor: homePts > awayPts ? 'var(--accent)' : 'var(--border-strong)' }} />
-      </Box>
-    </Box>
-  );
-}
-
-// 'smash' draws a badge; 'C4' links to the matching Darkness Ruling.
-function Flag({ flag }) {
-  if (flag === 'smash') {
-    return <Box component="span" sx={{ ml: 0.75, px: 0.75, borderRadius: '4px', bgcolor: 'var(--pos-k)', color: 'var(--text-inverse)', fontSize: '0.8125rem', fontWeight: 900, letterSpacing: '0.08em', verticalAlign: 'middle' }}>SMASH</Box>;
-  }
-  if (/^C\d+$/.test(flag || '')) {
-    return (
-      <Box component="a" href={`#ruling-${flag.toLowerCase()}`} sx={{ ml: 0.75, fontSize: '0.8125rem', fontWeight: 800, whiteSpace: 'nowrap' }}>
-        Ruling {flag}
-      </Box>
-    );
-  }
-  return null;
-}
-
-// Items are [name, position, why, rank, flag].
-function CallList({ tone, items }) {
-  if (!items || !items.length) return null;
-  const { label, color } = TONE[tone];
-  return (
-    <Box sx={{ mt: 2.25 }}>
-      <Box sx={{ fontSize: '0.8125rem', fontWeight: 800, letterSpacing: '0.12em', textTransform: 'uppercase', color, mb: 0.75 }}>
-        {label}
-      </Box>
-      <Box component="ul" sx={{ listStyle: 'none', p: '0 !important', m: '0 !important', display: 'grid', gap: 0.75 }}>
-        {items.map(([name, pos, why, rank, flag]) => (
-          <Box
-            component="li"
-            key={name}
-            sx={{ m: '0 !important', pl: 1.25, py: 0.4, borderLeft: '3px solid', borderColor: color, fontSize: '0.95rem', lineHeight: 1.5, overflowWrap: 'anywhere' }}
-          >
-            <Pill color={positionColorVar(String(pos).split('/')[0])}>{pos}</Pill>
-            <strong>{name}</strong>
-            {rank ? <Box component="span" sx={{ ml: 0.75, fontSize: '0.8125rem', fontWeight: 800, color: 'var(--text-muted)' }}>{rank}</Box> : null}
-            <Flag flag={flag} />
-            {why ? <Box component="span" sx={{ color: 'var(--text-muted)' }}> &middot; {why}</Box> : null}
-          </Box>
-        ))}
-      </Box>
-    </Box>
-  );
-}
-
-function GameCard({ g }) {
-  return (
-    <Box
-      component="section"
-      aria-labelledby={`game-${g.id}`}
-      sx={{
-        my: 3.5, p: { xs: 2, sm: 3 }, borderRadius: 'var(--radius-md, 10px)',
-        bgcolor: 'var(--surface-raised)', border: '1px solid var(--border-subtle)', boxShadow: 'var(--shadow-2, none)',
-        scrollMarginTop: 92,
-      }}
-      id={`g-${g.id}`}
-    >
-      <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', justifyContent: 'space-between', columnGap: 2 }}>
-        <Box component="h3" id={`game-${g.id}`} sx={{ m: '0 !important', fontSize: { xs: '1.3rem !important', sm: '1.5rem !important' } }}>
-          {g.title}
-        </Box>
-        <Box sx={{ fontSize: '0.8125rem', fontWeight: 700, color: 'var(--text-muted)' }}>{g.when}</Box>
-      </Box>
-      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 1.25, alignItems: 'center' }}>
-        <Chip soft tone="var(--accent)">{g.line}</Chip>
-        <Chip>O/U {g.total}</Chip>
-        {g.weather ? <Chip tone={g.rain ? 'var(--warning)' : 'var(--text-muted)'}>{g.weather}</Chip> : null}
-      </Box>
-      <SplitBar away={g.away} home={g.home} awayPts={g.awayPts} homePts={g.homePts} />
-      <Box component="p" sx={{ mt: '16px !important', mb: '0 !important' }}>{g.read}</Box>
-      <Box component="p" sx={{ mt: '8px !important', mb: '0 !important', fontSize: '0.8125rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-        Matchups (FPA rank, 1 = most allowed): {g.fpa}
-      </Box>
-      <CallList tone="start" items={g.start} />
-      <CallList tone="flex" items={g.flex} />
-      <CallList tone="watch" items={g.watch} />
-      <CallList tone="sit" items={g.sit} />
-      {g.also ? (
-        <Box component="p" sx={{ mt: '14px !important', mb: '0 !important', fontSize: '0.85rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-          <strong>Also:</strong> {g.also}
-        </Box>
-      ) : null}
-    </Box>
-  );
-}
-
-// Every game on one board: kickoff, line, total, weather, and both implied totals as bars on a
-// shared scale (filled accent is the favorite).
-function SlateBoard() {
-  const max = 34;
-  return (
-    <Box sx={{ my: 3, display: 'grid', gap: 1.5, gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' } }}>
-      {GAMES.map((g) => (
-        <Box
-          key={g.id}
-          sx={{ p: 1.5, borderRadius: 'var(--radius-md, 10px)', bgcolor: 'var(--surface-raised)', border: '1px solid var(--border-subtle)', minWidth: 0 }}
-        >
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', justifyContent: 'space-between', columnGap: 1 }}>
-            <Box component="a" href={`#g-${g.id}`} sx={{ fontWeight: 800, fontSize: '0.95rem', color: 'var(--text-primary) !important', textDecoration: 'none !important' }}>
-              {g.away} @ {g.home}
-            </Box>
-            <Box sx={{ fontSize: '0.8125rem', fontWeight: 700, color: 'var(--text-muted)' }}>{g.kick} ET</Box>
-          </Box>
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75, my: 0.9 }}>
-            <Chip soft tone="var(--accent)">{g.line}</Chip>
-            <Chip>O/U {g.total}</Chip>
-            {g.weather ? <Chip tone={g.rain ? 'var(--warning)' : 'var(--text-muted)'}>{g.weather}</Chip> : null}
-          </Box>
-          <Box
-            role="img"
-            aria-label={`Implied points: ${g.away} ${g.awayPts}, ${g.home} ${g.homePts}`}
-            sx={{ display: 'grid', rowGap: 0.5 }}
-          >
-            {[[g.away, g.awayPts, g.awayPts > g.homePts], [g.home, g.homePts, g.homePts > g.awayPts]].map(([team, pts, fav]) => (
-              <Box key={team} aria-hidden="true" sx={{ display: 'grid', gridTemplateColumns: '2.8em 1fr 3.4em', alignItems: 'center', gap: 1, fontSize: '0.82rem' }}>
-                <Box component="span" sx={{ fontWeight: 800 }}>{team}</Box>
-                <Box sx={{ height: 10, borderRadius: 'var(--radius-pill, 999px)', bgcolor: 'var(--surface-sunken)', overflow: 'hidden' }}>
-                  <Box sx={{ width: `${(pts / max) * 100}%`, height: '100%', bgcolor: fav ? 'var(--accent)' : 'var(--border-strong)' }} />
-                </Box>
-                <Box component="span" sx={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--text-muted)' }}>{pts}</Box>
-              </Box>
-            ))}
-          </Box>
-        </Box>
-      ))}
-    </Box>
-  );
-}
-
-// Jump links to every game card. Plain anchors: the cards sit on this page.
-function JumpGrid() {
-  return (
-    <Box component="nav" aria-label="Jump to a game" sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, my: 3 }}>
-      {GAMES.map((g) => (
-        <Box
-          key={g.id}
-          component="a"
-          href={`#g-${g.id}`}
-          sx={{
-            px: 1.25, py: 0.4, borderRadius: 'var(--radius-pill, 999px)', border: '1px solid var(--border-subtle)',
-            bgcolor: 'var(--surface-raised)', color: 'var(--text-primary) !important', textDecoration: 'none !important',
-            fontSize: '0.8125rem', fontWeight: 700, '&:hover': { borderColor: 'var(--accent)' },
-          }}
-        >
-          {g.away} @ {g.home}
-        </Box>
-      ))}
-    </Box>
-  );
-}
-
-const INJ_TONE = {
-  out: { label: 'OUT', color: 'var(--danger)' },
-  default: { label: 'TREAT AS OUT', color: 'var(--danger)' },
-  gtd: { label: 'GAME-TIME', color: 'var(--warning)' },
-  likely: { label: 'LIKELY IN', color: 'var(--success)' },
-  sit: { label: 'SIT EITHER WAY', color: 'var(--text-muted)' },
-};
-
-// Rows are [name, position, team, status, pivot, tone, ruling].
-function InjuryGroup({ title, when, rows }) {
-  return (
-    <Box sx={{ my: 3 }}>
-      <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 1, mb: 1 }}>
-        <Box component="h3" sx={{ m: '0 !important', fontSize: '1.15rem !important' }}>{title}</Box>
-        {when ? <Chip tone="var(--accent)">{when}</Chip> : null}
-      </Box>
-      <Box sx={{ display: 'grid', gap: 1 }}>
-        {rows.map(([name, pos, team, status, pivot, tone, ruling]) => {
-          const t = INJ_TONE[tone];
-          return (
-            <Box
-              key={name}
-              sx={{
-                p: 1.25, borderRadius: 'var(--radius-md, 10px)', bgcolor: 'var(--surface-raised)', border: '1px solid var(--border-subtle)',
-                borderLeft: '4px solid', borderLeftColor: t.color, minWidth: 0, overflowWrap: 'anywhere',
-              }}
-            >
-              <Box sx={{ lineHeight: 1.5 }}>
-                <Pill color={t.color}>{t.label}</Pill>
-                <strong>{name}</strong>
-                <Box component="span" sx={{ ml: 0.75, fontSize: '0.8125rem', fontWeight: 700, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{pos}, {team}</Box>
-                <Flag flag={ruling} />
-              </Box>
-              <Box sx={{ fontSize: '0.88rem', color: 'var(--text-muted)', mt: 0.4, lineHeight: 1.5 }}>{status}</Box>
-              <Box sx={{ fontSize: '0.92rem', mt: 0.4, lineHeight: 1.5 }}><strong>Pivot:</strong> {pivot}</Box>
-            </Box>
-          );
-        })}
-      </Box>
-    </Box>
-  );
-}
-
-// One position board in bands that follow the written verdicts. Rows are [rank, name, team, note,
-// band]; a player with no ruling is ranked without a call.
-const BANDS = [
-  { key: 'start', label: 'START', color: 'var(--success)' },
-  { key: 'flex', label: 'FLEX', color: 'var(--accent)' },
-  { key: 'sit', label: 'SIT', color: 'var(--danger)' },
-  { key: 'rank', label: 'RANKED, NO CALL', color: 'var(--text-muted)' },
-];
-function TierBoard({ pos, rows, next }) {
-  return (
-    <Box sx={{ my: 3 }}>
-      {BANDS.map((b) => {
-        const inBand = rows.filter((r) => r[4] === b.key);
-        if (!inBand.length) return null;
-        return (
-          <Box key={b.key} sx={{ mb: 1.75, borderLeft: '4px solid', borderLeftColor: b.color, pl: 1.5 }}>
-            <Box sx={{ fontSize: '0.8125rem', fontWeight: 900, letterSpacing: '0.12em', color: b.color, mb: 0.25 }}>
-              {b.label} &middot; {pos} {inBand.map((r) => r[0]).join(', ')}
-            </Box>
-            {inBand.map(([rk, name, team, note]) => (
-              <Box key={`${rk}-${name}`} sx={{ display: 'grid', gridTemplateColumns: '1.9em 1fr', columnGap: 1, alignItems: 'baseline', py: 0.5, borderBottom: '1px solid var(--border-subtle)', fontSize: '0.92rem', lineHeight: 1.4 }}>
-                <Box component="span" sx={{ fontWeight: 900, color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>{rk}</Box>
-                <Box sx={{ minWidth: 0, overflowWrap: 'anywhere' }}>
-                  <strong>{name}</strong> <Box component="span" sx={{ color: 'var(--text-muted)', fontSize: '0.8125rem', fontWeight: 700 }}>{team}</Box>
-                  {note ? <Box sx={{ fontSize: '0.8125rem', color: 'var(--text-muted)' }}>{note}</Box> : null}
-                </Box>
-              </Box>
-            ))}
-          </Box>
-        );
-      })}
-      {next ? (
-        <Box component="p" sx={{ mt: '8px !important', mb: '0 !important', fontSize: '0.9rem', lineHeight: 1.55 }}>
-          <strong>Next and unranked:</strong> <Box component="span" sx={{ color: 'var(--text-muted)' }}>{next}</Box>
-        </Box>
-      ) : null}
-    </Box>
-  );
-}
-
-const VERDICT_COLOR = {
-  START: 'var(--success)', FLEX: 'var(--accent)', SIT: 'var(--danger)', OUT: 'var(--danger)',
-};
-const verdictColor = (v) => VERDICT_COLOR[String(v).split(' ')[0]];
-
-// Rulings are [id, lines]; lines are [name, position, team, verdict, reason].
-function RulingCard({ r: [id, lines] }) {
-  return (
-    <Box
-      id={`ruling-${id.toLowerCase()}`}
-      sx={{ my: 1.5, p: { xs: 1.5, sm: 2 }, borderRadius: 'var(--radius-md, 10px)', bgcolor: 'var(--surface-raised)', border: '1px solid var(--border-subtle)', scrollMarginTop: 92 }}
-    >
-      <Box sx={{ display: 'grid', gridTemplateColumns: '3.2em 1fr', columnGap: 1, rowGap: 1.1 }}>
-        <Box sx={{ fontWeight: 900, color: 'var(--accent)' }}>{id}</Box>
-        <Box sx={{ display: 'grid', rowGap: 1.1, minWidth: 0 }}>
-          {lines.map(([name, pos, team, verdict, reason]) => (
-            <Box key={name} sx={{ pl: 1.25, borderLeft: '3px solid', borderColor: verdictColor(verdict), fontSize: '0.95rem', lineHeight: 1.55, overflowWrap: 'anywhere' }}>
-              <Pill color={positionColorVar(String(pos).split('/')[0])}>{pos}</Pill>
-              <strong>{name}</strong>
-              <Box component="span" sx={{ ml: 0.75, fontSize: '0.8125rem', fontWeight: 700, color: 'var(--text-muted)' }}>{team}</Box>
-              <Box component="span" sx={{ ml: 0.75, fontSize: '0.8125rem', fontWeight: 900, letterSpacing: '0.06em', color: verdictColor(verdict) }}>{verdict.toUpperCase()}</Box>
-              <Box sx={{ color: 'var(--text-muted)', fontSize: '0.92rem' }}>{reason}</Box>
-            </Box>
-          ))}
-        </Box>
-      </Box>
-    </Box>
-  );
-}
-
-// Plain labelled list: [lead, text] rows with a colored rail.
-function RailList({ items, color = 'var(--accent)' }) {
-  return (
-    <Box component="ul" sx={{ listStyle: 'none', p: '0 !important', m: '16px 0 !important', display: 'grid', gap: 0.9 }}>
-      {items.map(([lead, text, pos]) => (
-        <Box
-          component="li"
-          key={lead}
-          sx={{ m: '0 !important', pl: 1.25, py: 0.3, borderLeft: '3px solid', borderColor: color, fontSize: '0.95rem', lineHeight: 1.55, overflowWrap: 'anywhere' }}
-        >
-          {pos ? <Pill color={positionColorVar(String(pos).split('/')[0])}>{pos}</Pill> : null}
-          <strong>{lead}</strong>
-          <Box component="span" sx={{ color: 'var(--text-muted)' }}> &middot; {text}</Box>
-        </Box>
-      ))}
-    </Box>
-  );
-}
-
-// One inactive window: [who, what to do] rows with an open box to tick.
-function WindowChecklist({ title, time, rows }) {
-  return (
-    <Box sx={{ my: 3, p: { xs: 1.75, sm: 2.5 }, borderRadius: 'var(--radius-md, 10px)', bgcolor: 'var(--surface-raised)', border: '1px solid var(--border-subtle)' }}>
-      <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 1, mb: 1 }}>
-        <Box component="h3" sx={{ m: '0 !important', fontSize: '1.15rem !important' }}>{title}</Box>
-        <Chip tone="var(--accent)">{time}</Chip>
-      </Box>
-      <Box component="ul" sx={{ listStyle: 'none', p: '0 !important', m: '0 !important', display: 'grid', gap: 0.9 }}>
-        {rows.map(([who, what]) => (
-          <Box component="li" key={who} sx={{ m: '0 !important', display: 'grid', gridTemplateColumns: '1.1rem 1fr', columnGap: 1.25, fontSize: '0.93rem', lineHeight: 1.5 }}>
-            <Box aria-hidden="true" sx={{ width: '0.9rem', height: '0.9rem', mt: '0.3em', borderRadius: '3px', border: '2px solid var(--border-strong)' }} />
-            <Box sx={{ overflowWrap: 'anywhere' }}><strong>{who}</strong> <Box component="span" sx={{ color: 'var(--text-muted)' }}>{what}</Box></Box>
-          </Box>
-        ))}
-      </Box>
     </Box>
   );
 }
@@ -2101,7 +1776,7 @@ const Body = () => (
       ]}
     />
 
-    <JumpGrid />
+    <JumpGrid games={GAMES} />
 
     <H2>The Slate Board</H2>
     <P>
@@ -2112,7 +1787,7 @@ const Body = () => (
       Baltimore (14.75) and Arizona (15.5) have the lowest. Jacksonville, Kansas City and San Francisco
       are the biggest favorites, all at -10.
     </P>
-    <SlateBoard />
+    <SlateBoard games={GAMES} />
     <P>
       New Orleans, the Chargers and Minnesota play indoors. Madrid has no forecast in our data. Wind tops
       out at 10 mph in Rams-Washington, Giants-Philadelphia and Arizona-Seattle. Baltimore has a 21% chance
