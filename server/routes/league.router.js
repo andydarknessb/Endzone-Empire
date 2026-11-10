@@ -592,6 +592,7 @@ router.get('/:id/transactions', async (req, res) => {
       }));
     }
     // Rows written before #2752 still hold the account id and username; a member reads this log.
+    // A denylist on purpose: detail keys differ by type (items, bids), so an allowlist would drop what the log reads.
     for (const row of result.rows) {
       if (row.detail) { delete row.detail.userId; delete row.detail.username; }
     }

@@ -6,6 +6,36 @@ const { createRateLimiter } = require('../modules/rateLimit');
 const router = express.Router();
 router.use(requireAuth);
 
+// A join alert stored before #2752 names the requester's account in `message`
+// and carries `data.userId`. Every join alert is served by its proposed Team,
+// read from the join request, or by the league alone once that request is gone.
+// The stored row is left as written.
+async function servedJoinAlerts(rows) {
+  const requestIds = rows
+    .filter((row) => row.type === 'join_request' && Number.isInteger(row.data?.requestId))
+    .map((row) => row.data.requestId);
+  const teamNames = new Map();
+  if (requestIds.length > 0) {
+    const requests = await pool.query(
+      `SELECT "id", "team_name" FROM "join_requests" WHERE "id" = ANY($1::int[])`,
+      [requestIds]
+    );
+    for (const request of requests.rows) teamNames.set(request.id, request.team_name);
+  }
+  return rows.map((row) => {
+    if (row.type !== 'join_request') return row;
+    const requestId = row.data?.requestId ?? null;
+    const team = teamNames.get(requestId);
+    return {
+      ...row,
+      message: team
+        ? `${team} requested to join ${row.league_name}`
+        : `A join request is waiting in ${row.league_name}`,
+      data: { requestId },
+    };
+  });
+}
+
 // GET /api/notifications — the caller's newest notifications
 router.get('/', async (req, res) => {
   try {
@@ -21,7 +51,7 @@ router.get('/', async (req, res) => {
       `SELECT COUNT(*)::int AS n FROM "notifications" WHERE "user_id" = $1 AND "read" = false`,
       [req.user.id]
     );
-    res.json({ notifications: result.rows, unread: unread.rows[0].n });
+    res.json({ notifications: await servedJoinAlerts(result.rows), unread: unread.rows[0].n });
   } catch (error) {
     console.error('Error fetching notifications', error);
     res.status(500).json({ error: 'failed to fetch notifications' });
