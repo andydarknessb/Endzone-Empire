@@ -874,3 +874,44 @@ test('sweep: a queued null-team player is autopicked ahead of an unqueued team-h
 
   assert.deepEqual(attempts, [1]);
 });
+
+// --- #2764: rosterable positions, and the queue outside the candidate bound ---
+
+// MinneApple without a DEF starting slot: DEF is a position this league cannot roster.
+const NO_DEF_ROSTER_SLOTS = MINNEAPPLE_ROSTER_SLOTS.filter((slot) => slot.key !== 'DEF');
+
+test('sweep: a rosterable player beats an unrosterable one with a better ADP (#2764)', async (t) => {
+  const deff = { id: 500, name: 'Top DEF', adp: '1.0', nfl_team: 'KC', position: 'DEF', queue_rank: null, last_season_points: null };
+  const wr = { id: 501, name: 'Bench WR', adp: '40.0', nfl_team: 'KC', position: 'WR', queue_rank: null, last_season_points: null };
+  installSweepPool(t, { candidates: [deff, wr], league: { ...SWEEP_LEAGUE, roster_slots: NO_DEF_ROSTER_SLOTS } });
+  const attempts = recordAttempts(t);
+
+  await pickClock.processExpiredPickClocks();
+
+  assert.deepEqual(attempts, [501], 'the WR the league can roster goes before the DEF it cannot');
+});
+
+test('sweep: an unrosterable player is autopicked when nothing else is left (#2764)', async (t) => {
+  const deff = { id: 500, name: 'Top DEF', adp: '1.0', nfl_team: 'KC', position: 'DEF', queue_rank: null, last_season_points: null };
+  installSweepPool(t, { candidates: [deff], league: { ...SWEEP_LEAGUE, roster_slots: NO_DEF_ROSTER_SLOTS } });
+  const attempts = recordAttempts(t);
+
+  const outcomes = await pickClock.processExpiredPickClocks();
+
+  assert.deepEqual(attempts, [500]);
+  assert.deepEqual(outcomes, [{ leagueId: LEAGUE_ID, playerId: 500 }]);
+});
+
+test('sweep: 25 cap-blocked queue entries do not stop the board pick (#2764)', async (t) => {
+  const queue = Array.from({ length: 25 }, (_, i) => ({
+    id: 600 + i, name: `Capped ${i}`, adp: null, nfl_team: 'KC', queue_rank: i + 1, last_season_points: null,
+  }));
+  const board = { id: 700, name: 'Board Pick', adp: '50.0', nfl_team: 'KC', queue_rank: null, last_season_points: null };
+  installSweepPool(t, { candidates: [board, ...queue] });
+  const attempts = recordAttempts(t, { snipe: queue.map((p) => p.id) });
+
+  const outcomes = await pickClock.processExpiredPickClocks();
+
+  assert.deepEqual(attempts, [...queue.map((p) => p.id), 700], 'every capped queue entry is tried, then the board');
+  assert.deepEqual(outcomes, [{ leagueId: LEAGUE_ID, playerId: 700 }], 'the board pick lands, not an escalation');
+});

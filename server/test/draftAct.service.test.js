@@ -2,7 +2,8 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createFakePool } = require('./helpers/fakePool');
 const draftRoomBroadcast = require('../modules/draftRoomBroadcast');
-const { runDraftAct } = require('../services/draftAct.service');
+const { runDraftAct, setAutodraft, reset, correctLatestPick } = require('../services/draftAct.service');
+const rosterMove = require('../services/rosterMove.service');
 const { DraftError } = require('../services/draft.service');
 
 /**
@@ -229,5 +230,131 @@ test('the act body receives the locked client, the League row, the Teams and the
   assert.deepEqual(seen.league, { id: LEAGUE_ID, draft_status: 'active' }, 'the locked League row is passed');
   assert.equal(seen.teams.length, 1, 'the Teams in rotation order are passed');
   assert.deepEqual(seen.actingTeam, { id: 11, name: 'Acting FC' }, 'the acting Team is resolved');
+  fake.assertClean();
+});
+
+// --- #2764: the Autodraft rules of the Draft act operations ---
+
+// A world for one named act: the locked League row, the Teams, the acting-Team
+// lookup and the commissioner check. `extra` adds the act's own statements.
+function actWorld(t, { league, teams, commissioner = false, extra = [] }) {
+  return createFakePool([
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*/, () => ({ rows: [league] })],
+    [/^SELECT "id", "owner_id", "autodraft", "draft_position" FROM "teams"/, () => ({ rows: teams })],
+    [/^SELECT "id", "name" FROM "teams"/, () => ({ rows: teams.filter((tm) => tm.owner_id === USER_ID).map((tm) => ({ id: tm.id, name: 'Acting FC' })) })],
+    [/^SELECT 1 FROM "leagues" WHERE "id" = \$1 AND/, () => ({ rows: commissioner ? [{ '?column?': 1 }] : [] })],
+    [/^UPDATE "teams" SET "autodraft" = \$1/, () => ({ rows: [] })],
+    ...extra,
+  ]).install(t);
+}
+
+test('an autopick draft refuses turning Autodraft off, and writes nothing (#2764)', async (t) => {
+  const fake = actWorld(t, {
+    league: { id: LEAGUE_ID, draft_status: 'active', draft_type: 'autopick', draft_paused: false, current_pick: 0 },
+    teams: [{ id: 11, owner_id: USER_ID, autodraft: true, draft_position: 1 }],
+  });
+
+  await assert.rejects(
+    setAutodraft({ leagueId: LEAGUE_ID, userId: USER_ID, teamId: 11, enabled: false }),
+    (err) => err instanceof DraftError && err.statusCode === 409
+  );
+
+  assert.equal(fake.matching(/^UPDATE "teams" SET "autodraft"/).length, 0, 'the switch is never written');
+  assert.equal(fake.matching(/^ROLLBACK$/).length, 1, 'the refusal rolls back');
+  fake.assertClean();
+});
+
+test('an autopick draft still lets Autodraft be switched on (#2764)', async (t) => {
+  const fake = actWorld(t, {
+    league: { id: LEAGUE_ID, draft_status: 'pending', draft_type: 'autopick', draft_paused: false, current_pick: 0 },
+    teams: [{ id: 11, owner_id: USER_ID, autodraft: false, draft_position: 1 }],
+  });
+  installActBroadcast(t, fake);
+
+  const response = await setAutodraft({ leagueId: LEAGUE_ID, userId: USER_ID, teamId: 11, enabled: true });
+
+  assert.deepEqual(response, { leagueId: LEAGUE_ID, teamId: 11, autodraft: true });
+  fake.assertClean();
+});
+
+test('reset switches Autodraft off for managed Teams only; a CPU-managed Team keeps it (#2764)', async (t) => {
+  const fake = actWorld(t, {
+    league: { id: LEAGUE_ID, draft_status: 'active', draft_paused: false, current_pick: 4, current_season: 2026 },
+    teams: [],
+    commissioner: true,
+    extra: [
+      [/^SELECT 1 FROM "matchups"/, () => ({ rows: [] })],
+      [/^DELETE FROM "/, () => ({ rows: [] })],
+      [/^UPDATE "teams" SET "autodraft" = CASE WHEN "owner_id" IS NULL THEN "autodraft" ELSE false END/, () => ({ rows: [] })],
+      [/^UPDATE "leagues" SET "draft_status" = 'pending'/, () => ({ rows: [] })],
+      [/^UPDATE "leagues" SET "pick_deadline_at" = NULL/, () => ({ rows: [] })],
+      [/^INSERT INTO "draft_activity"/, () => ({ rows: [{ id: 1, feed_seq: 1, created_at: new Date() }] })],
+    ],
+  });
+  installActBroadcast(t, fake);
+
+  await reset({ leagueId: LEAGUE_ID, userId: USER_ID });
+
+  assert.equal(
+    fake.matching(/SET "autodraft" = CASE WHEN "owner_id" IS NULL THEN "autodraft" ELSE false END/).length,
+    1,
+    'the Autodraft reset spares CPU-managed Teams'
+  );
+  fake.assertClean();
+});
+
+// A correction world: one Pick (pick 1, Team 11, player 900) is the latest, made by
+// autopick or by hand, and its Team has `streak` consecutive timeouts on Autodraft or not.
+function correctionWorld(t, { autopick, autodraft = true, streak = 2 }) {
+  // The roster drop is its own module's concern: stub it, the correction's own writes are what is under test.
+  t.mock.method(rosterMove, 'drop', async () => {});
+  return actWorld(t, {
+    league: { id: LEAGUE_ID, draft_status: 'active', draft_paused: false, current_pick: 1, current_season: 2026 },
+    teams: [],
+    commissioner: true,
+    extra: [
+      [/^SELECT "id", "name", "owner_id", "draft_position", "autodraft", "consecutive_timeouts" FROM "teams"/, () => ({
+        rows: [{ id: 11, name: 'Acting FC', owner_id: 99, draft_position: 1, autodraft, consecutive_timeouts: streak }],
+      })],
+      [/^SELECT "pick_number", "team_id", "player_id", "is_keeper" FROM "draft_picks"/, () => ({
+        rows: [{ pick_number: 1, team_id: 11, player_id: 900, is_keeper: false }],
+      })],
+      [/^SELECT 1 FROM "draft_activity" "da"/, () => ({ rows: autopick ? [{ '?column?': 1 }] : [] })],
+      [/^SELECT "id", "name", "position", "nfl_team" FROM "players"/, () => ({
+        rows: [{ id: 900, name: 'Tripping WR', position: 'WR', nfl_team: 'KC' }],
+      })],
+      [/^DELETE FROM "/, () => ({ rows: [] })],
+      [/^UPDATE "leagues" SET "draft_paused" = true, "current_pick"/, () => ({ rows: [] })],
+      [/^UPDATE "teams" SET "autodraft" = false, "consecutive_timeouts" = 0/, () => ({ rows: [] })],
+      [/^INSERT INTO "draft_activity"/, () => ({ rows: [{ id: 9, feed_seq: 1, created_at: new Date() }] })],
+    ],
+  });
+}
+
+test('correcting the Autopick that tripped its Team clears that Team\'s Autodraft and streak (#2764)', async (t) => {
+  const fake = correctionWorld(t, { autopick: true, autodraft: true, streak: 2 });
+  installActBroadcast(t, fake);
+
+  await correctLatestPick({ leagueId: LEAGUE_ID, userId: USER_ID, reason: 'the clock tripped on a glitch' });
+
+  assert.equal(
+    fake.matching(/^UPDATE "teams" SET "autodraft" = false, "consecutive_timeouts" = 0/).length,
+    1,
+    'the tripping Team leaves Autodraft and its streak resets'
+  );
+  fake.assertClean();
+});
+
+test('correcting a hand-made Pick leaves its Team on Autodraft and streak alone (#2764)', async (t) => {
+  const fake = correctionWorld(t, { autopick: false, autodraft: true, streak: 2 });
+  installActBroadcast(t, fake);
+
+  await correctLatestPick({ leagueId: LEAGUE_ID, userId: USER_ID, reason: 'a hand pick was entered twice' });
+
+  assert.equal(
+    fake.matching(/^UPDATE "teams" SET "autodraft" = false, "consecutive_timeouts" = 0/).length,
+    0,
+    'only an Autopick that tripped the threshold clears the Team'
+  );
   fake.assertClean();
 });

@@ -8,7 +8,7 @@ const { getDraftRoomBroadcast } = require('../modules/draftRoomBroadcast');
 const { lastCompletedNflSeason } = require('./nflSeason.service');
 const bestAvailable = require('./bestAvailable.service');
 const startingNeed = require('./startingNeed');
-const { parseLineupSettings } = require('./lineup.service');
+const { parseLineupSettings, rosterablePositions } = require('./lineup.service');
 const { draftRounds } = require('./rosterShape');
 // draftActivity requires only teamIdentity, so there is no cycle back to this
 // module (unlike pick.service, required lazily in autoPick): a top-level
@@ -45,7 +45,8 @@ const draftCompletion = require('./draftCompletion');
 
 const AUTODRAFT_DELAY_FLOOR = 1;
 
-// Defensive bound on landPick() attempts across 409-blocked candidates - not a ranking cutoff.
+// Defensive bound on landPick() attempts across the board's 409-blocked candidates - not a
+// ranking cutoff. The team's queue is not counted: a cap-blocked queue entry never uses it up (#2764).
 const AUTOPICK_CANDIDATE_LIMIT = 25;
 
 /**
@@ -338,6 +339,9 @@ async function armInPlace(client, { leagueId, clockSeconds }) {
  *      the team's filled-starter count, computed by exact matching in
  *      startingNeed.js);
  *   3. Best available among everyone else.
+ * Players the league cannot roster (their position is in no starting slot)
+ * come after everything else, null-team players included (#2764). The
+ * queue is not bounded; the board is (AUTOPICK_CANDIDATE_LIMIT).
  * Best available (ADP, then last completed season's points, then name; never
  * database id) is the comparator inside the need and bench phases (phase 1, the
  * queue, orders by the team's own stated rank instead), shared with the Draft
@@ -359,16 +363,21 @@ async function armInPlace(client, { leagueId, clockSeconds }) {
  * sweep interface (server/test/pickClock.sweep.test.js), not a test-only export
  * (ADR 0018).
  */
-function orderAutopickCandidates(rows, { rosterSlots, rosterPositions, currentRound, draftRounds: rounds, picksRemaining }) {
+function orderAutopickCandidates(rows, { rosterSlots, rosterPositions, currentRound, draftRounds: rounds, picksRemaining, rosterable }) {
   const isKickerOrDefense = (row) => row.position === 'K' || row.position === 'DEF';
   const byBestAvailable = (a, b) => bestAvailable.compareBestAvailable(a, b);
+  // A position the league cannot roster (rosterable null: no template, no gate) is drafted last (#2764).
+  const isRosterable = (row) => rosterable == null || rosterable.has(row.position);
 
   // Phase 1: the queue, sovereign and never position-filtered.
   const queued = rows.filter((r) => r.queue_rank != null).sort((a, b) => a.queue_rank - b.queue_rank);
   const unqueued = rows.filter((r) => r.queue_rank == null);
-  // Null-team players are the last tail: reached only when nothing else is left (ADR 0026).
-  const rest = unqueued.filter((r) => !bestAvailable.hasNoNflTeam(r));
-  const noTeam = unqueued.filter(bestAvailable.hasNoNflTeam).sort(byBestAvailable);
+  // The very end: unrosterable players, reached only when nothing else is left (#2764).
+  const unrosterable = unqueued.filter((r) => !isRosterable(r)).sort(byBestAvailable);
+  const rosterableUnqueued = unqueued.filter(isRosterable);
+  // Null-team players are the last tail among rosterable players: reached only when nothing else is left (ADR 0026).
+  const rest = rosterableUnqueued.filter((r) => !bestAvailable.hasNoNflTeam(r));
+  const noTeam = rosterableUnqueued.filter(bestAvailable.hasNoNflTeam).sort(byBestAvailable);
 
   // Fills-a-need depends only on the candidate's position, so answer it once per
   // distinct position rather than once per candidate.
@@ -412,7 +421,10 @@ function orderAutopickCandidates(rows, { rosterSlots, rosterPositions, currentRo
   // to the raw Best available instead of stalling.
   if (phased.length === 0 && rest.length > 0) phased = [...rest].sort(byBestAvailable);
 
-  return [...queued, ...phased, ...noTeam];
+  // The board is bounded here; the queue is not, so a run of cap-blocked queue
+  // entries cannot use up the board's candidates (#2764).
+  const boardOrder = [...phased, ...noTeam, ...unrosterable];
+  return [...queued, ...boardOrder.slice(0, AUTOPICK_CANDIDATE_LIMIT)];
 }
 
 /**
@@ -518,6 +530,7 @@ async function autoPick({ leagueId }) {
   );
   const rosterPositions = rosterRes.rows.map((row) => row.position);
   const { rosterSlots } = parseLineupSettings(league);
+  const rosterable = rosterablePositions(league);
   const rounds = draftRounds(league);
   const currentRound = teams.length > 0 ? Math.floor(league.current_pick / teams.length) + 1 : 1;
   const picksRemaining = await countPicksRemaining({
@@ -525,8 +538,8 @@ async function autoPick({ leagueId }) {
   });
 
   const candidates = orderAutopickCandidates(candidatesRes.rows, {
-    rosterSlots, rosterPositions, currentRound, draftRounds: rounds, picksRemaining,
-  }).slice(0, AUTOPICK_CANDIDATE_LIMIT);
+    rosterSlots, rosterPositions, currentRound, draftRounds: rounds, picksRemaining, rosterable,
+  });
 
   // The turn this firing saw expire, built once for every candidate and the escalation.
   const expiredTurn = { pickNumber: league.current_pick + 1, deadline };

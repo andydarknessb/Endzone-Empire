@@ -226,6 +226,8 @@ async function runStartAction(league) {
     // Can't start right now (race lost to a concurrent change, stale
     // overrides/keepers, etc.) — flag it so the scheduler doesn't spin on it
     // every tick, and let the commissioner intervene.
+    // Read before the UPDATE below sets it: a flag already set is a repeat refusal (#2764).
+    const alreadyFlagged = league.draft_autostart_failed;
     const flagged = await pool.query(
       `UPDATE "leagues" SET "draft_autostart_failed" = true WHERE "id" = $1 AND "draft_status" = 'pending'`,
       [league.id]
@@ -233,6 +235,13 @@ async function runStartAction(league) {
     // No pending row matched: someone started the draft by hand since the tick
     // read it, so the 409 is stale and its notice would land mid-draft (#2607).
     if (flagged.rowCount === 0) return;
+    // Notify once per refusal: a repeat stays quiet. The flag never blocks the start
+    // (scheduledDraftAction still returns 'start'), so a repaired League starts on the
+    // next tick (#2764).
+    // shortcut: the flag has no reason column, so a start refused after an unresolved
+    // understaffed or no-market nudge stays silent until the flag clears; upgrade: a
+    // reason column on leagues, written with the flag.
+    if (alreadyFlagged) return;
     await notifyCommissioners(pool, {
       leagueId: league.id,
       ownerId: league.owner_id,

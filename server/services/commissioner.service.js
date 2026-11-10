@@ -26,6 +26,7 @@ const lineupService = require('./lineup.service');
 const { isPickemOnly } = require('./leagueType');
 const { removability, removeRefusalMessage } = require('./leaguePhase');
 const { emailBanHash } = require('./leagueMembership.service');
+const { teamForPick } = require('./draftOrder.service');
 const { getStandings: getPickemStandings, getSeasonSlate } = require('./pickem.service');
 const { OUTCOME: PICKEM_RESULT_OUTCOME, resultOf: pickemSeasonResultOf } = require('./pickemSeasonResult.service');
 
@@ -941,6 +942,24 @@ async function settleDepartedTeam(client, { league, teamId }) {
      WHERE "team_id" = $1 AND "status" = 'pending'`,
     [teamId]
   );
+  // A departing Team on the clock of an active, unpaused Draft re-arms that clock on the
+  // Autodraft delay, so an untimed Draft cannot freeze behind a CPU-managed Team (#2764).
+  if (league.draft_status === 'active' && !league.draft_paused) {
+    const teams = await client.query(
+      `SELECT "id", "draft_position" FROM "teams" WHERE "league_id" = $1
+       ORDER BY "draft_position" NULLS LAST, "id"`,
+      [league.id]
+    );
+    const onClock = teamForPick(league.current_pick, teams.rows, {
+      rotation: league.draft_rotation,
+      overrides: league.draft_order_overrides,
+    });
+    if (onClock && onClock.id === teamId) {
+      // Lazy: pickClock.service loads this module's peers, so a top-level require cycles.
+      const pickClock = require('./pickClock.service');
+      await pickClock.onAutodraftToggled(client, { leagueId: league.id });
+    }
+  }
   return 'cpu';
 }
 
