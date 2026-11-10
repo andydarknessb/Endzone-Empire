@@ -305,7 +305,7 @@ test('reset switches Autodraft off for managed Teams only; a CPU-managed Team ke
 
 // A correction world: one Pick (pick 1, Team 11, player 900) is the latest, made by
 // autopick or by hand, and its Team has `streak` consecutive timeouts on Autodraft or not.
-function correctionWorld(t, { autopick, autodraft = true, streak = 2 }) {
+function correctionWorld(t, { autopick, autodraft = true, streak = 2, ownerId = 99 }) {
   // The roster drop is its own module's concern: stub it, the correction's own writes are what is under test.
   t.mock.method(rosterMove, 'drop', async () => {});
   return actWorld(t, {
@@ -314,7 +314,7 @@ function correctionWorld(t, { autopick, autodraft = true, streak = 2 }) {
     commissioner: true,
     extra: [
       [/^SELECT "id", "name", "owner_id", "draft_position", "autodraft", "consecutive_timeouts" FROM "teams"/, () => ({
-        rows: [{ id: 11, name: 'Acting FC', owner_id: 99, draft_position: 1, autodraft, consecutive_timeouts: streak }],
+        rows: [{ id: 11, name: 'Acting FC', owner_id: ownerId, draft_position: 1, autodraft, consecutive_timeouts: streak }],
       })],
       [/^SELECT "pick_number", "team_id", "player_id", "is_keeper" FROM "draft_picks"/, () => ({
         rows: [{ pick_number: 1, team_id: 11, player_id: 900, is_keeper: false }],
@@ -341,6 +341,20 @@ test('correcting the Autopick that tripped its Team clears that Team\'s Autodraf
     fake.matching(/^UPDATE "teams" SET "autodraft" = false, "consecutive_timeouts" = 0/).length,
     1,
     'the tripping Team leaves Autodraft and its streak resets'
+  );
+  fake.assertClean();
+});
+
+test('correcting an Autopick of a CPU-managed Team leaves it on Autodraft (#2764)', async (t) => {
+  const fake = correctionWorld(t, { autopick: true, autodraft: true, streak: 2, ownerId: null });
+  installActBroadcast(t, fake);
+
+  await correctLatestPick({ leagueId: LEAGUE_ID, userId: USER_ID, reason: 'the CPU pick was entered twice' });
+
+  assert.equal(
+    fake.matching(/^UPDATE "teams" SET "autodraft" = false, "consecutive_timeouts" = 0/).length,
+    0,
+    'a CPU-managed Team has no manager to turn Autodraft back on'
   );
   fake.assertClean();
 });

@@ -380,7 +380,8 @@ async function saveKeepers({ leagueId, userId, keepers }) {
 async function isTrippedAutopick(client, { leagueId, team, pickNumber }) {
   // Lazy: draft.service owns the threshold and loads this module (the pickClock pattern).
   const { shouldAutoEnableAutodraft } = require('./draft.service');
-  if (!team.autodraft || !shouldAutoEnableAutodraft(team.consecutive_timeouts)) return false;
+  // A CPU-managed Team (owner_id NULL) stays on Autodraft: correcting its Autopick never clears it (#2764).
+  if (team.owner_id == null || !team.autodraft || !shouldAutoEnableAutodraft(team.consecutive_timeouts)) return false;
   const autopick = await client.query(
     `SELECT 1 FROM "draft_activity" "da"
        JOIN "draft_picks" "dp" ON "dp"."id" = "da"."source_pick_id"
