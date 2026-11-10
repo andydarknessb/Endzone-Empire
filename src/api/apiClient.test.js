@@ -259,6 +259,31 @@ describe('cookie-backed refresh', () => {
     expect(axiosMock.history.post).toHaveLength(2);
   });
 
+  // A superseded refresh settling after a logout must not clear the refresh the
+  // logout left in flight, or a third caller starts a duplicate POST on the same cookie.
+  test('a superseded refresh settling does not clear the newer refresh in flight', async () => {
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+    const held = [];
+    axiosMock.onPost('/api/auth/refresh?optional=1').reply(() => {
+      if (held.length >= 2) return [200, { token: 'c-jwt', user: { id: 1 } }];
+      return new Promise((release) => { held.push(release); });
+    });
+
+    const superseded = refreshTokens().catch((e) => e); // refresh A on the wire
+    clearToken(); // logout: A now belongs to the session that ended
+    const newer = refreshTokens(); // refresh B on the wire
+    await settle();
+    held[0]([200, { token: 'a-jwt', user: { id: 1 } }]);
+    await superseded; // A settles as SESSION_ENDED and installs nothing
+
+    const third = refreshTokens(); // must join B, not start a new POST
+    held[1]([200, { token: 'b-jwt', user: { id: 1 } }]);
+
+    await expect(third).resolves.toBe('b-jwt');
+    await expect(newer).resolves.toBe('b-jwt');
+    expect(axiosMock.history.post).toHaveLength(2);
+  });
+
   test('isSessionRefusal is true for a 401 and false for a network or server failure', () => {
     expect(isSessionRefusal({ response: { status: 401 } })).toBe(true);
     expect(isSessionRefusal({ response: { status: 400 } })).toBe(false);

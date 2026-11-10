@@ -37,3 +37,18 @@ test('when an earlier week answers last, the later week stays on screen', async 
   expect(result.current.raw.week).toBe(3);
   expect(result.current.loading).toBe(false);
 });
+
+// The league goes null while its load is still on the wire: that load must write nothing.
+test('a load still in flight when the league goes null writes nothing', async () => {
+  const answer = deferred();
+  apiClient.get.mockImplementation(() => answer.promise);
+
+  const { result, rerender } = renderHook(
+    ({ leagueId }) => useLineupData({ leagueId, week: 2 }),
+    { initialProps: { leagueId: 1 } }
+  );
+  rerender({ leagueId: null });
+  await act(async () => { answer.resolve({ data: lineupBody(2) }); });
+
+  expect(result.current.raw).toBeNull();
+});

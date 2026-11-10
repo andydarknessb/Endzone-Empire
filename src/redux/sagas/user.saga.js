@@ -3,6 +3,7 @@ import apiClient, {
   clearToken,
   getToken,
   isSessionRefusal,
+  isStaleSessionRefusal,
   refreshTokens,
 } from '../../api/apiClient';
 import { dropSessionCaches } from '../../sessionCaches';
@@ -28,7 +29,10 @@ export function* fetchUser() {
     const response = yield apiClient.get('/api/user');
     yield put({ type: 'SET_USER', payload: response.data });
   } catch (error) {
-    if (isSessionRefusal(error)) {
+    if (isStaleSessionRefusal(error)) {
+      // The 401 answers a session that ended before a logout; the session now in place is not refused.
+      yield put({ type: 'SESSION_RESOLVED' });
+    } else if (isSessionRefusal(error)) {
       // Token expired or invalid — clear it so the app returns to logged-out
       // state, and drop the session caches with it (a session change).
       clearToken();
