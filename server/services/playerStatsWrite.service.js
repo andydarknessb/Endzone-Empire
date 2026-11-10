@@ -45,7 +45,10 @@
 // idpFumbleRecovery is ESPN-only too since #2002 and kept the same way. Both
 // boxes emit the three two-point keys only for a player who made one: the
 // Final box reads them off Tank01's category objects (#2244), the ESPN Live
-// box off the touchdown's Score summary line (#2252).
+// box off the touchdown's Score summary line (#2252). twoPointReturn (#2790)
+// is not one of those three: the ESPN Live box carries it for every box
+// player, 0 included, and the Tank01 box alone omits it for a defender
+// without a return.
 const BOX_PLAYER_KEYS = [
   'passingYards', 'passingTDs', 'interceptions', 'rushingYards', 'rushingTDs',
   'receivingYards', 'receivingTDs', 'receptions', 'fumbles', 'fieldGoal', 'fieldGoalMissed',
