@@ -98,7 +98,7 @@ export function useLineupWrite({ leagueId, raw, setRaw, onLanded, onRejected }) 
       });
     } catch (err) {
       setRaw(setSlots(undoOf ?? inverse, moves));
-      notify(readHttpFailure(err).message || err.message, { severity: 'error' });
+      notify(readHttpFailure(err).message || "Couldn't save your lineup. Try again.", { severity: 'error' });
     }
   };
 
