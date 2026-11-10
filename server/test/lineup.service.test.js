@@ -18,6 +18,7 @@ const {
   currentWeekEntry,
   restoreInterruptedStash,
   heldLineup,
+  weekLiveGameStates,
   DEFAULT_ROSTER_SLOTS,
 } = require('../services/lineup.service');
 
@@ -123,13 +124,27 @@ test('#2144 getLineup handed the league row reads no league of its own and price
     [/^SELECT "players"\."position"/, () => ({ rows: [] })],
     [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({ rows: [] })],
     [/^SELECT "nfl_team", "opponent", "kickoff_at", "game_key", "roof", "home_away" FROM "nfl_games"/, () => ({ rows: [] })],
-    [/^SELECT "home_team", "away_team", "game_status" FROM "live_game_states"/, () => ({ rows: [] })],
+    [/^SELECT "home_team", "away_team", "game_status", "last_updated" FROM "live_game_states"/, () => ({ rows: [] })],
   ]).install(t);
 
   await getLineup({ leagueId: 5, userId: 7, week: 8, league: held });
 
   assert.equal(fake.matching(/FROM "leagues"/).length, 0, 'no second league read');
   assert.equal(projectionCalls[0].league, held);
+});
+
+// #2789: a moved game leaves an orphan row for the same pair, and Postgres may
+// return it last. The newest row by last_updated sets each team's status in
+// either arrival order; an undated row ages to 0 and loses to a dated one.
+test('weekLiveGameStates: the newest live row per team wins in either arrival order (#2789)', async () => {
+  const orphan = { home_team: 'KC', away_team: 'LV', game_status: 'scheduled', last_updated: '2026-10-25T16:00:00.000Z' };
+  const live = { home_team: 'KC', away_team: 'LV', game_status: 'in_progress', last_updated: '2026-10-25T18:00:00.000Z' };
+  const undated = { ...orphan, last_updated: null };
+  for (const rows of [[orphan, live], [live, orphan], [undated, live], [live, undated]]) {
+    const byTeam = await weekLiveGameStates({ query: async () => ({ rows }) }, { season: 2026, week: 8 });
+    assert.equal(byTeam.get('KC'), 'in_progress', `KC, arrival ${rows.map((r) => r.game_status)}`);
+    assert.equal(byTeam.get('LV'), 'in_progress', `LV, arrival ${rows.map((r) => r.game_status)}`);
+  }
 });
 
 test('getLineup runs its projection and bye reads on the transaction connection, not a second pooled one', async (t) => {
@@ -156,7 +171,7 @@ test('getLineup runs its projection and bye reads on the transaction connection,
     [/^SELECT "players"\."position"/, () => ({ rows: [] })],
     [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({ rows: [] })],
     [/^SELECT "nfl_team", "opponent", "kickoff_at", "game_key", "roof", "home_away" FROM "nfl_games"/, () => ({ rows: [] })],
-    [/^SELECT "home_team", "away_team", "game_status" FROM "live_game_states"/, () => ({ rows: [] })],
+    [/^SELECT "home_team", "away_team", "game_status", "last_updated" FROM "live_game_states"/, () => ({ rows: [] })],
     [/unnest\(\$2::text\[\]\)/, () => ({ rows: [] })], // computeByeWeeks
   ]).install(t);
 
@@ -220,7 +235,7 @@ test('getLineup returns league-scored current-week projections and preserves una
     [/^SELECT "players"\."position"/, () => ({ rows: [spentEntry] })],
     [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({ rows: [] })],
     [/^SELECT "nfl_team", "opponent", "kickoff_at", "game_key", "roof", "home_away" FROM "nfl_games"/, () => ({ rows: [] })], // weekOpponents (#1132, #1235)
-    [/^SELECT "home_team", "away_team", "game_status" FROM "live_game_states"/, () => ({ rows: [] })], // #1235
+    [/^SELECT "home_team", "away_team", "game_status", "last_updated" FROM "live_game_states"/, () => ({ rows: [] })], // #1235
   ]).install(t);
 
   const lineup = await getLineup({ leagueId: 5, userId: 7, week: 8 });
@@ -327,7 +342,7 @@ test('getLineup: a bench-above-starter Edge line follows the Point estimate even
     [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({ rows: [] })],
     [/FROM "nfl_games" "ng"/, () => ({ rows: [] })], // computeByeWeeks
     [/^SELECT "nfl_team", "opponent", "kickoff_at", "game_key", "roof", "home_away" FROM "nfl_games"/, () => ({ rows: [] })],
-    [/^SELECT "home_team", "away_team", "game_status" FROM "live_game_states"/, () => ({ rows: [] })],
+    [/^SELECT "home_team", "away_team", "game_status", "last_updated" FROM "live_game_states"/, () => ({ rows: [] })],
   ]).install(t);
 
   const lineup = await getLineup({ leagueId: 5, userId: 7, week: 8 });
@@ -379,7 +394,7 @@ function installPositionBaselineWorld(t, { entries, projections, backupIds, byeR
     [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({ rows: [] })],
     [/FROM "nfl_games" "ng"/, () => ({ rows: byeRows })], // computeByeWeeks
     [/^SELECT "nfl_team", "opponent", "kickoff_at", "game_key", "roof", "home_away" FROM "nfl_games"/, () => ({ rows: [] })],
-    [/^SELECT "home_team", "away_team", "game_status" FROM "live_game_states"/, () => ({ rows: [] })],
+    [/^SELECT "home_team", "away_team", "game_status", "last_updated" FROM "live_game_states"/, () => ({ rows: [] })],
   ]).install(t);
 }
 
@@ -578,7 +593,7 @@ test("an injured player still carries the largest Factor's explanation, independ
     [/^SELECT "nfl_team" FROM "nfl_games" WHERE "season" = \$1 AND "week" = \$2 AND "kickoff_at"/, () => ({ rows: [] })], // kickedOffTeams
     [/FROM "nfl_games" "ng"/, () => ({ rows: [] })], // computeByeWeeks
     [/^SELECT "nfl_team", "opponent", "kickoff_at", "game_key", "roof", "home_away" FROM "nfl_games"/, () => ({ rows: [] })],
-    [/^SELECT "home_team", "away_team", "game_status" FROM "live_game_states"/, () => ({ rows: [] })],
+    [/^SELECT "home_team", "away_team", "game_status", "last_updated" FROM "live_game_states"/, () => ({ rows: [] })],
   ]).install(t);
 
   const lineup = await getLineup({ leagueId: 5, userId: 7, week: 8 });
@@ -636,7 +651,7 @@ test("getLineup carries each entry's week opponent, DEF units included, absent f
         { nfl_team: 'MIA', opponent: 'WSH', kickoff_at: '2026-11-01T18:00:00Z', game_key: 'MIA-WSH', roof: 'outdoor', home_away: 'home' },
       ],
     })],
-    [/^SELECT "home_team", "away_team", "game_status" FROM "live_game_states"/, () => ({ rows: [] })], // #1235
+    [/^SELECT "home_team", "away_team", "game_status", "last_updated" FROM "live_game_states"/, () => ({ rows: [] })], // #1235
     // #1329: no odds provider is installed in this test, so getWeeklyOdds is
     // never called; weekWeather still runs once for the three game keys
     // above, with nothing to report.
@@ -2358,7 +2373,7 @@ function lineupWorld(t, {
     })],
     [/FROM "nfl_games" "ng"/, () => ({ rows: byeRows })],
     [/^SELECT "nfl_team", "opponent", "kickoff_at", "game_key", "roof", "home_away" FROM "nfl_games"/, () => ({ rows: [] })], // weekOpponents (#1132, #1235)
-    [/^SELECT "home_team", "away_team", "game_status" FROM "live_game_states"/, () => ({ rows: [] })], // #1235
+    [/^SELECT "home_team", "away_team", "game_status", "last_updated" FROM "live_game_states"/, () => ({ rows: [] })], // #1235
   ]).install(t);
 }
 
@@ -2530,7 +2545,7 @@ test('getLineup reads the kickoff lock at the time it is given, so the advice ca
     })],
     [/FROM "nfl_games" "ng"/, () => ({ rows: [] })],
     [/^SELECT "nfl_team", "opponent", "kickoff_at", "game_key", "roof", "home_away" FROM "nfl_games"/, () => ({ rows: [] })],
-    [/^SELECT "home_team", "away_team", "game_status" FROM "live_game_states"/, () => ({ rows: [] })],
+    [/^SELECT "home_team", "away_team", "game_status", "last_updated" FROM "live_game_states"/, () => ({ rows: [] })],
     [/^SELECT DISTINCT ON \("game_key"\).*FROM "game_weather_snapshots"/, () => ({ rows: [] })],
   ]).install(t);
 

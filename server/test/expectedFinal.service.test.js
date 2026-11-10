@@ -263,6 +263,21 @@ test('an in-progress starter adds only his projection for the game time his live
   assert.equal(home.expectedFinal, 43.05);
 });
 
+// #2789: a moved game leaves an orphan row for the same pair, and Postgres may
+// return it last. The newest row by last_updated must still set the KC
+// starter's status and clock, in either arrival order.
+const ORPHAN_KC = { home_team: 'KC', away_team: 'LV', game_status: 'scheduled', quarter: null, time_remaining: null, last_updated: '2026-10-25T16:00:00.000Z' };
+const LIVE_KC = { home_team: 'KC', away_team: 'LV', game_status: 'in_progress', quarter: 'Q3', time_remaining: '7:30', last_updated: '2026-10-25T18:00:00.000Z' };
+for (const [order, rows] of [['orphan last', [LIVE_KC, ORPHAN_KC]], ['live last', [ORPHAN_KC, LIVE_KC]]]) {
+  test(`an orphan live row for the KC game, ${order}, does not set the QB's clock (#2789)`, async (t) => {
+    const fake = weekPool(t, { live: rows });
+    const byTeam = await expectedFinalsForWeek({ league: LEAGUE, season: SEASON, week: WEEK, teamIds: [10], db: fake, now: NOW });
+    const qb = byTeam.get(10).starters.find((s) => s.playerId === 1);
+    assert.equal(qb.gameState, 'in_progress');
+    assert.equal(qb.gameClock, 'Q3 7:30');
+  });
+}
+
 test('an available starter with game time left but no projection interval is counted, not silently treated as certain', async (t) => {
   // Player 3 (WR, not kicked off) has a point estimate but no p10/p90; the
   // final QB without one is not counted (nothing left to play), nor are the

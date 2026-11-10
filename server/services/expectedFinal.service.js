@@ -165,7 +165,7 @@ async function expectedFinalsForWeek({ league, season, week, teamIds, db = pool,
       }),
     computeByeWeeks(nflTeams, season, { client: db }),
     db.query(
-      `SELECT "home_team", "away_team", "game_status", "quarter", "time_remaining", "updated_at"
+      `SELECT "home_team", "away_team", "game_status", "quarter", "time_remaining", "updated_at", "last_updated"
        FROM "live_game_states" WHERE "season" = $1 AND "week" = $2`,
       [season, week]
     ),
@@ -199,7 +199,9 @@ async function expectedFinalsForWeek({ league, season, week, teamIds, db = pool,
   // the (season, week), carried on every team entry so a caller need not
   // re-derive it.
   let syncedAt = null;
-  for (const row of liveRows.rows) {
+  // Oldest first, so the newest row per team sets its status and clock (#2751, #2789).
+  const ageOf = (row) => new Date(row.last_updated).getTime() || 0;
+  for (const row of [...liveRows.rows].sort((a, b) => ageOf(a) - ageOf(b))) {
     // The game clock as one string ("Q3 6:42"), only while in progress; Tank01's
     // own quarter and clock vocabulary, joined, never parsed.
     const clock = row.game_status === 'in_progress'
