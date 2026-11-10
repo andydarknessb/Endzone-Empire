@@ -6,6 +6,7 @@
 const seasonService = require('./season.service');
 const waiverService = require('./waiver.service');
 const lineupService = require('./lineup.service');
+const { openingWeek } = require('./openingWeek.service');
 const { appendLifecycleActivity, COMPLETE } = require('./draftActivity');
 const { DraftError } = require('./draftError');
 
@@ -37,7 +38,7 @@ const { DraftError } = require('./draftError');
  */
 async function completeDraft(client, { leagueId }) {
   const statusResult = await client.query(
-    `SELECT "id", "draft_status", "current_season", "current_week", "best_ball", "roster_slots"
+    `SELECT "id", "draft_status", "current_season", "current_week", "best_ball", "roster_slots", "regular_season_weeks"
      FROM "leagues" WHERE "id" = $1`,
     [leagueId]
   );
@@ -50,10 +51,20 @@ async function completeDraft(client, { leagueId }) {
     );
   }
 
+  // Opening week (ADR 0071): the League's season and week are written here, so the
+  // schedule and the lineup seed below read the opened week, never the stale row.
+  const opening = await openingWeek(client, { regularSeasonWeeks: league.regular_season_weeks });
+  await client.query(
+    `UPDATE "leagues" SET "current_season" = $1, "current_week" = $2, "updated_at" = now() WHERE "id" = $3`,
+    [opening.season, opening.week, leagueId]
+  );
+
   await waiverService.openPostDraftWaiverWindow(client, { leagueId });
   await waiverService.seedWaiverPriorityFromDraftOrder(client, { leagueId });
   await seasonService.generateRegularSeason({ leagueId }, client);
-  await lineupService.seedDraftedLineups(client, { league });
+  await lineupService.seedDraftedLineups(client, {
+    league: { ...league, current_season: opening.season, current_week: opening.week },
+  });
   return appendLifecycleActivity(client, { leagueId, kind: COMPLETE, team: null });
 }
 

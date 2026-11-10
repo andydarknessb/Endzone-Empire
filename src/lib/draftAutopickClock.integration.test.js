@@ -497,6 +497,13 @@ class FakeDraftDatabase {
     if (sql.includes('INSERT INTO "lineup_entries"')) {
       return { rows: [], rowCount: 1 };
     }
+    // Opening week (ADR 0071): no schedule on file, so a completing Pick opens week 1.
+    if (sql.includes('FROM "nfl_games"')) return { rows: [] };
+    if (sql.includes('SET "current_season" = $1')) {
+      state.league.current_season = values[0];
+      state.league.current_week = values[1];
+      return { rows: [] };
+    }
     throw new Error(`Unexpected transaction query: ${sql}`);
   }
 }

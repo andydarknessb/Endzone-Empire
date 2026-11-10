@@ -253,8 +253,9 @@ async function generateRegularSeasonInner(client, { leagueId }) {
   const teamIds = teamsResult.rows.map((r) => r.id);
   if (teamIds.length < 2) throw new SeasonError(409, 'need at least 2 teams to schedule a season');
 
+  // From the League's Opening week (ADR 0071); a League still on week 1 schedules all of it.
   let created = 0;
-  for (let week = 1; week <= league.regular_season_weeks; week++) {
+  for (let week = Math.max(1, Number(league.current_week) || 1); week <= league.regular_season_weeks; week++) {
     const existing = await client.query(
       `SELECT 1 FROM "matchups" WHERE "league_id" = $1 AND "season" = $2 AND "week" = $3 LIMIT 1`,
       [leagueId, league.current_season, week]

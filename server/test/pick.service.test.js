@@ -78,6 +78,8 @@ function pickPool({
     })],
     [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [{ ...row }] })],
     [select('leagues'), () => ({ rows: [{ ...row }] })],
+    // The Opening week read of the completing Pick's completeDraft (ADR 0071): no schedule on file.
+    [/FROM "nfl_games"/, () => ({ rows: [] })],
     [select('teams'), () => ({ rows: TEAMS.map((t) => ({ ...t, locked: t.id === 11 && teamRowLocked })) })],
     // #833: the player read now names `adp`, which rides on the draft:picked
     // outcome. The row carries adp ONLY when the real SELECT names it, so a test

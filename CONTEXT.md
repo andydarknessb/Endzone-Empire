@@ -167,8 +167,10 @@ _Avoid_: season engine (engine is the projection engine), season progression
 **Opening week**:
 The first NFL week a fantasy League plays: the earliest week with no kickoff
 yet when its draft completes, in the NFL season in progress or next to start.
-A League with no regular-season week left has no Opening week, and its draft
-cannot start.
+A League whose every regular-season week has kicked off cannot start its draft.
+A draft that started before the League's last regular-season week kicked off and
+completes after it opens that last week anyway; as in every week, a Player counts
+for a Team only in a game that kicked off while the Team held him.
 _Avoid_: start week, week one (a League may open later)
 
 **Draft status**:

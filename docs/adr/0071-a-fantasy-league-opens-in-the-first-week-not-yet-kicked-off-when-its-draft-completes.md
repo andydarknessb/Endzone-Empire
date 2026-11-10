@@ -22,3 +22,13 @@ it for next season.
   forms in October could not play at all this year.
 - **Play next season whenever the current one has begun.** Rejected: rosters
   would sit untouched for months, and the League would have nothing to do.
+
+## Amendment (#2746, 2026-11-10)
+
+A draft that started before the League's last regular-season week kicked off
+and completes after it has no open week under the rule above. It opens the
+League at that last regular-season week anyway and plays it from completion on.
+Only Players picked before their own game's kickoff score, so that week can be
+uneven between Teams. The start refusal bounds who can reach this: a League
+whose every regular-season week has already kicked off cannot start its draft.
+The rule above otherwise stands.

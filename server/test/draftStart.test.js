@@ -58,7 +58,7 @@ const TWO_KEEPERS = [
  * database that forgets the UPDATE two statements earlier.
  */
 function draftStartPool({
-  league = baseLeague, keepers = [], teams = DEFAULT_TEAMS, market = 500, extra = [],
+  league = baseLeague, keepers = [], teams = DEFAULT_TEAMS, market = 500, extra = [], nflGames = [],
 } = {}) {
   const row = { ...league };
   return createFakePool([
@@ -72,6 +72,8 @@ function draftStartPool({
     // The market gate's count of players carrying an ADP (#747). Default clears
     // MARKET_FLOOR so every unrelated start test is unaffected.
     [select('players'), () => ({ rows: [{ n: market }] })],
+    // Opening week's schedule read (ADR 0071). Empty by default: no schedule on file starts.
+    [/FROM "nfl_games"/, () => ({ rows: nflGames })],
     // The Pick clock step's turn advance (onSlotTaken): the status rides as a parameter,
     // so the fake reads it from there and answers the RETURNING deadline.
     [/^UPDATE "leagues" SET "current_pick" = \$1, "draft_status" = \$2/, (text, params) => {
@@ -178,6 +180,32 @@ test('startDraft rolls back without writes when keepers exceed the current per-t
   // and in a mutated one alike. An assertion that cannot fail is the thing
   // this ticket removes, not the thing it adds. Covering that write wants an
   // autopick fixture, which is a different test.
+  fake.assertClean();
+});
+
+// ADR 0071: a League whose every regular-season week has kicked off has no Opening
+// week, so its draft is refused, names next season, and writes nothing. The kickoffs
+// are built from the clock because startDraft reads the real one.
+test('startDraft refuses a draft once every regular-season week has kicked off, naming next season', async (t) => {
+  const DAY = 24 * 60 * 60 * 1000;
+  const now = Date.now();
+  const nflGames = [];
+  for (let week = 1; week <= 18; week++) {
+    // Weeks 1-14 have kicked off by the clock, 15-18 have not.
+    const first = new Date(now - DAY + (week - 14) * 7 * DAY);
+    nflGames.push({ season: 2026, week, first_kickoff: first, last_kickoff: new Date(first.getTime() + 3 * DAY) });
+  }
+  const fake = draftStartPool({ league: { ...baseLeague, regular_season_weeks: 14 }, nflGames }).install(t);
+
+  await assert.rejects(
+    startDraft({ leagueId: 1, userId: 7 }),
+    (error) => error.statusCode === 409 && /next season/.test(error.message)
+  );
+
+  assert.equal(fake.matching(/^ROLLBACK$/).length, 1);
+  assert.equal(fake.matching(/^COMMIT$/).length, 0);
+  assert.equal(fake.matching(insert('draft_picks')).length, 0);
+  assert.equal(fake.matching(insert('draft_activity')).length, 0);
   fake.assertClean();
 });
 

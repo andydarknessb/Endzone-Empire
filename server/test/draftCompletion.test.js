@@ -31,9 +31,31 @@ const TWO_TEAMS = [{ id: 11 }, { id: 12 }];
  * its team_players read but writes nothing - the shape the three pre-#1569
  * tests below exercise unchanged.
  */
-function completionPool(league, rosterByTeam = {}) {
+// nfl_games rows for one season, built from the clock because completeDraft reads
+// the real one: weeks 1 to `kickedThrough` have kicked off, the rest have not. Season
+// 2026 is only the label of these rows.
+const DAY = 24 * 60 * 60 * 1000;
+function schedule(season, kickedThrough) {
+  const now = Date.now();
+  return Array.from({ length: 18 }, (_, i) => {
+    const week = i + 1;
+    const first = new Date(now + ((week - kickedThrough) * 7 - 3) * DAY);
+    return { season, week, first_kickoff: first, last_kickoff: new Date(first.getTime() + 2 * DAY) };
+  });
+}
+
+function completionPool(league, rosterByTeam = {}, nflGames = schedule(2026, 0)) {
+  // Stateful like the database: the Opening week write lands on the row the later reads see.
+  const row = { ...league };
   return createFakePool([
-    [select('leagues'), () => ({ rows: [{ ...league }] })],
+    [select('leagues'), () => ({ rows: [{ ...row }] })],
+    // The Opening week read (ADR 0071). Default: nothing kicked off, so week 1 of 2026.
+    [/FROM "nfl_games"/, () => ({ rows: nflGames })],
+    [/^UPDATE "leagues" SET "current_season" = \$1, "current_week" = \$2/, (text, params) => {
+      row.current_season = params[0];
+      row.current_week = params[1];
+      return { rows: [], rowCount: 1 };
+    }],
     [update('leagues'), () => ({ rows: [], rowCount: 1 })],
     [update('teams'), () => ({ rows: [], rowCount: TWO_TEAMS.length })],
     [select('teams'), () => ({ rows: TWO_TEAMS.map((t) => ({ ...t })) })],
@@ -239,4 +261,35 @@ test('completeDraft writes no lineup_entries for a best-ball league (#1569)', as
     0,
     'a best-ball league never even reads a roster to seed'
   );
+});
+
+// ADR 0071 (Opening week): the League opens at the first week with no kickoff yet
+// when its draft completes, and its schedule and lineups start there.
+const matchupWeeks = (fake) => fake.calls.filter((c) => insert('matchups').test(c.text)).map((c) => c.params[2]);
+const openedAt = (fake) => fake.calls.filter((c) => /^UPDATE "leagues" SET "current_season"/.test(c.text));
+
+test('completeDraft opens the League at its Opening week and schedules and seeds from there (ADR 0071)', async (t) => {
+  const rosterByTeam = { 11: fourteenPlayerRoster(100), 12: fourteenPlayerRoster(200) };
+  const fake = completionPool({ ...COMPLETE_LEAGUE, regular_season_weeks: 14 }, rosterByTeam, schedule(2026, 2));
+  const client = await fake.connect();
+
+  await completeDraft(client, { leagueId: 1 });
+
+  assert.equal(openedAt(fake).length, 1, 'one UPDATE writes the Opening week');
+  assert.deepEqual(openedAt(fake)[0].params, [2026, 3, 1]);
+  assert.deepEqual(matchupWeeks(fake), Array.from({ length: 12 }, (_, i) => i + 3), 'Matchups for weeks 3 to 14 only');
+  const seeds = fake.calls.filter((c) => insert('lineup_entries').test(c.text));
+  assert.equal(seeds.length, 28);
+  assert.ok(seeds.every((c) => c.params[3] === 2026 && c.params[4] === 3), 'lineups seed at week 3');
+});
+
+test('completeDraft completes a League whose every regular-season week has kicked off, scheduling its last week (ADR 0071)', async (t) => {
+  const fake = completionPool({ ...COMPLETE_LEAGUE, regular_season_weeks: 14 }, {}, schedule(2026, 14));
+  const client = await fake.connect();
+
+  const entry = await completeDraft(client, { leagueId: 1 });
+
+  assert.equal(entry.kind, 'complete', 'completed, not refused');
+  assert.deepEqual(openedAt(fake)[0].params, [2026, 14, 1]);
+  assert.deepEqual(matchupWeeks(fake), [14], 'one Matchup week, the last regular-season week');
 });
