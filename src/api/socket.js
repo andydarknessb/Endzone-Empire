@@ -135,14 +135,15 @@ const reconnectedSinceConnect = new WeakSet();
 const reconnectMarks = new WeakMap();
 
 export function onReconnect(socket, handler) {
-  socket.io.on('reconnect', handler);
   if (!reconnectHandlers.has(socket)) reconnectHandlers.set(socket, new Set());
   const handlers = reconnectHandlers.get(socket);
+  // The mark registers before the handler: a listener map that keeps one callback per event keeps the handler.
   if (handlers.size === 0) {
     const mark = () => reconnectedSinceConnect.add(socket);
     reconnectMarks.set(socket, mark);
     socket.io.on('reconnect', mark);
   }
+  socket.io.on('reconnect', handler);
   handlers.add(handler);
   return () => {
     socket.io.off('reconnect', handler);

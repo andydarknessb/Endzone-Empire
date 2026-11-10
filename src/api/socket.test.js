@@ -485,6 +485,16 @@ describe('onReconnect', () => {
     expect(managerOn).toHaveBeenCalledWith('reconnect', handler);
   });
 
+  test('removes its manager reconnect mark once the last handler unsubscribes', () => {
+    const socket = { io: { on: jest.fn(), off: jest.fn() } };
+
+    const off = onReconnect(socket, jest.fn());
+    const [[, mark]] = socket.io.on.mock.calls;
+    off();
+
+    expect(socket.io.off).toHaveBeenCalledWith('reconnect', mark);
+  });
+
   test('returns an unsubscribe that removes the handler from the manager', () => {
     const handler = jest.fn();
     const socket = { io: { on: jest.fn(), off: jest.fn() } };
