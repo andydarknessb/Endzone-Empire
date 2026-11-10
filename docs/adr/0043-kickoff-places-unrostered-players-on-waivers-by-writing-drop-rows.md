@@ -58,3 +58,26 @@ We decide that the schedule check applies only until the week clear, and that
 the kickoff job writes no row once the clear has passed. A kicked-off
 unrostered player is a Free agent from the week clear, whether or not the week
 has advanced.
+
+## Amendment (2026-11-10): the waiver period is read live
+
+The roster gate and the kickoff job both read the League's current
+`waiver_period_hours`, so a Commissioner change mid-week moves the week clear
+for both at once. We decide not to freeze the period at the week's first
+kickoff. A freeze needs a stored per-week period, which does not exist, and
+would silently ignore the Commissioner's change for the week in progress.
+
+Rows already written keep the `available_at` they were given, and nothing
+pulls one earlier. A lengthened period is picked up by the next kickoff tick,
+at most five minutes later: the tick re-selects the unrostered player whose row
+clears before the new week clear and writes the row again with the later time.
+Until that tick, the roster gate refuses the player's acquire and claim, because
+the player's row has expired. A shortened period reaches only a player with no
+row yet. A player already on a row stays on waivers until the `available_at` on
+that row, because the on-waivers check reads the row, as a drop's row keeps the
+period it was dropped under.
+
+This qualifies the sentence above that a kicked-off unrostered player is a Free
+agent from the week clear: after a shortened period, that holds for a player
+with no row, and a player already on a row is a Free agent from that row's
+`available_at`.
