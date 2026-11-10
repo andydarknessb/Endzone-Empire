@@ -1,4 +1,4 @@
-const { test, after } = require('node:test');
+const { test, after, beforeEach } = require('node:test');
 const assert = require('node:assert/strict');
 const express = require('express');
 const request = require('supertest');
@@ -38,6 +38,9 @@ const CATEGORY_ENUM = new Set(Object.values(ERROR_CATEGORIES));
  */
 
 const healthRouter = require('../routes/health.router');
+
+// The composite's 30s holdout/integrity memo is module state: drop it between tests.
+beforeEach(() => healthRouter.resetCompositeContext());
 
 const app = express();
 app.use('/api/health', healthRouter);
@@ -362,6 +365,23 @@ test('GET / publishes exactly the composite allowlist and every nested status sh
     'lastError', 'lastRunAt', 'lastSourceUsed', 'quotaMode',
   ]);
   assert.ok(!JSON.stringify(res.body).includes('a_column_added_next_quarter'));
+  fake.assertClean();
+});
+
+test('GET / answers two hits within 30 seconds from one holdout and integrity read', async (t) => {
+  delete process.env.REDIS_URL;
+  const fake = healthPool().install(t);
+  const integrity = require('../services/playerStatsIntegrity.service');
+  const holdoutRead = t.mock.method(holdout, 'reconcileObligations', async () => ({ ok: true, obligations: [] }));
+  const integrityRead = t.mock.method(integrity, 'getIntegrityStatus', async () => ({
+    ok: true, open: 0, unlabelled: 0, lastScanAt: null, stale: false,
+  }));
+
+  await request(app).get('/api/health');
+  await request(app).get('/api/health');
+
+  assert.equal(holdoutRead.mock.callCount(), 1);
+  assert.equal(integrityRead.mock.callCount(), 1);
   fake.assertClean();
 });
 
