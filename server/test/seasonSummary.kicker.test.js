@@ -47,9 +47,10 @@ test('usesStoredSeasonTotal: DEF tiers and kicker count rollups read the stored 
 });
 
 test('buildPlayerSummary: a kicker count rollup reads its stored total in the previous-season row and total', () => {
+  const seasonRows = [{ season: 2025, games_played: 17, stats: COUNT_ROLLUP, fantasy_points: STORED_TOTAL }];
   const summary = seasonSummary.buildPlayerSummary({
     player: { id: 9, name: 'Jason Myers', position: 'K', adp: null },
-    seasonRows: [{ season: 2025, games_played: 17, stats: COUNT_ROLLUP, fantasy_points: STORED_TOTAL }],
+    seasonRows,
     rules: CUSTOM_FG_RULES,
     currentSeasonYear: 2026,
   });
@@ -57,4 +58,11 @@ test('buildPlayerSummary: a kicker count rollup reads its stored total in the pr
   assert.equal(prev.points, 171);
   assert.equal(prev.perGame, 10.1);
   assert.equal(summary.fantasy.previousSeasonTotal, 171);
+  // The projection is the 171-point season over 17 games, rounded once: 171, not 10.1 * 17.
+  assert.equal(summary.fantasy.projectedPoints, 171);
+  assert.equal(summary.fantasy.projectedPoints, seasonSummary.projectSeasonPoints({
+    seasonRows,
+    rules: CUSTOM_FG_RULES,
+    currentSeasonYear: 2026,
+  }));
 });

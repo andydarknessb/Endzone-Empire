@@ -174,13 +174,13 @@ test('buildPlayerSummary builds the draft-facing fantasy summary (adp, last-seas
     rules: SCORING_PRESETS.ppr,
     currentSeasonYear: 2026,
   });
-  // 2025 PPR: 1500*0.1 + 100 + 10*6 = 310 over 17 games -> 18.2/g -> proj 18.2*17
+  // 2025 PPR: 1500*0.1 + 100 + 10*6 = 310 over 17 games -> 310/17*17, unrounded per game
   assert.equal(out.fantasy.adp, 4.2);
   assert.equal(out.player.adp, 4.2);
   assert.equal(out.fantasy.previousSeasonYear, 2025);
   assert.equal(out.fantasy.previousSeasonTotal, 310);
   assert.equal(out.fantasy.projectionSeason, 2026);
-  assert.equal(out.fantasy.projectedPoints, Math.round(out.previousSeasons[0].perGame * 17 * 10) / 10);
+  assert.equal(out.fantasy.projectedPoints, 310);
 });
 
 test('buildPlayerSummary reframes last-season-only data as previous (current is null pre-season)', () => {
