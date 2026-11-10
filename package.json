@@ -96,12 +96,7 @@
     "test:draft-autopick": "react-scripts test --env=node --watchAll=false --runInBand --runTestsByPath src/lib/draftAutopickClock.integration.test.js",
     "test:draft-grades-adp": "react-scripts test --env=node --watchAll=false --runInBand --runTestsByPath src/lib/draftGradeAdp.integration.test.ts",
     "test:trade-fairness": "react-scripts test --env=node --watchAll=false --runInBand --runTestsByPath src/lib/tradeFairnessApi.integration.test.js",
-    "stress:waivers": "node scripts/stress-faab-waivers.js",
-    "load:k6:snake-draft": "k6 run scripts/k6-snake-draft.js",
-    "load:k6:notification-burst": "k6 run scripts/k6-notification-burst.js",
     "load:k6:admin-health": "k6 run load-tests/admin-dashboard-health.js",
-    "infra:activate-k6": "node scripts/activate-k6.js",
-    "test:load-pipeline": "node scripts/run-load-triage.js",
     "test:inline-main-css": "node --test scripts/inline-main-css.test.js",
     "test:prerender-landing": "node --test scripts/prerender-landing.test.js",
     "test:jest-discovery": "node --test scripts/jestTestMatch.test.js",
@@ -177,9 +172,6 @@
           "server/**/*.js",
           "scripts/**/*.js"
         ],
-        "excludedFiles": [
-          "scripts/k6-*.js"
-        ],
         "env": {
           "node": true
         },
@@ -188,16 +180,6 @@
         },
         "rules": {
           "strict": "off"
-        }
-      },
-      {
-        "files": [
-          "scripts/k6-*.js"
-        ],
-        "globals": {
-          "__ENV": "readonly",
-          "__ITER": "readonly",
-          "__VU": "readonly"
         }
       }
     ]

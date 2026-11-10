@@ -208,17 +208,6 @@ test('a deliberate violation in a server file is still reported', async () => {
 // lints it, which is why the glob follows the module system rather than the
 // lint surface.
 //
-// The `scripts/k6-*.js` exclusion is not a detail. Those two are the one
-// genuinely-ESM corner of the tree: they run under k6, not node, and they use
-// real `import`. Sweeping them into `sourceType: 'script'` makes them fail to
-// PARSE, and a file ESLint cannot parse reports its parse error and nothing
-// else -- which silently hid the 28 pre-existing `__ENV` errors in those two
-// files and made `npx eslint scripts` look like it had improved from 98
-// problems to 5. That is the #207 failure mode exactly: the count went down
-// because coverage went down. With the exclusion the honest numbers are 28
-// errors (unchanged, untouched, still #245's) and 6 warnings, down from 70,
-// the difference being the 64 `strict` reports.
-//
 // This eslint config entry does not by itself put `scripts/` in the lint
 // surface: an entry naming a tree is not evidence the tree is linted. What
 // lints `scripts/` is scripts/lint.js, whose `LINT_PATTERNS` became
@@ -263,32 +252,6 @@ test('this guard file is not itself mis-parsed as an ES module', async () => {
     `${STRICT_RULE} still reaches scripts/, so this guard warns about a repair ` +
       'that is one --fix away from being performed on the guard itself'
   );
-});
-
-// The k6 load scripts are the exception the override has to carve out, and the
-// cost of getting it wrong is invisible: they stop parsing, and a parse error
-// suppresses every other report in the file. Assert they still parse, not just
-// that they are configured as modules, because parsing is the property that
-// actually protects the errors underneath.
-test('the k6 load scripts are still parsed as the ES modules they are', async () => {
-  const k6Files = fs
-    .readdirSync(path.join(REPO_ROOT, 'scripts'))
-    .filter((name) => name.startsWith('k6-') && name.endsWith('.js'));
-  assert.ok(k6Files.length > 0, 'no scripts/k6-*.js found; the excludedFiles glob now guards nothing');
-
-  for (const name of k6Files) {
-    const filePath = path.join(REPO_ROOT, 'scripts', name);
-    const config = await eslint.calculateConfigForFile(filePath);
-    assert.equal(config.parserOptions.sourceType, 'module', `${name} must stay sourceType module`);
-
-    const [result] = await eslint.lintFiles([filePath]);
-    const parseErrors = result.messages.filter((message) => message.fatal);
-    assert.deepEqual(
-      parseErrors.map((message) => message.message),
-      [],
-      `${name} no longer parses, which silently suppresses every other report in it`
-    );
-  }
 });
 
 test('the strict rule does not reach server files', async () => {
