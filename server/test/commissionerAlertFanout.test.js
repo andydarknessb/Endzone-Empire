@@ -53,7 +53,7 @@ test('a join request alerts every commissioner, not the creator alone', async (t
 
   const { joinPublicLeague } = require('../services/discovery.service');
   const result = await joinPublicLeague({
-    leagueId: 7, userId: 5, username: 'eve', teamName: 'Eve Picks',
+    leagueId: 7, userId: 5, teamName: 'Eve Picks',
   });
 
   assert.equal(result.pending, true);
@@ -66,7 +66,8 @@ test('a join request alerts every commissioner, not the creator alone', async (t
     [OWNER_ID, CO_COMMISSIONER_ID].sort((a, b) => a - b)
   );
   for (const alert of alerts) {
-    assert.match(alert.message, /eve requested to join Curated League/);
+    // The alert names the proposed Team, never the requester's account (#2752).
+    assert.equal(alert.message, 'Eve Picks requested to join Curated League');
   }
   fake.assertClean();
 });
