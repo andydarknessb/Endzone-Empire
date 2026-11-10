@@ -253,6 +253,12 @@ test('playoffAliveEntrants: consolation rows never decide who is alive', () => {
   assert.deepEqual(result.fixedGames, [{ home: 1, away: 2 }]);
 });
 
+test('playoffAliveEntrants: alive entrants come out in seed order, whatever order the seeds arrive in', () => {
+  const seeds = [{ teamId: 3, seed: 3 }, { teamId: 1, seed: 1 }, { teamId: 2, seed: 2 }];
+  const result = playoffAliveEntrants({ seeds, playoffRows: [] });
+  assert.deepEqual(result.aliveEntrants, [{ teamId: 1, seed: 1 }, { teamId: 2, seed: 2 }, { teamId: 3, seed: 3 }]);
+});
+
 test('computeLeagueOdds reads the stored seeds: after a flipped round the advanced Team keeps its title odds', async (t) => {
   const league = {
     id: 1, season_status: 'playoffs', draft_status: 'complete', pickem_only: false,
@@ -280,4 +286,48 @@ test('computeLeagueOdds reads the stored seeds: after a flipped round the advanc
   const odds = new Map(data.rankings.map((r) => [r.teamId, r]));
   assert.ok(odds.get(3).titleOdds > 0, 'advanced Team 3 keeps its title odds');
   assert.equal(odds.get(2).titleOdds, 0, 'beaten Team 2 is out');
+});
+
+test('computeLeagueOdds reads the stored bracket, not the live standings: stored seed 4 can be Team 5', async (t) => {
+  const league = {
+    id: 1, season_status: 'playoffs', draft_status: 'complete', pickem_only: false,
+    current_season: 2026, current_week: 3, regular_season_weeks: 1, playoff_teams: 4,
+  };
+  const teams = [1, 2, 3, 4, 5].map((id) => ({ id, name: `Team ${id}` }));
+  // No regular-season Matchups, so the live standings would seed Teams 1-4.
+  // The stored bracket seeds Teams 1, 2, 3 and 5 and leaves Team 4 out.
+  const storedSeeds = [1, 2, 3, 5].map((team_id, i) => ({ team_id, seed: i + 1 }));
+  const fake = createFakePool([
+    [select('leagues'), () => ({ rows: [league] })],
+    [select('teams'), () => ({ rows: teams })],
+    [select('playoff_seeds'), () => ({ rows: storedSeeds })],
+    [select('matchups'), () => ({ rows: [] })],
+    [/^/, () => ({ rows: [] })], // projections, rosters and the analytics write: nothing to model
+  ]);
+  fake.install(t);
+  const data = await computeLeagueOdds({ leagueId: 1, runs: 200, seed: 7 });
+  const odds = new Map(data.rankings.map((r) => [r.teamId, r]));
+  assert.equal(odds.get(5).playoffOdds, 1, 'stored seed 4 is in the bracket');
+  assert.equal(odds.get(4).playoffOdds, 0, 'standings seed 4 is not in the stored bracket');
+});
+
+test('computeLeagueOdds falls back to live standings when no playoff_seeds rows exist', async (t) => {
+  const league = {
+    id: 1, season_status: 'playoffs', draft_status: 'complete', pickem_only: false,
+    current_season: 2026, current_week: 3, regular_season_weeks: 1, playoff_teams: 4,
+  };
+  const teams = [1, 2, 3, 4, 5].map((id) => ({ id, name: `Team ${id}` }));
+  const fake = createFakePool([
+    [select('leagues'), () => ({ rows: [league] })],
+    [select('teams'), () => ({ rows: teams })],
+    [select('playoff_seeds'), () => ({ rows: [] })],
+    [select('matchups'), () => ({ rows: [] })],
+    [/^/, () => ({ rows: [] })], // projections, rosters and the analytics write: nothing to model
+  ]);
+  fake.install(t);
+  const data = await computeLeagueOdds({ leagueId: 1, runs: 200, seed: 7 });
+  const odds = new Map(data.rankings.map((r) => [r.teamId, r]));
+  // No Matchups: the standings tie breaks by team id, so Teams 1-4 seed.
+  for (const id of [1, 2, 3, 4]) assert.equal(odds.get(id).playoffOdds, 1, `Team ${id} seeds from standings`);
+  assert.equal(odds.get(5).playoffOdds, 0, 'Team 5 is out');
 });
