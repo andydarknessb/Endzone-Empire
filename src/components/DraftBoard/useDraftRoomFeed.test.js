@@ -204,6 +204,10 @@ test('reconnect falls back to a full read when more than a page accrued offline 
   await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/league/3/draft-feed?after=7'));
   await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/league/3/draft-feed'));
   await waitFor(() => expect(result.current.entries.some((e) => e.seq === 900)).toBe(true));
+  // The snap replaces: the window is the oldest held entry, so loadOlder pages the gap behind it.
+  expect(result.current.entries.map((e) => e.seq)).toEqual([900]);
+  act(() => { result.current.loadOlder(); });
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/league/3/draft-feed?before=900'));
 });
 
 test('takes back both listeners on unmount and never ends the shared session', async () => {

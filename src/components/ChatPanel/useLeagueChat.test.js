@@ -443,6 +443,10 @@ test('reconnect falls back to a full read when more than a page accrued offline 
   await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/league/1/chat?after=7'));
   await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/league/1/chat'));
   await waitFor(() => expect(result.current.messages.some((m) => m.message === 'latest window')).toBe(true));
+  // The snap replaces: the window is the oldest held message, so loadOlder pages the gap behind it.
+  expect(result.current.messages.map((m) => m.seq)).toEqual([500]);
+  act(() => { result.current.loadOlder(); });
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/league/1/chat?before=500'));
 });
 
 test('reconnect falls back to a full history read when nothing is held (#442)', async () => {

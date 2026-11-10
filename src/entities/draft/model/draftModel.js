@@ -131,7 +131,8 @@ export const emptyDraftModel = Object.freeze({
   seq: null,
   // The League's board version (ADR 0025, 2026-11-06 amendment), the highest applied;
   // null before any. A draft:state or draft:picked below it is older than the board
-  // and is ignored. An equal one is applied, so an Autodraft toggle re-arms the clock.
+  // and is ignored, except a draft:state into an empty model (no League yet, #2765).
+  // An equal one is applied, so an Autodraft toggle re-arms the clock.
   boardVersion: null,
 });
 

@@ -164,7 +164,8 @@ export default function useDraftSocket(leagueId, { onPickLanded, onDraftActivity
     setSocket(newSocket);
 
     // Emits draft:join, which also makes the server push a fresh 'draft:state'
-    // snapshot. Run once per resync by useDraftRoomSession, never from here.
+    // snapshot. The session runs it once per resync; the retry timer below re-emits
+    // it alone, and the feed resync stays with the session's connect and reconnect.
     // A failed join is retried with backoff (#2765 3): 1s, 2s, ... capped at 30s.
     // A success or a fresh join replaces the pending retry; NOT_A_MEMBER is never retried.
     let retryTimer = null;

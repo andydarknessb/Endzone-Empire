@@ -83,11 +83,14 @@ export default function useLeagueChat({ socket, leagueId, open = true, viewerTea
   // read the instant it mounts (the Draft room, where it is always visible),
   // so an unguarded `.catch`/`.then` on a non-thenable would surface as an
   // uncaught render error rather than a swallowed no-op.
-  const fetchHistory = useCallback(() => {
+  // merge: a first read keeps a live message that arrived while it was in flight
+  // (#2765 5). The offline-overflow snap replaces, so the window is the oldest held
+  // message and loadOlder can page the gap behind it.
+  const fetchHistory = useCallback(({ merge = false } = {}) => {
     Promise.resolve(apiClient.get(`/api/league/${leagueId}/chat`))
       .then((res) => {
         const rows = Array.isArray(res?.data) ? res.data : [];
-        setMessages((prev) => mergeHistory(prev, rows));
+        setMessages((prev) => (merge ? mergeHistory(prev, rows) : rows));
         // A full latest page means there is probably history behind it.
         setHasMore(rows.length >= CHAT_PAGE);
       })
@@ -142,7 +145,7 @@ export default function useLeagueChat({ socket, leagueId, open = true, viewerTea
   // Initial load for this league. Independent of the socket: history is REST,
   // and it must be there whether or not a live connection has arrived yet.
   useEffect(() => {
-    fetchHistory();
+    fetchHistory({ merge: true });
     fetchUnread();
   }, [fetchHistory, fetchUnread]);
 
@@ -206,7 +209,7 @@ export default function useLeagueChat({ socket, leagueId, open = true, viewerTea
         .map((m) => (m ? m.seq : null))
         .filter((s) => Number.isFinite(s));
       if (seqs.length === 0) {
-        fetchHistory();
+        fetchHistory({ merge: true });
       } else {
         const lastSeq = Math.max(...seqs);
         Promise.resolve(apiClient.get(`/api/league/${leagueId}/chat?after=${lastSeq}`))
