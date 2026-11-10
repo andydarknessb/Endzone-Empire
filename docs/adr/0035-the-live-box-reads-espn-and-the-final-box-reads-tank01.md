@@ -219,7 +219,8 @@ mid-game.
 ## Amendment (2026-11-10, #2790)
 
 The #2244 amendment's sentence that defensive two-point returns are unchanged
-still holds for how ESPN reads them. The write rules for `twoPointReturn`
+still holds for how ESPN reads them. The #2252 rule that a box does not retract a credit it wrote holds for the
+three offensive keys only: `twoPointReturn` is the exception. Its write rules
 changed in #2790:
 
 (1) `twoPointReturn` joined `BOX_KEEP_IF_ABSENT` (`server/services/playerStatsWrite.service.js`):
@@ -234,5 +235,5 @@ correction retracts or restores it.
 
 (2) The Tank01 IDP normalizer (`normalizeTank01IdpStats` in
 `server/services/tank01Normalizers.js`) emits `twoPointReturn` only when
-`twoPointConversionReturn` is non-blank. It used to write 0 for a defender with
-no conversion return.
+`twoPointConversionReturn` is non-blank. It used to write 0 for every Tank01 player with
+no conversion return, not only defenders.
