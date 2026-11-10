@@ -10,6 +10,7 @@ const {
   playoffRounds,
   lastPlayoffWeek,
   buildOpeningBrackets,
+  generateRegularSeason,
 } = require('../services/season.service');
 const { settleWeek } = require('../services/settle.service');
 const matchupScoring = require('../services/matchupScoring.service');
@@ -462,4 +463,26 @@ test('getPlayoffSeeds reads the stored seeds of the current season', async (t) =
   ]).install(t);
 
   assert.deepEqual(await getPlayoffSeeds({ leagueId: 44 }), new Map([[7, 1], [9, 2]]));
+});
+
+// ADR 0071: the schedule runs from the League's Opening week, not from week 1.
+test('generateRegularSeason schedules from the Opening week the League was opened at (ADR 0071)', async (t) => {
+  const fake = createFakePool([
+    [select('leagues'), () => ({
+      rows: [{
+        id: 1, draft_status: 'complete', season_status: 'regular', current_season: 2026,
+        current_week: 3, regular_season_weeks: 4, playoff_teams: 0, best_ball: false,
+      }],
+    })],
+    [select('teams'), () => ({ rows: [{ id: 1 }, { id: 2 }, { id: 3 }, { id: 4 }] })],
+    [select('matchups'), () => ({ rows: [] })],
+    [insert('matchups'), () => ({ rows: [], rowCount: 1 })],
+  ]);
+  const client = await fake.connect();
+
+  const result = await generateRegularSeason({ leagueId: 1 }, client);
+
+  const weeks = fake.calls.filter((c) => insert('matchups').test(c.text)).map((c) => c.params[2]);
+  assert.deepEqual(weeks, [3, 3, 4, 4], 'two pairings in each of weeks 3 and 4, none in weeks 1 and 2');
+  assert.equal(result.created, 4);
 });

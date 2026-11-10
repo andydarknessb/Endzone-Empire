@@ -6,6 +6,7 @@ const { isLeagueCommissioner } = require('./leagueRole.service');
 const { assertFantasyLeagueRow } = require('./leagueType');
 const { MARKET_FLOOR } = require('./adp.service');
 const { appendLifecycleActivity, DRAFT_START } = require('./draftActivity');
+const { openingWeek } = require('./openingWeek.service');
 // The one write-time roster gate (#940). The keeper pre-fill is a roster write
 // like any other and asks the same module, with the bypasses that reproduce
 // what it has always done stated as an exact set (#965).
@@ -105,6 +106,13 @@ async function startDraft({ leagueId, userId = null, within }) {
     const plan = startPlan(league, teams, keepers);
     if (plan.error) {
       throw new DraftError(plan.error.status, plan.error.message);
+    }
+
+    // Opening week (ADR 0071): a League whose every regular-season week has kicked off
+    // has no week to open, so its draft waits for next season. Refused before any write.
+    const opening = await openingWeek(client, { regularSeasonWeeks: league.regular_season_weeks });
+    if (!opening.open) {
+      throw new DraftError(409, "Every regular-season week of this NFL season has already kicked off. Schedule this League's draft for next season.");
     }
 
     // The one roster-add site that skips rosterCapacity (#97): keepers are

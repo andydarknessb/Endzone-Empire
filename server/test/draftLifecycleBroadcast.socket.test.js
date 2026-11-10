@@ -69,6 +69,8 @@ function startWorld(t) {
     [select('leagues'), () => ({ rows: [{ ...row }] })],
     // The market gate on start (#747): a loaded market so start is not refused.
     [select('players'), () => ({ rows: [{ n: 500 }] })],
+    // Opening week's schedule read (ADR 0071): no schedule on file, so the start opens week 1.
+    [/FROM "nfl_games"/, () => ({ rows: [] })],
     [update('leagues'), (text) => {
       if (/'active'/.test(text)) row.draft_status = 'active';
       else if (/'complete'/.test(text)) row.draft_status = 'complete';
@@ -125,6 +127,8 @@ function completingPickWorld(t) {
     [select('leagues'), () => ({ rows: [{ ...row }] })],
     [select('teams'), () => ({ rows: START_TEAMS })],
     [select('players'), () => ({ rows: [{ id: 500, name: 'Last Pick', position: 'RB', nfl_team: 'KC' }] })],
+    // The Opening week read of the completing Pick's completeDraft (ADR 0071): no schedule on file.
+    [/FROM "nfl_games"/, () => ({ rows: [] })],
     [/^SELECT COUNT\(\*\)::int AS n FROM "team_players"/, () => ({ rows: [{ n: 1 }] })],
     [/^SELECT COUNT\(\*\)::int AS n FROM "lineup_entries"/, () => ({ rows: [{ n: 0 }] })],
     // 4 picks = 2 teams x 2 rounds: this pick completes the draft.
