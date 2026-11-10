@@ -133,8 +133,8 @@ test('normalizeTank01IdpStats maps a defender\'s Defense category to IDP scoring
     qbHit: 1,
     tacklesForLoss: 1,
     idpDefensiveTD: 0,
-    twoPointReturn: 0,
   });
+  assert.equal('twoPointReturn' in result, false, 'an absent Tank01 field is no key, not 0 (#2790)');
 });
 
 test('normalizeTank01IdpStats: an interception-return TD counts fully as idpDefensiveTD (issue #1386)', () => {
@@ -149,11 +149,15 @@ test('normalizeTank01IdpStats: fumblesRecovered (own and opponent recoveries mix
   assert.equal('idpFumbleRecovery' in result, false);
 });
 
+test('normalizeTank01IdpStats: a present twoPointConversionReturn is a real count, "1" -> 1 and "0" -> 0 (#2790)', () => {
+  assert.equal(normalizeTank01IdpStats({ Defense: { twoPointConversionReturn: '1' } }).twoPointReturn, 1);
+  assert.equal(normalizeTank01IdpStats({ Defense: { twoPointConversionReturn: '0' } }).twoPointReturn, 0);
+});
+
 test('normalizeTank01IdpStats: missing/empty Defense category is all-zero', () => {
   assert.deepEqual(normalizeTank01IdpStats({}), {
     soloTackle: 0, assistedTackle: 0, idpSack: 0, idpInterception: 0, forcedFumble: 0,
     passDeflection: 0, qbHit: 0, tacklesForLoss: 0, idpDefensiveTD: 0,
-    twoPointReturn: 0,
   });
   assert.equal(normalizeTank01IdpStats(null).soloTackle, 0);
 });

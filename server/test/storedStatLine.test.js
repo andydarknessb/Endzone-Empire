@@ -84,6 +84,17 @@ test('box keeps a stored passingTwoPt when the fresh line lacks it (a player wit
   assert.equal(fresh.receivingTwoPt, 1, 'a key the fresh line lacks is still kept');
 });
 
+test('box keeps a stored twoPointReturn a Tank01 Defense omits, and a Defense that carries it wins (#2790)', () => {
+  const { normalizeTank01IdpStats } = require('../services/tank01Normalizers');
+  const prior = { twoPointReturn: 1, passingYards: 225 };
+  const omitted = stats(storedStatLine({ source: 'box', fresh: normalizeTank01IdpStats({ Defense: { totalTackles: '2', soloTackles: '1' } }), prior }));
+  assert.equal(omitted.twoPointReturn, 1, 'the Live box credit survives a Final box that has no field for it');
+  const zero = stats(storedStatLine({ source: 'box', fresh: normalizeTank01IdpStats({ Defense: { twoPointConversionReturn: '0' } }), prior }));
+  assert.equal(zero.twoPointReturn, 0, 'a present 0 is a real zero and wins');
+  const one = stats(storedStatLine({ source: 'box', fresh: normalizeTank01IdpStats({ Defense: { twoPointConversionReturn: '1' } }), prior: { twoPointReturn: 0 } }));
+  assert.equal(one.twoPointReturn, 1);
+});
+
 test('a Tank01 Final box keeps the Live box idpFumbleRecovery instead of its own-team recoveries (#2002)', () => {
   const { normalizeTank01IdpStats } = require('../services/tank01Normalizers');
   const finalBox = normalizeTank01IdpStats({ Defense: { fumblesRecovered: '1' } });

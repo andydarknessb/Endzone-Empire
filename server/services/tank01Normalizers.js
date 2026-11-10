@@ -103,6 +103,10 @@ function normalizeTank01IdpStats(entry) {
   const d = (entry && entry.Defense) || {};
   const totalTackles = num(d.totalTackles);
   const soloTackles = num(d.soloTackles);
+  // Tank01 omits the field for a defender with no conversion return, so emit it
+  // only when present (a present "0" still emits), as the offensive keys do (#2790).
+  const twoPt = String(d.twoPointConversionReturn ?? '').trim() !== ''
+    ? { twoPointReturn: num(d.twoPointConversionReturn) } : {};
   return {
     soloTackle: soloTackles,
     assistedTackle: Math.max(totalTackles - soloTackles, 0),
@@ -113,7 +117,7 @@ function normalizeTank01IdpStats(entry) {
     qbHit: num(d.qbHits),
     tacklesForLoss: num(d.tfl),
     idpDefensiveTD: num(d.defTD),
-    twoPointReturn: num(d.twoPointConversionReturn),
+    ...twoPt,
   };
 }
 
