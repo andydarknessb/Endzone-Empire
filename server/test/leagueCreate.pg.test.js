@@ -80,7 +80,7 @@ if (!ENABLED) {
     const res = await request(app)
       .post('/api/league')
       .set('Authorization', `Bearer ${signToken({ id: userId, username })}`)
-      .send({ name: `${username} League` });
+      .send({ name: `${username} League`, teamName: `${username} Team` });
     assert.equal(res.status, 201, JSON.stringify(res.body));
     createdLeagues.push(res.body.id);
     return res.body;
