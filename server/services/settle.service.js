@@ -194,12 +194,14 @@ async function settleWeek({ leagueId, expectedWeek }) {
           [leagueId, season]
         );
         const consolationSeedOf = new Map(storedConsolation.rows.map((r) => [r.team_id, r.seed]));
+        // shortcut: a League already in its playoffs before consolation_seeds shipped has no
+        // rows and plays no consolation round past the first, drop when those seasons end.
         const consolation = bracketAdvancing({
           games: consolationGames, seedOf: consolationSeedOf, matchups: allMatchups.rows, week, consolation: true,
         });
-        if (consolation.advancing.length > 1) {
+        if (consolationSeedOf.size > 0 && consolation.advancing.length > 1) {
           const consolationRound = consolationGames[0].playoff_round + 1;
-          const entrants = consolation.advancing.map((teamId) => ({ teamId, seed: consolationSeedOf.get(teamId) || 99 }));
+          const entrants = consolation.advancing.map((teamId) => ({ teamId, seed: consolationSeedOf.get(teamId) }));
           for (const game of seasonSvc.pairBySeed(entrants).games) {
             await client.query(
               `INSERT INTO "matchups" ("league_id", "season", "week", "home_team_id", "away_team_id",
