@@ -193,11 +193,16 @@ function ChatConversation({
   // box, or a second click before the first ack) reuses the key, so the server
   // collapses it onto one row instead of posting a duplicate. Editing the text
   // makes it a different message and mints a fresh key, so two distinct sends
-  // can never collide on one key; a successful send clears both the box and the
-  // key so the next message starts clean.
+  // can never collide on one key; a successful send spends the key so the next
+  // message starts clean.
   const sendKeyRef = useRef({ text: null, key: null });
+  // The box as it stands when a send resolves. `text` in handleSend is the value
+  // at send time, so the resolution reads the live box from here.
+  const liveTextRef = useRef(text);
+  liveTextRef.current = text;
 
   const handleSend = async () => {
+    const sent = text;
     const trimmed = text.trim();
     if (!trimmed) return;
     if (sendKeyRef.current.text !== trimmed) {
@@ -205,10 +210,11 @@ function ChatConversation({
     }
     const ok = await onSend(trimmed, sendKeyRef.current.key);
     // Clear only on success, so a rejected message stays in the box to retry
-    // (under the same key). A cleared box starts the next message fresh and
-    // discards the preserved draft (#442 AC6).
+    // (under the same key). The box is cleared only while it still holds what
+    // was sent: a manager who kept typing through the send keeps that text
+    // (#442 AC6). The sent message's key is spent either way.
     if (ok) {
-      clearDraft();
+      if (liveTextRef.current === sent) clearDraft();
       sendKeyRef.current = { text: null, key: null };
     }
   };

@@ -21,7 +21,13 @@ export function setToken(token) {
   setSessionHint(accessToken);
 }
 
+// Bumped on every logout: a refresh that was on the wire then answers for the
+// session that just ended, and must not install its token.
+let sessionGeneration = 0;
 export function clearToken() {
+  sessionGeneration += 1;
+  // A request after the logout must start its own refresh, not join one from the old session.
+  refreshPromise = null;
   setToken(null);
 }
 
@@ -33,6 +39,8 @@ const apiClient = axios.create({
 apiClient.interceptors.request.use((config) => {
   const token = getToken();
   if (token) config.headers.Authorization = `Bearer ${token}`;
+  // The session this request was sent under: a 401 answered after a logout is not refreshed.
+  config._generation = sessionGeneration;
   return config;
 });
 
@@ -52,6 +60,9 @@ export function onTokenRefreshed(listener) {
 // server can say "none"), but it is not an HTTP error, so it carries a code of
 // its own instead of a fabricated response.
 const NO_SESSION = 'NO_SESSION';
+// A refresh answered after a logout: its token belongs to the session that ended.
+// Not a refusal of the session now in place, so no caller clears that session.
+const SESSION_ENDED = 'SESSION_ENDED';
 
 /** True when the server refused to restore a session: a 401 (invalid, expired
  * or revoked cookie) or the 204 "no cookie". A network failure or a 5xx is not
@@ -60,11 +71,16 @@ export function isSessionRefusal(error) {
   return error?.response?.status === 401 || error?.code === NO_SESSION;
 }
 
-function storeRotatedAccessToken(response) {
+function storeRotatedAccessToken(response, generation) {
   const token = response.data?.token;
   if (!token) {
     const error = new Error('no session to restore');
     error.code = NO_SESSION;
+    throw error;
+  }
+  if (generation !== sessionGeneration) {
+    const error = new Error('session ended while refreshing');
+    error.code = SESSION_ENDED;
     throw error;
   }
   setToken(token);
@@ -81,13 +97,14 @@ function requestRefresh() {
 
 export async function refreshTokens() {
   if (!refreshPromise) {
+    const generation = sessionGeneration;
     refreshPromise = requestRefresh()
       .catch(async (error) => {
         if (error.response?.status !== 401) throw error;
         await new Promise((resolve) => setTimeout(resolve, 75));
         return requestRefresh();
       })
-      .then(storeRotatedAccessToken)
+      .then((response) => storeRotatedAccessToken(response, generation))
       .finally(() => {
         refreshPromise = null;
       });
@@ -104,7 +121,8 @@ apiClient.interceptors.response.use(
       response.status === 401 &&
       config &&
       !config._retried &&
-      !String(config.url).includes('/api/auth/');
+      !String(config.url).includes('/api/auth/') &&
+      config._generation === sessionGeneration;
     if (!shouldRefresh) return Promise.reject(error);
     try {
       const token = await refreshTokens();
@@ -112,6 +130,8 @@ apiClient.interceptors.response.use(
       config.headers = { ...config.headers, Authorization: `Bearer ${token}` };
       return apiClient(config);
     } catch (refreshError) {
+      // A refresh that answered after a logout says nothing about the session now in place.
+      if (refreshError.code === SESSION_ENDED) return Promise.reject(error);
       // Only a refusal ends the session; a 503 mid-deploy or a dropped link leaves the cookie good,
       // and the caller sees that transient failure, not a 401 it would read as a refusal.
       // Any other answer (an older server's 400 for no cookie) keeps the original 401.
