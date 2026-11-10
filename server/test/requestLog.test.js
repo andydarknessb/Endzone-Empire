@@ -83,6 +83,13 @@ test('the presenter share token never reaches the request log', async (t) => {
   assert.ok(!JSON.stringify(line).includes('secret'));
 });
 
+test('the presenter share token is redacted whatever the case of the path', async (t) => {
+  const line = await requestLogLine(t, '/api/Draft/board/secret');
+  assert.ok(line, 'the mixed-case presenter board is logged');
+  assert.equal(line.path, '/api/Draft/board/:token');
+  assert.ok(!JSON.stringify(line).includes('secret'));
+});
+
 test('the presenter activity route redacts the token and drops the query string', async (t) => {
   const line = await requestLogLine(t, '/api/draft/board/secret/activity?before=3');
   assert.ok(line, 'the presenter activity feed is logged');
