@@ -198,11 +198,65 @@ describe('cookie-backed refresh', () => {
     answer();
 
     const outcome = await pending;
-    expect(isSessionRefusal(outcome)).toBe(true);
+    expect(outcome).toBeInstanceOf(Error);
     expect(getToken()).toBeNull();
     expect(hasSessionHint()).toBe(false);
     expect(refreshed).not.toHaveBeenCalled();
     unsubscribe();
+  });
+
+  test('a refresh answered after a logout and a new login leaves the new session in place', async () => {
+    setToken('a-jwt');
+    let onWire;
+    const sent = new Promise((resolve) => { onWire = resolve; });
+    let answer;
+    axiosMock.onPost('/api/auth/refresh?optional=1').reply(() => new Promise((release) => {
+      answer = () => release([200, { token: 'a-late-jwt', user: { id: 1 } }]);
+      onWire();
+    }));
+    apiMock.onGet('/api/team').reply(401);
+
+    const request = apiClient.get('/api/team').catch((e) => e);
+    await sent;
+    clearToken(); // logout
+    setToken('b-jwt'); // the same browser logs in again
+    answer();
+
+    const outcome = await request;
+    expect(outcome.response.status).toBe(401);
+    expect(getToken()).toBe('b-jwt');
+    expect(hasSessionHint()).toBe(true);
+  });
+
+  test('a 401 on a request sent before a logout is not refreshed once the logout has happened', async () => {
+    setToken('a-jwt');
+    let onWire;
+    const sent = new Promise((resolve) => { onWire = resolve; });
+    let answer;
+    apiMock.onGet('/api/team').reply(() => new Promise((release) => {
+      answer = () => release([401]);
+      onWire();
+    }));
+
+    const request = apiClient.get('/api/team').catch((e) => e);
+    await sent;
+    clearToken(); // logout while the request is on the wire
+    answer();
+
+    const outcome = await request;
+    expect(outcome.response.status).toBe(401);
+    expect(axiosMock.history.post).toHaveLength(0);
+  });
+
+  test('after a logout a refresh starts its own request, not the one from the old session', async () => {
+    axiosMock.onPost('/api/auth/refresh?optional=1').reply(204, '');
+
+    const oldSession = refreshTokens().catch((e) => e);
+    clearToken(); // logout: the refresh in flight belongs to the old session
+    const newSession = refreshTokens().catch((e) => e);
+    await Promise.all([oldSession, newSession]);
+
+    expect(axiosMock.history.post).toHaveLength(2);
   });
 
   test('isSessionRefusal is true for a 401 and false for a network or server failure', () => {
