@@ -46,13 +46,6 @@ function leagueWorld(extra = []) {
   ]);
 }
 
-/** Records every call, so "the recap was never rebuilt" is observed, not inferred. */
-function spy(t, mod, name) {
-  const calls = [];
-  t.mock.method(mod, name, async (...args) => { calls.push(args); });
-  return calls;
-}
-
 const rebuild = (leagueId, userId) =>
   request(app).post(`/api/scoring/league/${leagueId}/recap`).set('Authorization', authed(userId)).send({ week: 4 });
 
@@ -67,6 +60,16 @@ test('POST recap: the sixth rebuild in an hour is a 429, and another League stil
   assert.equal(refused.status, 429);
   assert.ok(refused.headers['retry-after']);
   assert.equal((await rebuild(302, OWNER)).status, 200, 'a different League has its own budget');
+});
+
+test('POST recap: a League\'s budget follows the League, not how its id is spelled', async (t) => {
+  leagueWorld([
+    [/^SELECT "current_season" FROM "leagues"/, () => ({ rows: [{ current_season: 2026 }] })],
+  ]).install(t);
+  t.mock.method(recap, 'computeAndStoreWeeklyRecap', async () => ({ headline: 'rebuilt' }));
+
+  for (let i = 0; i < 5; i += 1) assert.equal((await rebuild(305, OWNER)).status, 200, `rebuild ${i + 1}`);
+  assert.equal((await rebuild('0305', OWNER)).status, 429, 'a leading zero is the same League, so the same budget');
 });
 
 test('POST recap: a member\'s refused attempts do not spend the League\'s budget', async (t) => {
@@ -84,14 +87,14 @@ test('POST recap: in production, a limiter that cannot reach Redis answers 500 a
   leagueWorld([
     [/^SELECT "current_season" FROM "leagues"/, () => ({ rows: [{ current_season: 2026 }] })],
   ]).install(t);
-  const rebuilt = spy(t, recap, 'computeAndStoreWeeklyRecap');
+  const rebuilt = t.mock.method(recap, 'computeAndStoreWeeklyRecap', async () => ({ headline: 'rebuilt' }));
 
   const previousEnv = process.env.NODE_ENV;
   process.env.NODE_ENV = 'production';
   try {
     const res = await rebuild(304, OWNER);
     assert.equal(res.status, 500);
-    assert.equal(rebuilt.length, 0, 'fail closed: no paid rebuild without the budget check');
+    assert.equal(rebuilt.mock.calls.length, 0, 'fail closed: no paid rebuild without the budget check');
   } finally {
     if (previousEnv === undefined) delete process.env.NODE_ENV;
     else process.env.NODE_ENV = previousEnv;

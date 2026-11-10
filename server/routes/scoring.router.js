@@ -409,7 +409,8 @@ const recapRebuildLimiter = createRateLimiter({
   name: 'recap-rebuild',
   windowMs: 60 * 60 * 1000,
   max: 5,
-  keyFn: (req) => `league:${req.params.id}`,
+  // Keyed on the parsed id: the route takes any digit string, so 7, 07 and 007 are one League.
+  keyFn: (req) => `league:${Number(req.params.id)}`,
 });
 
 // POST /api/scoring/league/:id/recap — commissioner rebuilds the stored
