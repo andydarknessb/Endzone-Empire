@@ -14,7 +14,8 @@
  *     leak even if a future query accidentally selects one.
  *
  * Fantasy points are recomputed from global stat lines under the three public
- * presets. Half-PPR remains the scalar default for backwards compatibility.
+ * presets, except a kicker count season rollup, which keeps its stored total
+ * (rollupPointsByFormat). Half-PPR remains the scalar default for backwards compatibility.
  */
 const pool = require('../modules/pool');
 const {
@@ -28,6 +29,7 @@ const { upcomingNflSeason } = require('./nflSeason.service');
 const bestAvailable = require('./bestAvailable.service');
 const { normalizeNflTeam } = require('./nflTeam');
 const { calculateFantasyPoints, SCORING_PRESETS } = require('./scoringRules');
+const { usesStoredSeasonTotal } = require('./seasonSummary.service');
 const { IDP_POSITIONS } = require('./feedSyncRuns.service');
 const {
   getSeasonPositionRank,
@@ -119,6 +121,16 @@ function pointsByFormat(stats) {
     halfPpr: round1(calculateFantasyPoints(stats, SCORING_PRESETS.half_ppr)),
     ppr: round1(calculateFantasyPoints(stats, SCORING_PRESETS.ppr)),
   };
+}
+
+/** Per-format points for a season rollup row. A row whose stored fantasy_points
+ * is its season total (kicker counts, see usesStoredSeasonTotal) keeps that
+ * total in every format: re-scoring its stats would drop the field goals. */
+function rollupPointsByFormat({ stats, fantasy_points: stored }) {
+  const total = stored == null ? NaN : Number(stored);
+  if (!usesStoredSeasonTotal(stats) || !Number.isFinite(total)) return pointsByFormat(stats);
+  const rounded = round1(total);
+  return { standard: rounded, halfPpr: rounded, ppr: rounded };
 }
 
 /** Sum per-format points across a season's weekly stat lines. Used when no
@@ -391,14 +403,14 @@ async function getPlayerProfile(playerId, { season } = {}) {
   const rollupRes = isTeamDefense
     ? { rows: [] }
     : await pool.query(
-        `SELECT "games_played", "stats" FROM "player_season_stats"
+        `SELECT "games_played", "stats", "fantasy_points" FROM "player_season_stats"
          WHERE "player_id" = $1 AND "season" = $2`,
         [id, targetSeason]
       );
   let seasonSummary = null;
   if (rollupRes.rows[0]) {
     const games = Number(rollupRes.rows[0].games_played) || 0;
-    const points = pointsByFormat(rollupRes.rows[0].stats);
+    const points = rollupPointsByFormat(rollupRes.rows[0]);
     seasonSummary = { season: targetSeason, gamesPlayed: games, points,
       pointsPerGame: perGamePoints(points, games), fantasyPoints: points.halfPpr };
   } else {
