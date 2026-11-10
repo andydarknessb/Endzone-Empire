@@ -44,6 +44,8 @@ function setup(raw = RAW) {
 }
 
 const refused = (status = 409) => ({ response: { status, data: { error: 'locked' } } });
+// An online request that never got a response: axios's own text, with no server message to show.
+const networkFailure = () => Object.assign(new Error('Network Error'), { code: 'ERR_NETWORK' });
 // A save is queued only while the browser reports offline (navigator.onLine), never on a failed request alone.
 const goOffline = () => Object.defineProperty(window.navigator, 'onLine', { configurable: true, value: false });
 const replayed = (detail) =>
@@ -74,6 +76,20 @@ test('a refused save rolls the optimistic state back to the exact snapshot and s
 
   expect(getRaw()).toEqual(RAW);
   expect(mockNotify).toHaveBeenCalledWith(expect.any(String), { severity: 'error' });
+});
+
+test('an online save that gets no response rolls back and shows house copy, never axios text or the offline toast', async () => {
+  apiClient.put.mockRejectedValue(networkFailure());
+  const { result, getRaw } = setup();
+
+  await act(async () => {
+    await result.current.submit(MOVES);
+  });
+
+  expect(getRaw()).toEqual(RAW);
+  expect(mockNotify).toHaveBeenCalledWith("Couldn't save your lineup. Try again.", { severity: 'error' });
+  expect(mockNotify).not.toHaveBeenCalledWith(expect.stringContaining('Network Error'), expect.anything());
+  expect(mockNotify).not.toHaveBeenCalledWith(expect.stringContaining('saved offline'), expect.anything());
 });
 
 describe('Matchups cache invalidation (#1881)', () => {
