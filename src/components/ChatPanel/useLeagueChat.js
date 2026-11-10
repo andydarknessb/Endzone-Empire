@@ -51,6 +51,15 @@ function isHumanMessage(entry) {
   return !entry || entry.type == null || entry.type === HUMAN_MESSAGE_TYPE;
 }
 
+// Merge a history read into the held messages by id, in seq order. A message that
+// arrived live while the read was in flight is kept, not replaced (#2765 5).
+function mergeHistory(prev, rows) {
+  const known = new Set(prev.map((m) => m.id));
+  const fresh = rows.filter((m) => !known.has(m.id));
+  if (fresh.length === 0) return prev;
+  return [...prev, ...fresh].sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0));
+}
+
 export default function useLeagueChat({ socket, leagueId, open = true, viewerTeamId = null }) {
   const [messages, setMessages] = useState([]);
   const [unread, setUnread] = useState(0);
@@ -78,7 +87,7 @@ export default function useLeagueChat({ socket, leagueId, open = true, viewerTea
     Promise.resolve(apiClient.get(`/api/league/${leagueId}/chat`))
       .then((res) => {
         const rows = Array.isArray(res?.data) ? res.data : [];
-        setMessages(rows);
+        setMessages((prev) => mergeHistory(prev, rows));
         // A full latest page means there is probably history behind it.
         setHasMore(rows.length >= CHAT_PAGE);
       })

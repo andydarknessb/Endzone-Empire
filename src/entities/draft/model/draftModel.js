@@ -153,18 +153,28 @@ export function applyBoardSnapshot(model, data) {
   // committed between the room join and the state read reaches us first). The
   // board version orders Draft state (#2696); seq orders the feed only. Equal is
   // applied: an autodraft toggle re-arms the clock on the same version. A state
-  // for a different League than the board holds always applies.
-  const otherLeague = model.league && model.league.id !== league?.id;
-  if (isStaleBoard(model, data) && !otherLeague) {
+  // for a different League than the board holds always applies. An EMPTY model
+  // (no League yet, #2765) always applies: a Pick that landed before the first
+  // snapshot must not make that snapshot read as stale and leave the room empty.
+  const emptyModel = model.league == null;
+  const otherLeague = !emptyModel && model.league.id !== league?.id;
+  if (!emptyModel && !otherLeague && isStaleBoard(model, data)) {
     return model;
   }
+  const snapshotPicks = (picks || []).map(pickFromSnapshotRow).reverse();
+  // Only an empty model keeps the Picks it holds that the snapshot lacks: they
+  // landed after the snapshot was read, so they are newer and go first.
+  const snapshotNumbers = new Set(snapshotPicks.map((p) => p.pick_number));
+  const held = emptyModel ? model.picks.filter((p) => !snapshotNumbers.has(p.pick_number)) : [];
   return {
     ...model,
     seq: Number.isFinite(seq) ? seq : model.seq,
-    boardVersion: Number.isFinite(boardVersion) ? boardVersion : model.boardVersion,
+    boardVersion: Number.isFinite(boardVersion)
+      ? (emptyModel ? Math.max(boardVersion, model.boardVersion ?? boardVersion) : boardVersion)
+      : model.boardVersion,
     league: league ?? null,
     teams: teams || [],
-    picks: (picks || []).map(pickFromSnapshotRow).reverse(),
+    picks: [...held, ...snapshotPicks],
     onTheClock: onTheClockFor(league, onTheClock, deadlineFromLeague(league, league?.pick_deadline_at)),
   };
 }
@@ -185,18 +195,21 @@ export function applyBoardSnapshot(model, data) {
  */
 export function applyLandedPick(model, data, { now = Date.now } = {}) {
   const d = data || {};
-  // A Pick the board already holds (a snapshot newer than this event) is not applied twice.
   if (isStaleBoard(model, d)) return model;
   const pick = pickFromPickedEvent(d);
+  // A Pick number the board already holds (a snapshot at this version, or the
+  // same event again) is not prepended twice (#2765 2).
+  if (pick.pick_number != null && model.picks.some((p) => p.pick_number === pick.pick_number)) return model;
   const nextOnTheClock = d.nextTeamId
     ? model.teams.find((t) => t.teamId === d.nextTeamId) || null
     : null;
 
-  // Server sends the new deadline directly; fall back to a client-side estimate
-  // (pick_time_seconds from now) only if it is ever omitted.
+  // Server sends the new deadline directly, null for an untimed draft. Estimate
+  // (pick_time_seconds from now) only when the field is absent, so an offline
+  // draft shows no clock rather than a made-up one (#2765 6).
   let deadlineAt = null;
-  if (d.pickDeadlineAt) {
-    deadlineAt = Date.parse(d.pickDeadlineAt);
+  if (d.pickDeadlineAt !== undefined) {
+    deadlineAt = d.pickDeadlineAt ? Date.parse(d.pickDeadlineAt) : null;
   } else if (model.league?.pick_time_seconds > 0) {
     deadlineAt = now() + model.league.pick_time_seconds * 1000;
   }

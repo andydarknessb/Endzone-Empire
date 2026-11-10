@@ -21,17 +21,23 @@ export default function useDraftQueue(leagueId, { onError } = {}) {
   // is attempted.
   const [writeError, setWriteError] = useState(null);
   const hasLoadedOnceRef = useRef(false);
+  // Counts every write. A read issued before the latest write is older than it,
+  // so its answer is ignored rather than reverting the optimistic edit (#2765 4).
+  const writeCountRef = useRef(0);
 
   const fetchQueue = useCallback(async () => {
     const isFirstLoad = !hasLoadedOnceRef.current;
+    const writesAtIssue = writeCountRef.current;
     if (!isFirstLoad) setIsRefetching(true);
     try {
       const res = await apiClient.get('/api/draft/queue', { params: { leagueId: Number(leagueId) } });
-      setQueue(Array.isArray(res.data) ? res.data : []);
-      // The only caller of a non-first fetchQueue is the write-failure resync
-      // below, so a successful one means the queue is now confirmed in sync
-      // with the server - any writeError it was showing is stale.
-      if (!isFirstLoad) setWriteError(null);
+      if (writesAtIssue === writeCountRef.current) {
+        setQueue(Array.isArray(res.data) ? res.data : []);
+        // The only caller of a non-first fetchQueue is the write-failure resync
+        // below, so a successful one means the queue is now confirmed in sync
+        // with the server - any writeError it was showing is stale.
+        if (!isFirstLoad) setWriteError(null);
+      }
     } catch (err) {
       onError?.(readHttpFailure(err).message || err.message);
     } finally {
@@ -49,6 +55,7 @@ export default function useDraftQueue(leagueId, { onError } = {}) {
   }, [fetchQueue]);
 
   const persistQueue = async (nextQueue) => {
+    writeCountRef.current += 1;
     setQueue(nextQueue);
     setWriteError(null);
     try {

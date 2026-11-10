@@ -95,6 +95,20 @@ const render = (props) => {
   return { socket, ...utils };
 };
 
+test('a history read that lands after a live message keeps that message, in seq order (#2765 5)', async () => {
+  let resolveHistory;
+  apiClient.get.mockImplementation((url) =>
+    url.endsWith('/chat/unread')
+      ? Promise.resolve({ data: { unread: 0 } })
+      : new Promise((resolve) => { resolveHistory = resolve; }));
+  const { result, socket } = render();
+
+  act(() => socket.trigger('chat:message', broadcast({ id: 9, seq: 9, message: 'live' })));
+  await act(async () => resolveHistory({ data: [chatMessage({ id: 7, seq: 7, message: 'older' })] }));
+
+  expect(result.current.messages.map((m) => m.id)).toEqual([7, 9]);
+});
+
 test('fetches league-chat history on mount and exposes it as messages', async () => {
   mockGets({ history: [chatMessage({ id: 1, message: 'hi' })] });
 

@@ -98,7 +98,8 @@ export default function useDraftRoomFeed({
     Promise.resolve(apiClient.get(`/api/league/${leagueId}/draft-feed`))
       .then((res) => {
         const rows = Array.isArray(res?.data) ? res.data : [];
-        setEntries(rows);
+        // Merged, never replaced: a live entry that arrived while this read was in flight is kept (#2765 5).
+        setEntries((prev) => rows.reduce((acc, row) => mergeEntry(acc, row), prev));
         setHasMore(rows.length >= FEED_PAGE);
       })
       .catch(handleFeedError);

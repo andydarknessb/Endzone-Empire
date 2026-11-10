@@ -71,6 +71,17 @@ test('interleaves live chat and Pick activity in one deterministic seq order (#4
   expect(result.current.entries.map((e) => e.type)).toEqual(['league_chat', 'draft_activity']);
 });
 
+test('a history read that lands after a live entry keeps that entry, in seq order (#2765 5)', async () => {
+  let resolveHistory;
+  apiClient.get.mockImplementationOnce(() => new Promise((resolve) => { resolveHistory = resolve; }));
+  const { result } = renderHook(() => useDraftRoomFeed({ socket, leagueId: 3, viewerTeamId: 11 }));
+
+  act(() => socket.trigger('chat:message', chatEntry({ id: 9, seq: 9, message: 'live' })));
+  await act(async () => resolveHistory({ data: [chatEntry({ id: 7, seq: 7, message: 'older' })] }));
+
+  expect(result.current.entries.map((e) => e.seq)).toEqual([7, 9]);
+});
+
 test('a Pick echo delivered twice is not doubled (dedup by seq)', async () => {
   const { result } = renderHook(() => useDraftRoomFeed({ socket, leagueId: 3, viewerTeamId: 11 }));
   await waitFor(() => expect(result.current.entries).toEqual([]));
