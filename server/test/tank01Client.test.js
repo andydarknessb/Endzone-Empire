@@ -242,6 +242,22 @@ test('a stale (>24h) header snapshot is ignored in favor of local counts', async
   assert.equal(state.mode, 'ok');
 });
 
+test('a header snapshot seen before the cycle start does not count in the new cycle', async () => {
+  // Anchor day 15: this cycle began 2026-09-15. The snapshot is 12h old (fresh)
+  // but was taken in the last cycle, when the provider was out of requests.
+  const at = new Date('2026-09-15T08:00:00.000Z');
+  const { client } = clientWith({
+    usedThisCycle: 100,
+    config: { ...CONFIG, anchorDay: 15 },
+    now: () => at,
+    snapshot: { limit: 1000, remaining: 0, seenAt: new Date('2026-09-14T20:00:00.000Z') },
+  });
+  const state = await client.getQuotaState();
+  assert.equal(state.headerUsed, null);
+  assert.equal(state.used, 100);
+  assert.equal(state.mode, 'ok');
+});
+
 test('a higher local count wins over a rosier header snapshot', async () => {
   const { client } = clientWith({
     usedThisCycle: 980,
