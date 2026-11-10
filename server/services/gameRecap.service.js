@@ -384,6 +384,9 @@ const RECAP_QUEUE_CONCURRENCY = Number(process.env.RECAP_QUEUE_CONCURRENCY) || 2
 const RECAP_MAX_RETRIES = 4;
 const SWEEP_MAX_AGE_DAYS = Number(process.env.RECAP_SWEEP_MAX_AGE_DAYS) || 14;
 const SWEEP_LIMIT = 100;
+// A game whose fetch failed waits this long before a trigger or the sweep may
+// enqueue it again, so a Tank01 outage cannot spend the monthly quota in a loop.
+const RECAP_FAILED_RETRY_MS = 60 * 60 * 1000;
 
 // `retryAfterMs` now lives in modules/tank01Client (one definition shared by the
 // metered client's own backoff and this queue) and is re-exported below so the
@@ -404,12 +407,18 @@ function createRecapQueue({
 } = {}) {
   const pending = [];
   const tracked = new Set(); // queued OR in-flight — the dedupe set
+  const failedUntil = new Map(); // gameId -> ms before which a dropped game is refused
   let active = 0;
   let backoffUntil = 0;
   let resumeTimer = null;
 
   function enqueue(gameId, opts = {}) {
     if (tracked.has(gameId)) return false;
+    const until = failedUntil.get(gameId);
+    if (until !== undefined) {
+      if (Date.now() < until) return false;
+      failedUntil.delete(gameId);
+    }
     tracked.add(gameId);
     pending.push({ gameId, opts, attempts: 0 });
     drain();
@@ -437,8 +446,9 @@ function createRecapQueue({
         pending.push(job); // requeue; stays in `tracked` (no double-enqueue)
         requeued = true;
       } else {
-        // Non-retriable, or retries exhausted: drop it. The sweep re-heals a
-        // game that ends up with no game_recaps row.
+        // Non-retriable, or retries exhausted: drop it, and hold it for an hour
+        // (the sweep re-heals it after that, not on its next tick).
+        failedUntil.set(job.gameId, Date.now() + RECAP_FAILED_RETRY_MS);
         console.error('gameRecap generation failed for %s:', job.gameId, err && err.message);
       }
     } finally {
