@@ -21,8 +21,8 @@ export function setToken(token) {
   setSessionHint(accessToken);
 }
 
-// Bumped on every logout: a refresh that was on the wire then answers for the
-// session that just ended, and must not install its token.
+// Bumped on every logout and on every new session (startSession): a refresh on the
+// wire then answers for a session no longer in place, and must not install its token.
 let sessionGeneration = 0;
 export function clearToken() {
   sessionGeneration += 1;
@@ -67,7 +67,7 @@ export function onTokenRefreshed(listener) {
 // server can say "none"), but it is not an HTTP error, so it carries a code of
 // its own instead of a fabricated response.
 const NO_SESSION = 'NO_SESSION';
-// A refresh answered after a logout: its token belongs to the session that ended.
+// A refresh answered after a logout or a new login: its token belongs to the session that ended.
 // Not a refusal of the session now in place, so no caller clears that session.
 const SESSION_ENDED = 'SESSION_ENDED';
 
@@ -79,7 +79,7 @@ export function isSessionRefusal(error) {
 }
 
 /** True when a 401 answers a session that has since ended (a request sent before
- * a logout, or a refresh that outlived one). It is not a refusal of the session
+ * a logout or login, or a refresh that outlived one). It is not a refusal of the session
  * now in place, so the caller must not clear that session. */
 export function isStaleSessionRefusal(error) {
   return error?.staleSession === true;
