@@ -77,7 +77,9 @@ test('shutdown waits for a running Settle follow-up before it ends the pool (#27
 });
 
 test('a follow-up that never settles lets shutdown continue at the 30-second limit (#2756)', async (t) => {
-  settleService.trackFollowUp(new Promise(() => {}));
+  let release;
+  settleService.trackFollowUp(new Promise((resolve) => { release = resolve; }));
+  t.after(() => release());
   const fresh = freshServer();
   poolEnd.mock.resetCalls();
   t.mock.timers.enable({ apis: ['setTimeout'] });
@@ -92,7 +94,9 @@ test('a follow-up that never settles lets shutdown continue at the 30-second lim
 });
 
 test('the API outer deadline outlasts the follow-up wait, so a SIGTERM still waits the full 30 seconds (#2756)', async (t) => {
-  settleService.trackFollowUp(new Promise(() => {}));
+  let release;
+  settleService.trackFollowUp(new Promise((resolve) => { release = resolve; }));
+  t.after(() => release());
   const fresh = freshServer();
   const proc = fakeProcess();
   poolEnd.mock.resetCalls();
@@ -107,4 +111,12 @@ test('the API outer deadline outlasts the follow-up wait, so a SIGTERM still wai
   await flush();
   assert.deepEqual(proc.exit.mock.calls[0].arguments, [0]);
   assert.equal(poolEnd.mock.callCount(), 1, 'pool.end ran before the exit');
+});
+
+test('no tracked follow-up outlives its case (#2860)', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  let drained = false;
+  settleService.drainFollowUps().then(() => { drained = true; });
+  await flush();
+  assert.equal(drained, true, 'the set is empty, so the drain resolves without a tick');
 });

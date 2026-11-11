@@ -1553,7 +1553,8 @@ The commissioner action that closes out the current week: finalizes scores,
 settles standings, awards trophies and opens the next week, always in one
 order: the week is scored as played (the Settle pass), finalized and
 advanced, the next week's lineups are seeded, and the Settle follow-up is
-started and not awaited. A failed live score announcement skips none of those
+started and not awaited by the advance. API shutdown waits up to 30 s for it
+before the pool ends. A failed live score announcement skips none of those
 steps. A failure in the follow-up is logged with league and week, and the next
 Advance week re-judges any pending Called shot; the Advance that completes the
 season has no next one, so it tells the judging the season is complete and it

@@ -1,7 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { createFakePool, select, update } = require('./helpers/fakePool');
-const { settleWeek } = require('../services/settle.service');
+const { settleWeek, drainFollowUps } = require('../services/settle.service');
 const matchupScoring = require('../services/matchupScoring.service');
 const settleFollowUpSvc = require('../services/settleFollowUp.service');
 const lineupService = require('../services/lineup.service');
@@ -134,6 +134,26 @@ test('a new week with no matchups (nothing scheduled) opens no transaction and m
   assert.deepEqual(materialized, []);
   assert.equal(fake.calls.filter((c) => /^BEGIN/.test(c.text)).length, 1, 'only the advance opened a transaction');
   fake.assertClean();
+});
+
+test('the Settle follow-up an advance starts is tracked (#2860)', async (t) => {
+  t.mock.method(matchupScoring, 'scoreMatchupsInTransaction', async () => null);
+  t.mock.method(lineupService, 'materializeLineup', async () => {});
+  let release;
+  t.mock.method(settleFollowUpSvc, 'settleFollowUp', () => new Promise((resolve) => { release = resolve; }));
+  advancePool().install(t);
+  try {
+    await settleWeek({ leagueId: 1 }); // returns while the follow-up is still pending
+    let drained = false;
+    const drain = drainFollowUps().then(() => { drained = true; });
+    for (let i = 0; i < 5; i++) await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(drained, false, 'shutdown waits while the follow-up runs');
+    release();
+    await drain;
+    assert.equal(drained, true);
+  } finally {
+    release?.();
+  }
 });
 
 test('a pool that cannot hand out a second connection still leaves the advance committed', async (t) => {
