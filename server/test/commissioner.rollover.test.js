@@ -361,6 +361,22 @@ test("rolloverSeason takes no award lock when no playoff final is decided", asyn
   assert.equal(statementsMatching(calls, /pg_advisory_xact_lock/).length, 0);
 });
 
+test("rolloverSeason locks the latest decided playoff final's week, not an earlier round's", async (t) => {
+  // A decided week-17 semifinal sits beside the week-18 final the award keys on.
+  const calls = fantasyFinalRollover(t, {
+    championRows: [],
+    finalScores: [100, 130],
+    matchups: [
+      { id: 1, league_id: 5, season: 2026, week: 17, is_playoff: true, is_consolation: false, final: true, home_team_id: 10, away_team_id: 11, home_score: 120, away_score: 90 },
+      { id: 2, league_id: 5, season: 2026, week: 18, is_playoff: true, is_consolation: false, final: true, home_team_id: 10, away_team_id: 11, home_score: 100, away_score: 130 },
+    ],
+  });
+
+  await commissioner.rolloverSeason({ leagueId: 5, userId: 100 });
+
+  assert.deepEqual(statementsMatching(calls, /^SELECT pg_advisory_xact_lock\(\$1, \$2\)$/)[0].params, [5, 202618]);
+});
+
 test("rolloverSeason clears the draft, keepers and queues, and resets Teams for a new season", async (t) => {
   const league = {
     id: 5, owner_id: 100, is_commissioner: true, pickem_only: false,

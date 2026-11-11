@@ -471,7 +471,8 @@ async function rolloverSeason({ leagueId, userId }) {
         // it. Only a season whose follow-up never ran decides from the final.
         // The award takes this lock before its reads and writes, so waiting here
         // reads the Trophy it committed, or decides first and the award reads
-        // league_history and names the same Team.
+        // league_history and names the same Team. No cycle: the League row is taken
+        // FOR NO KEY UPDATE and the award's FK check takes FOR KEY SHARE.
         const playoffFinals = matchupsResult.rows
           .filter((m) => m.is_playoff && !m.is_consolation && m.final)
           .sort((a, b) => b.week - a.week);
