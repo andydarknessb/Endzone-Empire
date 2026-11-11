@@ -59,6 +59,7 @@ const { getClientOrigins, getCorsOptions } = require('./modules/clientOrigins');
 const redis = require('./modules/redis');
 const { markReady, markShuttingDown } = require('./modules/runtimeState');
 const settleService = require('./services/settle.service');
+const gameRecap = require('./services/gameRecap.service'); // the module object: a test stubs drainRecaps on it (#2869)
 const {
   installProcessHandlers: installSharedProcessHandlers,
 } = require('./modules/processHandlers');
@@ -229,8 +230,8 @@ async function shutdown(reason = 'shutdown') {
     if (server.listening) {
       await new Promise((resolve) => server.close(resolve));
     }
-    // A Settle follow-up started by Advance week still uses the pool (#2756), and so does a live engine tick (#2866).
-    await Promise.all([settleService.drainFollowUps(), drainLiveGameEngine()]);
+    // A Settle follow-up started by Advance week still uses the pool (#2756), and so does a live engine tick (#2866) or a recap sweep (#2869).
+    await Promise.all([settleService.drainFollowUps(), drainLiveGameEngine(), gameRecap.drainRecaps()]);
     await closeDraftSocket(io);
     await redis.closeRedis();
     await pool.end();

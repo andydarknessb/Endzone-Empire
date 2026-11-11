@@ -24,6 +24,7 @@ const {
   getLiveGameEngineStatus,
 } = require('./modules/liveGameEngine');
 const { recordWorkerHeartbeat } = require('./services/workerHeartbeat.service');
+const gameRecap = require('./services/gameRecap.service'); // the module object: a test stubs drainRecaps on it (#2869)
 // The module object, not a destructured function, so a test can stub
 // closeRedis on it (server/test/worker.lifecycle.test.js).
 const redis = require('./modules/redis');
@@ -91,8 +92,8 @@ async function shutdown(reason) {
   if (heartbeatTimer) clearInterval(heartbeatTimer);
   stopScheduler();
   stopLiveGameEngine();
-  // What is already running finishes before pool.end ends its queries (#2864, #2866).
-  await Promise.all([drainScheduler(), drainLiveGameEngine()]);
+  // What is already running finishes before pool.end ends its queries (#2864, #2866, #2869).
+  await Promise.all([drainScheduler(), drainLiveGameEngine(), gameRecap.drainRecaps()]);
   await heartbeat().catch(() => {});
   await pool.end();
   // The cache client and the draft emitter's publisher hold Redis sockets
