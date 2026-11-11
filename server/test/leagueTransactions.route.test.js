@@ -61,3 +61,26 @@ test('GET transactions selects the joined positions and fills trade item positio
   assert.deepEqual(res.body[1].detail.items.map((i) => i.position), ['QB', 'RB']);
   assert.equal(res.body[2].detail.items, undefined);
 });
+
+// #2752: rows written before the log stopped naming accounts still hold them.
+test('GET transactions serves a stored row without its account id or username', async (t) => {
+  t.mock.method(pool, 'query', async (sql) => {
+    const text = String(sql);
+    if (text.includes('FROM "teams" WHERE "league_id"')) return { rows: [{ 1: 1 }] };
+    if (text.includes('FROM "transactions"')) {
+      return {
+        rows: [{
+          id: 4,
+          type: 'commissioner',
+          detail: { action: 'grant_co_commissioner', userId: 42, username: 'alice' },
+        }],
+      };
+    }
+    throw new Error(`unexpected query: ${text}`);
+  });
+
+  const res = await request(app).get('/api/league/12/transactions').set('Authorization', authed());
+
+  assert.equal(res.status, 200);
+  assert.deepEqual(res.body[0].detail, { action: 'grant_co_commissioner' });
+});

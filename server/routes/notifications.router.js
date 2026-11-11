@@ -6,6 +6,38 @@ const { createRateLimiter } = require('../modules/rateLimit');
 const router = express.Router();
 router.use(requireAuth);
 
+// A commissioner's join alert stored before #2752 names the requester's account
+// in `message` and carries `data.userId`. Only those rows are rewritten, by the
+// proposed Team, read from the join request, or by the league alone once that
+// request is gone. The requester's own approved and denied notices share the
+// type but carry no userId, so they are served as stored. No row is changed.
+const isLegacyJoinAlert = (row) => row.type === 'join_request' && 'userId' in (row.data || {});
+
+async function servedJoinAlerts(rows) {
+  const legacy = new Set(rows.filter(isLegacyJoinAlert));
+  const requestIds = [...legacy].map((row) => row.data.requestId).filter(Number.isInteger);
+  const teamNames = new Map();
+  if (requestIds.length > 0) {
+    const requests = await pool.query(
+      `SELECT "id", "team_name" FROM "join_requests" WHERE "id" = ANY($1::int[])`,
+      [requestIds]
+    );
+    for (const request of requests.rows) teamNames.set(request.id, request.team_name);
+  }
+  return rows.map((row) => {
+    if (!legacy.has(row)) return row;
+    const requestId = row.data?.requestId ?? null;
+    const team = teamNames.get(requestId);
+    return {
+      ...row,
+      message: team
+        ? `${team} requested to join ${row.league_name}`
+        : `A join request is waiting in ${row.league_name}`,
+      data: { requestId },
+    };
+  });
+}
+
 // GET /api/notifications — the caller's newest notifications
 router.get('/', async (req, res) => {
   try {
@@ -21,7 +53,7 @@ router.get('/', async (req, res) => {
       `SELECT COUNT(*)::int AS n FROM "notifications" WHERE "user_id" = $1 AND "read" = false`,
       [req.user.id]
     );
-    res.json({ notifications: result.rows, unread: unread.rows[0].n });
+    res.json({ notifications: await servedJoinAlerts(result.rows), unread: unread.rows[0].n });
   } catch (error) {
     console.error('Error fetching notifications', error);
     res.status(500).json({ error: 'failed to fetch notifications' });

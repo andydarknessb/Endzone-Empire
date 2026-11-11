@@ -432,7 +432,7 @@ test('joinPublicLeague: re-sending while the request is pending re-alerts no com
 
   const { joinPublicLeague } = require('../services/discovery.service');
   const result = await joinPublicLeague({
-    leagueId: 7, userId: 5, username: 'eve', teamName: 'Eve Picks',
+    leagueId: 7, userId: 5, teamName: 'Eve Picks',
   });
 
   assert.equal(result.pending, true);
@@ -469,7 +469,7 @@ test('joinPublicLeague: a resubmitted denied request still alerts every commissi
 
   const { joinPublicLeague } = require('../services/discovery.service');
   const result = await joinPublicLeague({
-    leagueId: 7, userId: 5, username: 'eve', teamName: 'Eve Picks',
+    leagueId: 7, userId: 5, teamName: 'Eve Picks',
   });
 
   assert.equal(result.pending, true);
@@ -477,5 +477,41 @@ test('joinPublicLeague: a resubmitted denied request still alerts every commissi
     fake.matching(/INSERT INTO "notifications"/).map((call) => call.params[0]).sort((a, b) => a - b),
     [100, 202, 303]
   );
+  fake.assertClean();
+});
+
+// #2752: the join-request alert is read by every commissioner, so it names the
+// proposed Team and never the requester's account.
+test('joinPublicLeague: the commissioner alert names the proposed Team with no account id or username', async (t) => {
+  const fake = createFakePool([
+    [/(?:FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE|UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1)/, () => ({
+      rows: [{
+        id: 7, name: 'Curated League', owner_id: 100, is_public: true,
+        join_approval: true, max_teams: 10, pickem_only: false,
+        draft_status: 'pending', season_status: 'regular',
+      }],
+    })],
+    [/SELECT 1 FROM "teams"/, () => ({ rows: [] })],
+    [/FROM "league_bans"/, () => ({ rows: [] })],
+    [/SELECT COUNT\(\*\)::int AS n FROM "teams"/, () => ({ rows: [{ n: 3 }] })],
+    [/INSERT INTO "join_requests"/, (text, params) => ({
+      rows: REQUESTS_A_DENIED_OR_CANCELLED_ROW.test(text)
+        ? [{ id: 9, league_id: params[0], user_id: params[1], team_name: params[2], status: 'pending' }]
+        : [],
+    })],
+    [/FROM "league_commissioners"/, () => ({ rows: [{ user_id: 202 }, { user_id: 303 }] })],
+    [/INSERT INTO "notifications"/, () => ({ rows: [] })],
+  ]);
+  fake.install(t);
+
+  const { joinPublicLeague } = require('../services/discovery.service');
+  await joinPublicLeague({ leagueId: 7, userId: 5, teamName: 'Eve Picks' });
+
+  const alerts = fake.matching(/INSERT INTO "notifications"/);
+  assert.equal(alerts.length, 3);
+  for (const call of alerts) {
+    assert.equal(call.params[3], 'Eve Picks requested to join Curated League');
+    assert.deepEqual(JSON.parse(call.params[4]), { requestId: 9 });
+  }
   fake.assertClean();
 });
