@@ -71,8 +71,9 @@ Rows already written keep the `available_at` they were given, and nothing
 pulls one earlier. A lengthened period is picked up by the next kickoff tick,
 at most five minutes later: the tick re-selects the unrostered player whose row
 clears before the new week clear and writes the row again with the later time.
-Until that tick, the roster gate refuses the player's acquire and claim, because
-the player's row has expired. A shortened period reaches only a player with no
+Until that tick, the acquire stays refused by the kickoff hold. If the player's
+row had already expired, a claim is refused until that tick, because no
+unexpired row exists. A shortened period reaches only a player with no
 row yet. A player already on a row stays on waivers until the `available_at` on
 that row, because the on-waivers check reads the row, as a drop's row keeps the
 period it was dropped under.
