@@ -16,7 +16,7 @@ const {
   teamIdentityOf,
   lookupTeam,
 } = require('../services/teamIdentity');
-const { feedEntryOf, isBlockableFeedType, listBlockersOf } = require('../services/leagueFeed');
+const { feedEntryOf } = require('../services/leagueFeed');
 const { checkChatSend } = require('./chatFlood');
 const { socketEventLimiter, refuseExtraSockets } = require('./socketRateLimit');
 const { MAX_CHAT_CHARS } = require('./chatLimits');
@@ -294,15 +294,7 @@ function attachDraftSocket(httpServer, { now = Date.now } = {}) {
         }
 
         const entry = chatEntryFrom({ row: inserted.rows[0], leagueId, team: authorTeam, message: caption });
-        // AC6/AC7. Blockable kind -> deliver per recipient; skip only viewers
-        // who blocked THIS author. Draft activity is not a blockable kind, so
-        // this path never withholds it.
-        await deliverFeedEntry(io, pool, {
-          leagueId,
-          event: 'chat:message',
-          entry,
-          authorUserId: socket.user.id,
-        });
+        await deliverFeedEntry(io, { leagueId, event: 'chat:message', entry });
         ack && ack({ ok: true });
       } catch (error) {
         console.error('chat:send failed', error);
@@ -553,34 +545,12 @@ function chatEntryFrom({ row, leagueId, team, message }) {
 }
 
 /**
- * Deliver a feed entry to a league room, honouring per-viewer blocking for
- * blockable kinds only (#440, AC6/AC7).
- *
- * A non-blockable kind (Draft activity) is broadcast to the whole room
- * untouched: a blocked Team's Pick is a shared draft fact, never hidden. A
- * blockable kind (League chat) with no blockers of its author is also a plain
- * broadcast - the per-socket path is taken only when someone actually blocked
- * the author, so the common case stays a single room emit. The author is never
- * among their own blockers (the user_blocks CHECK forbids it), so they always
- * receive their own echo.
+ * Deliver a feed entry to the league room: the one seam a feed entry's room
+ * broadcast goes through (ADR 0012). Per-viewer blocking no longer filters it
+ * (#2754).
  */
-async function deliverFeedEntry(io, db, { leagueId, event, entry, authorUserId }) {
-  const room = `league:${leagueId}`;
-  if (!isBlockableFeedType(entry.type)) {
-    io.to(room).emit(event, entry);
-    return;
-  }
-  const blockers = await listBlockersOf(db, authorUserId);
-  if (blockers.size === 0) {
-    io.to(room).emit(event, entry);
-    return;
-  }
-  const sockets = await io.in(room).fetchSockets();
-  for (const member of sockets) {
-    const uid = member.data?.userId;
-    if (uid != null && blockers.has(uid)) continue;
-    member.emit(event, entry);
-  }
+async function deliverFeedEntry(io, { leagueId, event, entry }) {
+  io.to(`league:${leagueId}`).emit(event, entry);
 }
 
 module.exports = {

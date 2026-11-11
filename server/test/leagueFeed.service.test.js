@@ -4,7 +4,6 @@ const { createFakePool } = require('./helpers/fakePool');
 const {
   LEAGUE_CHAT,
   FEED_PAGE_SIZE,
-  BLOCKABLE_FEED_TYPES,
   MODERATABLE_FEED_TYPES,
   isModeratableFeedType,
   feedEntryOf,
@@ -129,11 +128,9 @@ test('feedEntryOf tombstones a hidden GIF: caption AND media both suppressed (AC
 });
 
 test('MODERATABLE_FEED_TYPES is human League chat only, never Draft activity (AC6)', () => {
-  // Only human-authored League chat may be hidden. This mirrors the blockable
-  // set exactly for the same reason (#440): a Draft event is a shared fact, not
-  // a manager talking, so it can be neither blocked nor moderated.
+  // Only human-authored League chat may be hidden: a Draft event is a shared
+  // fact, not a manager talking, so it is never moderatable.
   assert.deepEqual([...MODERATABLE_FEED_TYPES], [LEAGUE_CHAT]);
-  assert.deepEqual([...MODERATABLE_FEED_TYPES], [...BLOCKABLE_FEED_TYPES]);
   assert.equal(isModeratableFeedType(LEAGUE_CHAT), true);
   assert.equal(isModeratableFeedType('draft_activity'), false);
   assert.equal(isModeratableFeedType('draft_pick'), false);
@@ -176,8 +173,8 @@ test('listLeagueChatFeed reads the latest page ordered by feed_seq, no cursor', 
   assert.deepEqual(seenParams, [12, 9, 100]);
   // No cursor predicate when reading the latest page.
   assert.doesNotMatch(seenSql, /"feed_seq" < \$/);
-  // Block filter is preserved from the original history endpoint.
-  assert.match(seenSql, /NOT EXISTS \(\s*SELECT 1 FROM "user_blocks"/);
+  // No block filter: blocking is retired (#2754), so history reads every author.
+  assert.doesNotMatch(seenSql, /user_blocks/);
   // Typed entries out.
   assert.equal(entries.length, 2);
   assert.equal(entries[0].type, LEAGUE_CHAT);
@@ -236,7 +233,7 @@ test('combinedEntryOf tombstones a hidden chat row and never a Draft-activity ro
   assert.equal('hidden' in activity, false, 'Draft activity is never a tombstone');
 });
 
-test('listCombinedDraftFeed projects hidden_at in the CHAT arm only, and blocks chat only', async () => {
+test('listCombinedDraftFeed projects hidden_at in the CHAT arm only', async () => {
   let seenSql = null;
   const fake = createFakePool([
     [/FROM "chat_messages"/, (text) => { seenSql = text; return { rows: [] }; }],
@@ -247,13 +244,10 @@ test('listCombinedDraftFeed projects hidden_at in the CHAT arm only, and blocks 
   // too; the activity arm carries a NULL placeholder for column alignment.
   assert.match(seenSql, /"chat_messages"\."hidden_at" AS hidden_at/);
   assert.match(seenSql, /NULL::timestamptz AS hidden_at/);
-  // The block filter is on the CHAT arm and NOT on the draft_activity arm - a
-  // Pick by a blocked Team stays visible (AC7 / ADR 0012).
   // Everything from UNION ALL onward is the activity arm (its SELECT list, FROM
-  // and WHERE) - the chat arm and its block filter sit before it.
+  // and WHERE).
   const activityArm = seenSql.slice(seenSql.indexOf('UNION ALL'));
-  assert.doesNotMatch(activityArm, /"user_blocks"/, 'the activity arm never filters on blocks');
-  assert.match(seenSql, /NOT EXISTS \(\s*SELECT 1 FROM "user_blocks"/);
+  assert.doesNotMatch(seenSql, /"user_blocks"/, 'neither arm filters on blocks (#2754)');
   // By CONSTRUCTION the tombstone path cannot reach a Pick: the activity arm
   // never projects a hidden_at FROM chat_messages, only the aligned NULL
   // placeholder. So moderation is unreachable for Draft activity in the SQL

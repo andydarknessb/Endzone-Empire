@@ -210,21 +210,6 @@ if (!ENABLED) {
     assert.deepEqual(older.map((e) => e.seq), [1, 2], 'before=3 returns the two entries just older than seq 3');
   });
 
-  test('blocking hides the blocked author chat but keeps their Draft activity', async () => {
-    // ownerA blocks ownerB. B authored chat seq 3 and pick activity seq 4.
-    await pool.query(
-      `INSERT INTO "user_blocks" ("blocker_id", "blocked_id") VALUES ($1, $2)
-       ON CONFLICT DO NOTHING`,
-      [ownerA, ownerB]
-    );
-    const feed = await listCombinedDraftFeed(pool, { leagueId: leagueA, viewerId: ownerA });
-    const seqs = feed.map((e) => e.seq);
-    assert.ok(!seqs.includes(3), 'the blocked author\'s chat is hidden');
-    assert.ok(seqs.includes(4), 'the blocked author\'s authoritative Draft activity stays visible');
-    // Cleanup so the block does not leak into later assertions.
-    await pool.query('DELETE FROM "user_blocks" WHERE "blocker_id" = $1 AND "blocked_id" = $2', [ownerA, ownerB]);
-  });
-
   test('the member feed excludes the cutover boundary BEFORE pagination, so a full visible page still returns (#540 AC4)', async () => {
     // The behavioral proof of filter-before-pagination that a matcher fake cannot
     // express: a real Postgres must actually apply the activity arm's kind filter

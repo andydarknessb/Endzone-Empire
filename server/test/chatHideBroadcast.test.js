@@ -12,9 +12,8 @@ const safetyRouter = require('../routes/safety.router');
  * #441 AC7 (multi-client) and AC3/AC5, proven end to end: a commissioner hides a
  * chat message over REST (POST /api/safety/hide), and every member CONNECTED to
  * the league room receives the neutral tombstone LIVE, through the real
- * socket.io server the safety route reaches via getIo(). The block filter is
- * inherited from #440's deliverFeedEntry: a viewer who blocked the author, who
- * never saw the message, never sees its tombstone either.
+ * socket.io server the safety route reaches via getIo(). Every member in the
+ * room sees the tombstone, the author included (blocking filters nothing, #2754).
  *
  * The harness owns JWT_SECRET (set at module top), so the same signToken mints
  * both the REST bearer and the socket handshakes against one secret.
@@ -26,17 +25,16 @@ app.use(express.json());
 app.use('/api/safety', safetyRouter);
 
 const A = { userId: 7, username: 'author' };
-const B = { userId: 8, username: 'blocker' };
+const B = { userId: 8, username: 'member' };
 const C = { userId: 9, username: 'neutral' };
 const M = { userId: 5, username: 'commish' };
 
 /** A small world answering the socket-join reads and the REST hide reads off
  *  one shared fake pool: who holds a Team, who is a commissioner, who blocked
  *  whom, and a hide UPDATE that returns the freshly-hidden row. */
-function hideWorld({ leagueId, teams, commissioners = [], blocks = [], authorId = A.userId }) {
+function hideWorld({ leagueId, teams, commissioners = [], authorId = A.userId }) {
   const state = {
     teams: new Map(Object.entries(teams).map(([uid, tm]) => [Number(uid), tm])),
-    blocks: [...blocks],
   };
   const commish = new Set(commissioners);
   const fake = createFakePool([
@@ -59,10 +57,6 @@ function hideWorld({ leagueId, teams, commissioners = [], blocks = [], authorId 
         hidden_at: '2026-09-01T01:00:00.000Z',
       }],
     })],
-    // listBlockersOf — who has blocked the author, for block-aware delivery.
-    [/^SELECT "blocker_id" FROM "user_blocks"/, (t, [blockedId]) => ({
-      rows: state.blocks.filter((b) => b.blocked === blockedId).map((b) => ({ blocker_id: b.blocker })),
-    })],
   ]);
   return { fake, state };
 }
@@ -78,7 +72,7 @@ function eventOrSilence(client, event, ms = 400) {
   });
 }
 
-test('a commissioner hide broadcasts a neutral tombstone to the room, skipping a blocker', async (t) => {
+test('a commissioner hide broadcasts a neutral tombstone to every member in the room', async (t) => {
   const leagueId = 4501;
   const world = hideWorld({
     leagueId,
@@ -88,7 +82,6 @@ test('a commissioner hide broadcasts a neutral tombstone to the room, skipping a
       [C.userId]: { teamId: 91, teamName: 'Neutral' },
     },
     commissioners: [M.userId],
-    blocks: [{ blocker: B.userId, blocked: A.userId }],
   });
   world.fake.install(t);
 
@@ -99,8 +92,7 @@ test('a commissioner hide broadcasts a neutral tombstone to the room, skipping a
   await harness.emit(blocker, 'league:join', { leagueId });
   await harness.emit(neutral, 'league:join', { leagueId });
 
-  let blockerGot = false;
-  blocker.on('chat:hidden', () => { blockerGot = true; });
+  const blockerGot = eventOrSilence(blocker, 'chat:hidden');
   const neutralGot = eventOrSilence(neutral, 'chat:hidden');
   const authorGot = eventOrSilence(author, 'chat:hidden');
 
@@ -123,5 +115,5 @@ test('a commissioner hide broadcasts a neutral tombstone to the room, skipping a
   assert.equal('hidden_by' in tombstone, false);
 
   assert.ok(await authorGot, 'the author sees their own message become a tombstone');
-  assert.equal(blockerGot, false, 'a viewer who blocked the author never receives the tombstone');
+  assert.ok(await blockerGot, 'the blocker receives the tombstone: blocking filters nothing (#2754)');
 });

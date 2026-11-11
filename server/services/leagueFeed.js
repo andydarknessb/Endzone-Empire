@@ -53,28 +53,6 @@ const { GIF } = require('../modules/gifMessage');
 const LEAGUE_CHAT = 'league_chat';
 
 /**
- * THE ONE PLACE that decides whether a feed entry is subject to per-viewer
- * blocking (#440, AC6/AC7). Blocking is a tool for muting another MANAGER's
- * human messages; it must never hide authoritative Draft activity involving the
- * blocked Team (AC7), because a Pick is a shared fact of the draft, not that
- * manager talking. So the decision is made on the entry's KIND, not on which
- * socket event happened to carry it: only human-authored kinds are blockable.
- *
- * This is deliberately a named set rather than an inline check at the delivery
- * site. When Draft activity gains its own kind here (ADR 0012, #435), whoever
- * adds it must look at this set and leave it out - the coupling is one obvious
- * line, not an assumption spread through a broadcast path. If a Draft-activity
- * kind is ever added here, AC7 breaks.
- */
-const BLOCKABLE_FEED_TYPES = new Set([LEAGUE_CHAT]);
-
-/** Whether entries of this kind may be withheld from a viewer who blocked the
- *  author. Only human-authored League chat is; Draft activity never is (AC7). */
-function isBlockableFeedType(type) {
-  return BLOCKABLE_FEED_TYPES.has(type);
-}
-
-/**
  * The set of feed kinds a commissioner may HIDE league-wide (#441, AC6). It is
  * the EXPLICIT, machine-checked form of the AC6 invariant "Draft activity
  * cannot be hidden through moderation": hiding is a tool for moderating another
@@ -93,12 +71,6 @@ function isBlockableFeedType(type) {
  * hide-by-feed-entry path added then MUST consult this set and leave that kind
  * out, and `isModeratableFeedType` is the one line it calls. If a Draft-activity
  * kind is ever ADDED to this set, AC6 breaks.
- *
- * It mirrors BLOCKABLE_FEED_TYPES because both answer "human-authored only", and
- * the service test pins them equal so the parallel cannot silently diverge; they
- * are named apart because they answer different questions (what may I mute for
- * myself vs. what may a commissioner hide for everyone) and a future kind could
- * be one but not the other.
  */
 const MODERATABLE_FEED_TYPES = new Set([LEAGUE_CHAT]);
 
@@ -106,22 +78,6 @@ const MODERATABLE_FEED_TYPES = new Set([LEAGUE_CHAT]);
  *  human-authored League chat; Draft activity never is (AC6). */
 function isModeratableFeedType(type) {
   return MODERATABLE_FEED_TYPES.has(type);
-}
-
-/**
- * The set of user ids who have blocked `authorId`, for filtering a LIVE
- * broadcast per recipient (#440, AC6). History and the unread badge filter with
- * the same `user_blocks` relation from the viewer's side; live delivery has to
- * ask it from the author's side, once per send, so the room broadcast can skip
- * exactly the viewers who would never see this message on a later history read.
- */
-async function listBlockersOf(db, authorId) {
-  if (!Number.isInteger(authorId)) return new Set();
-  const result = await db.query(
-    `SELECT "blocker_id" FROM "user_blocks" WHERE "blocked_id" = $1`,
-    [authorId]
-  );
-  return new Set(result.rows.map((row) => row.blocker_id));
 }
 
 /**
@@ -145,8 +101,8 @@ function feedEntryOf(row) {
   const [idField, nameField] = TEAM_IDENTITY_FIELDS;
   // A commissioner-hidden message reads back as a neutral tombstone (#441,
   // AC3): its content never rides on the member feed, and the reason and the
-  // moderator who acted are not projected here AT ALL - only the
-  // authorized-reviewer history (safety.router) exposes those (AC4). The entry
+  // moderator who acted are not projected here AT ALL, and no route serves
+  // them since the moderation history was retired (#2754). The entry
   // keeps its seq and Team identity so ordering, pagination and "is this mine"
   // are unchanged; only the content becomes a tombstone.
   const hidden = row.hidden_at != null;
@@ -156,8 +112,8 @@ function feedEntryOf(row) {
   // to null exactly as the caption is: the asset, the caption and the
   // description are all author-authored content, so a hidden GIF reads back as
   // the SAME neutral tombstone as a hidden text message (the moderation
-  // decision, #446 AC3). The reviewer history (safety.router) is the only place
-  // the original GIF content survives. This is DISTINCT from AC5 unavailable
+  // decision, #446 AC3). The original GIF stays on the row (hidden_at set); no
+  // route serves it since #2754. This is DISTINCT from AC5 unavailable
   // media, which is not hidden and keeps its caption and description in the tile.
   const isGif = row.content_kind === GIF;
   const media = hidden || !isGif
@@ -192,8 +148,7 @@ function feedEntryOf(row) {
  * `created_at`: the sequence is the tie-free order two entries are read back
  * in, and it is the cursor a reconnecting client pages from. The window is
  * taken newest-first with the cursor and page limit, then flipped to ascending
- * display order. Blocked authors are filtered with the same predicate the
- * unread badge uses, so the feed never shows what the badge would never count.
+ * display order.
  *
  * `after` is the reconnect-resume cursor (#442): given the last `seq` a client
  * acknowledged, it returns the entries just NEWER than it (`feed_seq > after`)
@@ -234,11 +189,6 @@ async function listLeagueChatFeed(db, { leagueId, viewerId, before = null, after
        FROM "chat_messages"
        ${teamIdentityJoin('"chat_messages"."league_id"', '"chat_messages"."user_id"')}
        WHERE "chat_messages"."league_id" = $1
-         AND NOT EXISTS (
-           SELECT 1 FROM "user_blocks"
-           WHERE "user_blocks"."blocker_id" = $2
-             AND "user_blocks"."blocked_id" = "chat_messages"."user_id"
-         )
          ${cursorClause}
        ORDER BY "chat_messages"."feed_seq" ${windowOrder}
        ${limitClause}
@@ -286,12 +236,7 @@ function combinedEntryOf(row) {
  * `(league_id, feed_seq)` index. The outermost `ORDER BY feed_seq ASC` gives the
  * oldest-first display order, matching listLeagueChatFeed's idiom.
  *
- * The block predicate applies to CHAT ONLY: a blocked manager's messages are
- * hidden (the same predicate the unread badge and the chat feed use), but their
- * authoritative Draft activity stays visible, because blocking must never hide
- * shared Draft state (CONTEXT.md; ADR 0012; spec user story 83).
- *
- * Commissioner moderation is CHAT ONLY for the same reason (#441, AC6): the chat
+ * Commissioner moderation is CHAT ONLY (#441, AC6): the chat
  * arm projects `hidden_at` so a hidden message reads back here as the same
  * neutral tombstone the chat-only feed produces (combinedEntryOf -> feedEntryOf),
  * while the Draft-activity arm carries a NULL `hidden_at` placeholder and routes
@@ -376,11 +321,6 @@ async function listCombinedDraftFeed(db, { leagueId, viewerId, before = null, af
             FROM "chat_messages"
             ${teamIdentityJoin('"chat_messages"."league_id"', '"chat_messages"."user_id"')}
            WHERE "chat_messages"."league_id" = $1
-             AND NOT EXISTS (
-               SELECT 1 FROM "user_blocks"
-                WHERE "user_blocks"."blocker_id" = $2
-                  AND "user_blocks"."blocked_id" = "chat_messages"."user_id"
-             )
              ${chatCursor}
            ORDER BY "chat_messages"."feed_seq" ${windowOrder}
            LIMIT ${lim})
@@ -429,8 +369,8 @@ async function listCombinedDraftFeed(db, { leagueId, viewerId, before = null, af
  *
  * The SEPARATION from listCombinedDraftFeed IS the privacy boundary, not a
  * convenience. This reader queries `draft_activity` and nothing else, so League
- * chat, the unread relation, commissioner moderation (`hidden_at`) and
- * per-viewer blocking (`user_blocks`) are absent BY CONSTRUCTION - there is no
+ * chat, the unread relation and commissioner moderation (`hidden_at`) are absent
+ * BY CONSTRUCTION - there is no
  * filter for a later edit to weaken and no chat table to accidentally re-join
  * (#438 AC2). There is no `viewerId`, because a presenter is not a member with a
  * block list; the feed is scoped by `leagueId` alone, resolved from the presenter
@@ -561,11 +501,8 @@ async function listPresenterDraftActivity(db, { leagueId, before = null, after =
 
 module.exports = {
   LEAGUE_CHAT,
-  BLOCKABLE_FEED_TYPES,
-  isBlockableFeedType,
   MODERATABLE_FEED_TYPES,
   isModeratableFeedType,
-  listBlockersOf,
   FEED_PAGE_SIZE,
   feedEntryOf,
   listLeagueChatFeed,

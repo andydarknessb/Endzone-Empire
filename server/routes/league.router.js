@@ -693,8 +693,8 @@ router.get('/:id/matchups', async (req, res) => {
 // contracted by #343): the author's account id and username never ride on the
 // history, and the Team identity join is LEFT so a message from a manager who
 // has since left the league still reads back (null Team identity) rather than
-// dropping out. `chat_messages.user_id` is read INSIDE the query (the block
-// filter) but is not projected onto the wire. The response is a bare array
+// dropping out. `chat_messages.user_id` joins Team identity inside the query but
+// is not projected onto the wire. The response is a bare array
 // with no root to carry `viewerTeamId`, so a viewer takes theirs from the
 // `league:join` acknowledgement the chat panel already makes, and compares
 // `entry.teamId` against it. Adding `type` and `seq` is additive, so a client
@@ -757,9 +757,7 @@ router.get('/:id/draft-feed', async (req, res) => {
 });
 
 // GET /api/league/:id/chat/unread — how many of OTHER members' messages are
-// newer than the caller's last-read marker. Blocked users are excluded with
-// the same predicate as the history endpoint, so the badge never counts a
-// message the user will never see. A user with no marker yet counts all of it.
+// newer than the caller's last-read marker. A user with no marker yet counts all of it.
 router.get('/:id/chat/unread', async (req, res) => {
   const leagueId = intParam(req.params.id);
   if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
@@ -776,11 +774,6 @@ router.get('/:id/chat/unread', async (req, res) => {
            (SELECT "last_read_at" FROM "chat_reads"
             WHERE "league_id" = $1 AND "user_id" = $2),
            to_timestamp(0)
-         )
-         AND NOT EXISTS (
-           SELECT 1 FROM "user_blocks"
-           WHERE "user_blocks"."blocker_id" = $2
-             AND "user_blocks"."blocked_id" = "chat_messages"."user_id"
          )`,
       [leagueId, req.user.id]
     );
