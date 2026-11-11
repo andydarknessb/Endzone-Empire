@@ -140,3 +140,20 @@ test('shutdown waits for an in-flight engine tick before it ends the pool (#2866
   await done;
   assert.equal(poolEnd.mock.callCount(), 1, 'the pool ends once the engine tick settles');
 });
+
+// #2869: a detached recap sweep or queued generation holds the pool open too.
+test('shutdown waits for in-flight recap work before it ends the pool (#2869)', async (t) => {
+  const gameRecap = require('../services/gameRecap.service');
+  let release;
+  const held = new Promise((resolve) => { release = resolve; });
+  t.mock.method(gameRecap, 'drainRecaps', () => held);
+  t.after(() => release());
+  const fresh = freshServer();
+  poolEnd.mock.resetCalls();
+  const done = fresh.shutdown('SIGTERM');
+  await tick(50);
+  assert.equal(poolEnd.mock.callCount(), 0, 'pool.end waits while the recap work runs');
+  release();
+  await done;
+  assert.equal(poolEnd.mock.callCount(), 1, 'the pool ends once the recap work settles');
+});

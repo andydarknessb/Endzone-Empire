@@ -415,9 +415,11 @@ function createRecapQueue({
   let active = 0;
   let backoffUntil = 0;
   let resumeTimer = null;
+  let closed = false; // shutdown (#2869): no new work and no retry
+  const idleWaiters = [];
 
   function enqueue(gameId, opts = {}) {
-    if (tracked.has(gameId)) return false;
+    if (closed || tracked.has(gameId)) return false;
     const until = failedUntil.get(gameId);
     if (until !== undefined) {
       if (Date.now() < until) return false;
@@ -430,6 +432,7 @@ function createRecapQueue({
   }
 
   function drain() {
+    if (closed) return undefined;
     if (Date.now() < backoffUntil) return scheduleResume();
     while (active < concurrency && pending.length > 0 && Date.now() >= backoffUntil) {
       runJob(pending.shift());
@@ -444,21 +447,23 @@ function createRecapQueue({
       await worker(job.gameId, job.opts);
     } catch (err) {
       const wait = backoffFor(err);
-      if (wait != null && job.attempts < maxRetries) {
+      if (!closed && wait != null && job.attempts < maxRetries) {
         job.attempts += 1;
         backoffUntil = Math.max(backoffUntil, Date.now() + wait);
         pending.push(job); // requeue; stays in `tracked` (no double-enqueue)
         requeued = true;
       } else {
         // Non-retriable, or retries exhausted: drop it, and hold it for an hour
-        // (the sweep re-heals it after that, not on its next tick).
-        failedUntil.set(job.gameId, Date.now() + RECAP_FAILED_RETRY_MS);
+        // (the sweep re-heals it after that, not on its next tick). After close
+        // there is no retry and no hold: the next sweep re-selects the game.
+        if (!closed) failedUntil.set(job.gameId, Date.now() + RECAP_FAILED_RETRY_MS);
         console.error('gameRecap generation failed for %s:', job.gameId, err && err.message);
       }
     } finally {
       active -= 1;
       if (!requeued) tracked.delete(job.gameId);
       drain();
+      if (active === 0) idleWaiters.splice(0).forEach((resolve) => resolve());
     }
   }
 
@@ -472,10 +477,26 @@ function createRecapQueue({
     if (resumeTimer.unref) resumeTimer.unref();
   }
 
+  // Shutdown (#2869): refuse new work and drop what is pending (the next sweep re-selects it).
+  function close() {
+    closed = true;
+    for (const job of pending.splice(0)) tracked.delete(job.gameId);
+    if (resumeTimer) clearTimeout(resumeTimer);
+    resumeTimer = null;
+  }
+
+  // Resolves once nothing is in flight (at once when nothing is).
+  function whenIdle() {
+    if (active === 0) return Promise.resolve();
+    return new Promise((resolve) => idleWaiters.push(resolve));
+  }
+
   return {
     enqueue,
     has: (gameId) => tracked.has(gameId),
     stats: () => ({ active, pending: pending.length, tracked: tracked.size }),
+    close,
+    whenIdle,
   };
 }
 
@@ -489,6 +510,10 @@ function enqueueRecap(gameId, opts) {
   return recapQueue.enqueue(gameId, opts);
 }
 
+// Shutdown (#2869): the sweeps in flight, and whether drainRecaps has begun.
+const sweepsInFlight = new Set();
+let recapsDraining = false;
+
 /**
  * Reconciliation sweep: find recent finalized games with no game_recaps row
  * and enqueue them. Time-bounded (recent `maxAgeDays` only) and LIMIT-capped so
@@ -501,7 +526,16 @@ function enqueueRecap(gameId, opts) {
  * @param {{ enqueue?, maxAgeDays?, limit? }} opts  enqueue injectable for tests.
  * @returns {Promise<{ found: number, enqueued: number }>}
  */
-async function reconcileRecaps({
+function reconcileRecaps(opts = {}) {
+  if (recapsDraining) return Promise.resolve({ found: 0, enqueued: 0 });
+  const run = sweepRecaps(opts);
+  sweepsInFlight.add(run);
+  const forget = () => sweepsInFlight.delete(run);
+  run.then(forget, forget);
+  return run;
+}
+
+async function sweepRecaps({
   enqueue = enqueueRecap,
   maxAgeDays = SWEEP_MAX_AGE_DAYS,
   limit = SWEEP_LIMIT,
@@ -527,12 +561,30 @@ async function reconcileRecaps({
   return { found: res.rows.length, enqueued };
 }
 
+const RECAP_DRAIN_MS = 30 * 1000; // shutdown's wait for recap work in flight (#2869), as FOLLOW_UP_DRAIN_MS
+
+/**
+ * Shutdown's wait (#2869, shaped like drainFollowUps): closes the singleton queue
+ * first, then resolves once every sweep in flight and the queue's running
+ * generation have settled, or at `timeoutMs`, whichever is first. Never rejects.
+ */
+async function drainRecaps(timeoutMs = RECAP_DRAIN_MS) {
+  recapsDraining = true;
+  recapQueue.close();
+  let timer;
+  const limit = new Promise((resolve) => { timer = setTimeout(resolve, timeoutMs); });
+  await Promise.race([Promise.allSettled([...sweepsInFlight, recapQueue.whenIdle()]), limit]);
+  clearTimeout(timer);
+}
+
 module.exports = {
   generateForGame,
   fetchTopPerformers,
   // queue + reconciliation sweep
   enqueueRecap,
   reconcileRecaps,
+  drainRecaps,
+  RECAP_DRAIN_MS,
   createRecapQueue,
   retryAfterMs,
   // pure — unit tested
