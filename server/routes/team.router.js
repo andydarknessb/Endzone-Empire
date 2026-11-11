@@ -12,6 +12,7 @@ const { computeByeWeeks } = require('../services/bye.service');
 const { isNflSeason } = require('../services/nflSeason.service');
 const { requireMember } = require('../services/leagueMembership.service');
 const projectionService = require('../services/projection.service');
+const { validateTeamName } = require('../services/teamName');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -21,9 +22,10 @@ const MAX_LEAGUE_WEEK = 21;
 const isLeagueWeek = (week) => Number.isInteger(week) && week >= 1 && week <= MAX_LEAGUE_WEEK;
 const WEEK_RANGE_ERROR = `week must be between 1 and ${MAX_LEAGUE_WEEK}`;
 
+// No text fields: multer holds each one in memory, and the avatar form needs none.
 const avatarUpload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: MAX_UPLOAD_BYTES, files: 1 },
+  limits: { fileSize: MAX_UPLOAD_BYTES, files: 1, fields: 0 },
 });
 // Ten uploads/removals per 10 minutes is ample for legitimate crop-and-retry
 // use and caps how much storage churn a single account can cause.
@@ -331,10 +333,9 @@ router.put('/:id', async (req, res) => {
   if (!/^\d+$/.test(req.params.id)) {
     return res.status(400).json({ error: 'team id must be a positive integer' });
   }
-  const { name } = req.body || {};
-  if (!name || typeof name !== 'string') {
-    return res.status(400).json({ error: 'name is required' });
-  }
+  const { name: rawName } = req.body || {};
+  const { value: name, error: nameError } = validateTeamName(rawName);
+  if (nameError) return res.status(400).json({ error: nameError });
   try {
     const result = await pool.query(
       `UPDATE "teams" SET "name" = $1, "updated_at" = now()

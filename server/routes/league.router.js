@@ -3,6 +3,7 @@ const crypto = require('crypto');
 const pool = require('../modules/pool');
 const { withTransaction } = require('../modules/withTransaction');
 const { leagueWrite } = require('../modules/leagueWrite');
+const { validateTeamName } = require('../services/teamName');
 const clock = require('../modules/clock');
 const { requireAuth } = require('../modules/auth');
 const { createRateLimiter, createFailureLimiter } = require('../modules/rateLimit');
@@ -63,9 +64,9 @@ router.post('/', leagueCreateLimiter, async (req, res) => {
     isPublic, joinApproval, bestBall, scoringPreset, draftDate, draftTimezone,
     leagueType, pickemMode,
   } = req.body || {};
-  if (!name || typeof name !== 'string') {
-    return res.status(400).json({ error: 'league name is required' });
-  }
+  // The Team name rule, worded for a League.
+  const { value: leagueName, error: nameError } = validateTeamName(name);
+  if (nameError) return res.status(400).json({ error: nameError.replace('Team', 'League') });
   // Format options first: the size checks below need to know whether this is
   // a pick'em-only league, whose member cap is looser than the fantasy one.
   const optionsResult = validateCreateOptions({
@@ -98,7 +99,7 @@ router.post('/', leagueCreateLimiter, async (req, res) => {
            )
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING *`,
           [
-            name, req.user.id, inviteCode, teams, minimum,
+            leagueName, req.user.id, inviteCode, teams, minimum,
             options.isPublic, options.joinApproval, options.bestBall,
             options.scoringPreset, options.scoringRules ? JSON.stringify(options.scoringRules) : null,
             options.draftDate, options.draftTimezone, options.pickemOnly,
