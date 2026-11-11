@@ -103,3 +103,13 @@ describes the code. The scheduled tick's start opens its own League write
 start locks the League row once. The reminder and flag actions are League writes too.
 The Pick, the nothing-draftable pause and the Draft start are League writes through
 `leagueWrite`, not `withTransaction` plus `lockLeague`. The decision above stands.
+
+## Amendment (2026-11-11, #2863): rollover takes the Trophy award's lock inside its League write
+
+This is one exception to the Consequences line that keeps Trophy awards and their advisory lock outside League writes (:90-92), and to the rejected alternative that calls a second lock namespace one more order to keep (:76-78). `rolloverSeason`'s League write takes the award's two-key lock, `lockTwoKeyXact` on `season * 100` plus the week of the latest decided non-consolation playoff game (never a raw `pg_advisory_xact_lock`, ADR 0036). It takes the lock after the League row and before it reads the champion Trophy, so it either reads the Trophy the award committed, or decides first and the award reads `league_history`.
+
+- The order is the League row, then the award key. The award never takes the League row, so there is no cycle.
+- A pick'em-only rollover, and a rollover with no decided final, take no lock.
+- The wait is blocking and is held to rollover's COMMIT.
+- The timeout is the API pool's `statement_timeout`, 15 s (`PG_STATEMENT_TIMEOUT_MS` in `render.yaml`). Advance week and its follow-up run in the API. An award that waits past it is cancelled with SQLSTATE 57014 and rolls back. `awardWeeklyTrophies` then throws, so the final week's high score and season-level trophies, its lineup trophies and the season-complete Called shot judging are skipped, with no retry. The champion Trophy stands, because rollover, having read none, writes it from the final.
+- The owner's Ruling on #2852 accepted that wait (https://github.com/andydarknessb/Endzone-Empire/issues/2852#issuecomment-6784928407). Rollover's duration is unmeasured.
