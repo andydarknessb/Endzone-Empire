@@ -50,7 +50,7 @@ owner, evidence link, completion date, and independent reviewer.
 - [ ] Password reset emails arrive without address, token, or
   link content appearing in logs.
 - [ ] Account export, recent-auth deletion, ownership conflict, avatar cleanup,
-  user block/report, retention, and worker-heartbeat paths pass in staging.
+  retention, and worker-heartbeat paths pass in staging.
 - [ ] Privacy disclosures match the deployed processors, retention periods,
   backup expiry, rights workflow, minors policy, and free-to-play behavior.
 - [ ] Release record contains commit SHA, migration version, recovery point,

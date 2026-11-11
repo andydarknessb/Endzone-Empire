@@ -78,10 +78,6 @@ function attachDraftSocket(httpServer, { now = Date.now } = {}) {
   const socketEventStore = new Map();
 
   io.on('connection', (socket) => {
-    // Expose the authenticated user id on socket.data so a per-recipient chat
-    // broadcast can identify a REMOTE socket (one on another instance behind the
-    // Redis adapter), which carries only `data`, not the local `user` object.
-    socket.data.userId = socket.user.id;
     // Addressable by user (membershipEnded): a removed manager's sockets are
     // reached here even though they joined the league room on their own.
     socket.join(`user:${socket.user.id}`);
@@ -148,7 +144,7 @@ function attachDraftSocket(httpServer, { now = Date.now } = {}) {
     //   AC2  a client idempotency key collapses retries onto one stored row and
     //        answers a retry with the ORIGINAL message, never a silent nothing;
     //   AC3/AC5 flood control refuses an over-rate send with an explicit retry
-    //        time and persists nothing, so the sender keeps their text;
+    //        time and persists nothing, so the sender keeps their text.
     //
     // A message over MAX_CHAT_CHARS is refused with code MESSAGE_TOO_LONG (#502),
     // on the same footing as the malformed-key INVALID_REQUEST below: it is a

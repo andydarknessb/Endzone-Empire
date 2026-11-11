@@ -11,7 +11,7 @@ const leagueRouter = require('../routes/league.router');
  * A fakePool test: it pins that the route requires membership, hands the
  * cursor through, and returns the union rows shaped by type - League chat and
  * Draft activity interleaved, oldest-first. The DATABASE claims (the shared
- * sequence, real interleaving, block filter, guard) are draftActivity.pg.test.js.
+ * sequence, real interleaving, guard) are draftActivity.pg.test.js.
  */
 const previousSecret = process.env.JWT_SECRET;
 process.env.JWT_SECRET = 'draft-feed-route-test-secret';

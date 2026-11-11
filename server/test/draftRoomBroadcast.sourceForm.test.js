@@ -16,7 +16,7 @@ const path = require('node:path');
  * both of them the Draft room:
  *   - modules/draftRoomBroadcast.js - the one Draft room home (this module IS
  *     the `io.to(...)`);
- *   - modules/draftSocket.js - ONLY its deliverFeedEntry block, the per-recipient
+ *   - modules/draftSocket.js - ONLY its deliverFeedEntry block, the room-wide
  *     League chat delivery deliberately left outside the adapter (ADR 0012, and
  *     #745 scope item 4); a second assertion below pins it to that block.
  *

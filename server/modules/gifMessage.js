@@ -7,7 +7,7 @@
  * provider asset, carries an OPTIONAL caption and a REQUIRED accessible
  * description (AC1). It is stored as a `chat_messages` row (content_kind='gif';
  * see 20260827000021), so it inherits feed_seq, the shared position claim,
- * moderation, blocking, idempotency, reconnect and retention unchanged. This
+ * moderation, idempotency, reconnect and retention unchanged. This
  * module is the PURE contract: it validates an inbound send payload and never
  * touches the socket, the pool or any provider. draftSocket's chat:send calls
  * it, then composes the INSERT.
