@@ -38,7 +38,7 @@ router.post('/hide', async (req, res) => {
   if (!Number.isInteger(leagueId) || !Number.isInteger(messageId)) {
     return res.status(400).json({ error: 'valid leagueId and messageId are required' });
   }
-  // A hide MUST carry a reason (AC2), bounded like a report reason.
+  // A hide MUST carry a reason (AC2), bounded as above.
   const reasonProblem = reasonError(reason);
   if (reasonProblem) return res.status(400).json({ error: reasonProblem });
   const isCommissioner = await isLeagueCommissioner(pool, leagueId, req.user.id);

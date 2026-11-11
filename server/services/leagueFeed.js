@@ -158,7 +158,7 @@ function feedEntryOf(row) {
  * already ascending - no newest-first window to flip. `after` takes precedence
  * over `before`; a caller uses one direction at a time.
  */
-async function listLeagueChatFeed(db, { leagueId, viewerId, before = null, after = null, limit = FEED_PAGE_SIZE } = {}) {
+async function listLeagueChatFeed(db, { leagueId, before = null, after = null, limit = FEED_PAGE_SIZE } = {}) {
   const capped = Math.min(Math.max(1, Number(limit) || FEED_PAGE_SIZE), FEED_PAGE_SIZE);
   // One query, two directions - the same parameterization the sibling
   // listCombinedDraftFeed uses. `after` resumes forward (feed_seq > cursor),
@@ -170,7 +170,7 @@ async function listLeagueChatFeed(db, { leagueId, viewerId, before = null, after
   const cmp = resumeFrom !== null ? '>' : '<';
   const windowOrder = resumeFrom !== null ? 'ASC' : 'DESC';
 
-  const params = [leagueId, viewerId];
+  const params = [leagueId];
   let cursorClause = '';
   if (cursor !== null) {
     params.push(cursor);
@@ -255,7 +255,7 @@ function combinedEntryOf(row) {
  * activityEntryOf shapes a member correction with its reason. The chat arm
  * carries the aligned NULL::text reason placeholder for the union.
  */
-async function listCombinedDraftFeed(db, { leagueId, viewerId, before = null, after = null, limit = FEED_PAGE_SIZE } = {}) {
+async function listCombinedDraftFeed(db, { leagueId, before = null, after = null, limit = FEED_PAGE_SIZE } = {}) {
   const capped = Math.min(Math.max(1, Number(limit) || FEED_PAGE_SIZE), FEED_PAGE_SIZE);
   // `after` is the reconnect-resume cursor (#442): walk FORWARD from the last
   // acknowledged seq, taking the oldest page NEWER than it so a reconnecting
@@ -270,12 +270,12 @@ async function listCombinedDraftFeed(db, { leagueId, viewerId, before = null, af
   // ascending, the default/before window takes the newest page descending.
   const windowOrder = resumeFrom !== null ? 'ASC' : 'DESC';
 
-  // $1 league, $2 viewer, $3 the positive user-visible kind allowlist. The
-  // allowlist is bound BEFORE any cursor so its placeholder is stable ($3)
+  // $1 league, $2 the positive user-visible kind allowlist. The
+  // allowlist is bound BEFORE any cursor so its placeholder is stable ($2)
   // whether or not a cursor is present; the activity arm filters on it INSIDE
   // its WHERE, so an internal kind (the CUTOVER boundary, #436) is excluded
   // before the per-arm LIMIT and never consumes a visible page slot (#540 AC4).
-  const params = [leagueId, viewerId, USER_VISIBLE_KINDS];
+  const params = [leagueId, USER_VISIBLE_KINDS];
   const visible = `$${params.length}`;
   let chatCursor = '';
   let activityCursor = '';
@@ -372,8 +372,8 @@ async function listCombinedDraftFeed(db, { leagueId, viewerId, before = null, af
  * chat, the unread relation and commissioner moderation (`hidden_at`) are absent
  * BY CONSTRUCTION - there is no
  * filter for a later edit to weaken and no chat table to accidentally re-join
- * (#438 AC2). There is no `viewerId`, because a presenter is not a member with a
- * block list; the feed is scoped by `leagueId` alone, resolved from the presenter
+ * (#438 AC2). There is no `viewerId`: a presenter is not a member, and the feed is
+ * scoped by `leagueId` alone, resolved from the presenter
  * token by the route.
  *
  * draft_activity is inherently account-free: it carries Team identity and Pick /

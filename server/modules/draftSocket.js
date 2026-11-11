@@ -149,9 +149,6 @@ function attachDraftSocket(httpServer, { now = Date.now } = {}) {
     //        answers a retry with the ORIGINAL message, never a silent nothing;
     //   AC3/AC5 flood control refuses an over-rate send with an explicit retry
     //        time and persists nothing, so the sender keeps their text;
-    //   AC6/AC7 the live broadcast is delivered per recipient, skipping viewers
-    //        who blocked the author - but only for a BLOCKABLE feed kind, so
-    //        Draft activity involving a blocked Team is never hidden.
     //
     // A message over MAX_CHAT_CHARS is refused with code MESSAGE_TOO_LONG (#502),
     // on the same footing as the malformed-key INVALID_REQUEST below: it is a

@@ -16,8 +16,6 @@
  *    oldest-first, shaping each by type, and pages older by a feed_seq cursor.
  *    A Pick entry carries the snapshotted Team, player, position, NFL team,
  *    round, overall Pick number and its autopick flag (#435 AC2, AC3).
- * 3. BLOCKING. A blocked author's CHAT drops from a viewer's combined read, but
- *    that author's authoritative Draft ACTIVITY stays visible (user story 83).
  * 3b. CUTOVER EXCLUSION BEFORE PAGINATION (#540). The internal cutover boundary
  *    is filtered out of the member combined feed INSIDE the activity arm, before
  *    its LIMIT, so a cutover row sitting inside the newest-page window never

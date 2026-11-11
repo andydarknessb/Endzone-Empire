@@ -712,7 +712,6 @@ router.get('/:id/chat', async (req, res) => {
     }
     const entries = await listLeagueChatFeed(pool, {
       leagueId,
-      viewerId: req.user.id,
       before,
       after,
     });
@@ -745,7 +744,6 @@ router.get('/:id/draft-feed', async (req, res) => {
     }
     const entries = await listCombinedDraftFeed(pool, {
       leagueId,
-      viewerId: req.user.id,
       before,
       after,
     });
