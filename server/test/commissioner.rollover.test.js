@@ -261,23 +261,23 @@ const FANTASY_LEAGUE = {
 // A fantasy rollover over one final, Sunday Ballers (10) at home against Bob
 // Squad (11). `championRows` is the champion Trophy settle's follow-up left for
 // the season, or none when that follow-up never ran. `finalScores` is [home, away].
-function fantasyFinalRollover(t, { championRows, finalScores }) {
+function fantasyFinalRollover(t, { championRows, finalScores, league = FANTASY_LEAGUE, matchups }) {
+  const finalGame = {
+    id: 1, league_id: 5, season: 2026, week: 18, is_playoff: true, is_consolation: false, final: true,
+    home_team_id: 10, away_team_id: 11, home_score: finalScores[0], away_score: finalScores[1],
+  };
   return mockClient(t, [
     ...TXN,
-    [/(?:FROM "leagues" WHERE "id" = \$1( FOR NO KEY UPDATE)?$|UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$)/, () => ({ rows: [{ ...FANTASY_LEAGUE }] })],
+    [/(?:FROM "leagues" WHERE "id" = \$1( FOR NO KEY UPDATE)?$|UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$)/, () => ({ rows: [{ ...league }] })],
     [/^SELECT "id", "name", "owner_id" FROM "teams"/, () => ({
       rows: [
         { id: 10, name: 'Sunday Ballers', owner_id: 100 },
         { id: 11, name: 'Bob Squad', owner_id: 101 },
       ],
     })],
-    [/^SELECT \* FROM "matchups"/, () => ({
-      rows: [{
-        id: 1, league_id: 5, season: 2026, week: 18, is_playoff: true, is_consolation: false, final: true,
-        home_team_id: 10, away_team_id: 11, home_score: finalScores[0], away_score: finalScores[1],
-      }],
-    })],
+    [/^SELECT \* FROM "matchups"/, () => ({ rows: matchups ?? [finalGame] })],
     [/^SELECT "team_players"\."team_id"/, () => ({ rows: [] })],
+    [/^SELECT pg_advisory_xact_lock\(\$1, \$2\)$/, () => ({ rows: [] })],
     [/SELECT "team_id" FROM "trophies"/, () => ({ rows: championRows })],
     [/"trophies"/, () => ({ rows: [] })],
     [/^INSERT INTO "league_history"/, () => ({ rows: [] })],
@@ -325,6 +325,40 @@ test("rolloverSeason decides the champion from the final's score when no champio
   const written = statementsMatching(calls, /^INSERT INTO "trophies"/);
   assert.equal(written.length, 1, 'the champion Trophy is written from the final');
   assert.equal(written[0].params[1], 11);
+});
+
+test("rolloverSeason takes the champion award's lock before reading the champion Trophy", async (t) => {
+  // Completing the season leaves current_week one past the final, so a key built
+  // from league.current_week would be 202619 and fail here.
+  const calls = fantasyFinalRollover(t, {
+    championRows: [],
+    finalScores: [100, 130],
+    league: { ...FANTASY_LEAGUE, current_week: 19 },
+  });
+
+  await commissioner.rolloverSeason({ leagueId: 5, userId: 100 });
+
+  const locks = statementsMatching(calls, /^SELECT pg_advisory_xact_lock\(\$1, \$2\)$/);
+  assert.equal(locks.length, 1);
+  assert.deepEqual(locks[0].params, [5, 202618]);
+  const read = calls.findIndex((c) => /SELECT "team_id" FROM "trophies"/.test(c.text));
+  assert.ok(calls.indexOf(locks[0]) < read, 'the lock is taken before the champion Trophy is read');
+});
+
+test("rolloverSeason takes no award lock when no playoff final is decided", async (t) => {
+  // A regular-season final and an undecided playoff game: neither is a decider.
+  const calls = fantasyFinalRollover(t, {
+    championRows: [],
+    finalScores: [100, 130],
+    matchups: [
+      { id: 1, league_id: 5, season: 2026, week: 17, is_playoff: false, is_consolation: false, final: true, home_team_id: 10, away_team_id: 11, home_score: 100, away_score: 130 },
+      { id: 2, league_id: 5, season: 2026, week: 18, is_playoff: true, is_consolation: false, final: false, home_team_id: 10, away_team_id: 11, home_score: 0, away_score: 0 },
+    ],
+  });
+
+  await commissioner.rolloverSeason({ leagueId: 5, userId: 100 });
+
+  assert.equal(statementsMatching(calls, /pg_advisory_xact_lock/).length, 0);
 });
 
 test("rolloverSeason clears the draft, keepers and queues, and resets Teams for a new season", async (t) => {

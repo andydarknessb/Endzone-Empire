@@ -1,5 +1,6 @@
 const pool = require('../modules/pool');
 const { leagueWrite } = require('../modules/leagueWrite');
+const { lockTwoKeyXact } = require('../modules/advisoryLock');
 const { getDraftRoomBroadcast } = require('../modules/draftRoomBroadcast');
 const { logTransaction, notify, notifyLeague } = require('./activity.service');
 const {
@@ -468,6 +469,16 @@ async function rolloverSeason({ leagueId, userId }) {
         // The champion stands once Advance week settles the final: the champion
         // Trophy its follow-up awarded is the season's record, and rollover keeps
         // it. Only a season whose follow-up never ran decides from the final.
+        // The award takes this lock before its reads and writes, so waiting here
+        // reads the Trophy it committed, or decides first and the award reads
+        // league_history and names the same Team.
+        const playoffFinals = matchupsResult.rows
+          .filter((m) => m.is_playoff && !m.is_consolation && m.final)
+          .sort((a, b) => b.week - a.week);
+        const decider = playoffFinals[0];
+        if (decider) {
+          await lockTwoKeyXact(client, leagueId, (league.current_season * 100) + decider.week);
+        }
         const awardedChampion = await client.query(
           `SELECT "team_id" FROM "trophies"
            WHERE "league_id" = $1 AND "season" = $2 AND "week" = 0 AND "type" = 'champion'`,
@@ -478,10 +489,6 @@ async function rolloverSeason({ leagueId, userId }) {
           championTeamId = Number(awardedChampion.rows[0].team_id);
         } else {
           // Champion: winner of the last final, non-consolation playoff game
-          const playoffFinals = matchupsResult.rows
-            .filter((m) => m.is_playoff && !m.is_consolation && m.final)
-            .sort((a, b) => b.week - a.week);
-          const decider = playoffFinals[0];
           championTeamId = decider
             ? (Number(decider.home_score) >= Number(decider.away_score)
               ? decider.home_team_id
