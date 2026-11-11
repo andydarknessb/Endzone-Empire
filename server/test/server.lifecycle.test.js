@@ -120,3 +120,23 @@ test('no tracked follow-up outlives its case (#2860)', async (t) => {
   await flush();
   assert.equal(drained, true, 'the set is empty, so the drain resolves without a tick');
 });
+
+// #2866: an engine tick holds the pool open; shutdown waits for it before pool.end.
+test('shutdown waits for an in-flight engine tick before it ends the pool (#2866)', async (t) => {
+  const engine = require('../modules/liveGameEngine');
+  let release;
+  const held = new Promise((resolve) => { release = resolve; });
+  const releaseTick = () => release({ query: async () => ({ rows: [{ locked: false }] }), release() {} });
+  t.mock.method(pool, 'connect', () => held);
+  t.after(() => { releaseTick(); engine.stopLiveGameEngine(); });
+  const fresh = freshServer();
+  poolEnd.mock.resetCalls();
+  engine.startLiveGameEngine();
+  engine.tick();
+  const done = fresh.shutdown('SIGTERM');
+  await tick(50);
+  assert.equal(poolEnd.mock.callCount(), 0, 'pool.end waits while the engine tick runs');
+  releaseTick();
+  await done;
+  assert.equal(poolEnd.mock.callCount(), 1, 'the pool ends once the engine tick settles');
+});

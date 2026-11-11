@@ -161,3 +161,31 @@ test('boot reaches the background worker start when the Redis stamp never settle
 
   assert.ok(info.mock.calls.some((call) => call.arguments[0] === 'background worker started'));
 });
+
+// #2866: the engine's in-flight tick holds the pool open, and shutdown waits for it.
+// shutdown is one-shot per module, so this case loads a fresh worker module of its own.
+test('shutdown waits for an in-flight engine tick before it ends the pool (#2866)', async (t) => {
+  const pool = require('../modules/pool');
+  const redis = require('../modules/redis');
+  const engine = require('../modules/liveGameEngine');
+  const poolEnd = t.mock.method(pool, 'end', async () => {});
+  t.mock.method(redis, 'closeRedis', async () => {});
+  t.mock.method(pool, 'query', async () => ({ rows: [] }));
+  let release;
+  const held = new Promise((resolve) => { release = resolve; });
+  t.mock.method(pool, 'connect', () => held);
+  const releaseTick = () => release({ query: async () => ({ rows: [{ locked: false }] }), release() {} });
+  t.after(() => { releaseTick(); engine.stopLiveGameEngine(); });
+  delete require.cache[require.resolve('../worker')];
+  const fresh = require('../worker');
+  const proc = fakeProcess();
+  fresh.installProcessHandlers(proc, { log: quietLog, deadlineMs: 5000 });
+  engine.startLiveGameEngine();
+  engine.tick();
+  proc.emit('SIGTERM');
+  for (let i = 0; i < 5; i += 1) await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(poolEnd.mock.callCount(), 0, 'the pool stays open while the engine tick runs');
+  releaseTick();
+  await tick(200);
+  assert.equal(poolEnd.mock.callCount(), 1, 'pool.end once, after the engine tick settles');
+});

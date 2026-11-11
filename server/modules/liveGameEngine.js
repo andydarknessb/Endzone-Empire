@@ -37,6 +37,7 @@ const { normalizeNflTeam } = require('../services/nflTeam');
 const RECAP_SWEEP_INTERVAL_MS = 5 * 60 * 1000; // reconciliation cadence (safety net, not a hot path)
 const ESPN_FAILURE_THRESHOLD = 3; // consecutive failures before falling back to Tank01
 const WINDOW_MS = 8 * 60 * 60 * 1000; // the same 8h kickoff window scheduler.js uses
+const LIVE_ENGINE_DRAIN_MS = 30 * 1000; // shutdown's wait for a tick in flight (#2866), as FOLLOW_UP_DRAIN_MS
 
 /** Env is read per call so a value change needs no code change or restart. */
 function config() {
@@ -556,7 +557,19 @@ function finalTransitions(priorStatus, resultRows) {
   return out;
 }
 
-async function tick() {
+// #2866: the run in flight. The loop is serial, so one slot; the loop timers call
+// tick too, so every run is tracked, not only the exported one.
+let tickInFlight = null;
+
+function tick() {
+  const run = runTick();
+  tickInFlight = run;
+  const forget = () => { if (tickInFlight === run) tickInFlight = null; };
+  run.then(forget, forget);
+  return run;
+}
+
+async function runTick() {
   if (stopped) return;
   let nextDelay = config().idleCheckMs;
   let lockClient = null;
@@ -648,6 +661,17 @@ function stopLiveGameEngine() {
   loopTimer = null;
 }
 
+/**
+ * Shutdown's wait (#2866, shaped like drainFollowUps): resolves once the tick in
+ * flight has settled, or at `timeoutMs`, whichever is first. Never rejects.
+ */
+async function drainLiveGameEngine(timeoutMs = LIVE_ENGINE_DRAIN_MS) {
+  let timer;
+  const limit = new Promise((resolve) => { timer = setTimeout(resolve, timeoutMs); });
+  await Promise.race([Promise.allSettled([tickInFlight]), limit]);
+  clearTimeout(timer);
+}
+
 /** Snapshot of worker health for the /api/health endpoint. */
 function getLiveGameEngineStatus() {
   return {
@@ -667,6 +691,8 @@ function getLiveGameEngineStatus() {
 module.exports = {
   startLiveGameEngine,
   stopLiveGameEngine,
+  drainLiveGameEngine,
+  LIVE_ENGINE_DRAIN_MS,
   tick,
   normalizeLiveGameEntry,
   mapTank01Status,

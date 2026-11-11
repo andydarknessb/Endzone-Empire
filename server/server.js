@@ -48,7 +48,7 @@ const safetyRouter = require('./routes/safety.router');
 const pool = require('./modules/pool');
 const { attachDraftSocket, closeDraftSocket } = require('./modules/draftSocket');
 const { startScheduler, stopScheduler } = require('./modules/scheduler');
-const { startLiveGameEngine, stopLiveGameEngine } = require('./modules/liveGameEngine');
+const { startLiveGameEngine, stopLiveGameEngine, drainLiveGameEngine } = require('./modules/liveGameEngine');
 const { createRateLimiter, createCredentialLimiters } = require('./modules/rateLimit');
 const { callerKey } = require('./modules/auth');
 const { requestLogMiddleware } = require('./modules/requestLog');
@@ -229,8 +229,8 @@ async function shutdown(reason = 'shutdown') {
     if (server.listening) {
       await new Promise((resolve) => server.close(resolve));
     }
-    // A Settle follow-up started by Advance week still uses the pool (#2756).
-    await settleService.drainFollowUps();
+    // A Settle follow-up started by Advance week still uses the pool (#2756), and so does a live engine tick (#2866).
+    await Promise.all([settleService.drainFollowUps(), drainLiveGameEngine()]);
     await closeDraftSocket(io);
     await redis.closeRedis();
     await pool.end();
