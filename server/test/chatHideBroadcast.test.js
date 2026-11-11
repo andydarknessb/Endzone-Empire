@@ -30,8 +30,8 @@ const C = { userId: 9, username: 'neutral' };
 const M = { userId: 5, username: 'commish' };
 
 /** A small world answering the socket-join reads and the REST hide reads off
- *  one shared fake pool: who holds a Team, who is a commissioner, who blocked
- *  whom, and a hide UPDATE that returns the freshly-hidden row. */
+ *  one shared fake pool: who holds a Team, who is a commissioner, and a hide
+ *  UPDATE that returns the freshly-hidden row. */
 function hideWorld({ leagueId, teams, commissioners = [], authorId = A.userId }) {
   const state = {
     teams: new Map(Object.entries(teams).map(([uid, tm]) => [Number(uid), tm])),
@@ -78,7 +78,7 @@ test('a commissioner hide broadcasts a neutral tombstone to every member in the 
     leagueId,
     teams: {
       [A.userId]: { teamId: 71, teamName: 'Founders' },
-      [B.userId]: { teamId: 81, teamName: 'Blocker' },
+      [B.userId]: { teamId: 81, teamName: 'Pioneers' },
       [C.userId]: { teamId: 91, teamName: 'Neutral' },
     },
     commissioners: [M.userId],
@@ -86,13 +86,13 @@ test('a commissioner hide broadcasts a neutral tombstone to every member in the 
   world.fake.install(t);
 
   const author = await harness.connectAs(A, t);
-  const blocker = await harness.connectAs(B, t);
+  const memberB = await harness.connectAs(B, t);
   const neutral = await harness.connectAs(C, t);
   await harness.emit(author, 'league:join', { leagueId });
-  await harness.emit(blocker, 'league:join', { leagueId });
+  await harness.emit(memberB, 'league:join', { leagueId });
   await harness.emit(neutral, 'league:join', { leagueId });
 
-  const blockerGot = eventOrSilence(blocker, 'chat:hidden');
+  const memberBGot = eventOrSilence(memberB, 'chat:hidden');
   const neutralGot = eventOrSilence(neutral, 'chat:hidden');
   const authorGot = eventOrSilence(author, 'chat:hidden');
 
@@ -109,11 +109,11 @@ test('a commissioner hide broadcasts a neutral tombstone to every member in the 
   assert.equal(tombstone.message, null, 'the tombstone carries no content');
   assert.equal(tombstone.leagueId, leagueId);
   // The reason and the moderator never ride on the wire (AC3 neutral, AC4 keeps
-  // them to the reviewer history alone).
+  // them in the stored row alone).
   assert.equal('reason' in tombstone, false);
   assert.equal('hidden_reason' in tombstone, false);
   assert.equal('hidden_by' in tombstone, false);
 
   assert.ok(await authorGot, 'the author sees their own message become a tombstone');
-  assert.ok(await blockerGot, 'the blocker receives the tombstone: blocking filters nothing (#2754)');
+  assert.ok(await memberBGot, 'the memberB receives the tombstone: blocking filters nothing (#2754)');
 });

@@ -62,8 +62,8 @@ test('feedEntryOf tombstones a hidden message: neutral, no content, no moderator
   assert.equal(entry.teamId, 12);
   assert.equal(entry.type, LEAGUE_CHAT);
   // The reason and moderator NEVER reach a member: they are not even keys on
-  // the entry, so no client can render them (AC4 keeps them to the reviewer
-  // history alone).
+  // the entry, so no client can render them (AC4 keeps them in the stored
+  // row alone).
   assert.equal('hidden_reason' in entry, false);
   assert.equal('hidden_by' in entry, false);
   assert.equal('hidden_at' in entry, false);
@@ -169,7 +169,7 @@ test('listLeagueChatFeed reads the latest page ordered by feed_seq, no cursor', 
   assert.match(seenSql, /ORDER BY "feed_seq" ASC/);
   // The default page is the latest 100 (AC: initial read returns latest 100).
   assert.equal(FEED_PAGE_SIZE, 100);
-  assert.deepEqual(seenParams, [12,100]);
+  assert.deepEqual(seenParams, [12, 100]);
   // No cursor predicate when reading the latest page.
   assert.doesNotMatch(seenSql, /"feed_seq" < \$/);
   // No block filter: blocking is retired (#2754), so history reads every author.
@@ -281,7 +281,7 @@ test('listCombinedDraftFeed reads the latest page with no cursor predicate on ei
   // - still NO cursor value. This is the DELIBERATE update to the #447 pin: the
   // only change is the inserted $2 allowlist, and the "no cursor predicate on a
   // cursorless read" invariant it guards is unchanged.
-  assert.deepEqual(seenParams, [12,USER_VISIBLE_KINDS, FEED_PAGE_SIZE]);
+  assert.deepEqual(seenParams, [12, USER_VISIBLE_KINDS, FEED_PAGE_SIZE]);
 });
 
 // #540 AC4. The internal CUTOVER boundary must be excluded from the member feed
@@ -387,7 +387,7 @@ test('listLeagueChatFeed pages older than a cursor with feed_seq < before', asyn
   await listLeagueChatFeed(fake, { leagueId: 12, before: 7 });
 
   assert.match(seenSql, /AND "chat_messages"\."feed_seq" < \$2/);
-  assert.deepEqual(seenParams, [12,7, 100]);
+  assert.deepEqual(seenParams, [12, 7, 100]);
 });
 
 test('listLeagueChatFeed clamps limit to the page maximum', async () => {
@@ -416,7 +416,7 @@ test('listLeagueChatFeed ignores a non-integer before cursor', async () => {
 
   await listLeagueChatFeed(fake, { leagueId: 12, before: 'not-a-number' });
   assert.doesNotMatch(seenSql, /"feed_seq" < \$/);
-  assert.deepEqual(seenParams, [12,100]);
+  assert.deepEqual(seenParams, [12, 100]);
 });
 
 test('listLeagueChatFeed resumes AFTER a cursor with feed_seq > after, ascending (#442)', async () => {
@@ -439,7 +439,7 @@ test('listLeagueChatFeed resumes AFTER a cursor with feed_seq > after, ascending
   // Ascending straight out - no newest-first window to flip for a resume read.
   assert.match(seenSql, /ORDER BY "chat_messages"\."feed_seq" ASC/);
   assert.doesNotMatch(seenSql, /"feed_seq" < \$/);
-  assert.deepEqual(seenParams, [12,7, 100]);
+  assert.deepEqual(seenParams, [12, 7, 100]);
   assert.deepEqual(entries.map((e) => e.seq), [9, 10]);
 });
 
@@ -456,7 +456,7 @@ test('listLeagueChatFeed ignores a non-integer after cursor', async () => {
 
   await listLeagueChatFeed(fake, { leagueId: 12, after: 'not-a-number' });
   assert.doesNotMatch(seenSql, /"feed_seq" > \$/);
-  assert.deepEqual(seenParams, [12,100]);
+  assert.deepEqual(seenParams, [12, 100]);
 });
 
 test('listCombinedDraftFeed resumes AFTER a cursor on both kinds with feed_seq > after (#442)', async () => {
@@ -479,5 +479,5 @@ test('listCombinedDraftFeed resumes AFTER a cursor on both kinds with feed_seq >
   assert.match(seenSql, /"draft_activity"\."feed_seq" > \$3/);
   // ...and the resume read is ascending, not the newest-first-then-flip window.
   assert.doesNotMatch(seenSql, /"feed_seq" < \$/);
-  assert.deepEqual(seenParams, [12,USER_VISIBLE_KINDS, 7, 100]);
+  assert.deepEqual(seenParams, [12, USER_VISIBLE_KINDS, 7, 100]);
 });

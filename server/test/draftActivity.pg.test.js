@@ -185,7 +185,7 @@ if (!ENABLED) {
   });
 
   test('combined read interleaves both kinds oldest-first and snapshots the Pick', async () => {
-    const feed = await listCombinedDraftFeed(pool, { leagueId: leagueA, viewerId: ownerA });
+    const feed = await listCombinedDraftFeed(pool, { leagueId: leagueA });
     assert.deepEqual(feed.map((e) => e.seq), [1, 2, 3, 4], 'ordered by the shared feed_seq');
     assert.deepEqual(feed.map((e) => e.type), [LEAGUE_CHAT, DRAFT_ACTIVITY, LEAGUE_CHAT, DRAFT_ACTIVITY]);
 
@@ -204,7 +204,7 @@ if (!ENABLED) {
   });
 
   test('the combined read pages older entries by a feed_seq cursor', async () => {
-    const older = await listCombinedDraftFeed(pool, { leagueId: leagueA, viewerId: ownerA, before: 3 });
+    const older = await listCombinedDraftFeed(pool, { leagueId: leagueA, before: 3 });
     assert.deepEqual(older.map((e) => e.seq), [1, 2], 'before=3 returns the two entries just older than seq 3');
   });
 
@@ -246,7 +246,7 @@ if (!ENABLED) {
       await pool.query('ALTER TABLE "draft_activity" ENABLE TRIGGER "draft_activity_allocate_feed_seq"');
     }
 
-    const page = await listCombinedDraftFeed(pool, { leagueId: league, viewerId: owner, limit: 5 });
+    const page = await listCombinedDraftFeed(pool, { leagueId: league, limit: 5 });
 
     // A FULL page of visible entries came back: the cutover inside the window did
     // NOT consume a visible slot.
@@ -335,7 +335,7 @@ if (!ENABLED) {
     const complete = await appendLifecycleActivity(pool, { leagueId: leagueA, kind: COMPLETE, team: null });
     assert.deepEqual([start.seq, pause.seq, complete.seq], [5, 6, 7], 'lifecycle draws from the same per-league counter as chat and Picks');
 
-    const feed = await listCombinedDraftFeed(pool, { leagueId: leagueA, viewerId: ownerA });
+    const feed = await listCombinedDraftFeed(pool, { leagueId: leagueA });
     const tail = feed.slice(-3);
     assert.deepEqual(tail.map((e) => e.kind), [DRAFT_START, PAUSE, COMPLETE], 'lifecycle events interleave in shared-seq order');
     for (const e of tail) {

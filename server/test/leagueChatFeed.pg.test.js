@@ -227,7 +227,7 @@ if (!ENABLED) {
 
   test('listLeagueChatFeed reads oldest-first and pages older by a feed_seq cursor', async () => {
     // League A now holds seq 1..6. The latest page is all of them, ascending.
-    const latest = await listLeagueChatFeed(pool, { leagueId: leagueA, viewerId: ownerA });
+    const latest = await listLeagueChatFeed(pool, { leagueId: leagueA });
     assert.deepEqual(latest.map((e) => e.seq), [1, 2, 3, 4, 5, 6]);
     for (const entry of latest) {
       assert.equal(entry.type, 'league_chat');
@@ -235,9 +235,9 @@ if (!ENABLED) {
     }
 
     // A small page from the top, then the page just older than its lowest seq.
-    const head = await listLeagueChatFeed(pool, { leagueId: leagueA, viewerId: ownerA, limit: 2 });
+    const head = await listLeagueChatFeed(pool, { leagueId: leagueA, limit: 2 });
     assert.deepEqual(head.map((e) => e.seq), [5, 6], 'a bounded latest page is still oldest-first');
-    const older = await listLeagueChatFeed(pool, { leagueId: leagueA, viewerId: ownerA, before: head[0].seq, limit: 2 });
+    const older = await listLeagueChatFeed(pool, { leagueId: leagueA, before: head[0].seq, limit: 2 });
     assert.deepEqual(older.map((e) => e.seq), [3, 4], 'before=<seq> returns the page just older');
   });
 
@@ -246,7 +246,7 @@ if (!ENABLED) {
     // Delete seq 3 (a tie row) and confirm the feed simply skips it.
     await pool.query('DELETE FROM "chat_messages" WHERE "id" = $1', [legacyA[2]]);
 
-    const feed = await listLeagueChatFeed(pool, { leagueId: leagueA, viewerId: ownerA });
+    const feed = await listLeagueChatFeed(pool, { leagueId: leagueA });
     assert.deepEqual(feed.map((e) => e.seq), [1, 2, 4, 5, 6], 'seq 3 is a gap; nothing renumbered');
     assert.equal(
       feed.some((e) => e.message === 'a-tie-2'),

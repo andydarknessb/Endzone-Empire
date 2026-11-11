@@ -207,7 +207,7 @@ async function getChat(t) {
     [/^SELECT 1 FROM "teams"/, () => ({ rows: [{ '?column?': 1 }] })],
     // The chat SELECT no longer projects the author's account id or username,
     // so this fixture mirrors the narrowed SELECT (#343). `chat_messages.user_id`
-    // is still read inside the query for the block filter, but never reaches the
+    // is still read inside the query for the team join, but never reaches the
     // wire. The route now shapes each row as a typed feed entry (#434), so the
     // fixture also carries the row's feed_seq (the entry's `seq`).
     [/FROM "chat_messages"/, () => ({

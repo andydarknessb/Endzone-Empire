@@ -20,7 +20,7 @@ app.use('/api/league', leagueRouter);
 const authed = () => `Bearer ${signToken({ id: 9, username: 'member' })}`;
 
 // The feed SELECT the route runs, captured so a test can assert the cursor and
-// page it built. Membership is answered true; the block-filtered feed read
+// page it built. Membership is answered true; the feed read
 // returns one typed-shape row carrying feed_seq.
 function mockFeed(t) {
   const captured = { sql: null, params: null };

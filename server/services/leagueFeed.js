@@ -65,7 +65,7 @@ const LEAGUE_CHAT = 'league_chat';
  * set is the second, explicit barrier: it states the invariant where the feed
  * kinds are defined, so "Draft activity is not moderatable" lives in the
  * repository as a checked fact rather than only as the shape of a WHERE clause -
- * the same two-barrier philosophy as the #378 allowlist (SQL AND JS). It stops
+ * the same two-barrier philosophy (SQL AND JS). It stops
  * being merely explanatory the moment Draft activity gains its own feed kind
  * (ADR 0012, its filed sibling #435 appends Picks to this same feed): a
  * hide-by-feed-entry path added then MUST consult this set and leave that kind

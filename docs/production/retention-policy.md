@@ -8,8 +8,8 @@
 | League chat | 730 days | Daily worker cleanup; configurable with `RETENTION_CHAT_DAYS` |
 | Application/request logs | 30 days | Configure in Render |
 | Security/error logs | 90 days | Configure in Render/Sentry; extend only for an active incident |
-| Open abuse reports | Until resolved | Moderator workflow |
-| Resolved abuse reports | 2 years unless counsel approves another period | Scheduled review |
+| Open legacy content reports (no route creates or resolves them since #2754) | Until resolved | Moderator workflow |
+| Resolved legacy content reports (no route creates or resolves them since #2754) | 2 years unless counsel approves another period | Scheduled review |
 | Backups | Supabase plan/PITR setting | Verify quarterly; deletion ages out with backup expiry |
 
 - A legal hold suspends affected deletion and must identify scope, owner, basis, and release date.
