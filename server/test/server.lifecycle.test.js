@@ -12,6 +12,7 @@ const EventEmitter = require('node:events');
 
 const pool = require('../modules/pool');
 const redis = require('../modules/redis');
+const settleService = require('../services/settle.service');
 
 // Mocked before requiring ../server: server.js reaches these through the
 // module objects (not destructured), the same seam server/worker.js already
@@ -33,6 +34,14 @@ function fakeProcess() {
 
 const quietLog = { fatal() {}, error() {}, warn() {}, info() {} };
 const tick = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const flush = async () => { for (let i = 0; i < 5; i++) await new Promise((resolve) => setImmediate(resolve)); };
+
+// shutdown() runs once per module instance (shutdownPromise), so each case that
+// needs its own shutdown loads server.js again; pool and redis stay the mocks.
+function freshServer() {
+  delete require.cache[require.resolve('../server')];
+  return require('../server');
+}
 
 test('an uncaught exception on an injected proc reaches pool.end and then exits 1 (default shutdown wired)', async () => {
   const proc = fakeProcess();
@@ -50,4 +59,52 @@ test('SIGTERM on an injected proc runs the API shutdown and exits 0', async () =
   proc.emit('SIGTERM');
   await tick(200);
   assert.deepEqual(proc.exit.mock.calls[0].arguments, [0]);
+});
+
+// #2756: Advance week's Settle follow-up runs after commit and nothing awaited it,
+// so a shutdown that ended the pool mid-follow-up lost that week's Trophies and Recap.
+test('shutdown waits for a running Settle follow-up before it ends the pool (#2756)', async () => {
+  let finish;
+  settleService.trackFollowUp(new Promise((resolve) => { finish = resolve; }));
+  const fresh = freshServer();
+  poolEnd.mock.resetCalls();
+  const done = fresh.shutdown('SIGTERM');
+  await tick(50);
+  assert.equal(poolEnd.mock.callCount(), 0, 'pool.end waits while the follow-up runs');
+  finish();
+  await done;
+  assert.equal(poolEnd.mock.callCount(), 1, 'the pool ends once the follow-up settles');
+});
+
+test('a follow-up that never settles lets shutdown continue at the 30-second limit (#2756)', async (t) => {
+  settleService.trackFollowUp(new Promise(() => {}));
+  const fresh = freshServer();
+  poolEnd.mock.resetCalls();
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const done = fresh.shutdown('SIGTERM');
+  await flush();
+  t.mock.timers.tick(29_999);
+  await flush();
+  assert.equal(poolEnd.mock.callCount(), 0, 'still waiting at 29.999 s');
+  t.mock.timers.tick(1);
+  await done;
+  assert.equal(poolEnd.mock.callCount(), 1, 'pool.end runs at the 30 s limit');
+});
+
+test('the API outer deadline outlasts the follow-up wait, so a SIGTERM still waits the full 30 seconds (#2756)', async (t) => {
+  settleService.trackFollowUp(new Promise(() => {}));
+  const fresh = freshServer();
+  const proc = fakeProcess();
+  poolEnd.mock.resetCalls();
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  fresh.installProcessHandlers(proc, { log: quietLog });
+  proc.emit('SIGTERM');
+  await flush();
+  t.mock.timers.tick(10_000); // the shared 10 s worker deadline must not apply to the API
+  await flush();
+  assert.equal(proc.exit.mock.callCount(), 0, 'not exited at 10 s');
+  t.mock.timers.tick(20_000);
+  await flush();
+  assert.deepEqual(proc.exit.mock.calls[0].arguments, [0]);
+  assert.equal(poolEnd.mock.callCount(), 1, 'pool.end ran before the exit');
 });

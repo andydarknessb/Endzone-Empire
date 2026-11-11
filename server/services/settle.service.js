@@ -15,6 +15,27 @@ const { seasonOperationsAvailable, SEASON_BEFORE_DRAFT_MESSAGE } = require('./le
  * Settle follow-up run, each contained.
  */
 
+// Advance week's Settle follow-up runs after commit and is never awaited, so it is
+// tracked here: API shutdown waits on these before it ends the pool (#2756).
+const followUpsInFlight = new Set();
+
+function trackFollowUp(run) {
+  followUpsInFlight.add(run);
+  const forget = () => followUpsInFlight.delete(run);
+  run.then(forget, forget);
+  return run;
+}
+
+const FOLLOW_UP_DRAIN_MS = 30 * 1000;
+
+/** Resolves once every tracked follow-up settles, or at the limit, whichever is first. */
+async function drainFollowUps(timeoutMs = FOLLOW_UP_DRAIN_MS) {
+  let timer;
+  const limit = new Promise((resolve) => { timer = setTimeout(resolve, timeoutMs); });
+  await Promise.race([Promise.allSettled([...followUpsInFlight]), limit]);
+  clearTimeout(timer);
+}
+
 /**
  * Advance week's Settle pass. Returns `{ scored, advance, followUp }`; `followUp` is
  * never awaited here (display data, never worth failing the advance over).
@@ -225,7 +246,7 @@ async function settleWeek({ leagueId, expectedWeek }) {
     if (settled) afterCommit(() => matchupScoring.announceScored({ leagueId, season, week, ...settled }));
     afterCommit(() => seasonSvc.materializeNewWeekLineups({ leagueId, season, week: nextWeek, league }));
     afterCommit(() => {
-      followUp = settleFollowUpSvc.settleFollowUp({
+      followUp = trackFollowUp(settleFollowUpSvc.settleFollowUp({
         leagueId,
         season,
         week, // the week just finalized
@@ -234,7 +255,7 @@ async function settleWeek({ leagueId, expectedWeek }) {
         ...(outcome.seasonStatus === 'complete' && { seasonComplete: true }),
       }).catch((err) => {
         console.error('settle follow-up failed for league %s week %s:', leagueId, week, err.message);
-      });
+      }));
     });
     return { scored: settled?.scored, outcome };
   });
@@ -404,4 +425,4 @@ function playedEarlierPlayoff(matchups, teamId, week, consolation = false) {
   );
 }
 
-module.exports = { settleWeek, correctWeek, rescoreLive };
+module.exports = { settleWeek, correctWeek, rescoreLive, trackFollowUp, drainFollowUps, FOLLOW_UP_DRAIN_MS };
