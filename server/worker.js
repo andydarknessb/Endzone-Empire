@@ -5,7 +5,13 @@ const { validateEnvironment } = require('./modules/config');
 const bootGates = require('./modules/bootGates');
 const { installConsoleBridge, logger } = require('./modules/logger');
 const { initSentry, captureError, flushSentry } = require('./modules/sentry');
-const { startScheduler, stopScheduler, getSchedulerStatus } = require('./modules/scheduler');
+const {
+  startScheduler,
+  stopScheduler,
+  drainScheduler,
+  getSchedulerStatus,
+  SCHEDULER_DRAIN_MS,
+} = require('./modules/scheduler');
 const { setVegasOddsProvider } = require('./services/vegasOdds.provider');
 const { espnOddsProvider } = require('./services/espnOdds.provider');
 const draftSweepLiveness = require('./modules/draftSweepLiveness');
@@ -27,6 +33,10 @@ const {
 
 let heartbeatTimer = null;
 let stopping = false;
+
+// The scheduler drain, then the closing steps (heartbeat, pool, Redis, Sentry),
+// inside Render's maxShutdownDelaySeconds 60 (#2864, the API's shape).
+const WORKER_SHUTDOWN_DEADLINE_MS = SCHEDULER_DRAIN_MS + 10 * 1000;
 
 installConsoleBridge();
 
@@ -80,6 +90,8 @@ async function shutdown(reason) {
   if (heartbeatTimer) clearInterval(heartbeatTimer);
   stopScheduler();
   stopLiveGameEngine();
+  // What is already running finishes before pool.end ends its queries (#2864).
+  await drainScheduler();
   await heartbeat().catch(() => {});
   await pool.end();
   // The cache client and the draft emitter's publisher hold Redis sockets
@@ -116,6 +128,7 @@ function installProcessHandlers(proc = process, options = {}) {
   return installSharedProcessHandlers(proc, {
     shutdown,
     name: 'worker',
+    deadlineMs: WORKER_SHUTDOWN_DEADLINE_MS,
     ...options,
   });
 }
@@ -130,4 +143,11 @@ if (require.main === module) {
   });
 }
 
-module.exports = { heartbeat, shutdown, startWorker, installProcessHandlers, SHUTDOWN_DEADLINE_MS };
+module.exports = {
+  heartbeat,
+  shutdown,
+  startWorker,
+  installProcessHandlers,
+  SHUTDOWN_DEADLINE_MS,
+  WORKER_SHUTDOWN_DEADLINE_MS,
+};

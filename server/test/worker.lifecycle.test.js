@@ -81,21 +81,46 @@ test('the exit code is set the instant a fatal event lands, so a loop that drain
   assert.equal(term.exitCode, 0);
 });
 
-test('the production wiring uses the real shutdown by default', async () => {
+test('the production wiring uses the real shutdown by default and waits for in-flight scheduler work (#2864)', async () => {
   // A fake shutdown is injected everywhere above; this pins that the default
-  // is the module's own shutdown, so a typo in the default cannot hide.
+  // is the module's own shutdown, so a typo in the default cannot hide. It is
+  // also the one case that runs shutdown (one-shot per process), so it holds a
+  // scheduler job open across SIGTERM: pool.end waits until the job settles.
   const redis = require('../modules/redis');
-  const closeRedis = mock.method(redis, 'closeRedis', async () => {});
+  const pool = require('../modules/pool');
+  const scheduler = require('../modules/scheduler');
+  const order = [];
+  const closeRedis = mock.method(redis, 'closeRedis', async () => { order.push('closeRedis'); });
+  const poolQuery = mock.method(pool, 'query', async () => ({ rows: [] }));
+  const poolEnd = mock.method(pool, 'end', async () => { order.push('pool.end'); });
   const proc = fakeProcess();
+  let release;
+  const held = new Promise((resolve) => { release = resolve; });
+  const job = { name: 'held', gate: { due: async () => ({ due: true }) }, run: () => held };
   try {
     install(proc, { deadlineMs: 5000 });
+    const running = scheduler.tickUnlocked([job]);
     proc.emit('SIGTERM');
+    for (let i = 0; i < 5; i += 1) await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(poolEnd.mock.callCount(), 0, 'the pool stays open while the job runs');
+    release();
+    await running;
     await tick(200);
     assert.equal(closeRedis.mock.callCount(), 1, 'the default shutdown ran (it closes Redis)');
+    assert.deepEqual(order, ['pool.end', 'closeRedis'], 'pool.end once, after the job settles');
     assert.deepEqual(proc.exit.mock.calls[0].arguments, [0]);
   } finally {
+    release();
     closeRedis.mock.restore();
+    poolQuery.mock.restore();
+    poolEnd.mock.restore();
   }
+});
+
+test('the worker deadline outlasts the scheduler drain and stays under Render\'s 60 s (#2864)', () => {
+  const { SCHEDULER_DRAIN_MS } = require('../modules/scheduler');
+  assert.ok(worker.WORKER_SHUTDOWN_DEADLINE_MS > SCHEDULER_DRAIN_MS);
+  assert.ok(worker.WORKER_SHUTDOWN_DEADLINE_MS < 60_000);
 });
 
 test('SIGTERM and SIGINT run shutdown with the signal name and exit 0', async () => {
