@@ -1309,6 +1309,49 @@ test('the live-sync row still scores the second League when the first throws (#2
   assert.deepEqual(scoredLeagues, [42], 'the first League threw; the second is still scored');
 });
 
+// ---- drainScheduler (#2864) ---------------------------------------------------
+
+const drainFlush = async () => { for (let i = 0; i < 5; i += 1) await new Promise((resolve) => setImmediate(resolve)); };
+const drainJob = (name, run) => ({ name, gate: { due: async () => ({ due: true }) }, run });
+
+test('drainScheduler (#2864) resolves at its limit while a run never settles', async (t) => {
+  let release;
+  const hold = new Promise((resolve) => { release = resolve; });
+  let jobSettled = false;
+  const run = scheduler.tickUnlocked([drainJob('drain-held', () => hold.then(() => { jobSettled = true; }))]);
+  t.after(async () => { release(); await run; });
+  await drainFlush();
+  await scheduler.drainScheduler(20);
+  assert.equal(jobSettled, false, 'the drain gave up at its limit, not when the job settled');
+});
+
+test('drainScheduler (#2864) with no run in flight resolves at once', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  let drained = false;
+  scheduler.drainScheduler().then(() => { drained = true; });
+  await drainFlush();
+  assert.equal(drained, true, 'no limit timer is waited out');
+});
+
+test('drainScheduler (#2864): a running tick starts no job after the one it is on', async (t) => {
+  let release;
+  const first = new Promise((resolve) => { release = resolve; });
+  const ran = [];
+  const ticking = scheduler.tickUnlocked([
+    drainJob('drain-first', () => { ran.push('first'); return first; }),
+    drainJob('drain-second', () => { ran.push('second'); }),
+  ]);
+  t.after(async () => { release(); await ticking; });
+  await drainFlush();
+  const drained = scheduler.drainScheduler();
+  release();
+  await drained;
+  await ticking;
+  assert.deepEqual(ran, ['first'], 'the second job never started');
+  await scheduler.tickUnlocked([drainJob('drain-third', () => { ran.push('third'); })]);
+  assert.deepEqual(ran, ['first', 'third'], 'the drain cleared its flag when it resolved');
+});
+
 // ---- pick'em-only season lifecycle -------------------------------------------
 
 // Weeks 1..5 of a season: each week's last kickoff is Monday night, 00:15Z Tue.
