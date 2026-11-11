@@ -20,6 +20,7 @@ const { createEmitterTransport } = require('./modules/draftRoomEmitterTransport'
 const {
   startLiveGameEngine,
   stopLiveGameEngine,
+  drainLiveGameEngine,
   getLiveGameEngineStatus,
 } = require('./modules/liveGameEngine');
 const { recordWorkerHeartbeat } = require('./services/workerHeartbeat.service');
@@ -90,8 +91,8 @@ async function shutdown(reason) {
   if (heartbeatTimer) clearInterval(heartbeatTimer);
   stopScheduler();
   stopLiveGameEngine();
-  // What is already running finishes before pool.end ends its queries (#2864).
-  await drainScheduler();
+  // What is already running finishes before pool.end ends its queries (#2864, #2866).
+  await Promise.all([drainScheduler(), drainLiveGameEngine()]);
   await heartbeat().catch(() => {});
   await pool.end();
   // The cache client and the draft emitter's publisher hold Redis sockets
