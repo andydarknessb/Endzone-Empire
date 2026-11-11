@@ -58,6 +58,7 @@ const { getClientOrigins, getCorsOptions } = require('./modules/clientOrigins');
 // (server/test/server.lifecycle.test.js), same as server/worker.js.
 const redis = require('./modules/redis');
 const { markReady, markShuttingDown } = require('./modules/runtimeState');
+const settleService = require('./services/settle.service');
 const {
   installProcessHandlers: installSharedProcessHandlers,
 } = require('./modules/processHandlers');
@@ -228,6 +229,8 @@ async function shutdown(reason = 'shutdown') {
     if (server.listening) {
       await new Promise((resolve) => server.close(resolve));
     }
+    // A Settle follow-up started by Advance week still uses the pool (#2756).
+    await settleService.drainFollowUps();
     await closeDraftSocket(io);
     await redis.closeRedis();
     await pool.end();
@@ -236,6 +239,10 @@ async function shutdown(reason = 'shutdown') {
   })();
   return shutdownPromise;
 }
+
+// The outer deadline must outlast the follow-up wait plus the closing steps, or the
+// process exits mid-wait. Render gives this service 60 s before SIGKILL (render.yaml).
+const API_SHUTDOWN_DEADLINE_MS = settleService.FOLLOW_UP_DRAIN_MS + 10 * 1000;
 
 // Wraps the shared handler (server/modules/processHandlers.js, lifted from
 // the worker's #1535 fix) with the API's own `shutdown` and `name: 'api'` as
@@ -249,6 +256,7 @@ function installProcessHandlers(proc = process, options = {}) {
   return installSharedProcessHandlers(proc, {
     shutdown,
     name: 'api',
+    deadlineMs: API_SHUTDOWN_DEADLINE_MS,
     ...options,
   });
 }
