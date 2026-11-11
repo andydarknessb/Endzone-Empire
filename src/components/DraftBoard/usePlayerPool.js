@@ -119,12 +119,12 @@ export default function usePlayerPool(leagueId, rosterSlots = []) {
         // `finally` below already re-checks the sequence before it clears any
         // flag, so a superseded request's reject can't affect a live one.
       } finally {
-        if (seq === requestSeqRef.current) {
-          if (append) setLoadingMore(false);
-          if (!hasLoadedOnceRef.current) {
-            hasLoadedOnceRef.current = true;
-            setLoading(false);
-          }
+        // A load more clears its own flag even when a newer request superseded it,
+        // or loadMore's guard would stay shut (#2765 7).
+        if (append) setLoadingMore(false);
+        if (seq === requestSeqRef.current && !hasLoadedOnceRef.current) {
+          hasLoadedOnceRef.current = true;
+          setLoading(false);
         }
       }
     },

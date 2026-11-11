@@ -685,7 +685,9 @@ domain event
 The order of Draft state as the room hears it. Every Draft state broadcast
 carries one; it advances on every change to Draft state (a Pick, a pause or
 resume, an Autodraft toggle, a reset, a Commissioner correction), and a
-client never applies an older Draft state over a newer one. It is distinct
+client never applies an older Draft state over a newer one. The one exception:
+a client with no League yet takes its first Draft state at any version, and keeps
+the higher version after that (#2765). It is distinct
 from the League feed sequence, which Draft activity and chat share and which
 does not move when a change writes neither.
 _Avoid_: seq (the League feed sequence), revision

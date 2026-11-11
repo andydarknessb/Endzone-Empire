@@ -50,6 +50,25 @@ afterEach(() => {
   jest.useRealTimers();
 });
 
+test('a load more superseded by a newer request still clears loadingMore when it lands (#2765 7)', async () => {
+  let resolveMore;
+  apiClient.get
+    .mockResolvedValueOnce(playersPage([{ id: 1 }], 3))
+    .mockImplementationOnce(() => new Promise((resolve) => { resolveMore = resolve; }))
+    .mockResolvedValue(playersPage([{ id: 2 }], 3));
+  const { Wrapper } = makeWrapper();
+  const { result } = renderHook(() => usePlayerPool(1), { wrapper: Wrapper });
+  await waitFor(() => expect(result.current.loading).toBe(false));
+
+  act(() => result.current.controls.loadMore());
+  expect(result.current.controls.loadingMore).toBe(true);
+
+  act(() => result.current.controls.onSort('name')); // a newer request supersedes the load more
+  await act(async () => resolveMore(playersPage([{ id: 3 }], 3)));
+
+  expect(result.current.controls.loadingMore).toBe(false);
+});
+
 test('fetches page 1 on mount and clears the initial loading flag', async () => {
   const { Wrapper } = makeWrapper();
   const { result } = renderHook(() => usePlayerPool(1), { wrapper: Wrapper });

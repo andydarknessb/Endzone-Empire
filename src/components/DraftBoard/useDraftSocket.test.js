@@ -679,6 +679,55 @@ test('a reconnect refused with NOT_A_MEMBER clears what the first join granted',
   expect(result.current.isCommissioner).toBe(false);
 });
 
+// The draft:join attempts emitted so far, in order (#2765 3).
+const joinCalls = () => fakeSocket.emit.mock.calls.filter(([event]) => event === 'draft:join');
+
+test('a failed draft:join is retried with backoff until it succeeds, and its error clears then', () => {
+  jest.useFakeTimers();
+  try {
+    const { result } = renderHook(() => useDraftSocket(1));
+    act(() => fakeSocket.trigger('connect'));
+
+    refuseJoin('failed to join draft room', 'JOIN_FAILED');
+    expect(result.current.error).toBe('failed to join draft room');
+    act(() => jest.advanceTimersByTime(999));
+    expect(joinCalls()).toHaveLength(1);
+    act(() => jest.advanceTimersByTime(1));
+    expect(joinCalls()).toHaveLength(2); // first retry after 1s
+
+    refuseJoin('failed to join draft room', 'JOIN_FAILED');
+    act(() => jest.advanceTimersByTime(1999));
+    expect(joinCalls()).toHaveLength(2);
+    act(() => jest.advanceTimersByTime(1));
+    expect(joinCalls()).toHaveLength(3); // then 2s: the backoff doubles
+
+    const [, , ack] = joinCalls()[2];
+    act(() => ack({ ok: true, viewerTeamId: 1 }));
+    expect(result.current.error).toBe(null);
+    expect(result.current.viewerTeamId).toBe(1);
+    act(() => jest.advanceTimersByTime(60000));
+    expect(joinCalls()).toHaveLength(3); // a success stops the retries
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
+test('a NOT_A_MEMBER refusal to draft:join is not retried', () => {
+  jest.useFakeTimers();
+  try {
+    const { result } = renderHook(() => useDraftSocket(1));
+    act(() => fakeSocket.trigger('connect'));
+
+    refuseJoin('you are not in this league', 'NOT_A_MEMBER');
+    act(() => jest.advanceTimersByTime(60000));
+
+    expect(joinCalls()).toHaveLength(1);
+    expect(result.current.error).toBe('you are not in this league');
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
 test('disconnects the socket on unmount', () => {
   const { unmount } = renderHook(() => useDraftSocket(1));
   unmount();
@@ -908,12 +957,13 @@ describe('onTheClock value object (#754)', () => {
     });
 
     // No server deadline on the wire: estimate pick_time_seconds from now.
-    act(() => fakeSocket.trigger('draft:picked', pick({ nextTeamId: 1, draftComplete: false })));
+    // Each Pick is its own Pick number: a repeated number is the same Pick again (#2765 2).
+    act(() => fakeSocket.trigger('draft:picked', pick({ pickNumber: 2, nextTeamId: 1, draftComplete: false })));
     expect(result.current.onTheClock).toEqual({
       team: teamA, state: 'running', deadlineAt: Date.now() + 90000,
     });
 
-    act(() => fakeSocket.trigger('draft:picked', pick({ nextTeamId: null, draftComplete: true })));
+    act(() => fakeSocket.trigger('draft:picked', pick({ pickNumber: 3, nextTeamId: null, draftComplete: true })));
     expect(result.current.onTheClock).toEqual({ team: null, state: 'idle', deadlineAt: null });
   });
 });
