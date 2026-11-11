@@ -20,7 +20,7 @@ app.use('/api/league', leagueRouter);
 
 const authed = () => `Bearer ${signToken({ id: 9, username: 'member' })}`;
 
-test('GET chat/unread counts others\' unseen messages with blocked-user parity', async (t) => {
+test('GET chat/unread counts others\' unseen messages', async (t) => {
   let unreadSql = null;
   let unreadParams = null;
   t.mock.method(pool, 'query', async (sql, params) => {
@@ -41,13 +41,12 @@ test('GET chat/unread counts others\' unseen messages with blocked-user parity',
   assert.equal(res.status, 200);
   assert.deepEqual(res.body, { unread: 4 });
   assert.deepEqual(unreadParams, [12, 9]);
-  // Own messages never count, the read marker gates the window (a user with
-  // no marker counts everything), and blocked users are filtered exactly
-  // like the history endpoint.
+  // Own messages never count, and the read marker gates the window (a user with
+  // no marker counts everything). Blocking filters nothing (#2754).
   assert.match(unreadSql, /"chat_messages"\."user_id" <> \$2/);
   assert.match(unreadSql, /COALESCE\(\s*\(SELECT "last_read_at" FROM "chat_reads"/);
   assert.match(unreadSql, /to_timestamp\(0\)/);
-  assert.match(unreadSql, /NOT EXISTS \(\s*SELECT 1 FROM "user_blocks"/);
+  assert.doesNotMatch(unreadSql, /user_blocks/);
 });
 
 test('GET chat/unread is members-only', async (t) => {

@@ -16,8 +16,6 @@
  *    oldest-first, shaping each by type, and pages older by a feed_seq cursor.
  *    A Pick entry carries the snapshotted Team, player, position, NFL team,
  *    round, overall Pick number and its autopick flag (#435 AC2, AC3).
- * 3. BLOCKING. A blocked author's CHAT drops from a viewer's combined read, but
- *    that author's authoritative Draft ACTIVITY stays visible (user story 83).
  * 3b. CUTOVER EXCLUSION BEFORE PAGINATION (#540). The internal cutover boundary
  *    is filtered out of the member combined feed INSIDE the activity arm, before
  *    its LIMIT, so a cutover row sitting inside the newest-page window never
@@ -208,21 +206,6 @@ if (!ENABLED) {
   test('the combined read pages older entries by a feed_seq cursor', async () => {
     const older = await listCombinedDraftFeed(pool, { leagueId: leagueA, viewerId: ownerA, before: 3 });
     assert.deepEqual(older.map((e) => e.seq), [1, 2], 'before=3 returns the two entries just older than seq 3');
-  });
-
-  test('blocking hides the blocked author chat but keeps their Draft activity', async () => {
-    // ownerA blocks ownerB. B authored chat seq 3 and pick activity seq 4.
-    await pool.query(
-      `INSERT INTO "user_blocks" ("blocker_id", "blocked_id") VALUES ($1, $2)
-       ON CONFLICT DO NOTHING`,
-      [ownerA, ownerB]
-    );
-    const feed = await listCombinedDraftFeed(pool, { leagueId: leagueA, viewerId: ownerA });
-    const seqs = feed.map((e) => e.seq);
-    assert.ok(!seqs.includes(3), 'the blocked author\'s chat is hidden');
-    assert.ok(seqs.includes(4), 'the blocked author\'s authoritative Draft activity stays visible');
-    // Cleanup so the block does not leak into later assertions.
-    await pool.query('DELETE FROM "user_blocks" WHERE "blocker_id" = $1 AND "blocked_id" = $2', [ownerA, ownerB]);
   });
 
   test('the member feed excludes the cutover boundary BEFORE pagination, so a full visible page still returns (#540 AC4)', async () => {

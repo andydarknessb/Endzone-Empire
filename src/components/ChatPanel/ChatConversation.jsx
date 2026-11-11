@@ -23,8 +23,8 @@ const HIDE_REASON_MIN = 10;
 const HIDE_REASON_MAX = 500;
 
 // The neutral tombstone a member sees in place of hidden content (#441, AC3).
-// It names neither the reason nor the moderator - those reach authorized
-// reviewers alone (AC4) and never ride on the feed entry.
+// It names neither the reason nor the moderator, and neither rides on the feed
+// entry.
 const HIDDEN_TOMBSTONE = 'Message hidden by commissioner';
 
 /**

@@ -65,7 +65,7 @@ test('GET chat returns the latest 100 typed entries, oldest-first', async (t) =>
     created_at: '2026-09-01T00:00:00.000Z',
   });
   // Latest page: limit 100, no cursor predicate.
-  assert.deepEqual(captured.params, [12, 9, 100]);
+  assert.deepEqual(captured.params, [12, 100]);
   assert.doesNotMatch(captured.sql, /"feed_seq" < \$/);
 });
 
@@ -74,8 +74,8 @@ test('GET chat?before=<seq> pages older than the cursor', async (t) => {
   const res = await request(app).get('/api/league/12/chat?before=7').set('Authorization', authed());
 
   assert.equal(res.status, 200);
-  assert.match(captured.sql, /"chat_messages"\."feed_seq" < \$3/);
-  assert.deepEqual(captured.params, [12, 9, 7, 100]);
+  assert.match(captured.sql, /"chat_messages"\."feed_seq" < \$2/);
+  assert.deepEqual(captured.params, [12, 7, 100]);
 });
 
 test('GET chat?after=<seq> resumes newer than the cursor, ascending (#442)', async (t) => {
@@ -83,9 +83,9 @@ test('GET chat?after=<seq> resumes newer than the cursor, ascending (#442)', asy
   const res = await request(app).get('/api/league/12/chat?after=7').set('Authorization', authed());
 
   assert.equal(res.status, 200);
-  assert.match(captured.sql, /"chat_messages"\."feed_seq" > \$3/);
+  assert.match(captured.sql, /"chat_messages"\."feed_seq" > \$2/);
   assert.match(captured.sql, /ORDER BY "chat_messages"\."feed_seq" ASC/);
-  assert.deepEqual(captured.params, [12, 9, 7, 100]);
+  assert.deepEqual(captured.params, [12, 7, 100]);
 });
 
 test('GET chat ignores a non-integer before cursor', async (t) => {
@@ -94,7 +94,7 @@ test('GET chat ignores a non-integer before cursor', async (t) => {
 
   assert.equal(res.status, 200);
   assert.doesNotMatch(captured.sql, /"feed_seq" < \$/);
-  assert.deepEqual(captured.params, [12, 9, 100]);
+  assert.deepEqual(captured.params, [12, 100]);
 });
 
 test('GET chat is members-only', async (t) => {

@@ -34,9 +34,9 @@ const documents = {
     title: 'Acceptable Use Policy',
     sections: [
       ['Prohibited conduct', 'Do not harass, threaten, impersonate, discriminate, publish private information, distribute malware, exploit vulnerabilities, evade access controls, spam users, or interfere with league operations.'],
-      ['User-generated content', 'League chat must remain lawful and appropriate for the league. Members can block users and report messages. Commissioners and platform administrators may review reports, remove content, preserve necessary evidence, and restrict abusive accounts.'],
+      ['User-generated content', 'League chat must remain lawful and appropriate for the league. Commissioners can hide messages. Commissioners and platform administrators may remove content, preserve necessary evidence, and restrict abusive accounts.'],
       ['Security research', 'Do not test production accounts or data without written authorization. Report suspected vulnerabilities privately through the operator support method published with the deployed service.'],
-      ['Enforcement', 'Responses may include warnings, content removal, feature restrictions, account suspension, or termination. Reports are reviewed in context and recorded for accountability.'],
+      ['Enforcement', 'Responses may include warnings, content removal, feature restrictions, account suspension, or termination. Moderation actions are recorded for accountability.'],
     ],
   },
 };
