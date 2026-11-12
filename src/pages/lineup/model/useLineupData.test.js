@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { renderHook, waitFor, act } from '@testing-library/react';
 import apiClient from '../../../api/apiClient';
 import { useLineupData } from './useLineupData';
@@ -71,4 +72,53 @@ test('an error from a league the page has left is never shown for the next one',
   rerender({ leagueId: 2 });
 
   expect(seen.filter(([leagueId, error]) => leagueId === 2 && error)).toEqual([]);
+});
+
+// The committed renders under the new league show no roster and a loading flag until its own answer lands
+// (recorded in an effect, so the render the reset discards is not counted as one the page showed).
+test('a league change shows no roster and a loading flag until the new league answers', async () => {
+  const first = deferred();
+  const second = deferred();
+  apiClient.get.mockImplementation((url) => (url.includes('leagueId=1') ? first.promise : second.promise));
+  const seen = [];
+
+  const { result, rerender } = renderHook(
+    ({ leagueId }) => {
+      const state = useLineupData({ leagueId, week: 2 });
+      useEffect(() => { seen.push({ leagueId, raw: state.raw, loading: state.loading }); });
+      return state;
+    },
+    { initialProps: { leagueId: 1 } }
+  );
+  await act(async () => { first.resolve({ data: lineupBody(2) }); });
+  expect(result.current.raw.week).toBe(2);
+
+  rerender({ leagueId: 2 });
+  const underTwo = seen.filter((r) => r.leagueId === 2);
+  expect(underTwo.length).toBeGreaterThan(0);
+  expect(underTwo.every((r) => r.raw === null && r.loading === true)).toBe(true);
+
+  await act(async () => { second.resolve({ data: lineupBody(2) }); });
+  expect(result.current.raw.week).toBe(2);
+  expect(result.current.loading).toBe(false);
+});
+
+// The page moved on from the read that failed: a week change (the same league) never shows its error.
+test('an error from week 2 is not shown on the first render after the week changes to 3', async () => {
+  const week3 = deferred();
+  apiClient.get.mockImplementation((url) => (url.includes('week=2') ? Promise.reject(new Error('week two failed')) : week3.promise));
+  const seen = [];
+
+  const { result, rerender } = renderHook(
+    ({ week }) => {
+      const state = useLineupData({ leagueId: 1, week });
+      seen.push([week, state.error]);
+      return state;
+    },
+    { initialProps: { week: 2 } }
+  );
+  await waitFor(() => expect(result.current.error).toBe('week two failed'));
+  rerender({ week: 3 });
+
+  expect(seen.filter(([week, error]) => week === 3 && error)).toEqual([]);
 });

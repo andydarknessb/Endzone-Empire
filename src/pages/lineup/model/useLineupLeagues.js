@@ -1,8 +1,29 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { useSelector } from 'react-redux';
 import apiClient from '../../../api/apiClient';
 import { readHttpFailure } from '../../../lib/httpFailure';
 import { isPickemOnly } from '../../../shared/lib';
+
+const FIRST_LEAGUE_KEY = 'endzone_lineup_league';
+
+// Only a positive integer names a league to read: `Infinity`, `-5`, `1.5` and `abc` are not one.
+const leagueIdOf = (value) => {
+  const n = Number(value);
+  return Number.isInteger(n) && n > 0 ? n : null;
+};
+
+// Keyed by account, so one manager on a shared browser never reads another's remembered league.
+const storageKeyFor = (userId) => `${FIRST_LEAGUE_KEY}:${userId}`;
+
+function rememberedLeagueId(userId) {
+  if (userId == null) return null;
+  try {
+    return window.localStorage.getItem(storageKeyFor(userId));
+  } catch {
+    return null;
+  }
+}
 
 /**
  * The Lineup page's league inventory and selection (#1237, restated from
@@ -14,23 +35,14 @@ import { isPickemOnly } from '../../../shared/lib';
  * `readLeagueId` lets the page start its league and lineup reads beside the
  * inventory read instead of after it: while the inventory loads it is the
  * league the URL names, or the one a bare `/team` resolved to last time
- * (remembered per device), and once the inventory lands it is
+ * (remembered per account on this device), and once the inventory lands it is
  * `selectedLeagueId`, which confirms or corrects it. Only reads take it; every
  * write and subscription waits for `selectedLeagueId`.
  */
-const FIRST_LEAGUE_KEY = 'endzone_lineup_league';
-
-function rememberedLeagueId() {
-  try {
-    return Number(window.localStorage.getItem(FIRST_LEAGUE_KEY)) || null;
-  } catch {
-    return null;
-  }
-}
-
 export function useLineupLeagues() {
+  const userId = useSelector((store) => store.user.id);
   const [searchParams, setSearchParams] = useSearchParams();
-  const [rememberedId] = useState(rememberedLeagueId);
+  const [rememberedId] = useState(() => rememberedLeagueId(userId));
   const [leagues, setLeagues] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -42,10 +54,12 @@ export function useLineupLeagues() {
       const res = await apiClient.get('/api/league');
       const rosterLeagues = (Array.isArray(res.data) ? res.data : []).filter((l) => !isPickemOnly(l));
       setLeagues(rosterLeagues);
-      try {
-        if (rosterLeagues.length > 0) window.localStorage.setItem(FIRST_LEAGUE_KEY, String(rosterLeagues[0].id));
-        else window.localStorage.removeItem(FIRST_LEAGUE_KEY);
-      } catch { /* storage blocked: the next visit reads the inventory first */ }
+      if (userId != null) {
+        try {
+          if (rosterLeagues.length > 0) window.localStorage.setItem(storageKeyFor(userId), String(rosterLeagues[0].id));
+          else window.localStorage.removeItem(storageKeyFor(userId));
+        } catch { /* storage blocked: the next visit reads the inventory first */ }
+      }
       if (rosterLeagues.length > 0) {
         const requestedId = Number(searchParams.get('leagueId'));
         const selected = rosterLeagues.find((l) => l.id === requestedId) || rosterLeagues[0];
@@ -78,7 +92,7 @@ export function useLineupLeagues() {
     if (leagues.some((l) => l.id === requestedId)) return requestedId;
     return leagues[0]?.id ?? null;
   })();
-  const readLeagueId = selectedLeagueId ?? (loading ? Number(searchParams.get('leagueId')) || rememberedId : null);
+  const readLeagueId = selectedLeagueId ?? (loading ? leagueIdOf(searchParams.get('leagueId')) || leagueIdOf(rememberedId) : null);
 
   const setSelectedLeagueId = (leagueId) => {
     // The whole query is replaced, deliberately: a Bench what-if swap names

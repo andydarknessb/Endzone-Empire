@@ -34,6 +34,15 @@ export function useLineupData({ leagueId, week }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  // A new league starts from nothing, during render (the useResource pattern): the previous league's roster
+  // must not stand under the new league's head, where a move would be written to the wrong league.
+  const [stateLeagueId, setStateLeagueId] = useState(leagueId);
+  if (stateLeagueId !== leagueId) {
+    setStateLeagueId(leagueId);
+    setRaw(null);
+    setLoading(true);
+  }
+
   // Each load supersedes the one before it (the useResource guard): a slower,
   // older answer for another week must not land over the week on screen.
   const requestSeq = useRef(0);

@@ -183,7 +183,7 @@ export default function LineupPage() {
   const seenGameKindsRef = useRef(new Map());
   useEffect(() => {
     seenGameKindsRef.current = new Map();
-  }, [selectedLeagueId, week]);
+  }, [readLeagueId, week]);
   useEffect(() => {
     const seen = seenGameKindsRef.current;
     let changed = false;
@@ -574,7 +574,7 @@ export default function LineupPage() {
                   <Box data-testid="lineup-roster-column" sx={{ display: { xs: phoneView === 'outlook' ? 'none' : 'grid', sm: 'grid' }, gap: { xs: '12px', sm: '24px' }, minWidth: 0 }}>
                     <TeamSummaryStrip
                       leagueId={selectedLeagueId}
-                      week={league?.current_week ?? null}
+                      week={league?.current_week ?? selectedLeague?.current_week ?? null}
                       viewerTeamId={viewerTeamId}
                       lineup={lineup}
                       advice={stripAdvice}

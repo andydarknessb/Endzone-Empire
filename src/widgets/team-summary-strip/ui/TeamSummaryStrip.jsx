@@ -170,7 +170,7 @@ export default function TeamSummaryStrip({
         )}
 
         {loading && (
-          <Box component="p" aria-hidden="true" sx={{ ...SKEL_TEXT_SX, m: 0, fontSize: '14px', width: '60%' }}>{' '}</Box>
+          <Box component="p" aria-hidden="true" sx={{ ...SKEL_TEXT_SX, m: 0, fontSize: '14px', width: '60%' }}>{'\u00a0'}</Box>
         )}
 
         {winProbability != null && (
@@ -219,7 +219,7 @@ function Tile({ testId, label, value, loading = false }) {
         aria-hidden={loading || undefined}
         sx={{ fontSize: { xs: '16px', sm: '18px' }, fontWeight: 700, fontVariantNumeric: 'tabular-nums', ...(loading && { ...SKEL_TEXT_SX, width: '72px' }) }}
       >
-        {loading ? ' ' : value}
+        {loading ? '\u00a0' : value}
       </Box>
     </Box>
   );

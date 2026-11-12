@@ -60,6 +60,8 @@ test('a loading matchup read shows skeletons and is aria-busy', async () => {
   mockGetByUrl({ [LIST_URL]: new Promise(() => {}) });
   renderStrip({ lineup: lineup([]) });
   await waitFor(() => expect(screen.getByTestId('team-summary-strip')).toHaveAttribute('aria-busy', 'true'));
+  expect(screen.getByText('Score vs proj.')).toBeInTheDocument();
+  expect(screen.queryByTestId('strip-score')).toBeNull();
 });
 
 test('a ready matchup shows the score/projected figures, players remaining, and locked count', async () => {
