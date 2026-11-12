@@ -35,4 +35,9 @@ describe('warmFonts', () => {
       process.removeListener('unhandledRejection', unhandled);
     }
   });
+
+  test('a synchronous throw from load is swallowed, so App.jsx still evaluates', () => {
+    document.fonts = { load: jest.fn(() => { throw new Error('blocked'); }) };
+    expect(() => warmFonts()).not.toThrow();
+  });
 });

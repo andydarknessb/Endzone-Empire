@@ -19,7 +19,11 @@ export const pixelSx = (size) => ({
 
 /** Starts both faces now rather than at the first Play-select text; best-effort, since font-display: swap covers a browser without the API. */
 export function warmFonts() {
-  [PIXEL_FONT, BODY_FONT].forEach((stack) => { document.fonts?.load(`16px ${stack}`)?.catch?.(() => {}); });
+  try {
+    [PIXEL_FONT, BODY_FONT].forEach((stack) => { document.fonts?.load(`16px ${stack}`)?.catch(() => {}); });
+  } catch {
+    // Best-effort: the stylesheet's own swap still loads the faces.
+  }
 }
 
 /** Visually hidden, still read by a screen reader. */
