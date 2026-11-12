@@ -196,7 +196,7 @@ function PlayerAvatar({ name, photoUrl, size, color }) {
  * player's name), and the covering button carries no text of its own by design. The covering button gets
  * its own derived id (`${testId}-select`) for anything that specifically needs the interactive element.
  */
-export default function LedgerRow({
+function LedgerRow({
   slotLabel,
   entry,
   liveRow,
@@ -205,7 +205,8 @@ export default function LedgerRow({
   eligible,
   disabled,
   swapHighlighted,
-  onClick,
+  onRowClick,
+  slotType,
   onRequestDrop,
   canDrop,
   reserveDropTrack,
@@ -472,7 +473,7 @@ export default function LedgerRow({
             aria-pressed={Boolean(selected)}
             aria-label={`${rowLabel}${dimRow ? ', not eligible' : ''}`}
             data-testid={testId ? `${testId}-select` : undefined}
-            onClick={onClick}
+            onClick={(event) => onRowClick?.(entry, slotType, event)}
             sx={{
               position: 'absolute',
               inset: 0,
@@ -497,6 +498,8 @@ export default function LedgerRow({
     </Box>
   );
 }
+
+export default React.memo(LedgerRow);
 
 const INJURY_WORDS = {
   Q: 'questionable', D: 'doubtful', O: 'out', IR: 'injured reserve',
