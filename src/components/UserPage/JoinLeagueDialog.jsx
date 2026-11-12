@@ -46,11 +46,12 @@ const JOIN_CLOSED_COPY = {
 };
 const ALREADY_MEMBER_COPY = "You're already a member of this league.";
 
-// Every invite code is exactly 8 lowercase hex characters (checked against
-// production 2026-09-28). Shorter is still being typed and longer is not a
-// code, so only exactly 8 is ever looked up (the preview route is rate limited
-// per caller).
-const INVITE_CODE_LENGTH = 8;
+// Invite codes are 8 lowercase hex characters (leagues created before release
+// #2859) or 16 (every league since). Shorter is still being typed and longer is
+// not a code, so only exactly 8 or 16 is ever looked up (the preview route is
+// rate limited per caller).
+const INVITE_CODE_LENGTHS = [8, 16];
+const LONGEST_INVITE_CODE = Math.max(...INVITE_CODE_LENGTHS);
 const PREVIEW_DEBOUNCE_MS = 300;
 
 /**
@@ -130,7 +131,7 @@ export default function JoinLeagueDialog({ open, onClose, onJoined }) {
   const trimmedTeamName = teamName.trim();
 
   useEffect(() => {
-    if (inviteCode.length !== INVITE_CODE_LENGTH) {
+    if (!INVITE_CODE_LENGTHS.includes(inviteCode.length)) {
       setLookup(null);
       return undefined;
     }
@@ -155,8 +156,9 @@ export default function JoinLeagueDialog({ open, onClose, onJoined }) {
   const current = lookup && lookup.code === inviteCode ? lookup : null;
   const preview = current && current.status === 'found' ? current.league : null;
   const notFound = Boolean(current && current.status === 'not-found');
-  const keepTyping = inviteCode.length > 0 && inviteCode.length < INVITE_CODE_LENGTH;
-  const tooLong = inviteCode.length > INVITE_CODE_LENGTH;
+  const keepTyping = inviteCode.length > 0 && inviteCode.length < LONGEST_INVITE_CODE
+    && !INVITE_CODE_LENGTHS.includes(inviteCode.length);
+  const tooLong = inviteCode.length > LONGEST_INVITE_CODE;
   const refusal = refusalFor(preview);
 
   // A disabled button alone doesn't say why (WCAG 3.3.2), so the reason is
@@ -258,8 +260,8 @@ export default function JoinLeagueDialog({ open, onClose, onJoined }) {
         </Box>
         {/* One polite live region for what the code resolves to. */}
         <Box id="join-code-status" aria-live="polite" sx={{ my: '12px' }}>
-          {keepTyping && <Dim>Keep typing. Invite codes are 8 letters and numbers.</Dim>}
-          {tooLong && <Dim>That&apos;s longer than an invite code. Invite codes are 8 letters and numbers.</Dim>}
+          {keepTyping && <Dim>Keep typing. Invite codes are 8 or 16 letters and numbers.</Dim>}
+          {tooLong && <Dim>That&apos;s longer than an invite code. Invite codes are 8 or 16 letters and numbers.</Dim>}
           {clipboardFailed && <Dim>Couldn&apos;t read the clipboard. Paste the code or link into the field instead.</Dim>}
           {notFound && (
             <Box sx={{ ...NOTE_SX, borderColor: 'var(--ps-danger)' }}>
