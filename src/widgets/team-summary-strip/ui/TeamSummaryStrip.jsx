@@ -81,10 +81,12 @@ export default function TeamSummaryStrip({
     advice?.optimalTotal != null && advice?.projectedTotal != null
       ? advice.optimalTotal - advice.projectedTotal
       : null;
+  // A Skel bar while the advice is out, so the tile never says "Lineup set" before it lands.
+  const pending = Boolean(advice?.pending);
   const adviceValue =
     suggestionCount > 0
       ? `+${formatPoints(gain)} pts · ${suggestionCount} swap${suggestionCount === 1 ? '' : 's'}`
-      : openSlot ? 'No bench move' : 'Lineup set';
+      : advice?.failed ? 'Not available' : openSlot ? 'No bench move' : 'Lineup set';
 
   // AC4: the worst bye cluster earns its own attention chip only at the
   // warning threshold (three or more) - a notable cluster of two stays the
@@ -198,7 +200,7 @@ export default function TeamSummaryStrip({
             matchup read never hides "how many swaps the advice wants". */}
         <Box data-testid="strip-advice" sx={{ display: 'flex', flexDirection: { xs: 'row', sm: 'column' }, flexWrap: 'wrap', alignItems: { xs: 'baseline', sm: 'stretch' }, gap: { xs: '0 10px', sm: '2px' }, borderTop: '2px solid var(--ps-rule)', pt: { xs: '8px', sm: '10px' } }}>
           <Box component="span" sx={{ fontSize: '13px', color: 'var(--ps-dim)' }}>Advice</Box>
-          <Box component="span" sx={{ fontSize: { xs: '15px', sm: '16px' }, fontWeight: 700, textWrap: 'pretty' }}>{adviceValue}</Box>
+          <Box component="span" aria-hidden={pending || undefined} sx={{ fontSize: { xs: '15px', sm: '16px' }, fontWeight: 700, textWrap: 'pretty', ...(pending && { ...SKEL_TEXT_SX, width: '96px' }) }}>{pending ? '\u00a0' : adviceValue}</Box>
         </Box>
       </Box>
     </Frame>

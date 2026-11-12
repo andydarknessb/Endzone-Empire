@@ -92,6 +92,22 @@ test('dismiss hides the suggestion without touching any other', async () => {
   expect(screen.getByText('Other Sit')).toBeInTheDocument();
 });
 
+test('reports null while nothing is dismissed, then only the suggestion still showing after a Dismiss', async () => {
+  const user = userEvent.setup();
+  const onVisibleSuggestions = jest.fn();
+  const second = suggestion({
+    slot: 'WR',
+    current: { ...suggestion().current, playerId: 3, name: 'Other Sit' },
+    suggested: { ...suggestion().suggested, playerId: 4, name: 'Other Start' },
+  });
+  render(<StartSitPanel advice={{ suggestions: [suggestion(), second], movePlan: [] }} entries={entries} bestBall={false} onVisibleSuggestions={onVisibleSuggestions} />);
+  expect(onVisibleSuggestions).toHaveBeenLastCalledWith(null);
+
+  await user.click(within(screen.getAllByTestId('suggestion-card')[0]).getByTestId('suggestion-dismiss'));
+
+  expect(onVisibleSuggestions).toHaveBeenLastCalledWith([second]);
+});
+
 // Formal risk review findings: dismissing a card left focus with nowhere to
 // land (it fell to `<body>`), and nothing announced the removal.
 test('dismissing a card moves focus to the next remaining card\'s Dismiss button and announces the change', async () => {
@@ -184,6 +200,60 @@ test('no suggestions and no move plan shows "Lineup set" and no Apply button', (
   render(<StartSitPanel advice={{ suggestions: [], movePlan: [] }} entries={entries} bestBall={false} />);
   expect(screen.getByTestId('start-sit-panel-empty')).toHaveTextContent('Lineup set');
   expect(screen.queryByTestId('start-sit-apply')).not.toBeInTheDocument();
+});
+
+// #2886: while the first advice is out the card draws Skel rows; a failed read says so, and neither says "Lineup set".
+describe('the first advice is out or failed (#2886)', () => {
+  test('pending draws three stat-row bars and one line bar, is aria-busy, and says neither "Lineup set" nor "No move from your bench"', () => {
+    render(<StartSitPanel advice={{ suggestions: [], movePlan: [], pending: true }} entries={entries} bestBall={false} openSlot />);
+    expect(screen.getByTestId('start-sit-panel')).toHaveAttribute('aria-busy', 'true');
+    const loading = screen.getByTestId('start-sit-panel-loading');
+    expect(loading).toHaveAttribute('aria-hidden', 'true');
+    expect(loading.children).toHaveLength(4);
+    expect(screen.queryByTestId('start-sit-panel-empty')).not.toBeInTheDocument();
+    expect(screen.queryByText('Lineup set')).not.toBeInTheDocument();
+    expect(screen.queryByText('No move from your bench')).not.toBeInTheDocument();
+  });
+
+  test('failed says the Forecast could not load, as an alert, and says neither "Lineup set" nor "No move from your bench"', () => {
+    render(<StartSitPanel advice={{ suggestions: [], movePlan: [], failed: true }} entries={entries} bestBall={false} openSlot onRetry={jest.fn()} />);
+    expect(screen.getByRole('alert')).toHaveTextContent('We could not load the Endzone Forecast right now.');
+    expect(screen.getByTestId('start-sit-panel')).toHaveAttribute('aria-busy', 'false');
+    expect(screen.queryByTestId('start-sit-panel-empty')).not.toBeInTheDocument();
+    expect(screen.queryByText('Lineup set')).not.toBeInTheDocument();
+    expect(screen.queryByText('No move from your bench')).not.toBeInTheDocument();
+  });
+
+  test('failed with onRetry offers a Retry button outside the alert, and calls onRetry', async () => {
+    const user = userEvent.setup();
+    const onRetry = jest.fn();
+    render(<StartSitPanel advice={{ suggestions: [], movePlan: [], failed: true }} entries={entries} bestBall={false} openSlot onRetry={onRetry} />);
+    const retry = screen.getByRole('button', { name: 'Retry' });
+    expect(screen.getByRole('alert')).not.toContainElement(retry);
+    await user.click(retry);
+    expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+
+  test('pressing Retry moves focus to the panel content first, so it is not lost when the button unmounts', async () => {
+    const user = userEvent.setup();
+    render(<StartSitPanel advice={{ suggestions: [], movePlan: [], failed: true }} entries={entries} bestBall={false} openSlot onRetry={jest.fn()} />);
+    await user.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(screen.getByTestId('start-sit-panel-content')).toHaveFocus();
+  });
+
+  test('the failed sentence is an alert only when it has onRetry, so a lineup failure does not announce twice', () => {
+    const { unmount } = render(<StartSitPanel advice={{ suggestions: [], movePlan: [], failed: true }} entries={entries} bestBall={false} openSlot onRetry={jest.fn()} />);
+    expect(screen.getByTestId('start-sit-panel-error')).toHaveAttribute('role', 'alert');
+    unmount();
+    render(<StartSitPanel advice={{ suggestions: [], movePlan: [], failed: true }} entries={entries} bestBall={false} openSlot />);
+    expect(screen.getByTestId('start-sit-panel-error')).not.toHaveAttribute('role');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  test('failed without onRetry offers no Retry button', () => {
+    render(<StartSitPanel advice={{ suggestions: [], movePlan: [], failed: true }} entries={entries} bestBall={false} openSlot />);
+    expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
+  });
 });
 
 test('no "optimal", "optimize" or "range" copy anywhere on the panel', () => {

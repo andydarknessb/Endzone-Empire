@@ -246,17 +246,33 @@ export default function LineupPage() {
   // is passed down by the page" rule `useLineupData` already follows for the
   // lineup itself. Best ball never calls the endpoint at all.
   const advice = useAdvice({ leagueId: selectedLeagueId, week: lineup?.week, bestBall });
+  // The Forecast waits on the lineup and the league as well as its own read; with no lineup to read it has failed.
+  const lineupGone = !lineup && Boolean(lineupError);
+  const forecastPending = !bestBall && !lineupGone && (selectedLeagueId == null || !lineup || leagueMode === 'loading' || advice.pending);
+  const forecastFailed = !bestBall && !forecastPending && (lineupGone || advice.failed);
+  const forecast = { ...advice, pending: forecastPending, failed: forecastFailed };
+  // The rail under the Forecast is held only until it first settles, and never longer than 3 s after the league is
+  // confirmed: a week change or a retry later is the manager's own action, and a slow read must not hide two unrelated widgets.
+  const [railReleased, setRailReleased] = useState(false);
+  if (!forecastPending && !railReleased) setRailReleased(true);
+  useEffect(() => {
+    if (selectedLeagueId == null) return undefined;
+    const timer = setTimeout(() => setRailReleased(true), 3000);
+    return () => clearTimeout(timer);
+  }, [selectedLeagueId]);
   // The Forecast tells the page which suggestions are still showing (a Dismiss hides one), so the Advice tile counts
   // and sums the same moves the plan line above Apply names.
   const [visibleSuggestions, setVisibleSuggestions] = useState(null);
-  const stripAdvice = visibleSuggestions && visibleSuggestions.length !== advice.suggestions.length
+  // A list the panel reported for other advice (a week change, a reload) is ignored until it reports again.
+  const visibleNow = visibleSuggestions && visibleSuggestions.every((s) => forecast.suggestions.includes(s)) ? visibleSuggestions : null;
+  const stripAdvice = visibleNow
     ? {
-      ...advice,
-      suggestions: visibleSuggestions,
+      ...forecast,
+      suggestions: visibleNow,
       projectedTotal: 0,
-      optimalTotal: adviceGain({ suggestions: visibleSuggestions, openSlotFills: advice.openSlotFills }) ?? 0,
+      optimalTotal: adviceGain({ suggestions: visibleNow, openSlotFills: forecast.openSlotFills }) ?? 0,
     }
-    : advice;
+    : forecast;
   // The one Lineup write (spec #2042): swap, the Start/sit card's Apply, the
   // Bench what-if and the Decision card all hand move plans to its `submit`.
   // It clears the week's cached Matchups list itself when a save lands (#1881), as drop-player does for a roster change.
@@ -621,7 +637,8 @@ export default function LineupPage() {
 
                   <Box data-testid="lineup-outlook-column" sx={{ display: { xs: phoneView === 'outlook' ? 'grid' : 'none', sm: 'grid' }, gap: { xs: '16px', sm: '24px' }, minWidth: 0 }}>
                     <StartSitPanel
-                      advice={advice}
+                      advice={forecast}
+                      onRetry={advice.failed ? advice.reload : undefined}
                       entries={lineup?.entries}
                       bestBall={bestBall}
                       onApply={submit}
@@ -634,14 +651,17 @@ export default function LineupPage() {
                       openSlot={openSlot}
                       onVisibleSuggestions={setVisibleSuggestions}
                     />
-                    <ByeClusterGrid
-                      entries={lineup?.entries}
-                      fromWeek={lineup?.week}
-                      isPastWeek={isPastWeek}
-                      waiverPeriodHours={league?.waiver_period_hours}
-                      leagueId={selectedLeagueId}
-                    />
-                    <MatchupPreview leagueId={selectedLeagueId} />
+                    {/* Stay mounted so their reads start; held hidden until the Forecast has its advice, so they are not pushed down the rail. */}
+                    <Box sx={{ display: forecastPending && !railReleased ? 'none' : 'contents' }}>
+                      <ByeClusterGrid
+                        entries={lineup?.entries}
+                        fromWeek={lineup?.week}
+                        isPastWeek={isPastWeek}
+                        waiverPeriodHours={league?.waiver_period_hours}
+                        leagueId={selectedLeagueId}
+                      />
+                      <MatchupPreview leagueId={selectedLeagueId} />
+                    </Box>
                   </Box>
                 </Box>
 
