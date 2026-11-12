@@ -129,7 +129,9 @@ function Nav() {
 
   const linkSx = (to) => ({
     px: 1.25,
-    py: 3,
+    // No vertical padding: a link fills the bar's height and never adds to it, so the bar does not move when the session resolves.
+    display: 'flex',
+    alignItems: 'center',
     fontSize: 15,
     whiteSpace: 'nowrap',
     color: isActive(to) ? 'var(--accent)' : 'var(--text-muted)',
@@ -210,7 +212,7 @@ function Nav() {
             landmark itself only exists when it actually has links in it -
             an always-present, always-empty landmark is its own confusion for
             a screen reader user on the logged-out pages. */}
-        <Box sx={{ display: { xs: 'none', lg: 'flex' }, alignItems: 'stretch', flexGrow: 1 }}>
+        <Box sx={{ display: { xs: 'none', lg: 'flex' }, alignItems: 'stretch', alignSelf: 'stretch', flexGrow: 1 }}>
           {loggedIn && (
             <Box component="nav" aria-label="Primary navigation" sx={{ display: 'flex', alignItems: 'stretch' }}>
               {links.map((l) => (
