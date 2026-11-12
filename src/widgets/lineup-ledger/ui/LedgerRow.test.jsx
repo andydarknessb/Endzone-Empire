@@ -40,13 +40,14 @@ test('an empty slot renders a placeholder and no player content', () => {
   expect(screen.queryByTestId('ledger-projection')).toBeNull();
 });
 
-test('an occupied row shows name, position/team code, and calls onClick', async () => {
+test('an occupied row shows name, position/team code, and calls onRowClick', async () => {
   const onClick = jest.fn();
   render(<LedgerRow slotLabel="QB" entry={entry()} slotType="QB" onRowClick={onClick} data-testid="row" />);
   expect(screen.getByText('Josh Allen')).toBeInTheDocument();
   expect(screen.getByText('QB · BUF')).toBeInTheDocument();
   await userEvent.click(screen.getByTestId('row-select'));
   expect(onClick).toHaveBeenCalledTimes(1);
+  expect(onClick).toHaveBeenCalledWith(entry(), 'QB', expect.anything());
 });
 
 // The row's own testid element contains the player's name (e2e contract:

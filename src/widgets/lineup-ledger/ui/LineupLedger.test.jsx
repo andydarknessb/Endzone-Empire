@@ -43,6 +43,9 @@ beforeEach(() => {
   });
 });
 
+// CRA sets resetMocks, which would blank this spy for any test after it, so each one is restored here.
+afterEach(() => jest.restoreAllMocks());
+
 const starter = (over = {}) => ({ playerId: 1, name: 'Starter One', slot: 'QB', ...over });
 const benchPlayer = (over = {}) => ({ playerId: 2, name: 'Bench One', slot: 'BENCH', ...over });
 const lineup = () => ({ teamId: 3, season: 2026 });
@@ -224,9 +227,6 @@ test('the cursor frame and its note land on the named row only', () => {
   expect(screen.getByTestId('slot-row-RB-1').querySelector('.cursor')).not.toBeNull();
   expect(screen.getByTestId('slot-row-RB-1')).toHaveTextContent('RB is empty');
 });
-
-// CRA sets resetMocks, which would blank this spy for any test after it, so each one is restored here.
-afterEach(() => jest.restoreAllMocks());
 
 // Rows are memoised and take one stable click handler, so a tab press re-renders none of them; gameCellView runs once per occupied row per render.
 test('a tab change re-renders no row', () => {

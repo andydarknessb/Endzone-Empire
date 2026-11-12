@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 import { Box, useMediaQuery, useTheme } from '@mui/material';
 import { Frame, FrameHead, PixelHeading } from '../../../shared/ui/playselect';
 import { spent } from '../../../entities/roster';
@@ -112,7 +112,7 @@ export default function LineupLedger({
 
   // One stable handler that reads the latest onRowClick, so a row whose own props did not change skips its render.
   const onRowClickRef = useRef(onRowClick);
-  onRowClickRef.current = onRowClick;
+  useLayoutEffect(() => { onRowClickRef.current = onRowClick; });
   const handleRowClick = useCallback((entry, slotType, event) => onRowClickRef.current?.(entry, slotType, event), []);
 
   const rowProps = (row, last) => {
