@@ -1988,6 +1988,43 @@ describe('the lineup reads start on the URL league before the inventory answers'
   });
 });
 
+describe('the inventory row answers while the league read is unanswered', () => {
+  // The per-league read never answers in these cases, so the inventory row alone must carry the page.
+  const inventoryRow = (over = {}) => leaguesListResponse({ current_week: 4, ...over });
+
+  test("the summary strip reads the viewer's matchup from the inventory row's my_team_id", async () => {
+    renderPage({ [LEAGUES_URL]: inventoryRow({ my_team_id: 3 }), [LEAGUE_URL]: new Promise(() => {}) });
+    expect(await screen.findByTestId('strip-score')).toBeInTheDocument();
+    expect(within(screen.getByTestId('team-summary-strip')).queryByText('No matchup this week')).toBeNull();
+  });
+
+  test('best ball comes from the inventory row: the notice shows and the advice is never read', async () => {
+    renderPage({ [LEAGUES_URL]: inventoryRow({ best_ball: true }), [LEAGUE_URL]: new Promise(() => {}) });
+    expect(await screen.findByTestId('best-ball-notice')).toBeInTheDocument();
+    await screen.findByText('Josh Allen');
+    expect(screen.queryByTestId('start-sit-panel')).not.toBeInTheDocument();
+    expect(apiClient.get).not.toHaveBeenCalledWith(expect.stringContaining('/api/team/lineup/advice'));
+  });
+
+  test('a draft still to come comes from the inventory row: the draft card shows and the strip does not', async () => {
+    renderPage({ [LEAGUES_URL]: inventoryRow({ draft_status: 'pending' }), [LEAGUE_URL]: new Promise(() => {}) });
+    expect(await screen.findByTestId('lineup-draft-in-progress')).toBeInTheDocument();
+    expect(screen.queryByTestId('team-summary-strip')).not.toBeInTheDocument();
+  });
+
+  test('a failed inventory read says so and does not also say the viewer is in no league', async () => {
+    const urls = baseUrls();
+    apiClient.get.mockImplementation((url) => {
+      if (url === LEAGUES_URL) return Promise.reject(new Error('boom'));
+      if (url === LEAGUE_URL) return new Promise(() => {});
+      return Promise.resolve(urls[url] ?? { data: [] });
+    });
+    renderWithProviders(<LineupPage />, { route: '/team?leagueId=1', path: '/team' });
+    expect(await screen.findByTestId('leagues-error')).toBeInTheDocument();
+    expect(screen.queryByTestId('lineup-no-leagues')).toBeNull();
+  });
+});
+
 test('the Forecast prints the season lines the advice payload carries (QA P1-2)', async () => {
   renderPage(withEntries([qb(), rb(), wr(), benchWr()], {
     [ADVICE_URL]: {

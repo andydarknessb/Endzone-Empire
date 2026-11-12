@@ -62,6 +62,8 @@ test('a loading matchup read shows skeletons and is aria-busy', async () => {
   await waitFor(() => expect(screen.getByTestId('team-summary-strip')).toHaveAttribute('aria-busy', 'true'));
   expect(screen.getByText('Score vs proj.')).toBeInTheDocument();
   expect(screen.queryByTestId('strip-score')).toBeNull();
+  // eslint-disable-next-line testing-library/no-node-access -- the hidden tile has no role to query by
+  expect(screen.getByText('Score vs proj.').closest('[aria-hidden="true"]')).not.toBeNull();
 });
 
 test('a ready matchup shows the score/projected figures, players remaining, and locked count', async () => {

@@ -36,8 +36,9 @@ function rememberedLeagueId(userId) {
  * inventory read instead of after it: while the inventory loads it is the
  * league the URL names, or the one a bare `/team` resolved to last time
  * (remembered per account on this device), and once the inventory lands it is
- * `selectedLeagueId`, which confirms or corrects it. Only reads take it; every
- * write and subscription waits for `selectedLeagueId`.
+ * `selectedLeagueId`, which confirms or corrects it. Only reads take it (the
+ * league, the lineup and the live game states the lineup names); every write,
+ * the scores socket, advice and matchups wait for `selectedLeagueId`.
  */
 export function useLineupLeagues() {
   const userId = useSelector((store) => store.user.id);
