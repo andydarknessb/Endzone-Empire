@@ -365,8 +365,12 @@ test.describe('Nav fits the viewport (#927)', () => {
     await expect(page.locator(TOOLBAR)).toBeVisible();
     await expect(page.getByRole('link', { name: 'Log In' })).toBeVisible();
     const signedOut = await barGeometry(page);
+    expect(signedOut.links, 'the first measurement was taken after the session resolved').toHaveLength(0);
 
     await expect(page.locator(PRIMARY_LINKS).first()).toBeVisible();
+    await expect(page.getByRole('button', { name: 'notifications' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'account menu' })).toBeVisible();
+    await expect(page.locator(CLUSTER).locator('input')).toBeAttached();
     const signedIn = await barGeometry(page);
 
     expect(signedIn.toolbarHeight, 'app bar height changed when the session resolved').toBe(signedOut.toolbarHeight);
