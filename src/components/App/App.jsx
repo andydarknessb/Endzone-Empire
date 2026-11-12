@@ -37,6 +37,7 @@ import '../RegisterForm/RegisterForm.css';
 import './App.css';
 import { lazyWithReload } from '../../shared/lib/lazyWithReload';
 import { hasSessionHint } from '../../lib/sessionHint';
+import { warmFonts } from '../../shared/ui/playselect/type';
 
 // The landing page is the only one an anonymous first visit needs; every other
 // route's code loads when it is opened (Register and Login once the landing is idle,
@@ -73,7 +74,11 @@ const AuthenticatedPlayerProfilePage = lazyWithReload(() => import('../PlayerDet
 const AdminDashboard = lazyWithReload(() => import('../AdminDashboard/AdminDashboard'));
 const DraftSimScreen = lazyWithReload(() => import('../DraftSim/DraftSimScreen'));
 
-if (hasSessionHint()) UserPage.preload().catch(() => {});
+// A signed-in visit paints a Play-select page next; faces asked for at its first heading land after the paint and re-wrap the title.
+if (hasSessionHint()) {
+  UserPage.preload().catch(() => {});
+  warmFonts();
+}
 
 // Mounted with the anonymous landing page: after it has painted and the browser is
 // idle, fetch the two pages its CTAs and the header link to.

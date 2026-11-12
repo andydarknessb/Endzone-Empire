@@ -17,6 +17,11 @@ export const pixelSx = (size) => ({
   textTransform: 'uppercase',
 });
 
+/** Starts both faces now rather than at the first Play-select text; best-effort, since font-display: swap covers a browser without the API. */
+export function warmFonts() {
+  [PIXEL_FONT, BODY_FONT].forEach((stack) => { document.fonts?.load(`16px ${stack}`)?.catch?.(() => {}); });
+}
+
 /** Visually hidden, still read by a screen reader. */
 export const SR_ONLY_SX = {
   position: 'absolute',
