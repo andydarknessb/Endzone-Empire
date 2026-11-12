@@ -23,6 +23,43 @@ test('fetches the advice endpoint for the given league/week and shapes the respo
   expect(result.current.optimalTotal).toBe(95);
 });
 
+// #2886: `pending` is the first read still out, `failed` the first read rejected; a reload is neither.
+test('pending is true until the first answer, then false (#2886)', async () => {
+  let answer;
+  apiClient.get.mockReturnValueOnce(new Promise((resolve) => { answer = resolve; }));
+  const { result } = renderHook(() => useAdvice({ leagueId: 1, week: 4, bestBall: false }));
+  expect(result.current.pending).toBe(true);
+  expect(result.current.failed).toBe(false);
+
+  await act(async () => { answer({ data: { suggestions: [] } }); });
+  await waitFor(() => expect(result.current.status).toBe('ready'));
+  expect(result.current.pending).toBe(false);
+});
+
+test('a reload is neither pending nor failed while the previous advice is held (#2886)', async () => {
+  apiClient.get.mockResolvedValueOnce({ data: { suggestions: [{ slot: 'WR' }] } });
+  const { result } = renderHook(() => useAdvice({ leagueId: 1, week: 4, bestBall: false }));
+  await waitFor(() => expect(result.current.status).toBe('ready'));
+
+  let release;
+  apiClient.get.mockReturnValueOnce(new Promise((resolve) => { release = resolve; }));
+  act(() => result.current.reload());
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalledTimes(2));
+  expect(result.current.pending).toBe(false);
+  expect(result.current.failed).toBe(false);
+
+  await act(async () => { release({ data: { suggestions: [] } }); });
+  await waitFor(() => expect(result.current.suggestions).toEqual([]));
+});
+
+test('failed is true when the first read rejects (#2886)', async () => {
+  apiClient.get.mockRejectedValueOnce(new Error('boom'));
+  const { result } = renderHook(() => useAdvice({ leagueId: 1, week: 4, bestBall: false }));
+  await waitFor(() => expect(result.current.failed).toBe(true));
+  expect(result.current.status).toBe('error');
+  expect(result.current.pending).toBe(false);
+});
+
 test('best ball never calls the endpoint at all', () => {
   const { result } = renderHook(() => useAdvice({ leagueId: 1, week: 4, bestBall: true }));
   expect(apiClient.get).not.toHaveBeenCalled();

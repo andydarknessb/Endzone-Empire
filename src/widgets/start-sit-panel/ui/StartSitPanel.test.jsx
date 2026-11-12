@@ -186,6 +186,29 @@ test('no suggestions and no move plan shows "Lineup set" and no Apply button', (
   expect(screen.queryByTestId('start-sit-apply')).not.toBeInTheDocument();
 });
 
+// #2886: while the first advice is out the card draws Skel rows; a failed read says so, and neither says "Lineup set".
+describe('the first advice is out or failed (#2886)', () => {
+  test('pending draws three stat-row bars and one line bar, is aria-busy, and says neither "Lineup set" nor "No move from your bench"', () => {
+    render(<StartSitPanel advice={{ suggestions: [], movePlan: [], pending: true }} entries={entries} bestBall={false} openSlot />);
+    expect(screen.getByTestId('start-sit-panel')).toHaveAttribute('aria-busy', 'true');
+    const loading = screen.getByTestId('start-sit-panel-loading');
+    expect(loading).toHaveAttribute('aria-hidden', 'true');
+    expect(loading.children).toHaveLength(4);
+    expect(screen.queryByTestId('start-sit-panel-empty')).not.toBeInTheDocument();
+    expect(screen.queryByText('Lineup set')).not.toBeInTheDocument();
+    expect(screen.queryByText('No move from your bench')).not.toBeInTheDocument();
+  });
+
+  test('failed says the Forecast could not load, as an alert, and says neither "Lineup set" nor "No move from your bench"', () => {
+    render(<StartSitPanel advice={{ suggestions: [], movePlan: [], failed: true }} entries={entries} bestBall={false} openSlot />);
+    expect(screen.getByRole('alert')).toHaveTextContent('We could not load the Endzone Forecast right now.');
+    expect(screen.getByTestId('start-sit-panel')).toHaveAttribute('aria-busy', 'false');
+    expect(screen.queryByTestId('start-sit-panel-empty')).not.toBeInTheDocument();
+    expect(screen.queryByText('Lineup set')).not.toBeInTheDocument();
+    expect(screen.queryByText('No move from your bench')).not.toBeInTheDocument();
+  });
+});
+
 test('no "optimal", "optimize" or "range" copy anywhere on the panel', () => {
   const { container } = render(<StartSitPanel advice={{ suggestions: [suggestion()], movePlan: [{ playerId: 1, toSlot: 'RB' }] }} entries={entries} bestBall={false} />);
   const text = container.textContent;

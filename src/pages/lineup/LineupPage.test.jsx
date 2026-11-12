@@ -1324,6 +1324,20 @@ test('a refused apply rolls the optimistic move back', async () => {
   expect(within(screen.getByTestId('ledger-starters')).getByText('Derrick King')).toBeInTheDocument();
 });
 
+// #2886: the outlook rail waits for the Forecast's advice. The Bye clusters and the Matchup preview mount at once
+// (their reads start) but stay hidden until the advice answers, so they do not get pushed down when it lands.
+test('the held rail: Bye clusters and the Matchup preview show only once the advice answers (#2886)', async () => {
+  let answer;
+  renderPage({ [ADVICE_URL]: new Promise((resolve) => { answer = resolve; }) });
+  await screen.findByText('Josh Allen');
+  expect(screen.getByTestId('bye-cluster-grid')).not.toBeVisible();
+  expect(screen.getByTestId('matchup-preview')).not.toBeVisible();
+
+  await act(async () => { answer({ data: adviceBody() }); });
+  await waitFor(() => expect(screen.getByTestId('bye-cluster-grid')).toBeVisible());
+  expect(screen.getByTestId('matchup-preview')).toBeVisible();
+});
+
 test('best ball hides the Start/sit panel entirely (never calls the advice endpoint)', async () => {
   renderPage({
     [LEAGUE_URL]: leagueResponse({ best_ball: true }),
@@ -1678,7 +1692,7 @@ describe('the one cursor and the one filled action (ruling 8)', () => {
     await screen.findByText('Josh Allen');
     expect(cursors()).toHaveLength(0);
     expect(filled()).toHaveLength(0);
-    expect(screen.getByTestId('strip-advice')).toHaveTextContent('Lineup set');
+    await waitFor(() => expect(screen.getByTestId('strip-advice')).toHaveTextContent('Lineup set'));
   });
 
   test('best ball has no cursor: the lineup sets itself', async () => {
@@ -1739,7 +1753,7 @@ describe('Lineup copy (spec #2347 ruling 4)', () => {
     expect(note).toHaveTextContent('no bench player can fill it');
     expect(note).toHaveTextContent('add a free agent playing at');
     expect(within(note).getByRole('link', { name: 'Free agents' })).toHaveAttribute('href', '/league/1/waivers');
-    expect(screen.getByTestId('strip-advice')).toHaveTextContent('No bench move');
+    await waitFor(() => expect(screen.getByTestId('strip-advice')).toHaveTextContent('No bench move'));
     expect(screen.getByTestId('start-sit-panel-empty')).toHaveTextContent('No move from your bench');
     expect(screen.queryByText('Lineup set')).toBeNull();
   });

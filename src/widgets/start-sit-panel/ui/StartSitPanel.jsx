@@ -113,6 +113,8 @@ export default function StartSitPanel({
     ['forecast-record-line', forecastLine],
     ['called-record-line', calledRecord],
   ].filter(([, line]) => line);
+  const pending = Boolean(advice?.pending);
+  const failed = Boolean(advice?.failed);
 
   // Focus moves BEFORE the state update commits, while every sibling card
   // (and its Dismiss button) is still mounted in this same synchronous
@@ -154,6 +156,7 @@ export default function StartSitPanel({
     <Frame
       tier="rule"
       labelledBy="start-sit-h"
+      aria-busy={pending}
       data-testid="start-sit-panel"
       head={<FrameHead><PixelHeading id="start-sit-h" size={16}>Endzone Forecast</PixelHeading></FrameHead>}
     >
@@ -178,6 +181,18 @@ export default function StartSitPanel({
               const cut = line.indexOf(': ');
               return <RuleStat key={testId} data-testid={testId} label={line.slice(0, cut)} value={line.slice(cut + 2)} />;
             })}
+          </Box>
+        )}
+
+        {/* Skel rows where the stat rows and the empty line go, so the card does not say "Lineup set" before the advice lands. */}
+        {pending && (
+          <Box aria-hidden="true" data-testid="start-sit-panel-loading" sx={{ display: 'flex', flexDirection: 'column' }}>
+            {['70%', '45%', '60%'].map((width) => (
+              <Box key={width} sx={{ padding: '8px 0', borderTop: '2px solid var(--ps-rule)', fontSize: '14px' }}>
+                <Box sx={{ backgroundColor: 'var(--ps-skel)', width }}>{'\u00a0'}</Box>
+              </Box>
+            ))}
+            <Box sx={{ backgroundColor: 'var(--ps-skel)', width: '40%', fontSize: '15px' }}>{'\u00a0'}</Box>
           </Box>
         )}
 
@@ -211,7 +226,13 @@ export default function StartSitPanel({
           </Box>
         )}
 
-        {views.length === 0 && (
+        {failed && (
+          <Box component="p" role="alert" data-testid="start-sit-panel-error" sx={{ m: 0, fontSize: '15px' }}>
+            We could not load the Endzone Forecast right now.
+          </Box>
+        )}
+
+        {!pending && !failed && views.length === 0 && (
           <Box component="p" sx={{ m: 0, fontSize: '15px', color: 'var(--ps-dim)' }} data-testid="start-sit-panel-empty">
             {openSlot ? 'No move from your bench' : 'Lineup set'}
           </Box>
@@ -223,7 +244,7 @@ export default function StartSitPanel({
             data-testid="suggestion-card"
             sx={{ border: '2px solid var(--ps-ink)', display: 'flex', flexDirection: 'column', boxSizing: 'border-box', minWidth: 0 }}
           >
-            <Box sx={{ display: 'flex', flexWrap: { xs: 'wrap', md: 'nowrap' }, alignItems: 'center', gap: '6px 8px', p: '10px 12px', borderBottom: '2px solid var(--ps-rule)' }}>
+            <Box data-testid="suggestion-head" sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '6px 8px', p: '10px 12px', borderBottom: '2px solid var(--ps-rule)' }}>
               <Box
                 component="span"
                 sx={{

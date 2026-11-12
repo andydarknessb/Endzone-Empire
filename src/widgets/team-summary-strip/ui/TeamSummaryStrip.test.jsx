@@ -176,6 +176,25 @@ test('the advice tile pluralizes two or more swaps', async () => {
   expect(await screen.findByTestId('strip-advice')).toHaveTextContent('2 swaps');
 });
 
+// #2886: while the first advice is out the tile holds a Skel bar; a failed read says "Not available".
+test('the advice tile draws a Skel bar, not "Lineup set", while the first advice is out (#2886)', async () => {
+  mockGetByUrl({ [LIST_URL]: { data: [] } });
+  renderStrip({ lineup: lineup([]), advice: { suggestions: [], movePlan: [], pending: true } });
+  const tile = await screen.findByTestId('strip-advice');
+  expect(tile).not.toHaveTextContent('Lineup set');
+  expect(tile).not.toHaveTextContent('No bench move');
+  // eslint-disable-next-line testing-library/no-node-access -- the Skel bar has no text or role to query by
+  expect(tile.lastChild).toHaveAttribute('aria-hidden', 'true');
+});
+
+test('the advice tile reads "Not available", not "Lineup set", when the advice read failed (#2886)', async () => {
+  mockGetByUrl({ [LIST_URL]: { data: [] } });
+  renderStrip({ lineup: lineup([]), advice: { suggestions: [], movePlan: [], failed: true } });
+  const tile = await screen.findByTestId('strip-advice');
+  expect(tile).toHaveTextContent('Not available');
+  expect(tile).not.toHaveTextContent('Lineup set');
+});
+
 test('the advice tile reads "Lineup set" when there is no suggestion', async () => {
   mockGetByUrl({ [LIST_URL]: { data: [] } });
   renderStrip({ lineup: lineup([]), advice: { suggestions: [], movePlan: [] } });

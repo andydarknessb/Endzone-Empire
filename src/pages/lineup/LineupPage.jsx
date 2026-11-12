@@ -629,14 +629,17 @@ export default function LineupPage() {
                       openSlot={openSlot}
                       onVisibleSuggestions={setVisibleSuggestions}
                     />
-                    <ByeClusterGrid
-                      entries={lineup?.entries}
-                      fromWeek={lineup?.week}
-                      isPastWeek={isPastWeek}
-                      waiverPeriodHours={league?.waiver_period_hours}
-                      leagueId={selectedLeagueId}
-                    />
-                    <MatchupPreview leagueId={selectedLeagueId} />
+                    {/* Stay mounted so their reads start; held hidden until the Forecast has its advice, so they are not pushed down the rail. */}
+                    <Box sx={{ display: advice.pending && !lineupError ? 'none' : 'contents' }}>
+                      <ByeClusterGrid
+                        entries={lineup?.entries}
+                        fromWeek={lineup?.week}
+                        isPastWeek={isPastWeek}
+                        waiverPeriodHours={league?.waiver_period_hours}
+                        leagueId={selectedLeagueId}
+                      />
+                      <MatchupPreview leagueId={selectedLeagueId} />
+                    </Box>
                   </Box>
                 </Box>
 
