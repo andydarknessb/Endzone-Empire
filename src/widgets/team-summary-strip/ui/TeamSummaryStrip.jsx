@@ -211,14 +211,13 @@ export default function TeamSummaryStrip({
 const SKEL_TEXT_SX = { backgroundColor: 'var(--ps-skel)', maxWidth: '100%' };
 
 // A labelled figure: the Dim label over a tabular 18px value (16px on a phone). While `loading` the value is a
-// Skel bar and the tile carries no test id, so a reader waiting on a figure never finds the placeholder.
+// Skel bar and the tile is aria-hidden with no test id, so a screen reader never hears a label with no figure.
 function Tile({ testId, label, value, loading = false }) {
   return (
-    <Box data-testid={loading ? undefined : testId} sx={{ display: 'flex', flexDirection: 'column', gap: '2px', minWidth: 0 }}>
+    <Box data-testid={loading ? undefined : testId} aria-hidden={loading || undefined} sx={{ display: 'flex', flexDirection: 'column', gap: '2px', minWidth: 0 }}>
       <Box component="span" sx={{ fontSize: '13px', color: 'var(--ps-dim)' }}>{label}</Box>
       <Box
         component="span"
-        aria-hidden={loading || undefined}
         sx={{ fontSize: { xs: '16px', sm: '18px' }, fontWeight: 700, fontVariantNumeric: 'tabular-nums', ...(loading && { ...SKEL_TEXT_SX, width: '72px' }) }}
       >
         {loading ? '\u00a0' : value}

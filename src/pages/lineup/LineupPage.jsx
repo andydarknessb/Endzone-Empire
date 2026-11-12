@@ -109,6 +109,14 @@ export default function LineupPage() {
   const {
     league, teams, viewerTeamId, error: leagueError, refetch: refetchLeague,
   } = useLeague(readLeagueId);
+  // The inventory row already names the league, the viewer's team and the current week, so the head is whole
+  // from its first paint and nothing in it moves when the league read lands.
+  const selectedLeague = leagues.find((l) => l.id === selectedLeagueId);
+  // Until the league read lands the inventory row answers for it (the same leagues columns), so best ball, the
+  // phase and the viewer's team are known from the first paint instead of flipping when it lands. A failed
+  // league read still reads as unknown, as it did before.
+  const leagueRow = league ?? (leagueError ? null : selectedLeague) ?? null;
+  const myTeamId = viewerTeamId ?? (leagueError ? null : selectedLeague?.my_team_id) ?? null;
   const [searchParams, setSearchParams] = useSearchParams();
   const [week, setWeek] = useState(null);
   // The Decision card (#1240, ADR 0037): which rostered player's card is
@@ -142,7 +150,7 @@ export default function LineupPage() {
   // demote it back to unsettled.
   // The read's own error decides "error": `loading` is false for the commit before its effect starts the read, and
   // would flash the error row on every normal load.
-  const leagueMode = league != null ? (league.best_ball ? 'bestBall' : 'standard') : (leagueError ? 'error' : 'loading');
+  const leagueMode = leagueRow != null ? (leagueRow.best_ball ? 'bestBall' : 'standard') : (leagueError ? 'error' : 'loading');
   const bestBall = leagueMode === 'bestBall';
   const leagueUnsettled = leagueMode === 'loading' || leagueMode === 'error';
 
@@ -288,10 +296,10 @@ export default function LineupPage() {
   // final; an in-progress starter's is actual plus the rest of its projection)
   // leaves `null` here, which is no line.
   const { matchups } = useWeekMatchups(selectedLeagueId, lineup?.week ?? null, { enabled: !bestBall });
-  const viewerMatchup = viewerMatchupOf(matchups, viewerTeamId);
+  const viewerMatchup = viewerMatchupOf(matchups, myTeamId);
   // The board nulls a settled week's Expected final (#2048), so a played week
   // draws no line even though the server still prices one.
-  const board = matchupBoard(viewerMatchup, viewerTeamId);
+  const board = matchupBoard(viewerMatchup, myTeamId);
   const expectedFinals = viewerMatchup
     ? { mine: board.first.expectedFinal, theirs: board.second.expectedFinal }
     : null;
@@ -331,7 +339,7 @@ export default function LineupPage() {
 
   const currentWeekValue = lineup ? week ?? lineup.week ?? MIN_WEEK : null;
   const viewerTeam = viewerTeamId != null && Array.isArray(teams) ? teams.find((t) => t.teamId === viewerTeamId) : null;
-  const phase = deriveLeaguePhase(league);
+  const phase = deriveLeaguePhase(leagueRow);
   const draftInProgress = phase === LEAGUE_PHASE.PRE_DRAFT || phase === LEAGUE_PHASE.DRAFTING;
   const canDropEntry = () => Boolean(lineup && lineup.week != null && lineup.week === lineup.currentWeek);
   const emptyRoster = !lineupLoading && lineup != null && lineup.entries.length === 0;
@@ -454,9 +462,6 @@ export default function LineupPage() {
   }, [phoneView]);
 
   const zone = formatInstant(new Date(), 'zone') || 'your time zone';
-  // The inventory row already names the league, the viewer's team and the current week, so the head is whole
-  // from its first paint and nothing in it moves when the league read lands.
-  const selectedLeague = leagues.find((l) => l.id === selectedLeagueId);
   const leagueName = league?.name || selectedLeague?.name || null;
   const showBoard = leagues.length > 0 && !draftInProgress && !emptyRoster;
 
@@ -504,7 +509,7 @@ export default function LineupPage() {
           </ErrorRow>
         )}
 
-        {!leaguesLoading && leagues.length === 0 && (
+        {!leaguesLoading && !leaguesError && leagues.length === 0 && (
           <MessageCard
             testId="lineup-no-leagues"
             text="You're not in a fantasy league yet. Create or join one to start building your team."
@@ -575,7 +580,7 @@ export default function LineupPage() {
                     <TeamSummaryStrip
                       leagueId={selectedLeagueId}
                       week={league?.current_week ?? selectedLeague?.current_week ?? null}
-                      viewerTeamId={viewerTeamId}
+                      viewerTeamId={myTeamId}
                       lineup={lineup}
                       advice={stripAdvice}
                       worstByeCluster={worstCluster}
