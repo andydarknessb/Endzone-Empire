@@ -80,13 +80,16 @@ function HeroBanner() {
       </g>
       <text x="400" y="34" textAnchor="middle" fill="#8badc9" fontFamily="system-ui, sans-serif" fontWeight="700" fontSize="12" letterSpacing="4">THE DARKNESS REPORT</text>
       <rect x="110" y="216" width="580" height="68" rx="14" fill="#030814" fillOpacity="0.84" stroke="#7eaaff" strokeOpacity="0.25" />
-      <text x="400" y="246" textAnchor="middle" fill="#ffffff" fontFamily="system-ui, sans-serif" fontWeight="850" fontSize="24" letterSpacing="1">WEEK 10START/SIT</text>
-      <text x="400" y="270" textAnchor="middle" fill="#8badc9" fontFamily="system-ui, sans-serif" fontWeight="600" fontSize="12" letterSpacing="2">WEEK 10| THURSDAY TO MONDAY | 14 GAMES</text>
+      <text x="400" y="246" textAnchor="middle" fill="#ffffff" fontFamily="system-ui, sans-serif" fontWeight="850" fontSize="24" letterSpacing="1">WEEK 10 START/SIT</text>
+      <text x="400" y="270" textAnchor="middle" fill="#8badc9" fontFamily="system-ui, sans-serif" fontWeight="600" fontSize="12" letterSpacing="2">WEEK 10 | THURSDAY TO MONDAY | 14 GAMES</text>
     </Box>
   );
 }
 
-
+// Generated from docs/editorial/week10-rulings.md and the week's dump. Games are in kickoff order.
+// Game call items are [name, position, why, rank, flag]. flag is a Darkness Ruling id (C4).
+// Injury board rows are [name, position, team, status, pivot, tone, ruling].
+// D/ST rows are [d/st, opponent, opp implied, verdict, why].
 const GAMES = [
   {
     id: 'was-nyg',
@@ -140,7 +143,7 @@ const GAMES = [
     total: 51.5,
     weather: 'Munich, no forecast in our data',
     rain: false,
-    read: 'The Lions are 2.5-point favorites over New England in Munich with a 51.5 total, implied for 27 for Detroit and 24.5 for New England. Drake Maye (QB4) is a start on 20.0 a game, and Jahmyr Gibbs (RB1) is a start on 26.2 a game on 22.1 carries. Jameson Williams (WR13) is a start, and Amon-Ra St. Brown (WR4) and Hunter Henry (TE12) are each a start only if active. Jared Goff (QB13) is a sit, and Rhamondre Stevenson is a sit after not practicing Wednesday (knee) and being listed as doubtful, and Corey Kiner is a sit, next up if Stevenson sits. The inactives drop about 8:00a ET Sunday, the earliest window on the Sunday slate.',
+    read: 'The Lions are 2.5-point favorites over New England in Munich with a 51.5 total, implied for 27 for Detroit and 24.5 for New England. Drake Maye (QB4) is a start on 20.0 a game, and Jahmyr Gibbs (RB1) is a start on 26.2 a game on 22.1 carries. Jameson Williams (WR13) is a start, and Amon-Ra St. Brown (WR4) and Hunter Henry (TE12) are each a start only if active. Jared Goff (QB13) is a sit. Rhamondre Stevenson is a sit after not practicing Wednesday (knee) and being listed as doubtful, and Corey Kiner, next up if he sits, is a sit too. The inactives drop about 8:00a ET Sunday, the earliest window on the Sunday slate.',
     fpa: 'NE offense vs DET D: QB 1, RB 30, WR 7, TE 1 · DET offense vs NE D: QB 16, RB 29, WR 2, TE 27',
     start: [
       ['Drake Maye', 'QB', '20.0 a game with 5.2 carries, full practice Wednesday (shoulder); Detroit allows the most QB points (22.2 a game).', 'QB4', 'C4'],
@@ -216,7 +219,7 @@ const GAMES = [
     total: 48.5,
     weather: 'Dome',
     rain: false,
-    read: 'New Orleans is a 2.5-point favorite over Carolina in a dome with a 48.5 total, implied for 25.5 for the Saints and 23 for the Panthers. Bryce Young (QB12) is a start on 20.3 last week, and New Orleans allows the 11th-most QB points in a dome. Tyler Shough (QB11) is a start on 19.7 last week on 10 carries. Chuba Hubbard (RB6) is a start on 16.8 carries and 89% of the snaps last week, and New Orleans allows the most RB points. Chris Olave (WR6) is a start on a 28% target share, and Tetairoa McMillan (WR12) is a start on a 25% target share. Audric Estime (RB21) is a flex with 15 carries for 14.7 last week and a role that is not secure, and Alvin Kamara is a sit after not practicing Wednesday (rest, back).',
+    read: 'New Orleans is a 2.5-point favorite over Carolina in a dome with a 48.5 total, implied for 25.5 for the Saints and 23 for the Panthers. Bryce Young (QB12) is a start on 20.3 last week, and New Orleans allows the 11th-most QB points in a dome. Tyler Shough (QB11) is a start on 19.7 last week on 10 carries. Chuba Hubbard (RB6) is a start on 16.8 carries a game and 89% of the snaps last week, and New Orleans allows the most RB points. Chris Olave (WR6) is a start on a 28% target share, and Tetairoa McMillan (WR12) is a start on a 25% target share. Audric Estime (RB21) is a flex with 15 carries for 14.7 last week and a role that is not secure, and Alvin Kamara is a sit after not practicing Wednesday (rest, back).',
     fpa: 'CAR offense vs NO D: QB 11, RB 1, WR 16, TE 8 · NO offense vs CAR D: QB 20, RB 2, WR 17, TE 17',
     start: [
       ['Tyler Shough', 'QB', '19.7 last week on 10 carries, 18.3 a game; New Orleans implied for 25.5 in a dome.', 'QB11', 'C11'],
@@ -325,7 +328,7 @@ const GAMES = [
     total: 46.5,
     weather: '54F, wind 0, mostly sunny',
     rain: false,
-    read: 'Kansas City is a 3-point favorite over Atlanta in a 46.5 total, implied for 24.75 for the Chiefs and 21.75 for the Falcons. Patrick Mahomes (QB8) is a start on 17.7 a game with full practice Wednesday (right elbow, knee). Kenneth Walker III (RB2) is a start on 24.6 a game, and Atlanta allows the 7th-most RB points. Travis Kelce (TE6) is a start on a 19% target share on the season, and Rashee Rice (WR17) is a flex with 18.3 and 9.9 the last two. Bijan Robinson (RB5) is a start on 26.7 last week on 19 carries and 7 targets, though Kansas City allows the 8th-fewest RB points. Drake London (WR16) is a flex on a 28% target share, and Kyle Pitts Sr. (TE13) is a sit, with Kansas City allowing the 6th-most TE points.',
+    read: 'Kansas City is a 3-point favorite over Atlanta in a 46.5 total, implied for 24.75 for the Chiefs and 21.75 for the Falcons. Patrick Mahomes (QB8) is a start on 17.7 a game with full practice Wednesday (right elbow, knee). Kenneth Walker III (RB2) is a start on 24.6 a game, and Atlanta allows the 7th-most RB points. Travis Kelce (TE6) is a start on a 19% target share on the season, and Rashee Rice (WR17) is a flex with 18.3 and 9.9 the last two. Bijan Robinson (RB5) is a start on 26.7 last week on 19 carries and 7 targets, though Kansas City allows the 8th-fewest RB points. Drake London (WR16) is a flex on a 28% target share, and Kyle Pitts Sr. (TE13) is a sit after 2.6 and 5.3 the last two, even with Kansas City allowing the 6th-most TE points.',
     fpa: 'KC offense vs ATL D: QB 18, RB 7, WR 13, TE 21 · ATL offense vs KC D: QB 28, RB 25, WR 31, TE 6',
     start: [
       ['Patrick Mahomes', 'QB', 'Full practice Wednesday (right elbow, knee); 17.7 a game and 25.4 two weeks ago, with Kansas City implied for 24.75.', 'QB8', 'C8'],
@@ -359,7 +362,7 @@ const GAMES = [
     total: 38.5,
     weather: '47F, wind 2, mostly sunny',
     rain: false,
-    read: 'Indianapolis is a 3.5-point favorite over Miami in a 38.5 total, with the Colts implied for 21 and the Dolphins for 17.5. Jonathan Taylor (RB8) is a start after being limited Wednesday for rest, and Miami allows the 10th-most RB points. Tyler Warren (TE5) is a start on a 23% target share and 7.6 targets a game, and Miami allows the 4th-most TE points. Ollie Gordon II (RB19) is a flex on 16 carries on 72% of the snaps last week. De\'Von Achane is out on IR (knee) and Malik Willis is out on IR (groin), so Kyle McCord is in line for his first start and is a sit. Caleb Douglas (WR30) is a flex on 8 targets for 13.0 last week, and Malik Washington is a sit after 4.1 last week on 3 targets.',
+    read: 'Indianapolis is a 3.5-point favorite over Miami in a 38.5 total, with the Colts implied for 21 and the Dolphins for 17.5. Jonathan Taylor (RB8) is a start after being limited Wednesday for rest, and Miami allows the 10th-most RB points. Tyler Warren (TE5) is a start on a 23% target share and 7.6 targets a game, and Miami allows the 4th-most TE points. Ollie Gordon II (RB19) is a flex on 16 carries on 72% of the snaps last week. De\'Von Achane is out on IR (knee). Malik Willis is on IR (groin), so Kyle McCord is in line for his first start and is a sit. Caleb Douglas (WR30) is a flex on 8 targets for 13.0 last week, and Malik Washington is a sit after 4.1 last week on 3 targets.',
     fpa: 'MIA offense vs IND D: QB 9, RB 6, WR 23, TE 14 · IND offense vs MIA D: QB 10, RB 10, WR 29, TE 4',
     start: [
       ['Jonathan Taylor', 'RB', 'Limited Wednesday for rest; 17.9 carries a game, and Miami allows the 10th-most RB points, though he scored 6.7 and 9.4 the last two.', 'RB8', 'C40'],
@@ -435,7 +438,7 @@ const GAMES = [
     total: 39.5,
     weather: '76F, wind 5, sunny',
     rain: false,
-    read: 'Los Angeles is a 9.5-point favorite over Arizona in a 39.5 total, with the Rams implied for 24.5 and Arizona for 15. Kyren Williams (RB9) is a start on 17.8 a game and 5.1 targets. Matthew Stafford (QB14) is a sit with 8.3 and 11.2 the last two, and Arizona allows the 2nd-most QB points. Puka Nacua is out with knee sprains and turf toe, expected to miss at least a month, and Davante Adams is out on IR (hamstring), not expected back before late November. Michael Wilson is out on IR with a neck injury reported as season-ending, and Trey McBride (TE2) is a start on a 28% target share and 10.4 targets a game. Tyler Allgeier (RB20) is a flex on 17 carries on 96% of the snaps last week, and the Rams allow the 5th-fewest RB points. The Los Angeles Rams (DST3) defense is a start, with Arizona implied for 15.0, the lowest on the slate.',
+    read: 'Los Angeles is a 9.5-point favorite over Arizona in a 39.5 total, with the Rams implied for 24.5 and Arizona for 15. Kyren Williams (RB9) is a start on 17.8 a game and 5.1 targets. Matthew Stafford (QB14) is a sit with 8.3 and 11.2 the last two, even though Arizona allows the 2nd-most QB points. Puka Nacua is out with knee sprains and turf toe, expected to miss at least a month, and Davante Adams is out on IR (hamstring), not expected back before late November. Michael Wilson is out on IR with a neck injury reported as season-ending, and Trey McBride (TE2) is a start on a 28% target share and 10.4 targets a game. Tyler Allgeier (RB20) is a flex on 17 carries on 96% of the snaps last week, and the Rams allow the 5th-fewest RB points. The Los Angeles Rams (DST3) defense is a start, with Arizona implied for 15.0, the lowest on the slate.',
     fpa: 'LAR offense vs ARI D: QB 2, RB 16, WR 15, TE 9 · ARI offense vs LAR D: QB 23, RB 28, WR 27, TE 25',
     start: [
       ['Kyren Williams', 'RB', '17.8 a game with 5.1 targets; Los Angeles implied for 24.5 as a 9.5-point favorite with Puka Nacua out.', 'RB9', 'C41'],
@@ -470,7 +473,7 @@ const GAMES = [
     total: 40.5,
     weather: 'Dome',
     rain: false,
-    read: 'Seattle is a 6.5-point favorite over Las Vegas in a 40.5 total, with Seattle implied for 23.5 and Las Vegas for 17. Sam Darnold is out again (quadriceps, ribs), and Fernando Mendoza is a sit, first on the Las Vegas depth chart with one appearance this season. Jaxon Smith-Njigba (WR1) is a start only if active, listed as not practicing Wednesday with no injury given, on a 36% target share and 25.9 a game. Brock Bowers (TE1) is a start on a 29% target share, with 28.2 and 22.3 the last two. Zach Charbonnet (RB16) is a flex on 16 carries on 57% of the snaps last week, and Las Vegas allows the 3rd-most RB points. Ashton Jeanty (RB17) is a flex on 7 targets last week and 6 carries on 64% of the snaps. The Seattle Seahawks (DST1) defense is a start at 11.7 a game and 17 last week.',
+    read: 'Seattle is a 6.5-point favorite over Las Vegas in a 40.5 total, with Seattle implied for 23.5 and Las Vegas for 17. Sam Darnold is out again (quadriceps, ribs), and Fernando Mendoza is a sit, first on the Las Vegas depth chart with one appearance this season. Jaxon Smith-Njigba (WR1) is a start only if active, listed as not practicing Wednesday with no injury given, on a 36% target share and 25.9 a game. Brock Bowers (TE1) is a start on a 29% target share, with 28.2 and 22.3 the last two. Zach Charbonnet (RB16) is a flex on 16 carries on 57% of the snaps last week, and Las Vegas allows the 3rd-most RB points. Ashton Jeanty (RB17) is a flex on 7 targets last week, though he had only 6 carries on 64% of the snaps. The Seattle Seahawks (DST1) defense is a start at 11.7 a game and 17 last week.',
     fpa: 'SEA offense vs LV D: QB 3, RB 3, WR 12, TE 5 · LV offense vs SEA D: QB 31, RB 19, WR 32, TE 23',
     start: [
       ['Brock Bowers', 'TE', '29% target share, 28.2 and 22.3 the last two; 20.9 a game.', 'TE1', 'C114'],
@@ -506,7 +509,7 @@ const GAMES = [
     total: 55.5,
     weather: 'Retractable roof; 58F and a 69% chance of showers outside',
     rain: false,
-    read: 'San Francisco is a 3.5-point favorite over Dallas in a 55.5 total, with San Francisco implied for 29.5 and Dallas for 26. Brock Purdy (QB3) is a start with 25.3 last week on 7 carries, and Dallas allows the 4th-most QB points. Christian McCaffrey (RB3) is a start only if active, listed as not practicing Wednesday with no injury given. Kaelon Black is a sit that takes the work only if McCaffrey sits. CeeDee Lamb (WR3) is a start with 33.5 last week on 16 targets and a 34% target share. George Kittle (TE4) is a start on a 23% target share, and Javonte Williams (RB7) is a start with 22.4 last week. Mike Evans is a sit after not practicing Wednesday (Achilles, ribs), and George Pickens (WR23) is a flex only if active.',
+    read: 'San Francisco is a 3.5-point favorite over Dallas in a 55.5 total, with San Francisco implied for 29.5 and Dallas for 26. Brock Purdy (QB3) is a start with 25.3 last week on 7 carries, and Dallas allows the 4th-most QB points. Christian McCaffrey (RB3) is a start only if active, listed as not practicing Wednesday with no injury given. Kaelon Black is a sit who takes the work only if McCaffrey sits. CeeDee Lamb (WR3) is a start with 33.5 last week on 16 targets and a 34% target share. George Kittle (TE4) is a start on a 23% target share, and Javonte Williams (RB7) is a start with 22.4 last week. Mike Evans is a sit after not practicing Wednesday (Achilles, ribs), and George Pickens (WR23) is a flex only if active.',
     fpa: 'SF offense vs DAL D: QB 4, RB 4, WR 9, TE 16 · DAL offense vs SF D: QB 24, RB 18, WR 28, TE 13',
     start: [
       ['Brock Purdy', 'QB', '25.3 last week on 7 carries, 21.4 a game; San Francisco implied for 29.5 in a 55.5 total, and Dallas allows the 4th-most QB points.', 'QB3', 'C3'],
@@ -581,7 +584,7 @@ const GAMES = [
     total: 38.5,
     weather: '44F, wind 3, mostly clear',
     rain: false,
-    read: 'Baltimore is a 4.5-point favorite over the Chargers in a 38.5 total, with Baltimore implied for 21.5 and the Chargers for 17. Lamar Jackson is out on IR with a right thumb injury that needs surgery. Jacoby Brissett is a sit, expected to start Monday after the trade from Arizona, which makes him a 2QB start. Derrick Henry (RB15) is a flex on 17 carries last week and 19.4 carries a game, and the Chargers allow the 12th-most RB points. Zay Flowers (WR15) is a flex on a 30% target share, and the Chargers allow the 5th-most WR points. Justin Herbert is a sit with a left middle finger injury, imaging negative, and he is expected to play Monday. Monday is the last window, so a scratch there has no later game to pivot to.',
+    read: 'Baltimore is a 4.5-point favorite over the Chargers in a 38.5 total, with Baltimore implied for 21.5 and the Chargers for 17. Lamar Jackson is out on IR with a right thumb injury that needs surgery. Jacoby Brissett is a sit, expected to start Monday after the trade from Arizona. With 13.9 a game there and Baltimore implied for 21.5, he is a 2QB start. Derrick Henry (RB15) is a flex on 17 carries last week and 19.4 carries a game, and the Chargers allow the 12th-most RB points. Zay Flowers (WR15) is a flex on a 30% target share, and the Chargers allow the 5th-most WR points. Justin Herbert is a sit with a left middle finger injury, imaging negative, and he is expected to play Monday. Monday is the last window, so a scratch there has no later game to pivot to.',
     fpa: 'LAC offense vs BAL D: QB 15, RB 23, WR 11, TE 15 · BAL offense vs LAC D: QB 21, RB 12, WR 5, TE 31',
     start: [],
     flex: [
@@ -1580,8 +1583,8 @@ const INJ_OUT = [
   ['Jaxson Dart', 'QB', 'NYG', 'On IR; the engine still projects 16.6.', 'J.J. McCarthy (SIT).', 'out', 'C32'],
   ['Josh Jacobs', 'RB', 'GB', 'Listed out with a fractured ring finger and surgery planned; the engine still projects 12.6.', 'Kaleb Johnson (FLEX, RB22).', 'out', 'C63'],
   ['De\'Von Achane', 'RB', 'MIA', 'On IR (knee); the engine still projects 14.8.', 'Ollie Gordon II (FLEX, RB19).', 'out', 'C64'],
-  ['Puka Nacua', 'WR', 'LAR', 'Out with knee sprains and turf toe, expected to miss at least a month; the engine still projects 25.0.', 'No other Rams receiver has a call.', 'out', 'C109'],
-  ['Davante Adams', 'WR', 'LAR', 'On IR (hamstring), not expected back before late November; the engine still projects 16.3.', 'No other Rams receiver has a call.', 'out', 'C110'],
+  ['Puka Nacua', 'WR', 'LAR', 'Out with knee sprains and turf toe, expected to miss at least a month; the engine still projects 25.0.', 'No healthy Rams receiver has a call.', 'out', 'C109'],
+  ['Davante Adams', 'WR', 'LAR', 'On IR (hamstring), not expected back before late November; the engine still projects 16.3.', 'No healthy Rams receiver has a call.', 'out', 'C110'],
   ['Michael Wilson', 'WR', 'ARI', 'On IR with a neck injury reported as season-ending; the engine still projects 13.0.', 'No other Arizona receiver has a call.', 'out', 'C111'],
   ['Romeo Doubs', 'WR', 'NE', 'On IR (shoulder); the engine still projects 10.0.', 'DeMario Douglas (FLEX, WR19).', 'out', 'C112'],
   ['Terry McLaurin', 'WR', 'WAS', 'On IR after knee surgery; the engine still projects 9.4.', 'Stefon Diggs (FLEX, WR20).', 'out', 'C113'],
@@ -1602,7 +1605,7 @@ const INJ_INTL = [
 
 const INJ_ONE = [
   ['Bhayshul Tuten', 'RB', 'JAX', 'Did not practice Wednesday (ankle, foot); 12 carries on 36% of the snaps last week, but Tennessee allows the 13th-most RB points and Jacksonville is implied for 28.5.', 'Chris Rodriguez Jr. (SIT). Carry a back who kicks off at 4:05p or later.', 'gtd', 'C46'],
-  ['Woody Marks', 'RB', 'HOU', 'Limited Wednesday (knee); 18 carries on 66% of the snaps last week, and David Montgomery did not practice (groin).', 'David Montgomery is a sit and did not practice Wednesday, and no other Houston back has a call. Carry a back who kicks off at 4:05p or later.', 'gtd', 'C55'],
+  ['Woody Marks', 'RB', 'HOU', 'Limited Wednesday (knee); 18 carries on 66% of the snaps last week, and David Montgomery did not practice (groin).', 'No other Houston back has a start or flex call, and David Montgomery is a sit who did not practice Wednesday. Carry a back who kicks off at 4:05p or later.', 'gtd', 'C55'],
   ['Omar Cooper Jr.', 'WR', 'NYJ', 'Limited Wednesday (ankle); 11 targets for 13.8 last week after 22.3 and 22.5, and Buffalo allows the 10th-most WR points.', 'Garrett Wilson (FLEX if active, WR21). Carry a receiver who kicks off at 4:05p or later.', 'gtd', 'C82'],
   ['Garrett Wilson', 'WR', 'NYJ', 'Limited Wednesday in the concussion protocol after missing last week; 28% target share.', 'Omar Cooper Jr. (FLEX if active, WR18). Carry a receiver who kicks off at 4:05p or later.', 'gtd', 'C85'],
   ['Harold Fannin Jr.', 'TE', 'CLE', 'Limited Wednesday (groin); 18% target share and 23.4 two weeks ago, though Houston allows the 7th-fewest TE points.', 'No other Cleveland tight end has a call. Carry a tight end who kicks off at 4:05p or later.', 'gtd', 'C120'],
@@ -1623,7 +1626,7 @@ const INJ_LATE = [
   ['Christian McCaffrey', 'RB', 'SF', 'Listed as not practicing Wednesday with no injury given; 22.7 on 18 carries last week, 20.8 a game, and San Francisco is implied for 29.5.', 'Kaelon Black (SIT). Carry a back who kicks off Sunday night or Monday.', 'gtd', 'C35'],
   ['Jaxon Smith-Njigba', 'WR', 'SEA', 'Listed as not practicing Wednesday with no injury given; 36% target share, 25.9 a game, and Las Vegas allows the 12th-most WR points.', 'No other Seattle receiver has a call. Carry a receiver who kicks off Sunday night or Monday.', 'gtd', 'C65'],
   ['George Pickens', 'WR', 'DAL', 'Limited Wednesday (hamstring) after missing last week, and his snaps may be capped; 7.8 targets a game in a 55.5 total.', 'CeeDee Lamb (START, WR3). Carry a receiver who kicks off Sunday night or Monday.', 'gtd', 'C87'],
-  ['Drew Lock', 'QB', 'SEA', 'Starts again with Darnold out, limited Wednesday (right elbow, oblique); 12.6 last week, and Las Vegas allows the 3rd-most QB points, so a 2QB start.', 'No other Seattle quarterback has a call.', 'sit', 'C21'],
+  ['Drew Lock', 'QB', 'SEA', 'Starts again with Darnold out, limited Wednesday (right elbow, oblique); 12.6 last week, and Las Vegas allows the 3rd-most QB points, so a 2QB start.', 'Sam Darnold is out, and no other Seattle quarterback has a call.', 'sit', 'C21'],
   ['Deebo Samuel Sr.', 'WR', 'SF', 'Limited Wednesday (hamstring); last played Week 5.', 'Jordan Watkins (FLEX, WR29).', 'sit', 'C96'],
   ['Mike Evans', 'WR', 'SF', 'Did not practice Wednesday (Achilles, ribs); has not played since Week 6.', 'Jordan Watkins (FLEX, WR29).', 'sit', 'C97'],
 ];
@@ -1642,7 +1645,6 @@ const RB_NEXT = 'Sits: Rhamondre Stevenson, Alvin Kamara, Travis Etienne Jr., Aa
 const WR_NEXT = 'Sits: Ryan Flournoy, Deebo Samuel Sr., Mike Evans, A.J. Brown, Denzel Boston, Jakobi Meyers, Carnell Tate, Ladd McConkey, Tank Dell, Tre Tucker, DJ Moore, Malik Washington, Devaughn Vele and Xavier Worthy. Out: Puka Nacua (25.0), Davante Adams (16.3), Michael Wilson (13.0), Romeo Doubs (10.0) and Terry McLaurin (9.4). Nobody from Chicago, Denver, Philadelphia or Tampa Bay is ranked.';
 const TE_NEXT = 'Sits: Mike Gesicki, Pat Freiermuth, Mason Taylor and Chig Okonkwo. Out: Jake Ferguson. Kyle Pitts Sr. (TE13) and T.J. Hockenson (TE14) are ranked with sit rulings.';
 const DST_TIER_NEXT = 'Every D/ST in the top eight has a ruling. Indianapolis faces Miami at 17.5 but has 3.3 a game, so do not chase it.';
-
 
 const ALREADY_OUT = ['Jeremiyah Love (ARI RB, IR)', 'James Conner (ARI RB, IR)', 'Gardner Minshew II (ARI QB, out for the season)', 'Tyler Huntley (BAL QB, IR)', 'Brian Robinson Jr. (ATL RB, IR)', 'TreVeyon Henderson (NE RB, out, illness)', 'Jaylin Noel (HOU WR, IR)', 'Tyler Goodson (DAL RB, out)', 'Jacory Croskey-Merritt (WAS RB, IR)', 'Jeremy McNichols (WAS RB, out for the season)', 'Tyrone Tracy Jr. (NYG RB, IR)', 'Alec Pierce (IND WR, IR)', 'Colson Yankoff (WAS TE, out Thursday)'];
 
@@ -1697,12 +1699,12 @@ const FADES = [
 
 const PIVOTS = [
   ['Cam Skattebo out', 'Devin Singletary (SIT) takes the lead job.'],
-  ['St. Brown out', 'Jameson Williams (START, WR13) gets more of the passing game.'],
+  ['St. Brown out', 'Jameson Williams (START, WR13) gets more of the passing game. Carry a receiver who kicks off at 1:00p or later.'],
   ['Hunter Henry out', 'No other New England tight end has a call. Carry a tight end who kicks off at 1:00p or later.'],
   ['Bhayshul Tuten out', 'Chris Rodriguez Jr. (SIT) takes the lead job.'],
-  ['Woody Marks out', 'David Montgomery is a sit and did not practice Wednesday, so no other Houston back has a call. Carry a back who kicks off at 4:05p or later.'],
-  ['Omar Cooper Jr. out', 'Garrett Wilson (FLEX if active, WR21) is the other Jets receiver with a call.'],
-  ['Garrett Wilson out', 'Omar Cooper Jr. (FLEX if active, WR18) is the other Jets receiver with a call.'],
+  ['Woody Marks out', 'No other Houston back has a start or flex call, and David Montgomery is a sit who did not practice Wednesday. Carry a back who kicks off at 4:05p or later.'],
+  ['Omar Cooper Jr. out', 'Garrett Wilson (FLEX if active, WR21) is the other Jets receiver with a call. Carry a receiver who kicks off at 4:05p or later.'],
+  ['Garrett Wilson out', 'Omar Cooper Jr. (FLEX if active, WR18) is the other Jets receiver with a call. Carry a receiver who kicks off at 4:05p or later.'],
   ['Harold Fannin Jr. out', 'No other Cleveland tight end has a call. Carry a tight end who kicks off at 4:05p or later.'],
   ['Dalton Kincaid out', 'No other Buffalo tight end has a call. Carry a tight end who kicks off at 4:05p or later.'],
   ['Josh Jacobs out (already)', 'Kaleb Johnson (FLEX, RB22) is the likely lead back.'],
@@ -1710,11 +1712,11 @@ const PIVOTS = [
   ['Malik Willis out (already)', 'Kyle McCord (SIT) is in line for his first start.'],
   ['Christian McCaffrey out', 'Kaelon Black (SIT) takes the work.'],
   ['Jaxon Smith-Njigba out', 'No other Seattle receiver has a call. Carry a receiver who kicks off Sunday night or Monday.'],
-  ['George Pickens out', 'CeeDee Lamb (START, WR3) is the higher-ranked Dallas receiver.'],
+  ['George Pickens out', 'CeeDee Lamb (START, WR3) stays a start, and Ryan Flournoy is a sit. Carry a receiver who kicks off Sunday night or Monday.'],
   ['Jake Ferguson out (already)', 'No other Dallas tight end has a call.'],
-  ['Puka Nacua out (already)', 'No other Rams receiver has a call. Carry a receiver who kicks off Sunday night or Monday.'],
+  ['Puka Nacua out (already)', 'No healthy Rams receiver has a call.'],
   ['Sam Darnold out (already)', 'Drew Lock (SIT) is slated to start.'],
-  ['Michael Wilson out (already)', 'No other Arizona receiver has a call. Carry a receiver who kicks off Sunday night or Monday.'],
+  ['Michael Wilson out (already)', 'No other Arizona receiver has a call.'],
   ['Lamar Jackson out (already)', 'Jacoby Brissett (SIT) is expected to start Monday.'],
 ];
 
@@ -1724,16 +1726,16 @@ const CHECK_THU = [
 ];
 
 const CHECK_INTL = [
-  ['Amon-Ra St. Brown (DET WR).', 'Active: START. Out: Jameson Williams (START, WR13) gets more of the passing game.'],
+  ['Amon-Ra St. Brown (DET WR).', 'Active: START. Out: Jameson Williams (START, WR13) gets more of the passing game. Carry a receiver who kicks off at 1:00p or later.'],
   ['Hunter Henry (NE TE).', 'Active: START. Out: no other New England tight end has a call. Carry a tight end who kicks off at 1:00p or later.'],
   ['Sits either way.', 'Jared Goff, Rhamondre Stevenson and A.J. Brown.'],
 ];
 
 const CHECK_ONE = [
   ['Bhayshul Tuten (JAX RB).', 'Active: FLEX. Out: Chris Rodriguez Jr. (SIT) takes the lead job.'],
-  ['Woody Marks (HOU RB).', 'Active: FLEX. Out: David Montgomery is a sit and did not practice Wednesday, so no other Houston back has a call. Carry a back who kicks off at 4:05p or later.'],
-  ['Omar Cooper Jr. (NYJ WR).', 'Active: FLEX. Out: Garrett Wilson (FLEX if active, WR21) is the other Jets receiver with a call.'],
-  ['Garrett Wilson (NYJ WR).', 'Active: FLEX. Out: Omar Cooper Jr. (FLEX if active, WR18) is the other Jets receiver with a call.'],
+  ['Woody Marks (HOU RB).', 'Active: FLEX. Out: no other Houston back has a start or flex call, and David Montgomery is a sit who did not practice Wednesday. Carry a back who kicks off at 4:05p or later.'],
+  ['Omar Cooper Jr. (NYJ WR).', 'Active: FLEX. Out: Garrett Wilson (FLEX if active, WR21) is the other Jets receiver with a call. Carry a receiver who kicks off at 4:05p or later.'],
+  ['Garrett Wilson (NYJ WR).', 'Active: FLEX. Out: Omar Cooper Jr. (FLEX if active, WR18) is the other Jets receiver with a call. Carry a receiver who kicks off at 4:05p or later.'],
   ['Harold Fannin Jr. (CLE TE).', 'Active: START. Out: no other Cleveland tight end has a call. Carry a tight end who kicks off at 4:05p or later.'],
   ['Dalton Kincaid (BUF TE).', 'Active: START. Out: no other Buffalo tight end has a call. Carry a tight end who kicks off at 4:05p or later.'],
   ['Sits either way.', 'Kyler Murray, Deshaun Watson, Alvin Kamara, Travis Etienne Jr., David Montgomery, Denzel Boston, Jakobi Meyers, Carnell Tate, Tank Dell and T.J. Hockenson.'],
@@ -1742,7 +1744,7 @@ const CHECK_ONE = [
 const CHECK_LATE = [
   ['Christian McCaffrey (SF RB).', 'Active: START. Out: Kaelon Black (SIT) takes the work.'],
   ['Jaxon Smith-Njigba (SEA WR).', 'Active: START. Out: no other Seattle receiver has a call. Carry a receiver who kicks off Sunday night or Monday.'],
-  ['George Pickens (DAL WR).', 'Active: FLEX. Out: CeeDee Lamb (START, WR3) is the higher-ranked Dallas receiver.'],
+  ['George Pickens (DAL WR).', 'Active: FLEX. Out: CeeDee Lamb (START, WR3) stays a start, and Ryan Flournoy is a sit. Carry a receiver who kicks off Sunday night or Monday.'],
   ['Sits either way.', 'Drew Lock, Deebo Samuel Sr. and Mike Evans.'],
 ];
 
@@ -1765,9 +1767,9 @@ const Body = () => (
     </Lead>
 
     <Note title="Read this first">
-      <strong>Lines are our database as of Nov 12, 8:27am ET. Weather as of 6:27am ET. Practice notes
+      <strong>Lines are from our database as of Nov 12, 8:27am ET. Weather as of 6:27am ET. Practice notes
       are the Wednesday reports; no Thursday report was published at writing.</strong>{' '}
-      Updates since Tuesday&apos;s waiver column:
+      News since last week&apos;s report:
       <Box component="ul" sx={{ pl: 2.5, m: '8px 0 0 !important' }}>
         <li>Baltimore traded for Jacoby Brissett (finalized Friday); he is expected to start Monday. Lamar Jackson and Tyler Huntley are on IR.</li>
         <li>Arizona: Gardner Minshew II is out for the season (elbow surgery), Michael Wilson is on IR (neck), and Carson Beck is first on the depth chart.</li>
@@ -1814,7 +1816,7 @@ const Body = () => (
       New Orleans and Las Vegas play indoors. Munich has no forecast in our data. Wind tops out at 12 mph
       in the two MetLife games, Thursday and Buffalo at the Jets. Thursday at MetLife has a 74% chance of
       light rain. Dallas has a retractable roof and a 69% chance of showers outside, and Cleveland has a 23%
-      chance of showers. Only Thursday&apos;s rain is worth a thought, and it is already in the Washington
+      chance of showers. Atlanta, Indianapolis and Arizona have retractable roofs too. Only Thursday&apos;s rain is worth a thought, and it is already in the Washington
       and Giants rulings.
     </P>
 
@@ -1845,7 +1847,7 @@ const Body = () => (
     {INJ_INTL.length ? <InjuryGroup title="Munich" when="Inactives about 8:00a ET" rows={INJ_INTL} /> : null}
     <InjuryGroup title="1:00p games" when="Inactives about 11:30a ET" rows={INJ_ONE} />
     <InjuryGroup title="Late window" when="Inactives about 2:35p / 2:55p ET" rows={INJ_LATE} />
-    <InjuryGroup title="Sunday night" when="Inactives about 6:50p ET" rows={INJ_NIGHT} />
+    {INJ_NIGHT.length ? <InjuryGroup title="Sunday night" when="Inactives about 6:50p ET" rows={INJ_NIGHT} /> : null}
     <InjuryGroup title="Monday night" when="Inactives about 6:45p ET Monday; no later window" rows={INJ_MNF} />
     <Box component="h3" sx={{ m: '24px 0 8px !important', fontSize: '1.15rem !important' }}>Already out for the week or longer</Box>
     <Box component="p" sx={{ mt: '0 !important', fontSize: '0.92rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
