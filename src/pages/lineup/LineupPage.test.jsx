@@ -1983,7 +1983,7 @@ describe('the lineup reads start on the URL league before the inventory answers'
     await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/team/lineup?leagueId=9'));
     await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
     await act(async () => { answerLeagues(leaguesListResponse()); });
-    await waitFor(() => expect(screen.getByTestId('lineup-skeleton')).toBeInTheDocument());
+    await screen.findByTestId('lineup-skeleton');
     expect(screen.queryByText('Wrong League Player')).toBeNull();
   });
 });
