@@ -113,9 +113,10 @@ export default function LineupPage() {
   // from its first paint and nothing in it moves when the league read lands.
   const selectedLeague = leagues.find((l) => l.id === selectedLeagueId);
   // Until the league read lands the inventory row answers for it (the same leagues columns), so best ball, the
-  // phase and the viewer's team are known from the first paint instead of flipping when it lands.
+  // phase and the viewer's team are known from the first paint instead of flipping when it lands. A failed
+  // league read still reads as unknown, as it did before.
   const leagueRow = league ?? (leagueError ? null : selectedLeague) ?? null;
-  const myTeamId = viewerTeamId ?? selectedLeague?.my_team_id ?? null;
+  const myTeamId = viewerTeamId ?? (leagueError ? null : selectedLeague?.my_team_id) ?? null;
   const [searchParams, setSearchParams] = useSearchParams();
   const [week, setWeek] = useState(null);
   // The Decision card (#1240, ADR 0037): which rostered player's card is
