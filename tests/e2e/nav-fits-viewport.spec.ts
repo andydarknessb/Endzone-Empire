@@ -34,12 +34,12 @@ import { ACTIVE_STATE, ACTIVE_PICKS } from './fixtures/draftFixtures';
 
 const TOOLBAR = '[data-testid="app-nav-toolbar"]';
 const CLUSTER = '[data-testid="nav-right-cluster"]';
+const PRIMARY_LINKS = 'nav[aria-label="Primary navigation"] a';
 
 // The AC width set: the two overflow bands (320..385 and 900..1085) sampled at
 // their edges and interior, plus green controls on either side of each band.
 const WIDTHS = [320, 360, 385, 390, 768, 900, 960, 1024, 1085, 1100, 1200];
 
-type ClusterChild = { label: string; left: number; right: number };
 type Measurement = {
   scrollWidth: number;
   clientWidth: number;
@@ -88,6 +88,28 @@ async function measure(page: Page): Promise<Measurement> {
       };
     },
     { toolbarSel: TOOLBAR, clusterSel: CLUSTER }
+  );
+}
+
+// The app bar's height, the top of <main> and each primary link's height and
+// bottom edge, read in one page round trip (#2887).
+async function barGeometry(page: Page) {
+  return page.evaluate(
+    ({ toolbarSel, linksSel }) => {
+      const toolbar = document.querySelector(toolbarSel) as HTMLElement;
+      const main = document.querySelector('main') as HTMLElement;
+      const bar = toolbar.getBoundingClientRect();
+      return {
+        toolbarHeight: bar.height,
+        toolbarBottom: bar.bottom,
+        mainTop: main.getBoundingClientRect().top,
+        links: Array.from(document.querySelectorAll(linksSel)).map((a) => {
+          const r = a.getBoundingClientRect();
+          return { text: (a.textContent || '').trim(), height: r.height, bottom: r.bottom };
+        }),
+      };
+    },
+    { toolbarSel: TOOLBAR, linksSel: PRIMARY_LINKS }
   );
 }
 
@@ -322,5 +344,39 @@ test.describe('Nav fits the viewport (#927)', () => {
     await expect(
       page.getByTestId('nav-right-cluster').getByRole('combobox', { name: 'Search players' })
     ).toBeVisible();
+  });
+
+  // #2887: the signed-in links used to carry 24px of vertical padding, so the bar
+  // grew from 64px to 74px when the session resolved and everything under it moved.
+  // /api/user is held so the bar is measured signed out, then again once the links
+  // are up; the two must match.
+  test('the app bar keeps one height when the session resolves, and the links fill it (#2887)', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await setTheme(page, 'light');
+    await installDraftSocketHarness(page, { ...ACTIVE_STATE });
+    await installDraftRestApi(page, { league: ACTIVE_STATE.league, picks: ACTIVE_PICKS });
+    // Registered after the harness routes, so it answers first: hold /api/user,
+    // then fall through to the harness's signed-in answer.
+    await page.route('**/api/user', async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      await route.fallback();
+    });
+    await gotoDraft(page);
+    await expect(page.locator(TOOLBAR)).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Log In' })).toBeVisible();
+    const signedOut = await barGeometry(page);
+
+    await expect(page.locator(PRIMARY_LINKS).first()).toBeVisible();
+    const signedIn = await barGeometry(page);
+
+    expect(signedIn.toolbarHeight, 'app bar height changed when the session resolved').toBe(signedOut.toolbarHeight);
+    expect(signedIn.mainTop, 'main moved when the session resolved').toBe(signedOut.mainTop);
+    for (const link of signedIn.links) {
+      expect(link.height, `"${link.text}" is shorter than 44px`).toBeGreaterThanOrEqual(44);
+    }
+    // The draft route sits under /league, so League is the active link.
+    const league = signedIn.links.find((link) => link.text === 'League');
+    if (!league) throw new Error('League link is missing from the primary nav');
+    expect(Math.abs(league.bottom - signedIn.toolbarBottom), 'active link is not on the bottom edge of the bar').toBeLessThanOrEqual(1);
   });
 });
