@@ -17,6 +17,7 @@ const {
   initSentry,
   setupSentryErrorHandler,
 } = require('./modules/sentry');
+const { handleUnhandledError } = require('./modules/errorHandler');
 
 initSentry();
 installConsoleBridge();
@@ -181,16 +182,7 @@ app.get(/^(?!\/api\/).*/, (req, res, next) => {
 });
 
 setupSentryErrorHandler(app);
-app.use((err, req, res, next) => {
-  logger.error({ err, requestId: req.id }, 'unhandled request error');
-  captureError(err, { requestId: req.id });
-  if (res.headersSent) return next(err);
-  return res.status(err.statusCode || 500).json({
-    code: err.code || 'INTERNAL_ERROR',
-    message: err.statusCode ? err.message : 'Internal server error',
-    requestId: req.id,
-  });
-});
+app.use(handleUnhandledError);
 
 const PORT = process.env.PORT || 5000;
 // Plain HTTP is intentional: Render terminates TLS at its edge for the
