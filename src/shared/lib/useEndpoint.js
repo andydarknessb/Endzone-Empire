@@ -37,27 +37,31 @@ import apiClient from '../../api/apiClient';
 const IDLE = { status: 'loading', data: null, httpStatus: null };
 
 export function useEndpoint(url) {
-  const [state, setState] = useState(IDLE);
+  // The answer is kept with the URL it is for, so the returned shape stays { status, data, httpStatus }.
+  const [state, setState] = useState({ url, answer: IDLE });
   useEffect(() => {
+    // Bail out when the state already says so: a fresh object here would re-render every instance once at mount.
+    const idle = (prev) => (prev.url === url && prev.answer === IDLE ? prev : { url, answer: IDLE });
     if (!url) {
-      setState(IDLE);
+      setState(idle);
       return undefined;
     }
     let cancelled = false;
-    setState(IDLE);
+    setState(idle);
     apiClient
       .get(url)
       .then((res) => {
-        if (!cancelled) setState({ status: 'ready', data: res?.data ?? null, httpStatus: null });
+        if (!cancelled) setState({ url, answer: { status: 'ready', data: res?.data ?? null, httpStatus: null } });
       })
       .catch((err) => {
         if (!cancelled) {
-          setState({ status: 'error', data: null, httpStatus: err?.response?.status ?? null });
+          setState({ url, answer: { status: 'error', data: null, httpStatus: err?.response?.status ?? null } });
         }
       });
     return () => {
       cancelled = true;
     };
   }, [url]);
-  return state;
+  // An answer for the previous URL is not this URL's answer, even on the first render after the URL changed.
+  return state.url === url ? state.answer : IDLE;
 }

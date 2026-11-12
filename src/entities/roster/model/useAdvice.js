@@ -44,6 +44,9 @@ export function useAdvice({ leagueId, week, bestBall }) {
 
   return {
     status: bestBall ? 'hidden' : status,
+    // Only the first read counts: a reload holds the previous advice, and a missing URL (no league, week or best ball) is neither.
+    pending: base != null && data == null && status === 'loading',
+    failed: base != null && data == null && status === 'error',
     suggestions: Array.isArray(data?.suggestions) ? data.suggestions : [],
     // Bench players the optimizer would start in an empty starting slot (the advice wire's `openSlotFills`).
     openSlotFills: Array.isArray(data?.openSlotFills) ? data.openSlotFills : [],
