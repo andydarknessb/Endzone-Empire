@@ -34,25 +34,26 @@ const entry = (overrides = {}) => ({
 // text of its own by design.
 
 test('an empty slot renders a placeholder and no player content', () => {
-  render(<LedgerRow slotLabel="QB" entry={null} onClick={jest.fn()} data-testid="row" />);
+  render(<LedgerRow slotLabel="QB" entry={null} onRowClick={jest.fn()} data-testid="row" />);
   expect(screen.getByText('Empty')).toBeInTheDocument();
   expect(screen.getByTestId('row-select')).toHaveAttribute('aria-label', 'Empty QB slot');
   expect(screen.queryByTestId('ledger-projection')).toBeNull();
 });
 
-test('an occupied row shows name, position/team code, and calls onClick', async () => {
+test('an occupied row shows name, position/team code, and calls onRowClick', async () => {
   const onClick = jest.fn();
-  render(<LedgerRow slotLabel="QB" entry={entry()} onClick={onClick} data-testid="row" />);
+  render(<LedgerRow slotLabel="QB" entry={entry()} slotType="QB" onRowClick={onClick} data-testid="row" />);
   expect(screen.getByText('Josh Allen')).toBeInTheDocument();
   expect(screen.getByText('QB · BUF')).toBeInTheDocument();
   await userEvent.click(screen.getByTestId('row-select'));
   expect(onClick).toHaveBeenCalledTimes(1);
+  expect(onClick).toHaveBeenCalledWith(entry(), 'QB', expect.anything());
 });
 
 // The row's own testid element contains the player's name (e2e contract:
 // tests/e2e/auth-offline.spec.ts reads it via toContainText).
 test('the element carrying the row testid contains the player\'s name', () => {
-  render(<LedgerRow slotLabel="QB" entry={entry()} onClick={jest.fn()} data-testid="row" />);
+  render(<LedgerRow slotLabel="QB" entry={entry()} onRowClick={jest.fn()} data-testid="row" />);
   expect(screen.getByTestId('row')).toHaveTextContent('Josh Allen');
 });
 
@@ -64,7 +65,7 @@ test('the player name opens the Decision card without triggering the row click, 
   const onClick = jest.fn();
   const onOpenDecisionCard = jest.fn();
   render(
-    <LedgerRow slotLabel="QB" entry={entry()} onClick={onClick} onOpenDecisionCard={onOpenDecisionCard} data-testid="row" />
+    <LedgerRow slotLabel="QB" entry={entry()} onRowClick={onClick} onOpenDecisionCard={onOpenDecisionCard} data-testid="row" />
   );
   const nameLink = screen.getByRole('button', { name: 'Josh Allen' });
   const selectButton = screen.getByTestId('row-select');
@@ -75,7 +76,7 @@ test('the player name opens the Decision card without triggering the row click, 
 });
 
 test('a locked row shows the lock icon and not the legacy chip text', () => {
-  render(<LedgerRow slotLabel="QB" entry={entry({ locked: true })} onClick={jest.fn()} data-testid="row" />);
+  render(<LedgerRow slotLabel="QB" entry={entry({ locked: true })} onRowClick={jest.fn()} data-testid="row" />);
   expect(screen.getByTestId('ledger-lock-icon')).toBeInTheDocument();
   expect(screen.queryByText('LOCKED')).toBeNull();
 });
@@ -83,9 +84,9 @@ test('a locked row shows the lock icon and not the legacy chip text', () => {
 // Play-select (spec #2347 ruling 4): the avatar shows on every occupied row, and its initials fallback is a
 // neutral square, not the NFL team's jersey colour.
 test('the avatar is a neutral initials square, whatever the NFL team', () => {
-  const { rerender } = render(<LedgerRow slotLabel="QB" entry={entry({ nflTeam: 'CIN' })} onClick={jest.fn()} data-testid="row" />);
+  const { rerender } = render(<LedgerRow slotLabel="QB" entry={entry({ nflTeam: 'CIN' })} onRowClick={jest.fn()} data-testid="row" />);
   const cin = getComputedStyle(screen.getByText('JA'));
-  rerender(<LedgerRow slotLabel="QB" entry={entry({ nflTeam: 'CHI' })} onClick={jest.fn()} data-testid="row" />);
+  rerender(<LedgerRow slotLabel="QB" entry={entry({ nflTeam: 'CHI' })} onRowClick={jest.fn()} data-testid="row" />);
   const chi = getComputedStyle(screen.getByText('JA'));
   expect(cin.backgroundColor).toBe(chi.backgroundColor);
   expect(cin.color).toBe(chi.color);
@@ -93,7 +94,7 @@ test('the avatar is a neutral initials square, whatever the NFL team', () => {
 });
 
 test('a headshot replaces the initials and falls back to them when it fails to load', () => {
-  render(<LedgerRow slotLabel="QB" entry={entry({ photoUrl: 'https://example.test/josh.png' })} onClick={jest.fn()} data-testid="row" />);
+  render(<LedgerRow slotLabel="QB" entry={entry({ photoUrl: 'https://example.test/josh.png' })} onRowClick={jest.fn()} data-testid="row" />);
   const img = screen.getByTestId('ledger-headshot');
   expect(screen.queryByText('JA')).toBeNull();
   fireEvent.error(img);
@@ -101,7 +102,7 @@ test('a headshot replaces the initials and falls back to them when it fails to l
 });
 
 test('an injured player shows the injury tag', () => {
-  render(<LedgerRow slotLabel="WR" entry={entry({ injuryStatus: 'Q' })} onClick={jest.fn()} data-testid="row" />);
+  render(<LedgerRow slotLabel="WR" entry={entry({ injuryStatus: 'Q' })} onRowClick={jest.fn()} data-testid="row" />);
   expect(screen.getByTestId('injury-tag')).toHaveTextContent('Q');
 });
 
@@ -110,7 +111,7 @@ test('an Unavailable row shows the reason in the projection cell and a dash for 
     <LedgerRow
       slotLabel="WR"
       entry={entry({ availability: { available: false, reason: 'out' } })}
-      onClick={jest.fn()}
+      onRowClick={jest.fn()}
       data-testid="row"
     />
   );
@@ -125,24 +126,24 @@ test('a wire entry whose Start verdict is unavailable for no_team reads "no team
     injury_status: null, opponent: null, bye_week: null, locked: false, onBye: false,
     valid_stash: false, startVerdict: { outcome: 'unavailable', reason: 'no_team', numberTrusted: true },
   }], league);
-  render(<LedgerRow slotLabel="WR" entry={wireEntry} onClick={jest.fn()} data-testid="row" />);
+  render(<LedgerRow slotLabel="WR" entry={wireEntry} onRowClick={jest.fn()} data-testid="row" />);
   expect(screen.getByTestId('ledger-projection')).toHaveTextContent('no team');
 });
 
 test('an Unavailable Game cell reads its own reason state, distinct from bye (formal review)', () => {
   const { rerender } = render(
-    <LedgerRow slotLabel="WR" entry={entry({ availability: { available: false, reason: 'out' } })} onClick={jest.fn()} data-testid="row" />
+    <LedgerRow slotLabel="WR" entry={entry({ availability: { available: false, reason: 'out' } })} onRowClick={jest.fn()} data-testid="row" />
   );
   expect(screen.getByTestId('ledger-game-cell')).toHaveAttribute('data-game-state', 'unavailable');
 
   rerender(
-    <LedgerRow slotLabel="WR" entry={entry({ onBye: true, availability: { available: false, reason: 'bye' } })} onClick={jest.fn()} data-testid="row" />
+    <LedgerRow slotLabel="WR" entry={entry({ onBye: true, availability: { available: false, reason: 'bye' } })} onRowClick={jest.fn()} data-testid="row" />
   );
   expect(screen.getByTestId('ledger-game-cell')).toHaveAttribute('data-game-state', 'bye');
 });
 
 test('an available row with no points yet (pre-kickoff) shows the projection cell as a number and a dash for points', () => {
-  render(<LedgerRow slotLabel="QB" entry={entry()} onClick={jest.fn()} data-testid="row" />);
+  render(<LedgerRow slotLabel="QB" entry={entry()} onRowClick={jest.fn()} data-testid="row" />);
   expect(screen.getByTestId('ledger-projection')).toHaveTextContent('24.3');
   expect(screen.getByTestId('ledger-points')).toHaveTextContent('-');
 });
@@ -161,7 +162,7 @@ test('the projection cell headlines projectedPoints (the Point estimate), never 
     <LedgerRow
       slotLabel="FLEX"
       entry={entry({ projection: 9.03, projectedPoints: 8.21 })}
-      onClick={jest.fn()}
+      onRowClick={jest.fn()}
       data-testid="row"
     />
   );
@@ -187,7 +188,7 @@ test('a bench row headlines projectedPoints and carries the bench-above-starter 
         projectedPoints: 10.06,
         edge: { kind: 'bench-above-starter', text: 'Outprojects DK Metcalf at FLEX' },
       })}
-      onClick={jest.fn()}
+      onRowClick={jest.fn()}
       data-testid="row"
     />
   );
@@ -205,7 +206,7 @@ test('a Position-baseline row headlines "no history" and no number (#1776)', () 
     <LedgerRow
       slotLabel="BENCH"
       entry={entry({ name: 'Carson Beck', slot: 'BENCH', projectedPoints: 15.37, startVerdict: { outcome: 'not_recommended', reason: 'no_history', numberTrusted: false } })}
-      onClick={jest.fn()}
+      onRowClick={jest.fn()}
       data-testid="row"
     />
   );
@@ -219,7 +220,7 @@ test('a Questionable or Doubtful Position-baseline row shows "no history" plus h
     <LedgerRow
       slotLabel="BENCH"
       entry={entry({ slot: 'BENCH', startVerdict: { outcome: 'not_recommended', reason: 'no_history', numberTrusted: false }, projectedPoints: 15.37, injuryStatus: 'Q' })}
-      onClick={jest.fn()}
+      onRowClick={jest.fn()}
       data-testid="row"
     />
   );
@@ -231,7 +232,7 @@ test('a Questionable or Doubtful Position-baseline row shows "no history" plus h
     <LedgerRow
       slotLabel="BENCH"
       entry={entry({ slot: 'BENCH', startVerdict: { outcome: 'not_recommended', reason: 'no_history', numberTrusted: false }, projectedPoints: 15.37, injuryStatus: 'D' })}
-      onClick={jest.fn()}
+      onRowClick={jest.fn()}
       data-testid="row"
     />
   );
@@ -247,7 +248,7 @@ test('a Backup row shows "Backup" beside his Game status tag and still headlines
     <LedgerRow
       slotLabel="QB"
       entry={entry({ name: 'Case Keenum', slot: 'QB', projectedPoints: 20.25, startVerdict: { outcome: 'not_recommended', reason: 'backup', numberTrusted: false }, injuryStatus: 'Q' })}
-      onClick={jest.fn()}
+      onRowClick={jest.fn()}
       data-testid="row"
     />
   );
@@ -259,7 +260,7 @@ test('a Backup row shows "Backup" beside his Game status tag and still headlines
     <LedgerRow
       slotLabel="QB"
       entry={entry({ name: 'Case Keenum', slot: 'QB', projectedPoints: 20.25 })}
-      onClick={jest.fn()}
+      onRowClick={jest.fn()}
       data-testid="row"
     />
   );
@@ -276,7 +277,7 @@ test.each([
     <LedgerRow
       slotLabel="BENCH"
       entry={entry({ slot: 'BENCH', startVerdict: { outcome: 'not_recommended', reason: 'no_history', numberTrusted: false }, availability: { available: false, reason } })}
-      onClick={jest.fn()}
+      onRowClick={jest.fn()}
       data-testid="row"
     />
   );
@@ -291,7 +292,7 @@ test('a wire Position-baseline entry headlines "no history" through the entity m
     injury_status: null, opponent: null, bye_week: null, locked: false, onBye: false,
     valid_stash: false, startVerdict: { outcome: 'not_recommended', reason: 'no_history', numberTrusted: false },
   }], league);
-  render(<LedgerRow slotLabel="BENCH" entry={wireEntry} onClick={jest.fn()} data-testid="row" />);
+  render(<LedgerRow slotLabel="BENCH" entry={wireEntry} onRowClick={jest.fn()} data-testid="row" />);
   expect(screen.getByTestId('ledger-projection')).toHaveTextContent('no history');
 });
 
@@ -305,7 +306,7 @@ test('the Edge line shows no "Outprojects" text on a Position-baseline row (#177
         projectedPoints: 15.37,
         edge: { kind: 'bench-above-starter', text: 'Outprojects DK Metcalf at FLEX' },
       })}
-      onClick={jest.fn()}
+      onRowClick={jest.fn()}
       data-testid="row"
     />
   );
@@ -314,7 +315,7 @@ test('the Edge line shows no "Outprojects" text on a Position-baseline row (#177
 });
 
 test('an available row with actual points (live or final) shows them in the points cell', () => {
-  render(<LedgerRow slotLabel="QB" entry={entry({ points: 12.4 })} onClick={jest.fn()} data-testid="row" />);
+  render(<LedgerRow slotLabel="QB" entry={entry({ points: 12.4 })} onRowClick={jest.fn()} data-testid="row" />);
   expect(screen.getByTestId('ledger-points')).toHaveTextContent('12.4');
 });
 
@@ -323,7 +324,7 @@ test('an Unavailable row shows a dash for points even when the wire carries a po
     <LedgerRow
       slotLabel="WR"
       entry={entry({ points: 5, availability: { available: false, reason: 'out' } })}
-      onClick={jest.fn()}
+      onRowClick={jest.fn()}
       data-testid="row"
     />
   );
@@ -331,7 +332,7 @@ test('an Unavailable row shows a dash for points even when the wire carries a po
 });
 
 test('the pre-kickoff Game cell shows the opponent and kickoff', () => {
-  render(<LedgerRow slotLabel="QB" entry={entry()} onClick={jest.fn()} data-testid="row" />);
+  render(<LedgerRow slotLabel="QB" entry={entry()} onRowClick={jest.fn()} data-testid="row" />);
   const cell = screen.getByTestId('ledger-game-cell');
   expect(cell).toHaveAttribute('data-game-state', 'pre');
   expect(cell).toHaveTextContent('vs KC');
@@ -353,23 +354,23 @@ const LINE = { spread: -3.5, total: 49.5, impliedTeamTotal: 26.5, observedAt: '2
 const WEATHER = { indoor: false, temperatureF: 58, windSpeedMph: 12, windGustMph: null, precipitationProbability: 60, shortForecast: 'Light Rain' };
 
 test('a Line only renders the detail line with just lineText', () => {
-  render(<LedgerRow slotLabel="QB" entry={entry({ line: LINE, weather: null })} onClick={jest.fn()} data-testid="row" />);
+  render(<LedgerRow slotLabel="QB" entry={entry({ line: LINE, weather: null })} onRowClick={jest.fn()} data-testid="row" />);
   expect(screen.getByTestId('ledger-game-detail')).toHaveTextContent('KC -3.5 · O/U 49.5');
 });
 
 test('weather only renders the detail line with just weatherText', () => {
-  render(<LedgerRow slotLabel="QB" entry={entry({ line: null, weather: WEATHER })} onClick={jest.fn()} data-testid="row" />);
+  render(<LedgerRow slotLabel="QB" entry={entry({ line: null, weather: WEATHER })} onRowClick={jest.fn()} data-testid="row" />);
   expect(screen.getByTestId('ledger-game-detail')).toHaveTextContent('58° · rain · wind 12');
 });
 
 test('both Line and weather render together on the detail line', () => {
-  render(<LedgerRow slotLabel="QB" entry={entry({ line: LINE, weather: WEATHER })} onClick={jest.fn()} data-testid="row" />);
+  render(<LedgerRow slotLabel="QB" entry={entry({ line: LINE, weather: WEATHER })} onRowClick={jest.fn()} data-testid="row" />);
   expect(screen.getByTestId('ledger-game-detail')).toHaveTextContent('KC -3.5 · O/U 49.5');
   expect(screen.getByTestId('ledger-game-detail')).toHaveTextContent('58° · rain · wind 12');
 });
 
 test('neither Line nor weather renders no detail line at all', () => {
-  render(<LedgerRow slotLabel="QB" entry={entry({ line: null, weather: null })} onClick={jest.fn()} data-testid="row" />);
+  render(<LedgerRow slotLabel="QB" entry={entry({ line: null, weather: null })} onRowClick={jest.fn()} data-testid="row" />);
   expect(screen.queryByTestId('ledger-game-detail')).toBeNull();
 });
 
@@ -378,7 +379,7 @@ test('an indoor game reads "Dome" on the detail line', () => {
     <LedgerRow
       slotLabel="QB"
       entry={entry({ line: null, weather: { indoor: true, temperatureF: null, windSpeedMph: null, windGustMph: null, precipitationProbability: null, shortForecast: null } })}
-      onClick={jest.fn()}
+      onRowClick={jest.fn()}
       data-testid="row"
     />
   );
@@ -391,7 +392,7 @@ test('a final Game cell shows the final score', () => {
       slotLabel="QB"
       entry={entry()}
       liveRow={{ game_status: 'final', home_team: 'KC', away_team: 'BUF', current_score_home: 20, current_score_away: 27 }}
-      onClick={jest.fn()}
+      onRowClick={jest.fn()}
       data-testid="row"
     />
   );
@@ -411,7 +412,7 @@ test('a live Game cell shows the clock and score, points in the live colour, and
         game_status: 'in_progress', home_team: 'KC', away_team: 'BUF',
         current_score_home: 10, current_score_away: 14, quarter: 'Q2', time_remaining: '4:15',
       }}
-      onClick={jest.fn()}
+      onRowClick={jest.fn()}
       data-testid="row"
     />
   );
@@ -436,7 +437,7 @@ test('a live Game cell with Situation data shows possession, down/distance and a
         current_score_home: 10, current_score_away: 14, quarter: 'Q2', time_remaining: '4:15',
         possession: 'BUF', down_distance: '2nd & 7', is_red_zone: true,
       }}
-      onClick={jest.fn()}
+      onRowClick={jest.fn()}
       data-testid="row"
     />
   );
@@ -458,7 +459,7 @@ test('a live Game cell with a null Situation renders no Situation line and no "n
         game_status: 'in_progress', home_team: 'KC', away_team: 'BUF',
         current_score_home: 0, current_score_away: 0, quarter: null, time_remaining: null,
       }}
-      onClick={jest.fn()}
+      onRowClick={jest.fn()}
       data-testid="row"
     />
   );
@@ -480,7 +481,7 @@ test('a live Game cell with a last play shows it on the Situation line after pos
         current_score_home: 10, current_score_away: 14, quarter: 'Q2', time_remaining: '4:15',
         possession: 'BUF', down_distance: '2nd & 7', is_red_zone: false, last_play: 'Allen pass complete to Diggs for 12 yards',
       }}
-      onClick={jest.fn()}
+      onRowClick={jest.fn()}
       data-testid="row"
     />
   );
@@ -501,7 +502,7 @@ test('a live Game cell with only a last play (no possession or down/distance) st
         current_score_home: 10, current_score_away: 14, quarter: 'Q2', time_remaining: '4:15',
         possession: null, down_distance: null, is_red_zone: false, last_play: 'Timeout Kansas City',
       }}
-      onClick={jest.fn()}
+      onRowClick={jest.fn()}
       data-testid="row"
     />
   );
@@ -519,7 +520,7 @@ test('a live Game cell with a null last play omits it from the Situation line, n
         current_score_home: 10, current_score_away: 14, quarter: 'Q2', time_remaining: '4:15',
         possession: 'BUF', down_distance: '2nd & 7', is_red_zone: false, last_play: null,
       }}
-      onClick={jest.fn()}
+      onRowClick={jest.fn()}
       data-testid="row"
     />
   );
@@ -531,7 +532,7 @@ test('a live Game cell with a null last play omits it from the Situation line, n
 // A pre-kickoff or final Game cell never paints the points cell in the live
 // colour, even when the wire happens to carry a points value.
 test('a pre-kickoff Game cell carries no live word, even when the wire happens to carry a points value', () => {
-  render(<LedgerRow slotLabel="QB" entry={entry({ points: 12.4 })} onClick={jest.fn()} data-testid="row" />);
+  render(<LedgerRow slotLabel="QB" entry={entry({ points: 12.4 })} onRowClick={jest.fn()} data-testid="row" />);
   expect(screen.getByTestId('ledger-game-cell')).not.toHaveTextContent('Live,');
 });
 
@@ -541,7 +542,7 @@ test('a final Game cell prints "pts · final" after the points, not the live wor
       slotLabel="QB"
       entry={entry({ points: 27 })}
       liveRow={{ game_status: 'final', home_team: 'KC', away_team: 'BUF', current_score_home: 20, current_score_away: 27 }}
-      onClick={jest.fn()}
+      onRowClick={jest.fn()}
       data-testid="row"
     />
   );
@@ -554,7 +555,7 @@ test('the Edge line renders the server-computed kind and text', () => {
     <LedgerRow
       slotLabel="QB"
       entry={entry({ edge: { kind: 'factor', text: 'Matchup +3.5' } })}
-      onClick={jest.fn()}
+      onRowClick={jest.fn()}
       data-testid="row"
     />
   );
@@ -564,7 +565,7 @@ test('the Edge line renders the server-computed kind and text', () => {
 });
 
 test('an edge of kind "none" renders no Edge line', () => {
-  render(<LedgerRow slotLabel="QB" entry={entry({ edge: { kind: 'none', text: null } })} onClick={jest.fn()} data-testid="row" />);
+  render(<LedgerRow slotLabel="QB" entry={entry({ edge: { kind: 'none', text: null } })} onRowClick={jest.fn()} data-testid="row" />);
   expect(screen.queryByTestId('ledger-edge-line')).toBeNull();
 });
 
@@ -578,7 +579,7 @@ test('a "pace" Edge line displays as "result" once the Game cell reads final, wi
       slotLabel="RB"
       entry={entry({ edge: { kind: 'pace', text: '62% of projection so far' } })}
       liveRow={{ game_status: 'final', home_team: 'KC', away_team: 'BUF', current_score_home: 20, current_score_away: 27 }}
-      onClick={jest.fn()}
+      onRowClick={jest.fn()}
       data-testid="row"
     />
   );
@@ -594,7 +595,7 @@ test('an "injury" Edge line is never overridden by the live game state', () => {
       slotLabel="RB"
       entry={entry({ edge: { kind: 'injury', text: 'Questionable: ankle' } })}
       liveRow={{ game_status: 'final', home_team: 'KC', away_team: 'BUF', current_score_home: 20, current_score_away: 27 }}
-      onClick={jest.fn()}
+      onRowClick={jest.fn()}
       data-testid="row"
     />
   );
@@ -606,7 +607,7 @@ test('an IR row with an attested stash shows the ATTESTED indicator', () => {
     <LedgerRow
       slotLabel="IR"
       entry={entry({ slot: 'IR', irAttested: true, availability: { available: false, reason: 'out' } })}
-      onClick={jest.fn()}
+      onRowClick={jest.fn()}
       data-testid="row"
     />
   );
@@ -615,7 +616,7 @@ test('an IR row with an attested stash shows the ATTESTED indicator', () => {
 
 test('a spent row is marked disabled and shows a SPENT indicator', async () => {
   const onClick = jest.fn();
-  render(<LedgerRow slotLabel="WR" entry={entry({ spent: true })} onClick={onClick} disabled data-testid="row" />);
+  render(<LedgerRow slotLabel="WR" entry={entry({ spent: true })} onRowClick={onClick} disabled data-testid="row" />);
   expect(screen.getByTestId('ledger-spent-chip')).toBeInTheDocument();
   expect(screen.getByTestId('row-select')).toBeDisabled();
   await userEvent.click(screen.getByTestId('row-select'));
@@ -629,7 +630,7 @@ test('canDrop renders a drop control that calls onRequestDrop without triggering
     <LedgerRow
       slotLabel="QB"
       entry={entry()}
-      onClick={onClick}
+      onRowClick={onClick}
       canDrop
       onRequestDrop={onRequestDrop}
       data-testid="row"
@@ -644,13 +645,13 @@ test('canDrop renders a drop control that calls onRequestDrop without triggering
 // IconButton size="small" default), under the repo's 44px touch-target
 // standard - dropping the MIN_TOUCH_TARGET_SX override turns this case red.
 test('canDrop renders a drop control that meets the 44px touch target', () => {
-  render(<LedgerRow slotLabel="QB" entry={entry()} onClick={jest.fn()} canDrop onRequestDrop={jest.fn()} data-testid="row" />);
+  render(<LedgerRow slotLabel="QB" entry={entry()} onRowClick={jest.fn()} canDrop onRequestDrop={jest.fn()} data-testid="row" />);
   const drop = screen.getByRole('button', { name: /drop josh allen/i });
   expect(drop).toHaveStyle({ minWidth: '44px', minHeight: '44px' });
 });
 
 test('canDrop=false renders no drop control', () => {
-  render(<LedgerRow slotLabel="QB" entry={entry()} onClick={jest.fn()} data-testid="row" />);
+  render(<LedgerRow slotLabel="QB" entry={entry()} onRowClick={jest.fn()} data-testid="row" />);
   expect(screen.queryByRole('button', { name: /drop/i })).toBeNull();
 });
 
@@ -666,7 +667,7 @@ test('activating the drop control by keyboard drops the player, not the row', as
     <LedgerRow
       slotLabel="QB"
       entry={entry()}
-      onClick={onClick}
+      onRowClick={onClick}
       canDrop
       onRequestDrop={onRequestDrop}
       data-testid="row"
@@ -683,7 +684,7 @@ test('the row has one concise accessible name rather than its concatenated conte
     <LedgerRow
       slotLabel="QB"
       entry={entry({ locked: true, edge: { kind: 'factor', text: 'Matchup +3.5' } })}
-      onClick={jest.fn()}
+      onRowClick={jest.fn()}
       data-testid="row"
     />
   );
@@ -693,7 +694,7 @@ test('the row has one concise accessible name rather than its concatenated conte
 // #1957 L5: the injury designation and the projection close the name, so a
 // screen-reader user can make a start/sit call from the row alone.
 test('a Questionable starter\'s accessible name carries the designation and the projection', () => {
-  render(<LedgerRow slotLabel="QB" entry={entry({ injuryStatus: 'Q', projectedPoints: 24.2 })} onClick={jest.fn()} data-testid="row" />);
+  render(<LedgerRow slotLabel="QB" entry={entry({ injuryStatus: 'Q', projectedPoints: 24.2 })} onRowClick={jest.fn()} data-testid="row" />);
   expect(screen.getByTestId('row-select')).toHaveAttribute('aria-label', 'Josh Allen, QB, questionable, projected 24.2');
 });
 
@@ -702,7 +703,7 @@ test('an Unavailable row\'s accessible name does not repeat the designation or c
     <LedgerRow
       slotLabel="WR"
       entry={entry({ injuryStatus: 'O', availability: { available: false, reason: 'out' } })}
-      onClick={jest.fn()}
+      onRowClick={jest.fn()}
       data-testid="row"
     />
   );
@@ -710,15 +711,15 @@ test('an Unavailable row\'s accessible name does not repeat the designation or c
 });
 
 test('a row with no projection or only a Position baseline claims no projection in its accessible name', () => {
-  const { rerender } = render(<LedgerRow slotLabel="QB" entry={entry({ projectedPoints: null })} onClick={jest.fn()} data-testid="row" />);
+  const { rerender } = render(<LedgerRow slotLabel="QB" entry={entry({ projectedPoints: null })} onRowClick={jest.fn()} data-testid="row" />);
   expect(screen.getByTestId('row-select')).toHaveAttribute('aria-label', 'Josh Allen, QB');
-  rerender(<LedgerRow slotLabel="QB" entry={entry({ startVerdict: { outcome: 'not_recommended', reason: 'no_history', numberTrusted: false } })} onClick={jest.fn()} data-testid="row" />);
+  rerender(<LedgerRow slotLabel="QB" entry={entry({ startVerdict: { outcome: 'not_recommended', reason: 'no_history', numberTrusted: false } })} onRowClick={jest.fn()} data-testid="row" />);
   expect(screen.getByTestId('row-select')).toHaveAttribute('aria-label', 'Josh Allen, QB');
 });
 
 // #1957 L3: points headline, projection beneath it labelled "proj".
 test('the projection reads "proj <n>" beneath the points figure', () => {
-  render(<LedgerRow slotLabel="QB" entry={entry({ projectedPoints: 14.2, points: 9.5 })} onClick={jest.fn()} data-testid="row" />);
+  render(<LedgerRow slotLabel="QB" entry={entry({ projectedPoints: 14.2, points: 9.5 })} onRowClick={jest.fn()} data-testid="row" />);
   const points = screen.getByTestId('ledger-points');
   const projection = screen.getByTestId('ledger-projection');
   expect(projection).toHaveTextContent(/^proj 14\.2$/);
@@ -729,10 +730,10 @@ test('the projection reads "proj <n>" beneath the points figure', () => {
 
 test('an Unavailable row names its reason and a label stands alone without "proj"', () => {
   const { rerender } = render(
-    <LedgerRow slotLabel="WR" entry={entry({ availability: { available: false, reason: 'out' } })} onClick={jest.fn()} data-testid="row" />
+    <LedgerRow slotLabel="WR" entry={entry({ availability: { available: false, reason: 'out' } })} onRowClick={jest.fn()} data-testid="row" />
   );
   expect(screen.getByTestId('ledger-projection')).toHaveTextContent(/^out$/);
-  rerender(<LedgerRow slotLabel="QB" entry={entry({ startVerdict: { outcome: 'not_recommended', reason: 'no_history', numberTrusted: false } })} onClick={jest.fn()} data-testid="row" />);
+  rerender(<LedgerRow slotLabel="QB" entry={entry({ startVerdict: { outcome: 'not_recommended', reason: 'no_history', numberTrusted: false } })} onRowClick={jest.fn()} data-testid="row" />);
   expect(screen.getByTestId('ledger-projection')).toHaveTextContent(/^no history$/);
 });
 
@@ -740,7 +741,7 @@ test('an Unavailable row names its reason and a label stands alone without "proj
 // what-if; the pressed row is told by aria-pressed (the page hands the cursor frame to it).
 test('an eligible target and a what-if row take the Play-blue fill; a plain or pressed row does not', () => {
   const mode = (props) => {
-    const { unmount } = render(<LedgerRow slotLabel="QB" entry={entry()} onClick={jest.fn()} data-testid="row" {...props} />);
+    const { unmount } = render(<LedgerRow slotLabel="QB" entry={entry()} onRowClick={jest.fn()} data-testid="row" {...props} />);
     const value = screen.getByTestId('row').querySelector('.slot').getAttribute('data-row-mode');
     unmount();
     return value;
@@ -752,31 +753,31 @@ test('an eligible target and a what-if row take the Play-blue fill; a plain or p
 });
 
 test('a row that is not a legal target reads "not eligible" and is the dimmed one', () => {
-  render(<LedgerRow slotLabel="QB" entry={entry()} showEligibility eligible={false} disabled onClick={jest.fn()} data-testid="row" />);
+  render(<LedgerRow slotLabel="QB" entry={entry()} showEligibility eligible={false} disabled onRowClick={jest.fn()} data-testid="row" />);
   expect(screen.getByTestId('row-select')).toHaveAttribute('aria-label', 'Josh Allen, QB, projected 24.3, not eligible');
   expect(screen.getByTestId('row').querySelector('.slot')).toHaveAttribute('data-row-mode', 'dim');
 });
 
 test('the cursor frame and the note ride on the named row, and urgent turns the frame Danger', () => {
-  const { rerender } = render(<LedgerRow slotLabel="WR 1" entry={null} cursor note={<p>FLEX is empty</p>} onClick={jest.fn()} data-testid="row" />);
+  const { rerender } = render(<LedgerRow slotLabel="WR 1" entry={null} cursor note={<p>FLEX is empty</p>} onRowClick={jest.fn()} data-testid="row" />);
   const row = screen.getByTestId('row');
   expect(row.querySelector('.cursor')).not.toBeNull();
   expect(row).toHaveTextContent('FLEX is empty');
-  rerender(<LedgerRow slotLabel="WR 1" entry={null} cursor="urgent" onClick={jest.fn()} data-testid="row" />);
+  rerender(<LedgerRow slotLabel="WR 1" entry={null} cursor="urgent" onRowClick={jest.fn()} data-testid="row" />);
   expect(screen.getByTestId('row').querySelector('.cursor')).not.toBeNull();
-  rerender(<LedgerRow slotLabel="WR 1" entry={null} onClick={jest.fn()} data-testid="row" />);
+  rerender(<LedgerRow slotLabel="WR 1" entry={null} onRowClick={jest.fn()} data-testid="row" />);
   expect(screen.getByTestId('row').querySelector('.cursor')).toBeNull();
 });
 
 // #1957 L7: Drop sits inside the row's own frame, not beside it.
 test('the drop control is inside the row wrapper', () => {
-  render(<LedgerRow slotLabel="QB" entry={entry()} canDrop onRequestDrop={jest.fn()} onClick={jest.fn()} data-testid="row" />);
+  render(<LedgerRow slotLabel="QB" entry={entry()} canDrop onRequestDrop={jest.fn()} onRowClick={jest.fn()} data-testid="row" />);
   expect(screen.getByTestId('row')).toContainElement(screen.getByRole('button', { name: /drop josh allen/i }));
 });
 
 // Spec #2347 ruling 4: injury tags print the codes with the full word as screen-reader text.
 test('an injury tag prints the code and says the word for a screen reader', () => {
-  render(<LedgerRow slotLabel="WR" entry={entry({ injuryStatus: 'Q' })} onClick={jest.fn()} data-testid="row" />);
+  render(<LedgerRow slotLabel="WR" entry={entry({ injuryStatus: 'Q' })} onRowClick={jest.fn()} data-testid="row" />);
   const tag = screen.getByTestId('injury-tag');
   expect(tag).toHaveTextContent('Q');
   expect(tag).toHaveTextContent('Injury status: Questionable');
@@ -794,12 +795,12 @@ test('the Game cell renders once at every width, on its own line below sm and in
   };
   try {
     mockViewport(375);
-    const { unmount } = render(<LedgerRow slotLabel="QB" entry={entry()} onClick={jest.fn()} data-testid="row" />);
+    const { unmount } = render(<LedgerRow slotLabel="QB" entry={entry()} onRowClick={jest.fn()} data-testid="row" />);
     expect(screen.getAllByTestId('ledger-game-cell')).toHaveLength(1);
     expect(within(screen.getByTestId('ledger-info')).queryByTestId('ledger-game-cell')).toBeNull();
     unmount();
     mockViewport(1280);
-    render(<LedgerRow slotLabel="QB" entry={entry()} onClick={jest.fn()} data-testid="row" />);
+    render(<LedgerRow slotLabel="QB" entry={entry()} onRowClick={jest.fn()} data-testid="row" />);
     expect(screen.getAllByTestId('ledger-game-cell')).toHaveLength(1);
     expect(within(screen.getByTestId('ledger-info')).queryByTestId('ledger-game-cell')).toBeNull();
   } finally {
@@ -808,13 +809,13 @@ test('the Game cell renders once at every width, on its own line below sm and in
 });
 
 test('an empty slot has an accessible name naming the slot', () => {
-  render(<LedgerRow slotLabel="WR 2" entry={null} onClick={jest.fn()} data-testid="row" />);
+  render(<LedgerRow slotLabel="WR 2" entry={null} onRowClick={jest.fn()} data-testid="row" />);
   expect(screen.getByTestId('row-select')).toHaveAttribute('aria-label', 'Empty WR 2 slot');
 });
 
 test('the drop control is a sibling of the select button, not nested inside it (no nested-interactive)', () => {
   render(
-    <LedgerRow slotLabel="QB" entry={entry()} onClick={jest.fn()} canDrop onRequestDrop={jest.fn()} data-testid="row" />
+    <LedgerRow slotLabel="QB" entry={entry()} onRowClick={jest.fn()} canDrop onRequestDrop={jest.fn()} data-testid="row" />
   );
   const dropButton = screen.getByRole('button', { name: /drop josh allen/i });
   const selectButton = screen.getByTestId('row-select');
@@ -826,13 +827,13 @@ test('the drop control is a sibling of the select button, not nested inside it (
 // without one (a team defense, or a player the sync never resolved) it is
 // the initials monogram on the jersey colour, exactly as before.
 test('an entry with a photoUrl renders the headshot image', () => {
-  render(<LedgerRow slotLabel="QB" entry={entry({ photoUrl: 'https://cdn.example/josh-allen.png' })} onClick={jest.fn()} data-testid="row" />);
+  render(<LedgerRow slotLabel="QB" entry={entry({ photoUrl: 'https://cdn.example/josh-allen.png' })} onRowClick={jest.fn()} data-testid="row" />);
   expect(screen.getByTestId('ledger-headshot')).toHaveAttribute('src', 'https://cdn.example/josh-allen.png');
   expect(screen.queryByText('JA')).toBeNull();
 });
 
 test('an entry without a photoUrl falls back to the initials monogram', () => {
-  render(<LedgerRow slotLabel="D/ST" entry={entry({ name: 'Denver Broncos', position: 'DEF', nflTeam: 'DEN', photoUrl: null })} onClick={jest.fn()} data-testid="row" />);
+  render(<LedgerRow slotLabel="D/ST" entry={entry({ name: 'Denver Broncos', position: 'DEF', nflTeam: 'DEN', photoUrl: null })} onRowClick={jest.fn()} data-testid="row" />);
   expect(screen.queryByTestId('ledger-headshot')).toBeNull();
   expect(screen.getByText('DB')).toBeInTheDocument();
 });
@@ -842,22 +843,22 @@ test('an entry without a photoUrl falls back to the initials monogram', () => {
 // from the glossary's Free agent (league availability), which this ticket
 // does not touch.
 test('a player with a null NFL team shows FA in place of the Team code', () => {
-  render(<LedgerRow slotLabel="QB" entry={entry({ nflTeam: null })} onClick={jest.fn()} data-testid="row" />);
+  render(<LedgerRow slotLabel="QB" entry={entry({ nflTeam: null })} onRowClick={jest.fn()} data-testid="row" />);
   expect(screen.getByText('QB · FA')).toBeInTheDocument();
 });
 
 test('a player with an empty-string NFL team shows FA in place of the Team code', () => {
-  render(<LedgerRow slotLabel="QB" entry={entry({ nflTeam: '' })} onClick={jest.fn()} data-testid="row" />);
+  render(<LedgerRow slotLabel="QB" entry={entry({ nflTeam: '' })} onRowClick={jest.fn()} data-testid="row" />);
   expect(screen.getByText('QB · FA')).toBeInTheDocument();
 });
 
 test('reserveDropTrack renders an empty placeholder in place of a missing Drop control, never beside a real one', () => {
-  const { rerender } = render(<LedgerRow slotLabel="QB" entry={entry()} reserveDropTrack onClick={jest.fn()} data-testid="row" />);
+  const { rerender } = render(<LedgerRow slotLabel="QB" entry={entry()} reserveDropTrack onRowClick={jest.fn()} data-testid="row" />);
   expect(screen.getByTestId('ledger-drop-spacer')).toBeInTheDocument();
   expect(screen.queryByRole('button', { name: /drop josh allen/i })).toBeNull();
-  rerender(<LedgerRow slotLabel="QB" entry={entry()} canDrop reserveDropTrack onRequestDrop={jest.fn()} onClick={jest.fn()} data-testid="row" />);
+  rerender(<LedgerRow slotLabel="QB" entry={entry()} canDrop reserveDropTrack onRequestDrop={jest.fn()} onRowClick={jest.fn()} data-testid="row" />);
   expect(screen.queryByTestId('ledger-drop-spacer')).toBeNull();
-  rerender(<LedgerRow slotLabel="QB" entry={entry()} onClick={jest.fn()} data-testid="row" />);
+  rerender(<LedgerRow slotLabel="QB" entry={entry()} onRowClick={jest.fn()} data-testid="row" />);
   expect(screen.queryByTestId('ledger-drop-spacer')).toBeNull();
 });
 
@@ -866,7 +867,7 @@ test('an IR row\'s accessible name carries its Unavailable reason, not the desig
     <LedgerRow
       slotLabel="IR"
       entry={entry({ name: 'Stashed Runner', injuryStatus: 'IR', slot: 'IR', availability: { available: false, reason: 'ir' } })}
-      onClick={jest.fn()}
+      onRowClick={jest.fn()}
       data-testid="row"
     />
   );
@@ -874,7 +875,7 @@ test('an IR row\'s accessible name carries its Unavailable reason, not the desig
 });
 
 test('Drop is disabled on a row that is no legal target during a swap, and live otherwise', () => {
-  const props = { slotLabel: 'QB', entry: entry(), canDrop: true, onRequestDrop: jest.fn(), onClick: jest.fn(), 'data-testid': 'row' };
+  const props = { slotLabel: 'QB', entry: entry(), canDrop: true, onRequestDrop: jest.fn(), onRowClick: jest.fn(), 'data-testid': 'row' };
   const { rerender } = render(<LedgerRow {...props} showEligibility eligible={false} />);
   expect(screen.getByRole('button', { name: /drop josh allen/i })).toBeDisabled();
   rerender(<LedgerRow {...props} showEligibility eligible />);
