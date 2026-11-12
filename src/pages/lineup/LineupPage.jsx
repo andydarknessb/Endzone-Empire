@@ -102,11 +102,13 @@ const HOUR_MS = 60 * MINUTE_MS;
  */
 export default function LineupPage() {
   const {
-    leagues, selectedLeagueId, setSelectedLeagueId, loading: leaguesLoading, error: leaguesError, refetch: refetchLeagues,
+    leagues, selectedLeagueId, readLeagueId, setSelectedLeagueId, loading: leaguesLoading, error: leaguesError, refetch: refetchLeagues,
   } = useLineupLeagues();
+  // The league and lineup reads (and the live games the lineup names) start on `readLeagueId`, beside the
+  // inventory read; everything else waits for the inventory to confirm the league.
   const {
     league, teams, viewerTeamId, error: leagueError, refetch: refetchLeague,
-  } = useLeague(selectedLeagueId);
+  } = useLeague(readLeagueId);
   const [searchParams, setSearchParams] = useSearchParams();
   const [week, setWeek] = useState(null);
   // The Decision card (#1240, ADR 0037): which rostered player's card is
@@ -145,7 +147,7 @@ export default function LineupPage() {
   const leagueUnsettled = leagueMode === 'loading' || leagueMode === 'error';
 
   const { lineup, raw, setRaw, loading: lineupLoading, error: lineupError, refetch } = useLineupData({
-    leagueId: selectedLeagueId,
+    leagueId: readLeagueId,
     week,
   });
 
@@ -156,7 +158,7 @@ export default function LineupPage() {
   // `live_game_states` channel Game Center and Matchup Detail already read)
   // rather than a second live-games mechanism.
   const gameKeys = Array.from(new Set((lineup?.entries || []).map((e) => e.gameKey).filter(Boolean)));
-  const liveGames = useLiveGameStates(selectedLeagueId, gameKeys);
+  const liveGames = useLiveGameStates(readLeagueId, gameKeys);
   const liveGamesByKey = new Map(liveGames.map((row) => [String(row.tank01_game_id), row]));
 
   // The finished-game refetch (#1546, ADR 0037 ticket 9): `displayEdgeKind`
@@ -452,7 +454,10 @@ export default function LineupPage() {
   }, [phoneView]);
 
   const zone = formatInstant(new Date(), 'zone') || 'your time zone';
-  const leagueName = league?.name || leagues.find((l) => l.id === selectedLeagueId)?.name || null;
+  // The inventory row already names the league, the viewer's team and the current week, so the head is whole
+  // from its first paint and nothing in it moves when the league read lands.
+  const selectedLeague = leagues.find((l) => l.id === selectedLeagueId);
+  const leagueName = league?.name || selectedLeague?.name || null;
   const showBoard = leagues.length > 0 && !draftInProgress && !emptyRoster;
 
   // `width: 100%` on the root is load-bearing beside `mx: auto`: this page is
@@ -464,8 +469,10 @@ export default function LineupPage() {
   // width to intrinsic sizing). On a phone that made the entire page ~1100px
   // wide (measured on device, PR #1323). The column is a flex column, not a
   // grid, so a wide child never widens the page.
+  // While loading and under the board the root holds a full viewport, so the app Footer starts below the fold
+  // instead of sitting under an empty page and being pushed out when the lineup lands.
   return (
-    <Box className="ps-root" sx={{ ...psRootSx, width: '100%', minHeight: '100%' }}>
+    <Box className="ps-root" sx={{ ...psRootSx, width: '100%', minHeight: leaguesLoading || showBoard ? '100vh' : '100%' }}>
       <Box
         data-testid="lineup-page"
         sx={{
@@ -484,12 +491,14 @@ export default function LineupPage() {
             We could not load your leagues. Check your connection and try again.
           </ErrorRow>
         )}
-        {leagueMode === 'error' && (
+        {/* While the inventory loads the two reads below run on a league it has not confirmed yet, so a
+            failure there is not reported until it has. */}
+        {!leaguesLoading && leagueMode === 'error' && (
           <ErrorRow testId="league-error" onRetry={refetchLeague}>
             We could not load this league. Check your connection and try again.
           </ErrorRow>
         )}
-        {lineupError && (
+        {!leaguesLoading && lineupError && (
           <ErrorRow testId="lineup-error" onRetry={() => refetch()}>
             We could not load your lineup. Check your connection and try again.
           </ErrorRow>
@@ -511,9 +520,9 @@ export default function LineupPage() {
                 picker. */}
             <LineupHead
               leagueName={leagueName}
-              teamName={viewerTeam?.teamName}
-              avatarUrl={viewerTeam?.avatar_url}
-              avatarStaticUrl={viewerTeam?.avatar_static_url}
+              teamName={viewerTeam?.teamName ?? selectedLeague?.my_team_name}
+              avatarUrl={viewerTeam?.avatar_url ?? selectedLeague?.my_team_avatar_url}
+              avatarStaticUrl={viewerTeam?.avatar_static_url ?? selectedLeague?.my_team_avatar_static_url}
               bestBall={bestBall}
               live={anyLive}
               zone={zone}
@@ -522,7 +531,7 @@ export default function LineupPage() {
               selectedLeagueId={selectedLeagueId}
               onSelectLeague={setSelectedLeagueId}
               weeks={WEEKS}
-              week={showBoard ? currentWeekValue ?? MIN_WEEK : null}
+              week={showBoard ? currentWeekValue ?? selectedLeague?.current_week ?? MIN_WEEK : null}
               onWeek={changeWeek}
             />
 

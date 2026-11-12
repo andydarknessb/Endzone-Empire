@@ -52,3 +52,23 @@ test('a load still in flight when the league goes null writes nothing', async ()
 
   expect(result.current.raw).toBeNull();
 });
+
+// The page starts this read on a league the inventory may correct: the corrected league never shows the first one's failure.
+test('an error from a league the page has left is never shown for the next one', async () => {
+  const next = deferred();
+  apiClient.get.mockImplementation((url) => (url.includes('leagueId=1') ? Promise.reject(new Error('not your league')) : next.promise));
+  const seen = [];
+
+  const { result, rerender } = renderHook(
+    ({ leagueId }) => {
+      const state = useLineupData({ leagueId, week: 2 });
+      seen.push([leagueId, state.error]);
+      return state;
+    },
+    { initialProps: { leagueId: 1 } }
+  );
+  await waitFor(() => expect(result.current.error).toBe('not your league'));
+  rerender({ leagueId: 2 });
+
+  expect(seen.filter(([leagueId, error]) => leagueId === 2 && error)).toEqual([]);
+});

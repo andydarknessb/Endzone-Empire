@@ -10,9 +10,27 @@ import { isPickemOnly } from '../../../shared/lib';
  * manager in more than one fantasy league needs a picker, defaulted to the
  * league named in `?leagueId=` or the first one. Every other query param
  * (the Bench what-if swap, `?swapOut=&swapIn=`) rides through unmolested.
+ *
+ * `readLeagueId` lets the page start its league and lineup reads beside the
+ * inventory read instead of after it: while the inventory loads it is the
+ * league the URL names, or the one a bare `/team` resolved to last time
+ * (remembered per device), and once the inventory lands it is
+ * `selectedLeagueId`, which confirms or corrects it. Only reads take it; every
+ * write and subscription waits for `selectedLeagueId`.
  */
+const FIRST_LEAGUE_KEY = 'endzone_lineup_league';
+
+function rememberedLeagueId() {
+  try {
+    return Number(window.localStorage.getItem(FIRST_LEAGUE_KEY)) || null;
+  } catch {
+    return null;
+  }
+}
+
 export function useLineupLeagues() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const [rememberedId] = useState(rememberedLeagueId);
   const [leagues, setLeagues] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -24,6 +42,10 @@ export function useLineupLeagues() {
       const res = await apiClient.get('/api/league');
       const rosterLeagues = (Array.isArray(res.data) ? res.data : []).filter((l) => !isPickemOnly(l));
       setLeagues(rosterLeagues);
+      try {
+        if (rosterLeagues.length > 0) window.localStorage.setItem(FIRST_LEAGUE_KEY, String(rosterLeagues[0].id));
+        else window.localStorage.removeItem(FIRST_LEAGUE_KEY);
+      } catch { /* storage blocked: the next visit reads the inventory first */ }
       if (rosterLeagues.length > 0) {
         const requestedId = Number(searchParams.get('leagueId'));
         const selected = rosterLeagues.find((l) => l.id === requestedId) || rosterLeagues[0];
@@ -56,6 +78,7 @@ export function useLineupLeagues() {
     if (leagues.some((l) => l.id === requestedId)) return requestedId;
     return leagues[0]?.id ?? null;
   })();
+  const readLeagueId = selectedLeagueId ?? (loading ? Number(searchParams.get('leagueId')) || rememberedId : null);
 
   const setSelectedLeagueId = (leagueId) => {
     // The whole query is replaced, deliberately: a Bench what-if swap names
@@ -64,7 +87,7 @@ export function useLineupLeagues() {
     setSearchParams({ leagueId: String(leagueId) }, { replace: true });
   };
 
-  return { leagues, selectedLeagueId, setSelectedLeagueId, loading, error, refetch: fetchLeagues };
+  return { leagues, selectedLeagueId, readLeagueId, setSelectedLeagueId, loading, error, refetch: fetchLeagues };
 }
 
 export default useLineupLeagues;

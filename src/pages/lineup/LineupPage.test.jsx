@@ -531,7 +531,7 @@ test('a Realtime row update that keeps the same Game cell kind triggers no extra
   liveGameRows = [{ tank01_game_id: 'g1', game_status: 'in_progress' }];
   renderPage();
   await screen.findByText('Josh Allen');
-  expect(firstGameCell()).toHaveAttribute('data-game-state', 'live');
+  await waitFor(() => expect(firstGameCell()).toHaveAttribute('data-game-state', 'live'));
   await waitForLiveGameChannel();
   const lineupCallsBefore = apiClient.get.mock.calls.filter((c) => c[0] === LINEUP_URL).length;
 
