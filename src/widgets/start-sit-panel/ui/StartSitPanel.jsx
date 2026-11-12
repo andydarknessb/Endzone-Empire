@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useLayoutEffect, useRef, useState } from 'react';
 import { Box } from '@mui/material';
 import {
   Frame, FrameHead, InjuryTag, LiveChip, PixelClock, PixelHeading, PsButton, StatusChip, Tag,
@@ -61,7 +61,7 @@ import { buildSuggestionView, calledRecordLine, calledShotLine, forecastRecordLi
  */
 export default function StartSitPanel({
   advice, entries, bestBall, onApply, onCompare, onOpenDecisionCard, expectedFinals, onCallShot, onWithdrawShot, shotBusy, openSlot = false,
-  onVisibleSuggestions,
+  onVisibleSuggestions, onRetry,
 }) {
   const [dismissed, setDismissed] = useState(() => new Set());
   const [announcement, setAnnouncement] = useState('');
@@ -84,7 +84,7 @@ export default function StartSitPanel({
   // Dismiss. Keyed on the content, not the array: an empty advice hands over a fresh [] every render.
   const visible = suggestions.filter((s, i) => !dismissed.has(allViews[i].key));
   const visibleSig = JSON.stringify(visible);
-  useEffect(() => {
+  useLayoutEffect(() => {
     onVisibleSuggestions?.(visible);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visibleSig, onVisibleSuggestions]);
@@ -231,6 +231,7 @@ export default function StartSitPanel({
             We could not load the Endzone Forecast right now.
           </Box>
         )}
+        {failed && onRetry && <Box><PsButton onClick={onRetry}>Try again</PsButton></Box>}
 
         {!pending && !failed && views.length === 0 && (
           <Box component="p" sx={{ m: 0, fontSize: '15px', color: 'var(--ps-dim)' }} data-testid="start-sit-panel-empty">
@@ -257,7 +258,7 @@ export default function StartSitPanel({
                 component="span"
                 data-testid="suggestion-verdict"
                 data-verdict={VERDICT[view.verdict]?.attr ?? 'lean'}
-                sx={{ fontFamily: "'Press Start 2P', ui-monospace, monospace", fontSize: '16px', lineHeight: 1.5, textTransform: 'uppercase', whiteSpace: 'nowrap' }}
+                sx={{ fontFamily: "'Press Start 2P', ui-monospace, monospace", fontSize: '16px', lineHeight: 1.5, textTransform: 'uppercase' }}
               >
                 {VERDICT[view.verdict]?.text ?? 'Lean start'}
               </Box>

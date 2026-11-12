@@ -1338,6 +1338,69 @@ test('the held rail: Bye clusters and the Matchup preview show only once the adv
   expect(screen.getByTestId('matchup-preview')).toBeVisible();
 });
 
+// #2886: the Forecast waits on the lineup and the league, says when its own read or the lineup failed, and holds the
+// rail only until it first settles.
+describe('the Forecast when a read fails or the week changes (#2886)', () => {
+  test('a failed lineup read says the Forecast could not load, the tile reads Not available, and the rail stays shown', async () => {
+    const urls = baseUrls();
+    apiClient.get.mockImplementation((url) => (
+      url === LINEUP_URL ? Promise.reject(new Error('boom')) : Promise.resolve(urls[url] ?? { data: [] })
+    ));
+    renderWithProviders(<LineupPage />, { route: '/team?leagueId=1', path: '/team' });
+    expect(await screen.findByTestId('start-sit-panel-error')).toHaveTextContent('We could not load the Endzone Forecast right now.');
+    expect(screen.getByTestId('strip-advice')).toHaveTextContent('Not available');
+    expect(screen.queryByTestId('start-sit-panel-loading')).toBeNull();
+    expect(screen.getByTestId('matchup-preview')).toBeVisible();
+  });
+
+  test('a failed advice read says so with a Try again that asks the advice again, and the rail stays shown', async () => {
+    const user = userEvent.setup();
+    const urls = baseUrls();
+    apiClient.get.mockImplementation((url) => (
+      url.startsWith(ADVICE_URL) ? Promise.reject(new Error('boom')) : Promise.resolve(urls[url] ?? { data: [] })
+    ));
+    renderWithProviders(<LineupPage />, { route: '/team?leagueId=1', path: '/team' });
+    const retry = await screen.findByRole('button', { name: 'Try again' });
+    expect(screen.getByTestId('start-sit-panel-error')).toHaveTextContent('We could not load the Endzone Forecast right now.');
+    expect(screen.getByTestId('matchup-preview')).toBeVisible();
+
+    const adviceReads = () => apiClient.get.mock.calls.filter(([url]) => url.startsWith(ADVICE_URL)).length;
+    const before = adviceReads();
+    await user.click(retry);
+    await waitFor(() => expect(adviceReads()).toBeGreaterThan(before));
+  });
+
+  test('a week change holds the Forecast on loading until the new week\'s advice answers, and the rail stays shown', async () => {
+    const user = userEvent.setup();
+    renderPage({
+      [ADVICE_URL]: { data: adviceBody({ suggestions: [adviceSuggestion()], movePlan: [{ playerId: 10, fromSlot: 'BENCH', toSlot: 'RB' }] }) },
+      [`${LINEUP_URL}&week=5`]: { data: lineupBody({ body: { week: 5 } }) },
+      '/api/team/lineup/advice?leagueId=1&week=5': new Promise(() => {}),
+      '/api/league/1/matchups?week=5': { data: [matchupRow({ week: 5 })] },
+    });
+    await screen.findByTestId('suggestion-card');
+    await user.click(screen.getByRole('button', { name: 'Next week' }));
+
+    await screen.findByTestId('start-sit-panel-loading');
+    expect(screen.queryByTestId('suggestion-card')).toBeNull();
+    expect(screen.queryByTestId('start-sit-apply')).toBeNull();
+    expect(screen.getByTestId('matchup-preview')).toBeVisible();
+  });
+
+  test('an advice read that never answers releases the rail after 3 s', async () => {
+    jest.useFakeTimers();
+    try {
+      renderPage({ [ADVICE_URL]: new Promise(() => {}) });
+      await screen.findByText('Josh Allen');
+      expect(screen.getByTestId('matchup-preview')).not.toBeVisible();
+      act(() => { jest.advanceTimersByTime(3000); });
+      expect(screen.getByTestId('matchup-preview')).toBeVisible();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+});
+
 test('best ball hides the Start/sit panel entirely (never calls the advice endpoint)', async () => {
   renderPage({
     [LEAGUE_URL]: leagueResponse({ best_ball: true }),
@@ -1690,9 +1753,9 @@ describe('the one cursor and the one filled action (ruling 8)', () => {
   test('lineup set: no cursor and no filled action', async () => {
     renderPage(withEntries([qb(), rb(), wr(), benchWr()]));
     await screen.findByText('Josh Allen');
+    await waitFor(() => expect(screen.getByTestId('strip-advice')).toHaveTextContent('Lineup set'));
     expect(cursors()).toHaveLength(0);
     expect(filled()).toHaveLength(0);
-    await waitFor(() => expect(screen.getByTestId('strip-advice')).toHaveTextContent('Lineup set'));
   });
 
   test('best ball has no cursor: the lineup sets itself', async () => {

@@ -207,6 +207,21 @@ describe('the first advice is out or failed (#2886)', () => {
     expect(screen.queryByText('Lineup set')).not.toBeInTheDocument();
     expect(screen.queryByText('No move from your bench')).not.toBeInTheDocument();
   });
+
+  test('failed with onRetry offers a Try again button outside the alert, and calls onRetry', async () => {
+    const user = userEvent.setup();
+    const onRetry = jest.fn();
+    render(<StartSitPanel advice={{ suggestions: [], movePlan: [], failed: true }} entries={entries} bestBall={false} openSlot onRetry={onRetry} />);
+    const retry = screen.getByRole('button', { name: 'Try again' });
+    expect(screen.getByRole('alert')).not.toContainElement(retry);
+    await user.click(retry);
+    expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+
+  test('failed without onRetry offers no Try again button', () => {
+    render(<StartSitPanel advice={{ suggestions: [], movePlan: [], failed: true }} entries={entries} bestBall={false} openSlot />);
+    expect(screen.queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument();
+  });
 });
 
 test('no "optimal", "optimize" or "range" copy anywhere on the panel', () => {

@@ -129,3 +129,22 @@ test('at 1280px no layout shift lists the Bye clusters or the Matchup preview wh
   const shifts = await page.evaluate(() => (window as unknown as { __layoutShifts: Array<{ near: string | null; inside: string | null }> }).__layoutShifts);
   expect(shifts.filter((shift) => shift.near === 'bye-cluster-grid' || shift.near === 'matchup-preview' || shift.inside !== null)).toEqual([]);
 });
+
+// #2886: the longest verdict ("Too close to call") wraps inside the card instead of running out of it.
+for (const [width, height] of [[900, 900], [390, 844]] as const) {
+  test(`at ${width}px a tossup verdict keeps every suggestion-head child inside the card (#2886)`, async ({ page }) => {
+    await setupLineupLedgerFixture(page, { advice: FORECAST_ADVICE });
+    await page.setViewportSize({ width, height });
+    await page.goto(LINEUP_URL);
+    if (width < 600) await page.getByTestId('lineup-mobile-tabs').getByRole('button', { name: /^Outlook/ }).click();
+    await expect(page.getByTestId('suggestion-verdict')).toHaveText(/Too close to call/i);
+    await page.evaluate(() => document.fonts.ready.then(() => true));
+
+    const overhang = await page.getByTestId('suggestion-card').first().evaluate((card) => {
+      const edge = card.getBoundingClientRect().right;
+      const kids = Array.from(card.querySelector('[data-testid="suggestion-head"]')?.children ?? []);
+      return kids.map((kid) => kid.getBoundingClientRect().right - edge).filter((over) => over > 0.5);
+    });
+    expect(overhang, 'px each head child runs past the card edge').toEqual([]);
+  });
+}

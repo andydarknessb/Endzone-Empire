@@ -60,6 +60,50 @@ test('failed is true when the first read rejects (#2886)', async () => {
   expect(result.current.pending).toBe(false);
 });
 
+test('a reload that fails keeps the previous advice and is neither pending nor failed (#2886)', async () => {
+  apiClient.get.mockResolvedValueOnce({ data: { suggestions: [{ slot: 'WR' }] } });
+  const { result } = renderHook(() => useAdvice({ leagueId: 1, week: 4, bestBall: false }));
+  await waitFor(() => expect(result.current.status).toBe('ready'));
+
+  apiClient.get.mockRejectedValueOnce(new Error('boom'));
+  act(() => result.current.reload());
+  await waitFor(() => expect(result.current.status).toBe('error'));
+  expect(result.current.suggestions).toEqual([{ slot: 'WR' }]);
+  expect(result.current.pending).toBe(false);
+  expect(result.current.failed).toBe(false);
+});
+
+test('a week change is pending at once and never shows the previous week\'s suggestions (#2886)', async () => {
+  apiClient.get.mockResolvedValueOnce({ data: { suggestions: [{ slot: 'WR' }] } });
+  const seen = [];
+  const { rerender } = renderHook(({ week }) => {
+    const advice = useAdvice({ leagueId: 1, week, bestBall: false });
+    seen.push(advice);
+    return advice;
+  }, { initialProps: { week: 4 } });
+  await waitFor(() => expect(seen[seen.length - 1].suggestions).toEqual([{ slot: 'WR' }]));
+
+  apiClient.get.mockImplementationOnce(() => new Promise(() => {}));
+  seen.length = 0;
+  rerender({ week: 5 });
+  expect(seen.length).toBeGreaterThan(0);
+  seen.forEach((advice) => {
+    expect(advice.pending).toBe(true);
+    expect(advice.suggestions).toEqual([]);
+  });
+  expect(apiClient.get).toHaveBeenLastCalledWith('/api/team/lineup/advice?leagueId=1&week=5');
+});
+
+test.each([
+  ['no league', { leagueId: null, week: 4, bestBall: false }],
+  ['no week', { leagueId: 1, week: null, bestBall: false }],
+  ['best ball', { leagueId: 1, week: 4, bestBall: true }],
+])('%s is neither pending nor failed (#2886)', (_, args) => {
+  const { result } = renderHook(() => useAdvice(args));
+  expect(result.current.pending).toBe(false);
+  expect(result.current.failed).toBe(false);
+});
+
 test('best ball never calls the endpoint at all', () => {
   const { result } = renderHook(() => useAdvice({ leagueId: 1, week: 4, bestBall: true }));
   expect(apiClient.get).not.toHaveBeenCalled();
