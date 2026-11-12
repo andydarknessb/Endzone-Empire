@@ -40,12 +40,14 @@ export function useEndpoint(url) {
   // The answer is kept with the URL it is for, so the returned shape stays { status, data, httpStatus }.
   const [state, setState] = useState({ url, answer: IDLE });
   useEffect(() => {
+    // Bail out when the state already says so: a fresh object here would re-render every instance once at mount.
+    const idle = (prev) => (prev.url === url && prev.answer === IDLE ? prev : { url, answer: IDLE });
     if (!url) {
-      setState({ url, answer: IDLE });
+      setState(idle);
       return undefined;
     }
     let cancelled = false;
-    setState({ url, answer: IDLE });
+    setState(idle);
     apiClient
       .get(url)
       .then((res) => {

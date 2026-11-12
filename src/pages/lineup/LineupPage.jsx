@@ -248,17 +248,18 @@ export default function LineupPage() {
   const advice = useAdvice({ leagueId: selectedLeagueId, week: lineup?.week, bestBall });
   // The Forecast waits on the lineup and the league as well as its own read; with no lineup to read it has failed.
   const lineupGone = !lineup && Boolean(lineupError);
-  const forecastPending = !bestBall && !lineupGone && (!lineup || leagueMode === 'loading' || advice.pending);
+  const forecastPending = !bestBall && !lineupGone && (selectedLeagueId == null || !lineup || leagueMode === 'loading' || advice.pending);
   const forecastFailed = !bestBall && !forecastPending && (lineupGone || advice.failed);
   const forecast = { ...advice, pending: forecastPending, failed: forecastFailed };
-  // The rail under the Forecast is held only until it first settles, and never longer than 3 s: a week change
-  // or a retry later is the manager's own action, and a slow read must not hide two unrelated widgets.
+  // The rail under the Forecast is held only until it first settles, and never longer than 3 s after the league is
+  // confirmed: a week change or a retry later is the manager's own action, and a slow read must not hide two unrelated widgets.
   const [railReleased, setRailReleased] = useState(false);
   if (!forecastPending && !railReleased) setRailReleased(true);
   useEffect(() => {
+    if (selectedLeagueId == null) return undefined;
     const timer = setTimeout(() => setRailReleased(true), 3000);
     return () => clearTimeout(timer);
-  }, []);
+  }, [selectedLeagueId]);
   // The Forecast tells the page which suggestions are still showing (a Dismiss hides one), so the Advice tile counts
   // and sums the same moves the plan line above Apply names.
   const [visibleSuggestions, setVisibleSuggestions] = useState(null);

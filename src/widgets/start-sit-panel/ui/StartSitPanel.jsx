@@ -227,11 +227,12 @@ export default function StartSitPanel({
         )}
 
         {failed && (
-          <Box component="p" role="alert" data-testid="start-sit-panel-error" sx={{ m: 0, fontSize: '15px' }}>
+          // Without onRetry the page's lineup error row is the alert, so this sentence stays quiet.
+          <Box component="p" role={onRetry ? 'alert' : undefined} data-testid="start-sit-panel-error" sx={{ m: 0, fontSize: '15px' }}>
             We could not load the Endzone Forecast right now.
           </Box>
         )}
-        {failed && onRetry && <Box><PsButton onClick={onRetry}>Try again</PsButton></Box>}
+        {failed && onRetry && <Box><PsButton onClick={() => { contentRef.current?.focus(); onRetry(); }}>Retry</PsButton></Box>}
 
         {!pending && !failed && views.length === 0 && (
           <Box component="p" sx={{ m: 0, fontSize: '15px', color: 'var(--ps-dim)' }} data-testid="start-sit-panel-empty">

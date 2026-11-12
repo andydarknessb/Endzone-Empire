@@ -37,6 +37,16 @@ test('a null url never calls apiClient.get and reports the idle shape', async ()
   expect(result.current).toEqual({ status: 'loading', data: null, httpStatus: null });
 });
 
+test('a null url renders the hook once at mount: the idle state it already holds is not replaced', async () => {
+  let renders = 0;
+  renderHook(() => {
+    renders += 1;
+    return useEndpoint(null);
+  });
+  await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+  expect(renders).toBe(1);
+});
+
 test('a successful read reports status ready, the payload, and httpStatus null', async () => {
   apiClient.get.mockResolvedValue({ data: { grades: [] } });
   const { result } = renderHook(() => useEndpoint('/api/league/7/draft-grades'));

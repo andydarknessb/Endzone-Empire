@@ -1351,16 +1351,20 @@ describe('the Forecast when a read fails or the week changes (#2886)', () => {
     expect(screen.getByTestId('strip-advice')).toHaveTextContent('Not available');
     expect(screen.queryByTestId('start-sit-panel-loading')).toBeNull();
     expect(screen.getByTestId('matchup-preview')).toBeVisible();
+    // The lineup error row is the one alert; the Forecast's sentence stays quiet because it has no Retry of its own.
+    const alerts = screen.getAllByRole('alert');
+    expect(alerts).toHaveLength(1);
+    expect(screen.getByTestId('lineup-error')).toContainElement(alerts[0]);
   });
 
-  test('a failed advice read says so with a Try again that asks the advice again, and the rail stays shown', async () => {
+  test('a failed advice read says so with a Retry that asks the advice again, and the rail stays shown', async () => {
     const user = userEvent.setup();
     const urls = baseUrls();
     apiClient.get.mockImplementation((url) => (
       url.startsWith(ADVICE_URL) ? Promise.reject(new Error('boom')) : Promise.resolve(urls[url] ?? { data: [] })
     ));
     renderWithProviders(<LineupPage />, { route: '/team?leagueId=1', path: '/team' });
-    const retry = await screen.findByRole('button', { name: 'Try again' });
+    const retry = await screen.findByRole('button', { name: 'Retry' });
     expect(screen.getByTestId('start-sit-panel-error')).toHaveTextContent('We could not load the Endzone Forecast right now.');
     expect(screen.getByTestId('matchup-preview')).toBeVisible();
 
@@ -1392,12 +1396,32 @@ describe('the Forecast when a read fails or the week changes (#2886)', () => {
     try {
       renderPage({ [ADVICE_URL]: new Promise(() => {}) });
       await screen.findByText('Josh Allen');
+      // The clock starts when the league is confirmed, which is when the advice read is first asked for.
+      await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith(ADVICE_URL));
       expect(screen.getByTestId('matchup-preview')).not.toBeVisible();
       act(() => { jest.advanceTimersByTime(3000); });
       expect(screen.getByTestId('matchup-preview')).toBeVisible();
     } finally {
       jest.useRealTimers();
     }
+  });
+
+  test('a league list that answers after the lineup holds the rail until the advice answers', async () => {
+    let answerLeagues;
+    let answerAdvice;
+    renderPage({
+      [LEAGUES_URL]: new Promise((resolve) => { answerLeagues = resolve; }),
+      [ADVICE_URL]: new Promise((resolve) => { answerAdvice = resolve; }),
+    });
+    // The lineup and the league answer first while the inventory is still out; the page shows nothing until it lands.
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+
+    await act(async () => { answerLeagues(leaguesListResponse()); });
+    await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith(ADVICE_URL));
+    expect(screen.getByTestId('matchup-preview')).not.toBeVisible();
+
+    await act(async () => { answerAdvice({ data: adviceBody() }); });
+    await waitFor(() => expect(screen.getByTestId('matchup-preview')).toBeVisible());
   });
 });
 

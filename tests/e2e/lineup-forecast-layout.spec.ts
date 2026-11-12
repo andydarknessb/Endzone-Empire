@@ -131,7 +131,7 @@ test('at 1280px no layout shift lists the Bye clusters or the Matchup preview wh
 });
 
 // #2886: the longest verdict ("Too close to call") wraps inside the card instead of running out of it.
-for (const [width, height] of [[900, 900], [390, 844]] as const) {
+for (const [width, height] of [[900, 900], [360, 800]] as const) {
   test(`at ${width}px a tossup verdict keeps every suggestion-head child inside the card (#2886)`, async ({ page }) => {
     await setupLineupLedgerFixture(page, { advice: FORECAST_ADVICE });
     await page.setViewportSize({ width, height });
