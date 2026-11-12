@@ -156,9 +156,8 @@ export default function JoinLeagueDialog({ open, onClose, onJoined }) {
   const current = lookup && lookup.code === inviteCode ? lookup : null;
   const preview = current && current.status === 'found' ? current.league : null;
   const notFound = Boolean(current && current.status === 'not-found');
-  const keepTyping = inviteCode.length > 0 && inviteCode.length < LONGEST_INVITE_CODE
-    && !INVITE_CODE_LENGTHS.includes(inviteCode.length);
   const tooLong = inviteCode.length > LONGEST_INVITE_CODE;
+  const keepTyping = inviteCode.length > 0 && !tooLong && !INVITE_CODE_LENGTHS.includes(inviteCode.length);
   const refusal = refusalFor(preview);
 
   // A disabled button alone doesn't say why (WCAG 3.3.2), so the reason is

@@ -82,6 +82,7 @@ test.each([9, 12, 15])('a %i-character code reads as still being typed: no looku
   await userEvent.type(codeField(), CODE_16.slice(0, length));
 
   expect(screen.getByText(KEEP_TYPING)).toBeInTheDocument();
+  expect(codeField()).toHaveAccessibleDescription(KEEP_TYPING);
   await waitPastDebounce();
   expect(previewCalls()).toHaveLength(0);
   expect(screen.queryByText(TOO_LONG)).not.toBeInTheDocument();
@@ -94,6 +95,7 @@ test('a 17-character code reads as too long and is never looked up', async () =>
   await userEvent.type(codeField(), `${CODE_16}c`);
 
   expect(screen.getByText(TOO_LONG)).toBeInTheDocument();
+  expect(codeField()).toHaveAccessibleDescription(TOO_LONG);
   await waitPastDebounce();
   expect(previewCalls()).toHaveLength(0);
   expect(codeField()).toHaveAttribute('aria-invalid', 'true');
