@@ -263,12 +263,14 @@ export default function LineupPage() {
   // The Forecast tells the page which suggestions are still showing (a Dismiss hides one), so the Advice tile counts
   // and sums the same moves the plan line above Apply names.
   const [visibleSuggestions, setVisibleSuggestions] = useState(null);
-  const stripAdvice = visibleSuggestions && visibleSuggestions.length !== forecast.suggestions.length
+  // A list the panel reported for other advice (a week change, a reload) is ignored until it reports again.
+  const visibleNow = visibleSuggestions && visibleSuggestions.every((s) => forecast.suggestions.includes(s)) ? visibleSuggestions : null;
+  const stripAdvice = visibleNow
     ? {
       ...forecast,
-      suggestions: visibleSuggestions,
+      suggestions: visibleNow,
       projectedTotal: 0,
-      optimalTotal: adviceGain({ suggestions: visibleSuggestions, openSlotFills: forecast.openSlotFills }) ?? 0,
+      optimalTotal: adviceGain({ suggestions: visibleNow, openSlotFills: forecast.openSlotFills }) ?? 0,
     }
     : forecast;
   // The one Lineup write (spec #2042): swap, the Start/sit card's Apply, the

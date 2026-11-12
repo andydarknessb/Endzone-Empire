@@ -2216,4 +2216,36 @@ describe('QA round 2 (wave 3)', () => {
     await waitFor(() => expect(screen.getByTestId('strip-advice')).toHaveTextContent('+4.0 pts · 1 swap'));
     expect(screen.getByTestId('start-sit-plan-line')).toHaveTextContent('Start Bench Guy for Derrick King · +4.0 pts');
   });
+
+  // A Dismiss on one week does not carry into the next: the tile counts the new week's suggestions whole.
+  test('a Dismiss on one week does not shrink the Advice tile on the next', async () => {
+    const user = userEvent.setup();
+    const dismissed = adviceSuggestion({
+      slot: 'WR',
+      gain: 10.1,
+      current: { playerId: 30, name: 'Out Guy', projection: 0, opponent: 'JAX', startVerdict: { outcome: 'unavailable', reason: 'out' }, distribution: { p10: 0, p90: 0 } },
+      suggested: { playerId: 11, name: 'Other Guy', projection: 10.1, opponent: 'PHI', distribution: { p10: 3, p90: 19 } },
+    });
+    const kept = adviceSuggestion({ slot: 'RB', gain: 4 });
+    const nextWeekFirst = adviceSuggestion({
+      slot: 'RB',
+      gain: 6,
+      current: { playerId: 2, name: 'Derrick King', projection: 8, opponent: 'CIN', distribution: { p10: 3, p90: 13 } },
+      suggested: { playerId: 12, name: 'Third Guy', projection: 14, opponent: 'DAL', distribution: { p10: 6, p90: 18 } },
+    });
+    renderPage(withEntries([qb(), rb(), outWr(), benchWr()], {
+      [ADVICE_URL]: { data: adviceBody({ projectedTotal: 90, optimalTotal: 104.1, suggestions: [dismissed, kept] }) },
+      [`${LINEUP_URL}&week=5`]: { data: lineupBody({ body: { week: 5, entries: [qb(), rb(), outWr(), benchWr()] } }) },
+      '/api/team/lineup/advice?leagueId=1&week=5': { data: adviceBody({ week: 5, projectedTotal: 90, optimalTotal: 100, suggestions: [nextWeekFirst, kept] }) },
+      '/api/league/1/matchups?week=5': { data: [matchupRow({ week: 5 })] },
+    }));
+    await screen.findAllByTestId('suggestion-card');
+    await user.click(screen.getAllByTestId('suggestion-dismiss')[0]);
+    await waitFor(() => expect(screen.getByTestId('strip-advice')).toHaveTextContent('+4.0 pts · 1 swap'));
+
+    await user.click(screen.getByRole('button', { name: 'Next week' }));
+
+    await waitFor(() => expect(screen.getByTestId('strip-advice')).toHaveTextContent('+10.0 pts · 2 swaps'));
+    expect(screen.getAllByTestId('suggestion-card')).toHaveLength(2);
+  });
 });

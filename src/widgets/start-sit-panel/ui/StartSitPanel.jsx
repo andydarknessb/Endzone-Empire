@@ -1,4 +1,4 @@
-import React, { useLayoutEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Box } from '@mui/material';
 import {
   Frame, FrameHead, InjuryTag, LiveChip, PixelClock, PixelHeading, PsButton, StatusChip, Tag,
@@ -80,14 +80,14 @@ export default function StartSitPanel({
   const suggestions = Array.isArray(advice?.suggestions) ? advice.suggestions : [];
   const allViews = suggestions.map((s) => buildSuggestionView(s, entriesById));
   const views = allViews.filter((v) => !dismissed.has(v.key));
-  // The suggestions still showing, reported up so the Advice tile counts the same moves the plan line names after a
-  // Dismiss. Keyed on the content, not the array: an empty advice hands over a fresh [] every render.
+  // The suggestions still showing, reported up only once a Dismiss hides one (null until then), so advice that just landed
+  // is counted whole from its first paint. visibleSig stands in for the fresh array each render, which would loop.
   const visible = suggestions.filter((s, i) => !dismissed.has(allViews[i].key));
   const visibleSig = JSON.stringify(visible);
-  useLayoutEffect(() => {
-    onVisibleSuggestions?.(visible);
+  useEffect(() => {
+    onVisibleSuggestions?.(visible.length === suggestions.length ? null : visible);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visibleSig, onVisibleSuggestions]);
+  }, [visibleSig, advice?.suggestions, onVisibleSuggestions]);
 
   if (bestBall) return null;
   // Apply makes the moves of the suggestions still showing and nothing else

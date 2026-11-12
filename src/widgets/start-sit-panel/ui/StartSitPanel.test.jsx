@@ -92,6 +92,22 @@ test('dismiss hides the suggestion without touching any other', async () => {
   expect(screen.getByText('Other Sit')).toBeInTheDocument();
 });
 
+test('reports null while nothing is dismissed, then only the suggestion still showing after a Dismiss', async () => {
+  const user = userEvent.setup();
+  const onVisibleSuggestions = jest.fn();
+  const second = suggestion({
+    slot: 'WR',
+    current: { ...suggestion().current, playerId: 3, name: 'Other Sit' },
+    suggested: { ...suggestion().suggested, playerId: 4, name: 'Other Start' },
+  });
+  render(<StartSitPanel advice={{ suggestions: [suggestion(), second], movePlan: [] }} entries={entries} bestBall={false} onVisibleSuggestions={onVisibleSuggestions} />);
+  expect(onVisibleSuggestions).toHaveBeenLastCalledWith(null);
+
+  await user.click(within(screen.getAllByTestId('suggestion-card')[0]).getByTestId('suggestion-dismiss'));
+
+  expect(onVisibleSuggestions).toHaveBeenLastCalledWith([second]);
+});
+
 // Formal risk review findings: dismissing a card left focus with nowhere to
 // land (it fell to `<body>`), and nothing announced the removal.
 test('dismissing a card moves focus to the next remaining card\'s Dismiss button and announces the change', async () => {
