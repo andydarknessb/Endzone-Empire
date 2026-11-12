@@ -4,6 +4,7 @@ const express = require('express');
 const request = require('supertest');
 const sharp = require('sharp');
 const pool = require('../modules/pool');
+const { createFakePool, insert } = require('./helpers/fakePool');
 const { signToken } = require('../modules/auth');
 const { parseCookieHeader } = require('../modules/refreshCookie');
 const { handleUnhandledError } = require('../modules/errorHandler');
@@ -90,8 +91,8 @@ test('PUT /api/team/:id refuses a blank or 121-character rename with 400 before 
   }
 });
 
-test('POST /api/league refuses a blank or 121-character League name with 400 before any SQL', async (t) => {
-  refuseDb(t);
+test('POST /api/league refuses a blank or 121-character League name with 400 and no League INSERT', async (t) => {
+  const fake = createFakePool([]).install(t);
   const app = express();
   app.use(express.json());
   app.use('/api/league', leagueRouter);
@@ -107,6 +108,7 @@ test('POST /api/league refuses a blank or 121-character League name with 400 bef
     .send({ name: 'x'.repeat(121), teamName: 'Eve Picks' });
   assert.equal(long.status, 400);
   assert.equal(long.body.error, 'League name must be 120 characters or fewer');
+  assert.equal(fake.matching(insert('leagues')).length, 0, 'no League was inserted');
 });
 
 // A real PNG, so the only reason for the 400 is the extra field: without the
