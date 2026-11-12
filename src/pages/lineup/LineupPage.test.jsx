@@ -1888,7 +1888,7 @@ describe('the waivers clear time on the Bye clusters line', () => {
     const clear = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString();
     renderPage({
       ...withEntries(clusterEntries()),
-      '/api/waivers?leagueId=1': { data: { league: { waivers_clear_at: clear }, myClaims: [], onWaivers: [] } },
+      '/api/waivers?leagueId=1': { data: { league: { waivers_clear_at: clear }, myClaims: [] } },
     });
     const line = await screen.findByTestId('bye-cluster-line');
     await waitFor(() => expect(line).toHaveTextContent(/Waivers clear \w{3} \d{1,2}:\d{2} [AP]M\.$/));

@@ -386,7 +386,7 @@ async function previewLeagueByInviteCode({ code, userId }) {
  * validates again when it later calls joinLeague, but nothing should ever
  * get that far with an invalid one).
  */
-async function joinPublicLeague({ leagueId, userId, username, teamName }) {
+async function joinPublicLeague({ leagueId, userId, teamName }) {
   return leagueWrite(
     { leagueId, label: 'public-join' },
     async ({ client, league }) => {
@@ -442,8 +442,9 @@ async function joinPublicLeague({ leagueId, userId, username, teamName }) {
             leagueId,
             ownerId: league.owner_id,
             type: 'join_request',
-            message: `${username} requested to join ${league.name}`,
-            data: { requestId: joinRequest.id, userId },
+            // The alert names the proposed Team, never the requester's account (#2752).
+            message: `${name} requested to join ${league.name}`,
+            data: { requestId: joinRequest.id },
           });
         }
         // Returning COMMITs (ADR 0033): the pending branch's writes are the

@@ -15,8 +15,9 @@ const { isLeagueCommissioner } = require('./leagueRole.service');
  * processDueTrades selects by review_ends_at <= now(). Nothing here reads the
  * app's clock.
  *
- * A TradeError is a refusal that cancels a due trade; a DraftError (the roster
- * gate's) is transient. Keep the two apart.
+ * A TradeError thrown by executeTrade cancels a due trade. The execute transition's
+ * refusals (not yet due, a freeze, a Team lock) are returned and skipped, so the
+ * trade waits. A DraftError (the roster gate's) is transient. Keep the two apart.
  */
 class TradeError extends Error {
   constructor(statusCode, message) {
@@ -81,6 +82,15 @@ const CHECKS = {
     if (isLeagueFrozen(league)) throw new TradeError(409, 'transactions are locked by the commissioner');
   },
   deadline: ({ league }) => assertBeforeDeadline(league),
+  receivingLocked: ({ trade, teams }) => {
+    if (teams.get(trade.receiving_team_id).locked) throw new TradeError(409, 'your team is locked by the commissioner');
+  },
+  // A lock on either Team holds a trade; its refusal must not read as a cancel.
+  lockedParties: ({ trade, teams }) => {
+    if ([trade.proposing_team_id, trade.receiving_team_id].some((id) => teams.get(id)?.locked)) {
+      throw new TradeError(409, 'a team in this trade is locked by the commissioner');
+    }
+  },
   member: async (ctx) => {
     const myTeam = await requireMember(ctx.client, { leagueId: ctx.league.id, userId: ctx.userId });
     if (myTeam.locked) throw new TradeError(409, 'your team is locked by the commissioner');
@@ -125,7 +135,7 @@ const TRANSITIONS = {
   accept: {
     from: ['pending'],
     to: ({ league }) => (reviewed(league) ? 'accepted' : 'executed'),
-    checks: ['status', 'receiving', 'deadline'],
+    checks: ['status', 'receiving', 'deadline', 'frozen', 'receivingLocked'],
     actorRefusal: 'only the receiving owner can respond',
     refusal: pendingRefusal,
   },
@@ -169,11 +179,12 @@ const TRANSITIONS = {
     checks: ['commissioner', 'ownTeam', 'status'],
     refusal: statusRefusal,
   },
-  // A due trade: accepted, its window closed. The due run skips a refusal rather than cancelling.
+  // A due trade: accepted, its window closed. The due run skips a refusal rather than
+  // cancelling, so a freeze or a Team lock holds it before the fit check can cancel it.
   execute: {
     from: ['accepted'],
     to: () => 'executed',
-    checks: ['status', 'reviewWindowClosed'],
+    checks: ['status', 'reviewWindowClosed', 'frozen', 'lockedParties'],
     refusal: statusRefusal,
   },
 };

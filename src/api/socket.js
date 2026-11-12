@@ -37,9 +37,12 @@ export function createDraftSocket() {
   // not connected skips it: its next connect reads the fresh token anyway.
   // A destroyed socket (closed here, by the server, or refused at the handshake)
   // is no longer `active`; the first refresh after that drops its listener.
-  // While the server-disconnect handler below refreshes, the socket is inactive
-  // but about to be revived, so its listener must not drop out (#2556).
+  // While a revive (below) refreshes, the socket is inactive but about to be
+  // revived, so its listener must not drop out (#2556, #2740).
   let reviving = false;
+  // Held from a revive's start until its socket connects: one revive at a time,
+  // so a handshake refused as unauthorized right after a revive does not revive again.
+  let reviveHeld = false;
   const stopTellingServer = onTokenRefreshed((token) => {
     if (reviving) return;
     if (!socket.active) return stopTellingServer();
@@ -50,6 +53,8 @@ export function createDraftSocket() {
   // the socket is connected, and is then skipped above. Sending the current
   // token on every connect corrects the expiry the handshake recorded (#2556).
   socket.on('connect', () => {
+    // A revive's own connect reads the manager mark before it clears it, so only other connects clear it here.
+    if (!reviveHeld) reconnectedSinceConnect.delete(socket);
     const token = getToken();
     if (token) socket.emit('auth:refresh', { token });
   });
@@ -62,37 +67,48 @@ export function createDraftSocket() {
     }
   };
 
-  // Socket-only screens (draft room, live matchups) may go 15+ minutes with
-  // no REST traffic, so nothing else refreshes the access token. When the
-  // server rejects the handshake as unauthorized, refresh via REST. socket.io-client
-  // destroys a socket refused at the handshake and nothing here reconnects it,
-  // so it stays dead until its component remounts (a fresh token is only read
-  // by the next socket).
-  socket.on('connect_error', (err) => {
-    if (String(err && err.message).includes('unauthorized')) {
-      refreshTokens().catch(endSessionIfRefused);
-    }
-  });
-
-  // The server drops a socket whose token expired unrenewed (#2556), and
-  // socket.io does not reconnect after a server disconnect: refresh, then
-  // connect again so a Manager whose refresh failed earlier recovers unaided.
-  // If this refresh fails too the socket stays down until its component remounts.
+  // Refresh, then connect again and run the onReconnect handlers once the socket
+  // is back. A refused refresh ends the session; any other failure leaves the
+  // socket down until its component remounts.
   // shortcut: a component that unmounts while the refresh is in flight leaves a
   // revived socket nobody closes, move to a closed flag if that window ever bites
-  socket.on('disconnect', (reason) => {
-    if (reason !== 'io server disconnect') return;
+  // A refresh that fails leaves reviveHeld set, so the socket stays down as above.
+  const reviveWithFreshToken = () => {
+    if (reviveHeld) return;
+    reviveHeld = true;
     reviving = true;
     refreshTokens()
       .then(() => {
         // connect() skips the manager's 'reconnect' event, which is what the rooms
         // and feeds (onReconnect) rejoin and resync on, so run their handlers
-        // ourselves once the revived socket is connected (#2696).
-        socket.once('connect', () => runReconnectHandlers(socket));
+        // ourselves once the revived socket is connected (#2696), unless the manager
+        // already ran them since the last connect (its emits are buffered for this one).
+        socket.once('connect', () => {
+          const alreadyRan = reconnectedSinceConnect.has(socket);
+          reconnectedSinceConnect.delete(socket);
+          reviveHeld = false;
+          if (!alreadyRan) runReconnectHandlers(socket);
+        });
         socket.connect();
       })
       .catch(endSessionIfRefused)
       .finally(() => { reviving = false; });
+  };
+
+  // Socket-only screens (draft room, live matchups) may go 15+ minutes with
+  // no REST traffic, so nothing else refreshes the access token. socket.io-client
+  // destroys a socket refused at the handshake; when that refusal is unauthorized,
+  // revive it on the fresh token (#2740).
+  socket.on('connect_error', (err) => {
+    if (String(err && err.message).includes('unauthorized')) reviveWithFreshToken();
+  });
+
+  // The server drops a socket whose token expired unrenewed (#2556), and
+  // socket.io does not reconnect after a server disconnect: refresh, then
+  // connect again so a Manager whose refresh failed earlier recovers unaided.
+  socket.on('disconnect', (reason) => {
+    if (reason !== 'io server disconnect') return;
+    reviveWithFreshToken();
   });
 
   return socket;
@@ -111,14 +127,28 @@ export function createDraftSocket() {
 // Per-socket onReconnect handlers, so a revive (which never fires the manager's
 // 'reconnect') can run them too.
 const reconnectHandlers = new WeakMap();
+// Sockets whose manager 'reconnect' has run since they last connected: their
+// onReconnect handlers already ran then, buffering their emits for the next connect.
+const reconnectedSinceConnect = new WeakSet();
+// The mark listener is on the manager while the socket has handlers, so an
+// unsubscribe that leaves none leaves no listener behind.
+const reconnectMarks = new WeakMap();
 
 export function onReconnect(socket, handler) {
-  socket.io.on('reconnect', handler);
   if (!reconnectHandlers.has(socket)) reconnectHandlers.set(socket, new Set());
-  reconnectHandlers.get(socket).add(handler);
+  const handlers = reconnectHandlers.get(socket);
+  // The mark registers before the handler: a listener map that keeps one callback per event keeps the handler.
+  if (handlers.size === 0) {
+    const mark = () => reconnectedSinceConnect.add(socket);
+    reconnectMarks.set(socket, mark);
+    socket.io.on('reconnect', mark);
+  }
+  socket.io.on('reconnect', handler);
+  handlers.add(handler);
   return () => {
     socket.io.off('reconnect', handler);
-    reconnectHandlers.get(socket)?.delete(handler);
+    handlers.delete(handler);
+    if (handlers.size === 0) socket.io.off('reconnect', reconnectMarks.get(socket));
   };
 }
 

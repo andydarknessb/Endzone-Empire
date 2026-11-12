@@ -9,7 +9,7 @@ async function seedSession(page: Page, access = 'old-access-token', refresh = 'o
 }
 
 test.describe('authentication lifecycle', () => {
-  test('registration verification moves the profile from pending to active', async ({ page }) => {
+  test('registration posts the form and lands on the account page', async ({ page }) => {
     const profile = {
       id: 41,
       username: 'verification-rookie',
@@ -18,7 +18,6 @@ test.describe('authentication lifecycle', () => {
       email_verified: false,
     };
     let registerBody: unknown;
-    let verificationBody: unknown;
     let registered = false;
 
     await page.route('**/api/**', async (route) => {
@@ -32,13 +31,6 @@ test.describe('authentication lifecycle', () => {
           user: profile,
         });
       }
-      if (request.method() === 'POST' && path === '/api/auth/verify-email') {
-        verificationBody = request.postDataJSON();
-        await new Promise((resolve) => setTimeout(resolve, 150));
-        profile.account_status = 'active';
-        profile.email_verified = true;
-        return json(route, 200, { ok: true });
-      }
       if (request.method() === 'GET' && path === '/api/user') {
         return json(route, registered ? 200 : 401, registered ? profile : { error: 'signed out' });
       }
@@ -46,7 +38,6 @@ test.describe('authentication lifecycle', () => {
         return json(route, 401, { error: 'signed out' });
       }
       if (request.method() === 'GET' && path === '/api/league') return json(route, 200, []);
-      if (request.method() === 'GET' && path === '/api/news') return json(route, 200, []);
       if (request.method() === 'GET' && path === '/api/notifications') {
         return json(route, 200, { notifications: [] });
       }
@@ -65,20 +56,6 @@ test.describe('authentication lifecycle', () => {
       email: profile.email,
       password: 'InitialPass123!',
     });
-    expect(profile.account_status).toBe('pending');
-
-    await page.goto('/#/verify-email?token=verify-fixture-token');
-    await expect(page.getByRole('progressbar')).toBeVisible();
-    await expect(page.getByText(/email verified/i)).toBeVisible();
-    expect(verificationBody).toEqual({ token: 'verify-fixture-token' });
-
-    const refreshedProfile = await page.evaluate(async () => {
-      const response = await fetch('/api/user', {
-        headers: { Authorization: `Bearer ${localStorage.getItem('endzone_token')}` },
-      });
-      return response.json();
-    });
-    expect(refreshedProfile).toMatchObject({ account_status: 'active', email_verified: true });
   });
 
   test('password reset immediately invalidates the old access and refresh sessions', async ({ page }) => {

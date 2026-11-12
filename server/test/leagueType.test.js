@@ -543,7 +543,7 @@ test('commissioner: the same six pass through for a fantasy league (reach the se
 test("commissioner: rollover, remove member and avatar moderation stay open for a pick'em-only league", async (t) => {
   const calls = mockPool(t, { pickemOnly: true });
   const open = [
-    ['post', '/api/commissioner/league/3/rollover', { keepers: [] }],
+    ['post', '/api/commissioner/league/3/rollover', {}],
     ['delete', '/api/commissioner/league/3/teams/41', {}],
     ['delete', '/api/commissioner/league/3/teams/41/avatar', {}],
   ];

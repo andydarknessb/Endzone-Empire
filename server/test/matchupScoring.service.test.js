@@ -78,7 +78,10 @@ test('generateMatchups: an ordinary error keeps its healthy connection', async (
 // plain returns, so the (read-only) transaction COMMITs - harmless, and it
 // releases the same locks a ROLLBACK would - and the connection returns to the
 // pool bare. A season-ops-available league row lets both reach the early-out.
-const OPEN_LEAGUE = { pickem_only: false, draft_status: 'complete', season_status: 'in_season' };
+const OPEN_LEAGUE = {
+  pickem_only: false, draft_status: 'complete', season_status: 'in_season',
+  current_season: 2025, regular_season_weeks: 14,
+};
 
 test('generateMatchups: an existing week returns a COMMITted read-only transaction, released bare (#1060 Ruling 3)', async (t) => {
   const fake = createFakePool([

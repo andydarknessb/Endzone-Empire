@@ -7,7 +7,8 @@ const { loadNflRosterStatusById, nflRosterStatusColumn } = require('./nflRosterS
 const { computeByeWeeks } = require('./bye.service');
 const { normalizeNflTeam } = require('./nflTeam');
 const features = require('./projectionFeatures');
-const { rulesForLeague, SCORING_RULES, calculateFantasyPoints, hasTeamDefenseTiers } = require('./scoringRules');
+const { rulesForLeague, SCORING_RULES, calculateFantasyPoints } = require('./scoringRules');
+const { usesStoredSeasonTotal } = require('./seasonSummary.service');
 const { lastPlayoffWeek } = require('./season.service');
 const { fantasySeasonLiveWhereSql } = require('./leaguePhase');
 const { expertCoverage, getExpertProvider } = require('./expertProjection.provider');
@@ -287,8 +288,10 @@ async function getPositionDefense({ season, uptoWeek }) {
  * Pure: the player's most recent COMPLETED season's per-game production under
  * `rules`, or null. A DEF unit's season rollup carries per-game tier stats
  * (pointsAllowed/yardsAllowed), which must never be tier-matched as an
- * aggregate — for those we use the stored weekly-summed total instead, the
- * same accepted deviation scoring.service's projectSeasonPoints makes.
+ * aggregate, and a kicker count rollup drops its field goals when re-scored;
+ * for both we use the stored weekly-summed total instead
+ * (usesStoredSeasonTotal), the same accepted deviation scoring.service's
+ * projectSeasonPoints makes.
  */
 function priorSeasonPerGame(seasonRows, rules, season) {
   const lastCompleted = [...(seasonRows || [])]
@@ -297,7 +300,7 @@ function priorSeasonPerGame(seasonRows, rules, season) {
   if (!lastCompleted) return null;
   const games = Number(lastCompleted.games_played) || 0;
   if (games <= 0) return null;
-  const total = hasTeamDefenseTiers(lastCompleted.stats)
+  const total = usesStoredSeasonTotal(lastCompleted.stats)
     ? Number(lastCompleted.fantasy_points)
     : calculateFantasyPoints(lastCompleted.stats, rules);
   if (!Number.isFinite(total)) return null;
@@ -1444,7 +1447,9 @@ async function completeRun({
   });
   const effectiveRun = saved || run;
   try {
-    await saveProjections({ runId: effectiveRun.id, projections: generated.projections, client });
+    // The savepoint keeps a failed INSERT from aborting a caller's transaction (25P02).
+    await withOptionalSavepoint(client, 'projection_cache_write', () =>
+      saveProjections({ runId: effectiveRun.id, projections: generated.projections, client }));
   } catch (err) {
     // A cache write failure must not deny the caller a projection it already
     // computed; the next request simply regenerates.

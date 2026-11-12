@@ -45,7 +45,10 @@
 // idpFumbleRecovery is ESPN-only too since #2002 and kept the same way. Both
 // boxes emit the three two-point keys only for a player who made one: the
 // Final box reads them off Tank01's category objects (#2244), the ESPN Live
-// box off the touchdown's Score summary line (#2252).
+// box off the touchdown's Score summary line (#2252). twoPointReturn (#2790)
+// is not one of those three: the ESPN Live box carries it for every box
+// player, 0 included, and the Tank01 box alone omits it for a defender
+// without a return.
 const BOX_PLAYER_KEYS = [
   'passingYards', 'passingTDs', 'interceptions', 'rushingYards', 'rushingTDs',
   'receivingYards', 'receivingTDs', 'receptions', 'fumbles', 'fieldGoal', 'fieldGoalMissed',
@@ -65,8 +68,11 @@ const BOX_PLAYER_KEYS = [
 // none, so those writes leave a stored count (an earlier box, or the nflverse
 // correction) alone, while a box line that carries one, even 0, wins. The
 // cost: a box never takes back a credit it gave; the nflverse correction does.
+// twoPointReturn (#2790) is kept the same way, but nflverse never writes it,
+// so only a later ESPN write changes a stored credit.
 const BOX_KEEP_IF_ABSENT = [
   'idpInterceptionReturnYards', 'idpFumbleRecovery', 'passingTwoPt', 'rushingTwoPt', 'receivingTwoPt',
+  'twoPointReturn',
 ];
 const BOX_TEAM_DEFENSE_KEYS = [
   'sack', 'interceptionReturn', 'fumbleRecovery', 'defensiveTD', 'safety', 'blockedKick',
@@ -102,7 +108,7 @@ const CORRECTION_KEYS = [
   'fumbles', 'fieldGoal', 'fieldGoalMissed', 'fieldGoalDistances', 'extraPoint', 'extraPointMissed',
   'returnTDs', 'puntReturns', 'puntReturnYards', 'kickReturns', 'kickReturnYards',
   'soloTackle', 'assistedTackle', 'idpSack', 'idpInterception', 'forcedFumble', 'idpFumbleRecovery',
-  'passDeflection', 'qbHit', 'tacklesForLoss', 'idpDefensiveTD', 'twoPointReturn',
+  'passDeflection', 'qbHit', 'tacklesForLoss', 'idpDefensiveTD',
   'idpSackYards', 'idpTacklesForLossYards', 'idpFumbleReturnYards', 'idpInterceptionReturnYards', 'idpSafety',
   ...WEEK_SHARE_EPA_KEYS,
   ...BOX_TEAM_DEFENSE_KEYS,

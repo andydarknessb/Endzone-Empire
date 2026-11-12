@@ -118,3 +118,21 @@ test('a second fatal event after the first never produces a second exit', async 
   await tick(10);
   assert.equal(proc.exit.mock.callCount(), 1);
 });
+
+// #2758: boot awaits the draft-sweep stamp before the scheduler starts. A Redis
+// that never answers must not hold boot: startWorker still reaches the start log.
+test('boot reaches the background worker start when the Redis stamp never settles', { timeout: 15_000 }, async (t) => {
+  const pool = require('../modules/pool');
+  const redis = require('../modules/redis');
+  const { logger } = require('../modules/logger');
+  const { stopScheduler } = require('../modules/scheduler');
+  const { stopLiveGameEngine } = require('../modules/liveGameEngine');
+  t.mock.method(redis, 'getRedisClient', () => new Promise(() => {}));
+  t.mock.method(pool, 'query', async () => ({ rows: [] }));
+  const info = t.mock.method(logger, 'info', () => {});
+  t.after(() => { stopScheduler(); stopLiveGameEngine(); });
+
+  await worker.startWorker();
+
+  assert.ok(info.mock.calls.some((call) => call.arguments[0] === 'background worker started'));
+});

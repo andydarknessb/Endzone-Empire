@@ -1266,6 +1266,49 @@ test('the live-sync row still scores when the stat sync fetched nothing', async 
   assert.deepEqual(scoredFor, { leagueId: 42, plays: [] });
 });
 
+test('the live-sync row still scores the second League when the first throws (#2750)', async (t) => {
+  const feedSyncRuns = require('../services/feedSyncRuns.service');
+  const scoring = require('../services/matchupScoring.service');
+  t.mock.method(tank01Client, 'getQuotaState', async () => ({ mode: 'ok' }));
+  createFakePool([
+    [/FROM "leagues"/, () => ({ rows: [
+      { id: 41, current_season: 2026, current_week: 3 },
+      { id: 42, current_season: 2026, current_week: 3 },
+    ] })],
+    [/FROM "nfl_games"/, () => ({ rows: [{ '?column?': 1 }] })],
+    [/./, () => ({ rows: [] })],
+  ]).install(t);
+  t.mock.method(feedSyncRuns, 'syncWeekStats', async () => {
+    throw new Error('quota exhausted');
+  });
+  const scoredLeagues = [];
+  t.mock.method(scoring, 'scoreMatchups', async ({ leagueId }) => {
+    if (leagueId === 41) throw new Error('League 41 cannot be scored');
+    scoredLeagues.push(leagueId);
+    return { scored: [] };
+  });
+
+  const prevKey = process.env.RAPID_API_KEY;
+  const prevHost = process.env.RAPID_API_HOST;
+  process.env.RAPID_API_KEY = 'test-key';
+  process.env.RAPID_API_HOST = 'test-host';
+  try {
+    // The row's tick-count gate is module state the test above has already spent, so force it due here: this test is about League isolation, not cadence.
+    setClock(t, '2026-09-13T17:00:00Z');
+    const row = scheduler.TICK_JOBS.find((job) => job.name === 'live-sync');
+    await scheduler.tickUnlocked([{
+      ...row,
+      gate: { due: () => ({ due: true, reason: 'forced for this test' }), settle() {} },
+    }]);
+  } finally {
+    if (prevKey === undefined) delete process.env.RAPID_API_KEY;
+    else process.env.RAPID_API_KEY = prevKey;
+    if (prevHost === undefined) delete process.env.RAPID_API_HOST;
+    else process.env.RAPID_API_HOST = prevHost;
+  }
+  assert.deepEqual(scoredLeagues, [42], 'the first League threw; the second is still scored');
+});
+
 // ---- pick'em-only season lifecycle -------------------------------------------
 
 // Weeks 1..5 of a season: each week's last kickoff is Monday night, 00:15Z Tue.

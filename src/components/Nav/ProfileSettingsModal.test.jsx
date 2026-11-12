@@ -168,7 +168,7 @@ test('partial failure: avatar fails while name saves — reports both, dialog st
   await waitFor(() => expect(mock.history.post).toHaveLength(1));
   await waitFor(() => expect(mock.history.put).toHaveLength(1));
   expect(
-    await screen.findByText('avatar save failed (storage offline); name saved')
+    await findToast('avatar save failed (storage offline); name saved')
   ).toBeInTheDocument();
   expect(teamProfileUpdates).toEqual([{ leagueId: 1, teamId: 5, name: 'Bandits' }]);
   // The failed part is retryable, so the dialog does not close.

@@ -58,6 +58,8 @@ function workerStartPool(t, { leagueRow = dueStartLeagueRow(), onAutoPickRead } 
     [/^SELECT COUNT\(\*\)::int AS n FROM "draft_picks"/, () => ({ rows: [{ n: 0 }] })],
     // The market gate's count (#747): a loaded market so the action stays 'start'.
     [/FROM "players" WHERE "adp" IS NOT NULL/, () => ({ rows: [{ n: 500 }] })],
+    // Opening week's schedule read (ADR 0071): no schedule on file, so a real start opens week 1.
+    [/FROM "nfl_games"/, () => ({ rows: [] })],
     [/^SELECT DISTINCT "owner_id" FROM "teams"/, () => ({ rows: [] })],
     [/^SELECT "owner_id" FROM "teams"/, () => ({ rows: [] })],
     [/^SELECT \* FROM "leagues" WHERE "id" = \$1/, () => {
@@ -144,6 +146,8 @@ test('the worker scheduled start emits the state refresh and the draft_start act
     [select('leagues'), () => ({ rows: [{ ...row }] })],
     // The market gate's count (#747): a loaded market so the start is not refused.
     [select('players'), () => ({ rows: [{ n: 500 }] })],
+    // Opening week's schedule read (ADR 0071): no schedule on file, so the start opens week 1.
+    [/FROM "nfl_games"/, () => ({ rows: [] })],
     [update('leagues'), (text, params) => {
       if (/'active'/.test(text)) row.draft_status = 'active';
       const m = text.match(/make_interval\(secs => \$(\d+)::int\)/);
@@ -261,6 +265,8 @@ function realStartPool(t, { league = manualBaseLeague, teams = manualTeams, keep
     [/^SELECT 1 FROM "leagues"/, () => ({ rows: [{ '?column?': 1 }] })],
     // The market gate's count (#747): a loaded market so start is not refused.
     [select('players'), () => ({ rows: [{ n: 500 }] })],
+    // Opening week's schedule read (ADR 0071): no schedule on file, so the start opens week 1.
+    [/FROM "nfl_games"/, () => ({ rows: [] })],
     [update('leagues'), (text, params) => {
       if (/'complete'/.test(text) || params.includes('complete')) row.draft_status = 'complete';
       else if (/'active'/.test(text)) row.draft_status = 'active';

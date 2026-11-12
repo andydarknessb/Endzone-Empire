@@ -39,6 +39,26 @@ const SLEEPER_STAT_MAP = {
   xpm: 'extraPoint',
 };
 
+// Sleeper's made-field-goal distance buckets -> a yardage inside each bucket.
+// Any yardage in a bucket prices the same under the default kicking tiers, and
+// Sleeper's own pts_* are not our points, so the buckets are what we price.
+const SLEEPER_FG_BUCKET_YARDS = {
+  fgm_0_19: 10,
+  fgm_20_29: 25,
+  fgm_30_39: 35,
+  fgm_40_49: 45,
+  fgm_50p: 55,
+};
+
+/** Pure: a Sleeper kicker stat row -> one pricing yardage per made field goal ([] without buckets). */
+function mapSleeperFieldGoalDistances(raw) {
+  const out = [];
+  for (const [key, yards] of Object.entries(SLEEPER_FG_BUCKET_YARDS)) {
+    for (let i = 0; i < Number(raw[key]); i++) out.push(yards);
+  }
+  return out;
+}
+
 /** Pure: a Sleeper season stat row -> our flat stat totals (non-zero only). */
 function mapSleeperStats(raw) {
   const out = {};
@@ -67,13 +87,15 @@ function normalizeSleeperEntry(meta, statRow) {
     position: String((meta.position || '')).toUpperCase(),
     games,
     stats,
+    fieldGoalDistances: mapSleeperFieldGoalDistances(statRow),
   };
 }
 
 /**
  * Pure matching: our players ([{id, name, position}]) x normalized Sleeper
  * entries -> season-stat rows to upsert ([{ playerId, season, games, stats }]).
- * Match by name key; disambiguate same-named players by position.
+ * Match by name key; disambiguate same-named players by position. Each update
+ * carries fieldGoalDistances when the matched entry has one (kickers).
  */
 function buildSeasonStatUpdates(players, entries, season) {
   const byNameKey = new Map();
@@ -88,7 +110,10 @@ function buildSeasonStatUpdates(players, entries, season) {
     if (!candidates || candidates.length === 0) continue;
     const pos = String(player.position || '').toUpperCase();
     const match = candidates.find((c) => c.position === pos) || candidates[0];
-    updates.push({ playerId: player.id, season, games: match.games, stats: match.stats });
+    const update = { playerId: player.id, season, games: match.games, stats: match.stats };
+    // Kick distances travel beside stats, never inside them: the stored stats stay count-only.
+    if (match.fieldGoalDistances) update.fieldGoalDistances = match.fieldGoalDistances;
+    updates.push(update);
   }
   return updates;
 }
@@ -108,7 +133,9 @@ function buildSeasonStatUpdates(players, entries, season) {
  * `syncSeasonStats`'s existing one-statement-per-season loop and its own
  * per-season error capture below: a failure here rejects this call and is
  * caught there, landing in that season's `{ season, error }` entry rather
- * than failing the whole run. `player_season_stats`'s other writer,
+ * than failing the whole run. Fantasy points price the stats plus the made-kick
+ * distance buckets beside them (fieldGoalDistances), so a kicker's stored total
+ * includes its field goals. `player_season_stats`'s other writer,
  * `syncPlayerSeasonStats` (services/scoring.service.js, job 'season-stats'),
  * takes the SAME lock via `runSyncJob`, so the two no longer race to a
  * deadlock (40P01) now that both hold their row locks to COMMIT. Resolved
@@ -130,7 +157,7 @@ async function upsertSeasonStats(updates) {
         updates.map((u) => u.season),
         updates.map((u) => u.games),
         updates.map((u) => JSON.stringify(u.stats)),
-        updates.map((u) => calculateFantasyPoints(u.stats)),
+        updates.map((u) => calculateFantasyPoints({ ...u.stats, fieldGoalDistances: u.fieldGoalDistances || [] })),
       ]
     );
   }, { label: 'sleeper.upsertSeasonStats' });

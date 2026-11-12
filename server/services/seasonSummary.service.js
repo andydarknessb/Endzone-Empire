@@ -9,6 +9,21 @@ const pool = require('../modules/pool');
 const { SCORING_RULES, calculateFantasyPoints, hasTeamDefenseTiers } = require('./scoringRules');
 
 /**
+ * True when a kicker's season rollup holds a made-FG COUNT and no distance
+ * array. Only `fieldGoalDistances` is priced, so re-scoring such a row drops
+ * every field goal. A numeric `fieldGoalDistances` is aggregateSeasonStats
+ * leaking a one-kick week as a bare number, not a distance list, so it still counts.
+ */
+function hasKickerCountTotal(stats) {
+  return !!stats && typeof stats === 'object' && 'fieldGoal' in stats && !Array.isArray(stats.fieldGoalDistances);
+}
+
+/** True when a season row's stored fantasy_points is its season total (DEF tiers, kicker counts). */
+function usesStoredSeasonTotal(stats) {
+  return hasTeamDefenseTiers(stats) || hasKickerCountTotal(stats);
+}
+
+/**
  * Pure: sum an array of weekly stat objects into one season total. Every
  * numeric stat key is added up; `games` counts the rows (weeks played).
  * Non-numeric / unknown values are ignored.
@@ -64,10 +79,11 @@ function projectSeasonPoints({ seasonRows = [], rules = SCORING_RULES, currentSe
   if (!lastCompleted) return null;
   const games = Number(lastCompleted.games_played) || 0;
   if (games < MIN_PROJECTION_GAMES) return null;
-  // DEF rollups can't be scored as aggregates (see hasTeamDefenseTiers) — use
+  // DEF rollups can't be scored as aggregates (see hasTeamDefenseTiers), and a
+  // kicker count rollup drops its field goals (see hasKickerCountTotal) — use
   // the stored weekly-summed season total instead. Accepted deviation: that
-  // total is under default rules, so custom league DEF tiers don't move it.
-  const seasonTotal = hasTeamDefenseTiers(lastCompleted.stats)
+  // total is under default rules, so custom league DEF and kicking rules don't move it.
+  const seasonTotal = usesStoredSeasonTotal(lastCompleted.stats)
     ? Number(lastCompleted.fantasy_points)
     : calculateFantasyPoints(lastCompleted.stats, rules);
   const perGame = seasonTotal / games;
@@ -116,9 +132,11 @@ function buildPlayerSummary({
       const seasonWeeklies = hasTeamDefenseTiers(r.stats)
         ? weeklyRows.filter((w) => w.season === r.season)
         : [];
-      const points = seasonWeeklies.length
-        ? Math.round(seasonWeeklies.reduce((sum, w) => sum + calculateFantasyPoints(w.stats, rules), 0) * 100) / 100
-        : calculateFantasyPoints(r.stats, rules);
+      // A kicker count rollup keeps its stored total: a League's kicking rules never move a past season.
+      const points = hasKickerCountTotal(r.stats) ? Number(r.fantasy_points)
+        : seasonWeeklies.length
+          ? Math.round(seasonWeeklies.reduce((sum, w) => sum + calculateFantasyPoints(w.stats, rules), 0) * 100) / 100
+          : calculateFantasyPoints(r.stats, rules);
       const games = Number(r.games_played) || 0;
       return {
         season: r.season,
@@ -144,7 +162,8 @@ function buildPlayerSummary({
     previousSeasonYear: lastCompleted ? lastCompleted.season : null,
     previousSeasonTotal: lastCompleted ? lastCompleted.points : null,
     projectionSeason: currentYear,
-    projectedPoints: canProject ? Math.round(lastCompleted.perGame * 17 * 10) / 10 : null,
+    // Unrounded per-game pace, as projectSeasonPoints does: rounding perGame first drifts the projection.
+    projectedPoints: canProject ? Math.round((lastCompleted.points / lastCompleted.games) * 17 * 10) / 10 : null,
   };
 
   return {
@@ -202,4 +221,5 @@ module.exports = {
   buildPlayerSummary,
   projectSeasonPoints,
   getSeasonPositionRank,
+  usesStoredSeasonTotal,
 };

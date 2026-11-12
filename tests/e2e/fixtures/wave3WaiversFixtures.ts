@@ -101,7 +101,6 @@ const resolved = (id: number, name: string, status: string, week: number | null,
 const waiversResponse = () => ({
   league: { waiver_type: 'faab', waiver_period_hours: 48, faab_budget: 100, waivers_clear_at: hoursFromNow(64), current_season: 2026 },
   myTeam: { id: 500, waiver_priority: 5, faab_remaining: 81 },
-  onWaivers: [],
   myClaims: [
     claim(1, 101, 'Rashid Shaheed', 14, 1),
     claim(2, 107, 'Jalen McMillan', 5, 2),

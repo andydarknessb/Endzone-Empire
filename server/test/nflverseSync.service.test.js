@@ -400,7 +400,11 @@ test('normalizeNflversePlayerStats maps IDP including the finalization-only yard
   assert.equal(stats.idpFumbleReturnYards, 15);
   assert.equal(stats.idpDefensiveTD, 1);
   assert.equal(stats.idpSafety, 1);
-  assert.equal(stats.twoPointReturn, 0); // no nflverse weekly column
+});
+
+test('normalizeNflversePlayerStats emits no twoPointReturn, so a correction carries a stored box value forward (#2751)', () => {
+  const stats = normalizeNflversePlayerStats({ def_tds: '1', passing_yards: '200' });
+  assert.equal(Object.hasOwn(stats, 'twoPointReturn'), false);
 });
 
 test('normalizeNflversePlayerStats: soloTackle adds def_tackles_with_assist, a tackle credited with an assist that is in neither def_tackles_solo nor def_tackle_assists (issue #2244)', () => {

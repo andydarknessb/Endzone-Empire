@@ -680,3 +680,17 @@ test('leagueStatuses leaves round, slot and onTheClock off a pre-draft league', 
   assert.deepEqual(Object.keys(pre).sort(), ['date', 'maxTeams', 'seatsFilled', 'timezone']);
   assert.equal(fake.calls.some((c) => /ORDER BY "draft_position"/.test(c.text)), false);
 });
+
+// --- the League list: invite_code is a Commissioner's, on every row ----------
+
+test('the League list row carries invite_code for a Commissioner and not for a member', async () => {
+  const row = { id: 71, name: 'Winsconsota', invite_code: 'K7P2QX' };
+  const asCommissioner = createFakePool([[/AS "is_commissioner" FROM "leagues"/, () => ({ rows: [{ ...row, is_commissioner: true }] })]]);
+  const asMember = createFakePool([[/AS "is_commissioner" FROM "leagues"/, () => ({ rows: [{ ...row, is_commissioner: false }] })]]);
+
+  const [commissioned] = await homeStatus.listMyLeagues(asCommissioner, 7);
+  const [member] = await homeStatus.listMyLeagues(asMember, 7);
+
+  assert.equal(commissioned.invite_code, 'K7P2QX');
+  assert.equal('invite_code' in member, false);
+});

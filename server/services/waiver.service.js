@@ -226,6 +226,7 @@ async function submitClaim({ leagueId, userId, playerId, dropPlayerId, bid = 0 }
     }
 
     const team = await requireMember(client, { leagueId, userId });
+    if (league.draft_status !== 'complete') throw new WaiverError(409, 'the draft is not complete');
     if (team.locked) throw new WaiverError(409, 'your team is locked by the commissioner');
 
     if (league.waiver_type === 'faab') {
@@ -619,7 +620,9 @@ async function processWaivers({ leagueId }) {
     // The same comparator picks the next claim after every win, so a winner's
     // move to the back of the Waiver priority order (below) is seen by the
     // claims still to come, as it always was.
-    const remaining = [...dueResult.rows];
+    // A locked Team's due claim is left pending, unfinished and unspent, for the first run after the lock lifts (CONTEXT.md, Roster lock).
+    const due = dueResult.rows.filter((c) => !teams.get(c.team_id)?.locked);
+    const remaining = [...due];
     // claim id -> was roster capacity already what blocked it before this team's
     // first win of the run? Read once, just before that first win, so a
     // capacity note can be causal (see siblingReason).
@@ -674,18 +677,16 @@ async function processWaivers({ leagueId }) {
       // freeze must not land during it (#940 story 4). A frozen League throws,
       // the transaction rolls back, and every due claim stays pending for the
       // next tick rather than being awarded or permanently invalidated. The team
-      // lock and the waiver hold are bypassed there, and the add passes an empty move
-      // set: claimFailureReason already asked the claim's net fit (its drop netted in)
-      // before any write above, so the add has nothing left to fit. A waiver award IS
-      // a waiver, so the on-waivers gate does not apply. Per-team-lock handling on the
-      // batch path is a later ticket - so this slice changes only the freeze here (#944 criterion 5).
+      // lock is bypassed there because the walk above never reaches a locked Team's
+      // claim, and the add passes an empty move set: claimFailureReason already asked
+      // the claim's net fit (its drop netted in) before any write above, so the add has
+      // nothing left to fit. A waiver award IS a waiver, so the on-waivers gate does not apply.
 
       // Execute: optional drop (dropped player goes on waivers), then add.
       if (claim.drop_player_id) {
         // Not undoable, so nothing is recorded on the hold and no dropping team
         // is named; the module removes the lineup entries with the roster row
-        // (#197, #2535). Team lock is bypassed for the same reason the award
-        // bypasses it: the batch path's per-team-lock handling is a later ticket.
+        // (#197, #2535). Team lock is bypassed: the walk above skips a locked Team's claims.
         await rosterMove.drop(client, {
           league,
           teamId: team.id,
@@ -767,7 +768,7 @@ async function processWaivers({ leagueId }) {
     );
     await spendExpiredBlanketWindow(client, leagueId);
 
-    return { processed: dueResult.rows.length, results };
+    return { processed: due.length, results };
     }
   );
   return result;
@@ -838,8 +839,9 @@ async function claimFailureReason(client, { league, team, claim }) {
  * Kickoff hold (#1375, ADR 0043): the scheduler's kickoff tick. Writes the
  * same `waiver_players` row a drop writes, with no dropping team, for every
  * unrostered player on every kicked-off NFL team, in every league whose
- * draft is complete - the same `fantasySeasonLiveWhereSql` eligibility the
- * other weekly jobs already use, so a league still drafting or a
+ * draft is complete, until the week clear (nothing is written after it). It
+ * uses the same `fantasySeasonLiveWhereSql` eligibility the other weekly
+ * jobs already use, so a league still drafting or a
  * pick'em-only league (which never satisfies that fragment) sees nothing.
  * Runs once per scheduler tick, before claim processing, so a claim
  * submitted this tick already sees the hold.
@@ -871,7 +873,7 @@ async function claimFailureReason(client, { league, team, claim }) {
  * week's clear (#1375 review f2): without it, every already-held player on a
  * kicked-off team is written back by the tick's statement - a no-op ON
  * CONFLICT write that still stamps `updated_at` - on EVERY tick from the
- * week's first kickoff until the week advances, across every complete-draft
+ * week's first kickoff until the week clear, across every complete-draft
  * league. The exclusion is a read filter, not a second copy of the conflict
  * rule: the placement statement stays the one place greater-of and the
  * untouched columns are decided; this only decides which players are worth
@@ -929,12 +931,14 @@ async function holdKickedOffPlayersForLeague(league, now) {
   if (!lastKickoff) return 0; // no schedule rows for this week
 
   const availableAt = new Date(lastKickoff.getTime() + waiverPeriodHours * 60 * 60 * 1000);
+  // Past the week clear the hold is over: a kicked-off player is a Free agent (ADR 0043 amendment).
+  if (now >= availableAt) return 0;
 
   // A player already held at or past this week's clear (an earlier tick's own
   // write, or a drop's clear that is later still, per the greater-of rule)
   // needs no write this tick: `placeOnWaivers` would take the ON CONFLICT
   // branch and touch `updated_at` for no change, on every one of these per
-  // league until the week advances (#1375 review f2). Excluding them here
+  // league until the week clear (#1375 review f2). Excluding them here
   // keeps `placeOnWaivers` the one place the conflict rule lives - this is a
   // candidate filter, not a second copy of it.
   const candidatesResult = await pool.query(

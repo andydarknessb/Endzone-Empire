@@ -37,6 +37,12 @@ async function generateMatchups({ leagueId, season, week }) {
         err.statusCode = 409;
         throw err;
       }
+      // Pairings exist only for this season's regular-season weeks (#2750): a later week's rows block Advance week's unique index on every retry.
+      if (season !== league.current_season || week > league.regular_season_weeks) {
+        const err = new Error(`Week ${week} of ${season} is not a regular-season week of this League.`);
+        err.statusCode = 409;
+        throw err;
+      }
       const existing = await client.query(
         `SELECT 1 FROM "matchups" WHERE "league_id" = $1 AND "season" = $2 AND "week" = $3 LIMIT 1`,
         [leagueId, season, week]
@@ -74,8 +80,8 @@ async function generateMatchups({ leagueId, season, week }) {
  *
  * Split in two (spec #2602): `scoreMatchupsInTransaction` is everything that
  * must commit with a stat correction, and it RETURNS what `announceScored`
- * needs. `scoreMatchups` composes the two and keeps its own behaviour, so the
- * live tick and the manual re-score route do not change.
+ * needs. `scoreMatchups` composes the two and keeps its own behaviour for every
+ * caller but the live tick, which passes `live` (#2750).
  *
  * Materializing first - so a team that never touched its lineup still gets a
  * carried-forward or default-bench one - is the LIVE population's behaviour
@@ -108,6 +114,8 @@ async function generateMatchups({ leagueId, season, week }) {
  * - FINAL (`matchups.final`): the SAME population and the SAME exclusion as
  *   SETTLE. A player traded or dropped SINCE then still counts, and the
  *   lineup is never re-materialized against today's roster (#106).
+ *   A LIVE tick (`live`) never re-prices a final Matchup at all: it reports the
+ *   stored score (#2750). Only a stat correction moves a final week's score.
  *
  * SETTLE and FINAL are deliberately one rule, and that is the resolution of
  * #190's second escalation rather than a tidy-up. They were once two: the
@@ -145,7 +153,7 @@ async function generateMatchups({ leagueId, season, week }) {
  * to commit with its own log and notices or not at all (spec #2602), so the
  * caller owns the client and the close. Never query the ambient pool here.
  */
-async function scoreMatchupsInTransaction(client, { leagueId, season, week, settle = false }) {
+async function scoreMatchupsInTransaction(client, { leagueId, season, week, settle = false, live = false }) {
   const leagueResult = await client.query(
     `SELECT * FROM "leagues" WHERE "id" = $1`,
     [leagueId]
@@ -266,8 +274,9 @@ async function scoreMatchupsInTransaction(client, { leagueId, season, week, sett
   };
   const scored = [];
   for (const matchup of matchupsResult.rows) {
-    if (matchup.score_overridden) {
+    if (matchup.score_overridden || (live && matchup.final)) {
       // A commissioner's override is the score of record; report it, never recompute it (#2274).
+      // A live tick reads the League before Advance week, so it can reach a week that went final: only a stat correction re-prices one (#2750).
       scored.push({
         matchupId: matchup.id,
         homeTeamId: matchup.home_team_id,
@@ -353,15 +362,16 @@ async function announceScored({ leagueId, season, week, plays = [], league, scor
  * Score a league week and announce it: the in-transaction half on its own
  * pooled transaction, then the post-commit half. A caller that must commit
  * something else beside the re-score (the stat correction, spec #2602) calls
- * the two halves itself instead.
+ * the two halves itself instead. `live` is the live tick's call (scheduler,
+ * liveBoxPoll): a final Matchup then keeps its stored score (#2750).
  */
-async function scoreMatchups({ leagueId, season, week, plays = [], settle = false }) {
+async function scoreMatchups({ leagueId, season, week, plays = [], settle = false, live = false }) {
   // withTransaction owns connect, BEGIN, COMMIT-or-guarded-ROLLBACK and the
   // release rule (ADR 0033). It returns exactly what the announcement below
   // needs, and that work runs AFTER the connection is back in the pool.
   const result = await withTransaction(
     pool,
-    (client) => scoreMatchupsInTransaction(client, { leagueId, season, week, settle }),
+    (client) => scoreMatchupsInTransaction(client, { leagueId, season, week, settle, live }),
     { label: 'scoring' }
   );
   await announceScored({ leagueId, season, week, plays, ...result });

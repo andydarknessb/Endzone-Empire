@@ -100,20 +100,28 @@ export function useMatchup(leagueId, matchupId, { onScores, slotOrder } = {}) {
   // live box score until the fetch resolves. A fetch also re-seeds the lineups
   // from the authoritative body, dropping any optimistic per-starter deltas in
   // favour of the real totals.
+  // Each load supersedes the one before it (the useResource guard): a slower,
+  // older detail body must not replace the box score a later load already set.
+  const requestSeq = useRef(0);
   const loadMatchup = useCallback(async ({ silent = false } = {}) => {
+    const seq = requestSeq.current + 1;
+    requestSeq.current = seq;
+    const current = () => requestSeq.current === seq;
     try {
       if (!silent) setLoading(true);
       setError(null);
       const res = await apiClient.get(`/api/league/${leagueId}/matchups/${matchupId}`);
-      setDetail(res.data);
-      weekRef.current = res.data?.matchup?.week ?? null;
-      setMatchup(matchupFromDetailBody(res.data));
-      setHome(res.data?.home ?? null);
-      setAway(res.data?.away ?? null);
+      if (current()) {
+        setDetail(res.data);
+        weekRef.current = res.data?.matchup?.week ?? null;
+        setMatchup(matchupFromDetailBody(res.data));
+        setHome(res.data?.home ?? null);
+        setAway(res.data?.away ?? null);
+      }
     } catch (err) {
-      setError(readHttpFailure(err).message || err.message);
+      if (current()) setError(readHttpFailure(err).message || err.message);
     } finally {
-      if (!silent) setLoading(false);
+      if (current()) setLoading(false);
     }
   }, [leagueId, matchupId]);
 

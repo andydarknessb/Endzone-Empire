@@ -175,6 +175,9 @@ async function dropPlayer({ leagueId, userId, playerId }) {
     // (what the hold records and `removeLineupEntries` prunes against) cannot
     // move under the drop, and the gate inside `drop` reads that same row.
     if (!league) throw new DraftError(404, 'league not found');
+    assertFantasyLeagueRow(league);
+    // Until the draft completes, a Pick and its correction are the only Roster moves (CONTEXT.md).
+    if (league.draft_status !== 'complete') throw new DraftError(409, 'the draft is not complete');
 
     // A manager drop is undoable, so the module hands back what it interrupted;
     // nothing is bypassed: capacity, the position cap and the waiver hold are
@@ -231,6 +234,8 @@ async function undoDrop({ leagueId, userId, playerId }) {
       if (!league) throw new DraftError(404, 'league not found');
 
       const team = await requireMember(client, { leagueId, userId });
+      assertFantasyLeagueRow(league);
+      if (league.draft_status !== 'complete') throw new DraftError(409, 'the draft is not complete');
 
       // The freeze and the Team lock are asked HERE, before the hold is read, and
       // the module's own gate is told they were answered (#2535): the undo's other

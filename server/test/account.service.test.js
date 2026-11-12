@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { hashToken, resetPassword, verifyEmail } = require('../services/account.service');
+const { hashToken, resetPassword, deliverEmail } = require('../services/account.service');
 const { createFakePool, select, update } = require('./helpers/fakePool');
 const { installRecordingBroadcast } = require('./helpers/recordingBroadcast');
 
@@ -29,31 +29,33 @@ test('password reset rejects passwords outside the supported length boundary', a
 });
 
 // --- withTransaction routing (ADR 0033, #1065 Ruling 5) ---------------------
-// The representative pair for this child: verifyEmail is the thinnest of the
-// converted sites - one FOR UPDATE read, then an early throw with zero writes
-// on the no-token path - so it proves the routing itself rather than any of
-// its own business logic. Both cases hit the SAME throw (no matching token
-// row, 400); the only thing that differs is whether the ROLLBACK that follows
-// succeeds. No edits to helpers/fakePool.js (the issue forbids it).
+// The representative pair for this child: resetPassword's no-token path is the
+// thinnest of the converted sites - one FOR UPDATE read, then an early throw with
+// zero writes - so it proves the routing itself rather than any of its own
+// business logic. Both cases hit the SAME throw (no matching token row, 400); the
+// only thing that differs is whether the ROLLBACK that follows succeeds. No edits
+// to helpers/fakePool.js (the issue forbids it).
 
-const verifyEmailWorldHandlers = () => [
-  // No unused, unexpired verification token: verifyEmail throws 400 after the
+const noTokenWorldHandlers = () => [
+  // No unused, unexpired reset token: resetPassword throws 400 after the
   // FOR UPDATE read and before any write.
   [select('auth_tokens'), () => ({ rows: [] })],
 ];
 
-test('verifyEmail: a rejecting ROLLBACK destroys the connection and the original error survives (#1065 Ruling 5)', async (t) => {
+const noTokenArgs = { token: 'a-raw-token', newPassword: 'long-enough-1' };
+
+test('resetPassword: a rejecting ROLLBACK destroys the connection and the original error survives (#1065 Ruling 5)', async (t) => {
   const world = createFakePool([
-    ...verifyEmailWorldHandlers(),
+    ...noTokenWorldHandlers(),
     [/^ROLLBACK$/, () => { throw new Error('rollback rejected'); }, 'client'],
   ]).install(t);
 
-  // Red-tell: reverting verifyEmail to its own bare `client.release()` (rather
+  // Red-tell: reverting resetPassword to its own bare `client.release()` (rather
   // than routing through withTransaction) makes this reject with "rollback
   // rejected" instead of the original 400, since the unhandled ROLLBACK
   // rejection would replace the AccountError.
-  const promise = verifyEmail({ token: 'a-raw-token' });
-  await assert.rejects(promise, { statusCode: 400, message: 'invalid or expired verification token' });
+  const promise = resetPassword(noTokenArgs);
+  await assert.rejects(promise, { statusCode: 400, message: 'invalid or expired reset token' });
   const error = await promise.catch((e) => e);
   assert.equal(error.rollbackError.message, 'rollback rejected',
     'the rollback failure is attached to the original error, not swallowed silently');
@@ -67,12 +69,12 @@ test('verifyEmail: a rejecting ROLLBACK destroys the connection and the original
   assert.ok(world.releaseArgs()[0] instanceof Error, 'a rejecting ROLLBACK destroys the connection');
 });
 
-test('verifyEmail: a clean ROLLBACK returns the healthy connection to the pool (control)', async (t) => {
-  const world = createFakePool(verifyEmailWorldHandlers()).install(t);
+test('resetPassword: a clean ROLLBACK returns the healthy connection to the pool (control)', async (t) => {
+  const world = createFakePool(noTokenWorldHandlers()).install(t);
 
   await assert.rejects(
-    verifyEmail({ token: 'a-raw-token' }),
-    { statusCode: 400, message: 'invalid or expired verification token' }
+    resetPassword(noTokenArgs),
+    { statusCode: 400, message: 'invalid or expired reset token' }
   );
 
   // Complementary control to the test above: the same early throw, but this
@@ -114,4 +116,48 @@ test('a rolled-back resetPassword ends no sockets', async (t) => {
   await assert.rejects(resetPassword({ token: 'raw', newPassword: 'long-enough-1' }), /deadlock detected/);
 
   assert.deepEqual(recorder.calls, []);
+});
+
+// --- SMTP waits are bounded (#2758) -----------------------------------------
+
+test('account email transport is created with 10-second connection, greeting and socket limits', async (t) => {
+  const nodemailer = require('nodemailer');
+  const previousUrl = process.env.SMTP_URL;
+  process.env.SMTP_URL = 'smtps://user:pass@smtp.example.com';
+  t.after(() => {
+    if (previousUrl === undefined) delete process.env.SMTP_URL;
+    else process.env.SMTP_URL = previousUrl;
+  });
+  const created = [];
+  t.mock.method(nodemailer, 'createTransport', (options) => {
+    created.push(options);
+    return { sendMail: async () => ({ messageId: 'delivery-1' }) };
+  });
+
+  assert.deepEqual(await deliverEmail({ to: 'a@example.com', subject: 's', text: 't' }), { delivered: 'smtp' });
+
+  assert.deepEqual(created, [{
+    url: 'smtps://user:pass@smtp.example.com',
+    connectionTimeout: 10000,
+    greetingTimeout: 10000,
+    socketTimeout: 10000,
+  }]);
+});
+
+// --- one completed reset ends every outstanding reset link ------------------
+
+test('a completed reset marks every outstanding reset token of the account used, not only the presented one', async (t) => {
+  installRecordingBroadcast(t);
+  const world = createFakePool(resetWorldHandlers()).install(t);
+
+  await resetPassword({ token: 'raw', newPassword: 'long-enough-1' });
+
+  const marks = world.matching(update('auth_tokens'));
+  assert.equal(marks.length, 1, 'one statement covers the account\'s outstanding reset links');
+  assert.deepEqual(marks[0].params, [11], 'keyed on the account, not on the presented token row');
+  assert.match(
+    marks[0].text,
+    /^UPDATE "auth_tokens" SET "used" = true, "updated_at" = now\(\) WHERE "user_id" = \$1 AND "type" = 'reset' AND "used" = false$/,
+    'every unused reset token of the account, and only reset tokens'
+  );
 });

@@ -105,11 +105,6 @@ function waiversResponse() {
   return {
     league: { waiver_type: 'faab', waiver_period_hours: 24, faab_budget: 100, waivers_clear_at: null },
     myTeam: { id: 500, waiver_priority: null, faab_remaining: 85 },
-    onWaivers: [
-      { id: PLAYER_ID, name: PLAYER_NAME, position: 'RB', nfl_team: 'New York Jets', available_at: '2026-09-17T07:00:00.000Z' },
-      { id: LONG_NAME_PLAYER_ID, name: LONG_NAME_PLAYER_NAME, position: 'WR', nfl_team: 'Miami Dolphins', available_at: '2026-09-17T07:00:00.000Z' },
-      { id: THIRD_PLAYER_ID, name: THIRD_PLAYER_NAME, position: 'RB', nfl_team: 'Minnesota Vikings', available_at: '2026-09-17T07:00:00.000Z' },
-    ],
     myClaims: [],
   };
 }
@@ -123,13 +118,17 @@ function rosterRows() {
 
 // #1310 formal review f2: WaiverWire's On waivers table reads
 // GET /api/players?view=cards&availability=waivers instead of /api/waivers's
-// own onWaivers rows. Same three players as waiversResponse().onWaivers
-// above, reshaped as the view=cards list's own per-row shape (player-row's
-// null-hides-the-tile handling covers the fields this fixture leaves null -
-// projWeek/ros/weeks/ownership/upgrade - same as a real free-agent-heavy
-// waiver period with no scoring data yet).
+// own rows. Three free-agent players, reshaped as the view=cards list's own
+// per-row shape (player-row's null-hides-the-tile handling covers the fields
+// this fixture leaves null - projWeek/ros/weeks/ownership/upgrade - same as a
+// real free-agent-heavy waiver period with no scoring data yet).
+const ON_WAIVERS_PLAYERS = [
+  { id: PLAYER_ID, name: PLAYER_NAME, position: 'RB', nfl_team: 'New York Jets', available_at: '2026-09-17T07:00:00.000Z' },
+  { id: LONG_NAME_PLAYER_ID, name: LONG_NAME_PLAYER_NAME, position: 'WR', nfl_team: 'Miami Dolphins', available_at: '2026-09-17T07:00:00.000Z' },
+  { id: THIRD_PLAYER_ID, name: THIRD_PLAYER_NAME, position: 'RB', nfl_team: 'Minnesota Vikings', available_at: '2026-09-17T07:00:00.000Z' },
+];
 function cardsFromOnWaivers() {
-  return waiversResponse().onWaivers.map((player) => ({
+  return ON_WAIVERS_PLAYERS.map((player) => ({
     id: player.id,
     name: player.name,
     position: player.position,

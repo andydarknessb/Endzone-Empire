@@ -11,7 +11,7 @@ const lineupService = require('../services/lineup.service');
 // at the module seam (irPolicy.service.test.js).
 
 const league = {
-  id: 1, owner_id: 100, is_commissioner: true,
+  id: 1, owner_id: 100, is_commissioner: true, draft_status: 'complete',
   roster_limit: 16, ir_slots: 2, current_season: 2026, current_week: 4,
 };
 
@@ -113,18 +113,19 @@ const overrideLeague = {
  * `rostered` is the only dial left, because capacity is the one gate the
  * override does not cover.
  */
-function overrideWorld({ rostered = 0, stashed = 0, positionCount = 1 } = {}) {
+function overrideWorld({ rostered = 0, stashed = 0, positionCount = 1, draftStatus = 'complete', claimants = [] } = {}) {
+  const gameLeague = { ...overrideLeague, draft_status: draftStatus };
   return createFakePool([
     // The gate's own reads, with their own explicit column lists. Registered
     // first, since handlers are tried in order.
     [/^SELECT "id", "transactions_locked",.* FROM "leagues" WHERE "id" = \$1 FOR NO KEY UPDATE/,
-      () => ({ rows: [overrideLeague] })],
+      () => ({ rows: [gameLeague] })],
     [/^SELECT "id", "locked" FROM "teams" WHERE "id" = \$1 FOR UPDATE/,
       () => ({ rows: [{ id: 31, locked: true }] })],
     [/^SELECT COUNT\(\*\)::int AS n FROM "team_players" JOIN "players"/,
       () => ({ rows: [{ n: positionCount }] })],
     [/^SELECT 1 FROM "waiver_players"/, () => ({ rows: [{ 1: 1 }] })],
-    [/(?:FROM "leagues" WHERE "id" = \$1( FOR NO KEY UPDATE)?$|UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$)/, () => ({ rows: [overrideLeague] })],
+    [/(?:FROM "leagues" WHERE "id" = \$1( FOR NO KEY UPDATE)?$|UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$)/, () => ({ rows: [gameLeague] })],
     [select('teams'), () => ({ rows: [{ id: 31, league_id: 1, owner_id: 8, locked: true }] })],
     [select('players'), () => ({ rows: [{ id: 500, name: 'Pick Me', position: 'RB' }] })],
     [/^SELECT COUNT\(\*\)::int AS n FROM "team_players"/, () => ({ rows: [{ n: rostered }] })],
@@ -132,7 +133,7 @@ function overrideWorld({ rostered = 0, stashed = 0, positionCount = 1 } = {}) {
     [insert('team_players'), () => ({ rows: [], rowCount: 1 })],
     [remove('team_players'), () => ({ rows: [{ id: 77 }], rowCount: 1 })],
     [remove('waiver_players'), () => ({ rows: [] })],
-    [update('waiver_claims'), () => ({ rows: [] })],
+    [update('waiver_claims'), () => ({ rows: claimants })],
     // placeOnWaiversUndoable, on the forced-drop path.
     [/^SELECT "slot", "ir_attested" FROM "lineup_entries"/, () => ({ rows: [] })],
     [/^SELECT 1 FROM "matchups"/, () => ({ rows: [] })],
@@ -291,5 +292,46 @@ test('forceTransaction drop: succeeds against a frozen league and a locked team'
   assert.equal(result.action, 'drop');
   assert.equal(fake.matching(remove('team_players')).length, 1, 'the forced drop still removed the row');
   assert.equal(fake.matching(insert('waiver_players')).length, 1, 'and it is still undoable');
+  fake.assertClean();
+});
+
+// --- the draft gate (#2748): a forced move is a Roster move, so it waits for the draft -----
+
+for (const draftStatus of ['pending', 'active']) {
+  test(`forceTransaction add: refused while the draft is ${draftStatus}, nothing written (#2748)`, async (t) => {
+    const fake = overrideWorld({ draftStatus }).install(t);
+
+    await assert.rejects(forceAdd(), { statusCode: 409, message: 'the draft is not complete' });
+    assert.equal(fake.matching(insert('team_players')).length, 0, 'the player was not rostered');
+    assert.equal(fake.matching(update('waiver_claims')).length, 0, 'no claim was cancelled');
+    assert.equal(fake.matching(insert('notifications')).length, 0, 'nobody was told it happened');
+    fake.assertClean();
+  });
+
+  test(`forceTransaction drop: refused while the draft is ${draftStatus}, nothing written (#2748)`, async (t) => {
+    const fake = overrideWorld({ draftStatus }).install(t);
+
+    await assert.rejects(forceDrop(), { statusCode: 409, message: 'the draft is not complete' });
+    assert.equal(fake.matching(remove('team_players')).length, 0, 'the roster row survived');
+    assert.equal(fake.matching(insert('waiver_players')).length, 0, 'no waiver hold was written');
+    fake.assertClean();
+  });
+}
+
+test('forceTransaction add: notifies each claimant it cancelled once, and the manager it rostered (#2748)', async (t) => {
+  const fake = overrideWorld({
+    claimants: [{ id: 61, owner_id: 9 }, { id: 62, owner_id: 10 }],
+  }).install(t);
+  t.mock.method(lineupService, 'benchAcquiredPlayer', async () => {});
+
+  await forceAdd();
+
+  const told = fake.matching(insert('notifications')).map((c) => c.params[0]).sort((a, b) => a - b);
+  assert.deepEqual(told, [8, 9, 10], 'each claimant once, and the manager whose roster changed');
+  // The fake answers any SQL with the same rows, so pin the scope of the cancel itself: a
+  // dropped league predicate would withdraw and notify other leagues' claimants on this player.
+  const [cancel] = fake.matching(update('waiver_claims'));
+  assert.deepEqual(cancel.params, [1, 500], 'scoped to this league and this player');
+  assert.match(cancel.text, /"waiver_claims"\."league_id" = \$1 AND "waiver_claims"\."player_id" = \$2 AND "waiver_claims"\."status" = 'pending'/);
   fake.assertClean();
 });

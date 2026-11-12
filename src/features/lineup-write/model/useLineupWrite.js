@@ -79,27 +79,30 @@ export function useLineupWrite({ leagueId, raw, setRaw, onLanded, onRejected }) 
       .map((m) => ({ playerId: m.playerId, slot: snapshot?.entries?.find((e) => e.id === m.playerId)?.slot }))
       .filter((m) => m.slot != null);
     setRaw(setSlots(moves));
+    let result;
     try {
-      const result = await saveLineup({ leagueId: Number(leagueId), week: raw?.week, moves });
-      if (!result.queued) {
-        clearWeekMatchupsCache(leagueId);
-        onLanded?.();
-      }
-      const body = result.response?.data;
-      const { message, severity, undo } = describeOutcome(body, {
-        isUndo: Boolean(undoOf),
-        shotVoided,
-        queued: result.queued,
-      });
-      const voided = (body?.irreversible ?? []).includes('called_shot');
-      notify(message, {
-        severity,
-        ...(undo && inverse.length > 0 && { actionLabel: 'Undo', onAction: () => submit(inverse, moves, voided) }),
-      });
+      result = await saveLineup({ leagueId: Number(leagueId), week: raw?.week, moves });
     } catch (err) {
       setRaw(setSlots(undoOf ?? inverse, moves));
-      notify(readHttpFailure(err).message || err.message, { severity: 'error' });
+      notify(readHttpFailure(err).message || "Couldn't save your lineup. Try again.", { severity: 'error' });
+      return;
     }
+    // Outside the try: once the save has landed, a throw here must not roll it back or toast a failure.
+    if (!result.queued) {
+      clearWeekMatchupsCache(leagueId);
+      onLanded?.();
+    }
+    const body = result.response?.data;
+    const { message, severity, undo } = describeOutcome(body, {
+      isUndo: Boolean(undoOf),
+      shotVoided,
+      queued: result.queued,
+    });
+    const voided = (body?.irreversible ?? []).includes('called_shot');
+    notify(message, {
+      severity,
+      ...(undo && inverse.length > 0 && { actionLabel: 'Undo', onAction: () => submit(inverse, moves, voided) }),
+    });
   };
 
   return { submit };

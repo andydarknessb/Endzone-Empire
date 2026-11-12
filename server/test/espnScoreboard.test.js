@@ -95,6 +95,17 @@ test('mapEspnStatus: an unknown state errs toward polling more', () => {
   assert.equal(mapEspnStatus({ type: { state: 'weird', completed: true } }), 'final');
 });
 
+test('mapEspnStatus: a post that never completed is unplayed, except a canceled game, which is final (#2751)', () => {
+  const cases = [
+    [{ type: { state: 'post', completed: false, name: 'STATUS_CANCELED' } }, 'final'],
+    [{ type: { state: 'post', completed: false, name: 'STATUS_POSTPONED' } }, 'scheduled'],
+    [{ type: { state: 'post', completed: true, name: 'STATUS_FINAL' } }, 'final'],
+  ];
+  for (const [status, expected] of cases) {
+    assert.equal(mapEspnStatus(status), expected, JSON.stringify(status.type));
+  }
+});
+
 test('mapEspnQuarter: periods, overtime, halftime, final', () => {
   assert.equal(mapEspnQuarter({ period: 3, type: { name: 'STATUS_IN_PROGRESS' } }, 'in_progress'), 'Q3');
   assert.equal(mapEspnQuarter({ period: 5, type: {} }, 'in_progress'), 'OT');

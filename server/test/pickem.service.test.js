@@ -138,6 +138,23 @@ test('WSH/WAS and full-name DEF vocabulary only pair once SQL has normalized the
   assert.equal(raw[0].homeTeam, null);
 });
 
+test('of two live rows for one game the newer decides the board, whatever order they arrive in (#2751)', () => {
+  const orphan = {
+    week: 3, tank01_game_id: '20260920_WAS@DAL', home_team: 'DAL', away_team: 'WAS',
+    game_status: 'scheduled', current_score_home: 0, current_score_away: 0,
+    last_updated: '2026-09-19T12:00:00.000Z',
+  };
+  const newer = {
+    ...orphan, tank01_game_id: '20260920_WAS@DAL-moved', game_status: 'final',
+    current_score_home: 17, current_score_away: 24, last_updated: '2026-09-20T23:00:00.000Z',
+  };
+  for (const lgsRows of [[orphan, newer], [newer, orphan]]) {
+    const [game] = pickem.deriveSlateFromRows(nflGameRows(3, [['DAL', 'WAS']]), lgsRows);
+    assert.equal(game.status, 'final');
+    assert.equal(game.tank01GameId, newer.tank01_game_id);
+  }
+});
+
 test('applyRecapFinals resolves a game the live table never marked final', () => {
   const slate = pickem.deriveSlateFromRows(nflGameRows(1, [['NYG', 'PHI']]), []);
   assert.equal(slate[0].status, 'scheduled');

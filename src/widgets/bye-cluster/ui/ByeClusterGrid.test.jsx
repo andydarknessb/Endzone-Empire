@@ -16,7 +16,7 @@ const entry = (over) => ({
 const two = [entry({ playerId: 1, name: 'Jahmyr Gibbs' }), entry({ playerId: 2, name: 'Puka Nacua', position: 'WR' })];
 const FUTURE = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString();
 
-const waiversBody = (clearAt) => ({ data: { league: { waivers_clear_at: clearAt }, myClaims: [], onWaivers: [] } });
+const waiversBody = (clearAt) => ({ data: { league: { waivers_clear_at: clearAt }, myClaims: [] } });
 
 test('draws seven tiles for the weeks after the viewed week, a count and the positions on each', () => {
   render(<ByeClusterGrid entries={two} fromWeek={7} isPastWeek={false} waiverPeriodHours={48} />);

@@ -377,13 +377,16 @@ async function generateForGame(tank01GameId, { api, client } = {}) {
 // Both the live-transition trigger AND the reconciliation sweep enqueue here,
 // so the total box-score fan-out is bounded and deduped by tank01_game_id.
 // A rate-limit (429) response backs the whole queue off (honoring Retry-After)
-// and requeues the game rather than losing it; anything the queue still drops
-// is healed later by the sweep.
+// and requeues the game rather than losing it. A game the queue drops is held
+// for an hour (see createRecapQueue) and the sweep re-heals it after that.
 
 const RECAP_QUEUE_CONCURRENCY = Number(process.env.RECAP_QUEUE_CONCURRENCY) || 2;
 const RECAP_MAX_RETRIES = 4;
 const SWEEP_MAX_AGE_DAYS = Number(process.env.RECAP_SWEEP_MAX_AGE_DAYS) || 14;
 const SWEEP_LIMIT = 100;
+// A game whose fetch failed waits this long before a trigger or the sweep may
+// enqueue it again, so a Tank01 outage cannot spend the monthly quota in a loop.
+const RECAP_FAILED_RETRY_MS = 60 * 60 * 1000;
 
 // `retryAfterMs` now lives in modules/tank01Client (one definition shared by the
 // metered client's own backoff and this queue) and is re-exported below so the
@@ -393,8 +396,12 @@ const SWEEP_LIMIT = 100;
  * In-process work queue with a hard concurrency cap and dedupe by game id.
  * The `worker` is injectable so tests can exercise the concurrency bound,
  * dedupe, and backoff without touching the network. Fire-and-forget:
- * `enqueue` returns whether the id was newly accepted (false = already
- * queued/in-flight).
+ * `enqueue` returns whether the id was newly accepted. It returns false while
+ * the id is queued or in flight, and while a game is held after a non-retriable
+ * worker throw or exhausted retries (`RECAP_FAILED_RETRY_MS`); the sweep
+ * re-heals it once the hold passes. The hold covers any non-retriable throw,
+ * including one after the Tank01 fetch (the top-performers read, the upsert),
+ * which would otherwise spend the quota again on each retry.
  */
 function createRecapQueue({
   worker,
@@ -404,12 +411,18 @@ function createRecapQueue({
 } = {}) {
   const pending = [];
   const tracked = new Set(); // queued OR in-flight — the dedupe set
+  const failedUntil = new Map(); // gameId -> ms before which a dropped game is refused
   let active = 0;
   let backoffUntil = 0;
   let resumeTimer = null;
 
   function enqueue(gameId, opts = {}) {
     if (tracked.has(gameId)) return false;
+    const until = failedUntil.get(gameId);
+    if (until !== undefined) {
+      if (Date.now() < until) return false;
+      failedUntil.delete(gameId);
+    }
     tracked.add(gameId);
     pending.push({ gameId, opts, attempts: 0 });
     drain();
@@ -437,8 +450,9 @@ function createRecapQueue({
         pending.push(job); // requeue; stays in `tracked` (no double-enqueue)
         requeued = true;
       } else {
-        // Non-retriable, or retries exhausted: drop it. The sweep re-heals a
-        // game that ends up with no game_recaps row.
+        // Non-retriable, or retries exhausted: drop it, and hold it for an hour
+        // (the sweep re-heals it after that, not on its next tick).
+        failedUntil.set(job.gameId, Date.now() + RECAP_FAILED_RETRY_MS);
         console.error('gameRecap generation failed for %s:', job.gameId, err && err.message);
       }
     } finally {

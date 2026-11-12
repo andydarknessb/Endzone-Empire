@@ -45,6 +45,10 @@ test('the bucket holds 20 events and refills at 2 a second', () => {
   assert.equal(REFILL_PER_SECOND, 2);
 });
 
+test('a user may hold 30 sockets: a dashboard with a few tabs and the Draft room', () => {
+  assert.equal(MAX_SOCKETS_PER_USER, 30);
+});
+
 test('a 21st event inside one second is refused, issues no query, and the socket stays connected', async (t) => {
   const fake = leagueWorld({}).install(t);
   const client = await harness.connectAs(OWNER, t);
@@ -93,7 +97,7 @@ test('a second later two more events are handled, and a third is refused again',
   assert.equal((await harness.emit(client, 'league:join', { leagueId: LEAGUE_ID })).code, 'RATE_LIMITED');
 });
 
-test('an 11th socket is refused with TOO_MANY_SOCKETS, and a different user still connects', async (t) => {
+test('the socket past MAX_SOCKETS_PER_USER is refused with TOO_MANY_SOCKETS, and a different user still connects', async (t) => {
   leagueWorld({}).install(t);
   const held = [];
   for (let i = 0; i < MAX_SOCKETS_PER_USER; i += 1) {

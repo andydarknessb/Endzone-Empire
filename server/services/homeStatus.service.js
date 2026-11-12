@@ -791,8 +791,9 @@ async function leagueStatuses(db, { userId, leagues, now }) {
 /**
  * The caller's leagues, one row per league they hold a team in: `leagues.*`
  * plus their team's id, name, avatar and waiver standing, the league's team
- * count, and their role. GET /api/league's own list query, shared so the
- * to-do list reads exactly the rows the league list shows.
+ * count, and their role (`invite_code` only where the viewer is a Commissioner).
+ * GET /api/league's own list query, shared so the to-do list reads exactly the
+ * rows the league list shows.
  *
  * `is_owner` and `is_commissioner` are the viewer's role on each league,
  * answered here so no card has to rebuild it from `leagues.owner_id` and the
@@ -820,8 +821,12 @@ async function listMyLeagues(db, userId) {
      ORDER BY "leagues"."created_at" DESC`,
     [userId]
   );
-  // The presenter-board credential is not for a member's list (#2274).
-  for (const row of result.rows) delete row.draft_share_token;
+  // The presenter-board credential is not for a member's list (#2274), and the
+  // invite code is a Commissioner's: the League page and the Home card read it.
+  for (const row of result.rows) {
+    delete row.draft_share_token;
+    if (!row.is_commissioner) delete row.invite_code;
+  }
   return result.rows;
 }
 

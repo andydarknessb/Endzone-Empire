@@ -12,6 +12,7 @@ const {
 const { computeStandings } = require('./season.service');
 const { placeOnWaiversUndoable } = require('./waiver.service');
 const { assertManualCorrectionWindow } = require('./correction.service');
+const settleFollowUpSvc = require('./settleFollowUp.service');
 const { deleteAvatarObjects } = require('./avatar.service');
 const { commissionerPredicate } = require('./leagueRole.service');
 const { isIrEligible } = require('./irPolicy.service');
@@ -25,6 +26,7 @@ const lineupService = require('./lineup.service');
 const { isPickemOnly } = require('./leagueType');
 const { removability, removeRefusalMessage } = require('./leaguePhase');
 const { emailBanHash } = require('./leagueMembership.service');
+const { teamForPick } = require('./draftOrder.service');
 const { getStandings: getPickemStandings, getSeasonSlate } = require('./pickem.service');
 const { OUTCOME: PICKEM_RESULT_OUTCOME, resultOf: pickemSeasonResultOf } = require('./pickemSeasonResult.service');
 
@@ -304,7 +306,7 @@ async function forceSetLineup({ leagueId, userId, teamId, week, moves }) {
 async function adjustMatchupScore({ leagueId, userId, matchupId, homeScore, awayScore }) {
   return leagueWrite(
     { leagueId, label: 'adjustMatchupScore' },
-    async ({ client }) => {
+    async ({ client, afterCommit }) => {
       const league = await requireCommissioner(client, { leagueId, userId });
       const matchupResult = await client.query(
         `SELECT "season", "week" FROM "matchups"
@@ -331,6 +333,10 @@ async function adjustMatchupScore({ leagueId, userId, matchupId, homeScore, away
         type: 'commissioner',
         detail: { action: 'adjust_score', matchupId, homeScore, awayScore },
       });
+      // The weekly high score and the Recap follow a corrected final week, so queue them once the score has committed (#2750).
+      afterCommit(() => settleFollowUpSvc.settleFollowUp({
+        leagueId, season: matchup.season, week: matchup.week, mode: 'correction',
+      }));
       return result.rows[0];
     }
   );
@@ -359,12 +365,12 @@ async function setTransactionsLocked({ leagueId, userId, locked }) {
 
 /**
  * Season rollover: archive final standings and the champion into
- * league_history, then reset the league for a new season. Optional keepers
- * ([{ teamId, playerIds }]) survive the roster wipe; everything else —
- * draft picks, waivers, pending claims and trades — is cleared. Historical
- * matchups, lineups, and stats stay (they're keyed by season).
+ * league_history, then reset the league for a new season. Rosters, draft picks,
+ * draft queues, keepers, waivers, pending claims, trades and the draft schedule
+ * all go; a new season opens with no draft date, so the scheduler cannot start
+ * an empty draft. Historical matchups, lineups, and stats stay (keyed by season).
  */
-async function rolloverSeason({ leagueId, userId, keepers = [] }) {
+async function rolloverSeason({ leagueId, userId }) {
   return leagueWrite(
     { leagueId, label: 'rolloverSeason' },
     async ({ client }) => {
@@ -373,11 +379,6 @@ async function rolloverSeason({ leagueId, userId, keepers = [] }) {
         throw new CommissionerError(409, 'the season must be complete before rolling over');
       }
       const pickemOnly = isPickemOnly(league);
-      if (pickemOnly && keepers.length > 0) {
-        // ADR 0002: roster-shaped writes against a pick'em-only league fail
-        // closed. There is no roster to keep anything from.
-        throw new CommissionerError(409, "this is a pick'em league; it has no rosters or keepers");
-      }
       const pickemResult = pickemOnly
         ? await pickemSeasonResultOf({ db: client, leagueId, season: league.current_season })
         : null;
@@ -402,6 +403,7 @@ async function rolloverSeason({ leagueId, userId, keepers = [] }) {
       let rosters;
       let championTeamId;
       let championUserId;
+      let championAwarded = false;
       if (pickemOnly) {
         // A pick'em-only league has no matchups or rosters. Its current table is
         // archived as standings, while the immutable season result supplies the
@@ -463,27 +465,40 @@ async function rolloverSeason({ leagueId, userId, keepers = [] }) {
         );
         rosters = rostersResult.rows;
 
-        // Champion: winner of the last final, non-consolation playoff game
-        const playoffFinals = matchupsResult.rows
-          .filter((m) => m.is_playoff && !m.is_consolation && m.final)
-          .sort((a, b) => b.week - a.week);
-        const decider = playoffFinals[0];
-        championTeamId = decider
-          ? (Number(decider.home_score) >= Number(decider.away_score)
-            ? decider.home_team_id
-            : decider.away_team_id)
-          : (standings[0] ? standings[0].teamId : null);
+        // The champion stands once Advance week settles the final: the champion
+        // Trophy its follow-up awarded is the season's record, and rollover keeps
+        // it. Only a season whose follow-up never ran decides from the final.
+        const awardedChampion = await client.query(
+          `SELECT "team_id" FROM "trophies"
+           WHERE "league_id" = $1 AND "season" = $2 AND "week" = 0 AND "type" = 'champion'`,
+          [leagueId, league.current_season]
+        );
+        if (awardedChampion.rows[0]) {
+          championAwarded = true;
+          championTeamId = Number(awardedChampion.rows[0].team_id);
+        } else {
+          // Champion: winner of the last final, non-consolation playoff game
+          const playoffFinals = matchupsResult.rows
+            .filter((m) => m.is_playoff && !m.is_consolation && m.final)
+            .sort((a, b) => b.week - a.week);
+          const decider = playoffFinals[0];
+          championTeamId = decider
+            ? (Number(decider.home_score) >= Number(decider.away_score)
+              ? decider.home_team_id
+              : decider.away_team_id)
+            : (standings[0] ? standings[0].teamId : null);
+        }
         championUserId =
           teamsResult.rows.find((team) => team.id === championTeamId)?.owner_id || null;
       }
 
       // The fantasy champion trophy is singular; pick'em champions are
       // multi-recipient rows already written by season completion, so they are
-      // left exactly as they are.
-      if (championTeamId && !pickemOnly) {
+      // left exactly as they are. An awarded champion Trophy already stands.
+      if (championTeamId && !pickemOnly && !championAwarded) {
         // The weekly trophy index is team-aware so both closest-game teams can
-        // share a type. Champion remains singular, so replace any stale winner
-        // explicitly before inserting the authoritative season result.
+        // share a type. Champion remains singular: reached only with no champion
+        // Trophy awarded, so this clears only a row a concurrent award wrote.
         await client.query(
           `DELETE FROM "trophies"
            WHERE "league_id" = $1 AND "season" = $2 AND "week" = 0 AND "type" = 'champion'`,
@@ -527,14 +542,14 @@ async function rolloverSeason({ leagueId, userId, keepers = [] }) {
         ]
       );
 
-      // Roster wipe with keeper exceptions, plus the rest of the fantasy reset.
+      // Roster wipe plus the rest of the fantasy reset.
       // A pick'em-only league has none of it (ADR 0002: no roster-shaped writes).
       //
       // EXEMPT from the write gate, deliberately (#964). The gate answers "may
       // this Team acquire or release this player right now" - a question about
       // one Team and one player. The rollover's roster write is a single
       // league-wide statement that ends one season and begins another, not a
-      // roster move by anybody: it deletes every non-keeper row in the league in
+      // roster move by anybody: it deletes every roster row in the league in
       // one DELETE, with no per-player decision to gate. Every gate the release
       // direction has would also have to be bypassed to preserve today's
       // behaviour - the freeze most of all, since this same UPDATE clears
@@ -544,24 +559,8 @@ async function rolloverSeason({ leagueId, userId, keepers = [] }) {
       // changing behaviour or adding a call that checks nothing, per player, over
       // a whole league's rosters. Neither is worth it, so this stays outside the
       // gate and the reason is recorded here rather than left as an omission.
-      const keeperPairs = [];
       if (!pickemOnly) {
-        for (const k of keepers) {
-          if (!Number.isInteger(k.teamId) || !Array.isArray(k.playerIds)) {
-            throw new CommissionerError(400, 'keepers must be [{ teamId, playerIds }]');
-          }
-          for (const pid of k.playerIds) keeperPairs.push([k.teamId, pid]);
-        }
-        if (keeperPairs.length > 0) {
-          await client.query(
-            `DELETE FROM "team_players"
-             WHERE "league_id" = $1 AND ("team_id", "player_id") NOT IN
-               (${keeperPairs.map((_, i) => `(${i * 2 + 2}, ${i * 2 + 3})`).join(', ')})`,
-            [leagueId, ...keeperPairs.flat()]
-          );
-        } else {
-          await client.query(`DELETE FROM "team_players" WHERE "league_id" = $1`, [leagueId]);
-        }
+        await client.query(`DELETE FROM "team_players" WHERE "league_id" = $1`, [leagueId]);
 
         // The lineup follows the roster (#197). This is the one removal path
         // that prunes in a single bulk statement rather than player by player,
@@ -573,15 +572,27 @@ async function rolloverSeason({ leagueId, userId, keepers = [] }) {
         // pre-rollover), which is the season those rows belong to. In practice
         // it removes little: a completed season's current week has played, so
         // the kickoff guard keeps its rows, and there is rarely a later week.
-        const keptPairs = new Set(keeperPairs.map(([teamId, playerId]) => `${teamId}:${playerId}`));
         for (const row of rosters) {
-          if (keptPairs.has(`${row.team_id}:${row.player_id}`)) continue;
           await lineupService.removeLineupEntries(client, {
             league, teamId: row.team_id, playerId: row.player_id,
           });
         }
 
+        // Teams lock before draft_queue rows, the order the queue save takes them
+        // (PUT /api/draft/queue), so the two cannot deadlock. Autodraft is a
+        // manager's setting and goes with the manager; a CPU-managed team
+        // (owner_id NULL) keeps it. Ready and the timeout streak reset for all.
+        await client.query(
+          `UPDATE "teams"
+           SET "faab_remaining" = $1, "draft_ready" = false, "consecutive_timeouts" = 0,
+               "autodraft" = CASE WHEN "owner_id" IS NULL THEN "autodraft" ELSE false END,
+               "updated_at" = now()
+           WHERE "league_id" = $2`,
+          [league.faab_budget, leagueId]
+        );
         await client.query(`DELETE FROM "draft_picks" WHERE "league_id" = $1`, [leagueId]);
+        await client.query(`DELETE FROM "draft_queue" WHERE "league_id" = $1`, [leagueId]);
+        await client.query(`DELETE FROM "keepers" WHERE "league_id" = $1`, [leagueId]);
         await client.query(`DELETE FROM "waiver_players" WHERE "league_id" = $1`, [leagueId]);
         await client.query(
           `UPDATE "waiver_claims" SET "status" = 'cancelled', "updated_at" = now()
@@ -593,11 +604,6 @@ async function rolloverSeason({ leagueId, userId, keepers = [] }) {
            WHERE "league_id" = $1 AND "status" IN ('pending', 'accepted')`,
           [leagueId]
         );
-        await client.query(
-          `UPDATE "teams" SET "faab_remaining" = $1, "updated_at" = now()
-           WHERE "league_id" = $2`,
-          [league.faab_budget, leagueId]
-        );
       }
       const newSeason = league.current_season + 1;
       await client.query(
@@ -605,7 +611,9 @@ async function rolloverSeason({ leagueId, userId, keepers = [] }) {
          SET "current_season" = $1, "current_week" = 1, "season_status" = 'regular',
              "draft_status" = 'pending', "current_pick" = 0, "draft_paused" = false,
              "pick_deadline_at" = NULL, "waivers_clear_at" = NULL,
-             "transactions_locked" = false, "updated_at" = now()
+             "transactions_locked" = false, "draft_date" = NULL, "draft_timezone" = NULL,
+             "keeper_lock_at" = NULL, "draft_order_overrides" = NULL, "draft_reminder_stage" = 0,
+             "draft_autostart_failed" = false, "updated_at" = now()
          WHERE "id" = $2`,
         [newSeason, leagueId]
       );
@@ -620,7 +628,7 @@ async function rolloverSeason({ leagueId, userId, keepers = [] }) {
         type: 'season',
         message: pickemOnly
           ? "A new season has begun! Pick'em opens with the new NFL schedule."
-          : `A new season has begun! ${keeperPairs.length > 0 ? 'Keepers are locked in and ' : ''}the draft is open to be scheduled.`,
+          : 'A new season has begun! the draft is open to be scheduled.',
       });
       return { leagueId, archivedSeason: league.current_season, newSeason, championTeamId, championUserId };
     }
@@ -713,6 +721,8 @@ async function forceTransaction({ leagueId, userId, teamId, action, playerId }) 
     { leagueId, label: 'forceTransaction' },
     async ({ client }) => {
       const league = await requireCommissioner(client, { leagueId, userId });
+      // A forced move is a Roster move too: it waits for the draft (CONTEXT.md, #2748).
+      if (league.draft_status !== 'complete') throw new CommissionerError(409, 'the draft is not complete');
       const teamResult = await client.query(
         `SELECT * FROM "teams" WHERE "id" = $1 AND "league_id" = $2 FOR UPDATE`,
         [teamId, leagueId]
@@ -755,11 +765,25 @@ async function forceTransaction({ leagueId, userId, teamId, action, playerId }) 
           `DELETE FROM "waiver_players" WHERE "league_id" = $1 AND "player_id" = $2`,
           [leagueId, playerId]
         );
-        await client.query(
+        const withdrawn = await client.query(
           `UPDATE "waiver_claims" SET "status" = 'cancelled', "updated_at" = now()
-           WHERE "league_id" = $1 AND "player_id" = $2 AND "status" = 'pending'`,
+           FROM "teams"
+           WHERE "teams"."id" = "waiver_claims"."team_id"
+             AND "waiver_claims"."league_id" = $1 AND "waiver_claims"."player_id" = $2
+             AND "waiver_claims"."status" = 'pending'
+           RETURNING "waiver_claims"."id", "teams"."owner_id"`,
           [leagueId, playerId]
         );
+        // The same notice an Undo drop gives: a claimant hears why his claim is gone.
+        for (const claim of withdrawn.rows) {
+          await notify(client, {
+            userId: claim.owner_id,
+            leagueId,
+            type: 'waiver_result',
+            message: 'Your waiver claim was withdrawn: the commissioner added the player to a roster.',
+            data: { claimId: claim.id, playerId },
+          });
+        }
       } else {
         // The release side runs through the same module with the same explicit
         // override. Every release-direction gate (the freeze and the Team lock)
@@ -932,6 +956,24 @@ async function settleDepartedTeam(client, { league, teamId }) {
      WHERE "team_id" = $1 AND "status" = 'pending'`,
     [teamId]
   );
+  // A departing Team on the clock of an active, unpaused Draft re-arms that clock on the
+  // Autodraft delay, so an untimed Draft cannot freeze behind a CPU-managed Team (#2764).
+  if (league.draft_status === 'active' && !league.draft_paused) {
+    const teams = await client.query(
+      `SELECT "id", "draft_position" FROM "teams" WHERE "league_id" = $1
+       ORDER BY "draft_position" NULLS LAST, "id"`,
+      [league.id]
+    );
+    const onClock = teamForPick(league.current_pick, teams.rows, {
+      rotation: league.draft_rotation,
+      overrides: league.draft_order_overrides,
+    });
+    if (onClock && onClock.id === teamId) {
+      // Lazy: pickClock.service loads this module's peers, so a top-level require cycles.
+      const pickClock = require('./pickClock.service');
+      await pickClock.onAutodraftToggled(client, { leagueId: league.id });
+    }
+  }
   return 'cpu';
 }
 

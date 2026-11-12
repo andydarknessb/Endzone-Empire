@@ -109,15 +109,6 @@ services:
       # Day of month the RapidAPI billing cycle resets (1-28).
       - key: TANK01_BILLING_ANCHOR_DAY
         value: "1"
-      # One ESPN news response serves the dashboard widget for this long,
-      # cached in Redis so every web instance shares it. The last good payload
-      # is also kept without expiry and served stale rather than erroring.
-      - key: NEWS_CACHE_TTL_MS
-        value: "21600000"
-      # On a day with an NFL game (read from nfl_games) headlines refresh
-      # hourly instead (#1188); about +60 Tank01 calls a month.
-      - key: NEWS_CACHE_TTL_GAME_DAY_MS
-        value: "3600000"
       - key: SPORTSDB_API_KEY
         sync: false
       - key: SUPABASE_URL

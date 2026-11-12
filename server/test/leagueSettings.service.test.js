@@ -23,7 +23,8 @@ const statusRow = (over = {}) => ({
   draft_status: 'pending', draft_type: 'snake', min_teams: 2, max_teams: 12, draft_date: null,
   roster_slots: [{ key: 'QB', count: 1, eligiblePositions: ['QB'] }], bench_slots: 0, ir_slots: 0,
   position_caps: {}, roster_limit: 15,
-  keepers_enabled: true, keeper_count: 2, pickem_only: false, team_count: 2, ...over,
+  keepers_enabled: true, keeper_count: 2, pickem_only: false, team_count: 2,
+  faab_budget: 100, regular_season_weeks: 14, playoff_teams: 4, ...over,
 });
 
 const UPDATED_ROW = Object.freeze({ id: LEAGUE_ID, owner_id: USER_ID, name: 'Ballers', draft_status: 'pending' });
@@ -58,6 +59,7 @@ function fakeDb({
     if (text.includes('COUNT(*)::int AS "count"')) return { rows: assignmentCounts };
     if (text.startsWith('DELETE FROM "keepers"')) return { rows: [], rowCount: assignmentCounts.length };
     if (text.startsWith('UPDATE "leagues"')) return { rows: updateRows, rowCount: updateRows.length };
+    if (text.startsWith('UPDATE "teams"')) return { rows: [], rowCount: teams.length };
     if (text.startsWith('SELECT "draft_type" FROM "leagues"')) return { rows: recheckRows };
     // The commissioner check that runs before the League lock (ADR 0070): no status row means not the commissioner.
     if (text.startsWith('SELECT 1 FROM "leagues"')) return { rows: status ? [{ '?column?': 1 }] : [] };
@@ -757,4 +759,54 @@ test("narrativeVoice is refused for a pick'em-only league like every fantasy-onl
   assert.equal(error.statusCode, 409);
   assert.equal(error.message, "these settings do not apply to a pick'em league: narrativeVoice");
   assertNoSettingsWrite(db);
+});
+
+/* #2743: regular-season weeks plus playoff rounds must end by NFL week 18 */
+test('17 regular-season weeks with 8 playoff Teams is a 400: the 3 rounds would run to week 20, nothing written', async () => {
+  const db = fakeDb();
+  const error = await refusal(db, { regularSeasonWeeks: 17, playoffTeams: 8 });
+  assert.equal(error.statusCode, 400);
+  assert.match(error.message, /must end by NFL week 18/);
+  assertNoSettingsWrite(db);
+});
+
+test('15 regular-season weeks with 8 playoff Teams is accepted: the last round lands on week 18', async () => {
+  assert.deepEqual(await run(fakeDb(), { regularSeasonWeeks: 15, playoffTeams: 8 }), UPDATED_ROW);
+});
+
+test('a save that changes only the week count is checked against the stored playoff Teams', async () => {
+  const db = fakeDb({ status: statusRow({ playoff_teams: 8 }) });
+  const error = await refusal(db, { regularSeasonWeeks: 16 });
+  assert.equal(error.statusCode, 400);
+  assertNoSettingsWrite(db);
+});
+
+test('a save that changes only the playoff Teams is checked against the stored week count', async () => {
+  const db = fakeDb({ status: statusRow({ regular_season_weeks: 16 }) });
+  const error = await refusal(db, { playoffTeams: 8 });
+  assert.equal(error.statusCode, 400);
+  assertNoSettingsWrite(db);
+});
+
+/* #2743: a FAAB budget change reaches every Team until the draft completes */
+const teamsUpdates = (db) => db.calls.filter((c) => c.text.startsWith('UPDATE "teams"'));
+
+for (const draftStatus of ['pending', 'active']) {
+  test(`a FAAB budget change while the draft is ${draftStatus} writes the budget to every Team, on the save transaction`, async () => {
+    const db = fakeDb({ status: statusRow({ draft_status: draftStatus, faab_budget: 100 }) });
+    await run(db, { faabBudget: 150 });
+    assert.deepEqual(teamsUpdates(db).map((c) => [c.via, c.params]), [['client', [LEAGUE_ID, 150]]]);
+  });
+}
+
+test('a FAAB budget change after the draft completes leaves every Team alone', async () => {
+  const db = fakeDb({ status: statusRow({ draft_status: 'complete', faab_budget: 100 }) });
+  await run(db, { faabBudget: 150 });
+  assert.deepEqual(teamsUpdates(db), []);
+});
+
+test('re-sending the stored FAAB budget resets no Team', async () => {
+  const db = fakeDb({ status: statusRow({ draft_status: 'pending', faab_budget: 100 }) });
+  await run(db, { faabBudget: 100 });
+  assert.deepEqual(teamsUpdates(db), []);
 });

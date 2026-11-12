@@ -164,6 +164,76 @@ describe('fetchUser (worker)', () => {
     expect(getToken()).toBe('a-real-token');
     expect(gen.next().done).toBe(true);
   });
+
+  // The GET was sent before a logout; its 401 answers the session that ended.
+  test('a 401 for a request sent before a logout leaves the session that logged in since', async () => {
+    setToken('old-session-jwt');
+    let answer;
+    let onWire;
+    const sent = new Promise((resolve) => { onWire = resolve; });
+    mock.onGet('/api/user').reply(() => new Promise((release) => {
+      answer = () => release([401]);
+      onWire();
+    }));
+    const dispatched = [];
+    const done = runSaga({ dispatch: (a) => dispatched.push(a) }, fetchUser).toPromise();
+    await sent;
+    clearToken();
+    setToken('new-session-jwt');
+    answer();
+    await done;
+
+    expect(getToken()).toBe('new-session-jwt');
+    expect(hasSessionHint()).toBe(true);
+    expect(dispatched).not.toContainEqual({ type: 'UNSET_USER' });
+  });
+
+  // The 401 is the caller's own; the refresh it started outlives a logout and
+  // re-login, and its SESSION_ENDED must not make the 401 a refusal of the new session.
+  test('a refresh that outlives a logout and re-login does not clear the new session', async () => {
+    const authMock = new MockAdapter(axios);
+    try {
+      setToken('old-session-jwt');
+      mock.onGet('/api/user').reply(401);
+      let answer;
+      let onWire;
+      const sent = new Promise((resolve) => { onWire = resolve; });
+      authMock.onPost('/api/auth/refresh?optional=1').reply(() => new Promise((release) => {
+        answer = () => release([200, { token: 'stale-jwt', user: { id: 1 } }]);
+        onWire();
+      }));
+      const dispatched = [];
+      const done = runSaga({ dispatch: (a) => dispatched.push(a) }, fetchUser).toPromise();
+      await sent;
+      clearToken();
+      setToken('new-session-jwt');
+      answer();
+      await done;
+
+      expect(getToken()).toBe('new-session-jwt');
+      expect(hasSessionHint()).toBe(true);
+      expect(dispatched).not.toContainEqual({ type: 'UNSET_USER' });
+    } finally {
+      authMock.restore();
+    }
+  });
+
+  // Control: a refresh the server refuses twice is a real refusal and still clears the session.
+  test('a 401 whose refresh the server refuses twice still clears the session', async () => {
+    const authMock = new MockAdapter(axios);
+    try {
+      setToken('an-expired-token');
+      mock.onGet('/api/user').reply(401);
+      authMock.onPost('/api/auth/refresh?optional=1').reply(401);
+      const dispatched = [];
+      await runSaga({ dispatch: (a) => dispatched.push(a) }, fetchUser).toPromise();
+
+      expect(getToken()).toBeNull();
+      expect(dispatched).toEqual([{ type: 'UNSET_USER' }]);
+    } finally {
+      authMock.restore();
+    }
+  });
 });
 
 test('a 401 on FETCH_USER (expired or invalid token) also drops the session caches', () => {

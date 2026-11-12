@@ -2,7 +2,7 @@
  * Account deletion: what a successful delete revokes, and what a failed one
  * must leave standing (#275).
  *
- * Deletion is a SOFT delete - nine user-owned tables are hard-deleted and
+ * Deletion is a SOFT delete - eleven user-owned tables are hard-deleted and
  * the `users` row is anonymized with an UPDATE - so no foreign-key cascade
  * ever fires. Anything that has to end when the account ends has to be
  * written down in the service, inside the same transaction.
@@ -349,4 +349,21 @@ test('a rolled-back deletion does not end any socket (#2415)', async (t) => {
   );
 
   assert.deepEqual(recorder().calls, []);
+});
+
+// --- the account's join requests and push events go with it ------------------
+
+test('deletion removes the account\'s join_requests and push_events rows', async (t) => {
+  const fake = createFakePool(deletionHandlers()).install(t);
+
+  await privacy.deleteUserAccount({ userId: USER, confirmation: 'me' });
+
+  for (const table of ['join_requests', 'push_events']) {
+    const deletes = fake.matching(remove(table));
+    assert.equal(deletes.length, 1, `${table} has exactly one delete statement`);
+    assert.equal(deletes[0].via, 'client', 'issued on the transactional client');
+    assert.deepEqual(deletes[0].params, [USER], 'the delete filters by the deleted account');
+    assert.match(deletes[0].text, new RegExp(`^DELETE FROM "${table}" WHERE "user_id" = \\$1$`));
+  }
+  fake.assertClean();
 });

@@ -167,8 +167,10 @@ _Avoid_: season engine (engine is the projection engine), season progression
 **Opening week**:
 The first NFL week a fantasy League plays: the earliest week with no kickoff
 yet when its draft completes, in the NFL season in progress or next to start.
-A League with no regular-season week left has no Opening week, and its draft
-cannot start.
+A League whose every regular-season week has kicked off cannot start its draft.
+A draft that started before the League's last regular-season week kicked off and
+completes after it opens that last week anyway; as in every week, a Player counts
+for a Team only in a game that kicked off while the Team held him.
 _Avoid_: start week, week one (a League may open later)
 
 **Draft status**:
@@ -621,7 +623,8 @@ Autopick when it expires. One rule arms it everywhere, resume included: an
 Autodraft team gets the short delay, a timed team gets the full pick time,
 an untimed team gets no clock. Pausing forgives elapsed time rather than
 preserving it. Repeated consecutive expiries are its consequence too: they
-are what places a team into Autodraft.
+are what places a team into Autodraft. A team that departs while on the clock
+of an active, unpaused draft re-arms it on the Autodraft delay.
 _Avoid_: countdown (the display), deadline (the stored instant, not the
 concept), pick timer
 
@@ -786,7 +789,10 @@ than open Starting needs, in which case it fills them, or nothing else remains
 to draft. Autopick never refuses to pick because the market is thin; that is a
 draft-start concern. An Autopick acts only for the turn whose Pick clock
 expired; a firing whose clock has since been re-armed (by a Pick, an undo, a
-resume or an Autodraft toggle) does nothing.
+resume or an Autodraft toggle) does nothing. A position the League cannot roster
+(no starting slot takes it) comes after every rosterable player, null-team
+players included. The team's queue is not bounded by the candidate limit: a
+cap-blocked queue entry does not use up the board's.
 _Avoid_: autodraft (that is the standing mode, not the act)
 
 **Best available**:
@@ -809,7 +815,9 @@ _Avoid_: player pool, top N, the board (that is the Draft board, committed picks
 
 **Autodraft**:
 A standing mode a team can be placed in so that every remaining pick is made by
-autopick immediately, without waiting out the clock.
+autopick immediately, without waiting out the clock. An autopick draft cannot
+switch it off. A reset leaves a CPU-managed team on it. Correcting the Autopick
+that tripped its team into it clears it, with the timeout streak.
 _Avoid_: autopick
 
 **Queue**:
@@ -1471,9 +1479,11 @@ bracket exists.
 _Avoid_: rank (a standings position, which can still move), playoff rank
 
 **Consolation bracket**:
-An optional single-elimination bracket for the Teams that miss the playoffs,
-played in the playoff weeks. Winners advance until one Team is left. It never
-affects the champion.
+An optional single-elimination bracket for the top Teams that miss the playoffs,
+no more than the championship's rounds can play down to one, played in the
+playoff weeks. Its seeds are fixed when the bracket is created and stored per
+League and season. Winners advance until one Team is left. It never affects the
+champion.
 _Avoid_: toilet bowl, placement games
 
 **Scoring rules**:
@@ -1509,7 +1519,9 @@ Every Manager in the League is told which Matchup scores moved, and the notice
 is kept with the change: a Stat correction is never applied without its notice.
 It never changes which Teams reached a later playoff round: later rounds stand
 as Advance week built them, even when the corrected score now shows the other
-Team ahead.
+Team ahead. Nor does it change the champion: once the final is settled, the
+champion stands as Advance week settled it, even when the corrected score now
+shows the other Team ahead.
 The live score announcement to open pages is different: it is best-effort,
 and its failure never holds back the change or its Settle follow-up.
 A revision that moves no score sends nothing.

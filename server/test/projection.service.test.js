@@ -72,6 +72,9 @@ function mockPool(t, {
   // returning `rosterStatusRows`, so a test can drive completeRun's degrade
   // path without faking a whole failing table.
   rosterStatusError = null,
+  // #2776: when set, the projection cache write throws this, so a test can drive
+  // completeRun's cache-write catch on a transaction client.
+  cacheWriteError = null,
   // Start verdict (spec #2042): `player_practice_observations` rows and the
   // players' kickoff rows for the single-week reader's Practice participation read.
   practiceRows = [],
@@ -100,7 +103,10 @@ function mockPool(t, {
       }
       return { rows: cachedRows };
     }
-    if (text.includes('INSERT INTO "player_week_projections"')) return { rows: [], rowCount: 1 };
+    if (text.includes('INSERT INTO "player_week_projections"')) {
+      if (cacheWriteError) throw cacheWriteError;
+      return { rows: [], rowCount: 1 };
+    }
     if (text.includes('FROM "players" WHERE "id" = ANY')) return { rows: players };
     if (text.includes('FROM "player_nfl_roster_status"')) {
       if (rosterStatusError) throw rosterStatusError;
@@ -448,6 +454,37 @@ test('a successful weather/odds/expert read releases its savepoint and a 25P01 S
   const generated = await generateOnTx(client, { weatherService });
   assert.equal(generated.projections.get(1).factors.availability.available, true);
   assert.equal(statements.some((s) => /^(RELEASE SAVEPOINT|ROLLBACK TO SAVEPOINT)\b/.test(s)), false);
+});
+
+// #2776: completeRun writes the projection cache on the caller's client. On a
+// transaction client a failed cache INSERT aborts the transaction (25P02), and
+// the next lineup query on it fails the request. The write runs inside its own
+// SAVEPOINT: rolled back when it fails, released when it succeeds.
+test('a failed projection cache write on a transaction client leaves the transaction usable (#2776)', async (t) => {
+  const client = txAbortClient(t, {
+    ...tx1813Options(),
+    cacheWriteError: new Error('cache table unavailable'),
+  });
+
+  const result = await run({ season: SEASON, week: 5, league: league(), playerIds: [1], client });
+  assert.equal(result.projections.get(1).factors.availability.available, true, 'the generated projection still returns');
+  assert.ok(client.statements.includes('SAVEPOINT projection_cache_write'), 'the cache write is wrapped in a savepoint');
+  assert.ok(
+    client.statements.includes('ROLLBACK TO SAVEPOINT projection_cache_write'),
+    'the failed write rolls back to it, clearing the 25P02 abort'
+  );
+  await client.query('SELECT 1 FROM "player_season_stats"');
+});
+
+test('a successful projection cache write on a transaction client runs inside its savepoint and releases it (#2776)', async (t) => {
+  const client = txAbortClient(t, tx1813Options());
+
+  await run({ season: SEASON, week: 5, league: league(), playerIds: [1], client });
+  const open = client.statements.indexOf('SAVEPOINT projection_cache_write');
+  const write = client.statements.findIndex((s) => s.includes('INSERT INTO "player_week_projections"'));
+  const release = client.statements.indexOf('RELEASE SAVEPOINT projection_cache_write');
+  assert.ok(open !== -1 && open < write && write < release, 'the cache write sits between the savepoint and its release');
+  assert.equal(client.statements.includes('ROLLBACK TO SAVEPOINT projection_cache_write'), false);
 });
 
 test('Week 1 veteran falls back to prior-season production instead of an empty map', async (t) => {
@@ -4034,4 +4071,16 @@ test('getStoredProjectionsForWeeks (#2490): holds only the stored player, issues
   assert.deepEqual([...out.get(3).keys()], [1]);
   assert.equal(out.get(3).get(1).mean, 7.5);
   assert.equal(fake.calls.some((c) => /^\s*(INSERT|UPDATE)/i.test(c.text)), false);
+});
+
+// #2805: a count-only kicker rollup (no fieldGoalDistances) carries its field
+// goals only in the stored fantasy_points, the same total the Player card reads.
+test('priorSeasonPerGame prices a count-only kicker rollup at its stored season total (#2805)', () => {
+  const rows = [{ season: 2025, games_played: 17, stats: { fieldGoal: 41, extraPoint: 48 }, fantasy_points: '171.00' }];
+  assert.equal(projection.priorSeasonPerGame(rows, SCORING_RULES, SEASON), 171 / 17);
+});
+
+test('priorSeasonPerGame still re-scores a kicker rollup that carries fieldGoalDistances (#2805 control)', () => {
+  const rows = [{ season: 2025, games_played: 17, stats: { fieldGoalDistances: [45, 30], fieldGoal: 2, extraPoint: 2 }, fantasy_points: '999.00' }];
+  assert.equal(projection.priorSeasonPerGame(rows, SCORING_RULES, SEASON), 9 / 17);
 });

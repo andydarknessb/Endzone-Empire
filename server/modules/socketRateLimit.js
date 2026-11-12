@@ -24,7 +24,7 @@ const BUCKET_CAPACITY = 20;
 const REFILL_PER_SECOND = 2;
 
 /** How many sockets one user may hold before the next connection is refused. */
-const MAX_SOCKETS_PER_USER = 10;
+const MAX_SOCKETS_PER_USER = 30;
 
 /**
  * Decide whether one client event may proceed, and spend a token if so.
@@ -86,7 +86,7 @@ function socketEventLimiter(store, userId, now = Date.now) {
  * number behind one API instance or several.
  *
  * The cap is SOFT by design: two simultaneous connects can let one extra
- * through, and the 11th is refused rather than the oldest disconnected -
+ * through, and the 31st is refused rather than the oldest disconnected -
  * the client reconnects after a server disconnect (#2556), so evicting the
  * oldest would loop.
  *

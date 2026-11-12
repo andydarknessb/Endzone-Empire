@@ -653,14 +653,13 @@ describe('League news while the bell polls', () => {
   });
 });
 
-test('Home has no Latest NFL News card and never reads /api/news', async () => {
+test('Home has no Latest NFL News card', async () => {
   apiClient.get.mockResolvedValue({ data: [league()] });
   renderPage();
 
   await screen.findByText('Sunday Ballers');
   await flushEffects();
   expect(screen.queryByRole('heading', { name: 'Latest NFL News' })).not.toBeInTheDocument();
-  expect(apiClient.get).not.toHaveBeenCalledWith('/api/news');
   expect(apiClient.get).not.toHaveBeenCalledWith('/api/public/recaps', expect.anything());
 });
 

@@ -465,3 +465,40 @@ test('a remind_1h push carries no banter (#2125)', async (t) => {
   assert.equal(sent[0].payload.title, 'Draft reminder');
   assert.equal(sent[0].payload.banter, undefined);
 });
+
+// --- #2764: a refused scheduled start notices once; the flag never blocks it ---
+
+test('a flagged League still gets the start decision, so a repaired League starts (#2764)', () => {
+  assert.equal(
+    scheduledDraftAction({ ...base, draft_date: at(-60000), draft_autostart_failed: true }, 8, NOW),
+    'start'
+  );
+});
+
+test('two ticks of a refused start send one notice, and the flagged League is still tried (#2764)', async (t) => {
+  const league = LEAGUE_ROW({ min_teams: 2, team_count: 5 });
+  const fresh = FRESH_ROW({ min_teams: 2, team_count: 5 });
+  const fake = createFakePool([
+    [/^SELECT "id", "name", "owner_id"/, () => ({ rows: [league] })],
+    [/^UPDATE "leagues" SET "board_version" = "board_version" \+ 1 WHERE "id" = \$1 RETURNING \*$/, () => ({ rows: [league] })],
+    [/^SELECT "draft_status", "draft_date", "draft_type", "min_teams", "draft_reminder_stage"/, () => ({ rows: [fresh] })],
+    [/FROM "players" WHERE "adp" IS NOT NULL/, () => ({ rows: [{ n: 500 }] })],
+    // The flag is a row the next tick reads back: once set, the league carries it.
+    [/^UPDATE "leagues" SET "draft_autostart_failed" = true WHERE "id" = \$1 AND "draft_status" = 'pending'$/, () => {
+      league.draft_autostart_failed = true;
+      return { rows: [], rowCount: 1 };
+    }],
+    [/FROM "league_commissioners"/, () => ({ rows: [{ user_id: CO_COMMISSIONER, username: 'co9' }] })],
+    [/^INSERT INTO "notifications"/, () => ({ rows: [] })],
+  ]).install(t);
+  const draftStartService = require('../services/draftStart.service');
+  const boom = Object.assign(new Error('keepers are stale, resave them first'), { statusCode: 409 });
+  t.mock.method(draftStartService, 'startDraft', async () => { throw boom; });
+
+  const first = await processScheduledDrafts({ now: NOW });
+  const second = await processScheduledDrafts({ now: NOW });
+
+  assert.deepEqual(first, [{ leagueId: LEAGUE_ID, action: 'start' }]);
+  assert.deepEqual(second, [{ leagueId: LEAGUE_ID, action: 'start' }], 'the flagged League is still tried');
+  assert.equal(fake.matching(/^INSERT INTO "notifications"/).length, 2, 'one notice per commissioner, across both ticks');
+});

@@ -518,15 +518,15 @@ async function processDueTrades() {
   const outcomes = [];
   for (const row of due.rows) {
     // withTransaction owns connect/BEGIN/COMMIT-or-guarded-ROLLBACK and the release
-    // rule (ADR 0033); the outcome list is built from what it returns.
+    // rule (ADR 0033); the outcome list is built from what it returns. A held trade returns null: no outcome, no log.
     let result;
     try {
       result = await withTransaction(
         pool,
         async (client) => {
           const { trade, league, items, teams } = await loadTrade(client, row.id);
-          // Not a refusal to cancel: a trade that is no longer due is left for its own run.
-          if (await transitionRefusal('execute', { trade, league })) return { status: trade.status };
+          // Not a refusal to cancel: a trade that is not due, or is held by a freeze or a Team lock, is left for its own run.
+          if (await transitionRefusal('execute', { trade, league, teams })) return null;
           await executeTrade(client, { trade, league, items, teams });
           return { status: 'executed', leagueId: league.id };
         },
@@ -540,7 +540,7 @@ async function processDueTrades() {
       // transaction of ours to write into. The cancel and the owners' notices
       // commit together (#2295). The original error survives the wrapper unchanged
       // (any rollback failure rides along as err.rollbackError), so a TradeError
-      // is still recognisable here. Freeze, Team lock and kickoff-hold refusals stay transient and keep waiting, by design.
+      // is still recognisable here. A kickoff-hold refusal stays transient and keeps waiting, by design; a freeze or Team lock is held at the transition above.
       if (err instanceof TradeError) {
         try {
           await withTransaction(
@@ -578,7 +578,7 @@ async function processDueTrades() {
       }
       continue;
     }
-    outcomes.push({ tradeId: row.id, status: result.status });
+    if (result) outcomes.push({ tradeId: row.id, status: result.status });
   }
   return outcomes;
 }

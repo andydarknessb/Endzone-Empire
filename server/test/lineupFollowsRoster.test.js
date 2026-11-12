@@ -96,6 +96,7 @@ function assertRemoval(removal, { teamId, playerId, currentWeekToo, week = CURRE
 
 const dropLeague = {
   id: 5,
+  draft_status: 'complete',
   waiver_period_hours: 24,
   current_season: CURRENT_SEASON,
   current_week: CURRENT_WEEK,
@@ -300,6 +301,7 @@ test('waiver-claim drop: a dropped player whose game kicked off keeps his curren
 const commissionerLeague = {
   id: 5,
   is_commissioner: true,
+  draft_status: 'complete',
   roster_limit: 16,
   ir_slots: 1,
   waiver_period_hours: 24,
@@ -495,7 +497,7 @@ test('trade: the giving side is settled before the receiving side is benched', a
   fake.assertClean();
 });
 
-// --- 6. the keeper-pruning season rollover -----------------------------------
+// --- 6. the season rollover ---------------------------------------------------
 
 const rolloverLeague = {
   id: 5,
@@ -528,6 +530,7 @@ function rolloverWorld({ kickedOff = [], removals = [] } = {}) {
     [/^DELETE FROM "team_players"/, () => ({ rows: [], rowCount: 1 })],
     ...removalHandlers({ kickedOff, removals }),
     [/^DELETE FROM "draft_picks"/, () => ({ rows: [] })],
+    [/^DELETE FROM "(draft_queue|keepers)"/, () => ({ rows: [] })],
     [/^DELETE FROM "waiver_players"/, () => ({ rows: [] })],
     [/^UPDATE "waiver_claims"/, () => ({ rows: [] })],
     [/^UPDATE "trades"/, () => ({ rows: [] })],
@@ -539,39 +542,23 @@ function rolloverWorld({ kickedOff = [], removals = [] } = {}) {
   ]);
 }
 
-test('keeper-pruning rollover: every pruned player loses his rows, and the keeper keeps his', async (t) => {
+test('rollover: the whole roster is cleaned up, lineup rows included', async (t) => {
   const removals = [];
   const fake = rolloverWorld({ kickedOff: [], removals }).install(t);
   const { rolloverSeason } = require('../services/commissioner.service');
 
-  await rolloverSeason({ leagueId: 5, userId: 7, keepers: [{ teamId: 10, playerIds: [20] }] });
-
-  // This path prunes the roster in ONE bulk statement rather than player by
-  // player, so the pairs it removed have to be derived from the roster read
-  // taken before it. A future removal path modelled on the other five - one
-  // call beside one delete - would miss that.
-  assert.equal(removals.length, 1);
-  assertRemoval(removals[0], { teamId: 10, playerId: 21, currentWeekToo: true, week: 18 });
-  fake.assertClean();
-});
-
-test('keeper-pruning rollover: with no keepers the whole roster is cleaned up', async (t) => {
-  const removals = [];
-  const fake = rolloverWorld({ kickedOff: [], removals }).install(t);
-  const { rolloverSeason } = require('../services/commissioner.service');
-
-  await rolloverSeason({ leagueId: 5, userId: 7, keepers: [] });
+  await rolloverSeason({ leagueId: 5, userId: 7 });
 
   assert.deepEqual(removals.map((removal) => removal.params[1]), [20, 21]);
   fake.assertClean();
 });
 
-test('keeper-pruning rollover: the archived season is what is cleaned, at its own current week', async (t) => {
+test('rollover: the archived season is what is cleaned, at its own current week', async (t) => {
   const removals = [];
   const fake = rolloverWorld({ kickedOff: ['MIN'], removals }).install(t);
   const { rolloverSeason } = require('../services/commissioner.service');
 
-  await rolloverSeason({ leagueId: 5, userId: 7, keepers: [] });
+  await rolloverSeason({ leagueId: 5, userId: 7 });
 
   // The rollover advances the season afterwards; the cleanup runs against
   // the season being archived, and its week-18 rows are played rows that a

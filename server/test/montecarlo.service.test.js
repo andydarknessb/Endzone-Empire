@@ -7,9 +7,12 @@ const {
   buildTeamModel,
   runSimulation,
   simulateBracketFrom,
+  playoffAliveEntrants,
   powerRankings,
   withRankChange,
+  computeLeagueOdds,
 } = require('../services/montecarlo.service');
+const { createFakePool, select } = require('./helpers/fakePool');
 
 test('mulberry32 is deterministic for a given seed and in [0, 1)', () => {
   const a = mulberry32(42);
@@ -207,4 +210,124 @@ test('withRankChange treats a missing previous week as all-new', () => {
   const rankings = [{ teamId: 1, rank: 1 }, { teamId: 2, rank: 2 }];
   assert.deepEqual(withRankChange(rankings, null).map((r) => r.change), [null, null]);
   assert.deepEqual(withRankChange(rankings, []).map((r) => r.change), [null, null]);
+});
+
+const playoffRow = (home, away, final, extra = {}) => ({
+  home_team_id: home, away_team_id: away, home_score: 0, away_score: 0,
+  final, is_playoff: true, is_consolation: false, ...extra,
+});
+
+test('playoffAliveEntrants: a corrected round keeps who advanced, never who scored higher', () => {
+  const seeds = [{ teamId: 1, seed: 1 }, { teamId: 2, seed: 2 }, { teamId: 3, seed: 3 }, { teamId: 4, seed: 4 }];
+  // Round one: A over D, then a correction gives B 90-80 over C. C advanced when
+  // Advance built round two (A v C), so C stays alive and B is out.
+  const playoffRows = [
+    playoffRow(1, 4, true, { home_score: 120, away_score: 90 }),
+    playoffRow(2, 3, true, { home_score: 90, away_score: 80 }),
+    playoffRow(1, 3, false),
+  ];
+  const result = playoffAliveEntrants({ seeds, playoffRows });
+  assert.deepEqual(result.qualifiers, new Set([1, 2, 3, 4]));
+  assert.deepEqual(result.aliveEntrants, [{ teamId: 1, seed: 1 }, { teamId: 3, seed: 3 }]);
+  assert.deepEqual(result.fixedGames, [{ home: 1, away: 3 }]);
+});
+
+test('playoffAliveEntrants: round-one byes stay alive and unpaired', () => {
+  const seeds = [1, 2, 3, 4, 5, 6].map((teamId) => ({ teamId, seed: teamId }));
+  const playoffRows = [playoffRow(3, 6, false), playoffRow(4, 5, false)];
+  const result = playoffAliveEntrants({ seeds, playoffRows });
+  assert.deepEqual(result.aliveEntrants.map((e) => e.teamId), [1, 2, 3, 4, 5, 6]);
+  assert.deepEqual(result.fixedGames, [{ home: 3, away: 6 }, { home: 4, away: 5 }]);
+});
+
+test('playoffAliveEntrants: consolation rows never decide who is alive', () => {
+  const seeds = [1, 2, 3, 4].map((teamId) => ({ teamId, seed: teamId }));
+  const playoffRows = [
+    playoffRow(1, 4, true, { home_score: 80, away_score: 60 }),
+    playoffRow(2, 3, true, { home_score: 70, away_score: 65 }),
+    playoffRow(1, 2, false),
+    playoffRow(3, 4, false, { is_consolation: true }),
+  ];
+  const result = playoffAliveEntrants({ seeds, playoffRows });
+  assert.deepEqual(result.aliveEntrants, [{ teamId: 1, seed: 1 }, { teamId: 2, seed: 2 }]);
+  assert.deepEqual(result.fixedGames, [{ home: 1, away: 2 }]);
+});
+
+test('playoffAliveEntrants: alive entrants come out in seed order, whatever order the seeds arrive in', () => {
+  const seeds = [{ teamId: 3, seed: 3 }, { teamId: 1, seed: 1 }, { teamId: 2, seed: 2 }];
+  const result = playoffAliveEntrants({ seeds, playoffRows: [] });
+  assert.deepEqual(result.aliveEntrants, [{ teamId: 1, seed: 1 }, { teamId: 2, seed: 2 }, { teamId: 3, seed: 3 }]);
+});
+
+test('computeLeagueOdds reads the stored seeds: after a flipped round the advanced Team keeps its title odds', async (t) => {
+  const league = {
+    id: 1, season_status: 'playoffs', draft_status: 'complete', pickem_only: false,
+    current_season: 2026, current_week: 3, regular_season_weeks: 1, playoff_teams: 4,
+  };
+  const teams = [1, 2, 3, 4].map((id) => ({ id, name: `Team ${id}` }));
+  const matchup = (week, home, away, hs, as, final) => ({
+    week, home_team_id: home, away_team_id: away, home_score: hs, away_score: as,
+    is_playoff: true, is_consolation: false, final,
+  });
+  const fake = createFakePool([
+    [select('leagues'), () => ({ rows: [league] })],
+    [select('teams'), () => ({ rows: teams })],
+    [select('playoff_seeds'), () => ({ rows: teams.map((t) => ({ team_id: t.id, seed: t.id })) })],
+    // Round one: Team 2 beat Team 3 90-80 after a correction; Team 3 advanced to the pending round two.
+    [select('matchups'), () => ({ rows: [
+      matchup(2, 1, 4, 120, 90, true),
+      matchup(2, 2, 3, 90, 80, true),
+      matchup(3, 1, 3, 0, 0, false),
+    ] })],
+    [/^/, () => ({ rows: [] })], // projections, rosters and the analytics write: nothing to model
+  ]);
+  fake.install(t);
+  const data = await computeLeagueOdds({ leagueId: 1, runs: 200, seed: 7 });
+  const odds = new Map(data.rankings.map((r) => [r.teamId, r]));
+  assert.ok(odds.get(3).titleOdds > 0, 'advanced Team 3 keeps its title odds');
+  assert.equal(odds.get(2).titleOdds, 0, 'beaten Team 2 is out');
+});
+
+test('computeLeagueOdds reads the stored bracket, not the live standings: stored seed 4 can be Team 5', async (t) => {
+  const league = {
+    id: 1, season_status: 'playoffs', draft_status: 'complete', pickem_only: false,
+    current_season: 2026, current_week: 3, regular_season_weeks: 1, playoff_teams: 4,
+  };
+  const teams = [1, 2, 3, 4, 5].map((id) => ({ id, name: `Team ${id}` }));
+  // No regular-season Matchups, so the live standings would seed Teams 1-4.
+  // The stored bracket seeds Teams 1, 2, 3 and 5 and leaves Team 4 out.
+  const storedSeeds = [1, 2, 3, 5].map((team_id, i) => ({ team_id, seed: i + 1 }));
+  const fake = createFakePool([
+    [select('leagues'), () => ({ rows: [league] })],
+    [select('teams'), () => ({ rows: teams })],
+    [select('playoff_seeds'), () => ({ rows: storedSeeds })],
+    [select('matchups'), () => ({ rows: [] })],
+    [/^/, () => ({ rows: [] })], // projections, rosters and the analytics write: nothing to model
+  ]);
+  fake.install(t);
+  const data = await computeLeagueOdds({ leagueId: 1, runs: 200, seed: 7 });
+  const odds = new Map(data.rankings.map((r) => [r.teamId, r]));
+  assert.equal(odds.get(5).playoffOdds, 1, 'stored seed 4 is in the bracket');
+  assert.equal(odds.get(4).playoffOdds, 0, 'standings seed 4 is not in the stored bracket');
+});
+
+test('computeLeagueOdds falls back to live standings when no playoff_seeds rows exist', async (t) => {
+  const league = {
+    id: 1, season_status: 'playoffs', draft_status: 'complete', pickem_only: false,
+    current_season: 2026, current_week: 3, regular_season_weeks: 1, playoff_teams: 4,
+  };
+  const teams = [1, 2, 3, 4, 5].map((id) => ({ id, name: `Team ${id}` }));
+  const fake = createFakePool([
+    [select('leagues'), () => ({ rows: [league] })],
+    [select('teams'), () => ({ rows: teams })],
+    [select('playoff_seeds'), () => ({ rows: [] })],
+    [select('matchups'), () => ({ rows: [] })],
+    [/^/, () => ({ rows: [] })], // projections, rosters and the analytics write: nothing to model
+  ]);
+  fake.install(t);
+  const data = await computeLeagueOdds({ leagueId: 1, runs: 200, seed: 7 });
+  const odds = new Map(data.rankings.map((r) => [r.teamId, r]));
+  // No Matchups: the standings tie breaks by team id, so Teams 1-4 seed.
+  for (const id of [1, 2, 3, 4]) assert.equal(odds.get(id).playoffOdds, 1, `Team ${id} seeds from standings`);
+  assert.equal(odds.get(5).playoffOdds, 0, 'Team 5 is out');
 });

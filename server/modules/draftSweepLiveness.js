@@ -23,16 +23,32 @@ const DRAFT_SWEEP_TTL_SECONDS = 300;
 /** Six missed 10s ticks: unambiguous, and longer than a deploy overlap. */
 const DRAFT_SWEEP_STALE_AFTER_MS = 60_000;
 
-/** Stamp the key. Never throws: the tick that calls this must not die on Redis. */
+/**
+ * The stamp is awaited at boot and inside the sweep, so a Redis call that never
+ * settles would hold the scheduler (#2758). Past this limit it reports false.
+ */
+const DRAFT_SWEEP_STAMP_LIMIT_MS = 2000;
+
+async function stampDraftSweep(now) {
+  const client = await redis.getRedisClient();
+  if (!client) return false;
+  await client.set(DRAFT_SWEEP_KEY, now.toISOString(), { EX: DRAFT_SWEEP_TTL_SECONDS });
+  return true;
+}
+
+/** Stamp the key. Never throws and never waits past the limit: the tick that calls this must not die on Redis. */
 async function recordDraftSweep(now = new Date()) {
+  let timer;
+  const limit = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error('draft sweep stamp exceeded its time limit')), DRAFT_SWEEP_STAMP_LIMIT_MS);
+  });
   try {
-    const client = await redis.getRedisClient();
-    if (!client) return false;
-    await client.set(DRAFT_SWEEP_KEY, now.toISOString(), { EX: DRAFT_SWEEP_TTL_SECONDS });
-    return true;
+    return await Promise.race([stampDraftSweep(now), limit]);
   } catch (error) {
     logger.warn({ err: error }, 'draft sweep liveness stamp failed');
     return false;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -59,6 +75,7 @@ module.exports = {
   DRAFT_SWEEP_KEY,
   DRAFT_SWEEP_TTL_SECONDS,
   DRAFT_SWEEP_STALE_AFTER_MS,
+  DRAFT_SWEEP_STAMP_LIMIT_MS,
   recordDraftSweep,
   readDraftSweepLiveness,
 };

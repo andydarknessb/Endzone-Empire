@@ -413,6 +413,14 @@ test('a playoff matchup carries the Playoff chip, and the record comes from the 
   expect(apiClient.get.mock.calls.filter(([url]) => url.endsWith('/standings'))).toHaveLength(1);
 });
 
+test('a consolation matchup carries the Consolation chip and no Playoff chip', async () => {
+  mockApi({ matchup: matchupResponse({ matchup: { is_playoff: true, is_consolation: true } }) });
+  renderPage();
+
+  expect(await screen.findByTestId('matchup-consolation-chip')).toHaveTextContent('Consolation');
+  expect(screen.queryByTestId('matchup-playoff-chip')).not.toBeInTheDocument();
+});
+
 // --- the status chip: the server's fact, from the fetch alone (ADR 0030) -----
 
 test('a scheduled matchup reads Scheduled, and the Scoreboard view shows no WIN digits', async () => {

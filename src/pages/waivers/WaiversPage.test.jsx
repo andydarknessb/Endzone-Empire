@@ -37,7 +37,6 @@ const waiversBody = (over = {}) => ({
   league: { waiver_type: 'faab', waiver_period_hours: 24, faab_budget: 100, waivers_clear_at: null, current_season: 2026 },
   myTeam: { id: 10, waiver_priority: 7, faab_remaining: 62 },
   myClaims: [],
-  onWaivers: [],
   ...over,
 });
 

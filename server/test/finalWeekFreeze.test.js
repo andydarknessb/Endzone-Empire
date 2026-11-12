@@ -490,6 +490,27 @@ test('#106 control: touching a LIVE standard week does move its score', async (t
   world.fake.assertClean();
 });
 
+// --- a live tick never re-prices a final week --------------------------------
+
+test('#2750 a live score of a final week leaves its Score of record alone and reports the stored score', async (t) => {
+  // The live tick reads the League before Advance week, so it can score a week
+  // that went final after it read. Only a stat correction re-prices a final week.
+  const world = createWorld({ bestBall: false, week8Final: true });
+  world.fake.install(t);
+  world.state.matchups[0].home_score = 8;
+  world.state.matchups[0].away_score = 10;
+  WEEK_8_STATS.set(QB_B, { passingYards: 1000 }); // 40.0 points: the revised stat line
+  try {
+    const { scored } = await scoreMatchups({ leagueId: LEAGUE_ID, season: SEASON, week: 8, live: true });
+
+    assert.equal(awayScoreOf(world.state), 10, 'the stored score stands');
+    assert.equal(scored[0].awayScore, 10, 'the live score reports the stored score');
+    world.fake.assertClean();
+  } finally {
+    WEEK_8_STATS.set(QB_B, { passingYards: 250 });
+  }
+});
+
 // --- the probe asks the right question ---------------------------------------
 
 test('#106 the finality probe asks about THIS team, and only about a final matchup', async (t) => {

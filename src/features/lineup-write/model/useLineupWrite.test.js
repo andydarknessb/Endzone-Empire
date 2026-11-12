@@ -25,6 +25,7 @@ jest.mock('../../../components/Snackbar/SnackbarProvider', () => ({
 afterEach(() => {
   jest.clearAllMocks();
   window.localStorage.removeItem(PENDING_LINEUP_MUTATIONS_KEY);
+  Object.defineProperty(window.navigator, 'onLine', { configurable: true, value: true });
 });
 
 const RAW = { week: 4, teamId: 9, entries: [{ id: 1, slot: 'BENCH' }, { id: 2, slot: 'WR' }] };
@@ -43,7 +44,10 @@ function setup(raw = RAW) {
 }
 
 const refused = (status = 409) => ({ response: { status, data: { error: 'locked' } } });
-const offline = () => ({ message: 'Network Error', code: 'ERR_NETWORK' });
+// An online request that never got a response: axios's own text, with no server message to show.
+const networkFailure = () => Object.assign(new Error('Network Error'), { code: 'ERR_NETWORK' });
+// A save is queued only while the browser reports offline (navigator.onLine), never on a failed request alone.
+const goOffline = () => Object.defineProperty(window.navigator, 'onLine', { configurable: true, value: false });
 const replayed = (detail) =>
   act(() => {
     window.dispatchEvent(new CustomEvent(LINEUP_MUTATION_REPLAYED_EVENT, { detail }));
@@ -74,6 +78,20 @@ test('a refused save rolls the optimistic state back to the exact snapshot and s
   expect(mockNotify).toHaveBeenCalledWith(expect.any(String), { severity: 'error' });
 });
 
+test('an online save that gets no response rolls back and shows house copy, never axios text or the offline toast', async () => {
+  apiClient.put.mockRejectedValue(networkFailure());
+  const { result, getRaw } = setup();
+
+  await act(async () => {
+    await result.current.submit(MOVES);
+  });
+
+  expect(getRaw()).toEqual(RAW);
+  expect(mockNotify).toHaveBeenCalledWith("Couldn't save your lineup. Try again.", { severity: 'error' });
+  expect(mockNotify).not.toHaveBeenCalledWith(expect.stringContaining('Network Error'), expect.anything());
+  expect(mockNotify).not.toHaveBeenCalledWith(expect.stringContaining('saved offline'), expect.anything());
+});
+
 describe('Matchups cache invalidation (#1881)', () => {
   test('a save whose PUT resolves clears the league\'s cache once', async () => {
     apiClient.put.mockResolvedValue({ data: {} });
@@ -99,7 +117,7 @@ describe('Matchups cache invalidation (#1881)', () => {
   });
 
   test('a save queued offline clears it only once the replay lands', async () => {
-    apiClient.put.mockRejectedValue(offline());
+    goOffline();
     const { result } = setup();
 
     await act(async () => {
@@ -144,7 +162,7 @@ describe('onLanded (#2262)', () => {
   });
 
   test('is not called when the save is queued offline', async () => {
-    apiClient.put.mockRejectedValue(offline());
+    goOffline();
     const { result, onLanded } = setupLanded();
 
     await act(async () => {
@@ -156,7 +174,7 @@ describe('onLanded (#2262)', () => {
   });
 
   test('is called once when the queued save replays', async () => {
-    apiClient.put.mockRejectedValue(offline());
+    goOffline();
     const { result, onLanded } = setupLanded();
 
     await act(async () => {
@@ -442,7 +460,7 @@ describe('Undo on the Lineup saved toast (#1964)', () => {
   });
 
   test('a save queued offline says so and has no Undo', async () => {
-    apiClient.put.mockRejectedValue(offline());
+    goOffline();
     const { result } = setup();
 
     await act(async () => {
@@ -451,5 +469,36 @@ describe('Undo on the Lineup saved toast (#1964)', () => {
 
     await waitFor(() => expect(readPendingLineupMutations()).toHaveLength(1));
     expect(mockNotify).toHaveBeenCalledWith(expect.stringContaining('saved offline'), { severity: 'info' });
+  });
+});
+
+// #2823: the try covers the save only. A throw after a landed save must not roll
+// it back or toast a failed save.
+describe('a landed save whose follow-up throws (#2823)', () => {
+  test('a throwing success toast keeps the landed lineup, with no failure toast', async () => {
+    apiClient.put.mockResolvedValue({ data: {} });
+    mockNotify.mockImplementationOnce(() => {
+      throw new Error('toast');
+    });
+    const { result, getRaw } = setup();
+
+    await act(async () => {
+      await result.current.submit(MOVES).catch(() => {});
+    });
+
+    expect(getRaw().entries).toEqual([{ id: 1, slot: 'WR' }, { id: 2, slot: 'BENCH' }]);
+    expect(mockNotify).not.toHaveBeenCalledWith("Couldn't save your lineup. Try again.", { severity: 'error' });
+  });
+
+  test('a describeOutcome that throws on the body keeps the landed lineup, with no failure toast', async () => {
+    apiClient.put.mockResolvedValue({ data: { irreversible: 1 } });
+    const { result, getRaw } = setup();
+
+    await act(async () => {
+      await result.current.submit(MOVES).catch(() => {});
+    });
+
+    expect(getRaw().entries).toEqual([{ id: 1, slot: 'WR' }, { id: 2, slot: 'BENCH' }]);
+    expect(mockNotify).not.toHaveBeenCalledWith("Couldn't save your lineup. Try again.", { severity: 'error' });
   });
 });

@@ -25,7 +25,7 @@ const REUSE_GRACE_MS = 60 * 1000;
  *   'reuse'   — rotated away longer than the grace window ago: someone is
  *               replaying an old token. Caller must revoke the entire family.
  *   'race'    — a just-rotated token presented by another browser tab:
- *               plain 401, but the shared cookie must not be cleared.
+ *               plain 401 that clears nothing, as every refusal does since #2835.
  *   'invalid' — unknown, revoked, or expired: plain 401, nothing to revoke.
  */
 function classifyRefreshToken(row, now = new Date()) {

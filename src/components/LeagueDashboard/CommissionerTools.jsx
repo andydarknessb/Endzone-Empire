@@ -71,6 +71,12 @@ import {
 
 const PLAYOFF_TEAM_OPTIONS = [4, 6, 8];
 const PLAYOFF_START_WEEK_OPTIONS = [14, 15, 16, 17, 18];
+// A bracket of n Teams plays ceil(log2(n)) rounds, one per week (season.service playoffRounds),
+// so its start week is the latest one that leaves the last round on week 18 (#2743).
+const LAST_NFL_WEEK = 18;
+const latestStartWeek = (playoffTeams) => LAST_NFL_WEEK + 1 - Math.ceil(Math.log2(playoffTeams));
+const startWeekOptions = (playoffTeams) =>
+  PLAYOFF_START_WEEK_OPTIONS.filter((w) => w <= latestStartWeek(playoffTeams));
 const WEEK_OPTIONS = Array.from({ length: 18 }, (_, i) => i + 1);
 const WAIVER_PERIOD_OPTIONS = [
   { hours: 24, label: '24 hours after a drop' },
@@ -671,10 +677,11 @@ function DangerZone({ children }) {
  *
  * `rolloverSeason` (server/services/commissioner.service.js) archives the
  * season's standings, rosters and awards into league_history and then, for a
- * fantasy league, DELETEs every `team_players` row, every `draft_picks` row and
- * the whole `waiver_players` wire, cancels pending waiver claims and pending or
- * accepted trades, resets every team's `faab_remaining` to the league budget,
- * and moves the league to the next season at week 1 with the draft reopened.
+ * fantasy league, DELETEs every `team_players` row, `draft_picks` row, keeper and
+ * draft-queue row and the whole `waiver_players` wire, cancels pending waiver
+ * claims and pending or accepted trades, resets every team's `faab_remaining` to
+ * the league budget, turns Autodraft off on managed teams, clears the draft date,
+ * and moves the league to the next season at week 1 with the draft unscheduled.
  * A pick'em-only league has none of the roster half (ADR 0002), so it gets its
  * own sentence rather than a list of things that do not exist in it.
  *
@@ -700,8 +707,9 @@ function StartNewSeason({ leagueId, league, onRefresh, notify, caption }) {
     ? `This archives ${seasonLabel} standings to League History and opens ${nextLabel} for picks at week 1. `
       + 'This cannot be undone.'
     : `This archives ${seasonLabel} to League History, then clears every team's roster, deletes all draft `
-      + "picks, empties the waiver wire, cancels pending waiver claims and trades, and resets every team's "
-      + `FAAB budget. The league moves to ${nextLabel} at week 1 with the draft reopened. This cannot be undone.`;
+      + "picks, keepers and draft queues, empties the waiver wire, cancels pending waiver claims and trades, "
+      + "turns Autodraft off for managed teams, and resets every team's "
+      + `FAAB budget. The league moves to ${nextLabel} at week 1 with the draft unscheduled. This cannot be undone.`;
 
   const handleConfirm = async () => {
     setBusy(true);
@@ -1729,7 +1737,11 @@ function PlayoffSchedulePanel({ leagueId, league, draft, setDraft, markSaved, di
             <InputLabel id="playoff-teams-label">Playoff Teams</InputLabel>
             <Select
               labelId="playoff-teams-label" label="Playoff Teams"
-              value={playoffTeams} onChange={(e) => setDraft({ playoffTeams: e.target.value })}
+              value={playoffTeams}
+              onChange={(e) => setDraft({
+                playoffTeams: e.target.value,
+                startWeek: Math.min(startWeek, latestStartWeek(Number(e.target.value))),
+              })}
             >
               {PLAYOFF_TEAM_OPTIONS.map((n) => <MenuItem key={n} value={n}>{n} teams</MenuItem>)}
             </Select>
@@ -1740,7 +1752,7 @@ function PlayoffSchedulePanel({ leagueId, league, draft, setDraft, markSaved, di
               labelId="playoff-start-label" label="Playoff Start Week"
               value={startWeek} onChange={(e) => setDraft({ startWeek: e.target.value })}
             >
-              {PLAYOFF_START_WEEK_OPTIONS.map((w) => <MenuItem key={w} value={w}>Week {w}</MenuItem>)}
+              {startWeekOptions(Number(playoffTeams)).map((w) => <MenuItem key={w} value={w}>Week {w}</MenuItem>)}
             </Select>
           </FormControl>
         </Box>

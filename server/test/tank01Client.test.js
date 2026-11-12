@@ -242,6 +242,36 @@ test('a stale (>24h) header snapshot is ignored in favor of local counts', async
   assert.equal(state.mode, 'ok');
 });
 
+test('a header snapshot seen before the cycle start does not count in the new cycle', async () => {
+  // Anchor day 15: this cycle began 2026-09-15. The snapshot is 12h old (fresh)
+  // but was taken in the last cycle, when the provider was out of requests.
+  const at = new Date('2026-09-15T08:00:00.000Z');
+  const { client } = clientWith({
+    usedThisCycle: 100,
+    config: { ...CONFIG, anchorDay: 15 },
+    now: () => at,
+    snapshot: { limit: 1000, remaining: 0, seenAt: new Date('2026-09-14T20:00:00.000Z') },
+  });
+  const state = await client.getQuotaState();
+  assert.equal(state.headerUsed, null);
+  assert.equal(state.used, 100);
+  assert.equal(state.mode, 'ok');
+});
+
+test('a header snapshot seen exactly at the cycle start counts; one millisecond earlier does not', async () => {
+  // Anchor day 15 at 08:00Z: the cycle began at 00:00Z that day, and that instant is inside it.
+  const at = new Date('2026-09-15T08:00:00.000Z');
+  const headerUsedFor = (seenAt) => clientWith({
+    config: { ...CONFIG, anchorDay: 15 },
+    now: () => at,
+    snapshot: { limit: 1000, remaining: 100, seenAt: new Date(seenAt) },
+  }).client.getQuotaState().then((state) => state.headerUsed);
+
+  // Red tell: `>=` at tank01Client.js:281 becoming `>` makes the first read null.
+  assert.equal(await headerUsedFor('2026-09-15T00:00:00.000Z'), 900);
+  assert.equal(await headerUsedFor('2026-09-14T23:59:59.999Z'), null);
+});
+
 test('a higher local count wins over a rosier header snapshot', async () => {
   const { client } = clientWith({
     usedThisCycle: 980,

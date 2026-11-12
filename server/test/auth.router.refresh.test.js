@@ -100,7 +100,7 @@ test('POST /api/auth/refresh from an untrusted origin in production is 403 befor
   }
 });
 
-test('POST /api/auth/refresh with an invalid cookie is still 401 and still clears the cookie', async (t) => {
+test('POST /api/auth/refresh with an invalid cookie is still 401 and leaves the cookie alone', async (t) => {
   t.mock.method(tokens, 'rotateRefreshToken', async () => {
     const error = new Error('invalid refresh token');
     error.statusCode = 401;
@@ -112,8 +112,38 @@ test('POST /api/auth/refresh with an invalid cookie is still 401 and still clear
 
     assert.equal(response.status, 401, url);
     assert.deepEqual(response.body, { error: 'invalid refresh token' });
-    const cookies = response.headers['set-cookie'] || [];
-    assert.equal(cookies.length, 1);
-    assert.match(cookies[0], /^endzone_refresh=;/);
+    assert.equal(response.headers['set-cookie'], undefined, url);
   }
+});
+
+// A refusal that lands after a newer login must not delete the cookie that login set (#2835).
+test('POST /api/auth/refresh whose rotated user row is gone is 401 and leaves the cookie alone', async (t) => {
+  t.mock.method(tokens, 'rotateRefreshToken', async () => ({
+    userId: 42,
+    refreshToken: 'rotated-raw-refresh-token',
+    authenticatedAt: new Date('2026-06-01T00:00:00Z').toISOString(),
+  }));
+  t.mock.method(pool, 'query', async (sql) => {
+    const text = String(sql);
+    if (text.includes('FROM "users"')) return { rows: [] };
+    throw new Error(`Unexpected SQL: ${text}`);
+  });
+
+  const response = await request(app).post('/api/auth/refresh').set('Cookie', 'endzone_refresh=some-old-refresh-token');
+
+  assert.equal(response.status, 401);
+  assert.deepEqual(response.body, { error: 'invalid refresh token' });
+  assert.equal(response.headers['set-cookie'], undefined);
+});
+
+test('POST /api/auth/refresh that fails on a database error is 500 and leaves the cookie alone', async (t) => {
+  t.mock.method(tokens, 'rotateRefreshToken', async () => {
+    throw new Error('db down');
+  });
+
+  const response = await request(app).post('/api/auth/refresh').set('Cookie', 'endzone_refresh=some-old-refresh-token');
+
+  assert.equal(response.status, 500);
+  assert.deepEqual(response.body, { error: 'token refresh failed' });
+  assert.equal(response.headers['set-cookie'], undefined);
 });
