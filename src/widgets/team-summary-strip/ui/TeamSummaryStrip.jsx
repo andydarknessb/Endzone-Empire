@@ -1,7 +1,7 @@
 import React from 'react';
 import { Box } from '@mui/material';
 import {
-  Frame, FrameHead, PixelHeading, PixelWarn, Skel,
+  Frame, FrameHead, PixelHeading, PixelWarn,
 } from '../../../shared/ui/playselect';
 import { CAPTION_SX } from '../../../shared/ui/playselect/LineupParts';
 import { formatPoints, startVerdictReason } from '../../../shared/lib';
@@ -72,6 +72,7 @@ export default function TeamSummaryStrip({
     lineup,
     scoreEvent,
   });
+  const loading = status === 'loading';
 
   // The moves the plan makes: each swap suggestion, and each bench player it starts in an empty slot.
   const suggestionCount = (Array.isArray(advice?.suggestions) ? advice.suggestions.length : 0)
@@ -142,12 +143,6 @@ export default function TeamSummaryStrip({
       head={<FrameHead><PixelHeading id="team-summary-h" size={16}>This week</PixelHeading></FrameHead>}
     >
       <Box sx={{ p: { xs: '10px 14px', md: '14px 20px' }, display: 'flex', flexDirection: 'column', gap: { xs: '8px', md: '12px' } }}>
-        {status === 'loading' && (
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', sm: 'repeat(4, minmax(0, 1fr))' }, gap: '12px 16px' }}>
-            {Array.from({ length: 4 }, (_, i) => <Skel key={i} width="100%" height={40} />)}
-          </Box>
-        )}
-
         {status === 'error' && (
           <Box role="alert" sx={{ fontSize: '15px' }}>
             We could not load this week&apos;s matchup right now.
@@ -158,17 +153,24 @@ export default function TeamSummaryStrip({
           <Box sx={{ fontSize: '15px', color: 'var(--ps-dim)' }}>No matchup this week</Box>
         )}
 
-        {status === 'ready' && (
+        {/* Loading draws the tiles and the win probability line ready will, their figures as Skel bars in the same
+            line boxes, so the Ledger under the strip does not move when the matchup read lands. */}
+        {(loading || status === 'ready') && (
           <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', sm: 'repeat(4, minmax(0, 1fr))' }, gap: { xs: '8px 16px', sm: '12px 16px' } }}>
-            <Tile testId="strip-score" label="Score vs proj." value={figureLabel(viewer?.score, viewer?.projected)} />
-            <Tile testId="strip-opponent-score" label="Opponent vs proj." value={figureLabel(opponent?.score, opponent?.projected)} />
+            <Tile testId="strip-score" label="Score vs proj." loading={loading} value={figureLabel(viewer?.score, viewer?.projected)} />
+            <Tile testId="strip-opponent-score" label="Opponent vs proj." loading={loading} value={figureLabel(opponent?.score, opponent?.projected)} />
             <Tile
               testId="strip-starters-remaining"
               label="Starters"
+              loading={loading}
               value={viewer?.playersRemaining != null ? `${viewer.playersRemaining} to play` : '-'}
             />
-            <Tile testId="strip-starters-locked" label="Locked" value={`${lockedStarters} of ${totalStarters}`} />
+            <Tile testId="strip-starters-locked" label="Locked" loading={loading} value={`${lockedStarters} of ${totalStarters}`} />
           </Box>
+        )}
+
+        {loading && (
+          <Box component="p" aria-hidden="true" sx={{ ...SKEL_TEXT_SX, m: 0, fontSize: '14px', width: '60%' }}>{'\u00a0'}</Box>
         )}
 
         {winProbability != null && (
@@ -203,12 +205,21 @@ export default function TeamSummaryStrip({
   );
 }
 
-// A labelled figure: the Dim label over a tabular 18px value (16px on a phone).
-function Tile({ testId, label, value }) {
+// A line of text still loading: one blank line box in the Skel fill, so it stands exactly as tall as the text will.
+const SKEL_TEXT_SX = { backgroundColor: 'var(--ps-skel)', maxWidth: '100%' };
+
+// A labelled figure: the Dim label over a tabular 18px value (16px on a phone). While `loading` the value is a
+// Skel bar and the tile is aria-hidden with no test id, so a screen reader never hears a label with no figure.
+function Tile({ testId, label, value, loading = false }) {
   return (
-    <Box data-testid={testId} sx={{ display: 'flex', flexDirection: 'column', gap: '2px', minWidth: 0 }}>
+    <Box data-testid={loading ? undefined : testId} aria-hidden={loading || undefined} sx={{ display: 'flex', flexDirection: 'column', gap: '2px', minWidth: 0 }}>
       <Box component="span" sx={{ fontSize: '13px', color: 'var(--ps-dim)' }}>{label}</Box>
-      <Box component="span" sx={{ fontSize: { xs: '16px', sm: '18px' }, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{value}</Box>
+      <Box
+        component="span"
+        sx={{ fontSize: { xs: '16px', sm: '18px' }, fontWeight: 700, fontVariantNumeric: 'tabular-nums', ...(loading && { ...SKEL_TEXT_SX, width: '72px' }) }}
+      >
+        {loading ? '\u00a0' : value}
+      </Box>
     </Box>
   );
 }

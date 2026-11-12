@@ -34,9 +34,20 @@ export function useLineupData({ leagueId, week }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  // A new league starts from nothing, during render (the useResource pattern): the previous league's roster
+  // must not stand under the new league's head, where a move would be written to the wrong league.
+  const [stateLeagueId, setStateLeagueId] = useState(leagueId);
+  if (stateLeagueId !== leagueId) {
+    setStateLeagueId(leagueId);
+    setRaw(null);
+    setLoading(true);
+  }
+
   // Each load supersedes the one before it (the useResource guard): a slower,
   // older answer for another week must not land over the week on screen.
   const requestSeq = useRef(0);
+  // An error belongs to the league and week it was read for, so one left by a read the page has moved on from never shows.
+  const errorKey = `${leagueId}:${week}`;
 
   const fetchLineup = useCallback(async ({ silent = false } = {}) => {
     // Bumped before the null-league return, so a load still in flight for the old league writes nothing.
@@ -52,11 +63,11 @@ export function useLineupData({ leagueId, week }) {
       const res = await apiClient.get(url);
       if (current()) setRaw(res.data);
     } catch (err) {
-      if (current()) setError(readHttpFailure(err).message || err.message);
+      if (current()) setError({ key: errorKey, message: readHttpFailure(err).message || err.message });
     } finally {
       if (current()) setLoading(false);
     }
-  }, [leagueId, week]);
+  }, [leagueId, week, errorKey]);
 
   useEffect(() => {
     fetchLineup();
@@ -80,7 +91,7 @@ export function useLineupData({ leagueId, week }) {
     };
   }, [raw]);
 
-  return { lineup, raw, setRaw, loading, error, refetch: fetchLineup };
+  return { lineup, raw, setRaw, loading, error: error?.key === errorKey ? error.message : null, refetch: fetchLineup };
 }
 
 export default useLineupData;

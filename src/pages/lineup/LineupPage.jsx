@@ -102,11 +102,21 @@ const HOUR_MS = 60 * MINUTE_MS;
  */
 export default function LineupPage() {
   const {
-    leagues, selectedLeagueId, setSelectedLeagueId, loading: leaguesLoading, error: leaguesError, refetch: refetchLeagues,
+    leagues, selectedLeagueId, readLeagueId, setSelectedLeagueId, loading: leaguesLoading, error: leaguesError, refetch: refetchLeagues,
   } = useLineupLeagues();
+  // The league and lineup reads (and the live games the lineup names) start on `readLeagueId`, beside the
+  // inventory read; everything else waits for the inventory to confirm the league.
   const {
     league, teams, viewerTeamId, error: leagueError, refetch: refetchLeague,
-  } = useLeague(selectedLeagueId);
+  } = useLeague(readLeagueId);
+  // The inventory row already names the league, the viewer's team and the current week, so the head is whole
+  // from its first paint and nothing in it moves when the league read lands.
+  const selectedLeague = leagues.find((l) => l.id === selectedLeagueId);
+  // Until the league read lands the inventory row answers for it (the same leagues columns), so best ball, the
+  // phase and the viewer's team are known from the first paint instead of flipping when it lands. A failed
+  // league read still reads as unknown, as it did before.
+  const leagueRow = league ?? (leagueError ? null : selectedLeague) ?? null;
+  const myTeamId = viewerTeamId ?? (leagueError ? null : selectedLeague?.my_team_id) ?? null;
   const [searchParams, setSearchParams] = useSearchParams();
   const [week, setWeek] = useState(null);
   // The Decision card (#1240, ADR 0037): which rostered player's card is
@@ -140,12 +150,12 @@ export default function LineupPage() {
   // demote it back to unsettled.
   // The read's own error decides "error": `loading` is false for the commit before its effect starts the read, and
   // would flash the error row on every normal load.
-  const leagueMode = league != null ? (league.best_ball ? 'bestBall' : 'standard') : (leagueError ? 'error' : 'loading');
+  const leagueMode = leagueRow != null ? (leagueRow.best_ball ? 'bestBall' : 'standard') : (leagueError ? 'error' : 'loading');
   const bestBall = leagueMode === 'bestBall';
   const leagueUnsettled = leagueMode === 'loading' || leagueMode === 'error';
 
   const { lineup, raw, setRaw, loading: lineupLoading, error: lineupError, refetch } = useLineupData({
-    leagueId: selectedLeagueId,
+    leagueId: readLeagueId,
     week,
   });
 
@@ -156,7 +166,7 @@ export default function LineupPage() {
   // `live_game_states` channel Game Center and Matchup Detail already read)
   // rather than a second live-games mechanism.
   const gameKeys = Array.from(new Set((lineup?.entries || []).map((e) => e.gameKey).filter(Boolean)));
-  const liveGames = useLiveGameStates(selectedLeagueId, gameKeys);
+  const liveGames = useLiveGameStates(readLeagueId, gameKeys);
   const liveGamesByKey = new Map(liveGames.map((row) => [String(row.tank01_game_id), row]));
 
   // The finished-game refetch (#1546, ADR 0037 ticket 9): `displayEdgeKind`
@@ -181,7 +191,7 @@ export default function LineupPage() {
   const seenGameKindsRef = useRef(new Map());
   useEffect(() => {
     seenGameKindsRef.current = new Map();
-  }, [selectedLeagueId, week]);
+  }, [readLeagueId, week]);
   useEffect(() => {
     const seen = seenGameKindsRef.current;
     let changed = false;
@@ -286,10 +296,10 @@ export default function LineupPage() {
   // final; an in-progress starter's is actual plus the rest of its projection)
   // leaves `null` here, which is no line.
   const { matchups } = useWeekMatchups(selectedLeagueId, lineup?.week ?? null, { enabled: !bestBall });
-  const viewerMatchup = viewerMatchupOf(matchups, viewerTeamId);
+  const viewerMatchup = viewerMatchupOf(matchups, myTeamId);
   // The board nulls a settled week's Expected final (#2048), so a played week
   // draws no line even though the server still prices one.
-  const board = matchupBoard(viewerMatchup, viewerTeamId);
+  const board = matchupBoard(viewerMatchup, myTeamId);
   const expectedFinals = viewerMatchup
     ? { mine: board.first.expectedFinal, theirs: board.second.expectedFinal }
     : null;
@@ -329,7 +339,7 @@ export default function LineupPage() {
 
   const currentWeekValue = lineup ? week ?? lineup.week ?? MIN_WEEK : null;
   const viewerTeam = viewerTeamId != null && Array.isArray(teams) ? teams.find((t) => t.teamId === viewerTeamId) : null;
-  const phase = deriveLeaguePhase(league);
+  const phase = deriveLeaguePhase(leagueRow);
   const draftInProgress = phase === LEAGUE_PHASE.PRE_DRAFT || phase === LEAGUE_PHASE.DRAFTING;
   const canDropEntry = () => Boolean(lineup && lineup.week != null && lineup.week === lineup.currentWeek);
   const emptyRoster = !lineupLoading && lineup != null && lineup.entries.length === 0;
@@ -452,7 +462,7 @@ export default function LineupPage() {
   }, [phoneView]);
 
   const zone = formatInstant(new Date(), 'zone') || 'your time zone';
-  const leagueName = league?.name || leagues.find((l) => l.id === selectedLeagueId)?.name || null;
+  const leagueName = league?.name || selectedLeague?.name || null;
   const showBoard = leagues.length > 0 && !draftInProgress && !emptyRoster;
 
   // `width: 100%` on the root is load-bearing beside `mx: auto`: this page is
@@ -464,8 +474,10 @@ export default function LineupPage() {
   // width to intrinsic sizing). On a phone that made the entire page ~1100px
   // wide (measured on device, PR #1323). The column is a flex column, not a
   // grid, so a wide child never widens the page.
+  // While loading and under the board the root holds a full viewport, so the app Footer starts below the fold
+  // instead of sitting under an empty page and being pushed out when the lineup lands.
   return (
-    <Box className="ps-root" sx={{ ...psRootSx, width: '100%', minHeight: '100%' }}>
+    <Box className="ps-root" sx={{ ...psRootSx, width: '100%', minHeight: leaguesLoading || showBoard ? '100vh' : '100%' }}>
       <Box
         data-testid="lineup-page"
         sx={{
@@ -484,18 +496,20 @@ export default function LineupPage() {
             We could not load your leagues. Check your connection and try again.
           </ErrorRow>
         )}
-        {leagueMode === 'error' && (
+        {/* While the inventory loads the two reads below run on a league it has not confirmed yet, so a
+            failure there is not reported until it has. */}
+        {!leaguesLoading && leagueMode === 'error' && (
           <ErrorRow testId="league-error" onRetry={refetchLeague}>
             We could not load this league. Check your connection and try again.
           </ErrorRow>
         )}
-        {lineupError && (
+        {!leaguesLoading && lineupError && (
           <ErrorRow testId="lineup-error" onRetry={() => refetch()}>
             We could not load your lineup. Check your connection and try again.
           </ErrorRow>
         )}
 
-        {!leaguesLoading && leagues.length === 0 && (
+        {!leaguesLoading && !leaguesError && leagues.length === 0 && (
           <MessageCard
             testId="lineup-no-leagues"
             text="You're not in a fantasy league yet. Create or join one to start building your team."
@@ -511,9 +525,9 @@ export default function LineupPage() {
                 picker. */}
             <LineupHead
               leagueName={leagueName}
-              teamName={viewerTeam?.teamName}
-              avatarUrl={viewerTeam?.avatar_url}
-              avatarStaticUrl={viewerTeam?.avatar_static_url}
+              teamName={viewerTeam?.teamName ?? selectedLeague?.my_team_name}
+              avatarUrl={viewerTeam?.avatar_url ?? selectedLeague?.my_team_avatar_url}
+              avatarStaticUrl={viewerTeam?.avatar_static_url ?? selectedLeague?.my_team_avatar_static_url}
               bestBall={bestBall}
               live={anyLive}
               zone={zone}
@@ -522,7 +536,7 @@ export default function LineupPage() {
               selectedLeagueId={selectedLeagueId}
               onSelectLeague={setSelectedLeagueId}
               weeks={WEEKS}
-              week={showBoard ? currentWeekValue ?? MIN_WEEK : null}
+              week={showBoard ? currentWeekValue ?? selectedLeague?.current_week ?? MIN_WEEK : null}
               onWeek={changeWeek}
             />
 
@@ -565,8 +579,8 @@ export default function LineupPage() {
                   <Box data-testid="lineup-roster-column" sx={{ display: { xs: phoneView === 'outlook' ? 'none' : 'grid', sm: 'grid' }, gap: { xs: '12px', sm: '24px' }, minWidth: 0 }}>
                     <TeamSummaryStrip
                       leagueId={selectedLeagueId}
-                      week={league?.current_week ?? null}
-                      viewerTeamId={viewerTeamId}
+                      week={league?.current_week ?? selectedLeague?.current_week ?? null}
+                      viewerTeamId={myTeamId}
                       lineup={lineup}
                       advice={stripAdvice}
                       worstByeCluster={worstCluster}
