@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 import { Box, useMediaQuery, useTheme } from '@mui/material';
 import { Frame, FrameHead, PixelHeading } from '../../../shared/ui/playselect';
 import { spent } from '../../../entities/roster';
@@ -110,6 +110,11 @@ export default function LineupLedger({
   // has no Drop but must keep the same numbers edge).
   const reserveDropTrack = [...starters, ...ir, ...bench].some((row) => row.entry && !spent(row.entry) && canDropEntry?.(row.entry));
 
+  // One stable handler that reads the latest onRowClick, so a row whose own props did not change skips its render.
+  const onRowClickRef = useRef(onRowClick);
+  useLayoutEffect(() => { onRowClickRef.current = onRowClick; });
+  const handleRowClick = useCallback((entry, slotType, event) => onRowClickRef.current?.(entry, slotType, event), []);
+
   const rowProps = (row, last) => {
     const entry = row.entry;
     const isSelected = Boolean(entry && selectedEntryId != null && entry.playerId === selectedEntryId);
@@ -133,7 +138,8 @@ export default function LineupLedger({
       disabled: Boolean(disabled) || spent(entry) || (rowShowsEligibility && !eligible),
       canDrop: Boolean(entry && !spent(entry) && canDropEntry?.(entry)),
       reserveDropTrack,
-      onClick: (event) => onRowClick?.(entry, row.slotType, event),
+      onRowClick: handleRowClick,
+      slotType: row.slotType,
       onRequestDrop,
       onOpenDecisionCard,
       last,

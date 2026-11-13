@@ -183,6 +183,8 @@ function PlayerAvatar({ name, photoUrl, size, color }) {
  * `cursor` puts the page's one cursor frame on this row (`'urgent'` turns it Danger, under one hour from
  * the lock); `note` is the lineup note the cursor row carries. `last` drops the rule under the row.
  *
+ * The covering button calls `onRowClick(entry, slotType, event)`.
+ *
  * Structure (formal review findings ac1-widgets-reach-below-the-island's sibling fixes and
  * legacy-controls-dropped-without-a-criterion): the row's own swap-select action is an invisible `<button>`
  * absolutely covering the row, UNDER the visible content, which is `pointer-events: none` except two
@@ -196,7 +198,7 @@ function PlayerAvatar({ name, photoUrl, size, color }) {
  * player's name), and the covering button carries no text of its own by design. The covering button gets
  * its own derived id (`${testId}-select`) for anything that specifically needs the interactive element.
  */
-export default function LedgerRow({
+function LedgerRow({
   slotLabel,
   entry,
   liveRow,
@@ -205,7 +207,8 @@ export default function LedgerRow({
   eligible,
   disabled,
   swapHighlighted,
-  onClick,
+  onRowClick,
+  slotType,
   onRequestDrop,
   canDrop,
   reserveDropTrack,
@@ -472,7 +475,7 @@ export default function LedgerRow({
             aria-pressed={Boolean(selected)}
             aria-label={`${rowLabel}${dimRow ? ', not eligible' : ''}`}
             data-testid={testId ? `${testId}-select` : undefined}
-            onClick={onClick}
+            onClick={(event) => onRowClick?.(entry, slotType, event)}
             sx={{
               position: 'absolute',
               inset: 0,
@@ -497,6 +500,9 @@ export default function LedgerRow({
     </Box>
   );
 }
+
+// Memoised: a prop that is neither a primitive nor stable in identity re-renders its row on every page render (today only the cursor row's note is one).
+export default React.memo(LedgerRow);
 
 const INJURY_WORDS = {
   Q: 'questionable', D: 'doubtful', O: 'out', IR: 'injured reserve',

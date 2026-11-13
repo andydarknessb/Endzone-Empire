@@ -1,7 +1,9 @@
 /* eslint-disable testing-library/no-node-access -- the cursor, fill and live-region facts are DOM structure, which Testing Library has no query for */
 import React from 'react';
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import LineupLedger from './LineupLedger';
+import * as gameCell from '../lib/gameCell';
 
 /**
  * #1425: below `sm` the Ledger asks its page to flip the phone section
@@ -40,6 +42,9 @@ beforeEach(() => {
     };
   });
 });
+
+// CRA sets resetMocks, which would blank this spy for any test after it, so each one is restored here.
+afterEach(() => jest.restoreAllMocks());
 
 const starter = (over = {}) => ({ playerId: 1, name: 'Starter One', slot: 'QB', ...over });
 const benchPlayer = (over = {}) => ({ playerId: 2, name: 'Bench One', slot: 'BENCH', ...over });
@@ -221,4 +226,38 @@ test('the cursor frame and its note land on the named row only', () => {
   expect(document.querySelectorAll('.cursor')).toHaveLength(1);
   expect(screen.getByTestId('slot-row-RB-1').querySelector('.cursor')).not.toBeNull();
   expect(screen.getByTestId('slot-row-RB-1')).toHaveTextContent('RB is empty');
+});
+
+// Rows are memoised and take one stable click handler, so a tab press re-renders none of them; gameCellView runs once per occupied row per render.
+test('a tab change re-renders no row', () => {
+  const spy = jest.spyOn(gameCell, 'gameCellView');
+  const { rerender, props } = renderLedger({ liveGamesByKey: new Map(), isSwapHighlighted: () => false, canDropEntry: () => false });
+  const rendered = spy.mock.calls.length;
+  expect(rendered).toBeGreaterThan(0);
+
+  rerender(
+    <LineupLedger
+      {...props}
+      mobileTab="bench"
+      onRowClick={jest.fn()}
+      isEligibleTarget={() => false}
+      isSwapHighlighted={() => false}
+      canDropEntry={() => false}
+    />,
+  );
+
+  expect(spy.mock.calls.length).toBe(rendered);
+});
+
+// The stable handler calls the page's latest onRowClick, never the one from the first render.
+test('the row handler is never stale', async () => {
+  const oldOnRowClick = jest.fn();
+  const newOnRowClick = jest.fn();
+  const { rerender, props } = renderLedger({ onRowClick: oldOnRowClick });
+  rerender(<LineupLedger {...props} onRowClick={newOnRowClick} />);
+
+  await userEvent.click(screen.getByTestId('slot-row-QB-0-select'));
+
+  expect(newOnRowClick).toHaveBeenCalledWith(props.sections.starters[0].entry, 'QB', expect.anything());
+  expect(oldOnRowClick).not.toHaveBeenCalled();
 });

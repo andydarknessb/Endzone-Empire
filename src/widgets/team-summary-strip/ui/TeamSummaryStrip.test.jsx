@@ -60,6 +60,10 @@ test('a loading matchup read shows skeletons and is aria-busy', async () => {
   mockGetByUrl({ [LIST_URL]: new Promise(() => {}) });
   renderStrip({ lineup: lineup([]) });
   await waitFor(() => expect(screen.getByTestId('team-summary-strip')).toHaveAttribute('aria-busy', 'true'));
+  expect(screen.getByText('Score vs proj.')).toBeInTheDocument();
+  expect(screen.queryByTestId('strip-score')).toBeNull();
+  // eslint-disable-next-line testing-library/no-node-access -- the hidden tile has no role to query by
+  expect(screen.getByText('Score vs proj.').closest('[aria-hidden="true"]')).not.toBeNull();
 });
 
 test('a ready matchup shows the score/projected figures, players remaining, and locked count', async () => {
@@ -172,6 +176,25 @@ test('the advice tile pluralizes two or more swaps', async () => {
     advice: { suggestions: [{ slot: 'RB' }, { slot: 'WR' }], movePlan: [], projectedTotal: 90, optimalTotal: 100 },
   });
   expect(await screen.findByTestId('strip-advice')).toHaveTextContent('2 swaps');
+});
+
+// #2886: while the first advice is out the tile holds a Skel bar; a failed read says "Not available".
+test('the advice tile draws a Skel bar, not "Lineup set", while the first advice is out (#2886)', async () => {
+  mockGetByUrl({ [LIST_URL]: { data: [] } });
+  renderStrip({ lineup: lineup([]), advice: { suggestions: [], movePlan: [], pending: true } });
+  const tile = await screen.findByTestId('strip-advice');
+  expect(tile).not.toHaveTextContent('Lineup set');
+  expect(tile).not.toHaveTextContent('No bench move');
+  // eslint-disable-next-line testing-library/no-node-access -- the Skel bar has no text or role to query by
+  expect(tile.lastChild).toHaveAttribute('aria-hidden', 'true');
+});
+
+test('the advice tile reads "Not available", not "Lineup set", when the advice read failed (#2886)', async () => {
+  mockGetByUrl({ [LIST_URL]: { data: [] } });
+  renderStrip({ lineup: lineup([]), advice: { suggestions: [], movePlan: [], failed: true } });
+  const tile = await screen.findByTestId('strip-advice');
+  expect(tile).toHaveTextContent('Not available');
+  expect(tile).not.toHaveTextContent('Lineup set');
 });
 
 test('the advice tile reads "Lineup set" when there is no suggestion', async () => {

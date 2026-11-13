@@ -89,6 +89,9 @@ beforeEach(() => {
     return socket;
   };
   window.localStorage.removeItem(PENDING_LINEUP_MUTATIONS_KEY);
+  Object.keys(window.localStorage)
+    .filter((key) => key.startsWith('endzone_lineup_league'))
+    .forEach((key) => window.localStorage.removeItem(key));
   window.matchMedia = jest.fn().mockImplementation((query) => ({
     matches: false,
     media: query,
@@ -531,7 +534,7 @@ test('a Realtime row update that keeps the same Game cell kind triggers no extra
   liveGameRows = [{ tank01_game_id: 'g1', game_status: 'in_progress' }];
   renderPage();
   await screen.findByText('Josh Allen');
-  expect(firstGameCell()).toHaveAttribute('data-game-state', 'live');
+  await waitFor(() => expect(firstGameCell()).toHaveAttribute('data-game-state', 'live'));
   await waitForLiveGameChannel();
   const lineupCallsBefore = apiClient.get.mock.calls.filter((c) => c[0] === LINEUP_URL).length;
 
@@ -1321,6 +1324,107 @@ test('a refused apply rolls the optimistic move back', async () => {
   expect(within(screen.getByTestId('ledger-starters')).getByText('Derrick King')).toBeInTheDocument();
 });
 
+// #2886: the outlook rail waits for the Forecast's advice. The Bye clusters and the Matchup preview mount at once
+// (their reads start) but stay hidden until the advice answers, so they do not get pushed down when it lands.
+test('the held rail: Bye clusters and the Matchup preview show only once the advice answers (#2886)', async () => {
+  let answer;
+  renderPage({ [ADVICE_URL]: new Promise((resolve) => { answer = resolve; }) });
+  await screen.findByText('Josh Allen');
+  expect(screen.getByTestId('bye-cluster-grid')).not.toBeVisible();
+  expect(screen.getByTestId('matchup-preview')).not.toBeVisible();
+
+  await act(async () => { answer({ data: adviceBody() }); });
+  await waitFor(() => expect(screen.getByTestId('bye-cluster-grid')).toBeVisible());
+  expect(screen.getByTestId('matchup-preview')).toBeVisible();
+});
+
+// #2886: the Forecast waits on the lineup and the league, says when its own read or the lineup failed, and holds the
+// rail only until it first settles.
+describe('the Forecast when a read fails or the week changes (#2886)', () => {
+  test('a failed lineup read says the Forecast could not load, the tile reads Not available, and the rail stays shown', async () => {
+    const urls = baseUrls();
+    apiClient.get.mockImplementation((url) => (
+      url === LINEUP_URL ? Promise.reject(new Error('boom')) : Promise.resolve(urls[url] ?? { data: [] })
+    ));
+    renderWithProviders(<LineupPage />, { route: '/team?leagueId=1', path: '/team' });
+    expect(await screen.findByTestId('start-sit-panel-error')).toHaveTextContent('We could not load the Endzone Forecast right now.');
+    expect(screen.getByTestId('strip-advice')).toHaveTextContent('Not available');
+    expect(screen.queryByTestId('start-sit-panel-loading')).toBeNull();
+    expect(screen.getByTestId('matchup-preview')).toBeVisible();
+    // The lineup error row is the one alert; the Forecast's sentence stays quiet because it has no Retry of its own.
+    const alerts = screen.getAllByRole('alert');
+    expect(alerts).toHaveLength(1);
+    expect(screen.getByTestId('lineup-error')).toContainElement(alerts[0]);
+  });
+
+  test('a failed advice read says so with a Retry that asks the advice again, and the rail stays shown', async () => {
+    const user = userEvent.setup();
+    const urls = baseUrls();
+    apiClient.get.mockImplementation((url) => (
+      url.startsWith(ADVICE_URL) ? Promise.reject(new Error('boom')) : Promise.resolve(urls[url] ?? { data: [] })
+    ));
+    renderWithProviders(<LineupPage />, { route: '/team?leagueId=1', path: '/team' });
+    const retry = await screen.findByRole('button', { name: 'Retry' });
+    expect(screen.getByTestId('start-sit-panel-error')).toHaveTextContent('We could not load the Endzone Forecast right now.');
+    expect(screen.getByTestId('matchup-preview')).toBeVisible();
+
+    const adviceReads = () => apiClient.get.mock.calls.filter(([url]) => url.startsWith(ADVICE_URL)).length;
+    const before = adviceReads();
+    await user.click(retry);
+    await waitFor(() => expect(adviceReads()).toBeGreaterThan(before));
+  });
+
+  test('a week change holds the Forecast on loading until the new week\'s advice answers, and the rail stays shown', async () => {
+    const user = userEvent.setup();
+    renderPage({
+      [ADVICE_URL]: { data: adviceBody({ suggestions: [adviceSuggestion()], movePlan: [{ playerId: 10, fromSlot: 'BENCH', toSlot: 'RB' }] }) },
+      [`${LINEUP_URL}&week=5`]: { data: lineupBody({ body: { week: 5 } }) },
+      '/api/team/lineup/advice?leagueId=1&week=5': new Promise(() => {}),
+      '/api/league/1/matchups?week=5': { data: [matchupRow({ week: 5 })] },
+    });
+    await screen.findByTestId('suggestion-card');
+    await user.click(screen.getByRole('button', { name: 'Next week' }));
+
+    await screen.findByTestId('start-sit-panel-loading');
+    expect(screen.queryByTestId('suggestion-card')).toBeNull();
+    expect(screen.queryByTestId('start-sit-apply')).toBeNull();
+    expect(screen.getByTestId('matchup-preview')).toBeVisible();
+  });
+
+  test('an advice read that never answers releases the rail after 3 s', async () => {
+    jest.useFakeTimers();
+    try {
+      renderPage({ [ADVICE_URL]: new Promise(() => {}) });
+      await screen.findByText('Josh Allen');
+      // The clock starts when the league is confirmed, which is when the advice read is first asked for.
+      await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith(ADVICE_URL));
+      expect(screen.getByTestId('matchup-preview')).not.toBeVisible();
+      act(() => { jest.advanceTimersByTime(3000); });
+      expect(screen.getByTestId('matchup-preview')).toBeVisible();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test('a league list that answers after the lineup holds the rail until the advice answers', async () => {
+    let answerLeagues;
+    let answerAdvice;
+    renderPage({
+      [LEAGUES_URL]: new Promise((resolve) => { answerLeagues = resolve; }),
+      [ADVICE_URL]: new Promise((resolve) => { answerAdvice = resolve; }),
+    });
+    // The lineup and the league answer first while the inventory is still out; the page shows nothing until it lands.
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+
+    await act(async () => { answerLeagues(leaguesListResponse()); });
+    await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith(ADVICE_URL));
+    expect(screen.getByTestId('matchup-preview')).not.toBeVisible();
+
+    await act(async () => { answerAdvice({ data: adviceBody() }); });
+    await waitFor(() => expect(screen.getByTestId('matchup-preview')).toBeVisible());
+  });
+});
+
 test('best ball hides the Start/sit panel entirely (never calls the advice endpoint)', async () => {
   renderPage({
     [LEAGUE_URL]: leagueResponse({ best_ball: true }),
@@ -1673,9 +1777,9 @@ describe('the one cursor and the one filled action (ruling 8)', () => {
   test('lineup set: no cursor and no filled action', async () => {
     renderPage(withEntries([qb(), rb(), wr(), benchWr()]));
     await screen.findByText('Josh Allen');
+    await waitFor(() => expect(screen.getByTestId('strip-advice')).toHaveTextContent('Lineup set'));
     expect(cursors()).toHaveLength(0);
     expect(filled()).toHaveLength(0);
-    expect(screen.getByTestId('strip-advice')).toHaveTextContent('Lineup set');
   });
 
   test('best ball has no cursor: the lineup sets itself', async () => {
@@ -1736,7 +1840,7 @@ describe('Lineup copy (spec #2347 ruling 4)', () => {
     expect(note).toHaveTextContent('no bench player can fill it');
     expect(note).toHaveTextContent('add a free agent playing at');
     expect(within(note).getByRole('link', { name: 'Free agents' })).toHaveAttribute('href', '/league/1/waivers');
-    expect(screen.getByTestId('strip-advice')).toHaveTextContent('No bench move');
+    await waitFor(() => expect(screen.getByTestId('strip-advice')).toHaveTextContent('No bench move'));
     expect(screen.getByTestId('start-sit-panel-empty')).toHaveTextContent('No move from your bench');
     expect(screen.queryByText('Lineup set')).toBeNull();
   });
@@ -1939,6 +2043,89 @@ describe('the league read error (QA P1-1)', () => {
   });
 });
 
+describe('the lineup reads start on the URL league before the inventory answers', () => {
+  test('the lineup read for the URL league starts while /api/league is unanswered', () => {
+    apiClient.get.mockImplementation(() => new Promise(() => {}));
+    renderWithProviders(<LineupPage />, { route: '/team?leagueId=1', path: '/team' });
+    expect(apiClient.get).toHaveBeenCalledWith(LINEUP_URL);
+  });
+
+  test('a failed read is not reported while the inventory is unanswered', async () => {
+    apiClient.get.mockImplementation((url) => (url === LEAGUES_URL ? new Promise(() => {}) : Promise.reject(new Error('boom'))));
+    renderWithProviders(<LineupPage />, { route: '/team?leagueId=1', path: '/team' });
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+    expect(screen.queryByTestId('lineup-error')).toBeNull();
+    expect(screen.queryByTestId('league-error')).toBeNull();
+  });
+
+  test('the head and the strip take the inventory row while the league and matchup reads are unanswered', async () => {
+    const urls = baseUrls({ [LEAGUES_URL]: leaguesListResponse({ my_team_name: 'List Row Name', current_week: 4 }) });
+    apiClient.get.mockImplementation((url) => (
+      url === LEAGUE_URL || url === MATCHUPS_URL ? new Promise(() => {}) : Promise.resolve(urls[url] ?? { data: [] })
+    ));
+    renderWithProviders(<LineupPage />, { route: '/team?leagueId=1', path: '/team' });
+    await waitFor(() => expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('List Row Name'));
+    expect(screen.getByTestId('team-summary-strip')).toHaveAttribute('aria-busy', 'true');
+    expect(within(screen.getByTestId('team-summary-strip')).queryByText('No matchup this week')).toBeNull();
+  });
+
+  test('a lineup read for the URL league is dropped once the inventory names another league', async () => {
+    const urls = baseUrls();
+    let answerLeagues;
+    apiClient.get.mockImplementation((url) => {
+      if (url === LEAGUES_URL) return new Promise((r) => { answerLeagues = r; });
+      if (url === '/api/team/lineup?leagueId=9') {
+        return Promise.resolve({ data: lineupBody({ extraEntries: [entryRow({ id: 30, name: 'Wrong League Player', position: 'WR', slot: 'BENCH', nfl_team: 'MIA' })] }) });
+      }
+      if (url === LINEUP_URL || url === '/api/league/9') return new Promise(() => {});
+      return Promise.resolve(urls[url] ?? { data: [] });
+    });
+    renderWithProviders(<LineupPage />, { route: '/team?leagueId=9', path: '/team' });
+    await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/team/lineup?leagueId=9'));
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+    await act(async () => { answerLeagues(leaguesListResponse()); });
+    await screen.findByTestId('lineup-skeleton');
+    expect(screen.queryByText('Wrong League Player')).toBeNull();
+  });
+});
+
+describe('the inventory row answers while the league read is unanswered', () => {
+  // The per-league read never answers in these cases, so the inventory row alone must carry the page.
+  const inventoryRow = (over = {}) => leaguesListResponse({ current_week: 4, ...over });
+
+  test("the summary strip reads the viewer's matchup from the inventory row's my_team_id", async () => {
+    renderPage({ [LEAGUES_URL]: inventoryRow({ my_team_id: 3 }), [LEAGUE_URL]: new Promise(() => {}) });
+    expect(await screen.findByTestId('strip-score')).toBeInTheDocument();
+    expect(within(screen.getByTestId('team-summary-strip')).queryByText('No matchup this week')).toBeNull();
+  });
+
+  test('best ball comes from the inventory row: the notice shows and the advice is never read', async () => {
+    renderPage({ [LEAGUES_URL]: inventoryRow({ best_ball: true }), [LEAGUE_URL]: new Promise(() => {}) });
+    expect(await screen.findByTestId('best-ball-notice')).toBeInTheDocument();
+    await screen.findByText('Josh Allen');
+    expect(screen.queryByTestId('start-sit-panel')).not.toBeInTheDocument();
+    expect(apiClient.get).not.toHaveBeenCalledWith(expect.stringContaining('/api/team/lineup/advice'));
+  });
+
+  test('a draft still to come comes from the inventory row: the draft card shows and the strip does not', async () => {
+    renderPage({ [LEAGUES_URL]: inventoryRow({ draft_status: 'pending' }), [LEAGUE_URL]: new Promise(() => {}) });
+    expect(await screen.findByTestId('lineup-draft-in-progress')).toBeInTheDocument();
+    expect(screen.queryByTestId('team-summary-strip')).not.toBeInTheDocument();
+  });
+
+  test('a failed inventory read says so and does not also say the viewer is in no league', async () => {
+    const urls = baseUrls();
+    apiClient.get.mockImplementation((url) => {
+      if (url === LEAGUES_URL) return Promise.reject(new Error('boom'));
+      if (url === LEAGUE_URL) return new Promise(() => {});
+      return Promise.resolve(urls[url] ?? { data: [] });
+    });
+    renderWithProviders(<LineupPage />, { route: '/team?leagueId=1', path: '/team' });
+    expect(await screen.findByTestId('leagues-error')).toBeInTheDocument();
+    expect(screen.queryByTestId('lineup-no-leagues')).toBeNull();
+  });
+});
+
 test('the Forecast prints the season lines the advice payload carries (QA P1-2)', async () => {
   renderPage(withEntries([qb(), rb(), wr(), benchWr()], {
     [ADVICE_URL]: {
@@ -2028,5 +2215,37 @@ describe('QA round 2 (wave 3)', () => {
     await user.click(screen.getAllByTestId('suggestion-dismiss')[0]);
     await waitFor(() => expect(screen.getByTestId('strip-advice')).toHaveTextContent('+4.0 pts · 1 swap'));
     expect(screen.getByTestId('start-sit-plan-line')).toHaveTextContent('Start Bench Guy for Derrick King · +4.0 pts');
+  });
+
+  // A Dismiss on one week does not carry into the next: the tile counts the new week's suggestions whole.
+  test('a Dismiss on one week does not shrink the Advice tile on the next', async () => {
+    const user = userEvent.setup();
+    const dismissed = adviceSuggestion({
+      slot: 'WR',
+      gain: 10.1,
+      current: { playerId: 30, name: 'Out Guy', projection: 0, opponent: 'JAX', startVerdict: { outcome: 'unavailable', reason: 'out' }, distribution: { p10: 0, p90: 0 } },
+      suggested: { playerId: 11, name: 'Other Guy', projection: 10.1, opponent: 'PHI', distribution: { p10: 3, p90: 19 } },
+    });
+    const kept = adviceSuggestion({ slot: 'RB', gain: 4 });
+    const nextWeekFirst = adviceSuggestion({
+      slot: 'RB',
+      gain: 6,
+      current: { playerId: 2, name: 'Derrick King', projection: 8, opponent: 'CIN', distribution: { p10: 3, p90: 13 } },
+      suggested: { playerId: 12, name: 'Third Guy', projection: 14, opponent: 'DAL', distribution: { p10: 6, p90: 18 } },
+    });
+    renderPage(withEntries([qb(), rb(), outWr(), benchWr()], {
+      [ADVICE_URL]: { data: adviceBody({ projectedTotal: 90, optimalTotal: 104.1, suggestions: [dismissed, kept] }) },
+      [`${LINEUP_URL}&week=5`]: { data: lineupBody({ body: { week: 5, entries: [qb(), rb(), outWr(), benchWr()] } }) },
+      '/api/team/lineup/advice?leagueId=1&week=5': { data: adviceBody({ week: 5, projectedTotal: 90, optimalTotal: 100, suggestions: [nextWeekFirst, kept] }) },
+      '/api/league/1/matchups?week=5': { data: [matchupRow({ week: 5 })] },
+    }));
+    await screen.findAllByTestId('suggestion-card');
+    await user.click(screen.getAllByTestId('suggestion-dismiss')[0]);
+    await waitFor(() => expect(screen.getByTestId('strip-advice')).toHaveTextContent('+4.0 pts · 1 swap'));
+
+    await user.click(screen.getByRole('button', { name: 'Next week' }));
+
+    await waitFor(() => expect(screen.getByTestId('strip-advice')).toHaveTextContent('+10.0 pts · 2 swaps'));
+    expect(screen.getAllByTestId('suggestion-card')).toHaveLength(2);
   });
 });

@@ -37,6 +37,16 @@ test('a null url never calls apiClient.get and reports the idle shape', async ()
   expect(result.current).toEqual({ status: 'loading', data: null, httpStatus: null });
 });
 
+test('a null url renders the hook once at mount: the idle state it already holds is not replaced', async () => {
+  let renders = 0;
+  renderHook(() => {
+    renders += 1;
+    return useEndpoint(null);
+  });
+  await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+  expect(renders).toBe(1);
+});
+
 test('a successful read reports status ready, the payload, and httpStatus null', async () => {
   apiClient.get.mockResolvedValue({ data: { grades: [] } });
   const { result } = renderHook(() => useEndpoint('/api/league/7/draft-grades'));
@@ -81,6 +91,25 @@ test('a url change discards the earlier response even if it lands later', async 
     first.resolve({ data: { which: 'first' } });
   });
   expect(result.current.data).toEqual({ which: 'second' });
+});
+
+// #2886: the very first render after a url change must not hand back the previous url's answer (the Lineup advice did).
+test('after a url change every render reads loading with no data until the new read lands (#2886)', async () => {
+  apiClient.get
+    .mockResolvedValueOnce({ data: { which: 'first' } })
+    .mockImplementationOnce(() => new Promise(() => {}));
+  const seen = [];
+  const { result, rerender } = renderHook(({ url }) => {
+    const endpoint = useEndpoint(url);
+    seen.push(endpoint);
+    return endpoint;
+  }, { initialProps: { url: '/api/first' } });
+  await waitFor(() => expect(result.current.data).toEqual({ which: 'first' }));
+
+  seen.length = 0;
+  rerender({ url: '/api/second' });
+  expect(seen.length).toBeGreaterThan(0);
+  seen.forEach((endpoint) => expect(endpoint).toMatchObject({ status: 'loading', data: null }));
 });
 
 test('resolving after unmount is harmless (the cancel path is not observable in React 18)', async () => {
