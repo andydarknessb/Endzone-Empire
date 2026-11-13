@@ -496,11 +496,16 @@ const MODEL_CONSTANTS = {
  *    live from week 1 on last season's evidence rather than reporting
  *    "insufficient opponent sample" while the card prints the matchup as if
  *    it mattered. The cap and the shrinkage toward neutral are untouched.
+ *  - `baseline.appearanceRate: true` (#1441). An available player's active
+ *    probability is his Appearance rate (the share of his team's last four
+ *    games he appeared in, net of weeks a holdout capture recorded him out)
+ *    instead of 1. The projected distribution is conditional on an Appearance
+ *    and does not move.
  *
- * Of the five keys above, four are DEFAULTS, not fitted values, and
- * `baseline.appearancesOnly` is an on/off switch, not a default value; all five
- * are preregistered once and judged on the 2026 holdout ledger through #1439
- * with the rest of v3.2; no sweep on that ledger.
+ * Of the six keys above, four are DEFAULTS, not fitted values, and
+ * `baseline.appearancesOnly` and `baseline.appearanceRate` are on/off switches,
+ * not default values; all six are preregistered once and judged on the 2026
+ * holdout ledger through #1439 with the rest of v3.2; no sweep on that ledger.
  */
 function cloneConstants(value) {
   if (Array.isArray(value)) return value.map(cloneConstants);
@@ -524,6 +529,7 @@ const MODEL_CONSTANTS_V3_2 = (() => {
   v32.simulation.centerEvenPoolMedian = true;
   v32.opponent.priorSeasonPseudoGames = 4;
   v32.baseline.appearancesOnly = true;
+  v32.baseline.appearanceRate = true;
   return deepFreeze(v32);
 })();
 
@@ -1518,6 +1524,15 @@ function confidenceFor({
   return { level, reasons };
 }
 
+/**
+ * Pure: true when a verdict leaves the player available to play, so under v3.2
+ * (#1441) his active probability is his Appearance rate. Out-type zeros keep 0
+ * and Doubtful keeps null: the rate never overrides the verdict's own answer.
+ */
+function takesAppearanceRate(verdict) {
+  return verdict.activeProbability !== 0 && verdict.status !== 'D';
+}
+
 // ---------------------------------------------------------------------------
 // Assembly
 // ---------------------------------------------------------------------------
@@ -1558,6 +1573,8 @@ function projectPlayer({
   // arrive as null, not as a zero.
   expert = null,
   availability = null,
+  // This player's Appearance rate (#1441), read only under `baseline.appearanceRate`.
+  appearanceRate = null,
   hasRoleData = true,
   constants = MODEL_CONSTANTS,
   // The position floor (#1483, v3.2): DATA (the lowest points any player of
@@ -1586,6 +1603,15 @@ function projectPlayer({
   });
 
   const availabilityInfo = availability || availabilityFor({});
+  // v3.2 (#1441): an available player's active probability is his Appearance
+  // rate; the verdict keeps Out (0) and Doubtful (null), and the demotion below
+  // still reads the verdict's own value.
+  const wantsAppearanceRate = !!(constants.baseline && constants.baseline.appearanceRate === true)
+    && typeof appearanceRate === 'number' && Number.isFinite(appearanceRate);
+  const availabilityRecord = wantsAppearanceRate ? { ...availabilityInfo, appearanceRate } : availabilityInfo;
+  const activeProbability = wantsAppearanceRate && takesAppearanceRate(availabilityInfo)
+    ? appearanceRate
+    : availabilityInfo.activeProbability;
   const factors = {};
 
   if (baseline.value == null) {
@@ -1601,7 +1627,7 @@ function projectPlayer({
       p25: null,
       p75: null,
       p90: null,
-      activeProbability: availabilityInfo.activeProbability,
+      activeProbability,
       confidence: 'low',
       confidenceReasons: ['no history'],
       sampleSize: 0,
@@ -1614,7 +1640,7 @@ function projectPlayer({
         homeAway: null,
         weather: null,
         gameEnvironment: null,
-        availability: availabilityInfo,
+        availability: availabilityRecord,
         expertConsensus: null,
         dataQuality: { level: 'none', reason: 'no prior games, prior season, or position baseline' },
       },
@@ -1738,7 +1764,7 @@ function projectPlayer({
   factors.role = hasRoleData
     ? { available: true, pointsContribution: null, note: 'included in recent production' }
     : null;
-  factors.availability = availabilityInfo;
+  factors.availability = availabilityRecord;
   // Null when no provider is installed at all (the shipped default), an
   // `available: false` payload when a provider ran and did not cover this
   // player, and a scored payload only at a non-zero blend weight. The UI must
@@ -1770,7 +1796,7 @@ function projectPlayer({
     p25: distribution.p25,
     p75: distribution.p75,
     p90: distribution.p90,
-    activeProbability: availabilityInfo.activeProbability,
+    activeProbability,
     confidence: confidence.level,
     confidenceReasons: confidence.reasons,
     sampleSize: baseline.sampleSize,
@@ -1809,6 +1835,7 @@ module.exports = {
   gameEnvironmentEffect,
   expertConsensusBlend,
   availabilityFor,
+  takesAppearanceRate,
   simulateDistribution,
   probabilityBetter,
   confidenceFor,

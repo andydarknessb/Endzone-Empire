@@ -184,6 +184,19 @@ function isAppearance(row) {
   return !!row && (normalizeTeamKey(row.stats && row.stats.gameTeam) !== null || madeAppearance(row.stats));
 }
 
+/**
+ * Pure: a player's Appearance rate (#1441, v3.2) over the last four weeks his
+ * team played before the target week. Weeks a holdout capture recorded him out
+ * leave the window without a refill from older weeks; an empty window reads 1.
+ */
+function appearanceRate({ teamWeeks, appearanceWeeks, capturedOutWeeks }) {
+  const appeared = new Set(appearanceWeeks);
+  const capturedOut = new Set(capturedOutWeeks);
+  const weeks = [...new Set(teamWeeks)].sort((a, b) => b - a).slice(0, 4).filter((week) => !capturedOut.has(week));
+  if (weeks.length === 0) return 1;
+  return weeks.filter((week) => appeared.has(week)).length / weeks.length;
+}
+
 // ---------------------------------------------------------------------------
 // Pure builders (no DB) — the DB layer below just hands them rows.
 // ---------------------------------------------------------------------------
@@ -803,6 +816,50 @@ async function loadFeatureBundle({
     constants,
   });
 
+  // v3.2 (#1441): each player's Appearance rate. The team's weeks come from the
+  // schedule rows loaded above and his appearances from the stat rows; the one
+  // query is the holdout ledger's weeks he was captured out. Gated, so a v3.1
+  // run issues no query and carries no map.
+  const wantsAppearanceRate = Boolean(constants && constants.baseline && constants.baseline.appearanceRate === true);
+  let appearanceRateByPlayer;
+  if (wantsAppearanceRate) {
+    // Only an on-time capture that read him Unavailable: after #1438 a healthy player's stored rate can be 0 too.
+    const capturedOutResult = await client.query(
+      `SELECT DISTINCT "sp"."player_id", "s"."week" FROM "projection_snapshot_players" "sp"
+       JOIN "projection_snapshots" "s" ON "s"."id" = "sp"."snapshot_id"
+       WHERE "s"."season" = $1 AND "s"."week" < $2 AND "s"."capture_kind" = 'scheduled'
+         AND "s"."is_late" = false
+         AND "sp"."active_probability" = 0
+         AND "sp"."factors"->'availability'->>'available' = 'false'
+         AND "sp"."player_id" = ANY($3::int[])`,
+      [season, week, ids]
+    );
+    const capturedOutByPlayer = new Map();
+    for (const row of capturedOutResult.rows) {
+      const playerId = Number(row.player_id);
+      if (!capturedOutByPlayer.has(playerId)) capturedOutByPlayer.set(playerId, []);
+      capturedOutByPlayer.get(playerId).push(Number(row.week));
+    }
+    const teamWeeksByKey = new Map();
+    for (const row of priorScheduleResult.rows) {
+      if (Number(row.season) !== Number(season)) continue;
+      if (!teamWeeksByKey.has(row.team_key)) teamWeeksByKey.set(row.team_key, []);
+      teamWeeksByKey.get(row.team_key).push(Number(row.week));
+    }
+    // shortcut: an absence declared after the capture still counts against him, and a free agent keeps rate 1 until his next run after signing; a calibrated probability is #1925
+    appearanceRateByPlayer = new Map();
+    for (const [playerId, player] of players) {
+      const appearanceWeeks = (priorStatsByPlayer.get(playerId) || [])
+        .filter((row) => Number(row.season) === Number(season) && isAppearance(row))
+        .map((row) => Number(row.week));
+      appearanceRateByPlayer.set(playerId, appearanceRate({
+        teamWeeks: teamWeeksByKey.get(player.team_key) || [],
+        appearanceWeeks,
+        capturedOutWeeks: capturedOutByPlayer.get(Number(playerId)) || [],
+      }));
+    }
+  }
+
   const byeByTeam = await computeByeWeeks(
     [...players.values()].map((r) => r.nfl_team),
     season,
@@ -824,6 +881,8 @@ async function loadFeatureBundle({
     defenseGamesByTeam: normalizedDefenseGames,
     // Present only under a Challenger that reads the depth chart (#1924).
     ...(wantsDepthChart ? { depthRankByPlayer } : {}),
+    // Present only under v3.2's Appearance rate (#1441).
+    ...(wantsAppearanceRate ? { appearanceRateByPlayer } : {}),
     leagueScanRows: leagueRows.length,
     scanTruncated: leagueRows.length >= MAX_LEAGUE_SCAN_ROWS,
     priorSeasonScanRows: priorSeasonRows.length,
@@ -876,6 +935,7 @@ module.exports = {
   scheduleOrientation,
   usageFromStats,
   weeksAgo,
+  appearanceRate,
   assertNoFutureRows,
   buildPriorGames,
   buildLeagueContext,

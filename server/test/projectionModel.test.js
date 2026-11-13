@@ -1521,7 +1521,7 @@ test('MODEL_CONSTANTS hashes to the holdout study captured v3.1 constants exactl
   assert.equal(model.MODEL_CONSTANTS.simulation.centerEvenPoolMedian, undefined);
 });
 
-test('MODEL_CONSTANTS_V3_2 differs from MODEL_CONSTANTS in exactly the five ticketed keys', () => {
+test('MODEL_CONSTANTS_V3_2 differs from MODEL_CONSTANTS in exactly the six ticketed keys', () => {
   const v31 = model.MODEL_CONSTANTS;
   const v32 = model.MODEL_CONSTANTS_V3_2;
   assert.equal(model.MODEL_VERSION, 'free_baseline_v3.1');
@@ -1531,13 +1531,15 @@ test('MODEL_CONSTANTS_V3_2 differs from MODEL_CONSTANTS in exactly the five tick
   assert.equal(v32.simulation.truncateAtPositionFloor, true);
   assert.equal(v32.simulation.centerEvenPoolMedian, true);
   assert.equal(v32.baseline.appearancesOnly, true);
-  // Everything else is byte-identical: strip the five deltas from a v3.2
+  assert.equal(v32.baseline.appearanceRate, true);
+  // Everything else is byte-identical: strip the six deltas from a v3.2
   // clone and the two objects must serialize the same.
   const stripped = JSON.parse(JSON.stringify(v32));
   delete stripped.opponent.priorSeasonPseudoGames;
   delete stripped.simulation.truncateAtPositionFloor;
   delete stripped.simulation.centerEvenPoolMedian;
   delete stripped.baseline.appearancesOnly;
+  delete stripped.baseline.appearanceRate;
   stripped.decision.lineupRanking = 'median';
   assert.equal(JSON.stringify(stripped), JSON.stringify(v31));
 
@@ -1753,4 +1755,93 @@ test('volume: an invalid usage half-life falls back to the baseline half-life (#
     });
     assert.deepEqual(out, base, String(bad));
   }
+});
+
+// ---------------------------------------------------------------------------
+// #1441 (v3.2): an available player's active probability is his Appearance
+// rate. The distribution never moves; only the probability and the stored rate.
+// ---------------------------------------------------------------------------
+
+const V32 = model.MODEL_CONSTANTS_V3_2;
+const SUNDAY_1PM = '2026-10-11T17:00:00Z';
+const practiceDnp = { practiceStatus: 'Did Not Participate In Practice', practicePrimaryInjury: 'Hamstring', reportPrimaryInjury: 'Hamstring', observedAt: '2026-10-07T22:00:00Z' };
+
+test('v3.2: an undesignated player takes his Appearance rate as activeProbability, and the distribution does not move (#1441)', () => {
+  const plain = model.projectPlayer(projectArgs({ constants: V32 }));
+  const rated = model.projectPlayer(projectArgs({ constants: V32, appearanceRate: 0.25 }));
+  assert.equal(rated.activeProbability, 0.25);
+  assert.equal(rated.factors.availability.appearanceRate, 0.25);
+  assert.equal(rated.factors.availability.available, true);
+  for (const key of ['mean', 'median', 'p10', 'p25', 'p75', 'p90']) {
+    assert.equal(rated[key], plain[key], key);
+  }
+});
+
+test('v3.2: a Questionable player keeps the injury demotion while his activeProbability is the rate (#1441)', () => {
+  const projection = model.projectPlayer(projectArgs({
+    constants: V32, availability: model.availabilityFor({ injuryStatus: 'Q' }), appearanceRate: 0.5,
+  }));
+  assert.equal(projection.activeProbability, 0.5);
+  assert.equal(projection.factors.availability.reason, 'questionable');
+  assert.ok(projection.confidenceReasons.includes('injury designation'));
+});
+
+test('v3.2: a Doubtful player stays null and stores his rate (#1441)', () => {
+  const projection = model.projectPlayer(projectArgs({
+    constants: V32, availability: model.availabilityFor({ injuryStatus: 'D' }), appearanceRate: 0.5,
+  }));
+  assert.equal(projection.activeProbability, null);
+  assert.equal(projection.factors.availability.appearanceRate, 0.5);
+});
+
+test('v3.2: an Out player stays 0, unavailable, and stores his rate (#1441)', () => {
+  const projection = model.projectPlayer(projectArgs({
+    constants: V32, availability: model.availabilityFor({ injuryStatus: 'O' }), appearanceRate: 0.75,
+  }));
+  assert.equal(projection.activeProbability, 0);
+  assert.equal(projection.factors.availability.available, false);
+  assert.equal(projection.factors.availability.appearanceRate, 0.75);
+});
+
+test('v3.2: a zero Appearance rate on an undesignated player is 0 but still available (#1441)', () => {
+  const projection = model.projectPlayer(projectArgs({ constants: V32, appearanceRate: 0 }));
+  assert.equal(projection.activeProbability, 0);
+  assert.equal(projection.factors.availability.available, true);
+});
+
+test('v3.2: a no-evidence player carries the rate on the early-return row (#1441)', () => {
+  const projection = model.projectPlayer(projectArgs({ constants: V32, priorGames: [], appearanceRate: 0.5 }));
+  assert.equal(projection.unavailableReason, 'no evidence');
+  assert.equal(projection.activeProbability, 0.5);
+  assert.equal(projection.factors.availability.appearanceRate, 0.5);
+});
+
+test('v3.1: an appearanceRate is ignored entirely under MODEL_CONSTANTS (#1441)', () => {
+  const plain = model.projectPlayer(projectArgs({ constants: model.MODEL_CONSTANTS }));
+  const rated = model.projectPlayer(projectArgs({ constants: model.MODEL_CONSTANTS, appearanceRate: 0.25 }));
+  assert.deepEqual(rated, plain);
+  assert.equal('appearanceRate' in rated.factors.availability, false);
+});
+
+test('takesAppearanceRate: true for every verdict that leaves the player available, false for Out-type zeros and Doubtful (#1441)', () => {
+  const takes = (input) => model.takesAppearanceRate(model.availabilityFor(input));
+  assert.equal(takes({}), true, 'the default verdict');
+  assert.equal(takes({ injuryStatus: 'Q' }), true, 'Questionable');
+  assert.equal(takes({ injuryStatus: 'Q', practice: { observations: [practiceDnp], kickoffAt: SUNDAY_1PM } }), true, 'no_practice');
+  assert.equal(takes({ backup: true }), true, 'an undesignated backup');
+  assert.equal(takes({ injuryStatus: 'O' }), false, 'Out');
+  assert.equal(takes({ injuryStatus: 'IR' }), false, 'IR');
+  assert.equal(takes({ onBye: true }), false, 'bye');
+  assert.equal(takes({ noTeam: true }), false, 'no team');
+  assert.equal(takes({ injuryStatus: 'D' }), false, 'Doubtful');
+});
+
+test('features.appearanceRate: the worked example, the four-game window and the captured-out weeks (#1441)', () => {
+  const rate = features.appearanceRate;
+  assert.equal(rate({ teamWeeks: [1, 2, 3, 4], appearanceWeeks: [2], capturedOutWeeks: [3] }), 1 / 3);
+  assert.equal(rate({ teamWeeks: [], appearanceWeeks: [], capturedOutWeeks: [] }), 1, 'no team weeks reads 1');
+  assert.equal(rate({ teamWeeks: [1, 2, 3, 4, 5], appearanceWeeks: [1], capturedOutWeeks: [] }), 0, 'week 1 is outside the last four');
+  assert.equal(rate({ teamWeeks: [1, 2, 3, 4, 5], appearanceWeeks: [5, 4], capturedOutWeeks: [] }), 0.5, 'only the last four count');
+  assert.equal(rate({ teamWeeks: [1, 2, 3, 4], appearanceWeeks: [], capturedOutWeeks: [1, 2, 3, 4] }), 1, 'all four captured out reads 1');
+  assert.equal(rate({ teamWeeks: [1, 2, 3, 4, 5], appearanceWeeks: [2, 3, 4], capturedOutWeeks: [5] }), 1, 'a captured week is not refilled from week 1');
 });
