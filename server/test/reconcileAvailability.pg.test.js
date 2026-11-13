@@ -134,11 +134,11 @@ if (!ENABLED) {
   }
 
   /** Inserts one run and returns its id, tracked for cleanup. */
-  async function seedRun(week) {
+  async function seedRun(week, modelVersion = MODEL_VERSION) {
     const res = await pool.query(
       `INSERT INTO "projection_runs" ("season", "week", "scoring_hash", "model_version", "input_cutoff")
        VALUES ($1, $2, $3, $4, now()) RETURNING "id"`,
-      [SEASON, week, SCORING_HASH, MODEL_VERSION]
+      [SEASON, week, SCORING_HASH, modelVersion]
     );
     const id = res.rows[0].id;
     seededRuns.push(id);
@@ -194,6 +194,25 @@ if (!ENABLED) {
     // The rest of `factors` (non-availability keys) survives the jsonb merge untouched.
     assert.deepEqual(after.factors.opponent, before.factors.opponent);
     assert.ok(new Date(after.updated_at).getTime() > new Date(before.updated_at).getTime(), 'updated_at moved');
+  });
+
+  test('#1441 v3.2: a stored Appearance rate survives an injury sync that clears an Out verdict, and is the active probability again', async () => {
+    const playerId = await seedPlayer({ injuryStatus: 'O' });
+    const runId = await seedRun(14, 'free_baseline_v3.2');
+    await seedRow(runId, playerId, {
+      available: false, activeProbability: 0, reason: 'out', status: 'O', locked: false, lockedSlot: null, appearanceRate: 0.25,
+    });
+    await pool.query('UPDATE "players" SET "injury_status" = NULL WHERE "id" = $1', [playerId]);
+
+    const result = await reconcileAvailability({
+      season: SEASON, fromWeek: 14, playerIds: [playerId], client: pool, modelVersion: 'free_baseline_v3.2',
+    });
+    assert.equal(result.updated, 1, 'the drifted row is patched');
+
+    const after = await readRow(runId, playerId);
+    assert.equal(after.factors.availability.reason, null, 'the verdict is now undesignated');
+    assert.equal(after.factors.availability.appearanceRate, 0.25, 'the stored rate survives the rewrite');
+    assert.equal(Number(after.active_probability), 0.25, 'an available verdict reads the stored rate');
   });
 
   test('a stored bye verdict is never overwritten, even when the player now reads Out', async () => {
