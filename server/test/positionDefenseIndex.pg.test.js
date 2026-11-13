@@ -9,8 +9,8 @@
  *      replaced, idx_player_stats_season_week_player, is gone.
  *   2. getPositionDefense({ season, uptoWeek: 10 }) returns, for every defense,
  *      the points it allowed per game to each position, computed from the seeded
- *      rows. Season 1998 is seeded beside 1999 so that a leaking season filter
- *      would double every total.
+ *      rows. A ballast season (BALLAST_SEASON) is seeded beside SEASON so that a
+ *      leaking season filter would double every total.
  *   3. EXPLAIN of the exact statement getPositionDefense sent, with its exact
  *      parameters, reads player_stats through the covering index.
  *
@@ -18,7 +18,8 @@
  * gated twice: PG_TESTS=1 or POSITION_DEFENSE_INDEX_PG_TESTS=1 must be set, and every
  * DATABASE_URL* variable must be ABSENT. It connects through server/modules/pool.js,
  * which falls back to the local dev database when PGDATABASE is unset, so that is
- * refused too. No other pg test or migration uses seasons 1998 or 1999.
+ * refused too. SEASON (2303) and BALLAST_SEASON (2304) are far-future years that no
+ * other pg test or migration uses.
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -47,8 +48,9 @@ if (!ENABLED) {
 
   const NEW_INDEX = 'idx_player_stats_season_week_player_points';
   const OLD_INDEX = 'idx_player_stats_season_week_player';
-  const SEASON = 1999;
-  const SEASONS = [SEASON, 1998];
+  const SEASON = 2303;
+  const BALLAST_SEASON = 2304;
+  const SEASONS = [SEASON, BALLAST_SEASON];
   const UPTO_WEEK = 10;
   const WEEKS = [1, 2, 3, 4, 5, 6, 7, 8, 9];
   const PLAYER_COUNT = 200;
@@ -101,13 +103,13 @@ if (!ENABLED) {
         }
       }
     }
-    // md5 hex is not compressible the way one repeated string is, so the heap stays
-    // as large as a real ~2 KB stats row and a table scan stays a costly plan.
+    // Distinct md5 hex, not one repeated string, so the pad does not compress away.
+    // Fifty of them keep the row well under the 2,032-byte TOAST threshold, so it stays inline.
     await pool.query(
       `INSERT INTO "player_stats" ("player_id", "season", "week", "stats", "fantasy_points")
        SELECT u.player_id, u.season, u.week,
               jsonb_build_object('pad', (SELECT string_agg(md5(u.player_id || ':' || u.season || ':' || u.week || ':' || k), '')
-                                         FROM generate_series(1, 60) AS k)),
+                                         FROM generate_series(1, 50) AS k)),
               u.points
        FROM unnest($1::int[], $2::int[], $3::int[], $4::numeric[]) AS u(player_id, season, week, points)`,
       [stats.map((s) => s.playerId), stats.map((s) => s.season), stats.map((s) => s.week), stats.map((s) => s.points)],
@@ -159,13 +161,16 @@ if (!ENABLED) {
   test.before(async () => {
     await clearSeeded();
     await seed();
-    // An index-only scan needs the visibility map set, and the planner needs statistics.
-    await pool.query('VACUUM (ANALYZE) "player_stats"');
+    // Visibility map for the index-only scan; statistics on all three tables so the join sees real row counts, not guesses.
+    await pool.query('VACUUM (ANALYZE) "player_stats", "players", "nfl_games"');
   });
 
   test.after(async () => {
-    await clearSeeded();
-    await pool.end();
+    try {
+      await clearSeeded();
+    } finally {
+      await pool.end();
+    }
   });
 
   test('the covering index exists and the index it replaced does not', async () => {
@@ -190,9 +195,13 @@ if (!ENABLED) {
     const { text, params } = await readPositionDefense();
     const explained = await pool.query(`EXPLAIN ${text}`, params);
     const plan = explained.rows.map((r) => r['QUERY PLAN']).join('\n');
+    const { rows: [sizes] } = await pool.query(
+      `SELECT relpages, relallvisible FROM pg_class WHERE oid = 'player_stats'::regclass`,
+    );
     assert.ok(
       plan.includes(`Index Only Scan using ${NEW_INDEX}`),
-      `expected an index-only scan on ${NEW_INDEX}, planned:\n${plan}`,
+      `expected an index-only scan on ${NEW_INDEX}; player_stats relpages ${sizes.relpages}, `
+        + `relallvisible ${sizes.relallvisible}; planned:\n${plan}`,
     );
   });
 }

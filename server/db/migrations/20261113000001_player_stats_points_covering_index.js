@@ -8,10 +8,12 @@
  * one does not serve, so it is dropped rather than kept beside.
  *
  * Accepted cost: an update that changes fantasy_points can no longer be a
- * heap-only update, so live scoring writes one more index entry for those rows.
+ * heap-only update, so such an update writes a new entry in each of the table's
+ * three indexes.
  *
  * Carve-out: this ships through a release and is never applied by hand against the shared database.
  */
+// CREATE and DROP INDEX CONCURRENTLY cannot run inside a transaction.
 exports.config = { transaction: false };
 
 async function dropInvalidConcurrentIndex(knex, indexName) {
