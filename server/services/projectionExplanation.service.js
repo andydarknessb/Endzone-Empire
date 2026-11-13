@@ -32,6 +32,7 @@ const BAD_OUTPUT = /\d|\b(start|sit|bench|flex|must-start|fade)\b/i;
 function baseSentence(factors) {
   const base = factors && factors.recentProduction;
   if (!base) return null;
+  if (base.usedAdpPrior) return 'With no track record yet, the projection starts from average draft position.';
   return base.usedPositionBaseline
     ? 'With no track record yet, the projection starts from the position baseline.'
     : 'Built on recent production.';
@@ -60,7 +61,8 @@ function templateExplanation(factors, { position } = {}) { // eslint-disable-lin
 function promptFacts(factors, position) {
   return JSON.stringify({
     position,
-    base: baseSentence(factors) && (factors.recentProduction.usedPositionBaseline ? 'position baseline' : 'recent production'),
+    base: baseSentence(factors) && (factors.recentProduction.usedAdpPrior ? 'draft position'
+      : factors.recentProduction.usedPositionBaseline ? 'position baseline' : 'recent production'),
     availabilityStatus: (factors.availability && factors.availability.status) || null,
     factorsLargestFirst: topFactors(factors).map(({ key, factor }) => ({
       factor: key,

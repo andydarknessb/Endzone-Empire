@@ -270,6 +270,8 @@ const RECENT_PRODUCTION_FACTOR_SCHEMA = subsetObject({
   pointsContribution: NUMBER,
   usageBlendWeight: NUMBER,
   usageGames: NUMBER,
+  // Present only on a row the draft-market prior serves (#1442); a subset key may be absent.
+  usedAdpPrior: BOOLEAN,
   usedPositionBaseline: BOOLEAN,
   usedPriorSeason: BOOLEAN,
 });
