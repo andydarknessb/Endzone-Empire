@@ -82,6 +82,9 @@ function mockPool(t, {
   // #1441 (v3.2): `{ player_id, week }` weeks a scheduled holdout capture recorded
   // the player at active probability 0; read only under the Appearance rate switch.
   capturedOut = [],
+  // #1442: the census of every player with his prior-season row, read only when
+  // the draft-market prior serves the week.
+  adpCensus = [],
   onQuery = null,
 } = {}) {
   const calls = [];
@@ -119,6 +122,7 @@ function mockPool(t, {
     if (text.includes('FROM "player_depth_chart"')) return { rows: depthChartRows };
     if (text.includes('FROM "player_practice_observations"')) return { rows: practiceRows };
     if (text.includes('MIN("g"."kickoff_at")')) return { rows: kickoffRows };
+    if (text.includes('LEFT JOIN "player_season_stats" "pss"')) return { rows: adpCensus };
     if (text.includes('FROM "player_season_stats"')) return { rows: seasonStats };
     if (text.includes('"player_stats" "pps"')) return { rows: priorSeasonScan };
     if (text.includes('FROM "player_stats" "ps"')) return { rows: leagueScan };
@@ -4242,5 +4246,240 @@ test('v3.1 reconcile: the main and bye-aware UPDATEs are byte-identical to the p
   for (const update of updates) {
     assert.equal(update.raw.includes('takes_rate'), false);
     assert.equal(update.raw.includes('appearanceRate'), false);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// #1442: the draft-market prior. A no-evidence player is priced from his ADP on
+// last season's points-per-game curve. Fixtures are injected by season and
+// format. The census stands in for the LEFT JOIN read: one row per player, with
+// his prior-season row when he has one.
+// ---------------------------------------------------------------------------
+
+const adpFixture = (endDate, entries) => ({ meta: { end_date: endDate }, entries });
+const PRIOR_FIXTURE = adpFixture('2025-09-01', [
+  { nameKey: 'back one', position: 'RB', adp: 2 },
+  { nameKey: 'back two', position: 'RB', adp: 6 },
+  { nameKey: 'back three', position: 'RB', adp: 14 },
+  { nameKey: 'back four', position: 'RB', adp: 30 },
+  { nameKey: 'back five', position: 'RB', adp: 60 },
+]);
+// A census row for a player with last season's row.
+const adpRow = (playerId, name, position, rushingYards) => ({
+  player_id: playerId, name, position, season: SEASON - 1, games_played: 16, stats: { rushingYards }, fantasy_points: null,
+});
+// A census row for a player with no prior-season row.
+const noSeasonRow = (playerId, name, position) => ({
+  player_id: playerId, name, position, season: null, games_played: null, stats: null, fantasy_points: null,
+});
+const PRIOR_ROWS = [
+  adpRow(10, 'Back One', 'RB', 1600), adpRow(11, 'Back Two', 'RB', 1300), adpRow(12, 'Back Three', 'RB', 1000),
+  adpRow(13, 'Back Four', 'RB', 800), adpRow(14, 'Back Five', 'RB', 500),
+];
+const TARGET_ROW = noSeasonRow(1, 'Target Rookie', 'RB');
+const targetFixture = (endDate, entries = [{ nameKey: 'target rookie', position: 'RB', adp: 24 }]) => adpFixture(endDate, entries);
+// Week 2's first kickoff for BUF: a fixture ending by 2026-09-15 is closed before it.
+const WEEK2_SCHEDULE = [{ team_key: 'BUF', opponent_key: 'NE', kickoff_at: '2026-09-17T17:00:00Z' }];
+// The loader a run asks for each season; `calls` records every (year, format) it is asked for.
+const fixtureLoader = (prior, target, calls = []) => (year, format) => {
+  calls.push([year, format]);
+  return year === SEASON - 1 ? prior : target;
+};
+const CENSUS_QUERY = 'LEFT JOIN "player_season_stats" "pss"';
+
+const adpRun = (t, {
+  prior = PRIOR_FIXTURE, target = targetFixture('2026-09-15'), census = [...PRIOR_ROWS, TARGET_ROW],
+  players = [player(1, 'RB', { name: 'Target Rookie' })], leagueScan = [], rules = SCORING_RULES,
+  calls = [], onQuery = null,
+} = {}) => {
+  mockPool(t, { players, targetSchedule: WEEK2_SCHEDULE, adpCensus: census, leagueScan, onQuery });
+  return projection.generateProjections({
+    season: SEASON, week: 2, rules, playerIds: players.map((p) => p.id), hashValue: 'h', weatherService: false,
+    modelConstants: model.MODEL_CONSTANTS_V3_2, adpFixtureLoader: fixtureLoader(prior, target, calls),
+  });
+};
+
+test('#1442 under v3.2 a no-history player listed in the target fixture takes the ADP prior, not the position baseline', async (t) => {
+  const { projections } = await adpRun(t);
+  const row = projections.get(1);
+  assert.equal(typeof row.mean, 'number');
+  assert.ok(row.confidenceReasons.includes('adp prior'));
+  assert.equal(projection.isPositionBaselineEntry(row), false);
+});
+
+test('#1442 when the target window closes after the first kickoff, the player falls back to the position baseline', async (t) => {
+  const leagueScan = [
+    { player_id: 20, week: 1, position: 'RB', defense: 'NE', stats: { rushingYards: 80, gameTeam: 'BUF' } },
+    { player_id: 21, week: 1, position: 'RB', defense: 'NE', stats: { rushingYards: 60, gameTeam: 'BUF' } },
+  ];
+  const { projections } = await adpRun(t, { target: targetFixture('2026-09-20'), leagueScan });
+  const row = projections.get(1);
+  assert.ok(row.confidenceReasons.includes('position baseline'));
+  assert.ok(!row.confidenceReasons.includes('adp prior'));
+  assert.equal(projection.isPositionBaselineEntry(row), true);
+});
+
+test('#1442 two namesakes at one position, both requested, take no ADP prior', async (t) => {
+  const players = [player(1, 'RB', { name: 'Target Rookie' }), player(2, 'RB', { name: 'Target Rookie Jr.' })];
+  const census = [...PRIOR_ROWS, TARGET_ROW, noSeasonRow(2, 'Target Rookie Jr.', 'RB')];
+  const { projections } = await adpRun(t, { players, census });
+  for (const id of [1, 2]) assert.ok(!projections.get(id).confidenceReasons.includes('adp prior'), `player ${id}`);
+});
+
+test('#1442 a namesake who is not requested still blocks the ADP prior: the census counts every player', async (t) => {
+  const census = [...PRIOR_ROWS, TARGET_ROW, noSeasonRow(2, 'Target Rookie Jr.', 'RB')];
+  const { projections } = await adpRun(t, { census });
+  assert.ok(!projections.get(1).confidenceReasons.includes('adp prior'));
+});
+
+test('#1442 a drafted veteran with no prior-season row blocks his namesake\'s pair from the fit', async (t) => {
+  // The namesake with a stats row is a 2600-yard outlier: if his pair entered the fit the curve would move.
+  const withDupEntry = adpFixture('2025-09-01', [...PRIOR_FIXTURE.entries, { nameKey: 'dup name', position: 'RB', adp: 4 }]);
+  const census = [...PRIOR_ROWS, TARGET_ROW, noSeasonRow(30, 'Dup Name', 'RB'), adpRow(31, 'Dup Name', 'RB', 2600)];
+  const withDup = await adpRun(t, { prior: withDupEntry, census });
+  t.mock.restoreAll();
+  const without = await adpRun(t, { census });
+  assert.ok(without.projections.get(1).confidenceReasons.includes('adp prior'), 'the curve must exist for the check to mean anything');
+  assert.equal(withDup.projections.get(1).mean, without.projections.get(1).mean);
+});
+
+test('#1442 in a withheld week the census is never read; in a served week it is read once', async (t) => {
+  const queries = [];
+  const onQuery = (text) => { if (text.includes(CENSUS_QUERY)) queries.push(text); };
+  await adpRun(t, { target: targetFixture('2026-09-20'), onQuery });
+  assert.equal(queries.length, 0, 'the window closed after kickoff');
+  t.mock.restoreAll();
+  await adpRun(t, { onQuery });
+  assert.equal(queries.length, 1, 'the window closed before kickoff');
+});
+
+test('#1442 the census read carries exactly last season as its parameter', async (t) => {
+  const seen = [];
+  await adpRun(t, { onQuery: (text, params) => { if (text.includes(CENSUS_QUERY)) seen.push(params); } });
+  assert.deepEqual(seen, [[SEASON - 1]]);
+});
+
+test('#1442 the run asks the loader for the format its reception rate names, for last season and this one', async (t) => {
+  for (const [reception, format] of [[0, 'standard'], [0.5, 'half-ppr'], [1, 'ppr'], [0.25, null]]) {
+    const calls = [];
+    const rules = { ...SCORING_RULES, receiving: { ...SCORING_RULES.receiving, reception } };
+    await adpRun(t, { rules, calls });
+    const expected = format ? [[SEASON - 1, format], [SEASON, format]] : [];
+    assert.deepEqual(calls, expected, `reception ${reception}`);
+    t.mock.restoreAll();
+  }
+});
+
+const WR_ROWS = [
+  adpRow(20, 'Wide One', 'WR', 1400), adpRow(21, 'Wide Two', 'WR', 1100), adpRow(22, 'Wide Three', 'WR', 900),
+  adpRow(23, 'Wide Four', 'WR', 700), adpRow(24, 'Wide Five', 'WR', 400),
+];
+const WR_ENTRIES = [
+  { nameKey: 'wide one', position: 'WR', adp: 3 }, { nameKey: 'wide two', position: 'WR', adp: 8 },
+  { nameKey: 'wide three', position: 'WR', adp: 16 }, { nameKey: 'wide four', position: 'WR', adp: 35 },
+  { nameKey: 'wide five', position: 'WR', adp: 70 },
+];
+const TWO_TARGETS = [{ nameKey: 'target rookie', position: 'RB', adp: 24 }, { nameKey: 'target wide', position: 'WR', adp: 30 }];
+const TWO_PLAYERS = [player(1, 'RB', { name: 'Target Rookie' }), player(2, 'WR', { name: 'Target Wide' })];
+
+test('#1442 two positions in one run each serve their own curve, and the WR curve never moves an RB', async (t) => {
+  const both = await adpRun(t, {
+    prior: adpFixture('2025-09-01', [...PRIOR_FIXTURE.entries, ...WR_ENTRIES]),
+    target: targetFixture('2026-09-15', TWO_TARGETS),
+    census: [...PRIOR_ROWS, ...WR_ROWS, TARGET_ROW, noSeasonRow(2, 'Target Wide', 'WR')],
+    players: TWO_PLAYERS,
+  });
+  t.mock.restoreAll();
+  const rbOnly = await adpRun(t, {
+    target: targetFixture('2026-09-15', TWO_TARGETS),
+    census: [...PRIOR_ROWS, TARGET_ROW, noSeasonRow(2, 'Target Wide', 'WR')],
+    players: TWO_PLAYERS,
+  });
+  assert.ok(both.projections.get(1).confidenceReasons.includes('adp prior'));
+  assert.ok(both.projections.get(2).confidenceReasons.includes('adp prior'));
+  assert.equal(rbOnly.projections.get(1).mean, both.projections.get(1).mean, 'the RB mean does not depend on the WR curve');
+  assert.ok(!rbOnly.projections.get(2).confidenceReasons.includes('adp prior'), 'the WR has no curve without its rows');
+});
+
+test('#1442 a position whose fit has fewer than 5 pairs falls back', async (t) => {
+  const TE_ENTRIES = [
+    { nameKey: 'tight one', position: 'TE', adp: 5 }, { nameKey: 'tight two', position: 'TE', adp: 12 },
+    { nameKey: 'tight three', position: 'TE', adp: 25 }, { nameKey: 'tight four', position: 'TE', adp: 50 },
+  ];
+  const TE_ROWS = [
+    adpRow(40, 'Tight One', 'TE', 900), adpRow(41, 'Tight Two', 'TE', 700),
+    adpRow(42, 'Tight Three', 'TE', 500), adpRow(43, 'Tight Four', 'TE', 300),
+  ];
+  const { projections } = await adpRun(t, {
+    prior: adpFixture('2025-09-01', [...PRIOR_FIXTURE.entries, ...TE_ENTRIES]),
+    target: targetFixture('2026-09-15', [{ nameKey: 'target tight', position: 'TE', adp: 40 }]),
+    census: [...PRIOR_ROWS, ...TE_ROWS, noSeasonRow(1, 'Target Tight', 'TE')],
+    players: [player(1, 'TE', { name: 'Target Tight' })],
+  });
+  assert.ok(!projections.get(1).confidenceReasons.includes('adp prior'));
+});
+
+test('#1442 a player with no target-fixture entry falls back', async (t) => {
+  const { projections } = await adpRun(t, { target: targetFixture('2026-09-15', []) });
+  assert.ok(!projections.get(1).confidenceReasons.includes('adp prior'));
+});
+
+test('#1442 a namesake at another position does not join: the RB fit keeps only four pairs', async (t) => {
+  const census = [adpRow(10, 'Back One', 'WR', 1600), ...PRIOR_ROWS.slice(1), TARGET_ROW];
+  const { projections } = await adpRun(t, { census });
+  assert.ok(!projections.get(1).confidenceReasons.includes('adp prior'));
+});
+
+test('#1442 a fixture key that appears twice is a missed join: the fit keeps only the other four', async (t) => {
+  const prior = adpFixture('2025-09-01', [...PRIOR_FIXTURE.entries, { nameKey: 'back one', position: 'RB', adp: 2 }]);
+  const { projections } = await adpRun(t, { prior });
+  assert.ok(!projections.get(1).confidenceReasons.includes('adp prior'));
+});
+
+test('#1442 under v3.1 the census read and the fixture loader never run; under v3.2 both do', async (t) => {
+  for (const [modelConstants, served] of [[model.MODEL_CONSTANTS, false], [model.MODEL_CONSTANTS_V3_2, true]]) {
+    const queries = [];
+    const calls = [];
+    mockPool(t, {
+      players: [player(1, 'RB', { name: 'Target Rookie' })],
+      targetSchedule: WEEK2_SCHEDULE,
+      adpCensus: [...PRIOR_ROWS, TARGET_ROW],
+      onQuery: (text) => { if (text.includes(CENSUS_QUERY)) queries.push(text); },
+    });
+    const { projections } = await projection.generateProjections({
+      season: SEASON, week: 2, rules: SCORING_RULES, playerIds: [1], hashValue: 'h', weatherService: false,
+      modelConstants, adpFixtureLoader: fixtureLoader(PRIOR_FIXTURE, targetFixture('2026-09-15'), calls),
+    });
+    assert.equal(queries.length, served ? 1 : 0, `${served ? 'v3.2' : 'v3.1'} census reads`);
+    assert.equal(calls.length, served ? 2 : 0, `${served ? 'v3.2' : 'v3.1'} fixture loads`);
+    assert.equal(projections.get(1).confidenceReasons.includes('adp prior'), served);
+    t.mock.restoreAll();
+  }
+});
+
+test('#1442 loadAdpFixture returns null for a season with no committed file', () => {
+  assert.equal(features.loadAdpFixture(1999, 'standard'), null);
+});
+
+test('#1442 adpWindowClosedBefore reads the window end as 23:59:59 Eastern, in EST and in EDT', () => {
+  // January is EST (UTC-5): the window closes at 04:59:59Z the next day.
+  assert.equal(features.adpWindowClosedBefore('2026-01-10', '2026-01-11T04:30:00Z'), false);
+  assert.equal(features.adpWindowClosedBefore('2026-01-10', '2026-01-11T05:00:00Z'), true);
+  // September is EDT (UTC-4): the window closes at 03:59:59Z the next day.
+  assert.equal(features.adpWindowClosedBefore('2026-09-15', '2026-09-16T03:30:00Z'), false);
+  assert.equal(features.adpWindowClosedBefore('2026-09-15', '2026-09-16T04:00:00Z'), true);
+  assert.equal(features.adpWindowClosedBefore('2026-09-15', null), false);
+});
+
+test('#1442 the committed 2026 fixtures first serve week 2 for standard and half-ppr, week 4 for ppr', () => {
+  // captureNotAfter stands in for each week's first kickoff because the manifest carries no kickoff times.
+  const { captureNotAfter } = require('../data/nfl-schedule-2026.json');
+  for (const [format, firstServed] of [['standard', 2], ['half-ppr', 2], ['ppr', 4]]) {
+    const { meta } = require(`../data/adp-2026-${format}.json`);
+    const served = [];
+    for (let week = 1; week <= 18; week += 1) {
+      if (features.adpWindowClosedBefore(meta.end_date, captureNotAfter[String(week)])) served.push(week);
+    }
+    assert.equal(served[0], firstServed, format);
   }
 });

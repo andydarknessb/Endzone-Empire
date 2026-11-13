@@ -1,0 +1,154 @@
+{
+  "meta": {
+    "start_date": "2026-09-18",
+    "end_date": "2026-09-25",
+    "total_drafts": 109
+  },
+  "entries": [
+    {
+      "nameKey": "jahmyr gibbs",
+      "position": "RB",
+      "adp": 1.1
+    },
+    {
+      "nameKey": "bijan robinson",
+      "position": "RB",
+      "adp": 2.6
+    },
+    {
+      "nameKey": "jamarr chase",
+      "position": "WR",
+      "adp": 3.9
+    },
+    {
+      "nameKey": "jaxon smith njigba",
+      "position": "WR",
+      "adp": 5
+    },
+    {
+      "nameKey": "amon ra st brown",
+      "position": "WR",
+      "adp": 6.9
+    },
+    {
+      "nameKey": "jonathan taylor",
+      "position": "RB",
+      "adp": 7.7
+    },
+    {
+      "nameKey": "derrick henry",
+      "position": "RB",
+      "adp": 13.3
+    },
+    {
+      "nameKey": "james cook",
+      "position": "RB",
+      "adp": 15.6
+    },
+    {
+      "nameKey": "ashton jeanty",
+      "position": "RB",
+      "adp": 17.4
+    },
+    {
+      "nameKey": "kenneth walker",
+      "position": "RB",
+      "adp": 20
+    },
+    {
+      "nameKey": "omarion hampton",
+      "position": "RB",
+      "adp": 21.1
+    },
+    {
+      "nameKey": "josh allen",
+      "position": "QB",
+      "adp": 24.3
+    },
+    {
+      "nameKey": "jeremiyah love",
+      "position": "RB",
+      "adp": 27.2
+    },
+    {
+      "nameKey": "trey mcbride",
+      "position": "TE",
+      "adp": 32.3
+    },
+    {
+      "nameKey": "kyren williams",
+      "position": "RB",
+      "adp": 35.6
+    },
+    {
+      "nameKey": "dandre swift",
+      "position": "RB",
+      "adp": 42
+    },
+    {
+      "nameKey": "parker washington",
+      "position": "WR",
+      "adp": 50.5
+    },
+    {
+      "nameKey": "christian watson",
+      "position": "WR",
+      "adp": 50.6
+    },
+    {
+      "nameKey": "david montgomery",
+      "position": "RB",
+      "adp": 52.2
+    },
+    {
+      "nameKey": "jaylen waddle",
+      "position": "WR",
+      "adp": 52.4
+    },
+    {
+      "nameKey": "jadarian price",
+      "position": "RB",
+      "adp": 67.3
+    },
+    {
+      "nameKey": "chuba hubbard",
+      "position": "RB",
+      "adp": 69.2
+    },
+    {
+      "nameKey": "treveyon henderson",
+      "position": "RB",
+      "adp": 73
+    },
+    {
+      "nameKey": "brian thomas",
+      "position": "WR",
+      "adp": 81.6
+    },
+    {
+      "nameKey": "stefon diggs",
+      "position": "WR",
+      "adp": 86.9
+    },
+    {
+      "nameKey": "jalen coker",
+      "position": "WR",
+      "adp": 90.9
+    },
+    {
+      "nameKey": "tyler shough",
+      "position": "QB",
+      "adp": 115.3
+    },
+    {
+      "nameKey": "brandon aubrey",
+      "position": "K",
+      "adp": 121.1
+    },
+    {
+      "nameKey": "dalton kincaid",
+      "position": "TE",
+      "adp": 123.1
+    }
+  ]
+}
