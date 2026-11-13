@@ -1847,6 +1847,27 @@ test('rows the ADP prior does not serve carry no usedAdpPrior key (#1442)', () =
   }
 });
 
+test('a constants object with no baseline block reads as no ADP prior and does not throw (#1442)', () => {
+  const args = {
+    playerId: 1, position: 'RB', season: 2026, week: 2, priorGames: [], priorSeasonPerGame: null,
+    positionBaselinePerGame: 7.5, adpPriorPerGame: 9,
+  };
+  let row;
+  assert.doesNotThrow(() => { row = model.projectPlayer({ ...args, constants: {} }); });
+  assert.equal(row.factors.recentProduction.usedAdpPrior, undefined);
+  assert.equal(row.factors.recentProduction.usedPositionBaseline, true);
+  assert.ok(!row.confidenceReasons.includes('adp prior'));
+});
+
+test('under v3.2 a player with a prior-season pace and no prior games takes no ADP prior (#1442)', () => {
+  const row = noHistory({
+    constants: model.MODEL_CONSTANTS_V3_2, priorSeasonPerGame: 11, positionBaselinePerGame: 7.5, adpPriorPerGame: 9,
+  });
+  assert.equal(row.factors.recentProduction.usedPriorSeason, true);
+  assert.equal(row.factors.recentProduction.usedAdpPrior, undefined);
+  assert.ok(!row.confidenceReasons.includes('adp prior'));
+});
+
 test('an ADP prior of exactly 0 is a real value: the player projects to 0', () => {
   const row = noHistory({ constants: model.MODEL_CONSTANTS_V3_2, adpPriorPerGame: 0 });
   assert.equal(row.mean, 0);

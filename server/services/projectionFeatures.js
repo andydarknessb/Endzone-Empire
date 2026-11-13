@@ -480,19 +480,24 @@ const ET_DAY_PARTS = new Intl.DateTimeFormat('en-US', {
   timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', hourCycle: 'h23',
 });
 
-/** The committed ADP fixture for a season and format, or null when there is none. */
+/**
+ * The committed ADP fixture for a season and format, or null when that file does
+ * not exist. Any other load error (a corrupt fixture) is rethrown, so it stays loud.
+ */
 function loadAdpFixture(year, format) {
   try {
     return require(`../data/adp-${year}-${format}.json`);
-  } catch {
-    return null;
+  } catch (err) {
+    if (err.code === 'MODULE_NOT_FOUND') return null;
+    throw err;
   }
 }
 
 /**
  * Pure: the instant the ADP window `endDate` (YYYY-MM-DD) closes, 23:59:59 US
  * Eastern on that day. It is EDT or EST, whichever reads back as that date at
- * hour 23 (the house pattern in unavailable.js). Null for an unreadable date.
+ * hour 23: the offset pattern of etInstant in modules/nflverseRosterStatus.js,
+ * which is not exported. Null for an unreadable date.
  */
 function endOfEtDay(endDate) {
   for (const offset of ['-04:00', '-05:00']) {
@@ -581,7 +586,7 @@ async function loadFeatureBundle({
   const adpTargetFixture = adpPriorFixture ? adpFixtureLoader(Number(season), adpFormat) : null;
   const wantsAdpPrior = Boolean(adpPriorFixture && adpTargetFixture);
 
-  const [playersResult, statsResult, seasonResult, targetScheduleResult, priorScheduleResult, adpSeasonResult] =
+  const [playersResult, statsResult, seasonResult, targetScheduleResult, priorScheduleResult] =
     await Promise.all([
       client.query(
         // team_key is the schedule-joinable spelling of nfl_team: DEF units
@@ -630,22 +635,33 @@ async function loadFeatureBundle({
            AND ("season" < $2 OR ("season" = $2 AND "week" < $3))`,
         [firstSeason, season, week]
       ),
-      // Last season's rows with their names: the joinable side of the draft-market
-      // prior's fit (#1442). Aliased so the mocked pool can tell it from the
-      // player_season_stats read above.
-      wantsAdpPrior
-        ? client.query(
-          `SELECT "pss"."player_id", "pss"."season", "pss"."games_played", "pss"."stats", "pss"."fantasy_points",
-                  "p"."name", "p"."position"
-           FROM "player_season_stats" "pss"
-           JOIN "players" "p" ON "p"."id" = "pss"."player_id"
-           WHERE "pss"."season" = $1`,
-          [Number(season) - 1]
-        )
-        : Promise.resolve({ rows: [] }),
     ]);
 
   assertNoFutureRows(statsResult.rows, { season, week });
+
+  // The run-level cutoff is the EARLIEST kickoff in the week: past it, some
+  // information about week W exists in the world, so a run generated after it
+  // can no longer claim a clean pre-kickoff feature set for every player.
+  const kickoffs = targetScheduleResult.rows
+    .map((r) => (r.kickoff_at ? new Date(r.kickoff_at).getTime() : null))
+    .filter((t) => Number.isFinite(t));
+  const inputCutoff = kickoffs.length > 0 ? new Date(Math.min(...kickoffs)) : null;
+
+  // The draft-market census (#1442) is read only when this week's ADP window has
+  // closed; in a withheld week nothing would be served, so nothing is read.
+  const adpServes = wantsAdpPrior && adpWindowClosedBefore(adpTargetFixture.meta.end_date, inputCutoff);
+  // Every player with his optional prior-season row, so a namesake with no row
+  // still counts against the join. Aliased so the mocked pool can route it.
+  const adpCensusResult = adpServes
+    ? await client.query(
+      `SELECT "p"."id" AS "player_id", "p"."name", "p"."position",
+              "pss"."season", "pss"."games_played", "pss"."stats", "pss"."fantasy_points"
+       FROM "players" "p"
+       LEFT JOIN "player_season_stats" "pss"
+         ON "pss"."player_id" = "p"."id" AND "pss"."season" = $1`,
+      [Number(season) - 1]
+    )
+    : null;
 
   const players = new Map(playersResult.rows.map((r) => [r.id, r]));
   if (playerContextOverrideById) {
@@ -828,14 +844,6 @@ async function loadFeatureBundle({
     for (const row of normalized.rows) normalizedDefenseGames.set(row.team, Number(row.games));
   }
 
-  // The run-level cutoff is the EARLIEST kickoff in the week: past it, some
-  // information about week W exists in the world, so a run generated after it
-  // can no longer claim a clean pre-kickoff feature set for every player.
-  const kickoffs = targetScheduleResult.rows
-    .map((r) => (r.kickoff_at ? new Date(r.kickoff_at).getTime() : null))
-    .filter((t) => Number.isFinite(t));
-  const inputCutoff = kickoffs.length > 0 ? new Date(Math.min(...kickoffs)) : null;
-
   // #1924 (Challenger only): each player's rank on his latest depth chart
   // capture strictly BEFORE the as-of day (the earlier of that earliest kickoff
   // and the capture cutoff), within the 7 days before it. Strictly before
@@ -893,14 +901,13 @@ async function loadFeatureBundle({
     defenseGamesByTeam: normalizedDefenseGames,
     // Present only under a Challenger that reads the depth chart (#1924).
     ...(wantsDepthChart ? { depthRankByPlayer } : {}),
-    // Present only under the draft-market prior (#1442): last season's rows, both
-    // fixtures' entries, and whether the target window closed before kickoff.
-    ...(wantsAdpPrior ? {
+    // Present only when the draft-market prior serves this week (#1442): the census
+    // of every player's prior-season row, and both fixtures' entries.
+    ...(adpServes ? {
       adpPrior: {
-        priorSeasonRows: adpSeasonResult.rows,
+        censusRows: adpCensusResult.rows,
         priorEntries: adpPriorFixture.entries,
         targetEntries: adpTargetFixture.entries,
-        servesThisWeek: adpWindowClosedBefore(adpTargetFixture.meta.end_date, inputCutoff),
       },
     } : {}),
     leagueScanRows: leagueRows.length,

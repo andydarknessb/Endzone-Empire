@@ -1634,8 +1634,9 @@ function projectPlayer({
   }
   // No prior games and no prior-season value: the draft market is the only
   // evidence left, so under v3.2 it stands in for the Position baseline.
+  const adpPriorOn = !!(constants && constants.baseline && constants.baseline.adpPrior === true);
   const noEvidence = !isNum(priorSeasonPerGame) && !(priorGames || []).some((g) => g && isNum(g.points));
-  const usedAdpPrior = constants.baseline.adpPrior === true && noEvidence && isNum(adpPriorPerGame);
+  const usedAdpPrior = adpPriorOn && noEvidence && isNum(adpPriorPerGame);
   const baseline = baselineProduction({
     priorGames,
     priorSeasonPerGame,
@@ -1790,7 +1791,7 @@ function projectPlayer({
     usedPriorSeasonFallback: baseline.usedPriorSeason && baseline.sampleSize === 0,
     usedPositionFallback: baseline.usedPositionBaseline && baseline.sampleSize === 0 && !baseline.usedPriorSeason,
     usedAdpPrior,
-    markNoHistory: constants.baseline.adpPrior === true,
+    markNoHistory: adpPriorOn,
     opponentAvailable: !!(opponent && opponent.available),
     activeProbability: availabilityInfo.activeProbability,
     hasRoleData,

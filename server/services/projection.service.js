@@ -351,19 +351,25 @@ function uniqueBy(items, keyOf) {
 
 /**
  * Pure (#1442): the run's draft-market prior, built once per run from the
- * bundle's ADP data, or null when the bundle carries none. Each prior-season
- * fixture entry joins to last season's row by name key and position; the
- * points per game is priorSeasonPerGame of that row, dropped when it has no
- * games, and the pairs are fitted per position. `curves` is keyed by position
- * and omits a position its fit cannot make.
+ * bundle's ADP data, or null when the bundle carries none. The census holds every
+ * player, drafted or not, under his name key and position. A key held by more
+ * than one player is a missed join on both sides: its fixture entry joins to no
+ * one, and no player with that key gets an ADP. A joined entry's points per game
+ * is priorSeasonPerGame of its holder's season row (no row gives no pair), and the
+ * pairs are fitted per position into `curves`.
  */
 function buildAdpPrior(adpPrior, rules, season) {
   if (!adpPrior) return null;
-  const rows = uniqueBy(adpPrior.priorSeasonRows, (r) => adpKey(normalizeNameKey(r.name), r.position));
+  const holders = new Map();
+  for (const row of adpPrior.censusRows) {
+    const key = adpKey(normalizeNameKey(row.name), row.position);
+    if (!holders.has(key)) holders.set(key, []);
+    holders.get(key).push(row);
+  }
   const pairsByPosition = new Map();
   for (const [key, entry] of uniqueBy(adpPrior.priorEntries, (e) => adpKey(e.nameKey, e.position))) {
-    const row = rows.get(key);
-    const ppg = row ? priorSeasonPerGame([row], rules, season) : null;
+    const found = holders.get(key) || [];
+    const ppg = found.length === 1 ? priorSeasonPerGame(found, rules, season) : null;
     if (ppg === null) continue;
     if (!pairsByPosition.has(entry.position)) pairsByPosition.set(entry.position, []);
     pairsByPosition.get(entry.position).push({ adp: entry.adp, ppg });
@@ -373,11 +379,9 @@ function buildAdpPrior(adpPrior, rules, season) {
     const curve = model.fitAdpCurve(pairs);
     if (curve) curves[position] = curve;
   }
-  return {
-    curves,
-    targetEntries: uniqueBy(adpPrior.targetEntries, (e) => adpKey(e.nameKey, e.position)),
-    servesThisWeek: adpPrior.servesThisWeek,
-  };
+  const targetEntries = new Map([...uniqueBy(adpPrior.targetEntries, (e) => adpKey(e.nameKey, e.position))]
+    .filter(([key]) => (holders.get(key) || []).length === 1));
+  return { curves, targetEntries };
 }
 
 /**
@@ -550,10 +554,10 @@ function projectFromBundle({
     : undefined;
   const starterBaseline = depthRank === 1 && context ? context.starterBaselinePerGame : null;
 
-  // #1442: this player's ADP in the target fixture, priced on the run's curves,
-  // once that fixture's window has closed before this week's first kickoff. The
-  // model decides whether the prior applies (evidence, constants).
-  const adpEntry = adpPrior && adpPrior.servesThisWeek
+  // #1442: this player's ADP in the target fixture, priced on the run's curves.
+  // The bundle carries ADP data only in a week the fixture serves; the model
+  // decides whether the prior applies (evidence, constants).
+  const adpEntry = adpPrior
     ? adpPrior.targetEntries.get(adpKey(normalizeNameKey(player.name), player.position))
     : null;
   const adpPriorPerGame = adpEntry
