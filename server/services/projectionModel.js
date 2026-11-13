@@ -486,6 +486,11 @@ const MODEL_CONSTANTS = {
  *    carrying the stored per-week `gameTeam`, or one with a non-zero stat. The
  *    live/final box writes an all-zero row for a rostered player who never took
  *    the field, and under v3.1 each one drags a player's average down.
+ *  - `baseline.adpPrior: true` (#1442). A player with no evidence (no prior
+ *    games and no prior-season per-game value) is priced from his draft-market
+ *    prior instead of the Position baseline: points per game on ln(ADP),
+ *    fitted per position from last season. The feature loader decides whether
+ *    this run serves the prior at all.
  *  - `opponent.priorSeasonPseudoGames: 4` (#1485). How many games of
  *    evidence the PRIOR season's points-allowed ratio is worth when seeding a
  *    defense's current-season allowance, the same pseudo-game idiom as
@@ -497,10 +502,10 @@ const MODEL_CONSTANTS = {
  *    "insufficient opponent sample" while the card prints the matchup as if
  *    it mattered. The cap and the shrinkage toward neutral are untouched.
  *
- * Of the five keys above, four are DEFAULTS, not fitted values, and
- * `baseline.appearancesOnly` is an on/off switch, not a default value; all five
- * are preregistered once and judged on the 2026 holdout ledger through #1439
- * with the rest of v3.2; no sweep on that ledger.
+ * Of the six keys above, four are DEFAULTS, not fitted values, and
+ * `baseline.appearancesOnly` and `baseline.adpPrior` are on/off switches, not
+ * default values; all six are preregistered once and judged on the 2026
+ * holdout ledger through #1439 with the rest of v3.2; no sweep on that ledger.
  */
 function cloneConstants(value) {
   if (Array.isArray(value)) return value.map(cloneConstants);
@@ -524,6 +529,7 @@ const MODEL_CONSTANTS_V3_2 = (() => {
   v32.simulation.centerEvenPoolMedian = true;
   v32.opponent.priorSeasonPseudoGames = 4;
   v32.baseline.appearancesOnly = true;
+  v32.baseline.adpPrior = true;
   return deepFreeze(v32);
 })();
 
@@ -763,6 +769,45 @@ function baselineProduction({
     usedPriorSeason: isNum(priorSeasonPerGame),
     usedPositionBaseline: isNum(positionBaselinePerGame),
   };
+}
+
+// ---------------------------------------------------------------------------
+// Draft-market prior (#1442, v3.2)
+// ---------------------------------------------------------------------------
+
+/**
+ * Pure: points per game on ln(ADP) across one position's `{ adp, ppg }` pairs,
+ * fitted by ordinary least squares as `{ a, b, n }`. Null with fewer than 5
+ * usable pairs, or when every ADP is the same (no slope to fit).
+ */
+function fitAdpCurve(pairs) {
+  const points = (pairs || [])
+    .filter((p) => Number.isFinite(p.adp) && p.adp > 0 && Number.isFinite(p.ppg))
+    .map((p) => ({ x: Math.log(p.adp), y: p.ppg }));
+  if (points.length < 5) return null;
+  if (new Set(points.map((p) => p.x)).size < 2) return null;
+  const n = points.length;
+  const xbar = points.reduce((s, p) => s + p.x, 0) / n;
+  const ybar = points.reduce((s, p) => s + p.y, 0) / n;
+  let sxy = 0;
+  let sxx = 0;
+  for (const p of points) {
+    sxy += (p.x - xbar) * (p.y - ybar);
+    sxx += (p.x - xbar) ** 2;
+  }
+  const b = sxy / sxx;
+  return { a: ybar - b * xbar, b, n };
+}
+
+/**
+ * Pure: the points per game a draft-market prior implies for one player, his
+ * position's curve at his ADP floored at zero. Null without an ADP or without a
+ * curve for the position. A prior of exactly 0 is a real value.
+ */
+function adpPrior({ adp, position, curve }) {
+  const fit = curve ? curve[position] : null;
+  if (!Number.isFinite(adp) || adp <= 0 || !fit) return null;
+  return Math.max(0, fit.a + fit.b * Math.log(adp));
 }
 
 // ---------------------------------------------------------------------------
@@ -1488,6 +1533,10 @@ function confidenceFor({
   distribution = null,
   usedPriorSeasonFallback = false,
   usedPositionFallback = false,
+  // The Position-baseline slot holds the draft-market prior for this row (#1442).
+  usedAdpPrior = false,
+  // v3.2 only: a row built with no history of its own says so (#1442).
+  markNoHistory = false,
   opponentAvailable = false,
   activeProbability = 1,
   hasRoleData = true,
@@ -1509,11 +1558,13 @@ function confidenceFor({
     const scale = Math.abs(Number(distribution.mean));
     if (scale > 0 && width / scale > constants.wideIntervalRatio) demote('wide range');
   }
-  if (usedPositionFallback && effectiveGames < constants.mediumEffectiveGames) demote('position baseline');
+  const positionFallbackReason = usedAdpPrior ? 'adp prior' : 'position baseline';
+  if (usedPositionFallback && effectiveGames < constants.mediumEffectiveGames) demote(positionFallbackReason);
   else if (usedPriorSeasonFallback && effectiveGames < constants.mediumEffectiveGames) demote('prior season');
   if (!opponentAvailable) reasons.push('opponent sample thin');
   if (activeProbability === null) demote('injury designation');
   if (!hasRoleData) reasons.push('no role data');
+  if (markNoHistory && usedPositionFallback) reasons.push('no history');
 
   return { level, reasons };
 }
@@ -1541,6 +1592,9 @@ function projectPlayer({
   priorGames = [],
   priorSeasonPerGame = null,
   positionBaselinePerGame = null,
+  // The draft-market prior (#1442, adpPrior). Read only under `baseline.adpPrior`
+  // and only for a player with no evidence, where it takes the Position baseline's place.
+  adpPriorPerGame = null,
   // League-wide points per opportunity for this player's position group, the
   // shrinkage target for his own efficiency. Null (a pre-enrichment database,
   // or a group with no opportunity denominator) simply leaves his own observed
@@ -1578,10 +1632,14 @@ function projectPlayer({
   if (onPreHomeAwayBaseline !== undefined && typeof onPreHomeAwayBaseline !== 'function') {
     throw new Error('projectPlayer: onPreHomeAwayBaseline must be undefined or a function');
   }
+  // No prior games and no prior-season value: the draft market is the only
+  // evidence left, so under v3.2 it stands in for the Position baseline.
+  const noEvidence = !isNum(priorSeasonPerGame) && !(priorGames || []).some((g) => g && isNum(g.points));
+  const usedAdpPrior = constants.baseline.adpPrior === true && noEvidence && isNum(adpPriorPerGame);
   const baseline = baselineProduction({
     priorGames,
     priorSeasonPerGame,
-    positionBaselinePerGame,
+    positionBaselinePerGame: usedAdpPrior ? adpPriorPerGame : positionBaselinePerGame,
     constants: constants.baseline,
   });
 
@@ -1651,7 +1709,9 @@ function projectPlayer({
     games: baseline.sampleSize,
     effectiveGames: baseline.effectiveGames,
     usedPriorSeason: baseline.usedPriorSeason,
-    usedPositionBaseline: baseline.usedPositionBaseline,
+    // The ADP prior sits in the baseline slot, but it is not a Position baseline (#1442).
+    usedPositionBaseline: usedAdpPrior ? false : baseline.usedPositionBaseline,
+    ...(usedAdpPrior ? { usedAdpPrior: true } : {}),
     pointsContribution: round2(blendedBaseline),
   };
   if (usageComponent) {
@@ -1729,6 +1789,8 @@ function projectPlayer({
     distribution,
     usedPriorSeasonFallback: baseline.usedPriorSeason && baseline.sampleSize === 0,
     usedPositionFallback: baseline.usedPositionBaseline && baseline.sampleSize === 0 && !baseline.usedPriorSeason,
+    usedAdpPrior,
+    markNoHistory: constants.baseline.adpPrior === true,
     opponentAvailable: !!(opponent && opponent.available),
     activeProbability: availabilityInfo.activeProbability,
     hasRoleData,
@@ -1797,6 +1859,8 @@ module.exports = {
   recencyWeight,
   shrinkToward,
   baselineProduction,
+  fitAdpCurve,
+  adpPrior,
   opportunitiesForGame,
   opportunityBaseline,
   opponentEffect,

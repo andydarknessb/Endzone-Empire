@@ -6,6 +6,7 @@ const { unavailableFor: verdictFor, startVerdictOf } = require('./unavailable');
 const { loadNflRosterStatusById, nflRosterStatusColumn } = require('./nflRosterStatus');
 const { computeByeWeeks } = require('./bye.service');
 const { normalizeNflTeam } = require('./nflTeam');
+const { normalizeNameKey } = require('./nameMatch');
 const features = require('./projectionFeatures');
 const { rulesForLeague, SCORING_RULES, calculateFantasyPoints } = require('./scoringRules');
 const { usesStoredSeasonTotal } = require('./seasonSummary.service');
@@ -335,6 +336,50 @@ function rankOpponentDefense(allowedByDefense, opponentTeam) {
   return { rank: sorted.indexOf(target.allowedPerGame) + 1, of: allowedByDefense.size };
 }
 
+/** Pure (#1442): the join key of a name key and a position, for the ADP fixtures and the prior-season rows. */
+const adpKey = (nameKey, position) => `${nameKey}|${position}`;
+
+/** Pure: a Map of the items whose key occurs exactly once; a key seen twice is dropped (a missed join). */
+function uniqueBy(items, keyOf) {
+  const seen = new Map();
+  for (const item of items) {
+    const key = keyOf(item);
+    seen.set(key, seen.has(key) ? null : item);
+  }
+  return new Map([...seen].filter(([, item]) => item !== null));
+}
+
+/**
+ * Pure (#1442): the run's draft-market prior, built once per run from the
+ * bundle's ADP data, or null when the bundle carries none. Each prior-season
+ * fixture entry joins to last season's row by name key and position; the
+ * points per game is priorSeasonPerGame of that row, dropped when it has no
+ * games, and the pairs are fitted per position. `curves` is keyed by position
+ * and omits a position its fit cannot make.
+ */
+function buildAdpPrior(adpPrior, rules, season) {
+  if (!adpPrior) return null;
+  const rows = uniqueBy(adpPrior.priorSeasonRows, (r) => adpKey(normalizeNameKey(r.name), r.position));
+  const pairsByPosition = new Map();
+  for (const [key, entry] of uniqueBy(adpPrior.priorEntries, (e) => adpKey(e.nameKey, e.position))) {
+    const row = rows.get(key);
+    const ppg = row ? priorSeasonPerGame([row], rules, season) : null;
+    if (ppg === null) continue;
+    if (!pairsByPosition.has(entry.position)) pairsByPosition.set(entry.position, []);
+    pairsByPosition.get(entry.position).push({ adp: entry.adp, ppg });
+  }
+  const curves = {};
+  for (const [position, pairs] of pairsByPosition) {
+    const curve = model.fitAdpCurve(pairs);
+    if (curve) curves[position] = curve;
+  }
+  return {
+    curves,
+    targetEntries: uniqueBy(adpPrior.targetEntries, (e) => adpKey(e.nameKey, e.position)),
+    servesThisWeek: adpPrior.servesThisWeek,
+  };
+}
+
 /**
  * Assemble one player's projection from an already-loaded feature bundle.
  * Pure with respect to the database: everything it reads comes from `bundle`,
@@ -357,6 +402,8 @@ function projectFromBundle({
   // This player's NFL roster status (#1767, nflRosterStatus.js), or null,
   // which reads as Active.
   nflRosterStatus = null,
+  // The run's draft-market prior (#1442, buildAdpPrior), or null.
+  adpPrior = null,
 }) {
   if (onPreHomeAwayBaseline !== undefined && typeof onPreHomeAwayBaseline !== 'function') {
     throw new Error('projectFromBundle: onPreHomeAwayBaseline must be undefined or a function');
@@ -503,6 +550,16 @@ function projectFromBundle({
     : undefined;
   const starterBaseline = depthRank === 1 && context ? context.starterBaselinePerGame : null;
 
+  // #1442: this player's ADP in the target fixture, priced on the run's curves,
+  // once that fixture's window has closed before this week's first kickoff. The
+  // model decides whether the prior applies (evidence, constants).
+  const adpEntry = adpPrior && adpPrior.servesThisWeek
+    ? adpPrior.targetEntries.get(adpKey(normalizeNameKey(player.name), player.position))
+    : null;
+  const adpPriorPerGame = adpEntry
+    ? model.adpPrior({ adp: adpEntry.adp, position: player.position, curve: adpPrior.curves })
+    : null;
+
   const projected = model.projectPlayer({
     playerId,
     position: player.position,
@@ -514,6 +571,7 @@ function projectFromBundle({
     priorGames,
     priorSeasonPerGame: priorSeasonPerGame(bundle.seasonRowsByPlayer.get(playerId), rules, season),
     positionBaselinePerGame: typeof starterBaseline === 'number' ? starterBaseline : (context ? context.baselinePerGame : null),
+    adpPriorPerGame,
     // Shrinkage target for the usage component's points-per-opportunity. Null
     // whenever the scan found no rows with computable opportunities, which is
     // every pre-enrichment database and every K/DEF/IDP group.
@@ -669,6 +727,9 @@ async function generateProjections({
   // and the successor evaluator pass nothing, so every player reads as
   // Active there and those runs stay byte-identical (DEVIATIONS entry 4).
   nflRosterStatusById = null,
+  // The draft-market prior's fixture reader (#1442), forwarded to loadFeatureBundle.
+  // The default reads the committed file; tests inject one.
+  adpFixtureLoader = features.loadAdpFixture,
 }) {
   if (onPreHomeAwayBaseline !== undefined && typeof onPreHomeAwayBaseline !== 'function') {
     throw new Error('generateProjections: onPreHomeAwayBaseline must be undefined or a function');
@@ -679,7 +740,10 @@ async function generateProjections({
     // (#1485 seeding, #1483 Position floor): under v3.1 no new query is issued.
     constants: modelConstants,
     oddsObservedAtOrBefore,
+    adpFixtureLoader,
   });
+  // Once per run: the curves are fitted from the bundle's ADP data, not per player.
+  const adpPrior = buildAdpPrior(bundle.adpPrior, rules, season);
 
   // Weather is strictly optional context and must never be able to fail the
   // request: any throw or rejection degrades to "no weather".
@@ -755,6 +819,7 @@ async function generateProjections({
         modelVersion,
         onPreHomeAwayBaseline,
         nflRosterStatus: nflRosterStatusById ? nflRosterStatusById.get(playerId) ?? null : null,
+        adpPrior,
       })
     );
   }

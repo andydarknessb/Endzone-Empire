@@ -1521,7 +1521,7 @@ test('MODEL_CONSTANTS hashes to the holdout study captured v3.1 constants exactl
   assert.equal(model.MODEL_CONSTANTS.simulation.centerEvenPoolMedian, undefined);
 });
 
-test('MODEL_CONSTANTS_V3_2 differs from MODEL_CONSTANTS in exactly the five ticketed keys', () => {
+test('MODEL_CONSTANTS_V3_2 differs from MODEL_CONSTANTS in exactly the six ticketed keys', () => {
   const v31 = model.MODEL_CONSTANTS;
   const v32 = model.MODEL_CONSTANTS_V3_2;
   assert.equal(model.MODEL_VERSION, 'free_baseline_v3.1');
@@ -1531,13 +1531,15 @@ test('MODEL_CONSTANTS_V3_2 differs from MODEL_CONSTANTS in exactly the five tick
   assert.equal(v32.simulation.truncateAtPositionFloor, true);
   assert.equal(v32.simulation.centerEvenPoolMedian, true);
   assert.equal(v32.baseline.appearancesOnly, true);
-  // Everything else is byte-identical: strip the five deltas from a v3.2
+  assert.equal(v32.baseline.adpPrior, true);
+  // Everything else is byte-identical: strip the six deltas from a v3.2
   // clone and the two objects must serialize the same.
   const stripped = JSON.parse(JSON.stringify(v32));
   delete stripped.opponent.priorSeasonPseudoGames;
   delete stripped.simulation.truncateAtPositionFloor;
   delete stripped.simulation.centerEvenPoolMedian;
   delete stripped.baseline.appearancesOnly;
+  delete stripped.baseline.adpPrior;
   stripped.decision.lineupRanking = 'median';
   assert.equal(JSON.stringify(stripped), JSON.stringify(v31));
 
@@ -1753,4 +1755,119 @@ test('volume: an invalid usage half-life falls back to the baseline half-life (#
     });
     assert.deepEqual(out, base, String(bad));
   }
+});
+
+// ---------------------------------------------------------------------------
+// #1442: a player with no evidence (no prior games, no prior-season value) is
+// priced from his draft-market prior, a per-position curve of points per game
+// on ln(ADP), in the Position-baseline slot. The curve is fitted by the run.
+// ---------------------------------------------------------------------------
+
+const E = Math.E;
+const curveRows = (fn) => [1, E, E * E, E ** 3, E ** 4].map((adp) => ({ adp, ppg: fn(adp) }));
+const line = (adp) => 20 - 3 * Math.log(adp);
+
+test('fitAdpCurve recovers the line on five worked pairs and returns null for four', () => {
+  const curve = model.fitAdpCurve(curveRows(line));
+  assert.ok(Math.abs(curve.a - 20) < 1e-9);
+  assert.ok(Math.abs(curve.b + 3) < 1e-9);
+  assert.equal(curve.n, 5);
+  assert.equal(model.fitAdpCurve(curveRows(line).slice(0, 4)), null);
+});
+
+test('fitAdpCurve ignores pairs with a non-positive or non-finite adp or ppg', () => {
+  const junk = [
+    { adp: 0, ppg: 99 }, { adp: -4, ppg: 99 }, { adp: NaN, ppg: 99 },
+    { adp: Infinity, ppg: 99 }, { adp: 5, ppg: NaN },
+  ];
+  const curve = model.fitAdpCurve([...curveRows(line), ...junk]);
+  assert.equal(curve.n, 5);
+  assert.ok(Math.abs(curve.a - 20) < 1e-9);
+  assert.ok(Math.abs(curve.b + 3) < 1e-9);
+  assert.equal(model.fitAdpCurve([...curveRows(line).slice(0, 4), ...junk]), null);
+  // Every pair at one ADP has a zero denominator: no slope to fit.
+  assert.equal(model.fitAdpCurve([1, 1, 1, 1, 1].map((adp) => ({ adp, ppg: 10 }))), null);
+});
+
+test('adpPrior reads the position curve at the ADP, floors at zero, and is null without an ADP or a curve', () => {
+  const curve = { RB: { a: 20, b: -3 } };
+  assert.ok(Math.abs(model.adpPrior({ adp: 24, position: 'RB', curve }) - line(24)) < 1e-9);
+  assert.equal(model.adpPrior({ adp: E ** 30, position: 'RB', curve }), 0);
+  assert.equal(model.adpPrior({ adp: 24, position: 'TE', curve }), null);
+  assert.equal(model.adpPrior({ adp: null, position: 'RB', curve }), null);
+  assert.equal(model.adpPrior({ adp: 0, position: 'RB', curve }), null);
+});
+
+const adpCurve = { RB: { a: 20, b: -3 } };
+const noHistory = (extra = {}) => model.projectPlayer({
+  playerId: 1, position: 'RB', season: 2026, week: 2, priorGames: [], priorSeasonPerGame: null,
+  ...extra,
+});
+
+test('under v3.2 a no-history player takes the ADP prior: adp prior and no history, never position baseline', () => {
+  const row = noHistory({
+    constants: model.MODEL_CONSTANTS_V3_2,
+    adpPriorPerGame: model.adpPrior({ adp: 24, position: 'RB', curve: adpCurve }),
+    positionBaselinePerGame: 7.5,
+  });
+  assert.equal(typeof row.mean, 'number');
+  assert.ok(row.confidenceReasons.includes('adp prior'));
+  assert.ok(row.confidenceReasons.includes('no history'));
+  assert.ok(!row.confidenceReasons.includes('position baseline'));
+  assert.deepEqual(row.factors.dataQuality.reasons, row.confidenceReasons);
+  assert.equal(row.factors.recentProduction.perGame, model.round2(line(24)));
+});
+
+test('under v3.2 with no ADP prior a no-history player is served the position baseline, marked no history', () => {
+  const row = noHistory({
+    constants: model.MODEL_CONSTANTS_V3_2, adpPriorPerGame: null, positionBaselinePerGame: 7.5,
+  });
+  assert.equal(typeof row.mean, 'number');
+  assert.equal(row.factors.recentProduction.perGame, 7.5);
+  assert.ok(row.confidenceReasons.includes('position baseline'));
+  assert.ok(row.confidenceReasons.includes('no history'));
+});
+
+test('an ADP-prior row reads as a draft-market row, not a Position-baseline row (#1442)', () => {
+  const row = noHistory({
+    constants: model.MODEL_CONSTANTS_V3_2,
+    adpPriorPerGame: model.adpPrior({ adp: 24, position: 'RB', curve: adpCurve }),
+    positionBaselinePerGame: 7.5,
+  });
+  assert.equal(row.factors.recentProduction.usedPositionBaseline, false);
+  assert.equal(row.factors.recentProduction.usedAdpPrior, true);
+});
+
+test('rows the ADP prior does not serve carry no usedAdpPrior key (#1442)', () => {
+  const v31 = noHistory({ constants: model.MODEL_CONSTANTS, positionBaselinePerGame: 7.5 });
+  const v32Fallback = noHistory({ constants: model.MODEL_CONSTANTS_V3_2, positionBaselinePerGame: 7.5, adpPriorPerGame: null });
+  for (const row of [v31, v32Fallback]) {
+    assert.equal(row.factors.recentProduction.usedPositionBaseline, true);
+    assert.equal('usedAdpPrior' in row.factors.recentProduction, false);
+  }
+});
+
+test('an ADP prior of exactly 0 is a real value: the player projects to 0', () => {
+  const row = noHistory({ constants: model.MODEL_CONSTANTS_V3_2, adpPriorPerGame: 0 });
+  assert.equal(row.mean, 0);
+  assert.ok(row.confidenceReasons.includes('adp prior'));
+});
+
+test('under v3.1 an ADP prior changes nothing, and the position-baseline row has no no history', () => {
+  const without = noHistory({ constants: model.MODEL_CONSTANTS, positionBaselinePerGame: 7.5, adpPriorPerGame: null });
+  const withPrior = noHistory({ constants: model.MODEL_CONSTANTS, positionBaselinePerGame: 7.5, adpPriorPerGame: 9 });
+  assert.deepEqual(withPrior, without);
+  assert.ok(!without.confidenceReasons.includes('no history'));
+});
+
+test('under v3.2 a player with prior games ignores the ADP prior', () => {
+  const args = {
+    constants: model.MODEL_CONSTANTS_V3_2,
+    priorGames: [{ points: 12, weeksAgo: 1, sameSeason: true }, { points: 9, weeksAgo: 2, sameSeason: false }],
+    positionBaselinePerGame: 7.5,
+  };
+  const withPrior = noHistory({ ...args, adpPriorPerGame: 30 });
+  const without = noHistory({ ...args, adpPriorPerGame: null });
+  assert.deepEqual(withPrior, without);
+  assert.ok(!withPrior.confidenceReasons.includes('adp prior'));
 });

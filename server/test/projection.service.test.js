@@ -79,6 +79,9 @@ function mockPool(t, {
   // players' kickoff rows for the single-week reader's Practice participation read.
   practiceRows = [],
   kickoffRows = [],
+  // #1442: the prior-season season rows joined to players, read only under
+  // `baseline.adpPrior` with a fixture for the run's format.
+  adpSeasonStats = [],
   onQuery = null,
 } = {}) {
   const calls = [];
@@ -115,6 +118,7 @@ function mockPool(t, {
     if (text.includes('FROM "player_depth_chart"')) return { rows: depthChartRows };
     if (text.includes('FROM "player_practice_observations"')) return { rows: practiceRows };
     if (text.includes('MIN("g"."kickoff_at")')) return { rows: kickoffRows };
+    if (text.includes('FROM "player_season_stats" "pss"')) return { rows: adpSeasonStats };
     if (text.includes('FROM "player_season_stats"')) return { rows: seasonStats };
     if (text.includes('"player_stats" "pps"')) return { rows: priorSeasonScan };
     if (text.includes('FROM "player_stats" "ps"')) return { rows: leagueScan };
@@ -4083,4 +4087,128 @@ test('priorSeasonPerGame prices a count-only kicker rollup at its stored season 
 test('priorSeasonPerGame still re-scores a kicker rollup that carries fieldGoalDistances (#2805 control)', () => {
   const rows = [{ season: 2025, games_played: 17, stats: { fieldGoalDistances: [45, 30], fieldGoal: 2, extraPoint: 2 }, fantasy_points: '999.00' }];
   assert.equal(projection.priorSeasonPerGame(rows, SCORING_RULES, SEASON), 9 / 17);
+});
+
+// ---------------------------------------------------------------------------
+// #1442: the draft-market prior. A no-evidence player is priced from his ADP on
+// last season's points-per-game curve. Fixtures are injected by season and
+// format; only the last test reads the committed fixtures.
+// ---------------------------------------------------------------------------
+
+const adpFixture = (endDate, entries) => ({ meta: { end_date: endDate }, entries });
+const PRIOR_FIXTURE = adpFixture('2025-09-01', [
+  { nameKey: 'back one', position: 'RB', adp: 2 },
+  { nameKey: 'back two', position: 'RB', adp: 6 },
+  { nameKey: 'back three', position: 'RB', adp: 14 },
+  { nameKey: 'back four', position: 'RB', adp: 30 },
+  { nameKey: 'back five', position: 'RB', adp: 60 },
+]);
+const adpRow = (playerId, name, position, rushingYards) => ({
+  player_id: playerId, season: SEASON - 1, games_played: 16, stats: { rushingYards }, fantasy_points: null, name, position,
+});
+const PRIOR_ROWS = [
+  adpRow(10, 'Back One', 'RB', 1600), adpRow(11, 'Back Two', 'RB', 1300), adpRow(12, 'Back Three', 'RB', 1000),
+  adpRow(13, 'Back Four', 'RB', 800), adpRow(14, 'Back Five', 'RB', 500),
+];
+const targetFixture = (endDate) => adpFixture(endDate, [{ nameKey: 'target rookie', position: 'RB', adp: 24 }]);
+// Week 2's first kickoff for BUF. The half-PPR fixture window closes before it when it ends by 2026-09-15.
+const WEEK2_SCHEDULE = [{ team_key: 'BUF', opponent_key: 'NE', kickoff_at: '2026-09-17T17:00:00Z' }];
+const fixtureLoader = (prior, target) => (year, format) => {
+  if (format !== 'half-ppr') return null;
+  return year === SEASON - 1 ? prior : target;
+};
+
+const adpRun = (t, {
+  prior = PRIOR_FIXTURE, target = targetFixture('2026-09-15'), adpRows = PRIOR_ROWS, leagueScan = [],
+} = {}) => {
+  mockPool(t, {
+    players: [player(1, 'RB', { name: 'Target Rookie' })],
+    targetSchedule: WEEK2_SCHEDULE,
+    adpSeasonStats: adpRows,
+    leagueScan,
+  });
+  return projection.generateProjections({
+    season: SEASON, week: 2, rules: SCORING_RULES, playerIds: [1], hashValue: 'h', weatherService: false,
+    modelConstants: model.MODEL_CONSTANTS_V3_2, adpFixtureLoader: fixtureLoader(prior, target),
+  });
+};
+
+test('#1442 under v3.2 a no-history player listed in the target fixture takes the ADP prior, not the position baseline', async (t) => {
+  const { projections } = await adpRun(t);
+  const row = projections.get(1);
+  assert.equal(typeof row.mean, 'number');
+  assert.ok(row.confidenceReasons.includes('adp prior'));
+  assert.equal(projection.isPositionBaselineEntry(row), false);
+});
+
+test('#1442 when the target window closes after the first kickoff, the player falls back to the position baseline', async (t) => {
+  const leagueScan = [
+    { player_id: 20, week: 1, position: 'RB', defense: 'NE', stats: { rushingYards: 80, gameTeam: 'BUF' } },
+    { player_id: 21, week: 1, position: 'RB', defense: 'NE', stats: { rushingYards: 60, gameTeam: 'BUF' } },
+  ];
+  const { projections } = await adpRun(t, { target: targetFixture('2026-09-20'), leagueScan });
+  const row = projections.get(1);
+  assert.ok(row.confidenceReasons.includes('position baseline'));
+  assert.ok(!row.confidenceReasons.includes('adp prior'));
+  assert.equal(projection.isPositionBaselineEntry(row), true);
+});
+
+test('#1442 two players sharing a name key and position never enter the fit', async (t) => {
+  const dupRows = [adpRow(20, 'Dup Name', 'RB', 2600), adpRow(21, 'Dup Name', 'RB', 100)];
+  const withDupEntry = adpFixture('2025-09-01', [...PRIOR_FIXTURE.entries, { nameKey: 'dup name', position: 'RB', adp: 4 }]);
+  const withDup = await adpRun(t, { prior: withDupEntry, adpRows: [...PRIOR_ROWS, ...dupRows] });
+  t.mock.restoreAll();
+  const without = await adpRun(t, { adpRows: [...PRIOR_ROWS, ...dupRows] });
+  assert.ok(without.projections.get(1).confidenceReasons.includes('adp prior'), 'the curve must exist for the check to mean anything');
+  assert.equal(withDup.projections.get(1).mean, without.projections.get(1).mean);
+});
+
+test('#1442 under v3.1 the prior-season ADP read and the fixture loader never run; under v3.2 both do', async (t) => {
+  for (const [modelConstants, served] of [[model.MODEL_CONSTANTS, false], [model.MODEL_CONSTANTS_V3_2, true]]) {
+    const queries = [];
+    const loads = [];
+    const loader = (year, format) => {
+      loads.push(year);
+      return fixtureLoader(PRIOR_FIXTURE, targetFixture('2026-09-15'))(year, format);
+    };
+    mockPool(t, {
+      players: [player(1, 'RB', { name: 'Target Rookie' })],
+      targetSchedule: WEEK2_SCHEDULE,
+      adpSeasonStats: PRIOR_ROWS,
+      onQuery: (text) => {
+        if (text.includes('FROM "player_season_stats" "pss"')) queries.push(text);
+      },
+    });
+    const { projections } = await projection.generateProjections({
+      season: SEASON, week: 2, rules: SCORING_RULES, playerIds: [1], hashValue: 'h', weatherService: false,
+      modelConstants, adpFixtureLoader: loader,
+    });
+    assert.equal(queries.length, served ? 1 : 0, `${served ? 'v3.2' : 'v3.1'} prior-season ADP query`);
+    assert.equal(loads.length, served ? 2 : 0, `${served ? 'v3.2' : 'v3.1'} fixture loads`);
+    assert.equal(projections.get(1).confidenceReasons.includes('adp prior'), served);
+    t.mock.restoreAll();
+  }
+});
+
+test('#1442 adpWindowClosedBefore reads the window end as 23:59:59 Eastern, in EST and in EDT', () => {
+  // January is EST (UTC-5): the window closes at 04:59:59Z the next day.
+  assert.equal(features.adpWindowClosedBefore('2026-01-10', '2026-01-11T04:30:00Z'), false);
+  assert.equal(features.adpWindowClosedBefore('2026-01-10', '2026-01-11T05:00:00Z'), true);
+  // September is EDT (UTC-4): the window closes at 03:59:59Z the next day.
+  assert.equal(features.adpWindowClosedBefore('2026-09-15', '2026-09-16T03:30:00Z'), false);
+  assert.equal(features.adpWindowClosedBefore('2026-09-15', '2026-09-16T04:00:00Z'), true);
+  assert.equal(features.adpWindowClosedBefore('2026-09-15', null), false);
+});
+
+test('#1442 the committed 2026 fixtures first serve week 2 for standard and half-ppr, week 4 for ppr', () => {
+  // captureNotAfter stands in for each week's first kickoff because the manifest carries no kickoff times.
+  const { captureNotAfter } = require('../data/nfl-schedule-2026.json');
+  for (const [format, firstServed] of [['standard', 2], ['half-ppr', 2], ['ppr', 4]]) {
+    const { meta } = require(`../data/adp-2026-${format}.json`);
+    const served = [];
+    for (let week = 1; week <= 18; week += 1) {
+      if (features.adpWindowClosedBefore(meta.end_date, captureNotAfter[String(week)])) served.push(week);
+    }
+    assert.equal(served[0], firstServed, format);
+  }
 });
