@@ -54,6 +54,9 @@ const navLinkSx = ({ isActive }) => ({
   borderBottom: isActive ? '2px solid var(--accent)' : '2px solid transparent',
 });
 
+// Inset focus ring: the theme's outside ring is clipped at the 260px Paper's edges (#2908).
+const DRAWER_ITEM_SX = { '&.Mui-focusVisible': { outlineOffset: '-2px' } };
+
 /**
  * The public header: gradient wordmark, slim primary nav, theme toggle, and the
  * ghost "Log In" / filled "Register" auth CTAs (plain <a> — they cross into the
@@ -127,7 +130,7 @@ function PublicHeader() {
           <List>
             {PUBLIC_NAV_LINKS.map((link) => (
               <ListItem key={link.to + link.label} disablePadding>
-                <ListItemButton component={NavLink} to={link.to} onClick={() => setOpen(false)}>
+                <ListItemButton component={NavLink} to={link.to} onClick={() => setOpen(false)} sx={DRAWER_ITEM_SX}>
                   <ListItemText primary={link.label} />
                 </ListItemButton>
               </ListItem>
