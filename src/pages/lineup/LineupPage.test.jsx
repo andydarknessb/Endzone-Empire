@@ -739,6 +739,99 @@ test('#1965: selecting a row that causes no flip leaves focus on the row, not a 
   expect(row).toHaveFocus();
 });
 
+// #2897: a completed swap can unmount the row pressed last (a Bench row is keyed by its player, and the swap moves
+// that player), or land the moved player in the section the phone view hides. Focus must not fall to <body>.
+describe('#2897: focus after a completed swap', () => {
+  const benchRbLineup = () => ({
+    [LINEUP_URL]: {
+      data: lineupBody({
+        extraEntries: [entryRow({ id: 40, name: 'Bench RB Fast', slot: 'BENCH', position: 'RB', nfl_team: 'MIA', projected_points: 9, projection: 9 })],
+      }),
+    },
+  });
+  const forcePhone = () => {
+    window.matchMedia = jest.fn().mockImplementation((query) => ({
+      matches: true,
+      media: query,
+      addListener: jest.fn(),
+      removeListener: jest.fn(),
+      addEventListener: jest.fn(),
+      removeEventListener: jest.fn(),
+      dispatchEvent: jest.fn(),
+    }));
+  };
+
+  test('desktop: a Bench player swapped into a Starter keeps focus on the Starter row that now holds him', async () => {
+    const user = userEvent.setup();
+    apiClient.put.mockResolvedValue({ data: {} });
+    renderPage(benchRbLineup());
+    await user.click(await screen.findByTestId('slot-row-RB-0-select'));
+    await user.click(screen.getByTestId('slot-row-BENCH-40-select'));
+
+    await waitFor(() => expect(apiClient.put).toHaveBeenCalled());
+    expect(screen.getByTestId('slot-row-RB-0-select')).toHaveFocus();
+  });
+
+  test('phone: a swap that moves the Bench RB into the hidden Starters section focuses the Bench bar button', async () => {
+    forcePhone();
+    const user = userEvent.setup();
+    apiClient.put.mockResolvedValue({ data: {} });
+    renderPage(benchRbLineup());
+    const [, benchTab] = within(await screen.findByTestId('lineup-mobile-tabs')).getAllByRole('button');
+    await user.click(await screen.findByTestId('slot-row-RB-0-select'));
+    expect(benchTab).toHaveAttribute('aria-pressed', 'true');
+
+    await user.click(screen.getByTestId('slot-row-BENCH-40-select'));
+
+    await waitFor(() => expect(apiClient.put).toHaveBeenCalled());
+    expect(benchTab).toHaveFocus();
+  });
+
+  test('desktop: a Starter swapped into an empty Bench row focuses the row that now holds him', async () => {
+    const user = userEvent.setup();
+    apiClient.put.mockResolvedValue({ data: {} });
+    renderPage();
+    await user.click(await screen.findByTestId('slot-row-RB-0-select'));
+    await user.click(screen.getByTestId('slot-row-BENCH-empty-1-select'));
+
+    await waitFor(() =>
+      expect(apiClient.put).toHaveBeenCalledWith('/api/team/lineup', {
+        leagueId: 1,
+        week: 4,
+        moves: [{ playerId: 2, slot: 'BENCH' }],
+      })
+    );
+    expect(screen.getByTestId('slot-row-BENCH-2-select')).toHaveFocus();
+  });
+
+  test('phone: a swap pressed from a Starter row keeps focus on that row, not on the Bench bar', async () => {
+    forcePhone();
+    const user = userEvent.setup();
+    apiClient.put.mockResolvedValue({ data: {} });
+    renderPage(benchRbLineup());
+    const [, benchTab] = within(await screen.findByTestId('lineup-mobile-tabs')).getAllByRole('button');
+    await user.click(benchTab);
+    await user.click(screen.getByTestId('slot-row-BENCH-40-select'));
+    expect(within(screen.getByTestId('lineup-mobile-tabs')).getAllByRole('button')[0]).toHaveAttribute('aria-pressed', 'true');
+
+    await user.click(screen.getByTestId('slot-row-RB-0-select'));
+
+    await waitFor(() => expect(apiClient.put).toHaveBeenCalled());
+    expect(screen.getByTestId('slot-row-RB-0-select')).toHaveFocus();
+  });
+
+  test('a refused swap leaves focus where the swap put it, on the Starter row that holds the Bench player', async () => {
+    const user = userEvent.setup();
+    apiClient.put.mockRejectedValue({ response: { status: 409, data: { error: 'locked' } } });
+    renderPage(benchRbLineup());
+    await user.click(await screen.findByTestId('slot-row-RB-0-select'));
+    await user.click(screen.getByTestId('slot-row-BENCH-40-select'));
+
+    await waitFor(() => expect(mockNotify).toHaveBeenCalledWith(expect.any(String), { severity: 'error' }));
+    expect(screen.getByTestId('slot-row-RB-0-select')).toHaveFocus();
+  });
+});
+
 // #1958 (L8), #1965: the swap strip rides the page's sticky footer, stacked
 // above the phone bar, so selecting a row lower on the page neither pushes the
 // list down under the finger nor leaves the strip off screen or overlapping

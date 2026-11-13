@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Box, GlobalStyles, useMediaQuery, useTheme } from '@mui/material';
 import { PsButton, Skel, psRootSx } from '../../shared/ui/playselect';
@@ -293,6 +293,16 @@ export default function LineupPage() {
     leagueUnsettled,
     hasEligibleTarget,
   });
+  // #2897: a completed swap can unmount the row pressed last (a Bench row is keyed by its player, and the swap moves
+  // that player), and focus on it then falls to <body>. The click that completes a swap remembers the pressed button
+  // and the player whose row should take focus; the layout effect below reads it once the swap has rendered.
+  const swapFocusRef = useRef(null);
+  const onLedgerRowClick = (entry, slotType, event) => {
+    if (swap.selectedEntry && entry?.playerId !== swap.selectedEntry.playerId && swap.isEligibleTarget(entry, slotType)) {
+      swapFocusRef.current = { button: event.currentTarget, playerId: entry?.playerId ?? swap.selectedEntry.playerId };
+    }
+    swap.onRowClick(entry, slotType, event);
+  };
   // A landed drop or undo re-reads the advice too (#2267), since a suggestion
   // may name the dropped player.
   const drop = useDropPlayer({ leagueId: selectedLeagueId, refresh: refetch, onLanded: advice.reload });
@@ -476,6 +486,22 @@ export default function LineupPage() {
     pendingBarFocusRef.current = null;
     phoneBarButtonRefs.current[phoneView]?.focus();
   }, [phoneView]);
+  // #2897: focus follows the moved player. A pressed button still in the document keeps focus, as it always has; a
+  // row in the section the phone view hides hands focus to that view's bar button instead. A failed save needs nothing
+  // here: the optimistic render consumed the ref, so the rollback moves nothing.
+  useLayoutEffect(() => {
+    const pending = swapFocusRef.current;
+    if (!pending || !sections) return;
+    swapFocusRef.current = null;
+    if (pending.button.isConnected) return;
+    const holder = [
+      ...sections.starters.map((row) => ({ row, section: 'starters' })),
+      ...[...sections.ir, ...sections.bench].map((row) => ({ row, section: 'bench' })),
+    ].find(({ row }) => row.entry?.playerId === pending.playerId);
+    if (!holder) return;
+    if (compact && holder.section !== phoneView) phoneBarButtonRefs.current[phoneView]?.focus();
+    else document.querySelector(`[data-testid="${holder.row.testId}-select"]`)?.focus();
+  }, [sections, compact, phoneView]);
 
   const zone = formatInstant(new Date(), 'zone') || 'your time zone';
   const leagueName = league?.name || selectedLeague?.name || null;
@@ -622,7 +648,7 @@ export default function LineupPage() {
                           Boolean(swapOffer && (entry.playerId === swapOffer.outEntry.playerId || entry.playerId === swapOffer.inEntry.playerId))
                         }
                         selectedEntryId={swap.selectedEntry?.playerId ?? null}
-                        onRowClick={swap.onRowClick}
+                        onRowClick={onLedgerRowClick}
                         canDropEntry={canDropEntry}
                         onRequestDrop={drop.requestDrop}
                         onOpenDecisionCard={setDecisionCardEntryId}
