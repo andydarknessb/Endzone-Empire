@@ -443,6 +443,34 @@ function buildLeagueContext({
 }
 
 /**
+ * Pure: each team's mean points over its last four games (#1443), from the
+ * opposing defenses' rows: `scoring_team` is the offense the defense faced and
+ * `points` what that offense scored. A row with no team, no numeric or a
+ * negative points figure is skipped, never read as zero. Two defenses carrying
+ * one team-week give the lowest `player_id`'s figure, so the row order cannot.
+ */
+function buildTeamPointsPerGame(rows) {
+  const byTeam = new Map(); // team key -> Map(week -> { playerId, points })
+  for (const row of rows || []) {
+    const team = normalizeTeamKey(row.scoring_team);
+    if (!team || !isNum(row.points) || Number(row.points) < 0) continue;
+    if (!byTeam.has(team)) byTeam.set(team, new Map());
+    const weeks = byTeam.get(team);
+    const week = Number(row.week);
+    const held = weeks.get(week);
+    if (!held || Number(row.player_id) < held.playerId) {
+      weeks.set(week, { playerId: Number(row.player_id), points: Number(row.points) });
+    }
+  }
+  const means = new Map();
+  for (const [team, weeks] of byTeam) {
+    const recent = [...weeks.entries()].sort((a, b) => b[0] - a[0]).slice(0, 4);
+    means.set(team, recent.reduce((sum, [, game]) => sum + game.points, 0) / recent.length);
+  }
+  return means;
+}
+
+/**
  * Pure: prior meetings between this player and the target opponent, each paired
  * with the player's baseline EXCLUDING those meetings — so the factor measures
  * "better than his usual against them", not "he was good that year".
@@ -559,11 +587,12 @@ function adpWindowClosedBefore(endDate, firstKickoff) {
  */
 async function loadFeatureBundle({
   season, week, playerIds, rules, client = pool, positions = null, playerContextOverrideById = null,
-  // The run's MODEL_CONSTANTS. Read here ONLY to decide whether the
-  // prior-season scan runs (#1485 `opponent.priorSeasonPseudoGames`, #1483
-  // `simulation.truncateAtPositionFloor`): the shipped v3.1 constants carry
-  // neither key, so a v3.1 run issues exactly the queries it always has and
-  // its stored factors stay byte-identical.
+  // The run's MODEL_CONSTANTS, read here to decide which optional reads run: the
+  // prior-season scan (#1485 `opponent.priorSeasonPseudoGames`, #1483
+  // `simulation.truncateAtPositionFloor`), the Challenger's depth chart (#1924),
+  // and the kicker team-scoring read (#1443, only with a kicker block and a K in
+  // the run). The shipped v3.1 constants carry none of those keys, so a v3.1 run
+  // issues exactly the queries it always has and its stored factors stay byte-identical.
   constants = model.MODEL_CONSTANTS,
   // The capture cutoff (#1924): bounds the Challenger's depth chart read the
   // way it bounds the odds read. Nothing else here reads it.
@@ -937,6 +966,23 @@ async function loadFeatureBundle({
     }
   }
 
+  // v3.2 kicker blend (#1443): what each team scored this season before the
+  // target week, read off the opposing defenses. Gated like the depth chart
+  // read: no kicker block, or no kicker among the players, issues no query.
+  const wantsKickerBlend = Boolean(model.kickerBlockOf(constants))
+    && [...players.values()].some((r) => r.position === 'K');
+  let teamPointsPerGame;
+  if (wantsKickerBlend) {
+    const scoring = await client.query(
+      `SELECT "ds"."player_id", "ds"."week", "ds"."stats"->>'gameOpponent' AS "scoring_team", "ds"."stats"->>'pointsAllowed' AS "points"
+       FROM "player_stats" "ds"
+       JOIN "players" "p" ON "p"."id" = "ds"."player_id"
+       WHERE "p"."position" = 'DEF' AND "ds"."season" = $1 AND "ds"."week" < $2`,
+      [season, week]
+    );
+    teamPointsPerGame = buildTeamPointsPerGame(scoring.rows);
+  }
+
   const byeByTeam = await computeByeWeeks(
     [...players.values()].map((r) => r.nfl_team),
     season,
@@ -969,6 +1015,8 @@ async function loadFeatureBundle({
         targetEntries: adpTargetFixture.entries,
       },
     } : {}),
+    // Present only under a v3.2 run with a `kicker` block (#1443).
+    ...(wantsKickerBlend ? { teamPointsPerGame } : {}),
     leagueScanRows: leagueRows.length,
     scanTruncated: leagueRows.length >= MAX_LEAGUE_SCAN_ROWS,
     priorSeasonScanRows: priorSeasonRows.length,
@@ -1018,6 +1066,7 @@ module.exports = {
   ROLE_KEYS,
   hasRoleSignal,
   normalizeTeamKey,
+  isAppearance,
   scheduleOrientation,
   usageFromStats,
   weeksAgo,
