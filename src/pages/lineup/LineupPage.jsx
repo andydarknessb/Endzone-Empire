@@ -293,13 +293,19 @@ export default function LineupPage() {
     leagueUnsettled,
     hasEligibleTarget,
   });
-  // #2897: a completed swap can unmount the row pressed last (a Bench row is keyed by its player, and the swap moves
-  // that player), and focus on it then falls to <body>. The click that completes a swap remembers the pressed button
-  // and the player whose row should take focus; the layout effect below reads it once the swap has rendered.
+  // #2897: a completed swap can unmount the row pressed last (an occupied Bench row is keyed by its player, an empty
+  // one by its index), and focus on it then falls to <body>. The click that completes a swap remembers the pressed
+  // button and the player focus should follow; the layout effect below acts once the swap has rendered.
+  // shortcut: repeats useSwapPlayers' own test for a click that completes a swap, have the hook report it if that test grows.
   const swapFocusRef = useRef(null);
   const onLedgerRowClick = (entry, slotType, event) => {
     if (swap.selectedEntry && entry?.playerId !== swap.selectedEntry.playerId && swap.isEligibleTarget(entry, slotType)) {
-      swapFocusRef.current = { button: event.currentTarget, playerId: entry?.playerId ?? swap.selectedEntry.playerId };
+      swapFocusRef.current = {
+        button: event.currentTarget,
+        playerId: entry?.playerId ?? swap.selectedEntry.playerId,
+        // A pointer press must not scroll the page to the row that takes focus; a key press should (its detail is 0).
+        preventScroll: event.detail > 0,
+      };
     }
     swap.onRowClick(entry, slotType, event);
   };
@@ -486,21 +492,31 @@ export default function LineupPage() {
     pendingBarFocusRef.current = null;
     phoneBarButtonRefs.current[phoneView]?.focus();
   }, [phoneView]);
-  // #2897: focus follows the moved player. A pressed button still in the document keeps focus, as it always has; a
-  // row in the section the phone view hides hands focus to that view's bar button instead. A failed save needs nothing
-  // here: the optimistic render consumed the ref, so the rollback moves nothing.
+  // #2897: focus follows the moved player. While the remembered button is in the document nothing moves, so a pressed
+  // row that stays mounted keeps focus as it always has. Once that button is gone and focus has fallen to <body>, focus
+  // goes to the row holding the player, or to the active bar button when the phone view hides that row. The button that
+  // took focus is remembered in turn, so a failed save whose rollback unmounts it sends focus back with the player.
   useLayoutEffect(() => {
     const pending = swapFocusRef.current;
     if (!pending || !sections) return;
-    swapFocusRef.current = null;
-    if (pending.button.isConnected) return;
+    if (pending.button.isConnected || document.activeElement !== document.body) {
+      // Focus sits on a live element: forget the swap once the manager has moved on from its button.
+      if (document.activeElement !== pending.button) swapFocusRef.current = null;
+      return;
+    }
     const holder = [
       ...sections.starters.map((row) => ({ row, section: 'starters' })),
       ...[...sections.ir, ...sections.bench].map((row) => ({ row, section: 'bench' })),
     ].find(({ row }) => row.entry?.playerId === pending.playerId);
-    if (!holder) return;
-    if (compact && holder.section !== phoneView) phoneBarButtonRefs.current[phoneView]?.focus();
-    else document.querySelector(`[data-testid="${holder.row.testId}-select"]`)?.focus();
+    const target = holder && (compact && holder.section !== phoneView
+      ? phoneBarButtonRefs.current[phoneView]
+      : document.querySelector(`[data-testid="${holder.row.testId}-select"]`));
+    if (!target) {
+      swapFocusRef.current = null;
+      return;
+    }
+    target.focus({ preventScroll: pending.preventScroll });
+    pending.button = target;
   }, [sections, compact, phoneView]);
 
   const zone = formatInstant(new Date(), 'zone') || 'your time zone';

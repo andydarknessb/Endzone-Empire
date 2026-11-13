@@ -820,7 +820,7 @@ describe('#2897: focus after a completed swap', () => {
     expect(screen.getByTestId('slot-row-RB-0-select')).toHaveFocus();
   });
 
-  test('a refused swap leaves focus where the swap put it, on the Starter row that holds the Bench player', async () => {
+  test('a failed save leaves focus where the swap put it, on the Starter row that holds the Bench player', async () => {
     const user = userEvent.setup();
     apiClient.put.mockRejectedValue({ response: { status: 409, data: { error: 'locked' } } });
     renderPage(benchRbLineup());
@@ -829,6 +829,45 @@ describe('#2897: focus after a completed swap', () => {
 
     await waitFor(() => expect(mockNotify).toHaveBeenCalledWith(expect.any(String), { severity: 'error' }));
     expect(screen.getByTestId('slot-row-RB-0-select')).toHaveFocus();
+  });
+
+  // The rollback unmounts the Bench row the swap gave focus to, so focus goes back with the player.
+  test('a failed save into an empty Bench row sends focus back to the Starter row with the player', async () => {
+    const user = userEvent.setup();
+    let rejectPut;
+    apiClient.put.mockReturnValue(new Promise((resolve, reject) => { rejectPut = reject; }));
+    renderPage();
+    await user.click(await screen.findByTestId('slot-row-RB-0-select'));
+    await user.click(screen.getByTestId('slot-row-BENCH-empty-1-select'));
+    await waitFor(() => expect(apiClient.put).toHaveBeenCalled());
+    expect(screen.getByTestId('slot-row-BENCH-2-select')).toHaveFocus();
+
+    await act(async () => { rejectPut({ response: { status: 409, data: { error: 'locked' } } }); });
+    await waitFor(() => expect(mockNotify).toHaveBeenCalledWith(expect.any(String), { severity: 'error' }));
+    expect(screen.getByTestId('slot-row-RB-0-select')).toHaveFocus();
+  });
+
+  test('phone: a Starter swapped into an empty Bench row in the visible section focuses that row, not the bar', async () => {
+    forcePhone();
+    const user = userEvent.setup();
+    apiClient.put.mockResolvedValue({ data: {} });
+    renderPage();
+    await user.click(await screen.findByTestId('slot-row-RB-0-select'));
+    await user.click(screen.getByTestId('slot-row-BENCH-empty-1-select'));
+
+    await waitFor(() => expect(apiClient.put).toHaveBeenCalled());
+    expect(screen.getByTestId('slot-row-BENCH-2-select')).toHaveFocus();
+  });
+
+  test('a cancelled selection saves nothing and leaves focus on the pressed row', async () => {
+    const user = userEvent.setup();
+    renderPage(benchRbLineup());
+    const row = await screen.findByTestId('slot-row-RB-0-select');
+    await user.click(row);
+    await user.click(row);
+
+    expect(apiClient.put).not.toHaveBeenCalled();
+    expect(row).toHaveFocus();
   });
 });
 
