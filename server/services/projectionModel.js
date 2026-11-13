@@ -500,7 +500,7 @@ const MODEL_CONSTANTS = {
  *  - `kicker: { w, kickerPointsPerTeamPoint }` (#1443). Blends a kicker's
  *    baseline with his team's points per game (see kickerBlend). Both numbers
  *    are fitted on 2024 and 2025 by scripts/fit-kicker-blend.js, not
- *    preregistered; the zeros below are placeholders until that fit lands.
+ *    preregistered.
  *
  * Five of the keys above (every bullet but `kicker`) are preregistered once and
  * judged on the 2026 holdout ledger through #1439 with the rest of v3.2, with
@@ -531,8 +531,8 @@ const MODEL_CONSTANTS_V3_2 = (() => {
   v32.simulation.centerEvenPoolMedian = true;
   v32.opponent.priorSeasonPseudoGames = 4;
   v32.baseline.appearancesOnly = true;
-  // Both numbers are fitted on 2024 and 2025 by scripts/fit-kicker-blend.js (#1443); these zeros are placeholders.
-  v32.kicker = { w: 0, kickerPointsPerTeamPoint: 0 };
+  // Fitted on 2024 and 2025 by scripts/fit-kicker-blend.js (#1443): the slope from 63 kicker-team-seasons, w the grid's lowest MAE.
+  v32.kicker = { w: 0.4, kickerPointsPerTeamPoint: 0.36656512152110765 };
   return deepFreeze(v32);
 })();
 

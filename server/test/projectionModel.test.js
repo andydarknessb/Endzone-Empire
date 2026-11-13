@@ -1760,7 +1760,7 @@ test('volume: an invalid usage half-life falls back to the baseline half-life (#
 // ---------------------------------------------------------------------------
 // #1443: under v3.2 a kicker's baseline blends with his team's points per game.
 // Every test pins its own kicker block, so none of them moves when the fitted
-// numbers (scripts/fit-kicker-blend.js) replace the placeholders.
+// numbers (scripts/fit-kicker-blend.js) are refitted.
 // ---------------------------------------------------------------------------
 
 const KICKER_BLEND = { w: 0.5, kickerPointsPerTeamPoint: 0.3 };
