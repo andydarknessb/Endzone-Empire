@@ -507,10 +507,18 @@ const MODEL_CONSTANTS = {
  *    instead of 1. The projected distribution is conditional on an Appearance
  *    and does not move.
  *
- * Of the seven keys above, four are DEFAULTS, not fitted values, and
+ *  - `kicker: { w, kickerPointsPerTeamPoint }` (#1443). Blends a kicker's
+ *    baseline with his team's points per game (see kickerBlend). Both numbers
+ *    are fitted on 2024 and 2025 by scripts/fit-kicker-blend.js, not
+ *    preregistered.
+ *
+ * Seven of the keys above (every bullet but `kicker`) are preregistered once and
+ * judged on the 2026 holdout ledger through #1439 with the rest of v3.2, with
+ * no sweep on that ledger. Four of them are DEFAULTS, not fitted values, and
  * `baseline.appearancesOnly`, `baseline.appearanceRate` and `baseline.adpPrior`
- * are on/off switches; all seven are preregistered once and judged on the 2026
- * holdout ledger through #1439 with the rest of v3.2; no sweep on that ledger.
+ * are on/off switches. `kicker` is not
+ * preregistered: its two numbers are fitted on 2024 and 2025 by
+ * scripts/fit-kicker-blend.js.
  */
 function cloneConstants(value) {
   if (Array.isArray(value)) return value.map(cloneConstants);
@@ -536,6 +544,8 @@ const MODEL_CONSTANTS_V3_2 = (() => {
   v32.baseline.appearancesOnly = true;
   v32.baseline.appearanceRate = true;
   v32.baseline.adpPrior = true;
+  // Fitted on 2024 and 2025 by scripts/fit-kicker-blend.js (#1443): the slope from 63 kicker-team-seasons, w the grid's lowest MAE.
+  v32.kicker = { w: 0.4, kickerPointsPerTeamPoint: 0.36656512152110765 };
   return deepFreeze(v32);
 })();
 
@@ -775,6 +785,24 @@ function baselineProduction({
     usedPriorSeason: isNum(priorSeasonPerGame),
     usedPositionBaseline: isNum(positionBaselinePerGame),
   };
+}
+
+/**
+ * Pure: a kicker's baseline blended with his team's points per game (#1443,
+ * v3.2). `kickerPointsPerTeamPoint` converts team points into his share of them.
+ */
+function kickerBlend({ recencyMean, teamPointsPerGame, constants }) {
+  return (1 - constants.w) * recencyMean
+    + constants.w * teamPointsPerGame * constants.kickerPointsPerTeamPoint;
+}
+
+/**
+ * Pure: the `kicker` block when both of its numbers are numeric, else null. A
+ * malformed block counts as absent, so it can neither produce NaN nor a note.
+ */
+function kickerBlockOf(constants) {
+  const kicker = constants && constants.kicker;
+  return kicker && isNum(kicker.w) && isNum(kicker.kickerPointsPerTeamPoint) ? kicker : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -1546,6 +1574,7 @@ function confidenceFor({
   opponentAvailable = false,
   activeProbability = 1,
   hasRoleData = true,
+  teamScoringMissing = false,
   constants = MODEL_CONSTANTS.confidence,
 } = {}) {
   const reasons = [];
@@ -1571,6 +1600,7 @@ function confidenceFor({
   if (activeProbability === null) demote('injury designation');
   if (!hasRoleData) reasons.push('no role data');
   if (markNoHistory && usedPositionFallback) reasons.push('no history');
+  if (teamScoringMissing) reasons.push('no team scoring');
 
   return { level, reasons };
 }
@@ -1630,6 +1660,9 @@ function projectPlayer({
   // This player's Appearance rate (#1441), read only under `baseline.appearanceRate`.
   appearanceRate = null,
   hasRoleData = true,
+  // A kicker's team points per game (#1443, v3.2): used only by a K under a
+  // `kicker` block. Null when the team has no completed games yet.
+  teamPointsPerGame = null,
   constants = MODEL_CONSTANTS,
   // The position floor (#1483, v3.2): DATA (the lowest points any player of
   // this position group scored over the prior season and the current season to date under the run's own
@@ -1705,6 +1738,15 @@ function projectPlayer({
       },
       unavailableReason: 'no evidence',
     };
+  }
+
+  // #1443 (v3.2): a kicker's baseline shrinks toward his team's scoring before
+  // the usage blend and the factor chain see it.
+  const kickerBlock = kickerBlockOf(constants);
+  if (position === 'K' && kickerBlock && isNum(teamPointsPerGame)) {
+    baseline.value = kickerBlend({
+      recencyMean: baseline.value, teamPointsPerGame, constants: kickerBlock,
+    });
   }
 
   // Opportunity-weighted component. Consulted ONLY when a positive blend weight
@@ -1821,6 +1863,7 @@ function projectPlayer({
     opponentAvailable: !!(opponent && opponent.available),
     activeProbability: availabilityInfo.activeProbability,
     hasRoleData,
+    teamScoringMissing: position === 'K' && !!kickerBlock && !isNum(teamPointsPerGame),
     constants: constants.confidence,
   });
 
@@ -1888,6 +1931,8 @@ module.exports = {
   baselineProduction,
   fitAdpCurve,
   adpPrior,
+  kickerBlend,
+  kickerBlockOf,
   opportunitiesForGame,
   opportunityBaseline,
   opponentEffect,
