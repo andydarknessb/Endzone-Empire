@@ -16,6 +16,9 @@ import { lazyWithReload } from '../../shared/lib/lazyWithReload';
 
 const GlobalPlayerSearch = lazyWithReload(() => import('../GlobalPlayerSearch/GlobalPlayerSearch'));
 
+// Inset focus ring: the theme's outside ring is clipped at the 260px Paper's edges (#2904).
+const ITEM_SX = { ...MIN_TOUCH_TARGET_SX, '&.Mui-focusVisible': { outlineOffset: '-2px' } };
+
 // The mobile navigation drawer. Only a signed-in user can open it, so Nav loads
 // it as its own chunk instead of shipping it in the landing page's bundle.
 function NavDrawer({
@@ -72,7 +75,7 @@ function NavDrawer({
                     to={l.to}
                     selected={isActive(l.to)}
                     onClick={onClose}
-                    sx={MIN_TOUCH_TARGET_SX}
+                    sx={ITEM_SX}
                   >
                     <ListItemText primary={l.label} />
                   </ListItemButton>
@@ -85,7 +88,7 @@ function NavDrawer({
                 component={RouterLink}
                 to="/settings/notifications"
                 onClick={onClose}
-                sx={MIN_TOUCH_TARGET_SX}
+                sx={ITEM_SX}
               >
                 <ListItemText primary="Notification Settings" />
               </ListItemButton>
@@ -94,7 +97,7 @@ function NavDrawer({
                   component={RouterLink}
                   to="/admin"
                   onClick={onClose}
-                  sx={MIN_TOUCH_TARGET_SX}
+                  sx={ITEM_SX}
                 >
                   <ListItemIcon>
                     <AdminPanelSettingsIcon fontSize="small" />
@@ -102,17 +105,17 @@ function NavDrawer({
                   <ListItemText primary="Admin" />
                 </ListItemButton>
               )}
-              <ListItemButton onClick={onLogout} sx={MIN_TOUCH_TARGET_SX}>
+              <ListItemButton onClick={onLogout} sx={ITEM_SX}>
                 <ListItemText primary="Log Out" />
               </ListItemButton>
             </List>
           </>
         ) : (
           <List>
-            <ListItemButton component={RouterLink} to="/login" onClick={onClose}>
+            <ListItemButton component={RouterLink} to="/login" onClick={onClose} sx={ITEM_SX}>
               <ListItemText primary="Log In" />
             </ListItemButton>
-            <ListItemButton component={RouterLink} to="/registration" onClick={onClose}>
+            <ListItemButton component={RouterLink} to="/registration" onClick={onClose} sx={ITEM_SX}>
               <ListItemText primary="Register" />
             </ListItemButton>
           </List>
