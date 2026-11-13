@@ -823,11 +823,15 @@ async function loadFeatureBundle({
   const wantsAppearanceRate = Boolean(constants && constants.baseline && constants.baseline.appearanceRate === true);
   let appearanceRateByPlayer;
   if (wantsAppearanceRate) {
+    // Only an on-time capture that read him Unavailable: after #1438 a healthy player's stored rate can be 0 too.
     const capturedOutResult = await client.query(
       `SELECT DISTINCT "sp"."player_id", "s"."week" FROM "projection_snapshot_players" "sp"
        JOIN "projection_snapshots" "s" ON "s"."id" = "sp"."snapshot_id"
        WHERE "s"."season" = $1 AND "s"."week" < $2 AND "s"."capture_kind" = 'scheduled'
-         AND "sp"."active_probability" = 0 AND "sp"."player_id" = ANY($3::int[])`,
+         AND "s"."is_late" = false
+         AND "sp"."active_probability" = 0
+         AND "sp"."factors"->'availability'->>'available' = 'false'
+         AND "sp"."player_id" = ANY($3::int[])`,
       [season, week, ids]
     );
     const capturedOutByPlayer = new Map();
@@ -842,6 +846,7 @@ async function loadFeatureBundle({
       if (!teamWeeksByKey.has(row.team_key)) teamWeeksByKey.set(row.team_key, []);
       teamWeeksByKey.get(row.team_key).push(Number(row.week));
     }
+    // shortcut: an absence declared after the capture still counts against him, and a free agent keeps rate 1 until his next run after signing; a calibrated probability is #1925
     appearanceRateByPlayer = new Map();
     for (const [playerId, player] of players) {
       const appearanceWeeks = (priorStatsByPlayer.get(playerId) || [])

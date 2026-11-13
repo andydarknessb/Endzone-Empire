@@ -1606,10 +1606,10 @@ function projectPlayer({
   // v3.2 (#1441): an available player's active probability is his Appearance
   // rate; the verdict keeps Out (0) and Doubtful (null), and the demotion below
   // still reads the verdict's own value.
-  const rateOn = !!(constants.baseline && constants.baseline.appearanceRate === true)
+  const wantsAppearanceRate = !!(constants.baseline && constants.baseline.appearanceRate === true)
     && typeof appearanceRate === 'number' && Number.isFinite(appearanceRate);
-  const availabilityRecord = rateOn ? { ...availabilityInfo, appearanceRate } : availabilityInfo;
-  const activeProbability = rateOn && takesAppearanceRate(availabilityInfo)
+  const availabilityRecord = wantsAppearanceRate ? { ...availabilityInfo, appearanceRate } : availabilityInfo;
+  const activeProbability = wantsAppearanceRate && takesAppearanceRate(availabilityInfo)
     ? appearanceRate
     : availabilityInfo.activeProbability;
   const factors = {};

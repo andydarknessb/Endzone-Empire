@@ -215,6 +215,32 @@ if (!ENABLED) {
     assert.equal(Number(after.active_probability), 0.25, 'an available verdict reads the stored rate');
   });
 
+  test('#1441 v3.2: a JSON-null availability on another run of the same player does not abort the reconcile', async () => {
+    const playerId = await seedPlayer({ injuryStatus: 'O' });
+    const runId = await seedRun(15, 'free_baseline_v3.2');
+    const otherRunId = await seedRun(16, 'free_baseline_v3.2');
+    await seedRow(runId, playerId, {
+      available: false, activeProbability: 0, reason: 'out', status: 'O', locked: false, lockedSlot: null, appearanceRate: 0.25,
+    });
+    await pool.query(
+      `INSERT INTO "player_week_projections"
+         ("run_id", "player_id", "mean", "median", "p10", "p25", "p75", "p90",
+          "active_probability", "confidence", "sample_size", "factors")
+       VALUES ($1, $2, 11.5, 10.75, 4.2, 7.1, 14.3, 19.8, 1, 'high', 6, '{"availability": null}'::jsonb)`,
+      [otherRunId, playerId]
+    );
+    await pool.query('UPDATE "players" SET "injury_status" = NULL WHERE "id" = $1', [playerId]);
+
+    const result = await reconcileAvailability({
+      season: SEASON, fromWeek: 15, playerIds: [playerId], client: pool, modelVersion: 'free_baseline_v3.2',
+    });
+    assert.ok(result.updated >= 1, 'the statement runs to completion');
+
+    const after = await readRow(runId, playerId);
+    assert.equal(after.factors.availability.appearanceRate, 0.25, 'the stored rate survives the rewrite');
+    assert.equal(Number(after.active_probability), 0.25, 'an available verdict reads the stored rate');
+  });
+
   test('a stored bye verdict is never overwritten, even when the player now reads Out', async () => {
     const playerId = await seedPlayer({ injuryStatus: 'O' });
     const runId = await seedRun(6);

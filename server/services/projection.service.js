@@ -1103,12 +1103,15 @@ async function reconcileAvailability({
     takesRate.push(model.takesAppearanceRate(verdict));
     if (row.nfl_team != null) onTeamById.set(row.id, { row, verdict });
   }
-  const rateMode = appearanceRateOn(modelVersion);
-  const availabilitySql = rateMode ? `v."availability" || ${KEPT_RATE}` : 'v."availability"';
-  const activeSql = rateMode
+  const wantsAppearanceRate = appearanceRateOn(modelVersion);
+  const availabilitySql = wantsAppearanceRate ? `v."availability" || ${KEPT_RATE}` : 'v."availability"';
+  const activeSql = wantsAppearanceRate
     ? `CASE WHEN v."takes_rate" AND ${STORED_RATE_PRESENT} THEN ${STORED_RATE} ELSE v."active_probability" END`
     : 'v."active_probability"';
-  const storedSql = rateMode ? `(p."factors"->'availability') - 'appearanceRate'` : `p."factors"->'availability'`;
+  // A JSON null availability cannot take the key delete (it throws on a scalar), so it is compared as it is.
+  const storedSql = wantsAppearanceRate
+    ? `CASE WHEN jsonb_typeof(p."factors"->'availability') = 'object' THEN (p."factors"->'availability') - 'appearanceRate' ELSE p."factors"->'availability' END`
+    : `p."factors"->'availability'`;
 
   // A subquery against `projection_runs` for the run scope, rather than a
   // JOIN alongside the unnest set: a JOIN's ON clause cannot reach back to
@@ -1119,8 +1122,8 @@ async function reconcileAvailability({
         SET "factors" = p."factors" || jsonb_build_object('availability', ${availabilitySql}),
             "active_probability" = ${activeSql},
             "updated_at" = $7
-       FROM (SELECT * FROM unnest($1::int[], $2::jsonb[], $3::numeric[]${rateMode ? ', $8::boolean[]' : ''})
-               AS v("player_id", "availability", "active_probability"${rateMode ? ', "takes_rate"' : ''})) v
+       FROM (SELECT * FROM unnest($1::int[], $2::jsonb[], $3::numeric[]${wantsAppearanceRate ? ', $8::boolean[]' : ''})
+               AS v("player_id", "availability", "active_probability"${wantsAppearanceRate ? ', "takes_rate"' : ''})) v
       WHERE p."player_id" = v."player_id"
         AND p."run_id" IN (
           SELECT "id" FROM "projection_runs"
@@ -1147,7 +1150,7 @@ async function reconcileAvailability({
           OR v."availability"->>'reason' IS NOT DISTINCT FROM 'no_team'
         )
         AND ${storedSql} IS DISTINCT FROM v."availability"`,
-    [patchedIds, availabilityJson, activeProbabilities, season, fromWeek, modelVersion, now, ...(rateMode ? [takesRate] : [])]
+    [patchedIds, availabilityJson, activeProbabilities, season, fromWeek, modelVersion, now, ...(wantsAppearanceRate ? [takesRate] : [])]
   );
 
   // #1813: the second pass is a refinement of the main pass, never a
@@ -1261,21 +1264,24 @@ async function reconcileByeAwareSignings({ client, season, fromWeek, modelVersio
   if (outPlayerIds.length === 0) return { updated: 0 };
 
   // The bye verdict is always 0, so only the other-week verdict can take the rate.
-  const rateMode = appearanceRateOn(modelVersion);
-  const activeSql = rateMode
+  const wantsAppearanceRate = appearanceRateOn(modelVersion);
+  const activeSql = wantsAppearanceRate
     ? `CASE WHEN r."week" = v."bye_week" THEN v."bye_active_probability" WHEN v."other_takes_rate" AND ${STORED_RATE_PRESENT} THEN ${STORED_RATE} ELSE v."other_active_probability" END`
     : 'CASE WHEN r."week" = v."bye_week" THEN v."bye_active_probability" ELSE v."other_active_probability" END';
-  const storedSql = rateMode ? `(p."factors"->'availability') - 'appearanceRate'` : `p."factors"->'availability'`;
+  // A JSON null availability cannot take the key delete (it throws on a scalar), so it is compared as it is.
+  const storedSql = wantsAppearanceRate
+    ? `CASE WHEN jsonb_typeof(p."factors"->'availability') = 'object' THEN (p."factors"->'availability') - 'appearanceRate' ELSE p."factors"->'availability' END`
+    : `p."factors"->'availability'`;
   const result = await client.query(
     `UPDATE "player_week_projections" p
         SET "factors" = p."factors" || jsonb_build_object('availability',
-              CASE WHEN r."week" = v."bye_week" THEN v."bye_availability" ELSE v."other_availability" END${rateMode ? ` || ${KEPT_RATE}` : ''}),
+              CASE WHEN r."week" = v."bye_week" THEN v."bye_availability" ELSE v."other_availability" END${wantsAppearanceRate ? ` || ${KEPT_RATE}` : ''}),
             "active_probability" =
               ${activeSql},
             "updated_at" = $10
-       FROM (SELECT * FROM unnest($1::int[], $2::int[], $3::jsonb[], $4::numeric[], $5::jsonb[], $6::numeric[]${rateMode ? ', $11::boolean[]' : ''})
+       FROM (SELECT * FROM unnest($1::int[], $2::int[], $3::jsonb[], $4::numeric[], $5::jsonb[], $6::numeric[]${wantsAppearanceRate ? ', $11::boolean[]' : ''})
                AS v("player_id", "bye_week", "bye_availability", "bye_active_probability",
-                    "other_availability", "other_active_probability"${rateMode ? ', "other_takes_rate"' : ''})) v,
+                    "other_availability", "other_active_probability"${wantsAppearanceRate ? ', "other_takes_rate"' : ''})) v,
             "projection_runs" r
       WHERE p."player_id" = v."player_id"
         AND p."run_id" = r."id"
@@ -1286,7 +1292,7 @@ async function reconcileByeAwareSignings({ client, season, fromWeek, modelVersio
     [
       outPlayerIds, outByeWeeks, outByeAvailability, outByeActiveProbability,
       outOtherAvailability, outOtherActiveProbability, season, fromWeek, modelVersion, now,
-      ...(rateMode ? [outOtherTakesRate] : []),
+      ...(wantsAppearanceRate ? [outOtherTakesRate] : []),
     ]
   );
   return { updated: Number(result && result.rowCount) || 0 };

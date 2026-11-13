@@ -3229,7 +3229,8 @@ function mockReconcilePool(t, {
   const calls = [];
   t.mock.method(pool, 'query', async (sql, params) => {
     const text = String(sql).replace(/\s+/g, ' ').trim();
-    calls.push({ text, params });
+    // `raw` is the statement exactly as the engine sent it, for byte-level pins.
+    calls.push({ text, params, raw: String(sql) });
     if (onQuery) onQuery(text, params);
     if (text.startsWith('SELECT "current_season", "current_week" FROM "leagues"')) {
       return { rows: leagueRows || [] };
@@ -4094,11 +4095,15 @@ test('priorSeasonPerGame still re-scores a kicker rollup that carries fieldGoalD
 // weeks 1-4 and player 1 appeared in week 2 only; week 5 is the target.
 // ---------------------------------------------------------------------------
 
-const appearanceFixture = (t, { capturedOut = [], onQuery = null } = {}) => mockPool(t, {
+const appearanceFixture = (t, {
+  capturedOut = [], onQuery = null,
+  weeklyStats = [weeklyRow(1, 2, { receivingYards: 50, receptions: 4, gameTeam: 'BUF' })],
+  priorSchedule = [1, 2, 3, 4].map((week) => ({ season: SEASON, week, team_key: 'BUF', opponent_key: 'NE', home_away: 'home', neutral_site: false })),
+} = {}) => mockPool(t, {
   players: [player(1, 'WR')],
-  weeklyStats: [weeklyRow(1, 2, { receivingYards: 50, receptions: 4, gameTeam: 'BUF' })],
+  weeklyStats,
   targetSchedule: [{ team_key: 'BUF', opponent_key: 'NE', nfl_team: 'BUF', opponent: 'NE', kickoff_at: '2026-10-04T17:00:00Z', game_key: 'k5', home_away: 'home', roof: 'outdoors', latitude: null, longitude: null }],
-  priorSchedule: [1, 2, 3, 4].map((week) => ({ season: SEASON, week, team_key: 'BUF', opponent_key: 'NE', home_away: 'home', neutral_site: false })),
+  priorSchedule,
   capturedOut,
   onQuery,
 });
@@ -4130,6 +4135,36 @@ test('v3.1: the holdout ledger is never read and no rate is stored (#1441)', asy
   assert.equal('appearanceRate' in row.factors.availability, false);
 });
 
+test('v3.2: the ledger read counts only on-time captures that read him Unavailable (#1441)', async (t) => {
+  const queries = [];
+  appearanceFixture(t, { capturedOut: [{ player_id: 1, week: 3 }], onQuery: (text) => queries.push(text) });
+  await generateWeek5(model.MODEL_CONSTANTS_V3_2);
+  const ledger = queries.find((text) => text.includes('"projection_snapshot_players"'));
+  assert.ok(ledger, 'the ledger query is issued under v3.2');
+  assert.ok(ledger.includes('"sp"."factors"->\'availability\'->>\'available\' = \'false\''), 'an Unavailable verdict is required');
+  assert.ok(ledger.includes('"s"."is_late" = false'), 'an on-time capture is required');
+});
+
+test('v3.2: a prior-season Appearance in a window week number is not an Appearance this season (#1441)', async (t) => {
+  appearanceFixture(t, { weeklyStats: [weeklyRow(1, 3, { receivingYards: 50, gameTeam: 'BUF' }, 2025)] });
+  const row = (await generateWeek5(model.MODEL_CONSTANTS_V3_2)).projections.get(1);
+  assert.equal(row.factors.availability.appearanceRate, 0);
+});
+
+test('v3.2: prior-season schedule weeks for his team do not enter the window (#1441)', async (t) => {
+  const priorWeeks2025 = [14, 15, 16, 17].map((week) => ({ season: 2025, week, team_key: 'BUF', opponent_key: 'NE', home_away: 'home', neutral_site: false }));
+  const current = [1, 2, 3, 4].map((week) => ({ season: SEASON, week, team_key: 'BUF', opponent_key: 'NE', home_away: 'home', neutral_site: false }));
+  appearanceFixture(t, { priorSchedule: [...priorWeeks2025, ...current] });
+  const row = (await generateWeek5(model.MODEL_CONSTANTS_V3_2)).projections.get(1);
+  assert.equal(row.factors.availability.appearanceRate, 0.25);
+});
+
+test('v3.2: an Appearance in a window week counts whichever team the row names (#1441)', async (t) => {
+  appearanceFixture(t, { weeklyStats: [weeklyRow(1, 3, { receivingYards: 50, gameTeam: 'KC' })] });
+  const row = (await generateWeek5(model.MODEL_CONSTANTS_V3_2)).projections.get(1);
+  assert.equal(row.factors.availability.appearanceRate, 0.25);
+});
+
 test('v3.2 reconcile: the UPDATE keeps a stored rate and sends the takes-rate flag per player (#1441)', async (t) => {
   let updateCall = null;
   mockReconcilePool(t, {
@@ -4150,7 +4185,7 @@ test('v3.2 reconcile: the UPDATE keeps a stored rate and sends the takes-rate fl
   assert.ok(updateCall, 'one UPDATE issued');
   assert.match(updateCall.text, /'availability', v\."availability" \|\| CASE WHEN jsonb_typeof\(p\."factors"->'availability'->'appearanceRate'\) = 'number'/);
   assert.match(updateCall.text, /"active_probability" = CASE WHEN v\."takes_rate" AND jsonb_typeof\(p\."factors"->'availability'->'appearanceRate'\) = 'number' THEN/);
-  assert.match(updateCall.text, /\(p\."factors"->'availability'\) - 'appearanceRate' IS DISTINCT FROM v\."availability"/);
+  assert.match(updateCall.text, /CASE WHEN jsonb_typeof\(p\."factors"->'availability'\) = 'object' THEN \(p\."factors"->'availability'\) - 'appearanceRate' ELSE p\."factors"->'availability' END IS DISTINCT FROM v\."availability"/);
   assert.deepEqual(updateCall.params[7], [true, true, false, false], 'undesignated and Questionable take the rate; Doubtful and Out do not');
   assert.equal(updateCall.params[5], 'free_baseline_v3.2');
 });
@@ -4173,5 +4208,39 @@ test('v3.2 reconcile: the bye-aware pass also keeps the stored rate and sends th
   assert.ok(byeCall, 'the bye-aware UPDATE ran');
   assert.match(byeCall.text, /'availability', CASE WHEN r\."week" = v\."bye_week" THEN v\."bye_availability" ELSE v\."other_availability" END \|\| CASE WHEN/);
   assert.match(byeCall.text, /WHEN v\."other_takes_rate" AND jsonb_typeof\(p\."factors"->'availability'->'appearanceRate'\) = 'number' THEN/);
+  assert.match(byeCall.text, /AND CASE WHEN jsonb_typeof\(p\."factors"->'availability'\) = 'object' THEN/);
   assert.deepEqual(byeCall.params[10], [true], 'an undesignated player takes the rate on every week but his bye');
+});
+
+// v3.1's reconcile SQL is frozen until the #1438 bump: these are the parent commit's statements, byte for byte.
+test('v3.1 reconcile: the main and bye-aware UPDATEs are byte-identical to the parent commit (frozen until #1438)', async (t) => {
+  const crypto = require('crypto');
+  const calls = mockReconcilePool(t, {
+    players: [
+      { id: 1, injury_status: null, nfl_team: 'BUF', nfl_roster_status: null },
+      { id: 2, injury_status: 'O', nfl_team: 'BUF', nfl_roster_status: null },
+      { id: 5, injury_status: null, nfl_team: 'KC', nfl_roster_status: null },
+    ],
+    updateHandler: () => ({ rowCount: 2 }),
+    staleRows: [{ player_id: 5 }],
+    scheduleRows: Array.from({ length: 17 }, (_, i) => ({ nfl_team: 'KC', week: i + (i >= 8 ? 2 : 1) })),
+    byeUpdateHandler: () => ({ rowCount: 1 }),
+  });
+
+  await projection.reconcileAvailability({
+    season: 2026, fromWeek: 5, playerIds: [1, 2, 5], client: pool, now: new Date('2026-09-29T00:00:00Z'),
+  });
+
+  const updates = calls.filter((c) => c.text.startsWith('UPDATE "player_week_projections"'));
+  assert.equal(updates.length, 2, 'the main UPDATE, then the bye-aware UPDATE');
+  const [main, bye] = updates;
+  const sha256 = (text) => crypto.createHash('sha256').update(text).digest('hex');
+  assert.equal(sha256(main.raw), 'b1b30a3217c406706cfff72048d0fdc3d9ea39ab061b2dc36c62b405e9f966bf');
+  assert.equal(sha256(bye.raw), '7f2233dbce28b5c60e9b4263c174e1e41398fa3c0f7863207eb3248cac03f7cb');
+  assert.equal(main.params.length, 7);
+  assert.equal(bye.params.length, 10);
+  for (const update of updates) {
+    assert.equal(update.raw.includes('takes_rate'), false);
+    assert.equal(update.raw.includes('appearanceRate'), false);
+  }
 });
