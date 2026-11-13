@@ -499,14 +499,15 @@ const MODEL_CONSTANTS = {
  *
  *  - `kicker: { w, kickerPointsPerTeamPoint }` (#1443). Blends a kicker's
  *    baseline with his team's points per game (see kickerBlend). Both numbers
- *    are fitted on 2024 and 2025 by scripts/backtest/fit-kicker-blend.js, not
+ *    are fitted on 2024 and 2025 by scripts/fit-kicker-blend.js, not
  *    preregistered; the zeros below are placeholders until that fit lands.
  *
- * Of the five keys above, four are DEFAULTS, not fitted values, and
- * `baseline.appearancesOnly` is an on/off switch, not a default value; all five
- * are preregistered once and judged on the 2026 holdout ledger through #1439
- * with the rest of v3.2; no sweep on that ledger. `kicker` is the one key here
- * outside that preregistration.
+ * Five of the keys above (every bullet but `kicker`) are preregistered once and
+ * judged on the 2026 holdout ledger through #1439 with the rest of v3.2, with
+ * no sweep on that ledger. Four of them are DEFAULTS, not fitted values, and
+ * `baseline.appearancesOnly` is an on/off switch. `kicker` is not
+ * preregistered: its two numbers are fitted on 2024 and 2025 by
+ * scripts/fit-kicker-blend.js.
  */
 function cloneConstants(value) {
   if (Array.isArray(value)) return value.map(cloneConstants);
@@ -530,7 +531,7 @@ const MODEL_CONSTANTS_V3_2 = (() => {
   v32.simulation.centerEvenPoolMedian = true;
   v32.opponent.priorSeasonPseudoGames = 4;
   v32.baseline.appearancesOnly = true;
-  // Both numbers are fitted on 2024 and 2025 by scripts/backtest/fit-kicker-blend.js (#1443); these zeros are placeholders.
+  // Both numbers are fitted on 2024 and 2025 by scripts/fit-kicker-blend.js (#1443); these zeros are placeholders.
   v32.kicker = { w: 0, kickerPointsPerTeamPoint: 0 };
   return deepFreeze(v32);
 })();
@@ -780,6 +781,15 @@ function baselineProduction({
 function kickerBlend({ recencyMean, teamPointsPerGame, constants }) {
   return (1 - constants.w) * recencyMean
     + constants.w * teamPointsPerGame * constants.kickerPointsPerTeamPoint;
+}
+
+/**
+ * Pure: the `kicker` block when both of its numbers are numeric, else null. A
+ * malformed block counts as absent, so it can neither produce NaN nor a note.
+ */
+function kickerBlockOf(constants) {
+  const kicker = constants && constants.kicker;
+  return kicker && isNum(kicker.w) && isNum(kicker.kickerPointsPerTeamPoint) ? kicker : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -1646,9 +1656,10 @@ function projectPlayer({
 
   // #1443 (v3.2): a kicker's baseline shrinks toward his team's scoring before
   // the usage blend and the factor chain see it.
-  if (position === 'K' && constants.kicker && isNum(teamPointsPerGame)) {
+  const kickerBlock = kickerBlockOf(constants);
+  if (position === 'K' && kickerBlock && isNum(teamPointsPerGame)) {
     baseline.value = kickerBlend({
-      recencyMean: baseline.value, teamPointsPerGame, constants: constants.kicker,
+      recencyMean: baseline.value, teamPointsPerGame, constants: kickerBlock,
     });
   }
 
@@ -1762,7 +1773,7 @@ function projectPlayer({
     opponentAvailable: !!(opponent && opponent.available),
     activeProbability: availabilityInfo.activeProbability,
     hasRoleData,
-    teamScoringMissing: position === 'K' && !!constants.kicker && !isNum(teamPointsPerGame),
+    teamScoringMissing: position === 'K' && !!kickerBlock && !isNum(teamPointsPerGame),
     constants: constants.confidence,
   });
 
@@ -1829,6 +1840,7 @@ module.exports = {
   shrinkToward,
   baselineProduction,
   kickerBlend,
+  kickerBlockOf,
   opportunitiesForGame,
   opportunityBaseline,
   opponentEffect,

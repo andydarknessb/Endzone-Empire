@@ -1760,7 +1760,7 @@ test('volume: an invalid usage half-life falls back to the baseline half-life (#
 // ---------------------------------------------------------------------------
 // #1443: under v3.2 a kicker's baseline blends with his team's points per game.
 // Every test pins its own kicker block, so none of them moves when the fitted
-// numbers (scripts/backtest/fit-kicker-blend.js) replace the placeholders.
+// numbers (scripts/fit-kicker-blend.js) replace the placeholders.
 // ---------------------------------------------------------------------------
 
 const KICKER_BLEND = { w: 0.5, kickerPointsPerTeamPoint: 0.3 };
@@ -1806,4 +1806,17 @@ test('the kicker blend moves nothing outside a v3.2 kicker (#1443)', () => {
   );
   const wr = projectArgs({ position: 'WR', constants: v32With(KICKER_BLEND) });
   assert.deepEqual(model.projectPlayer({ ...wr, teamPointsPerGame: 30 }), model.projectPlayer(wr));
+});
+
+
+test('a malformed kicker block counts as absent: no blend, no note, no NaN (#1443)', () => {
+  const absent = model.projectPlayer(kickerArgs({ constants: v32With(null), teamPointsPerGame: 30 }));
+  const absentNoTeam = model.projectPlayer(kickerArgs({ constants: v32With(null), teamPointsPerGame: null }));
+  for (const kicker of [{ w: 'x', kickerPointsPerTeamPoint: 0.3 }, { w: 0.5 }, { w: 0.5, kickerPointsPerTeamPoint: null }]) {
+    const malformed = v32With(kicker);
+    assert.deepEqual(model.projectPlayer(kickerArgs({ constants: malformed, teamPointsPerGame: 30 })), absent);
+    const noTeam = model.projectPlayer(kickerArgs({ constants: malformed, teamPointsPerGame: null }));
+    assert.deepEqual(noTeam, absentNoTeam);
+    assert.ok(Number.isFinite(noTeam.mean), JSON.stringify(kicker));
+  }
 });

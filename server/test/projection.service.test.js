@@ -4100,39 +4100,117 @@ const KICKER_TEAM_ONLY = { ...model.MODEL_CONSTANTS_V3_2, kicker: { w: 1, kicker
 
 /** Points by week for the kicker's team BUF, from week `startWeek` on. */
 const teamWeeks = (points, startWeek = 1) =>
-  points.map((p, i) => ({ week: startWeek + i, scoring_team: 'BUF', points: p }));
+  points.map((p, i) => ({ week: startWeek + i, scoring_team: 'BUF', points: p, player_id: 9 }));
 
-/** A BUF kicker with five earlier weeks, projected for week 6. */
-async function kickerRun(t, { teamScoring = [], constants = KICKER_ON, onQuery = null } = {}) {
+/** A kicker with five earlier weeks, projected for week 6 (BUF unless `players` says otherwise). */
+async function kickerRun(t, {
+  teamScoring = [], constants = KICKER_ON, onQuery = null,
+  players = [player(1, 'K')], playerContextOverrideById = null,
+} = {}) {
   mockPool(t, {
-    players: [player(1, 'K')],
+    players,
     weeklyStats: [1, 2, 3, 4, 5].map((week) => weeklyRow(1, week, { extraPoint: 2, fieldGoalDistances: [25] })),
     teamScoring,
     onQuery,
   });
   const generated = await projection.generateProjections({
     season: SEASON, week: 6, rules: SCORING_RULES, playerIds: [1], hashValue: 'h', weatherService: false,
-    modelConstants: constants,
+    modelConstants: constants, playerContextOverrideById,
   });
   return generated.projections.get(1);
 }
 
-test('the kicker blend reads only the four most recent team games (#1443)', async (t) => {
-  const oldestHigh = await kickerRun(t, { teamScoring: teamWeeks([40, 20, 30, 10, 20]) });
+const MIA_THREES = [1, 2, 3, 4, 5].map((week) => ({ week, scoring_team: 'MIA', points: 3, player_id: 9 }));
+
+test('the kicker blend reads only the four most recent games of his own team (#1443)', async (t) => {
+  const teamParams = [];
+  const onQuery = (text, params) => { if (text.includes('AS "scoring_team"')) teamParams.push(params); };
+  const scoring = [...teamWeeks([40, 20, 30, 10, 20]), ...MIA_THREES];
+  const oldestHigh = await kickerRun(t, { teamScoring: scoring, onQuery });
+  assert.deepEqual(teamParams, [[SEASON, 6]], 'the read is bound to exactly the season and the target week');
   t.mock.restoreAll();
-  const oldestLow = await kickerRun(t, { teamScoring: teamWeeks([0, 20, 30, 10, 20]) });
+  const oldestLow = await kickerRun(t, { teamScoring: [...teamWeeks([0, 20, 30, 10, 20]), ...MIA_THREES] });
   assert.equal(oldestHigh.mean, oldestLow.mean, 'week 1 is outside the four most recent');
   t.mock.restoreAll();
-  const teamOnly = await kickerRun(t, { teamScoring: teamWeeks([40, 20, 30, 10, 20]), constants: KICKER_TEAM_ONLY });
-  assert.equal(teamOnly.mean, 20, 'the blend is the mean of weeks 2 to 5 alone');
+  const teamOnly = await kickerRun(t, { teamScoring: scoring, constants: KICKER_TEAM_ONLY });
+  assert.equal(teamOnly.mean, 20, 'the mean of BUF weeks 2 to 5 alone; MIA never enters it');
 });
 
 test('a team with two earlier games uses both, and a non-numeric points row is skipped (#1443)', async (t) => {
   const projected = await kickerRun(t, {
-    teamScoring: [...teamWeeks([20, 30]), { week: 3, scoring_team: 'BUF', points: 'n/a' }],
+    teamScoring: [...teamWeeks([20, 30]), { week: 3, scoring_team: 'BUF', points: 'n/a', player_id: 9 }],
     constants: KICKER_TEAM_ONLY,
   });
   assert.equal(projected.mean, 25);
+});
+
+test('a negative points figure is skipped like a non-numeric one (#1443)', async (t) => {
+  const projected = await kickerRun(t, {
+    teamScoring: [...teamWeeks([20]), { week: 2, scoring_team: 'BUF', points: -4, player_id: 9 }],
+    constants: KICKER_TEAM_ONLY,
+  });
+  assert.equal(projected.mean, 20, 'only week 1 counts; the -4 would have pulled the mean to 8');
+});
+
+test('two defenses carrying one team-week give the same mean in either row order (#1443)', async (t) => {
+  const week1 = { week: 1, scoring_team: 'BUF', points: 20, player_id: 9 };
+  const low = { week: 2, scoring_team: 'BUF', points: 10, player_id: 9 };
+  const high = { week: 2, scoring_team: 'BUF', points: 30, player_id: 4 };
+  const forward = await kickerRun(t, { teamScoring: [week1, low, high], constants: KICKER_TEAM_ONLY });
+  t.mock.restoreAll();
+  const reversed = await kickerRun(t, { teamScoring: [high, low, week1], constants: KICKER_TEAM_ONLY });
+  assert.equal(forward.mean, 25, 'the lowest player_id (4) keeps 30: (20 + 30) / 2');
+  assert.equal(reversed.mean, forward.mean);
+});
+
+test('a DEF row that says WSH feeds a WAS kicker (#1443)', async (t) => {
+  const projected = await kickerRun(t, {
+    players: [player(1, 'K', { nfl_team: 'WAS', team_key: 'WAS' })],
+    teamScoring: [
+      { week: 1, scoring_team: 'WSH', points: 24, player_id: 9 },
+      { week: 2, scoring_team: 'WSH', points: 30, player_id: 9 },
+    ],
+    constants: KICKER_TEAM_ONLY,
+  });
+  assert.equal(projected.mean, 27);
+});
+
+test('a kicker is projected on the team his stat row played for, not his team today (#1443)', async (t) => {
+  const scoring = [...teamWeeks([20, 30, 40]), ...MIA_THREES.slice(0, 3).map((r) => ({ ...r, points: 10 }))];
+  const players = [player(1, 'K', { nfl_team: 'MIA', team_key: 'MIA' })];
+  const onBuf = await kickerRun(t, {
+    players, teamScoring: scoring, constants: KICKER_TEAM_ONLY,
+    playerContextOverrideById: new Map([[1, { nfl_team: 'BUF' }]]),
+  });
+  assert.equal(onBuf.mean, 30, "BUF's mean (20, 30, 40), not MIA's 10");
+  t.mock.restoreAll();
+  const liveTeam = await kickerRun(t, { players, teamScoring: scoring, constants: KICKER_TEAM_ONLY });
+  assert.equal(liveTeam.mean, 10, 'without the override he is priced on his team today');
+});
+
+test('a v3.2 kicker block with no kicker on the run issues no team scoring query (#1443)', async (t) => {
+  const texts = [];
+  mockPool(t, {
+    players: [player(1, 'WR')],
+    weeklyStats: [1, 2, 3, 4, 5].map((week) => weeklyRow(1, week, { rushingYards: 70 })),
+    onQuery: (text) => texts.push(text),
+  });
+  await projection.generateProjections({
+    season: SEASON, week: 6, rules: SCORING_RULES, playerIds: [1], hashValue: 'h', weatherService: false,
+    modelConstants: KICKER_ON,
+  });
+  assert.equal(texts.some((text) => text.includes('AS "scoring_team"')), false);
+});
+
+test('a kicker whose team has no earlier games carries "no team scoring" through generateProjections (#1443)', async (t) => {
+  const absent = await kickerRun(t, { teamScoring: [], constants: KICKER_ON });
+  assert.ok(absent.confidenceReasons.includes('no team scoring'));
+  assert.ok(absent.factors.dataQuality.reasons.includes('no team scoring'));
+  t.mock.restoreAll();
+  const zeroWeight = await kickerRun(t, {
+    teamScoring: [], constants: { ...KICKER_ON, kicker: { w: 0, kickerPointsPerTeamPoint: 0.3 } },
+  });
+  assert.equal(absent.mean, zeroWeight.mean, 'no team scoring leaves the baseline alone');
 });
 
 test('under MODEL_CONSTANTS the team scoring query is never issued (#1443)', async (t) => {
