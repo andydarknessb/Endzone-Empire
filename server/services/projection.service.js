@@ -580,6 +580,10 @@ function projectFromBundle({
     // whenever the scan found no rows with computable opportunities, which is
     // every pre-enrichment database and every K/DEF/IDP group.
     positionEfficiencyPerOpportunity: context ? context.efficiencyPerOpportunity : null,
+    // #1443: a kicker's team mean (v3.2 `kicker` block only; null otherwise).
+    teamPointsPerGame: player.position === 'K' && bundle.teamPointsPerGame
+      ? (bundle.teamPointsPerGame.get(player.team_key) ?? null)
+      : null,
     playerResiduals: playerResidualsFrom(priorGames),
     pooledResiduals: context ? context.residuals : [],
     positionFloor,
