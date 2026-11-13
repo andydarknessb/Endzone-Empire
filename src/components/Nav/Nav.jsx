@@ -140,6 +140,8 @@ function Nav() {
     borderRadius: 0,
     transition: 'color 0.2s ease, background-color 0.2s ease, border-color 0.2s ease',
     '&:hover': { color: 'var(--accent)', bgcolor: 'var(--accent-soft)' },
+    // Inset: the link fills the bar from y=0, so an outside ring would be clipped at the top.
+    '&:focus-visible': { outlineOffset: '-2px' },
   });
 
   const themeToggle = (
