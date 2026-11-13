@@ -185,3 +185,28 @@ test('the real oracle schema accepts a fully-populated projection AND the sparse
   const rowB = { season: 2024, week: 2, player_id: 1, projection: { ...base, factors: factorsVariantB } };
   assert.doesNotThrow(() => assertClosedSchema([rowA, rowB], schema.ORACLE_SCHEMA, 'oracle_2024_w1'));
 });
+
+test('the oracle schema accepts an ADP-prior recentProduction and refuses a non-boolean usedAdpPrior (#1442)', () => {
+  const recentProduction = {
+    available: true, effectiveGames: 0, games: 0, perGame: 7, pointsBaselinePerGame: 7, pointsContribution: 7,
+    usageBlendWeight: 0, usageGames: 0, usedAdpPrior: true, usedPositionBaseline: false, usedPriorSeason: false,
+  };
+  const row = (rp) => ({
+    season: 2024, week: 1, player_id: 1,
+    projection: {
+      activeProbability: null, confidence: 'low', confidenceReasons: ['adp prior', 'no history'], effectiveGames: 0,
+      mean: null, median: 7, modelVersion: 'free_baseline_v3.2', p10: null, p25: null, p75: null, p90: null,
+      playerId: 1, position: 'RB', sampleSize: 0, unavailableReason: null,
+      factors: {
+        availability: { activeProbability: null, available: true, locked: false, lockedSlot: null, reason: null, status: null },
+        dataQuality: { level: 'low', reasons: ['adp prior', 'no history'], residualSource: null },
+        expertConsensus: null, homeAway: null, opponent: null, recentProduction: rp, role: null, versusOpponent: null, weather: null,
+      },
+    },
+  });
+  assert.doesNotThrow(() => assertClosedSchema([row(recentProduction)], schema.ORACLE_SCHEMA, 'adp row'));
+  assert.throws(
+    () => assertClosedSchema([row({ ...recentProduction, usedAdpPrior: 1 })], schema.ORACLE_SCHEMA, 'bad flag'),
+    /closed-schema violation/
+  );
+});

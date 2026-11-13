@@ -486,6 +486,11 @@ const MODEL_CONSTANTS = {
  *    carrying the stored per-week `gameTeam`, or one with a non-zero stat. The
  *    live/final box writes an all-zero row for a rostered player who never took
  *    the field, and under v3.1 each one drags a player's average down.
+ *  - `baseline.adpPrior: true` (#1442). A player with no evidence (no prior
+ *    games and no prior-season per-game value) is priced from his draft-market
+ *    prior instead of the Position baseline: points per game on ln(ADP),
+ *    fitted per position from last season. The feature loader decides whether
+ *    this run serves the prior at all.
  *  - `opponent.priorSeasonPseudoGames: 4` (#1485). How many games of
  *    evidence the PRIOR season's points-allowed ratio is worth when seeding a
  *    defense's current-season allowance, the same pseudo-game idiom as
@@ -496,16 +501,22 @@ const MODEL_CONSTANTS = {
  *    live from week 1 on last season's evidence rather than reporting
  *    "insufficient opponent sample" while the card prints the matchup as if
  *    it mattered. The cap and the shrinkage toward neutral are untouched.
+ *  - `baseline.appearanceRate: true` (#1441). An available player's active
+ *    probability is his Appearance rate (the share of his team's last four
+ *    games he appeared in, net of weeks a holdout capture recorded him out)
+ *    instead of 1. The projected distribution is conditional on an Appearance
+ *    and does not move.
  *
  *  - `kicker: { w, kickerPointsPerTeamPoint }` (#1443). Blends a kicker's
  *    baseline with his team's points per game (see kickerBlend). Both numbers
  *    are fitted on 2024 and 2025 by scripts/fit-kicker-blend.js, not
  *    preregistered.
  *
- * Five of the keys above (every bullet but `kicker`) are preregistered once and
+ * Seven of the keys above (every bullet but `kicker`) are preregistered once and
  * judged on the 2026 holdout ledger through #1439 with the rest of v3.2, with
  * no sweep on that ledger. Four of them are DEFAULTS, not fitted values, and
- * `baseline.appearancesOnly` is an on/off switch. `kicker` is not
+ * `baseline.appearancesOnly`, `baseline.appearanceRate` and `baseline.adpPrior`
+ * are on/off switches. `kicker` is not
  * preregistered: its two numbers are fitted on 2024 and 2025 by
  * scripts/fit-kicker-blend.js.
  */
@@ -531,6 +542,8 @@ const MODEL_CONSTANTS_V3_2 = (() => {
   v32.simulation.centerEvenPoolMedian = true;
   v32.opponent.priorSeasonPseudoGames = 4;
   v32.baseline.appearancesOnly = true;
+  v32.baseline.appearanceRate = true;
+  v32.baseline.adpPrior = true;
   // Fitted on 2024 and 2025 by scripts/fit-kicker-blend.js (#1443): the slope from 63 kicker-team-seasons, w the grid's lowest MAE.
   v32.kicker = { w: 0.4, kickerPointsPerTeamPoint: 0.36656512152110765 };
   return deepFreeze(v32);
@@ -790,6 +803,45 @@ function kickerBlend({ recencyMean, teamPointsPerGame, constants }) {
 function kickerBlockOf(constants) {
   const kicker = constants && constants.kicker;
   return kicker && isNum(kicker.w) && isNum(kicker.kickerPointsPerTeamPoint) ? kicker : null;
+}
+
+// ---------------------------------------------------------------------------
+// Draft-market prior (#1442, v3.2)
+// ---------------------------------------------------------------------------
+
+/**
+ * Pure: points per game on ln(ADP) across one position's `{ adp, ppg }` pairs,
+ * fitted by ordinary least squares as `{ a, b, n }`. Null with fewer than 5
+ * usable pairs, or when every ADP is the same (no slope to fit).
+ */
+function fitAdpCurve(pairs) {
+  const points = (pairs || [])
+    .filter((p) => Number.isFinite(p.adp) && p.adp > 0 && Number.isFinite(p.ppg))
+    .map((p) => ({ x: Math.log(p.adp), y: p.ppg }));
+  if (points.length < 5) return null;
+  if (new Set(points.map((p) => p.x)).size < 2) return null;
+  const n = points.length;
+  const xbar = points.reduce((s, p) => s + p.x, 0) / n;
+  const ybar = points.reduce((s, p) => s + p.y, 0) / n;
+  let sxy = 0;
+  let sxx = 0;
+  for (const p of points) {
+    sxy += (p.x - xbar) * (p.y - ybar);
+    sxx += (p.x - xbar) ** 2;
+  }
+  const b = sxy / sxx;
+  return { a: ybar - b * xbar, b, n };
+}
+
+/**
+ * Pure: the points per game a draft-market prior implies for one player, his
+ * position's curve at his ADP floored at zero. Null without an ADP or without a
+ * curve for the position. A prior of exactly 0 is a real value.
+ */
+function adpPrior({ adp, position, curve }) {
+  const fit = curve ? curve[position] : null;
+  if (!Number.isFinite(adp) || adp <= 0 || !fit) return null;
+  return Math.max(0, fit.a + fit.b * Math.log(adp));
 }
 
 // ---------------------------------------------------------------------------
@@ -1515,6 +1567,10 @@ function confidenceFor({
   distribution = null,
   usedPriorSeasonFallback = false,
   usedPositionFallback = false,
+  // The Position-baseline slot holds the draft-market prior for this row (#1442).
+  usedAdpPrior = false,
+  // v3.2 only: a row built with no history of its own says so (#1442).
+  markNoHistory = false,
   opponentAvailable = false,
   activeProbability = 1,
   hasRoleData = true,
@@ -1537,14 +1593,25 @@ function confidenceFor({
     const scale = Math.abs(Number(distribution.mean));
     if (scale > 0 && width / scale > constants.wideIntervalRatio) demote('wide range');
   }
-  if (usedPositionFallback && effectiveGames < constants.mediumEffectiveGames) demote('position baseline');
+  const positionFallbackReason = usedAdpPrior ? 'adp prior' : 'position baseline';
+  if (usedPositionFallback && effectiveGames < constants.mediumEffectiveGames) demote(positionFallbackReason);
   else if (usedPriorSeasonFallback && effectiveGames < constants.mediumEffectiveGames) demote('prior season');
   if (!opponentAvailable) reasons.push('opponent sample thin');
   if (activeProbability === null) demote('injury designation');
   if (!hasRoleData) reasons.push('no role data');
+  if (markNoHistory && usedPositionFallback) reasons.push('no history');
   if (teamScoringMissing) reasons.push('no team scoring');
 
   return { level, reasons };
+}
+
+/**
+ * Pure: true when a verdict leaves the player available to play, so under v3.2
+ * (#1441) his active probability is his Appearance rate. Out-type zeros keep 0
+ * and Doubtful keeps null: the rate never overrides the verdict's own answer.
+ */
+function takesAppearanceRate(verdict) {
+  return verdict.activeProbability !== 0 && verdict.status !== 'D';
 }
 
 // ---------------------------------------------------------------------------
@@ -1570,6 +1637,9 @@ function projectPlayer({
   priorGames = [],
   priorSeasonPerGame = null,
   positionBaselinePerGame = null,
+  // The draft-market prior (#1442, adpPrior). Read only under `baseline.adpPrior`
+  // and only for a player with no evidence, where it takes the Position baseline's place.
+  adpPriorPerGame = null,
   // League-wide points per opportunity for this player's position group, the
   // shrinkage target for his own efficiency. Null (a pre-enrichment database,
   // or a group with no opportunity denominator) simply leaves his own observed
@@ -1587,6 +1657,8 @@ function projectPlayer({
   // arrive as null, not as a zero.
   expert = null,
   availability = null,
+  // This player's Appearance rate (#1441), read only under `baseline.appearanceRate`.
+  appearanceRate = null,
   hasRoleData = true,
   // A kicker's team points per game (#1443, v3.2): used only by a K under a
   // `kicker` block. Null when the team has no completed games yet.
@@ -1610,14 +1682,28 @@ function projectPlayer({
   if (onPreHomeAwayBaseline !== undefined && typeof onPreHomeAwayBaseline !== 'function') {
     throw new Error('projectPlayer: onPreHomeAwayBaseline must be undefined or a function');
   }
+  // No prior games and no prior-season value: the draft market is the only
+  // evidence left, so under v3.2 it stands in for the Position baseline.
+  const adpPriorOn = !!(constants && constants.baseline && constants.baseline.adpPrior === true);
+  const noEvidence = !isNum(priorSeasonPerGame) && !(priorGames || []).some((g) => g && isNum(g.points));
+  const usedAdpPrior = adpPriorOn && noEvidence && isNum(adpPriorPerGame);
   const baseline = baselineProduction({
     priorGames,
     priorSeasonPerGame,
-    positionBaselinePerGame,
+    positionBaselinePerGame: usedAdpPrior ? adpPriorPerGame : positionBaselinePerGame,
     constants: constants.baseline,
   });
 
   const availabilityInfo = availability || availabilityFor({});
+  // v3.2 (#1441): an available player's active probability is his Appearance
+  // rate; the verdict keeps Out (0) and Doubtful (null), and the demotion below
+  // still reads the verdict's own value.
+  const wantsAppearanceRate = !!(constants.baseline && constants.baseline.appearanceRate === true)
+    && typeof appearanceRate === 'number' && Number.isFinite(appearanceRate);
+  const availabilityRecord = wantsAppearanceRate ? { ...availabilityInfo, appearanceRate } : availabilityInfo;
+  const activeProbability = wantsAppearanceRate && takesAppearanceRate(availabilityInfo)
+    ? appearanceRate
+    : availabilityInfo.activeProbability;
   const factors = {};
 
   if (baseline.value == null) {
@@ -1633,7 +1719,7 @@ function projectPlayer({
       p25: null,
       p75: null,
       p90: null,
-      activeProbability: availabilityInfo.activeProbability,
+      activeProbability,
       confidence: 'low',
       confidenceReasons: ['no history'],
       sampleSize: 0,
@@ -1646,7 +1732,7 @@ function projectPlayer({
         homeAway: null,
         weather: null,
         gameEnvironment: null,
-        availability: availabilityInfo,
+        availability: availabilityRecord,
         expertConsensus: null,
         dataQuality: { level: 'none', reason: 'no prior games, prior season, or position baseline' },
       },
@@ -1692,7 +1778,9 @@ function projectPlayer({
     games: baseline.sampleSize,
     effectiveGames: baseline.effectiveGames,
     usedPriorSeason: baseline.usedPriorSeason,
-    usedPositionBaseline: baseline.usedPositionBaseline,
+    // The ADP prior sits in the baseline slot, but it is not a Position baseline (#1442).
+    usedPositionBaseline: usedAdpPrior ? false : baseline.usedPositionBaseline,
+    ...(usedAdpPrior ? { usedAdpPrior: true } : {}),
     pointsContribution: round2(blendedBaseline),
   };
   if (usageComponent) {
@@ -1770,6 +1858,8 @@ function projectPlayer({
     distribution,
     usedPriorSeasonFallback: baseline.usedPriorSeason && baseline.sampleSize === 0,
     usedPositionFallback: baseline.usedPositionBaseline && baseline.sampleSize === 0 && !baseline.usedPriorSeason,
+    usedAdpPrior,
+    markNoHistory: adpPriorOn,
     opponentAvailable: !!(opponent && opponent.available),
     activeProbability: availabilityInfo.activeProbability,
     hasRoleData,
@@ -1780,7 +1870,7 @@ function projectPlayer({
   factors.role = hasRoleData
     ? { available: true, pointsContribution: null, note: 'included in recent production' }
     : null;
-  factors.availability = availabilityInfo;
+  factors.availability = availabilityRecord;
   // Null when no provider is installed at all (the shipped default), an
   // `available: false` payload when a provider ran and did not cover this
   // player, and a scored payload only at a non-zero blend weight. The UI must
@@ -1812,7 +1902,7 @@ function projectPlayer({
     p25: distribution.p25,
     p75: distribution.p75,
     p90: distribution.p90,
-    activeProbability: availabilityInfo.activeProbability,
+    activeProbability,
     confidence: confidence.level,
     confidenceReasons: confidence.reasons,
     sampleSize: baseline.sampleSize,
@@ -1839,6 +1929,8 @@ module.exports = {
   recencyWeight,
   shrinkToward,
   baselineProduction,
+  fitAdpCurve,
+  adpPrior,
   kickerBlend,
   kickerBlockOf,
   opportunitiesForGame,
@@ -1853,6 +1945,7 @@ module.exports = {
   gameEnvironmentEffect,
   expertConsensusBlend,
   availabilityFor,
+  takesAppearanceRate,
   simulateDistribution,
   probabilityBetter,
   confidenceFor,

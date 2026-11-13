@@ -38,6 +38,29 @@ test('templateExplanation does not rank recentProduction and reads a position ba
   assert.doesNotMatch(text, /\d/);
 });
 
+test('templateExplanation reads an ADP-prior base as draft position, never as a position baseline (#1442)', () => {
+  const text = templateExplanation({
+    recentProduction: F(9.1, { usedAdpPrior: true, usedPositionBaseline: false }),
+    opponent: F(-0.2),
+  }, { position: 'RB' });
+  assert.match(text, /^With no track record yet, the projection starts from average draft position\. /);
+  assert.doesNotMatch(text, /position baseline/);
+});
+
+test('the model is told an ADP-prior base is draft position, and the stored template says so (#1442)', async (t) => {
+  const projections = new Map([[1, {
+    mean: 9,
+    modelVersion: 'm1',
+    factors: { recentProduction: F(9, { usedAdpPrior: true, usedPositionBaseline: false }), opponent: F(1), availability: { status: null } },
+  }]]);
+  t.mock.method(projection, 'getWeeklyProjections', async () => ({ modelVersion: 'm1', projections }));
+  const narrative = t.mock.method(claude, 'narrative', async () => null);
+  const pool = world({ positions: { 1: 'RB' } });
+  await generateForWeek({ season: 2026, week: 6 }, { pool, now: NOW });
+  assert.equal(JSON.parse(narrative.mock.calls[0].arguments[0].user).base, 'draft position');
+  assert.match(pool.rows.get(1).narrative, /^With no track record yet, the projection starts from average draft position\./);
+});
+
 test('templateExplanation has a plain fallback when no factor applies', () => {
   assert.equal(templateExplanation({ role: F(null) }, { position: 'K' }), 'No single factor stands out this week.');
 });

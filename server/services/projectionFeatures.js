@@ -184,6 +184,19 @@ function isAppearance(row) {
   return !!row && (normalizeTeamKey(row.stats && row.stats.gameTeam) !== null || madeAppearance(row.stats));
 }
 
+/**
+ * Pure: a player's Appearance rate (#1441, v3.2) over the last four weeks his
+ * team played before the target week. Weeks a holdout capture recorded him out
+ * leave the window without a refill from older weeks; an empty window reads 1.
+ */
+function appearanceRate({ teamWeeks, appearanceWeeks, capturedOutWeeks }) {
+  const appeared = new Set(appearanceWeeks);
+  const capturedOut = new Set(capturedOutWeeks);
+  const weeks = [...new Set(teamWeeks)].sort((a, b) => b - a).slice(0, 4).filter((week) => !capturedOut.has(week));
+  if (weeks.length === 0) return 1;
+  return weeks.filter((week) => appeared.has(week)).length / weeks.length;
+}
+
 // ---------------------------------------------------------------------------
 // Pure builders (no DB) — the DB layer below just hands them rows.
 // ---------------------------------------------------------------------------
@@ -498,6 +511,56 @@ function buildVersusOpponentMeetings({ priorGames, opponent, season, constants =
 }
 
 // ---------------------------------------------------------------------------
+// Draft-market prior (#1442, v3.2): committed FFC ADP fixtures, read only by
+// the loader below and never fetched at run time.
+// ---------------------------------------------------------------------------
+
+// The scoring format a league's reception rate names. Any other rate has no fixture.
+const ADP_FORMAT_BY_RECEPTION = new Map([[0, 'standard'], [0.5, 'half-ppr'], [1, 'ppr']]);
+const ET_DAY_PARTS = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', hourCycle: 'h23',
+});
+
+/**
+ * The committed ADP fixture for a season and format, or null when that file does
+ * not exist. Any other load error (a corrupt fixture) is rethrown, so it stays loud.
+ */
+function loadAdpFixture(year, format) {
+  try {
+    return require(`../data/adp-${year}-${format}.json`);
+  } catch (err) {
+    if (err.code === 'MODULE_NOT_FOUND') return null;
+    throw err;
+  }
+}
+
+/**
+ * Pure: the instant the ADP window `endDate` (YYYY-MM-DD) closes, 23:59:59 US
+ * Eastern on that day. It is EDT or EST, whichever reads back as that date at
+ * hour 23: the offset pattern of etInstant in modules/nflverseRosterStatus.js,
+ * which is not exported. Null for an unreadable date.
+ */
+function endOfEtDay(endDate) {
+  for (const offset of ['-04:00', '-05:00']) {
+    const at = new Date(`${endDate}T23:59:59${offset}`);
+    if (Number.isNaN(at.getTime())) return null;
+    const parts = Object.fromEntries(ET_DAY_PARTS.formatToParts(at).map((p) => [p.type, p.value]));
+    if (parts.hour === '23' && `${parts.year}-${parts.month}-${parts.day}` === endDate) return at;
+  }
+  return null;
+}
+
+/**
+ * Pure: true when the ADP window `endDate` closed strictly before
+ * `firstKickoff` (a Date, ISO string or epoch), so the fixture was published
+ * before the week began. False when there is no kickoff to compare with.
+ */
+function adpWindowClosedBefore(endDate, firstKickoff) {
+  const end = endOfEtDay(endDate);
+  return end !== null && firstKickoff != null && end.getTime() < new Date(firstKickoff).getTime();
+}
+
+// ---------------------------------------------------------------------------
 // DB layer
 // ---------------------------------------------------------------------------
 
@@ -534,6 +597,8 @@ async function loadFeatureBundle({
   // The capture cutoff (#1924): bounds the Challenger's depth chart read the
   // way it bounds the odds read. Nothing else here reads it.
   oddsObservedAtOrBefore = null,
+  // Reads a committed ADP fixture (#1442). Tests inject one; the default is the file itself.
+  adpFixtureLoader = loadAdpFixture,
 }) {
   const ids = [...new Set((playerIds || []).map(Number).filter(Number.isInteger))];
   if (ids.length === 0) {
@@ -553,6 +618,15 @@ async function loadFeatureBundle({
   }
 
   const firstSeason = Number(season) - HISTORY_SEASONS;
+
+  // The draft-market prior (#1442) is read only under `baseline.adpPrior`, and
+  // only for a format with a fixture for both seasons. Otherwise nothing loads.
+  const adpFormat = constants && constants.baseline && constants.baseline.adpPrior === true
+    ? ADP_FORMAT_BY_RECEPTION.get(rules && rules.receiving && rules.receiving.reception)
+    : undefined;
+  const adpPriorFixture = adpFormat ? adpFixtureLoader(Number(season) - 1, adpFormat) : null;
+  const adpTargetFixture = adpPriorFixture ? adpFixtureLoader(Number(season), adpFormat) : null;
+  const wantsAdpPrior = Boolean(adpPriorFixture && adpTargetFixture);
 
   const [playersResult, statsResult, seasonResult, targetScheduleResult, priorScheduleResult] =
     await Promise.all([
@@ -606,6 +680,30 @@ async function loadFeatureBundle({
     ]);
 
   assertNoFutureRows(statsResult.rows, { season, week });
+
+  // The run-level cutoff is the EARLIEST kickoff in the week: past it, some
+  // information about week W exists in the world, so a run generated after it
+  // can no longer claim a clean pre-kickoff feature set for every player.
+  const kickoffs = targetScheduleResult.rows
+    .map((r) => (r.kickoff_at ? new Date(r.kickoff_at).getTime() : null))
+    .filter((t) => Number.isFinite(t));
+  const inputCutoff = kickoffs.length > 0 ? new Date(Math.min(...kickoffs)) : null;
+
+  // The draft-market census (#1442) is read only when this week's ADP window has
+  // closed; in a withheld week nothing would be served, so nothing is read.
+  const adpServes = wantsAdpPrior && adpWindowClosedBefore(adpTargetFixture.meta.end_date, inputCutoff);
+  // Every player with his optional prior-season row, so a namesake with no row
+  // still counts against the join. Aliased so the mocked pool can route it.
+  const adpCensusResult = adpServes
+    ? await client.query(
+      `SELECT "p"."id" AS "player_id", "p"."name", "p"."position",
+              "pss"."season", "pss"."games_played", "pss"."stats", "pss"."fantasy_points"
+       FROM "players" "p"
+       LEFT JOIN "player_season_stats" "pss"
+         ON "pss"."player_id" = "p"."id" AND "pss"."season" = $1`,
+      [Number(season) - 1]
+    )
+    : null;
 
   const players = new Map(playersResult.rows.map((r) => [r.id, r]));
   if (playerContextOverrideById) {
@@ -788,14 +886,6 @@ async function loadFeatureBundle({
     for (const row of normalized.rows) normalizedDefenseGames.set(row.team, Number(row.games));
   }
 
-  // The run-level cutoff is the EARLIEST kickoff in the week: past it, some
-  // information about week W exists in the world, so a run generated after it
-  // can no longer claim a clean pre-kickoff feature set for every player.
-  const kickoffs = targetScheduleResult.rows
-    .map((r) => (r.kickoff_at ? new Date(r.kickoff_at).getTime() : null))
-    .filter((t) => Number.isFinite(t));
-  const inputCutoff = kickoffs.length > 0 ? new Date(Math.min(...kickoffs)) : null;
-
   // #1924 (Challenger only): each player's rank on his latest depth chart
   // capture strictly BEFORE the as-of day (the earlier of that earliest kickoff
   // and the capture cutoff), within the 7 days before it. Strictly before
@@ -831,6 +921,50 @@ async function loadFeatureBundle({
     depthRankByPlayer,
     constants,
   });
+
+  // v3.2 (#1441): each player's Appearance rate. The team's weeks come from the
+  // schedule rows loaded above and his appearances from the stat rows; the one
+  // query is the holdout ledger's weeks he was captured out. Gated, so a v3.1
+  // run issues no query and carries no map.
+  const wantsAppearanceRate = Boolean(constants && constants.baseline && constants.baseline.appearanceRate === true);
+  let appearanceRateByPlayer;
+  if (wantsAppearanceRate) {
+    // Only an on-time capture that read him Unavailable: after #1438 a healthy player's stored rate can be 0 too.
+    const capturedOutResult = await client.query(
+      `SELECT DISTINCT "sp"."player_id", "s"."week" FROM "projection_snapshot_players" "sp"
+       JOIN "projection_snapshots" "s" ON "s"."id" = "sp"."snapshot_id"
+       WHERE "s"."season" = $1 AND "s"."week" < $2 AND "s"."capture_kind" = 'scheduled'
+         AND "s"."is_late" = false
+         AND "sp"."active_probability" = 0
+         AND "sp"."factors"->'availability'->>'available' = 'false'
+         AND "sp"."player_id" = ANY($3::int[])`,
+      [season, week, ids]
+    );
+    const capturedOutByPlayer = new Map();
+    for (const row of capturedOutResult.rows) {
+      const playerId = Number(row.player_id);
+      if (!capturedOutByPlayer.has(playerId)) capturedOutByPlayer.set(playerId, []);
+      capturedOutByPlayer.get(playerId).push(Number(row.week));
+    }
+    const teamWeeksByKey = new Map();
+    for (const row of priorScheduleResult.rows) {
+      if (Number(row.season) !== Number(season)) continue;
+      if (!teamWeeksByKey.has(row.team_key)) teamWeeksByKey.set(row.team_key, []);
+      teamWeeksByKey.get(row.team_key).push(Number(row.week));
+    }
+    // shortcut: an absence declared after the capture still counts against him, and a free agent keeps rate 1 until his next run after signing; a calibrated probability is #1925
+    appearanceRateByPlayer = new Map();
+    for (const [playerId, player] of players) {
+      const appearanceWeeks = (priorStatsByPlayer.get(playerId) || [])
+        .filter((row) => Number(row.season) === Number(season) && isAppearance(row))
+        .map((row) => Number(row.week));
+      appearanceRateByPlayer.set(playerId, appearanceRate({
+        teamWeeks: teamWeeksByKey.get(player.team_key) || [],
+        appearanceWeeks,
+        capturedOutWeeks: capturedOutByPlayer.get(Number(playerId)) || [],
+      }));
+    }
+  }
 
   // v3.2 kicker blend (#1443): what each team scored this season before the
   // target week, read off the opposing defenses. Gated like the depth chart
@@ -870,6 +1004,17 @@ async function loadFeatureBundle({
     defenseGamesByTeam: normalizedDefenseGames,
     // Present only under a Challenger that reads the depth chart (#1924).
     ...(wantsDepthChart ? { depthRankByPlayer } : {}),
+    // Present only under v3.2's Appearance rate (#1441).
+    ...(wantsAppearanceRate ? { appearanceRateByPlayer } : {}),
+    // Present only when the draft-market prior serves this week (#1442): the census
+    // of every player's prior-season row, and both fixtures' entries.
+    ...(adpServes ? {
+      adpPrior: {
+        censusRows: adpCensusResult.rows,
+        priorEntries: adpPriorFixture.entries,
+        targetEntries: adpTargetFixture.entries,
+      },
+    } : {}),
     // Present only under a v3.2 run with a `kicker` block (#1443).
     ...(wantsKickerBlend ? { teamPointsPerGame } : {}),
     leagueScanRows: leagueRows.length,
@@ -925,11 +1070,14 @@ module.exports = {
   scheduleOrientation,
   usageFromStats,
   weeksAgo,
+  appearanceRate,
   assertNoFutureRows,
   buildPriorGames,
   buildLeagueContext,
   buildVersusOpponentMeetings,
   loadFeatureBundle,
   loadLeagueContext,
+  loadAdpFixture,
+  adpWindowClosedBefore,
   emptyCoverage,
 };

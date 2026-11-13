@@ -28,6 +28,7 @@ import {
   installDraftRestApi,
   setTheme,
   gotoDraft,
+  type ThemeMode,
 } from './fixtures/draftHarness';
 import type { Page } from '@playwright/test';
 import { ACTIVE_STATE, ACTIVE_PICKS } from './fixtures/draftFixtures';
@@ -113,8 +114,8 @@ async function barGeometry(page: Page) {
   );
 }
 
-async function openAuthedHost(page: Page) {
-  await setTheme(page, 'light');
+async function openAuthedHost(page: Page, mode: ThemeMode = 'light') {
+  await setTheme(page, mode);
   await installDraftSocketHarness(page, { ...ACTIVE_STATE });
   await installDraftRestApi(page, { league: ACTIVE_STATE.league, picks: ACTIVE_PICKS });
   await gotoDraft(page);
@@ -383,4 +384,38 @@ test.describe('Nav fits the viewport (#927)', () => {
     if (!league) throw new Error('League link is missing from the primary nav');
     expect(Math.abs(league.bottom - signedIn.toolbarBottom), 'active link is not on the bottom edge of the bar').toBeLessThanOrEqual(1);
   });
+
+  // #2894: each primary link fills the bar from y=0, so the global focus ring
+  // (outline-offset 2px) put its top edge at y=-4, clipped by the viewport.
+  for (const mode of ['light', 'dark'] as const) {
+    test(`a keyboard-focused primary link draws its focus ring inside the viewport, ${mode} (#2894)`, async ({ page }) => {
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await openAuthedHost(page, mode);
+      await expect(page.locator('html')).toHaveAttribute('data-theme', mode);
+
+      let reached = false;
+      for (let i = 0; i < 10 && !reached; i += 1) {
+        await page.keyboard.press('Tab');
+        reached = (await page.locator(`${PRIMARY_LINKS}:focus`).count()) > 0;
+      }
+      expect(reached, 'Tab never reached a primary nav link').toBe(true);
+
+      const ring = await page.locator(`${PRIMARY_LINKS}:focus`).evaluate((el) => {
+        const style = getComputedStyle(el);
+        return {
+          top: el.getBoundingClientRect().top,
+          outlineOffset: style.outlineOffset,
+          outlineWidth: style.outlineWidth,
+          outlineStyle: style.outlineStyle,
+        };
+      });
+      expect(ring.outlineStyle, `focus ring: ${JSON.stringify(ring)}`).toBe('solid');
+      expect(ring.outlineWidth, `focus ring: ${JSON.stringify(ring)}`).toBe('2px');
+      // The ring's outer edge is top - offset - width: -4 before the fix, 0 after.
+      expect(
+        ring.top - parseFloat(ring.outlineOffset) - parseFloat(ring.outlineWidth),
+        `focus ring top edge is above the viewport: ${JSON.stringify(ring)}`
+      ).toBeGreaterThanOrEqual(0);
+    });
+  }
 });

@@ -6,6 +6,7 @@ const { unavailableFor: verdictFor, startVerdictOf } = require('./unavailable');
 const { loadNflRosterStatusById, nflRosterStatusColumn } = require('./nflRosterStatus');
 const { computeByeWeeks } = require('./bye.service');
 const { normalizeNflTeam } = require('./nflTeam');
+const { normalizeNameKey } = require('./nameMatch');
 const features = require('./projectionFeatures');
 const { rulesForLeague, SCORING_RULES, calculateFantasyPoints } = require('./scoringRules');
 const { usesStoredSeasonTotal } = require('./seasonSummary.service');
@@ -335,6 +336,54 @@ function rankOpponentDefense(allowedByDefense, opponentTeam) {
   return { rank: sorted.indexOf(target.allowedPerGame) + 1, of: allowedByDefense.size };
 }
 
+/** Pure (#1442): the join key of a name key and a position, for the ADP fixtures and the prior-season rows. */
+const adpKey = (nameKey, position) => `${nameKey}|${position}`;
+
+/** Pure: a Map of the items whose key occurs exactly once; a key seen twice is dropped (a missed join). */
+function uniqueBy(items, keyOf) {
+  const seen = new Map();
+  for (const item of items) {
+    const key = keyOf(item);
+    seen.set(key, seen.has(key) ? null : item);
+  }
+  return new Map([...seen].filter(([, item]) => item !== null));
+}
+
+/**
+ * Pure (#1442): the run's draft-market prior, built once per run from the
+ * bundle's ADP data, or null when the bundle carries none. The census holds every
+ * player, drafted or not, under his name key and position. A key held by more
+ * than one player is a missed join on both sides: its fixture entry joins to no
+ * one, and no player with that key gets an ADP. A joined entry's points per game
+ * is priorSeasonPerGame of its holder's season row (no row gives no pair), and the
+ * pairs are fitted per position into `curves`.
+ */
+function buildAdpPrior(adpPrior, rules, season) {
+  if (!adpPrior) return null;
+  const holders = new Map();
+  for (const row of adpPrior.censusRows) {
+    const key = adpKey(normalizeNameKey(row.name), row.position);
+    if (!holders.has(key)) holders.set(key, []);
+    holders.get(key).push(row);
+  }
+  const pairsByPosition = new Map();
+  for (const [key, entry] of uniqueBy(adpPrior.priorEntries, (e) => adpKey(e.nameKey, e.position))) {
+    const found = holders.get(key) || [];
+    const ppg = found.length === 1 ? priorSeasonPerGame(found, rules, season) : null;
+    if (ppg === null) continue;
+    if (!pairsByPosition.has(entry.position)) pairsByPosition.set(entry.position, []);
+    pairsByPosition.get(entry.position).push({ adp: entry.adp, ppg });
+  }
+  const curves = {};
+  for (const [position, pairs] of pairsByPosition) {
+    const curve = model.fitAdpCurve(pairs);
+    if (curve) curves[position] = curve;
+  }
+  const targetEntries = new Map([...uniqueBy(adpPrior.targetEntries, (e) => adpKey(e.nameKey, e.position))]
+    .filter(([key]) => (holders.get(key) || []).length === 1));
+  return { curves, targetEntries };
+}
+
 /**
  * Assemble one player's projection from an already-loaded feature bundle.
  * Pure with respect to the database: everything it reads comes from `bundle`,
@@ -357,6 +406,8 @@ function projectFromBundle({
   // This player's NFL roster status (#1767, nflRosterStatus.js), or null,
   // which reads as Active.
   nflRosterStatus = null,
+  // The run's draft-market prior (#1442, buildAdpPrior), or null.
+  adpPrior = null,
 }) {
   if (onPreHomeAwayBaseline !== undefined && typeof onPreHomeAwayBaseline !== 'function') {
     throw new Error('projectFromBundle: onPreHomeAwayBaseline must be undefined or a function');
@@ -503,6 +554,16 @@ function projectFromBundle({
     : undefined;
   const starterBaseline = depthRank === 1 && context ? context.starterBaselinePerGame : null;
 
+  // #1442: this player's ADP in the target fixture, priced on the run's curves.
+  // The bundle carries ADP data only in a week the fixture serves; the model
+  // decides whether the prior applies (evidence, constants).
+  const adpEntry = adpPrior
+    ? adpPrior.targetEntries.get(adpKey(normalizeNameKey(player.name), player.position))
+    : null;
+  const adpPriorPerGame = adpEntry
+    ? model.adpPrior({ adp: adpEntry.adp, position: player.position, curve: adpPrior.curves })
+    : null;
+
   const projected = model.projectPlayer({
     playerId,
     position: player.position,
@@ -514,6 +575,7 @@ function projectFromBundle({
     priorGames,
     priorSeasonPerGame: priorSeasonPerGame(bundle.seasonRowsByPlayer.get(playerId), rules, season),
     positionBaselinePerGame: typeof starterBaseline === 'number' ? starterBaseline : (context ? context.baselinePerGame : null),
+    adpPriorPerGame,
     // Shrinkage target for the usage component's points-per-opportunity. Null
     // whenever the scan found no rows with computable opportunities, which is
     // every pre-enrichment database and every K/DEF/IDP group.
@@ -534,6 +596,8 @@ function projectFromBundle({
     // factors.expertConsensus byte-identical to what it has always been.
     expert: expertByPlayerId ? expertByPlayerId.get(playerId) || null : null,
     availability,
+    // Null unless the bundle was loaded under v3.2's Appearance rate (#1441).
+    appearanceRate: bundle.appearanceRateByPlayer ? (bundle.appearanceRateByPlayer.get(playerId) ?? null) : null,
     hasRoleData: priorGames.some((g) => g.hasRole),
     onPreHomeAwayBaseline,
   });
@@ -673,6 +737,9 @@ async function generateProjections({
   // and the successor evaluator pass nothing, so every player reads as
   // Active there and those runs stay byte-identical (DEVIATIONS entry 4).
   nflRosterStatusById = null,
+  // The draft-market prior's fixture reader (#1442), forwarded to loadFeatureBundle.
+  // The default reads the committed file; tests inject one.
+  adpFixtureLoader = features.loadAdpFixture,
 }) {
   if (onPreHomeAwayBaseline !== undefined && typeof onPreHomeAwayBaseline !== 'function') {
     throw new Error('generateProjections: onPreHomeAwayBaseline must be undefined or a function');
@@ -683,7 +750,10 @@ async function generateProjections({
     // (#1485 seeding, #1483 Position floor): under v3.1 no new query is issued.
     constants: modelConstants,
     oddsObservedAtOrBefore,
+    adpFixtureLoader,
   });
+  // Once per run: the curves are fitted from the bundle's ADP data, not per player.
+  const adpPrior = buildAdpPrior(bundle.adpPrior, rules, season);
 
   // Weather is strictly optional context and must never be able to fail the
   // request: any throw or rejection degrades to "no weather".
@@ -759,6 +829,7 @@ async function generateProjections({
         modelVersion,
         onPreHomeAwayBaseline,
         nflRosterStatus: nflRosterStatusById ? nflRosterStatusById.get(playerId) ?? null : null,
+        adpPrior,
       })
     );
   }
@@ -974,6 +1045,19 @@ async function invalidateWeeklyProjectionRuns({
   };
 }
 
+// v3.2 (#1441): an injury sync keeps the Appearance rate a row already stores,
+// and where the new verdict still plays that rate is the active probability
+// again. The v3.1 statements below never reference these.
+const STORED_RATE_PRESENT = `jsonb_typeof(p."factors"->'availability'->'appearanceRate') = 'number'`;
+const STORED_RATE = `(p."factors"->'availability'->>'appearanceRate')::numeric`;
+const KEPT_RATE = `CASE WHEN ${STORED_RATE_PRESENT} THEN jsonb_build_object('appearanceRate', p."factors"->'availability'->'appearanceRate') ELSE '{}'::jsonb END`;
+
+/** Pure: whether a model version's constants carry the Appearance rate (#1441). */
+function appearanceRateOn(modelVersion) {
+  const constants = model.constantsForVersion(modelVersion);
+  return !!(constants && constants.baseline && constants.baseline.appearanceRate === true);
+}
+
 /**
  * Recompute the ONE availability verdict (`unavailableFor`, unavailable.js)
  * against the player facts as they stand right now, and patch ONLY
@@ -1073,6 +1157,7 @@ async function reconcileAvailability({
   const patchedIds = [];
   const availabilityJson = [];
   const activeProbabilities = [];
+  const takesRate = [];
   // Players currently on a real team, keyed by id - the candidate pool
   // `reconcileByeAwareSignings` narrows to "stored no_team" below. A player
   // with no team can never be a signing, so he is never in this map.
@@ -1088,8 +1173,18 @@ async function reconcileAvailability({
     patchedIds.push(row.id);
     availabilityJson.push(JSON.stringify(verdict));
     activeProbabilities.push(verdict.activeProbability);
+    takesRate.push(model.takesAppearanceRate(verdict));
     if (row.nfl_team != null) onTeamById.set(row.id, { row, verdict });
   }
+  const wantsAppearanceRate = appearanceRateOn(modelVersion);
+  const availabilitySql = wantsAppearanceRate ? `v."availability" || ${KEPT_RATE}` : 'v."availability"';
+  const activeSql = wantsAppearanceRate
+    ? `CASE WHEN v."takes_rate" AND ${STORED_RATE_PRESENT} THEN ${STORED_RATE} ELSE v."active_probability" END`
+    : 'v."active_probability"';
+  // A JSON null availability cannot take the key delete (it throws on a scalar), so it is compared as it is.
+  const storedSql = wantsAppearanceRate
+    ? `CASE WHEN jsonb_typeof(p."factors"->'availability') = 'object' THEN (p."factors"->'availability') - 'appearanceRate' ELSE p."factors"->'availability' END`
+    : `p."factors"->'availability'`;
 
   // A subquery against `projection_runs` for the run scope, rather than a
   // JOIN alongside the unnest set: a JOIN's ON clause cannot reach back to
@@ -1097,11 +1192,11 @@ async function reconcileAvailability({
   // to land in the WHERE clause instead. Still one statement, one scan.
   const result = await client.query(
     `UPDATE "player_week_projections" p
-        SET "factors" = p."factors" || jsonb_build_object('availability', v."availability"),
-            "active_probability" = v."active_probability",
+        SET "factors" = p."factors" || jsonb_build_object('availability', ${availabilitySql}),
+            "active_probability" = ${activeSql},
             "updated_at" = $7
-       FROM (SELECT * FROM unnest($1::int[], $2::jsonb[], $3::numeric[])
-               AS v("player_id", "availability", "active_probability")) v
+       FROM (SELECT * FROM unnest($1::int[], $2::jsonb[], $3::numeric[]${wantsAppearanceRate ? ', $8::boolean[]' : ''})
+               AS v("player_id", "availability", "active_probability"${wantsAppearanceRate ? ', "takes_rate"' : ''})) v
       WHERE p."player_id" = v."player_id"
         AND p."run_id" IN (
           SELECT "id" FROM "projection_runs"
@@ -1127,8 +1222,8 @@ async function reconcileAvailability({
           p."factors"->'availability'->>'reason' IS DISTINCT FROM 'no_team'
           OR v."availability"->>'reason' IS NOT DISTINCT FROM 'no_team'
         )
-        AND p."factors"->'availability' IS DISTINCT FROM v."availability"`,
-    [patchedIds, availabilityJson, activeProbabilities, season, fromWeek, modelVersion, now]
+        AND ${storedSql} IS DISTINCT FROM v."availability"`,
+    [patchedIds, availabilityJson, activeProbabilities, season, fromWeek, modelVersion, now, ...(wantsAppearanceRate ? [takesRate] : [])]
   );
 
   // #1813: the second pass is a refinement of the main pass, never a
@@ -1209,6 +1304,7 @@ async function reconcileByeAwareSignings({ client, season, fromWeek, modelVersio
   const outByeActiveProbability = [];
   const outOtherAvailability = [];
   const outOtherActiveProbability = [];
+  const outOtherTakesRate = [];
   for (const { player_id: playerId } of staleResult.rows) {
     const { row, verdict } = onTeamById.get(playerId);
     const byeWeek = byeByTeam.get(row.nfl_team);
@@ -1236,29 +1332,40 @@ async function reconcileByeAwareSignings({ client, season, fromWeek, modelVersio
     // just repeat that call for an identical result.
     outOtherAvailability.push(JSON.stringify(verdict));
     outOtherActiveProbability.push(verdict.activeProbability);
+    outOtherTakesRate.push(model.takesAppearanceRate(verdict));
   }
   if (outPlayerIds.length === 0) return { updated: 0 };
 
+  // The bye verdict is always 0, so only the other-week verdict can take the rate.
+  const wantsAppearanceRate = appearanceRateOn(modelVersion);
+  const activeSql = wantsAppearanceRate
+    ? `CASE WHEN r."week" = v."bye_week" THEN v."bye_active_probability" WHEN v."other_takes_rate" AND ${STORED_RATE_PRESENT} THEN ${STORED_RATE} ELSE v."other_active_probability" END`
+    : 'CASE WHEN r."week" = v."bye_week" THEN v."bye_active_probability" ELSE v."other_active_probability" END';
+  // A JSON null availability cannot take the key delete (it throws on a scalar), so it is compared as it is.
+  const storedSql = wantsAppearanceRate
+    ? `CASE WHEN jsonb_typeof(p."factors"->'availability') = 'object' THEN (p."factors"->'availability') - 'appearanceRate' ELSE p."factors"->'availability' END`
+    : `p."factors"->'availability'`;
   const result = await client.query(
     `UPDATE "player_week_projections" p
         SET "factors" = p."factors" || jsonb_build_object('availability',
-              CASE WHEN r."week" = v."bye_week" THEN v."bye_availability" ELSE v."other_availability" END),
+              CASE WHEN r."week" = v."bye_week" THEN v."bye_availability" ELSE v."other_availability" END${wantsAppearanceRate ? ` || ${KEPT_RATE}` : ''}),
             "active_probability" =
-              CASE WHEN r."week" = v."bye_week" THEN v."bye_active_probability" ELSE v."other_active_probability" END,
+              ${activeSql},
             "updated_at" = $10
-       FROM (SELECT * FROM unnest($1::int[], $2::int[], $3::jsonb[], $4::numeric[], $5::jsonb[], $6::numeric[])
+       FROM (SELECT * FROM unnest($1::int[], $2::int[], $3::jsonb[], $4::numeric[], $5::jsonb[], $6::numeric[]${wantsAppearanceRate ? ', $11::boolean[]' : ''})
                AS v("player_id", "bye_week", "bye_availability", "bye_active_probability",
-                    "other_availability", "other_active_probability")) v,
+                    "other_availability", "other_active_probability"${wantsAppearanceRate ? ', "other_takes_rate"' : ''})) v,
             "projection_runs" r
       WHERE p."player_id" = v."player_id"
         AND p."run_id" = r."id"
         AND r."season" = $7 AND r."week" >= $8 AND r."model_version" = $9
-        AND p."factors"->'availability' IS DISTINCT FROM (
+        AND ${storedSql} IS DISTINCT FROM (
           CASE WHEN r."week" = v."bye_week" THEN v."bye_availability" ELSE v."other_availability" END
         )`,
     [
       outPlayerIds, outByeWeeks, outByeAvailability, outByeActiveProbability,
       outOtherAvailability, outOtherActiveProbability, season, fromWeek, modelVersion, now,
+      ...(wantsAppearanceRate ? [outOtherTakesRate] : []),
     ]
   );
   return { updated: Number(result && result.rowCount) || 0 };
