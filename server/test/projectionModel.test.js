@@ -1521,7 +1521,7 @@ test('MODEL_CONSTANTS hashes to the holdout study captured v3.1 constants exactl
   assert.equal(model.MODEL_CONSTANTS.simulation.centerEvenPoolMedian, undefined);
 });
 
-test('MODEL_CONSTANTS_V3_2 differs from MODEL_CONSTANTS in exactly the five ticketed keys', () => {
+test('MODEL_CONSTANTS_V3_2 differs from MODEL_CONSTANTS in exactly the six ticketed keys', () => {
   const v31 = model.MODEL_CONSTANTS;
   const v32 = model.MODEL_CONSTANTS_V3_2;
   assert.equal(model.MODEL_VERSION, 'free_baseline_v3.1');
@@ -1531,13 +1531,15 @@ test('MODEL_CONSTANTS_V3_2 differs from MODEL_CONSTANTS in exactly the five tick
   assert.equal(v32.simulation.truncateAtPositionFloor, true);
   assert.equal(v32.simulation.centerEvenPoolMedian, true);
   assert.equal(v32.baseline.appearancesOnly, true);
-  // Everything else is byte-identical: strip the five deltas from a v3.2
+  assert.ok(v32.kicker, 'the sixth delta is the kicker block (#1443)');
+  // Everything else is byte-identical: strip the six deltas from a v3.2
   // clone and the two objects must serialize the same.
   const stripped = JSON.parse(JSON.stringify(v32));
   delete stripped.opponent.priorSeasonPseudoGames;
   delete stripped.simulation.truncateAtPositionFloor;
   delete stripped.simulation.centerEvenPoolMedian;
   delete stripped.baseline.appearancesOnly;
+  delete stripped.kicker;
   stripped.decision.lineupRanking = 'median';
   assert.equal(JSON.stringify(stripped), JSON.stringify(v31));
 
@@ -1753,4 +1755,55 @@ test('volume: an invalid usage half-life falls back to the baseline half-life (#
     });
     assert.deepEqual(out, base, String(bad));
   }
+});
+
+// ---------------------------------------------------------------------------
+// #1443: under v3.2 a kicker's baseline blends with his team's points per game.
+// Every test pins its own kicker block, so none of them moves when the fitted
+// numbers (scripts/backtest/fit-kicker-blend.js) replace the placeholders.
+// ---------------------------------------------------------------------------
+
+const KICKER_BLEND = { w: 0.5, kickerPointsPerTeamPoint: 0.3 };
+
+/** A v3.2 clone carrying `kicker`, or with the block removed when `kicker` is null. */
+const v32With = (kicker) => {
+  const clone = JSON.parse(JSON.stringify(model.MODEL_CONSTANTS_V3_2));
+  if (kicker) clone.kicker = kicker;
+  else delete clone.kicker;
+  return clone;
+};
+
+const kickerArgs = (overrides = {}) => projectArgs({ position: 'K', ...overrides });
+
+test('kickerBlend mixes the recency mean with the team points per game (#1443)', () => {
+  assert.equal(model.kickerBlend({ recencyMean: 7, teamPointsPerGame: 30, constants: KICKER_BLEND }), 8);
+});
+
+test('a kicker whose team scores more projects higher on the same prior games (#1443)', () => {
+  const high = model.projectPlayer(kickerArgs({ constants: v32With(KICKER_BLEND), teamPointsPerGame: 30 }));
+  const low = model.projectPlayer(kickerArgs({ constants: v32With(KICKER_BLEND), teamPointsPerGame: 14 }));
+  assert.ok(high.mean > low.mean, `${high.mean} vs ${low.mean}`);
+});
+
+test('a kicker with no team scoring keeps his baseline and gains a confidence reason (#1443)', () => {
+  const absent = model.projectPlayer(kickerArgs({ constants: v32With(KICKER_BLEND), teamPointsPerGame: null }));
+  const zeroWeight = model.projectPlayer(kickerArgs({
+    constants: v32With({ ...KICKER_BLEND, w: 0 }), teamPointsPerGame: null,
+  }));
+  const noBlock = model.projectPlayer(kickerArgs({ constants: v32With(null), teamPointsPerGame: null }));
+
+  assert.equal(absent.mean, zeroWeight.mean);
+  assert.equal(absent.mean, noBlock.mean);
+  assert.equal(absent.confidence, noBlock.confidence, 'the note does not move the level');
+  assert.deepEqual(absent.confidenceReasons, [...noBlock.confidenceReasons, 'no team scoring']);
+  assert.deepEqual(absent.factors.dataQuality.reasons, absent.confidenceReasons);
+});
+
+test('the kicker blend moves nothing outside a v3.2 kicker (#1443)', () => {
+  assert.deepEqual(
+    model.projectPlayer(kickerArgs({ constants: model.MODEL_CONSTANTS, teamPointsPerGame: 30 })),
+    model.projectPlayer(kickerArgs({ constants: model.MODEL_CONSTANTS }))
+  );
+  const wr = projectArgs({ position: 'WR', constants: v32With(KICKER_BLEND) });
+  assert.deepEqual(model.projectPlayer({ ...wr, teamPointsPerGame: 30 }), model.projectPlayer(wr));
 });

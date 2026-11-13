@@ -430,6 +430,29 @@ function buildLeagueContext({
 }
 
 /**
+ * Pure: each team's mean points over its last four games (#1443), from the
+ * opposing defenses' rows: `scoring_team` is the offense the defense faced and
+ * `points` what that offense scored. One game per team-week; a row with no team
+ * or no numeric points is skipped, never read as zero.
+ */
+function buildTeamPointsPerGame(rows) {
+  const byTeam = new Map(); // team key -> Map(week -> points)
+  for (const row of rows || []) {
+    const team = normalizeTeamKey(row.scoring_team);
+    if (!team || !isNum(row.points)) continue;
+    if (!byTeam.has(team)) byTeam.set(team, new Map());
+    const weeks = byTeam.get(team);
+    if (!weeks.has(Number(row.week))) weeks.set(Number(row.week), Number(row.points));
+  }
+  const means = new Map();
+  for (const [team, weeks] of byTeam) {
+    const recent = [...weeks.entries()].sort((a, b) => b[0] - a[0]).slice(0, 4);
+    means.set(team, recent.reduce((sum, [, points]) => sum + points, 0) / recent.length);
+  }
+  return means;
+}
+
+/**
  * Pure: prior meetings between this player and the target opponent, each paired
  * with the player's baseline EXCLUDING those meetings — so the factor measures
  * "better than his usual against them", not "he was good that year".
@@ -803,6 +826,22 @@ async function loadFeatureBundle({
     constants,
   });
 
+  // v3.2 kicker blend (#1443): what each team scored this season before the
+  // target week, read off the opposing defenses. Gated like the depth chart
+  // read, so a v3.1 run issues no query.
+  const wantsKickerBlend = Boolean(constants && constants.kicker);
+  let teamPointsPerGame;
+  if (wantsKickerBlend) {
+    const scoring = await client.query(
+      `SELECT "ds"."week", "ds"."stats"->>'gameOpponent' AS "scoring_team", "ds"."stats"->>'pointsAllowed' AS "points"
+       FROM "player_stats" "ds"
+       JOIN "players" "p" ON "p"."id" = "ds"."player_id"
+       WHERE "p"."position" = 'DEF' AND "ds"."season" = $1 AND "ds"."week" < $2`,
+      [season, week]
+    );
+    teamPointsPerGame = buildTeamPointsPerGame(scoring.rows);
+  }
+
   const byeByTeam = await computeByeWeeks(
     [...players.values()].map((r) => r.nfl_team),
     season,
@@ -824,6 +863,8 @@ async function loadFeatureBundle({
     defenseGamesByTeam: normalizedDefenseGames,
     // Present only under a Challenger that reads the depth chart (#1924).
     ...(wantsDepthChart ? { depthRankByPlayer } : {}),
+    // Present only under a v3.2 run with a `kicker` block (#1443).
+    ...(wantsKickerBlend ? { teamPointsPerGame } : {}),
     leagueScanRows: leagueRows.length,
     scanTruncated: leagueRows.length >= MAX_LEAGUE_SCAN_ROWS,
     priorSeasonScanRows: priorSeasonRows.length,
@@ -873,6 +914,7 @@ module.exports = {
   ROLE_KEYS,
   hasRoleSignal,
   normalizeTeamKey,
+  isAppearance,
   scheduleOrientation,
   usageFromStats,
   weeksAgo,

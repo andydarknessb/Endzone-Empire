@@ -49,6 +49,9 @@ function mockPool(t, {
   priorSchedule = [],
   leagueScan = [],
   defenseGames = [],
+  // #1443: `{ week, scoring_team, points }` rows of the defenses' points-allowed
+  // read; only a v3.2 `kicker` block issues it.
+  teamScoring = [],
   // #1485: the prior-season opponent seed. Routed separately from
   // `leagueScan`/`defenseGames` because the query text is deliberately
   // disjoint from theirs (aliased "pps" / "prior_games") so both scans can
@@ -116,6 +119,7 @@ function mockPool(t, {
     if (text.includes('FROM "player_practice_observations"')) return { rows: practiceRows };
     if (text.includes('MIN("g"."kickoff_at")')) return { rows: kickoffRows };
     if (text.includes('FROM "player_season_stats"')) return { rows: seasonStats };
+    if (text.includes('AS "scoring_team"')) return { rows: teamScoring };
     if (text.includes('"player_stats" "pps"')) return { rows: priorSeasonScan };
     if (text.includes('FROM "player_stats" "ps"')) return { rows: leagueScan };
     if (text.includes('FROM "player_stats"')) return { rows: weeklyStats };
@@ -4083,4 +4087,61 @@ test('priorSeasonPerGame prices a count-only kicker rollup at its stored season 
 test('priorSeasonPerGame still re-scores a kicker rollup that carries fieldGoalDistances (#2805 control)', () => {
   const rows = [{ season: 2025, games_played: 17, stats: { fieldGoalDistances: [45, 30], fieldGoal: 2, extraPoint: 2 }, fantasy_points: '999.00' }];
   assert.equal(projection.priorSeasonPerGame(rows, SCORING_RULES, SEASON), 9 / 17);
+});
+
+// ---------------------------------------------------------------------------
+// #1443: under a v3.2 `kicker` block the loader reads what each team scored off
+// the opposing defenses, and a kicker is projected on his team's mean. A v3.1
+// run issues no such read.
+// ---------------------------------------------------------------------------
+
+const KICKER_ON = { ...model.MODEL_CONSTANTS_V3_2, kicker: { w: 0.5, kickerPointsPerTeamPoint: 0.3 } };
+const KICKER_TEAM_ONLY = { ...model.MODEL_CONSTANTS_V3_2, kicker: { w: 1, kickerPointsPerTeamPoint: 1 } };
+
+/** Points by week for the kicker's team BUF, from week `startWeek` on. */
+const teamWeeks = (points, startWeek = 1) =>
+  points.map((p, i) => ({ week: startWeek + i, scoring_team: 'BUF', points: p }));
+
+/** A BUF kicker with five earlier weeks, projected for week 6. */
+async function kickerRun(t, { teamScoring = [], constants = KICKER_ON, onQuery = null } = {}) {
+  mockPool(t, {
+    players: [player(1, 'K')],
+    weeklyStats: [1, 2, 3, 4, 5].map((week) => weeklyRow(1, week, { extraPoint: 2, fieldGoalDistances: [25] })),
+    teamScoring,
+    onQuery,
+  });
+  const generated = await projection.generateProjections({
+    season: SEASON, week: 6, rules: SCORING_RULES, playerIds: [1], hashValue: 'h', weatherService: false,
+    modelConstants: constants,
+  });
+  return generated.projections.get(1);
+}
+
+test('the kicker blend reads only the four most recent team games (#1443)', async (t) => {
+  const oldestHigh = await kickerRun(t, { teamScoring: teamWeeks([40, 20, 30, 10, 20]) });
+  t.mock.restoreAll();
+  const oldestLow = await kickerRun(t, { teamScoring: teamWeeks([0, 20, 30, 10, 20]) });
+  assert.equal(oldestHigh.mean, oldestLow.mean, 'week 1 is outside the four most recent');
+  t.mock.restoreAll();
+  const teamOnly = await kickerRun(t, { teamScoring: teamWeeks([40, 20, 30, 10, 20]), constants: KICKER_TEAM_ONLY });
+  assert.equal(teamOnly.mean, 20, 'the blend is the mean of weeks 2 to 5 alone');
+});
+
+test('a team with two earlier games uses both, and a non-numeric points row is skipped (#1443)', async (t) => {
+  const projected = await kickerRun(t, {
+    teamScoring: [...teamWeeks([20, 30]), { week: 3, scoring_team: 'BUF', points: 'n/a' }],
+    constants: KICKER_TEAM_ONLY,
+  });
+  assert.equal(projected.mean, 25);
+});
+
+test('under MODEL_CONSTANTS the team scoring query is never issued (#1443)', async (t) => {
+  const v31Texts = [];
+  await kickerRun(t, { constants: model.MODEL_CONSTANTS, onQuery: (text) => v31Texts.push(text) });
+  assert.equal(v31Texts.some((text) => text.includes('AS "scoring_team"')), false);
+
+  t.mock.restoreAll();
+  const v32Texts = [];
+  await kickerRun(t, { onQuery: (text) => v32Texts.push(text) });
+  assert.equal(v32Texts.some((text) => text.includes('AS "scoring_team"')), true, 'the control: v3.2 issues it');
 });

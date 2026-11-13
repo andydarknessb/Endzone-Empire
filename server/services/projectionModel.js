@@ -497,10 +497,16 @@ const MODEL_CONSTANTS = {
  *    "insufficient opponent sample" while the card prints the matchup as if
  *    it mattered. The cap and the shrinkage toward neutral are untouched.
  *
+ *  - `kicker: { w, kickerPointsPerTeamPoint }` (#1443). Blends a kicker's
+ *    baseline with his team's points per game (see kickerBlend). Both numbers
+ *    are fitted on 2024 and 2025 by scripts/backtest/fit-kicker-blend.js, not
+ *    preregistered; the zeros below are placeholders until that fit lands.
+ *
  * Of the five keys above, four are DEFAULTS, not fitted values, and
  * `baseline.appearancesOnly` is an on/off switch, not a default value; all five
  * are preregistered once and judged on the 2026 holdout ledger through #1439
- * with the rest of v3.2; no sweep on that ledger.
+ * with the rest of v3.2; no sweep on that ledger. `kicker` is the one key here
+ * outside that preregistration.
  */
 function cloneConstants(value) {
   if (Array.isArray(value)) return value.map(cloneConstants);
@@ -524,6 +530,8 @@ const MODEL_CONSTANTS_V3_2 = (() => {
   v32.simulation.centerEvenPoolMedian = true;
   v32.opponent.priorSeasonPseudoGames = 4;
   v32.baseline.appearancesOnly = true;
+  // Both numbers are fitted on 2024 and 2025 by scripts/backtest/fit-kicker-blend.js (#1443); these zeros are placeholders.
+  v32.kicker = { w: 0, kickerPointsPerTeamPoint: 0 };
   return deepFreeze(v32);
 })();
 
@@ -763,6 +771,15 @@ function baselineProduction({
     usedPriorSeason: isNum(priorSeasonPerGame),
     usedPositionBaseline: isNum(positionBaselinePerGame),
   };
+}
+
+/**
+ * Pure: a kicker's baseline blended with his team's points per game (#1443,
+ * v3.2). `kickerPointsPerTeamPoint` converts team points into his share of them.
+ */
+function kickerBlend({ recencyMean, teamPointsPerGame, constants }) {
+  return (1 - constants.w) * recencyMean
+    + constants.w * teamPointsPerGame * constants.kickerPointsPerTeamPoint;
 }
 
 // ---------------------------------------------------------------------------
@@ -1491,6 +1508,7 @@ function confidenceFor({
   opponentAvailable = false,
   activeProbability = 1,
   hasRoleData = true,
+  teamScoringMissing = false,
   constants = MODEL_CONSTANTS.confidence,
 } = {}) {
   const reasons = [];
@@ -1514,6 +1532,7 @@ function confidenceFor({
   if (!opponentAvailable) reasons.push('opponent sample thin');
   if (activeProbability === null) demote('injury designation');
   if (!hasRoleData) reasons.push('no role data');
+  if (teamScoringMissing) reasons.push('no team scoring');
 
   return { level, reasons };
 }
@@ -1559,6 +1578,9 @@ function projectPlayer({
   expert = null,
   availability = null,
   hasRoleData = true,
+  // A kicker's team points per game (#1443, v3.2): used only by a K under a
+  // `kicker` block. Null when the team has no completed games yet.
+  teamPointsPerGame = null,
   constants = MODEL_CONSTANTS,
   // The position floor (#1483, v3.2): DATA (the lowest points any player of
   // this position group scored over the prior season and the current season to date under the run's own
@@ -1620,6 +1642,14 @@ function projectPlayer({
       },
       unavailableReason: 'no evidence',
     };
+  }
+
+  // #1443 (v3.2): a kicker's baseline shrinks toward his team's scoring before
+  // the usage blend and the factor chain see it.
+  if (position === 'K' && constants.kicker && isNum(teamPointsPerGame)) {
+    baseline.value = kickerBlend({
+      recencyMean: baseline.value, teamPointsPerGame, constants: constants.kicker,
+    });
   }
 
   // Opportunity-weighted component. Consulted ONLY when a positive blend weight
@@ -1732,6 +1762,7 @@ function projectPlayer({
     opponentAvailable: !!(opponent && opponent.available),
     activeProbability: availabilityInfo.activeProbability,
     hasRoleData,
+    teamScoringMissing: position === 'K' && !!constants.kicker && !isNum(teamPointsPerGame),
     constants: constants.confidence,
   });
 
@@ -1797,6 +1828,7 @@ module.exports = {
   recencyWeight,
   shrinkToward,
   baselineProduction,
+  kickerBlend,
   opportunitiesForGame,
   opportunityBaseline,
   opponentEffect,
