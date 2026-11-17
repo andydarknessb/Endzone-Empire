@@ -479,3 +479,68 @@ test('every Week 10 entry carries a non-empty reason', () => {
     assert.ok(e.reason.trim().length > 0, `${e.name} reason`);
   }
 });
+
+// The article's "The Full Board" table order (Week 11 2026 Darkness Report).
+const WEEK11_NAMES = [
+  'Jordyn Tyson',
+  'Cam Ward',
+  'Xavier Hutchinson',
+  "Tre' Harris",
+  'Bo Nix',
+  'Courtland Sutton',
+  'Mark Andrews',
+  'Elic Ayomanor',
+  'Ryan Flournoy',
+  'J.J. McCarthy',
+  'Jacoby Brissett',
+  'Makai Lemon',
+  'Seth McGowan',
+  'Kaelon Black',
+  'Chig Okonkwo',
+  'Michael Mayer',
+  'Caleb Douglas',
+  'Emari Demercado',
+];
+
+test('getBoard(2026, 11) lists the 18 Darkness Report players in the column order', () => {
+  const board = waiverBoards.getBoard(2026, 11);
+  assert.ok(board, 'Week 11 2026 board is listed');
+  assert.equal(board.season, 2026);
+  assert.equal(board.week, 11);
+  assert.equal(board.entries.length, 18);
+  assert.deepEqual(
+    board.entries.map((e) => e.name),
+    WEEK11_NAMES
+  );
+  assert.equal(board.entries[0].name, 'Jordyn Tyson');
+  assert.equal(board.entries[0].playerId, 650);
+  assert.equal(board.entries[0].bidMin, 7);
+  assert.equal(board.entries[0].bidMax, 11);
+  assert.equal(board.entries[17].name, 'Emari Demercado');
+});
+
+test('every Week 11 entry has a distinct positive integer playerId', () => {
+  const { entries } = waiverBoards.getBoard(2026, 11);
+  for (const e of entries) {
+    assert.ok(Number.isInteger(e.playerId) && e.playerId > 0, `${e.name} playerId`);
+  }
+  assert.equal(new Set(entries.map((e) => e.playerId)).size, entries.length);
+});
+
+test('every Week 11 entry has an integer bid range 1..100 with bidMin <= bidMax', () => {
+  const { entries } = waiverBoards.getBoard(2026, 11);
+  for (const e of entries) {
+    for (const bid of [e.bidMin, e.bidMax]) {
+      assert.ok(Number.isInteger(bid) && bid >= 1 && bid <= 100, `${e.name} bid ${bid}`);
+    }
+    assert.ok(e.bidMin <= e.bidMax, `${e.name} bidMin <= bidMax`);
+  }
+});
+
+test('every Week 11 entry carries a non-empty reason', () => {
+  const { entries } = waiverBoards.getBoard(2026, 11);
+  for (const e of entries) {
+    assert.equal(typeof e.reason, 'string');
+    assert.ok(e.reason.trim().length > 0, `${e.name} reason`);
+  }
+});
