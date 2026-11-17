@@ -31,7 +31,7 @@ module.exports = {
       name: 'Xavier Hutchinson',
       bidMin: 4,
       bidMax: 7,
-      reason: '4 for 58 and a TD on 9 targets. Harrison missed Sunday with a hamstring injury.',
+      reason: '4 for 58 and a TD on 9 targets. Harrison missed the game.',
     },
     {
       playerId: 1160,
@@ -59,7 +59,7 @@ module.exports = {
       name: 'Mark Andrews',
       bidMin: 2,
       bidMax: 4,
-      reason: "8 for 82 on 8 targets in Brissett's first start.",
+      reason: "8 for 82 on 8 targets in Brissett's Baltimore debut.",
     },
     {
       playerId: 1004,
