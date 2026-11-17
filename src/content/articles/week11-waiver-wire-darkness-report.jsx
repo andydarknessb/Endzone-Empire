@@ -92,7 +92,7 @@ const BIG_THREE = [
   {
     id: 'xavier-hutchinson', rank: 3, name: 'Xavier Hutchinson', pos: 'WR', team: 'HOU', matchup: 'vs IND (Thu)',
     min: 4, max: 7, rostered: '8.7% rostered', window: 'While Harrison is out', windowTone: 'var(--warning)',
-    take: "Hutchinson caught 4 passes for 58 yards and a TD on 9 targets in the 27-24 loss at Cleveland, a 25% share after 14% the week before, worth 13.8 points. Marvin Harrison Jr. was inactive with a hamstring injury and was estimated as a non-participant on Monday's practice report, and Jaylin Noel is on IR. Houston hosts Indianapolis on Thursday night and is implied for 28.5.",
+    take: "Hutchinson caught 4 passes for 58 yards and a TD on 9 targets in the 27-24 loss at Cleveland, a 25% share after 14% the week before, worth 13.8 points. Marvin Harrison Jr. missed the game and was estimated as a non-participant with a hamstring injury on Monday's practice report, and Jaylin Noel is on IR. Houston hosts Indianapolis on Thursday night and is implied for 28.5.",
     pro: 'Nine targets, second on the team, in a 28.5 implied total.',
     con: "Nico Collins drew 16 targets, and the role is Harrison's when he returns. It is a short week, so the claim has to clear before Thursday.",
   },
@@ -195,11 +195,11 @@ const Body = () => (
       <TBody>
         <TR><TD>1</TD><TD><strong>Jordyn Tyson</strong></TD><TD>WR</TD><TD>NO</TD><TD>11 for 80 on 13 targets, a 39% share after 16%.</TD><TD>at CHI</TD><TD>Season</TD><TD>7&ndash;11%</TD><TD>42.2%</TD></TR>
         <TR><TD>2</TD><TD><strong>Cam Ward</strong></TD><TD>QB</TD><TD>TEN</TD><TD>26.3 and 19.1 in his last two games. A 54.5 total in Dallas.</TD><TD>at DAL</TD><TD>Season</TD><TD>5&ndash;8%</TD><TD>4.5%</TD></TR>
-        <TR><TD>3</TD><TD><strong>Xavier Hutchinson</strong></TD><TD>WR</TD><TD>HOU</TD><TD>4 for 58 and a TD on 9 targets. Harrison missed Sunday with a hamstring injury.</TD><TD>vs IND (Thu)</TD><TD>While Harrison is out</TD><TD>4&ndash;7%</TD><TD>8.7%</TD></TR>
+        <TR><TD>3</TD><TD><strong>Xavier Hutchinson</strong></TD><TD>WR</TD><TD>HOU</TD><TD>4 for 58 and a TD on 9 targets. Harrison missed the game.</TD><TD>vs IND (Thu)</TD><TD>While Harrison is out</TD><TD>4&ndash;7%</TD><TD>8.7%</TD></TR>
         <TR><TD>4</TD><TD><strong>Tre&apos; Harris</strong></TD><TD>WR</TD><TD>LAC</TD><TD>5 for 86 on a 31% share, after 23%.</TD><TD>vs NYJ</TD><TD>If McConkey sits</TD><TD>3&ndash;6%</TD><TD>2.9%</TD></TR>
         <TR><TD>5</TD><TD><strong>Bo Nix</strong></TD><TD>QB</TD><TD>DEN</TD><TD>19.3 and 15.7 before the bye. Denver is a 10-point favorite.</TD><TD>vs LV</TD><TD>Season</TD><TD>3&ndash;6%</TD><TD>56.5%</TD></TR>
         <TR><TD>6</TD><TD><strong>Courtland Sutton</strong></TD><TD>WR</TD><TD>DEN</TD><TD>A 26% share and 13.0 before the bye. Waddle is listed questionable.</TD><TD>vs LV</TD><TD>Season</TD><TD>3&ndash;5%</TD><TD>56.9%</TD></TR>
-        <TR><TD>7</TD><TD><strong>Mark Andrews</strong></TD><TD>TE</TD><TD>BAL</TD><TD>8 for 82 on 8 targets in Brissett&apos;s first start.</TD><TD>at CAR</TD><TD>Season</TD><TD>2&ndash;4%</TD><TD>53.7%</TD></TR>
+        <TR><TD>7</TD><TD><strong>Mark Andrews</strong></TD><TD>TE</TD><TD>BAL</TD><TD>8 for 82 on 8 targets in Brissett&apos;s Baltimore debut.</TD><TD>at CAR</TD><TD>Season</TD><TD>2&ndash;4%</TD><TD>53.7%</TD></TR>
         <TR><TD>8</TD><TD><strong>Elic Ayomanor</strong></TD><TD>WR</TD><TD>TEN</TD><TD>5 for 79 on 10 targets, a 27% share, with Tate out.</TD><TD>at DAL</TD><TD>If Tate sits</TD><TD>2&ndash;4%</TD><TD>0.3%</TD></TR>
         <TR><TD>9</TD><TD><strong>Ryan Flournoy</strong></TD><TD>WR</TD><TD>DAL</TD><TD>6 for 71 and a TD on 7 targets. Dallas is implied for 31.5.</TD><TD>vs TEN</TD><TD>Stream</TD><TD>2&ndash;4%</TD><TD>25.9%</TD></TR>
         <TR><TD>10</TD><TD><strong>J.J. McCarthy</strong></TD><TD>QB</TD><TD>NYG</TD><TD>293 yards, a TD and 34 rushing yards, worth 17.1.</TD><TD>vs JAX</TD><TD>Superflex stream</TD><TD>2&ndash;4%</TD><TD>27.5%</TD></TR>
@@ -220,7 +220,7 @@ const Body = () => (
     </P>
     <P>
       Off the board, for a dollar if your wire is thin: Myles Price (MIN WR, 0.8%) caught 4 for 49 and his
-      first career TD with Jordan Addison out, and Addison needs thumb surgery. Gavin Bartholomew (MIN TE,
+      first career TD catch with Jordan Addison out, and Addison needs thumb surgery. Gavin Bartholomew (MIN TE,
       1.5%) caught 3 for 36 and a TD with T.J. Hockenson out. Tommy Tremble (CAR TE, 0.5%) has 16% and 17%
       shares the last two weeks and out-targeted Darren Waller 5 to 4. Tommy DeVito (NE QB, 0.1%) is the
       superflex stash: Mike Vrabel indicated Drake Maye will miss time, and New England is on bye.
@@ -258,8 +258,7 @@ const Body = () => (
         it: he completed 12 passes for 129 yards. The Chargers host the Jets, implied for 22.0. He is a stream.
       </LI>
       <LI>
-        <strong>Avoid Aaron Rodgers</strong> (PIT, 37.2%, 15.6): he had 27 passing yards through three quarters at
-        Cincinnati, and both TDs came in the fourth quarter of a 38-18 loss.
+        <strong>Avoid Aaron Rodgers</strong> (PIT, 37.2%, 15.6): both TDs came in the fourth quarter of a 38-18 loss at Cincinnati.
       </LI>
       <LI>
         <strong>Avoid Fernando Mendoza</strong> (LV, 19.5%, 13.9): 143 yards and six sacks in his first start, and
@@ -281,8 +280,7 @@ const Body = () => (
       </LI>
       <LI>
         On bye and useless this week: Drew Lock, Michael Penix Jr., Deshaun Watson and Shedeur Sanders. Mike
-        Macdonald is &quot;really optimistic&quot; that Sam Darnold practices in full after the bye and starts on
-        Nov. 29, so Lock&apos;s run looks over.
+        Macdonald is &quot;really optimistic&quot; that Sam Darnold gets a full week of practice after the bye and starts on Nov. 29, so Lock&apos;s run looks over.
       </LI>
     </UL>
 
@@ -417,24 +415,24 @@ const Body = () => (
     <H2>The Injury Ledger</H2>
     <H3>Out or on IR</H3>
     <UL>
-      <LI><strong>Drake Maye</strong> (NE QB): ankle, hurt on New England&apos;s opening drive in Munich. Mike Vrabel said Monday he had no definitive diagnosis but indicated Maye will miss time (Phil Perry). New England is on bye. DeVito.</LI>
       <LI><strong>Aidan Hutchinson</strong> (DET DE): a torn ACL in his right knee, confirmed Monday (Tom Pelissero).</LI>
       <LI><strong>Jordan Addison</strong> (MIN WR): needs thumb surgery and will miss a few weeks (Kevin O&apos;Connell). <strong>Kyler Murray</strong> (MIN QB) is listed out. Price.</LI>
-      <LI><strong>Woody Marks</strong> (HOU RB): entered the concussion protocol in the third quarter Sunday, missed Monday&apos;s walkthrough and is listed doubtful, with Houston playing Thursday. <strong>Marvin Harrison Jr.</strong> (HOU WR): hamstring, inactive Sunday and estimated as a non-participant Monday. <strong>Jaylin Noel</strong> (HOU WR): IR. Hutchinson, Demercado.</LI>
-      <LI><strong>Kenneth Walker III</strong> (KC RB): groin, ruled out the day before the Atlanta game and listed questionable. <strong>Jaydn Ott</strong> (KC RB): hamstring, inactive Sunday. Emmett Johnson (75.3%).</LI>
       <LI><strong>Josh Jacobs</strong> (GB RB): finger, listed out, with a &quot;realistic chance&quot; of returning Nov. 25 against the Rams after the bye (Ian Rapoport).</LI>
       <LI><strong>Puka Nacua</strong> (LAR WR): IR, knee and toe, expected back in &quot;mid-December&quot; (Rapoport). <strong>Davante Adams</strong> (LAR WR): IR, hamstring, targeting Nov. 25 (Rapoport).</LI>
-      <LI><strong>Sam Darnold</strong> (SEA QB): quadriceps and ribs, listed out. Mike Macdonald is &quot;really optimistic&quot; he practices in full after the bye and starts Nov. 29 against San Francisco.</LI>
+      <LI><strong>Sam Darnold</strong> (SEA QB): quadriceps and ribs, listed out. Mike Macdonald is &quot;really optimistic&quot; he gets a full week of practice after the bye and starts Nov. 29 against San Francisco.</LI>
       <LI><strong>Lamar Jackson</strong> (BAL QB): IR, thumb, out &quot;6-to-10 weeks&quot; (Jesse Minter). Brissett.</LI>
       <LI><strong>Gardner Minshew II</strong> (ARI QB): IR, season-ending elbow surgery (Adam Schefter). <strong>Michael Wilson</strong> (ARI WR), <strong>Jeremiyah Love</strong> (ARI RB) and <strong>Kendrick Bourne</strong> (ARI WR): IR.</LI>
       <LI><strong>Malik Willis</strong> (MIA QB): IR, groin and core, and the Dolphins are still deciding on surgery (Jeff Hafley). <strong>De&apos;Von Achane</strong> (MIA RB): IR. McCord.</LI>
       <LI><strong>TreVeyon Henderson</strong> (NE RB): IR, illness. <strong>RJ Harvey</strong> (DEN RB): IR, knee. <strong>Tyler Goodson</strong> (DAL RB): IR, knee. <strong>Terry McLaurin</strong> (WSH WR): IR, surgery on a torn patellar tendon. <strong>Jalen Hurts</strong> (PHI QB): IR, expected to miss the rest of the season.</LI>
       <LI><strong>Jake Ferguson</strong> (DAL TE): listed out. <strong>Brandon Aiyuk</strong> (SF WR): listed out, on a roster exemption.</LI>
-      <LI><strong>Jacory Croskey-Merritt</strong> (WSH RB): IR. His practice window is not open, but Dan Quinn says he is &quot;trending in the right direction.&quot;</LI>
-      <LI><strong>Michael Pittman Jr.</strong> and <strong>Roman Wilson</strong> (PIT WR): IR. Mike McCarthy is &quot;hopeful&quot; both return this week.</LI>
+      <LI><strong>Jacory Croskey-Merritt</strong> (WSH RB): IR, no new detail.</LI>
+      <LI><strong>Michael Pittman Jr.</strong> (PIT WR): IR. <strong>Roman Wilson</strong> (PIT WR): IR, and Mike McCarthy is &quot;hopeful&quot; he returns against the Eagles.</LI>
     </UL>
-    <H3>Questionable and day-to-day</H3>
+    <H3>Doubtful, questionable and day-to-day</H3>
     <UL>
+      <LI><strong>Drake Maye</strong> (NE QB): ankle, listed doubtful, hurt on New England&apos;s opening drive in Munich. Mike Vrabel said Monday he had no definitive diagnosis but indicated Maye will miss time (Phil Perry). New England is on bye. DeVito.</LI>
+      <LI><strong>Woody Marks</strong> (HOU RB): entered the concussion protocol in the third quarter Sunday, missed Monday&apos;s walkthrough and is listed doubtful, with Houston playing Thursday. <strong>Marvin Harrison Jr.</strong> (HOU WR): hamstring, listed questionable, missed Sunday&apos;s game and was estimated as a non-participant Monday. <strong>Jaylin Noel</strong> (HOU WR) is on IR. Hutchinson, Demercado.</LI>
+      <LI><strong>Kenneth Walker III</strong> (KC RB): groin, ruled out the day before the Atlanta game and listed questionable. <strong>Jaydn Ott</strong> (KC RB): hamstring, inactive Sunday and listed questionable. Emmett Johnson (75.3%).</LI>
       <LI><strong>Brock Bowers</strong> (LV TE): right ankle, day-to-day. Klint Kubiak: &quot;It&apos;s not as bad as we thought, but still a significant injury.&quot; Mayer.</LI>
       <LI><strong>Geno Smith</strong> (NYJ QB): left ankle, left in the third quarter, and tests found no major injury (Rapoport). <strong>Omar Cooper Jr.</strong> (NYJ WR): ankle, hurt on the Jets&apos; first offensive play, with imaging Monday.</LI>
       <LI><strong>Baker Mayfield</strong> (TB QB): foot, questionable. Tampa Bay signed Easton Stick to the roster and Cooper Rush to the practice squad Monday (Rick Stroud).</LI>
@@ -443,9 +441,9 @@ const Body = () => (
       <LI><strong>Carnell Tate</strong> (TEN WR): shoulder, missed Sunday, and Robert Saleh is hopeful for Dallas. <strong>Wan&apos;Dale Robinson</strong> (TEN WR): ankle, hurt Sunday. Ayomanor.</LI>
       <LI><strong>Ladd McConkey</strong> (LAC WR): listed questionable, with no stat line in two games. Harris.</LI>
       <LI><strong>A.J. Brown</strong> (NE WR): hamstring, left in the second half in Munich. New England is on bye.</LI>
-      <LI><strong>Travis Kelce</strong> (KC TE): aggravated a right ankle injury, was carted off and returned in the second quarter.</LI>
+      <LI><strong>Travis Kelce</strong> (KC TE): aggravated a right ankle injury, was carted off and returned in the second quarter. No injury tag in our data.</LI>
       <LI><strong>Jaylen Waddle</strong> (DEN WR): concussion, listed questionable coming out of the bye. <strong>Luther Burden III</strong> (CHI WR): concussion, took part in Monday&apos;s unofficial practice. <strong>Kyle Monangai</strong> (CHI RB): thumb and toe, says he is &quot;on track&quot; for Sunday.</LI>
-      <LI><strong>Chig Okonkwo</strong> (WSH TE): left Thursday&apos;s game with a back injury and returned after halftime.</LI>
+      <LI><strong>Chig Okonkwo</strong> (WSH TE): left last Thursday&apos;s game at the Giants with a back injury and returned after halftime. No injury tag in our data.</LI>
       <LI><strong>DeVonta Smith</strong> and <strong>Dontayvion Wicks</strong> (PHI WR): listed questionable, no new detail.</LI>
     </UL>
 
@@ -486,8 +484,8 @@ const Body = () => (
         <TR><TD><strong>Corey Kiner</strong></TD><TD>2.5</TD><TD>8&ndash;12%</TD><TD>10 carries for 25 in a 35-10 loss.</TD></TR>
         <TR><TD><strong>Audric Estime</strong></TD><TD>1.6</TD><TD>4&ndash;7%</TD><TD>7 carries for 6. Travis Etienne Jr. came off IR.</TD></TR>
         <TR><TD><strong>Jameis Winston</strong></TD><TD>0.1</TD><TD>1&ndash;2%</TD><TD>McCarthy played.</TD></TR>
-        <TR><TD><strong>Van Jefferson</strong></TD><TD>DNP</TD><TD>1&ndash;3%</TD><TD>No stat line.</TD></TR>
-        <TR><TD><strong>Pierre Strong Jr.</strong></TD><TD>DNP</TD><TD>1&ndash;2%</TD><TD>No stat line.</TD></TR>
+        <TR><TD><strong>Van Jefferson</strong></TD><TD>n/a</TD><TD>1&ndash;3%</TD><TD>No stat line.</TD></TR>
+        <TR><TD><strong>Pierre Strong Jr.</strong></TD><TD>n/a</TD><TD>1&ndash;2%</TD><TD>No stat line.</TD></TR>
       </TBody>
     </Table>
     <P>
@@ -554,8 +552,7 @@ const Body = () => (
     <H3>Rule 5: Price the second bet</H3>
     <P>
       Five windows on this board need somebody else to sit: Harrison, McConkey, Tate, Bowers, and Marks with
-      Montgomery. None of them costs more than 7%. Last week&apos;s two most expensive windows did open, and Johnson
-      and Kiner scored 6.7 between them. An open window is not a good game.
+      Montgomery. None of them costs more than 7%. Last week&apos;s most expensive window did open, and Johnson scored 4.2. Kiner got 10 carries with Stevenson back and scored 2.5. An open window is not a good game.
     </P>
     <Quote>
       Buy the targets. Rent the handcuff. Never pay for last week&apos;s.
@@ -567,7 +564,7 @@ const Body = () => (
       <LI><strong>Audric Estime</strong>: 7 carries for 6 with Travis Etienne Jr. back, at 43.5%.</LI>
       <LI><strong>Darren Waller</strong>: 2 for 24 on a 14% share, at 31.9%.</LI>
       <LI><strong>Devin Singletary</strong>: 1 carry with Cam Skattebo back, at 28.0%. <strong>Chris Rodriguez Jr.</strong>: 4 carries while Bhayshul Tuten had 26, at 19.0%.</LI>
-      <LI><strong>Drew Lock</strong>: on bye, with Darnold expected to start on Nov. 29, at 19.9%.</LI>
+      <LI><strong>Drew Lock</strong>: on bye, with Mike Macdonald optimistic that Darnold starts on Nov. 29, at 19.9%.</LI>
       <LI><strong>Tyler Allgeier</strong>: 5 carries for 14, with Arizona implied for 12.5, at 64.9%. Cut him if you need the spot.</LI>
       <LI><strong>Kaleb Johnson</strong>: on bye, at 13.4%. Hold him only if you roster Jacobs.</LI>
       <LI><strong>Hold</strong> Tank Dell through Thursday: he had 4 targets while Hutchinson had 9.</LI>
