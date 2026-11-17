@@ -38,6 +38,7 @@ import week7WaiverWireDarknessReport from './week7-waiver-wire-darkness-report.m
 import week8WaiverWireDarknessReport from './week8-waiver-wire-darkness-report.meta';
 import week9WaiverWireDarknessReport from './week9-waiver-wire-darkness-report.meta';
 import week10WaiverWireDarknessReport from './week10-waiver-wire-darkness-report.meta';
+import week11WaiverWireDarknessReport from './week11-waiver-wire-darkness-report.meta';
 import week6StartSitDarknessReport from './week6-start-sit-darkness-report.meta';
 import week7StartSitDarknessReport from './week7-start-sit-darkness-report.meta';
 import week8StartSitDarknessReport from './week8-start-sit-darkness-report.meta';
@@ -71,6 +72,7 @@ const BODY_LOADERS = {
   'week8-waiver-wire-darkness-report': () => import('./week8-waiver-wire-darkness-report'),
   'week9-waiver-wire-darkness-report': () => import('./week9-waiver-wire-darkness-report'),
   'week10-waiver-wire-darkness-report': () => import('./week10-waiver-wire-darkness-report'),
+  'week11-waiver-wire-darkness-report': () => import('./week11-waiver-wire-darkness-report'),
   'week6-start-sit-darkness-report': () => import('./week6-start-sit-darkness-report'),
   'week7-start-sit-darkness-report': () => import('./week7-start-sit-darkness-report'),
   'week8-start-sit-darkness-report': () => import('./week8-start-sit-darkness-report'),
@@ -104,6 +106,7 @@ const ARTICLES = [
   week8WaiverWireDarknessReport,
   week9WaiverWireDarknessReport,
   week10WaiverWireDarknessReport,
+  week11WaiverWireDarknessReport,
   week6StartSitDarknessReport,
   week7StartSitDarknessReport,
   week8StartSitDarknessReport,
