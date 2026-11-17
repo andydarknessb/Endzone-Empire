@@ -33,6 +33,7 @@ const BOARDS = [
   require('./week8-2026'),
   require('./week9-2026'),
   require('./week10-2026'),
+  require('./week11-2026'),
 ];
 
 /**
