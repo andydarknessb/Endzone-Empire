@@ -1768,6 +1768,8 @@ test('quick-actions: in season a League pages row sits under Your move and befor
     'Set Lineup', 'Game Center', 'Waivers', 'Trades',
   ]);
   expect(within(pages).queryByText('Playbook')).not.toBeInTheDocument();
+  // No leading separator dot before the first link.
+  expect(pages).toHaveTextContent(/^Set Lineup/);
   expect(precedes(await screen.findByTestId('slot-your-move'), pages)).toBe(true);
   expect(precedes(pages, screen.getByTestId('dashboard-hero'))).toBe(true);
 });
@@ -3200,6 +3202,20 @@ describe('game day: focus holds across the one-hour flip', () => {
 
     expect(within(screen.getByTestId('dashboard-hero')).queryByTestId('slot-your-move')).not.toBeInTheDocument();
     expect(outside).toHaveFocus();
+  });
+
+  // The hero itself is not moved by the flip: a link in My team, which stays in the hero, keeps focus.
+  test('focus on a My team link inside the hero is not moved when a lock crosses one hour', async () => {
+    mockGetByUrl(gameDayMocks(actionItems([fixLineupItem(IN_MINUTES(61))])));
+    renderPage();
+
+    const myTeam = await screen.findByTestId('slot-my-team');
+    const link = within(myTeam).getAllByRole('link')[0];
+    act(() => link.focus());
+    tickClock(4);
+
+    expect(screen.getByTestId('dashboard-hero')).toContainElement(myTeam);
+    expect(link).toHaveFocus();
   });
 
   test('a shared lock with a Fix lineup foot and a Make picks foot keeps focus on Make picks across the flip', async () => {

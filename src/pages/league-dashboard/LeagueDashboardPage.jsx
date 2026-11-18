@@ -512,9 +512,11 @@ function DashboardBody({
   } else if (gameDay) {
     sections = [
       ['your-move', yourMoveOnTop ? yourMoveNode : yourMoveFailed],
-      ...(pagesUnderHero ? [] : [['league-pages', leaguePages]]),
+      // Fixed slots, so the hero keeps its index when the row moves between the two positions (a shifted
+      // index makes React move the hero's DOM and drop focus inside it). Each position has its own key.
+      ['league-pages', pagesUnderHero ? null : leaguePages],
       ['hero', hero],
-      ...(pagesUnderHero ? [['league-pages', leaguePages]] : []),
+      ['league-pages-hero', pagesUnderHero ? leaguePages : null],
       ['strip', commissionerStrip],
       ['recap', recap],
       ['around', around],
