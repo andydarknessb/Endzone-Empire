@@ -107,13 +107,13 @@ function recapBody(now: number, teams: DashTeam[]) {
   };
 }
 
-function leagueRow(state: DashState) {
+function leagueRow(state: DashState, inviteCode: string) {
   const base = {
     ...LEAGUE_ROW,
     current_week: WEEK,
     draft_status: 'complete',
     season_status: 'regular',
-    invite_code: 'abc123',
+    invite_code: inviteCode,
     is_commissioner: true,
   };
   if (state === 'predraft') return { ...base, draft_status: 'pending', current_week: 1 };
@@ -229,7 +229,7 @@ export type DashHarness = { items: () => Record<string, unknown>[] };
 export async function setupDashboard(
   page: Page,
   state: DashState,
-  opts: { theme?: DashTheme; now?: number; teamNames?: Record<number, string> } = {},
+  opts: { theme?: DashTheme; now?: number; teamNames?: Record<number, string>; inviteCode?: string } = {},
 ): Promise<DashHarness> {
   const now = opts.now ?? Date.now();
   // A per-call copy: DASH_TEAMS is shared by every test in the worker.
@@ -253,7 +253,7 @@ export async function setupDashboard(
     if (request.method() === 'POST' && pathname === `/api/league/${LEAGUE_ID}/chat/read`) return json(route, 200, {});
     if (request.method() !== 'GET') return route.fallback();
     if (pathname === `/api/league/${LEAGUE_ID}`) {
-      return json(route, 200, { league: leagueRow(state), teams, viewerTeamId: VIEWER_TEAM_ID });
+      return json(route, 200, { league: leagueRow(state, opts.inviteCode ?? 'abc123'), teams, viewerTeamId: VIEWER_TEAM_ID });
     }
     if (pathname === `/api/league/${LEAGUE_ID}/matchups`) return json(route, 200, matchupsBody(state, teams));
     if (pathname === `/api/scoring/league/${LEAGUE_ID}/standings`) return json(route, 200, standingsBody(pregame, ranked));

@@ -138,28 +138,72 @@ test('phone around the league: a long one-word team name never runs under the sc
   }
 });
 
-// The chat launcher is a fixed 56px button 24px off the corner: it takes 80px of the viewport at full scroll. The last
-// frame must end above it with 8px to spare (88px minimum; the page pads 96), and the page must reserve that room itself: the app footer below the shell
-// gives clearance today, but the page does not own the footer.
+// From sm up the chat launcher is a fixed 56px button 24px off the corner: it takes 80px of the viewport at full
+// scroll. The last frame must end above it with 8px to spare (88px minimum; the page pads 96), and the page must
+// reserve that room itself: the app footer below the shell gives clearance today, but the page does not own the footer.
 for (const state of ['inseason', 'gamedayUrgent', 'complete', 'predraft', 'pickemonly'] as const) {
-  for (const viewport of ['phone', 'desktop'] as const) {
-    test(`${state} ${viewport}: scrolled to the end, the chat launcher sits below the last frame`, async ({ page }) => {
-      await openDashboard(page, state, viewport, 'light');
-      await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
-      const launcher = page.getByRole('button', { name: /^Open league chat/ });
-      await expect(launcher).toBeVisible();
-      const box = (await launcher.boundingBox())!;
-      const last = await page.evaluate(() => {
-        const blocks = Array.from(document.querySelectorAll('[data-testid="dashboard-shell"] > *'))
-          .filter((el) => getComputedStyle(el).position !== 'fixed' && el.getBoundingClientRect().height > 0);
-        const el = blocks[blocks.length - 1];
-        const shell = document.querySelector('[data-testid="dashboard-shell"]')!;
-        return { bottom: el.getBoundingClientRect().bottom, reserve: shell.getBoundingClientRect().bottom - el.getBoundingClientRect().bottom, text: (el.textContent ?? '').slice(0, 40) };
-      });
-      expect(last.bottom + 8, `the last frame ("${last.text}") ends at ${last.bottom}, the launcher starts at ${box.y}`).toBeLessThanOrEqual(box.y);
-      expect(last.reserve, `the shell reserves ${last.reserve}px below the last frame; the launcher needs 88`).toBeGreaterThanOrEqual(88);
+  test(`${state} desktop: scrolled to the end, the chat launcher sits below the last frame`, async ({ page }) => {
+    await openDashboard(page, state, 'desktop', 'light');
+    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+    const launcher = page.getByRole('button', { name: /^Open league chat/ });
+    await expect(launcher).toBeVisible();
+    const box = (await launcher.boundingBox())!;
+    const last = await page.evaluate(() => {
+      const blocks = Array.from(document.querySelectorAll('[data-testid="dashboard-shell"] > *'))
+        .filter((el) => getComputedStyle(el).position !== 'fixed' && el.getBoundingClientRect().height > 0);
+      const el = blocks[blocks.length - 1];
+      const shell = document.querySelector('[data-testid="dashboard-shell"]')!;
+      return { bottom: el.getBoundingClientRect().bottom, reserve: shell.getBoundingClientRect().bottom - el.getBoundingClientRect().bottom, text: (el.textContent ?? '').slice(0, 40) };
     });
-  }
+    expect(last.bottom + 8, `the last frame ("${last.text}") ends at ${last.bottom}, the launcher starts at ${box.y}`).toBeLessThanOrEqual(box.y);
+    expect(last.reserve, `the shell reserves ${last.reserve}px below the last frame; the launcher needs 88`).toBeGreaterThanOrEqual(88);
+  });
+}
+
+// Below sm the chat is the Ghost "Chat" button in the page head, not a corner button over the page, so the page
+// keeps only the loading shell's 24px at its end and reserves no launcher clearance.
+for (const state of ['inseason', 'gamedayUrgent', 'complete', 'predraft', 'pickemonly'] as const) {
+  test(`${state} phone: scrolled to the end, the page reserves no launcher clearance (24px)`, async ({ page }) => {
+    await openDashboard(page, state, 'phone', 'light');
+    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+    const reserve = await page.evaluate(() => {
+      const blocks = Array.from(document.querySelectorAll('[data-testid="dashboard-shell"] > *'))
+        .filter((el) => getComputedStyle(el).position !== 'fixed' && el.getBoundingClientRect().height > 0);
+      const el = blocks[blocks.length - 1];
+      const shell = document.querySelector('[data-testid="dashboard-shell"]')!;
+      return shell.getBoundingClientRect().bottom - el.getBoundingClientRect().bottom;
+    });
+    expect(reserve, `the shell reserves ${reserve}px below the last frame`).toBe(24);
+  });
+}
+
+// Below sm the chat is the Ghost "Chat" button in the page head: a real 44px target, above the lead Play's frame,
+// and covering no link inside the cursor frame. Every state, at scroll 0.
+for (const state of STATES) {
+  test(`${state} phone: the chat button sits in the page head above the Your move frame, 44px, clear of the cursor`, async ({ page }) => {
+    await openDashboard(page, state, 'phone', 'light');
+    const chat = page.getByRole('button', { name: /^Open league chat/ });
+    await expect(chat).toBeVisible();
+    expect(await chat.evaluate((el) => getComputedStyle(el).position), 'the chat button is not fixed below sm').not.toBe('fixed');
+    const box = (await chat.boundingBox())!;
+    expect(box.height, 'the chat button is a 44px target').toBeGreaterThanOrEqual(44);
+
+    // The lead frame: Your move where the state draws one, else the first frame under the head (a completed
+    // league with nothing due draws no Your move card).
+    const frameTop = await page.evaluate(() => {
+      const frame = document.querySelector('[data-testid="slot-your-move"]') ?? document.querySelector('[data-testid="dashboard-main"]');
+      return frame ? frame.getBoundingClientRect().top : null;
+    });
+    expect(frameTop, 'the page has a frame under the head').not.toBeNull();
+    expect(box.y + box.height, `the chat button ends at ${box.y + box.height}, the frame starts at ${frameTop}`).toBeLessThanOrEqual(frameTop!);
+
+    const cursorLinks = await page.locator('.cursor a').evaluateAll((links) => links.map((a) => {
+      const r = a.getBoundingClientRect();
+      return { text: a.textContent, left: r.left, right: r.right, top: r.top, bottom: r.bottom };
+    }));
+    const under = cursorLinks.filter((r) => r.left < box.x + box.width && r.right > box.x && r.top < box.y + box.height && r.bottom > box.y);
+    expect(under, 'no link in the cursor frame sits under the chat button').toEqual([]);
+  });
 }
 
 // The chat drawer and its emoji menu portal out of the page root, so each paper must take the menu panel itself (#2660).
@@ -202,6 +246,19 @@ test('pickemonly desktop: each weekly points strip is one labelled image, its ce
   }
   await expect(card.locator('[data-testid="pickem-standings-heat-cell"]')).toHaveCount(12 * 18);
   await expect(card.locator('[data-testid="pickem-standings-heat-cell"]:not([aria-hidden="true"])')).toHaveCount(0);
+});
+
+// A new league's invite code is 16 characters (crypto.randomBytes(8) as hex). At 360 the commissioner's Invite and
+// the Chat button share the head's right slot, and that row must wrap rather than push the document sideways.
+test('inseason phone 360: a commissioner with a 16-character invite code and the Chat button do not widen the document', async ({ page }) => {
+  watchUnanswered(page);
+  await setupDashboard(page, 'inseason', { theme: 'light', inviteCode: '0123456789abcdef' });
+  await page.setViewportSize({ width: 360, height: 844 });
+  await page.goto(DASH_URL);
+  await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Open league chat/ })).toBeVisible();
+  const probe = await page.evaluate(() => ({ scrollWidth: document.documentElement.scrollWidth, innerWidth: window.innerWidth }));
+  expect(probe.scrollWidth, `document scrollWidth ${probe.scrollWidth} vs innerWidth ${probe.innerWidth}`).toBeLessThanOrEqual(probe.innerWidth);
 });
 
 for (const viewport of Object.keys(VIEWPORTS) as ViewportName[]) {
