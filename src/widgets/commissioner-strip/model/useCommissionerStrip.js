@@ -13,8 +13,8 @@ import { allWeekSettled, applyScoreEvent, useWeekMatchups } from '../../../entit
  *     useQuickActions gate on. It is never `invite_code`, which answers a
  *     different question (a code being present, not a role); mutating the
  *     gate to read `invite_code` instead collapses it to "render for
- *     nobody", which only a case asserting the tiles' PRESENCE can catch (see
- *     CommissionerStrip.test.jsx's commissioner case).
+ *     nobody", which only a case asserting the commissioner's controls are
+ *     PRESENT can catch (see CommissionerStrip.test.jsx's commissioner case).
  *   - `pickemOnly`, `seasonLive` and `currentWeek`: together decide whether
  *     the advance-week feature shows. A pick'em-only league advances on the
  *     NFL calendar (the scheduler's job), a league with no current week has no
