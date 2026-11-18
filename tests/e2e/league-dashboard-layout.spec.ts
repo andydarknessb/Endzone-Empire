@@ -241,7 +241,7 @@ async function fontsReady(page: Page) {
 /**
  * Installs the harness, sizes the viewport, opens the dashboard and waits for
  * every widget the page composes to have rendered its real content (not
- * just its skeleton): the strip's facts, the hero's two cards, an Around the
+ * just its skeleton): the strip, the hero's two cards, an Around the
  * League tile, a standings row, a Recent activity row (the rail beside the
  * standings) and the Playbook. The Playbook and Recent activity are the last
  * of these to settle, which is what makes the width and height probes below
@@ -258,9 +258,7 @@ async function gotoDashboard(
   if (teams !== 6 || feedRows !== undefined) await routeLeagueOfSize(page, teams, feedRows);
   await page.setViewportSize({ width, height });
   await page.goto(DASHBOARD_URL);
-  // Attached, not visible: the fact grid does not display below md (#1980), so
-  // visibility would never come at the phone widths this guard measures.
-  await page.getByTestId('commissioner-strip-facts').waitFor({ state: 'attached' });
+  await page.getByTestId('commissioner-strip').waitFor();
   await page.getByTestId('my-team-summary').waitFor();
   await page.getByTestId('matchup-preview').waitFor();
   await page.getByTestId('around-the-league-tile').first().waitFor();

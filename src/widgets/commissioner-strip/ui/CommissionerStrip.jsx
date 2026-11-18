@@ -12,8 +12,6 @@ import useCommissionerStrip from '../model/useCommissionerStrip';
  * (2px edge, Pixel 16 heading) for the league's commissioner, directly under the head at every width.
  * It renders nothing for a member; the page's wrapper collapses with it.
  *
- *   - The settled state of the league (the console's five facts: Transactions, Teams locked, Trade
- *     deadline, Waivers, Trade review) in one row, from `md` up. A phone keeps the controls only.
  *   - Rows with an item and an action, never filled (the one filled action is the lead play in Your
  *     move) and never red unless a lock is under an hour: the pending join requests as a link with a
  *     count badge straight to the console, the Advance week control while the season is live, and a
@@ -31,7 +29,6 @@ export default function CommissionerStrip({ leagueId, invite, scoreEvent, onAdva
     pickemOnly,
     seasonLive,
     currentWeek,
-    facts,
     pendingJoinRequests,
     advanceDisabledReason,
     advanceRetry,
@@ -114,30 +111,6 @@ export default function CommissionerStrip({ leagueId, invite, scoreEvent, onAdva
         </FrameHead>
       )}
     >
-      {/* The settled state of the league, from fields the payload already carries. Five facts at md
-          and up; hidden below it, where they pushed the matchup well down a phone. The same facts
-          live on the commissioner console one tap away. */}
-      {facts.length > 0 && (
-        <Box
-          component="dl"
-          data-testid="commissioner-strip-facts"
-          sx={{
-            m: 0,
-            display: { xs: 'none', md: 'grid' },
-            gridTemplateColumns: 'repeat(5, minmax(0, 1fr))',
-            gap: '12px 24px',
-            padding: '14px 20px',
-            borderBottom: '2px solid var(--ps-rule)',
-          }}
-        >
-          {facts.map((fact) => (
-            <Box key={fact.key} data-testid={`commissioner-fact-${fact.key}`}>
-              <Box component="dt" sx={{ fontSize: '13px', color: 'var(--ps-dim)' }}>{fact.label}</Box>
-              <Box component="dd" sx={{ m: 0, fontSize: '15px', fontWeight: 600 }}>{fact.value}</Box>
-            </Box>
-          ))}
-        </Box>
-      )}
       <Box component="ul" sx={{ listStyle: 'none', m: 0, padding: { xs: '0 14px', md: '0 20px' } }}>
         {rows}
       </Box>

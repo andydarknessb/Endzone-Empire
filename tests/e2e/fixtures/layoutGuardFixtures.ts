@@ -164,10 +164,8 @@ function benchFor(offset: number) {
 // join-requests read fires (is_public + join_approval both true).
 // `transactions_locked` / `trade_deadline_week` / `waiver_type` /
 // `waiver_period_hours` / `trade_review_hours` are what
-// `shared/lib/commissionerFacts.js` reads for the strip's five fact tiles
-// (shared/lib/commissionerFacts.js: a fact whose source field is ABSENT is
-// not rendered at all, so the strip's `commissioner-strip-facts` grid stays
-// unmounted without them).
+// `shared/lib/commissionerFacts.js` reads for the console's settings facts
+// (the dashboard strip states none of them).
 export const LEAGUE_ROW = {
   id: LEAGUE_ID,
   name: LEAGUE_NAME,
