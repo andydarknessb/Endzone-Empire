@@ -26,6 +26,10 @@ import { Narrative } from './RecapPanel';
  */
 
 const MARGIN_SX = pixelSx(16);
+// The paragraphs keep their own width and line breaks, as before they took the Recap's Narrative (#2933).
+const NARRATIVE_SX = {
+  fontSize: '15px', color: 'var(--ps-dim)', maxWidth: 'none', whiteSpace: 'normal',
+};
 
 function useScoredFlash(label) {
   const previous = useRef(null);
@@ -111,7 +115,7 @@ function PreKickoffBody({ leagueId, model }) {
               <Narrative
                 text={narrative}
                 lead="Preview"
-                sx={{ fontSize: '15px', color: colors.dim }}
+                sx={NARRATIVE_SX}
                 textTestId="matchup-preview-narrative"
                 toggleTestId="matchup-preview-toggle"
                 expandLabel="Read more"
@@ -122,9 +126,8 @@ function PreKickoffBody({ leagueId, model }) {
               <Narrative
                 text={lastWeek.narrative}
                 lead="Last week"
-                sx={{ fontSize: '15px', color: colors.dim }}
+                sx={NARRATIVE_SX}
                 textTestId="matchup-postgame-narrative"
-                toggleTestId="matchup-postgame-toggle"
                 expandLabel="Read more"
                 subject="last week"
               />

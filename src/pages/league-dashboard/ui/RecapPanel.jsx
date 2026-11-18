@@ -54,6 +54,8 @@ export function Narrative({
     };
   }, [expanded, text]);
 
+  const label = expanded ? 'Show less' : expandLabel;
+
   return (
     <>
       <Box
@@ -81,10 +83,10 @@ export function Narrative({
             data-testid={toggleTestId}
             aria-expanded={expanded}
             aria-controls={narrativeId}
-            ariaLabel={subject ? `${expanded ? 'Show less' : expandLabel} of ${subject}` : undefined}
+            ariaLabel={subject ? `${label} of ${subject}` : undefined}
             onClick={() => setExpanded((open) => !open)}
           >
-            {expanded ? 'Show less' : expandLabel}
+            {label}
           </PsLinkButton>
         </Box>
       )}
