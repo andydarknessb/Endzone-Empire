@@ -188,6 +188,22 @@ test('desktop standings: all twelve teams, no fold control', async ({ page }) =>
   await expect(table.getByTestId('standings-table-full')).toHaveCount(0);
 });
 
+// Pick'em-only weekly strips (#2928): one labelled image per team, its eighteen cells hidden. Twelve teams, so a
+// strip that still drew every cell as an image would put 216 role="img" elements inside the strips here.
+test('pickemonly desktop: each weekly points strip is one labelled image, its cells hidden', async ({ page }) => {
+  await openDashboard(page, 'pickemonly', 'desktop');
+  const card = page.getByTestId('dashboard-pickem-standings');
+  const strips = card.getByTestId('pickem-standings-heat');
+  await expect(strips).toHaveCount(12);
+  await expect(card.locator('[data-testid="pickem-standings-heat"] [role="img"]')).toHaveCount(0);
+  for (const strip of await strips.all()) {
+    await expect(strip).toHaveAttribute('role', 'img');
+    expect(await strip.getAttribute('aria-label'), 'the strip names its weeks').toBeTruthy();
+  }
+  await expect(card.locator('[data-testid="pickem-standings-heat-cell"]')).toHaveCount(12 * 18);
+  await expect(card.locator('[data-testid="pickem-standings-heat-cell"]:not([aria-hidden="true"])')).toHaveCount(0);
+});
+
 for (const viewport of Object.keys(VIEWPORTS) as ViewportName[]) {
   test(`inseason ${viewport}: the matchup pivots on a pixel VS and every standings rank is pixel type inside its column`, async ({ page }) => {
     await openDashboard(page, 'inseason', viewport);
