@@ -285,10 +285,10 @@ test("page shell: pick'em standings do not widen the document", async () => {
   // The stacking rhythm: 24px on a phone, 32px from sm (the canvas boards).
   expect(cssFor(shellEl)).toMatch(/gap:\s*24px/);
   expect(cssFor(shellEl)).toMatch(/gap:\s*32px/);
-  // The fixed chat button (56px tall, at bottom: 24) was landing on the last
-  // card because the empty rows below it were the only thing keeping it clear.
-  // This is the clearance that replaces them (96px under the content at every width;
-  // the geometry is guarded in tests/e2e/league-dashboard-playselect.spec.ts).
+  // Below sm the chat button is in the page head, so the shell keeps the loading shell's 24px at its end;
+  // from sm the fixed 56px button needs the 96px clearance (the geometry is guarded in
+  // tests/e2e/league-dashboard-playselect.spec.ts).
+  expect(cssFor(shellEl)).toMatch(/padding-bottom:\s*24px/);
   expect(cssFor(shellEl)).toMatch(/padding-bottom:\s*96px/);
   // The page paints the Play-select ground on a `.ps-root` element, which also
   // scopes the focus ring, the cursor blink and the hover rules.
@@ -2177,6 +2177,25 @@ test('chat drawer: the unread count survives an open and a close', async () => {
   expect(
     screen.getByRole('button', { name: 'Open league chat, 3 unread messages' })
   ).toBeInTheDocument();
+});
+
+test('chat launcher: below sm the Chat button sits in the page head', async () => {
+  // Red-tell: leaving the launcher at the page end below sm turns this case red.
+  viewport = 390;
+  mockGetByUrl({ '/api/league/1': inSeasonLeague() });
+  renderPage();
+
+  const head = await screen.findByTestId('dashboard-head');
+  expect(within(head).getByRole('button', { name: 'Open league chat' })).toHaveTextContent('Chat');
+});
+
+test('chat launcher: from sm it stays the fixed button at the page end, not in the head', async () => {
+  mockGetByUrl({ '/api/league/1': inSeasonLeague() });
+  renderPage();
+
+  const head = await screen.findByTestId('dashboard-head');
+  expect(within(head).queryByRole('button', { name: 'Open league chat' })).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Open league chat' })).toBeInTheDocument();
 });
 
 test("cutover: a pick'em-only member shows pick'em standings and the Pick'em action, omits every fantasy slice, and fires no fantasy read", async () => {

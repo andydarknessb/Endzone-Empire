@@ -8,7 +8,7 @@ import { formatInstant } from '../../../shared/lib';
  * a chip row (the phase chip, a team-count chip outside the live season, "Draft Complete" on a
  * finished fantasy league, and the Live chip on game day), then an Archivo dim line, "Times in CDT"
  * and nothing else. The phase chip is neutral: green is for live state only. `right` is the
- * commissioner's Invite control. A plain layout row, not a header element: a top-level header maps to
+ * commissioner's Invite control and, below sm on the league dashboard, its chat button. A plain layout row, not a header element: a top-level header maps to
  * the banner landmark, which the app shell's app bar already owns.
  */
 export default function PageHead({

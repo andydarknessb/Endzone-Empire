@@ -28,7 +28,7 @@ import {
   LEAGUE_PHASE_META,
   isPickemOnly,
 } from '../../shared/lib';
-import ChatLauncher from './ui/ChatLauncher';
+import ChatLauncher, { ChatLaunchButton, useChatLauncher } from './ui/ChatLauncher';
 import DraftDay from './ui/DraftDay';
 import PageHead from './ui/PageHead';
 import { DashboardLoading, DashboardUnavailable } from './ui/PageStates';
@@ -52,8 +52,8 @@ const EMPTY_HIDDEN_SX = { '&:empty': { display: 'none' } };
  * Complete, PickemOnly, States) is composed here from the widgets, the features and the page's own
  * Play-select views, and nothing here reads an island token.
  *
- * The head (the league name in Pixel 32, the chip row, "Times in CDT", and for a commissioner the
- * Invite control) leads every state. Then the page's product order, which the canvas rulings fix:
+ * The head (the league name in Pixel 32, the chip row, "Times in CDT", for a commissioner the
+ * Invite control, and below sm the chat button) leads every state. Then the page's product order, which the canvas rulings fix:
  *
  *   - Your move, between the head and the commissioner strip: this league's open plays, the one cursor
  *     and the one filled action (`ui/YourMove`). With nothing due it is a calm "You're set" card.
@@ -170,6 +170,7 @@ function DashboardBody({
   // Set by Recent activity once its feed resolves short of the standings (#1998); false while loading,
   // so the row starts two columns.
   const [feedShort, setFeedShort] = useState(false);
+  const chat = useChatLauncher();
 
   const phase = deriveLeaguePhase(league);
   const phaseLabel = LEAGUE_PHASE_META[phase]?.label ?? '';
@@ -286,6 +287,12 @@ function DashboardBody({
   // On a phone the head has no room for the Invite control on game day: it moves into the strip.
   const inviteInStrip = gameDay && phone;
   const invite = league.invite_code ? <CopyInvite code={league.invite_code} /> : null;
+  // Below sm the Chat button shares the head's right slot with the Invite control; on game-day phones the
+  // Invite is in the strip, so Chat is alone there. From sm the head keeps only the Invite.
+  const headInvite = inviteInStrip ? null : invite;
+  const headRight = phone
+    ? <Box sx={{ display: 'flex', alignItems: 'center', gap: '12px' }}>{headInvite}<ChatLaunchButton chat={chat} /></Box>
+    : headInvite;
 
   const chips = [];
   if (phaseChipLabel) chips.push(phaseChipLabel);
@@ -468,12 +475,13 @@ function DashboardBody({
         title={league.name}
         chips={chips}
         live={liveCount > 0 ? `${liveCount} ${liveCount === 1 ? 'matchup' : 'matchups'} live` : undefined}
-        right={inviteInStrip ? null : invite}
+        right={headRight}
       />
 
       {sections.map(([key, node]) => (node ? <React.Fragment key={key}>{node}</React.Fragment> : null))}
 
-      <ChatLauncher leagueId={leagueId} />
+      {!phone && <ChatLaunchButton chat={chat} />}
+      <ChatLauncher leagueId={leagueId} chat={chat} />
     </>
   );
 }
@@ -491,7 +499,7 @@ function Shell({ children, chatLauncher = false }) {
           viewport pushes every frame sideways. In a column flex container the automatic minimum
           applies to the block axis, so every child resolves to a zero inline minimum with no
           per-child `minWidth: 0` and no `minmax` to maintain. Only the loaded page renders the fixed
-          chat launcher, so only it reserves the launcher's clearance at the bottom. */}
+          chat launcher, and only from sm up, so only it reserves the launcher's clearance at the bottom. */}
       <Box
         data-testid="dashboard-shell"
         sx={{
@@ -500,8 +508,8 @@ function Shell({ children, chatLauncher = false }) {
           boxSizing: 'border-box',
           px: { xs: '16px', sm: '32px' },
           pt: { xs: '24px', sm: '40px' },
-          // The launcher takes 80px of the viewport (56 + 24) and the page keeps 8px clear, so 88px minimum; 96 is the padding.
-          pb: chatLauncher ? '96px' : { xs: '24px', sm: '64px' },
+          // From sm the fixed launcher takes 80px of the viewport (56 + 24) and the page keeps 8px clear, so 88px minimum; 96 is the padding. Below sm the chat is in the head.
+          pb: { xs: '24px', sm: chatLauncher ? '96px' : '64px' },
           display: 'flex',
           flexDirection: 'column',
           gap: { xs: '24px', sm: '32px' },
