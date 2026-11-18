@@ -263,6 +263,11 @@ function DashboardBody({
       yourMove = { empty: true, urgent: false };
     }
   }
+  // My team's answer on the lineup: this league's lineup_problem item, null when the read has none, and
+  // undefined while the read is pending or failed, when My team makes no claim about the lineup.
+  const lineupProblem = itemsPending || actions.error
+    ? undefined
+    : actions.items.find((item) => isLineup(item) && String(item.leagueId) === String(leagueId)) ?? null;
   // It sits right under the head; on game day with nothing locking inside the hour the live scoreboard
   // leads and it follows the scoreboard instead.
   const yourMoveOnTop = yourMove != null && (!gameDay || yourMove.urgent === true);
@@ -326,7 +331,7 @@ function DashboardBody({
   );
   const myTeamSlot = hasTeam && (
     <Box data-testid="slot-my-team" sx={{ display: 'grid', gridArea: gameDay ? undefined : 'm', ...EMPTY_HIDDEN_SX }}>
-      <MyTeamSummary leagueId={leagueId} wide={gameDay} fixLineup={!carriesLineup} />
+      <MyTeamSummary leagueId={leagueId} wide={gameDay} fixLineup={!carriesLineup} lineupProblem={lineupProblem} />
     </Box>
   );
   const pickemSlot = showPickem && (

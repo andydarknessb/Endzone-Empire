@@ -138,6 +138,24 @@ test('phone around the league: a long one-word team name never runs under the sc
   }
 });
 
+// My team's lineup line follows this league's Action items: a Lineup problem reads as the problem with no check
+// at either viewport, and a set lineup keeps "Lineup set" and its check.
+for (const viewport of ['desktop', 'phone'] as const) {
+  test(`${viewport} gamedayUrgent: My team states the Lineup problem and prints no check`, async ({ page }) => {
+    await openDashboard(page, 'gamedayUrgent', viewport);
+    const status = page.getByTestId('my-team-lineup-status');
+    await expect(status).toContainText('Lineup problem');
+    await expect(status).not.toContainText('Lineup set');
+    await expect(page.getByTestId('my-team-lineup-check')).toHaveCount(0);
+  });
+}
+
+test('desktop gamedaySet: My team reads Lineup set with the check', async ({ page }) => {
+  await openDashboard(page, 'gamedaySet', 'desktop');
+  await expect(page.getByTestId('my-team-lineup-status')).toContainText('Lineup set');
+  await expect(page.getByTestId('my-team-lineup-check')).toHaveCount(1);
+});
+
 // From sm up the chat launcher is a fixed 56px button 24px off the corner: it takes 80px of the viewport at full
 // scroll. The last frame must end above it with 8px to spare (88px minimum; the page pads 96), and the page must
 // reserve that room itself: the app footer below the shell gives clearance today, but the page does not own the footer.

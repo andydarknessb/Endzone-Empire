@@ -20,7 +20,8 @@ import useMyTeamSummary from '../model/useMyTeamSummary';
  *
  * `wide` seats the numbers and status on the left and the starters on the right from md, for the
  * game-day full-width row. `fixLineup` (default true) is the page's say-it-once switch: it passes
- * false when Your move already carries a Set lineup play.
+ * false when Your move already carries a Set lineup play. `lineupProblem` is the page's answer to
+ * "is this lineup a Lineup problem" (see StartersStatus); left unset, the card makes no lineup claim.
  *
  * Paints only ps-* tokens. The standings read is the card's spine: while it is in flight the frame
  * holds its layout with skeletons, and if it fails the widget is one danger panel with a retry, so a
@@ -29,10 +30,10 @@ import useMyTeamSummary from '../model/useMyTeamSummary';
  * without erroring the card. A fact whose value would be a dash does not render at all (#1979 L13).
  * The starters section has its own read and never mounts for a pick'em-only viewer.
  */
-export default function MyTeamSummary({ leagueId, wide = false, fixLineup = true }) {
+export default function MyTeamSummary({ leagueId, wide = false, fixLineup = true, lineupProblem }) {
   const {
     identity, spine, record, points, teamCount, refetch, draftGrade, rosterValue, proj, playoffOdds, capacity, starters,
-  } = useMyTeamSummary(leagueId);
+  } = useMyTeamSummary(leagueId, lineupProblem);
   const nameId = useId();
 
   if (!identity) return null;
@@ -225,6 +226,10 @@ function StatValueSkeleton() {
 function RankMovement({ change }) {
   const places = Math.abs(change) === 1 ? 'place' : 'places';
   const spoken = change === 0 ? 'held its place' : `${change > 0 ? 'up' : 'down'} ${Math.abs(change)} ${places}`;
+  // A zero is announced, never drawn: a visible "0" reads as an unlabelled figure.
+  if (change === 0) {
+    return <Box component="span" data-testid="stat-proj-movement" sx={SR_ONLY_SX}>{spoken}</Box>;
+  }
   return (
     <Box component="span" data-testid="stat-proj-movement" sx={{ marginLeft: '6px', fontSize: '13px', fontWeight: 600, color: 'var(--ps-dim)' }}>
       <Box component="span" aria-hidden="true">{change > 0 ? `+${change}` : String(change)}</Box>
@@ -307,9 +312,11 @@ function StartersList({ starters }) {
   );
 }
 
-// The lineup's completeness, and the way to fix it: "Lineup set · 9 of 9" with a check, or "Lineup
-// incomplete · 7 of 9" with a Fix lineup link (the check mark is a "done" affirmation, so it renders
-// only once the lineup actually is set). Before the draft there is nothing to set yet.
+// The lineup's completeness, and the way to fix it. The page's answer arrives as `starters.lineupProblem`:
+// an open Lineup problem item (its detail names the problem, and the card carries no check), null when
+// the page knows there is none, and undefined while that read is pending or failed. Only a known-none
+// full lineup earns "Lineup set · 9 of 9" with the check, since the check is a claim; an unknown answer
+// keeps today's text without it. Before the draft there is nothing to set yet.
 function StartersStatus({ starters, lineupHref, fixLineup }) {
   if (starters.status === 'loading') return null;
   if (starters.status === 'closed') {
@@ -317,14 +324,19 @@ function StartersStatus({ starters, lineupHref, fixLineup }) {
       <Box data-testid="my-team-lineup-status" sx={{ fontSize: '15px', fontWeight: 600 }}>Lineups open after the draft</Box>
     );
   }
-  const isLineupSet = starters.filled >= starters.totalSlots;
+  const { lineupProblem: problem } = starters;
+  const full = starters.filled >= starters.totalSlots;
+  const incomplete = !full || Boolean(problem);
+  const check = problem === null && full;
+  const problemDetail = problem ? (problem.detail || problem.title) : null;
+  const text = problem
+    ? `Lineup problem${problemDetail ? ` · ${problemDetail}` : ''}`
+    : `${full ? 'Lineup set' : 'Lineup incomplete'} · ${starters.filled} of ${starters.totalSlots}`;
   return (
     <Box data-testid="my-team-lineup-footer" sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0 8px', marginTop: 'auto', fontSize: '15px', fontWeight: 600 }}>
-      {isLineupSet && <Box component="span" data-testid="my-team-lineup-check" aria-hidden="true" sx={{ display: 'inline-flex' }}><PixelCheck /></Box>}
-      <Box component="span" data-testid="my-team-lineup-status">
-        {`${isLineupSet ? 'Lineup set' : 'Lineup incomplete'} · ${starters.filled} of ${starters.totalSlots}`}
-      </Box>
-      {!isLineupSet && fixLineup && lineupHref && (
+      {check && <Box component="span" data-testid="my-team-lineup-check" aria-hidden="true" sx={{ display: 'inline-flex' }}><PixelCheck /></Box>}
+      <Box component="span" data-testid="my-team-lineup-status">{text}</Box>
+      {incomplete && fixLineup && lineupHref && (
         <PsLink to={lineupHref} ariaLabel="Fix lineup">Fix lineup</PsLink>
       )}
     </Box>
