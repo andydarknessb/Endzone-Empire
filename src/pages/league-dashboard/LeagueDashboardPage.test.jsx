@@ -516,7 +516,7 @@ const layoutV2League = (overrides = {}) =>
     viewerTeamId: 1,
   });
 
-test('v2 slot order: strip, hero, recap, around-the-league, main, quick actions, trophy', async () => {
+test('v2 slot order: hero, strip, recap, around-the-league, main, quick actions, trophy', async () => {
   mockGetByUrl({ '/api/league/1': layoutV2League() });
   renderPage();
 
@@ -529,7 +529,7 @@ test('v2 slot order: strip, hero, recap, around-the-league, main, quick actions,
   const quickActionsSection = screen.getByTestId('dashboard-quick-actions');
   const trophy = screen.getByTestId('slot-trophy-case');
 
-  expect(precedes(strip, hero)).toBe(true);
+  expect(precedes(hero, strip)).toBe(true);
   expect(precedes(hero, recap)).toBe(true);
   expect(precedes(recap, aroundTheLeague)).toBe(true);
   expect(precedes(aroundTheLeague, main)).toBe(true);
@@ -1740,17 +1740,81 @@ test('quick-actions: in season the Playbook is one link row ending in the trophy
   const nav = await screen.findByRole('navigation', { name: 'Playbook' });
   await within(nav).findByRole('link', { name: 'Trophy case (2)' });
   expect(within(nav).getAllByRole('link').map((link) => link.textContent)).toEqual([
-    "Pick'em", 'Power Rankings', 'History', 'League Rules', 'Trophy case (2)',
+    'Power Rankings', 'History', 'League Rules', 'Trophy case (2)',
   ]);
   expect(within(nav).getByRole('link', { name: 'Trophy case (2)' }).getAttribute('href')).toBe('/league/1/trophies');
-  // Dropped: the Draft Room (the draft is over), Set Lineup, Waivers and Trades (My team links them),
-  // Game Center (Around the league), Activity (Recent activity).
-  ['draft', 'lineup', 'waivers', 'trades', 'game-center', 'activity'].forEach((key) => {
+  // Dropped: the Draft Room (the draft is over), the Play and Moves links (the League pages row under Your
+  // move carries them in season), Game Center (Around the league), Activity (Recent activity).
+  ['draft', 'lineup', 'pickem', 'waivers', 'trades', 'game-center', 'activity'].forEach((key) => {
     expect(within(nav).queryByTestId(`quick-action-${key}`)).not.toBeInTheDocument();
   });
   // The trophy case is not a second row.
   expect(screen.queryByTestId('trophy-link')).not.toBeInTheDocument();
   expect(screen.queryByText('Trophy room')).not.toBeInTheDocument();
+});
+
+// In season the Play and Moves links are one "League pages" row right under Your move (before the hero).
+// It is its own landmark with no leading text, and Pick'em joins it only on a league with pick'em on.
+test('quick-actions: in season a League pages row sits under Your move and before the hero, with the Play and Moves links', async () => {
+  mockGetByUrl({
+    '/api/league/1': quickActionsLeague(),
+    '/api/league/1/trophies': quickActionsTrophies(),
+    ...actionItems([]),
+  });
+  renderPage();
+
+  const pages = await screen.findByRole('navigation', { name: 'League pages' });
+  expect(within(pages).getAllByRole('link').map((link) => link.textContent)).toEqual([
+    'Set Lineup', 'Game Center', 'Waivers', 'Trades',
+  ]);
+  expect(within(pages).queryByText('Playbook')).not.toBeInTheDocument();
+  expect(precedes(await screen.findByTestId('slot-your-move'), pages)).toBe(true);
+  expect(precedes(pages, screen.getByTestId('dashboard-hero'))).toBe(true);
+});
+
+test("quick-actions: with pick'em on, the League pages row carries Pick'em after Game Center", async () => {
+  mockGetByUrl({
+    '/api/league/1': quickActionsLeague(),
+    '/api/league/1/trophies': quickActionsTrophies(),
+    '/api/pickem/league/1/settings': { data: { enabled: true, mode: 'straight' } },
+  });
+  renderPage();
+
+  const pages = await screen.findByRole('navigation', { name: 'League pages' });
+  await within(pages).findByRole('link', { name: "Pick'em" });
+  expect(within(pages).getAllByRole('link').map((link) => link.textContent)).toEqual([
+    'Set Lineup', 'Game Center', "Pick'em", 'Waivers', 'Trades',
+  ]);
+});
+
+test('the commissioner strip follows the hero before the draft', async () => {
+  mockGetByUrl({
+    '/api/league/1': quickActionsLeague({
+      league: {
+        draft_status: 'pending', season_status: 'pending', current_week: 3, is_commissioner: true,
+      },
+    }),
+  });
+  renderPage();
+
+  const hero = await screen.findByTestId('dashboard-hero');
+  expect(precedes(hero, screen.getByTestId('slot-commissioner-strip'))).toBe(true);
+});
+
+test("the commissioner strip follows the pick'em standings on a pick'em-only league", async () => {
+  mockGetByUrl({ '/api/league/1': pickemOnlyLeague({ is_commissioner: true }) });
+  renderPage();
+
+  const standings = await screen.findByTestId('dashboard-pickem-standings');
+  expect(precedes(standings, screen.getByTestId('slot-commissioner-strip'))).toBe(true);
+});
+
+test('the commissioner strip follows the trophy room on a complete league', async () => {
+  mockGetByUrl({ '/api/league/1': inSeasonLeague({ season_status: 'complete', is_commissioner: true }) });
+  renderPage();
+
+  const trophy = await screen.findByTestId('slot-trophy-case');
+  expect(precedes(trophy, screen.getByTestId('slot-commissioner-strip'))).toBe(true);
 });
 
 // The count above is the live season's `useTrophies` read, so its link has to
@@ -2552,6 +2616,25 @@ describe('game day (the viewer\'s matchup is live)', () => {
     expect(within(hero).getByTestId('slot-my-team')).toBe(myTeam);
     expect(cssFor(hero)).toMatch(/flex-direction:\s*column/);
     expect(precedes(hero, strip)).toBe(true);
+  });
+
+  test('League pages follows the hero on game day when nothing is urgent', async () => {
+    mockGetByUrl(gameDayMocks(actionItems([])));
+    renderPage();
+
+    const hero = await screen.findByTestId('dashboard-hero');
+    const pages = await screen.findByRole('navigation', { name: 'League pages' });
+    expect(precedes(hero, pages)).toBe(true);
+  });
+
+  test('League pages sits under Your move on game day when a lock is inside the hour', async () => {
+    mockGetByUrl(gameDayMocks(actionItems([lineupItem(IN_MINUTES(45))])));
+    renderPage();
+
+    const yourMove = await screen.findByTestId('slot-your-move');
+    const pages = await screen.findByRole('navigation', { name: 'League pages' });
+    expect(precedes(yourMove, pages)).toBe(true);
+    expect(precedes(pages, screen.getByTestId('dashboard-hero'))).toBe(true);
   });
 
   test('Around the league folds to the viewer\'s three rival games and Recent activity to three rows', async () => {
