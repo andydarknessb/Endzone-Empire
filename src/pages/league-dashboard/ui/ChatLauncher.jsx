@@ -93,6 +93,7 @@ export function ChatLaunchButton({ chat }) {
   );
 }
 
+/** The drawer alone: the button is rendered by the page, so this launches nothing by itself. */
 export default function ChatLauncher({ leagueId, chat }) {
   const { open, setOpen, setUnread } = chat;
   const theme = useTheme();

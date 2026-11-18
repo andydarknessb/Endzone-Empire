@@ -291,7 +291,7 @@ function DashboardBody({
   // Invite is in the strip, so Chat is alone there. From sm the head keeps only the Invite.
   const headInvite = inviteInStrip ? null : invite;
   const headRight = phone
-    ? <Box sx={{ display: 'flex', alignItems: 'center', gap: '12px' }}>{headInvite}<ChatLaunchButton chat={chat} /></Box>
+    ? <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '12px' }}>{headInvite}<ChatLaunchButton chat={chat} /></Box>
     : headInvite;
 
   const chips = [];

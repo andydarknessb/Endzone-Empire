@@ -248,6 +248,19 @@ test('pickemonly desktop: each weekly points strip is one labelled image, its ce
   await expect(card.locator('[data-testid="pickem-standings-heat-cell"]:not([aria-hidden="true"])')).toHaveCount(0);
 });
 
+// A new league's invite code is 16 characters (crypto.randomBytes(8) as hex). At 360 the commissioner's Invite and
+// the Chat button share the head's right slot, and that row must wrap rather than push the document sideways.
+test('inseason phone 360: a commissioner with a 16-character invite code and the Chat button do not widen the document', async ({ page }) => {
+  watchUnanswered(page);
+  await setupDashboard(page, 'inseason', { theme: 'light', inviteCode: '0123456789abcdef' });
+  await page.setViewportSize({ width: 360, height: 844 });
+  await page.goto(DASH_URL);
+  await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Open league chat/ })).toBeVisible();
+  const probe = await page.evaluate(() => ({ scrollWidth: document.documentElement.scrollWidth, innerWidth: window.innerWidth }));
+  expect(probe.scrollWidth, `document scrollWidth ${probe.scrollWidth} vs innerWidth ${probe.innerWidth}`).toBeLessThanOrEqual(probe.innerWidth);
+});
+
 for (const viewport of Object.keys(VIEWPORTS) as ViewportName[]) {
   test(`inseason ${viewport}: the matchup pivots on a pixel VS and every standings rank is pixel type inside its column`, async ({ page }) => {
     await openDashboard(page, 'inseason', viewport);
