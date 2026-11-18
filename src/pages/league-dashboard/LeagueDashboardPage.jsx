@@ -12,7 +12,7 @@ import RecentActivity from '../../widgets/recent-activity';
 import QuickActions from '../../widgets/quick-actions';
 import { useMatchupPreview } from '../../widgets/matchup-preview';
 import { applyScoreEvent, useLiveScores, useWeekMatchups } from '../../entities/matchup';
-import { useActionItems, itemType, playModel } from '../../entities/action-item';
+import { useActionItems, itemType, lineupProblemFor, playModel } from '../../entities/action-item';
 import { adviceNote, useAdvice } from '../../entities/roster';
 import { usePickemSettings } from '../../entities/pickem-game';
 import { useTrophies } from '../../components/TrophyCase/TrophyCase';
@@ -263,6 +263,10 @@ function DashboardBody({
       yourMove = { empty: true, urgent: false };
     }
   }
+  // My team's lineup answer: this season-week's lineup_problem item, null for none, undefined while the read is unknown.
+  const lineupProblem = itemsPending || actions.error
+    ? undefined
+    : lineupProblemFor(actions.items, { leagueId, season: league.current_season, week }) ?? null;
   // It sits right under the head; on game day with nothing locking inside the hour the live scoreboard
   // leads and it follows the scoreboard instead.
   const yourMoveOnTop = yourMove != null && (!gameDay || yourMove.urgent === true);
@@ -326,7 +330,7 @@ function DashboardBody({
   );
   const myTeamSlot = hasTeam && (
     <Box data-testid="slot-my-team" sx={{ display: 'grid', gridArea: gameDay ? undefined : 'm', ...EMPTY_HIDDEN_SX }}>
-      <MyTeamSummary leagueId={leagueId} wide={gameDay} fixLineup={!carriesLineup} />
+      <MyTeamSummary leagueId={leagueId} wide={gameDay} fixLineup={!carriesLineup} lineupProblem={lineupProblem} />
     </Box>
   );
   const pickemSlot = showPickem && (

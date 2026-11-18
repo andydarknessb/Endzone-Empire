@@ -1910,6 +1910,7 @@ const quickActionsAgreementLeague = () =>
     league: {
       draft_status: 'complete',
       season_status: 'regular',
+      current_season: 2026,
       current_week: 3,
       roster_slots: quickActionsStandardSlots,
     },
@@ -1966,6 +1967,24 @@ test('quick-actions: a spent starting slot counts as filled in Quick Actions and
   expect(await within(myTeam).findByText(/Lineup set · 9 of 9/)).toBeInTheDocument();
   expect(within(tile).queryByText('Recommended')).not.toBeInTheDocument();
   expect(lineupGets()).toHaveLength(1);
+});
+
+test('my team: this league\'s Lineup problem in Action items replaces "Lineup set" and its check, though every slot is filled', async () => {
+  mockGetByUrl({
+    '/api/league/1': quickActionsAgreementLeague(),
+    [QUICK_ACTIONS_LINEUP_URL]: quickActionsLineupResponse(quickActionsFullRoster()),
+    ...actionItems([
+      item('lineup_problem', '2026-3', {
+        title: '1 starter is out', detail: 'Puka Nacua (WR) is Out and still in your lineup.', deadlineAt: IN_MINUTES(45),
+      }),
+    ]),
+  });
+  renderPage();
+
+  const myTeam = await screen.findByTestId('my-team-summary');
+  expect(await within(myTeam).findByText('Lineup problem · Puka Nacua (WR) is Out and still in your lineup.')).toBeInTheDocument();
+  expect(within(myTeam).queryByTestId('my-team-lineup-check')).not.toBeInTheDocument();
+  expect(within(myTeam).queryByText(/Lineup set/)).not.toBeInTheDocument();
 });
 
 test('quick-actions: the page never reads /api/team/roster', async () => {

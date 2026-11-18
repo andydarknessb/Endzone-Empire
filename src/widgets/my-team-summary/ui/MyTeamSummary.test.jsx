@@ -103,7 +103,9 @@ const mockGetByUrl = (overrides = {}) => {
  * the card back through its skeleton state mid-assertion - a harness artifact,
  * not a state the route can reach.
  */
-const mountWith = ({ league, teams, viewerTeamId, ...reads } = {}) => {
+// `lineupProblem` is the page's answer on the lineup (null: none open, the default here); `lineupUnknown`
+// mounts the card the way it is while the Action items read is still pending or has failed.
+const mountWith = ({ league, teams, viewerTeamId, lineupProblem = null, lineupUnknown = false, ...reads } = {}) => {
   setResource(['league', 1], leagueDetail({ league, teams, viewerTeamId }));
   mockGetByUrl({
     '/api/scoring/league/1/standings': standingsResponse(),
@@ -111,7 +113,9 @@ const mountWith = ({ league, teams, viewerTeamId, ...reads } = {}) => {
     '/api/scoring/league/1/power-rankings': powerRankingsResponse(),
     ...reads,
   });
-  return renderWithProviders(<MyTeamSummary leagueId={1} />);
+  return renderWithProviders(
+    <MyTeamSummary leagueId={1} lineupProblem={lineupUnknown ? undefined : lineupProblem} />
+  );
 };
 
 // An sx rule is neither laid out nor computed by jsdom, but emotion inserts
@@ -271,7 +275,6 @@ test('playoff odds render the stored 0-1 fraction as a whole percentage', async 
 test.each([
   [2, '+2', 'up 2 places'],
   [-1, '-1', 'down 1 place'],
-  [0, '0', 'held its place'],
 ])('a rank change of %p reads "%s" and announces "%s"', async (change, mark, spoken) => {
   mountWith({ '/api/scoring/league/1/power-rankings': powerRankingsResponse({ change }) });
 
@@ -281,6 +284,14 @@ test.each([
   // The visible mark is an unlabelled number, so the direction has to be
   // readable as words rather than inferred from the sign.
   expect(within(movement).getByText(spoken)).toBeInTheDocument();
+});
+
+test('a zero rank change draws no figure and announces that it held its place', async () => {
+  mountWith({ '/api/scoring/league/1/power-rankings': powerRankingsResponse({ change: 0 }) });
+
+  const movement = within(await screen.findByTestId('stat-proj-finish')).getByTestId('stat-proj-movement');
+  // A drawn "0" is an unlabelled figure; the zero is spoken and never shown.
+  expect(movement.textContent).toBe('held its place');
 });
 
 test('a null rank change renders no movement at all, not a zero', async () => {
@@ -608,6 +619,79 @@ test('a missing roster_slots config falls back to the standard 9-slot shape, not
   const status = await screen.findByTestId('my-team-lineup-status');
   expect(status).toHaveTextContent('Lineup set · 9 of 9');
   expect(status).not.toHaveTextContent('of 0');
+});
+
+// The page's lineup answer: an open Lineup problem replaces the set claim, and only a known-none full
+// lineup carries the check. Ignoring the handed-in item would print the check here and fail the first case.
+const lineupProblemItem = (overrides = {}) => ({
+  id: 'lineup_problem:1:2026-3',
+  type: 'lineup_problem',
+  leagueId: 1,
+  title: '1 starter is out',
+  detail: 'Puka Nacua (WR) is Out and still in your lineup.',
+  ...overrides,
+});
+
+test('a full nine-starter lineup with a Lineup problem reads the problem and prints no check', async () => {
+  mountWith({
+    league: { roster_slots: NINE_SLOT_LEAGUE },
+    [LINEUP_URL]: lineupResponse(wireEntries(nineStarters())),
+    lineupProblem: lineupProblemItem(),
+  });
+
+  expect(await screen.findByTestId('my-team-lineup-status')).toHaveTextContent(
+    'Lineup problem · Puka Nacua (WR) is Out and still in your lineup.'
+  );
+  expect(screen.queryByTestId('my-team-lineup-check')).not.toBeInTheDocument();
+  expect(screen.getByRole('link', { name: 'Fix lineup' })).toBeInTheDocument();
+});
+
+test('a Lineup problem with no detail names its title', async () => {
+  mountWith({
+    league: { roster_slots: NINE_SLOT_LEAGUE },
+    [LINEUP_URL]: lineupResponse(wireEntries(nineStarters())),
+    lineupProblem: lineupProblemItem({ detail: null }),
+  });
+
+  expect(await screen.findByTestId('my-team-lineup-status')).toHaveTextContent('Lineup problem · 1 starter is out');
+});
+
+test('the same full lineup with no Lineup problem reads "Lineup set · 9 of 9" with the check', async () => {
+  mountWith({
+    league: { roster_slots: NINE_SLOT_LEAGUE },
+    [LINEUP_URL]: lineupResponse(wireEntries(nineStarters())),
+    lineupProblem: null,
+  });
+
+  expect(await screen.findByTestId('my-team-lineup-status')).toHaveTextContent('Lineup set · 9 of 9');
+  expect(screen.getByTestId('my-team-lineup-check')).toBeInTheDocument();
+  expect(screen.queryByRole('link', { name: 'Fix lineup' })).not.toBeInTheDocument();
+});
+
+test('while the Action items read is unknown, a full lineup reads set with no check and no Fix lineup', async () => {
+  mountWith({
+    league: { roster_slots: NINE_SLOT_LEAGUE },
+    [LINEUP_URL]: lineupResponse(wireEntries(nineStarters())),
+    lineupUnknown: true,
+  });
+
+  expect(await screen.findByTestId('my-team-lineup-status')).toHaveTextContent('Lineup set · 9 of 9');
+  expect(screen.queryByTestId('my-team-lineup-check')).not.toBeInTheDocument();
+  expect(screen.queryByRole('link', { name: 'Fix lineup' })).not.toBeInTheDocument();
+});
+
+test('the starters note counts Questionable and Doubtful starters, and not an Out one', async () => {
+  // Josh Allen is Out, RB Two is Doubtful, WR Three is Questionable: two questionable-class starters.
+  const tagged = nineStarters().map((s) => {
+    if (s.name === 'Josh Allen') return { ...s, injury_status: 'O' };
+    if (s.name === 'RB Two') return { ...s, injury_status: 'D' };
+    return s;
+  });
+  mountWith({ [LINEUP_URL]: lineupResponse(wireEntries(tagged)) });
+
+  expect(await screen.findByTestId('my-team-starters-more')).toHaveTextContent(
+    'and 4 more starters · 2 questionable'
+  );
 });
 
 // The 2026-09-10 ruling: null means absence (a bye or an unsynced slate),
