@@ -3,11 +3,10 @@ import { Box } from '@mui/material';
 import {
   ErrorPanel, Frame, FrameHead, PixelArrow, PixelHeading, pixelSx, Skel, SR_ONLY_SX, TeamMark, YouTag,
 } from '../../../shared/ui/playselect';
-import { HeatStrip, usePickemStandingsTable } from '../../../widgets/pickem-standings';
+import {
+  HEAT_WEEKS, HeatStrip, bestWeeksOf, listOf, usePickemStandingsTable,
+} from '../../../widgets/pickem-standings';
 import { ordinal } from '../../../shared/lib';
-
-// Weeks in the weekly points strip (the widget's HeatStrip draws them).
-const HEAT_WEEKS = 18;
 
 const TREND = {
   up: ['M5 1h2v2H5zM3 3h6v2H3zM1 5h10v2H1z', 'Trend: improved'],
@@ -150,6 +149,7 @@ export default function PickemStandings({ leagueId, title = "Pick'em Standings" 
   } = usePickemStandingsTable(leagueId);
   const headingId = useId();
   const noun = teamCount === 1 ? 'team' : 'teams';
+  const viewerBests = viewer ? bestWeeksOf(viewer.heat) : [];
 
   if (status === 'error') {
     return (
@@ -189,7 +189,9 @@ export default function PickemStandings({ leagueId, title = "Pick'em Standings" 
           <Tile label="Your accuracy" testid="pickem-standings-your-accuracy">
             {viewer.accuracy == null ? '-' : `${Math.round(viewer.accuracy * 100)}%`}
           </Tile>
-          <Tile label="Best week" testid="pickem-standings-best-week">{viewer.bestWeek ? `Wk ${viewer.bestWeek.week}` : '-'}</Tile>
+          <Tile label={`Best week${viewerBests.length > 1 ? 's' : ''}`} testid="pickem-standings-best-week">
+            {viewerBests.length ? `Wk ${listOf(viewerBests)}` : '-'}
+          </Tile>
         </Box>
       )}
       <Box

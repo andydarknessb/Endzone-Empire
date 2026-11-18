@@ -19,13 +19,13 @@ const TREND = {
 };
 
 const rankLabel = (row) => (row.tied ? `T-${row.rank}` : String(row.rank));
-const listOf = (items) => (items.length < 2
+export const listOf = (items) => (items.length < 2
   ? String(items[0])
   : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`);
 
 // Every tied best week is ringed and named: the entity's bestWeek names one week, but the strip
 // belongs to the data it draws, so ties come from the played points themselves.
-function bestWeeksOf(heat) {
+export function bestWeeksOf(heat) {
   const played = (heat || []).filter((cell) => cell.points != null);
   if (played.length === 0) return [];
   const best = Math.max(...played.map((cell) => cell.points));
