@@ -7,3 +7,5 @@ export { default } from './ui/StandingsTable';
 // The model alone, for the League Dashboard's own Play-select pick'em panel and standings screen
 // (it renders them; the Pick'em page renders this widget).
 export { usePickemStandingsTable } from './model/usePickemStandingsTable';
+// The weekly points strip alone: the League Dashboard's pick'em table draws it (one labelled image per team).
+export { HeatStrip } from './ui/StandingsTable';

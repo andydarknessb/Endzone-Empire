@@ -3,11 +3,10 @@ import { Box } from '@mui/material';
 import {
   ErrorPanel, Frame, FrameHead, PixelArrow, PixelHeading, pixelSx, Skel, SR_ONLY_SX, TeamMark, YouTag,
 } from '../../../shared/ui/playselect';
-import { usePickemStandingsTable } from '../../../widgets/pickem-standings';
+import { HeatStrip, usePickemStandingsTable } from '../../../widgets/pickem-standings';
 import { ordinal } from '../../../shared/lib';
 
-// Eighteen weekly cells (the widget's own heat strip): a fill height by bucket, the best week outlined.
-const HEAT_HEIGHT = { h1: 25, h2: 50, h3: 75, h4: 100 };
+// Weeks in the weekly points strip (the widget's HeatStrip draws them).
 const HEAT_WEEKS = 18;
 
 const TREND = {
@@ -84,54 +83,6 @@ function AccuracyBar({ accuracy, me }) {
   );
 }
 
-function heatLabel(cell, currentWeek) {
-  if (cell.points != null) return `Week ${cell.week}: ${cell.points} points${cell.isBest ? ', best week' : ''}`;
-  if (currentWeek == null || cell.week > currentWeek) return `Week ${cell.week}: not played yet`;
-  return `Week ${cell.week}: no picks made`;
-}
-
-function HeatStrip({ heat, currentWeek, me }) {
-  const fill = me ? 'var(--ps-play-ink)' : 'var(--ps-frame)';
-  const track = me ? 'var(--ps-play-field)' : 'var(--ps-field)';
-  const line = me ? 'var(--ps-play-dim)' : 'var(--ps-dim)';
-  return (
-    <Box data-testid="pickem-standings-heat" sx={{ display: 'flex', gap: '3px', padding: '2px 0' }}>
-      {(heat || []).map((cell) => (
-        <Box
-          key={cell.week}
-          role="img"
-          aria-label={heatLabel(cell, currentWeek)}
-          data-week={cell.week}
-          data-bucket={cell.bucket || 'not-played'}
-          data-best={cell.isBest || undefined}
-          data-testid="pickem-standings-heat-cell"
-          sx={{
-            position: 'relative',
-            display: 'block',
-            width: '12px',
-            height: '12px',
-            boxSizing: 'border-box',
-            border: `1px solid ${line}`,
-            backgroundColor: track,
-            overflow: 'hidden',
-            outline: cell.isBest ? `2px solid ${fill}` : 0,
-            outlineOffset: '1px',
-          }}
-        >
-          {cell.bucket && (
-            <Box
-              component="span"
-              sx={{
-                position: 'absolute', left: 0, right: 0, bottom: 0, height: `${HEAT_HEIGHT[cell.bucket]}%`, backgroundColor: fill,
-              }}
-            />
-          )}
-        </Box>
-      ))}
-    </Box>
-  );
-}
-
 function Row({ row, currentWeek }) {
   const me = row.isViewer;
   const base = {
@@ -170,7 +121,7 @@ function Row({ row, currentWeek }) {
       <Box component="td" sx={cellSx('right', base)}>{row.incorrect}</Box>
       <Box component="td" sx={cellSx('right', base)}>{row.pending}</Box>
       <Box component="td" sx={cellSx('left', base)}><AccuracyBar accuracy={row.accuracy} me={me} /></Box>
-      <Box component="td" sx={cellSx('left', base)}><HeatStrip heat={row.heat} currentWeek={currentWeek} me={me} /></Box>
+      <Box component="td" sx={cellSx('left', base)}><HeatStrip heat={row.heat} me={me} /></Box>
       <Box component="td" sx={cellSx('right', base)}>
         {trend ? (
           <>

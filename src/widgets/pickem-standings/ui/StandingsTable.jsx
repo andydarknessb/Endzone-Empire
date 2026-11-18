@@ -115,7 +115,7 @@ function heatLabel(heat) {
 
 // One labelled image per row: the eighteen cells are decoration (aria-hidden), the sentence is the
 // name, so a screen reader hears one sentence per team instead of eighteen cells.
-function HeatStrip({ heat, me }) {
+export function HeatStrip({ heat, me }) {
   const fill = me ? 'var(--ps-play-ink)' : 'var(--ps-frame)';
   const track = me ? 'var(--ps-play-field)' : 'var(--ps-field)';
   const line = me ? 'var(--ps-play-dim)' : 'var(--ps-dim)';

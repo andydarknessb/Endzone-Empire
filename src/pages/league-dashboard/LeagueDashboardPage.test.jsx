@@ -2794,6 +2794,11 @@ describe('the pick\'em-only body', () => {
     // The weekly heat strip: eighteen weeks per row, the best week marked.
     expect(within(you).getAllByTestId('pickem-standings-heat-cell')).toHaveLength(18);
     expect(within(you).getAllByTestId('pickem-standings-heat-cell').filter((cell) => cell.hasAttribute('data-best'))).toHaveLength(1);
+    // One labelled image per strip (the Pick'em page's HeatStrip), its eighteen cells hidden from the tree.
+    const strip = within(you).getByTestId('pickem-standings-heat');
+    expect(strip).toHaveAttribute('role', 'img');
+    expect(strip).toHaveAccessibleName('Weekly points, weeks 1 to 6: none, none, none, none, 9, 15; best week 6');
+    within(you).getAllByTestId('pickem-standings-heat-cell').forEach((cell) => expect(cell).toHaveAttribute('aria-hidden', 'true'));
   });
 
   test('wears no cursor and no filled action of its own', async () => {
