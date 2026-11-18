@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { Box, useMediaQuery, useTheme } from '@mui/material';
 import { useLeague } from '../../hooks/useLeague';
@@ -44,6 +44,45 @@ import YourMove from './ui/YourMove';
 // shell's stack: blank bands came from exactly that. `:empty` matches a wrapper whose child rendered
 // nothing, so the gap it would have bought collapses with it.
 const EMPTY_HIDDEN_SX = { '&:empty': { display: 'none' } };
+
+// Your move's controls and the foot each one renders. A one-foot card is one link whose foot is a span
+// holding the label; a foot of a shared lock is a link that is its label. A focus carry matches on the
+// label, not the accessible name: the card's name gains a countdown once its lock turns urgent.
+const MOVE_CONTROL = 'a[href], button';
+const footLabelOf = (control, labels) => labels.find((label) => (
+  [control, ...control.querySelectorAll('*')].some((el) => el.textContent.trim() === label)
+)) ?? null;
+const controlsLabelled = (host, labels, label) => [...host.querySelectorAll(MOVE_CONTROL)]
+  .filter((el) => footLabelOf(el, labels) === label);
+
+// Your move changes parent when a lock crosses one hour (the hero, then the top of the page), so React
+// remounts its controls and the focused one leaves the DOM with focus on the body. The old copy records
+// which foot held focus in its layout cleanup, while its DOM is still there; the new copy focuses the foot
+// with that label (the nth one, when a label repeats). Focus that was never inside Your move is not carried.
+function YourMoveSlot({ carry, labels, children }) {
+  const hostRef = useRef(null);
+  const labelsRef = useRef(labels);
+  useLayoutEffect(() => { labelsRef.current = labels; });
+  useLayoutEffect(() => () => {
+    const host = hostRef.current;
+    const active = document.activeElement;
+    if (!host || !active || !host.contains(active) || !active.matches(MOVE_CONTROL)) return;
+    const label = footLabelOf(active, labelsRef.current);
+    if (label) carry.current = { label, index: controlsLabelled(host, labelsRef.current, label).indexOf(active) };
+  }, [carry]);
+  useLayoutEffect(() => {
+    const next = carry.current;
+    carry.current = null;
+    if (!next) return;
+    const matches = controlsLabelled(hostRef.current, labelsRef.current, next.label);
+    matches[Math.min(next.index, matches.length - 1)]?.focus();
+  }, [carry]);
+  return (
+    <Box component="section" ref={hostRef} data-testid="slot-your-move" sx={{ minWidth: 0 }}>
+      {children}
+    </Box>
+  );
+}
 
 /**
  * League Dashboard page slice (ADR 0020), on the `/league/:leagueId` route since the cutover ticket
@@ -270,11 +309,18 @@ function DashboardBody({
   // It sits right under the head; on game day with nothing locking inside the hour the live scoreboard
   // leads and it follows the scoreboard instead.
   const yourMoveOnTop = yourMove != null && (!gameDay || yourMove.urgent === true);
+  const focusCarry = useRef(null);
+  const footLabels = yourMove?.lead
+    ? [yourMove.lead, ...yourMove.rest].flatMap((card) => card.feet.map((foot) => foot.cta?.label)).filter(Boolean)
+    : [];
   const yourMoveNode = yourMove && (
-    <Box component="section" data-testid="slot-your-move" sx={{ minWidth: 0 }}>
+    <YourMoveSlot carry={focusCarry} labels={footLabels}>
       <YourMove {...yourMove} />
-    </Box>
+    </YourMoveSlot>
   );
+  // A carry belongs to the commit that unmounted its control. The slot that remounts it in that commit has
+  // already taken it (a child's layout effects run before its parent's), so a commit that remounts nothing drops it.
+  useLayoutEffect(() => { focusCarry.current = null; });
   const yourMoveFailed = !itemsPending && actions.error && !complete && (
     <Box data-testid="slot-your-move">
       <ErrorPanel
