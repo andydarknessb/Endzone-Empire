@@ -3078,6 +3078,62 @@ describe('game day order', () => {
   });
 });
 
+// Focus across the one-hour flip (#2925): a lock that crosses an hour moves Your move from the hero to the
+// top of the page, which remounts its controls. The page clock sets its next tick after each render, so the
+// 30-second steps run one act at a time; one long advance would leave Your move where it was.
+describe('game day: focus holds across the one-hour flip', () => {
+  const fixLineupItem = (deadlineAt) => item('lineup_problem', null, {
+    title: 'Fix your lineup before kickoff', detail: '1 empty starting slot', deadlineAt, cta: { label: 'Fix lineup', to: '/league/1/lineup' },
+  });
+  const tickClock = (steps) => {
+    for (let step = 0; step < steps; step += 1) act(() => { jest.advanceTimersByTime(30 * 1000); });
+  };
+
+  beforeEach(() => { jest.useFakeTimers(); });
+  afterEach(() => { jest.useRealTimers(); });
+
+  test('focus on a Fix lineup link stays on that control when its lock crosses one hour', async () => {
+    mockGetByUrl(gameDayMocks(actionItems([fixLineupItem(IN_MINUTES(61))])));
+    renderPage();
+
+    const hero = await screen.findByTestId('dashboard-hero');
+    act(() => within(hero).getByRole('link', { name: /Fix lineup/ }).focus());
+    tickClock(4);
+
+    const after = screen.getByRole('link', { name: /Fix lineup.*\d+ min left$/ });
+    expect(screen.getByTestId('dashboard-hero')).not.toContainElement(after);
+    expect(after).toHaveFocus();
+  });
+
+  test('focus on a control outside Your move is not moved when a lock crosses one hour', async () => {
+    mockGetByUrl(gameDayMocks(actionItems([fixLineupItem(IN_MINUTES(61))])));
+    renderPage();
+
+    const hero = await screen.findByTestId('dashboard-hero');
+    act(() => within(hero).getByRole('link', { name: /Fix lineup/ }).focus());
+    const outside = within(screen.getByTestId('dashboard-head')).getByRole('button', { name: /invite/i });
+    act(() => outside.focus());
+    tickClock(4);
+
+    expect(within(screen.getByTestId('dashboard-hero')).queryByTestId('slot-your-move')).not.toBeInTheDocument();
+    expect(outside).toHaveFocus();
+  });
+
+  test('a shared lock with a Fix lineup foot and a Make picks foot keeps focus on Make picks across the flip', async () => {
+    const lock = IN_MINUTES(61);
+    mockGetByUrl(gameDayMocks(actionItems([fixLineupItem(lock), picksItem(lock)])));
+    renderPage();
+
+    const hero = await screen.findByTestId('dashboard-hero');
+    act(() => within(hero).getByRole('link', { name: /^Make picks/ }).focus());
+    tickClock(4);
+
+    expect(within(screen.getByTestId('dashboard-hero')).queryByTestId('slot-your-move')).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /^Make picks/ })).toHaveFocus();
+    expect(screen.getByRole('link', { name: /^Fix lineup/ })).not.toHaveFocus();
+  });
+});
+
 // AC5: Advance week waits until every game of the current week is final.
 describe('Advance week', () => {
   const advanceLeague = () => mpLeague({
