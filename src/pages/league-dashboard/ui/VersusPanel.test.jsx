@@ -84,6 +84,31 @@ describe('VersusPanel last week postgame', () => {
   });
 });
 
+describe('VersusPanel narratives are labelled and clamped', () => {
+  test('the preview opens with a Preview lead-in and the postgame with Last week', () => {
+    renderPanel({ model: model({ narrative: 'A close one.', lastWeek: { narrative: 'A rout.' } }) });
+    expect(screen.getByTestId('matchup-preview-narrative')).toHaveTextContent(/^Preview A close one\.$/);
+    expect(screen.getByTestId('matchup-postgame-narrative')).toHaveTextContent(/^Last week A rout\.$/);
+    // Nothing overflows in jsdom, so a paragraph that fits its three lines shows no toggle.
+    expect(screen.queryByRole('button', { name: /Read more/ })).not.toBeInTheDocument();
+  });
+
+  test('a paragraph that overflows its three lines offers a toggle named for it, and opening it reads Show less', async () => {
+    // jsdom has no layout: report every paragraph as taller than its clamp so the overflow path runs.
+    const spy = jest.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(200);
+    try {
+      renderPanel({ model: model({ narrative: 'A close one.', lastWeek: { narrative: 'A rout.' } }) });
+      expect(screen.getByRole('button', { name: 'Read more of last week' })).toHaveAttribute('aria-expanded', 'false');
+      const preview = screen.getByRole('button', { name: 'Read more of the preview' });
+      await userEvent.click(preview);
+      expect(screen.getByRole('button', { name: 'Show less of the preview' })).toHaveAttribute('aria-expanded', 'true');
+      expect(screen.getByTestId('matchup-preview-toggle')).toHaveTextContent('Show less');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
+
 describe('VersusPanel before kickoff', () => {
   test('is a framed versus panel: both names, projected figures under a Proj label, the odds bar and the margin', () => {
     renderPanel({ model: model() });

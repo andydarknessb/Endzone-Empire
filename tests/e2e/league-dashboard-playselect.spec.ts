@@ -313,3 +313,23 @@ for (const viewport of Object.keys(VIEWPORTS) as ViewportName[]) {
     }
   });
 }
+
+// The viewer's Matchup preview is labelled and clamped to three lines (#2933). The fixture's preview is long, so it
+// overflows: its control names it at 44px and opens it, and the control then reads Show less.
+for (const viewport of Object.keys(VIEWPORTS) as ViewportName[]) {
+  test(`inseason ${viewport}: the matchup preview opens with a Preview lead-in, clamps to three lines and opens from its control`, async ({ page }) => {
+    await openDashboard(page, 'inseason', viewport);
+    const preview = page.getByTestId('matchup-preview-narrative');
+    await expect(preview).toHaveText(/^Preview /);
+    const lineHeight = await preview.evaluate((el) => parseFloat(getComputedStyle(el).lineHeight));
+    const clamped = (await preview.boundingBox())!.height;
+    expect(clamped, `the preview is ${clamped}px, three ${lineHeight}px lines plus 2px`).toBeLessThanOrEqual(3 * lineHeight + 2);
+
+    const control = page.getByRole('button', { name: 'Read more of the preview' });
+    await expect(control).toBeVisible();
+    expect((await control.boundingBox())!.height, 'the control is a 44px target').toBeGreaterThanOrEqual(44);
+    await control.click();
+    await expect(page.getByTestId('matchup-preview-toggle')).toHaveText('Show less');
+    expect((await preview.boundingBox())!.height, 'opened, the preview is taller than its clamp').toBeGreaterThan(clamped);
+  });
+}

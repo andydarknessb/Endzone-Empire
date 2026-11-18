@@ -16,8 +16,11 @@ const CLAMPED_SX = {
 
 // The narrative, clamped to three lines until the reader opens it, with its toggle only when the text
 // really overflows (measured after layout, again when the box resizes and when the fonts land) -
-// the RecapCard's own behaviour, in the dashboard's look.
-function Narrative({ text }) {
+// the RecapCard's own behaviour, in the dashboard's look. Shared with the Matchup narratives (#2933):
+// `subject` names the toggle for a screen reader ("Read more of the preview"); the Recap omits it.
+export function Narrative({
+  text, lead, sx, textTestId, toggleTestId, expandLabel, subject,
+}) {
   const narrativeId = useId();
   const ref = useRef(null);
   const toggleRef = useRef(null);
@@ -57,23 +60,31 @@ function Narrative({ text }) {
         component="p"
         id={narrativeId}
         ref={ref}
+        data-testid={textTestId}
         tabIndex={-1}
         sx={{
-          m: 0, fontSize: '16px', maxWidth: '80ch', whiteSpace: 'pre-line', outline: 'none', ...(expanded ? null : CLAMPED_SX),
+          m: 0, fontSize: '16px', maxWidth: '80ch', whiteSpace: 'pre-line', outline: 'none', ...(expanded ? null : CLAMPED_SX), ...sx,
         }}
       >
+        {lead && (
+          <>
+            <Box component="b" sx={{ fontWeight: 600 }}>{lead}</Box>
+            {' '}
+          </>
+        )}
         {text}
       </Box>
       {(overflows || expanded) && (
         <Box sx={{ marginLeft: '-10px' }}>
           <PsLinkButton
             ref={toggleRef}
-            data-testid="recap-toggle"
+            data-testid={toggleTestId}
             aria-expanded={expanded}
             aria-controls={narrativeId}
+            ariaLabel={subject ? `${expanded ? 'Show less' : expandLabel} of ${subject}` : undefined}
             onClick={() => setExpanded((open) => !open)}
           >
-            {expanded ? 'Show less' : 'Read the full recap'}
+            {expanded ? 'Show less' : expandLabel}
           </PsLinkButton>
         </Box>
       )}
@@ -123,7 +134,9 @@ export default function RecapPanel({ leagueId }) {
     >
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: '12px', padding: { xs: '14px', md: '16px 20px' } }}>
         {rebuildError && <Box role="alert" sx={{ fontSize: '14px' }}>{rebuildError}</Box>}
-        {recap.data.narrative && <Narrative text={recap.data.narrative} />}
+        {recap.data.narrative && (
+          <Narrative text={recap.data.narrative} toggleTestId="recap-toggle" expandLabel="Read the full recap" />
+        )}
         {rows.length > 0 && (
           <Box
             component="dl"

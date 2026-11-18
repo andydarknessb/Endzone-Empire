@@ -7,6 +7,7 @@ import {
   CpuTag, ErrorPanel, Frame, FrameHead, LiveChip, OddsBar, PixelArrow, PixelHeading, pixelSx, PsButton, Skel, SR_ONLY_SX, StatusChip, TeamMark, YouTag,
 } from '../../../shared/ui/playselect';
 import { formatInstant } from '../../../shared/lib';
+import { Narrative } from './RecapPanel';
 
 /**
  * The dashboard's own Play-select view of the matchup read (ADR 0067 ruling 2): the matchup-preview
@@ -107,14 +108,26 @@ function PreKickoffBody({ leagueId, model }) {
               <Box data-testid="matchup-projected-margin" sx={{ fontSize: '16px', fontWeight: 700 }}>{game.projectedMargin}</Box>
             )}
             {narrative && (
-              <Box component="p" data-testid="matchup-preview-narrative" sx={{ m: 0, fontSize: '15px', color: colors.dim }}>{narrative}</Box>
+              <Narrative
+                text={narrative}
+                lead="Preview"
+                sx={{ fontSize: '15px', color: colors.dim }}
+                textTestId="matchup-preview-narrative"
+                toggleTestId="matchup-preview-toggle"
+                expandLabel="Read more"
+                subject="the preview"
+              />
             )}
             {lastWeek && (
-              <Box component="p" data-testid="matchup-postgame-narrative" sx={{ m: 0, fontSize: '15px', color: colors.dim }}>
-                <Box component="b" sx={{ fontWeight: 600 }}>Last week</Box>
-                {' '}
-                {lastWeek.narrative}
-              </Box>
+              <Narrative
+                text={lastWeek.narrative}
+                lead="Last week"
+                sx={{ fontSize: '15px', color: colors.dim }}
+                textTestId="matchup-postgame-narrative"
+                toggleTestId="matchup-postgame-toggle"
+                expandLabel="Read more"
+                subject="last week"
+              />
             )}
           </Box>
         )}

@@ -156,11 +156,23 @@ function matchupRow(
   };
 }
 
+// The viewer's stored preview Narrative (ADR 0063), 117 words: long enough to overflow three lines at both viewports.
+const MATCHUP_PREVIEW = [
+  "Darkness Falls come in as the slight favourite on the strength of a running back room that has carried more of the week's volume than anyone else in the league.",
+  'Their flex spot has produced steadily all season, and the projection leans on it.',
+  'Sunday Scaries counter with a passing attack that has been boom or bust, but a single big week from its wide receivers would close the gap quickly.',
+  'Both managers should check the injury report before the early window, since one starter ruled out late would swing the margin.',
+  'Expect a game decided in the final kickoff window, with the edge going to whichever side keeps its late players healthy and in the lineup.',
+].join(' ');
+
 function matchupsBody(state: DashState, teams = DASH_TEAMS) {
   const status = state === 'gamedayUrgent' || state === 'gamedaySet' ? 'live' : state === 'complete' ? 'final' : 'scheduled';
   const week = state === 'complete' ? 18 : WEEK;
   return [
-    matchupRow(918, VIEWER_TEAM_ID, 102, status, week, teams),
+    {
+      ...matchupRow(918, VIEWER_TEAM_ID, 102, status, week, teams),
+      ...(state === 'inseason' ? { narrative: MATCHUP_PREVIEW } : {}),
+    },
     matchupRow(919, 103, 104, status, week, teams),
     matchupRow(920, 105, 106, status, week, teams),
     matchupRow(921, 107, 108, status, week, teams),
