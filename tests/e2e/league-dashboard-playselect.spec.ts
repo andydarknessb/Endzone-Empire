@@ -118,6 +118,21 @@ test('phone standings: the viewer row with two teams either side and a Full stan
   await expect(rows).toHaveCount(12);
 });
 
+// In season the Play and Moves links sit in a "League pages" row under Your move, so Waivers is in reach on a
+// phone (it was about 2,560px down) and every link in the row is a 44px target.
+test('inseason phone: the League pages row puts Waivers under 1,200px and every link is a 44px target', async ({ page }) => {
+  await openDashboard(page, 'inseason', 'phone');
+  const pages = page.getByRole('navigation', { name: 'League pages' });
+  await expect(pages).toBeVisible();
+  const waivers = await pages.getByRole('link', { name: 'Waivers' }).evaluate((el) => el.getBoundingClientRect().top + window.scrollY);
+  expect(waivers, 'Waivers top edge from the top of the page').toBeLessThan(1200);
+  const heights = await pages.getByRole('link').evaluateAll((links) => links.map((link) => link.getBoundingClientRect().height));
+  expect(heights.length).toBeGreaterThan(0);
+  for (const height of heights) {
+    expect(height, 'a link in the League pages row is a 44px target').toBeGreaterThanOrEqual(44);
+  }
+});
+
 // An unbreakable team name (a real league has one) in a flex:1 / minWidth:0 span overflows its box into the
 // score unless the span breaks anywhere; names with spaces wrap, which is why the stock fixtures never caught it.
 test('phone around the league: a long one-word team name never runs under the score', async ({ page }) => {

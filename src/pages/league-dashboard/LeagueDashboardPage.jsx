@@ -349,14 +349,14 @@ function DashboardBody({
   if (!seasonLive && !pickemOnly) chips.push(`${teams.length} Teams`);
   if (!seasonLive && draftComplete) chips.push('Draft Complete');
 
-  // The Playbook says each destination once: what another frame on this page already links is dropped.
+  // The Playbook says each destination once: what another frame on this page already links is dropped. In
+  // season the Play and Moves links live in the League pages row under Your move, for every viewer.
   const omit = [];
   if (fantasy) {
     if (seasonLive || showDraftDay) omit.push('draft');
-    if (hasTeam && showHero) omit.push('lineup', 'waivers', 'trades');
-    if (seasonLive) omit.push('game-center');
+    if (seasonLive || (hasTeam && showHero)) omit.push('lineup', 'waivers', 'trades');
+    if (seasonLive) omit.push('game-center', 'pickem');
     omit.push('activity');
-    if (showPickem) omit.push('pickem');
   }
   const foldPlaybook = fantasy && seasonLive;
   const trailing = foldPlaybook && trophyCount > 0
@@ -465,6 +465,22 @@ function DashboardBody({
     </Box>
   );
 
+  // In season the Play and Moves links are a second row right under Your move: the Draft Room is over, and
+  // Pick'em is in it only on a league with pick'em on.
+  const leaguePages = foldPlaybook && (
+    <QuickActions
+      leagueId={leagueId}
+      variant="row"
+      name="League pages"
+      lead={null}
+      only={['Play', 'Moves']}
+      omit={showPickem ? ['draft'] : ['draft', 'pickem']}
+      testId="quick-actions-pages"
+    />
+  );
+  // On game day with nothing urgent Your move sits inside the hero, so the row follows the hero instead.
+  const pagesUnderHero = gameDay && !yourMoveOnTop && !yourMoveFailed;
+
   // The trophy case: the completed season's trophy room, or one link row (merged into the Playbook line
   // in season). It self-hides on an empty list, so a league with no trophies renders nothing.
   const trophies = (
@@ -484,19 +500,23 @@ function DashboardBody({
     // fantasy read that would come back an empty or zeroed table. The pool standings stand in their place.
     sections = [
       ['your-move', yourMoveOnTop ? yourMoveNode : yourMoveFailed],
-      ['strip', commissionerStrip],
       ['pickem-standings', (
         <Box data-testid="dashboard-pickem-standings" sx={{ minWidth: 0, contain: 'paint' }}>
           <PickemStandings leagueId={leagueId} />
         </Box>
       )],
+      ['strip', commissionerStrip],
       ['playbook', playbook],
       ['trophies', trophies],
     ];
   } else if (gameDay) {
     sections = [
       ['your-move', yourMoveOnTop ? yourMoveNode : yourMoveFailed],
+      // Fixed slots, so the hero keeps its index when the row moves between the two positions (a shifted
+      // index makes React move the hero's DOM and drop focus inside it). Each position has its own key.
+      ['league-pages', pagesUnderHero ? null : leaguePages],
       ['hero', hero],
+      ['league-pages-hero', pagesUnderHero ? leaguePages : null],
       ['strip', commissionerStrip],
       ['recap', recap],
       ['around', around],
@@ -507,10 +527,11 @@ function DashboardBody({
   } else {
     sections = [
       ['your-move', yourMoveOnTop ? yourMoveNode : yourMoveFailed],
-      ['strip', commissionerStrip],
+      ['league-pages', leaguePages],
       ['draft-day', showDraftDay && <DraftDay league={league} leagueId={leagueId} />],
       ...(complete ? [['trophies', trophies]] : []),
       ['hero', hero],
+      ['strip', commissionerStrip],
       ['recap', recap],
       ['around', around],
       ['main', main],

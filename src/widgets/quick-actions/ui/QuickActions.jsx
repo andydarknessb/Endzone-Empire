@@ -16,10 +16,14 @@ import useQuickActions from '../model/useQuickActions';
  *
  * The page passes what it already shows elsewhere (One label per destination): `omit` drops those
  * tiles by key (Set Lineup when it is a play, Waivers and Trades when My team links them, Game
- * Center and Activity when their own frames do, the Draft Room once the draft is over), and the
+ * Center and Activity when their own frames do, the Draft Room once the draft is over, and in season
+ * the Play and Moves tiles the League pages row under Your move carries), and the
  * widget drops a group that empties. `variant="row"` is the in-season fold the phone and the
  * mid-season desktop share: one line of links ("Playbook · Power Rankings · History · League Rules")
  * followed by the page's own `trailing` links (the trophy case).
+ *
+ * `only` keeps the named groups and `name` / `lead` / `testId` name the row: the League pages row under
+ * Your move is the same row with its own landmark name, no leading label, and the Play and Moves groups.
  *
  * A pick'em-only league trims itself to the pick'em surfaces. Paints only `ps-*` tokens.
  */
@@ -42,7 +46,7 @@ const KIND = {
 const FRAME_NOTE = 'Everything else in this league';
 
 export default function QuickActions({
-  leagueId, omit, variant = 'frame', trailing,
+  leagueId, omit, variant = 'frame', trailing, only, name = 'Playbook', lead = name, testId = 'quick-actions',
 }) {
   const { ready, groups: allGroups } = useQuickActions(leagueId);
   const headingId = useId();
@@ -51,6 +55,7 @@ export default function QuickActions({
 
   const skip = new Set(omit || []);
   const groups = allGroups
+    .filter((group) => !only || only.includes(group.label))
     .map((group) => {
       const cards = group.cards.filter((card) => !skip.has(card.key));
       return { ...group, cards, count: cards.length };
@@ -66,8 +71,8 @@ export default function QuickActions({
     return (
       <Box
         component="nav"
-        aria-label="Playbook"
-        data-testid="quick-actions"
+        aria-label={name}
+        data-testid={testId}
         sx={{
           border: '2px solid var(--ps-frame-2)',
           backgroundColor: 'var(--ps-panel)',
@@ -78,10 +83,10 @@ export default function QuickActions({
           gap: '0 4px',
         }}
       >
-        <Box component="span" sx={{ fontSize: '15px', fontWeight: 600, padding: '0 10px 0 0' }}>Playbook</Box>
-        {links.map((link) => (
+        {lead && <Box component="span" sx={{ fontSize: '15px', fontWeight: 600, padding: '0 10px 0 0' }}>{lead}</Box>}
+        {links.map((link, i) => (
           <React.Fragment key={link.key}>
-            <Box component="span" aria-hidden="true" sx={{ color: 'var(--ps-dim)' }}>·</Box>
+            {(lead || i > 0) && <Box component="span" aria-hidden="true" sx={{ color: 'var(--ps-dim)' }}>·</Box>}
             <Box component="span" data-testid={`quick-action-${link.key}`}>
               <PsLink to={link.to}>{link.label}</PsLink>
             </Box>
