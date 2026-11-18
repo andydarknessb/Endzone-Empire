@@ -153,8 +153,6 @@ function resolvedRosterSlots(league) {
   return slots.length > 0 ? slots : DEFAULT_ROSTER_SLOTS;
 }
 
-// `lineupProblem` is the page's answer (the league's Action items, the one source of "is this lineup a
-// problem"): an open lineup_problem item, null for none, undefined while that read is unknown.
 export function useMyTeamSummary(leagueId, lineupProblem) {
   const { league, teams, viewerTeamId } = useLeague(leagueId);
 

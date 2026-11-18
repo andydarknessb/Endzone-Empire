@@ -20,8 +20,7 @@ import useMyTeamSummary from '../model/useMyTeamSummary';
  *
  * `wide` seats the numbers and status on the left and the starters on the right from md, for the
  * game-day full-width row. `fixLineup` (default true) is the page's say-it-once switch: it passes
- * false when Your move already carries a Set lineup play. `lineupProblem` is the page's answer to
- * "is this lineup a Lineup problem" (see StartersStatus); left unset, the card makes no lineup claim.
+ * false when Your move already carries a Set lineup play. `lineupProblem` is the page's lineup answer (StartersStatus).
  *
  * Paints only ps-* tokens. The standings read is the card's spine: while it is in flight the frame
  * holds its layout with skeletons, and if it fails the widget is one danger panel with a retry, so a

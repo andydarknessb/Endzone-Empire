@@ -1910,6 +1910,7 @@ const quickActionsAgreementLeague = () =>
     league: {
       draft_status: 'complete',
       season_status: 'regular',
+      current_season: 2026,
       current_week: 3,
       roster_slots: quickActionsStandardSlots,
     },
@@ -1973,7 +1974,7 @@ test('my team: this league\'s Lineup problem in Action items replaces "Lineup se
     '/api/league/1': quickActionsAgreementLeague(),
     [QUICK_ACTIONS_LINEUP_URL]: quickActionsLineupResponse(quickActionsFullRoster()),
     ...actionItems([
-      item('lineup_problem', null, {
+      item('lineup_problem', '2026-3', {
         title: '1 starter is out', detail: 'Puka Nacua (WR) is Out and still in your lineup.', deadlineAt: IN_MINUTES(45),
       }),
     ]),

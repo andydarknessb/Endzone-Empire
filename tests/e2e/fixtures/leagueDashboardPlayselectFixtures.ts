@@ -110,6 +110,7 @@ function recapBody(now: number, teams: DashTeam[]) {
 function leagueRow(state: DashState, inviteCode: string) {
   const base = {
     ...LEAGUE_ROW,
+    current_season: 2026,
     current_week: WEEK,
     draft_status: 'complete',
     season_status: 'regular',
