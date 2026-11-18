@@ -9,9 +9,9 @@ import CommissionerStrip from '../index';
  * commissioner-strip slice tests (#1108). The strip replaces the retired
  * commissioner-panel rail card, so these mirror that widget's own test file
  * where the behavior carried over unchanged (which reads it is allowed to
- * issue, which facts it states from a given league row) and add the
- * acceptance criteria specific to this ticket: exactly five fact tiles, the
- * two links to the commissioner console, and that no legacy administration
+ * issue) and add the acceptance criteria specific to this ticket: no settings
+ * facts on the strip (the console states them), the two links to the
+ * commissioner console, and that no legacy administration
  * tree is reachable from this slice at all.
  *
  * That last guarantee needs the legacy tree's own module mocked below (the
@@ -70,9 +70,8 @@ const leagueResponse = ({ league = {}, teams = [], viewerTeamId = 1 } = {}) => (
   },
 });
 
-// A commissioner league carrying every field the five-tile fact grid reads
-// (plus roster/scoring, which the strip must NOT show - those belong to the
-// console).
+// A commissioner league carrying every field the console's settings facts
+// read. The strip must show none of them.
 const fullyConfiguredLeague = (overrides = {}) => ({
   transactions_locked: true,
   trade_deadline_week: 11,
@@ -88,14 +87,6 @@ const fullyConfiguredLeague = (overrides = {}) => ({
   scoring_rules: { receiving: { reception: 0.5 } },
   ...overrides,
 });
-
-const teamsWithLocks = (n, lockedCount) =>
-  Array.from({ length: n }, (_, i) => ({
-    teamId: i + 1,
-    id: i + 1,
-    teamName: `Team ${i + 1}`,
-    locked: i < lockedCount,
-  }));
 
 const mockGetByUrl = (overrides = {}) => {
   apiClient.get.mockImplementation((url) => {
@@ -120,15 +111,12 @@ const settleReads = async () => {
   await new Promise((resolve) => setTimeout(resolve, 0));
 };
 
-const fact = (key) => screen.getByTestId(`commissioner-fact-${key}`);
-
 // --- presence and gating ----------------------------------------------------
 
 test('a member renders nothing', async () => {
   mockGetByUrl({
     '/api/league/42': leagueResponse({
       league: { is_commissioner: false, is_public: true, join_approval: true },
-      teams: teamsWithLocks(12, 2),
     }),
   });
   const { container } = renderStrip();
@@ -141,27 +129,19 @@ test('a member renders nothing', async () => {
   expect(joinRequestUrls()).toEqual([]);
 });
 
-test('a commissioner sees five fact tiles, both console links and the advance control for a live fantasy week', async () => {
+test('a commissioner in a live fantasy week sees no settings facts, but the advance control and both console links', async () => {
   mockGetByUrl({
     '/api/league/42': leagueResponse({
       league: fullyConfiguredLeague({ is_public: true, join_approval: true }),
-      teams: teamsWithLocks(12, 2),
     }),
     '/api/league/42/join-requests': { data: [{ id: 7 }] },
   });
   renderStrip();
 
   const card = await screen.findByTestId('commissioner-strip');
-  const facts = within(card).getByTestId('commissioner-strip-facts');
-  expect(within(facts).getAllByTestId(/^commissioner-fact-/)).toHaveLength(5);
-  expect(fact('transactions')).toHaveTextContent('Locked');
-  expect(fact('teams-locked')).toHaveTextContent('2 of 12');
-  expect(fact('trade-deadline')).toHaveTextContent('Week 11');
-  expect(fact('waivers')).toHaveTextContent('FAAB · 24h');
-  expect(fact('trade-review')).toHaveTextContent('24h');
-  // The roster and scoring facts belong to the console, not the strip.
-  expect(screen.queryByTestId('commissioner-fact-roster')).not.toBeInTheDocument();
-  expect(screen.queryByTestId('commissioner-fact-scoring')).not.toBeInTheDocument();
+  // The settings facts are the console's to show. Restoring the grid turns this red.
+  expect(within(card).queryByTestId('commissioner-strip-facts')).not.toBeInTheDocument();
+  expect(within(card).queryByTestId(/^commissioner-fact-/)).not.toBeInTheDocument();
 
   // The pending queue is a link with a 28px count badge, never a button, straight to the console.
   const badge = await within(card).findByTestId('commissioner-strip-join-requests');
@@ -223,17 +203,15 @@ test('a commissioner of a private league fetches no queue and shows no Badge', a
 
 // --- pick'em-only leagues ----------------------------------------------------
 
-test("a pick'em-only league renders no facts and no advance control", async () => {
+test("a pick'em-only league renders no advance control", async () => {
   mockGetByUrl({
     '/api/league/42': leagueResponse({
       league: { ...fullyConfiguredLeague(), pickem_only: true },
-      teams: teamsWithLocks(8, 0),
     }),
   });
   renderStrip();
 
   const card = await screen.findByTestId('commissioner-strip');
-  expect(within(card).queryByTestId('commissioner-strip-facts')).not.toBeInTheDocument();
   expect(within(card).queryByTestId('advance-week')).not.toBeInTheDocument();
   // Still a commissioner, so administration stays reachable.
   expect(within(card).getByRole('link', { name: /league administration/i })).toBeInTheDocument();
@@ -320,52 +298,4 @@ test('without an invite control there is no invite row', async () => {
 
   const card = await screen.findByTestId('commissioner-strip');
   expect(within(card).queryByText('Invite code')).not.toBeInTheDocument();
-});
-
-// --- the phone strip ---------------------------------------------------------
-
-// An sx rule is neither laid out nor computed by jsdom, but emotion inserts
-// every rule it generates into `document.styleSheets` under the element's
-// generated class: this gathers one element's declarations under one media
-// condition (`''` for the unconditional rule).
-const rulesUnder = (el, media = '') => {
-  const cls = Array.from(el.classList).find((c) => c.startsWith('css-'));
-  const norm = (value) => String(value).replace(/\s+/g, '');
-  let found = '';
-  const walk = (rules, condition) => {
-    Array.from(rules).forEach((rule) => {
-      if (rule.media) {
-        walk(rule.cssRules || [], rule.media.mediaText || '');
-        return;
-      }
-      if (rule.selectorText === `.${cls}` && norm(condition) === norm(media)) {
-        found += `${rule.style.cssText};`;
-      }
-    });
-  };
-  Array.from(document.styleSheets).forEach((sheet) => walk(sheet.cssRules, ''));
-  return found;
-};
-
-// Red-tell (#1979 L1): dropping the `xs: 'none'` from the fact grid turns this
-// case red. The grid stays in the DOM (the facts are real content at md and
-// up); it is the display that leaves a phone's strip at heading, join
-// requests, Advance and League administration.
-test('the fact grid does not display below md and is a five-column grid from md up', async () => {
-  mockGetByUrl({
-    '/api/league/42': leagueResponse({
-      league: fullyConfiguredLeague({ is_public: true, join_approval: true }),
-      teams: teamsWithLocks(12, 2),
-    }),
-  });
-  renderStrip();
-
-  const card = await screen.findByTestId('commissioner-strip');
-  const facts = within(card).getByTestId('commissioner-strip-facts');
-  expect(rulesUnder(facts, '(min-width:0px)')).toMatch(/display: none/);
-  expect(rulesUnder(facts, '(min-width:900px)')).toMatch(/display: grid/);
-  expect(rulesUnder(facts)).toMatch(/grid-template-columns: repeat\(5, minmax\(0, 1fr\)\)/);
-  // The controls that stay on a phone are still there.
-  expect(within(card).getByRole('heading', { name: 'Commissioner' })).toBeInTheDocument();
-  expect(within(card).getByRole('link', { name: 'League administration' })).toBeInTheDocument();
 });
