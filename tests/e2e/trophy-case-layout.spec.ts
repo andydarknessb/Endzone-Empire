@@ -27,11 +27,13 @@ import { expect, test, type Page } from '@playwright/test';
 import { setupDashboard, DASH_URL } from './fixtures/leagueDashboardPlayselectFixtures';
 import { routeWeek17Trophies } from './fixtures/trophyCaseFixtures';
 
-// The phone bound is 940 (was 820): the Play-select frame lists six awards one to a row, each a pixel
-// cup or star beside two lines, which measures 912 at 360 and 888 at 390. A frame of every award is more
-// than three times that, so the bound still goes red (the negative control below).
-const PHONE_SMALL = { width: 360, height: 800, maxCardHeight: 940 };
-const PHONE = { width: 390, height: 844, maxCardHeight: 940 };
+// The phone bounds are per width (ruled on #2931, Arbiter Endorsed with edits). They were 940 at both widths:
+// the Play-select frame lists six awards one to a row, measuring 912 at 360 and 888 at 390. #2931 adds the
+// "Your season" line, the You tags and the viewer-first order, which put the collapsed card at 1065 at 360
+// and 969 at 390 (six Teams; 1039 and 967 at twelve). The line shows at every width, so the bounds are 1100
+// at 360 and 1000 at 390. A frame of every award is still well past both, so the negative control still goes red.
+const PHONE_SMALL = { width: 360, height: 800, maxCardHeight: 1100 };
+const PHONE = { width: 390, height: 844, maxCardHeight: 1000 };
 const DESKTOP = { width: 1440, height: 900, maxCardHeight: 640 };
 
 async function gotoTrophyCase(page: Page, width: number, height: number, teamCount = 6) {
