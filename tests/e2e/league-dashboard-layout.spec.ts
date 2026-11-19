@@ -517,9 +517,8 @@ test('negative control: the Playbook width predicate reports a card narrower tha
 // ---- The matchup first on a phone, left of My team on desktop (#1980, spec #1979 L1 L2 L4 L5) ----
 
 // ADR 0067's game-day top rule: with no lock inside the hour the live scoreboard leads the page, so on a
-// phone its card starts inside the first screen. Off game day the product order puts Your move and the
-// commissioner strip above the hero (a commissioner's strip alone is a screen tall at 390), so the
-// "above the fold" claim holds only on game day and is bound on the `gamedaySet` Play-select state.
+// phone its card starts inside the first screen. The "above the fold" claim is bound on the `gamedaySet`
+// Play-select state.
 test('League Dashboard @ 390x844, game day: the live matchup card starts on the first screen', async ({ page }) => {
   await setupDashboard(page, 'gamedaySet');
   await page.setViewportSize({ width: 390, height: 844 });
