@@ -207,6 +207,20 @@ test('standings-table: a pre-draft league draws Rank and Team only, with the not
   );
 });
 
+test('standings-table: an in-season league with no games yet draws Rank and Team only', async () => {
+  // In season by phase, but every Team at zero games: the all-zero path, not the phase path.
+  primeLeague({ teamCount: 8 });
+  mockGetByUrl({
+    '/api/scoring/league/1/standings': standingsResponse({ rows: preseasonRows(8) }),
+  });
+  renderTable();
+
+  const card = await screen.findByTestId('standings-table');
+  await within(card).findByText('Squad 1');
+  expect(within(card).getAllByRole('columnheader')).toHaveLength(2);
+  expect(within(card).getByTestId('standings-table-preseason-note')).toBeInTheDocument();
+});
+
 test('standings-table: a league with one game played draws all six columns', async () => {
   primeLeague({ teamCount: 8 });
   const rows = preseasonRows(8);

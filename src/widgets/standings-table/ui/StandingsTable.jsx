@@ -172,6 +172,8 @@ export default function StandingsTable({ leagueId }) {
               // One skeleton row per Team in the league, read from the membership the frame already
               // has, so the table does not jump from six rows to twelve when the standings land.
               // The floor of 1 covers the window where the league read itself is still in flight.
+              // The columns can only be known once the standings land (a league in season with no
+              // games yet draws Rank and Team then), so that one column change on load is accepted.
               ? Array.from({ length: Math.max(teamCount, 1) }, (_, i) => <SkeletonRow key={`skeleton-${i}`} preseason={preseason} />)
               : shown.map(({ row, index }) => (
                 <React.Fragment key={row.key}>
