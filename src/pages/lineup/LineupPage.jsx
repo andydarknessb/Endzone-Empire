@@ -140,9 +140,11 @@ export default function LineupPage() {
   // beside; null for a plain name click.
   const [decisionCardCompareId, setDecisionCardCompareId] = useState(null);
   // #2906: the element that had focus when the card opened; the Dialog hands focus back to it on close.
+  // #2946: a press that did not focus its button leaves <body> there, which is never a real opener, so it is stored as null.
   const decisionCardOpenerRef = useRef(null);
   const openDecisionCard = (playerId) => {
-    decisionCardOpenerRef.current = document.activeElement;
+    const opener = document.activeElement;
+    decisionCardOpenerRef.current = opener === document.body ? null : opener;
     setDecisionCardEntryId(playerId);
   };
   const compareSuggestion = (view) => {
@@ -548,7 +550,7 @@ export default function LineupPage() {
     if (pending.opener?.isConnected) return;
     const target = focusTargetFor({ playerId: pending.playerId, sections, compact, phoneView, barButtons: phoneBarButtonRefs.current });
     if (!target) return;
-    target.focus();
+    target.focus({ preventScroll: pending.preventScroll });
     swapFocusRef.current = { button: target, playerId: pending.playerId, preventScroll: false };
   }, [quickPickOpen, decisionCardOpen, sections, compact, phoneView]);
   // These submit at once (a quick pick closes its menu, the card stays open), so each records what the hand-off needs first.
@@ -557,7 +559,8 @@ export default function LineupPage() {
     swap.handleQuickPickSelect(playerId);
   };
   const onCardSwap = (moves) => {
-    deferredFocusRef.current = { opener: decisionCardOpenerRef.current, playerId: decisionCardEntryId };
+    // #2946: a close that never reaches the card's onClose keeps the browser's scroll.
+    deferredFocusRef.current = { opener: decisionCardOpenerRef.current, playerId: decisionCardEntryId, preventScroll: false };
     submit(moves);
   };
 
@@ -849,7 +852,9 @@ export default function LineupPage() {
           context now - no loose prop stays beside it. */}
       <PlayerDecisionCard
         open={decisionCardEntryId != null}
-        onClose={() => {
+        onClose={(event) => {
+          // #2946: a pointer close (detail > 0) tells the pending hand-off not to scroll to the holder row.
+          if (deferredFocusRef.current) deferredFocusRef.current.preventScroll = event?.detail > 0;
           setDecisionCardEntryId(null);
           setDecisionCardCompareId(null);
         }}
