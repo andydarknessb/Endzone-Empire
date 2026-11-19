@@ -93,10 +93,11 @@ function AwardItem({ trophy, mine }) {
  * (exported from the TrophyCase module, whose card keeps its look and which League history still
  * imports the medal icons from). It opens on the season's League Champion - a large pixel cup, the
  * team in Pixel 24 - then the award list in three columns, capped at six with one toggle; a Season
- * select appears when the league has more than one. It shows only what the trophies carry (award,
- * team, week), never an invented figure, and renders nothing for an empty case. For the viewer's own
- * Team it marks each of its Trophies with the You tag, lists them first, and prints a "Your season" line
- * (the standings row the page hands in, for the season the league is in) under the banner.
+ * select appears when the league has more than one. It shows what the trophies carry (award, team,
+ * week) and renders nothing for an empty case. For the viewer's own Team it marks each of its Trophies
+ * with the You tag and lists them first. The "Your season" line is the one row that is not a trophy: it
+ * prints the standings row the page hands in (rank, record, points for) and computes nothing else, and it
+ * shows only while the selected season is that row's season, after the champion block and before the awards list.
  */
 export default function TrophyRoom({
   trophy: state, teams = [], viewerTeamId = null, standing = null,

@@ -81,7 +81,7 @@ const teamsPayload = (n) =>
 // GET /api/league/:id. `draft_status: 'complete'` with a regular-season status
 // is the in-season phase (leaguePhase.js), the state the density columns are
 // about; the preseason league below is the pre-draft one.
-const leagueResponse = ({ teamCount = 12, league = {} } = {}) => ({
+const leagueResponse = ({ teamCount = 12, league = {}, viewerTeamId = 1 } = {}) => ({
   data: {
     league: {
       id: 1,
@@ -91,7 +91,7 @@ const leagueResponse = ({ teamCount = 12, league = {} } = {}) => ({
       ...league,
     },
     teams: teamsPayload(teamCount),
-    viewerTeamId: 1,
+    viewerTeamId,
   },
 });
 
@@ -156,8 +156,8 @@ const mockGetByUrl = (byUrl) => {
 // would otherwise key that read weekless, re-key when the league arrived and
 // drop back to skeletons mid-test. Priming is the write-through useLeague
 // itself performs, and it leaves exactly one GET for a test to answer.
-const primeLeague = ({ teamCount = 12, league = {} } = {}) => {
-  setResource(['league', 1], leagueResponse({ teamCount, league }).data);
+const primeLeague = ({ teamCount = 12, league = {}, viewerTeamId } = {}) => {
+  setResource(['league', 1], leagueResponse({ teamCount, league, viewerTeamId }).data);
 };
 
 const renderTable = () => renderWithProviders(<StandingsTable leagueId={1} />);
@@ -622,4 +622,30 @@ test('standings-table: a CPU-managed team (teams[].is_cpu) carries the CPU label
   const badges = within(card).getAllByTestId('cpu-badge');
   expect(badges).toHaveLength(1);
   expect(within(screen.getByRole('rowheader', { name: /Squad 3/ })).getByText('CPU')).toBeInTheDocument();
+});
+
+// --- the viewer row, reported up to the page (onViewerRow) -------------------
+
+test('standings-table: onViewerRow reports the viewer row as its rank, record and points for', async () => {
+  primeLeague();
+  mockGetByUrl({ '/api/scoring/league/1/standings': standingsResponse() });
+  const onViewerRow = jest.fn();
+  renderWithProviders(<StandingsTable leagueId={1} onViewerRow={onViewerRow} />);
+
+  const card = await screen.findByTestId('standings-table');
+  const youRow = await within(card).findByTestId('standings-table-you-row');
+  // The record is read off the rendered cell, so the report can only say what the table shows.
+  const record = within(youRow).getAllByRole('cell')[1].textContent;
+  await waitFor(() => expect(onViewerRow).toHaveBeenLastCalledWith({ rank: 1, record, pointsFor: '1200.0' }));
+});
+
+test('standings-table: onViewerRow reports null when no Team in the standings is the viewer', async () => {
+  primeLeague({ viewerTeamId: null });
+  mockGetByUrl({ '/api/scoring/league/1/standings': standingsResponse() });
+  const onViewerRow = jest.fn();
+  renderWithProviders(<StandingsTable leagueId={1} onViewerRow={onViewerRow} />);
+
+  const card = await screen.findByTestId('standings-table');
+  await within(card).findByText('Squad 2');
+  expect(onViewerRow).toHaveBeenLastCalledWith(null);
 });
