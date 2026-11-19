@@ -51,6 +51,11 @@ import { useTeamLineup } from '../../../entities/roster';
 // draft the card would invite a settings page with nothing left to change.
 const DRAFT_TIME_PHASES = [LEAGUE_PHASE.PRE_DRAFT, LEAGUE_PHASE.DRAFTING];
 
+// Every phase but COMPLETE: a finished season has nothing these cards can do (#2932).
+const UNFINISHED_PHASES = [
+  LEAGUE_PHASE.PRE_DRAFT, LEAGUE_PHASE.DRAFTING, LEAGUE_PHASE.IN_SEASON, LEAGUE_PHASE.PLAYOFFS,
+];
+
 // The action catalog, grouped by intent. Mirrors the legacy dashboard's
 // NAV_GROUPS (slug -> /league/:id/<slug>) so destinations carry over unchanged.
 // `fantasyOnly` cards have no surface in a pick'em-only league (no draft,
@@ -62,16 +67,16 @@ const GROUPS = [
     label: 'Play',
     links: [
       { key: 'draft', label: 'Draft Room', slug: 'draft', fantasyOnly: true },
-      { key: 'lineup', label: 'Set Lineup', slug: 'lineup', fantasyOnly: true },
-      { key: 'game-center', label: 'Game Center', slug: 'game-center', fantasyOnly: true },
-      { key: 'pickem', label: "Pick'em", slug: 'pickem' },
+      { key: 'lineup', label: 'Set Lineup', slug: 'lineup', fantasyOnly: true, phases: UNFINISHED_PHASES },
+      { key: 'game-center', label: 'Game Center', slug: 'game-center', fantasyOnly: true, phases: UNFINISHED_PHASES },
+      { key: 'pickem', label: "Pick'em", slug: 'pickem', phases: UNFINISHED_PHASES },
     ],
   },
   {
     label: 'Moves',
     links: [
-      { key: 'waivers', label: 'Waivers', slug: 'waivers', fantasyOnly: true },
-      { key: 'trades', label: 'Trades', slug: 'trades', fantasyOnly: true },
+      { key: 'waivers', label: 'Waivers', slug: 'waivers', fantasyOnly: true, phases: UNFINISHED_PHASES },
+      { key: 'trades', label: 'Trades', slug: 'trades', fantasyOnly: true, phases: UNFINISHED_PHASES },
     ],
   },
   {
@@ -148,7 +153,7 @@ function tradeDeadlinePassed(week, tradeDeadlineWeek) {
 // `attention` is null unless the lineup read has resolved.
 function describeCard(key, ctx) {
   const {
-    phase, pickemOnly, seasonLive, week, attention, transactionsLocked, tradeDeadlineWeek,
+    phase, seasonLive, week, attention, transactionsLocked, tradeDeadlineWeek,
   } = ctx;
   const weekLabel = week != null ? `Week ${week}` : null;
 
@@ -182,11 +187,10 @@ function describeCard(key, ctx) {
         recommended: false,
       };
     case 'pickem':
+      // Never Recommended (#2932): the Play card above already asks for the picks.
       return {
         status: weekLabel ? `${weekLabel} picks lock at kickoff` : 'Make your weekly picks',
-        // Parity with today's highlight: a pick'em-only league in season points
-        // at Pick'em the way a drafting league points at the Draft Room.
-        recommended: pickemOnly && seasonLive,
+        recommended: false,
       };
     case 'waivers':
       if (transactionsLocked) {
@@ -251,7 +255,7 @@ export function useQuickActions(leagueId) {
     : null;
 
   const ctx = {
-    phase, pickemOnly, seasonLive, week, attention, transactionsLocked, tradeDeadlineWeek,
+    phase, seasonLive, week, attention, transactionsLocked, tradeDeadlineWeek,
   };
 
   // Resolve each group: filter cards this league/viewer cannot see, attach copy

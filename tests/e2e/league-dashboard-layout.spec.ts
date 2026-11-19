@@ -361,8 +361,9 @@ for (const teams of TEAM_COUNTS) {
   });
 }
 
-// The Playbook FRAME (the completed season's, and a pre-draft league's): three groups (Play, Moves,
-// League), each in its own column, spanning the content width. Run on the `complete` Play-select state.
+// The Playbook FRAME (the completed season's, and a pre-draft league's): one column per group, spanning
+// the content width. A completed season has two groups (Play, League): Moves and the in-season cards are gone (#2932).
+// Run on the `complete` Play-select state.
 test(`League Dashboard, complete @ ${MEASURED_WIDTH}x${HEIGHT}: the Playbook frame spans the content width, one column per group`, async ({ page }) => {
   await setupDashboard(page, 'complete');
   await page.setViewportSize({ width: MEASURED_WIDTH, height: HEIGHT });
@@ -376,8 +377,8 @@ test(`League Dashboard, complete @ ${MEASURED_WIDTH}x${HEIGHT}: the Playbook fra
     Math.abs((qa.cardWidth as number) - (qa.contentWidth as number)),
     `quick-actions width=${qa.cardWidth} shell content width=${qa.contentWidth}`,
   ).toBeLessThanOrEqual(1);
-  expect(qa.groupLefts, `group lefts=${qa.groupLefts.join(',')}`).toHaveLength(3);
-  expect(new Set(qa.groupLefts).size, `group lefts=${qa.groupLefts.join(',')}`).toBe(3);
+  expect(qa.groupLefts, `group lefts=${qa.groupLefts.join(',')}`).toHaveLength(2);
+  expect(new Set(qa.groupLefts).size, `group lefts=${qa.groupLefts.join(',')}`).toBe(2);
   expect([...qa.groupLefts].sort((x, y) => x - y)).toEqual(qa.groupLefts);
 });
 

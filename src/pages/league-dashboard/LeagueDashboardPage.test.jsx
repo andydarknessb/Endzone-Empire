@@ -2077,7 +2077,7 @@ test('quick-actions: a drafting-phase fixture marks Draft Room Recommended', asy
   expect(within(tile).getByText('Draft is live now · make your picks')).toBeInTheDocument();
 });
 
-test("quick-actions: a pick'em-only in-season fixture shows only Pick'em, Activity, History and League Rules and marks Pick'em Recommended", async () => {
+test("quick-actions: a pick'em-only in-season fixture shows only Pick'em, Activity, History and League Rules, and never marks Pick'em Recommended", async () => {
   mockGetByUrl({
     '/api/league/1': quickActionsLeague({
       league: { pickem_only: true, draft_status: 'pending', season_status: 'regular', current_week: 6 },
@@ -2098,9 +2098,9 @@ test("quick-actions: a pick'em-only in-season fixture shows only Pick'em, Activi
   expect(within(card).getByText('Play · 1')).toBeInTheDocument();
   expect(within(card).getByText('League · 3')).toBeInTheDocument();
   expect(within(card).queryByText(/^Moves ·/)).not.toBeInTheDocument();
-  // Pick'em carries the highlight a pick'em-only in-season league gives it.
+  // Pick'em is never Recommended (#2932), even with its picks open.
   const pickemTile = within(card).getByTestId('quick-action-pickem');
-  expect(within(pickemTile).getByText('Recommended')).toBeInTheDocument();
+  expect(within(pickemTile).queryByText('Recommended')).not.toBeInTheDocument();
 });
 
 // ==========================================================================
@@ -2793,10 +2793,10 @@ describe('a completed season', () => {
     expect(screen.queryByTestId('slot-around-the-league')).not.toBeInTheDocument();
     expect(screen.queryByTestId('slot-matchup-preview')).not.toBeInTheDocument();
     expect(screen.queryByTestId('slot-my-team')).not.toBeInTheDocument();
-    // The trophy room precedes the standings; the Playbook is the frame with its three groups.
+    // The trophy room precedes the standings; the Playbook is the frame, and a finished season has no Moves group (#2932).
     expect(precedes(room, screen.getByTestId('dashboard-main'))).toBe(true);
     const playbook = screen.getByTestId('quick-actions');
-    expect(within(playbook).getByText('Moves · 2')).toBeInTheDocument();
+    expect(within(playbook).queryByText(/^Moves ·/)).not.toBeInTheDocument();
     expect(screen.queryByTestId('trophy-link')).not.toBeInTheDocument();
     // The head: the phase chip, the team count and Draft Complete.
     expect(screen.getByText('Complete')).toBeInTheDocument();
