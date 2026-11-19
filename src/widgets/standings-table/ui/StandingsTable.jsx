@@ -58,9 +58,10 @@ const headCellSx = (align = 'left', extra = null) => ({
  * table never touches the rest of the page. The header (title and team count) renders while loading
  * and when ready, since the count is read from the league membership, not the standings read.
  *
- * Preseason (phase before in season, or every row zero games) is the honest empty state: record,
- * points and streak cells render a placeholder mark, no playoff line is drawn across an order nobody
- * has earned yet, and a note says those values populate after Week 1.
+ * Preseason (phase before in season, or every row zero games) is the honest empty state: the W-L-T,
+ * PF, PA and STRK columns are not drawn, leaving Rank and Team; no playoff line is drawn across an
+ * order nobody has earned yet, and a note says those values populate after Week 1. From md the table
+ * is fixed-layout, so Team truncates before any column is pushed out of its box.
  */
 export default function StandingsTable({ leagueId }) {
   const {
@@ -123,11 +124,13 @@ export default function StandingsTable({ leagueId }) {
         data-testid="standings-table-scroll"
         sx={{ overflowX: 'auto' }}
       >
+        {/* From md the columns are fixed: Team takes the width the numeric columns leave. */}
         <Box
           component="table"
           sx={{
             width: '100%',
-            minWidth: { xs: '538px', md: '700px' },
+            minWidth: preseason ? 0 : { xs: '538px', md: 0 },
+            tableLayout: { md: 'fixed' },
             borderCollapse: 'separate',
             borderSpacing: 0,
           }}
@@ -149,15 +152,19 @@ export default function StandingsTable({ leagueId }) {
                 component="th"
                 scope="col"
                 sx={headCellSx('left', {
-                  position: 'sticky', left: RANK_W, zIndex: 1, minWidth: { xs: '214px', md: '300px' },
+                  position: 'sticky', left: RANK_W, zIndex: 1, minWidth: { xs: '214px', md: 0 },
                 })}
               >
                 Team
               </Box>
-              <Box component="th" scope="col" sx={headCellSx('right', { minWidth: { xs: '72px', md: '88px' } })}>W-L-T</Box>
-              <Box component="th" scope="col" sx={headCellSx('right', { minWidth: { xs: '72px', md: '88px' } })}>PF</Box>
-              <Box component="th" scope="col" sx={headCellSx('right', { minWidth: { xs: '72px', md: '88px' } })}>PA</Box>
-              <Box component="th" scope="col" sx={headCellSx('right', { minWidth: { xs: '64px', md: '72px' } })}>STRK</Box>
+              {!preseason && (
+                <>
+                  <Box component="th" scope="col" sx={headCellSx('right', { minWidth: { xs: '72px', md: '88px' }, width: { md: '88px' } })}>W-L-T</Box>
+                  <Box component="th" scope="col" sx={headCellSx('right', { minWidth: { xs: '72px', md: '88px' }, width: { md: '88px' } })}>PF</Box>
+                  <Box component="th" scope="col" sx={headCellSx('right', { minWidth: { xs: '72px', md: '88px' }, width: { md: '88px' } })}>PA</Box>
+                  <Box component="th" scope="col" sx={headCellSx('right', { minWidth: { xs: '64px', md: '72px' }, width: { md: '72px' } })}>STRK</Box>
+                </>
+              )}
             </Box>
           </Box>
           <Box component="tbody">
@@ -165,7 +172,7 @@ export default function StandingsTable({ leagueId }) {
               // One skeleton row per Team in the league, read from the membership the frame already
               // has, so the table does not jump from six rows to twelve when the standings land.
               // The floor of 1 covers the window where the league read itself is still in flight.
-              ? Array.from({ length: Math.max(teamCount, 1) }, (_, i) => <SkeletonRow key={`skeleton-${i}`} />)
+              ? Array.from({ length: Math.max(teamCount, 1) }, (_, i) => <SkeletonRow key={`skeleton-${i}`} preseason={preseason} />)
               : shown.map(({ row, index }) => (
                 <React.Fragment key={row.key}>
                   <StandingsRow
@@ -250,13 +257,13 @@ function StandingsRow({ row, preseason, lastBeforeBreak }) {
         component="th"
         scope="row"
         sx={cellSx('left', {
-          ...base, position: 'sticky', left: RANK_W, zIndex: 1, fontWeight: 600,
+          ...base, position: 'sticky', left: RANK_W, zIndex: 1, fontWeight: 600, overflow: { md: 'hidden' },
         })}
       >
         {/* On a phone the Team column is the 214px the header holds, so a long name ellipsizes (the full
             name is its title) and the arrow, mark and You tag always stay in view; from sm up it is as wide
-            as its content. */}
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: { xs: '6px', md: '10px' }, maxWidth: { xs: '198px', sm: 'none' } }}>
+            as its content, and from md it is what the numeric columns leave, so the name ellipsizes there too. */}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: { xs: '6px', md: '10px' }, maxWidth: { xs: '198px', sm: 'none', md: '100%' } }}>
           <Box component="span" aria-hidden="true" sx={{ width: '12px', flex: 'none', display: 'inline-flex' }}>
             {row.isViewer && <PixelArrow />}
           </Box>
@@ -265,7 +272,7 @@ function StandingsRow({ row, preseason, lastBeforeBreak }) {
             component="span"
             title={row.teamName}
             sx={{
-              minWidth: 0, fontSize: '15px', fontWeight: 600, overflow: { xs: 'hidden', sm: 'visible' }, textOverflow: 'ellipsis',
+              minWidth: 0, fontSize: '15px', fontWeight: 600, overflow: { xs: 'hidden', sm: 'visible', md: 'hidden' }, textOverflow: 'ellipsis',
             }}
           >
             {row.teamName}
@@ -274,12 +281,16 @@ function StandingsRow({ row, preseason, lastBeforeBreak }) {
           {row.isViewer && <YouTag />}
         </Box>
       </Box>
-      <Box component="td" sx={cellSx('right', base)}>{preseason ? <Placeholder /> : row.record}</Box>
-      <Box component="td" sx={cellSx('right', base)}>{preseason ? <Placeholder /> : row.pointsFor}</Box>
-      <Box component="td" sx={cellSx('right', base)}>{preseason ? <Placeholder /> : row.pointsAgainst}</Box>
-      <Box component="td" sx={cellSx('right', base)}>
-        {preseason || row.streak == null ? <Placeholder /> : row.streak}
-      </Box>
+      {!preseason && (
+        <>
+          <Box component="td" sx={cellSx('right', base)}>{row.record}</Box>
+          <Box component="td" sx={cellSx('right', base)}>{row.pointsFor}</Box>
+          <Box component="td" sx={cellSx('right', base)}>{row.pointsAgainst}</Box>
+          <Box component="td" sx={cellSx('right', base)}>
+            {row.streak == null ? <Placeholder /> : row.streak}
+          </Box>
+        </>
+      )}
     </Box>
   );
 }
@@ -316,7 +327,7 @@ function CutRow() {
   );
 }
 
-function SkeletonRow() {
+function SkeletonRow({ preseason }) {
   const edge = { borderBottom: '2px solid var(--ps-rule)' };
   return (
     <Box component="tr">
@@ -327,16 +338,20 @@ function SkeletonRow() {
           <Skel width="120px" height={16} />
         </Box>
       </Box>
-      <Box component="td" sx={cellSx('right', edge)}><Skel width="44px" height={16} /></Box>
-      <Box component="td" sx={cellSx('right', edge)}><Skel width="44px" height={16} /></Box>
-      <Box component="td" sx={cellSx('right', edge)}><Skel width="44px" height={16} /></Box>
-      <Box component="td" sx={cellSx('right', edge)}><Skel width="26px" height={16} /></Box>
+      {!preseason && (
+        <>
+          <Box component="td" sx={cellSx('right', edge)}><Skel width="44px" height={16} /></Box>
+          <Box component="td" sx={cellSx('right', edge)}><Skel width="44px" height={16} /></Box>
+          <Box component="td" sx={cellSx('right', edge)}><Skel width="44px" height={16} /></Box>
+          <Box component="td" sx={cellSx('right', edge)}><Skel width="26px" height={16} /></Box>
+        </>
+      )}
     </Box>
   );
 }
 
-// The placeholder mark for a preseason cell: a dash, no digits. The dash is a visual mark only, so it
-// is aria-hidden and a hidden "Not available" carries the same meaning to a screen reader.
+// The placeholder mark for a streak a Team has no value for yet: a dash, no digits. The dash is a visual
+// mark only, so it is aria-hidden and a hidden "Not available" carries the same meaning to a screen reader.
 function Placeholder() {
   return (
     <>

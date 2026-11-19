@@ -1114,7 +1114,7 @@ test('standings-table: in-season renders the viewer record as W-L (no ties) and 
   expect(within(youRow).getByText('1000.0')).toBeInTheDocument();
 });
 
-test('standings-table: preseason masks records and points and shows the after-Week-1 note', async () => {
+test('standings-table: preseason draws Rank and Team only and shows the after-Week-1 note', async () => {
   mockGetByUrl({
     '/api/league/1': standingsTablePreseasonLeague(),
     '/api/scoring/league/1/standings': standingsTableResponse(standingsTablePreseasonRows(8)),
@@ -1124,10 +1124,10 @@ test('standings-table: preseason masks records and points and shows the after-We
   const card = await screen.findByTestId('standings-table');
   // The table still renders its teams and ranks (wait for the read to resolve)...
   await within(card).findByText('Squad 1');
-  // ...but no 0-0-0 record text anywhere, and the record/points cells are
-  // placeholders (a screen-reader "Not available").
+  // ...but no 0-0-0 record text anywhere, and no W-L-T, PF, PA or STRK column at all.
   expect(within(card).queryByText('0-0-0')).not.toBeInTheDocument();
-  expect(within(card).getAllByText('Not available').length).toBeGreaterThan(0);
+  expect(within(card).getAllByRole('columnheader')).toHaveLength(2);
+  expect(within(card).queryByText('Not available')).not.toBeInTheDocument();
   // The honest empty-state note.
   const note = within(card).getByTestId('standings-table-preseason-note');
   expect(note).toHaveTextContent(/after Week 1/i);
