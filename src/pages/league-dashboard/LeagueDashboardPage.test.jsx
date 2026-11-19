@@ -2867,6 +2867,8 @@ describe('a completed season', () => {
     const room = await screen.findByTestId('trophy-case');
     const items = within(within(room).getByRole('list', { name: 'Awards' })).getAllByRole('listitem');
     expect(items).toHaveLength(3);
+    // Both viewer rows in order: closest_game (week 5) before top_scorer (week 4), then the other Team's weekly_high.
+    expect(items.map((el) => el.dataset.testid)).toEqual(['trophy-11', 'trophy-12', 'trophy-10']);
     expect(items.slice(0, 2).map((el) => el.textContent)).toEqual([
       expect.stringContaining('Squad 1'), expect.stringContaining('Squad 1'),
     ]);
