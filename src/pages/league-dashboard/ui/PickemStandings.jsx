@@ -1,7 +1,7 @@
 import React, { useId, useState } from 'react';
 import { Box, useMediaQuery, useTheme } from '@mui/material';
 import {
-  ErrorPanel, Frame, FrameHead, PixelArrow, PixelHeading, pixelSx, PsLink, Skel, SR_ONLY_SX, TeamMark, YouTag,
+  ErrorPanel, Frame, FrameHead, PixelArrow, PixelHeading, pixelSx, PsLink, PsLinkButton, Skel, SR_ONLY_SX, TeamMark, YouTag,
 } from '../../../shared/ui/playselect';
 import {
   HEAT_WEEKS, HeatStrip, bestWeeksOf, listOf, usePickemStandingsTable,
@@ -16,6 +16,14 @@ const TREND = {
 };
 
 const rankLabel = (row) => (row.tied ? `T-${row.rank}` : String(row.rank));
+
+// A bare dash reads as nothing to a screen reader; the hidden words say what it stands for.
+const Dash = () => (
+  <>
+    <Box component="span" aria-hidden="true">-</Box>
+    <Box component="span" sx={SR_ONLY_SX}>Not available</Box>
+  </>
+);
 
 // Rank and Team stay pinned at every width. Below sm the table keeps four columns, so its cells get the phone's
 // tighter padding and the numeric columns the phone's width; from sm up all ten columns take their desktop widths.
@@ -114,16 +122,17 @@ function Row({ row, currentWeek, phone }) {
         <span data-testid="pickem-standings-rank">{rankLabel(row)}</span>
       </Box>
       <Box component="th" scope="row" sx={cellSx('left', { ...base, position: 'sticky', left: RANK_W, zIndex: 1, fontWeight: 600 })}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+        {/* Below sm the avatar and the You tag go so the name gets the column; the arrow, the Play fill and aria-current still mark the viewer. */}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: { xs: '6px', sm: '10px' }, minWidth: 0, overflow: 'hidden' }}>
           <Box component="span" aria-hidden="true" sx={{ width: '12px', flex: 'none', display: 'inline-flex' }}>{me && <PixelArrow />}</Box>
-          <TeamMark name={row.teamName} avatarUrl={row.avatarUrl} avatarStaticUrl={row.avatarStaticUrl} />
+          {!phone && <TeamMark name={row.teamName} avatarUrl={row.avatarUrl} avatarStaticUrl={row.avatarStaticUrl} />}
           {/* The name ellipsizes in the Team column; the cell's accessible name is the whole name, and title shows it on hover. */}
           <Box component="span" title={row.teamName} sx={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{row.teamName}</Box>
-          {me && <YouTag />}
+          {!phone && me && <YouTag />}
         </Box>
       </Box>
       <Box component="td" sx={cellSx('right', base)}><b>{row.points}</b></Box>
-      <Box component="td" sx={cellSx('right', base)}>{thisWeek == null ? '-' : thisWeek}</Box>
+      <Box component="td" sx={cellSx('right', base)}>{thisWeek == null ? <Dash /> : thisWeek}</Box>
       {!phone && (
         <>
           <Box component="td" sx={cellSx('right', base)}>{row.correct}</Box>
@@ -139,7 +148,7 @@ function Row({ row, currentWeek, phone }) {
                 </Box>
                 <Box component="span" sx={SR_ONLY_SX}>{trend[1]}</Box>
               </>
-            ) : '-'}
+            ) : <Dash />}
           </Box>
         </>
       )}
@@ -169,6 +178,8 @@ export default function PickemStandings({ leagueId, title = "Pick'em Standings" 
   const [expanded, setExpanded] = useState(false);
   const noun = teamCount === 1 ? 'team' : 'teams';
   const viewerBests = viewer ? bestWeeksOf(viewer.heat) : [];
+  // "This week" needs the desktop column; below sm the fallback is "Week".
+  const weekHead = currentWeek != null ? `Wk ${currentWeek}` : (phone ? 'Week' : 'This week');
 
   const fold = phone ? foldRows(rows.length, rows.findIndex((row) => row.isViewer)) : null;
   const folded = fold && !expanded;
@@ -224,13 +235,14 @@ export default function PickemStandings({ leagueId, title = "Pick'em Standings" 
         data-testid="pickem-standings-scroll"
         sx={{ overflowX: 'auto' }}
       >
-        <Box component="table" sx={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'separate', borderSpacing: 0 }}>
+        {/* From sm the fixed columns take 1019px; the 1179px floor keeps a 160px Team column and scrolls below that. */}
+        <Box component="table" sx={{ width: '100%', minWidth: { sm: 1179 }, tableLayout: 'fixed', borderCollapse: 'separate', borderSpacing: 0 }}>
           <Box component="thead">
             <Box component="tr">
               <Box component="th" scope="col" sx={headSx('left', { position: 'sticky', left: 0, zIndex: 1, width: RANK_W, minWidth: RANK_W })}>Rank</Box>
               <Box component="th" scope="col" sx={headSx('left', { position: 'sticky', left: RANK_W, zIndex: 1 })}>Team</Box>
               <Box component="th" scope="col" sx={headSx('right', { width: NUM_W })}>Points</Box>
-              <Box component="th" scope="col" sx={headSx('right', { width: NUM_W })}>{currentWeek != null ? `Wk ${currentWeek}` : 'This week'}</Box>
+              <Box component="th" scope="col" sx={headSx('right', { width: NUM_W })}>{weekHead}</Box>
               {!phone && (
                 <>
                   <Box component="th" scope="col" sx={headSx('right', { width: NUM_W })}>Correct</Box>
@@ -256,31 +268,13 @@ export default function PickemStandings({ leagueId, title = "Pick'em Standings" 
       </Box>
       {status === 'ready' && fold && (
         <Box sx={{ padding: '0 4px', borderTop: '2px solid var(--ps-rule)' }}>
-          <Box
-            component="a"
-            href="#pickem-standings"
+          <PsLinkButton
             aria-expanded={expanded}
             data-testid="pickem-standings-full"
-            onClick={(event) => {
-              event.preventDefault();
-              setExpanded((open) => !open);
-            }}
-            sx={{
-              minHeight: '44px',
-              display: 'inline-flex',
-              alignItems: 'center',
-              padding: '0 10px',
-              fontSize: '15px',
-              fontWeight: 600,
-              color: 'var(--ps-ink)',
-              textDecoration: 'underline',
-              textDecorationThickness: '2px',
-              textUnderlineOffset: '5px',
-              textDecorationColor: 'var(--ps-dim)',
-            }}
+            onClick={() => setExpanded((open) => !open)}
           >
             {expanded ? 'Fewer teams' : 'Full standings'}
-          </Box>
+          </PsLinkButton>
         </Box>
       )}
       {status === 'ready' && phone && (

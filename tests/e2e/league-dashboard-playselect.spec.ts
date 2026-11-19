@@ -315,8 +315,10 @@ test('pickemonly phone: four columns, the viewer row with two teams either side,
   expect(box.scrollWidth, `pick'em table scrollWidth ${box.scrollWidth} vs clientWidth ${box.clientWidth}`).toBeLessThanOrEqual(box.clientWidth);
   const pointsRight = await you.locator('td').nth(1).evaluate((el) => el.getBoundingClientRect().right);
   expect(pointsRight, `the viewer row's Points cell ends at ${pointsRight}`).toBeLessThanOrEqual(VIEWPORTS.phone.width);
+  const nameWidth = await you.locator('th span[title]').evaluate((el) => el.getBoundingClientRect().width);
+  expect(nameWidth, `the viewer's name gets ${nameWidth}px at 390`).toBeGreaterThanOrEqual(80);
 
-  await table.getByRole('link', { name: 'Full standings' }).click();
+  await table.getByRole('button', { name: 'Full standings' }).click();
   await expect(rows).toHaveCount(12);
 });
 
@@ -350,6 +352,20 @@ test('pickemonly desktop: all ten columns fit the table box, Trend in it, a long
   const name = page.getByTestId('pickem-standings-scroll').getByTitle(LONG);
   expect(await name.evaluate((el) => el.scrollWidth > el.clientWidth), 'the long Team name is clipped').toBe(true);
   await expect(table.getByRole('rowheader', { name: LONG })).toHaveCount(1);
+});
+
+// From sm up the table has a 1179px floor, so between the breakpoint and the width the ten columns need it scrolls
+// rather than crushing the Team column: at 768 the Team cell keeps its 160px.
+test('pickemonly tablet: the Team column keeps 160px and the table scrolls instead of crushing it', async ({ page }) => {
+  watchUnanswered(page);
+  await setupDashboard(page, 'pickemonly');
+  await page.setViewportSize({ width: 768, height: 1024 });
+  await page.goto(DASH_URL);
+  await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+  const table = page.getByTestId('pickem-standings');
+  await expect(table.getByTestId('pickem-standings-you-row')).toBeVisible();
+  const teamWidth = (await table.getByRole('rowheader').first().boundingBox())!.width;
+  expect(teamWidth, `the Team cell is ${teamWidth}px wide at 768`).toBeGreaterThanOrEqual(160);
 });
 
 // A new league's invite code is 16 characters (crypto.randomBytes(8) as hex). At 360 the commissioner's Invite and
