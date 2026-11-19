@@ -4,9 +4,7 @@ import {
   CpuTag, ErrorPanel, Frame, FrameHead, PixelArrow, PixelHeading, pixelSx, Skel, SR_ONLY_SX, TeamMark, YouTag,
 } from '../../../shared/ui/playselect';
 import useStandingsTable from '../model/useStandingsTable';
-
-// Rows beside the viewer's that a phone keeps when the table folds.
-const FOLD_SPAN = 2;
+import { foldRows } from '../model/foldRows';
 
 // The first two columns stay in view while PF, PA and STRK scroll (phone), so their widths are
 // fixed. `xs` is the phone width, `md` the desktop one.
@@ -77,13 +75,10 @@ export default function StandingsTable({ leagueId }) {
   const busy = status === 'loading';
 
   // The phone fold: the viewer's row, two teams either side, down to the playoff line.
-  const viewerIndex = rows.findIndex((row) => row.isViewer);
-  const folds = phone && viewerIndex >= 0 && rows.length > FOLD_SPAN * 2 + 1;
-  const folded = folds && !expanded;
-  const first = folded ? Math.max(0, viewerIndex - FOLD_SPAN) : 0;
-  const last = folded
-    ? Math.min(rows.length - 1, Math.max(viewerIndex + FOLD_SPAN, cutIndex > 0 ? cutIndex - 1 : 0))
-    : rows.length - 1;
+  const fold = phone ? foldRows(rows.length, rows.findIndex((row) => row.isViewer), cutIndex) : null;
+  const folded = fold && !expanded;
+  const first = folded ? fold.first : 0;
+  const last = folded ? fold.last : rows.length - 1;
   const shown = rows.map((row, index) => ({ row, index })).filter(({ index }) => index >= first && index <= last);
 
   if (status === 'error') {
@@ -198,7 +193,7 @@ export default function StandingsTable({ leagueId }) {
         </Box>
       )}
 
-      {status === 'ready' && folds && (
+      {status === 'ready' && fold && (
         <Box sx={{ padding: '0 4px', borderTop: '2px solid var(--ps-rule)' }}>
           <Box
             component="a"

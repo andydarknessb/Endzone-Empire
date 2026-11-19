@@ -4,3 +4,5 @@
  * this folder is the widget's own internal slice.
  */
 export { default } from './ui/StandingsTable';
+// The phone fold, shared with the pick'em table on the League Dashboard (#2930).
+export { foldRows } from './model/foldRows';

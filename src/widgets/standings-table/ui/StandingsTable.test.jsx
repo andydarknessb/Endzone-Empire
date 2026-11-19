@@ -6,6 +6,7 @@ import apiClient from '../../../api/apiClient';
 import { invalidate, setResource } from '../../../lib/resourceCache';
 import StandingsTable from '../index';
 import { winPctLabel } from '../model/useStandingsTable';
+import { foldRows } from '../model/foldRows';
 import { teamStandingFromRow } from '../../../entities/standings';
 
 /**
@@ -477,6 +478,23 @@ describe('on a phone', () => {
     const card = await screen.findByTestId('standings-table');
     await within(card).findByText('Squad 4');
     expect(within(card).queryByRole('link', { name: /Full standings/ })).not.toBeInTheDocument();
+  });
+});
+
+// The phone fold both standings tables share (the pick'em table folds through it too, #2930): the window of
+// row indexes it keeps, or null when there is nothing to fold.
+describe('foldRows', () => {
+  test('a viewer sixth of twelve keeps five rows: the viewer and two teams either side', () => {
+    expect(foldRows(12, 5)).toEqual({ first: 3, last: 7 });
+  });
+
+  test('a viewer first of twelve keeps three rows', () => {
+    expect(foldRows(12, 0)).toEqual({ first: 0, last: 2 });
+  });
+
+  test('five rows or fewer never fold, and a table with no viewer does not either', () => {
+    expect(foldRows(5, 2)).toBeNull();
+    expect(foldRows(12, -1)).toBeNull();
   });
 });
 
