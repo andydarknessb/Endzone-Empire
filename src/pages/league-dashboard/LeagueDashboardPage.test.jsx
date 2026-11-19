@@ -420,14 +420,15 @@ test('playoffs: the season is still live, so the count and Draft Complete chips 
   expect(screen.queryByText('Draft Complete')).not.toBeInTheDocument();
 });
 
-test('season complete: the phase chip, team count and Draft Complete chip all show', async () => {
+test('season complete: the head carries the phase chip only, no team count and no Draft Complete', async () => {
   mockGetByUrl({ '/api/league/1': inSeasonLeague({ season_status: 'complete' }) });
   renderPage();
 
   await screen.findByRole('heading', { level: 1, name: 'MinneApple' });
-  expect(screen.getByText('Complete')).toBeInTheDocument();
-  expect(screen.getByText('12 Teams')).toBeInTheDocument();
-  expect(screen.getByText('Draft Complete')).toBeInTheDocument();
+  const head = screen.getByTestId('dashboard-head');
+  expect(within(head).getByText('Complete')).toBeInTheDocument();
+  expect(within(head).queryByText(/Teams/)).not.toBeInTheDocument();
+  expect(within(head).queryByText('Draft Complete')).not.toBeInTheDocument();
 });
 
 test('pre-draft: shows the pre-draft phase label and team count and no Draft Complete chip', async () => {
@@ -2765,7 +2766,17 @@ describe('before kickoff the hero is the matchup, My team and the Pick\'em panel
 });
 
 describe('a completed season', () => {
-  const completeLeague = () => inSeasonLeague({ season_status: 'complete' });
+  const completeLeague = () => inSeasonLeague({ season_status: 'complete', current_season: 2026 });
+  // The viewer (teamId 1) finished sixth of twelve: 5-5 and 1400.0 points for, read from the standings table.
+  const sixthOfTwelve = () => standingsTableResponse(
+    [2, 3, 4, 5, 6, 1, 7, 8, 9, 10, 11, 12].map((teamId, i) => (teamId === 1
+      ? {
+        teamId, name: 'RAW 1', wins: 5, losses: 5, ties: 0, pf: 1400, pa: 1390, rank: i + 1,
+      }
+      : {
+        teamId, name: `RAW ${teamId}`, wins: 7, losses: 3, ties: 0, pf: 1500 - teamId, pa: 1200, rank: i + 1,
+      })),
+  );
   const champion = {
     id: 9, season: 2026, week: 0, type: 'champion', label: '2026 League Champion', team_id: 2, team_name: 'Terrific T',
   };
@@ -2798,9 +2809,73 @@ describe('a completed season', () => {
     const playbook = screen.getByTestId('quick-actions');
     expect(within(playbook).queryByText(/^Moves ·/)).not.toBeInTheDocument();
     expect(screen.queryByTestId('trophy-link')).not.toBeInTheDocument();
-    // The head: the phase chip, the team count and Draft Complete.
+    // The head: the phase chip alone (spec #2921).
     expect(screen.getByText('Complete')).toBeInTheDocument();
-    expect(screen.getByText('Draft Complete')).toBeInTheDocument();
+    expect(screen.queryByText('Draft Complete')).not.toBeInTheDocument();
+  });
+
+  test('"Your season" prints the viewer\'s rank of the Teams, record and points for, under the champion banner', async () => {
+    mockGetByUrl({
+      '/api/league/1': completeLeague(),
+      '/api/league/1/trophies': trophies(),
+      '/api/scoring/league/1/standings': sixthOfTwelve(),
+    });
+    renderPage();
+
+    const line = await screen.findByTestId('trophy-your-season');
+    expect(within(line).getByText('Your season')).toBeInTheDocument();
+    expect(line).toHaveTextContent('6th of 12 · 5-5 · 1400.0 PF');
+    expect(precedes(screen.getByTestId('trophy-champion'), line)).toBe(true);
+  });
+
+  test('the viewer\'s own Trophies come first in the list, each marked You', async () => {
+    const mine = {
+      id: 12, season: 2026, week: 4, type: 'top_scorer', label: 'Top Scorer', team_id: 1, team_name: 'Squad 1',
+    };
+    mockGetByUrl({
+      '/api/league/1': completeLeague(),
+      '/api/league/1/trophies': { data: [champion, { ...trophies().data[1] }, { ...trophies().data[2] }, mine] },
+      '/api/scoring/league/1/standings': sixthOfTwelve(),
+    });
+    renderPage();
+
+    const room = await screen.findByTestId('trophy-case');
+    const items = within(within(room).getByRole('list', { name: 'Awards' })).getAllByRole('listitem');
+    expect(items).toHaveLength(3);
+    expect(items.slice(0, 2).map((el) => el.textContent)).toEqual([
+      expect.stringContaining('Squad 1'), expect.stringContaining('Squad 1'),
+    ]);
+    items.slice(0, 2).forEach((el) => expect(within(el).getByText('You')).toBeInTheDocument());
+    expect(within(items[2]).queryByText('You')).not.toBeInTheDocument();
+  });
+
+  test('a viewer with no Team gets no "Your season" line', async () => {
+    mockGetByUrl({
+      '/api/league/1': leagueDetail({
+        league: { draft_status: 'complete', season_status: 'complete', current_week: 3, current_season: 2026 },
+        teams: buildTeams(12),
+        viewerTeamId: null,
+      }),
+      '/api/league/1/trophies': trophies(),
+      '/api/scoring/league/1/standings': sixthOfTwelve(),
+    });
+    renderPage();
+
+    await screen.findByTestId('trophy-case');
+    expect(screen.queryByTestId('trophy-your-season')).not.toBeInTheDocument();
+    expect(screen.queryByText('You')).not.toBeInTheDocument();
+  });
+
+  test('the standings are read once on a complete league: the viewer row comes up from the table', async () => {
+    mockGetByUrl({
+      '/api/league/1': completeLeague(),
+      '/api/league/1/trophies': trophies(),
+      '/api/scoring/league/1/standings': sixthOfTwelve(),
+    });
+    renderPage();
+
+    await screen.findByTestId('trophy-your-season');
+    expect(standingsTableGetCount()).toBe(1);
   });
 
   test('a completed league with no trophies has no trophy room', async () => {

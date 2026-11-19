@@ -9,7 +9,7 @@
 import type { Page, Route } from '@playwright/test';
 import { json } from './jsonRoute';
 import { LEAGUE_ID, LEAGUE_ROW, TEAMS, setupLayoutGuard } from './layoutGuardFixtures';
-import { routeWeek17Trophies } from './trophyCaseFixtures';
+import { buildWeek17Trophies, routeWeek17Trophies } from './trophyCaseFixtures';
 
 export const DASH_URL = `/#/league/${LEAGUE_ID}`;
 export type DashState = 'inseason' | 'gamedayUrgent' | 'gamedaySet' | 'predraft' | 'complete' | 'pickemonly';
@@ -255,6 +255,15 @@ export async function setupDashboard(
   }
   await setupLayoutGuard(page);
   await routeWeek17Trophies(page, 12);
+  if (state === 'complete') {
+    // A completed 2026 season has a champion. The Week 17 route's only champion is 2025's, which the trophy-case
+    // guard measures, so this adds the 2026 one for the dashboard's complete state alone.
+    const champ = teams.find((t) => t.teamId === 102)!;
+    const champion = {
+      id: 900, type: 'champion', label: '2026 League Champion', week: 0, season: 2026, team_id: champ.teamId, team_name: champ.teamName, data: {}, awarded_at: '2026-11-01T00:00:00.000Z',
+    };
+    await page.route(`**/api/league/${LEAGUE_ID}/trophies`, (route) => json(route, 200, [champion, ...buildWeek17Trophies(12)]));
+  }
 
   const items = itemsFor(state, now);
   const pregame = state === 'predraft' || state === 'pickemonly';

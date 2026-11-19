@@ -435,3 +435,14 @@ for (const viewport of Object.keys(VIEWPORTS) as ViewportName[]) {
     expect((await preview.boundingBox())!.height, 'opened, the preview is taller than its clamp').toBeGreaterThan(clamped);
   });
 }
+
+// A completed season opens on its trophy room (spec #2921): the champion banner, and the viewer's "Your season"
+// line from the standings the page reads once (sixth of twelve in the fixture), with no cursor.
+for (const viewport of Object.keys(VIEWPORTS) as ViewportName[]) {
+  test(`complete ${viewport}: the champion banner shows, "Your season" reads 6th of 12, and no cursor`, async ({ page }) => {
+    await openDashboard(page, 'complete', viewport, 'dark');
+    await expect(page.getByTestId('trophy-champion')).toBeVisible();
+    await expect(page.getByTestId('trophy-your-season')).toContainText('6th of 12');
+    await expect(page.locator('.cursor')).toHaveCount(0);
+  });
+}

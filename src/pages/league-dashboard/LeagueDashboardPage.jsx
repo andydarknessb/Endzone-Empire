@@ -209,6 +209,8 @@ function DashboardBody({
   // Set by Recent activity once its feed resolves short of the standings (#1998); false while loading,
   // so the row starts two columns.
   const [feedShort, setFeedShort] = useState(false);
+  // The viewer's standings row, reported up by the standings table it already reads (no second request): the Trophy room's "Your season" line.
+  const [viewerRow, setViewerRow] = useState(null);
   const chat = useChatLauncher();
 
   const phase = deriveLeaguePhase(league);
@@ -346,8 +348,9 @@ function DashboardBody({
 
   const chips = [];
   if (phaseChipLabel) chips.push(phaseChipLabel);
-  if (!seasonLive && !pickemOnly) chips.push(`${teams.length} Teams`);
-  if (!seasonLive && draftComplete) chips.push('Draft Complete');
+  // A completed league's head is the phase chip alone (spec #2921): the count and the draft are the Trophy room's story now.
+  if (!seasonLive && !complete && !pickemOnly) chips.push(`${teams.length} Teams`);
+  if (!seasonLive && !complete && draftComplete) chips.push('Draft Complete');
 
   // The Playbook says each destination once: what another frame on this page already links is dropped. In
   // season the Play and Moves links live in the League pages row under Your move, for every viewer.
@@ -443,7 +446,7 @@ function DashboardBody({
       }}
     >
       <Box data-testid="slot-standings" sx={{ minWidth: 0, display: 'grid', contain: 'paint' }}>
-        <StandingsTable leagueId={leagueId} />
+        <StandingsTable leagueId={leagueId} onViewerRow={setViewerRow} />
       </Box>
       <Box data-testid="dashboard-rail" sx={{ minWidth: 0, display: 'grid' }}>
         <Box data-testid="slot-recent-activity" sx={{ display: 'grid' }}>
@@ -486,7 +489,14 @@ function DashboardBody({
   const trophies = (
     <Box component="section" data-testid="slot-trophy-case" sx={EMPTY_HIDDEN_SX}>
       {complete
-        ? <TrophyRoom trophy={trophy} teams={teams} />
+        ? (
+          <TrophyRoom
+            trophy={trophy}
+            teams={teams}
+            viewerTeamId={viewerTeamId}
+            standing={viewerRow && { ...viewerRow, season: league.current_season }}
+          />
+        )
         : !foldPlaybook && <TrophyLink leagueId={leagueId} count={trophyCount} />}
     </Box>
   );
