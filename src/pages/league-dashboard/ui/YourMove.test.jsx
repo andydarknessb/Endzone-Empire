@@ -79,6 +79,11 @@ describe('YourMove', () => {
     expect(screen.getByText('Earliest lock first')).toBeInTheDocument();
   });
 
+  test('one Play has no order to describe, so the frame prints no "Earliest lock first"', () => {
+    renderWithProviders(<YourMove lead={{ feet: [lineup()] }} rest={[]} badge={1} />);
+    expect(screen.queryByText('Earliest lock first')).not.toBeInTheDocument();
+  });
+
   test('a non-lead card is compact: name, lock and foot, with no field band or league line', () => {
     renderWithProviders(
       <YourMove lead={{ feet: [lineup()] }} rest={[{ feet: [waivers] }]} badge={2} />
