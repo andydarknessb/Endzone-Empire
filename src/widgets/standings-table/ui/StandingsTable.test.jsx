@@ -467,6 +467,7 @@ describe('on a phone', () => {
     const toggle = within(card).getByRole('button', { name: 'Full standings, all 12 teams' });
     expect(toggle.tagName).toBe('BUTTON');
     expect(toggle).not.toHaveAttribute('href');
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
 
     await userEvent.click(toggle);
     expect(within(card).getByText('Squad 1')).toBeInTheDocument();
@@ -476,6 +477,7 @@ describe('on a phone', () => {
     await userEvent.click(within(card).getByRole('button', { name: 'Show fewer teams' }));
     expect(within(card).queryByText('Squad 1')).not.toBeInTheDocument();
     expect(within(card).getByText('Squad 8')).toBeInTheDocument();
+    expect(within(card).getByRole('button', { name: 'Full standings, all 12 teams' })).toHaveAttribute('aria-expanded', 'false');
 
     within(card).getByRole('button', { name: 'Full standings, all 12 teams' }).focus();
     await userEvent.keyboard(' ');
