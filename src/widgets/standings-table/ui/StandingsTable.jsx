@@ -1,7 +1,7 @@
 import React, { useEffect, useId, useState } from 'react';
 import { Box, useMediaQuery, useTheme } from '@mui/material';
 import {
-  CpuTag, ErrorPanel, Frame, FrameHead, PixelArrow, PixelHeading, pixelSx, Skel, SR_ONLY_SX, TeamMark, YouTag,
+  CpuTag, ErrorPanel, Frame, FrameHead, PixelArrow, PixelHeading, pixelSx, PsLinkButton, Skel, SR_ONLY_SX, TeamMark, YouTag,
 } from '../../../shared/ui/playselect';
 import useStandingsTable from '../model/useStandingsTable';
 import { foldRows } from '../model/foldRows';
@@ -48,7 +48,7 @@ const headCellSx = (align = 'left', extra = null) => ({
  *
  * Paints only `ps-*` tokens (DESIGN.md "Play-select: Home and league pages"). Below `sm` the table
  * folds to the viewer's row with two teams either side and the playoff line, then a "Full standings"
- * link that opens the whole table in place (the league has no standings page of its own). Rank and
+ * button, styled as a link, that opens the whole table in place (the league has no standings page of its own). Rank and
  * Team stay in view at that width while PF, PA and STRK scroll inside the table box.
  *
  * The standings read is the frame's spine: while it is in flight the frame holds its layout with
@@ -206,32 +206,14 @@ export default function StandingsTable({ leagueId, onViewerRow }) {
 
       {status === 'ready' && fold && (
         <Box sx={{ padding: '0 4px', borderTop: '2px solid var(--ps-rule)' }}>
-          <Box
-            component="a"
-            href="#standings-table"
+          <PsLinkButton
+            ariaLabel={expanded ? 'Show fewer teams' : `Full standings, all ${teamCount} teams`}
             aria-expanded={expanded}
-            aria-label={expanded ? 'Show fewer teams' : `Full standings, all ${teamCount} teams`}
             data-testid="standings-table-full"
-            onClick={(event) => {
-              event.preventDefault();
-              setExpanded((open) => !open);
-            }}
-            sx={{
-              minHeight: '44px',
-              display: 'inline-flex',
-              alignItems: 'center',
-              padding: '0 10px',
-              fontSize: '15px',
-              fontWeight: 600,
-              color: 'var(--ps-ink)',
-              textDecoration: 'underline',
-              textDecorationThickness: '2px',
-              textUnderlineOffset: '5px',
-              textDecorationColor: 'var(--ps-dim)',
-            }}
+            onClick={() => setExpanded((open) => !open)}
           >
             {expanded ? 'Fewer teams' : 'Full standings'}
-          </Box>
+          </PsLinkButton>
         </Box>
       )}
     </Frame>
