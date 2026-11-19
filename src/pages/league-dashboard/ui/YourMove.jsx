@@ -157,9 +157,11 @@ export default function YourMove({
         <FrameHead>
           <PixelHeading id={headingId}>Your move</PixelHeading>
           <CountBadge n={badge ?? cards.length} />
-          <Box component="span" sx={{ marginLeft: { md: 'auto' }, flexBasis: { xs: '100%', md: 'auto' }, fontSize: '13px', color: 'var(--ps-dim)' }}>
-            Earliest lock first
-          </Box>
+          {cards.length > 1 && (
+            <Box component="span" sx={{ marginLeft: { md: 'auto' }, flexBasis: { xs: '100%', md: 'auto' }, fontSize: '13px', color: 'var(--ps-dim)' }}>
+              Earliest lock first
+            </Box>
+          )}
         </FrameHead>
       )}
     >
