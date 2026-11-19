@@ -1060,6 +1060,90 @@ describe('#2897: focus after a completed swap', () => {
       await waitFor(() => expect(mockNotify).toHaveBeenCalledWith(expect.any(String), { severity: 'error' }));
       expect(screen.getByTestId('slot-row-RB-0-select')).toHaveFocus();
     });
+
+    // #2950: a pointer close or pick hands focus over without scrolling, and a refused save's rollback keeps that choice.
+    test('a pointer pick from the quick pick hands focus to the Bench row with preventScroll', async () => {
+      const user = userEvent.setup();
+      apiClient.put.mockResolvedValue({ data: {} });
+      focusSpy = jest.spyOn(HTMLElement.prototype, 'focus');
+      renderPage();
+      await user.click(await screen.findByTestId('slot-row-BENCH-empty-1-select'));
+      await user.click((await screen.findAllByRole('menuitem'))[0]);
+
+      await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument());
+      expect(focusCallsOn(screen.getByTestId('slot-row-BENCH-2-select'))).toEqual([[{ preventScroll: true }]]);
+    });
+
+    test('a key pick from the quick pick hands focus to the Bench row without preventScroll', async () => {
+      const user = userEvent.setup();
+      apiClient.put.mockResolvedValue({ data: {} });
+      focusSpy = jest.spyOn(HTMLElement.prototype, 'focus');
+      renderPage();
+      (await screen.findByTestId('slot-row-BENCH-empty-1-select')).focus();
+      await user.keyboard('{Enter}');
+      await screen.findByRole('menu');
+      await user.keyboard('{Enter}');
+
+      await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument());
+      const calls = focusCallsOn(screen.getByTestId('slot-row-BENCH-2-select'));
+      expect(calls.length).toBeGreaterThan(0);
+      calls.forEach(([options]) => expect(options?.preventScroll).not.toBe(true));
+    });
+
+    test('a refused pointer pick sends focus back to the starter row with preventScroll', async () => {
+      const user = userEvent.setup();
+      let rejectPut;
+      apiClient.put.mockReturnValue(new Promise((resolve, reject) => { rejectPut = reject; }));
+      focusSpy = jest.spyOn(HTMLElement.prototype, 'focus');
+      renderPage();
+      await user.click(await screen.findByTestId('slot-row-BENCH-empty-1-select'));
+      await user.click((await screen.findAllByRole('menuitem'))[0]);
+      await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument());
+
+      await act(async () => { rejectPut({ response: { status: 409, data: { error: 'locked' } } }); });
+      await waitFor(() => expect(mockNotify).toHaveBeenCalledWith(expect.any(String), { severity: 'error' }));
+      expect(focusCallsOn(screen.getByTestId('slot-row-RB-0-select')).at(-1)).toEqual([{ preventScroll: true }]);
+    });
+
+    test('a refused key pick sends focus back to the starter row without preventScroll', async () => {
+      const user = userEvent.setup();
+      let rejectPut;
+      apiClient.put.mockReturnValue(new Promise((resolve, reject) => { rejectPut = reject; }));
+      focusSpy = jest.spyOn(HTMLElement.prototype, 'focus');
+      renderPage();
+      (await screen.findByTestId('slot-row-BENCH-empty-1-select')).focus();
+      await user.keyboard('{Enter}');
+      await screen.findByRole('menu');
+      await user.keyboard('{Enter}');
+      await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument());
+
+      await act(async () => { rejectPut({ response: { status: 409, data: { error: 'locked' } } }); });
+      await waitFor(() => expect(mockNotify).toHaveBeenCalledWith(expect.any(String), { severity: 'error' }));
+      const calls = focusCallsOn(screen.getByTestId('slot-row-RB-0-select'));
+      expect(calls.length).toBeGreaterThan(0);
+      expect(calls.at(-1)?.[0]?.preventScroll).not.toBe(true);
+    });
+
+    test('a pointer close of the Decision card after a refused Start sends focus back to the starter row with preventScroll', async () => {
+      const user = userEvent.setup();
+      let rejectPut;
+      apiClient.put.mockReturnValue(new Promise((resolve, reject) => { rejectPut = reject; }));
+      focusSpy = jest.spyOn(HTMLElement.prototype, 'focus');
+      renderPage();
+      await user.click(await screen.findByRole('button', { name: 'Derrick King' }));
+      (await screen.findByTestId('decision-card-bench-action')).focus();
+      await user.keyboard('{Enter}');
+      await waitFor(() => expect(apiClient.put).toHaveBeenCalled());
+
+      await user.click(screen.getByTestId('decision-card-close'));
+      await waitFor(() => expect(screen.queryByTestId('decision-card')).not.toBeInTheDocument());
+      expect(screen.getByTestId('slot-row-BENCH-2-select')).toHaveFocus();
+
+      await act(async () => { rejectPut({ response: { status: 409, data: { error: 'locked' } } }); });
+      await waitFor(() => expect(mockNotify).toHaveBeenCalledWith(expect.any(String), { severity: 'error' }));
+      expect(screen.getByTestId('slot-row-RB-0-select')).toHaveFocus();
+      expect(focusCallsOn(screen.getByTestId('slot-row-RB-0-select')).at(-1)).toEqual([{ preventScroll: true }]);
+    });
   });
 });
 
