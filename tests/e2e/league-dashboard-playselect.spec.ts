@@ -22,7 +22,7 @@ import path from 'path';
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import {
-  DASH_URL, EXPECTED_CURSORS, setupDashboard,
+  DASH_TEAMS, DASH_URL, EXPECTED_CURSORS, setupDashboard,
 } from './fixtures/leagueDashboardPlayselectFixtures';
 import type { DashState, DashTheme } from './fixtures/leagueDashboardPlayselectFixtures';
 
@@ -296,6 +296,60 @@ test('pickemonly desktop: each weekly points strip is one labelled image, its ce
   }
   await expect(card.locator('[data-testid="pickem-standings-heat-cell"]')).toHaveCount(12 * 18);
   await expect(card.locator('[data-testid="pickem-standings-heat-cell"]:not([aria-hidden="true"])')).toHaveCount(0);
+});
+
+// Pick'em-only table (#2930). Below sm it keeps four columns (Rank, Team, Points, this week), folds to the viewer's
+// row with two teams either side and a Full standings link, and links to the Pick'em page for the rest.
+test('pickemonly phone: four columns, the viewer row with two teams either side, Full standings shows all twelve', async ({ page }) => {
+  await openDashboard(page, 'pickemonly', 'phone');
+  const table = page.getByTestId('pickem-standings');
+  await expect(table.getByRole('columnheader')).toHaveText(['Rank', 'Team', 'Points', /^Wk \d+$/]);
+  const rows = table.locator('tbody tr');
+  await expect(rows).toHaveCount(5);
+  const ranks = await rows.evaluateAll((trs) => trs.map((tr) => (tr.querySelector('td') as HTMLElement).textContent?.trim()));
+  expect(ranks).toEqual(['4', '5', '6', '7', '8']);
+  const you = table.getByTestId('pickem-standings-you-row');
+  await expect(you.locator('td').first()).toHaveText('6');
+
+  const box = await page.getByTestId('pickem-standings-scroll').evaluate((el) => ({ scrollWidth: el.scrollWidth, clientWidth: el.clientWidth }));
+  expect(box.scrollWidth, `pick'em table scrollWidth ${box.scrollWidth} vs clientWidth ${box.clientWidth}`).toBeLessThanOrEqual(box.clientWidth);
+  const pointsRight = await you.locator('td').nth(1).evaluate((el) => el.getBoundingClientRect().right);
+  expect(pointsRight, `the viewer row's Points cell ends at ${pointsRight}`).toBeLessThanOrEqual(VIEWPORTS.phone.width);
+
+  await table.getByRole('link', { name: 'Full standings' }).click();
+  await expect(rows).toHaveCount(12);
+});
+
+test("pickemonly phone: the link under the table goes to the Pick'em page and is a 44px target", async ({ page }) => {
+  await openDashboard(page, 'pickemonly', 'phone');
+  const link = page.getByRole('link', { name: 'Accuracy, weekly points and trend' });
+  await expect(link).toHaveAttribute('href', /\/pickem$/);
+  const box = (await link.boundingBox())!;
+  expect(box.height, 'the link is a 44px target').toBeGreaterThanOrEqual(44);
+});
+
+// From sm up the table keeps all ten columns and fits its frame: the Team column takes what the numeric columns
+// leave, so a long name truncates and keeps its full name in the cell's accessible name.
+test('pickemonly desktop: all ten columns fit the table box, Trend in it, a long Team name truncates with its full name', async ({ page }) => {
+  const LONG = 'The Quarterback Whisperers of Tuesday Night Fantasy League';
+  watchUnanswered(page);
+  await setupDashboard(page, 'pickemonly', { teamNames: { [DASH_TEAMS[0].teamId]: LONG } });
+  await page.setViewportSize(VIEWPORTS.desktop);
+  await page.goto(DASH_URL);
+  await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+  const table = page.getByTestId('pickem-standings');
+  await expect(table.getByTestId('pickem-standings-you-row')).toBeVisible();
+  await expect(table.getByRole('columnheader')).toHaveCount(10);
+
+  const box = await page.getByTestId('pickem-standings-scroll').evaluate((el) => ({
+    scrollWidth: el.scrollWidth, clientWidth: el.clientWidth, right: el.getBoundingClientRect().right,
+  }));
+  expect(box.scrollWidth, `pick'em table scrollWidth ${box.scrollWidth} vs clientWidth ${box.clientWidth}`).toBeLessThanOrEqual(box.clientWidth);
+  const trendRight = await table.getByRole('columnheader', { name: 'Trend' }).evaluate((el) => el.getBoundingClientRect().right);
+  expect(trendRight, `Trend header right edge ${trendRight} vs the box's right edge ${box.right}`).toBeLessThanOrEqual(box.right);
+  const name = page.getByTestId('pickem-standings-scroll').getByTitle(LONG);
+  expect(await name.evaluate((el) => el.scrollWidth > el.clientWidth), 'the long Team name is clipped').toBe(true);
+  await expect(table.getByRole('rowheader', { name: LONG })).toHaveCount(1);
 });
 
 // A new league's invite code is 16 characters (crypto.randomBytes(8) as hex). At 360 the commissioner's Invite and
