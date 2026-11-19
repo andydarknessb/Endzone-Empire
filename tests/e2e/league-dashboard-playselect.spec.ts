@@ -25,6 +25,8 @@ import {
   DASH_TEAMS, DASH_URL, EXPECTED_CURSORS, setupDashboard,
 } from './fixtures/leagueDashboardPlayselectFixtures';
 import type { DashState, DashTheme } from './fixtures/leagueDashboardPlayselectFixtures';
+import { LEAGUE_ID } from './fixtures/layoutGuardFixtures';
+import { json } from './fixtures/jsonRoute';
 
 const VIEWPORTS = {
   desktop: { width: 1440, height: 900 },
@@ -280,6 +282,89 @@ for (const state of ['inseason', 'gamedayUrgent', 'gamedaySet', 'complete'] as c
     expect(box.scrollWidth, `standings scrollWidth ${box.scrollWidth} vs clientWidth ${box.clientWidth}`).toBeLessThanOrEqual(box.clientWidth);
     expect(strkRight, `STRK header right edge ${strkRight} vs the box's right edge ${box.right}`).toBeLessThanOrEqual(box.right);
   });
+}
+
+// The md band (900 to 1199px, below lg): the standings share the row with the rail, so the Team name has to stay
+// readable beside six columns that fit with no sideways scroll. Its own constant: VIEWPORTS runs every loop, and the
+// inseason pixel VS case is red at these widths for a reason outside this widget.
+const MD_BAND = {
+  md900: { width: 900, height: 900 },
+  md1024: { width: 1024, height: 900 },
+} as const;
+const MIN_NAME_PX = { md900: 48, md1024: 96 } as const;
+const VIEWER_ID = 101; // the fixture's viewer; the fixture keeps its own copy unexported
+const HEADERS = ['Rank', 'Team', 'W-L-T', 'PF', 'PA', 'STRK'];
+
+// Twelve rows in rank order with the viewer sixth. The viewer's row prints its widest figures: Record 10-10-1 (one tie),
+// 1800.5 for, 1799.5 against and a W10 streak. Every row carries a streak, so each cell is one that can overflow.
+function narrowStandingsBody() {
+  const viewer = DASH_TEAMS.find((t) => t.teamId === VIEWER_ID)!;
+  const others = DASH_TEAMS.filter((t) => t.teamId !== VIEWER_ID);
+  const ranked = [...others.slice(0, 5), viewer, ...others.slice(5)];
+  return {
+    standings: ranked.map((t, i) => (t.teamId === VIEWER_ID
+      ? {
+        teamId: t.teamId, teamName: t.teamName, rank: i + 1, wins: 10, losses: 10, ties: 1, pf: 1800.5, pa: 1799.5, streak: 'W10',
+      }
+      : {
+        teamId: t.teamId, teamName: t.teamName, rank: i + 1, wins: 12 - i, losses: i, ties: 0, pf: 1500 - i * 20, pa: 1200 + i * 15, streak: 'L1',
+      })),
+  };
+}
+
+async function openNarrowStandings(page: Page, state: DashState, size: { width: number; height: number }) {
+  watchUnanswered(page);
+  await setupDashboard(page, state);
+  // Registered after the fixture's catch-all, so this answer is the one the standings read gets.
+  await page.route(`**/api/scoring/league/${LEAGUE_ID}/standings`, (route) => json(route, 200, narrowStandingsBody()));
+  await page.setViewportSize(size);
+  await page.goto(DASH_URL);
+  await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+  await expect(page.getByTestId('standings-table-you-row')).toBeVisible();
+  await page.evaluate(() => document.fonts.ready.then(() => true));
+}
+
+for (const state of ['inseason', 'gamedayUrgent', 'gamedaySet', 'complete'] as const) {
+  for (const band of Object.keys(MD_BAND) as (keyof typeof MD_BAND)[]) {
+    test(`${state} ${band} standings: six headers, no sideways scroll, every Team name readable inside its cell, the You tag whole`, async ({ page }) => {
+      await openNarrowStandings(page, state, MD_BAND[band]);
+      const table = page.getByTestId('standings-table');
+
+      // (a) the six headers are visible
+      for (const name of HEADERS) await expect(table.getByRole('columnheader', { name, exact: true })).toBeVisible();
+
+      // (b) the table box does not scroll sideways
+      const box = await page.getByTestId('standings-table-scroll').evaluate((el) => ({ scrollWidth: el.scrollWidth, clientWidth: el.clientWidth }));
+      expect(box.scrollWidth, `standings scrollWidth ${box.scrollWidth} vs clientWidth ${box.clientWidth}`).toBeLessThanOrEqual(box.clientWidth);
+
+      // (c) every Team name span is readable, and (d) it and the You tag end inside that row's Team cell (th scope="row")
+      const teams = await table.locator('tbody tr').evaluateAll((trs) => trs.map((tr) => {
+        const cell = tr.querySelector('th[scope="row"]') as HTMLElement;
+        const name = [...cell.querySelectorAll('span[title]')].find((s) => s.textContent === s.getAttribute('title')) as HTMLElement;
+        const you = [...cell.querySelectorAll('span')].find((s) => s.textContent === 'You');
+        return {
+          team: name.getAttribute('title') ?? '',
+          nameWidth: name.clientWidth,
+          nameRight: name.getBoundingClientRect().right,
+          youRight: you ? you.getBoundingClientRect().right : null,
+          cellRight: cell.getBoundingClientRect().right,
+        };
+      }));
+      expect(teams).toHaveLength(12);
+      for (const t of teams) {
+        expect(t.nameWidth, `${t.team} gets ${t.nameWidth}px at ${MD_BAND[band].width}`).toBeGreaterThanOrEqual(MIN_NAME_PX[band]);
+        expect(t.nameRight, `${t.team} ends at ${t.nameRight} past its cell at ${t.cellRight}`).toBeLessThanOrEqual(t.cellRight);
+        if (t.youRight !== null) expect(t.youRight, `the You tag ends at ${t.youRight} past its cell at ${t.cellRight}`).toBeLessThanOrEqual(t.cellRight);
+      }
+      await expect(table.getByTestId('standings-table-you-row').getByText('You', { exact: true })).toBeVisible();
+
+      // (e) every cell of every row, the playoff line aside, fits its own column
+      const overflowing = await table.locator('tbody tr:not([data-cut-line]) td').evaluateAll((tds) => tds
+        .filter((td) => td.scrollWidth > td.clientWidth)
+        .map((td) => `${td.textContent} ${td.scrollWidth}>${td.clientWidth}`));
+      expect(overflowing, 'every cell fits its column').toEqual([]);
+    });
+  }
 }
 
 // Pick'em-only weekly strips (#2928): one labelled image per team, its eighteen cells hidden. Twelve teams, so a

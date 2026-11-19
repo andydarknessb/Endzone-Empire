@@ -564,6 +564,50 @@ test.each([4, 12])(
   }
 );
 
+// The cell count of the first skeleton row, drawn while the standings read is in flight (the league count is on screen by then).
+const skeletonCells = async (league) => {
+  primeLeague({ teamCount: 4, league });
+  mockGetByUrl({
+    '/api/scoring/league/1/standings': { pending: true },
+  });
+  renderTable();
+
+  const card = await screen.findByTestId('standings-table');
+  await waitFor(() => expect(within(card).getByTestId('standings-table-count')).toHaveTextContent('4'));
+  // eslint-disable-next-line testing-library/no-node-access -- skeleton cells are aria-hidden placeholders, so they are counted as elements
+  return card.querySelectorAll('tbody tr:first-child > *').length;
+};
+
+test('standings-table: a pre-draft skeleton row holds the two columns the table will draw', async () => {
+  expect(await skeletonCells({ draft_status: 'pending' })).toBe(2);
+});
+
+test('standings-table: an in-season skeleton row holds all six columns', async () => {
+  expect(await skeletonCells({})).toBe(6);
+});
+
+test('standings-table: a league with one game played marks each row without a streak Not available, and not the row with one', async () => {
+  primeLeague({ teamCount: 8 });
+  const rows = preseasonRows(8);
+  rows[0] = { ...rows[0], wins: 1, pf: 101.5, pa: 90, streak: 'W1', winPct: 1 };
+  mockGetByUrl({
+    '/api/scoring/league/1/standings': standingsResponse({ rows }),
+  });
+  renderTable();
+
+  const card = await screen.findByTestId('standings-table');
+  const youRow = await within(card).findByTestId('standings-table-you-row');
+  expect(within(youRow).getByText('W1')).toBeInTheDocument();
+  expect(within(youRow).queryByText('Not available')).not.toBeInTheDocument();
+  const hidden = within(card).getAllByText('Not available');
+  expect(hidden).toHaveLength(7);
+  // The dash is the visual mark and the hidden label the meaning, so the dash is the one a screen reader skips.
+  hidden.forEach((label) => {
+    // eslint-disable-next-line testing-library/no-node-access -- the dash is the label's previous sibling
+    expect(label.previousElementSibling).toHaveAttribute('aria-hidden', 'true');
+  });
+});
+
 test('standings-table: a CPU-managed team (teams[].is_cpu) carries the CPU label, and only it', async () => {
   const data = leagueResponse({ teamCount: 4 }).data;
   data.teams[2] = { ...data.teams[2], is_cpu: true };

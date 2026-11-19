@@ -7,9 +7,10 @@ import useStandingsTable from '../model/useStandingsTable';
 import { foldRows } from '../model/foldRows';
 
 // The first two columns stay in view while PF, PA and STRK scroll (phone), so their widths are
-// fixed. `xs` is the phone width, `md` the desktop one.
-const RANK_W = { xs: 48, md: 64 };
-const CELL_PAD = { xs: '0 8px', md: '0 12px' };
+// fixed. `xs` is the phone width; from md to below lg (900 to 1199px) the numeric columns are compact so
+// Team keeps its width beside the rail. `lg` is the desktop set.
+const RANK_W = { xs: 48, md: 56, lg: 64 };
+const CELL_PAD = { xs: '0 8px', md: '0 8px', lg: '0 12px' };
 
 const cellSx = (align = 'left', extra = null) => ({
   boxSizing: 'border-box',
@@ -165,10 +166,10 @@ export default function StandingsTable({ leagueId, onViewerRow }) {
               </Box>
               {!preseason && (
                 <>
-                  <Box component="th" scope="col" sx={headCellSx('right', { minWidth: { xs: '72px', md: '88px' }, width: { md: '88px' } })}>W-L-T</Box>
-                  <Box component="th" scope="col" sx={headCellSx('right', { minWidth: { xs: '72px', md: '88px' }, width: { md: '88px' } })}>PF</Box>
-                  <Box component="th" scope="col" sx={headCellSx('right', { minWidth: { xs: '72px', md: '88px' }, width: { md: '88px' } })}>PA</Box>
-                  <Box component="th" scope="col" sx={headCellSx('right', { minWidth: { xs: '64px', md: '72px' }, width: { md: '72px' } })}>STRK</Box>
+                  <Box component="th" scope="col" sx={headCellSx('right', { minWidth: { xs: '72px', md: '70px', lg: '88px' }, width: { md: '70px', lg: '88px' } })}>W-L-T</Box>
+                  <Box component="th" scope="col" sx={headCellSx('right', { minWidth: { xs: '72px', md: '64px', lg: '88px' }, width: { md: '64px', lg: '88px' } })}>PF</Box>
+                  <Box component="th" scope="col" sx={headCellSx('right', { minWidth: { xs: '72px', md: '64px', lg: '88px' }, width: { md: '64px', lg: '88px' } })}>PA</Box>
+                  <Box component="th" scope="col" sx={headCellSx('right', { minWidth: { xs: '64px', md: '54px', lg: '72px' }, width: { md: '54px', lg: '72px' } })}>STRK</Box>
                 </>
               )}
             </Box>
@@ -253,7 +254,7 @@ function StandingsRow({ row, preseason, lastBeforeBreak }) {
         {/* On a phone the Team column is the 214px the header holds, so a long name ellipsizes (the full
             name is its title) and the arrow, mark and You tag always stay in view; from sm up it is as wide
             as its content, and from md it is what the numeric columns leave, so the name ellipsizes there too. */}
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: { xs: '6px', md: '10px' }, maxWidth: { xs: '198px', sm: 'none', md: '100%' } }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: { xs: '6px', lg: '10px' }, maxWidth: { xs: '198px', sm: 'none', md: '100%' } }}>
           <Box component="span" aria-hidden="true" sx={{ width: '12px', flex: 'none', display: 'inline-flex' }}>
             {row.isViewer && <PixelArrow />}
           </Box>
