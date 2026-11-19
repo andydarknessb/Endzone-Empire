@@ -44,6 +44,7 @@ import week7StartSitDarknessReport from './week7-start-sit-darkness-report.meta'
 import week8StartSitDarknessReport from './week8-start-sit-darkness-report.meta';
 import week9StartSitDarknessReport from './week9-start-sit-darkness-report.meta';
 import week10StartSitDarknessReport from './week10-start-sit-darkness-report.meta';
+import week11StartSitDarknessReport from './week11-start-sit-darkness-report.meta';
 
 // One loader per article, keyed by slug. Literal import() calls so the
 // bundler can split one chunk per body.
@@ -78,6 +79,7 @@ const BODY_LOADERS = {
   'week8-start-sit-darkness-report': () => import('./week8-start-sit-darkness-report'),
   'week9-start-sit-darkness-report': () => import('./week9-start-sit-darkness-report'),
   'week10-start-sit-darkness-report': () => import('./week10-start-sit-darkness-report'),
+  'week11-start-sit-darkness-report': () => import('./week11-start-sit-darkness-report'),
 };
 
 // Newest first.
@@ -112,6 +114,7 @@ const ARTICLES = [
   week8StartSitDarknessReport,
   week9StartSitDarknessReport,
   week10StartSitDarknessReport,
+  week11StartSitDarknessReport,
 ].sort((a, b) => new Date(b.date) - new Date(a.date));
 
 const META_KEYS = ['slug', 'title', 'category', 'excerpt', 'readMinutes', 'date', 'author', 'series'];
