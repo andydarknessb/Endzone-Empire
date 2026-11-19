@@ -99,8 +99,8 @@ export function useStandingsTable(leagueId) {
       isCpu: Boolean(team?.is_cpu),
       // The Record arrives FORMATTED from the entity, which owns the tie rule
       // (CONTEXT.md, Record); nothing here re-derives it. Points are the
-      // entity's numbers printed to one decimal. Both are masked in the UI
-      // during preseason, when the columns are not drawn.
+      // entity's numbers printed to one decimal. Preseason does not draw
+      // the columns these feed.
       record: row.record,
       pointsFor: row.pointsFor.toFixed(1),
       pointsAgainst: row.pointsAgainst.toFixed(1),
