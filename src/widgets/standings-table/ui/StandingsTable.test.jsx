@@ -441,7 +441,7 @@ describe('on a phone', () => {
     expect(within(card).getByText('Squad 6')).toBeInTheDocument();
     expect(within(card).queryByText('Squad 7')).not.toBeInTheDocument();
     expect(within(card).getByTestId('standings-table-cut-line')).toBeInTheDocument();
-    expect(within(card).getByRole('link', { name: 'Full standings, all 12 teams' })).toBeInTheDocument();
+    expect(within(card).getByRole('button', { name: 'Full standings, all 12 teams' })).toBeInTheDocument();
   });
 
   test('standings-table: a viewer mid-table gets two teams above and below, and Full standings opens the rest', async () => {
@@ -464,10 +464,28 @@ describe('on a phone', () => {
     expect(within(card).queryByText('Squad 11')).not.toBeInTheDocument();
     expect(within(card).getByTestId('standings-table-you-row')).toHaveTextContent('Squad 8');
 
-    await userEvent.click(within(card).getByRole('link', { name: 'Full standings, all 12 teams' }));
+    const toggle = within(card).getByRole('button', { name: 'Full standings, all 12 teams' });
+    expect(toggle.tagName).toBe('BUTTON');
+    expect(toggle).not.toHaveAttribute('href');
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+
+    await userEvent.click(toggle);
     expect(within(card).getByText('Squad 1')).toBeInTheDocument();
     expect(within(card).getByText('Squad 12')).toBeInTheDocument();
-    expect(within(card).getByRole('link', { name: 'Show fewer teams' })).toHaveAttribute('aria-expanded', 'true');
+    expect(within(card).getByRole('button', { name: 'Show fewer teams' })).toHaveAttribute('aria-expanded', 'true');
+
+    await userEvent.click(within(card).getByRole('button', { name: 'Show fewer teams' }));
+    expect(within(card).queryByText('Squad 1')).not.toBeInTheDocument();
+    expect(within(card).getByText('Squad 8')).toBeInTheDocument();
+    expect(within(card).getByRole('button', { name: 'Full standings, all 12 teams' })).toHaveAttribute('aria-expanded', 'false');
+
+    within(card).getByRole('button', { name: 'Full standings, all 12 teams' }).focus();
+    await userEvent.keyboard(' ');
+    expect(within(card).getByText('Squad 1')).toBeInTheDocument();
+    expect(within(card).getByText('Squad 12')).toBeInTheDocument();
+    expect(within(card).getByRole('button', { name: 'Show fewer teams' })).toHaveAttribute('aria-expanded', 'true');
+
+    expect(window.location.hash).toBe('');
   });
 
   test('standings-table: a short league has nothing to fold', async () => {
@@ -477,7 +495,7 @@ describe('on a phone', () => {
 
     const card = await screen.findByTestId('standings-table');
     await within(card).findByText('Squad 4');
-    expect(within(card).queryByRole('link', { name: /Full standings/ })).not.toBeInTheDocument();
+    expect(within(card).queryByRole('button', { name: /Full standings/ })).not.toBeInTheDocument();
   });
 });
 
