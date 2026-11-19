@@ -27,7 +27,7 @@ export default function PageHead({
         <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px 12px' }}>
           {chips.map((chip) => <StatusChip key={chip}>{chip}</StatusChip>)}
           {live && <LiveChip>{live}</LiveChip>}
-          <Box component="p" sx={{ m: 0, fontSize: '17px', color: 'var(--ps-dim)' }}>{`Times in ${zone}`}</Box>
+          <Box component="p" sx={{ m: 0, fontSize: '16px', color: 'var(--ps-dim)' }}>{`Times in ${zone}`}</Box>
         </Box>
       </Box>
       {right && <Box>{right}</Box>}

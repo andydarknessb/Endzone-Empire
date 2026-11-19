@@ -436,6 +436,12 @@ for (const viewport of Object.keys(VIEWPORTS) as ViewportName[]) {
   });
 }
 
+// The head's "Times in" line sits on the Archivo ramp's 16px step: the ramp has no 17px.
+test('inseason desktop: the Times in line is 16px', async ({ page }) => {
+  await openDashboard(page, 'inseason', 'desktop');
+  await expect(page.locator('p').filter({ hasText: /^Times in / })).toHaveCSS('font-size', '16px');
+});
+
 // A completed season opens on its trophy room (spec #2921): the champion banner, and the viewer's "Your season"
 // line from the standings the page reads once (sixth of twelve in the fixture), with no cursor.
 for (const viewport of Object.keys(VIEWPORTS) as ViewportName[]) {

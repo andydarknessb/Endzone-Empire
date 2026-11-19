@@ -72,7 +72,7 @@ export function DashboardUnavailable({ onRetry }) {
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: '16px', alignItems: 'flex-start' }}>
       <PixelHeading level={1}>League unavailable</PixelHeading>
-      <Box role="alert" sx={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '17px' }}>
+      <Box role="alert" sx={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '16px' }}>
         <PixelWarn color="var(--ps-danger)" />
         We could not load this league right now.
       </Box>
