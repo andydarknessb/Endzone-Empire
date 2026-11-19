@@ -2,8 +2,9 @@ import React, { useId, useState } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import { Box } from '@mui/material';
 import {
-  Frame, FrameHead, PixelArrow, PixelHeading, pixelSx, PsLinkButton, TeamMark,
+  Frame, FrameHead, PixelArrow, PixelHeading, pixelSx, PsLinkButton, TeamMark, YouTag,
 } from '../../../shared/ui/playselect';
+import { ordinal } from '../../../shared/lib';
 import { COLLAPSED_ROWS, isSeasonAward, orderAwards } from '../../../components/TrophyCase/TrophyCase';
 
 // Pixel trophy sprites on a 2px grid (docs/design/league/league-kit.js): a cup for the champion and
@@ -69,7 +70,7 @@ export function TrophyLink({ leagueId, count }) {
   );
 }
 
-function AwardItem({ trophy }) {
+function AwardItem({ trophy, mine }) {
   return (
     <Box component="li" data-testid={`trophy-${trophy.id}`} sx={{ display: 'flex', alignItems: 'center', gap: '16px', padding: '12px 0', listStyle: 'none' }}>
       <Box component="span" sx={{ display: 'grid', placeItems: 'center', width: '80px', flex: 'none' }}>
@@ -79,6 +80,7 @@ function AwardItem({ trophy }) {
         <Box component="h3" sx={{ m: 0, ...pixelSx(16), overflowWrap: 'anywhere', textWrap: 'balance' }}>{trophy.label}</Box>
         <Box sx={{ fontSize: '15px' }}>
           <Box component="b" sx={{ fontWeight: 600 }}>{trophy.team_name}</Box>
+          {mine && <Box component="span" sx={{ marginLeft: '8px' }}><YouTag /></Box>}
           {!isSeasonAward(trophy) && <Box component="span" sx={{ color: 'var(--ps-dim)' }}>{` · Week ${trophy.week}`}</Box>}
         </Box>
       </Box>
@@ -92,9 +94,13 @@ function AwardItem({ trophy }) {
  * imports the medal icons from). It opens on the season's League Champion - a large pixel cup, the
  * team in Pixel 24 - then the award list in three columns, capped at six with one toggle; a Season
  * select appears when the league has more than one. It shows only what the trophies carry (award,
- * team, week), never an invented figure, and renders nothing for an empty case.
+ * team, week), never an invented figure, and renders nothing for an empty case. For the viewer's own
+ * Team it marks each of its Trophies with the You tag, lists them first, and prints a "Your season" line
+ * (the standings row the page hands in, for the season the league is in) under the banner.
  */
-export default function TrophyRoom({ trophy: state, teams = [] }) {
+export default function TrophyRoom({
+  trophy: state, teams = [], viewerTeamId = null, standing = null,
+}) {
   const {
     trophies, loading, error, season, setSeason, seasonOptions, visibleTrophies,
   } = state;
@@ -104,9 +110,12 @@ export default function TrophyRoom({ trophy: state, teams = [] }) {
 
   if (loading || error || trophies.length === 0) return null;
 
+  const isMine = (t) => viewerTeamId != null && t.team_id === viewerTeamId;
   const champion = visibleTrophies.find((t) => t.type === 'champion' || t.type === 'pickem_champion');
   const championTeam = champion ? teams.find((t) => t.teamId === champion.team_id) : null;
-  const awards = orderAwards(visibleTrophies.filter((t) => t !== champion));
+  const others = orderAwards(visibleTrophies.filter((t) => t !== champion));
+  const awards = [...others.filter(isMine), ...others.filter((t) => !isMine(t))];
+  const yourSeason = standing && standing.season === season ? standing : null;
   const shown = expanded ? awards : awards.slice(0, COLLAPSED_ROWS);
   const capped = awards.length > COLLAPSED_ROWS;
 
@@ -161,7 +170,16 @@ export default function TrophyRoom({ trophy: state, teams = [] }) {
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: '16px', minWidth: 0 }}>
                   <TeamMark name={champion.team_name} avatarUrl={championTeam?.avatar_url} avatarStaticUrl={championTeam?.avatar_static_url} size={48} />
                   <Box component="span" sx={{ ...pixelSx(24), lineHeight: 1.3, overflowWrap: 'anywhere' }}>{champion.team_name}</Box>
+                  {isMine(champion) && <YouTag />}
                 </Box>
+              </Box>
+            </Box>
+          )}
+          {yourSeason && (
+            <Box data-testid="trophy-your-season" sx={{ padding: { xs: '12px 14px', md: '12px 20px' }, borderBottom: '2px solid var(--ps-rule)' }}>
+              <Box component="span" sx={{ display: 'block', fontSize: '13px', fontWeight: 600, letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--ps-dim)' }}>Your season</Box>
+              <Box component="span" sx={{ display: 'block', marginTop: '4px', fontSize: '16px', fontWeight: 600 }}>
+                {`${ordinal(yourSeason.rank)} of ${teams.length} · ${yourSeason.record} · ${yourSeason.pointsFor} PF`}
               </Box>
             </Box>
           )}
@@ -174,7 +192,7 @@ export default function TrophyRoom({ trophy: state, teams = [] }) {
                 m: 0, padding: { xs: '8px 14px', md: '8px 20px' }, display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: 'repeat(3, minmax(0, 1fr))' }, gap: '0 24px',
               }}
             >
-              {shown.map((trophy) => <AwardItem key={trophy.id} trophy={trophy} />)}
+              {shown.map((trophy) => <AwardItem key={trophy.id} trophy={trophy} mine={isMine(trophy)} />)}
             </Box>
           )}
           {capped && (

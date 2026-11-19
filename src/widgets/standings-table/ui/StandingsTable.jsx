@@ -1,4 +1,4 @@
-import React, { useId, useState } from 'react';
+import React, { useEffect, useId, useState } from 'react';
 import { Box, useMediaQuery, useTheme } from '@mui/material';
 import {
   CpuTag, ErrorPanel, Frame, FrameHead, PixelArrow, PixelHeading, pixelSx, Skel, SR_ONLY_SX, TeamMark, YouTag,
@@ -60,13 +60,24 @@ const headCellSx = (align = 'left', extra = null) => ({
  * PF, PA and STRK columns are not drawn, leaving Rank and Team; no playoff line is drawn across an
  * order nobody has earned yet, and a note says those values populate after Week 1. From md the table
  * is fixed-layout, so Team truncates before any column is pushed out of its box.
+ *
+ * The viewer's row (rank, record, points for) is reported up through `onViewerRow`, the way Recent activity
+ * reports its short feed, so the page can hand it on without a second standings read (the Trophy room's line).
  */
-export default function StandingsTable({ leagueId }) {
+export default function StandingsTable({ leagueId, onViewerRow }) {
   const {
     status, rows, preseason, teamCount, cutIndex, refetch,
   } = useStandingsTable(leagueId);
   const theme = useTheme();
   const phone = useMediaQuery(theme.breakpoints.down('sm'), { noSsr: true });
+  // The viewer's row goes up to the page as primitives, so the report fires on a change of value, not of row object.
+  const viewer = rows.find((row) => row.isViewer);
+  const viewerRank = viewer?.rank;
+  const viewerRecord = viewer?.record;
+  const viewerPoints = viewer?.pointsFor;
+  useEffect(() => {
+    if (onViewerRow) onViewerRow(viewerRank == null ? null : { rank: viewerRank, record: viewerRecord, pointsFor: viewerPoints });
+  }, [onViewerRow, viewerRank, viewerRecord, viewerPoints]);
   const [expanded, setExpanded] = useState(false);
   const headingId = useId();
 
