@@ -551,11 +551,12 @@ export default function LineupPage() {
     const target = focusTargetFor({ playerId: pending.playerId, sections, compact, phoneView, barButtons: phoneBarButtonRefs.current });
     if (!target) return;
     target.focus({ preventScroll: pending.preventScroll });
-    swapFocusRef.current = { button: target, playerId: pending.playerId, preventScroll: false };
+    swapFocusRef.current = { button: target, playerId: pending.playerId, preventScroll: pending.preventScroll };
   }, [quickPickOpen, decisionCardOpen, sections, compact, phoneView]);
   // These submit at once (a quick pick closes its menu, the card stays open), so each records what the hand-off needs first.
-  const onQuickPickSelect = (playerId) => {
-    deferredFocusRef.current = { opener: swap.quickPick?.anchorEl ?? null, playerId };
+  // #2950: a pointer pick (detail > 0) must not scroll the page to the holder row, and a refused save's rollback keeps that.
+  const onQuickPickSelect = (playerId, event) => {
+    deferredFocusRef.current = { opener: swap.quickPick?.anchorEl ?? null, playerId, preventScroll: event?.detail > 0 };
     swap.handleQuickPickSelect(playerId);
   };
   const onCardSwap = (moves) => {

@@ -47,7 +47,7 @@ export default function QuickPickMenu({ quickPick, eligible, onClose, onSelect }
         <MenuItem disabled sx={ITEM_SX}>No eligible players available</MenuItem>
       ) : (
         eligible.map((e) => (
-          <MenuItem key={e.playerId} onClick={() => onSelect(e.playerId)} sx={ITEM_SX}>
+          <MenuItem key={e.playerId} onClick={(event) => onSelect(e.playerId, event)} sx={ITEM_SX}>
             {e.name} · {e.position} · {e.slot === 'BENCH' ? 'Bench' : e.slot === 'IR' ? 'IR' : `Starting ${e.slot}`}
           </MenuItem>
         ))
