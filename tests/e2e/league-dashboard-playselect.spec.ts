@@ -265,6 +265,23 @@ test('desktop standings: all twelve teams, no fold control', async ({ page }) =>
   await expect(table.getByTestId('standings-table-full')).toHaveCount(0);
 });
 
+// #2929: at desktop every standings column fits its column beside Recent activity, STRK included, so the table
+// never scrolls sideways. Each state that carries standings is measured at the desktop viewport.
+for (const state of ['inseason', 'gamedayUrgent', 'gamedaySet', 'complete'] as const) {
+  test(`${state} desktop: the standings fit their box with every column in it, STRK included`, async ({ page }) => {
+    await openDashboard(page, state, 'desktop');
+    const box = await page.getByTestId('standings-table-scroll').evaluate((el) => ({
+      scrollWidth: el.scrollWidth,
+      clientWidth: el.clientWidth,
+      right: el.getBoundingClientRect().right,
+    }));
+    const strkRight = await page.getByTestId('standings-table').getByRole('columnheader', { name: 'STRK' })
+      .evaluate((el) => el.getBoundingClientRect().right);
+    expect(box.scrollWidth, `standings scrollWidth ${box.scrollWidth} vs clientWidth ${box.clientWidth}`).toBeLessThanOrEqual(box.clientWidth);
+    expect(strkRight, `STRK header right edge ${strkRight} vs the box's right edge ${box.right}`).toBeLessThanOrEqual(box.right);
+  });
+}
+
 // Pick'em-only weekly strips (#2928): one labelled image per team, its eighteen cells hidden. Twelve teams, so a
 // strip that still drew every cell as an image would put 216 role="img" elements inside the strips here.
 test('pickemonly desktop: each weekly points strip is one labelled image, its cells hidden', async ({ page }) => {

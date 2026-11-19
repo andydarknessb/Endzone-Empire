@@ -185,7 +185,7 @@ test('standings-table: renders the streak the read already carries and no win pe
   expect(within(youRow).getByText('1000.0')).toBeInTheDocument();
 });
 
-test('standings-table: preseason masks the streak instead of printing the server dash', async () => {
+test('standings-table: a pre-draft league draws Rank and Team only, with the note and no dash column', async () => {
   primeLeague({ teamCount: 8, league: { draft_status: 'pending' } });
   mockGetByUrl({
     '/api/scoring/league/1/standings': standingsResponse({ rows: preseasonRows(8) }),
@@ -194,13 +194,46 @@ test('standings-table: preseason masks the streak instead of printing the server
 
   const card = await screen.findByTestId('standings-table');
   await within(card).findByText('Squad 1');
-  // No raw '-' streak and no ".000" win percentage: both are Placeholders,
-  // which is what makes the footer note ("populate after Week 1") true.
-  expect(within(card).queryByText('.000')).not.toBeInTheDocument();
-  expect(within(card).getAllByText('Not available').length).toBeGreaterThan(0);
+  // Before Week 1 there is no record, points or streak to show, so those columns are not drawn at all.
+  expect(within(card).getAllByRole('columnheader')).toHaveLength(2);
+  expect(within(card).getByRole('columnheader', { name: 'Rank' })).toBeInTheDocument();
+  expect(within(card).getByRole('columnheader', { name: 'Team' })).toBeInTheDocument();
+  ['W-L-T', 'PF', 'PA', 'STRK'].forEach((name) => {
+    expect(within(card).queryByRole('columnheader', { name })).not.toBeInTheDocument();
+  });
+  expect(within(card).queryByText('Not available')).not.toBeInTheDocument();
   expect(within(card).getByTestId('standings-table-preseason-note')).toHaveTextContent(
     'Records, points and streaks populate after Week 1.'
   );
+});
+
+test('standings-table: an in-season league with no games yet draws Rank and Team only', async () => {
+  // In season by phase, but every Team at zero games: the all-zero path, not the phase path.
+  primeLeague({ teamCount: 8 });
+  mockGetByUrl({
+    '/api/scoring/league/1/standings': standingsResponse({ rows: preseasonRows(8) }),
+  });
+  renderTable();
+
+  const card = await screen.findByTestId('standings-table');
+  await within(card).findByText('Squad 1');
+  expect(within(card).getAllByRole('columnheader')).toHaveLength(2);
+  expect(within(card).getByTestId('standings-table-preseason-note')).toBeInTheDocument();
+});
+
+test('standings-table: a league with one game played draws all six columns', async () => {
+  primeLeague({ teamCount: 8 });
+  const rows = preseasonRows(8);
+  rows[0] = { ...rows[0], wins: 1, pf: 101.5, pa: 90, streak: 'W1', winPct: 1 };
+  mockGetByUrl({
+    '/api/scoring/league/1/standings': standingsResponse({ rows }),
+  });
+  renderTable();
+
+  const card = await screen.findByTestId('standings-table');
+  await within(card).findByText('Squad 1');
+  expect(within(card).getAllByRole('columnheader')).toHaveLength(6);
+  expect(within(card).queryByTestId('standings-table-preseason-note')).not.toBeInTheDocument();
 });
 
 // --- the Record cell (#959) -------------------------------------------------

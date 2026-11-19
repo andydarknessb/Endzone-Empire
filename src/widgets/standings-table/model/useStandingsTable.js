@@ -32,10 +32,10 @@ import { teamNameLabel, teamRowKey, deriveLeaguePhase, LEAGUE_PHASE } from '../.
  * flight or has failed.
  *
  * PRESEASON is the honest empty state: the League phase is before in season
- * (pre-draft or drafting), or every row has zero games played. Then the record,
- * PF, PA, PCT and STRK cells render a placeholder mark rather than 0-0-0, zero
- * points and a bare dash, and the card shows a note that those values populate
- * after Week 1.
+ * (pre-draft or drafting), or every row has zero games played. Then the W-L-T,
+ * PF, PA and STRK columns are not drawn at all, rather than 0-0-0, zero points
+ * and a bare dash, and the card shows a note that those values populate after
+ * Week 1.
  *
  * STREAK, WIN PCT and PLAYOFF SEED are read off the same response, not derived
  * here: season.service.js computes the trailing streak and the win percentage,
@@ -100,7 +100,7 @@ export function useStandingsTable(leagueId) {
       // The Record arrives FORMATTED from the entity, which owns the tie rule
       // (CONTEXT.md, Record); nothing here re-derives it. Points are the
       // entity's numbers printed to one decimal. Both are masked in the UI
-      // during preseason.
+      // during preseason, when the columns are not drawn.
       record: row.record,
       pointsFor: row.pointsFor.toFixed(1),
       pointsAgainst: row.pointsAgainst.toFixed(1),
@@ -127,7 +127,7 @@ export function useStandingsTable(leagueId) {
   //     league leader;
   //   - a bracket that takes the whole league states there is no cut, so the
   //     seeds are not consulted at all.
-  // Preseason is excluded for the same reason the record cells are masked: the
+  // Preseason is excluded for the same reason the record columns are not drawn: the
   // server still seeds by rank, but with every Team 0-0-0 that order is a
   // tiebreak artefact, and a rule across it would claim a standing nobody has.
   const bracketSplits = !preseason && bracketSize > 0 && bracketSize < rows.length;
