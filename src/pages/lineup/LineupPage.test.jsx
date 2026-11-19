@@ -869,6 +869,89 @@ describe('#2897: focus after a completed swap', () => {
     expect(apiClient.put).not.toHaveBeenCalled();
     expect(row).toHaveFocus();
   });
+
+  // #2906: a quick pick, the Bench what-if Swap and the Decision card's Start submit without a row click, and each
+  // unmounts what held focus. The quick pick and the card keep focus in their own overlay until it closes.
+  describe('#2906: a quick pick, a Bench what-if Swap or a Decision card Start', () => {
+    const whatIfRoute = '/team?leagueId=1&swapOut=2&swapIn=40';
+    const renderAt = (route, overrides = {}) => {
+      mockGetByUrl(baseUrls(overrides));
+      return renderWithProviders(<LineupPage />, { route, path: '/team' });
+    };
+    const pressSwapOffer = async (user) => {
+      const offer = await screen.findByTestId('lineup-swap-offer');
+      within(offer).getByRole('button', { name: 'Swap' }).focus();
+      await user.keyboard('{Enter}');
+    };
+
+    test('a quick pick into the empty Bench row focuses the Bench row that now holds the chosen player', async () => {
+      const user = userEvent.setup();
+      apiClient.put.mockResolvedValue({ data: {} });
+      renderPage();
+      (await screen.findByTestId('slot-row-BENCH-empty-1-select')).focus();
+      await user.keyboard('{Enter}');
+      await screen.findByRole('menu');
+      await user.keyboard('{Enter}');
+
+      await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument());
+      expect(screen.getByTestId('slot-row-BENCH-2-select')).toHaveFocus();
+    });
+
+    test('the Bench what-if Swap focuses the starter row that now holds the Bench player', async () => {
+      const user = userEvent.setup();
+      apiClient.put.mockResolvedValue({ data: {} });
+      renderAt(whatIfRoute, benchRbLineup());
+      await pressSwapOffer(user);
+
+      await waitFor(() => expect(apiClient.put).toHaveBeenCalled());
+      expect(screen.getByTestId('slot-row-RB-0-select')).toHaveFocus();
+    });
+
+    test('phone: the Bench what-if Swap pressed on the Bench view focuses the Bench bar button', async () => {
+      forcePhone();
+      const user = userEvent.setup();
+      apiClient.put.mockResolvedValue({ data: {} });
+      renderAt(whatIfRoute, benchRbLineup());
+      const [, benchTab] = within(await screen.findByTestId('lineup-mobile-tabs')).getAllByRole('button');
+      await user.click(benchTab);
+      await pressSwapOffer(user);
+
+      await waitFor(() => expect(apiClient.put).toHaveBeenCalled());
+      expect(benchTab).toHaveFocus();
+    });
+
+    test('closing the Decision card after a Start from a Bench row focuses the row that now holds the player', async () => {
+      const user = userEvent.setup();
+      apiClient.put.mockResolvedValue({ data: {} });
+      renderPage(benchRbLineup());
+      await user.click(await screen.findByRole('button', { name: 'Bench RB Fast' }));
+      await screen.findByTestId('decision-card');
+      (await screen.findByTestId('decision-card-start-action')).focus();
+      await user.keyboard('{Enter}');
+      await waitFor(() => expect(apiClient.put).toHaveBeenCalled());
+
+      await user.keyboard('{Escape}');
+      await waitFor(() => expect(screen.queryByTestId('decision-card')).not.toBeInTheDocument());
+      expect(screen.getByTestId('slot-row-RB-0-select')).toHaveFocus();
+    });
+
+    test('a refused quick pick save sends focus back to the starter row with the player', async () => {
+      const user = userEvent.setup();
+      let rejectPut;
+      apiClient.put.mockReturnValue(new Promise((resolve, reject) => { rejectPut = reject; }));
+      renderPage();
+      (await screen.findByTestId('slot-row-BENCH-empty-1-select')).focus();
+      await user.keyboard('{Enter}');
+      await screen.findByRole('menu');
+      await user.keyboard('{Enter}');
+      await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument());
+      expect(screen.getByTestId('slot-row-BENCH-2-select')).toHaveFocus();
+
+      await act(async () => { rejectPut({ response: { status: 409, data: { error: 'locked' } } }); });
+      await waitFor(() => expect(mockNotify).toHaveBeenCalledWith(expect.any(String), { severity: 'error' }));
+      expect(screen.getByTestId('slot-row-RB-0-select')).toHaveFocus();
+    });
+  });
 });
 
 // #1958 (L8), #1965: the swap strip rides the page's sticky footer, stacked
