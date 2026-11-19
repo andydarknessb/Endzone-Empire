@@ -322,7 +322,6 @@ async function openNarrowStandings(page: Page, state: DashState, size: { width: 
   await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
   await expect(page.getByTestId('standings-table-you-row')).toBeVisible();
   await page.evaluate(() => document.fonts.ready.then(() => true));
-  await page.waitForTimeout(150);
 }
 
 for (const state of ['inseason', 'gamedayUrgent', 'gamedaySet', 'complete'] as const) {

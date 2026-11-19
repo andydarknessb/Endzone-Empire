@@ -564,7 +564,7 @@ test.each([4, 12])(
   }
 );
 
-// The row count of the first skeleton row's cells, read off the membership so the rows are on screen while the read is in flight.
+// The cell count of the first skeleton row, drawn while the standings read is in flight (the league count is on screen by then).
 const skeletonCells = async (league) => {
   primeLeague({ teamCount: 4, league });
   mockGetByUrl({
