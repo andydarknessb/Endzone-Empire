@@ -221,7 +221,7 @@ const GAMES = [
     total: 45.5,
     weather: '64F, wind 8, partly sunny',
     rain: false,
-    read: 'Buffalo is a 16.5-point favorite over Miami in a 45.5 total, implied for 31 for Buffalo and 14.5 for Miami. Josh Allen (QB2) is a start at 24.8 a game on 7.3 carries. James Cook III (RB3) is a start on 20.8 carries a game, and Miami allows the 9th-most RB points. DJ Moore (WR27) is a flex with 19.4 last week, and Miami allows the 3rd-fewest WR points. Dalton Kincaid (TE7) is a start if active after he did not practice Wednesday (thumb, ankle), with 10.3 a game. Buffalo Bills (DST2) is a start, with 21, 22 and 12 the last three. Ollie Gordon II (RB21) is a flex with 20 carries and 5 targets last week, and Caleb Douglas (WR30) is a flex if active after Limited Wednesday (shoulder). Malik Willis is out on IR (groin), and Kyle McCord is a sit at 12.8 last week.',
+    read: 'Buffalo is a 16.5-point favorite over Miami in a 45.5 total, implied for 31 for Buffalo and 14.5 for Miami. Josh Allen (QB2) is a start at 24.8 a game on 7.3 carries. James Cook III (RB3) is a start on 20.8 carries a game, and Miami allows the 9th-most RB points. DJ Moore (WR27) is a flex with 19.4 last week, and Miami allows the 3rd-fewest WR points. Dalton Kincaid (TE7) is a start if active after he did not practice Wednesday (thumb, ankle), with 10.3 a game. Buffalo Bills (DST2) is a start, with 21, 22 and 12 the last three. Ollie Gordon II (RB21) is a flex with 20 carries and 5 targets last week, and Caleb Douglas (WR30) is a flex if active after he was limited Wednesday (shoulder). Malik Willis is out on IR (groin), and Kyle McCord is a sit at 12.8 last week.',
     fpa: 'MIA offense vs BUF D: QB 23, RB 10, WR 11, TE 20 · BUF offense vs MIA D: QB 20, RB 9, WR 30, TE 4',
     start: [
       ['Josh Allen', 'QB', '24.8 a game on 7.3 carries; Buffalo implied for 31.0 as a 16.5-point favorite.', 'QB2', 'C2'],
@@ -1579,7 +1579,7 @@ const INJ_OUT = [
   ['Woody Marks', 'RB', 'HOU', 'Ruled out Thursday (concussion); the engine still projects 9.7.', 'David Montgomery (FLEX if active, RB22) and Emari Demercado (SIT).', 'out', 'C52'],
   ['De\'Von Achane', 'RB', 'MIA', 'On IR (knee); the engine still projects 14.3.', 'Ollie Gordon II (FLEX, RB21).', 'out', 'C62'],
   ['RJ Harvey', 'RB', 'DEN', 'On IR (knee); the engine still projects 12.3.', 'Jonah Coleman (FLEX, RB14).', 'out', 'C63'],
-  ['James Conner', 'RB', 'ARI', 'On IR (foot); the engine still projects 10.2.', 'No other Arizona back has a call.', 'out', 'C64'],
+  ['James Conner', 'RB', 'ARI', 'On IR (foot); the engine still projects 10.2.', 'Tyler Allgeier (SIT).', 'out', 'C64'],
   ['Jordan Addison', 'WR', 'MIN', 'Thumb surgery this week and did not practice Wednesday; the engine still projects 8.3.', 'Justin Jefferson (START, WR7).', 'out', 'C105'],
   ['Marvin Harrison Jr.', 'WR', 'HOU', 'Ruled out Thursday (hamstring); the engine still projects 6.9.', 'Nico Collins (START, WR6) and Xavier Hutchinson (FLEX, WR28).', 'out', 'C106'],
   ['Michael Wilson', 'WR', 'ARI', 'On IR (neck); the engine still projects 12.1.', 'No other Arizona receiver has a call.', 'out', 'C107'],
@@ -1598,22 +1598,22 @@ const INJ_INTL = [];
 const INJ_ONE = [
   ['Kenneth Walker III', 'RB', 'KC', 'Did not practice Wednesday (groin) and has no Week 10 game in our data; 24.5 a game on 19.9 carries, and Kansas City is implied for 28.0.', 'Emmett Johnson (FLEX, RB15). Carry a back who kicks off at 4:05p or later.', 'gtd', 'C37'],
   ['Luther Burden III', 'WR', 'CHI', 'Full practice Wednesday (concussion); 17.5, 23.7, 18.6 and 20.7 his last four, and Chicago is implied for 30.0.', 'Rome Odunze (FLEX, WR26). Carry a receiver who kicks off at 4:05p or later.', 'gtd', 'C75'],
-  ['DeVonta Smith', 'WR', 'PHI', 'Limited Wednesday (hamstring) and has not played since Week 6; 32% target share, 17.5 a game.', 'No other Philadelphia receiver has a call. Carry a receiver who kicks off at 4:05p or later.', 'gtd', 'C82'],
-  ['Carnell Tate', 'WR', 'TEN', 'Limited Wednesday (shoulder) and has not played since Week 7; 27% target share, Wan\'Dale Robinson is on IR, and Dallas allows the 7th-most WR points.', 'No other Tennessee receiver has a call. Carry a receiver who kicks off at 4:05p or later.', 'gtd', 'C87'],
+  ['DeVonta Smith', 'WR', 'PHI', 'Limited Wednesday (hamstring) and has not played since Week 6; 32% target share, 17.5 a game.', 'Makai Lemon (SIT, WR31). Carry a receiver who kicks off at 4:05p or later.', 'gtd', 'C82'],
+  ['Carnell Tate', 'WR', 'TEN', 'Limited Wednesday (shoulder) and has not played since Week 7; 27% target share, Wan\'Dale Robinson is on IR, and Dallas allows the 7th-most WR points.', 'Elic Ayomanor (SIT, WR33), a flex only if Tate sits. Carry a receiver who kicks off at 4:05p or later.', 'gtd', 'C87'],
   ['Jordyn Tyson', 'WR', 'NO', 'Limited Wednesday (chest); 13 targets for 19.0 last week on 71% of the snaps.', 'Chris Olave (START, WR13). Carry a receiver who kicks off at 4:05p or later.', 'gtd', 'C88'],
-  ['Caleb Douglas', 'WR', 'MIA', 'Limited Wednesday (shoulder); 8 targets in each of the last two games on a 23% target share, though Miami is implied for 14.5.', 'No other Miami receiver has a call. Carry a receiver who kicks off at 4:05p or later.', 'gtd', 'C94'],
+  ['Caleb Douglas', 'WR', 'MIA', 'Limited Wednesday (shoulder); 8 targets in each of the last two games on a 23% target share, though Miami is implied for 14.5.', 'Malik Washington (SIT). Carry a receiver who kicks off at 4:05p or later.', 'gtd', 'C94'],
   ['Dalton Kincaid', 'TE', 'BUF', 'Did not practice Wednesday (thumb, ankle); 10.3 a game, Buffalo is implied for 31.0 and Miami allows the 4th-most TE points.', 'No other Buffalo tight end has a call. Carry a tight end who kicks off at 4:05p or later.', 'gtd', 'C117'],
   ['Baker Mayfield', 'QB', 'TB', 'Did not practice Wednesday (foot); 8.5 a game, even though Detroit allows the 2nd-most QB points.', 'No other Tampa Bay quarterback has a call.', 'sit', 'C20'],
   ['Kyle Monangai', 'RB', 'CHI', 'Full practice Wednesday (toe) after last playing in Week 4; no role to trust in his first game back.', 'D\'Andre Swift (START, RB5). Carry a back who kicks off at 4:05p or later.', 'sit', 'C35'],
   ['Tyjae Spears', 'RB', 'TEN', 'Did not practice Wednesday (knee); 4 carries last week behind Pollard.', 'Tony Pollard (START, RB4). Carry a back who kicks off at 4:05p or later.', 'sit', 'C61'],
-  ['Darren Waller', 'TE', 'CAR', 'Did not practice Wednesday (knee), and his coach called it a concern.', 'No other Carolina tight end has a call. Carry a tight end who kicks off at 4:05p or later.', 'sit', 'C128'],
-  ['Tommy Tremble', 'TE', 'CAR', 'Did not practice Wednesday (knee).', 'No other Carolina tight end has a call. Carry a tight end who kicks off at 4:05p or later.', 'sit', 'C128'],
+  ['Darren Waller', 'TE', 'CAR', 'Did not practice Wednesday (knee), and his coach called it a concern.', 'Tommy Tremble (SIT). Carry a tight end who kicks off at 4:05p or later.', 'sit', 'C128'],
+  ['Tommy Tremble', 'TE', 'CAR', 'Did not practice Wednesday (knee).', 'Darren Waller (SIT). Carry a tight end who kicks off at 4:05p or later.', 'sit', 'C128'],
 ];
 
 const INJ_LATE = [
   ['Bhayshul Tuten', 'RB', 'JAX', 'Limited Wednesday (ankle, foot); 26 carries on 70% of the snaps for 20.3 last week, though the Giants allow the 5th-fewest RB points.', 'Chris Rodriguez Jr. (SIT). Carry a back who kicks off Sunday night or Monday.', 'gtd', 'C46'],
-  ['Omar Cooper Jr.', 'WR', 'NYJ', 'Did not practice Wednesday (ankle) and has no Week 10 game in our data; 22.3, 22.5 and 13.8 his last three, and the Chargers allow the 6th-most WR points.', 'Garrett Wilson (START, WR8). Carry a receiver who kicks off Sunday night or Monday.', 'gtd', 'C93'],
-  ['Brock Bowers', 'TE', 'LV', 'Did not practice Wednesday (ankle) after 19% of the snaps last week, and his coach said he does not need to practice to play Sunday; 26% target share, 18.7 a game.', 'No other Las Vegas tight end has a call. Carry a tight end who kicks off Sunday night or Monday.', 'gtd', 'C112'],
+  ['Omar Cooper Jr.', 'WR', 'NYJ', 'Did not practice Wednesday (ankle) and has no Week 10 game in our data; 22.3, 22.5 and 13.8 his last three, and the Chargers allow the 6th-most WR points.', 'Adonai Mitchell (SIT), a flex only if Cooper sits. Carry a receiver who kicks off Sunday night or Monday.', 'gtd', 'C93'],
+  ['Brock Bowers', 'TE', 'LV', 'Did not practice Wednesday (ankle) after 19% of the snaps last week, and his coach said he does not need to practice to play Sunday; 26% target share, 18.7 a game.', 'Michael Mayer (SIT), a start only if Bowers sits. Carry a tight end who kicks off Sunday night or Monday.', 'gtd', 'C112'],
   ['Geno Smith', 'QB', 'NYJ', 'Played 48% of the snaps last week for 5.9 and was limited Wednesday (ankle); he said he intends to play Sunday.', 'No other Jets quarterback has a call.', 'sit', 'C19'],
   ['Chris Rodriguez Jr.', 'RB', 'JAX', 'Limited Wednesday (hand); 4 carries on 14% of the snaps last week, next up if Tuten sits.', 'Bhayshul Tuten (FLEX if active, RB16). Carry a back who kicks off Sunday night or Monday.', 'sit', 'C46'],
   ['Jakobi Meyers', 'WR', 'JAX', 'Limited Wednesday (ankle); 6.4 last week on 6 targets.', 'Parker Washington (START, WR10). Carry a receiver who kicks off Sunday night or Monday.', 'sit', 'C74'],
@@ -1639,16 +1639,16 @@ const WR_NEXT = 'Sits: Jakobi Meyers, Mike Evans, Jaylen Waddle, Tank Dell, Adon
 const TE_NEXT = 'Sits: Michael Mayer, Mark Andrews, Mike Gesicki, Brenton Strange, Darren Waller, Tommy Tremble, Pat Freiermuth and Juwan Johnson. Out: Jake Ferguson. Cade Otton (TE13) and Dalton Schultz (TE14) are ranked with sit rulings.';
 const DST_TIER_NEXT = 'Every D/ST in the top eight has a ruling. Jacksonville faces the Giants at 20.25 and has 10.1 a game, so it is the next one up if yours is gone.';
 
-const ALREADY_OUT = ['Jawhar Jordan (HOU RB, out Thursday)', 'Jaylin Noel (HOU WR, IR)', 'Brevin Jordan (HOU TE, out Thursday)', 'Will Mallory (IND TE, out Thursday)', 'Gardner Minshew II (ARI QB, IR)', 'Jeremiyah Love (ARI RB, IR)', 'Kendrick Bourne (ARI WR, IR)', 'Tyler Huntley (BAL QB, IR)', 'Tyquan Thornton (KC WR, IR)', 'Cole Kmet (CHI TE, IR)', 'Tank Bigsby (PHI RB, IR)', 'Erick All Jr. (CIN TE, IR)', 'Jeremy McNichols (WAS RB, out for the season)', 'Tyrone Tracy Jr. (NYG RB, IR)', 'Tyler Goodson (DAL RB, IR)', 'Ricky Pearsall (SF WR, IR)'];
+const ALREADY_OUT = ['Jawhar Jordan (HOU RB, listed out)', 'Jaylin Noel (HOU WR, IR)', 'Brevin Jordan (HOU TE, out Thursday)', 'Will Mallory (IND TE, out Thursday)', 'Gardner Minshew II (ARI QB, IR)', 'Jeremiyah Love (ARI RB, IR)', 'Kendrick Bourne (ARI WR, IR)', 'Tyler Huntley (BAL QB, IR)', 'Tyquan Thornton (KC WR, IR)', 'Cole Kmet (CHI TE, IR)', 'Tank Bigsby (PHI RB, IR)', 'Erick All Jr. (CIN TE, IR)', 'Jeremy McNichols (WAS RB, out for the season)', 'Tyrone Tracy Jr. (NYG RB, IR)', 'Tyler Goodson (DAL RB, IR)', 'Ricky Pearsall (SF WR, IR)'];
 
 // Handcuff rows are [team, starter and status, handcuff, verdict].
 
 const HANDCUFFS = [
-  ['HOU', 'Woody Marks and Jawhar Jordan: ruled out Thursday. David Montgomery: full practice (groin), last played in Week 5.', 'Emari Demercado', 'SIT. 7 carries on 33% of the snaps last week; next up behind Montgomery.'],
+  ['HOU', 'Woody Marks: ruled out Thursday. Jawhar Jordan: listed as out in our data. David Montgomery: full practice (groin), last played in Week 5.', 'Emari Demercado', 'SIT. 7 carries on 33% of the snaps last week; next up behind Montgomery.'],
   ['KC', 'Kenneth Walker III: did not practice Wednesday (groin), no Week 10 game in our data.', 'Emmett Johnson', 'FLEX, RB15. 22 carries and 7 targets on 88% of the snaps for 35.1 last week with Kenneth Walker III out; a start if Walker sits again, a risk if he plays.'],
   ['SF', 'Christian McCaffrey: rest day Wednesday.', 'Kaelon Black', 'SIT. 11 carries on 40% of the snaps for 14.6 last week; the No. 2 behind McCaffrey.'],
-  ['JAX', 'Bhayshul Tuten: limited Wednesday (ankle, foot).', 'Chris Rodriguez Jr.', 'SIT. Limited Wednesday (hand); 4 carries on 14% of the snaps last week, next up if Tuten sits. Limited Wednesday himself (hand).'],
-  ['CHI', 'D\'Andre Swift: a start.', 'Kyle Monangai', 'SIT. Full practice Wednesday (toe) after last playing in Week 4; no role to trust in his first game back. Full practice Wednesday (toe); last played in Week 4.'],
+  ['JAX', 'Bhayshul Tuten: limited Wednesday (ankle, foot).', 'Chris Rodriguez Jr.', 'SIT. Limited Wednesday (hand); 4 carries on 14% of the snaps last week, next up if Tuten sits.'],
+  ['CHI', 'D\'Andre Swift: a start.', 'Kyle Monangai', 'SIT. Full practice Wednesday (toe) after last playing in Week 4; no role to trust in his first game back.'],
   ['DEN', 'RJ Harvey: on IR (knee).', 'Jonah Coleman', 'FLEX, RB14. 17 carries on 77% of the snaps for 18.8 before the bye with RJ Harvey on IR; Las Vegas allows the 5th-most RB points. J.K. Dobbins is a sit.'],
   ['PIT', 'Jaylen Warren: 38% of the snaps last week.', 'Rico Dowdle', 'SIT. 5 carries on 49% of the snaps last week, more snaps than Warren.'],
   ['NYJ', 'Breece Hall: a flex.', 'Braelon Allen', 'SIT. 8 carries in each of the last two weeks for 5.4 and 5.6.'],
@@ -1656,7 +1656,7 @@ const HANDCUFFS = [
   ['MIA', 'De\'Von Achane: on IR (knee).', 'Ollie Gordon II', 'FLEX, RB21. 20 carries and 5 targets on 71% of the snaps last week; Buffalo allows the 10th-most RB points, though Miami is implied for 14.5.'],
   ['NO', 'Travis Etienne Jr.: a sit. Alvin Kamara: rest day Wednesday.', 'Audric Estime', 'SIT. 7 carries on 43% of the snaps for 2.1 last week.'],
   ['MIN', 'Aaron Jones Sr.: a sit.', 'Jordan Mason', 'SIT, RB27. 16 carries on 54% of the snaps for 5.9 last week.'],
-  ['TEN', 'Tony Pollard: a start.', 'Tyjae Spears', 'SIT. Did not practice Wednesday (knee); 4 carries last week behind Pollard. Did not practice Wednesday (knee).'],
+  ['TEN', 'Tony Pollard: a start.', 'Tyjae Spears', 'SIT. Did not practice Wednesday (knee); 4 carries last week behind Pollard.'],
   ['BAL', 'Derrick Henry: a start.', 'Justice Hill', 'SIT. 7 targets last week but 3 carries; the change-of-pace back behind Henry.'],
   ['IND', 'Jonathan Taylor: a start.', 'Seth McGowan', 'SIT. 12 carries on 29% of the snaps for 13.7 last week; behind Taylor.'],
   ['TB', 'Bucky Irving: a start.', 'Kenny Gainwell', 'SIT. 5 carries on 38% of the snaps before the bye; behind Irving.'],
@@ -1670,7 +1670,7 @@ const IDP_TABLE = [
   ['Arvell Reese', 'NYG', 'LB', 'vs JAX', '11.4 a game, 25.0 and 8.5 the last two'],
   ['Nakobe Dean', 'LV', 'LB', 'at DEN', '10.8 a game, 13.5 and 9.5 the last two'],
   ['Kaden Elliss', 'NO', 'LB', 'at CHI', '10.8 a game, 17.5 and 16.5 the last two'],
-  ['Alex Singleton', 'DEN', 'LB', 'vs LV', '10.6 a game, 20.5 and 15.0 two and three games back'],
+  ['Alex Singleton', 'DEN', 'LB', 'vs LV', '10.6 a game, 15.0 and 20.5 two and three games back'],
   ['Payton Wilson', 'PIT', 'LB', 'at PHI', '9.9 a game, 14.0 last week'],
   ['Foyesade Oluokun', 'JAX', 'LB', 'at NYG', '9.7 a game, 12.0, 10.5 and 10.5 the last three'],
 ];
@@ -1696,15 +1696,15 @@ const FADES = [
 const PIVOTS = [
   ['Kenneth Walker III out', 'Emmett Johnson (FLEX, RB15). Carry a back who kicks off at 4:05p or later.'],
   ['Luther Burden III out', 'Rome Odunze (FLEX, WR26). Carry a receiver who kicks off at 4:05p or later.'],
-  ['DeVonta Smith out', 'No other Philadelphia receiver has a call. Carry a receiver who kicks off at 4:05p or later.'],
-  ['Carnell Tate out', 'No other Tennessee receiver has a call. Carry a receiver who kicks off at 4:05p or later.'],
+  ['DeVonta Smith out', 'Makai Lemon (SIT, WR31). Carry a receiver who kicks off at 4:05p or later.'],
+  ['Carnell Tate out', 'Elic Ayomanor (SIT, WR33), a flex only if Tate sits. Carry a receiver who kicks off at 4:05p or later.'],
   ['Jordyn Tyson out', 'Chris Olave (START, WR13). Carry a receiver who kicks off at 4:05p or later.'],
-  ['Caleb Douglas out', 'No other Miami receiver has a call. Carry a receiver who kicks off at 4:05p or later.'],
+  ['Caleb Douglas out', 'Malik Washington (SIT). Carry a receiver who kicks off at 4:05p or later.'],
   ['Dalton Kincaid out', 'No other Buffalo tight end has a call. Carry a tight end who kicks off at 4:05p or later.'],
   ['Bhayshul Tuten out', 'Chris Rodriguez Jr. (SIT). Carry a back who kicks off Sunday night or Monday.'],
   ['David Montgomery out', 'Emari Demercado (SIT). Carry a back who kicks off at 1:00p or later.'],
-  ['Omar Cooper Jr. out', 'Garrett Wilson (START, WR8). Carry a receiver who kicks off Sunday night or Monday.'],
-  ['Brock Bowers out', 'No other Las Vegas tight end has a call. Carry a tight end who kicks off Sunday night or Monday.'],
+  ['Omar Cooper Jr. out', 'Adonai Mitchell (SIT), a flex only if Cooper sits. Carry a receiver who kicks off Sunday night or Monday.'],
+  ['Brock Bowers out', 'Michael Mayer (SIT), a start only if Bowers sits. Carry a tight end who kicks off Sunday night or Monday.'],
   ['T.J. Hockenson out', 'No other Minnesota tight end has a call. Carry a tight end who kicks off Monday.'],
   ['Woody Marks out (already)', 'David Montgomery (FLEX if active, RB22) and Emari Demercado (SIT).'],
   ['Marvin Harrison Jr. out (already)', 'Nico Collins (START, WR6) and Xavier Hutchinson (FLEX, WR28).'],
@@ -1726,18 +1726,18 @@ const CHECK_THU = [
 const CHECK_ONE = [
   ['Kenneth Walker III (KC RB).', 'Active: START. Out: Emmett Johnson (FLEX, RB15). Carry a back who kicks off at 4:05p or later.'],
   ['Luther Burden III (CHI WR).', 'Active: START. Out: Rome Odunze (FLEX, WR26). Carry a receiver who kicks off at 4:05p or later.'],
-  ['DeVonta Smith (PHI WR).', 'Active: FLEX. Out: no other Philadelphia receiver has a call. Carry a receiver who kicks off at 4:05p or later.'],
-  ['Carnell Tate (TEN WR).', 'Active: FLEX. Out: no other Tennessee receiver has a call. Carry a receiver who kicks off at 4:05p or later.'],
+  ['DeVonta Smith (PHI WR).', 'Active: FLEX. Out: Makai Lemon (SIT, WR31). Carry a receiver who kicks off at 4:05p or later.'],
+  ['Carnell Tate (TEN WR).', 'Active: FLEX. Out: Elic Ayomanor (SIT, WR33), a flex only if Tate sits. Carry a receiver who kicks off at 4:05p or later.'],
   ['Jordyn Tyson (NO WR).', 'Active: FLEX. Out: Chris Olave (START, WR13). Carry a receiver who kicks off at 4:05p or later.'],
-  ['Caleb Douglas (MIA WR).', 'Active: FLEX. Out: no other Miami receiver has a call. Carry a receiver who kicks off at 4:05p or later.'],
+  ['Caleb Douglas (MIA WR).', 'Active: FLEX. Out: Malik Washington (SIT). Carry a receiver who kicks off at 4:05p or later.'],
   ['Dalton Kincaid (BUF TE).', 'Active: START. Out: no other Buffalo tight end has a call. Carry a tight end who kicks off at 4:05p or later.'],
   ['Sits either way.', 'Baker Mayfield, Kyle Monangai, Tyjae Spears, Darren Waller and Tommy Tremble.'],
 ];
 
 const CHECK_LATE = [
   ['Bhayshul Tuten (JAX RB).', 'Active: FLEX. Out: Chris Rodriguez Jr. (SIT). Carry a back who kicks off Sunday night or Monday.'],
-  ['Omar Cooper Jr. (NYJ WR).', 'Active: FLEX. Out: Garrett Wilson (START, WR8). Carry a receiver who kicks off Sunday night or Monday.'],
-  ['Brock Bowers (LV TE).', 'Active: START. Out: no other Las Vegas tight end has a call. Carry a tight end who kicks off Sunday night or Monday.'],
+  ['Omar Cooper Jr. (NYJ WR).', 'Active: FLEX. Out: Adonai Mitchell (SIT), a flex only if Cooper sits. Carry a receiver who kicks off Sunday night or Monday.'],
+  ['Brock Bowers (LV TE).', 'Active: START. Out: Michael Mayer (SIT), a start only if Bowers sits. Carry a tight end who kicks off Sunday night or Monday.'],
   ['Sits either way.', 'Geno Smith, Chris Rodriguez Jr., Jakobi Meyers, Jaylen Waddle and Ladd McConkey.'],
 ];
 
@@ -1759,7 +1759,7 @@ const Body = () => (
     <Lead>
       Thirteen games, Thursday through Monday. Atlanta, Cleveland, Green Bay, the Rams, New England and Seattle are on bye, so 26 teams play.
       Indianapolis at Houston kicks off first, Thursday at 8:15p ET. Minnesota plays San Francisco Sunday night at 8:20p ET at Estadio Banorte in Mexico City, with San Francisco as the home team, and Cincinnati at Washington closes the week Monday at 8:15p ET.
-      Philadelphia&apos;s Jalen Hurts is on IR and expected to miss the rest of the season, and Joe Milton is first on the depth chart. Houston rules out Woody Marks, Jawhar Jordan and Marvin Harrison Jr. for Thursday. Arizona placed Jeremiyah Love, Kendrick Bourne and Michael Wilson on IR. Every call is here.
+      Philadelphia&apos;s Jalen Hurts is on IR and expected to miss the rest of the season, and Joe Milton is first on the depth chart. Houston rules out Woody Marks and Marvin Harrison Jr. for Thursday, and Jawhar Jordan is listed as out in our data. Arizona placed Jeremiyah Love, Kendrick Bourne and Michael Wilson on IR. Every call is here.
     </Lead>
 
     <Note title="Read this first">
@@ -1768,7 +1768,7 @@ const Body = () => (
       was published at writing.</strong>{' '}
       News since last week&apos;s report:
       <Box component="ul" sx={{ pl: 2.5, m: '8px 0 0 !important' }}>
-        <li>Houston, Thursday: Woody Marks (concussion), Jawhar Jordan and Marvin Harrison Jr. (hamstring) are ruled out, and Jaylin Noel went on IR Wednesday (toe, out for the season). David Montgomery practiced in full (groin). He last played in Week 5.</li>
+        <li>Houston, Thursday: Woody Marks (concussion) and Marvin Harrison Jr. (hamstring) are ruled out, Jawhar Jordan is listed as out in our data, and Jaylin Noel went on IR Wednesday (toe, out for the season). David Montgomery practiced in full (groin). He last played in Week 5.</li>
         <li>Philadelphia: Jalen Hurts is on IR and expected to miss the rest of the season. Joe Milton is first on the depth chart.</li>
         <li>Minnesota: Kirk Cousins started last week. Kyler Murray did not practice Wednesday (hamstring), and Jordan Addison had thumb surgery and is out.</li>
         <li>Kansas City: Kenneth Walker III did not practice Wednesday (groin) and has no Week 10 game in our data. Emmett Johnson had 22 carries last week.</li>
@@ -1842,7 +1842,7 @@ const Body = () => (
 
     <InjuryGroup title="Out, or treat as out" when="Engine projections for these players are placeholders." rows={INJ_OUT} />
     <InjuryGroup title="Thursday" when="Inactives about 6:45p ET" rows={INJ_THU} />
-    {INJ_INTL.length ? <InjuryGroup title="Munich" when="Inactives about 8:00a ET" rows={INJ_INTL} /> : null}
+    {INJ_INTL.length ? <InjuryGroup title="International" when="Inactives about 90 minutes before kickoff" rows={INJ_INTL} /> : null}
     <InjuryGroup title="1:00p games" when="Inactives about 11:30a ET" rows={INJ_ONE} />
     <InjuryGroup title="Late window" when="Inactives about 2:35p / 2:55p ET" rows={INJ_LATE} />
     {INJ_NIGHT.length ? <InjuryGroup title="Sunday night" when="Inactives about 6:50p ET" rows={INJ_NIGHT} /> : null}
@@ -1965,7 +1965,7 @@ const Body = () => (
     <RailList color="var(--danger)" items={FADES} />
     <H3>If he is out, pivot to</H3>
     <P>
-      The whole contingency list in one place. If the first name is out at his inactive window, this
+      The main contingencies in one place. If the first name is out at his inactive window, this
       is your next move.
     </P>
     <RailList color="var(--warning)" items={PIVOTS} />
