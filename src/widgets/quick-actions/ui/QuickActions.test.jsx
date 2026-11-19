@@ -223,6 +223,46 @@ test('the row variant is one line of links, then the page\'s own trailing links'
   expect(screen.queryByRole('heading')).not.toBeInTheDocument();
 });
 
+// The League pages row on the dashboard is this variant with its own name, testId and groups.
+test('the row variant takes its name, testId and only-groups, and a null lead drops the leading label', async () => {
+  mockGetByUrl({ '/api/league/1': leagueResponse(), [ROSTER_URL]: { data: [] } });
+  renderWithProviders(
+    <QuickActions
+      leagueId={1}
+      variant="row"
+      name="League pages"
+      lead={null}
+      only={['Play', 'Moves']}
+      omit={['draft']}
+      testId="quick-actions-pages"
+    />
+  );
+
+  const nav = await screen.findByRole('navigation', { name: 'League pages' });
+  expect(nav).toBe(screen.getByTestId('quick-actions-pages'));
+  const labels = within(nav).getAllByRole('link').map((link) => link.textContent);
+  expect(labels).toEqual(expect.arrayContaining(['Set Lineup', 'Waivers']));
+  ['Power Rankings', 'History', 'League Rules'].forEach((label) => {
+    expect(labels).not.toContain(label);
+  });
+  expect(nav.textContent).not.toMatch(/League pages/);
+  expect(screen.queryByRole('navigation', { name: 'Playbook' })).not.toBeInTheDocument();
+});
+
+test('the row variant leads with its name when no lead is passed', async () => {
+  mockGetByUrl({ '/api/league/1': leagueResponse(), [ROSTER_URL]: { data: [] } });
+  renderWithProviders(<QuickActions leagueId={1} variant="row" name="League pages" />);
+
+  expect(await screen.findByRole('navigation', { name: 'League pages' })).toHaveTextContent(/^League pages/);
+});
+
+test('the row variant prints a lead that is passed in place of its name', async () => {
+  mockGetByUrl({ '/api/league/1': leagueResponse(), [ROSTER_URL]: { data: [] } });
+  renderWithProviders(<QuickActions leagueId={1} variant="row" name="League pages" lead="Jump to" />);
+
+  expect(await screen.findByRole('navigation', { name: 'League pages' })).toHaveTextContent(/^Jump to/);
+});
+
 // --- columns ----------------------------------------------------------
 
 // Red-tell (#1993): the card spans the dashboard's full width now, so each group
