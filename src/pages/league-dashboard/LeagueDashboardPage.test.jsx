@@ -1790,6 +1790,23 @@ test("quick-actions: with pick'em on, the League pages row carries Pick'em after
   ]);
 });
 
+test("quick-actions: with pick'em on, the in-season Playbook has no Pick'em link", async () => {
+  mockGetByUrl({
+    '/api/league/1': quickActionsLeague(),
+    '/api/league/1/trophies': quickActionsTrophies(),
+    '/api/pickem/league/1/settings': { data: { enabled: true, mode: 'straight' } },
+  });
+  renderPage();
+
+  // The pick'em settings resolve after the Playbook first renders, so the Pick'em link in the League pages row
+  // is awaited before the Playbook is read: an absence check made earlier would pass with pick'em still off.
+  const pages = await screen.findByRole('navigation', { name: 'League pages' });
+  await within(pages).findByRole('link', { name: "Pick'em" });
+  const playbook = await screen.findByRole('navigation', { name: 'Playbook' });
+  expect(within(playbook).getByRole('link', { name: 'Power Rankings' })).toBeInTheDocument();
+  expect(within(playbook).queryByRole('link', { name: "Pick'em" })).not.toBeInTheDocument();
+});
+
 test('the commissioner strip follows the hero before the draft', async () => {
   mockGetByUrl({
     '/api/league/1': quickActionsLeague({
@@ -2488,6 +2505,14 @@ test('cutover: a pre-draft fantasy league with a draft_date renders the draft co
   expect(
     within(countdown).getByRole('heading', { level: 2, name: 'Draft Day' })
   ).toBeInTheDocument();
+});
+
+test('cutover: the Draft Day countdown precedes the hero on a pre-draft league', async () => {
+  mockGetByUrl({ '/api/league/1': cutoverPreDraftLeague() });
+  renderPage();
+
+  const hero = await screen.findByTestId('dashboard-hero');
+  expect(precedes(screen.getByTestId('slot-draft-countdown'), hero)).toBe(true);
 });
 
 test('cutover: the Draft Day card links to the Draft Room', async () => {
@@ -3305,6 +3330,27 @@ describe('game day: focus holds across the one-hour flip', () => {
     expect(within(screen.getByTestId('dashboard-hero')).queryByTestId('slot-your-move')).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: /^Make picks/ })).toHaveFocus();
     expect(screen.getByRole('link', { name: /^Fix lineup/ })).not.toHaveFocus();
+  });
+
+  // The flip moves the League pages row across the hero. React moves a DOM node that it keeps, so the hero is
+  // checked for added or removed nodes, not only for focus: an observer on the body sees a remount or a move.
+  test('the hero node is neither added nor removed when the League pages row moves across the flip', async () => {
+    mockGetByUrl(gameDayMocks(actionItems([fixLineupItem(IN_MINUTES(61))])));
+    renderPage();
+
+    const hero = await screen.findByTestId('dashboard-hero');
+    expect(precedes(hero, await screen.findByRole('navigation', { name: 'League pages' }))).toBe(true);
+    const seen = [];
+    const observer = new MutationObserver((list) => seen.push(...list));
+    observer.observe(document.body, { childList: true, subtree: true });
+    tickClock(4);
+
+    expect(precedes(screen.getByRole('navigation', { name: 'League pages' }), hero)).toBe(true);
+    expect(screen.getByTestId('dashboard-hero')).toBe(hero);
+    expect(hero.isConnected).toBe(true);
+    const records = [...seen, ...observer.takeRecords()];
+    observer.disconnect();
+    expect(records.some((record) => [...record.addedNodes, ...record.removedNodes].includes(hero))).toBe(false);
   });
 });
 

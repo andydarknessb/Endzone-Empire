@@ -94,21 +94,25 @@ function YourMoveSlot({ carry, labels, children }) {
  * The head (the league name in Pixel 32, the chip row, "Times in CDT", for a commissioner the
  * Invite control, and below sm the chat button) leads every state. Then the page's product order, which the canvas rulings fix:
  *
- *   - Your move, between the head and the commissioner strip: this league's open plays, the one cursor
- *     and the one filled action (`ui/YourMove`). With nothing due it is a calm "You're set" card.
- *   - The commissioner strip (its own row; it renders nothing for a member), the pre-draft countdown
- *     (Draft Day) once the draft has a date, and the hero: the Matchup (a framed versus panel before
- *     kickoff, the Board-black scoreboard once started) beside My team, with the Pick'em panel under
- *     the matchup on a fantasy plus pick'em league in season.
+ *   - Your move leads: this league's open plays, the one cursor and the one filled action (`ui/YourMove`).
+ *     With nothing due it is a calm "You're set" card. Off game day it is the first row of the page.
+ *   - Off game day, the hero follows Your move, with one row in between: in season the League pages row
+ *     (Play and Moves); before the draft the pre-draft countdown (Draft Day) once the draft has a date. The
+ *     hero is the Matchup (a framed versus panel before kickoff, the Board-black scoreboard once started)
+ *     beside My team, with the Pick'em panel under the matchup on a fantasy plus pick'em league in season.
+ *   - The commissioner strip, in its own row (it renders nothing for a member), follows the hero in every
+ *     fantasy phase.
  *   - The weekly recap (when one exists), Around the league, standings beside Recent activity, and the
- *     Playbook. In season the Playbook and the trophy case fold into one link row; a completed league
- *     opens on its trophy room instead and keeps the Playbook frame.
- *   - Game day (the viewer's matchup is live) reorders the top: the scoreboard, then My team at full
- *     width, then the Pick'em panel, the commissioner strip and the rest. Around the league and Recent
- *     activity fold to the three rival games and three rows.
+ *     Playbook. In season the Playbook is one link row that ends in the trophy case once the league has
+ *     trophies; a completed league moves its trophy room up under Your move and keeps the Playbook frame.
+ *   - Game day (the viewer's matchup is live) moves the top, in two shapes. With nothing urgent the live
+ *     scoreboard leads: Your move sits in the hero between the matchup and My team, and the League pages row
+ *     follows the hero. With an urgent item, or a failed items read, Your move and the League pages row lead,
+ *     then the hero (the scoreboard, then My team at full width, then the Pick'em panel). Around the league
+ *     and Recent activity fold to the three rival games and three rows.
  *   - A pick'em-only league has no fantasy team, matchups or draft, so none of those slices mount (each
- *     would fire a fantasy read that returns an empty or zeroed table): its body is the pick'em
- *     standings, the Playbook trimmed to the pick'em surfaces and the trophy case link.
+ *     would fire a fantasy read that returns an empty or zeroed table): its body is Your move, the pick'em
+ *     standings, the commissioner strip, the Playbook trimmed to the pick'em surfaces and the trophy case.
  *
  * Three pieces of the dashboard are shared with later-wave pages, so the dashboard renders its own
  * Play-select view over their model and they keep their look elsewhere until their wave: the matchup
