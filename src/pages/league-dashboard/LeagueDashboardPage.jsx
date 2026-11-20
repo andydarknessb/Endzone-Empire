@@ -321,7 +321,7 @@ function DashboardBody({
     : [];
   const yourMoveNode = yourMove && (
     <YourMoveSlot carry={focusCarry} labels={footLabels}>
-      <YourMove {...yourMove} />
+      <YourMove {...yourMove} inviteCode={league.invite_code} />
     </YourMoveSlot>
   );
   // A carry belongs to the commit that unmounted its control. The slot that remounts it in that commit has

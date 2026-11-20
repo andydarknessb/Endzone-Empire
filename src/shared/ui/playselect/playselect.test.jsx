@@ -96,6 +96,29 @@ describe('PlayCard', () => {
   });
 });
 
+describe('PlayCard lock word and foot button', () => {
+  test('lockWord prints before the lock day and time', () => {
+    renderWithProviders(<PlayCard {...card} lockWord="Draft" />);
+    expect(screen.getByText('Draft Sun 1:00 PM')).toBeInTheDocument();
+  });
+
+  test('a grouped foot with onClick is a button that fires it', async () => {
+    const onClick = jest.fn();
+    renderWithProviders(
+      <PlayCard kind="draft" name="Open seats" lockDay="Sun" lockTime="1:00 PM" actions={[{ label: 'Invite managers', onClick, bare: true }]} />
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Invite managers' }));
+    expect(onClick).toHaveBeenCalledTimes(1);
+  });
+
+  test('a button foot reads its done label once done', () => {
+    renderWithProviders(
+      <PlayCard kind="draft" name="Open seats" lockDay="Sun" lockTime="1:00 PM" actions={[{ label: 'Invite managers', onClick: jest.fn(), bare: true, done: true, doneLabel: 'Copied' }]} />
+    );
+    expect(screen.getByRole('button', { name: 'Copied' })).toBeInTheDocument();
+  });
+});
+
 describe('OddsBar', () => {
   test('renders 20 blocks with one filled per 5 points and a labelled image', () => {
     const { container } = renderWithProviders(<OddsBar pct={62} />);

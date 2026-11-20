@@ -1,8 +1,9 @@
 import React, { useId } from 'react';
 import { Box } from '@mui/material';
 import {
-  CountBadge, Frame, FrameHead, PixelCheck, PixelHeading, PlayCard, pixelSx,
+  CountBadge, Frame, FrameHead, PixelCheck, PixelHeading, PlayCard, SR_ONLY_SX, pixelSx,
 } from '../../../shared/ui/playselect';
+import { useInviteCopy } from '../../../features/copy-invite';
 import { itemType, playName } from '../../../entities/action-item';
 import { formatInstant, timeUntil, useNow } from '../../../shared/lib';
 
@@ -59,11 +60,14 @@ function nextChange(cards, now) {
   return next;
 }
 
+// An open-seats foot (the pre-draft Play) copies the league's invite when the viewer holds the code: the
+// page it sits on is that league, so a link there goes nowhere.
 function MoveCard({
-  card, lead, urgent, wide, compact, now,
+  card, lead, urgent, wide, compact, now, inviteCode,
 }) {
   const feet = card.feet || [];
   const first = feet[0] || {};
+  const invite = useInviteCopy(inviteCode);
   const at = timeMs(first.deadlineAt);
   const lock = lockParts(at, now);
   const isUrgent = lead && urgent && at !== null && at > now;
@@ -71,33 +75,49 @@ function MoveCard({
   const name = card.name ?? playName(feet);
   const minutes = at !== null ? Math.max(1, Math.floor((at - now) / MINUTE_MS)) : null;
   const details = feet.map((foot) => foot.detail).filter(Boolean);
+  const isDraft = itemType(first) === 'seats_open';
+  const lockSpoken = at !== null ? `, ${isDraft ? 'draft' : 'locks'} ${spoken(lock)}` : '';
+  const isInvite = (foot) => Boolean(inviteCode) && itemType(foot) === 'seats_open';
+  const hasInvite = feet.some(isInvite);
+  const footActions = feet.map((foot) => (isInvite(foot)
+    ? {
+      key: foot.id,
+      label: foot.cta?.label || foot.title,
+      bare: true,
+      onClick: invite.copy,
+      done: invite.copied,
+      doneLabel: 'Copied',
+    }
+    : {
+      key: foot.id,
+      label: foot.cta?.label || foot.title,
+      to: foot.cta?.to,
+      bare: true,
+      ariaLabel: `${foot.cta?.label || foot.title}${foot.detail ? `, ${foot.detail}` : ''}${lockSpoken}`,
+    }));
 
   return (
-    <PlayCard
-      kind={KIND[itemType(first)] || FALLBACK_KIND}
-      name={name}
-      league=""
-      detail={multi ? details.join(' · ') : null}
-      {...lock}
-      countdown={isUrgent ? `${minutes} min` : undefined}
-      lockNote={card.note || (multi ? null : first.detail) || undefined}
-      cta={multi ? undefined : { label: first.cta?.label || name, to: first.cta?.to }}
-      actions={multi
-        ? feet.map((foot) => ({
-          key: foot.id,
-          label: foot.cta?.label || foot.title,
-          to: foot.cta?.to,
-          bare: true,
-          ariaLabel: `${foot.cta?.label || foot.title}${foot.detail ? `, ${foot.detail}` : ''}${at !== null ? `, locks ${spoken(lock)}` : ''}`,
-        }))
-        : undefined}
-      ariaLabel={`${first.cta?.label || name}${at !== null ? `, locks ${spoken(lock)}` : ''}`}
-      state={lead ? (isUrgent ? 'urgent' : 'next') : 'open'}
-      lead={lead}
-      headingLevel={3}
-      wide={wide}
-      compact={compact}
-    />
+    <>
+      <PlayCard
+        kind={KIND[itemType(first)] || FALLBACK_KIND}
+        name={name}
+        league=""
+        detail={multi ? details.join(' · ') : null}
+        {...lock}
+        lockWord={isDraft && at !== null ? 'Draft' : undefined}
+        countdown={isUrgent ? `${minutes} min` : undefined}
+        lockNote={card.note || (multi ? null : first.detail) || undefined}
+        cta={multi || hasInvite ? undefined : { label: first.cta?.label || name, to: first.cta?.to }}
+        actions={multi || hasInvite ? footActions : undefined}
+        ariaLabel={`${first.cta?.label || name}${lockSpoken}`}
+        state={lead ? (isUrgent ? 'urgent' : 'next') : 'open'}
+        lead={lead}
+        headingLevel={3}
+        wide={wide}
+        compact={compact}
+      />
+      {hasInvite && <Box role="status" aria-live="polite" sx={SR_ONLY_SX}>{invite.announcement}</Box>}
+    </>
   );
 }
 
@@ -116,9 +136,10 @@ function MoveCard({
  *   empty  true, or { note }: nothing is due, so a calm "You're set" card with no cursor and no filled
  *          action (a tertiary frame; its note defaults to "Nothing needs you right now.")
  *   urgent the lead locks within an hour: its strip and cursor turn Danger
+ *   inviteCode the league's invite code, when the viewer holds it: an open-seats Play's foot then copies it
  */
 export default function YourMove({
-  lead, rest = [], badge, empty = false, urgent = false,
+  lead, rest = [], badge, empty = false, urgent = false, inviteCode,
 }) {
   const headingId = useId();
   const cards = lead ? [lead, ...rest] : rest;
@@ -174,11 +195,11 @@ export default function YourMove({
           alignItems: 'start',
         }}
       >
-        <MoveCard card={lead} lead urgent={urgent} wide now={now} />
+        <MoveCard card={lead} lead urgent={urgent} wide now={now} inviteCode={inviteCode} />
         {rest.length > 0 && (
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: '8px', minWidth: 0 }}>
             {rest.map((card, index) => (
-              <MoveCard key={card.feet?.[0]?.id ?? index} card={card} compact now={now} />
+              <MoveCard key={card.feet?.[0]?.id ?? index} card={card} compact now={now} inviteCode={inviteCode} />
             ))}
           </Box>
         )}

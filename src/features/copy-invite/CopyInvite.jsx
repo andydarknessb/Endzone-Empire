@@ -28,7 +28,11 @@ export function joinLink(code) {
   return `${window.location.origin}/#/league/join?code=${encodeURIComponent(code)}`;
 }
 
-export default function CopyInvite({ code }) {
+/**
+ * The copy and its confirmation, shared by every control that copies the join link (the head's Invite
+ * button, an open-seats Play's foot): one routine, one "Copied" for REVERT_MS.
+ */
+export function useInviteCopy(code) {
   const [copied, setCopied] = useState(false);
   // A polite live-region message, separate from the button label: the label
   // swap ("Invite" -> "Copied") is for sighted users, and a change to an
@@ -47,7 +51,7 @@ export default function CopyInvite({ code }) {
     []
   );
 
-  const handleCopy = useCallback(async () => {
+  const copy = useCallback(async () => {
     try {
       await navigator.clipboard.writeText(joinLink(code));
       setCopied(true);
@@ -61,11 +65,17 @@ export default function CopyInvite({ code }) {
     }
   }, [code]);
 
+  return { copied, announcement, copy };
+}
+
+export default function CopyInvite({ code }) {
+  const { copied, announcement, copy } = useInviteCopy(code);
+
   if (!code) return null;
 
   return (
     <>
-      <PsButton variant="ghost" onClick={handleCopy}>
+      <PsButton variant="ghost" onClick={copy}>
         {copied ? (
           <>
             <PixelCheck />

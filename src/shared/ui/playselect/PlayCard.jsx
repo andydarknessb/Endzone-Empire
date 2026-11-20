@@ -1,7 +1,9 @@
 import React, { useId } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import { Box } from '@mui/material';
-import { PixelArrow, PixelClock, Pictogram } from './Icons';
+import {
+  PixelArrow, PixelCheck, PixelClock, Pictogram,
+} from './Icons';
 import { pixelSx } from './type';
 
 const footSx = (filled) => ({
@@ -20,6 +22,11 @@ const footSx = (filled) => ({
     : { color: 'var(--ps-play-ink)', fontWeight: 600 }),
 });
 
+// A foot that is a button resets the browser's button chrome; footSx paints it after.
+const BUTTON_FOOT_SX = {
+  width: '100%', margin: 0, cursor: 'pointer', font: 'inherit', textAlign: 'left', backgroundColor: 'transparent',
+};
+
 const stripText = (countdown) => `${String(countdown).replace(/^in /, '')} left`;
 
 /**
@@ -33,7 +40,8 @@ const stripText = (countdown) => `${String(countdown).replace(/^in /, '')} left`
  * keeps the cursor but outlines the foot, for a lead with nothing to do. `actions` makes one
  * play across several leagues a group with one foot per league; the card is
  * then a group, not a link. A `cta.onClick` (no `to`) makes the card one
- * button, for a play that opens a dialog (first run's Create and Join).
+ * button, for a play that opens a dialog (first run's Create and Join). An `actions` foot with `onClick` is
+ * a button that acts in place: `done` swaps its label for `doneLabel`. `lockWord` prints before the lock.
  *
  * League pages' Your move adds three optional looks. `compact` drops the field
  * band (a non-lead card: name, lock, foot). `wide` seats the band left of the
@@ -42,7 +50,7 @@ const stripText = (countdown) => `${String(countdown).replace(/^in /, '')} left`
  * that repeats it; an action's `bare` drops the second line of its foot.
  */
 export function PlayCard({
-  kind, name, league, detail, lockDay, lockTime, countdown, lockNote, cta, actions,
+  kind, name, league, detail, lockDay, lockTime, lockWord, countdown, lockNote, cta, actions,
   state = 'open', lead = state === 'next', filledFoot = true, ariaLabel,
   compact = false, wide = false, headingLevel,
 }) {
@@ -57,13 +65,16 @@ export function PlayCard({
       {actions.map((a, i) => (
         <Box
           key={a.to || a.label}
-          component={RouterLink}
-          to={a.to}
+          {...(a.onClick ? { component: 'button', type: 'button', onClick: a.onClick } : { component: RouterLink, to: a.to })}
           aria-label={a.ariaLabel}
           data-filled={filled && i === 0 ? 'true' : undefined}
-          sx={{ ...footSx(filled && i === 0), ...(a.bare ? { flex: wide ? { md: 1 } : undefined } : { padding: '8px 12px' }) }}
+          sx={{
+            ...(a.onClick ? BUTTON_FOOT_SX : null),
+            ...footSx(filled && i === 0),
+            ...(a.bare ? { flex: wide ? { md: 1 } : undefined } : { padding: '8px 12px' }),
+          }}
         >
-          {a.bare ? a.label : (
+          {a.bare ? (a.done ? a.doneLabel : a.label) : (
             <Box component="span" sx={{ display: 'flex', flexDirection: 'column', lineHeight: 1.3 }}>
               <span>{a.label}</span>
               <Box component="span" sx={{ fontSize: '14px', fontWeight: 400 }}>
@@ -72,7 +83,7 @@ export function PlayCard({
               </Box>
             </Box>
           )}
-          <PixelArrow />
+          {a.done ? <PixelCheck /> : <PixelArrow />}
         </Box>
       ))}
     </Box>
@@ -173,7 +184,7 @@ export function PlayCard({
             {live && (
               <Box component="span" aria-hidden="true" sx={{ width: '8px', height: '8px', backgroundColor: 'var(--ps-play-accent)' }} />
             )}
-            {[lockDay, lockTime].filter(Boolean).join(' ')}
+            {[lockWord, lockDay, lockTime].filter(Boolean).join(' ')}
           </Box>
           {lockNote && <Box component="span" sx={{ fontSize: '14px', color: 'var(--ps-play-dim)' }}>{lockNote}</Box>}
         </Box>

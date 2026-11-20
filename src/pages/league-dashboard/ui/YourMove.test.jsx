@@ -1,5 +1,6 @@
 import React from 'react';
 import { screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../../test-utils/renderWithProviders';
 import YourMove from './YourMove';
 
@@ -18,6 +19,14 @@ const lineup = (deadlineAt = LOCK) => ({
   title: 'Set your lineup',
   detail: '1 empty starting slot',
   cta: { label: 'Set lineup', to: '/league/1/lineup' },
+  deadlineAt,
+});
+const seats = (deadlineAt = LOCK) => ({
+  id: 'seats_open:1',
+  type: 'seats_open',
+  title: '2 open seats before the draft',
+  detail: '10 of 12 teams have joined',
+  cta: { label: 'Invite managers', to: '/league/1' },
   deadlineAt,
 });
 const picks = (deadlineAt = LOCK) => ({
@@ -138,5 +147,37 @@ describe('YourMove', () => {
     const { container } = renderWithProviders(<YourMove rest={[]} />);
     expect(screen.getByRole('heading', { level: 3, name: "You're set" })).toBeInTheDocument();
     expect(cursors(container)).toHaveLength(0);
+  });
+
+  test('an open-seats Play with an invite code: its foot is a button that copies the join link and reads Copied', async () => {
+    Object.assign(navigator, { clipboard: { writeText: jest.fn().mockResolvedValue() } });
+    renderWithProviders(<YourMove lead={{ feet: [seats()] }} rest={[]} badge={1} inviteCode="abc123" />);
+    const foot = screen.getByRole('button', { name: 'Invite managers' });
+    expect(foot).not.toHaveAttribute('href');
+    await userEvent.click(foot);
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith(`${window.location.origin}/#/league/join?code=abc123`);
+    expect(await screen.findByRole('button', { name: 'Copied' })).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('Invite link copied');
+  });
+
+  test('an open-seats Play without an invite code stays a link to the league, and its spoken lock says draft', () => {
+    renderWithProviders(<YourMove lead={{ feet: [seats()] }} rest={[]} badge={1} />);
+    expect(screen.getByRole('link', { name: /^Next up: 2 open seats before the draft\. Invite managers, draft / }))
+      .toHaveAttribute('href', '/league/1');
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+  });
+
+  test('an invite code does not change a Play of any other type', () => {
+    renderWithProviders(<YourMove lead={{ feet: [lineup()] }} rest={[]} badge={1} inviteCode="abc123" />);
+    expect(screen.getByRole('link', { name: /^Next up: Set your lineup/ })).toHaveAttribute('href', '/league/1/lineup');
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+  });
+
+  test('the lock line of an open-seats Play reads Draft before the day and time, and a lineup problem\'s does not', () => {
+    const { unmount } = renderWithProviders(<YourMove lead={{ feet: [seats()] }} rest={[]} badge={1} />);
+    expect(screen.getByText(/^Draft /)).toBeInTheDocument();
+    unmount();
+    renderWithProviders(<YourMove lead={{ feet: [lineup()] }} rest={[]} badge={1} />);
+    expect(screen.queryByText(/^Draft/)).not.toBeInTheDocument();
   });
 });
