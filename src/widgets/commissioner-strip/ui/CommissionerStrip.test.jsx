@@ -354,3 +354,18 @@ test('Set draft time is the second row, after the Invite row', async () => {
   // eslint-disable-next-line testing-library/no-node-access
   expect(within(card).getAllByRole('listitem')[1]).toHaveTextContent('Set draft time');
 });
+
+test('Set draft time renders before the join requests row', async () => {
+  mockGetByUrl({
+    '/api/league/42': leagueResponse({ league: { ...preDraftLeague, is_public: true, join_approval: true } }),
+    '/api/league/42/join-requests': { data: [{ id: 7 }] },
+  });
+  renderStrip();
+
+  const card = await screen.findByTestId('commissioner-strip');
+  await within(card).findByTestId('commissioner-strip-join-requests');
+  // eslint-disable-next-line testing-library/no-node-access
+  const rows = within(card).getAllByRole('listitem');
+  expect(rows[0]).toHaveTextContent('Set draft time');
+  expect(rows[1]).toHaveTextContent('Join requests');
+});

@@ -23,6 +23,8 @@ import { allWeekSettled, applyScoreEvent, useWeekMatchups } from '../../../entit
  *     week to advance from, and a fantasy league that is not in season or the
  *     playoffs (pre-draft, drafting, complete) has no week to close: the server
  *     answers that advance with a 409 (#1979 L24).
+ *   - `needsDraftTime`: the Set draft time row, a fantasy league still pre-draft with no `draft_date`.
+ *     The retired panel never asked this one; it is this widget's own gate.
  *
  * Unlike the retired panel, this widget mounts no legacy administration tree
  * and no disclosure of its own: "League administration" is a link to
