@@ -33,6 +33,9 @@ const WEEKS = Array.from({ length: MAX_WEEK }, (_, i) => i + 1);
 const MINUTE_MS = 60 * 1000;
 const HOUR_MS = 60 * MINUTE_MS;
 
+// A Slot a Starter sits in: anything but Bench, IR or taxi (#2967).
+const isStartingSlot = (slot) => slot != null && !['BENCH', 'IR', 'TAXI'].includes(slot);
+
 // The element that takes focus for a player after a move (#2897, #2906): the `-select` button of the row holding him, or
 // the active phone bar button when the phone view hides that row. Null when no row holds him.
 function focusTargetFor({ playerId, sections, compact, phoneView, barButtons }) {
@@ -154,7 +157,8 @@ export default function LineupPage() {
   // The phone view (AC5, #1238; #1965): which part of the page a narrow
   // viewport shows - the Ledger's Starters or Bench section, or the rail
   // (Outlook). Irrelevant at `sm` and up, where both columns already show
-  // side by side.
+  // side by side. A move from Bench that changes a starting Slot returns the
+  // view to Starters (#2967, `submitMove`).
   const [phoneView, setPhoneView] = useState('starters');
   // The phone bar's buttons, and which one the Ledger's #1425 auto-switch
   // wants focused once it lands (accessibility risk review finding, #1425) -
@@ -306,8 +310,28 @@ export default function LineupPage() {
     onLanded: advice.reload,
     onRejected: () => refetch({ silent: true }),
   });
+  // #2967: a move plan that changes a starting Slot, made from the phone's Bench view, shows Starters in the same update
+  // as its optimistic patch, and the starting row it changed is scrolled into view once that has rendered. Undo is the
+  // hook's own submit and never comes through here, so it leaves the view where it is.
+  const scrollAfterSwitchRef = useRef(null);
+  const submitMove = (moves) => {
+    if (compact && phoneView === 'bench') {
+      const current = new Map((lineup?.entries || []).map((e) => [e.playerId, e.slot]));
+      const landing = moves.find((m) => isStartingSlot(m.slot));
+      const vacated = moves.find((m) => isStartingSlot(current.get(m.playerId)));
+      if (landing || vacated) {
+        scrollAfterSwitchRef.current = landing ? { playerId: landing.playerId } : { slotType: current.get(vacated.playerId) };
+        setPhoneView('starters');
+        // The switch hides the Bench section, so the hand-off the press set up must not wait on the button it pressed:
+        // a null button or opener sends both effects to focusTargetFor.
+        if (swapFocusRef.current) swapFocusRef.current.button = null;
+        if (deferredFocusRef.current) deferredFocusRef.current.opener = null;
+      }
+    }
+    return submit(moves);
+  };
   const swap = useSwapPlayers({
-    submit,
+    submit: submitMove,
     entries: lineup?.entries || [],
     bestBall,
     leagueUnsettled,
@@ -380,7 +404,7 @@ export default function LineupPage() {
     // #2906: the offer's Swap unmounts with the consume below; focus follows the Bench player it starts (#2897's rule).
     swapFocusRef.current = { button: event.currentTarget, playerId: inEntry.playerId, preventScroll: event.detail > 0 };
     consumeRequestedSwap();
-    submit([
+    submitMove([
       { playerId: outEntry.playerId, slot: inEntry.slot },
       { playerId: inEntry.playerId, slot: outEntry.slot },
     ]);
@@ -523,7 +547,7 @@ export default function LineupPage() {
   useLayoutEffect(() => {
     const pending = swapFocusRef.current;
     if (!pending || !sections) return;
-    if (pending.button.isConnected || document.activeElement !== document.body) {
+    if (pending.button && (pending.button.isConnected || document.activeElement !== document.body)) {
       // Focus sits on a live element: forget the swap once the manager has moved on from its button.
       if (document.activeElement !== pending.button) swapFocusRef.current = null;
       return;
@@ -536,6 +560,19 @@ export default function LineupPage() {
     target.focus({ preventScroll: pending.preventScroll });
     pending.button = target;
   }, [sections, compact, phoneView]);
+
+  // #2967: the Starter row a phone move from Bench changed is scrolled into view, nearest alignment, once the view has
+  // switched and the optimistic patch has rendered. The page's CSS scroll-behavior is auto, so this does not animate.
+  useLayoutEffect(() => {
+    const target = scrollAfterSwitchRef.current;
+    if (!target || !sections) return;
+    scrollAfterSwitchRef.current = null;
+    const row = sections.starters.find((r) => (target.playerId != null
+      ? r.entry?.playerId === target.playerId
+      : r.slotType === target.slotType && !r.entry));
+    // jsdom has no scrollIntoView, so a test that does not stub it reads nothing here.
+    if (row) document.querySelector(`[data-testid="${row.testId}"]`)?.scrollIntoView?.({ block: 'nearest' });
+  }, [sections, phoneView]);
 
   // #2906: the quick pick and the Decision card hold focus in their own overlay until it closes, and MUI hands focus back
   // to the opener in a passive cleanup of that close. The hand-off waits for it as a passive effect too: a focus call in
@@ -556,13 +593,17 @@ export default function LineupPage() {
   // These submit at once (a quick pick closes its menu, the card stays open), so each records what the hand-off needs first.
   // #2950: a pointer pick (detail > 0) must not scroll the page to the holder row, and a refused save's rollback keeps that.
   const onQuickPickSelect = (playerId, event) => {
+    // An earlier swap's hand-off is over once a quick pick starts; this one waits in deferredFocusRef.
+    swapFocusRef.current = null;
     deferredFocusRef.current = { opener: swap.quickPick?.anchorEl ?? null, playerId, preventScroll: event?.detail > 0 };
     swap.handleQuickPickSelect(playerId);
   };
   const onCardSwap = (moves) => {
+    // An earlier swap's hand-off is over once the card submits; this one waits in deferredFocusRef.
+    swapFocusRef.current = null;
     // #2946: a close that never reaches the card's onClose keeps the browser's scroll.
     deferredFocusRef.current = { opener: decisionCardOpenerRef.current, playerId: decisionCardEntryId, preventScroll: false };
-    submit(moves);
+    submitMove(moves);
   };
 
   const zone = formatInstant(new Date(), 'zone') || 'your time zone';
@@ -729,7 +770,7 @@ export default function LineupPage() {
                       onRetry={advice.failed ? advice.reload : undefined}
                       entries={lineup?.entries}
                       bestBall={bestBall}
-                      onApply={submit}
+                      onApply={submitMove}
                       onCallShot={lineup?.week != null && lineup.week === lineup.currentWeek ? calledShot.callShot : undefined}
                       onWithdrawShot={calledShot.withdrawShot}
                       shotBusy={calledShot.busy}

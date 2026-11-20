@@ -772,19 +772,22 @@ describe('#2897: focus after a completed swap', () => {
     expect(screen.getByTestId('slot-row-RB-0-select')).toHaveFocus();
   });
 
-  test('phone: a swap that moves the Bench RB into the hidden Starters section focuses the Bench bar button', async () => {
+  // #2967: a move from the Bench view that changes a starting Slot returns the phone to Starters in the same update.
+  test('phone: a swap that moves the Bench RB into the Starters section shows Starters and focuses the Starter row', async () => {
     forcePhone();
     const user = userEvent.setup();
-    apiClient.put.mockResolvedValue({ data: {} });
+    apiClient.put.mockReturnValue(new Promise(() => {}));
     renderPage(benchRbLineup());
-    const [, benchTab] = within(await screen.findByTestId('lineup-mobile-tabs')).getAllByRole('button');
+    const [startersTab, benchTab] = within(await screen.findByTestId('lineup-mobile-tabs')).getAllByRole('button');
     await user.click(await screen.findByTestId('slot-row-RB-0-select'));
     expect(benchTab).toHaveAttribute('aria-pressed', 'true');
 
     await user.click(screen.getByTestId('slot-row-BENCH-40-select'));
 
     await waitFor(() => expect(apiClient.put).toHaveBeenCalled());
-    expect(benchTab).toHaveFocus();
+    expect(startersTab).toHaveAttribute('aria-pressed', 'true');
+    expect(benchTab).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByTestId('slot-row-RB-0-select')).toHaveFocus();
   });
 
   test('desktop: a Starter swapped into an empty Bench row focuses the row that now holds him', async () => {
@@ -847,16 +850,18 @@ describe('#2897: focus after a completed swap', () => {
     expect(screen.getByTestId('slot-row-RB-0-select')).toHaveFocus();
   });
 
-  test('phone: a Starter swapped into an empty Bench row in the visible section focuses that row, not the bar', async () => {
+  test('phone: a Starter moved into an empty Bench seat from the Bench view shows Starters and focuses the Starters bar button', async () => {
     forcePhone();
     const user = userEvent.setup();
     apiClient.put.mockResolvedValue({ data: {} });
     renderPage();
+    const [startersTab] = within(await screen.findByTestId('lineup-mobile-tabs')).getAllByRole('button');
     await user.click(await screen.findByTestId('slot-row-RB-0-select'));
     await user.click(screen.getByTestId('slot-row-BENCH-empty-1-select'));
 
     await waitFor(() => expect(apiClient.put).toHaveBeenCalled());
-    expect(screen.getByTestId('slot-row-BENCH-2-select')).toHaveFocus();
+    expect(startersTab).toHaveAttribute('aria-pressed', 'true');
+    expect(startersTab).toHaveFocus();
   });
 
   test('a cancelled selection saves nothing and leaves focus on the pressed row', async () => {
@@ -868,6 +873,187 @@ describe('#2897: focus after a completed swap', () => {
 
     expect(apiClient.put).not.toHaveBeenCalled();
     expect(row).toHaveFocus();
+  });
+
+  // #2967: a move plan that changes a starting Slot, made from the phone's Bench view, shows Starters in the same update
+  // as its optimistic patch, and the Starter row it changed is scrolled into view with nearest alignment. The stay cases
+  // here leave Bench pressed and scroll nothing.
+  describe('#2967: a move from the Bench view on a phone returns to Starters', () => {
+    let scrollSpy;
+    beforeEach(() => {
+      scrollSpy = jest.fn();
+      Element.prototype.scrollIntoView = scrollSpy;
+    });
+    afterEach(() => { delete Element.prototype.scrollIntoView; });
+    const tabsOf = async () => within(await screen.findByTestId('lineup-mobile-tabs')).getAllByRole('button');
+    // The week picker scrolls its checked segment on mount and when the lineup lands; clear that before a case reads the spy.
+    const loaded = async () => {
+      await screen.findByTestId('slot-row-RB-0-select');
+      scrollSpy.mockClear();
+    };
+
+    test('a swap pair scrolls the Starter row that now holds the Bench player into view, once, with nearest alignment', async () => {
+      forcePhone();
+      const user = userEvent.setup();
+      apiClient.put.mockResolvedValue({ data: {} });
+      renderPage(benchRbLineup());
+      await loaded();
+      await user.click(screen.getByTestId('slot-row-RB-0-select'));
+      await user.click(screen.getByTestId('slot-row-BENCH-40-select'));
+
+      await waitFor(() => expect(apiClient.put).toHaveBeenCalled());
+      expect(scrollSpy).toHaveBeenCalledTimes(1);
+      expect(scrollSpy).toHaveBeenCalledWith({ block: 'nearest' });
+      expect(scrollSpy.mock.instances[0]).toBe(screen.getByTestId('slot-row-RB-0'));
+    });
+
+    test('a rejected save after the swap pair leaves Starters pressed once the rollback has rendered', async () => {
+      forcePhone();
+      const user = userEvent.setup();
+      apiClient.put.mockRejectedValue({ response: { status: 409, data: { error: 'locked' } } });
+      renderPage(benchRbLineup());
+      const [startersTab, benchTab] = await tabsOf();
+      await user.click(await screen.findByTestId('slot-row-RB-0-select'));
+      await user.click(screen.getByTestId('slot-row-BENCH-40-select'));
+
+      await waitFor(() => expect(mockNotify).toHaveBeenCalledWith(expect.any(String), { severity: 'error' }));
+      expect(startersTab).toHaveAttribute('aria-pressed', 'true');
+      expect(benchTab).toHaveAttribute('aria-pressed', 'false');
+    });
+
+    test('a Start pressed on the Decision card opened from a Bench row shows Starters', async () => {
+      forcePhone();
+      const user = userEvent.setup();
+      apiClient.put.mockResolvedValue({ data: {} });
+      renderPage(benchRbLineup());
+      const [startersTab, benchTab] = await tabsOf();
+      await user.click(benchTab);
+      await user.click(await screen.findByRole('button', { name: 'Bench RB Fast' }));
+      await user.click(await screen.findByTestId('decision-card-start-action'));
+
+      await waitFor(() => expect(apiClient.put).toHaveBeenCalled());
+      expect(startersTab).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    test('a quick pick on the empty Bench seat that chooses a Starter shows Starters', async () => {
+      forcePhone();
+      const user = userEvent.setup();
+      apiClient.put.mockResolvedValue({ data: {} });
+      renderPage();
+      const [startersTab, benchTab] = await tabsOf();
+      await user.click(benchTab);
+      (await screen.findByTestId('slot-row-BENCH-empty-1-select')).focus();
+      await user.keyboard('{Enter}');
+      await screen.findByRole('menu');
+      await user.keyboard('{Enter}');
+
+      await waitFor(() => expect(apiClient.put).toHaveBeenCalled());
+      expect(startersTab).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    test('Undo on the saved toast after a swap has returned the view to Starters leaves Bench pressed', async () => {
+      forcePhone();
+      const user = userEvent.setup();
+      apiClient.put.mockResolvedValue({ data: {} });
+      renderPage(benchRbLineup());
+      const [startersTab, benchTab] = await tabsOf();
+      await user.click(await screen.findByTestId('slot-row-RB-0-select'));
+      await user.click(screen.getByTestId('slot-row-BENCH-40-select'));
+      await waitFor(() => expect(startersTab).toHaveAttribute('aria-pressed', 'true'));
+      await user.click(benchTab);
+      await waitFor(() => expect(mockNotify.mock.calls.some(([msg]) => msg === 'Lineup saved')).toBe(true));
+      const { onAction } = mockNotify.mock.calls.find(([msg]) => msg === 'Lineup saved')[1];
+
+      await act(async () => { await onAction(); });
+
+      expect(benchTab).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    test('an IR player moved to a Bench seat leaves Bench pressed and scrolls nothing', async () => {
+      forcePhone();
+      const user = userEvent.setup();
+      apiClient.put.mockResolvedValue({ data: {} });
+      renderPage();
+      await loaded();
+      const [, benchTab] = await tabsOf();
+      await user.click(benchTab);
+      await user.click(await screen.findByTestId('slot-row-IR-0-select'));
+      await user.click(screen.getByTestId('slot-row-BENCH-empty-1-select'));
+
+      await waitFor(() => expect(apiClient.put).toHaveBeenCalledWith('/api/team/lineup', expect.objectContaining({ moves: [{ playerId: 20, slot: 'BENCH' }] })));
+      expect(benchTab).toHaveAttribute('aria-pressed', 'true');
+      expect(scrollSpy).not.toHaveBeenCalled();
+    });
+
+    test('Cancel on the move strip after the Bench flip leaves Bench pressed and saves nothing', async () => {
+      forcePhone();
+      const user = userEvent.setup();
+      renderPage();
+      await loaded();
+      const [, benchTab] = await tabsOf();
+      await user.click(await screen.findByTestId('slot-row-RB-0-select'));
+      expect(benchTab).toHaveAttribute('aria-pressed', 'true');
+
+      await user.click(within(screen.getByTestId('lineup-move-strip')).getByRole('button', { name: 'Cancel' }));
+
+      expect(screen.queryByTestId('lineup-move-strip')).not.toBeInTheDocument();
+      expect(benchTab).toHaveAttribute('aria-pressed', 'true');
+      expect(apiClient.put).not.toHaveBeenCalled();
+      expect(scrollSpy).not.toHaveBeenCalled();
+    });
+
+    test('Escape after the Bench flip leaves Bench pressed and clears the selection', async () => {
+      forcePhone();
+      const user = userEvent.setup();
+      renderPage();
+      await loaded();
+      const [, benchTab] = await tabsOf();
+      await user.click(await screen.findByTestId('slot-row-RB-0-select'));
+      expect(benchTab).toHaveAttribute('aria-pressed', 'true');
+
+      await user.keyboard('{Escape}');
+
+      expect(screen.queryByTestId('lineup-move-strip')).not.toBeInTheDocument();
+      expect(benchTab).toHaveAttribute('aria-pressed', 'true');
+      expect(scrollSpy).not.toHaveBeenCalled();
+    });
+
+    // A later empty Bench seat keeps its key (and its button) when a player lands on the bench, so the page must not
+    // wait on that button: the phone bar is hidden under it after the flip.
+    const threeEmptyBench = () => ({ [LINEUP_URL]: { data: lineupBody({ body: { benchSlots: 3 } }) } });
+
+    test('a Starter moved into a later empty Bench seat focuses the Starters bar button', async () => {
+      forcePhone();
+      const user = userEvent.setup();
+      apiClient.put.mockResolvedValue({ data: {} });
+      renderPage(threeEmptyBench());
+      await loaded();
+      const [startersTab] = await tabsOf();
+      await user.click(screen.getByTestId('slot-row-RB-0-select'));
+      await user.click(screen.getByTestId('slot-row-BENCH-empty-2-select'));
+
+      await waitFor(() => expect(apiClient.put).toHaveBeenCalled());
+      expect(startersTab).toHaveAttribute('aria-pressed', 'true');
+      expect(startersTab).toHaveFocus();
+    });
+
+    test('a quick pick on a later empty Bench seat focuses the Starters bar button', async () => {
+      forcePhone();
+      const user = userEvent.setup();
+      apiClient.put.mockResolvedValue({ data: {} });
+      renderPage(threeEmptyBench());
+      await loaded();
+      const [startersTab, benchTab] = await tabsOf();
+      await user.click(benchTab);
+      (await screen.findByTestId('slot-row-BENCH-empty-2-select')).focus();
+      await user.keyboard('{Enter}');
+      await screen.findByRole('menu');
+      await user.keyboard('{Enter}');
+
+      await waitFor(() => expect(apiClient.put).toHaveBeenCalled());
+      await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument());
+      expect(startersTab).toHaveFocus();
+    });
   });
 
   // #2906: a quick pick, the Bench what-if Swap and the Decision card's Start submit without a row click, and each
@@ -907,17 +1093,18 @@ describe('#2897: focus after a completed swap', () => {
       expect(screen.getByTestId('slot-row-RB-0-select')).toHaveFocus();
     });
 
-    test('phone: the Bench what-if Swap pressed on the Bench view focuses the Bench bar button', async () => {
+    test('phone: the Bench what-if Swap pressed on the Bench view shows Starters and focuses the Starter row that holds the Bench player', async () => {
       forcePhone();
       const user = userEvent.setup();
       apiClient.put.mockResolvedValue({ data: {} });
       renderAt(whatIfRoute, benchRbLineup());
-      const [, benchTab] = within(await screen.findByTestId('lineup-mobile-tabs')).getAllByRole('button');
+      const [startersTab, benchTab] = within(await screen.findByTestId('lineup-mobile-tabs')).getAllByRole('button');
       await user.click(benchTab);
       await pressSwapOffer(user);
 
       await waitFor(() => expect(apiClient.put).toHaveBeenCalled());
-      expect(benchTab).toHaveFocus();
+      expect(startersTab).toHaveAttribute('aria-pressed', 'true');
+      expect(screen.getByTestId('slot-row-RB-0-select')).toHaveFocus();
     });
 
     test('closing the Decision card after a Start from a Bench row focuses the row that now holds the player', async () => {

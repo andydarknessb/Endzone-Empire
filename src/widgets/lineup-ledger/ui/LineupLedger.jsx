@@ -83,8 +83,8 @@ export default function LineupLedger({
   // Starters when only a starter-for-starter target exists). Keyed on
   // `selectedEntryId` alone, not on `isEligibleTarget` (a fresh closure every
   // render): a cleared selection - cancel or a completed swap - is `null` here
-  // and the effect returns immediately without asking for anything (AC6, "no
-  // flip back").
+  // and the effect returns immediately without asking for anything (AC6). A
+  // completed swap's return to Starters is the page's rule (#2967), not this one.
   //
   // Risk review finding (accessibility, #1425): the row the manager just
   // activated sits inside the section that is about to become `display:none`,
