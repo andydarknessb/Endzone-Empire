@@ -1,5 +1,7 @@
 import { useLeague } from '../../../hooks/useLeague';
-import { useEndpoint, isPickemOnly, isSeasonLive } from '../../../shared/lib';
+import {
+  useEndpoint, isPickemOnly, isSeasonLive, deriveLeaguePhase, LEAGUE_PHASE,
+} from '../../../shared/lib';
 import { allWeekSettled, applyScoreEvent, useWeekMatchups } from '../../../entities/matchup';
 
 /**
@@ -21,6 +23,8 @@ import { allWeekSettled, applyScoreEvent, useWeekMatchups } from '../../../entit
  *     week to advance from, and a fantasy league that is not in season or the
  *     playoffs (pre-draft, drafting, complete) has no week to close: the server
  *     answers that advance with a 409 (#1979 L24).
+ *   - `needsDraftTime`: the Set draft time row, a fantasy league still pre-draft with no `draft_date`.
+ *     The retired panel never asked this one; it is this widget's own gate.
  *
  * Unlike the retired panel, this widget mounts no legacy administration tree
  * and no disclosure of its own: "League administration" is a link to
@@ -75,10 +79,14 @@ export function useCommissionerStrip(leagueId, { scoreEvent } = {}) {
         ? `Opens when every Week ${currentWeek} game is final`
         : null;
 
+  // The Set draft time row: a fantasy league still pre-draft with no draft_date (a pick'em-only league never reaches pre-draft).
+  const needsDraftTime = deriveLeaguePhase(league) === LEAGUE_PHASE.PRE_DRAFT && !league?.draft_date;
+
   return {
     advanceDisabledReason,
     advanceRetry: checkFailed ? weekMatchups.refetch : undefined,
     isCommissioner: !!league?.is_commissioner,
+    needsDraftTime,
     pickemOnly: isPickemOnly(league),
     seasonLive: isSeasonLive(league),
     currentWeek: league?.current_week ?? null,
