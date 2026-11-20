@@ -22,7 +22,7 @@ function fakeSentry() {
   return {
     scope,
     captured: [],
-    init() {},
+    init(options) { this.initOptions = options; },
     captureException(err) { this.captured.push(err); },
     withScope(fn) { fn(this.scope); },
   };
@@ -43,6 +43,13 @@ function withFakeSentry(t) {
   });
   return fake;
 }
+
+test('initSentry keeps Claude prompt and reply text off gen_ai spans', (t) => {
+  const fake = withFakeSentry(t);
+
+  assert.deepEqual(fake.initOptions.dataCollection, { genAI: { inputs: false, outputs: false } });
+  assert.equal(fake.initOptions.sendDefaultPii, false);
+});
 
 test('captureError sets the fingerprint on the scope and captures the error', (t) => {
   const fake = withFakeSentry(t);
