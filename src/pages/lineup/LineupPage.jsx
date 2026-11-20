@@ -310,13 +310,6 @@ export default function LineupPage() {
     onLanded: advice.reload,
     onRejected: () => refetch({ silent: true }),
   });
-  // #2897: a completed swap can unmount the row pressed last (an occupied Bench row is keyed by its player, an empty
-  // one by its index), and focus on it then falls to <body>. The click that completes a swap remembers the pressed
-  // button and the player focus should follow; the layout effect below acts once the swap has rendered.
-  // shortcut: repeats useSwapPlayers' own test for a click that completes a swap, have the hook report it if that test grows.
-  const swapFocusRef = useRef(null);
-  // #2906: a hand-off the quick pick or the Decision card waits on until that overlay has closed (the effect below).
-  const deferredFocusRef = useRef(null);
   // #2967: a move plan that changes a starting Slot, made from the phone's Bench view, shows Starters in the same update
   // as its optimistic patch, and the starting row it changed is scrolled into view once that has rendered. Undo is the
   // hook's own submit and never comes through here, so it leaves the view where it is.
@@ -344,6 +337,13 @@ export default function LineupPage() {
     leagueUnsettled,
     hasEligibleTarget,
   });
+  // #2897: a completed swap can unmount the row pressed last (an occupied Bench row is keyed by its player, an empty
+  // one by its index), and focus on it then falls to <body>. The click that completes a swap remembers the pressed
+  // button and the player focus should follow; the layout effect below acts once the swap has rendered.
+  // shortcut: repeats useSwapPlayers' own test for a click that completes a swap, have the hook report it if that test grows.
+  const swapFocusRef = useRef(null);
+  // #2906: a hand-off the quick pick or the Decision card waits on until that overlay has closed (the effect below).
+  const deferredFocusRef = useRef(null);
   const onLedgerRowClick = (entry, slotType, event) => {
     if (swap.selectedEntry && entry?.playerId !== swap.selectedEntry.playerId && swap.isEligibleTarget(entry, slotType)) {
       swapFocusRef.current = {
@@ -593,10 +593,14 @@ export default function LineupPage() {
   // These submit at once (a quick pick closes its menu, the card stays open), so each records what the hand-off needs first.
   // #2950: a pointer pick (detail > 0) must not scroll the page to the holder row, and a refused save's rollback keeps that.
   const onQuickPickSelect = (playerId, event) => {
+    // An earlier swap's hand-off is over once a quick pick starts; this one waits in deferredFocusRef.
+    swapFocusRef.current = null;
     deferredFocusRef.current = { opener: swap.quickPick?.anchorEl ?? null, playerId, preventScroll: event?.detail > 0 };
     swap.handleQuickPickSelect(playerId);
   };
   const onCardSwap = (moves) => {
+    // An earlier swap's hand-off is over once the card submits; this one waits in deferredFocusRef.
+    swapFocusRef.current = null;
     // #2946: a close that never reaches the card's onClose keeps the browser's scroll.
     deferredFocusRef.current = { opener: decisionCardOpenerRef.current, playerId: decisionCardEntryId, preventScroll: false };
     submitMove(moves);
