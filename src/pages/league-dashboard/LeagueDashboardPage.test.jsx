@@ -3154,11 +3154,20 @@ describe('Your move', () => {
     expect(await screen.findByRole('heading', { level: 3, name: "You're set" })).toBeInTheDocument();
   });
 
-  test('nothing is drawn while the read is in flight, and a failed read is one danger panel that re-reads', async () => {
-    mockGetByUrl({ '/api/league/1': inSeasonLeague(), [ACTION_URL]: { pending: true } });
+  test('while the read is in flight a placeholder holds Your move\'s place, and the calm card replaces it when the read answers empty; a failed read is one danger panel that re-reads', async () => {
+    mockGetByUrl({ '/api/league/1': inSeasonLeague() });
+    const served = apiClient.get.getMockImplementation();
+    let answer;
+    apiClient.get.mockImplementation((url) => (url === ACTION_URL
+      ? new Promise((resolve) => { answer = resolve; })
+      : served(url)));
     const { unmount } = renderPage();
-    await screen.findByTestId('dashboard-main');
-    expect(screen.queryByTestId('slot-your-move')).not.toBeInTheDocument();
+    const placeholder = await screen.findByRole('status', { name: 'Checking what needs you' });
+    expect(placeholder).toHaveAttribute('data-testid', 'your-move-pending');
+    expect(screen.queryByText("You're set")).not.toBeInTheDocument();
+    await act(async () => answer(actionItems([])[ACTION_URL]));
+    expect(await screen.findByRole('heading', { level: 3, name: "You're set" })).toBeInTheDocument();
+    expect(screen.queryByTestId('your-move-pending')).not.toBeInTheDocument();
     unmount();
 
     invalidate(undefined, { reload: false });
@@ -3166,6 +3175,30 @@ describe('Your move', () => {
     renderPage();
     expect(await screen.findByText("Couldn't check what needs you")).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Try checking your plays again' })).toBeInTheDocument();
+  });
+
+  test('a completed league with the read in flight draws no placeholder', async () => {
+    mockGetByUrl({ '/api/league/1': inSeasonLeague({ season_status: 'complete' }), [ACTION_URL]: { pending: true } });
+    renderPage();
+    await screen.findByRole('heading', { level: 1, name: 'MinneApple' });
+    expect(screen.queryByTestId('your-move-pending')).not.toBeInTheDocument();
+  });
+
+  test('a viewer with no Team and nothing due reads "No team in this league", not "You\'re set"', async () => {
+    mockGetByUrl({
+      '/api/league/1': leagueDetail({
+        league: { draft_status: 'complete', season_status: 'regular', current_week: 3 },
+        teams: buildTeams(12),
+        viewerTeamId: null,
+      }),
+      ...actionItems([]),
+    });
+    renderPage();
+
+    const section = await screen.findByTestId('your-move');
+    expect(await within(section).findByRole('heading', { level: 3, name: 'No team in this league' })).toBeInTheDocument();
+    expect(within(section).getByText('Nothing here needs you.')).toBeInTheDocument();
+    expect(within(section).queryByText("You're set")).not.toBeInTheDocument();
   });
 
   test('pre-draft Commissioner: the open-seats Play is the one filled foot, it copies the invite and the page does not navigate', async () => {
