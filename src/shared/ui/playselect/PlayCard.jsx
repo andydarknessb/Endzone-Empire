@@ -55,6 +55,7 @@ export function PlayCard({
   compact = false, wide = false, headingLevel,
 }) {
   const headingId = useId();
+  const lockId = useId();
   const urgent = state === 'urgent' && Boolean(countdown);
   const ring = state === 'urgent' ? 'var(--ps-danger)' : 'var(--ps-cursor)';
   const live = lockDay === 'Live';
@@ -67,6 +68,7 @@ export function PlayCard({
           key={a.to || a.label}
           {...(a.onClick ? { component: 'button', type: 'button', onClick: a.onClick } : { component: RouterLink, to: a.to })}
           aria-label={a.ariaLabel}
+          aria-describedby={a.onClick ? lockId : undefined}
           data-filled={filled && i === 0 ? 'true' : undefined}
           sx={{
             ...(a.onClick ? BUTTON_FOOT_SX : null),
@@ -173,6 +175,7 @@ export function PlayCard({
         <Box component="span" sx={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
           <Box
             component="span"
+            id={lockId}
             sx={{
               ...pixelSx(16),
               display: 'inline-flex',

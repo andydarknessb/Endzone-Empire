@@ -75,26 +75,17 @@ function MoveCard({
   const name = card.name ?? playName(feet);
   const minutes = at !== null ? Math.max(1, Math.floor((at - now) / MINUTE_MS)) : null;
   const details = feet.map((foot) => foot.detail).filter(Boolean);
-  const isDraft = itemType(first) === 'seats_open';
-  const lockSpoken = at !== null ? `, ${isDraft ? 'draft' : 'locks'} ${spoken(lock)}` : '';
+  // An open-seats lock reads "Draft" while it is still ahead; once passed it is just "Now".
+  const drafting = itemType(first) === 'seats_open' && at !== null && at > now;
+  const lockSpoken = at !== null ? `, ${drafting ? 'draft' : 'locks'} ${spoken(lock)}` : '';
   const isInvite = (foot) => Boolean(inviteCode) && itemType(foot) === 'seats_open';
   const hasInvite = feet.some(isInvite);
-  const footActions = feet.map((foot) => (isInvite(foot)
-    ? {
-      key: foot.id,
-      label: foot.cta?.label || foot.title,
-      bare: true,
-      onClick: invite.copy,
-      done: invite.copied,
-      doneLabel: 'Copied',
-    }
-    : {
-      key: foot.id,
-      label: foot.cta?.label || foot.title,
-      to: foot.cta?.to,
-      bare: true,
-      ariaLabel: `${foot.cta?.label || foot.title}${foot.detail ? `, ${foot.detail}` : ''}${lockSpoken}`,
-    }));
+  const footActions = feet.map((foot) => {
+    const base = { key: foot.id, label: foot.cta?.label || foot.title, bare: true };
+    return isInvite(foot)
+      ? { ...base, onClick: invite.copy, done: invite.copied, doneLabel: 'Copied' }
+      : { ...base, to: foot.cta?.to, ariaLabel: `${base.label}${foot.detail ? `, ${foot.detail}` : ''}${lockSpoken}` };
+  });
 
   return (
     <>
@@ -104,7 +95,7 @@ function MoveCard({
         league=""
         detail={multi ? details.join(' · ') : null}
         {...lock}
-        lockWord={isDraft && at !== null ? 'Draft' : undefined}
+        lockWord={drafting ? 'Draft' : undefined}
         countdown={isUrgent ? `${minutes} min` : undefined}
         lockNote={card.note || (multi ? null : first.detail) || undefined}
         cta={multi || hasInvite ? undefined : { label: first.cta?.label || name, to: first.cta?.to }}

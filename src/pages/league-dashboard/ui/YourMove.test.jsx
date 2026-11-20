@@ -157,7 +157,19 @@ describe('YourMove', () => {
     await userEvent.click(foot);
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith(`${window.location.origin}/#/league/join?code=abc123`);
     expect(await screen.findByRole('button', { name: 'Copied' })).toBeInTheDocument();
+    expect(foot).toHaveFocus();
     expect(screen.getByRole('status')).toHaveTextContent('Invite link copied');
+  });
+
+  test('the open-seats foot describes its lock, so a screen reader hears the draft time with the name', () => {
+    renderWithProviders(<YourMove lead={{ feet: [seats()] }} rest={[]} badge={1} inviteCode="abc123" />);
+    expect(screen.getByRole('button', { name: 'Invite managers' })).toHaveAccessibleDescription(/^Draft /);
+  });
+
+  test('an open-seats Play whose draft time has passed reads Now, not Draft Now', () => {
+    renderWithProviders(<YourMove lead={{ feet: [seats(new Date(Date.now() - 60 * 1000).toISOString())] }} rest={[]} badge={1} />);
+    expect(screen.getByText('Now')).toBeInTheDocument();
+    expect(screen.queryByText(/^Draft/)).not.toBeInTheDocument();
   });
 
   test('an open-seats Play without an invite code stays a link to the league, and its spoken lock says draft', () => {

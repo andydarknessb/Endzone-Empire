@@ -52,6 +52,8 @@ export function useInviteCopy(code) {
   );
 
   const copy = useCallback(async () => {
+    // Clear first, so a repeat copy changes the region's text and is announced again.
+    setAnnouncement('');
     try {
       await navigator.clipboard.writeText(joinLink(code));
       setCopied(true);
