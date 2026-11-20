@@ -1017,6 +1017,43 @@ describe('#2897: focus after a completed swap', () => {
       expect(benchTab).toHaveAttribute('aria-pressed', 'true');
       expect(scrollSpy).not.toHaveBeenCalled();
     });
+
+    // A later empty Bench seat keeps its key (and its button) when a player lands on the bench, so the page must not
+    // wait on that button: the phone bar is hidden under it after the flip.
+    const threeEmptyBench = () => ({ [LINEUP_URL]: { data: lineupBody({ body: { benchSlots: 3 } }) } });
+
+    test('a Starter moved into a later empty Bench seat focuses the Starters bar button', async () => {
+      forcePhone();
+      const user = userEvent.setup();
+      apiClient.put.mockResolvedValue({ data: {} });
+      renderPage(threeEmptyBench());
+      await loaded();
+      const [startersTab] = await tabsOf();
+      await user.click(screen.getByTestId('slot-row-RB-0-select'));
+      await user.click(screen.getByTestId('slot-row-BENCH-empty-2-select'));
+
+      await waitFor(() => expect(apiClient.put).toHaveBeenCalled());
+      expect(startersTab).toHaveAttribute('aria-pressed', 'true');
+      expect(startersTab).toHaveFocus();
+    });
+
+    test('a quick pick on a later empty Bench seat focuses the Starters bar button', async () => {
+      forcePhone();
+      const user = userEvent.setup();
+      apiClient.put.mockResolvedValue({ data: {} });
+      renderPage(threeEmptyBench());
+      await loaded();
+      const [startersTab, benchTab] = await tabsOf();
+      await user.click(benchTab);
+      (await screen.findByTestId('slot-row-BENCH-empty-2-select')).focus();
+      await user.keyboard('{Enter}');
+      await screen.findByRole('menu');
+      await user.keyboard('{Enter}');
+
+      await waitFor(() => expect(apiClient.put).toHaveBeenCalled());
+      await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument());
+      expect(startersTab).toHaveFocus();
+    });
   });
 
   // #2906: a quick pick, the Bench what-if Swap and the Decision card's Start submit without a row click, and each

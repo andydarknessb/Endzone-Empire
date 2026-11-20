@@ -310,6 +310,13 @@ export default function LineupPage() {
     onLanded: advice.reload,
     onRejected: () => refetch({ silent: true }),
   });
+  // #2897: a completed swap can unmount the row pressed last (an occupied Bench row is keyed by its player, an empty
+  // one by its index), and focus on it then falls to <body>. The click that completes a swap remembers the pressed
+  // button and the player focus should follow; the layout effect below acts once the swap has rendered.
+  // shortcut: repeats useSwapPlayers' own test for a click that completes a swap, have the hook report it if that test grows.
+  const swapFocusRef = useRef(null);
+  // #2906: a hand-off the quick pick or the Decision card waits on until that overlay has closed (the effect below).
+  const deferredFocusRef = useRef(null);
   // #2967: a move plan that changes a starting Slot, made from the phone's Bench view, shows Starters in the same update
   // as its optimistic patch, and the starting row it changed is scrolled into view once that has rendered. Undo is the
   // hook's own submit and never comes through here, so it leaves the view where it is.
@@ -322,6 +329,10 @@ export default function LineupPage() {
       if (landing || vacated) {
         scrollAfterSwitchRef.current = landing ? { playerId: landing.playerId } : { slotType: current.get(vacated.playerId) };
         setPhoneView('starters');
+        // The switch hides the Bench section, so the hand-off the press set up must not wait on the button it pressed:
+        // a null button or opener sends both effects to focusTargetFor.
+        if (swapFocusRef.current) swapFocusRef.current.button = null;
+        if (deferredFocusRef.current) deferredFocusRef.current.opener = null;
       }
     }
     return submit(moves);
@@ -333,13 +344,6 @@ export default function LineupPage() {
     leagueUnsettled,
     hasEligibleTarget,
   });
-  // #2897: a completed swap can unmount the row pressed last (an occupied Bench row is keyed by its player, an empty
-  // one by its index), and focus on it then falls to <body>. The click that completes a swap remembers the pressed
-  // button and the player focus should follow; the layout effect below acts once the swap has rendered.
-  // shortcut: repeats useSwapPlayers' own test for a click that completes a swap, have the hook report it if that test grows.
-  const swapFocusRef = useRef(null);
-  // #2906: a hand-off the quick pick or the Decision card waits on until that overlay has closed (the effect below).
-  const deferredFocusRef = useRef(null);
   const onLedgerRowClick = (entry, slotType, event) => {
     if (swap.selectedEntry && entry?.playerId !== swap.selectedEntry.playerId && swap.isEligibleTarget(entry, slotType)) {
       swapFocusRef.current = {
@@ -543,7 +547,7 @@ export default function LineupPage() {
   useLayoutEffect(() => {
     const pending = swapFocusRef.current;
     if (!pending || !sections) return;
-    if (pending.button.isConnected || document.activeElement !== document.body) {
+    if (pending.button && (pending.button.isConnected || document.activeElement !== document.body)) {
       // Focus sits on a live element: forget the swap once the manager has moved on from its button.
       if (document.activeElement !== pending.button) swapFocusRef.current = null;
       return;
