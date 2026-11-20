@@ -192,4 +192,28 @@ describe('YourMove', () => {
     renderWithProviders(<YourMove lead={{ feet: [lineup()] }} rest={[]} badge={1} />);
     expect(screen.queryByText(/^Draft/)).not.toBeInTheDocument();
   });
+
+  test('while the read is in flight it is a placeholder: named status, no heading text, no check, no "You\'re set"', () => {
+    const { container } = renderWithProviders(<YourMove pending />);
+    const placeholder = screen.getByRole('status', { name: 'Checking what needs you' });
+    expect(placeholder).toHaveAttribute('data-testid', 'your-move-pending');
+    expect(screen.queryByRole('heading')).not.toBeInTheDocument();
+    expect(screen.queryByText("You're set")).not.toBeInTheDocument();
+    expect(container.querySelectorAll('svg')).toHaveLength(0);
+  });
+
+  test('an ordinary empty card keeps its check and "You\'re set"', () => {
+    const { container } = renderWithProviders(<YourMove empty />);
+    expect(screen.getByRole('heading', { level: 3, name: "You're set" })).toBeInTheDocument();
+    expect(container.querySelectorAll('svg')).toHaveLength(1);
+  });
+
+  test('no Team and nothing due: "No team in this league" with no check, and the note says nothing here needs you', () => {
+    const { container } = renderWithProviders(<YourMove empty noTeam />);
+    expect(screen.getByRole('heading', { level: 3, name: 'No team in this league' })).toBeInTheDocument();
+    expect(screen.getByText('Nothing here needs you.')).toBeInTheDocument();
+    expect(screen.getByText('Nothing is due')).toBeInTheDocument();
+    expect(screen.queryByText("You're set")).not.toBeInTheDocument();
+    expect(container.querySelectorAll('svg')).toHaveLength(0);
+  });
 });
