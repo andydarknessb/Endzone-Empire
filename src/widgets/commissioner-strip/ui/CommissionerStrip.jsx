@@ -15,7 +15,8 @@ import useCommissionerStrip from '../model/useCommissionerStrip';
  *   - Rows with an item and an action, never filled (the one filled action is the lead play in Your
  *     move) and never red unless a lock is under an hour: the pending join requests as a link with a
  *     count badge straight to the console, the Advance week control while the season is live, and a
- *     "League administration" link. `invite` is an optional extra row (the page passes the Invite
+ *     "League administration" link. A pre-draft league with no draft time leads with a "Set draft time"
+ *     link to Draft Settings. `invite` is an optional extra row (the page passes the Invite
  *     control here on a phone, where the head has no room for it).
  *
  * Paints only ps-* tokens. The Advance control is the advance-week feature (the commissioner console composes
@@ -29,6 +30,7 @@ export default function CommissionerStrip({ leagueId, invite, scoreEvent, onAdva
     pickemOnly,
     seasonLive,
     currentWeek,
+    needsDraftTime,
     pendingJoinRequests,
     advanceDisabledReason,
     advanceRetry,
@@ -45,6 +47,13 @@ export default function CommissionerStrip({ leagueId, invite, scoreEvent, onAdva
   if (invite) {
     rows.push(
       <Row key="invite" note="Copy the invite link for new teams" action={invite}>Invite code</Row>
+    );
+  }
+  if (needsDraftTime) {
+    rows.push(
+      <Row key="draft-time" note="No draft time yet">
+        <PsLink to={`/league/${leagueId}/draft-settings`}>Set draft time</PsLink>
+      </Row>
     );
   }
   if (pendingJoinRequests > 0) {

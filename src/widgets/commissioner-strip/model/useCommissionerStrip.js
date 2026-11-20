@@ -1,5 +1,7 @@
 import { useLeague } from '../../../hooks/useLeague';
-import { useEndpoint, isPickemOnly, isSeasonLive } from '../../../shared/lib';
+import {
+  useEndpoint, isPickemOnly, isSeasonLive, deriveLeaguePhase, LEAGUE_PHASE,
+} from '../../../shared/lib';
 import { allWeekSettled, applyScoreEvent, useWeekMatchups } from '../../../entities/matchup';
 
 /**
@@ -75,10 +77,14 @@ export function useCommissionerStrip(leagueId, { scoreEvent } = {}) {
         ? `Opens when every Week ${currentWeek} game is final`
         : null;
 
+  // The Set draft time row: a fantasy league still pre-draft with no draft_date (a pick'em-only league never reaches pre-draft).
+  const needsDraftTime = deriveLeaguePhase(league) === LEAGUE_PHASE.PRE_DRAFT && !league?.draft_date;
+
   return {
     advanceDisabledReason,
     advanceRetry: checkFailed ? weekMatchups.refetch : undefined,
     isCommissioner: !!league?.is_commissioner,
+    needsDraftTime,
     pickemOnly: isPickemOnly(league),
     seasonLive: isSeasonLive(league),
     currentWeek: league?.current_week ?? null,

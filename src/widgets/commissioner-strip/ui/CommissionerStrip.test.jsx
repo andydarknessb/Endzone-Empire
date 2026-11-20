@@ -299,3 +299,58 @@ test('without an invite control there is no invite row', async () => {
   const card = await screen.findByTestId('commissioner-strip');
   expect(within(card).queryByText('Invite code')).not.toBeInTheDocument();
 });
+
+// --- the Set draft time row --------------------------------------------------
+
+const preDraftLeague = { draft_status: 'pending', season_status: 'regular', draft_date: null };
+
+test('a commissioner of a pre-draft fantasy league with no draft time gets a Set draft time link', async () => {
+  mockGetByUrl({ '/api/league/42': leagueResponse({ league: preDraftLeague }) });
+  renderStrip();
+
+  const card = await screen.findByTestId('commissioner-strip');
+  expect(within(card).getByRole('link', { name: 'Set draft time' })).toHaveAttribute(
+    'href',
+    '/league/42/draft-settings'
+  );
+  expect(within(card).getByText('No draft time yet')).toBeInTheDocument();
+});
+
+// Red-tell: dropping the draft-time condition from needsDraftTime turns the first case red.
+test.each([
+  ['a league that has a draft time', { ...preDraftLeague, draft_date: '2026-08-30T23:00:00.000Z' }],
+  ['an in-season league', { draft_status: 'complete', season_status: 'regular', draft_date: null }],
+  ["a pick'em-only league", { ...preDraftLeague, pickem_only: true }],
+])('%s shows no Set draft time link', async (_name, league) => {
+  mockGetByUrl({ '/api/league/42': leagueResponse({ league }) });
+  renderStrip();
+
+  const card = await screen.findByTestId('commissioner-strip');
+  expect(within(card).queryByRole('link', { name: 'Set draft time' })).not.toBeInTheDocument();
+});
+
+test('a member of a pre-draft league with no draft time sees nothing', async () => {
+  mockGetByUrl({ '/api/league/42': leagueResponse({ league: { ...preDraftLeague, is_commissioner: false } }) });
+  const { container } = renderStrip();
+  await settleReads();
+
+  expect(container).toBeEmptyDOMElement();
+});
+
+test('Set draft time is the first row when the page passes no invite', async () => {
+  mockGetByUrl({ '/api/league/42': leagueResponse({ league: preDraftLeague }) });
+  renderStrip();
+
+  const card = await screen.findByTestId('commissioner-strip');
+  // eslint-disable-next-line testing-library/no-node-access
+  expect(within(card).getAllByRole('listitem')[0]).toHaveTextContent('Set draft time');
+});
+
+test('Set draft time is the second row, after the Invite row', async () => {
+  mockGetByUrl({ '/api/league/42': leagueResponse({ league: preDraftLeague }) });
+  renderWithProviders(<CommissionerStrip leagueId={42} invite={<button type="button">Invite TNR-7K4Q</button>} />);
+
+  const card = await screen.findByTestId('commissioner-strip');
+  // eslint-disable-next-line testing-library/no-node-access
+  expect(within(card).getAllByRole('listitem')[1]).toHaveTextContent('Set draft time');
+});
