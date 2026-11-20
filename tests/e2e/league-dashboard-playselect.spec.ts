@@ -521,6 +521,31 @@ for (const viewport of Object.keys(VIEWPORTS) as ViewportName[]) {
   });
 }
 
+// The pre-draft Play (spec #2971): its lock reads Draft, its foot copies the invite and leaves the URL alone, and the
+// Draft Day frame carries the countdown. A league this viewer does not administer shows no Invite at all.
+for (const viewport of Object.keys(VIEWPORTS) as ViewportName[]) {
+  test(`predraft ${viewport}: the open-seats Play locks as Draft, its foot copies the invite and keeps the URL, Draft Day shows`, async ({ page }) => {
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+    await openDashboard(page, 'predraft', viewport);
+    const lead = page.locator('.cursor');
+    await expect(lead).toContainText('Draft ');
+    const before = page.url();
+    await lead.getByRole('button', { name: 'Invite managers' }).click();
+    await expect(lead.getByRole('button', { name: 'Copied' })).toBeVisible();
+    expect(page.url(), 'the open-seats foot copies the invite and does not navigate').toBe(before);
+    await expect(page.getByTestId('slot-draft-countdown')).toBeVisible();
+  });
+}
+
+for (const state of ['complete', 'pickemonly', 'gamedaySet'] as const) {
+  for (const viewport of Object.keys(VIEWPORTS) as ViewportName[]) {
+    test(`${state} ${viewport}: no Invite button renders`, async ({ page }) => {
+      await openDashboard(page, state, viewport);
+      await expect(page.getByRole('button', { name: /invite/i })).toHaveCount(0);
+    });
+  }
+}
+
 // The head's "Times in" line sits on the Archivo ramp's 16px step: the ramp has no 17px.
 test('inseason desktop: the Times in line is 16px', async ({ page }) => {
   await openDashboard(page, 'inseason', 'desktop');

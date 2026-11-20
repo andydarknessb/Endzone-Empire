@@ -3168,6 +3168,31 @@ describe('Your move', () => {
     expect(screen.getByRole('button', { name: 'Try checking your plays again' })).toBeInTheDocument();
   });
 
+  test('pre-draft Commissioner: the open-seats Play is the one filled foot, it copies the invite and the page does not navigate', async () => {
+    mockGetByUrl({
+      '/api/league/1': preDraftLeague({ is_commissioner: true, invite_code: 'abc123' }),
+      ...actionItems([item('seats_open', null, {
+        title: '2 open seats before the draft',
+        detail: '10 of 12 teams have joined',
+        deadlineAt: IN_MINUTES(3 * 24 * 60),
+        cta: { label: 'Invite managers', to: '/league/1' },
+      })]),
+    });
+    renderPage();
+
+    const section = await screen.findByTestId('your-move');
+    const foot = await within(section).findByRole('button', { name: 'Invite managers' });
+    expect(foot).not.toHaveAttribute('href');
+    expect(cursorCount()).toBe(1);
+    expect(filledCount()).toBe(1);
+    expect(within(section).getByText(/^Draft /)).toBeInTheDocument();
+
+    await userEvent.click(foot);
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith(`${window.location.origin}/#/league/join?code=abc123`);
+    expect(await within(section).findByRole('button', { name: 'Copied' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: 'MinneApple' })).toBeInTheDocument();
+  });
+
   test('a revisit with cached items keeps the card on screen while the items re-read', async () => {
     mockGetByUrl({ '/api/league/1': inSeasonLeague(), ...actionItems([lineupItem(IN_MINUTES(6 * 60))]) });
     const { unmount } = renderPage();
