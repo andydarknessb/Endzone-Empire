@@ -3,6 +3,7 @@ const crypto = require('crypto');
 const pool = require('../modules/pool');
 const { withTransaction } = require('../modules/withTransaction');
 const { leagueWrite } = require('../modules/leagueWrite');
+const { validateTeamName } = require('../services/teamName');
 const clock = require('../modules/clock');
 const { requireAuth } = require('../modules/auth');
 const { createRateLimiter, createFailureLimiter } = require('../modules/rateLimit');
@@ -63,9 +64,9 @@ router.post('/', leagueCreateLimiter, async (req, res) => {
     isPublic, joinApproval, bestBall, scoringPreset, draftDate, draftTimezone,
     leagueType, pickemMode,
   } = req.body || {};
-  if (!name || typeof name !== 'string') {
-    return res.status(400).json({ error: 'league name is required' });
-  }
+  // The Team name rule, worded for a League.
+  const { value: leagueName, error: nameError } = validateTeamName(name);
+  if (nameError) return res.status(400).json({ error: nameError.replace('Team', 'League') });
   // Format options first: the size checks below need to know whether this is
   // a pick'em-only league, whose member cap is looser than the fantasy one.
   const optionsResult = validateCreateOptions({
@@ -98,7 +99,7 @@ router.post('/', leagueCreateLimiter, async (req, res) => {
            )
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING *`,
           [
-            name, req.user.id, inviteCode, teams, minimum,
+            leagueName, req.user.id, inviteCode, teams, minimum,
             options.isPublic, options.joinApproval, options.bestBall,
             options.scoringPreset, options.scoringRules ? JSON.stringify(options.scoringRules) : null,
             options.draftDate, options.draftTimezone, options.pickemOnly,
@@ -693,8 +694,8 @@ router.get('/:id/matchups', async (req, res) => {
 // contracted by #343): the author's account id and username never ride on the
 // history, and the Team identity join is LEFT so a message from a manager who
 // has since left the league still reads back (null Team identity) rather than
-// dropping out. `chat_messages.user_id` is read INSIDE the query (the block
-// filter) but is not projected onto the wire. The response is a bare array
+// dropping out. `chat_messages.user_id` joins Team identity inside the query but
+// is not projected onto the wire. The response is a bare array
 // with no root to carry `viewerTeamId`, so a viewer takes theirs from the
 // `league:join` acknowledgement the chat panel already makes, and compares
 // `entry.teamId` against it. Adding `type` and `seq` is additive, so a client
@@ -712,7 +713,6 @@ router.get('/:id/chat', async (req, res) => {
     }
     const entries = await listLeagueChatFeed(pool, {
       leagueId,
-      viewerId: req.user.id,
       before,
       after,
     });
@@ -745,7 +745,6 @@ router.get('/:id/draft-feed', async (req, res) => {
     }
     const entries = await listCombinedDraftFeed(pool, {
       leagueId,
-      viewerId: req.user.id,
       before,
       after,
     });
@@ -757,9 +756,7 @@ router.get('/:id/draft-feed', async (req, res) => {
 });
 
 // GET /api/league/:id/chat/unread — how many of OTHER members' messages are
-// newer than the caller's last-read marker. Blocked users are excluded with
-// the same predicate as the history endpoint, so the badge never counts a
-// message the user will never see. A user with no marker yet counts all of it.
+// newer than the caller's last-read marker. A user with no marker yet counts all of it.
 router.get('/:id/chat/unread', async (req, res) => {
   const leagueId = intParam(req.params.id);
   if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
@@ -776,11 +773,6 @@ router.get('/:id/chat/unread', async (req, res) => {
            (SELECT "last_read_at" FROM "chat_reads"
             WHERE "league_id" = $1 AND "user_id" = $2),
            to_timestamp(0)
-         )
-         AND NOT EXISTS (
-           SELECT 1 FROM "user_blocks"
-           WHERE "user_blocks"."blocker_id" = $2
-             AND "user_blocks"."blocked_id" = "chat_messages"."user_id"
          )`,
       [leagueId, req.user.id]
     );

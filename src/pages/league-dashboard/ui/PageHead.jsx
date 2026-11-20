@@ -5,10 +5,11 @@ import { formatInstant } from '../../../shared/lib';
 
 /**
  * The page head every league page shares (DESIGN.md "League pages"): the pixel h1 (the league name),
- * a chip row (the phase chip, a team-count chip outside the live season, "Draft Complete" on a
- * finished fantasy league, and the Live chip on game day), then an Archivo dim line, "Times in CDT"
+ * a chip row (the phase chip; the team-count and "Draft Complete" chips the page passes only outside the
+ * live season and for a league that is not complete, so a completed league's head is the phase chip alone;
+ * and the Live chip on game day), then an Archivo dim line, "Times in CDT"
  * and nothing else. The phase chip is neutral: green is for live state only. `right` is the
- * commissioner's Invite control. A plain layout row, not a header element: a top-level header maps to
+ * commissioner's Invite control and, below sm on the league dashboard, its chat button. A plain layout row, not a header element: a top-level header maps to
  * the banner landmark, which the app shell's app bar already owns.
  */
 export default function PageHead({
@@ -27,7 +28,7 @@ export default function PageHead({
         <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px 12px' }}>
           {chips.map((chip) => <StatusChip key={chip}>{chip}</StatusChip>)}
           {live && <LiveChip>{live}</LiveChip>}
-          <Box component="p" sx={{ m: 0, fontSize: '17px', color: 'var(--ps-dim)' }}>{`Times in ${zone}`}</Box>
+          <Box component="p" sx={{ m: 0, fontSize: '16px', color: 'var(--ps-dim)' }}>{`Times in ${zone}`}</Box>
         </Box>
       </Box>
       {right && <Box>{right}</Box>}

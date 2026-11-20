@@ -685,7 +685,9 @@ domain event
 The order of Draft state as the room hears it. Every Draft state broadcast
 carries one; it advances on every change to Draft state (a Pick, a pause or
 resume, an Autodraft toggle, a reset, a Commissioner correction), and a
-client never applies an older Draft state over a newer one. It is distinct
+client never applies an older Draft state over a newer one. The one exception:
+a client with no League yet takes its first Draft state at any version, and keeps
+the higher version after that (#2765). It is distinct
 from the League feed sequence, which Draft activity and chat share and which
 does not move when a change writes neither.
 _Avoid_: seq (the League feed sequence), revision
@@ -1519,9 +1521,10 @@ Every Manager in the League is told which Matchup scores moved, and the notice
 is kept with the change: a Stat correction is never applied without its notice.
 It never changes which Teams reached a later playoff round: later rounds stand
 as Advance week built them, even when the corrected score now shows the other
-Team ahead. Nor does it change the champion: once the final is settled, the
-champion stands as Advance week settled it, even when the corrected score now
-shows the other Team ahead.
+Team ahead. Nor does it change the champion: once its champion Trophy is awarded,
+the champion stands as Advance week settled it, even when the corrected score now
+shows the other Team ahead. A commissioner's manual correction of the final likewise
+leaves the champion as the awarded Trophy has it.
 The live score announcement to open pages is different: it is best-effort,
 and its failure never holds back the change or its Settle follow-up.
 A revision that moves no score sends nothing.
@@ -1552,7 +1555,8 @@ The commissioner action that closes out the current week: finalizes scores,
 settles standings, awards trophies and opens the next week, always in one
 order: the week is scored as played (the Settle pass), finalized and
 advanced, the next week's lineups are seeded, and the Settle follow-up is
-started and not awaited. A failed live score announcement skips none of those
+started and not awaited by the advance. API shutdown waits up to 30 s for it
+before the pool ends. A failed live score announcement skips none of those
 steps. A failure in the follow-up is logged with league and week, and the next
 Advance week re-judges any pending Called shot; the Advance that completes the
 season has no next one, so it tells the judging the season is complete and it

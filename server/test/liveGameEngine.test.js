@@ -592,3 +592,68 @@ test('reportStaleKickoffs: a failed read is logged, never thrown into the tick',
   await engine.reportStaleKickoffs({ now: new Date() });
   assert.equal(logged.length, 1);
 });
+
+// #2866: shutdown waits for a tick that holds the pool. A held tick is pool.connect
+// held open; releasing it hands back a client whose try-lock fails, so the run ends.
+const flushTurns = async () => { for (let i = 0; i < 5; i++) await new Promise((resolve) => setImmediate(resolve)); };
+function holdConnect(t, onConnect = () => {}) {
+  const pool = require('../modules/pool');
+  let release;
+  const held = new Promise((resolve) => { release = resolve; });
+  t.mock.method(pool, 'connect', () => { onConnect(); return held; });
+  return () => release({ query: async () => ({ rows: [{ locked: false }] }), release() {} });
+}
+
+test('drainLiveGameEngine (#2866): a held tick keeps the drain pending until it settles', async (t) => {
+  const engine = require('../modules/liveGameEngine');
+  const release = holdConnect(t);
+  engine.startLiveGameEngine();
+  const run = engine.tick();
+  engine.stopLiveGameEngine();
+  let drained = false;
+  const drain = engine.drainLiveGameEngine().then(() => { drained = true; });
+  await flushTurns();
+  assert.equal(drained, false, 'the drain waits for the held tick');
+  release();
+  await drain;
+  await run;
+});
+
+test('drainLiveGameEngine (#2866): a tick that never settles lets the drain resolve at its limit', async (t) => {
+  const engine = require('../modules/liveGameEngine');
+  const release = holdConnect(t);
+  t.after(() => release());
+  engine.startLiveGameEngine();
+  let settled = false;
+  engine.tick().then(() => { settled = true; });
+  engine.stopLiveGameEngine();
+  await engine.drainLiveGameEngine(20);
+  assert.equal(settled, false, 'the tick is still held when the drain resolves');
+});
+
+test('drainLiveGameEngine (#2866): with no tick in flight the drain resolves without its timer', async (t) => {
+  const engine = require('../modules/liveGameEngine');
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  let drained = false;
+  engine.drainLiveGameEngine().then(() => { drained = true; });
+  await flushTurns();
+  assert.equal(drained, true, 'nothing in flight, so nothing to wait for');
+});
+
+test('drainLiveGameEngine (#2866): a tick the loop timer starts is waited for too', async (t) => {
+  const engine = require('../modules/liveGameEngine');
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  let connects = 0;
+  const release = holdConnect(t, () => { connects += 1; });
+  engine.startLiveGameEngine();
+  t.mock.timers.tick(5000);
+  await flushTurns();
+  assert.equal(connects, 1, 'the loop timer started a tick');
+  engine.stopLiveGameEngine();
+  let drained = false;
+  const drain = engine.drainLiveGameEngine().then(() => { drained = true; });
+  await flushTurns();
+  assert.equal(drained, false, 'the drain waits for the timer-started tick');
+  release();
+  await drain;
+});

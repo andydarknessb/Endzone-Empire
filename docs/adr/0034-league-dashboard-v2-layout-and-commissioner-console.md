@@ -145,3 +145,7 @@ the feed: `useEndpoint` has no cache, so a second caller of
 and the dashboard keeps making one. A filler card and a Commissioner-only
 join-request card in the rail were both rejected: the first is new content with
 no design canvas, the second fills the rail for one role only.
+
+### Amendment (2026-11-18, #2921): the console is the only reader of commissioner facts
+
+The dashboard's commissioner strip no longer reads `commissionerFacts`. It shows action rows only (the Invite on game-day phones, Join requests, Advance week, League administration) and no facts at any width, as the 2026-11-18 rulings in `docs/design/league/RULINGS.md` set. The Commissioner console is therefore the function's only reader. `commissionerFacts` stays in `shared/lib`; the bullet above that says the dashboard strip and the console both read it is superseded on the dashboard half, and the rest of this ADR stands.

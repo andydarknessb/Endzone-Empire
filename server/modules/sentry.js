@@ -26,6 +26,8 @@ function initSentry(injectedClient) {
       environment: process.env.NODE_ENV,
       release: process.env.RENDER_GIT_COMMIT || process.env.APP_RELEASE,
       sendDefaultPii: false,
+      // @sentry/node 11.11 instruments @anthropic-ai/sdk 1.x and records prompt and reply text on gen_ai spans unless told not to.
+      dataCollection: { genAI: { inputs: false, outputs: false } },
       tracesSampleRate: Number(process.env.SENTRY_TRACES_SAMPLE_RATE || 0.05),
     });
   } catch (error) {

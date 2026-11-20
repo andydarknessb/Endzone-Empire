@@ -63,8 +63,6 @@ function chatWorld({ leagueId, teams }) {
       };
       return { rows: [{ id: row.id, created_at: row.created_at, feed_seq: row.feed_seq, content_kind: row.content_kind, gif_provider: row.gif_provider, gif_asset_id: row.gif_asset_id, gif_description: row.gif_description }] };
     }],
-    // listBlockersOf - nobody has blocked anyone here.
-    [/^SELECT "blocker_id" FROM "user_blocks"/, () => ({ rows: [] })],
   ]);
   return { fake, state };
 }

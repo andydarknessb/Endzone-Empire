@@ -1,17 +1,16 @@
-import React, { useId, useState } from 'react';
+import React, { useEffect, useId, useState } from 'react';
 import { Box, useMediaQuery, useTheme } from '@mui/material';
 import {
-  CpuTag, ErrorPanel, Frame, FrameHead, PixelArrow, PixelHeading, pixelSx, Skel, SR_ONLY_SX, TeamMark, YouTag,
+  CpuTag, ErrorPanel, Frame, FrameHead, PixelArrow, PixelHeading, pixelSx, PsLinkButton, Skel, SR_ONLY_SX, TeamMark, YouTag,
 } from '../../../shared/ui/playselect';
 import useStandingsTable from '../model/useStandingsTable';
-
-// Rows beside the viewer's that a phone keeps when the table folds.
-const FOLD_SPAN = 2;
+import { foldRows } from '../model/foldRows';
 
 // The first two columns stay in view while PF, PA and STRK scroll (phone), so their widths are
-// fixed. `xs` is the phone width, `md` the desktop one.
-const RANK_W = { xs: 48, md: 64 };
-const CELL_PAD = { xs: '0 8px', md: '0 12px' };
+// fixed. `xs` is the phone width; from md to below lg (900 to 1199px) the numeric columns are compact so
+// Team keeps its width beside the rail. `lg` is the desktop set.
+const RANK_W = { xs: 48, md: 56, lg: 64 };
+const CELL_PAD = { xs: '0 8px', md: '0 8px', lg: '0 12px' };
 
 const cellSx = (align = 'left', extra = null) => ({
   boxSizing: 'border-box',
@@ -50,7 +49,7 @@ const headCellSx = (align = 'left', extra = null) => ({
  *
  * Paints only `ps-*` tokens (DESIGN.md "Play-select: Home and league pages"). Below `sm` the table
  * folds to the viewer's row with two teams either side and the playoff line, then a "Full standings"
- * link that opens the whole table in place (the league has no standings page of its own). Rank and
+ * button, styled as a link, that opens the whole table in place (the league has no standings page of its own). Rank and
  * Team stay in view at that width while PF, PA and STRK scroll inside the table box.
  *
  * The standings read is the frame's spine: while it is in flight the frame holds its layout with
@@ -58,16 +57,28 @@ const headCellSx = (align = 'left', extra = null) => ({
  * table never touches the rest of the page. The header (title and team count) renders while loading
  * and when ready, since the count is read from the league membership, not the standings read.
  *
- * Preseason (phase before in season, or every row zero games) is the honest empty state: record,
- * points and streak cells render a placeholder mark, no playoff line is drawn across an order nobody
- * has earned yet, and a note says those values populate after Week 1.
+ * Preseason (phase before in season, or every row zero games) is the honest empty state: the W-L-T,
+ * PF, PA and STRK columns are not drawn, leaving Rank and Team; no playoff line is drawn across an
+ * order nobody has earned yet, and a note says those values populate after Week 1. From md the table
+ * is fixed-layout, so Team truncates before any column is pushed out of its box.
+ *
+ * The viewer's row (rank, record, points for) is reported up through `onViewerRow`, the way Recent activity
+ * reports its short feed, so the page can hand it on without a second standings read (the Trophy room's line).
  */
-export default function StandingsTable({ leagueId }) {
+export default function StandingsTable({ leagueId, onViewerRow }) {
   const {
     status, rows, preseason, teamCount, cutIndex, refetch,
   } = useStandingsTable(leagueId);
   const theme = useTheme();
   const phone = useMediaQuery(theme.breakpoints.down('sm'), { noSsr: true });
+  // The viewer's row goes up to the page as primitives, so the report fires on a change of value, not of row object.
+  const viewer = rows.find((row) => row.isViewer);
+  const viewerRank = viewer?.rank;
+  const viewerRecord = viewer?.record;
+  const viewerPoints = viewer?.pointsFor;
+  useEffect(() => {
+    if (onViewerRow) onViewerRow(viewerRank == null ? null : { rank: viewerRank, record: viewerRecord, pointsFor: viewerPoints });
+  }, [onViewerRow, viewerRank, viewerRecord, viewerPoints]);
   const [expanded, setExpanded] = useState(false);
   const headingId = useId();
 
@@ -76,13 +87,10 @@ export default function StandingsTable({ leagueId }) {
   const busy = status === 'loading';
 
   // The phone fold: the viewer's row, two teams either side, down to the playoff line.
-  const viewerIndex = rows.findIndex((row) => row.isViewer);
-  const folds = phone && viewerIndex >= 0 && rows.length > FOLD_SPAN * 2 + 1;
-  const folded = folds && !expanded;
-  const first = folded ? Math.max(0, viewerIndex - FOLD_SPAN) : 0;
-  const last = folded
-    ? Math.min(rows.length - 1, Math.max(viewerIndex + FOLD_SPAN, cutIndex > 0 ? cutIndex - 1 : 0))
-    : rows.length - 1;
+  const fold = phone ? foldRows(rows.length, rows.findIndex((row) => row.isViewer), cutIndex) : null;
+  const folded = fold && !expanded;
+  const first = folded ? fold.first : 0;
+  const last = folded ? fold.last : rows.length - 1;
   const shown = rows.map((row, index) => ({ row, index })).filter(({ index }) => index >= first && index <= last);
 
   if (status === 'error') {
@@ -123,11 +131,13 @@ export default function StandingsTable({ leagueId }) {
         data-testid="standings-table-scroll"
         sx={{ overflowX: 'auto' }}
       >
+        {/* From md the columns are fixed: Team takes the width the numeric columns leave. */}
         <Box
           component="table"
           sx={{
             width: '100%',
-            minWidth: { xs: '538px', md: '700px' },
+            minWidth: preseason ? 0 : { xs: '538px', md: 0 },
+            tableLayout: { md: 'fixed' },
             borderCollapse: 'separate',
             borderSpacing: 0,
           }}
@@ -149,15 +159,19 @@ export default function StandingsTable({ leagueId }) {
                 component="th"
                 scope="col"
                 sx={headCellSx('left', {
-                  position: 'sticky', left: RANK_W, zIndex: 1, minWidth: { xs: '214px', md: '300px' },
+                  position: 'sticky', left: RANK_W, zIndex: 1, minWidth: { xs: '214px', md: 0 },
                 })}
               >
                 Team
               </Box>
-              <Box component="th" scope="col" sx={headCellSx('right', { minWidth: { xs: '72px', md: '88px' } })}>W-L-T</Box>
-              <Box component="th" scope="col" sx={headCellSx('right', { minWidth: { xs: '72px', md: '88px' } })}>PF</Box>
-              <Box component="th" scope="col" sx={headCellSx('right', { minWidth: { xs: '72px', md: '88px' } })}>PA</Box>
-              <Box component="th" scope="col" sx={headCellSx('right', { minWidth: { xs: '64px', md: '72px' } })}>STRK</Box>
+              {!preseason && (
+                <>
+                  <Box component="th" scope="col" sx={headCellSx('right', { minWidth: { xs: '72px', md: '70px', lg: '88px' }, width: { md: '70px', lg: '88px' } })}>W-L-T</Box>
+                  <Box component="th" scope="col" sx={headCellSx('right', { minWidth: { xs: '72px', md: '64px', lg: '88px' }, width: { md: '64px', lg: '88px' } })}>PF</Box>
+                  <Box component="th" scope="col" sx={headCellSx('right', { minWidth: { xs: '72px', md: '64px', lg: '88px' }, width: { md: '64px', lg: '88px' } })}>PA</Box>
+                  <Box component="th" scope="col" sx={headCellSx('right', { minWidth: { xs: '64px', md: '54px', lg: '72px' }, width: { md: '54px', lg: '72px' } })}>STRK</Box>
+                </>
+              )}
             </Box>
           </Box>
           <Box component="tbody">
@@ -165,7 +179,9 @@ export default function StandingsTable({ leagueId }) {
               // One skeleton row per Team in the league, read from the membership the frame already
               // has, so the table does not jump from six rows to twelve when the standings land.
               // The floor of 1 covers the window where the league read itself is still in flight.
-              ? Array.from({ length: Math.max(teamCount, 1) }, (_, i) => <SkeletonRow key={`skeleton-${i}`} />)
+              // The columns can only be known once the standings land (a league in season with no
+              // games yet draws Rank and Team then), so that one column change on load is accepted.
+              ? Array.from({ length: Math.max(teamCount, 1) }, (_, i) => <SkeletonRow key={`skeleton-${i}`} preseason={preseason} />)
               : shown.map(({ row, index }) => (
                 <React.Fragment key={row.key}>
                   <StandingsRow
@@ -189,34 +205,16 @@ export default function StandingsTable({ leagueId }) {
         </Box>
       )}
 
-      {status === 'ready' && folds && (
+      {status === 'ready' && fold && (
         <Box sx={{ padding: '0 4px', borderTop: '2px solid var(--ps-rule)' }}>
-          <Box
-            component="a"
-            href="#standings-table"
+          <PsLinkButton
+            ariaLabel={expanded ? 'Show fewer teams' : `Full standings, all ${teamCount} teams`}
             aria-expanded={expanded}
-            aria-label={expanded ? 'Show fewer teams' : `Full standings, all ${teamCount} teams`}
             data-testid="standings-table-full"
-            onClick={(event) => {
-              event.preventDefault();
-              setExpanded((open) => !open);
-            }}
-            sx={{
-              minHeight: '44px',
-              display: 'inline-flex',
-              alignItems: 'center',
-              padding: '0 10px',
-              fontSize: '15px',
-              fontWeight: 600,
-              color: 'var(--ps-ink)',
-              textDecoration: 'underline',
-              textDecorationThickness: '2px',
-              textUnderlineOffset: '5px',
-              textDecorationColor: 'var(--ps-dim)',
-            }}
+            onClick={() => setExpanded((open) => !open)}
           >
             {expanded ? 'Fewer teams' : 'Full standings'}
-          </Box>
+          </PsLinkButton>
         </Box>
       )}
     </Frame>
@@ -250,13 +248,13 @@ function StandingsRow({ row, preseason, lastBeforeBreak }) {
         component="th"
         scope="row"
         sx={cellSx('left', {
-          ...base, position: 'sticky', left: RANK_W, zIndex: 1, fontWeight: 600,
+          ...base, position: 'sticky', left: RANK_W, zIndex: 1, fontWeight: 600, overflow: { md: 'hidden' },
         })}
       >
         {/* On a phone the Team column is the 214px the header holds, so a long name ellipsizes (the full
             name is its title) and the arrow, mark and You tag always stay in view; from sm up it is as wide
-            as its content. */}
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: { xs: '6px', md: '10px' }, maxWidth: { xs: '198px', sm: 'none' } }}>
+            as its content, and from md it is what the numeric columns leave, so the name ellipsizes there too. */}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: { xs: '6px', lg: '10px' }, maxWidth: { xs: '198px', sm: 'none', md: '100%' } }}>
           <Box component="span" aria-hidden="true" sx={{ width: '12px', flex: 'none', display: 'inline-flex' }}>
             {row.isViewer && <PixelArrow />}
           </Box>
@@ -265,7 +263,7 @@ function StandingsRow({ row, preseason, lastBeforeBreak }) {
             component="span"
             title={row.teamName}
             sx={{
-              minWidth: 0, fontSize: '15px', fontWeight: 600, overflow: { xs: 'hidden', sm: 'visible' }, textOverflow: 'ellipsis',
+              minWidth: 0, fontSize: '15px', fontWeight: 600, overflow: { xs: 'hidden', sm: 'visible', md: 'hidden' }, textOverflow: 'ellipsis',
             }}
           >
             {row.teamName}
@@ -274,12 +272,16 @@ function StandingsRow({ row, preseason, lastBeforeBreak }) {
           {row.isViewer && <YouTag />}
         </Box>
       </Box>
-      <Box component="td" sx={cellSx('right', base)}>{preseason ? <Placeholder /> : row.record}</Box>
-      <Box component="td" sx={cellSx('right', base)}>{preseason ? <Placeholder /> : row.pointsFor}</Box>
-      <Box component="td" sx={cellSx('right', base)}>{preseason ? <Placeholder /> : row.pointsAgainst}</Box>
-      <Box component="td" sx={cellSx('right', base)}>
-        {preseason || row.streak == null ? <Placeholder /> : row.streak}
-      </Box>
+      {!preseason && (
+        <>
+          <Box component="td" sx={cellSx('right', base)}>{row.record}</Box>
+          <Box component="td" sx={cellSx('right', base)}>{row.pointsFor}</Box>
+          <Box component="td" sx={cellSx('right', base)}>{row.pointsAgainst}</Box>
+          <Box component="td" sx={cellSx('right', base)}>
+            {row.streak == null ? <Placeholder /> : row.streak}
+          </Box>
+        </>
+      )}
     </Box>
   );
 }
@@ -316,7 +318,7 @@ function CutRow() {
   );
 }
 
-function SkeletonRow() {
+function SkeletonRow({ preseason }) {
   const edge = { borderBottom: '2px solid var(--ps-rule)' };
   return (
     <Box component="tr">
@@ -327,16 +329,20 @@ function SkeletonRow() {
           <Skel width="120px" height={16} />
         </Box>
       </Box>
-      <Box component="td" sx={cellSx('right', edge)}><Skel width="44px" height={16} /></Box>
-      <Box component="td" sx={cellSx('right', edge)}><Skel width="44px" height={16} /></Box>
-      <Box component="td" sx={cellSx('right', edge)}><Skel width="44px" height={16} /></Box>
-      <Box component="td" sx={cellSx('right', edge)}><Skel width="26px" height={16} /></Box>
+      {!preseason && (
+        <>
+          <Box component="td" sx={cellSx('right', edge)}><Skel width="44px" height={16} /></Box>
+          <Box component="td" sx={cellSx('right', edge)}><Skel width="44px" height={16} /></Box>
+          <Box component="td" sx={cellSx('right', edge)}><Skel width="44px" height={16} /></Box>
+          <Box component="td" sx={cellSx('right', edge)}><Skel width="26px" height={16} /></Box>
+        </>
+      )}
     </Box>
   );
 }
 
-// The placeholder mark for a preseason cell: a dash, no digits. The dash is a visual mark only, so it
-// is aria-hidden and a hidden "Not available" carries the same meaning to a screen reader.
+// The placeholder mark for a streak a Team has no value for yet: a dash, no digits. The dash is a visual
+// mark only, so it is aria-hidden and a hidden "Not available" carries the same meaning to a screen reader.
 function Placeholder() {
   return (
     <>

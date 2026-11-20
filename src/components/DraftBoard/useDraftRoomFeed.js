@@ -94,11 +94,14 @@ export default function useDraftRoomFeed({
     return true;
   }, []);
 
-  const fetchHistory = useCallback(() => {
+  // A first read merges, keeping a live entry that arrived while it was in flight
+  // (#2765 5). The offline-overflow snap replaces: the window must become entries[0]
+  // so loadOlder can page the gap behind it.
+  const fetchHistory = useCallback(({ merge = false } = {}) => {
     Promise.resolve(apiClient.get(`/api/league/${leagueId}/draft-feed`))
       .then((res) => {
         const rows = Array.isArray(res?.data) ? res.data : [];
-        setEntries(rows);
+        setEntries((prev) => (merge ? rows.reduce((acc, row) => mergeEntry(acc, row), prev) : rows));
         setHasMore(rows.length >= FEED_PAGE);
       })
       .catch(handleFeedError);
@@ -133,7 +136,7 @@ export default function useDraftRoomFeed({
       .map((e) => (e ? e.seq : null))
       .filter((s) => Number.isFinite(s));
     if (seqs.length === 0) {
-      fetchHistory();
+      fetchHistory({ merge: true });
       return;
     }
     const lastSeq = Math.max(...seqs);
@@ -157,7 +160,7 @@ export default function useDraftRoomFeed({
   }, [leagueId, fetchHistory, markRead, handleFeedError]);
 
   useEffect(() => {
-    fetchHistory();
+    fetchHistory({ merge: true });
   }, [fetchHistory]);
 
   useEffect(() => {

@@ -33,6 +33,21 @@ const WEEKS = Array.from({ length: MAX_WEEK }, (_, i) => i + 1);
 const MINUTE_MS = 60 * 1000;
 const HOUR_MS = 60 * MINUTE_MS;
 
+// A Slot a Starter sits in: anything but Bench, IR or taxi (#2967).
+const isStartingSlot = (slot) => slot != null && !['BENCH', 'IR', 'TAXI'].includes(slot);
+
+// The element that takes focus for a player after a move (#2897, #2906): the `-select` button of the row holding him, or
+// the active phone bar button when the phone view hides that row. Null when no row holds him.
+function focusTargetFor({ playerId, sections, compact, phoneView, barButtons }) {
+  const holder = [
+    ...sections.starters.map((row) => ({ row, section: 'starters' })),
+    ...[...sections.ir, ...sections.bench].map((row) => ({ row, section: 'bench' })),
+  ].find(({ row }) => row.entry?.playerId === playerId);
+  if (!holder) return null;
+  if (compact && holder.section !== phoneView) return barButtons[phoneView];
+  return document.querySelector(`[data-testid="${holder.row.testId}-select"]`);
+}
+
 /**
  * The Lineup page slice (ADR 0037, #1237; Play-select since ADR 0067 wave 3, spec #2347): replaces the legacy
  * `src/components/LineupScreen` (`LineupScreen`/`TeamLineup`), still mounted
@@ -127,14 +142,23 @@ export default function LineupPage() {
   // #2263: the player the Start/sit card's Compare opens the Decision card
   // beside; null for a plain name click.
   const [decisionCardCompareId, setDecisionCardCompareId] = useState(null);
+  // #2906: the element that had focus when the card opened; the Dialog hands focus back to it on close.
+  // #2946: a press that did not focus its button leaves <body> there, which is never a real opener, so it is stored as null.
+  const decisionCardOpenerRef = useRef(null);
+  const openDecisionCard = (playerId) => {
+    const opener = document.activeElement;
+    decisionCardOpenerRef.current = opener === document.body ? null : opener;
+    setDecisionCardEntryId(playerId);
+  };
   const compareSuggestion = (view) => {
     setDecisionCardCompareId(view.sit.playerId);
-    setDecisionCardEntryId(view.start.playerId);
+    openDecisionCard(view.start.playerId);
   };
   // The phone view (AC5, #1238; #1965): which part of the page a narrow
   // viewport shows - the Ledger's Starters or Bench section, or the rail
   // (Outlook). Irrelevant at `sm` and up, where both columns already show
-  // side by side.
+  // side by side. A move from Bench that changes a starting Slot returns the
+  // view to Starters (#2967, `submitMove`).
   const [phoneView, setPhoneView] = useState('starters');
   // The phone bar's buttons, and which one the Ledger's #1425 auto-switch
   // wants focused once it lands (accessibility risk review finding, #1425) -
@@ -286,8 +310,28 @@ export default function LineupPage() {
     onLanded: advice.reload,
     onRejected: () => refetch({ silent: true }),
   });
+  // #2967: a move plan that changes a starting Slot, made from the phone's Bench view, shows Starters in the same update
+  // as its optimistic patch, and the starting row it changed is scrolled into view once that has rendered. Undo is the
+  // hook's own submit and never comes through here, so it leaves the view where it is.
+  const scrollAfterSwitchRef = useRef(null);
+  const submitMove = (moves) => {
+    if (compact && phoneView === 'bench') {
+      const current = new Map((lineup?.entries || []).map((e) => [e.playerId, e.slot]));
+      const landing = moves.find((m) => isStartingSlot(m.slot));
+      const vacated = moves.find((m) => isStartingSlot(current.get(m.playerId)));
+      if (landing || vacated) {
+        scrollAfterSwitchRef.current = landing ? { playerId: landing.playerId } : { slotType: current.get(vacated.playerId) };
+        setPhoneView('starters');
+        // The switch hides the Bench section, so the hand-off the press set up must not wait on the button it pressed:
+        // a null button or opener sends both effects to focusTargetFor.
+        if (swapFocusRef.current) swapFocusRef.current.button = null;
+        if (deferredFocusRef.current) deferredFocusRef.current.opener = null;
+      }
+    }
+    return submit(moves);
+  };
   const swap = useSwapPlayers({
-    submit,
+    submit: submitMove,
     entries: lineup?.entries || [],
     bestBall,
     leagueUnsettled,
@@ -298,6 +342,8 @@ export default function LineupPage() {
   // button and the player focus should follow; the layout effect below acts once the swap has rendered.
   // shortcut: repeats useSwapPlayers' own test for a click that completes a swap, have the hook report it if that test grows.
   const swapFocusRef = useRef(null);
+  // #2906: a hand-off the quick pick or the Decision card waits on until that overlay has closed (the effect below).
+  const deferredFocusRef = useRef(null);
   const onLedgerRowClick = (entry, slotType, event) => {
     if (swap.selectedEntry && entry?.playerId !== swap.selectedEntry.playerId && swap.isEligibleTarget(entry, slotType)) {
       swapFocusRef.current = {
@@ -352,11 +398,13 @@ export default function LineupPage() {
       { replace: true }
     );
   };
-  const applyRequestedSwap = () => {
+  const applyRequestedSwap = (event) => {
     if (!swapOffer) return;
     const { outEntry, inEntry } = swapOffer;
+    // #2906: the offer's Swap unmounts with the consume below; focus follows the Bench player it starts (#2897's rule).
+    swapFocusRef.current = { button: event.currentTarget, playerId: inEntry.playerId, preventScroll: event.detail > 0 };
     consumeRequestedSwap();
-    submit([
+    submitMove([
       { playerId: outEntry.playerId, slot: inEntry.slot },
       { playerId: inEntry.playerId, slot: outEntry.slot },
     ]);
@@ -499,18 +547,12 @@ export default function LineupPage() {
   useLayoutEffect(() => {
     const pending = swapFocusRef.current;
     if (!pending || !sections) return;
-    if (pending.button.isConnected || document.activeElement !== document.body) {
+    if (pending.button && (pending.button.isConnected || document.activeElement !== document.body)) {
       // Focus sits on a live element: forget the swap once the manager has moved on from its button.
       if (document.activeElement !== pending.button) swapFocusRef.current = null;
       return;
     }
-    const holder = [
-      ...sections.starters.map((row) => ({ row, section: 'starters' })),
-      ...[...sections.ir, ...sections.bench].map((row) => ({ row, section: 'bench' })),
-    ].find(({ row }) => row.entry?.playerId === pending.playerId);
-    const target = holder && (compact && holder.section !== phoneView
-      ? phoneBarButtonRefs.current[phoneView]
-      : document.querySelector(`[data-testid="${holder.row.testId}-select"]`));
+    const target = focusTargetFor({ playerId: pending.playerId, sections, compact, phoneView, barButtons: phoneBarButtonRefs.current });
     if (!target) {
       swapFocusRef.current = null;
       return;
@@ -518,6 +560,51 @@ export default function LineupPage() {
     target.focus({ preventScroll: pending.preventScroll });
     pending.button = target;
   }, [sections, compact, phoneView]);
+
+  // #2967: the Starter row a phone move from Bench changed is scrolled into view, nearest alignment, once the view has
+  // switched and the optimistic patch has rendered. The page's CSS scroll-behavior is auto, so this does not animate.
+  useLayoutEffect(() => {
+    const target = scrollAfterSwitchRef.current;
+    if (!target || !sections) return;
+    scrollAfterSwitchRef.current = null;
+    const row = sections.starters.find((r) => (target.playerId != null
+      ? r.entry?.playerId === target.playerId
+      : r.slotType === target.slotType && !r.entry));
+    // jsdom has no scrollIntoView, so a test that does not stub it reads nothing here.
+    if (row) document.querySelector(`[data-testid="${row.testId}"]`)?.scrollIntoView?.({ block: 'nearest' });
+  }, [sections, phoneView]);
+
+  // #2906: the quick pick and the Decision card hold focus in their own overlay until it closes, and MUI hands focus back
+  // to the opener in a passive cleanup of that close. The hand-off waits for it as a passive effect too: a focus call in
+  // the layout effect lands before that cleanup and is pulled back into the closing menu or card.
+  const quickPickOpen = swap.quickPick != null;
+  const decisionCardOpen = decisionCardEntryId != null;
+  useEffect(() => {
+    const pending = deferredFocusRef.current;
+    if (!pending || quickPickOpen || decisionCardOpen || !sections) return;
+    deferredFocusRef.current = null;
+    // An opener still in place kept focus through the close, and #2897 leaves focus where it is.
+    if (pending.opener?.isConnected) return;
+    const target = focusTargetFor({ playerId: pending.playerId, sections, compact, phoneView, barButtons: phoneBarButtonRefs.current });
+    if (!target) return;
+    target.focus({ preventScroll: pending.preventScroll });
+    swapFocusRef.current = { button: target, playerId: pending.playerId, preventScroll: pending.preventScroll };
+  }, [quickPickOpen, decisionCardOpen, sections, compact, phoneView]);
+  // These submit at once (a quick pick closes its menu, the card stays open), so each records what the hand-off needs first.
+  // #2950: a pointer pick (detail > 0) must not scroll the page to the holder row, and a refused save's rollback keeps that.
+  const onQuickPickSelect = (playerId, event) => {
+    // An earlier swap's hand-off is over once a quick pick starts; this one waits in deferredFocusRef.
+    swapFocusRef.current = null;
+    deferredFocusRef.current = { opener: swap.quickPick?.anchorEl ?? null, playerId, preventScroll: event?.detail > 0 };
+    swap.handleQuickPickSelect(playerId);
+  };
+  const onCardSwap = (moves) => {
+    // An earlier swap's hand-off is over once the card submits; this one waits in deferredFocusRef.
+    swapFocusRef.current = null;
+    // #2946: a close that never reaches the card's onClose keeps the browser's scroll.
+    deferredFocusRef.current = { opener: decisionCardOpenerRef.current, playerId: decisionCardEntryId, preventScroll: false };
+    submitMove(moves);
+  };
 
   const zone = formatInstant(new Date(), 'zone') || 'your time zone';
   const leagueName = league?.name || selectedLeague?.name || null;
@@ -667,7 +754,7 @@ export default function LineupPage() {
                         onRowClick={onLedgerRowClick}
                         canDropEntry={canDropEntry}
                         onRequestDrop={drop.requestDrop}
-                        onOpenDecisionCard={setDecisionCardEntryId}
+                        onOpenDecisionCard={openDecisionCard}
                         mobileTab={phoneView}
                         onMobileTabChange={onLedgerTabChange}
                         cursorKey={cursorRow?.key ?? null}
@@ -683,11 +770,11 @@ export default function LineupPage() {
                       onRetry={advice.failed ? advice.reload : undefined}
                       entries={lineup?.entries}
                       bestBall={bestBall}
-                      onApply={submit}
+                      onApply={submitMove}
                       onCallShot={lineup?.week != null && lineup.week === lineup.currentWeek ? calledShot.callShot : undefined}
                       onWithdrawShot={calledShot.withdrawShot}
                       shotBusy={calledShot.busy}
-                      onOpenDecisionCard={setDecisionCardEntryId}
+                      onOpenDecisionCard={openDecisionCard}
                       onCompare={compareSuggestion}
                       expectedFinals={expectedFinals}
                       openSlot={openSlot}
@@ -795,7 +882,7 @@ export default function LineupPage() {
         quickPick={swap.quickPick}
         eligible={swap.quickPickEligible}
         onClose={swap.closeQuickPick}
-        onSelect={swap.handleQuickPickSelect}
+        onSelect={onQuickPickSelect}
       />
       <DropConfirmationDialog
         entry={drop.dropCandidate}
@@ -807,7 +894,9 @@ export default function LineupPage() {
           context now - no loose prop stays beside it. */}
       <PlayerDecisionCard
         open={decisionCardEntryId != null}
-        onClose={() => {
+        onClose={(event) => {
+          // #2946: a pointer close (detail > 0) tells the pending hand-off not to scroll to the holder row.
+          if (deferredFocusRef.current) deferredFocusRef.current.preventScroll = event?.detail > 0;
           setDecisionCardEntryId(null);
           setDecisionCardCompareId(null);
         }}
@@ -816,7 +905,7 @@ export default function LineupPage() {
         week={lineup?.week}
         context={myTeam({
           managed: true,
-          onSwap: submit,
+          onSwap: onCardSwap,
           onRequestDrop: drop.requestDrop,
           canDropEntry,
           entries: lineup?.entries || [],

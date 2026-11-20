@@ -42,6 +42,18 @@ let bootTimer = null;
 let running = false;
 let draftRunning = false;
 
+// #2864: every tick run is tracked, so shutdown can wait for what is running
+// (drainScheduler). `draining` makes runJobs start no further job meanwhile.
+const runsInFlight = new Set();
+let draining = false;
+
+function trackRun(run) {
+  runsInFlight.add(run);
+  const forget = () => runsInFlight.delete(run);
+  run.then(forget, forget);
+  return run;
+}
+
 // Minimal health-check state for /api/health — updated by tick() and
 // syncAndScoreLiveWeeks() below, read via getSchedulerStatus().
 let lastTickAt = null;
@@ -64,7 +76,11 @@ const ADP_RETRY_MS = 15 * 60 * 1000;
  * job is contained by `runJobs`, so a throw never reaches this function; the
  * catch is a last guard around the runner itself.
  */
-async function tickUnlocked(jobs = TICK_JOBS) {
+function tickUnlocked(jobs = TICK_JOBS) {
+  return trackRun(runTickUnlocked(jobs));
+}
+
+async function runTickUnlocked(jobs) {
   if (running) return; // don't overlap slow runs
   running = true;
   try {
@@ -99,6 +115,7 @@ async function runJobs(jobs) {
   const failures = [];
   const now = new Date();
   for (const job of jobs) {
+    if (draining) break; // #2864: the shutdown drain starts no further job
     try {
       if (job.when && !(await job.when(now))) continue;
       const verdict = await job.gate.due(now);
@@ -1007,7 +1024,11 @@ async function runPickemSeasonCompletion({ now }) {
 }
 
 /** Fast loop: expired draft pick clocks -> server-side auto-pick. */
-async function draftTickUnlocked() {
+function draftTickUnlocked() {
+  return trackRun(runDraftTickUnlocked());
+}
+
+async function runDraftTickUnlocked() {
   if (draftRunning) return;
   draftRunning = true;
   try {
@@ -1058,6 +1079,25 @@ function stopScheduler() {
   // Tear down every in-process Pick-clock expiry timer with the scheduler, so a
   // test run or a worker shutdown cannot leak a late Autopick (#601, ADR 0018).
   cancelAllExpiryTimers();
+}
+
+const SCHEDULER_DRAIN_MS = 40 * 1000;
+
+/**
+ * Shutdown's wait (#2864, shaped like drainFollowUps): resolves once every tick
+ * run in flight has settled, or at `timeoutMs`, whichever is first. While it
+ * waits, a running tick starts no further job. Never rejects.
+ */
+async function drainScheduler(timeoutMs = SCHEDULER_DRAIN_MS) {
+  draining = true;
+  let timer;
+  const limit = new Promise((resolve) => { timer = setTimeout(resolve, timeoutMs); });
+  try {
+    await Promise.race([Promise.allSettled([...runsInFlight]), limit]);
+  } finally {
+    clearTimeout(timer);
+    draining = false;
+  }
 }
 
 /**
@@ -1433,6 +1473,8 @@ module.exports = {
   getSchedulerStatus,
   tick,
   tickUnlocked,
+  drainScheduler,
+  SCHEDULER_DRAIN_MS,
   TICK_JOBS,
   SYNC_RUN_JOBS,
   MANUAL_SYNC_RUN_JOBS,

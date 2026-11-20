@@ -452,3 +452,125 @@ test('generateForGame still produces a recap when the stat ingest fails', async 
   const data = await svc.generateForGame('20260112_KC@BUF', { api: stubApi({}) });
   assert.ok(data && data.narrative);
 });
+
+// ---- shutdown drain: close, whenIdle, drainRecaps (#2869) --------------------
+
+// A fresh load has its own singleton queue, so a drain there cannot close the
+// one the cases above use.
+function freshService() {
+  delete require.cache[require.resolve('../services/gameRecap.service')];
+  return require('../services/gameRecap.service');
+}
+
+test('drainRecaps (#2869): close admits nothing, drops the pending job, and whenIdle waits for the job in flight', async () => {
+  const started = [];
+  const resolvers = new Map();
+  const worker = (gameId) => {
+    started.push(gameId);
+    return new Promise((resolve) => resolvers.set(gameId, resolve));
+  };
+  const q = svc.createRecapQueue({ worker, concurrency: 1 });
+  assert.equal(q.enqueue('a'), true); // in flight
+  assert.equal(q.enqueue('b'), true); // pending behind a
+  q.close();
+  assert.equal(q.enqueue('c'), false, 'refused after close');
+  let idle = false;
+  q.whenIdle().then(() => { idle = true; });
+  await flush();
+  await flush();
+  assert.equal(idle, false, 'a is still in flight');
+  resolvers.get('a')();
+  await flush();
+  await flush();
+  assert.equal(idle, true, 'resolves once a settles');
+  assert.deepEqual(started, ['a'], 'b was dropped at close and never started');
+  assert.equal(q.has('b'), false, 'b is no longer tracked');
+});
+
+test('drainRecaps (#2869): a retriable failure after close is not run again', async () => {
+  let calls = 0;
+  let release;
+  const held = new Promise((resolve) => { release = resolve; });
+  const worker = async () => {
+    calls += 1;
+    await held;
+    const err = new Error('rate limited');
+    err.response = { status: 429, headers: {} };
+    throw err;
+  };
+  const q = svc.createRecapQueue({ worker, concurrency: 1, backoffFor: () => 0 });
+  q.enqueue('a'); // in flight
+  q.close();
+  release();
+  await q.whenIdle();
+  await flush();
+  await flush();
+  assert.equal(calls, 1, 'the retry is not run after close');
+});
+
+test('drainRecaps (#2869): a queued generation holds the drain until it settles, and nothing enqueues after', async (t) => {
+  const fresh = freshService();
+  let release;
+  const held = new Promise((resolve) => { release = resolve; });
+  t.mock.method(pool, 'query', () => held);
+  t.after(() => release({ rows: [] }));
+  fresh.enqueueRecap('g1');
+  let drained = false;
+  const done = fresh.drainRecaps().then(() => { drained = true; });
+  await flush();
+  await flush();
+  assert.equal(drained, false, 'the drain waits for g1');
+  release({ rows: [] }); // no live_game_states row: generateForGame returns null
+  await done;
+  assert.equal(fresh.enqueueRecap('g2'), false, 'nothing enqueues after the drain');
+});
+
+test('drainRecaps (#2869): a sweep in flight holds the drain, and a sweep after it queries nothing', async (t) => {
+  const fresh = freshService();
+  let release;
+  const held = new Promise((resolve) => { release = resolve; });
+  const query = t.mock.method(pool, 'query', () => held);
+  const sweep = fresh.reconcileRecaps();
+  let drained = false;
+  const done = fresh.drainRecaps().then(() => { drained = true; });
+  await flush();
+  await flush();
+  assert.equal(drained, false, 'the drain waits for the sweep');
+  release({ rows: [] });
+  assert.deepEqual(await sweep, { found: 0, enqueued: 0 });
+  await done;
+  assert.deepEqual(await fresh.reconcileRecaps(), { found: 0, enqueued: 0 });
+  assert.equal(query.mock.callCount(), 1, 'pool.query was not called after the drain');
+});
+
+test('drainRecaps (#2869): a sweep that finds a game enqueues nothing once the drain has closed the queue', async (t) => {
+  const fresh = freshService();
+  let release;
+  const held = new Promise((resolve) => { release = resolve; });
+  t.mock.method(pool, 'query', () => held);
+  const sweep = fresh.reconcileRecaps();
+  const done = fresh.drainRecaps();
+  release({ rows: [{ tank01_game_id: 'late' }] });
+  assert.deepEqual(await sweep, { found: 1, enqueued: 0 });
+  await done;
+});
+
+test('drainRecaps (#2869): a job that never settles lets the drain resolve at its limit', async (t) => {
+  const fresh = freshService();
+  let release;
+  const held = new Promise((resolve) => { release = resolve; });
+  t.mock.method(pool, 'query', () => held);
+  t.after(() => release({ rows: [] }));
+  fresh.enqueueRecap('stuck');
+  await fresh.drainRecaps(20);
+});
+
+test('drainRecaps (#2869): with nothing in flight it resolves without waiting on the limit timer', async (t) => {
+  const fresh = freshService();
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  let drained = false;
+  fresh.drainRecaps().then(() => { drained = true; });
+  await flush();
+  await flush();
+  assert.equal(drained, true, 'resolves with no timer ticked');
+});

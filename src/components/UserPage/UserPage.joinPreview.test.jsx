@@ -110,7 +110,7 @@ test('a valid code shows the league preview before the Team name field and names
 const waitPastDebounce = () => act(async () => { await new Promise((resolve) => { setTimeout(resolve, 400); }); });
 
 test('a code typed in capitals is previewed and joined in lower case, and never shown re-cased', async () => {
-  // Invite codes are 8 lowercase hex characters, matched exactly by the server.
+  // Invite codes are lowercase hex characters, matched exactly by the server.
   mockApi({ preview: previewBody() });
   apiClient.post.mockResolvedValue({});
   const dialog = await openJoin();
@@ -136,7 +136,7 @@ test.each(['a', 'abc', 'abcd123'])('a partial code (%s) asks the manager to keep
 
   await userEvent.type(codeField(), partial);
 
-  expect(within(dialog).getByText('Keep typing. Invite codes are 8 letters and numbers.')).toBeInTheDocument();
+  expect(within(dialog).getByText('Keep typing. Invite codes are 8 or 16 letters and numbers.')).toBeInTheDocument();
   // Longer than the 300ms debounce: still no lookup for a partial code.
   await waitPastDebounce();
   expect(previewCalls()).toHaveLength(0);
@@ -144,13 +144,13 @@ test.each(['a', 'abc', 'abcd123'])('a partial code (%s) asks the manager to keep
   expect(codeField()).not.toHaveAttribute('aria-invalid', 'true');
 });
 
-test('more than 8 characters is not a code: it says so without asking the server', async () => {
+test('more than 16 characters is not a code: it says so without asking the server', async () => {
   mockApi({ preview: previewBody() });
   const dialog = await openJoin();
 
-  await userEvent.type(codeField(), 'abcd12345');
+  await userEvent.type(codeField(), 'abcd1234abcd12345');
 
-  expect(within(dialog).getByText("That's longer than an invite code. Invite codes are 8 letters and numbers.")).toBeInTheDocument();
+  expect(within(dialog).getByText("That's longer than an invite code. Invite codes are 8 or 16 letters and numbers.")).toBeInTheDocument();
   await waitPastDebounce();
   expect(previewCalls()).toHaveLength(0);
   expect(within(dialog).queryByTestId('join-preview')).not.toBeInTheDocument();

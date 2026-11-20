@@ -164,8 +164,14 @@ export default function useDraftSocket(leagueId, { onPickLanded, onDraftActivity
     setSocket(newSocket);
 
     // Emits draft:join, which also makes the server push a fresh 'draft:state'
-    // snapshot. Run once per resync by useDraftRoomSession, never from here.
+    // snapshot. The session runs it once per resync; the retry timer below re-emits
+    // it alone, and the feed resync stays with the session's connect and reconnect.
+    // A failed join is retried with backoff (#2765 3): 1s, 2s, ... capped at 30s.
+    // A success or a fresh join replaces the pending retry; NOT_A_MEMBER is never retried.
+    let retryTimer = null;
+    let failedJoins = 0;
     const joinDraftRoom = () => {
+      clearTimeout(retryTimer);
       newSocket.emit('draft:join', { leagueId: Number(leagueId) }, (resp) => {
         // Membership follows the same code-authoritative rule as the two values
         // below, decided in one place (draftMembership): a success confirms a
@@ -200,9 +206,15 @@ export default function useDraftSocket(leagueId, { onPickLanded, onDraftActivity
             // capability alongside the other viewer-relative values so a picker
             // cannot outlive the membership it was answered for.
             setGifMessagesEnabled(false);
+            return;
           }
+          retryTimer = setTimeout(joinDraftRoom, Math.min(1000 * 2 ** failedJoins, 30000));
+          failedJoins += 1;
           return;
         }
+        clearTimeout(retryTimer);
+        failedJoins = 0;
+        setError(null);
         // Re-read on every join, not just the first: a reconnect re-runs this
         // and the answer is the authority on which Team the viewer is and on
         // whether they may act as commissioner here. Strictly `=== true`: an
@@ -274,6 +286,7 @@ export default function useDraftSocket(leagueId, { onPickLanded, onDraftActivity
 
     return () => {
       closeSession(); // its reconnect listener lives on the manager, which outlives the socket
+      clearTimeout(retryTimer);
       newSocket.disconnect();
       socketRef.current = null;
       // Re-run on a league change (this cleanup, then a fresh effect) swaps the

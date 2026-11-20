@@ -22,9 +22,11 @@ import path from 'path';
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import {
-  DASH_URL, EXPECTED_CURSORS, setupDashboard,
+  DASH_TEAMS, DASH_URL, EXPECTED_CURSORS, setupDashboard,
 } from './fixtures/leagueDashboardPlayselectFixtures';
 import type { DashState, DashTheme } from './fixtures/leagueDashboardPlayselectFixtures';
+import { LEAGUE_ID } from './fixtures/layoutGuardFixtures';
+import { json } from './fixtures/jsonRoute';
 
 const VIEWPORTS = {
   desktop: { width: 1440, height: 900 },
@@ -118,6 +120,21 @@ test('phone standings: the viewer row with two teams either side and a Full stan
   await expect(rows).toHaveCount(12);
 });
 
+// In season the Play and Moves links sit in a "League pages" row under Your move, so Waivers is in reach on a
+// phone (it was about 2,560px down) and every link in the row is a 44px target.
+test('inseason phone: the League pages row puts Waivers under 1,200px and every link is a 44px target', async ({ page }) => {
+  await openDashboard(page, 'inseason', 'phone');
+  const pages = page.getByRole('navigation', { name: 'League pages' });
+  await expect(pages).toBeVisible();
+  const waivers = await pages.getByRole('link', { name: 'Waivers' }).evaluate((el) => el.getBoundingClientRect().top + window.scrollY);
+  expect(waivers, 'Waivers top edge from the top of the page').toBeLessThan(1200);
+  const heights = await pages.getByRole('link').evaluateAll((links) => links.map((link) => link.getBoundingClientRect().height));
+  expect(heights.length).toBeGreaterThan(0);
+  for (const height of heights) {
+    expect(height, 'a link in the League pages row is a 44px target').toBeGreaterThanOrEqual(44);
+  }
+});
+
 // An unbreakable team name (a real league has one) in a flex:1 / minWidth:0 span overflows its box into the
 // score unless the span breaks anywhere; names with spaces wrap, which is why the stock fixtures never caught it.
 test('phone around the league: a long one-word team name never runs under the score', async ({ page }) => {
@@ -138,28 +155,90 @@ test('phone around the league: a long one-word team name never runs under the sc
   }
 });
 
-// The chat launcher is a fixed 56px button 24px off the corner: it takes 80px of the viewport at full scroll. The last
-// frame must end above it with 8px to spare (88px minimum; the page pads 96), and the page must reserve that room itself: the app footer below the shell
-// gives clearance today, but the page does not own the footer.
+// My team's lineup line follows this league's Action items: a Lineup problem reads as the problem with no check
+// at either viewport, and a set lineup keeps "Lineup set" and its check.
+for (const viewport of ['desktop', 'phone'] as const) {
+  test(`${viewport} gamedayUrgent: My team states the Lineup problem and prints no check`, async ({ page }) => {
+    await openDashboard(page, 'gamedayUrgent', viewport);
+    const status = page.getByTestId('my-team-lineup-status');
+    await expect(status).toContainText('Lineup problem');
+    await expect(status).not.toContainText('Lineup set');
+    await expect(page.getByTestId('my-team-lineup-check')).toHaveCount(0);
+  });
+}
+
+test('desktop gamedaySet: My team reads Lineup set with the check', async ({ page }) => {
+  await openDashboard(page, 'gamedaySet', 'desktop');
+  await expect(page.getByTestId('my-team-lineup-status')).toContainText('Lineup set');
+  await expect(page.getByTestId('my-team-lineup-check')).toHaveCount(1);
+});
+
+// From sm up the chat launcher is a fixed 56px button 24px off the corner: it takes 80px of the viewport at full
+// scroll. The last frame must end above it with 8px to spare (88px minimum; the page pads 96), and the page must
+// reserve that room itself: the app footer below the shell gives clearance today, but the page does not own the footer.
 for (const state of ['inseason', 'gamedayUrgent', 'complete', 'predraft', 'pickemonly'] as const) {
-  for (const viewport of ['phone', 'desktop'] as const) {
-    test(`${state} ${viewport}: scrolled to the end, the chat launcher sits below the last frame`, async ({ page }) => {
-      await openDashboard(page, state, viewport, 'light');
-      await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
-      const launcher = page.getByRole('button', { name: /^Open league chat/ });
-      await expect(launcher).toBeVisible();
-      const box = (await launcher.boundingBox())!;
-      const last = await page.evaluate(() => {
-        const blocks = Array.from(document.querySelectorAll('[data-testid="dashboard-shell"] > *'))
-          .filter((el) => getComputedStyle(el).position !== 'fixed' && el.getBoundingClientRect().height > 0);
-        const el = blocks[blocks.length - 1];
-        const shell = document.querySelector('[data-testid="dashboard-shell"]')!;
-        return { bottom: el.getBoundingClientRect().bottom, reserve: shell.getBoundingClientRect().bottom - el.getBoundingClientRect().bottom, text: (el.textContent ?? '').slice(0, 40) };
-      });
-      expect(last.bottom + 8, `the last frame ("${last.text}") ends at ${last.bottom}, the launcher starts at ${box.y}`).toBeLessThanOrEqual(box.y);
-      expect(last.reserve, `the shell reserves ${last.reserve}px below the last frame; the launcher needs 88`).toBeGreaterThanOrEqual(88);
+  test(`${state} desktop: scrolled to the end, the chat launcher sits below the last frame`, async ({ page }) => {
+    await openDashboard(page, state, 'desktop', 'light');
+    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+    const launcher = page.getByRole('button', { name: /^Open league chat/ });
+    await expect(launcher).toBeVisible();
+    const box = (await launcher.boundingBox())!;
+    const last = await page.evaluate(() => {
+      const blocks = Array.from(document.querySelectorAll('[data-testid="dashboard-shell"] > *'))
+        .filter((el) => getComputedStyle(el).position !== 'fixed' && el.getBoundingClientRect().height > 0);
+      const el = blocks[blocks.length - 1];
+      const shell = document.querySelector('[data-testid="dashboard-shell"]')!;
+      return { bottom: el.getBoundingClientRect().bottom, reserve: shell.getBoundingClientRect().bottom - el.getBoundingClientRect().bottom, text: (el.textContent ?? '').slice(0, 40) };
     });
-  }
+    expect(last.bottom + 8, `the last frame ("${last.text}") ends at ${last.bottom}, the launcher starts at ${box.y}`).toBeLessThanOrEqual(box.y);
+    expect(last.reserve, `the shell reserves ${last.reserve}px below the last frame; the launcher needs 88`).toBeGreaterThanOrEqual(88);
+  });
+}
+
+// Below sm the chat is the Ghost "Chat" button in the page head, not a corner button over the page, so the page
+// keeps only the loading shell's 24px at its end and reserves no launcher clearance.
+for (const state of ['inseason', 'gamedayUrgent', 'complete', 'predraft', 'pickemonly'] as const) {
+  test(`${state} phone: scrolled to the end, the page reserves no launcher clearance (24px)`, async ({ page }) => {
+    await openDashboard(page, state, 'phone', 'light');
+    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+    const reserve = await page.evaluate(() => {
+      const blocks = Array.from(document.querySelectorAll('[data-testid="dashboard-shell"] > *'))
+        .filter((el) => getComputedStyle(el).position !== 'fixed' && el.getBoundingClientRect().height > 0);
+      const el = blocks[blocks.length - 1];
+      const shell = document.querySelector('[data-testid="dashboard-shell"]')!;
+      return shell.getBoundingClientRect().bottom - el.getBoundingClientRect().bottom;
+    });
+    expect(reserve, `the shell reserves ${reserve}px below the last frame`).toBe(24);
+  });
+}
+
+// Below sm the chat is the Ghost "Chat" button in the page head: a real 44px target, above the lead Play's frame,
+// and covering no link inside the cursor frame. Every state, at scroll 0.
+for (const state of STATES) {
+  test(`${state} phone: the chat button sits in the page head above the Your move frame, 44px, clear of the cursor`, async ({ page }) => {
+    await openDashboard(page, state, 'phone', 'light');
+    const chat = page.getByRole('button', { name: /^Open league chat/ });
+    await expect(chat).toBeVisible();
+    expect(await chat.evaluate((el) => getComputedStyle(el).position), 'the chat button is not fixed below sm').not.toBe('fixed');
+    const box = (await chat.boundingBox())!;
+    expect(box.height, 'the chat button is a 44px target').toBeGreaterThanOrEqual(44);
+
+    // The lead frame: Your move where the state draws one, else the first frame under the head (a completed
+    // league with nothing due draws no Your move card).
+    const frameTop = await page.evaluate(() => {
+      const frame = document.querySelector('[data-testid="slot-your-move"]') ?? document.querySelector('[data-testid="dashboard-main"]');
+      return frame ? frame.getBoundingClientRect().top : null;
+    });
+    expect(frameTop, 'the page has a frame under the head').not.toBeNull();
+    expect(box.y + box.height, `the chat button ends at ${box.y + box.height}, the frame starts at ${frameTop}`).toBeLessThanOrEqual(frameTop!);
+
+    const cursorLinks = await page.locator('.cursor a').evaluateAll((links) => links.map((a) => {
+      const r = a.getBoundingClientRect();
+      return { text: a.textContent, left: r.left, right: r.right, top: r.top, bottom: r.bottom };
+    }));
+    const under = cursorLinks.filter((r) => r.left < box.x + box.width && r.right > box.x && r.top < box.y + box.height && r.bottom > box.y);
+    expect(under, 'no link in the cursor frame sits under the chat button').toEqual([]);
+  });
 }
 
 // The chat drawer and its emoji menu portal out of the page root, so each paper must take the menu panel itself (#2660).
@@ -186,6 +265,205 @@ test('desktop standings: all twelve teams, no fold control', async ({ page }) =>
   const table = page.getByTestId('standings-table');
   await expect(table.locator('tbody tr')).toHaveCount(12);
   await expect(table.getByTestId('standings-table-full')).toHaveCount(0);
+});
+
+// #2929: at desktop every standings column fits its column beside Recent activity, STRK included, so the table
+// never scrolls sideways. Each state that carries standings is measured at the desktop viewport.
+for (const state of ['inseason', 'gamedayUrgent', 'gamedaySet', 'complete'] as const) {
+  test(`${state} desktop: the standings fit their box with every column in it, STRK included`, async ({ page }) => {
+    await openDashboard(page, state, 'desktop');
+    const box = await page.getByTestId('standings-table-scroll').evaluate((el) => ({
+      scrollWidth: el.scrollWidth,
+      clientWidth: el.clientWidth,
+      right: el.getBoundingClientRect().right,
+    }));
+    const strkRight = await page.getByTestId('standings-table').getByRole('columnheader', { name: 'STRK' })
+      .evaluate((el) => el.getBoundingClientRect().right);
+    expect(box.scrollWidth, `standings scrollWidth ${box.scrollWidth} vs clientWidth ${box.clientWidth}`).toBeLessThanOrEqual(box.clientWidth);
+    expect(strkRight, `STRK header right edge ${strkRight} vs the box's right edge ${box.right}`).toBeLessThanOrEqual(box.right);
+  });
+}
+
+// The md band (900 to 1199px, below lg): the standings share the row with the rail, so the Team name has to stay
+// readable beside six columns that fit with no sideways scroll. Its own constant: VIEWPORTS runs every loop, and the
+// inseason pixel VS case is red at these widths for a reason outside this widget.
+const MD_BAND = {
+  md900: { width: 900, height: 900 },
+  md1024: { width: 1024, height: 900 },
+} as const;
+const MIN_NAME_PX = { md900: 48, md1024: 96 } as const;
+const VIEWER_ID = 101; // the fixture's viewer; the fixture keeps its own copy unexported
+const HEADERS = ['Rank', 'Team', 'W-L-T', 'PF', 'PA', 'STRK'];
+
+// Twelve rows in rank order with the viewer sixth. The viewer's row prints its widest figures: Record 10-10-1 (one tie),
+// 1800.5 for, 1799.5 against and a W10 streak. Every row carries a streak, so each cell is one that can overflow.
+function narrowStandingsBody() {
+  const viewer = DASH_TEAMS.find((t) => t.teamId === VIEWER_ID)!;
+  const others = DASH_TEAMS.filter((t) => t.teamId !== VIEWER_ID);
+  const ranked = [...others.slice(0, 5), viewer, ...others.slice(5)];
+  return {
+    standings: ranked.map((t, i) => (t.teamId === VIEWER_ID
+      ? {
+        teamId: t.teamId, teamName: t.teamName, rank: i + 1, wins: 10, losses: 10, ties: 1, pf: 1800.5, pa: 1799.5, streak: 'W10',
+      }
+      : {
+        teamId: t.teamId, teamName: t.teamName, rank: i + 1, wins: 12 - i, losses: i, ties: 0, pf: 1500 - i * 20, pa: 1200 + i * 15, streak: 'L1',
+      })),
+  };
+}
+
+async function openNarrowStandings(page: Page, state: DashState, size: { width: number; height: number }) {
+  watchUnanswered(page);
+  await setupDashboard(page, state);
+  // Registered after the fixture's catch-all, so this answer is the one the standings read gets.
+  await page.route(`**/api/scoring/league/${LEAGUE_ID}/standings`, (route) => json(route, 200, narrowStandingsBody()));
+  await page.setViewportSize(size);
+  await page.goto(DASH_URL);
+  await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+  await expect(page.getByTestId('standings-table-you-row')).toBeVisible();
+  await page.evaluate(() => document.fonts.ready.then(() => true));
+}
+
+for (const state of ['inseason', 'gamedayUrgent', 'gamedaySet', 'complete'] as const) {
+  for (const band of Object.keys(MD_BAND) as (keyof typeof MD_BAND)[]) {
+    test(`${state} ${band} standings: six headers, no sideways scroll, every Team name readable inside its cell, the You tag whole`, async ({ page }) => {
+      await openNarrowStandings(page, state, MD_BAND[band]);
+      const table = page.getByTestId('standings-table');
+
+      // (a) the six headers are visible
+      for (const name of HEADERS) await expect(table.getByRole('columnheader', { name, exact: true })).toBeVisible();
+
+      // (b) the table box does not scroll sideways
+      const box = await page.getByTestId('standings-table-scroll').evaluate((el) => ({ scrollWidth: el.scrollWidth, clientWidth: el.clientWidth }));
+      expect(box.scrollWidth, `standings scrollWidth ${box.scrollWidth} vs clientWidth ${box.clientWidth}`).toBeLessThanOrEqual(box.clientWidth);
+
+      // (c) every Team name span is readable, and (d) it and the You tag end inside that row's Team cell (th scope="row")
+      const teams = await table.locator('tbody tr').evaluateAll((trs) => trs.map((tr) => {
+        const cell = tr.querySelector('th[scope="row"]') as HTMLElement;
+        const name = [...cell.querySelectorAll('span[title]')].find((s) => s.textContent === s.getAttribute('title')) as HTMLElement;
+        const you = [...cell.querySelectorAll('span')].find((s) => s.textContent === 'You');
+        return {
+          team: name.getAttribute('title') ?? '',
+          nameWidth: name.clientWidth,
+          nameRight: name.getBoundingClientRect().right,
+          youRight: you ? you.getBoundingClientRect().right : null,
+          cellRight: cell.getBoundingClientRect().right,
+        };
+      }));
+      expect(teams).toHaveLength(12);
+      for (const t of teams) {
+        expect(t.nameWidth, `${t.team} gets ${t.nameWidth}px at ${MD_BAND[band].width}`).toBeGreaterThanOrEqual(MIN_NAME_PX[band]);
+        expect(t.nameRight, `${t.team} ends at ${t.nameRight} past its cell at ${t.cellRight}`).toBeLessThanOrEqual(t.cellRight);
+        if (t.youRight !== null) expect(t.youRight, `the You tag ends at ${t.youRight} past its cell at ${t.cellRight}`).toBeLessThanOrEqual(t.cellRight);
+      }
+      await expect(table.getByTestId('standings-table-you-row').getByText('You', { exact: true })).toBeVisible();
+
+      // (e) every cell of every row, the playoff line aside, fits its own column
+      const overflowing = await table.locator('tbody tr:not([data-cut-line]) td').evaluateAll((tds) => tds
+        .filter((td) => td.scrollWidth > td.clientWidth)
+        .map((td) => `${td.textContent} ${td.scrollWidth}>${td.clientWidth}`));
+      expect(overflowing, 'every cell fits its column').toEqual([]);
+    });
+  }
+}
+
+// Pick'em-only weekly strips (#2928): one labelled image per team, its eighteen cells hidden. Twelve teams, so a
+// strip that still drew every cell as an image would put 216 role="img" elements inside the strips here.
+test('pickemonly desktop: each weekly points strip is one labelled image, its cells hidden', async ({ page }) => {
+  await openDashboard(page, 'pickemonly', 'desktop');
+  const card = page.getByTestId('dashboard-pickem-standings');
+  const strips = card.getByTestId('pickem-standings-heat');
+  await expect(strips).toHaveCount(12);
+  await expect(card.locator('[data-testid="pickem-standings-heat"] [role="img"]')).toHaveCount(0);
+  for (const strip of await strips.all()) {
+    await expect(strip).toHaveAttribute('role', 'img');
+    expect(await strip.getAttribute('aria-label'), 'the strip names its weeks').toBeTruthy();
+  }
+  await expect(card.locator('[data-testid="pickem-standings-heat-cell"]')).toHaveCount(12 * 18);
+  await expect(card.locator('[data-testid="pickem-standings-heat-cell"]:not([aria-hidden="true"])')).toHaveCount(0);
+});
+
+// Pick'em-only table (#2930). Below sm it keeps four columns (Rank, Team, Points, this week), folds to the viewer's
+// row with two teams either side and a Full standings link, and links to the Pick'em page for the rest.
+test('pickemonly phone: four columns, the viewer row with two teams either side, Full standings shows all twelve', async ({ page }) => {
+  await openDashboard(page, 'pickemonly', 'phone');
+  const table = page.getByTestId('pickem-standings');
+  await expect(table.getByRole('columnheader')).toHaveText(['Rank', 'Team', 'Points', /^Wk \d+$/]);
+  const rows = table.locator('tbody tr');
+  await expect(rows).toHaveCount(5);
+  const ranks = await rows.evaluateAll((trs) => trs.map((tr) => (tr.querySelector('td') as HTMLElement).textContent?.trim()));
+  expect(ranks).toEqual(['4', '5', '6', '7', '8']);
+  const you = table.getByTestId('pickem-standings-you-row');
+  await expect(you.locator('td').first()).toHaveText('6');
+
+  const box = await page.getByTestId('pickem-standings-scroll').evaluate((el) => ({ scrollWidth: el.scrollWidth, clientWidth: el.clientWidth }));
+  expect(box.scrollWidth, `pick'em table scrollWidth ${box.scrollWidth} vs clientWidth ${box.clientWidth}`).toBeLessThanOrEqual(box.clientWidth);
+  const pointsRight = await you.locator('td').nth(1).evaluate((el) => el.getBoundingClientRect().right);
+  expect(pointsRight, `the viewer row's Points cell ends at ${pointsRight}`).toBeLessThanOrEqual(VIEWPORTS.phone.width);
+  const nameWidth = await you.locator('th span[title]').evaluate((el) => el.getBoundingClientRect().width);
+  expect(nameWidth, `the viewer's name gets ${nameWidth}px at 390`).toBeGreaterThanOrEqual(80);
+
+  await table.getByRole('button', { name: 'Full standings' }).click();
+  await expect(rows).toHaveCount(12);
+});
+
+test("pickemonly phone: the link under the table goes to the Pick'em page and is a 44px target", async ({ page }) => {
+  await openDashboard(page, 'pickemonly', 'phone');
+  const link = page.getByRole('link', { name: 'Accuracy, weekly points and trend' });
+  await expect(link).toHaveAttribute('href', /\/pickem$/);
+  const box = (await link.boundingBox())!;
+  expect(box.height, 'the link is a 44px target').toBeGreaterThanOrEqual(44);
+});
+
+// From sm up the table keeps all ten columns and fits its frame: the Team column takes what the numeric columns
+// leave, so a long name truncates and keeps its full name in the cell's accessible name.
+test('pickemonly desktop: all ten columns fit the table box, Trend in it, a long Team name truncates with its full name', async ({ page }) => {
+  const LONG = 'The Quarterback Whisperers of Tuesday Night Fantasy League';
+  watchUnanswered(page);
+  await setupDashboard(page, 'pickemonly', { teamNames: { [DASH_TEAMS[0].teamId]: LONG } });
+  await page.setViewportSize(VIEWPORTS.desktop);
+  await page.goto(DASH_URL);
+  await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+  const table = page.getByTestId('pickem-standings');
+  await expect(table.getByTestId('pickem-standings-you-row')).toBeVisible();
+  await expect(table.getByRole('columnheader')).toHaveCount(10);
+
+  const box = await page.getByTestId('pickem-standings-scroll').evaluate((el) => ({
+    scrollWidth: el.scrollWidth, clientWidth: el.clientWidth, right: el.getBoundingClientRect().right,
+  }));
+  expect(box.scrollWidth, `pick'em table scrollWidth ${box.scrollWidth} vs clientWidth ${box.clientWidth}`).toBeLessThanOrEqual(box.clientWidth);
+  const trendRight = await table.getByRole('columnheader', { name: 'Trend' }).evaluate((el) => el.getBoundingClientRect().right);
+  expect(trendRight, `Trend header right edge ${trendRight} vs the box's right edge ${box.right}`).toBeLessThanOrEqual(box.right);
+  const name = page.getByTestId('pickem-standings-scroll').getByTitle(LONG);
+  expect(await name.evaluate((el) => el.scrollWidth > el.clientWidth), 'the long Team name is clipped').toBe(true);
+  await expect(table.getByRole('rowheader', { name: LONG })).toHaveCount(1);
+});
+
+// From sm up the table has a 1179px floor, so between the breakpoint and the width the ten columns need it scrolls
+// rather than crushing the Team column: at 768 the Team cell keeps its 160px.
+test('pickemonly tablet: the Team column keeps 160px and the table scrolls instead of crushing it', async ({ page }) => {
+  watchUnanswered(page);
+  await setupDashboard(page, 'pickemonly');
+  await page.setViewportSize({ width: 768, height: 1024 });
+  await page.goto(DASH_URL);
+  await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+  const table = page.getByTestId('pickem-standings');
+  await expect(table.getByTestId('pickem-standings-you-row')).toBeVisible();
+  const teamWidth = (await table.getByRole('rowheader').first().boundingBox())!.width;
+  expect(teamWidth, `the Team cell is ${teamWidth}px wide at 768`).toBeGreaterThanOrEqual(160);
+});
+
+// A new league's invite code is 16 characters (crypto.randomBytes(8) as hex). At 360 the commissioner's Invite and
+// the Chat button share the head's right slot, and that row must wrap rather than push the document sideways.
+test('inseason phone 360: a commissioner with a 16-character invite code and the Chat button do not widen the document', async ({ page }) => {
+  watchUnanswered(page);
+  await setupDashboard(page, 'inseason', { theme: 'light', inviteCode: '0123456789abcdef' });
+  await page.setViewportSize({ width: 360, height: 844 });
+  await page.goto(DASH_URL);
+  await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Open league chat/ })).toBeVisible();
+  const probe = await page.evaluate(() => ({ scrollWidth: document.documentElement.scrollWidth, innerWidth: window.innerWidth }));
+  expect(probe.scrollWidth, `document scrollWidth ${probe.scrollWidth} vs innerWidth ${probe.innerWidth}`).toBeLessThanOrEqual(probe.innerWidth);
 });
 
 for (const viewport of Object.keys(VIEWPORTS) as ViewportName[]) {
@@ -220,5 +498,42 @@ for (const viewport of Object.keys(VIEWPORTS) as ViewportName[]) {
       expect(cell.width).toBe(viewport === 'phone' ? 48 : 64);
       expect(cell.fits).toBe(true);
     }
+  });
+}
+
+// The viewer's Matchup preview is labelled and clamped to three lines (#2933). The fixture's preview is long, so it
+// overflows: its control names it at 44px and opens it, and the control then reads Show less.
+for (const viewport of Object.keys(VIEWPORTS) as ViewportName[]) {
+  test(`inseason ${viewport}: the matchup preview opens with a Preview lead-in, clamps to three lines and opens from its control`, async ({ page }) => {
+    await openDashboard(page, 'inseason', viewport);
+    const preview = page.getByTestId('matchup-preview-narrative');
+    await expect(preview).toHaveText(/^Preview /);
+    const lineHeight = await preview.evaluate((el) => parseFloat(getComputedStyle(el).lineHeight));
+    const clamped = (await preview.boundingBox())!.height;
+    expect(clamped, `the preview is ${clamped}px, three ${lineHeight}px lines plus 2px`).toBeLessThanOrEqual(3 * lineHeight + 2);
+
+    const control = page.getByRole('button', { name: 'Read more of the preview' });
+    await expect(control).toBeVisible();
+    expect((await control.boundingBox())!.height, 'the control is a 44px target').toBeGreaterThanOrEqual(44);
+    await control.click();
+    await expect(page.getByTestId('matchup-preview-toggle')).toHaveText('Show less');
+    expect((await preview.boundingBox())!.height, 'opened, the preview is taller than its clamp').toBeGreaterThan(clamped);
+  });
+}
+
+// The head's "Times in" line sits on the Archivo ramp's 16px step: the ramp has no 17px.
+test('inseason desktop: the Times in line is 16px', async ({ page }) => {
+  await openDashboard(page, 'inseason', 'desktop');
+  await expect(page.locator('p').filter({ hasText: /^Times in / })).toHaveCSS('font-size', '16px');
+});
+
+// A completed season opens on its trophy room (spec #2921): the champion banner, and the viewer's "Your season"
+// line from the standings the page reads once (sixth of twelve in the fixture), with no cursor.
+for (const viewport of Object.keys(VIEWPORTS) as ViewportName[]) {
+  test(`complete ${viewport}: the champion banner shows, "Your season" reads 6th of 12, and no cursor`, async ({ page }) => {
+    await openDashboard(page, 'complete', viewport, 'dark');
+    await expect(page.getByTestId('trophy-champion')).toBeVisible();
+    await expect(page.getByTestId('trophy-your-season')).toContainText('6th of 12');
+    await expect(page.locator('.cursor')).toHaveCount(0);
   });
 }

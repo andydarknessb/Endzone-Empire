@@ -1,5 +1,5 @@
 import React from 'react';
-import { screen, waitFor, within } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
 import renderWithProviders from '../../../test-utils/renderWithProviders';
 import apiClient from '../../../api/apiClient';
 import { invalidate } from '../../../lib/resourceCache';
@@ -223,6 +223,46 @@ test('the row variant is one line of links, then the page\'s own trailing links'
   expect(screen.queryByRole('heading')).not.toBeInTheDocument();
 });
 
+// The League pages row on the dashboard is this variant with its own name, testId and groups.
+test('the row variant takes its name, testId and only-groups, and a null lead drops the leading label', async () => {
+  mockGetByUrl({ '/api/league/1': leagueResponse(), [ROSTER_URL]: { data: [] } });
+  renderWithProviders(
+    <QuickActions
+      leagueId={1}
+      variant="row"
+      name="League pages"
+      lead={null}
+      only={['Play', 'Moves']}
+      omit={['draft']}
+      testId="quick-actions-pages"
+    />
+  );
+
+  const nav = await screen.findByRole('navigation', { name: 'League pages' });
+  expect(nav).toBe(screen.getByTestId('quick-actions-pages'));
+  const labels = within(nav).getAllByRole('link').map((link) => link.textContent);
+  expect(labels).toEqual(expect.arrayContaining(['Set Lineup', 'Waivers']));
+  ['Power Rankings', 'History', 'League Rules'].forEach((label) => {
+    expect(labels).not.toContain(label);
+  });
+  expect(nav.textContent).not.toMatch(/League pages/);
+  expect(screen.queryByRole('navigation', { name: 'Playbook' })).not.toBeInTheDocument();
+});
+
+test('the row variant leads with its name when no lead is passed', async () => {
+  mockGetByUrl({ '/api/league/1': leagueResponse(), [ROSTER_URL]: { data: [] } });
+  renderWithProviders(<QuickActions leagueId={1} variant="row" name="League pages" />);
+
+  expect(await screen.findByRole('navigation', { name: 'League pages' })).toHaveTextContent(/^League pages/);
+});
+
+test('the row variant prints a lead that is passed in place of its name', async () => {
+  mockGetByUrl({ '/api/league/1': leagueResponse(), [ROSTER_URL]: { data: [] } });
+  renderWithProviders(<QuickActions leagueId={1} variant="row" name="League pages" lead="Jump to" />);
+
+  expect(await screen.findByRole('navigation', { name: 'League pages' })).toHaveTextContent(/^Jump to/);
+});
+
 // --- columns ----------------------------------------------------------
 
 // Red-tell (#1993): the card spans the dashboard's full width now, so each group
@@ -370,26 +410,34 @@ test('in season an empty starting slot is still recommended with its count', asy
   expect(within(tile('lineup')).getByText('5 empty starting slots')).toBeInTheDocument();
 });
 
-// Red-tell: removing the `seasonLive &&` guard from the Set Lineup branch turns
-// this case red, since a completed season's empty slots would read Recommended.
-test('a completed season does not recommend Set Lineup for empty slots', async () => {
+// Red-tell (#2932): removing the phase limit from any of the five in-season cards
+// turns this case red, since a finished season has nothing they can do.
+test('a completed season renders Draft Room and none of the five in-season cards', async () => {
   mockGetByUrl({
     '/api/league/1': leagueResponse({
       draft_status: 'complete',
       season_status: 'complete',
-      current_week: 3,
+      current_week: 18,
       roster_slots: STANDARD_SLOTS,
     }),
-    [lineupUrl(3)]: emptyLineup(3),
+    [lineupUrl(18)]: emptyLineup(18),
   });
   renderWithProviders(<QuickActions leagueId={1} />);
   await screen.findByTestId('quick-actions');
-  // The lineup read must have landed, or the absence below proves nothing.
-  await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith(lineupUrl(3)));
-  await new Promise((resolve) => setTimeout(resolve, 0));
-  await new Promise((resolve) => setTimeout(resolve, 0));
 
-  expect(within(tile('lineup')).getByText('Set your Week 3 lineup')).toBeInTheDocument();
-  expect(within(tile('lineup')).queryByText('Recommended')).not.toBeInTheDocument();
-  expect(within(tile('lineup')).queryByText(/empty starting slot/)).not.toBeInTheDocument();
+  expect(within(tile('draft')).getByText('Draft complete · review the board')).toBeInTheDocument();
+  ['lineup', 'game-center', 'pickem', 'waivers', 'trades'].forEach((key) => {
+    expect(screen.queryByTestId(`quick-action-${key}`)).not.toBeInTheDocument();
+  });
+  expect(screen.queryByTestId('quick-actions-group-moves')).not.toBeInTheDocument();
+});
+
+// --- Pick'em is never a recommendation (#2932) ------------------------------
+
+test("a pick'em-only league in season shows Pick'em with no Recommended badge", async () => {
+  renderWidget({ pickem_only: true, season_status: 'regular', current_week: 6 });
+  await screen.findByTestId('quick-actions');
+
+  expect(within(tile('pickem')).getByText('Week 6 picks lock at kickoff')).toBeInTheDocument();
+  expect(within(tile('pickem')).queryByText('Recommended')).not.toBeInTheDocument();
 });

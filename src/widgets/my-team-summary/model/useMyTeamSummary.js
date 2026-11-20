@@ -7,7 +7,7 @@ import { useLeagueStandings, findTeamStanding } from '../../../entities/standing
 // directly (its public index, ADR 0029) rather than from `lib/draftSim/
 // templates.js`'s re-export of the same value - this widget already reads
 // `useTeamLineup` off the same index, so this is one import, not a new edge.
-import { useTeamLineup, DEFAULT_ROSTER_SLOTS } from '../../../entities/roster';
+import { useTeamLineup, DEFAULT_ROSTER_SLOTS, isQuestionable } from '../../../entities/roster';
 import { draftRosterSize } from '../../../lib/rosterShape';
 
 /**
@@ -153,7 +153,7 @@ function resolvedRosterSlots(league) {
   return slots.length > 0 ? slots : DEFAULT_ROSTER_SLOTS;
 }
 
-export function useMyTeamSummary(leagueId) {
+export function useMyTeamSummary(leagueId, lineupProblem) {
   const { league, teams, viewerTeamId } = useLeague(leagueId);
 
   // Standings through the entity, which reads the same shared week-keyed cache
@@ -314,12 +314,14 @@ export function useMyTeamSummary(leagueId) {
         week: league?.current_week ?? null,
         rows: lineup.starters.slice(0, STARTERS_SHOWN),
         moreCount: Math.max(0, lineup.starters.length - STARTERS_SHOWN),
-        // The single source of the questionable count: lineupModel computes
-        // it once off the starters (CONTEXT.md's "computed in ONE place"
-        // pattern), so this note never invents its own answer.
-        questionableCount: lineup.questionable,
+        // Questionable-class only (Q and D, isQuestionable: the test the
+        // Team summary chips use), so this note agrees with them. lineupModel's
+        // own `questionable` counts Out and IR too and is left as the shared
+        // model's answer; only this widget's note reads it differently.
+        questionableCount: lineup.starters.filter(isQuestionable).length,
         filled: Math.max(0, totalSlots - emptyStarterSlots),
         totalSlots,
+        lineupProblem,
         lineupHref: leagueId != null ? `/league/${leagueId}/lineup` : null,
       };
     }

@@ -49,6 +49,20 @@ function publicUser(row) {
   };
 }
 
+/**
+ * A login or registration overwrites the refresh cookie the browser holds, so
+ * the family that cookie presents is revoked first: a stale refresh still in
+ * flight then cannot hand back the old account's cookie (#2837). Best effort,
+ * as in /logout; a failed revoke never blocks the sign-in.
+ */
+async function revokePresentedRefreshToken(req) {
+  try {
+    await tokens.revokeRefreshToken({ token: getRefreshToken(req) });
+  } catch (error) {
+    logger.error({ err: error }, 'revoking the presented refresh token failed');
+  }
+}
+
 router.post('/register', async (req, res) => {
   const username = String(req.body?.username || '').trim();
   const email = String(req.body?.email || '').trim().toLowerCase();
@@ -96,6 +110,7 @@ router.post('/register', async (req, res) => {
     );
     // Post-commit work: the cookie and body ship after the connection is back
     // in the pool (ADR 0033).
+    await revokePresentedRefreshToken(req);
     setRefreshCookie(res, refreshToken);
     return res.status(201).json({ token: signToken(user), user });
   } catch (error) {
@@ -124,6 +139,7 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ error: 'invalid username or password' });
     }
     const user = publicUser(row);
+    await revokePresentedRefreshToken(req);
     const refreshToken = await tokens.issueRefreshToken({ userId: user.id });
     setRefreshCookie(res, refreshToken);
     return res.json({ token: signToken(user), user });

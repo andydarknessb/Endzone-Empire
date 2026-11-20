@@ -38,3 +38,16 @@ test('Privacy Policy "Your choices and rights" enumerates the approved deletion 
       + 'Applicable law may provide additional access, correction, deletion, or appeal rights.'
   )).toBeInTheDocument();
 });
+
+test('Acceptable Use Policy moderation passages match the approved wording (#2754)', () => {
+  renderPage('acceptable-use');
+
+  expect(screen.getByText(
+    'League chat must remain lawful and appropriate for the league. Commissioners can hide messages. '
+      + 'Commissioners and platform administrators may remove content, preserve necessary evidence, and restrict abusive accounts.'
+  )).toBeInTheDocument();
+  expect(screen.getByText(
+    'Responses may include warnings, content removal, feature restrictions, account suspension, or termination. '
+      + 'Moderation actions are recorded for accountability.'
+  )).toBeInTheDocument();
+});

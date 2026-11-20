@@ -241,7 +241,7 @@ async function fontsReady(page: Page) {
 /**
  * Installs the harness, sizes the viewport, opens the dashboard and waits for
  * every widget the page composes to have rendered its real content (not
- * just its skeleton): the strip's facts, the hero's two cards, an Around the
+ * just its skeleton): the strip, the hero's two cards, an Around the
  * League tile, a standings row, a Recent activity row (the rail beside the
  * standings) and the Playbook. The Playbook and Recent activity are the last
  * of these to settle, which is what makes the width and height probes below
@@ -258,9 +258,7 @@ async function gotoDashboard(
   if (teams !== 6 || feedRows !== undefined) await routeLeagueOfSize(page, teams, feedRows);
   await page.setViewportSize({ width, height });
   await page.goto(DASHBOARD_URL);
-  // Attached, not visible: the fact grid does not display below md (#1980), so
-  // visibility would never come at the phone widths this guard measures.
-  await page.getByTestId('commissioner-strip-facts').waitFor({ state: 'attached' });
+  await page.getByTestId('commissioner-strip').waitFor();
   await page.getByTestId('my-team-summary').waitFor();
   await page.getByTestId('matchup-preview').waitFor();
   await page.getByTestId('around-the-league-tile').first().waitFor();
@@ -363,8 +361,9 @@ for (const teams of TEAM_COUNTS) {
   });
 }
 
-// The Playbook FRAME (the completed season's, and a pre-draft league's): three groups (Play, Moves,
-// League), each in its own column, spanning the content width. Run on the `complete` Play-select state.
+// The Playbook FRAME (the completed season's, and a pre-draft league's): one column per group, spanning
+// the content width. A completed season has two groups (Play, League): Moves and the in-season cards are gone (#2932).
+// Run on the `complete` Play-select state.
 test(`League Dashboard, complete @ ${MEASURED_WIDTH}x${HEIGHT}: the Playbook frame spans the content width, one column per group`, async ({ page }) => {
   await setupDashboard(page, 'complete');
   await page.setViewportSize({ width: MEASURED_WIDTH, height: HEIGHT });
@@ -378,8 +377,8 @@ test(`League Dashboard, complete @ ${MEASURED_WIDTH}x${HEIGHT}: the Playbook fra
     Math.abs((qa.cardWidth as number) - (qa.contentWidth as number)),
     `quick-actions width=${qa.cardWidth} shell content width=${qa.contentWidth}`,
   ).toBeLessThanOrEqual(1);
-  expect(qa.groupLefts, `group lefts=${qa.groupLefts.join(',')}`).toHaveLength(3);
-  expect(new Set(qa.groupLefts).size, `group lefts=${qa.groupLefts.join(',')}`).toBe(3);
+  expect(qa.groupLefts, `group lefts=${qa.groupLefts.join(',')}`).toHaveLength(2);
+  expect(new Set(qa.groupLefts).size, `group lefts=${qa.groupLefts.join(',')}`).toBe(2);
   expect([...qa.groupLefts].sort((x, y) => x - y)).toEqual(qa.groupLefts);
 });
 
@@ -518,9 +517,8 @@ test('negative control: the Playbook width predicate reports a card narrower tha
 // ---- The matchup first on a phone, left of My team on desktop (#1980, spec #1979 L1 L2 L4 L5) ----
 
 // ADR 0067's game-day top rule: with no lock inside the hour the live scoreboard leads the page, so on a
-// phone its card starts inside the first screen. Off game day the product order puts Your move and the
-// commissioner strip above the hero (a commissioner's strip alone is a screen tall at 390), so the
-// "above the fold" claim holds only on game day and is bound on the `gamedaySet` Play-select state.
+// phone its card starts inside the first screen. The "above the fold" claim is bound on the `gamedaySet`
+// Play-select state.
 test('League Dashboard @ 390x844, game day: the live matchup card starts on the first screen', async ({ page }) => {
   await setupDashboard(page, 'gamedaySet');
   await page.setViewportSize({ width: 390, height: 844 });

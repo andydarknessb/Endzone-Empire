@@ -1,5 +1,5 @@
 import { useLeague } from '../../../hooks/useLeague';
-import { commissionerFacts, useEndpoint, isPickemOnly, isSeasonLive } from '../../../shared/lib';
+import { useEndpoint, isPickemOnly, isSeasonLive } from '../../../shared/lib';
 import { allWeekSettled, applyScoreEvent, useWeekMatchups } from '../../../entities/matchup';
 
 /**
@@ -13,8 +13,8 @@ import { allWeekSettled, applyScoreEvent, useWeekMatchups } from '../../../entit
  *     useQuickActions gate on. It is never `invite_code`, which answers a
  *     different question (a code being present, not a role); mutating the
  *     gate to read `invite_code` instead collapses it to "render for
- *     nobody", which only a case asserting the tiles' PRESENCE can catch (see
- *     CommissionerStrip.test.jsx's commissioner case).
+ *     nobody", which only a case asserting the commissioner's controls are
+ *     PRESENT can catch (see CommissionerStrip.test.jsx's commissioner case).
  *   - `pickemOnly`, `seasonLive` and `currentWeek`: together decide whether
  *     the advance-week feature shows. A pick'em-only league advances on the
  *     NFL calendar (the scheduler's job), a league with no current week has no
@@ -26,19 +26,12 @@ import { allWeekSettled, applyScoreEvent, useWeekMatchups } from '../../../entit
  * and no disclosure of its own: "League administration" is a link to
  * `/league/:id/commissioner` (the commissioner-console page), so the model
  * needs no `isOwner` or `teams`/`viewerTeamId` passthrough for that surface.
- *
- * `facts` is trimmed to the five the strip states (Transactions, Teams
- * locked, Trade deadline, Waivers, Trade review): the roster and scoring
- * facts `commissionerFacts` also derives belong to the console page, per the
- * ticket's own scope line.
  */
-
-const STRIP_FACT_KEYS = ['transactions', 'teams-locked', 'trade-deadline', 'waivers', 'trade-review'];
 
 // `scoreEvent` (optional) is the page's last live score event: a game that finishes while the page is
 // open opens the Advance control without a reload.
 export function useCommissionerStrip(leagueId, { scoreEvent } = {}) {
-  const { league, teams, refetch } = useLeague(leagueId);
+  const { league, refetch } = useLeague(leagueId);
 
   // The pending join queue's count only, gated the same way the retired panel
   // gated it. The null URL is load-bearing: this hook runs on every member's
@@ -89,7 +82,6 @@ export function useCommissionerStrip(leagueId, { scoreEvent } = {}) {
     pickemOnly: isPickemOnly(league),
     seasonLive: isSeasonLive(league),
     currentWeek: league?.current_week ?? null,
-    facts: commissionerFacts(league, teams).filter((fact) => STRIP_FACT_KEYS.includes(fact.key)),
     pendingJoinRequests,
     refetch,
   };

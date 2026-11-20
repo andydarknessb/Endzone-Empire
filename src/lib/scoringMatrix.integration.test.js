@@ -1,4 +1,5 @@
 const mockRapidApiGet = jest.fn();
+const mockAxiosCreate = jest.fn(() => ({ get: mockRapidApiGet }));
 const mockSupabaseUpsert = jest.fn().mockResolvedValue({ data: [], error: null });
 const mockSupabaseSelect = jest.fn().mockReturnValue({
   eq: jest.fn().mockReturnValue({ maybeSingle: jest.fn().mockResolvedValue({ data: null, error: null }) }),
@@ -9,9 +10,9 @@ const mockSupabaseClient = {
   removeChannel: jest.fn(),
 };
 
-jest.mock('axios', () => ({
-  create: jest.fn(() => ({ get: mockRapidApiGet })),
-}));
+jest.mock('axios', () => ({ create: mockAxiosCreate }));
+// tank01Feed requires axios from server/, which is server/node_modules/axios when that copy exists.
+jest.mock(require.resolve('axios', { paths: [__dirname + '/../../server'] }), () => ({ create: mockAxiosCreate }));
 jest.mock('../../server/modules/pool', () => ({ query: jest.fn(), connect: jest.fn() }));
 jest.mock('../../server/modules/io', () => ({ getIo: jest.fn(() => null) }));
 jest.mock('@supabase/supabase-js', () => ({

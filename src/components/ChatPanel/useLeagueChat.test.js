@@ -95,6 +95,20 @@ const render = (props) => {
   return { socket, ...utils };
 };
 
+test('a history read that lands after a live message keeps that message, in seq order (#2765 5)', async () => {
+  let resolveHistory;
+  apiClient.get.mockImplementation((url) =>
+    url.endsWith('/chat/unread')
+      ? Promise.resolve({ data: { unread: 0 } })
+      : new Promise((resolve) => { resolveHistory = resolve; }));
+  const { result, socket } = render();
+
+  act(() => socket.trigger('chat:message', broadcast({ id: 9, seq: 9, message: 'live' })));
+  await act(async () => resolveHistory({ data: [chatMessage({ id: 7, seq: 7, message: 'older' })] }));
+
+  expect(result.current.messages.map((m) => m.id)).toEqual([7, 9]);
+});
+
 test('fetches league-chat history on mount and exposes it as messages', async () => {
   mockGets({ history: [chatMessage({ id: 1, message: 'hi' })] });
 
@@ -429,6 +443,10 @@ test('reconnect falls back to a full read when more than a page accrued offline 
   await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/league/1/chat?after=7'));
   await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/league/1/chat'));
   await waitFor(() => expect(result.current.messages.some((m) => m.message === 'latest window')).toBe(true));
+  // The snap replaces: the window is the oldest held message, so loadOlder pages the gap behind it.
+  expect(result.current.messages.map((m) => m.seq)).toEqual([500]);
+  act(() => { result.current.loadOlder(); });
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/league/1/chat?before=500'));
 });
 
 test('reconnect falls back to a full history read when nothing is held (#442)', async () => {

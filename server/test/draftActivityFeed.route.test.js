@@ -11,7 +11,7 @@ const leagueRouter = require('../routes/league.router');
  * A fakePool test: it pins that the route requires membership, hands the
  * cursor through, and returns the union rows shaped by type - League chat and
  * Draft activity interleaved, oldest-first. The DATABASE claims (the shared
- * sequence, real interleaving, block filter, guard) are draftActivity.pg.test.js.
+ * sequence, real interleaving, guard) are draftActivity.pg.test.js.
  */
 const previousSecret = process.env.JWT_SECRET;
 process.env.JWT_SECRET = 'draft-feed-route-test-secret';
@@ -164,11 +164,9 @@ test('GET draft-feed?after=<seq> resumes newer than the cursor on both kinds (#4
   const captured = mockFeed(t);
   await request(app).get('/api/league/12/draft-feed?after=8').set('Authorization', authed());
   assert.ok(captured.params.includes(8), 'the resume cursor rode into the query params');
-  // #540 inserts the visible-kind allowlist as the stable $3 param, so the resume
-  // cursor is now $4 (was $3) - a deliberate param-number shift, not a change to
-  // the resume predicate itself.
-  assert.match(captured.sql, /"chat_messages"\."feed_seq" > \$4/);
-  assert.match(captured.sql, /"draft_activity"\."feed_seq" > \$4/);
+  // The visible-kind allowlist is the stable $2 param, so the resume cursor is $3.
+  assert.match(captured.sql, /"chat_messages"\."feed_seq" > \$3/);
+  assert.match(captured.sql, /"draft_activity"\."feed_seq" > \$3/);
 });
 
 test('GET draft-feed refuses a non-member', async (t) => {

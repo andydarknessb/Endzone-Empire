@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { Box, useMediaQuery, useTheme } from '@mui/material';
 import { useLeague } from '../../hooks/useLeague';
@@ -12,7 +12,7 @@ import RecentActivity from '../../widgets/recent-activity';
 import QuickActions from '../../widgets/quick-actions';
 import { useMatchupPreview } from '../../widgets/matchup-preview';
 import { applyScoreEvent, useLiveScores, useWeekMatchups } from '../../entities/matchup';
-import { useActionItems, itemType, playModel } from '../../entities/action-item';
+import { useActionItems, itemType, lineupProblemFor, playModel } from '../../entities/action-item';
 import { adviceNote, useAdvice } from '../../entities/roster';
 import { usePickemSettings } from '../../entities/pickem-game';
 import { useTrophies } from '../../components/TrophyCase/TrophyCase';
@@ -28,7 +28,7 @@ import {
   LEAGUE_PHASE_META,
   isPickemOnly,
 } from '../../shared/lib';
-import ChatLauncher from './ui/ChatLauncher';
+import ChatLauncher, { ChatLaunchButton, useChatLauncher } from './ui/ChatLauncher';
 import DraftDay from './ui/DraftDay';
 import PageHead from './ui/PageHead';
 import { DashboardLoading, DashboardUnavailable } from './ui/PageStates';
@@ -45,6 +45,45 @@ import YourMove from './ui/YourMove';
 // nothing, so the gap it would have bought collapses with it.
 const EMPTY_HIDDEN_SX = { '&:empty': { display: 'none' } };
 
+// Your move's controls and the foot each one renders. A one-foot card is one link whose foot is a span
+// holding the label; a foot of a shared lock is a link that is its label. A focus carry matches on the
+// label, not the accessible name: the card's name gains a countdown once its lock turns urgent.
+const MOVE_CONTROL = 'a[href], button';
+const footLabelOf = (control, labels) => labels.find((label) => (
+  [control, ...control.querySelectorAll('*')].some((el) => el.textContent.trim() === label)
+)) ?? null;
+const controlsLabelled = (host, labels, label) => [...host.querySelectorAll(MOVE_CONTROL)]
+  .filter((el) => footLabelOf(el, labels) === label);
+
+// Your move changes parent when a lock crosses one hour (the hero, then the top of the page), so React
+// remounts its controls and the focused one leaves the DOM with focus on the body. The old copy records
+// which foot held focus in its layout cleanup, while its DOM is still there; the new copy focuses the foot
+// with that label (the nth one, when a label repeats). Focus that was never inside Your move is not carried.
+function YourMoveSlot({ carry, labels, children }) {
+  const hostRef = useRef(null);
+  const labelsRef = useRef(labels);
+  useLayoutEffect(() => { labelsRef.current = labels; });
+  useLayoutEffect(() => () => {
+    const host = hostRef.current;
+    const active = document.activeElement;
+    if (!host || !active || !host.contains(active) || !active.matches(MOVE_CONTROL)) return;
+    const label = footLabelOf(active, labelsRef.current);
+    if (label) carry.current = { label, index: controlsLabelled(host, labelsRef.current, label).indexOf(active) };
+  }, [carry]);
+  useLayoutEffect(() => {
+    const next = carry.current;
+    carry.current = null;
+    if (!next) return;
+    const matches = controlsLabelled(hostRef.current, labelsRef.current, next.label);
+    matches[Math.min(next.index, matches.length - 1)]?.focus();
+  }, [carry]);
+  return (
+    <Box component="section" ref={hostRef} data-testid="slot-your-move" sx={{ minWidth: 0 }}>
+      {children}
+    </Box>
+  );
+}
+
 /**
  * League Dashboard page slice (ADR 0020), on the `/league/:leagueId` route since the cutover ticket
  * (#645), on the Play-select look since ADR 0067 wave 1b (#2330). Every state of the approved canvas
@@ -52,24 +91,28 @@ const EMPTY_HIDDEN_SX = { '&:empty': { display: 'none' } };
  * Complete, PickemOnly, States) is composed here from the widgets, the features and the page's own
  * Play-select views, and nothing here reads an island token.
  *
- * The head (the league name in Pixel 32, the chip row, "Times in CDT", and for a commissioner the
- * Invite control) leads every state. Then the page's product order, which the canvas rulings fix:
+ * The head (the league name in Pixel 32, the chip row, "Times in CDT", for a commissioner the
+ * Invite control, and below sm the chat button) leads every state. Then the page's product order, which the canvas rulings fix:
  *
- *   - Your move, between the head and the commissioner strip: this league's open plays, the one cursor
- *     and the one filled action (`ui/YourMove`). With nothing due it is a calm "You're set" card.
- *   - The commissioner strip (its own row; it renders nothing for a member), the pre-draft countdown
- *     (Draft Day) once the draft has a date, and the hero: the Matchup (a framed versus panel before
- *     kickoff, the Board-black scoreboard once started) beside My team, with the Pick'em panel under
- *     the matchup on a fantasy plus pick'em league in season.
+ *   - Your move leads: this league's open plays, the one cursor and the one filled action (`ui/YourMove`).
+ *     With nothing due it is a calm "You're set" card. Off game day it is the first row of the page.
+ *   - Off game day, the hero follows Your move, with one row in between: in season the League pages row
+ *     (Play and Moves); before the draft the pre-draft countdown (Draft Day) once the draft has a date. The
+ *     hero is the Matchup (a framed versus panel before kickoff, the Board-black scoreboard once started)
+ *     beside My team, with the Pick'em panel under the matchup on a fantasy plus pick'em league in season.
+ *   - The commissioner strip, in its own row (it renders nothing for a member), follows the hero in every
+ *     fantasy phase.
  *   - The weekly recap (when one exists), Around the league, standings beside Recent activity, and the
- *     Playbook. In season the Playbook and the trophy case fold into one link row; a completed league
- *     opens on its trophy room instead and keeps the Playbook frame.
- *   - Game day (the viewer's matchup is live) reorders the top: the scoreboard, then My team at full
- *     width, then the Pick'em panel, the commissioner strip and the rest. Around the league and Recent
- *     activity fold to the three rival games and three rows.
+ *     Playbook. In season the Playbook is one link row that ends in the trophy case once the league has
+ *     trophies; a completed league moves its trophy room up under Your move and keeps the Playbook frame.
+ *   - Game day (the viewer's matchup is live) moves the top, in two shapes. With nothing urgent the live
+ *     scoreboard leads: Your move sits in the hero between the matchup and My team, and the League pages row
+ *     follows the hero. With an urgent item, or a failed items read, Your move and the League pages row lead,
+ *     then the hero (the scoreboard, then My team at full width, then the Pick'em panel). Around the league
+ *     and Recent activity fold to the three rival games and three rows.
  *   - A pick'em-only league has no fantasy team, matchups or draft, so none of those slices mount (each
- *     would fire a fantasy read that returns an empty or zeroed table): its body is the pick'em
- *     standings, the Playbook trimmed to the pick'em surfaces and the trophy case link.
+ *     would fire a fantasy read that returns an empty or zeroed table): its body is Your move, the pick'em
+ *     standings, the commissioner strip, the Playbook trimmed to the pick'em surfaces and the trophy case.
  *
  * Three pieces of the dashboard are shared with later-wave pages, so the dashboard renders its own
  * Play-select view over their model and they keep their look elsewhere until their wave: the matchup
@@ -170,6 +213,9 @@ function DashboardBody({
   // Set by Recent activity once its feed resolves short of the standings (#1998); false while loading,
   // so the row starts two columns.
   const [feedShort, setFeedShort] = useState(false);
+  // The viewer's standings row, reported up by the standings table it already reads (no second request): the Trophy room's "Your season" line.
+  const [viewerRow, setViewerRow] = useState(null);
+  const chat = useChatLauncher();
 
   const phase = deriveLeaguePhase(league);
   const phaseLabel = LEAGUE_PHASE_META[phase]?.label ?? '';
@@ -262,14 +308,25 @@ function DashboardBody({
       yourMove = { empty: true, urgent: false };
     }
   }
+  // My team's lineup answer: this season-week's lineup_problem item, null for none, undefined while the read is unknown.
+  const lineupProblem = itemsPending || actions.error
+    ? undefined
+    : lineupProblemFor(actions.items, { leagueId, season: league.current_season, week }) ?? null;
   // It sits right under the head; on game day with nothing locking inside the hour the live scoreboard
   // leads and it follows the scoreboard instead.
   const yourMoveOnTop = yourMove != null && (!gameDay || yourMove.urgent === true);
+  const focusCarry = useRef(null);
+  const footLabels = yourMove?.lead
+    ? [yourMove.lead, ...yourMove.rest].flatMap((card) => card.feet.map((foot) => foot.cta?.label)).filter(Boolean)
+    : [];
   const yourMoveNode = yourMove && (
-    <Box component="section" data-testid="slot-your-move" sx={{ minWidth: 0 }}>
+    <YourMoveSlot carry={focusCarry} labels={footLabels}>
       <YourMove {...yourMove} />
-    </Box>
+    </YourMoveSlot>
   );
+  // A carry belongs to the commit that unmounted its control. The slot that remounts it in that commit has
+  // already taken it (a child's layout effects run before its parent's), so a commit that remounts nothing drops it.
+  useLayoutEffect(() => { focusCarry.current = null; });
   const yourMoveFailed = !itemsPending && actions.error && !complete && (
     <Box data-testid="slot-your-move">
       <ErrorPanel
@@ -286,20 +343,27 @@ function DashboardBody({
   // On a phone the head has no room for the Invite control on game day: it moves into the strip.
   const inviteInStrip = gameDay && phone;
   const invite = league.invite_code ? <CopyInvite code={league.invite_code} /> : null;
+  // Below sm the Chat button shares the head's right slot with the Invite control; on game-day phones the
+  // Invite is in the strip, so Chat is alone there. From sm the head keeps only the Invite.
+  const headInvite = inviteInStrip ? null : invite;
+  const headRight = phone
+    ? <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '12px' }}>{headInvite}<ChatLaunchButton chat={chat} /></Box>
+    : headInvite;
 
   const chips = [];
   if (phaseChipLabel) chips.push(phaseChipLabel);
-  if (!seasonLive && !pickemOnly) chips.push(`${teams.length} Teams`);
-  if (!seasonLive && draftComplete) chips.push('Draft Complete');
+  // A completed league's head is the phase chip alone (spec #2921): the count and the draft are the Trophy room's story now.
+  if (!seasonLive && !complete && !pickemOnly) chips.push(`${teams.length} Teams`);
+  if (!seasonLive && !complete && draftComplete) chips.push('Draft Complete');
 
-  // The Playbook says each destination once: what another frame on this page already links is dropped.
+  // The Playbook says each destination once: what another frame on this page already links is dropped. In
+  // season the Play and Moves links live in the League pages row under Your move, for every viewer.
   const omit = [];
   if (fantasy) {
     if (seasonLive || showDraftDay) omit.push('draft');
-    if (hasTeam && showHero) omit.push('lineup', 'waivers', 'trades');
-    if (seasonLive) omit.push('game-center');
+    if (seasonLive || (hasTeam && showHero)) omit.push('lineup', 'waivers', 'trades');
+    if (seasonLive) omit.push('game-center', 'pickem');
     omit.push('activity');
-    if (showPickem) omit.push('pickem');
   }
   const foldPlaybook = fantasy && seasonLive;
   const trailing = foldPlaybook && trophyCount > 0
@@ -319,7 +383,7 @@ function DashboardBody({
   );
   const myTeamSlot = hasTeam && (
     <Box data-testid="slot-my-team" sx={{ display: 'grid', gridArea: gameDay ? undefined : 'm', ...EMPTY_HIDDEN_SX }}>
-      <MyTeamSummary leagueId={leagueId} wide={gameDay} fixLineup={!carriesLineup} />
+      <MyTeamSummary leagueId={leagueId} wide={gameDay} fixLineup={!carriesLineup} lineupProblem={lineupProblem} />
     </Box>
   );
   const pickemSlot = showPickem && (
@@ -386,7 +450,7 @@ function DashboardBody({
       }}
     >
       <Box data-testid="slot-standings" sx={{ minWidth: 0, display: 'grid', contain: 'paint' }}>
-        <StandingsTable leagueId={leagueId} />
+        <StandingsTable leagueId={leagueId} onViewerRow={setViewerRow} />
       </Box>
       <Box data-testid="dashboard-rail" sx={{ minWidth: 0, display: 'grid' }}>
         <Box data-testid="slot-recent-activity" sx={{ display: 'grid' }}>
@@ -408,12 +472,35 @@ function DashboardBody({
     </Box>
   );
 
+  // In season the Play and Moves links are a second row right under Your move: the Draft Room is over, and
+  // Pick'em is in it only on a league with pick'em on.
+  const leaguePages = foldPlaybook && (
+    <QuickActions
+      leagueId={leagueId}
+      variant="row"
+      name="League pages"
+      lead={null}
+      only={['Play', 'Moves']}
+      omit={showPickem ? ['draft'] : ['draft', 'pickem']}
+      testId="quick-actions-pages"
+    />
+  );
+  // On game day with nothing urgent Your move sits inside the hero, so the row follows the hero instead.
+  const pagesUnderHero = gameDay && !yourMoveOnTop && !yourMoveFailed;
+
   // The trophy case: the completed season's trophy room, or one link row (merged into the Playbook line
   // in season). It self-hides on an empty list, so a league with no trophies renders nothing.
   const trophies = (
     <Box component="section" data-testid="slot-trophy-case" sx={EMPTY_HIDDEN_SX}>
       {complete
-        ? <TrophyRoom trophy={trophy} teams={teams} />
+        ? (
+          <TrophyRoom
+            trophy={trophy}
+            teams={teams}
+            viewerTeamId={viewerTeamId}
+            standing={viewerRow && { ...viewerRow, season: league.current_season }}
+          />
+        )
         : !foldPlaybook && <TrophyLink leagueId={leagueId} count={trophyCount} />}
     </Box>
   );
@@ -427,19 +514,23 @@ function DashboardBody({
     // fantasy read that would come back an empty or zeroed table. The pool standings stand in their place.
     sections = [
       ['your-move', yourMoveOnTop ? yourMoveNode : yourMoveFailed],
-      ['strip', commissionerStrip],
       ['pickem-standings', (
         <Box data-testid="dashboard-pickem-standings" sx={{ minWidth: 0, contain: 'paint' }}>
           <PickemStandings leagueId={leagueId} />
         </Box>
       )],
+      ['strip', commissionerStrip],
       ['playbook', playbook],
       ['trophies', trophies],
     ];
   } else if (gameDay) {
     sections = [
       ['your-move', yourMoveOnTop ? yourMoveNode : yourMoveFailed],
+      // Fixed slots, so the hero keeps its index when the row moves between the two positions (a shifted
+      // index makes React move the hero's DOM and drop focus inside it). Each position has its own key.
+      ['league-pages', pagesUnderHero ? null : leaguePages],
       ['hero', hero],
+      ['league-pages-hero', pagesUnderHero ? leaguePages : null],
       ['strip', commissionerStrip],
       ['recap', recap],
       ['around', around],
@@ -450,10 +541,11 @@ function DashboardBody({
   } else {
     sections = [
       ['your-move', yourMoveOnTop ? yourMoveNode : yourMoveFailed],
-      ['strip', commissionerStrip],
+      ['league-pages', leaguePages],
       ['draft-day', showDraftDay && <DraftDay league={league} leagueId={leagueId} />],
       ...(complete ? [['trophies', trophies]] : []),
       ['hero', hero],
+      ['strip', commissionerStrip],
       ['recap', recap],
       ['around', around],
       ['main', main],
@@ -468,12 +560,13 @@ function DashboardBody({
         title={league.name}
         chips={chips}
         live={liveCount > 0 ? `${liveCount} ${liveCount === 1 ? 'matchup' : 'matchups'} live` : undefined}
-        right={inviteInStrip ? null : invite}
+        right={headRight}
       />
 
       {sections.map(([key, node]) => (node ? <React.Fragment key={key}>{node}</React.Fragment> : null))}
 
-      <ChatLauncher leagueId={leagueId} />
+      {!phone && <ChatLaunchButton chat={chat} />}
+      <ChatLauncher leagueId={leagueId} chat={chat} />
     </>
   );
 }
@@ -491,7 +584,7 @@ function Shell({ children, chatLauncher = false }) {
           viewport pushes every frame sideways. In a column flex container the automatic minimum
           applies to the block axis, so every child resolves to a zero inline minimum with no
           per-child `minWidth: 0` and no `minmax` to maintain. Only the loaded page renders the fixed
-          chat launcher, so only it reserves the launcher's clearance at the bottom. */}
+          chat launcher, and only from sm up, so only it reserves the launcher's clearance at the bottom. */}
       <Box
         data-testid="dashboard-shell"
         sx={{
@@ -500,8 +593,8 @@ function Shell({ children, chatLauncher = false }) {
           boxSizing: 'border-box',
           px: { xs: '16px', sm: '32px' },
           pt: { xs: '24px', sm: '40px' },
-          // The launcher takes 80px of the viewport (56 + 24) and the page keeps 8px clear, so 88px minimum; 96 is the padding.
-          pb: chatLauncher ? '96px' : { xs: '24px', sm: '64px' },
+          // From sm the fixed launcher takes 80px of the viewport (56 + 24) and the page keeps 8px clear, so 88px minimum; 96 is the padding. Below sm the chat is in the head.
+          pb: { xs: '24px', sm: chatLauncher ? '96px' : '64px' },
           display: 'flex',
           flexDirection: 'column',
           gap: { xs: '24px', sm: '32px' },

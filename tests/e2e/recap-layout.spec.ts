@@ -67,7 +67,7 @@ async function openDashboard(page: Page, viewport: { width: number; height: numb
   );
   await page.setViewportSize(viewport);
   await page.goto(DASHBOARD_URL);
-  await page.getByTestId('commissioner-strip-facts').waitFor({ state: 'attached' });
+  await page.getByTestId('commissioner-strip').waitFor();
   await page.getByTestId('my-team-summary').waitFor();
   await page.getByTestId('matchup-preview').waitFor();
   await page.getByTestId('around-the-league-tile').first().waitFor();

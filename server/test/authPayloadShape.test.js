@@ -138,6 +138,89 @@ test('POST /register refusals publish exactly an error', async (t) => {
   taken.assertClean();
 });
 
+// #2837: a registration replaces the cookie the browser holds, so it revokes
+// the family that cookie presents. The revoke sits after the commit.
+test('POST /register revokes the presented refresh family after the commit and before the new cookie', async (t) => {
+  const fake = registerPool().install(t);
+  const order = [];
+  const commitsAtRevoke = [];
+  t.mock.method(tokens, 'issueRefreshToken', async () => {
+    order.push('issue');
+    return 'raw-refresh-token';
+  });
+  const revoke = t.mock.method(tokens, 'revokeRefreshToken', async () => {
+    order.push('revoke');
+    commitsAtRevoke.push(fake.matching(/^COMMIT$/).length);
+    return { ok: true, userId: null };
+  });
+  t.mock.method(encryptLib, 'encryptPassword', async () => HASH);
+
+  const res = await request(app)
+    .post('/api/auth/register')
+    .set('Cookie', 'endzone_refresh=old-token')
+    .send(registerBody);
+
+  assert.equal(res.status, 201, JSON.stringify(res.body));
+  assert.deepEqual(revoke.mock.calls.map((call) => call.arguments[0]), [{ token: 'old-token' }]);
+  assert.deepEqual(order, ['issue', 'revoke'], 'the token is issued inside the transaction; the revoke follows it');
+  assert.deepEqual(commitsAtRevoke, [1], 'the revoke runs after the account write has committed');
+  fake.assertClean();
+});
+
+test('POST /register refused as taken revokes nothing', async (t) => {
+  const revoke = t.mock.method(tokens, 'revokeRefreshToken', async () => ({ ok: true, userId: null }));
+  t.mock.method(tokens, 'issueRefreshToken', async () => 'raw-refresh-token');
+  t.mock.method(encryptLib, 'encryptPassword', async () => HASH);
+  const taken = createFakePool([
+    [/^SELECT 1 FROM "users"/, () => ({ rows: [{ '?column?': 1 }] })],
+    [/^INSERT INTO "users"/, () => ({ rows: [wideUserRow()] })],
+  ]).install(t);
+
+  const res = await request(app)
+    .post('/api/auth/register')
+    .set('Cookie', 'endzone_refresh=old-token')
+    .send(registerBody);
+
+  assert.equal(res.status, 409, JSON.stringify(res.body));
+  assert.equal(revoke.mock.callCount(), 0, 'a refused registration leaves the presented family alone');
+  taken.assertClean();
+});
+
+test('POST /register still succeeds, and sets the new cookie, when the revoke throws', async (t) => {
+  const fake = registerPool().install(t);
+  t.mock.method(tokens, 'issueRefreshToken', async () => 'raw-refresh-token');
+  t.mock.method(tokens, 'revokeRefreshToken', async () => {
+    throw new Error('revoke failed');
+  });
+  t.mock.method(encryptLib, 'encryptPassword', async () => HASH);
+
+  const res = await request(app)
+    .post('/api/auth/register')
+    .set('Cookie', 'endzone_refresh=old-token')
+    .send(registerBody);
+
+  assert.equal(res.status, 201, JSON.stringify(res.body));
+  assert.ok((res.headers['set-cookie'] || []).some((c) => c.startsWith('endzone_refresh=raw-refresh-token;')));
+  fake.assertClean();
+});
+
+test('POST /register ends no draft-room sessions: the overwritten cookie is not a logout', async (t) => {
+  const fake = registerPool().install(t);
+  t.mock.method(tokens, 'issueRefreshToken', async () => 'raw-refresh-token');
+  t.mock.method(tokens, 'revokeRefreshToken', async () => ({ ok: true, userId: 42 }));
+  t.mock.method(encryptLib, 'encryptPassword', async () => HASH);
+  const recorder = installRecordingBroadcast(t);
+
+  const res = await request(app)
+    .post('/api/auth/register')
+    .set('Cookie', 'endzone_refresh=old-token')
+    .send(registerBody);
+
+  assert.equal(res.status, 201, JSON.stringify(res.body));
+  assert.deepEqual(recorder.calls, []);
+  fake.assertClean();
+});
+
 // ---------------------------------------------------------------------------
 // POST /api/auth/login
 // ---------------------------------------------------------------------------
@@ -225,6 +308,83 @@ test('POST /login refusals publish exactly an error, and never say which half wa
   // one, and the refresh cookie would go out with it.
   assert.equal(issued.mock.callCount(), 0, 'no refused login minted a session');
   assert.equal(badPassword.headers['set-cookie'], undefined, 'and none set a refresh cookie');
+});
+
+// #2837: a login replaces the cookie the browser holds, so it revokes the
+// family that cookie presents, after the password check and before the new token.
+test('POST /login revokes the presented refresh family before it issues the new one', async (t) => {
+  const fake = loginPool().install(t);
+  const order = [];
+  t.mock.method(tokens, 'issueRefreshToken', async () => {
+    order.push('issue');
+    return 'raw-refresh-token';
+  });
+  const revoke = t.mock.method(tokens, 'revokeRefreshToken', async () => {
+    order.push('revoke');
+    return { ok: true, userId: null };
+  });
+  t.mock.method(encryptLib, 'comparePassword', async () => true);
+
+  const res = await request(app)
+    .post('/api/auth/login')
+    .set('Cookie', 'endzone_refresh=old-token')
+    .send({ username: 'alice', password: 'correct horse' });
+
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.deepEqual(revoke.mock.calls.map((call) => call.arguments[0]), [{ token: 'old-token' }]);
+  assert.deepEqual(order, ['revoke', 'issue']);
+  fake.assertClean();
+});
+
+test('POST /login refused on a wrong password revokes nothing', async (t) => {
+  const fake = loginPool().install(t);
+  t.mock.method(tokens, 'issueRefreshToken', async () => 'raw-refresh-token');
+  const revoke = t.mock.method(tokens, 'revokeRefreshToken', async () => ({ ok: true, userId: null }));
+  t.mock.method(encryptLib, 'comparePassword', async () => false);
+
+  const res = await request(app)
+    .post('/api/auth/login')
+    .set('Cookie', 'endzone_refresh=old-token')
+    .send({ username: 'alice', password: 'wrong' });
+
+  assert.equal(res.status, 401, JSON.stringify(res.body));
+  assert.equal(revoke.mock.callCount(), 0, 'a refused login cannot sign out the cookie owner');
+  fake.assertClean();
+});
+
+test('POST /login still signs in, and sets the new cookie, when the revoke throws', async (t) => {
+  const fake = loginPool().install(t);
+  t.mock.method(tokens, 'issueRefreshToken', async () => 'raw-refresh-token');
+  t.mock.method(tokens, 'revokeRefreshToken', async () => {
+    throw new Error('revoke failed');
+  });
+  t.mock.method(encryptLib, 'comparePassword', async () => true);
+
+  const res = await request(app)
+    .post('/api/auth/login')
+    .set('Cookie', 'endzone_refresh=old-token')
+    .send({ username: 'alice', password: 'correct horse' });
+
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.ok((res.headers['set-cookie'] || []).some((c) => c.startsWith('endzone_refresh=raw-refresh-token;')));
+  fake.assertClean();
+});
+
+test('POST /login ends no draft-room sessions: the overwritten cookie is not a logout', async (t) => {
+  const fake = loginPool().install(t);
+  t.mock.method(tokens, 'issueRefreshToken', async () => 'raw-refresh-token');
+  t.mock.method(tokens, 'revokeRefreshToken', async () => ({ ok: true, userId: 42 }));
+  t.mock.method(encryptLib, 'comparePassword', async () => true);
+  const recorder = installRecordingBroadcast(t);
+
+  const res = await request(app)
+    .post('/api/auth/login')
+    .set('Cookie', 'endzone_refresh=old-token')
+    .send({ username: 'alice', password: 'correct horse' });
+
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.deepEqual(recorder.calls, []);
+  fake.assertClean();
 });
 
 // ---------------------------------------------------------------------------

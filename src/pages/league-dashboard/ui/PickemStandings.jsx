@@ -1,14 +1,13 @@
-import React, { useId } from 'react';
-import { Box } from '@mui/material';
+import React, { useId, useState } from 'react';
+import { Box, useMediaQuery, useTheme } from '@mui/material';
 import {
-  ErrorPanel, Frame, FrameHead, PixelArrow, PixelHeading, pixelSx, Skel, SR_ONLY_SX, TeamMark, YouTag,
+  ErrorPanel, Frame, FrameHead, PixelArrow, PixelHeading, pixelSx, PsLink, PsLinkButton, Skel, SR_ONLY_SX, TeamMark, YouTag,
 } from '../../../shared/ui/playselect';
-import { usePickemStandingsTable } from '../../../widgets/pickem-standings';
+import {
+  HEAT_WEEKS, HeatStrip, bestWeeksOf, listOf, usePickemStandingsTable,
+} from '../../../widgets/pickem-standings';
+import { foldRows } from '../../../widgets/standings-table';
 import { ordinal } from '../../../shared/lib';
-
-// Eighteen weekly cells (the widget's own heat strip): a fill height by bucket, the best week outlined.
-const HEAT_HEIGHT = { h1: 25, h2: 50, h3: 75, h4: 100 };
-const HEAT_WEEKS = 18;
 
 const TREND = {
   up: ['M5 1h2v2H5zM3 3h6v2H3zM1 5h10v2H1z', 'Trend: improved'],
@@ -18,10 +17,24 @@ const TREND = {
 
 const rankLabel = (row) => (row.tied ? `T-${row.rank}` : String(row.rank));
 
+// A bare dash reads as nothing to a screen reader; the hidden words say what it stands for.
+const Dash = () => (
+  <>
+    <Box component="span" aria-hidden="true">-</Box>
+    <Box component="span" sx={SR_ONLY_SX}>Not available</Box>
+  </>
+);
+
+// Rank and Team stay pinned at every width. Below sm the table keeps four columns, so its cells get the phone's
+// tighter padding and the numeric columns the phone's width; from sm up all ten columns take their desktop widths.
+const RANK_W = { xs: 56, sm: 64 };
+const PAD = { xs: '0 8px', sm: '0 12px' };
+const NUM_W = { xs: 72, sm: 84 };
+
 const cellSx = (align = 'left', extra = null) => ({
   boxSizing: 'border-box',
   height: '44px',
-  padding: '0 12px',
+  padding: PAD,
   textAlign: align,
   whiteSpace: 'nowrap',
   fontSize: '15px',
@@ -32,7 +45,7 @@ const cellSx = (align = 'left', extra = null) => ({
 const headSx = (align = 'left', extra = null) => ({
   boxSizing: 'border-box',
   height: '40px',
-  padding: '0 12px',
+  padding: PAD,
   textAlign: align,
   backgroundColor: 'var(--ps-panel)',
   borderBottom: '2px solid var(--ps-rule)',
@@ -84,55 +97,7 @@ function AccuracyBar({ accuracy, me }) {
   );
 }
 
-function heatLabel(cell, currentWeek) {
-  if (cell.points != null) return `Week ${cell.week}: ${cell.points} points${cell.isBest ? ', best week' : ''}`;
-  if (currentWeek == null || cell.week > currentWeek) return `Week ${cell.week}: not played yet`;
-  return `Week ${cell.week}: no picks made`;
-}
-
-function HeatStrip({ heat, currentWeek, me }) {
-  const fill = me ? 'var(--ps-play-ink)' : 'var(--ps-frame)';
-  const track = me ? 'var(--ps-play-field)' : 'var(--ps-field)';
-  const line = me ? 'var(--ps-play-dim)' : 'var(--ps-dim)';
-  return (
-    <Box data-testid="pickem-standings-heat" sx={{ display: 'flex', gap: '3px', padding: '2px 0' }}>
-      {(heat || []).map((cell) => (
-        <Box
-          key={cell.week}
-          role="img"
-          aria-label={heatLabel(cell, currentWeek)}
-          data-week={cell.week}
-          data-bucket={cell.bucket || 'not-played'}
-          data-best={cell.isBest || undefined}
-          data-testid="pickem-standings-heat-cell"
-          sx={{
-            position: 'relative',
-            display: 'block',
-            width: '12px',
-            height: '12px',
-            boxSizing: 'border-box',
-            border: `1px solid ${line}`,
-            backgroundColor: track,
-            overflow: 'hidden',
-            outline: cell.isBest ? `2px solid ${fill}` : 0,
-            outlineOffset: '1px',
-          }}
-        >
-          {cell.bucket && (
-            <Box
-              component="span"
-              sx={{
-                position: 'absolute', left: 0, right: 0, bottom: 0, height: `${HEAT_HEIGHT[cell.bucket]}%`, backgroundColor: fill,
-              }}
-            />
-          )}
-        </Box>
-      ))}
-    </Box>
-  );
-}
-
-function Row({ row, currentWeek }) {
+function Row({ row, currentWeek, phone }) {
   const me = row.isViewer;
   const base = {
     backgroundColor: me ? 'var(--ps-play)' : 'var(--ps-panel)',
@@ -151,36 +116,42 @@ function Row({ row, currentWeek }) {
       <Box
         component="td"
         sx={cellSx('left', {
-          ...base, position: 'sticky', left: 0, zIndex: 1, width: 64, minWidth: 64, fontWeight: 600,
+          ...base, position: 'sticky', left: 0, zIndex: 1, width: RANK_W, minWidth: RANK_W, fontWeight: 600,
         })}
       >
         <span data-testid="pickem-standings-rank">{rankLabel(row)}</span>
       </Box>
-      <Box component="th" scope="row" sx={cellSx('left', { ...base, fontWeight: 600 })}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+      <Box component="th" scope="row" sx={cellSx('left', { ...base, position: 'sticky', left: RANK_W, zIndex: 1, fontWeight: 600 })}>
+        {/* Below sm the avatar and the You tag go so the name gets the column; the arrow, the Play fill and aria-current still mark the viewer. */}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: { xs: '6px', sm: '10px' }, minWidth: 0, overflow: 'hidden' }}>
           <Box component="span" aria-hidden="true" sx={{ width: '12px', flex: 'none', display: 'inline-flex' }}>{me && <PixelArrow />}</Box>
-          <TeamMark name={row.teamName} avatarUrl={row.avatarUrl} avatarStaticUrl={row.avatarStaticUrl} />
-          <span>{row.teamName}</span>
-          {me && <YouTag />}
+          {!phone && <TeamMark name={row.teamName} avatarUrl={row.avatarUrl} avatarStaticUrl={row.avatarStaticUrl} />}
+          {/* The name ellipsizes in the Team column; the cell's accessible name is the whole name, and title shows it on hover. */}
+          <Box component="span" title={row.teamName} sx={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{row.teamName}</Box>
+          {!phone && me && <YouTag />}
         </Box>
       </Box>
       <Box component="td" sx={cellSx('right', base)}><b>{row.points}</b></Box>
-      <Box component="td" sx={cellSx('right', base)}>{thisWeek == null ? '-' : thisWeek}</Box>
-      <Box component="td" sx={cellSx('right', base)}>{row.correct}</Box>
-      <Box component="td" sx={cellSx('right', base)}>{row.incorrect}</Box>
-      <Box component="td" sx={cellSx('right', base)}>{row.pending}</Box>
-      <Box component="td" sx={cellSx('left', base)}><AccuracyBar accuracy={row.accuracy} me={me} /></Box>
-      <Box component="td" sx={cellSx('left', base)}><HeatStrip heat={row.heat} currentWeek={currentWeek} me={me} /></Box>
-      <Box component="td" sx={cellSx('right', base)}>
-        {trend ? (
-          <>
-            <Box component="svg" width="12" height="12" viewBox="0 0 12 12" shapeRendering="crispEdges" aria-hidden="true" sx={{ verticalAlign: 'middle' }}>
-              <path d={trend[0]} fill="currentColor" />
-            </Box>
-            <Box component="span" sx={SR_ONLY_SX}>{trend[1]}</Box>
-          </>
-        ) : '-'}
-      </Box>
+      <Box component="td" sx={cellSx('right', base)}>{thisWeek == null ? <Dash /> : thisWeek}</Box>
+      {!phone && (
+        <>
+          <Box component="td" sx={cellSx('right', base)}>{row.correct}</Box>
+          <Box component="td" sx={cellSx('right', base)}>{row.incorrect}</Box>
+          <Box component="td" sx={cellSx('right', base)}>{row.pending}</Box>
+          <Box component="td" sx={cellSx('left', base)}><AccuracyBar accuracy={row.accuracy} me={me} /></Box>
+          <Box component="td" sx={cellSx('left', base)}><HeatStrip heat={row.heat} me={me} /></Box>
+          <Box component="td" sx={cellSx('right', base)}>
+            {trend ? (
+              <>
+                <Box component="svg" width="12" height="12" viewBox="0 0 12 12" shapeRendering="crispEdges" aria-hidden="true" sx={{ verticalAlign: 'middle' }}>
+                  <path d={trend[0]} fill="currentColor" />
+                </Box>
+                <Box component="span" sx={SR_ONLY_SX}>{trend[1]}</Box>
+              </>
+            ) : <Dash />}
+          </Box>
+        </>
+      )}
     </Box>
   );
 }
@@ -192,13 +163,27 @@ function Row({ row, currentWeek }) {
  * the table - rank, team, points, this week, correct, missed, pending, an accuracy bar, an
  * eighteen-cell weekly heat strip and the trend - where the viewer's row is Play blue with an arrow
  * (not a cursor). Heat and accuracy use Frame colour, so green stays for the one filled action.
+ *
+ * Below sm (#2930) the table keeps four columns (rank, team, points, this week), folds to the viewer's
+ * row with two teams either side through the standings table's fold, and links to the Pick'em page for
+ * the rest. The Team column truncates from sm up, where all ten columns fit the frame.
  */
 export default function PickemStandings({ leagueId, title = "Pick'em Standings" }) {
   const {
     status, rows, teamCount, viewer, behindLeader, currentWeek, refetch,
   } = usePickemStandingsTable(leagueId);
   const headingId = useId();
+  const theme = useTheme();
+  const phone = useMediaQuery(theme.breakpoints.down('sm'), { noSsr: true });
+  const [expanded, setExpanded] = useState(false);
   const noun = teamCount === 1 ? 'team' : 'teams';
+  const viewerBests = viewer ? bestWeeksOf(viewer.heat) : [];
+  // "This week" needs the desktop column; below sm the fallback is "Week".
+  const weekHead = currentWeek != null ? `Wk ${currentWeek}` : (phone ? 'Week' : 'This week');
+
+  const fold = phone ? foldRows(rows.length, rows.findIndex((row) => row.isViewer)) : null;
+  const folded = fold && !expanded;
+  const shown = folded ? rows.slice(fold.first, fold.last + 1) : rows;
 
   if (status === 'error') {
     return (
@@ -238,7 +223,9 @@ export default function PickemStandings({ leagueId, title = "Pick'em Standings" 
           <Tile label="Your accuracy" testid="pickem-standings-your-accuracy">
             {viewer.accuracy == null ? '-' : `${Math.round(viewer.accuracy * 100)}%`}
           </Tile>
-          <Tile label="Best week" testid="pickem-standings-best-week">{viewer.bestWeek ? `Wk ${viewer.bestWeek.week}` : '-'}</Tile>
+          <Tile label={`Best week${viewerBests.length > 1 ? 's' : ''}`} testid="pickem-standings-best-week">
+            {viewerBests.length ? `Wk ${listOf(viewerBests)}` : '-'}
+          </Tile>
         </Box>
       )}
       <Box
@@ -248,32 +235,53 @@ export default function PickemStandings({ leagueId, title = "Pick'em Standings" 
         data-testid="pickem-standings-scroll"
         sx={{ overflowX: 'auto' }}
       >
-        <Box component="table" sx={{ width: '100%', minWidth: '1146px', borderCollapse: 'separate', borderSpacing: 0 }}>
+        {/* From sm the fixed columns take 1019px; the 1179px floor keeps a 160px Team column and scrolls below that. */}
+        <Box component="table" sx={{ width: '100%', minWidth: { sm: 1179 }, tableLayout: 'fixed', borderCollapse: 'separate', borderSpacing: 0 }}>
           <Box component="thead">
             <Box component="tr">
-              <Box component="th" scope="col" sx={headSx('left', { position: 'sticky', left: 0, zIndex: 1, width: 64, minWidth: 64 })}>Rank</Box>
-              <Box component="th" scope="col" sx={headSx('left', { minWidth: '216px' })}>Team</Box>
-              <Box component="th" scope="col" sx={headSx('right')}>Points</Box>
-              <Box component="th" scope="col" sx={headSx('right')}>{currentWeek != null ? `Wk ${currentWeek}` : 'This week'}</Box>
-              <Box component="th" scope="col" sx={headSx('right')}>Correct</Box>
-              <Box component="th" scope="col" sx={headSx('right')}>Missed</Box>
-              <Box component="th" scope="col" sx={headSx('right')}>Pending</Box>
-              <Box component="th" scope="col" sx={headSx('left')}>Accuracy</Box>
-              <Box component="th" scope="col" sx={headSx('left')}>{`Weekly points · Wk 1 to ${HEAT_WEEKS}`}</Box>
-              <Box component="th" scope="col" sx={headSx('right')}>Trend</Box>
+              <Box component="th" scope="col" sx={headSx('left', { position: 'sticky', left: 0, zIndex: 1, width: RANK_W, minWidth: RANK_W })}>Rank</Box>
+              <Box component="th" scope="col" sx={headSx('left', { position: 'sticky', left: RANK_W, zIndex: 1 })}>Team</Box>
+              <Box component="th" scope="col" sx={headSx('right', { width: NUM_W })}>Points</Box>
+              <Box component="th" scope="col" sx={headSx('right', { width: NUM_W })}>{weekHead}</Box>
+              {!phone && (
+                <>
+                  <Box component="th" scope="col" sx={headSx('right', { width: NUM_W })}>Correct</Box>
+                  <Box component="th" scope="col" sx={headSx('right', { width: NUM_W })}>Missed</Box>
+                  <Box component="th" scope="col" sx={headSx('right', { width: NUM_W })}>Pending</Box>
+                  <Box component="th" scope="col" sx={headSx('left', { width: 172 })}>Accuracy</Box>
+                  <Box component="th" scope="col" sx={headSx('left', { width: 291 })}>{`Weekly points · Wk 1 to ${HEAT_WEEKS}`}</Box>
+                  <Box component="th" scope="col" sx={headSx('right', { width: 72 })}>Trend</Box>
+                </>
+              )}
             </Box>
           </Box>
           <Box component="tbody">
             {status === 'loading'
               ? Array.from({ length: Math.max(teamCount, 1) }, (_, i) => (
                 <Box component="tr" key={`skeleton-${i}`} data-testid="pickem-standings-skeleton-row">
-                  <Box component="td" colSpan={10} sx={cellSx('left', { borderBottom: '2px solid var(--ps-rule)' })}><Skel width="100%" height={16} /></Box>
+                  <Box component="td" colSpan={phone ? 4 : 10} sx={cellSx('left', { borderBottom: '2px solid var(--ps-rule)' })}><Skel width="100%" height={16} /></Box>
                 </Box>
               ))
-              : rows.map((row) => <Row key={row.teamId ?? row.teamName} row={row} currentWeek={currentWeek} />)}
+              : shown.map((row) => <Row key={row.teamId ?? row.teamName} row={row} currentWeek={currentWeek} phone={phone} />)}
           </Box>
         </Box>
       </Box>
+      {status === 'ready' && fold && (
+        <Box sx={{ padding: '0 4px', borderTop: '2px solid var(--ps-rule)' }}>
+          <PsLinkButton
+            aria-expanded={expanded}
+            data-testid="pickem-standings-full"
+            onClick={() => setExpanded((open) => !open)}
+          >
+            {expanded ? 'Fewer teams' : 'Full standings'}
+          </PsLinkButton>
+        </Box>
+      )}
+      {status === 'ready' && phone && (
+        <Box sx={{ padding: '0 4px', borderTop: '2px solid var(--ps-rule)' }}>
+          <PsLink to={`/league/${leagueId}/pickem`}>Accuracy, weekly points and trend</PsLink>
+        </Box>
+      )}
     </Frame>
   );
 }

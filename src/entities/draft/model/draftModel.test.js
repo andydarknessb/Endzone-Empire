@@ -186,13 +186,43 @@ test('a Pick applied from draft:picked at boardVersion 12 survives a join state 
   expect(afterJoin.league.current_pick).toBe(12);
 });
 
-test('a Pick landed before the first join state survives a join state with a lower boardVersion', () => {
+test('a Pick landed before the first join state does not stop that state applying, and is kept', () => {
+  // The empty model always takes the first snapshot, even one older than the
+  // Pick it already holds: the room is not left empty until a reload (#2765 1).
   const picked = applyLandedPick(emptyDraftModel, pickedEvent({ boardVersion: 12 }));
 
   const afterJoin = applyBoardSnapshot(picked, stateAt(11));
 
-  expect(afterJoin).toBe(picked);
-  expect(afterJoin.picks).toHaveLength(1);
+  expect(afterJoin.league.current_pick).toBe(11);
+  expect(afterJoin.picks).toHaveLength(1); // the Pick the snapshot lacks is kept
+  expect(afterJoin.boardVersion).toBe(12); // the higher board version is kept
+});
+
+test('a snapshot after a live Pick keeps the Pick and does not prepend a Pick the snapshot already holds', () => {
+  const picked = applyLandedPick(emptyDraftModel, pickedEvent({ pickNumber: 2, boardVersion: 12 }));
+
+  const afterJoin = applyBoardSnapshot(picked, stateAt(12, { picks: [snapshotRow({ pick_number: 1 }), snapshotRow({ pick_number: 2 })] }));
+
+  expect(afterJoin.picks.map((p) => p.pick_number)).toEqual([2, 1]); // newest first, once each
+});
+
+test('a Pick at the board version of a snapshot already holding its Pick number is not prepended twice', () => {
+  const at12 = applyBoardSnapshot(emptyDraftModel, stateAt(12, { picks: [snapshotRow({ pick_number: 1 })] }));
+
+  const dup = applyLandedPick(at12, pickedEvent({ pickNumber: 1, boardVersion: 12 }));
+
+  expect(dup).toBe(at12);
+  expect(dup.picks).toHaveLength(1);
+});
+
+test('a Pick with a null deadline shows no clock, and only an absent deadline is estimated', () => {
+  const model = { ...emptyDraftModel, league: activeLeague(), teams: [{ teamId: 12, teamName: 'Team B' }] };
+
+  const nulled = applyLandedPick(model, pickedEvent({ pickDeadlineAt: null }), { now: () => 1000 });
+  const absent = applyLandedPick(model, pickedEvent(), { now: () => 1000 });
+
+  expect(nulled.onTheClock.deadlineAt).toBe(null);
+  expect(absent.onTheClock.deadlineAt).toBe(61000); // now + pick_time_seconds (60s)
 });
 
 test('a Pick at a lower boardVersion than the board holds is ignored', () => {

@@ -6,6 +6,7 @@ import apiClient from '../../../api/apiClient';
 import { invalidate, setResource } from '../../../lib/resourceCache';
 import StandingsTable from '../index';
 import { winPctLabel } from '../model/useStandingsTable';
+import { foldRows } from '../model/foldRows';
 import { teamStandingFromRow } from '../../../entities/standings';
 
 /**
@@ -80,7 +81,7 @@ const teamsPayload = (n) =>
 // GET /api/league/:id. `draft_status: 'complete'` with a regular-season status
 // is the in-season phase (leaguePhase.js), the state the density columns are
 // about; the preseason league below is the pre-draft one.
-const leagueResponse = ({ teamCount = 12, league = {} } = {}) => ({
+const leagueResponse = ({ teamCount = 12, league = {}, viewerTeamId = 1 } = {}) => ({
   data: {
     league: {
       id: 1,
@@ -90,7 +91,7 @@ const leagueResponse = ({ teamCount = 12, league = {} } = {}) => ({
       ...league,
     },
     teams: teamsPayload(teamCount),
-    viewerTeamId: 1,
+    viewerTeamId,
   },
 });
 
@@ -155,8 +156,8 @@ const mockGetByUrl = (byUrl) => {
 // would otherwise key that read weekless, re-key when the league arrived and
 // drop back to skeletons mid-test. Priming is the write-through useLeague
 // itself performs, and it leaves exactly one GET for a test to answer.
-const primeLeague = ({ teamCount = 12, league = {} } = {}) => {
-  setResource(['league', 1], leagueResponse({ teamCount, league }).data);
+const primeLeague = ({ teamCount = 12, league = {}, viewerTeamId } = {}) => {
+  setResource(['league', 1], leagueResponse({ teamCount, league, viewerTeamId }).data);
 };
 
 const renderTable = () => renderWithProviders(<StandingsTable leagueId={1} />);
@@ -185,7 +186,7 @@ test('standings-table: renders the streak the read already carries and no win pe
   expect(within(youRow).getByText('1000.0')).toBeInTheDocument();
 });
 
-test('standings-table: preseason masks the streak instead of printing the server dash', async () => {
+test('standings-table: a pre-draft league draws Rank and Team only, with the note and no dash column', async () => {
   primeLeague({ teamCount: 8, league: { draft_status: 'pending' } });
   mockGetByUrl({
     '/api/scoring/league/1/standings': standingsResponse({ rows: preseasonRows(8) }),
@@ -194,13 +195,46 @@ test('standings-table: preseason masks the streak instead of printing the server
 
   const card = await screen.findByTestId('standings-table');
   await within(card).findByText('Squad 1');
-  // No raw '-' streak and no ".000" win percentage: both are Placeholders,
-  // which is what makes the footer note ("populate after Week 1") true.
-  expect(within(card).queryByText('.000')).not.toBeInTheDocument();
-  expect(within(card).getAllByText('Not available').length).toBeGreaterThan(0);
+  // Before Week 1 there is no record, points or streak to show, so those columns are not drawn at all.
+  expect(within(card).getAllByRole('columnheader')).toHaveLength(2);
+  expect(within(card).getByRole('columnheader', { name: 'Rank' })).toBeInTheDocument();
+  expect(within(card).getByRole('columnheader', { name: 'Team' })).toBeInTheDocument();
+  ['W-L-T', 'PF', 'PA', 'STRK'].forEach((name) => {
+    expect(within(card).queryByRole('columnheader', { name })).not.toBeInTheDocument();
+  });
+  expect(within(card).queryByText('Not available')).not.toBeInTheDocument();
   expect(within(card).getByTestId('standings-table-preseason-note')).toHaveTextContent(
     'Records, points and streaks populate after Week 1.'
   );
+});
+
+test('standings-table: an in-season league with no games yet draws Rank and Team only', async () => {
+  // In season by phase, but every Team at zero games: the all-zero path, not the phase path.
+  primeLeague({ teamCount: 8 });
+  mockGetByUrl({
+    '/api/scoring/league/1/standings': standingsResponse({ rows: preseasonRows(8) }),
+  });
+  renderTable();
+
+  const card = await screen.findByTestId('standings-table');
+  await within(card).findByText('Squad 1');
+  expect(within(card).getAllByRole('columnheader')).toHaveLength(2);
+  expect(within(card).getByTestId('standings-table-preseason-note')).toBeInTheDocument();
+});
+
+test('standings-table: a league with one game played draws all six columns', async () => {
+  primeLeague({ teamCount: 8 });
+  const rows = preseasonRows(8);
+  rows[0] = { ...rows[0], wins: 1, pf: 101.5, pa: 90, streak: 'W1', winPct: 1 };
+  mockGetByUrl({
+    '/api/scoring/league/1/standings': standingsResponse({ rows }),
+  });
+  renderTable();
+
+  const card = await screen.findByTestId('standings-table');
+  await within(card).findByText('Squad 1');
+  expect(within(card).getAllByRole('columnheader')).toHaveLength(6);
+  expect(within(card).queryByTestId('standings-table-preseason-note')).not.toBeInTheDocument();
 });
 
 // --- the Record cell (#959) -------------------------------------------------
@@ -407,7 +441,7 @@ describe('on a phone', () => {
     expect(within(card).getByText('Squad 6')).toBeInTheDocument();
     expect(within(card).queryByText('Squad 7')).not.toBeInTheDocument();
     expect(within(card).getByTestId('standings-table-cut-line')).toBeInTheDocument();
-    expect(within(card).getByRole('link', { name: 'Full standings, all 12 teams' })).toBeInTheDocument();
+    expect(within(card).getByRole('button', { name: 'Full standings, all 12 teams' })).toBeInTheDocument();
   });
 
   test('standings-table: a viewer mid-table gets two teams above and below, and Full standings opens the rest', async () => {
@@ -430,10 +464,28 @@ describe('on a phone', () => {
     expect(within(card).queryByText('Squad 11')).not.toBeInTheDocument();
     expect(within(card).getByTestId('standings-table-you-row')).toHaveTextContent('Squad 8');
 
-    await userEvent.click(within(card).getByRole('link', { name: 'Full standings, all 12 teams' }));
+    const toggle = within(card).getByRole('button', { name: 'Full standings, all 12 teams' });
+    expect(toggle.tagName).toBe('BUTTON');
+    expect(toggle).not.toHaveAttribute('href');
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+
+    await userEvent.click(toggle);
     expect(within(card).getByText('Squad 1')).toBeInTheDocument();
     expect(within(card).getByText('Squad 12')).toBeInTheDocument();
-    expect(within(card).getByRole('link', { name: 'Show fewer teams' })).toHaveAttribute('aria-expanded', 'true');
+    expect(within(card).getByRole('button', { name: 'Show fewer teams' })).toHaveAttribute('aria-expanded', 'true');
+
+    await userEvent.click(within(card).getByRole('button', { name: 'Show fewer teams' }));
+    expect(within(card).queryByText('Squad 1')).not.toBeInTheDocument();
+    expect(within(card).getByText('Squad 8')).toBeInTheDocument();
+    expect(within(card).getByRole('button', { name: 'Full standings, all 12 teams' })).toHaveAttribute('aria-expanded', 'false');
+
+    within(card).getByRole('button', { name: 'Full standings, all 12 teams' }).focus();
+    await userEvent.keyboard(' ');
+    expect(within(card).getByText('Squad 1')).toBeInTheDocument();
+    expect(within(card).getByText('Squad 12')).toBeInTheDocument();
+    expect(within(card).getByRole('button', { name: 'Show fewer teams' })).toHaveAttribute('aria-expanded', 'true');
+
+    expect(window.location.hash).toBe('');
   });
 
   test('standings-table: a short league has nothing to fold', async () => {
@@ -443,7 +495,24 @@ describe('on a phone', () => {
 
     const card = await screen.findByTestId('standings-table');
     await within(card).findByText('Squad 4');
-    expect(within(card).queryByRole('link', { name: /Full standings/ })).not.toBeInTheDocument();
+    expect(within(card).queryByRole('button', { name: /Full standings/ })).not.toBeInTheDocument();
+  });
+});
+
+// The phone fold both standings tables share (the pick'em table folds through it too, #2930): the window of
+// row indexes it keeps, or null when there is nothing to fold.
+describe('foldRows', () => {
+  test('a viewer sixth of twelve keeps five rows: the viewer and two teams either side', () => {
+    expect(foldRows(12, 5)).toEqual({ first: 3, last: 7 });
+  });
+
+  test('a viewer first of twelve keeps three rows', () => {
+    expect(foldRows(12, 0)).toEqual({ first: 0, last: 2 });
+  });
+
+  test('five rows or fewer never fold, and a table with no viewer does not either', () => {
+    expect(foldRows(5, 2)).toBeNull();
+    expect(foldRows(12, -1)).toBeNull();
   });
 });
 
@@ -495,6 +564,50 @@ test.each([4, 12])(
   }
 );
 
+// The cell count of the first skeleton row, drawn while the standings read is in flight (the league count is on screen by then).
+const skeletonCells = async (league) => {
+  primeLeague({ teamCount: 4, league });
+  mockGetByUrl({
+    '/api/scoring/league/1/standings': { pending: true },
+  });
+  renderTable();
+
+  const card = await screen.findByTestId('standings-table');
+  await waitFor(() => expect(within(card).getByTestId('standings-table-count')).toHaveTextContent('4'));
+  // eslint-disable-next-line testing-library/no-node-access -- skeleton cells are aria-hidden placeholders, so they are counted as elements
+  return card.querySelectorAll('tbody tr:first-child > *').length;
+};
+
+test('standings-table: a pre-draft skeleton row holds the two columns the table will draw', async () => {
+  expect(await skeletonCells({ draft_status: 'pending' })).toBe(2);
+});
+
+test('standings-table: an in-season skeleton row holds all six columns', async () => {
+  expect(await skeletonCells({})).toBe(6);
+});
+
+test('standings-table: a league with one game played marks each row without a streak Not available, and not the row with one', async () => {
+  primeLeague({ teamCount: 8 });
+  const rows = preseasonRows(8);
+  rows[0] = { ...rows[0], wins: 1, pf: 101.5, pa: 90, streak: 'W1', winPct: 1 };
+  mockGetByUrl({
+    '/api/scoring/league/1/standings': standingsResponse({ rows }),
+  });
+  renderTable();
+
+  const card = await screen.findByTestId('standings-table');
+  const youRow = await within(card).findByTestId('standings-table-you-row');
+  expect(within(youRow).getByText('W1')).toBeInTheDocument();
+  expect(within(youRow).queryByText('Not available')).not.toBeInTheDocument();
+  const hidden = within(card).getAllByText('Not available');
+  expect(hidden).toHaveLength(7);
+  // The dash is the visual mark and the hidden label the meaning, so the dash is the one a screen reader skips.
+  hidden.forEach((label) => {
+    // eslint-disable-next-line testing-library/no-node-access -- the dash is the label's previous sibling
+    expect(label.previousElementSibling).toHaveAttribute('aria-hidden', 'true');
+  });
+});
+
 test('standings-table: a CPU-managed team (teams[].is_cpu) carries the CPU label, and only it', async () => {
   const data = leagueResponse({ teamCount: 4 }).data;
   data.teams[2] = { ...data.teams[2], is_cpu: true };
@@ -509,4 +622,30 @@ test('standings-table: a CPU-managed team (teams[].is_cpu) carries the CPU label
   const badges = within(card).getAllByTestId('cpu-badge');
   expect(badges).toHaveLength(1);
   expect(within(screen.getByRole('rowheader', { name: /Squad 3/ })).getByText('CPU')).toBeInTheDocument();
+});
+
+// --- the viewer row, reported up to the page (onViewerRow) -------------------
+
+test('standings-table: onViewerRow reports the viewer row as its rank, record and points for', async () => {
+  primeLeague();
+  mockGetByUrl({ '/api/scoring/league/1/standings': standingsResponse() });
+  const onViewerRow = jest.fn();
+  renderWithProviders(<StandingsTable leagueId={1} onViewerRow={onViewerRow} />);
+
+  const card = await screen.findByTestId('standings-table');
+  const youRow = await within(card).findByTestId('standings-table-you-row');
+  // The record is read off the rendered cell, so the report can only say what the table shows.
+  const record = within(youRow).getAllByRole('cell')[1].textContent;
+  await waitFor(() => expect(onViewerRow).toHaveBeenLastCalledWith({ rank: 1, record, pointsFor: '1200.0' }));
+});
+
+test('standings-table: onViewerRow reports null when no Team in the standings is the viewer', async () => {
+  primeLeague({ viewerTeamId: null });
+  mockGetByUrl({ '/api/scoring/league/1/standings': standingsResponse() });
+  const onViewerRow = jest.fn();
+  renderWithProviders(<StandingsTable leagueId={1} onViewerRow={onViewerRow} />);
+
+  const card = await screen.findByTestId('standings-table');
+  await within(card).findByText('Squad 2');
+  expect(onViewerRow).toHaveBeenLastCalledWith(null);
 });

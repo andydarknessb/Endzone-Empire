@@ -9,7 +9,7 @@
 import type { Page, Route } from '@playwright/test';
 import { json } from './jsonRoute';
 import { LEAGUE_ID, LEAGUE_ROW, TEAMS, setupLayoutGuard } from './layoutGuardFixtures';
-import { routeWeek17Trophies } from './trophyCaseFixtures';
+import { buildWeek17Trophies, routeWeek17Trophies } from './trophyCaseFixtures';
 
 export const DASH_URL = `/#/league/${LEAGUE_ID}`;
 export type DashState = 'inseason' | 'gamedayUrgent' | 'gamedaySet' | 'predraft' | 'complete' | 'pickemonly';
@@ -107,13 +107,14 @@ function recapBody(now: number, teams: DashTeam[]) {
   };
 }
 
-function leagueRow(state: DashState) {
+function leagueRow(state: DashState, inviteCode: string) {
   const base = {
     ...LEAGUE_ROW,
+    current_season: 2026,
     current_week: WEEK,
     draft_status: 'complete',
     season_status: 'regular',
-    invite_code: 'abc123',
+    invite_code: inviteCode,
     is_commissioner: true,
   };
   if (state === 'predraft') return { ...base, draft_status: 'pending', current_week: 1 };
@@ -155,11 +156,23 @@ function matchupRow(
   };
 }
 
+// The viewer's stored preview Narrative (ADR 0063), 117 words: long enough to overflow three lines at both viewports.
+const MATCHUP_PREVIEW = [
+  "Darkness Falls come in as the slight favourite on the strength of a running back room that has carried more of the week's volume than anyone else in the league.",
+  'Their flex spot has produced steadily all season, and the projection leans on it.',
+  'Sunday Scaries counter with a passing attack that has been boom or bust, but a single big week from its wide receivers would close the gap quickly.',
+  'Both managers should check the injury report before the early window, since one starter ruled out late would swing the margin.',
+  'Expect a game decided in the final kickoff window, with the edge going to whichever side keeps its late players healthy and in the lineup.',
+].join(' ');
+
 function matchupsBody(state: DashState, teams = DASH_TEAMS) {
   const status = state === 'gamedayUrgent' || state === 'gamedaySet' ? 'live' : state === 'complete' ? 'final' : 'scheduled';
   const week = state === 'complete' ? 18 : WEEK;
   return [
-    matchupRow(918, VIEWER_TEAM_ID, 102, status, week, teams),
+    {
+      ...matchupRow(918, VIEWER_TEAM_ID, 102, status, week, teams),
+      ...(state === 'inseason' ? { narrative: MATCHUP_PREVIEW } : {}),
+    },
     matchupRow(919, 103, 104, status, week, teams),
     matchupRow(920, 105, 106, status, week, teams),
     matchupRow(921, 107, 108, status, week, teams),
@@ -229,7 +242,7 @@ export type DashHarness = { items: () => Record<string, unknown>[] };
 export async function setupDashboard(
   page: Page,
   state: DashState,
-  opts: { theme?: DashTheme; now?: number; teamNames?: Record<number, string> } = {},
+  opts: { theme?: DashTheme; now?: number; teamNames?: Record<number, string>; inviteCode?: string } = {},
 ): Promise<DashHarness> {
   const now = opts.now ?? Date.now();
   // A per-call copy: DASH_TEAMS is shared by every test in the worker.
@@ -242,6 +255,15 @@ export async function setupDashboard(
   }
   await setupLayoutGuard(page);
   await routeWeek17Trophies(page, 12);
+  if (state === 'complete') {
+    // A completed 2026 season has a champion. The Week 17 route's only champion is 2025's, which the trophy-case
+    // guard measures, so this adds the 2026 one for the dashboard's complete state alone.
+    const champ = teams.find((t) => t.teamId === 102)!;
+    const champion = {
+      id: 900, type: 'champion', label: '2026 League Champion', week: 0, season: 2026, team_id: champ.teamId, team_name: champ.teamName, data: {}, awarded_at: '2026-11-01T00:00:00.000Z',
+    };
+    await page.route(`**/api/league/${LEAGUE_ID}/trophies`, (route) => json(route, 200, [champion, ...buildWeek17Trophies(12)]));
+  }
 
   const items = itemsFor(state, now);
   const pregame = state === 'predraft' || state === 'pickemonly';
@@ -253,7 +275,7 @@ export async function setupDashboard(
     if (request.method() === 'POST' && pathname === `/api/league/${LEAGUE_ID}/chat/read`) return json(route, 200, {});
     if (request.method() !== 'GET') return route.fallback();
     if (pathname === `/api/league/${LEAGUE_ID}`) {
-      return json(route, 200, { league: leagueRow(state), teams, viewerTeamId: VIEWER_TEAM_ID });
+      return json(route, 200, { league: leagueRow(state, opts.inviteCode ?? 'abc123'), teams, viewerTeamId: VIEWER_TEAM_ID });
     }
     if (pathname === `/api/league/${LEAGUE_ID}/matchups`) return json(route, 200, matchupsBody(state, teams));
     if (pathname === `/api/scoring/league/${LEAGUE_ID}/standings`) return json(route, 200, standingsBody(pregame, ranked));

@@ -107,8 +107,9 @@ async function awardWeeklyTrophies({ leagueId, season, week, seasonComplete }) {
     // nothing here retries them. The hold now spans the season-level block
     // when the season is complete, longer than the reconcile's own "small,
     // fixed number of statements", but still no network I/O inside the
-    // transaction, and the only same-key waiters are a reconcile or a
-    // duplicate award of this exact (league, season, week).
+    // transaction, and the only same-key waiters are a reconcile, a duplicate
+    // award of this exact (league, season, week), and rolloverSeason
+    // (commissioner.service.js), which holds the key to its own COMMIT.
     await lockTwoKeyXact(client, leagueId, (season * 100) + week);
 
     const awarded = [];
