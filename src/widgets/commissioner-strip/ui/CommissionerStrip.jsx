@@ -15,8 +15,8 @@ import useCommissionerStrip from '../model/useCommissionerStrip';
  *   - Rows with an item and an action, never filled (the one filled action is the lead play in Your
  *     move) and never red unless a lock is under an hour: the pending join requests as a link with a
  *     count badge straight to the console, the Advance week control while the season is live, and a
- *     "League administration" link. A pre-draft league with no draft time leads with a "Set draft time"
- *     link to Draft Settings. `invite` is an optional extra row (the page passes the Invite
+ *     "League administration" link. A pre-draft league with no draft time gets a "Set draft time" link to
+ *     Draft Settings, after the invite row and before the join requests. `invite` is an optional extra row (the page passes the Invite
  *     control here on a phone, where the head has no room for it).
  *
  * Paints only ps-* tokens. The Advance control is the advance-week feature (the commissioner console composes
