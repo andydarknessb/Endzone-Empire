@@ -260,6 +260,32 @@ test('at 390px a save toast sits above the bar and focused rows scroll clear of 
   expect(toastBox.y + toastBox.height, `toast ${JSON.stringify(toastBox)} over bar ${JSON.stringify(barBox)}`).toBeLessThanOrEqual(barBox.y);
 });
 
+// #2967: a move made from the Bench view that changes a starting Slot returns the phone to Starters and scrolls the
+// changed Starter row into view. At 260px tall, after the end-of-scroll on the Bench view, QB-0 starts about 450px above
+// the viewport's top; without the page's scroll call (measured) the row's top stays off screen, so the test is red.
+test('at 390px a move from the Bench view returns to Starters and brings the changed Starter row into view', async ({ page }) => {
+  await setupLineupLedgerFixture(page);
+  await page.route('**/api/team/lineup', (route) =>
+    route.request().method() === 'PUT' ? route.fulfill({ status: 200, contentType: 'application/json', body: '{}' }) : route.fallback()
+  );
+  await page.setViewportSize({ width: 390, height: 260 });
+  await page.goto(LINEUP_URL);
+  await expect(page.getByTestId('ledger-starters')).toBeVisible();
+  await page.evaluate(() => document.fonts.ready.then(() => true));
+  const tabs = page.getByTestId('lineup-mobile-tabs');
+
+  await page.getByTestId('slot-row-QB-0-select').click({ position: { x: 6, y: 6 } });
+  await expect(page.getByTestId('ledger-bench')).toBeVisible();
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+  await page.getByTestId('ledger-bench-rows').locator('[data-testid$="-select"]:not([disabled])').first().click({ position: { x: 6, y: 6 } });
+
+  await expect(tabs.getByRole('button', { name: /^Starters/ })).toHaveAttribute('aria-pressed', 'true');
+  const changed = await box(page.getByTestId('slot-row-QB-0'));
+  const barTop = (await box(tabs)).y;
+  expect(changed.y, 'the changed Starter row starts inside the viewport').toBeGreaterThanOrEqual(0);
+  expect(changed.y + changed.height, `the changed Starter row ${changed.y}..${changed.y + changed.height} must clear the bar at ${barTop}`).toBeLessThanOrEqual(barTop);
+});
+
 // The same guard on the boards' fixture (Darkness Falls, nine starters, a two-line team name), at 390x844.
 //  - Before kickoff the WHOLE first starter row is above the pinned footer.
 //  - Live the guard is the row top plus the name line (its first 52px) only. The LineupPhone board is the 9:10 AM moment,
