@@ -41,7 +41,7 @@ const item = (overrides = {}) => ({
   detail: null,
   severity: 'timed',
   deadlineAt: null,
-  cta: { label: 'Fix lineup', to: '/league/71/lineup' },
+  cta: { label: 'Set lineup', to: '/league/71/lineup' },
   progress: null,
   ...overrides,
 });

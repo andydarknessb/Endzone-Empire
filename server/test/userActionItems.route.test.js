@@ -143,7 +143,7 @@ test('each item carries its league, copy, deadline, call to action and progress'
     detail: '1 empty FLEX slot',
     severity: 'timed',
     deadlineAt: '2026-10-04T17:00:00.000Z',
-    cta: { label: 'Fix lineup', to: '/league/71/lineup' },
+    cta: { label: 'Set lineup', to: '/league/71/lineup' },
     progress: null,
   });
   assert.deepEqual(byType.get('picks_open').progress, { done: 1, total: 2, open: 1 });
