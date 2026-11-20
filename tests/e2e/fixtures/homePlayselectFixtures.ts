@@ -203,7 +203,7 @@ export function homeBodies(state: HomeState, now: number, opts: { tnrScore?: num
           detail: 'Puka Nacua (WR) is Out and still in your lineup.',
           severity: 'timed',
           deadlineAt: at(now, 42 * MIN),
-          cta: { label: 'Fix lineup', to: `/league/${OFFICE}/lineup` },
+          cta: { label: 'Set lineup', to: `/league/${OFFICE}/lineup` },
         }),
       ]),
       notifications: { notifications: [], unread: 0 },

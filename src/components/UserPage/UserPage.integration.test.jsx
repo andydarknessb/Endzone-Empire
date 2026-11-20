@@ -86,7 +86,7 @@ const item = (overrides = {}) => ({
   detail: '3 bench players are still to play',
   severity: 'timed',
   deadlineAt: null,
-  cta: { label: 'Fix lineup', to: '/league/71/lineup' },
+  cta: { label: 'Set lineup', to: '/league/71/lineup' },
   progress: null,
   ...overrides,
 });
@@ -185,7 +185,7 @@ test('a lineup problem and a picks_open sharing one lock are one Play card with 
   const card = await within(region).findByRole('group', { name: /^Next up: Lineup and picks./ });
   const feet = within(card).getAllByRole('link');
   expect(feet).toHaveLength(2);
-  expect(feet[0]).toHaveTextContent('Fix lineup');
+  expect(feet[0]).toHaveTextContent('Set lineup');
   expect(feet[1]).toHaveTextContent('Make picks');
   expect(within(region).getAllByRole('group')).toHaveLength(1);
   expect(within(region).getByText('1 thing needs you')).toBeInTheDocument();

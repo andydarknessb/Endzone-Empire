@@ -922,7 +922,7 @@ function lineupProblemItem(league, status) {
     detail: status.problems.join(' · '),
     severity: 'timed',
     deadlineAt: status.nextLockAt,
-    cta: { label: 'Fix lineup', to: `/league/${league.id}/lineup` },
+    cta: { label: 'Set lineup', to: `/league/${league.id}/lineup` },
   });
 }
 

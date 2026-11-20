@@ -29,7 +29,7 @@ const item = (overrides = {}) => ({
   detail: '3 bench players are still to play',
   severity: 'timed',
   deadlineAt: null,
-  cta: { label: 'Fix lineup', to: '/league/71/lineup' },
+  cta: { label: 'Set lineup', to: '/league/71/lineup' },
   progress: null,
   ...overrides,
 });
@@ -153,7 +153,7 @@ describe('the play cards', () => {
     expect(filled(container)).toHaveLength(1);
     // the filled foot is a data attribute with no role
     // eslint-disable-next-line testing-library/no-node-access
-    expect(within(lead).getByText('Fix lineup').closest('[data-filled]')).toHaveAttribute('data-filled', 'true');
+    expect(within(lead).getByText('Set lineup').closest('[data-filled]')).toHaveAttribute('data-filled', 'true');
     // The earlier lock is first in the grid.
     const names = screen.getAllByRole('link').map((l) => l.getAttribute('aria-label')).filter(Boolean);
     expect(names[0]).toMatch(/^Next up: Fill your empty FLEX slot/);
