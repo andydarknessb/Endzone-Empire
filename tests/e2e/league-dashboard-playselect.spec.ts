@@ -167,6 +167,17 @@ for (const viewport of ['desktop', 'phone'] as const) {
   });
 }
 
+// An Out starter leads My team's list, and the note counts no questionable starter (spec #2979).
+for (const viewport of ['desktop', 'phone'] as const) {
+  test(`${viewport} gamedayUrgent: My team lists Puka Nacua first and the note names no questionable count`, async ({ page }) => {
+    await openDashboard(page, 'gamedayUrgent', viewport);
+    await expect(page.getByTestId('my-team-starters').getByTestId('starter-row').first()).toContainText('Puka Nacua');
+    const note = page.getByTestId('my-team-starters-more');
+    await expect(note).toContainText('and 4 more starters');
+    await expect(note).not.toContainText('questionable');
+  });
+}
+
 test('desktop gamedaySet: My team reads Lineup set with the check', async ({ page }) => {
   await openDashboard(page, 'gamedaySet', 'desktop');
   await expect(page.getByTestId('my-team-lineup-status')).toContainText('Lineup set');
