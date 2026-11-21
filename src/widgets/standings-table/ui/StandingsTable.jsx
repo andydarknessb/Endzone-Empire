@@ -1,4 +1,4 @@
-import React, { useEffect, useId, useState } from 'react';
+import React, { useEffect, useId, useLayoutEffect, useState } from 'react';
 import { Box, useMediaQuery, useTheme } from '@mui/material';
 import {
   CpuTag, ErrorPanel, Frame, FrameHead, PixelArrow, PixelHeading, pixelSx, PsLinkButton, Skel, SR_ONLY_SX, TeamMark, YouTag,
@@ -11,6 +11,8 @@ import { foldRows } from '../model/foldRows';
 // Team keeps its width beside the rail. `lg` is the desktop set.
 const RANK_W = { xs: 48, md: 56, lg: 64 };
 const CELL_PAD = { xs: '0 8px', md: '0 8px', lg: '0 12px' };
+// The Team mark is drawn only where the Team column is this wide or more (the owner's ruling, 2026-11-20, #2978).
+const TEAM_MARK_MIN_PX = 240;
 
 const cellSx = (align = 'left', extra = null) => ({
   boxSizing: 'border-box',
@@ -41,7 +43,7 @@ const headCellSx = (align = 'left', extra = null) => ({
 
 /**
  * League Dashboard standings-table widget (ADR 0067 wave 1b): the league standings as a framed
- * Tecmo ranking screen. Rank, Team (avatar, name, a "You" tag on the viewer's own row), W-L-T, PF,
+ * Tecmo ranking screen. Rank, Team (the team mark where the Team column is 240px or more, name, a "You" tag on the viewer's own row), W-L-T, PF,
  * PA and the trailing streak in tabular figures on 44px rows with 2px Rule dividers and no zebra.
  * The viewer's row is Play blue with a pixel arrow before the name (it is not a cursor: the one
  * cursor belongs to Your move); the rank figure is Pixel 16, and a dashed Frame rule marks the
@@ -81,6 +83,21 @@ export default function StandingsTable({ leagueId, onViewerRow }) {
   }, [onViewerRow, viewerRank, viewerRecord, viewerPoints]);
   const [expanded, setExpanded] = useState(false);
   const headingId = useId();
+  // The Team mark shows only where the Team column has room for it (#2978). The table decides once, from its own
+  // Team header cell's width, so a table beside the rail and one at full width draw the same marks. jsdom has no
+  // layout, so the width reads 0 there and no mark is drawn.
+  const [teamHead, setTeamHead] = useState(null);
+  const [teamWidth, setTeamWidth] = useState(0);
+  useLayoutEffect(() => {
+    if (!teamHead) return undefined;
+    const measure = () => setTeamWidth(teamHead.getBoundingClientRect().width);
+    measure();
+    if (typeof ResizeObserver === 'undefined') return undefined;
+    const observer = new ResizeObserver(measure);
+    observer.observe(teamHead);
+    return () => observer.disconnect();
+  }, [teamHead]);
+  const mark = !phone && teamWidth >= TEAM_MARK_MIN_PX;
 
   // The frame owns this fetch, so it reports the loading state to assistive tech while the read that
   // holds the table's layout is still in flight.
@@ -158,6 +175,7 @@ export default function StandingsTable({ leagueId, onViewerRow }) {
               <Box
                 component="th"
                 scope="col"
+                ref={setTeamHead}
                 sx={headCellSx('left', {
                   position: 'sticky', left: RANK_W, zIndex: 1, minWidth: { xs: '214px', md: 0 },
                 })}
@@ -187,6 +205,7 @@ export default function StandingsTable({ leagueId, onViewerRow }) {
                   <StandingsRow
                     row={row}
                     preseason={preseason}
+                    mark={mark}
                     lastBeforeBreak={index === last || index + 1 === cutIndex}
                   />
                   {index + 1 === cutIndex && <CutRow />}
@@ -221,7 +240,9 @@ export default function StandingsTable({ leagueId, onViewerRow }) {
   );
 }
 
-function StandingsRow({ row, preseason, lastBeforeBreak }) {
+function StandingsRow({
+  row, preseason, lastBeforeBreak, mark,
+}) {
   const base = {
     backgroundColor: row.isViewer ? 'var(--ps-play)' : 'var(--ps-panel)',
     color: row.isViewer ? 'var(--ps-play-ink)' : 'var(--ps-ink)',
@@ -252,13 +273,13 @@ function StandingsRow({ row, preseason, lastBeforeBreak }) {
         })}
       >
         {/* On a phone the Team column is the 214px the header holds, so a long name ellipsizes (the full
-            name is its title) and the arrow, mark and You tag always stay in view; from sm up it is as wide
+            name is its title) and the arrow and You tag always stay in view; from sm up it is as wide
             as its content, and from md it is what the numeric columns leave, so the name ellipsizes there too. */}
         <Box sx={{ display: 'flex', alignItems: 'center', gap: { xs: '6px', lg: '10px' }, maxWidth: { xs: '198px', sm: 'none', md: '100%' } }}>
           <Box component="span" aria-hidden="true" sx={{ width: '12px', flex: 'none', display: 'inline-flex' }}>
             {row.isViewer && <PixelArrow />}
           </Box>
-          <TeamMark name={row.teamName} avatarUrl={row.avatarUrl} avatarStaticUrl={row.avatarStaticUrl} />
+          {mark && <TeamMark data-testid="standings-table-mark" name={row.teamName} avatarUrl={row.avatarUrl} avatarStaticUrl={row.avatarStaticUrl} />}
           <Box
             component="span"
             title={row.teamName}

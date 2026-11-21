@@ -20,7 +20,7 @@
 import fs from 'fs';
 import path from 'path';
 import { expect, test } from '@playwright/test';
-import type { Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 import {
   DASH_TEAMS, DASH_URL, EXPECTED_CURSORS, setupDashboard,
 } from './fixtures/leagueDashboardPlayselectFixtures';
@@ -366,6 +366,97 @@ for (const state of ['inseason', 'gamedayUrgent', 'gamedaySet', 'complete'] as c
     });
   }
 }
+
+// Each body row's Team cell: its name, its width, and whether it draws a Team mark (the mark carries the
+// standings-table-mark test id, passed through TeamMark from StandingsTable).
+const teamCells = (table: Locator) => table.locator('tbody tr:not([data-cut-line])').evaluateAll((trs) => trs.map((tr) => {
+  const cell = tr.querySelector('th[scope="row"]') as HTMLElement;
+  return {
+    team: cell.querySelector('span[title]')?.getAttribute('title') ?? '',
+    width: cell.getBoundingClientRect().width,
+    mark: cell.querySelector('[data-testid="standings-table-mark"]') !== null,
+  };
+}));
+
+// The Team mark (#2978): below sm no standings row draws one, so the viewer's name keeps 150px beside the arrow and the You tag.
+test('inseason phone: no standings row draws a team mark, and the viewer\'s Team name keeps 120px', async ({ page }) => {
+  await openDashboard(page, 'inseason', 'phone');
+  const table = page.getByTestId('standings-table');
+  await expect(table.getByTestId('standings-table-you-row')).toBeVisible();
+  expect((await teamCells(table)).filter((row) => row.mark), 'no row draws a mark at 390').toEqual([]);
+  const name = await table.getByTestId('standings-table-you-row').locator('th span[title]').evaluate((el) => el.getBoundingClientRect().width);
+  expect(name, `the viewer's Team name gets ${name}px at 390`).toBeGreaterThanOrEqual(120);
+});
+
+// From sm up a row draws its Team mark only where its Team cell is 240px or more, so no row is a mark in a cell too narrow for it.
+for (const state of ['inseason', 'gamedayUrgent', 'gamedaySet', 'complete'] as const) {
+  test(`${state} desktop: every standings row draws a team mark in a Team cell 240px or more`, async ({ page }) => {
+    await openDashboard(page, state, 'desktop');
+    const rows = await teamCells(page.getByTestId('standings-table'));
+    expect(rows, 'all twelve rows are measured').toHaveLength(12);
+    for (const row of rows) {
+      expect(row.mark, `${row.team} draws no team mark at 1440`).toBe(true);
+      expect(row.width, `${row.team} draws its mark in a ${row.width}px Team cell`).toBeGreaterThanOrEqual(240);
+    }
+  });
+}
+
+// Case (ii) at 900 (#2978 verdict): the page loads in stages, so each case waits for the settled layout before it asserts.
+// The league's transactions read and the week's matchups read are armed before navigation, so an answer that lands during
+// the load is not missed; the rail's placement is then polled until it is the state's settled one.
+const FEED_PATH = `/api/league/${LEAGUE_ID}/transactions`;
+const MATCHUPS_PATH = `/api/league/${LEAGUE_ID}/matchups`;
+
+// Where the rail sits against the standings: beside them (its left edge past their right edge), below them (its top past
+// their bottom), or 'none' while either box is missing.
+const railPlacement = (page: Page) => page.evaluate(() => {
+  const standings = document.querySelector('[data-testid="slot-standings"]')?.getBoundingClientRect();
+  const rail = document.querySelector('[data-testid="dashboard-rail"]')?.getBoundingClientRect();
+  if (!standings || !rail || rail.width === 0 || rail.height === 0) return 'none';
+  if (rail.left >= standings.right) return 'beside';
+  if (rail.top >= standings.bottom) return 'below';
+  return 'overlap';
+});
+
+async function openSettledAt900(page: Page, state: DashState, placement: 'beside' | 'below') {
+  watchUnanswered(page);
+  const feedRead = page.waitForResponse((res) => new URL(res.url()).pathname === FEED_PATH);
+  const matchupsRead = page.waitForResponse((res) => new URL(res.url()).pathname === MATCHUPS_PATH);
+  await setupDashboard(page, state);
+  await page.setViewportSize(MD_BAND.md900);
+  await page.goto(DASH_URL);
+  await Promise.all([feedRead, matchupsRead]);
+  await expect(page.getByTestId('standings-table-you-row')).toBeVisible();
+  await expect
+    .poll(() => railPlacement(page), { message: `the rail sits ${placement} the standings`, timeout: 10_000 })
+    .toBe(placement);
+  await page.evaluate(() => document.fonts.ready.then(() => true));
+}
+
+// Beside the rail on game day the Team cell is 173.6px and no row draws a mark.
+for (const state of ['gamedayUrgent', 'gamedaySet'] as const) {
+  test(`${state} md900 settled: no standings row draws a team mark beside the rail`, async ({ page }) => {
+    await openSettledAt900(page, state, 'beside');
+    const table = page.getByTestId('standings-table');
+    await expect.poll(async () => (await teamCells(table)).length, { message: 'all twelve rows are measured' }).toBe(12);
+    await expect.poll(async () => (await teamCells(table)).filter((row) => row.mark).map((row) => row.team), { message: 'rows drawing a mark beside the rail' }).toEqual([]);
+  });
+}
+
+// Below the standings on inseason the Team cell is 516px and every row keeps its mark.
+test('inseason md900 settled: every standings row draws a team mark in a Team cell 240px or more', async ({ page }) => {
+  await openSettledAt900(page, 'inseason', 'below');
+  const table = page.getByTestId('standings-table');
+  await expect.poll(async () => (await teamCells(table)).length, { message: 'all twelve rows are measured' }).toBe(12);
+  await expect.poll(async () => (await teamCells(table)).filter((row) => !row.mark || row.width < 240).map((row) => row.team), { message: 'rows without a mark, or with a Team cell under 240px' }).toEqual([]);
+});
+
+test('complete md900 settled: every standings row has a Team cell 240px or more, or draws no team mark', async ({ page }) => {
+  await openSettledAt900(page, 'complete', 'below');
+  const table = page.getByTestId('standings-table');
+  await expect.poll(async () => (await teamCells(table)).length, { message: 'all twelve rows are measured' }).toBe(12);
+  await expect.poll(async () => (await teamCells(table)).filter((row) => row.mark && row.width < 240).map((row) => row.team), { message: 'rows drawing a mark in a Team cell under 240px' }).toEqual([]);
+});
 
 // Pick'em-only table (#2930). Below sm it keeps four columns (Rank, Team, Points, this week), folds to the viewer's
 // row with two teams either side and a Full standings link, and links to the Pick'em page for the rest.

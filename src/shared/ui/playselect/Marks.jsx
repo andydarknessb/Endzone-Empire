@@ -10,7 +10,7 @@ import { SR_ONLY_SX, pixelSx } from './type';
 
 /** A team's square avatar: its image when it has one, else initials, in a 2px border. Colour is `currentColor`. */
 export function TeamMark({
-  name, avatarUrl, avatarStaticUrl, size = 28,
+  name, avatarUrl, avatarStaticUrl, size = 28, 'data-testid': testId,
 }) {
   const reduced = useMediaQuery('(prefers-reduced-motion: reduce)');
   const src = (shouldShowStillFrame(reduced, avatarStaticUrl) ? avatarStaticUrl : avatarUrl) || undefined;
@@ -18,6 +18,7 @@ export function TeamMark({
     <Box
       component="span"
       aria-hidden="true"
+      data-testid={testId}
       sx={{
         display: 'inline-grid',
         placeItems: 'center',
