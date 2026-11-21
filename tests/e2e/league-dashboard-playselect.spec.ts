@@ -367,22 +367,6 @@ for (const state of ['inseason', 'gamedayUrgent', 'gamedaySet', 'complete'] as c
   }
 }
 
-// Pick'em-only weekly strips (#2928): one labelled image per team, its eighteen cells hidden. Twelve teams, so a
-// strip that still drew every cell as an image would put 216 role="img" elements inside the strips here.
-test('pickemonly desktop: each weekly points strip is one labelled image, its cells hidden', async ({ page }) => {
-  await openDashboard(page, 'pickemonly', 'desktop');
-  const card = page.getByTestId('dashboard-pickem-standings');
-  const strips = card.getByTestId('pickem-standings-heat');
-  await expect(strips).toHaveCount(12);
-  await expect(card.locator('[data-testid="pickem-standings-heat"] [role="img"]')).toHaveCount(0);
-  for (const strip of await strips.all()) {
-    await expect(strip).toHaveAttribute('role', 'img');
-    expect(await strip.getAttribute('aria-label'), 'the strip names its weeks').toBeTruthy();
-  }
-  await expect(card.locator('[data-testid="pickem-standings-heat-cell"]')).toHaveCount(12 * 18);
-  await expect(card.locator('[data-testid="pickem-standings-heat-cell"]:not([aria-hidden="true"])')).toHaveCount(0);
-});
-
 // Pick'em-only table (#2930). Below sm it keeps four columns (Rank, Team, Points, this week), folds to the viewer's
 // row with two teams either side and a Full standings link, and links to the Pick'em page for the rest.
 test('pickemonly phone: four columns, the viewer row with two teams either side, Full standings shows all twelve', async ({ page }) => {
@@ -415,9 +399,19 @@ test("pickemonly phone: the link under the table goes to the Pick'em page and is
   expect(box.height, 'the link is a 44px target').toBeGreaterThanOrEqual(44);
 });
 
-// From sm up the table keeps all ten columns and fits its frame: the Team column takes what the numeric columns
-// leave, so a long name truncates and keeps its full name in the cell's accessible name.
-test('pickemonly desktop: all ten columns fit the table box, Trend in it, a long Team name truncates with its full name', async ({ page }) => {
+// From sm up Trend is in the table, so the link reads "Accuracy and weekly points"; it sits under the table at every width.
+test("pickemonly desktop: the link under the table reads Accuracy and weekly points and goes to the Pick'em page", async ({ page }) => {
+  await openDashboard(page, 'pickemonly', 'desktop');
+  const link = page.getByRole('link', { name: 'Accuracy and weekly points' });
+  await expect(link).toBeVisible();
+  await expect(link).toHaveAttribute('href', /\/pickem$/);
+  const under = await link.evaluate((el) => el.getBoundingClientRect().top >= document.querySelector('[data-testid="pickem-standings-scroll"]')!.getBoundingClientRect().bottom);
+  expect(under, 'the link sits under the table').toBe(true);
+});
+
+// From sm up the table keeps seven columns and fits its frame: the Team column takes what the numeric columns leave,
+// so at 1440 a 58-character name fits its cell and keeps its full accessible name.
+test('pickemonly desktop: seven columns fit the table box, every Team cell is 240px or more, a long Team name is not clipped', async ({ page }) => {
   const LONG = 'The Quarterback Whisperers of Tuesday Night Fantasy League';
   watchUnanswered(page);
   await setupDashboard(page, 'pickemonly', { teamNames: { [DASH_TEAMS[0].teamId]: LONG } });
@@ -426,7 +420,7 @@ test('pickemonly desktop: all ten columns fit the table box, Trend in it, a long
   await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
   const table = page.getByTestId('pickem-standings');
   await expect(table.getByTestId('pickem-standings-you-row')).toBeVisible();
-  await expect(table.getByRole('columnheader')).toHaveCount(10);
+  await expect(table.getByRole('columnheader')).toHaveText(['Rank', 'Team', 'Points', /^Wk \d+$/, 'Correct', 'Missed', 'Trend']);
 
   const box = await page.getByTestId('pickem-standings-scroll').evaluate((el) => ({
     scrollWidth: el.scrollWidth, clientWidth: el.clientWidth, right: el.getBoundingClientRect().right,
@@ -434,23 +428,34 @@ test('pickemonly desktop: all ten columns fit the table box, Trend in it, a long
   expect(box.scrollWidth, `pick'em table scrollWidth ${box.scrollWidth} vs clientWidth ${box.clientWidth}`).toBeLessThanOrEqual(box.clientWidth);
   const trendRight = await table.getByRole('columnheader', { name: 'Trend' }).evaluate((el) => el.getBoundingClientRect().right);
   expect(trendRight, `Trend header right edge ${trendRight} vs the box's right edge ${box.right}`).toBeLessThanOrEqual(box.right);
+  const teamWidths = await table.getByRole('rowheader').evaluateAll((ths) => ths.map((th) => th.getBoundingClientRect().width));
+  expect(teamWidths).toHaveLength(12);
+  for (const width of teamWidths) {
+    expect(width, 'every Team cell is at least 240px').toBeGreaterThanOrEqual(240);
+  }
+  const viewerName = await table.getByTestId('pickem-standings-you-row').locator('th span[title]').evaluate((el) => el.scrollWidth <= el.clientWidth);
+  expect(viewerName, "the viewer's Team name is not clipped").toBe(true);
   const name = page.getByTestId('pickem-standings-scroll').getByTitle(LONG);
-  expect(await name.evaluate((el) => el.scrollWidth > el.clientWidth), 'the long Team name is clipped').toBe(true);
+  expect(await name.evaluate((el) => el.scrollWidth <= el.clientWidth), 'the long Team name is not clipped at 1440').toBe(true);
   await expect(table.getByRole('rowheader', { name: LONG })).toHaveCount(1);
 });
 
-// From sm up the table has a 1179px floor, so between the breakpoint and the width the ten columns need it scrolls
-// rather than crushing the Team column: at 768 the Team cell keeps its 160px.
-test('pickemonly tablet: the Team column keeps 160px and the table scrolls instead of crushing it', async ({ page }) => {
+// The table's floor is 712px (the seven columns take 472px, Team gets 240px), so at 768 the Team cell keeps 240px and
+// a 58-character name is clipped inside it, its row header keeping the full name. The width is the red-tell for a wrong floor.
+test('pickemonly tablet: the Team column keeps at least 240px at 768, and a long name is clipped with its full name', async ({ page }) => {
+  const LONG = 'The Quarterback Whisperers of Tuesday Night Fantasy League';
   watchUnanswered(page);
-  await setupDashboard(page, 'pickemonly');
+  await setupDashboard(page, 'pickemonly', { teamNames: { [DASH_TEAMS[0].teamId]: LONG } });
   await page.setViewportSize({ width: 768, height: 1024 });
   await page.goto(DASH_URL);
   await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
   const table = page.getByTestId('pickem-standings');
   await expect(table.getByTestId('pickem-standings-you-row')).toBeVisible();
   const teamWidth = (await table.getByRole('rowheader').first().boundingBox())!.width;
-  expect(teamWidth, `the Team cell is ${teamWidth}px wide at 768`).toBeGreaterThanOrEqual(160);
+  expect(teamWidth, `the Team cell is ${teamWidth}px wide at 768`).toBeGreaterThanOrEqual(240);
+  const name = page.getByTestId('pickem-standings-scroll').getByTitle(LONG);
+  expect(await name.evaluate((el) => el.scrollWidth > el.clientWidth), 'the long Team name is clipped at 768').toBe(true);
+  await expect(table.getByRole('rowheader', { name: LONG })).toHaveCount(1);
 });
 
 // A new league's invite code is 16 characters (crypto.randomBytes(8) as hex). At 360 the commissioner's Invite and
