@@ -238,6 +238,51 @@ function itemsFor(state: DashState, now: number) {
 
 export type DashHarness = { items: () => Record<string, unknown>[] };
 
+// gamedayUrgent's viewer lineup (spec #2979). layoutGuardFixtures' lineupForViewer is not exported and that file
+// serves other specs unchanged, so the nine starters the shared harness serves are listed here, with Puka Nacua at
+// FLEX, Out, as the Play names him. He keeps the FLEX entry's id (1006), so no id repeats.
+const GAMEDAY_STARTERS: Array<[name: string, position: string, slot: string]> = [
+  ['Patrick Mahomes', 'QB', 'QB'],
+  ['Christian McCaffrey', 'RB', 'RB'],
+  ['Bijan Robinson', 'RB', 'RB'],
+  ['Justin Jefferson', 'WR', 'WR'],
+  ['CeeDee Lamb', 'WR', 'WR'],
+  ['Sam LaPorta', 'TE', 'TE'],
+  ['Puka Nacua', 'WR', 'FLEX'],
+  ['Harrison Butker', 'K', 'K'],
+  ['San Francisco 49ers', 'DEF', 'DEF'],
+];
+
+function gamedayLineup() {
+  return {
+    leagueId: LEAGUE_ID,
+    teamId: VIEWER_TEAM_ID,
+    season: 2026,
+    week: WEEK,
+    currentWeek: WEEK,
+    rosterSlots: LEAGUE_ROW.roster_slots,
+    benchSlots: 5,
+    irSlots: 1,
+    entries: GAMEDAY_STARTERS.map(([name, position, slot], i) => ({
+      id: 1000 + i,
+      name,
+      position,
+      nfl_team: 'KC',
+      slot,
+      projected_points: 11.8 + i,
+      ir_attested: false,
+      bye_week: null,
+      locked: false,
+      onBye: false,
+      valid_stash: false,
+      opponent: 'DAL',
+      ...(name === 'Puka Nacua'
+        ? { injury_status: 'O', startVerdict: { outcome: 'unavailable', reason: 'out', numberTrusted: true } }
+        : { injury_status: null }),
+    })),
+  };
+}
+
 /**
  * Install the guard harness plus the override for one dashboard state, and (optionally) the
  * stored theme. Call before page.goto.
@@ -293,6 +338,7 @@ export async function setupDashboard(
       const rankings = ranked.map((t, i) => ({ teamId: t.teamId, name: t.teamName, rank: i + 1 }));
       return json(route, 200, { season: 2026, week: WEEK, viewerTeamId: VIEWER_TEAM_ID, data: { computedAt: at(now, -HOUR), rankings } });
     }
+    if (pathname === '/api/team/lineup' && state === 'gamedayUrgent') return json(route, 200, gamedayLineup());
     if (pathname === '/api/team/lineup/advice') {
       return json(route, 200, {
         suggestions: [{

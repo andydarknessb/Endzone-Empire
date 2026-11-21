@@ -12,7 +12,7 @@ import useMyTeamSummary from '../model/useMyTeamSummary';
  * Pixel 24 with points for and against, then the facts the card has always stated when they have a
  * value (draft grade, projected finish with its movement, playoff odds, roster value, and either
  * FAAB left or roster fullness), then the first five starters (position tag, name, injury tag,
- * opponent line, projection under a "Proj" label), an "and N more" note and the lineup status with a
+ * opponent line, projection under a "Proj" label; unavailable starters first, #2972), an "and N more" note and the lineup status with a
  * "Fix lineup" link while it is incomplete. The frame's foot links Lineup, Waivers and Trades.
  *
  * Before the draft lineups are not open, so no lineup is read: the card keeps the tiles that have a
@@ -302,7 +302,7 @@ function StartersList({ starters }) {
           </Box>
           {starters.moreCount > 0 && (
             <Box data-testid="my-team-starters-more" sx={{ margin: '8px 0 0', fontSize: '14px', color: 'var(--ps-dim)' }}>
-              {`and ${starters.moreCount} more starter${starters.moreCount === 1 ? '' : 's'} · ${starters.questionableCount} questionable`}
+              {`and ${starters.moreCount} more starter${starters.moreCount === 1 ? '' : 's'}${starters.questionableCount > 0 ? ` · ${starters.questionableCount} questionable` : ''}`}
             </Box>
           )}
         </>
