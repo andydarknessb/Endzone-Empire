@@ -55,11 +55,36 @@ const footLabelOf = (control, labels) => labels.find((label) => (
 const controlsLabelled = (host, labels, label) => [...host.querySelectorAll(MOVE_CONTROL)]
   .filter((el) => footLabelOf(el, labels) === label);
 
+// Try again (item 4 of #2990): the danger panel's button leaves the DOM when the read restarts, and the placeholder
+// when it settles, so focus follows the slot. The press sets `retryFocus`; the child the press draws (keyed by its
+// state, so it mounts fresh) takes focus: the placeholder while the read is out, else the frame or the panel's button.
+// A child unmounted with focus inside the slot leaves `retryFocus` set, so the child that replaces it moves focus on
+// only then. Focus that went elsewhere clears it.
+function FocusFollow({ host, retryFocus, children }) {
+  useLayoutEffect(() => {
+    const el = host.current;
+    if (retryFocus.current) {
+      const pending = el.querySelector('[data-testid="your-move-pending"]');
+      if (pending) pending.focus();
+      else {
+        retryFocus.current = false;
+        (el.querySelector('[data-testid="your-move"]') ?? el.querySelector('button'))?.focus();
+      }
+    }
+    return () => {
+      if (retryFocus.current) retryFocus.current = el.contains(document.activeElement);
+    };
+  }, [host, retryFocus]);
+  return children;
+}
+
 // Your move changes parent when a lock crosses one hour (the hero, then the top of the page), so React
 // remounts its controls and the focused one leaves the DOM with focus on the body. The old copy records
 // which foot held focus in its layout cleanup, while its DOM is still there; the new copy focuses the foot
 // with that label (the nth one, when a label repeats). Focus that was never inside Your move is not carried.
-function YourMoveSlot({ carry, labels, children }) {
+function YourMoveSlot({
+  carry, labels, retryFocus, kind, children,
+}) {
   const hostRef = useRef(null);
   const labelsRef = useRef(labels);
   useLayoutEffect(() => { labelsRef.current = labels; });
@@ -79,7 +104,7 @@ function YourMoveSlot({ carry, labels, children }) {
   }, [carry]);
   return (
     <Box component="section" ref={hostRef} data-testid="slot-your-move" sx={{ minWidth: 0 }}>
-      {children}
+      <FocusFollow key={kind} host={hostRef} retryFocus={retryFocus}>{children}</FocusFollow>
     </Box>
   );
 }
@@ -323,8 +348,14 @@ function DashboardBody({
   const footLabels = yourMove?.lead
     ? [yourMove.lead, ...yourMove.rest].flatMap((card) => card.feet.map((foot) => foot.cta?.label)).filter(Boolean)
     : [];
+  // Try again sets this before it reloads, so the slot that the press draws takes focus (see YourMoveSlot).
+  const retryFocus = useRef(false);
+  const tryAgain = () => {
+    retryFocus.current = true;
+    actions.reload();
+  };
   const yourMoveNode = yourMove && (
-    <YourMoveSlot carry={focusCarry} labels={footLabels}>
+    <YourMoveSlot kind={yourMove.pending ? 'pending' : 'move'} carry={focusCarry} labels={footLabels} retryFocus={retryFocus}>
       <YourMove {...yourMove} inviteCode={league.invite_code} />
     </YourMoveSlot>
   );
@@ -332,14 +363,14 @@ function DashboardBody({
   // already taken it (a child's layout effects run before its parent's), so a commit that remounts nothing drops it.
   useLayoutEffect(() => { focusCarry.current = null; });
   const yourMoveFailed = !itemsPending && actions.error && !complete && (
-    <Box data-testid="slot-your-move">
+    <YourMoveSlot kind="failed" carry={focusCarry} labels={footLabels} retryFocus={retryFocus}>
       <ErrorPanel
         title="Couldn't check what needs you"
         body="Your league is below. Open each page, or try again."
-        onRetry={actions.reload}
+        onRetry={tryAgain}
         retryAriaLabel="Try checking your plays again"
       />
-    </Box>
+    </YourMoveSlot>
   );
 
   const showHero = fantasy && !complete;

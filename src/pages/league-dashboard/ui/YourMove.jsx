@@ -6,6 +6,7 @@ import {
 import { useInviteCopy } from '../../../features/copy-invite';
 import { itemType, playName } from '../../../entities/action-item';
 import { formatInstant, timeUntil, useNow } from '../../../shared/lib';
+import { YourMoveHeadSkel } from './PageStates';
 
 const MINUTE_MS = 60 * 1000;
 const HOUR_MS = 60 * MINUTE_MS;
@@ -147,7 +148,8 @@ export default function YourMove({
         role="status"
         aria-label="Checking what needs you"
         data-testid="your-move-pending"
-        head={<FrameHead><Skel width="180px" height={24} /></FrameHead>}
+        tabIndex={-1}
+        head={<YourMoveHeadSkel />}
       >
         <Box sx={{ padding: { xs: '8px', md: '12px' } }}>
           <Skel width="100%" height={96} />
@@ -164,6 +166,7 @@ export default function YourMove({
         tier="rule"
         labelledBy={headingId}
         data-testid="your-move"
+        tabIndex={-1}
         head={(
           <FrameHead>
             <PixelHeading id={headingId} size={16}>Your move</PixelHeading>
@@ -186,6 +189,7 @@ export default function YourMove({
     <Frame
       labelledBy={headingId}
       data-testid="your-move"
+      tabIndex={-1}
       head={(
         <FrameHead>
           <PixelHeading id={headingId}>Your move</PixelHeading>

@@ -36,6 +36,11 @@ function SkelFrame({ headWidth, rows }) {
   );
 }
 
+/** Your move's head while its read is out: the one skeleton both the first load and the placeholder hold. */
+export function YourMoveHeadSkel() {
+  return <FrameHead><Skel width="180px" height={24} /></FrameHead>;
+}
+
 /** The first load: the head, Your move's three plays and the standings and activity, held in Skel. */
 export function DashboardLoading() {
   return (
@@ -50,7 +55,7 @@ export function DashboardLoading() {
         <Skel width="min(520px, 100%)" height={40} />
         <Skel width="min(340px, 100%)" height={20} />
       </Box>
-      <Frame component="div" head={<FrameHead><Skel width="180px" height={24} /></FrameHead>}>
+      <Frame component="div" head={<YourMoveHeadSkel />}>
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(3, minmax(0, 1fr))' }, gap: '8px', padding: '12px' }}>
           {[0, 1, 2].map((i) => (
             <Box key={i} sx={{ padding: '8px', border: '4px solid transparent' }}>
