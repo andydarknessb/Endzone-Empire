@@ -3292,8 +3292,107 @@ describe('Your move', () => {
   });
 });
 
+// The action-items reads in call order: each reply is a rejection, a payload, or { hold: true } for a read the
+// test settles itself (through the returned function). A call past the list is held too.
+const actionReads = (replies) => {
+  const served = apiClient.get.getMockImplementation();
+  const held = [];
+  let calls = 0;
+  apiClient.get.mockImplementation((url) => {
+    if (url !== ACTION_URL) return served(url);
+    const reply = replies[calls] ?? { hold: true };
+    calls += 1;
+    if (reply.reject) return Promise.reject(reply.reject);
+    if (reply.hold) return new Promise((resolve) => { held.push(resolve); });
+    return Promise.resolve(reply);
+  });
+  return (payload) => act(async () => held.shift()(payload));
+};
+
+// Try again on the danger panel (item 4 of #2990): its button leaves the DOM when the read restarts, so focus
+// follows Your move's slot instead of falling to the body.
+describe('Try again keeps focus on Your move', () => {
+  const failed = { reject: { response: { status: 500 } } };
+  const tryAgain = () => screen.findByRole('button', { name: 'Try checking your plays again' });
+
+  test('with nothing cached, focus lands on the placeholder the press draws, then on the card when the read answers', async () => {
+    mockGetByUrl({ '/api/league/1': inSeasonLeague() });
+    const settle = actionReads([failed, { hold: true }]);
+    renderPage();
+
+    await userEvent.click(await tryAgain());
+    expect(screen.getByTestId('your-move-pending')).toHaveFocus();
+
+    await settle(actionItems([lineupItem(IN_MINUTES(6 * 60))])[ACTION_URL]);
+    expect(screen.queryByTestId('your-move-pending')).not.toBeInTheDocument();
+    expect(screen.getByTestId('your-move')).toHaveFocus();
+  });
+
+  test('with nothing cached, a retry that fails again leaves focus on the new panel\'s Try again button in Your move', async () => {
+    mockGetByUrl({ '/api/league/1': inSeasonLeague() });
+    actionReads([failed, failed]);
+    renderPage();
+
+    await userEvent.click(await tryAgain());
+    await waitFor(() => expect(
+      within(screen.getByTestId('slot-your-move')).getByRole('button', { name: 'Try checking your plays again' }),
+    ).toHaveFocus());
+  });
+
+  test('focus on a control outside Your move is left where it is when the read settles', async () => {
+    mockGetByUrl({ '/api/league/1': inSeasonLeague() });
+    const settle = actionReads([failed, { hold: true }]);
+    renderPage();
+
+    await userEvent.click(await tryAgain());
+    const outside = within(await screen.findByRole('navigation', { name: 'League pages' })).getAllByRole('link')[0];
+    act(() => outside.focus());
+    await settle(actionItems([lineupItem(IN_MINUTES(6 * 60))])[ACTION_URL]);
+
+    expect(await screen.findByTestId('your-move')).toBeInTheDocument();
+    expect(outside).toHaveFocus();
+  });
+
+  test('over cached items, a failed re-read and a press that draws the card at once keep focus in Your move', async () => {
+    mockGetByUrl({ '/api/league/1': inSeasonLeague(), ...actionItems([lineupItem(IN_MINUTES(6 * 60))]) });
+    const { unmount } = renderPage();
+    await screen.findByTestId('your-move');
+    unmount();
+
+    mockGetByUrl({ '/api/league/1': inSeasonLeague() });
+    actionReads([failed, { hold: true }]);
+    renderPage();
+
+    await userEvent.click(await tryAgain());
+    expect(screen.getByTestId('your-move')).toHaveFocus();
+  });
+
+  test('on game day with nothing urgent, a failed read then Try again keeps focus in the hero, on the placeholder and then the card', async () => {
+    mockGetByUrl(gameDayMocks());
+    const settle = actionReads([failed, { hold: true }]);
+    renderPage();
+    await screen.findByText('3 matchups live');
+
+    await userEvent.click(await tryAgain());
+    const hero = screen.getByTestId('dashboard-hero');
+    expect(within(hero).getByTestId('your-move-pending')).toHaveFocus();
+
+    await settle(actionItems([picksItem(IN_MINUTES(6 * 60))])[ACTION_URL]);
+    expect(within(screen.getByTestId('dashboard-hero')).getByTestId('your-move')).toHaveFocus();
+  });
+});
+
 // AC4: on game day a lock inside the hour puts Your move first; otherwise the live scoreboard leads.
 describe('game day order', () => {
+  test('with the action-items read pending the placeholder holds Your move\'s place inside the hero, after the matchup', async () => {
+    mockGetByUrl(gameDayMocks({ [ACTION_URL]: { pending: true } }));
+    renderPage();
+
+    const hero = await screen.findByTestId('dashboard-hero');
+    const placeholder = await within(hero).findByTestId('your-move-pending');
+    expect(precedes(within(hero).getByTestId('slot-matchup-preview'), placeholder)).toBe(true);
+  });
+
   test('with an item locking in 45 minutes Your move precedes the live matchup, under a red cursor', async () => {
     mockGetByUrl(gameDayMocks(actionItems([lineupItem(IN_MINUTES(45)), picksItem(IN_MINUTES(45))])));
     renderPage();
