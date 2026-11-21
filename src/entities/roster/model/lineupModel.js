@@ -139,6 +139,12 @@ export function lineupModel(body) {
   const starters = entries.filter((e) => e.slot !== BENCH && e.slot !== IR && !e.spent);
   const benchCount = entries.filter((e) => e.slot === BENCH).length;
   const questionable = starters.filter((e) => e.injuryStatus != null).length;
+  // The Start verdict the starter rows do not carry, keyed by the wire id a
+  // starter's playerId holds (spec #2979), so a widget can order by Unavailable
+  // through `unavailable({ availability })` without a copy of the rule.
+  const availabilityByPlayerId = new Map(
+    rawEntries.filter((r) => r?.id != null).map((r) => [r.id, availabilityFor(r.startVerdict)]),
+  );
   return {
     week: b.week ?? null,
     season: b.season ?? null,
@@ -151,6 +157,7 @@ export function lineupModel(body) {
     starters,
     benchCount,
     questionable,
+    availabilityByPlayerId,
   };
 }
 

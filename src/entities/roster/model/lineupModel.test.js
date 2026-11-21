@@ -258,9 +258,30 @@ describe('lineupModel: the one shape from the lineup body', () => {
       starters: [],
       benchCount: 0,
       questionable: 0,
+      availabilityByPlayerId: new Map(),
     };
     expect(lineupModel(null)).toEqual(empty);
     expect(lineupModel(undefined)).toEqual(empty);
+  });
+
+  // The Start verdict the starter rows drop (playerFromLineupEntry), keyed by
+  // the wire id a starter's playerId carries, so My team can order by
+  // Unavailable without a third copy of the rule (spec #2979).
+  test('availabilityByPlayerId maps each entry id to its Start verdict, and a row with no verdict to available', () => {
+    const model = lineupModel({
+      ...body,
+      entries: [
+        row({ id: 1, slot: 'QB', startVerdict: { outcome: 'unavailable', reason: 'out', numberTrusted: true } }),
+        row({ id: 2, slot: 'RB', startVerdict: { outcome: 'unavailable', reason: 'no_team', numberTrusted: true } }),
+        row({ id: 3, slot: 'WR', injury_status: 'O' }),
+      ],
+    });
+    expect(model.availabilityByPlayerId).toEqual(new Map([
+      [1, { available: false, reason: 'out' }],
+      [2, { available: false, reason: 'no_team' }],
+      [3, { available: true, reason: null }],
+    ]));
+    expect(model.starters[0]).not.toHaveProperty('availability');
   });
 
   test('a projected_points wire string (a pg decimal) coerces to a number', () => {
