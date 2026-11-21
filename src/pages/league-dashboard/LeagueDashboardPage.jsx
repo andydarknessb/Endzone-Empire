@@ -95,7 +95,7 @@ function YourMoveSlot({ carry, labels, children }) {
  * Invite control, and below sm the chat button) leads every state. Then the page's product order, which the canvas rulings fix:
  *
  *   - Your move leads: this league's open plays, the one cursor and the one filled action (`ui/YourMove`).
- *     With nothing due it is a calm "You're set" card ("No team in this league" for a viewer with no Team);
+ *     With nothing due it is a calm "You're set" card ("No team in this league" for a viewer with no Team in a league that has Teams);
  *     while its read is in flight a placeholder holds the place. Off game day it is the first row of the page.
  *   - Off game day, the hero follows Your move, with one row in between: in season the League pages row
  *     (Play and Moves); before the draft the pre-draft countdown (Draft Day) once the draft has a date. The
@@ -308,7 +308,8 @@ function DashboardBody({
         urgent: move.urgent,
       };
     } else if (!complete) {
-      yourMove = { empty: true, urgent: false, noTeam: !hasTeam };
+      // A pick'em-only league has no Teams to be on, so its calm card stays "You're set".
+      yourMove = { empty: true, urgent: false, noTeam: !hasTeam && !pickemOnly };
     }
   }
   // My team's lineup answer: this season-week's lineup_problem item, null for none, undefined while the read is unknown.

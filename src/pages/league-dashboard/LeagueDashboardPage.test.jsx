@@ -3201,6 +3201,22 @@ describe('Your move', () => {
     expect(within(section).queryByText("You're set")).not.toBeInTheDocument();
   });
 
+  test('a pick\'em-only league with no Team and nothing due keeps the calm "You\'re set", not "No team in this league"', async () => {
+    mockGetByUrl({
+      '/api/league/1': leagueDetail({
+        league: { pickem_only: true, draft_status: 'pending', season_status: 'regular', current_week: 6 },
+        teams: buildTeams(8),
+        viewerTeamId: null,
+      }),
+      ...actionItems([]),
+    });
+    renderPage();
+
+    const section = await screen.findByTestId('your-move');
+    expect(await within(section).findByRole('heading', { level: 3, name: "You're set" })).toBeInTheDocument();
+    expect(within(section).queryByText('No team in this league')).not.toBeInTheDocument();
+  });
+
   test('pre-draft Commissioner: the open-seats Play is the one filled foot, it copies the invite and the page does not navigate', async () => {
     mockGetByUrl({
       '/api/league/1': preDraftLeague({ is_commissioner: true, invite_code: 'abc123' }),
