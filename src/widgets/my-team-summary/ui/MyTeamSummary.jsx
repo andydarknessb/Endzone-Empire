@@ -239,6 +239,9 @@ function RankMovement({ change }) {
 
 function StarterRow({ starter, last }) {
   const secondLine = starter.opponent ? `${starter.nflTeam ?? ''} vs ${starter.opponent}` : starter.nflTeam ?? '';
+  // Actual points replace the projection once the game has them (`points`, null before kickoff, never 0). The "pts"
+  // label is what keeps the two figures from being read as one.
+  const scored = Number.isFinite(starter.points);
   const known = Number.isFinite(starter.projectedPoints);
   return (
     <Box
@@ -264,8 +267,17 @@ function StarterRow({ starter, last }) {
         }}
       >
         {/* The bare number has no column header in the accessibility tree, so a hidden label names it. */}
-        <span aria-hidden="true">{known ? starter.projectedPoints.toFixed(1) : '-'}</span>
-        <span style={{ ...SR_ONLY_SX }}>{known ? `${starter.projectedPoints.toFixed(1)} projected points` : 'Projection not available'}</span>
+        {scored ? (
+          <>
+            <span aria-hidden="true">{`${starter.points.toFixed(1)} `}<span style={{ fontSize: '12px', fontWeight: 500, color: 'var(--ps-dim)' }}>pts</span></span>
+            <span style={{ ...SR_ONLY_SX }}>{`${starter.points.toFixed(1)} points`}</span>
+          </>
+        ) : (
+          <>
+            <span aria-hidden="true">{known ? starter.projectedPoints.toFixed(1) : '-'}</span>
+            <span style={{ ...SR_ONLY_SX }}>{known ? `${starter.projectedPoints.toFixed(1)} projected points` : 'Projection not available'}</span>
+          </>
+        )}
       </Box>
     </Box>
   );
