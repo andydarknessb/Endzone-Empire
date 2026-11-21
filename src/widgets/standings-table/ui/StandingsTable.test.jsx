@@ -624,6 +624,41 @@ test('standings-table: a CPU-managed team (teams[].is_cpu) carries the CPU label
   expect(within(screen.getByRole('rowheader', { name: /Squad 3/ })).getByText('CPU')).toBeInTheDocument();
 });
 
+// --- the team mark (#2978) ---------------------------------------------------
+
+test('standings-table: a Team column under 240px draws no team mark, and each name is still its row header', async () => {
+  primeLeague({ teamCount: 4 });
+  mockGetByUrl({ '/api/scoring/league/1/standings': standingsResponse({ rows: standingsRows({ count: 4 }) }) });
+  renderTable();
+
+  const card = await screen.findByTestId('standings-table');
+  await within(card).findByText('Squad 2');
+  // jsdom has no layout, so the Team column measures 0px here: under the floor, so no row draws its mark.
+  expect(within(card).queryAllByTestId('standings-table-mark')).toHaveLength(0);
+  expect(within(card).getByRole('rowheader', { name: 'Squad 2' })).toBeInTheDocument();
+});
+
+test('standings-table: a Team column of 240px or more draws the mark on every row', async () => {
+  // Only the Team header reads 240px; every other element keeps jsdom's 0px, so the viewport is unchanged.
+  const measure = jest.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function teamHeadOnly() {
+    const width = this.tagName === 'TH' && this.textContent === 'Team' ? 240 : 0;
+    return {
+      width, height: 0, top: 0, left: 0, right: width, bottom: 0, x: 0, y: 0, toJSON: () => ({}),
+    };
+  });
+  try {
+    primeLeague({ teamCount: 4 });
+    mockGetByUrl({ '/api/scoring/league/1/standings': standingsResponse({ rows: standingsRows({ count: 4 }) }) });
+    renderTable();
+
+    const card = await screen.findByTestId('standings-table');
+    await within(card).findByText('Squad 2');
+    expect(within(card).getAllByTestId('standings-table-mark')).toHaveLength(4);
+  } finally {
+    measure.mockRestore();
+  }
+});
+
 // --- the viewer row, reported up to the page (onViewerRow) -------------------
 
 test('standings-table: onViewerRow reports the viewer row as its rank, record and points for', async () => {
