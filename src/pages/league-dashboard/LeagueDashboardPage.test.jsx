@@ -3016,14 +3016,9 @@ describe('the pick\'em-only body', () => {
     expect(within(card).getByTestId('pickem-standings-your-accuracy')).toHaveTextContent('71%');
     expect(within(card).getByTestId('pickem-standings-best-week')).toHaveTextContent('Wk 6');
     expect(within(card).getByTestId('pickem-standings-count')).toHaveTextContent('2 teams');
-    // The weekly heat strip: eighteen weeks per row, the best week marked.
-    expect(within(you).getAllByTestId('pickem-standings-heat-cell')).toHaveLength(18);
-    expect(within(you).getAllByTestId('pickem-standings-heat-cell').filter((cell) => cell.hasAttribute('data-best'))).toHaveLength(1);
-    // One labelled image per strip (the Pick'em page's HeatStrip), its eighteen cells hidden from the tree.
-    const strip = within(you).getByTestId('pickem-standings-heat');
-    expect(strip).toHaveAttribute('role', 'img');
-    expect(strip).toHaveAccessibleName('Weekly points, weeks 1 to 6: none, none, none, none, 9, 15; best week 6');
-    within(you).getAllByTestId('pickem-standings-heat-cell').forEach((cell) => expect(cell).toHaveAttribute('aria-hidden', 'true'));
+    // Rank, Team, Points, this week, Correct, Missed, Trend: the viewer's row has six cells and no weekly strip.
+    expect(within(you).getAllByRole('cell')).toHaveLength(6);
+    expect(within(you).queryByTestId('pickem-standings-heat')).toBeNull();
   });
 
   test('wears no cursor and no filled action of its own', async () => {
@@ -3036,7 +3031,7 @@ describe('the pick\'em-only body', () => {
     expect(card.querySelector('.cursor, [data-filled="true"]')).toBeNull();
   });
 
-  test('a tie for the best week: the tile names every tied week, as the strip rings them', async () => {
+  test('a tie for the best week: the tile names every tied week', async () => {
     mockGetByUrl({
       '/api/league/1': pickemOnlyLeague(),
       '/api/pickem/league/1/standings': {
@@ -3053,10 +3048,9 @@ describe('the pick\'em-only body', () => {
     renderPage();
 
     const card = await screen.findByTestId('pickem-standings');
-    const you = await within(card).findByTestId('pickem-standings-you-row');
+    await within(card).findByTestId('pickem-standings-you-row');
     expect(within(card).getByText('Best weeks')).toBeInTheDocument();
     expect(within(card).getByTestId('pickem-standings-best-week')).toHaveTextContent('Wk 2 and 4');
-    expect(within(you).getByTestId('pickem-standings-heat')).toHaveAccessibleName('Weekly points, weeks 1 to 4: none, 12, none, 12; best weeks 2 and 4');
   });
 });
 
