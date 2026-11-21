@@ -243,6 +243,9 @@ function StarterRow({ starter, last }) {
   // label is what keeps the two figures from being read as one.
   const scored = Number.isFinite(starter.points);
   const known = Number.isFinite(starter.projectedPoints);
+  const spoken = scored
+    ? `${starter.points.toFixed(1)} points`
+    : known ? `${starter.projectedPoints.toFixed(1)} projected points` : 'Projection not available';
   return (
     <Box
       component="li"
@@ -267,17 +270,12 @@ function StarterRow({ starter, last }) {
         }}
       >
         {/* The bare number has no column header in the accessibility tree, so a hidden label names it. */}
-        {scored ? (
-          <>
-            <span aria-hidden="true">{`${starter.points.toFixed(1)} `}<span style={{ fontSize: '12px', fontWeight: 500, color: 'var(--ps-dim)' }}>pts</span></span>
-            <span style={{ ...SR_ONLY_SX }}>{`${starter.points.toFixed(1)} points`}</span>
-          </>
-        ) : (
-          <>
-            <span aria-hidden="true">{known ? starter.projectedPoints.toFixed(1) : '-'}</span>
-            <span style={{ ...SR_ONLY_SX }}>{known ? `${starter.projectedPoints.toFixed(1)} projected points` : 'Projection not available'}</span>
-          </>
-        )}
+        <span aria-hidden="true">
+          {scored
+            ? <>{`${starter.points.toFixed(1)} `}<span style={{ fontSize: '12px', fontWeight: 500, color: 'var(--ps-dim)' }}>pts</span></>
+            : (known ? starter.projectedPoints.toFixed(1) : '-')}
+        </span>
+        <span style={{ ...SR_ONLY_SX }}>{spoken}</span>
       </Box>
     </Box>
   );
