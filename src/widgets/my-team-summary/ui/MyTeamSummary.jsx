@@ -12,7 +12,8 @@ import useMyTeamSummary from '../model/useMyTeamSummary';
  * Pixel 24 with points for and against, then the facts the card has always stated when they have a
  * value (draft grade, projected finish with its movement, playoff odds, roster value, and either
  * FAAB left or roster fullness), then the first five starters (position tag, name, injury tag,
- * opponent line, projection under a "Proj" label; unavailable starters first, #2972), an "and N more" note and the lineup status with a
+ * opponent line, then the figure under a "Proj" label: the projection, or the actual points labelled "pts"
+ * once the starter has them (#2980); unavailable starters first, #2972), an "and N more" note and the lineup status with a
  * "Fix lineup" link while it is incomplete. The frame's foot links Lineup, Waivers and Trades.
  *
  * Before the draft lineups are not open, so no lineup is read: the card keeps the tiles that have a
@@ -272,7 +273,7 @@ function StarterRow({ starter, last }) {
         {/* The bare number has no column header in the accessibility tree, so a hidden label names it. */}
         <span aria-hidden="true">
           {scored
-            ? <>{`${starter.points.toFixed(1)} `}<span style={{ fontSize: '12px', fontWeight: 500, color: 'var(--ps-dim)' }}>pts</span></>
+            ? <>{`${starter.points.toFixed(1)} `}<span style={{ fontSize: '13px', fontWeight: 500, color: 'var(--ps-dim)' }}>pts</span></>
             : (known ? starter.projectedPoints.toFixed(1) : '-')}
         </span>
         <span style={{ ...SR_ONLY_SX }}>{spoken}</span>

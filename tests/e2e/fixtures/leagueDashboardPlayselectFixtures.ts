@@ -238,9 +238,10 @@ function itemsFor(state: DashState, now: number) {
 
 export type DashHarness = { items: () => Record<string, unknown>[] };
 
-// gamedayUrgent's viewer lineup (spec #2979). layoutGuardFixtures' lineupForViewer is not exported and that file
-// serves other specs unchanged, so the nine starters the shared harness serves are listed here, with Puka Nacua at
-// FLEX, Out, as the Play names him. He keeps the FLEX entry's id (1006), so no id repeats.
+// The viewer's lineup for gamedayUrgent (spec #2979) and gamedaySet (spec #2980). layoutGuardFixtures' lineupForViewer is
+// not exported and that file serves other specs unchanged, so the nine starters the shared harness serves are listed
+// here. gamedayUrgent has Puka Nacua at FLEX, Out, as the Play names him; gamedaySet has nobody Out. He keeps the FLEX
+// entry's id (1006), so no id repeats.
 const GAMEDAY_STARTERS: Array<[name: string, position: string, slot: string]> = [
   ['Patrick Mahomes', 'QB', 'QB'],
   ['Christian McCaffrey', 'RB', 'RB'],
