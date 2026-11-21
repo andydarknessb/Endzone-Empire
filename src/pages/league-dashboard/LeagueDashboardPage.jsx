@@ -60,9 +60,12 @@ const controlsLabelled = (host, labels, label) => [...host.querySelectorAll(MOVE
 // state, so it mounts fresh) takes focus: the placeholder while the read is out, else the frame or the panel's button.
 // A child unmounted with focus inside the slot leaves `retryFocus` set, so the child that replaces it moves focus on
 // only then. Focus that went elsewhere clears it.
-function FocusFollow({ host, retryFocus, children }) {
+// The host is this component's own element, so its ref is attached before this effect runs, even when the slot mounts in
+// the same commit (a parent's ref is not, which crashed a game-day retry).
+function FocusFollow({ retryFocus, children }) {
+  const wrapRef = useRef(null);
   useLayoutEffect(() => {
-    const el = host.current;
+    const el = wrapRef.current;
     if (retryFocus.current) {
       const pending = el.querySelector('[data-testid="your-move-pending"]');
       if (pending) pending.focus();
@@ -74,8 +77,8 @@ function FocusFollow({ host, retryFocus, children }) {
     return () => {
       if (retryFocus.current) retryFocus.current = el.contains(document.activeElement);
     };
-  }, [host, retryFocus]);
-  return children;
+  }, [retryFocus]);
+  return <Box ref={wrapRef} sx={{ display: 'contents' }}>{children}</Box>;
 }
 
 // Your move changes parent when a lock crosses one hour (the hero, then the top of the page), so React
@@ -104,7 +107,7 @@ function YourMoveSlot({
   }, [carry]);
   return (
     <Box component="section" ref={hostRef} data-testid="slot-your-move" sx={{ minWidth: 0 }}>
-      <FocusFollow key={kind} host={hostRef} retryFocus={retryFocus}>{children}</FocusFollow>
+      <FocusFollow key={kind} retryFocus={retryFocus}>{children}</FocusFollow>
     </Box>
   );
 }

@@ -3366,6 +3366,20 @@ describe('Try again keeps focus on Your move', () => {
     await userEvent.click(await tryAgain());
     expect(screen.getByTestId('your-move')).toHaveFocus();
   });
+
+  test('on game day with nothing urgent, a failed read then Try again keeps focus in the hero, on the placeholder and then the card', async () => {
+    mockGetByUrl(gameDayMocks());
+    const settle = actionReads([failed, { hold: true }]);
+    renderPage();
+    await screen.findByText('3 matchups live');
+
+    await userEvent.click(await tryAgain());
+    const hero = screen.getByTestId('dashboard-hero');
+    expect(within(hero).getByTestId('your-move-pending')).toHaveFocus();
+
+    await settle(actionItems([picksItem(IN_MINUTES(6 * 60))])[ACTION_URL]);
+    expect(within(screen.getByTestId('dashboard-hero')).getByTestId('your-move')).toHaveFocus();
+  });
 });
 
 // AC4: on game day a lock inside the hour puts Your move first; otherwise the live scoreboard leads.
