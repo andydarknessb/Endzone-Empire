@@ -562,3 +562,26 @@ for (const viewport of Object.keys(VIEWPORTS) as ViewportName[]) {
     await expect(page.locator('.cursor')).toHaveCount(0);
   });
 }
+
+// Your move holds its place while its read is in flight (#2976): the placeholder is at least the card's height,
+// and the card replaces it once the action-items route answers (held one second here).
+for (const viewport of Object.keys(VIEWPORTS) as ViewportName[]) {
+  test(`inseason ${viewport}: your-move-pending holds the place for the action-items read, then your-move replaces it`, async ({ page }) => {
+    watchUnanswered(page);
+    await setupDashboard(page, 'inseason');
+    // Registered after the fixture, so it runs first: hold the read for a second, then fall through to the fixture's answer.
+    await page.route((url) => url.pathname === '/api/user/action-items', async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      await route.fallback();
+    });
+    await page.setViewportSize(VIEWPORTS[viewport]);
+    await page.goto(DASH_URL);
+    const placeholder = page.getByRole('status', { name: 'Checking what needs you' });
+    await expect(placeholder).toHaveAttribute('data-testid', 'your-move-pending');
+    const height = await placeholder.evaluate((el) => el.getBoundingClientRect().height);
+    expect(height, 'the placeholder holds the card\'s place').toBeGreaterThanOrEqual(96);
+    await expect(page.getByTestId('your-move')).toBeVisible();
+    await expect(page.getByTestId('your-move-pending')).toHaveCount(0);
+    await expect(page.locator('.cursor')).toHaveCount(1);
+  });
+}

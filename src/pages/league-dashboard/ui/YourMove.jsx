@@ -1,7 +1,7 @@
 import React, { useId } from 'react';
 import { Box } from '@mui/material';
 import {
-  CountBadge, Frame, FrameHead, PixelCheck, PixelHeading, PlayCard, SR_ONLY_SX, pixelSx,
+  CountBadge, Frame, FrameHead, PixelCheck, PixelHeading, PlayCard, SR_ONLY_SX, Skel, pixelSx,
 } from '../../../shared/ui/playselect';
 import { useInviteCopy } from '../../../features/copy-invite';
 import { itemType, playName } from '../../../entities/action-item';
@@ -126,18 +126,39 @@ function MoveCard({
  *   badge  the card count
  *   empty  true, or { note }: nothing is due, so a calm "You're set" card with no cursor and no filled
  *          action (a tertiary frame; its note defaults to "Nothing needs you right now.")
+ *   noTeam with `empty`, the viewer has no Team: the heading reads "No team in this league", with no check
+ *          and the note "Nothing here needs you."
+ *   pending the Action items read is in flight with nothing cached: the frame's outline and one skeleton
+ *          card, a status named "Checking what needs you", with no heading text and no check
  *   urgent the lead locks within an hour: its strip and cursor turn Danger
  *   inviteCode the league's invite code, when the viewer holds it: an open-seats Play's foot then copies it
  */
 export default function YourMove({
-  lead, rest = [], badge, empty = false, urgent = false, inviteCode,
+  lead, rest = [], badge, empty = false, urgent = false, inviteCode, noTeam = false, pending = false,
 }) {
   const headingId = useId();
   const cards = lead ? [lead, ...rest] : rest;
   const now = useNow((at) => nextChange(cards, at), cards.length);
 
+  if (pending) {
+    return (
+      <Frame
+        component="div"
+        role="status"
+        aria-label="Checking what needs you"
+        data-testid="your-move-pending"
+        head={<FrameHead><Skel width="180px" height={24} /></FrameHead>}
+      >
+        <Box sx={{ padding: { xs: '8px', md: '12px' } }}>
+          <Skel width="100%" height={96} />
+        </Box>
+      </Frame>
+    );
+  }
+
   if (empty || !lead) {
-    const note = (empty && empty.note) || 'Nothing needs you right now.';
+    const note = noTeam ? 'Nothing here needs you.' : ((empty && empty.note) || 'Nothing needs you right now.');
+    const heading = noTeam ? 'No team in this league' : "You're set";
     return (
       <Frame
         tier="rule"
@@ -152,8 +173,8 @@ export default function YourMove({
       >
         <Box data-testid="your-move-empty" sx={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
           <Box component="h3" sx={{ m: 0, display: 'flex', alignItems: 'center', gap: '12px', ...pixelSx(16) }}>
-            <PixelCheck size={16} />
-            You&apos;re set
+            {!noTeam && <PixelCheck size={16} />}
+            {heading}
           </Box>
           <Box component="p" sx={{ m: 0, fontSize: '15px', color: 'var(--ps-dim)' }}>{note}</Box>
         </Box>

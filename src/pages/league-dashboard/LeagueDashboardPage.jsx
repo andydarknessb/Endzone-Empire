@@ -95,7 +95,8 @@ function YourMoveSlot({ carry, labels, children }) {
  * Invite control, and below sm the chat button) leads every state. Then the page's product order, which the canvas rulings fix:
  *
  *   - Your move leads: this league's open plays, the one cursor and the one filled action (`ui/YourMove`).
- *     With nothing due it is a calm "You're set" card. Off game day it is the first row of the page.
+ *     With nothing due it is a calm "You're set" card ("No team in this league" for a viewer with no Team in a league that has Teams);
+ *     while its read is in flight a placeholder holds the place. Off game day it is the first row of the page.
  *   - Off game day, the hero follows Your move, with one row in between: in season the League pages row
  *     (Play and Moves); before the draft the pre-draft countdown (Draft Day) once the draft has a date. The
  *     hero is the Matchup (a framed versus panel before kickoff, the Board-black scoreboard once started)
@@ -272,9 +273,9 @@ function DashboardBody({
 
   // Your move: this league's open plays from the user's action items (GET /api/user/action-items), the
   // page's one cursor and one filled action. The entity groups them (one Play per shared lock, earliest
-  // first); this maps each card to ui/YourMove's plain data. Nothing is drawn while the read is in flight
-  // (a "You're set" that then turns into a card would lie), and a completed league with nothing due draws
-  // no card at all: the board has none.
+  // first); this maps each card to ui/YourMove's plain data. While the read is in flight with nothing cached,
+  // its frame holds the place as a placeholder (a "You're set" that then turns into a card would lie). A
+  // completed league draws no placeholder, and with nothing due no card at all: the board has none.
   const actions = useActionItems();
   const clock = useNow((at) => at + 30 * 1000);
   const move = useMemo(
@@ -296,7 +297,9 @@ function DashboardBody({
   let yourMove = null;
   // Cached items stay on screen while they re-read, so the card does not vanish and jump on a revisit.
   const itemsPending = actions.loading && actions.items.length === 0;
-  if (!itemsPending && !actions.error) {
+  if (itemsPending) {
+    if (!complete) yourMove = { pending: true };
+  } else if (!actions.error) {
     if (!move.empty) {
       yourMove = {
         lead: toCard(move.lead, swapNote),
@@ -305,7 +308,8 @@ function DashboardBody({
         urgent: move.urgent,
       };
     } else if (!complete) {
-      yourMove = { empty: true, urgent: false };
+      // A pick'em-only league has no Teams to be on, so its calm card stays "You're set".
+      yourMove = { empty: true, urgent: false, noTeam: !hasTeam && !pickemOnly };
     }
   }
   // My team's lineup answer: this season-week's lineup_problem item, null for none, undefined while the read is unknown.
