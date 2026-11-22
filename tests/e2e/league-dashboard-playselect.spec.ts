@@ -471,8 +471,9 @@ test('inseason md900 settled: every standings row draws a team mark in a Team ce
   await expect.poll(async () => (await teamCells(table)).filter((row) => !row.mark || row.width < 240).map((row) => row.team), { message: 'rows without a mark, or with a Team cell under 240px' }).toEqual([]);
 });
 
+// Three rows of Recent activity fill the rail on a completed league, as on game day, so the rail sits beside the standings.
 test('complete md900 settled: every standings row has a Team cell 240px or more, or draws no team mark', async ({ page }) => {
-  await openSettledAt900(page, 'complete', 'below');
+  await openSettledAt900(page, 'complete', 'beside');
   const table = page.getByTestId('standings-table');
   await expect.poll(async () => (await teamCells(table)).length, { message: 'all twelve rows are measured' }).toBe(12);
   await expect.poll(async () => (await teamCells(table)).filter((row) => row.mark && row.width < 240).map((row) => row.team), { message: 'rows drawing a mark in a Team cell under 240px' }).toEqual([]);
@@ -669,12 +670,21 @@ test('inseason desktop: the Times in line is 16px', async ({ page }) => {
 });
 
 // A completed season opens on its trophy room (spec #2921): the champion banner, and the viewer's "Your season"
-// line from the standings the page reads once (sixth of twelve in the fixture), with no cursor.
+// line from the standings the page reads once (sixth of twelve in the fixture), with no cursor. The rank phrase is
+// pixel type at 16px on its own line; the record and points beneath it are the 16px body face.
 for (const viewport of Object.keys(VIEWPORTS) as ViewportName[]) {
   test(`complete ${viewport}: the champion banner shows, "Your season" reads 6th of 12, and no cursor`, async ({ page }) => {
     await openDashboard(page, 'complete', viewport, 'dark');
     await expect(page.getByTestId('trophy-champion')).toBeVisible();
-    await expect(page.getByTestId('trophy-your-season')).toContainText('6th of 12');
+    const season = page.getByTestId('trophy-your-season');
+    const rank = season.getByText('6th of 12', { exact: true });
+    await expect(rank).toBeVisible();
+    await expect(rank).toHaveCSS('font-size', '16px');
+    expect(await rank.evaluate((el) => getComputedStyle(el).fontFamily)).toContain('Press Start 2P');
+    const record = season.locator('span').last();
+    await expect(record).toHaveText(/ PF$/);
+    await expect(record).toHaveCSS('font-size', '16px');
+    expect(await record.evaluate((el) => getComputedStyle(el).fontFamily)).toContain('Archivo');
     await expect(page.locator('.cursor')).toHaveCount(0);
   });
 }

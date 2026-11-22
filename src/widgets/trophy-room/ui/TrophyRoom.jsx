@@ -179,8 +179,9 @@ export default function TrophyRoom({
           {yourSeason && (
             <Box data-testid="trophy-your-season" sx={{ padding: { xs: '12px 14px', md: '12px 20px' }, borderBottom: '2px solid var(--ps-rule)' }}>
               <Box component="span" sx={{ display: 'block', fontSize: '13px', fontWeight: 600, letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--ps-dim)' }}>Your season</Box>
+              <Box component="span" sx={{ display: 'block', marginTop: '4px', ...pixelSx(16) }}>{`${ordinal(yourSeason.rank)} of ${teams.length}`}</Box>
               <Box component="span" sx={{ display: 'block', marginTop: '4px', fontSize: '16px', fontWeight: 600 }}>
-                {`${ordinal(yourSeason.rank)} of ${teams.length} · ${yourSeason.record} · ${yourSeason.pointsFor} PF`}
+                {`${yourSeason.record} · ${yourSeason.pointsFor} PF`}
               </Box>
             </Box>
           )}

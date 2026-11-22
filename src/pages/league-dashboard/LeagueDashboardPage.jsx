@@ -138,7 +138,7 @@ function YourMoveSlot({
  *     scoreboard leads: Your move sits in the hero between the matchup and My team, and the League pages row
  *     follows the hero. With an urgent item, or a failed items read, Your move and the League pages row lead,
  *     then the hero (the scoreboard, then My team at full width, then the Pick'em panel). Around the league
- *     and Recent activity fold to the three rival games and three rows.
+ *     and Recent activity fold to the three rival games and three rows. A completed league folds Recent activity to three rows too.
  *   - A pick'em-only league has no fantasy team, matchups or draft, so none of those slices mount (each
  *     would fire a fantasy read that returns an empty or zeroed table): its body is Your move, the pick'em
  *     standings, the commissioner strip, the Playbook trimmed to the pick'em surfaces and the trophy case.
@@ -494,7 +494,7 @@ function DashboardBody({
         <Box data-testid="slot-recent-activity" sx={{ display: 'grid' }}>
           <RecentActivity
             leagueId={leagueId}
-            rowLimit={gameDay ? 3 : Math.ceil((teams.length * 3) / 4)}
+            rowLimit={gameDay || complete ? 3 : Math.ceil((teams.length * 3) / 4)}
             compact={!feedShort}
             onFeedShort={setFeedShort}
           />
