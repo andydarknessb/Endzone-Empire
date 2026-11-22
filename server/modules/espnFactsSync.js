@@ -326,13 +326,19 @@ async function runRosterStatusSync({ now = new Date(), transport } = {}) {
 }
 
 /** fetch() for the Ownership job: one bulk call for the whole pool, outside
- * any transaction, as the run's single unit. `ownership()` resolves `null`
- * on a fetch failure (Ruling item 4); this throws in that case so
+ * any transaction, as the run's single unit. The season is the NFL season the
+ * app is in (`ESPN_FANTASY_SEASON` still overrides it), not the UTC year: ESPN
+ * has no fantasy season for the next calendar year until it opens. ESPN
+ * answering 404 for that season is a refusal (`season_not_open`), returned
+ * unwrapped so `runSyncJob` reads it as one. `ownership()` resolves `null` on
+ * any other fetch failure (Ruling item 4); this throws in that case so
  * `runSyncJob` records `fetch_failed` rather than an `ok: true` empty
  * snapshot, for the same reason `fetchDepthCharts` above does (formal review
  * f3). */
 async function fetchOwnership({ transport } = {}) {
-  const rows = await espnAthleteClient.ownership({ transport });
+  const season = Number(process.env.ESPN_FANTASY_SEASON) || (await nflSeason.upcomingNflSeason());
+  const rows = await espnAthleteClient.ownership({ transport, season });
+  if (rows && rows.seasonNotOpen) return { refused: true, reason: 'season_not_open', detail: { season } };
   if (rows === null) throw new Error('espn-ownership: ESPN fetch failed');
   return [rows];
 }
@@ -382,7 +388,12 @@ async function runOwnershipSync({ now = new Date(), transport } = {}) {
   const day = cadence.utcDateKey(now);
   const { results: [ownership] } = await runSyncJob({
     job: 'espn-ownership',
-    fetch: async () => ({ units: await fetchOwnership({ transport }), detail: { day } }),
+    fetch: async () => {
+      const fetched = await fetchOwnership({ transport });
+      // A refusal reaches runSyncJob unwrapped: it reads `refused` on the top level.
+      if (fetched.refused) return { ...fetched, detail: { ...fetched.detail, day } };
+      return { units: fetched, detail: { day } };
+    },
     apply: applyOwnershipUnit(capturedDate),
   });
   return ownership;
