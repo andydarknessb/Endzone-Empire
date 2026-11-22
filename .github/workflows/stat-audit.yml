@@ -16,6 +16,18 @@ name: Stat audit
 # MONITORING_DATABASE_URL in the monitoring environment and writes nothing. A
 # pull request runs the script's own tests (selftest) and never reads the
 # secret. With the secret unset the audit job warns and ends green.
+#
+# Before the secret is added, set the monitoring environment's deployment
+# branches to main only. The repository is public and workflow_dispatch can
+# start this job from any branch, so without that rule a branch could run the
+# audit with the production secret.
+#
+# The secret is used as DATABASE_URL_RUNTIME exactly as the app uses its own
+# URL, so it must not carry sslmode=require. pg reads that parameter from the
+# connection string and replaces the app's TLS options (sslForConnection,
+# including DB_SSL_CA) with node's default: verify the certificate chain against
+# the system CAs. A database certificate that does not chain to one of those
+# fails every run.
 
 on:
   schedule:
@@ -26,12 +38,15 @@ on:
       - '.github/workflows/stat-audit.yml'
       - 'scripts/ci/stat-audit.js'
       - 'scripts/ci/stat-audit.test.js'
+      - 'server/services/nflverseSync.service.js'
+      - 'server/services/playerStatsWrite.service.js'
+      - 'server/services/playerStatsIntegrity.service.js'
 
 permissions:
   contents: read
 
 concurrency:
-  group: stat-audit
+  group: stat-audit-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:

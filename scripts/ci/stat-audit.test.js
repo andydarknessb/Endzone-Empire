@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { planPlayerStatsWrite } = require('../../server/services/playerStatsWrite.service');
-const { compareStatLines } = require('./stat-audit');
+const { compareStatLines, emptyWeekProblem } = require('./stat-audit');
 
 const PLAYER = 'p-qb';
 const QB_FRESH = { passingYards: 300, passingTDs: 2, interceptions: 1, rushingYards: 12, rushingTDs: 0, fumbles: 0 };
@@ -54,14 +54,53 @@ test('IDP keys on a non-defender are not a difference', () => {
   assert.deepEqual(compare(row, { fresh: wrFresh, position: 'WR' }).map((d) => d.key), ['idpSack']);
 });
 
-test('a fantasy points gap above 0.005 is reported even when the stats match, and a half cent is not a gap', () => {
-  // Planned 12.345 is stored as 12.35 (decimal(8,2) rounds half away from zero).
-  const plan = () => ({ stats: {}, fantasyPoints: 12.345 });
-  const cmp = (fantasy_points) => compareStatLines({
-    lines: [{ playerId: PLAYER, fresh: {}, position: 'QB' }],
-    storedByPlayer: new Map([[PLAYER, { stats: {}, fantasy_points }]]),
-    plan,
+test('IDP keys on a defender are kept, and a missing one is the only difference', () => {
+  const lbFresh = { ...QB_FRESH, idpSack: 2 };
+  const row = storedRowFor(lbFresh, { position: 'LB' });
+  assert.equal(row.stats.idpSack, 2, 'the funnel keeps an IDP key on an LB');
+  assert.deepEqual(compare(row, { fresh: lbFresh, position: 'LB' }), []);
+  // The points stay as the plan has them, so the missing key is the only difference.
+  delete row.stats.idpSack;
+  assert.deepEqual(compare(row, { fresh: lbFresh, position: 'LB' }), [
+    { playerId: PLAYER, key: 'idpSack', stored: null, expected: 2 },
+  ]);
+});
+
+test('a fantasy points value one cent from the plan is a difference, and the same value is not', () => {
+  const row = storedRowFor(QB_FRESH);
+  const planned = planPlayerStatsWrite({ source: 'nflverse-correction', fresh: QB_FRESH, prior: null, position: 'QB' }).fantasyPoints;
+  assert.deepEqual(compare(row), []);
+  for (const delta of [0.01, -0.01]) {
+    row.fantasy_points = (planned + delta).toFixed(2);
+    assert.deepEqual(compare(row).map((d) => [d.key, d.expected]), [['fantasy_points', planned]]);
+  }
+});
+
+test('a player id with two lines is compared on its last line only', () => {
+  const earlier = { ...QB_FRESH, passingYards: 100 };
+  const diffs = compareStatLines({
+    lines: [
+      { playerId: PLAYER, fresh: earlier, position: 'QB' },
+      { playerId: PLAYER, fresh: QB_FRESH, position: 'QB' },
+    ],
+    storedByPlayer: new Map([[PLAYER, storedRowFor(QB_FRESH)]]),
+    plan: planPlayerStatsWrite,
   });
-  assert.deepEqual(cmp('12.35'), []);
-  assert.deepEqual(cmp('12.30'), [{ playerId: PLAYER, key: 'fantasy_points', stored: 12.3, expected: 12.35 }]);
+  assert.deepEqual(diffs, []);
+});
+
+test('a null plan writes nothing, so nothing differs, stored row or not', () => {
+  const plan = () => null;
+  const lines = [{ playerId: PLAYER, fresh: QB_FRESH, position: 'QB' }];
+  const stale = new Map([[PLAYER, { stats: { passingYards: 1 }, fantasy_points: '0.00' }]]);
+  assert.deepEqual(compareStatLines({ lines, storedByPlayer: stale, plan }), []);
+  assert.deepEqual(compareStatLines({ lines, storedByPlayer: new Map(), plan }), []);
+});
+
+test('a settled week with no player lines is a problem, and a week with lines is not', () => {
+  assert.match(
+    emptyWeekProblem({ season: 2026, week: 9, units: 14, playerLines: 0, dstLines: 28 }),
+    /no player lines for 14 units \(28 DST lines\)/
+  );
+  assert.equal(emptyWeekProblem({ season: 2026, week: 9, units: 14, playerLines: 1, dstLines: 0 }), null);
 });

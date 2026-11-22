@@ -26,21 +26,22 @@ const NO_ROW = '(no stored row)';
 const FANTASY_POINTS_TOLERANCE = 0.005;
 const DIFF_LIMIT = 50;
 
-// decimal(8,2) rounds half away from zero on insert, so the plan is rounded the same way.
-const toCents = (points) => (Math.sign(points) * Math.round(Number((Math.abs(points) * 100).toPrecision(15)))) / 100;
-
 /**
  * Pure: where the stored Stat lines differ from what the correction would write.
- * `lines` are buildNflverseUnitLines output ({ playerId, fresh, position });
- * `storedByPlayer` maps a player id to its stored row ({ stats, fantasy_points });
- * `plan` is planPlayerStatsWrite. Returns one { playerId, key, stored, expected }
- * per differing key, one for a line with no stored row, and one for the points.
+ * `lines` are buildNflverseUnitLines output ({ playerId, fresh, position }) in the
+ * correction's write order; `storedByPlayer` maps a player id to its stored row
+ * ({ stats, fantasy_points }); `plan` is planPlayerStatsWrite. A player id with
+ * two lines is compared on its last one, the line the correction leaves stored.
+ * Returns one { playerId, key, stored, expected } per differing key, one for a
+ * line with no stored row, and one for the fantasy points.
  */
 function compareStatLines({ lines, storedByPlayer, plan }) {
   const differences = [];
-  for (const { playerId, fresh, position } of lines) {
+  const latest = new Map(lines.map((line) => [line.playerId, line]));
+  for (const { playerId, fresh, position } of latest.values()) {
     const row = storedByPlayer.get(playerId) || null;
     const planned = plan({ source: CORRECTION_SOURCE, fresh, prior: row ? row.stats : null, position });
+    if (planned === null) continue; // the policy writes nothing, so nothing can differ
     if (!row) {
       differences.push({ playerId, key: NO_ROW, stored: null, expected: planned.stats });
       continue;
@@ -57,13 +58,22 @@ function compareStatLines({ lines, storedByPlayer, plan }) {
       if (!Object.hasOwn(expected, key)) differences.push({ playerId, key, stored: stored[key], expected: null });
     }
     const storedPoints = Number(row.fantasy_points);
-    const points = toCents(planned.fantasyPoints);
     // Negated <= so a NaN (a stored value that is not a number) is a difference.
-    if (!(Math.abs(storedPoints - points) <= FANTASY_POINTS_TOLERANCE)) {
-      differences.push({ playerId, key: 'fantasy_points', stored: storedPoints, expected: points });
+    if (!(Math.abs(storedPoints - planned.fantasyPoints) <= FANTASY_POINTS_TOLERANCE)) {
+      differences.push({ playerId, key: 'fantasy_points', stored: storedPoints, expected: planned.fantasyPoints });
     }
   }
   return differences;
+}
+
+/**
+ * Pure: why a settled week's lines cannot be audited, or null when they can. A
+ * settled week with games always has player lines; none means the feed came back
+ * empty or truncated, which must not read as a clean week.
+ */
+function emptyWeekProblem({ season, week, units, playerLines, dstLines }) {
+  if (playerLines > 0) return null;
+  return `stat audit ${season} week ${week}: nflverse gave no player lines for ${units} units (${dstLines} DST lines), and a settled week with games is never empty`;
 }
 
 function report({ season, week, checked, differing, differences }) {
@@ -88,36 +98,49 @@ function report({ season, week, checked, differing, differences }) {
 }
 
 async function main() {
+  // The frontier and the fetches run with no transaction open: a connection idle in a
+  // transaction through a multi-megabyte download can be ended by the pooler.
+  const frontier = await settledFrontier(pool);
+  if (!frontier) {
+    console.log('::warning::stat audit: no settled frontier (no ok nflverse-correction run with games in its file), nothing audited');
+    return 0;
+  }
+  const { season, week } = frontier;
+  // The same exported fetches, filters and units syncNflverseCorrection uses for its fetch.
+  const [players, teams, scores, xwalk] = await Promise.all([
+    fetchPlayerWeekStatsForSeason(season),
+    fetchTeamWeekStatsForSeason(season),
+    fetchGameScoresForSeason(season),
+    fetchPlayersCrosswalk(),
+  ]);
+  const weekPlayerRows = filterRowsForWeek(players, { season, week });
+  const weekTeamRows = filterRowsForWeek(teams, { season, week });
+  const defByTeamCode = await boxScoreApply.loadDefUnitsByTeamCode();
+
   const client = await pool.connect();
   try {
     await client.query('BEGIN READ ONLY');
-    const frontier = await settledFrontier(client);
-    if (!frontier) {
-      console.log('stat audit: no settled frontier (no ok nflverse-correction run with games in its file), nothing to audit');
-      return 0;
-    }
-    const { season, week } = frontier;
-    // The fetch half of syncNflverseCorrection, line for line: same reads, same filters, same units.
-    const [players, teams, scores, xwalk] = await Promise.all([
-      fetchPlayerWeekStatsForSeason(season),
-      fetchTeamWeekStatsForSeason(season),
-      fetchGameScoresForSeason(season),
-      fetchPlayersCrosswalk(),
-    ]);
-    const weekPlayerRows = filterRowsForWeek(players, { season, week });
-    const weekTeamRows = filterRowsForWeek(teams, { season, week });
     const knownPlayers = await client.query(
       `SELECT "id", "external_id", "position" FROM "players" WHERE "external_id" IS NOT NULL`
     );
     const idByExternal = new Map(knownPlayers.rows.map((r) => [String(r.external_id), r.id]));
     const positionById = new Map(knownPlayers.rows.map((r) => [r.id, r.position]));
-    const defByTeamCode = await boxScoreApply.loadDefUnitsByTeamCode();
     const shared = { season, week, scoresByGameId: scores, crosswalk: xwalk, idByExternal, positionById, defByTeamCode };
     const units = buildCorrectionUnits({ weekPlayerRows, weekTeamRows }).map((u) => ({ ...shared, ...u }));
-    const lines = units.flatMap((unit) => {
-      const unitLines = buildNflverseUnitLines(unit);
-      return [...unitLines.players, ...unitLines.dst];
+    const built = units.map((unit) => buildNflverseUnitLines(unit));
+    const problem = emptyWeekProblem({
+      season,
+      week,
+      units: units.length,
+      playerLines: built.reduce((n, u) => n + u.players.length, 0),
+      dstLines: built.reduce((n, u) => n + u.dst.length, 0),
     });
+    if (problem) {
+      console.error(problem);
+      return 1;
+    }
+    // The order the correction writes them: each unit's player lines, then its DST lines.
+    const lines = built.flatMap((u) => [...u.players, ...u.dst]);
 
     const stored = await client.query(
       `SELECT "player_id", "stats", "fantasy_points" FROM "player_stats" WHERE "season" = $1 AND "week" = $2`,
@@ -126,9 +149,10 @@ async function main() {
     const storedByPlayer = new Map(stored.rows.map((r) => [r.player_id, r]));
 
     const differences = compareStatLines({ lines, storedByPlayer, plan: planPlayerStatsWrite });
+    const checked = new Set(lines.map((l) => l.playerId)).size;
     const differing = new Set(differences.map((d) => d.playerId)).size;
-    report({ season, week, checked: lines.length, differing, differences });
-    return differing;
+    report({ season, week, checked, differing, differences });
+    return differing > 0 ? 1 : 0;
   } finally {
     await client.query('ROLLBACK').catch(() => {});
     client.release();
@@ -137,8 +161,8 @@ async function main() {
 
 if (require.main === module) {
   main()
-    .then((differing) => {
-      process.exitCode = differing > 0 ? 1 : 0;
+    .then((code) => {
+      process.exitCode = code;
     })
     .catch((err) => {
       console.error('FAILED:', err.stack || err.message);
@@ -147,4 +171,4 @@ if (require.main === module) {
     .finally(() => pool.end());
 }
 
-module.exports = { compareStatLines, main };
+module.exports = { compareStatLines, emptyWeekProblem, main };
