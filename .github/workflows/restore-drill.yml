@@ -141,10 +141,18 @@ jobs:
             echo "ready=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          # Mask the password first: libpq can echo part of a malformed URL, and GitHub masks only the whole secret.
+          # Refuse before masking or printing: a raw @ / ? or # makes libpq split the URL elsewhere, so the mask would not cover all of the password.
           rest="${SOURCE_DATABASE_URL#*:}"
           rest="${rest#*:}"
-          echo "::add-mask::${rest%@*}"
+          pw="${rest%@*}"
+          case "$pw" in
+            *[@/?]* | *"#"*)
+              echo "::error::MONITORING_DATABASE_URL: percent-encode the password"
+              exit 1
+              ;;
+          esac
+          # Mask the password text: libpq can echo part of a malformed URL, and GitHub masks only the whole secret.
+          echo "::add-mask::$pw"
           echo "ready=true" >> "$GITHUB_OUTPUT"
       - name: Checkout integration
         if: steps.secret.outputs.ready == 'true'
