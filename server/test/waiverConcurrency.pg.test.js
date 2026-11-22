@@ -16,19 +16,24 @@
  *   player A: T1 bids 5, T2 bids 20      -> T2 wins on bid, T1 loses
  *   player U: T3 bids 2, no rival claim  -> T3 wins
  *
- * Gated like the other *.pg.test.js files: PG_TESTS=1 must be set and every
- * DATABASE_URL* variable must be ABSENT, so a stray local run can never touch the
- * shared production database.
+ * Red-tell: taking processWaivers off leagueWrite (no League row lock first) leaves
+ * no backend waiting on UPDATE "leagues", so the overlap poll fails after 10 s.
+ * Dropping the "status" = 'pending' filter from the due-claims query lets the second
+ * run re-settle, so the waiver_claims and manifest assertions fail.
+ *
+ * Gated like the other *.pg.test.js files: PG_TESTS=1 or WAIVER_CONCURRENCY_PG_TESTS=1
+ * must be set, and every DATABASE_URL* variable must be ABSENT, so a stray local run
+ * can never touch the shared production database.
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const ENABLED = process.env.PG_TESTS === '1';
+const ENABLED = process.env.PG_TESTS === '1' || process.env.WAIVER_CONCURRENCY_PG_TESTS === '1';
 const URL_VARS = ['DATABASE_URL', 'DATABASE_URL_RUNTIME', 'DATABASE_URL_MIGRATIONS'];
 const urlLeak = URL_VARS.filter((k) => process.env[k]);
 
 if (!ENABLED) {
-  test('waiver concurrency PG test (skipped: set PG_TESTS=1; CI migration-smoke runs it)', { skip: true }, () => {});
+  test('waiver concurrency PG test (skipped: set PG_TESTS=1 or WAIVER_CONCURRENCY_PG_TESTS=1; CI migration-smoke runs it)', { skip: true }, () => {});
 } else if (urlLeak.length > 0) {
   test('waiver concurrency PG test refuses to run with DATABASE_URL* set', () => {
     assert.fail(`unset ${urlLeak.join(', ')} - this test must only ever see a disposable PG* database`);
