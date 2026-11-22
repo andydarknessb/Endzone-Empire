@@ -8,7 +8,7 @@ const TRANSIENT_CODES = new Set([
 ]);
 
 const TRANSIENT_MESSAGE =
-  /supavisor|pgbouncer|pool (?:is )?(?:empty|exhausted)|too many connections|connection (?:terminated|reset|refused)|timeout (?:acquiring|waiting for) (?:a )?(?:client|connection)/i;
+  /supavisor|pgbouncer|ECHECKOUTRETRIES|failed to check out a connection|pool (?:is )?(?:empty|exhausted)|too many connections|connection (?:terminated|reset|refused)|timeout (?:acquiring|waiting for) (?:a )?(?:client|connection)/i;
 
 function isTransientDatabaseError(error) {
   if (!error) return false;
