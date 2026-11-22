@@ -262,7 +262,7 @@ function Countdown({
         <CountdownTicker targetTime={targetTime} prefix={prefix} variant="blocks" onExpire={handleExpire} />
         {showScheduleDetail && (
           <Tooltip title={detail} enterTouchDelay={0}>
-            <Box component="p" tabIndex={0} sx={{ m: 0, fontSize: '17px', cursor: 'help' }}>{viewerSchedule}</Box>
+            <Box component="p" tabIndex={0} sx={{ m: 0, fontSize: '16px', cursor: 'help' }}>{viewerSchedule}</Box>
           </Tooltip>
         )}
         {showScheduleDetail && leagueId != null && leagueName && (

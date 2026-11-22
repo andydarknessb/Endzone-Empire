@@ -1,7 +1,7 @@
 import React, { useId } from 'react';
 import { Box } from '@mui/material';
 import {
-  ErrorPanel, Frame, FrameHead, PixelHeading, pixelSx, PsLink, Skel,
+  Dash, ErrorPanel, Frame, FrameHead, PixelHeading, pixelSx, PsLink, Skel,
 } from '../../../shared/ui/playselect';
 import { usePickemStandingsTable } from '../../../widgets/pickem-standings';
 import { ordinal } from '../../../shared/lib';
@@ -82,7 +82,7 @@ export default function PickemPanel({ leagueId, week }) {
           <>
             <Stat label="Your rank" big testid="pickem-panel-rank">{rankLabel(viewer)}</Stat>
             <Stat label="Points" big testid="pickem-panel-points">{viewer.points ?? '-'}</Stat>
-            <Stat label={week != null ? `Wk ${week}` : 'This week'} testid="pickem-panel-week">{thisWeek == null ? '-' : thisWeek}</Stat>
+            <Stat label={week != null ? `Wk ${week}` : 'This week'} testid="pickem-panel-week">{thisWeek == null ? <Dash /> : thisWeek}</Stat>
             <Stat label="Behind leader" testid="pickem-panel-behind">
               {behindLeader == null ? '-' : behindLeader === 0 ? 'Leader' : `${Math.abs(behindLeader)} pts`}
             </Stat>

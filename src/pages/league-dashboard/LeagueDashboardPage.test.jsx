@@ -1769,8 +1769,9 @@ test('quick-actions: in season a League pages row sits under Your move and befor
     'Set Lineup', 'Game Center', 'Waivers', 'Trades',
   ]);
   expect(within(pages).queryByText('Playbook')).not.toBeInTheDocument();
-  // No leading separator dot before the first link.
-  expect(pages).toHaveTextContent(/^Set Lineup/);
+  // The row prints its own name before its first link, as the Playbook row does.
+  expect(precedes(within(pages).getByText('League pages'), within(pages).getByRole('link', { name: 'Set Lineup' }))).toBe(true);
+  expect(screen.getAllByRole('navigation', { name: 'League pages' })).toHaveLength(1);
   expect(precedes(await screen.findByTestId('slot-your-move'), pages)).toBe(true);
   expect(precedes(pages, screen.getByTestId('dashboard-hero'))).toBe(true);
 });
@@ -2749,6 +2750,19 @@ describe('before kickoff the hero is the matchup, My team and the Pick\'em panel
     renderPage();
 
     expect(await screen.findByTestId('pickem-panel-rank')).toHaveTextContent('T-2');
+  });
+
+  test("a week with no points reads Not available in the panel's week stat", async () => {
+    const standings = pickemStandings();
+    standings.data.standings[1].weekly = { 6: 9 };
+    mockGetByUrl({
+      '/api/league/1': scheduledLeague(),
+      '/api/pickem/league/1/settings': { data: { enabled: true, mode: 'straight' } },
+      '/api/pickem/league/1/standings': standings,
+    });
+    renderPage();
+
+    expect(await screen.findByTestId('pickem-panel-week')).toHaveTextContent('Not available');
   });
 
   test('a fantasy-only league has no Pick\'em panel, and reads no pick\'em standings', async () => {
