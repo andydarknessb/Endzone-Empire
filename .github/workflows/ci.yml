@@ -4,6 +4,13 @@ on:
   push:
     branches: [main, integration]
   pull_request:
+  workflow_call:
+    inputs:
+      ref:
+        description: Ref to check out; empty means the event's own ref
+        required: false
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -19,6 +26,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          ref: ${{ inputs.ref }}
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
@@ -40,7 +48,9 @@ jobs:
       # target sha on pull requests and the previous tip on pushes, so a
       # rewrite merged on stale checks is caught by the push build. The guard
       # fails on a missing base rather than passing on nothing.
-      - run: npm run check:adr-immutability
+      # Nightly and manual runs have no PR base or push before sha to compare.
+      - if: github.event_name != 'schedule' && github.event_name != 'workflow_dispatch'
+        run: npm run check:adr-immutability
         env:
           ADR_BASE_REF: ${{ github.event.pull_request.base.sha || github.event.before }}
       # close-merged-issues.yml closes the issues a merged PR names (#330).
@@ -139,6 +149,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
@@ -164,6 +176,8 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
@@ -198,6 +212,8 @@ jobs:
       NODE_ENV: test
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
       # Postgres 17 from the PGDG apt repo, not a service container: Docker Hub
       # and ECR Public both throttle anonymous image pulls on shared runners
       # (#2196, #2292), and PGDG keeps prod's major version. The runner image
@@ -248,6 +264,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
@@ -264,6 +282,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
