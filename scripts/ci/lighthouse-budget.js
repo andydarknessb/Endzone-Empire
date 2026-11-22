@@ -8,21 +8,24 @@
  * table (also appended to GITHUB_STEP_SUMMARY when set), and the script exits
  * 1 when any median breaks its budget.
  *
- * A report that lacks a metric, or holds null for it, exits 1 and names the
- * report and the metric. It never counts as a pass.
+ * A report that measured another page than the landing page, or that lacks a
+ * metric or holds null for one, exits 1 and names the report. It never counts
+ * as a pass.
  *
  * Zero dependencies on purpose: the workflow runs this on a bare checkout with
  * only Node's standard library, the same as audit-with-retry.js.
  */
 const fs = require('node:fs');
 
-// shortcut: budgets set from three runs on 2026-11-21 (medians perf 0.96, a11y 1, bp 1, LCP 919 ms, TBT 238.5 ms, CLS 0) and not yet measured on a GitHub runner, tighten after four green weeks.
+const SITE_HOST = 'endzoneempire.gg';
+
+// shortcut: budgets set from the medians of run 44968827720 on a GitHub runner on 2026-11-22 (performance 0.90, LCP 884 ms, TBT 421 ms, CLS 0), where a faster desktop scored 0.96; tighten after four green weeks.
 const BUDGETS = {
-  performance: { min: 0.86 },
+  performance: { min: 0.8 },
   accessibility: { min: 0.9 },
   'best-practices': { min: 0.9 },
   'largest-contentful-paint': { max: 4000 },
-  'total-blocking-time': { max: 600 },
+  'total-blocking-time': { max: 850 },
   'cumulative-layout-shift': { max: 0.1 },
 };
 
@@ -42,11 +45,26 @@ function median(values) {
   return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 }
 
+// Null when the URL is absent or unparseable, so it never matches the site.
+function measuredHost(url) {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return null;
+  }
+}
+
 // Returns { rows, errors }. Rows exist only for metrics every report supplies;
-// errors name each report and metric that has no number.
+// errors name each report that measured another page, and each report and
+// metric that has no number.
 function judge(reports) {
   const errors = [];
   const rows = [];
+  for (const { file, json } of reports) {
+    if (measuredHost(json.finalDisplayedUrl) !== SITE_HOST) {
+      errors.push(`${file}: measured ${json.finalDisplayedUrl ?? 'no URL'}, not ${SITE_HOST}`);
+    }
+  }
   for (const [metric, budget] of Object.entries(BUDGETS)) {
     const values = [];
     for (const { file, json } of reports) {

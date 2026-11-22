@@ -10,6 +10,7 @@ const { BUDGETS, median, main } = require('./lighthouse-budget');
 function report(overrides = {}) {
   const v = { performance: 0.99, accessibility: 1, 'best-practices': 1, lcp: 1000, tbt: 0, cls: 0, ...overrides };
   return {
+    finalDisplayedUrl: 'https://endzoneempire.gg/#/home',
     categories: {
       performance: { score: v.performance },
       accessibility: { score: v.accessibility },
@@ -47,6 +48,8 @@ function capture() {
 test('median takes the middle of an odd count and the mean of the middle two of an even count', () => {
   assert.equal(median([0.9, 0.5, 0.7]), 0.7);
   assert.equal(median([4000, 1000, 2000, 3000]), 2500);
+  // A bare .sort() compares as text and would pick '80' here.
+  assert.equal(median([1000, 900, 80]), 900);
 });
 
 test('main passes when every median is inside its budget', () => {
@@ -56,6 +59,18 @@ test('main passes when every median is inside its budget', () => {
     assert.equal(main(files, {}, io), 0);
     assert.deepEqual(out.error, []);
     assert.match(out.log.join('\n'), /\| performance \| 0\.990 \| >= /);
+  } finally {
+    cleanup();
+  }
+});
+
+test('a median exactly on its budget passes', () => {
+  const edge = report({ performance: BUDGETS.performance.min, lcp: BUDGETS['largest-contentful-paint'].max });
+  const { files, cleanup } = writeReports([edge, edge, edge]);
+  try {
+    const { out, io } = capture();
+    assert.equal(main(files, {}, io), 0);
+    assert.deepEqual(out.error, []);
   } finally {
     cleanup();
   }
@@ -75,6 +90,19 @@ test('main exits 1 naming the metric, its median and its budget when one breaks'
     } finally {
       cleanup();
     }
+  }
+});
+
+test('main exits 1 naming the report and the URL it measured when that is not the landing page', () => {
+  const elsewhere = { ...report(), finalDisplayedUrl: 'https://example.com/' };
+  const { files, cleanup } = writeReports([report(), elsewhere, report()]);
+  try {
+    const { out, io } = capture();
+    assert.equal(main(files, {}, io), 1);
+    assert.deepEqual(out.error, [`lighthouse-budget: ${files[1]}: measured https://example.com/, not endzoneempire.gg`]);
+    assert.deepEqual(out.log, [], 'no table is printed when a report measured another page');
+  } finally {
+    cleanup();
   }
 });
 
@@ -100,8 +128,10 @@ test('main writes the Markdown table to GITHUB_STEP_SUMMARY, failing rows includ
   const { files, cleanup } = writeReports([report({ performance: 0.2 }), report({ performance: 0.3 }), report()]);
   try {
     const { io } = capture();
+    fs.writeFileSync(summary, 'seeded line\n');
     assert.equal(main(files, { GITHUB_STEP_SUMMARY: summary }, io), 1);
     const written = fs.readFileSync(summary, 'utf8');
+    assert.ok(written.startsWith('seeded line\n'), 'append must keep what was already in the summary');
     assert.match(written, /\| Metric \| Median \| Budget \| Result \|/);
     assert.ok(written.includes(`| performance | 0.300 | >= ${BUDGETS.performance.min} | fail |`), written);
     assert.ok(written.includes('| cumulative-layout-shift | 0 | <= 0.1 | pass |'), written);

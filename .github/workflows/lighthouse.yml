@@ -7,9 +7,10 @@ name: Lighthouse
 # and timing, failing when a median breaks the budgets in that script.
 #
 # A red run means the median landing page got slower, less accessible or less
-# clean than its budget allows. The table of medians is on the run's summary
-# page, and the three reports are kept as an artifact for 14 days so the
-# numbers can be read even when the run is red.
+# clean than its budget allows, or that Lighthouse itself could not run (the
+# site was unreachable or a run errored). The table of medians is on the run's
+# summary page, and the three reports are kept as an artifact for 14 days so
+# the numbers can be read even when the run is red.
 #
 # The URL is hardcoded like holdout-uptime.yml: a monitor should have no moving
 # parts. GitHub fires schedule only from this file on main, so the weekly run
@@ -29,7 +30,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: lighthouse
+  # One group per ref: a queued PR run must not displace the scheduled run on main.
+  group: lighthouse-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -41,7 +43,6 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
-          cache: npm
       - name: Test the budget script
         run: |
           set -euo pipefail
