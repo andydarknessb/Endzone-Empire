@@ -19,9 +19,21 @@ const SITE = 'https://endzoneempire.gg';
 const API = 'https://api.endzoneempire.gg';
 const RATE_LIMIT_REQUESTS = 30;
 const RATE_LIMIT_MAX = '300';
+// The first request of a fresh window reads the full count back.
+const RATE_LIMIT_FIRST = 299;
+const JWT = /^[\w-]+\.[\w-]+\.[\w-]+$/;
 
 function request(fetch, url, init = {}) {
   return fetch(url, { ...init, signal: AbortSignal.timeout(20000) });
+}
+
+// x-render-origin-server is set by the app, so its absence means Render's edge answered.
+const appAnswered = (res) => res.headers.get('x-render-origin-server') !== null;
+
+// Names who answered a non-200, so a proxy 502 is not read as an app verdict.
+function answerNote(res) {
+  if (res.status === 200) return '';
+  return `, cf-ray ${res.headers.get('cf-ray') ?? 'none'}, ${appAnswered(res) ? 'the app answered' : "Render's edge answered, not the app"}`;
 }
 
 // One assertion per line, so the job log shows which one failed.
@@ -34,8 +46,10 @@ async function checkWeb({ fetch, log }) {
   const page = await request(fetch, `${SITE}/`);
   const html = await page.text();
   const bundle = html.match(/src="(\/static\/js\/main\.[0-9a-f]+\.js)"/)?.[1];
+  // Netlify serves the site, so Render's header does not apply here.
+  const pageNote = page.status === 200 ? '' : `, server ${page.headers.get('server') ?? 'none'}`;
   const results = [
-    step(log, page.status === 200, `GET / answered ${page.status}, want 200`),
+    step(log, page.status === 200, `GET / answered ${page.status}, want 200${pageNote}`),
     step(log, html.includes('id="react-root"'), 'HTML has id="react-root"'),
     step(log, Boolean(bundle), 'HTML references /static/js/main.<hash>.js'),
   ];
@@ -53,32 +67,36 @@ async function checkApi({ fetch, log }) {
   const res = await request(fetch, `${API}/api/health/readyz`);
   const body = await res.json().catch(() => ({}));
   return [
-    step(log, res.status === 200, `GET /api/health/readyz answered ${res.status}, want 200`),
+    step(log, res.status === 200, `GET /api/health/readyz answered ${res.status}, want 200${answerNote(res)}`),
     step(log, body.ok === true, 'readyz ok is true'),
     step(log, typeof body.release === 'string' && body.release.length > 0, `readyz release is ${body.release}`),
   ].every(Boolean);
 }
 
 // Each caller's count falls by one per GET. The 60 second window may roll over
-// once (Remaining jumps back up); a second jump, a repeat or a drop by two fails.
-// A shared key (the 2026-11-09 proxy-address bug, #2736) shows as a count that
-// does not fall in step.
+// once: its first request reads 299 again, and any other upward move fails. A
+// repeat or a drop by two fails too. A shared key (the 2026-11-09 proxy-address
+// bug, #2736) shows as a count that does not fall in step.
 async function checkRateLimit({ fetch, log }) {
   let previous = null;
   let rollovers = 0;
   for (let i = 1; i <= RATE_LIMIT_REQUESTS; i += 1) {
-    const res = await request(fetch, `${API}/api/health/livez`);
+    // With the proxy hop count right, the forged entry is ignored and the count still falls by one. If the app ever trusts a client-supplied address, every request gets a fresh counter and the check fails at request 2.
+    const res = await request(fetch, `${API}/api/health/livez`, { headers: { 'X-Forwarded-For': `203.0.113.${i}` } });
     const limit = res.headers.get('RateLimit-Limit');
     const raw = res.headers.get('RateLimit-Remaining');
     const remaining = raw === null ? NaN : Number(raw);
-    const rolled = previous !== null && remaining > previous;
-    if (rolled) rollovers += 1;
     const falls = previous === null || remaining === previous - 1;
+    const rolled = !falls && remaining === RATE_LIMIT_FIRST;
+    if (rolled) rollovers += 1;
     const pass =
       res.status === 200 && limit === RATE_LIMIT_MAX && Number.isInteger(remaining) && (falls || (rolled && rollovers <= 1));
-    const seen = previous === null ? `${remaining}` : `${previous} -> ${remaining}`;
-    const text = `request ${i} of ${RATE_LIMIT_REQUESTS}: HTTP ${res.status}, RateLimit-Limit ${limit}, RateLimit-Remaining ${seen}`;
-    if (!step(log, pass, rolled ? `${text} (window rollover)` : text)) return false;
+    const shown = raw ?? 'absent';
+    const seen = previous === null ? shown : `${previous} -> ${shown}`;
+    const unjudged = res.status !== 200 && !appAnswered(res) ? ', the API did not answer, so the limiter was not judged' : '';
+    const text = `request ${i} of ${RATE_LIMIT_REQUESTS}: HTTP ${res.status}, RateLimit-Limit ${limit ?? 'absent'}, RateLimit-Remaining ${seen}`;
+    const rollover = rolled ? ` (window rollover ${rollovers})` : '';
+    if (!step(log, pass, `${text}${rollover}${answerNote(res)}${unjudged}`)) return false;
     previous = remaining;
   }
   return true;
@@ -117,21 +135,26 @@ async function checkLogin({ fetch, log, env }) {
     body: JSON.stringify({ username: env.SMOKE_USERNAME, password: env.SMOKE_PASSWORD }),
   });
   const session = await login.json().catch(() => ({}));
-  const loggedIn = step(
-    log,
-    login.status === 200 && typeof session.token === 'string',
-    `POST /api/auth/login answered ${login.status}, want 200 with a token`,
-  );
-  if (!loggedIn) return false;
+  if (!step(log, login.status === 200, `POST /api/auth/login answered ${login.status}, want 200${answerNote(login)}`)) return false;
+  // Checked before any header uses it, and never printed, so a malformed token cannot reach a log line.
+  if (!step(log, typeof session.token === 'string' && JWT.test(session.token), 'login response carries a JWT-shaped token')) {
+    return false;
+  }
 
   const auth = { headers: { Authorization: `Bearer ${session.token}` } };
   const me = await request(fetch, `${API}/api/user`, auth);
   const meBody = await me.json().catch(() => ({}));
   const league = await request(fetch, `${API}/api/league`, auth);
   const leagueBody = await league.json().catch(() => null);
+  // The server matches usernames case-insensitively and trimmed, so compare with the name login returned, not the secret.
+  const account = session.user?.username;
   return [
-    step(log, me.status === 200 && meBody.username === env.SMOKE_USERNAME, `GET /api/user answered ${me.status} as the smoke account`),
-    step(log, league.status === 200 && Array.isArray(leagueBody), `GET /api/league answered ${league.status} with a list`),
+    step(
+      log,
+      typeof account === 'string' && me.status === 200 && meBody.username === account,
+      `GET /api/user answered ${me.status} as the account the login returned${answerNote(me)}`,
+    ),
+    step(log, league.status === 200 && Array.isArray(leagueBody), `GET /api/league answered ${league.status} with a list${answerNote(league)}`),
   ].every(Boolean);
 }
 
@@ -153,7 +176,9 @@ async function main(argv = process.argv.slice(2), io = {}) {
   try {
     return (await CHECKS[name](ctx)) ? 0 : 1;
   } catch (err) {
-    ctx.log(`FAIL ${name}: ${err.message}`);
+    // Node's fetch hides the reason (ECONNRESET, ENOTFOUND) on err.cause.
+    const cause = err.cause?.code ?? err.cause?.message;
+    ctx.log(`FAIL ${name}: ${err.message}${cause ? ` (${cause})` : ''}`);
     return 1;
   }
 }
