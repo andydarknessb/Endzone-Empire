@@ -228,6 +228,23 @@ async function lastRun(job) {
   return { latest: toRun(row.latest), latestOk: toRun(row.latestOk) };
 }
 
+/**
+ * `Map` of job to the finish time of its latest ok run, for each job in `jobs`
+ * that has one; a job with no ok row is absent. One round trip, and each job's
+ * lookup is one index probe on (job, finished_at DESC) as lastRun's is, so the
+ * cost does not grow with the table.
+ */
+async function lastOkAtByJob(jobs) {
+  const res = await pool.query(
+    `SELECT j."job", (SELECT r."finished_at" FROM "data_sync_runs" r
+                       WHERE r."job" = j."job" AND r."ok" = true
+                       ORDER BY r."finished_at" DESC LIMIT 1) AS "finished_at"
+       FROM unnest($1::text[]) AS j("job")`,
+    [jobs]
+  );
+  return new Map(res.rows.filter((row) => row.finished_at !== null).map((row) => [row.job, row.finished_at]));
+}
+
 // The statuses a non-ok run's row carries as `detail.reason`. Any other reason
 // - a legacy row, such as an old ADP row's `thin_market` - has no outcome.
 const FAILURE_STATUSES = new Set(['refused', 'fetch_failed', 'bad_response', 'write_failed']);
@@ -301,4 +318,4 @@ async function recordDataSyncRun({ job, startedAt, ok, detail }) {
   }
 }
 
-module.exports = { runSyncJob, lastRun, recordDataSyncRun };
+module.exports = { runSyncJob, lastRun, lastOkAtByJob, recordDataSyncRun };

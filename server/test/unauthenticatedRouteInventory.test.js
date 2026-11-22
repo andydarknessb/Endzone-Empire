@@ -342,6 +342,7 @@ const PUBLIC_ROUTES = [
   'GET /api/health/livez',
   'GET /api/health/readyz',
   'GET /api/health/stats-integrity',
+  'GET /api/health/sync-freshness',
   'GET /api/health/worker',
   'GET /api/public/draft-pool',
   'GET /api/public/players/:id',
