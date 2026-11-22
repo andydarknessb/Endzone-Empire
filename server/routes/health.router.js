@@ -11,6 +11,7 @@ const { getRedisClient } = require('../modules/redis');
 const draftSweepLiveness = require('../modules/draftSweepLiveness');
 const { getQuotaState } = require('../modules/tank01Client');
 const { classifyError } = require('../modules/errorCategory');
+const { withDatabaseRetry } = require('../modules/dbRetry');
 // One spelling of the Overdue tolerance (#768): the constant lives in the Pick
 // clock module (pickClock.service owns expiry) and both detectors read it.
 const { OVERDUE_AFTER_MS } = require('../services/pickClock.service');
@@ -20,6 +21,11 @@ const WORKER_STALE_MS = Number(process.env.WORKER_STALE_MS || 15 * 60 * 1000);
 // The tick stamps lastTickAt when it returns. The heartbeat timer runs apart from
 // it, so a stuck tick leaves the row fresh while lastTickAt ages (#2758).
 const SCHEDULER_TICK_STALE_MS = 15 * 60 * 1000;
+// A pooler refusal run can outlast one probe (2026-11-22: four probes refused
+// across 15 s), and Render stops routing to the only instance after 15 s of
+// failed checks. Readiness holds through a database gap shorter than this.
+const DATABASE_READY_GRACE_MS = 45 * 1000;
+let lastDatabaseOkAt = 0;
 
 function withTimeout(promise, timeoutMs, message) {
   let timer;
@@ -32,7 +38,8 @@ function withTimeout(promise, timeoutMs, message) {
 async function databaseStatus() {
   const started = Date.now();
   try {
-    await pool.query('SELECT 1');
+    await withDatabaseRetry(() => pool.query('SELECT 1'));
+    lastDatabaseOkAt = Date.now();
     return { ok: true, latencyMs: Date.now() - started };
   } catch (error) {
     return { ok: false, latencyMs: Date.now() - started };
@@ -249,7 +256,9 @@ router.get('/livez', (req, res) => {
 router.get('/readyz', async (req, res) => {
   const runtime = getRuntimeState();
   const [db, redis] = await Promise.all([databaseStatus(), redisStatus()]);
-  const ok = runtime.ready && !runtime.shuttingDown && db.ok && redis.ok;
+  // `db` stays the probe's own answer; only readiness reads the grace window.
+  const databaseReady = db.ok || Date.now() - lastDatabaseOkAt < DATABASE_READY_GRACE_MS;
+  const ok = runtime.ready && !runtime.shuttingDown && databaseReady && redis.ok;
   res.status(ok ? 200 : 503).json({
     ok,
     db,
