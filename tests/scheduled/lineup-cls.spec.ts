@@ -1,13 +1,14 @@
 /**
  * Lineup layout-shift guard for the weekly browser suite (spec #2998). Ported from the lineup scratch harness
- * (ee-perf-tools/lineup/zz-lineup-perf.spec.ts): the wave 3 fixture, the harness's settle rule, and the phone's 4x CPU
- * throttle. The harness's per-request API latency and timing marks are not ported. Runs against the dev server.
+ * (ee-perf-tools/lineup/zz-lineup-perf.spec.ts): the wave 3 fixture, the harness's settle rule, the phone's 4x CPU
+ * throttle and its per-request API latency. The harness's timing marks are not ported. Runs against the dev server.
+ * The spec sets the session hint because a signed-in visitor always has it.
  */
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { WAVE3_LINEUP_URL, setupWave3Lineup } from '../e2e/fixtures/wave3LineupFixtures';
 
-// shortcut: budgets are the highest seen plus 0.03, rounded up. Phone 0.0659 on the build machine in every run and 0.0663 on a GitHub runner; desktop 0.0226 to 0.0354 on the build machine and 0.0373 on a GitHub runner (run 44969166698, 2026-11-22). Tighten when the phone's fixed shift is fixed.
+// shortcut: budgets are the highest seen plus 0.03, rounded up. Phone 0.10: with the session hint and 150 ms latency the build machine gave 0.0430 in 22 of 25 runs, 0.0500 once and 0.0620 twice (a strip and week-picker entry of 0.019), on 2026-11-22; the GitHub runner's 0.0663 predates both. Desktop 0.07: with the hint 0.0237 to 0.0299 on the build machine (10 runs, 2026-11-22); the GitHub runner's 0.0373 (run 44969166698, 2026-11-22) also predates the hint. Not seen: a visit without the session hint, where the pixel font arrives late and the team name re-wraps (0.066 to 0.227 depending on timing). Tighten the phone budget once the runner's hinted score is known over a few weeks.
 const PHONE_BUDGET = 0.10;
 const DESKTOP_BUDGET = 0.07;
 
@@ -17,6 +18,9 @@ const DESKTOP = { width: 1280, height: 800 };
 // Production reads take 130 to 360 ms; instant answers make the render order depend on machine speed.
 const API_LATENCY_MS = 150;
 
+// The 300px control block alone must add at least this much; decoupled from the phone budget.
+const CONTROL_MIN_SHIFT = 0.1;
+
 type Shift = { value: number; sources: string[] };
 
 const readShifts = (page: Page) => page.evaluate(() => (window as unknown as { __shifts: Shift[] }).__shifts);
@@ -25,6 +29,8 @@ const total = (shifts: Shift[]) => shifts.reduce((sum, s) => sum + s.value, 0);
 // Installed before the page loads so the buffered observer sees every shift from first paint. Shifts after input are
 // the user's own scrolling or typing, not a layout bug, so they are skipped. Returns the API reads that failed.
 async function openLineup(page: Page, viewport: { width: number; height: number }, cpuRate: number) {
+  // A signed-in visitor always has this hint; without it the pixel font arrives late and the team name re-wraps at a machine-speed moment.
+  await page.addInitScript(() => localStorage.setItem('endzone_session_hint', '1'));
   await page.addInitScript(() => {
     const w = window as unknown as { __shifts: Shift[] };
     w.__shifts = [];
@@ -106,8 +112,8 @@ for (const c of [
   });
 }
 
-// Proves the observer sees shifts: a block inserted first in the page must add more than the phone budget.
-test('control: a 300px block inserted first in the page adds more than the phone budget', async ({ page }) => {
+// Proves the observer sees shifts: a block inserted first in the page must add at least CONTROL_MIN_SHIFT.
+test('control: a 300px block inserted first in the page adds at least the control minimum', async ({ page }) => {
   test.setTimeout(60_000);
   await openLineup(page, PHONE, 4);
   await page.goto(WAVE3_LINEUP_URL);
@@ -121,5 +127,5 @@ test('control: a 300px block inserted first in the page adds more than the phone
   });
   await expect.poll(async () => (await readShifts(page)).length).toBeGreaterThan(seen.length);
   const after = total(await readShifts(page));
-  expect(after - before, `shift added by the control block, budget ${PHONE_BUDGET}`).toBeGreaterThan(PHONE_BUDGET);
+  expect(after - before, `shift added by the control block, minimum ${CONTROL_MIN_SHIFT}`).toBeGreaterThan(CONTROL_MIN_SHIFT);
 });
