@@ -15,6 +15,14 @@ name: Nightly
 # test is integration's: the `ref` below sends scheduled and manual runs to
 # integration. A pull_request run (this file's own paths trigger) tests the PR
 # merge ref instead.
+#
+# Who hears about a red night: GitHub's failure email to whoever last changed
+# the cron line, the same channel holdout-uptime.yml documents. Keep Actions
+# email notifications on.
+#
+# A scheduled run's checks attach to `main`'s head commit, so a red night shows
+# a red mark on `main`'s head although the code tested was `integration`'s. The
+# commit actually tested is in each job's checkout log.
 
 on:
   schedule:
@@ -27,10 +35,6 @@ on:
 
 permissions:
   contents: read
-
-concurrency:
-  group: nightly
-  cancel-in-progress: false
 
 jobs:
   ci:
