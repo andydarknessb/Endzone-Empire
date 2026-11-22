@@ -21,6 +21,17 @@
   font-display: swap;
 }
 
+/* Metric-matched stand-in while the pixel face loads (#3021). Press Start 2P sets every glyph at 1em; Courier New (and
+   Droid Sans Mono, its metric twin) sets them at 0.6em, so size-adjust 166.6% gives the stand-in the same advance and a
+   headline wraps the same before and after the swap. Measured on Windows (Courier New, 0.6001em); macOS and Android unverified. */
+@font-face {
+  font-family: 'Press Start 2P Fallback';
+  src: local('Courier New'), local('Droid Sans Mono'), local('Menlo');
+  size-adjust: 166.6%;
+  ascent-override: 100%;
+  descent-override: 0%;
+}
+
 /* Archivo (body face), self-hosted latin woff2 beside the pixel font above,
    with its SIL OFL license alongside the file; no runtime request to Google
    Fonts. It is a variable font spanning the weights the dashboard uses (400,
