@@ -401,6 +401,7 @@ test('in season the Set Lineup tile renders', async () => {
   await screen.findByTestId('quick-actions');
 
   expect(screen.getByText('Set Lineup')).toBeInTheDocument();
+  expect(tile('lineup').getAttribute('href')).toMatch(/\/league\/1\/lineup$/);
 });
 
 test('in season an empty starting slot is still recommended with its count', async () => {

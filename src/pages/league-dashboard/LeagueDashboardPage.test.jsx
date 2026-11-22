@@ -1755,7 +1755,7 @@ test('quick-actions: in season the Playbook is one link row ending in the trophy
 });
 
 // In season the Play and Moves links are one "League pages" row right under Your move (before the hero).
-// It is its own landmark with no leading text, and Pick'em joins it only on a league with pick'em on.
+// It is its own landmark, labelled "League pages" before its first link, and Pick'em joins it only on a league with pick'em on.
 test('quick-actions: in season a League pages row sits under Your move and before the hero, with the Play and Moves links', async () => {
   mockGetByUrl({
     '/api/league/1': quickActionsLeague(),
