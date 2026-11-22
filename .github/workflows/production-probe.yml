@@ -5,11 +5,11 @@ name: Production probe
 # bundle (web), that the API reports ready with a release (api), that the
 # general /api rate limiter counts each caller one step per GET (rate-limit),
 # and that every sync that should run all year has an ok run inside its limit
-# (sync-freshness). The login job logs in as a smoke account and reads its user and league. It
-# stays skipped until the monitoring environment holds SMOKE_USERNAME and
-# SMOKE_PASSWORD; with them absent the check prints a warning and passes.
-# The hourly holdout-uptime workflow covers the holdout, worker and stats
-# routes, so this does not repeat them.
+# (sync-freshness). The login job logs in as a smoke account and reads its
+# user and league. It stays skipped until the monitoring environment holds
+# SMOKE_USERNAME and SMOKE_PASSWORD; with them absent the check prints a
+# warning and passes. The hourly holdout-uptime workflow covers the holdout,
+# worker and stats routes, so this does not repeat them.
 #
 # A red run means production failed one named assertion in the job log: the
 # site, the API, the rate limiter's per-caller count, or a stale sync. Each

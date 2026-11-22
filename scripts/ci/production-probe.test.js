@@ -186,7 +186,7 @@ test('rate-limit: a 502 with no app header is reported as the API not answering,
 });
 
 test('sync-freshness: passes when the route answers 200 with ok true', async () => {
-  const { fetch, calls } = stub(() => json({ ok: true, checked: 8, overdue: [] }));
+  const { fetch, calls } = stub(() => json({ ok: true, checked: 7, overdue: [] }));
   const { log } = collect();
   assert.equal(await checkSyncFreshness({ fetch, log }), true);
   assert.equal(calls[0].url, 'https://api.endzoneempire.gg/api/health/sync-freshness');
@@ -195,7 +195,7 @@ test('sync-freshness: passes when the route answers 200 with ok true', async () 
 test('sync-freshness: on 503 prints each overdue sync with its last ok time and fails', async () => {
   const { fetch } = stub(() => json({
     ok: false,
-    checked: 8,
+    checked: 7,
     overdue: [
       { job: 'injuries', lastOkAt: '2026-11-19T10:00:00.000Z', maxAgeMinutes: 120 },
       { job: 'players', lastOkAt: null, maxAgeMinutes: 2880 },
@@ -212,6 +212,15 @@ test('sync-freshness: on 404 fails and says the route is not deployed', async ()
   const { log, lines } = collect();
   assert.equal(await checkSyncFreshness({ fetch, log }), false);
   assert.match(lines.join('\n'), /FAIL GET \/api\/health\/sync-freshness answered 404: the route is not deployed/);
+});
+
+test('sync-freshness: an unavailable body says the API could not read its sync runs, not that a sync is stale', async () => {
+  const { fetch } = stub(() => json({ ok: false, checked: null, overdue: null, unavailable: true }, 503));
+  const { log, lines } = collect();
+  assert.equal(await checkSyncFreshness({ fetch, log }), false);
+  assert.match(lines[0], /answered 503, want 200 with ok true, cf-ray none, the app answered$/);
+  assert.match(lines[1], /^FAIL the API could not read its sync runs, so no sync is judged stale$/);
+  assert.equal(lines.some((line) => /last ok/.test(line)), false, 'no overdue sync is named');
 });
 
 test('login: with a SMOKE_* variable missing, warns once, sends nothing and exits 0', async () => {

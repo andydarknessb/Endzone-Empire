@@ -108,13 +108,14 @@ async function statsIntegrityStatus() {
 
 /**
  * Sync freshness (#3007): every listed sync's latest ok run inside its limit.
- * The service's own result is the published shape; the raw error goes to the
- * server log only.
+ * Fields are named, never spread, so a field added to the service later does
+ * not reach the anonymous payload. The raw error goes to the server log only.
  */
 async function syncFreshnessStatus() {
   try {
     const syncFreshness = require('../services/syncFreshness.service');
-    return await syncFreshness.getSyncFreshness();
+    const { ok, checked, overdue } = await syncFreshness.getSyncFreshness();
+    return { ok, checked, overdue };
   } catch (error) {
     console.error('sync freshness check failed:', error.message);
     return { ok: false, checked: null, overdue: null, unavailable: true };

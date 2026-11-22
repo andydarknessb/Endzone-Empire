@@ -10,17 +10,17 @@ const app = express();
 app.use('/api/health', healthRouter);
 
 test('GET /api/health/sync-freshness returns 200 when every listed sync is inside its limit', async (t) => {
-  t.mock.method(freshness, 'getSyncFreshness', async () => ({ ok: true, checked: 8, overdue: [] }));
+  t.mock.method(freshness, 'getSyncFreshness', async () => ({ ok: true, checked: 7, overdue: [] }));
 
   const response = await request(app).get('/api/health/sync-freshness');
   assert.equal(response.status, 200);
-  assert.deepEqual(response.body, { ok: true, checked: 8, overdue: [] });
+  assert.deepEqual(response.body, { ok: true, checked: 7, overdue: [] });
 });
 
 test('GET /api/health/sync-freshness returns 503 naming each overdue sync with its last ok run', async (t) => {
   t.mock.method(freshness, 'getSyncFreshness', async () => ({
     ok: false,
-    checked: 8,
+    checked: 7,
     overdue: [{ job: 'injuries', lastOkAt: new Date('2026-11-20T10:00:00.000Z'), maxAgeMinutes: 120 }],
   }));
 
@@ -28,7 +28,7 @@ test('GET /api/health/sync-freshness returns 503 naming each overdue sync with i
   assert.equal(response.status, 503, 'a sync gone too long is an alert');
   assert.deepEqual(response.body, {
     ok: false,
-    checked: 8,
+    checked: 7,
     overdue: [{ job: 'injuries', lastOkAt: '2026-11-20T10:00:00.000Z', maxAgeMinutes: 120 }],
   });
 });

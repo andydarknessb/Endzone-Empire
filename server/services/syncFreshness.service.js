@@ -2,8 +2,9 @@ const syncRun = require('../modules/syncRun');
 
 const MINUTE_MS = 60 * 1000;
 
-// Left out: season-only jobs (odds, game-context), jobs gated to certain days (stat-corrections, nflverse-week), adp (it refuses with thin_market every day in season), and the irregular nflverse jobs.
+// Left out: season-only jobs (odds, game-context), jobs gated to certain days (stat-corrections, nflverse-week), adp (it refuses with thin_market every day in season), espn-ownership (ESPN answers 404 for a season it has not opened), and the irregular nflverse jobs.
 // shortcut: limits fitted to production's ok-run gaps on 2026-11-21 (in season: injuries 99th percentile 35 minutes, schedule longest 75, daily jobs up to 35 hours; a job gated per UTC day can run early one day and late the next, hence 48 hours), revisit after the first offseason
+// The injuries sync counts a run as failed when ESPN's document lists fewer than 50 entries (INJURY_DOC_FLOOR in server/services/feedSyncRuns.service.js, set in season), so check that first if injuries goes red in the offseason. "Fresh" means the job ran and its feed answered, not that the data moved.
 const MAX_AGE_MINUTES = {
   injuries: 120,
   schedule: 180,
@@ -11,7 +12,6 @@ const MAX_AGE_MINUTES = {
   retention: 2880,
   'espn-roster-status': 2880,
   'espn-depth-chart': 2880,
-  'espn-ownership': 2880,
   'schedule-nflverse': 2880,
 };
 

@@ -230,17 +230,19 @@ async function lastRun(job) {
 
 /**
  * `Map` of job to the finish time of its latest ok run, for each job in `jobs`
- * that has one; a job with no ok row is absent. One query for the whole list,
- * so a freshness check over many jobs is one round trip.
+ * that has one; a job with no ok row is absent. One round trip, and each job's
+ * lookup is one index probe on (job, finished_at DESC) as lastRun's is, so the
+ * cost does not grow with the table.
  */
 async function lastOkAtByJob(jobs) {
   const res = await pool.query(
-    `SELECT "job", max("finished_at") AS "finished_at" FROM "data_sync_runs"
-     WHERE "ok" = true AND "job" = ANY($1)
-     GROUP BY "job"`,
+    `SELECT j."job", (SELECT r."finished_at" FROM "data_sync_runs" r
+                       WHERE r."job" = j."job" AND r."ok" = true
+                       ORDER BY r."finished_at" DESC LIMIT 1) AS "finished_at"
+       FROM unnest($1::text[]) AS j("job")`,
     [jobs]
   );
-  return new Map(res.rows.map((row) => [row.job, row.finished_at]));
+  return new Map(res.rows.filter((row) => row.finished_at !== null).map((row) => [row.job, row.finished_at]));
 }
 
 // The statuses a non-ok run's row carries as `detail.reason`. Any other reason

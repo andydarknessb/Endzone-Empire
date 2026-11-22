@@ -8,7 +8,8 @@
  * (every sync that should run all year has an ok run inside its limit) and
  * `login` (a real account logs in and reaches its data). Each prints one line
  * per assertion and exits 0 on pass, 1 on fail. The hourly holdout-uptime
- * workflow covers the holdout, worker and stats routes; this does not repeat them.
+ * workflow covers the holdout, worker and stats routes, so this does not
+ * repeat them.
  *
  * Every check takes an injected fetch and log, so the tests drive it with a
  * stub. main is the only reader of argv and env. Only login sends a POST, and
@@ -103,18 +104,22 @@ async function checkRateLimit({ fetch, log }) {
 }
 
 // A 503 names each overdue sync with its last ok run. A 404 means this API has
-// not shipped the route yet.
+// not shipped the route yet. An unavailable body is a database outage, which is
+// not a stale sync.
 async function checkSyncFreshness({ fetch, log }) {
   const res = await request(fetch, `${API}/api/health/sync-freshness`);
   if (res.status === 404) {
-    return step(log, false, 'GET /api/health/sync-freshness answered 404: the route is not deployed');
+    return step(log, false, `GET /api/health/sync-freshness answered 404: the route is not deployed${answerNote(res)}`);
   }
   const body = await res.json().catch(() => ({}));
   const fresh = step(
     log,
     res.status === 200 && body.ok === true,
-    `GET /api/health/sync-freshness answered ${res.status}, want 200 with ok true`,
+    `GET /api/health/sync-freshness answered ${res.status}, want 200 with ok true${answerNote(res)}`,
   );
+  if (body.unavailable === true) {
+    step(log, false, 'the API could not read its sync runs, so no sync is judged stale');
+  }
   if (res.status === 503) {
     for (const job of body.overdue || []) {
       log(`FAIL ${job.job}: last ok ${job.lastOkAt ?? 'never'}, limit ${job.maxAgeMinutes} minutes`);

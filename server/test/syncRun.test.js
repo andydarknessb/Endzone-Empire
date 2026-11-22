@@ -479,11 +479,14 @@ test('lastRun(job): both null when the job has never run', async (t) => {
   assert.equal(latestOk, null);
 });
 
-test('lastOkAtByJob(jobs): one grouped query returns each job\'s latest ok finish time, and omits a job with none', async (t) => {
+test('lastOkAtByJob(jobs): one query over the listed jobs returns each latest ok finish time, and omits a job with none', async (t) => {
   const fake = createFakePool([
-    [select('data_sync_runs'), (text, params) => {
+    [/FROM unnest\(\$1::text\[\]\) AS j/, (text, params) => {
       assert.deepEqual(params, [['injuries', 'schedule']]);
-      return { rows: [{ job: 'injuries', finished_at: new Date('2026-11-21T10:00:00.000Z') }] };
+      return { rows: [
+        { job: 'injuries', finished_at: new Date('2026-11-21T10:00:00.000Z') },
+        { job: 'schedule', finished_at: null },
+      ] };
     }],
   ]).install(t);
 
@@ -491,7 +494,7 @@ test('lastOkAtByJob(jobs): one grouped query returns each job\'s latest ok finis
 
   assert.ok(lastOk instanceof Map);
   assert.deepEqual([...lastOk.entries()], [['injuries', new Date('2026-11-21T10:00:00.000Z')]]);
-  assert.equal(lastOk.has('schedule'), false, 'a job with no ok row is absent from the map');
+  assert.equal(lastOk.has('schedule'), false, 'a job whose lookup found no ok row is absent from the map');
   assert.equal(fake.calls.length, 1, 'one round trip for the whole list');
   assert.match(fake.calls[0].text, /"ok" = true/, 'only ok runs count');
 });
