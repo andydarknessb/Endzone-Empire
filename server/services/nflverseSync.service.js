@@ -1085,6 +1085,32 @@ function buildCorrectionUnits({ weekPlayerRows, weekTeamRows }) {
 }
 
 /**
+ * Pure: one unit's stat lines, the ones applyNflverseFullWeek writes. `players`
+ * are the crosswalk-matched player lines (position from positionById); `dst` are
+ * the game's DST lines, each on its team's DEF player id (no DEF row this week,
+ * no line), position 'DEF'.
+ */
+function buildNflverseUnitLines(unit) {
+  const { playerRows, teamRows, scoresByGameId, crosswalk, idByExternal, positionById, defByTeamCode } = unit;
+  const playerUpdates = buildFullStatUpdates({
+    rows: playerRows,
+    crosswalk,
+    knownPlayersByExternalId: idByExternal,
+  });
+  const dstTargets = [];
+  for (const { teamAbbr, stats } of buildDstStatUpdates({ teamRows, playerRows, scoresByGameId })) {
+    // Fold the lookup side through the same resolver the shared builder keys on,
+    // so the two stay in one vocabulary no matter what buildDstStatUpdates emits.
+    const defRow = defByTeamCode.get(normalizeNflTeam(teamAbbr));
+    if (defRow) dstTargets.push({ playerId: defRow.id, stats });
+  }
+  return {
+    players: playerUpdates.map(({ playerId, stats }) => ({ playerId, fresh: stats, position: positionById.get(playerId) })),
+    dst: dstTargets.map(({ playerId, stats }) => ({ playerId, fresh: stats, position: 'DEF' })),
+  };
+}
+
+/**
  * apply(db, unit) for the 'nflverse-correction' Sync run: one game's COMPLETE
  * player_stats rows from already-fetched nflverse data - full stat lines for
  * every crosswalk-matched player plus the game's DST rows - on the unit's own
@@ -1095,21 +1121,9 @@ function buildCorrectionUnits({ weekPlayerRows, weekTeamRows }) {
  * No league re-score, no play events.
  */
 async function applyNflverseFullWeek(db, unit) {
-  const { season, week, gameId, playerRows, teamRows, scoresByGameId, crosswalk,
-    idByExternal, positionById, defByTeamCode } = unit;
+  const { season, week, gameId } = unit;
   try {
-    const playerUpdates = buildFullStatUpdates({
-      rows: playerRows,
-      crosswalk,
-      knownPlayersByExternalId: idByExternal,
-    });
-    const dstTargets = [];
-    for (const { teamAbbr, stats } of buildDstStatUpdates({ teamRows, playerRows, scoresByGameId })) {
-      // Fold the lookup side through the same resolver the shared builder keys on,
-      // so the two stay in one vocabulary no matter what buildDstStatUpdates emits.
-      const defRow = defByTeamCode.get(normalizeNflTeam(teamAbbr));
-      if (defRow) dstTargets.push({ playerId: defRow.id, stats });
-    }
+    const { players, dst } = buildNflverseUnitLines(unit);
 
     // The write module carries what a wholesale nflverse rewrite must not
     // destroy (the play-by-play TD-length arrays and the snap keys, which
@@ -1117,7 +1131,7 @@ async function applyNflverseFullWeek(db, unit) {
     // here on the same client, for just this unit's rows (#1760). No caller
     // chooses a carry list.
     const priorByPlayer = new Map();
-    const ids = [...playerUpdates.map((u) => u.playerId), ...dstTargets.map((u) => u.playerId)];
+    const ids = [...players.map((l) => l.playerId), ...dst.map((l) => l.playerId)];
     if (ids.length > 0) {
       const existing = await db.query(
         `SELECT "player_id", "stats" FROM "player_stats"
@@ -1128,16 +1142,16 @@ async function applyNflverseFullWeek(db, unit) {
     }
 
     let playersUpdated = 0;
-    for (const { playerId, stats: fresh } of playerUpdates) {
+    for (const { playerId, fresh, position } of players) {
       const written = await upsertPlayerStats(db, {
-        playerId, season, week, source: 'nflverse-correction', fresh, prior: priorByPlayer.get(playerId) || null, position: positionById.get(playerId),
+        playerId, season, week, source: 'nflverse-correction', fresh, prior: priorByPlayer.get(playerId) || null, position,
       });
       if (written) playersUpdated += 1;
     }
     let dstUpdated = 0;
-    for (const { playerId, stats: fresh } of dstTargets) {
+    for (const { playerId, fresh, position } of dst) {
       const written = await upsertPlayerStats(db, {
-        playerId, season, week, source: 'nflverse-correction', fresh, prior: priorByPlayer.get(playerId) || null, position: 'DEF',
+        playerId, season, week, source: 'nflverse-correction', fresh, prior: priorByPlayer.get(playerId) || null, position,
       });
       if (written) dstUpdated += 1;
     }
@@ -1442,6 +1456,7 @@ module.exports = {
   buildDstStatUpdates,
   applyNflverseWeek,
   buildCorrectionUnits,
+  buildNflverseUnitLines,
   applyNflverseFullWeek,
   syncNflverseCorrection,
   correctWeekFromNflverse,
