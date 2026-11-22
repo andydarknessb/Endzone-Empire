@@ -2,8 +2,8 @@
 /**
  * Median Lighthouse budget gate for the weekly landing-page run (#3002, spec #2998).
  *
- * The Lighthouse workflow runs the production landing page three times and
- * passes the three JSON reports here. One run is noisy, so each metric is
+ * The Lighthouse workflow runs the production landing page five times and
+ * passes the five JSON reports here. One run is noisy, so each metric is
  * judged on its median across the reports. The medians print as a Markdown
  * table (also appended to GITHUB_STEP_SUMMARY when set), and the script exits
  * 1 when any median breaks its budget.

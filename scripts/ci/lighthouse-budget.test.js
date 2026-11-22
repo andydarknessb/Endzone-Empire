@@ -94,12 +94,12 @@ test('main exits 1 naming the metric, its median and its budget when one breaks'
 });
 
 test('main exits 1 naming the report and the URL it measured when that is not the landing page', () => {
-  const elsewhere = { ...report(), finalDisplayedUrl: 'https://example.com/' };
-  const { files, cleanup } = writeReports([report(), elsewhere, report()]);
+  const lookalike = { ...report(), finalDisplayedUrl: 'https://endzoneempire.gg.example.com/' };
+  const { files, cleanup } = writeReports([report(), lookalike, report()]);
   try {
     const { out, io } = capture();
     assert.equal(main(files, {}, io), 1);
-    assert.deepEqual(out.error, [`lighthouse-budget: ${files[1]}: measured https://example.com/, not endzoneempire.gg`]);
+    assert.deepEqual(out.error, [`lighthouse-budget: ${files[1]}: measured https://endzoneempire.gg.example.com/, not endzoneempire.gg`]);
     assert.deepEqual(out.log, [], 'no table is printed when a report measured another page');
   } finally {
     cleanup();
