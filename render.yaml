@@ -86,8 +86,10 @@ services:
         value: "0.05"
       - key: PGPOOL_MAX
         value: "10"
+      # Holds pooler connections for two minutes instead of reconnecting every
+      # 30 s (pooler checkout refusals, 2026-11-22).
       - key: PGPOOL_IDLE_TIMEOUT_MS
-        value: "30000"
+        value: "120000"
       - key: PGPOOL_CONNECTION_TIMEOUT_MS
         value: "5000"
       - key: PG_STATEMENT_TIMEOUT_MS
@@ -177,6 +179,10 @@ services:
         value: "0.05"
       - key: PGPOOL_MAX
         value: "5"
+      # The per-minute jobs reuse their connections instead of reconnecting
+      # twice a minute (see the web service's note).
+      - key: PGPOOL_IDLE_TIMEOUT_MS
+        value: "120000"
       - key: PG_STATEMENT_TIMEOUT_MS
         value: "30000"
       - key: RAPID_API_KEY
