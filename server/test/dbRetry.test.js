@@ -80,3 +80,17 @@ test('classifies PostgreSQL, network, and Supavisor pool failures', () => {
   assert.equal(isTransientDatabaseError({ message: 'Supavisor connection queue unavailable' }), true);
   assert.equal(isTransientDatabaseError({ code: '23503', message: 'foreign key violation' }), false);
 });
+
+test('treats a Supavisor checkout failure as transient', () => {
+  // What the pooler answered during the 2026-11-22 login outage: SQLSTATE XX000
+  // and no word the older patterns matched, so nothing retried it.
+  const error = new Error('(ECHECKOUTRETRIES) failed to check out a connection after multiple retries');
+  error.code = 'XX000';
+  assert.equal(isTransientDatabaseError(error), true);
+});
+
+test('does not treat every XX000 internal error as transient', () => {
+  const error = new Error('could not open relation with OID 12345');
+  error.code = 'XX000';
+  assert.equal(isTransientDatabaseError(error), false);
+});
