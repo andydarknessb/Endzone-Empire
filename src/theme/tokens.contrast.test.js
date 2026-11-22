@@ -103,6 +103,8 @@ const PAIRINGS = [
   pairing('text-muted', 'surface-sunken', AA_TEXT, 'GIF unavailable tile description/attribution'),
   pairing('on-accent', 'accent', AA_LARGE, 'button label on accent'),
   pairing('text-inverse', 'danger', AA_LARGE, 'alert banner text'),
+  // The "You're on the clock!" toast is a filled info Alert (#3020): its label on the info fill must clear AA_TEXT at 14px.
+  pairing('on-info', 'info', AA_TEXT, 'info toast label on its fill'),
   pairing('danger', 'surface', AA_TEXT, 'error text on cards'),
   // Position chips/avatars: white (light) or dark (dark) label on the fill.
   pairing('text-inverse', 'pos-qb', AA_TEXT, 'QB position chip label'),
