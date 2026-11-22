@@ -184,6 +184,15 @@ test('desktop gamedaySet: My team reads Lineup set with the check', async ({ pag
   await expect(page.getByTestId('my-team-lineup-check')).toHaveCount(1);
 });
 
+// The fixture gives the viewer's first starter actual points (spec #2980): that row prints them, labelled pts, not its projection.
+test('desktop gamedaySet: My team\'s first starter prints its actual points, not the projection', async ({ page }) => {
+  await openDashboard(page, 'gamedaySet', 'desktop');
+  const first = page.getByTestId('my-team-starters').getByTestId('starter-row').first();
+  await expect(first).toContainText('Patrick Mahomes');
+  await expect(first.getByTestId('starter-projection')).toContainText('18.5 pts');
+  await expect(first).not.toContainText('11.8');
+});
+
 // From sm up the chat launcher is a fixed 56px button 24px off the corner: it takes 80px of the viewport at full
 // scroll. The last frame must end above it with 8px to spare (88px minimum; the page pads 96), and the page must
 // reserve that room itself: the app footer below the shell gives clearance today, but the page does not own the footer.

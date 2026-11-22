@@ -98,6 +98,7 @@ describe('lineupModel: the one shape from the lineup body', () => {
       nflTeam: 'BUF',
       slot: 'QB',
       projectedPoints: 10,
+      points: null,
       injuryStatus: null,
       photoUrl: null,
       spent: false,
@@ -191,6 +192,7 @@ describe('lineupModel: the one shape from the lineup body', () => {
       nflTeam: 'MIA',
       slot: 'WR',
       projectedPoints: null,
+      points: null,
       injuryStatus: null,
       photoUrl: null,
       spent: true,
@@ -298,6 +300,20 @@ describe('lineupModel: the one shape from the lineup body', () => {
       entries: [row({ id: 1, slot: 'QB', projected_points: null })],
     });
     expect(model.starters[0].projectedPoints).toBeNull();
+  });
+
+  // The wire's actualPoints reads onto the starter row as `points`, coerced the
+  // way lineupEntries' Ledger builder coerces it: null stays null, never 0 (#2980).
+  test('a wire actualPoints string reads as points 18.5; null and a missing key read as null, never 0', () => {
+    const model = lineupModel({
+      ...body,
+      entries: [
+        row({ id: 1, slot: 'QB', actualPoints: '18.50' }),
+        row({ id: 2, slot: 'RB', actualPoints: null }),
+        row({ id: 3, slot: 'WR' }),
+      ],
+    });
+    expect(model.starters.map((s) => s.points)).toEqual([18.5, null, null]);
   });
 });
 

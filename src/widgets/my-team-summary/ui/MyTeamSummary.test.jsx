@@ -818,6 +818,32 @@ test('a healthy starter carries no injury Badge', async () => {
   expect(within(row).queryByTestId('starter-injury-badge')).not.toBeInTheDocument();
 });
 
+// Actual points (the wire's `actualPoints`, #2980) replace the projection once a starter has them, labelled "pts".
+test('a starter with actual points prints them labelled pts, not the projection, and reads as points to a screen reader', async () => {
+  mountWith({
+    [LINEUP_URL]: lineupResponse([lineupRow({ id: 1, name: 'Josh Allen', slot: 'QB', projected_points: 14.2, actualPoints: '18.50' })]),
+  });
+
+  const row = await screen.findByTestId('starter-row');
+  const value = within(row).getByTestId('starter-projection');
+  expect(value).toHaveTextContent('18.5 pts');
+  expect(value).not.toHaveTextContent('14.2');
+  expect(within(row).getByText('18.5 points')).toBeInTheDocument();
+  expect(within(row).queryByText(/projected/)).not.toBeInTheDocument();
+});
+
+test('a starter with null actual points prints the projection as before, with no pts label', async () => {
+  mountWith({
+    [LINEUP_URL]: lineupResponse([lineupRow({ id: 1, name: 'Josh Allen', slot: 'QB', projected_points: 14.2, actualPoints: null })]),
+  });
+
+  const row = await screen.findByTestId('starter-row');
+  const value = within(row).getByTestId('starter-projection');
+  expect(value).toHaveTextContent('14.2');
+  expect(value).not.toHaveTextContent('pts');
+  expect(within(row).getByText('14.2 projected points')).toBeInTheDocument();
+});
+
 test('loading holds five skeleton rows', async () => {
   mountWith({ [LINEUP_URL]: { pending: true } });
 

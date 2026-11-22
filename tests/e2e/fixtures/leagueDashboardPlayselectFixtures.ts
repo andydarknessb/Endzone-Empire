@@ -238,9 +238,10 @@ function itemsFor(state: DashState, now: number) {
 
 export type DashHarness = { items: () => Record<string, unknown>[] };
 
-// gamedayUrgent's viewer lineup (spec #2979). layoutGuardFixtures' lineupForViewer is not exported and that file
-// serves other specs unchanged, so the nine starters the shared harness serves are listed here, with Puka Nacua at
-// FLEX, Out, as the Play names him. He keeps the FLEX entry's id (1006), so no id repeats.
+// The viewer's lineup for gamedayUrgent (spec #2979) and gamedaySet (spec #2980). layoutGuardFixtures' lineupForViewer is
+// not exported and that file serves other specs unchanged, so the nine starters the shared harness serves are listed
+// here. gamedayUrgent has Puka Nacua at FLEX, Out, as the Play names him; gamedaySet has nobody Out. He keeps the FLEX
+// entry's id (1006), so no id repeats.
 const GAMEDAY_STARTERS: Array<[name: string, position: string, slot: string]> = [
   ['Patrick Mahomes', 'QB', 'QB'],
   ['Christian McCaffrey', 'RB', 'RB'],
@@ -253,7 +254,9 @@ const GAMEDAY_STARTERS: Array<[name: string, position: string, slot: string]> = 
   ['San Francisco 49ers', 'DEF', 'DEF'],
 ];
 
-function gamedayLineup() {
+// gamedaySet's lineup is set (spec #2980): nobody Out, and the game is being played, so the first starter carries
+// the wire's actualPoints and the rest none yet.
+function gamedayLineup(state: 'gamedayUrgent' | 'gamedaySet') {
   return {
     leagueId: LEAGUE_ID,
     teamId: VIEWER_TEAM_ID,
@@ -270,13 +273,14 @@ function gamedayLineup() {
       nfl_team: 'KC',
       slot,
       projected_points: 11.8 + i,
+      actualPoints: state === 'gamedaySet' && i === 0 ? 18.5 : null,
       ir_attested: false,
       bye_week: null,
       locked: false,
       onBye: false,
       valid_stash: false,
       opponent: 'DAL',
-      ...(name === 'Puka Nacua'
+      ...(name === 'Puka Nacua' && state === 'gamedayUrgent'
         ? { injury_status: 'O', startVerdict: { outcome: 'unavailable', reason: 'out', numberTrusted: true } }
         : { injury_status: null }),
     })),
@@ -338,7 +342,7 @@ export async function setupDashboard(
       const rankings = ranked.map((t, i) => ({ teamId: t.teamId, name: t.teamName, rank: i + 1 }));
       return json(route, 200, { season: 2026, week: WEEK, viewerTeamId: VIEWER_TEAM_ID, data: { computedAt: at(now, -HOUR), rankings } });
     }
-    if (pathname === '/api/team/lineup' && state === 'gamedayUrgent') return json(route, 200, gamedayLineup());
+    if (pathname === '/api/team/lineup' && (state === 'gamedayUrgent' || state === 'gamedaySet')) return json(route, 200, gamedayLineup(state));
     if (pathname === '/api/team/lineup/advice') {
       return json(route, 200, {
         suggestions: [{
