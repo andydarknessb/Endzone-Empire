@@ -21,13 +21,23 @@
   font-display: swap;
 }
 
-/* Metric-matched stand-in while the pixel face loads (#3021). Press Start 2P sets every glyph at 1em; Courier New (and
-   Droid Sans Mono, its metric twin) sets them at 0.6em, so size-adjust 166.6% gives the stand-in the same advance and a
-   headline wraps the same before and after the swap. Measured on Windows (Courier New, 0.6001em); macOS and Android unverified. */
+/* Metric-matched stand-ins while the pixel face loads (#3021). Press Start 2P sets every glyph at 1em. A stand-in only
+   holds the head's size when its advance matches, and local() finds a font only if the platform has it, so each one
+   names a monospace and scales it to 1em: Courier New (Windows, macOS), Liberation Mono (Linux with fonts-liberation)
+   and Droid Sans Mono and Menlo are 0.6001em, so 166.6%; DejaVu Sans Mono (the Linux default) is 0.60205em, so 166.1%.
+   Measured in Chromium on Windows (Courier New 0.9998em, DejaVu 1.0em); the others are assumed from their metrics. */
 @font-face {
   font-family: 'Press Start 2P Fallback';
-  src: local('Courier New'), local('Droid Sans Mono'), local('Menlo');
+  src: local('Courier New'), local('Liberation Mono'), local('Droid Sans Mono'), local('Menlo');
   size-adjust: 166.6%;
+  ascent-override: 100%;
+  descent-override: 0%;
+}
+
+@font-face {
+  font-family: 'Press Start 2P Fallback Mono';
+  src: local('DejaVu Sans Mono'), local('DejaVuSansMono');
+  size-adjust: 166.1%;
   ascent-override: 100%;
   descent-override: 0%;
 }

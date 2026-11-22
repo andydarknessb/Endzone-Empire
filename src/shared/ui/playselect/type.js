@@ -1,7 +1,7 @@
 // The Play-select two faces (DESIGN.md "Play-select: Home and league pages"): Press Start 2P for
 // headings, scores, card names and lock times; Archivo for everything read as a
 // sentence. Press Start 2P is self-hosted in src/theme/base.css.
-export const PIXEL_FONT = "'Press Start 2P', 'Press Start 2P Fallback', ui-monospace, monospace";
+export const PIXEL_FONT = "'Press Start 2P', 'Press Start 2P Fallback', 'Press Start 2P Fallback Mono', ui-monospace, monospace";
 export const BODY_FONT = "Archivo, 'Helvetica Neue', Arial, sans-serif";
 
 // The pixel face sets at 16, 24 and 32px only, on an 8px grid; anything
