@@ -6,8 +6,9 @@ name: Scheduled browser suite
 # over its budget, which proves the observer still sees shifts.
 #
 # Runs Mondays at 11:07 UTC, on manual dispatch, and on any PR that changes this file, playwright.scheduled.config.js
-# or tests/scheduled/. The scheduled run checks out integration. A red run means a page's layout moved past its budget
-# (the failure message lists the shift entries) or the observer stopped seeing shifts. It is not a production outage.
+# or tests/scheduled/. The scheduled run checks out integration; a manual dispatch tests the ref it was dispatched from.
+# A red run means a page's layout moved past its budget (the failure message lists the shift entries) or the observer
+# stopped seeing shifts. It is not a production outage.
 
 on:
   schedule:
@@ -23,7 +24,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: scheduled-browser
+  group: scheduled-browser-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -33,21 +34,15 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event_name != 'pull_request' && 'integration' || '' }}
+          ref: ${{ github.event_name == 'schedule' && 'integration' || '' }}
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
           cache: npm
-      - run: |
-          set -euo pipefail
-          npm ci
+      - run: npm ci
       # No --with-deps: its apt-get step has stalled for hours on this runner's mirror (see ci.yml's browser-security job).
-      - run: |
-          set -euo pipefail
-          npx playwright install chromium
+      - run: npx playwright install chromium
         timeout-minutes: 10
-      - run: |
-          set -euo pipefail
-          npm run test:scheduled
+      - run: npm run test:scheduled
         env:
           CI: "true"
