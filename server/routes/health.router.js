@@ -1,4 +1,5 @@
 const express = require('express');
+const { performance } = require('node:perf_hooks');
 const pool = require('../modules/pool');
 // Required as module objects (not destructured at load) so their status getters
 // stay a mockable seam and, more to the point, so this router is the single
@@ -20,6 +21,15 @@ const WORKER_STALE_MS = Number(process.env.WORKER_STALE_MS || 15 * 60 * 1000);
 // The tick stamps lastTickAt when it returns. The heartbeat timer runs apart from
 // it, so a stuck tick leaves the row fresh while lastTickAt ages (#2758).
 const SCHEDULER_TICK_STALE_MS = 15 * 60 * 1000;
+// A pooler refusal run can outlast many probes (2026-11-22: runs of up to 85 s),
+// and Render stops routing to the only instance after 15 s of failed checks.
+// Readiness holds through a database gap shorter than this.
+const DATABASE_READY_GRACE_MS = 120 * 1000;
+// Render fails a probe at 5 s; answering sooner lets the grace window speak.
+const DATABASE_PROBE_TIMEOUT_MS = 3000;
+// Monotonic (performance.now), so a wall-clock step cannot stretch the window.
+// -Infinity: a fresh process is not ready until the database answers once.
+let lastDatabaseOkAt = -Infinity;
 
 function withTimeout(promise, timeoutMs, message) {
   let timer;
@@ -32,7 +42,8 @@ function withTimeout(promise, timeoutMs, message) {
 async function databaseStatus() {
   const started = Date.now();
   try {
-    await pool.query('SELECT 1');
+    await withTimeout(pool.query('SELECT 1'), DATABASE_PROBE_TIMEOUT_MS, 'database probe timed out');
+    lastDatabaseOkAt = performance.now();
     return { ok: true, latencyMs: Date.now() - started };
   } catch (error) {
     return { ok: false, latencyMs: Date.now() - started };
@@ -249,7 +260,9 @@ router.get('/livez', (req, res) => {
 router.get('/readyz', async (req, res) => {
   const runtime = getRuntimeState();
   const [db, redis] = await Promise.all([databaseStatus(), redisStatus()]);
-  const ok = runtime.ready && !runtime.shuttingDown && db.ok && redis.ok;
+  // `db` stays the probe's own answer; only readiness reads the grace window.
+  const databaseReady = db.ok || performance.now() - lastDatabaseOkAt < DATABASE_READY_GRACE_MS;
+  const ok = runtime.ready && !runtime.shuttingDown && databaseReady && redis.ok;
   res.status(ok ? 200 : 503).json({
     ok,
     db,
