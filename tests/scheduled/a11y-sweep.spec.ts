@@ -1,7 +1,7 @@
 /**
  * Accessibility sweep for the weekly browser suite (spec #2998, ticket #3005). Each page loads with the mocks its e2e
  * spec installs, axe runs once it is ready, and a serious or critical violation whose rule id is not in
- * a11y-baseline.json fails the page. A11Y_WRITE_BASELINE=1 writes what is found instead. Runs against the dev server.
+ * a11y-baseline.json fails the page. A11Y_WRITE_BASELINE=1 writes what is found into it and keeps the rest. Runs against the dev server.
  *
  * not covered:
  *   Reset password: auth-offline.spec.ts mocks its API inline in the test body, with state that test shares.
@@ -107,7 +107,9 @@ for (const p of PAGES) {
 
 test.afterAll(() => {
   if (!WRITE_BASELINE) return;
-  const sorted = Object.fromEntries(Object.keys(found).sort().map((name) => [name, [...found[name]].sort()]));
+  // A filtered run writes only the pages it ran, so the entries for every other page are kept from the file.
+  const merged = { ...baseline, ...found };
+  const sorted = Object.fromEntries(Object.keys(merged).sort().map((name) => [name, [...merged[name]].sort()]));
   fs.writeFileSync(BASELINE_PATH, `${JSON.stringify(sorted, null, 2)}\n`);
 });
 
