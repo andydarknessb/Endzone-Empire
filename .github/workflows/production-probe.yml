@@ -2,19 +2,20 @@ name: Production probe
 
 # Daily outside-in probe of production (#3001), from a runner rather than the
 # app's own infrastructure. The probe job asserts that the site serves its
-# bundle (web), that the API reports ready with a release (api), and that the
-# general /api rate limiter counts each caller one step per GET (rate-limit).
-# The login job logs in as a smoke account and reads its user and league. It
+# bundle (web), that the API reports ready with a release (api), that the
+# general /api rate limiter counts each caller one step per GET (rate-limit),
+# and that every sync that should run all year has an ok run inside its limit
+# (sync-freshness). The login job logs in as a smoke account and reads its user and league. It
 # stays skipped until the monitoring environment holds SMOKE_USERNAME and
 # SMOKE_PASSWORD; with them absent the check prints a warning and passes.
 # The hourly holdout-uptime workflow covers the holdout, worker and stats
 # routes, so this does not repeat them.
 #
 # A red run means production failed one named assertion in the job log: the
-# site, the API, or the rate limiter's per-caller count. Each probe step runs
-# even when an earlier one fails, so one outage does not hide the others. The
-# probe is plain GETs; only the login job sends a POST, and only with the
-# monitoring secrets, never on a pull_request.
+# site, the API, the rate limiter's per-caller count, or a stale sync. Each
+# probe step runs even when an earlier one fails, so one outage does not hide
+# the others. The probe is plain GETs; only the login job sends a POST, and
+# only with the monitoring secrets, never on a pull_request.
 
 on:
   schedule:
@@ -56,6 +57,10 @@ jobs:
       - name: Probe the rate limiter
         if: ${{ !cancelled() }}
         run: node scripts/ci/production-probe.js rate-limit
+      - name: Probe the sync freshness
+        # A PR run probes the deployed API, which may not have this route yet.
+        if: ${{ !cancelled() && github.event_name != 'pull_request' }}
+        run: node scripts/ci/production-probe.js sync-freshness
 
   login:
     if: github.event_name != 'pull_request'

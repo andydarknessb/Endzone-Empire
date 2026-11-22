@@ -107,6 +107,21 @@ async function statsIntegrityStatus() {
 }
 
 /**
+ * Sync freshness (#3007): every listed sync's latest ok run inside its limit.
+ * The service's own result is the published shape; the raw error goes to the
+ * server log only.
+ */
+async function syncFreshnessStatus() {
+  try {
+    const syncFreshness = require('../services/syncFreshness.service');
+    return await syncFreshness.getSyncFreshness();
+  } catch (error) {
+    console.error('sync freshness check failed:', error.message);
+    return { ok: false, checked: null, overdue: null, unavailable: true };
+  }
+}
+
+/**
  * Overdue Pick clocks (#768, ruling 2): the API-health half of the two
  * detectors. A stored deadline elapsed for longer than the tolerance and still
  * undischarged is Overdue - and because it reads the stored deadline, a DEAD
@@ -278,6 +293,14 @@ router.get('/worker', async (req, res) => {
 router.get('/stats-integrity', async (req, res) => {
   const statsIntegrity = await statsIntegrityStatus();
   res.status(statsIntegrity.ok ? 200 : 503).json(statsIntegrity);
+});
+
+// The alertable sync-freshness signal: 503 while a sync that should run all year
+// has no ok run inside its limit. Kept out of the composite, which never fails
+// the app for a stale sync.
+router.get('/sync-freshness', async (req, res) => {
+  const freshness = await syncFreshnessStatus();
+  res.status(freshness.ok ? 200 : 503).json(freshness);
 });
 
 /**

@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { checkWeb, checkApi, checkRateLimit, checkLogin, main } = require('./production-probe');
+const { checkWeb, checkApi, checkRateLimit, checkSyncFreshness, checkLogin, main } = require('./production-probe');
 
 // Stubs answer each request through `respond(url, init)` and record it, so no
 // test touches the network. Response is the global one (Node 18+).
@@ -114,6 +114,35 @@ test('rate-limit: fails on a 429 response', async () => {
   const { log, lines } = collect();
   assert.equal(await checkRateLimit({ fetch, log }), false);
   assert.match(lines.at(-1), /FAIL request 1 of 30: HTTP 429/);
+});
+
+test('sync-freshness: passes when the route answers 200 with ok true', async () => {
+  const { fetch, calls } = stub(() => json({ ok: true, checked: 8, overdue: [] }));
+  const { log } = collect();
+  assert.equal(await checkSyncFreshness({ fetch, log }), true);
+  assert.equal(calls[0].url, 'https://api.endzoneempire.gg/api/health/sync-freshness');
+});
+
+test('sync-freshness: on 503 prints each overdue sync with its last ok time and fails', async () => {
+  const { fetch } = stub(() => json({
+    ok: false,
+    checked: 8,
+    overdue: [
+      { job: 'injuries', lastOkAt: '2026-11-19T10:00:00.000Z', maxAgeMinutes: 120 },
+      { job: 'players', lastOkAt: null, maxAgeMinutes: 2880 },
+    ],
+  }, 503));
+  const { log, lines } = collect();
+  assert.equal(await checkSyncFreshness({ fetch, log }), false);
+  assert.match(lines.join('\n'), /FAIL injuries: last ok 2026-11-19T10:00:00.000Z, limit 120 minutes/);
+  assert.match(lines.join('\n'), /FAIL players: last ok never, limit 2880 minutes/);
+});
+
+test('sync-freshness: on 404 fails and says the route is not deployed', async () => {
+  const { fetch } = stub(() => new Response('Cannot GET /api/health/sync-freshness', { status: 404 }));
+  const { log, lines } = collect();
+  assert.equal(await checkSyncFreshness({ fetch, log }), false);
+  assert.match(lines.join('\n'), /FAIL GET \/api\/health\/sync-freshness answered 404: the route is not deployed/);
 });
 
 test('login: with a SMOKE_* variable missing, warns once, sends nothing and exits 0', async () => {

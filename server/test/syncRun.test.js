@@ -10,7 +10,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createFakePool, insert, select } = require('./helpers/fakePool');
-const { runSyncJob, lastRun } = require('../modules/syncRun');
+const { runSyncJob, lastRun, lastOkAtByJob } = require('../modules/syncRun');
 
 const dataSyncRuns = (calls) => calls.filter((c) => insert('data_sync_runs').test(c.text));
 
@@ -477,6 +477,23 @@ test('lastRun(job): both null when the job has never run', async (t) => {
   const { latest, latestOk } = await lastRun('never-run');
   assert.equal(latest, null);
   assert.equal(latestOk, null);
+});
+
+test('lastOkAtByJob(jobs): one grouped query returns each job\'s latest ok finish time, and omits a job with none', async (t) => {
+  const fake = createFakePool([
+    [select('data_sync_runs'), (text, params) => {
+      assert.deepEqual(params, [['injuries', 'schedule']]);
+      return { rows: [{ job: 'injuries', finished_at: new Date('2026-11-21T10:00:00.000Z') }] };
+    }],
+  ]).install(t);
+
+  const lastOk = await lastOkAtByJob(['injuries', 'schedule']);
+
+  assert.ok(lastOk instanceof Map);
+  assert.deepEqual([...lastOk.entries()], [['injuries', new Date('2026-11-21T10:00:00.000Z')]]);
+  assert.equal(lastOk.has('schedule'), false, 'a job with no ok row is absent from the map');
+  assert.equal(fake.calls.length, 1, 'one round trip for the whole list');
+  assert.match(fake.calls[0].text, /"ok" = true/, 'only ok runs count');
 });
 
 test('runSyncJob: every run resolves or records exactly one typed outcome status', async (t) => {

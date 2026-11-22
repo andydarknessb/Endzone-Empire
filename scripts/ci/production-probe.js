@@ -4,10 +4,11 @@
  *
  * One check per argument: `web` (the site serves its bundle), `api` (the API
  * reports ready with a release), `rate-limit` (the general /api limiter counts
- * per caller, so RateLimit-Remaining falls one step per GET) and `login` (a
- * real account logs in and reaches its data). Each prints one line per
- * assertion and exits 0 on pass, 1 on fail. The hourly holdout-uptime workflow
- * covers the holdout, worker and stats routes; this does not repeat them.
+ * per caller, so RateLimit-Remaining falls one step per GET), `sync-freshness`
+ * (every sync that should run all year has an ok run inside its limit) and
+ * `login` (a real account logs in and reaches its data). Each prints one line
+ * per assertion and exits 0 on pass, 1 on fail. The hourly holdout-uptime
+ * workflow covers the holdout, worker and stats routes; this does not repeat them.
  *
  * Every check takes an injected fetch and log, so the tests drive it with a
  * stub. main is the only reader of argv and env. Only login sends a POST, and
@@ -83,6 +84,27 @@ async function checkRateLimit({ fetch, log }) {
   return true;
 }
 
+// A 503 names each overdue sync with its last ok run. A 404 means this API has
+// not shipped the route yet.
+async function checkSyncFreshness({ fetch, log }) {
+  const res = await request(fetch, `${API}/api/health/sync-freshness`);
+  if (res.status === 404) {
+    return step(log, false, 'GET /api/health/sync-freshness answered 404: the route is not deployed');
+  }
+  const body = await res.json().catch(() => ({}));
+  const fresh = step(
+    log,
+    res.status === 200 && body.ok === true,
+    `GET /api/health/sync-freshness answered ${res.status}, want 200 with ok true`,
+  );
+  if (res.status === 503) {
+    for (const job of body.overdue || []) {
+      log(`FAIL ${job.job}: last ok ${job.lastOkAt ?? 'never'}, limit ${job.maxAgeMinutes} minutes`);
+    }
+  }
+  return fresh;
+}
+
 async function checkLogin({ fetch, log, env }) {
   const missing = ['SMOKE_USERNAME', 'SMOKE_PASSWORD'].filter((name) => !env[name]);
   if (missing.length) {
@@ -113,7 +135,13 @@ async function checkLogin({ fetch, log, env }) {
   ].every(Boolean);
 }
 
-const CHECKS = { web: checkWeb, api: checkApi, 'rate-limit': checkRateLimit, login: checkLogin };
+const CHECKS = {
+  web: checkWeb,
+  api: checkApi,
+  'rate-limit': checkRateLimit,
+  'sync-freshness': checkSyncFreshness,
+  login: checkLogin,
+};
 
 async function main(argv = process.argv.slice(2), io = {}) {
   const ctx = { fetch: io.fetch ?? fetch, log: io.log ?? console.log, env: io.env ?? process.env };
@@ -136,4 +164,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { checkWeb, checkApi, checkRateLimit, checkLogin, main };
+module.exports = { checkWeb, checkApi, checkRateLimit, checkSyncFreshness, checkLogin, main };
