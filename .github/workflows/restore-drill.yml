@@ -9,22 +9,36 @@ name: Restore drill
 # integration's pending migrations on top of the copy.
 #
 # A green run proves a logical dump of production restores into a clean database,
-# and that the next release's migrations apply to production's real schema. It
-# does NOT prove Supabase's own backups or point-in-time recovery (this job never
-# touches them), and it does not cover Supabase objects outside public and private.
-# Supabase-specific objects in production have not been exercised by this job yet,
-# so watch the first real run.
+# and that integration's migrations apply to a copy of production's schema and data.
+# It does NOT prove that the app role can run those migrations: they run on the copy
+# as the runner's superuser. It does not prove Supabase's own backups or point-in-time
+# recovery (this job never touches them), and it does not cover Supabase objects
+# outside public and private. Supabase-specific objects in production have not been
+# exercised by this job yet, so watch the first real run.
 #
-# The secret MONITORING_DATABASE_URL (monitoring environment, read only by the
-# drill job) must be Supabase's SESSION pooler URL: the pooler host on port 5432.
-# The direct host is IPv6 only, and the transaction pooler on 6543 cannot run pg_dump.
+# Before the secret is added, restrict the monitoring environment to deployments from
+# main only. The repository is public, and an unrestricted environment hands its
+# secrets to any branch's workflow.
 #
-# The runner holds a full copy of production (about 1 GB) for the length of the
-# drill job. Nothing is uploaded, and the dump file is deleted on exit.
+# The secret MONITORING_DATABASE_URL (monitoring environment, read only by the drill
+# job) must be Supabase's SESSION pooler URL: the pooler host on port 5432. The direct
+# host is IPv6 only, and the transaction pooler on 6543 cannot run pg_dump. Its role
+# must be the app role's own login, or a role with BYPASSRLS, USAGE on public and
+# private, and SELECT on every table and sequence in both: pg_dump runs with row
+# security off and fails on any table whose policies would filter it. Percent-encode
+# the password inside the URL.
 #
-# A red run means one named check failed: the loopback refusal, pg_dump, pg_restore,
-# a count comparison, or npm run migrate. The log says which step and the two values
-# it compared. A missing secret is a warning and a green skip, not a failure.
+# Do not release or deploy while the drill runs. pg_dump takes an ACCESS SHARE lock on
+# every table for the length of the dump, and a migration's ALTER would queue behind it.
+#
+# The runner holds a full copy of production (about 1 GB) for the length of the drill
+# job. Nothing is uploaded, and the dump file is deleted on exit.
+#
+# A red run means one named check failed: the target refusal, pg_dump, pg_restore, a
+# count comparison, or npm run migrate. One cause to know: production has recorded a
+# migration that integration does not have (a hotfix on main), which knex reports as a
+# corrupt migration directory. The log says which step failed and the two values it
+# compared. A missing secret is a warning and a green skip, not a failure.
 
 on:
   schedule:
@@ -127,6 +141,10 @@ jobs:
             echo "ready=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          # Mask the password first: libpq can echo part of a malformed URL, and GitHub masks only the whole secret.
+          rest="${SOURCE_DATABASE_URL#*:}"
+          rest="${rest#*:}"
+          echo "::add-mask::${rest%@*}"
           echo "ready=true" >> "$GITHUB_OUTPUT"
       - name: Checkout integration
         if: steps.secret.outputs.ready == 'true'

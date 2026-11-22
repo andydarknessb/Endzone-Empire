@@ -8,7 +8,8 @@
 # Inputs, all from the environment: SOURCE_DATABASE_URL, and the target cluster's
 # PGHOST, PGPORT, PGUSER, PGPASSWORD. DRILL_ALLOW_EMPTY=1 skips only the core-table
 # row check; the PR self-test sets it because its source is migrated but has no rows.
-# Never set -x here: it would print SOURCE_DATABASE_URL.
+# Never set -x here: it would print SOURCE_DATABASE_URL. Nothing here prints a row
+# count: the run summary holds table and migration counts and a yes or no for the core tables.
 #
 # shortcut: the schema list is hand-kept in two places (the pg_dump --schema flags and
 # TABLES_SQL), so a new app schema added to server/db/migrations must go in both, or
@@ -27,6 +28,13 @@ case "${PGHOST:-}" in
   127.0.0.1 | localhost) ;;
   *) fail "loopback check failed: PGHOST is '${PGHOST:-unset}', expected 127.0.0.1 or localhost; a restore is never tested over a shared database" ;;
 esac
+# libpq prefers these over PGHOST, so either one would send the restore somewhere else.
+if [ -n "${PGHOSTADDR:-}" ]; then
+  fail "target check failed: PGHOSTADDR is '$PGHOSTADDR', expected it unset (libpq would connect there instead of PGHOST)"
+fi
+if [ -n "${PGSERVICE:-}" ]; then
+  fail "target check failed: PGSERVICE is '$PGSERVICE', expected it unset (libpq would take the host from a service file)"
+fi
 if [ -z "${SOURCE_DATABASE_URL:-}" ]; then
   fail "source check failed: SOURCE_DATABASE_URL is empty, expected the session pooler URL of the database to dump"
 fi
@@ -34,7 +42,7 @@ if [ ! -d server/db/migrations ]; then
   fail "working directory check failed: server/db/migrations not found under $PWD, run this from the repo root"
 fi
 
-say "step 2: printing client versions; the pg_dump client major must equal the target cluster's"
+say "step 2: checking client versions (the pg_dump client major must equal the target cluster's) and that the target answers as loopback"
 pg_dump --version
 pg_restore --version
 psql --version
@@ -43,6 +51,22 @@ SERVER_NUM=$(psql -X -v ON_ERROR_STOP=1 -At -d postgres -c 'SHOW server_version_
 SERVER_MAJOR=$(( SERVER_NUM / 10000 ))
 [ "$CLIENT_MAJOR" = "$SERVER_MAJOR" ] || fail "client version check failed: pg_dump major=$CLIENT_MAJOR, target server major=$SERVER_MAJOR on $PGHOST:$PGPORT; a dump from a different major is not guaranteed to load"
 say "check ok: pg_dump major=$CLIENT_MAJOR, target server major=$SERVER_MAJOR"
+TARGET_ADDR=$(psql -X -v ON_ERROR_STOP=1 -At -d postgres -c 'select inet_server_addr()') || fail "target check failed: could not ask $PGHOST:$PGPORT who it is, see the psql error above"
+[ "$TARGET_ADDR" = "127.0.0.1" ] || [ "$TARGET_ADDR" = "::1" ] || fail "target check failed: the server answers from inet_server_addr '$TARGET_ADDR', expected 127.0.0.1 or ::1"
+say "check ok: target answers from $TARGET_ADDR"
+
+src_sql() { psql "$SOURCE_DATABASE_URL" -X -v ON_ERROR_STOP=1 -At -c "$1"; }
+copy_sql() { psql -X -v ON_ERROR_STOP=1 -d restore_drill -At -c "$1"; }
+
+# relkind r and p: ordinary and partitioned tables, counted from pg_class so the
+# answer does not depend on which tables the connecting role may read.
+TABLES_SQL="SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname IN ('public', 'private') AND c.relkind IN ('r', 'p')"
+
+say "step 3: reading the source's table and knex_migrations counts, then dumping"
+# Read as close to the dump's snapshot as possible, so a deploy that migrates during the drill is less likely to make the counts differ.
+SRC_TABLES=$(src_sql "$TABLES_SQL") || fail "table check failed: could not count tables on the source, see the psql error above"
+SRC_MIG=$(src_sql 'SELECT count(*) FROM public.knex_migrations') || fail "migration-row check failed: could not count knex_migrations on the source, see the psql error above"
+say "check ok: source tables=$SRC_TABLES, source knex_migrations rows=$SRC_MIG"
 
 DUMP="${RUNNER_TEMP:-/tmp}/restore-drill.dump"
 trap 'rm -f "$DUMP"' EXIT
@@ -74,38 +98,31 @@ say "step 5: restoring $DUMP into restore_drill with pg_restore --clean --if-exi
 pg_restore --clean --if-exists --no-owner --no-privileges --exit-on-error --dbname=restore_drill "$DUMP" \
   || fail "step 5 failed: pg_restore exited non-zero on restore_drill, see the pg_restore error above"
 
-src_sql() { psql "$SOURCE_DATABASE_URL" -X -v ON_ERROR_STOP=1 -At -c "$1"; }
-copy_sql() { psql -X -v ON_ERROR_STOP=1 -d restore_drill -At -c "$1"; }
-
-# relkind r and p: ordinary and partitioned tables, counted from pg_class so the
-# answer does not depend on which tables the connecting role may read.
-TABLES_SQL="SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname IN ('public', 'private') AND c.relkind IN ('r', 'p')"
-
-say "step 6: checking the copy against the source: tables in public and private"
-SRC_TABLES=$(src_sql "$TABLES_SQL") || fail "table check failed: could not count tables on the source, see the psql error above"
+say "step 6: checking the copy against the counts read in step 3: tables in public and private"
 COPY_TABLES=$(copy_sql "$TABLES_SQL") || fail "table check failed: could not count tables on the copy, see the psql error above"
 [ "$SRC_TABLES" = "$COPY_TABLES" ] || fail "table count check failed: source=$SRC_TABLES copy=$COPY_TABLES (public and private)"
 say "check ok: tables source=$SRC_TABLES copy=$COPY_TABLES"
 
-say "step 6: checking the copy against the source: knex_migrations rows"
-SRC_MIG=$(src_sql 'SELECT count(*) FROM public.knex_migrations') || fail "migration-row check failed: could not count knex_migrations on the source, see the psql error above"
+say "step 6: checking the copy against the counts read in step 3: knex_migrations rows"
 COPY_MIG=$(copy_sql 'SELECT count(*) FROM public.knex_migrations') || fail "migration-row check failed: could not count knex_migrations on the copy, see the psql error above"
 [ "$SRC_MIG" = "$COPY_MIG" ] || fail "knex_migrations row check failed: source=$SRC_MIG copy=$COPY_MIG"
 say "check ok: knex_migrations rows source=$SRC_MIG copy=$COPY_MIG"
 
-CORE_SUMMARY="skipped (DRILL_ALLOW_EMPTY=1)"
+CORE_NONEMPTY="not checked (DRILL_ALLOW_EMPTY=1)"
 if [ "${DRILL_ALLOW_EMPTY:-0}" = "1" ]; then
-  say "step 6: core-table row check skipped (DRILL_ALLOW_EMPTY=1)"
+  say "step 6: core-table check skipped (DRILL_ALLOW_EMPTY=1)"
 else
-  say "step 6: checking each core table has at least one row on the copy"
-  CORE_SUMMARY=""
+  say "step 6: checking each core table is non-empty on the copy"
   for t in users leagues teams players player_stats; do
     n=$(copy_sql "SELECT count(*) FROM public.$t") || fail "core-row check failed: could not count public.$t on the copy, see the psql error above"
     [ "$n" -ge 1 ] || fail "core-row check failed: public.$t has $n rows on the copy, expected at least 1"
-    say "check ok: public.$t rows on the copy=$n"
-    CORE_SUMMARY="${CORE_SUMMARY:+$CORE_SUMMARY, }$t=$n"
+    say "check ok: public.$t non-empty"
   done
+  CORE_NONEMPTY="yes"
 fi
+
+# The migrate step runs the repo's dependencies and needs no production credential.
+unset SOURCE_DATABASE_URL
 
 # knex keys a migration by its file name with extension, so pending is a basename diff.
 refresh_pending() {
@@ -137,7 +154,7 @@ if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
     echo "| Dump size | $DUMP_BYTES bytes |"
     echo "| Tables in public and private (source / copy) | $SRC_TABLES / $COPY_TABLES |"
     echo "| knex_migrations rows (source / copy) | $SRC_MIG / $COPY_MIG |"
-    echo "| Core table rows on the copy | $CORE_SUMMARY |"
+    echo "| Core tables non-empty | $CORE_NONEMPTY |"
     echo "| Migrations pending before / applied / pending after | $PENDING_BEFORE / $PENDING_BEFORE / $PENDING_AFTER |"
     echo "| Seconds taken | $SECONDS_TAKEN |"
   } >> "$GITHUB_STEP_SUMMARY"
