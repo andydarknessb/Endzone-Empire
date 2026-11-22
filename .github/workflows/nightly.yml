@@ -1,0 +1,43 @@
+name: Nightly
+
+# Runs the whole CI suite (ci.yml, called as a reusable workflow) against
+# `integration` every night (#2999), so a date-dependent test, a new advisory
+# or a broken browser job shows up before it blocks someone's PR. No job is
+# copied here.
+#
+# A red night means integration's code failed a job in ci.yml. It is not a
+# merge gate: scripts/ci/check-ci-passed.js (the promote gate in deploy.yml)
+# reads only ci.yml runs on the push event, and this run is named Nightly, so
+# nothing that reads the CI workflow's runs can take it for a push run.
+#
+# GitHub fires `schedule` only from the workflow file on `main`, and checks
+# out `main` by default. So the job list is main's ci.yml while the code under
+# test is integration's: the `ref` below sends scheduled and manual runs to
+# integration. A pull_request run (this file's own paths trigger) tests the PR
+# merge ref instead.
+#
+# Who hears about a red night: GitHub's failure email to whoever last changed
+# the cron line, the same channel holdout-uptime.yml documents. Keep Actions
+# email notifications on.
+#
+# A scheduled run's checks attach to `main`'s head commit, so a red night shows
+# a red mark on `main`'s head although the code tested was `integration`'s. The
+# commit actually tested is in each job's checkout log.
+
+on:
+  schedule:
+    - cron: '17 8 * * *'
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/nightly.yml'
+      - '.github/workflows/ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+    with:
+      ref: ${{ github.event_name != 'pull_request' && 'integration' || '' }}
