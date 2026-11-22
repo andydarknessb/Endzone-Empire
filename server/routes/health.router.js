@@ -1,4 +1,5 @@
 const express = require('express');
+const { performance } = require('node:perf_hooks');
 const pool = require('../modules/pool');
 // Required as module objects (not destructured at load) so their status getters
 // stay a mockable seam and, more to the point, so this router is the single
@@ -11,7 +12,6 @@ const { getRedisClient } = require('../modules/redis');
 const draftSweepLiveness = require('../modules/draftSweepLiveness');
 const { getQuotaState } = require('../modules/tank01Client');
 const { classifyError } = require('../modules/errorCategory');
-const { withDatabaseRetry } = require('../modules/dbRetry');
 // One spelling of the Overdue tolerance (#768): the constant lives in the Pick
 // clock module (pickClock.service owns expiry) and both detectors read it.
 const { OVERDUE_AFTER_MS } = require('../services/pickClock.service');
@@ -25,7 +25,11 @@ const SCHEDULER_TICK_STALE_MS = 15 * 60 * 1000;
 // across 15 s), and Render stops routing to the only instance after 15 s of
 // failed checks. Readiness holds through a database gap shorter than this.
 const DATABASE_READY_GRACE_MS = 45 * 1000;
-let lastDatabaseOkAt = 0;
+// Render fails a probe at 5 s; answering sooner lets the grace window speak.
+const DATABASE_PROBE_TIMEOUT_MS = 3000;
+// Monotonic (performance.now), so a wall-clock step cannot stretch the window.
+// -Infinity: a fresh process is not ready until the database answers once.
+let lastDatabaseOkAt = -Infinity;
 
 function withTimeout(promise, timeoutMs, message) {
   let timer;
@@ -38,8 +42,8 @@ function withTimeout(promise, timeoutMs, message) {
 async function databaseStatus() {
   const started = Date.now();
   try {
-    await withDatabaseRetry(() => pool.query('SELECT 1'));
-    lastDatabaseOkAt = Date.now();
+    await withTimeout(pool.query('SELECT 1'), DATABASE_PROBE_TIMEOUT_MS, 'database probe timed out');
+    lastDatabaseOkAt = performance.now();
     return { ok: true, latencyMs: Date.now() - started };
   } catch (error) {
     return { ok: false, latencyMs: Date.now() - started };
@@ -257,7 +261,7 @@ router.get('/readyz', async (req, res) => {
   const runtime = getRuntimeState();
   const [db, redis] = await Promise.all([databaseStatus(), redisStatus()]);
   // `db` stays the probe's own answer; only readiness reads the grace window.
-  const databaseReady = db.ok || Date.now() - lastDatabaseOkAt < DATABASE_READY_GRACE_MS;
+  const databaseReady = db.ok || performance.now() - lastDatabaseOkAt < DATABASE_READY_GRACE_MS;
   const ok = runtime.ready && !runtime.shuttingDown && databaseReady && redis.ok;
   res.status(ok ? 200 : 503).json({
     ok,
