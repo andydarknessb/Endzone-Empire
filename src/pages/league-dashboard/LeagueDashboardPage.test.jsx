@@ -2849,7 +2849,8 @@ describe('a completed season', () => {
 
     const line = await screen.findByTestId('trophy-your-season');
     expect(within(line).getByText('Your season')).toBeInTheDocument();
-    expect(line).toHaveTextContent('6th of 12 · 5-5 · 1400.0 PF');
+    expect(within(line).getByText('6th of 12')).toBeInTheDocument();
+    expect(within(line).getByText('5-5 · 1400.0 PF')).toBeInTheDocument();
     expect(precedes(screen.getByTestId('trophy-champion'), line)).toBe(true);
   });
 
@@ -2903,6 +2904,21 @@ describe('a completed season', () => {
 
     await screen.findByTestId('trophy-your-season');
     expect(standingsTableGetCount()).toBe(1);
+  });
+
+  // Red-tell: removing the completed-league case from rowLimit leaves the 12-team limit of 9, so the 8 rows show as 8.
+  test('Recent activity keeps to three rows on a completed league, as on game day (12 teams, eight transactions)', async () => {
+    mockGetByUrl({
+      '/api/league/1': completeLeague(),
+      '/api/league/1/trophies': trophies(),
+      '/api/scoring/league/1/standings': sixthOfTwelve(),
+      '/api/league/1/transactions': { data: transactionRows(8) },
+    });
+    renderPage();
+
+    const rail = await screen.findByTestId('dashboard-rail');
+    await within(rail).findAllByTestId('recent-activity-row');
+    expect(within(rail).getAllByTestId('recent-activity-row')).toHaveLength(3);
   });
 
   test('a completed league with no trophies has no trophy room', async () => {

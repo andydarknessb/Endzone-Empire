@@ -56,7 +56,9 @@ test('trophy room: "Your season" prints the standing row when the selected seaso
   renderRoom({ trophies: [champion, weekly, closest] });
   const line = screen.getByTestId('trophy-your-season');
   expect(within(line).getByText('Your season')).toBeInTheDocument();
-  expect(within(line).getByText('2nd of 4 · 6-2 · 1234.5 PF')).toBeInTheDocument();
+  // The rank phrase and the record line are two elements: the rank is set in pixel type, the record in body type.
+  expect(within(line).getByText('2nd of 4')).toBeInTheDocument();
+  expect(within(line).getByText('6-2 · 1234.5 PF')).toBeInTheDocument();
 });
 
 test('trophy room: no "Your season" line while an older season is selected', () => {
