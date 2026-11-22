@@ -1,0 +1,67 @@
+name: Lighthouse
+
+# Weekly landing-page budget check (#3002, spec #2998). The bundle-size gate in
+# CI measures what the build ships; this measures what a visitor's browser
+# gets. Lighthouse runs the production landing page five times (mobile, its
+# default) and scripts/ci/lighthouse-budget.js takes the median of each score
+# and timing, failing when a median breaks the budgets in that script.
+#
+# A red run means the median landing page got slower, less accessible or less
+# clean than its budget allows, or that Lighthouse itself could not run (the
+# site was unreachable or a run errored). The table of medians is on the run's
+# summary page, and the five reports are kept as an artifact for 14 days so
+# the numbers can be read even when the run is red.
+#
+# The URL is hardcoded like holdout-uptime.yml: a monitor should have no moving
+# parts. GitHub fires schedule only from this file on main, so the weekly run
+# starts once this change reaches main.
+
+on:
+  schedule:
+    - cron: '37 10 * * 1'
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/lighthouse.yml
+      - scripts/ci/lighthouse-budget.js
+      - scripts/ci/lighthouse-budget.test.js
+
+permissions:
+  contents: read
+
+concurrency:
+  # One group per ref: a queued PR run must not displace the scheduled run on main.
+  group: lighthouse-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  lighthouse:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - name: Test the budget script
+        run: |
+          set -euo pipefail
+          node --test scripts/ci/lighthouse-budget.test.js
+      # Lighthouse is pinned through npx on purpose: it is not a repo dependency,
+      # so no npm ci runs here. Chrome comes with ubuntu-latest.
+      - name: Run Lighthouse five times
+        run: |
+          set -euo pipefail
+          for i in 1 2 3 4 5; do
+            npx --yes lighthouse@12.8.2 https://endzoneempire.gg/ --output=json --output-path="$RUNNER_TEMP/lighthouse-run-$i.json" --only-categories=performance,accessibility,best-practices --chrome-flags="--headless=new --no-sandbox" --quiet
+          done
+      - name: Check the medians against the budgets
+        run: |
+          set -euo pipefail
+          node scripts/ci/lighthouse-budget.js "$RUNNER_TEMP/lighthouse-run-1.json" "$RUNNER_TEMP/lighthouse-run-2.json" "$RUNNER_TEMP/lighthouse-run-3.json" "$RUNNER_TEMP/lighthouse-run-4.json" "$RUNNER_TEMP/lighthouse-run-5.json"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: lighthouse-reports
+          path: ${{ runner.temp }}/lighthouse-run-*.json
+          retention-days: 14
