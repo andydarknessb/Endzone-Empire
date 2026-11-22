@@ -26,7 +26,8 @@ function request(fetch, url, init = {}) {
   return fetch(url, { ...init, signal: AbortSignal.timeout(20000) });
 }
 
-// x-render-origin-server is set by the app, so its absence means Render's edge answered.
+// Render adds x-render-origin-server to responses that come from the instance (nothing in
+// this repo sets it), so its absence means the instance did not answer: Render's edge or Cloudflare did.
 const appAnswered = (res) => res.headers.get('x-render-origin-server') !== null;
 
 // Names who answered a non-200, so a proxy 502 is not read as an app verdict.
@@ -80,7 +81,7 @@ async function checkRateLimit({ fetch, log }) {
   let previous = null;
   let rollovers = 0;
   for (let i = 1; i <= RATE_LIMIT_REQUESTS; i += 1) {
-    // With the proxy hop count right, the forged entry is ignored and the count still falls by one. If the app ever trusts a client-supplied address, every request gets a fresh counter and the check fails at request 2.
+    // With the proxy hop count right, the forged entry is ignored and the count still falls by one. If the app ever trusts a client-supplied address, every request gets a fresh counter, every response reads 299, and the check fails at request 3 (the first repeat is the one allowed rollover).
     const res = await request(fetch, `${API}/api/health/livez`, { headers: { 'X-Forwarded-For': `203.0.113.${i}` } });
     const limit = res.headers.get('RateLimit-Limit');
     const raw = res.headers.get('RateLimit-Remaining');
