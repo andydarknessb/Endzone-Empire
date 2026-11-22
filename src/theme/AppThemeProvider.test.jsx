@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import Typography from '@mui/material/Typography';
 import AppThemeProvider, { useThemeMode, buildTheme, initialMode } from './AppThemeProvider';
 import { colorTokens } from './tokens';
+import { contrastRatio } from './contrast';
 
 function Probe() {
   const { mode, toggleMode } = useThemeMode();
@@ -16,6 +17,13 @@ function Probe() {
 
 afterEach(() => {
   window.localStorage.clear();
+});
+
+// The Draft board's "You're on the clock!" toast is an info Alert filled with palette.info (#3020): the built theme's
+// fill must clear AA with the label the Alert puts on it.
+test.each(['light', 'dark'])('the %s theme info toast fill clears AA with its label', (mode) => {
+  const { info } = buildTheme(mode).palette;
+  expect(contrastRatio(info.contrastText, info.main)).toBeGreaterThanOrEqual(4.5);
 });
 
 test('defaults to light and toggles to dark, persisting the choice', async () => {

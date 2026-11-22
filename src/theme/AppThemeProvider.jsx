@@ -35,6 +35,7 @@ export function buildTheme(mode) {
       error: { main: c.danger },
       success: { main: c.success },
       warning: { main: c.warning },
+      info: { main: c.info, contrastText: c['on-info'] },
       background: { default: c['bg-page'], paper: c.surface },
       text: { primary: c['text-primary'], secondary: c['text-muted'] },
       divider: c['border-subtle'],
