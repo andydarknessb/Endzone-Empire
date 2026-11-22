@@ -30,7 +30,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: production-probe
+  group: production-probe-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -44,7 +44,6 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
-          cache: npm
       - name: Test the probe
         run: node --test scripts/ci/production-probe.test.js
       - name: Probe the web bundle
@@ -71,7 +70,6 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
-          cache: npm
       - name: Log in as the smoke account
         env:
           SMOKE_USERNAME: ${{ secrets.SMOKE_USERNAME }}
