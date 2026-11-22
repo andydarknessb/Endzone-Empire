@@ -144,6 +144,7 @@
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.3",
     "@testing-library/user-event": "^14.6.8",
+    "axe-core": "4.12.1",
     "axios-mock-adapter": "^2.1.0",
     "jest-util": "^30.5.1",
     "jsdom": "^16.7.0",
