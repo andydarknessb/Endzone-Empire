@@ -35,7 +35,6 @@ export function buildTheme(mode) {
       error: { main: c.danger },
       success: { main: c.success },
       warning: { main: c.warning },
-      info: { main: c.info, contrastText: c['on-info'] },
       background: { default: c['bg-page'], paper: c.surface },
       text: { primary: c['text-primary'], secondary: c['text-muted'] },
       divider: c['border-subtle'],
@@ -120,6 +119,13 @@ export function buildTheme(mode) {
               outlineOffset: 2,
             },
           },
+        },
+      },
+      // The filled info toast (the Draft board's "You're on the clock!", #3020). MUI paints palette.info.dark in dark
+      // mode and getContrastText(main) as the label, so the token pair is set here, where it is painted.
+      MuiAlert: {
+        styleOverrides: {
+          filledInfo: { backgroundColor: c.info, color: c['on-info'] },
         },
       },
       // Pill-style badges.

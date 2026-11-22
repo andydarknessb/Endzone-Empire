@@ -5,6 +5,8 @@ import Typography from '@mui/material/Typography';
 import AppThemeProvider, { useThemeMode, buildTheme, initialMode } from './AppThemeProvider';
 import { colorTokens } from './tokens';
 import { contrastRatio } from './contrast';
+import { ThemeProvider } from '@mui/material/styles';
+import Alert from '@mui/material/Alert';
 
 function Probe() {
   const { mode, toggleMode } = useThemeMode();
@@ -19,11 +21,18 @@ afterEach(() => {
   window.localStorage.clear();
 });
 
-// The Draft board's "You're on the clock!" toast is an info Alert filled with palette.info (#3020): the built theme's
-// fill must clear AA with the label the Alert puts on it.
-test.each(['light', 'dark'])('the %s theme info toast fill clears AA with its label', (mode) => {
-  const { info } = buildTheme(mode).palette;
-  expect(contrastRatio(info.contrastText, info.main)).toBeGreaterThanOrEqual(4.5);
+// The Draft board's "You're on the clock!" toast is a filled info Alert (#3020). Render the real Alert under the built
+// theme and read what it paints: the fill and the label must be the info tokens, and that pair must clear AA.
+test.each(['light', 'dark'])('the %s theme filled info toast paints its token fill and label, clearing AA', (mode) => {
+  const c = colorTokens[mode];
+  render(
+    <ThemeProvider theme={buildTheme(mode)}>
+      <Alert severity="info" variant="filled">You&apos;re on the clock!</Alert>
+    </ThemeProvider>
+  );
+
+  expect(screen.getByRole('alert')).toHaveStyle({ backgroundColor: c.info, color: c['on-info'] });
+  expect(contrastRatio(c['on-info'], c.info)).toBeGreaterThanOrEqual(4.5);
 });
 
 test('defaults to light and toggles to dark, persisting the choice', async () => {

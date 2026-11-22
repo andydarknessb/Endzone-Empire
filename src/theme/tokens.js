@@ -153,7 +153,7 @@ export const colorTokens = {
     success: '#7ee2a8',
     danger: '#ff6b6b',
     warning: '#f0b34e',
-    // The filled info toast in dark: 8.04:1 with the dark label (#3020).
+    // The filled info toast in dark, painted by the MuiAlert filledInfo override: 8.04:1 with on-info (#3020).
     info: '#29b6f6',
     'on-info': '#0f1419',
     // Opaque (not alpha); see the light-theme note above and #155. Kept equal
