@@ -1,25 +1,29 @@
 {
-  "Activity": [],
-  "Commissioner": [],
-  "Draft board": [
-    "color-contrast"
-  ],
-  "Draft settings": [],
-  "History": [],
-  "Home": [],
-  "Landing": [],
-  "League dashboard": [],
-  "Lineup": [],
-  "Login": [],
-  "My leagues": [],
-  "Pick'em": [],
-  "Players": [],
-  "Power rankings": [],
-  "Rankings": [],
-  "Registration": [
-    "link-in-text-block"
-  ],
-  "Rules": [],
-  "Trades": [],
-  "Waivers": []
+  "Activity": {},
+  "Commissioner": {},
+  "Draft board": {
+    "color-contrast": 1
+  },
+  "Draft settings": {},
+  "Game center": {},
+  "History": {},
+  "Home": {},
+  "Landing": {},
+  "League dashboard": {},
+  "League dashboard, season complete": {},
+  "Lineup": {},
+  "Login": {},
+  "Matchup": {},
+  "My leagues": {},
+  "Pick'em": {},
+  "Players": {},
+  "Power rankings": {},
+  "Rankings": {},
+  "Registration": {
+    "link-in-text-block": 2
+  },
+  "Reset password": {},
+  "Rules": {},
+  "Trades": {},
+  "Waivers": {}
 }

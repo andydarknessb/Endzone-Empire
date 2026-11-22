@@ -5,10 +5,13 @@ name: Scheduled browser suite
 # The phone and desktop shift scores must stay within their budgets, and a control block must push the phone score
 # over its budget, which proves the observer still sees shifts.
 #
-# Runs Mondays at 11:07 UTC, on manual dispatch, and on any PR that changes this file, playwright.scheduled.config.js
-# or tests/scheduled/. The scheduled run checks out integration; a manual dispatch tests the ref it was dispatched from.
-# A red run means a page's layout moved past its budget (the failure message lists the shift entries) or the observer
-# stopped seeing shifts. It is not a production outage.
+# Runs Mondays at 11:07 UTC, on manual dispatch, and on any PR that changes this file, playwright.scheduled.config.js,
+# package-lock.json or tests/scheduled/. The scheduled run checks out integration; a manual dispatch tests the ref it was
+# dispatched from. A red run means a page's layout moved past its budget (the failure message lists the shift entries) or
+# the observer stopped seeing shifts. It is not a production outage.
+#
+# The suite also runs the accessibility sweep (tests/scheduled/a11y-sweep.spec.ts). A red sweep means a covered page
+# gained a serious or critical axe violation, or more nodes of one it already had.
 
 on:
   schedule:
@@ -19,6 +22,8 @@ on:
       - '.github/workflows/scheduled-browser.yml'
       - 'playwright.scheduled.config.js'
       - 'tests/scheduled/**'
+      # A dependency bump can change axe's rules, so it runs the sweep on its own PR.
+      - 'package-lock.json'
 
 permissions:
   contents: read
