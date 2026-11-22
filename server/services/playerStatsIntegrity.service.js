@@ -202,6 +202,6 @@ async function runIntegrityScan({ now = new Date() } = {}) {
 }
 
 module.exports = {
-  scanPlayerStats, runIntegrityScan, getIntegrityStatus,
+  scanPlayerStats, runIntegrityScan, getIntegrityStatus, settledFrontier,
   JOB, KIND_POINTS_MISMATCH, KIND_UNLABELLED_APPEARANCE, STALE_MS,
 };

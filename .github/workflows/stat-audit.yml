@@ -1,0 +1,112 @@
+name: Stat audit
+
+# Weekly read-only check of player_stats against nflverse, the source of record
+# (#3006, spec #2998). It asks whether re-running the nflverse stat correction
+# now would change any stored row for the settled week (the week
+# settledFrontier names). Thursday 13:47 UTC, after the Tuesday and Wednesday
+# correction pass has run.
+#
+# A red run means a stored line differs from what nflverse says. Either a later
+# writer overwrote a corrected line, or nflverse revised the week after the
+# Wednesday correction. The step summary and the log name each player, key,
+# stored value and expected value. The fix is to rerun the correction for that
+# week (correctWeekFromNflverse), or to find the writer that overwrote it.
+#
+# The audit compares with nflverse only. It reads production through
+# MONITORING_DATABASE_URL in the monitoring environment and writes nothing. A
+# pull request runs the script's own tests (selftest) and never reads the
+# secret. With the secret unset the audit job warns and ends green.
+#
+# Before the secret is added, set the monitoring environment's deployment
+# branches to main only. The repository is public and workflow_dispatch can
+# start this job from any branch, so without that rule a branch could run the
+# audit with the production secret.
+#
+# The secret is used as DATABASE_URL_RUNTIME exactly as the app uses its own
+# URL, so it must not carry sslmode=require. pg reads that parameter from the
+# connection string and replaces the app's TLS options (sslForConnection,
+# including DB_SSL_CA) with node's default: verify the certificate chain against
+# the system CAs. A database certificate that does not chain to one of those
+# fails every run.
+
+on:
+  schedule:
+    - cron: '47 13 * * 4'
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/stat-audit.yml'
+      - 'scripts/ci/stat-audit.js'
+      - 'scripts/ci/stat-audit.test.js'
+      - 'server/services/nflverseSync.service.js'
+      - 'server/services/playerStatsWrite.service.js'
+      - 'server/services/playerStatsIntegrity.service.js'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stat-audit-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  selftest:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install dependencies
+        run: |
+          set -euo pipefail
+          npm ci
+      - name: Test the audit
+        run: |
+          set -euo pipefail
+          node --test scripts/ci/stat-audit.test.js
+
+  audit:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    environment: monitoring
+    timeout-minutes: 15
+    steps:
+      - name: Check the database secret
+        id: secret
+        env:
+          MONITORING_DATABASE_URL: ${{ secrets.MONITORING_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "$MONITORING_DATABASE_URL" ]; then
+            echo "::warning::MONITORING_DATABASE_URL secret is missing - the stat audit is skipped"
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.secret.outputs.present == 'true'
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: steps.secret.outputs.present == 'true'
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install dependencies
+        if: steps.secret.outputs.present == 'true'
+        run: |
+          set -euo pipefail
+          npm ci
+      - name: Audit player_stats against nflverse
+        if: steps.secret.outputs.present == 'true'
+        env:
+          DATABASE_URL_RUNTIME: ${{ secrets.MONITORING_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          node scripts/ci/stat-audit.js
