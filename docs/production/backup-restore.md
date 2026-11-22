@@ -22,3 +22,11 @@ Target: RPO at most 15 minutes and RTO at most 4 hours after PITR is enabled.
 7. Destroy the temporary database securely after evidence is approved.
 
 Never test restores over the shared production database.
+
+## Automated restore drill
+
+`.github/workflows/restore-drill.yml` runs `scripts/ci/restore-drill.sh` on the 1st of each month at 09:23 UTC, and on demand. It dumps the `public` and `private` schemas from production with `pg_dump`, restores the dump into a throwaway PostgreSQL 17 database on the runner, and checks the copy against the source: table count, `knex_migrations` rows, and at least one row in each of `users`, `leagues`, `teams`, `players` and `player_stats`. It then runs integration's pending migrations on top of the copy. Counts go to the run summary. Nothing is uploaded, and the dump is deleted when the job ends.
+
+It proves that a logical dump of production restores into a clean database, and that the next release's migrations apply to production's real schema. It does not prove Supabase's own backups or point-in-time recovery, and it does not cover objects outside `public` and `private`.
+
+The drill reads one secret, `MONITORING_DATABASE_URL`, from the `monitoring` environment. Set it to Supabase's session pooler URL (the pooler host on port 5432): the direct host is IPv6 only, and the transaction pooler on port 6543 cannot run `pg_dump`. Without the secret the job warns and ends green without running the drill.
