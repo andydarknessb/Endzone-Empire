@@ -517,7 +517,6 @@ function DashboardBody({
       leagueId={leagueId}
       variant="row"
       name="League pages"
-      lead={null}
       only={['Play', 'Moves']}
       omit={showPickem ? ['draft'] : ['draft', 'pickem']}
       testId="quick-actions-pages"

@@ -33,9 +33,8 @@ import { useTeamLineup } from '../../../entities/roster';
  *     pick'em-only league, which has no lineup (the Set Lineup card is hidden
  *     there), so the read never fires.
  *
- * The Set Lineup recommendation is only made while the season is live (in
- * season or playoffs, `isSeasonLive`): before the draft finishes the card reads
- * `Lineups open after the draft` and is never recommended (#1979 L25).
+ * The Set Lineup card is listed only in season and the playoffs, so it is never offered before the
+ * draft finishes (#2982). Its recommendation is made only while the season is live (`isSeasonLive`, #1979 L25).
  *
  * The empty-starting-slot count and starters-on-bye come from the shared
  * lineupAttention helper (src/shared/lib/lineupAttention.js), the SAME implementation
@@ -67,7 +66,7 @@ const GROUPS = [
     label: 'Play',
     links: [
       { key: 'draft', label: 'Draft Room', slug: 'draft', fantasyOnly: true },
-      { key: 'lineup', label: 'Set Lineup', slug: 'lineup', fantasyOnly: true, phases: UNFINISHED_PHASES },
+      { key: 'lineup', label: 'Set Lineup', slug: 'lineup', fantasyOnly: true, phases: [LEAGUE_PHASE.IN_SEASON, LEAGUE_PHASE.PLAYOFFS] },
       { key: 'game-center', label: 'Game Center', slug: 'game-center', fantasyOnly: true, phases: UNFINISHED_PHASES },
       { key: 'pickem', label: "Pick'em", slug: 'pickem', phases: UNFINISHED_PHASES },
     ],
@@ -167,12 +166,8 @@ function describeCard(key, ctx) {
       }
       return { status: 'Draft complete · review the board', recommended: false };
     case 'lineup': {
-      // Before the draft finishes the roster is empty, so every starting slot
-      // reads empty and a recommendation would nag about a lineup nobody can
-      // set yet (#1979 L25). Recommend only while the season is live.
-      if (phase === LEAGUE_PHASE.PRE_DRAFT || phase === LEAGUE_PHASE.DRAFTING) {
-        return { status: 'Lineups open after the draft', recommended: false };
-      }
+      // Recommend only while the season is live: before the draft every starting slot reads empty,
+      // and the card is not listed then at all (#1979 L25, #2982).
       if (seasonLive && attention && (attention.emptyStarterSlots > 0 || attention.startersOnBye.length > 0)) {
         return { status: lineupRecommendationCopy(attention), recommended: true };
       }

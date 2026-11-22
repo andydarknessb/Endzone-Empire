@@ -1,7 +1,7 @@
 import React, { useId, useState } from 'react';
 import { Box, useMediaQuery, useTheme } from '@mui/material';
 import {
-  ErrorPanel, Frame, FrameHead, PixelArrow, PixelHeading, pixelSx, PsLink, PsLinkButton, Skel, SR_ONLY_SX, TeamMark, YouTag,
+  Dash, ErrorPanel, Frame, FrameHead, PixelArrow, PixelHeading, pixelSx, PsLink, PsLinkButton, Skel, SR_ONLY_SX, TeamMark, YouTag,
 } from '../../../shared/ui/playselect';
 import { bestWeeksOf, listOf, usePickemStandingsTable } from '../../../widgets/pickem-standings';
 import { foldRows } from '../../../widgets/standings-table';
@@ -14,14 +14,6 @@ const TREND = {
 };
 
 const rankLabel = (row) => (row.tied ? `T-${row.rank}` : String(row.rank));
-
-// A bare dash reads as nothing to a screen reader; the hidden words say what it stands for.
-const Dash = () => (
-  <>
-    <Box component="span" aria-hidden="true">-</Box>
-    <Box component="span" sx={SR_ONLY_SX}>Not available</Box>
-  </>
-);
 
 // Rank and Team stay pinned at every width. Below sm the table keeps four columns, so its cells get the phone's
 // tighter padding and the numeric columns the phone's width; from sm up all seven columns take their desktop widths.
