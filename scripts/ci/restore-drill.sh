@@ -25,7 +25,7 @@ START=$(date +%s)
 say "step 1: checking the target is loopback (PGHOST must be 127.0.0.1 or localhost)"
 case "${PGHOST:-}" in
   127.0.0.1 | localhost) ;;
-  *) fail "loopback check failed: PGHOST is '${PGHOST:-<unset>}', expected 127.0.0.1 or localhost; a restore is never tested over a shared database" ;;
+  *) fail "loopback check failed: PGHOST is '${PGHOST:-unset}', expected 127.0.0.1 or localhost; a restore is never tested over a shared database" ;;
 esac
 if [ -z "${SOURCE_DATABASE_URL:-}" ]; then
   fail "source check failed: SOURCE_DATABASE_URL is empty, expected the session pooler URL of the database to dump"
@@ -34,10 +34,15 @@ if [ ! -d server/db/migrations ]; then
   fail "working directory check failed: server/db/migrations not found under $PWD, run this from the repo root"
 fi
 
-say "step 2: printing client versions (pg_dump must be at least the source major version, 17)"
+say "step 2: printing client versions; the pg_dump client major must equal the target cluster's"
 pg_dump --version
 pg_restore --version
 psql --version
+CLIENT_MAJOR=$(pg_dump --version | sed -E 's/^[^0-9]*([0-9]+).*/\1/')
+SERVER_NUM=$(psql -X -v ON_ERROR_STOP=1 -At -d postgres -c 'SHOW server_version_num') || fail "step 2 failed: could not read the target server version on $PGHOST:$PGPORT, see the psql error above"
+SERVER_MAJOR=$(( SERVER_NUM / 10000 ))
+[ "$CLIENT_MAJOR" = "$SERVER_MAJOR" ] || fail "client version check failed: pg_dump major=$CLIENT_MAJOR, target server major=$SERVER_MAJOR on $PGHOST:$PGPORT; a dump from a different major is not guaranteed to load"
+say "check ok: pg_dump major=$CLIENT_MAJOR, target server major=$SERVER_MAJOR"
 
 DUMP="${RUNNER_TEMP:-/tmp}/restore-drill.dump"
 trap 'rm -f "$DUMP"' EXIT
@@ -65,8 +70,8 @@ END
 $$;
 SQL
 
-say "step 5: restoring $DUMP into restore_drill with pg_restore --exit-on-error"
-pg_restore --no-owner --no-privileges --exit-on-error --dbname=restore_drill "$DUMP" \
+say "step 5: restoring $DUMP into restore_drill with pg_restore --clean --if-exists --exit-on-error (--clean drops the fresh database's public schema, which the dump's CREATE SCHEMA public then recreates)"
+pg_restore --clean --if-exists --no-owner --no-privileges --exit-on-error --dbname=restore_drill "$DUMP" \
   || fail "step 5 failed: pg_restore exited non-zero on restore_drill, see the pg_restore error above"
 
 src_sql() { psql "$SOURCE_DATABASE_URL" -X -v ON_ERROR_STOP=1 -At -c "$1"; }

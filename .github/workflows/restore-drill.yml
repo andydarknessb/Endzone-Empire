@@ -39,7 +39,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: restore-drill
+  group: restore-drill-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -74,6 +74,11 @@ jobs:
           SQL
           pg_lsclusters
           psql -c 'select version()'
+      # The runner's pg_dump wrapper picks its newest client (18); a dump from a newer client is not guaranteed to load into this 17 server.
+      - name: Put the PostgreSQL 17 client first on PATH
+        run: |
+          set -euo pipefail
+          echo /usr/lib/postgresql/17/bin >> "$GITHUB_PATH"
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
@@ -88,6 +93,8 @@ jobs:
           echo "creating drill_source and running npm run migrate against it"
           psql -v ON_ERROR_STOP=1 -d postgres -c 'CREATE DATABASE drill_source'
           PGDATABASE=drill_source npm run migrate
+          # Steps drill_source back one migration so the drill exercises the pending path: the copy restores with 1 pending, applies it, ends at 0.
+          PGDATABASE=drill_source npx knex migrate:down
       - name: Run the restore drill against the local source
         env:
           SOURCE_DATABASE_URL: postgres://endzone:endzone_test@127.0.0.1:5432/drill_source
@@ -125,7 +132,7 @@ jobs:
         if: steps.secret.outputs.ready == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event_name != 'pull_request' && 'integration' || '' }}
+          ref: integration
           persist-credentials: false
       # Copied from ci.yml's migration-smoke job; see the comments there.
       - name: Install and start PostgreSQL 17
@@ -144,6 +151,12 @@ jobs:
           SQL
           pg_lsclusters
           psql -c 'select version()'
+      # The runner's pg_dump wrapper picks its newest client (18); a dump from a newer client is not guaranteed to load into this 17 server.
+      - name: Put the PostgreSQL 17 client first on PATH
+        if: steps.secret.outputs.ready == 'true'
+        run: |
+          set -euo pipefail
+          echo /usr/lib/postgresql/17/bin >> "$GITHUB_PATH"
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         if: steps.secret.outputs.ready == 'true'
         with:
