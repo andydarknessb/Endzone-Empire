@@ -9,8 +9,9 @@
  *   Draft presenter: draft-presenter.spec.ts builds its board and activity data inline, with its own test fixture.
  *
  * not checked: axe's incomplete results (colour it could not compute, which is most of the Lineup ledger's text), the
- *   dark theme, phone widths (default desktop viewport and theme only), and the reads the fixtures answer with a 500 on
- *   purpose: Players (/api/league/4400, /api/waivers) and Lineup (/api/notifications).
+ *   dark theme, phone widths (default desktop viewport and theme only), and the reads the fixtures leave unmocked, which
+ *   fall to their 500: Players (/api/league/4400, /api/waivers), Lineup (/api/notifications) and the in-season League
+ *   dashboard (/api/league/4200/trophies, which hides its Trophy case link).
  */
 import fs from 'fs';
 import path from 'path';
@@ -57,7 +58,7 @@ async function setupCompletedDashboard(page: Page) {
   await routeWeek17Trophies(page);
 }
 
-// The landing spec waits for the network to settle before it measures, so the scan does not start on a skeleton.
+// The heading wait keeps the scan off a skeleton; networkidle only lets the late sections land before it.
 async function landingReady(page: Page) {
   await page.waitForLoadState('networkidle');
   return page.getByRole('heading', { level: 1, name: 'Welcome to Endzone Empire' });
@@ -167,4 +168,16 @@ test('control: an injected image with no alt is reported as a new image-alt', as
     (document.querySelector('main') ?? document.body).append(img);
   });
   expect(unbaselined(landing.name, await scan(page)).join('\n')).toContain('image-alt');
+});
+
+// Proves the count branch: a third terms link in the age confirmation label must come back as 3 nodes against the baseline's 2.
+test('control: a third link in the age confirmation is reported as 3 nodes against the baseline 2', async ({ page }) => {
+  const registration = PAGES.find((p) => p.name === 'Registration') as SweepPage;
+  await open(page, registration);
+  await page.evaluate(() => {
+    const label = document.querySelector('label[for="age-confirmed"]');
+    const terms = label?.querySelector('a[href$="terms"]');
+    if (label && terms) label.append(terms.cloneNode(true));
+  });
+  expect(unbaselined(registration.name, await scan(page)).join('\n')).toContain('link-in-text-block: 3 nodes, baseline 2');
 });
