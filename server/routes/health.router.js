@@ -21,10 +21,10 @@ const WORKER_STALE_MS = Number(process.env.WORKER_STALE_MS || 15 * 60 * 1000);
 // The tick stamps lastTickAt when it returns. The heartbeat timer runs apart from
 // it, so a stuck tick leaves the row fresh while lastTickAt ages (#2758).
 const SCHEDULER_TICK_STALE_MS = 15 * 60 * 1000;
-// A pooler refusal run can outlast one probe (2026-11-22: four probes refused
-// across 15 s), and Render stops routing to the only instance after 15 s of
-// failed checks. Readiness holds through a database gap shorter than this.
-const DATABASE_READY_GRACE_MS = 45 * 1000;
+// A pooler refusal run can outlast many probes (2026-11-22: runs of up to 85 s),
+// and Render stops routing to the only instance after 15 s of failed checks.
+// Readiness holds through a database gap shorter than this.
+const DATABASE_READY_GRACE_MS = 120 * 1000;
 // Render fails a probe at 5 s; answering sooner lets the grace window speak.
 const DATABASE_PROBE_TIMEOUT_MS = 3000;
 // Monotonic (performance.now), so a wall-clock step cannot stretch the window.

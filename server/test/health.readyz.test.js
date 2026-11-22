@@ -69,7 +69,7 @@ test('readyz stays ready through a database gap inside the grace window', async 
   assert.equal((await request(app).get('/api/health/readyz')).status, 200);
 
   failing = true;
-  const later = performance.now() + 44 * 1000;
+  const later = performance.now() + 119 * 1000;
   t.mock.method(performance, 'now', () => later);
   const response = await request(app).get('/api/health/readyz');
 
@@ -89,7 +89,7 @@ test('readyz answers 503 once the gap outlasts the grace window', async (t) => {
   assert.equal((await request(app).get('/api/health/readyz')).status, 200);
 
   failing = true;
-  const later = performance.now() + 46 * 1000;
+  const later = performance.now() + 121 * 1000;
   t.mock.method(performance, 'now', () => later);
   const response = await request(app).get('/api/health/readyz');
 
@@ -97,7 +97,7 @@ test('readyz answers 503 once the gap outlasts the grace window', async (t) => {
   assert.equal(response.body.ok, false);
 });
 
-test('readyz answers inside the probe timeout when the database hangs', async (t) => {
+test('readyz answers inside the probe timeout when the database hangs', { timeout: 10000 }, async (t) => {
   let hanging = false;
   t.mock.method(pool, 'query', async () => {
     if (hanging) return new Promise(() => {});
