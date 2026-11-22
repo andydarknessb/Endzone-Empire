@@ -384,6 +384,15 @@ test('ownership: a fetch failure resolves null rather than throwing', async () =
   assert.equal(await ownership({ transport }), null);
 });
 
+test('ownership: a 404 on the season URL resolves { seasonNotOpen: true }; any other failure (403, 500) still resolves null', async () => {
+  const notOpen = fakeTransport(() => { throw httpError(404); });
+  assert.deepEqual(await ownership({ transport: notOpen, season: 2027 }), { seasonNotOpen: true });
+  const forbidden = fakeTransport(() => { throw httpError(403); });
+  assert.equal(await ownership({ transport: forbidden }), null);
+  const broken = fakeTransport(() => { throw httpError(500); });
+  assert.equal(await ownership({ transport: broken }), null);
+});
+
 test('ownership: resolves real rows from the fixture and is never cached (two calls, two transport hits)', async () => {
   const transport = fakeTransport(() => okResponse(fantasyPlayerInfoFixture));
   const first = await ownership({ transport });

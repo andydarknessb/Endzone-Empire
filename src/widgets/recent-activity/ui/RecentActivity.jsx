@@ -20,8 +20,9 @@ import { activityBadge, formatActivityTime } from '../model/recentActivityModel'
  * below `sm` only the first 3 of those render, with the "All activity" link carrying the rest. At and
  * above it the cap is the optional `rowLimit` (never more than the 17 fetched): the dashboard passes
  * `ceil(team count * 3 / 4)` so that, beside the standings (a 44px row against a two-line activity row),
- * the two end about level, and 3 on game day. `compact` is that side-by-side placement: the narrow rail
- * gives the kind tag a 72px column instead of the 160px a full-width frame has, so the sentence keeps
+ * the two end about level in season. On game day and a completed league it passes 3 and the dashboard top-aligns
+ * the row, so the frame ends at its third row instead of stretching to the standings. `compact` is that side-by-side
+ * placement: the narrow rail gives the kind tag a 72px column instead of the 160px a full-width frame has, so the sentence keeps
  * its room. The loading skeleton follows the SAME cap rather than always holding 17.
  *
  * `onFeedShort(boolean)` reports whether the resolved feed has fewer rows than the wide cap (#1998);

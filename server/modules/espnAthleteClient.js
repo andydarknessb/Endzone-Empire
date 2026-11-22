@@ -426,8 +426,10 @@ function normalizeOwnership(payload) {
 
 /** Shared GET, resolving null (never throwing) on any failure - a 403, a
  * timeout, or a non-JSON body all read the same to a caller: ESPN has no
- * usable answer right now. */
-async function getJson(transport, url, { params, headers } = {}) {
+ * usable answer right now. `failure`, when given, is filled with the HTTP
+ * `status` of a failed request (null for a timeout), for the one caller that
+ * must tell a 404 apart. */
+async function getJson(transport, url, { params, headers, failure } = {}) {
   try {
     const response = await client(transport).get(url, {
       timeout: ESPN_TIMEOUT_MS,
@@ -436,6 +438,7 @@ async function getJson(transport, url, { params, headers } = {}) {
     });
     return response && typeof response.data === 'object' ? response.data : null;
   } catch (err) {
+    if (failure) failure.status = err && err.response ? err.response.status : null;
     return null;
   }
 }
@@ -541,23 +544,27 @@ async function teamRoster(teamCode, { transport } = {}) {
 /**
  * The whole pool's Ownership ->`{ athleteId, percentOwned, percentStarted,
  * percentChange }[]` (never cached). `season` is the fantasy season year
- * (`ESPN_FANTASY_SEASON` env, else the current UTC year). A high `limit`
- * sorted by percent owned, ESPN's own bulk-read shape for this endpoint,
+ * (when omitted, `ESPN_FANTASY_SEASON` env, else the current UTC year). A high
+ * `limit` sorted by percent owned, ESPN's own bulk-read shape for this endpoint,
  * since "the whole pool" has no per-athlete filter. `view=kona_player_info`
  * is REQUIRED (formal review f1): without it `leaguedefaults/1` answers 200
  * with no `players` key at all (verified live), so `normalizeOwnership`
  * silently returns `[]` forever - the same shape as a real empty pool, which
- * is exactly why this was never caught by a status-code check. `null` on any
- * fetch failure (Ruling item 4) - never throws.
+ * is exactly why this was never caught by a status-code check. `{ seasonNotOpen:
+ * true }` when ESPN answers 404 for the season (it has not opened that season
+ * yet); `null` on any other fetch failure - never throws.
  */
 async function ownership({ transport, season } = {}) {
   const year = season || Number(process.env.ESPN_FANTASY_SEASON) || new Date().getUTCFullYear();
   const filter = { players: { limit: 4000, sortPercOwned: { sortAsc: false, sortPriority: 1 } } };
+  const failure = {};
   const payload = await getJson(transport, FANTASY_PLAYER_INFO_URL(year), {
     params: { view: 'kona_player_info' },
     headers: { 'x-fantasy-filter': JSON.stringify(filter) },
+    failure,
   });
-  return payload ? normalizeOwnership(payload) : null;
+  if (payload) return normalizeOwnership(payload);
+  return failure.status === 404 ? { seasonNotOpen: true } : null;
 }
 
 /**

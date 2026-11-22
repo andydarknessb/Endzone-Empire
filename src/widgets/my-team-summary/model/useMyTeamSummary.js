@@ -7,7 +7,7 @@ import { useLeagueStandings, findTeamStanding } from '../../../entities/standing
 // directly (its public index, ADR 0029) rather than from `lib/draftSim/
 // templates.js`'s re-export of the same value - this widget already reads
 // `useTeamLineup` off the same index, so this is one import, not a new edge.
-import { useTeamLineup, DEFAULT_ROSTER_SLOTS, isQuestionable } from '../../../entities/roster';
+import { useTeamLineup, DEFAULT_ROSTER_SLOTS, isQuestionable, unavailable } from '../../../entities/roster';
 import { draftRosterSize } from '../../../lib/rosterShape';
 
 /**
@@ -151,6 +151,28 @@ const STARTERS_SHOWN = 5;
 function resolvedRosterSlots(league) {
   const slots = parseRosterSlots(league?.roster_slots);
   return slots.length > 0 ? slots : DEFAULT_ROSTER_SLOTS;
+}
+
+/**
+ * The order My team shows its starters (the owner's ruling, #2972): Unavailable
+ * first (Out, IR, on bye, no team, practice squad), then Questionable and
+ * Doubtful, then the rest, each group in the league's slot order. The wire
+ * sends starters in position-then-name order, so the slot comes from the same
+ * config the footer reads; a slot that config does not name sorts after every
+ * named one. Ties keep lineup.starters' order (Array sort is stable). Sorts a
+ * copy: lineupModel's `starters` stays the answer every other reader gets.
+ */
+function orderedStarters(lineup, league) {
+  const slotKeys = resolvedRosterSlots(league).map((s) => String(s.key));
+  const group = (s) => {
+    if (unavailable({ availability: lineup.availabilityByPlayerId.get(s.playerId) })) return 0;
+    return isQuestionable(s) ? 1 : 2;
+  };
+  const slot = (s) => {
+    const i = slotKeys.indexOf(String(s.slot));
+    return i < 0 ? slotKeys.length : i;
+  };
+  return [...lineup.starters].sort((a, b) => group(a) - group(b) || slot(a) - slot(b));
 }
 
 export function useMyTeamSummary(leagueId, lineupProblem) {
@@ -312,7 +334,7 @@ export function useMyTeamSummary(leagueId, lineupProblem) {
       starters = {
         status: 'ready',
         week: league?.current_week ?? null,
-        rows: lineup.starters.slice(0, STARTERS_SHOWN),
+        rows: orderedStarters(lineup, league).slice(0, STARTERS_SHOWN),
         moreCount: Math.max(0, lineup.starters.length - STARTERS_SHOWN),
         // Questionable-class only (Q and D, isQuestionable: the test the
         // Team summary chips use), so this note agrees with them. lineupModel's

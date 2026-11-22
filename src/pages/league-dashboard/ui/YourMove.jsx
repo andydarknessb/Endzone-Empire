@@ -1,10 +1,12 @@
 import React, { useId } from 'react';
 import { Box } from '@mui/material';
 import {
-  CountBadge, Frame, FrameHead, PixelCheck, PixelHeading, PlayCard, pixelSx,
+  CountBadge, Frame, FrameHead, PixelCheck, PixelHeading, PlayCard, SR_ONLY_SX, Skel, pixelSx,
 } from '../../../shared/ui/playselect';
+import { useInviteCopy } from '../../../features/copy-invite';
 import { itemType, playName } from '../../../entities/action-item';
 import { formatInstant, timeUntil, useNow } from '../../../shared/lib';
+import { YourMoveHeadSkel } from './PageStates';
 
 const MINUTE_MS = 60 * 1000;
 const HOUR_MS = 60 * MINUTE_MS;
@@ -59,11 +61,14 @@ function nextChange(cards, now) {
   return next;
 }
 
+// An open-seats foot (the pre-draft Play) copies the league's invite when the viewer holds the code: the
+// page it sits on is that league, so a link there goes nowhere.
 function MoveCard({
-  card, lead, urgent, wide, compact, now,
+  card, lead, urgent, wide, compact, now, inviteCode,
 }) {
   const feet = card.feet || [];
   const first = feet[0] || {};
+  const invite = useInviteCopy(inviteCode);
   const at = timeMs(first.deadlineAt);
   const lock = lockParts(at, now);
   const isUrgent = lead && urgent && at !== null && at > now;
@@ -71,33 +76,40 @@ function MoveCard({
   const name = card.name ?? playName(feet);
   const minutes = at !== null ? Math.max(1, Math.floor((at - now) / MINUTE_MS)) : null;
   const details = feet.map((foot) => foot.detail).filter(Boolean);
+  // An open-seats lock reads "Draft" while it is still ahead; once passed it is just "Now".
+  const drafting = itemType(first) === 'seats_open' && at !== null && at > now;
+  const lockSpoken = at !== null ? `, ${drafting ? 'draft' : 'locks'} ${spoken(lock)}` : '';
+  const isInvite = (foot) => Boolean(inviteCode) && itemType(foot) === 'seats_open';
+  const hasInvite = feet.some(isInvite);
+  const footActions = feet.map((foot) => {
+    const base = { key: foot.id, label: foot.cta?.label || foot.title, bare: true };
+    return isInvite(foot)
+      ? { ...base, onClick: invite.copy, done: invite.copied, doneLabel: 'Copied' }
+      : { ...base, to: foot.cta?.to, ariaLabel: `${base.label}${foot.detail ? `, ${foot.detail}` : ''}${lockSpoken}` };
+  });
 
   return (
-    <PlayCard
-      kind={KIND[itemType(first)] || FALLBACK_KIND}
-      name={name}
-      league=""
-      detail={multi ? details.join(' · ') : null}
-      {...lock}
-      countdown={isUrgent ? `${minutes} min` : undefined}
-      lockNote={card.note || (multi ? null : first.detail) || undefined}
-      cta={multi ? undefined : { label: first.cta?.label || name, to: first.cta?.to }}
-      actions={multi
-        ? feet.map((foot) => ({
-          key: foot.id,
-          label: foot.cta?.label || foot.title,
-          to: foot.cta?.to,
-          bare: true,
-          ariaLabel: `${foot.cta?.label || foot.title}${foot.detail ? `, ${foot.detail}` : ''}${at !== null ? `, locks ${spoken(lock)}` : ''}`,
-        }))
-        : undefined}
-      ariaLabel={`${first.cta?.label || name}${at !== null ? `, locks ${spoken(lock)}` : ''}`}
-      state={lead ? (isUrgent ? 'urgent' : 'next') : 'open'}
-      lead={lead}
-      headingLevel={3}
-      wide={wide}
-      compact={compact}
-    />
+    <>
+      <PlayCard
+        kind={KIND[itemType(first)] || FALLBACK_KIND}
+        name={name}
+        league=""
+        detail={multi ? details.join(' · ') : null}
+        {...lock}
+        lockWord={drafting ? 'Draft' : undefined}
+        countdown={isUrgent ? `${minutes} min` : undefined}
+        lockNote={card.note || (multi ? null : first.detail) || undefined}
+        cta={multi || hasInvite ? undefined : { label: first.cta?.label || name, to: first.cta?.to }}
+        actions={multi || hasInvite ? footActions : undefined}
+        ariaLabel={`${first.cta?.label || name}${lockSpoken}`}
+        state={lead ? (isUrgent ? 'urgent' : 'next') : 'open'}
+        lead={lead}
+        headingLevel={3}
+        wide={wide}
+        compact={compact}
+      />
+      {hasInvite && <Box role="status" aria-live="polite" sx={SR_ONLY_SX}>{invite.announcement}</Box>}
+    </>
   );
 }
 
@@ -115,22 +127,46 @@ function MoveCard({
  *   badge  the card count
  *   empty  true, or { note }: nothing is due, so a calm "You're set" card with no cursor and no filled
  *          action (a tertiary frame; its note defaults to "Nothing needs you right now.")
+ *   noTeam with `empty`, the viewer has no Team: the heading reads "No team in this league", with no check
+ *          and the note "Nothing here needs you."
+ *   pending the Action items read is in flight with nothing cached: the frame's outline and one skeleton
+ *          card, a status named "Checking what needs you", with no heading text and no check
  *   urgent the lead locks within an hour: its strip and cursor turn Danger
+ *   inviteCode the league's invite code, when the viewer holds it: an open-seats Play's foot then copies it
  */
 export default function YourMove({
-  lead, rest = [], badge, empty = false, urgent = false,
+  lead, rest = [], badge, empty = false, urgent = false, inviteCode, noTeam = false, pending = false,
 }) {
   const headingId = useId();
   const cards = lead ? [lead, ...rest] : rest;
   const now = useNow((at) => nextChange(cards, at), cards.length);
 
+  if (pending) {
+    return (
+      <Frame
+        component="div"
+        role="status"
+        aria-label="Checking what needs you"
+        data-testid="your-move-pending"
+        tabIndex={-1}
+        head={<YourMoveHeadSkel />}
+      >
+        <Box sx={{ padding: { xs: '8px', md: '12px' } }}>
+          <Skel width="100%" height={96} />
+        </Box>
+      </Frame>
+    );
+  }
+
   if (empty || !lead) {
-    const note = (empty && empty.note) || 'Nothing needs you right now.';
+    const note = noTeam ? 'Nothing here needs you.' : ((empty && empty.note) || 'Nothing needs you right now.');
+    const heading = noTeam ? 'No team in this league' : "You're set";
     return (
       <Frame
         tier="rule"
         labelledBy={headingId}
         data-testid="your-move"
+        tabIndex={-1}
         head={(
           <FrameHead>
             <PixelHeading id={headingId} size={16}>Your move</PixelHeading>
@@ -140,8 +176,8 @@ export default function YourMove({
       >
         <Box data-testid="your-move-empty" sx={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
           <Box component="h3" sx={{ m: 0, display: 'flex', alignItems: 'center', gap: '12px', ...pixelSx(16) }}>
-            <PixelCheck size={16} />
-            You&apos;re set
+            {!noTeam && <PixelCheck size={16} />}
+            {heading}
           </Box>
           <Box component="p" sx={{ m: 0, fontSize: '15px', color: 'var(--ps-dim)' }}>{note}</Box>
         </Box>
@@ -153,6 +189,7 @@ export default function YourMove({
     <Frame
       labelledBy={headingId}
       data-testid="your-move"
+      tabIndex={-1}
       head={(
         <FrameHead>
           <PixelHeading id={headingId}>Your move</PixelHeading>
@@ -174,11 +211,11 @@ export default function YourMove({
           alignItems: 'start',
         }}
       >
-        <MoveCard card={lead} lead urgent={urgent} wide now={now} />
+        <MoveCard card={lead} lead urgent={urgent} wide now={now} inviteCode={inviteCode} />
         {rest.length > 0 && (
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: '8px', minWidth: 0 }}>
             {rest.map((card, index) => (
-              <MoveCard key={card.feet?.[0]?.id ?? index} card={card} compact now={now} />
+              <MoveCard key={card.feet?.[0]?.id ?? index} card={card} compact now={now} inviteCode={inviteCode} />
             ))}
           </Box>
         )}

@@ -12,7 +12,8 @@ import useMyTeamSummary from '../model/useMyTeamSummary';
  * Pixel 24 with points for and against, then the facts the card has always stated when they have a
  * value (draft grade, projected finish with its movement, playoff odds, roster value, and either
  * FAAB left or roster fullness), then the first five starters (position tag, name, injury tag,
- * opponent line, projection under a "Proj" label), an "and N more" note and the lineup status with a
+ * opponent line, then the figure under a "Proj" label: the projection, or the actual points labelled "pts"
+ * once the starter has them (#2980); unavailable starters first, #2972), an "and N more" note and the lineup status with a
  * "Fix lineup" link while it is incomplete. The frame's foot links Lineup, Waivers and Trades.
  *
  * Before the draft lineups are not open, so no lineup is read: the card keeps the tiles that have a
@@ -239,7 +240,13 @@ function RankMovement({ change }) {
 
 function StarterRow({ starter, last }) {
   const secondLine = starter.opponent ? `${starter.nflTeam ?? ''} vs ${starter.opponent}` : starter.nflTeam ?? '';
+  // Actual points replace the projection once the game has them (`points`, null before kickoff, never 0). The "pts"
+  // label is what keeps the two figures from being read as one.
+  const scored = Number.isFinite(starter.points);
   const known = Number.isFinite(starter.projectedPoints);
+  const spoken = scored
+    ? `${starter.points.toFixed(1)} points`
+    : known ? `${starter.projectedPoints.toFixed(1)} projected points` : 'Projection not available';
   return (
     <Box
       component="li"
@@ -264,8 +271,12 @@ function StarterRow({ starter, last }) {
         }}
       >
         {/* The bare number has no column header in the accessibility tree, so a hidden label names it. */}
-        <span aria-hidden="true">{known ? starter.projectedPoints.toFixed(1) : '-'}</span>
-        <span style={{ ...SR_ONLY_SX }}>{known ? `${starter.projectedPoints.toFixed(1)} projected points` : 'Projection not available'}</span>
+        <span aria-hidden="true">
+          {scored
+            ? <>{`${starter.points.toFixed(1)} `}<span style={{ fontSize: '13px', fontWeight: 500, color: 'var(--ps-dim)' }}>pts</span></>
+            : (known ? starter.projectedPoints.toFixed(1) : '-')}
+        </span>
+        <span style={{ ...SR_ONLY_SX }}>{spoken}</span>
       </Box>
     </Box>
   );
@@ -302,7 +313,7 @@ function StartersList({ starters }) {
           </Box>
           {starters.moreCount > 0 && (
             <Box data-testid="my-team-starters-more" sx={{ margin: '8px 0 0', fontSize: '14px', color: 'var(--ps-dim)' }}>
-              {`and ${starters.moreCount} more starter${starters.moreCount === 1 ? '' : 's'} · ${starters.questionableCount} questionable`}
+              {`and ${starters.moreCount} more starter${starters.moreCount === 1 ? '' : 's'}${starters.questionableCount > 0 ? ` · ${starters.questionableCount} questionable` : ''}`}
             </Box>
           )}
         </>

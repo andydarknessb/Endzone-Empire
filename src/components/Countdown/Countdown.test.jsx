@@ -64,6 +64,12 @@ describe('Countdown', () => {
       act(() => { jest.advanceTimersByTime(4 * HOUR); });
       expect(container).toBeEmptyDOMElement();
     });
+
+    test('the viewer-local schedule line sits on the 16px step of the type ramp', () => {
+      const date = futureIso(3 * DAY);
+      render(<Countdown date={date} variant="blocks" leagueId={1} leagueName="Sunday League" />);
+      expect(screen.getByText(draftTimeFormat.formatViewerLocalSchedule(date))).toHaveStyle({ fontSize: '16px' });
+    });
   });
 
   describe('tiered cadence (#117 AC4)', () => {

@@ -149,3 +149,7 @@ no design canvas, the second fills the rail for one role only.
 ### Amendment (2026-11-18, #2921): the console is the only reader of commissioner facts
 
 The dashboard's commissioner strip no longer reads `commissionerFacts`. It shows action rows only (the Invite on game-day phones, Join requests, Advance week, League administration) and no facts at any width, as the 2026-11-18 rulings in `docs/design/league/RULINGS.md` set. The Commissioner console is therefore the function's only reader. `commissionerFacts` stays in `shared/lib`; the bullet above that says the dashboard strip and the console both read it is superseded on the dashboard half, and the rest of this ADR stands.
+
+### Amendment (2026-11-20, #2986): the strip's row list includes Set draft time
+
+The 2026-11-18 amendment above lists four strip rows: Invite, Join requests, Advance week and League administration. That list was complete only until #2975 added a Set draft time row. The strip now renders five rows, in this order: Invite code (game-day phones only, when the page passes the `invite` prop); Set draft time (a link to `/league/:leagueId/draft-settings`, shown when the league is pre-draft with no `draft_date`, so a pick'em-only league never sees it); Join requests (when there are pending join requests); Advance week (when the league is not pick'em-only, the season is live and there is a current week); and League administration (always). The strip renders nothing for a non-commissioner. The rest of this ADR and of the 2026-11-18 amendment stands.

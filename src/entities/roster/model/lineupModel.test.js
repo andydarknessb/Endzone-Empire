@@ -98,6 +98,7 @@ describe('lineupModel: the one shape from the lineup body', () => {
       nflTeam: 'BUF',
       slot: 'QB',
       projectedPoints: 10,
+      points: null,
       injuryStatus: null,
       photoUrl: null,
       spent: false,
@@ -191,6 +192,7 @@ describe('lineupModel: the one shape from the lineup body', () => {
       nflTeam: 'MIA',
       slot: 'WR',
       projectedPoints: null,
+      points: null,
       injuryStatus: null,
       photoUrl: null,
       spent: true,
@@ -258,9 +260,30 @@ describe('lineupModel: the one shape from the lineup body', () => {
       starters: [],
       benchCount: 0,
       questionable: 0,
+      availabilityByPlayerId: new Map(),
     };
     expect(lineupModel(null)).toEqual(empty);
     expect(lineupModel(undefined)).toEqual(empty);
+  });
+
+  // The Start verdict the starter rows drop (playerFromLineupEntry), keyed by
+  // the wire id a starter's playerId carries, so My team can order by
+  // Unavailable without a third copy of the rule (spec #2979).
+  test('availabilityByPlayerId maps each entry id to its Start verdict, and a row with no verdict to available', () => {
+    const model = lineupModel({
+      ...body,
+      entries: [
+        row({ id: 1, slot: 'QB', startVerdict: { outcome: 'unavailable', reason: 'out', numberTrusted: true } }),
+        row({ id: 2, slot: 'RB', startVerdict: { outcome: 'unavailable', reason: 'no_team', numberTrusted: true } }),
+        row({ id: 3, slot: 'WR', injury_status: 'O' }),
+      ],
+    });
+    expect(model.availabilityByPlayerId).toEqual(new Map([
+      [1, { available: false, reason: 'out' }],
+      [2, { available: false, reason: 'no_team' }],
+      [3, { available: true, reason: null }],
+    ]));
+    expect(model.starters[0]).not.toHaveProperty('availability');
   });
 
   test('a projected_points wire string (a pg decimal) coerces to a number', () => {
@@ -277,6 +300,20 @@ describe('lineupModel: the one shape from the lineup body', () => {
       entries: [row({ id: 1, slot: 'QB', projected_points: null })],
     });
     expect(model.starters[0].projectedPoints).toBeNull();
+  });
+
+  // The wire's actualPoints reads onto the starter row as `points`, coerced the
+  // way lineupEntries' Ledger builder coerces it: null stays null, never 0 (#2980).
+  test('a wire actualPoints string reads as points 18.5; null and a missing key read as null, never 0', () => {
+    const model = lineupModel({
+      ...body,
+      entries: [
+        row({ id: 1, slot: 'QB', actualPoints: '18.50' }),
+        row({ id: 2, slot: 'RB', actualPoints: null }),
+        row({ id: 3, slot: 'WR' }),
+      ],
+    });
+    expect(model.starters.map((s) => s.points)).toEqual([18.5, null, null]);
   });
 });
 

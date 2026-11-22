@@ -605,6 +605,40 @@ test.each([
   expect(within(rail).getAllByTestId('recent-activity-row')).toHaveLength(rows);
 });
 
+// Red-tell (#3018): a completed league asks Recent activity for 3 rows, as game day does, so the main row
+// must start them at the top; a stretched grid draws the 3-row frame to the 12-row standings height. In
+// season the 9-row rail is full and the row still stretches.
+test('a completed league top-aligns the main row so the 3-row feed does not stretch', async () => {
+  mockGetByUrl({
+    '/api/league/1': leagueDetail({
+      league: { draft_status: 'complete', season_status: 'complete', current_week: 18 },
+      teams: buildTeams(12),
+    }),
+    '/api/league/1/transactions': { data: transactionRows(8) },
+  });
+  renderPage();
+
+  const rail = await screen.findByTestId('dashboard-rail');
+  await within(rail).findAllByTestId('recent-activity-row');
+  expect(within(rail).getAllByTestId('recent-activity-row')).toHaveLength(3);
+  expect(cssFor(screen.getByTestId('dashboard-main'))).toMatch(/align-items:\s*start/);
+});
+
+test('an in-season league keeps the main row stretched (the 9-row rail is full)', async () => {
+  mockGetByUrl({
+    '/api/league/1': leagueDetail({
+      league: { draft_status: 'complete', season_status: 'regular', current_week: 3 },
+      teams: buildTeams(12),
+    }),
+    '/api/league/1/transactions': { data: transactionRows(9) },
+  });
+  renderPage();
+
+  const rail = await screen.findByTestId('dashboard-rail');
+  await within(rail).findAllByTestId('recent-activity-row');
+  expect(cssFor(screen.getByTestId('dashboard-main'))).toMatch(/align-items:\s*stretch/);
+});
+
 // Red-tell (#1998): at md the standings and Recent activity sit side by side only
 // when the feed fills the rail (ceil(12 * 3 / 4) = 9 rows at 12 teams). A feed
 // that resolved shorter (zero rows and a failed read included) stacks them: one
@@ -1755,7 +1789,7 @@ test('quick-actions: in season the Playbook is one link row ending in the trophy
 });
 
 // In season the Play and Moves links are one "League pages" row right under Your move (before the hero).
-// It is its own landmark with no leading text, and Pick'em joins it only on a league with pick'em on.
+// It is its own landmark, labelled "League pages" before its first link, and Pick'em joins it only on a league with pick'em on.
 test('quick-actions: in season a League pages row sits under Your move and before the hero, with the Play and Moves links', async () => {
   mockGetByUrl({
     '/api/league/1': quickActionsLeague(),
@@ -1769,8 +1803,9 @@ test('quick-actions: in season a League pages row sits under Your move and befor
     'Set Lineup', 'Game Center', 'Waivers', 'Trades',
   ]);
   expect(within(pages).queryByText('Playbook')).not.toBeInTheDocument();
-  // No leading separator dot before the first link.
-  expect(pages).toHaveTextContent(/^Set Lineup/);
+  // The row prints its own name before its first link, as the Playbook row does.
+  expect(precedes(within(pages).getByText('League pages'), within(pages).getByRole('link', { name: 'Set Lineup' }))).toBe(true);
+  expect(screen.getAllByRole('navigation', { name: 'League pages' })).toHaveLength(1);
   expect(precedes(await screen.findByTestId('slot-your-move'), pages)).toBe(true);
   expect(precedes(pages, screen.getByTestId('dashboard-hero'))).toBe(true);
 });
@@ -2751,6 +2786,19 @@ describe('before kickoff the hero is the matchup, My team and the Pick\'em panel
     expect(await screen.findByTestId('pickem-panel-rank')).toHaveTextContent('T-2');
   });
 
+  test("a week with no points reads Not available in the panel's week stat", async () => {
+    const standings = pickemStandings();
+    standings.data.standings[1].weekly = { 6: 9 };
+    mockGetByUrl({
+      '/api/league/1': scheduledLeague(),
+      '/api/pickem/league/1/settings': { data: { enabled: true, mode: 'straight' } },
+      '/api/pickem/league/1/standings': standings,
+    });
+    renderPage();
+
+    expect(await screen.findByTestId('pickem-panel-week')).toHaveTextContent('Not available');
+  });
+
   test('a fantasy-only league has no Pick\'em panel, and reads no pick\'em standings', async () => {
     mockGetByUrl({
       '/api/league/1': scheduledLeague(),
@@ -2849,7 +2897,8 @@ describe('a completed season', () => {
 
     const line = await screen.findByTestId('trophy-your-season');
     expect(within(line).getByText('Your season')).toBeInTheDocument();
-    expect(line).toHaveTextContent('6th of 12 · 5-5 · 1400.0 PF');
+    expect(within(line).getByText('6th of 12')).toBeInTheDocument();
+    expect(within(line).getByText('5-5 · 1400.0 PF')).toBeInTheDocument();
     expect(precedes(screen.getByTestId('trophy-champion'), line)).toBe(true);
   });
 
@@ -2903,6 +2952,21 @@ describe('a completed season', () => {
 
     await screen.findByTestId('trophy-your-season');
     expect(standingsTableGetCount()).toBe(1);
+  });
+
+  // Red-tell: removing the completed-league case from rowLimit leaves the 12-team limit of 9, so the 8 rows show as 8.
+  test('Recent activity keeps to three rows on a completed league, as on game day (12 teams, eight transactions)', async () => {
+    mockGetByUrl({
+      '/api/league/1': completeLeague(),
+      '/api/league/1/trophies': trophies(),
+      '/api/scoring/league/1/standings': sixthOfTwelve(),
+      '/api/league/1/transactions': { data: transactionRows(8) },
+    });
+    renderPage();
+
+    const rail = await screen.findByTestId('dashboard-rail');
+    await within(rail).findAllByTestId('recent-activity-row');
+    expect(within(rail).getAllByTestId('recent-activity-row')).toHaveLength(3);
   });
 
   test('a completed league with no trophies has no trophy room', async () => {
@@ -3016,14 +3080,9 @@ describe('the pick\'em-only body', () => {
     expect(within(card).getByTestId('pickem-standings-your-accuracy')).toHaveTextContent('71%');
     expect(within(card).getByTestId('pickem-standings-best-week')).toHaveTextContent('Wk 6');
     expect(within(card).getByTestId('pickem-standings-count')).toHaveTextContent('2 teams');
-    // The weekly heat strip: eighteen weeks per row, the best week marked.
-    expect(within(you).getAllByTestId('pickem-standings-heat-cell')).toHaveLength(18);
-    expect(within(you).getAllByTestId('pickem-standings-heat-cell').filter((cell) => cell.hasAttribute('data-best'))).toHaveLength(1);
-    // One labelled image per strip (the Pick'em page's HeatStrip), its eighteen cells hidden from the tree.
-    const strip = within(you).getByTestId('pickem-standings-heat');
-    expect(strip).toHaveAttribute('role', 'img');
-    expect(strip).toHaveAccessibleName('Weekly points, weeks 1 to 6: none, none, none, none, 9, 15; best week 6');
-    within(you).getAllByTestId('pickem-standings-heat-cell').forEach((cell) => expect(cell).toHaveAttribute('aria-hidden', 'true'));
+    // Rank, Team, Points, this week, Correct, Missed, Trend: the viewer's row has six cells and no weekly strip.
+    expect(within(you).getAllByRole('cell')).toHaveLength(6);
+    expect(within(you).queryByTestId('pickem-standings-heat')).toBeNull();
   });
 
   test('wears no cursor and no filled action of its own', async () => {
@@ -3036,7 +3095,7 @@ describe('the pick\'em-only body', () => {
     expect(card.querySelector('.cursor, [data-filled="true"]')).toBeNull();
   });
 
-  test('a tie for the best week: the tile names every tied week, as the strip rings them', async () => {
+  test('a tie for the best week: the tile names every tied week', async () => {
     mockGetByUrl({
       '/api/league/1': pickemOnlyLeague(),
       '/api/pickem/league/1/standings': {
@@ -3053,10 +3112,9 @@ describe('the pick\'em-only body', () => {
     renderPage();
 
     const card = await screen.findByTestId('pickem-standings');
-    const you = await within(card).findByTestId('pickem-standings-you-row');
+    await within(card).findByTestId('pickem-standings-you-row');
     expect(within(card).getByText('Best weeks')).toBeInTheDocument();
     expect(within(card).getByTestId('pickem-standings-best-week')).toHaveTextContent('Wk 2 and 4');
-    expect(within(you).getByTestId('pickem-standings-heat')).toHaveAccessibleName('Weekly points, weeks 1 to 4: none, 12, none, 12; best weeks 2 and 4');
   });
 });
 
@@ -3154,11 +3212,20 @@ describe('Your move', () => {
     expect(await screen.findByRole('heading', { level: 3, name: "You're set" })).toBeInTheDocument();
   });
 
-  test('nothing is drawn while the read is in flight, and a failed read is one danger panel that re-reads', async () => {
-    mockGetByUrl({ '/api/league/1': inSeasonLeague(), [ACTION_URL]: { pending: true } });
+  test('while the read is in flight a placeholder holds Your move\'s place, and the calm card replaces it when the read answers empty; a failed read is one danger panel that re-reads', async () => {
+    mockGetByUrl({ '/api/league/1': inSeasonLeague() });
+    const served = apiClient.get.getMockImplementation();
+    let answer;
+    apiClient.get.mockImplementation((url) => (url === ACTION_URL
+      ? new Promise((resolve) => { answer = resolve; })
+      : served(url)));
     const { unmount } = renderPage();
-    await screen.findByTestId('dashboard-main');
-    expect(screen.queryByTestId('slot-your-move')).not.toBeInTheDocument();
+    const placeholder = await screen.findByRole('status', { name: 'Checking what needs you' });
+    expect(placeholder).toHaveAttribute('data-testid', 'your-move-pending');
+    expect(screen.queryByText("You're set")).not.toBeInTheDocument();
+    await act(async () => answer(actionItems([])[ACTION_URL]));
+    expect(await screen.findByRole('heading', { level: 3, name: "You're set" })).toBeInTheDocument();
+    expect(screen.queryByTestId('your-move-pending')).not.toBeInTheDocument();
     unmount();
 
     invalidate(undefined, { reload: false });
@@ -3166,6 +3233,71 @@ describe('Your move', () => {
     renderPage();
     expect(await screen.findByText("Couldn't check what needs you")).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Try checking your plays again' })).toBeInTheDocument();
+  });
+
+  test('a completed league with the read in flight draws no placeholder', async () => {
+    mockGetByUrl({ '/api/league/1': inSeasonLeague({ season_status: 'complete' }), [ACTION_URL]: { pending: true } });
+    renderPage();
+    await screen.findByRole('heading', { level: 1, name: 'MinneApple' });
+    expect(screen.queryByTestId('your-move-pending')).not.toBeInTheDocument();
+  });
+
+  test('a viewer with no Team and nothing due reads "No team in this league", not "You\'re set"', async () => {
+    mockGetByUrl({
+      '/api/league/1': leagueDetail({
+        league: { draft_status: 'complete', season_status: 'regular', current_week: 3 },
+        teams: buildTeams(12),
+        viewerTeamId: null,
+      }),
+      ...actionItems([]),
+    });
+    renderPage();
+
+    const section = await screen.findByTestId('your-move');
+    expect(await within(section).findByRole('heading', { level: 3, name: 'No team in this league' })).toBeInTheDocument();
+    expect(within(section).getByText('Nothing here needs you.')).toBeInTheDocument();
+    expect(within(section).queryByText("You're set")).not.toBeInTheDocument();
+  });
+
+  test('a pick\'em-only league with no Team and nothing due keeps the calm "You\'re set", not "No team in this league"', async () => {
+    mockGetByUrl({
+      '/api/league/1': leagueDetail({
+        league: { pickem_only: true, draft_status: 'pending', season_status: 'regular', current_week: 6 },
+        teams: buildTeams(8),
+        viewerTeamId: null,
+      }),
+      ...actionItems([]),
+    });
+    renderPage();
+
+    const section = await screen.findByTestId('your-move');
+    expect(await within(section).findByRole('heading', { level: 3, name: "You're set" })).toBeInTheDocument();
+    expect(within(section).queryByText('No team in this league')).not.toBeInTheDocument();
+  });
+
+  test('pre-draft Commissioner: the open-seats Play is the one filled foot, it copies the invite and the page does not navigate', async () => {
+    mockGetByUrl({
+      '/api/league/1': preDraftLeague({ is_commissioner: true, invite_code: 'abc123' }),
+      ...actionItems([item('seats_open', null, {
+        title: '2 open seats before the draft',
+        detail: '10 of 12 teams have joined',
+        deadlineAt: IN_MINUTES(3 * 24 * 60),
+        cta: { label: 'Invite managers', to: '/league/1' },
+      })]),
+    });
+    renderPage();
+
+    const section = await screen.findByTestId('your-move');
+    const foot = await within(section).findByRole('button', { name: 'Invite managers' });
+    expect(foot).not.toHaveAttribute('href');
+    expect(cursorCount()).toBe(1);
+    expect(filledCount()).toBe(1);
+    expect(within(section).getByText(/^Draft /)).toBeInTheDocument();
+
+    await userEvent.click(foot);
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith(`${window.location.origin}/#/league/join?code=abc123`);
+    expect(await within(section).findByRole('button', { name: 'Copied' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: 'MinneApple' })).toBeInTheDocument();
   });
 
   test('a revisit with cached items keeps the card on screen while the items re-read', async () => {
@@ -3224,8 +3356,107 @@ describe('Your move', () => {
   });
 });
 
+// The action-items reads in call order: each reply is a rejection, a payload, or { hold: true } for a read the
+// test settles itself (through the returned function). A call past the list is held too.
+const actionReads = (replies) => {
+  const served = apiClient.get.getMockImplementation();
+  const held = [];
+  let calls = 0;
+  apiClient.get.mockImplementation((url) => {
+    if (url !== ACTION_URL) return served(url);
+    const reply = replies[calls] ?? { hold: true };
+    calls += 1;
+    if (reply.reject) return Promise.reject(reply.reject);
+    if (reply.hold) return new Promise((resolve) => { held.push(resolve); });
+    return Promise.resolve(reply);
+  });
+  return (payload) => act(async () => held.shift()(payload));
+};
+
+// Try again on the danger panel (item 4 of #2990): its button leaves the DOM when the read restarts, so focus
+// follows Your move's slot instead of falling to the body.
+describe('Try again keeps focus on Your move', () => {
+  const failed = { reject: { response: { status: 500 } } };
+  const tryAgain = () => screen.findByRole('button', { name: 'Try checking your plays again' });
+
+  test('with nothing cached, focus lands on the placeholder the press draws, then on the card when the read answers', async () => {
+    mockGetByUrl({ '/api/league/1': inSeasonLeague() });
+    const settle = actionReads([failed, { hold: true }]);
+    renderPage();
+
+    await userEvent.click(await tryAgain());
+    expect(screen.getByTestId('your-move-pending')).toHaveFocus();
+
+    await settle(actionItems([lineupItem(IN_MINUTES(6 * 60))])[ACTION_URL]);
+    expect(screen.queryByTestId('your-move-pending')).not.toBeInTheDocument();
+    expect(screen.getByTestId('your-move')).toHaveFocus();
+  });
+
+  test('with nothing cached, a retry that fails again leaves focus on the new panel\'s Try again button in Your move', async () => {
+    mockGetByUrl({ '/api/league/1': inSeasonLeague() });
+    actionReads([failed, failed]);
+    renderPage();
+
+    await userEvent.click(await tryAgain());
+    await waitFor(() => expect(
+      within(screen.getByTestId('slot-your-move')).getByRole('button', { name: 'Try checking your plays again' }),
+    ).toHaveFocus());
+  });
+
+  test('focus on a control outside Your move is left where it is when the read settles', async () => {
+    mockGetByUrl({ '/api/league/1': inSeasonLeague() });
+    const settle = actionReads([failed, { hold: true }]);
+    renderPage();
+
+    await userEvent.click(await tryAgain());
+    const outside = within(await screen.findByRole('navigation', { name: 'League pages' })).getAllByRole('link')[0];
+    act(() => outside.focus());
+    await settle(actionItems([lineupItem(IN_MINUTES(6 * 60))])[ACTION_URL]);
+
+    expect(await screen.findByTestId('your-move')).toBeInTheDocument();
+    expect(outside).toHaveFocus();
+  });
+
+  test('over cached items, a failed re-read and a press that draws the card at once keep focus in Your move', async () => {
+    mockGetByUrl({ '/api/league/1': inSeasonLeague(), ...actionItems([lineupItem(IN_MINUTES(6 * 60))]) });
+    const { unmount } = renderPage();
+    await screen.findByTestId('your-move');
+    unmount();
+
+    mockGetByUrl({ '/api/league/1': inSeasonLeague() });
+    actionReads([failed, { hold: true }]);
+    renderPage();
+
+    await userEvent.click(await tryAgain());
+    expect(screen.getByTestId('your-move')).toHaveFocus();
+  });
+
+  test('on game day with nothing urgent, a failed read then Try again keeps focus in the hero, on the placeholder and then the card', async () => {
+    mockGetByUrl(gameDayMocks());
+    const settle = actionReads([failed, { hold: true }]);
+    renderPage();
+    await screen.findByText('3 matchups live');
+
+    await userEvent.click(await tryAgain());
+    const hero = screen.getByTestId('dashboard-hero');
+    expect(within(hero).getByTestId('your-move-pending')).toHaveFocus();
+
+    await settle(actionItems([picksItem(IN_MINUTES(6 * 60))])[ACTION_URL]);
+    expect(within(screen.getByTestId('dashboard-hero')).getByTestId('your-move')).toHaveFocus();
+  });
+});
+
 // AC4: on game day a lock inside the hour puts Your move first; otherwise the live scoreboard leads.
 describe('game day order', () => {
+  test('with the action-items read pending the placeholder holds Your move\'s place inside the hero, after the matchup', async () => {
+    mockGetByUrl(gameDayMocks({ [ACTION_URL]: { pending: true } }));
+    renderPage();
+
+    const hero = await screen.findByTestId('dashboard-hero');
+    const placeholder = await within(hero).findByTestId('your-move-pending');
+    expect(precedes(within(hero).getByTestId('slot-matchup-preview'), placeholder)).toBe(true);
+  });
+
   test('with an item locking in 45 minutes Your move precedes the live matchup, under a red cursor', async () => {
     mockGetByUrl(gameDayMocks(actionItems([lineupItem(IN_MINUTES(45)), picksItem(IN_MINUTES(45))])));
     renderPage();

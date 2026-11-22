@@ -550,14 +550,84 @@ test('five starter rows render name, opponent line and projection from a nine-st
   expect(screen.queryByText('Departed Starter')).not.toBeInTheDocument();
 });
 
-test('"and 1 more starter" is singular, with zero questionable stated plainly', async () => {
+test('"and 1 more starter" is singular, and with no questionable starter the note says nothing about questionable', async () => {
   mountWith({
     [LINEUP_URL]: lineupResponse(wireEntries(nineStarters().slice(0, 6).map((s) => ({ ...s, injury_status: null })))),
   });
 
-  expect(await screen.findByTestId('my-team-starters-more')).toHaveTextContent(
-    'and 1 more starter · 0 questionable'
-  );
+  const note = await screen.findByTestId('my-team-starters-more');
+  expect(note).toHaveTextContent(/^and 1 more starter$/);
+  expect(note).not.toHaveTextContent('questionable');
+});
+
+// The wire's Start verdict on a row, as lineup.service.js sends it.
+const verdict = (reason) => ({ outcome: 'unavailable', reason, numberTrusted: true });
+const NINE_NAMES = ['Josh Allen', 'RB One', 'RB Two', 'WR One', 'WR Two', 'WR Three', 'TE One', 'DEF One', 'K One'];
+const healthyNine = () => nineStarters().map((s) => ({ ...s, injury_status: null }));
+// The nine starters with the named ones changed: `change(rows, { 'K One': { injury_status: 'Q' } })`.
+const change = (rows, changes) => rows.map((s) => (changes[s.name] ? { ...s, ...changes[s.name] } : s));
+// The names the starter rows show, in the order they render.
+const shownNames = async () => {
+  const rows = await screen.findAllByTestId('starter-row');
+  return rows.map((row) => NINE_NAMES.find((name) => row.textContent.includes(name)));
+};
+
+test('a healthy nine-starter lineup is shown in slot order, not the wire order', async () => {
+  mountWith({ [LINEUP_URL]: lineupResponse(wireEntries(healthyNine())) });
+  expect(await shownNames()).toEqual(['Josh Allen', 'RB One', 'RB Two', 'WR One', 'WR Two']);
+});
+
+test('an Out FLEX starter leads the first row, with his Out tag', async () => {
+  mountWith({
+    [LINEUP_URL]: lineupResponse(wireEntries(change(healthyNine(), { 'WR Three': { injury_status: 'O', startVerdict: verdict('out') } }))),
+  });
+  const rows = await screen.findAllByTestId('starter-row');
+  expect(await shownNames()).toEqual(['WR Three', 'Josh Allen', 'RB One', 'RB Two', 'WR One']);
+  expect(within(rows[0]).getByTestId('starter-injury-badge')).toHaveTextContent('OUT');
+});
+
+test('a Questionable K is listed after an Out starter and before the healthy ones', async () => {
+  mountWith({
+    [LINEUP_URL]: lineupResponse(wireEntries(change(healthyNine(), {
+      'WR Three': { injury_status: 'O', startVerdict: verdict('out') },
+      'K One': { injury_status: 'Q' },
+    }))),
+  });
+  expect(await shownNames()).toEqual(['WR Three', 'K One', 'Josh Allen', 'RB One', 'RB Two']);
+});
+
+test('a starter on bye is listed with the unavailable group', async () => {
+  mountWith({
+    [LINEUP_URL]: lineupResponse(wireEntries(change(healthyNine(), {
+      'TE One': { startVerdict: verdict('bye') },
+      'K One': { injury_status: 'Q' },
+    }))),
+  });
+  expect(await shownNames()).toEqual(['TE One', 'K One', 'Josh Allen', 'RB One', 'RB Two']);
+});
+
+test('a starter whose verdict is no_team is listed first, with no injury or bye flag', async () => {
+  mountWith({
+    [LINEUP_URL]: lineupResponse(wireEntries(change(healthyNine(), { 'RB Two': { startVerdict: verdict('no_team') } }))),
+  });
+  expect(await shownNames()).toEqual(['RB Two', 'Josh Allen', 'RB One', 'WR One', 'WR Two']);
+});
+
+test('an injury O with no Start verdict does not move the starter to the front', async () => {
+  mountWith({
+    [LINEUP_URL]: lineupResponse(wireEntries(change(healthyNine(), { 'WR One': { injury_status: 'O' } }))),
+  });
+  expect(await shownNames()).toEqual(['Josh Allen', 'RB One', 'RB Two', 'WR One', 'WR Two']);
+});
+
+test('two Out starters, the FLEX and the K, lead in slot order', async () => {
+  mountWith({
+    [LINEUP_URL]: lineupResponse(wireEntries(change(healthyNine(), {
+      'WR Three': { injury_status: 'O', startVerdict: verdict('out') },
+      'K One': { injury_status: 'O', startVerdict: verdict('out') },
+    }))),
+  });
+  expect(await shownNames()).toEqual(['WR Three', 'K One', 'Josh Allen', 'RB One', 'RB Two']);
 });
 
 test('footer reads "Lineup set · 9 of 9" for a full nine-starter lineup against a nine-slot league', async () => {
@@ -746,6 +816,32 @@ test('a healthy starter carries no injury Badge', async () => {
 
   const row = await screen.findByTestId('starter-row');
   expect(within(row).queryByTestId('starter-injury-badge')).not.toBeInTheDocument();
+});
+
+// Actual points (the wire's `actualPoints`, #2980) replace the projection once a starter has them, labelled "pts".
+test('a starter with actual points prints them labelled pts, not the projection, and reads as points to a screen reader', async () => {
+  mountWith({
+    [LINEUP_URL]: lineupResponse([lineupRow({ id: 1, name: 'Josh Allen', slot: 'QB', projected_points: 14.2, actualPoints: '18.50' })]),
+  });
+
+  const row = await screen.findByTestId('starter-row');
+  const value = within(row).getByTestId('starter-projection');
+  expect(value).toHaveTextContent('18.5 pts');
+  expect(value).not.toHaveTextContent('14.2');
+  expect(within(row).getByText('18.5 points')).toBeInTheDocument();
+  expect(within(row).queryByText(/projected/)).not.toBeInTheDocument();
+});
+
+test('a starter with null actual points prints the projection as before, with no pts label', async () => {
+  mountWith({
+    [LINEUP_URL]: lineupResponse([lineupRow({ id: 1, name: 'Josh Allen', slot: 'QB', projected_points: 14.2, actualPoints: null })]),
+  });
+
+  const row = await screen.findByTestId('starter-row');
+  const value = within(row).getByTestId('starter-projection');
+  expect(value).toHaveTextContent('14.2');
+  expect(value).not.toHaveTextContent('pts');
+  expect(within(row).getByText('14.2 projected points')).toBeInTheDocument();
 });
 
 test('loading holds five skeleton rows', async () => {

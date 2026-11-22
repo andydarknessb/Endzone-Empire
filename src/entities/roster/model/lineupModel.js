@@ -13,8 +13,11 @@
  * `entries` is every roster row for the week (starters, bench and IR
  * together, CONTEXT.md's Roster), each mapped to the one player shape:
  *
- *   { playerId, name, position, nflTeam, slot, projectedPoints,
+ *   { playerId, name, position, nflTeam, slot, projectedPoints, points,
  *     injuryStatus, photoUrl, spent, opponent }
+ *
+ * `points` is the wire's actual points (#2980), null before kickoff or with no
+ * stats yet, the same field lineupEntries' Ledger entry carries.
  *
  * `opponent` arrived with #1132 (server/services/lineup.service.js
  * `annotateLineupEntries`): the wire's own `opponentByTeam.get(...) ?? null`,
@@ -82,17 +85,20 @@ const QUESTIONABLE_DESIGNATIONS = new Set(['Q', 'D']);
 
 /**
  * One lineup row (the wire's `id`, `name`, `position`, `nfl_team`, `slot`,
- * `projected_points`, `injury_status`, `opponent`, plus `spent` on a
- * spentStartingSlots row) as the one player shape. `projectedPoints` is
- * coerced to a finite number or null: node-postgres can hand a decimal back
- * as a string, a spent row carries no `projected_points` key at all, and a
- * missing projection must stay null rather than becoming 0 or NaN.
+ * `projected_points`, `actualPoints`, `injury_status`, `opponent`, plus `spent`
+ * on a spentStartingSlots row) as the one player shape. `projectedPoints` and
+ * `points` (the actual) are each coerced to a finite number or null: node-postgres
+ * can hand a decimal back as a string, a spent row carries no `projected_points`
+ * key at all, and a missing projection or actual must stay null rather than
+ * becoming 0 or NaN.
  * `opponent` is passed through unchanged - a missing key or an explicit
  * `null` both land as `null`, never derived or normalized here.
  */
 function playerFromLineupEntry(row) {
   const r = row || {};
   const points = r.projected_points == null ? NaN : Number(r.projected_points);
+  // The wire's actual points, coerced the way lineupEntries' Ledger builder coerces them: null stays null, never 0 (#2980).
+  const actual = r.actualPoints == null ? NaN : Number(r.actualPoints);
   return {
     playerId: r.id ?? null,
     name: r.name ?? null,
@@ -100,6 +106,7 @@ function playerFromLineupEntry(row) {
     nflTeam: r.nfl_team ?? null,
     slot: r.slot ?? null,
     projectedPoints: Number.isFinite(points) ? points : null,
+    points: Number.isFinite(actual) ? actual : null,
     injuryStatus: r.injury_status ?? null,
     photoUrl: r.photo_url ?? null,
     spent: !!r.spent,
@@ -139,6 +146,12 @@ export function lineupModel(body) {
   const starters = entries.filter((e) => e.slot !== BENCH && e.slot !== IR && !e.spent);
   const benchCount = entries.filter((e) => e.slot === BENCH).length;
   const questionable = starters.filter((e) => e.injuryStatus != null).length;
+  // The Start verdict the starter rows do not carry, keyed by the wire id a
+  // starter's playerId holds (spec #2979), so a widget can order by Unavailable
+  // through `unavailable({ availability })` without a copy of the rule.
+  const availabilityByPlayerId = new Map(
+    rawEntries.filter((r) => r?.id != null).map((r) => [r.id, availabilityFor(r.startVerdict)]),
+  );
   return {
     week: b.week ?? null,
     season: b.season ?? null,
@@ -151,6 +164,7 @@ export function lineupModel(body) {
     starters,
     benchCount,
     questionable,
+    availabilityByPlayerId,
   };
 }
 

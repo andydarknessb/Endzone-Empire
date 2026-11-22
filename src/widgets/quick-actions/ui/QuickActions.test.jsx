@@ -92,19 +92,18 @@ const tile = (key) => screen.getByTestId(`quick-action-${key}`);
 
 // --- rows -------------------------------------------------------------
 
-test('the eleven fantasy actions render as rows under their three h3 headings with hrefs and status copy', async () => {
-  // Pre-draft, so a commissioner is offered Draft Settings as the eleventh row.
+test('the ten fantasy actions render as rows under their three h3 headings with hrefs and status copy', async () => {
+  // Pre-draft, so a commissioner is offered Draft Settings as the tenth row and Set Lineup is not offered.
   renderWidget({ is_commissioner: true, draft_status: 'pending', season_status: 'pending' });
   await screen.findByTestId('quick-actions');
 
-  expect(screen.getByRole('heading', { level: 3, name: 'Play · 4' })).toBeInTheDocument();
+  expect(screen.getByRole('heading', { level: 3, name: 'Play · 3' })).toBeInTheDocument();
   expect(screen.getByRole('heading', { level: 3, name: 'Moves · 2' })).toBeInTheDocument();
   expect(screen.getByRole('heading', { level: 3, name: 'League · 5' })).toBeInTheDocument();
-  expect(screen.getAllByRole('link')).toHaveLength(11);
+  expect(screen.getAllByRole('link')).toHaveLength(10);
 
   const expectedRoutes = {
     draft: /\/league\/1\/draft$/,
-    lineup: /\/league\/1\/lineup$/,
     'game-center': /\/league\/1\/game-center$/,
     pickem: /\/league\/1\/pickem$/,
     waivers: /\/league\/1\/waivers$/,
@@ -152,7 +151,7 @@ test('the Recommended Badge sits on the recommended row only', async () => {
   await screen.findByTestId('quick-actions');
 
   expect(within(tile('draft')).getByText('Recommended')).toBeInTheDocument();
-  ['lineup', 'game-center', 'pickem', 'waivers', 'trades', 'activity', 'power-rankings', 'history', 'rules'].forEach(
+  ['game-center', 'pickem', 'waivers', 'trades', 'activity', 'power-rankings', 'history', 'rules'].forEach(
     (key) => {
       expect(within(tile(key)).queryByText('Recommended')).not.toBeInTheDocument();
     }
@@ -371,8 +370,7 @@ test('the deadline week itself is still an open week', async () => {
 
 // --- Set Lineup before the season (#1979 L25) -----------------------------------
 
-// Before the draft the roster is empty, so every starting slot reads empty. That
-// is not a nag to send: lineups open once the draft is done.
+// Before the draft the roster is empty and there is no lineup to set, so the tile is not shown at all.
 const STANDARD_SLOTS = [
   { key: 'QB', count: 1 },
   { key: 'RB', count: 2 },
@@ -384,7 +382,7 @@ const emptyLineup = (week) => ({ data: { week, season: 2026, teamId: 1, entries:
 test.each([
   ['pre-draft', { draft_status: 'pending', season_status: 'pending' }],
   ['drafting', { draft_status: 'active', season_status: 'regular' }],
-])('Set Lineup is not recommended %s and says lineups open after the draft', async (_phase, league) => {
+])('a %s league renders no Set Lineup tile', async (_phase, league) => {
   mockGetByUrl({
     '/api/league/1': leagueResponse({ ...league, current_week: 1, roster_slots: STANDARD_SLOTS }),
     [lineupUrl(1)]: emptyLineup(1),
@@ -393,9 +391,17 @@ test.each([
   await screen.findByTestId('quick-actions');
   await new Promise((resolve) => setTimeout(resolve, 0));
 
-  expect(within(tile('lineup')).getByText('Lineups open after the draft')).toBeInTheDocument();
-  expect(within(tile('lineup')).queryByText('Recommended')).not.toBeInTheDocument();
-  expect(within(tile('lineup')).queryByText(/empty starting slot/)).not.toBeInTheDocument();
+  expect(screen.queryByTestId('quick-action-lineup')).not.toBeInTheDocument();
+  expect(screen.queryByText('Set Lineup')).not.toBeInTheDocument();
+  expect(screen.queryByText('Lineups open after the draft')).not.toBeInTheDocument();
+});
+
+test('in season the Set Lineup tile renders', async () => {
+  renderWidget();
+  await screen.findByTestId('quick-actions');
+
+  expect(screen.getByText('Set Lineup')).toBeInTheDocument();
+  expect(tile('lineup').getAttribute('href')).toMatch(/\/league\/1\/lineup$/);
 });
 
 test('in season an empty starting slot is still recommended with its count', async () => {

@@ -20,7 +20,7 @@
 import fs from 'fs';
 import path from 'path';
 import { expect, test } from '@playwright/test';
-import type { Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 import {
   DASH_TEAMS, DASH_URL, EXPECTED_CURSORS, setupDashboard,
 } from './fixtures/leagueDashboardPlayselectFixtures';
@@ -167,10 +167,30 @@ for (const viewport of ['desktop', 'phone'] as const) {
   });
 }
 
+// An Out starter leads My team's list, and the note counts no questionable starter (spec #2979).
+for (const viewport of ['desktop', 'phone'] as const) {
+  test(`${viewport} gamedayUrgent: My team lists Puka Nacua first and the note names no questionable count`, async ({ page }) => {
+    await openDashboard(page, 'gamedayUrgent', viewport);
+    await expect(page.getByTestId('my-team-starters').getByTestId('starter-row').first()).toContainText('Puka Nacua');
+    const note = page.getByTestId('my-team-starters-more');
+    await expect(note).toContainText('and 4 more starters');
+    await expect(note).not.toContainText('questionable');
+  });
+}
+
 test('desktop gamedaySet: My team reads Lineup set with the check', async ({ page }) => {
   await openDashboard(page, 'gamedaySet', 'desktop');
   await expect(page.getByTestId('my-team-lineup-status')).toContainText('Lineup set');
   await expect(page.getByTestId('my-team-lineup-check')).toHaveCount(1);
+});
+
+// The fixture gives the viewer's first starter actual points (spec #2980): that row prints them, labelled pts, not its projection.
+test('desktop gamedaySet: My team\'s first starter prints its actual points, not the projection', async ({ page }) => {
+  await openDashboard(page, 'gamedaySet', 'desktop');
+  const first = page.getByTestId('my-team-starters').getByTestId('starter-row').first();
+  await expect(first).toContainText('Patrick Mahomes');
+  await expect(first.getByTestId('starter-projection')).toContainText('18.5 pts');
+  await expect(first).not.toContainText('11.8');
 });
 
 // From sm up the chat launcher is a fixed 56px button 24px off the corner: it takes 80px of the viewport at full
@@ -367,20 +387,96 @@ for (const state of ['inseason', 'gamedayUrgent', 'gamedaySet', 'complete'] as c
   }
 }
 
-// Pick'em-only weekly strips (#2928): one labelled image per team, its eighteen cells hidden. Twelve teams, so a
-// strip that still drew every cell as an image would put 216 role="img" elements inside the strips here.
-test('pickemonly desktop: each weekly points strip is one labelled image, its cells hidden', async ({ page }) => {
-  await openDashboard(page, 'pickemonly', 'desktop');
-  const card = page.getByTestId('dashboard-pickem-standings');
-  const strips = card.getByTestId('pickem-standings-heat');
-  await expect(strips).toHaveCount(12);
-  await expect(card.locator('[data-testid="pickem-standings-heat"] [role="img"]')).toHaveCount(0);
-  for (const strip of await strips.all()) {
-    await expect(strip).toHaveAttribute('role', 'img');
-    expect(await strip.getAttribute('aria-label'), 'the strip names its weeks').toBeTruthy();
-  }
-  await expect(card.locator('[data-testid="pickem-standings-heat-cell"]')).toHaveCount(12 * 18);
-  await expect(card.locator('[data-testid="pickem-standings-heat-cell"]:not([aria-hidden="true"])')).toHaveCount(0);
+// Each body row's Team cell: its name, its width, and whether it draws a Team mark (the mark carries the
+// standings-table-mark test id, passed through TeamMark from StandingsTable).
+const teamCells = (table: Locator) => table.locator('tbody tr:not([data-cut-line])').evaluateAll((trs) => trs.map((tr) => {
+  const cell = tr.querySelector('th[scope="row"]') as HTMLElement;
+  return {
+    team: cell.querySelector('span[title]')?.getAttribute('title') ?? '',
+    width: cell.getBoundingClientRect().width,
+    mark: cell.querySelector('[data-testid="standings-table-mark"]') !== null,
+  };
+}));
+
+// The Team mark (#2978): below sm no standings row draws one, so the viewer's name keeps 150px beside the arrow and the You tag.
+test('inseason phone: no standings row draws a team mark, and the viewer\'s Team name keeps 120px', async ({ page }) => {
+  await openDashboard(page, 'inseason', 'phone');
+  const table = page.getByTestId('standings-table');
+  await expect(table.getByTestId('standings-table-you-row')).toBeVisible();
+  expect((await teamCells(table)).filter((row) => row.mark), 'no row draws a mark at 390').toEqual([]);
+  const name = await table.getByTestId('standings-table-you-row').locator('th span[title]').evaluate((el) => el.getBoundingClientRect().width);
+  expect(name, `the viewer's Team name gets ${name}px at 390`).toBeGreaterThanOrEqual(120);
+});
+
+// From sm up a row draws its Team mark only where its Team cell is 240px or more, so no row is a mark in a cell too narrow for it.
+for (const state of ['inseason', 'gamedayUrgent', 'gamedaySet', 'complete'] as const) {
+  test(`${state} desktop: every standings row draws a team mark in a Team cell 240px or more`, async ({ page }) => {
+    await openDashboard(page, state, 'desktop');
+    const rows = await teamCells(page.getByTestId('standings-table'));
+    expect(rows, 'all twelve rows are measured').toHaveLength(12);
+    for (const row of rows) {
+      expect(row.mark, `${row.team} draws no team mark at 1440`).toBe(true);
+      expect(row.width, `${row.team} draws its mark in a ${row.width}px Team cell`).toBeGreaterThanOrEqual(240);
+    }
+  });
+}
+
+// Case (ii) at 900 (#2978 verdict): the page loads in stages, so each case waits for the settled layout before it asserts.
+// The league's transactions read and the week's matchups read are armed before navigation, so an answer that lands during
+// the load is not missed; the rail's placement is then polled until it is the state's settled one.
+const FEED_PATH = `/api/league/${LEAGUE_ID}/transactions`;
+const MATCHUPS_PATH = `/api/league/${LEAGUE_ID}/matchups`;
+
+// Where the rail sits against the standings: beside them (its left edge past their right edge), below them (its top past
+// their bottom), or 'none' while either box is missing.
+const railPlacement = (page: Page) => page.evaluate(() => {
+  const standings = document.querySelector('[data-testid="slot-standings"]')?.getBoundingClientRect();
+  const rail = document.querySelector('[data-testid="dashboard-rail"]')?.getBoundingClientRect();
+  if (!standings || !rail || rail.width === 0 || rail.height === 0) return 'none';
+  if (rail.left >= standings.right) return 'beside';
+  if (rail.top >= standings.bottom) return 'below';
+  return 'overlap';
+});
+
+async function openSettledAt900(page: Page, state: DashState, placement: 'beside' | 'below') {
+  watchUnanswered(page);
+  const feedRead = page.waitForResponse((res) => new URL(res.url()).pathname === FEED_PATH);
+  const matchupsRead = page.waitForResponse((res) => new URL(res.url()).pathname === MATCHUPS_PATH);
+  await setupDashboard(page, state);
+  await page.setViewportSize(MD_BAND.md900);
+  await page.goto(DASH_URL);
+  await Promise.all([feedRead, matchupsRead]);
+  await expect(page.getByTestId('standings-table-you-row')).toBeVisible();
+  await expect
+    .poll(() => railPlacement(page), { message: `the rail sits ${placement} the standings`, timeout: 10_000 })
+    .toBe(placement);
+  await page.evaluate(() => document.fonts.ready.then(() => true));
+}
+
+// Beside the rail on game day the Team cell is 173.6px and no row draws a mark.
+for (const state of ['gamedayUrgent', 'gamedaySet'] as const) {
+  test(`${state} md900 settled: no standings row draws a team mark beside the rail`, async ({ page }) => {
+    await openSettledAt900(page, state, 'beside');
+    const table = page.getByTestId('standings-table');
+    await expect.poll(async () => (await teamCells(table)).length, { message: 'all twelve rows are measured' }).toBe(12);
+    await expect.poll(async () => (await teamCells(table)).filter((row) => row.mark).map((row) => row.team), { message: 'rows drawing a mark beside the rail' }).toEqual([]);
+  });
+}
+
+// Below the standings on inseason the Team cell is 516px and every row keeps its mark.
+test('inseason md900 settled: every standings row draws a team mark in a Team cell 240px or more', async ({ page }) => {
+  await openSettledAt900(page, 'inseason', 'below');
+  const table = page.getByTestId('standings-table');
+  await expect.poll(async () => (await teamCells(table)).length, { message: 'all twelve rows are measured' }).toBe(12);
+  await expect.poll(async () => (await teamCells(table)).filter((row) => !row.mark || row.width < 240).map((row) => row.team), { message: 'rows without a mark, or with a Team cell under 240px' }).toEqual([]);
+});
+
+// Three rows of Recent activity fill the rail on a completed league, as on game day, so the rail sits beside the standings.
+test('complete md900 settled: every standings row has a Team cell 240px or more, or draws no team mark', async ({ page }) => {
+  await openSettledAt900(page, 'complete', 'beside');
+  const table = page.getByTestId('standings-table');
+  await expect.poll(async () => (await teamCells(table)).length, { message: 'all twelve rows are measured' }).toBe(12);
+  await expect.poll(async () => (await teamCells(table)).filter((row) => row.mark && row.width < 240).map((row) => row.team), { message: 'rows drawing a mark in a Team cell under 240px' }).toEqual([]);
 });
 
 // Pick'em-only table (#2930). Below sm it keeps four columns (Rank, Team, Points, this week), folds to the viewer's
@@ -415,9 +511,19 @@ test("pickemonly phone: the link under the table goes to the Pick'em page and is
   expect(box.height, 'the link is a 44px target').toBeGreaterThanOrEqual(44);
 });
 
-// From sm up the table keeps all ten columns and fits its frame: the Team column takes what the numeric columns
-// leave, so a long name truncates and keeps its full name in the cell's accessible name.
-test('pickemonly desktop: all ten columns fit the table box, Trend in it, a long Team name truncates with its full name', async ({ page }) => {
+// From sm up Trend is in the table, so the link reads "Accuracy and weekly points"; it sits under the table at every width.
+test("pickemonly desktop: the link under the table reads Accuracy and weekly points and goes to the Pick'em page", async ({ page }) => {
+  await openDashboard(page, 'pickemonly', 'desktop');
+  const link = page.getByRole('link', { name: 'Accuracy and weekly points' });
+  await expect(link).toBeVisible();
+  await expect(link).toHaveAttribute('href', /\/pickem$/);
+  const under = await link.evaluate((el) => el.getBoundingClientRect().top >= document.querySelector('[data-testid="pickem-standings-scroll"]')!.getBoundingClientRect().bottom);
+  expect(under, 'the link sits under the table').toBe(true);
+});
+
+// From sm up the table keeps seven columns and fits its frame: the Team column takes what the numeric columns leave,
+// so at 1440 a 58-character name fits its cell and keeps its full accessible name.
+test('pickemonly desktop: seven columns fit the table box, every Team cell is 240px or more, a long Team name is not clipped', async ({ page }) => {
   const LONG = 'The Quarterback Whisperers of Tuesday Night Fantasy League';
   watchUnanswered(page);
   await setupDashboard(page, 'pickemonly', { teamNames: { [DASH_TEAMS[0].teamId]: LONG } });
@@ -426,7 +532,7 @@ test('pickemonly desktop: all ten columns fit the table box, Trend in it, a long
   await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
   const table = page.getByTestId('pickem-standings');
   await expect(table.getByTestId('pickem-standings-you-row')).toBeVisible();
-  await expect(table.getByRole('columnheader')).toHaveCount(10);
+  await expect(table.getByRole('columnheader')).toHaveText(['Rank', 'Team', 'Points', /^Wk \d+$/, 'Correct', 'Missed', 'Trend']);
 
   const box = await page.getByTestId('pickem-standings-scroll').evaluate((el) => ({
     scrollWidth: el.scrollWidth, clientWidth: el.clientWidth, right: el.getBoundingClientRect().right,
@@ -434,23 +540,34 @@ test('pickemonly desktop: all ten columns fit the table box, Trend in it, a long
   expect(box.scrollWidth, `pick'em table scrollWidth ${box.scrollWidth} vs clientWidth ${box.clientWidth}`).toBeLessThanOrEqual(box.clientWidth);
   const trendRight = await table.getByRole('columnheader', { name: 'Trend' }).evaluate((el) => el.getBoundingClientRect().right);
   expect(trendRight, `Trend header right edge ${trendRight} vs the box's right edge ${box.right}`).toBeLessThanOrEqual(box.right);
+  const teamWidths = await table.getByRole('rowheader').evaluateAll((ths) => ths.map((th) => th.getBoundingClientRect().width));
+  expect(teamWidths).toHaveLength(12);
+  for (const width of teamWidths) {
+    expect(width, 'every Team cell is at least 240px').toBeGreaterThanOrEqual(240);
+  }
+  const viewerName = await table.getByTestId('pickem-standings-you-row').locator('th span[title]').evaluate((el) => el.scrollWidth <= el.clientWidth);
+  expect(viewerName, "the viewer's Team name is not clipped").toBe(true);
   const name = page.getByTestId('pickem-standings-scroll').getByTitle(LONG);
-  expect(await name.evaluate((el) => el.scrollWidth > el.clientWidth), 'the long Team name is clipped').toBe(true);
+  expect(await name.evaluate((el) => el.scrollWidth <= el.clientWidth), 'the long Team name is not clipped at 1440').toBe(true);
   await expect(table.getByRole('rowheader', { name: LONG })).toHaveCount(1);
 });
 
-// From sm up the table has a 1179px floor, so between the breakpoint and the width the ten columns need it scrolls
-// rather than crushing the Team column: at 768 the Team cell keeps its 160px.
-test('pickemonly tablet: the Team column keeps 160px and the table scrolls instead of crushing it', async ({ page }) => {
+// The table's floor is 712px (the seven columns take 472px, Team gets 240px), so at 768 the Team cell keeps 240px and
+// a 58-character name is clipped inside it, its row header keeping the full name. The width is the red-tell for a wrong floor.
+test('pickemonly tablet: the Team column keeps at least 240px at 768, and a long name is clipped with its full name', async ({ page }) => {
+  const LONG = 'The Quarterback Whisperers of Tuesday Night Fantasy League';
   watchUnanswered(page);
-  await setupDashboard(page, 'pickemonly');
+  await setupDashboard(page, 'pickemonly', { teamNames: { [DASH_TEAMS[0].teamId]: LONG } });
   await page.setViewportSize({ width: 768, height: 1024 });
   await page.goto(DASH_URL);
   await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
   const table = page.getByTestId('pickem-standings');
   await expect(table.getByTestId('pickem-standings-you-row')).toBeVisible();
   const teamWidth = (await table.getByRole('rowheader').first().boundingBox())!.width;
-  expect(teamWidth, `the Team cell is ${teamWidth}px wide at 768`).toBeGreaterThanOrEqual(160);
+  expect(teamWidth, `the Team cell is ${teamWidth}px wide at 768`).toBeGreaterThanOrEqual(240);
+  const name = page.getByTestId('pickem-standings-scroll').getByTitle(LONG);
+  expect(await name.evaluate((el) => el.scrollWidth > el.clientWidth), 'the long Team name is clipped at 768').toBe(true);
+  await expect(table.getByRole('rowheader', { name: LONG })).toHaveCount(1);
 });
 
 // A new league's invite code is 16 characters (crypto.randomBytes(8) as hex). At 360 the commissioner's Invite and
@@ -521,6 +638,31 @@ for (const viewport of Object.keys(VIEWPORTS) as ViewportName[]) {
   });
 }
 
+// The pre-draft Play (spec #2971): its lock reads Draft, its foot copies the invite and leaves the URL alone, and the
+// Draft Day frame carries the countdown. A league this viewer does not administer shows no Invite at all.
+for (const viewport of Object.keys(VIEWPORTS) as ViewportName[]) {
+  test(`predraft ${viewport}: the open-seats Play locks as Draft, its foot copies the invite and keeps the URL, Draft Day shows`, async ({ page }) => {
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+    await openDashboard(page, 'predraft', viewport);
+    const lead = page.locator('.cursor');
+    await expect(lead).toContainText('Draft ');
+    const before = page.url();
+    await lead.getByRole('button', { name: 'Invite managers' }).click();
+    await expect(lead.getByRole('button', { name: 'Copied' })).toBeVisible();
+    expect(page.url(), 'the open-seats foot copies the invite and does not navigate').toBe(before);
+    await expect(page.getByTestId('slot-draft-countdown')).toBeVisible();
+  });
+}
+
+for (const state of ['complete', 'pickemonly', 'gamedaySet'] as const) {
+  for (const viewport of Object.keys(VIEWPORTS) as ViewportName[]) {
+    test(`${state} ${viewport}: no Invite button renders`, async ({ page }) => {
+      await openDashboard(page, state, viewport);
+      await expect(page.getByRole('button', { name: /invite/i })).toHaveCount(0);
+    });
+  }
+}
+
 // The head's "Times in" line sits on the Archivo ramp's 16px step: the ramp has no 17px.
 test('inseason desktop: the Times in line is 16px', async ({ page }) => {
   await openDashboard(page, 'inseason', 'desktop');
@@ -528,12 +670,44 @@ test('inseason desktop: the Times in line is 16px', async ({ page }) => {
 });
 
 // A completed season opens on its trophy room (spec #2921): the champion banner, and the viewer's "Your season"
-// line from the standings the page reads once (sixth of twelve in the fixture), with no cursor.
+// line from the standings the page reads once (sixth of twelve in the fixture), with no cursor. The rank phrase is
+// pixel type at 16px on its own line; the record and points beneath it are the 16px body face.
 for (const viewport of Object.keys(VIEWPORTS) as ViewportName[]) {
   test(`complete ${viewport}: the champion banner shows, "Your season" reads 6th of 12, and no cursor`, async ({ page }) => {
     await openDashboard(page, 'complete', viewport, 'dark');
     await expect(page.getByTestId('trophy-champion')).toBeVisible();
-    await expect(page.getByTestId('trophy-your-season')).toContainText('6th of 12');
+    const season = page.getByTestId('trophy-your-season');
+    const rank = season.getByText('6th of 12', { exact: true });
+    await expect(rank).toBeVisible();
+    await expect(rank).toHaveCSS('font-size', '16px');
+    expect(await rank.evaluate((el) => getComputedStyle(el).fontFamily)).toContain('Press Start 2P');
+    const record = season.locator('span').last();
+    await expect(record).toHaveText(/ PF$/);
+    await expect(record).toHaveCSS('font-size', '16px');
+    expect(await record.evaluate((el) => getComputedStyle(el).fontFamily)).toContain('Archivo');
     await expect(page.locator('.cursor')).toHaveCount(0);
+  });
+}
+
+// Your move holds its place while its read is in flight (#2976): the placeholder is at least the card's height,
+// and the card replaces it once the action-items route answers (held one second here).
+for (const viewport of Object.keys(VIEWPORTS) as ViewportName[]) {
+  test(`inseason ${viewport}: your-move-pending holds the place for the action-items read, then your-move replaces it`, async ({ page }) => {
+    watchUnanswered(page);
+    await setupDashboard(page, 'inseason');
+    // Registered after the fixture, so it runs first: hold the read for a second, then fall through to the fixture's answer.
+    await page.route((url) => url.pathname === '/api/user/action-items', async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      await route.fallback();
+    });
+    await page.setViewportSize(VIEWPORTS[viewport]);
+    await page.goto(DASH_URL);
+    const placeholder = page.getByRole('status', { name: 'Checking what needs you' });
+    await expect(placeholder).toHaveAttribute('data-testid', 'your-move-pending');
+    const height = await placeholder.evaluate((el) => el.getBoundingClientRect().height);
+    expect(height, 'the placeholder holds the card\'s place').toBeGreaterThanOrEqual(96);
+    await expect(page.getByTestId('your-move')).toBeVisible();
+    await expect(page.getByTestId('your-move-pending')).toHaveCount(0);
+    await expect(page.locator('.cursor')).toHaveCount(1);
   });
 }

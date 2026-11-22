@@ -23,7 +23,7 @@ import useQuickActions from '../model/useQuickActions';
  * followed by the page's own `trailing` links (the trophy case).
  *
  * `only` keeps the named groups and `name` / `lead` / `testId` name the row: the League pages row under
- * Your move is the same row with its own landmark name, no leading label, and the Play and Moves groups.
+ * Your move is the same row with its own landmark name, printed as its leading label, and the Play and Moves groups.
  *
  * A pick'em-only league trims itself to the pick'em surfaces. Paints only `ps-*` tokens.
  */

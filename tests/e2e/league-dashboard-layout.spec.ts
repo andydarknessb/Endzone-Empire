@@ -129,8 +129,8 @@ function probeHeroHeights() {
 }
 
 /**
- * ADR 0034's rail bound, on the Play-select grid. The two columns of the main row stretch to one height
- * (so the CARD heights always agree and say nothing about the feed), which makes the bound a read of
+ * ADR 0034's rail bound, on the Play-select grid. In season the two columns of the main row stretch to one
+ * height (so the CARD heights agree and say nothing about the feed; a completed league top-aligns, #3018), which makes the bound a read of
  * their CONTENT: where the standings' last row ends against where Recent activity's last row ends. A rail
  * that outgrows the standings pushes its last row below theirs; one that stops short (the 12-team
  * regression) leaves a bare column under its last row.
@@ -144,10 +144,15 @@ function probeRailBound() {
     const els = Array.from(document.querySelectorAll(selector));
     return els.length ? Math.max(...els.map((e) => e.getBoundingClientRect().bottom)) : null;
   };
+  const cardBottom = (testId: string) => {
+    const e = document.querySelector(`[data-testid="${testId}"]`);
+    return e ? e.getBoundingClientRect().bottom : null;
+  };
   return {
     mainHeight: height('dashboard-main'),
     standingsHeight: height('standings-table'),
     railCardHeight: height('recent-activity'),
+    railCardBottom: cardBottom('recent-activity'),
     standingsRowsBottom: lastBottom('[data-testid="standings-table"] tbody tr'),
     railRowsBottom: lastBottom('[data-testid="recent-activity-row"]'),
   };
@@ -380,6 +385,29 @@ test(`League Dashboard, complete @ ${MEASURED_WIDTH}x${HEIGHT}: the Playbook fra
   expect(qa.groupLefts, `group lefts=${qa.groupLefts.join(',')}`).toHaveLength(2);
   expect(new Set(qa.groupLefts).size, `group lefts=${qa.groupLefts.join(',')}`).toBe(2);
   expect([...qa.groupLefts].sort((x, y) => x - y)).toEqual(qa.groupLefts);
+});
+
+// #3018: a completed league shows 3 activity rows beside the standings. Stretched, the frame runs to the
+// standings' 12-row bottom (about nine 44px rows of dead space); top-aligned, it ends within one standings
+// row of its third row. The bound is under 44px, so a stretched frame cannot pass.
+test(`League Dashboard, complete @ ${MEASURED_WIDTH}x${HEIGHT}: the Recent activity frame ends at its third row, not the standings' bottom`, async ({ page }) => {
+  await setupDashboard(page, 'complete');
+  await page.setViewportSize({ width: MEASURED_WIDTH, height: HEIGHT });
+  await page.goto(DASH_URL);
+  await page.getByTestId('standings-table-count').waitFor();
+  await page.getByTestId('recent-activity-row').first().waitFor();
+  await fontsReady(page);
+
+  await expect(page.getByTestId('recent-activity-row')).toHaveCount(3);
+  const b = await page.evaluate(probeRailBound);
+  expect(b.railCardBottom, 'recent-activity must be found').not.toBeNull();
+  expect(b.railRowsBottom, 'recent-activity rows must be found').not.toBeNull();
+  const gap = (b.railCardBottom as number) - (b.railRowsBottom as number);
+  console.log(`[league-dashboard-layout] complete: frame bottom - third row bottom=${gap.toFixed(1)}px`);
+  expect(
+    gap,
+    `frame bottom=${b.railCardBottom} last row bottom=${b.railRowsBottom} standings bottom=${b.standingsRowsBottom}`,
+  ).toBeLessThan(44);
 });
 
 // Negative controls: the rail-row bound must be able to go red, both ways. A tall block put in front of

@@ -3,4 +3,4 @@
  * from this index only, never from the component file directly.
  */
 export { default } from './CopyInvite';
-export { joinLink } from './CopyInvite';
+export { joinLink, useInviteCopy } from './CopyInvite';

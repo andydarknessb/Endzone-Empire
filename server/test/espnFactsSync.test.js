@@ -2,10 +2,35 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createFakePool, insert } = require('./helpers/fakePool');
 const espnAthleteClient = require('../modules/espnAthleteClient');
+const nflSeason = require('../services/nflSeason.service');
 const { runDepthChartSync, runOwnershipSync } = require('../modules/espnFactsSync');
+const fantasyPlayerInfoFixture = require('./fixtures/espn/fantasy-player-info.json');
 
 const PLAYERS_BY_EXTERNAL_ID = /^SELECT "id", "external_id" FROM "players"/;
 const dataSyncRuns = (calls) => calls.filter((c) => insert('data_sync_runs').test(c.text));
+/** The NFL season the app is in: the ownership sync asks ESPN for it, so every
+ * runOwnershipSync test mocks it rather than letting the real SELECT reach the fake pool. */
+const mockSeason = (t, season = 2026) => t.mock.method(nflSeason, 'upcomingNflSeason', async () => season);
+/** Same shape as the athlete client test's fake transport. */
+function fakeTransport(handler) {
+  const calls = [];
+  return { calls, get: async (url, config) => { calls.push({ url, config }); return handler(url, config); } };
+}
+function httpError(status) {
+  const err = new Error(`Request failed with status code ${status}`);
+  err.response = { status };
+  return err;
+}
+/** Sets or clears ESPN_FANTASY_SEASON for one callback, restoring it after. */
+async function withFantasySeasonEnv(value, fn) {
+  const prev = process.env.ESPN_FANTASY_SEASON;
+  if (value === undefined) delete process.env.ESPN_FANTASY_SEASON;
+  else process.env.ESPN_FANTASY_SEASON = value;
+  try { await fn(); } finally {
+    if (prev === undefined) delete process.env.ESPN_FANTASY_SEASON;
+    else process.env.ESPN_FANTASY_SEASON = prev;
+  }
+}
 
 /** Mocks `espnAthleteClient.teamDepthChart` so only `teamCode` succeeds
  * (real fixture-shaped rows); every other of our 32 teams resolves `[]`
@@ -182,6 +207,7 @@ test('runDepthChartSync: stamps the run\'s UTC day into detail.day, computed onc
 // ---------------------------------------------------------------------------
 
 test('runOwnershipSync: writes the whole pool as one unit, records ok=true', async (t) => {
+  mockSeason(t);
   t.mock.method(espnAthleteClient, 'ownership', async () => [{ athleteId: '4431452', percentOwned: 99.31, percentStarted: 78.37, percentChange: -0.03 }]);
   const fake = createFakePool([
     [PLAYERS_BY_EXTERNAL_ID, () => ({ rows: [{ id: 55, external_id: 4431452 }] })],
@@ -203,6 +229,7 @@ test('runOwnershipSync: writes the whole pool as one unit, records ok=true', asy
 });
 
 test('runOwnershipSync: an athlete ESPN reports that we do not roster is skipped, not inserted', async (t) => {
+  mockSeason(t);
   t.mock.method(espnAthleteClient, 'ownership', async () => [{ athleteId: '4431452', percentOwned: 99.31, percentStarted: 78.37, percentChange: -0.03 }]);
   const fake = createFakePool([
     [PLAYERS_BY_EXTERNAL_ID, () => ({ rows: [] })],
@@ -216,6 +243,7 @@ test('runOwnershipSync: an athlete ESPN reports that we do not roster is skipped
 });
 
 test('runOwnershipSync: a second run on the same captured_date records success with zero rows', async (t) => {
+  mockSeason(t);
   t.mock.method(espnAthleteClient, 'ownership', async () => [{ athleteId: '4431452', percentOwned: 99.31, percentStarted: 78.37, percentChange: -0.03 }]);
   const fake = createFakePool([
     [PLAYERS_BY_EXTERNAL_ID, () => ({ rows: [{ id: 55, external_id: 4431452 }] })],
@@ -231,6 +259,7 @@ test('runOwnershipSync: a second run on the same captured_date records success w
 });
 
 test('runOwnershipSync: an ESPN fetch failure (null) records fetch_failed (ok=false), so the once-a-day gate stays open for the next tick to retry (formal review f3)', async (t) => {
+  mockSeason(t);
   t.mock.method(espnAthleteClient, 'ownership', async () => null);
   const fake = createFakePool([
     [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
@@ -246,6 +275,7 @@ test('runOwnershipSync: an ESPN fetch failure (null) records fetch_failed (ok=fa
 });
 
 test('runOwnershipSync: stamps the run\'s UTC day into detail.day, computed once at the start of the run (#1509)', async (t) => {
+  mockSeason(t);
   t.mock.method(espnAthleteClient, 'ownership', async () => [{ athleteId: '4431452', percentOwned: 99.31, percentStarted: 78.37, percentChange: -0.03 }]);
   const fake = createFakePool([
     [PLAYERS_BY_EXTERNAL_ID, () => ({ rows: [{ id: 55, external_id: 4431452 }] })],
@@ -261,6 +291,79 @@ test('runOwnershipSync: stamps the run\'s UTC day into detail.day, computed once
   const detail = JSON.parse(runs[0].params[3]);
   assert.equal(detail.day, '2026-08-21', 'the UTC day, not the local en-CA day (2026-08-20)');
 });
+
+test('runOwnershipSync: with ESPN_FANTASY_SEASON unset, asks ESPN for the NFL season the app is in, not the calendar year (#3017)', async (t) => {
+  await withFantasySeasonEnv(undefined, async () => {
+    mockSeason(t, 2031);
+    const transport = fakeTransport(() => ({ data: fantasyPlayerInfoFixture }));
+    const fake = createFakePool([
+      [PLAYERS_BY_EXTERNAL_ID, () => ({ rows: [] })],
+      [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
+    ]).install(t);
+
+    await runOwnershipSync({ now: new Date('2026-11-21T12:00:00Z'), transport });
+
+    assert.equal(transport.calls.length, 1);
+    assert.match(transport.calls[0].url, /\/seasons\/2031\/segments\/0\/leaguedefaults\/1$/);
+    assert.equal(dataSyncRuns(fake.calls)[0].params[2], true);
+  });
+});
+
+test('runOwnershipSync: ESPN_FANTASY_SEASON still overrides the season the app is in (#3017)', async (t) => {
+  await withFantasySeasonEnv('2030', async () => {
+    mockSeason(t, 2031);
+    const transport = fakeTransport(() => ({ data: fantasyPlayerInfoFixture }));
+    createFakePool([
+      [PLAYERS_BY_EXTERNAL_ID, () => ({ rows: [] })],
+      [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
+    ]).install(t);
+
+    await runOwnershipSync({ now: new Date('2026-11-21T12:00:00Z'), transport });
+
+    assert.match(transport.calls[0].url, /\/seasons\/2030\/segments\/0\/leaguedefaults\/1$/);
+  });
+});
+
+test('runOwnershipSync: a 404 on the season URL is a refusal, not a fetch failure: resolves, records one refused row, opens no transaction (#3017)', async (t) => {
+  await withFantasySeasonEnv(undefined, async () => {
+    mockSeason(t, 2027);
+    const transport = fakeTransport(() => { throw httpError(404); });
+    const fake = createFakePool([
+      [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
+    ]).install(t);
+
+    await runOwnershipSync({ now: new Date('2027-03-01T12:00:00Z'), transport });
+
+    const runs = dataSyncRuns(fake.calls);
+    assert.equal(runs.length, 1);
+    assert.equal(runs[0].params[2], false);
+    const detail = JSON.parse(runs[0].params[3]);
+    assert.equal(detail.reason, 'refused');
+    assert.equal(detail.refusalReason, 'season_not_open');
+    assert.equal(detail.season, 2027);
+    assert.equal(detail.day, '2027-03-01');
+    assert.equal(fake.matching(/^BEGIN$/).length, 0, 'a refused run never opens a write transaction');
+  });
+});
+
+for (const status of [403, 500]) {
+  test(`runOwnershipSync: a ${status} on the season URL is still a fetch failure, never a refusal (control, #3017)`, async (t) => {
+    await withFantasySeasonEnv(undefined, async () => {
+      mockSeason(t);
+      const transport = fakeTransport(() => { throw httpError(status); });
+      const fake = createFakePool([
+        [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
+      ]).install(t);
+
+      await assert.rejects(runOwnershipSync({ transport }), /ESPN fetch failed/);
+
+      const runs = dataSyncRuns(fake.calls);
+      assert.equal(runs.length, 1);
+      assert.equal(runs[0].params[2], false);
+      assert.equal(JSON.parse(runs[0].params[3]).reason, 'fetch_failed');
+    });
+  });
+}
 
 // ---------------------------------------------------------------------------
 // runRosterStatusSync (#1766)

@@ -16,6 +16,7 @@ export {
 export {
   CpuTag, InjuryTag, PosTag, StatusChip, Tag, TeamMark, YouTag,
 } from './Marks';
+export { Dash } from './Dash';
 export { PlayCard } from './PlayCard';
 export { OddsBar } from './OddsBar';
 export { TwoSidedOdds } from './TwoSidedOdds';

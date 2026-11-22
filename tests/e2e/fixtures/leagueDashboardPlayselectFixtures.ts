@@ -30,6 +30,8 @@ const WEEK = 6;
 const MIN = 60 * 1000;
 const HOUR = 60 * MIN;
 const at = (now: number, ms: number) => new Date(now + ms).toISOString();
+// The pre-draft league's draft is this far out: its draft_date and its open-seats Play's deadline are the same instant.
+const DRAFT_IN = 3 * 24 * HOUR;
 
 // Twelve teams so the phone standings fold has something to fold: the viewer ranks sixth,
 // two teams either side stay in view.
@@ -107,7 +109,7 @@ function recapBody(now: number, teams: DashTeam[]) {
   };
 }
 
-function leagueRow(state: DashState, inviteCode: string) {
+function leagueRow(state: DashState, inviteCode: string, draftDate: string) {
   const base = {
     ...LEAGUE_ROW,
     current_season: 2026,
@@ -117,11 +119,12 @@ function leagueRow(state: DashState, inviteCode: string) {
     invite_code: inviteCode,
     is_commissioner: true,
   };
-  if (state === 'predraft') return { ...base, draft_status: 'pending', current_week: 1 };
-  if (state === 'complete') return { ...base, season_status: 'complete', current_week: 18, is_commissioner: false };
-  if (state === 'pickemonly') return { ...base, pickem_only: true, draft_status: 'pending', is_commissioner: false };
-  if (state === 'gamedaySet') return { ...base, is_commissioner: false };
-  return base;
+  const row = state === 'predraft' ? { ...base, draft_status: 'pending', current_week: 1, draft_date: draftDate }
+    : state === 'complete' ? { ...base, season_status: 'complete', current_week: 18, is_commissioner: false }
+      : state === 'pickemonly' ? { ...base, pickem_only: true, draft_status: 'pending', is_commissioner: false }
+        : state === 'gamedaySet' ? { ...base, is_commissioner: false } : base;
+  // The server strips invite_code from a league its viewer does not administer.
+  return { ...row, invite_code: row.is_commissioner ? row.invite_code : undefined };
 }
 
 // One list row in matchupFromListRow's snake_case shape.
@@ -191,7 +194,7 @@ function itemsFor(state: DashState, now: number) {
       item({
         id: `lineup_problem:${L}:2026-${WEEK}`, type: 'lineup_problem', leagueId: L, leagueName: name,
         title: '1 starter is out', detail: 'Puka Nacua (WR) is Out and still in your lineup.', severity: 'timed',
-        deadlineAt: at(now, 26 * HOUR), cta: { label: 'Fix lineup', to: `/league/${L}/lineup` },
+        deadlineAt: at(now, 26 * HOUR), cta: { label: 'Set lineup', to: `/league/${L}/lineup` },
       }),
       item({
         id: `picks_open:${L}:2026-${WEEK}`, type: 'picks_open', leagueId: L, leagueName: name,
@@ -206,7 +209,7 @@ function itemsFor(state: DashState, now: number) {
       item({
         id: `lineup_problem:${L}:2026-${WEEK}`, type: 'lineup_problem', leagueId: L, leagueName: name,
         title: '1 starter is out', detail: 'Puka Nacua (WR) is Out and still in your lineup.', severity: 'timed',
-        deadlineAt: at(now, 45 * MIN), cta: { label: 'Fix lineup', to: `/league/${L}/lineup` },
+        deadlineAt: at(now, 45 * MIN), cta: { label: 'Set lineup', to: `/league/${L}/lineup` },
       }),
     ];
   }
@@ -215,8 +218,8 @@ function itemsFor(state: DashState, now: number) {
       item({
         // A join request is sideline, never a Play; an unfilled league before its draft is.
         id: `seats_open:${L}`, type: 'seats_open', leagueId: L, leagueName: name,
-        title: 'Fill the open seats', detail: '2 seats left', severity: 'timed',
-        deadlineAt: at(now, 3 * 24 * HOUR), cta: { label: 'Invite managers', to: `/league/${L}/commissioner` },
+        title: '2 open seats before the draft', detail: '10 of 12 teams have joined', severity: 'timed',
+        deadlineAt: at(now, DRAFT_IN), cta: { label: 'Invite managers', to: `/league/${L}` },
       }),
     ];
   }
@@ -234,6 +237,55 @@ function itemsFor(state: DashState, now: number) {
 }
 
 export type DashHarness = { items: () => Record<string, unknown>[] };
+
+// The viewer's lineup for gamedayUrgent (spec #2979) and gamedaySet (spec #2980). layoutGuardFixtures' lineupForViewer is
+// not exported and that file serves other specs unchanged, so the nine starters the shared harness serves are listed
+// here. gamedayUrgent has Puka Nacua at FLEX, Out, as the Play names him; gamedaySet has nobody Out. He keeps the FLEX
+// entry's id (1006), so no id repeats.
+const GAMEDAY_STARTERS: Array<[name: string, position: string, slot: string]> = [
+  ['Patrick Mahomes', 'QB', 'QB'],
+  ['Christian McCaffrey', 'RB', 'RB'],
+  ['Bijan Robinson', 'RB', 'RB'],
+  ['Justin Jefferson', 'WR', 'WR'],
+  ['CeeDee Lamb', 'WR', 'WR'],
+  ['Sam LaPorta', 'TE', 'TE'],
+  ['Puka Nacua', 'WR', 'FLEX'],
+  ['Harrison Butker', 'K', 'K'],
+  ['San Francisco 49ers', 'DEF', 'DEF'],
+];
+
+// gamedaySet's lineup is set (spec #2980): nobody Out, and the game is being played, so the first starter carries
+// the wire's actualPoints and the rest none yet.
+function gamedayLineup(state: 'gamedayUrgent' | 'gamedaySet') {
+  return {
+    leagueId: LEAGUE_ID,
+    teamId: VIEWER_TEAM_ID,
+    season: 2026,
+    week: WEEK,
+    currentWeek: WEEK,
+    rosterSlots: LEAGUE_ROW.roster_slots,
+    benchSlots: 5,
+    irSlots: 1,
+    entries: GAMEDAY_STARTERS.map(([name, position, slot], i) => ({
+      id: 1000 + i,
+      name,
+      position,
+      nfl_team: 'KC',
+      slot,
+      projected_points: 11.8 + i,
+      actualPoints: state === 'gamedaySet' && i === 0 ? 18.5 : null,
+      ir_attested: false,
+      bye_week: null,
+      locked: false,
+      onBye: false,
+      valid_stash: false,
+      opponent: 'DAL',
+      ...(name === 'Puka Nacua' && state === 'gamedayUrgent'
+        ? { injury_status: 'O', startVerdict: { outcome: 'unavailable', reason: 'out', numberTrusted: true } }
+        : { injury_status: null }),
+    })),
+  };
+}
 
 /**
  * Install the guard harness plus the override for one dashboard state, and (optionally) the
@@ -275,7 +327,7 @@ export async function setupDashboard(
     if (request.method() === 'POST' && pathname === `/api/league/${LEAGUE_ID}/chat/read`) return json(route, 200, {});
     if (request.method() !== 'GET') return route.fallback();
     if (pathname === `/api/league/${LEAGUE_ID}`) {
-      return json(route, 200, { league: leagueRow(state, opts.inviteCode ?? 'abc123'), teams, viewerTeamId: VIEWER_TEAM_ID });
+      return json(route, 200, { league: leagueRow(state, opts.inviteCode ?? 'abc123', at(now, DRAFT_IN)), teams, viewerTeamId: VIEWER_TEAM_ID });
     }
     if (pathname === `/api/league/${LEAGUE_ID}/matchups`) return json(route, 200, matchupsBody(state, teams));
     if (pathname === `/api/scoring/league/${LEAGUE_ID}/standings`) return json(route, 200, standingsBody(pregame, ranked));
@@ -290,6 +342,7 @@ export async function setupDashboard(
       const rankings = ranked.map((t, i) => ({ teamId: t.teamId, name: t.teamName, rank: i + 1 }));
       return json(route, 200, { season: 2026, week: WEEK, viewerTeamId: VIEWER_TEAM_ID, data: { computedAt: at(now, -HOUR), rankings } });
     }
+    if (pathname === '/api/team/lineup' && (state === 'gamedayUrgent' || state === 'gamedaySet')) return json(route, 200, gamedayLineup(state));
     if (pathname === '/api/team/lineup/advice') {
       return json(route, 200, {
         suggestions: [{

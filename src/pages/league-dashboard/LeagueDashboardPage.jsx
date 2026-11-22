@@ -55,11 +55,39 @@ const footLabelOf = (control, labels) => labels.find((label) => (
 const controlsLabelled = (host, labels, label) => [...host.querySelectorAll(MOVE_CONTROL)]
   .filter((el) => footLabelOf(el, labels) === label);
 
+// Try again (item 4 of #2990): the danger panel's button leaves the DOM when the read restarts, and the placeholder
+// when it settles, so focus follows the slot. The press sets `retryFocus`; the child the press draws (keyed by its
+// state, so it mounts fresh) takes focus: the placeholder while the read is out, else the frame or the panel's button.
+// A child unmounted with focus inside the slot leaves `retryFocus` set, so the child that replaces it moves focus on
+// only then. Focus that went elsewhere clears it.
+// The host is this component's own element, so its ref is attached before this effect runs, even when the slot mounts in
+// the same commit (a parent's ref is not, which crashed a game-day retry).
+function FocusFollow({ retryFocus, children }) {
+  const wrapRef = useRef(null);
+  useLayoutEffect(() => {
+    const el = wrapRef.current;
+    if (retryFocus.current) {
+      const pending = el.querySelector('[data-testid="your-move-pending"]');
+      if (pending) pending.focus();
+      else {
+        retryFocus.current = false;
+        (el.querySelector('[data-testid="your-move"]') ?? el.querySelector('button'))?.focus();
+      }
+    }
+    return () => {
+      if (retryFocus.current) retryFocus.current = el.contains(document.activeElement);
+    };
+  }, [retryFocus]);
+  return <Box ref={wrapRef} sx={{ display: 'contents' }}>{children}</Box>;
+}
+
 // Your move changes parent when a lock crosses one hour (the hero, then the top of the page), so React
 // remounts its controls and the focused one leaves the DOM with focus on the body. The old copy records
 // which foot held focus in its layout cleanup, while its DOM is still there; the new copy focuses the foot
 // with that label (the nth one, when a label repeats). Focus that was never inside Your move is not carried.
-function YourMoveSlot({ carry, labels, children }) {
+function YourMoveSlot({
+  carry, labels, retryFocus, kind, children,
+}) {
   const hostRef = useRef(null);
   const labelsRef = useRef(labels);
   useLayoutEffect(() => { labelsRef.current = labels; });
@@ -79,7 +107,7 @@ function YourMoveSlot({ carry, labels, children }) {
   }, [carry]);
   return (
     <Box component="section" ref={hostRef} data-testid="slot-your-move" sx={{ minWidth: 0 }}>
-      {children}
+      <FocusFollow key={kind} retryFocus={retryFocus}>{children}</FocusFollow>
     </Box>
   );
 }
@@ -95,7 +123,8 @@ function YourMoveSlot({ carry, labels, children }) {
  * Invite control, and below sm the chat button) leads every state. Then the page's product order, which the canvas rulings fix:
  *
  *   - Your move leads: this league's open plays, the one cursor and the one filled action (`ui/YourMove`).
- *     With nothing due it is a calm "You're set" card. Off game day it is the first row of the page.
+ *     With nothing due it is a calm "You're set" card ("No team in this league" for a viewer with no Team in a league that has Teams);
+ *     while its read is in flight a placeholder holds the place. Off game day it is the first row of the page.
  *   - Off game day, the hero follows Your move, with one row in between: in season the League pages row
  *     (Play and Moves); before the draft the pre-draft countdown (Draft Day) once the draft has a date. The
  *     hero is the Matchup (a framed versus panel before kickoff, the Board-black scoreboard once started)
@@ -109,7 +138,7 @@ function YourMoveSlot({ carry, labels, children }) {
  *     scoreboard leads: Your move sits in the hero between the matchup and My team, and the League pages row
  *     follows the hero. With an urgent item, or a failed items read, Your move and the League pages row lead,
  *     then the hero (the scoreboard, then My team at full width, then the Pick'em panel). Around the league
- *     and Recent activity fold to the three rival games and three rows.
+ *     and Recent activity fold to the three rival games and three rows. A completed league folds Recent activity to three rows too.
  *   - A pick'em-only league has no fantasy team, matchups or draft, so none of those slices mount (each
  *     would fire a fantasy read that returns an empty or zeroed table): its body is Your move, the pick'em
  *     standings, the commissioner strip, the Playbook trimmed to the pick'em surfaces and the trophy case.
@@ -272,9 +301,9 @@ function DashboardBody({
 
   // Your move: this league's open plays from the user's action items (GET /api/user/action-items), the
   // page's one cursor and one filled action. The entity groups them (one Play per shared lock, earliest
-  // first); this maps each card to ui/YourMove's plain data. Nothing is drawn while the read is in flight
-  // (a "You're set" that then turns into a card would lie), and a completed league with nothing due draws
-  // no card at all: the board has none.
+  // first); this maps each card to ui/YourMove's plain data. While the read is in flight with nothing cached,
+  // its frame holds the place as a placeholder (a "You're set" that then turns into a card would lie). A
+  // completed league draws no placeholder, and with nothing due no card at all: the board has none.
   const actions = useActionItems();
   const clock = useNow((at) => at + 30 * 1000);
   const move = useMemo(
@@ -296,7 +325,9 @@ function DashboardBody({
   let yourMove = null;
   // Cached items stay on screen while they re-read, so the card does not vanish and jump on a revisit.
   const itemsPending = actions.loading && actions.items.length === 0;
-  if (!itemsPending && !actions.error) {
+  if (itemsPending) {
+    if (!complete) yourMove = { pending: true };
+  } else if (!actions.error) {
     if (!move.empty) {
       yourMove = {
         lead: toCard(move.lead, swapNote),
@@ -305,7 +336,8 @@ function DashboardBody({
         urgent: move.urgent,
       };
     } else if (!complete) {
-      yourMove = { empty: true, urgent: false };
+      // A pick'em-only league has no Teams to be on, so its calm card stays "You're set".
+      yourMove = { empty: true, urgent: false, noTeam: !hasTeam && !pickemOnly };
     }
   }
   // My team's lineup answer: this season-week's lineup_problem item, null for none, undefined while the read is unknown.
@@ -319,23 +351,29 @@ function DashboardBody({
   const footLabels = yourMove?.lead
     ? [yourMove.lead, ...yourMove.rest].flatMap((card) => card.feet.map((foot) => foot.cta?.label)).filter(Boolean)
     : [];
+  // Try again sets this before it reloads, so the slot that the press draws takes focus (see YourMoveSlot).
+  const retryFocus = useRef(false);
+  const tryAgain = () => {
+    retryFocus.current = true;
+    actions.reload();
+  };
   const yourMoveNode = yourMove && (
-    <YourMoveSlot carry={focusCarry} labels={footLabels}>
-      <YourMove {...yourMove} />
+    <YourMoveSlot kind={yourMove.pending ? 'pending' : 'move'} carry={focusCarry} labels={footLabels} retryFocus={retryFocus}>
+      <YourMove {...yourMove} inviteCode={league.invite_code} />
     </YourMoveSlot>
   );
   // A carry belongs to the commit that unmounted its control. The slot that remounts it in that commit has
   // already taken it (a child's layout effects run before its parent's), so a commit that remounts nothing drops it.
   useLayoutEffect(() => { focusCarry.current = null; });
   const yourMoveFailed = !itemsPending && actions.error && !complete && (
-    <Box data-testid="slot-your-move">
+    <YourMoveSlot kind="failed" carry={focusCarry} labels={footLabels} retryFocus={retryFocus}>
       <ErrorPanel
         title="Couldn't check what needs you"
         body="Your league is below. Open each page, or try again."
-        onRetry={actions.reload}
+        onRetry={tryAgain}
         retryAriaLabel="Try checking your plays again"
       />
-    </Box>
+    </YourMoveSlot>
   );
 
   const showHero = fantasy && !complete;
@@ -446,7 +484,7 @@ function DashboardBody({
         display: 'grid',
         gap: '24px',
         gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: feedShort ? 'minmax(0, 1fr)' : 'minmax(0, 1.55fr) minmax(0, 1fr)' },
-        alignItems: gameDay ? 'start' : 'stretch',
+        alignItems: gameDay || complete ? 'start' : 'stretch',
       }}
     >
       <Box data-testid="slot-standings" sx={{ minWidth: 0, display: 'grid', contain: 'paint' }}>
@@ -456,7 +494,7 @@ function DashboardBody({
         <Box data-testid="slot-recent-activity" sx={{ display: 'grid' }}>
           <RecentActivity
             leagueId={leagueId}
-            rowLimit={gameDay ? 3 : Math.ceil((teams.length * 3) / 4)}
+            rowLimit={gameDay || complete ? 3 : Math.ceil((teams.length * 3) / 4)}
             compact={!feedShort}
             onFeedShort={setFeedShort}
           />
@@ -479,7 +517,6 @@ function DashboardBody({
       leagueId={leagueId}
       variant="row"
       name="League pages"
-      lead={null}
       only={['Play', 'Moves']}
       omit={showPickem ? ['draft'] : ['draft', 'pickem']}
       testId="quick-actions-pages"
