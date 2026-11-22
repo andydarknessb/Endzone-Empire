@@ -484,7 +484,7 @@ function DashboardBody({
         display: 'grid',
         gap: '24px',
         gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: feedShort ? 'minmax(0, 1fr)' : 'minmax(0, 1.55fr) minmax(0, 1fr)' },
-        alignItems: gameDay ? 'start' : 'stretch',
+        alignItems: gameDay || complete ? 'start' : 'stretch',
       }}
     >
       <Box data-testid="slot-standings" sx={{ minWidth: 0, display: 'grid', contain: 'paint' }}>

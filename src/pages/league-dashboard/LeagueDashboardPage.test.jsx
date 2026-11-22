@@ -605,6 +605,40 @@ test.each([
   expect(within(rail).getAllByTestId('recent-activity-row')).toHaveLength(rows);
 });
 
+// Red-tell (#3018): a completed league asks Recent activity for 3 rows, as game day does, so the main row
+// must start them at the top; a stretched grid draws the 3-row frame to the 12-row standings height. In
+// season the 9-row rail is full and the row still stretches.
+test('a completed league top-aligns the main row so the 3-row feed does not stretch', async () => {
+  mockGetByUrl({
+    '/api/league/1': leagueDetail({
+      league: { draft_status: 'complete', season_status: 'complete', current_week: 18 },
+      teams: buildTeams(12),
+    }),
+    '/api/league/1/transactions': { data: transactionRows(8) },
+  });
+  renderPage();
+
+  const rail = await screen.findByTestId('dashboard-rail');
+  await within(rail).findAllByTestId('recent-activity-row');
+  expect(within(rail).getAllByTestId('recent-activity-row')).toHaveLength(3);
+  expect(cssFor(screen.getByTestId('dashboard-main'))).toMatch(/align-items:\s*start/);
+});
+
+test('an in-season league keeps the main row stretched (the 9-row rail is full)', async () => {
+  mockGetByUrl({
+    '/api/league/1': leagueDetail({
+      league: { draft_status: 'complete', season_status: 'regular', current_week: 3 },
+      teams: buildTeams(12),
+    }),
+    '/api/league/1/transactions': { data: transactionRows(9) },
+  });
+  renderPage();
+
+  const rail = await screen.findByTestId('dashboard-rail');
+  await within(rail).findAllByTestId('recent-activity-row');
+  expect(cssFor(screen.getByTestId('dashboard-main'))).toMatch(/align-items:\s*stretch/);
+});
+
 // Red-tell (#1998): at md the standings and Recent activity sit side by side only
 // when the feed fills the rail (ceil(12 * 3 / 4) = 9 rows at 12 teams). A feed
 // that resolved shorter (zero rows and a failed read included) stacks them: one
