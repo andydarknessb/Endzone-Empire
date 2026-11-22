@@ -1,5 +1,6 @@
 const express = require('express');
 const pool = require('../modules/pool');
+const { withDatabaseRetry } = require('../modules/dbRetry');
 const { withTransaction } = require('../modules/withTransaction');
 const encryptLib = require('../modules/encryption');
 const { signToken } = require('../modules/auth');
@@ -129,18 +130,20 @@ router.post('/login', async (req, res) => {
     return res.status(400).json({ error: 'username and password are required' });
   }
   try {
-    const result = await pool.query(
+    // The pooler can refuse a checkout for a moment (ECHECKOUTRETRIES, 2026-11-22);
+    // nothing ran, so the read and the token insert below are safe to send again.
+    const result = await withDatabaseRetry(() => pool.query(
       `SELECT "id", "username", "email", "password" FROM "users"
        WHERE lower("username") = lower($1) AND "deleted_at" IS NULL`,
       [String(username).trim()]
-    );
+    ));
     const row = result.rows[0];
     if (!row || !(await encryptLib.comparePassword(password, row.password))) {
       return res.status(401).json({ error: 'invalid username or password' });
     }
     const user = publicUser(row);
     await revokePresentedRefreshToken(req);
-    const refreshToken = await tokens.issueRefreshToken({ userId: user.id });
+    const refreshToken = await withDatabaseRetry(() => tokens.issueRefreshToken({ userId: user.id }));
     setRefreshCookie(res, refreshToken);
     return res.json({ token: signToken(user), user });
   } catch (error) {
