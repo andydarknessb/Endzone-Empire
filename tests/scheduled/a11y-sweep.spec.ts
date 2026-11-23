@@ -37,7 +37,7 @@ import { ACTIVITY_URL, setupActivityFixture } from '../e2e/fixtures/wave5Activit
 import { POWER_RANKINGS_URL, setupPowerRankingsFixture } from '../e2e/fixtures/wave5PowerRankingsFixtures';
 import { HISTORY_URL, setupHistoryFixture } from '../e2e/fixtures/wave5HistoryFixtures';
 
-type SweepPage = { name: string; setup: (page: Page) => Promise<unknown>; url: string; ready: (page: Page) => Locator | Promise<Locator> };
+type SweepPage = { name: string; setup: (page: Page) => Promise<unknown>; url: string; ready: (page: Page) => Locator | Promise<Locator>; settled?: (page: Page) => Promise<unknown> };
 type Violation = { id: string; help: string; targets: string[] };
 type Counts = Record<string, number>;
 
@@ -50,6 +50,13 @@ const found: Record<string, Counts> = {};
 async function setupDraftBoard(page: Page) {
   await installDraftSocketHarness(page, ACTIVE_STATE);
   await installDraftRestApi(page, { league: ACTIVE_STATE.league, picks: ACTIVE_PICKS });
+}
+
+// The on-the-clock toast fades in over the board, and axe would sample its contrast mid-fade: wait for it to finish.
+async function settleOnTheClockToast(page: Page) {
+  const toast = page.locator('.MuiAlert-root').filter({ hasText: 'on the clock' });
+  await expect(toast).toBeVisible();
+  await expect(toast).toHaveCSS('opacity', '1');
 }
 
 // The completed-league dashboard, the state that renders the trophy room: the same two calls trophy-case-layout.spec.ts makes.
@@ -80,7 +87,7 @@ const PAGES: SweepPage[] = [
   { name: "Pick'em", setup: (p) => setupPickem(p), url: PICKEM_URL, ready: (p) => p.getByTestId('pickem-status') },
   { name: 'Waivers', setup: (p) => setupWave3Waivers(p, 'light'), url: WAIVERS_URL, ready: (p) => p.getByText(CURSOR_NAME).first() },
   { name: 'Trades', setup: (p) => setupTradesFixture(p, { theme: 'light' }), url: TRADES_URL, ready: (p) => p.getByTestId('trade-11') },
-  { name: 'Draft board', setup: setupDraftBoard, url: `/#/league/${FIXTURE_LEAGUE_ID}/draft`, ready: (p) => p.getByRole('heading', { name: 'Harness League', level: 1 }) },
+  { name: 'Draft board', setup: setupDraftBoard, url: `/#/league/${FIXTURE_LEAGUE_ID}/draft`, ready: (p) => p.getByRole('heading', { name: 'Harness League', level: 1 }), settled: settleOnTheClockToast },
   { name: 'Draft settings', setup: (p) => setupDraftSettings(p, 'light'), url: DRAFT_SETTINGS_URL, ready: (p) => p.getByRole('heading', { level: 1, name: 'Draft Settings' }) },
   { name: 'Commissioner', setup: (p) => setupCommissionerFixture(p, { theme: 'light', pending: true }), url: COMMISSIONER_URL, ready: (p) => p.getByTestId('join-requests-row-11') },
   { name: 'Rules', setup: (p) => setupRulesFixture(p, { theme: 'light' }), url: RULES_URL, ready: (p) => p.getByRole('heading', { level: 1, name: 'League Rules' }) },
@@ -94,6 +101,7 @@ async function open(page: Page, p: SweepPage) {
   await p.setup(page);
   await page.goto(p.url);
   await expect(await p.ready(page)).toBeVisible();
+  await p.settled?.(page);
 }
 
 // The axe script is injected on each call, so the control test can rescan the same page after it changes it.
@@ -170,14 +178,19 @@ test('control: an injected image with no alt is reported as a new image-alt', as
   expect(unbaselined(landing.name, await scan(page)).join('\n')).toContain('image-alt');
 });
 
-// Proves the count branch: a third terms link in the age confirmation label must come back as 3 nodes against the baseline's 2.
-test('control: a third link in the age confirmation is reported as 3 nodes against the baseline 2', async ({ page }) => {
+// Proves the new-rule branch: a third terms link in the age confirmation label, with no underline cue, must come back from
+// unbaselined as a new link-in-text-block. The clone is undecorated so it is the one link the form's underline rule misses.
+test('control: a third link in the age confirmation, not underlined, is reported as a new link-in-text-block', async ({ page }) => {
   const registration = PAGES.find((p) => p.name === 'Registration') as SweepPage;
   await open(page, registration);
   await page.evaluate(() => {
     const label = document.querySelector('label[for="age-confirmed"]');
     const terms = label?.querySelector('a[href$="terms"]');
-    if (label && terms) label.append(terms.cloneNode(true));
+    if (label && terms) {
+      const clone = terms.cloneNode(true) as HTMLElement;
+      clone.style.textDecoration = 'none';
+      label.append(clone);
+    }
   });
-  expect(unbaselined(registration.name, await scan(page)).join('\n')).toContain('link-in-text-block: 3 nodes, baseline 2');
+  expect(unbaselined(registration.name, await scan(page)).join('\n')).toContain('link-in-text-block: new rule, 1 nodes');
 });
