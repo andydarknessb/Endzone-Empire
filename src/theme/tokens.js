@@ -32,6 +32,9 @@ export const colorTokens = {
     success: '#1b7d4f',
     danger: '#c62828',
     warning: '#8a5a00',
+    // The filled info toast (the Draft board's "You're on the clock!"): its fill and the label on it, 4.80:1 (#3020).
+    info: '#0277bd',
+    'on-info': '#ffffff',
     // Opaque (not alpha) so the ratio against each surface it can sit on is
     // fixed: one measurement covers every surface, where an alpha would need
     // one per backdrop it composites over (tokens.contrast.test.js can measure
@@ -150,6 +153,9 @@ export const colorTokens = {
     success: '#7ee2a8',
     danger: '#ff6b6b',
     warning: '#f0b34e',
+    // The filled info toast in dark, painted by the MuiAlert filledInfo override: 8.04:1 with on-info (#3020).
+    info: '#29b6f6',
+    'on-info': '#0f1419',
     // Opaque (not alpha); see the light-theme note above and #155. Kept equal
     // to `accent` through both lightenings (#237).
     'focus-ring': '#7eaaff',

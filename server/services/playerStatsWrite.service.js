@@ -231,6 +231,21 @@ function withoutIdpUnlessDefender(stats, position) {
 }
 
 /**
+ * Pure: the stored line `source` makes of `fresh` over `prior`, and its
+ * default-rules score: `{ stats, fantasyPoints }`, or null when the policy
+ * writes nothing (storedStatLine). `position` as in upsertPlayerStats.
+ */
+function planPlayerStatsWrite({ source, fresh, prior, position }) {
+  const stored = storedStatLine({ source, fresh, prior });
+  if (stored === null) return null;
+  // Lazy: scoring.service is the caller of this module on the Live/Final box
+  // path, so a load-time require would be a cycle.
+  const { calculateFantasyPoints } = require('./scoringRules');
+  const stats = withoutIdpUnlessDefender(stored.stats, position);
+  return { stats, fantasyPoints: calculateFantasyPoints(stats) };
+}
+
+/**
  * Write one Player-week's Stat line as `source` sees it. `position` is the
  * player's players.position (a two-way player follows it). Resolves to
  * `{ stats, fantasyPoints, written }` (the stored line, its default-rules score,
@@ -238,13 +253,9 @@ function withoutIdpUnlessDefender(stats, position) {
  * policy writes nothing.
  */
 async function upsertPlayerStats(db, { playerId, season, week, source, fresh, prior, position }) {
-  const stored = storedStatLine({ source, fresh, prior });
-  if (stored === null) return null;
-  // Lazy: scoring.service is the caller of this module on the Live/Final box
-  // path, so a load-time require would be a cycle.
-  const { calculateFantasyPoints } = require('./scoringRules');
-  const stats = withoutIdpUnlessDefender(stored.stats, position);
-  const fantasyPoints = calculateFantasyPoints(stats);
+  const plan = planPlayerStatsWrite({ source, fresh, prior, position });
+  if (plan === null) return null;
+  const { stats, fantasyPoints } = plan;
   // The Live box re-applies every player in a game each tick (#2203) and most
   // lines do not move between ticks; the stored points derive from the stats,
   // so an unchanged line needs no statement. Box only: the weekly
@@ -263,4 +274,6 @@ async function upsertPlayerStats(db, { playerId, season, week, source, fresh, pr
   return { stats, fantasyPoints, written: true };
 }
 
-module.exports = { upsertPlayerStats, storedStatLine, statLineKey, STAT_KEY_OWNERSHIP, IDP_POSITION_CODES };
+module.exports = {
+  upsertPlayerStats, planPlayerStatsWrite, storedStatLine, statLineKey, STAT_KEY_OWNERSHIP, IDP_POSITION_CODES,
+};

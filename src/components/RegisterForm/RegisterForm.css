@@ -35,6 +35,11 @@ Register Form
     margin-top: 20px;
   }
 
+  /* The Terms and Privacy links differ from the label text by colour alone (2.5:1), so the underline is the cue (#3020). */
+  .formPanel label a {
+    text-decoration: underline;
+  }
+
   .formPanel input {
     display: block;
     width: 100%;

@@ -121,6 +121,13 @@ export function buildTheme(mode) {
           },
         },
       },
+      // The filled info toast (the Draft board's "You're on the clock!", #3020). MUI paints palette.info.dark in dark
+      // mode and getContrastText(main) as the label, so the token pair is set here, where it is painted.
+      MuiAlert: {
+        styleOverrides: {
+          filledInfo: { backgroundColor: c.info, color: c['on-info'] },
+        },
+      },
       // Pill-style badges.
       MuiChip: {
         styleOverrides: {

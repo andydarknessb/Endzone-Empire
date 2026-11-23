@@ -1,0 +1,82 @@
+name: Production probe
+
+# Daily outside-in probe of production (#3001), from a runner rather than the
+# app's own infrastructure. The probe job asserts that the site serves its
+# bundle (web), that the API reports ready with a release (api), that the
+# general /api rate limiter counts each caller one step per GET (rate-limit),
+# and that every sync that should run all year has an ok run inside its limit
+# (sync-freshness). The login job logs in as a smoke account and reads its
+# user and league. It stays skipped until the monitoring environment holds
+# SMOKE_USERNAME and SMOKE_PASSWORD; with them absent the check prints a
+# warning and passes. The hourly holdout-uptime workflow covers the holdout,
+# worker and stats routes, so this does not repeat them.
+#
+# A red run means production failed one named assertion in the job log: the
+# site, the API, the rate limiter's per-caller count, or a stale sync. Each
+# probe step runs even when an earlier one fails, so one outage does not hide
+# the others. The probe is plain GETs; only the login job sends a POST, and
+# only with the monitoring secrets, never on a pull_request.
+
+on:
+  schedule:
+    - cron: '41 12 * * *'
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/production-probe.yml
+      - scripts/ci/production-probe.js
+      - scripts/ci/production-probe.test.js
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-probe-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - name: Test the probe
+        run: node --test scripts/ci/production-probe.test.js
+      - name: Probe the web bundle
+        if: ${{ !cancelled() }}
+        run: node scripts/ci/production-probe.js web
+      - name: Probe the API readiness
+        if: ${{ !cancelled() }}
+        run: node scripts/ci/production-probe.js api
+      - name: Probe the rate limiter
+        if: ${{ !cancelled() }}
+        run: node scripts/ci/production-probe.js rate-limit
+      - name: Probe the sync freshness
+        # A PR run probes the deployed API, which may not have this route yet.
+        if: ${{ !cancelled() && github.event_name != 'pull_request' }}
+        run: node scripts/ci/production-probe.js sync-freshness
+
+  login:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    # The only job that reads the smoke account's secrets. Its environment
+    # holds them, so a pull_request run never sees them.
+    environment: monitoring
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - name: Log in as the smoke account
+        env:
+          SMOKE_USERNAME: ${{ secrets.SMOKE_USERNAME }}
+          SMOKE_PASSWORD: ${{ secrets.SMOKE_PASSWORD }}
+        run: node scripts/ci/production-probe.js login

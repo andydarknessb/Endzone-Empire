@@ -278,6 +278,39 @@ test('GET /holdout adds exactly one key when reconciliation cannot run, and no e
   assert.ok(!JSON.stringify(res.body).includes('permission denied'));
 });
 
+// ---------------------------------------------------------------------------
+// /sync-freshness - the top level is named by the helper; an overdue entry is pinned here
+// ---------------------------------------------------------------------------
+
+test('GET /sync-freshness publishes exactly ok, checked and overdue, with an overdue entry of exactly three fields', async (t) => {
+  const freshness = require('../services/syncFreshness.service');
+  t.mock.method(freshness, 'getSyncFreshness', async () => ({
+    ok: false,
+    checked: 7,
+    overdue: [{ job: 'injuries', lastOkAt: new Date('2026-11-19T10:00:00.000Z'), maxAgeMinutes: 120 }],
+  }));
+
+  const res = await request(app).get('/api/health/sync-freshness');
+
+  assert.equal(res.status, 503);
+  assert.deepEqual(keys(res.body), ['checked', 'ok', 'overdue']);
+  assert.deepEqual(keys(res.body.overdue[0]), ['job', 'lastOkAt', 'maxAgeMinutes']);
+});
+
+test('GET /sync-freshness adds exactly unavailable when the sync runs cannot be read, and no error detail', async (t) => {
+  const freshness = require('../services/syncFreshness.service');
+  t.mock.method(console, 'error', () => {});
+  t.mock.method(freshness, 'getSyncFreshness', async () => {
+    throw new Error('relation "data_sync_runs" does not exist at 10.0.0.7:5432');
+  });
+
+  const res = await request(app).get('/api/health/sync-freshness');
+
+  assert.equal(res.status, 503);
+  assert.deepEqual(keys(res.body), ['checked', 'ok', 'overdue', 'unavailable']);
+  assert.ok(!JSON.stringify(res.body).includes('10.0.0.7'));
+});
+
 test('GET /holdout and GET /stats-integrity read on every hit, not from the composite memo', async (t) => {
   // Each route runs its own read, so two hits are two reads.
   const integrity = require('../services/playerStatsIntegrity.service');

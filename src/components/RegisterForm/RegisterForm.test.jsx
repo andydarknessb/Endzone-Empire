@@ -1,3 +1,5 @@
+import fs from 'fs';
+import path from 'path';
 import React from 'react';
 import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -53,4 +55,11 @@ test('the error alert is not a heading (#2635)', () => {
   renderWithProviders(<RegisterForm />, { state: { errors: { registrationMessage: 'Nope' } } });
   expect(screen.getByRole('alert')).toHaveTextContent('Nope');
   expect(screen.getByRole('alert').tagName).toBe('P');
+});
+
+// The Terms and Privacy links in the age label are the link colour (#1e5bb8 on #1a2129 is 2.5:1), so an underline is
+// what tells them apart (WCAG 1.4.1; axe link-in-text-block). jsdom does not apply imported CSS, so read the sheet.
+test('the Terms and Privacy links in the age label are underlined', () => {
+  const css = fs.readFileSync(path.join(__dirname, 'RegisterForm.css'), 'utf8');
+  expect(css).toMatch(/\.formPanel label a\s*\{[^}]*text-decoration:\s*underline/);
 });

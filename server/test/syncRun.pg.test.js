@@ -59,7 +59,7 @@ if (!ENABLED) {
   // the app's own wiring (server/modules/pool.js), so the advisory lock this
   // test observes from a second query is the SAME lock runSyncJob takes.
   const pool = require('../modules/pool');
-  const { runSyncJob, lastRun } = require('../modules/syncRun');
+  const { runSyncJob, lastRun, lastOkAtByJob } = require('../modules/syncRun');
 
   // A disposable-DB-only advisory lock id. Not one of advisoryLock.js's fixed
   // ids (23001-23004): this runs against a throwaway migration-smoke database,
@@ -214,5 +214,30 @@ if (!ENABLED) {
     assert.equal(latest.outcome, 'fetch_failed', 'the typed outcome survives the jsonb round trip');
     assert.equal(latestOk.outcome, 'ok');
     assert.ok(latestOk.finishedAt <= latest.finishedAt);
+  });
+
+  // Explicit finish times, not the column default: which ok row is latest is
+  // the thing under test, so it has to be known in advance.
+  test('lastOkAtByJob(jobs) reads each job\'s latest ok finish time in one query, and omits a job with no ok run', async () => {
+    const stamp = Date.now();
+    const [a, b, c] = ['a', 'b', 'c'].map((tag) => `syncrun-pgtest-okat-${tag}-${stamp}`);
+    seededJobs.push(a, b, c);
+    const insertRun = (job, finishedAt, ok) => pool.query(
+      `INSERT INTO "data_sync_runs" ("job", "started_at", "finished_at", "ok") VALUES ($1, $2, $2, $3)`,
+      [job, finishedAt, ok]
+    );
+    await insertRun(a, '2026-11-18T06:00:00.000Z', true);
+    await insertRun(a, '2026-11-19T06:00:00.000Z', true);
+    await insertRun(a, '2026-11-20T06:00:00.000Z', false);
+    await insertRun(b, '2026-11-18T12:00:00.000Z', true);
+    await insertRun(b, '2026-11-19T12:00:00.000Z', false);
+    await insertRun(c, '2026-11-17T06:00:00.000Z', false);
+    await insertRun(c, '2026-11-18T06:00:00.000Z', false);
+
+    const lastOk = await lastOkAtByJob([a, b, c]);
+
+    assert.deepEqual(lastOk.get(a), new Date('2026-11-19T06:00:00.000Z'), 'a\'s latest ok run, not its later failure');
+    assert.deepEqual(lastOk.get(b), new Date('2026-11-18T12:00:00.000Z'), 'b\'s only ok run, before its later failure');
+    assert.equal(lastOk.has(c), false, 'a job with only failed runs has no entry');
   });
 }
