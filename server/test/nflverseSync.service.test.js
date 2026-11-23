@@ -4,6 +4,8 @@ const axios = require('axios');
 const { createFakePool, insert, select } = require('./helpers/fakePool');
 const {
   parseCsv,
+  fetchPlayerWeekStatsForSeason,
+  fetchIdCrosswalks,
   filterRowsForWeek,
   buildStatUpdates,
   buildIdCrosswalks,
@@ -55,6 +57,31 @@ test('parseCsv ignores blank trailing lines and handles CRLF', () => {
 test('parseCsv on empty text is an empty array', () => {
   assert.deepEqual(parseCsv(''), []);
   assert.deepEqual(parseCsv(null), []);
+});
+
+test('parseCsv keeps only the rows `keep` accepts', () => {
+  const text = 'season,week,player_id\n2025,3,a\n2025,4,b\n2025,3,c\n';
+  assert.deepEqual(parseCsv(text, { keep: (row) => row.week === '3' }).map((r) => r.player_id), ['a', 'c']);
+});
+
+test('parseCsv with `columns` builds rows of only those columns, in any header order', () => {
+  const text = 'name,gsis_id,team,espn_id\nX,00-1,KC,111\n';
+  assert.deepEqual(parseCsv(text, { columns: ['gsis_id', 'espn_id', 'pfr_id'] }), [{ gsis_id: '00-1', espn_id: '111' }]);
+});
+
+test('fetchPlayerWeekStatsForSeason with a week parses only that week\'s REG rows (#3039)', async (t) => {
+  t.mock.method(axios, 'get', async () => ({
+    data: 'season,week,season_type,player_id\n2025,3,REG,a\n2025,4,REG,b\n2025,3,POST,c\n2025,3,REG,d\n',
+  }));
+  assert.deepEqual((await fetchPlayerWeekStatsForSeason(2025, 3)).map((r) => r.player_id), ['a', 'd']);
+  assert.equal((await fetchPlayerWeekStatsForSeason(2025)).length, 4, 'no week: the whole season, as the backfill and audit scripts read it');
+});
+
+test('fetchIdCrosswalks reads only the id columns of players.csv (#3039)', async (t) => {
+  t.mock.method(axios, 'get', async () => ({ data: 'display_name,gsis_id,pfr_id,espn_id,headshot\nX,00-1,XxxXx00,111,http://h\n' }));
+  const { gsisToEspn, pfrToEspn } = await fetchIdCrosswalks();
+  assert.equal(gsisToEspn.get('00-1'), '111');
+  assert.equal(pfrToEspn.get('XxxXx00'), '111');
 });
 
 // --- filterRowsForWeek -------------------------------------------------------
