@@ -1,9 +1,7 @@
 {
   "Activity": {},
   "Commissioner": {},
-  "Draft board": {
-    "color-contrast": 1
-  },
+  "Draft board": {},
   "Draft settings": {},
   "Game center": {},
   "History": {},
@@ -19,9 +17,7 @@
   "Players": {},
   "Power rankings": {},
   "Rankings": {},
-  "Registration": {
-    "link-in-text-block": 2
-  },
+  "Registration": {},
   "Reset password": {},
   "Rules": {},
   "Trades": {},
