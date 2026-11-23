@@ -80,19 +80,33 @@ function parseCsvLine(line) {
   return fields;
 }
 
-/** Pure: CSV text -> array of row objects keyed by the header row. */
-function parseCsv(text) {
+/**
+ * Pure: CSV text -> array of row objects keyed by the header row. `columns`
+ * builds each row from only those header names; `keep(row)` drops the rows it
+ * rejects as they are parsed. A whole season file as objects outgrew the
+ * worker's heap at week 12 of 2026 (#3039), so the worker's passes ask for one
+ * week and the crosswalk for its id columns.
+ */
+function parseCsv(text, { columns, keep } = {}) {
   const lines = String(text || '').split(/\r?\n/).filter((l) => l.length > 0);
   if (lines.length === 0) return [];
   const header = parseCsvLine(lines[0]);
+  const picked = header
+    .map((name, index) => ({ name, index }))
+    .filter(({ name }) => !columns || columns.includes(name));
   const rows = [];
   for (let i = 1; i < lines.length; i++) {
     const values = parseCsvLine(lines[i]);
     const row = {};
-    for (let j = 0; j < header.length; j++) row[header[j]] = values[j];
-    rows.push(row);
+    for (const { name, index } of picked) row[name] = values[index];
+    if (!keep || keep(row)) rows.push(row);
   }
   return rows;
+}
+
+/** parseCsv's `keep` for one (season, week)'s REG rows, or none when no week is asked for. */
+function weekRowsOnly(season, week) {
+  return week === undefined ? undefined : (row) => isRowForWeek(row, { season, week });
 }
 
 async function fetchCsvText(url) {
@@ -104,10 +118,11 @@ async function fetchCsvText(url) {
  * player-week; confirmed columns: season, week, season_type, player_id
  * [GSIS id], passing_/rushing_/receiving_* offense, def_* IDP including
  * def_sack_yards + def_tackles_for_loss_yards + fumble_recovery_yards_opp +
- * def_safeties, fg_made_list, pat_made, ...). */
-async function fetchPlayerWeekStatsForSeason(season) {
+ * def_safeties, fg_made_list, pat_made, ...). With `week`, only that week's
+ * REG rows. */
+async function fetchPlayerWeekStatsForSeason(season, week) {
   const url = `${NFLVERSE_RELEASE_BASE}/stats_player/stats_player_week_${season}.csv`;
-  return parseCsv(await fetchCsvText(url));
+  return parseCsv(await fetchCsvText(url), { keep: weekRowsOnly(season, week) });
 }
 
 /**
@@ -167,9 +182,9 @@ async function fetchWeeklyRostersForSeason(season) {
  * aggregated per team side, one row per team per game. The def_* columns are
  * that team's DEFENSE; the offense columns are its own offense (so a team's
  * yards/points ALLOWED come from its opponent's row). */
-async function fetchTeamWeekStatsForSeason(season) {
+async function fetchTeamWeekStatsForSeason(season, week) {
   const url = `${NFLVERSE_RELEASE_BASE}/stats_team/stats_team_week_${season}.csv`;
-  return parseCsv(await fetchCsvText(url));
+  return parseCsv(await fetchCsvText(url), { keep: weekRowsOnly(season, week) });
 }
 
 /** game_id -> { home_team, away_team, home_score, away_score } for one
@@ -194,9 +209,9 @@ async function fetchGameScoresForSeason(season) {
  * PFR id: game_id, pfr_game_id, season, game_type, week, player,
  * pfr_player_id, position, team, opponent, offense_snaps, offense_pct,
  * defense_snaps, defense_pct, st_snaps, st_pct). */
-async function fetchSnapCountsForSeason(season) {
+async function fetchSnapCountsForSeason(season, week) {
   const url = `${NFLVERSE_RELEASE_BASE}/snap_counts/snap_counts_${season}.csv`;
-  return parseCsv(await fetchCsvText(url));
+  return parseCsv(await fetchCsvText(url), { keep: weekRowsOnly(season, week) });
 }
 
 /** Pure (bar a console.warn): players.csv rows -> both id crosswalks to
@@ -232,7 +247,7 @@ function buildIdCrosswalks(rows, overrides = NFLVERSE_ESPN_OVERRIDES) {
  * than letting each job download the file again. */
 async function fetchIdCrosswalks() {
   const url = `${NFLVERSE_RELEASE_BASE}/players/players.csv`;
-  return buildIdCrosswalks(parseCsv(await fetchCsvText(url)));
+  return buildIdCrosswalks(parseCsv(await fetchCsvText(url), { columns: ['gsis_id', 'espn_id', 'pfr_id'] }));
 }
 
 /** gsis_id -> espn_id crosswalk. */
@@ -248,11 +263,14 @@ async function fetchPfrCrosswalk() {
 /** Pure: rows -> only the target (season, week, REG-season) rows. The snap
  * file spells the season type `game_type`, so either column counts. */
 function filterRowsForWeek(rows, { season, week }) {
-  return (rows || []).filter(
-    (r) =>
-      Number(r.season) === Number(season) &&
-      Number(r.week) === Number(week) &&
-      (r.season_type || r.game_type) === 'REG'
+  return (rows || []).filter((r) => isRowForWeek(r, { season, week }));
+}
+
+function isRowForWeek(r, { season, week }) {
+  return (
+    Number(r.season) === Number(season) &&
+    Number(r.week) === Number(week) &&
+    (r.season_type || r.game_type) === 'REG'
   );
 }
 
@@ -406,7 +424,7 @@ async function syncNflverseSnaps({ season, week, pfrCrosswalk: given }) {
     lock: null,
     fetch: async () => {
       const [snapRows, pfrCrosswalk] = await Promise.all([
-        fetchSnapCountsForSeason(season),
+        fetchSnapCountsForSeason(season, week),
         given || fetchPfrCrosswalk(),
       ]);
       return [{ season, week, snapRows, pfrCrosswalk }];
@@ -493,7 +511,7 @@ async function syncNflverseWeek({ season, week, crosswalk }) {
  */
 async function fetchNflverseWeekUnit({ season, week, crosswalk: given }) {
   const [defRows, crosswalk] = await Promise.all([
-    fetchPlayerWeekStatsForSeason(season),
+    fetchPlayerWeekStatsForSeason(season, week),
     given || fetchPlayersCrosswalk(),
   ]);
   return [{ season, week, defRows, crosswalk }];
@@ -1195,8 +1213,8 @@ async function syncNflverseCorrection({
     lock: null,
     fetch: async () => {
       const [players, teams, scores, xwalk] = await Promise.all([
-        playerRows || fetchPlayerWeekStatsForSeason(season),
-        teamRows || fetchTeamWeekStatsForSeason(season),
+        playerRows || fetchPlayerWeekStatsForSeason(season, week),
+        teamRows || fetchTeamWeekStatsForSeason(season, week),
         scoresByGameId || fetchGameScoresForSeason(season),
         crosswalk || fetchPlayersCrosswalk(),
       ]);
