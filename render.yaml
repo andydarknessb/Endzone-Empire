@@ -185,6 +185,10 @@ services:
         value: "120000"
       - key: PG_STATEMENT_TIMEOUT_MS
         value: "30000"
+      # The nflverse passes parse the season stats file and the players crosswalk
+      # (255 MB of heap at week 12); Node defaults to about half the 512 MB container.
+      - key: NODE_OPTIONS
+        value: "--max-old-space-size=400"
       - key: RAPID_API_KEY
         sync: false
       - key: RAPID_API_HOST
