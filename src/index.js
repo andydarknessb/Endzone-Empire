@@ -10,6 +10,22 @@ import AppErrorBoundary from './components/App/AppErrorBoundary';
 import { initializeSentry } from './monitoring/sentry';
 import { register as registerServiceWorker } from './serviceWorkerRegistration';
 import { dropSessionCaches } from './sessionCaches';
+import pixelFaceUrl from './assets/fonts/PressStart2P-Regular.woff2';
+import { hasSessionHint } from './lib/sessionHint';
+import { isPublicPath } from './components/public/publicPaths';
+
+// A signed-in visit starts the pixel face with the entry bundle, ahead of the lazy Lineup chunk that paints the team name
+// (#3021). Public and anonymous visits request no face (font-warm.spec.ts), the same rule App.jsx uses for warmFonts. A font
+// is fetched in CORS mode, so the preload needs crossOrigin or the @font-face does not reuse it.
+if (hasSessionHint() && !isPublicPath(window.location.pathname)) {
+  const pixelFacePreload = document.createElement('link');
+  pixelFacePreload.rel = 'preload';
+  pixelFacePreload.as = 'font';
+  pixelFacePreload.type = 'font/woff2';
+  pixelFacePreload.crossOrigin = 'anonymous';
+  pixelFacePreload.href = pixelFaceUrl;
+  document.head.appendChild(pixelFacePreload);
+}
 
 initializeSentry();
 
