@@ -6,6 +6,7 @@ import apiClient from "../../api/apiClient";
 import { useLeague } from "../../hooks/useLeague";
 import { DEFAULT_ROSTER_SLOTS } from "../../lib/draftSim/templates";
 import PlayerManagement from "./PlayerManagement";
+import { SnackbarProvider } from "../Snackbar/SnackbarProvider";
 
 jest.mock("../../api/apiClient", () => ({
   __esModule: true,
@@ -811,6 +812,55 @@ test("a failed league-list read keeps its alert and offers no Try again (#3056)"
 
   const alert = await screen.findByRole("alert");
   expect(within(alert).queryByRole("button", { name: "Try again" })).not.toBeInTheDocument();
+});
+
+// #3059: a refused row action is said once, by the feature's toast. The page's
+// own danger panel must not repeat the refusal, and the league list is read once.
+const REFUSAL = "That player was just claimed by another team.";
+const refusedWith = { response: { status: 409, data: { error: REFUSAL } } };
+
+test("a refused row Add is reported once, in the toast, never in an alert (#3059)", async () => {
+  mockBrowser({ players: [player({ id: 8, name: "Free Agent" })] });
+  apiClient.post.mockRejectedValue(refusedWith);
+  renderWithProviders(<SnackbarProvider><PlayerManagement /></SnackbarProvider>);
+
+  await userEvent.click(await screen.findByRole("button", { name: "Add Free Agent" }));
+
+  await waitFor(() => expect(screen.getByTestId("toast-alert")).toHaveTextContent(REFUSAL));
+  expect(screen.queryAllByRole("alert").some((el) => el.textContent.includes(REFUSAL))).toBe(false);
+});
+
+test("a refused row Claim in a priority league is reported once, in the toast, never in an alert (#3059)", async () => {
+  mockBrowser({
+    leagues: [priorityLeague],
+    players: [
+      player({ id: 2, name: "On Waivers", availability: { state: "waivers", teamId: null, teamName: null, availableAt: null } }),
+    ],
+  });
+  apiClient.post.mockRejectedValue(refusedWith);
+  renderWithProviders(<SnackbarProvider><PlayerManagement /></SnackbarProvider>);
+
+  await userEvent.click(await screen.findByRole("button", { name: "Claim" }));
+
+  await waitFor(() => expect(screen.getByTestId("toast-alert")).toHaveTextContent(REFUSAL));
+  expect(screen.queryAllByRole("alert").some((el) => el.textContent.includes(REFUSAL))).toBe(false);
+});
+
+test("the league list is read once, not again on a filter, search or page change (#3059)", async () => {
+  mockBrowser();
+  renderWithProviders(<PlayerManagement />);
+  await screen.findByTestId("player-row");
+
+  await userEvent.click(screen.getByRole("radio", { name: "Free agents" }));
+  await userEvent.type(screen.getByLabelText("Search players"), "smith");
+  await waitFor(() =>
+    expect(apiClient.get).toHaveBeenCalledWith(
+      "/api/players",
+      expect.objectContaining({ params: expect.objectContaining({ search: "smith" }) }),
+    ),
+  );
+
+  expect(apiClient.get.mock.calls.filter(([url]) => url === "/api/league")).toHaveLength(1);
 });
 
 // Issue #1002 acceptance criterion 2 / #1310: the Sort dropdown still
