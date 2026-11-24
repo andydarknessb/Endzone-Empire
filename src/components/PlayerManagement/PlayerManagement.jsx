@@ -37,6 +37,7 @@ function PlayerManagement() {
   const [leaguesLoaded, setLeaguesLoaded] = useState(false);
   const [players, setPlayers] = useState([]);
   const [context, setContext] = useState(null);
+  // A failed league read only: a refused add or claim is the feature's toast (#3059).
   const [error, setError] = useState(null);
   // The player list's own failed read (#3056): the one panel that offers Try again.
   const [listError, setListError] = useState(null);
@@ -77,25 +78,27 @@ function PlayerManagement() {
     [],
   );
 
+  // Read once on mount: a read keyed on the URL params re-ran on every filter, search and page move (#3059).
   useEffect(() => {
     (async () => {
       try {
         const response = await apiClient.get("/api/league");
-        const rosterLeagues = response.data.filter(
-          (league) => !isPickemOnly(league),
-        );
-        setLeagues(rosterLeagues);
+        setLeagues(response.data.filter((league) => !isPickemOnly(league)));
         setLeaguesLoaded(true);
-        if (
-          rosterLeagues.length > 0 &&
-          !rosterLeagues.some((league) => String(league.id) === selectedLeague)
-        )
-          updateParams({ league: rosterLeagues[0].id, page: 1 });
       } catch (err) {
         report(err);
       }
     })();
-  }, [report, selectedLeague, updateParams]);
+  }, [report]);
+
+  // The first fantasy league stands in when the URL names none, or one the viewer is not in.
+  useEffect(() => {
+    if (
+      leagues.length > 0 &&
+      !leagues.some((league) => String(league.id) === selectedLeague)
+    )
+      updateParams({ league: leagues[0].id, page: 1 });
+  }, [leagues, selectedLeague, updateParams]);
 
   const fetchRoster = useCallback(async () => {
     if (!selectedLeague) {
@@ -156,13 +159,12 @@ function PlayerManagement() {
   // a parallel POST that could drift from it (the lead correction's own
   // wording: "PlayerManagement then consumes the feature").
   const { addPlayer } = useAddPlayer({ leagueId: selectedLeague, onDone: refreshAfterAction });
+  // A refused add is the feature's toast alone (#3059): the page keeps no copy.
   const addToRoster = useCallback(
     async (player) => {
-      setError(null);
       setPendingPlayerId(player.id);
-      const { ok, message } = await addPlayer({ playerId: player.id, playerName: player.name });
+      await addPlayer({ playerId: player.id, playerName: player.name });
       setPendingPlayerId(null);
-      if (!ok) setError(message);
     },
     [addPlayer],
   );
@@ -190,11 +192,9 @@ function PlayerManagement() {
   const { submitClaim } = useClaimPlayer({ leagueId: selectedLeague, onDone: refreshAfterAction });
   const claimFromRow = useCallback(
     async (player) => {
-      setError(null);
       setPendingPlayerId(player.id);
-      const { ok, message } = await submitClaim({ playerId: player.id, dropPlayerId: null, bid: 0 });
+      await submitClaim({ playerId: player.id, dropPlayerId: null, bid: 0 });
       setPendingPlayerId(null);
-      if (!ok) setError(message);
     },
     [submitClaim],
   );
@@ -415,7 +415,7 @@ function PlayerManagement() {
           setListError(null);
         }}
         onError={(message) => {
-          // A read starting clears the page's refusal, as it always did; the list's own failure stays until a read succeeds.
+          // A read starting clears the page's own danger panel; the list's own failure stays until a read succeeds.
           if (message === null) setError(null);
           else setListError(message);
         }}
