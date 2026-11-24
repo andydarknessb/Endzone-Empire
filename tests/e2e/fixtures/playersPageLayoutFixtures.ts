@@ -46,6 +46,9 @@ const SEEDS: Seed[] = [
   { name: 'Rhamondre Stevenson', position: 'RB', state: 'my_team' },
 ];
 
+// `threePages` (#3057) answers 25 players over three pages, ten, ten, then five.
+const PAGED_SEEDS: Seed[] = Array.from({ length: 25 }, (_, i) => ({ name: `Pager Player ${i + 1}`, position: 'WR', state: 'free_agent' }));
+
 function leagueRow() {
   return {
     id: LEAGUE_ID,
@@ -110,7 +113,11 @@ function playersResponse(seeds: Seed[]) {
   };
 }
 
-async function fulfilApi(route: Route, seeds: Seed[]) {
+function pagedResponse(pageNumber: number) {
+  return { ...playersResponse(PAGED_SEEDS.slice((pageNumber - 1) * 10, pageNumber * 10)), totalPages: 3, total: 25 };
+}
+
+async function fulfilApi(route: Route, seeds: Seed[], threePages: boolean) {
   const request = route.request();
   const { pathname } = new URL(request.url());
   const method = request.method();
@@ -120,7 +127,10 @@ async function fulfilApi(route: Route, seeds: Seed[]) {
   if (method === 'GET' && pathname === '/api/notifications/prefs') return json(route, 200, { prefs: {} });
   if (method === 'GET' && pathname === '/api/league') return json(route, 200, [leagueRow()]);
   if (method === 'GET' && pathname === '/api/team/roster') return json(route, 200, []);
-  if (method === 'GET' && pathname === '/api/players') return json(route, 200, playersResponse(seeds));
+  if (method === 'GET' && pathname === '/api/players') {
+    const pageNumber = Number(new URL(request.url()).searchParams.get('page') ?? 1);
+    return json(route, 200, threePages ? pagedResponse(pageNumber) : playersResponse(seeds));
+  }
 
   return json(route, 500, { error: `unexpected mocked request: ${method} ${pathname}` });
 }
@@ -129,9 +139,10 @@ async function fulfilApi(route: Route, seeds: Seed[]) {
  * `seasonUnavailable` swaps the last two players for two Unavailable every
  * week, still ten rows, so the Weeks strip's all-reason form is on the page.
  * `longNames` swaps the last three for LONG_NAME_SEEDS, still ten rows.
+ * `threePages` answers 25 players over three pages, the pager's focus move (#3057).
  */
-export async function setupPlayersPageLayout(page: Page, { seasonUnavailable = false, longNames = false } = {}) {
+export async function setupPlayersPageLayout(page: Page, { seasonUnavailable = false, longNames = false, threePages = false } = {}) {
   const base = longNames ? [...SEEDS.slice(0, -3), ...LONG_NAME_SEEDS] : SEEDS;
   const seeds = seasonUnavailable ? [...base.slice(0, -2), ...SEASON_UNAVAILABLE_SEEDS] : base;
-  await page.route('**/api/**', (route) => fulfilApi(route, seeds));
+  await page.route('**/api/**', (route) => fulfilApi(route, seeds, threePages));
 }
