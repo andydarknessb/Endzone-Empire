@@ -31,7 +31,7 @@ export default function PlayerPoolPlayselect({
   leadingControl, afterAvailabilityControl,
   visiblePlayers, renderRow, renderTableHead, columnCount, bestBall, currentWeek, emptyCopy,
   loading, placeholder, showEmpty, showPager,
-  totalPages, pageNumber, onPage, totalPlayers, search, stickyHead = false,
+  totalPages, pageNumber, onPage, topRef, totalPlayers, search, stickyHead = false,
 }) {
   const searchField = (
     <PsField
@@ -146,12 +146,14 @@ export default function PlayerPoolPlayselect({
     </Drawer>
   );
 
+  // The list's top (#3057): a pager press focuses the list element itself, since an extra element would take a
+  // flex gap (24px in PlayerManagement). scrollMarginTop keeps the rounded scroll from landing just above the edge.
   if (cardLayout) {
     return (
       <>
         {phoneBar}
         {drawer}
-        <Box aria-busy={loading} sx={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+        <Box ref={topRef} data-testid="player-pool-top" tabIndex={-1} aria-busy={loading} sx={{ display: 'flex', flexDirection: 'column', gap: '10px', scrollMarginTop: '8px' }}>
           {placeholder && skeleton}
           {showEmpty && empty}
           {visiblePlayers.map((player) => (
@@ -177,10 +179,14 @@ export default function PlayerPoolPlayselect({
         >
           <Box
             component="table"
+            ref={topRef}
+            data-testid="player-pool-top"
+            tabIndex={-1}
             aria-label="Players"
             aria-busy={loading}
             sx={{
               width: '100%',
+              scrollMarginTop: '8px',
               borderCollapse: 'separate',
               borderSpacing: 0,
               minWidth: '950px',
