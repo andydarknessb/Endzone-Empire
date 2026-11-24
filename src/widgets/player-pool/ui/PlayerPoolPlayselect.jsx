@@ -106,7 +106,7 @@ export default function PlayerPoolPlayselect({
 
   const pager = (
     <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', padding: '16px' }}>
-      {/* The phone pager fits one row: first, current and last pages, no siblings (#3058). */}
+      {/* The phone pager fits one row: no sibling pages beside the current one (#3058). */}
       <Pagination
         count={totalPages}
         page={pageNumber}

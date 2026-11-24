@@ -101,7 +101,9 @@ test('at a phone width, Filters opens a dialog named Player filters', async () =
     renderPool();
     await screen.findByText('Patrick Mahomes');
     fireEvent.click(screen.getByRole('button', { name: 'Filters' }));
-    expect(screen.getByRole('dialog', { name: 'Player filters' })).toBeInTheDocument();
+    const dialog = screen.getByRole('dialog', { name: 'Player filters' });
+    expect(dialog).toBeInTheDocument();
+    expect(dialog).toHaveAttribute('aria-modal', 'true');
   } finally {
     delete window.matchMedia;
   }
