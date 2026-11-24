@@ -33,7 +33,7 @@ test('a Players frame, native labelled controls, a Play-select pager and the sam
   renderPool({ availabilityLock: 'waivers', byeWeekFilter: true });
   await screen.findByText('Patrick Mahomes');
   expect(screen.getByRole('heading', { name: 'Players' })).toBeInTheDocument();
-  expect(screen.getByRole('textbox', { name: 'Search players' })).toBeInTheDocument();
+  expect(screen.getByRole('textbox', { name: 'Search this list' })).toBeInTheDocument();
   ['Position', 'Bye week', 'Sort'].forEach((name) => expect(screen.getByRole('combobox', { name })).toBeInTheDocument());
   expect(screen.getByRole('checkbox', { name: 'Watching' })).toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'page 1' })).toHaveAttribute('aria-current', 'page');
@@ -92,4 +92,19 @@ test('pressing the page already shown moves no focus', async () => {
   await screen.findByText('Patrick Mahomes');
   fireEvent.click(screen.getByRole('button', { name: 'page 1' }));
   expect(screen.getByTestId('player-pool-top')).not.toHaveFocus();
+});
+
+// #3058: a phone width (every media query matches) draws the Filters button, and its drawer is a named dialog.
+test('at a phone width, Filters opens a dialog named Player filters', async () => {
+  window.matchMedia = (query) => ({ matches: true, media: query, addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {} });
+  try {
+    renderPool();
+    await screen.findByText('Patrick Mahomes');
+    fireEvent.click(screen.getByRole('button', { name: 'Filters' }));
+    const dialog = screen.getByRole('dialog', { name: 'Player filters' });
+    expect(dialog).toBeInTheDocument();
+    expect(dialog).toHaveAttribute('aria-modal', 'true');
+  } finally {
+    delete window.matchMedia;
+  }
 });

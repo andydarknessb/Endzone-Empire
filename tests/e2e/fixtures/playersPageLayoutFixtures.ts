@@ -46,7 +46,7 @@ const SEEDS: Seed[] = [
   { name: 'Rhamondre Stevenson', position: 'RB', state: 'my_team' },
 ];
 
-// `threePages` (#3057) answers 25 players over three pages, ten, ten, then five.
+// 25 players over three pages, ten, ten, then five (#3057). A `pages` count past three answers empty pages (#3058).
 const PAGED_SEEDS: Seed[] = Array.from({ length: 25 }, (_, i) => ({ name: `Pager Player ${i + 1}`, position: 'WR', state: 'free_agent' }));
 
 function leagueRow() {
@@ -113,11 +113,11 @@ function playersResponse(seeds: Seed[]) {
   };
 }
 
-function pagedResponse(pageNumber: number) {
-  return { ...playersResponse(PAGED_SEEDS.slice((pageNumber - 1) * 10, pageNumber * 10)), totalPages: 3, total: 25 };
+function pagedResponse(pageNumber: number, pages: number) {
+  return { ...playersResponse(PAGED_SEEDS.slice((pageNumber - 1) * 10, pageNumber * 10)), totalPages: pages, total: PAGED_SEEDS.length };
 }
 
-async function fulfilApi(route: Route, seeds: Seed[], threePages: boolean) {
+async function fulfilApi(route: Route, seeds: Seed[], pages: number) {
   const request = route.request();
   const { pathname } = new URL(request.url());
   const method = request.method();
@@ -129,7 +129,7 @@ async function fulfilApi(route: Route, seeds: Seed[], threePages: boolean) {
   if (method === 'GET' && pathname === '/api/team/roster') return json(route, 200, []);
   if (method === 'GET' && pathname === '/api/players') {
     const pageNumber = Number(new URL(request.url()).searchParams.get('page') ?? 1);
-    return json(route, 200, threePages ? pagedResponse(pageNumber) : playersResponse(seeds));
+    return json(route, 200, pages ? pagedResponse(pageNumber, pages) : playersResponse(seeds));
   }
 
   return json(route, 500, { error: `unexpected mocked request: ${method} ${pathname}` });
@@ -139,10 +139,10 @@ async function fulfilApi(route: Route, seeds: Seed[], threePages: boolean) {
  * `seasonUnavailable` swaps the last two players for two Unavailable every
  * week, still ten rows, so the Weeks strip's all-reason form is on the page.
  * `longNames` swaps the last three for LONG_NAME_SEEDS, still ten rows.
- * `threePages` answers 25 players over three pages, the pager's focus move (#3057).
+ * `pages` answers that many pages of ten: `pages: 3` is the pager's focus move (#3057), `pages: 40` the phone pager (#3058).
  */
-export async function setupPlayersPageLayout(page: Page, { seasonUnavailable = false, longNames = false, threePages = false } = {}) {
+export async function setupPlayersPageLayout(page: Page, { seasonUnavailable = false, longNames = false, pages = 0 } = {}) {
   const base = longNames ? [...SEEDS.slice(0, -3), ...LONG_NAME_SEEDS] : SEEDS;
   const seeds = seasonUnavailable ? [...base.slice(0, -2), ...SEASON_UNAVAILABLE_SEEDS] : base;
-  await page.route('**/api/**', (route) => fulfilApi(route, seeds, threePages));
+  await page.route('**/api/**', (route) => fulfilApi(route, seeds, pages));
 }

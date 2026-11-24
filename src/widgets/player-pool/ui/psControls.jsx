@@ -143,7 +143,8 @@ export function PsPageItem({ item }) {
     type, page, selected, disabled, onClick,
   } = item;
   if (type === 'start-ellipsis' || type === 'end-ellipsis') {
-    return <Box component="span" aria-hidden="true" sx={{ minWidth: '44px', textAlign: 'center', fontWeight: 600 }}>...</Box>;
+    // Not a button, so no 44px width: a block-level box at the button height keeps its top edge on the buttons' (#3058).
+    return <Box component="span" aria-hidden="true" sx={{ display: 'flex', alignItems: 'center', height: '44px', fontWeight: 600 }}>...</Box>;
   }
   const direction = type === 'previous' ? 'left' : 'right';
   let label = `Go to page ${page}`;

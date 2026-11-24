@@ -51,7 +51,8 @@ const AVAILABILITY_FILTERS = [
  * `byeWeekFilter`: renders a Bye week control (`?bye=`, one week) that sends
  * `byeWeeks`, the read's include-only filter; off by default, so the Players
  * page is unchanged. `stickyHead` makes the desktop table head stick to the
- * viewport top from `lg` (default off). `cardsBelow` is the breakpoint under which rows render as
+ * viewport top from `lg` (default off), and from `lg` clips the list's scroll region, which then has no tab
+ * stop (#3058). `cardsBelow` is the breakpoint under which rows render as
  * cards (default `md`, the Filters drawer's own breakpoint; the Waivers page
  * passes `sm`). `emptyCopy` replaces the default empty message.
  *
@@ -90,6 +91,7 @@ const PlayerPool = forwardRef(function PlayerPool(
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
   const cardLayout = useMediaQuery(theme.breakpoints.down(cardsBelow));
+  const fromLg = useMediaQuery(theme.breakpoints.up("lg"));
   const [searchParams, setSearchParams] = useSearchParams();
   const pageNumber = Math.max(1, Number(searchParams.get("page")) || 1);
   const selectedLeague = leagueId ? String(leagueId) : "";
@@ -295,6 +297,7 @@ const PlayerPool = forwardRef(function PlayerPool(
       renderRow={renderRow}
       renderTableHead={renderTableHead}
       stickyHead={stickyHead}
+      regionClipped={stickyHead && fromLg}
       columnCount={columnCount}
       bestBall={bestBall}
       currentWeek={currentWeek}
