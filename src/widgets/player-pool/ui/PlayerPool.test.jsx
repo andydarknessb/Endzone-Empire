@@ -1,5 +1,5 @@
-import React from "react";
-import { screen, waitFor } from "@testing-library/react";
+import React, { createRef } from "react";
+import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import { TableCell, TableRow } from "@mui/material";
 import renderWithProviders from "../../../test-utils/renderWithProviders";
 import apiClient from "../../../api/apiClient";
@@ -25,6 +25,22 @@ const player = {
   upgrade: null,
   watching: false,
 };
+
+const josh = { ...player, id: 2, name: "Josh Allen" };
+const joe = { ...player, id: 3, name: "Joe Burrow" };
+const page = (players, total = players.length) => ({
+  data: { players, totalPages: 1, total, context: null },
+});
+// A read the test settles by hand, so it can finish after a newer read.
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
 
 function renderPool(props = {}, route = "/") {
   return renderWithProviders(
@@ -92,4 +108,50 @@ test("emptyCopy replaces the default empty message", async () => {
   apiClient.get.mockResolvedValue({ data: { players: [], totalPages: 1, total: 0, context: null } });
   renderPool({ emptyCopy: "No players are on waivers" });
   expect(await screen.findByText("No players are on waivers")).toBeInTheDocument();
+});
+
+test("a held older read that resolves after a newer one does not overwrite rows, count or onLoaded", async () => {
+  const held = deferred();
+  const onLoaded = jest.fn();
+  apiClient.get.mockImplementation((url, { params }) =>
+    params.search === "jo" ? held.promise : Promise.resolve(page([josh])),
+  );
+  renderPool({ onLoaded }, "/?q=jo");
+  await waitFor(() => expect(playerReads()).toHaveLength(1));
+  fireEvent.change(screen.getByRole("textbox", { name: "Search players" }), { target: { value: "josh" } });
+  expect(await screen.findByText("Josh Allen")).toBeInTheDocument();
+  await act(async () => held.resolve(page([joe], 3)));
+  expect(screen.queryByText("Joe Burrow")).not.toBeInTheDocument();
+  expect(screen.getByText("1 player matching “josh”")).toBeInTheDocument();
+  expect(onLoaded).toHaveBeenLastCalledWith({ players: [josh], context: null, total: 1 });
+});
+
+test("a held older read that rejects after a newer one resolved reports nothing", async () => {
+  const held = deferred();
+  const onError = jest.fn();
+  apiClient.get.mockImplementation((url, { params }) =>
+    params.search === "jo" ? held.promise : Promise.resolve(page([josh])),
+  );
+  renderPool({ onError }, "/?q=jo");
+  await waitFor(() => expect(playerReads()).toHaveLength(1));
+  fireEvent.change(screen.getByRole("textbox", { name: "Search players" }), { target: { value: "josh" } });
+  expect(await screen.findByText("Josh Allen")).toBeInTheDocument();
+  await act(async () => held.reject(new Error("jo timed out")));
+  expect(onError).not.toHaveBeenCalledWith("jo timed out");
+  expect(screen.getByText("Josh Allen")).toBeInTheDocument();
+});
+
+test("ref.refresh() starts a read that supersedes the one before it", async () => {
+  const ref = createRef();
+  const held = deferred();
+  apiClient.get.mockReturnValueOnce(held.promise).mockResolvedValueOnce(page([josh]));
+  renderPool({ ref });
+  await waitFor(() => expect(playerReads()).toHaveLength(1));
+  act(() => {
+    ref.current.refresh();
+  });
+  expect(await screen.findByText("Josh Allen")).toBeInTheDocument();
+  await act(async () => held.resolve(page([joe], 3)));
+  expect(screen.queryByText("Joe Burrow")).not.toBeInTheDocument();
+  expect(screen.getByText("1 player")).toBeInTheDocument();
 });
