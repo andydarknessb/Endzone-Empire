@@ -41,8 +41,9 @@ const AVAILABILITY_FILTERS = [
  * controls that are not the list's own (`leadingControl`, `afterAvailabilityControl`).
  * `onLoaded({ players, context, total })` reports every successful read so the caller
  * can build the Decision card context over the same page of players; `onError`
- * receives the refusal message, or null when a read starts. `ref.refresh()`
- * re-reads the list after a caller's action.
+ * receives the refusal message, or null when a read starts. A read that a newer
+ * one has superseded sets and reports nothing (#3054). `ref.refresh()` re-reads
+ * the list after a caller's action.
  *
  * `byeWeekFilter`: renders a Bye week control (`?bye=`, one week) that sends
  * `byeWeeks`, the read's include-only filter; off by default, so the Players
@@ -102,6 +103,9 @@ const PlayerPool = forwardRef(function PlayerPool(
   const onErrorRef = useRef(onError);
   onLoadedRef.current = onLoaded;
   onErrorRef.current = onError;
+  // The number of the latest read started. A read that settles after a newer one
+  // started sets and reports nothing (#3054).
+  const latestRead = useRef(0);
 
   // The selected league's own roster template, through the shared league hook
   // (#1419). No league selected reads as an absent template too.
@@ -168,6 +172,7 @@ const PlayerPool = forwardRef(function PlayerPool(
     // loaded, so a request under the fallback template can never race the
     // correctly-filtered one.
     if (selectedLeague && templateNeverLoaded) return;
+    const read = ++latestRead.current;
     try {
       onErrorRef.current?.(null);
       const params = {
@@ -188,6 +193,7 @@ const PlayerPool = forwardRef(function PlayerPool(
       if (search) params.search = search;
       if (byeWeek) params.byeWeeks = String(byeWeek);
       const response = await apiClient.get("/api/players", { params });
+      if (read !== latestRead.current) return;
       const nextPlayers = response.data.players || [];
       setPlayers(nextPlayers);
       setTotalPages(response.data.totalPages || 1);
@@ -198,6 +204,7 @@ const PlayerPool = forwardRef(function PlayerPool(
         total: response.data.total ?? 0,
       });
     } catch (err) {
+      if (read !== latestRead.current) return;
       onErrorRef.current?.(readHttpFailure(err).message || err.message);
     }
   }, [
